@@ -1436,15 +1436,12 @@ pub fn compile(
                 try pushed_vregs.append(allocator, result_v);
             },
             .select, .select_typed => {
-                // Wasm spec §4.4.4 (select / select_typed) — pop
-                // c (i32), val2, val1; push val1 if c != 0 else
-                // val2. x86_64 lowering (i32 only at this chunk;
-                // i64 / FP variants need additional encoder
-                // dispatch — surface as UnsupportedOp until
-                // chunk-9 expansion):
-                //   TEST c, c              ; sets ZF
-                //   MOV  dst, val2         ; default
-                //   CMOVNE dst, val1       ; overwrite if c != 0
+                // Wasm spec §4.4.4 / §3.3.2.2 — pop c, val2, val1;
+                // push val1 if c != 0 else val2. x86_64: TEST c,c
+                // → q-form MOV+CMOVNE. Dispatch (§9.9-m-4a / ADR-0056):
+                // v128 via op_simd; i32 / i64 / funcref / externref
+                // share q-form (REX.W harmless for i32 zero-ext IR);
+                // f32/f64 → UnsupportedOp (m-4b XMM dispatch).
                 if (pushed_vregs.items.len < 3) return Error.AllocationMissing;
                 const cond_v = pushed_vregs.pop().?;
                 const val2_v = pushed_vregs.pop().?;
@@ -1458,6 +1455,12 @@ pub fn compile(
                     try op_simd.emitV128Select(allocator, &buf, alloc, spill_base_off, cond_v, val1_v, val2_v, result_v);
                     try pushed_vregs.append(allocator, result_v);
                     continue;
+                }
+                // §9.9 / 9.9-m-4a: f32 / f64 select_typed require
+                // XMM regalloc dispatch (separate chunk m-4b).
+                switch (ins.extra) {
+                    0x7D, 0x7C => return Error.UnsupportedOp, // f32 / f64
+                    else => {}, // 0x7F i32 / 0x7E i64 / 0x70 funcref / 0x6F externref / 0 untyped → q-form
                 }
                 // D-045 chunk 13b spill staging: cond is consumed
                 // first by TEST + Jcc, so its stage reg is dead

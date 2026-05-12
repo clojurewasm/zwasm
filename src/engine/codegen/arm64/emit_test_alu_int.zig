@@ -476,3 +476,82 @@ test "compile: i32.eqz emits CMP-imm-0 + CSET EQ" {
     try testing.expectEqual(@as(u32, inst.encCmpImmW(9, 0)), std.mem.readInt(u32, out.bytes[body0 + 4 ..][0..4], .little));
     try testing.expectEqual(@as(u32, inst.encCsetW(9, .eq)), std.mem.readInt(u32, out.bytes[body0 + 8 ..][0..4], .little));
 }
+
+test "compile: select_typed i64 (extra=0x7E) emits CSEL Xd, not Wd (§9.9 / 9.9-m-4a)" {
+    // Wasm spec §3.3.2.2 / §4.4.4 — select_typed with type=i64
+    // requires 64-bit conditional move so the high 32 bits aren't
+    // truncated. Pre-9.9-m-4a, both .select and .select_typed
+    // fell through to CSEL Wd unconditionally, silently
+    // miscompiling i64 select to a 32-bit operation. This test
+    // gates the X-form CSEL on the i64 path.
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i64} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    // Payload is u32; encode just the low 32 bits of an i64
+    // marker constant. The select_typed dispatch we're gating
+    // doesn't depend on the actual value, only on the type
+    // dispatch (extra=0x7E). Keep payload simple.
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.const", .payload = 0xDEADBEEF, .extra = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.const", .payload = 0, .extra = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 1 });
+    // select_typed [i64]: extra = 0x7E (i64 valtype byte)
+    try f.instrs.append(testing.allocator, .{ .op = .select_typed, .extra = 0x7E });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+    f.liveness = .{
+        .ranges = &[_]zir.LiveRange{
+            .{ .def_pc = 0, .last_use_pc = 3 }, // val1 (i64 0xCAFE…)
+            .{ .def_pc = 1, .last_use_pc = 3 }, // val2 (i64 0)
+            .{ .def_pc = 2, .last_use_pc = 3 }, // cond (i32 1)
+            .{ .def_pc = 3, .last_use_pc = 4 }, // result
+        },
+    };
+    const slots = [_]u16{ 0, 1, 2, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
+    defer deinit(testing.allocator, out);
+
+    // Walk emitted body looking for a CSEL — the i64 path emits
+    // `encCselX` (opcode base 0x9A800000); the (incorrect, pre-
+    // fix) i32 path would emit `encCselW` (0x1A800000). Bytewise
+    // pattern: bits[31:21] = 0x9AC for X-form (sf=1) per ARMv8-A
+    // ref. Search the body for any 32-bit instr matching the
+    // X-form CSEL bit-pattern, and assert NO W-form CSEL appears.
+    const body0 = prologue.body_start_offset(false);
+    var saw_csel_x: bool = false;
+    var saw_csel_w: bool = false;
+    var i: usize = body0;
+    while (i + 4 <= out.bytes.len) : (i += 4) {
+        const word = std.mem.readInt(u32, out.bytes[i..][0..4], .little);
+        // CSEL X form: bits[31:21] == 0b10011010100 == 0x4D4 →
+        // top 11 bits of opcode word == 0x9A800000 >> 21 == 0x4D4
+        if ((word & 0xFFE00000) == 0x9A800000) saw_csel_x = true;
+        if ((word & 0xFFE00000) == 0x1A800000) saw_csel_w = true;
+    }
+    try testing.expect(saw_csel_x);
+    try testing.expect(!saw_csel_w);
+}
+
+test "compile: select_typed f64 (extra=0x7C) returns UnsupportedOp (m-4b pending)" {
+    // m-4a defers f32 / f64 select_typed to m-4b (needs FCSEL
+    // S/D encoders + XMM regalloc dispatch). Verifies the
+    // explicit UnsupportedOp surface (vs the pre-m-4a silent
+    // miscompile through GPR helpers on FP-class operands).
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.f64} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0, .extra = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"f64.const", .payload = 0, .extra = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 1 });
+    try f.instrs.append(testing.allocator, .{ .op = .select_typed, .extra = 0x7C });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 3 },
+        .{ .def_pc = 1, .last_use_pc = 3 },
+        .{ .def_pc = 2, .last_use_pc = 3 },
+        .{ .def_pc = 3, .last_use_pc = 4 },
+    } };
+    const slots = [_]u16{ 0, 1, 2, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
+    const res = compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
+    try testing.expectError(Error.UnsupportedOp, res);
+}

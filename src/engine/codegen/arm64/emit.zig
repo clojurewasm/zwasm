@@ -1078,18 +1078,25 @@ pub fn compile(
             },
             .@"i32.popcnt" => try op_alu_int.emitI32Popcnt(&ctx, &ins),
             .select, .select_typed => {
-                // Wasm spec §4.4.4: pop c, val2, val1 (top of
-                // stack is c). Push val1 if c != 0, else val2.
-                // ARM64 lowering: CMP c_w, #0 ; CSEL d_w,
-                // val1_w, val2_w, NE.
+                // Wasm spec §4.4.4 / §3.3.2.2 (select / select_typed)
+                // — pop c, val2, val1 (top of stack is c). Push val1
+                // if c != 0, else val2. ARM64 lowering:
+                //   CMP c_w, #0
+                //   CSEL d_*, val1_*, val2_*, NE        (GPR types)
+                //   FCSEL d_*, val1_*, val2_*, NE       (FP types — m-4b)
+                //   v128 → op_simd.emitV128Select        (mask synth)
                 //
-                // Type assumption: val1 / val2 width is i32
-                // (CSEL Wd, 32-bit select). The validator
-                // already enforces both operands share a single
-                // type; supporting i64 needs CSEL Xd via
-                // type-aware dispatch (debt: D-034 / 7.5-select-
-                // i64-fp variant). FP / refs surface as a
-                // separate variant lifted later.
+                // Dispatch shape (§9.9 / 9.9-m-4a per ADR-0056):
+                //   - v128 (shape_tag): pre-existing SIMD mask emit
+                //   - i32 (extra=0x7F or .select untyped default):
+                //     CSEL Wd
+                //   - i64 / funcref / externref (extra=0x7E/0x70/0x6F):
+                //     CSEL Xd
+                //   - f32 / f64 (extra=0x7D/0x7C): UnsupportedOp
+                //     pending m-4b (needs FCSEL S/D encoders)
+                //   - untyped .select with non-i32 operands:
+                //     UnsupportedOp pending m-4c (lower-time type
+                //     inference)
                 if (pushed_vregs.items.len < 3) return Error.AllocationMissing;
                 const cond_v = pushed_vregs.pop().?;
                 const val2_v = pushed_vregs.pop().?;
@@ -1107,22 +1114,30 @@ pub fn compile(
                     try op_simd.emitV128Select(&ctx, cond_v, val1_v, val2_v, result_v);
                     try pushed_vregs.append(allocator, result_v);
                 } else {
+                    // §9.9 / 9.9-m-4a: dispatch on `ins.extra` for
+                    // select_typed (0x1C). For untyped select (0x1B),
+                    // extra=0 → fall to CSEL Wd (i32 default). Lower-
+                    // time type inference for untyped select is m-4c.
+                    const is_64bit: bool = switch (ins.extra) {
+                        0x7E, 0x70, 0x6F => true, // i64 / funcref / externref
+                        0x7D, 0x7C => return Error.UnsupportedOp, // f32 / f64 (m-4b)
+                        else => false, // 0x7F i32 or untyped (0x1B) → 32-bit default
+                    };
+
                     // D-034 spill-aware: 3 source operands but only 2
                     // stage regs. CMP is encoded first using stage 0
                     // for cond; after CMP the cond value is dead, so
                     // stage 0 is reused for val1 (and result).
-                    //
-                    // Type assumption: val1 / val2 width is i32 (CSEL
-                    // Wd, 32-bit select). The validator already
-                    // enforces both operands share a single type;
-                    // supporting i64 needs CSEL Xd via type-aware
-                    // dispatch (debt: D-034 / 7.5-select-i64-fp).
                     const cond_w = try gpr.gprLoadSpilled(allocator, &buf, alloc, ctx.spill_base_off, cond_v, 0);
                     try gpr.writeU32(allocator, &buf, inst.encCmpImmW(cond_w, 0));
-                    const val1_w = try gpr.gprLoadSpilled(allocator, &buf, alloc, ctx.spill_base_off, val1_v, 0);
-                    const val2_w = try gpr.gprLoadSpilled(allocator, &buf, alloc, ctx.spill_base_off, val2_v, 1);
-                    const dst_w = try gpr.gprDefSpilled(alloc, result_v, 0);
-                    try gpr.writeU32(allocator, &buf, inst.encCselW(dst_w, val1_w, val2_w, .ne));
+                    const val1_r = try gpr.gprLoadSpilled(allocator, &buf, alloc, ctx.spill_base_off, val1_v, 0);
+                    const val2_r = try gpr.gprLoadSpilled(allocator, &buf, alloc, ctx.spill_base_off, val2_v, 1);
+                    const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
+                    const csel_word: u32 = if (is_64bit)
+                        inst.encCselX(dst_r, val1_r, val2_r, .ne)
+                    else
+                        inst.encCselW(dst_r, val1_r, val2_r, .ne);
+                    try gpr.writeU32(allocator, &buf, csel_word);
                     try gpr.gprStoreSpilled(allocator, &buf, alloc, ctx.spill_base_off, result_v, 0);
                     try pushed_vregs.append(allocator, result_v);
                 }
