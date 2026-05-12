@@ -18,19 +18,42 @@
 ### One-line state
 
 D-091 closed: x86_64 `i32.trunc_f64_s` lower-bound predicate
-now uses `-(2^31 + 1.0)` with `JBE` instead of `-2^31` with
-`JB`, correctly distinguishing boundary half-step inputs from
-overflow. Mac + OrbStack `test-spec-wasm-2.0-assert`:
-**6518 / 0 / 102 bit-identical** (0 skip-impl + 102
-skip-adr-skip_text_format_parser — the only remaining skip
-class is `assert_malformed` text-form parser ADRs, unrelated
-to D-091). simd_assert 13301/0/440 + spec_assert 212/0/20
-unchanged. f32 / f64 wasts still deferred to **D-092**.
+now uses `-(2^31 + 1.0)` with `JBE`. Mac + OrbStack
+`test-spec-wasm-2.0-assert`: **6518 / 0 / 102 bit-identical**
+(0 skip-impl + 102 skip-adr-skip_text_format_parser; latter
+unrelated to D-091). simd_assert 13301/0/440 + spec_assert
+212/0/20 unchanged.
 
-Next: **D-092 investigation** (identify the x86_64 FP-op gap
-on f32.0.wasm / f64.0.wasm; re-add to NAMES) OR
-**k-1-expand-2** (multi-result for block/loop/call OR reftype
-runtime for select/ref_*).
+### Standing reminder for the autonomous loop
+
+**Project tone is `.claude/rules/no_workaround.md`: fix root
+causes, never work around.** Even when investigation cost
+looks high. See
+`.dev/lessons/2026-05-12-loop-defers-over-fixes-when-cost-high.md`
+for the recurring failure mode. Skip-ADRs are for ADR-grade
+upstream workarounds; debt rows are for structurally blocked
+work. Neither is a scheduling smoother. On the next chunk's
+first obstacle, walk `extended_challenge.md` Step 1 (confirm
+what's absent, with a concrete command) BEFORE reaching for
+a filter / fallback / skip-ADR. Pivoting to a cheaper chunk
+to avoid investigation is forbidden.
+
+### Next task — **single track**
+
+**D-092 root-cause investigation** (no alternative branch).
+Identify which op or precondition in `f32.0.wasm` / `f64.0.wasm`
+trips `compileWasm` with `UnsupportedOp` on x86_64. The
+investigation procedure is in the D-092 debt row body
+(`.dev/debt.md`): bisect via the NAMES list + targeted
+stderr capture; instrument `Module.compile` if needed; then
+fix the handler / lift the gate; then re-add `f32` + `f64`
+to `scripts/regen_spec_2_0_assert.sh`. Three-host gate
+bit-identical confirms discharge.
+
+Forbidden discharge paths: per-op skip-ADR for an op the
+runtime should support; widening the regen filter to mask
+the failure; pivoting to k-1-expand-2 or any other chunk
+before D-092 is closed.
 
 ### Original m-2 cluster state (earlier this session)
 
@@ -56,20 +79,11 @@ m-2c-init ElemSlice).
 
 ## Implementation queue (sequential — pickup detail in pickup docs)
 
-Next session picks up at **one of**:
-  - **D-092**: identify the x86_64 FP-op gap in `f32.0.wasm` /
-    `f64.0.wasm`. Strategy: add f32/f64 to NAMES, re-regen, run
-    on OrbStack, capture exact `compileWasm` error. The 11 ops
-    in f32.0.wasm (add/sub/mul/div/sqrt/min/max/ceil/floor/
-    trunc/nearest) all have x86_64 handler refs per grep, so
-    the gap is likely in a specific code path (e.g. f32 param
-    marshal, or a specific MOV/MOVSS encoder rejecting a
-    case). Once identified, patch the handler and re-add
-    `f32` / `f64` to NAMES.
-  - **k-1-expand-2**: needs runner extensions for the
-    next-tier corpora — `block` / `loop` / `call` (multi-result
-    return marshalling); `select` / `ref_*` (reftype runtime);
-    `local_init` (some modules reftype-flavoured).
+Next session picks up at **D-092** (single track — no
+alternative branch listed; that was the failure mode this
+lesson corrects). See the standing reminder above + the
+D-092 debt row body for the investigation procedure.
+k-1-expand-2 + any other chunk wait until D-092 closes.
 
 Per-stage state of l-1 (l-1a all complete; l-1b in progress):
 
@@ -81,10 +95,9 @@ Per-stage state of l-1 (l-1a all complete; l-1b in progress):
 | l-1b-widen  | [x] 774ae3c8 | 10 cross-type entry helpers + dispatch arms + boundary skip-adr (493/0/125) |
 | l-1b-nan    | [x] 207330be | scalar NaN-pattern result matcher in base (501/0/117) |
 | l-1b-trap-widen | [x] a7bf59d8 | assert_trap f32/f64 arms + i32.wrap_i64 shape (567/0/51; **skip-impl 0**) |
-| k-1-expand-1 | [x] 894e0e00 | 6 binop helpers + 7 wasts (i32/i64/f32_cmp/f64_cmp/int_exprs/int_literals/float_literals); 6467/0/153 (**skip-impl 0**); D-092 filed for f32/f64 deferral |
+| k-1-expand-1 | [x] 894e0e00 | 6 binop helpers + 7 wasts (i32/i64/f32_cmp/f64_cmp/int_exprs/int_literals/float_literals); 6467/0/153 (**skip-impl 0**); D-092 filed |
 | D-091-close | [x] f22acf6c | x86_64 i32.trunc_f64_s lower-bound `-(2^31+1)` + JBE; 6518/0/102 (**skip-impl 0**, **D-091 boundary skip-adr → 0**) |
-| **D-092** | **NEXT (option A)** | **x86_64 f32/f64 wasm-2.0 module UnsupportedOp investigation** |
-| **k-1-expand-2** | **NEXT (option B)** | **next-tier wasts (multi-result block/loop/call OR reftype runtime)** |
+| **D-092** | **NEXT (sole track)** | **x86_64 f32/f64 module UnsupportedOp — root-cause investigation, not deferral** |
 
 Then l-1b (new spec_assert_runner_non_simd.zig + curated wasm-2.0
 corpus + test-spec-wasm-2.0-assert build step).
