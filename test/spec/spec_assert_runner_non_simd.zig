@@ -497,6 +497,54 @@ fn dispatchScalarResult(
             return null;
         });
     }
+    // §9.9 / 9.9-l-1b-binop: i64 / f32 / f64 2-arg shapes
+    // (binop + cmp families exercised by i64 / f32 / f64 / *_cmp wasts).
+    if (args.len == 2 and args[0] == .i64 and args[1] == .i64 and result_kind == .i64) {
+        return entry.callI64_i64i64(compiled.module, func_idx, rt, args[0].i64, args[1].i64) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        };
+    }
+    if (args.len == 2 and args[0] == .i64 and args[1] == .i64 and result_kind == .i32) {
+        return @as(u64, entry.callI32_i64i64(compiled.module, func_idx, rt, args[0].i64, args[1].i64) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        });
+    }
+    if (args.len == 2 and args[0] == .f32 and args[1] == .f32 and result_kind == .f32) {
+        const a0: f32 = @bitCast(args[0].f32);
+        const a1: f32 = @bitCast(args[1].f32);
+        const r = entry.callF32_f32f32(compiled.module, func_idx, rt, a0, a1) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        };
+        return @as(u64, @as(u32, @bitCast(r)));
+    }
+    if (args.len == 2 and args[0] == .f32 and args[1] == .f32 and result_kind == .i32) {
+        const a0: f32 = @bitCast(args[0].f32);
+        const a1: f32 = @bitCast(args[1].f32);
+        return @as(u64, entry.callI32_f32f32(compiled.module, func_idx, rt, a0, a1) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        });
+    }
+    if (args.len == 2 and args[0] == .f64 and args[1] == .f64 and result_kind == .f64) {
+        const a0: f64 = @bitCast(args[0].f64);
+        const a1: f64 = @bitCast(args[1].f64);
+        const r = entry.callF64_f64f64(compiled.module, func_idx, rt, a0, a1) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        };
+        return @as(u64, @bitCast(r));
+    }
+    if (args.len == 2 and args[0] == .f64 and args[1] == .f64 and result_kind == .i32) {
+        const a0: f64 = @bitCast(args[0].f64);
+        const a1: f64 = @bitCast(args[1].f64);
+        return @as(u64, entry.callI32_f64f64(compiled.module, func_idx, rt, a0, a1) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        });
+    }
     if (args.len == 5 and args[0] == .i64 and args[1] == .f32 and args[2] == .f64 and args[3] == .i32 and args[4] == .i32 and result_kind == .i64) {
         const a1: f32 = @bitCast(args[1].f32);
         const a2: f64 = @bitCast(args[2].f64);
@@ -588,6 +636,12 @@ fn nonSimdRunAssertTrap(
         }
         if (n_args == 2 and args[0] == .i32 and args[1] == .i32) {
             _ = entry.callI32_i32i32(compiled.module, func_idx, &rt, args[0].i32, args[1].i32) catch |err| {
+                break :blk err == entry.Error.Trap;
+            };
+            break :blk false;
+        }
+        if (n_args == 2 and args[0] == .i64 and args[1] == .i64) {
+            _ = entry.callI64_i64i64(compiled.module, func_idx, &rt, args[0].i64, args[1].i64) catch |err| {
                 break :blk err == entry.Error.Trap;
             };
             break :blk false;

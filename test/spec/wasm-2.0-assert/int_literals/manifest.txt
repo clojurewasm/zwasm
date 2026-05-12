@@ -1,0 +1,51 @@
+module int_literals.0.wasm
+assert_return i32.test () -> i32:195940365
+assert_return i32.umax () -> i32:4294967295
+assert_return i32.smax () -> i32:2147483647
+assert_return i32.neg_smax () -> i32:2147483649
+assert_return i32.smin () -> i32:2147483648
+assert_return i32.alt_smin () -> i32:2147483648
+assert_return i32.inc_smin () -> i32:2147483649
+assert_return i32.neg_zero () -> i32:0
+assert_return i32.not_octal () -> i32:10
+assert_return i32.unsigned_decimal () -> i32:4294967295
+assert_return i32.plus_sign () -> i32:42
+assert_return i64.test () -> i64:913028331277281902
+assert_return i64.umax () -> i64:18446744073709551615
+assert_return i64.smax () -> i64:9223372036854775807
+assert_return i64.neg_smax () -> i64:9223372036854775809
+assert_return i64.smin () -> i64:9223372036854775808
+assert_return i64.alt_smin () -> i64:9223372036854775808
+assert_return i64.inc_smin () -> i64:9223372036854775809
+assert_return i64.neg_zero () -> i64:0
+assert_return i64.not_octal () -> i64:10
+assert_return i64.unsigned_decimal () -> i64:18446744073709551615
+assert_return i64.plus_sign () -> i64:42
+assert_return i32-dec-sep1 () -> i32:1000000
+assert_return i32-dec-sep2 () -> i32:1000
+assert_return i32-hex-sep1 () -> i32:168755353
+assert_return i32-hex-sep2 () -> i32:109071
+assert_return i64-dec-sep1 () -> i64:1000000
+assert_return i64-dec-sep2 () -> i64:1000
+assert_return i64-hex-sep1 () -> i64:3078696982321561
+assert_return i64-hex-sep2 () -> i64:109071
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text

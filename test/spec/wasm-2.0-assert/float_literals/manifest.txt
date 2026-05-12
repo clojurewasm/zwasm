@@ -1,0 +1,179 @@
+module float_literals.0.wasm
+assert_return f32.nan () -> i32:2143289344
+assert_return f32.positive_nan () -> i32:2143289344
+assert_return f32.negative_nan () -> i32:4290772992
+assert_return f32.plain_nan () -> i32:2143289344
+assert_return f32.informally_known_as_plain_snan () -> i32:2141192192
+assert_return f32.all_ones_nan () -> i32:4294967295
+assert_return f32.misc_nan () -> i32:2139169605
+assert_return f32.misc_positive_nan () -> i32:2142257232
+assert_return f32.misc_negative_nan () -> i32:4289379550
+assert_return f32.infinity () -> i32:2139095040
+assert_return f32.positive_infinity () -> i32:2139095040
+assert_return f32.negative_infinity () -> i32:4286578688
+assert_return f32.zero () -> i32:0
+assert_return f32.positive_zero () -> i32:0
+assert_return f32.negative_zero () -> i32:2147483648
+assert_return f32.misc () -> i32:1086918619
+assert_return f32.min_positive () -> i32:1
+assert_return f32.min_normal () -> i32:8388608
+assert_return f32.max_subnormal () -> i32:8388607
+assert_return f32.max_finite () -> i32:2139095039
+assert_return f32.trailing_dot () -> i32:1149239296
+assert_return f32.misc_int () -> i32:1200726656
+assert_return f32.large_int () -> i32:1736441856
+assert_return f32.min_int32 () -> i32:3472883712
+assert_return f32.min_int64 () -> i32:3741319168
+assert_return f32_dec.zero () -> i32:0
+assert_return f32_dec.positive_zero () -> i32:0
+assert_return f32_dec.negative_zero () -> i32:2147483648
+assert_return f32_dec.misc () -> i32:1086918619
+assert_return f32_dec.min_positive () -> i32:1
+assert_return f32_dec.min_normal () -> i32:8388608
+assert_return f32_dec.max_subnormal () -> i32:8388607
+assert_return f32_dec.max_finite () -> i32:2139095039
+assert_return f32_dec.trailing_dot () -> i32:1343554297
+assert_return f32_dec.root_beer_float () -> i32:1065353217
+assert_return f32_dec.misc_int () -> i32:1178657792
+assert_return f32_dec.large_int () -> i32:1621981420
+assert_return f32_dec.min_int32 () -> i32:3472883712
+assert_return f32_dec.min_int64 () -> i32:3741319168
+assert_return f64.nan () -> i64:9221120237041090560
+assert_return f64.positive_nan () -> i64:9221120237041090560
+assert_return f64.negative_nan () -> i64:18444492273895866368
+assert_return f64.plain_nan () -> i64:9221120237041090560
+assert_return f64.informally_known_as_plain_snan () -> i64:9219994337134247936
+assert_return f64.all_ones_nan () -> i64:18446744073709551615
+assert_return f64.misc_nan () -> i64:9218888453225749180
+assert_return f64.misc_positive_nan () -> i64:9219717281780008969
+assert_return f64.misc_negative_nan () -> i64:18442992325002076997
+assert_return f64.infinity () -> i64:9218868437227405312
+assert_return f64.positive_infinity () -> i64:9218868437227405312
+assert_return f64.negative_infinity () -> i64:18442240474082181120
+assert_return f64.zero () -> i64:0
+assert_return f64.positive_zero () -> i64:0
+assert_return f64.negative_zero () -> i64:9223372036854775808
+assert_return f64.misc () -> i64:4618760256179416344
+assert_return f64.min_positive () -> i64:1
+assert_return f64.min_normal () -> i64:4503599627370496
+assert_return f64.max_subnormal () -> i64:4503599627370495
+assert_return f64.max_finite () -> i64:9218868437227405311
+assert_return f64.trailing_dot () -> i64:5057542381537067008
+assert_return f64.misc_int () -> i64:4679860480993394688
+assert_return f64.large_int () -> i64:4967470388989657088
+assert_return f64.min_int32 () -> i64:13970166044103278592
+assert_return f64.min_int64 () -> i64:14114281232179134464
+assert_return f64_dec.zero () -> i64:0
+assert_return f64_dec.positive_zero () -> i64:0
+assert_return f64_dec.negative_zero () -> i64:9223372036854775808
+assert_return f64_dec.misc () -> i64:4618760256179416344
+assert_return f64_dec.min_positive () -> i64:1
+assert_return f64_dec.min_normal () -> i64:4503599627370496
+assert_return f64_dec.max_subnormal () -> i64:4503599627370495
+assert_return f64_dec.max_finite () -> i64:9218868437227405311
+assert_return f64_dec.trailing_dot () -> i64:6103021453049119613
+assert_return f64_dec.root_beer_float () -> i64:4607182419335945764
+assert_return f64_dec.misc_int () -> i64:4668012349850910720
+assert_return f64_dec.large_int () -> i64:4906019910204099648
+assert_return f64_dec.min_int32 () -> i64:13970166044103278592
+assert_return f64_dec.min_int64 () -> i64:14114281232179134464
+assert_return f32-dec-sep1 () -> f32:1232348160
+assert_return f32-dec-sep2 () -> f32:1148846080
+assert_return f32-dec-sep3 () -> f32:1148897552
+assert_return f32-dec-sep4 () -> f32:1482758550
+assert_return f32-dec-sep5 () -> f32:1847438964
+assert_return f32-hex-sep1 () -> f32:1294004234
+assert_return f32-hex-sep2 () -> f32:1205143424
+assert_return f32-hex-sep3 () -> f32:1193345009
+assert_return f32-hex-sep4 () -> f32:1240465408
+assert_return f32-hex-sep5 () -> f32:1437319208
+assert_return f64-dec-sep1 () -> f64:4696837146684686336
+assert_return f64-dec-sep2 () -> f64:4652007308841189376
+assert_return f64-dec-sep3 () -> f64:4652034942576659200
+assert_return f64-dec-sep4 () -> f64:2796837019126844485
+assert_return f64-dec-sep5 () -> f64:5027061507362119324
+assert_return f64-hex-sep1 () -> f64:4838519794133185330
+assert_return f64-hex-sep2 () -> f64:4682231715257647104
+assert_return f64-hex-sep3 () -> f64:4675897489574114112
+assert_return f64-hex-sep4 () -> f64:4701195061021376512
+assert_return f64-hex-sep5 () -> f64:4806880140420149248
+module float_literals.1.wasm
+assert_return 4294967249 () -> f64:4751297606777307136
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text

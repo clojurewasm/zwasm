@@ -531,6 +531,114 @@ pub fn callF64_f32(
     return result;
 }
 
+// §9.9 / 9.9-l-1b-binop — 2-arg scalar entry helpers covering the
+// i64 / f32 / f64 binop + cmp families exercised by `i64.wast`,
+// `f32.wast`, `f64.wast`, `f32_cmp.wast`, `f64_cmp.wast`. Each
+// follows the same single-helper template as the 1-arg variants.
+
+/// Wasm spec §4.4.1 (i64.add / sub / mul / and / or / xor /
+/// div_s / div_u / rem_s / rem_u / shl / shr_s / shr_u / rotl /
+/// rotr) — (i64, i64) → i64 entry.
+pub fn callI64_i64i64(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: u64,
+    a1: u64,
+) Error!u64 {
+    rt.trap_flag = 0;
+    const Fn = *const fn (rt: *const JitRuntime, a0: u64, a1: u64) callconv(.c) u64;
+    const f = module.entry(func_idx, Fn);
+    const result = f(rt, a0, a1);
+    if (rt.trap_flag != 0) return Error.Trap;
+    return result;
+}
+
+/// Wasm spec §4.4.1 (i64.eq / ne / lt_s / lt_u / gt_s / gt_u /
+/// le_s / le_u / ge_s / ge_u) — (i64, i64) → i32 entry.
+pub fn callI32_i64i64(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: u64,
+    a1: u64,
+) Error!u32 {
+    rt.trap_flag = 0;
+    const Fn = *const fn (rt: *const JitRuntime, a0: u64, a1: u64) callconv(.c) u32;
+    const f = module.entry(func_idx, Fn);
+    const result = f(rt, a0, a1);
+    if (rt.trap_flag != 0) return Error.Trap;
+    return result;
+}
+
+/// Wasm spec §4.4.1 (f32.add / sub / mul / div / min / max /
+/// copysign) — (f32, f32) → f32 entry.
+pub fn callF32_f32f32(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: f32,
+    a1: f32,
+) Error!f32 {
+    rt.trap_flag = 0;
+    const Fn = *const fn (rt: *const JitRuntime, a0: f32, a1: f32) callconv(.c) f32;
+    const f = module.entry(func_idx, Fn);
+    const result = f(rt, a0, a1);
+    if (rt.trap_flag != 0) return Error.Trap;
+    return result;
+}
+
+/// Wasm spec §4.4.1 (f32.eq / ne / lt / gt / le / ge) —
+/// (f32, f32) → i32 entry (FP comparison → i32 boolean).
+pub fn callI32_f32f32(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: f32,
+    a1: f32,
+) Error!u32 {
+    rt.trap_flag = 0;
+    const Fn = *const fn (rt: *const JitRuntime, a0: f32, a1: f32) callconv(.c) u32;
+    const f = module.entry(func_idx, Fn);
+    const result = f(rt, a0, a1);
+    if (rt.trap_flag != 0) return Error.Trap;
+    return result;
+}
+
+/// Wasm spec §4.4.1 (f64.add / sub / mul / div / min / max /
+/// copysign) — (f64, f64) → f64 entry.
+pub fn callF64_f64f64(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: f64,
+    a1: f64,
+) Error!f64 {
+    rt.trap_flag = 0;
+    const Fn = *const fn (rt: *const JitRuntime, a0: f64, a1: f64) callconv(.c) f64;
+    const f = module.entry(func_idx, Fn);
+    const result = f(rt, a0, a1);
+    if (rt.trap_flag != 0) return Error.Trap;
+    return result;
+}
+
+/// Wasm spec §4.4.1 (f64.eq / ne / lt / gt / le / ge) —
+/// (f64, f64) → i32 entry (FP comparison → i32 boolean).
+pub fn callI32_f64f64(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: f64,
+    a1: f64,
+) Error!u32 {
+    rt.trap_flag = 0;
+    const Fn = *const fn (rt: *const JitRuntime, a0: f64, a1: f64) callconv(.c) u32;
+    const f = module.entry(func_idx, Fn);
+    const result = f(rt, a0, a1);
+    if (rt.trap_flag != 0) return Error.Trap;
+    return result;
+}
+
 /// Wasm spec §4.4 (function invocation, v128 result) — call a no-
 /// argument JIT function returning v128. Per ADR-0046, both backends
 /// emit the v128 result through the SIMD return register (ARM64 V0,

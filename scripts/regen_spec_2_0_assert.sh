@@ -56,8 +56,20 @@ fi
 # Expansion candidates listed in the file header (table_*, ref_*,
 # bulk-memory) need runner extensions or refnull handling that are
 # out of l-1b scope (k-1 row in the autonomous queue).
+# f32 / f64 deferred: x86_64 compileWasm fails on f32.0.wasm /
+# f64.0.wasm with UnsupportedOp (some FP op missing in JIT; Mac
+# aarch64 succeeds → real host differential). Queued as D-092
+# investigation; the cmp wasts are safe (no FP arithmetic in
+# the module body, only comparison).
 NAMES=(
   conversions
+  i32
+  i64
+  f32_cmp
+  f64_cmp
+  int_exprs
+  int_literals
+  float_literals
 )
 
 mkdir -p "$DEST"
@@ -165,6 +177,14 @@ for c in d['commands']:
             (('f32',), 'f32'),
             (('f64',), 'f64'),
             (('i32', 'i32'), 'i32'),
+            # 9.9-l-1b-binop: i64 / f32 / f64 2-arg shapes
+            # (binop + cmp families).
+            (('i64', 'i64'), 'i64'),
+            (('i64', 'i64'), 'i32'),
+            (('f32', 'f32'), 'f32'),
+            (('f32', 'f32'), 'i32'),
+            (('f64', 'f64'), 'f64'),
+            (('f64', 'f64'), 'i32'),
             (('i64', 'f32', 'f64', 'i32', 'i32'), 'i64'),
             (('i64', 'f32', 'f64', 'i32', 'i32'), 'f64'),
             # 9.9-l-1b-widen: cross-type scalar shapes (conversions.wast).
@@ -217,6 +237,7 @@ for c in d['commands']:
         trap_supported = {
             (), ('i32',), ('i64',), ('f32',), ('f64',),
             ('i32', 'i32'),
+            ('i64', 'i64'),
         }
         arg_kinds = tuple(x['type'] for x in args)
         if any(x['type'] not in ('i32', 'i64', 'f32', 'f64') for x in args):
