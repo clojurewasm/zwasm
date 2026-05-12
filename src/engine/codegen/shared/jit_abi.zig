@@ -23,6 +23,14 @@
 
 const std = @import("std");
 const Value = @import("../../../runtime/value.zig").Value;
+const FuncEntity = @import("../../../runtime/instance/func.zig").FuncEntity;
+
+/// `@sizeOf(FuncEntity)` — exposed for JIT emit's `ref.func`
+/// recipe (`ADD ptr, ptr, #(idx * func_entity_size)`). Comptime
+/// derived from the actual FuncEntity struct so layout changes
+/// (e.g. adding fields for richer host-call dispatch) are
+/// picked up automatically.
+pub const func_entity_size: u32 = @sizeOf(FuncEntity);
 
 /// Pointer-and-counter bundle the JIT body relies on. Layout
 /// extends only at the tail (Phase 8+: trap_buf, host-call
@@ -109,6 +117,22 @@ pub const JitRuntime = extern struct {
     /// bytes x86_64 per function prologue.
     jit_executed_flag: u32 = 0,
     _pad4: u32 = 0,
+    /// §9.9 / 9.9-m-1b (per ADR-0056, amending ADR-0017): base
+    /// pointer to `Runtime.func_entities: []FuncEntity`. Each
+    /// entry is a `FuncEntity` struct (size = `@sizeOf(FuncEntity)`,
+    /// kept in sync at construction time). JIT `ref.func idx`
+    /// emits `LDR Xresult, [X<rt>, #func_entities_ptr_off]` +
+    /// `ADD Xresult, Xresult, #(idx * @sizeOf(FuncEntity))` so the
+    /// result is `@intFromPtr(&rt.func_entities[idx])`, matching
+    /// `Value.fromFuncRef`'s encoding (interp parity). Optional —
+    /// caller may pass `&.{}` cast for modules without ref.func.
+    func_entities_ptr: [*]const u8 = undefined,
+    /// Number of populated entries in `func_entities_ptr`'s array.
+    /// JIT `ref.func` does NOT bounds-check (validator rejects
+    /// out-of-range funcidx at validate time); this field is for
+    /// host-side diagnostic + future debugger hooks.
+    func_entities_count: u32 = 0,
+    _pad5: u32 = 0,
 };
 
 // ============================================================
@@ -134,6 +158,8 @@ pub const globals_count_off: u12 = @offsetOf(JitRuntime, "globals_count");
 pub const host_dispatch_base_off: u12 = @offsetOf(JitRuntime, "host_dispatch_base");
 pub const host_dispatch_count_off: u12 = @offsetOf(JitRuntime, "host_dispatch_count");
 pub const jit_executed_flag_off: u12 = @offsetOf(JitRuntime, "jit_executed_flag");
+pub const func_entities_ptr_off: u12 = @offsetOf(JitRuntime, "func_entities_ptr");
+pub const func_entities_count_off: u12 = @offsetOf(JitRuntime, "func_entities_count");
 
 /// Total size of the head section consumed by the prologue.
 pub const head_size: u32 = @sizeOf(JitRuntime);
@@ -174,6 +200,11 @@ comptime {
     // ADR-0034: jit_executed_flag is W-form (4 bytes); imm12 scales by 4.
     if ((jit_executed_flag_off & 3) != 0) @compileError("jit_executed_flag_off not 4-aligned");
     if (jit_executed_flag_off > 16380) @compileError("jit_executed_flag_off exceeds W-form imm12 budget");
+    // §9.9 / 9.9-m-1b: func_entities_ptr is X-form (8-byte pointer); count is W-form.
+    if ((func_entities_ptr_off & 7) != 0) @compileError("func_entities_ptr_off not 8-aligned");
+    if ((func_entities_count_off & 3) != 0) @compileError("func_entities_count_off not 4-aligned");
+    if (func_entities_ptr_off > 32760) @compileError("func_entities_ptr_off exceeds X-form imm12 budget");
+    if (func_entities_count_off > 16380) @compileError("func_entities_count_off exceeds W-form imm12 budget");
 }
 
 // ============================================================
@@ -194,8 +225,13 @@ test "JitRuntime: layout offsets match documented prologue load sequence" {
     try testing.expectEqual(@as(u12, 80), jit_executed_flag_off);
 }
 
-test "JitRuntime: total size = 88 bytes (post-§9.8a/8a.2 jit_executed_flag tail)" {
-    try testing.expectEqual(@as(u32, 88), head_size);
+test "JitRuntime: total size = 104 bytes (post-§9.9 / 9.9-m-1b func_entities tail)" {
+    try testing.expectEqual(@as(u32, 104), head_size);
+}
+
+test "JitRuntime: §9.9 / 9.9-m-1b new field offsets" {
+    try testing.expectEqual(@as(u12, 88), func_entities_ptr_off);
+    try testing.expectEqual(@as(u12, 96), func_entities_count_off);
 }
 
 test "JitRuntime: round-trip construction + field reads" {

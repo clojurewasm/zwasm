@@ -100,6 +100,9 @@ pub fn usesRuntimePtr(func: *const ZirFunc) bool {
             // write `[r15+trap_flag_off]` on the trap path; require
             // R15 initialised.
             .@"unreachable",
+            // §9.9 / 9.9-m-1b: ref.func loads func_entities_ptr
+            // from [r15+off]. Requires R15.
+            .@"ref.func",
             .@"i32.div_s",
             .@"i32.div_u",
             .@"i32.rem_s",

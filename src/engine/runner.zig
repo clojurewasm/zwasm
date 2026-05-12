@@ -645,6 +645,13 @@ const RuntimeOwned = struct {
     globals: []@import("../runtime/value.zig").Value,
     funcptrs: []u64,
     typeidxs: []u32,
+    // §9.9 / 9.9-m-1b: per-module FuncEntity array backing JIT
+    // `ref.func`. JIT computes `&func_entities[idx]` for each
+    // ref.func op; only the address matters for ref.is_null /
+    // ref.eq / select_typed [funcref] semantics. Struct contents
+    // (FuncEntity.runtime, .func_idx) are not exercised on this
+    // code path (no full Runtime; interp uses its own allocation).
+    func_entities: []@import("../runtime/instance/func.zig").FuncEntity,
 
     fn deinit(self: *RuntimeOwned, allocator: Allocator) void {
         if (self.memory.len > 0) allocator.free(self.memory);
@@ -652,6 +659,7 @@ const RuntimeOwned = struct {
         allocator.free(self.globals);
         allocator.free(self.funcptrs);
         allocator.free(self.typeidxs);
+        if (self.func_entities.len > 0) allocator.free(self.func_entities);
     }
 };
 
@@ -794,6 +802,22 @@ fn setupRuntime(
         }
     }
 
+    // §9.9 / 9.9-m-1b: per-module FuncEntity array for JIT
+    // ref.func. Size = total functions (imports + defined).
+    // Allocated unconditionally so JIT-emitted ref.func reads
+    // a stable, distinct address per funcidx.
+    const FuncEntity = @import("../runtime/instance/func.zig").FuncEntity;
+    const total_funcs = compiled.func_sigs.len;
+    const func_entities = try allocator.alloc(FuncEntity, total_funcs);
+    errdefer allocator.free(func_entities);
+    // Contents left default — neither field is read by the JIT
+    // path; interp uses its own FuncEntity allocation through a
+    // full Runtime. (Zig's `alloc` returns uninitialised memory;
+    // any reader of `.runtime` / `.func_idx` would be a bug.)
+    for (func_entities, 0..) |*fe, i| {
+        fe.* = .{ .runtime = undefined, .func_idx = @intCast(i) };
+    }
+
     return .{
         .rt = .{
             .vm_base = if (memory.len > 0) memory.ptr else @ptrFromInt(@as(usize, 0x1000)),
@@ -806,12 +830,15 @@ fn setupRuntime(
             .globals_count = globals_count,
             .host_dispatch_base = dispatch.ptr,
             .host_dispatch_count = compiled.num_imports,
+            .func_entities_ptr = @ptrCast(func_entities.ptr),
+            .func_entities_count = @intCast(total_funcs),
         },
         .memory = memory,
         .dispatch = dispatch,
         .globals = globals_buf,
         .funcptrs = funcptrs_buf,
         .typeidxs = typeidxs_buf,
+        .func_entities = func_entities,
     };
 }
 

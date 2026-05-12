@@ -710,6 +710,30 @@ pub fn compile(
                 try pushed_vregs.append(allocator, vreg);
             },
             .@"ref.is_null" => try op_alu_int.emitI64Eqz(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            // §9.9 / 9.9-m-1b: ref.func idx — load
+            // func_entities_ptr from JitRuntime, add idx * size.
+            // Recipe:
+            //   MOV r_dst, [r15 + func_entities_ptr_off]
+            //   ADD r_dst, imm32 (= idx * sizeOf(FuncEntity))
+            .@"ref.func" => {
+                const vreg = next_vreg;
+                next_vreg += 1;
+                if (vreg >= alloc.slots.len) return Error.SlotOverflow;
+                const dst_r = try gpr.gprDefSpilled(alloc, vreg, 0);
+                try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(dst_r, abi.runtime_ptr_save_gpr, jit_abi.func_entities_ptr_off).slice());
+                const byte_off: u64 = @as(u64, ins.payload) * jit_abi.func_entity_size;
+                if (byte_off != 0) {
+                    // ADD r64, imm32 (7 bytes). For byte_off > i32 max
+                    // (extremely unlikely with FuncEntity_size=16 →
+                    // 134M+ entries needed), would need MOV scratch +
+                    // ADD — not handled (UnsupportedOp would surface
+                    // via validator's funcidx bounds anyway).
+                    if (byte_off > 0x7FFFFFFF) return Error.UnsupportedOp;
+                    try buf.appendSlice(allocator, inst.encAddR64Imm32(dst_r, @intCast(byte_off)).slice());
+                }
+                try gpr.gprStoreSpilled(allocator, &buf, alloc, spill_base_off, vreg, 0);
+                try pushed_vregs.append(allocator, vreg);
+            },
             .@"i64.shl",
             .@"i64.shr_s",
             .@"i64.shr_u",

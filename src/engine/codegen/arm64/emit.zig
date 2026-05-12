@@ -747,6 +747,38 @@ pub fn compile(
                 try pushed_vregs.append(allocator, vreg);
             },
             .@"ref.is_null" => try op_alu_int.emitI64Eqz(&ctx, &ins),
+            // §9.9 / 9.9-m-1b: ref.func idx — produce
+            // `@intFromPtr(&rt.func_entities[idx])` matching
+            // `Value.fromFuncRef`'s encoding (interp parity per
+            // ADR-0014 §2.1). Recipe:
+            //   LDR Xresult, [X19, #func_entities_ptr_off]
+            //   MOVZ X16, #(byte_off & 0xFFFF)
+            //   MOVK X16, #(byte_off >> 16), LSL #16   (if needed)
+            //   ADD Xresult, Xresult, X16
+            // where byte_off = idx * @sizeOf(FuncEntity).
+            .@"ref.func" => {
+                const vreg = next_vreg;
+                next_vreg += 1;
+                if (vreg >= alloc.slots.len) return Error.SlotOverflow;
+                const xresult = try gpr.gprDefSpilled(alloc, vreg, 0);
+                const byte_off: u64 = @as(u64, ins.payload) * jit_abi.func_entity_size;
+                // Load base pointer.
+                try gpr.writeU32(allocator, &buf, inst.encLdrImm(xresult, abi.runtime_ptr_save_gpr, jit_abi.func_entities_ptr_off));
+                if (byte_off != 0) {
+                    // Materialise byte_off in IP0 (X16). Up to 2-instr
+                    // (MOVZ low16 + optional MOVK high16, LSL #16).
+                    const low16: u16 = @truncate(byte_off & 0xFFFF);
+                    const high16: u16 = @truncate((byte_off >> 16) & 0xFFFF);
+                    try gpr.writeU32(allocator, &buf, inst.encMovzImm16(16, low16));
+                    if (high16 != 0) {
+                        try gpr.writeU32(allocator, &buf, inst.encMovkImm16(16, high16, 1));
+                    }
+                    // ADD Xresult, Xresult, X16.
+                    try gpr.writeU32(allocator, &buf, inst.encAddReg(xresult, xresult, 16));
+                }
+                try gpr.gprStoreSpilled(allocator, &buf, alloc, ctx.spill_base_off, vreg, 0);
+                try pushed_vregs.append(allocator, vreg);
+            },
             .@"i64.shl",
             .@"i64.shr_s",
             .@"i64.shr_u",
