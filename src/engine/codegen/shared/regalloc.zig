@@ -517,16 +517,20 @@ pub fn populateShapeTags(allocator: Allocator, func: *const ZirFunc, n_vregs: us
     // vreg gets a per-op shape tag).
     var next_vreg: usize = 0;
     for (func.instrs.items) |ins| {
-        // local.get / local.tee push one vreg whose type comes
-        // from the indexed local. v128 locals (params / declared
-        // locals) flow through here; D-061 discharge.
-        if (ins.op == .@"local.get" or ins.op == .@"local.tee") {
+        // local.get pushes one vreg whose type comes from the
+        // indexed local. v128 locals (params / declared locals)
+        // flow through here; D-061 discharge.
+        if (ins.op == .@"local.get") {
             if (next_vreg < tags.len) {
                 if (func.localValType(ins.payload) == .v128) tags[next_vreg] = .v128;
             }
             next_vreg += 1;
             continue;
         }
+        // local.tee — operand-stack-transparent (see
+        // liveness.zig `local.tee` arm in compute()). No new
+        // vreg; the existing top vreg keeps its shape tag.
+        if (ins.op == .@"local.tee") continue;
         // Per ADR-0041 §"Decision" / 1: extract_lane ops produce
         // scalar (i32 / i64 / f32 / f64) from v128. v128.const +
         // v128.load* / splat / binop / unop / shuffle / swizzle

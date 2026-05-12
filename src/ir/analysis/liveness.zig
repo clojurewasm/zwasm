@@ -77,8 +77,15 @@ pub fn stackEffect(op: ZirOp) ?StackEffect {
         .@"local.set",
         .@"global.set",
         => .{ .pops = 1, .pushes = 0 },
-        // 1 → 1 (pop-and-push of same logical value: tee)
-        .@"local.tee" => .{ .pops = 1, .pushes = 1 },
+        // local.tee — operand-stack-transparent per emit's
+        // semantics (STR top → local slot, no pop/push). The
+        // pop=1/push=1 form would close the input vreg's range
+        // and fabricate a fresh vreg, opening a regalloc reuse
+        // window the subsequent push could clobber. See the
+        // dedicated dispatch arm in `compute()` for the
+        // last-use extension. populateShapeTags also matches
+        // (no shape_tag increment at local.tee).
+        .@"local.tee" => .{ .pops = 0, .pushes = 0 },
         // 1 → 1 testop / unop (i32 / i64 / f32 / f64)
         .@"i32.eqz",
         .@"i32.clz",
@@ -704,6 +711,30 @@ pub fn compute(
             continue;
         }
 
+        // D-093 (d-3): `local.tee` is operand-stack-transparent.
+        // The per-arch emit doesn't pop or push — it STRs the
+        // top vreg's register into the local slot and leaves the
+        // vreg on the operand stack. The generic stackEffect
+        // (.pops=1, .pushes=1) path would close the original
+        // vreg's range AND fabricate a fresh vreg, opening a
+        // window where the original vreg's slot can be reused
+        // by a subsequent push (e.g. the right-hand operand of
+        // an i32.add). Wasm spec §4.4.5.3 — local.tee is "set
+        // and propagate"; the propagation IS the same value.
+        //
+        // Pre-d-3 surfaced as the `local_tee` cluster (8 spec
+        // failures: `as-binary-left` got 20 expected 13 = `op1 +
+        // op1` because the right-hand vreg was given the
+        // closed-vreg's slot, clobbering op1 before the add
+        // read it).
+        if (instr.op == .@"local.tee") {
+            if (sim_len > 0) {
+                const top_vreg = sim_stack[sim_len - 1];
+                ranges.items[top_vreg].last_use_pc = pc;
+            }
+            continue;
+        }
+
         // call / call_indirect: pop callee-sig.params, push callee-sig.results.
         if (instr.op == .call or instr.op == .call_indirect) {
             const callee_sig: zir.FuncType = blk: {
@@ -837,7 +868,7 @@ test "compute: function-level end closes the still-live vreg" {
     try testing.expectEqual(@as(u32, 1), live.ranges[0].last_use_pc);
 }
 
-test "compute: local.tee bridges def at the tee instr" {
+test "compute: D-093 (d-3) local.tee keeps the input vreg alive across the tee" {
     // local.get 0 ; local.tee 1 ; drop ; end
     var f = try buildFunc(testing.allocator, &.{
         .{ .op = .@"local.get", .payload = 0 },
@@ -850,13 +881,16 @@ test "compute: local.tee bridges def at the tee instr" {
     const live = try compute(testing.allocator, &f, &.{}, &.{});
     defer deinit(testing.allocator, live);
 
-    try testing.expectEqual(@as(usize, 2), live.ranges.len);
-    // vreg 0 (from local.get): def=0, last_use=1 (popped by tee).
+    // local.tee is operand-stack-transparent (matches emit's
+    // "STR top → local slot, no pop/push" semantics). Only one
+    // vreg exists across local.get → local.tee → drop; its
+    // last_use_pc extends from the tee through to the drop.
+    // Pre-d-3 there were 2 vregs (local.tee fabricated a fresh
+    // push); the original vreg's slot got reused by subsequent
+    // pushes (the local_tee cluster bug).
+    try testing.expectEqual(@as(usize, 1), live.ranges.len);
     try testing.expectEqual(@as(u32, 0), live.ranges[0].def_pc);
-    try testing.expectEqual(@as(u32, 1), live.ranges[0].last_use_pc);
-    // vreg 1 (pushed by tee): def=1, last_use=2 (drop).
-    try testing.expectEqual(@as(u32, 1), live.ranges[1].def_pc);
-    try testing.expectEqual(@as(u32, 2), live.ranges[1].last_use_pc);
+    try testing.expectEqual(@as(u32, 2), live.ranges[0].last_use_pc);
 }
 
 test "compute: br closes all live vregs at branch site (sub-7.5c-iv)" {
