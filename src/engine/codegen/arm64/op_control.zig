@@ -53,6 +53,70 @@ const Allocator = std.mem.Allocator;
 /// ≤ 4. 8 is generous and keeps the Label struct compact.
 const merge_top_vregs_cap: u8 = 8;
 
+/// Block-merge mechanism for forward `br` / `br_if` to a
+/// `block (result T..)` target. Mirrors the if/else
+/// `merge_top_vregs` mechanism (D-027 + D-035 chunk-d035-c)
+/// extended to `.block` per D-093 (d-2).
+///
+/// On the FIRST forward branch to a block label with
+/// `result_arity > 0`, captures the top `arity` vregs as the
+/// canonical merge target. No MOV is emitted: the captured
+/// vregs ARE the merge target (the operand stack is already
+/// in the right slots).
+///
+/// On SUBSEQUENT forward branches, emits `arity` MOVs from
+/// the current top `arity` vregs into the captured merge
+/// target's physical registers, so all paths through the
+/// block end on the same regs. Post-block consumers then
+/// read from `merge_top_vregs`.
+///
+/// Returns `true` when MOVs were emitted (caller is a second-
+/// or-later br/br_if and must structure its branch
+/// accordingly — br_if wraps MOVs+B inside a CBZ skip so
+/// the fall-through path doesn't run them).
+///
+/// No-op when the target is not `.block` or `result_arity ==
+/// 0` (legacy single-arm shapes).
+fn captureOrEmitBlockMergeMov(ctx: *EmitCtx, tgt_idx: usize) Error!bool {
+    const arity: u32 = ctx.labels.items[tgt_idx].result_arity;
+    if (arity == 0) return false;
+    if (ctx.labels.items[tgt_idx].kind != .block) return false;
+    if (ctx.pushed_vregs.items.len < arity) return Error.AllocationMissing;
+
+    if (!ctx.labels.items[tgt_idx].merge_captured) {
+        const base = ctx.pushed_vregs.items.len - arity;
+        var i: u32 = 0;
+        while (i < arity) : (i += 1) {
+            ctx.labels.items[tgt_idx].merge_top_vregs[i] = ctx.pushed_vregs.items[base + i];
+        }
+        ctx.labels.items[tgt_idx].merge_captured = true;
+        return false;
+    }
+
+    const base = ctx.pushed_vregs.items.len - arity;
+    var i: u32 = 0;
+    while (i < arity) : (i += 1) {
+        const src_vreg = ctx.pushed_vregs.items[base + i];
+        const merge_vreg = ctx.labels.items[tgt_idx].merge_top_vregs[i];
+        if (ctx.alloc.shapeTag(merge_vreg) == .v128) {
+            const src_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 1);
+            const merge_v = try gpr.qDefSpilled(ctx.alloc, merge_vreg, 0);
+            if (merge_v != src_v) {
+                try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encMovV16B(merge_v, src_v));
+            }
+            try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, merge_vreg, 0);
+        } else {
+            const src_r = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 1);
+            const merge_r = try gpr.gprDefSpilled(ctx.alloc, merge_vreg, 0);
+            if (merge_r != src_r) {
+                try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(merge_r, 31, src_r));
+            }
+            try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, merge_vreg, 0);
+        }
+    }
+    return true;
+}
+
 /// `block` — push a forward-resolving label frame.
 pub fn emitBlock(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     // D-093 (d-1): record result_arity (from ZirInstr.extra,
@@ -131,16 +195,23 @@ pub fn emitBr(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     }
     if (ins.payload > ctx.labels.items.len) return Error.UnsupportedOp;
     const tgt_idx = ctx.labels.items.len - 1 - ins.payload;
-    const tgt = &ctx.labels.items[tgt_idx];
-    const fixup_at: u32 = @intCast(ctx.buf.items.len);
-    if (tgt.kind == .loop) {
-        const disp_words: i32 = @as(i32, @intCast(tgt.target_byte_offset)) -
+    if (ctx.labels.items[tgt_idx].kind == .loop) {
+        const fixup_at: u32 = @intCast(ctx.buf.items.len);
+        const tgt_byte = ctx.labels.items[tgt_idx].target_byte_offset;
+        const disp_words: i32 = @as(i32, @intCast(tgt_byte)) -
             @as(i32, @intCast(fixup_at));
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encB(@divExact(disp_words, 4)));
-    } else {
-        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encB(0));
-        try tgt.pending.append(ctx.allocator, .{ .byte_offset = fixup_at, .kind = .b_uncond });
+        return;
     }
+    // Forward branch (block / if_then with br inside / else_open).
+    // D-093 (d-2): for `.block` with result_arity > 0, the FIRST
+    // br captures top arity vregs as merge target (no MOV); a
+    // SUBSEQUENT br emits MOVs from current top → merge regs so
+    // both paths converge on the same physical regs.
+    _ = try captureOrEmitBlockMergeMov(ctx, tgt_idx);
+    const fixup_at: u32 = @intCast(ctx.buf.items.len);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encB(0));
+    try ctx.labels.items[tgt_idx].pending.append(ctx.allocator, .{ .byte_offset = fixup_at, .kind = .b_uncond });
 }
 
 /// `br_if N` — pop cond; branch to label at depth N if non-zero.
@@ -195,16 +266,42 @@ pub fn emitBrIf(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     }
     if (ins.payload > ctx.labels.items.len) return Error.UnsupportedOp;
     const tgt_idx = ctx.labels.items.len - 1 - ins.payload;
-    const tgt = &ctx.labels.items[tgt_idx];
-    const fixup_at: u32 = @intCast(ctx.buf.items.len);
-    if (tgt.kind == .loop) {
-        const disp_words: i32 = @as(i32, @intCast(tgt.target_byte_offset)) -
+    if (ctx.labels.items[tgt_idx].kind == .loop) {
+        const fixup_at: u32 = @intCast(ctx.buf.items.len);
+        const tgt_byte = ctx.labels.items[tgt_idx].target_byte_offset;
+        const disp_words: i32 = @as(i32, @intCast(tgt_byte)) -
             @as(i32, @intCast(fixup_at));
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbnzW(wn, @divExact(disp_words, 4)));
-    } else {
-        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbnzW(wn, 0));
-        try tgt.pending.append(ctx.allocator, .{ .byte_offset = fixup_at, .kind = .cbnz_w });
+        return;
     }
+    // Forward branch. D-093 (d-2): for `.block` with merge already
+    // captured, MOVs must run only when cond ≠ 0. Wrap the MOVs +
+    // B inside a CBZ-skip sequence so the fall-through path
+    // (cond == 0) bypasses both. First br_if to a block (capture
+    // path, no MOV) still uses the canonical CBNZ-forward shape.
+    const tgt_is_block_with_capture =
+        ctx.labels.items[tgt_idx].kind == .block and
+        ctx.labels.items[tgt_idx].result_arity > 0 and
+        ctx.labels.items[tgt_idx].merge_captured;
+    if (tgt_is_block_with_capture) {
+        const cbz_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbzW(wn, 0));
+        _ = try captureOrEmitBlockMergeMov(ctx, tgt_idx);
+        const b_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encB(0));
+        try ctx.labels.items[tgt_idx].pending.append(ctx.allocator, .{ .byte_offset = b_at, .kind = .b_uncond });
+        const skip_byte: u32 = @intCast(ctx.buf.items.len);
+        const cbz_disp_words: i19 = @intCast(@divExact(@as(i32, @intCast(skip_byte)) - @as(i32, @intCast(cbz_at)), 4));
+        std.mem.writeInt(u32, ctx.buf.items[cbz_at..][0..4], inst.encCbzW(wn, cbz_disp_words), .little);
+        return;
+    }
+    // First br_if to a .block: capture merge target (no MOV).
+    // Other forward kinds (if_then with br inside, else_open):
+    // unchanged — no merge mechanism applies.
+    _ = try captureOrEmitBlockMergeMov(ctx, tgt_idx);
+    const fixup_at: u32 = @intCast(ctx.buf.items.len);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbnzW(wn, 0));
+    try ctx.labels.items[tgt_idx].pending.append(ctx.allocator, .{ .byte_offset = fixup_at, .kind = .cbnz_w });
 }
 
 /// Emit a `B target_for_depth` for a single br_table case (or
@@ -385,6 +482,61 @@ pub fn emitEndIntra(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     //   live  : [..., merge_0, ..., merge_{N-1}, else_0, ..., else_{N-1}]
     //   dead  : [..., merge_0, ..., merge_{N-1}]
     //           (else arm broke out via br / return / unreachable)
+    // D-093 (d-2): `.block` merge fall-through. When at least one
+    // forward br/br_if captured a merge target during the block
+    // body, the fall-through `end` must MOV the current top arity
+    // vregs into the captured merge regs (live fall-through case);
+    // or skip MOVs when the top vregs already ARE the merge target
+    // (dead fall-through — every path exited via br). After this
+    // step the canonical block result on the operand stack is the
+    // merge_top_vregs (not the fall-through top), so post-block
+    // consumers read from a stable vreg regardless of which path
+    // ran at runtime.
+    if (lbl.kind == .block and lbl.merge_captured and lbl.result_arity > 0) {
+        const arity: u32 = lbl.result_arity;
+        if (ctx.pushed_vregs.items.len < arity) {
+            std.debug.print("arm64/op_control: emitEndIntra (block merge) needs >={d} pushed_vregs, got {d} (func_idx={d})\n", .{ arity, ctx.pushed_vregs.items.len, ctx.func.func_idx });
+            return Error.UnsupportedOp;
+        }
+        const top_base = ctx.pushed_vregs.items.len - arity;
+        const dead_fallthrough = blk: {
+            var i: u32 = 0;
+            while (i < arity) : (i += 1) {
+                if (ctx.pushed_vregs.items[top_base + i] != lbl.merge_top_vregs[i]) break :blk false;
+            }
+            break :blk true;
+        };
+        if (!dead_fallthrough) {
+            var i: u32 = 0;
+            while (i < arity) : (i += 1) {
+                const src_vreg = ctx.pushed_vregs.items[top_base + i];
+                const merge_vreg = lbl.merge_top_vregs[i];
+                if (ctx.alloc.shapeTag(merge_vreg) == .v128) {
+                    const src_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 1);
+                    const merge_v = try gpr.qDefSpilled(ctx.alloc, merge_vreg, 0);
+                    if (merge_v != src_v) {
+                        try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encMovV16B(merge_v, src_v));
+                    }
+                    try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, merge_vreg, 0);
+                } else {
+                    const src_r = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 1);
+                    const merge_r = try gpr.gprDefSpilled(ctx.alloc, merge_vreg, 0);
+                    if (merge_r != src_r) {
+                        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(merge_r, 31, src_r));
+                    }
+                    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, merge_vreg, 0);
+                }
+            }
+        }
+        // Overwrite top arity slots with merge_top_vregs so the
+        // downstream truncate (and consumers reading via
+        // pushed_vregs) see the canonical merge result.
+        var i: u32 = 0;
+        while (i < arity) : (i += 1) {
+            ctx.pushed_vregs.items[top_base + i] = lbl.merge_top_vregs[i];
+        }
+    }
+
     if (lbl.kind == .else_open and lbl.merge_captured) {
         const arity: u32 = lbl.result_arity;
         const dead_else = blk: {

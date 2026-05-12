@@ -42,6 +42,61 @@ const ZirFunc = zir.ZirFunc;
 /// `arm64/op_control.zig:merge_top_vregs_cap`.
 const merge_top_vregs_cap: u8 = 8;
 
+/// Block-merge mechanism for forward `br` / `br_if` to a
+/// `block (result T..)` target. Mirrors
+/// `arm64/op_control.zig:captureOrEmitBlockMergeMov`
+/// extended from the if/else `merge_top_vregs` mechanism
+/// (D-027 + D-035 chunk-d035-c) to `.block` per D-093 (d-2).
+///
+/// Returns `true` when MOVs were emitted; caller wraps in a
+/// JE-skip for br_if.
+fn captureOrEmitBlockMergeMov(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    labels: *std.ArrayList(Label),
+    spill_base_off: u32,
+    tgt_idx: usize,
+) Error!bool {
+    const arity: u32 = labels.items[tgt_idx].result_arity;
+    if (arity == 0) return false;
+    if (labels.items[tgt_idx].kind != .block) return false;
+    if (pushed_vregs.items.len < arity) return Error.AllocationMissing;
+
+    if (!labels.items[tgt_idx].merge_captured) {
+        const base = pushed_vregs.items.len - arity;
+        var i: u32 = 0;
+        while (i < arity) : (i += 1) {
+            labels.items[tgt_idx].merge_top_vregs[i] = pushed_vregs.items[base + i];
+        }
+        labels.items[tgt_idx].merge_captured = true;
+        return false;
+    }
+
+    const base = pushed_vregs.items.len - arity;
+    var i: u32 = 0;
+    while (i < arity) : (i += 1) {
+        const src_vreg = pushed_vregs.items[base + i];
+        const merge_vreg = labels.items[tgt_idx].merge_top_vregs[i];
+        if (alloc.shapeTag(merge_vreg) == .v128) {
+            const src_x = try gpr.resolveXmm(alloc, src_vreg);
+            const merge_x = try gpr.resolveXmm(alloc, merge_vreg);
+            if (merge_x != src_x) {
+                try buf.appendSlice(allocator, inst.encMovapsXmmXmm(merge_x, src_x).slice());
+            }
+        } else {
+            const src_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_vreg, 0);
+            const merge_r = try gpr.gprDefSpilled(alloc, merge_vreg, 1);
+            if (merge_r != src_r) {
+                try buf.appendSlice(allocator, inst.encMovRR(.d, merge_r, src_r).slice());
+            }
+            try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, merge_vreg, 1);
+        }
+    }
+    return true;
+}
+
 /// Wasm spec §3.4.4 (block) — push a forward-resolving label
 /// frame. No code emitted; the matching `end` patches all
 /// `pending` fixups.
@@ -117,18 +172,23 @@ pub fn emitBr(
     }
     if (depth > labels.items.len) return types.rejectUnsupported("src/engine/codegen/x86_64/op_control.zig:78", 0);
     const tgt_idx = labels.items.len - 1 - depth;
-    const tgt = &labels.items[tgt_idx];
-    const at: u32 = @intCast(buf.items.len);
-    if (tgt.kind == .loop) {
-        // Backward branch: target known. disp = target - (at + 5).
-        const disp: i32 = @as(i32, @intCast(tgt.target_byte_offset)) -
+    if (labels.items[tgt_idx].kind == .loop) {
+        const at: u32 = @intCast(buf.items.len);
+        const tgt_byte = labels.items[tgt_idx].target_byte_offset;
+        const disp: i32 = @as(i32, @intCast(tgt_byte)) -
             @as(i32, @intCast(at)) - 5;
         try buf.appendSlice(allocator, inst.encJmpRel32(disp).slice());
-    } else {
-        // Forward branch: emit placeholder; queue fixup.
-        try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
-        try tgt.pending.append(allocator, .{ .byte_offset = at, .insn_size = 5 });
+        return;
     }
+    // Forward branch. D-093 (d-2): block-merge capture-or-MOV
+    // before emitting the JMP. For br (unconditional) the
+    // MOVs land before the JMP placeholder; the fall-through
+    // is dead per lower.zig unreachable-tracking so the MOVs
+    // only execute when control reaches the br.
+    _ = try captureOrEmitBlockMergeMov(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, tgt_idx);
+    const at: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
+    try labels.items[tgt_idx].pending.append(allocator, .{ .byte_offset = at, .insn_size = 5 });
 }
 
 /// Marshal the top vreg as the function's result + emit the
@@ -303,16 +363,41 @@ pub fn emitBrIf(
     if (depth > labels.items.len) return types.rejectUnsupported("src/engine/codegen/x86_64/op_control.zig:178", 0);
     try buf.appendSlice(allocator, inst.encTestRR(.d, cond_r, cond_r).slice());
     const tgt_idx = labels.items.len - 1 - depth;
-    const tgt = &labels.items[tgt_idx];
-    const at: u32 = @intCast(buf.items.len);
-    if (tgt.kind == .loop) {
-        const disp: i32 = @as(i32, @intCast(tgt.target_byte_offset)) -
+    if (labels.items[tgt_idx].kind == .loop) {
+        const at: u32 = @intCast(buf.items.len);
+        const tgt_byte = labels.items[tgt_idx].target_byte_offset;
+        const disp: i32 = @as(i32, @intCast(tgt_byte)) -
             @as(i32, @intCast(at)) - 6;
         try buf.appendSlice(allocator, inst.encJccRel32(.ne, disp).slice());
-    } else {
-        try buf.appendSlice(allocator, inst.encJccRel32(.ne, 0).slice());
-        try tgt.pending.append(allocator, .{ .byte_offset = at, .insn_size = 6 });
+        return;
     }
+    // Forward branch. D-093 (d-2): for .block with a captured
+    // merge target, the MOVs+JMP must run only when cond ≠ 0.
+    // Wrap them inside a JE-skip sequence so the fall-through
+    // path (cond == 0) bypasses both. First br_if to a block
+    // (capture path, no MOV) uses the canonical JNE-forward
+    // shape with the merge captured pre-emit.
+    const tgt_is_block_with_capture =
+        labels.items[tgt_idx].kind == .block and
+        labels.items[tgt_idx].result_arity > 0 and
+        labels.items[tgt_idx].merge_captured;
+    if (tgt_is_block_with_capture) {
+        const je_at: u32 = @intCast(buf.items.len);
+        try buf.appendSlice(allocator, inst.encJccRel32(.e, 0).slice());
+        _ = try captureOrEmitBlockMergeMov(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, tgt_idx);
+        const jmp_at: u32 = @intCast(buf.items.len);
+        try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
+        try labels.items[tgt_idx].pending.append(allocator, .{ .byte_offset = jmp_at, .insn_size = 5 });
+        const skip_byte: u32 = @intCast(buf.items.len);
+        const je_disp: i32 = @as(i32, @intCast(skip_byte)) - @as(i32, @intCast(je_at)) - 6;
+        const patched = inst.encJccRel32(.e, je_disp);
+        @memcpy(buf.items[je_at .. je_at + patched.len], patched.slice());
+        return;
+    }
+    _ = try captureOrEmitBlockMergeMov(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, tgt_idx);
+    const at: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJccRel32(.ne, 0).slice());
+    try labels.items[tgt_idx].pending.append(allocator, .{ .byte_offset = at, .insn_size = 6 });
 }
 
 /// Wasm spec §3.4.4 (if) — pop cond, emit TEST cond, cond ; JE
@@ -426,6 +511,48 @@ pub fn emitEndIntra(
     // slot. Stack at entry is either:
     //   live  : [..., merge_0..N-1, else_0..N-1]
     //   dead  : [..., merge_0..N-1] (else broke out via br/return/unreachable)
+    // D-093 (d-2): `.block` merge fall-through. Mirror of
+    // `arm64/op_control.zig:emitEndIntra` block-merge branch.
+    if (lbl.kind == .block and lbl.merge_captured and lbl.result_arity > 0) {
+        const arity: u32 = lbl.result_arity;
+        if (pushed_vregs.items.len < arity) {
+            return types.rejectUnsupported("src/engine/codegen/x86_64/op_control.zig:emitEndIntra-block-merge", 0);
+        }
+        const top_base = pushed_vregs.items.len - arity;
+        const dead_fallthrough = blk: {
+            var i: u32 = 0;
+            while (i < arity) : (i += 1) {
+                if (pushed_vregs.items[top_base + i] != lbl.merge_top_vregs[i]) break :blk false;
+            }
+            break :blk true;
+        };
+        if (!dead_fallthrough) {
+            var i: u32 = 0;
+            while (i < arity) : (i += 1) {
+                const src_vreg = pushed_vregs.items[top_base + i];
+                const merge_vreg = lbl.merge_top_vregs[i];
+                if (alloc.shapeTag(merge_vreg) == .v128) {
+                    const src_x = try gpr.resolveXmm(alloc, src_vreg);
+                    const merge_x = try gpr.resolveXmm(alloc, merge_vreg);
+                    if (merge_x != src_x) {
+                        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(merge_x, src_x).slice());
+                    }
+                } else {
+                    const src_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_vreg, 0);
+                    const merge_r = try gpr.gprDefSpilled(alloc, merge_vreg, 1);
+                    if (merge_r != src_r) {
+                        try buf.appendSlice(allocator, inst.encMovRR(.d, merge_r, src_r).slice());
+                    }
+                    try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, merge_vreg, 1);
+                }
+            }
+        }
+        var i: u32 = 0;
+        while (i < arity) : (i += 1) {
+            pushed_vregs.items[top_base + i] = lbl.merge_top_vregs[i];
+        }
+    }
+
     if (lbl.kind == .else_open and lbl.merge_captured) {
         const arity: u32 = lbl.result_arity;
         const dead_else = blk: {
