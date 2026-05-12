@@ -273,6 +273,32 @@ pub fn build(b: *std.Build) void {
     const test_spec_simd_step = b.step("test-spec-simd", "Run SIMD spec assertion runner (§9.9 per ADR-0045; foundation: 0 manifests until §9.9-b)");
     test_spec_simd_step.dependOn(&run_simd_assert.step);
 
+    // `zig build test-spec-wasm-2.0-assert` — §9.9 / 9.9-l-1b per
+    // ADR-0057. Wasm 2.0 non-SIMD scalar spec assertion runner;
+    // parallel to spec_assert_runner (wasm-1.0) and simd_assert_runner
+    // (SIMD). All three runners consume `spec_assert_runner_base`
+    // and differ only in their RunnerCallbacks literal. Corpus
+    // (`test/spec/wasm-2.0-assert/`) lands in a follow-up chunk
+    // (k-1 — curated sign-ext / sat-trunc / multi-value /
+    // call_indirect wast vendor); until then the runner reports
+    // "corpus not found; 0 manifests" and exits clean so test-all
+    // stays green.
+    const non_simd_assert_runner_mod = b.createModule(.{
+        .root_source_file = b.path("test/spec/spec_assert_runner_non_simd.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    non_simd_assert_runner_mod.addImport("zwasm", zwasm_lib_mod);
+    applySanitize(non_simd_assert_runner_mod, sanitize_c, sanitize_thread);
+    const non_simd_assert_runner_exe = b.addExecutable(.{
+        .name = "zwasm-spec-wasm-2-0-assert",
+        .root_module = non_simd_assert_runner_mod,
+    });
+    const run_non_simd_assert = b.addRunArtifact(non_simd_assert_runner_exe);
+    run_non_simd_assert.addArg(b.pathFromRoot("test/spec/wasm-2.0-assert"));
+    const test_spec_wasm_2_0_assert_step = b.step("test-spec-wasm-2.0-assert", "Run Wasm 2.0 non-SIMD scalar spec assertion runner (§9.9 / 9.9-l-1b per ADR-0057; corpus lands at k-1)");
+    test_spec_wasm_2_0_assert_step.dependOn(&run_non_simd_assert.step);
+
     // `zig build test-spec-wasm-2.0` — wast-directive runner
     // (Phase 2 / §9.2 / 2.7). Reads each subdir's manifest.txt
     // and processes module / assert_invalid / assert_malformed
@@ -535,6 +561,12 @@ pub fn build(b: *std.Build) void {
     // windowsmini reconciliation runs at phase boundary
     // separately per ADR-0049.
     test_all_step.dependOn(&run_simd_assert.step);
+    // §9.9 / 9.9-l-1b (per ADR-0057): wire the new
+    // non-SIMD wasm-2.0 scalar assertion runner. The curated
+    // corpus lands in a follow-up (k-1); the runner gracefully
+    // reports "0 manifests" against the missing directory so this
+    // dependOn doesn't break test-all on a clean checkout.
+    test_all_step.dependOn(&run_non_simd_assert.step);
     // §9.9 / 9.9-j-2 (per ADR-0056 §9.9 scope extension): wire two
     // runners that were "documented exit criterion measurement
     // points" but never CI-gated.
