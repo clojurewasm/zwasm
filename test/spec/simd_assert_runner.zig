@@ -40,6 +40,11 @@ const std = @import("std");
 const zwasm = @import("zwasm");
 const runner_mod = zwasm.engine.runner;
 const entry = zwasm.engine.codegen.shared.entry;
+// §9.9 / 9.9-l-1a (per ADR-0057): shared token parsers + helpers
+// extracted from this file. l-1a stage 1 covers scalar tokens +
+// splitFnAndArgs; later sub-chunks move the full manifest loop
+// + module-init + RunnerCallbacks trait.
+const base = @import("spec_assert_runner_base.zig");
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
@@ -322,15 +327,11 @@ fn runCorpus(
     }
 }
 
-fn parseI32Token(tok: []const u8) !u32 {
-    return std.fmt.parseInt(u32, tok, 10) catch
-        @as(u32, @bitCast(std.fmt.parseInt(i32, tok, 10) catch return error.BadValue));
-}
-
-fn parseI64Token(tok: []const u8) !u64 {
-    return std.fmt.parseInt(u64, tok, 10) catch
-        @as(u64, @bitCast(std.fmt.parseInt(i64, tok, 10) catch return error.BadValue));
-}
+// Scalar token parsers moved to spec_assert_runner_base.zig per
+// ADR-0057. Re-exported here as local aliases so the body of this
+// runner doesn't need to know about the base file path.
+const parseI32Token = base.parseI32Token;
+const parseI64Token = base.parseI64Token;
 
 fn parseV128Token(tok: []const u8) ![16]u8 {
     if (tok.len != 32) return error.BadValue;
@@ -459,22 +460,9 @@ fn parseArgToken(tok: []const u8) !ArgValue {
 }
 
 /// Split `<fn> <args>` where `<fn>` may be a bare token OR a
-/// single-quoted string (handles export names containing spaces
-/// per chunk 9.9-h-29 Part B; e.g. `'v128.load align=16'`). Returns
-/// the unquoted fn_name + the args substring.
-fn splitFnAndArgs(lhs: []const u8) !struct { fn_name: []const u8, args_s: []const u8 } {
-    if (lhs.len > 0 and lhs[0] == '\'') {
-        const close = std.mem.findScalarPos(u8, lhs, 1, '\'') orelse return error.BadDirective;
-        // After the closing quote we expect a space then args, or
-        // end-of-lhs (no-args case shouldn't happen for quoted
-        // exports but is mechanically harmless).
-        if (close + 1 >= lhs.len) return error.BadDirective;
-        if (lhs[close + 1] != ' ') return error.BadDirective;
-        return .{ .fn_name = lhs[1..close], .args_s = lhs[close + 2 ..] };
-    }
-    const sp1 = std.mem.findScalar(u8, lhs, ' ') orelse return error.BadDirective;
-    return .{ .fn_name = lhs[0..sp1], .args_s = lhs[sp1 + 1 ..] };
-}
+// splitFnAndArgs moved to spec_assert_runner_base.zig per ADR-0057.
+// Re-exported here as a local alias.
+const splitFnAndArgs = base.splitFnAndArgs;
 
 fn runAssertReturn(
     gpa: std.mem.Allocator,
