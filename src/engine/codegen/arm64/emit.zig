@@ -1383,6 +1383,10 @@ pub fn compile(
             // §9.9 / 9.9-m-2c (per ADR-0058): table.copy — element-
             // typed memmove with same-table backward arm.
             .@"table.copy" => try op_table.emitTableCopy(&ctx, &ins),
+            // §9.9 / 9.9-m-2c-init (per ADR-0058 amendment):
+            // table.init — copy from elem segment to table; honours
+            // elem_dropped flag.
+            .@"table.init" => try op_table.emitTableInit(&ctx, &ins),
             .br_table => try op_control.emitBrTable(&ctx, &ins),
             .@"if" => try op_control.emitIf(&ctx, &ins),
             .@"else" => try op_control.emitElse(&ctx, &ins),

@@ -124,6 +124,9 @@ pub fn usesRuntimePtr(func: *const ZirFunc) bool {
             // §9.9 / 9.9-m-2c: table.copy — emits trap-stub fixups
             // for dst+n + src+n bounds checks; requires R15.
             .@"table.copy",
+            // §9.9 / 9.9-m-2c-init: table.init — same trap-fixup
+            // surface (src+n vs seg.len, dst+n vs tables[x].len).
+            .@"table.init",
             .@"i32.div_s",
             .@"i32.div_u",
             .@"i32.rem_s",

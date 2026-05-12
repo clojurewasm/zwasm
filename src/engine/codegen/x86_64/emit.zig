@@ -911,6 +911,10 @@ pub fn compile(
             // §9.9 / 9.9-m-2c (per ADR-0058): table.copy — element-
             // typed memmove with same-table backward arm.
             .@"table.copy" => try op_table.emitTableCopy(allocator, &buf, alloc, &pushed_vregs, &bounds_fixups, spill_base_off, func.func_idx, ins.payload, ins.extra),
+            // §9.9 / 9.9-m-2c-init (per ADR-0058 amendment):
+            // table.init — copy elem segment to table; honours
+            // elem_dropped flag.
+            .@"table.init" => try op_table.emitTableInit(allocator, &buf, alloc, &pushed_vregs, &bounds_fixups, spill_base_off, func.func_idx, ins.payload, ins.extra),
             // §9.7 / 9.7-a + 9.7-b: SIMD-128 packed integer add/sub
             // family (8 ops). Wires the FP-class regalloc +
             // shape-tag pipeline on x86_64 per ADR-0041; spilled

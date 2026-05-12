@@ -238,6 +238,53 @@ to capture).
 - `~/Documents/OSS/wasmtime/winch/codegen/src/visitor.rs`
   (table.* single-pass visitor reference).
 
+## Amendment — 2026-05-12 (m-2c-init): ElemSlice ABI extension
+
+§9.9 / 9.9-m-2c-init introduces `ElemSlice` to JitRuntime —
+parallel to TableSlice + SegmentSlice, 16-byte stride. Each
+declared element segment gets a `[]u64` of pre-computed
+funcref-encoded values (FuncEntity pointers; `Value.null_ref`
+for null entries). Layout:
+
+```zig
+pub const ElemSlice = extern struct {
+    refs: [*]const u64,
+    len: u32,
+    _pad: u32 = 0,
+};
+```
+
+New JitRuntime tail fields (lined up after `tables_count`'s
+padding):
+
+```zig
+elem_segments_ptr: [*]const ElemSlice = undefined,
+elem_segments_count: u32 = 0,
+_pad10: u32 = 0,
+```
+
+head_size: 168 → 184 bytes (16 + padding for the new pair).
+
+`setupRuntime` populates the array by walking the element
+section once and allocating two slices (descriptors + refs
+arena). Funcidxs in the segment are converted to
+FuncEntity-ptr encoding via `@intFromPtr(&func_entities[fidx])`,
+identical to m-1b's ref.func emit shape and m-2a's
+table_refs element-segment population.
+
+`table.init` reads `elem_segments_ptr[elemidx]` then
+overrides `seg.len → 0` via the existing `elem_dropped_ptr`
+flag (m-3a). The dropped-flag override is implemented with
+CSEL X15, X15, XZR, EQ on arm64 and CMOVNE on x86_64 —
+mirror of m-3b's memory.init Step C pattern.
+
 ## Revision history
 
 - 2026-05-12: Initial accept at §9.9 / 9.9-m-2a landing commit.
+- 2026-05-12 (m-2b): table.fill landed without scope change to
+  this ADR; documented in commit body.
+- 2026-05-12 (m-2c): table.copy landed without scope change to
+  this ADR; documented in commit body.
+- 2026-05-12 (m-2c-init): ElemSlice ABI extension amendment
+  above. New tail fields + 16-byte stride per-segment funcref
+  arena. table.init handler both arches.

@@ -670,6 +670,10 @@ const RuntimeOwned = struct {
     // two slices have matching lifetimes (both freed at deinit).
     tables_descriptors: []entry.TableSlice,
     table_refs: []u64,
+    // §9.9 / 9.9-m-2c-init: per-element-segment ElemSlice descriptors
+    // + contiguous u64 arena holding the pre-computed funcref values.
+    elem_segments: []entry.ElemSlice,
+    elem_refs: []u64,
 
     fn deinit(self: *RuntimeOwned, allocator: Allocator) void {
         if (self.memory.len > 0) allocator.free(self.memory);
@@ -683,6 +687,8 @@ const RuntimeOwned = struct {
         if (self.data_segments.len > 0) allocator.free(self.data_segments);
         allocator.free(self.tables_descriptors);
         allocator.free(self.table_refs);
+        if (self.elem_segments.len > 0) allocator.free(self.elem_segments);
+        if (self.elem_refs.len > 0) allocator.free(self.elem_refs);
     }
 };
 
@@ -944,11 +950,47 @@ fn setupRuntime(
     errdefer allocator.free(data_dropped);
     @memset(data_dropped, 0);
 
+    // §9.9 / 9.9-m-2c-init: per-element-segment ElemSlice arena.
+    // Each segment gets its own pre-computed `[]u64` of Value.ref
+    // values (FuncEntity ptr encoding for funcref; Value.null_ref
+    // for null entries). The ElemSlice descriptors point into a
+    // single contiguous arena sized to the sum of all
+    // seg.funcidxs.len. JIT `table.init` indexes the descriptors
+    // with stride 16, reads `refs[src..src+n]`, and writes into
+    // the target table's u64[] storage.
     var elem_dropped_count: u32 = 0;
+    var elem_segments_buf: []entry.ElemSlice = &.{};
+    errdefer if (elem_segments_buf.len > 0) allocator.free(elem_segments_buf);
+    var elem_refs_arena: []u64 = &.{};
+    errdefer if (elem_refs_arena.len > 0) allocator.free(elem_refs_arena);
     if (module.find(.element)) |s| {
         var elems_buf = try sections.decodeElement(ta, s.body);
         defer elems_buf.deinit();
         elem_dropped_count = @intCast(elems_buf.items.len);
+        if (elem_dropped_count > 0) {
+            var total_refs: usize = 0;
+            for (elems_buf.items) |seg| total_refs += seg.funcidxs.len;
+            elem_segments_buf = try allocator.alloc(entry.ElemSlice, elem_dropped_count);
+            elem_refs_arena = try allocator.alloc(u64, if (total_refs == 0) 1 else total_refs);
+            var off: usize = 0;
+            for (elems_buf.items, 0..) |seg, i| {
+                const seg_len: u32 = @intCast(seg.funcidxs.len);
+                elem_segments_buf[i] = .{
+                    .refs = elem_refs_arena.ptr + off,
+                    .len = seg_len,
+                };
+                for (seg.funcidxs, 0..) |fidx, k| {
+                    if (fidx == std.math.maxInt(u32)) {
+                        elem_refs_arena[off + k] = Value.null_ref;
+                    } else if (fidx >= compiled.func_sigs.len) {
+                        return Error.UnsupportedEntrySignature;
+                    } else {
+                        elem_refs_arena[off + k] = @intFromPtr(&func_entities[fidx]);
+                    }
+                }
+                off += seg_len;
+            }
+        }
     }
     const elem_dropped = try allocator.alloc(u8, elem_dropped_count);
     errdefer allocator.free(elem_dropped);
@@ -976,6 +1018,8 @@ fn setupRuntime(
             .data_segments_count = @intCast(data_segments_buf.len),
             .tables_ptr = tables_descs.ptr,
             .tables_count = @intCast(table_metas.len),
+            .elem_segments_ptr = if (elem_segments_buf.len == 0) @as([*]const entry.ElemSlice, undefined) else elem_segments_buf.ptr,
+            .elem_segments_count = @intCast(elem_segments_buf.len),
         },
         .memory = memory,
         .dispatch = dispatch,
@@ -988,6 +1032,8 @@ fn setupRuntime(
         .data_segments = data_segments_buf,
         .tables_descriptors = tables_descs,
         .table_refs = table_refs,
+        .elem_segments = elem_segments_buf,
+        .elem_refs = elem_refs_arena,
     };
 }
 

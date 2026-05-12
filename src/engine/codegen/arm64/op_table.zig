@@ -389,3 +389,110 @@ pub fn emitTableCopy(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     ));
     std.mem.writeInt(u32, ctx.buf.items[skip_at..][0..4], inst.encCbzW(14, skip_disp), .little);
 }
+
+/// Wasm spec §4.4.16 (table.init x y) — pop n / src / dst; copy n
+/// reftype values from elems[y][src..src+n] into tables[x][dst..dst+n].
+/// Traps `OutOfBoundsTableAccess` on `src+n > seg.len` (where seg.len
+/// is 0 if the segment was dropped via `elem.drop`) OR
+/// `dst+n > tables[x].len`.
+///
+/// Encoding: ins.payload = elemidx (y); ins.extra = tableidx (x).
+///
+/// Holder regs after Step A: W17 = dst_idx, W16 = src_idx, W14 = n.
+/// Long-lived:
+///   X11 = dst_refs (from tables[x])
+///   X12 = elem_refs (from elems[y]; len-overridden to 0 if dropped)
+pub fn emitTableInit(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
+    const elemidx = ins.payload;
+    const tableidx = ins.extra;
+    if (elemidx >= 1024 or tableidx >= 1024) return Error.UnsupportedOp;
+    const tbl_off: u15 = @intCast(@as(u32, tableidx) * 16);
+    const elem_off: u15 = @intCast(@as(u32, elemidx) * 16);
+
+    if (ctx.pushed_vregs.items.len < 3) return Error.AllocationMissing;
+    const n_v = ctx.pushed_vregs.pop().?;
+    const src_v = ctx.pushed_vregs.pop().?;
+    const dst_v = ctx.pushed_vregs.pop().?;
+
+    // Step A: snapshot operands.
+    const w_dst_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, dst_v, 0);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(17, 31, w_dst_src));
+    const w_src_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_v, 0);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(16, 31, w_src_src));
+    const w_n_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, n_v, 0);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(14, 31, w_n_src));
+
+    // Step B1: read tables[x] descriptor — X11 = dst_refs, W13 = dst_len.
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(10, abi.runtime_ptr_save_gpr, jit_abi.tables_ptr_off));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(11, 10, tbl_off));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImmW(13, 10, @intCast(@as(u32, tbl_off) + 8)));
+
+    // Step B2: read elems[y] descriptor — X12 = elem_refs, W15 = elem_len.
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(10, abi.runtime_ptr_save_gpr, jit_abi.elem_segments_ptr_off));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(12, 10, elem_off));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImmW(15, 10, @intCast(@as(u32, elem_off) + 8)));
+
+    // Step B3: dropped-flag override. If elem_dropped[elemidx] != 0,
+    // seg_len → 0 via CSEL X15, X15, XZR, EQ.
+    //   LDR X10, [X19, #elem_dropped_ptr_off]
+    //   LDRB W9, [X10, #elemidx]
+    //   CMP W9, #0
+    //   CSEL X15, X15, XZR, EQ
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(10, abi.runtime_ptr_save_gpr, jit_abi.elem_dropped_ptr_off));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrbImm(9, 10, @intCast(elemidx)));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmW(9, 0));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCselX(15, 15, 31, .eq));
+
+    // Step C1: bounds src+n > seg_len → trap.
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(9, 16, 14));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(9, 15));
+    {
+        const fixup_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hi, 0));
+        try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+        trace.writeBounds(ctx.func.func_idx, fixup_at);
+    }
+
+    // Step C2: bounds dst+n > tables[x].len → trap.
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(9, 17, 14));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(9, 13));
+    {
+        const fixup_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hi, 0));
+        try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+        trace.writeBounds(ctx.func.func_idx, fixup_at);
+    }
+
+    // Step D: if n == 0, skip.
+    const skip_at: u32 = @intCast(ctx.buf.items.len);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbzW(14, 0));
+
+    // Step E: forward loop — elem_refs[src] → tbl.refs[dst].
+    //   .loop:
+    //     LDR X15, [X12, X16, LSL #3]   ; elem_refs[src]
+    //     STR X15, [X11, X17, LSL #3]   ; tbl.refs[dst]
+    //     ADD W17, W17, #1
+    //     ADD W16, W16, #1
+    //     SUB W14, W14, #1
+    //     CBNZ W14, .loop
+    const loop_start: u32 = @intCast(ctx.buf.items.len);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrXRegLsl3(15, 12, 16));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrXRegLsl3(15, 11, 17));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(17, 17, 1));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(16, 16, 1));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encSubImm12(14, 14, 1));
+    {
+        const back: i32 = @divExact(
+            @as(i32, @intCast(loop_start)) - @as(i32, @intCast(ctx.buf.items.len)),
+            4,
+        );
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbnzW(14, back));
+    }
+
+    const end_byte: u32 = @intCast(ctx.buf.items.len);
+    const skip_disp: i19 = @intCast(@divExact(
+        @as(i32, @intCast(end_byte)) - @as(i32, @intCast(skip_at)),
+        4,
+    ));
+    std.mem.writeInt(u32, ctx.buf.items[skip_at..][0..4], inst.encCbzW(14, skip_disp), .little);
+}
