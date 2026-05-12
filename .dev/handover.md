@@ -13,21 +13,20 @@
    per-chunk pickup chain (recipes, file paths, ADR notes) for
    the queue below. Authoritative for next session continuation.
 
-## Active state — **Phase 9 extended; l-1a COMPLETE (stages 1-6 landed) 2026-05-12**
+## Active state — **Phase 9 extended; l-1b runner half landed 2026-05-12**
 
 ### One-line state
 
-l-1a all stages landed; `spec_assert_runner_base.zig` (618 LOC)
-now owns scalar+v128 token parsing, tally, classification, the
-manifest-loop dispatch with `RunnerCallbacks`, and
-`makeJitRuntime` helper. `simd_assert_runner.zig` down to 846 LOC
-(SIMD-specific result decoding + entry-helper ladder only). SIMD
-test gate stayed at 13301/0/440 bit-identical pre/post every
-stage. Ready to begin **l-1b**: new
-`spec_assert_runner_non_simd.zig` + curated
-`test/spec/wasm-2.0-assert/` corpus (sign-ext, sat-trunc,
-multi-value, call_indirect, etc.) + `test-spec-wasm-2.0-assert`
-build step wired into `test-all`.
+l-1a (6 stages) + l-1b runner half landed: new
+`spec_assert_runner_non_simd.zig` (~430 LOC) consumes the
+shared base, `test-spec-wasm-2.0-assert` build step wired into
+`test-all` (reports "0 manifests" cleanly until corpus lands).
+Mac + OrbStack: simd_assert 13301/0/440 + spec_assert 212/0/20
+bit-identical. Next: **l-1b corpus** — write
+`scripts/regen_spec_2_0_assert.sh` + curate wasm-2.0 wasts
+(sign-ext, sat-trunc, multi-value, call_indirect, table_init,
+elem_drop, ref_*) into `test/spec/wasm-2.0-assert/`; the
+runner already handles them.
 
 ### Original m-2 cluster state (earlier this session)
 
@@ -53,22 +52,27 @@ m-2c-init ElemSlice).
 
 ## Implementation queue (sequential — pickup detail in pickup docs)
 
-Next session picks up at **l-1b** (new
-`spec_assert_runner_non_simd.zig` consuming base.runCorpus +
-RunnerCallbacks + parseAssertReturnArgs + makeJitRuntime;
-curated wasm-2.0 corpus subset; `test-spec-wasm-2.0-assert`
-build step + `test-all` wiring).
+Next session picks up at **l-1b corpus**: write
+`scripts/regen_spec_2_0_assert.sh` mirroring
+`regen_spec_1_0_assert.sh`'s `wast2json` → manifest pattern
+but pointing at the wasm-2.0 wast subset (sign-ext, sat-trunc,
+multi-value, call_indirect, table_init, elem_drop, ref_func,
+ref_null, ref_is_null). Distillation produces
+`test/spec/wasm-2.0-assert/<dir>/manifest.txt` + `*.wasm`
+fixtures consumed by the already-wired runner.
 
-Per-stage state of l-1a (all complete):
+Per-stage state of l-1 (l-1a all complete; l-1b in progress):
 
 | Stage | Status | What |
 |---|---|---|
-| 1 | [x] 06c3bfdc | scalar token parsers + splitFnAndArgs |
-| 2 | [x] dc7bc047 | AssertTally + classifySkipLine |
-| 3 | [x] 4727fc02 | DirectiveKind + classifyDirective (types only) |
-| 4 | [x] d8157857 | runCorpus + RunnerCallbacks trait in base |
-| 5 | [x] d9a1fff1 | parseAssertReturnArgs + ArgValue/parseArgToken/parseV128Token in base |
-| 6 | [x] 8e52a241 | makeJitRuntime helper hoist to base |
+| l-1a-1 | [x] 06c3bfdc | scalar token parsers + splitFnAndArgs |
+| l-1a-2 | [x] dc7bc047 | AssertTally + classifySkipLine |
+| l-1a-3 | [x] 4727fc02 | DirectiveKind + classifyDirective |
+| l-1a-4 | [x] d8157857 | runCorpus + RunnerCallbacks trait in base |
+| l-1a-5 | [x] d9a1fff1 | parseAssertReturnArgs / ArgValue / parseArgToken / parseV128Token in base |
+| l-1a-6 | [x] 8e52a241 | makeJitRuntime helper hoist to base |
+| l-1b-runner | [x] bff477f5 | new spec_assert_runner_non_simd.zig + test-spec-wasm-2.0-assert step + test-all wiring |
+| **l-1b-corpus** | **NEXT** | **regen_spec_2_0_assert.sh + curated wasm-2.0 wast vendor** |
 
 Then l-1b (new spec_assert_runner_non_simd.zig + curated wasm-2.0
 corpus + test-spec-wasm-2.0-assert build step).
