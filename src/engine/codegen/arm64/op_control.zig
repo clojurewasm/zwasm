@@ -357,16 +357,25 @@ fn emitBranchToDepth(ctx: *EmitCtx, depth: u32) Error!void {
     }
     if (depth > ctx.labels.items.len) return Error.UnsupportedOp;
     const tgt_idx = ctx.labels.items.len - 1 - depth;
-    const tgt = &ctx.labels.items[tgt_idx];
-    const fixup_at: u32 = @intCast(ctx.buf.items.len);
-    if (tgt.kind == .loop) {
-        const disp_words: i32 = @as(i32, @intCast(tgt.target_byte_offset)) -
+    if (ctx.labels.items[tgt_idx].kind == .loop) {
+        const fixup_at: u32 = @intCast(ctx.buf.items.len);
+        const tgt_byte = ctx.labels.items[tgt_idx].target_byte_offset;
+        const disp_words: i32 = @as(i32, @intCast(tgt_byte)) -
             @as(i32, @intCast(fixup_at));
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encB(@divExact(disp_words, 4)));
-    } else {
-        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encB(0));
-        try tgt.pending.append(ctx.allocator, .{ .byte_offset = fixup_at, .kind = .b_uncond });
+        return;
     }
+    // D-093 (d-7): forward branch — same block-merge mechanism
+    // as emitBr / emitBrIf. First br to a `.block` target with
+    // `result_arity > 0` captures merge_top_vregs; subsequent
+    // brs emit MOVs from current top → merge regs before the B
+    // fixup. br_table dispatches multiple cases through this
+    // helper; per-case CMP+B.NE-skip in emitBrTable is patched
+    // with variable disp to cover the MOVs + B span.
+    _ = try captureOrEmitBlockMergeMov(ctx, tgt_idx);
+    const fixup_at: u32 = @intCast(ctx.buf.items.len);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encB(0));
+    try ctx.labels.items[tgt_idx].pending.append(ctx.allocator, .{ .byte_offset = fixup_at, .kind = .b_uncond });
 }
 
 /// `br_table` — pop index; emit a CMP+B.NE+B chain for each
@@ -390,8 +399,19 @@ pub fn emitBrTable(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     var i: u32 = 0;
     while (i < count) : (i += 1) {
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmW(wn, @intCast(i)));
-        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.ne, 2));
+        // D-093 (d-7): emitBranchToDepth may now emit MOVs +
+        // B (when forward target is `.block` with merge
+        // already captured). Patch B.NE-skip's disp after the
+        // case body lands so it covers the actual span. Pre-d-7
+        // used a fixed disp of 2 words (= skip a single 4-byte
+        // B). Variable disp keeps the skip correct when MOVs
+        // are emitted between B.NE and the per-case B.
+        const bne_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.ne, 0));
         try emitBranchToDepth(ctx, targets[start + i]);
+        const after: u32 = @intCast(ctx.buf.items.len);
+        const disp_words: i19 = @intCast(@divExact(@as(i32, @intCast(after)) - @as(i32, @intCast(bne_at)), 4));
+        std.mem.writeInt(u32, ctx.buf.items[bne_at..][0..4], inst.encBCond(.ne, disp_words), .little);
     }
     try emitBranchToDepth(ctx, targets[start + count]);
 }

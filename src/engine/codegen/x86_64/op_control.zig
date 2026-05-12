@@ -271,21 +271,30 @@ pub fn emitFunctionReturn(
 fn emitBrTableJmp(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
     labels: *std.ArrayList(Label),
+    spill_base_off: u32,
     depth: u32,
 ) Error!void {
     if (depth >= labels.items.len) return types.rejectUnsupported("src/engine/codegen/x86_64/op_control.zig:104", 0);
     const tgt_idx = labels.items.len - 1 - depth;
-    const tgt = &labels.items[tgt_idx];
-    const at: u32 = @intCast(buf.items.len);
-    if (tgt.kind == .loop) {
-        const disp: i32 = @as(i32, @intCast(tgt.target_byte_offset)) -
+    if (labels.items[tgt_idx].kind == .loop) {
+        const at: u32 = @intCast(buf.items.len);
+        const tgt_byte = labels.items[tgt_idx].target_byte_offset;
+        const disp: i32 = @as(i32, @intCast(tgt_byte)) -
             @as(i32, @intCast(at)) - 5;
         try buf.appendSlice(allocator, inst.encJmpRel32(disp).slice());
-    } else {
-        try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
-        try tgt.pending.append(allocator, .{ .byte_offset = at, .insn_size = 5 });
+        return;
     }
+    // D-093 (d-7): block-merge MOVs (mirror of arm64
+    // emitBranchToDepth). Caller (emitBrTable) patches the
+    // per-case JNE-skip disp after this returns so it covers
+    // MOVs + JMP.
+    _ = try captureOrEmitBlockMergeMov(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, tgt_idx);
+    const at: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
+    try labels.items[tgt_idx].pending.append(allocator, .{ .byte_offset = at, .insn_size = 5 });
 }
 
 /// Wasm spec §3.4.6 (br_table) — pop index; emit a CMP+JNE-skip
@@ -326,10 +335,20 @@ pub fn emitBrTable(
     var i: u32 = 0;
     while (i < count) : (i += 1) {
         try buf.appendSlice(allocator, inst.encCmpRImm8(.d, idx_r, @intCast(i)).slice());
-        try buf.appendSlice(allocator, inst.encJccRel8(.ne, 5).slice());
-        try emitBrTableJmp(allocator, buf, labels, targets[start + i]);
+        // D-093 (d-7): variable-disp JNE-skip. emitBrTableJmp may
+        // emit MOVs + JMP (when forward target is `.block` with
+        // merge captured). Pre-d-7 used fixed disp = 5 (= skip a
+        // single 5-byte JMP). Patch after emitBrTableJmp returns.
+        const jne_at: usize = buf.items.len;
+        try buf.appendSlice(allocator, inst.encJccRel8(.ne, 0).slice());
+        const jne_size: usize = 2;
+        try emitBrTableJmp(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, targets[start + i]);
+        const after: usize = buf.items.len;
+        const disp: usize = after - (jne_at + jne_size);
+        if (disp > 127) return types.rejectUnsupported("src/engine/codegen/x86_64/op_control.zig:jne-rel8-overflow", @intCast(disp));
+        buf.items[jne_at + 1] = @intCast(disp);
     }
-    try emitBrTableJmp(allocator, buf, labels, targets[start + count]);
+    try emitBrTableJmp(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, targets[start + count]);
 }
 
 /// Wasm spec §3.4.5 (br_if N) — pop cond, branch to label at
