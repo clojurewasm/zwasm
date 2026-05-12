@@ -139,25 +139,23 @@ fn runCorpus(
         const line = std.mem.trim(u8, raw, " \r\t");
         if (line.len == 0) continue;
 
-        // Per ADR-0029 Path B (chunk 9.9-h-21): prefix-aware classification.
-        //   `skip-impl <reason>`         counts toward gate (`skip-impl == 0`).
-        //   `skip-adr-<ADR-id> <reason>` waived per the named skip-ADR.
-        //   `skip <reason>`              legacy bare form; back-compat warning
-        //                                + counts as skip-impl until chunk
-        //                                9.9-h-22 regen sweep migrates the
-        //                                simd_assert manifests.
-        if (std.mem.startsWith(u8, line, "skip-impl ")) {
-            skipped.* += 1;
-            continue;
-        }
-        if (std.mem.startsWith(u8, line, "skip-adr-")) {
-            skipped_adr.* += 1;
-            continue;
-        }
-        if (std.mem.startsWith(u8, line, "skip ")) {
-            try stdout.print("WARN  {s}: bare `skip` line — migrate to `skip-impl` or `skip-adr-<id>` (chunk 9.9-h-22 regen sweep): {s}\n", .{ name, line });
-            skipped.* += 1;
-            continue;
+        // Per ADR-0029 Path B (chunk 9.9-h-21): prefix-aware
+        // classification via base.classifySkipLine (§9.9-l-1a stage 2).
+        switch (base.classifySkipLine(line)) {
+            .skip_impl => {
+                skipped.* += 1;
+                continue;
+            },
+            .skip_adr => {
+                skipped_adr.* += 1;
+                continue;
+            },
+            .bare_legacy => {
+                try stdout.print("WARN  {s}: bare `skip` line — migrate to `skip-impl` or `skip-adr-<id>` (chunk 9.9-h-22 regen sweep): {s}\n", .{ name, line });
+                skipped.* += 1;
+                continue;
+            },
+            .other => {},
         }
 
         if (std.mem.startsWith(u8, line, "module ")) {

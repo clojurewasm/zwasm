@@ -52,6 +52,43 @@ pub fn splitFnAndArgs(lhs: []const u8) !struct { fn_name: []const u8, args_s: []
     return .{ .fn_name = lhs[0..sp1], .args_s = lhs[sp1 + 1 ..] };
 }
 
+/// Per-runner tally of assertion outcomes. Per ADR-0029 Path B
+/// (chunk 9.9-h-21): twin counters for `skip-impl` (counts toward
+/// release gate) and `skip-adr-<id>` (waived per the named ADR).
+///
+/// The two skip counters report distinct facts in the summary line:
+/// `skipped (= N skip-impl + M skip-adr)`. The exit-non-zero gate
+/// (`failed > 0`) is checked by the caller; tally just collects.
+pub const AssertTally = struct {
+    passed: u32 = 0,
+    failed: u32 = 0,
+    /// `skip-impl <reason>` — counts toward `skip-impl == 0` gate
+    /// (ADR-0029 Path B). Per ADR-0029 the release gate forbids
+    /// any line starting with `skip-impl `; a non-zero value here
+    /// means the manifest has yet-to-be-classified gaps.
+    skipped: u32 = 0,
+    /// `skip-adr-<ADR-id> <reason>` — waived per the named ADR.
+    /// Bare-legacy `skip <reason>` (pre-chunk 9.9-h-22 regen)
+    /// also lands here with a one-time WARN to stdout.
+    skipped_adr: u32 = 0,
+};
+
+/// ADR-0029 Path B classification — categorise a manifest line's
+/// directive prefix into the skip family (or .other for everything
+/// that isn't a skip). The caller increments the matching tally
+/// counter; .bare_legacy additionally triggers a WARN print.
+pub const SkipKind = enum { skip_impl, skip_adr, bare_legacy, other };
+
+/// Classify a trimmed manifest line. Returns `.other` for lines
+/// that don't start with `skip*`; the caller dispatches non-skip
+/// directives separately.
+pub fn classifySkipLine(line: []const u8) SkipKind {
+    if (std.mem.startsWith(u8, line, "skip-impl ")) return .skip_impl;
+    if (std.mem.startsWith(u8, line, "skip-adr-")) return .skip_adr;
+    if (std.mem.startsWith(u8, line, "skip ")) return .bare_legacy;
+    return .other;
+}
+
 // ============================================================
 // Tests
 // ============================================================
@@ -97,4 +134,36 @@ test "splitFnAndArgs: malformed (no close quote) rejects" {
 
 test "splitFnAndArgs: malformed (no space after close quote) rejects" {
     try testing.expectError(error.BadDirective, splitFnAndArgs("'foo'"));
+}
+
+test "classifySkipLine: skip-impl recognised" {
+    try testing.expectEqual(SkipKind.skip_impl, classifySkipLine("skip-impl unsupported op"));
+}
+
+test "classifySkipLine: skip-adr-* recognised" {
+    try testing.expectEqual(SkipKind.skip_adr, classifySkipLine("skip-adr-0029 waived"));
+}
+
+test "classifySkipLine: bare-legacy `skip ` recognised with WARN signal" {
+    try testing.expectEqual(SkipKind.bare_legacy, classifySkipLine("skip legacy reason"));
+}
+
+test "classifySkipLine: regular directive returns .other" {
+    try testing.expectEqual(SkipKind.other, classifySkipLine("assert_return foo 1"));
+    try testing.expectEqual(SkipKind.other, classifySkipLine("module test.wasm"));
+}
+
+test "classifySkipLine: `skip-implfoo` (no space) is NOT classified as skip-impl" {
+    // Defensive: the prefix is `skip-impl ` (with trailing space).
+    // A directive named `skip-impl-something` shouldn't accidentally
+    // route to skip-impl. classifySkipLine returns .other.
+    try testing.expectEqual(SkipKind.other, classifySkipLine("skip-implfoo"));
+}
+
+test "AssertTally: defaults are zero" {
+    const t: AssertTally = .{};
+    try testing.expectEqual(@as(u32, 0), t.passed);
+    try testing.expectEqual(@as(u32, 0), t.failed);
+    try testing.expectEqual(@as(u32, 0), t.skipped);
+    try testing.expectEqual(@as(u32, 0), t.skipped_adr);
 }
