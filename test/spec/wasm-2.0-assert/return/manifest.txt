@@ -1,0 +1,84 @@
+module return.0.wasm
+assert_return type-i32 () -> ()
+assert_return type-i64 () -> ()
+assert_return type-f32 () -> ()
+assert_return type-f64 () -> ()
+assert_return type-i32-value () -> i32:1
+assert_return type-i64-value () -> i64:2
+assert_return type-f32-value () -> f32:1077936128
+assert_return type-f64-value () -> f64:4616189618054758400
+assert_return nullary () -> ()
+assert_return unary () -> f64:4613937818241073152
+assert_return as-func-first () -> i32:1
+assert_return as-func-mid () -> i32:2
+assert_return as-func-last () -> ()
+assert_return as-func-value () -> i32:3
+assert_return as-block-first () -> ()
+assert_return as-block-mid () -> ()
+assert_return as-block-last () -> ()
+assert_return as-block-value () -> i32:2
+assert_return as-loop-first () -> i32:3
+assert_return as-loop-mid () -> i32:4
+assert_return as-loop-last () -> i32:5
+assert_return as-br-value () -> i32:9
+assert_return as-br_if-cond () -> ()
+assert_return as-br_if-value () -> i32:8
+assert_return as-br_if-value-cond () -> i32:9
+assert_return as-br_table-index () -> i64:9
+assert_return as-br_table-value () -> i32:10
+assert_return as-br_table-value-index () -> i32:11
+assert_return as-return-value () -> i64:7
+assert_return as-if-cond () -> i32:2
+assert_return as-if-then i32:1 i32:6 -> i32:3
+assert_return as-if-then i32:0 i32:6 -> i32:6
+assert_return as-if-else i32:0 i32:6 -> i32:4
+assert_return as-if-else i32:1 i32:6 -> i32:6
+assert_return as-select-first i32:0 i32:6 -> i32:5
+assert_return as-select-first i32:1 i32:6 -> i32:5
+assert_return as-select-second i32:0 i32:6 -> i32:6
+assert_return as-select-second i32:1 i32:6 -> i32:6
+assert_return as-select-cond () -> i32:7
+assert_return as-call-first () -> i32:12
+assert_return as-call-mid () -> i32:13
+assert_return as-call-last () -> i32:14
+assert_return as-call_indirect-func () -> i32:20
+assert_return as-call_indirect-first () -> i32:21
+assert_return as-call_indirect-mid () -> i32:22
+assert_return as-call_indirect-last () -> i32:23
+assert_return as-local.set-value () -> i32:17
+assert_return as-local.tee-value () -> i32:1
+assert_return as-global.set-value () -> i32:1
+assert_return as-load-address () -> f32:1071225242
+assert_return as-loadN-address () -> i64:30
+assert_return as-store-address () -> i32:30
+assert_return as-store-value () -> i32:31
+assert_return as-storeN-address () -> i32:32
+assert_return as-storeN-value () -> i32:33
+assert_return as-unary-operand () -> f32:1079613850
+assert_return as-binary-left () -> i32:3
+assert_return as-binary-right () -> i64:45
+assert_return as-test-operand () -> i32:44
+assert_return as-compare-left () -> i32:43
+assert_return as-compare-right () -> i32:42
+assert_return as-convert-operand () -> i32:41
+assert_return as-memory.grow-size () -> i32:40
+assert_invalid return.1.wasm
+assert_invalid return.2.wasm
+assert_invalid return.3.wasm
+assert_invalid return.4.wasm
+assert_invalid return.5.wasm
+assert_invalid return.6.wasm
+assert_invalid return.7.wasm
+assert_invalid return.8.wasm
+assert_invalid return.9.wasm
+assert_invalid return.10.wasm
+assert_invalid return.11.wasm
+assert_invalid return.12.wasm
+assert_invalid return.13.wasm
+assert_invalid return.14.wasm
+assert_invalid return.15.wasm
+assert_invalid return.16.wasm
+assert_invalid return.17.wasm
+assert_invalid return.18.wasm
+assert_invalid return.19.wasm
+assert_invalid return.20.wasm

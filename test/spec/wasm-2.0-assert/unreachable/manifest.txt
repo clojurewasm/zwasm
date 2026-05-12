@@ -1,0 +1,64 @@
+module unreachable.0.wasm
+assert_trap type-i32 ()
+assert_trap type-i64 ()
+assert_trap type-f32 ()
+assert_trap type-f64 ()
+assert_trap as-func-first ()
+assert_trap as-func-mid ()
+assert_trap as-func-last ()
+assert_trap as-func-value ()
+assert_trap as-block-first ()
+assert_trap as-block-mid ()
+assert_trap as-block-last ()
+assert_trap as-block-value ()
+assert_return as-block-broke () -> i32:1
+assert_trap as-loop-first ()
+assert_trap as-loop-mid ()
+assert_trap as-loop-last ()
+assert_return as-loop-broke () -> i32:1
+assert_trap as-br-value ()
+assert_trap as-br_if-cond ()
+assert_trap as-br_if-value ()
+assert_trap as-br_if-value-cond ()
+assert_trap as-br_table-index ()
+assert_trap as-br_table-value ()
+assert_trap as-br_table-value-2 ()
+assert_trap as-br_table-value-index ()
+assert_trap as-br_table-value-and-index ()
+assert_trap as-return-value ()
+assert_trap as-if-cond ()
+assert_trap as-if-then i32:1 i32:6
+assert_return as-if-then i32:0 i32:6 -> i32:6
+assert_trap as-if-else i32:0 i32:6
+assert_return as-if-else i32:1 i32:6 -> i32:6
+assert_trap as-if-then-no-else i32:1 i32:6
+assert_return as-if-then-no-else i32:0 i32:6 -> i32:6
+assert_trap as-select-first i32:0 i32:6
+assert_trap as-select-first i32:1 i32:6
+assert_trap as-select-second i32:0 i32:6
+assert_trap as-select-second i32:1 i32:6
+assert_trap as-select-cond ()
+assert_trap as-call-first ()
+assert_trap as-call-mid ()
+assert_trap as-call-last ()
+assert_trap as-call_indirect-func ()
+assert_trap as-call_indirect-first ()
+assert_trap as-call_indirect-mid ()
+assert_trap as-call_indirect-last ()
+assert_trap as-local.set-value ()
+assert_trap as-local.tee-value ()
+assert_trap as-global.set-value ()
+assert_trap as-load-address ()
+assert_trap as-loadN-address ()
+assert_trap as-store-address ()
+assert_trap as-store-value ()
+assert_trap as-storeN-address ()
+assert_trap as-storeN-value ()
+assert_trap as-unary-operand ()
+assert_trap as-binary-left ()
+assert_trap as-binary-right ()
+assert_trap as-test-operand ()
+assert_trap as-compare-left ()
+assert_trap as-compare-right ()
+assert_trap as-convert-operand ()
+assert_trap as-memory.grow-size ()

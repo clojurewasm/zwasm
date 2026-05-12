@@ -73,6 +73,10 @@ NAMES=(
   int_exprs
   int_literals
   float_literals
+  unreachable
+  local_get
+  local_set
+  return
 )
 
 mkdir -p "$DEST"

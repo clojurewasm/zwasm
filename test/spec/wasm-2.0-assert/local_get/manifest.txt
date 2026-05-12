@@ -1,0 +1,36 @@
+module local_get.0.wasm
+assert_return type-local-i32 () -> i32:0
+assert_return type-local-i64 () -> i64:0
+assert_return type-local-f32 () -> f32:0
+assert_return type-local-f64 () -> f64:0
+assert_return type-param-i32 i32:2 -> i32:2
+assert_return type-param-i64 i64:3 -> i64:3
+assert_return type-param-f32 f32:1082969293 -> f32:1082969293
+assert_return type-param-f64 f64:4617878467915022336 -> f64:4617878467915022336
+assert_return as-block-value i32:6 -> i32:6
+assert_return as-loop-value i32:7 -> i32:7
+assert_return as-br-value i32:8 -> i32:8
+assert_return as-br_if-value i32:9 -> i32:9
+assert_return as-br_if-value-cond i32:10 -> i32:10
+assert_return as-br_table-value i32:1 -> i32:2
+assert_return as-return-value i32:0 -> i32:0
+assert_return as-if-then i32:1 -> i32:1
+assert_return as-if-else i32:0 -> i32:0
+assert_return type-mixed i64:1 f32:1074580685 f64:4614613358185178726 i32:4 i32:5 -> ()
+assert_return read i64:1 f32:1073741824 f64:4614613358185178726 i32:4 i32:5 -> f64:4630094481904264806
+assert_invalid local_get.1.wasm
+assert_invalid local_get.2.wasm
+assert_invalid local_get.3.wasm
+assert_invalid local_get.4.wasm
+assert_invalid local_get.5.wasm
+assert_invalid local_get.6.wasm
+assert_invalid local_get.7.wasm
+assert_invalid local_get.8.wasm
+assert_invalid local_get.9.wasm
+assert_invalid local_get.10.wasm
+assert_invalid local_get.11.wasm
+assert_invalid local_get.12.wasm
+assert_invalid local_get.13.wasm
+assert_invalid local_get.14.wasm
+assert_invalid local_get.15.wasm
+assert_invalid local_get.16.wasm
