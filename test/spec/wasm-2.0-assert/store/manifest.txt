@@ -1,0 +1,68 @@
+module store.0.wasm
+assert_return as-block-value () -> ()
+assert_return as-loop-value () -> ()
+assert_return as-br-value () -> ()
+assert_return as-br_if-value () -> ()
+assert_return as-br_if-value-cond () -> ()
+assert_return as-br_table-value () -> ()
+assert_return as-return-value () -> ()
+assert_return as-if-then () -> ()
+assert_return as-if-else () -> ()
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+assert_invalid store.8.wasm
+assert_invalid store.9.wasm
+assert_invalid store.10.wasm
+assert_invalid store.11.wasm
+assert_invalid store.12.wasm
+assert_invalid store.13.wasm
+assert_invalid store.14.wasm
+assert_invalid store.15.wasm
+assert_invalid store.16.wasm
+assert_invalid store.17.wasm
+assert_invalid store.18.wasm
+assert_invalid store.19.wasm
+assert_invalid store.20.wasm
+assert_invalid store.21.wasm
+assert_invalid store.22.wasm
+assert_invalid store.23.wasm
+assert_invalid store.24.wasm
+assert_invalid store.25.wasm
+assert_invalid store.26.wasm
+assert_invalid store.27.wasm
+assert_invalid store.28.wasm
+assert_invalid store.29.wasm
+assert_invalid store.30.wasm
+assert_invalid store.31.wasm
+assert_invalid store.32.wasm
+assert_invalid store.33.wasm
+assert_invalid store.34.wasm
+assert_invalid store.35.wasm
+assert_invalid store.36.wasm
+assert_invalid store.37.wasm
+assert_invalid store.38.wasm
+assert_invalid store.39.wasm
+assert_invalid store.40.wasm
+assert_invalid store.41.wasm
+assert_invalid store.42.wasm
+assert_invalid store.43.wasm
+assert_invalid store.44.wasm
+assert_invalid store.45.wasm
+assert_invalid store.46.wasm
+assert_invalid store.47.wasm
+assert_invalid store.48.wasm
+assert_invalid store.49.wasm
+assert_invalid store.50.wasm
+assert_invalid store.51.wasm
+assert_invalid store.52.wasm
+assert_invalid store.53.wasm
+assert_invalid store.54.wasm
+assert_invalid store.55.wasm
+assert_invalid store.56.wasm
+assert_invalid store.57.wasm
+assert_invalid store.58.wasm

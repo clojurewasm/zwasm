@@ -81,12 +81,18 @@ NAMES=(
   block
   loop
   local_tee
-  # d-18 (D-097 discharge): x86_64 select emit fixed
-  # (val1-into-dst + CMOVE instead of val2-into-dst + CMOVNE)
-  # — pre-d-18 stage 0 was recycled across cond → val1 → dst
-  # so a doubly-spilled (val1, dst) pair aliased on R10 and
-  # the CMOVNE degenerated to a self-MOV.
   if
+  # d-19 NAMES expansion (six names mechanically covered by
+  # the already-implemented ops). `select` deferred: select.0.wasm
+  # exports `(select externref)` + `(select funcref)` per Wasm
+  # spec §3.3.4.2 — our validator rejects reftype params with
+  # BadValType (reftype runtime is Phase 10+). `align` rejected
+  # by `wast2json` (regen script logs skip + moves on).
+  address
+  const
+  load
+  store
+  traps
 )
 
 mkdir -p "$DEST"

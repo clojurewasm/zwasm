@@ -10,43 +10,36 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **Phase 9 extended; D-093 (d-18) x86_64 select + call_indirect landed 2026-05-14**
+## Active state — **Phase 9 extended; D-093 (d-19) NAMES expansion (+5 names) landed 2026-05-14**
 
 ### One-line state
 
-D-093 (d-18) discharges D-097: two x86_64 emit fixes for ops
-that consume force-spilled vregs. (a) select's stage-0 pool
-was recycled across cond → val1 → dst; the alias depended on
-regalloc's LIFO free-pool ordering. Fix: pick CMOVE vs CMOVNE
-direction so the init MOV is always a self-MOV or skipped
-when an alias exists. (b) call_indirect loaded idx_r BEFORE
-marshalCallArgs, but marshalling stages spilled args through
-R10 (= idx_r's home when idx is spilled), so bounds / sig /
-funcptr-index loads read the last-staged arg instead of the
-idx. Fix: defer idx_r load until after marshalCallArgs.
-Both hosts now at 12460/0 on `test-spec-wasm-2.0-assert` with
-`if` enabled. `test-all` green on both; simd 13301/0/440
-unchanged.
+D-093 (d-19) expands `regen_spec_2_0_assert.sh` NAMES with
+five mechanically-covered names: `address`, `const`, `load`,
+`store`, `traps`. `select` deferred (select.0.wasm's
+externref / funcref selects trip BadValType, reftype is
+Phase 10+); `align` rejected by wast2json. Both hosts at
+13191/0/281 on `test-spec-wasm-2.0-assert` (was 12460/0/185
+post-d-18; +731 PASS / +96 SKIP). `test-all` green; simd
+13301/0/440 unchanged.
 
 ### Standing reminder for the autonomous loop
 
 **Project tone is `.claude/rules/no_workaround.md`: fix root
 causes, never work around.**
 
-### Next task — post-D-093 NAMES expansion or §9.9 close
+### Next task — d-20 NAMES expansion
 
-D-095 + D-096 + D-097 ALL DISCHARGED. With `if` in NAMES both
-hosts are at 12460/0/185 on `test-spec-wasm-2.0-assert`. D-093
-(d-15..d-18 sub-cluster) resolved.
+D-095 + D-096 + D-097 ALL DISCHARGED. With d-19 batch landed
+both hosts at 13191/0/281.
 
-- **d-19 NEXT** — pick the next NAMES expansion from the queue
-  (`address`, `align`, `br_table`, `call`, `call_indirect`,
-  `const`, `data`, `elem`, `f32_bitwise`, `f64_bitwise`, `fac`,
-  `func`, `func_ptrs`, `global`, `load`, `memory`,
-  `memory_grow`, `memory_size`, `select`, `start`, `store`,
-  `switch`, `table`, `traps`, `type`, `unwind`). Bundle into
-  one chunk where the underlying ops share an existing emit
-  helper (cf. continue/LOOP.md chunk-granularity table).
+- **d-20 NEXT** — next NAMES bundle. Remaining queue
+  (post-d-19): `br_table`, `call`, `call_indirect`, `data`,
+  `elem`, `f32_bitwise`, `f64_bitwise`, `fac`, `func`,
+  `func_ptrs`, `global`, `memory`, `memory_grow`,
+  `memory_size`, `start`, `switch`, `table`, `type`,
+  `unwind`. Prefer mechanically-covered names first (no
+  new ops introduced).
 
 Runner-side skip-impl backlog (7 total, in `nop / loop /
 local_tee`):
@@ -90,8 +83,9 @@ Other queued post-D-093 names: `address`, `align`, `br_table`,
 | D-093 (d-15) | [x] b5bd2cdf | regalloc call-crossing-vreg root-cause investigation + D-095 debt + compose_no_call edge fixture |
 | D-093 (d-16) | [x] 5ccae2cd | ADR-0060: regalloc `computeWith` force-spill call-crossing vregs (slot ≥ per-arch max(GPR, FP)) + compose_with_call edge fixture + D-095 partial discharge + D-096 / D-097 filed |
 | D-093 (d-17) | [x] eca69183 | unified `emitMergeMov` (FP-class dispatch + 64-bit GPR MOV) + br-into-if-frame merge capture (D-096 discharged) + br_inside_arm edge fixture |
-| D-093 (d-18) | [x] (this commit) | x86_64 select alias-aware cmov + call_indirect idx load order (D-097 discharged) + select_spilled_operands / select_with_if_call / select_with_if_no_call edge fixtures |
-| **D-093 (d-19)** | **NEXT** | post-D-093 NAMES expansion (pick from `address`/`align`/`br_table`/`call`/`call_indirect`/`const`/... queue) |
+| D-093 (d-18) | [x] 4a4e0a22 | x86_64 select alias-aware cmov + call_indirect idx load order (D-097 discharged) + select_spilled_operands / select_with_if_call / select_with_if_no_call edge fixtures |
+| D-093 (d-19) | [x] (this commit) | NAMES +5 (`address`, `const`, `load`, `store`, `traps`); `select` deferred (reftype), `align` rejected by wast2json |
+| **D-093 (d-20)** | **NEXT** | NAMES bundle (queue: `br_table`/`call`/`call_indirect`/`data`/`elem`/...) |
 
 Other queued chunks (post-l-1): k-1, k-2, m-4c (= D-090),
 m-2d, n-1, j-3b.
