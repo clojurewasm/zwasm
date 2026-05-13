@@ -237,6 +237,24 @@ pub const JitRuntime = extern struct {
     elem_segments_ptr: [*]const ElemSlice = undefined,
     elem_segments_count: u32 = 0,
     _pad10: u32 = 0,
+    /// §9.9 / 9.9-l-1b-d093-d8a (per ADR-0059): opaque pointer to
+    /// host-managed state needed by runtime callout fn ptrs (e.g.
+    /// allocator + back-reference to the canonical backing buffer
+    /// the JitRuntime aliases). Each callout's fn ptr knows how
+    /// to interpret this; mismatched casts are silent UB so
+    /// `host_state` and the matching callout fn slot are paired
+    /// at construction time.
+    host_state: ?*anyopaque = null,
+    /// §9.9 / 9.9-l-1b-d093-d8a (per ADR-0059): `memory.grow mem=0`
+    /// callout. Args: `(rt: *JitRuntime, delta_pages: u32)` →
+    /// previous page count on success (widened from u32 to i32),
+    /// `-1` on failure. The fn MUST update `rt.vm_base` +
+    /// `rt.mem_limit` in place when growth succeeds so the JIT
+    /// body's post-call reload (arm64 reloads X28/X27 from these
+    /// offsets) sees the new values. Calling convention is C-ABI
+    /// (SysV on Linux/macOS x86_64, Win64 on Windows, AAPCS64 on
+    /// arm64); callee-saved registers MUST be preserved.
+    memory_grow_fn: ?*const fn (rt: *JitRuntime, delta_pages: u32) callconv(.c) i32 = null,
 };
 
 // ============================================================
@@ -274,6 +292,8 @@ pub const tables_ptr_off: u12 = @offsetOf(JitRuntime, "tables_ptr");
 pub const tables_count_off: u12 = @offsetOf(JitRuntime, "tables_count");
 pub const elem_segments_ptr_off: u12 = @offsetOf(JitRuntime, "elem_segments_ptr");
 pub const elem_segments_count_off: u12 = @offsetOf(JitRuntime, "elem_segments_count");
+pub const host_state_off: u12 = @offsetOf(JitRuntime, "host_state");
+pub const memory_grow_fn_off: u12 = @offsetOf(JitRuntime, "memory_grow_fn");
 
 /// Total size of the head section consumed by the prologue.
 pub const head_size: u32 = @sizeOf(JitRuntime);
@@ -353,6 +373,13 @@ comptime {
     if (elem_segments_ptr_off > 32760) @compileError("elem_segments_ptr_off exceeds X-form imm12 budget");
     if (elem_segments_count_off > 16380) @compileError("elem_segments_count_off exceeds W-form imm12 budget");
     if (@sizeOf(ElemSlice) != 16) @compileError("ElemSlice size != 16; JIT table.init stride assumption broken");
+    // §9.9 / 9.9-l-1b-d093-d8a (ADR-0059): host_state + memory_grow_fn
+    // are both X-form (8-byte pointer) — natural 8-alignment from
+    // extern struct layout; assert explicitly for future tail growth.
+    if ((host_state_off & 7) != 0) @compileError("host_state_off not 8-aligned");
+    if ((memory_grow_fn_off & 7) != 0) @compileError("memory_grow_fn_off not 8-aligned");
+    if (host_state_off > 32760) @compileError("host_state_off exceeds X-form imm12 budget");
+    if (memory_grow_fn_off > 32760) @compileError("memory_grow_fn_off exceeds X-form imm12 budget");
 }
 
 // ============================================================
@@ -373,8 +400,13 @@ test "JitRuntime: layout offsets match documented prologue load sequence" {
     try testing.expectEqual(@as(u12, 80), jit_executed_flag_off);
 }
 
-test "JitRuntime: total size = 184 bytes (post-§9.9 / 9.9-m-2c-init elem_segments tail)" {
-    try testing.expectEqual(@as(u32, 184), head_size);
+test "JitRuntime: total size = 200 bytes (post-§9.9 / 9.9-l-1b-d093-d8a host_state + memory_grow_fn tail)" {
+    try testing.expectEqual(@as(u32, 200), head_size);
+}
+
+test "JitRuntime: §9.9 / 9.9-l-1b-d093-d8a callout offsets (host_state + memory_grow_fn)" {
+    try testing.expectEqual(@as(u12, 184), host_state_off);
+    try testing.expectEqual(@as(u12, 192), memory_grow_fn_off);
 }
 
 test "JitRuntime: §9.9 / 9.9-m-1b + 9.9-m-3a + 9.9-m-3b + 9.9-m-2a + 9.9-m-2c-init new field offsets" {
