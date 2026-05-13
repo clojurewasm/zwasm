@@ -178,6 +178,16 @@ pub fn emitLoop(
 ) Error!void {
     const ar = unpackBlockArity(arity_u32);
     if (ar.results > merge_top_vregs_cap) return types.rejectUnsupported("src/engine/codegen/x86_64/op_control.zig:emitLoop-arity", arity_u32);
+    if (ar.params > merge_top_vregs_cap) return types.rejectUnsupported("src/engine/codegen/x86_64/op_control.zig:emitLoop-param-arity", arity_u32);
+    // D-099 / d-24: mirror arm64 — capture loop entry param vregs.
+    var param_top: [merge_top_vregs_cap]u32 = undefined;
+    if (ar.params > 0 and pushed_vregs.items.len >= ar.params) {
+        const base = pushed_vregs.items.len - ar.params;
+        var i: u32 = 0;
+        while (i < ar.params) : (i += 1) {
+            param_top[i] = pushed_vregs.items[base + i];
+        }
+    }
     try labels.append(allocator, .{
         .kind = .loop,
         .target_byte_offset = @intCast(buf.items.len),
@@ -185,6 +195,7 @@ pub fn emitLoop(
         .result_arity = ar.results,
         .param_arity = ar.params,
         .entry_stack_depth = @intCast(pushed_vregs.items.len),
+        .param_top_vregs = param_top,
     });
 }
 
@@ -221,6 +232,22 @@ pub fn emitBr(
     if (depth > labels.items.len) return types.rejectUnsupported("src/engine/codegen/x86_64/op_control.zig:78", 0);
     const tgt_idx = labels.items.len - 1 - depth;
     if (labels.items[tgt_idx].kind == .loop) {
+        // D-099 / d-24: mirror arm64 — emit MOVs from current top
+        // param_arity vregs into captured param_top_vregs before
+        // the back-branch so the next iteration's body reads new
+        // param values.
+        const param_arity = labels.items[tgt_idx].param_arity;
+        if (param_arity > 0 and pushed_vregs.items.len >= param_arity) {
+            const base = pushed_vregs.items.len - param_arity;
+            var i: u32 = 0;
+            while (i < param_arity) : (i += 1) {
+                const src_vreg = pushed_vregs.items[base + i];
+                const dst_vreg = labels.items[tgt_idx].param_top_vregs[i];
+                if (src_vreg != dst_vreg) {
+                    try emitMergeMov(allocator, buf, alloc, spill_base_off, func, src_vreg, dst_vreg);
+                }
+            }
+        }
         const at: u32 = @intCast(buf.items.len);
         const tgt_byte = labels.items[tgt_idx].target_byte_offset;
         const disp: i32 = @as(i32, @intCast(tgt_byte)) -
@@ -401,6 +428,19 @@ fn emitBrTableJmp(
     if (depth > labels.items.len) return types.rejectUnsupported("src/engine/codegen/x86_64/op_control.zig:104", 0);
     const tgt_idx = labels.items.len - 1 - depth;
     if (labels.items[tgt_idx].kind == .loop) {
+        // D-099 / d-24: loop-param MOVs (mirror of emitBr).
+        const param_arity = labels.items[tgt_idx].param_arity;
+        if (param_arity > 0 and pushed_vregs.items.len >= param_arity) {
+            const base = pushed_vregs.items.len - param_arity;
+            var i: u32 = 0;
+            while (i < param_arity) : (i += 1) {
+                const src_vreg = pushed_vregs.items[base + i];
+                const dst_vreg = labels.items[tgt_idx].param_top_vregs[i];
+                if (src_vreg != dst_vreg) {
+                    try emitMergeMov(allocator, buf, alloc, spill_base_off, func, src_vreg, dst_vreg);
+                }
+            }
+        }
         const at: u32 = @intCast(buf.items.len);
         const tgt_byte = labels.items[tgt_idx].target_byte_offset;
         const disp: i32 = @as(i32, @intCast(tgt_byte)) -
@@ -520,6 +560,34 @@ pub fn emitBrIf(
     try buf.appendSlice(allocator, inst.encTestRR(.d, cond_r, cond_r).slice());
     const tgt_idx = labels.items.len - 1 - depth;
     if (labels.items[tgt_idx].kind == .loop) {
+        // D-099 / d-24: loop with params — MOVs gated on cond ≠ 0.
+        // Wrap with JE-skip when params present; else use direct
+        // JNE-back.
+        const param_arity = labels.items[tgt_idx].param_arity;
+        if (param_arity > 0 and pushed_vregs.items.len >= param_arity) {
+            const je_at: usize = buf.items.len;
+            try buf.appendSlice(allocator, inst.encJccRel32(.e, 0).slice());
+            const base = pushed_vregs.items.len - param_arity;
+            var i: u32 = 0;
+            while (i < param_arity) : (i += 1) {
+                const src_vreg = pushed_vregs.items[base + i];
+                const dst_vreg = labels.items[tgt_idx].param_top_vregs[i];
+                if (src_vreg != dst_vreg) {
+                    try emitMergeMov(allocator, buf, alloc, spill_base_off, func, src_vreg, dst_vreg);
+                }
+            }
+            const back_at: u32 = @intCast(buf.items.len);
+            const tgt_byte = labels.items[tgt_idx].target_byte_offset;
+            const back_disp: i32 = @as(i32, @intCast(tgt_byte)) -
+                @as(i32, @intCast(back_at)) - 5;
+            try buf.appendSlice(allocator, inst.encJmpRel32(back_disp).slice());
+            // Patch JE-skip disp to land at the byte after the JMP back.
+            const skip_at: u32 = @intCast(buf.items.len);
+            const je_disp: i32 = @as(i32, @intCast(skip_at)) - @as(i32, @intCast(je_at)) - 6;
+            const patched = inst.encJccRel32(.e, je_disp);
+            @memcpy(buf.items[je_at .. je_at + patched.len], patched.slice());
+            return;
+        }
         const at: u32 = @intCast(buf.items.len);
         const tgt_byte = labels.items[tgt_idx].target_byte_offset;
         const disp: i32 = @as(i32, @intCast(tgt_byte)) -

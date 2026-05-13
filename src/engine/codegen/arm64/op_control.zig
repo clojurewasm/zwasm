@@ -200,6 +200,21 @@ pub fn emitBlock(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 pub fn emitLoop(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const ar = unpackBlockArity(ins.extra);
     if (ar.results > merge_top_vregs_cap) return Error.UnsupportedOp;
+    if (ar.params > merge_top_vregs_cap) return Error.UnsupportedOp;
+    // D-099 / d-24: capture the loop's entry param vregs. At a
+    // backward `br $l` (or `br_if $l`), top `param_arity` vregs
+    // are the NEW values for the next iteration; emit needs to
+    // MOV those into the captured param vreg slots BEFORE the
+    // back-branch so the loop body's first ops (which read the
+    // param vreg slots) see the next-iter values.
+    var param_top: [merge_top_vregs_cap]u32 = undefined;
+    if (ar.params > 0 and ctx.pushed_vregs.items.len >= ar.params) {
+        const base = ctx.pushed_vregs.items.len - ar.params;
+        var i: u32 = 0;
+        while (i < ar.params) : (i += 1) {
+            param_top[i] = ctx.pushed_vregs.items[base + i];
+        }
+    }
     try ctx.labels.append(ctx.allocator, .{
         .kind = .loop,
         .target_byte_offset = @intCast(ctx.buf.items.len),
@@ -207,6 +222,7 @@ pub fn emitLoop(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         .result_arity = ar.results,
         .param_arity = ar.params,
         .entry_stack_depth = @intCast(ctx.pushed_vregs.items.len),
+        .param_top_vregs = param_top,
     });
 }
 
@@ -297,6 +313,27 @@ pub fn emitBr(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     if (ins.payload > ctx.labels.items.len) return Error.UnsupportedOp;
     const tgt_idx = ctx.labels.items.len - 1 - ins.payload;
     if (ctx.labels.items[tgt_idx].kind == .loop) {
+        // D-099 / d-24: Wasm 2.0 multi-value loop with params. The
+        // loop's label-type is its param type (not result); a
+        // backward br supplies the NEXT iteration's param values
+        // on top of stack. Emit MOVs from top `param_arity` vregs
+        // into the captured `param_top_vregs` (the loop body's
+        // initial param vreg slots) so the next iter's body reads
+        // the new values. Pre-d-24 this was a no-op (loops
+        // without params worked; multi-param loops like fac-ssa
+        // returned wrong values).
+        const param_arity = ctx.labels.items[tgt_idx].param_arity;
+        if (param_arity > 0 and ctx.pushed_vregs.items.len >= param_arity) {
+            const base = ctx.pushed_vregs.items.len - param_arity;
+            var i: u32 = 0;
+            while (i < param_arity) : (i += 1) {
+                const src_vreg = ctx.pushed_vregs.items[base + i];
+                const dst_vreg = ctx.labels.items[tgt_idx].param_top_vregs[i];
+                if (src_vreg != dst_vreg) {
+                    try emitMergeMov(ctx, src_vreg, dst_vreg, 1, 0);
+                }
+            }
+        }
         const fixup_at: u32 = @intCast(ctx.buf.items.len);
         const tgt_byte = ctx.labels.items[tgt_idx].target_byte_offset;
         const disp_words: i32 = @as(i32, @intCast(tgt_byte)) -
@@ -342,6 +379,34 @@ pub fn emitBrIf(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     if (ins.payload > ctx.labels.items.len) return Error.UnsupportedOp;
     const tgt_idx = ctx.labels.items.len - 1 - ins.payload;
     if (ctx.labels.items[tgt_idx].kind == .loop) {
+        // D-099 / d-24: loop with params — MOVs must run only when
+        // cond ≠ 0 (= when the back-branch is taken). Without
+        // params, fall through to the simpler CBNZ-direct shape
+        // since no MOVs are needed.
+        const param_arity = ctx.labels.items[tgt_idx].param_arity;
+        if (param_arity > 0 and ctx.pushed_vregs.items.len >= param_arity) {
+            const cbz_at: u32 = @intCast(ctx.buf.items.len);
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbzW(wn, 0));
+            const base = ctx.pushed_vregs.items.len - param_arity;
+            var i: u32 = 0;
+            while (i < param_arity) : (i += 1) {
+                const src_vreg = ctx.pushed_vregs.items[base + i];
+                const dst_vreg = ctx.labels.items[tgt_idx].param_top_vregs[i];
+                if (src_vreg != dst_vreg) {
+                    try emitMergeMov(ctx, src_vreg, dst_vreg, 1, 0);
+                }
+            }
+            const b_at: u32 = @intCast(ctx.buf.items.len);
+            const tgt_byte = ctx.labels.items[tgt_idx].target_byte_offset;
+            const disp_words: i32 = @as(i32, @intCast(tgt_byte)) -
+                @as(i32, @intCast(b_at));
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encB(@divExact(disp_words, 4)));
+            // Patch CBZ to skip past the MOVs + B.
+            const skip_byte: u32 = @intCast(ctx.buf.items.len);
+            const cbz_disp_words: i19 = @intCast(@divExact(@as(i32, @intCast(skip_byte)) - @as(i32, @intCast(cbz_at)), 4));
+            std.mem.writeInt(u32, ctx.buf.items[cbz_at..][0..4], inst.encCbzW(wn, cbz_disp_words), .little);
+            return;
+        }
         const fixup_at: u32 = @intCast(ctx.buf.items.len);
         const tgt_byte = ctx.labels.items[tgt_idx].target_byte_offset;
         const disp_words: i32 = @as(i32, @intCast(tgt_byte)) -
@@ -423,6 +488,19 @@ fn emitBranchToDepth(ctx: *EmitCtx, depth: u32) Error!void {
     if (depth > ctx.labels.items.len) return Error.UnsupportedOp;
     const tgt_idx = ctx.labels.items.len - 1 - depth;
     if (ctx.labels.items[tgt_idx].kind == .loop) {
+        // D-099 / d-24: mirror emitBr's loop-param MOV path.
+        const param_arity = ctx.labels.items[tgt_idx].param_arity;
+        if (param_arity > 0 and ctx.pushed_vregs.items.len >= param_arity) {
+            const base = ctx.pushed_vregs.items.len - param_arity;
+            var i: u32 = 0;
+            while (i < param_arity) : (i += 1) {
+                const src_vreg = ctx.pushed_vregs.items[base + i];
+                const dst_vreg = ctx.labels.items[tgt_idx].param_top_vregs[i];
+                if (src_vreg != dst_vreg) {
+                    try emitMergeMov(ctx, src_vreg, dst_vreg, 1, 0);
+                }
+            }
+        }
         const fixup_at: u32 = @intCast(ctx.buf.items.len);
         const tgt_byte = ctx.labels.items[tgt_idx].target_byte_offset;
         const disp_words: i32 = @as(i32, @intCast(tgt_byte)) -

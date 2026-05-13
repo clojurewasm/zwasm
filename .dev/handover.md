@@ -10,34 +10,40 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **Phase 9 extended; D-093 (d-23) NAMES +1 (unwind) via D-107 discharge 2026-05-14**
+## Active state — **Phase 9 extended; D-093 (d-24) NAMES +1 (fac) via D-099 discharge 2026-05-14**
 
 ### One-line state
 
-D-093 (d-23) discharges D-107: x86_64's `emitBrTableJmp` now
-handles `depth == labels.items.len` (function-scope `br_table 0`)
-by calling `emitFunctionReturn`, mirroring arm64's
-`emitBranchToDepth`. `frame_bytes` + `uses_runtime_ptr` threaded
-through `emitBrTable` → `emitBrTableJmp`. `unwind` lands clean
-on both hosts. Both hosts at 14031/0/283 on
-`test-spec-wasm-2.0-assert` (was 13982/0/283 post-d-22; +49 PASS,
-+1 manifest). simd 13301/0/440 unchanged.
+D-093 (d-24) discharges D-099: Wasm 2.0 multi-value loop with
+params. `emitLoop` now captures the entry param vregs into
+`param_top_vregs`; backward `br` / `br_if` / `br_table` to a
+loop emit MOVs from top `branch_arity` vregs into the captured
+param vreg slots before the back-branch, on both archs. For
+`br_if`/`br_table` the MOVs are gated by the cond so fall-
+through paths skip them. `fac` lands clean on both hosts;
+fac-ssa(25) now returns 25! correctly. Both hosts at
+14037/0/284 on `test-spec-wasm-2.0-assert` (was 14031/0/283
+post-d-23; +6 PASS, +1 manifest). simd 13301/0/440 unchanged.
 
 ### Standing reminder for the autonomous loop
 
 **Project tone is `.claude/rules/no_workaround.md`: fix root
 causes, never work around.**
 
-### Next task — d-24 discharge candidate
+### Next task — d-25 discharge candidate
 
-Active debts: D-099 fac-ssa loop param (~50 LOC), D-101 call
-UnsupportedOp (~30 LOC once op named), D-106 start-invoke
-SEGV (needs lldb trace), D-108 call_indirect UnsupportedOp,
-D-109 func validate, D-102/D-103/D-110 (call_indirect family).
+Active debts (post-d-24):
+- D-101 call UnsupportedOp on call.0.wasm (~30 LOC once op named).
+- D-106 start-invoke SEGV (lldb trace needed for prologue load).
+- D-108 call_indirect UnsupportedOp on call_indirect.0.wasm.
+- D-109 func validator StackTypeMismatch.
+- D-102/D-103/D-110: data-init / elem-SEGV / func_ptrs trap
+  (call_indirect family, larger scope).
+- D-104/D-105: reftype + cross-module memory (Phase 10+).
 
-- **d-24 NEXT** — D-099 fac-ssa is the most self-contained.
-  Add a minimal loop-param multi-value edge fixture, bisect
-  the bug, fix in `op_control.zig:emitLoop`.
+- **d-25 NEXT** — D-101 (call UnsupportedOp): enable `call`
+  solo, dump failing op via emit's debug print, name the
+  missing handler.
 
 Runner-side skip-impl backlog (7 total, in `nop / loop /
 local_tee`):
@@ -86,8 +92,9 @@ Other queued post-D-093 names: `address`, `align`, `br_table`,
 | D-093 (d-20) | [x] 18f93d91 | NAMES +5 (`f32_bitwise`, `f64_bitwise`, `memory_size`, `switch`, `type`) + runner memory_limits reset + D-099 (fac-ssa loop param) filed |
 | D-093 (d-21) | [x] 834fd332 | NAMES batch bisect (call/data/elem/global/memory_grow/start/unwind each → its own debt D-101..D-107) + GROWABLE_MEMORY_CAPACITY 64 → 1024 pages |
 | D-093 (d-22) | [x] 404a8477 | NAMES batch bisect (call_indirect/func/func_ptrs/memory/table → D-108..D-110 + wast2json-reject) + D-106 discharge scaffolding (extractStartFunc + invoke helper; SEGV root-cause now narrowed) |
-| D-093 (d-23) | [x] (this commit) | D-107 discharged: x86_64 emitBrTableJmp function-depth (mirror arm64); `unwind` lands +49 PASS |
-| **D-093 (d-24)** | **NEXT** | discharge candidate: D-099 fac-ssa loop param (most self-contained) |
+| D-093 (d-23) | [x] ad84042e | D-107 discharged: x86_64 emitBrTableJmp function-depth (mirror arm64); `unwind` lands +49 PASS |
+| D-093 (d-24) | [x] (this commit) | D-099 discharged: emitLoop captures param_top_vregs + backward br/br_if/br_table emit param MOVs before back-branch; `fac` lands +6 PASS |
+| **D-093 (d-25)** | **NEXT** | discharge candidate: D-101 (call.0.wasm UnsupportedOp) |
 
 Other queued chunks (post-l-1): k-1, k-2, m-4c (= D-090),
 m-2d, n-1, j-3b.

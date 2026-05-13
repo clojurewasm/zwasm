@@ -140,8 +140,9 @@ NAMES=(
   # Bundle bisect (call_indirect/func/func_ptrs/memory/table) all
   # surfaced UnsupportedOp / validate / trap-assert / wast2json-
   # rejected — covered by D-108..D-110.
-  # d-23 D-107 probe.
   unwind
+  # d-24: fac lands after D-099 discharge (loop with params).
+  fac
 )
 
 mkdir -p "$DEST"

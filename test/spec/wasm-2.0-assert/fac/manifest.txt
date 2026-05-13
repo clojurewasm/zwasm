@@ -1,0 +1,8 @@
+module fac.0.wasm
+assert_return fac-rec i64:25 -> i64:7034535277573963776
+assert_return fac-iter i64:25 -> i64:7034535277573963776
+assert_return fac-rec-named i64:25 -> i64:7034535277573963776
+assert_return fac-iter-named i64:25 -> i64:7034535277573963776
+assert_return fac-opt i64:25 -> i64:7034535277573963776
+assert_return fac-ssa i64:25 -> i64:7034535277573963776
+skip-impl directive-assert_exhaustion
