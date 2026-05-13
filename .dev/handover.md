@@ -10,32 +10,24 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **Phase 9 extended; D-093 (d-14) landed 2026-05-14**
+## Active state — **Phase 9 extended; D-093 (d-15) investigation landed 2026-05-14**
 
 ### One-line state
 
-D-093 (d-14) landed: arm64 `.return` op multi-result marshal.
-Pre-d-14 the arm64 `.return` handler in `src/engine/codegen/
-arm64/emit.zig` had a stale inline single-result marshal that
-my d-11 multi-result refactor missed (d-11 only updated the
-function-level `.end` path; x86_64's `.return` was already
-extracted). For multi-result `(return X Y)` the i32 second
-result wasn't marshalled to X1, leaving X1 with garbage from
-the prior call's caller-saved-reg state. Caller's
-captureCallResult read the garbage as i32 carry → wrong cond
-→ if-frame took wrong arm. Fix: arm64 `.return` now calls
-`op_control.marshalFunctionReturn(&ctx)`; dead
-`encOrrZrIntoX0` helper removed. Edge fixture `add64_u_saturated_exact.wasm = 1253` PASS on
-both arches (the wast version's exact shape — 2-i64-param
-caller + multi-result callee + implicit-else if with i64
-param/result + i32.wrap_i64 entry). Mac + OrbStack
+D-093 (d-15) discovery: the 5 residual `if.wast` failures all
+share a single root cause — regalloc gives call-crossing vregs
+caller-saved registers, which the intermediate `call $dummy`
+(or similar) clobbers. The if-frame's merge result vreg is live
+from def to the post-if consumer; for compose-of-2 patterns with
+intermediate calls, regalloc's first-fit policy (caller-saved
+pool first per `allocatable_gprs` order) places the vreg in
+e.g. X9 / RBX → call clobbers it → consumer reads garbage.
+Filed as D-095 (blocked-by: regalloc call-crossing-vreg
+awareness — ADR-grade). Edge fixture `compose_no_call.wasm = 1`
+PASS demonstrates the issue is call-induced (compose-of-2
+without intervening calls works correctly). Mac + OrbStack
 `test-spec-wasm-2.0-assert` 12262 / 0 / 143 unchanged (`if`
-deferred — adding it surfaces 5 residual failures across 3
-structural gaps: compose-of-2 single-result if
-(as-compare-operand), multi-result if compose
-(as-compare-operands), br-inside-if-arm (param-break /
-params-break) — each split into d-15+ chunks). simd
-unchanged 13301/0/440.
+deferred until D-095 discharge). simd unchanged 13301/0/440.
 
 ### Standing reminder for the autonomous loop
 
@@ -99,7 +91,9 @@ Other queued post-D-093 names: `address`, `align`, `br_table`,
 | D-093 (d-11) | [x] 9b48592e | multi-result function calls (arm64 + x86_64 captureCallResult + marshalReturn shared helpers) + edge-case fixture |
 | D-093 (d-12) | [x] 7d1c71f8 | liveness if-frame merge tracking + x86_64 cap silent-truncate (D-094 debt) + multi_result_compose edge fixture |
 | D-093 (d-13) | [x] 15cfa288 | implicit-else marshal (arm64 + x86_64) + 3 edge fixtures |
-| D-093 (d-14) | [x] (this commit) | arm64 `.return` op multi-result marshal (d-11 stale-inline cleanup) + add64_u_saturated_exact edge fixture (`if` NAMES deferred — 5 residuals) |
+| D-093 (d-14) | [x] 124dd7cf | arm64 `.return` op multi-result marshal (d-11 stale-inline cleanup) + add64_u_saturated_exact edge fixture |
+| D-093 (d-15) | [x] (this commit) | regalloc call-crossing-vreg root-cause investigation + D-095 debt + compose_no_call edge fixture proving non-call patterns work |
+| **D-093 (d-16)** | **NEXT** | discharge D-095: regalloc call-crossing-vreg awareness (compute-pass walks call_pcs + biases call-crossing vregs to callee-saved sub-pool or forced spill) — ADR-grade |
 | **D-093 (d-15)** | **NEXT** | compose-of-2 single-result if (`as-compare-operand`); investigate slot-share regression vs d-12 liveness merge tracking |
 
 Other queued chunks (post-l-1): k-1, k-2, m-4c (= D-090),
