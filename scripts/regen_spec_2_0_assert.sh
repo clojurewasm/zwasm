@@ -107,6 +107,26 @@ NAMES=(
   memory_size
   switch
   type
+  # d-21: bisect identified seven names that each need their own
+  # follow-up chunk; none cleanly land in this batch. d-21 ships
+  # the runner capacity bump (`GROWABLE_MEMORY_CAPACITY` 64 →
+  # 1024 pages) so when memory_grow's discharge chunk arrives the
+  # pool can carry the corpus's grow(800)+grow(1) cumulative
+  # sequence. Per-name diagnosis:
+  # - call (D-101): call.0.wasm UnsupportedOp at compile.
+  # - data (D-102): data-init UnsupportedEntrySignature (bulk
+  #   data segments).
+  # - elem (D-103): SEGV in nonSimdRunAssertTrap (element-segment
+  #   trap asserts crash inside the JIT-called function, so the
+  #   trap stub doesn't fire).
+  # - global (D-104): global.{0,50}.wasm BadValType (reftype
+  #   globals; Phase 10+ scope per D-075).
+  # - memory_grow (D-105): 2 residual fails on cross-module memory
+  #   imports (= D-079 (i)/(ii) sub-case).
+  # - start (D-106): start fn not auto-invoked at instantiation.
+  # - unwind (D-107): x86_64 unwind.0.wasm UnsupportedOp; Mac
+  #   passes. arm64 / x86_64 emit divergence in br_table /
+  #   br-with-value path likely.
 )
 
 mkdir -p "$DEST"

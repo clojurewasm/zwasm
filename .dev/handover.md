@@ -10,34 +10,37 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **Phase 9 extended; D-093 (d-20) NAMES +5 + runner memory_limits landed 2026-05-14**
+## Active state — **Phase 9 extended; D-093 (d-21) NAMES bisect + capacity bump + D-101..D-107 filed 2026-05-14**
 
 ### One-line state
 
-D-093 (d-20) adds five more names (`f32_bitwise`, `f64_bitwise`,
-`memory_size`, `switch`, `type`) and wires runner's
-`on_module_loaded` to read the module's `(memory min max)`
-declaration via `base.extractMemoryLimits`. Reset uses module-
-declared min pages; `current_mem_max_pages` is consulted by
-`growableMemoryGrowFn` so `memory.grow` returns -1 past the
-declared max. `fac` deferred → D-099 (fac-ssa's loop with two
-i64 params returns 24 instead of 25!). `br_table` deferred
-(reftype-bearing meet-externref / meet-funcref). Both hosts
-at 13982/0/283 on `test-spec-wasm-2.0-assert` (was 13191/0/281
-post-d-19). simd 13301/0/440 unchanged.
+D-093 (d-21) bisected the next NAMES batch (`call`, `data`,
+`elem`, `global`, `memory_grow`, `start`, `unwind`); each
+surfaces a distinct issue requiring its own follow-up chunk
+(D-101 call UnsupportedOp; D-102 data init; D-103 elem SEGV;
+D-104 global reftype; D-105 memory_grow cross-module; D-106
+start fn non-invoke; D-107 unwind x86_64 only). d-21 also
+bumps `GROWABLE_MEMORY_CAPACITY` 64 → 1024 pages to future-
+proof memory_grow's 800+ page corpus when D-105 clears. No
+NAMES change net; corpus stays at 13982/0/283.
 
 ### Standing reminder for the autonomous loop
 
 **Project tone is `.claude/rules/no_workaround.md`: fix root
 causes, never work around.**
 
-### Next task — d-21 NAMES expansion
+### Next task — d-22 NAMES expansion or D-10x discharge
 
-- **d-21 NEXT** — next NAMES bundle. Remaining queue (post-d-20):
-  `call`, `call_indirect`, `data`, `elem`, `func`, `func_ptrs`,
-  `global`, `memory`, `memory_grow`, `start`, `table`, `unwind`.
-  Also deferred until separate fix: `br_table` (reftype), `fac`
-  (D-099, loop param), `select` (reftype), `align` (wast2json).
+Active debts now block straight NAMES enablement. Pick one
+that's cheap to clear (D-106 start-fn-invoke ≈ 30 LOC; D-107
+unwind x86_64 emit divergence ≈ 50 LOC; D-099 fac-ssa loop
+params ≈ 50 LOC). Larger: D-103 elem SEGV (needs SIGSEGV
+handler), D-105 cross-module memory imports, D-104 reftype.
+
+- **d-22 NEXT** — discharge candidate: D-106 (start fn invoke)
+  or D-107 (x86_64 unwind emit). Also unblocked names not yet
+  tried: `call_indirect`, `func`, `func_ptrs`, `memory`,
+  `table`. Try one of those as a low-risk bundle first.
 
 Runner-side skip-impl backlog (7 total, in `nop / loop /
 local_tee`):
@@ -83,8 +86,9 @@ Other queued post-D-093 names: `address`, `align`, `br_table`,
 | D-093 (d-17) | [x] eca69183 | unified `emitMergeMov` (FP-class dispatch + 64-bit GPR MOV) + br-into-if-frame merge capture (D-096 discharged) + br_inside_arm edge fixture |
 | D-093 (d-18) | [x] 4a4e0a22 | x86_64 select alias-aware cmov + call_indirect idx load order (D-097 discharged) + select_spilled_operands / select_with_if_call / select_with_if_no_call edge fixtures |
 | D-093 (d-19) | [x] c41b0868 | NAMES +5 (`address`, `const`, `load`, `store`, `traps`); `select` deferred (reftype), `align` rejected by wast2json |
-| D-093 (d-20) | [x] (this commit) | NAMES +5 (`f32_bitwise`, `f64_bitwise`, `memory_size`, `switch`, `type`) + runner memory_limits reset + D-099 (fac-ssa loop param) filed |
-| **D-093 (d-21)** | **NEXT** | NAMES bundle (queue: `call`/`call_indirect`/`data`/`elem`/`func`/`global`/`memory`/`memory_grow`/`start`/`table`/`unwind`) |
+| D-093 (d-20) | [x] 18f93d91 | NAMES +5 (`f32_bitwise`, `f64_bitwise`, `memory_size`, `switch`, `type`) + runner memory_limits reset + D-099 (fac-ssa loop param) filed |
+| D-093 (d-21) | [x] (this commit) | NAMES batch bisect (call/data/elem/global/memory_grow/start/unwind each → its own debt D-101..D-107) + GROWABLE_MEMORY_CAPACITY 64 → 1024 pages |
+| **D-093 (d-22)** | **NEXT** | discharge candidate (D-106 start-fn-invoke or D-107 x86_64 unwind) OR try untried NAMES (`call_indirect`/`func`/`func_ptrs`/`memory`/`table`) |
 
 Other queued chunks (post-l-1): k-1, k-2, m-4c (= D-090),
 m-2d, n-1, j-3b.

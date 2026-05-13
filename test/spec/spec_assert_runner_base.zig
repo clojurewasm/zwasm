@@ -183,14 +183,12 @@ pub fn makeJitRuntime(
 }
 
 /// §9.9 / 9.9-l-1b-d093-d8c (per ADR-0059): growable memory pool
-/// for spec runners. 64 pages (4 MiB) covers all current spec
-/// corpus growth patterns (the largest single delta observed is
-/// 40 pages in `local_tee:as-memory.grow-size`; the worst-case
-/// accumulator across `nop:as-memory.grow-*` is 1 + 0 + 2 + 12 =
-/// 15 pages). 16-byte-aligned so the same pool serves both the
-/// scalar non-simd runner and the simd runner (the latter needs
-/// 16-byte alignment for `MOVUPS` / `LDR Q`).
-pub const GROWABLE_MEMORY_CAPACITY: usize = 64 * 65536;
+/// for spec runners. Bumped from 64 → 1024 pages (64 MiB) at d-21
+/// to accommodate `memory_grow.wast`'s `grow(800)` + `grow(1)`
+/// (=804 pages cumulative). 16-byte-aligned so the same pool
+/// serves both the scalar non-simd runner and the simd runner
+/// (the latter needs 16-byte alignment for `MOVUPS` / `LDR Q`).
+pub const GROWABLE_MEMORY_CAPACITY: usize = 1024 * 65536;
 pub var growable_memory: [GROWABLE_MEMORY_CAPACITY]u8 align(16) = undefined;
 
 /// Module-scoped current memory size in bytes. Persists across
