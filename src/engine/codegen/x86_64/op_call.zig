@@ -346,7 +346,8 @@ pub fn marshalCallArgs(
     if (n_args == 0) return;
     if (pushed_vregs.items.len < n_args) return Error.AllocationMissing;
 
-    var arg_vregs: [64]u32 = undefined;
+    // d-25: cap bumped 64 → 128 to fit `call.wast`'s 100-arg fixture.
+    var arg_vregs: [128]u32 = undefined;
     if (n_args > arg_vregs.len) return types.rejectUnsupported("src/engine/codegen/x86_64/op_call.zig:217", 0);
     var i: u32 = n_args;
     while (i > 0) {

@@ -1,0 +1,91 @@
+module call.0.wasm
+assert_return type-i32 () -> i32:306
+assert_return type-i64 () -> i64:356
+assert_return type-f32 () -> f32:1165172736
+assert_return type-f64 () -> f64:4660882566700597248
+skip-impl multi-result type-i32-i64
+assert_return type-first-i32 () -> i32:32
+assert_return type-first-i64 () -> i64:64
+assert_return type-first-f32 () -> f32:1068037571
+assert_return type-first-f64 () -> f64:4610064722561534525
+assert_return type-second-i32 () -> i32:32
+assert_return type-second-i64 () -> i64:64
+assert_return type-second-f32 () -> f32:1107296256
+assert_return type-second-f64 () -> f64:4634211053438658150
+skip-impl multi-result type-all-i32-f64
+skip-impl multi-result type-all-i32-i32
+skip-impl multi-result type-all-f32-f64
+skip-impl multi-result type-all-f64-i32
+assert_return as-binary-all-operands () -> i32:7
+assert_return as-mixed-operands () -> i32:32
+skip-impl multi-result as-call-all-operands
+assert_return fac i64:0 -> i64:1
+assert_return fac i64:1 -> i64:1
+assert_return fac i64:5 -> i64:120
+assert_return fac i64:25 -> i64:7034535277573963776
+assert_return fac-acc i64:0 i64:1 -> i64:1
+assert_return fac-acc i64:1 i64:1 -> i64:1
+assert_return fac-acc i64:5 i64:1 -> i64:120
+assert_return fac-acc i64:25 i64:1 -> i64:7034535277573963776
+assert_return fib i64:0 -> i64:1
+assert_return fib i64:1 -> i64:1
+assert_return fib i64:2 -> i64:2
+assert_return fib i64:5 -> i64:8
+assert_return fib i64:20 -> i64:10946
+assert_return even i64:0 -> i32:44
+assert_return even i64:1 -> i32:99
+assert_return even i64:100 -> i32:44
+assert_return even i64:77 -> i32:99
+assert_return odd i64:0 -> i32:99
+assert_return odd i64:1 -> i32:44
+assert_return odd i64:200 -> i32:99
+assert_return odd i64:77 -> i32:44
+skip-impl directive-assert_exhaustion
+skip-impl directive-assert_exhaustion
+assert_return as-select-first () -> i32:306
+assert_return as-select-mid () -> i32:2
+assert_return as-select-last () -> i32:2
+assert_return as-if-condition () -> i32:1
+assert_return as-br_if-first () -> i32:306
+assert_return as-br_if-last () -> i32:2
+assert_return as-br_table-first () -> i32:306
+assert_return as-br_table-last () -> i32:2
+assert_return as-call_indirect-first () -> i32:306
+assert_return as-call_indirect-mid () -> i32:2
+assert_trap as-call_indirect-last ()
+assert_return as-store-first () -> ()
+assert_return as-store-last () -> ()
+assert_return as-memory.grow-value () -> i32:1
+assert_return as-return-value () -> i32:306
+assert_return as-drop-operand () -> ()
+assert_return as-br-value () -> i32:306
+assert_return as-local.set-value () -> i32:306
+assert_return as-local.tee-value () -> i32:306
+assert_return as-global.set-value () -> i32:306
+assert_return as-load-operand () -> i32:1
+assert_return as-unary-operand () -> f32:0
+assert_return as-binary-left () -> i32:11
+assert_return as-binary-right () -> i32:9
+assert_return as-test-operand () -> i32:0
+assert_return as-compare-left () -> i32:1
+assert_return as-compare-right () -> i32:1
+assert_return as-convert-operand () -> i64:1
+assert_return return-from-long-argument-list i32:42 -> i32:42
+assert_invalid call.1.wasm
+assert_invalid call.2.wasm
+assert_invalid call.3.wasm
+assert_invalid call.4.wasm
+assert_invalid call.5.wasm
+assert_invalid call.6.wasm
+assert_invalid call.7.wasm
+assert_invalid call.8.wasm
+assert_invalid call.9.wasm
+assert_invalid call.10.wasm
+assert_invalid call.11.wasm
+assert_invalid call.12.wasm
+assert_invalid call.13.wasm
+assert_invalid call.14.wasm
+assert_invalid call.15.wasm
+assert_invalid call.16.wasm
+assert_invalid call.17.wasm
+assert_invalid call.18.wasm

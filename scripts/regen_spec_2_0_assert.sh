@@ -141,8 +141,9 @@ NAMES=(
   # surfaced UnsupportedOp / validate / trap-assert / wast2json-
   # rejected — covered by D-108..D-110.
   unwind
-  # d-24: fac lands after D-099 discharge (loop with params).
   fac
+  # d-25 probe: D-101 call.0.wasm UnsupportedOp.
+  call
 )
 
 mkdir -p "$DEST"

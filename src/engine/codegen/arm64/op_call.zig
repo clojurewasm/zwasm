@@ -191,9 +191,11 @@ fn marshalCallArgs(ctx: *EmitCtx, callee_sig: FuncType) Error!void {
     if (ctx.pushed_vregs.items.len < n_args) return Error.AllocationMissing;
 
     // Pop in reverse stack order: top = arg N-1, deepest = arg 0.
-    // Cap chosen as a generous comptime constant; realistic Wasm
-    // signatures stay well under 64.
-    const max_args: u32 = 64;
+    // Cap bumped 64 → 128 at d-25 to fit `call.wast`'s 100-arg
+    // fixture. Wasm spec has no upper bound on param count, but
+    // realistic guests rarely exceed ~64; the extra 512 bytes
+    // of stack-buffer per call site is harmless.
+    const max_args: u32 = 128;
     var arg_vregs: [max_args]u32 = undefined;
     if (n_args > max_args) {
         std.debug.print("arm64/op_call: marshal n_args={d} > {d}\n", .{ n_args, max_args });
