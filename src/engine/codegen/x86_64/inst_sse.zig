@@ -309,6 +309,28 @@ pub fn encMovssMovsdMemBaseIdx(scalar_kind: SseScalarKind, is_store: bool, xmm: 
     return enc;
 }
 
+/// `MOVSS / MOVSD xmm, [base + disp32]` and the store direction —
+/// scalar single/double FP load/store at a 32-bit displacement.
+/// Used by `global.get` / `global.set` (f32 / f64) for 8-byte
+/// Value slot at `[globals_base + byte_off]`.
+pub fn encMovssMovsdXmmMemBaseDisp32(scalar_kind: SseScalarKind, is_store: bool, xmm: Xmm, base: Gpr, disp: i32) EncodedInsn {
+    std.debug.assert(base.low3() != 4); // SIB escape — unsupported here
+    var enc: EncodedInsn = .{};
+    enc.push(@intFromEnum(scalar_kind));
+    if (xmm.extBit() != 0 or base.extBit() != 0) {
+        enc.push(encodeRex(false, xmm.extBit(), 0, base.extBit()));
+    }
+    enc.push(0x0F);
+    enc.push(if (is_store) @as(u8, 0x11) else 0x10);
+    enc.push(encodeModrm(0b10, xmm.low3(), base.low3()));
+    const u: u32 = @bitCast(disp);
+    enc.push(@truncate(u));
+    enc.push(@truncate(u >> 8));
+    enc.push(@truncate(u >> 16));
+    enc.push(@truncate(u >> 24));
+    return enc;
+}
+
 /// `MOVUPS xmm, [base + disp32]` and the store direction — 128-bit
 /// unaligned packed-single load/store at a 32-bit displacement.
 pub fn encMovupsXmmMemBaseDisp32(is_store: bool, xmm: Xmm, base: Gpr, disp: i32) EncodedInsn {

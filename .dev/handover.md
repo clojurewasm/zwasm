@@ -10,36 +10,45 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **Phase 9 extended; D-093 (d-25) NAMES +1 (call) via D-101 discharge 2026-05-14**
+## Active state — **Phase 9 extended; D-093 (d-26) non-i32 scalar globals via D-108 discharge 2026-05-14**
 
 ### One-line state
 
-D-093 (d-25) discharges D-101: `marshalCallArgs` had a fixed
-`arg_vregs: [64]u32` cap; call.wast `func[77]` exercises a
-100-arg call. Cap bumped to 128 on both archs (+512 byte
-stack buffer per call site). `call` lands clean. Both hosts
-at 14119/0/292 on `test-spec-wasm-2.0-assert` (was 14037/0/284
-post-d-24; +82 PASS, +1 manifest). simd 13301/0/440 unchanged.
+D-093 (d-26) discharges D-108: the call_indirect.0.wasm
+`UnsupportedOp` at compile was rooted in non-i32 scalar globals
+(i64/f32/f64 `global.get`/`global.set` returned UnsupportedOp on
+both archs). d-26 lands the three classes via X/S/D-form LDR/STR
+(arm64) and REX.W MOV + MOVSS/MOVSD (x86_64) + new
+`encStoreR64MemDisp32` / `encMovssMovsdXmmMemBaseDisp32`
+encoders. `call_indirect` NAMES entry deferred — corpus surfaces
+12 runtime traps on `dispatch-structural-*` (Wasm 2.0 structural
+FuncType match; new D-111). spec_assert 14119/0/292 unchanged
+(call_indirect not yet in NAMES); edge fixtures p9/global +3 PASS
+(i64/f32/f64 roundtrip). simd 13301/0/440 unchanged.
 
 ### Standing reminder for the autonomous loop
 
 **Project tone is `.claude/rules/no_workaround.md`: fix root
 causes, never work around.**
 
-### Next task — d-26 discharge candidate
+### Next task — d-27 discharge candidate
 
-Active debts (post-d-25):
-- D-108 call_indirect UnsupportedOp on call_indirect.0.wasm.
+Active debts (post-d-26):
+- D-111 call_indirect structural FuncType match (~150-300 LOC,
+  module-load canonical typeidx table).
 - D-109 func validator StackTypeMismatch.
-- D-102/D-103/D-110: data-init / elem-SEGV / func_ptrs trap
-  (call_indirect family, larger scope).
+- D-102/D-103/D-110: data-init / elem-SEGV / func_ptrs trap.
 - D-106 start-invoke SEGV (lldb trace needed for prologue load).
 - D-104/D-105: reftype + cross-module memory (Phase 10+).
 
-- **d-26 NEXT** — D-108 (call_indirect UnsupportedOp): same
-  debug-print bisect as d-25 likely names the missing op.
-  D-109 (func validate) is a validator extension; D-110 may
-  cascade from D-108's fix.
+- **d-27 NEXT** — D-109 (func validator StackTypeMismatch): same
+  debug-print bisect — solo-enable `func`, identify the validator
+  rejection point + add the missing arm. Validator extension is
+  smaller scope than D-111 / D-110 (which touch dispatch + table
+  init). D-111 (structural-type) is the higher-leverage discharge
+  (unlocks call_indirect NAMES + likely cascades D-110) but the
+  module-load canonical-typeidx table is non-trivial — slot it
+  for d-28+.
 
 Runner-side skip-impl backlog (7 total, in `nop / loop /
 local_tee`):
@@ -90,8 +99,9 @@ Other queued post-D-093 names: `address`, `align`, `br_table`,
 | D-093 (d-22) | [x] 404a8477 | NAMES batch bisect (call_indirect/func/func_ptrs/memory/table → D-108..D-110 + wast2json-reject) + D-106 discharge scaffolding (extractStartFunc + invoke helper; SEGV root-cause now narrowed) |
 | D-093 (d-23) | [x] ad84042e | D-107 discharged: x86_64 emitBrTableJmp function-depth (mirror arm64); `unwind` lands +49 PASS |
 | D-093 (d-24) | [x] 4c4d7309 | D-099 discharged: emitLoop captures param_top_vregs + backward br/br_if/br_table emit param MOVs before back-branch; `fac` lands +6 PASS |
-| D-093 (d-25) | [x] (this commit) | D-101 discharged: max_args cap 64 → 128 (call.wast func[77] has 100-arg call); `call` lands +82 PASS |
-| **D-093 (d-26)** | **NEXT** | discharge candidate: D-108 (call_indirect.0.wasm UnsupportedOp) |
+| D-093 (d-25) | [x] ed05169b | D-101 discharged: max_args cap 64 → 128 (call.wast func[77] has 100-arg call); `call` lands +82 PASS |
+| D-093 (d-26) | [x] (this commit) | D-108 discharged: i64/f32/f64 scalar `global.get/set` on both archs + edge fixtures (3 new). D-111 filed for call_indirect structural-typing. NAMES unchanged. |
+| **D-093 (d-27)** | **NEXT** | discharge candidate: D-109 (func validator StackTypeMismatch) |
 
 Other queued chunks (post-l-1): k-1, k-2, m-4c (= D-090),
 m-2d, n-1, j-3b.

@@ -177,6 +177,22 @@ pub fn encMovR32FromMemDisp32(dst: Gpr, base: Gpr, disp: i32) EncodedInsn {
     return enc;
 }
 
+/// `MOV [base + disp32], r64` (opcode 0x89 with REX.W, mod=10).
+/// 64-bit store with disp32. Used by `global.set` (i64) to write
+/// the full 8-byte Value slot at `[globals_base + byte_off]`.
+pub fn encStoreR64MemDisp32(src: Gpr, base: Gpr, disp: i32) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    enc.push(encodeRex(true, src.extBit(), 0, base.extBit()));
+    enc.push(0x89);
+    enc.push(encodeModrm(0b10, src.low3(), base.low3()));
+    const u: u32 = @bitCast(disp);
+    enc.push(@truncate(u));
+    enc.push(@truncate(u >> 8));
+    enc.push(@truncate(u >> 16));
+    enc.push(@truncate(u >> 24));
+    return enc;
+}
+
 /// `MOV [base + disp32], r32` (opcode 0x89 without REX.W, mod=10).
 /// 32-bit store with disp32. Used by `global.set` (i32) to write
 /// `[globals_base + idx*8]` for the low 4 bytes of the 8-byte

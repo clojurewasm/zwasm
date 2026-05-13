@@ -11,9 +11,9 @@
 //! X23 load).
 //!
 //! i32 globals access the low 4 bytes of the 8-byte slot via
-//! W-form LDR / STR. i64 / f32 / f64 globals fall through to
-//! UnsupportedOp until the matching FP / 64-bit emit pieces land
-//! (out of scope this chunk).
+//! W-form LDR / STR. i64 globals use X-form (full 64-bit). f32 /
+//! f64 globals use S-form / D-form on V-class regs (FP scalar).
+//! funcref / externref defer to Phase 10+ (reftype runtime).
 //!
 //! Zone 2 (`src/engine/codegen/arm64/`).
 
@@ -53,8 +53,11 @@ pub fn emitGlobalGet(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const shape = lookupGlobalShape(ctx, ins.payload);
     switch (shape.vt) {
         .i32 => try emitI32GlobalGet(ctx, ins.payload, shape.byte_off),
+        .i64 => try emitI64GlobalGet(ctx, ins.payload, shape.byte_off),
+        .f32 => try emitF32GlobalGet(ctx, ins.payload, shape.byte_off),
+        .f64 => try emitF64GlobalGet(ctx, ins.payload, shape.byte_off),
         .v128 => try emitV128GlobalGet(ctx, ins.payload, shape.byte_off),
-        .i64, .f32, .f64, .funcref, .externref => return Error.UnsupportedOp,
+        .funcref, .externref => return Error.UnsupportedOp,
     }
 }
 
@@ -63,8 +66,11 @@ pub fn emitGlobalSet(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const shape = lookupGlobalShape(ctx, ins.payload);
     switch (shape.vt) {
         .i32 => try emitI32GlobalSet(ctx, ins.payload, shape.byte_off),
+        .i64 => try emitI64GlobalSet(ctx, ins.payload, shape.byte_off),
+        .f32 => try emitF32GlobalSet(ctx, ins.payload, shape.byte_off),
+        .f64 => try emitF64GlobalSet(ctx, ins.payload, shape.byte_off),
         .v128 => try emitV128GlobalSet(ctx, ins.payload, shape.byte_off),
-        .i64, .f32, .f64, .funcref, .externref => return Error.UnsupportedOp,
+        .funcref, .externref => return Error.UnsupportedOp,
     }
 }
 
@@ -99,6 +105,102 @@ fn emitI32GlobalSet(ctx: *EmitCtx, idx: u32, byte_off: u32) Error!void {
     const ws = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_v, 0);
 
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImmW(ws, abi.globals_base_save_gpr, @intCast(byte_off)));
+}
+
+/// i64 global.get — X-form `LDR Xd, [X23, #byte_off]`. The X-form
+/// imm12 scales by 8, so max byte_offset = 8 * 4095 = 32760
+/// (≈4095 8-byte globals fit immediate-form addressing).
+fn emitI64GlobalGet(ctx: *EmitCtx, idx: u32, byte_off: u32) Error!void {
+    if (byte_off > 32760 or (byte_off & 7) != 0) {
+        std.debug.print("arm64/op_globals: i64 global.get SlotOverflow func[{d}] idx={d} byte_off={d}\n", .{ ctx.func.func_idx, idx, byte_off });
+        return Error.SlotOverflow;
+    }
+
+    const result = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    if (result >= ctx.alloc.slots.len) return Error.SlotOverflow;
+    const xd = try gpr.gprDefSpilled(ctx.alloc, result, 0);
+
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(xd, abi.globals_base_save_gpr, @intCast(byte_off)));
+    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result, 0);
+    try ctx.pushed_vregs.append(ctx.allocator, result);
+}
+
+fn emitI64GlobalSet(ctx: *EmitCtx, idx: u32, byte_off: u32) Error!void {
+    if (byte_off > 32760 or (byte_off & 7) != 0) {
+        std.debug.print("arm64/op_globals: i64 global.set SlotOverflow func[{d}] idx={d} byte_off={d}\n", .{ ctx.func.func_idx, idx, byte_off });
+        return Error.SlotOverflow;
+    }
+
+    if (ctx.pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = ctx.pushed_vregs.pop().?;
+    const xs = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_v, 0);
+
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImm(xs, abi.globals_base_save_gpr, @intCast(byte_off)));
+}
+
+/// f32 global.get — S-form `LDR Sd, [X23, #byte_off]` into a fresh
+/// FP vreg. The 8-byte slot stride is 4-aligned by construction
+/// (S-form imm12 scales by 4). The producer vreg is FP-class;
+/// downstream FP-op handlers (f32.add etc.) read it as FPR.
+fn emitF32GlobalGet(ctx: *EmitCtx, idx: u32, byte_off: u32) Error!void {
+    if (byte_off > 16380 or (byte_off & 3) != 0) {
+        std.debug.print("arm64/op_globals: f32 global.get SlotOverflow func[{d}] idx={d} byte_off={d}\n", .{ ctx.func.func_idx, idx, byte_off });
+        return Error.SlotOverflow;
+    }
+
+    const result = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    if (result >= ctx.alloc.slots.len) return Error.SlotOverflow;
+    const vd = try gpr.fpDefSpilled(ctx.alloc, result, 0);
+
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrSImm(vd, abi.globals_base_save_gpr, @intCast(byte_off)));
+    try gpr.fpStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result, 0);
+    try ctx.pushed_vregs.append(ctx.allocator, result);
+}
+
+fn emitF32GlobalSet(ctx: *EmitCtx, idx: u32, byte_off: u32) Error!void {
+    if (byte_off > 16380 or (byte_off & 3) != 0) {
+        std.debug.print("arm64/op_globals: f32 global.set SlotOverflow func[{d}] idx={d} byte_off={d}\n", .{ ctx.func.func_idx, idx, byte_off });
+        return Error.SlotOverflow;
+    }
+
+    if (ctx.pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = ctx.pushed_vregs.pop().?;
+    const vs = try gpr.fpLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_v, 0);
+
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrSImm(vs, abi.globals_base_save_gpr, @intCast(byte_off)));
+}
+
+/// f64 global.get — D-form `LDR Dd, [X23, #byte_off]`. 8-aligned;
+/// imm12 scales by 8 (max 32760).
+fn emitF64GlobalGet(ctx: *EmitCtx, idx: u32, byte_off: u32) Error!void {
+    if (byte_off > 32760 or (byte_off & 7) != 0) {
+        std.debug.print("arm64/op_globals: f64 global.get SlotOverflow func[{d}] idx={d} byte_off={d}\n", .{ ctx.func.func_idx, idx, byte_off });
+        return Error.SlotOverflow;
+    }
+
+    const result = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    if (result >= ctx.alloc.slots.len) return Error.SlotOverflow;
+    const vd = try gpr.fpDefSpilled(ctx.alloc, result, 0);
+
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrDImm(vd, abi.globals_base_save_gpr, @intCast(byte_off)));
+    try gpr.fpStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result, 0);
+    try ctx.pushed_vregs.append(ctx.allocator, result);
+}
+
+fn emitF64GlobalSet(ctx: *EmitCtx, idx: u32, byte_off: u32) Error!void {
+    if (byte_off > 32760 or (byte_off & 7) != 0) {
+        std.debug.print("arm64/op_globals: f64 global.set SlotOverflow func[{d}] idx={d} byte_off={d}\n", .{ ctx.func.func_idx, idx, byte_off });
+        return Error.SlotOverflow;
+    }
+
+    if (ctx.pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = ctx.pushed_vregs.pop().?;
+    const vs = try gpr.fpLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_v, 0);
+
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrDImm(vs, abi.globals_base_save_gpr, @intCast(byte_off)));
 }
 
 /// `global.get N` (v128) — load 16 bytes from `[X23 + byte_off]`

@@ -11,9 +11,8 @@
 //! callee-saved slot; it reloads from `[R15 + offset]` at point
 //! of use. RAX is the GPR scratch (not in the regalloc pool).
 //!
-//! **Scope**: i32 + v128. i64 / f32 / f64 / refs surface as
-//! UnsupportedOp at the dispatcher (ZIR doesn't yet emit typed
-//! global ops for non-i32 scalars).
+//! **Scope**: i32 / i64 / f32 / f64 / v128. funcref / externref
+//! defer to Phase 10+ (reftype runtime).
 //!
 //! Zone 2 (`src/engine/codegen/x86_64/`).
 
@@ -56,8 +55,11 @@ pub fn emitGlobalGet(
     const shape = lookupGlobalShape(idx, globals_offsets, globals_valtypes);
     switch (shape.vt) {
         .i32 => try emitI32GlobalGet(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, idx, shape.byte_off),
+        .i64 => try emitI64GlobalGet(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, idx, shape.byte_off),
+        .f32 => try emitFpGlobalGet(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, idx, shape.byte_off, .f32),
+        .f64 => try emitFpGlobalGet(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, idx, shape.byte_off, .f64),
         .v128 => try emitV128GlobalGet(allocator, buf, alloc, pushed_vregs, next_vreg, idx, shape.byte_off),
-        .i64, .f32, .f64, .funcref, .externref => return Error.UnsupportedOp,
+        .funcref, .externref => return Error.UnsupportedOp,
     }
 }
 
@@ -74,8 +76,11 @@ pub fn emitGlobalSet(
     const shape = lookupGlobalShape(idx, globals_offsets, globals_valtypes);
     switch (shape.vt) {
         .i32 => try emitI32GlobalSet(allocator, buf, alloc, pushed_vregs, spill_base_off, idx, shape.byte_off),
+        .i64 => try emitI64GlobalSet(allocator, buf, alloc, pushed_vregs, spill_base_off, idx, shape.byte_off),
+        .f32 => try emitFpGlobalSet(allocator, buf, alloc, pushed_vregs, spill_base_off, idx, shape.byte_off, .f32),
+        .f64 => try emitFpGlobalSet(allocator, buf, alloc, pushed_vregs, spill_base_off, idx, shape.byte_off, .f64),
         .v128 => try emitV128GlobalSet(allocator, buf, alloc, pushed_vregs, idx, shape.byte_off),
-        .i64, .f32, .f64, .funcref, .externref => return Error.UnsupportedOp,
+        .funcref, .externref => return Error.UnsupportedOp,
     }
 }
 
@@ -122,6 +127,97 @@ fn emitI32GlobalSet(
 
     try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.globals_base_off).slice());
     try buf.appendSlice(allocator, inst.encStoreR32MemDisp32(src_r, .rax, disp).slice());
+}
+
+/// i64 lowering — same shape as i32 but full 8-byte load/store
+/// (REX.W variant). The 8-byte Value slot is consumed in full.
+fn emitI64GlobalGet(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+    idx: u32,
+    byte_off: u32,
+) Error!void {
+    if (idx > 0x0FFF_FFFF) return Error.SlotOverflow;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+    const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
+    const disp: i32 = @intCast(byte_off);
+
+    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.globals_base_off).slice());
+    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(dst_r, .rax, disp).slice());
+    try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, result_v, 0);
+    try pushed_vregs.append(allocator, result_v);
+}
+
+fn emitI64GlobalSet(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    spill_base_off: u32,
+    idx: u32,
+    byte_off: u32,
+) Error!void {
+    if (idx > 0x0FFF_FFFF) return Error.SlotOverflow;
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const src_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
+    const disp: i32 = @intCast(byte_off);
+
+    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.globals_base_off).slice());
+    try buf.appendSlice(allocator, inst.encStoreR64MemDisp32(src_r, .rax, disp).slice());
+}
+
+/// f32 / f64 lowering — MOVSS / MOVSD on an XMM-class vreg via
+/// [RAX + byte_off]. Caller picks `scalar_kind` (.f32 / .f64) and
+/// the encoder selects the F3/F2 prefix accordingly.
+fn emitFpGlobalGet(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+    idx: u32,
+    byte_off: u32,
+    scalar_kind: inst.SseScalarKind,
+) Error!void {
+    if (idx > 0x0FFF_FFFF) return Error.SlotOverflow;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+    const dst_xmm = try gpr.xmmDefSpilled(alloc, result_v, 0);
+    const disp: i32 = @intCast(byte_off);
+
+    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.globals_base_off).slice());
+    try buf.appendSlice(allocator, inst.encMovssMovsdXmmMemBaseDisp32(scalar_kind, false, dst_xmm, .rax, disp).slice());
+    try gpr.xmmStoreSpilled(allocator, buf, alloc, spill_base_off, result_v, 0);
+    try pushed_vregs.append(allocator, result_v);
+}
+
+fn emitFpGlobalSet(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    spill_base_off: u32,
+    idx: u32,
+    byte_off: u32,
+    scalar_kind: inst.SseScalarKind,
+) Error!void {
+    if (idx > 0x0FFF_FFFF) return Error.SlotOverflow;
+    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = pushed_vregs.pop().?;
+    const src_xmm = try gpr.xmmLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
+    const disp: i32 = @intCast(byte_off);
+
+    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.globals_base_off).slice());
+    try buf.appendSlice(allocator, inst.encMovssMovsdXmmMemBaseDisp32(scalar_kind, true, src_xmm, .rax, disp).slice());
 }
 
 /// v128 lowering (ADR-0052 §3):
