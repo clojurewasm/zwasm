@@ -680,15 +680,37 @@ pub fn compute(
                     ranges.items[vreg].last_use_pc = pc;
                 }
             } else if (block_stack_len > 0) {
-                // D-093 (d-9): pop the matching block frame.
-                // D-093 (d-11) NOTE: experimental sim_stack
-                // merge-vreg replacement attempted here was net-
-                // neutral (it broke the regalloc slot-share that
-                // makes the single-result if-merge MOV a no-op on
-                // the then-arm path). The structural fix needs
-                // emit-side coalescing of V_then_i and V_else_i
-                // onto canonical merge slots; deferred to a
-                // follow-up chunk.
+                // D-093 (d-12): if-frame end. The per-arch emit's
+                // `.end` reads V_else_i's spill slot at the merge
+                // MOV PC, so liveness MUST bump V_else_i's
+                // last_use_pc to this `.end` PC. (Without this,
+                // V_else_0 dies at its def, freeing its slot for
+                // V_else_1 to reuse — the merge MOVs then load
+                // V_else_0's "slot" which now holds V_else_1's
+                // value, and both V_then slots get the same wrong
+                // payload. Pre-d-12 surfaced as
+                // `if.wast:as-compare-operands` got 0 expected 1
+                // — both merge slots collapsed onto V_else_1.)
+                //
+                // Then replace sim_stack[top..arity) with the
+                // captured merge vregs (= V_then_i) so post-if
+                // consumers' pops bump V_then_i's last_use_pc.
+                // Without this swap, V_then_i would die at its
+                // def in then-arm and its slot becomes
+                // reusable across the if-frame's body — the
+                // post-if consumer would then read whichever
+                // later vreg got V_then_i's slot.
+                const fr = block_stack[block_stack_len - 1];
+                if (fr.is_if and fr.merge_captured and fr.result_arity > 0) {
+                    if (sim_len >= @as(usize, fr.result_arity)) {
+                        const base = sim_len - @as(usize, fr.result_arity);
+                        var i: u32 = 0;
+                        while (i < fr.result_arity) : (i += 1) {
+                            ranges.items[sim_stack[base + i]].last_use_pc = pc;
+                            sim_stack[base + i] = fr.merge_vregs[i];
+                        }
+                    }
+                }
                 block_stack_len -= 1;
             }
             // Mid-function `end` (block/loop/if frame closer) is
@@ -735,6 +757,22 @@ pub fn compute(
             if (block_stack_len > 0) {
                 const fr = &block_stack[block_stack_len - 1];
                 if (fr.is_if) {
+                    // D-093 (d-12) — capture top `result_arity`
+                    // vregs as the merge target (mirrors emit's
+                    // `.else` `merge_top_vregs` capture). At .end
+                    // these become the canonical post-if vregs.
+                    if (fr.result_arity > 0 and sim_len >= @as(usize, fr.result_arity)) {
+                        const base = sim_len - @as(usize, fr.result_arity);
+                        var i: u32 = 0;
+                        while (i < fr.result_arity) : (i += 1) {
+                            // Bump V_then_i's last_use_pc to the
+                            // else-PC (emit captures + later writes
+                            // through this slot at the merge MOV).
+                            ranges.items[sim_stack[base + i]].last_use_pc = pc;
+                            fr.merge_vregs[i] = sim_stack[base + i];
+                        }
+                        fr.merge_captured = true;
+                    }
                     sim_len = fr.entry_depth;
                     var i: u32 = 0;
                     while (i < fr.param_arity) : (i += 1) {

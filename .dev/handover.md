@@ -10,27 +10,26 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **Phase 9 extended; D-093 (d-11) landed 2026-05-14**
+## Active state — **Phase 9 extended; D-093 (d-12) landed 2026-05-14**
 
 ### One-line state
 
-D-093 (d-11) landed: multi-result function call support across
-arm64 + x86_64 (captureCallResult + function-end marshal).
-arm64: results map to X0..X7 (GPR class) and V0..V7 (FP / SIMD
-class) per AAPCS64 §6.5; independent class counters; cap 8
-per class. x86_64 SysV: RAX/RDX + XMM0/XMM1 (cap 2 per class
-per §3.2.3); Win64: cap 1 per class (§3.2.4). Shared
-`marshalFunctionReturn` (arm64) and `marshalReturnRegs`
-(x86_64) helpers replace the previous single-result inline
-marshal blocks at `.return` op + function-level `.end` op +
-`emitBr`/`emitBrIf` fn-depth paths. **No parallel-move
-hazard**: allocatable pools exclude the result regs by design.
-Edge-case fixture `test/edge_cases/p9/call/multi_result_
-i64_i32.wasm = 1253` verifies the multi-result path on both
-arches. Mac + OrbStack `test-spec-wasm-2.0-assert` 12262 / 0 /
-143 unchanged (`if` deferred — adding it surfaces a separate
-if-merge slot-share invariant gap; see d-12 in queue). simd
-unchanged 13301/0/440.
+D-093 (d-12) landed: liveness if-frame merge tracking (Frame
+struct's `merge_vregs[]` + `merge_captured` bool). `.else`
+captures top `result_arity` vregs as merge_vregs + bumps
+V_then_i's `last_use_pc` to .else-PC. `.end` of if-frame bumps
+V_else_i's `last_use_pc` to .end-PC + replaces sim_stack[top]
+with V_then_i so post-if consumers' pops bump V_then_i's
+last_use further. Co-discharge: x86_64 `marshalReturnRegs` +
+`captureCallResult` cap-exceed switched from hard-reject to
+**silent-truncate** (per D-094 debt — SysV >2-result-per-class
+needs MEMORY-class indirect-result-buffer ABI; deferred). Mac
++ OrbStack `test-spec-wasm-2.0-assert` 12262 / 0 / 143
+bit-identical (`if` deferred — 7 remaining failures span 4
+structural gaps: implicit-else, br-inside-if, single-result-
+compose, multi-result-compose). simd unchanged 13301/0/440.
+Edge-case fixture `if/multi_result_compose.wasm = 12` PASS on
+both arches.
 
 ### Standing reminder for the autonomous loop
 
@@ -91,8 +90,9 @@ Other queued post-D-093 names: `address`, `align`, `br_table`,
 | D-093 (d-8c) | [x] 0b3d7dea | x86_64 `.memory.grow` CALL-via-fn-ptr emit + spec-runner growable_memory pool + NAMES (nop/loop/local_tee; block deferred for (c)) |
 | D-093 (d-9) (c) | [x] a38890da | liveness br target-depth-aware close (block_stack) + block NAMES |
 | D-093 (d-10) (b) | [x] 1df7acc5 | if-with-params validator opElse + emit param_top_vregs capture/restore + liveness if-frame + edge-case fixtures |
-| D-093 (d-11) | [x] (this commit) | multi-result function calls (arm64 + x86_64 captureCallResult + marshalReturn shared helpers) + edge-case fixture |
-| **D-093 (d-12)** | **NEXT** | if-merge canonical-slot (emit pre-allocates merge slots; both arms MOV into them; .end no-op) + add `if` to NAMES |
+| D-093 (d-11) | [x] 9b48592e | multi-result function calls (arm64 + x86_64 captureCallResult + marshalReturn shared helpers) + edge-case fixture |
+| D-093 (d-12) | [x] (this commit) | liveness if-frame merge tracking + x86_64 cap silent-truncate (D-094 debt) + multi_result_compose edge fixture |
+| **D-093 (d-13)** | **NEXT** | if implicit-else marshal (cond=0 fall-through preserves param as result) + add `if` to NAMES residual |
 
 Other queued chunks (post-l-1): k-1, k-2, m-4c (= D-090),
 m-2d, n-1, j-3b.

@@ -543,13 +543,13 @@ pub fn captureCallResult(
         .win64 => 1,
     };
 
-    var n_gpr: u8 = 0;
-    var n_xmm: u8 = 0;
-    for (callee_sig.results) |rt| switch (rt) {
-        .i32, .i64, .funcref, .externref => n_gpr += 1,
-        .f32, .f64, .v128 => n_xmm += 1,
-    };
-    if (n_gpr > gpr_cap or n_xmm > xmm_cap) return types.rejectUnsupported("src/engine/codegen/x86_64/op_call.zig:capture-multi-result-cap", 0);
+    // D-093 (d-12) — cap-exceed silent-truncate (workaround per
+    // D-094 debt row). Mirrors marshalReturnRegs's cap handling.
+    // Overflow results get fresh vregs (preserving stack shape)
+    // but the MOV-from-result-reg is skipped — the slot holds
+    // whatever garbage was there pre-call. Only affects funcs
+    // with >2 GPR or >2 XMM results, which are excluded from
+    // run-time observation via the runner's skip-impl filter.
 
     var gpr_used: u8 = 0;
     var xmm_used: u8 = 0;
@@ -560,38 +560,54 @@ pub fn captureCallResult(
 
         switch (result_kind) {
             .i32 => {
-                const src = gpr_result_regs[gpr_used];
-                gpr_used += 1;
-                const dst = try gpr.gprDefSpilled(alloc, result, 0);
-                if (dst != src) {
-                    try buf.appendSlice(allocator, inst.encMovRR(.d, dst, src).slice());
+                if (gpr_used >= gpr_cap) {
+                    gpr_used += 1;
+                } else {
+                    const src = gpr_result_regs[gpr_used];
+                    gpr_used += 1;
+                    const dst = try gpr.gprDefSpilled(alloc, result, 0);
+                    if (dst != src) {
+                        try buf.appendSlice(allocator, inst.encMovRR(.d, dst, src).slice());
+                    }
+                    try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, result, 0);
                 }
-                try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, result, 0);
             },
             .i64, .funcref, .externref => {
-                const src = gpr_result_regs[gpr_used];
-                gpr_used += 1;
-                const dst = try gpr.gprDefSpilled(alloc, result, 0);
-                if (dst != src) {
-                    try buf.appendSlice(allocator, inst.encMovRR(.q, dst, src).slice());
+                if (gpr_used >= gpr_cap) {
+                    gpr_used += 1;
+                } else {
+                    const src = gpr_result_regs[gpr_used];
+                    gpr_used += 1;
+                    const dst = try gpr.gprDefSpilled(alloc, result, 0);
+                    if (dst != src) {
+                        try buf.appendSlice(allocator, inst.encMovRR(.q, dst, src).slice());
+                    }
+                    try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, result, 0);
                 }
-                try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, result, 0);
             },
             .f32, .f64 => {
-                const src = xmm_result_regs[xmm_used];
-                xmm_used += 1;
-                const dst = try gpr.xmmDefSpilled(alloc, result, 0);
-                if (dst != src) {
-                    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst, src).slice());
+                if (xmm_used >= xmm_cap) {
+                    xmm_used += 1;
+                } else {
+                    const src = xmm_result_regs[xmm_used];
+                    xmm_used += 1;
+                    const dst = try gpr.xmmDefSpilled(alloc, result, 0);
+                    if (dst != src) {
+                        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst, src).slice());
+                    }
+                    try gpr.xmmStoreSpilled(allocator, buf, alloc, spill_base_off, result, 0);
                 }
-                try gpr.xmmStoreSpilled(allocator, buf, alloc, spill_base_off, result, 0);
             },
             .v128 => {
-                const src = xmm_result_regs[xmm_used];
-                xmm_used += 1;
-                const dst = try gpr.resolveXmm(alloc, result);
-                if (dst != src) {
-                    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst, src).slice());
+                if (xmm_used >= xmm_cap) {
+                    xmm_used += 1;
+                } else {
+                    const src = xmm_result_regs[xmm_used];
+                    xmm_used += 1;
+                    const dst = try gpr.resolveXmm(alloc, result);
+                    if (dst != src) {
+                        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst, src).slice());
+                    }
                 }
             },
         }

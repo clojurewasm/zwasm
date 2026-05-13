@@ -81,14 +81,13 @@ NAMES=(
   block
   loop
   local_tee
-  # NOTE: `if` deferred — adding it surfaces a separate if-merge
-  # slot-share invariant gap. Single-result `(if (result T))` works
-  # by regalloc luck (V_then_i and V_else_i happen to share a slot,
-  # making emit's merge MOV a no-op). Multi-result + compose-of-2
-  # patterns expose the dependency; proper fix needs emit-side
-  # coalescing of V_then_i / V_else_i onto canonical merge slots.
-  # Lands in a follow-up chunk (d-12) once the canonical-slot
-  # approach is designed.
+  # NOTE: `if` deferred — 7 residual failures across 4 structural
+  # gaps (compose-of-2 single-result if, implicit-else with
+  # if-param, br-inside-if-arm with param, multi-result if +
+  # compose). d-12 landed the if-frame liveness merge tracking
+  # (fixes `as-binary-operands` / `as-mixed-operands` multi-
+  # result cases); remaining gaps are tracked as d-13+ with
+  # per-gap edge-case fixtures pending.
 )
 
 mkdir -p "$DEST"
