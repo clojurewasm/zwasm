@@ -10,45 +10,53 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **Phase 9 extended; D-093 (d-9) landed 2026-05-13**
+## Active state — **Phase 9 extended; D-093 (d-10) landed 2026-05-13**
 
 ### One-line state
 
-D-093 (d-9) landed: liveness `block_stack` + br target-depth-
-aware close. Pre-d-9 `.br` drained ALL live vregs (matching
-`return`/`unreachable` semantics); Wasm spec §3.4.4 preserves
-values BELOW target's entry depth. `liveness.zig` gains a
-control-stack tracking `.block` / `.loop` / `.if` entry-time
-`sim_len`; `.br N` now closes only vregs at indices ≥
-target_depth. Fixes `block:break-inner` (got 16 → expected 15)
-without regressing any other corpus. Two regression fixtures
-under `test/edge_cases/p9/block/`. NAMES expanded to include
-`block` (4th of 4 candidates). Mac + OrbStack
-`test-spec-wasm-2.0-assert` 12056/0/127 → **12262 / 0 / 143**
-bit-identical (+206 PASS, 0 FAIL, +16 skip = 1 runner-shape-gap
-skip-impl + 15 skip-adr). simd unchanged 13301/0/440. Clusters
-(a) + (c) of D-093 DISCHARGED.
+D-093 (d-10) landed: `(if (param T1..TK) (result U1..UN))`
+support across validator + arm64/x86_64 emit + liveness. Per
+Wasm spec §3.4.4: validator `opElse` re-pushes start (param)
+types so else-arm sees the same shape as then-arm; emit
+captures top param_arity vregs at `emitIf` into Label's new
+`param_top_vregs[8]`; `emitElse` truncates to entry_base +
+re-pushes captured params; `emitEndIntra` else_open path adds
+single-arity merge for the param-bearing case (mirrors the
+existing 2*arity path for param=0). Liveness `block_stack`
+upgrades from u32 to Frame struct tracking `(entry_depth,
+param_arity, is_if, param_vregs)`; `.else` truncates sim_stack
+to entry_depth + re-pushes captured params so regalloc keeps
+the param slots live across both arms. Mac + OrbStack
+`test-spec-wasm-2.0-assert` 12262 / 0 / 143 unchanged
+(`if` deferred from NAMES until multi-result func call support
+lands — `add64_u_{with_carry,saturated}` in if.0.wasm exposes
+2-result returns + 2-result captures). simd unchanged
+13301/0/440. Two regression fixtures under
+`test/edge_cases/p9/if/` (`param_then.wasm = 3`,
+`param_else.wasm = -1`).
 
 ### Standing reminder for the autonomous loop
 
 **Project tone is `.claude/rules/no_workaround.md`: fix root
 causes, never work around.**
 
-### Next task — D-093 cluster (b) + runner-skip-impl backlog
+### Next task — D-093 multi-result func call + runner-skip-impl
 
-Clusters (a) + (c) DISCHARGED at d-8c + d-9. Remaining:
+Clusters (a) + (b) + (c) of D-093 ALL DISCHARGED at d-8c + d-9 +
+d-10. Remaining gating §9.9 close:
 
-- **if-with-params validator + emit gap (cluster (b))** —
-  `if.wast:param` (func[42]) is `(if (param i32) (result
-  i32) ...)`. Validator's `opElse` doesn't re-push params
-  for else-arm (Wasm spec §3.4.4); fixing validator alone
-  surfaces an emit-side gap (liveness treats `.else` as
-  transparent so param vreg's range ends in then-arm; else
-  re-read clobbers via regalloc slot reuse). Multi-file
-  chunk: (a) validator opElse re-push, (b) emit Label
-  param_top_vregs capture at emitIf + restore at emitElse,
-  (c) liveness if-frame stack to extend param vreg ranges
-  across both arms. Adding `if` to NAMES surfaces this.
+- **Multi-result function calls (d-11)** — `if.wast:add64_u_*`
+  funcs declare `(result i64 i32)` (Wasm 2.0 multi-value).
+  Currently `op_call.captureCallResult` rejects `>1` results
+  via `Error.UnsupportedOp`; function-end marshal in
+  emit.zig only writes `results[0]`. Implement:
+  (a) captureCallResult extends to N results: walk
+  `callee_sig.results`, map each to AAPCS64 result reg
+  (X0/X1/... for GPR class, V0/V1/... for FP), push N
+  vregs. (b) Function-end marshal: walk `func.sig.results`,
+  MOV each home reg → AAPCS64 result reg. (c) x86_64
+  mirrors via SysV (RAX/RDX for GPR, XMM0/XMM1 for FP) +
+  Win64. (d) Add `if` to NAMES + verify.
 
 Runner-side skip-impl backlog (7 total, in `nop / loop /
 local_tee`):
@@ -83,8 +91,9 @@ Other queued post-D-093 names: `address`, `align`, `br_table`,
 | D-093 (d-8a) | [x] 13c46792 | ADR-0059 + JitRuntime callout ABI tail extension |
 | D-093 (d-8b) | [x] 2e04b925 | arm64 `.memory.grow` BLR-via-fn-ptr emit + X28/X27 reload + safe default fn |
 | D-093 (d-8c) | [x] 0b3d7dea | x86_64 `.memory.grow` CALL-via-fn-ptr emit + spec-runner growable_memory pool + NAMES (nop/loop/local_tee; block deferred for (c)) |
-| D-093 (d-9) (c) | [x] (this commit) | liveness br target-depth-aware close (block_stack) + block NAMES |
-| **D-093 (d-10) (b)** | **NEXT** | if-with-params validator opElse re-push + emit Label param_top_vregs + liveness if-frame stack + add `if` to NAMES |
+| D-093 (d-9) (c) | [x] a38890da | liveness br target-depth-aware close (block_stack) + block NAMES |
+| D-093 (d-10) (b) | [x] (this commit) | if-with-params validator opElse + emit param_top_vregs capture/restore + liveness if-frame + edge-case fixtures |
+| **D-093 (d-11)** | **NEXT** | multi-result function calls (captureCallResult + function-end marshal) + add `if` to NAMES |
 
 Other queued chunks (post-l-1): k-1, k-2, m-4c (= D-090),
 m-2d, n-1, j-3b.

@@ -81,6 +81,16 @@ NAMES=(
   block
   loop
   local_tee
+  # NOTE: `if` deferred — the upstream module declares
+  # `add64_u_{with_carry,saturated}` which expose 2-result
+  # function returns + 2-result call captures (Wasm 2.0
+  # multi-value). The runner's `captureCallResult` + the
+  # arm64/x86_64 function-end marshal currently support
+  # single-result only; the entire if.0.wasm module fails
+  # to compile because `add64_u_saturated` calls
+  # `add64_u_with_carry`. Added in the follow-up chunk that
+  # extends call-result capture + function-end marshal to
+  # multi-result.
 )
 
 mkdir -p "$DEST"

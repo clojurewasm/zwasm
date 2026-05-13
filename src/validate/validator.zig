@@ -507,6 +507,20 @@ const Validator = struct {
         self.operand_len = frame.height;
         frame.kind = .else_open;
         frame.unreachable_flag = false;
+        // D-093 (d-10) — Wasm spec §3.4.4: the else-arm starts with
+        // the if-frame's `start` (param) types pushed back onto the
+        // operand stack (same shape the then-arm saw at entry).
+        // Pre-d-10 omitted this, surfacing as `if.wast:param`
+        // StackUnderflow because the else-arm body's `(i32.add)`
+        // expected param + const but found only const.
+        // `start_type` mirrors `BlockType bt.start` from opIf — for
+        // Wasm 1.0 blocktypes it's `.empty`; for Wasm 2.0 typeidx
+        // blocktypes it's `blockTypeOfSlice(ft.params)`.
+        switch (frame.start_type) {
+            .empty => {},
+            .single => |t| try self.pushType(t),
+            .multi => |ts| for (ts) |t| try self.pushType(t),
+        }
     }
 
     fn opEnd(self: *Validator) Error!void {

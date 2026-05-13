@@ -432,10 +432,24 @@ pub fn emitIf(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     if (ctx.pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const ar = unpackBlockArity(ins.extra);
     if (ar.results > merge_top_vregs_cap) return Error.UnsupportedOp;
+    if (ar.params > merge_top_vregs_cap) return Error.UnsupportedOp;
     const cond = ctx.pushed_vregs.pop().?;
     const wn = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, cond, 0);
     const skip_byte: u32 = @intCast(ctx.buf.items.len);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbzW(wn, 0));
+    // D-093 (d-10) — capture top `param_arity` vregs so emitElse
+    // can re-push them onto the operand stack at else-arm entry
+    // (Wasm spec §3.4.4 specifies the else-arm starts with the
+    // same shape as the then-arm did at if-entry).
+    var param_top_vregs: [merge_top_vregs_cap]u32 = undefined;
+    if (ar.params > 0) {
+        if (ctx.pushed_vregs.items.len < ar.params) return Error.AllocationMissing;
+        const base = ctx.pushed_vregs.items.len - ar.params;
+        var i: u32 = 0;
+        while (i < ar.params) : (i += 1) {
+            param_top_vregs[i] = ctx.pushed_vregs.items[base + i];
+        }
+    }
     try ctx.labels.append(ctx.allocator, .{
         .kind = .if_then,
         .target_byte_offset = 0,
@@ -447,6 +461,7 @@ pub fn emitIf(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         // the if's condition vreg (matches the depth a
         // subsequent br would target).
         .entry_stack_depth = @intCast(ctx.pushed_vregs.items.len),
+        .param_top_vregs = param_top_vregs,
     });
 }
 
@@ -476,6 +491,30 @@ pub fn emitElse(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encB(0));
     const else_start: u32 = @intCast(ctx.buf.items.len);
     const lbl = &ctx.labels.items[lbl_idx];
+    // D-093 (d-10) — restore else-arm operand-stack shape. Wasm
+    // spec §3.4.4: the else-arm starts with the if-frame's param
+    // types pushed back onto the stack (same view the then-arm
+    // had at entry). Truncate to `entry_stack_depth - param_arity`
+    // (= state BEFORE params were placed), then push the captured
+    // `param_top_vregs` back.
+    if (lbl.param_arity > 0) {
+        const entry_base: usize = @as(usize, lbl.entry_stack_depth) -| @as(usize, lbl.param_arity);
+        if (ctx.pushed_vregs.items.len > entry_base) {
+            ctx.pushed_vregs.shrinkRetainingCapacity(entry_base);
+        }
+        while (ctx.pushed_vregs.items.len < entry_base) {
+            // Defensive — should not fire (validator guarantees
+            // the operand-stack depth at .else matches the
+            // entry-base + result_arity shape); padding here
+            // preserves the entry-base invariant if a future
+            // validator change drifts.
+            try ctx.pushed_vregs.append(ctx.allocator, lbl.param_top_vregs[0]);
+        }
+        var i: u32 = 0;
+        while (i < lbl.param_arity) : (i += 1) {
+            try ctx.pushed_vregs.append(ctx.allocator, lbl.param_top_vregs[i]);
+        }
+    }
     // Patch the matching `if`'s CBZ skip — but only if the
     // if_then frame had one. Dead-code-pushed placeholder
     // frames (§9.7 / 7.5-deadcode-labels-bookkeeping) carry
@@ -623,6 +662,49 @@ pub fn emitEndIntra(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
         if (dead_else) {
             // Merge targets already on top of stack from the
             // then arm. Skip MOVs; B fixups patched below.
+        } else if (lbl.param_arity > 0) {
+            // D-093 (d-10) — `if (param T1..TK)` case: emitElse
+            // truncated the phantom V_then_result below the
+            // re-pushed params, so at .end the stack is just
+            // [..., V_else_result_0 .. V_else_result_{N-1}].
+            // MOV else-results into the captured merge slots
+            // (= V_then_result vregs); the truncate at line 730+
+            // collapses pushed_vregs to `entry_base + arity` and
+            // back-fills the canonical merge_top_vregs into the
+            // top slots. Mirrors the param=0 path's MOV+swap
+            // shape, just without the "verify merge_base" check
+            // (no phantom layer to verify against).
+            if (ctx.pushed_vregs.items.len < arity) {
+                std.debug.print("arm64/op_control: emitEndIntra (param else_open) needs >={d} pushed_vregs, got {d} (func_idx={d})\n", .{ arity, ctx.pushed_vregs.items.len, ctx.func.func_idx });
+                return Error.UnsupportedOp;
+            }
+            var i: u32 = arity;
+            while (i > 0) {
+                i -= 1;
+                const else_result = ctx.pushed_vregs.pop().?;
+                const merge_vreg = lbl.merge_top_vregs[i];
+                if (ctx.alloc.shapeTag(merge_vreg) == .v128) {
+                    const else_reg_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, else_result, 1);
+                    const merge_reg_v = try gpr.qDefSpilled(ctx.alloc, merge_vreg, 0);
+                    if (merge_reg_v != else_reg_v) {
+                        try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encMovV16B(merge_reg_v, else_reg_v));
+                    }
+                    try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, merge_vreg, 0);
+                } else {
+                    const else_reg_v = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, else_result, 1);
+                    const merge_reg_v = try gpr.gprDefSpilled(ctx.alloc, merge_vreg, 0);
+                    if (merge_reg_v != else_reg_v) {
+                        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(merge_reg_v, 31, else_reg_v));
+                    }
+                    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, merge_vreg, 0);
+                }
+            }
+            // Push back canonical merge_top_vregs so the post-block
+            // consumer reads the merged result.
+            var j: u32 = 0;
+            while (j < arity) : (j += 1) {
+                try ctx.pushed_vregs.append(ctx.allocator, lbl.merge_top_vregs[j]);
+            }
         } else if (ctx.pushed_vregs.items.len < 2 * arity) {
             std.debug.print("arm64/op_control: emitEndIntra (else_open merge) needs >={d} pushed_vregs, got {d} (func_idx={d})\n", .{ 2 * arity, ctx.pushed_vregs.items.len, ctx.func.func_idx });
             return Error.UnsupportedOp;

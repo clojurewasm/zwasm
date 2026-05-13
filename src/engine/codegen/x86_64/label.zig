@@ -78,4 +78,9 @@ pub const Label = struct {
     /// D-093 (d-6) — Wasm 2.0 multi-value block param count.
     /// Mirrors `arm64/label.zig:Label.param_arity`.
     param_arity: u8 = 0,
+    /// D-093 (d-10) — `if (param T1 .. TK)` else-arm restore.
+    /// Mirrors `arm64/label.zig:Label.param_top_vregs`. emitIf
+    /// captures top `param_arity` vregs; emitElse re-pushes them
+    /// onto the operand stack at else-arm entry (Wasm spec §3.4.4).
+    param_top_vregs: [8]u32 = undefined,
 };

@@ -101,4 +101,13 @@ pub const Label = struct {
     /// emitIf unpack from `ZirInstr.extra`'s high byte
     /// (`(params << 8) | results`).
     param_arity: u8 = 0,
+    /// D-093 (d-10) — `if (param T1 .. TK)` else-arm restore.
+    /// emitIf captures the top `param_arity` vregs from the
+    /// operand stack so emitElse can re-push them when the
+    /// else-arm begins (Wasm spec §3.4.4: else-arm starts with
+    /// the same operand-stack shape as the then-arm did at
+    /// `if` entry). Indices `[0..param_arity)` are valid;
+    /// remaining slots are undefined. Block / loop / if-without-
+    /// params leave the slot unused.
+    param_top_vregs: [8]u32 = undefined,
 };

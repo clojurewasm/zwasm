@@ -626,7 +626,21 @@ pub fn compute(
     // br N pops the target label's arity values + discards
     // intermediate values pushed inside nested blocks; values
     // BELOW target's entry stack-depth are preserved.
-    var block_stack: [max_control_stack]u32 = undefined;
+    //
+    // D-093 (d-10) extension — `if`-frame captures top
+    // `param_arity` vregs at entry so `.else` can re-push them
+    // (Wasm spec §3.4.4: else-arm starts with the same operand-
+    // stack shape as the then-arm did at if-entry). Liveness then
+    // sees the re-pushed vregs consumed by else-arm body, which
+    // bumps their `last_use_pc` forward and prevents regalloc from
+    // aliasing their spill slots across the if-frame.
+    const Frame = struct {
+        entry_depth: u32,
+        param_arity: u8,
+        is_if: bool,
+        param_vregs: [8]u32,
+    };
+    var block_stack: [max_control_stack]Frame = undefined;
     var block_stack_len: usize = 0;
 
     // Sub-7.5c-iv: after an unconditional branch (br / return /
@@ -664,17 +678,41 @@ pub fn compute(
             continue;
         }
 
-        // block / loop: structural markers — push current sim_len
-        // onto block_stack so `.br N` can resolve target depth.
-        // `.else` is a continuation of the same `.if` frame so it
-        // stays transparent (doesn't touch block_stack).
+        // block / loop: structural markers — push frame so `.br N`
+        // can resolve target depth. (D-093 d-10: param_arity tracked
+        // but only meaningful for if-frames at the .else restore
+        // point; block / loop don't have a comparable mid-frame
+        // boundary.)
         if (instr.op == .block or instr.op == .loop) {
             if (block_stack_len == max_control_stack) return Error.UnsupportedOp;
-            block_stack[block_stack_len] = @intCast(sim_len);
+            block_stack[block_stack_len] = .{
+                .entry_depth = @intCast(sim_len),
+                .param_arity = 0,
+                .is_if = false,
+                .param_vregs = undefined,
+            };
             block_stack_len += 1;
             continue;
         }
+        // .else: restore the operand-stack shape the then-arm saw
+        // at entry. Truncate sim_stack to entry_depth, then push
+        // the captured param vregs back so subsequent else-arm
+        // ops update their `last_use_pc` (preventing regalloc from
+        // aliasing the param's spill slot with else-arm pushes).
+        // Wasm spec §3.4.4 — only valid inside an if_then frame.
         if (instr.op == .@"else") {
+            if (block_stack_len > 0) {
+                const fr = block_stack[block_stack_len - 1];
+                if (fr.is_if) {
+                    sim_len = fr.entry_depth;
+                    var i: u32 = 0;
+                    while (i < fr.param_arity) : (i += 1) {
+                        if (sim_len == max_simulated_stack) return Error.OperandStackUnderflow;
+                        sim_stack[sim_len] = fr.param_vregs[i];
+                        sim_len += 1;
+                    }
+                }
+            }
             continue;
         }
 
@@ -692,8 +730,27 @@ pub fn compute(
             // D-093 (d-9): push block_stack AFTER popping the
             // condition so the if-frame's entry depth matches the
             // body's view of the operand stack.
+            // D-093 (d-10): capture top `param_arity` vregs (from
+            // `(extra >> 8) & 0xFF` — lower.zig packing) so .else
+            // can re-push them; cap at 8 to fit Frame.param_vregs.
             if (block_stack_len == max_control_stack) return Error.UnsupportedOp;
-            block_stack[block_stack_len] = @intCast(sim_len);
+            const param_arity_u: u32 = (instr.extra >> 8) & 0xFF;
+            if (param_arity_u > 8) return Error.UnsupportedOp;
+            const param_arity: u8 = @intCast(param_arity_u);
+            var param_vregs: [8]u32 = undefined;
+            if (param_arity > 0 and sim_len >= @as(usize, param_arity)) {
+                const base = sim_len - @as(usize, param_arity);
+                var i: u32 = 0;
+                while (i < param_arity) : (i += 1) {
+                    param_vregs[i] = sim_stack[base + i];
+                }
+            }
+            block_stack[block_stack_len] = .{
+                .entry_depth = @intCast(sim_len),
+                .param_arity = param_arity,
+                .is_if = true,
+                .param_vregs = param_vregs,
+            };
             block_stack_len += 1;
             continue;
         }
@@ -747,7 +804,7 @@ pub fn compute(
             const target_depth: u32 = if (depth >= block_stack_len)
                 0
             else
-                block_stack[block_stack_len - 1 - @as(usize, depth)];
+                block_stack[block_stack_len - 1 - @as(usize, depth)].entry_depth;
             while (sim_len > @as(usize, target_depth)) {
                 sim_len -= 1;
                 const vreg = sim_stack[sim_len];

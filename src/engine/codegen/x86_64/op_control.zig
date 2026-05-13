@@ -458,11 +458,23 @@ pub fn emitIf(
     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const ar = unpackBlockArity(arity_extra);
     if (ar.results > merge_top_vregs_cap) return types.rejectUnsupported("src/engine/codegen/x86_64/op_control.zig:217", 0);
+    if (ar.params > merge_top_vregs_cap) return types.rejectUnsupported("src/engine/codegen/x86_64/op_control.zig:if-params-cap", 0);
     const cond_v = pushed_vregs.pop().?;
     const cond_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, cond_v, 0);
     try buf.appendSlice(allocator, inst.encTestRR(.d, cond_r, cond_r).slice());
     const skip_at: u32 = @intCast(buf.items.len);
     try buf.appendSlice(allocator, inst.encJccRel32(.e, 0).slice()); // JE = skip if cond==0
+    // D-093 (d-10) — capture top `param_arity` vregs for else-arm
+    // restore (mirror of arm64/op_control.zig:emitIf).
+    var param_top_vregs: [merge_top_vregs_cap]u32 = undefined;
+    if (ar.params > 0) {
+        if (pushed_vregs.items.len < ar.params) return Error.AllocationMissing;
+        const base = pushed_vregs.items.len - ar.params;
+        var i: u32 = 0;
+        while (i < ar.params) : (i += 1) {
+            param_top_vregs[i] = pushed_vregs.items[base + i];
+        }
+    }
     try labels.append(allocator, .{
         .kind = .if_then,
         .target_byte_offset = 0,
@@ -473,6 +485,7 @@ pub fn emitIf(
         // D-093 (d-1): measured AFTER popping cond_v, matches
         // the depth a subsequent br would target.
         .entry_stack_depth = @intCast(pushed_vregs.items.len),
+        .param_top_vregs = param_top_vregs,
     });
 }
 
@@ -507,6 +520,21 @@ pub fn emitElse(
     try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
     const else_start: u32 = @intCast(buf.items.len);
     const lbl = &labels.items[lbl_idx];
+    // D-093 (d-10) — restore else-arm operand-stack shape per
+    // Wasm spec §3.4.4 (mirror of arm64/op_control.zig:emitElse).
+    if (lbl.param_arity > 0) {
+        const entry_base: usize = @as(usize, lbl.entry_stack_depth) -| @as(usize, lbl.param_arity);
+        if (pushed_vregs.items.len > entry_base) {
+            pushed_vregs.shrinkRetainingCapacity(entry_base);
+        }
+        while (pushed_vregs.items.len < entry_base) {
+            try pushed_vregs.append(allocator, lbl.param_top_vregs[0]);
+        }
+        var i: u32 = 0;
+        while (i < lbl.param_arity) : (i += 1) {
+            try pushed_vregs.append(allocator, lbl.param_top_vregs[i]);
+        }
+    }
     // Patch the matching `if`'s skip-Jcc — but only if the
     // if_then frame had one. Dead-code-pushed placeholder frames
     // (mirror of arm64 §9.7/7.5-deadcode-labels-bookkeeping)
@@ -617,6 +645,42 @@ pub fn emitEndIntra(
         };
         if (dead_else) {
             // Merge targets already on top of stack. Skip MOVs.
+        } else if (lbl.param_arity > 0) {
+            // D-093 (d-10) — `if (param T1..TK)` case: emitElse
+            // truncated the phantom merge layer below the
+            // re-pushed params, so the stack at .end is just
+            // [..., V_else_result_0..V_else_result_{N-1}]. MOV
+            // each into the captured merge slot, then push the
+            // canonical merge_top_vregs back so post-block
+            // consumers read the merged result. Mirrors
+            // `arm64/op_control.zig` else_open param path.
+            if (pushed_vregs.items.len < arity) {
+                return types.rejectUnsupported("src/engine/codegen/x86_64/op_control.zig:else-param-arity", 0);
+            }
+            var i: u32 = arity;
+            while (i > 0) {
+                i -= 1;
+                const else_result = pushed_vregs.pop().?;
+                const merge_vreg = lbl.merge_top_vregs[i];
+                if (alloc.shapeTag(merge_vreg) == .v128) {
+                    const else_xmm = try gpr.resolveXmm(alloc, else_result);
+                    const merge_xmm = try gpr.resolveXmm(alloc, merge_vreg);
+                    if (merge_xmm != else_xmm) {
+                        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(merge_xmm, else_xmm).slice());
+                    }
+                } else {
+                    const else_reg = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, else_result, 0);
+                    const merge_reg = try gpr.gprDefSpilled(alloc, merge_vreg, 1);
+                    if (merge_reg != else_reg) {
+                        try buf.appendSlice(allocator, inst.encMovRR(.d, merge_reg, else_reg).slice());
+                    }
+                    try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, merge_vreg, 1);
+                }
+            }
+            var j: u32 = 0;
+            while (j < arity) : (j += 1) {
+                try pushed_vregs.append(allocator, lbl.merge_top_vregs[j]);
+            }
         } else if (pushed_vregs.items.len < 2 * arity) {
             return types.rejectUnsupported("src/engine/codegen/x86_64/op_control.zig:309", 0);
         } else {
