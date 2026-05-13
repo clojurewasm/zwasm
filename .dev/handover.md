@@ -10,45 +10,43 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **Phase 9 extended; D-093 (d-17) unified merge MOV landed 2026-05-14**
+## Active state — **Phase 9 extended; D-093 (d-18) x86_64 select + call_indirect landed 2026-05-14**
 
 ### One-line state
 
-D-093 (d-17) landed three follow-ups to ADR-0060: (a) unified
-`emitMergeMov` on both archs dispatches on v128 / fpr / gpr
-class (FP scalar previously fell through to GPR MOV which
-corrupted f32/f64 if-frame merges); (b) GPR path widened to
-64-bit MOV to preserve i64 across merges; (c)
-`captureOrEmitBlockMergeMov` extended to .if_then / .else_open
-targets so `br N` inside an if-arm carries its value into the
-if-frame's result slot (D-096 discharge). Mac arm64 clean at
-12460/0 when `if` is enabled; OrbStack x86_64 has 6 residuals
-(i32 if-result consumed by select / call_indirect — D-097
-partial). `if` deferred from NAMES until d-18 walks the
-x86_64 select / call_indirect emit. Mac + OrbStack `test-all`
-green (= test-spec-wasm-2.0-assert 12262/0/143 baseline
-unchanged when `if` deferred; simd 13301/0/440 unchanged).
+D-093 (d-18) discharges D-097: two x86_64 emit fixes for ops
+that consume force-spilled vregs. (a) select's stage-0 pool
+was recycled across cond → val1 → dst; the alias depended on
+regalloc's LIFO free-pool ordering. Fix: pick CMOVE vs CMOVNE
+direction so the init MOV is always a self-MOV or skipped
+when an alias exists. (b) call_indirect loaded idx_r BEFORE
+marshalCallArgs, but marshalling stages spilled args through
+R10 (= idx_r's home when idx is spilled), so bounds / sig /
+funcptr-index loads read the last-staged arg instead of the
+idx. Fix: defer idx_r load until after marshalCallArgs.
+Both hosts now at 12460/0 on `test-spec-wasm-2.0-assert` with
+`if` enabled. `test-all` green on both; simd 13301/0/440
+unchanged.
 
 ### Standing reminder for the autonomous loop
 
 **Project tone is `.claude/rules/no_workaround.md`: fix root
 causes, never work around.**
 
-### Next task — D-097 residual 6 x86_64 fails (select / call_indirect)
+### Next task — post-D-093 NAMES expansion or §9.9 close
 
-D-095 + D-096 + (d-17 follow-ups) all discharged. Remaining
-gating §9.9 close:
+D-095 + D-096 + D-097 ALL DISCHARGED. With `if` in NAMES both
+hosts are at 12460/0/185 on `test-spec-wasm-2.0-assert`. D-093
+(d-15..d-18 sub-cluster) resolved.
 
-- **D-097 residual (d-18 NEXT)** — 6 x86_64-specific fails
-  surface when `if` is enabled in NAMES: `as-select-mid(i32:0)`,
-  `as-select-mid(i32:1)`, `as-select-last(i32:1)`,
-  `as-call_indirect-first(i32:1)`, `as-call_indirect-mid(i32:1)`,
-  `as-call_indirect-last(i32:1)` (assert_trap). Common shape:
-  i32 if-result consumed by select / call_indirect on x86_64
-  only (arm64 clean at 12460/0). Bisect via single-fixture
-  disassembly compared with arm64. Likely an x86_64-only emit
-  divergence in how select / call_indirect reads a recently-
-  merged i32 vreg.
+- **d-19 NEXT** — pick the next NAMES expansion from the queue
+  (`address`, `align`, `br_table`, `call`, `call_indirect`,
+  `const`, `data`, `elem`, `f32_bitwise`, `f64_bitwise`, `fac`,
+  `func`, `func_ptrs`, `global`, `load`, `memory`,
+  `memory_grow`, `memory_size`, `select`, `start`, `store`,
+  `switch`, `table`, `traps`, `type`, `unwind`). Bundle into
+  one chunk where the underlying ops share an existing emit
+  helper (cf. continue/LOOP.md chunk-granularity table).
 
 Runner-side skip-impl backlog (7 total, in `nop / loop /
 local_tee`):
@@ -91,8 +89,9 @@ Other queued post-D-093 names: `address`, `align`, `br_table`,
 | D-093 (d-14) | [x] 124dd7cf | arm64 `.return` op multi-result marshal (d-11 stale-inline cleanup) + add64_u_saturated_exact edge fixture |
 | D-093 (d-15) | [x] b5bd2cdf | regalloc call-crossing-vreg root-cause investigation + D-095 debt + compose_no_call edge fixture |
 | D-093 (d-16) | [x] 5ccae2cd | ADR-0060: regalloc `computeWith` force-spill call-crossing vregs (slot ≥ per-arch max(GPR, FP)) + compose_with_call edge fixture + D-095 partial discharge + D-096 / D-097 filed |
-| D-093 (d-17) | [x] (this commit) | unified `emitMergeMov` (FP-class dispatch + 64-bit GPR MOV) + br-into-if-frame merge capture (D-096 discharged) + br_inside_arm edge fixture |
-| **D-093 (d-18)** | **NEXT** | discharge D-097 residual (6 x86_64 fails on select / call_indirect with i32 if-result) — single-fixture disassembly walkthrough |
+| D-093 (d-17) | [x] eca69183 | unified `emitMergeMov` (FP-class dispatch + 64-bit GPR MOV) + br-into-if-frame merge capture (D-096 discharged) + br_inside_arm edge fixture |
+| D-093 (d-18) | [x] (this commit) | x86_64 select alias-aware cmov + call_indirect idx load order (D-097 discharged) + select_spilled_operands / select_with_if_call / select_with_if_no_call edge fixtures |
+| **D-093 (d-19)** | **NEXT** | post-D-093 NAMES expansion (pick from `address`/`align`/`br_table`/`call`/`call_indirect`/`const`/... queue) |
 
 Other queued chunks (post-l-1): k-1, k-2, m-4c (= D-090),
 m-2d, n-1, j-3b.

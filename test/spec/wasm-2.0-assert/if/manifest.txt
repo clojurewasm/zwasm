@@ -1,0 +1,241 @@
+module if.0.wasm
+assert_return empty i32:0 -> ()
+assert_return empty i32:1 -> ()
+assert_return empty i32:100 -> ()
+assert_return empty i32:4294967294 -> ()
+assert_return singular i32:0 -> i32:8
+assert_return singular i32:1 -> i32:7
+assert_return singular i32:10 -> i32:7
+assert_return singular i32:4294967286 -> i32:7
+skip-impl multi-result multi
+skip-impl multi-result multi
+skip-impl multi-result multi
+skip-impl multi-result multi
+assert_return nested i32:0 i32:0 -> i32:11
+assert_return nested i32:1 i32:0 -> i32:10
+assert_return nested i32:0 i32:1 -> i32:10
+assert_return nested i32:3 i32:2 -> i32:9
+assert_return nested i32:0 i32:4294967196 -> i32:10
+assert_return nested i32:10 i32:10 -> i32:9
+assert_return nested i32:0 i32:4294967295 -> i32:10
+assert_return nested i32:4294967185 i32:4294967294 -> i32:9
+assert_return as-select-first i32:0 -> i32:0
+assert_return as-select-first i32:1 -> i32:1
+assert_return as-select-mid i32:0 -> i32:2
+assert_return as-select-mid i32:1 -> i32:2
+assert_return as-select-last i32:0 -> i32:3
+assert_return as-select-last i32:1 -> i32:2
+assert_return as-loop-first i32:0 -> i32:0
+assert_return as-loop-first i32:1 -> i32:1
+assert_return as-loop-mid i32:0 -> i32:0
+assert_return as-loop-mid i32:1 -> i32:1
+assert_return as-loop-last i32:0 -> i32:0
+assert_return as-loop-last i32:1 -> i32:1
+assert_return as-if-condition i32:0 -> i32:3
+assert_return as-if-condition i32:1 -> i32:2
+assert_return as-br_if-first i32:0 -> i32:0
+assert_return as-br_if-first i32:1 -> i32:1
+assert_return as-br_if-last i32:0 -> i32:3
+assert_return as-br_if-last i32:1 -> i32:2
+assert_return as-br_table-first i32:0 -> i32:0
+assert_return as-br_table-first i32:1 -> i32:1
+assert_return as-br_table-last i32:0 -> i32:2
+assert_return as-br_table-last i32:1 -> i32:2
+assert_return as-call_indirect-first i32:0 -> i32:0
+assert_return as-call_indirect-first i32:1 -> i32:1
+assert_return as-call_indirect-mid i32:0 -> i32:2
+assert_return as-call_indirect-mid i32:1 -> i32:2
+assert_return as-call_indirect-last i32:0 -> i32:2
+assert_trap as-call_indirect-last i32:1
+assert_return as-store-first i32:0 -> ()
+assert_return as-store-first i32:1 -> ()
+assert_return as-store-last i32:0 -> ()
+assert_return as-store-last i32:1 -> ()
+assert_return as-memory.grow-value i32:0 -> i32:1
+assert_return as-memory.grow-value i32:1 -> i32:1
+assert_return as-call-value i32:0 -> i32:0
+assert_return as-call-value i32:1 -> i32:1
+assert_return as-return-value i32:0 -> i32:0
+assert_return as-return-value i32:1 -> i32:1
+assert_return as-drop-operand i32:0 -> ()
+assert_return as-drop-operand i32:1 -> ()
+assert_return as-br-value i32:0 -> i32:0
+assert_return as-br-value i32:1 -> i32:1
+assert_return as-local.set-value i32:0 -> i32:0
+assert_return as-local.set-value i32:1 -> i32:1
+assert_return as-local.tee-value i32:0 -> i32:0
+assert_return as-local.tee-value i32:1 -> i32:1
+assert_return as-global.set-value i32:0 -> i32:0
+assert_return as-global.set-value i32:1 -> i32:1
+assert_return as-load-operand i32:0 -> i32:0
+assert_return as-load-operand i32:1 -> i32:0
+assert_return as-unary-operand i32:0 -> i32:0
+assert_return as-unary-operand i32:1 -> i32:0
+assert_return as-unary-operand i32:4294967295 -> i32:0
+assert_return as-binary-operand i32:0 i32:0 -> i32:15
+assert_return as-binary-operand i32:0 i32:1 -> i32:4294967284
+assert_return as-binary-operand i32:1 i32:0 -> i32:4294967281
+assert_return as-binary-operand i32:1 i32:1 -> i32:12
+assert_return as-test-operand i32:0 -> i32:1
+assert_return as-test-operand i32:1 -> i32:0
+assert_return as-compare-operand i32:0 i32:0 -> i32:1
+assert_return as-compare-operand i32:0 i32:1 -> i32:0
+assert_return as-compare-operand i32:1 i32:0 -> i32:1
+assert_return as-compare-operand i32:1 i32:1 -> i32:0
+assert_return as-binary-operands i32:0 -> i32:4294967284
+assert_return as-binary-operands i32:1 -> i32:12
+assert_return as-compare-operands i32:0 -> i32:1
+assert_return as-compare-operands i32:1 -> i32:0
+assert_return as-mixed-operands i32:0 -> i32:4294967293
+assert_return as-mixed-operands i32:1 -> i32:27
+assert_return break-bare () -> i32:19
+assert_return break-value i32:1 -> i32:18
+assert_return break-value i32:0 -> i32:21
+skip-impl multi-result break-multi-value
+skip-impl multi-result break-multi-value
+assert_return param i32:0 -> i32:4294967295
+assert_return param i32:1 -> i32:3
+assert_return params i32:0 -> i32:4294967295
+assert_return params i32:1 -> i32:3
+assert_return params-id i32:0 -> i32:3
+assert_return params-id i32:1 -> i32:3
+assert_return param-break i32:0 -> i32:4294967295
+assert_return param-break i32:1 -> i32:3
+assert_return params-break i32:0 -> i32:4294967295
+assert_return params-break i32:1 -> i32:3
+assert_return params-id-break i32:0 -> i32:3
+assert_return params-id-break i32:1 -> i32:3
+assert_return effects i32:1 -> i32:4294967282
+assert_return effects i32:0 -> i32:4294967290
+skip-impl multi-result add64_u_with_carry
+skip-impl multi-result add64_u_with_carry
+skip-impl multi-result add64_u_with_carry
+skip-impl multi-result add64_u_with_carry
+skip-impl multi-result add64_u_with_carry
+skip-impl multi-result add64_u_with_carry
+skip-impl multi-result add64_u_with_carry
+skip-impl multi-result add64_u_with_carry
+assert_return add64_u_saturated i64:0 i64:0 -> i64:0
+assert_return add64_u_saturated i64:1230 i64:23 -> i64:1253
+assert_return add64_u_saturated i64:18446744073709551615 i64:0 -> i64:18446744073709551615
+assert_return add64_u_saturated i64:18446744073709551615 i64:1 -> i64:18446744073709551615
+assert_return add64_u_saturated i64:18446744073709551615 i64:18446744073709551615 -> i64:18446744073709551615
+assert_return add64_u_saturated i64:9223372036854775808 i64:9223372036854775808 -> i64:18446744073709551615
+assert_return type-use () -> ()
+assert_return atypical-condition () -> ()
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+assert_invalid if.12.wasm
+assert_invalid if.13.wasm
+assert_invalid if.14.wasm
+assert_invalid if.15.wasm
+assert_invalid if.16.wasm
+assert_invalid if.17.wasm
+assert_invalid if.18.wasm
+assert_invalid if.19.wasm
+assert_invalid if.20.wasm
+assert_invalid if.21.wasm
+assert_invalid if.22.wasm
+assert_invalid if.23.wasm
+assert_invalid if.24.wasm
+assert_invalid if.25.wasm
+assert_invalid if.26.wasm
+assert_invalid if.27.wasm
+assert_invalid if.28.wasm
+assert_invalid if.29.wasm
+assert_invalid if.30.wasm
+assert_invalid if.31.wasm
+assert_invalid if.32.wasm
+assert_invalid if.33.wasm
+assert_invalid if.34.wasm
+assert_invalid if.35.wasm
+assert_invalid if.36.wasm
+assert_invalid if.37.wasm
+assert_invalid if.38.wasm
+assert_invalid if.39.wasm
+assert_invalid if.40.wasm
+assert_invalid if.41.wasm
+assert_invalid if.42.wasm
+assert_invalid if.43.wasm
+assert_invalid if.44.wasm
+assert_invalid if.45.wasm
+assert_invalid if.46.wasm
+assert_invalid if.47.wasm
+assert_invalid if.48.wasm
+assert_invalid if.49.wasm
+assert_invalid if.50.wasm
+assert_invalid if.51.wasm
+assert_invalid if.52.wasm
+assert_invalid if.53.wasm
+assert_invalid if.54.wasm
+assert_invalid if.55.wasm
+assert_invalid if.56.wasm
+assert_invalid if.57.wasm
+assert_invalid if.58.wasm
+assert_invalid if.59.wasm
+assert_invalid if.60.wasm
+assert_invalid if.61.wasm
+assert_invalid if.62.wasm
+assert_invalid if.63.wasm
+assert_invalid if.64.wasm
+assert_invalid if.65.wasm
+assert_invalid if.66.wasm
+assert_invalid if.67.wasm
+assert_invalid if.68.wasm
+assert_invalid if.69.wasm
+assert_invalid if.70.wasm
+assert_invalid if.71.wasm
+assert_invalid if.72.wasm
+assert_invalid if.73.wasm
+assert_invalid if.74.wasm
+assert_invalid if.75.wasm
+assert_invalid if.76.wasm
+assert_invalid if.77.wasm
+assert_invalid if.78.wasm
+assert_invalid if.79.wasm
+assert_invalid if.80.wasm
+assert_invalid if.81.wasm
+assert_invalid if.82.wasm
+assert_invalid if.83.wasm
+assert_invalid if.84.wasm
+assert_invalid if.85.wasm
+assert_invalid if.86.wasm
+assert_invalid if.87.wasm
+assert_invalid if.88.wasm
+assert_invalid if.89.wasm
+assert_invalid if.90.wasm
+assert_invalid if.91.wasm
+assert_invalid if.92.wasm
+assert_invalid if.93.wasm
+assert_invalid if.94.wasm
+assert_invalid if.95.wasm
+assert_invalid if.96.wasm
+assert_invalid if.97.wasm
+assert_invalid if.98.wasm
+assert_invalid if.99.wasm
+assert_invalid if.100.wasm
+assert_invalid if.101.wasm
+assert_invalid if.102.wasm
+assert_invalid if.103.wasm
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text

@@ -253,9 +253,18 @@ pub fn emitCallIndirect(
     // Stack at entry: [args..., idx]. Pop idx first.
     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const idx_vreg = pushed_vregs.pop().?;
-    const idx_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, idx_vreg, 0);
 
     try marshalCallArgs(allocator, buf, alloc, pushed_vregs, spill_base_off, callee_sig);
+
+    // D-097 d-18: load idx AFTER marshalCallArgs. The marshalling
+    // stages spilled args through R10 (stage 0); loading idx_r
+    // before would let marshalling clobber its R10 home (when idx
+    // is spilled), so the bounds + sig + funcptr-index loads later
+    // would read whatever-arg-was-last-staged instead of the
+    // call_indirect idx. Surfaced when ADR-0060 d-16 force-spilled
+    // a call-crossing if-result fed into call_indirect's idx slot
+    // (`if.wast:as-call_indirect-{first,mid,last}` × 3).
+    const idx_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, idx_vreg, 0);
 
     // Bounds: MOV EAX, [R15 + table_size_off] ; CMP idx_r, EAX ; JAE trap.
     try buf.appendSlice(allocator, inst.encMovR32FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.table_size_off).slice());

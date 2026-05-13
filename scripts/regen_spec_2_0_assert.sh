@@ -81,13 +81,12 @@ NAMES=(
   block
   loop
   local_tee
-  # d-17 status: Mac arm64 clean at 12460/0 with `if` (FP-class
-  # merge MOV + 64-bit GPR MOV + br-into-if-frame merge capture).
-  # OrbStack x86_64 has 6 residuals (`as-select-mid/last` ×3 +
-  # `as-call_indirect-{first,mid,last}` ×3) — same shape on
-  # i32 if-result consumers; tracked in D-097's narrative.
-  # Deferred from NAMES until d-18 walks the x86_64 select /
-  # call_indirect emit to identify the divergence.
+  # d-18 (D-097 discharge): x86_64 select emit fixed
+  # (val1-into-dst + CMOVE instead of val2-into-dst + CMOVNE)
+  # — pre-d-18 stage 0 was recycled across cond → val1 → dst
+  # so a doubly-spilled (val1, dst) pair aliased on R10 and
+  # the CMOVNE degenerated to a self-MOV.
+  if
 )
 
 mkdir -p "$DEST"

@@ -1432,26 +1432,47 @@ pub fn compile(
                     continue;
                 }
                 // GPR path (i32 / i64 / funcref / externref).
-                // D-045 chunk 13b spill staging: cond is consumed
-                // first by TEST + Jcc, so its stage reg is dead
-                // before val1/val2 load. Use stage 0 for cond and
-                // val1, stage 1 for val2 — but cond is dead by the
-                // time we load val1, so reusing stage 0 is safe.
+                //
+                // D-097 d-18: select with two non-distinct register
+                // slots needs alias-aware cmov direction. The
+                // regalloc's LIFO free-pool reuses slots, so
+                // `result_v` can land on EITHER `val1_v`'s slot or
+                // `val2_v`'s slot depending on the expire order at
+                // select's def PC. Pre-d-18 always emitted
+                // `MOV dst, val2 ; CMOVNE dst, val1` — safe when
+                // dst aliases val2 (MOV is a self-MOV) but broken
+                // when dst aliases val1 (MOV clobbers val1 before
+                // CMOVNE reads it). The d-18 fix picks the cmov
+                // direction so the MOV is always a self-MOV (or
+                // skipped entirely) when an alias exists:
+                //   - dst == val1: CMOVE dst, val2 if cond=0
+                //   - dst == val2: CMOVNE dst, val1 if cond≠0
+                //   - otherwise: MOV dst, val1; CMOVE dst, val2.
+                //
+                // CMOV's read-modify-write shape means the "dst
+                // already holds X" branch must precede the cmov
+                // whose condition keeps that X. CMOVE = move on
+                // ZF=1 (= cond was 0 = pick val2); CMOVNE = move
+                // on ZF=0 (= cond ≠ 0 = pick val1). Wasm spec
+                // §4.4.4: result = (cond ≠ 0) ? val1 : val2.
                 const cond_r = try gpr.gprLoadSpilled(allocator, &buf, alloc, spill_base_off, cond_v, 0);
                 try buf.appendSlice(allocator, inst.encTestRR(.d, cond_r, cond_r).slice());
-                // After TEST sets EFLAGS, cond_r is dead — reload
-                // val1 / val2 / dst through stages without reuse
-                // collision.
-                const val1_r = try gpr.gprLoadSpilled(allocator, &buf, alloc, spill_base_off, val1_v, 0);
                 const val2_r = try gpr.gprLoadSpilled(allocator, &buf, alloc, spill_base_off, val2_v, 1);
+                const val1_r = try gpr.gprLoadSpilled(allocator, &buf, alloc, spill_base_off, val1_v, 0);
                 const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
-                if (dst_r != val2_r) {
-                    // .q-form MOV preserves the full 64 bits in
-                    // case the value happens to be an i64 select
-                    // operand. The extra REX.W is harmless for i32.
-                    try buf.appendSlice(allocator, inst.encMovRR(.q, dst_r, val2_r).slice());
+                if (dst_r == val2_r) {
+                    // dst already holds val2 (alias). CMOVNE swaps
+                    // to val1 on cond ≠ 0.
+                    try buf.appendSlice(allocator, inst.encCmovccRR(.q, .ne, dst_r, val1_r).slice());
+                } else {
+                    // dst == val1 or independent: MOV dst, val1
+                    // (skipped if aliased) + CMOVE swaps to val2 on
+                    // cond = 0.
+                    if (dst_r != val1_r) {
+                        try buf.appendSlice(allocator, inst.encMovRR(.q, dst_r, val1_r).slice());
+                    }
+                    try buf.appendSlice(allocator, inst.encCmovccRR(.q, .e, dst_r, val2_r).slice());
                 }
-                try buf.appendSlice(allocator, inst.encCmovccRR(.q, .ne, dst_r, val1_r).slice());
                 try gpr.gprStoreSpilled(allocator, &buf, alloc, spill_base_off, result_v, 0);
                 try pushed_vregs.append(allocator, result_v);
             },
