@@ -12,8 +12,10 @@ const std = @import("std");
 
 const zir = @import("../../../ir/zir.zig");
 const inst = @import("inst.zig");
+const abi = @import("abi.zig");
 const prologue = @import("prologue.zig");
 const regalloc = @import("../shared/regalloc.zig");
+const jit_abi = @import("../shared/jit_abi.zig");
 const emit = @import("emit.zig");
 
 const ZirFunc = zir.ZirFunc;
@@ -181,7 +183,7 @@ test "compile: memory.size emits LSR W_dest, W27, #16" {
     try testing.expectEqual(@as(u32, inst.encLsrImmW(9, 27, 16)), std.mem.readInt(u32, out.bytes[body0..][0..4], .little));
 }
 
-test "compile: memory.grow emits MOVN W_dest, #0 (skeleton return -1)" {
+test "compile: memory.grow emits BLR-via-memory_grow_fn + X28/X27 reload (ADR-0059)" {
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
@@ -197,8 +199,22 @@ test "compile: memory.grow emits MOVN W_dest, #0 (skeleton return -1)" {
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     const body0 = prologue.body_start_offset(false);
-    // MOVZ W9 #1 (body+0) + MOVN W9 at body+4.
-    try testing.expectEqual(@as(u32, inst.encMovnImmW(9, 0)), std.mem.readInt(u32, out.bytes[body0 + 4 ..][0..4], .little));
+    // Stream from body+0:
+    //   MOVZ W9, #1                  ; delta = 1 (i32.const)
+    //   ORR W1, WZR, W9              ; marshal W1 ← delta
+    //   ORR X0, XZR, X19             ; restore X0 = runtime_ptr
+    //   LDR X16, [X19, #memory_grow_fn_off]
+    //   BLR X16
+    //   LDR X28, [X19, #vm_base_off]
+    //   LDR X27, [X19, #mem_limit_off]
+    //   ORR W9, WZR, W0              ; capture result vreg ← W0
+    try testing.expectEqual(@as(u32, inst.encOrrRegW(1, 31, 9)), std.mem.readInt(u32, out.bytes[body0 + 4 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr)), std.mem.readInt(u32, out.bytes[body0 + 8 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encLdrImm(16, abi.runtime_ptr_save_gpr, jit_abi.memory_grow_fn_off)), std.mem.readInt(u32, out.bytes[body0 + 12 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encBLR(16)), std.mem.readInt(u32, out.bytes[body0 + 16 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encLdrImm(28, abi.runtime_ptr_save_gpr, jit_abi.vm_base_off)), std.mem.readInt(u32, out.bytes[body0 + 20 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encLdrImm(27, abi.runtime_ptr_save_gpr, jit_abi.mem_limit_off)), std.mem.readInt(u32, out.bytes[body0 + 24 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encOrrRegW(9, 31, 0)), std.mem.readInt(u32, out.bytes[body0 + 28 ..][0..4], .little));
 }
 
 test "compile: i32.store — emits bounds-check + STR W reg-offset" {

@@ -1308,24 +1308,54 @@ pub fn compile(
                 try pushed_vregs.append(allocator, result);
             },
             .@"memory.grow" => {
-                // Skeleton: emit `MOVN Wd, #0` = 0xFFFFFFFF = -1
-                // (Wasm spec: -1 indicates grow-failed). Real grow
-                // requires a Runtime callout that allocates new
-                // pages + updates X27 + the underlying memory_base.
-                // Phase 7 follow-up: emit BL to a runtime helper
-                // pointer; Runtime.io injection (D-014) dissolves
-                // alongside this step.
+                // Wasm spec §4.4.7.6 — grow linear memory by N pages,
+                // returning the previous page count, or -1 on failure.
+                // Per ADR-0059: indirect call through
+                // `JitRuntime.memory_grow_fn` with AAPCS64 args
+                //   X0 = runtime_ptr (= X19), W1 = delta_pages.
+                // BLR clobbers all caller-saved regs. AAPCS64
+                // preserves X19..X28 but their *cached values*
+                // (X28 = vm_base, X27 = mem_limit per ADR-0017)
+                // become stale if the callout reallocated the
+                // backing buffer — reload from JitRuntime tail
+                // before any subsequent memory op.
                 if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-                _ = pushed_vregs.pop().?; // delta arg, unused in skeleton
+                const delta_vreg = pushed_vregs.pop().?;
+                // Marshal delta into W1 (AAPCS64 second arg).
+                const ws = try gpr.gprLoadSpilled(allocator, &buf, alloc, spill_base_off, delta_vreg, 0);
+                if (ws != 1) try gpr.writeU32(allocator, &buf, inst.encOrrRegW(1, 31, ws));
+                // Restore X0 = runtime_ptr (ADR-0017 sub-2d-ii).
+                try gpr.writeU32(allocator, &buf, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr));
+                // LDR X16, [X19, #memory_grow_fn_off]; BLR X16.
+                try gpr.writeU32(allocator, &buf, inst.encLdrImm(16, abi.runtime_ptr_save_gpr, jit_abi.memory_grow_fn_off));
+                try gpr.writeU32(allocator, &buf, inst.encBLR(16));
+                // Reload prologue-cached invariants (X28 vm_base,
+                // X27 mem_limit) — they may have moved.
+                try gpr.writeU32(allocator, &buf, inst.encLdrImm(28, abi.runtime_ptr_save_gpr, jit_abi.vm_base_off));
+                try gpr.writeU32(allocator, &buf, inst.encLdrImm(27, abi.runtime_ptr_save_gpr, jit_abi.mem_limit_off));
+                // Capture W0 → result vreg as i32. Mirror of
+                // op_call.zig:captureCallResult.i32 (slot-aware
+                // dispatch on .reg / .spill).
                 const result = next_vreg;
                 next_vreg += 1;
                 if (result >= alloc.slots.len) {
                     std.debug.print("arm64/emit: memory.grow SlotOverflow func[{d}] vreg={d} >= slots.len={d}\n", .{ func.func_idx, result, alloc.slots.len });
                     return Error.SlotOverflow;
                 }
-                const wd = try gpr.gprDefSpilled(alloc, result, 0);
-                try gpr.writeU32(allocator, &buf, inst.encMovnImmW(wd, 0));
-                try gpr.gprStoreSpilled(allocator, &buf, alloc, spill_base_off, result, 0);
+                switch (alloc.slot(result, .gpr)) {
+                    .reg => |id| {
+                        const wd = abi.slotToReg(id) orelse {
+                            std.debug.print("arm64/emit: memory.grow capture SlotOverflow func[{d}] result_vreg={d} slot_id={d}\n", .{ func.func_idx, result, id });
+                            return Error.SlotOverflow;
+                        };
+                        if (wd != 0) try gpr.writeU32(allocator, &buf, inst.encOrrRegW(wd, 31, 0));
+                    },
+                    .spill => |off| {
+                        const abs_off: u32 = spill_base_off + off;
+                        if (abs_off > 16380) return Error.SlotOverflow;
+                        try gpr.writeU32(allocator, &buf, inst.encStrImmW(0, 31, @intCast(abs_off)));
+                    },
+                }
                 try pushed_vregs.append(allocator, result);
             },
             .@"i32.load",

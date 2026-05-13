@@ -70,7 +70,7 @@ host_state: ?*anyopaque = null,
 /// callee-saved registers per the host ABI; the JIT body relies
 /// on this so `X19..X28` (arm64) and `RBX,R12..R15` (x86_64) are
 /// stable across the call.
-memory_grow_fn: ?*const fn (rt: *JitRuntime, delta_pages: u32) callconv(.c) i32 = null,
+memory_grow_fn: *const fn (rt: *JitRuntime, delta_pages: u32) callconv(.c) i32 = defaultMemoryGrowReject,
 ```
 
 JIT emit (this ADR's `Decision` is the ABI surface; the per-arch

@@ -10,21 +10,23 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **Phase 9 extended; D-093 (d-8a) landed 2026-05-13**
+## Active state — **Phase 9 extended; D-093 (d-8b) landed 2026-05-13**
 
 ### One-line state
 
-D-093 (d-8a) landed: ADR-0059 + `JitRuntime` ABI tail-extension
-for the runtime-callout pattern (no behaviour change). Two new
-fields appended: `host_state: ?*anyopaque` (opaque pointer to
-host-managed state for callouts) + `memory_grow_fn: ?*const fn
-(rt: *JitRuntime, delta_pages: u32) callconv(.c) i32` (the
-memory.grow callback). Offsets `host_state_off = 184` and
-`memory_grow_fn_off = 192`; `head_size` 184 → 200. Comptime
-guards + layout test updated; lint clean. Mac + OrbStack
-`test-spec-wasm-2.0-assert` bit-identical at **11773 / 0 / 106**
-baseline. d-8b (arm64 emit + spec-runner wiring) NEXT, then
-d-8c (x86_64 emit + NAMES expansion to nop/block/loop/local_tee).
+D-093 (d-8b) landed: arm64 `.memory.grow` emit rewritten to call
+through `JitRuntime.memory_grow_fn` per ADR-0059 — marshal delta
+into W1, restore X0 = X19, `LDR X16, [X19, #memory_grow_fn_off];
+BLR X16`, then reload X28/X27 (vm_base, mem_limit) from the
+JitRuntime tail. Result captured from W0 via slot-aware dispatch
+(mirror of `op_call.captureCallResult.i32`). Field default is
+`defaultMemoryGrowReject` (returns -1 unconditionally — matches
+the pre-ADR-0059 skeleton's spec-conformant "host refuses growth"
+behaviour) so all existing JitRuntime constructors are SEGV-safe
+without explicit wiring. Mac + OrbStack `test-spec-wasm-2.0-assert`
+bit-identical at **11773 / 0 / 106** baseline. d-8c (x86_64 emit
++ growable spec-runner host_state impl + NAMES expansion to
+nop/block/loop/local_tee) NEXT.
 
 ### Standing reminder for the autonomous loop
 
@@ -73,9 +75,9 @@ Other queued post-D-093 names: `address`, `align`, `br_table`,
 | D-093 (d-5) | [x] 6fe10e95 | loop dead-fall-through placeholder |
 | D-093 (d-6) | [x] a97d9bcd | Wasm 2.0 block-param multi-value |
 | D-093 (d-7) | [x] ad78ce45 | br_table per-case forward-block merge |
-| D-093 (d-8a) | [x] (this commit) | ADR-0059 + JitRuntime callout ABI tail extension |
-| **D-093 (d-8b)** | **NEXT** | arm64 `.memory.grow` BLR-via-fn-ptr emit + X28/X27 reload + spec-runner wiring |
-| D-093 (d-8c) | queued | x86_64 `.memory.grow` CALL-via-fn-ptr emit + regen NAMES (nop/block/loop/local_tee) + 3-host verify |
+| D-093 (d-8a) | [x] 13c46792 | ADR-0059 + JitRuntime callout ABI tail extension |
+| D-093 (d-8b) | [x] (this commit) | arm64 `.memory.grow` BLR-via-fn-ptr emit + X28/X27 reload + safe default fn |
+| **D-093 (d-8c)** | **NEXT** | x86_64 `.memory.grow` CALL-via-fn-ptr emit + growable spec-runner host_state + NAMES expansion (nop/block/loop/local_tee) + verify |
 
 Other queued chunks (post-l-1): k-1, k-2, m-4c (= D-090),
 m-2d, n-1, j-3b.

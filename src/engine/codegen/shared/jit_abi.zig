@@ -254,8 +254,26 @@ pub const JitRuntime = extern struct {
     /// offsets) sees the new values. Calling convention is C-ABI
     /// (SysV on Linux/macOS x86_64, Win64 on Windows, AAPCS64 on
     /// arm64); callee-saved registers MUST be preserved.
-    memory_grow_fn: ?*const fn (rt: *JitRuntime, delta_pages: u32) callconv(.c) i32 = null,
+    ///
+    /// Defaults to `defaultMemoryGrowReject` (always returns -1,
+    /// matches the pre-ADR-0059 skeleton's spec-conformant "host
+    /// refuses growth" semantics) so JIT-emitted BLR/CALL through
+    /// this slot is SEGV-safe out of the box. Runners that need
+    /// actual growth override with their own impl.
+    memory_grow_fn: *const fn (rt: *JitRuntime, delta_pages: u32) callconv(.c) i32 = defaultMemoryGrowReject,
 };
+
+/// Default `memory_grow_fn` — unconditionally refuses growth by
+/// returning the spec sentinel `-1`. Spec-conformant for any host
+/// that opts to disallow runtime linear-memory growth (per Wasm
+/// 1.0 §4.4.7.6). Matches the pre-ADR-0059 skeleton's behaviour
+/// so existing test corpora that exercise `memory.grow` without
+/// a growable runner observe identical outcomes.
+pub fn defaultMemoryGrowReject(rt: *JitRuntime, delta_pages: u32) callconv(.c) i32 {
+    _ = rt;
+    _ = delta_pages;
+    return -1;
+}
 
 // ============================================================
 // Comptime offset constants — consumed by prologue emit (per-arch
