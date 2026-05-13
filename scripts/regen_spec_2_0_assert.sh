@@ -81,14 +81,13 @@ NAMES=(
   block
   loop
   local_tee
-  # NOTE: `if` deferred to d-17 — d-16 / ADR-0060 landed the
-  # regalloc force-spill mechanism (proved by
-  # `test/edge_cases/p9/if/compose_with_call.wat`) but enabling
-  # `if` here surfaces x86_64-specific emit residuals (D-097).
-  # The autonomous loop's 2-host gate requires both Mac and
-  # OrbStack green; deferring keeps the gate honest while D-097
-  # is investigated. D-096 (param-break / params-break) is
-  # separate and stays gated on the same NAMES re-enablement.
+  # d-17 status: Mac arm64 clean at 12460/0 with `if` (FP-class
+  # merge MOV + 64-bit GPR MOV + br-into-if-frame merge capture).
+  # OrbStack x86_64 has 6 residuals (`as-select-mid/last` ×3 +
+  # `as-call_indirect-{first,mid,last}` ×3) — same shape on
+  # i32 if-result consumers; tracked in D-097's narrative.
+  # Deferred from NAMES until d-18 walks the x86_64 select /
+  # call_indirect emit to identify the divergence.
 )
 
 mkdir -p "$DEST"

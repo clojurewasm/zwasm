@@ -42,6 +42,50 @@ const ZirFunc = zir.ZirFunc;
 /// `arm64/op_control.zig:merge_top_vregs_cap`.
 const merge_top_vregs_cap: u8 = 8;
 
+/// D-097 / d-17: unified merge-MOV dispatcher (x86_64 counterpart
+/// of `arm64/op_control.zig:emitMergeMov`). See that file for the
+/// rationale; behaviour is identical modulo the per-arch encoder
+/// names (resolveXmm/MOVAPS for v128 reg-reg; xmmLoad/Def/Store
+/// + MOVSD for FP scalar; gprLoad/Def/Store + 64-bit MOV for GPR).
+fn emitMergeMov(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    spill_base_off: u32,
+    func: *const ZirFunc,
+    src_vreg: u32,
+    merge_vreg: u32,
+) Error!void {
+    if (alloc.shapeTag(merge_vreg) == .v128) {
+        const src_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, src_vreg, 0);
+        const merge_x = try gpr.xmmDefSpilledV128(alloc, merge_vreg, 1);
+        if (merge_x != src_x) {
+            try buf.appendSlice(allocator, inst.encMovapsXmmXmm(merge_x, src_x).slice());
+        }
+        try gpr.xmmStoreSpilledV128(allocator, buf, alloc, spill_base_off, merge_vreg, 1);
+        return;
+    }
+    if (regalloc.vregClassByDef(func, merge_vreg) == .fpr) {
+        const src_x = try gpr.xmmLoadSpilled(allocator, buf, alloc, spill_base_off, src_vreg, 0);
+        const merge_x = try gpr.xmmDefSpilled(alloc, merge_vreg, 1);
+        if (merge_x != src_x) {
+            try buf.appendSlice(allocator, inst.encMovapsXmmXmm(merge_x, src_x).slice());
+        }
+        try gpr.xmmStoreSpilled(allocator, buf, alloc, spill_base_off, merge_vreg, 1);
+        return;
+    }
+    const src_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_vreg, 0);
+    const merge_r = try gpr.gprDefSpilled(alloc, merge_vreg, 1);
+    if (merge_r != src_r) {
+        // 64-bit MOV — preserves all 64 bits. Pre-d-17 the
+        // merge sites used .d (32-bit) which truncated i64
+        // values; the symmetric arm64 bug was fixed in the
+        // unified `emitMergeMov` helper at the same time.
+        try buf.appendSlice(allocator, inst.encMovRR(.q, merge_r, src_r).slice());
+    }
+    try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, merge_vreg, 1);
+}
+
 /// Unpack `(param_arity, result_arity)` from a block-open
 /// ZirInstr's `extra`. Mirrors
 /// `arm64/op_control.zig:unpackBlockArity`.
@@ -67,11 +111,14 @@ fn captureOrEmitBlockMergeMov(
     pushed_vregs: *std.ArrayList(u32),
     labels: *std.ArrayList(Label),
     spill_base_off: u32,
+    func: *const ZirFunc,
     tgt_idx: usize,
 ) Error!bool {
     const arity: u32 = labels.items[tgt_idx].result_arity;
     if (arity == 0) return false;
-    if (labels.items[tgt_idx].kind != .block) return false;
+    // D-096 / d-17: br-into-if-frame target (mirror arm64).
+    const kind = labels.items[tgt_idx].kind;
+    if (kind != .block and kind != .if_then and kind != .else_open) return false;
     if (pushed_vregs.items.len < arity) return Error.AllocationMissing;
 
     if (!labels.items[tgt_idx].merge_captured) {
@@ -89,20 +136,7 @@ fn captureOrEmitBlockMergeMov(
     while (i < arity) : (i += 1) {
         const src_vreg = pushed_vregs.items[base + i];
         const merge_vreg = labels.items[tgt_idx].merge_top_vregs[i];
-        if (alloc.shapeTag(merge_vreg) == .v128) {
-            const src_x = try gpr.resolveXmm(alloc, src_vreg);
-            const merge_x = try gpr.resolveXmm(alloc, merge_vreg);
-            if (merge_x != src_x) {
-                try buf.appendSlice(allocator, inst.encMovapsXmmXmm(merge_x, src_x).slice());
-            }
-        } else {
-            const src_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_vreg, 0);
-            const merge_r = try gpr.gprDefSpilled(alloc, merge_vreg, 1);
-            if (merge_r != src_r) {
-                try buf.appendSlice(allocator, inst.encMovRR(.d, merge_r, src_r).slice());
-            }
-            try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, merge_vreg, 1);
-        }
+        try emitMergeMov(allocator, buf, alloc, spill_base_off, func, src_vreg, merge_vreg);
     }
     return true;
 }
@@ -199,7 +233,7 @@ pub fn emitBr(
     // MOVs land before the JMP placeholder; the fall-through
     // is dead per lower.zig unreachable-tracking so the MOVs
     // only execute when control reaches the br.
-    _ = try captureOrEmitBlockMergeMov(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, tgt_idx);
+    _ = try captureOrEmitBlockMergeMov(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, func, tgt_idx);
     const at: u32 = @intCast(buf.items.len);
     try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
     try labels.items[tgt_idx].pending.append(allocator, .{ .byte_offset = at, .insn_size = 5 });
@@ -349,6 +383,7 @@ fn emitBrTableJmp(
     pushed_vregs: *std.ArrayList(u32),
     labels: *std.ArrayList(Label),
     spill_base_off: u32,
+    func: *const ZirFunc,
     depth: u32,
 ) Error!void {
     if (depth >= labels.items.len) return types.rejectUnsupported("src/engine/codegen/x86_64/op_control.zig:104", 0);
@@ -365,7 +400,7 @@ fn emitBrTableJmp(
     // emitBranchToDepth). Caller (emitBrTable) patches the
     // per-case JNE-skip disp after this returns so it covers
     // MOVs + JMP.
-    _ = try captureOrEmitBlockMergeMov(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, tgt_idx);
+    _ = try captureOrEmitBlockMergeMov(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, func, tgt_idx);
     const at: u32 = @intCast(buf.items.len);
     try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
     try labels.items[tgt_idx].pending.append(allocator, .{ .byte_offset = at, .insn_size = 5 });
@@ -416,13 +451,13 @@ pub fn emitBrTable(
         const jne_at: usize = buf.items.len;
         try buf.appendSlice(allocator, inst.encJccRel8(.ne, 0).slice());
         const jne_size: usize = 2;
-        try emitBrTableJmp(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, targets[start + i]);
+        try emitBrTableJmp(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, func, targets[start + i]);
         const after: usize = buf.items.len;
         const disp: usize = after - (jne_at + jne_size);
         if (disp > 127) return types.rejectUnsupported("src/engine/codegen/x86_64/op_control.zig:jne-rel8-overflow", @intCast(disp));
         buf.items[jne_at + 1] = @intCast(disp);
     }
-    try emitBrTableJmp(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, targets[start + count]);
+    try emitBrTableJmp(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, func, targets[start + count]);
 }
 
 /// Wasm spec §3.4.5 (br_if N) — pop cond, branch to label at
@@ -491,7 +526,7 @@ pub fn emitBrIf(
     if (tgt_is_block_with_capture) {
         const je_at: u32 = @intCast(buf.items.len);
         try buf.appendSlice(allocator, inst.encJccRel32(.e, 0).slice());
-        _ = try captureOrEmitBlockMergeMov(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, tgt_idx);
+        _ = try captureOrEmitBlockMergeMov(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, func, tgt_idx);
         const jmp_at: u32 = @intCast(buf.items.len);
         try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
         try labels.items[tgt_idx].pending.append(allocator, .{ .byte_offset = jmp_at, .insn_size = 5 });
@@ -501,7 +536,7 @@ pub fn emitBrIf(
         @memcpy(buf.items[je_at .. je_at + patched.len], patched.slice());
         return;
     }
-    _ = try captureOrEmitBlockMergeMov(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, tgt_idx);
+    _ = try captureOrEmitBlockMergeMov(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, func, tgt_idx);
     const at: u32 = @intCast(buf.items.len);
     try buf.appendSlice(allocator, inst.encJccRel32(.ne, 0).slice());
     try labels.items[tgt_idx].pending.append(allocator, .{ .byte_offset = at, .insn_size = 6 });
@@ -637,6 +672,7 @@ pub fn emitEndIntra(
     alloc: regalloc.Allocation,
     labels: *std.ArrayList(Label),
     spill_base_off: u32,
+    func: *const ZirFunc,
 ) Error!void {
     var lbl = labels.pop().?;
     defer lbl.pending.deinit(allocator);
@@ -683,20 +719,7 @@ pub fn emitEndIntra(
                 while (i < arity) : (i += 1) {
                     const src_vreg = pushed_vregs.items[top_base + i];
                     const merge_vreg = lbl.merge_top_vregs[i];
-                    if (alloc.shapeTag(merge_vreg) == .v128) {
-                        const src_x = try gpr.resolveXmm(alloc, src_vreg);
-                        const merge_x = try gpr.resolveXmm(alloc, merge_vreg);
-                        if (merge_x != src_x) {
-                            try buf.appendSlice(allocator, inst.encMovapsXmmXmm(merge_x, src_x).slice());
-                        }
-                    } else {
-                        const src_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_vreg, 0);
-                        const merge_r = try gpr.gprDefSpilled(alloc, merge_vreg, 1);
-                        if (merge_r != src_r) {
-                            try buf.appendSlice(allocator, inst.encMovRR(.d, merge_r, src_r).slice());
-                        }
-                        try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, merge_vreg, 1);
-                    }
+                    try emitMergeMov(allocator, buf, alloc, spill_base_off, func, src_vreg, merge_vreg);
                 }
             }
             var i: u32 = 0;
@@ -736,20 +759,7 @@ pub fn emitEndIntra(
                 i -= 1;
                 const else_result = pushed_vregs.pop().?;
                 const merge_vreg = lbl.merge_top_vregs[i];
-                if (alloc.shapeTag(merge_vreg) == .v128) {
-                    const else_xmm = try gpr.resolveXmm(alloc, else_result);
-                    const merge_xmm = try gpr.resolveXmm(alloc, merge_vreg);
-                    if (merge_xmm != else_xmm) {
-                        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(merge_xmm, else_xmm).slice());
-                    }
-                } else {
-                    const else_reg = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, else_result, 0);
-                    const merge_reg = try gpr.gprDefSpilled(alloc, merge_vreg, 1);
-                    if (merge_reg != else_reg) {
-                        try buf.appendSlice(allocator, inst.encMovRR(.d, merge_reg, else_reg).slice());
-                    }
-                    try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, merge_vreg, 1);
-                }
+                try emitMergeMov(allocator, buf, alloc, spill_base_off, func, else_result, merge_vreg);
             }
             var j: u32 = 0;
             while (j < arity) : (j += 1) {
@@ -780,24 +790,7 @@ pub fn emitEndIntra(
                 i -= 1;
                 const else_result = pushed_vregs.pop().?;
                 const merge_vreg = lbl.merge_top_vregs[i];
-                if (alloc.shapeTag(merge_vreg) == .v128) {
-                    const else_xmm = try gpr.resolveXmm(alloc, else_result);
-                    const merge_xmm = try gpr.resolveXmm(alloc, merge_vreg);
-                    if (merge_xmm != else_xmm) {
-                        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(merge_xmm, else_xmm).slice());
-                    }
-                } else {
-                    // D-045 chunk 13b: spill-aware merge MOV. Stage 0
-                    // (R10) carries the else_reg load when spilled;
-                    // stage 1 (R11) reserves the merge_vreg def slot
-                    // when spilled so the two never collide.
-                    const else_reg = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, else_result, 0);
-                    const merge_reg = try gpr.gprDefSpilled(alloc, merge_vreg, 1);
-                    if (merge_reg != else_reg) {
-                        try buf.appendSlice(allocator, inst.encMovRR(.d, merge_reg, else_reg).slice());
-                    }
-                    try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, merge_vreg, 1);
-                }
+                try emitMergeMov(allocator, buf, alloc, spill_base_off, func, else_result, merge_vreg);
             }
         }
     }
@@ -818,20 +811,7 @@ pub fn emitEndIntra(
         while (i < arity) : (i += 1) {
             const src_vreg = pushed_vregs.items[top_base + i];
             const dst_vreg = lbl.param_top_vregs[i];
-            if (alloc.shapeTag(dst_vreg) == .v128) {
-                const src_x = try gpr.resolveXmm(alloc, src_vreg);
-                const dst_x = try gpr.resolveXmm(alloc, dst_vreg);
-                if (dst_x != src_x) {
-                    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, src_x).slice());
-                }
-            } else {
-                const src_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_vreg, 0);
-                const dst_r = try gpr.gprDefSpilled(alloc, dst_vreg, 1);
-                if (dst_r != src_r) {
-                    try buf.appendSlice(allocator, inst.encMovRR(.q, dst_r, src_r).slice());
-                }
-                try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, dst_vreg, 1);
-            }
+            try emitMergeMov(allocator, buf, alloc, spill_base_off, func, src_vreg, dst_vreg);
         }
         var j: u32 = 0;
         while (j < arity) : (j += 1) {

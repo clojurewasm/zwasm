@@ -10,50 +10,45 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **Phase 9 extended; D-093 (d-16) regalloc force-spill landed 2026-05-14**
+## Active state — **Phase 9 extended; D-093 (d-17) unified merge MOV landed 2026-05-14**
 
 ### One-line state
 
-D-093 (d-16) discharges D-095 partially via ADR-0060: regalloc
-`computeWith` force-spills call-crossing vregs (def_pc <
-call_pc < last_use_pc for `.call` / `.call_indirect` /
-`.@"memory.grow"`) by minting slot ids ≥
-`max(allocatable_gprs.len, allocatable_v_regs.len)` (arm64 = 13,
-x86_64 = 6). compile.zig passes the per-arch threshold. The
-existing spill emit path carries the value through the call.
-Edge fixture `compose_with_call.wasm = 1` PASS validates on
-both hosts. `if` deferred from NAMES until D-097 (x86_64
-if-emit walkthrough) clears the 8 x86_64-specific residuals
-that surfaced when `if` was briefly enabled. Mac + OrbStack
-`test-all` 0 fail (test-spec-wasm-2.0-assert 12262/0/143
-maintained; simd 13301/0/440 unchanged).
+D-093 (d-17) landed three follow-ups to ADR-0060: (a) unified
+`emitMergeMov` on both archs dispatches on v128 / fpr / gpr
+class (FP scalar previously fell through to GPR MOV which
+corrupted f32/f64 if-frame merges); (b) GPR path widened to
+64-bit MOV to preserve i64 across merges; (c)
+`captureOrEmitBlockMergeMov` extended to .if_then / .else_open
+targets so `br N` inside an if-arm carries its value into the
+if-frame's result slot (D-096 discharge). Mac arm64 clean at
+12460/0 when `if` is enabled; OrbStack x86_64 has 6 residuals
+(i32 if-result consumed by select / call_indirect — D-097
+partial). `if` deferred from NAMES until d-18 walks the
+x86_64 select / call_indirect emit. Mac + OrbStack `test-all`
+green (= test-spec-wasm-2.0-assert 12262/0/143 baseline
+unchanged when `if` deferred; simd 13301/0/440 unchanged).
 
 ### Standing reminder for the autonomous loop
 
 **Project tone is `.claude/rules/no_workaround.md`: fix root
 causes, never work around.**
 
-### Next task — D-097 x86_64 if-emit walkthrough then re-enable `if`
+### Next task — D-097 residual 6 x86_64 fails (select / call_indirect)
 
-Clusters (a) + (b) + (c) of D-093 ALL DISCHARGED. Multi-result
-func calls (d-11) DISCHARGED. D-095 regalloc call-crossing
-discharged-partial via ADR-0060 (d-16). Remaining gating §9.9
-close:
+D-095 + D-096 + (d-17 follow-ups) all discharged. Remaining
+gating §9.9 close:
 
-- **D-097 (d-17 NEXT)** — x86_64 if-emit walkthrough. Enabling
-  `if` in NAMES surfaces 8 x86_64-specific fails (Mac arm64
-  green at 2 fails = D-096 only): `as-select-mid/last`,
-  `as-call_indirect-{first,mid,last}`, `as-compare-operand
-  (0,0)`, `as-compare-operands`. Same regalloc output on both
-  archs (call-crossing vregs force-spilled per d-16). Suggests
-  the x86_64 emit has a parallel branch missing in
-  `op_control.zig` (if-end merge MOV) or `op_call.zig`
-  (post-call result-capture with force-spilled vregs).
-  Bisect via single-fixture disassembly compared with arm64.
-- **D-096 (d-18)** — `param-break` / `params-break` (br
-  inside if-arm). No calls; pre-d-16 already failing. Suspect
-  `emitBr`'s if-target merge-capture handling. ~30 LOC fix
-  + edge fixture.
+- **D-097 residual (d-18 NEXT)** — 6 x86_64-specific fails
+  surface when `if` is enabled in NAMES: `as-select-mid(i32:0)`,
+  `as-select-mid(i32:1)`, `as-select-last(i32:1)`,
+  `as-call_indirect-first(i32:1)`, `as-call_indirect-mid(i32:1)`,
+  `as-call_indirect-last(i32:1)` (assert_trap). Common shape:
+  i32 if-result consumed by select / call_indirect on x86_64
+  only (arm64 clean at 12460/0). Bisect via single-fixture
+  disassembly compared with arm64. Likely an x86_64-only emit
+  divergence in how select / call_indirect reads a recently-
+  merged i32 vreg.
 
 Runner-side skip-impl backlog (7 total, in `nop / loop /
 local_tee`):
@@ -95,9 +90,9 @@ Other queued post-D-093 names: `address`, `align`, `br_table`,
 | D-093 (d-13) | [x] 15cfa288 | implicit-else marshal (arm64 + x86_64) + 3 edge fixtures |
 | D-093 (d-14) | [x] 124dd7cf | arm64 `.return` op multi-result marshal (d-11 stale-inline cleanup) + add64_u_saturated_exact edge fixture |
 | D-093 (d-15) | [x] b5bd2cdf | regalloc call-crossing-vreg root-cause investigation + D-095 debt + compose_no_call edge fixture |
-| D-093 (d-16) | [x] (this commit) | ADR-0060: regalloc `computeWith` force-spill call-crossing vregs (slot ≥ per-arch max(GPR, FP)) + compose_with_call edge fixture + D-095 partial discharge + D-096 / D-097 filed |
-| **D-093 (d-17)** | **NEXT** | discharge D-097: x86_64 if-emit walkthrough (single-fixture disassembly vs arm64); re-enable `if` in NAMES when clear |
-| D-093 (d-18) | queued | discharge D-096: br-inside-if-arm `param-break` / `params-break` (arm64) — ~30 LOC fix + edge fixture |
+| D-093 (d-16) | [x] 5ccae2cd | ADR-0060: regalloc `computeWith` force-spill call-crossing vregs (slot ≥ per-arch max(GPR, FP)) + compose_with_call edge fixture + D-095 partial discharge + D-096 / D-097 filed |
+| D-093 (d-17) | [x] (this commit) | unified `emitMergeMov` (FP-class dispatch + 64-bit GPR MOV) + br-into-if-frame merge capture (D-096 discharged) + br_inside_arm edge fixture |
+| **D-093 (d-18)** | **NEXT** | discharge D-097 residual (6 x86_64 fails on select / call_indirect with i32 if-result) — single-fixture disassembly walkthrough |
 
 Other queued chunks (post-l-1): k-1, k-2, m-4c (= D-090),
 m-2d, n-1, j-3b.

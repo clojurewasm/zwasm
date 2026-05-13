@@ -1524,7 +1524,7 @@ pub fn compile(
                 //     epilogue, returns. Disambiguation: empty
                 //     label stack → form (B).
                 if (labels.items.len > 0) {
-                    try op_control.emitEndIntra(allocator, &buf, &pushed_vregs, alloc, &labels, spill_base_off);
+                    try op_control.emitEndIntra(allocator, &buf, &pushed_vregs, alloc, &labels, spill_base_off, func);
                     continue;
                 }
                 // D-093 (d-5): function-level end may inherit a

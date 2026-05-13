@@ -40,6 +40,7 @@ const inst_neon = @import("inst_neon.zig");
 const ctx_mod = @import("ctx.zig");
 const gpr = @import("gpr.zig");
 const label_mod = @import("label.zig");
+const regalloc = @import("../shared/regalloc.zig");
 
 const ZirInstr = zir.ZirInstr;
 const EmitCtx = ctx_mod.EmitCtx;
@@ -52,6 +53,66 @@ const Allocator = std.mem.Allocator;
 /// imposes no tight limit but production guests typically use
 /// ≤ 4. 8 is generous and keeps the Label struct compact.
 const merge_top_vregs_cap: u8 = 8;
+
+/// D-097 / d-17 (ADR-0060 follow-up): unified merge-MOV dispatcher.
+///
+/// Copies `src_vreg`'s value into `merge_vreg`'s storage. Picks the
+/// right register-class path:
+///   - `.v128` (per `alloc.shapeTag`)  → q-form (16-byte) MOV
+///   - `.fpr`  (per `regalloc.vregClassByDef`) → FMOV D (8-byte)
+///   - `.gpr`  (default)                → 32-bit ORR (legacy)
+///
+/// Pre-d-17 only dispatched on `.v128` — FP scalar fell through
+/// to GPR MOV which silently corrupted f32/f64 if-frame merges
+/// because the GPR view of an FP slot is a different physical
+/// register on both arm64 (X_n vs V_n) and x86_64 (RBX vs XMM8
+/// etc.). compose_no_call.wat on x86_64 + the 8 x86_64-specific
+/// `if.wast` residuals all traced back to this single gap.
+///
+/// `stage_src` / `stage_dst` index the per-class spill stage
+/// register pool so concurrent loads + defs of the same class
+/// never alias (R10/R11 on x86_64, X14/X15 on arm64; V29/V30
+/// for FP / v128 stage on arm64; XMM14/XMM15 on x86_64).
+fn emitMergeMov(
+    ctx: *EmitCtx,
+    src_vreg: u32,
+    merge_vreg: u32,
+    stage_src: u8,
+    stage_dst: u8,
+) Error!void {
+    if (ctx.alloc.shapeTag(merge_vreg) == .v128) {
+        const src_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, stage_src);
+        const merge_v = try gpr.qDefSpilled(ctx.alloc, merge_vreg, stage_dst);
+        if (merge_v != src_v) {
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encMovV16B(merge_v, src_v));
+        }
+        try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, merge_vreg, stage_dst);
+        return;
+    }
+    if (regalloc.vregClassByDef(ctx.func, merge_vreg) == .fpr) {
+        const src_v = try gpr.fpLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, stage_src);
+        const merge_v = try gpr.fpDefSpilled(ctx.alloc, merge_vreg, stage_dst);
+        if (merge_v != src_v) {
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encFmovDReg(merge_v, src_v));
+        }
+        try gpr.fpStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, merge_vreg, stage_dst);
+        return;
+    }
+    const src_r = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, stage_src);
+    const merge_r = try gpr.gprDefSpilled(ctx.alloc, merge_vreg, stage_dst);
+    if (merge_r != src_r) {
+        // X-form (64-bit) ORR — preserves all 64 bits. W-form would
+        // truncate upper 32 bits on i64 vregs; for i32 the upper
+        // bits are don't-care per AAPCS64, so X-form is safe for
+        // both. (Pre-d-17 the else_open merge path used W-form
+        // throughout — load-bearing for i32 corpus but quietly
+        // wrong for i64. The implicit-else path d-13 had to
+        // re-derive the same fix locally; the unified merge
+        // helper now applies it everywhere.)
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(merge_r, 31, src_r));
+    }
+    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, merge_vreg, stage_dst);
+}
 
 /// Block-merge mechanism for forward `br` / `br_if` to a
 /// `block (result T..)` target. Mirrors the if/else
@@ -80,7 +141,14 @@ const merge_top_vregs_cap: u8 = 8;
 fn captureOrEmitBlockMergeMov(ctx: *EmitCtx, tgt_idx: usize) Error!bool {
     const arity: u32 = ctx.labels.items[tgt_idx].result_arity;
     if (arity == 0) return false;
-    if (ctx.labels.items[tgt_idx].kind != .block) return false;
+    // D-096 / d-17: br inside if-arm targets the if-frame. The br
+    // skips past .end so the .end merge MOV never runs; the br
+    // must carry the value into the if-frame's result slot itself.
+    // Same shape as block-target br: capture top vregs on first br,
+    // MOV from current top on subsequent brs (after .else has
+    // captured merge_top_vregs).
+    const kind = ctx.labels.items[tgt_idx].kind;
+    if (kind != .block and kind != .if_then and kind != .else_open) return false;
     if (ctx.pushed_vregs.items.len < arity) return Error.AllocationMissing;
 
     if (!ctx.labels.items[tgt_idx].merge_captured) {
@@ -98,21 +166,7 @@ fn captureOrEmitBlockMergeMov(ctx: *EmitCtx, tgt_idx: usize) Error!bool {
     while (i < arity) : (i += 1) {
         const src_vreg = ctx.pushed_vregs.items[base + i];
         const merge_vreg = ctx.labels.items[tgt_idx].merge_top_vregs[i];
-        if (ctx.alloc.shapeTag(merge_vreg) == .v128) {
-            const src_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 1);
-            const merge_v = try gpr.qDefSpilled(ctx.alloc, merge_vreg, 0);
-            if (merge_v != src_v) {
-                try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encMovV16B(merge_v, src_v));
-            }
-            try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, merge_vreg, 0);
-        } else {
-            const src_r = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 1);
-            const merge_r = try gpr.gprDefSpilled(ctx.alloc, merge_vreg, 0);
-            if (merge_r != src_r) {
-                try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(merge_r, 31, src_r));
-            }
-            try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, merge_vreg, 0);
-        }
+        try emitMergeMov(ctx, src_vreg, merge_vreg, 1, 0);
     }
     return true;
 }
@@ -630,21 +684,7 @@ pub fn emitEndIntra(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
                 while (i < arity) : (i += 1) {
                     const src_vreg = ctx.pushed_vregs.items[top_base + i];
                     const merge_vreg = lbl.merge_top_vregs[i];
-                    if (ctx.alloc.shapeTag(merge_vreg) == .v128) {
-                        const src_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 1);
-                        const merge_v = try gpr.qDefSpilled(ctx.alloc, merge_vreg, 0);
-                        if (merge_v != src_v) {
-                            try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encMovV16B(merge_v, src_v));
-                        }
-                        try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, merge_vreg, 0);
-                    } else {
-                        const src_r = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 1);
-                        const merge_r = try gpr.gprDefSpilled(ctx.alloc, merge_vreg, 0);
-                        if (merge_r != src_r) {
-                            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(merge_r, 31, src_r));
-                        }
-                        try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, merge_vreg, 0);
-                    }
+                    try emitMergeMov(ctx, src_vreg, merge_vreg, 1, 0);
                 }
             }
             // Overwrite top arity slots with merge_top_vregs so the
@@ -694,21 +734,7 @@ pub fn emitEndIntra(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
                 i -= 1;
                 const else_result = ctx.pushed_vregs.pop().?;
                 const merge_vreg = lbl.merge_top_vregs[i];
-                if (ctx.alloc.shapeTag(merge_vreg) == .v128) {
-                    const else_reg_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, else_result, 1);
-                    const merge_reg_v = try gpr.qDefSpilled(ctx.alloc, merge_vreg, 0);
-                    if (merge_reg_v != else_reg_v) {
-                        try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encMovV16B(merge_reg_v, else_reg_v));
-                    }
-                    try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, merge_vreg, 0);
-                } else {
-                    const else_reg_v = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, else_result, 1);
-                    const merge_reg_v = try gpr.gprDefSpilled(ctx.alloc, merge_vreg, 0);
-                    if (merge_reg_v != else_reg_v) {
-                        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(merge_reg_v, 31, else_reg_v));
-                    }
-                    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, merge_vreg, 0);
-                }
+                try emitMergeMov(ctx, else_result, merge_vreg, 1, 0);
             }
             // Push back canonical merge_top_vregs so the post-block
             // consumer reads the merged result.
@@ -751,21 +777,7 @@ pub fn emitEndIntra(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
                 i -= 1;
                 const else_result = ctx.pushed_vregs.pop().?;
                 const merge_vreg = lbl.merge_top_vregs[i];
-                if (ctx.alloc.shapeTag(merge_vreg) == .v128) {
-                    const else_reg_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, else_result, 1);
-                    const merge_reg_v = try gpr.qDefSpilled(ctx.alloc, merge_vreg, 0);
-                    if (merge_reg_v != else_reg_v) {
-                        try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encMovV16B(merge_reg_v, else_reg_v));
-                    }
-                    try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, merge_vreg, 0);
-                } else {
-                    const else_reg_v = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, else_result, 1);
-                    const merge_reg_v = try gpr.gprDefSpilled(ctx.alloc, merge_vreg, 0);
-                    if (merge_reg_v != else_reg_v) {
-                        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(merge_reg_v, 31, else_reg_v));
-                    }
-                    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, merge_vreg, 0);
-                }
+                try emitMergeMov(ctx, else_result, merge_vreg, 1, 0);
             }
         }
     }
@@ -789,30 +801,7 @@ pub fn emitEndIntra(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
         while (i < arity) : (i += 1) {
             const src_vreg = ctx.pushed_vregs.items[top_base + i];
             const dst_vreg = lbl.param_top_vregs[i];
-            if (ctx.alloc.shapeTag(dst_vreg) == .v128) {
-                const src_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 1);
-                const dst_v = try gpr.qDefSpilled(ctx.alloc, dst_vreg, 0);
-                if (dst_v != src_v) {
-                    try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encMovV16B(dst_v, src_v));
-                }
-                try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, dst_vreg, 0);
-            } else {
-                // X-form (.q) ORR — preserves all 64 bits. W-form
-                // (.d) would truncate upper 32 bits on i64 vregs;
-                // for i32 the upper bits are don't-care so X-form
-                // is safe for both. (Pre-d-13 the else_open merge
-                // path uses W-form throughout — that's load-bearing
-                // for i32 corpus but quietly wrong for i64. Fixing
-                // the symmetric else_open bug is a separate chunk;
-                // implicit-else here uses X-form so add64_u_*
-                // returns its full i64 value.)
-                const src_r = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 1);
-                const dst_r = try gpr.gprDefSpilled(ctx.alloc, dst_vreg, 0);
-                if (dst_r != src_r) {
-                    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(dst_r, 31, src_r));
-                }
-                try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, dst_vreg, 0);
-            }
+            try emitMergeMov(ctx, src_vreg, dst_vreg, 1, 0);
         }
         // Replace top arity vregs with param_top_vregs so post-if
         // consumers read the canonical merged slot.
