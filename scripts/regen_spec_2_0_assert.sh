@@ -81,13 +81,14 @@ NAMES=(
   block
   loop
   local_tee
-  # NOTE: `if` deferred — 5 residual failures across 3 structural
-  # gaps: (1) compose-of-2 single-result if (`as-compare-operand
-  # 0,0` / `1,0`); (2) multi-result if compose (`as-compare-
-  # operands 0`); (3) br-inside-if-arm (`param-break` /
-  # `params-break`). d-14 cleared the arm64 `.return` multi-
-  # result marshal (add64_u_saturated × 2 cases); the other gaps
-  # need per-chunk fixes — d-15 begins with (1).
+  # NOTE: `if` deferred to d-17 — d-16 / ADR-0060 landed the
+  # regalloc force-spill mechanism (proved by
+  # `test/edge_cases/p9/if/compose_with_call.wat`) but enabling
+  # `if` here surfaces x86_64-specific emit residuals (D-097).
+  # The autonomous loop's 2-host gate requires both Mac and
+  # OrbStack green; deferring keeps the gate honest while D-097
+  # is investigated. D-096 (param-break / params-break) is
+  # separate and stays gated on the same NAMES re-enablement.
 )
 
 mkdir -p "$DEST"

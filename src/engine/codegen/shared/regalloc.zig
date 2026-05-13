@@ -281,8 +281,53 @@ const ActiveEntry = struct { slot: u16, last_use_pc: u32 };
 /// `n_slots` and the overlap-free verifier post-condition
 /// are unchanged).
 pub fn compute(allocator: Allocator, func: *const ZirFunc) Error!Allocation {
+    return computeWith(allocator, func, max_reg_slots_gpr_default);
+}
+
+/// D-095 / d-16 (ADR-0060): force-spill call-crossing vregs.
+///
+/// `force_spill_threshold` is the per-arch `allocatable_gprs.len`
+/// (arm64 = 8, x86_64 = 4). Vregs whose live range strictly
+/// contains a call PC are assigned slot ids ≥ this threshold so
+/// the per-arch `slotToReg` resolves them to `.spill`. The
+/// existing spill-class emit path (STR-before-call / LDR-after-
+/// call) then carries the value through the call without
+/// involving any caller-clobbered register. Callers that don't
+/// care about call-crossing semantics (in-source tests) call the
+/// thin `compute()` wrapper which passes the arm64 default.
+pub fn computeWith(
+    allocator: Allocator,
+    func: *const ZirFunc,
+    force_spill_threshold: u16,
+) Error!Allocation {
     const live = func.liveness orelse return Error.LivenessMissing;
     if (live.ranges.len == 0) return .{ .slots = &.{}, .n_slots = 0 };
+
+    // ADR-0060: collect callout PCs once. Strict-strict
+    // `def_pc < cp < last_use_pc` is intentional — when a call IS
+    // the vreg's last use, the value is read into the arg register
+    // before the BLR/CALL clobbers; when the call IS the vreg's
+    // def, the value materialises post-call from the return reg.
+    // Buffer is fixed-size (256 calls) for stack discipline; on
+    // overflow we conservatively mark every vreg as spans_call
+    // (force-spill all). Real Wasm functions rarely exceed this.
+    var call_pc_buf: [256]u32 = undefined;
+    var call_pc_len: u32 = 0;
+    var call_pc_overflow = false;
+    for (func.instrs.items, 0..) |ins, pc| {
+        const is_call = switch (ins.op) {
+            .call, .call_indirect, .@"memory.grow" => true,
+            else => false,
+        };
+        if (!is_call) continue;
+        if (call_pc_len < call_pc_buf.len) {
+            call_pc_buf[call_pc_len] = @intCast(pc);
+            call_pc_len += 1;
+        } else {
+            call_pc_overflow = true;
+        }
+    }
+    const call_pcs = call_pc_buf[0..call_pc_len];
 
     var slots = try allocator.alloc(u16, live.ranges.len);
     errdefer allocator.free(slots);
@@ -292,7 +337,18 @@ pub fn compute(allocator: Allocator, func: *const ZirFunc) Error!Allocation {
     // SIMD ops appear (the all-scalar case).
     const shape_tags = try populateShapeTags(allocator, func, live.ranges.len);
     errdefer if (shape_tags) |t| allocator.free(t);
+
+    // ADR-0060: non-spans_call vregs keep the pre-d-16 LIFO mint /
+    // free-pool semantics unchanged. spans_call vregs mint at a
+    // dedicated `n_spill_minted` counter starting at the per-arch
+    // `force_spill_threshold` so their slot id resolves to `.spill`
+    // via `Allocation.slot()` on the host arch. Mixing the two
+    // counters' id ranges is correct because the non-spans_call
+    // path never reads/writes the spill-only id range and vice
+    // versa, modulo free-pool sharing which is bounded by the
+    // verifier's overlap-free invariant.
     var n_slots: u16 = 0;
+    var n_spill_minted: u16 = 0;
 
     var active_buf: [@as(usize, max_slots) + 1]ActiveEntry = undefined;
     var active_len: u16 = 0;
@@ -316,8 +372,39 @@ pub fn compute(allocator: Allocator, func: *const ZirFunc) Error!Allocation {
                 i += 1;
             }
         }
-        // Allocate: pop from free pool (LIFO) or mint fresh.
+
+        const spans_call = blk: {
+            if (call_pc_overflow) break :blk true;
+            for (call_pcs) |cp| {
+                if (r.def_pc < cp and cp < r.last_use_pc) break :blk true;
+            }
+            break :blk false;
+        };
+
         const assigned: u16 = blk: {
+            if (spans_call) {
+                // Scan free pool for an already-minted spill slot.
+                // Keeps the spill region tight when many call-
+                // crossing vregs share lifetimes.
+                var fi: u16 = 0;
+                while (fi < free_len) : (fi += 1) {
+                    if (free_buf[fi] >= force_spill_threshold) {
+                        const s = free_buf[fi];
+                        free_buf[fi] = free_buf[free_len - 1];
+                        free_len -= 1;
+                        break :blk s;
+                    }
+                }
+                // Mint a fresh spill slot.
+                const s_u32: u32 = @as(u32, force_spill_threshold) + n_spill_minted;
+                if (s_u32 >= max_slots) {
+                    std.debug.print("regalloc: SlotOverflow (spill mint) at func[{d}] vreg={d} ranges.len={d}\n", .{ func.func_idx, vreg, live.ranges.len });
+                    return Error.SlotOverflow;
+                }
+                n_spill_minted += 1;
+                break :blk @as(u16, @intCast(s_u32));
+            }
+            // Pre-d-16 behaviour: LIFO pop or sequential mint.
             if (free_len > 0) {
                 free_len -= 1;
                 break :blk free_buf[free_len];
@@ -331,6 +418,7 @@ pub fn compute(allocator: Allocator, func: *const ZirFunc) Error!Allocation {
             break :blk new;
         };
         slots[vreg] = assigned;
+        if (assigned + 1 > n_slots) n_slots = assigned + 1;
         active_buf[active_len] = .{ .slot = assigned, .last_use_pc = r.last_use_pc };
         active_len += 1;
     }

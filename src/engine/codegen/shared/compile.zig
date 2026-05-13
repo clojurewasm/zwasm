@@ -174,7 +174,25 @@ pub fn compileOne(
     }
 
     trace.passEnter(func_idx, .regalloc);
-    var alloc = try regalloc.compute(allocator, &func);
+    // ADR-0060: force-spill threshold = max(GPR pool, FP pool) so
+    // that call-crossing vregs of either class land in the spill
+    // range. GPR class slot ≥ gpr_pool already spills via the
+    // post-compute override; FP class needs the higher boundary or
+    // it stays in V16..V28 / XMM8..13 (caller-clobbered on both
+    // ABIs). The non-spans_call path is class-blind LIFO, so this
+    // does not affect non-call-bearing functions.
+    const force_spill_threshold: u16 = switch (builtin.target.cpu.arch) {
+        .x86_64 => @max(
+            @import("../x86_64/abi.zig").allocatable_gprs.len,
+            @import("../x86_64/abi.zig").allocatable_xmms.len,
+        ),
+        .aarch64 => @max(
+            @import("../arm64/abi.zig").allocatable_gprs.len,
+            @import("../arm64/abi.zig").allocatable_v_regs.len,
+        ),
+        else => @compileError("unsupported host arch"),
+    };
+    var alloc = try regalloc.computeWith(allocator, &func, force_spill_threshold);
     errdefer regalloc.deinit(allocator, alloc);
     // D-045 chunk 13b: override per-arch class boundaries so that
     // slot ids past the host's pool size resolve to `.spill` (not

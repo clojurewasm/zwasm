@@ -10,48 +10,50 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **Phase 9 extended; D-093 (d-15) investigation landed 2026-05-14**
+## Active state — **Phase 9 extended; D-093 (d-16) regalloc force-spill landed 2026-05-14**
 
 ### One-line state
 
-D-093 (d-15) discovery: the 5 residual `if.wast` failures all
-share a single root cause — regalloc gives call-crossing vregs
-caller-saved registers, which the intermediate `call $dummy`
-(or similar) clobbers. The if-frame's merge result vreg is live
-from def to the post-if consumer; for compose-of-2 patterns with
-intermediate calls, regalloc's first-fit policy (caller-saved
-pool first per `allocatable_gprs` order) places the vreg in
-e.g. X9 / RBX → call clobbers it → consumer reads garbage.
-Filed as D-095 (blocked-by: regalloc call-crossing-vreg
-awareness — ADR-grade). Edge fixture `compose_no_call.wasm = 1`
-PASS demonstrates the issue is call-induced (compose-of-2
-without intervening calls works correctly). Mac + OrbStack
-`test-spec-wasm-2.0-assert` 12262 / 0 / 143 unchanged (`if`
-deferred until D-095 discharge). simd unchanged 13301/0/440.
+D-093 (d-16) discharges D-095 partially via ADR-0060: regalloc
+`computeWith` force-spills call-crossing vregs (def_pc <
+call_pc < last_use_pc for `.call` / `.call_indirect` /
+`.@"memory.grow"`) by minting slot ids ≥
+`max(allocatable_gprs.len, allocatable_v_regs.len)` (arm64 = 13,
+x86_64 = 6). compile.zig passes the per-arch threshold. The
+existing spill emit path carries the value through the call.
+Edge fixture `compose_with_call.wasm = 1` PASS validates on
+both hosts. `if` deferred from NAMES until D-097 (x86_64
+if-emit walkthrough) clears the 8 x86_64-specific residuals
+that surfaced when `if` was briefly enabled. Mac + OrbStack
+`test-all` 0 fail (test-spec-wasm-2.0-assert 12262/0/143
+maintained; simd 13301/0/440 unchanged).
 
 ### Standing reminder for the autonomous loop
 
 **Project tone is `.claude/rules/no_workaround.md`: fix root
 causes, never work around.**
 
-### Next task — D-093 if-merge canonical-slot + runner-skip-impl
+### Next task — D-097 x86_64 if-emit walkthrough then re-enable `if`
 
 Clusters (a) + (b) + (c) of D-093 ALL DISCHARGED. Multi-result
-func calls (d-11) DISCHARGED. Remaining gating §9.9 close:
+func calls (d-11) DISCHARGED. D-095 regalloc call-crossing
+discharged-partial via ADR-0060 (d-16). Remaining gating §9.9
+close:
 
-- **if-merge canonical-slot (d-12)** — Adding `if` to NAMES
-  surfaces 9 failures on `if.wast` exposing a design gap:
-  emit's if-result merge mechanism relies on regalloc luck for
-  V_then_i and V_else_i to share a slot (so the .end merge
-  MOV is a no-op). Single-result single-if works by accident
-  (free-list first-fit picks the freed V_then slot for V_else);
-  multi-result OR compose-of-2-ifs breaks the assumption.
-  Proper fix: emit pre-allocates canonical merge slots at
-  `.if`; both arms MOV their results into the canonical slots
-  before transferring control to .end; .end is a no-op.
-  Failures observed: `as-binary-operands`,
-  `as-compare-operand[s]`, `as-mixed-operands`, `param-break`,
-  `params-break`, `add64_u_saturated`. ~9 fails clears.
+- **D-097 (d-17 NEXT)** — x86_64 if-emit walkthrough. Enabling
+  `if` in NAMES surfaces 8 x86_64-specific fails (Mac arm64
+  green at 2 fails = D-096 only): `as-select-mid/last`,
+  `as-call_indirect-{first,mid,last}`, `as-compare-operand
+  (0,0)`, `as-compare-operands`. Same regalloc output on both
+  archs (call-crossing vregs force-spilled per d-16). Suggests
+  the x86_64 emit has a parallel branch missing in
+  `op_control.zig` (if-end merge MOV) or `op_call.zig`
+  (post-call result-capture with force-spilled vregs).
+  Bisect via single-fixture disassembly compared with arm64.
+- **D-096 (d-18)** — `param-break` / `params-break` (br
+  inside if-arm). No calls; pre-d-16 already failing. Suspect
+  `emitBr`'s if-target merge-capture handling. ~30 LOC fix
+  + edge fixture.
 
 Runner-side skip-impl backlog (7 total, in `nop / loop /
 local_tee`):
@@ -92,9 +94,10 @@ Other queued post-D-093 names: `address`, `align`, `br_table`,
 | D-093 (d-12) | [x] 7d1c71f8 | liveness if-frame merge tracking + x86_64 cap silent-truncate (D-094 debt) + multi_result_compose edge fixture |
 | D-093 (d-13) | [x] 15cfa288 | implicit-else marshal (arm64 + x86_64) + 3 edge fixtures |
 | D-093 (d-14) | [x] 124dd7cf | arm64 `.return` op multi-result marshal (d-11 stale-inline cleanup) + add64_u_saturated_exact edge fixture |
-| D-093 (d-15) | [x] (this commit) | regalloc call-crossing-vreg root-cause investigation + D-095 debt + compose_no_call edge fixture proving non-call patterns work |
-| **D-093 (d-16)** | **NEXT** | discharge D-095: regalloc call-crossing-vreg awareness (compute-pass walks call_pcs + biases call-crossing vregs to callee-saved sub-pool or forced spill) — ADR-grade |
-| **D-093 (d-15)** | **NEXT** | compose-of-2 single-result if (`as-compare-operand`); investigate slot-share regression vs d-12 liveness merge tracking |
+| D-093 (d-15) | [x] b5bd2cdf | regalloc call-crossing-vreg root-cause investigation + D-095 debt + compose_no_call edge fixture |
+| D-093 (d-16) | [x] (this commit) | ADR-0060: regalloc `computeWith` force-spill call-crossing vregs (slot ≥ per-arch max(GPR, FP)) + compose_with_call edge fixture + D-095 partial discharge + D-096 / D-097 filed |
+| **D-093 (d-17)** | **NEXT** | discharge D-097: x86_64 if-emit walkthrough (single-fixture disassembly vs arm64); re-enable `if` in NAMES when clear |
+| D-093 (d-18) | queued | discharge D-096: br-inside-if-arm `param-break` / `params-break` (arm64) — ~30 LOC fix + edge fixture |
 
 Other queued chunks (post-l-1): k-1, k-2, m-4c (= D-090),
 m-2d, n-1, j-3b.
@@ -119,4 +122,5 @@ m-2d, n-1, j-3b.
 - `.dev/decisions/0057_spec_assert_runner_factoring.md`.
 - `.dev/decisions/0058_table_ops_jit_design.md`.
 - `.dev/decisions/0059_jit_memory_grow_callout.md`.
+- `.dev/decisions/0060_regalloc_call_crossing_force_spill.md`.
 - `private/notes/p9-99-l-1-spec-assert-survey.md`.
