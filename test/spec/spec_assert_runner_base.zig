@@ -236,6 +236,22 @@ pub fn extractMemoryLimits(allocator: std.mem.Allocator, wasm_bytes: []const u8)
     return .{ .min = memories.items[0].min, .max = memories.items[0].max };
 }
 
+/// d-22 (D-106): parse the wasm bytes' start section (id=8) to
+/// discover the module's start funcidx. Returns `null` when no
+/// start section exists (most modules) or parsing fails. The
+/// start section body is a single LEB128 u32 funcidx per Wasm
+/// spec §5.5.10. Callers invoke the result via
+/// `entry.callVoidNoArgs(compiled.module, start_idx, &rt)` after
+/// scratch state is set up so the start fn sees the same
+/// runtime view as subsequent invocations.
+pub fn extractStartFunc(allocator: std.mem.Allocator, wasm_bytes: []const u8) ?u32 {
+    var module = zwasm.parse.parser.parse(allocator, wasm_bytes) catch return null;
+    defer module.deinit(allocator);
+    const sec = module.find(.start) orelse return null;
+    var pos: usize = 0;
+    return zwasm.support.leb128.readUleb128(u32, sec.body, &pos) catch null;
+}
+
 /// §9.9 / 9.9-l-1b-d093-d8c (per ADR-0059): `memory.grow` callout
 /// for spec runners. Updates `current_mem_bytes` (module-scoped
 /// persistent state) AND `rt.mem_limit` (per-call cached value)

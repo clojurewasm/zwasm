@@ -10,37 +10,37 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **Phase 9 extended; D-093 (d-21) NAMES bisect + capacity bump + D-101..D-107 filed 2026-05-14**
+## Active state — **Phase 9 extended; D-093 (d-22) start invoke infra + D-108..D-110 filed 2026-05-14**
 
 ### One-line state
 
-D-093 (d-21) bisected the next NAMES batch (`call`, `data`,
-`elem`, `global`, `memory_grow`, `start`, `unwind`); each
-surfaces a distinct issue requiring its own follow-up chunk
-(D-101 call UnsupportedOp; D-102 data init; D-103 elem SEGV;
-D-104 global reftype; D-105 memory_grow cross-module; D-106
-start fn non-invoke; D-107 unwind x86_64 only). d-21 also
-bumps `GROWABLE_MEMORY_CAPACITY` 64 → 1024 pages to future-
-proof memory_grow's 800+ page corpus when D-105 clears. No
-NAMES change net; corpus stays at 13982/0/283.
+D-093 (d-22) bisected next NAMES batch (`call_indirect`, `func`,
+`func_ptrs`, `memory`, `table`); all defer (D-108/D-109/D-110
+plus wast2json-rejects for memory + table). Added
+`base.extractStartFunc` + `nonSimdOnModuleLoaded`-side invoke
+helper (D-106 discharge scaffolding); D-106 narrowed to
+"undefined-memory-pattern SEGV inside JIT body" (suspect
+runtime field unset by `makeJitRuntime`'s `undefined`
+host_dispatch_base or similar). Runner code stays as no-op
+for non-start modules. Both hosts 13982/0/283 unchanged.
 
 ### Standing reminder for the autonomous loop
 
 **Project tone is `.claude/rules/no_workaround.md`: fix root
 causes, never work around.**
 
-### Next task — d-22 NAMES expansion or D-10x discharge
+### Next task — d-23 discharge candidate
 
-Active debts now block straight NAMES enablement. Pick one
-that's cheap to clear (D-106 start-fn-invoke ≈ 30 LOC; D-107
-unwind x86_64 emit divergence ≈ 50 LOC; D-099 fac-ssa loop
-params ≈ 50 LOC). Larger: D-103 elem SEGV (needs SIGSEGV
-handler), D-105 cross-module memory imports, D-104 reftype.
+Active debts blocking NAMES expansion. Cheap candidates:
+- D-099 fac-ssa loop-param multi-value bug (~50 LOC).
+- D-107 unwind x86_64 emit divergence (~50 LOC).
+- D-106 start-fn-invoke (scaffolding landed d-22; SEGV root
+  cause investigation ≈ 1 hour debug).
+- D-108 call_indirect UnsupportedOp (~30 LOC once op named).
 
-- **d-22 NEXT** — discharge candidate: D-106 (start fn invoke)
-  or D-107 (x86_64 unwind emit). Also unblocked names not yet
-  tried: `call_indirect`, `func`, `func_ptrs`, `memory`,
-  `table`. Try one of those as a low-risk bundle first.
+- **d-23 NEXT** — pick one of the above. D-099 is the most
+  self-contained; D-107 is arch-divergence (well-scoped); D-106
+  needs lldb / gdb to trace which prologue load SEGVs.
 
 Runner-side skip-impl backlog (7 total, in `nop / loop /
 local_tee`):
@@ -87,8 +87,9 @@ Other queued post-D-093 names: `address`, `align`, `br_table`,
 | D-093 (d-18) | [x] 4a4e0a22 | x86_64 select alias-aware cmov + call_indirect idx load order (D-097 discharged) + select_spilled_operands / select_with_if_call / select_with_if_no_call edge fixtures |
 | D-093 (d-19) | [x] c41b0868 | NAMES +5 (`address`, `const`, `load`, `store`, `traps`); `select` deferred (reftype), `align` rejected by wast2json |
 | D-093 (d-20) | [x] 18f93d91 | NAMES +5 (`f32_bitwise`, `f64_bitwise`, `memory_size`, `switch`, `type`) + runner memory_limits reset + D-099 (fac-ssa loop param) filed |
-| D-093 (d-21) | [x] (this commit) | NAMES batch bisect (call/data/elem/global/memory_grow/start/unwind each → its own debt D-101..D-107) + GROWABLE_MEMORY_CAPACITY 64 → 1024 pages |
-| **D-093 (d-22)** | **NEXT** | discharge candidate (D-106 start-fn-invoke or D-107 x86_64 unwind) OR try untried NAMES (`call_indirect`/`func`/`func_ptrs`/`memory`/`table`) |
+| D-093 (d-21) | [x] 834fd332 | NAMES batch bisect (call/data/elem/global/memory_grow/start/unwind each → its own debt D-101..D-107) + GROWABLE_MEMORY_CAPACITY 64 → 1024 pages |
+| D-093 (d-22) | [x] (this commit) | NAMES batch bisect (call_indirect/func/func_ptrs/memory/table → D-108..D-110 + wast2json-reject) + D-106 discharge scaffolding (extractStartFunc + invoke helper; SEGV root-cause now narrowed) |
+| **D-093 (d-23)** | **NEXT** | discharge candidate: D-099 fac-ssa, D-107 x86_64 unwind, or D-106 SEGV trace |
 
 Other queued chunks (post-l-1): k-1, k-2, m-4c (= D-090),
 m-2d, n-1, j-3b.

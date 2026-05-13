@@ -146,6 +146,34 @@ fn nonSimdOnModuleLoaded(
         try stdout.print("FAIL  {s} table-init: {s}\n", .{ name, @errorName(err) });
         return err;
     };
+    // d-22 (D-106 discharge): Wasm spec §4.5.5.2 — the module's
+    // start function (if declared) runs at instantiation, before
+    // any export is invoked. Spec corpus `start.wast` exercises
+    // this via a start fn that mutates an exported global; the
+    // first `(invoke "get")` then observes the post-start value.
+    // The start section body is just a single LEB128 funcidx.
+    if (base.extractStartFunc(gpa, wasm_bytes)) |start_funcidx| {
+        // Bounds-check: start funcidx may target an import; the
+        // JIT entry() table only covers defined funcs after
+        // imports. Skip silently when the funcidx is out of the
+        // JIT-compiled range (an imported start fn would need
+        // host_dispatch_base wiring we don't have for the spec
+        // runner's test scaffolding).
+        if (start_funcidx < compiled.module.func_offsets.len and
+            compiled.module.func_offsets[start_funcidx] != @import("zwasm").engine.codegen.shared.linker.IMPORT_SENTINEL_OFFSET)
+        {
+            var rt = base.makeJitRuntime(
+                base.growable_memory[0..@intCast(base.current_mem_bytes)],
+                scratch_globals[0..],
+                scratch_funcptrs[0..],
+                scratch_typeidxs[0..],
+            );
+            entry.callVoidNoArgs(compiled.module, start_funcidx, &rt) catch |err| {
+                try stdout.print("FAIL  {s} start-init: {s}\n", .{ name, @errorName(err) });
+                return err;
+            };
+        }
+    }
 }
 
 /// `RunnerCallbacks.handle_assert_return` — scalar (i32 / i64 /

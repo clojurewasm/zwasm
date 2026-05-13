@@ -127,6 +127,19 @@ NAMES=(
   # - unwind (D-107): x86_64 unwind.0.wasm UnsupportedOp; Mac
   #   passes. arm64 / x86_64 emit divergence in br_table /
   #   br-with-value path likely.
+  # d-22: tried start (D-106 discharge attempt) — runner now
+  # invokes module start fn via `base.extractStartFunc` +
+  # `entry.callVoidNoArgs`, but start.3.wasm's $main (calls $inc
+  # three times) crashes the JIT body with SEGV at 0xaa...aa
+  # (undefined-memory pattern). Likely a regalloc/spill interaction
+  # with the bare runtime view, OR func_offsets not yet populated
+  # at the on_module_loaded hook point. Runner code stays (no-op
+  # for non-start modules); NAMES revert keeps the gate green.
+  # `start` deferred (D-106 still open, narrowed: the on_module_
+  # loaded ordering bug is the new root cause).
+  # Bundle bisect (call_indirect/func/func_ptrs/memory/table) all
+  # surfaced UnsupportedOp / validate / trap-assert / wast2json-
+  # rejected — covered by D-108..D-110.
 )
 
 mkdir -p "$DEST"
