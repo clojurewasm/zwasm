@@ -819,6 +819,13 @@ fn skipLeb128(body: []const u8, pos: *usize, comptime max_bytes: usize) Error!vo
     return Error.InvalidFunctype;
 }
 
+/// Wasm spec §5.3.1 (valtype) — `valtype ::= numtype | vectype | reftype`
+/// where `numtype ∈ {i32, i64, f32, f64}`, `vectype = v128`, and
+/// `reftype ∈ {funcref, externref}`. Returned by section decoders
+/// that read a typed slot (functype params/results, globaltype,
+/// local decl). The reftype branches were enabled by D-093 / d-32;
+/// the runtime path through `op_globals` for reftype globals lands
+/// at d-33.
 fn readValType(body: []const u8, pos: *usize) Error!ValType {
     if (pos.* >= body.len) return Error.UnexpectedEnd;
     const b = body[pos.*];
@@ -829,6 +836,8 @@ fn readValType(body: []const u8, pos: *usize) Error!ValType {
         0x7D => .f32,
         0x7C => .f64,
         0x7B => .v128, // Wasm 2.0 SIMD §5.3.5
+        0x70 => .funcref, // Wasm 2.0 §5.3.1 reftype
+        0x6F => .externref, // Wasm 2.0 §5.3.1 reftype
         else => Error.BadValType,
     };
 }
@@ -909,6 +918,28 @@ test "decodeTypes: rejects unknown valtype byte" {
     // rejected.
     const body = [_]u8{ 0x01, 0x60, 0x01, 0x6E, 0x00 };
     try testing.expectError(Error.BadValType, decodeTypes(testing.allocator, &body));
+}
+
+test "decodeTypes: accepts funcref param/result (Wasm 2.0 §5.3.1)" {
+    // 0x70 is funcref. (funcref) -> (funcref) must decode without
+    // error so that function types can express reftype param/result
+    // signatures (e.g. for `(param funcref)` helpers).
+    const body = [_]u8{ 0x01, 0x60, 0x01, 0x70, 0x01, 0x70 };
+    var t = try decodeTypes(testing.allocator, &body);
+    defer t.deinit();
+    try testing.expectEqual(@as(usize, 1), t.items.len);
+    try testing.expectEqualSlices(ValType, &[_]ValType{.funcref}, t.items[0].params);
+    try testing.expectEqualSlices(ValType, &[_]ValType{.funcref}, t.items[0].results);
+}
+
+test "decodeTypes: accepts externref param/result (Wasm 2.0 §5.3.1)" {
+    // 0x6F is externref. (externref) -> (externref) must decode.
+    const body = [_]u8{ 0x01, 0x60, 0x01, 0x6F, 0x01, 0x6F };
+    var t = try decodeTypes(testing.allocator, &body);
+    defer t.deinit();
+    try testing.expectEqual(@as(usize, 1), t.items.len);
+    try testing.expectEqualSlices(ValType, &[_]ValType{.externref}, t.items[0].params);
+    try testing.expectEqualSlices(ValType, &[_]ValType{.externref}, t.items[0].results);
 }
 
 test "decodeTypes: rejects truncated input" {
@@ -1012,8 +1043,30 @@ test "decodeCodes: rejects size overrun" {
 }
 
 test "decodeCodes: rejects bad valtype in locals decl" {
-    const body = [_]u8{ 0x01, 0x04, 0x01, 0x01, 0x6F, 0x0B }; // 6F = funcref (post-MVP)
+    // 0x5F is unassigned in the Wasm 2.0 valtype space; reftype
+    // bytes 0x70 / 0x6F are now accepted (see `decodeCodes: accepts
+    // funcref local decl` below).
+    const body = [_]u8{ 0x01, 0x04, 0x01, 0x01, 0x5F, 0x0B };
     try testing.expectError(Error.BadValType, decodeCodes(testing.allocator, &body));
+}
+
+test "decodeCodes: accepts funcref local decl (Wasm 2.0 §5.3.1)" {
+    // Function with `(local funcref)`. Per §4.5.3.1 locals are
+    // initialised to null reftype; the parser only verifies the
+    // declaration decodes.
+    const body = [_]u8{ 0x01, 0x04, 0x01, 0x01, 0x70, 0x0B };
+    var c = try decodeCodes(testing.allocator, &body);
+    defer c.deinit();
+    try testing.expectEqual(@as(usize, 1), c.items.len);
+    try testing.expectEqualSlices(ValType, &[_]ValType{.funcref}, c.items[0].locals);
+}
+
+test "decodeCodes: accepts externref local decl (Wasm 2.0 §5.3.1)" {
+    const body = [_]u8{ 0x01, 0x04, 0x01, 0x01, 0x6F, 0x0B };
+    var c = try decodeCodes(testing.allocator, &body);
+    defer c.deinit();
+    try testing.expectEqual(@as(usize, 1), c.items.len);
+    try testing.expectEqualSlices(ValType, &[_]ValType{.externref}, c.items[0].locals);
 }
 
 test "decodeGlobals: empty section" {
@@ -1044,6 +1097,26 @@ test "decodeGlobals: mutable f64 global" {
 test "decodeGlobals: rejects malformed mut byte" {
     const body = [_]u8{ 0x01, 0x7F, 0x02, 0x41, 0x00, 0x0B };
     try testing.expectError(Error.InvalidFunctype, decodeGlobals(testing.allocator, &body));
+}
+
+test "decodeGlobals: accepts externref valtype (Wasm 2.0 §5.3.1)" {
+    // count=1; valtype=externref (0x6F); mut=const; init: ref.null
+    // extern ; end (0xD0 0x6F 0x0B).
+    const body = [_]u8{ 0x01, 0x6F, 0x00, 0xD0, 0x6F, 0x0B };
+    var g = try decodeGlobals(testing.allocator, &body);
+    defer g.deinit();
+    try testing.expectEqual(@as(usize, 1), g.items.len);
+    try testing.expectEqual(ValType.externref, g.items[0].valtype);
+    try testing.expectEqual(false, g.items[0].mutable);
+}
+
+test "decodeGlobals: accepts funcref valtype (Wasm 2.0 §5.3.1)" {
+    const body = [_]u8{ 0x01, 0x70, 0x01, 0xD0, 0x70, 0x0B };
+    var g = try decodeGlobals(testing.allocator, &body);
+    defer g.deinit();
+    try testing.expectEqual(@as(usize, 1), g.items.len);
+    try testing.expectEqual(ValType.funcref, g.items[0].valtype);
+    try testing.expectEqual(true, g.items[0].mutable);
 }
 
 test "decodeImports: empty section" {
