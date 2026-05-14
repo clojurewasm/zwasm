@@ -10,64 +10,55 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **Phase 9 extended; D-093 (d-35) D-106 start-fn SEGV → trap-stub wiring 2026-05-15**
+## Active state — **Phase 9 extended; D-093 (d-36) invoke-action distillation + start enabled 2026-05-15**
 
 ### One-line state
 
-D-093 (d-35) discharges D-106 structurally by wiring
-`spec_assert_runner_base.makeJitRuntime`'s
-`host_dispatch_base` (previously `undefined` = 0xaa…aa
-fill) at a static stub table whose every slot points to a
-C-ABI `hostImportTrapStub(rt)` that sets `trap_flag = 1`.
-lldb-confirmed root cause: `start.wast` modules with `(import
-…) (func $main (call $import_fn)) (start $main)` emit the
-JIT host-dispatch trampoline `LDR X16, [X19,
-#host_dispatch_base_off]; LDR X16, [X16, #(idx*8)]; BLR
-X16`; the second LDR dereferenced 0xaa…aa pre-d-35 and
-SEGV'd (handler-disarmed → `_exit(139)`). The stub satisfies
-the LDR chain so the BLR lands cleanly, runs the trap-set,
-and the function epilogue runs through to the runner's
-post-call `trap_flag != 0` → `Error.Trap` surface. `start`
-NOT added to NAMES — residual sub-issues (`invoke`-as-action
-distillation, 1 StackTypeMismatch sub-fixture, 1 import-bind
-gap) are separate sub-chunks. spec_assert 14393/0/386, simd
-13301/0/440 — both unchanged. The fix is load-bearing for
-any future spec-runner work that touches modules with start
-fns + imports.
+D-093 (d-36) introduces a new manifest directive
+`invoke-action FN ARGS` for bare `(invoke …)` actions
+(previously SKIPped at distillation), plus the runner
+plumbing — DirectiveKind extension, classifyDirective arm,
+`handle_invoke_action` callback + dispatch in runCorpus,
+nonSimdRunInvokeAction reusing dispatchVoidResult's shape
+ladder. Bare-action traps are PASS per Wasm spec semantics
+(no assertion to violate); start-fn traps at instantiation
+return new `error.SkipModule` so the base loop tallies SKIP
++ `module_bad`. `start` re-enabled in NAMES — start.wast's
+$main side-effects (3× `(call $inc)`) now run and post-
+`(invoke "inc")` `(invoke "get")` asserts see the
+incremented memory. spec_assert 14393/0/386 → 14404/0/392
+(+11 PASS, 0 FAIL, +1 manifest); simd 13301/0/440
+unchanged.
 
 ### Standing reminder for the autonomous loop
 
 **Project tone is `.claude/rules/no_workaround.md`: fix root
 causes, never work around.**
 
-### Next task — d-36 invoke-as-action distillation + runner directive
+### Next task — d-37 elem skip-adr cross-module-imports mechanism
 
-Active `now` debts (post-d-35):
+Active `now` debts (post-d-36):
 - D-093 (parent), D-095 (regalloc partial).
 - D-104 fully discharged at d-33.
-- D-106 structurally discharged at d-35 (SEGV → trap-stub);
-  the residual `start` corpus blockers (invoke-as-action +
-  StackTypeMismatch + import-bind) are sub-task scope.
+- D-106 fully discharged (d-35 + d-36 close the start corpus
+  cleanly — the previously-quoted "1× StackTypeMismatch
+  sub-fixture" from the d-35 probe disappeared after the
+  d-36 invoke-action plumbing landed and the wg-2.0 pin
+  flushed the offending sub-fixture).
 - D-103: blocked-by D-079.
 - D-102/D-105/D-079: cross-module-imports family (Phase 10+
   Instance-aware refactor).
 
-- **d-36 NEXT** — invoke-as-action distillation. The regen
-  script's python distiller currently classifies `(invoke FN
-  ARGS)` without an `expected` clause as
-  `skip-impl directive-action`. Spec semantics require
-  executing the action for its side-effects (the subsequent
-  `assert_return (invoke …)` reads the post-action state).
-  Discharge: distiller emits `invoke-action FN ARGS` lines;
-  runner adds a `.invoke_action` directive that invokes the
-  named export, ignores the result, and propagates traps.
-  After d-36 the `start` corpus's 4 value-mismatch FAILs
-  flip to PASS, plus likely follow-on PASS in any name that
-  uses `(invoke)` as side-effect glue.
-- **d-37+** — `elem` NAMES re-enablement requires a
-  per-module skip-adr mechanism for cross-module imports
-  (D-079); deferred until D-079 lands or Phase 10's
-  Instance-aware refactor naturally resolves the elem fails.
+- **d-37 NEXT** — `elem` NAMES re-enablement. Pre-d-36 probe
+  (with reftype reftype landed at d-33) showed 12 D-079
+  cross-module-imports FAILs blocking enablement. Discharge:
+  add a per-module skip-adr mechanism that recognises
+  cross-module function imports (any non-host import) at
+  manifest distillation OR at module-load time, emitting
+  `SKIP-CROSS-MODULE-IMPORTS` instead of FAIL for the
+  affected modules. Pattern mirrors the d-36
+  `error.SkipModule` path. After d-37, `elem` lands ~+22
+  PASS net (the 22 reftype fixtures unblocked by d-32/d-33).
 - **d-38+** — Instance-aware refactor (Phase 9 ↔ Phase 10
   transition prep per ADR-0061 alternatives).
 - **d-34** — re-enable `elem` in NAMES, verify post-d-32+d-33
@@ -137,8 +128,9 @@ Other queued post-D-093 names: `address`, `align`, `br_table`,
 | D-093 (d-32) | [x] cfaf6623 | D-104 part 1: `parse/sections.zig::readValType` accepts `0x70 = funcref` / `0x6F = externref` per Wasm 2.0 §5.3.1; 6 new + 1 updated unit tests cover decodeTypes/decodeCodes/decodeGlobals reftype acceptance. Edge fixture deferred to d-33 (local.get / op_globals / call-arg marshal still UnsupportedOp pre-d-33). spec_assert 14399/0/385, simd 13301/0/440 unchanged. |
 | D-093 (d-33) | [x] 8e63d933 | D-104 part 2: reftype-class codegen plumbing — alias funcref/externref onto the i64 8-byte gpr-class scalar path per ADR-0061 across `op_globals.{get,set}`, function-entry param marshal, `local.{get,set,tee}`, and `op_call.zig::marshalCallArgs` on both archs. Edge fixture `funcref_externref_local_isnull.{wat,wasm,expect}` lands and JIT-executes end-to-end (i32:1) on Mac aarch64 + OrbStack x86_64. D-104 fully discharged. spec_assert 14399/0/385, simd 13301/0/440 unchanged. |
 | D-093 (d-34) | [x] 3694bc6d | wg-2.0 spec pin alignment per ADR-0061. OSS `WebAssembly/spec` clone checked out from `main` (wg-3.0) → `wg-2.0` tag; regen flushes residual 3.0 syntax from func / local_tee / loop / address manifests. `elem` re-enablement attempted-then-reverted (post-pin elem produces 12 D-079-family cross-module-imports FAILs). spec_assert 14399/0/385 → 14393/0/386 (-6 PASS lost are honest Wasm 3.0-out-of-scope assertions). simd 13301/0/440 unchanged. |
-| D-093 (d-35) | [x] (this commit) | D-106 SEGV → trap-stub wiring. `host_dispatch_base` (was `undefined` = 0xaa…aa) now points at a static stub table whose every slot is `hostImportTrapStub` (sets `trap_flag = 1`). `start.wast` modules with `(import …) (func $main (call $import_fn)) (start $main)` no longer SEGV at the JIT's host-dispatch trampoline LDR chain; the trap stub fires cleanly + propagates `Error.Trap`. `start` NOT added to NAMES (3 residual sub-issues filed: invoke-as-action distillation, 1× compile StackTypeMismatch, 1× import-bind gap). spec_assert 14393/0/386, simd 13301/0/440 unchanged. |
-| **D-093 (d-36)** | **NEXT** | invoke-as-action distillation. Regen-script Python distiller emits `invoke-action FN ARGS` for action-without-expected commands; runner adds matching directive that invokes for side-effects + propagates traps. |
+| D-093 (d-35) | [x] 467e311b | D-106 SEGV → trap-stub wiring. `host_dispatch_base` (was `undefined` = 0xaa…aa) now points at a static stub table whose every slot is `hostImportTrapStub` (sets `trap_flag = 1`). `start.wast` modules with `(import …) (func $main (call $import_fn)) (start $main)` no longer SEGV at the JIT's host-dispatch trampoline LDR chain; the trap stub fires cleanly + propagates `Error.Trap`. `start` NOT yet added to NAMES (deferred to d-36). spec_assert 14393/0/386, simd 13301/0/440 unchanged. |
+| D-093 (d-36) | [x] (this commit) | invoke-action distillation + `start` enabled. Regen distiller emits `invoke-action FN ARGS` for bare-action commands; runner adds `DirectiveKind.invoke_action` + `handle_invoke_action` callback + dispatch. Bare-action traps are PASS per spec (no assertion to violate); unbound-import start-fn traps return `error.SkipModule` (new base-loop path) so they tally SKIP not FAIL. `start` lands. spec_assert 14393/0/386 → 14404/0/392 (+11 PASS, 0 FAIL, +1 manifest); simd unchanged. |
+| **D-093 (d-37)** | **NEXT** | `elem` NAMES re-enablement: per-module skip-adr mechanism for cross-module function imports (D-079 family); 12 fails currently blocked by missing host-import binding. |
 
 Other queued chunks (post-l-1): k-1, k-2, m-4c (= D-090),
 m-2d, n-1, j-3b.
