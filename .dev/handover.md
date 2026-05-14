@@ -10,27 +10,25 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **Phase 9 extended; D-093 (d-40) D-116 discharged + float_exprs lands 2026-05-15**
+## Active state — **Phase 9 extended; D-093 (d-41) D-114 discharged + memory_trap lands 2026-05-15**
 
 ### One-line state
 
-D-093 (d-40) discharges D-116. The "memory persistence
-across multi-action modules" framing turned out to be a
-mis-diagnosis: memory state IS preserved across invokes
-(on_module_loaded reset is per-module). The actual root
-cause was the distiller's `action_supported` /
-`assert_return supported` shape sets + the runner's
-`dispatchVoidResult` / `invokeActionShape` ladders missing
-`(i32, f32)` / `(i32, f64)` / `(i32, i32, i32)`. The bare
-`(invoke "init" 0 15.1)` actions in float_exprs were
-distilled as `skip-impl action-shape-gap` and silently
-skipped, so the follow-up `(invoke "check" 0)` read 0 from
-never-initialised memory. d-40 adds three new
-`entry.callVoid_*` helpers + the matching runner ladder
-arms + distiller shape entries. `float_exprs` lands in
-NAMES. spec_assert non-simd 15438/0/508 → 16091/0/684
-(+653 PASS, 0 FAIL, +1 manifest); simd 13301/0/440
-unchanged.
+D-093 (d-41) discharges D-114. The original framing was
+"load OOB-check off-by-one"; d-41 disproved that — the 4
+FAILing `i*.load` / `f*.load` calls were correctly
+returning the data-segment bytes "abcdefgh" because the
+preceding `(invoke "i64.store" 0xfff8 0)` zero-store was
+silently skipped as `skip-impl runner-shape-gap`. Same
+`(i32, <T>)` shape-gap class as D-116 (d-40) but extended
+to the assert_trap and assert_return void axes. d-41 adds
+the `(i32, i64)` void helper + ladder arms for `(i32,
+i64)` / `(i32, f32)` / `(i32, f64)` across
+`dispatchVoidResult` + `nonSimdRunAssertTrap` +
+`invokeActionShape`; distiller `trap_supported` and
+`supported` sets extended. `memory_trap` lands in NAMES.
+spec_assert non-simd 16091/0/684 → 16276/0/679 (+185 PASS,
+0 FAIL, +1 manifest); simd 13301/0/440 unchanged.
 
 ### Standing reminder for the autonomous loop
 
@@ -39,17 +37,15 @@ causes, never work around.**
 
 ### Next sub-chunk candidates (names only, NO predictions)
 
-Active `now` debts (post-d-40):
+Active `now` debts (post-d-41):
 - D-093 (parent), D-095 (regalloc partial).
-- D-115 discharged at d-39; D-116 discharged at d-40.
+- D-115 d-39 / D-116 d-40 / D-114 d-41 discharged.
 - **D-112** (select call_indirect-context 4× Trap).
 - **D-113** (ref_is_null SEGV).
-- **D-114** (memory_trap 4× load OOB).
 - D-103: discharged at d-37 via cross-module-imports skip.
 - D-102/D-105/D-079: cross-module-imports family — surface
   remains SKIP under d-37 pre-filter.
 
-- **d-41** — D-114 memory_trap OOB load.
 - **d-42** — D-112 select call_indirect-context.
 - **d-43** — D-113 ref_is_null SEGV (needs lldb +
   debug-print investigation).
@@ -121,8 +117,9 @@ Other queued post-D-093 names: `address`, `align`, `br_table`,
 | D-093 (d-37) | [x] 23724d68 | `elem` NAMES enable via cross-module-imports skip-adr. `hasUnbindableImports` pre-filter; distiller skips `action.module`-targeted assertions; `evalConstScalarRaw` gains `0xD2 ref.func`. spec_assert 14404/0/392 → 14413/0/465 (+9 PASS, 0 FAIL); simd unchanged. |
 | D-093 (d-38) | [x] 3358bec8 | Batch enable 13 NAMES: br, br_if, endianness, forward, labels, left-to-right, stack, ref_null, ref_func, memory, memory_redundancy, float_misc, float_memory. 4 names deferred to debt (D-112 select, D-113 ref_is_null, D-114 memory_trap, D-115 float_exprs). spec_assert 14413/0/465 → 15438/0/508 (+1025 PASS, 0 FAIL, +13 manifests); simd unchanged. |
 | D-093 (d-39) | [x] c54d1ab0 | D-115 FP-select half discharged: validator → lower → emit untyped-`select` valtype byte plumbing. New `validateFunctionAndCollectSelectTypes` entry point collects per-0x1B resolved valtype byte in body-walk order; `compileOne(..., select_types)` + `lowerFunctionBody(..., select_types)` thread the slice; lower consumes one byte per 0x1B to populate `ZirInstr.extra`. Existing emit dispatch (0x7D/0x7C ⇒ arm64 FCSEL S/D + x86_64 `op_alu_float.emitFpSelect`) fires correctly. Edge fixtures `test/edge_cases/p9/select_fp/select_f<32,64>_negzero.{wat,wasm,expect}`. |
-| D-093 (d-40) | [x] e7e1f01f | D-116 discharged. Mis-diagnosed framing was "memory persistence across invokes lost"; actual root cause was distiller `action_supported` / `assert_return supported` shape sets + runner `dispatchVoidResult` / `invokeActionShape` ladders missing `(i32, f32)` / `(i32, f64)` / `(i32, i32, i32)`. Bare `(invoke "init" 0 15.1)` were distilled as `skip-impl action-shape-gap` and silently skipped at run time, so the follow-up assert_return read 0 from never-initialised memory. d-40 adds three new `entry.callVoid_*` helpers (`callVoid_i32f32`, `callVoid_i32f64`, `callVoid_i32i32i32`) + the matching runner ladder arms + distiller shape entries. `float_exprs` lands in NAMES. spec_assert non-simd 15438/0/508 → 16091/0/684 (+653 PASS, 0 FAIL, +1 manifest); simd 13301/0/440 unchanged. |
-| **D-093 (d-41)** | **NEXT** | D-114 memory_trap 4× load OOB-check — scalar `load` traps at OOB addresses don't fire (or fire late) on i32/i64/f32/f64.load. |
+| D-093 (d-40) | [x] e7e1f01f | D-116 discharged. Mis-diagnosed framing was "memory persistence across invokes lost"; actual root cause was distiller `action_supported` / `assert_return supported` shape sets + runner `dispatchVoidResult` / `invokeActionShape` ladders missing `(i32, f32)` / `(i32, f64)` / `(i32, i32, i32)`. d-40 adds three new `entry.callVoid_*` helpers + ladder arms + distiller shape entries. `float_exprs` lands in NAMES. spec_assert 15438 → 16091 PASS. |
+| D-093 (d-41) | [x] a31fec49 | D-114 discharged. Same shape-gap class as D-116 but on the assert_trap + assert_return-void axes. d-41 adds `entry.callVoid_i32i64` + arms for `(i32, i64)` / `(i32, f32)` / `(i32, f64)` across `dispatchVoidResult` / `nonSimdRunAssertTrap` / `invokeActionShape`; distiller `trap_supported` + `supported` sets extended. `memory_trap` lands in NAMES. spec_assert non-simd 16091/0/684 → 16276/0/679 (+185 PASS, 0 FAIL, +1 manifest); simd 13301/0/440 unchanged. |
+| **D-093 (d-42)** | **NEXT** | D-112 select.wast 4× as-call_indirect-{first,mid}(i32) Trap — scalar select inside call_indirect arg expression traps; could be call_indirect bounds/sig check on fixture-specific table state OR CSEL output racing with funcptr load. |
 
 Other queued chunks (post-l-1): k-1, k-2, m-4c (= D-090),
 m-2d, n-1, j-3b.
