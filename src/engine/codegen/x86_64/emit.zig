@@ -134,14 +134,13 @@ fn computeOutgoingMaxBytes(
         var n_v128: u32 = 0;
         for (callee_sig.params) |p| {
             switch (p) {
-                .i32, .i64 => n_int += 1,
+                .i32, .i64, .funcref, .externref => n_int += 1,
                 .f32, .f64 => n_fp += 1,
                 // §9.9 / 9.9-i-1: Win64 v128 is a hidden-pointer
                 // arg — consumes one int-arg-reg slot for the
                 // pointer; on SysV it's an XMM-reg / stack-eightbyte
                 // arg (already excluded from n_int / n_fp here).
                 .v128 => n_v128 += 1,
-                .funcref, .externref => {},
             }
         }
         // §9.9 / 9.9-h-7 SysV: v128 fp-class consumes 2 eightbytes
@@ -208,11 +207,9 @@ pub fn compile(
             // marshal per Microsoft x64 ABI §"Parameter passing"
             // (`__m128` passed via pointer in int-arg reg slot;
             // ADR-0055).
-            .i32, .i64, .f32, .f64, .v128 => {},
-            .funcref, .externref => {
-                std.debug.print("x86_64/emit: param type `{s}` unsupported (func_idx={d})\n", .{ @tagName(p), func.func_idx });
-                return Error.UnsupportedOp;
-            },
+            // D-093 (d-33): reftype params share the i64 gpr-class
+            // 8-byte slot per ADR-0061.
+            .i32, .i64, .f32, .f64, .v128, .funcref, .externref => {},
         }
     }
     const num_locals: u32 = func.totalLocalCount();
@@ -357,8 +354,7 @@ pub fn compile(
             const off: i32 = layout.disps[p_idx];
             const ptype = func.sig.params[p_idx];
             switch (ptype) {
-                .funcref, .externref => unreachable, // filtered above
-                .i32, .i64, .f32, .f64, .v128 => {},
+                .i32, .i64, .f32, .f64, .v128, .funcref, .externref => {},
             }
             // Win64 stack-arg fallback for slot >= 4. The shared
             // slot is `int_arg_idx` (== `fp_arg_idx` under Win64).
@@ -379,7 +375,8 @@ pub fn compile(
                         try buf.appendSlice(allocator, inst.encMovR32FromMemDisp32(.rax, .rbp, stack_disp).slice());
                         try buf.appendSlice(allocator, rbpStoreR32(off, .rax).slice());
                     },
-                    .i64, .f32, .f64 => {
+                    // D-093 (d-33): reftype shares i64 8-byte gpr slot.
+                    .i64, .f32, .f64, .funcref, .externref => {
                         try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, .rbp, stack_disp).slice());
                         try buf.appendSlice(allocator, rbpStoreR64(off, .rax).slice());
                     },
@@ -396,7 +393,6 @@ pub fn compile(
                         try buf.appendSlice(allocator, inst.encMovupsXmmMemBaseDisp32(false, .xmm0, .rax, 0).slice());
                         try buf.appendSlice(allocator, rbpStoreXmmV128(off, .xmm0).slice());
                     },
-                    .funcref, .externref => unreachable, // refs filtered above
                 }
                 int_arg_idx += 1;
                 fp_arg_idx += 1;
@@ -408,7 +404,7 @@ pub fn compile(
             // caller's `[RSP + 8 * nsaa_idx]` write after RET addr +
             // saved RBP (+ saved R15) push. Win64 already handled
             // above; this branch is structurally SysV-only.
-            const sysv_int_overflow = (ptype == .i32 or ptype == .i64) and int_arg_idx >= abi.current.arg_gprs.len;
+            const sysv_int_overflow = (ptype == .i32 or ptype == .i64 or ptype == .funcref or ptype == .externref) and int_arg_idx >= abi.current.arg_gprs.len;
             const sysv_fp_overflow = (ptype == .f32 or ptype == .f64) and fp_arg_idx >= abi.current.arg_xmms.len;
             if (sysv_int_overflow or sysv_fp_overflow) {
                 const r15_save_off: i32 = if (uses_runtime_ptr) 8 else 0;
@@ -418,11 +414,12 @@ pub fn compile(
                         try buf.appendSlice(allocator, inst.encMovR32FromMemDisp32(.rax, .rbp, stack_disp).slice());
                         try buf.appendSlice(allocator, rbpStoreR32(off, .rax).slice());
                     },
-                    .i64, .f32, .f64 => {
+                    // D-093 (d-33): reftype shares i64 8-byte gpr slot.
+                    .i64, .f32, .f64, .funcref, .externref => {
                         try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, .rbp, stack_disp).slice());
                         try buf.appendSlice(allocator, rbpStoreR64(off, .rax).slice());
                     },
-                    .v128, .funcref, .externref => unreachable, // Win64 v128 / refs filtered above
+                    .v128 => unreachable, // Win64 v128 hidden-ptr handled above
                 }
                 nsaa_idx += 1;
                 if (sysv_int_overflow) int_arg_idx += 1 else fp_arg_idx += 1;
@@ -434,7 +431,8 @@ pub fn compile(
                     int_arg_idx += 1;
                     if (abi.current_cc == .win64) fp_arg_idx += 1;
                 },
-                .i64 => {
+                // D-093 (d-33): reftype shares i64 8-byte gpr slot.
+                .i64, .funcref, .externref => {
                     try buf.appendSlice(allocator, rbpStoreR64(off, abi.current.arg_gprs[int_arg_idx]).slice());
                     int_arg_idx += 1;
                     if (abi.current_cc == .win64) fp_arg_idx += 1;
@@ -487,7 +485,6 @@ pub fn compile(
                         }
                     }
                 },
-                .funcref, .externref => unreachable, // refs filtered above
             }
         }
     }
@@ -1774,7 +1771,8 @@ fn emitLocalGet(
             try buf.appendSlice(allocator, rbpLoadR32(dst_r, disp).slice());
             try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, vreg, 0);
         },
-        .i64 => {
+        // D-093 (d-33): reftype shares i64 8-byte gpr slot.
+        .i64, .funcref, .externref => {
             const dst_r = try gpr.gprDefSpilled(alloc, vreg, 0);
             try buf.appendSlice(allocator, rbpLoadR64(dst_r, disp).slice());
             try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, vreg, 0);
@@ -1798,10 +1796,6 @@ fn emitLocalGet(
             const dst_x = try gpr.xmmDefSpilled(alloc, vreg, 0);
             try buf.appendSlice(allocator, rbpLoadXmmV128(dst_x, disp).slice());
             try gpr.xmmStoreSpilled(allocator, buf, alloc, spill_base_off, vreg, 0);
-        },
-        .funcref, .externref => |t| {
-            std.debug.print("x86_64/emit: UnsupportedOp[localGet-type-{s}] (idx={d})\n", .{ @tagName(t), idx });
-            return Error.UnsupportedOp;
         },
     }
     try pushed_vregs.append(allocator, vreg);
@@ -1830,7 +1824,8 @@ fn emitLocalSet(
             const src_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
             try buf.appendSlice(allocator, rbpStoreR32(disp, src_r).slice());
         },
-        .i64 => {
+        // D-093 (d-33): reftype shares i64 8-byte gpr slot.
+        .i64, .funcref, .externref => {
             const src_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
             try buf.appendSlice(allocator, rbpStoreR64(disp, src_r).slice());
         },
@@ -1847,10 +1842,6 @@ fn emitLocalSet(
             // bytes via MOVUPS [RBP+disp], xmm.
             const src_x = try gpr.xmmLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
             try buf.appendSlice(allocator, rbpStoreXmmV128(disp, src_x).slice());
-        },
-        .funcref, .externref => |t| {
-            std.debug.print("x86_64/emit: UnsupportedOp[localSet-type-{s}] (idx={d})\n", .{ @tagName(t), idx });
-            return Error.UnsupportedOp;
         },
     }
 }
@@ -1878,7 +1869,8 @@ fn emitLocalTee(
             const src_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
             try buf.appendSlice(allocator, rbpStoreR32(disp, src_r).slice());
         },
-        .i64 => {
+        // D-093 (d-33): reftype shares i64 8-byte gpr slot.
+        .i64, .funcref, .externref => {
             const src_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
             try buf.appendSlice(allocator, rbpStoreR64(disp, src_r).slice());
         },
@@ -1895,10 +1887,6 @@ fn emitLocalTee(
             // local.set's 16-byte write.
             const src_x = try gpr.xmmLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
             try buf.appendSlice(allocator, rbpStoreXmmV128(disp, src_x).slice());
-        },
-        .funcref, .externref => |t| {
-            std.debug.print("x86_64/emit: UnsupportedOp[localTee-type-{s}] (idx={d})\n", .{ @tagName(t), idx });
-            return Error.UnsupportedOp;
         },
     }
 }

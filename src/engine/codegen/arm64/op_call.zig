@@ -30,8 +30,9 @@
 //! so `[SP, #(K*8)]` for K = 0..n_stack_args-1 is reserved for
 //! outgoing args and the callee reads them at `[X29, #(16+8*K)]`.
 //! No SP movement around BL/BLR is needed — the region stays
-//! allocated for the function's lifetime. v128 / funcref /
-//! externref param / result types surface as UnsupportedOp.
+//! allocated for the function's lifetime. Reftype params (funcref
+//! / externref) ride the i64 X-form gpr-class path per ADR-0061
+//! (D-093 d-33); v128 has its own SIMD-class path.
 //!
 //! Zone 2 (`src/engine/codegen/arm64/`).
 
@@ -303,9 +304,21 @@ fn marshalCallArgs(ctx: *EmitCtx, callee_sig: FuncType) Error!void {
                     fp_arg_slot += 1;
                 }
             },
-            .funcref, .externref => |t| {
-                std.debug.print("arm64/op_call: marshal {s} param unsupported\n", .{@tagName(t)});
-                return Error.UnsupportedOp;
+            // D-093 (d-33): reftype params share the i64 X-form
+            // marshal path (8-byte gpr-class slot per ADR-0061).
+            .funcref, .externref => {
+                const xs = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
+                if (gpr_arg_slot >= 8) {
+                    const off_u: u32 = stack_arg_idx * 8;
+                    if (off_u > 32760) return Error.UnsupportedOp;
+                    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImm(xs, 31, @intCast(off_u)));
+                    stack_arg_idx += 1;
+                } else {
+                    if (xs != gpr_arg_slot) {
+                        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(gpr_arg_slot, 31, xs));
+                    }
+                    gpr_arg_slot += 1;
+                }
             },
         }
     }

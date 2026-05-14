@@ -13,7 +13,11 @@
 //! i32 globals access the low 4 bytes of the 8-byte slot via
 //! W-form LDR / STR. i64 globals use X-form (full 64-bit). f32 /
 //! f64 globals use S-form / D-form on V-class regs (FP scalar).
-//! funcref / externref defer to Phase 10+ (reftype runtime).
+//! funcref / externref share the i64 X-form path — reftype values
+//! occupy an 8-byte slot identical in shape to i64 per ADR-0061
+//! (the host stores `*FuncInstance` / `*ExternRefRecord` pointers
+//! interchangeably with i64 bit patterns; nullity is the all-zero
+//! pattern shared with `ref.null t`).
 //!
 //! Zone 2 (`src/engine/codegen/arm64/`).
 
@@ -53,11 +57,10 @@ pub fn emitGlobalGet(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const shape = lookupGlobalShape(ctx, ins.payload);
     switch (shape.vt) {
         .i32 => try emitI32GlobalGet(ctx, ins.payload, shape.byte_off),
-        .i64 => try emitI64GlobalGet(ctx, ins.payload, shape.byte_off),
+        .i64, .funcref, .externref => try emitI64GlobalGet(ctx, ins.payload, shape.byte_off),
         .f32 => try emitF32GlobalGet(ctx, ins.payload, shape.byte_off),
         .f64 => try emitF64GlobalGet(ctx, ins.payload, shape.byte_off),
         .v128 => try emitV128GlobalGet(ctx, ins.payload, shape.byte_off),
-        .funcref, .externref => return Error.UnsupportedOp,
     }
 }
 
@@ -66,11 +69,10 @@ pub fn emitGlobalSet(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const shape = lookupGlobalShape(ctx, ins.payload);
     switch (shape.vt) {
         .i32 => try emitI32GlobalSet(ctx, ins.payload, shape.byte_off),
-        .i64 => try emitI64GlobalSet(ctx, ins.payload, shape.byte_off),
+        .i64, .funcref, .externref => try emitI64GlobalSet(ctx, ins.payload, shape.byte_off),
         .f32 => try emitF32GlobalSet(ctx, ins.payload, shape.byte_off),
         .f64 => try emitF64GlobalSet(ctx, ins.payload, shape.byte_off),
         .v128 => try emitV128GlobalSet(ctx, ins.payload, shape.byte_off),
-        .funcref, .externref => return Error.UnsupportedOp,
     }
 }
 

@@ -11,8 +11,10 @@
 //! callee-saved slot; it reloads from `[R15 + offset]` at point
 //! of use. RAX is the GPR scratch (not in the regalloc pool).
 //!
-//! **Scope**: i32 / i64 / f32 / f64 / v128. funcref / externref
-//! defer to Phase 10+ (reftype runtime).
+//! **Scope**: i32 / i64 / f32 / f64 / v128 / funcref / externref.
+//! Reftype values share the i64 8-byte slot shape (see ARM64
+//! mirror's docstring for the rationale); the get/set dispatch
+//! routes reftype into the i64 X-form path.
 //!
 //! Zone 2 (`src/engine/codegen/x86_64/`).
 
@@ -55,11 +57,10 @@ pub fn emitGlobalGet(
     const shape = lookupGlobalShape(idx, globals_offsets, globals_valtypes);
     switch (shape.vt) {
         .i32 => try emitI32GlobalGet(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, idx, shape.byte_off),
-        .i64 => try emitI64GlobalGet(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, idx, shape.byte_off),
+        .i64, .funcref, .externref => try emitI64GlobalGet(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, idx, shape.byte_off),
         .f32 => try emitFpGlobalGet(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, idx, shape.byte_off, .f32),
         .f64 => try emitFpGlobalGet(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, idx, shape.byte_off, .f64),
         .v128 => try emitV128GlobalGet(allocator, buf, alloc, pushed_vregs, next_vreg, idx, shape.byte_off),
-        .funcref, .externref => return Error.UnsupportedOp,
     }
 }
 
@@ -76,11 +77,10 @@ pub fn emitGlobalSet(
     const shape = lookupGlobalShape(idx, globals_offsets, globals_valtypes);
     switch (shape.vt) {
         .i32 => try emitI32GlobalSet(allocator, buf, alloc, pushed_vregs, spill_base_off, idx, shape.byte_off),
-        .i64 => try emitI64GlobalSet(allocator, buf, alloc, pushed_vregs, spill_base_off, idx, shape.byte_off),
+        .i64, .funcref, .externref => try emitI64GlobalSet(allocator, buf, alloc, pushed_vregs, spill_base_off, idx, shape.byte_off),
         .f32 => try emitFpGlobalSet(allocator, buf, alloc, pushed_vregs, spill_base_off, idx, shape.byte_off, .f32),
         .f64 => try emitFpGlobalSet(allocator, buf, alloc, pushed_vregs, spill_base_off, idx, shape.byte_off, .f64),
         .v128 => try emitV128GlobalSet(allocator, buf, alloc, pushed_vregs, idx, shape.byte_off),
-        .funcref, .externref => return Error.UnsupportedOp,
     }
 }
 

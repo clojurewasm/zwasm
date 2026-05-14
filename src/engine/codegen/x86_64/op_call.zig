@@ -339,8 +339,9 @@ pub fn emitCallIndirect(
 /// (GPR) or XMM14/15 (FP) via the spill-aware helpers — disjoint
 /// from arg regs and from each other across stages.
 ///
-/// **Scope**: ≤ 64 args (effectively unlimited). v128 / funcref /
-/// externref still surface UnsupportedOp.
+/// **Scope**: ≤ 128 args (effectively unlimited). Reftype params
+/// (funcref / externref) ride the i64 8-byte gpr-class path per
+/// ADR-0061 (D-093 d-33).
 pub fn marshalCallArgs(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
@@ -412,7 +413,8 @@ pub fn marshalCallArgs(
                 gpr_arg_slot += 1;
                 if (abi.current_cc == .win64) fp_arg_slot += 1;
             },
-            .i64 => {
+            // D-093 (d-33): reftype shares i64 8-byte gpr slot.
+            .i64, .funcref, .externref => {
                 if (gpr_arg_slot >= abi.current.arg_gprs.len) {
                     const src = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_vreg, 0);
                     const disp = computeOverflowDisp(nsaa_idx, gpr_arg_slot);
@@ -514,7 +516,6 @@ pub fn marshalCallArgs(
                     }
                 }
             },
-            .funcref, .externref => return types.rejectUnsupported("src/engine/codegen/x86_64/op_call.zig:funcref-externref", 0),
         }
     }
 }

@@ -128,9 +128,9 @@ fn computeOutgoingMaxBytes(
         var n_fp: u32 = 0;
         for (callee_sig.params) |p| {
             switch (p) {
-                .i32, .i64 => n_int += 1,
+                .i32, .i64, .funcref, .externref => n_int += 1,
                 .f32, .f64 => n_fp += 1,
-                .v128, .funcref, .externref => {},
+                .v128 => {},
             }
         }
         // X0 = `*JitRuntime` per ADR-0017, so user int args use
@@ -273,11 +273,9 @@ pub fn compile(
     //   local-slot at `[SP, p_idx*8]`.
     for (func.sig.params) |p| {
         switch (p) {
-            .i32, .i64, .f32, .f64, .v128 => {},
-            .funcref, .externref => {
-                std.debug.print("arm64/emit: param type `{s}` unsupported (func_idx={d})\n", .{ @tagName(p), func.func_idx });
-                return Error.UnsupportedOp;
-            },
+            // D-093 (d-33): reftype params share the i64 gpr-class
+            // 8-byte slot per ADR-0061.
+            .i32, .i64, .f32, .f64, .v128, .funcref, .externref => {},
         }
     }
     const num_params: u32 = @intCast(func.sig.params.len);
@@ -404,13 +402,12 @@ pub fn compile(
         const param_ty = func.sig.params[p_idx];
         const cap: u32 = switch (param_ty) {
             .i32, .f32 => 16380,
-            .i64, .f64 => 32760,
+            .i64, .f64, .funcref, .externref => 32760,
             .v128 => 65520,
-            .funcref, .externref => unreachable,
         };
         if (param_off_u > cap) return Error.UnsupportedOp;
         const param_off_w: u14 = if (param_ty == .i32 or param_ty == .f32) @intCast(param_off_u) else 0;
-        const param_off_x: u15 = if (param_ty == .i64 or param_ty == .f64) @intCast(param_off_u) else 0;
+        const param_off_x: u15 = if (param_ty == .i64 or param_ty == .f64 or param_ty == .funcref or param_ty == .externref) @intCast(param_off_u) else 0;
         const param_off_v128: u16 = if (param_ty == .v128) @intCast(param_off_u) else 0;
         switch (param_ty) {
             .i32 => {
@@ -429,7 +426,9 @@ pub fn compile(
                     int_arg_idx += 1;
                 }
             },
-            .i64 => {
+            // D-093 (d-33): reftype params share the i64 X-form
+            // marshal path (8-byte gpr-class slot per ADR-0061).
+            .i64, .funcref, .externref => {
                 if (int_arg_idx > 7) {
                     const stack_off_u: u32 = 16 + @as(u32, stack_arg_idx) * 8;
                     if (stack_off_u > 32760) return Error.UnsupportedOp;
@@ -494,8 +493,6 @@ pub fn compile(
                     fp_arg_idx += 1;
                 }
             },
-            // refs were filtered above; exhaustive for zlinter.
-            .funcref, .externref => unreachable,
         }
     }
 
@@ -978,13 +975,12 @@ pub fn compile(
                 const offset_u: u32 = local_base_off + layout.offsets[local_idx];
                 const cap: u32 = switch (ty) {
                     .i32, .f32 => 16380,
-                    .i64, .f64 => 32760,
+                    .i64, .f64, .funcref, .externref => 32760,
                     .v128 => 65520,
-                    .funcref, .externref => 16380,
                 };
                 if (offset_u > cap) return Error.UnsupportedOp;
                 const offset_w: u14 = if (ty == .i32 or ty == .f32) @intCast(offset_u) else 0;
-                const offset_x: u15 = if (ty == .i64 or ty == .f64) @intCast(offset_u) else 0;
+                const offset_x: u15 = if (ty == .i64 or ty == .f64 or ty == .funcref or ty == .externref) @intCast(offset_u) else 0;
                 const offset_q: u16 = if (ty == .v128) @intCast(offset_u) else 0;
                 const vreg = next_vreg;
                 next_vreg += 1;
@@ -998,7 +994,9 @@ pub fn compile(
                         try gpr.writeU32(allocator, &buf, inst.encLdrImmW(rd, 31, offset_w));
                         try gpr.gprStoreSpilled(allocator, &buf, alloc, ctx.spill_base_off, vreg, 0);
                     },
-                    .i64 => {
+                    .i64, .funcref, .externref => {
+                        // D-093 (d-33): reftype shares the i64 X-form
+                        // 8-byte slot per ADR-0061.
                         const rd = try gpr.gprDefSpilled(alloc, vreg, 0);
                         try gpr.writeU32(allocator, &buf, inst.encLdrImm(rd, 31, offset_x));
                         try gpr.gprStoreSpilled(allocator, &buf, alloc, ctx.spill_base_off, vreg, 0);
@@ -1023,10 +1021,6 @@ pub fn compile(
                         try gpr.writeU32(allocator, &buf, inst_neon.encLdrQImm(vd, 31, offset_q));
                         try gpr.qStoreSpilled(allocator, &buf, alloc, spill_base_off, vreg, 0);
                     },
-                    .funcref, .externref => {
-                        std.debug.print("arm64/emit: local.get type `{s}` unsupported (idx={d})\n", .{ @tagName(ty), local_idx });
-                        return Error.UnsupportedOp;
-                    },
                 }
                 try pushed_vregs.append(allocator, vreg);
             },
@@ -1041,13 +1035,12 @@ pub fn compile(
                 const offset_u: u32 = local_base_off + layout.offsets[local_idx];
                 const cap: u32 = switch (ty) {
                     .i32, .f32 => 16380,
-                    .i64, .f64 => 32760,
+                    .i64, .f64, .funcref, .externref => 32760,
                     .v128 => 65520,
-                    .funcref, .externref => 16380,
                 };
                 if (offset_u > cap) return Error.UnsupportedOp;
                 const offset_w: u14 = if (ty == .i32 or ty == .f32) @intCast(offset_u) else 0;
-                const offset_x: u15 = if (ty == .i64 or ty == .f64) @intCast(offset_u) else 0;
+                const offset_x: u15 = if (ty == .i64 or ty == .f64 or ty == .funcref or ty == .externref) @intCast(offset_u) else 0;
                 const offset_q: u16 = if (ty == .v128) @intCast(offset_u) else 0;
                 const src = pushed_vregs.pop().?;
                 switch (ty) {
@@ -1055,7 +1048,7 @@ pub fn compile(
                         const rs = try gpr.gprLoadSpilled(allocator, &buf, alloc, spill_base_off, src, 0);
                         try gpr.writeU32(allocator, &buf, inst.encStrImmW(rs, 31, offset_w));
                     },
-                    .i64 => {
+                    .i64, .funcref, .externref => {
                         const rs = try gpr.gprLoadSpilled(allocator, &buf, alloc, spill_base_off, src, 0);
                         try gpr.writeU32(allocator, &buf, inst.encStrImm(rs, 31, offset_x));
                     },
@@ -1073,10 +1066,6 @@ pub fn compile(
                         const vs = try gpr.qLoadSpilled(allocator, &buf, alloc, spill_base_off, src, 0);
                         try gpr.writeU32(allocator, &buf, inst_neon.encStrQImm(vs, 31, offset_q));
                     },
-                    .funcref, .externref => {
-                        std.debug.print("arm64/emit: local.set type `{s}` unsupported (idx={d})\n", .{ @tagName(ty), local_idx });
-                        return Error.UnsupportedOp;
-                    },
                 }
             },
             .@"local.tee" => {
@@ -1089,13 +1078,12 @@ pub fn compile(
                 const offset_u: u32 = local_base_off + layout.offsets[local_idx];
                 const cap: u32 = switch (ty) {
                     .i32, .f32 => 16380,
-                    .i64, .f64 => 32760,
+                    .i64, .f64, .funcref, .externref => 32760,
                     .v128 => 65520,
-                    .funcref, .externref => 16380,
                 };
                 if (offset_u > cap) return Error.UnsupportedOp;
                 const offset_w: u14 = if (ty == .i32 or ty == .f32) @intCast(offset_u) else 0;
-                const offset_x: u15 = if (ty == .i64 or ty == .f64) @intCast(offset_u) else 0;
+                const offset_x: u15 = if (ty == .i64 or ty == .f64 or ty == .funcref or ty == .externref) @intCast(offset_u) else 0;
                 const offset_q: u16 = if (ty == .v128) @intCast(offset_u) else 0;
                 const src = pushed_vregs.items[pushed_vregs.items.len - 1];
                 switch (ty) {
@@ -1103,7 +1091,7 @@ pub fn compile(
                         const rs = try gpr.gprLoadSpilled(allocator, &buf, alloc, spill_base_off, src, 0);
                         try gpr.writeU32(allocator, &buf, inst.encStrImmW(rs, 31, offset_w));
                     },
-                    .i64 => {
+                    .i64, .funcref, .externref => {
                         const rs = try gpr.gprLoadSpilled(allocator, &buf, alloc, spill_base_off, src, 0);
                         try gpr.writeU32(allocator, &buf, inst.encStrImm(rs, 31, offset_x));
                     },
@@ -1120,10 +1108,6 @@ pub fn compile(
                         // local.set's 16-byte write.
                         const vs = try gpr.qLoadSpilled(allocator, &buf, alloc, spill_base_off, src, 0);
                         try gpr.writeU32(allocator, &buf, inst_neon.encStrQImm(vs, 31, offset_q));
-                    },
-                    .funcref, .externref => {
-                        std.debug.print("arm64/emit: local.tee type `{s}` unsupported (idx={d})\n", .{ @tagName(ty), local_idx });
-                        return Error.UnsupportedOp;
                     },
                 }
             },
