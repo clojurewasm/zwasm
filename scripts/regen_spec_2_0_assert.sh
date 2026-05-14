@@ -166,6 +166,27 @@ NAMES=(
   # PASS (they're all assert_trap and the dispatch ladder
   # already filters out the runtime shapes) — enabling `data`
   # would land 19 FAIL + 0 useful coverage. Defer.
+  # d-35 probe (deferred): `start`. SEGV at host_dispatch_base
+  # deref (`undefined` pre-d-35) is FIXED by the d-35 trap-stub
+  # wiring in `spec_assert_runner_base.makeJitRuntime`. Residual
+  # FAILs blocking NAMES enablement: (a) 4× post-`(invoke "inc")`
+  # value-mismatch — the regen-script's manifest distillation
+  # classifies `(invoke ACT)` without `expected` as
+  # `skip-impl directive-action` (a SKIP), but the spec semantics
+  # require the action be executed for its side-effects (the
+  # subsequent `(invoke "get")` reads `memory[0]` which the
+  # SKIPped `(invoke "inc")` should have incremented). Discharge
+  # = teach the distiller to emit `invoke-action FN ARGS` lines
+  # and add the runner-side directive to invoke + ignore-result.
+  # (b) 1× compile StackTypeMismatch on a start module — a
+  # validator-shape mismatch on a sub-fixture. (c) 1× start-init
+  # Trap on a module whose start fn calls an unbound import (the
+  # trap stub correctly fires + propagates Error.Trap; spec
+  # semantics here require the import to be bound). Each is a
+  # separate sub-task; `start` stays out of NAMES until they
+  # resolve. The d-35 trap-stub fix IS load-bearing — without
+  # it, any future probe of `start` (or any corpus that imports
+  # functions and has a start fn) would SEGV.
   # d-34: `elem` re-probe deferred. Post-d-32+d-33 (reftype parse
   # + codegen plumbing) the corpus state at the wg-2.0 pin is
   # 14405 PASS / 12 FAIL / 435 SKIP (= +6 PASS, +12 FAIL vs the

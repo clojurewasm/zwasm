@@ -176,10 +176,59 @@ pub fn makeJitRuntime(
         .trap_flag = 0,
         .globals_base = @ptrCast(@alignCast(globals.ptr)),
         .globals_count = @intCast(globals.len / @sizeOf(Value)),
-        .host_dispatch_base = undefined,
-        .host_dispatch_count = 0,
+        // D-093 (d-35): point host_dispatch_base at the spec-runner
+        // import-trap stub table. Modules that import functions
+        // (e.g. start.wast `(import "spectest" "print_i32")`) emit
+        // `LDR X16, [X19, host_dispatch_base_off]; LDR X16,
+        // [X16, idx*8]; BLR X16` for `(call N)` when N < num_imports;
+        // before d-35 host_dispatch_base was `undefined` (0xaa…),
+        // so the LDR dereferenced garbage and SEGV'd. The stub
+        // table satisfies the LDR chain and traps cleanly via
+        // `trap_flag`. Sized to `HOST_DISPATCH_STUB_CAPACITY` (≥
+        // any realistic module's import count); unused slots also
+        // point to the trap stub so out-of-range indices remain
+        // safe.
+        .host_dispatch_base = &host_dispatch_stubs,
+        .host_dispatch_count = HOST_DISPATCH_STUB_CAPACITY,
         .memory_grow_fn = growableMemoryGrowFn,
     };
+}
+
+/// Spec-runner import-trap stub. Invoked via the
+/// `host_dispatch_base` table when a module's defined function
+/// calls an imported function (e.g. start.wast's modules with
+/// `(import "spectest" "print_i32")`). Sets `trap_flag` and
+/// returns; the JIT body continues to its epilogue, and the
+/// runner's post-call check surfaces `Error.Trap`.
+///
+/// The signature is the minimum viable shape — most arches' C
+/// ABIs let a callee with `fn(rt) → void` legally consume args /
+/// produce no return when the actual import-site shape was
+/// `fn(rt, ...args) → result`. Caller cleans the stack on x86_64
+/// SysV / arm64 AAPCS64; the unread arg registers don't affect
+/// the callee. Spec runners never need the import's real return,
+/// since `trap_flag` short-circuits before any caller reads it.
+fn hostImportTrapStub(rt: *entry.JitRuntime) callconv(.c) void {
+    rt.trap_flag = 1;
+}
+
+/// Capacity for the spec-runner's `host_dispatch_base` stub
+/// array. Spec corpus modules typically import 0–2 functions
+/// (start.wast's `spectest.print_i32`); 64 is comfortable
+/// headroom and the JIT body's import-call emit caps `idx*8`
+/// at imm12 budget (32760), which is far above 64.
+pub const HOST_DISPATCH_STUB_CAPACITY: u32 = 64;
+
+/// Static stub table — every slot points to `hostImportTrapStub`.
+/// Populated once at module load via `initHostDispatchStubs()`.
+pub var host_dispatch_stubs: [HOST_DISPATCH_STUB_CAPACITY]usize = undefined;
+
+/// Initialise the stub table — called once from each runner main
+/// before the corpus loop starts. Idempotent.
+pub fn initHostDispatchStubs() void {
+    for (&host_dispatch_stubs) |*slot| {
+        slot.* = @intFromPtr(&hostImportTrapStub);
+    }
 }
 
 /// §9.9 / 9.9-l-1b-d093-d8c (per ADR-0059): growable memory pool

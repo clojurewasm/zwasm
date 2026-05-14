@@ -49,6 +49,7 @@ pub fn main(init: std.process.Init) !void {
     // before the trap stub fires) to `error.Trap` so
     // `nonSimdRunAssertTrap` records the line as PASS.
     base.installSigsegvHandler();
+    base.initHostDispatchStubs();
 
     var arg_it = try std.process.Args.Iterator.initAllocator(init.minimal.args, gpa);
     defer arg_it.deinit();

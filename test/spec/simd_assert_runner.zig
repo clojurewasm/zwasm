@@ -47,6 +47,7 @@ const entry = zwasm.engine.codegen.shared.entry;
 const base = @import("spec_assert_runner_base.zig");
 
 pub fn main(init: std.process.Init) !void {
+    base.initHostDispatchStubs();
     const io = init.io;
     const gpa = init.gpa;
 
