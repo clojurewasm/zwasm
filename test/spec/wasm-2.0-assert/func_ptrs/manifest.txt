@@ -1,0 +1,36 @@
+module func_ptrs.0.wasm
+assert_return one () -> i32:13
+assert_return two i32:13 -> i32:14
+assert_return three i32:13 -> i32:11
+skip-impl directive-action
+assert_invalid func_ptrs.1.wasm
+assert_invalid func_ptrs.2.wasm
+assert_invalid func_ptrs.3.wasm
+assert_invalid func_ptrs.4.wasm
+assert_invalid func_ptrs.5.wasm
+assert_invalid func_ptrs.6.wasm
+assert_invalid func_ptrs.7.wasm
+module func_ptrs.8.wasm
+assert_return callt i32:0 -> i32:1
+assert_return callt i32:1 -> i32:2
+assert_return callt i32:2 -> i32:3
+assert_return callt i32:3 -> i32:4
+assert_return callt i32:4 -> i32:5
+assert_return callt i32:5 -> i32:1
+assert_return callt i32:6 -> i32:3
+assert_trap callt i32:7
+assert_trap callt i32:100
+assert_trap callt i32:4294967295
+assert_return callu i32:0 -> i32:1
+assert_return callu i32:1 -> i32:2
+assert_return callu i32:2 -> i32:3
+assert_return callu i32:3 -> i32:4
+assert_return callu i32:4 -> i32:5
+assert_return callu i32:5 -> i32:1
+assert_return callu i32:6 -> i32:3
+assert_trap callu i32:7
+assert_trap callu i32:100
+assert_trap callu i32:4294967295
+module func_ptrs.9.wasm
+assert_return callt i32:0 -> i32:1
+assert_return callt i32:1 -> i32:2

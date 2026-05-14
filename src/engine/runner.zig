@@ -29,6 +29,7 @@ const FuncType = zir.FuncType;
 const compile_func = @import("codegen/shared/compile.zig");
 const linker = @import("codegen/shared/linker.zig");
 const entry = @import("codegen/shared/entry.zig");
+const canonical_type = @import("codegen/shared/canonical_type.zig");
 
 pub const Error = error{
     /// Reserved for future "import shape we cannot represent at all"
@@ -506,6 +507,25 @@ pub fn applyTableInit(
     var elems = try sections.decodeElement(ta, section.body);
     defer elems.deinit();
 
+    // D-111: canonicalize the funcref's stored typeidx so the
+    // call_indirect runtime sig check (`CMP EAX, #canonical`)
+    // matches structurally-equivalent types declared at different
+    // typeidx (Wasm spec §3.4.6 + §4.4.10.1). The codegen side
+    // canonicalizes the call_indirect's annotated typeidx
+    // identically; both sides see the lowest-index typeidx for a
+    // given shape, so the bytewise compare implements structural
+    // matching. Module types are decoded once (re-parsed from the
+    // wasm bytes — the temp arena scope keeps the slice alive
+    // through the loop).
+    const types_section = module.find(.type) orelse {
+        // No types section ⇒ no funcs ⇒ no element-segment funcidxs
+        // to write. Spec-malformed modules with elems but no types
+        // would fail earlier in compileWasm.
+        return;
+    };
+    var types = try sections.decodeTypes(ta, types_section.body);
+    defer types.deinit();
+
     for (elems.items) |seg| {
         if (seg.kind != .active) continue;
         if (seg.tableidx != 0) continue;
@@ -517,7 +537,8 @@ pub fn applyTableInit(
             if (fidx == std.math.maxInt(u32)) continue; // ref.null funcref
             if (fidx >= compiled.func_sigs.len) return Error.UnsupportedEntrySignature;
             const f_off = compiled.module.func_offsets[fidx];
-            typeidxs_buf[base + i] = compiled.func_typeidxs[fidx];
+            const raw_typeidx = compiled.func_typeidxs[fidx];
+            typeidxs_buf[base + i] = canonical_type.canonicalTypeidx(types.items, raw_typeidx);
             if (f_off == linker.IMPORT_SENTINEL_OFFSET) continue;
             funcptrs_buf[base + i] = @intFromPtr(compiled.module.block.bytes.ptr + f_off);
         }
@@ -874,6 +895,16 @@ fn setupRuntime(
     if (module.find(.element)) |s| {
         var elems = try sections.decodeElement(ta, s.body);
         defer elems.deinit();
+        // D-111: canonicalize typeidx so call_indirect's structural
+        // FuncType match (Wasm spec §3.4.6 + §4.4.10.1) works on
+        // the bytewise typeidx compare. Decode the type section
+        // once for the loop.
+        const canon_types_section = module.find(.type);
+        var canon_types: ?sections.Types = null;
+        defer if (canon_types) |*t| t.deinit();
+        if (canon_types_section) |ts| {
+            canon_types = try sections.decodeTypes(ta, ts.body);
+        }
         for (elems.items) |seg| {
             if (seg.kind != .active) continue;
             if (seg.tableidx >= tables_descs.len) continue;
@@ -901,7 +932,11 @@ fn setupRuntime(
                 tbl.refs[base + i] = @intFromPtr(&func_entities[fidx]);
                 if (sync_table0) {
                     const f_off = compiled.module.func_offsets[fidx];
-                    typeidxs_buf[base + i] = compiled.func_typeidxs[fidx];
+                    const raw_typeidx = compiled.func_typeidxs[fidx];
+                    typeidxs_buf[base + i] = if (canon_types) |t|
+                        canonical_type.canonicalTypeidx(t.items, raw_typeidx)
+                    else
+                        raw_typeidx;
                     if (f_off == linker.IMPORT_SENTINEL_OFFSET) {
                         // Imported function in a table — host-call dispatch
                         // through `host_dispatch_base` is required to invoke

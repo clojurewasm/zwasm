@@ -44,6 +44,7 @@ const abi = @import("abi.zig");
 const ctx_mod = @import("ctx.zig");
 const gpr = @import("gpr.zig");
 const jit_abi = @import("../shared/jit_abi.zig");
+const canonical_type = @import("../shared/canonical_type.zig");
 
 const ZirInstr = zir.ZirInstr;
 const FuncType = zir.FuncType;
@@ -146,13 +147,19 @@ pub fn emitCallIndirect(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
     }
 
-    // Sig: LDR W16, [X24, X17, LSL #2] ; CMP W16, #expected ; B.NE trap.
+    // Sig: LDR W16, [X24, X17, LSL #2] ; CMP W16, #canonical ;
+    // B.NE trap. Wasm spec §3.4.6 + §4.4.10.1 — the sig check is
+    // **structural** FuncType equality. Compare against the
+    // canonical (lowest-index) typeidx whose shape matches
+    // `module_types[ins.payload]`; `applyTableInit` writes the
+    // same canonicalization on the funcref's stored typeidx. D-111.
+    const expected_typeidx: u32 = canonical_type.canonicalTypeidx(ctx.module_types, ins.payload);
     // Skeleton restricts expected typeidx to imm12 range
     // (4096 distinct types is well above any realistic module's
-    // needs); larger typeidx → UnsupportedOp.
-    if (ins.payload >= 4096) return Error.UnsupportedOp;
+    // needs); larger canonical typeidx → UnsupportedOp.
+    if (expected_typeidx >= 4096) return Error.UnsupportedOp;
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrWRegLsl2(16, 24, 17));
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmW(16, @intCast(ins.payload)));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmW(16, @intCast(expected_typeidx)));
     {
         const fixup_at: u32 = @intCast(ctx.buf.items.len);
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.ne, 0));

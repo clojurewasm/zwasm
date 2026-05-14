@@ -34,6 +34,7 @@ const abi = @import("abi.zig");
 const gpr = @import("gpr.zig");
 const jit_abi = @import("../shared/jit_abi.zig");
 const types = @import("types.zig");
+const canonical_type = @import("../shared/canonical_type.zig");
 
 /// §9.9 / 9.9-i-1 helper: per-call v128-scratch base for Win64.
 /// Returns the [RSP + N] offset where the first 16-byte v128
@@ -277,10 +278,16 @@ pub fn emitCallIndirect(
 
     // Sig: MOV RAX, [R15 + typeidx_base_off] (load u32* table)
     //      MOV EAX, [RAX + idx_r * 4]        (load expected typeidx)
-    //      CMP EAX, type_idx (imm32) ; JNE trap.
+    //      CMP EAX, canonical (imm32) ; JNE trap.
+    // Wasm spec §3.4.6 + §4.4.10.1 — sig check is **structural**
+    // FuncType equality. Compare against the canonical (lowest-
+    // index) typeidx whose shape matches `module_types[type_idx]`;
+    // `applyTableInit` writes the same canonicalization on the
+    // funcref's stored typeidx. D-111.
+    const expected_typeidx: u32 = canonical_type.canonicalTypeidx(module_types, type_idx);
     try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.typeidx_base_off).slice());
     try buf.appendSlice(allocator, inst.encMovR32FromBaseIdxLsl2(.rax, .rax, idx_r).slice());
-    try buf.appendSlice(allocator, inst.encCmpRImm32(.rax, type_idx).slice());
+    try buf.appendSlice(allocator, inst.encCmpRImm32(.rax, expected_typeidx).slice());
     {
         const fixup_at: u32 = @intCast(buf.items.len);
         try buf.appendSlice(allocator, inst.encJccRel32(.ne, 0).slice());

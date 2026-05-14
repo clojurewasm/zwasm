@@ -1,0 +1,175 @@
+module func.0.wasm
+assert_return type-use-1 () -> ()
+assert_return type-use-2 () -> i32:0
+assert_return type-use-3 i32:1 -> ()
+skip-impl runner-shape-gap (i32 f64 i32, i32) type-use-4
+assert_return type-use-5 () -> i32:0
+assert_return type-use-6 i32:1 -> ()
+skip-impl runner-shape-gap (i32 f64 i32, i32) type-use-7
+assert_return local-first-i32 () -> i32:0
+assert_return local-first-i64 () -> i64:0
+assert_return local-first-f32 () -> f32:0
+assert_return local-first-f64 () -> f64:0
+assert_return local-second-i32 () -> i32:0
+assert_return local-second-i64 () -> i64:0
+assert_return local-second-f32 () -> f32:0
+assert_return local-second-f64 () -> f64:0
+assert_return local-mixed () -> f64:0
+assert_return param-first-i32 i32:2 i32:3 -> i32:2
+assert_return param-first-i64 i64:2 i64:3 -> i64:2
+assert_return param-first-f32 f32:1073741824 f32:1077936128 -> f32:1073741824
+assert_return param-first-f64 f64:4611686018427387904 f64:4613937818241073152 -> f64:4611686018427387904
+assert_return param-second-i32 i32:2 i32:3 -> i32:3
+assert_return param-second-i64 i64:2 i64:3 -> i64:3
+assert_return param-second-f32 f32:1073741824 f32:1077936128 -> f32:1077936128
+assert_return param-second-f64 f64:4611686018427387904 f64:4613937818241073152 -> f64:4613937818241073152
+skip-impl runner-shape-gap (f32 i32 i64 i32 f64 i32, f64) param-mixed
+assert_return empty () -> ()
+assert_return value-void () -> ()
+assert_return value-i32 () -> i32:77
+assert_return value-i64 () -> i64:7777
+assert_return value-f32 () -> f32:1117480550
+assert_return value-f64 () -> f64:4635172994171566817
+skip-impl multi-result value-i32-f64
+skip-impl multi-result value-i32-i32-i32
+assert_return value-block-void () -> ()
+assert_return value-block-i32 () -> i32:77
+skip-impl multi-result value-block-i32-i64
+assert_return return-empty () -> ()
+assert_return return-i32 () -> i32:78
+assert_return return-i64 () -> i64:7878
+assert_return return-f32 () -> f32:1117611622
+assert_return return-f64 () -> f64:4635244066603186258
+skip-impl multi-result return-i32-f64
+skip-impl multi-result return-i32-i32-i32
+assert_return return-block-i32 () -> i32:77
+skip-impl multi-result return-block-i32-i64
+assert_return break-empty () -> ()
+assert_return break-i32 () -> i32:79
+assert_return break-i64 () -> i64:7979
+assert_return break-f32 () -> f32:1117768909
+assert_return break-f64 () -> f64:4635315139034805699
+skip-impl multi-result break-i32-f64
+skip-impl multi-result break-i32-i32-i32
+assert_return break-block-i32 () -> i32:77
+skip-impl multi-result break-block-i32-i64
+assert_return break-br_if-empty i32:0 -> ()
+assert_return break-br_if-empty i32:2 -> ()
+assert_return break-br_if-num i32:0 -> i32:51
+assert_return break-br_if-num i32:1 -> i32:50
+skip-impl multi-result break-br_if-num-num
+skip-impl multi-result break-br_if-num-num
+assert_return break-br_table-empty i32:0 -> ()
+assert_return break-br_table-empty i32:1 -> ()
+assert_return break-br_table-empty i32:5 -> ()
+assert_return break-br_table-empty i32:4294967295 -> ()
+assert_return break-br_table-num i32:0 -> i32:50
+assert_return break-br_table-num i32:1 -> i32:50
+assert_return break-br_table-num i32:10 -> i32:50
+assert_return break-br_table-num i32:4294967196 -> i32:50
+skip-impl multi-result break-br_table-num-num
+skip-impl multi-result break-br_table-num-num
+skip-impl multi-result break-br_table-num-num
+skip-impl multi-result break-br_table-num-num
+assert_return break-br_table-nested-empty i32:0 -> ()
+assert_return break-br_table-nested-empty i32:1 -> ()
+assert_return break-br_table-nested-empty i32:3 -> ()
+assert_return break-br_table-nested-empty i32:4294967294 -> ()
+assert_return break-br_table-nested-num i32:0 -> i32:52
+assert_return break-br_table-nested-num i32:1 -> i32:50
+assert_return break-br_table-nested-num i32:2 -> i32:52
+assert_return break-br_table-nested-num i32:4294967293 -> i32:52
+skip-impl multi-result break-br_table-nested-num-num
+skip-impl multi-result break-br_table-nested-num-num
+skip-impl multi-result break-br_table-nested-num-num
+skip-impl multi-result break-br_table-nested-num-num
+skip-impl multi-result large-sig
+assert_return init-local-i32 () -> i32:0
+assert_return init-local-i64 () -> i64:0
+assert_return init-local-f32 () -> f32:0
+assert_return init-local-f64 () -> f64:0
+module func.1.wasm
+assert_invalid func.2.wasm
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+module func.4.wasm
+assert_return f i32:42 -> i32:0
+assert_return g i32:42 -> i32:0
+assert_return p () -> i32:42
+module func.5.wasm
+assert_return signature-explicit-reused () -> ()
+assert_return signature-implicit-reused () -> ()
+assert_return signature-explicit-duplicate () -> ()
+assert_return signature-implicit-duplicate () -> ()
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+assert_invalid func.16.wasm
+assert_invalid func.17.wasm
+assert_invalid func.18.wasm
+assert_invalid func.19.wasm
+assert_invalid func.20.wasm
+assert_invalid func.21.wasm
+assert_invalid func.22.wasm
+assert_invalid func.23.wasm
+assert_invalid func.24.wasm
+assert_invalid func.25.wasm
+assert_invalid func.26.wasm
+assert_invalid func.27.wasm
+assert_invalid func.28.wasm
+assert_invalid func.29.wasm
+assert_invalid func.30.wasm
+assert_invalid func.31.wasm
+assert_invalid func.32.wasm
+assert_invalid func.33.wasm
+assert_invalid func.34.wasm
+assert_invalid func.35.wasm
+assert_invalid func.36.wasm
+assert_invalid func.37.wasm
+assert_invalid func.38.wasm
+assert_invalid func.39.wasm
+assert_invalid func.40.wasm
+assert_invalid func.41.wasm
+assert_invalid func.42.wasm
+assert_invalid func.43.wasm
+assert_invalid func.44.wasm
+assert_invalid func.45.wasm
+assert_invalid func.46.wasm
+assert_invalid func.47.wasm
+assert_invalid func.48.wasm
+assert_invalid func.49.wasm
+assert_invalid func.50.wasm
+assert_invalid func.51.wasm
+assert_invalid func.52.wasm
+assert_invalid func.53.wasm
+assert_invalid func.54.wasm
+assert_invalid func.55.wasm
+assert_invalid func.56.wasm
+assert_invalid func.57.wasm
+assert_invalid func.58.wasm
+assert_invalid func.59.wasm
+assert_invalid func.60.wasm
+assert_invalid func.61.wasm
+assert_invalid func.62.wasm
+assert_invalid func.63.wasm
+assert_invalid func.64.wasm
+assert_invalid func.65.wasm
+assert_invalid func.66.wasm
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text

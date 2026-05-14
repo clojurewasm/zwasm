@@ -144,16 +144,17 @@ NAMES=(
   fac
   # d-25 probe: D-101 call.0.wasm UnsupportedOp.
   call
-  # d-26: `call_indirect` deferred. The compile-side UnsupportedOp
-  # at call_indirect.0.wasm `func[71]` (as-global.set-value) was
-  # rooted in the non-i32 scalar globals gap (i64/f32/f64 global.get/
-  # set returned UnsupportedOp on both archs); d-26 lands the fix.
-  # However the corpus then surfaces 12 runtime traps on
-  # `dispatch-structural-{i32,i64,f32,f64}` — Wasm 2.0 spec requires
-  # **structural** FuncType matching at call_indirect, whereas our
-  # check (`CMP W16, #expected_typeidx`) is nominal. Tracked as
-  # D-111 (structural-type call_indirect). `call_indirect` NAMES
-  # entry waits on that discharge.
+  # d-27 lands structural-type matching at call_indirect (D-111):
+  # canonicalize typeidx at codegen + applyTableInit so bytewise
+  # compare implements Wasm spec §3.4.6 / §4.4.10.1 structural
+  # equivalence. Unblocks both `func` (signature-explicit-duplicate
+  # uses call_indirect through a duplicate type def) and
+  # `call_indirect` (12 dispatch-structural-{i32,i64,f32,f64} fails).
+  call_indirect
+  func
+  # d-27 probe: D-110 func_ptrs.wast callt/callu 7 trap-asserts —
+  # hypothesised as cascade from D-111.
+  func_ptrs
 )
 
 mkdir -p "$DEST"

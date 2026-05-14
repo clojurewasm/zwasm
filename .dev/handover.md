@@ -10,45 +10,44 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **Phase 9 extended; D-093 (d-26) non-i32 scalar globals via D-108 discharge 2026-05-14**
+## Active state — **Phase 9 extended; D-093 (d-27) structural typeidx + NAMES +3 (call_indirect/func/func_ptrs) via D-111 discharge 2026-05-14**
 
 ### One-line state
 
-D-093 (d-26) discharges D-108: the call_indirect.0.wasm
-`UnsupportedOp` at compile was rooted in non-i32 scalar globals
-(i64/f32/f64 `global.get`/`global.set` returned UnsupportedOp on
-both archs). d-26 lands the three classes via X/S/D-form LDR/STR
-(arm64) and REX.W MOV + MOVSS/MOVSD (x86_64) + new
-`encStoreR64MemDisp32` / `encMovssMovsdXmmMemBaseDisp32`
-encoders. `call_indirect` NAMES entry deferred — corpus surfaces
-12 runtime traps on `dispatch-structural-*` (Wasm 2.0 structural
-FuncType match; new D-111). spec_assert 14119/0/292 unchanged
-(call_indirect not yet in NAMES); edge fixtures p9/global +3 PASS
-(i64/f32/f64 roundtrip). simd 13301/0/440 unchanged.
+D-093 (d-27) discharges D-111 (+ D-109 moot + D-110 cascade):
+new `canonical_type.zig` shared helper computes the canonical
+(lowest-index) typeidx for a given FuncType shape; emit's
+`emitCallIndirect` (both archs) substitutes `canonical[ins.payload]`
+for the runtime CMP immediate; runner's `applyTableInit` +
+`setupRuntime` write `canonical[func_typeidxs[fidx]]` into the
+table entry's stored typeidx. Bytewise compare now implements
+structural FuncType equivalence (Wasm spec §3.4.6 + §4.4.10.1).
+NAMES +3: `call_indirect` / `func` / `func_ptrs` all land clean.
+Both hosts at 14399/0/385 on `test-spec-wasm-2.0-assert` (was
+14119/0/292 post-d-26; +280 PASS, +3 manifests). simd 13301/0/440
+unchanged. edge fixture `p9/call_indirect/structural_duplicate`
+exercises the canonical case (= 36).
 
 ### Standing reminder for the autonomous loop
 
 **Project tone is `.claude/rules/no_workaround.md`: fix root
 causes, never work around.**
 
-### Next task — d-27 discharge candidate
+### Next task — d-28 discharge candidate
 
-Active debts (post-d-26):
-- D-111 call_indirect structural FuncType match (~150-300 LOC,
-  module-load canonical typeidx table).
-- D-109 func validator StackTypeMismatch.
-- D-102/D-103/D-110: data-init / elem-SEGV / func_ptrs trap.
+Active debts (post-d-27):
+- D-102/D-103: data-init UnsupportedEntrySignature / elem-SEGV
+  (bulk segments family).
 - D-106 start-invoke SEGV (lldb trace needed for prologue load).
-- D-104/D-105: reftype + cross-module memory (Phase 10+).
+- D-104/D-105: reftype + cross-module memory imports (Phase 10+).
 
-- **d-27 NEXT** — D-109 (func validator StackTypeMismatch): same
-  debug-print bisect — solo-enable `func`, identify the validator
-  rejection point + add the missing arm. Validator extension is
-  smaller scope than D-111 / D-110 (which touch dispatch + table
-  init). D-111 (structural-type) is the higher-leverage discharge
-  (unlocks call_indirect NAMES + likely cascades D-110) but the
-  module-load canonical-typeidx table is non-trivial — slot it
-  for d-28+.
+- **d-28 NEXT** — D-102 (data.wast UnsupportedEntrySignature) is
+  the structurally simplest residual debt. Solo-enable `data`,
+  bisect the offending segment shape, identify whether the
+  rejection is at `applyActiveDataSegments` (bulk data segments
+  with passive/declarative kind not yet emitted) or at compile
+  (data.drop / memory.init lower path). D-103 (elem SEGV) is
+  next in line — needs SIGSEGV-handler spike per `debug_jit_auto`.
 
 Runner-side skip-impl backlog (7 total, in `nop / loop /
 local_tee`):
@@ -100,8 +99,9 @@ Other queued post-D-093 names: `address`, `align`, `br_table`,
 | D-093 (d-23) | [x] ad84042e | D-107 discharged: x86_64 emitBrTableJmp function-depth (mirror arm64); `unwind` lands +49 PASS |
 | D-093 (d-24) | [x] 4c4d7309 | D-099 discharged: emitLoop captures param_top_vregs + backward br/br_if/br_table emit param MOVs before back-branch; `fac` lands +6 PASS |
 | D-093 (d-25) | [x] ed05169b | D-101 discharged: max_args cap 64 → 128 (call.wast func[77] has 100-arg call); `call` lands +82 PASS |
-| D-093 (d-26) | [x] (this commit) | D-108 discharged: i64/f32/f64 scalar `global.get/set` on both archs + edge fixtures (3 new). D-111 filed for call_indirect structural-typing. NAMES unchanged. |
-| **D-093 (d-27)** | **NEXT** | discharge candidate: D-109 (func validator StackTypeMismatch) |
+| D-093 (d-26) | [x] 1815e624 | D-108 discharged: i64/f32/f64 scalar `global.get/set` on both archs + edge fixtures (3 new). D-111 filed for call_indirect structural-typing. NAMES unchanged. |
+| D-093 (d-27) | [x] (this commit) | D-111 discharged: `canonical_type.zig` + emit/runner canonicalization. NAMES +3 (call_indirect/func/func_ptrs); 14119/0/292 → 14399/0/385 (+280 PASS, +3 manifests). Cascade discharge: D-109 moot, D-110. |
+| **D-093 (d-28)** | **NEXT** | discharge candidate: D-102 (data.wast UnsupportedEntrySignature) |
 
 Other queued chunks (post-l-1): k-1, k-2, m-4c (= D-090),
 m-2d, n-1, j-3b.
