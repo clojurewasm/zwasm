@@ -10,56 +10,59 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **Phase 9 extended; D-093 (d-37) elem enabled via cross-module-imports skip-adr 2026-05-15**
+## Active state — **Phase 9 extended; D-093 (d-38) batch enable 13 NAMES + 4 new debt 2026-05-15**
 
 ### One-line state
 
-D-093 (d-37) unblocks `elem` in NAMES via three coordinated
-mechanisms: (1) runner-base helper `hasUnbindableImports`
-parses imports + pre-filters modules whose imports the spec
-runner cannot bind (non-`spectest` modules + `spectest`
-table/memory/global imports — all Track-D scope) to
-SKIP-CROSS-MODULE-IMPORTS; (2) distiller emits
-`skip-adr-cross-module-action` for `(invoke $module FN …)`
-assertions targeting registered modules the runner doesn't
-model; (3) engine `evalConstScalarRaw` gains `0xD2 ref.func
-funcidx` for funcref-global init exprs (Wasm 2.0 §5.4.3).
-spec_assert 14404/0/392 → 14413/0/465 (+9 PASS, 0 FAIL,
-+73 SKIP, +1 manifest); simd 13301/0/440 unchanged.
+D-093 (d-38) probes the remaining wast names not yet in
+NAMES; bulk-enables 13 that pass cleanly under the
+cumulative d-32..d-37 infrastructure (br, br_if,
+endianness, forward, labels, left-to-right, stack,
+ref_null, ref_func, memory, memory_redundancy, float_misc,
+float_memory). 4 names with concrete fail signatures filed
+as new debts and deferred to per-name chunks: select
+(D-112, 4× call_indirect-context Trap), ref_is_null
+(D-113, SEGV at funcref-elem), memory_trap (D-114, 4× load
+OOB don't trap), float_exprs (D-115, ~30 FP fold/select
+FAILs likely FCSEL-on-GPR-class bug). spec_assert
+14413/0/465 → 15438/0/508 (+1025 PASS, 0 FAIL, +43 SKIP,
++13 manifests); simd 13301/0/440 unchanged.
 
 ### Standing reminder for the autonomous loop
 
 **Project tone is `.claude/rules/no_workaround.md`: fix root
 causes, never work around.**
 
-### Next task — d-38 probe remaining wast names + close out §9.9-l-1b
+### Next task — d-39 D-115 float_exprs FP-select FCSEL bug
 
-Active `now` debts (post-d-37):
+Active `now` debts (post-d-38):
 - D-093 (parent), D-095 (regalloc partial).
 - D-104 fully discharged at d-33.
 - D-106 fully discharged at d-35 + d-36.
-- D-103: discharged effectively at d-37 (elem now lands as
-  SKIP-CROSS-MODULE-IMPORTS for the import-dependent
-  fixtures; the d-29 SEGV handler still load-bearing for
-  any remaining elem trap-asserts).
-- D-102/D-105/D-079: cross-module-imports family — still
-  the structural barrier for Track-D host binding; surface
-  remains SKIP under the d-37 pre-filter.
+- **D-112** (select call_indirect-context 4× Trap).
+- **D-113** (ref_is_null SEGV).
+- **D-114** (memory_trap 4× load OOB).
+- **D-115** (float_exprs ~30 FP fold/select-to-abs FAILs).
+- D-103: discharged at d-37 via cross-module-imports skip.
+- D-102/D-105/D-079: cross-module-imports family — surface
+  remains SKIP under d-37 pre-filter.
 
-- **d-38 NEXT** — survey remaining `<n>.wast` corpus names
-  not yet in NAMES. Candidates from the `private/wasm2-
-  completion-plan/` M-1 hygiene catalogue: `align`,
-  `br_table`, `data`, `endianness`, `globals` (sic
-  `global` already in), `imports`, `linking`, `select`,
-  `table`, etc. For each, probe individually + classify
-  failures (BadValType / cross-module / runner-shape-gap /
-  real codegen gap). The d-37 pre-filter + cross-module
-  action skip + d-36 invoke-action should already cover the
-  Track-D-blocked majority; remaining FAILs are likely
-  per-name codegen sub-tasks worth their own chunks.
-- **d-39+** — anything d-38 surfaces.
-- **d-40+** — Instance-aware refactor (Phase 9 ↔ Phase 10
-  transition prep per ADR-0061 alternatives).
+- **d-39 NEXT** — D-115 float_exprs FP-select bug. ~30
+  FAILs concentrated on `f32.no_fold_le_select`,
+  `f64.no_fold_ge_select_to_abs`, etc. Hypothesis: scalar
+  `select` emit dispatches on operand value-class but not
+  on FP shape-tag; for FP-class scalar values (f32 / f64
+  operands with i32 cond) we need FCSEL not CSEL. arm64
+  emit.zig line ~1175 has the dispatch — verify `ins.extra`
+  populates correctly for non-typed scalar `select` on FP
+  operands. Bisect with a minimal fixture.
+- **d-40+** — D-114 memory_trap OOB load.
+- **d-41+** — D-112 select call_indirect-context.
+- **d-42+** — D-113 ref_is_null SEGV (needs lldb +
+  debug-print investigation).
+- **d-43+** — remaining wast names (table_*, data,
+  memory_grow, memory_copy/fill/init, bulk, etc).
+- **d-44+** — Instance-aware refactor (Phase 10 transition).
 - **d-34** — re-enable `elem` in NAMES, verify post-d-32+d-33
   the FAIL count dropped from 34 (= 22 reftype-fixed + 12
   remaining D-079).
@@ -129,8 +132,9 @@ Other queued post-D-093 names: `address`, `align`, `br_table`,
 | D-093 (d-34) | [x] 3694bc6d | wg-2.0 spec pin alignment per ADR-0061. OSS `WebAssembly/spec` clone checked out from `main` (wg-3.0) → `wg-2.0` tag; regen flushes residual 3.0 syntax from func / local_tee / loop / address manifests. `elem` re-enablement attempted-then-reverted (post-pin elem produces 12 D-079-family cross-module-imports FAILs). spec_assert 14399/0/385 → 14393/0/386 (-6 PASS lost are honest Wasm 3.0-out-of-scope assertions). simd 13301/0/440 unchanged. |
 | D-093 (d-35) | [x] 467e311b | D-106 SEGV → trap-stub wiring. `host_dispatch_base` (was `undefined` = 0xaa…aa) now points at a static stub table whose every slot is `hostImportTrapStub` (sets `trap_flag = 1`). `start.wast` modules with `(import …) (func $main (call $import_fn)) (start $main)` no longer SEGV at the JIT's host-dispatch trampoline LDR chain; the trap stub fires cleanly + propagates `Error.Trap`. `start` NOT yet added to NAMES (deferred to d-36). spec_assert 14393/0/386, simd 13301/0/440 unchanged. |
 | D-093 (d-36) | [x] 9fc5b18a | invoke-action distillation + `start` enabled. Regen distiller emits `invoke-action FN ARGS` for bare-action commands; runner adds `DirectiveKind.invoke_action` + `handle_invoke_action` callback + dispatch. Bare-action traps are PASS per spec (no assertion to violate); unbound-import start-fn traps return `error.SkipModule` (new base-loop path) so they tally SKIP not FAIL. `start` lands. spec_assert 14393/0/386 → 14404/0/392 (+11 PASS, 0 FAIL, +1 manifest); simd unchanged. |
-| D-093 (d-37) | [x] (this commit) | `elem` NAMES enable via cross-module-imports skip-adr. New `hasUnbindableImports` helper pre-filters modules at the base loop's `.module` arm → SKIP-CROSS-MODULE-IMPORTS for any module importing non-spectest module names OR spectest tables/memories/globals. Distiller skips `action.module`-targeted assertions (registered-module dispatch is Track D). Engine adds `0xD2 ref.func` to `evalConstScalarRaw`. spec_assert 14404/0/392 → 14413/0/465 (+9 PASS, 0 FAIL, +73 SKIP, +1 manifest); simd unchanged. |
-| **D-093 (d-38)** | **NEXT** | Survey remaining `<n>.wast` corpus names not yet in NAMES (candidates from `private/wasm2-completion-plan/`); probe each + classify failures; chunk per-name as needed. |
+| D-093 (d-37) | [x] 23724d68 | `elem` NAMES enable via cross-module-imports skip-adr. `hasUnbindableImports` pre-filter; distiller skips `action.module`-targeted assertions; `evalConstScalarRaw` gains `0xD2 ref.func`. spec_assert 14404/0/392 → 14413/0/465 (+9 PASS, 0 FAIL); simd unchanged. |
+| D-093 (d-38) | [x] (this commit) | Batch enable 13 NAMES: br, br_if, endianness, forward, labels, left-to-right, stack, ref_null, ref_func, memory, memory_redundancy, float_misc, float_memory. 4 names deferred to debt (D-112 select, D-113 ref_is_null, D-114 memory_trap, D-115 float_exprs). spec_assert 14413/0/465 → 15438/0/508 (+1025 PASS, 0 FAIL, +13 manifests); simd unchanged. |
+| **D-093 (d-39)** | **NEXT** | D-115 float_exprs FP-select FCSEL bug — scalar select on FP-class operands likely emits CSEL on GPR class instead of FCSEL on FP-reg. |
 
 Other queued chunks (post-l-1): k-1, k-2, m-4c (= D-090),
 m-2d, n-1, j-3b.
