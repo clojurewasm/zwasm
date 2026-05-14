@@ -35,7 +35,7 @@ test "lower: bare end emits a single .end instr and no blocks" {
     var f = newFunc(empty_sig);
     defer f.deinit(testing.allocator);
 
-    try lowerFunctionBody(testing.allocator, &[_]u8{0x0B}, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &[_]u8{0x0B}, &f, &.{}, &.{});
 
     try testing.expectEqual(@as(usize, 1), f.instrs.items.len);
     try testing.expectEqual(ZirOp.end, f.instrs.items[0].op);
@@ -47,7 +47,7 @@ test "lower: i32.const + drop + end packs sleb128 value into payload" {
     defer f.deinit(testing.allocator);
 
     // i32.const -1 (sleb 0x7F), drop, end
-    try lowerFunctionBody(testing.allocator, &[_]u8{ 0x41, 0x7F, 0x1A, 0x0B }, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &[_]u8{ 0x41, 0x7F, 0x1A, 0x0B }, &f, &.{}, &.{});
 
     try testing.expectEqual(@as(usize, 3), f.instrs.items.len);
     try testing.expectEqual(ZirOp.@"i32.const", f.instrs.items[0].op);
@@ -61,7 +61,7 @@ test "lower: i64.const splits low32/high32 across payload+extra" {
     defer f.deinit(testing.allocator);
 
     // i64.const -1 → sleb128 0x7F → bitcast u64 = 0xFFFF_FFFF_FFFF_FFFF
-    try lowerFunctionBody(testing.allocator, &[_]u8{ 0x42, 0x7F, 0x1A, 0x0B }, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &[_]u8{ 0x42, 0x7F, 0x1A, 0x0B }, &f, &.{}, &.{});
 
     const inst = f.instrs.items[0];
     try testing.expectEqual(ZirOp.@"i64.const", inst.op);
@@ -75,7 +75,7 @@ test "lower: f32.const stores raw little-endian bits in payload" {
 
     // f32.const 1.0  -> bits 0x3F800000 little-endian: 0x00 0x00 0x80 0x3F
     const body = [_]u8{ 0x43, 0x00, 0x00, 0x80, 0x3F, 0x1A, 0x0B };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
 
     try testing.expectEqual(ZirOp.@"f32.const", f.instrs.items[0].op);
     try testing.expectEqual(@as(u32, 0x3F800000), f.instrs.items[0].payload);
@@ -90,7 +90,7 @@ test "lower: f64.const splits raw bits across payload+extra" {
         0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x3F,
         0x1A, 0x0B,
     };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
 
     const inst = f.instrs.items[0];
     try testing.expectEqual(ZirOp.@"f64.const", inst.op);
@@ -104,7 +104,7 @@ test "lower: nested block records BlockInfo with patched end_inst" {
 
     // (block (result i32) i32.const 7) end_block end_fn
     const body = [_]u8{ 0x02, 0x7F, 0x41, 0x07, 0x0B, 0x0B };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
 
     try testing.expectEqual(@as(usize, 1), f.blocks.items.len);
     const blk = f.blocks.items[0];
@@ -130,7 +130,7 @@ test "lower: br carries depth in payload" {
 
     // block { br 0 } end_fn
     const body = [_]u8{ 0x02, 0x40, 0x0C, 0x00, 0x0B, 0x0B };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
 
     const br = f.instrs.items[1];
     try testing.expectEqual(ZirOp.br, br.op);
@@ -162,7 +162,7 @@ test "lower: D-093 (d-1) — dead-code i32.add after br is not emitted" {
         0x6A, // i32.add
         0x0B, // end_fn
     };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
 
     // Expected ZIR (no dead i32.add):
     //   .@"i32.const"(1)
@@ -204,7 +204,7 @@ test "lower: D-093 (d-1) — nested block inside dead code emits no ZirInstrs" {
         0x0B, // end (outer)      — reachable
         0x0B, // end_fn
     };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
 
     // Expected ZIR: .block, .br, .end (outer block), .end (fn).
     try testing.expectEqual(@as(usize, 4), f.instrs.items.len);
@@ -243,7 +243,7 @@ test "lower: D-093 (d-1) — else after then-arm br is reachable" {
         0x0B, // end (block)
         0x0B, // end_fn
     };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
 
     // Find the two .nop slots. Only the else-arm nop should
     // land — the post-br nop in the then-arm is dead-skipped.
@@ -260,7 +260,7 @@ test "lower: local.{get,set,tee} carry index in payload" {
 
     // local.get 3 ; local.set 1 ; local.tee 2 ; end
     const body = [_]u8{ 0x20, 0x03, 0x21, 0x01, 0x22, 0x02, 0x0B };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
 
     try testing.expectEqual(ZirOp.@"local.get", f.instrs.items[0].op);
     try testing.expectEqual(@as(u32, 3), f.instrs.items[0].payload);
@@ -276,7 +276,7 @@ test "lower: if/else updates block kind to else_open" {
 
     // i32.const 1 ; if (empty) ; else ; end ; end_fn
     const body = [_]u8{ 0x41, 0x01, 0x04, 0x40, 0x05, 0x0B, 0x0B };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
 
     try testing.expectEqual(@as(usize, 1), f.blocks.items.len);
     try testing.expectEqual(BlockKind.else_open, f.blocks.items[0].kind);
@@ -292,14 +292,14 @@ test "lower: if/else updates block kind to else_open" {
 test "lower: NotImplemented for unknown opcode" {
     var f = newFunc(empty_sig);
     defer f.deinit(testing.allocator);
-    const r = lowerFunctionBody(testing.allocator, &[_]u8{ 0xFF, 0x0B }, &f, &.{});
+    const r = lowerFunctionBody(testing.allocator, &[_]u8{ 0xFF, 0x0B }, &f, &.{}, &.{});
     try testing.expectError(Error.NotImplemented, r);
 }
 
 test "lower: trailing bytes after function-level end fail" {
     var f = newFunc(empty_sig);
     defer f.deinit(testing.allocator);
-    const r = lowerFunctionBody(testing.allocator, &[_]u8{ 0x0B, 0x00 }, &f, &.{});
+    const r = lowerFunctionBody(testing.allocator, &[_]u8{ 0x0B, 0x00 }, &f, &.{}, &.{});
     try testing.expectError(Error.TrailingBytes, r);
 }
 
@@ -307,7 +307,7 @@ test "lower: bad blocktype rejected" {
     var f = newFunc(empty_sig);
     defer f.deinit(testing.allocator);
     // 0x02 (block) followed by 0x60 (not a valid blocktype byte for MVP)
-    const r = lowerFunctionBody(testing.allocator, &[_]u8{ 0x02, 0x60, 0x0B, 0x0B }, &f, &.{});
+    const r = lowerFunctionBody(testing.allocator, &[_]u8{ 0x02, 0x60, 0x0B, 0x0B }, &f, &.{}, &.{});
     try testing.expectError(Error.BadBlockType, r);
 }
 
@@ -316,7 +316,7 @@ test "lower: i32.add binop produces a single instr with no payload" {
     defer f.deinit(testing.allocator);
     // i32.const 1 ; i32.const 2 ; i32.add ; end
     const body = [_]u8{ 0x41, 0x01, 0x41, 0x02, 0x6A, 0x0B };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
 
     try testing.expectEqual(@as(usize, 4), f.instrs.items.len);
     try testing.expectEqual(ZirOp.@"i32.add", f.instrs.items[2].op);
@@ -342,7 +342,7 @@ test "lower: Wasm 2.0 sat-trunc 0xFC 0..7 emit matching ZirOps" {
         0x00, 0x00, 0x00, 0x00, 0x00, 0xFC, 0x07, 0x1A,
         0x0B,
     };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
 
     // Each triplet emits 3 instrs (const, sat-trunc, drop); 8 triplets
     // + final end instr → 25 instrs total.
@@ -365,7 +365,7 @@ test "lower: memory.copy (0xFC 10) emits ZirOp.memory.copy" {
         0x41, 0x00, 0x41, 0x00, 0x41, 0x00,
         0xFC, 0x0A, 0x00, 0x00, 0x0B,
     };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     try testing.expectEqual(ZirOp.@"memory.copy", f.instrs.items[3].op);
 }
 
@@ -376,7 +376,7 @@ test "lower: memory.fill (0xFC 11) emits ZirOp.memory.fill" {
         0x41, 0x00, 0x41, 0x00, 0x41, 0x00,
         0xFC, 0x0B, 0x00, 0x0B,
     };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     try testing.expectEqual(ZirOp.@"memory.fill", f.instrs.items[3].op);
 }
 
@@ -387,7 +387,7 @@ test "lower: memory.init (0xFC 8) emits ZirOp.memory.init with dataidx payload" 
         0x41, 0x00, 0x41, 0x00, 0x41, 0x00,
         0xFC, 0x08, 0x05, 0x00, 0x0B,
     };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     const init = f.instrs.items[3];
     try testing.expectEqual(ZirOp.@"memory.init", init.op);
     try testing.expectEqual(@as(u32, 5), init.payload);
@@ -404,7 +404,7 @@ test "lower: table.get / table.set / table.size carry tableidx in payload" {
         0x04, 0xFC, 0x10, 0x05, 0x1A,
         0x0B,
     };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     try testing.expectEqual(ZirOp.@"table.get", f.instrs.items[1].op);
     try testing.expectEqual(@as(u32, 3), f.instrs.items[1].payload);
     try testing.expectEqual(ZirOp.@"table.set", f.instrs.items[5].op);
@@ -420,7 +420,7 @@ test "lower: table.grow / table.fill carry tableidx in payload" {
     const body = [_]u8{
         0xD0, 0x70, 0x41, 0x01, 0xFC, 0x0F, 0x07, 0x1A, 0x0B,
     };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     const grow = f.instrs.items[2];
     try testing.expectEqual(ZirOp.@"table.grow", grow.op);
     try testing.expectEqual(@as(u32, 7), grow.payload);
@@ -433,7 +433,7 @@ test "lower: table.init carries elemidx in payload, tableidx in extra" {
         0x41, 0x00, 0x41, 0x00, 0x41, 0x00,
         0xFC, 0x0C, 0x02, 0x07, 0x0B,
     };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     const init_op = f.instrs.items[3];
     try testing.expectEqual(ZirOp.@"table.init", init_op.op);
     try testing.expectEqual(@as(u32, 2), init_op.payload);
@@ -444,7 +444,7 @@ test "lower: elem.drop carries elemidx in payload" {
     var f = newFunc(empty_sig);
     defer f.deinit(testing.allocator);
     const body = [_]u8{ 0xFC, 0x0D, 0x05, 0x0B };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     const drop = f.instrs.items[0];
     try testing.expectEqual(ZirOp.@"elem.drop", drop.op);
     try testing.expectEqual(@as(u32, 5), drop.payload);
@@ -458,7 +458,7 @@ test "lower: table.copy carries dst-tableidx in payload, src in extra" {
         0x41, 0x00, 0x41, 0x00, 0x41, 0x00,
         0xFC, 0x0E, 0x03, 0x05, 0x0B,
     };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     const cp = f.instrs.items[3];
     try testing.expectEqual(ZirOp.@"table.copy", cp.op);
     try testing.expectEqual(@as(u32, 3), cp.payload);
@@ -472,7 +472,7 @@ test "lower: table.fill emits table.fill with tableidx" {
         0x41, 0x00, 0xD0, 0x70, 0x41, 0x00,
         0xFC, 0x11, 0x09, 0x0B,
     };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     const fill = f.instrs.items[3];
     try testing.expectEqual(ZirOp.@"table.fill", fill.op);
     try testing.expectEqual(@as(u32, 9), fill.payload);
@@ -489,7 +489,7 @@ test "lower: select_typed (0x1C 01 0x7F) emits select_typed with reftype byte in
         0x7F, 0x1A,
         0x0B,
     };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     const sel = f.instrs.items[3];
     try testing.expectEqual(ZirOp.select_typed, sel.op);
     try testing.expectEqual(@as(u32, 0x7F), sel.extra);
@@ -499,7 +499,7 @@ test "lower: select_typed with count != 1 → UnexpectedOpcode" {
     var f = newFunc(empty_sig);
     defer f.deinit(testing.allocator);
     const body = [_]u8{ 0x1C, 0x02, 0x7F, 0x7F, 0x0B };
-    const r = lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    const r = lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     try testing.expectError(Error.UnexpectedOpcode, r);
 }
 
@@ -507,7 +507,7 @@ test "lower: ref.null (0xD0 0x70) emits ZirOp.ref.null with reftype byte in extr
     var f = newFunc(empty_sig);
     defer f.deinit(testing.allocator);
     const body = [_]u8{ 0xD0, 0x70, 0x1A, 0x0B };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     const rn = f.instrs.items[0];
     try testing.expectEqual(ZirOp.@"ref.null", rn.op);
     try testing.expectEqual(@as(u32, 0x70), rn.extra);
@@ -517,7 +517,7 @@ test "lower: ref.is_null (0xD1) emits a no-immediate instr" {
     var f = newFunc(i32_result_sig);
     defer f.deinit(testing.allocator);
     const body = [_]u8{ 0xD0, 0x70, 0xD1, 0x0B };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     try testing.expectEqual(ZirOp.@"ref.is_null", f.instrs.items[1].op);
 }
 
@@ -525,7 +525,7 @@ test "lower: ref.func (0xD2) carries funcidx in payload" {
     var f = newFunc(empty_sig);
     defer f.deinit(testing.allocator);
     const body = [_]u8{ 0xD2, 0x09, 0x1A, 0x0B };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     const rf = f.instrs.items[0];
     try testing.expectEqual(ZirOp.@"ref.func", rf.op);
     try testing.expectEqual(@as(u32, 9), rf.payload);
@@ -535,7 +535,7 @@ test "lower: ref.null with bad reftype byte → BadBlockType" {
     var f = newFunc(empty_sig);
     defer f.deinit(testing.allocator);
     const body = [_]u8{ 0xD0, 0x55, 0x0B };
-    const r = lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    const r = lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     try testing.expectError(Error.BadBlockType, r);
 }
 
@@ -543,7 +543,7 @@ test "lower: data.drop (0xFC 9) emits ZirOp.data.drop with dataidx payload" {
     var f = newFunc(empty_sig);
     defer f.deinit(testing.allocator);
     const body = [_]u8{ 0xFC, 0x09, 0x07, 0x0B };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     const drop = f.instrs.items[0];
     try testing.expectEqual(ZirOp.@"data.drop", drop.op);
     try testing.expectEqual(@as(u32, 7), drop.payload);
@@ -553,7 +553,7 @@ test "lower: memory.copy with non-zero reserved byte → BadBlockType" {
     var f = newFunc(empty_sig);
     defer f.deinit(testing.allocator);
     const body = [_]u8{ 0xFC, 0x0A, 0x00, 0x01, 0x0B };
-    const r = lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    const r = lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     try testing.expectError(Error.BadBlockType, r);
 }
 
@@ -561,7 +561,7 @@ test "lower: 0xFC unknown sub-opcode → NotImplemented" {
     var f = newFunc(empty_sig);
     defer f.deinit(testing.allocator);
     const body = [_]u8{ 0xFC, 0xFF, 0x01, 0x0B };
-    const r = lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    const r = lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     try testing.expectError(Error.NotImplemented, r);
 }
 
@@ -582,7 +582,7 @@ test "lower: Wasm 2.0 sign-ext opcodes 0xC0..0xC4 emit matching ZirOps" {
         0x42, 0x00, 0xC4, 0x1A,
         0x0B,
     };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
 
     try testing.expectEqual(ZirOp.@"i32.extend8_s", f.instrs.items[1].op);
     try testing.expectEqual(ZirOp.@"i32.extend16_s", f.instrs.items[4].op);
@@ -600,7 +600,7 @@ test "lower: multivalue block via s33 typeidx — extra = arity (#results)" {
     const types = [_]FuncType{.{ .params = &empty_arr, .results = &triple }};
     // block (typeidx 0) ; end ; end
     const body = [_]u8{ 0x02, 0x00, 0x0B, 0x0B };
-    try lowerFunctionBody(testing.allocator, &body, &f, &types);
+    try lowerFunctionBody(testing.allocator, &body, &f, &types, &.{});
 
     const open = f.instrs.items[0];
     try testing.expectEqual(ZirOp.block, open.op);
@@ -613,7 +613,7 @@ test "lower: multivalue block typeidx with non-empty params lowers (D-035 chunk-
     const i32_arr_local = [_]ValType{.i32};
     const types = [_]FuncType{.{ .params = &i32_arr_local, .results = &i32_arr_local }};
     const body = [_]u8{ 0x02, 0x00, 0x0B, 0x0B };
-    try lowerFunctionBody(testing.allocator, &body, &f, &types);
+    try lowerFunctionBody(testing.allocator, &body, &f, &types, &.{});
     // D-093 (d-6): extra now packs both arities — high byte =
     // param_arity, low byte = result_arity. For this typeidx
     // (params = [i32], results = [i32]), expect (1<<8)|1 = 257.
@@ -637,7 +637,7 @@ test "lower (simd): v128.const records 16-byte immediate via simd_consts pool" {
     body[1] = 0x0C;
     @memset(body[2..18], 0x42); // recognisable pattern
     body[18] = 0x0B;
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     try testing.expectEqual(ZirOp.@"v128.const", f.instrs.items[0].op);
     // Payload per ADR-0042 = index into func.simd_consts pool.
     try testing.expectEqual(@as(u32, 0), f.instrs.items[0].payload);
@@ -652,7 +652,7 @@ test "lower (simd): v128.load passes memarg through emitMemarg" {
     defer f.deinit(testing.allocator);
     // 0xFD 0x00 align=4 offset=0x10 0x0B
     const body = [_]u8{ 0xFD, 0x00, 0x04, 0x10, 0x0B };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     try testing.expectEqual(ZirOp.@"v128.load", f.instrs.items[0].op);
     try testing.expectEqual(@as(u32, 0x10), f.instrs.items[0].payload); // offset
     try testing.expectEqual(@as(u32, 4), f.instrs.items[0].extra); // align
@@ -662,7 +662,7 @@ test "lower (simd): v128.store routes via emitMemarg" {
     var f = newFunc(empty_sig);
     defer f.deinit(testing.allocator);
     const body = [_]u8{ 0xFD, 0x0B, 0x00, 0x00, 0x0B };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     try testing.expectEqual(ZirOp.@"v128.store", f.instrs.items[0].op);
 }
 
@@ -671,7 +671,7 @@ test "lower (simd): i32x4.splat emits without payload" {
     defer f.deinit(testing.allocator);
     // 0xFD 0x11 (sub 17) 0x0B
     const body = [_]u8{ 0xFD, 0x11, 0x0B };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     try testing.expectEqual(ZirOp.@"i32x4.splat", f.instrs.items[0].op);
     try testing.expectEqual(@as(u32, 0), f.instrs.items[0].payload);
 }
@@ -689,7 +689,7 @@ test "lower (simd): all 6 splat shapes resolve to distinct ZirOps" {
         var f = newFunc(empty_sig);
         defer f.deinit(testing.allocator);
         const body = [_]u8{ 0xFD, c.sub, 0x0B };
-        try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+        try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
         try testing.expectEqual(c.op, f.instrs.items[0].op);
     }
 }
@@ -699,7 +699,7 @@ test "lower (simd): i32x4.extract_lane stores lane byte in payload" {
     defer f.deinit(testing.allocator);
     // 0xFD 0x1B (sub 27 = i32x4.extract_lane) lane=2 0x0B
     const body = [_]u8{ 0xFD, 0x1B, 0x02, 0x0B };
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     try testing.expectEqual(ZirOp.@"i32x4.extract_lane", f.instrs.items[0].op);
     try testing.expectEqual(@as(u32, 2), f.instrs.items[0].payload);
 }
@@ -713,7 +713,7 @@ test "lower (simd): i8x16.shuffle records immediate via simd_consts pool" {
     var i: usize = 0;
     while (i < 16) : (i += 1) body[2 + i] = @intCast(i); // lanes 0..15 (all < 32)
     body[18] = 0x0B;
-    try lowerFunctionBody(testing.allocator, &body, &f, &.{});
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     try testing.expectEqual(ZirOp.@"i8x16.shuffle", f.instrs.items[0].op);
     // Payload per ADR-0042 = index into func.simd_consts pool.
     try testing.expectEqual(@as(u32, 0), f.instrs.items[0].payload);
@@ -731,7 +731,7 @@ test "lower (simd): i8x16.shuffle rejects lane >= 32" {
     @memset(body[2..18], 0);
     body[10] = 32; // out-of-range lane
     body[18] = 0x0B;
-    try testing.expectError(Error.BadBlockType, lowerFunctionBody(testing.allocator, &body, &f, &.{}));
+    try testing.expectError(Error.BadBlockType, lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{}));
 }
 
 test "lower (simd): v128.const truncated immediate fails" {
@@ -743,7 +743,7 @@ test "lower (simd): v128.const truncated immediate fails" {
     body[1] = 0x0C;
     @memset(body[2..10], 0);
     body[10] = 0x0B;
-    try testing.expectError(Error.UnexpectedEnd, lowerFunctionBody(testing.allocator, &body, &f, &.{}));
+    try testing.expectError(Error.UnexpectedEnd, lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{}));
 }
 
 test "lower (simd): unknown 0xFD sub-opcode → NotImplemented" {
@@ -751,5 +751,5 @@ test "lower (simd): unknown 0xFD sub-opcode → NotImplemented" {
     defer f.deinit(testing.allocator);
     // 0xFD with sub 250 (unmapped in MVP catalogue)
     const body = [_]u8{ 0xFD, 0xFA, 0x01, 0x0B };
-    try testing.expectError(Error.NotImplemented, lowerFunctionBody(testing.allocator, &body, &f, &.{}));
+    try testing.expectError(Error.NotImplemented, lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{}));
 }

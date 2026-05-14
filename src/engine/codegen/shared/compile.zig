@@ -96,6 +96,7 @@ pub fn compileOne(
     num_imports: u32,
     globals_offsets: []const u32,
     globals_valtypes: []const zir.ValType,
+    select_types: []const u8,
 ) Error!FuncResult {
     var func = ZirFunc.init(func_idx, sig, locals);
     errdefer func.deinit(allocator);
@@ -109,7 +110,7 @@ pub fn compileOne(
     errdefer if (comptime trace.enabled) pass_records.deinit(allocator);
 
     trace.passEnter(func_idx, .lower);
-    try lowerer.lowerFunctionBody(allocator, body, &func, module_types);
+    try lowerer.lowerFunctionBody(allocator, body, &func, module_types, select_types);
     {
         const applied: u32 = @intCast(func.instrs.items.len);
         trace.passExit(func_idx, .lower, .{ .applied = applied, .skipped = 0, .extra = applied });
@@ -279,7 +280,7 @@ test "compileOne: pass_diagnostics records all 6 passes when trace enabled" {
     // Pure instruction bytes: `i32.const 7` (0x41 0x07) + `end` (0x0B).
     const body = [_]u8{ 0x41, 0x07, 0x0B };
     const sig: FuncType = .{ .params = &.{}, .results = &.{.i32} };
-    var r = try compileOne(testing.allocator, 42, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{});
+    var r = try compileOne(testing.allocator, 42, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{});
     defer deinitFuncResult(testing.allocator, &r);
 
     // Per-function slot populated with 6 records, in pipeline order.
@@ -316,7 +317,7 @@ test "compileOne: tiny straight-line module — (func (result i32) i32.const 7 e
     const body = [_]u8{ 0x41, 0x07, 0x0B };
     const sig: FuncType = .{ .params = &.{}, .results = &.{.i32} };
 
-    var r = try compileOne(testing.allocator, 0, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{});
+    var r = try compileOne(testing.allocator, 0, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{});
     defer deinitFuncResult(testing.allocator, &r);
 
     const bodies = [_]linker.FuncBody{

@@ -184,8 +184,16 @@ NAMES=(
   # `ref_is_null` deferred — SEGV in funcref-elem/externref-elem
   # (reftype param/result ABI + table.get reftype; D-NNN).
   # `memory_trap` deferred — 4× load OOB-check FAILs (D-NNN).
-  # `float_exprs` deferred — ~30 FP fold/select-to-abs FAILs
-  # (D-NNN; FP select sign-bit issues).
+  # `float_exprs` deferred — d-39 discharged the FP-select FCSEL
+  # half of D-115 (validator now collects per-untyped-select valtype
+  # bytes; lower populates `ZirInstr.extra`; emit routes FCSEL S/D
+  # on arm64 + op_alu_float.emitFpSelect on x86_64). Trial-enable
+  # probe showed +619 PASS but 22 residual FAILs are a separate
+  # bug class: multi-action modules where `(assert_return (invoke
+  # "write" ...))` followed by `(assert_return (invoke "read" ...))`
+  # sees memory cleared between invokes (every FAIL is a `check` /
+  # `f*.load` returning 0). Memory-persistence-across-invokes is
+  # D-116; NAMES enable waits for that.
   # d-37 enable: `elem`. Reftype parse + codegen plumbing (d-32,
   # d-33) covered the BadValType class; cross-module + spectest-
   # host-state imports (12 fails at the d-34 probe baseline) are

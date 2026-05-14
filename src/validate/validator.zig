@@ -53,6 +53,7 @@ pub const Error = error{
     ControlStackOverflow,
     ArityMismatch,
     NotImplemented,
+    OutOfMemory,
 } || leb128.Error;
 
 pub const GlobalEntry = struct {
@@ -92,6 +93,19 @@ fn blockTypeOfSlice(types: []const ValType) BlockType {
         0 => .empty,
         1 => .{ .single = types[0] },
         else => .{ .multi = types },
+    };
+}
+
+/// Wasm spec §5.3.1 valtype encoding bytes.
+fn valTypeByte(t: ValType) u8 {
+    return switch (t) {
+        .i32 => 0x7F,
+        .i64 => 0x7E,
+        .f32 => 0x7D,
+        .f64 => 0x7C,
+        .v128 => 0x7B,
+        .funcref => 0x70,
+        .externref => 0x6F,
     };
 }
 
@@ -169,6 +183,48 @@ pub fn validateFunction(
     try v.run();
 }
 
+/// Same as `validateFunction`, but additionally collects per-untyped-
+/// `select` (opcode 0x1B) resolved operand valtype bytes into
+/// `out_select_types`, in body-walk order. Used by the lower / emit
+/// pipeline (D-115) to populate `ZirInstr.extra` for untyped select so
+/// emit dispatches FCSEL / FpSelect on FP-class operands instead of
+/// silently defaulting to GPR-class CSEL (Wasm spec §3.3.2.2).
+///
+/// Wasm spec §3.3.2.2 — untyped select infers t1 == t2 from the
+/// validator's value-stack; the type byte stored here is the canonical
+/// valtype encoding (0x7F i32 / 0x7E i64 / 0x7D f32 / 0x7C f64 /
+/// 0x70 funcref / 0x6F externref). Polymorphic-bottom resolves to
+/// 0x7F (the harmless default; pre-d-39 fall-through).
+pub fn validateFunctionAndCollectSelectTypes(
+    allocator: std.mem.Allocator,
+    sig: FuncType,
+    locals: []const ValType,
+    body: []const u8,
+    func_types: []const FuncType,
+    globals: []const GlobalEntry,
+    module_types: []const FuncType,
+    data_count: u32,
+    tables: []const zir.TableEntry,
+    elem_count: u32,
+    out_select_types: *std.ArrayList(u8),
+) Error!void {
+    var v = Validator{
+        .sig = sig,
+        .locals = locals,
+        .body = body,
+        .pos = 0,
+        .func_types = func_types,
+        .globals = globals,
+        .module_types = module_types,
+        .data_count = data_count,
+        .tables = tables,
+        .elem_count = elem_count,
+        .out_select_types = out_select_types,
+        .out_allocator = allocator,
+    };
+    try v.run();
+}
+
 const Validator = struct {
     sig: FuncType,
     locals: []const ValType,
@@ -186,6 +242,13 @@ const Validator = struct {
 
     control_buf: [max_control_stack]ControlFrame = undefined,
     control_len: usize = 0,
+
+    /// D-115 d-39: when non-null, `opSelect` appends the resolved
+    /// operand valtype byte per untyped `select` (0x1B). Body-walk
+    /// order; consumed by `lower.zig` to populate `ZirInstr.extra`
+    /// so emit can dispatch FCSEL / FpSelect on FP-class operands.
+    out_select_types: ?*std.ArrayList(u8) = null,
+    out_allocator: ?std.mem.Allocator = null,
 
     fn run(self: *Validator) Error!void {
         // Implicit function frame: a `block` with the function's result type.
@@ -1283,6 +1346,18 @@ const Validator = struct {
         switch (result) {
             .known => |t| try self.pushType(t),
             .bot => try self.pushBot(),
+        }
+        // D-115 d-39: emit the resolved valtype byte for the lower /
+        // emit pipeline. Polymorphic-bottom (only reachable in dead
+        // code after `unreachable` / `br`) resolves to 0x7F i32 — the
+        // default CSEL Wd path, harmless because the bytes are
+        // unreachable at runtime per Wasm spec §3.3.5.
+        if (self.out_select_types) |list| {
+            const byte: u8 = switch (result) {
+                .known => |t| valTypeByte(t),
+                .bot => 0x7F,
+            };
+            try list.append(self.out_allocator.?, byte);
         }
     }
 

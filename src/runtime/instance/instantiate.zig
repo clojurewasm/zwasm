@@ -476,7 +476,7 @@ pub fn instantiateRuntime(
         for (codes.items, def_idx, 0..) |code, type_idx, i| {
             if (type_idx >= types.items.len) return error.InvalidTypeIndex;
             funcs[i] = zir.ZirFunc.init(@intCast(imp_func_count + i), types.items[type_idx], code.locals);
-            try lower.lowerFunctionBody(a, code.body, &funcs[i], types.items);
+            try lower.lowerFunctionBody(a, code.body, &funcs[i], types.items, &.{});
             funcs[i].loop_info = try loop_info_mod.compute(a, &funcs[i]);
             verifier_mod.verify(&funcs[i]) catch return error.InvalidModule;
         }

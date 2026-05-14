@@ -79,6 +79,7 @@ pub fn lowerFunctionBody(
     body: []const u8,
     out: *ZirFunc,
     module_types: []const FuncType,
+    select_types: []const u8,
 ) Error!void {
     var lo = Lowerer{
         .alloc = alloc,
@@ -86,6 +87,7 @@ pub fn lowerFunctionBody(
         .out = out,
         .pos = 0,
         .module_types = module_types,
+        .select_types = select_types,
     };
     try lo.run();
 }
@@ -96,6 +98,14 @@ const Lowerer = struct {
     out: *ZirFunc,
     pos: usize,
     module_types: []const FuncType,
+
+    /// D-115 d-39: per-untyped-`select` (0x1B) resolved operand
+    /// valtype bytes, in body-walk order. Sourced from
+    /// `validate.validateFunctionAndCollectSelectTypes`. Empty slice
+    /// disables select-extra resolution — `extra` stays 0 (the
+    /// pre-d-39 default, which emit dispatches as gpr32 CSEL).
+    select_types: []const u8 = &.{},
+    select_idx: usize = 0,
 
     block_stack: [max_control_stack]u32 = undefined,
     block_stack_len: usize = 0,
@@ -216,7 +226,22 @@ const Lowerer = struct {
             0x11 => try self.emitCallIndirect(),
 
             // Parametric
-            0x1B => try self.emit(.select, 0, 0),
+            0x1B => {
+                // D-115 d-39: untyped select. Validator resolved
+                // the operand valtype byte; consume one entry per
+                // 0x1B occurrence (body-walk order). When the slice
+                // is empty (callers that bypass the collect-side
+                // entry point, e.g. compileOne unit tests pre-d-39
+                // semantics), `extra` stays 0 and emit dispatches
+                // the gpr32 path — correct for i32 operands, the
+                // common untyped-select case.
+                const extra: u32 = if (self.select_idx < self.select_types.len) blk: {
+                    const b = self.select_types[self.select_idx];
+                    self.select_idx += 1;
+                    break :blk @as(u32, b);
+                } else 0;
+                try self.emit(.select, 0, extra);
+            },
             0x1C => {
                 // select_typed: count valtype*. Wasm 2.0 requires
                 // count = 1; consume + emit select_typed (runtime

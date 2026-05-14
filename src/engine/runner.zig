@@ -304,7 +304,13 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
         // lower-side errors. The full validator-context split is
         // documented in `.dev/lessons/2026-05-07-validator-dead-
         // code-in-runtime.md`.
-        validator_mod.validateFunction(
+        // D-115 d-39: collect per-untyped-`select` resolved valtype
+        // bytes so lower can populate `ZirInstr.extra` for the emit
+        // dispatch (FCSEL / FpSelect vs gpr32 CSEL).
+        var select_types: std.ArrayList(u8) = .empty;
+        defer select_types.deinit(allocator);
+        validator_mod.validateFunctionAndCollectSelectTypes(
+            allocator,
             sig,
             code.locals,
             code.body,
@@ -314,6 +320,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             validator_data_count,
             validator_tables,
             validator_elem_count,
+            &select_types,
         ) catch |err| {
             std.debug.print("compileWasm: func[{d}] params={d} results={d} → validate {s}\n", .{
                 wasm_idx,
@@ -334,6 +341,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             num_imports,
             globals_offsets,
             globals_valtypes,
+            select_types.items,
         ) catch |err| {
             std.debug.print("compileWasm: func[{d}] params={d} results={d} → {s}\n", .{
                 wasm_idx,
