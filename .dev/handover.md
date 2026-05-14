@@ -10,59 +10,59 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **Phase 9 extended; D-093 (d-32) D-104 part 1 readValType reftype parse-layer 2026-05-14**
+## Active state — **Phase 9 extended; D-093 (d-33) D-104 part 2 reftype-class codegen plumbing 2026-05-14**
 
 ### One-line state
 
-D-093 (d-32) discharges D-104 part 1: `parse/sections.zig::
-readValType` now accepts the Wasm 2.0 §5.3.1 reftype byte
-encodings (0x70 funcref / 0x6F externref). The function is the
-central type-slot decoder traversed by functype params/results,
-globaltype, imported globaltype, and code-section local decls,
-so the two new switch arms unlock reftype parse acceptance
-across every section simultaneously. 6 new + 1 updated unit
-tests; existing `decodeCodes: rejects bad valtype` sentinel
-flipped 0x6F → 0x5F. Edge fixture deferred to d-33 (end-to-end
-exercise needs reftype-class codegen plumbing — `local.get
-funcref`, `op_globals` reftype, call-arg marshal all still
-UnsupportedOp pre-d-33); rationale in
-`private/notes/p9-edge-case-rationale.md`. spec_assert
-14399/0/385, simd 13301/0/440 — both unchanged.
+D-093 (d-33) discharges D-104 part 2 by aliasing reftype
+(funcref / externref) onto the i64 8-byte gpr-class scalar
+path across all codegen sites per ADR-0061. Six site
+categories landed in one chunk (shared "8-byte gpr class
+slot" semantic): (1) `op_globals.{get,set}` reftype routes
+through `emitI64Global*` on both archs; (2) arm64 + x86_64
+function-entry param-marshal accepts reftype; (3) arm64 +
+x86_64 `local.{get,set,tee}` reftype shares the i64 X-form /
+R64 path; (4) arm64 + x86_64 `op_call.zig::marshalCallArgs`
+reftype rides the i64 marshal arm; (5) cap value for reftype
+locals lifted 16380 → 32760 (X-form imm12 cap); (6) `select`
+reftype was already covered (m-4a in handover history).
+Edge fixture `test/edge_cases/p9/global_reftype/
+funcref_externref_local_isnull.{wat,wasm,expect}` lands —
+parses + JIT-executes end-to-end on Mac aarch64 and OrbStack
+x86_64 (i32:1). spec_assert 14399/0/385, simd 13301/0/440 —
+both unchanged (no NAMES flipped this cycle; d-34 = re-enable
+`elem` in NAMES to consume the new reftype budget).
 
 ### Standing reminder for the autonomous loop
 
 **Project tone is `.claude/rules/no_workaround.md`: fix root
 causes, never work around.**
 
-### Next task — d-33 op_globals reftype + reftype-class codegen plumbing
+### Next task — d-34 re-enable elem in NAMES
 
-Active `now` debts (post-d-32):
-- D-093 (parent), D-095 (regalloc partial), D-104 (parse-layer
-  done; codegen plumbing = d-33), D-106 (start-fn invoke SEGV).
-- D-103: blocked-by D-104 + D-079.
+Active `now` debts (post-d-33):
+- D-093 (parent), D-095 (regalloc partial), D-106 (start-fn
+  invoke SEGV).
+- D-104 fully discharged (parts 1 + 2 landed).
+- D-103: blocked-by D-079 (down from D-104 + D-079 pre-d-33).
 - D-102/D-105/D-079: cross-module-imports family (Phase 10+
   Instance-aware refactor — REPORT d-36+).
 
-- **d-33 NEXT** — D-104 part 2: reftype-class codegen plumbing.
-  Three sites currently return `Error.UnsupportedOp` for
-  funcref/externref:
-  - `arm64/op_globals.zig` lines 60, 73 + `x86_64/op_globals.zig`
-    lines 62, 83 — global.get/set reftype dispatch (scalar
-    8-byte slot, same shape as i64 per handover narrative).
-  - `arm64/op_call.zig:306-309` + x86_64 mirror — call-arg
-    marshal for reftype params (treat as gpr class, AAPCS64 §6.4
-    / SysV §3.2.3 integer class — already handled in
-    `captureCallResult` line 376).
-  - `arm64/emit.zig` (search `local.get type .* unsupported`) +
-    x86_64 mirror — `local.get` / `local.set` / `local.tee` for
-    reftype locals (i64-shaped slot).
-  - `select-typed` reftype path (`select extra` carries valtype
-    byte — validator already accepts).
-  After d-33, the d-32-deferred edge fixture under
-  `test/edge_cases/p9/global_reftype/funcref_externref_local_
-  isnull.{wat,wasm,expect}` lands; see
-  `private/notes/p9-edge-case-rationale.md` for the deferred
-  fixture spec.
+- **d-34 NEXT** — re-enable `elem` in NAMES (was skipped at
+  d-21 bisect on D-103 + D-104 grounds; both are now
+  discharged or have non-elem barriers). Path: edit
+  `scripts/regen_spec_2_0_assert.sh` SUPPORTED dict to flip
+  `elem` from SKIP-OUT back into NAMES, re-bake the manifest,
+  re-run `zig build test-spec-wasm-2.0-assert`. Expected
+  outcome from handover historical narrative: 22 reftype +
+  global reftype fixtures unblock; ~12 residual fails remain
+  attributable to D-079 cross-module reftype-import shape.
+  Surfaces real numbers — the live status script is the
+  authority post-flip.
+- **d-35** — D-106 start-fn invoke SEGV (0xaa…aa undefined-mem
+  pattern at prologue load).
+- **d-36+** — Instance-aware refactor (multi-chunk; Phase 9 ↔
+  Phase 10 transition prep per ADR-0061 alternatives).
 - **d-34** — re-enable `elem` in NAMES, verify post-d-32+d-33
   the FAIL count dropped from 34 (= 22 reftype-fixed + 12
   remaining D-079).
@@ -128,7 +128,8 @@ Other queued post-D-093 names: `address`, `align`, `br_table`,
 | D-093 (d-30) | [x] 5aa141bc | D-103 parts (a)+(b) close. Handler IS load-bearing (handler-removed probe aborts at `callI32NoArgs:55` null deref). Bisect identified 2 SEGV-recovery cases: elem.75 + elem.76 `init ()` trap-asserts. D-103 (c) optional per Wasm spec §A.2. NAMES unchanged. |
 | D-093 (d-31) | [x] b92fa06c | M-1 scope hygiene per `private/wasm2-completion-plan/` + ADR-0061. Drop 4 Wasm 3.0 `--enable-*` flags from `wast2json` invocation in `regen_spec_2_0_assert.sh`. `.dev/reference_clones.md` `wg-2.0` pin note. **Debt re-classification**: D-104 `blocked-by Phase 10+ reftype` → `now` (pre-d-31 narrative cited D-075 as reftype umbrella; D-075 is actually about ADR-0025 Zig library facade — broken alias). D-103 barrier corrected to `D-104 discharge + D-079`. `p9_simd_status.sh` awk fix to surface `now (annotation)` rows (D-106 was being missed). spec_assert 14399/0/385 unchanged. |
 | D-093 (d-32) | [x] cfaf6623 | D-104 part 1: `parse/sections.zig::readValType` accepts `0x70 = funcref` / `0x6F = externref` per Wasm 2.0 §5.3.1; 6 new + 1 updated unit tests cover decodeTypes/decodeCodes/decodeGlobals reftype acceptance. Edge fixture deferred to d-33 (local.get / op_globals / call-arg marshal still UnsupportedOp pre-d-33). spec_assert 14399/0/385, simd 13301/0/440 unchanged. |
-| **D-093 (d-33)** | **NEXT** | D-104 part 2: reftype-class codegen plumbing — `op_globals.{get,set}` reftype dispatch (both archs), `op_call.zig::marshalCallArgs` reftype param, `local.{get,set,tee}` reftype, `select-typed` reftype. Lands deferred edge fixture under `test/edge_cases/p9/global_reftype/`. |
+| D-093 (d-33) | [x] (this commit) | D-104 part 2: reftype-class codegen plumbing — alias funcref/externref onto the i64 8-byte gpr-class scalar path per ADR-0061 across `op_globals.{get,set}`, function-entry param marshal, `local.{get,set,tee}`, and `op_call.zig::marshalCallArgs` on both archs. Edge fixture `funcref_externref_local_isnull.{wat,wasm,expect}` lands and JIT-executes end-to-end (i32:1) on Mac aarch64 + OrbStack x86_64. D-104 fully discharged. spec_assert 14399/0/385, simd 13301/0/440 unchanged (d-34 = `elem` NAMES flip consumes the new budget). |
+| **D-093 (d-34)** | **NEXT** | Re-enable `elem` in `regen_spec_2_0_assert.sh` SUPPORTED dict (was skipped at d-21 bisect on D-103 + D-104 grounds — both now discharged or with non-elem barriers). Re-bake manifest + re-run spec assertion gate. Surfaces real number deltas from new reftype path. |
 
 Other queued chunks (post-l-1): k-1, k-2, m-4c (= D-090),
 m-2d, n-1, j-3b.
