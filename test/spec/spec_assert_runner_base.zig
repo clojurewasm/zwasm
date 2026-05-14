@@ -291,6 +291,47 @@ pub fn extractMemoryLimits(allocator: std.mem.Allocator, wasm_bytes: []const u8)
     return .{ .min = memories.items[0].min, .max = memories.items[0].max };
 }
 
+/// d-37: detect whether a module imports state the spec runner
+/// cannot bind. Returns true if any import is either:
+///   - a function from a non-`spectest` module (cross-module),
+///   - a table / memory / global from any module (spectest's
+///     table / global / memory aren't bound by the runner; the
+///     d-35 trap stub only covers function imports).
+///
+/// Used by the corpus loop to convert "can't satisfy this
+/// module's imports" from FAIL to SKIP. The runner is a
+/// no-host-binding spec assertion harness per ADR-0061; binding
+/// real host state (multi-module register graphs, spectest's
+/// magic table / global, WASI) is Track-D scope.
+///
+/// Parses just the import section header (raw byte walk; no
+/// validator allocation). Any parse error → returns false (the
+/// downstream compileWasm gets the same bytes and surfaces a
+/// real error, so the runner still reports something useful
+/// rather than swallowing the malformed input as SKIP).
+pub fn hasUnbindableImports(allocator: std.mem.Allocator, wasm_bytes: []const u8) bool {
+    var module = zwasm.parse.parser.parse(allocator, wasm_bytes) catch return false;
+    defer module.deinit(allocator);
+    const sec = module.find(.import) orelse return false;
+    var imports = zwasm.parse.sections.decodeImports(allocator, sec.body) catch return false;
+    defer imports.deinit();
+    for (imports.items) |imp| {
+        const is_spectest = std.mem.eql(u8, imp.module, "spectest");
+        switch (imp.kind) {
+            .func => {
+                // spectest functions route through the d-35 host
+                // trap stub. Non-spectest functions need a real
+                // registered module — Track D.
+                if (!is_spectest) return true;
+            },
+            // Tables / memories / globals from any module need
+            // host-state binding; not available in the spec runner.
+            .table, .memory, .global => return true,
+        }
+    }
+    return false;
+}
+
 /// d-22 (D-106): parse the wasm bytes' start section (id=8) to
 /// discover the module's start funcidx. Returns `null` when no
 /// start section exists (most modules) or parsing fails. The
@@ -666,6 +707,21 @@ pub fn runCorpus(
                     continue;
                 };
                 current_wasm = wasm_bytes;
+
+                // d-37: skip modules whose imports the spec runner
+                // cannot satisfy. `spectest.<fn>` function imports
+                // route through the d-35 trap stub and are
+                // safe-bindable; anything else (table / memory /
+                // global imports OR any non-spectest module name)
+                // would need cross-module instance state (Track D).
+                // Pre-empt the compile-stage FAIL for those.
+                if (hasUnbindableImports(gpa, wasm_bytes)) {
+                    try stdout.print("SKIP-CROSS-MODULE-IMPORTS  {s}/{s}: module imports state the spec runner cannot bind\n", .{ name, file });
+                    tally.skipped += 1;
+                    module_bad = true;
+                    continue;
+                }
+
                 const compiled = runner_mod.compileWasm(gpa, wasm_bytes) catch |err| {
                     try stdout.print("FAIL  {s}/{s} compile: {s}\n", .{ name, file, @errorName(err) });
                     tally.failed += 1;

@@ -1,0 +1,98 @@
+module elem.0.wasm
+module elem.1.wasm
+module elem.2.wasm
+module elem.3.wasm
+module elem.4.wasm
+module elem.5.wasm
+module elem.6.wasm
+module elem.7.wasm
+module elem.8.wasm
+assert_return call-7 () -> i32:65
+assert_return call-9 () -> i32:66
+module elem.9.wasm
+assert_return call-7 () -> i32:65
+assert_return call-9 () -> i32:66
+assert_invalid elem.10.wasm
+assert_invalid elem.11.wasm
+module elem.12.wasm
+module elem.13.wasm
+module elem.14.wasm
+module elem.15.wasm
+module elem.16.wasm
+module elem.17.wasm
+module elem.18.wasm
+module elem.19.wasm
+module elem.20.wasm
+module elem.21.wasm
+skip-impl directive-assert_uninstantiable
+skip-impl directive-assert_uninstantiable
+skip-impl directive-assert_uninstantiable
+skip-impl directive-assert_uninstantiable
+skip-impl directive-assert_uninstantiable
+skip-impl directive-assert_uninstantiable
+skip-impl directive-assert_uninstantiable
+skip-impl directive-assert_uninstantiable
+skip-impl directive-assert_uninstantiable
+skip-impl directive-assert_uninstantiable
+skip-impl directive-assert_uninstantiable
+skip-impl directive-assert_uninstantiable
+module elem.34.wasm
+assert_trap init ()
+module elem.35.wasm
+assert_trap init ()
+assert_invalid elem.36.wasm
+assert_invalid elem.37.wasm
+assert_invalid elem.38.wasm
+assert_invalid elem.39.wasm
+assert_invalid elem.40.wasm
+assert_invalid elem.41.wasm
+assert_invalid elem.42.wasm
+assert_invalid elem.43.wasm
+assert_invalid elem.44.wasm
+assert_invalid elem.45.wasm
+assert_invalid elem.46.wasm
+assert_invalid elem.47.wasm
+assert_invalid elem.48.wasm
+assert_invalid elem.49.wasm
+assert_invalid elem.50.wasm
+assert_invalid elem.51.wasm
+assert_invalid elem.52.wasm
+assert_invalid elem.53.wasm
+assert_invalid elem.54.wasm
+assert_invalid elem.55.wasm
+module elem.56.wasm
+assert_return call-overwritten () -> i32:66
+module elem.57.wasm
+assert_return call-overwritten-element () -> i32:66
+module elem.58.wasm
+skip-impl directive-register
+skip-adr-cross-module-action assert_trap on module=$module1 field=call-7
+skip-adr-cross-module-action assert_return on module=$module1 field=call-8
+skip-adr-cross-module-action assert_return on module=$module1 field=call-9
+module elem.59.wasm
+skip-adr-cross-module-action assert_return on module=$module1 field=call-7
+skip-adr-cross-module-action assert_return on module=$module1 field=call-8
+skip-adr-cross-module-action assert_return on module=$module1 field=call-9
+module elem.60.wasm
+skip-adr-cross-module-action assert_return on module=$module1 field=call-7
+skip-adr-cross-module-action assert_return on module=$module1 field=call-8
+skip-adr-cross-module-action assert_return on module=$module1 field=call-9
+assert_invalid elem.61.wasm
+assert_invalid elem.62.wasm
+assert_invalid elem.63.wasm
+assert_invalid elem.64.wasm
+module elem.65.wasm
+skip-impl directive-register
+skip-adr-cross-module-action assert_return on module=$m field=get
+skip-adr-cross-module-action assert_return on module=$m field=get
+skip-adr-cross-module-action assert_return on module=$m field=set
+skip-adr-cross-module-action assert_return on module=$m field=set
+skip-adr-cross-module-action assert_return on module=$m field=get
+skip-adr-cross-module-action assert_return on module=$m field=get
+module elem.66.wasm
+skip-adr-cross-module-action assert_return on module=$m field=get
+skip-adr-cross-module-action assert_return on module=$m field=get
+module elem.67.wasm
+skip-impl directive-register
+module elem.68.wasm
+assert_return call_imported_elem () -> i32:42

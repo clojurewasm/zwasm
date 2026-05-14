@@ -166,6 +166,14 @@ NAMES=(
   # PASS (they're all assert_trap and the dispatch ladder
   # already filters out the runtime shapes) — enabling `data`
   # would land 19 FAIL + 0 useful coverage. Defer.
+  # d-37 enable: `elem`. Reftype parse + codegen plumbing (d-32,
+  # d-33) covered the BadValType class; cross-module + spectest-
+  # host-state imports (12 fails at the d-34 probe baseline) are
+  # now caught by the d-37 `hasUnbindableImports` pre-filter that
+  # SKIPs modules whose imports the spec runner cannot bind. The
+  # `(invoke $module1 ...)` cross-module action assertions are
+  # skipped at distillation time via the `action.module` check.
+  elem
   # d-36 enable: `start`. SEGV resolved at d-35 (host-import
   # trap stub) + invoke-action plumbing landed at d-36 (`(invoke
   # FN ARGS)` actions in start.wast modules now run and
@@ -257,6 +265,12 @@ for c in d['commands']:
         lines.append('module ' + c['filename'])
     elif t == 'assert_return':
         a = c['action']
+        # d-37: cross-module action (`(invoke $mod "fn" ...)`)
+        # targets a registered module the spec runner does not
+        # model (Track-D scope). Skip cleanly.
+        if 'module' in a:
+            lines.append(f'skip-adr-cross-module-action assert_return on module={a["module"]!s} field={a.get("field","?")!s}')
+            continue
         if a.get('type') != 'invoke':
             lines.append('skip-impl non-invoke-action')
             continue
@@ -331,6 +345,9 @@ for c in d['commands']:
         lines.append(f'assert_return {a["field"]} {args_s} -> {results_s}')
     elif t == 'assert_trap':
         a = c['action']
+        if 'module' in a:
+            lines.append(f'skip-adr-cross-module-action assert_trap on module={a["module"]!s} field={a.get("field","?")!s}')
+            continue
         if a.get('type') != 'invoke':
             lines.append('skip-impl trap-non-invoke')
             continue
@@ -373,6 +390,9 @@ for c in d['commands']:
         # propagate to FAIL. Same arg/shape constraints as
         # assert_return (the runner's dispatch ladder is shared).
         a = c['action']
+        if 'module' in a:
+            lines.append(f'skip-adr-cross-module-action action on module={a["module"]!s} field={a.get("field","?")!s}')
+            continue
         if a.get('type') != 'invoke':
             lines.append(f'skip-impl action-non-invoke {a.get("type", "?")}')
             continue

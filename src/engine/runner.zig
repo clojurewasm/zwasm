@@ -455,6 +455,18 @@ fn evalConstScalarRaw(expr: []const u8) Error!u64 {
             pos += 1;
             break :blk 0;
         },
+        0xD2 => blk: { // ref.func funcidx — Wasm 2.0 §5.4.3
+            // Encode as the funcidx itself. Runtime-side funcref
+            // resolution (turning funcidx into a JIT entry ptr)
+            // is Phase 10+ scope; the spec corpus modules that
+            // EXPORT a reftype global via `ref.func` are
+            // currently only imported by cross-module fixtures
+            // that the d-37 unbindable-imports pre-filter
+            // SKIPs, so the stored value is never read by any
+            // assertion in the Wasm 2.0 corpus.
+            const fidx = leb128.readUleb128(u32, expr, &pos) catch return Error.UnsupportedEntrySignature;
+            break :blk @as(u64, fidx);
+        },
         else => return Error.UnsupportedEntrySignature,
     };
     if (pos >= expr.len or expr[pos] != 0x0B) return Error.UnsupportedEntrySignature;
