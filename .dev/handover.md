@@ -10,31 +10,27 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **Phase 9 extended; D-093 (d-39) D-115 FP-select FCSEL discharged + D-116 filed 2026-05-15**
+## Active state — **Phase 9 extended; D-093 (d-40) D-116 discharged + float_exprs lands 2026-05-15**
 
 ### One-line state
 
-D-093 (d-39) discharges D-115's FP-select half. Untyped
-`select` (0x1B) on FP-class operands previously dispatched
-to gpr32 CSEL / x86_64 CMOV because lower emitted
-`extra=0` (operand type unavailable at lower-time); emit
-read val1/val2 from the GPR-class spill slot rather than
-the FP-class slot the operand lived in. d-39 routes the
-validator's already-resolved operand valtype byte through
-a new `validateFunctionAndCollectSelectTypes` entry point
-→ `compileOne(..., select_types)` →
-`lowerFunctionBody(..., select_types)`; lower consumes one
-byte per 0x1B occurrence to populate `ZirInstr.extra`.
-Existing emit dispatch (0x7D/0x7C ⇒ arm64 FCSEL S/D,
-x86_64 `op_alu_float.emitFpSelect`) then fires correctly.
-Edge fixtures `select_fp/select_f<32,64>_negzero` confirm
-the discharge end-to-end on both archs. Trial-enable of
-`float_exprs` NAMES showed +619 PASS / 22 residual FAILs
-all `check(i32:N)` / `f*.load(i32:N)` returning 0 — a
-distinct memory-persistence-across-multi-action-modules
-bug filed as D-116; float_exprs stays out of NAMES until
-D-116 clears. spec_assert 15438/0/508 unchanged at d-39
-close; simd 13301/0/440 unchanged.
+D-093 (d-40) discharges D-116. The "memory persistence
+across multi-action modules" framing turned out to be a
+mis-diagnosis: memory state IS preserved across invokes
+(on_module_loaded reset is per-module). The actual root
+cause was the distiller's `action_supported` /
+`assert_return supported` shape sets + the runner's
+`dispatchVoidResult` / `invokeActionShape` ladders missing
+`(i32, f32)` / `(i32, f64)` / `(i32, i32, i32)`. The bare
+`(invoke "init" 0 15.1)` actions in float_exprs were
+distilled as `skip-impl action-shape-gap` and silently
+skipped, so the follow-up `(invoke "check" 0)` read 0 from
+never-initialised memory. d-40 adds three new
+`entry.callVoid_*` helpers + the matching runner ladder
+arms + distiller shape entries. `float_exprs` lands in
+NAMES. spec_assert non-simd 15438/0/508 → 16091/0/684
+(+653 PASS, 0 FAIL, +1 manifest); simd 13301/0/440
+unchanged.
 
 ### Standing reminder for the autonomous loop
 
@@ -43,11 +39,9 @@ causes, never work around.**
 
 ### Next sub-chunk candidates (names only, NO predictions)
 
-Active `now` debts (post-d-39):
+Active `now` debts (post-d-40):
 - D-093 (parent), D-095 (regalloc partial).
-- D-115 discharged at d-39 (FP-select half).
-- **D-116** (float_exprs memory-persistence across multi-
-  action modules; blocks float_exprs NAMES enable).
+- D-115 discharged at d-39; D-116 discharged at d-40.
 - **D-112** (select call_indirect-context 4× Trap).
 - **D-113** (ref_is_null SEGV).
 - **D-114** (memory_trap 4× load OOB).
@@ -55,15 +49,9 @@ Active `now` debts (post-d-39):
 - D-102/D-105/D-079: cross-module-imports family — surface
   remains SKIP under d-37 pre-filter.
 
-- **d-40** — D-116 float_exprs memory persistence; bisect
-  the `spec_assert_runner_non_simd` directive dispatch +
-  `invoke-action` distillation to find why memory state
-  resets between `(invoke "init" ...)` and the next
-  `(assert_return (invoke "check" ...))`. Once cleared,
-  re-enable `float_exprs` in NAMES.
-- **d-41+** — D-114 memory_trap OOB load.
-- **d-42+** — D-112 select call_indirect-context.
-- **d-43+** — D-113 ref_is_null SEGV (needs lldb +
+- **d-41** — D-114 memory_trap OOB load.
+- **d-42** — D-112 select call_indirect-context.
+- **d-43** — D-113 ref_is_null SEGV (needs lldb +
   debug-print investigation).
 - **d-44+** — remaining wast names (table_*, data,
   memory_grow, memory_copy/fill/init, bulk, etc).
@@ -132,8 +120,9 @@ Other queued post-D-093 names: `address`, `align`, `br_table`,
 | D-093 (d-36) | [x] 9fc5b18a | invoke-action distillation + `start` enabled. Regen distiller emits `invoke-action FN ARGS` for bare-action commands; runner adds `DirectiveKind.invoke_action` + `handle_invoke_action` callback + dispatch. Bare-action traps are PASS per spec (no assertion to violate); unbound-import start-fn traps return `error.SkipModule` (new base-loop path) so they tally SKIP not FAIL. `start` lands. spec_assert 14393/0/386 → 14404/0/392 (+11 PASS, 0 FAIL, +1 manifest); simd unchanged. |
 | D-093 (d-37) | [x] 23724d68 | `elem` NAMES enable via cross-module-imports skip-adr. `hasUnbindableImports` pre-filter; distiller skips `action.module`-targeted assertions; `evalConstScalarRaw` gains `0xD2 ref.func`. spec_assert 14404/0/392 → 14413/0/465 (+9 PASS, 0 FAIL); simd unchanged. |
 | D-093 (d-38) | [x] 3358bec8 | Batch enable 13 NAMES: br, br_if, endianness, forward, labels, left-to-right, stack, ref_null, ref_func, memory, memory_redundancy, float_misc, float_memory. 4 names deferred to debt (D-112 select, D-113 ref_is_null, D-114 memory_trap, D-115 float_exprs). spec_assert 14413/0/465 → 15438/0/508 (+1025 PASS, 0 FAIL, +13 manifests); simd unchanged. |
-| D-093 (d-39) | [x] abfbb617 | D-115 FP-select half discharged: validator → lower → emit untyped-`select` valtype byte plumbing. New `validateFunctionAndCollectSelectTypes` entry point collects per-0x1B resolved valtype byte in body-walk order; `compileOne(..., select_types)` + `lowerFunctionBody(..., select_types)` thread the slice; lower consumes one byte per 0x1B to populate `ZirInstr.extra`. Existing emit dispatch (0x7D/0x7C ⇒ arm64 FCSEL S/D + x86_64 `op_alu_float.emitFpSelect`) fires correctly. Edge fixtures `test/edge_cases/p9/select_fp/select_f<32,64>_negzero.{wat,wasm,expect}`. Trial-enable of `float_exprs` NAMES showed +619 PASS / 22 residual FAILs all memory-persistence-across-multi-action-modules → D-116 filed; `float_exprs` deferred from NAMES pending D-116. spec_assert 15438/0/508 unchanged at d-39 close; simd 13301/0/440 unchanged. |
-| **D-093 (d-40)** | **NEXT** | D-116 float_exprs memory persistence across multi-action modules — bisect `spec_assert_runner_non_simd` directive dispatch + `invoke-action` distillation to find why `(invoke "init" ...)` side-effects on linear memory don't survive into the next `(assert_return (invoke "check" ...))`. |
+| D-093 (d-39) | [x] c54d1ab0 | D-115 FP-select half discharged: validator → lower → emit untyped-`select` valtype byte plumbing. New `validateFunctionAndCollectSelectTypes` entry point collects per-0x1B resolved valtype byte in body-walk order; `compileOne(..., select_types)` + `lowerFunctionBody(..., select_types)` thread the slice; lower consumes one byte per 0x1B to populate `ZirInstr.extra`. Existing emit dispatch (0x7D/0x7C ⇒ arm64 FCSEL S/D + x86_64 `op_alu_float.emitFpSelect`) fires correctly. Edge fixtures `test/edge_cases/p9/select_fp/select_f<32,64>_negzero.{wat,wasm,expect}`. |
+| D-093 (d-40) | [x] e7e1f01f | D-116 discharged. Mis-diagnosed framing was "memory persistence across invokes lost"; actual root cause was distiller `action_supported` / `assert_return supported` shape sets + runner `dispatchVoidResult` / `invokeActionShape` ladders missing `(i32, f32)` / `(i32, f64)` / `(i32, i32, i32)`. Bare `(invoke "init" 0 15.1)` were distilled as `skip-impl action-shape-gap` and silently skipped at run time, so the follow-up assert_return read 0 from never-initialised memory. d-40 adds three new `entry.callVoid_*` helpers (`callVoid_i32f32`, `callVoid_i32f64`, `callVoid_i32i32i32`) + the matching runner ladder arms + distiller shape entries. `float_exprs` lands in NAMES. spec_assert non-simd 15438/0/508 → 16091/0/684 (+653 PASS, 0 FAIL, +1 manifest); simd 13301/0/440 unchanged. |
+| **D-093 (d-41)** | **NEXT** | D-114 memory_trap 4× load OOB-check — scalar `load` traps at OOB addresses don't fire (or fire late) on i32/i64/f32/f64.load. |
 
 Other queued chunks (post-l-1): k-1, k-2, m-4c (= D-090),
 m-2d, n-1, j-3b.
