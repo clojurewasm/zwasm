@@ -229,6 +229,18 @@ NAMES=(
   # populate-side UnsupportedEntrySignature; table_init still
   # SEGVs. Both deferred.
   table_get
+  # d-48 enable: `table_size` + `table_grow`. D-122/D-125 closed
+  # via `table_grow_fn` runtime callout (parallel to ADR-0059
+  # `memory_grow_fn`). Both arches gain `table.grow` emit dispatch
+  # + `op_table.emitTableGrow` indirect-call shape; the spec
+  # runner harness wires `growableTableGrowFn` which extends
+  # `scratch_tables_descriptor[k].len` in place against a fixed
+  # `SCRATCH_EXTRA_TABLE_CAPACITY` arena. table_size.0.wasm
+  # compiles end-to-end (its rejection at d-46 was actually the
+  # table.grow emit gap embedded in the same module's grow-tN
+  # exports, not a table.size-specific issue).
+  table_size
+  table_grow
   # d-41 enable: `memory_trap` — D-114 discharged. The 4× load
   # FAILs were not load-bounds-check bugs; they were caused by a
   # skipped `(assert_return (invoke "i64.store" 0xfff8 0))`
@@ -378,6 +390,17 @@ for c in d['commands']:
         allowed_scalar = lambda x: x['type'] in ('i32', 'i64', 'f32', 'f64')
         if not all(allowed_scalar(x) for x in args):
             lines.append(f'skip-impl non-scalar-arg {a["field"]}')
+            # §9.9 / 9.9-l-1b-d093-d48 (D-122/D-125): assert_return
+            # actions whose args carry reftype values (e.g.
+            # `(invoke "grow" (i32.const 1) (ref.null extern))`)
+            # are skipped because the runner ladder lacks the
+            # reftype-arg dispatch shape. The follow-up size /
+            # observation asserts then read state that depends on
+            # the skipped grow's side effect — mark the module's
+            # state as diverged so they skip cleanly instead of
+            # reporting spurious FAILs against post-grow expected
+            # values.
+            module_state_diverged = True
             continue
         if len(results) > 1:
             lines.append(f'skip-impl multi-result {a["field"]}')

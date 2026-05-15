@@ -127,6 +127,12 @@ pub fn usesRuntimePtr(func: *const ZirFunc) bool {
             // §9.9 / 9.9-m-2c-init: table.init — same trap-fixup
             // surface (src+n vs seg.len, dst+n vs tables[x].len).
             .@"table.init",
+            // §9.9 / 9.9-l-1b-d093-d48 (D-122/D-125): table.grow
+            // loads `table_grow_fn` ptr from `[r15+off]` and CALLs
+            // through it (mirror of memory.grow's ADR-0059 callout).
+            // Without R15 initialised, the LDR reads garbage and
+            // CALL jumps to an invalid address (SEGV).
+            .@"table.grow",
             .@"i32.div_s",
             .@"i32.div_u",
             .@"i32.rem_s",

@@ -5,33 +5,33 @@ skip-impl non-scalar-result get
 skip-impl non-scalar-result get
 skip-impl non-scalar-result get
 skip-impl non-scalar-arg fill
-skip-impl non-scalar-result get
-skip-impl non-scalar-result get
-skip-impl non-scalar-result get
-skip-impl non-scalar-result get
-skip-impl non-scalar-result get
-skip-impl non-scalar-arg fill
-skip-impl non-scalar-result get
-skip-impl non-scalar-result get
-skip-impl non-scalar-result get
-skip-impl non-scalar-result get
-skip-impl non-scalar-arg fill
-skip-impl non-scalar-result get
-skip-impl non-scalar-result get
-skip-impl non-scalar-result get
-skip-impl non-scalar-arg fill
-skip-impl non-scalar-result get
-skip-impl non-scalar-result get
-skip-impl non-scalar-result get
-skip-impl non-scalar-arg fill-abbrev
-skip-impl non-scalar-result get
-skip-impl non-scalar-result get
-skip-impl non-scalar-arg fill
-skip-impl non-scalar-result get
+skip-adr-host-state-diverged assert_return on field=get
+skip-adr-host-state-diverged assert_return on field=get
+skip-adr-host-state-diverged assert_return on field=get
+skip-adr-host-state-diverged assert_return on field=get
+skip-adr-host-state-diverged assert_return on field=get
+skip-adr-host-state-diverged assert_return on field=fill
+skip-adr-host-state-diverged assert_return on field=get
+skip-adr-host-state-diverged assert_return on field=get
+skip-adr-host-state-diverged assert_return on field=get
+skip-adr-host-state-diverged assert_return on field=get
+skip-adr-host-state-diverged assert_return on field=fill
+skip-adr-host-state-diverged assert_return on field=get
+skip-adr-host-state-diverged assert_return on field=get
+skip-adr-host-state-diverged assert_return on field=get
+skip-adr-host-state-diverged assert_return on field=fill
+skip-adr-host-state-diverged assert_return on field=get
+skip-adr-host-state-diverged assert_return on field=get
+skip-adr-host-state-diverged assert_return on field=get
+skip-adr-host-state-diverged assert_return on field=fill-abbrev
+skip-adr-host-state-diverged assert_return on field=get
+skip-adr-host-state-diverged assert_return on field=get
+skip-adr-host-state-diverged assert_return on field=fill
+skip-adr-host-state-diverged assert_return on field=get
 skip-impl trap-non-scalar-arg fill
-skip-impl non-scalar-result get
-skip-impl non-scalar-result get
-skip-impl non-scalar-result get
+skip-adr-host-state-diverged assert_return on field=get
+skip-adr-host-state-diverged assert_return on field=get
+skip-adr-host-state-diverged assert_return on field=get
 skip-impl trap-non-scalar-arg fill
 skip-impl trap-non-scalar-arg fill
 assert_invalid table_fill.1.wasm

@@ -43,6 +43,9 @@ const gpr = @import("gpr.zig");
 const jit_abi = @import("../shared/jit_abi.zig");
 const types = @import("types.zig");
 const trace = @import("../../../diagnostic/trace.zig");
+const op_call = @import("op_call.zig");
+const emitShadowAlloc = op_call.emitShadowAlloc;
+const emitShadowFree = op_call.emitShadowFree;
 
 const Allocator = std.mem.Allocator;
 const Error = types.Error;
@@ -166,6 +169,72 @@ pub fn emitTableSize(
 
     // MOV Rdst_d, [RAX + len_disp] (32-bit, zero-ext to 64).
     try buf.appendSlice(allocator, inst.encMovR32FromMemDisp32(dst_r, .rax, len_disp).slice());
+    try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, result_v, 0);
+    try pushed_vregs.append(allocator, result_v);
+}
+
+/// Wasm spec §4.4.13 (table.grow x) — pop n:i32, init:reftype;
+/// push i32 (previous size on success, -1 on failure). Per
+/// §9.9 / 9.9-l-1b-d093-d48 (D-122/D-125 mirror of ADR-0059):
+/// indirect call through `JitRuntime.table_grow_fn`.
+///
+/// SysV C-ABI args: RDI = rt, ESI = tableidx, RDX = init (8-byte
+/// raw bits), ECX = delta. Result lands in EAX.
+pub fn emitTableGrow(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    next_vreg: *u32,
+    spill_base_off: u32,
+    outgoing_max_bytes: u32,
+    tableidx: u32,
+) Error!void {
+    if (tableidx >= 1024) return Error.UnsupportedOp;
+
+    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const delta_v = pushed_vregs.pop().?;
+    const init_v = pushed_vregs.pop().?;
+
+    const arg1 = abi.current.arg_gprs[1]; // tableidx
+    const arg2 = abi.current.arg_gprs[2]; // init (8-byte raw)
+    const arg3 = abi.current.arg_gprs[3]; // delta
+
+    // Stage delta into arg3 (Cc-dependent). gprLoadSpilled may park
+    // it in R10 (spill-stage); MOV to arg3 if needed.
+    const delta_src = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, delta_v, 0);
+    if (delta_src != arg3) {
+        try buf.appendSlice(allocator, inst.encMovRR(.d, arg3, delta_src).slice());
+    }
+
+    // Stage init into arg2 (full 8-byte ref). Stage 1 to avoid
+    // colliding with delta's R10 home.
+    const init_src = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, init_v, 1);
+    if (init_src != arg2) {
+        try buf.appendSlice(allocator, inst.encMovRR(.q, arg2, init_src).slice());
+    }
+
+    // arg1 = tableidx (immediate u32). MOV r32, imm32.
+    try buf.appendSlice(allocator, inst.encMovImm32W(arg1, tableidx).slice());
+
+    // arg0 (= entry_arg0_gpr) = runtime_ptr (R15 alias).
+    try buf.appendSlice(allocator, inst.encMovRR(.q, abi.current.entry_arg0_gpr, abi.runtime_ptr_save_gpr).slice());
+
+    // RAX = JitRuntime.table_grow_fn (8-byte fn ptr).
+    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.table_grow_fn_off).slice());
+
+    try emitShadowAlloc(allocator, buf, outgoing_max_bytes);
+    try buf.appendSlice(allocator, inst.encCallReg(.rax).slice());
+    try emitShadowFree(allocator, buf, outgoing_max_bytes);
+
+    // Capture EAX → result vreg.
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+    const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
+    if (dst_r != abi.return_gpr) {
+        try buf.appendSlice(allocator, inst.encMovRR(.d, dst_r, abi.return_gpr).slice());
+    }
     try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, result_v, 0);
     try pushed_vregs.append(allocator, result_v);
 }

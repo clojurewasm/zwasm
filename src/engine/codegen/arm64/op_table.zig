@@ -159,6 +159,61 @@ pub fn emitTableSize(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     try ctx.pushed_vregs.append(ctx.allocator, result);
 }
 
+/// Wasm spec §4.4.13 (table.grow x) — pop n:i32, init:reftype;
+/// push i32 (previous size on success, -1 on failure). Per
+/// §9.9 / 9.9-l-1b-d093-d48 (D-122/D-125 mirror of ADR-0059):
+/// indirect call through `JitRuntime.table_grow_fn` with AAPCS64
+/// args:
+///   X0 = runtime_ptr (= X19),
+///   W1 = tableidx (immediate),
+///   X2 = init reftype value (8-byte raw bits),
+///   W3 = delta entries.
+/// BLR clobbers all caller-saved regs; AAPCS64 preserves
+/// X19..X28 so the cached prologue invariants (X28 vm_base,
+/// X27 mem_limit) survive even though the callout did not
+/// touch linear memory.
+pub fn emitTableGrow(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
+    const tableidx = ins.payload;
+    if (tableidx >= 1024) return Error.UnsupportedOp;
+
+    if (ctx.pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const delta_v = ctx.pushed_vregs.pop().?;
+    const init_v = ctx.pushed_vregs.pop().?;
+
+    // Stage operands into AAPCS64 arg slots BEFORE clobbering X0/X1
+    // with marshaling MOVs. Use ORR-ZR (alias for MOV) so partial
+    // and full-width transfers share the same encoder.
+    const w_delta_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, delta_v, 0);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(3, 31, w_delta_src));
+    const x_init_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, init_v, 1);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(2, 31, x_init_src));
+
+    // W1 = tableidx (16-bit MOVZ covers tableidx < 1024).
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(1, @intCast(tableidx)));
+    // X0 = runtime_ptr.
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr));
+    // LDR X16, [X19, #table_grow_fn_off]; BLR X16.
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, abi.runtime_ptr_save_gpr, jit_abi.table_grow_fn_off));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBLR(16));
+
+    // Capture W0 → result vreg as i32 (mirror op_call captureCallResult).
+    const result = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    if (result >= ctx.alloc.slots.len) return Error.SlotOverflow;
+    switch (ctx.alloc.slot(result, .gpr)) {
+        .reg => |id| {
+            const wd = abi.slotToReg(id) orelse return Error.SlotOverflow;
+            if (wd != 0) try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(wd, 31, 0));
+        },
+        .spill => |off| {
+            const abs_off: u32 = ctx.spill_base_off + off;
+            if (abs_off > 16380) return Error.SlotOverflow;
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImmW(0, 31, @intCast(abs_off)));
+        },
+    }
+    try ctx.pushed_vregs.append(ctx.allocator, result);
+}
+
 /// Wasm spec §4.4.14 (table.fill x) — pop n (i32), val (reftype),
 /// dst (i32); write `n` copies of `val` into `tables[x][dst..dst+n]`.
 /// Traps `OutOfBoundsTableAccess` if `dst+n > tables[x].len`.

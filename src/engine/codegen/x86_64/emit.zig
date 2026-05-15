@@ -902,6 +902,7 @@ pub fn compile(
             .@"table.get" => try op_table.emitTableGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, func.func_idx, ins.payload),
             .@"table.set" => try op_table.emitTableSet(allocator, &buf, alloc, &pushed_vregs, &bounds_fixups, spill_base_off, func.func_idx, ins.payload),
             .@"table.size" => try op_table.emitTableSize(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
+            .@"table.grow" => try op_table.emitTableGrow(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, outgoing_max_bytes, ins.payload),
             // §9.9 / 9.9-m-2b (per ADR-0058): table.fill — inline
             // loop. Mirror of arm64 path.
             .@"table.fill" => try op_table.emitTableFill(allocator, &buf, alloc, &pushed_vregs, &bounds_fixups, spill_base_off, func.func_idx, ins.payload),

@@ -292,6 +292,18 @@ pub const JitRuntime = extern struct {
     tables_jit_ci_ptr: [*]const TableJitCallInfo = undefined,
     tables_jit_ci_count: u32 = 0,
     _pad11: u32 = 0,
+    /// §9.9 / 9.9-l-1b-d093-d48 (D-122 / D-125): `table.grow tableidx`
+    /// callout. Args: `(rt: *JitRuntime, tableidx: u32, init: u64,
+    /// delta: u32)` → previous entry count on success (widened to
+    /// i32), `-1` on failure. The fn MUST update the per-table
+    /// `tables_ptr[tableidx].len` (and `refs` if reallocated) in
+    /// place when growth succeeds. Calling convention is C-ABI
+    /// (SysV/AAPCS64); callee-saved registers MUST be preserved.
+    ///
+    /// Defaults to `defaultTableGrowReject` (always returns -1)
+    /// so JIT-emitted BLR/CALL through this slot is SEGV-safe out
+    /// of the box. Spec runners override with `growableTableGrowFn`.
+    table_grow_fn: *const fn (rt: *JitRuntime, tableidx: u32, init: u64, delta: u32) callconv(.c) i32 = defaultTableGrowReject,
 };
 
 /// Default `memory_grow_fn` — unconditionally refuses growth by
@@ -303,6 +315,18 @@ pub const JitRuntime = extern struct {
 pub fn defaultMemoryGrowReject(rt: *JitRuntime, delta_pages: u32) callconv(.c) i32 {
     _ = rt;
     _ = delta_pages;
+    return -1;
+}
+
+/// Default `table_grow_fn` — unconditionally refuses growth by
+/// returning the spec sentinel `-1`. Spec-conformant for any host
+/// that opts to disallow runtime table growth (per Wasm 2.0
+/// §4.4.10.1).
+pub fn defaultTableGrowReject(rt: *JitRuntime, tableidx: u32, init: u64, delta: u32) callconv(.c) i32 {
+    _ = rt;
+    _ = tableidx;
+    _ = init;
+    _ = delta;
     return -1;
 }
 
@@ -345,6 +369,7 @@ pub const host_state_off: u12 = @offsetOf(JitRuntime, "host_state");
 pub const memory_grow_fn_off: u12 = @offsetOf(JitRuntime, "memory_grow_fn");
 pub const tables_jit_ci_ptr_off: u12 = @offsetOf(JitRuntime, "tables_jit_ci_ptr");
 pub const tables_jit_ci_count_off: u12 = @offsetOf(JitRuntime, "tables_jit_ci_count");
+pub const table_grow_fn_off: u12 = @offsetOf(JitRuntime, "table_grow_fn");
 
 /// Total size of the head section consumed by the prologue.
 pub const head_size: u32 = @sizeOf(JitRuntime);
@@ -441,6 +466,9 @@ comptime {
     if (@sizeOf(TableJitCallInfo) != 16) @compileError("TableJitCallInfo size != 16; JIT call_indirect stride assumption broken");
     if (@offsetOf(TableJitCallInfo, "funcptr_base") != 0) @compileError("TableJitCallInfo.funcptr_base offset != 0");
     if (@offsetOf(TableJitCallInfo, "typeidx_base") != 8) @compileError("TableJitCallInfo.typeidx_base offset != 8");
+    // §9.9 / 9.9-l-1b-d093-d48 (D-122 / D-125): table_grow_fn is X-form pointer.
+    if ((table_grow_fn_off & 7) != 0) @compileError("table_grow_fn_off not 8-aligned");
+    if (table_grow_fn_off > 32760) @compileError("table_grow_fn_off exceeds X-form imm12 budget");
 }
 
 // ============================================================
@@ -461,8 +489,8 @@ test "JitRuntime: layout offsets match documented prologue load sequence" {
     try testing.expectEqual(@as(u12, 80), jit_executed_flag_off);
 }
 
-test "JitRuntime: total size = 216 bytes (post-§9.9 / 9.9-l-1b-d093-d42 tables_jit_ci tail)" {
-    try testing.expectEqual(@as(u32, 216), head_size);
+test "JitRuntime: total size = 224 bytes (post-§9.9 / 9.9-l-1b-d093-d48 table_grow_fn tail)" {
+    try testing.expectEqual(@as(u32, 224), head_size);
 }
 
 test "JitRuntime: §9.9 / 9.9-l-1b-d093-d8a callout offsets (host_state + memory_grow_fn)" {
@@ -473,6 +501,10 @@ test "JitRuntime: §9.9 / 9.9-l-1b-d093-d8a callout offsets (host_state + memory
 test "JitRuntime: §9.9 / 9.9-l-1b-d093-d42 tables_jit_ci offsets" {
     try testing.expectEqual(@as(u12, 200), tables_jit_ci_ptr_off);
     try testing.expectEqual(@as(u12, 208), tables_jit_ci_count_off);
+}
+
+test "JitRuntime: §9.9 / 9.9-l-1b-d093-d48 table_grow_fn offset" {
+    try testing.expectEqual(@as(u12, 216), table_grow_fn_off);
 }
 
 test "TableJitCallInfo: layout is 16 bytes with funcptr_base/typeidx_base at expected offsets" {

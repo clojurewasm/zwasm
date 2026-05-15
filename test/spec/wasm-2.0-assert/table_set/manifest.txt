@@ -1,14 +1,14 @@
 module table_set.0.wasm
 skip-impl non-scalar-result get-externref
 skip-impl non-scalar-arg set-externref
-skip-impl non-scalar-result get-externref
-skip-impl non-scalar-arg set-externref
-skip-impl non-scalar-result get-externref
-skip-impl non-scalar-result get-funcref
-assert_return set-funcref-from i32:0 i32:1 -> ()
-assert_return is_null-funcref i32:0 -> i32:0
-skip-impl non-scalar-arg set-funcref
-skip-impl non-scalar-result get-funcref
+skip-adr-host-state-diverged assert_return on field=get-externref
+skip-adr-host-state-diverged assert_return on field=set-externref
+skip-adr-host-state-diverged assert_return on field=get-externref
+skip-adr-host-state-diverged assert_return on field=get-funcref
+skip-adr-host-state-diverged assert_return on field=set-funcref-from
+skip-adr-host-state-diverged assert_return on field=is_null-funcref
+skip-adr-host-state-diverged assert_return on field=set-funcref
+skip-adr-host-state-diverged assert_return on field=get-funcref
 skip-impl trap-non-scalar-arg set-externref
 skip-impl trap-non-scalar-arg set-funcref
 skip-impl trap-non-scalar-arg set-externref

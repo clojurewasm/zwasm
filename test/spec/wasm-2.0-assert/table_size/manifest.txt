@@ -1,0 +1,39 @@
+module table_size.0.wasm
+assert_return size-t0 () -> i32:0
+assert_return grow-t0 i32:1 -> ()
+assert_return size-t0 () -> i32:1
+assert_return grow-t0 i32:4 -> ()
+assert_return size-t0 () -> i32:5
+assert_return grow-t0 i32:0 -> ()
+assert_return size-t0 () -> i32:5
+assert_return size-t1 () -> i32:1
+assert_return grow-t1 i32:1 -> ()
+assert_return size-t1 () -> i32:2
+assert_return grow-t1 i32:4 -> ()
+assert_return size-t1 () -> i32:6
+assert_return grow-t1 i32:0 -> ()
+assert_return size-t1 () -> i32:6
+assert_return size-t2 () -> i32:0
+assert_return grow-t2 i32:3 -> ()
+assert_return size-t2 () -> i32:0
+assert_return grow-t2 i32:1 -> ()
+assert_return size-t2 () -> i32:1
+assert_return grow-t2 i32:0 -> ()
+assert_return size-t2 () -> i32:1
+assert_return grow-t2 i32:4 -> ()
+assert_return size-t2 () -> i32:1
+assert_return grow-t2 i32:1 -> ()
+assert_return size-t2 () -> i32:2
+assert_return size-t3 () -> i32:3
+assert_return grow-t3 i32:1 -> ()
+assert_return size-t3 () -> i32:4
+assert_return grow-t3 i32:3 -> ()
+assert_return size-t3 () -> i32:7
+assert_return grow-t3 i32:0 -> ()
+assert_return size-t3 () -> i32:7
+assert_return grow-t3 i32:2 -> ()
+assert_return size-t3 () -> i32:7
+assert_return grow-t3 i32:1 -> ()
+assert_return size-t3 () -> i32:8
+assert_invalid table_size.1.wasm
+assert_invalid table_size.2.wasm

@@ -225,6 +225,7 @@ pub fn makeJitRuntime(
         .host_dispatch_base = &host_dispatch_stubs,
         .host_dispatch_count = HOST_DISPATCH_STUB_CAPACITY,
         .memory_grow_fn = growableMemoryGrowFn,
+        .table_grow_fn = growableTableGrowFn,
     };
 }
 
@@ -255,7 +256,10 @@ fn hostImportTrapStub(rt: *entry.JitRuntime) callconv(.c) void {
 /// corpus's non-zero tables are all small (≤ 16 entries in
 /// `select.wast`).
 pub const SCRATCH_MAX_TABLES: u32 = 4;
-pub const SCRATCH_EXTRA_TABLE_CAPACITY: u32 = 64;
+/// §9.9 / 9.9-l-1b-d093-d48 (D-122/D-125): bumped 64 → 1024 to
+/// satisfy `table_grow.wast`'s `grow($t, 800)` sequence (mirrors
+/// the d-21 `GROWABLE_MEMORY_CAPACITY` 64 → 1024 bump).
+pub const SCRATCH_EXTRA_TABLE_CAPACITY: u32 = 1024;
 
 /// Per-non-zero-table funcptr/typeidx scratch. Tables 1..N-1
 /// (= up to SCRATCH_MAX_TABLES-1) each own one row; the JIT body
@@ -381,6 +385,7 @@ pub fn setupMultiTableScratch(
         // spec assert_trap accepts.
         const tbl_min = runner_mod.declaredTableMin(gpa, wasm_bytes, k);
         if (tbl_min > SCRATCH_EXTRA_TABLE_CAPACITY) return error.UnsupportedEntrySignature;
+        const tbl_max = runner_mod.declaredTableMax(gpa, wasm_bytes, k);
         if (k > 0) {
             const fp_slice = scratch_extra_funcptrs[k - 1][0..tbl_min];
             const ti_slice = scratch_extra_typeidxs[k - 1][0..tbl_min];
@@ -398,7 +403,7 @@ pub fn setupMultiTableScratch(
         scratch_tables_descriptor[k] = .{
             .refs = if (tbl_min == 0) @as([*]u64, undefined) else refs_slice.ptr,
             .len = tbl_min,
-            .max = entry.table_no_max,
+            .max = tbl_max orelse entry.table_no_max,
         };
     }
     active_table_count = num_tables;
@@ -591,6 +596,33 @@ pub fn extractStartFunc(allocator: std.mem.Allocator, wasm_bytes: []const u8) ?u
 /// so subsequent asserts within the same module see the grown
 /// size. Returns -1 when growth would exceed `GROWABLE_MEMORY_CAPACITY`,
 /// matching Wasm 1.0 spec §4.4.7.6 host-refuses-growth semantics.
+/// §9.9 / 9.9-l-1b-d093-d48 (D-122/D-125): `table.grow` callout
+/// for spec runners. Grows `scratch_tables_descriptor[tableidx]`
+/// in place by appending `delta` slots filled with `init`. The
+/// arena (`scratch_table_refs[tableidx]`) is fixed-capacity, so
+/// growth past `SCRATCH_EXTRA_TABLE_CAPACITY` returns -1 per Wasm
+/// 2.0 spec §4.4.10.1 host-refuses-growth semantics. Also returns
+/// -1 when growth would exceed the descriptor's declared `max`.
+pub fn growableTableGrowFn(rt: *entry.JitRuntime, tableidx: u32, init: u64, delta: u32) callconv(.c) i32 {
+    if (tableidx >= active_table_count) return -1;
+    const desc = &scratch_tables_descriptor[tableidx];
+    const old_len = desc.len;
+    const new_len: u64 = @as(u64, old_len) + @as(u64, delta);
+    if (new_len > SCRATCH_EXTRA_TABLE_CAPACITY) return -1;
+    if (desc.max != entry.table_no_max and new_len > desc.max) return -1;
+    const arena = &scratch_table_refs[tableidx];
+    var i: u32 = 0;
+    while (i < delta) : (i += 1) {
+        arena[old_len + i] = init;
+    }
+    desc.refs = arena;
+    desc.len = @intCast(new_len);
+    // The mirror tables_jit_ci entry's funcptr_base/typeidx_base
+    // are call_indirect-only and unaffected by table.grow.
+    _ = rt;
+    return @intCast(old_len);
+}
+
 pub fn growableMemoryGrowFn(rt: *entry.JitRuntime, delta_pages: u32) callconv(.c) i32 {
     const page_size: u64 = 65536;
     const old_bytes = current_mem_bytes;

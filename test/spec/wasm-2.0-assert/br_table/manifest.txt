@@ -146,8 +146,8 @@ assert_return nested-br_table-value-index i32:4293967296 -> i32:9
 assert_return nested-br_table-value-index i32:9423975 -> i32:9
 assert_return nested-br_table-loop-block i32:1 -> i32:3
 skip-impl non-scalar-arg meet-externref
-skip-impl non-scalar-arg meet-externref
-skip-impl non-scalar-arg meet-externref
+skip-adr-host-state-diverged assert_return on field=meet-externref
+skip-adr-host-state-diverged assert_return on field=meet-externref
 assert_invalid br_table.1.wasm
 assert_invalid br_table.2.wasm
 assert_invalid br_table.3.wasm

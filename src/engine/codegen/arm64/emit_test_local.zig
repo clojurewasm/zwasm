@@ -104,15 +104,14 @@ test "compile: i32.const 0x12345678 emits MOVZ + MOVK (full 32-bit)" {
 }
 
 test "compile: unsupported op surfaces UnsupportedOp" {
-    // With sub-h block fully closed, the remaining unsupported MVP
-    // ops live in feature/ext_2_0. memory.copy / memory.fill landed
-    // chunk c2; table.{get,set,size,fill,copy} landed §9.9 / 9.9-m-2a..c.
-    // table.grow remains unimplemented (deferred to m-2d behind an
-    // allocator-helper infrastructure) — use it as the probe.
+    // §9.9 / 9.9-l-1b-d093-d48: table.grow now lands via the
+    // table_grow_fn callout (D-122/D-125), so the probe shifts to
+    // a Wasm 3.0+ atomic op which the Phase 9 ZIR enum reserves
+    // but no codegen path implements yet.
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
-    try f.instrs.append(testing.allocator, .{ .op = .@"table.grow" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"atomic.fence" });
     f.liveness = .{ .ranges = &.{} };
     const empty: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
     try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, empty, &.{}, &.{}, 0, &.{}, &.{}));

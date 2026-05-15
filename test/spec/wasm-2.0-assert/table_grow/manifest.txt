@@ -1,0 +1,58 @@
+module table_grow.0.wasm
+assert_return size () -> i32:0
+skip-impl trap-non-scalar-arg set
+assert_trap get i32:0
+skip-impl non-scalar-arg grow
+skip-adr-host-state-diverged assert_return on field=size
+skip-adr-host-state-diverged assert_return on field=get
+skip-adr-host-state-diverged assert_return on field=set
+skip-adr-host-state-diverged assert_return on field=get
+skip-impl trap-non-scalar-arg set
+assert_trap get i32:1
+skip-adr-host-state-diverged assert_return on field=grow-abbrev
+skip-adr-host-state-diverged assert_return on field=size
+skip-adr-host-state-diverged assert_return on field=get
+skip-adr-host-state-diverged assert_return on field=set
+skip-adr-host-state-diverged assert_return on field=get
+skip-adr-host-state-diverged assert_return on field=get
+skip-adr-host-state-diverged assert_return on field=get
+skip-adr-host-state-diverged assert_return on field=set
+skip-adr-host-state-diverged assert_return on field=get
+skip-impl trap-non-scalar-arg set
+assert_trap get i32:5
+module table_grow.1.wasm
+assert_return grow () -> i32:4294967295
+module table_grow.2.wasm
+assert_return grow i32:0 -> i32:0
+assert_return grow i32:1 -> i32:0
+assert_return grow i32:0 -> i32:1
+assert_return grow i32:2 -> i32:1
+assert_return grow i32:800 -> i32:3
+module table_grow.3.wasm
+assert_return grow i32:0 -> i32:0
+assert_return grow i32:1 -> i32:0
+assert_return grow i32:1 -> i32:1
+assert_return grow i32:2 -> i32:2
+assert_return grow i32:6 -> i32:4
+assert_return grow i32:0 -> i32:10
+assert_return grow i32:1 -> i32:4294967295
+assert_return grow i32:65536 -> i32:4294967295
+module table_grow.4.wasm
+skip-impl non-scalar-result check-table-null
+assert_return grow i32:10 -> i32:10
+skip-impl non-scalar-result check-table-null
+module table_grow.5.wasm
+skip-impl directive-register
+skip-adr-cross-module-action assert_return on module=$Tgt field=grow
+module table_grow.6.wasm
+skip-impl directive-register
+skip-adr-cross-module-action assert_return on module=$Tgit1 field=grow
+module table_grow.7.wasm
+skip-adr-cross-module-action assert_return on module=$Tgit2 field=size
+assert_invalid table_grow.8.wasm
+assert_invalid table_grow.9.wasm
+assert_invalid table_grow.10.wasm
+assert_invalid table_grow.11.wasm
+assert_invalid table_grow.12.wasm
+assert_invalid table_grow.13.wasm
+assert_invalid table_grow.14.wasm

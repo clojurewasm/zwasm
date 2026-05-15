@@ -1363,6 +1363,7 @@ pub fn compile(
             .@"table.get" => try op_table.emitTableGet(&ctx, &ins),
             .@"table.set" => try op_table.emitTableSet(&ctx, &ins),
             .@"table.size" => try op_table.emitTableSize(&ctx, &ins),
+            .@"table.grow" => try op_table.emitTableGrow(&ctx, &ins),
             // §9.9 / 9.9-m-2b (per ADR-0058): table.fill — inline
             // loop writing N copies of val into refs[dst..dst+n].
             .@"table.fill" => try op_table.emitTableFill(&ctx, &ins),

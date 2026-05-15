@@ -612,6 +612,24 @@ pub fn declaredTableMin(allocator: Allocator, wasm_bytes: []const u8, tableidx: 
     return tables.items[tableidx].min;
 }
 
+/// §9.9 / 9.9-l-1b-d093-d48 (D-122/D-125): per-table declared
+/// `max` lookup. Returns `null` when the table has no max OR the
+/// module has no table section OR `tableidx` is out of range.
+/// Consumed by spec_assert harness to populate `TableSlice.max`
+/// so JIT `table.grow`'s callout can enforce the cap (Wasm 2.0
+/// §4.4.10.1 host-refuses-growth semantics).
+pub fn declaredTableMax(allocator: Allocator, wasm_bytes: []const u8, tableidx: u32) ?u32 {
+    var temp_arena = std.heap.ArenaAllocator.init(allocator);
+    defer temp_arena.deinit();
+    const ta = temp_arena.allocator();
+    var module = parser.parse(ta, wasm_bytes) catch return null;
+    const section = module.find(.table) orelse return null;
+    var tables = sections.decodeTables(ta, section.body) catch return null;
+    defer tables.deinit();
+    if (tableidx >= tables.items.len) return null;
+    return tables.items[tableidx].max;
+}
+
 /// Apply active data segments from `wasm_bytes` into `memory`
 /// (a caller-owned buffer, e.g. a fixed-size scratch arena).
 /// Mirrors the data-init half of `setupRuntime` so spec-test
