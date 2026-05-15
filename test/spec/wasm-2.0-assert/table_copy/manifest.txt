@@ -1,5 +1,5 @@
 module table_copy.0.wasm
-skip-impl directive-register
+skip-adr-skip_cross_module_register as=a
 module table_copy.1.wasm
 invoke-action test ()
 assert_trap check_t0 i32:0

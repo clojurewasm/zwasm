@@ -672,6 +672,21 @@ for c in d['commands']:
         # subsequent assert_returns can proceed.
         module_state_diverged = False
         lines.append(f'invoke-action {quote_field(a["field"])} {args_s}')
+    elif t == 'register':
+        # §9.9 / 9.9-l-1b-d093-d59: `(register "alias" $M)` binds
+        # the named module under a host-import key for subsequent
+        # `(invoke $alias "fn" ...)` from a later module. Our spec
+        # scaffold filters every `action.module`-bearing assertion
+        # (assert_return / assert_trap / action arms above) and
+        # every module with non-spectest imports via
+        # `hasUnbindableImports` (d-37). Nothing downstream consumes
+        # the register's effect, so the directive is structurally a
+        # no-op for us. Emit a skip-adr line in the gate-conforming
+        # vocab — `skip-adr-skip_<adr_id>` matching ADR file
+        # `.dev/decisions/skip_<adr_id>.md` per ADR-0029 Path B's
+        # check_skip_adrs.sh prefix-vocab rule.
+        as_name = c.get('as', '?')
+        lines.append(f'skip-adr-skip_cross_module_register as={as_name!s}')
     else:
         lines.append(f'skip-impl directive-{t}')
 with open(dst, 'w') as f:
