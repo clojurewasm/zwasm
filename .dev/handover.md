@@ -10,21 +10,23 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **Phase 9 extended; ADR-0062 + §9.9 / 9.12 substrate-audit hard gate installed 2026-05-16**
+## Active state — **d-48 closed: D-122 + D-125 discharged via `table_grow_fn` callout**
 
 ### One-line state
 
-User-directed sequence resumed: **(1) Phase 9 = 100% PASS in
-current trajectory; (2) Phase 9 完備直後 substrate
-re-examination が構造的に発火**. ADR-0062 files the new gate
-row 9.12 (`🔒` + `.dev/phase9_completion_substrate_audit.md`)
-between Phase 9 close and Phase 10 entry; existing Phase 10
-entry gate renumbered 9.12 → 9.13. SKILL.md hard-gate
-detection rule extended to match the new gate-doc filename
-pattern. Loop continues to drive d-48+ Wasm 2.0 PASS
-chunks until 9.9 `[x]`; substrate audit fires automatically
-at next resume thereafter. spec_assert non-simd 20927/0/1219,
-simd 13301/0/440 (unchanged from d-47).
+d-48 lands `table.grow` emit on both arches via new
+`JitRuntime.table_grow_fn` callout (mirrors ADR-0059's
+`memory_grow_fn`). Discovery: D-122 was symptom-of-D-125
+(table_size.0.wasm's compile rejection came from the missing
+table.grow dispatch arm in the same module). Also: x86_64
+`usage.usesRuntimePtr` whitelist gap caught — table.grow
+needs R15 (callout reads fn ptr from `[r15+offset]`); fix
+prevents OrbStack SEGV. spec_assert non-simd 20927/0/1219 →
+20925/0/1311 (-2 PASS net = state-diverged conservative
+skip; +2 manifests `table_size`/`table_grow`). simd
+13301/0/440 unchanged. Loop continues toward 9.9 `[x]`;
+substrate audit hard gate (9.12) fires automatically when
+next chunk would resolve to it.
 
 ### Standing reminder for the autonomous loop
 
@@ -33,25 +35,21 @@ causes, never work around.**
 
 ### Next sub-chunk candidates (names only, NO predictions)
 
-Active `now` debts (post-d-46):
+Active `now` debts (post-d-48):
 - D-093 (parent), D-095 (regalloc partial).
-- D-112 / D-113 / D-114 / D-115 / D-116 / D-118 discharged.
+- D-112 / D-113 / D-114 / D-115 / D-116 / D-118 / D-121 /
+  D-122 / D-125 discharged.
 - **D-119** bulk SEGV mid-corpus.
 - **D-120** memory_init 1 value-mismatch + 1 missing-trap.
-- **D-121** table_get externref OOB not trapping.
-- **D-122** table_size UnsupportedOp at compile.
 - **D-123** table_init SEGV mid-corpus.
 - **D-124** table_copy 8 FAIL bounds-trap not firing.
-- **D-125** table_grow 6 FAIL UnsupportedOp at compile.
 - D-103: discharged at d-37 via cross-module-imports skip.
 - D-102/D-105/D-079: cross-module-imports family — surface
   remains SKIP under d-37 pre-filter.
 
-- **d-47** — D-122 / D-125 UnsupportedOp investigation
-  (compile-time gap in table_size / table_grow).
-- **d-48** — D-121 / D-124 trap-check (table_get externref
-  + table_copy bounds).
-- **d-49** — D-123 table_init SEGV.
+- **d-49** — D-123 / D-124 paired (table_init SEGV +
+  table_copy bounds-trap; both touch the per-table refs
+  arena populate path).
 - **d-50** — D-119 bulk SEGV.
 - **d-51** — D-120 memory_init FAILs.
 - **d-52+** — Instance-aware refactor (Phase 10 transition).
@@ -129,7 +127,7 @@ Other queued post-D-093 names: `address`, `align`, `br_table`,
 | D-093 (d-45) | [x] 50237a0e | D-118 close. Root cause was NOT regalloc vreg overflow but our hardcoded br_table target caps (arm64: `count >= 4096` reused Error.SlotOverflow; x86_64: `count > 127` from imm8/rel8). `br_table.wast` `large` declares 16149 targets. d-45 introduces per-case CMP dispatch on i magnitude (arm64 MOVZ+MOVK+CMP-reg; x86_64 CMP-imm32 + Jcc-rel32) and accepts reftype block-types (-16/-17 per Wasm 2.0 §5.3.5) in validator readBlockType + lower readBlockArity (br_table.wast `meet-funcref` / `meet-externref` exports). spec_assert non-simd 20728/0/1150 → 20898/0/1153 (+170 PASS, 0 FAIL, +1 manifest); simd 13301/0/440 unchanged. |
 | D-093 (d-46) | [x] 469c50cf | Batch enable +3 table_* NAMES (table, table_set, table_fill) via per-corpus isolated bisect. 5 deferred to new debt: D-121 table_get externref-OOB, D-122 table_size UnsupportedOp, D-123 table_init SEGV, D-124 table_copy bounds-trap, D-125 table_grow UnsupportedOp. spec_assert non-simd 20898/0/1153 → 20918/0/1213 (+20 PASS, 0 FAIL, +3 manifests); simd 13301/0/440 unchanged. |
 | D-093 (d-47) | [x] 664b3fa4 | D-121 close. Pre-d-47 `makeJitRuntime` reset `scratch_tables_descriptor[0].len` to scratch capacity on every per-assert call, overriding setupMultiTableScratch's module-derived `tbl_min`. Drop the clobber + use `declaredTableMin` for k=0 too. `table_get` lands. spec_assert non-simd 20918/0/1213 → 20927/0/1219 (+9 PASS, 0 FAIL, +1 manifest); simd 13301/0/440 unchanged. |
-| d-48 | **NEXT** | D-122 + D-125 paired — `table_size` / `table_grow` both UnsupportedOp at compile. Root cause is `table.grow` emit gap on both arches. Discharge needs `table_grow_fn` runtime callout (mirror of ADR-0059 `memory_grow_fn`) + per-arch BLR/CALL emit + harness `growTableImpl` resize for `scratch_table_refs[k]`. Substrate-audit gate (9.12) is installed; this chunk continues current trajectory. |
+| D-093 (d-48) | [x] `323b0046` | D-122 + D-125 close. New `JitRuntime.table_grow_fn` callout (mirror of ADR-0059's `memory_grow_fn`), JitRuntime tail extends 216 → 224 bytes; both arches gain `op_table.emitTableGrow` (BLR/CALL via fn ptr; arm64 reuses memory.grow's prologue invariant cache, x86_64 routes through `usage.usesRuntimePtr`). Harness `growableTableGrowFn` enforces declared max via new `runner.declaredTableMax` and grows the per-table refs arena in place; `SCRATCH_EXTRA_TABLE_CAPACITY` 64 → 1024. Distiller's `non-scalar-arg` path now sets `module_state_diverged` so post-skip observation asserts skip cleanly. x86_64 `usage.usesRuntimePtr` whitelist gap discovered + fixed (table.grow needed R15 for fn-ptr load). spec_assert non-simd 20927/0/1219 → 20925/0/1311 (-2 PASS, +2 manifests `table_size`/`table_grow`; -2 PASS = state-diverged conservative skip on `select`/`global`/etc post-non-scalar-arg observation asserts). simd 13301/0/440 unchanged. Edge fixtures `table_ops/grow_happy.{wat,wasm,expect}` + `grow_max_cap.{wat,wasm,expect}`. |
 
 Other queued chunks (post-l-1): k-1, k-2, m-4c (= D-090),
 m-2d, n-1, j-3b.
