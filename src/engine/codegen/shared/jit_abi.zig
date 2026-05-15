@@ -94,6 +94,25 @@ pub const ElemSlice = extern struct {
 
 pub const elem_slice_size: u32 = @sizeOf(ElemSlice);
 
+/// §9.9 / 9.9-l-1b-d093-d42 (D-112): per-table call_indirect
+/// dispatch descriptor. Each entry carries the funcptr and
+/// typeidx base pointers for one declared table, indexed by
+/// `call_indirect`'s table_idx (Wasm 2.0 multi-table; spec
+/// §3.4.6 + §4.4.10.1). The scalar `JitRuntime.funcptr_base`
+/// / `typeidx_base` fields remain backed by table 0's arrays
+/// for the legacy single-table fast path (X24/X26 / R15-relative
+/// preloads); `tables_jit_ci_ptr[k]` provides the parallel view
+/// for `k > 0`. `funcptr_base` matches the scalar field's
+/// encoding (native code pointer; null for ref.null funcref or
+/// imported funcs not exposed via host_dispatch); `typeidx_base`
+/// matches D-111 canonicalization.
+pub const TableJitCallInfo = extern struct {
+    funcptr_base: [*]const u64,
+    typeidx_base: [*]const u32,
+};
+
+pub const table_jit_ci_size: u32 = @sizeOf(TableJitCallInfo);
+
 /// Pointer-and-counter bundle the JIT body relies on. Layout
 /// extends only at the tail (Phase 8+: trap_buf, host-call
 /// dispatch table, gc_root_set ptr) so existing prologue
@@ -261,6 +280,18 @@ pub const JitRuntime = extern struct {
     /// this slot is SEGV-safe out of the box. Runners that need
     /// actual growth override with their own impl.
     memory_grow_fn: *const fn (rt: *JitRuntime, delta_pages: u32) callconv(.c) i32 = defaultMemoryGrowReject,
+    /// §9.9 / 9.9-l-1b-d093-d42 (D-112): per-table call_indirect
+    /// dispatch info array. Indexed by `call_indirect`'s table_idx
+    /// (carried in `ZirInstr.extra` per lower.zig:927). Entry 0
+    /// duplicates the legacy table-0 fast path (`funcptr_base` /
+    /// `typeidx_base` scalars above) — both views point at the
+    /// same memory at construction time. Entries `k > 0` back the
+    /// per-call slow path the JIT emits when `ins.extra != 0`.
+    /// `undefined` is safe when no module declares > 1 table (the
+    /// emit only LDRs through this when `ins.extra > 0`).
+    tables_jit_ci_ptr: [*]const TableJitCallInfo = undefined,
+    tables_jit_ci_count: u32 = 0,
+    _pad11: u32 = 0,
 };
 
 /// Default `memory_grow_fn` — unconditionally refuses growth by
@@ -312,6 +343,8 @@ pub const elem_segments_ptr_off: u12 = @offsetOf(JitRuntime, "elem_segments_ptr"
 pub const elem_segments_count_off: u12 = @offsetOf(JitRuntime, "elem_segments_count");
 pub const host_state_off: u12 = @offsetOf(JitRuntime, "host_state");
 pub const memory_grow_fn_off: u12 = @offsetOf(JitRuntime, "memory_grow_fn");
+pub const tables_jit_ci_ptr_off: u12 = @offsetOf(JitRuntime, "tables_jit_ci_ptr");
+pub const tables_jit_ci_count_off: u12 = @offsetOf(JitRuntime, "tables_jit_ci_count");
 
 /// Total size of the head section consumed by the prologue.
 pub const head_size: u32 = @sizeOf(JitRuntime);
@@ -398,6 +431,16 @@ comptime {
     if ((memory_grow_fn_off & 7) != 0) @compileError("memory_grow_fn_off not 8-aligned");
     if (host_state_off > 32760) @compileError("host_state_off exceeds X-form imm12 budget");
     if (memory_grow_fn_off > 32760) @compileError("memory_grow_fn_off exceeds X-form imm12 budget");
+    // §9.9 / 9.9-l-1b-d093-d42 (D-112): tables_jit_ci_ptr is X-form (8-byte pointer); count is W-form.
+    if ((tables_jit_ci_ptr_off & 7) != 0) @compileError("tables_jit_ci_ptr_off not 8-aligned");
+    if ((tables_jit_ci_count_off & 3) != 0) @compileError("tables_jit_ci_count_off not 4-aligned");
+    if (tables_jit_ci_ptr_off > 32760) @compileError("tables_jit_ci_ptr_off exceeds X-form imm12 budget");
+    if (tables_jit_ci_count_off > 16380) @compileError("tables_jit_ci_count_off exceeds W-form imm12 budget");
+    // TableJitCallInfo layout: 16 bytes (funcptr_base + typeidx_base, both pointers).
+    // JIT call_indirect indexes the per-table descriptor array at stride 16.
+    if (@sizeOf(TableJitCallInfo) != 16) @compileError("TableJitCallInfo size != 16; JIT call_indirect stride assumption broken");
+    if (@offsetOf(TableJitCallInfo, "funcptr_base") != 0) @compileError("TableJitCallInfo.funcptr_base offset != 0");
+    if (@offsetOf(TableJitCallInfo, "typeidx_base") != 8) @compileError("TableJitCallInfo.typeidx_base offset != 8");
 }
 
 // ============================================================
@@ -418,13 +461,24 @@ test "JitRuntime: layout offsets match documented prologue load sequence" {
     try testing.expectEqual(@as(u12, 80), jit_executed_flag_off);
 }
 
-test "JitRuntime: total size = 200 bytes (post-§9.9 / 9.9-l-1b-d093-d8a host_state + memory_grow_fn tail)" {
-    try testing.expectEqual(@as(u32, 200), head_size);
+test "JitRuntime: total size = 216 bytes (post-§9.9 / 9.9-l-1b-d093-d42 tables_jit_ci tail)" {
+    try testing.expectEqual(@as(u32, 216), head_size);
 }
 
 test "JitRuntime: §9.9 / 9.9-l-1b-d093-d8a callout offsets (host_state + memory_grow_fn)" {
     try testing.expectEqual(@as(u12, 184), host_state_off);
     try testing.expectEqual(@as(u12, 192), memory_grow_fn_off);
+}
+
+test "JitRuntime: §9.9 / 9.9-l-1b-d093-d42 tables_jit_ci offsets" {
+    try testing.expectEqual(@as(u12, 200), tables_jit_ci_ptr_off);
+    try testing.expectEqual(@as(u12, 208), tables_jit_ci_count_off);
+}
+
+test "TableJitCallInfo: layout is 16 bytes with funcptr_base/typeidx_base at expected offsets" {
+    try testing.expectEqual(@as(usize, 16), @sizeOf(TableJitCallInfo));
+    try testing.expectEqual(@as(usize, 0), @offsetOf(TableJitCallInfo, "funcptr_base"));
+    try testing.expectEqual(@as(usize, 8), @offsetOf(TableJitCallInfo, "typeidx_base"));
 }
 
 test "JitRuntime: §9.9 / 9.9-m-1b + 9.9-m-3a + 9.9-m-3b + 9.9-m-2a + 9.9-m-2c-init new field offsets" {

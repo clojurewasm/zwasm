@@ -120,13 +120,26 @@ pub fn emitCall(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     try captureCallResult(ctx, callee_sig);
 }
 
-/// Indirect call: `call_indirect type_idx`. Pops the index,
-/// marshals args, runs bounds + sig checks (both branch to the
-/// shared trap stub via ctx.bounds_fixups), loads the funcptr,
-/// restores X0, BLR.
+/// Indirect call: `call_indirect type_idx tableidx`. Pops the
+/// index, marshals args, runs bounds + sig checks (both branch
+/// to the shared trap stub via ctx.bounds_fixups), loads the
+/// funcptr, restores X0, BLR.
+///
+/// **Multi-table dispatch** (§9.9 / 9.9-l-1b-d093-d42 / D-112):
+/// `ins.extra` carries the table_idx LEB128 byte from
+/// lower.zig:927 (Wasm 2.0 §3.4.6 `call_indirect tableidx
+/// typeidx`). For table_idx == 0 the fast path uses the
+/// reserved-reg preloads X25 (table_size) / X24 (typeidx_base)
+/// / X26 (funcptr_base) populated by the prologue from the
+/// scalar JitRuntime fields. For table_idx > 0 the slow path
+/// loads per-table size + bases from
+/// `JitRuntime.tables_ptr[table_idx].len` + `tables_jit_ci_ptr
+/// [table_idx]` at the call site; the legacy scalar regs stay
+/// table-0-only.
 pub fn emitCallIndirect(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     if (ins.payload >= ctx.module_types.len) return Error.AllocationMissing;
     const callee_sig: FuncType = ctx.module_types[ins.payload];
+    const table_idx: u32 = ins.extra;
 
     // Stack at entry: [args..., idx]. Pop idx first.
     if (ctx.pushed_vregs.items.len < 1) return Error.AllocationMissing;
@@ -140,36 +153,95 @@ pub fn emitCallIndirect(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const w_idx = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, idx_vreg, 0);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(17, 31, w_idx));
 
-    // Bounds: CMP W17, W25 ; B.HS trap.
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegW(17, 25));
-    {
-        const fixup_at: u32 = @intCast(ctx.buf.items.len);
-        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hs, 0));
-        try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
-    }
-
-    // Sig: LDR W16, [X24, X17, LSL #2] ; CMP W16, #canonical ;
-    // B.NE trap. Wasm spec §3.4.6 + §4.4.10.1 — the sig check is
-    // **structural** FuncType equality. Compare against the
-    // canonical (lowest-index) typeidx whose shape matches
-    // `module_types[ins.payload]`; `applyTableInit` writes the
-    // same canonicalization on the funcref's stored typeidx. D-111.
     const expected_typeidx: u32 = canonical_type.canonicalTypeidx(ctx.module_types, ins.payload);
     // Skeleton restricts expected typeidx to imm12 range
     // (4096 distinct types is well above any realistic module's
     // needs); larger canonical typeidx → UnsupportedOp.
     if (expected_typeidx >= 4096) return Error.UnsupportedOp;
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrWRegLsl2(16, 24, 17));
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmW(16, @intCast(expected_typeidx)));
-    {
-        const fixup_at: u32 = @intCast(ctx.buf.items.len);
-        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.ne, 0));
-        try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+
+    if (table_idx == 0) {
+        // Table-0 fast path: bounds via W25, sig via X24, funcptr via X26.
+
+        // Bounds: CMP W17, W25 ; B.HS trap.
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegW(17, 25));
+        {
+            const fixup_at: u32 = @intCast(ctx.buf.items.len);
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hs, 0));
+            try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+        }
+
+        // Sig: LDR W16, [X24, X17, LSL #2] ; CMP W16, #canonical ;
+        // B.NE trap. Wasm spec §3.4.6 + §4.4.10.1 — the sig check is
+        // **structural** FuncType equality. Compare against the
+        // canonical (lowest-index) typeidx whose shape matches
+        // `module_types[ins.payload]`; `applyTableInit` writes the
+        // same canonicalization on the funcref's stored typeidx. D-111.
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrWRegLsl2(16, 24, 17));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmW(16, @intCast(expected_typeidx)));
+        {
+            const fixup_at: u32 = @intCast(ctx.buf.items.len);
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.ne, 0));
+            try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+        }
+
+        // Funcptr load + BLR. Restore X0 = runtime_ptr (ADR-0017
+        // sub-2d-ii) before transferring control.
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrXRegLsl3(17, 26, 17));
+    } else {
+        // Multi-table slow path: load per-table size + bases from
+        // JitRuntime at the call site. Stride-16 indexing into
+        // tables_jit_ci_ptr matches `TableJitCallInfo`'s extern
+        // layout (funcptr_base @ +0, typeidx_base @ +8).
+        const ci_stride: u32 = jit_abi.table_jit_ci_size;
+        if (ci_stride != 16) @compileError("multi-table emit assumes TableJitCallInfo stride 16");
+        // The runtime_ptr lives in X19 (= abi.runtime_ptr_save_gpr).
+        const rt_reg: inst.Xn = abi.runtime_ptr_save_gpr;
+
+        // Bounds: load size from tables_ptr[table_idx].len (TableSlice
+        // offset 8 within the 16-byte stride). Reject if table_idx
+        // exceeds the per-call imm12 budget (16-byte stride * 16 tables
+        // = 256 < 4095 max, so realistic modules never hit this).
+        const tbl_slice_byte_off: u32 = (table_idx * 16) + 8;
+        if (tbl_slice_byte_off > 16380) return Error.UnsupportedOp;
+        // LDR X16, [rt, #tables_ptr_off]
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, rt_reg, jit_abi.tables_ptr_off));
+        // LDR W16, [X16, #(table_idx*16 + 8)]
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImmW(16, 16, @intCast(tbl_slice_byte_off)));
+        // CMP W17, W16
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegW(17, 16));
+        {
+            const fixup_at: u32 = @intCast(ctx.buf.items.len);
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hs, 0));
+            try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+        }
+
+        // Sig: load typeidx_base = tables_jit_ci_ptr[table_idx].typeidx_base.
+        const ci_typeidx_byte_off: u32 = (table_idx * 16) + 8;
+        if (ci_typeidx_byte_off > 32760) return Error.UnsupportedOp;
+        // LDR X16, [rt, #tables_jit_ci_ptr_off]
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, rt_reg, jit_abi.tables_jit_ci_ptr_off));
+        // LDR X16, [X16, #(table_idx*16 + 8)]  — typeidx_base pointer
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, 16, @intCast(ci_typeidx_byte_off)));
+        // LDR W16, [X16, W17, LSL #2]  — typeidx_base[idx]
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrWRegLsl2(16, 16, 17));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmW(16, @intCast(expected_typeidx)));
+        {
+            const fixup_at: u32 = @intCast(ctx.buf.items.len);
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.ne, 0));
+            try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+        }
+
+        // Funcptr: load funcptr_base = tables_jit_ci_ptr[table_idx].funcptr_base.
+        const ci_funcptr_byte_off: u32 = table_idx * 16;
+        if (ci_funcptr_byte_off > 32760) return Error.UnsupportedOp;
+        // LDR X16, [rt, #tables_jit_ci_ptr_off]
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, rt_reg, jit_abi.tables_jit_ci_ptr_off));
+        // LDR X16, [X16, #(table_idx*16 + 0)]  — funcptr_base pointer
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, 16, @intCast(ci_funcptr_byte_off)));
+        // LDR X17, [X16, X17, LSL #3]  — funcptr_base[idx]
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrXRegLsl3(17, 16, 17));
     }
 
-    // Funcptr load + BLR. Restore X0 = runtime_ptr (ADR-0017
-    // sub-2d-ii) before transferring control.
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrXRegLsl3(17, 26, 17));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBLR(17));
 

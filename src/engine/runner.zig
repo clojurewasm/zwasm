@@ -715,6 +715,15 @@ const RuntimeOwned = struct {
     // + contiguous u64 arena holding the pre-computed funcref values.
     elem_segments: []entry.ElemSlice,
     elem_refs: []u64,
+    // §9.9 / 9.9-l-1b-d093-d42 (D-112): per-table call_indirect
+    // dispatch descriptors + extra (non-table-0) funcptr/typeidx
+    // arena. Table 0's TableJitCallInfo entry reuses `funcptrs` /
+    // `typeidxs` above; tables 1..N point into the contiguous
+    // `extra_funcptrs` / `extra_typeidxs` arenas via per-table
+    // offsets computed at setup time.
+    tables_jit_ci: []entry.TableJitCallInfo,
+    extra_funcptrs: []u64,
+    extra_typeidxs: []u32,
 
     fn deinit(self: *RuntimeOwned, allocator: Allocator) void {
         if (self.memory.len > 0) allocator.free(self.memory);
@@ -730,6 +739,9 @@ const RuntimeOwned = struct {
         allocator.free(self.table_refs);
         if (self.elem_segments.len > 0) allocator.free(self.elem_segments);
         if (self.elem_refs.len > 0) allocator.free(self.elem_refs);
+        allocator.free(self.tables_jit_ci);
+        if (self.extra_funcptrs.len > 0) allocator.free(self.extra_funcptrs);
+        if (self.extra_typeidxs.len > 0) allocator.free(self.extra_typeidxs);
     }
 };
 
@@ -881,6 +893,55 @@ fn setupRuntime(
         }
     }
 
+    // §9.9 / 9.9-l-1b-d093-d42 (D-112): per-table call_indirect
+    // dispatch descriptors. Table 0 reuses `funcptrs_buf` /
+    // `typeidxs_buf` so the legacy JitRuntime scalar fields stay
+    // backed by identical memory. Tables 1..N get their funcptr /
+    // typeidx storage from a contiguous `extra_funcptrs` /
+    // `extra_typeidxs` arena, sized by the sum of those tables'
+    // declared `min` entry counts. The descriptor array indexes
+    // by table_idx (Wasm spec §3.4.6 call_indirect tableidx byte).
+    var extra_total_slots: usize = 0;
+    if (table_metas.len > 1) {
+        for (table_metas[1..]) |tm| extra_total_slots += tm.min;
+    }
+    const tables_jit_ci_buf = try allocator.alloc(entry.TableJitCallInfo, if (table_metas.len == 0) 1 else table_metas.len);
+    errdefer allocator.free(tables_jit_ci_buf);
+    const extra_funcptrs_buf = try allocator.alloc(u64, if (extra_total_slots == 0) 1 else extra_total_slots);
+    errdefer allocator.free(extra_funcptrs_buf);
+    @memset(extra_funcptrs_buf, 0);
+    const extra_typeidxs_buf = try allocator.alloc(u32, if (extra_total_slots == 0) 1 else extra_total_slots);
+    errdefer allocator.free(extra_typeidxs_buf);
+    @memset(extra_typeidxs_buf, std.math.maxInt(u32));
+    {
+        tables_jit_ci_buf[0] = .{ .funcptr_base = funcptrs_buf.ptr, .typeidx_base = typeidxs_buf.ptr };
+        if (table_metas.len > 1) {
+            var off: usize = 0;
+            for (table_metas[1..], 1..) |tm, k| {
+                tables_jit_ci_buf[k] = .{
+                    .funcptr_base = extra_funcptrs_buf.ptr + off,
+                    .typeidx_base = extra_typeidxs_buf.ptr + off,
+                };
+                off += tm.min;
+            }
+        }
+    }
+    // Per-table starting offsets into the extra arenas. Indexed
+    // by table_idx (entry 0 unused; entries 1+ are the slot at
+    // which that table's funcptr/typeidx slice starts within
+    // extra_funcptrs/extra_typeidxs). The 16-table cap above
+    // makes this a fixed-size stack array; modules exceeding the
+    // cap surface as UnsupportedEntrySignature.
+    if (table_metas.len > 16) return Error.UnsupportedEntrySignature;
+    var extra_offs: [16]usize = [_]usize{0} ** 16;
+    if (table_metas.len > 1) {
+        var off: usize = 0;
+        for (table_metas[1..], 1..) |tm, k| {
+            extra_offs[k] = off;
+            off += tm.min;
+        }
+    }
+
     // §9.9 / 9.9-m-1b: per-module FuncEntity array for JIT
     // ref.func. Size = total functions (imports + defined).
     // Allocated unconditionally so JIT-emitted ref.func reads
@@ -933,15 +994,24 @@ fn setupRuntime(
             const base: usize = @intCast(off);
             const tbl = tables_descs[seg.tableidx];
             if (base + seg.funcidxs.len > tbl.len) return Error.UnsupportedEntrySignature;
-            // Table-0-only fast-path arrays stay in sync only for
-            // table 0 (call_indirect always uses table 0). For
-            // tables > 0 we still populate `tbl.refs` but skip
-            // `funcptrs_buf` / `typeidxs_buf` (those would index
-            // out of range for table 0's `funcptrs_buf.len`).
-            const sync_table0 = (seg.tableidx == 0);
-            if (sync_table0 and base + seg.funcidxs.len > funcptrs_buf.len) {
-                return Error.UnsupportedEntrySignature;
-            }
+            // §9.9 / 9.9-l-1b-d093-d42: per-table funcptr/typeidx
+            // slice. Table 0 writes into the legacy flat
+            // `funcptrs_buf` / `typeidxs_buf` (which back the
+            // JitRuntime scalar `funcptr_base` / `typeidx_base`
+            // fields); tables 1+ write into their slice within the
+            // `extra_funcptrs` / `extra_typeidxs` arenas. The JIT
+            // emit (arm64/x86_64 op_call.emitCallIndirect) selects
+            // the right slice via `tables_jit_ci_ptr[table_idx]`.
+            const is_table0 = (seg.tableidx == 0);
+            const tbl_funcptrs: []u64 = if (is_table0)
+                funcptrs_buf
+            else
+                extra_funcptrs_buf[extra_offs[seg.tableidx] .. extra_offs[seg.tableidx] + table_metas[seg.tableidx].min];
+            const tbl_typeidxs: []u32 = if (is_table0)
+                typeidxs_buf
+            else
+                extra_typeidxs_buf[extra_offs[seg.tableidx] .. extra_offs[seg.tableidx] + table_metas[seg.tableidx].min];
+            if (base + seg.funcidxs.len > tbl_funcptrs.len) return Error.UnsupportedEntrySignature;
             for (seg.funcidxs, 0..) |fidx, i| {
                 if (fidx == std.math.maxInt(u32)) {
                     // ref.null funcref — leave the slot null + sentinel typeidx.
@@ -950,24 +1020,22 @@ fn setupRuntime(
                 }
                 if (fidx >= compiled.func_sigs.len) return Error.UnsupportedEntrySignature;
                 tbl.refs[base + i] = @intFromPtr(&func_entities[fidx]);
-                if (sync_table0) {
-                    const f_off = compiled.module.func_offsets[fidx];
-                    const raw_typeidx = compiled.func_typeidxs[fidx];
-                    typeidxs_buf[base + i] = if (canon_types) |t|
-                        canonical_type.canonicalTypeidx(t.items, raw_typeidx)
-                    else
-                        raw_typeidx;
-                    if (f_off == linker.IMPORT_SENTINEL_OFFSET) {
-                        // Imported function in a table — host-call dispatch
-                        // through `host_dispatch_base` is required to invoke
-                        // it. v0.1.0's JIT call_indirect path doesn't emit
-                        // that trampoline; leave funcptr null so an attempt
-                        // to call it traps via NULL deref instead of running
-                        // arbitrary host code.
-                        continue;
-                    }
-                    funcptrs_buf[base + i] = @intFromPtr(compiled.module.block.bytes.ptr + f_off);
+                const f_off = compiled.module.func_offsets[fidx];
+                const raw_typeidx = compiled.func_typeidxs[fidx];
+                tbl_typeidxs[base + i] = if (canon_types) |t|
+                    canonical_type.canonicalTypeidx(t.items, raw_typeidx)
+                else
+                    raw_typeidx;
+                if (f_off == linker.IMPORT_SENTINEL_OFFSET) {
+                    // Imported function in a table — host-call dispatch
+                    // through `host_dispatch_base` is required to invoke
+                    // it. v0.1.0's JIT call_indirect path doesn't emit
+                    // that trampoline; leave funcptr null so an attempt
+                    // to call it traps via NULL deref instead of running
+                    // arbitrary host code.
+                    continue;
                 }
+                tbl_funcptrs[base + i] = @intFromPtr(compiled.module.block.bytes.ptr + f_off);
             }
         }
     }
@@ -1075,6 +1143,8 @@ fn setupRuntime(
             .tables_count = @intCast(table_metas.len),
             .elem_segments_ptr = if (elem_segments_buf.len == 0) @as([*]const entry.ElemSlice, undefined) else elem_segments_buf.ptr,
             .elem_segments_count = @intCast(elem_segments_buf.len),
+            .tables_jit_ci_ptr = tables_jit_ci_buf.ptr,
+            .tables_jit_ci_count = @intCast(tables_jit_ci_buf.len),
         },
         .memory = memory,
         .dispatch = dispatch,
@@ -1089,6 +1159,9 @@ fn setupRuntime(
         .table_refs = table_refs,
         .elem_segments = elem_segments_buf,
         .elem_refs = elem_refs_arena,
+        .tables_jit_ci = tables_jit_ci_buf,
+        .extra_funcptrs = extra_funcptrs_buf,
+        .extra_typeidxs = extra_typeidxs_buf,
     };
 }
 

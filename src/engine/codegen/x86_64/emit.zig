@@ -765,7 +765,7 @@ pub fn compile(
             .@"i64.rem_u",
             => try op_alu_int.emitI64DivRem(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, ins.op),
             .call => try op_call.emitCall(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &call_fixups, spill_base_off, outgoing_max_bytes, func_sigs, num_imports, ins.payload),
-            .call_indirect => try op_call.emitCallIndirect(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, outgoing_max_bytes, module_types, ins.payload),
+            .call_indirect => try op_call.emitCallIndirect(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &bounds_fixups, spill_base_off, outgoing_max_bytes, module_types, ins.payload, ins.extra),
             .@"f32.const",
             .@"f64.const",
             => try op_alu_float.emitFpConst(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op, ins.payload, ins.extra),

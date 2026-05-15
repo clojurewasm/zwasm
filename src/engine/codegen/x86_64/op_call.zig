@@ -247,6 +247,7 @@ pub fn emitCallIndirect(
     outgoing_max_bytes: u32,
     module_types: []const zir.FuncType,
     type_idx: u32,
+    table_idx: u32,
 ) Error!void {
     if (type_idx >= module_types.len) return Error.AllocationMissing;
     const callee_sig = module_types[type_idx];
@@ -267,36 +268,90 @@ pub fn emitCallIndirect(
     // (`if.wast:as-call_indirect-{first,mid,last}` × 3).
     const idx_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, idx_vreg, 0);
 
-    // Bounds: MOV EAX, [R15 + table_size_off] ; CMP idx_r, EAX ; JAE trap.
-    try buf.appendSlice(allocator, inst.encMovR32FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.table_size_off).slice());
-    try buf.appendSlice(allocator, inst.encCmpRR(.d, idx_r, .rax).slice());
-    {
-        const fixup_at: u32 = @intCast(buf.items.len);
-        try buf.appendSlice(allocator, inst.encJccRel32(.ae, 0).slice());
-        try bounds_fixups.append(allocator, fixup_at);
-    }
-
-    // Sig: MOV RAX, [R15 + typeidx_base_off] (load u32* table)
-    //      MOV EAX, [RAX + idx_r * 4]        (load expected typeidx)
-    //      CMP EAX, canonical (imm32) ; JNE trap.
-    // Wasm spec §3.4.6 + §4.4.10.1 — sig check is **structural**
-    // FuncType equality. Compare against the canonical (lowest-
-    // index) typeidx whose shape matches `module_types[type_idx]`;
-    // `applyTableInit` writes the same canonicalization on the
-    // funcref's stored typeidx. D-111.
     const expected_typeidx: u32 = canonical_type.canonicalTypeidx(module_types, type_idx);
-    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.typeidx_base_off).slice());
-    try buf.appendSlice(allocator, inst.encMovR32FromBaseIdxLsl2(.rax, .rax, idx_r).slice());
-    try buf.appendSlice(allocator, inst.encCmpRImm32(.rax, expected_typeidx).slice());
-    {
-        const fixup_at: u32 = @intCast(buf.items.len);
-        try buf.appendSlice(allocator, inst.encJccRel32(.ne, 0).slice());
-        try bounds_fixups.append(allocator, fixup_at);
-    }
 
-    // Funcptr: MOV RAX, [R15 + funcptr_base_off] ; MOV RAX, [RAX + idx_r*8].
-    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.funcptr_base_off).slice());
-    try buf.appendSlice(allocator, inst.encMovR64FromBaseIdxLsl3(.rax, .rax, idx_r).slice());
+    if (table_idx == 0) {
+        // Table-0 fast path: bounds via [R15+table_size_off], sig
+        // via [R15+typeidx_base_off], funcptr via
+        // [R15+funcptr_base_off]. Scalar JitRuntime fields stay
+        // backed by table 0's funcptrs/typeidxs.
+
+        // Bounds: MOV EAX, [R15 + table_size_off] ; CMP idx_r, EAX ; JAE trap.
+        try buf.appendSlice(allocator, inst.encMovR32FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.table_size_off).slice());
+        try buf.appendSlice(allocator, inst.encCmpRR(.d, idx_r, .rax).slice());
+        {
+            const fixup_at: u32 = @intCast(buf.items.len);
+            try buf.appendSlice(allocator, inst.encJccRel32(.ae, 0).slice());
+            try bounds_fixups.append(allocator, fixup_at);
+        }
+
+        // Sig: MOV RAX, [R15 + typeidx_base_off] (load u32* table)
+        //      MOV EAX, [RAX + idx_r * 4]        (load expected typeidx)
+        //      CMP EAX, canonical (imm32) ; JNE trap.
+        // Wasm spec §3.4.6 + §4.4.10.1 — sig check is **structural**
+        // FuncType equality. Compare against the canonical (lowest-
+        // index) typeidx whose shape matches `module_types[type_idx]`;
+        // `applyTableInit` writes the same canonicalization on the
+        // funcref's stored typeidx. D-111.
+        try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.typeidx_base_off).slice());
+        try buf.appendSlice(allocator, inst.encMovR32FromBaseIdxLsl2(.rax, .rax, idx_r).slice());
+        try buf.appendSlice(allocator, inst.encCmpRImm32(.rax, expected_typeidx).slice());
+        {
+            const fixup_at: u32 = @intCast(buf.items.len);
+            try buf.appendSlice(allocator, inst.encJccRel32(.ne, 0).slice());
+            try bounds_fixups.append(allocator, fixup_at);
+        }
+
+        // Funcptr: MOV RAX, [R15 + funcptr_base_off] ; MOV RAX, [RAX + idx_r*8].
+        try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.funcptr_base_off).slice());
+        try buf.appendSlice(allocator, inst.encMovR64FromBaseIdxLsl3(.rax, .rax, idx_r).slice());
+    } else {
+        // Multi-table slow path (§9.9 / 9.9-l-1b-d093-d42 / D-112):
+        // load per-table size + bases from
+        // `JitRuntime.tables_ptr[table_idx].len` +
+        // `JitRuntime.tables_jit_ci_ptr[table_idx]` at the call
+        // site. RAX remains the only scratch (per the "RAX is not
+        // in the regalloc pool" invariant above), so each base
+        // load reloads the array pointer.
+        if (jit_abi.table_jit_ci_size != 16) @compileError("multi-table x86_64 emit assumes TableJitCallInfo stride 16");
+
+        const tbl_slice_disp: i32 = @intCast((table_idx * 16) + 8);
+        const ci_funcptr_disp: i32 = @intCast(table_idx * 16);
+        const ci_typeidx_disp: i32 = @intCast((table_idx * 16) + 8);
+
+        // Bounds: MOV RAX, [R15 + tables_ptr_off]
+        //         MOV EAX, [RAX + (table_idx*16 + 8)]  ; TableSlice.len
+        //         CMP idx_r, EAX ; JAE trap.
+        try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_ptr_off).slice());
+        try buf.appendSlice(allocator, inst.encMovR32FromMemDisp32(.rax, .rax, tbl_slice_disp).slice());
+        try buf.appendSlice(allocator, inst.encCmpRR(.d, idx_r, .rax).slice());
+        {
+            const fixup_at: u32 = @intCast(buf.items.len);
+            try buf.appendSlice(allocator, inst.encJccRel32(.ae, 0).slice());
+            try bounds_fixups.append(allocator, fixup_at);
+        }
+
+        // Sig: MOV RAX, [R15 + tables_jit_ci_ptr_off]
+        //      MOV RAX, [RAX + (table_idx*16 + 8)]  ; typeidx_base
+        //      MOV EAX, [RAX + idx_r * 4]
+        //      CMP EAX, canonical ; JNE trap.
+        try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_jit_ci_ptr_off).slice());
+        try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, .rax, ci_typeidx_disp).slice());
+        try buf.appendSlice(allocator, inst.encMovR32FromBaseIdxLsl2(.rax, .rax, idx_r).slice());
+        try buf.appendSlice(allocator, inst.encCmpRImm32(.rax, expected_typeidx).slice());
+        {
+            const fixup_at: u32 = @intCast(buf.items.len);
+            try buf.appendSlice(allocator, inst.encJccRel32(.ne, 0).slice());
+            try bounds_fixups.append(allocator, fixup_at);
+        }
+
+        // Funcptr: MOV RAX, [R15 + tables_jit_ci_ptr_off]
+        //          MOV RAX, [RAX + (table_idx*16 + 0)]  ; funcptr_base
+        //          MOV RAX, [RAX + idx_r * 8].
+        try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_jit_ci_ptr_off).slice());
+        try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, .rax, ci_funcptr_disp).slice());
+        try buf.appendSlice(allocator, inst.encMovR64FromBaseIdxLsl3(.rax, .rax, idx_r).slice());
+    }
 
     // Restore <entry_arg0> = runtime_ptr (callee's prologue reads
     // it as its inbound JitRuntime ptr per ADR-0026: RDI on SysV,
