@@ -1,0 +1,96 @@
+module exports.0.wasm
+module exports.1.wasm
+module exports.2.wasm
+module exports.3.wasm
+module exports.4.wasm
+module exports.5.wasm
+module exports.6.wasm
+module exports.7.wasm
+module exports.8.wasm
+module exports.9.wasm
+module exports.10.wasm
+module exports.11.wasm
+assert_return e i32:42 -> i32:43
+skip-adr-cross-module-action assert_return on module=$Func field=e
+module exports.12.wasm
+module exports.13.wasm
+skip-adr-cross-module-action assert_return on module=$Func field=e
+module exports.14.wasm
+assert_return a () -> i32:42
+assert_return b () -> i32:42
+assert_return c () -> i32:42
+assert_invalid exports.15.wasm
+assert_invalid exports.16.wasm
+assert_invalid exports.17.wasm
+assert_invalid exports.18.wasm
+assert_invalid exports.19.wasm
+assert_invalid exports.20.wasm
+assert_invalid exports.21.wasm
+assert_invalid exports.22.wasm
+module exports.23.wasm
+module exports.24.wasm
+module exports.25.wasm
+module exports.26.wasm
+module exports.27.wasm
+module exports.28.wasm
+module exports.29.wasm
+module exports.30.wasm
+module exports.31.wasm
+module exports.32.wasm
+skip-impl non-invoke-action
+skip-adr-cross-module-action assert_return on module=$Global field=e
+module exports.33.wasm
+module exports.34.wasm
+skip-adr-cross-module-action assert_return on module=$Global field=e
+assert_invalid exports.35.wasm
+assert_invalid exports.36.wasm
+assert_invalid exports.37.wasm
+assert_invalid exports.38.wasm
+assert_invalid exports.39.wasm
+assert_invalid exports.40.wasm
+assert_invalid exports.41.wasm
+assert_invalid exports.42.wasm
+module exports.43.wasm
+module exports.44.wasm
+module exports.45.wasm
+module exports.46.wasm
+module exports.47.wasm
+module exports.48.wasm
+module exports.49.wasm
+module exports.50.wasm
+module exports.51.wasm
+module exports.52.wasm
+module exports.53.wasm
+module exports.54.wasm
+module exports.55.wasm
+module exports.56.wasm
+module exports.57.wasm
+assert_invalid exports.58.wasm
+assert_invalid exports.59.wasm
+assert_invalid exports.60.wasm
+assert_invalid exports.61.wasm
+assert_invalid exports.62.wasm
+assert_invalid exports.63.wasm
+assert_invalid exports.64.wasm
+assert_invalid exports.65.wasm
+module exports.66.wasm
+module exports.67.wasm
+module exports.68.wasm
+module exports.69.wasm
+module exports.70.wasm
+module exports.71.wasm
+module exports.72.wasm
+module exports.73.wasm
+module exports.74.wasm
+module exports.75.wasm
+module exports.76.wasm
+module exports.77.wasm
+module exports.78.wasm
+module exports.79.wasm
+assert_invalid exports.80.wasm
+assert_invalid exports.81.wasm
+assert_invalid exports.82.wasm
+assert_invalid exports.83.wasm
+assert_invalid exports.84.wasm
+assert_invalid exports.85.wasm
+assert_invalid exports.86.wasm

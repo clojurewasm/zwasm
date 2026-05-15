@@ -1,0 +1,11 @@
+module skip-stack-guard-page.0.wasm
+skip-impl directive-assert_exhaustion
+skip-impl directive-assert_exhaustion
+skip-impl directive-assert_exhaustion
+skip-impl directive-assert_exhaustion
+skip-impl directive-assert_exhaustion
+skip-impl directive-assert_exhaustion
+skip-impl directive-assert_exhaustion
+skip-impl directive-assert_exhaustion
+skip-impl directive-assert_exhaustion
+skip-impl directive-assert_exhaustion

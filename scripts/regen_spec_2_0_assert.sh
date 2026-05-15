@@ -257,6 +257,35 @@ NAMES=(
   # post-mutation reads stale entries. Defer `bulk` until that
   # gap closes.
   memory_init
+  # d-51 batch enable: 11 queued names that land cleanly under
+  # the new harness wiring (active-elem/data consumed +
+  # cross-module-imports filter + capacity bumps from d-49/d-50).
+  # Validator-only corpora (assert_invalid / assert_malformed):
+  binary-leb128
+  comments
+  custom
+  inline-module
+  obsolete-keywords
+  token
+  unreached-invalid
+  # Module-system corpora (mostly cross-module-imports SKIP):
+  exports
+  linking
+  table-sub
+  skip-stack-guard-page
+  # 4 corpora deferred to D-127 / D-128 / D-129 / D-130:
+  # - `binary` 1 FAIL: binary.60.wasm has empty Function section
+  #   (count=0) but no Type section; our validator rejects with
+  #   MissingTypeSection. Wasm spec allows empty fn section
+  #   without types (D-127).
+  # - `names` 9 FAILs: distiller mishandles export names with
+  #   special chars (backslash, quotes) producing malformed
+  #   manifest lines (D-128); 1× spectest-import-trap.
+  # - `imports` 1 FAIL: spectest-import call traps via stub but
+  #   spec asserts "succeeds" (side-effect-only) — distiller
+  #   needs to mark these skip-adr (D-129).
+  # - `unreached-valid` 1 FAIL: ArityMismatch on .1.wasm compile;
+  #   validator gap (D-130).
   # d-41 enable: `memory_trap` — D-114 discharged. The 4× load
   # FAILs were not load-bounds-check bugs; they were caused by a
   # skipped `(assert_return (invoke "i64.store" 0xfff8 0))`

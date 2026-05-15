@@ -1,0 +1,8 @@
+module comments.0.wasm
+module comments.1.wasm
+module comments.2.wasm
+module comments.3.wasm
+module comments.4.wasm
+assert_return f1 () -> i32:2
+assert_return f2 () -> i32:2
+assert_return f3 () -> i32:2

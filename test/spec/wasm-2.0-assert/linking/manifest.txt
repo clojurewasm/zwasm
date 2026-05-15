@@ -1,0 +1,132 @@
+module linking.0.wasm
+skip-impl directive-register
+module linking.1.wasm
+skip-adr-cross-module-action assert_return on module=$Mf field=call
+skip-adr-cross-module-action assert_return on module=$Nf field=Mf.call
+skip-adr-cross-module-action assert_return on module=$Nf field=call
+skip-adr-cross-module-action assert_return on module=$Nf field=call Mf.call
+module linking.2.wasm
+skip-impl directive-register
+skip-impl directive-assert_unlinkable
+skip-impl directive-assert_unlinkable
+module linking.5.wasm
+skip-impl directive-register
+module linking.6.wasm
+skip-adr-cross-module-action assert_return on module=$Mg field=glob
+skip-adr-cross-module-action assert_return on module=$Ng field=Mg.glob
+skip-adr-cross-module-action assert_return on module=$Ng field=glob
+skip-adr-cross-module-action assert_return on module=$Mg field=get
+skip-adr-cross-module-action assert_return on module=$Ng field=Mg.get
+skip-adr-cross-module-action assert_return on module=$Ng field=get
+skip-adr-cross-module-action assert_return on module=$Mg field=mut_glob
+skip-adr-cross-module-action assert_return on module=$Ng field=Mg.mut_glob
+skip-adr-cross-module-action assert_return on module=$Mg field=get_mut
+skip-adr-cross-module-action assert_return on module=$Ng field=Mg.get_mut
+skip-adr-cross-module-action assert_return on module=$Mg field=set_mut
+skip-adr-cross-module-action assert_return on module=$Mg field=mut_glob
+skip-adr-cross-module-action assert_return on module=$Ng field=Mg.mut_glob
+skip-adr-cross-module-action assert_return on module=$Mg field=get_mut
+skip-adr-cross-module-action assert_return on module=$Ng field=Mg.get_mut
+skip-impl directive-assert_unlinkable
+skip-impl directive-assert_unlinkable
+module linking.9.wasm
+skip-impl directive-register
+module linking.10.wasm
+skip-impl directive-assert_unlinkable
+skip-impl directive-assert_unlinkable
+skip-impl directive-assert_unlinkable
+skip-impl directive-assert_unlinkable
+module linking.15.wasm
+skip-impl directive-register
+module linking.16.wasm
+skip-adr-cross-module-action assert_return on module=$Mt field=call
+skip-adr-cross-module-action assert_return on module=$Nt field=Mt.call
+skip-adr-cross-module-action assert_return on module=$Nt field=call
+skip-adr-cross-module-action assert_return on module=$Nt field=call Mt.call
+skip-adr-cross-module-action assert_trap on module=$Mt field=call
+skip-adr-cross-module-action assert_trap on module=$Nt field=Mt.call
+skip-adr-cross-module-action assert_return on module=$Nt field=call
+skip-adr-cross-module-action assert_trap on module=$Nt field=call Mt.call
+skip-adr-cross-module-action assert_trap on module=$Mt field=call
+skip-adr-cross-module-action assert_trap on module=$Nt field=Mt.call
+skip-adr-cross-module-action assert_return on module=$Nt field=call
+skip-adr-cross-module-action assert_trap on module=$Nt field=call Mt.call
+skip-adr-cross-module-action assert_trap on module=$Mt field=call
+skip-adr-cross-module-action assert_trap on module=$Nt field=Mt.call
+skip-adr-cross-module-action assert_trap on module=$Nt field=call
+skip-adr-cross-module-action assert_trap on module=$Nt field=call Mt.call
+skip-adr-cross-module-action assert_return on module=$Nt field=call
+skip-adr-cross-module-action assert_trap on module=$Nt field=call
+module linking.17.wasm
+skip-adr-cross-module-action assert_return on module=$Mt field=call
+skip-adr-cross-module-action assert_return on module=$Nt field=Mt.call
+skip-adr-cross-module-action assert_return on module=$Nt field=call Mt.call
+skip-adr-cross-module-action assert_return on module=$Ot field=call
+skip-adr-cross-module-action assert_return on module=$Mt field=call
+skip-adr-cross-module-action assert_return on module=$Nt field=Mt.call
+skip-adr-cross-module-action assert_return on module=$Nt field=call
+skip-adr-cross-module-action assert_return on module=$Nt field=call Mt.call
+skip-adr-cross-module-action assert_return on module=$Ot field=call
+skip-adr-cross-module-action assert_return on module=$Mt field=call
+skip-adr-cross-module-action assert_return on module=$Nt field=Mt.call
+skip-adr-cross-module-action assert_return on module=$Nt field=call
+skip-adr-cross-module-action assert_return on module=$Nt field=call Mt.call
+skip-adr-cross-module-action assert_return on module=$Ot field=call
+skip-adr-cross-module-action assert_trap on module=$Mt field=call
+skip-adr-cross-module-action assert_trap on module=$Nt field=Mt.call
+skip-adr-cross-module-action assert_return on module=$Nt field=call
+skip-adr-cross-module-action assert_trap on module=$Nt field=call Mt.call
+skip-adr-cross-module-action assert_trap on module=$Ot field=call
+skip-adr-cross-module-action assert_trap on module=$Ot field=call
+module linking.18.wasm
+module linking.19.wasm
+skip-impl directive-register
+module linking.20.wasm
+skip-adr-cross-module-action assert_return on module=$G2 field=g
+skip-impl directive-assert_uninstantiable
+skip-impl directive-assert_unlinkable
+skip-adr-cross-module-action assert_trap on module=$Mt field=call
+skip-impl directive-assert_uninstantiable
+skip-adr-cross-module-action assert_return on module=$Mt field=call
+skip-adr-cross-module-action assert_trap on module=$Mt field=call
+skip-impl directive-assert_uninstantiable
+skip-adr-cross-module-action assert_return on module=$Mt field=call
+module linking.25.wasm
+skip-impl directive-register
+module linking.26.wasm
+skip-impl directive-assert_unlinkable
+skip-impl directive-assert_unlinkable
+module linking.29.wasm
+skip-impl directive-register
+module linking.30.wasm
+skip-adr-cross-module-action assert_return on module=$Mm field=load
+skip-adr-cross-module-action assert_return on module=$Nm field=Mm.load
+skip-adr-cross-module-action assert_return on module=$Nm field=load
+module linking.31.wasm
+skip-adr-cross-module-action assert_return on module=$Mm field=load
+skip-adr-cross-module-action assert_return on module=$Nm field=Mm.load
+skip-adr-cross-module-action assert_return on module=$Nm field=load
+skip-adr-cross-module-action assert_return on module=$Om field=load
+module linking.32.wasm
+skip-impl directive-assert_uninstantiable
+module linking.34.wasm
+skip-adr-cross-module-action assert_return on module=$Pm field=grow
+skip-adr-cross-module-action assert_return on module=$Pm field=grow
+skip-adr-cross-module-action assert_return on module=$Pm field=grow
+skip-adr-cross-module-action assert_return on module=$Pm field=grow
+skip-adr-cross-module-action assert_return on module=$Pm field=grow
+skip-adr-cross-module-action assert_return on module=$Pm field=grow
+skip-adr-cross-module-action assert_return on module=$Pm field=grow
+skip-adr-cross-module-action assert_return on module=$Pm field=grow
+skip-impl directive-assert_unlinkable
+skip-adr-cross-module-action assert_return on module=$Mm field=load
+skip-impl directive-assert_uninstantiable
+skip-adr-cross-module-action assert_return on module=$Mm field=load
+skip-adr-cross-module-action assert_return on module=$Mm field=load
+skip-impl directive-assert_uninstantiable
+skip-adr-cross-module-action assert_return on module=$Mm field=load
+module linking.38.wasm
+skip-impl directive-register
+skip-impl directive-assert_uninstantiable
+skip-adr-cross-module-action assert_return on module=$Ms field=get memory[0]
+skip-adr-cross-module-action assert_return on module=$Ms field=get table[0]

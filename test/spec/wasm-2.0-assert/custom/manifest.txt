@@ -1,0 +1,11 @@
+module custom.0.wasm
+module custom.1.wasm
+module custom.2.wasm
+assert_malformed custom.3.wasm
+assert_malformed custom.4.wasm
+assert_malformed custom.5.wasm
+assert_malformed custom.6.wasm
+assert_malformed custom.7.wasm
+assert_malformed custom.8.wasm
+assert_malformed custom.9.wasm
+assert_malformed custom.10.wasm
