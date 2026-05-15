@@ -513,6 +513,19 @@ for c in d['commands']:
             # 0 16 32))`) that have no expected value.
             (('i32', 'f32'), 'void'), (('i32', 'f64'), 'void'),
             (('i32', 'i32', 'i32'), 'void'),
+            # §9.9 / 9.9-l-1b-d093-d55: 3-/4-arg + mixed FP/i32 shapes
+            # to drain the `runner-shape-gap` skip-impl backlog.
+            (('i32', 'i32', 'i32'), 'i32'),
+            (('i32', 'i64'), 'i64'),
+            (('i64', 'i64', 'i32'), 'i64'),
+            (('f32', 'f32', 'f32'), 'f32'),
+            (('f32', 'f32', 'f32', 'f32'), 'f32'),
+            (('f32', 'f32', 'i32'), 'f32'),
+            (('f32', 'f64'), 'f32'),
+            (('f64', 'f32'), 'f32'),
+            (('f64', 'f64', 'f64'), 'f64'),
+            (('f64', 'f64', 'f64', 'f64'), 'f64'),
+            (('f64', 'f64', 'i32'), 'f64'),
             # d-41 (D-114): memory_trap.wast assert_return on
             # `(invoke "i64.store" 0xfff8 0)` zero-store between
             # the trap asserts and follow-up loads.

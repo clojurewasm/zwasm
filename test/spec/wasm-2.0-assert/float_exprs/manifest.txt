@@ -1,20 +1,20 @@
 module float_exprs.0.wasm
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_contraction
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_contraction
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_contraction
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_contraction
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_contraction
+assert_return f64.no_contraction f64:13369472591878845359 f64:7598224971858294334 f64:7009968021366006149 -> f64:16360919150252594323
+assert_return f64.no_contraction f64:4845207016438394692 f64:3163224970157846858 f64:3251145870828527841 -> f64:3401457070760597396
+assert_return f64.no_contraction f64:11159707324127586240 f64:7011538096610110295 f64:4140382893275160737 -> f64:13564076370790560102
+assert_return f64.no_contraction f64:4300281701552927458 f64:13379479906516703876 f64:3629658278272971302 -> f64:13072631228492738408
+assert_return f64.no_contraction f64:9554523352352050493 f64:18042841594766434431 f64:4368037109959396445 -> f64:4544162191519938727
 module float_exprs.1.wasm
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_fma
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_fma
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_fma
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_fma
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_fma
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_fma
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_fma
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_fma
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_fma
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_fma
+assert_return f32.no_fma f32:2111029761 f32:879215268 f32:1967953261 -> f32:1968345878
+assert_return f32.no_fma f32:838240978 f32:2796592697 f32:329493464 -> f32:2569667420
+assert_return f32.no_fma f32:1381446097 f32:962187981 f32:1155576972 -> f32:1278680110
+assert_return f32.no_fma f32:999635965 f32:3403528619 f32:3222888213 -> f32:3338748778
+assert_return f32.no_fma f32:2123679707 f32:2625733638 f32:3500197619 -> f32:3684076259
+assert_return f64.no_fma f64:7118716943724900052 f64:6546073043412611735 f64:18275705786238687882 -> f64:9054581441422375136
+assert_return f64.no_fma f64:7984371788751700236 f64:4021745400549737956 f64:7188568268293775252 -> f64:7398962198428541884
+assert_return f64.no_fma f64:1362668175782178275 f64:18385570095786966502 f64:5677031731722859914 -> f64:15141616602947129037
+assert_return f64.no_fma f64:12093403956019835987 f64:15826077508588652458 f64:4856562394320338043 -> f64:4867219230351674394
+assert_return f64.no_fma f64:4843589256781277081 f64:7695653093478086834 f64:16938438850771988744 -> f64:7932313162666085329
 module float_exprs.2.wasm
 assert_return f32.no_fold_add_zero f32:2147483648 -> f32:0
 assert_return f64.no_fold_add_zero f64:9223372036854775808 -> f64:0
@@ -93,71 +93,71 @@ assert_return f64.no_fold_div_3 f64:674365394458900388 -> f64:667250911628840899
 assert_return f64.no_fold_div_3 f64:18365700772251870524 -> f64:18358201936817915643
 assert_return f64.no_fold_div_3 f64:6476267216527259981 -> f64:6468791534604471399
 module float_exprs.17.wasm
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_factor
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_factor
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_factor
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_factor
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_factor
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_factor
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_factor
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_factor
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_factor
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_factor
+assert_return f32.no_factor f32:3550941609 f32:3628209942 f32:1568101121 -> f32:4131116008
+assert_return f32.no_factor f32:3168433147 f32:1028017286 f32:3141035521 -> f32:3095417249
+assert_return f32.no_factor f32:2869115159 f32:536308199 f32:2100177580 -> f32:3904015703
+assert_return f32.no_factor f32:2684117842 f32:369386499 f32:2061166438 -> f32:3679965352
+assert_return f32.no_factor f32:2510116111 f32:476277495 f32:1237750930 -> f32:649094375
+assert_return f64.no_factor f64:2698691837980592503 f64:2529920934327896545 f64:12819783413251458936 -> f64:10911876679403600666
+assert_return f64.no_factor f64:1626864102540432200 f64:9287829620889669687 f64:9524500187773169472 -> f64:0
+assert_return f64.no_factor f64:12326480769054961745 f64:12563546453737163926 f64:15990519985875741037 -> f64:5500432744005058080
+assert_return f64.no_factor f64:12532477544855171977 f64:3439526350000314825 f64:12694541248380731909 -> f64:11527035460272583044
+assert_return f64.no_factor f64:1871759566187673434 f64:2002968319587025494 f64:16033202089880281080 -> f64:13429277897969282899
 module float_exprs.18.wasm
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_distribute
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_distribute
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_distribute
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_distribute
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_distribute
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_distribute
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_distribute
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_distribute
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_distribute
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_distribute
+assert_return f32.no_distribute f32:3550941609 f32:3628209942 f32:1568101121 -> f32:4131116009
+assert_return f32.no_distribute f32:3168433147 f32:1028017286 f32:3141035521 -> f32:3095417248
+assert_return f32.no_distribute f32:2869115159 f32:536308199 f32:2100177580 -> f32:3904015704
+assert_return f32.no_distribute f32:2684117842 f32:369386499 f32:2061166438 -> f32:3679965351
+assert_return f32.no_distribute f32:2510116111 f32:476277495 f32:1237750930 -> f32:649094374
+assert_return f64.no_distribute f64:2698691837980592503 f64:2529920934327896545 f64:12819783413251458936 -> f64:10911876679403600667
+assert_return f64.no_distribute f64:1626864102540432200 f64:9287829620889669687 f64:9524500187773169472 -> f64:9223372036854775808
+assert_return f64.no_distribute f64:12326480769054961745 f64:12563546453737163926 f64:15990519985875741037 -> f64:5500432744005058079
+assert_return f64.no_distribute f64:12532477544855171977 f64:3439526350000314825 f64:12694541248380731909 -> f64:11527035460272583043
+assert_return f64.no_distribute f64:1871759566187673434 f64:2002968319587025494 f64:16033202089880281080 -> f64:13429277897969282898
 module float_exprs.19.wasm
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_regroup_div_mul
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_regroup_div_mul
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_regroup_div_mul
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_regroup_div_mul
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_regroup_div_mul
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_regroup_div_mul
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_regroup_div_mul
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_regroup_div_mul
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_regroup_div_mul
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_regroup_div_mul
+assert_return f32.no_regroup_div_mul f32:2249624147 f32:2678828342 f32:95319815 -> f32:538190437
+assert_return f32.no_regroup_div_mul f32:3978470300 f32:2253997363 f32:3824852100 -> f32:2147483648
+assert_return f32.no_regroup_div_mul f32:3350590135 f32:3042588643 f32:2186448635 -> f32:4206661932
+assert_return f32.no_regroup_div_mul f32:2430706172 f32:1685220483 f32:1642018044 -> f32:2473922297
+assert_return f32.no_regroup_div_mul f32:2011387707 f32:1274956446 f32:3811596788 -> f32:3768838261
+assert_return f64.no_regroup_div_mul f64:2703215631877943472 f64:13295603997208052007 f64:1719211436532588593 -> f64:14279677686886620461
+assert_return f64.no_regroup_div_mul f64:6126139291059848917 f64:2596039250849921421 f64:17423258659719899654 -> f64:9223372036854775808
+assert_return f64.no_regroup_div_mul f64:2451868557331674239 f64:8672326445062988097 f64:2593279393835739385 -> f64:9218868437227405312
+assert_return f64.no_regroup_div_mul f64:15994259208199847538 f64:16584156163346075677 f64:17596923907238870430 -> f64:14981548491626301009
+assert_return f64.no_regroup_div_mul f64:1912002771029783751 f64:655387110450354003 f64:10060746190138762841 -> f64:10953754119023888080
 module float_exprs.20.wasm
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_regroup_mul_div
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_regroup_mul_div
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_regroup_mul_div
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_regroup_mul_div
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_regroup_mul_div
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_regroup_mul_div
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_regroup_mul_div
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_regroup_mul_div
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_regroup_mul_div
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_regroup_mul_div
+assert_return f32.no_regroup_mul_div f32:2249624147 f32:2678828342 f32:95319815 -> f32:0
+assert_return f32.no_regroup_mul_div f32:3978470300 f32:2253997363 f32:3824852100 -> f32:2408382580
+assert_return f32.no_regroup_mul_div f32:3350590135 f32:3042588643 f32:2186448635 -> f32:4206661933
+assert_return f32.no_regroup_mul_div f32:2430706172 f32:1685220483 f32:1642018044 -> f32:2473922298
+assert_return f32.no_regroup_mul_div f32:2011387707 f32:1274956446 f32:3811596788 -> f32:4286578688
+assert_return f64.no_regroup_mul_div f64:2703215631877943472 f64:13295603997208052007 f64:1719211436532588593 -> f64:14279677686886620462
+assert_return f64.no_regroup_mul_div f64:6126139291059848917 f64:2596039250849921421 f64:17423258659719899654 -> f64:9746029336072872080
+assert_return f64.no_regroup_mul_div f64:2451868557331674239 f64:8672326445062988097 f64:2593279393835739385 -> f64:8531093589128288889
+assert_return f64.no_regroup_mul_div f64:15994259208199847538 f64:16584156163346075677 f64:17596923907238870430 -> f64:18442240474082181120
+assert_return f64.no_regroup_mul_div f64:1912002771029783751 f64:655387110450354003 f64:10060746190138762841 -> f64:9223372036854775808
 module float_exprs.21.wasm
-skip-impl runner-shape-gap (f32 f32 f32 f32, f32) f32.no_reassociate_add
-skip-impl runner-shape-gap (f32 f32 f32 f32, f32) f32.no_reassociate_add
-skip-impl runner-shape-gap (f32 f32 f32 f32, f32) f32.no_reassociate_add
-skip-impl runner-shape-gap (f32 f32 f32 f32, f32) f32.no_reassociate_add
-skip-impl runner-shape-gap (f32 f32 f32 f32, f32) f32.no_reassociate_add
-skip-impl runner-shape-gap (f64 f64 f64 f64, f64) f64.no_reassociate_add
-skip-impl runner-shape-gap (f64 f64 f64 f64, f64) f64.no_reassociate_add
-skip-impl runner-shape-gap (f64 f64 f64 f64, f64) f64.no_reassociate_add
-skip-impl runner-shape-gap (f64 f64 f64 f64, f64) f64.no_reassociate_add
-skip-impl runner-shape-gap (f64 f64 f64 f64, f64) f64.no_reassociate_add
+assert_return f32.no_reassociate_add f32:3585064686 f32:1354934024 f32:3612934982 f32:3557837641 -> f32:3614520891
+assert_return f32.no_reassociate_add f32:997006780 f32:3156314493 f32:1031916275 f32:3157700435 -> f32:1027365261
+assert_return f32.no_reassociate_add f32:3506363549 f32:3562765939 f32:1440782572 f32:1388583643 -> f32:1439168977
+assert_return f32.no_reassociate_add f32:1460378878 f32:1481791683 f32:3506843934 f32:1493913729 -> f32:1497931771
+assert_return f32.no_reassociate_add f32:1975099005 f32:4120668550 f32:1947708458 f32:4008073260 -> f32:1958779787
+assert_return f64.no_reassociate_add f64:17619937326421449126 f64:8424880666975634327 f64:8461713040394112626 f64:17692076622886930107 -> f64:17689770886425413754
+assert_return f64.no_reassociate_add f64:2161744272815763681 f64:2160815018984030177 f64:11389452991481170854 f64:11158554735757873927 -> f64:11367213592018398582
+assert_return f64.no_reassociate_add f64:15816220208145029204 f64:6443786499090728432 f64:15798639273395365185 f64:6395820899158300605 -> f64:15816713260997571051
+assert_return f64.no_reassociate_add f64:12406188505172681730 f64:3227622722685619614 f64:12653209142287077985 f64:3439058911346459774 -> f64:3437283564188778523
+assert_return f64.no_reassociate_add f64:16720963389015391005 f64:16597092572968550980 f64:7518944085377596897 f64:16733407756820198530 -> f64:7516931113564586278
 module float_exprs.22.wasm
-skip-impl runner-shape-gap (f32 f32 f32 f32, f32) f32.no_reassociate_mul
-skip-impl runner-shape-gap (f32 f32 f32 f32, f32) f32.no_reassociate_mul
-skip-impl runner-shape-gap (f32 f32 f32 f32, f32) f32.no_reassociate_mul
-skip-impl runner-shape-gap (f32 f32 f32 f32, f32) f32.no_reassociate_mul
-skip-impl runner-shape-gap (f32 f32 f32 f32, f32) f32.no_reassociate_mul
-skip-impl runner-shape-gap (f64 f64 f64 f64, f64) f64.no_reassociate_mul
-skip-impl runner-shape-gap (f64 f64 f64 f64, f64) f64.no_reassociate_mul
-skip-impl runner-shape-gap (f64 f64 f64 f64, f64) f64.no_reassociate_mul
-skip-impl runner-shape-gap (f64 f64 f64 f64, f64) f64.no_reassociate_mul
-skip-impl runner-shape-gap (f64 f64 f64 f64, f64) f64.no_reassociate_mul
+assert_return f32.no_reassociate_mul f32:97158612 f32:796388711 f32:4071607776 f32:603464324 -> f32:2373950135
+assert_return f32.no_reassociate_mul f32:598526039 f32:4072603010 f32:2166864805 f32:3802968051 -> f32:3152274558
+assert_return f32.no_reassociate_mul f32:666201298 f32:3678968917 f32:2879732647 f32:1703934016 -> f32:1439591542
+assert_return f32.no_reassociate_mul f32:191948150 f32:1717012201 f32:3682645872 f32:3713382507 -> f32:1814709127
+assert_return f32.no_reassociate_mul f32:2384301792 f32:656878874 f32:3239861549 f32:1564466295 -> f32:355327948
+assert_return f64.no_reassociate_mul f64:10830726381612138752 f64:18293529276079591087 f64:12137662286027993114 f64:16821646709291069775 -> f64:7368793799369880819
+assert_return f64.no_reassociate_mul f64:6653164799371160764 f64:2285295038358358170 f64:9783304669150272403 f64:16266005085991502709 -> f64:2720645287366687760
+assert_return f64.no_reassociate_mul f64:2352911459797566465 f64:17379873157362463143 f64:1179129869275935356 f64:14228398113747850351 -> f64:2873103656912958703
+assert_return f64.no_reassociate_mul f64:7724499817746503804 f64:2704005046640722176 f64:5612860422806321751 f64:13727818095548724091 -> f64:15948568678460814092
+assert_return f64.no_reassociate_mul f64:3553622953022765407 f64:1044040287824900408 f64:17112762794520509437 f64:11134095486440145773 -> f64:576919682754813073
 module float_exprs.23.wasm
 assert_return f32.no_fold_div_0 f32:1065353216 -> f32:2139095040
 assert_return f32.no_fold_div_0 f32:3212836864 -> f32:4286578688
@@ -307,49 +307,49 @@ assert_return no_fold_promote_demote f32:4286578687 -> f32:4286578687
 assert_return no_fold_promote_demote f32:2139095040 -> f32:2139095040
 assert_return no_fold_promote_demote f32:4286578688 -> f32:4286578688
 module float_exprs.37.wasm
-skip-impl runner-shape-gap (f64 f32, f32) no_demote_mixed_add
-skip-impl runner-shape-gap (f64 f32, f32) no_demote_mixed_add
-skip-impl runner-shape-gap (f64 f32, f32) no_demote_mixed_add
-skip-impl runner-shape-gap (f64 f32, f32) no_demote_mixed_add
-skip-impl runner-shape-gap (f64 f32, f32) no_demote_mixed_add
-skip-impl runner-shape-gap (f32 f64, f32) no_demote_mixed_add_commuted
-skip-impl runner-shape-gap (f32 f64, f32) no_demote_mixed_add_commuted
-skip-impl runner-shape-gap (f32 f64, f32) no_demote_mixed_add_commuted
-skip-impl runner-shape-gap (f32 f64, f32) no_demote_mixed_add_commuted
-skip-impl runner-shape-gap (f32 f64, f32) no_demote_mixed_add_commuted
+assert_return no_demote_mixed_add f64:4183652368636204281 f32:69183310 -> f32:276467023
+assert_return no_demote_mixed_add f64:4773927428111915216 f32:1387972204 -> f32:1392270651
+assert_return no_demote_mixed_add f64:4072985553596038423 f32:2202918851 -> f32:66813087
+assert_return no_demote_mixed_add f64:13740716732336801211 f32:822392741 -> f32:3045484077
+assert_return no_demote_mixed_add f64:13742514716462174325 f32:2870112826 -> f32:3048850075
+assert_return no_demote_mixed_add_commuted f32:69183310 f64:4183652368636204281 -> f32:276467023
+assert_return no_demote_mixed_add_commuted f32:1387972204 f64:4773927428111915216 -> f32:1392270651
+assert_return no_demote_mixed_add_commuted f32:2202918851 f64:4072985553596038423 -> f32:66813087
+assert_return no_demote_mixed_add_commuted f32:822392741 f64:13740716732336801211 -> f32:3045484077
+assert_return no_demote_mixed_add_commuted f32:2870112826 f64:13742514716462174325 -> f32:3048850075
 module float_exprs.38.wasm
-skip-impl runner-shape-gap (f64 f32, f32) no_demote_mixed_sub
-skip-impl runner-shape-gap (f64 f32, f32) no_demote_mixed_sub
-skip-impl runner-shape-gap (f64 f32, f32) no_demote_mixed_sub
-skip-impl runner-shape-gap (f64 f32, f32) no_demote_mixed_sub
-skip-impl runner-shape-gap (f64 f32, f32) no_demote_mixed_sub
-skip-impl runner-shape-gap (f32 f64, f32) no_demote_mixed_sub_commuted
-skip-impl runner-shape-gap (f32 f64, f32) no_demote_mixed_sub_commuted
-skip-impl runner-shape-gap (f32 f64, f32) no_demote_mixed_sub_commuted
-skip-impl runner-shape-gap (f32 f64, f32) no_demote_mixed_sub_commuted
-skip-impl runner-shape-gap (f32 f64, f32) no_demote_mixed_sub_commuted
+assert_return no_demote_mixed_sub f64:4979303437048015281 f32:1583535740 -> f32:1758482618
+assert_return no_demote_mixed_sub f64:13967600632962086462 f32:1214924370 -> f32:3468107136
+assert_return no_demote_mixed_sub f64:13860263758943608426 f32:969848030 -> f32:3268174805
+assert_return no_demote_mixed_sub f64:4364064588997139903 f32:472962692 -> f32:612510881
+assert_return no_demote_mixed_sub f64:4673175763235896759 f32:1198952676 -> f32:3339501185
+assert_return no_demote_mixed_sub_commuted f32:1583535740 f64:4979303437048015281 -> f32:3905966266
+assert_return no_demote_mixed_sub_commuted f32:1214924370 f64:13967600632962086462 -> f32:1320623488
+assert_return no_demote_mixed_sub_commuted f32:969848030 f64:13860263758943608426 -> f32:1120691157
+assert_return no_demote_mixed_sub_commuted f32:472962692 f64:4364064588997139903 -> f32:2759994529
+assert_return no_demote_mixed_sub_commuted f32:1198952676 f64:4673175763235896759 -> f32:1192017537
 module float_exprs.39.wasm
-skip-impl runner-shape-gap (f64 f32, f32) no_demote_mixed_mul
-skip-impl runner-shape-gap (f64 f32, f32) no_demote_mixed_mul
-skip-impl runner-shape-gap (f64 f32, f32) no_demote_mixed_mul
-skip-impl runner-shape-gap (f64 f32, f32) no_demote_mixed_mul
-skip-impl runner-shape-gap (f64 f32, f32) no_demote_mixed_mul
-skip-impl runner-shape-gap (f32 f64, f32) no_demote_mixed_mul_commuted
-skip-impl runner-shape-gap (f32 f64, f32) no_demote_mixed_mul_commuted
-skip-impl runner-shape-gap (f32 f64, f32) no_demote_mixed_mul_commuted
-skip-impl runner-shape-gap (f32 f64, f32) no_demote_mixed_mul_commuted
-skip-impl runner-shape-gap (f32 f64, f32) no_demote_mixed_mul_commuted
+assert_return no_demote_mixed_mul f64:3700298049681794165 f32:2017642079 -> f32:329178166
+assert_return no_demote_mixed_mul f64:5240203039857786645 f32:169311251 -> f32:1349264105
+assert_return no_demote_mixed_mul f64:5404042108537284972 f32:592745128 -> f32:2077099629
+assert_return no_demote_mixed_mul f64:5605237095216364626 f32:44014947 -> f32:1904260016
+assert_return no_demote_mixed_mul f64:3845043516226476604 f32:1468885281 -> f32:49968716
+assert_return no_demote_mixed_mul_commuted f32:2017642079 f64:3700298049681794165 -> f32:329178166
+assert_return no_demote_mixed_mul_commuted f32:169311251 f64:5240203039857786645 -> f32:1349264105
+assert_return no_demote_mixed_mul_commuted f32:592745128 f64:5404042108537284972 -> f32:2077099629
+assert_return no_demote_mixed_mul_commuted f32:44014947 f64:5605237095216364626 -> f32:1904260016
+assert_return no_demote_mixed_mul_commuted f32:1468885281 f64:3845043516226476604 -> f32:49968716
 module float_exprs.40.wasm
-skip-impl runner-shape-gap (f64 f32, f32) no_demote_mixed_div
-skip-impl runner-shape-gap (f64 f32, f32) no_demote_mixed_div
-skip-impl runner-shape-gap (f64 f32, f32) no_demote_mixed_div
-skip-impl runner-shape-gap (f64 f32, f32) no_demote_mixed_div
-skip-impl runner-shape-gap (f64 f32, f32) no_demote_mixed_div
-skip-impl runner-shape-gap (f32 f64, f32) no_demote_mixed_div_commuted
-skip-impl runner-shape-gap (f32 f64, f32) no_demote_mixed_div_commuted
-skip-impl runner-shape-gap (f32 f64, f32) no_demote_mixed_div_commuted
-skip-impl runner-shape-gap (f32 f64, f32) no_demote_mixed_div_commuted
-skip-impl runner-shape-gap (f32 f64, f32) no_demote_mixed_div_commuted
+assert_return no_demote_mixed_div f64:5283862605148245729 f32:1932933707 -> f32:1457608876
+assert_return no_demote_mixed_div f64:3919260277508722072 f32:379509872 -> f32:469826243
+assert_return no_demote_mixed_div f64:4441666254287638695 f32:3452068 -> f32:1824659560
+assert_return no_demote_mixed_div f64:3987118416164120709 f32:327692725 -> f32:647926247
+assert_return no_demote_mixed_div f64:4944171978380117708 f32:1811434203 -> f32:946934754
+assert_return no_demote_mixed_div_commuted f32:451659502 f64:4418811329667688930 -> f32:801699691
+assert_return no_demote_mixed_div_commuted f32:1287575826 f64:5323750166520438484 -> f32:88031
+assert_return no_demote_mixed_div_commuted f32:737399826 f64:3994494799108309244 -> f32:1878609809
+assert_return no_demote_mixed_div_commuted f32:1740211648 f64:5555331956744021194 -> f32:496184
+assert_return no_demote_mixed_div_commuted f32:456887038 f64:3717438582804640027 -> f32:2114092635
 module float_exprs.41.wasm
 assert_return f32.i32.no_fold_trunc_s_convert_s f32:1069547520 -> f32:1065353216
 assert_return f32.i32.no_fold_trunc_s_convert_s f32:3217031168 -> f32:3212836864
@@ -590,9 +590,9 @@ assert_return llvm_pr27153 i32:33554434 -> f32:1270874112
 module float_exprs.54.wasm
 skip-impl runner-shape-gap (i32 i32, f32) llvm_pr27036
 module float_exprs.55.wasm
-skip-impl runner-shape-gap (f64 f64 f64 f64, f64) thepast0
-skip-impl runner-shape-gap (f64 f64 f64, f64) thepast1
-skip-impl runner-shape-gap (f32 f32 f32, f32) thepast2
+assert_return thepast0 f64:9007199254740992 f64:4607182418800017407 f64:4611686018427387904 f64:4602678819172646912 -> f64:9007199254740991
+assert_return thepast1 f64:4363988038922010624 f64:4607182418800017407 f64:4363988038922010624 -> f64:13348669295526150144
+assert_return thepast2 f32:16777216 f32:1056964608 f32:1065353216 -> f32:8388608
 module float_exprs.56.wasm
 assert_return inverse f32:1119879168 -> f32:1009429163
 module float_exprs.57.wasm
@@ -705,38 +705,38 @@ assert_return f64.no_fold_6x_via_add f64:15055410132664937138 -> f64:15066699987
 assert_return f64.no_fold_6x_via_add f64:7991451501228919438 -> f64:8003319959635773419
 assert_return f64.no_fold_6x_via_add f64:14886926859367497770 -> f64:14898679235615764511
 module float_exprs.70.wasm
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_fold_div_div
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_fold_div_div
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_fold_div_div
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_fold_div_div
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_fold_div_div
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_fold_div_div
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_fold_div_div
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_fold_div_div
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_fold_div_div
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_fold_div_div
+assert_return f32.no_fold_div_div f32:3875242260 f32:3086869257 f32:3301317576 -> f32:3911440926
+assert_return f32.no_fold_div_div f32:485052055 f32:1996083391 f32:2276616712 -> f32:2147483648
+assert_return f32.no_fold_div_div f32:1430470604 f32:186144382 f32:1953564780 -> f32:2139095040
+assert_return f32.no_fold_div_div f32:3101818893 f32:4258133430 f32:2855958950 -> f32:2411777082
+assert_return f32.no_fold_div_div f32:1458407223 f32:1537931089 f32:4260989344 -> f32:2147507000
+assert_return f64.no_fold_div_div f64:6128077243319875447 f64:7240092044185667120 f64:10312472494987686942 -> f64:16236150182064455170
+assert_return f64.no_fold_div_div f64:17395933367696573535 f64:4478922858584402707 f64:6032094754408482817 -> f64:16098470347548634769
+assert_return f64.no_fold_div_div f64:13843263185226986279 f64:17796742619038211051 f64:5375701731263473827 -> f64:44472927
+assert_return f64.no_fold_div_div f64:17547288444310957340 f64:911654786857739111 f64:8937284546802896640 -> f64:18442240474082181120
+assert_return f64.no_fold_div_div f64:9835707468114203513 f64:1924400690116523912 f64:13208934041167870811 -> f64:3916014548332337260
 module float_exprs.71.wasm
-skip-impl runner-shape-gap (f32 f32 f32 f32, f32) f32.no_fold_mul_divs
-skip-impl runner-shape-gap (f32 f32 f32 f32, f32) f32.no_fold_mul_divs
-skip-impl runner-shape-gap (f32 f32 f32 f32, f32) f32.no_fold_mul_divs
-skip-impl runner-shape-gap (f32 f32 f32 f32, f32) f32.no_fold_mul_divs
-skip-impl runner-shape-gap (f32 f32 f32 f32, f32) f32.no_fold_mul_divs
-skip-impl runner-shape-gap (f64 f64 f64 f64, f64) f64.no_fold_mul_divs
-skip-impl runner-shape-gap (f64 f64 f64 f64, f64) f64.no_fold_mul_divs
-skip-impl runner-shape-gap (f64 f64 f64 f64, f64) f64.no_fold_mul_divs
-skip-impl runner-shape-gap (f64 f64 f64 f64, f64) f64.no_fold_mul_divs
-skip-impl runner-shape-gap (f64 f64 f64 f64, f64) f64.no_fold_mul_divs
+assert_return f32.no_fold_mul_divs f32:2304917983 f32:301403678 f32:331350955 f32:3251297465 -> f32:148760966
+assert_return f32.no_fold_mul_divs f32:4068974897 f32:1276265036 f32:930821438 f32:1044692964 -> f32:3742862674
+assert_return f32.no_fold_mul_divs f32:3496980369 f32:3548280607 f32:3461305482 f32:3298174616 -> f32:1176926862
+assert_return f32.no_fold_mul_divs f32:4135236702 f32:787270424 f32:932959293 f32:1724950821 -> f32:4286578688
+assert_return f32.no_fold_mul_divs f32:622783177 f32:2677642769 f32:307759154 f32:768171421 -> f32:2844661464
+assert_return f64.no_fold_mul_divs f64:10143060558527560466 f64:11745059379675007839 f64:16295837305232663584 f64:5444961058358534642 -> f64:13856326607560224491
+assert_return f64.no_fold_mul_divs f64:14349445329289351080 f64:468238185841254727 f64:15463559257629249878 f64:15937497686185055572 -> f64:18442240474082181120
+assert_return f64.no_fold_mul_divs f64:15220380342429201729 f64:14697937818549468616 f64:13203624158275174657 f64:17131104131485469546 -> f64:1202126128702318245
+assert_return f64.no_fold_mul_divs f64:14414969397981384765 f64:12269327994486371199 f64:298707625567048656 f64:5613107161545919917 -> f64:0
+assert_return f64.no_fold_mul_divs f64:4529089342618677929 f64:3361245300043094097 f64:1815899012046749567 f64:15418396504351552390 -> f64:10619033301585441215
 module float_exprs.72.wasm
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_fold_add_divs
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_fold_add_divs
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_fold_add_divs
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_fold_add_divs
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_fold_add_divs
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_fold_add_divs
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_fold_add_divs
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_fold_add_divs
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_fold_add_divs
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_fold_add_divs
+assert_return f32.no_fold_add_divs f32:1136439096 f32:3173274359 f32:4274852390 -> f32:2221638875
+assert_return f32.no_fold_add_divs f32:2690073844 f32:2809448479 f32:3608905030 -> f32:264862203
+assert_return f32.no_fold_add_divs f32:2830184964 f32:530019033 f32:3623253973 -> f32:272108594
+assert_return f32.no_fold_add_divs f32:2365787800 f32:245111369 f32:3952003433 -> f32:0
+assert_return f32.no_fold_add_divs f32:982471119 f32:1045692415 f32:37216954 -> f32:2073319791
+assert_return f64.no_fold_add_divs f64:15770585325769044278 f64:6564157675451289455 f64:8712254759989822359 -> f64:2458462832069881218
+assert_return f64.no_fold_add_divs f64:14069844870254671283 f64:4634122757084803708 f64:9524897388132352235 -> f64:9152039358940941283
+assert_return f64.no_fold_add_divs f64:9479648703296052622 f64:214573661502224386 f64:6877551490107761946 -> f64:0
+assert_return f64.no_fold_add_divs f64:6019502660029506228 f64:15316513033818836241 f64:4039967192182502935 -> f64:15883525310425977300
+assert_return f64.no_fold_add_divs f64:10555667216821129841 f64:1207418919037494573 f64:4296330408727545598 -> f64:10866511466898347555
 module float_exprs.73.wasm
 assert_return f32.no_fold_sqrt_square f32:2662226315 -> f32:514742673
 assert_return f32.no_fold_sqrt_square f32:2606267634 -> f32:458819801
@@ -782,8 +782,8 @@ assert_return f64.no_fold_mul_sqrt_div f64:2695209648295623224 f64:7133480874314
 assert_return f64.no_fold_mul_sqrt_div f64:15416524255949334213 f64:2434442666062773630 -> f64:16502590179898118478
 assert_return f64.no_fold_mul_sqrt_div f64:5076901024782455083 f64:8399438310541178654 -> f64:3180744754328846996
 module float_exprs.77.wasm
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.no_flush_intermediate_subnormal
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.no_flush_intermediate_subnormal
+assert_return f32.no_flush_intermediate_subnormal f32:8388608 f32:872415232 f32:1258291200 -> f32:8388608
+assert_return f64.no_flush_intermediate_subnormal f64:4503599627370496 f64:4372995238176751616 f64:4841369599423283200 -> f64:4503599627370496
 module float_exprs.78.wasm
 assert_return f32.recoding_eq f32:4286578688 f32:1077936128 -> i32:1
 assert_return f32.recoding_le f32:4286578688 f32:1077936128 -> i32:1
@@ -797,7 +797,7 @@ assert_return f64.recoding_lt f64:18442240474082181120 f64:4613937818241073152 -
 assert_return f64.recoding_eq f64:0 f64:4607182418800017408 -> i32:1
 assert_return f64.recoding_le f64:0 f64:4607182418800017408 -> i32:1
 assert_return f64.recoding_lt f64:0 f64:4607182418800017408 -> i32:0
-skip-impl runner-shape-gap (f64 f32, f32) recoding_demote
+assert_return recoding_demote f64:4014054135371399168 f32:1150853120 -> f32:46548238
 module float_exprs.79.wasm
 skip-impl runner-shape-gap (f32 f32 f32, i32) f32.no_extended_precision_div
 skip-impl runner-shape-gap (f64 f64 f64, i32) f64.no_extended_precision_div
@@ -806,19 +806,19 @@ assert_return f32.no_distribute_exact f32:2147483648 -> f32:0
 assert_return f64.no_distribute_exact f64:9223372036854775808 -> f64:0
 module float_exprs.81.wasm
 assert_return f32.sqrt f32:1073741824 -> f32:1068827891
-skip-impl runner-shape-gap (f32 f32 f32 f32, f32) f32.xkcd_sqrt_2
+assert_return f32.xkcd_sqrt_2 f32:1077936128 f32:1084227584 f32:1078530011 f32:1088421888 -> f32:1068827946
 assert_return f32.sqrt f32:1077936128 -> f32:1071494103
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.xkcd_sqrt_3
+assert_return f32.xkcd_sqrt_3 f32:1073741824 f32:1076754516 f32:1078530011 -> f32:1071481194
 assert_return f32.sqrt f32:1084227584 -> f32:1074731965
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.xkcd_sqrt_5
-skip-impl runner-shape-gap (f32 f32 f32 f32, f32) f32.xkcd_better_sqrt_5
+assert_return f32.xkcd_sqrt_5 f32:1073741824 f32:1076754516 f32:1077936128 -> f32:1074730668
+assert_return f32.xkcd_better_sqrt_5 f32:1095761920 f32:1082130432 f32:1078530011 f32:1103101952 -> f32:1074731965
 assert_return f64.sqrt f64:4611686018427387904 -> f64:4609047870845172685
-skip-impl runner-shape-gap (f64 f64 f64 f64, f64) f64.xkcd_sqrt_2
+assert_return f64.xkcd_sqrt_2 f64:4613937818241073152 f64:4617315517961601024 f64:4614256656552045848 f64:4619567317775286272 -> f64:4609047900099118431
 assert_return f64.sqrt f64:4613937818241073152 -> f64:4610479282544200874
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.xkcd_sqrt_3
+assert_return f64.xkcd_sqrt_3 f64:4611686018427387904 f64:4613303445314885481 f64:4614256656552045848 -> f64:4610472352185749397
 assert_return f64.sqrt f64:4617315517961601024 -> f64:4612217596255138984
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.xkcd_sqrt_5
-skip-impl runner-shape-gap (f64 f64 f64 f64, f64) f64.xkcd_better_sqrt_5
+assert_return f64.xkcd_sqrt_5 f64:4611686018427387904 f64:4613303445314885481 f64:4613937818241073152 -> f64:4612216900234722254
+assert_return f64.xkcd_better_sqrt_5 f64:4623507967449235456 f64:4616189618054758400 f64:4614256656552045848 f64:4627448617123184640 -> f64:4612217595876713891
 module float_exprs.82.wasm
 assert_return f32.compute_radix f32:1065353216 f32:1065353216 -> f32:1073741824
 assert_return f64.compute_radix f64:4607182418800017408 f64:4607182418800017408 -> f64:4611686018427387904
@@ -899,11 +899,11 @@ assert_return f64.contract2fma f64:4607182418800017408 f64:4607182418800017408 -
 assert_return f64.contract2fma f64:4607632778762754458 f64:4607632778762754458 -> f64:0
 assert_return f64.contract2fma f64:4608083138725491507 f64:4608083138725491507 -> f64:0
 module float_exprs.92.wasm
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.division_by_small_number
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.division_by_small_number
+assert_return f32.division_by_small_number f32:1289068416 f32:1203982336 f32:980151802 -> f32:1230570368
+assert_return f64.division_by_small_number f64:4727288602252279808 f64:4681608360884174848 f64:4561440258104740754 -> f64:4695882709507797376
 module float_exprs.93.wasm
-skip-impl runner-shape-gap (f32 f32 f32, f32) f32.golden_ratio
-skip-impl runner-shape-gap (f64 f64 f64, f64) f64.golden_ratio
+assert_return f32.golden_ratio f32:1056964608 f32:1065353216 f32:1084227584 -> f32:1070537661
+assert_return f64.golden_ratio f64:4602678819172646912 f64:4607182418800017408 f64:4617315517961601024 -> f64:4609965796441453736
 module float_exprs.94.wasm
 assert_return f32.silver_means f32:0 -> f32:1065353216
 assert_return f32.silver_means f32:1065353216 -> f32:1070537661

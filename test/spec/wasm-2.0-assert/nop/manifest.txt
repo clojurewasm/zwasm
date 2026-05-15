@@ -39,11 +39,11 @@ assert_return as-br_table-everywhere i32:7 -> i32:7
 assert_return as-return-first i32:5 -> i32:5
 assert_return as-return-last i32:6 -> i32:6
 assert_return as-return-everywhere i32:7 -> i32:7
-skip-impl runner-shape-gap (i32 i32 i32, i32) as-call-first
-skip-impl runner-shape-gap (i32 i32 i32, i32) as-call-mid1
-skip-impl runner-shape-gap (i32 i32 i32, i32) as-call-mid2
-skip-impl runner-shape-gap (i32 i32 i32, i32) as-call-last
-skip-impl runner-shape-gap (i32 i32 i32, i32) as-call-everywhere
+assert_return as-call-first i32:3 i32:1 i32:2 -> i32:2
+assert_return as-call-mid1 i32:3 i32:1 i32:2 -> i32:2
+assert_return as-call-mid2 i32:0 i32:3 i32:1 -> i32:2
+assert_return as-call-last i32:10 i32:9 i32:4294967295 -> i32:20
+assert_return as-call-everywhere i32:2 i32:1 i32:5 -> i32:4294967294
 assert_return as-unary-first i32:30 -> i32:1
 assert_return as-unary-last i32:30 -> i32:1
 assert_return as-unary-everywhere i32:12 -> i32:2

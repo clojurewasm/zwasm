@@ -16,11 +16,11 @@ assert_return type-second-f64 () -> f64:4634211053438658150
 skip-impl multi-result type-all-f64-i32
 skip-impl multi-result type-all-i32-f64
 skip-impl multi-result type-all-i32-i64
-skip-impl runner-shape-gap (i32 i64, i64) dispatch
-skip-impl runner-shape-gap (i32 i64, i64) dispatch
-skip-impl runner-shape-gap (i32 i64, i64) dispatch
-skip-impl runner-shape-gap (i32 i64, i64) dispatch
-skip-impl runner-shape-gap (i32 i64, i64) dispatch
+assert_return dispatch i32:5 i64:2 -> i64:2
+assert_return dispatch i32:5 i64:5 -> i64:5
+assert_return dispatch i32:12 i64:5 -> i64:120
+assert_return dispatch i32:13 i64:5 -> i64:8
+assert_return dispatch i32:20 i64:2 -> i64:2
 assert_trap dispatch i32:0 i64:2
 assert_trap dispatch i32:15 i64:2
 assert_trap dispatch i32:32 i64:2
@@ -122,15 +122,15 @@ assert_return as-compare-left () -> i32:1
 assert_return as-compare-right () -> i32:1
 assert_return as-convert-operand () -> i64:1
 module call_indirect.1.wasm
-skip-impl runner-shape-gap (i32 i32 i32, i32) call-1
-skip-impl runner-shape-gap (i32 i32 i32, i32) call-1
+assert_return call-1 i32:2 i32:3 i32:0 -> i32:5
+assert_return call-1 i32:2 i32:3 i32:1 -> i32:4294967295
 skip-impl trap-shape-gap (i32 i32 i32) call-1
-skip-impl runner-shape-gap (i32 i32 i32, i32) call-2
-skip-impl runner-shape-gap (i32 i32 i32, i32) call-2
-skip-impl runner-shape-gap (i32 i32 i32, i32) call-2
+assert_return call-2 i32:2 i32:3 i32:0 -> i32:6
+assert_return call-2 i32:2 i32:3 i32:1 -> i32:0
+assert_return call-2 i32:2 i32:3 i32:2 -> i32:2
 skip-impl trap-shape-gap (i32 i32 i32) call-2
-skip-impl runner-shape-gap (i32 i32 i32, i32) call-3
-skip-impl runner-shape-gap (i32 i32 i32, i32) call-3
+assert_return call-3 i32:2 i32:3 i32:0 -> i32:4294967295
+assert_return call-3 i32:2 i32:3 i32:1 -> i32:6
 skip-impl trap-shape-gap (i32 i32 i32) call-3
 skip-impl trap-shape-gap (i32 i32 i32) call-3
 skip-impl trap-shape-gap (i32 i32 i32) call-3

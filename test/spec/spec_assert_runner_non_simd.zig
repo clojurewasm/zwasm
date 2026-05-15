@@ -672,6 +672,103 @@ fn dispatchScalarResult(
             return null;
         });
     }
+    // §9.9 / 9.9-l-1b-d093-d55: 3-/4-arg + mixed FP/i32 shapes.
+    if (args.len == 3 and args[0] == .i32 and args[1] == .i32 and args[2] == .i32 and result_kind == .i32) {
+        return @as(u64, entry.callI32_i32i32i32(compiled.module, func_idx, rt, args[0].i32, args[1].i32, args[2].i32) catch |err| {
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
+            return null;
+        });
+    }
+    if (args.len == 2 and args[0] == .i32 and args[1] == .i64 and result_kind == .i64) {
+        return entry.callI64_i32i64(compiled.module, func_idx, rt, args[0].i32, args[1].i64) catch |err| {
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
+            return null;
+        };
+    }
+    if (args.len == 3 and args[0] == .i64 and args[1] == .i64 and args[2] == .i32 and result_kind == .i64) {
+        return entry.callI64_i64i64i32(compiled.module, func_idx, rt, args[0].i64, args[1].i64, args[2].i32) catch |err| {
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
+            return null;
+        };
+    }
+    if (args.len == 3 and args[0] == .f32 and args[1] == .f32 and args[2] == .f32 and result_kind == .f32) {
+        const a0: f32 = @bitCast(args[0].f32);
+        const a1: f32 = @bitCast(args[1].f32);
+        const a2: f32 = @bitCast(args[2].f32);
+        const r = entry.callF32_f32f32f32(compiled.module, func_idx, rt, a0, a1, a2) catch |err| {
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
+            return null;
+        };
+        return @as(u64, @as(u32, @bitCast(r)));
+    }
+    if (args.len == 4 and args[0] == .f32 and args[1] == .f32 and args[2] == .f32 and args[3] == .f32 and result_kind == .f32) {
+        const a0: f32 = @bitCast(args[0].f32);
+        const a1: f32 = @bitCast(args[1].f32);
+        const a2: f32 = @bitCast(args[2].f32);
+        const a3: f32 = @bitCast(args[3].f32);
+        const r = entry.callF32_f32f32f32f32(compiled.module, func_idx, rt, a0, a1, a2, a3) catch |err| {
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
+            return null;
+        };
+        return @as(u64, @as(u32, @bitCast(r)));
+    }
+    if (args.len == 3 and args[0] == .f32 and args[1] == .f32 and args[2] == .i32 and result_kind == .f32) {
+        const a0: f32 = @bitCast(args[0].f32);
+        const a1: f32 = @bitCast(args[1].f32);
+        const r = entry.callF32_f32f32i32(compiled.module, func_idx, rt, a0, a1, args[2].i32) catch |err| {
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
+            return null;
+        };
+        return @as(u64, @as(u32, @bitCast(r)));
+    }
+    if (args.len == 2 and args[0] == .f32 and args[1] == .f64 and result_kind == .f32) {
+        const a0: f32 = @bitCast(args[0].f32);
+        const a1: f64 = @bitCast(args[1].f64);
+        const r = entry.callF32_f32f64(compiled.module, func_idx, rt, a0, a1) catch |err| {
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
+            return null;
+        };
+        return @as(u64, @as(u32, @bitCast(r)));
+    }
+    if (args.len == 2 and args[0] == .f64 and args[1] == .f32 and result_kind == .f32) {
+        const a0: f64 = @bitCast(args[0].f64);
+        const a1: f32 = @bitCast(args[1].f32);
+        const r = entry.callF32_f64f32(compiled.module, func_idx, rt, a0, a1) catch |err| {
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
+            return null;
+        };
+        return @as(u64, @as(u32, @bitCast(r)));
+    }
+    if (args.len == 3 and args[0] == .f64 and args[1] == .f64 and args[2] == .f64 and result_kind == .f64) {
+        const a0: f64 = @bitCast(args[0].f64);
+        const a1: f64 = @bitCast(args[1].f64);
+        const a2: f64 = @bitCast(args[2].f64);
+        const r = entry.callF64_f64f64f64(compiled.module, func_idx, rt, a0, a1, a2) catch |err| {
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
+            return null;
+        };
+        return @as(u64, @bitCast(r));
+    }
+    if (args.len == 4 and args[0] == .f64 and args[1] == .f64 and args[2] == .f64 and args[3] == .f64 and result_kind == .f64) {
+        const a0: f64 = @bitCast(args[0].f64);
+        const a1: f64 = @bitCast(args[1].f64);
+        const a2: f64 = @bitCast(args[2].f64);
+        const a3: f64 = @bitCast(args[3].f64);
+        const r = entry.callF64_f64f64f64f64(compiled.module, func_idx, rt, a0, a1, a2, a3) catch |err| {
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
+            return null;
+        };
+        return @as(u64, @bitCast(r));
+    }
+    if (args.len == 3 and args[0] == .f64 and args[1] == .f64 and args[2] == .i32 and result_kind == .f64) {
+        const a0: f64 = @bitCast(args[0].f64);
+        const a1: f64 = @bitCast(args[1].f64);
+        const r = entry.callF64_f64f64i32(compiled.module, func_idx, rt, a0, a1, args[2].i32) catch |err| {
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
+            return null;
+        };
+        return @as(u64, @bitCast(r));
+    }
     if (args.len == 5 and args[0] == .i64 and args[1] == .f32 and args[2] == .f64 and args[3] == .i32 and args[4] == .i32 and result_kind == .i64) {
         const a1: f32 = @bitCast(args[1].f32);
         const a2: f64 = @bitCast(args[2].f64);

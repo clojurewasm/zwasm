@@ -221,20 +221,20 @@ assert_invalid memory_init.82.wasm
 assert_invalid memory_init.83.wasm
 module memory_init.84.wasm
 assert_trap run i32:65528 i32:16
-skip-impl runner-shape-gap (i32 i32 i32, i32) checkRange
+assert_return checkRange i32:0 i32:1 i32:0 -> i32:4294967295
 module memory_init.85.wasm
 assert_trap run i32:65527 i32:16
-skip-impl runner-shape-gap (i32 i32 i32, i32) checkRange
+assert_return checkRange i32:0 i32:1 i32:0 -> i32:4294967295
 module memory_init.86.wasm
 assert_trap run i32:65472 i32:30
-skip-impl runner-shape-gap (i32 i32 i32, i32) checkRange
+assert_return checkRange i32:0 i32:1 i32:0 -> i32:4294967295
 module memory_init.87.wasm
 assert_trap run i32:65473 i32:31
-skip-impl runner-shape-gap (i32 i32 i32, i32) checkRange
+assert_return checkRange i32:0 i32:1 i32:0 -> i32:4294967295
 module memory_init.88.wasm
 assert_trap run i32:65528 i32:4294967040
-skip-impl runner-shape-gap (i32 i32 i32, i32) checkRange
+assert_return checkRange i32:0 i32:1 i32:0 -> i32:4294967295
 module memory_init.89.wasm
 assert_trap run i32:0 i32:4294967292
-skip-impl runner-shape-gap (i32 i32 i32, i32) checkRange
+assert_return checkRange i32:0 i32:1 i32:0 -> i32:4294967295
 module memory_init.90.wasm

@@ -1,30 +1,30 @@
 module memory_fill.0.wasm
 invoke-action test ()
-skip-impl runner-shape-gap (i32 i32 i32, i32) checkRange
-skip-impl runner-shape-gap (i32 i32 i32, i32) checkRange
+assert_return checkRange i32:0 i32:65280 i32:0 -> i32:4294967295
+assert_return checkRange i32:65280 i32:65536 i32:85 -> i32:4294967295
 module memory_fill.1.wasm
 assert_trap test ()
 module memory_fill.2.wasm
 assert_trap test ()
 module memory_fill.3.wasm
 invoke-action test ()
-skip-impl runner-shape-gap (i32 i32 i32, i32) checkRange
+assert_return checkRange i32:0 i32:65536 i32:0 -> i32:4294967295
 module memory_fill.4.wasm
 invoke-action test ()
 module memory_fill.5.wasm
 assert_trap test ()
 module memory_fill.6.wasm
 invoke-action test ()
-skip-impl runner-shape-gap (i32 i32 i32, i32) checkRange
-skip-impl runner-shape-gap (i32 i32 i32, i32) checkRange
-skip-impl runner-shape-gap (i32 i32 i32, i32) checkRange
+assert_return checkRange i32:0 i32:1 i32:0 -> i32:4294967295
+assert_return checkRange i32:1 i32:65535 i32:170 -> i32:4294967295
+assert_return checkRange i32:65535 i32:65536 i32:0 -> i32:4294967295
 module memory_fill.7.wasm
 invoke-action test ()
-skip-impl runner-shape-gap (i32 i32 i32, i32) checkRange
-skip-impl runner-shape-gap (i32 i32 i32, i32) checkRange
-skip-impl runner-shape-gap (i32 i32 i32, i32) checkRange
-skip-impl runner-shape-gap (i32 i32 i32, i32) checkRange
-skip-impl runner-shape-gap (i32 i32 i32, i32) checkRange
+assert_return checkRange i32:0 i32:18 i32:0 -> i32:4294967295
+assert_return checkRange i32:18 i32:21 i32:85 -> i32:4294967295
+assert_return checkRange i32:21 i32:25 i32:170 -> i32:4294967295
+assert_return checkRange i32:25 i32:28 i32:85 -> i32:4294967295
+assert_return checkRange i32:28 i32:65536 i32:0 -> i32:4294967295
 assert_invalid memory_fill.8.wasm
 assert_invalid memory_fill.9.wasm
 assert_invalid memory_fill.10.wasm
@@ -91,10 +91,10 @@ assert_invalid memory_fill.70.wasm
 assert_invalid memory_fill.71.wasm
 module memory_fill.72.wasm
 skip-impl trap-shape-gap (i32 i32 i32) run
-skip-impl runner-shape-gap (i32 i32 i32, i32) checkRange
+assert_return checkRange i32:0 i32:1 i32:0 -> i32:4294967295
 module memory_fill.73.wasm
 skip-impl trap-shape-gap (i32 i32 i32) run
-skip-impl runner-shape-gap (i32 i32 i32, i32) checkRange
+assert_return checkRange i32:0 i32:1 i32:0 -> i32:4294967295
 module memory_fill.74.wasm
 skip-impl trap-shape-gap (i32 i32 i32) run
-skip-impl runner-shape-gap (i32 i32 i32, i32) checkRange
+assert_return checkRange i32:0 i32:1 i32:0 -> i32:4294967295
