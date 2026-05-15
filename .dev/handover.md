@@ -10,23 +10,26 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **d-58 closed: drain directive-assert_unlinkable backlog (+79 PASS)**
+## Active state — **d-59 closed: drain directive-register backlog (skip-adr reclassification only)**
 
 ### One-line state
 
-d-58 adds `assert_unlinkable` directive support — module fails
-to link due to `unknown import` or `incompatible import type`.
-Distiller emits `assert_unlinkable {file}` for binary modules;
-runner-base dispatch is fully inline (no callback) with three
-paths: hasUnbindableImports → PASS, compileWasm rejects → PASS,
-otherwise → SKIP-NO-LINK-TYPECHECK (skip-adr; we lack link-time
-type validation against the host binding). Of 83 reclassified
-entries (imports ×71 + linking ×12): 79 PASS, 4 SKIP-NO-LINK-
-TYPECHECK. spec_assert non-simd 23497/0/2573 → 23576/0/2494
-(+79 PASS, 0 FAIL; skip-impl 1838; skip-adr 656). simd
-13301/0/440 unchanged. Loop continues toward 9.9 `[x]`;
-substrate audit hard gate (9.12) auto-fires when next chunk
-would resolve to it.
+d-59 adds the distiller's `register` arm — `(register "alias"
+$M)` is structurally a no-op in our scaffold (cross-module
+imports are filtered upstream via `hasUnbindableImports` +
+`skip-adr-cross-module-action`), so the 21 prior `skip-impl
+directive-register` entries reclassify as `skip-adr-skip_cross_
+module_register` (gate-conforming vocab per ADR-0029 Path B).
+New ADR `.dev/decisions/skip_cross_module_register.md` files
+the vocab + removal plan. spec_assert non-simd 23576/0/2494 →
+23576/0/2494 (skip-impl 1838 → 1817 = -21, skip-adr 656 →
+677 = +21); simd 13301/0/440 unchanged. No PASS Δ, no FAIL
+Δ — purely a vocab housekeeping pass. D-131 filed for the
+pre-existing 291 prefix-vocab gate violations (cross-module-
+action + host-state-diverged vocabs introduced d-37 / d-43
+without paired ADRs; not in d-59's scope to fix). Loop
+continues toward 9.9 `[x]`; substrate audit hard gate (9.12)
+auto-fires when next chunk would resolve to it.
 
 ### Standing reminder for the autonomous loop
 
@@ -53,17 +56,21 @@ refactor, the closing path is the runner-side skip-impl backlog
 considering whether to flip 9.9 `[x]` based on "active corpora
 green" rather than "every assertion classified".
 
-- **d-59** — Continue draining skip-impl. Top remaining
-  classes (post-d-58): `multi-result` (Phase 11+ scope per
-  ADR-0029 follow-up — large but blocked architecturally),
-  `directive-register` (~21 entries; a no-op for our scaffold
-  since cross-module-imports are already SKIPped, so could
-  reclassify as skip-adr), `directive-assert_exhaustion`
-  (~15; needs JIT stack-overflow detection), `trap-non-scalar-
-  arg` / `non-scalar-arg` (~12+7; needs reftype-arg dispatch
-  in the runner ladder). `directive-register` is the cheapest
-  next mechanical drain (manifest line emit + base classify
-  arm + treat-as-noop + count as skip-adr-cross-module).
+- **d-60** — Candidates for the next chunk:
+  - **D-131 discharge (mechanical, brings gate green)** —
+    rename the pre-existing `skip-adr-cross-module-action`
+    and `skip-adr-host-state-diverged` distiller emits to the
+    gate-conforming `skip-adr-skip_<id>` form + create the
+    paired `.dev/decisions/skip_<id>.md` ADRs. Re-runs regen +
+    re-runs `check_skip_adrs --gate` for confirmation. Zero
+    PASS Δ, brings 291 prefix-vocab violations to 0.
+  - **directive-assert_exhaustion** (~15 entries) — needs JIT
+    stack-overflow detection (real implementation work; not
+    a reclassification).
+  - **trap-non-scalar-arg / non-scalar-arg** (~12+7 entries)
+    — needs reftype-arg dispatch in the runner ladder.
+  - **multi-result** (~48 entries) — Phase 11+ scope per
+    ADR-0029 follow-up; architecturally blocked.
 
 Runner-side skip-impl backlog (7 total, in `nop / loop /
 local_tee`):
@@ -145,7 +152,8 @@ Other queued post-D-093 names: `address`, `align`, `br_table`,
 | D-093 (d-51) | [x] `f7b2aabe` | Batch enable +11 NAMES via per-corpus trial: `binary-leb128` / `comments` / `custom` / `inline-module` / `obsolete-keywords` / `token` / `unreached-invalid` (validator-only assert_invalid/malformed) + `exports` / `linking` / `table-sub` / `skip-stack-guard-page` (mostly cross-module-imports SKIP). 4 corpora deferred via new debt rows: D-127 binary (validator MissingTypeSection on empty-fn-section), D-128 names (distiller char escaping for special export names), D-129 imports (spectest-import-call traps but spec asserts succeed; needs reachability analysis), D-130 unreached-valid (validator ArityMismatch on .1.wasm). spec_assert non-simd 22259/0/2638 → **22404/0/2889** (+145 PASS, 0 FAIL, +11 manifests); simd 13301/0/440 unchanged. No source code change beyond regen-script NAMES expansion + commentary citing the new debt rows. |
 | D-093 (d-50) | [x] `c781e6e9` | D-119 + D-120 close (mirror of d-49 elem-segment fix for data segments). New `scratch_data_segments[128]SegmentSlice` + `scratch_data_arena[64KB]u8` + `scratch_data_dropped[128]u8` globals + `populateDataSegments` called from `setupMultiTableScratch`. Active data segments marked dropped at instantiation per Wasm 2.0 §4.5.5. setupRuntime patched in lockstep (standalone runner had the same gap; surfaced via new edge fixture `memory_ops/init_active_consumed.{wat,wasm,expect}`). Bug found: setupMultiTableScratch's `if (num_tables == 0) return;` early-return skipped both populate calls — fixed (do both first then return). memory_init lands; bulk DEFERRED to D-126 (4 residual FAILs surface a separate funcptr_base/refs divergence after table.copy). spec_assert non-simd 22049/0/2632 → **22259/0/2638** (+210 PASS, 0 FAIL, +1 manifest); simd 13301/0/440 unchanged. |
 | D-093 (d-49) | [x] `d7483097` | D-123 + D-124 close. Spec_assert harness wires `JitRuntime.elem_segments_ptr` + `elem_dropped_ptr` (was `undefined` → JIT table.init SEGV outside any sigsetjmp) via new `scratch_elem_segments[128]ElemSlice` + `scratch_elem_refs_arena[4096]u64` + `scratch_elem_dropped[128]u8`. New `populateElemSegments` walks element section, packs `Value.ref`-encoded funcref pointers, and marks active + declarative segments as dropped per Wasm 2.0 §4.5.4 (active elem consumed at instantiation). `setupRuntime` patched in lockstep so the standalone runner gets the same active-consumed semantics — surfaced via new edge fixture `init_active_consumed.{wat,wasm,expect}`. `scratch_table_capacity` 32 → 1024 in both spec_assert + simd runners (table_copy.50.wasm declares `(table 128 128 funcref)`; mirror of d-21's GROWABLE_MEMORY_CAPACITY bump). table_copy + table_init land. spec_assert non-simd 20925/0/1311 → **22049/0/2632** (+1124 PASS, 0 FAIL, +2 manifests); simd 13301/0/440 unchanged. |
-| D-093 (d-48) | [x] `323b0046` | D-122 + D-125 close. New `JitRuntime.table_grow_fn` callout (mirror of ADR-0059's `memory_grow_fn`), JitRuntime tail extends 216 → 224 bytes; both arches gain `op_table.emitTableGrow` (BLR/CALL via fn ptr; arm64 reuses memory.grow's prologue invariant cache, x86_64 routes through `usage.usesRuntimePtr`). Harness `growableTableGrowFn` enforces declared max via new `runner.declaredTableMax` and grows the per-table refs arena in place; `SCRATCH_EXTRA_TABLE_CAPACITY` 64 → 1024. Distiller's `non-scalar-arg` path now sets `module_state_diverged` so post-skip observation asserts skip cleanly. x86_64 `usage.usesRuntimePtr` whitelist gap discovered + fixed (table.grow needed R15 for fn-ptr load). spec_assert non-simd 20927/0/1219 → 20925/0/1311 (-2 PASS, +2 manifests `table_size`/`table_grow`; -2 PASS = state-diverged conservative skip on `select`/`global`/etc post-non-scalar-arg observation asserts). simd 13301/0/440 unchanged. Edge fixtures `table_ops/grow_happy.{wat,wasm,expect}` + `grow_max_cap.{wat,wasm,expect}`. |
+| D-093 (d-48) | [x] `323b0046` | D-122 + D-125 close. table_grow callout + table_size land. spec_assert non-simd 20927/0/1219 → 20925/0/1311 (+2 manifests). |
+| D-093 (d-59) | [x] `0815e94e` | drain directive-register (21 entries) — distiller emits `skip-adr-skip_cross_module_register as={name}`; new ADR `skip_cross_module_register.md`. D-131 filed (pre-existing prefix-vocab violations). spec_assert non-simd 23576/0/2494 (skip-impl 1838→1817, skip-adr 656→677). |
 
 Other queued chunks (post-l-1): k-1, k-2, m-4c (= D-090),
 m-2d, n-1, j-3b.
@@ -160,7 +168,11 @@ m-2d, n-1, j-3b.
 
 ## Open debt — see `.dev/debt.md`
 
-- `now`: **D-093** (residual sub-clusters above).
+- `now`: **D-093** (residual sub-clusters above), D-095
+  (partial — x86_64 residuals tracked as D-097), D-126
+  (bulk corpus residual — Phase 10+ scope), **D-131**
+  (filed d-59 — prefix-vocab gate; mechanical, d-60
+  candidate).
 - `blocked-by`: D-007/010/016/018/020/021/022/026/028/052(partial)/
   055/057/058/059/062(partial)/065/072/073/074/075/079(ii)/
   081/082/090.
