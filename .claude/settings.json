@@ -64,7 +64,10 @@
       "Write(/Users/shota.508/Documents/MyProducts/zwasm/**)",
       "Write(/Users/shota.508/Documents/MyProducts/ClojureWasmFromScratch/**)",
       "Write(/Users/shota.508/Documents/OSS/**)",
-      "Write(/Users/shota.508/zwasm/private/**)"
+      "Write(/Users/shota.508/zwasm/private/**)",
+
+      "Bash(rm .git/index.lock)",
+      "Bash(rm -f .git/index.lock)"
     ],
     "deny": [
       "Bash(git push --force:*)",
@@ -138,6 +141,10 @@
           {
             "type": "command",
             "command": "bash $CLAUDE_PROJECT_DIR/scripts/check_md_tables.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash $CLAUDE_PROJECT_DIR/scripts/check_stale_git_lock.sh"
           }
         ]
       },

@@ -189,6 +189,49 @@ This overrides the "explicit user approval" wording elsewhere; that
 wording exists to forbid drive-by pushes outside this loop, not to
 gate the loop itself.
 
+## Git operations are serial — never parallel
+
+Unlike the parallel test gate above, **git operations must run
+strictly sequentially within the loop**. Never issue two `git`
+invocations in the same Bash batch (`&&`, `;`, or two parallel
+Bash tool calls in one assistant message), and never issue a
+`git` command while another `git` (especially `git commit` whose
+pre-commit gate runs `gate_commit.sh` for several minutes) is
+in flight in the background.
+
+**Why**: `.git/index.lock` is acquired by every state-mutating
+git command (`add`, `commit`, `pull`, `push`, `fetch`, `reset`,
+…) and held until the command returns. Concurrent acquisition
+attempts crash with `fatal: Unable to create '.git/index.lock'`
+and can leave a 0-byte stale lock behind that blocks subsequent
+git commands until manually removed. The d-57 commit cycle
+surfaced this when a `git add -A` raced with a still-flushing
+prior git invocation; recovery required the user to approve
+`rm .git/index.lock`, breaking autonomous flow.
+
+**Discipline**:
+
+- Step 6 source commit: one Bash call, runs `git add ... && git
+  commit ...` in a single sequential pipeline. No parallel git
+  in the same message.
+- Step 7 chore commit + push: one Bash call, runs `git add ...
+  && git commit ... && git pull --rebase ... && git push ...`
+  sequentially. Never split across parallel Bash tool calls.
+- `git status` / `git log` / `git diff` for inspection: safe to
+  batch with each other (read-only, no lock acquisition), but
+  must not be parallelised with any state-mutating git command.
+- Background `run_in_background` Bash invocations: must not
+  contain `git` commands at all. Backgrounded git would race
+  the loop's own Step 6/7 sequence with no feedback.
+
+**Stale-lock fallback**: `scripts/check_stale_git_lock.sh` runs
+as a PreToolUse hook before every Bash invocation; it removes
+`.git/index.lock` only when its mtime is > 60 s old. This
+covers external concurrent git (editor integrations, MCP
+tooling, bench CI bot) but does **not** excuse violating the
+serial-git discipline within the loop — relying on the
+fallback is debt, not a tool.
+
 ## Self-perpetuation — overnight loop
 
 After every Step 7 commit lands and is pushed, the very last action
