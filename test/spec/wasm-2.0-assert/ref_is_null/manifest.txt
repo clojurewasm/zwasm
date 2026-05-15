@@ -1,0 +1,16 @@
+module ref_is_null.0.wasm
+skip-impl non-scalar-arg funcref
+skip-impl non-scalar-arg externref
+skip-impl non-scalar-arg externref
+skip-impl action-non-scalar-arg init
+skip-adr-host-state-diverged assert_return on field=funcref-elem
+skip-adr-host-state-diverged assert_return on field=externref-elem
+skip-adr-host-state-diverged assert_return on field=funcref-elem
+skip-adr-host-state-diverged assert_return on field=externref-elem
+invoke-action deinit ()
+assert_return funcref-elem i32:0 -> i32:1
+assert_return externref-elem i32:0 -> i32:1
+assert_return funcref-elem i32:1 -> i32:1
+assert_return externref-elem i32:1 -> i32:1
+assert_invalid ref_is_null.1.wasm
+assert_invalid ref_is_null.2.wasm

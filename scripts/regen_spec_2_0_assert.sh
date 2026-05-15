@@ -190,8 +190,8 @@ NAMES=(
   # `call_indirect $t1`-class assertion; per-table dispatch fixes
   # this end-to-end.
   select
-  # `ref_is_null` deferred — SEGV in funcref-elem/externref-elem
-  # (reftype param/result ABI + table.get reftype; D-NNN).
+  # d-43 trial: re-enable ref_is_null to see current crash shape.
+  ref_is_null
   # d-41 enable: `memory_trap` — D-114 discharged. The 4× load
   # FAILs were not load-bounds-check bugs; they were caused by a
   # skipped `(assert_return (invoke "i64.store" 0xfff8 0))`
@@ -304,12 +304,29 @@ d = json.load(open(src))
 def fmt(v):
     return f"{v['type']}:{v['value']}"
 lines = []
+# §9.9 / 9.9-l-1b-d093-d43 (D-113): module-scoped "state diverged"
+# flag. Set when a bare-action `invoke` is skipped because of a
+# non-scalar arg (i.e. host-supplied externref/funcref); cleared
+# by the next module load OR by a successful (non-skipped)
+# `invoke-action`. While set, subsequent `assert_return` lines
+# within the same module-state segment skip cleanly as
+# `skip-adr-host-state-diverged` — their expected results depend
+# on the skipped action's side effects, so the JIT-observed
+# values would be a function of the divergent state (e.g.
+# `ref_is_null.wast`'s `externref-elem(1) -> 0` requires `init`
+# to have written a non-null externref into table 1[1]).
+module_state_diverged = False
 for c in d['commands']:
     t = c.get('type')
     if t == 'module':
+        module_state_diverged = False
         lines.append('module ' + c['filename'])
     elif t == 'assert_return':
         a = c['action']
+        # §9.9 / 9.9-l-1b-d093-d43: divergent module state ⇒ skip.
+        if module_state_diverged:
+            lines.append(f'skip-adr-host-state-diverged assert_return on field={a.get("field","?")!s}')
+            continue
         # d-37: cross-module action (`(invoke $mod "fn" ...)`)
         # targets a registered module the spec runner does not
         # model (Track-D scope). Skip cleanly.
@@ -455,7 +472,14 @@ for c in d['commands']:
             continue
         args = a.get('args', [])
         if any(x['type'] not in ('i32', 'i64', 'f32', 'f64') for x in args):
+            # §9.9 / 9.9-l-1b-d093-d43 (D-113): host-supplied non-
+            # scalar arg (typically externref / funcref) means the
+            # bare-action `invoke` cannot execute; subsequent
+            # assert_returns in the same module that depend on this
+            # action's side effects skip cleanly via
+            # `module_state_diverged`.
             lines.append(f'skip-impl action-non-scalar-arg {a["field"]}')
+            module_state_diverged = True
             continue
         arg_kinds = tuple(x['type'] for x in args)
         # Reuse the trap_supported shapes — the runner's
@@ -478,6 +502,12 @@ for c in d['commands']:
             )
             continue
         args_s = ' '.join(fmt(x) for x in args) if args else '()'
+        # §9.9 / 9.9-l-1b-d093-d43: a successful (non-skipped)
+        # invoke-action resets `module_state_diverged` — its side
+        # effects redefine the module's externref/funcref state
+        # cleanly relative to the previous skipped action, so
+        # subsequent assert_returns can proceed.
+        module_state_diverged = False
         lines.append(f'invoke-action {a["field"]} {args_s}')
     else:
         lines.append(f'skip-impl directive-{t}')

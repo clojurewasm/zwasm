@@ -181,7 +181,13 @@ pub fn makeJitRuntime(
     // count. JIT call_indirect with `ins.extra > 0` will read
     // through `tables_jit_ci_ptr[k]` for tables 1..N.
     scratch_table_jit_ci[0] = .{ .funcptr_base = funcptrs.ptr, .typeidx_base = typeidxs.ptr };
-    scratch_tables_descriptor[0] = .{ .refs = undefined, .len = @intCast(funcptrs.len), .max = entry.table_no_max };
+    // Default entry-0 TableSlice keeps the runner's pre-multi-
+    // table semantics for modules whose `setupMultiTableScratch`
+    // hasn't run (e.g. tests below + manifest lines that haven't
+    // bound a module yet). Once `setupMultiTableScratch` runs,
+    // entry 0 is rebound to the module's real table-0 size +
+    // refs slice.
+    scratch_tables_descriptor[0] = .{ .refs = &scratch_table_refs[0], .len = @intCast(funcptrs.len), .max = entry.table_no_max };
     return .{
         .vm_base = memory.ptr,
         .mem_limit = memory.len,
@@ -195,6 +201,8 @@ pub fn makeJitRuntime(
         .tables_count = active_table_count,
         .tables_jit_ci_ptr = &scratch_table_jit_ci,
         .tables_jit_ci_count = active_table_count,
+        .func_entities_ptr = @ptrCast(&scratch_func_entities),
+        .func_entities_count = active_func_count,
         // D-093 (d-35): point host_dispatch_base at the spec-runner
         // import-trap stub table. Modules that import functions
         // (e.g. start.wast `(import "spectest" "print_i32")`) emit
@@ -255,13 +263,33 @@ pub var scratch_extra_typeidxs: [SCRATCH_MAX_TABLES - 1][SCRATCH_EXTRA_TABLE_CAP
 pub var scratch_table_jit_ci: [SCRATCH_MAX_TABLES]entry.TableJitCallInfo = undefined;
 
 /// Per-table `TableSlice` descriptors backing the JIT multi-
-/// table bounds check (`JitRuntime.tables_ptr[k].len`). The
-/// `refs` pointer is `undefined` for the spec runner — the
-/// JIT body's call_indirect emit only reads `.len` from this
-/// array; the refs ptr is consumed by `table.get/set/grow`-
-/// class ops which the spec runner exercises through their own
-/// (table 0) scratch paths.
+/// table bounds check (`JitRuntime.tables_ptr[k].len`) AND the
+/// per-table refs arena consumed by `table.get/set/grow/copy/
+/// init`-class ops (`tables_ptr[k].refs[idx]`). Each entry's
+/// `refs` pointer is bound by `setupMultiTableScratch` to a
+/// slice of `scratch_table_refs[k]`. The refs arena is sized
+/// to `SCRATCH_EXTRA_TABLE_CAPACITY` per table.
 pub var scratch_tables_descriptor: [SCRATCH_MAX_TABLES]entry.TableSlice = undefined;
+
+/// Per-table refs arena. Each entry is a `Value.ref`-encoded
+/// u64 (FuncEntity pointer for funcref, host handle for
+/// externref, or `Value.null_ref` for null). `setupMultiTable
+/// Scratch` populates this from active element segments via
+/// `runner_mod.applyTableInitForTable`'s funcptr path AND
+/// directly here for the FuncEntity-ptr encoding (mirrors
+/// `runner.zig::setupRuntime`'s table_refs arena).
+pub var scratch_table_refs: [SCRATCH_MAX_TABLES][SCRATCH_EXTRA_TABLE_CAPACITY]u64 = undefined;
+
+/// §9.9 / 9.9-l-1b-d093-d43 (D-113): per-module FuncEntity
+/// array backing JIT `ref.func` + funcref-table elem populate.
+/// Sized to a comfortable upper bound; modules exceeding it
+/// surface as `Error.UnsupportedEntrySignature`. The struct
+/// only carries `(runtime, func_idx)` — `runtime` is
+/// `undefined` in the spec runner (the spec runner has no
+/// full Runtime; only the FuncEntity's address matters for
+/// ref.is_null / ref.eq semantics).
+pub const SCRATCH_MAX_FUNCS: u32 = 256;
+pub var scratch_func_entities: [SCRATCH_MAX_FUNCS]@import("zwasm").runtime.FuncEntity = undefined;
 
 /// Number of `scratch_table_jit_ci` entries that are live for
 /// the currently-loaded module. Updated by `setupMultiTableScratch`
@@ -270,6 +298,13 @@ pub var scratch_tables_descriptor: [SCRATCH_MAX_TABLES]entry.TableSlice = undefi
 /// modules with a single table (the overwhelming majority) work
 /// without explicit setup.
 pub var active_table_count: u32 = 1;
+
+/// §9.9 / 9.9-l-1b-d093-d43 (D-113): number of FuncEntity slots
+/// the current module populated in `scratch_func_entities`.
+/// `makeJitRuntime` wires this into `JitRuntime.func_entities_count`.
+/// `setupMultiTableScratch` rebinds the entire `[0..num_funcs)`
+/// range at on_module_loaded; subsequent modules overwrite.
+pub var active_func_count: u32 = 0;
 
 /// §9.9 / 9.9-l-1b-d093-d42b (D-112): wire `scratch_table_jit_ci`
 /// + `scratch_extra_*` for the freshly-loaded module's tables 1..N.
@@ -288,6 +323,18 @@ pub fn setupMultiTableScratch(
 ) anyerror!void {
     const num_tables = runner_mod.countDeclaredTables(gpa, wasm_bytes);
     if (num_tables > SCRATCH_MAX_TABLES) return error.UnsupportedEntrySignature;
+
+    // §9.9 / 9.9-l-1b-d093-d43 (D-113): repopulate FuncEntity
+    // scratch for this module. Each entry's address is what
+    // `Value.fromFuncRef` encodes (ref.func + funcref-table elem
+    // populate consume this).
+    const num_funcs = compiled.func_sigs.len;
+    if (num_funcs > SCRATCH_MAX_FUNCS) return error.UnsupportedEntrySignature;
+    for (0..num_funcs) |i| {
+        scratch_func_entities[i] = .{ .runtime = undefined, .func_idx = @intCast(i) };
+    }
+    active_func_count = @intCast(num_funcs);
+
     // Always rebind entry 0 — the JIT call_indirect emit reads
     // `tables_jit_ci_ptr[0]` for table_idx == 0 callees only when
     // the multi-table slow path is taken; the legacy table-0 fast
@@ -297,37 +344,94 @@ pub fn setupMultiTableScratch(
         .funcptr_base = table0_funcptrs.ptr,
         .typeidx_base = table0_typeidxs.ptr,
     };
-    scratch_tables_descriptor[0] = .{
-        .refs = undefined,
-        .len = @intCast(table0_funcptrs.len),
-        .max = entry.table_no_max,
-    };
-    if (num_tables <= 1) {
-        active_table_count = if (num_tables == 0) 0 else 1;
+
+    // Per-table refs population (mirror of
+    // `runner.zig::setupRuntime`'s elem-section loop). `applyTable
+    // InitForTable` already populated `funcptrs/typeidxs`; here we
+    // populate `scratch_table_refs[k]` with the FuncEntity-ptr
+    // encoding for funcref entries and `null_ref` (= 0) for empty
+    // / externref / ref.null slots. The arena is sized at compile
+    // time via SCRATCH_EXTRA_TABLE_CAPACITY so we slice per-table.
+    if (num_tables == 0) {
+        active_table_count = 0;
         return;
     }
-    var k: u32 = 1;
+    var k: u32 = 0;
     while (k < num_tables) : (k += 1) {
-        const tbl_min = runner_mod.declaredTableMin(gpa, wasm_bytes, k);
+        const tbl_min = if (k == 0) @as(u32, @intCast(table0_funcptrs.len)) else runner_mod.declaredTableMin(gpa, wasm_bytes, k);
         if (tbl_min > SCRATCH_EXTRA_TABLE_CAPACITY) return error.UnsupportedEntrySignature;
-        const fp_slice = scratch_extra_funcptrs[k - 1][0..tbl_min];
-        const ti_slice = scratch_extra_typeidxs[k - 1][0..tbl_min];
-        // applyTableInitForTable zero-clears + sentinel-fills first,
-        // then overlays the active element-segment entries.
-        if (tbl_min > 0) {
-            try runner_mod.applyTableInitForTable(gpa, wasm_bytes, compiled, k, fp_slice, ti_slice);
+        if (k > 0) {
+            const fp_slice = scratch_extra_funcptrs[k - 1][0..tbl_min];
+            const ti_slice = scratch_extra_typeidxs[k - 1][0..tbl_min];
+            if (tbl_min > 0) {
+                try runner_mod.applyTableInitForTable(gpa, wasm_bytes, compiled, k, fp_slice, ti_slice);
+            }
+            scratch_table_jit_ci[k] = .{
+                .funcptr_base = if (tbl_min == 0) @as([*]const u64, undefined) else fp_slice.ptr,
+                .typeidx_base = if (tbl_min == 0) @as([*]const u32, undefined) else ti_slice.ptr,
+            };
         }
-        scratch_table_jit_ci[k] = .{
-            .funcptr_base = if (tbl_min == 0) @as([*]const u64, undefined) else fp_slice.ptr,
-            .typeidx_base = if (tbl_min == 0) @as([*]const u32, undefined) else ti_slice.ptr,
-        };
+        const refs_slice = scratch_table_refs[k][0..tbl_min];
+        @memset(refs_slice, Value.null_ref);
+        try populateTableRefs(gpa, wasm_bytes, compiled, k, refs_slice);
         scratch_tables_descriptor[k] = .{
-            .refs = undefined,
+            .refs = if (tbl_min == 0) @as([*]u64, undefined) else refs_slice.ptr,
             .len = tbl_min,
             .max = entry.table_no_max,
         };
     }
     active_table_count = num_tables;
+}
+
+/// §9.9 / 9.9-l-1b-d093-d43 (D-113): populate `refs_out` with
+/// `Value.ref`-encoded FuncEntity pointers for the active
+/// element segments targeting `tableidx`. Mirrors the elem-
+/// section half of `runner.zig::setupRuntime`'s table_refs
+/// arena fill. Null funcidxs (`ref.null funcref`) leave the
+/// slot at `Value.null_ref`. Externref tables get no writes
+/// here (their refs stay null — the spec runner can't bind
+/// host `ref.extern N` values, distilled as `skip-impl
+/// non-scalar-arg`).
+fn populateTableRefs(
+    gpa: std.mem.Allocator,
+    wasm_bytes: []const u8,
+    compiled: *const runner_mod.CompiledWasm,
+    tableidx: u32,
+    refs_out: []u64,
+) anyerror!void {
+    var temp_arena = std.heap.ArenaAllocator.init(gpa);
+    defer temp_arena.deinit();
+    const ta = temp_arena.allocator();
+    var module = try @import("zwasm").parse.parser.parse(ta, wasm_bytes);
+    const sections = @import("zwasm").parse.sections;
+    const section = module.find(.element) orelse return;
+    var elems = try sections.decodeElement(ta, section.body);
+    defer elems.deinit();
+    for (elems.items) |seg| {
+        if (seg.kind != .active) continue;
+        if (seg.tableidx != tableidx) continue;
+        const off = evalConstI32ExprForSeg(seg.offset_expr) catch return error.UnsupportedEntrySignature;
+        if (off < 0) return error.UnsupportedEntrySignature;
+        const base: usize = @intCast(off);
+        if (base + seg.funcidxs.len > refs_out.len) return error.UnsupportedEntrySignature;
+        for (seg.funcidxs, 0..) |fidx, i| {
+            if (fidx == std.math.maxInt(u32)) {
+                refs_out[base + i] = Value.null_ref;
+                continue;
+            }
+            if (fidx >= compiled.func_sigs.len) return error.UnsupportedEntrySignature;
+            refs_out[base + i] = @intFromPtr(&scratch_func_entities[fidx]);
+        }
+    }
+}
+
+fn evalConstI32ExprForSeg(expr: []const u8) !i32 {
+    if (expr.len < 2 or expr[0] != 0x41) return error.UnsupportedConstExpr;
+    const leb128 = @import("zwasm").support.leb128;
+    var pos: usize = 1;
+    const v = try leb128.readSleb128(i32, expr, &pos);
+    if (pos >= expr.len or expr[pos] != 0x0B) return error.UnsupportedConstExpr;
+    return v;
 }
 
 /// Capacity for the spec-runner's `host_dispatch_base` stub
