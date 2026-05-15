@@ -153,6 +153,20 @@ fn simdOnModuleLoaded(
         try stdout.print("FAIL  {s} table-init: {s}\n", .{ name, @errorName(err) });
         return err;
     };
+    // §9.9 / 9.9-l-1b-d093-d42b (D-112): mirror of the non-simd
+    // runner — wire per-non-zero-table scratch for multi-table
+    // JIT call_indirect. SIMD corpora today are single-table, so
+    // this collapses to an entry-0 rebind + `active_table_count = 1`.
+    base.setupMultiTableScratch(
+        gpa,
+        wasm_bytes,
+        compiled,
+        scratch_funcptrs[0..],
+        scratch_typeidxs[0..],
+    ) catch |err| {
+        try stdout.print("FAIL  {s} multi-table-init: {s}\n", .{ name, @errorName(err) });
+        return err;
+    };
 }
 
 /// SIMD specialisation of `base.RunnerCallbacks` per ADR-0057 §"Decision".

@@ -515,6 +515,23 @@ pub fn applyTableInit(
     funcptrs_buf: []u64,
     typeidxs_buf: []u32,
 ) Error!void {
+    return applyTableInitForTable(allocator, wasm_bytes, compiled, 0, funcptrs_buf, typeidxs_buf);
+}
+
+/// §9.9 / 9.9-l-1b-d093-d42b (D-112): per-table variant of
+/// `applyTableInit`. `tableidx` selects which declared table's
+/// active element segments are applied; segments targeting any
+/// other table are skipped. Used by spec_assert harness's
+/// `setupMultiTableScratch` to populate per-table
+/// funcptr/typeidx scratch arrays for non-zero tables.
+pub fn applyTableInitForTable(
+    allocator: Allocator,
+    wasm_bytes: []const u8,
+    compiled: *const CompiledWasm,
+    tableidx: u32,
+    funcptrs_buf: []u64,
+    typeidxs_buf: []u32,
+) Error!void {
     if (funcptrs_buf.len != typeidxs_buf.len) return Error.UnsupportedEntrySignature;
     @memset(funcptrs_buf, 0);
     @memset(typeidxs_buf, std.math.maxInt(u32));
@@ -548,7 +565,7 @@ pub fn applyTableInit(
 
     for (elems.items) |seg| {
         if (seg.kind != .active) continue;
-        if (seg.tableidx != 0) continue;
+        if (seg.tableidx != tableidx) continue;
         const off = evalConstI32Expr(seg.offset_expr) catch return Error.UnsupportedEntrySignature;
         if (off < 0) return Error.UnsupportedEntrySignature;
         const base: usize = @intCast(off);
@@ -563,6 +580,36 @@ pub fn applyTableInit(
             funcptrs_buf[base + i] = @intFromPtr(compiled.module.block.bytes.ptr + f_off);
         }
     }
+}
+
+/// §9.9 / 9.9-l-1b-d093-d42b (D-112): count the number of
+/// declared tables in `wasm_bytes`. Used by spec_assert harness
+/// to decide whether multi-table scratch needs to be wired.
+/// Returns 0 when the module has no table section.
+pub fn countDeclaredTables(allocator: Allocator, wasm_bytes: []const u8) u32 {
+    var temp_arena = std.heap.ArenaAllocator.init(allocator);
+    defer temp_arena.deinit();
+    const ta = temp_arena.allocator();
+    var module = parser.parse(ta, wasm_bytes) catch return 0;
+    const section = module.find(.table) orelse return 0;
+    var tables = sections.decodeTables(ta, section.body) catch return 0;
+    defer tables.deinit();
+    return @intCast(tables.items.len);
+}
+
+/// §9.9 / 9.9-l-1b-d093-d42b (D-112): per-table size lookup
+/// (table `tableidx`'s declared `min`). Returns 0 when the
+/// module has no table section OR `tableidx` is out of range.
+pub fn declaredTableMin(allocator: Allocator, wasm_bytes: []const u8, tableidx: u32) u32 {
+    var temp_arena = std.heap.ArenaAllocator.init(allocator);
+    defer temp_arena.deinit();
+    const ta = temp_arena.allocator();
+    var module = parser.parse(ta, wasm_bytes) catch return 0;
+    const section = module.find(.table) orelse return 0;
+    var tables = sections.decodeTables(ta, section.body) catch return 0;
+    defer tables.deinit();
+    if (tableidx >= tables.items.len) return 0;
+    return tables.items[tableidx].min;
 }
 
 /// Apply active data segments from `wasm_bytes` into `memory`

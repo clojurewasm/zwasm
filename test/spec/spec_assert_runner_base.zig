@@ -173,6 +173,15 @@ pub fn makeJitRuntime(
     funcptrs: []u64,
     typeidxs: []u32,
 ) entry.JitRuntime {
+    // §9.9 / 9.9-l-1b-d093-d42b (D-112): always wire entry 0 of
+    // the multi-table descriptor to point at the (funcptrs,
+    // typeidxs) args. `setupMultiTableScratch` (called from each
+    // runner's on_module_loaded) writes entries `k > 0` and
+    // updates `active_table_count` to the module's actual table
+    // count. JIT call_indirect with `ins.extra > 0` will read
+    // through `tables_jit_ci_ptr[k]` for tables 1..N.
+    scratch_table_jit_ci[0] = .{ .funcptr_base = funcptrs.ptr, .typeidx_base = typeidxs.ptr };
+    scratch_tables_descriptor[0] = .{ .refs = undefined, .len = @intCast(funcptrs.len), .max = entry.table_no_max };
     return .{
         .vm_base = memory.ptr,
         .mem_limit = memory.len,
@@ -182,6 +191,10 @@ pub fn makeJitRuntime(
         .trap_flag = 0,
         .globals_base = @ptrCast(@alignCast(globals.ptr)),
         .globals_count = @intCast(globals.len / @sizeOf(Value)),
+        .tables_ptr = &scratch_tables_descriptor,
+        .tables_count = active_table_count,
+        .tables_jit_ci_ptr = &scratch_table_jit_ci,
+        .tables_jit_ci_count = active_table_count,
         // D-093 (d-35): point host_dispatch_base at the spec-runner
         // import-trap stub table. Modules that import functions
         // (e.g. start.wast `(import "spectest" "print_i32")`) emit
@@ -216,6 +229,105 @@ pub fn makeJitRuntime(
 /// since `trap_flag` short-circuits before any caller reads it.
 fn hostImportTrapStub(rt: *entry.JitRuntime) callconv(.c) void {
     rt.trap_flag = 1;
+}
+
+/// §9.9 / 9.9-l-1b-d093-d42b (D-112): per-module multi-table
+/// call_indirect scratch. The spec corpus's multi-table modules
+/// (select.wast: 2 tables) fit comfortably in 4; tables beyond
+/// SCRATCH_MAX_TABLES surface as `Error.UnsupportedEntrySignature`
+/// from `setupMultiTableScratch`. Each non-zero table gets up to
+/// SCRATCH_EXTRA_TABLE_CAPACITY funcptr/typeidx slots; the spec
+/// corpus's non-zero tables are all small (≤ 16 entries in
+/// `select.wast`).
+pub const SCRATCH_MAX_TABLES: u32 = 4;
+pub const SCRATCH_EXTRA_TABLE_CAPACITY: u32 = 64;
+
+/// Per-non-zero-table funcptr/typeidx scratch. Tables 1..N-1
+/// (= up to SCRATCH_MAX_TABLES-1) each own one row; the JIT body
+/// reads from these via `JitRuntime.tables_jit_ci_ptr[k]`.
+pub var scratch_extra_funcptrs: [SCRATCH_MAX_TABLES - 1][SCRATCH_EXTRA_TABLE_CAPACITY]u64 = undefined;
+pub var scratch_extra_typeidxs: [SCRATCH_MAX_TABLES - 1][SCRATCH_EXTRA_TABLE_CAPACITY]u32 = undefined;
+
+/// Per-table `TableJitCallInfo` descriptors. Entry 0 is rebound
+/// at every `makeJitRuntime` call to point at the caller's
+/// (funcptrs, typeidxs) args (= table 0). Entries 1+ are bound
+/// by `setupMultiTableScratch` to point into `scratch_extra_*`.
+pub var scratch_table_jit_ci: [SCRATCH_MAX_TABLES]entry.TableJitCallInfo = undefined;
+
+/// Per-table `TableSlice` descriptors backing the JIT multi-
+/// table bounds check (`JitRuntime.tables_ptr[k].len`). The
+/// `refs` pointer is `undefined` for the spec runner — the
+/// JIT body's call_indirect emit only reads `.len` from this
+/// array; the refs ptr is consumed by `table.get/set/grow`-
+/// class ops which the spec runner exercises through their own
+/// (table 0) scratch paths.
+pub var scratch_tables_descriptor: [SCRATCH_MAX_TABLES]entry.TableSlice = undefined;
+
+/// Number of `scratch_table_jit_ci` entries that are live for
+/// the currently-loaded module. Updated by `setupMultiTableScratch`
+/// during each on_module_loaded; consumed by `makeJitRuntime` to
+/// populate `JitRuntime.tables_jit_ci_count`. Defaults to 1 so
+/// modules with a single table (the overwhelming majority) work
+/// without explicit setup.
+pub var active_table_count: u32 = 1;
+
+/// §9.9 / 9.9-l-1b-d093-d42b (D-112): wire `scratch_table_jit_ci`
+/// + `scratch_extra_*` for the freshly-loaded module's tables 1..N.
+/// Called from each runner's `on_module_loaded` after the legacy
+/// table-0 `applyTableInit`. For single-table modules sets
+/// `active_table_count = 1` and is a no-op past that; for
+/// multi-table modules walks each non-zero table's element segments
+/// via `runner_mod.applyTableInitForTable` into the per-table
+/// scratch rows and updates the descriptor + count.
+pub fn setupMultiTableScratch(
+    gpa: std.mem.Allocator,
+    wasm_bytes: []const u8,
+    compiled: *const runner_mod.CompiledWasm,
+    table0_funcptrs: []u64,
+    table0_typeidxs: []u32,
+) anyerror!void {
+    const num_tables = runner_mod.countDeclaredTables(gpa, wasm_bytes);
+    if (num_tables > SCRATCH_MAX_TABLES) return error.UnsupportedEntrySignature;
+    // Always rebind entry 0 — the JIT call_indirect emit reads
+    // `tables_jit_ci_ptr[0]` for table_idx == 0 callees only when
+    // the multi-table slow path is taken; the legacy table-0 fast
+    // path keeps using the scalar JitRuntime fields. The rebind
+    // keeps the multi-table view coherent with the scalar fields.
+    scratch_table_jit_ci[0] = .{
+        .funcptr_base = table0_funcptrs.ptr,
+        .typeidx_base = table0_typeidxs.ptr,
+    };
+    scratch_tables_descriptor[0] = .{
+        .refs = undefined,
+        .len = @intCast(table0_funcptrs.len),
+        .max = entry.table_no_max,
+    };
+    if (num_tables <= 1) {
+        active_table_count = if (num_tables == 0) 0 else 1;
+        return;
+    }
+    var k: u32 = 1;
+    while (k < num_tables) : (k += 1) {
+        const tbl_min = runner_mod.declaredTableMin(gpa, wasm_bytes, k);
+        if (tbl_min > SCRATCH_EXTRA_TABLE_CAPACITY) return error.UnsupportedEntrySignature;
+        const fp_slice = scratch_extra_funcptrs[k - 1][0..tbl_min];
+        const ti_slice = scratch_extra_typeidxs[k - 1][0..tbl_min];
+        // applyTableInitForTable zero-clears + sentinel-fills first,
+        // then overlays the active element-segment entries.
+        if (tbl_min > 0) {
+            try runner_mod.applyTableInitForTable(gpa, wasm_bytes, compiled, k, fp_slice, ti_slice);
+        }
+        scratch_table_jit_ci[k] = .{
+            .funcptr_base = if (tbl_min == 0) @as([*]const u64, undefined) else fp_slice.ptr,
+            .typeidx_base = if (tbl_min == 0) @as([*]const u32, undefined) else ti_slice.ptr,
+        };
+        scratch_tables_descriptor[k] = .{
+            .refs = undefined,
+            .len = tbl_min,
+            .max = entry.table_no_max,
+        };
+    }
+    active_table_count = num_tables;
 }
 
 /// Capacity for the spec-runner's `host_dispatch_base` stub

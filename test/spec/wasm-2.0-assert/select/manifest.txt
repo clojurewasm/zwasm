@@ -1,0 +1,148 @@
+module select.0.wasm
+skip-impl runner-shape-gap (i32 i32 i32, i32) select-i32
+skip-impl runner-shape-gap (i64 i64 i32, i64) select-i64
+skip-impl runner-shape-gap (f32 f32 i32, f32) select-f32
+skip-impl runner-shape-gap (f64 f64 i32, f64) select-f64
+skip-impl runner-shape-gap (i32 i32 i32, i32) select-i32
+skip-impl runner-shape-gap (i32 i32 i32, i32) select-i32
+skip-impl runner-shape-gap (i64 i64 i32, i64) select-i64
+skip-impl runner-shape-gap (i64 i64 i32, i64) select-i64
+skip-impl runner-shape-gap (f32 f32 i32, f32) select-f32
+skip-impl runner-shape-gap (f32 f32 i32, f32) select-f32
+skip-impl runner-shape-gap (f32 f32 i32, f32) select-f32
+skip-impl runner-shape-gap (f32 f32 i32, f32) select-f32
+skip-impl runner-shape-gap (f32 f32 i32, f32) select-f32
+skip-impl runner-shape-gap (f32 f32 i32, f32) select-f32
+skip-impl runner-shape-gap (f32 f32 i32, f32) select-f32
+skip-impl runner-shape-gap (f32 f32 i32, f32) select-f32
+skip-impl runner-shape-gap (f64 f64 i32, f64) select-f64
+skip-impl runner-shape-gap (f64 f64 i32, f64) select-f64
+skip-impl runner-shape-gap (f64 f64 i32, f64) select-f64
+skip-impl runner-shape-gap (f64 f64 i32, f64) select-f64
+skip-impl runner-shape-gap (f64 f64 i32, f64) select-f64
+skip-impl runner-shape-gap (f64 f64 i32, f64) select-f64
+skip-impl runner-shape-gap (f64 f64 i32, f64) select-f64
+skip-impl runner-shape-gap (f64 f64 i32, f64) select-f64
+skip-impl runner-shape-gap (i32 i32 i32, i32) select-i32-t
+skip-impl runner-shape-gap (i64 i64 i32, i64) select-i64-t
+skip-impl runner-shape-gap (f32 f32 i32, f32) select-f32-t
+skip-impl runner-shape-gap (f64 f64 i32, f64) select-f64-t
+skip-impl non-scalar-arg select-funcref
+skip-impl non-scalar-arg select-externref
+skip-impl runner-shape-gap (i32 i32 i32, i32) select-i32-t
+skip-impl runner-shape-gap (i32 i32 i32, i32) select-i32-t
+skip-impl runner-shape-gap (i64 i64 i32, i64) select-i64-t
+skip-impl runner-shape-gap (i64 i64 i32, i64) select-i64-t
+skip-impl non-scalar-arg select-externref
+skip-impl non-scalar-arg select-externref
+skip-impl runner-shape-gap (f32 f32 i32, f32) select-f32-t
+skip-impl runner-shape-gap (f32 f32 i32, f32) select-f32-t
+skip-impl runner-shape-gap (f32 f32 i32, f32) select-f32-t
+skip-impl runner-shape-gap (f32 f32 i32, f32) select-f32-t
+skip-impl runner-shape-gap (f32 f32 i32, f32) select-f32-t
+skip-impl runner-shape-gap (f32 f32 i32, f32) select-f32-t
+skip-impl runner-shape-gap (f32 f32 i32, f32) select-f32-t
+skip-impl runner-shape-gap (f32 f32 i32, f32) select-f32-t
+skip-impl runner-shape-gap (f64 f64 i32, f64) select-f64-t
+skip-impl runner-shape-gap (f64 f64 i32, f64) select-f64-t
+skip-impl runner-shape-gap (f64 f64 i32, f64) select-f64-t
+skip-impl runner-shape-gap (f64 f64 i32, f64) select-f64-t
+skip-impl runner-shape-gap (f64 f64 i32, f64) select-f64-t
+skip-impl runner-shape-gap (f64 f64 i32, f64) select-f64-t
+skip-impl runner-shape-gap (f64 f64 i32, f64) select-f64-t
+skip-impl runner-shape-gap (f64 f64 i32, f64) select-f64-t
+assert_return as-select-first i32:0 -> i32:1
+assert_return as-select-first i32:1 -> i32:0
+assert_return as-select-mid i32:0 -> i32:2
+assert_return as-select-mid i32:1 -> i32:2
+assert_return as-select-last i32:0 -> i32:2
+assert_return as-select-last i32:1 -> i32:3
+assert_return as-loop-first i32:0 -> i32:3
+assert_return as-loop-first i32:1 -> i32:2
+assert_return as-loop-mid i32:0 -> i32:3
+assert_return as-loop-mid i32:1 -> i32:2
+assert_return as-loop-last i32:0 -> i32:3
+assert_return as-loop-last i32:1 -> i32:2
+assert_return as-if-condition i32:0 -> ()
+assert_return as-if-condition i32:1 -> ()
+assert_return as-if-then i32:0 -> i32:3
+assert_return as-if-then i32:1 -> i32:2
+assert_return as-if-else i32:0 -> i32:3
+assert_return as-if-else i32:1 -> i32:2
+assert_return as-br_if-first i32:0 -> i32:3
+assert_return as-br_if-first i32:1 -> i32:2
+assert_return as-br_if-last i32:0 -> i32:2
+assert_return as-br_if-last i32:1 -> i32:2
+assert_return as-br_table-first i32:0 -> i32:3
+assert_return as-br_table-first i32:1 -> i32:2
+assert_return as-br_table-last i32:0 -> i32:2
+assert_return as-br_table-last i32:1 -> i32:2
+assert_return as-call_indirect-first i32:0 -> i32:3
+assert_return as-call_indirect-first i32:1 -> i32:2
+assert_return as-call_indirect-mid i32:0 -> i32:1
+assert_return as-call_indirect-mid i32:1 -> i32:1
+assert_trap as-call_indirect-last i32:0
+assert_trap as-call_indirect-last i32:1
+assert_return as-store-first i32:0 -> ()
+assert_return as-store-first i32:1 -> ()
+assert_return as-store-last i32:0 -> ()
+assert_return as-store-last i32:1 -> ()
+assert_return as-memory.grow-value i32:0 -> i32:1
+assert_return as-memory.grow-value i32:1 -> i32:3
+assert_return as-call-value i32:0 -> i32:2
+assert_return as-call-value i32:1 -> i32:1
+assert_return as-return-value i32:0 -> i32:2
+assert_return as-return-value i32:1 -> i32:1
+assert_return as-drop-operand i32:0 -> ()
+assert_return as-drop-operand i32:1 -> ()
+assert_return as-br-value i32:0 -> i32:2
+assert_return as-br-value i32:1 -> i32:1
+assert_return as-local.set-value i32:0 -> i32:2
+assert_return as-local.set-value i32:1 -> i32:1
+assert_return as-local.tee-value i32:0 -> i32:2
+assert_return as-local.tee-value i32:1 -> i32:1
+assert_return as-global.set-value i32:0 -> i32:2
+assert_return as-global.set-value i32:1 -> i32:1
+assert_return as-load-operand i32:0 -> i32:1
+assert_return as-load-operand i32:1 -> i32:1
+assert_return as-unary-operand i32:0 -> i32:0
+assert_return as-unary-operand i32:1 -> i32:1
+assert_return as-binary-operand i32:0 -> i32:4
+assert_return as-binary-operand i32:1 -> i32:1
+assert_return as-test-operand i32:0 -> i32:0
+assert_return as-test-operand i32:1 -> i32:1
+assert_return as-compare-left i32:0 -> i32:0
+assert_return as-compare-left i32:1 -> i32:1
+assert_return as-compare-right i32:0 -> i32:0
+assert_return as-compare-right i32:1 -> i32:1
+assert_return as-convert-operand i32:0 -> i32:0
+assert_return as-convert-operand i32:1 -> i32:1
+assert_invalid select.1.wasm
+assert_invalid select.2.wasm
+assert_invalid select.3.wasm
+assert_invalid select.4.wasm
+assert_invalid select.5.wasm
+assert_invalid select.6.wasm
+assert_invalid select.7.wasm
+assert_invalid select.8.wasm
+assert_invalid select.9.wasm
+assert_invalid select.10.wasm
+assert_invalid select.11.wasm
+assert_invalid select.12.wasm
+assert_invalid select.13.wasm
+assert_invalid select.14.wasm
+assert_invalid select.15.wasm
+assert_invalid select.16.wasm
+assert_invalid select.17.wasm
+assert_invalid select.18.wasm
+assert_invalid select.19.wasm
+assert_invalid select.20.wasm
+assert_invalid select.21.wasm
+assert_invalid select.22.wasm
+assert_invalid select.23.wasm
+assert_invalid select.24.wasm
+assert_invalid select.25.wasm
+assert_invalid select.26.wasm
+assert_invalid select.27.wasm
+assert_invalid select.28.wasm
+module select.29.wasm

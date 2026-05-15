@@ -157,6 +157,22 @@ fn nonSimdOnModuleLoaded(
         try stdout.print("FAIL  {s} table-init: {s}\n", .{ name, @errorName(err) });
         return err;
     };
+    // §9.9 / 9.9-l-1b-d093-d42b (D-112): populate per-non-zero-
+    // table scratch for JIT multi-table call_indirect (select.wast
+    // `(table $tab) (table $t) (call_indirect $t ...)`-class
+    // modules). Single-table modules become a 1-line entry-0
+    // rebind; multi-table modules walk each non-zero table's elem
+    // segments into the per-table scratch.
+    base.setupMultiTableScratch(
+        gpa,
+        wasm_bytes,
+        compiled,
+        scratch_funcptrs[0..],
+        scratch_typeidxs[0..],
+    ) catch |err| {
+        try stdout.print("FAIL  {s} multi-table-init: {s}\n", .{ name, @errorName(err) });
+        return err;
+    };
     // d-22 (D-106 discharge): Wasm spec §4.5.5.2 — the module's
     // start function (if declared) runs at instantiation, before
     // any export is invoked. Spec corpus `start.wast` exercises

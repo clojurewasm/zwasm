@@ -180,7 +180,16 @@ NAMES=(
   memory_redundancy
   float_misc
   float_memory
-  # `select` deferred — 4× call_indirect-context traps (D-NNN).
+  # d-42b enable: `select` — D-112 fully discharged. d-42 landed
+  # the JIT multi-table call_indirect dispatch (per-table
+  # `TableJitCallInfo` array); d-42b wires the spec_assert
+  # harness's `setupMultiTableScratch` from
+  # `spec_assert_runner_base.makeJitRuntime` callers. The 4
+  # `as-call_indirect-{first,mid}` FAILs were sig-mismatch traps
+  # from the JIT loading table 0's funcptr_base for a
+  # `call_indirect $t1`-class assertion; per-table dispatch fixes
+  # this end-to-end.
+  select
   # `ref_is_null` deferred — SEGV in funcref-elem/externref-elem
   # (reftype param/result ABI + table.get reftype; D-NNN).
   # d-41 enable: `memory_trap` — D-114 discharged. The 4× load
