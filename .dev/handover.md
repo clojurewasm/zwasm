@@ -10,24 +10,28 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **Phase 9 extended; D-093 (d-42b) D-112 closed + select lands 2026-05-15**
+## Active state — **Phase 9 extended; D-093 (d-43) D-113 closed + ref_is_null lands 2026-05-15**
 
 ### One-line state
 
-D-093 (d-42b) closes D-112. d-42 landed the JIT side
-(per-table TableJitCallInfo + emit dispatch on `ins.extra`);
-d-42b wires the spec_assert static-scratch harness so
-`select.wast`'s 2-table modules execute end-to-end. New
-runner helpers `applyTableInitForTable` /
-`countDeclaredTables` / `declaredTableMin` parameterise
-table-init by table_idx without re-parsing. Harness adds
-`scratch_extra_funcptrs/typeidxs` (per non-zero table),
-`scratch_table_jit_ci`, `scratch_tables_descriptor`, +
-`setupMultiTableScratch` called from each on_module_loaded.
-`makeJitRuntime` wires JitRuntime.tables_ptr + tables_jit_ci_ptr
-with module-derived count. `select` enabled in NAMES.
-spec_assert non-simd **16276/0/679 → 16369/0/732** (+93 PASS,
-0 FAIL, +1 manifest); simd 13301/0/440 unchanged.
+D-093 (d-43) closes D-113. Pre-d-43 spec_assert harness's
+`scratch_tables_descriptor[k].refs` was `undefined`, so
+JIT `table.get` on any table SEGV'd. d-43 mirrors
+`setupRuntime`'s table_refs arena into the static-scratch
+harness via new `scratch_table_refs[SCRATCH_MAX_TABLES]
+[SCRATCH_EXTRA_TABLE_CAPACITY]u64` + `scratch_func_entities
+[SCRATCH_MAX_FUNCS]FuncEntity` + `active_func_count`.
+`makeJitRuntime` wires `func_entities_ptr/count` + `tables_
+ptr[0].refs`; `setupMultiTableScratch` walks elem sections
+via new `populateTableRefs` to write `Value.ref`-encoded
+FuncEntity pointers. Distiller adds `module_state_diverged`
+flag (set on `skip-impl action-non-scalar-arg`, cleared by
+next `invoke-action`); while set, subsequent assert_returns
+emit `skip-adr-host-state-diverged` (covers `ref_is_null`'s
+single `externref-elem(i32:1) -> 0` precondition-dependent
+assert). spec_assert non-simd **16369/0/732 → 16376/0/740**
+(+7 PASS, 0 FAIL, +1 manifest = `ref_is_null`); simd
+13301/0/440 unchanged.
 
 ### Standing reminder for the autonomous loop
 
@@ -36,16 +40,13 @@ causes, never work around.**
 
 ### Next sub-chunk candidates (names only, NO predictions)
 
-Active `now` debts (post-d-42b):
+Active `now` debts (post-d-43):
 - D-093 (parent), D-095 (regalloc partial).
-- D-112 / D-114 / D-115 / D-116 discharged.
-- **D-113** (ref_is_null SEGV).
+- D-112 / D-113 / D-114 / D-115 / D-116 discharged.
 - D-103: discharged at d-37 via cross-module-imports skip.
 - D-102/D-105/D-079: cross-module-imports family — surface
   remains SKIP under d-37 pre-filter.
 
-- **d-43** — D-113 ref_is_null SEGV (needs lldb +
-  debug-print investigation).
 - **d-44+** — remaining wast names (table_*, data,
   memory_grow, memory_copy/fill/init, bulk, etc).
 - **d-45+** — Instance-aware refactor (Phase 10 transition).
@@ -118,7 +119,8 @@ Other queued post-D-093 names: `address`, `align`, `br_table`,
 | D-093 (d-41) | [x] a31fec49 | D-114 discharged. Same shape-gap class as D-116 but on the assert_trap + assert_return-void axes. d-41 adds `entry.callVoid_i32i64` + arms for `(i32, i64)` / `(i32, f32)` / `(i32, f64)` across `dispatchVoidResult` / `nonSimdRunAssertTrap` / `invokeActionShape`; distiller `trap_supported` + `supported` sets extended. `memory_trap` lands in NAMES. spec_assert non-simd 16091/0/684 → 16276/0/679 (+185 PASS, 0 FAIL, +1 manifest); simd 13301/0/440 unchanged. |
 | D-093 (d-42) | [x] ebe2a992 | D-112 JIT side: multi-table call_indirect dispatch. New `TableJitCallInfo` (extern { funcptr_base, typeidx_base }, 16-byte stride) in JitRuntime as parallel `tables_jit_ci_ptr` array (head_size 200 → 216). Entry 0 reuses table-0 flat arrays so legacy X24/X25/X26 (arm64) + [R15+scalar_off] (x86_64) fast path stays unchanged; entries `k > 0` back per-call slow path via `tables_ptr[k].len` + `tables_jit_ci_ptr[k]`. `setupRuntime` allocates per-table arenas; elem-section loop drops table-0-only gate. Edge fixture `multi_table_dispatch.wat` flips FAIL→PASS=42. spec_assert / simd / wast / realworld unchanged (no regressions). |
 | D-093 (d-42b) | [x] e0bc2ef8 | D-112 close. Spec_assert static-scratch harness wires multi-table call_indirect: `applyTableInit` is now a thin wrapper over `applyTableInitForTable(tableidx, ...)`; runner adds `countDeclaredTables` + `declaredTableMin` helpers. Harness `scratch_extra_funcptrs/typeidxs` + `scratch_table_jit_ci` + `scratch_tables_descriptor` populated by new `setupMultiTableScratch`; `makeJitRuntime` wires `JitRuntime.tables_ptr` + `tables_jit_ci_ptr` + counts. `select` lands in NAMES. spec_assert non-simd 16276/0/679 → 16369/0/732 (+93 PASS, 0 FAIL, +1 manifest); simd 13301/0/440 unchanged. |
-| **D-093 (d-43)** | **NEXT** | D-113: `ref_is_null.wast` SEGV (exit 139). d-38 probe — enabling `ref_is_null` crashes spec runner outside any armed sigsetjmp. Suspect: reftype-result call (`callI32_<reftype-arg>`) shape not in entry helpers, OR `table.get` reftype emit gap on funcref/externref class. Needs lldb (or debug-print) investigation. |
+| D-093 (d-43) | [x] 077ca871 | D-113 close. Pre-d-43 `scratch_tables_descriptor[k].refs` was `undefined` → SEGV on JIT `table.get`. d-43 adds `scratch_table_refs[SCRATCH_MAX_TABLES][SCRATCH_EXTRA_TABLE_CAPACITY]u64` + `scratch_func_entities[SCRATCH_MAX_FUNCS]FuncEntity` + `active_func_count`; `makeJitRuntime` wires `func_entities_ptr/count` + `tables_ptr[0].refs`; `setupMultiTableScratch` walks elem sections via new `populateTableRefs` writing `Value.ref`-encoded FuncEntity pointers. Distiller adds `module_state_diverged` flag (set on `skip-impl action-non-scalar-arg`, cleared by next `invoke-action`); while set, subsequent assert_returns emit `skip-adr-host-state-diverged` so host-action-dependent asserts skip cleanly. spec_assert non-simd 16369/0/732 → 16376/0/740 (+7 PASS, 0 FAIL, +1 manifest = `ref_is_null`); simd 13301/0/440 unchanged. |
+| **D-093 (d-44)** | **NEXT** | Remaining wast names — bisect/enable next NAMES batch (`table` / `table_*` / `data` / `memory_grow` / `memory_copy` / `memory_fill` / `memory_init` / `bulk` etc.). |
 
 Other queued chunks (post-l-1): k-1, k-2, m-4c (= D-090),
 m-2d, n-1, j-3b.
