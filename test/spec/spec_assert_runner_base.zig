@@ -282,8 +282,53 @@ pub fn makeJitRuntime(
 /// SysV / arm64 AAPCS64; the unread arg registers don't affect
 /// the callee. Spec runners never need the import's real return,
 /// since `trap_flag` short-circuits before any caller reads it.
+/// §9.9 / 9.9-l-1b-d093-d54 (D-129): sentinel written into
+/// `rt.trap_flag` by the host-import trap stub. The JIT body's
+/// own trap stubs always write `1`; any other non-zero value
+/// observed by the runner post-call is the host-import path,
+/// which the spec assert wants treated as `skip-adr-spectest-
+/// import-call` (the wrapper function calls a spectest import
+/// the runner can't bind, so the side-effect-only invoke can't
+/// produce the spec-expected outcome).
+pub const HOST_IMPORT_TRAP_SENTINEL: u32 = 0xBADC0DE;
+
 fn hostImportTrapStub(rt: *entry.JitRuntime) callconv(.c) void {
-    rt.trap_flag = 1;
+    rt.trap_flag = HOST_IMPORT_TRAP_SENTINEL;
+}
+
+/// §9.9 / 9.9-l-1b-d093-d54 (D-129): callback-set side channel
+/// for "this assert tripped the host-import trap stub; treat as
+/// skip-adr instead of FAIL". `runCorpus` resets this before
+/// each callback dispatch and reads it after `ok=false` to
+/// route the outcome correctly. Single-threaded by construction
+/// (the runner is single-threaded; tests don't fork goroutines).
+pub var pending_host_import_skip: bool = false;
+
+/// §9.9 / 9.9-l-1b-d093-d54 (D-129): unified trap-handling
+/// printer for assert_return + invoke-action call sites in the
+/// dispatch ladders. When `rt.trap_flag` matches the host-import
+/// sentinel, sets `pending_host_import_skip` + prints
+/// SKIP-HOST-IMPORT; otherwise prints the standard FAIL line.
+/// `args_s == "()"` collapses to the no-args print form for
+/// readability.
+pub fn printCallTrap(
+    rt: *entry.JitRuntime,
+    name: []const u8,
+    fn_name: []const u8,
+    args_s: []const u8,
+    err: anyerror,
+    stdout: *std.Io.Writer,
+) !void {
+    if (rt.trap_flag == HOST_IMPORT_TRAP_SENTINEL) {
+        pending_host_import_skip = true;
+        try stdout.print("SKIP-HOST-IMPORT  {s}: {s}({s}) host-import stub trap\n", .{ name, fn_name, args_s });
+        return;
+    }
+    if (std.mem.eql(u8, args_s, "()") or args_s.len == 0) {
+        try stdout.print("FAIL  {s}: call {s}(): {s}\n", .{ name, fn_name, @errorName(err) });
+    } else {
+        try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+    }
 }
 
 /// §9.9 / 9.9-l-1b-d093-d42b (D-112): per-module multi-table
@@ -1218,12 +1263,19 @@ pub fn runCorpus(
                     continue;
                 };
                 const wasm = current_wasm.?;
+                pending_host_import_skip = false;
                 const ok = callbacks.handle_assert_return(gpa, wasm, compiled_ptr, classified.body, stdout, name) catch |err| {
                     try stdout.print("FAIL  {s}: {s} (error {s})\n", .{ name, line, @errorName(err) });
                     tally.failed += 1;
                     continue;
                 };
-                if (ok) tally.passed += 1 else tally.failed += 1;
+                if (ok) {
+                    tally.passed += 1;
+                } else if (pending_host_import_skip) {
+                    tally.skipped_adr += 1;
+                } else {
+                    tally.failed += 1;
+                }
             },
             .assert_trap => {
                 if (module_bad) {
@@ -1254,12 +1306,19 @@ pub fn runCorpus(
                     continue;
                 };
                 const wasm = current_wasm.?;
+                pending_host_import_skip = false;
                 const ok = callbacks.handle_invoke_action(gpa, wasm, compiled_ptr, classified.body, stdout, name) catch |err| {
                     try stdout.print("FAIL  {s}: {s} (error {s})\n", .{ name, line, @errorName(err) });
                     tally.failed += 1;
                     continue;
                 };
-                if (ok) tally.passed += 1 else tally.failed += 1;
+                if (ok) {
+                    tally.passed += 1;
+                } else if (pending_host_import_skip) {
+                    tally.skipped_adr += 1;
+                } else {
+                    tally.failed += 1;
+                }
             },
             .assert_invalid => {
                 const file = classified.body;

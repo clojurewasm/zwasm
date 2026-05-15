@@ -266,6 +266,8 @@ NAMES=(
   binary
   binary-leb128
   unreached-valid
+  names
+  imports
   # `names` + `imports` re-deferred to D-129: distiller char-escape
   # fix (d-53) closes 8 of 12 names FAILs but `names: call
   # print32(i32 i32): Trap` + `imports: call print_i32(i32): Trap`

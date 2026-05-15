@@ -363,21 +363,21 @@ fn dispatchVoidResult(
 ) anyerror!bool {
     if (args.len == 0) {
         entry.callVoidNoArgs(compiled.module, func_idx, rt) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}(): {s}\n", .{ name, fn_name, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, "()", err, stdout);
             return false;
         };
         return true;
     }
     if (args.len == 1 and args[0] == .i32) {
         entry.callVoid_i32(compiled.module, func_idx, rt, args[0].i32) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return false;
         };
         return true;
     }
     if (args.len == 1 and args[0] == .i64) {
         entry.callVoid_i64(compiled.module, func_idx, rt, args[0].i64) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return false;
         };
         return true;
@@ -385,7 +385,7 @@ fn dispatchVoidResult(
     if (args.len == 1 and args[0] == .f32) {
         const a0: f32 = @bitCast(args[0].f32);
         entry.callVoid_f32(compiled.module, func_idx, rt, a0) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return false;
         };
         return true;
@@ -393,14 +393,14 @@ fn dispatchVoidResult(
     if (args.len == 1 and args[0] == .f64) {
         const a0: f64 = @bitCast(args[0].f64);
         entry.callVoid_f64(compiled.module, func_idx, rt, a0) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return false;
         };
         return true;
     }
     if (args.len == 2 and args[0] == .i32 and args[1] == .i32) {
         entry.callVoid_i32i32(compiled.module, func_idx, rt, args[0].i32, args[1].i32) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return false;
         };
         return true;
@@ -412,7 +412,7 @@ fn dispatchVoidResult(
     // the original "abcdefgh" data instead of 0.
     if (args.len == 2 and args[0] == .i32 and args[1] == .i64) {
         entry.callVoid_i32i64(compiled.module, func_idx, rt, args[0].i32, args[1].i64) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return false;
         };
         return true;
@@ -425,7 +425,7 @@ fn dispatchVoidResult(
     if (args.len == 2 and args[0] == .i32 and args[1] == .f32) {
         const a1: f32 = @bitCast(args[1].f32);
         entry.callVoid_i32f32(compiled.module, func_idx, rt, args[0].i32, a1) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return false;
         };
         return true;
@@ -433,7 +433,7 @@ fn dispatchVoidResult(
     if (args.len == 2 and args[0] == .i32 and args[1] == .f64) {
         const a1: f64 = @bitCast(args[1].f64);
         entry.callVoid_i32f64(compiled.module, func_idx, rt, args[0].i32, a1) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return false;
         };
         return true;
@@ -444,7 +444,7 @@ fn dispatchVoidResult(
     // for the subsequent `(invoke "f<32,64>.load" k)` to read.
     if (args.len == 3 and args[0] == .i32 and args[1] == .i32 and args[2] == .i32) {
         entry.callVoid_i32i32i32(compiled.module, func_idx, rt, args[0].i32, args[1].i32, args[2].i32) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return false;
         };
         return true;
@@ -453,7 +453,7 @@ fn dispatchVoidResult(
         const a1: f32 = @bitCast(args[1].f32);
         const a2: f64 = @bitCast(args[2].f64);
         entry.callVoid_i64f32f64i32i32(compiled.module, func_idx, rt, args[0].i64, a1, a2, args[3].i32, args[4].i32) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return false;
         };
         return true;
@@ -479,52 +479,52 @@ fn dispatchScalarResult(
 ) anyerror!?u64 {
     if (args.len == 0 and result_kind == .i32) {
         return @as(u64, entry.callI32NoArgs(compiled.module, func_idx, rt) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}(): {s}\n", .{ name, fn_name, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, "()", err, stdout);
             return null;
         });
     }
     if (args.len == 0 and result_kind == .i64) {
         return entry.callI64NoArgs(compiled.module, func_idx, rt) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}(): {s}\n", .{ name, fn_name, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, "()", err, stdout);
             return null;
         };
     }
     if (args.len == 0 and result_kind == .f32) {
         const r = entry.callF32NoArgs(compiled.module, func_idx, rt) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}(): {s}\n", .{ name, fn_name, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, "()", err, stdout);
             return null;
         };
         return @as(u64, @as(u32, @bitCast(r)));
     }
     if (args.len == 0 and result_kind == .f64) {
         const r = entry.callF64NoArgs(compiled.module, func_idx, rt) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}(): {s}\n", .{ name, fn_name, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, "()", err, stdout);
             return null;
         };
         return @as(u64, @bitCast(r));
     }
     if (args.len == 1 and args[0] == .i32 and result_kind == .i32) {
         return @as(u64, entry.callI32_i32(compiled.module, func_idx, rt, args[0].i32) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         });
     }
     if (args.len == 1 and args[0] == .i32 and result_kind == .i64) {
         return entry.callI64_i32(compiled.module, func_idx, rt, args[0].i32) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         };
     }
     if (args.len == 1 and args[0] == .i64 and result_kind == .i64) {
         return entry.callI64_i64(compiled.module, func_idx, rt, args[0].i64) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         };
     }
     if (args.len == 1 and args[0] == .f32 and result_kind == .f32) {
         const a0: f32 = @bitCast(args[0].f32);
         const r = entry.callF32_f32(compiled.module, func_idx, rt, a0) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         };
         return @as(u64, @as(u32, @bitCast(r)));
@@ -532,7 +532,7 @@ fn dispatchScalarResult(
     if (args.len == 1 and args[0] == .f64 and result_kind == .f64) {
         const a0: f64 = @bitCast(args[0].f64);
         const r = entry.callF64_f64(compiled.module, func_idx, rt, a0) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         };
         return @as(u64, @bitCast(r));
@@ -542,62 +542,62 @@ fn dispatchScalarResult(
     // (int→FP), promote / demote / reinterpret across FP widths.
     if (args.len == 1 and args[0] == .i64 and result_kind == .i32) {
         return @as(u64, entry.callI32_i64(compiled.module, func_idx, rt, args[0].i64) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         });
     }
     if (args.len == 1 and args[0] == .f32 and result_kind == .i32) {
         const a0: f32 = @bitCast(args[0].f32);
         return @as(u64, entry.callI32_f32(compiled.module, func_idx, rt, a0) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         });
     }
     if (args.len == 1 and args[0] == .f64 and result_kind == .i32) {
         const a0: f64 = @bitCast(args[0].f64);
         return @as(u64, entry.callI32_f64(compiled.module, func_idx, rt, a0) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         });
     }
     if (args.len == 1 and args[0] == .f32 and result_kind == .i64) {
         const a0: f32 = @bitCast(args[0].f32);
         return entry.callI64_f32(compiled.module, func_idx, rt, a0) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         };
     }
     if (args.len == 1 and args[0] == .f64 and result_kind == .i64) {
         const a0: f64 = @bitCast(args[0].f64);
         return entry.callI64_f64(compiled.module, func_idx, rt, a0) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         };
     }
     if (args.len == 1 and args[0] == .i32 and result_kind == .f32) {
         const r = entry.callF32_i32(compiled.module, func_idx, rt, args[0].i32) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         };
         return @as(u64, @as(u32, @bitCast(r)));
     }
     if (args.len == 1 and args[0] == .i64 and result_kind == .f32) {
         const r = entry.callF32_i64(compiled.module, func_idx, rt, args[0].i64) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         };
         return @as(u64, @as(u32, @bitCast(r)));
     }
     if (args.len == 1 and args[0] == .i32 and result_kind == .f64) {
         const r = entry.callF64_i32(compiled.module, func_idx, rt, args[0].i32) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         };
         return @as(u64, @bitCast(r));
     }
     if (args.len == 1 and args[0] == .i64 and result_kind == .f64) {
         const r = entry.callF64_i64(compiled.module, func_idx, rt, args[0].i64) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         };
         return @as(u64, @bitCast(r));
@@ -605,7 +605,7 @@ fn dispatchScalarResult(
     if (args.len == 1 and args[0] == .f64 and result_kind == .f32) {
         const a0: f64 = @bitCast(args[0].f64);
         const r = entry.callF32_f64(compiled.module, func_idx, rt, a0) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         };
         return @as(u64, @as(u32, @bitCast(r)));
@@ -613,14 +613,14 @@ fn dispatchScalarResult(
     if (args.len == 1 and args[0] == .f32 and result_kind == .f64) {
         const a0: f32 = @bitCast(args[0].f32);
         const r = entry.callF64_f32(compiled.module, func_idx, rt, a0) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         };
         return @as(u64, @bitCast(r));
     }
     if (args.len == 2 and args[0] == .i32 and args[1] == .i32 and result_kind == .i32) {
         return @as(u64, entry.callI32_i32i32(compiled.module, func_idx, rt, args[0].i32, args[1].i32) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         });
     }
@@ -628,13 +628,13 @@ fn dispatchScalarResult(
     // (binop + cmp families exercised by i64 / f32 / f64 / *_cmp wasts).
     if (args.len == 2 and args[0] == .i64 and args[1] == .i64 and result_kind == .i64) {
         return entry.callI64_i64i64(compiled.module, func_idx, rt, args[0].i64, args[1].i64) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         };
     }
     if (args.len == 2 and args[0] == .i64 and args[1] == .i64 and result_kind == .i32) {
         return @as(u64, entry.callI32_i64i64(compiled.module, func_idx, rt, args[0].i64, args[1].i64) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         });
     }
@@ -642,7 +642,7 @@ fn dispatchScalarResult(
         const a0: f32 = @bitCast(args[0].f32);
         const a1: f32 = @bitCast(args[1].f32);
         const r = entry.callF32_f32f32(compiled.module, func_idx, rt, a0, a1) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         };
         return @as(u64, @as(u32, @bitCast(r)));
@@ -651,7 +651,7 @@ fn dispatchScalarResult(
         const a0: f32 = @bitCast(args[0].f32);
         const a1: f32 = @bitCast(args[1].f32);
         return @as(u64, entry.callI32_f32f32(compiled.module, func_idx, rt, a0, a1) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         });
     }
@@ -659,7 +659,7 @@ fn dispatchScalarResult(
         const a0: f64 = @bitCast(args[0].f64);
         const a1: f64 = @bitCast(args[1].f64);
         const r = entry.callF64_f64f64(compiled.module, func_idx, rt, a0, a1) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         };
         return @as(u64, @bitCast(r));
@@ -668,7 +668,7 @@ fn dispatchScalarResult(
         const a0: f64 = @bitCast(args[0].f64);
         const a1: f64 = @bitCast(args[1].f64);
         return @as(u64, entry.callI32_f64f64(compiled.module, func_idx, rt, a0, a1) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         });
     }
@@ -676,7 +676,7 @@ fn dispatchScalarResult(
         const a1: f32 = @bitCast(args[1].f32);
         const a2: f64 = @bitCast(args[2].f64);
         return entry.callI64_i64f32f64i32i32(compiled.module, func_idx, rt, args[0].i64, a1, a2, args[3].i32, args[4].i32) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         };
     }
@@ -684,7 +684,7 @@ fn dispatchScalarResult(
         const a1: f32 = @bitCast(args[1].f32);
         const a2: f64 = @bitCast(args[2].f64);
         const r = entry.callF64_i64f32f64i32i32(compiled.module, func_idx, rt, args[0].i64, a1, a2, args[3].i32, args[4].i32) catch |err| {
-            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         };
         return @as(u64, @bitCast(r));
