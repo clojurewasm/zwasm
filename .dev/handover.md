@@ -10,21 +10,25 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **d-56 closed: drain trap-shape-gap backlog (+1 trap dispatch shape, +30 PASS)**
+## Active state — **d-57 closed: drain directive-assert_uninstantiable backlog (+19 PASS)**
 
 ### One-line state
 
-d-56 mirrors d-55's runner-shape-gap fix on the assert_trap
-path: `(i32, i32, i32)` added to distiller `trap_supported` +
-matching dispatch arm in `nonSimdRunAssertTrap` (reuses d-55's
-`callI32_i32i32i32` helper — trap result-type immaterial). 30
-manifest entries previously `skip-impl trap-shape-gap (i32 i32
-i32) ...` reclassified to `assert_trap` (memory_copy ×14,
-table_copy ×11, memory_fill ×3, call_indirect ×2). spec_assert
-non-simd 23448/0/2622 → 23478/0/2592 (+30 PASS, 0 FAIL;
-skip-impl 1940). simd 13301/0/440 unchanged. Loop continues
-toward 9.9 `[x]`; substrate audit hard gate (9.12) auto-fires
-when next chunk would resolve to it.
+d-57 adds `assert_uninstantiable` directive support — module is
+valid (compiles) but instantiation fails. Distiller emits
+`assert_uninstantiable {file}` for `t == 'assert_uninstantiable'`
+binary modules; runner-base adds the DirectiveKind +
+classifyDirective + dispatch arm with d-37 cross-module-imports
+pre-filter; non-simd specialisation provides
+`nonSimdHandleAssertUninstantiable` mirroring the existing
+init pipeline (data → globals → table → multi-table → start-fn)
+with inverted error semantics (any failure = PASS). Of 34
+reclassified entries: 19 PASS (data ×14 + elem ×4 + start.8),
+11 SKIP-CROSS-MODULE-IMPORTS (linking corpus), 4 stay skip-impl
+(non-binary). spec_assert non-simd 23478/0/2592 → 23497/0/2573
+(+19 PASS, 0 FAIL; skip-impl 1921). simd 13301/0/440 unchanged.
+Loop continues toward 9.9 `[x]`; substrate audit hard gate
+(9.12) auto-fires when next chunk would resolve to it.
 
 ### Standing reminder for the autonomous loop
 
@@ -51,17 +55,18 @@ refactor, the closing path is the runner-side skip-impl backlog
 considering whether to flip 9.9 `[x]` based on "active corpora
 green" rather than "every assertion classified".
 
-- **d-57** — Continue draining skip-impl. Top remaining
-  classes (post-d-56): `directive-assert_unlinkable` (link-
-  time error directive — needs runner directive support),
-  `multi-result` (Phase 11+ scope per ADR-0029 follow-up),
-  `directive-assert_uninstantiable`, `directive-register`,
-  `directive-assert_exhaustion`, `trap-non-scalar-arg`. The
-  directive-* families share the runner-side need to teach
-  the manifest interpreter a new directive verb;
-  `directive-register` is the smallest pattern (single
-  string-name registration) and may be the next mechanical
-  win.
+- **d-58** — Continue draining skip-impl. Top remaining
+  classes (post-d-57): `directive-assert_unlinkable`
+  (link-time error directive — assert that module fails to
+  link due to bad imports; pattern parallels
+  assert_uninstantiable but the trigger is import resolution
+  rather than instantiation; ~83 entries in imports +
+  linking corpora), `multi-result` (Phase 11+ scope per
+  ADR-0029 follow-up), `directive-register`,
+  `directive-assert_exhaustion`, `trap-non-scalar-arg`.
+  `assert_unlinkable` is the same shape as
+  `assert_uninstantiable` and likely the next big mechanical
+  drain.
 
 Runner-side skip-impl backlog (7 total, in `nop / loop /
 local_tee`):
