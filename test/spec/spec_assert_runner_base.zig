@@ -236,6 +236,13 @@ pub fn makeJitRuntime(
         .elem_segments_count = active_elem_segments_count,
         .elem_dropped_ptr = &scratch_elem_dropped,
         .elem_dropped_count = active_elem_segments_count,
+        // §9.9 / 9.9-l-1b-d093-d50 (D-119/D-120): data-segment
+        // scratch wired so JIT `memory.init` / `data.drop` see
+        // valid pointers. Mirror of d-49's elem-segment fix.
+        .data_segments_ptr = if (active_data_segments_count == 0) @as([*]const entry.SegmentSlice, undefined) else &scratch_data_segments,
+        .data_segments_count = active_data_segments_count,
+        .data_dropped_ptr = &scratch_data_dropped,
+        .data_dropped_count = active_data_segments_count,
     };
 }
 
@@ -326,6 +333,20 @@ pub var scratch_elem_refs_arena: [SCRATCH_ELEM_REFS_CAPACITY]u64 = undefined;
 pub var scratch_elem_dropped: [SCRATCH_MAX_ELEM_SEGMENTS]u8 = undefined;
 pub var active_elem_segments_count: u32 = 0;
 
+/// §9.9 / 9.9-l-1b-d093-d50 (D-119/D-120): per-data-segment slice
+/// descriptors backing JIT `memory.init` (`data.drop` flips the
+/// `scratch_data_dropped[i]` byte). Pre-d-50 these were
+/// `undefined` in the spec_assert harness — JIT `memory.init`
+/// reads `[r15+data_segments_ptr_off][i]` and SEGV'd outside any
+/// armed sigsetjmp on `bulk.wast`. Mirror of d-49's
+/// elem-segment scratch.
+pub const SCRATCH_MAX_DATA_SEGMENTS: u32 = 128;
+pub const SCRATCH_DATA_BYTES_CAPACITY: u32 = 65536;
+pub var scratch_data_segments: [SCRATCH_MAX_DATA_SEGMENTS]entry.SegmentSlice = undefined;
+pub var scratch_data_arena: [SCRATCH_DATA_BYTES_CAPACITY]u8 = undefined;
+pub var scratch_data_dropped: [SCRATCH_MAX_DATA_SEGMENTS]u8 = undefined;
+pub var active_data_segments_count: u32 = 0;
+
 /// Number of `scratch_table_jit_ci` entries that are live for
 /// the currently-loaded module. Updated by `setupMultiTableScratch`
 /// during each on_module_loaded; consumed by `makeJitRuntime` to
@@ -389,6 +410,13 @@ pub fn setupMultiTableScratch(
     // time via SCRATCH_EXTRA_TABLE_CAPACITY so we slice per-table.
     if (num_tables == 0) {
         active_table_count = 0;
+        // §9.9 / 9.9-l-1b-d093-d50: don't early-return here — modules
+        // with no tables (e.g. bulk.4.wasm: memory + passive data
+        // segment, no tables) still need elem + data segment scratch
+        // populated. The elem path is a no-op when no element section
+        // exists; the data path is what bulk + memory_init exercise.
+        try populateElemSegments(gpa, wasm_bytes, compiled);
+        try populateDataSegments(gpa, wasm_bytes);
         return;
     }
     var k: u32 = 0;
@@ -440,6 +468,11 @@ pub fn setupMultiTableScratch(
     // path. Pre-d-49 these were `undefined` and JIT body SEGV'd
     // on first deref.
     try populateElemSegments(gpa, wasm_bytes, compiled);
+    // §9.9 / 9.9-l-1b-d093-d50 (D-119/D-120): mirror for data
+    // segments — JIT `memory.init` reads `data_segments_ptr[i]`
+    // for the source bytes ptr+len; `data.drop` flips
+    // `data_dropped_ptr[i]`. Pre-d-50 both were `undefined`.
+    try populateDataSegments(gpa, wasm_bytes);
 }
 
 /// §9.9 / 9.9-l-1b-d093-d49 (D-123): mirror of
@@ -495,6 +528,50 @@ fn populateElemSegments(
         off += seg_len;
     }
     active_elem_segments_count = @intCast(elems.items.len);
+}
+
+/// §9.9 / 9.9-l-1b-d093-d50 (D-119/D-120): mirror of
+/// `runner.zig::setupRuntime`'s data_segments_buf population.
+/// Walks the data section, writes per-segment `SegmentSlice`
+/// descriptors into `scratch_data_segments`, packs the segment
+/// bytes into a flat `scratch_data_arena`, and flips active +
+/// declarative segments to dropped per Wasm 2.0 §4.5.5 (active
+/// data segments are consumed at instantiation).
+fn populateDataSegments(
+    gpa: std.mem.Allocator,
+    wasm_bytes: []const u8,
+) anyerror!void {
+    @memset(scratch_data_dropped[0..], 0);
+    active_data_segments_count = 0;
+
+    var temp_arena = std.heap.ArenaAllocator.init(gpa);
+    defer temp_arena.deinit();
+    const ta = temp_arena.allocator();
+    var module = try @import("zwasm").parse.parser.parse(ta, wasm_bytes);
+    const sec = module.find(.data) orelse return;
+    var datas = try @import("zwasm").parse.sections.decodeData(ta, sec.body);
+    defer datas.deinit();
+
+    if (datas.items.len > SCRATCH_MAX_DATA_SEGMENTS) return error.UnsupportedEntrySignature;
+
+    var off: usize = 0;
+    for (datas.items, 0..) |seg, i| {
+        const seg_len: u64 = @intCast(seg.bytes.len);
+        if (off + seg_len > SCRATCH_DATA_BYTES_CAPACITY) return error.UnsupportedEntrySignature;
+        @memcpy(scratch_data_arena[off..][0..seg.bytes.len], seg.bytes);
+        scratch_data_segments[i] = .{
+            .ptr = scratch_data_arena[off..].ptr,
+            .len = seg_len,
+        };
+        // Wasm 2.0 §4.5.5: active data segments are consumed at
+        // instantiation — applyActiveDataSegments has already
+        // copied their bytes into linear memory; subsequent
+        // `memory.init` against them must trap on n>0 because
+        // the segment's effective size is 0.
+        if (seg.kind == .active) scratch_data_dropped[i] = 1;
+        off += seg.bytes.len;
+    }
+    active_data_segments_count = @intCast(datas.items.len);
 }
 
 /// §9.9 / 9.9-l-1b-d093-d43 (D-113): populate `refs_out` with

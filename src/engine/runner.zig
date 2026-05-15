@@ -1137,6 +1137,18 @@ fn setupRuntime(
     const data_dropped = try allocator.alloc(u8, data_dropped_count);
     errdefer allocator.free(data_dropped);
     @memset(data_dropped, 0);
+    // Wasm 2.0 §4.5.5: active data segments are consumed at
+    // instantiation — applyActiveDataSegments has already copied
+    // their bytes into linear memory; subsequent `memory.init`
+    // against them must trap on n>0 because the segment's
+    // effective size is 0. Mirror of d-49's elem-segment fix.
+    if (module.find(.data)) |s_drop| {
+        var datas_drop = try sections.decodeData(ta, s_drop.body);
+        defer datas_drop.deinit();
+        for (datas_drop.items, 0..) |seg, i| {
+            if (seg.kind == .active) data_dropped[i] = 1;
+        }
+    }
 
     // §9.9 / 9.9-m-2c-init: per-element-segment ElemSlice arena.
     // Each segment gets its own pre-computed `[]u64` of Value.ref

@@ -243,6 +243,20 @@ NAMES=(
   table_grow
   table_copy
   table_init
+  # d-50 enable: `memory_init`. D-119/D-120 closed via
+  # data-segment scratch wiring (mirror of d-49's elem-segment
+  # fix): new `scratch_data_segments` / `scratch_data_arena` /
+  # `scratch_data_dropped` globals + `populateDataSegments`
+  # called from `setupMultiTableScratch`. Active data segments
+  # are marked dropped at instantiation per Wasm 2.0 §4.5.5.
+  # `bulk` SEGV root cause is also fixed by this chunk, but
+  # the corpus surfaces a new architectural gap (D-126):
+  # `table.copy` / `table.init` write to `tables_ptr[k].refs`
+  # but the legacy table-0 fast path's `funcptr_base` /
+  # `typeidx_base` stay stale → call_indirect through table[k]
+  # post-mutation reads stale entries. Defer `bulk` until that
+  # gap closes.
+  memory_init
   # d-41 enable: `memory_trap` — D-114 discharged. The 4× load
   # FAILs were not load-bounds-check bugs; they were caused by a
   # skipped `(assert_return (invoke "i64.store" 0xfff8 0))`
