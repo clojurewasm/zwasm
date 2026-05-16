@@ -10,39 +10,35 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **d-79 closed: §3.4.4 memory-op validation in func bodies, +8 PASS**
+## Active state — **d-80 closed: reftype-matching validation, +2 PASS**
 
 ### One-line state
 
-d-79 adds `Validator.memory_count` field +
-`Error.UnknownMemory` guard at opLoad / opStore /
-opMemorySize / opMemoryGrow / opMemoryFill /
-opMemoryCopy / opMemoryInit. New `WithMemory` wrapper
-for production callers; legacy callers default to 1.
-Result: spec_assert 23948/0/2122 → **23956/0/2114**
-(+8 PASS). Full drains: **memory 6→0, memory_fill 1→0,
-memory_copy + memory_init** residuals → 0. Total
-VALIDATOR-GAP 32→26.
+d-80 adds two small reftype-matching validators:
+(a) call_indirect requires funcref table (not externref);
+(b) active elem segment's elem_type matches table's
+elem_type. Result: spec_assert 23956/0/2114 →
+**23958/0/2112** (+2 PASS, 0 FAIL). Per-corpus:
+call_indirect 2→1, elem 2→1. Total VALIDATOR-GAP 26→24.
+Mac + OrbStack bit-identical.
 
-**Cumulative d-74 → d-79 (6 chunks)**: **+172 PASS**
-(23784 → 23956). `unreached-invalid` corpus was tried
-but requires polymorphic-stack pop-with-expected-type
-refactor — **deferred** (would need ~200 LOC across
-opSelect / popExpect / popAny APIs).
+**Cumulative d-74 → d-80 (7 chunks)**: **+174 PASS**
+(23784 → 23958).
 
-### Skip-impl drainage roadmap (post-d-79)
+### Skip-impl drainage roadmap (post-d-80)
 
-Remaining VALIDATOR-GAP (26): unreached-invalid 14
-(deferred — needs polymorphic-stack refactor),
-if 4, ref_func 3, elem 2, call_indirect 2, select 1.
+Remaining VALIDATOR-GAP (24): unreached-invalid 14
+(deferred — polymorphic stack refactor), if 4,
+ref_func 3, select 1, elem 1, call_indirect 1.
 
-- **d-80** — long tail (if / ref_func / elem / call_indirect / select)
-  — most need spec-rule-specific validator extensions
-  (likely each 1-3 lines of validator change).
-- **deferred** — `unreached-invalid` (14): polymorphic
-  stack pop-with-expected refactor; complexity high
-  for the count of cases drained. Revisit if other
-  blockers clear.
+- **d-81** — `ref_func` (3): "undeclared function
+  reference" — needs func-declaration tracking
+  (elem section + exports + start + imports).
+- **d-82** — `if` (4) + `select` (1): specific
+  type-mismatch shapes; need investigation.
+- **d-83** — call_indirect / elem residuals: need
+  deeper elem-decode + funcidx-out-of-range checks.
+- **deferred** — `unreached-invalid` (14).
 
 ## Outstanding (now-resumed) `now` debts
 
