@@ -26,38 +26,37 @@
 
 ### One-line state
 
-Step (a) amendment cycle complete: §9.9 row text re-written to
-the 4-category `skip-impl == 0` predicate per ADR-0056 amend +
-ADR-0065 Cat III absorption (Wasm 1.0 instance / store / linker
-/ cross-module / host-imports / start-trap pulled back from
-"Phase 10+" into Phase 9 scope). ROADMAP §9.9-II / 9.9-III /
-9.9-IV sub-rows opened.
+Step (b) Cat II in progress: chunk (b)-1 landed the first
+multi-result shape `(i64,i64,i32)→(i64,i32)` (add64_u_with_carry
+family, 8 lines in if/manifest.txt). Infrastructure now in place:
+`FuncRet_*` extern struct convention + `dispatchMultiResult`
+ladder + distiller `supported_multi` set. Next shapes follow the
+same recipe.
 
-**Current spec_assert tally** (Mac aarch64 + OrbStack bit-
-identical, unchanged since d-85 close on 2026-05-16; live via
+**Current spec_assert tally** (Mac aarch64 + OrbStack
+bit-identical post-chunk (b)-1; live via
 `bash scripts/p9_simd_status.sh`):
 
-- spec_assert non-simd: **24001 / 0 / 2069**
-- simd_assert: **13301 / 0 / 440** (bit-identical with
-  windowsmini post-2026-05-17 D-084 reconcile attempt)
+- spec_assert non-simd: **24009 / 0 / 2061** (+8 PASS / -8
+  skip-impl vs 2026-05-17 baseline 24001/0/2069)
+- simd_assert: **13301 / 0 / 440** (unchanged)
 
 ### Next-session active task
 
-**Step (b) — Cat II multi-result entry helpers** per
-[`phase9_close_plan.md`](phase9_close_plan.md) §6 step (b)
-(quoted here only as pointer; full sequence in the plan doc).
+**Step (b) chunk (b)-2 — next multi-result shape(s)** per
+[`phase9_close_plan.md`](phase9_close_plan.md) §6 step (b).
+The (b)-1 chunk drained add64_u_with_carry; remaining shapes
+(per `grep skip-impl multi-result test/spec/wasm-2.0-assert/
+*/manifest.txt`):
 
-Highest-impact result-tuple shapes first; survey notes already
-exist in the plan doc:
+- br=2, block=1, call=6, call_indirect=4, func=20, if=6, loop=1
+  (= 40 lines across 7 manifests; ~7-8 distinct shapes)
 
-1. `(i64, i64, i32) → (i64, i32)` — add64_u_with_carry family
-   (8 manifests)
-2. `() → (i32, i32)` + `(i32) → (i32, i32)` — multi family
-3. `() → (i32, i64)`, `() → (i32, f64)`, etc. — long tail
-
-Each shape: `entry.zig` `FuncRet_<types>` extern struct + helper
-+ runner `dispatchMultiResult<shape>` arm + distiller `supported`
-set entry + manifest re-bake + per-chunk Mac+OrbStack gate.
+Pick by `grep -A0 "skip-impl multi-result" test/spec/wasm-2.0-
+assert/*/manifest.txt | sort | uniq -c | sort -rn` to identify
+the next-highest-impact shape (typically `()→(i32,i32)` "multi"
+family next). Add `FuncRet_<shape>` + helper + runner arm +
+distiller `supported_multi` entry; re-bake; gate.
 
 ### Discipline reminders
 
