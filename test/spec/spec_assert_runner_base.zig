@@ -1140,11 +1140,21 @@ pub fn installSigsegvHandler() void {
     // so jumping from the altstack back to the dispatch frame on
     // the main stack is sound regardless of which stack the handler
     // ran on.
+    //
+    // §9.9 / 9.9-l-1b-d093-d72 (D-134 hypothesis iii-a probe):
+    // surface sigaltstack errors instead of swallowing via
+    // `catch {}` so a silent install failure (suspect on OrbStack
+    // Linux x86_64 after d-71 confirmed our handler doesn't fire)
+    // becomes visible. Likewise add a sigaction-readback check so
+    // a stale `SIG_DFL` disposition would surface on stderr at
+    // install time.
     std.posix.sigaltstack(&.{
         .sp = &signal_stack,
         .flags = 0,
         .size = SIGNAL_STACK_SIZE,
-    }, null) catch {};
+    }, null) catch |err| {
+        std.debug.print("installSigsegvHandler: sigaltstack failed: {s}\n", .{@errorName(err)});
+    };
     var act: std.posix.Sigaction = .{
         .handler = .{ .handler = sigsegvHandler },
         .mask = std.posix.sigemptyset(),
@@ -1155,6 +1165,20 @@ pub fn installSigsegvHandler() void {
     // arm64, mmap region truncation) so the runner survives the
     // same class of in-body fault on Mac.
     std.posix.sigaction(.BUS, &act, null);
+
+    // Readback verification: confirm our handler is the active
+    // SEGV disposition immediately post-install. Prints on stderr
+    // ONLY if the readback fails to match (so happy-path runs
+    // stay quiet). If the printed line appears, some other path
+    // has already replaced our SEGV sigaction before main's
+    // installSigsegvHandler returned — diagnostic for D-134
+    // hypothesis (iii-c).
+    var oact: std.posix.Sigaction = undefined;
+    std.posix.sigaction(.SEGV, null, &oact);
+    const installed_fn = oact.handler.handler;
+    if (installed_fn != sigsegvHandler) {
+        std.debug.print("installSigsegvHandler: SEGV disposition is NOT our handler (oact.handler.handler={?*})\n", .{installed_fn});
+    }
 }
 
 /// Per-runner callbacks invoked by `runCorpus()`. Specialisations
