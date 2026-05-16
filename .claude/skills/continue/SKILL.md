@@ -119,6 +119,29 @@ change between iterations.
 ## Resume procedure (run on every session pickup)
 
 1. Read `.dev/handover.md`. (The `SessionStart` hook already prints it.)
+1a. **Close-plan / amendment-cycle override**. If handover.md's
+    `Cold-start procedure` step 1 directs to a
+    `.dev/phase*_close_plan.md` document (canonical:
+    `phase<N>_close_plan.md`), that doc's `§6 Work sequence` is
+    the **authoritative work source for this session** —
+    superseding the ROADMAP-first lookup in Step 2 below. The
+    plan doc exists precisely because the ROADMAP is
+    acknowledged-stale pending its first amendment step (step
+    (a)). Execute the plan's step (a) FIRST; it will land the
+    ROADMAP / ADR amendments that re-align state. After step (a)
+    closes, the override no longer fires (handover.md gets
+    refreshed at step (a)-6 to point at the next step).
+
+    Detection: scan handover.md for `phase*_close_plan.md`
+    reference in the Cold-start procedure section or Active
+    state section. If matched → plan supersedes ROADMAP for THIS
+    session. If unmatched → proceed to Step 2 normally.
+
+    The same override applies for any future Phase-close plans;
+    the pattern is structural (handover → close-plan → §6
+    sequence). Distinct from hard-gates (which STOP the loop);
+    a close-plan keeps the loop autonomous but redirects what it
+    works on.
 2. Read `.dev/ROADMAP.md`:
    - Look up the **Phase Status** widget at the top of §9 — it
      names the IN-PROGRESS phase and its first open `[ ]` task.
@@ -128,6 +151,10 @@ change between iterations.
    - If §9.<N>'s task table is missing/empty, the phase has not
      been opened yet; expand it first (mirror the previous phase's
      structure).
+   - **Step 1a close-plan override note**: if Step 1a fired,
+     SKIP this Step 2 check — the plan doc names the work
+     directly. The ROADMAP audit happens at the close-plan's
+     step (a)-3 (the ROADMAP edit chunk itself).
 3. `git log --oneline -10` and `git status -sb` — identify the last
    commit and whether anything is in flight.
    - If `git status` is clean and origin is ahead-or-equal: proceed.
@@ -408,6 +435,18 @@ Re-open `.dev/ROADMAP.md` §9.<N> task table and confirm the first
 they disagree (someone — user or a prior loop iteration —
 re-prioritised between turns), trust ROADMAP and update handover;
 do not silently follow the stale handover.
+
+**Exception — close-plan override active**: when Resume Step 1a
+fired (handover.md directs at a `.dev/phase*_close_plan.md`),
+the plan doc is the authoritative source for the active task,
+and `trust ROADMAP over handover` is **inverted** for the
+duration of the plan's step (a) (the amendment cycle). After
+step (a) lands the ROADMAP / ADR edits, handover.md gets
+refreshed and the normal `trust ROADMAP` discipline resumes.
+Concretely: during step (a) sub-steps, the "first `[ ]` in
+ROADMAP §9.<N>" is intentionally not what's worked on — the
+plan doc's §6 sub-step is. Step 7's handover refresh keeps
+plan progress visible across sessions.
 
 One sentence in chat: the smallest red test that captures the next
 behaviour. No permission needed.

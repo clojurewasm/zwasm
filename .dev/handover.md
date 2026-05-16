@@ -1,197 +1,126 @@
 # Session handover
 
-> ≤ 80 lines. No numeric predictions (per
+> ≤ 100 lines. No numeric predictions (per
 > [`no_handover_predictions.md`](../.claude/rules/no_handover_predictions.md)).
 
-## Cold-start procedure
+## Cold-start procedure (FOLLOW THIS ORDER)
 
-1. `git log --oneline -10`.
-2. `bash scripts/p9_simd_status.sh` — live SIMD FAIL/SKIP.
-3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
-4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
+1. **READ FIRST**:
+   [`.dev/phase9_close_plan.md`](phase9_close_plan.md) §6 work
+   sequence. The current active task is **Phase 9 close-plan
+   step (a) — amendment cycle** (ROADMAP / ADR-0056 amend /
+   new ADR-0065 / debt re-eval / substrate audit notes /
+   handover refresh).
+2. `git log --oneline -15` — last 11 commits (`d3f2a1a7` …
+   `7976dc00`) are 2026-05-17 close-readiness work; familiarise.
+3. `bash scripts/p9_simd_status.sh` — live SIMD FAIL/SKIP.
+4. `cat .dev/debt.md | head -90` — `now` + `blocked-by:`. Note
+   newly filed D-135 (entry.zig comptime gen) + D-136 (Win64
+   SEH bridge) + D-052 flipped to `now`.
+5. ROADMAP §9 Phase Status widget — `[ ]` on 9.9; the **plan
+   doc supersedes** the §9.9 sub-task list until step (a) lands
+   the ROADMAP correction.
 
-## Active state — **Phase 9 close-readiness day (2026-05-17): debug infra + scaffolding + Windows reconcile in flight**
+## Active state — **Phase 9 close-plan execution (post-2026-05-17 cycle)**
 
 ### One-line state
 
-Spec_assert / simd_assert on Mac aarch64 + OrbStack:
-**24001/0/2069 + 13301/0/440 bit-identical** (unchanged since
-d-85). Today's work focused on Phase 9 close readiness (NOT
-chunk-N+1):
+§9.9 exit-criterion `skip-impl == 0` re-interpreted per
+[`phase9_close_plan.md`](phase9_close_plan.md): literal 0
+across 4 categories (Cat I validator/parser, Cat II
+multi-result harness, Cat III runtime instance, Cat IV
+windowsmini batch-end sweep). **User-confirmed correction
+2026-05-17**: Cat III (cross-module / host imports / start-
+trap / link-typecheck) was a ROADMAP misclassification —
+Wasm 1.0 core work that was wrongly pushed to Phase 10+;
+must be pulled back into Phase 9.
 
-- **Debug infra** committed `d3f2a1a7` + `24388587`: lesson
-  template + `<backfill>` lint + invariant-comment lint +
-  heisenbug streak tracker + spike skeleton/audit + JIT crash
-  Recipe 7; 4 rules' frontmatter; orphan-script wiring into
-  gate_commit + audit_scaffolding CHECKS §F.3a / §G.3 / §G.4 +
-  continue/LOOP.md heisenbug-tracking subsection.
-- **Pre-commit gate re-activated** (`66c699e7`): ADR-0063
-  (uniform-pattern catalog file-size exemption — entry.zig
-  exempt marker) + ADR-0064 (runner.zig 2178 → 1968 LOC via
-  `runner_validate.zig` split) + check_skip_adrs.sh `set -e`
-  bug fix (skip_host_state_diverged auto-discharged) +
-  flake.nix shellHook auto-sets `core.hooksPath .githooks`.
-  All commits from this point flow through `.githooks/
-  pre-commit → gate_commit.sh`.
-- **Debt sweep** (`83e80150`, `e9e04ac9`): D-095 closed
-  (call-crossing regalloc fully discharged); D-052 flipped to
-  `now` (barrier dissolved: x86_64/emit.zig 1893 LOC > 1000
-  trigger); D-135 filed (ADR-0063 Alternative B follow-up —
-  comptime-generate entry.zig).
-- **Lesson Citing backfill** (`23b4d20d`): 2 lessons resolved
-  (e4e74931 + a58a2ba5/87783496); `check_lesson_citing.sh`
-  now OK.
-- **windowsmini D-084 reconcile** (in flight 2026-05-17):
-  surfaced 2 Windows-compat bugs already fixed —
-  `installSigsegvHandler` Win64 gate (`14147194`) +
-  `sigsetjmp`/`siglongjmp` Windows stubs (`2edfdef1`). Retry
-  #3 running; pre-error tallies showed 9 runners green
-  (simd_assert 13301/0/440 **bit-identical with Mac+OrbStack
-  + Windows!**, wast_runner 1158+72, wast_runtime_runner
-  266+5, realworld 55, wasi 2, edge-case 40, spec_runner
-  9+3+212).
+**Current spec_assert tally** (Mac aarch64 + OrbStack
+bit-identical, unchanged since d-85 close on 2026-05-16):
 
-**Cumulative d-74 → d-85 (13 chunks)**: **+217 PASS**
-(23784 → 24001). spec_assert PASS counter unchanged today
-(no chunk progression).
+- spec_assert non-simd: **24001 / 0 / 2069**
+- simd_assert: **13301 / 0 / 440** (also bit-identical with
+  windowsmini per today's D-084 reconcile attempt)
 
-### Skip-impl drainage roadmap (post-d-85)
+### Next-session active task
 
-**Remaining skip-impl 1573 is now PURELY structural**. All
-solvable VALIDATOR-GAP / PARSER-GAP entries drained. What's
-left blocks on Phase 10+/11+ scope decisions:
+**Step (a) — Amendment cycle** per
+[`phase9_close_plan.md`](phase9_close_plan.md) §6 step (a):
 
-- **SKIP-CROSS-MODULE-IMPORTS** 136 — Phase 10+ instance-aware
-  runtime + cross-module registry.
-- **multi-result family** ~1400 directives covered by manifest
-  `skip-impl multi-result` lines (br/block/call/exports/func/
-  if/loop) — Phase 11+ multi-value entry helpers + runner
-  dispatch ladder extension. JIT-side multi-result return
-  marshal already supports it per D-093 (ARM64 emit.zig
-  marshalFunctionReturn); the bottleneck is runner-side
-  entry.zig helpers + distiller's `supported` set.
-- **SKIP-NO-LINK-TYPECHECK** 4 / **SKIP-START-TRAP** 2 /
-  **SKIP-HOST-IMPORT** 2 — Phase 10+ cross-module host-import
-  binding.
+| Sub-step | Description | Output |
+|---|---|---|
+| (a)-1 | Draft `ADR-0065_wasm_1_0_instance_work_phase9_rescope.md` | New ADR file `Accepted` |
+| (a)-2 | Amend ADR-0056 (Revision history 2026-05-17 row): 4-category exit predicate | ADR-0056 amended |
+| (a)-3 | ROADMAP §1/§2 P/A + §9.9 row text + sub-task table update; cite ADR-0065 | Commit per §18.2 with ADR cite |
+| (a)-4 | Debt ledger re-eval (D-079, D-082 sub-rows, D-126, D-026, D-074 barriers) | `.dev/debt.md` updates |
+| (a)-5 | Substrate audit doc: Q5 hygiene extension; note Cat III work proceeds in parallel | `.dev/phase9_completion_substrate_audit.md` |
+| (a)-6 | Refresh handover.md to point at Step (b) | handover update |
 
-### Next loop candidates
+**After step (a)**:
 
-Genuinely productive next-chunk options when /continue resumes:
+- Step (b) — Cat II multi-result entry helpers (~6-8 chunks)
+- Step (c) — Cat III Wasm 1.0 instance / store / linker /
+  cross-module dispatch / host-import binding (subchunk count
+  TBD via survey)
+- Step (d) — Cat IV windowsmini batch sweep at Phase 9 end
+- Step (e) — §9.9 [x] flip + Phase 9 close → substrate audit
+  hard-gate (9.12) collaborative review
 
-- **Multi-result entry helpers** (Phase 11 scope per handover
-  but technically Wasm 2.0 → §9.9 scope per ADR-0056):
-  bundle ~6 new entry helpers `callI32I32_void`,
-  `callI32I32_i32`, `callI64I32_i64i32`, ... + runner dispatch
-  arms + distiller `supported` set expansion. Single chunk
-  could drain ~50-100 directives.
-- **D-052** (x86_64 prologue.zig extract) — barrier dissolved
-  (emit.zig at 1991 LOC > 1000 soft cap), discharge path
-  spelled out in D-055 (~50 test-site migration alongside
-  prologue extract + 5-line emit.zig sentinel wire-up). Sets
-  up D-081 rename + Linux/Windows x86_64 differential signal.
-- **D-095** regalloc call-crossing — ~150 LOC + ADR for the
-  policy decision (callee-saved bias for call-crossing
-  vregs).
-- **D-133 mechanical sweep** — non-trivial since several sites
-  use >2 simultaneous scratch regs; needs ABI extension to
-  add another non-allocatable emit-scratch slot (X16/X17 are
-  reserved for intra-proc-call). Risk: latent issue, no
-  current trigger.
-- **D-134 OrbStack heisenbug** — TWO consecutive D-134-silent
-  runs (d-84 + d-85) suggest the d-72 instrumentation + d-68
-  Zig-handler disable may have actually fixed the root cause
-  via cumulative layout-related rate reduction. Discharge
-  candidate after a few more clean runs (criterion: 5+
-  consecutive zwasm-spec-wasm-2-0-assert exit-0 on OrbStack).
+### Discipline reminders
 
-§9.9 row text "skip-impl == 0" exit criterion is now blocked
-strictly by Phase 10+/11+ scope per ADR-0056. The substrate-
-audit hard gate at row 9.12 (ADR-0062) is the natural
-collaborative re-engagement point for §9.9 exit interpretation
-— that conversation is the right next user dialogue.
+- Pre-commit hook now active (`.githooks/pre-commit`
+  reactivated 2026-05-17 commit `66c699e7`). All commits run
+  `gate_commit.sh`. **No `--no-verify`** per ROADMAP §14.
+- `core.hooksPath` auto-set by `flake.nix` shellHook on
+  `nix develop`. Fresh clones get the activation automatically.
+- `.claude/rules/heisenbug_discharge.md` — D-134 streak (1
+  silent recorded today; track via
+  `bash scripts/track_heisenbug.sh d134 silent|segv` per
+  OrbStack run).
+- `.claude/skills/audit_scaffolding/CHECKS.md` §F.3a / §G.3 /
+  §G.4 — new lints; invoke at phase boundary.
+- New TODO(D-136) markers in `test/spec/spec_assert_runner_base.zig`
+  flag Windows-compat stubs as workarounds (not real recovery).
 
-PARSER-GAP (19): binary 8, binary-leb128 7, custom 4 —
-needs LEB128 over-long encoding rejection. Tractable but
-spec-text-sensitive.
+### Outstanding `now` debts (post-2026-05-17)
 
-## Outstanding (now-resumed) `now` debts
-
-- **D-134** OrbStack flake — instrumented at d-72;
-  awaits next failure to surface (iii-b) signal-mask
-  evidence. Continued proactive probing is wheel-
-  spinning until then.
-- **D-095** partial / **D-126** Phase 10+ / **D-133**
-  substrate audit Q5 — gated.
-
-### Phase 9 / §9.9 status
-
-- spec_assert non-simd: 23784/0/2286 Mac aarch64
-  (1790 skip-impl + 496 skip-adr).
-- simd_assert: 13301/0/440 Mac + OrbStack
-  (bit-identical).
-- §9.9 row text exit criterion **not literally met**
-  (skip-impl ≠ 0); needs ADR (above).
-
-### Active `now` debts (28)
-
-- **D-095** partial — substrate audit Q5 scope.
-- **D-126** — Phase 10+ instance-aware refactor scope.
-- **D-133** — substrate audit Q5 scope.
-- **D-134** — instrumented heisenbug; awaits next
-  failure with d-72 diagnostic in place.
-
-### Phase 9 / §9.9 status
-
-- spec_assert non-simd: 23784/0/2286 Mac aarch64
-  (1790 skip-impl + 496 skip-adr).
-- simd_assert: 13301/0/440 Mac + OrbStack (bit-identical).
-- §9.9 closing path: still gated by D-134 (OrbStack
-  flake; d-68 reduced rate via Zig-handler-disable but
-  d-69 re-triggered via layout perturbation).
-- Substrate audit hard gate at row 9.12 fires once 9.9
-  flips `[x]`.
-
-### Active `now` debts
-
-- **D-095** (partial; substrate audit Q5 scope).
-- **D-126** (bulk corpus residual — Phase 10+ scope).
-- **D-133** (remaining ≥3-scratch op_table/op_memory
-  sites — substrate audit Q5 scope).
-- **D-134** (OrbStack `zwasm-spec-wasm-2-0-assert` flake;
-  layout-sensitive + handler-install-race-sensitive;
-  d-68 disabled Zig's startup SEGV handler but the
-  heisenbug still reproduces at low rate).
-
-### Closing path (post-d-74 user redirect)
-
-User has redirected the loop to drain solvable
-skip-impl. The next chunks (d-75+) target the remaining
-SKIP-VALIDATOR-GAP / SKIP-PARSER-GAP families per the
-roadmap above. Once skip-impl reaches its structural
-floor (multi-result Phase 11+ scope + SKIP-CROSS-MODULE-
-IMPORTS Phase 10+ scope), the §9.9 exit-criterion
-interpretation question can be revisited collaboratively.
+- **D-052** (now): x86_64 prologue.zig extract; barrier
+  dissolved. D-081 follows.
+- **D-126** (now): bulk.wast call_indirect post-table-mutation;
+  re-evaluate barrier in step (a)-4 (likely Phase 9 scope now).
+- **D-133** (now): arm64 op_table / op_memory hardcoded scratch;
+  substrate audit Q5 anchor.
+- **D-134** (now): OrbStack heisenbug; streak counter armed at
+  `private/heisenbug-d134.log`.
+- **D-135** (blocked-by: entry.zig at 2500 OR new ABI variant):
+  ADR-0063 Alt B comptime entry helper generation.
+- **D-136** (blocked-by: Win64 SEH bridge): assert_trap recovery
+  on Windows. Cat IV scope; discharged at step (d).
 
 ## Sandbox quirks + hook scope
 
 - `~/.cache/zig` → `ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-cache`.
 - OrbStack daemon log-rotation panic — restart via
   `pkill -9 -f OrbStack && open -a OrbStack`.
-- Per-chunk 2-host (Mac+OrbStack) per ADR-0049;
-  windowsmini reconcile at §9.9 close (D-084 per
-  ADR-0055).
+- Per-chunk 2-host (Mac+OrbStack) per ADR-0049; windowsmini
+  reconcile is **step (d) batch**, not per-chunk.
+- Pre-commit hook: `.githooks/pre-commit → scripts/gate_commit.sh`
+  active. Failures must be fixed at root, not bypassed.
 
 ## Reference chain
 
-- `.dev/decisions/0057_spec_assert_runner_factoring.md`.
-- `.dev/decisions/0058_table_ops_jit_design.md`.
-- `.dev/decisions/0059_jit_memory_grow_callout.md`.
-- `.dev/decisions/0060_regalloc_call_crossing_force_spill.md`.
-- `.dev/decisions/0061_wasm_3_0_deferral_policy.md`.
-- `.dev/decisions/0062_phase9_substrate_audit_gate.md`.
-- `.dev/phase9_completion_substrate_audit.md` (hard gate
-  9.12 document).
-- `.dev/lessons/2026-05-16-narrative-claim-vs-landed-state.md`
-  (d-68 / d-69 retrospective on overoptimistic
-  "DISCHARGED" claims).
-- `.dev/phase_log/phase9.md` (per-sub-chunk records).
+- **PRIMARY**: [`.dev/phase9_close_plan.md`](phase9_close_plan.md)
+  — the authoritative plan; this handover is the pointer
+- [`.dev/decisions/0056_phase9_scope_extension_to_wasm2_full.md`](decisions/0056_phase9_scope_extension_to_wasm2_full.md)
+  — amend at step (a)-2
+- [`.dev/decisions/0062_phase9_substrate_audit_gate.md`](decisions/0062_phase9_substrate_audit_gate.md)
+  — substrate audit gate at 9.12 (post-Phase-9 close)
+- [`.dev/decisions/0063_uniform_pattern_catalog_file_size_exemption.md`](decisions/0063_uniform_pattern_catalog_file_size_exemption.md)
+  + [`.dev/decisions/0064_runner_validate_split.md`](decisions/0064_runner_validate_split.md)
+  — 2026-05-17 hook reactivation foundation
+- [`.dev/phase9_completion_substrate_audit.md`](phase9_completion_substrate_audit.md)
+  — 9.12 hard gate doc (collaborative; post Phase 9 close)
+- [`.dev/phase_log/phase9.md`](phase_log/phase9.md) — per-chunk
+  historical record (d-1..d-85 complete)
+- [`.dev/lessons/2026-05-16-narrative-claim-vs-landed-state.md`](lessons/2026-05-16-narrative-claim-vs-landed-state.md)
+  — discipline anchor for "claim ≠ landed state"
