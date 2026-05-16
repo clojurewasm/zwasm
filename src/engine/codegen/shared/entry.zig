@@ -1,3 +1,6 @@
+// FILE-SIZE-EXEMPT: uniform-pattern catalog (84 callXX_yy helpers) per ADR-0063
+// Comptime generation is a follow-up; see ADR-0063 Alternative B + debt ledger.
+
 //! JIT entry frame (ADR-0017).
 //!
 //! Bridge from a Zig caller into a JIT-emitted Wasm function.

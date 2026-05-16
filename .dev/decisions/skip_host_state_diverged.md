@@ -1,6 +1,6 @@
 # Skip — assert_return after host-state-diverging skipped action
 
-- **Status**: Accepted (skip while reftype-arg dispatch is out of scope on the runner ladder). Operationally effective via `skip-adr-skip_host_state_diverged` prefix per ADR-0029 Path B.
+- **Status**: Closed (auto-discharged 2026-05-17 — `scripts/check_skip_adrs.sh` flagged 0 manifest consumers after the reftype-alias-to-i64 cohort at §9.9 / 9.9-l-1b-d093-d63 (commit `4c0ee3ae`) rewrote the affected directives. The Removal condition ("every `skip-adr-skip_host_state_diverged` line in manifests is replaced by a real directive") fired automatically via the d-63 distiller regen. Until 2026-05-17 the orphan went undetected because of a pre-existing `set -e` + `grep -rEc no-match → exit 1` bug in `check_skip_adrs.sh`; fixed in the same commit landing this Status flip.)
 - **Date**: 2026-05-16 (originally landed as `skip-adr-host-state-diverged` at §9.9 / 9.9-l-1b-d093-d43; vocab-renamed at §9.9 / 9.9-l-1b-d093-d60 to satisfy `check_skip_adrs --gate` per D-131)
 - **Author**: zwasm v2 / continue loop
 - **Tags**: phase-9, skip-adr, spec-conformance, reftypes, host-state

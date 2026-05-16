@@ -3,9 +3,13 @@
 #
 # Soft cap (1000 lines): warning, requires ADR for split plan.
 # Hard cap (2000 lines): gate fails.
+# Exempt hard cap (2500 lines): allowed only when the file
+#   declares `// FILE-SIZE-EXEMPT: <reason> (per ADR-NNNN)`
+#   on lines 1-5. The marker MUST cite an ADR — silent exemption
+#   is forbidden (per ADR-0064 §"Forbidden anti-patterns").
 #
-# Auto-generated files are exempt: they must contain
-# `// AUTO-GENERATED FROM <source>` on lines 1-3.
+# Auto-generated files are exempt regardless of cap: they must
+# contain `// AUTO-GENERATED FROM <source>` on lines 1-3.
 #
 # Modes:
 #   bash scripts/file_size_check.sh           informational; warn-only
@@ -15,6 +19,7 @@ set -euo pipefail
 
 SOFT_CAP=1000
 HARD_CAP=2000
+EXEMPT_CAP=2500
 MODE="${1:-info}"
 
 cd "$(dirname "$0")/.."
@@ -30,9 +35,28 @@ while IFS= read -r f; do
         continue
     fi
 
-    if [ "$lines" -gt "$HARD_CAP" ]; then
-        echo "HARD CAP EXCEEDED: $f ($lines lines, cap=$HARD_CAP)" >&2
+    # Per-file hard-cap exemption — marker must cite an ADR. The
+    # exemption raises the hard cap to EXEMPT_CAP but does NOT
+    # remove the soft cap warning (the file is still tracked).
+    exempt=0
+    if head -5 "$f" 2>/dev/null | grep -qE '^// FILE-SIZE-EXEMPT:.*ADR-[0-9]+'; then
+        exempt=1
+    fi
+
+    effective_hard_cap=$HARD_CAP
+    if [ "$exempt" -eq 1 ]; then
+        effective_hard_cap=$EXEMPT_CAP
+    fi
+
+    if [ "$lines" -gt "$effective_hard_cap" ]; then
+        if [ "$exempt" -eq 1 ]; then
+            echo "EXEMPT-CAP EXCEEDED: $f ($lines lines, exempt-cap=$EXEMPT_CAP) — even the exempt cap is exceeded" >&2
+        else
+            echo "HARD CAP EXCEEDED: $f ($lines lines, cap=$HARD_CAP)" >&2
+        fi
         violations=$((violations + 1))
+    elif [ "$lines" -gt "$HARD_CAP" ] && [ "$exempt" -eq 1 ]; then
+        echo "EXEMPT: $f ($lines lines, in [$HARD_CAP, $EXEMPT_CAP] via FILE-SIZE-EXEMPT marker)" >&2
     elif [ "$lines" -gt "$SOFT_CAP" ]; then
         echo "WARN: $f ($lines lines) — needs ADR for split plan" >&2
         warnings=$((warnings + 1))

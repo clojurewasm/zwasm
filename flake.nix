@@ -35,6 +35,20 @@
             echo "wasm-tools: $(wasm-tools --version 2>/dev/null || echo 'NOT FOUND')"
             echo "lldb:       $(lldb --version 2>/dev/null | head -1 || echo 'NOT FOUND')"
             echo "dsymutil:   $(which dsymutil 2>/dev/null || echo 'NOT FOUND')"
+            # ADR-0064 + commit c89ec713 (2026-05-11): activate the
+            # project's git hooks by pointing core.hooksPath at
+            # `.githooks/`. The setting lives in `.git/config`
+            # (per-clone, not committed); fresh clones — and any
+            # local repo where the config drifted back to `.git/hooks`
+            # — get the hooks re-activated on `nix develop` entry.
+            # Idempotent: only re-sets if the current value differs.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              current_hp=$(git config --local --get core.hooksPath 2>/dev/null || echo "")
+              if [ "$current_hp" != ".githooks" ]; then
+                git config core.hooksPath .githooks
+                echo "git hooks: core.hooksPath set to .githooks (was: $current_hp)"
+              fi
+            fi
           '';
         };
       });

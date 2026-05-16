@@ -115,7 +115,23 @@ done < <(grep -rEHn '^skip-adr-[a-zA-Z0-9_-]+ ' "$REPO_ROOT/test/" 2>/dev/null |
 for f in "${skip_files[@]}"; do
   rel="${f#$REPO_ROOT/}"
   base="$(basename "$f" .md)"
-  count=$(grep -rEc "^skip-adr-${base} " "$REPO_ROOT/test/" 2>/dev/null \
+  # Skip closed ADRs — `Status: Closed (...)` indicates the
+  # Removal condition fired (manifest consumers all rewritten
+  # out by a distiller regen). Closed skip-ADRs are historical
+  # records per .dev/decisions/README.md, NOT orphans.
+  status_line=$(grep -E '^- \*\*Status\*\*:' "$f" | head -1)
+  if echo "$status_line" | grep -qE '^- \*\*Status\*\*: Closed'; then
+    echo "  · $rel: Closed (skipped — historical record)"
+    continue
+  fi
+  # `grep -rEc` exits 1 when no matches anywhere; under `set -e`
+  # + `pipefail` that aborts the whole script before the
+  # orphan-detection branch can fire. Wrap with `|| true` so a
+  # zero count is reported as legitimate orphan detection rather
+  # than masking via early exit (the prior bug masked
+  # skip_host_state_diverged + skip_text_format_parser orphans
+  # for an unknown duration).
+  count=$({ grep -rEc "^skip-adr-${base} " "$REPO_ROOT/test/" 2>/dev/null || true; } \
     | awk -F: '{ s += $2 } END { print s+0 }')
   if [[ "$count" -eq 0 ]]; then
     echo "  ✗ $rel: 0 manifest consumers (orphaned skip-ADR; remove or wire a manifest line)"

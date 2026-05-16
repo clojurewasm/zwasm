@@ -30,6 +30,7 @@ const compile_func = @import("codegen/shared/compile.zig");
 const linker = @import("codegen/shared/linker.zig");
 const entry = @import("codegen/shared/entry.zig");
 const canonical_type = @import("codegen/shared/canonical_type.zig");
+const rv = @import("runner_validate.zig");
 
 pub const Error = error{
     /// Reserved for future "import shape we cannot represent at all"
@@ -98,15 +99,10 @@ pub const Error = error{
     /// present, its value must equal the data section's entry
     /// count. Triggered by `binary.{62,63,64}.wasm`.
     DataCountMismatch,
-    /// Wasm spec §3.4.3 / §3.3.2: a global section entry's
-    /// init expression is not a valid constant expression
-    /// for its declared type. Triggers: a non-const opcode,
-    /// a `global.get` of a non-imported / non-immutable
-    /// global, an init-expr whose result type doesn't match
-    /// the declared valtype.
-    InvalidGlobalInitExpr,
-    UnsupportedEntrySignature,
-} || compile_func.Error || parser.Error || sections.Error || linker.Error || entry.Error || validator_mod.Error;
+} || compile_func.Error || parser.Error || sections.Error || linker.Error || entry.Error || validator_mod.Error || rv.Error;
+// `InvalidGlobalInitExpr` / `UnsupportedEntrySignature` /
+// `UnsupportedConstExpr` originate in `runner_validate.zig`
+// (per ADR-0064) and are merged in via `|| rv.Error` above.
 
 /// Compile every defined function in `wasm_bytes` and link into
 /// a single JitModule. Caller owns the module — pair with
@@ -514,7 +510,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             var gs_buf = try sections.decodeGlobals(a, gs.body);
             defer gs_buf.deinit();
             for (gs_buf.items) |gd| {
-                try validateGlobalInitExpr(gd.init_expr, gd.valtype, num_global_imports_empty, imports_buf, total_funcs_empty_for_init);
+                try rv.validateGlobalInitExpr(gd.init_expr, gd.valtype, num_global_imports_empty, imports_buf, total_funcs_empty_for_init);
             }
         }
         // §9.9 / 9.9-l-1b-d093-d78 mirror — empty-fn path
@@ -524,7 +520,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             defer ds_buf.deinit();
             for (ds_buf.items) |seg| {
                 if (seg.kind == .active) {
-                    try validateGlobalInitExpr(seg.offset_expr, .i32, num_global_imports_empty, imports_buf, total_funcs_empty_for_init);
+                    try rv.validateGlobalInitExpr(seg.offset_expr, .i32, num_global_imports_empty, imports_buf, total_funcs_empty_for_init);
                 }
             }
         }
@@ -533,7 +529,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             defer es_buf.deinit();
             for (es_buf.items) |seg| {
                 if (seg.kind == .active) {
-                    try validateGlobalInitExpr(seg.offset_expr, .i32, num_global_imports_empty, imports_buf, total_funcs_empty_for_init);
+                    try rv.validateGlobalInitExpr(seg.offset_expr, .i32, num_global_imports_empty, imports_buf, total_funcs_empty_for_init);
                 }
             }
         }
@@ -709,7 +705,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
     }
     if (globals_buf) |g| {
         for (g.items) |gd| {
-            try validateGlobalInitExpr(gd.init_expr, gd.valtype, num_global_imports_main, imports_buf, total_funcs);
+            try rv.validateGlobalInitExpr(gd.init_expr, gd.valtype, num_global_imports_main, imports_buf, total_funcs);
         }
     }
 
@@ -723,14 +719,14 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
     if (datas_buf) |d| {
         for (d.items) |seg| {
             if (seg.kind == .active) {
-                try validateGlobalInitExpr(seg.offset_expr, .i32, num_global_imports_main, imports_buf, total_funcs);
+                try rv.validateGlobalInitExpr(seg.offset_expr, .i32, num_global_imports_main, imports_buf, total_funcs);
             }
         }
     }
     if (elems_buf) |e| {
         for (e.items) |seg| {
             if (seg.kind == .active) {
-                try validateGlobalInitExpr(seg.offset_expr, .i32, num_global_imports_main, imports_buf, total_funcs);
+                try rv.validateGlobalInitExpr(seg.offset_expr, .i32, num_global_imports_main, imports_buf, total_funcs);
             }
         }
     }
@@ -878,7 +874,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
     @memset(declared_funcs, false);
     if (globals_buf) |g| {
         for (g.items) |gd| {
-            if (initExprRefFunc(gd.init_expr)) |fidx| {
+            if (rv.initExprRefFunc(gd.init_expr)) |fidx| {
                 if (fidx < total_funcs) declared_funcs[fidx] = true;
             }
         }
@@ -1033,208 +1029,16 @@ pub fn applyDefinedGlobalsInit(
         switch (vt) {
             .v128 => {
                 if (off + 16 > globals_buf.len) return Error.UnsupportedEntrySignature;
-                const bytes = try evalConstV128Expr(gd.init_expr);
+                const bytes = try rv.evalConstV128Expr(gd.init_expr);
                 @memcpy(globals_buf[off..][0..16], &bytes);
             },
             .i32, .i64, .f32, .f64, .funcref, .externref => {
                 if (off + 8 > globals_buf.len) return Error.UnsupportedEntrySignature;
-                const raw = try evalConstScalarRaw(gd.init_expr);
+                const raw = try rv.evalConstScalarRaw(gd.init_expr);
                 std.mem.writeInt(u64, globals_buf[off..][0..8], raw, .little);
             },
         }
     }
-}
-
-/// Decode a single scalar `*.const` (i32/i64/f32/f64) or
-/// `ref.null` init-expression and return its 8-byte raw bit
-/// pattern (little-endian). Mirrors
-/// `runtime/instance/instantiate.zig:evalConstExprValue` but
-/// stays in this module so the engine layer can run const-expr
-/// evaluation without crossing into the runtime-instance Zone.
-/// §9.9 / 9.9-l-1b-d093-d77 — Wasm spec §3.3.2 constant
-/// expression validation, reused for defined-global
-/// init-expressions (§3.4.3), active elem-segment offset
-/// expressions (§3.4.6), and active data-segment offset
-/// expressions (§3.4.7). A constant expression is exactly
-/// one of:
-///   - `t.const c` (i32/i64/f32/f64.const) for numeric `t`
-///   - `ref.null t` for reftype `t`
-///   - `ref.func x` (Wasm 2.0)
-///   - `v128.const` (SIMD prefix `0xFD 0x0C` + 16 bytes)
-///   - `global.get x` where x refers to an *imported*
-///     global AND that global is *immutable* (mut == const)
-/// followed by the terminating `end` (0x0B). The result
-/// type must match `want_valtype`.
-///
-/// Naming retained as `validateGlobalInitExpr` for git
-/// blame continuity; semantically a generic
-/// `validateConstExpr` helper. d-78 callers pass
-/// `.i32` for active offset expressions.
-///
-/// Returns `Error.InvalidGlobalInitExpr` for any non-const
-/// opcode, out-of-range global index, mutable-global
-/// reference, type mismatch, or missing trailing `end`.
-/// §9.9 / 9.9-l-1b-d093-d82 — extract the funcidx from a global
-/// init-expression of shape `ref.func N; end`. Returns `null` for
-/// any other shape (i32.const, ref.null, global.get of import,
-/// SIMD v128.const, or a malformed expression). Used by
-/// `compileWasm` to seed the declared-funcrefs bitset per Wasm
-/// spec §3.4.10. The full validity check (range, trailing `end`,
-/// type match) still lives in `validateGlobalInitExpr`; this
-/// helper is best-effort extraction only.
-fn initExprRefFunc(expr: []const u8) ?u32 {
-    if (expr.len < 3) return null;
-    if (expr[0] != 0xD2) return null;
-    var pos: usize = 1;
-    const idx = leb128.readUleb128(u32, expr, &pos) catch return null;
-    if (pos >= expr.len or expr[pos] != 0x0B) return null;
-    return idx;
-}
-
-fn validateGlobalInitExpr(
-    expr: []const u8,
-    want_valtype: zir.ValType,
-    num_global_imports: u32,
-    imports_opt: ?sections.Imports,
-    total_funcs: u32,
-) Error!void {
-    if (expr.len < 2) return Error.InvalidGlobalInitExpr;
-    var pos: usize = 1;
-    const produced: zir.ValType = switch (expr[0]) {
-        0x41 => blk: { // i32.const
-            _ = leb128.readSleb128(i32, expr, &pos) catch return Error.InvalidGlobalInitExpr;
-            break :blk .i32;
-        },
-        0x42 => blk: { // i64.const
-            _ = leb128.readSleb128(i64, expr, &pos) catch return Error.InvalidGlobalInitExpr;
-            break :blk .i64;
-        },
-        0x43 => blk: { // f32.const
-            if (pos + 4 > expr.len) return Error.InvalidGlobalInitExpr;
-            pos += 4;
-            break :blk .f32;
-        },
-        0x44 => blk: { // f64.const
-            if (pos + 8 > expr.len) return Error.InvalidGlobalInitExpr;
-            pos += 8;
-            break :blk .f64;
-        },
-        0xD0 => blk: { // ref.null reftype
-            if (pos >= expr.len) return Error.InvalidGlobalInitExpr;
-            const rt_byte = expr[pos];
-            pos += 1;
-            break :blk switch (rt_byte) {
-                0x70 => zir.ValType.funcref,
-                0x6F => zir.ValType.externref,
-                else => return Error.InvalidGlobalInitExpr,
-            };
-        },
-        0xD2 => blk: { // ref.func funcidx (Wasm 2.0)
-            const idx = leb128.readUleb128(u32, expr, &pos) catch return Error.InvalidGlobalInitExpr;
-            // Wasm spec §3.4.3: ref.func init-expr funcidx must
-            // be in [0, total_funcs). ref_func.2.wasm asserts
-            // rejection of `(global funcref (ref.func 7))` when
-            // only 2 funcs exist.
-            if (idx >= total_funcs) return Error.InvalidGlobalInitExpr;
-            break :blk .funcref;
-        },
-        0xFD => blk: { // SIMD prefix — only v128.const (0x0C) is valid in const-expr
-            const sub = leb128.readUleb128(u32, expr, &pos) catch return Error.InvalidGlobalInitExpr;
-            if (sub != 0x0C) return Error.InvalidGlobalInitExpr;
-            if (pos + 16 > expr.len) return Error.InvalidGlobalInitExpr;
-            pos += 16;
-            break :blk .v128;
-        },
-        0x23 => blk: { // global.get N
-            const idx = leb128.readUleb128(u32, expr, &pos) catch return Error.InvalidGlobalInitExpr;
-            // Init-expr global.get can only reference imported
-            // globals (§3.4.2). Defined-global self/forward
-            // references are not constant expressions.
-            if (idx >= num_global_imports) return Error.InvalidGlobalInitExpr;
-            // The referenced import must be immutable.
-            const imports = imports_opt orelse return Error.InvalidGlobalInitExpr;
-            var seen: u32 = 0;
-            for (imports.items) |imp| {
-                if (imp.kind != .global) continue;
-                if (seen == idx) {
-                    const g = imp.payload.global;
-                    if (g.mutable) return Error.InvalidGlobalInitExpr;
-                    break :blk g.valtype;
-                }
-                seen += 1;
-            }
-            // Should be unreachable given the idx < num_global_imports
-            // check; fail conservatively.
-            return Error.InvalidGlobalInitExpr;
-        },
-        else => return Error.InvalidGlobalInitExpr,
-    };
-    // Result type must match the declared valtype. Reftype
-    // sub-typing (funcref is not a supertype of externref or
-    // vice-versa) is enforced; numeric types are exact match.
-    if (produced != want_valtype) return Error.InvalidGlobalInitExpr;
-    if (pos >= expr.len or expr[pos] != 0x0B) return Error.InvalidGlobalInitExpr;
-    if (pos + 1 != expr.len) return Error.InvalidGlobalInitExpr;
-}
-
-fn evalConstScalarRaw(expr: []const u8) Error!u64 {
-    if (expr.len < 2) return Error.UnsupportedEntrySignature;
-    var pos: usize = 1;
-    const v: u64 = switch (expr[0]) {
-        0x41 => blk: { // i32.const
-            const n = leb128.readSleb128(i32, expr, &pos) catch return Error.UnsupportedEntrySignature;
-            const u: u32 = @bitCast(n);
-            break :blk @as(u64, u);
-        },
-        0x42 => blk: { // i64.const
-            const n = leb128.readSleb128(i64, expr, &pos) catch return Error.UnsupportedEntrySignature;
-            break :blk @bitCast(n);
-        },
-        0x43 => blk: { // f32.const
-            if (pos + 4 > expr.len) return Error.UnsupportedEntrySignature;
-            const bits = std.mem.readInt(u32, expr[pos..][0..4], .little);
-            pos += 4;
-            break :blk @as(u64, bits);
-        },
-        0x44 => blk: { // f64.const
-            if (pos + 8 > expr.len) return Error.UnsupportedEntrySignature;
-            const bits = std.mem.readInt(u64, expr[pos..][0..8], .little);
-            pos += 8;
-            break :blk bits;
-        },
-        0xD0 => blk: { // ref.null reftype
-            if (pos >= expr.len) return Error.UnsupportedEntrySignature;
-            pos += 1;
-            break :blk 0;
-        },
-        0xD2 => blk: { // ref.func funcidx — Wasm 2.0 §5.4.3
-            // Encode as the funcidx itself. Runtime-side funcref
-            // resolution (turning funcidx into a JIT entry ptr)
-            // is Phase 10+ scope; the spec corpus modules that
-            // EXPORT a reftype global via `ref.func` are
-            // currently only imported by cross-module fixtures
-            // that the d-37 unbindable-imports pre-filter
-            // SKIPs, so the stored value is never read by any
-            // assertion in the Wasm 2.0 corpus.
-            const fidx = leb128.readUleb128(u32, expr, &pos) catch return Error.UnsupportedEntrySignature;
-            break :blk @as(u64, fidx);
-        },
-        else => return Error.UnsupportedEntrySignature,
-    };
-    if (pos >= expr.len or expr[pos] != 0x0B) return Error.UnsupportedEntrySignature;
-    return v;
-}
-
-/// Decode a `v128.const` (0xFD 0x0C) terminated init-expression
-/// and return the 16-byte little-endian-encoded constant.
-fn evalConstV128Expr(expr: []const u8) Error!([16]u8) {
-    // (v128.const v128) (end) — 0xFD 0x0C <16 bytes> 0x0B
-    if (expr.len < 2 + 16 + 1) return Error.UnsupportedEntrySignature;
-    if (expr[0] != 0xFD or expr[1] != 0x0C) return Error.UnsupportedEntrySignature;
-    if (expr[18] != 0x0B) return Error.UnsupportedEntrySignature;
-    var out: [16]u8 = undefined;
-    @memcpy(&out, expr[2..][0..16]);
-    return out;
 }
 
 /// D-063 discharge (§9.9 / 9.9-h-4) — walk the module's active
@@ -1310,7 +1114,7 @@ pub fn applyTableInitForTable(
     for (elems.items) |seg| {
         if (seg.kind != .active) continue;
         if (seg.tableidx != tableidx) continue;
-        const off = evalConstI32Expr(seg.offset_expr) catch return Error.UnsupportedEntrySignature;
+        const off = rv.evalConstI32Expr(seg.offset_expr) catch return Error.UnsupportedEntrySignature;
         if (off < 0) return Error.UnsupportedEntrySignature;
         const base: usize = @intCast(off);
         if (base + seg.funcidxs.len > funcptrs_buf.len) return Error.UnsupportedEntrySignature;
@@ -1401,7 +1205,7 @@ pub fn applyActiveDataSegments(
         defer datas.deinit();
         for (datas.items) |seg| {
             if (seg.kind != .active) continue;
-            const off = evalConstI32Expr(seg.offset_expr) catch return Error.UnsupportedEntrySignature;
+            const off = rv.evalConstI32Expr(seg.offset_expr) catch return Error.UnsupportedEntrySignature;
             if (off < 0) return Error.UnsupportedEntrySignature;
             const off_u: u64 = @intCast(off);
             if (off_u + seg.bytes.len > memory.len) return Error.UnsupportedEntrySignature;
@@ -1603,7 +1407,7 @@ fn setupRuntime(
         defer datas.deinit();
         for (datas.items) |seg| {
             if (seg.kind != .active) continue;
-            const off = evalConstI32Expr(seg.offset_expr) catch return Error.UnsupportedEntrySignature;
+            const off = rv.evalConstI32Expr(seg.offset_expr) catch return Error.UnsupportedEntrySignature;
             if (off < 0) return Error.UnsupportedEntrySignature;
             const off_u: u64 = @intCast(off);
             if (off_u + seg.bytes.len > memory.len) {
@@ -1798,7 +1602,7 @@ fn setupRuntime(
         for (elems.items) |seg| {
             if (seg.kind != .active) continue;
             if (seg.tableidx >= tables_descs.len) continue;
-            const off = evalConstI32Expr(seg.offset_expr) catch return Error.UnsupportedEntrySignature;
+            const off = rv.evalConstI32Expr(seg.offset_expr) catch return Error.UnsupportedEntrySignature;
             if (off < 0) return Error.UnsupportedEntrySignature;
             const base: usize = @intCast(off);
             const tbl = tables_descs[seg.tableidx];
@@ -1996,20 +1800,6 @@ fn setupRuntime(
         .extra_funcptrs = extra_funcptrs_buf,
         .extra_typeidxs = extra_typeidxs_buf,
     };
-}
-
-/// Evaluate a Wasm const-expression that resolves to an i32.
-/// Active data-segment offsets reach this path; v0.1.0's only
-/// supported shape is `i32.const N; end` (3+ bytes: opcode 0x41,
-/// sleb128 N, opcode 0x0B). Mirrors the shape in
-/// `runtime/instance/instantiate.zig:evalConstI32Expr` but stays
-/// JIT-runner-local to avoid pulling instance/ into engine/.
-fn evalConstI32Expr(expr: []const u8) !i32 {
-    if (expr.len < 2 or expr[0] != 0x41) return error.UnsupportedConstExpr;
-    var pos: usize = 1;
-    const v = try leb128.readSleb128(i32, expr, &pos);
-    if (pos >= expr.len or expr[pos] != 0x0B) return error.UnsupportedConstExpr;
-    return v;
 }
 
 /// Default host-import trap trampoline (chunk 7.9-d). C-ABI
