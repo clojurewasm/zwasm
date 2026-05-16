@@ -283,10 +283,29 @@ pub fn build(b: *std.Build) void {
     // call_indirect wast vendor); until then the runner reports
     // "corpus not found; 0 manifests" and exits clean so test-all
     // stays green.
+    // §9.9 / 9.9-l-1b-d093-d67 (D-134 probe): force the spec_assert
+    // non-simd runner to compile single-threaded. The d-65
+    // investigation surfaced a cross-thread `siglongjmp` hypothesis
+    // (our `sigsegvHandler` installs OK + fires on intentional null
+    // deref, but does NOT fire on the real OrbStack SEGV — strong
+    // evidence the SEGV is delivered to a worker thread context our
+    // handler cannot service). Building with `-fsingle-threaded`
+    // makes `std.Io.Threaded.init` return `.init_single_threaded`
+    // (per `~/Documents/OSS/zig/lib/std/Io/Threaded.zig:127`), so no
+    // `Io.Threaded` worker threads can spawn at all. The spec_assert
+    // runner walks corpora + invokes JIT bodies purely sequentially
+    // — no `async` / `concurrent` use — so single-threaded is the
+    // correct execution shape regardless. If the OrbStack SEGV
+    // persists post-d-67, cross-thread is ruled out and the
+    // hypothesis space narrows to (i) libc-context SEGV (RIP
+    // captured in libc.so.6 region per d-65 valgrind) or (ii) Zig's
+    // own `handleSegfaultPosix` chain still firing despite our own
+    // sigaction (D-134 candidate path (d) — toolchain PR #25227).
     const non_simd_assert_runner_mod = b.createModule(.{
         .root_source_file = b.path("test/spec/spec_assert_runner_non_simd.zig"),
         .target = target,
         .optimize = optimize,
+        .single_threaded = true,
     });
     non_simd_assert_runner_mod.addImport("zwasm", zwasm_lib_mod);
     applySanitize(non_simd_assert_runner_mod, sanitize_c, sanitize_thread);
