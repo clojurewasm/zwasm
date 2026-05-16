@@ -1071,14 +1071,53 @@ pub var sigsegv_armed: std.atomic.Value(bool) = .init(false);
 const SigsetjmpFn = *const fn (env: [*]u8, savemask: c_int) callconv(.c) c_int;
 const SiglongjmpFn = *const fn (env: [*]u8, val: c_int) callconv(.c) noreturn;
 
-pub const sigsetjmp: SigsetjmpFn = @extern(SigsetjmpFn, .{
-    .name = if (@import("builtin").os.tag == .linux) "__sigsetjmp" else "sigsetjmp",
-    .library_name = "c",
-});
-pub const siglongjmp: SiglongjmpFn = @extern(SiglongjmpFn, .{
-    .name = "siglongjmp",
-    .library_name = "c",
-});
+// Windows has no `sigsetjmp` / `siglongjmp` symbol in MSVCRT.
+// Surfaced by windowsmini D-084 reconcile (2026-05-17) as
+// `lld-link: undefined symbol: sigsetjmp` once the
+// `installSigsegvHandler` Win64 gate landed and the linker
+// reached these `@extern` references. The SEGV-recovery contract
+// is POSIX-only by design (see `installSigsegvHandler` early-
+// return for the rationale); Windows uses noop stubs so the
+// symbol references resolve. `sigsegv_armed` is never set on
+// Windows (installSigsegvHandler returns before the arming flag
+// is written), so `siglongjmp` is provably unreachable there.
+pub const sigsetjmp: SigsetjmpFn = if (@import("builtin").os.tag == .windows)
+    &sigsetjmpWindowsStub
+else
+    @extern(SigsetjmpFn, .{
+        .name = if (@import("builtin").os.tag == .linux) "__sigsetjmp" else "sigsetjmp",
+        .library_name = "c",
+    });
+
+pub const siglongjmp: SiglongjmpFn = if (@import("builtin").os.tag == .windows)
+    &siglongjmpWindowsStub
+else
+    @extern(SiglongjmpFn, .{
+        .name = "siglongjmp",
+        .library_name = "c",
+    });
+
+/// Windows-only stub: always returns 0 so the protected code
+/// runs through to completion; if a SEGV happens, the OS
+/// terminates the process (default Windows behavior, same as
+/// pre-d-62 baseline). Never called on POSIX targets.
+fn sigsetjmpWindowsStub(env: [*]u8, savemask: c_int) callconv(.c) c_int {
+    _ = env;
+    _ = savemask;
+    return 0;
+}
+
+/// Windows-only stub: `unreachable` because the `sigsegv_armed`
+/// flag is never set on Windows (installSigsegvHandler returns
+/// before the trap-arming path), so the JIT-trap recovery branch
+/// in `sigsegvHandler` never calls this. The stub satisfies the
+/// linker's symbol reference; it would only be hit if the design
+/// invariant breaks (= regression).
+fn siglongjmpWindowsStub(env: [*]u8, val: c_int) callconv(.c) noreturn {
+    _ = env;
+    _ = val;
+    unreachable;
+}
 
 fn sigsegvHandler(_: std.posix.SIG) callconv(.c) void {
     // §9.9 / 9.9-l-1b-d093-d62: `std.atomic.Value` access pairs
