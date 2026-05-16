@@ -10,23 +10,50 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **d-85 closed: VALIDATOR-GAP full drain (polymorphic-stack tightening) + Mac/OrbStack bit-identical, +14 PASS**
+## Active state — **Phase 9 close-readiness day (2026-05-17): debug infra + scaffolding + Windows reconcile in flight**
 
 ### One-line state
 
-d-85 tightens Wasm §3.3.5 polymorphic-stack type-checking: (a)
-`expectFrameEndTypes` now type-checks concrete present values in
-unreachable mode (was bailing out entirely) — drains 12 cases;
-(b) `opBrTable` enforces label-type arity equality across all
-targets even in polymorphic mode AND always pops label types
-to type-check post-unreachable concrete values — drains
-remaining 2 cases. Result: spec_assert 23987/0/2083 →
-**24001/0/2069** (+14 PASS, 0 FAIL). **Mac + OrbStack
-bit-identical** (D-134 silent run #2). VALIDATOR-GAP 14→0 —
-**both VALIDATOR-GAP and PARSER-GAP corpora now fully drained**.
+Spec_assert / simd_assert on Mac aarch64 + OrbStack:
+**24001/0/2069 + 13301/0/440 bit-identical** (unchanged since
+d-85). Today's work focused on Phase 9 close readiness (NOT
+chunk-N+1):
+
+- **Debug infra** committed `d3f2a1a7` + `24388587`: lesson
+  template + `<backfill>` lint + invariant-comment lint +
+  heisenbug streak tracker + spike skeleton/audit + JIT crash
+  Recipe 7; 4 rules' frontmatter; orphan-script wiring into
+  gate_commit + audit_scaffolding CHECKS §F.3a / §G.3 / §G.4 +
+  continue/LOOP.md heisenbug-tracking subsection.
+- **Pre-commit gate re-activated** (`66c699e7`): ADR-0063
+  (uniform-pattern catalog file-size exemption — entry.zig
+  exempt marker) + ADR-0064 (runner.zig 2178 → 1968 LOC via
+  `runner_validate.zig` split) + check_skip_adrs.sh `set -e`
+  bug fix (skip_host_state_diverged auto-discharged) +
+  flake.nix shellHook auto-sets `core.hooksPath .githooks`.
+  All commits from this point flow through `.githooks/
+  pre-commit → gate_commit.sh`.
+- **Debt sweep** (`83e80150`, `e9e04ac9`): D-095 closed
+  (call-crossing regalloc fully discharged); D-052 flipped to
+  `now` (barrier dissolved: x86_64/emit.zig 1893 LOC > 1000
+  trigger); D-135 filed (ADR-0063 Alternative B follow-up —
+  comptime-generate entry.zig).
+- **Lesson Citing backfill** (`23b4d20d`): 2 lessons resolved
+  (e4e74931 + a58a2ba5/87783496); `check_lesson_citing.sh`
+  now OK.
+- **windowsmini D-084 reconcile** (in flight 2026-05-17):
+  surfaced 2 Windows-compat bugs already fixed —
+  `installSigsegvHandler` Win64 gate (`14147194`) +
+  `sigsetjmp`/`siglongjmp` Windows stubs (`2edfdef1`). Retry
+  #3 running; pre-error tallies showed 9 runners green
+  (simd_assert 13301/0/440 **bit-identical with Mac+OrbStack
+  + Windows!**, wast_runner 1158+72, wast_runtime_runner
+  266+5, realworld 55, wasi 2, edge-case 40, spec_runner
+  9+3+212).
 
 **Cumulative d-74 → d-85 (13 chunks)**: **+217 PASS**
-(23784 → 24001).
+(23784 → 24001). spec_assert PASS counter unchanged today
+(no chunk progression).
 
 ### Skip-impl drainage roadmap (post-d-85)
 
