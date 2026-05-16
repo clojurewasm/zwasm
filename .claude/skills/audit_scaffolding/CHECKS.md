@@ -181,14 +181,28 @@ forbidden by the file's own discipline header.
 
 ### F.3 Lessons INDEX coverage
 
-Every file in `.dev/lessons/` (excluding INDEX.md and the
-`archive/` subtree) MUST have a corresponding row in
+Every file in `.dev/lessons/` (excluding INDEX.md, `_TEMPLATE.md`,
+and the `archive/` subtree) MUST have a corresponding row in
 `.dev/lessons/INDEX.md`:
 
 - Lesson file without an INDEX row → `block`.
 - INDEX row pointing at a missing file → `block`.
 - INDEX row's keyword column empty → `soon` (keyword is the
   search anchor; without it, lesson is undiscoverable).
+
+### F.3a Lesson Citing backfill (added 2026-05-16)
+
+```sh
+bash scripts/check_lesson_citing.sh
+```
+
+Flags lessons with unfilled `<backfill>` / TBD / pending markers
+in the `**Citing**:` header.
+
+- WARN at phase boundary → `soon` (backfill in the per-phase
+  SHA-pointer backfill commit).
+- WARN persisting > 2 phase boundaries → `block` (lesson is
+  losing its commit-lineage value).
 
 ### F.4 Lessons promotion candidates
 
@@ -345,6 +359,44 @@ This is the "mandatory walking" of `extended_challenge.md`
 Step 1 that was missing in Phase 6 — the audit now fires it
 on every audit run rather than waiting for the human to
 notice.
+
+### G.3 Comment-as-invariant drift (added 2026-05-16)
+
+```sh
+bash scripts/check_invariant_comments.sh
+```
+
+Detects per-arch op_*.zig source files that hardcode register
+numerals belonging to `abi.allocatable_caller_saved_scratch_gprs`
+— the D-132 / D-133 failure mode where comments asserted "X10/X11
+/X12 are private scratch" while regalloc was simultaneously
+allocating vregs into the same slots. Substrate audit Q5 anchor.
+
+- Surfaced sites: `soon` (each is a latent regalloc-clobber
+  risk; D-133 enumerates the current backlog).
+- Surfaced sites + the file's narrative comments claim
+  "private scratch" without code-level enforcement → `block`
+  (re-derives the D-132 failure mode).
+
+### G.4 Spike lifecycle (added 2026-05-16)
+
+```sh
+bash scripts/audit_spikes.sh
+```
+
+Flags `private/spikes/<slug>/` directories with stale lifecycle
+state per `.claude/rules/extended_challenge.md` Step 4 + the
+`scripts/new_spike.sh` skeleton's Status/Outcome contract:
+
+- Status=running > 14d, or Outcome=<TBD> > 30d → `soon`
+  (spike has likely been abandoned; promote-to-ADR / promote-
+  to-lesson or delete).
+- Status ∈ {merged-into-prod, rejected} with directory still
+  present → `soon` (delete; the production commit OR ADR is
+  the authoritative record).
+- Spike directory without README.md → `block` (pre-skeleton
+  spike; scaffold via `scripts/new_spike.sh` or document
+  the lifecycle inline).
 
 ## I. Edge-case fixture coverage (added 2026-05-04 per ADR-0020)
 

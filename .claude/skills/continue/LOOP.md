@@ -123,6 +123,29 @@ never `orb run …` a second time hoping for cleaner output.
   -i` locally, then push) — only when the squash is
   mechanical. Skip when in doubt.
 
+### Heisenbug streak tracking (per chunk)
+
+For every active heisenbug debt row (currently D-134 OrbStack
+`zwasm-spec-wasm-2-0-assert` SEGV; future flakes filed under
+the same shape), record each per-chunk OrbStack outcome:
+
+```bash
+# After OrbStack /tmp/orb.log shows the outcome:
+if grep -q '0 failed' /tmp/orb.log; then
+    bash scripts/track_heisenbug.sh d134 silent
+else
+    bash scripts/track_heisenbug.sh d134 segv
+fi
+```
+
+The script appends to `private/heisenbug-<name>.log` (gitignored)
+and prints `DISCHARGE CANDIDATE` when the streak threshold fires
+(default 5 per `.claude/rules/heisenbug_discharge.md`). On
+discharge candidacy: do NOT close the debt row autonomously —
+walk the 4-condition checklist in the rule (streak, structural
+commit diversity, instrumentation in place, root cause OR
+ADR-rate-reduction), then surface to the user.
+
 ### Step 7 integration
 
 The Step 6 source-commit + push happens **before** the OrbStack

@@ -1,8 +1,8 @@
 ---
 paths:
-  - .dev/handover.md
-  - .dev/debt.md
-  - .dev/ROADMAP.md
+  - ".dev/handover.md"
+  - ".dev/debt.md"
+  - ".dev/ROADMAP.md"
 ---
 
 # No numeric predictions in handover / debt

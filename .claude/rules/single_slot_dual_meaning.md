@@ -1,3 +1,8 @@
+---
+paths:
+  - "src/**/*.zig"
+---
+
 # No single slot serving two semantic axes
 
 Auto-loaded when editing Zig source. Codifies the design lesson

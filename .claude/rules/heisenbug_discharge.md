@@ -1,3 +1,10 @@
+---
+paths:
+  - ".dev/debt.md"
+  - ".dev/lessons/**"
+  - "scripts/track_heisenbug.sh"
+---
+
 # Heisenbug discharge — empirical-streak rule
 
 Auto-loaded when editing `.dev/debt.md` or `.dev/lessons/`.

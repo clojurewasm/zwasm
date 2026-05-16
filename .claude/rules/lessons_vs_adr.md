@@ -1,3 +1,11 @@
+---
+paths:
+  - ".dev/decisions/**"
+  - ".dev/lessons/**"
+  - ".dev/handover.md"
+  - ".dev/debt.md"
+---
+
 # Lessons vs ADRs — when to use which
 
 Auto-loaded when editing `.dev/decisions/`, `.dev/lessons/`, ADRs,

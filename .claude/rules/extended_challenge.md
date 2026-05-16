@@ -1,3 +1,11 @@
+---
+paths:
+  - "src/**/*.zig"
+  - "build.zig"
+  - "scripts/**"
+  - ".claude/skills/continue/**"
+---
+
 # Extended challenge — when stuck, attempt self-resolution before stopping
 
 Auto-loaded when editing Zig sources, build files, or running the

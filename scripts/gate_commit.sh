@@ -31,6 +31,17 @@ bash scripts/file_size_check.sh --gate
 echo "[gate_commit] check_skip_adrs --gate ..."
 bash scripts/check_skip_adrs.sh --gate > /dev/null
 
+# Lesson Citing-backfill awareness (warn-only; per
+# `.claude/rules/lessons_vs_adr.md` Citing-header discipline).
+# The audit_scaffolding §F.3a check is the authoritative version;
+# this is the cheap per-commit visibility hook.
+if [ -x scripts/check_lesson_citing.sh ]; then
+    n=$(bash scripts/check_lesson_citing.sh 2>&1 | grep -c '^WARN ') || true
+    if [ "$n" -gt 0 ]; then
+        echo "[gate_commit] (info) $n lesson(s) with unfilled Citing — backfill at phase boundary"
+    fi
+fi
+
 if [ ! -f build.zig ]; then
     echo "[gate_commit] (no build.zig — skipping zig build test)"
 else
