@@ -10,7 +10,58 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **d-63 closed: drain non-scalar-arg/result via reftype-alias-to-i64 (+176 PASS)**
+## Active state — **d-64 paused mid-investigation (user-requested stop; resume planned)**
+
+### d-64 WIP — D-132 root-cause partial fix in `git stash`
+
+Investigation completed up to:
+- Root cause identified: arm64 `op_table.zig::emitTableGet` /
+  `emitTableSet` hardcode X10/X11/X12 as scratch, but those
+  registers ARE in `allocatable_caller_saved_scratch_gprs`
+  (= regalloc pool). When a vreg's live range crosses a
+  table.get / table.set and regalloc lands the vreg on
+  X10/X11/X12, the emit's `LDR X10, [X19, #tables_ptr_off]`
+  silently clobbers the vreg's value.
+- **Repro fixture**: `test/edge_cases/p9/table_ops/funcref_roundtrip.{wat,wasm,expect}`
+  (in stash). Triggers via two table.set ops where the second
+  nests a `table.get` — the outer table.set's idx vreg lands
+  on X10, the inner table.get's first LDR clobbers it.
+- **Partial fix** (in stash, `git stash list`): re-targeted
+  `emitTableGet` + `emitTableSet` to use X14/X15 (spill-stage
+  regs, non-allocatable, free after operand load step).
+  Removed regen-script targeted-skip for `table_get:
+  is_null-funcref i32:2`. Mac `test-spec-wasm-2.0-assert` +
+  edge-case runner BOTH GREEN with the fix
+  (23784 PASS, +1 from baseline).
+- **Resume blocker**: OrbStack `test-spec-wasm-2.0-assert`
+  SEGVs (clean cache reproduces). Same pattern as the d-62
+  altstack/sigsegv_armed-elision issue but with a different
+  binary hash. Either (a) Zig 0.16 codegen non-determinism
+  re-elided the atomic load, or (b) the d-64 manifest change
+  (re-enabling `is_null-funcref(2)`) exposes a separate
+  x86_64 codegen bug, or (c) altstack handler stops working
+  after the clean rebuild for unrelated reasons. **Needs
+  bisect on resume**.
+- **Other op_table sites left untouched in WIP**:
+  emitTableSize / emitTableFill / emitTableGrow /
+  emitTableCopy / emitTableInit / emitElemDrop +
+  op_memory.zig's emitMemoryInit / emitDataDrop all still
+  hardcode X10/X11/X12 — same latent bug, not yet triggered
+  by current corpus. Apply the same X14/X15 refactor on
+  resume.
+
+### Resume action (when you pick this up)
+
+1. `git stash list` — confirm "d-64-wip" stash exists.
+2. `git stash pop` — restore the in-progress changes.
+3. Investigate the OrbStack spec_assert SEGV first. Suggested:
+   re-add the `[sigsegvHandler] entered` diagnostic prints
+   from d-62 to confirm the handler is or isn't being invoked.
+4. Once OrbStack is green, finish refactoring the remaining
+   op_table / op_memory sites (X14/X15 instead of X10/X11/X12).
+5. Discharge D-132 (delete the row), close d-64.
+
+## Previous state — **d-63 closed: drain non-scalar-arg/result via reftype-alias-to-i64 (+176 PASS)**
 
 ### One-line state
 
