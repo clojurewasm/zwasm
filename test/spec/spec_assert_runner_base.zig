@@ -1092,10 +1092,21 @@ fn sigsegvHandler(_: std.posix.SIG) callconv(.c) void {
         siglongjmp(@ptrCast(&sigsegv_recover_buf), 1);
     }
     // SEGV outside an armed JIT call: do not silently swallow.
-    // `_exit(139)` is async-signal-safe (raw syscall, no atexit
-    // handlers) and matches the conventional shell exit code for
-    // a process killed by SIGSEGV (= 128 + 11).
-    std.c._exit(139);
+    // `_exit(142)` is async-signal-safe (raw syscall, no atexit
+    // handlers). §9.9 / 9.9-l-1b-d093-d71 (D-134 disambiguation
+    // probe): exit code chosen as 142 — distinct from the
+    // conventional 139 (= 128 + SIGSEGV) so a `zig build`
+    // report of "exited with code 142" unambiguously indicates
+    // our handler fired and reached this path, whereas a
+    // "process terminated with signal SEGV" report means the
+    // kernel delivered SIGSEGV without our handler running
+    // (handler-install race or signal-mask block). The d-68
+    // disable of Zig's startup `attachSegfaultHandler` was
+    // claimed-but-overoptimistic at d-68 close (d-69 re-
+    // triggered the SEGV via layout perturbation); this probe
+    // produces the next concrete bit of evidence on the next
+    // OrbStack run that surfaces D-134.
+    std.c._exit(142);
 }
 
 /// Install the SIGSEGV / SIGBUS handler used by the assert_trap
