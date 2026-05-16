@@ -10,56 +10,46 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **d-64 paused mid-investigation (user-requested stop; resume planned)**
+## Active state — **d-64 closed: D-132 partial discharge (arm64 op_table X10/X11/X12 → X14/X15) + D-133 / D-134 filed**
 
-### d-64 WIP — D-132 root-cause partial fix in `git stash`
+### One-line state
 
-Investigation completed up to:
-- Root cause identified: arm64 `op_table.zig::emitTableGet` /
-  `emitTableSet` hardcode X10/X11/X12 as scratch, but those
-  registers ARE in `allocatable_caller_saved_scratch_gprs`
-  (= regalloc pool). When a vreg's live range crosses a
-  table.get / table.set and regalloc lands the vreg on
-  X10/X11/X12, the emit's `LDR X10, [X19, #tables_ptr_off]`
-  silently clobbers the vreg's value.
-- **Repro fixture**: `test/edge_cases/p9/table_ops/funcref_roundtrip.{wat,wasm,expect}`
-  (in stash). Triggers via two table.set ops where the second
-  nests a `table.get` — the outer table.set's idx vreg lands
-  on X10, the inner table.get's first LDR clobbers it.
-- **Partial fix** (in stash, `git stash list`): re-targeted
-  `emitTableGet` + `emitTableSet` to use X14/X15 (spill-stage
-  regs, non-allocatable, free after operand load step).
-  Removed regen-script targeted-skip for `table_get:
-  is_null-funcref i32:2`. Mac `test-spec-wasm-2.0-assert` +
-  edge-case runner BOTH GREEN with the fix
-  (23784 PASS, +1 from baseline).
-- **Resume blocker**: OrbStack `test-spec-wasm-2.0-assert`
-  SEGVs (clean cache reproduces). Same pattern as the d-62
-  altstack/sigsegv_armed-elision issue but with a different
-  binary hash. Either (a) Zig 0.16 codegen non-determinism
-  re-elided the atomic load, or (b) the d-64 manifest change
-  (re-enabling `is_null-funcref(2)`) exposes a separate
-  x86_64 codegen bug, or (c) altstack handler stops working
-  after the clean rebuild for unrelated reasons. **Needs
-  bisect on resume**.
-- **Other op_table sites left untouched in WIP**:
-  emitTableSize / emitTableFill / emitTableGrow /
-  emitTableCopy / emitTableInit / emitElemDrop +
-  op_memory.zig's emitMemoryInit / emitDataDrop all still
-  hardcode X10/X11/X12 — same latent bug, not yet triggered
-  by current corpus. Apply the same X14/X15 refactor on
-  resume.
+d-64 root-causes D-132: arm64 `op_table.zig::emitTableGet` /
+`emitTableSet` hardcoded X10/X11/X12 as intra-op scratch
+while those slots were in `abi.allocatable_caller_saved_scratch_gprs`.
+Re-targeted to X14/X15 (spill-stage regs, non-allocatable);
+removed regen-script targeted-skip for the surfaced assert.
+spec_assert non-simd 23783/0/2287 → **23784/0/2286** on Mac
+(+1 PASS = `is_null-funcref(2)` unblocked). Regression
+fixture: `test/edge_cases/p9/table_ops/funcref_roundtrip.*`.
+**D-132 discharged**. **D-133 filed** for the same-shape
+latent sites left untouched at emitTableSize / emitTableFill /
+emitTableGrow / emitTableCopy / emitTableInit / emitElemDrop +
+op_memory.zig's emitMemoryInit / emitDataDrop (current corpus
+doesn't trigger). **D-134 filed** for an OrbStack `test-spec-
+wasm-2.0-assert` SEGV flake — d-62-class signal-handler /
+atomic-load issue that re-emerged today (verified d-63 source
+`b4e11a86` reproduces same SEGV today; NOT a d-64 regression).
+**Substrate-hygiene retrospective** at
+[`lessons/2026-05-16-regalloc-pool-scratch-overlap.md`](lessons/2026-05-16-regalloc-pool-scratch-overlap.md)
++ Phase 9 完備 substrate audit gate
+([`.dev/phase9_completion_substrate_audit.md`](phase9_completion_substrate_audit.md)
+§Q5) queued the 5 enforcement actions (comptime disjointness
+extension / `audit_scaffolding` §G magic-numeral lint /
+`bug_fix_survey` enforcement / "comment-as-invariant" rule /
+test-design stress-axis requirement).
 
-### Resume action (when you pick this up)
+### Next sub-chunk candidates (live tally post-d-64)
 
-1. `git stash list` — confirm "d-64-wip" stash exists.
-2. `git stash pop` — restore the in-progress changes.
-3. Investigate the OrbStack spec_assert SEGV first. Suggested:
-   re-add the `[sigsegvHandler] entered` diagnostic prints
-   from d-62 to confirm the handler is or isn't being invoked.
-4. Once OrbStack is green, finish refactoring the remaining
-   op_table / op_memory sites (X14/X15 instead of X10/X11/X12).
-5. Discharge D-132 (delete the row), close d-64.
+- **D-134 root-cause** (OrbStack flake) — likely d-65; without
+  this, OrbStack's per-chunk gate is unreliable.
+- **D-133 sweep** (apply X14/X15 refactor to remaining
+  op_table/op_memory sites) — mechanical; can defer to the
+  substrate audit's unified comptime-assertion mechanism.
+- Phase 9 completion path: skip-impl backlog tally still
+  shows 48 multi-result (Phase 11+ blocked) + 1 non-invoke-
+  action; 9.9 `[x]` flip path mostly clear except for D-134's
+  OrbStack flake.
 
 ## Previous state — **d-63 closed: drain non-scalar-arg/result via reftype-alias-to-i64 (+176 PASS)**
 
@@ -210,6 +200,7 @@ Other queued post-D-093 names: `address`, `align`, `br_table`,
 | D-093 (d-61) | [x] `31e076a6` | drain runner-shape-gap residual — 7 new `entry.callXxx_yyy` helpers + 7 new dispatch arms + `[5]ArgValue`→`[8]` cap bump + 7 distiller supported tuples. spec_assert non-simd 23576/0/2494 → **23592/0/2478** (+16 PASS, 0 FAIL; skip-impl 1817→1801). |
 | D-093 (d-62) | [x] `da18faae` | drain directive-assert_exhaustion — new directive + altstack landing (`sigaltstack` + `SA.ONSTACK`) + `sigsegv_armed` upgraded to `std.atomic.Value(bool)` to defeat Zig 0.16 BSS-load elision under SA.ONSTACK. spec_assert non-simd 23592/0/2478 → **23607/0/2463** (+15 PASS, 0 FAIL; skip-impl 1801→1786). |
 | D-093 (d-63) | [x] `b4e11a86` | drain non-scalar-arg/result via reftype-alias-to-i64 — distiller `kind_alias` + bit-63-encoded host externrefs (avoids `i64:0 == null` collision); 3 new entry helpers + 5 new dispatch arms. D-132 filed (funcref table.set/get roundtrip bug; targeted skip). spec_assert non-simd 23607/0/2463 → **23783/0/2287** (+176 PASS, 0 FAIL; skip-impl 1786→1791; skip-adr 677→496 = -181 host-state-diverged retired). |
+| D-093 (d-64) | [x] `1bec1d9a` | D-132 partial discharge — arm64 emitTableGet / emitTableSet intra-op scratch re-targeted X10/X11/X12 → X14/X15 (regalloc-pool overlap silent vreg clobber). Regression fixture `funcref_roundtrip`. D-133 filed (sweep remaining op_table/op_memory sites). D-134 filed (OrbStack d-62-class signal-handler flake reemerged; not d-64 regression). Substrate-hygiene retrospective at `lessons/2026-05-16-regalloc-pool-scratch-overlap.md`. spec_assert non-simd 23783/0/2287 → **23784/0/2286** Mac aarch64 (+1 PASS; OrbStack blocked by D-134). |
 
 Other queued chunks (post-l-1): k-1, k-2, m-4c (= D-090),
 m-2d, n-1, j-3b.
@@ -226,11 +217,13 @@ m-2d, n-1, j-3b.
 
 - `now`: **D-093** (residual sub-clusters above), D-095
   (partial — x86_64 residuals tracked as D-097), D-126
-  (bulk corpus residual — Phase 10+ scope), **D-132** (filed
-  d-63 — funcref table.set/get roundtrip bug; target-skipped
-  pending root-cause).
-- `discharged`: D-131 at d-60 (prefix-vocab gate green); none
-  at d-61/d-62/d-63.
+  (bulk corpus residual — Phase 10+ scope), **D-133** (filed
+  d-64 — sweep remaining arm64 op_table/op_memory hardcoded-
+  scratch sites), **D-134** (filed d-64 — OrbStack signal-
+  handler / atomic-load flake; reemerged d-62-class issue).
+- `discharged`: D-131 at d-60 (prefix-vocab gate green);
+  **D-132 at d-64** (arm64 emitTableGet/Set X10/X11/X12 →
+  X14/X15).
 - `blocked-by`: D-007/010/016/018/020/021/022/026/028/052(partial)/
   055/057/058/059/062(partial)/065/072/073/074/075/079(ii)/
   081/082/090.
