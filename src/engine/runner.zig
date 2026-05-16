@@ -273,13 +273,37 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             defined_tables_reftypes = reftypes_mut;
         }
         const total_tables = num_table_imports + defined_tables;
+        // Compute total funcs (imports + defined) so elem
+        // segments can be range-checked. Used by the
+        // §9.9 / 9.9-l-1b-d093-d83 funcidx-range check below.
+        var num_func_imports_early: u32 = 0;
+        if (imports_buf) |ib| {
+            for (ib.items) |imp| if (imp.kind == .func) {
+                num_func_imports_early += 1;
+            };
+        }
+        var defined_funcs_count_early: u32 = 0;
+        if (module.find(.function)) |fs| {
+            const fs_buf = try sections.decodeFunctions(a, fs.body);
+            defined_funcs_count_early = @intCast(fs_buf.len);
+        }
+        const total_funcs_early = num_func_imports_early + defined_funcs_count_early;
         // Active elem segments require a referenced table AND
         // their elem_type must match the table's elem_type
         // (§9.9 / 9.9-l-1b-d093-d80 elem reftype check).
+        // §9.9 / 9.9-l-1b-d093-d83: all elem segments (active /
+        // passive / declarative) must have every non-null
+        // funcidx in [0, total_funcs). `funcidxs[i] ==
+        // maxInt(u32)` encodes `ref.null` (init-expr form);
+        // skip those.
         if (module.find(.element)) |es| {
             var es_buf = try sections.decodeElement(a, es.body);
             defer es_buf.deinit();
             for (es_buf.items) |seg| {
+                for (seg.funcidxs) |fidx| {
+                    if (fidx == std.math.maxInt(u32)) continue;
+                    if (fidx >= total_funcs_early) return Error.InvalidFuncIndex;
+                }
                 if (seg.kind == .active) {
                     if (seg.tableidx >= total_tables) {
                         return Error.ElemSegmentRequiresTable;
@@ -773,6 +797,17 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
         validator_memory_count += @intCast(ms_buf.items.len);
     }
 
+    // §9.9 / 9.9-l-1b-d093-d83 (skip-impl drainage):
+    // Wasm spec §3.3.5.20 table.init elem-vs-table reftype
+    // matching. Build the per-elem-segment reftype slice; the
+    // validator's opTableInit compares against the destination
+    // table's reftype.
+    const elem_types_slice: []const zir.ValType = if (elems_buf) |e| blk: {
+        const out = try a.alloc(zir.ValType, e.items.len);
+        for (e.items, 0..) |seg, i| out[i] = seg.elem_type;
+        break :blk out;
+    } else &.{};
+
     // §9.9 / 9.9-l-1b-d093-d82 (skip-impl drainage):
     // Wasm spec §3.4.7.3 / §3.4.10 declared-funcrefs set. A
     // funcidx is "declared" iff it appears in some global
@@ -843,6 +878,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             validator_elem_count,
             validator_memory_count,
             declared_funcs,
+            elem_types_slice,
             &select_types,
         ) catch |err| {
             std.debug.print("compileWasm: func[{d}] params={d} results={d} → validate {s}\n", .{

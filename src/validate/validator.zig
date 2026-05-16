@@ -260,6 +260,7 @@ pub fn validateFunctionAndCollectSelectTypesWithMemory(
     elem_count: u32,
     memory_count: u32,
     declared_funcs: []const bool,
+    elem_types: []const ValType,
     out_select_types: *std.ArrayList(u8),
 ) Error!void {
     var v = Validator{
@@ -275,6 +276,7 @@ pub fn validateFunctionAndCollectSelectTypesWithMemory(
         .elem_count = elem_count,
         .memory_count = memory_count,
         .declared_funcs = declared_funcs,
+        .elem_types = elem_types,
         .out_select_types = out_select_types,
         .out_allocator = allocator,
     };
@@ -317,6 +319,15 @@ const Validator = struct {
     /// keep prior behaviour; production `compileWasm` passes a
     /// populated slice.
     declared_funcs: []const bool = &.{},
+    /// §9.9 / 9.9-l-1b-d093-d83 — per-element-segment reftype
+    /// (parallel to `elem_count`; length = elem_count when
+    /// populated). Used by `opTableInit` to enforce Wasm spec
+    /// §3.3.5.20: `table.init x y` requires
+    /// `elem_types[x] == tables[y].elem_type`. Empty slice
+    /// (default) disables the per-elem reftype check so legacy
+    /// callers retain prior behaviour (chunk 5d-2 era accepted
+    /// any in-range elemidx/tableidx pair).
+    elem_types: []const ValType = &.{},
 
     operand_buf: [max_operand_stack]TypeOrBot = undefined,
     operand_len: usize = 0,
@@ -1316,16 +1327,23 @@ const Validator = struct {
         try self.pushType(.i32);
     }
 
-    /// table.init x y (0xFC 12): elemidx + tableidx; pops three i32
-    /// (n, src, dst). For chunk 5d-2 we accept any (elemidx, tableidx)
-    /// in range — the spec also requires the elem_type to match the
-    /// table's elem_type, but that requires per-segment type tracking
-    /// that we omit here (always funcref in chunk 5d-2 corpus).
+    /// Wasm spec §3.3.5.20 (table.init x y, 0xFC 12): pop three
+    /// i32 (n, src, dst). The elemidx and tableidx must both be
+    /// in range, and the elem segment's reftype must equal the
+    /// destination table's reftype. The per-elem reftype check
+    /// fires only when `elem_types` is populated (production
+    /// `compileWasm` path); legacy callers without the slice
+    /// retain pre-d-83 behaviour.
     fn opTableInit(self: *Validator) Error!void {
         const elemidx = try leb128.readUleb128(u32, self.body, &self.pos);
         const tableidx = try leb128.readUleb128(u32, self.body, &self.pos);
         if (elemidx >= self.elem_count) return Error.InvalidFuncIndex;
         if (tableidx >= self.tables.len) return Error.InvalidFuncIndex;
+        if (self.elem_types.len != 0) {
+            if (self.elem_types[elemidx] != self.tables[tableidx].elem_type) {
+                return Error.StackTypeMismatch;
+            }
+        }
         try self.popExpect(.i32);
         try self.popExpect(.i32);
         try self.popExpect(.i32);
