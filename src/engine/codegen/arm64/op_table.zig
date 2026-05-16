@@ -24,13 +24,20 @@
 //!     STR  Xval, [X11, X17, LSL #3]
 //!
 //!   table.size x:
-//!     LDR  X10, [X19, #tables_ptr_off]
-//!     LDR  W_result, [X10, #(tableidx*16)+8]  ; push len as i32
+//!     LDR  X14, [X19, #tables_ptr_off]
+//!     LDR  W_result, [X14, #(tableidx*16)+8]  ; push len as i32
 //!
-//! X10 / X11 / X12 / X17 are caller-saved scratch within this
-//! handler (X10/X11/X12 follow op_memory's scratch convention;
-//! X17 is the bounds-check scratch already used by op_memory and
-//! op_call's emit paths but the handler boundaries don't overlap).
+//! Intra-op scratch convention (§9.9 / 9.9-l-1b-d093-d64/d66,
+//! D-132/D-133): table.get / table.set / table.size use X14
+//! (= `abi.spill_stage_gprs[0]`, non-allocatable) for the
+//! `tables_ptr` pre-load so a live-across-op vreg cannot be
+//! silently clobbered. The remaining op_table sites
+//! (emitTableFill / emitTableGrow / emitTableCopy / emitTableInit)
+//! still hardcode X10/X11/X12 — those need >2 scratch slots and
+//! are queued for the Phase 9 完備 substrate audit's unified
+//! comptime-disjointness mechanism (Q5). X17 remains the
+//! bounds-check scratch (already disjoint from regalloc pool
+//! per the ip_gprs reservation).
 //!
 //! Zone 2 (`src/engine/codegen/arm64/`).
 
@@ -153,19 +160,29 @@ pub fn emitTableSet(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 /// Wasm spec §4.4.12 (table.size) — push current `tables[x].len`
 /// as i32. No trap conditions; the validator already rejected
 /// out-of-range tableidx.
+///
+/// Scratch register choice (§9.9 / 9.9-l-1b-d093-d66, D-133
+/// partial): use X14 (= `abi.spill_stage_gprs[0]`, non-
+/// allocatable) for the `tables_ptr` load rather than X10. X10
+/// is in `abi.allocatable_caller_saved_scratch_gprs`, so a
+/// live-across-`table.size` vreg landing on X10 would be
+/// silently clobbered by the pre-load. The bug is latent on
+/// the current corpus (no trigger pattern observed) but shares
+/// the failure mode d-64 surfaced for `emitTableGet` /
+/// `emitTableSet` via the `funcref_roundtrip` reproducer.
 pub fn emitTableSize(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const tableidx = ins.payload;
     if (tableidx >= 1024) return Error.UnsupportedOp;
     const len_off: u14 = @intCast(@as(u32, tableidx) * 16 + 8);
 
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(10, abi.runtime_ptr_save_gpr, jit_abi.tables_ptr_off));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(14, abi.runtime_ptr_save_gpr, jit_abi.tables_ptr_off));
 
     const result = ctx.next_vreg.*;
     ctx.next_vreg.* += 1;
     if (result >= ctx.alloc.slots.len) return Error.SlotOverflow;
     const wd = try gpr.gprDefSpilled(ctx.alloc, result, 0);
 
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImmW(wd, 10, len_off));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImmW(wd, 14, len_off));
     try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result, 0);
     try ctx.pushed_vregs.append(ctx.allocator, result);
 }
