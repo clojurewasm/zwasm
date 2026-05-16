@@ -10,47 +10,55 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **autonomous loop pause at d-73; awaiting bucket-2 collaborative input**
+## Active state — **d-74 closed: Wasm spec §3.4.10 export validation, +37 PASS**
 
 ### One-line state
 
-d-73 prunes 24 stale `discharged-by:` rows from active
-section (52→28). Following d-65→d-73's nine-chunk arc
-(2 real source fixes at d-66 + d-69; the rest probes /
-investigation / bookkeeping), the autonomous loop has
-genuinely converged on its limits for §9.9. The
-`/continue` bucket-2 stop condition fires.
+User re-engaged the autonomous loop ("Phase 9 はまだまだ
+完備ではないと思っています") and pointed at solvable
+skip-impl drainage. d-74 lands the §3.4.10 export
+validator (idx-in-range + duplicate-name checks) in
+`compileWasm`'s main + empty-fn early-return paths.
+Result: spec_assert non-simd 23784/0/2286 →
+**23821/0/2249** (+37 PASS, 0 FAIL). Per-corpus
+SKIP-VALIDATOR-GAP drop: exports 31→0 full drain; global
+18→17; unreached-invalid 14→13. Total VALIDATOR-GAP
+154→123. OrbStack hit known D-134 SEGV (orthogonal to
+validator addition; no signal-handling impact).
 
-## Open questions / blockers (bucket-2; need collaborative input)
+### Skip-impl drainage roadmap (post-d-74)
 
-1. **D-134 OrbStack `zwasm-spec-wasm-2-0-assert` flake
-   root cause unclear after investigation**. d-65 / d-67
-   / d-69 partial / d-71 / d-72 probed and progressively
-   narrowed hypotheses (cross-thread `siglongjmp`
-   refuted; Zig startup handler refuted; sigaltstack +
-   sigaction-readback both clean). Remaining unprobed:
-   hypothesis (iii-b) signal-mask blocks SIGSEGV at
-   delivery, which needs a failing OrbStack run to
-   inspect sigprocmask state — the d-72 instrumentation
-   is in place for the next surfaced failure. Continued
-   proactive probing without new evidence is
-   wheel-spinning.
-2. **§9.9 closure needs load-bearing ADR for exit-
-   criterion relaxation**. ROADMAP §9.9 row text per
-   ADR-0056 specifies `ADR-0029 Path B \`skip-impl == 0\`
-   enforcement real`. Current spec_assert non-simd
-   reports 1790 skip-impl (~all multi-result, Phase 11+
-   scope per ADR-0029 follow-up). Closing 9.9 with this
-   skip-impl count requires either (a) eliminating
-   skip-impl (structurally Phase 11+) or (b) relaxing
-   the exit criterion via ADR per §18.2 (deviation from
-   §9 phase scope/exit). Path (b) is the natural
-   collaborative-review point.
-3. **All other `now` debts blocked**: D-095 / D-133
-   substrate audit Q5 scope; D-126 Phase 10+ scope.
-   Substrate audit (hard gate at §9.9 / 9.12) is the
-   natural unblock; it can't fire until 9.9 flips
-   `[x]`.
+Remaining SKIP-VALIDATOR-GAP by corpus (123 total):
+elem 24, data 22, memory 18, global 17, unreached-invalid
+13, func_ptrs 5, table 4, if 4, start 3, ref_func 3,
+imports 3, call_indirect 2, select 1, memory_fill 1.
+SKIP-PARSER-GAP (63): binary-leb128 33, binary 24,
+custom 4, global 2. SKIP-CROSS-MODULE-IMPORTS (136) is
+D-079 Phase 10+ scope.
+
+Each VALIDATOR-GAP corpus needs spec-rule-specific
+validator additions. Concrete candidate chunks:
+
+- **d-75** — `data` / `memory` corpora (40 entries): data
+  segment offset validation, memory limits validation per
+  §3.4.4 / §3.4.5.
+- **d-76** — `elem` corpus (24 entries): elem segment
+  validation per §3.4.6.
+- **d-77** — `global` corpus (17 entries): global type +
+  init expression validation per §3.4.3.
+- **d-78** — `unreached-invalid` (13 entries): polymorphic
+  stack typing in validator dead-code (interacts with
+  D-093's gap-1 unreachable-tracking).
+- **d-79+** — long tail (func_ptrs / table / if / etc.).
+
+## Outstanding (now-resumed) `now` debts
+
+- **D-134** OrbStack flake — instrumented at d-72;
+  awaits next failure to surface (iii-b) signal-mask
+  evidence. Continued proactive probing is wheel-
+  spinning until then.
+- **D-095** partial / **D-126** Phase 10+ / **D-133**
+  substrate audit Q5 — gated.
 
 ### Phase 9 / §9.9 status
 
@@ -91,28 +99,15 @@ genuinely converged on its limits for §9.9. The
   d-68 disabled Zig's startup SEGV handler but the
   heisenbug still reproduces at low rate).
 
-### Resume paths (user-initiated)
+### Closing path (post-d-74 user redirect)
 
-When the user is ready to re-engage:
-
-- **Path A — relax §9.9 exit criterion**: write
-  `.dev/decisions/NNNN_<slug>.md` per §18.2 amending the
-  `skip-impl == 0` clause to "active-corpora green AND
-  all skip-impls structurally Phase 11+ multi-result OR
-  documented per skip-ADR". Once that ADR lands, the
-  loop can flip 9.9 `[x]` autonomously, fire the
-  Windows reconciliation, and hand off to the substrate
-  audit hard gate at 9.12.
-- **Path B — fix D-134 root cause**: a failing OrbStack
-  run with d-72 diagnostics in place is the next
-  evidence-producing event. Sit on the bug; next
-  surfaced failure will narrow hypothesis (iii-b)
-  (signal mask) or surface a new mode.
-- **Path C — pivot to substrate audit prep**: open
-  `.dev/phase9_completion_substrate_audit.md` and
-  pre-work Q2/Q3/Q4/Q5/Q6 sections. The audit's
-  outcome should reshape D-095 / D-133 (the substrate-
-  scope debts) into concrete chunks.
+User has redirected the loop to drain solvable
+skip-impl. The next chunks (d-75+) target the remaining
+SKIP-VALIDATOR-GAP / SKIP-PARSER-GAP families per the
+roadmap above. Once skip-impl reaches its structural
+floor (multi-result Phase 11+ scope + SKIP-CROSS-MODULE-
+IMPORTS Phase 10+ scope), the §9.9 exit-criterion
+interpretation question can be revisited collaboratively.
 
 ## Sandbox quirks + hook scope
 
