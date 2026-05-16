@@ -10,42 +10,38 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **d-76 closed: 4-rule validator bundle (§3.4.5/.6/.8/.9), +26 PASS**
+## Active state — **d-77 closed: §3.4.3 global init-expr validation, +34 PASS**
 
 ### One-line state
 
-d-76 bundles 4 small spec-rule validators in
-`compileWasm`: §3.4.5 table limits, §3.4.6 elem
-tableidx range, §3.4.8 start function (idx + `[]→[]`
-signature), §3.4.9 import-func typeidx. Result:
-spec_assert non-simd 23863/0/2207 → **23889/0/2181**
-(+26 PASS, 0 FAIL). Per-corpus SKIP-VALIDATOR-GAP
-full drains: table 4→0, start 3→0, imports 3→0,
-func_ptrs 5→0. elem 24→14, memory 6→5. Total
-VALIDATOR-GAP 89→68. **Mac + OrbStack bit-identical**
-(OrbStack test-all exit 0 — D-134 didn't trigger).
+d-77 adds `validateGlobalInitExpr` helper to check
+per-global init-expressions per Wasm §3.4.3 / §3.3.2:
+const-opcode-only, type match, trailing `end`. Called
+in both empty-fn early-return AND main paths. Mid-
+cycle fix: added `0xFD → v128.const` branch after SIMD
+modules regressed. Result: spec_assert non-simd
+23889/0/2181 → **23923/0/2147** (+34 PASS). `global`
+corpus fully drained (17→0). simd unchanged
+(13301/0/440). **Cumulative d-74 → d-77 (4 chunks):
++139 PASS** (23784 → 23923). OrbStack: SIMD green;
+D-134 flake hit `zwasm-spec-wasm-2-0-assert`.
 
-**Cumulative since d-74 start (3 chunks, ~300 LOC
-total)**: **+105 PASS** (23784 → 23889).
+### Skip-impl drainage roadmap (post-d-77)
 
-### Skip-impl drainage roadmap (post-d-76)
-
-Remaining SKIP-VALIDATOR-GAP (68): elem 14, global 18,
+Remaining SKIP-VALIDATOR-GAP (~53): elem 14,
 unreached-invalid 13, data 12, memory 5, if 4,
-ref_func 3, call_indirect 2, select 1. Next chunks:
+ref_func 3, call_indirect 2, select 1. Next:
 
-- **d-77** — `global` corpus (18 entries): global type
-  + init expression validation per §3.4.3 (init expr
-  walking for global.get references; const-expression
-  enforcement; type matching).
-- **d-78** — `elem` remaining (14 entries): init-expr
-  type validation, reftype-matching with table type.
-- **d-79** — `unreached-invalid` (13 entries):
-  polymorphic stack typing in validator dead-code.
-- **d-80+** — residual long tail (data 12 / memory 5
-  validator-layer / if 4 / ref_func 3 / call_indirect 2
-  / select 1) — most need validator extensions in
-  `validateFunction`.
+- **d-78** — `elem` remaining (14): init-expr type
+  validation, reftype-matching with table type.
+- **d-79** — `unreached-invalid` (13): polymorphic
+  stack typing in validator dead-code.
+- **d-80** — `data` (12) / `memory` (5) residual:
+  validator-layer (memory ops in func body with no
+  memory; data offset_expr type errors) → needs
+  `validateFunction` extensions.
+- **d-81+** — long tail (if 4 / ref_func 3 /
+  call_indirect 2 / select 1).
 
 ## Outstanding (now-resumed) `now` debts
 
