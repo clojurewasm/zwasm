@@ -1,3 +1,3 @@
 module ref_null.0.wasm
-skip-impl non-scalar-result externref
-skip-impl non-scalar-result funcref
+assert_return externref () -> i64:0
+assert_return funcref () -> i64:0

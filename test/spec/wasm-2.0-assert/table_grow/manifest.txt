@@ -1,24 +1,24 @@
 module table_grow.0.wasm
 assert_return size () -> i32:0
-skip-impl trap-non-scalar-arg set
+assert_trap set i32:0 i64:9223372036854775811
 assert_trap get i32:0
-skip-impl non-scalar-arg grow
-skip-adr-skip_host_state_diverged assert_return on field=size
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-adr-skip_host_state_diverged assert_return on field=set
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-impl trap-non-scalar-arg set
+assert_return grow i32:1 i64:0 -> i32:0
+assert_return size () -> i32:1
+assert_return get i32:0 -> i64:0
+assert_return set i32:0 i64:9223372036854775811 -> ()
+assert_return get i32:0 -> i64:9223372036854775811
+assert_trap set i32:1 i64:9223372036854775811
 assert_trap get i32:1
-skip-adr-skip_host_state_diverged assert_return on field=grow-abbrev
-skip-adr-skip_host_state_diverged assert_return on field=size
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-adr-skip_host_state_diverged assert_return on field=set
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-adr-skip_host_state_diverged assert_return on field=set
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-impl trap-non-scalar-arg set
+assert_return grow-abbrev i32:4 i64:9223372036854775812 -> i32:1
+assert_return size () -> i32:5
+assert_return get i32:0 -> i64:9223372036854775811
+assert_return set i32:0 i64:9223372036854775811 -> ()
+assert_return get i32:0 -> i64:9223372036854775811
+assert_return get i32:1 -> i64:9223372036854775812
+assert_return get i32:4 -> i64:9223372036854775812
+assert_return set i32:4 i64:9223372036854775813 -> ()
+assert_return get i32:4 -> i64:9223372036854775813
+assert_trap set i32:5 i64:9223372036854775811
 assert_trap get i32:5
 module table_grow.1.wasm
 assert_return grow () -> i32:4294967295
@@ -38,9 +38,9 @@ assert_return grow i32:0 -> i32:10
 assert_return grow i32:1 -> i32:4294967295
 assert_return grow i32:65536 -> i32:4294967295
 module table_grow.4.wasm
-skip-impl non-scalar-result check-table-null
+assert_return check-table-null i32:0 i32:9 -> i64:0
 assert_return grow i32:10 -> i32:10
-skip-impl non-scalar-result check-table-null
+assert_return check-table-null i32:0 i32:19 -> i64:0
 module table_grow.5.wasm
 skip-adr-skip_cross_module_register as=grown-table
 skip-adr-skip_cross_module_action assert_return on module=$Tgt field=grow

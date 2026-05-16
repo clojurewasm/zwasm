@@ -1,39 +1,39 @@
 module table_fill.0.wasm
-skip-impl non-scalar-result get
-skip-impl non-scalar-result get
-skip-impl non-scalar-result get
-skip-impl non-scalar-result get
-skip-impl non-scalar-result get
-skip-impl non-scalar-arg fill
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-adr-skip_host_state_diverged assert_return on field=fill
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-adr-skip_host_state_diverged assert_return on field=fill
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-adr-skip_host_state_diverged assert_return on field=fill
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-adr-skip_host_state_diverged assert_return on field=fill-abbrev
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-adr-skip_host_state_diverged assert_return on field=fill
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-impl trap-non-scalar-arg fill
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-adr-skip_host_state_diverged assert_return on field=get
-skip-impl trap-non-scalar-arg fill
-skip-impl trap-non-scalar-arg fill
+assert_return get i32:1 -> i64:0
+assert_return get i32:2 -> i64:0
+assert_return get i32:3 -> i64:0
+assert_return get i32:4 -> i64:0
+assert_return get i32:5 -> i64:0
+assert_return fill i32:2 i64:9223372036854775810 i32:3 -> ()
+assert_return get i32:1 -> i64:0
+assert_return get i32:2 -> i64:9223372036854775810
+assert_return get i32:3 -> i64:9223372036854775810
+assert_return get i32:4 -> i64:9223372036854775810
+assert_return get i32:5 -> i64:0
+assert_return fill i32:4 i64:9223372036854775811 i32:2 -> ()
+assert_return get i32:3 -> i64:9223372036854775810
+assert_return get i32:4 -> i64:9223372036854775811
+assert_return get i32:5 -> i64:9223372036854775811
+assert_return get i32:6 -> i64:0
+assert_return fill i32:4 i64:9223372036854775812 i32:0 -> ()
+assert_return get i32:3 -> i64:9223372036854775810
+assert_return get i32:4 -> i64:9223372036854775811
+assert_return get i32:5 -> i64:9223372036854775811
+assert_return fill i32:8 i64:9223372036854775813 i32:2 -> ()
+assert_return get i32:7 -> i64:0
+assert_return get i32:8 -> i64:9223372036854775813
+assert_return get i32:9 -> i64:9223372036854775813
+assert_return fill-abbrev i32:9 i64:0 i32:1 -> ()
+assert_return get i32:8 -> i64:9223372036854775813
+assert_return get i32:9 -> i64:0
+assert_return fill i32:10 i64:9223372036854775814 i32:0 -> ()
+assert_return get i32:9 -> i64:0
+assert_trap fill i32:8 i64:9223372036854775815 i32:3
+assert_return get i32:7 -> i64:0
+assert_return get i32:8 -> i64:9223372036854775813
+assert_return get i32:9 -> i64:0
+assert_trap fill i32:11 i64:0 i32:0
+assert_trap fill i32:11 i64:0 i32:10
 assert_invalid table_fill.1.wasm
 assert_invalid table_fill.2.wasm
 assert_invalid table_fill.3.wasm

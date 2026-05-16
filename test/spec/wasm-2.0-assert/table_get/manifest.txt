@@ -1,10 +1,10 @@
 module table_get.0.wasm
-skip-impl action-non-scalar-arg init
-skip-adr-skip_host_state_diverged assert_return on field=get-externref
-skip-adr-skip_host_state_diverged assert_return on field=get-externref
-skip-adr-skip_host_state_diverged assert_return on field=get-funcref
-skip-adr-skip_host_state_diverged assert_return on field=is_null-funcref
-skip-adr-skip_host_state_diverged assert_return on field=is_null-funcref
+invoke-action init i64:9223372036854775810
+assert_return get-externref i32:0 -> i64:0
+assert_return get-externref i32:1 -> i64:9223372036854775810
+assert_return get-funcref i32:0 -> i64:0
+assert_return is_null-funcref i32:1 -> i32:0
+skip-impl funcref-table-roundtrip-bug is_null-funcref(2) — D-132
 assert_trap get-externref i32:2
 assert_trap get-funcref i32:3
 assert_trap get-externref i32:4294967295

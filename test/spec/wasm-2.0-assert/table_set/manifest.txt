@@ -1,21 +1,21 @@
 module table_set.0.wasm
-skip-impl non-scalar-result get-externref
-skip-impl non-scalar-arg set-externref
-skip-adr-skip_host_state_diverged assert_return on field=get-externref
-skip-adr-skip_host_state_diverged assert_return on field=set-externref
-skip-adr-skip_host_state_diverged assert_return on field=get-externref
-skip-adr-skip_host_state_diverged assert_return on field=get-funcref
-skip-adr-skip_host_state_diverged assert_return on field=set-funcref-from
-skip-adr-skip_host_state_diverged assert_return on field=is_null-funcref
-skip-adr-skip_host_state_diverged assert_return on field=set-funcref
-skip-adr-skip_host_state_diverged assert_return on field=get-funcref
-skip-impl trap-non-scalar-arg set-externref
-skip-impl trap-non-scalar-arg set-funcref
-skip-impl trap-non-scalar-arg set-externref
-skip-impl trap-non-scalar-arg set-funcref
-skip-impl trap-non-scalar-arg set-externref
+assert_return get-externref i32:0 -> i64:0
+assert_return set-externref i32:0 i64:9223372036854775810 -> ()
+assert_return get-externref i32:0 -> i64:9223372036854775810
+assert_return set-externref i32:0 i64:0 -> ()
+assert_return get-externref i32:0 -> i64:0
+assert_return get-funcref i32:0 -> i64:0
+assert_return set-funcref-from i32:0 i32:1 -> ()
+assert_return is_null-funcref i32:0 -> i32:0
+assert_return set-funcref i32:0 i64:0 -> ()
+assert_return get-funcref i32:0 -> i64:0
+assert_trap set-externref i32:2 i64:0
+assert_trap set-funcref i32:3 i64:0
+assert_trap set-externref i32:4294967295 i64:0
+assert_trap set-funcref i32:4294967295 i64:0
+assert_trap set-externref i32:2 i64:9223372036854775809
 assert_trap set-funcref-from i32:3 i32:1
-skip-impl trap-non-scalar-arg set-externref
+assert_trap set-externref i32:4294967295 i64:9223372036854775809
 assert_trap set-funcref-from i32:4294967295 i32:1
 assert_invalid table_set.1.wasm
 assert_invalid table_set.2.wasm

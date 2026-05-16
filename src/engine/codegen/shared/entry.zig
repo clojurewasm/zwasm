@@ -1035,6 +1035,57 @@ pub fn callF64_f32i32i64i32f64i32(
     return result;
 }
 
+// §9.9 / 9.9-l-1b-d093-d63: reftype-aliased dispatch shapes
+// for the table_grow / table_fill family. Reftype args/results
+// alias onto the i64 GPR-class scalar path per ADR-0061 (d-33
+// codegen plumbing), so the helpers below carry plain `u64`
+// signatures rather than a separate reftype variant.
+
+pub fn callI32_i32i64(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: u32,
+    a1: u64,
+) Error!u32 {
+    rt.trap_flag = 0;
+    const Fn = *const fn (rt: *const JitRuntime, a0: u32, a1: u64) callconv(.c) u32;
+    const f = module.entry(func_idx, Fn);
+    const result = f(rt, a0, a1);
+    if (rt.trap_flag != 0) return Error.Trap;
+    return result;
+}
+
+pub fn callI64_i32i32(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: u32,
+    a1: u32,
+) Error!u64 {
+    rt.trap_flag = 0;
+    const Fn = *const fn (rt: *const JitRuntime, a0: u32, a1: u32) callconv(.c) u64;
+    const f = module.entry(func_idx, Fn);
+    const result = f(rt, a0, a1);
+    if (rt.trap_flag != 0) return Error.Trap;
+    return result;
+}
+
+pub fn callVoid_i32i64i32(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: u32,
+    a1: u64,
+    a2: u32,
+) Error!void {
+    rt.trap_flag = 0;
+    const Fn = *const fn (rt: *const JitRuntime, a0: u32, a1: u64, a2: u32) callconv(.c) void;
+    const f = module.entry(func_idx, Fn);
+    f(rt, a0, a1, a2);
+    if (rt.trap_flag != 0) return Error.Trap;
+}
+
 /// Wasm spec §4.4 (function invocation, v128 result) — call a no-
 /// argument JIT function returning v128. Per ADR-0046, both backends
 /// emit the v128 result through the SIMD return register (ARM64 V0,

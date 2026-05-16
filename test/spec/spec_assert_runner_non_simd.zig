@@ -461,6 +461,15 @@ fn dispatchVoidResult(
         };
         return true;
     }
+    // §9.9 / 9.9-l-1b-d093-d63: `(i32, i64, i32) → void` — table_fill
+    // shape after reftype aliasing (idx, externref-as-u64, n).
+    if (args.len == 3 and args[0] == .i32 and args[1] == .i64 and args[2] == .i32) {
+        entry.callVoid_i32i64i32(compiled.module, func_idx, rt, args[0].i32, args[1].i64, args[2].i32) catch |err| {
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
+            return false;
+        };
+        return true;
+    }
     try stdout.print("FAIL  {s}: void-result unsupported (n_args={d}) for {s}({s})\n", .{ name, args.len, fn_name, args_s });
     return false;
 }
@@ -681,6 +690,22 @@ fn dispatchScalarResult(
             try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
             return null;
         });
+    }
+    // §9.9 / 9.9-l-1b-d093-d63: reftype-aliased table_grow / check-
+    // table-null shapes. table_grow's `(grow-* idx ref)` returns the
+    // prior size as i32; check-table-null returns funcref aliased
+    // as i64.
+    if (args.len == 2 and args[0] == .i32 and args[1] == .i64 and result_kind == .i32) {
+        return @as(u64, entry.callI32_i32i64(compiled.module, func_idx, rt, args[0].i32, args[1].i64) catch |err| {
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
+            return null;
+        });
+    }
+    if (args.len == 2 and args[0] == .i32 and args[1] == .i32 and result_kind == .i64) {
+        return entry.callI64_i32i32(compiled.module, func_idx, rt, args[0].i32, args[1].i32) catch |err| {
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
+            return null;
+        };
     }
     if (args.len == 2 and args[0] == .i32 and args[1] == .i64 and result_kind == .i64) {
         return entry.callI64_i32i64(compiled.module, func_idx, rt, args[0].i32, args[1].i64) catch |err| {
@@ -1028,6 +1053,15 @@ fn nonSimdRunAssertTrap(
             };
             break :blk false;
         }
+        // §9.9 / 9.9-l-1b-d093-d63: `(i32, i64, i32)` trap path —
+        // table_fill OOB asserts after reftype aliasing. Result
+        // type immaterial for trap detection; use the void helper.
+        if (n_args == 3 and args[0] == .i32 and args[1] == .i64 and args[2] == .i32) {
+            entry.callVoid_i32i64i32(compiled.module, func_idx, &rt, args[0].i32, args[1].i64, args[2].i32) catch |err| {
+                break :blk err == entry.Error.Trap;
+            };
+            break :blk false;
+        }
         try stdout.print("FAIL  {s}: assert_trap unsupported shape n_args={d} for {s}({s})\n", .{ name, n_args, fn_name, args_s });
         return false;
     };
@@ -1156,6 +1190,13 @@ fn invokeActionShape(
     }
     if (args.len == 3 and args[0] == .i32 and args[1] == .i32 and args[2] == .i32) {
         return entry.callVoid_i32i32i32(compiled.module, func_idx, rt, args[0].i32, args[1].i32, args[2].i32);
+    }
+    // §9.9 / 9.9-l-1b-d093-d63: `(i32, i64, i32)` — table_fill
+    // invoke-action shape after reftype aliasing (e.g. `init`
+    // populating an externref-indexed table before the assert
+    // observation chain runs).
+    if (args.len == 3 and args[0] == .i32 and args[1] == .i64 and args[2] == .i32) {
+        return entry.callVoid_i32i64i32(compiled.module, func_idx, rt, args[0].i32, args[1].i64, args[2].i32);
     }
     return error.ShapeNotSupported;
 }

@@ -27,96 +27,96 @@ assert_return select-i32-t i32:1 i32:2 i32:1 -> i32:1
 assert_return select-i64-t i64:2 i64:1 i32:1 -> i64:2
 assert_return select-f32-t f32:1065353216 f32:1073741824 i32:1 -> f32:1065353216
 assert_return select-f64-t f64:4607182418800017408 f64:4611686018427387904 i32:1 -> f64:4607182418800017408
-skip-impl non-scalar-arg select-funcref
-skip-adr-skip_host_state_diverged assert_return on field=select-externref
-skip-adr-skip_host_state_diverged assert_return on field=select-i32-t
-skip-adr-skip_host_state_diverged assert_return on field=select-i32-t
-skip-adr-skip_host_state_diverged assert_return on field=select-i64-t
-skip-adr-skip_host_state_diverged assert_return on field=select-i64-t
-skip-adr-skip_host_state_diverged assert_return on field=select-externref
-skip-adr-skip_host_state_diverged assert_return on field=select-externref
-skip-adr-skip_host_state_diverged assert_return on field=select-f32-t
-skip-adr-skip_host_state_diverged assert_return on field=select-f32-t
-skip-adr-skip_host_state_diverged assert_return on field=select-f32-t
-skip-adr-skip_host_state_diverged assert_return on field=select-f32-t
-skip-adr-skip_host_state_diverged assert_return on field=select-f32-t
-skip-adr-skip_host_state_diverged assert_return on field=select-f32-t
-skip-adr-skip_host_state_diverged assert_return on field=select-f32-t
-skip-adr-skip_host_state_diverged assert_return on field=select-f32-t
-skip-adr-skip_host_state_diverged assert_return on field=select-f64-t
-skip-adr-skip_host_state_diverged assert_return on field=select-f64-t
-skip-adr-skip_host_state_diverged assert_return on field=select-f64-t
-skip-adr-skip_host_state_diverged assert_return on field=select-f64-t
-skip-adr-skip_host_state_diverged assert_return on field=select-f64-t
-skip-adr-skip_host_state_diverged assert_return on field=select-f64-t
-skip-adr-skip_host_state_diverged assert_return on field=select-f64-t
-skip-adr-skip_host_state_diverged assert_return on field=select-f64-t
-skip-adr-skip_host_state_diverged assert_return on field=as-select-first
-skip-adr-skip_host_state_diverged assert_return on field=as-select-first
-skip-adr-skip_host_state_diverged assert_return on field=as-select-mid
-skip-adr-skip_host_state_diverged assert_return on field=as-select-mid
-skip-adr-skip_host_state_diverged assert_return on field=as-select-last
-skip-adr-skip_host_state_diverged assert_return on field=as-select-last
-skip-adr-skip_host_state_diverged assert_return on field=as-loop-first
-skip-adr-skip_host_state_diverged assert_return on field=as-loop-first
-skip-adr-skip_host_state_diverged assert_return on field=as-loop-mid
-skip-adr-skip_host_state_diverged assert_return on field=as-loop-mid
-skip-adr-skip_host_state_diverged assert_return on field=as-loop-last
-skip-adr-skip_host_state_diverged assert_return on field=as-loop-last
-skip-adr-skip_host_state_diverged assert_return on field=as-if-condition
-skip-adr-skip_host_state_diverged assert_return on field=as-if-condition
-skip-adr-skip_host_state_diverged assert_return on field=as-if-then
-skip-adr-skip_host_state_diverged assert_return on field=as-if-then
-skip-adr-skip_host_state_diverged assert_return on field=as-if-else
-skip-adr-skip_host_state_diverged assert_return on field=as-if-else
-skip-adr-skip_host_state_diverged assert_return on field=as-br_if-first
-skip-adr-skip_host_state_diverged assert_return on field=as-br_if-first
-skip-adr-skip_host_state_diverged assert_return on field=as-br_if-last
-skip-adr-skip_host_state_diverged assert_return on field=as-br_if-last
-skip-adr-skip_host_state_diverged assert_return on field=as-br_table-first
-skip-adr-skip_host_state_diverged assert_return on field=as-br_table-first
-skip-adr-skip_host_state_diverged assert_return on field=as-br_table-last
-skip-adr-skip_host_state_diverged assert_return on field=as-br_table-last
-skip-adr-skip_host_state_diverged assert_return on field=as-call_indirect-first
-skip-adr-skip_host_state_diverged assert_return on field=as-call_indirect-first
-skip-adr-skip_host_state_diverged assert_return on field=as-call_indirect-mid
-skip-adr-skip_host_state_diverged assert_return on field=as-call_indirect-mid
+assert_return select-funcref i64:0 i64:0 i32:1 -> i64:0
+assert_return select-externref i64:9223372036854775810 i64:9223372036854775811 i32:1 -> i64:9223372036854775810
+assert_return select-i32-t i32:1 i32:2 i32:0 -> i32:2
+assert_return select-i32-t i32:2 i32:1 i32:0 -> i32:1
+assert_return select-i64-t i64:2 i64:1 i32:4294967295 -> i64:2
+assert_return select-i64-t i64:2 i64:1 i32:4042322160 -> i64:2
+assert_return select-externref i64:9223372036854775810 i64:9223372036854775811 i32:0 -> i64:9223372036854775811
+assert_return select-externref i64:9223372036854775811 i64:9223372036854775810 i32:0 -> i64:9223372036854775810
+assert_return select-f32-t f32:2143289344 f32:1065353216 i32:1 -> f32:2143289344
+assert_return select-f32-t f32:2139226884 f32:1065353216 i32:1 -> f32:2139226884
+assert_return select-f32-t f32:2143289344 f32:1065353216 i32:0 -> f32:1065353216
+assert_return select-f32-t f32:2139226884 f32:1065353216 i32:0 -> f32:1065353216
+assert_return select-f32-t f32:1073741824 f32:2143289344 i32:1 -> f32:1073741824
+assert_return select-f32-t f32:1073741824 f32:2139226884 i32:1 -> f32:1073741824
+assert_return select-f32-t f32:1073741824 f32:2143289344 i32:0 -> f32:2143289344
+assert_return select-f32-t f32:1073741824 f32:2139226884 i32:0 -> f32:2139226884
+assert_return select-f64-t f64:9221120237041090560 f64:4607182418800017408 i32:1 -> f64:9221120237041090560
+assert_return select-f64-t f64:9218868437227537156 f64:4607182418800017408 i32:1 -> f64:9218868437227537156
+assert_return select-f64-t f64:9221120237041090560 f64:4607182418800017408 i32:0 -> f64:4607182418800017408
+assert_return select-f64-t f64:9218868437227537156 f64:4607182418800017408 i32:0 -> f64:4607182418800017408
+assert_return select-f64-t f64:4611686018427387904 f64:9221120237041090560 i32:1 -> f64:4611686018427387904
+assert_return select-f64-t f64:4611686018427387904 f64:9218868437227537156 i32:1 -> f64:4611686018427387904
+assert_return select-f64-t f64:4611686018427387904 f64:9221120237041090560 i32:0 -> f64:9221120237041090560
+assert_return select-f64-t f64:4611686018427387904 f64:9218868437227537156 i32:0 -> f64:9218868437227537156
+assert_return as-select-first i32:0 -> i32:1
+assert_return as-select-first i32:1 -> i32:0
+assert_return as-select-mid i32:0 -> i32:2
+assert_return as-select-mid i32:1 -> i32:2
+assert_return as-select-last i32:0 -> i32:2
+assert_return as-select-last i32:1 -> i32:3
+assert_return as-loop-first i32:0 -> i32:3
+assert_return as-loop-first i32:1 -> i32:2
+assert_return as-loop-mid i32:0 -> i32:3
+assert_return as-loop-mid i32:1 -> i32:2
+assert_return as-loop-last i32:0 -> i32:3
+assert_return as-loop-last i32:1 -> i32:2
+assert_return as-if-condition i32:0 -> ()
+assert_return as-if-condition i32:1 -> ()
+assert_return as-if-then i32:0 -> i32:3
+assert_return as-if-then i32:1 -> i32:2
+assert_return as-if-else i32:0 -> i32:3
+assert_return as-if-else i32:1 -> i32:2
+assert_return as-br_if-first i32:0 -> i32:3
+assert_return as-br_if-first i32:1 -> i32:2
+assert_return as-br_if-last i32:0 -> i32:2
+assert_return as-br_if-last i32:1 -> i32:2
+assert_return as-br_table-first i32:0 -> i32:3
+assert_return as-br_table-first i32:1 -> i32:2
+assert_return as-br_table-last i32:0 -> i32:2
+assert_return as-br_table-last i32:1 -> i32:2
+assert_return as-call_indirect-first i32:0 -> i32:3
+assert_return as-call_indirect-first i32:1 -> i32:2
+assert_return as-call_indirect-mid i32:0 -> i32:1
+assert_return as-call_indirect-mid i32:1 -> i32:1
 assert_trap as-call_indirect-last i32:0
 assert_trap as-call_indirect-last i32:1
-skip-adr-skip_host_state_diverged assert_return on field=as-store-first
-skip-adr-skip_host_state_diverged assert_return on field=as-store-first
-skip-adr-skip_host_state_diverged assert_return on field=as-store-last
-skip-adr-skip_host_state_diverged assert_return on field=as-store-last
-skip-adr-skip_host_state_diverged assert_return on field=as-memory.grow-value
-skip-adr-skip_host_state_diverged assert_return on field=as-memory.grow-value
-skip-adr-skip_host_state_diverged assert_return on field=as-call-value
-skip-adr-skip_host_state_diverged assert_return on field=as-call-value
-skip-adr-skip_host_state_diverged assert_return on field=as-return-value
-skip-adr-skip_host_state_diverged assert_return on field=as-return-value
-skip-adr-skip_host_state_diverged assert_return on field=as-drop-operand
-skip-adr-skip_host_state_diverged assert_return on field=as-drop-operand
-skip-adr-skip_host_state_diverged assert_return on field=as-br-value
-skip-adr-skip_host_state_diverged assert_return on field=as-br-value
-skip-adr-skip_host_state_diverged assert_return on field=as-local.set-value
-skip-adr-skip_host_state_diverged assert_return on field=as-local.set-value
-skip-adr-skip_host_state_diverged assert_return on field=as-local.tee-value
-skip-adr-skip_host_state_diverged assert_return on field=as-local.tee-value
-skip-adr-skip_host_state_diverged assert_return on field=as-global.set-value
-skip-adr-skip_host_state_diverged assert_return on field=as-global.set-value
-skip-adr-skip_host_state_diverged assert_return on field=as-load-operand
-skip-adr-skip_host_state_diverged assert_return on field=as-load-operand
-skip-adr-skip_host_state_diverged assert_return on field=as-unary-operand
-skip-adr-skip_host_state_diverged assert_return on field=as-unary-operand
-skip-adr-skip_host_state_diverged assert_return on field=as-binary-operand
-skip-adr-skip_host_state_diverged assert_return on field=as-binary-operand
-skip-adr-skip_host_state_diverged assert_return on field=as-test-operand
-skip-adr-skip_host_state_diverged assert_return on field=as-test-operand
-skip-adr-skip_host_state_diverged assert_return on field=as-compare-left
-skip-adr-skip_host_state_diverged assert_return on field=as-compare-left
-skip-adr-skip_host_state_diverged assert_return on field=as-compare-right
-skip-adr-skip_host_state_diverged assert_return on field=as-compare-right
-skip-adr-skip_host_state_diverged assert_return on field=as-convert-operand
-skip-adr-skip_host_state_diverged assert_return on field=as-convert-operand
+assert_return as-store-first i32:0 -> ()
+assert_return as-store-first i32:1 -> ()
+assert_return as-store-last i32:0 -> ()
+assert_return as-store-last i32:1 -> ()
+assert_return as-memory.grow-value i32:0 -> i32:1
+assert_return as-memory.grow-value i32:1 -> i32:3
+assert_return as-call-value i32:0 -> i32:2
+assert_return as-call-value i32:1 -> i32:1
+assert_return as-return-value i32:0 -> i32:2
+assert_return as-return-value i32:1 -> i32:1
+assert_return as-drop-operand i32:0 -> ()
+assert_return as-drop-operand i32:1 -> ()
+assert_return as-br-value i32:0 -> i32:2
+assert_return as-br-value i32:1 -> i32:1
+assert_return as-local.set-value i32:0 -> i32:2
+assert_return as-local.set-value i32:1 -> i32:1
+assert_return as-local.tee-value i32:0 -> i32:2
+assert_return as-local.tee-value i32:1 -> i32:1
+assert_return as-global.set-value i32:0 -> i32:2
+assert_return as-global.set-value i32:1 -> i32:1
+assert_return as-load-operand i32:0 -> i32:1
+assert_return as-load-operand i32:1 -> i32:1
+assert_return as-unary-operand i32:0 -> i32:0
+assert_return as-unary-operand i32:1 -> i32:1
+assert_return as-binary-operand i32:0 -> i32:4
+assert_return as-binary-operand i32:1 -> i32:1
+assert_return as-test-operand i32:0 -> i32:0
+assert_return as-test-operand i32:1 -> i32:1
+assert_return as-compare-left i32:0 -> i32:0
+assert_return as-compare-left i32:1 -> i32:1
+assert_return as-compare-right i32:0 -> i32:0
+assert_return as-compare-right i32:1 -> i32:1
+assert_return as-convert-operand i32:0 -> i32:0
+assert_return as-convert-operand i32:1 -> i32:1
 assert_invalid select.1.wasm
 assert_invalid select.2.wasm
 assert_invalid select.3.wasm
