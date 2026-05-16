@@ -10,45 +10,54 @@
 3. `cat .dev/debt.md | head -60` — `now` + `blocked-by:`.
 4. ROADMAP §9 Phase Status widget + §9.9 row text (ADR-0056).
 
-## Active state — **d-66 closed: D-133 partial — emitTableSize X10 → X14**
+## Active state — **d-67 closed: D-134 probe — single_threaded rules out cross-thread siglongjmp (negative result)**
 
 ### One-line state
 
-d-66 applies the d-64 X14 scratch-rename pattern to one
-more op_table site: `emitTableSize` (`src/engine/codegen/
-arm64/op_table.zig:166`). Pre-d-66 the handler used X10
-(in `abi.allocatable_caller_saved_scratch_gprs`) for the
-`tables_ptr` pre-load — same latent vreg-clobber class as
-the D-132 bug d-64 surfaced for `emitTableGet` / `emitTableSet`.
-emitTableSize is the simplest sweep target (single
-scratch register) so the rename is mechanical: line 161 +
-line 168 swap `10` → `14`. Header comment + per-function
-docstring updated to cite §9.9-l-1b-d093-d64/d66 +
-D-132/D-133 + the substrate-audit Q5 unification trigger.
-**No new edge fixture**: edge_case_testing.md "Implementation
-details that aren't observable from Wasm" exemption applies
-— the rename is internal regalloc-pool hygiene; the existing
-`size_initial` happy-path fixture + the table.size spec
-corpus already exercise the post-fix path. Remaining D-133
-sites (emitTableFill / emitTableGrow / emitTableCopy /
-emitTableInit + op_memory.zig's emitMemoryInit / inline
-data.drop / elem.drop in emit.zig) need ≥3 scratch slots
-simultaneously — out of scope for the 2-slot X14/X15 pattern
-and queued for the Phase 9 完備 substrate audit's
-comptime-disjointness mechanism (Q5). Mac aarch64
-`zig build test` + `test-edge-cases` + `test-spec-wasm-2.0-assert`
-green (spec_assert 23784/0/2286 unchanged — emitTableSize
-sites currently latent on the corpus). OrbStack `test-all`
-SEGV reproduces in `zwasm-spec-wasm-2-0-assert` —
-**pre-existing D-134 flake**, not a d-66 regression; all
-other OrbStack test exes pass (1603/1631 in Build Summary).
+d-67 sets `.single_threaded = true` on `non_simd_assert_runner_mod`
+in `build.zig` to probe d-65's leading hypothesis (cross-thread
+`siglongjmp` from `std.Io.Threaded` worker). Building with
+`-fsingle-threaded` makes `std.Io.Threaded.init` return
+`.init_single_threaded` per `~/Documents/OSS/zig/lib/std/Io/
+Threaded.zig:127`, so no worker threads can spawn. Mac
+`test-spec-wasm-2.0-assert` 23784/0/2286 **unchanged** (build
+flag is semantically a no-op on the runner's sequential
+pipeline). OrbStack `test-all` SEGV **still reproduces** at
+`zwasm-spec-wasm-2-0-assert` → cross-thread `siglongjmp` is
+**refuted**. Build flag retained (not reverted): the runner
+walks corpora purely sequentially — no `async` / `concurrent`
+use — so single-threaded is the correct execution shape
+regardless, and keeping it permanently removes cross-thread
+from D-134's hypothesis space.
 
-### Next sub-chunk candidates (d-67+)
+**Hypothesis space narrowed to** (post-d-67):
+- (i) **libc-context SEGV** — d-65 valgrind captured RIP in
+  the libc.so.6 region (addr=0x1, NULL+1 deref pattern).
+  Something inside libc dereferences a small pointer and the
+  SEGV fires outside any context our handler can service.
+- (ii) **Zig's `std.debug.handleSegfaultPosix` chain still
+  firing despite our sigaction** (D-134 candidate path (d) —
+  toolchain PR #25227 / ziglang/zig#14658 "panic/segfault
+  handler not signal-safe"). Our `installSigsegvHandler`
+  installs via `std.posix.sigaction(.SEGV, &act, null)` —
+  if Zig's startup or some std lib path re-installs SEGV
+  after our install, the kernel routes the fault through
+  Zig's chain (which recursively faults in
+  `mem.Alignment.toByteUnits` per d-65 valgrind) rather
+  than through our handler.
 
-- **D-134 next step**: add `pthread_self()` logging to the
-  handler + sigsetjmp site to confirm/refute cross-thread
-  siglongjmp; OR try `Threaded.init_single_threaded` for the
-  spec runner main and re-measure flake rate.
+### Next sub-chunk candidates (d-68+)
+
+- **D-134 (ii) probe**: install our `installSigsegvHandler`
+  **later** (after first stdlib touch) and verify it
+  survives, OR install via raw `std.c.sigaction` to bypass
+  any Zig wrapper layering. If our handler still doesn't
+  fire on the real SEGV after a verified-late install, the
+  fault is hypothesis (i) (libc-context).
+- **D-134 (i) probe**: capture the SEGV addr's
+  surrounding-libc-context — gdb-batch with breakpoints at
+  `__sigsetjmp` and the first parser/sections read; check
+  if a specific module byte-offset triggers it.
 - **D-135 discharge**: identify which corpus's last module
   hits the empty-function-section path and isn't freed
   before runCorpus's defer; structural fix may be
