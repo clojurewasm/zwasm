@@ -6,65 +6,76 @@
 ## Cold-start procedure
 
 1. **READ FIRST** [`.dev/phase9_close_plan.md`](phase9_close_plan.md)
-   §6. Cat III dispatch — chunks α (ABI shape) + β (arm64 mirror)
-   landed. Chunk γ (x86_64 mirror + γ-4 permanent relax) next.
-2. **READ NEXT** [`.dev/decisions/0068_dual_view_table_storage_fix.md`](decisions/0068_dual_view_table_storage_fix.md)
-   §A4 chunk γ. Auto-loaded:
+   §6. Cat III dispatch — chunks α (ABI shape) + β (arm64 mirror) +
+   γ-partial (x86_64 mirror) landed. **γ-4 relax + typeidx mirror
+   follow-up** is next (see "Active state" below).
+2. **READ NEXT** [`.dev/decisions/0068_dual_view_table_storage_fix.md`](decisions/0068_dual_view_table_storage_fix.md).
+   Auto-loaded:
    [`.claude/rules/dual_view_table_sync.md`](../.claude/rules/dual_view_table_sync.md).
-3. `git log --oneline -10`. Latest: chunk β (arm64) — all 5
-   contract fixtures green on Mac. Prior chain via
+3. `git log --oneline -10`. Latest: SIB-byte fix (6513b23f) +
+   x86_64 mirror (2c3c85fa). Prior chain via
    `git log --grep="9.9-III"`.
 4. `bash scripts/p9_simd_status.sh` — live SIMD via ubuntunote.
-5. `cat .dev/debt.md | head -90`. D-126 row body has the
-   3-chunk plan summary.
+5. `cat .dev/debt.md | head -90`. D-126 row body has plan summary.
 
-## Active state — Phase 9 close-plan Step (c) D-126 chunk γ
+## Active state — Phase 9 close-plan Step (c) D-126 chunk γ.2
 
-Chunks α + β complete:
-- α: `FuncEntity.funcptr` field; `TableSlice` 16→24 bytes
-  (added `funcptrs: [*]allowzero u64`); stride references in
-  arm64+x86_64 op_table/op_call re-derived through
-  `jit_abi.table_slice_size`; setup wiring + null sentinel
-  for externref tables.
-- β: arm64 emit `mirrorWrite*` for `emitTableSet` / `Fill` /
-  `Init` / `Copy` (+typeidx mirror for cross-table copy);
-  `growableTableGrowFn` mirrors host-side. All 5 fixtures
-  PASS on Mac aarch64.
+Chunks α + β + γ-partial complete:
+- α: ABI shape (FuncEntity.funcptr, TableSlice extension, setup
+  wiring with null sentinel for externref).
+- β: arm64 emit mirror for Set/Fill/Init/Copy (+typeidx for
+  copy); growableTableGrowFn host-side mirror.
+- γ-partial: x86_64 emit mirror for Set/Fill/Init/Copy (+typeidx
+  for cross-table copy). SIB-byte fix in encMovR64FromMemDisp32
+  for RSP/R12 base (regalloc pool members trigger SIB requirement).
 
-Mac chunk β gate: `zig build test-all` EXIT=0;
-`test-edge-cases` 51 PASS; spec_assert_runner_non_simd
-24034/0/2015 unchanged.
+2-host gate at HEAD=6513b23f: Mac + ubuntunote both `zig build
+test-all` EXIT=0; `test-edge-cases` 51 PASS on both (5 new
+contract fixtures green on both arches).
 
-### Next-session active task — D-126 chunk γ (x86_64 mirror + γ-4)
+### Next-session active task — D-126 chunk γ.2 (typeidx mirror + γ-4)
 
-Per ADR-0068 §A4 chunk γ scope:
+**γ-4 relax probe** (this session, stashed not committed) flipped
+`hasUnbindableImports` to allow registered-exporter func imports.
+Result on Mac: 24034 → 25275 passed (+1241), **33 new fails**
+(table_init / ref_func / imports families).
 
-- Wire the arm64 chunk β logic into `x86_64/op_table.zig` for
-  the same 5 op handlers (`emitTableSet` / `Fill` / `Init` /
-  `Copy` (+typeidx mirror) / `Grow` via host-side covered).
-- x86_64 register conventions differ: use SysV/Win64 scratch
-  regs (RAX/RCX/RDX/R8..R11 free in the op-handler scope).
-- Add a CBZ-equivalent skip on `funcptrs_base == 0` (use
-  `TEST + JZ` on x86_64).
-- Land the **γ-4 permanent relax**: re-enable
-  `hasUnbindableImports` short-circuit (removed during D-142
-  bisect). Cross-module table_copy / table_init / ref_func /
-  imports fixtures should green up across the 113 functional
-  FAILs once the x86_64 mirror lands AND γ-4 is restored.
-- Capture optional bench delta per §A5 in commit body
-  (informational baseline for Phase 15 perf restore).
+Root cause of the 33 fails: emitTableSet / emitTableFill /
+emitTableInit / emitTableGrow mirror refs + funcptrs but NOT
+typeidx_base. After table.init populates slots with funcref
+entries, `call_indirect` sig-check on those slots reads stale
+sentinel typeidxs → trap. `emitTableCopy`'s different-tables
+path already mirrors typeidx (chunk β/γ); the other 4 ops don't.
+
+Plan for chunk γ.2:
+- Add `typeidx: u32` field to `FuncEntity` (at offset 12, between
+  `func_idx` and `funcptr` for natural alignment; struct stays
+  24 bytes total).
+- Populate `typeidx` at every FuncEntity construction site:
+  production runner.zig, spec_assert_runner_base, interp
+  instantiate. Locals use `canonical_typeidx(compiled.func_typeidxs[i])`;
+  imports use the resolved cross-module typeidx (via dispatch).
+- emit typeidx mirror in arm64 + x86_64 Set/Fill/Init via
+  `LDR W/MOV r32, [FuncEntity_ptr + 12]; STR/MOV [typeidx_base + idx*4]`.
+  emitTableGrow's growableTableGrowFn host-side path: derive
+  typeidx from init's FuncEntity ptr too.
+- typeidx_base for k=0 lives at scalar `JitRuntime.typeidx_base`;
+  k>0 at `TableJitCallInfo.typeidx_base`. Mirror code loads via
+  the same dual-path as call_indirect.
+- Land γ-4 permanent relax in `hasUnbindableImports` (`registered.contains(imp.module)`).
+- 2-host gate: expect 0 fails on Mac + ubuntunote.
 
 ### Discipline reminders
 
-Pre-commit hook active (`gate_commit.sh`); no `--no-verify`
-per §14. 2-host gate per chunk (Mac + ubuntunote);
-windowsmini batch at Phase 9 close.
+Pre-commit hook active (`gate_commit.sh`); no `--no-verify`.
+2-host per-chunk (Mac + ubuntunote); windowsmini batch at Phase
+9 close.
 
 ### Outstanding `now` debts
 
 D-079(v128 cross-module → (c)-2.4 sub-gap ii); **D-126
-(IN PROGRESS — α/β landed, γ next)**; D-133(arm64 op_table
-scratch sweep). D-016 + D-052 + D-138 + D-142 + D-143 CLOSED.
+(IN PROGRESS — α/β/γ-partial landed, γ.2 next)**; D-133(arm64
+op_table scratch sweep). D-016 + D-052 + D-138 + D-142 + D-143 CLOSED.
 
 `blocked-by` rides: D-103/D-105 → (c)-2.3/2.4; D-079(ii) →
 (c)-2.4; D-136 → step (d) Win64 SEH; D-135 entry.zig
