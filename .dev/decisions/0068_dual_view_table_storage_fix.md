@@ -1,9 +1,9 @@
 # 0068 — Synchronise dual-view table storage via op-time mirror writes
 
-- **Status**: Proposed
+- **Status**: Accepted (2026-05-18 user-approved with audit-prep amendments — see "Audit-prep configurations" § below)
 - **Date**: 2026-05-18
 - **Author**: zwasm v2 maintainer (Phase 9 §9.9-III Cat III work — D-126 discharge)
-- **Tags**: phase-9, cat-iii, jit, abi, table, call-indirect, cross-module, dispatch
+- **Tags**: phase-9, cat-iii, jit, abi, table, call-indirect, cross-module, dispatch, 9.12-audit-prep
 
 ## Context
 
@@ -237,6 +237,131 @@ runtime change with a single populator at
     can extend the corpus distiller `supported` set
     without hitting D-126 again.
 
+## Audit-prep configurations (9.12 substrate audit alignment)
+
+The original Option B framing optimised for "γ-4 unblock
+fast"; the user reframe (2026-05-18) prioritises landing the
+fix AND keeping the codebase digestible for the 9.12
+substrate audit (which revisits §4.5 dispatch-table / §4.6
+build flags). The following 7 configurations re-shape Option
+B so the audit isn't constrained by D-126 land's choices:
+
+### A1. Common `mirrorWrite` helper
+
+Land triple-write logic in **one** shared site —
+`src/engine/codegen/shared/table_storage.zig::mirrorWrite(ctx,
+tableidx, ...)` — and call it from each of the 5 mutating op
+handlers (`emitTableCopy` / `emitTableInit` / `emitTableSet` /
+`emitTableGrow` / `emitTableFill`) on both arch backends. If
+the 9.12 audit decides unified storage (Option A in this
+ADR's Alternatives), the helper internal becomes a no-op /
+single-write; call sites stay unchanged. **Forbid inlining
+the triple-write logic into per-op handlers** — the audit
+cleanup grep target is the helper, not 8 scattered sites.
+
+### A2. Scaffolding-wart `// TODO(9.12-audit)` markers
+
+Every triple-write site (= every `mirrorWrite` callsite) AND
+the `TableSlice` extern struct extension AND the
+`FuncEntity.funcptr` field carry a literal
+`// TODO(9.12-audit): table storage shape — see D-126 /
+ADR-0068` comment. `audit_scaffolding §F` walks these via
+`grep -rn "TODO(9.12-audit)" src/` so the 9.12 cleanup chunk
+sees the full inventory in one shot. The 9.12 audit
+deliberation document (`.dev/phase9_completion_substrate_
+audit.md`) gains a Q6 row referencing this TODO marker
+convention.
+
+### A3. Contract-level fixtures, not implementation-internal
+
+`test/edge_cases/p9/table_storage_sync/` carries 5–10 small
+WAT fixtures: `table.copy 0 0` / `table.copy 0 1` / `table.
+init` / `table.set` / `table.grow` each followed by a
+`call_indirect` that round-trips the mutated slot. Each
+fixture asserts the SPEC-EXTERNAL behaviour (= the funcref
+at the post-mutation slot dispatches to the expected
+func body), NOT the dual-view internals. The 9.12 audit may
+unify / split / re-bind storage; these fixtures stay green
+regardless because they're a contract on `call_indirect`
+post-mutation correctness. Per
+`.claude/rules/edge_case_testing.md` discipline (same-commit
+fixture for boundary semantics).
+
+### A4. Bundle to 3 chunks, not 6
+
+ADR's original Forward Plan listed 6 sub-chunks; per the
+chunk-granularity rule (`continue/SKILL.md` §"Bundle when
+ALL hold"), collapse to:
+- **Chunk α**: precondition + ABI shape — `FuncEntity.funcptr`
+  field + `TableSlice` 16→24 byte stride extension + setup
+  wiring in `runner_mod` / `spec_assert_runner_base` /
+  `nonSimdOnModuleLoaded`. New `shared/table_storage.zig`
+  with empty `mirrorWrite` stub (helper exists but does
+  nothing yet; safe to land — call sites added in β/γ).
+  Includes the contract-fixture set (A3) — they fail at this
+  chunk's gate because mirror isn't wired.
+- **Chunk β**: arm64 4-op triple-write — wire mirrorWrite
+  into emitTableCopy / TableInit / TableSet / TableGrow on
+  arm64; helper writes both refs + funcptr_base. Fixtures
+  go green on Mac. ubuntunote stays red (x86_64 mirror
+  pending).
+- **Chunk γ**: x86_64 4-op triple-write + γ-4 permanent relax
+  in `hasUnbindableImports`. Fixtures + spec corpus green on
+  both hosts. γ-4 lands.
+
+emitTableFill is bundled with whichever chunk touches its
+sibling on each arch (likely β/γ-paired). chunk α LOC ≈ 200
+(ABI + wiring + fixtures), β ≈ 250, γ ≈ 250 — all within the
+800-LOC chunk cap.
+
+### A5. Bench delta as optional baseline
+
+The §9.8b bench-delta trigger doesn't fire for §9.9 rows,
+but the triple-write's +6 inst/loop affects JIT hot paths
+that Phase 15 may want to optimise. Capture
+`bash scripts/run_bench.sh --quick --diff HEAD~1 > /tmp/
+bench-delta.md` at chunk γ commit and paste into the
+commit body under `## Bench delta (informational —
+baseline for Phase 15 perf restore)`. Negative deltas are
+expected and acceptable; they document the perf debt that
+Phase 15 will recover.
+
+### A6. Q3 (per-op-file) decoupling via the helper
+
+If 9.12 substrate audit Q3 picks the per-op-file
+architecture (hypothesis C in ADR-0062), `emitTableCopy`
+etc. will move from `op_table.zig` to per-op files like
+`feature/table/copy.zig`. **Because the triple-write goes
+through `mirrorWrite` (A1), the per-op cutover only needs
+to relocate the helper callsite — the mirror logic stays
+intact**. Without A1, the cutover would have to re-derive
+the triple-write at each new per-op file. A6 IS A1's payoff
+for the audit-prep case.
+
+### A7. Discipline rule for future table-mutating ops
+
+A new rule `.claude/rules/dual_view_table_sync.md` codifies
+the helper-must-be-called discipline so future op handlers
+(e.g. Wasm 3.0 reftype additions, GC table operations)
+don't accidentally bypass `mirrorWrite`. The rule
+auto-loads when editing `op_table.zig` /
+`feature/table/**` / `shared/table_storage.zig`.
+Distinct from `abi_callee_saved_pinning.md` (which is
+about ABI register-class invariants) — table-view sync is
+a runtime data-structure invariant; deserves its own
+header.
+
+### Net effect of A1-A7
+
+Phase 9 closes with γ-4 landed, 100 % PASS on the
+cross-module corpus, AND the dual-view storage is wrapped
+in a single-site helper + marked everywhere with
+`// TODO(9.12-audit)`. The 9.12 substrate audit can pick
+ANY of unify / split / per-op / per-table without touching
+the call sites — only `mirrorWrite`'s body and the
+`TableSlice` shape need to change. Contract fixtures
+survive any of those reshapes.
+
 ## References
 
 - ROADMAP §9.9-III (Cat III absorption per ADR-0065)
@@ -276,4 +401,5 @@ runtime change with a single populator at
 
 | Date       | SHA          | Note                                                                                                                          |
 |------------|--------------|-------------------------------------------------------------------------------------------------------------------------------|
-| 2026-05-18 | `<backfill>` | Initial proposed version (Phase 9 §9.9-III D-126 discharge plan). User review pending before flipping `Status: Accepted`. |
+| 2026-05-18 | `<backfill>` | Initial proposed version (Phase 9 §9.9-III D-126 discharge plan). User review pending before flipping `Status: Accepted`.                          |
+| 2026-05-18 | `<backfill>` | Accepted with audit-prep amendments §A1–A7 (user-approved 100% PASS not negotiable + 9.12 audit-friendly). Sub-chunks collapsed 6→3 (α/β/γ). Q6 anchor for 9.12. |

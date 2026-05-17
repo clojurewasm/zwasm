@@ -7,120 +7,95 @@
 
 1. **READ FIRST** [`.dev/phase9_close_plan.md`](phase9_close_plan.md)
    §6. Cat III dispatch — D-142 fix (A) chain complete; γ-4
-   probe surfaced 113 FAILs which bisect identified as
-   pre-existing **D-126** dual-view table-0 storage bug.
-   D-143 closed as duplicate. D-126 next.
-2. `git log --oneline -10`. Latest: D-126 absorb D-143
-   evidence. Prior chain via `git log --grep="9.9-III"`.
-3. `bash scripts/p9_simd_status.sh` — live SIMD via ubuntunote
+   probe behaviorally verified the thunks; D-126 dual-view
+   storage gap is the remaining cross-module blocker.
+   **ADR-0068 Accepted 2026-05-18** with audit-prep
+   amendments §A1–A7; chunk α/β/γ ready to execute.
+2. **READ NEXT** [`.dev/decisions/0068_dual_view_table_storage_fix.md`](decisions/0068_dual_view_table_storage_fix.md)
+   in full, especially the "Audit-prep configurations §A1–A7"
+   section — chunk α/β/γ scope + helper-mediated discipline.
+   Also auto-loaded: [`.claude/rules/dual_view_table_sync.md`](../.claude/rules/dual_view_table_sync.md).
+3. `git log --oneline -10`. Latest: ADR-0068 amendments +
+   new rule. Prior chain via `git log --grep="9.9-III"`.
+4. `bash scripts/p9_simd_status.sh` — live SIMD via ubuntunote
    native x86_64 (ADR-0067).
-4. `cat .dev/debt.md | head -90`. Cat III sub-chunks tracked
-   in close-plan §6 step (c), not granular ROADMAP rows.
+5. `cat .dev/debt.md | head -90`. D-126 row body has the
+   3-chunk plan summary.
 
-## Active state — Phase 9 close-plan Step (c)-2.3
+## Active state — Phase 9 close-plan Step (c) D-126 fix
 
-D-134 closed structurally. Cat III JIT dispatch infra:
-registry (c)-1a/b/c; ADR-0066 design (c)-2.0; arm64 32-byte
-/ x86_64 22-byte opcode-pinned thunk encoders (c)-2.1;
-`shared/thunk.zig` arena lifecycle (c)-2.2; resolver
-substrate + wire-up (c)-2.3-α/β-1/β-2a/β-2b. γ-1/γ-2/γ-3/
-γ-3.b-i/γ-3.b-ii/γ-5 all landed
-(`9518eb4d`/`413d9b57`/`33d1da17`/`3b003b9e`/`84f62398`/
-`e902e531`). Counts unchanged with γ-relaxation deferred:
-24034/0/2015 + 13301/0/440 + 212/0/20.
+D-142 fix (A) chain (B/A.1/A.2/A.3) all landed; D-138 closed;
+D-143 absorbed into D-126. γ-4 probe verified the bridge
+thunk path. The remaining 113 functional FAILs are D-126's
+dual-view table-0 storage gap, fixed via ADR-0068's
+helper-mediated triple-write.
 
-### Next-session active task — D-126 fix needs ADR FIRST (§18.2 deviation); (c)-2.4 / D-079(ii) viable parallel work
+### Next-session active task — D-126 chunk α (precondition + ABI shape)
 
-**γ-4 probe + D-143 bisect (2026-05-18 cycles 1+2)** confirmed
-the 113 functional FAILs surfaced by relaxing
-`hasUnbindableImports` are the SAME bug class as pre-existing
-**D-126** (`bulk.wast` call_indirect post-mutation returning
-stale entries). γ-4 just exposed it across 4 more fixture
-families (table_copy 66 / ref_func 6 / table_init 5 /
-imports 1) on top of the original bulk.X.wasm cases. D-143
-closed as duplicate; D-126 updated with the cycle-2 evidence
-+ 3 architectural options.
+Per ADR-0068 §A4 chunk α scope:
 
-**Root cause (verified)**: table-0 in `JitRuntime` has TWO
-independent storage buffers:
-- `funcptr_base` (= `scratch_funcptrs.ptr`, read by
-  `call_indirect t0` per the §9.9-l-1b-d093 X26 fast path).
-- `tables_ptr[0].refs` (= `scratch_table_refs[0]`, written
-  by `table.copy`/`table.init`/`table.set` per
-  `op_table.zig::emitTableCopy`).
+- **Add `FuncEntity.funcptr: usize`** field to
+  `src/runtime/instance/func.zig`. Update construction
+  sites (3 in tests, 2 in `spec_assert_runner_base.zig`,
+  1 production in `src/engine/runner.zig:1599`). For
+  test/scratch sites use `undefined` initially; production
+  populates from `compiled.module.block.bytes.ptr +
+  func_offsets[i]` (locals) or `dispatch[i]` (imports).
+- **Extend `TableSlice` extern struct** in
+  `src/engine/codegen/shared/jit_abi.zig` from 16 → 24
+  bytes (add `funcptrs: [*]u64`; typeidxs already separate).
+  Stride references at `op_table.zig` / `op_call.zig` need
+  re-derivation (grep `* 16` + `<<4` referring to
+  `tables_ptr` indexing — likely 4-6 sites per arch).
+- **Create `src/engine/codegen/shared/table_storage.zig`**
+  with `mirrorWrite` API skeleton (empty body initially —
+  call sites land in β/γ). Doc-comment cites ADR-0068 §A1.
+- **Wire setup** in `makeJitRuntime` /
+  `setupMultiTableScratch` / `ensureCompiledAndRt` so
+  `scratch_tables_descriptor[k].funcptrs` points at
+  `scratch_funcptrs` (k=0) / `scratch_extra_funcptrs[k-1]`
+  (k>0).
+- **Add `// TODO(9.12-audit): table storage shape — see
+  D-126 / ADR-0068`** markers at every new site (helper,
+  TableSlice extension, FuncEntity.funcptr field).
+- **Land contract fixtures** under
+  `test/edge_cases/p9/table_storage_sync/` per §A3 — 5–10
+  WAT files exercising table.copy/init/set/grow + round-trip
+  via call_indirect. These fail at chunk α gate because
+  helper body is empty; chunk β/γ greens them.
 
-The two are populated identically at `on_module_loaded` but
-NEVER synced after mutating ops. `call_indirect` sees the
-PRE-mutation state. Verified minimal repro:
-`table_copy/table_copy.2.wasm`.
+Chunk α LOC budget ≈ 200 (ABI + wiring + fixtures). Gate:
+Mac + ubuntunote `zig build test-all`; cross-module fixtures
+expected to FAIL (chunk β/γ flips them).
 
-**Architectural options** (per D-126 row):
-- (A) unify storage — one array per slot holding (funcptr,
-  FuncEntity-ptr) pair; table.copy moves both halves at once.
-- (B) sync at op time — extend the 4 table-mutating JIT op
-  handlers to write both views. Most incremental.
-- (C) route call_indirect through `tables_ptr` — drops the
-  X26 fast path; loses §9.9-l-1b-d093 caching.
+### Subsequent chunks
 
-**NEXT chunk caveat (ADR FIRST)**: Option B implementation
-(extend the 4 mutating table ops to mirror writes into a
-parallel funcptr view) is a §4 architecture deviation per
-`.dev/ROADMAP.md` §18.2 — affects `JitRuntime` field
-layout AND `TableSlice` extern struct stride AND every
-`tables_ptr`-indexing emit site. Loop policy:
-**`.dev/decisions/NNNN_dual_view_table_storage_fix.md`
-FIRST** documenting (A) unified storage / (B) sync-at-op /
-(C) call-indirect-through-tables_ptr trade-offs + the
-chosen path; then implementation as multi-chunk follow-up.
-
-**Viable parallel chunks (no D-126 dependency)**:
-- **(c)-2.4 corpus distiller** — extend
-  `scripts/regen_spec_2_0_assert.sh`'s `supported` set +
-  rebuild .wasm fixtures. Discharges D-079 sub-gap ii
-  (v128 cross-module imports — also needs
-  `Runtime.globals` v128 plumbing per ADR-0052 §3,
-  architectural).
-- **D-133 arm64 op_table scratch sweep** — partial
-  mechanical (X10/X11/X12 → X14/X15 rename at 5 sites),
-  but `emitTableCopy` simultaneous 3-reg usage needs a
-  3rd safe scratch register (architectural extension).
-  Re-evaluate after 9.12 substrate audit (per row body).
-
-D-016 + D-052 closed in this session; not on parallel
-list. D-138 closed `4894ad1e`. D-142 / D-143 closed
-2026-05-18.
-
-After Cat III closes (D-126 fix + (c)-2.4): Step (d) Cat IV
-windowsmini reconcile (D-136 SEH bridge). Then Step (e)
-Phase 9 close (audit_scaffolding + SHA backfill + open 9.12
-hard gate — substrate audit collaborative review).
-
-(c)-2.4 = corpus distiller's `supported` set extension +
-new fixture rebuild; discharges D-138 fully + D-079 sub-gap
-ii.
+- **Chunk β**: arm64 4-op triple-write via helper. Wire
+  `mirrorWrite` calls into `emitTableCopy` / `TableInit` /
+  `TableSet` / `TableGrow` (`emitTableFill` if same
+  arch-source-file). Fixtures green on Mac; ubuntunote
+  stays red.
+- **Chunk γ**: x86_64 mirror + `hasUnbindableImports`
+  permanent relax (γ-4 land). Both hosts green at 0 FAIL.
+  Capture optional bench delta (§A5) into commit body.
 
 ### Discipline reminders
 
 Pre-commit hook active (`gate_commit.sh`); no `--no-verify`
 per §14. 2-host gate per chunk: Mac foreground +
 `bash scripts/run_remote_ubuntu.sh test-all > /tmp/ubuntu.log 2>&1`
-background. D-134 closed; future heisenbugs use 5-streak +
-3-SHA rule.
+background. windowsmini batch at Phase 9 close.
 
-### Outstanding `now` debts (6)
+### Outstanding `now` debts
 
-D-079(v128 cross-module → (c)-2.4 sub-gap ii); D-126(dual-
-view table-0 sync gap — γ-4 evidence absorbed 2026-05-18,
-ADR-0068 Proposed); D-133(arm64 op_table scratch sweep —
-3-reg pressure architectural). D-016 + D-052 + D-138 +
-D-142 + D-143 CLOSED. D-016 was already discharged via
-`createSanitizedModule` wrapper per `build.zig:47`;
-handover narrative was stale and cleaned up 2026-05-18.
+D-079(v128 cross-module → (c)-2.4 sub-gap ii); **D-126
+(IN PROGRESS via ADR-0068 chunk α/β/γ)**; D-133(arm64
+op_table scratch sweep — 3-reg pressure, architectural).
+D-016 + D-052 + D-138 + D-142 + D-143 CLOSED.
 
-`blocked-by` rides (corresponding chunks):
-D-103/D-105 → (c)-2.3/2.4; D-138 → (c)-2.4;
-D-136 → step (d) Win64 SEH; D-135 entry.zig comptime;
-D-094/D-137/D-140 multi-result ABI bridge family.
+`blocked-by` rides: D-103/D-105 → (c)-2.3/2.4; D-079(ii) →
+(c)-2.4; D-136 → step (d) Win64 SEH; D-135 entry.zig
+comptime; D-094/D-137/D-140 multi-result ABI bridge family.
 
 ## Sandbox + References
 
@@ -131,7 +106,9 @@ boundary batch.
 PRIMARY: [`phase9_close_plan.md`](phase9_close_plan.md).
 ADRs: [`0065`](decisions/0065_wasm_1_0_instance_work_phase9_rescope.md)
 / [`0066`](decisions/0066_cross_module_import_bridge_thunks.md)
-/ [`0067`](decisions/0067_ubuntunote_native_x86_64_gate_host.md).
-[`ubuntunote_setup.md`](ubuntunote_setup.md) ·
-[`lessons/2026-05-17-d134-rosetta-2-signal-translation-limit.md`](lessons/2026-05-17-d134-rosetta-2-signal-translation-limit.md)
-· [`lessons/2026-05-17-gamma3d-dispatch-write-segv-bisect.md`](lessons/2026-05-17-gamma3d-dispatch-write-segv-bisect.md).
+/ [`0067`](decisions/0067_ubuntunote_native_x86_64_gate_host.md)
+/ **[`0068`](decisions/0068_dual_view_table_storage_fix.md)**.
+Auto-loaded rules: [`dual_view_table_sync.md`](../.claude/rules/dual_view_table_sync.md).
+Lessons:
+[`2026-05-17-gamma3d-dispatch-write-segv-bisect.md`](lessons/2026-05-17-gamma3d-dispatch-write-segv-bisect.md)
+· [`2026-05-18-debt-dedup-grep-before-file.md`](lessons/2026-05-18-debt-dedup-grep-before-file.md).
