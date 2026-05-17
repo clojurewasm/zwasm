@@ -30,8 +30,17 @@ Step (b) Cat II drained (+31 PASS to 24032). Cat III in progress:
 (c)-1a Store registry foundation; (c)-1b spectest host-import
 no-op (+2 PASS); (c)-1c runner `register` directive flow (-21
 skip-adr; 0 PASS gain — registry write-only until (c)-2 import
-linker consumes it). Current: 24034 / 0 / 2015 (= 1542 skip-impl
+linker consumes it). (c)-2 attempt hung on naive relaxation →
+reverted, D-138 filed. Current: 24034 / 0 / 2015 (= 1542 skip-impl
 + 473 skip-adr), Mac+OrbStack bit-identical.
+
+**Session-close wiring** (2026-05-17): new debts D-139 (c_api
+Instance bypass test coverage gap), D-140 (large-sig 16-result
+indirect-result-ptr ABI), D-141 (file_size_check WARN
+proliferation, 20 files). New lessons:
+`2026-05-17-cross-module-noop-stub-controlflow-hang.md` (D-138
+case study) + `2026-05-17-funcret-u64-padding-aligns-jit-epilogue.md`
+(Cat II layout convention).
 
 **Current spec_assert tally** (Mac aarch64 + OrbStack
 bit-identical post-(b)-5; live via
