@@ -81,7 +81,11 @@ pub const TableSlice = extern struct {
     /// `table.fill`). Stride changed from 16 → 24 bytes; all JIT
     /// `tables_ptr` indexers (op_table.zig / op_call.zig per-arch)
     /// dereference via `table_slice_size` rather than a literal.
-    funcptrs: [*]u64,
+    ///
+    /// `allowzero` carve-out: externref tables have no funcptr view,
+    /// so setup writes the zero sentinel here. JIT mirror code's
+    /// leading `CBZ funcptrs_base, .skip` guards against deref.
+    funcptrs: [*]allowzero u64,
 };
 
 pub const table_slice_size: u32 = @sizeOf(TableSlice);

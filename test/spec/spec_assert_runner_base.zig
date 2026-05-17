@@ -612,13 +612,22 @@ pub fn setupMultiTableScratch(
         @memset(refs_slice, Value.null_ref);
         try populateTableRefs(gpa, wasm_bytes, compiled, k, refs_slice);
         // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
-        // `funcptrs` view: for k = 0 the caller-passed
-        // `table0_funcptrs` slice is the authoritative backing (same
-        // memory as the JitRuntime scalar `funcptr_base`). For k > 0
-        // the per-table row of `scratch_extra_funcptrs` is the
-        // backing. Chunk β/γ wires the JIT-emit mirror writes that
-        // keep these views in sync with `refs`.
-        const fp_slice: [*]u64 = if (k == 0)
+        // funcref tables alias the funcptrs/extra_funcptrs slice;
+        // externref tables get a null funcptrs base so the JIT
+        // mirror guard skips deref (externref handles are opaque).
+        const tbl_is_funcref = blk_ft: {
+            var ta_arena = std.heap.ArenaAllocator.init(gpa);
+            defer ta_arena.deinit();
+            const ta = ta_arena.allocator();
+            var module = zwasm.parse.parser.parse(ta, wasm_bytes) catch break :blk_ft true;
+            const sec = module.find(.table) orelse break :blk_ft true;
+            var tabs = zwasm.parse.sections.decodeTables(ta, sec.body) catch break :blk_ft true;
+            defer tabs.deinit();
+            break :blk_ft (k < tabs.items.len and tabs.items[k].elem_type == .funcref);
+        };
+        const fp_slice: [*]allowzero u64 = if (!tbl_is_funcref)
+            @ptrFromInt(0)
+        else if (k == 0)
             table0_funcptrs.ptr
         else blk: {
             const slice = scratch_extra_funcptrs[k - 1][0..tbl_min];
@@ -1528,14 +1537,27 @@ pub fn growableTableGrowFn(rt: *entry.JitRuntime, tableidx: u32, init: u64, delt
     if (new_len > SCRATCH_EXTRA_TABLE_CAPACITY) return -1;
     if (desc.max != entry.table_no_max and new_len > desc.max) return -1;
     const arena = &scratch_table_refs[tableidx];
+    // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
+    // Derive the init operand's funcptr for the parallel funcptrs
+    // view IFF this is a funcref table (`desc.funcptrs` non-null —
+    // externref tables carry a null sentinel and skip the mirror).
+    // `init` is a Value.ref-encoded u64 — null_ref (0) for null
+    // funcref, else a `*FuncEntity` cast.
+    const FuncEntity = @import("zwasm").runtime.FuncEntity;
+    const fp_base_ptr: usize = @intFromPtr(desc.funcptrs);
+    const init_funcptr: u64 = if (fp_base_ptr == 0 or init == 0) 0 else blk: {
+        const fe: *const FuncEntity = @ptrFromInt(init);
+        break :blk fe.funcptr;
+    };
     var i: u32 = 0;
     while (i < delta) : (i += 1) {
         arena[old_len + i] = init;
+        if (fp_base_ptr != 0) {
+            desc.funcptrs[old_len + i] = init_funcptr;
+        }
     }
     desc.refs = arena;
     desc.len = @intCast(new_len);
-    // The mirror tables_jit_ci entry's funcptr_base/typeidx_base
-    // are call_indirect-only and unaffected by table.grow.
     _ = rt;
     return @intCast(old_len);
 }

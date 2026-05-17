@@ -41,3 +41,10 @@ pub const FuncEntity = struct {
     /// machinery that produced the funcref in the first place.
     funcptr: usize,
 };
+
+/// TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
+/// Byte offset of `FuncEntity.funcptr` from the FuncEntity base.
+/// JIT mirror-write emit (`shared/table_storage.zig`) reads via
+/// `LDR Xfp, [Xref, #funcentity_funcptr_offset]`. Comptime-derived
+/// from `@offsetOf` so layout changes propagate.
+pub const funcentity_funcptr_offset: u32 = @offsetOf(FuncEntity, "funcptr");

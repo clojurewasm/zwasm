@@ -52,10 +52,43 @@ const gpr = @import("gpr.zig");
 const trace = @import("../../../diagnostic/trace.zig");
 const abi = @import("abi.zig");
 const jit_abi = @import("../shared/jit_abi.zig");
+const func_mod = @import("../../../runtime/instance/func.zig");
 
 const ZirInstr = zir.ZirInstr;
 const EmitCtx = ctx_mod.EmitCtx;
 const Error = ctx_mod.Error;
+
+/// TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
+/// Emit the "derive funcptr from funcref value with null check"
+/// sequence. Result lands in `dst_reg`; `val_reg` is the
+/// FuncEntity pointer (Value.null_ref == 0 for null funcref).
+/// Used by emitTableSet / emitTableFill / emitTableInit per
+/// ADR-0068 §A1 single-site discipline.
+///
+///   CBZ Xval, .null
+///   LDR Xdst, [Xval, #funcentity_funcptr_offset]
+///   B .end
+///   .null: MOVZ Xdst, #0
+///   .end:
+fn emitDeriveFuncptrFromFuncref(
+    ctx: *EmitCtx,
+    dst_reg: inst.Xn,
+    val_reg: inst.Xn,
+) Error!void {
+    const cbz_at: u32 = @intCast(ctx.buf.items.len);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbz(val_reg, 0));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(dst_reg, val_reg, @intCast(func_mod.funcentity_funcptr_offset)));
+    const b_at: u32 = @intCast(ctx.buf.items.len);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encB(0));
+    const null_arm: u32 = @intCast(ctx.buf.items.len);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(dst_reg, 0));
+    const end_byte: u32 = @intCast(ctx.buf.items.len);
+
+    const cbz_disp = @divExact(@as(i32, @intCast(null_arm)) - @as(i32, @intCast(cbz_at)), 4);
+    std.mem.writeInt(u32, ctx.buf.items[cbz_at..][0..4], inst.encCbz(val_reg, cbz_disp), .little);
+    const b_disp = @divExact(@as(i32, @intCast(end_byte)) - @as(i32, @intCast(b_at)), 4);
+    std.mem.writeInt(u32, ctx.buf.items[b_at..][0..4], inst.encB(b_disp), .little);
+}
 
 /// Wasm spec §4.4.10 (table.get) — pop i32 idx, push tables[x][idx]
 /// as a reference Value (8-byte). Traps `OutOfBoundsTableAccess` on
@@ -158,6 +191,21 @@ pub fn emitTableSet(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 
     // Step D: STR X16 (val), [X14 + X17 * 8] — write refs[idx].
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrXRegLsl3(16, 14, 17));
+
+    // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
+    // Mirror write to funcptrs view. Load funcptrs base into X14
+    // first; externref tables carry a null funcptrs base (setup
+    // discipline), so CBZ skips the dereference + STR. For funcref
+    // tables, derive funcptr from val (X16) and STR to funcptrs[idx].
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(14, abi.runtime_ptr_save_gpr, jit_abi.tables_ptr_off));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(14, 14, @intCast(@as(u32, tbl_off) + 16)));
+    const skip_at: u32 = @intCast(ctx.buf.items.len);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbz(14, 0));
+    try emitDeriveFuncptrFromFuncref(ctx, 15, 16);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrXRegLsl3(15, 14, 17));
+    const end_byte: u32 = @intCast(ctx.buf.items.len);
+    const skip_disp = @divExact(@as(i32, @intCast(end_byte)) - @as(i32, @intCast(skip_at)), 4);
+    std.mem.writeInt(u32, ctx.buf.items[skip_at..][0..4], inst.encCbz(14, skip_disp), .little);
 }
 
 /// Wasm spec §4.4.12 (table.size) — push current `tables[x].len`
@@ -276,10 +324,24 @@ pub fn emitTableFill(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(14, 31, w_n_src));
 
     // Step B: read TableSlice[tableidx]. Safe to clobber X10..X12.
-    //   X10 = tables_ptr; X11 = refs; W12 = len.
+    //   X10 = tables_ptr; X11 = refs; W12 = len; X9 = funcptrs base.
+    // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(10, abi.runtime_ptr_save_gpr, jit_abi.tables_ptr_off));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(11, 10, tbl_off));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImmW(12, 10, @intCast(@as(u32, tbl_off) + 8)));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(9, 10, @intCast(@as(u32, tbl_off) + 16)));
+
+    // Pre-loop derive funcptr from val (X16) into X15. Guarded by
+    // CBZ X9 — externref tables carry a null funcptrs base so we
+    // skip the dereference (val could be an opaque externref handle).
+    const skip_setup_at: u32 = @intCast(ctx.buf.items.len);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbz(9, 0));
+    try emitDeriveFuncptrFromFuncref(ctx, 15, 16);
+    {
+        const after_setup: u32 = @intCast(ctx.buf.items.len);
+        const disp = @divExact(@as(i32, @intCast(after_setup)) - @as(i32, @intCast(skip_setup_at)), 4);
+        std.mem.writeInt(u32, ctx.buf.items[skip_setup_at..][0..4], inst.encCbz(9, disp), .little);
+    }
 
     // Step C: bounds check — trap if dst + n > len.
     //   X13 = X17 + X14  (both upper-bits zero → result fits in u33)
@@ -300,11 +362,22 @@ pub fn emitTableFill(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 
     // Step E: forward loop. Each iteration:
     //   STR X16, [X11, X17, LSL #3]   ; refs[dst] = val
-    //   ADD W17, W17, #1               ; dst++
-    //   SUB W14, W14, #1               ; n--
+    //   CBZ X9, .skip_fp              ; externref → skip funcptrs mirror
+    //   STR X15, [X9, X17, LSL #3]    ; funcptrs[dst] = derived  (ADR-0068)
+    //   .skip_fp:
+    //   ADD W17, W17, #1
+    //   SUB W14, W14, #1
     //   CBNZ W14, .loop
     const loop_start: u32 = @intCast(ctx.buf.items.len);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrXRegLsl3(16, 11, 17));
+    const fill_skip_at: u32 = @intCast(ctx.buf.items.len);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbz(9, 0));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrXRegLsl3(15, 9, 17));
+    {
+        const after_skip: u32 = @intCast(ctx.buf.items.len);
+        const disp = @divExact(@as(i32, @intCast(after_skip)) - @as(i32, @intCast(fill_skip_at)), 4);
+        std.mem.writeInt(u32, ctx.buf.items[fill_skip_at..][0..4], inst.encCbz(9, disp), .little);
+    }
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(17, 17, 1));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encSubImm12(14, 14, 1));
     const back_disp_words: i32 = @divExact(
@@ -387,6 +460,25 @@ pub fn emitTableCopy(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         trace.writeBounds(ctx.func.func_idx, fixup_at);
     }
 
+    // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
+    // Load dst/src funcptrs base addresses for the mirror per-iter
+    // writes. X9 = dst_funcptrs, X13 = src_funcptrs. Both alive
+    // through the loop (W13 was bounds-scratch — last use was the
+    // CMP above; X10 still holds tables_ptr).
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(9, 10, @intCast(@as(u32, dst_tbl_off) + 16)));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(13, 10, @intCast(@as(u32, src_tbl_off) + 16)));
+
+    // Also mirror the typeidx view (TableJitCallInfo stride 16,
+    // typeidx_base at offset 8). Cross-table copy MUST update the
+    // destination's typeidx_base or call_indirect's sig check
+    // sees a stale (or sentinel) typeidx — `copy_cross_table`
+    // contract fixture surfaces this. X8 = dst_typeidx_base,
+    // X7 = src_typeidx_base; X10 transiently reused for
+    // tables_jit_ci_ptr.
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(10, abi.runtime_ptr_save_gpr, jit_abi.tables_jit_ci_ptr_off));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(8, 10, @intCast(@as(u32, dst_tbl) * jit_abi.table_jit_ci_size + 8)));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(7, 10, @intCast(@as(u32, src_tbl) * jit_abi.table_jit_ci_size + 8)));
+
     // Step D: if n == 0, skip the loop entirely.
     const skip_at: u32 = @intCast(ctx.buf.items.len);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbzW(14, 0));
@@ -407,6 +499,19 @@ pub fn emitTableCopy(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encSubImm12(16, 16, 1));
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrXRegLsl3(15, 12, 16));
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrXRegLsl3(15, 11, 17));
+        // Mirror funcptrs + typeidx (ADR-0068) — guarded on X9 != 0
+        // (externref tables have null funcptrs_base, skip both views).
+        const bwd_skip_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbz(9, 0));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrXRegLsl3(15, 13, 16));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrXRegLsl3(15, 9, 17));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrWRegLsl2(15, 7, 16));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrWRegLsl2(15, 8, 17));
+        {
+            const after_skip: u32 = @intCast(ctx.buf.items.len);
+            const disp = @divExact(@as(i32, @intCast(after_skip)) - @as(i32, @intCast(bwd_skip_at)), 4);
+            std.mem.writeInt(u32, ctx.buf.items[bwd_skip_at..][0..4], inst.encCbz(9, disp), .little);
+        }
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encSubImm12(14, 14, 1));
         {
             const back: i32 = @divExact(
@@ -430,6 +535,18 @@ pub fn emitTableCopy(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         const fwd_loop_start: u32 = @intCast(ctx.buf.items.len);
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrXRegLsl3(15, 12, 16));
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrXRegLsl3(15, 11, 17));
+        // Mirror funcptrs + typeidx (ADR-0068) — guarded on X9 != 0.
+        const fwd_skip_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbz(9, 0));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrXRegLsl3(15, 13, 16));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrXRegLsl3(15, 9, 17));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrWRegLsl2(15, 7, 16));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrWRegLsl2(15, 8, 17));
+        {
+            const after_skip: u32 = @intCast(ctx.buf.items.len);
+            const disp = @divExact(@as(i32, @intCast(after_skip)) - @as(i32, @intCast(fwd_skip_at)), 4);
+            std.mem.writeInt(u32, ctx.buf.items[fwd_skip_at..][0..4], inst.encCbz(9, disp), .little);
+        }
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(17, 17, 1));
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(16, 16, 1));
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encSubImm12(14, 14, 1));
@@ -455,6 +572,18 @@ pub fn emitTableCopy(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         const fwd_loop_start: u32 = @intCast(ctx.buf.items.len);
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrXRegLsl3(15, 12, 16));
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrXRegLsl3(15, 11, 17));
+        // Mirror funcptrs + typeidx (ADR-0068) — guarded on X9 != 0.
+        const xt_skip_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbz(9, 0));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrXRegLsl3(15, 13, 16));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrXRegLsl3(15, 9, 17));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrWRegLsl2(15, 7, 16));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrWRegLsl2(15, 8, 17));
+        {
+            const after_skip: u32 = @intCast(ctx.buf.items.len);
+            const disp = @divExact(@as(i32, @intCast(after_skip)) - @as(i32, @intCast(xt_skip_at)), 4);
+            std.mem.writeInt(u32, ctx.buf.items[xt_skip_at..][0..4], inst.encCbz(9, disp), .little);
+        }
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(17, 17, 1));
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(16, 16, 1));
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encSubImm12(14, 14, 1));
@@ -552,14 +681,26 @@ pub fn emitTableInit(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         trace.writeBounds(ctx.func.func_idx, fixup_at);
     }
 
+    // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
+    // Load dst funcptrs base into X9 — long-lived through the loop.
+    // Reload tables_ptr first (X10 currently holds elem_dropped_ptr
+    // from Step B3). X9 is bounds-scratch from Step C1/C2 but free
+    // here since both bounds CMPs are done.
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(9, abi.runtime_ptr_save_gpr, jit_abi.tables_ptr_off));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(9, 9, @intCast(@as(u32, tbl_off) + 16)));
+
     // Step D: if n == 0, skip.
     const skip_at: u32 = @intCast(ctx.buf.items.len);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbzW(14, 0));
 
-    // Step E: forward loop — elem_refs[src] → tbl.refs[dst].
+    // Step E: forward loop — elem_refs[src] → tbl.refs[dst] + mirror funcptrs.
     //   .loop:
-    //     LDR X15, [X12, X16, LSL #3]   ; elem_refs[src]
+    //     LDR X15, [X12, X16, LSL #3]   ; elem_refs[src] (FuncEntity ptr / null)
     //     STR X15, [X11, X17, LSL #3]   ; tbl.refs[dst]
+    //     CBZ X9, .skip_fp              ; externref tables → skip funcptrs mirror
+    //     ;; Mirror funcptrs (ADR-0068): derive X10 = FuncEntity(X15).funcptr (null-safe),
+    //     ;; STR X10, [X9, X17, LSL #3].
+    //     .skip_fp:
     //     ADD W17, W17, #1
     //     ADD W16, W16, #1
     //     SUB W14, W14, #1
@@ -567,6 +708,15 @@ pub fn emitTableInit(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const loop_start: u32 = @intCast(ctx.buf.items.len);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrXRegLsl3(15, 12, 16));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrXRegLsl3(15, 11, 17));
+    const init_skip_at: u32 = @intCast(ctx.buf.items.len);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbz(9, 0));
+    try emitDeriveFuncptrFromFuncref(ctx, 10, 15);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrXRegLsl3(10, 9, 17));
+    {
+        const after_skip: u32 = @intCast(ctx.buf.items.len);
+        const disp = @divExact(@as(i32, @intCast(after_skip)) - @as(i32, @intCast(init_skip_at)), 4);
+        std.mem.writeInt(u32, ctx.buf.items[init_skip_at..][0..4], inst.encCbz(9, disp), .little);
+    }
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(17, 17, 1));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(16, 16, 1));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encSubImm12(14, 14, 1));

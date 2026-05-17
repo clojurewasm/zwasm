@@ -183,6 +183,14 @@ pub fn encStrXRegLsl3(rt: Xn, rn: Xn, rm: Xn) u32 {
     return 0xF8207800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rt);
 }
 
+/// `STR Wt, [Xn, Xm, LSL #2]` — 32-bit store with X-register
+/// offset scaled by element size (4 bytes). 32-bit counterpart
+/// of `encStrXRegLsl3`. Used by ADR-0068 typeidx mirror in
+/// `emitTableCopy`: `STR Wti, [Xdst_ti, Xidx, LSL #2]`.
+pub fn encStrWRegLsl2(rt: Xn, rn: Xn, rm: Xn) u32 {
+    return 0xB8207800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rt);
+}
+
 /// `SXTW Xd, Wn` — sign-extend 32-bit Wn into 64-bit Xd. Alias
 /// for `SBFM Xd, Xn, #0, #31`. Used by `i64.extend_i32_s`.
 /// Encoding base 0x93407C00.
@@ -678,6 +686,13 @@ pub fn encCbzW(rt: Xn, disp_words: i32) u32 {
 pub fn encCbnzW(rt: Xn, disp_words: i32) u32 {
     const masked: u32 = @as(u32, @bitCast(disp_words)) & 0x0007FFFF;
     return 0x35000000 | (masked << 5) | @as(u32, rt);
+}
+
+/// `CBZ Xn, disp` — 64-bit form, branch when Xn == 0.
+/// Encoding: `1 011010 0 [imm19:19] [Rt:5]` = `0xB4000000`.
+pub fn encCbz(rt: Xn, disp_words: i32) u32 {
+    const masked: u32 = @as(u32, @bitCast(disp_words)) & 0x0007FFFF;
+    return 0xB4000000 | (masked << 5) | @as(u32, rt);
 }
 
 /// `B.cond disp` — conditional branch; 19-bit signed offset.

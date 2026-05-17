@@ -1464,7 +1464,7 @@ fn setupRuntime(
     // generalises this to all declared tables for `table.get` /
     // `table.set` / `table.size` (m-2a) and later m-2b/c ops.
     var table_size: u32 = 0;
-    const TableMeta = struct { min: u32, max: ?u32 };
+    const TableMeta = struct { min: u32, max: ?u32, is_funcref: bool };
     var table_metas: []TableMeta = &.{};
     if (module.find(.table)) |s| {
         var tables_buf = try sections.decodeTables(ta, s.body);
@@ -1473,7 +1473,7 @@ fn setupRuntime(
             table_size = tables_buf.items[0].min;
             table_metas = try ta.alloc(TableMeta, tables_buf.items.len);
             for (tables_buf.items, 0..) |t, i| {
-                table_metas[i] = .{ .min = t.min, .max = t.max };
+                table_metas[i] = .{ .min = t.min, .max = t.max, .is_funcref = (t.elem_type == .funcref) };
             }
         }
     }
@@ -1515,16 +1515,17 @@ fn setupRuntime(
     errdefer allocator.free(table_refs);
     @memset(table_refs, Value.null_ref);
     // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
-    // tables_descs[k].funcptrs aliases funcptrs_buf for k=0;
-    // tables 1+ get rebound to extra_funcptrs_buf slices below.
+    // tables_descs[k].funcptrs: funcptrs_buf (k=0 funcref) / extra
+    // slice (k>0 funcref) / null sentinel (externref → skip mirror).
     {
         var ref_offset: usize = 0;
         for (table_metas, 0..) |tm, i| {
+            const fp_init: [*]allowzero u64 = if (tm.is_funcref) funcptrs_buf.ptr else @ptrFromInt(0);
             tables_descs[i] = .{
                 .refs = table_refs.ptr + ref_offset,
                 .len = tm.min,
                 .max = tm.max orelse entry.table_no_max,
-                .funcptrs = funcptrs_buf.ptr,
+                .funcptrs = fp_init,
             };
             ref_offset += tm.min;
         }
@@ -1563,7 +1564,7 @@ fn setupRuntime(
                     .typeidx_base = extra_typeidxs_buf.ptr + off,
                 };
                 // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
-                tables_descs[k].funcptrs = extra_funcptrs_buf.ptr + off;
+                if (tm.is_funcref) tables_descs[k].funcptrs = extra_funcptrs_buf.ptr + off;
                 off += tm.min;
             }
         }
@@ -1593,7 +1594,6 @@ fn setupRuntime(
     const func_entities = try allocator.alloc(FuncEntity, total_funcs);
     errdefer allocator.free(func_entities);
     // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
-    // funcptr: locals → module body addr; imports → dispatch[i].
     for (func_entities, 0..) |*fe, i| {
         const f_off = compiled.module.func_offsets[i];
         const funcptr: usize = if (f_off == linker.IMPORT_SENTINEL_OFFSET)
