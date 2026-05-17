@@ -1,9 +1,9 @@
 # 0066 — Per-import bridge thunks for cross-module function-import dispatch
 
-- **Status**: Accepted
+- **Status**: Accepted (amended 2026-05-17 — bridge thunk shape extended to save caller's pinned callee-saved register per D-142 fix (A); see Amendment §A1 below)
 - **Date**: 2026-05-17
 - **Author**: zwasm v2 maintainer (Phase 9 §9.9-III Cat III work)
-- **Tags**: phase-9, cat-iii, cross-module, host-imports, jit, abi, instance, store, dispatch, thunks
+- **Tags**: phase-9, cat-iii, cross-module, host-imports, jit, abi, instance, store, dispatch, thunks, callee-saved, aapcs64
 
 ## Context
 
@@ -325,6 +325,185 @@ Concretely:
     lands and the prior naive-relaxation hang is replaced
     by working dispatch. Delete D-138 in the (c)-2.4 commit.
 
+## Amendment §A1 (2026-05-17) — bridge thunk saves caller's pinned callee-saved register (D-142 fix (A))
+
+### Why amend
+
+D-142's 6-cycle investigation (lesson
+[`2026-05-17-gamma3d-dispatch-write-segv-bisect.md`](../lessons/2026-05-17-gamma3d-dispatch-write-segv-bisect.md))
+established that the original tail-call thunk shape adopted in
+this ADR's `## Decision` § is **incorrect under v2's
+callee-saved register pinning convention**. The auto-loaded rule
+[`.claude/rules/abi_callee_saved_pinning.md`](../../.claude/rules/abi_callee_saved_pinning.md)
+codifies the underlying principle; this amendment lands the
+load-bearing ADR change that paired rule extraction warranted.
+
+The original tail-call shape (BR X16 on arm64, JMP RAX on
+x86_64) assumed the called function would preserve callee-saved
+registers per AAPCS64 §6.4.1 / SysV §3.2.1. **It does not** —
+v2's JIT prologue (per ADR-0017 sub-2d-ii on arm64; ADR-0026
+Cc-pivot on x86_64) overwrites the pinned reg
+(`runtime_ptr_save_gpr` = X19 on arm64, R15 on x86_64) with the
+new `*JitRuntime` pointer at call entry, WITHOUT first
+stack-saving the caller's value. This invariant is invisible
+for same-module calls (caller_rt ≡ callee_rt, so the
+"corruption" is a no-op) but **silently corrupts the caller's
+pinned reg across cross-module bridge thunks** (caller_rt ≠
+callee_rt). After the corrupted return, the importer's next
+indirect dispatch via `[X19, #host_dispatch_base_off]` reads
+the wrong rt's poisoned dispatch table — the Mac aarch64 SEGV
+captured at fault address `0xAA...AA + 8 = 0xB2` was this
+chain's terminal symptom.
+
+D-142 fix (B) — landed `d543c646` 2026-05-17 — closed the
+poison-sensitivity half of the chain (`SAFE_STUB_PTR_ADDR =
+0x1000` replacing `undefined` field inits). Fix (A) below
+closes the X19-corruption half by redesigning the bridge
+thunk shape itself.
+
+### Amended thunk shape — arm64 (~52 bytes, was 32)
+
+Replace the original 4-instruction tail-call sequence with a
+9-instruction call-and-return sequence that allocates its own
+stack frame and saves the caller's X19 (= `runtime_ptr_save_gpr`)
+before the callee can overwrite it:
+
+```text
+offset  encoding         disassembly
+0x00    STP X29, X30, [SP, #-32]!     ; allocate 32-byte frame, save FP+LR
+0x04    STR X19, [SP, #16]            ; save caller's X19 = caller_rt
+0x08    ADR X16, .literals            ; X16 ← literal pool base (+24 from here)
+0x0C    LDR X0,  [X16]                ; X0  ← callee_rt
+0x10    LDR X16, [X16, #8]            ; X16 ← callee_entry
+0x14    BLR X16                       ; CALL (not BR); LR ← post-BLR PC
+0x18    LDR X19, [SP, #16]            ; RESTORE caller's X19
+0x1C    LDP X29, X30, [SP], #32       ; restore FP+LR, pop frame
+0x20    RET                           ; return to importer's call site
+0x24    (padding, optional)           ; alignment to 8-byte literal boundary
+.literals (at 0x28, 16-byte aligned via frame design):
+0x28    .quad <callee_rt>
+0x30    .quad <callee_entry>
+```
+
+`thunk_bytes` grows from `32` to `56` (9 instrs × 4 = 36 +
+4-byte alignment pad + 16-byte literal pool). The literal pool's
+position relative to the `ADR` at offset 0x08 is `+32` (since
+literals start at 0x28 = ADR offset 0x08 + 0x20 = +32).
+
+Why STR X19 at SP+16 specifically: the frame layout is `[SP+0]
+= prev FP, [SP+8] = prev LR, [SP+16] = saved X19, [SP+24] =
+unused (alignment)`. Slot 16 keeps the FP/LR pair contiguous at
+the bottom (matching the AAPCS64 standard frame shape so a
+stack unwinder can walk past the thunk frame) and leaves X19's
+slot 8-byte-aligned without dirtying the LR's slot.
+
+### Amended thunk shape — x86_64 (~24 bytes, was 22)
+
+```text
+offset  encoding         disassembly
+0x00    PUSH R15                      ; save caller's R15 = caller_rt
+0x02    MOV  RDI, <callee_rt imm64>   ; RDI = SysV arg0 (= *JitRuntime)
+0x0C    MOV  RAX, <callee_entry imm64>; RAX = call target
+0x16    CALL RAX                      ; SysV CALL (not JMP); saves return PC
+0x18    POP  R15                      ; RESTORE caller's R15
+0x1A    RET                           ; return to importer's call site
+```
+
+`thunk_bytes` for x86_64 grows from `22` to `27` bytes. (R15
+is callee-saved per SysV §3.2.1, so the same pinning argument
+holds; PUSH/POP R15 is the minimal preserve-restore on x86_64.
+Win64 — when it lands per D-136 — follows the same shape but
+the prologue must additionally allocate the 32-byte shadow
+space per the Win64 calling convention; that is a follow-on
+amendment scoped to D-136.)
+
+### Why call-and-return, not "callee prologue saves X19"
+
+Two alternative discharge paths exist (see
+[`.claude/rules/abi_callee_saved_pinning.md`](../../.claude/rules/abi_callee_saved_pinning.md)
+"Discharge patterns"):
+
+- **Option B** (callee prologue saves pinned reg): every JIT
+  function pays the cost. Pros: makes the v2 ABI fully
+  AAPCS-compliant. Cons: 99 % of calls are same-module — the
+  save/restore is pure overhead for the common case. Adds
+  ~2 instructions to every function prologue.
+- **Option C** (rename pinned reg to caller-saved scratch):
+  substantial refactor of ADR-0017's pinning convention. Not
+  chosen historically.
+
+Option A (this amendment — bridge thunk pays the cost) is
+correct because:
+
+- **Cost paid only where divergence is possible** — only the
+  bridge thunk knows caller_rt ≠ callee_rt is happening.
+- **No prologue ABI break** — every JIT function's prologue is
+  unchanged; existing same-module call paths remain at their
+  current performance.
+- **Localised blast radius** — the change is contained in
+  `arm64/thunk.zig` + `x86_64/thunk.zig` (the two ~120-LOC
+  files this ADR's `## Decision` § originally specified);
+  same-module emission paths are not touched.
+
+The cost ratio: a same-module call is roughly 10×–100× more
+frequent than a cross-module bridge call in typical Wasm
+modules (per the spec assertion corpus distribution), so
+Option A pays the save/restore cost in the rare path where it
+matters and avoids paying it in the common path where it
+doesn't.
+
+### Implementation sub-chunks (forward plan)
+
+- **A.1** (this amendment) — ADR-0066 amend, no code change.
+- **A.2** — arm64 thunk redesign: new `encStpPreIdxSp`,
+  `encLdpPostIdxSp`, `encStrImmSp`, `encLdrImmSp`, `encBlr`
+  encoders + `arm64/thunk.zig::emitThunk` rewrite + tests
+  asserting the byte sequence above + `thunk_bytes = 56`.
+- **A.3** — x86_64 thunk redesign: new `encPushReg`,
+  `encPopReg`, `encCallReg` encoders + `x86_64/thunk.zig`
+  rewrite + tests + `thunk_bytes = 27`.
+
+After A.3 lands, γ-4 (relax `hasUnbindableImports` in
+`test/spec/spec_assert_runner_base.zig`) can finally land —
+the cross-module-on-Mac SEGV closes structurally and the
+ubuntunote-side already-functional path is preserved.
+
+### Consequences delta
+
+- The original `## Consequences` § "Tail-call semantics
+  preserve LR through BR" claim is **rescinded** for cross-
+  module dispatch; the new thunk does a proper CALL/RET pair.
+  Same-module call paths are unchanged.
+- Cycle count per cross-module call grows from ~4 instrs
+  (original) to ~9 instrs (amended) on arm64; ~3 instrs to
+  ~6 instrs on x86_64. Cross-module calls are not on the
+  bench's hot path in the current corpus (the
+  spec-assertion runner exercises them O(1) per fixture
+  module), so the perf delta is negligible at the gate scale.
+- The new thunk requires the callee's prologue to leave FP/LR
+  intact — it does (per ADR-0017 sub-2a/2d, every JIT
+  function emits an FP-saving prologue). No prologue change
+  needed.
+- The thunk's own stack frame (32 bytes on arm64, 16 bytes
+  on x86_64 via the PUSH alignment) is well-aligned to the
+  ABI's SP-alignment requirement (16 on AAPCS64, 16 on SysV
+  pre-call). Verified at A.2 / A.3 emit-byte tests.
+
+### References — Amendment §A1
+
+- D-142 (debt row, partial discharge — (B) landed
+  `d543c646`).
+- [`.claude/rules/abi_callee_saved_pinning.md`](../../.claude/rules/abi_callee_saved_pinning.md)
+  — the auto-loaded rule capturing the cross-instance
+  pinned-reg discipline.
+- Lesson [`2026-05-17-gamma3d-dispatch-write-segv-bisect.md`](../lessons/2026-05-17-gamma3d-dispatch-write-segv-bisect.md)
+  — full 6-cycle bisect chain.
+- AAPCS64 §6.1.1 "Subroutine standard registers and their
+  use" + §6.4.1 "Procedure call standard"
+  (https://github.com/ARM-software/abi-aa/releases — Arm IHI
+  0055).
+- SysV AMD64 ABI §3.2.1 "Registers and the Stack Frame".
+
 ## References
 
 - ROADMAP §9.9-III (Cat III absorption per ADR-0065)
@@ -362,10 +541,9 @@ Concretely:
 - Phase-9 close plan: [`../phase9_close_plan.md`](../phase9_close_plan.md)
   §6 step (c) — the umbrella for this ADR's implementation.
 
-<!--
 ## Revision history
 
-| Date       | SHA          | Note                                    |
-|------------|--------------|-----------------------------------------|
-| 2026-05-17 | `<backfill>` | Initial accepted version (Phase 9 §9.9-III (c)-2 design). |
--->
+| Date       | SHA          | Note                                                                                                                       |
+|------------|--------------|----------------------------------------------------------------------------------------------------------------------------|
+| 2026-05-17 | `<backfill>` | Initial accepted version (Phase 9 §9.9-III (c)-2 design).                                                                  |
+| 2026-05-17 | `<backfill>` | Amendment §A1 — bridge thunk shape extended to save caller's pinned callee-saved reg (X19 on arm64, R15 on x86_64) per D-142 fix (A). Tail-call shape rescinded for cross-module dispatch; same-module call paths unchanged. |
