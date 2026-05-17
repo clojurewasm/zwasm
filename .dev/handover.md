@@ -26,11 +26,12 @@
 
 ### One-line state
 
-Step (b) Cat II largely drained: (b)-1..(b)-5 landed cumulative
-+31 PASS (24001→24032). (b)-5 validated HFA<f64,f64> path
-(naturally aligns with JIT FP-class V-reg sequencing). Remaining
-Cat II: ~17 lines = ~9 mixed int+float (D-137) + ~7 3-result
-(needs X8 indirect-result-ptr bridge) + 1 large-sig outlier.
+Step (b) Cat II largely drained (+31 PASS to 24032). Cat III
+Step (c)-1a landed: Store name→Instance registry foundation
+(`Store.register` / `Store.lookup` API; `*anyopaque` opaque to
+avoid store↔instance circular import; freed in
+`wasm_store_delete`). 2 unit tests + 0 PASS gain (consumers in
+follow-up chunks). Cat II residual stays open as background.
 
 **Current spec_assert tally** (Mac aarch64 + OrbStack
 bit-identical post-(b)-5; live via
@@ -50,35 +51,28 @@ remains the D-134 plan.
 
 ### Next-session active task
 
-**Pivot to Cat III per close-plan §6 step (c)**. Cat II
-remaining shapes need ABI bridge ADR work (D-137 mixed
-int+float + 3-result via X8 indirect) which is diminishing-
-returns vs the ~144-line Cat III scope.
+**Step (c)-1b — Wire `(register "M" $inst)` directive handler**
+in `test/spec/spec_assert_runner_base.zig` (currently the
+distiller emits `skip-adr-skip_cross_module_register` per
+`skip_cross_module_register.md` — the runner-side handler
+calls `store.register(alloc, name, instance_ptr)` from the
+just-instantiated runtime's `Instance`). Convert the
+distiller skip rule to emit a `register` line that the
+runner parses; updates `skip_cross_module_register.md`
+Status (Accepted → Superseded by registry path).
 
-**Step (c)-1 — Store + Instance registry**:
-1. Step 0 survey: read v1 zwasm `src/runtime/`,
-   `~/Documents/OSS/wasmtime/crates/runtime/`,
-   `~/Documents/OSS/zware/src/` (instance/store/linker),
-   `~/zwasm/private/v2-investigation/` (prior framing).
-   Produce `private/notes/p9-cat3-instance-survey.md`.
-2. Add `Store.register(name, *Instance)` API + name→Instance
-   hashmap to `src/runtime/store.zig` (today's Store has
-   `engine` + `wasi_host` + `zombies` — no registry).
-3. Add `spec_assert_runner_base` directive handler for
-   `(register "M" $inst)` lines (currently skip-adr per
-   `skip_cross_module_register.md`).
+**Step (c)-2 — Cross-module import linker** (per close-plan
+§6 step (c) sub-chunk 2): at instantiate time, when an
+`import "M" "f"` resolves, look up `store.lookup("M")` and
+bind to the registered instance's export. Validates import
+type ≡ export type (`link-typecheck` cases).
 
-Sub-chunk (c)-1 is foundational — no PASS gain expected; it
-enables (c)-2 (cross-module import linker) which converts
-~144 lines to PASS.
-
-**Note on runtime skip-impl tally**: 1542 skip-impl includes
-many *runtime-classified* host-import-trap fixtures
-(`SKIP-HOST-IMPORT` printouts incrementing `tally.skipped`),
-not just the 18 manifest-level `skip-impl` lines. Step (c)-4
-"host import binding (spectest)" is therefore the biggest
-single PASS win — it converts unbound `import "spectest"
-"print_*"` from trap to resolved call.
+**Step (c)-4 = biggest single PASS win** (per close-plan §6
+step (c)): host import binding (spectest). The runtime
+skip-impl tally includes many `SKIP-HOST-IMPORT` printouts
+incrementing `tally.skipped`. Binding `import "spectest"
+"print_*"` to runner-provided functions converts each from
+trap → resolved call. Order: (c)-1b → (c)-2 → (c)-4.
 
 ### Discipline reminders
 

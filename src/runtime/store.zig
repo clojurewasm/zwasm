@@ -57,6 +57,39 @@ pub const Store = struct {
     /// through the importer's lifetime). Walked + freed by
     /// `wasm_store_delete`.
     zombies: std.ArrayList(Zombie) = .empty,
+    /// Wasm 1.0 §4.5 cross-module instance registry per ADR-0065
+    /// (Phase 9 Cat III §9.9-III scope). Spec testsuite uses
+    /// `(register "M" $inst)` to bind a previously-instantiated
+    /// module under a host-import alias; subsequent modules can
+    /// `(import "M" "f" ...)` to call into the registered
+    /// instance's exports. Stored as `*anyopaque` (a `*Instance`
+    /// erased) to avoid the `store.zig` ↔ `instance/instance.zig`
+    /// circular import — callers in Zone 2/3 cast back to
+    /// `*Instance`. Key bytes are caller-owned (typically the
+    /// runner harness's session arena for spec_assert); Store does
+    /// NOT copy them. Walked + freed (the hashmap itself) by
+    /// `wasm_store_delete`.
+    instances: std.StringHashMapUnmanaged(*anyopaque) = .empty,
+
+    /// Register an instance under a host-import alias. The `name`
+    /// bytes are caller-owned (NOT copied). Errors only on OOM in
+    /// the underlying hashmap. Idempotent: re-registering the same
+    /// name overwrites the previous binding (matches the wast
+    /// `(register "M" $inst)` re-bind semantics).
+    pub fn register(
+        store: *Store,
+        alloc: std.mem.Allocator,
+        name: []const u8,
+        instance_opaque: *anyopaque,
+    ) std.mem.Allocator.Error!void {
+        try store.instances.put(alloc, name, instance_opaque);
+    }
+
+    /// Look up a registered instance by alias. Returns null when
+    /// the alias is unknown.
+    pub fn lookup(store: *const Store, name: []const u8) ?*anyopaque {
+        return store.instances.get(name);
+    }
 };
 
 /// One parked instance. Keeps the runtime + arena alive until
@@ -66,3 +99,30 @@ pub const Zombie = struct {
     runtime: *Runtime,
     arena: *std.heap.ArenaAllocator,
 };
+
+const testing = std.testing;
+
+test "Store.register / lookup round-trip" {
+    var store: Store = .{ .engine = null };
+    defer store.instances.deinit(testing.allocator);
+
+    var dummy_a: u8 = 0;
+    var dummy_b: u8 = 0;
+    try store.register(testing.allocator, "M1", &dummy_a);
+    try store.register(testing.allocator, "M2", &dummy_b);
+
+    try testing.expectEqual(@as(?*anyopaque, &dummy_a), store.lookup("M1"));
+    try testing.expectEqual(@as(?*anyopaque, &dummy_b), store.lookup("M2"));
+    try testing.expectEqual(@as(?*anyopaque, null), store.lookup("M3"));
+}
+
+test "Store.register rebind overwrites" {
+    var store: Store = .{ .engine = null };
+    defer store.instances.deinit(testing.allocator);
+
+    var v1: u8 = 0;
+    var v2: u8 = 0;
+    try store.register(testing.allocator, "alias", &v1);
+    try store.register(testing.allocator, "alias", &v2);
+    try testing.expectEqual(@as(?*anyopaque, &v2), store.lookup("alias"));
+}

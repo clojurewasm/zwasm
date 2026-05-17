@@ -264,6 +264,11 @@ pub export fn wasm_store_delete(s: ?*Store) callconv(.c) void {
         alloc.destroy(z.runtime);
     }
     handle.zombies.deinit(alloc);
+    // Free the cross-module instance registry (ADR-0065 §"Cat III").
+    // Values are erased `*Instance` pointers (lifetimes managed by
+    // the zombie list); keys are caller-owned. Only the hashmap's
+    // own backing storage is released here.
+    handle.instances.deinit(alloc);
     if (handle.wasi_host) |host_opaque| {
         const host: *wasi_host.Host = @ptrCast(@alignCast(host_opaque));
         host.deinit();
