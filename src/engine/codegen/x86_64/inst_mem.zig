@@ -163,11 +163,21 @@ pub fn encMovsxR64R16(dst: Gpr, src: Gpr) EncodedInsn {
 /// `MOV r64, [base + disp32]` (opcode 0x8B with REX.W, mod=10).
 /// Used to reload JitRuntime invariants from `[R15 + offset]`
 /// per ADR-0026.
+///
+/// When `base.low3() == 4` (RSP or R12), AMD64 requires a SIB byte
+/// after the ModR/M; the SIB byte encodes "no index, base = X.low3()".
+/// Without this, the disp32 bytes would be misinterpreted as part
+/// of the ModR/M+SIB stream. (ADR-0068 chunk γ surfaced this when
+/// `val_r` happened to be R12 via the regalloc pool.)
 pub fn encMovR64FromMemDisp32(dst: Gpr, base: Gpr, disp: i32) EncodedInsn {
     var enc: EncodedInsn = .{};
     enc.push(encodeRex(true, dst.extBit(), 0, base.extBit()));
     enc.push(0x8B);
     enc.push(encodeModrm(0b10, dst.low3(), base.low3()));
+    if (base.low3() == 4) {
+        // SIB: scale=00, index=100 (none), base = base.low3().
+        enc.push(encodeSib(0b00, 0b100, base.low3()));
+    }
     const u: u32 = @bitCast(disp);
     enc.push(@truncate(u));
     enc.push(@truncate(u >> 8));
