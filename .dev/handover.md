@@ -7,22 +7,15 @@
 
 1. **READ FIRST** [`.dev/phase9_close_plan.md`](phase9_close_plan.md)
    §6. Cat III dispatch — (c)-1/(c)-2.0/(c)-2.1/(c)-2.2 landed;
-   **next = (c)-2.3 resolver wire-up**.
-2. `git log --oneline -15`. 2026-05-17 batch:
-   `58e69207` Ubuntu pivot + D-134 closure (ADR-0067) →
-   `bdb47eb9` review fix-ups → `ab973f56` (c)-2.2 thunk arena →
-   `3c13c65c` D-016 close → `3b1a4301` entryAddr accessor →
-   `cf8c25f7` thunk re-export → `4a805856` (c)-2.3-α
-   RegisteredExporter struct → `48143417` (c)-2.3-β-1
-   makeJitRuntime dispatch_override param → `28f52ad3`
-   (c)-2.3-β-2a resolveCrossModuleImports helper +
-   RegisteredExporter.rt.
+   (c)-2.3-α/β-1/β-2a/β-2b landed; **next = (c)-2.3-γ
+   per-exporter backing buffers**.
+2. `git log --oneline -10`. Latest: `982f4fbf` (c)-2.3-β-2b
+   wire-up (+ thunk.zig W^X fix). Prior β chain in
+   `git log --grep="9.9-III"`.
 3. `bash scripts/p9_simd_status.sh` — live SIMD via ubuntunote
    native x86_64 (ADR-0067).
-4. `cat .dev/debt.md | head -90`. D-016 newly flipped `now`
-   2026-05-17 (build.zig > 600 LOC).
-5. Cat III sub-chunks tracked in close-plan §6 step (c), not
-   granular ROADMAP rows.
+4. `cat .dev/debt.md | head -90`. Cat III sub-chunks tracked
+   in close-plan §6 step (c), not granular ROADMAP rows.
 
 ## Active state — Phase 9 close-plan Step (c)-2.3
 
@@ -30,37 +23,39 @@ D-134 closed structurally (Rosetta race; ubuntunote native
 host eliminates). Cat III JIT dispatch infra: registry
 (c)-1a/b/c; ADR-0066 design (c)-2.0; arm64 32-byte /
 x86_64 22-byte opcode-pinned thunk encoders (c)-2.1;
-`shared/thunk.zig` arena lifecycle (c)-2.2. Counts unchanged
-(arena uncalled until resolver): 24034/0/2015 + 13301/0/440
-+ 212/0/20 Mac+ubuntunote bit-identical.
+`shared/thunk.zig` arena lifecycle (c)-2.2; resolver substrate
++ wire-up (c)-2.3-α/β-1/β-2a/β-2b. Counts unchanged with
+γ-relaxation deferred: 24034/0/2015 + 13301/0/440 + 212/0/20
+Mac+ubuntunote bit-identical (β-2b kept hasUnbindableImports
+strict — exercising the dispatch+arena infra via spectest-
+import modules, but pre-existing cross-module fixtures still
+SKIP-CROSS-MODULE-IMPORTS until γ lands per-exporter backing).
 
-### Next-session active task — (c)-2.3-β resolver minimal
+### Next-session active task — (c)-2.3-γ per-exporter state
 
 Read `private/notes/p9-9.9-III-c-2.3-resolver-survey.md`
-FIRST. Two architecture findings recorded:
-1. `makeJitRuntime` static `host_dispatch_stubs` requires
-   option (B) per-module dispatch override.
+FIRST (§"SECOND finding" + γ scope notes). Two architecture
+findings remain load-bearing:
+1. `makeJitRuntime` static `host_dispatch_stubs` resolved via
+   `dispatch_override` (β-1). β-2b now per-module dispatch.
 2. Static-scratch (`growable_memory`, `scratch_globals`,
-   `scratch_funcptrs`, `scratch_func_entities` etc.) means
-   per-module STATE isolation also needed for any cross-
-   module callee that touches memory / globals / tables.
+   `scratch_funcptrs`, `scratch_func_entities`, ...) means
+   per-module STATE isolation needed for any cross-module
+   callee touching memory / globals / tables — γ scope.
 
-Sub-chunking progress:
-- α DONE `4a805856`: RegisteredExporter struct.
-- β-1 DONE `48143417`: makeJitRuntime dispatch_override param.
-- β-2a DONE `28f52ad3`: resolveCrossModuleImports helper +
-  `RegisteredExporter.rt` + `ensureCompiledAndRt`. Resolver is
-  defined, tested behavior-neutral (uncalled).
-- **β-2b NEXT**: WIRE-UP + GATE RELAXATION. **D-138 hang
-  risk** — Mac FOREGROUND gate first. 6-step recipe in the
-  survey note (`private/notes/p9-9.9-III-c-2.3-resolver-survey.md`
-  §"Sub-chunking proposal"): add module-scope current_dispatch
-  + current_thunk_arena, allocate at `.module` directive
-  between compileWasm + on_module_loaded, free at module-switch
-  + runCorpus deinit, update 7 makeJitRuntime callers, relax
-  hasUnbindableImports for registered aliases, gate.
-- γ LATER: per-exporter backing buffers (memory / globals /
-  tables) if `linking.wast` corpus needs them. Survey first.
+Sub-chunking progress (Cat III (c)-2.3):
+- α `4a805856` / β-1 `48143417` / β-2a `28f52ad3` /
+  β-2b `982f4fbf` — see `git log --grep="9.9-III"`.
+- β-2b discovery: thunk.zig W^X gap closed in `allocArena`
+  (`alloc + setWritable` pair, mirrors `linker.linkBlock`).
+  See lesson `2026-05-17-mac-aarch64-thread-rx-mode-survives-alloc`.
+- **γ NEXT**: per-exporter backing buffers (memory / globals /
+  tables) so `RegisteredExporter.rt` can carry real state.
+  Survey `linking.wast` + `imports.wast` corpora to size the
+  buffer contract. Then flip `hasUnbindableImports` to consult
+  `registered` (β-2b already takes the param; today it just
+  `_ = registered;`s). Expect +N PASS from cross-module
+  fixtures whose callees touch state.
 
 (c)-2.4 = corpus distiller's `supported` set extension + new
 fixture rebuild; discharges D-138 fully + D-079 sub-gap ii.
