@@ -194,11 +194,20 @@ pub fn build(b: *std.Build) void {
     lib_shared.installHeader(b.path("include/zwasm.h"), "zwasm.h");
 
     // Static library (libzwasm.a)
+    //
+    // single_threaded = true eliminates the wasm-threads atomic.wait/notify
+    // paths that pull in std.Thread / std.Io.Threaded. The static lib is
+    // intended for App-Store-eligible iOS / watchOS / tvOS apps (no JIT,
+    // no shared memory, single-threaded wasm execution), so dropping the
+    // threading paths costs no functionality. Required for the
+    // arm64_32-apple-watchos build because std.Io.Threaded does not
+    // compile under ILP32 (u64 → usize narrowing errors).
     const lib_static_mod = b.createModule(.{
         .root_source_file = b.path("src/c_api.zig"),
         .target = target,
         .optimize = if (lib_optimize) optimize else if (optimize == .Debug) .ReleaseSafe else optimize,
         .link_libc = true,
+        .single_threaded = true,
         .pic = if (enable_pic) true else null,
     });
     lib_static_mod.addOptions("build_options", options);

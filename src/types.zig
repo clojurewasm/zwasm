@@ -468,8 +468,20 @@ pub const WasmModule = struct {
         // stand up a private `std.Io.Threaded` owned by this module.
         // Acquired early — applyWasiOptions's addPreopenPath needs io to open
         // host directories cross-platform (Zig 0.16's `std.Io.Dir.openDir`).
+        //
+        // On ILP32 targets (arm64_32-apple-watchos) `std.Io.Threaded` itself
+        // doesn't compile (u64 syscall returns vs 32-bit usize), so we only
+        // expose the auto-init path on 64-bit targets. On 32-bit watchos the
+        // caller MUST supply `config.io` if they want WASI host directories
+        // — which they won't, because WatchKit apps don't get filesystem
+        // access. Workloads without WASI (the case for wasm-benchmark) never
+        // dereference the io vtable, so leaving it default-init'd is OK.
         const io: std.Io = blk: {
             if (config.io) |io_val| break :blk io_val;
+            if (@sizeOf(usize) < 8) {
+                self.owned_io = null;
+                break :blk @as(std.Io, undefined);
+            }
             const threaded = try allocator.create(std.Io.Threaded);
             errdefer allocator.destroy(threaded);
             threaded.* = std.Io.Threaded.init(allocator, .{});

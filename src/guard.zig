@@ -117,11 +117,18 @@ const Ucontext = switch (builtin.os.tag) {
 /// Guard region size: 4 GiB + 64 KiB.
 /// This ensures any 32-bit index (0..0xFFFFFFFF) + small offset (up to 64 KiB)
 /// falls within the mapped region (data + guard).
-pub const GUARD_SIZE: usize = 4 * 1024 * 1024 * 1024 + 64 * 1024;
+///
+/// On ILP32 targets (arm64_32-apple-watchos) `usize` is 32-bit and these
+/// values overflow comptime. Guard memory is only used when `jitSupported()`
+/// returns true, which is false for watchos — so on 32-bit targets we set
+/// the constants to zero placeholders to satisfy the type checker. Any
+/// runtime call into the GuardedMem path on a 32-bit platform would be a
+/// bug: `addMemory` in src/store.zig predicates on `jitSupported()`.
+pub const GUARD_SIZE: usize = if (@sizeOf(usize) >= 8) 4 * 1024 * 1024 * 1024 + 64 * 1024 else 0;
 
 /// Total virtual reservation: data capacity + guard.
 /// Data capacity matches Wasm max 4 GiB. Guard provides PROT_NONE safety zone.
-pub const TOTAL_RESERVATION: usize = 8 * 1024 * 1024 * 1024 + 64 * 1024;
+pub const TOTAL_RESERVATION: usize = if (@sizeOf(usize) >= 8) 8 * 1024 * 1024 * 1024 + 64 * 1024 else 0;
 
 /// Recovery information for signal handler.
 /// Set before calling JIT code, cleared after.

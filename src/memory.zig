@@ -176,7 +176,12 @@ pub const Memory = struct {
         const len = self.data.items.len;
         if (overflow != 0 or len < @sizeOf(T) or effective > len - @sizeOf(T)) return error.OutOfBoundsMemoryAccess;
 
-        const ptr: *const [@sizeOf(T)]u8 = @ptrCast(&self.data.items[effective]);
+        // After the bounds check, `effective` fits in usize because `len`
+        // is usize. The explicit @intCast is needed on ILP32 targets
+        // (arm64_32-apple-watchos) where usize is 32-bit but `effective`
+        // is u64.
+        const effective_usize: usize = @intCast(effective);
+        const ptr: *const [@sizeOf(T)]u8 = @ptrCast(&self.data.items[effective_usize]);
         return switch (T) {
             u8, u16, u32, u64, i8, i16, i32, i64 => mem.readInt(T, ptr, .little),
             u128 => mem.readInt(u128, ptr, .little),
@@ -193,7 +198,9 @@ pub const Memory = struct {
         const len = self.data.items.len;
         if (overflow != 0 or len < @sizeOf(T) or effective > len - @sizeOf(T)) return error.OutOfBoundsMemoryAccess;
 
-        const ptr: *[@sizeOf(T)]u8 = @ptrCast(&self.data.items[effective]);
+        // See Memory.read above for why this cast is required on ILP32.
+        const effective_usize: usize = @intCast(effective);
+        const ptr: *[@sizeOf(T)]u8 = @ptrCast(&self.data.items[effective_usize]);
         switch (T) {
             u8, u16, u32, u64, i8, i16, i32, i64 => mem.writeInt(T, ptr, value, .little),
             u128 => mem.writeInt(u128, ptr, value, .little),

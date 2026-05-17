@@ -4008,9 +4008,13 @@ pub const Vm = struct {
         const byte_count = N * @sizeOf(NarrowT);
         const effective, const ov = @addWithOverflow(ma.offset, base);
         if (ov != 0 or m.data.items.len < byte_count or effective > m.data.items.len - byte_count) return error.OutOfBoundsMemoryAccess;
+        // After the bounds check `effective` fits in usize because
+        // `m.data.items.len` is usize. Explicit cast needed on ILP32
+        // targets (arm64_32-apple-watchos).
+        const effective_usize: usize = @intCast(effective);
         var narrow: [N]NarrowT = undefined;
         for (&narrow, 0..) |*n, i| {
-            const ptr: *const [@sizeOf(NarrowT)]u8 = @ptrCast(&m.data.items[effective + i * @sizeOf(NarrowT)]);
+            const ptr: *const [@sizeOf(NarrowT)]u8 = @ptrCast(&m.data.items[effective_usize + i * @sizeOf(NarrowT)]);
             n.* = std.mem.readInt(NarrowT, ptr, .little);
         }
         // Extend to wide

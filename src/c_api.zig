@@ -18,6 +18,111 @@ const types = @import("types.zig");
 const WasmModule = types.WasmModule;
 const WasiOptions = types.WasiOptions;
 
+// On arm64_32-apple-watchos (32-bit-pointer aarch64) Zig 0.16's default
+// panic / std.debug machinery hits `u64 → usize` narrowing errors in
+// std.Io.Threaded.dirReadDarwin et al. Even `std.debug.simple_panic`
+// still routes through `lockStderr → std_options.debug_io →
+// debug_threaded_io.io()` which pulls in the whole std.Io.Threaded
+// module. Same applies to std.log.defaultLog. We override `panic` and
+// `std_options.logFn` so the static-lib build for watchos compiles
+// without any Zig-stdlib patches. Harmless on other targets — zwasm
+// surfaces all errors through the C-ABI `zwasm_last_error_message()`
+// channel, never via stderr.
+fn traping_panic(_: []const u8, _: ?usize) noreturn {
+    @trap();
+}
+pub const panic = struct {
+    pub const call = traping_panic;
+    pub fn sentinelMismatch(_: anytype, _: anytype) noreturn {
+        @trap();
+    }
+    pub fn unwrapError(_: anyerror) noreturn {
+        @trap();
+    }
+    pub fn outOfBounds(_: usize, _: usize) noreturn {
+        @trap();
+    }
+    pub fn startGreaterThanEnd(_: usize, _: usize) noreturn {
+        @trap();
+    }
+    pub fn inactiveUnionField(_: anytype, _: anytype) noreturn {
+        @trap();
+    }
+    pub fn sliceCastLenRemainder(_: usize) noreturn {
+        @trap();
+    }
+    pub fn reachedUnreachable() noreturn {
+        @trap();
+    }
+    pub fn unwrapNull() noreturn {
+        @trap();
+    }
+    pub fn castToNull() noreturn {
+        @trap();
+    }
+    pub fn incorrectAlignment() noreturn {
+        @trap();
+    }
+    pub fn invalidErrorCode() noreturn {
+        @trap();
+    }
+    pub fn integerOutOfBounds() noreturn {
+        @trap();
+    }
+    pub fn integerOverflow() noreturn {
+        @trap();
+    }
+    pub fn shlOverflow() noreturn {
+        @trap();
+    }
+    pub fn shrOverflow() noreturn {
+        @trap();
+    }
+    pub fn divideByZero() noreturn {
+        @trap();
+    }
+    pub fn exactDivisionRemainder() noreturn {
+        @trap();
+    }
+    pub fn integerPartOutOfBounds() noreturn {
+        @trap();
+    }
+    pub fn corruptSwitch() noreturn {
+        @trap();
+    }
+    pub fn shiftRhsTooBig() noreturn {
+        @trap();
+    }
+    pub fn invalidEnumValue() noreturn {
+        @trap();
+    }
+    pub fn forLenMismatch() noreturn {
+        @trap();
+    }
+    pub fn copyLenMismatch() noreturn {
+        @trap();
+    }
+    pub fn memcpyAlias() noreturn {
+        @trap();
+    }
+    pub fn noreturnReturned() noreturn {
+        @trap();
+    }
+};
+
+fn noopLog(
+    comptime _: std.log.Level,
+    comptime _: @EnumLiteral(),
+    comptime _: []const u8,
+    _: anytype,
+) void {}
+
+pub const std_options: std.Options = .{
+    .allow_stack_tracing = false,
+    .networking = false,
+    .logFn = noopLog,
+};
+
 /// Convert isize (C intptr_t) to platform File.Handle.
 fn isizeToHandle(v: isize) std.Io.File.Handle {
     if (builtin.os.tag == .windows) {
