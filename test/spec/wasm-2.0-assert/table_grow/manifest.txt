@@ -42,10 +42,10 @@ assert_return check-table-null i32:0 i32:9 -> i64:0
 assert_return grow i32:10 -> i32:10
 assert_return check-table-null i32:0 i32:19 -> i64:0
 module table_grow.5.wasm
-skip-adr-skip_cross_module_register as=grown-table
+register grown-table
 skip-adr-skip_cross_module_action assert_return on module=$Tgt field=grow
 module table_grow.6.wasm
-skip-adr-skip_cross_module_register as=grown-imported-table
+register grown-imported-table
 skip-adr-skip_cross_module_action assert_return on module=$Tgit1 field=grow
 module table_grow.7.wasm
 skip-adr-skip_cross_module_action assert_return on module=$Tgit2 field=size

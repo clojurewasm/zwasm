@@ -65,7 +65,7 @@ assert_return call-overwritten () -> i32:66
 module elem.57.wasm
 assert_return call-overwritten-element () -> i32:66
 module elem.58.wasm
-skip-adr-skip_cross_module_register as=module1
+register module1
 skip-adr-skip_cross_module_action assert_trap on module=$module1 field=call-7
 skip-adr-skip_cross_module_action assert_return on module=$module1 field=call-8
 skip-adr-skip_cross_module_action assert_return on module=$module1 field=call-9
@@ -82,7 +82,7 @@ assert_invalid elem.62.wasm
 assert_invalid elem.63.wasm
 assert_invalid elem.64.wasm
 module elem.65.wasm
-skip-adr-skip_cross_module_register as=exporter
+register exporter
 skip-adr-skip_cross_module_action assert_return on module=$m field=get
 skip-adr-skip_cross_module_action assert_return on module=$m field=get
 skip-adr-skip_cross_module_action assert_return on module=$m field=set
@@ -93,6 +93,6 @@ module elem.66.wasm
 skip-adr-skip_cross_module_action assert_return on module=$m field=get
 skip-adr-skip_cross_module_action assert_return on module=$m field=get
 module elem.67.wasm
-skip-adr-skip_cross_module_register as=module4
+register module4
 module elem.68.wasm
 assert_return call_imported_elem () -> i32:42

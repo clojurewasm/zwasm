@@ -1,5 +1,5 @@
 module ref_func.0.wasm
-skip-adr-skip_cross_module_register as=M
+register M
 module ref_func.1.wasm
 assert_return is_null-f () -> i32:0
 assert_return is_null-g () -> i32:0

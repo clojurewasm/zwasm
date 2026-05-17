@@ -1,10 +1,10 @@
 # Skip — wast `(register "alias" $M)` directives
 
-- **Status**: Accepted (skip while cross-module imports are out of scope). Operationally effective via `skip-adr-skip_cross_module_register` prefix per ADR-0029 Path B.
-- **Date**: 2026-05-16
-- **Author**: zwasm v2 / continue loop (§9.9 / 9.9-l-1b-d093-d59)
-- **Tags**: phase-9, skip-adr, spec-conformance, cross-module, register
-- **Manifests covered**: 21 entries across `elem`, `imports`, `linking`, `memory_grow`, `ref_func`, `table_copy`, `table_grow`, `table_init` corpora
+- **Status**: Superseded (2026-05-17 by Phase 9 §9.9-III chunk (c)-1c, per ADR-0065 Cat III absorption). The runner now parses `(register "M" $inst)` directives via the `DirectiveKind.register` arm in `test/spec/spec_assert_runner_base.zig::runCorpus`; populated entries land in `runCorpus.registered` (a session-local `StringHashMapUnmanaged([]u8)`) for the (c)-2 cross-module import linker to consume. The distiller's prior `skip-adr-skip_cross_module_register` emit was replaced by direct `register <alias>` emit at the same chunk. Kept in place as historical record; 0 manifest references remain.
+- **Date**: 2026-05-16 (Superseded 2026-05-17)
+- **Author**: zwasm v2 / continue loop (§9.9 / 9.9-l-1b-d093-d59, superseded at §9.9-III chunk (c)-1c)
+- **Tags**: phase-9, skip-adr-superseded, spec-conformance, cross-module, register
+- **Manifests covered**: 0 (was 21 across `elem`, `imports`, `linking`, `memory_grow`, `ref_func`, `table_copy`, `table_grow`, `table_init` — all flipped to `register <alias>` lines at chunk (c)-1c)
 
 ## Directive
 

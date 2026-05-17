@@ -88,10 +88,10 @@ assert_return as-compare-left () -> i32:1
 assert_return as-compare-right () -> i32:1
 assert_return as-memory.grow-size () -> i32:1
 module memory_grow.5.wasm
-skip-adr-skip_cross_module_register as=grown-memory
+register grown-memory
 skip-adr-skip_cross_module_action assert_return on module=$Mgm field=grow
 module memory_grow.6.wasm
-skip-adr-skip_cross_module_register as=grown-imported-memory
+register grown-imported-memory
 skip-adr-skip_cross_module_action assert_return on module=$Mgim1 field=grow
 module memory_grow.7.wasm
 skip-adr-skip_cross_module_action assert_return on module=$Mgim2 field=size

@@ -115,13 +115,15 @@ done < <(grep -rEHn '^skip-adr-[a-zA-Z0-9_-]+ ' "$REPO_ROOT/test/" 2>/dev/null |
 for f in "${skip_files[@]}"; do
   rel="${f#$REPO_ROOT/}"
   base="$(basename "$f" .md)"
-  # Skip closed ADRs — `Status: Closed (...)` indicates the
-  # Removal condition fired (manifest consumers all rewritten
-  # out by a distiller regen). Closed skip-ADRs are historical
-  # records per .dev/decisions/README.md, NOT orphans.
+  # Skip closed/superseded ADRs — `Status: Closed (...)` or
+  # `Status: Superseded ...` indicates the Removal condition
+  # fired (manifest consumers all rewritten out by a distiller
+  # regen, OR the skip path was replaced by a real runner-side
+  # implementation). Both are historical records per
+  # .dev/decisions/README.md, NOT orphans.
   status_line=$(grep -E '^- \*\*Status\*\*:' "$f" | head -1)
-  if echo "$status_line" | grep -qE '^- \*\*Status\*\*: Closed'; then
-    echo "  · $rel: Closed (skipped — historical record)"
+  if echo "$status_line" | grep -qE '^- \*\*Status\*\*: (Closed|Superseded)'; then
+    echo "  · $rel: Closed/Superseded (skipped — historical record)"
     continue
   fi
   # `grep -rEc` exits 1 when no matches anywhere; under `set -e`

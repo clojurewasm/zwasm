@@ -145,6 +145,14 @@ pub const DirectiveKind = enum {
     /// d-36: bare `(invoke FN ARGS)` action — invoke for side
     /// effects, ignore result, propagate traps as FAIL.
     invoke_action,
+    /// Phase 9 §9.9-III chunk (c)-1c per ADR-0065: wast
+    /// `(register "M" $inst)` directive — binds the current
+    /// module under a host-import alias. Body is the alias name.
+    /// Runner stores the current module's wasm bytes under the
+    /// alias in a session-local registry for subsequent
+    /// cross-module imports (consumer in chunk (c)-2). Previously
+    /// emitted as `skip-adr-skip_cross_module_register`.
+    register,
     unknown,
 };
 
@@ -189,6 +197,9 @@ pub fn classifyDirective(line: []const u8) ClassifiedDirective {
     }
     if (std.mem.startsWith(u8, line, "invoke-action ")) {
         return .{ .kind = .invoke_action, .body = line[14..] };
+    }
+    if (std.mem.startsWith(u8, line, "register ")) {
+        return .{ .kind = .register, .body = line[9..] };
     }
     return .{ .kind = .unknown, .body = line };
 }
@@ -1366,9 +1377,23 @@ pub fn runCorpus(
     // bad module are silently skipped (counted) rather than each
     // cascading as a separate FAIL.
     var module_bad: bool = false;
+    // Phase 9 §9.9-III chunk (c)-1c per ADR-0065: session-local
+    // module-alias registry. Maps alias → owned wasm bytes copy
+    // (lifetime tied to runCorpus). `(register "M" $inst)`
+    // directives populate this; consumer is chunk (c)-2's
+    // cross-module import linker (TBD). Until (c)-2 lands, the
+    // map is write-only — the registry behaves as a no-op
+    // acknowledgement of the directive but is not yet read.
+    var registered: std.StringHashMapUnmanaged([]u8) = .empty;
     defer {
         if (current_wasm) |b| gpa.free(b);
         if (current_compiled) |*c| c.deinit(gpa);
+        var reg_it = registered.iterator();
+        while (reg_it.next()) |reg_entry| {
+            gpa.free(reg_entry.key_ptr.*);
+            gpa.free(reg_entry.value_ptr.*);
+        }
+        registered.deinit(gpa);
     }
 
     var line_it = std.mem.splitScalar(u8, manifest_bytes, '\n');
@@ -1652,6 +1677,51 @@ pub fn runCorpus(
                 } else |_| {
                     tally.passed += 1;
                 }
+            },
+            .register => {
+                // Phase 9 §9.9-III chunk (c)-1c. Bind the current
+                // module's wasm bytes under the alias. Skips when
+                // no current module OR module is bad (consistent
+                // with the upstream wast semantics — `(register)`
+                // outside a module context is invalid).
+                if (module_bad or current_wasm == null) {
+                    tally.skipped += 1;
+                    continue;
+                }
+                const alias = classified.body;
+                // Duplicate alias + bytes so the entry survives
+                // the next `module` directive's free of current_wasm.
+                const alias_owned = gpa.dupe(u8, alias) catch {
+                    try stdout.print("FAIL  {s}: register {s} (alloc)\n", .{ name, alias });
+                    tally.failed += 1;
+                    continue;
+                };
+                const bytes_owned = gpa.dupe(u8, current_wasm.?) catch {
+                    gpa.free(alias_owned);
+                    try stdout.print("FAIL  {s}: register {s} (alloc)\n", .{ name, alias });
+                    tally.failed += 1;
+                    continue;
+                };
+                const gop = registered.getOrPut(gpa, alias_owned) catch {
+                    gpa.free(alias_owned);
+                    gpa.free(bytes_owned);
+                    try stdout.print("FAIL  {s}: register {s} (map)\n", .{ name, alias });
+                    tally.failed += 1;
+                    continue;
+                };
+                if (gop.found_existing) {
+                    // Re-register: free the prior bytes + the
+                    // duplicate key (the map already owns the
+                    // original key). Wast semantics permit
+                    // rebinding an alias.
+                    gpa.free(alias_owned);
+                    gpa.free(gop.value_ptr.*);
+                    gop.value_ptr.* = bytes_owned;
+                } else {
+                    gop.value_ptr.* = bytes_owned;
+                }
+                // No tally bump: register is a directive, not an
+                // assertion. Acknowledged silently.
             },
             .unknown => {
                 try stdout.print("FAIL  {s}: unknown directive '{s}'\n", .{ name, line });

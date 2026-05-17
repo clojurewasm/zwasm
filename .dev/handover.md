@@ -26,14 +26,12 @@
 
 ### One-line state
 
-Step (b) Cat II drained (+31 PASS to 24032). Cat III Step (c)-1a
-landed Store registry foundation. Step (c)-1b landed: spectest
-host-import stub converted from trap-flag-set to no-op return
-(spectest functions are all void-return; spec asserts check
-return values not host-side prints, so no-op stub is semantically
-correct for fixtures whose only spectest call is side-effect).
-+2 PASS (24032→24034), -2 skip-impl, -2 skip-adr on both hosts
-bit-identical.
+Step (b) Cat II drained (+31 PASS to 24032). Cat III in progress:
+(c)-1a Store registry foundation; (c)-1b spectest host-import
+no-op (+2 PASS); (c)-1c runner `register` directive flow (-21
+skip-adr; 0 PASS gain — registry write-only until (c)-2 import
+linker consumes it). Current: 24034 / 0 / 2015 (= 1542 skip-impl
++ 473 skip-adr), Mac+OrbStack bit-identical.
 
 **Current spec_assert tally** (Mac aarch64 + OrbStack
 bit-identical post-(b)-5; live via
@@ -53,24 +51,28 @@ remains the D-134 plan.
 
 ### Next-session active task
 
-**Step (c)-1c onward — runner registers loaded modules in Store**
-(prerequisite for (c)-2 cross-module import linker): the
-`runCorpus` loop currently maintains one `current_compiled` at
-a time and drops it on next module. To enable
-cross-module imports, the runner needs to:
-1. Maintain a session-level `Store` across the corpus.
-2. Promote each successfully-compiled+instantiated module to a
-   `*Instance` parked in `store.zombies` (so its lifetime
-   spans the whole corpus, not just until next module load).
-3. Track current-module aliases as `(register "M" $inst)`
-   directives arrive (distiller currently emits
-   `skip-adr-skip_cross_module_register`; change distiller
-   to emit a `register <name>` line + runner parses → calls
-   `store.register(alloc, name, instance_opaque)`).
+**Step (c)-2 — Cross-module import linker** per close-plan §6
+step (c) sub-chunk 2. The (c)-1c chunk landed the runner-side
+`registered` registry (alias → owned wasm bytes); now the
+runner needs to consume it when compiling a module that
+imports from a registered alias:
 
-This is structural runner work (~150-250 LOC). Once landed,
-(c)-2 = import linker resolves `import "M" "f"` against the
-Store registry at compile/instantiate time.
+1. Identify modules whose imports name a registered alias
+   (the distiller already filters via `hasUnbindableImports`;
+   need to RELAX that filter for known-registered aliases).
+2. At compile/instantiate time, look up the import's module
+   name in `registered`. If present, bind the import to a
+   function in the registered module's exports (need to
+   compile or pre-compile the registered module to extract
+   its exports).
+3. Compile cross-module-action invokes (currently
+   `skip-adr-skip_cross_module_action`) — emit
+   `assert_return $mod fn ...` and have the runner dispatch.
+
+This is substantial — needs to either expose
+`*runner_mod.CompiledWasm`'s exports for late binding OR
+compile the registered modules once at register time.
+Likely 200-400 LOC + design decision on which path.
 
 **Cat II residual** (lower priority): D-137 mixed int+float
 multi-result + 3-result via X8 indirect-result-ptr. Both need
