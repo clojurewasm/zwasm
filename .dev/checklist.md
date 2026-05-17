@@ -86,10 +86,10 @@ Prefix: W## (to distinguish from CW's F## items).
       `scripts/build-zwasm.sh`) work around with `ar rcs`
       post-build. File upstream and remove the workaround once
       fixed.
-  (b) `error.IlpRequiresExplicitIo` semantics are documented in
-      D139 but not surfaced in `include/zwasm.h` or the C API
-      reference. Add a "Caveats — ILP32" subsection if the target
-      gains traction.
+  (b) `error.MissingIo` semantics on ILP32 are documented in D139
+      but not surfaced in `include/zwasm.h` or the C API reference.
+      Add a "Caveats — ILP32" subsection if the target gains
+      traction.
   (c) `memory.atomic.wait/notify` correctness on ILP32 with
       `single_threaded = true`. Not a regression vs the initial PR
       (atomics never worked under ILP32 anyway) but worth a one-line

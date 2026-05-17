@@ -1128,10 +1128,12 @@ byte-identical to before.
    consumers keep functioning `atomic.wait/notify` via
    `std.Thread` primitives.
 3. **Io acquisition** (`src/types.zig`, `loadCore`). On ILP32 with
-   no `config.io`: refuse with `error.IlpRequiresExplicitIo` if
-   WASI or `timeout_ms` is requested (both would dereference an
-   undefined vtable at runtime). Otherwise leave `io = undefined`
-   — the embedder has promised not to exercise io-dependent paths.
+   no `config.io`: refuse with `error.MissingIo` if WASI or
+   `timeout_ms` is requested (both would dereference an undefined
+   vtable at runtime). Otherwise leave `io = undefined` — the
+   embedder has promised not to exercise io-dependent paths. The
+   error name is deliberately ABI-neutral so it does not leak the
+   watchOS detail into the cross-target public error set.
 4. **Guard memory constants** (`src/guard.zig`). `GUARD_SIZE` /
    `TOTAL_RESERVATION` overflow comptime under 32-bit usize. Set
    to 0 placeholders on ILP32; runtime callers are predicated on

@@ -481,7 +481,7 @@ pub const WasmModule = struct {
             if (config.io) |io_val| break :blk io_val;
             if (@sizeOf(usize) < 8) {
                 if (config.wasi or config.timeout_ms != null) {
-                    return error.IlpRequiresExplicitIo;
+                    return error.MissingIo;
                 }
                 self.owned_io = null;
                 break :blk @as(std.Io, undefined);
