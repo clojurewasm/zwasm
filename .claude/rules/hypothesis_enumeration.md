@@ -29,7 +29,27 @@ that survived one resume without being closed.
 
 When the bug is still open after the cycle ends, the
 handover / debt row MUST carry an **enumerated hypothesis
-list** with:
+list**. Build it in this order:
+
+**Step 0 — Framing challenge** (run BEFORE enumerating any
+hypothesis; per
+[`2026-05-18-debt-dedup-grep-before-file.md`](../../.dev/lessons/2026-05-18-debt-dedup-grep-before-file.md)):
+
+1. Grep `.dev/debt.md` for the affected source file /
+   function names + symptom keywords ("stale" / "off-by-one"
+   / "wrong-register" / etc.) — does a `now`-status row
+   already document this bug class under a different
+   framing?
+2. Grep `.dev/lessons/INDEX.md` for the same keywords —
+   is there a prior investigation that already mapped this
+   space?
+3. If either grep hits, **dedup**: update the existing
+   debt row / cite the existing lesson; do NOT open a fresh
+   investigation. The inherited framing from the discovering
+   chunk's narrative is often too narrow and hides the
+   class-overlap.
+
+Then for each genuinely-new hypothesis:
 
 1. Numbered hypothesis name (e.g., "(1) PAC", "(2)
    siglongjmp re-entry").
