@@ -404,10 +404,18 @@ pub fn printCallTrap(
     // whether the trap happened before or after the cross-module
     // call. Per `hypothesis_enumeration.md` step-4 (permanent
     // diagnostic infra over throwaway probes).
+    // §9.9-III D-144 γ.4 cycle 3 permanent diag: also emit
+    // `rt.trap_flag` AT printCallTrap entry. The dispatcher
+    // returned error.Trap because trap_flag became non-zero;
+    // its value identifies the trap *kind* (JIT trap codes are
+    // distinct per source: unreachable / OOB / sig-mismatch /
+    // div-by-zero / etc.). Pairs with `last_tf` (= pre-stub
+    // snapshot) to tell us whether the trap fired *during* a
+    // stub or in JIT code between stubs / after the last stub.
     if (std.mem.eql(u8, args_s, "()") or args_s.len == 0) {
-        try stdout.print("FAIL  {s}: call {s}(): {s} [stubs={d} last_tf={d}]\n", .{ name, fn_name, @errorName(err), host_import_stub_call_count, host_import_stub_last_trap_flag });
+        try stdout.print("FAIL  {s}: call {s}(): {s} [stubs={d} last_tf={d} tf={d}]\n", .{ name, fn_name, @errorName(err), host_import_stub_call_count, host_import_stub_last_trap_flag, rt.trap_flag });
     } else {
-        try stdout.print("FAIL  {s}: call {s}({s}): {s} [stubs={d} last_tf={d}]\n", .{ name, fn_name, args_s, @errorName(err), host_import_stub_call_count, host_import_stub_last_trap_flag });
+        try stdout.print("FAIL  {s}: call {s}({s}): {s} [stubs={d} last_tf={d} tf={d}]\n", .{ name, fn_name, args_s, @errorName(err), host_import_stub_call_count, host_import_stub_last_trap_flag, rt.trap_flag });
     }
 }
 

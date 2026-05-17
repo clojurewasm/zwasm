@@ -32,52 +32,27 @@ test-all` EXIT=0. Edge-case runner 51 PASS on both. The 5
 contract fixtures under `test/edge_cases/p9/table_storage_sync/`
 all PASS.
 
-γ-4 relax probe (uncommitted, in stash): yields 25307 passed,
-1 failed (was 25305/3 before γ.3). The 2 ref_func fails
-discharged by γ.3; the 1 residual `imports: call print64`
-needs root-cause investigation — see D-144.
+γ-4 relax probe (re-applied locally cycle 3, reverted): 1
+residual `imports: call print64`; see D-144.
 
-### Next-session active task — D-144 print64 trap root-cause
+### Next-session active task — D-144 cycle 4
 
-The fail: `assert_return print64 i64:24 -> ()` in
-`imports/imports.1.wasm`. Sibling `print32 i32:13` passes.
-Differs by `(call $i64->i64 (local.get $i))` — a cross-module
-call into imports.0's `func-i64->i64 (param i64) (result i64)
-(local.get 0)`.
+Cycle 3 (2026-05-18) added `tf=` diag to `printCallTrap`.
+Mac observation `[stubs=5 last_tf=0 tf=1]` (relax applied
+locally, reverted before commit) localizes trap to JIT code
+**between stub #5 ($print_f64-2) return and `call_indirect`'s
+BLR** — call_indirect's bounds/sig/funcptr-load sets trap_flag=1
+(generic JIT trap; arm64 emit.zig:1444 shares one stub).
+Sibling print32 uses same `(elem $print_i32 $print_f64)`
+table at idx 0; passes. print64 differs only by idx (0→1)
++ expected sig (func(i32)→func(f64)). See D-144 hypothesis
+list cycle 3 update (#5/#6).
 
-Approaches tried in γ.4 cycle 1 (this session):
-- Code review of arm64 + x86_64 bridge thunks (no defect
-  found — see thunk.zig docstrings).
-- Code review of importer `call N (import)` emit path on both
-  arches (correct).
-- Code review of captureCallResult for i64 (correct).
-- Static spike `private/spikes/xmod_i64/{a,b}.wat` (compiled
-  but couldn't wire to spec_assert harness without distiller
-  rebuild; deleted).
-
-The trap_flag MUST be set by something during print64's
-execution. Open questions:
-- Is it the cross-module call to `$i64->i64`? Direct test
-  needs a harness wrapper that does `register A; import
-  A.fn from B; invoke B.fn(i64:24)` outside the spec corpus.
-- Is it one of the 5 spectest `call N` no-ops? hostImportTrapStub
-  doesn't set trap_flag per code — verify by stderr trace from
-  inside the stub.
-- Is it the trailing `call_indirect (type $func_f64)`? Same
-  hostImportTrapStub path via funcptr_base[1] post-patch.
-
-Next-session plan:
-- Add temporary stderr fprintf to `hostImportTrapStub` (test/
-  spec/spec_assert_runner_base.zig:351) printing "stub fired:
-  rt=%p trap_flag=%d". Run with γ-4 relax. Count stub calls
-  per print64 invocation. If trap_flag becomes 1, identify
-  which call.
-- Failing that, lldb breakpoint on rt.trap_flag write inside
-  zwasm-spec-wasm-2-0-assert binary.
-
-After fix: flip `hasUnbindableImports` to allow registered
-exporters; verify Mac+ubuntunote at 0 fail; close D-126 and
-D-144.
+Cycle 4 plan: either (a) lldb breakpoint at trap stub addr +
+dump tables_jit_ci_ptr[0].{typeidx_base,funcptr_base}[0..2]
+and call_indirect's loaded typeidx; OR (b) add per-fixup-kind
+W17 marker pre-B.cond at op_call.zig call_indirect emit sites
++ new JitRuntime.last_trap_kind field (permanent infra).
 
 ### Discipline reminders
 
