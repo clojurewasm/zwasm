@@ -6,15 +6,14 @@
 ## Cold-start procedure
 
 1. **READ FIRST** [`.dev/phase9_close_plan.md`](phase9_close_plan.md)
-   §6. Cat III dispatch — (c)-1/(c)-2.0/(c)-2.1/(c)-2.2 landed;
-   (c)-2.3-α/β-1/β-2a/β-2b/γ-1/γ-2/γ-3 landed; γ-4 attempt
-   surfaced unmet state (elem / data / func_entities / multi-
-   table) — **next = (c)-2.3-γ-3.b** (back the remaining
-   JitRuntime state) before γ-4 relax retries.
-2. `git log --oneline -10`. Latest: `33d1da17` (c)-2.3-γ-3
-   per-exporter table-0 funcptrs/typeidxs + γ-survey gap
-   discovery in the comment block at `hasUnbindableImports`.
-   Prior β/γ chain via `git log --grep="9.9-III"`.
+   §6. Cat III dispatch — (c)-1/(c)-2.0/(c)-2.1/(c)-2.2 +
+   (c)-2.3-α/β-1/β-2a/β-2b/γ-1/γ-2/γ-3/γ-3.b-arm landed; **next
+   = γ-3.b proper** (back func_entities / elem_segments /
+   data_segments / multi-table; then γ-4 relax retry).
+2. `git log --oneline -10`. Latest: `5baff1b4` γ-3.b-arm
+   (sigsegv arming around start-fn invocations + resolver
+   W^X re-flip). Prior β/γ chain via
+   `git log --grep="9.9-III"`.
 3. `bash scripts/p9_simd_status.sh` — live SIMD via ubuntunote
    native x86_64 (ADR-0067).
 4. `cat .dev/debt.md | head -90`. Cat III sub-chunks tracked
@@ -40,23 +39,23 @@ Read `private/notes/p9-9.9-III-c-2.3-gamma-survey.md` FIRST
 (corpus taxonomy + 5-step ramp; γ-3.b note appended below).
 
 Sub-chunking progress (Cat III (c)-2.3):
-- α/β-1/β-2a/β-2b/γ-1/γ-2/γ-3 SHAs: `git log --grep="9.9-III"`.
-- γ-4 attempt (relax `hasUnbindableImports`) regressed
-  Mac+ubuntunote: elem corpus callees still SEGV via
-  `_exit(142)` — they touch JitRuntime state γ-1/γ-2/γ-3
-  didn't back. Reverted; bisect-narrow comment at
-  `hasUnbindableImports` enumerates the unmet fields.
-- **γ-3.b NEXT**: back remaining `RegisteredExporter` state
-  on `RegisteredExporter` + wire into rt:
-  * elem_segments + elem_dropped (`table.init` / `elem.drop`)
-  * data_segments + data_dropped (`memory.init` / `data.drop`)
-  * func_entities (`ref.func`)
-  * tables_ptr + tables_jit_ci_ptr (multi-table
-    `call_indirect`) — via `setupMultiTableScratch` +
-    `setupElemSegments` against per-exporter buffers.
-- γ-4 / γ-5 retry after γ-3.b: relax
-  `hasUnbindableImports` (∼5 LOC); module-qualified invoke
-  directive.
+- α/β-1/β-2a/β-2b/γ-1/γ-2/γ-3/γ-3.b-arm SHAs:
+  `git log --grep="9.9-III"`.
+- γ-4 attempt (relax `hasUnbindableImports` post-γ-3.b-arm):
+  Mac regressed `ref_func.1`'s `is_null-v` (wrong VALUE 0 → 1,
+  not SEGV) — cross-module callee read undefined state.
+  Confirms γ-survey's "γ-4 ≈ 5 LOC" estimate was short.
+- **γ-3.b proper NEXT**: back the remaining JitRuntime state
+  on `RegisteredExporter` + wire into rt — at minimum
+  `func_entities` (for `ref.func`), then `elem_segments` +
+  `data_segments` (for `table.init` / `memory.init` /
+  `*.drop`), then multi-table `tables_ptr` +
+  `tables_jit_ci_ptr` (heaviest). Heap copies of
+  `populateElemSegments` / `populateDataSegments` /
+  `setupMultiTableScratch` taking buffer params, or per-
+  exporter scratch arrays mirroring the static-active-module
+  shape.
+- γ-4 / γ-5 retry after γ-3.b proper.
 
 (c)-2.4 = corpus distiller's `supported` set extension + new
 fixture rebuild; discharges D-138 fully + D-079 sub-gap ii.
