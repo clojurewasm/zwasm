@@ -29,7 +29,7 @@ substrate + wire-up (c)-2.3-α/β-1/β-2a/β-2b. γ-1/γ-2/γ-3/
 `e902e531`). Counts unchanged with γ-relaxation deferred:
 24034/0/2015 + 13301/0/440 + 212/0/20.
 
-### Next-session active task — D-126 dual-view table-0 sync fix
+### Next-session active task — D-126 fix needs ADR FIRST (§18.2 deviation); (c)-2.4 / D-079(ii) viable parallel work
 
 **γ-4 probe + D-143 bisect (2026-05-18 cycles 1+2)** confirmed
 the 113 functional FAILs surfaced by relaxing
@@ -62,17 +62,29 @@ PRE-mutation state. Verified minimal repro:
 - (C) route call_indirect through `tables_ptr` — drops the
   X26 fast path; loses §9.9-l-1b-d093 caching.
 
-**NEXT chunk**: implement Option B (incremental, lowest
-blast-radius). Each of `emitTableCopy` / `emitTableInit` /
-`emitTableSet` / `emitTableGrow` (both arm64 and x86_64)
-gains a paired store that mirrors `tables_ptr[k].refs[i]
-← X` into `funcptr_base[i] ← X` (where X is the new
-funcptr value). The `tables_jit_ci_ptr[k].funcptr_base` for
-k>0 needs similar treatment.
+**NEXT chunk caveat (ADR FIRST)**: Option B implementation
+(extend the 4 mutating table ops to mirror writes into a
+parallel funcptr view) is a §4 architecture deviation per
+`.dev/ROADMAP.md` §18.2 — affects `JitRuntime` field
+layout AND `TableSlice` extern struct stride AND every
+`tables_ptr`-indexing emit site. Loop policy:
+**`.dev/decisions/NNNN_dual_view_table_storage_fix.md`
+FIRST** documenting (A) unified storage / (B) sync-at-op /
+(C) call-indirect-through-tables_ptr trade-offs + the
+chosen path; then implementation as multi-chunk follow-up.
 
-Alt next chunk: (c)-2.4 corpus distiller (structurally
-independent of D-126; Python script work + new fixture
-rebuild; discharges D-138 fully + D-079 sub-gap ii).
+**Viable parallel chunks (no D-126 dependency)**:
+- **(c)-2.4 corpus distiller** — extend
+  `scripts/regen_spec_2_0_assert.sh`'s `supported` set +
+  rebuild .wasm fixtures. Discharges D-079 sub-gap ii
+  (v128 cross-module imports — also needs
+  `Runtime.globals` v128 plumbing per ADR-0052 §3).
+  D-138 ALREADY closed `4894ad1e` independent of (c)-2.4.
+- **D-016 `applySanitize` wrapper extract** — mechanical
+  refactor, no architectural depth.
+- **D-052 x86_64 prologue.zig extract** — paired refactor.
+- **D-133 arm64 op_table scratch sweep** — mechanical
+  scratch-reg audit.
 
 After Cat III closes (D-126 fix + (c)-2.4): Step (d) Cat IV
 windowsmini reconcile (D-136 SEH bridge). Then Step (e)
@@ -94,9 +106,10 @@ background. D-134 closed; future heisenbugs use 5-streak +
 ### Outstanding `now` debts (6)
 
 D-016(applySanitize wrapper); D-052(x86_64 prologue extract);
-D-079(v128 cross-module → (c)-2.4); D-126(bulk.wast post-
-mutation per ADR-0065); D-133(arm64 op_table scratch sweep);
-D-126(dual-view table-0 sync gap — γ-4 evidence absorbed 2026-05-18). D-142 + D-143 CLOSED 2026-05-18.
+D-079(v128 cross-module → (c)-2.4); D-126(dual-view table-0
+sync gap — γ-4 evidence absorbed 2026-05-18, ADR needed);
+D-133(arm64 op_table scratch sweep). D-138 + D-142 + D-143
+CLOSED 2026-05-18.
 
 `blocked-by` rides (corresponding chunks):
 D-103/D-105 → (c)-2.3/2.4; D-138 → (c)-2.4;
