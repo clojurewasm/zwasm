@@ -153,9 +153,27 @@ pub fn build(b: *std.Build) void {
     const run_core_tests = b.addRunArtifact(core_tests);
     const cli_tests = b.addTest(.{ .root_module = exe_mod });
     const run_cli_tests = b.addRunArtifact(cli_tests);
+    // §9.9-III (c)-2.3 D-142 fix (B) attendant: the
+    // `RegisteredExporter` unit tests in
+    // `test/spec/spec_assert_runner_base.zig` were authored
+    // alongside the γ-1/γ-2/γ-3/γ-3.b chunks but never wired
+    // into `zig build test` (they exist inside a
+    // `pub fn`-providing module consumed by the three runner
+    // exes; exe wiring doesn't run `test "..."` blocks). Wire
+    // them now so the D-142 absent-backing assertion + the
+    // γ-tests guard the exporter shape going forward.
+    const spec_assert_base_test_mod = createSanitizedModule(b, sanitize_opts, .{
+        .root_source_file = b.path("test/spec/spec_assert_runner_base.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    spec_assert_base_test_mod.addImport("zwasm", core);
+    const spec_assert_base_tests = b.addTest(.{ .root_module = spec_assert_base_test_mod });
+    const run_spec_assert_base_tests = b.addRunArtifact(spec_assert_base_tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_core_tests.step);
     test_step.dependOn(&run_cli_tests.step);
+    test_step.dependOn(&run_spec_assert_base_tests.step);
 
     // `zig build test-spec` — drive the frontend over the vendored
     // Wasm spec corpus (Phase 1 / §9.1 / 1.8: parser smoke; 1.9

@@ -937,8 +937,22 @@ pub const RegisteredExporter = struct {
         if (self.scratch_func_entities) |fe| allocator.free(fe);
         if (self.scratch_typeidxs) |t| allocator.free(t);
         if (self.scratch_funcptrs) |f| allocator.free(f);
-        if (self.scratch_memory) |m| allocator.free(m);
-        if (self.scratch_globals) |g| allocator.free(g);
+        if (self.scratch_memory) |m| {
+            // Same alignment story as `scratch_globals` above —
+            // `alignedAlloc(u8, .of(u128), ...)` at line ~990.
+            const aligned: []align(@alignOf(u128)) u8 = @alignCast(m);
+            allocator.free(aligned);
+        }
+        if (self.scratch_globals) |g| {
+            // `scratch_globals` is allocated via
+            // `alignedAlloc(u8, .of(u128), ...)` (line ~962);
+            // Zig 0.16's DebugAllocator records the original
+            // 16-byte alignment and rejects the `free` call when
+            // the slice's alignment info is dropped to 1. Recast
+            // back to the original alignment before freeing.
+            const aligned: []align(@alignOf(u128)) u8 = @alignCast(g);
+            allocator.free(aligned);
+        }
         if (self.rt) |r| allocator.destroy(r);
         if (self.compiled) |*c| c.deinit(allocator);
         allocator.free(self.bytes_owned);
@@ -1031,26 +1045,33 @@ pub const RegisteredExporter = struct {
             const elem_drop = self.scratch_elem_dropped;
             const data_segs = self.scratch_data_segments;
             const data_drop = self.scratch_data_dropped;
+            // D-142 fix (B): every `[*]const T` field whose
+            // backing buffer is absent gets `SAFE_STUB_PTR_ADDR`
+            // (= 0x1000) instead of `undefined`. See the const's
+            // docstring + `.claude/rules/zig_tips.md` for the
+            // rationale. The non-null branches keep their real
+            // pointer; only the fallback arm changed.
+            const stub_ptr = @as(usize, SAFE_STUB_PTR_ADDR);
             rt_ptr.* = .{
-                .vm_base = if (memory_buf) |m| m.ptr else @ptrFromInt(@as(usize, 0x1000)),
+                .vm_base = if (memory_buf) |m| m.ptr else @ptrFromInt(stub_ptr),
                 .mem_limit = if (memory_buf) |m| m.len else 0,
-                .funcptr_base = if (funcptrs_buf) |f| f.ptr else undefined,
+                .funcptr_base = if (funcptrs_buf) |f| f.ptr else @ptrFromInt(stub_ptr),
                 .table_size = if (funcptrs_buf) |f| @intCast(f.len) else 0,
-                .typeidx_base = if (typeidxs_buf) |t| t.ptr else undefined,
+                .typeidx_base = if (typeidxs_buf) |t| t.ptr else @ptrFromInt(stub_ptr),
                 .trap_flag = 0,
                 .globals_base = @ptrCast(@alignCast(globals_buf.ptr)),
                 .globals_count = @intCast(globals_buf.len / @sizeOf(Value)),
-                .host_dispatch_base = undefined,
+                .host_dispatch_base = @ptrFromInt(stub_ptr),
                 .host_dispatch_count = 0,
-                .func_entities_ptr = if (fe_buf) |fe| @ptrCast(fe.ptr) else undefined,
+                .func_entities_ptr = if (fe_buf) |fe| @ptrCast(fe.ptr) else @ptrFromInt(stub_ptr),
                 .func_entities_count = if (fe_buf) |fe| @intCast(fe.len) else 0,
-                .elem_segments_ptr = if (elem_segs) |es| es.ptr else undefined,
+                .elem_segments_ptr = if (elem_segs) |es| es.ptr else @ptrFromInt(stub_ptr),
                 .elem_segments_count = if (elem_segs) |es| @intCast(es.len) else 0,
-                .elem_dropped_ptr = if (elem_drop) |ed| ed.ptr else undefined,
+                .elem_dropped_ptr = if (elem_drop) |ed| ed.ptr else @ptrFromInt(stub_ptr),
                 .elem_dropped_count = if (elem_drop) |ed| @intCast(ed.len) else 0,
-                .data_segments_ptr = if (data_segs) |ds| ds.ptr else undefined,
+                .data_segments_ptr = if (data_segs) |ds| ds.ptr else @ptrFromInt(stub_ptr),
                 .data_segments_count = if (data_segs) |ds| @intCast(ds.len) else 0,
-                .data_dropped_ptr = if (data_drop) |dd| dd.ptr else undefined,
+                .data_dropped_ptr = if (data_drop) |dd| dd.ptr else @ptrFromInt(stub_ptr),
                 .data_dropped_count = if (data_drop) |dd| @intCast(dd.len) else 0,
             };
             self.rt = rt_ptr;
@@ -1148,6 +1169,22 @@ pub const RegisteredExporter = struct {
         self.scratch_data_bytes_arena = bytes_arena;
     }
 };
+
+/// §9.9-III (c)-2.3 D-142 fix (B): safe sentinel address used in
+/// place of `undefined` for every `[*]const T` field of
+/// `JitRuntime` whose backing buffer is absent on the exporter.
+/// Zig fills `undefined` with `0xAA` poison bytes in Debug; when
+/// the JIT-emitted body of an importer dereferences a poisoned
+/// `host_dispatch_base` after a cross-module bridge thunk returns,
+/// the fault address `0xAA...AA + offset` shows up FAR from the
+/// originating struct init (D-142, Mac aarch64 SEGV). `0x1000` is
+/// inside the macOS / Linux NULL-page reserve so a stray
+/// dereference still SEGVs — but at a predictable, debuggable
+/// address rather than a Zig-poisoned one — and matches the
+/// pre-existing `vm_base` fallback shape in `ensureCompiledAndRt`
+/// (used since (c)-2.3-γ-2). See `.claude/rules/zig_tips.md`
+/// § "`undefined` in extern struct fields".
+pub const SAFE_STUB_PTR_ADDR: usize = 0x1000;
 
 /// §9.9-III (c)-2.3-γ-2: per-exporter memory pool cap. 1 MiB
 /// covers all currently-skipped `linking.wast` exporter modules
@@ -2897,17 +2934,72 @@ test "RegisteredExporter γ-2: ensureCompiledAndRt populates scratch_memory + wi
     try testing.expectEqual(mem.len, rt.mem_limit);
 }
 
-test "RegisteredExporter γ-1: ensureCompiledAndRt populates scratch_globals + wires rt.globals_base" {
-    // Minimal module: `(module (global i32 (i32.const 42)))`. The
-    // global section is the only payload; no functions, no
-    // imports, no exports. Bytes built directly to avoid taking
-    // a runtime dependency on a fixture file.
-    //   magic + version : 00 61 73 6d 01 00 00 00
-    //   global section  : id=06 size=06 count=01 i32=7f mut=00
-    //                     init_expr=41 2a 0b
+test "RegisteredExporter D-142 (B): ensureCompiledAndRt avoids `undefined` poison for absent backing" {
+    // Empty module `(module)` — magic + version only. Triggers
+    // every absent-backing fallback in the rt init path: no
+    // memory, no table, no funcs, no globals, no data, no elem.
+    //
+    // Pre-fix, the absent paths initialised the rt's `[*]const T`
+    // pointer fields to `undefined`; Zig fills with 0xAA poison
+    // in Debug. After a cross-module bridge thunk returned, the
+    // importer's X19 carried the callee_rt pointer, and the
+    // next host-import call dereferenced the poisoned
+    // `host_dispatch_base` at offset +8 (= fault address
+    // 0xAA...B2). Fix replaces every `undefined` with the named
+    // `SAFE_STUB_PTR_ADDR` (= 0x1000) sentinel, matching the
+    // pre-existing `vm_base` fallback shape. See
+    // `.dev/lessons/2026-05-17-gamma3d-dispatch-write-segv-bisect.md`
+    // and `.claude/rules/zig_tips.md` § "`undefined` in extern
+    // struct fields".
     const wasm_bytes_const = [_]u8{
         0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    };
+    const gpa = testing.allocator;
+    var exporter: RegisteredExporter = .{ .bytes_owned = try gpa.dupe(u8, &wasm_bytes_const) };
+    defer exporter.deinit(gpa);
+
+    try exporter.ensureCompiledAndRt(gpa);
+
+    const rt = exporter.rt orelse return error.MissingRt;
+    const stub: usize = SAFE_STUB_PTR_ADDR;
+    try testing.expectEqual(stub, @intFromPtr(rt.funcptr_base));
+    try testing.expectEqual(stub, @intFromPtr(rt.typeidx_base));
+    try testing.expectEqual(stub, @intFromPtr(rt.host_dispatch_base));
+    try testing.expectEqual(stub, @intFromPtr(rt.func_entities_ptr));
+    try testing.expectEqual(stub, @intFromPtr(rt.elem_segments_ptr));
+    try testing.expectEqual(stub, @intFromPtr(rt.elem_dropped_ptr));
+    try testing.expectEqual(stub, @intFromPtr(rt.data_segments_ptr));
+    try testing.expectEqual(stub, @intFromPtr(rt.data_dropped_ptr));
+    // vm_base also takes the stub fallback (pre-existing path,
+    // re-verified here so future refactors don't drop the
+    // common shape).
+    try testing.expectEqual(stub, @intFromPtr(rt.vm_base));
+}
+
+test "RegisteredExporter γ-1: ensureCompiledAndRt populates scratch_globals + wires rt.globals_base" {
+    // Minimal module: `(module (func) (global i32 (i32.const 42)))`.
+    // A `(func)` is included so `compileWasm` takes the full
+    // globals-decoding path; the no-func-section early return at
+    // `src/engine/runner.zig:585` short-circuits with
+    // `globals_byte_size = 0` and would leave `scratch_globals`
+    // an empty slice (= test pre-existing orphan rot surfaced
+    // when the base file was wired into `zig build test`).
+    //   magic + version : 00 61 73 6d 01 00 00 00
+    //   type section    : id=01 size=04 count=01 func=60 0 params 0 results
+    //   function section: id=03 size=02 count=01 typeidx 00
+    //   global section  : id=06 size=06 count=01 i32=7f mut=00
+    //                     init_expr=41 2a 0b
+    //   code section    : id=0a size=04 count=01 body_size=02 nlocals=00 end=0b
+    const wasm_bytes_const = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        // type
+        0x01, 0x04, 0x01, 0x60, 0x00, 0x00,
+        // function
+        0x03, 0x02, 0x01, 0x00,
+        // global
         0x06, 0x06, 0x01, 0x7f, 0x00, 0x41, 0x2a, 0x0b,
+        // code
+        0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b,
     };
     const gpa = testing.allocator;
     var exporter: RegisteredExporter = .{ .bytes_owned = try gpa.dupe(u8, &wasm_bytes_const) };
