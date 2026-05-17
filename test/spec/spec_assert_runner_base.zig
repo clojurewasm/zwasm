@@ -20,6 +20,8 @@ const std = @import("std");
 const zwasm = @import("zwasm");
 const runner_mod = zwasm.engine.runner;
 const entry = zwasm.engine.codegen.shared.entry;
+const jit_mem = zwasm.platform.jit_mem;
+const shared_thunk = zwasm.engine.codegen.shared.thunk;
 const Value = zwasm.runtime.Value;
 
 /// Parse a decimal integer token into its u32 bit pattern. Wasm
@@ -801,12 +803,141 @@ pub const RegisteredExporter = struct {
     /// for fixtures that register a module but no subsequent
     /// fixture imports from it.
     compiled: ?runner_mod.CompiledWasm = null,
+    /// Lazy: per-exporter JitRuntime instance. Heap-allocated
+    /// so the pointer remains stable across `registered`
+    /// HashMap rehashes (struct-field pointers would invalidate
+    /// on rehash). Embedded as `callee_rt` in every thunk that
+    /// targets an export of this module. Zero-initialised state
+    /// is safe for (c)-2.3-β scope: callees that never read
+    /// memory / globals / tables (pure-arithmetic exports) only
+    /// need `trap_flag` + `jit_executed_flag` backing — both
+    /// are u32 fields in the JitRuntime struct that work in any
+    /// zero-state.
+    rt: ?*entry.JitRuntime = null,
 
     pub fn deinit(self: *RegisteredExporter, allocator: std.mem.Allocator) void {
+        if (self.rt) |r| allocator.destroy(r);
         if (self.compiled) |*c| c.deinit(allocator);
         allocator.free(self.bytes_owned);
     }
+
+    /// Lazy-compile + allocate JitRuntime on first lookup.
+    /// Subsequent calls return the cached pair.
+    pub fn ensureCompiledAndRt(
+        self: *RegisteredExporter,
+        allocator: std.mem.Allocator,
+    ) !void {
+        if (self.compiled == null) {
+            self.compiled = try runner_mod.compileWasm(allocator, self.bytes_owned);
+        }
+        if (self.rt == null) {
+            const rt_ptr = try allocator.create(entry.JitRuntime);
+            rt_ptr.* = .{
+                .vm_base = @ptrFromInt(@as(usize, 0x1000)),
+                .mem_limit = 0,
+                .funcptr_base = undefined,
+                .table_size = 0,
+                .typeidx_base = undefined,
+                .trap_flag = 0,
+                .globals_base = undefined,
+                .globals_count = 0,
+                .host_dispatch_base = undefined,
+                .host_dispatch_count = 0,
+            };
+            self.rt = rt_ptr;
+        }
+    }
 };
+
+/// §9.9-III (c)-2.3-β-2 per ADR-0066: walk an importer's import
+/// section, for each `(import "M" "f" (func ...))` whose alias
+/// `M` is registered, lazy-compile the exporter + emit a bridge
+/// thunk into the caller-provided arena, then plant the thunk's
+/// byte address into `dispatch[import_idx]`. Non-spectest
+/// imports without a registered exporter remain untouched
+/// (caller's `hostImportTrapStub` slot stays — trap at call
+/// time). Spectest imports are also untouched (kept as
+/// host-trap stub slots; they're handled by the existing d-35
+/// path when surfaced as `error.Trap`).
+///
+/// Returns the count of thunks emitted (= slots overwritten in
+/// `dispatch`). `arena_slot_count` is the pre-allocated arena
+/// capacity in thunk slots; resolver returns
+/// `error.OutOfMemory` if the importer has more resolvable
+/// cross-module imports than the arena can hold.
+///
+/// `(c)-2.3-β scope limitation`: when a registered exporter's
+/// callee touches memory / globals / tables, runtime behaviour
+/// is undefined (the heap-allocated zero-state JitRuntime
+/// doesn't carry the exporter's actual state). Per the survey
+/// note, this is acceptable for the simplest cross-module
+/// fixtures; (c)-2.3-γ adds per-exporter backing buffers.
+pub const ResolverError = error{
+    OutOfMemory,
+    ImportSectionDecodeFailed,
+    ExporterCompileFailed,
+    ExporterExportNotFound,
+};
+
+pub fn resolveCrossModuleImports(
+    allocator: std.mem.Allocator,
+    importer_wasm: []const u8,
+    dispatch: []usize,
+    thunk_arena: jit_mem.JitBlock,
+    arena_slot_count: usize,
+    registered: *std.StringHashMapUnmanaged(RegisteredExporter),
+) ResolverError!u32 {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const aa = arena.allocator();
+    var module = zwasm.parse.parser.parse(aa, importer_wasm) catch return ResolverError.ImportSectionDecodeFailed;
+    defer module.deinit(aa);
+    const sec = module.find(.import) orelse return 0;
+    var imports = zwasm.parse.sections.decodeImports(aa, sec.body) catch return ResolverError.ImportSectionDecodeFailed;
+    defer imports.deinit();
+
+    var slot_idx: u32 = 0;
+    var import_idx: u32 = 0;
+    for (imports.items) |imp| {
+        defer if (imp.kind == .func) {
+            import_idx += 1;
+        };
+        if (imp.kind != .func) continue;
+        // Skip spectest imports — they keep the existing host-
+        // trap stub slot (d-35 path); not in scope for (c)-2.3-β.
+        if (std.mem.eql(u8, imp.module, "spectest")) continue;
+
+        // Look up the exporter. Missing alias = leave the trap
+        // stub in place (caller's slot remains untouched).
+        const entry_ptr = registered.getPtr(imp.module) orelse continue;
+
+        // Lazy-compile + lazy-rt. Failure surfaces as
+        // ExporterCompileFailed so caller can fall back to the
+        // trap-stub slot (not handled here — caller decides).
+        entry_ptr.ensureCompiledAndRt(allocator) catch return ResolverError.ExporterCompileFailed;
+        const compiled = &entry_ptr.compiled.?;
+        const callee_rt = entry_ptr.rt.?;
+
+        // Find the named export in the exporter's export
+        // section. Missing = ExporterExportNotFound (callee
+        // promised it but doesn't deliver).
+        const callee_funcidx = runner_mod.findExportFunc(aa, entry_ptr.bytes_owned, imp.name) catch return ResolverError.ExporterExportNotFound;
+        const callee_entry_addr = compiled.module.entryAddr(callee_funcidx);
+
+        // Emit thunk into the arena's next slot.
+        if (slot_idx >= arena_slot_count) return ResolverError.OutOfMemory;
+        const slot = shared_thunk.thunkSlot(thunk_arena, slot_idx);
+        shared_thunk.emitThunk(slot, @intFromPtr(callee_rt), callee_entry_addr);
+
+        // Plant the thunk's address into the importer's dispatch
+        // slot (host_dispatch_base[import_idx] view).
+        if (import_idx < dispatch.len) {
+            dispatch[import_idx] = @intFromPtr(slot.ptr);
+        }
+        slot_idx += 1;
+    }
+    return slot_idx;
+}
 
 /// §9.9 / 9.9-l-1b-d093-d8c (per ADR-0059): growable memory pool
 /// for spec runners. Bumped from 64 → 1024 pages (64 MiB) at d-21
