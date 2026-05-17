@@ -8,9 +8,10 @@
 1. **READ FIRST** [`.dev/phase9_close_plan.md`](phase9_close_plan.md)
    §6. Cat III dispatch — D-142 fix (B) `d543c646` + (A.1)
    ADR-0066 amendment `4e7a4646` + (A.2) arm64 thunk
-   redesign `6044e8f4` all landed. (A.3) x86_64 mirror is
-   next.
-2. `git log --oneline -10`. Latest: D-142 (A.2) arm64 thunk
+   `6044e8f4` + (A.3) x86_64 thunk `b89c2d45` — all landed.
+   D-142 fix (A) COMPLETE. γ-4 (relax `hasUnbindableImports`)
+   is next.
+2. `git log --oneline -10`. Latest: D-142 (A.3) x86_64 thunk
    redesign. Prior β/γ chain via `git log --grep="9.9-III"`.
 3. `bash scripts/p9_simd_status.sh` — live SIMD via ubuntunote
    native x86_64 (ADR-0067).
@@ -29,44 +30,41 @@ substrate + wire-up (c)-2.3-α/β-1/β-2a/β-2b. γ-1/γ-2/γ-3/
 `e902e531`). Counts unchanged with γ-relaxation deferred:
 24034/0/2015 + 13301/0/440 + 212/0/20.
 
-### Next-session active task — D-142 fix (A.3) x86_64 mirror
+### Next-session active task — γ-4 `hasUnbindableImports` relax
 
-D-142 progress (cycle 6 root-cause + 3 fix sub-chunks):
+D-142 fix (A) COMPLETE. All 4 sub-chunks landed:
 
-- **(B) `d543c646`** — `ensureCompiledAndRt`
-  `SAFE_STUB_PTR_ADDR = 0x1000` for all 8 absent-backing
-  `[*]const T` fields (closed the poison-init half).
-- **(A.1) `4e7a4646`** — ADR-0066 Amendment §A1 landing the
-  bridge-thunk-saves-caller-X19 design contract (docs-only).
-- **(A.2) `6044e8f4`** — arm64 thunk redesign per §A1:
-  56-byte STP/STR/BLR/LDR/LDP/RET shape + 3 new encoders
-  (`encBlr`, `encStpPreIdx`, `encLdpPostIdx`). Closes the
-  X19-corruption half of D-142 on Mac aarch64.
+- **(B) `d543c646`** — `SAFE_STUB_PTR_ADDR = 0x1000` for 8
+  absent-backing fields in `ensureCompiledAndRt`.
+- **(A.1) `4e7a4646`** — ADR-0066 Amendment §A1 design contract.
+- **(A.2) `6044e8f4`** — arm64 thunk 56-byte call-and-return
+  shape preserving caller X19. New encoders: `encBlr`,
+  `encStpPreIdx`, `encLdpPostIdx`.
+- **(A.3) `b89c2d45`** — x86_64 thunk 27-byte call-and-return
+  shape preserving caller R15. No new encoders (all existed).
 
-**NEXT — D-142 fix (A.3)**: x86_64 mirror of A.2. Replace
-`src/engine/codegen/x86_64/thunk.zig`'s tail-call shape
-(MOV imm64 + JMP RAX, 22 bytes) with a call-and-return
-shape that PUSHes R15 (= x86_64 `runtime_ptr_save_gpr` per
-ADR-0026 Cc-pivot) before the CALL and POPs after. Target
-shape per ADR-0066 §A1:
+**NEXT — γ-4**: in `test/spec/spec_assert_runner_base.zig`,
+relax `hasUnbindableImports` to allow registered func imports
+through the resolver-emitted bridge thunks. Pre-D-142-fix this
+hit a Mac aarch64 SEGV at the cross-module dispatch boundary
+(see lesson `2026-05-17-gamma3d-dispatch-write-segv-bisect.md`).
+After γ-4 lands, the corpus runs `imports/imports.1.wasm` etc.
+through the thunks; ubuntunote was already functional at
+25196/112/705 under the relaxation (the 112 functional FAILs
+are table_copy 65 / table_init 39 / ref_func 6, addressed by
+the γ-1/γ-2/γ-3 per-exporter backing that landed earlier).
 
-  PUSH R15                       ; save caller's R15 = caller_rt
-  MOV  RDI, <callee_rt imm64>    ; SysV arg0
-  MOV  RAX, <callee_entry imm64>
-  CALL RAX                       ; SysV CALL (not JMP)
-  POP  R15                       ; RESTORE caller's R15
-  RET
+Expected outcome on Mac: SEGV closes structurally (or surfaces
+a NEW class of bug, in which case D-142 cycle 7 opens). Both
+hosts should converge to the same residual fail count
+(~25196/112 ballpark) — if a host diverges, a new debt row
+is filed.
 
-`thunk_bytes` grows from 22 to 27. Likely new encoders:
-`encPushReg64`, `encPopReg64`, `encCallReg64` (SysV `0x41 0x57`
-/ `0x41 0x5F` / `0xFF 0xD0` family). Mirror the test shape
-A.2 used (byte-exact + structural PUSH/POP-bracket-CALL
-assertion).
-
-After A.3 lands, γ-4 (relax `hasUnbindableImports` in
-`spec_assert_runner_base.zig`) can finally land, unblocking
-(c)-2.4 distiller + D-079 (ii) + D-105 + D-126
-Cat-III-dependent pieces.
+After γ-4: (c)-2.4 corpus distiller `supported` extension +
+new fixture rebuild (discharges D-138 fully + D-079 sub-gap
+ii). Then Step (d) Cat IV windowsmini reconcile (D-136 SEH
+bridge). Then Step (e) Phase 9 close (audit_scaffolding +
+SHA backfill + open 9.12 hard gate).
 
 (c)-2.4 = corpus distiller's `supported` set extension +
 new fixture rebuild; discharges D-138 fully + D-079 sub-gap
@@ -85,7 +83,7 @@ background. D-134 closed; future heisenbugs use 5-streak +
 D-016(applySanitize wrapper); D-052(x86_64 prologue extract);
 D-079(v128 cross-module → (c)-2.4); D-126(bulk.wast post-
 mutation per ADR-0065); D-133(arm64 op_table scratch sweep);
-D-142(Mac aarch64 SEGV — (B) + (A.1) + (A.2) landed, (A.3) x86_64 remaining).
+D-142(fix (A) COMPLETE — (B) + (A.1) + (A.2) + (A.3) all landed; final discharge after γ-4 behaviorally verifies).
 
 `blocked-by` rides (corresponding chunks):
 D-103/D-105 → (c)-2.3/2.4; D-138 → (c)-2.4;
