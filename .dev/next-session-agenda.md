@@ -162,16 +162,20 @@ note). Splitting AND migrating offsets simultaneously is a
 big-bang change.
 
 **Test gate**: `zig build test` green on Mac native (Step 0 of
-the agreed mandatory pre-commit checklist). OrbStack + windowsmini
-verifications run before push.
+the agreed mandatory pre-commit checklist). ubuntunote +
+windowsmini verifications run before push (post-ADR-0067; pre-
+2026-05-17 cycles used OrbStack on the Linux step — see
+[ADR-0067](decisions/0067_ubuntunote_native_x86_64_gate_host.md)).
 
 **Commit**: `refactor(p7): introduce src/jit_arm64/prologue.zig; relativize 142 test byte-offsets`.
 
 ### Step 4 — three-host gate (no push without user approval)
 
-`zig build test` on Mac → OrbStack (`orb run -m my-ubuntu-amd64`)
-→ windowsmini (`bash scripts/run_remote_windows.sh test`). All
-three must be green.
+`zig build test` on Mac → ubuntunote
+(`bash scripts/run_remote_ubuntu.sh test`) → windowsmini
+(`bash scripts/run_remote_windows.sh test`). All three must
+be green. (Pre-ADR-0067 docs reference OrbStack on the Linux
+step; that path is retired from the gate.)
 
 **Push policy**: this session is **not** /continue. Per CLAUDE.md
 "Pushing outside the autonomous /continue loop requires explicit

@@ -3,7 +3,7 @@ slug: d134-rosetta-2-signal-translation-limit
 date: 2026-05-17
 keywords: D-134, Rosetta 2, OrbStack, SIGSEGV, sigaction, signal handling, JIT, x86_64-on-aarch64, dmesg
 citing:
-  - <backfill — D-134 mitigation commit>
+  - 58e69207 — D-134 closure + ubuntunote pivot commit
 ---
 
 # D-134 OrbStack heisenbug — root cause is Rosetta 2 signal translation, not zwasm
@@ -191,34 +191,42 @@ bug. It is an environmental limitation of Rosetta 2's
 signal-translation pipeline when interacting with a
 high-iteration JIT-allocating x86_64 process.
 
-## Discharge strategy
+## Discharge strategy considered
 
-Three options ranked by cost / coverage:
+Three options were weighed during the investigation. **The
+actual closure chose option (3)** — see "Outcome
+(2026-05-17, post-investigation)" at the top of this file and
+ADR-0067 §Alternatives for the load-bearing decision record.
 
-1. **Rosetta-retry wrapper around the spec-runner step** (this
-   commit): `scripts/run_spec_assert_with_rosetta_retry.sh`
-   re-invokes the binary up to N times (currently 5) and
-   accepts the first green outcome. Detects D-134 specifically
-   (matches `[rosetta]` dmesg fingerprint + EXIT=139). All-fail
-   surfaces as a real failure. Cost: ~30 s extra wall-clock
-   per chunk on bad-luck runs; zero on green runs.
+1. **Rosetta-retry wrapper around the spec-runner step**
+   (drafted, NOT adopted): `scripts/orb_test_all_with_d134_retry.sh`
+   re-invokes the binary up to N times and accepts the first
+   green outcome. Detects D-134 specifically (matches
+   `zwasm-spec-wasm-2-0-assert failure` + `process terminated
+   with signal SEGV` log fingerprints). The wrapper is retained
+   in-tree as a historical Rosetta-class fingerprint classifier
+   but is **not invoked from the autonomous loop** post-pivot.
 
 2. **Switch OrbStack to native ARM64** (`my-ubuntu-arm64`):
-   loses x86_64-codegen coverage on this host. Rejected for v2
-   because §A3 inter-arch isolation demands BOTH arm64 and
-   x86_64 backends exercised per chunk; ARM64-only would defer
-   x86_64 regressions to windowsmini (which is reconciled at
-   phase boundaries only per ADR-0049).
+   rejected — would lose x86_64-codegen coverage on this host
+   and demote the per-chunk gate from "Mac aarch64 + Linux
+   x86_64" to "Mac aarch64 + Ubuntu aarch64", deferring
+   x86_64 regressions to windowsmini's phase-boundary
+   reconcile (ADR-0049).
 
-3. **Replace OrbStack with a native x86_64 Linux runner** (CI
-   or VM): clean fix but operational change. Tracked as
-   future work in the D-134 row's "long-term" subsection.
+3. **Replace OrbStack with a native x86_64 Linux host**
+   (chosen) — ADR-0067 ubuntunote pivot. Eliminates the
+   Rosetta translation layer entirely; signal-handling
+   semantics revert to upstream kernel + glibc behaviour on
+   real silicon. Validation: 5/5 deterministic-green
+   `test-spec-wasm-2.0-assert` at the same SHA, bit-identical
+   24034/0/2015 + 13301/0/440 with Mac aarch64.
 
-This commit lands option (1) as the immediate mitigation. The
-existing retry-loop discipline in
+The retry-loop streak discipline in
 [`heisenbug_discharge.md`](../../.claude/rules/heisenbug_discharge.md)
-applies: 5 consecutive Rosetta-classified SEGVs across 3
-distinct SHAs = real recurrence requiring investigation.
+remains in force for future heisenbug debt rows; D-134 itself
+closed via root-cause identification + environmental host
+change rather than empirical streak.
 
 ## Why earlier hypotheses (ii)/(iii)/(iv) fell apart in this investigation
 
@@ -252,8 +260,11 @@ sigsetjmp anchor.
 - Reproducers: `private/spikes/d134_sigaction_shim/repro.c`
   (vanilla) + `repro_jit.c` (JIT page). Both pass 1M
   iterations.
-- Mitigation script:
-  `scripts/run_spec_assert_with_rosetta_retry.sh`.
+- Retry wrapper (preserved as historical classifier; NOT in
+  the autonomous loop hot path post-ADR-0067):
+  `scripts/orb_test_all_with_d134_retry.sh`.
+- Production gate wrapper (post-ADR-0067 ubuntunote host):
+  `scripts/run_remote_ubuntu.sh`.
 
 ## Reviewer checklist when re-classifying a future D-134-shaped flake
 

@@ -248,10 +248,8 @@ Concretely:
     non-simd + 13301 / 0 / 440 simd, bit-identical with Mac
     aarch64.
 
-<!--
 ## Revision history
 
-| Date       | SHA          | Note                                    |
-|------------|--------------|-----------------------------------------|
-| 2026-05-17 | `<backfill>` | Initial accepted version (D-134 closed; OrbStack retired from per-chunk gate). |
--->
+| Date       | SHA        | Note                                    |
+|------------|------------|-----------------------------------------|
+| 2026-05-17 | `58e69207` | Initial accepted version (D-134 closed; OrbStack retired from per-chunk gate). |

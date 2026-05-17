@@ -17,14 +17,14 @@
 set -uo pipefail
 
 LOG_DIR="${TMPDIR:-/tmp}"
-ORB_LOG="${LOG_DIR}/p9-ubuntu-simd.log"
+UBUNTU_LOG="${LOG_DIR}/p9-ubuntu-simd.log"
 MAC_LOG="${LOG_DIR}/p9-mac-simd.log"
 
 want_mac=1
-want_orb=1
+want_ubuntu=1
 case "${1:-}" in
   --ubuntu-only|--orb-only) want_mac=0 ;;
-  --mac-only) want_orb=0 ;;
+  --mac-only) want_ubuntu=0 ;;
   -h|--help)
     sed -n '2,15p' "$0"
     exit 0 ;;
@@ -48,30 +48,30 @@ if [ "$want_mac" = 1 ]; then
 fi
 
 # ubuntunote (native Linux x86_64 via SSH per ADR-0067).
-if [ "$want_orb" = 1 ]; then
+if [ "$want_ubuntu" = 1 ]; then
   echo "=== ubuntunote Linux x86_64 simd_assert ==="
   if ! ssh -o ConnectTimeout=3 -o BatchMode=yes ubuntunote true 2>/dev/null; then
     echo "(ubuntunote unreachable; skipping ubuntunote section)"
   else
-    bash scripts/run_remote_ubuntu.sh test-spec-simd > "$ORB_LOG" 2>&1 || true
+    bash scripts/run_remote_ubuntu.sh test-spec-simd > "$UBUNTU_LOG" 2>&1 || true
 
-    if grep -E "simd_assert_runner:" "$ORB_LOG" > /dev/null; then
-      grep -E "simd_assert_runner:" "$ORB_LOG"
+    if grep -E "simd_assert_runner:" "$UBUNTU_LOG" > /dev/null; then
+      grep -E "simd_assert_runner:" "$UBUNTU_LOG"
     else
-      echo "(runner output not found / aborted; tail $ORB_LOG below)"
-      tail -3 "$ORB_LOG"
+      echo "(runner output not found / aborted; tail $UBUNTU_LOG below)"
+      tail -3 "$UBUNTU_LOG"
     fi
     echo
 
     echo "=== ubuntunote FAIL breakdown by manifest ==="
-    grep -E "^FAIL " "$ORB_LOG" | awk '{print $2}' | sed 's/:$//' \
+    grep -E "^FAIL " "$UBUNTU_LOG" | awk '{print $2}' | sed 's/:$//' \
       | sort | uniq -c | sort -rn
 
     echo
     echo "=== Sample FAIL per manifest (1 each) ==="
-    for cat in $(grep -E "^FAIL " "$ORB_LOG" | awk '{print $2}' \
+    for cat in $(grep -E "^FAIL " "$UBUNTU_LOG" | awk '{print $2}' \
                  | sed 's/:$//' | sort -u); do
-      grep -m1 "^FAIL  ${cat}" "$ORB_LOG"
+      grep -m1 "^FAIL  ${cat}" "$UBUNTU_LOG"
     done
     echo
   fi
@@ -97,4 +97,4 @@ awk -F'|' '/^\| D-/ {
 }' .dev/debt.md
 
 echo
-echo "Logs: Mac=$MAC_LOG ubuntunote=$ORB_LOG"
+echo "Logs: Mac=$MAC_LOG ubuntunote=$UBUNTU_LOG"

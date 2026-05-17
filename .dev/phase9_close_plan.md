@@ -140,7 +140,8 @@ single-slot-dual-meaning, copy-from-v1, etc.). Apply
 ## §5 Final position (the position the next session implements)
 
 `skip-impl == 0` at §9.9 close means **literal 0** across all
-four categories on Mac + OrbStack + windowsmini. Cat III is
+four categories on Mac + ubuntunote + windowsmini (Linux x86_64
+host pivoted from OrbStack per ADR-0067, 2026-05-17). Cat III is
 Phase 9 scope per ROADMAP correction. Cat IV is Phase 9
 batch-end sweep (windowsmini reconcile), not a separate Phase.
 
@@ -261,9 +262,9 @@ Expected sequence (highest impact first):
 6. `() → (i32, i32, i32)` — value-i32-i32-i32, return-i32-i32-i32
 7. Remaining long tail (f32+i64, f64+i32, etc.)
 
-Per-chunk gates: Mac+OrbStack file-logged parallel pipeline +
-verify simd_assert / wast_runner remain green / spec_assert
-PASS-count delta as expected.
+Per-chunk gates: Mac+ubuntunote file-logged parallel pipeline
+(per ADR-0049 + ADR-0067) + verify simd_assert / wast_runner
+remain green / spec_assert PASS-count delta as expected.
 
 ### Step (c) — Cat III: Wasm 1.0 instance work
 
@@ -372,8 +373,9 @@ Tasks:
    chunk should target one OR the other, not both).
 
 6. **windowsmini gating per `/continue/LOOP.md`** stays "Mac +
-   OrbStack per-chunk only" until step (d). Step (d) is the
-   moment to re-introduce windowsmini.
+   ubuntunote per-chunk only" until step (d) — post-ADR-0067
+   the Linux x86_64 host is ubuntunote (native), not OrbStack.
+   Step (d) is the moment to re-introduce windowsmini.
 
 ## §8 References
 
@@ -414,8 +416,9 @@ Tasks:
 
 - **Today's debt seeds** (track via `scripts/track_heisenbug.sh
   d134 --status` etc.):
-  - D-134 OrbStack heisenbug — silent streak active (1 entry
-    today)
+  - D-134 OrbStack heisenbug — **CLOSED 2026-05-17** per
+    ADR-0067 (root cause: Rosetta 2 signal-translation race;
+    pivoted Linux x86_64 host to native ubuntunote).
   - D-052 / D-081 — emit.zig source split chain
   - D-135 — entry.zig comptime generation (ADR-0063 Alt B)
   - D-136 — Win64 SEH bridge (Cat IV)

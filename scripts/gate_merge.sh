@@ -32,6 +32,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+SKIPPED_HOSTS=()
+
 echo "[gate_merge] Running commit gate first ..."
 bash scripts/gate_commit.sh
 
@@ -43,9 +45,8 @@ if ssh -o ConnectTimeout=5 -o BatchMode=yes ubuntunote "echo ok" >/dev/null 2>&1
     echo "[gate_merge] zig build test-all on ubuntunote (native x86_64) ..."
     bash scripts/run_remote_ubuntu.sh test-all
 else
+    SKIPPED_HOSTS+=("ubuntunote (Linux x86_64) — SSH unreachable; see .dev/ubuntunote_setup.md")
     echo "[gate_merge] WARN: ubuntunote SSH unreachable; skipping Linux gate." >&2
-    echo "             See .dev/ubuntunote_setup.md." >&2
-    echo "             (Phase 0 / early: WARN only; Phase 8+ this is required.)" >&2
 fi
 
 # ---- Windows x86_64 via SSH (windowsmini) ----
@@ -53,14 +54,27 @@ if ssh -o ConnectTimeout=5 -o BatchMode=yes windowsmini "echo ok" >/dev/null 2>&
     echo "[gate_merge] zig build test-all on windowsmini SSH ..."
     bash scripts/run_remote_windows.sh test-all
 else
+    SKIPPED_HOSTS+=("windowsmini (Windows x86_64) — SSH unreachable; see .dev/windows_ssh_setup.md")
     echo "[gate_merge] WARN: windowsmini SSH unreachable; skipping Windows gate." >&2
-    echo "             See .dev/windows_ssh_setup.md." >&2
-    echo "             (Phase 0 / early: WARN only; Phase 8+ this is required.)" >&2
 fi
 
 if [ -f scripts/sync_versions.sh ]; then
     echo "[gate_merge] sync_versions ..."
     bash scripts/sync_versions.sh
+fi
+
+# Final skipped-hosts summary. Bootstrap-friendly WARN-and-continue
+# is acceptable in Phase 0 / early phases; from Phase 8 onward (per
+# ADR-0067 + project release-gate discipline) a complete 3-host
+# gate is required for any push to `main`. The user / CI evaluates
+# the policy threshold; this script just records what happened.
+if [ "${#SKIPPED_HOSTS[@]}" -gt 0 ]; then
+    echo
+    echo "[gate_merge] SUMMARY — hosts skipped (non-zero count = incomplete merge gate):" >&2
+    for h in "${SKIPPED_HOSTS[@]}"; do
+        echo "  - $h" >&2
+    done
+    echo "[gate_merge] Phase 0 / early: WARN-only is acceptable; Phase 8+: required hosts must be green." >&2
 fi
 
 echo "[gate_merge] All gates passed (with WARNs noted above where applicable)."

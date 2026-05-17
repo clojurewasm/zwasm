@@ -30,7 +30,21 @@
 # retry is ~2-5 s (cached build) + the runner's actual
 # execution time.
 
+# Intentionally `set -u` only (no `-e`, no `-o pipefail`):
+# the script captures `orb run`'s exit code via `$?` after the
+# command, which `set -e` would short-circuit. A future editor
+# adding a piped invocation must re-evaluate this choice.
 set -u
+
+# WARNING (post-ADR-0067, 2026-05-17): the fingerprint match
+# below uses two whole-log `grep -q` checks. If a future run
+# produces BOTH strings from unrelated steps (e.g. another
+# runner SEGVs while the spec-wasm-2-0-assert step also has
+# an unrelated "failure" line), this classifier will
+# false-positive and retry a non-D-134 regression. Anchor the
+# match to the spec-wasm-2-0-assert step window (e.g. `awk`
+# between its start banner and failure line) before
+# re-introducing this wrapper to a hot gate path.
 
 LOG_PATH="${1:-/tmp/orb.log}"
 MACHINE="${ORB_MACHINE:-my-ubuntu-amd64}"

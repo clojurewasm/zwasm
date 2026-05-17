@@ -14,9 +14,14 @@ Project-level design and operational metadata. Tracked in git. English.
   tracking. Reviewed quarterly. v2 implements Phase 5 (= Wasm 3.0)
   proposals; lower phases are watched but not implemented unless
   promoted.
-- [`orbstack_setup.md`](./orbstack_setup.md) — one-time VM setup,
-  iteration loop, and gate integration for the OrbStack Ubuntu x86_64
-  cross-platform gate.
+- [`ubuntunote_setup.md`](./ubuntunote_setup.md) — canonical
+  per-chunk Linux x86_64 gate-host setup (native via SSH, per
+  ADR-0067).
+- [`windows_ssh_setup.md`](./windows_ssh_setup.md) —
+  phase-boundary Windows x86_64 reconcile host setup.
+- [`orbstack_setup.md`](./orbstack_setup.md) — retained for
+  Mac-local interactive dev-scratch use only (NOT in the
+  per-chunk gate post-ADR-0067).
 - [`decisions/`](./decisions/) — Architectural Decision Records.
   - `README.md` — convention.
   - `0000_template.md` — copy this when adding a new ADR.

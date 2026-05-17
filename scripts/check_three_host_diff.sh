@@ -21,7 +21,7 @@
 #
 # Usage:
 #   scripts/check_three_host_diff.sh
-#       Compare /tmp/{mac,orb,win}.log against expected
+#       Compare /tmp/{mac,ubuntu,win}.log against expected
 #       cross-host totals. Exit 0 if all match, 1 otherwise.
 #
 # Refresh logs first if needed (see CLAUDE.md three-host
