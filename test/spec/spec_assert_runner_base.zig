@@ -1362,22 +1362,24 @@ pub fn hasUnbindableImports(
         const is_spectest = std.mem.eql(u8, imp.module, "spectest");
         switch (imp.kind) {
             .func => {
-                // §9.9-III (c)-2.3-β-2b BISECT NARROW (post-γ-3.b-ii
-                // + heisenbug investigation): non-spectest =
-                // unbindable. γ-1..γ-3.b-ii backed globals / memory
-                // / table-0 / func_entities / elem + data segments
-                // per-exporter; γ-3.b-arm armed sigsegv. γ-4 relax
-                // attempt observed layout-sensitive `_exit(142)` —
-                // buf=16 stdout_buf one binary ran clean (b0548a),
-                // larger sizes (1024 / 4096) consistently crash,
-                // and a re-build at buf=16 itself reverted to
-                // crashing (7a4eb1c). Verdict: the SEGV is not
-                // from a single unbacked field but from stack /
-                // ASLR layout interacting with some other path —
-                // needs deeper investigation (stderr-tagged
-                // per-module trace, `lldb` on a crashing binary,
-                // or SIGSEGV-handler enhancement to print the
-                // last-loaded module name before `_exit`).
+                // §9.9-III (c)-2.3-β-2b BISECT NARROW (post-γ-4
+                // DIAG): non-spectest = unbindable. γ-4 DIAG
+                // handler trace identified
+                // `table_init/table_init.1.wasm` as the SEGV
+                // fixture — the importer's element segments
+                // place imported funcs into a table; the
+                // table's funcptr entry is 0 (`IMPORT_SENTINEL`
+                // path in `applyTableInitForTable` line ~1127),
+                // so `call_indirect` BLRs 0 once the table is
+                // exercised. The fix isn't in
+                // `RegisteredExporter` backing — it's in the
+                // active-module path's `applyTableInit` (or in
+                // a new resolver hook that emits a thunk
+                // address into the importer's funcptr slot when
+                // the cross-module import is resolved). γ-3.d
+                // scope or a new γ-5 sub-chunk; see the
+                // `2026-05-17-gamma4-stdout-buf-layout-
+                // sensitivity` lesson + γ-survey for context.
                 if (is_spectest) continue;
                 return true;
             },
@@ -1692,6 +1694,20 @@ fn siglongjmpWindowsStub(env: [*]u8, val: c_int) callconv(.c) noreturn {
     unreachable;
 }
 
+/// §9.9-III (c)-2.3-γ-4 DIAG: most-recently-loaded `.module`
+/// directive's file name. Written by `runCorpus`'s `.module`
+/// arm; read by `sigsegvHandler` to surface the crash fixture
+/// before `_exit(142)`. Async-signal-safe access pattern: the
+/// signal handler reads `last_module_name_len` first then
+/// `last_module_name[0..len]`; runCorpus writes them in the
+/// opposite order (bytes then length store) so a partial
+/// observation produces an empty / safe slice rather than a
+/// garbage one.
+pub var last_module_name: [256]u8 = undefined;
+pub var last_module_name_len: u32 = 0;
+
+extern "c" fn write(fd: c_int, buf: [*]const u8, count: usize) isize;
+
 fn sigsegvHandler(_: std.posix.SIG) callconv(.c) void {
     // §9.9 / 9.9-l-1b-d093-d62: `std.atomic.Value` access pairs
     // with the release-store at the dispatch site and forces a
@@ -1703,21 +1719,36 @@ fn sigsegvHandler(_: std.posix.SIG) callconv(.c) void {
         sigsegv_armed.store(false, .release);
         siglongjmp(@ptrCast(&sigsegv_recover_buf), 1);
     }
+    // §9.9-III (c)-2.3-γ-4 DIAG: SEGV outside an armed JIT
+    // call. Before `_exit(142)`, surface the most-recently-
+    // loaded module's file name to stderr (fd=2) so the
+    // crash fixture is identifiable across rebuilds despite
+    // the layout-sensitivity recorded in the
+    // `gamma4-stdout-buf-layout-sensitivity` lesson. Both
+    // `write(2)` and `_exit(2)` are async-signal-safe per
+    // POSIX `signal-safety(7)`; no allocation, no stdio
+    // buffering, no atexit handlers.
+    const len = last_module_name_len;
+    if (len > 0 and len <= last_module_name.len) {
+        const prefix = "[γ-4 DIAG] SEGV after .module ";
+        _ = write(2, prefix, prefix.len);
+        _ = write(2, &last_module_name, len);
+        _ = write(2, "\n", 1);
+    } else {
+        const msg = "[γ-4 DIAG] SEGV before any .module directive\n";
+        _ = write(2, msg, msg.len);
+    }
     // SEGV outside an armed JIT call: do not silently swallow.
     // `_exit(142)` is async-signal-safe (raw syscall, no atexit
-    // handlers). §9.9 / 9.9-l-1b-d093-d71 (D-134 disambiguation
-    // probe): exit code chosen as 142 — distinct from the
-    // conventional 139 (= 128 + SIGSEGV) so a `zig build`
-    // report of "exited with code 142" unambiguously indicates
-    // our handler fired and reached this path, whereas a
-    // "process terminated with signal SEGV" report means the
-    // kernel delivered SIGSEGV without our handler running
-    // (handler-install race or signal-mask block). The d-68
-    // disable of Zig's startup `attachSegfaultHandler` was
-    // claimed-but-overoptimistic at d-68 close (d-69 re-
-    // triggered the SEGV via layout perturbation); this probe
-    // produces the next concrete bit of evidence on the next
-    // OrbStack run that surfaces D-134.
+    // handlers). Exit code 142 (= 128 + SIGALRM by bash
+    // convention) is the D-134 disambiguation probe — distinct
+    // from the conventional 139 (= 128 + SIGSEGV) so a
+    // `zig build` report of "exited with code 142"
+    // unambiguously indicates our handler fired and reached
+    // this path, whereas a "process terminated with signal
+    // SEGV" report means the kernel delivered SIGSEGV without
+    // our handler running (handler-install race or signal-mask
+    // block).
     std.c._exit(142);
 }
 
@@ -1962,6 +1993,32 @@ pub fn runCorpus(
         switch (classified.kind) {
             .module => {
                 const file = classified.body;
+                // §9.9-III (c)-2.3-γ-4 DIAG: stash `<corpus>/<file>`
+                // into `last_module_name` so a subsequent
+                // `_exit(142)` SEGV can name the fixture. Write
+                // bytes BEFORE updating length so a racy handler
+                // read sees either the prior fixture's name
+                // (already valid) or the new one fully — never a
+                // half-written buffer.
+                {
+                    const max = last_module_name.len;
+                    var w: usize = 0;
+                    for (name) |c| {
+                        if (w >= max) break;
+                        last_module_name[w] = c;
+                        w += 1;
+                    }
+                    if (w < max) {
+                        last_module_name[w] = '/';
+                        w += 1;
+                    }
+                    for (file) |c| {
+                        if (w >= max) break;
+                        last_module_name[w] = c;
+                        w += 1;
+                    }
+                    @atomicStore(u32, &last_module_name_len, @intCast(w), .release);
+                }
                 if (current_compiled) |*c| c.deinit(gpa);
                 current_compiled = null;
                 if (current_wasm) |b| gpa.free(b);
