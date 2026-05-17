@@ -74,6 +74,27 @@ Prefix: W## (to distinguish from CW's F## items).
   still 25/25 because it uses per-job `Setup Rust` and does not
   install Go / TinyGo; CI adoption tracked separately under W50.
 
+- [ ] W55-watchos-ilp32: arm64_32-apple-watchos (ILP32) best-effort
+  support landed in PR #97 (D139). CI runs only a build-only smoke
+  job for `zig build static-lib -Dtarget=aarch64-watchos-ilp32
+  -Djit=false -Dcomponent=false -Dwat=false` because GitHub Actions
+  runners have no watchOS SDK to link / run the resulting archive.
+  Open follow-ups:
+  (a) Zig 0.16 archive packing bug — `aarch64-watchos-ilp32`
+      static-lib produces a working `.o` but the `.a` archive is
+      88 bytes (SYMDEF only). Embedders (e.g. wasm-benchmark's
+      `scripts/build-zwasm.sh`) work around with `ar rcs`
+      post-build. File upstream and remove the workaround once
+      fixed.
+  (b) `error.IlpRequiresExplicitIo` semantics are documented in
+      D139 but not surfaced in `include/zwasm.h` or the C API
+      reference. Add a "Caveats — ILP32" subsection if the target
+      gains traction.
+  (c) `memory.atomic.wait/notify` correctness on ILP32 with
+      `single_threaded = true`. Not a regression vs the initial PR
+      (atomics never worked under ILP32 anyway) but worth a one-line
+      test once the watchOS SDK becomes available in CI.
+
 - [ ] W45: SIMD loop persistence — Skip Q-cache eviction at loop headers.
   Requires back-edge detection in scanBranchTargets.
 

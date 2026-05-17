@@ -351,11 +351,11 @@ this is unaffected by host allocator choice.
 
 **Usage matrix**:
 
-| Caller              | Allocator source                                |
-|---------------------|-------------------------------------------------|
-| Zig host (CW/cw-new) | Host's `std.mem.Allocator` (GC-managed)          |
-| C host (via C API)  | `malloc/free` function pointers or default        |
-| Standalone CLI      | Internal `page_allocator` or `GeneralPurposeAllocator` |
+| Caller               | Allocator source                                       |
+|----------------------|--------------------------------------------------------|
+| Zig host (CW/cw-new) | Host's `std.mem.Allocator` (GC-managed)                |
+| C host (via C API)   | `malloc/free` function pointers or default             |
+| Standalone CLI       | Internal `page_allocator` or `GeneralPurposeAllocator` |
 
 **Migration**: Internal Arena usage → accept Allocator parameter. Existing C API
 (`zwasm_engine_new`) gains optional config struct with alloc/free callbacks.
@@ -887,11 +887,11 @@ agreed-on stripping mechanism, the ceiling has no meaning.
    and forcing parity would either hobble Linux or grant Windows
    excess slack.
 
-   | OS               | Stripped binary | Ceiling   | Headroom |
-   |------------------|-----------------|-----------|----------|
-   | macOS aarch64    | ~1.20 MB        | 1.30 MB   | ~80 KB   |
-   | Linux x86_64     | ~1.56 MB        | 1.60 MB   | ~40 KB   |
-   | Windows x86_64   | ~1.70 MB        | 1.80 MB   | ~100 KB  |
+   | OS             | Stripped binary | Ceiling | Headroom |
+   |----------------|-----------------|---------|----------|
+   | macOS aarch64  | ~1.20 MB        | 1.30 MB | ~80 KB   |
+   | Linux x86_64   | ~1.56 MB        | 1.60 MB | ~40 KB   |
+   | Windows x86_64 | ~1.70 MB        | 1.80 MB | ~100 KB  |
 
    The Linux 1.60 MB number is the original W48 Phase-1 target and is
    unchanged; the macOS 1.30 MB number tightens on the prior implicit
@@ -1069,3 +1069,104 @@ once the coalescer extension that needs them is debugged on x86_64
 - `W54-libm`: `rw_c_math` is dominated by libm `sin`/`cos`/`pow`
   dispatch; intrinsic recognition + ARM64 FSQRT inline + soft-libm
   fallback.
+
+---
+
+## D139: arm64_32-apple-watchos (ILP32) static-lib support — best-effort, no CI gate
+
+**Status**: Accepted — landed via PR #97 (`arm64_32-apple-watchos` branch).
+
+**Context**: Apple Watch SE / SE2 / Series 4-8 (S4-S8 SoC family)
+ships the ILP32 ABI: 32-bit pointers, 64-bit aarch64 instructions.
+Zig 0.16 spells the triple `aarch64-watchos-ilp32` (the legacy
+`arm64_32-` arch identifier was removed upstream in ziglang/zig
+#20820). Apple's App Store policy forbids `MAP_JIT` outside
+JavaScriptCore, so any wasm runtime targeting WatchKit apps must
+be pure interpreter (`-Djit=false`). zwasm already supports that
+mode on every 64-bit Apple platform; the missing piece was the
+ILP32 build itself.
+
+The blocker on a clean build was that `std.Io.Threaded` in Zig
+0.16 does not compile under ILP32 — `dirReadDarwin` / `pwrite`
+and friends narrow `u64` syscall returns into a 32-bit `usize`
+and the compiler rejects it. The full panic / `std.debug.*` paths
+transitively pull `std.Io.Threaded` in via
+`lockStderr → std_options.debug_io → debug_threaded_io.io()`, so
+they trip the same compile error even when nothing else in zwasm
+touches threading.
+
+**Decision**: Accept ILP32 as a **best-effort target with no
+runtime CI gate**. Build-only smoke is wired into CI to catch
+source-level rot; spec / e2e / realworld / ffi / bench coverage
+is not added because GitHub Actions runners have no watchOS SDK
+and the resulting archive cannot be linked or run there. Support
+is conditional on the consumer (a) leaving JIT off, (b) not
+enabling WASI host-dir access, and (c) not depending on
+`memory.atomic.wait/notify` correctness. Every workaround is
+gated comptime on `@sizeOf(usize) < 8` or
+`target.result.ptrBitWidth() < 64` so 64-bit consumers are
+byte-identical to before.
+
+| Concern               | ILP32 (watchOS)                  | 64-bit (Mac/iOS/Linux/Windows) |
+|-----------------------|----------------------------------|--------------------------------|
+| panic / log namespace | `std.debug.no_panic` (trap-only) | stdlib default                 |
+| static-lib threading  | `single_threaded = true`         | default (multi-threaded)       |
+| auto-init Io          | refused                          | `std.Io.Threaded` (per D135)   |
+| `Config.io` required  | yes, if WASI or timeout          | optional                       |
+| Guard memory consts   | 0 placeholders                   | 4 GiB / 8 GiB                  |
+| JIT                   | unsupported (App Store)          | enabled by default             |
+
+**Safety strategy** (per failure mode):
+
+1. **panic / std_options override** (`src/c_api.zig`). Scoped to
+   ILP32 via a comptime `const ilp32 = @sizeOf(usize) < 8;`.
+   64-bit C-API consumers keep
+   `std.debug.FullPanic(std.debug.defaultPanic)`, the stdlib
+   default — no behaviour change for them.
+2. **`single_threaded = true`** (`build.zig`, `lib_static_mod`).
+   Gated on `target.result.ptrBitWidth() < 64`. 64-bit static-lib
+   consumers keep functioning `atomic.wait/notify` via
+   `std.Thread` primitives.
+3. **Io acquisition** (`src/types.zig`, `loadCore`). On ILP32 with
+   no `config.io`: refuse with `error.IlpRequiresExplicitIo` if
+   WASI or `timeout_ms` is requested (both would dereference an
+   undefined vtable at runtime). Otherwise leave `io = undefined`
+   — the embedder has promised not to exercise io-dependent paths.
+4. **Guard memory constants** (`src/guard.zig`). `GUARD_SIZE` /
+   `TOTAL_RESERVATION` overflow comptime under 32-bit usize. Set
+   to 0 placeholders on ILP32; runtime callers are predicated on
+   `jitSupported()` which is false for watchos.
+5. **Memory index narrowing** (`src/memory.zig`, `src/vm.zig`).
+   After the bounds check `effective: u64` provably fits in usize
+   (since `len: usize` bounds it), so the explicit
+   `@intCast(usize)` is a no-op on 64-bit and a
+   correctness-preserving narrowing on ILP32.
+
+**Alternatives considered**:
+
+- **Refuse the build entirely on ILP32.** Rejected — the watchOS
+  use case is real (Apple Watch wasm runtime comparison in
+  rebeckerspecialties/wasm-benchmark) and the comptime gates are
+  small enough to keep maintained.
+- **Force `single_threaded = true` on every static-lib.** What
+  the initial PR proposed. Rejected — silently breaks
+  `atomic.wait/notify` for 64-bit Linux / macOS / Windows
+  static-lib consumers.
+- **Reinvent the panic namespace inline.** What the initial PR
+  did (~80 lines of hand-rolled `@trap()` handlers). Rejected —
+  Zig 0.16 ships `std.debug.no_panic` for exactly this purpose.
+- **Provide a trap-on-all-methods Io vtable.** Considered for the
+  ILP32 `undefined io` case. Rejected — `std.Io.VTable` has 50+
+  function pointers, the surface is volatile across Zig releases,
+  and the `error.IlpRequiresExplicitIo` path achieves the same
+  loud-failure semantics with much less code.
+
+**Known follow-up**: tracked in `checklist.md` as
+`W55-watchos-ilp32`. The Zig 0.16 `.a`-packing bug for this triple
+(archive ends up as the 88-byte SYMDEF only; embedders must `ar
+rcs` the `.o` themselves) is upstream's problem, not zwasm's, and
+is left out of scope here.
+
+**Affected files**: `build.zig`, `src/c_api.zig`, `src/guard.zig`,
+`src/memory.zig`, `src/types.zig`, `src/vm.zig`,
+`.github/workflows/ci.yml`.
