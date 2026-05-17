@@ -61,18 +61,20 @@ Sub-chunking progress (Cat III (c)-2.3):
   65 / table_init 39 / ref_func 6) — γ-1/2/3 backing is
   populated but does not yet route correctly in some
   cross-module shapes. This is the residual γ work.
-- **D-142 investigation (cycle 5, this session)**:
-  SA_SIGINFO upgrade landed; fault-addr emission shows
-  `0xaaaaaaaaaaaaaab2` = Zig `0xAA` poison-pattern +
-  `0xB2` = `0xAA + 8` → **uninitialised pointer
-  dereference at offset 8**. All 5 prior hypotheses
-  rejected (PAC, siglongjmp re-entry, altstack/stack-
-  guard, layout coincidence, BLR-target near MAP_JIT
-  flip). New leading hypothesis = uninit-pointer; suspect
-  the by-value `callbacks: RunnerCallbacks` pass (offset
-  8 = `.handle_assert_return`) OR a poisoned `compiled.
-  module` field OR a `setup_ok` branch leak. See lesson
-  + D-142 entry for the byte-dump discharge plan.
+- **D-142 ROOT CAUSE IDENTIFIED (cycle 6)**: bridge
+  thunk corrupts X19 across cross-module call. Two
+  interacting bugs: (A) v2 arm64 prologue overwrites X19
+  (`runtime_ptr_save_gpr`) without saving caller's value
+  (AAPCS64 §6.4.1 violation); (B) `ensureCompiledAndRt`
+  inits callee_rt with `host_dispatch_base = undefined`
+  (`0xAA` poison in Debug). After cross-module call
+  returns, importer's X19 = callee_rt; next host-import
+  call loads imports.0's poison `host_dispatch_base =
+  0xAA`; LDR at +8 faults at `0xAA + 8 = 0xB2`. Both
+  fixes needed: (A) bridge thunk → BL/RET pattern saving
+  caller's X19 (ADR-0066 amendment, ~48-byte thunk);
+  (B) replace `undefined` field inits with safe stubs.
+  See lesson for full diagnostic chain.
 - **NEXT options** (loop should pick one):
   (1) Deep D-142 investigation (SA_SIGINFO + ucontext_t to
       capture fault PC + address; hypotheses 1 and 2 are

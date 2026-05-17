@@ -103,32 +103,73 @@ mechanism, and it failed on this specific call site.
 5. ~~**BLR target near MAP_JIT flip**~~ — **REJECTED**: same
    reasoning — fault address is poison, not text/MAP_JIT.
 
-**NEW LEADING HYPOTHESIS (post-SA_SIGINFO probe 2026-05-17)**:
-**uninitialised pointer dereference at offset +8**. The fault
-address `0xaaaaaaaaaaaaaab2` decomposes as `0xAA` × 7 + `0xB2`,
-where `0xB2 = 0xAA + 8`. This is the classic signature of
-`*((uninit_ptr) + 8)`: a base pointer that was Zig-poisoned
-to `0xAA...AA`, plus an offset of 8 bytes, dereferenced as a
-pointer load. Suspect: a slot somewhere in the path between
-the resolver completing and the `callbacks.on_module_loaded`
-vtable indirect-call. Candidate sites:
+**ROOT CAUSE IDENTIFIED (2026-05-17 cycle 6)**: the cross-
+module bridge thunk corrupts X19 (= `runtime_ptr_save_gpr`)
+across the call boundary. Two interacting bugs:
 
-- `RunnerCallbacks` is a 5-pointer struct (40 bytes); offset 8
-  is `.handle_assert_return`. If the by-value callbacks
-  argument is passed via a Zig-poisoned by-reference slot,
-  the compiler might end up loading the wrong field.
-- The setup-block's `setup_ok` branch may leak a poisoned
-  pointer into runCorpus's stack frame that gets read on
-  the on_module_loaded call path.
-- `compiled.module.entryAddr(...)` returns from a poisoned
-  `JitModule` field if the resolver's `ensureCompiledAndRt`
-  short-circuited unexpectedly.
+1. **Callee prologue overwrites X19 without saving**. v2's
+   arm64 prologue (per `arm64/prologue.zig` "Word 7: ORR X19,
+   XZR, X0") unconditionally writes `MOV X19, X0` without
+   first saving the caller's X19 value. AAPCS64 §6.4.1
+   designates X19 as **callee-saved** — the callee MUST
+   preserve it. For SAME-module calls this is invisible
+   because both caller and callee use the same `rt` value in
+   X19. For cross-module calls the callee_rt ≠ caller_rt
+   and X19 ends up holding the wrong rt after the call
+   returns.
+2. **`RegisteredExporter.ensureCompiledAndRt` initialises
+   the callee's rt with `host_dispatch_base = undefined`**
+   (literally `.host_dispatch_base = undefined,` in the
+   struct init). Zig fills `undefined` with `0xAA` bytes in
+   Debug — so the callee_rt's host_dispatch_base = `0xAA...AA`.
 
-Next probe (when a session has bandwidth): print the byte
-contents of `callbacks` (40 bytes) at the runCorpus call
-site for `.module imports/imports.1.wasm` to localise which
-field holds the `0xAA` value. Also: read `compiled.module`
-fields and check for `0xAA` patterns.
+The combined failure mode: when print64 (in imports.1) does
+`call 10 <test.func-i64->i64>` via the bridge thunk, the
+callee swaps X0 → callee_rt and runs its prologue which
+overwrites X19 = callee_rt = imports.0's rt. The callee
+returns; the importer's next `call N` (e.g. `call 1
+<spectest.print_i64>`) emits `LDR X16, [X19, #host_dispatch_
+base_off]` → loads imports.0's `host_dispatch_base = 0xAA`
+poison. Then `LDR X16, [X16, #(1*8)]` faults at `0xAA + 8 =
+0xB2` — **exactly the captured fault address**.
+
+Diagnostic chain that proved this:
+- SA_SIGINFO fault-address: `0xaaaaaaaaaaaaaab2` = `0xAA × 7 + 0xB2`.
+- Byte-dump probe at call site: all `callbacks` (40 bytes) +
+  `gpa` + `wasm_bytes` + `compiled` + `name` values valid;
+  no `0xAA` in args.
+- Body probes in `nonSimdOnModuleLoaded`: function returns
+  cleanly through all 6 steps (memory limits + data init +
+  globals init + table init + multi-table + patch table
+  import funcptrs + extractStartFunc=null).
+- Body probes in runCorpus loop: `.assert_return print32`
+  passed; `.assert_return print64` entered → SEGV inside
+  `handle_assert_return` (JIT execution of print64).
+- Thunk-byte probe at resolver: thunk bytes correct (ADR/
+  LDR/LDR/BR + 2 literals); callee_rt = `0x111a61d00`
+  valid; callee_entry = `0x108df8164` valid; callee_rt's
+  first 64 bytes show vm_base/mem_limit/funcptr_base all
+  valid heap pointers — but `host_dispatch_base` (at offset
+  beyond the 64 bytes dumped) is the `undefined` field.
+
+## Fix design (next session)
+
+The fix needs to be coordinated across two layers:
+
+- **Bridge thunk** (`arm64/thunk.zig`): change from
+  tail-jump (BR X16) to call-and-return: save caller's X19
+  on stack, BL callee, restore X19, RET. Doubles the thunk
+  size from 32 to ~48 bytes. ADR-0066 amendment required.
+- **`ensureCompiledAndRt`**: stop using `undefined` for
+  `host_dispatch_base` (and any other `undefined` field —
+  audit the full struct init). Either point at a one-entry
+  stub array containing `hostImportTrapStub`, or `@ptrCast`
+  a stable zero/null sentinel.
+
+Both fixes are independently structurally correct. The
+bridge-thunk fix is load-bearing for ABI correctness; the
+`ensureCompiledAndRt` fix removes the poison that surfaced
+the bug + is good hygiene regardless.
 
 ## Steps the next investigator should take
 
