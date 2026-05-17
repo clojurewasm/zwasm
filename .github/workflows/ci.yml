@@ -278,6 +278,41 @@ jobs:
       - name: Verify minimal build tests pass
         run: zig build test -Djit=false -Dcomponent=false -Dwat=false
 
+  # Build-only smoke for arm64_32-apple-watchos (ILP32) — see D139.
+  # GitHub Actions runners lack a watchOS SDK so the resulting
+  # archive cannot be linked or run; this job only catches
+  # source-level rot on the ILP32 comptime gates in src/c_api.zig,
+  # src/guard.zig, src/memory.zig, src/types.zig, src/vm.zig and
+  # the build.zig single_threaded gate.
+  watchos-ilp32-build:
+    name: build (aarch64-watchos-ilp32, ILP32 smoke)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Build static-lib for aarch64-watchos-ilp32
+        run: |
+          zig build static-lib \
+            -Dtarget=aarch64-watchos-ilp32 \
+            -Djit=false -Dcomponent=false -Dwat=false
+          # Zig 0.16 ships an empty .a for this target (SYMDEF only,
+          # ~88 bytes). The .o is the actual artefact; verify it
+          # built and is the right ABI (arm64_32 / armv8 Mach-O).
+          OBJ=$(find .zig-cache -name 'libzwasm_zcu.o' \
+            -exec file {} + | grep '64_32-bit armv8' | head -1 | cut -d: -f1)
+          if [ -z "$OBJ" ]; then
+            echo "FAIL: no arm64_32 (armv8 ILP32) object produced"
+            find .zig-cache -name 'libzwasm_zcu.o' -exec file {} +
+            exit 1
+          fi
+          echo "PASS: built $OBJ"
+          ls -la "$OBJ"
+
   # 3-OS bench matrix (C-g step 5, 2026-04-29). Each runner does its
   # own fresh measurement of base vs PR — never compared across
   # OSes / architectures because the hardware deltas dwarf any
