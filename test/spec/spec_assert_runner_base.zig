@@ -758,6 +758,45 @@ pub fn initHostDispatchStubs() void {
     }
 }
 
+// ============================================================
+// §9.9-III chunk (c)-2.3: Cross-module import resolver substrate
+// ============================================================
+//
+// Per ADR-0066: each `(register "M" $inst)` directive binds the
+// current module's wasm bytes under alias "M". Subsequent
+// importer modules with `(import "M" "f" (func ...))` resolve
+// against this registry via a lazy-compile path: the first
+// import that needs `M` triggers compileWasm of the exporter
+// bytes; the resulting `CompiledWasm` is cached on the
+// `RegisteredExporter` for the runCorpus session. Per-fixture
+// thunk wiring happens in (c)-2.3 main when the resolver lands.
+//
+// This shape replaces the bytes-only map from (c)-1c. The
+// struct is additive — current behaviour (no cross-module
+// dispatch yet) is preserved as long as `compiled` stays null.
+// Export-name → funcidx lookup uses the existing public API
+// `runner_mod.findExportFunc` (no duplicate helper here).
+
+/// Lazy-compiled cache for one registered exporter module.
+/// Replaces the bytes-only value type that (c)-1c used. The
+/// `bytes_owned` field is the same payload (gpa.dupe of the
+/// importer-side `current_wasm`); `compiled` becomes non-null
+/// the first time the resolver needs to look up an export's
+/// JIT entry address.
+pub const RegisteredExporter = struct {
+    bytes_owned: []u8,
+    /// Lazy: populated by (c)-2.3 resolver on first import-
+    /// resolution that targets this exporter alias. Stays null
+    /// for fixtures that register a module but no subsequent
+    /// fixture imports from it.
+    compiled: ?runner_mod.CompiledWasm = null,
+
+    pub fn deinit(self: *RegisteredExporter, allocator: std.mem.Allocator) void {
+        if (self.compiled) |*c| c.deinit(allocator);
+        allocator.free(self.bytes_owned);
+    }
+};
+
 /// §9.9 / 9.9-l-1b-d093-d8c (per ADR-0059): growable memory pool
 /// for spec runners. Bumped from 64 → 1024 pages (64 MiB) at d-21
 /// to accommodate `memory_grow.wast`'s `grow(800)` + `grow(1)`
@@ -1377,21 +1416,22 @@ pub fn runCorpus(
     // bad module are silently skipped (counted) rather than each
     // cascading as a separate FAIL.
     var module_bad: bool = false;
-    // Phase 9 §9.9-III chunk (c)-1c per ADR-0065: session-local
-    // module-alias registry. Maps alias → owned wasm bytes copy
-    // (lifetime tied to runCorpus). `(register "M" $inst)`
-    // directives populate this; consumer is chunk (c)-2's
-    // cross-module import linker (TBD). Until (c)-2 lands, the
-    // map is write-only — the registry behaves as a no-op
-    // acknowledgement of the directive but is not yet read.
-    var registered: std.StringHashMapUnmanaged([]u8) = .empty;
+    // Phase 9 §9.9-III chunk (c)-1c per ADR-0065 + (c)-2.3 per
+    // ADR-0066: session-local module-alias registry. Maps alias
+    // → `RegisteredExporter` (lifetime tied to runCorpus).
+    // `(register "M" $inst)` directives populate this; consumer
+    // is the (c)-2.3 cross-module resolver. Until the resolver
+    // wires in (next sub-chunk), the registry remains write-only
+    // — the `compiled` field stays null and `RegisteredExporter`
+    // behaves as bytes-only storage (parity with (c)-1c shape).
+    var registered: std.StringHashMapUnmanaged(RegisteredExporter) = .empty;
     defer {
         if (current_wasm) |b| gpa.free(b);
         if (current_compiled) |*c| c.deinit(gpa);
         var reg_it = registered.iterator();
         while (reg_it.next()) |reg_entry| {
             gpa.free(reg_entry.key_ptr.*);
-            gpa.free(reg_entry.value_ptr.*);
+            reg_entry.value_ptr.deinit(gpa);
         }
         registered.deinit(gpa);
     }
@@ -1710,15 +1750,17 @@ pub fn runCorpus(
                     continue;
                 };
                 if (gop.found_existing) {
-                    // Re-register: free the prior bytes + the
-                    // duplicate key (the map already owns the
-                    // original key). Wast semantics permit
-                    // rebinding an alias.
+                    // Re-register: deinit the prior exporter
+                    // (frees its bytes + any lazy-compiled
+                    // CompiledWasm) + free the duplicate alias
+                    // key (the map already owns the original
+                    // key). Wast semantics permit rebinding an
+                    // alias.
                     gpa.free(alias_owned);
-                    gpa.free(gop.value_ptr.*);
-                    gop.value_ptr.* = bytes_owned;
+                    gop.value_ptr.deinit(gpa);
+                    gop.value_ptr.* = .{ .bytes_owned = bytes_owned };
                 } else {
-                    gop.value_ptr.* = bytes_owned;
+                    gop.value_ptr.* = .{ .bytes_owned = bytes_owned };
                 }
                 // No tally bump: register is a directive, not an
                 // assertion. Acknowledged silently.
@@ -1974,7 +2016,9 @@ test "sigsegv guard: handler siglongjmps back to caller frame on raised SIGSEGV"
     // frame, so the handler's `siglongjmp` lands on the second
     // return below. `recovered` lives in module scope to survive
     // the longjmp (caller-frame locals may be in clobbered regs).
-    const Recover = struct { var flag: bool = false; };
+    const Recover = struct {
+        var flag: bool = false;
+    };
     Recover.flag = false;
 
     if (sigsetjmp(@ptrCast(&sigsegv_recover_buf), 1) == 0) {
