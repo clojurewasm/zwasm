@@ -111,11 +111,21 @@ pub fn arenaBytes(num_func_imports: usize) usize {
 /// `num_func_imports == 0` returns the empty-arena sentinel
 /// (`bytes.len == 0`), matching `jit_mem`'s zero-length-block
 /// invariant + `freeArena`'s no-op guard.
+///
+/// Mac aarch64 W^X is per-thread global, not per-block; if the
+/// caller has just finished a JIT compile (which leaves the
+/// thread in RX via `linker.JitModule.linkBlock`'s closing
+/// `setExecutable`), the freshly-mapped MAP_JIT pages are
+/// unwritable until this call's `setWritable` flips the
+/// thread back to RW mode. Mirrors `linker.zig`'s pairing.
 pub fn allocArena(num_func_imports: usize) jit_mem.Error!jit_mem.JitBlock {
     if (num_func_imports == 0) {
         return .{ .bytes = &[_:0]u8{} };
     }
-    return jit_mem.alloc(arenaBytes(num_func_imports));
+    const block = try jit_mem.alloc(arenaBytes(num_func_imports));
+    errdefer jit_mem.free(block);
+    try jit_mem.setWritable(block);
+    return block;
 }
 
 /// Free a thunk arena. Mirrors `jit_mem.free`'s zero-length

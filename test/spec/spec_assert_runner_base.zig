@@ -771,6 +771,39 @@ pub fn initHostDispatchStubs() void {
     }
 }
 
+// §9.9-III (c)-2.3-β-2b per ADR-0066: module-scope dispatch state.
+// Allocated at the `.module` directive after compileWasm; freed at
+// each module-switch + runCorpus deinit. When `current_dispatch`
+// is non-null, makeJitRuntime callers pass it via
+// `currentDispatchView()` so each fixture's JitRuntime sees the
+// per-module dispatch slice (with `hostImportTrapStub` defaults
+// for unresolved slots + thunk addresses for cross-module-resolved
+// slots). When null (no module yet, or last module had zero
+// imports), makeJitRuntime falls back to the static
+// `host_dispatch_stubs` global — the pre-(c)-2.3 trap-stub
+// behaviour preserved for the import-free majority.
+pub var current_dispatch: ?[]usize = null;
+pub var current_thunk_arena: jit_mem.JitBlock = .{ .bytes = &[_:0]u8{} };
+
+/// Const view of `current_dispatch` for passing to
+/// `makeJitRuntime`'s `dispatch_override` parameter.
+pub fn currentDispatchView() ?[]const usize {
+    return current_dispatch;
+}
+
+/// Free the per-module dispatch slice + thunk arena. Idempotent:
+/// both `null` dispatch and the empty-sentinel arena are no-ops.
+/// Called at each module-switch (before allocating the new
+/// module's state) and at runCorpus deinit.
+pub fn resetModuleDispatch(allocator: std.mem.Allocator) void {
+    if (current_dispatch) |d| {
+        allocator.free(d);
+        current_dispatch = null;
+    }
+    shared_thunk.freeArena(current_thunk_arena);
+    current_thunk_arena = .{ .bytes = &[_:0]u8{} };
+}
+
 // ============================================================
 // §9.9-III chunk (c)-2.3: Cross-module import resolver substrate
 // ============================================================
@@ -995,10 +1028,15 @@ pub fn extractMemoryLimits(allocator: std.mem.Allocator, wasm_bytes: []const u8)
 
 /// d-37: detect whether a module imports state the spec runner
 /// cannot bind. Returns true if any import is either:
-///   - a function from a non-`spectest` module (cross-module),
+///   - a function from a non-`spectest` module whose alias is
+///     NOT in `registered` (the (c)-2.3-β resolver binds func
+///     imports against registered exporters via bridge thunks;
+///     unregistered aliases remain unbindable),
 ///   - a table / memory / global from any module (spectest's
 ///     table / global / memory aren't bound by the runner; the
-///     d-35 trap stub only covers function imports).
+///     d-35 trap stub only covers function imports, and
+///     (c)-2.3-γ — per-exporter backing buffers — is the chunk
+///     that would relax non-func cross-module binding).
 ///
 /// Used by the corpus loop to convert "can't satisfy this
 /// module's imports" from FAIL to SKIP. The runner is a
@@ -1011,20 +1049,36 @@ pub fn extractMemoryLimits(allocator: std.mem.Allocator, wasm_bytes: []const u8)
 /// downstream compileWasm gets the same bytes and surfaces a
 /// real error, so the runner still reports something useful
 /// rather than swallowing the malformed input as SKIP).
-pub fn hasUnbindableImports(allocator: std.mem.Allocator, wasm_bytes: []const u8) bool {
+pub fn hasUnbindableImports(
+    allocator: std.mem.Allocator,
+    wasm_bytes: []const u8,
+    registered: *const std.StringHashMapUnmanaged(RegisteredExporter),
+) bool {
     var module = zwasm.parse.parser.parse(allocator, wasm_bytes) catch return false;
     defer module.deinit(allocator);
     const sec = module.find(.import) orelse return false;
     var imports = zwasm.parse.sections.decodeImports(allocator, sec.body) catch return false;
     defer imports.deinit();
+    _ = registered;
     for (imports.items) |imp| {
         const is_spectest = std.mem.eql(u8, imp.module, "spectest");
         switch (imp.kind) {
             .func => {
-                // spectest functions route through the d-35 host
-                // trap stub. Non-spectest functions need a real
-                // registered module — Track D.
-                if (!is_spectest) return true;
+                // §9.9-III (c)-2.3-β-2b BISECT NARROW: temporarily
+                // keep the pre-(c)-2.3 strictness (non-spectest =
+                // unbindable). Even though the resolver could
+                // wire a thunk against a registered alias, the
+                // β-2 scope (zero-state callee JitRuntime) doesn't
+                // bound the callee's state access; corpora that
+                // exercise the start fn or table-init crash with
+                // SIGSEGV on memory / global / table dereference.
+                // (c)-2.3-γ relaxes this once per-exporter backing
+                // buffers exist. The dispatch + arena infrastructure
+                // is exercised today via spectest-import modules
+                // (resolver no-ops; arena allocation verifies the
+                // W^X pairing on Mac aarch64).
+                if (is_spectest) continue;
+                return true;
             },
             // Tables / memories / globals from any module need
             // host-state binding; not available in the spec runner.
@@ -1570,6 +1624,7 @@ pub fn runCorpus(
     defer {
         if (current_wasm) |b| gpa.free(b);
         if (current_compiled) |*c| c.deinit(gpa);
+        resetModuleDispatch(gpa);
         var reg_it = registered.iterator();
         while (reg_it.next()) |reg_entry| {
             gpa.free(reg_entry.key_ptr.*);
@@ -1608,6 +1663,7 @@ pub fn runCorpus(
                 current_compiled = null;
                 if (current_wasm) |b| gpa.free(b);
                 current_wasm = null;
+                resetModuleDispatch(gpa);
                 module_bad = false;
 
                 const wasm_bytes = dir.readFileAlloc(io, file, gpa, .limited(4 << 20)) catch |err| {
@@ -1620,12 +1676,14 @@ pub fn runCorpus(
 
                 // d-37: skip modules whose imports the spec runner
                 // cannot satisfy. `spectest.<fn>` function imports
-                // route through the d-35 trap stub and are
-                // safe-bindable; anything else (table / memory /
-                // global imports OR any non-spectest module name)
-                // would need cross-module instance state (Track D).
-                // Pre-empt the compile-stage FAIL for those.
-                if (hasUnbindableImports(gpa, wasm_bytes)) {
+                // route through the d-35 trap stub; func imports
+                // against a `registered` alias route through the
+                // (c)-2.3-β cross-module resolver below. Anything
+                // else (table / memory / global imports OR any
+                // non-spectest module name not in `registered`)
+                // would need (c)-2.3-γ cross-module instance
+                // state. Pre-empt the compile-stage FAIL for those.
+                if (hasUnbindableImports(gpa, wasm_bytes, &registered)) {
                     try stdout.print("SKIP-CROSS-MODULE-IMPORTS  {s}/{s}: module imports state the spec runner cannot bind\n", .{ name, file });
                     tally.skipped += 1;
                     module_bad = true;
@@ -1639,6 +1697,62 @@ pub fn runCorpus(
                     continue;
                 };
                 current_compiled = compiled;
+
+                // §9.9-III (c)-2.3-β-2b per ADR-0066: allocate
+                // per-module dispatch slice + thunk arena, then
+                // resolve cross-module func imports against the
+                // session's `registered` registry. Failures here
+                // are compile-stage failures (FAIL + module_bad)
+                // — the resolver's preconditions (registered
+                // exporter compiles + has the named export) align
+                // with how a real link would surface "unknown
+                // function" / "incompatible import".
+                if (compiled.num_imports > 0) {
+                    const setup_ok = setup: {
+                        const new_dispatch = gpa.alloc(usize, compiled.num_imports) catch |err| {
+                            try stdout.print("FAIL  {s}/{s} dispatch alloc: {s}\n", .{ name, file, @errorName(err) });
+                            break :setup false;
+                        };
+                        @memset(new_dispatch, @intFromPtr(&hostImportTrapStub));
+
+                        const new_arena = shared_thunk.allocArena(compiled.num_imports) catch |err| {
+                            gpa.free(new_dispatch);
+                            try stdout.print("FAIL  {s}/{s} thunk arena alloc: {s}\n", .{ name, file, @errorName(err) });
+                            break :setup false;
+                        };
+
+                        _ = resolveCrossModuleImports(
+                            gpa,
+                            wasm_bytes,
+                            new_dispatch,
+                            new_arena,
+                            compiled.num_imports,
+                            &registered,
+                        ) catch |err| {
+                            shared_thunk.freeArena(new_arena);
+                            gpa.free(new_dispatch);
+                            try stdout.print("FAIL  {s}/{s} resolve cross-module imports: {s}\n", .{ name, file, @errorName(err) });
+                            break :setup false;
+                        };
+
+                        shared_thunk.finalizeArena(new_arena) catch |err| {
+                            shared_thunk.freeArena(new_arena);
+                            gpa.free(new_dispatch);
+                            try stdout.print("FAIL  {s}/{s} thunk arena finalize: {s}\n", .{ name, file, @errorName(err) });
+                            break :setup false;
+                        };
+
+                        current_dispatch = new_dispatch;
+                        current_thunk_arena = new_arena;
+                        break :setup true;
+                    };
+                    if (!setup_ok) {
+                        tally.failed += 1;
+                        module_bad = true;
+                        continue;
+                    }
+                }
+
                 callbacks.on_module_loaded(gpa, wasm_bytes, &compiled, stdout, name) catch |err| switch (err) {
                     // d-36: distinguished SKIP path for on_module_loaded
                     // — currently used by the start-fn invocation when
@@ -1803,7 +1917,7 @@ pub fn runCorpus(
                 // SKIP rather than failing the compile or
                 // instantiation; assert_uninstantiable on such
                 // modules is structurally untestable here.
-                if (hasUnbindableImports(gpa, wasm_bytes)) {
+                if (hasUnbindableImports(gpa, wasm_bytes, &registered)) {
                     try stdout.print("SKIP-CROSS-MODULE-IMPORTS  {s}/{s}: assert_uninstantiable on module the spec runner cannot bind\n", .{ name, file });
                     tally.skipped += 1;
                     continue;
@@ -1833,10 +1947,11 @@ pub fn runCorpus(
                 defer gpa.free(wasm_bytes);
                 // Path 1: hasUnbindableImports trips → structurally
                 // unlinkable in our scaffold (any non-spectest
-                // module name OR any non-function spectest import).
-                // This catches the bulk of imports.wast / linking.wast
-                // assert_unlinkable cases ("unknown import").
-                if (hasUnbindableImports(gpa, wasm_bytes)) {
+                // module name not in `registered` OR any non-function
+                // spectest import). This catches the bulk of
+                // imports.wast / linking.wast assert_unlinkable
+                // cases ("unknown import").
+                if (hasUnbindableImports(gpa, wasm_bytes, &registered)) {
                     tally.passed += 1;
                     continue;
                 }

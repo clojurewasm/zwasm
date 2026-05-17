@@ -226,7 +226,7 @@ fn nonSimdOnModuleLoaded(
                 scratch_globals[0..],
                 scratch_funcptrs[0..],
                 scratch_typeidxs[0..],
-                null,
+                base.currentDispatchView(),
             );
             entry.callVoidNoArgs(compiled.module, start_funcidx, &rt) catch |err| switch (err) {
                 error.Trap => {
@@ -284,7 +284,7 @@ fn nonSimdRunAssertReturn(
         scratch_globals[0..],
         scratch_funcptrs[0..],
         scratch_typeidxs[0..],
-        null,
+        base.currentDispatchView(),
     );
 
     // §9.9 / 9.9-l-1b-d093-d61: capacity 5 → 8 to fit the
@@ -1123,7 +1123,7 @@ fn nonSimdRunAssertTrap(
         scratch_globals[0..],
         scratch_funcptrs[0..],
         scratch_typeidxs[0..],
-        null,
+        base.currentDispatchView(),
     );
 
     // §9.9 / 9.9-l-1b-d093-d61: capacity 5 → 8 to fit the
@@ -1320,7 +1320,7 @@ fn nonSimdRunInvokeAction(
         scratch_globals[0..],
         scratch_funcptrs[0..],
         scratch_typeidxs[0..],
-        null,
+        base.currentDispatchView(),
     );
 
     // §9.9 / 9.9-l-1b-d093-d61: capacity 5 → 8 to fit the
@@ -1469,7 +1469,7 @@ fn nonSimdHandleAssertUninstantiable(
                 scratch_globals[0..],
                 scratch_funcptrs[0..],
                 scratch_typeidxs[0..],
-                null,
+                base.currentDispatchView(),
             );
             entry.callVoidNoArgs(compiled.module, start_funcidx, &rt) catch |err| switch (err) {
                 error.Trap => return true,

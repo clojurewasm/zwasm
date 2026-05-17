@@ -347,7 +347,7 @@ fn runAssertReturn(
         scratch_globals[0..],
         scratch_funcptrs[0..],
         scratch_typeidxs[0..],
-        null,
+        base.currentDispatchView(),
     );
 
     var args: [4]ArgValue = undefined;
@@ -784,7 +784,7 @@ fn runAssertTrap(
         scratch_globals[0..],
         scratch_funcptrs[0..],
         scratch_typeidxs[0..],
-        null,
+        base.currentDispatchView(),
     );
 
     var args: [4]ArgValue = undefined;
