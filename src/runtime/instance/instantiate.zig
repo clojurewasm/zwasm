@@ -523,9 +523,9 @@ pub fn instantiateRuntime(
             .runtime = rt,
             .func_idx = @intCast(i),
             // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
-            // Interp instantiate path; the JIT path's emitTableSet
-            // mirror-write reads this. 0 is the "not JIT-resolved"
-            // sentinel — interp-only round-trip never dereferences it.
+            // Interp instantiate path; JIT mirror-write reads these.
+            // 0 = "not JIT-resolved" sentinel.
+            .typeidx = 0,
             .funcptr = 0,
         };
         if (imp_func_count > 0) {
@@ -538,6 +538,7 @@ pub fn instantiateRuntime(
                         entities[imp_idx] = .{
                             .runtime = cm.source_runtime,
                             .func_idx = cm.source_funcidx,
+                            .typeidx = 0,
                             .funcptr = 0,
                         };
                     },

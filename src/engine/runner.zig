@@ -1515,8 +1515,6 @@ fn setupRuntime(
     errdefer allocator.free(table_refs);
     @memset(table_refs, Value.null_ref);
     // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
-    // tables_descs[k].funcptrs: funcptrs_buf (k=0 funcref) / extra
-    // slice (k>0 funcref) / null sentinel (externref → skip mirror).
     {
         var ref_offset: usize = 0;
         for (table_metas, 0..) |tm, i| {
@@ -1540,8 +1538,7 @@ fn setupRuntime(
     }
 
     // §9.9 / 9.9-l-1b-d093-d42 (D-112): per-table call_indirect
-    // dispatch descriptors — table 0 reuses funcptrs_buf/typeidxs_buf;
-    // tables 1+ point into extra_funcptrs/extra_typeidxs arenas.
+    // dispatch (table 0 reuses funcptrs/typeidxs; k>0 → extras).
     var extra_total_slots: usize = 0;
     if (table_metas.len > 1) {
         for (table_metas[1..]) |tm| extra_total_slots += tm.min;
@@ -1569,12 +1566,8 @@ fn setupRuntime(
             }
         }
     }
-    // Per-table starting offsets into the extra arenas. Indexed
-    // by table_idx (entry 0 unused; entries 1+ are the slot at
-    // which that table's funcptr/typeidx slice starts within
-    // extra_funcptrs/extra_typeidxs). The 16-table cap above
-    // makes this a fixed-size stack array; modules exceeding the
-    // cap surface as UnsupportedEntrySignature.
+    // Per-table starting offsets into extra_funcptrs/typeidxs.
+    // 16-table cap → fixed stack array; over-cap modules trap.
     if (table_metas.len > 16) return Error.UnsupportedEntrySignature;
     var extra_offs: [16]usize = [_]usize{0} ** 16;
     if (table_metas.len > 1) {
@@ -1585,22 +1578,26 @@ fn setupRuntime(
         }
     }
 
-    // §9.9 / 9.9-m-1b: per-module FuncEntity array for JIT
-    // ref.func. Allocated above the element-section loop so
-    // the loop can populate refs with FuncEntity-ptr encoding
-    // in the same pass that populates funcptrs_buf.
+    // §9.9 / 9.9-m-1b: per-module FuncEntity array, allocated
+    // above the element-section loop so the loop populates refs
+    // (FuncEntity-ptr) in the same pass as funcptrs_buf.
     const FuncEntity = @import("../runtime/instance/func.zig").FuncEntity;
     const total_funcs = compiled.func_sigs.len;
     const func_entities = try allocator.alloc(FuncEntity, total_funcs);
     errdefer allocator.free(func_entities);
     // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
+    var fe_canon_types: ?sections.Types = null;
+    defer if (fe_canon_types) |*t| t.deinit();
+    if (module.find(.type)) |ts| fe_canon_types = try sections.decodeTypes(ta, ts.body);
     for (func_entities, 0..) |*fe, i| {
         const f_off = compiled.module.func_offsets[i];
         const funcptr: usize = if (f_off == linker.IMPORT_SENTINEL_OFFSET)
             (if (i < dispatch.len) dispatch[i] else 0)
         else
             @intFromPtr(compiled.module.block.bytes.ptr + f_off);
-        fe.* = .{ .runtime = undefined, .func_idx = @intCast(i), .funcptr = funcptr };
+        const raw_ti = compiled.func_typeidxs[i];
+        const canon_ti: u32 = if (fe_canon_types) |t| canonical_type.canonicalTypeidx(t.items, raw_ti) else raw_ti;
+        fe.* = .{ .runtime = undefined, .func_idx = @intCast(i), .typeidx = canon_ti, .funcptr = funcptr };
     }
 
     // Wasm spec §4.5.7 (table.init / element-segment instantiation)

@@ -514,22 +514,37 @@ pub fn setupMultiTableScratch(
     const num_funcs = compiled.func_sigs.len;
     if (num_funcs > SCRATCH_MAX_FUNCS) return error.UnsupportedEntrySignature;
     // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
-    // Populate `FuncEntity.funcptr` per ADR-0068 chunk α: spec-runner
-    // scratch uses the same locals-vs-imports split as production
-    // setup (runner.zig). Locals point at the compiled body inside
-    // `compiled.module.block.bytes`; imports point at the current
-    // dispatch slot. `current_dispatch` may be null on first-load
-    // before cross-module resolution — in that case imports get 0,
-    // matching the pre-(c)-2.3 trap-stub fallback shape.
+    // Populate `FuncEntity.{funcptr, typeidx}` per ADR-0068 chunks
+    // α/γ.2: locals → module body addr + canonical typeidx;
+    // imports → dispatch[i] + 0 (canonical typeidx is the import's
+    // declared sig; pre-resolution we leave 0 — γ-4 resolution
+    // rebinds via the bridge thunk path).
+    var fe_canon_types_arena = std.heap.ArenaAllocator.init(gpa);
+    defer fe_canon_types_arena.deinit();
+    const fe_ta = fe_canon_types_arena.allocator();
+    var fe_canon_types: ?zwasm.parse.sections.Types = null;
+    defer if (fe_canon_types) |*t| t.deinit();
+    {
+        var fe_module = try zwasm.parse.parser.parse(fe_ta, wasm_bytes);
+        if (fe_module.find(.type)) |ts| {
+            fe_canon_types = try zwasm.parse.sections.decodeTypes(fe_ta, ts.body);
+        }
+    }
     for (0..num_funcs) |i| {
         const f_off = compiled.module.func_offsets[i];
         const funcptr: usize = if (f_off == zwasm.engine.codegen.shared.linker.IMPORT_SENTINEL_OFFSET)
             (if (current_dispatch) |d| (if (i < d.len) d[i] else 0) else 0)
         else
             @intFromPtr(compiled.module.block.bytes.ptr + f_off);
+        const raw_ti = compiled.func_typeidxs[i];
+        const canon_ti: u32 = if (fe_canon_types) |t|
+            zwasm.engine.codegen.shared.canonical_type.canonicalTypeidx(t.items, raw_ti)
+        else
+            raw_ti;
         scratch_func_entities[i] = .{
             .runtime = undefined,
             .func_idx = @intCast(i),
+            .typeidx = canon_ti,
             .funcptr = funcptr,
         };
     }
@@ -1068,15 +1083,33 @@ pub const RegisteredExporter = struct {
                 // imports). `dispatch_override` is not yet plumbed here,
                 // so imports default to 0; the chunk β/γ wire-up
                 // refreshes this once cross-module resolution lands.
+                // Decode types section once for canonical typeidx.
+                var fe_canon_arena = std.heap.ArenaAllocator.init(allocator);
+                defer fe_canon_arena.deinit();
+                const fe_ta = fe_canon_arena.allocator();
+                var fe_canon_types: ?zwasm.parse.sections.Types = null;
+                defer if (fe_canon_types) |*t| t.deinit();
+                {
+                    var fe_module = try zwasm.parse.parser.parse(fe_ta, self.bytes_owned);
+                    if (fe_module.find(.type)) |ts| {
+                        fe_canon_types = try zwasm.parse.sections.decodeTypes(fe_ta, ts.body);
+                    }
+                }
                 for (fe, 0..) |*slot, i| {
                     const f_off = compiled.module.func_offsets[i];
                     const funcptr: usize = if (f_off == zwasm.engine.codegen.shared.linker.IMPORT_SENTINEL_OFFSET)
                         0
                     else
                         @intFromPtr(compiled.module.block.bytes.ptr + f_off);
+                    const raw_ti = compiled.func_typeidxs[i];
+                    const canon_ti: u32 = if (fe_canon_types) |t|
+                        zwasm.engine.codegen.shared.canonical_type.canonicalTypeidx(t.items, raw_ti)
+                    else
+                        raw_ti;
                     slot.* = .{
                         .runtime = undefined,
                         .func_idx = @intCast(i),
+                        .typeidx = canon_ti,
                         .funcptr = funcptr,
                     };
                 }
@@ -1469,31 +1502,19 @@ pub fn hasUnbindableImports(
         const is_spectest = std.mem.eql(u8, imp.module, "spectest");
         switch (imp.kind) {
             .func => {
-                // D-142 fix (A) chain (`d543c646`/`4e7a4646`/
-                // `6044e8f4`/`b89c2d45`) structurally closed
-                // the cross-module bridge thunk's X19/R15
-                // corruption. A γ-4 relax probe (cycles 1+2,
-                // 2026-05-18) ran cleanly through the thunks
-                // — NO crashes — but surfaced 113 functional
-                // FAILs. Cycle-2 bisect (this commit `_TBA_`)
-                // identified root cause as the dual-view
-                // table-0 storage bug: `funcptr_base` (=
-                // `scratch_funcptrs`, read by call_indirect)
-                // and `tables_ptr[0].refs` (=
-                // `scratch_table_refs[0]`, written by
-                // table.copy/table.init/table.set) point at
-                // SEPARATE memory regions and are NOT synced
-                // by mutating ops. Pre-existing D-126
-                // absorbed the γ-4 evidence (D-143 closed as
-                // duplicate). Keep strict until the
-                // fix lands.
+                // §9.9-III (c)-2.3-γ-4 strict (pending γ.3 relax).
+                // ADR-0068 chunks α/β/γ/γ.2 structurally fixed
+                // D-126's dual-view storage bug (refs + funcptrs +
+                // typeidx mirror writes on both arm64 and x86_64).
+                // A pre-relax probe (chunk γ.2 close) showed 25305
+                // passed / 3 failed when γ-4 was relaxed; the 3
+                // residuals (imports / ref_func cross-module
+                // fixtures) are NOT typeidx-related and need
+                // separate investigation. Chunk γ.3 will land the
+                // relax once those clear.
                 if (is_spectest) continue;
                 return true;
             },
-            // Tables / memories / globals from any module need
-            // cross-module table / memory / global IMPORT wiring
-            // (separate from the func-import bridge thunks);
-            // γ-3.c / γ-3.d scope. Also kept strict per D-143.
             .table, .memory, .global => return true,
         }
     }
@@ -1538,22 +1559,34 @@ pub fn growableTableGrowFn(rt: *entry.JitRuntime, tableidx: u32, init: u64, delt
     if (desc.max != entry.table_no_max and new_len > desc.max) return -1;
     const arena = &scratch_table_refs[tableidx];
     // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
-    // Derive the init operand's funcptr for the parallel funcptrs
-    // view IFF this is a funcref table (`desc.funcptrs` non-null —
-    // externref tables carry a null sentinel and skip the mirror).
-    // `init` is a Value.ref-encoded u64 — null_ref (0) for null
-    // funcref, else a `*FuncEntity` cast.
+    // Derive init's funcptr + typeidx for the parallel views IFF
+    // this is a funcref table (`desc.funcptrs` non-null — externref
+    // tables carry the null sentinel and skip both mirrors).
+    // `init` is a Value.ref-encoded u64 — null_ref (0) → funcptr 0
+    // + typeidx sentinel maxInt(u32); else a `*FuncEntity` cast.
     const FuncEntity = @import("zwasm").runtime.FuncEntity;
     const fp_base_ptr: usize = @intFromPtr(desc.funcptrs);
     const init_funcptr: u64 = if (fp_base_ptr == 0 or init == 0) 0 else blk: {
         const fe: *const FuncEntity = @ptrFromInt(init);
         break :blk fe.funcptr;
     };
+    const init_typeidx: u32 = if (fp_base_ptr == 0 or init == 0) std.math.maxInt(u32) else blk: {
+        const fe: *const FuncEntity = @ptrFromInt(init);
+        break :blk fe.typeidx;
+    };
+    const ti_base: [*]u32 = if (fp_base_ptr != 0) blk: {
+        // Same backing as scratch_table_jit_ci[tableidx].typeidx_base
+        // (caller-passed table0_typeidxs for k=0, scratch_extra_typeidxs
+        // [k-1] for k>0). Cast away const for the mirror write.
+        const ti_const = scratch_table_jit_ci[tableidx].typeidx_base;
+        break :blk @constCast(ti_const);
+    } else undefined;
     var i: u32 = 0;
     while (i < delta) : (i += 1) {
         arena[old_len + i] = init;
         if (fp_base_ptr != 0) {
             desc.funcptrs[old_len + i] = init_funcptr;
+            ti_base[old_len + i] = init_typeidx;
         }
     }
     desc.refs = arena;

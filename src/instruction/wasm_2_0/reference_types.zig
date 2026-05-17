@@ -113,8 +113,8 @@ test "ref.func: payload resolves to FuncEntity pointer" {
     // Stub func_entities so payload 1 resolves; Runtime is the only
     // owner the test cares about.
     var entities = [_]runtime.FuncEntity{
-        .{ .runtime = &rt, .func_idx = 0, .funcptr = 0 },
-        .{ .runtime = &rt, .func_idx = 1, .funcptr = 0 },
+        .{ .runtime = &rt, .func_idx = 0, .typeidx = 0, .funcptr = 0 },
+        .{ .runtime = &rt, .func_idx = 1, .typeidx = 0, .funcptr = 0 },
     };
     rt.func_entities = &entities;
 
@@ -131,7 +131,7 @@ test "ref round-trip: ref.func 0 ; ref.is_null → 0" {
     var rt = Runtime.init(testing.allocator);
     defer rt.deinit();
 
-    var entities = [_]runtime.FuncEntity{.{ .runtime = &rt, .func_idx = 0, .funcptr = 0 }};
+    var entities = [_]runtime.FuncEntity{.{ .runtime = &rt, .func_idx = 0, .typeidx = 0, .funcptr = 0 }};
     rt.func_entities = &entities;
 
     try driveOne(&rt, &t, .@"ref.func", 0, 0);

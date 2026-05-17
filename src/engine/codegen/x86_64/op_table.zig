@@ -85,6 +85,37 @@ fn emitDeriveFuncptrFromFuncref(
     @memcpy(buf.items[jmp_at..][0..5], inst.encJmpRel32(jmp_disp).slice()[0..5]);
 }
 
+/// TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
+/// Derive typeidx (u32) from FuncEntity ptr; null → sentinel
+/// `maxInt(u32) = 0xFFFFFFFF`. Result lands in `dst` (low 32 bits).
+///   TEST val, val
+///   JZ .null
+///   MOV Edst, [val + funcentity_typeidx_offset]
+///   JMP .end
+///   .null: MOV Edst, 0xFFFFFFFF
+///   .end:
+fn emitDeriveTypeidxFromFuncref(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    dst: inst.Gpr,
+    val: inst.Gpr,
+) Error!void {
+    try buf.appendSlice(allocator, inst.encTestRR(.q, val, val).slice());
+    const jz_at: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJccRel32(.e, 0).slice());
+    try buf.appendSlice(allocator, inst_mem.encMovR32FromMemDisp32(dst, val, @intCast(func_mod.funcentity_typeidx_offset)).slice());
+    const jmp_at: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
+    const null_arm: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encMovImm32W(dst, 0xFFFFFFFF).slice());
+    const end_byte: u32 = @intCast(buf.items.len);
+
+    const jz_disp: i32 = @as(i32, @intCast(null_arm)) - (@as(i32, @intCast(jz_at)) + 6);
+    @memcpy(buf.items[jz_at..][0..6], inst.encJccRel32(.e, jz_disp).slice()[0..6]);
+    const jmp_disp: i32 = @as(i32, @intCast(end_byte)) - (@as(i32, @intCast(jmp_at)) + 5);
+    @memcpy(buf.items[jmp_at..][0..5], inst.encJmpRel32(jmp_disp).slice()[0..5]);
+}
+
 /// Wasm spec §4.4.10 (table.get) — pop i32 idx, push tables[x][idx]
 /// as a reference Value (8-byte). Traps `OutOfBoundsTableAccess` on
 /// idx >= table.len via the shared `bounds_fixups` channel.
@@ -182,9 +213,10 @@ pub fn emitTableSet(
     try buf.appendSlice(allocator, inst_mem.encStoreR64MemBaseIdxLsl3(val_r, .r11, .rdx).slice());
 
     // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
-    // Mirror funcptrs view, guarded on null funcptrs base (externref
-    // tables): RAX = funcptrs base; TEST/JZ skip; derive funcptr from
-    // val_r into RCX; STR RCX into funcptrs[idx].
+    // Mirror funcptrs + typeidx views, guarded on null funcptrs
+    // base (externref tables): RAX = funcptrs base; TEST/JZ skip;
+    // derive into RCX; STR. Then derive typeidx into RCX and STR
+    // to typeidx_base from tables_jit_ci_ptr.
     try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_ptr_off).slice());
     try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, .rax, tbl_disp + 16).slice());
     try buf.appendSlice(allocator, inst.encTestRR(.q, .rax, .rax).slice());
@@ -192,6 +224,11 @@ pub fn emitTableSet(
     try buf.appendSlice(allocator, inst.encJccRel32(.e, 0).slice());
     try emitDeriveFuncptrFromFuncref(allocator, buf, .rcx, val_r);
     try buf.appendSlice(allocator, inst_mem.encStoreR64MemBaseIdxLsl3(.rcx, .rax, .rdx).slice());
+    // typeidx mirror (γ.2):
+    try emitDeriveTypeidxFromFuncref(allocator, buf, .rcx, val_r);
+    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_jit_ci_ptr_off).slice());
+    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, .rax, @intCast(tableidx * 16 + 8)).slice());
+    try buf.appendSlice(allocator, inst_mem.encStoreR32MemBaseIdxLsl2(.rcx, .rax, .rdx).slice());
     const end_byte: u32 = @intCast(buf.items.len);
     const skip_disp: i32 = @as(i32, @intCast(end_byte)) - (@as(i32, @intCast(skip_at)) + 6);
     @memcpy(buf.items[skip_at..][0..6], inst.encJccRel32(.e, skip_disp).slice()[0..6]);
@@ -351,13 +388,17 @@ pub fn emitTableFill(
 
     // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
     // Pre-loop: R9 = funcptrs base (0 = externref → skip mirror).
-    // For funcref tables, derive funcptr from R8 (val) into RCX.
+    // For funcref tables, derive funcptr from R8 (val) into RCX,
+    // derive typeidx into RSI, and load typeidx_base into RDI.
     try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_ptr_off).slice());
     try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.r9, .rax, tbl_disp + 16).slice());
     try buf.appendSlice(allocator, inst.encTestRR(.q, .r9, .r9).slice());
     const derive_skip_at: u32 = @intCast(buf.items.len);
     try buf.appendSlice(allocator, inst.encJccRel32(.e, 0).slice());
     try emitDeriveFuncptrFromFuncref(allocator, buf, .rcx, .r8);
+    try emitDeriveTypeidxFromFuncref(allocator, buf, .rsi, .r8);
+    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_jit_ci_ptr_off).slice());
+    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rdi, .rax, @intCast(tableidx * 16 + 8)).slice());
     {
         const after: u32 = @intCast(buf.items.len);
         const disp: i32 = @as(i32, @intCast(after)) - (@as(i32, @intCast(derive_skip_at)) + 6);
@@ -384,6 +425,7 @@ pub fn emitTableFill(
     const fill_skip_fp_at: u32 = @intCast(buf.items.len);
     try buf.appendSlice(allocator, inst.encJccRel32(.e, 0).slice());
     try buf.appendSlice(allocator, inst_mem.encStoreR64MemBaseIdxLsl3(.rcx, .r9, .rdx).slice());
+    try buf.appendSlice(allocator, inst_mem.encStoreR32MemBaseIdxLsl2(.rsi, .rdi, .rdx).slice());
     {
         const after: u32 = @intCast(buf.items.len);
         const disp: i32 = @as(i32, @intCast(after)) - (@as(i32, @intCast(fill_skip_fp_at)) + 6);
@@ -710,6 +752,11 @@ pub fn emitTableInit(
     try buf.appendSlice(allocator, inst.encJccRel32(.e, 0).slice());
     try emitDeriveFuncptrFromFuncref(allocator, buf, .rsi, .r9);
     try buf.appendSlice(allocator, inst_mem.encStoreR64MemBaseIdxLsl3(.rsi, .rdi, .rdx).slice());
+    // typeidx mirror (γ.2): reload typeidx_base via RAX per iter.
+    try emitDeriveTypeidxFromFuncref(allocator, buf, .rsi, .r9);
+    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_jit_ci_ptr_off).slice());
+    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, .rax, @intCast(tableidx * 16 + 8)).slice());
+    try buf.appendSlice(allocator, inst_mem.encStoreR32MemBaseIdxLsl2(.rsi, .rax, .rdx).slice());
     {
         const after: u32 = @intCast(buf.items.len);
         const disp: i32 = @as(i32, @intCast(after)) - (@as(i32, @intCast(init_skip_fp_at)) + 6);

@@ -29,22 +29,25 @@ pub const FuncEntity = struct {
     /// Index into `runtime.funcs`.
     func_idx: u32,
     /// TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
-    /// Native code entry point for this function. JIT `emitTableSet`
-    /// reads this via `LDR Xfp, [Xref, #funcptr_offset]` to mirror
-    /// the funcref input into the dual-view funcptr storage (per
-    /// ADR-0068 §A1). For local funcs:
-    /// `@intFromPtr(compiled.module.block.bytes.ptr + func_offsets[i])`.
-    /// For imports: `dispatch[i]` (host-call trampoline / cross-module
-    /// bridge thunk). `0` when the entity is interp-only and no JIT
-    /// dispatch slot has been populated; downstream JIT paths that
-    /// would dereference this MUST coordinate via the dispatch
-    /// machinery that produced the funcref in the first place.
+    /// Canonical typeidx of this function's signature. JIT
+    /// `emitTableSet` / `emitTableFill` / `emitTableInit` mirror
+    /// this into the parallel `typeidx_base` view so post-mutation
+    /// `call_indirect` sig-check sees the correct type. Equals
+    /// `canonical_type.canonicalTypeidx(types, func_typeidxs[i])`.
+    typeidx: u32,
+    /// TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
+    /// Native code entry point for this function. JIT
+    /// `emitTableSet` reads this via
+    /// `LDR Xfp, [Xref, #funcentity_funcptr_offset]` to mirror the
+    /// funcref input into the dual-view funcptr storage (per
+    /// ADR-0068 §A1). Locals:
+    /// `@intFromPtr(compiled.module.block.bytes.ptr + func_offsets[i])`;
+    /// imports: `dispatch[i]`; `0` for interp-only / unresolved.
     funcptr: usize,
 };
 
 /// TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
-/// Byte offset of `FuncEntity.funcptr` from the FuncEntity base.
-/// JIT mirror-write emit (`shared/table_storage.zig`) reads via
-/// `LDR Xfp, [Xref, #funcentity_funcptr_offset]`. Comptime-derived
-/// from `@offsetOf` so layout changes propagate.
+/// Byte offsets for the JIT mirror code's `LDR` from FuncEntity.
+/// Comptime-derived so layout changes propagate without re-coding.
+pub const funcentity_typeidx_offset: u32 = @offsetOf(FuncEntity, "typeidx");
 pub const funcentity_funcptr_offset: u32 = @offsetOf(FuncEntity, "funcptr");

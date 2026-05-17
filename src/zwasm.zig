@@ -136,6 +136,7 @@ pub const engine = struct {
             pub const compile = @import("engine/codegen/shared/compile.zig");
             pub const jit_abi = @import("engine/codegen/shared/jit_abi.zig");
             pub const thunk = @import("engine/codegen/shared/thunk.zig");
+            pub const canonical_type = @import("engine/codegen/shared/canonical_type.zig");
         };
         pub const arm64 = struct {
             pub const inst = @import("engine/codegen/arm64/inst.zig");

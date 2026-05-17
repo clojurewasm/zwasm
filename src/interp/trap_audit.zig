@@ -90,7 +90,7 @@ test "call_indirect: sig mismatch → IndirectCallTypeMismatch" {
     defer rt.deinit();
     const funcs = [_]*const zir.ZirFunc{&callee};
     rt.funcs = &funcs;
-    var entities = [_]runtime.FuncEntity{.{ .runtime = &rt, .func_idx = 0, .funcptr = 0 }};
+    var entities = [_]runtime.FuncEntity{.{ .runtime = &rt, .func_idx = 0, .typeidx = 0, .funcptr = 0 }};
     rt.func_entities = &entities;
     var refs = [_]runtime.Value{runtime.Value.fromFuncRef(&entities[0])};
     var tbls = [_]runtime.TableInstance{.{ .refs = &refs, .elem_type = .funcref }};
@@ -122,7 +122,7 @@ test "call_indirect: matching sig invokes callee through table" {
     defer rt.deinit();
     const funcs = [_]*const zir.ZirFunc{&callee};
     rt.funcs = &funcs;
-    var entities = [_]runtime.FuncEntity{.{ .runtime = &rt, .func_idx = 0, .funcptr = 0 }};
+    var entities = [_]runtime.FuncEntity{.{ .runtime = &rt, .func_idx = 0, .typeidx = 0, .funcptr = 0 }};
     rt.func_entities = &entities;
     var refs = [_]runtime.Value{runtime.Value.fromFuncRef(&entities[0])};
     var tbls = [_]runtime.TableInstance{.{ .refs = &refs, .elem_type = .funcref }};
@@ -176,7 +176,7 @@ test "6.K.1: two runtimes share a table; FuncEntity routes to source" {
     defer rt_a.deinit();
     const funcs_a = [_]*const zir.ZirFunc{&callee_a};
     rt_a.funcs = &funcs_a;
-    var entities_a = [_]runtime.FuncEntity{.{ .runtime = &rt_a, .func_idx = 0, .funcptr = 0 }};
+    var entities_a = [_]runtime.FuncEntity{.{ .runtime = &rt_a, .func_idx = 0, .typeidx = 0, .funcptr = 0 }};
     rt_a.func_entities = &entities_a;
 
     var caller = zir.ZirFunc.init(0, .{ .params = &.{}, .results = &i32_arr }, &.{});

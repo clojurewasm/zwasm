@@ -189,7 +189,9 @@ pub fn encMovR64FromMemDisp32(dst: Gpr, base: Gpr, disp: i32) EncodedInsn {
 /// `MOV r32, [base + disp32]` (opcode 0x8B without REX.W, mod=10).
 /// 32-bit load with disp32; zero-extends to 64-bit dst. Used by
 /// `global.get` (i32) to read `[globals_base + idx*8]` for the
-/// low 4 bytes of the 8-byte Value slot.
+/// low 4 bytes of the 8-byte Value slot. SIB-byte injection for
+/// RSP/R12 base mirrors `encMovR64FromMemDisp32` (see D-126
+/// chunk γ fix).
 pub fn encMovR32FromMemDisp32(dst: Gpr, base: Gpr, disp: i32) EncodedInsn {
     var enc: EncodedInsn = .{};
     if (dst.extBit() == 1 or base.extBit() == 1) {
@@ -197,6 +199,9 @@ pub fn encMovR32FromMemDisp32(dst: Gpr, base: Gpr, disp: i32) EncodedInsn {
     }
     enc.push(0x8B);
     enc.push(encodeModrm(0b10, dst.low3(), base.low3()));
+    if (base.low3() == 4) {
+        enc.push(encodeSib(0b00, 0b100, base.low3()));
+    }
     const u: u32 = @bitCast(disp);
     enc.push(@truncate(u));
     enc.push(@truncate(u >> 8));
