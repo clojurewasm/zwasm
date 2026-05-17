@@ -216,6 +216,7 @@ test {
     _ = @import("engine/codegen/x86_64/inst_sse_packed.zig");
     _ = @import("engine/codegen/x86_64/inst_sse_scalar.zig");
     _ = @import("engine/codegen/x86_64/abi.zig");
+    _ = @import("engine/codegen/x86_64/prologue.zig");
     _ = @import("engine/codegen/x86_64/types.zig");
     _ = @import("engine/codegen/x86_64/label.zig");
     _ = @import("engine/codegen/x86_64/op_alu_int.zig");

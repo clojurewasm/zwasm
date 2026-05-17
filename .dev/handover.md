@@ -71,9 +71,12 @@ Sub-chunking progress (Cat III (c)-2.3):
   to record "entered armed N times" before exit; OR run
   `lldb` with SIP relaxed to capture fault address + PC.
 - **NEXT options** (loop should pick one):
-  (1) Deep D-142 investigation (siglongjmp re-entry probe).
-  (2) D-052 x86_64 prologue extract (mechanical refactor,
-      unblocks D-055 + D-081; ~200-400 LOC reduction).
+  (1) Deep D-142 investigation (SA_SIGINFO + ucontext_t to
+      capture fault PC + address; hypotheses 1 and 2 are
+      already rejected, 3/4/5 remain).
+  (2) D-055 sentinel wire-up (now partially unblocked by
+      D-052 helper landing; test-site migration to
+      `body_start_offset()`-relative pattern still needed).
   (3) D-126 bulk.wast table.copy post-mutation (Cat III
       scope per ADR-0065; needs unification ADR).
 - (c)-2.4 (distiller) follows once γ-4 lands (gated on D-142).
