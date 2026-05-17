@@ -853,8 +853,21 @@ pub const RegisteredExporter = struct {
     /// `ensureCompiledAndRt` runs; empty slice when the
     /// exporter has no defined globals.
     scratch_globals: ?[]u8 = null,
+    /// §9.9-III (c)-2.3-γ-2: per-exporter linear memory pool.
+    /// Allocated lazily in `ensureCompiledAndRt` sized to the
+    /// declared `(memory min ...)` pages × 64 KiB, capped at
+    /// `EXPORTER_MEMORY_CAPACITY` until a corpus fixture
+    /// demands more. Populated via
+    /// `runner_mod.applyActiveDataSegments`. The pointer is
+    /// then wired into `rt.vm_base` + `rt.mem_limit` so a
+    /// cross-module callee touching `memory.load` /
+    /// `memory.store` reads / writes the exporter's own pool
+    /// (instead of the importer's static `growable_memory`).
+    /// Null when the exporter has no memory section.
+    scratch_memory: ?[]u8 = null,
 
     pub fn deinit(self: *RegisteredExporter, allocator: std.mem.Allocator) void {
+        if (self.scratch_memory) |m| allocator.free(m);
         if (self.scratch_globals) |g| allocator.free(g);
         if (self.rt) |r| allocator.destroy(r);
         if (self.compiled) |*c| c.deinit(allocator);
@@ -887,12 +900,27 @@ pub const RegisteredExporter = struct {
             );
             self.scratch_globals = buf;
         }
+        if (self.scratch_memory == null) {
+            const mem_limits = extractMemoryLimits(allocator, self.bytes_owned);
+            if (mem_limits.min > 0) {
+                const declared_bytes: usize = @as(usize, mem_limits.min) * 65536;
+                const capped = @min(declared_bytes, EXPORTER_MEMORY_CAPACITY);
+                // 16-byte align so v128 MOVUPS / LDR Q from the
+                // memory pool stays aligned (parity with the
+                // importer's `growable_memory align(16)` shape).
+                const buf = try allocator.alignedAlloc(u8, .of(u128), capped);
+                @memset(buf, 0);
+                try runner_mod.applyActiveDataSegments(allocator, self.bytes_owned, buf);
+                self.scratch_memory = buf;
+            }
+        }
         if (self.rt == null) {
             const rt_ptr = try allocator.create(entry.JitRuntime);
             const globals_buf = self.scratch_globals.?;
+            const memory_buf: ?[]u8 = self.scratch_memory;
             rt_ptr.* = .{
-                .vm_base = @ptrFromInt(@as(usize, 0x1000)),
-                .mem_limit = 0,
+                .vm_base = if (memory_buf) |m| m.ptr else @ptrFromInt(@as(usize, 0x1000)),
+                .mem_limit = if (memory_buf) |m| m.len else 0,
                 .funcptr_base = undefined,
                 .table_size = 0,
                 .typeidx_base = undefined,
@@ -906,6 +934,15 @@ pub const RegisteredExporter = struct {
         }
     }
 };
+
+/// §9.9-III (c)-2.3-γ-2: per-exporter memory pool cap. 1 MiB
+/// covers all currently-skipped `linking.wast` exporter modules
+/// (Mm declares `(memory 1)` = 64 KiB, Ms similar). The importer-
+/// side `GROWABLE_MEMORY_CAPACITY` (64 MiB) accommodates
+/// `memory_grow.wast`'s grow(800) — an active-module-only path.
+/// Cross-module exporters that exercise `memory.grow` would need
+/// γ-2.b growth-aware sizing; deferred until a fixture demands it.
+pub const EXPORTER_MEMORY_CAPACITY: usize = 1 << 20;
 
 /// §9.9-III (c)-2.3-β-2 per ADR-0066: walk an importer's import
 /// section, for each `(import "M" "f" (func ...))` whose alias
@@ -2330,6 +2367,37 @@ test "sigsegv guard: armed=false after recovery so subsequent SEGV is unexpected
         // assertion confirms the contract end-to-end).
         try testing.expect(sigsegv_armed.load(.acquire) == false);
     }
+}
+
+test "RegisteredExporter γ-2: ensureCompiledAndRt populates scratch_memory + wires rt.vm_base" {
+    // Minimal module: `(module (memory 1) (data (i32.const 0) "\\2a"))`.
+    //   magic + version  : 00 61 73 6d 01 00 00 00
+    //   memory section   : id=05 size=03 count=01 limits=00 (no max) min=01
+    //   data section     : id=0b size=07 count=01 segkind=00 init_expr=41 00 0b
+    //                      bytes_len=01 byte=2a
+    const wasm_bytes_const = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        // memory section
+        0x05, 0x03, 0x01, 0x00, 0x01,
+        // data section
+        0x0b, 0x07, 0x01, 0x00, 0x41, 0x00, 0x0b, 0x01, 0x2a,
+    };
+    const gpa = testing.allocator;
+    var exporter: RegisteredExporter = .{ .bytes_owned = try gpa.dupe(u8, &wasm_bytes_const) };
+    defer exporter.deinit(gpa);
+
+    try exporter.ensureCompiledAndRt(gpa);
+
+    const mem = exporter.scratch_memory orelse return error.MissingScratchMemory;
+    // `(memory 1)` declares 1 page = 64 KiB; cap clamps no-ops here.
+    try testing.expectEqual(@as(usize, 65536), mem.len);
+    // Active data segment landed at offset 0 with byte 0x2a.
+    try testing.expectEqual(@as(u8, 0x2a), mem[0]);
+    try testing.expectEqual(@as(u8, 0x00), mem[1]);
+
+    const rt = exporter.rt orelse return error.MissingRt;
+    try testing.expectEqual(@as(usize, @intFromPtr(mem.ptr)), @intFromPtr(rt.vm_base));
+    try testing.expectEqual(mem.len, rt.mem_limit);
 }
 
 test "RegisteredExporter γ-1: ensureCompiledAndRt populates scratch_globals + wires rt.globals_base" {
