@@ -42,6 +42,11 @@ pub fn build(b: *std.Build) void {
         .off, .address => null,
         .thread => true,
     };
+    // Bundled into a single value so call sites use one short
+    // `createSanitizedModule(b, sanitize_opts, .{...})` per module
+    // instead of `createModule + applySanitize` boilerplate (D-016
+    // discharge).
+    const sanitize_opts: SanitizeOpts = .{ .c = sanitize_c, .thread = sanitize_thread };
     // Repro task name for `zig build run-repro -Dtask=<name>` per
     // ADR-0015 §Decision Part 4. Discovers
     // `private/dbg/<task>/repro.zig` and links it against the
@@ -52,8 +57,7 @@ pub fn build(b: *std.Build) void {
     // gate. Default false so release builds emit zero trace code in
     // hot paths (per ROADMAP §A12). Enable on debug / audit runs via
     // `-Dtrace-ringbuffer=true`.
-    const trace_ringbuffer = b.option(bool, "trace-ringbuffer",
-        "Compile in Diagnostic M3-a trace ringbuffer (default: false)") orelse false;
+    const trace_ringbuffer = b.option(bool, "trace-ringbuffer", "Compile in Diagnostic M3-a trace ringbuffer (default: false)") orelse false;
 
     const options = b.addOptions();
     options.addOption(WasmLevel, "wasm_level", wasm_level);
@@ -83,7 +87,7 @@ pub fn build(b: *std.Build) void {
     // ADR-0024 D-2 carves out `src/zwasm.zig` as the single
     // re-export hub and test loader.
     // ============================================================
-    const core = b.createModule(.{
+    const core = createSanitizedModule(b, sanitize_opts, .{
         .root_source_file = b.path("src/zwasm.zig"),
         .target = target,
         .optimize = optimize,
@@ -99,7 +103,6 @@ pub fn build(b: *std.Build) void {
     // (wasm.h pinned via ADR-0004). Adding the path here lets
     // src/api/* modules `@cImport(@cInclude("wasm.h"))` resolve.
     core.addIncludePath(b.path("include"));
-    applySanitize(core, sanitize_c, sanitize_thread);
     // ADR-0024 D-3: self-import. Every leaf in `src/` can write
     // `@import("zwasm").<zone>.<symbol>` to reach the central
     // re-export hub regardless of nesting depth.
@@ -109,7 +112,7 @@ pub fn build(b: *std.Build) void {
     // (per ADR-0024 D-4) so `pub fn main` lives in the CLI zone
     // and doesn't collide with C hosts' `int main` when they link
     // against libzwasm.a.
-    const exe_mod = b.createModule(.{
+    const exe_mod = createSanitizedModule(b, sanitize_opts, .{
         .root_source_file = b.path("src/cli/main.zig"),
         .target = target,
         .optimize = optimize,
@@ -118,7 +121,6 @@ pub fn build(b: *std.Build) void {
     });
     exe_mod.addImport("build_options", build_options_mod);
     exe_mod.addIncludePath(b.path("include"));
-    applySanitize(exe_mod, sanitize_c, sanitize_thread);
     exe_mod.addImport("zwasm", core);
 
     const exe = b.addExecutable(.{
@@ -165,13 +167,12 @@ pub fn build(b: *std.Build) void {
     // (`spec_runner_mod.addImport("zwasm", zwasm_lib_mod)`) works
     // without having to thread `core` through every callsite.
     const zwasm_lib_mod = core;
-    const spec_runner_mod = b.createModule(.{
+    const spec_runner_mod = createSanitizedModule(b, sanitize_opts, .{
         .root_source_file = b.path("test/spec/runner.zig"),
         .target = target,
         .optimize = optimize,
     });
     spec_runner_mod.addImport("zwasm", zwasm_lib_mod);
-    applySanitize(spec_runner_mod, sanitize_c, sanitize_thread);
     const spec_runner_exe = b.addExecutable(.{
         .name = "zwasm-spec-runner",
         .root_module = spec_runner_mod,
@@ -187,13 +188,12 @@ pub fn build(b: *std.Build) void {
     // `zig build test-edge-cases` — sub-7.5b-iii fixture runner.
     // Iterates `test/edge_cases/p7/` and runs each .wasm through
     // the ARM64 JIT, comparing against the sibling .expect.
-    const edge_runner_mod = b.createModule(.{
+    const edge_runner_mod = createSanitizedModule(b, sanitize_opts, .{
         .root_source_file = b.path("test/edge_cases/runner.zig"),
         .target = target,
         .optimize = optimize,
     });
     edge_runner_mod.addImport("zwasm", zwasm_lib_mod);
-    applySanitize(edge_runner_mod, sanitize_c, sanitize_thread);
     const edge_runner_exe = b.addExecutable(.{
         .name = "zwasm-edge-runner",
         .root_module = edge_runner_mod,
@@ -211,13 +211,12 @@ pub fn build(b: *std.Build) void {
     // fixture compiles end-to-end through the JIT pipeline
     // (parse + validate + lower + regalloc + ARM64 emit). Mac
     // aarch64 only (linker tied to host arch).
-    const jit_compile_runner_mod = b.createModule(.{
+    const jit_compile_runner_mod = createSanitizedModule(b, sanitize_opts, .{
         .root_source_file = b.path("test/spec/jit_compile_runner.zig"),
         .target = target,
         .optimize = optimize,
     });
     jit_compile_runner_mod.addImport("zwasm", zwasm_lib_mod);
-    applySanitize(jit_compile_runner_mod, sanitize_c, sanitize_thread);
     const jit_compile_runner_exe = b.addExecutable(.{
         .name = "zwasm-spec-jit-compile",
         .root_module = jit_compile_runner_mod,
@@ -235,13 +234,12 @@ pub fn build(b: *std.Build) void {
     // reporting pass / fail / skipped counts. Wired into test-all
     // on all hosts at §9.7 / 7.8 close (D-045 chunks 1-14
     // discharged; gate green Mac + Linux + Windows).
-    const spec_assert_runner_mod = b.createModule(.{
+    const spec_assert_runner_mod = createSanitizedModule(b, sanitize_opts, .{
         .root_source_file = b.path("test/spec/spec_assert_runner.zig"),
         .target = target,
         .optimize = optimize,
     });
     spec_assert_runner_mod.addImport("zwasm", zwasm_lib_mod);
-    applySanitize(spec_assert_runner_mod, sanitize_c, sanitize_thread);
     const spec_assert_runner_exe = b.addExecutable(.{
         .name = "zwasm-spec-assert",
         .root_module = spec_assert_runner_mod,
@@ -257,13 +255,12 @@ pub fn build(b: *std.Build) void {
     // format spec. NOT YET aggregated into test-all (deferred to
     // §9.9-e per ADR-0045 Consequences §). Manifest population
     // begins at §9.9-b.
-    const simd_assert_runner_mod = b.createModule(.{
+    const simd_assert_runner_mod = createSanitizedModule(b, sanitize_opts, .{
         .root_source_file = b.path("test/spec/simd_assert_runner.zig"),
         .target = target,
         .optimize = optimize,
     });
     simd_assert_runner_mod.addImport("zwasm", zwasm_lib_mod);
-    applySanitize(simd_assert_runner_mod, sanitize_c, sanitize_thread);
     const simd_assert_runner_exe = b.addExecutable(.{
         .name = "zwasm-spec-simd",
         .root_module = simd_assert_runner_mod,
@@ -301,14 +298,13 @@ pub fn build(b: *std.Build) void {
     // captured in libc.so.6 region per d-65 valgrind) or (ii) Zig's
     // own `handleSegfaultPosix` chain still firing despite our own
     // sigaction (D-134 candidate path (d) — toolchain PR #25227).
-    const non_simd_assert_runner_mod = b.createModule(.{
+    const non_simd_assert_runner_mod = createSanitizedModule(b, sanitize_opts, .{
         .root_source_file = b.path("test/spec/spec_assert_runner_non_simd.zig"),
         .target = target,
         .optimize = optimize,
         .single_threaded = true,
     });
     non_simd_assert_runner_mod.addImport("zwasm", zwasm_lib_mod);
-    applySanitize(non_simd_assert_runner_mod, sanitize_c, sanitize_thread);
     const non_simd_assert_runner_exe = b.addExecutable(.{
         .name = "zwasm-spec-wasm-2-0-assert",
         .root_module = non_simd_assert_runner_mod,
@@ -322,13 +318,12 @@ pub fn build(b: *std.Build) void {
     // (Phase 2 / §9.2 / 2.7). Reads each subdir's manifest.txt
     // and processes module / assert_invalid / assert_malformed
     // (binary) commands.
-    const wast_runner_mod = b.createModule(.{
+    const wast_runner_mod = createSanitizedModule(b, sanitize_opts, .{
         .root_source_file = b.path("test/spec/wast_runner.zig"),
         .target = target,
         .optimize = optimize,
     });
     wast_runner_mod.addImport("zwasm", zwasm_lib_mod);
-    applySanitize(wast_runner_mod, sanitize_c, sanitize_thread);
     const wast_runner_exe = b.addExecutable(.{
         .name = "zwasm-wast-runner",
         .root_module = wast_runner_mod,
@@ -356,14 +351,13 @@ pub fn build(b: *std.Build) void {
     // against the in-tree smoke fixture (`test/runners/fixtures/`).
     // Smoke gate exercises module + assert_return + assert_trap +
     // valid; the full wasmtime_misc corpus wires in 6.D.
-    const wast_runtime_runner_mod = b.createModule(.{
+    const wast_runtime_runner_mod = createSanitizedModule(b, sanitize_opts, .{
         .root_source_file = b.path("test/runners/wast_runtime_runner.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
     });
     wast_runtime_runner_mod.addImport("zwasm", zwasm_lib_mod);
-    applySanitize(wast_runtime_runner_mod, sanitize_c, sanitize_thread);
     const wast_runtime_runner_exe = b.addExecutable(.{
         .name = "zwasm-wast-runtime-runner",
         .root_module = wast_runtime_runner_mod,
@@ -396,13 +390,12 @@ pub fn build(b: *std.Build) void {
 
     // `zig build test-realworld` — parse-smoke a vendored set of
     // toolchain-produced .wasm fixtures (Phase 2 / §9.2 / 2.6).
-    const realworld_runner_mod = b.createModule(.{
+    const realworld_runner_mod = createSanitizedModule(b, sanitize_opts, .{
         .root_source_file = b.path("test/realworld/runner.zig"),
         .target = target,
         .optimize = optimize,
     });
     realworld_runner_mod.addImport("zwasm", zwasm_lib_mod);
-    applySanitize(realworld_runner_mod, sanitize_c, sanitize_thread);
     const realworld_runner_exe = b.addExecutable(.{
         .name = "zwasm-realworld-runner",
         .root_module = realworld_runner_mod,
@@ -418,14 +411,13 @@ pub fn build(b: *std.Build) void {
     // → wasm_func_call). Outcome categories: PASS / SKIP-WASI /
     // SKIP-NOENTRY / FAIL. The gate trips only on FAIL —
     // SKIP-WASI counts but is orthogonal to interp-op coverage.
-    const realworld_run_runner_mod = b.createModule(.{
+    const realworld_run_runner_mod = createSanitizedModule(b, sanitize_opts, .{
         .root_source_file = b.path("test/realworld/run_runner.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
     });
     realworld_run_runner_mod.addImport("zwasm", zwasm_lib_mod);
-    applySanitize(realworld_run_runner_mod, sanitize_c, sanitize_thread);
     const realworld_run_runner_exe = b.addExecutable(.{
         .name = "zwasm-realworld-run-runner",
         .root_module = realworld_run_runner_mod,
@@ -442,14 +434,13 @@ pub fn build(b: *std.Build) void {
     // / COMPILE-OP / COMPILE-VAL / FAIL-OTHER. Chunks 7.9-b/c/d
     // turn COMPILE-PASS into RUN-PASS by adding host-import
     // dispatch + JitRuntime memory init + WASI stub handlers.
-    const realworld_run_jit_mod = b.createModule(.{
+    const realworld_run_jit_mod = createSanitizedModule(b, sanitize_opts, .{
         .root_source_file = b.path("test/realworld/run_runner_jit.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
     });
     realworld_run_jit_mod.addImport("zwasm", zwasm_lib_mod);
-    applySanitize(realworld_run_jit_mod, sanitize_c, sanitize_thread);
     const realworld_run_jit_exe = b.addExecutable(.{
         .name = "zwasm-realworld-run-jit-runner",
         .root_module = realworld_run_jit_mod,
@@ -465,14 +456,13 @@ pub fn build(b: *std.Build) void {
     // `cli_run.runWasmCaptured`. Gate is 30+ matches; runner
     // SKIPs gracefully when wasmtime is not on PATH (so the
     // build remains green on hosts that lack it).
-    const realworld_diff_runner_mod = b.createModule(.{
+    const realworld_diff_runner_mod = createSanitizedModule(b, sanitize_opts, .{
         .root_source_file = b.path("test/realworld/diff_runner.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
     });
     realworld_diff_runner_mod.addImport("zwasm", zwasm_lib_mod);
-    applySanitize(realworld_diff_runner_mod, sanitize_c, sanitize_thread);
     const realworld_diff_runner_exe = b.addExecutable(.{
         .name = "zwasm-realworld-diff-runner",
         .root_module = realworld_diff_runner_mod,
@@ -486,14 +476,13 @@ pub fn build(b: *std.Build) void {
     // `test/wasi/` driving each .wasm fixture through
     // `cli_run.runWasm`, comparing the exit code against the
     // matching `<basename>.expected_exit` file.
-    const wasi_runner_mod = b.createModule(.{
+    const wasi_runner_mod = createSanitizedModule(b, sanitize_opts, .{
         .root_source_file = b.path("test/wasi/runner.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
     });
     wasi_runner_mod.addImport("zwasm", zwasm_lib_mod);
-    applySanitize(wasi_runner_mod, sanitize_c, sanitize_thread);
     const wasi_runner_exe = b.addExecutable(.{
         .name = "zwasm-wasi-runner",
         .root_module = wasi_runner_mod,
@@ -515,7 +504,7 @@ pub fn build(b: *std.Build) void {
         .root_module = core,
     });
 
-    const c_host_mod = b.createModule(.{
+    const c_host_mod = createSanitizedModule(b, sanitize_opts, .{
         .target = target,
         .optimize = optimize,
         .link_libc = true,
@@ -526,7 +515,6 @@ pub fn build(b: *std.Build) void {
     });
     c_host_mod.addIncludePath(b.path("include"));
     c_host_mod.linkLibrary(c_api_lib);
-    applySanitize(c_host_mod, sanitize_c, sanitize_thread);
 
     const c_host_exe = b.addExecutable(.{
         .name = "zwasm-c-host-hello",
@@ -628,14 +616,13 @@ pub fn build(b: *std.Build) void {
     const repro_step = b.step("run-repro", "Run private/dbg/<task>/repro.zig (-Dtask=<name>)");
     if (repro_task) |task| {
         const repro_path = b.fmt("private/dbg/{s}/repro.zig", .{task});
-        const repro_mod = b.createModule(.{
+        const repro_mod = createSanitizedModule(b, sanitize_opts, .{
             .root_source_file = b.path(repro_path),
             .target = target,
             .optimize = optimize,
             .link_libc = true,
         });
         repro_mod.addImport("zwasm", zwasm_lib_mod);
-        applySanitize(repro_mod, sanitize_c, sanitize_thread);
         const repro_exe = b.addExecutable(.{
             .name = b.fmt("zwasm-repro-{s}", .{task}),
             .root_module = repro_mod,
@@ -644,7 +631,7 @@ pub fn build(b: *std.Build) void {
         repro_step.dependOn(&run_repro.step);
     } else {
         const print_usage = b.addSystemCommand(&.{
-            "/bin/sh", "-c",
+            "/bin/sh",                                                                                     "-c",
             "echo 'usage: zig build run-repro -Dtask=<name>  (private/dbg/<name>/repro.zig)' >&2; exit 2",
         });
         repro_step.dependOn(&print_usage.step);
@@ -673,16 +660,31 @@ pub const WasiLevel = enum { none, p1, p2, both };
 pub const EngineMode = enum { interp, jit, both };
 pub const SanitizeMode = enum { off, address, thread };
 
-/// Apply the `-Dsanitize` selection to a freshly-created module.
+/// Bundle of sanitizer settings derived from `-Dsanitize`.
+/// Constructed once in `build()` and reused at each
+/// `createSanitizedModule` call site (D-016 discharge).
+pub const SanitizeOpts = struct {
+    c: ?std.zig.SanitizeC,
+    thread: ?bool,
+};
+
+/// Create a `*std.Build.Module` and apply the active sanitizer
+/// settings in one call. Replaces the prior
+/// `b.createModule + applySanitize` two-step pattern that
+/// appeared at 17 call sites across this file.
+///
 /// Per ADR-0015 §Decision Part 2 / §9.6 / 6.K.7: `.full` enables
 /// LLVM AddressSanitizer + UBSan; `sanitize_thread` enables
-/// ThreadSanitizer. Mac aarch64 + Linux x86_64 only — Windows
-/// ucrt skipped (caller passes nulls).
-fn applySanitize(
-    mod: *std.Build.Module,
-    sanitize_c: ?std.zig.SanitizeC,
-    sanitize_thread: ?bool,
-) void {
-    if (sanitize_c) |s| mod.sanitize_c = s;
-    if (sanitize_thread) |t| mod.sanitize_thread = t;
+/// ThreadSanitizer. Mac aarch64 + Linux x86_64 only — on Windows
+/// both fields are null and this is a pure `createModule`
+/// passthrough.
+fn createSanitizedModule(
+    b: *std.Build,
+    sopts: SanitizeOpts,
+    mod_opts: std.Build.Module.CreateOptions,
+) *std.Build.Module {
+    const mod = b.createModule(mod_opts);
+    if (sopts.c) |s| mod.sanitize_c = s;
+    if (sopts.thread) |t| mod.sanitize_thread = t;
+    return mod;
 }
