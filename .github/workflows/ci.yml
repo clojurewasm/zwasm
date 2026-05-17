@@ -302,9 +302,12 @@ jobs:
             -Djit=false -Dcomponent=false -Dwat=false
           # Zig 0.16 ships an empty .a for this target (SYMDEF only,
           # ~88 bytes). The .o is the actual artefact; verify it
-          # built and is the right ABI (arm64_32 / armv8 Mach-O).
+          # built and is the right ABI. `file(1)` output varies
+          # across versions ("64_32-bit armv8 object" on local Darwin
+          # 25, "arm64_32_v8" on macos-latest CI), so match the
+          # stable substring `arm64_32` present in both.
           OBJ=$(find .zig-cache -name 'libzwasm_zcu.o' \
-            -exec file {} + | grep '64_32-bit armv8' | head -1 | cut -d: -f1)
+            -exec file {} + | grep -E 'arm64_32|64_32-bit armv8' | head -1 | cut -d: -f1)
           if [ -z "$OBJ" ]; then
             echo "FAIL: no arm64_32 (armv8 ILP32) object produced"
             find .zig-cache -name 'libzwasm_zcu.o' -exec file {} +
