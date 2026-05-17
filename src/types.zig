@@ -470,15 +470,19 @@ pub const WasmModule = struct {
         // host directories cross-platform (Zig 0.16's `std.Io.Dir.openDir`).
         //
         // On ILP32 targets (arm64_32-apple-watchos) `std.Io.Threaded` itself
-        // doesn't compile (u64 syscall returns vs 32-bit usize), so we only
-        // expose the auto-init path on 64-bit targets. On 32-bit watchos the
-        // caller MUST supply `config.io` if they want WASI host directories
-        // — which they won't, because WatchKit apps don't get filesystem
-        // access. Workloads without WASI (the case for wasm-benchmark) never
-        // dereference the io vtable, so leaving it default-init'd is OK.
+        // doesn't compile (u64 syscall returns vs 32-bit usize), so we cannot
+        // auto-construct one. If the caller asked for any feature that
+        // reaches into the io vtable (WASI host preopens, deadline timeout)
+        // they must supply config.io themselves; otherwise loadCore would
+        // dereference an undefined vtable at runtime. Wasm modules that
+        // execute `memory.atomic.wait/notify` reach io too — those embedders
+        // must also pass config.io, but we cannot detect that statically.
         const io: std.Io = blk: {
             if (config.io) |io_val| break :blk io_val;
             if (@sizeOf(usize) < 8) {
+                if (config.wasi or config.timeout_ms != null) {
+                    return error.IlpRequiresExplicitIo;
+                }
                 self.owned_io = null;
                 break :blk @as(std.Io, undefined);
             }
