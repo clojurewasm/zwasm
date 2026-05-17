@@ -78,13 +78,17 @@ chosen path; then implementation as multi-chunk follow-up.
   `scripts/regen_spec_2_0_assert.sh`'s `supported` set +
   rebuild .wasm fixtures. Discharges D-079 sub-gap ii
   (v128 cross-module imports — also needs
-  `Runtime.globals` v128 plumbing per ADR-0052 §3).
-  D-138 ALREADY closed `4894ad1e` independent of (c)-2.4.
-- **D-016 `applySanitize` wrapper extract** — mechanical
-  refactor, no architectural depth.
-- **D-052 x86_64 prologue.zig extract** — paired refactor.
-- **D-133 arm64 op_table scratch sweep** — mechanical
-  scratch-reg audit.
+  `Runtime.globals` v128 plumbing per ADR-0052 §3,
+  architectural).
+- **D-133 arm64 op_table scratch sweep** — partial
+  mechanical (X10/X11/X12 → X14/X15 rename at 5 sites),
+  but `emitTableCopy` simultaneous 3-reg usage needs a
+  3rd safe scratch register (architectural extension).
+  Re-evaluate after 9.12 substrate audit (per row body).
+
+D-016 + D-052 closed in this session; not on parallel
+list. D-138 closed `4894ad1e`. D-142 / D-143 closed
+2026-05-18.
 
 After Cat III closes (D-126 fix + (c)-2.4): Step (d) Cat IV
 windowsmini reconcile (D-136 SEH bridge). Then Step (e)
@@ -105,11 +109,13 @@ background. D-134 closed; future heisenbugs use 5-streak +
 
 ### Outstanding `now` debts (6)
 
-D-016(applySanitize wrapper); D-052(x86_64 prologue extract);
-D-079(v128 cross-module → (c)-2.4); D-126(dual-view table-0
-sync gap — γ-4 evidence absorbed 2026-05-18, ADR needed);
-D-133(arm64 op_table scratch sweep). D-138 + D-142 + D-143
-CLOSED 2026-05-18.
+D-079(v128 cross-module → (c)-2.4 sub-gap ii); D-126(dual-
+view table-0 sync gap — γ-4 evidence absorbed 2026-05-18,
+ADR-0068 Proposed); D-133(arm64 op_table scratch sweep —
+3-reg pressure architectural). D-016 + D-052 + D-138 +
+D-142 + D-143 CLOSED. D-016 was already discharged via
+`createSanitizedModule` wrapper per `build.zig:47`;
+handover narrative was stale and cleaned up 2026-05-18.
 
 `blocked-by` rides (corresponding chunks):
 D-103/D-105 → (c)-2.3/2.4; D-138 → (c)-2.4;
