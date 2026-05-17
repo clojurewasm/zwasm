@@ -7,10 +7,11 @@
 
 1. **READ FIRST** [`.dev/phase9_close_plan.md`](phase9_close_plan.md)
    §6. Cat III dispatch — D-142 fix (A) chain complete; γ-4
-   probe ran cleanly (no crash) but surfaced 113 routing
-   FAILs (D-143). D-142 CLOSED; D-143 OPEN.
-2. `git log --oneline -10`. Latest: γ-4 probe + D-142 close
-   chore. Prior β/γ chain via `git log --grep="9.9-III"`.
+   probe surfaced 113 FAILs which bisect identified as
+   pre-existing **D-126** dual-view table-0 storage bug.
+   D-143 closed as duplicate. D-126 next.
+2. `git log --oneline -10`. Latest: D-126 absorb D-143
+   evidence. Prior chain via `git log --grep="9.9-III"`.
 3. `bash scripts/p9_simd_status.sh` — live SIMD via ubuntunote
    native x86_64 (ADR-0067).
 4. `cat .dev/debt.md | head -90`. Cat III sub-chunks tracked
@@ -28,51 +29,55 @@ substrate + wire-up (c)-2.3-α/β-1/β-2a/β-2b. γ-1/γ-2/γ-3/
 `e902e531`). Counts unchanged with γ-relaxation deferred:
 24034/0/2015 + 13301/0/440 + 212/0/20.
 
-### Next-session active task — D-143 routing-gap investigation OR (c)-2.4 distiller
+### Next-session active task — D-126 dual-view table-0 sync fix
 
-**γ-4 probe result (2026-05-18)**: D-142 fix (A) chain is
-BEHAVIORALLY VERIFIED — relaxing `hasUnbindableImports`
-exercised the new thunks (arm64 56-byte / x86_64 27-byte)
-with NO crash on Mac aarch64. The SEGV class D-142 captured
-is structurally closed.
+**γ-4 probe + D-143 bisect (2026-05-18 cycles 1+2)** confirmed
+the 113 functional FAILs surfaced by relaxing
+`hasUnbindableImports` are the SAME bug class as pre-existing
+**D-126** (`bulk.wast` call_indirect post-mutation returning
+stale entries). γ-4 just exposed it across 4 more fixture
+families (table_copy 66 / ref_func 6 / table_init 5 /
+imports 1) on top of the original bulk.X.wasm cases. D-143
+closed as duplicate; D-126 updated with the cycle-2 evidence
++ 3 architectural options.
 
-But the probe surfaced **113 functional FAILs on Mac /
-~112 on ubuntunote**: cross-module ROUTING gaps in γ-1/γ-2/
-γ-3 per-exporter backing wiring. Breakdown: 66 table_copy /
-6 ref_func / 5 table_init / 1 imports. The backing is
-populated correctly; the routing (which exporter's backing
-the callee should read) is incomplete in some cross-module
-shapes. This is a SEPARATE bug class from D-142 — filed as
-D-143.
+**Root cause (verified)**: table-0 in `JitRuntime` has TWO
+independent storage buffers:
+- `funcptr_base` (= `scratch_funcptrs.ptr`, read by
+  `call_indirect t0` per the §9.9-l-1b-d093 X26 fast path).
+- `tables_ptr[0].refs` (= `scratch_table_refs[0]`, written
+  by `table.copy`/`table.init`/`table.set` per
+  `op_table.zig::emitTableCopy`).
 
-γ-4 reverted (`hasUnbindableImports` strict again) to keep
-the gate green at 24034/0/2015 etc. while D-143 is open.
-D-142 marked CLOSED.
+The two are populated identically at `on_module_loaded` but
+NEVER synced after mutating ops. `call_indirect` sees the
+PRE-mutation state. Verified minimal repro:
+`table_copy/table_copy.2.wasm`.
 
-**Two viable next chunks**:
+**Architectural options** (per D-126 row):
+- (A) unify storage — one array per slot holding (funcptr,
+  FuncEntity-ptr) pair; table.copy moves both halves at once.
+- (B) sync at op time — extend the 4 table-mutating JIT op
+  handlers to write both views. Most incremental.
+- (C) route call_indirect through `tables_ptr` — drops the
+  X26 fast path; loses §9.9-l-1b-d093 caching.
 
-1. **D-143 routing investigation** — bisect against the 4
-   failing fixture families (table_copy / table_init /
-   ref_func / imports) to identify whether the bug is per-op
-   (handler reads wrong rt field) or per-import (resolver
-   wiring picks wrong exporter). Likely 1-2 chunks of fixes
-   in `RegisteredExporter` or the relevant JIT op handlers.
-   Re-relax γ-4 after.
-2. **(c)-2.4 corpus distiller** — extend `scripts/regen_spec_
-   2_0_assert.sh`'s `supported` set + rebuild .wasm fixtures.
-   Discharges D-138 fully + D-079 sub-gap ii. Structurally
-   independent of γ-4 / D-143 (the distiller is Python and
-   doesn't depend on cross-module routing). Verify next
-   session whether the new fixtures it produces would hit
-   D-143's gap or not.
+**NEXT chunk**: implement Option B (incremental, lowest
+blast-radius). Each of `emitTableCopy` / `emitTableInit` /
+`emitTableSet` / `emitTableGrow` (both arm64 and x86_64)
+gains a paired store that mirrors `tables_ptr[k].refs[i]
+← X` into `funcptr_base[i] ← X` (where X is the new
+funcptr value). The `tables_jit_ci_ptr[k].funcptr_base` for
+k>0 needs similar treatment.
 
-Default order: **D-143 first** — it's the direct continuation
-of the D-142 → γ-4 chain and shrinks the residual γ work.
-(c)-2.4 follows.
+Alt next chunk: (c)-2.4 corpus distiller (structurally
+independent of D-126; Python script work + new fixture
+rebuild; discharges D-138 fully + D-079 sub-gap ii).
 
-After Cat III closes: Step (d) Cat IV windowsmini reconcile
-(D-136 SEH bridge). Then Step (e) Phase 9 close
-(audit_scaffolding + SHA backfill + open 9.12 hard gate).
+After Cat III closes (D-126 fix + (c)-2.4): Step (d) Cat IV
+windowsmini reconcile (D-136 SEH bridge). Then Step (e)
+Phase 9 close (audit_scaffolding + SHA backfill + open 9.12
+hard gate — substrate audit collaborative review).
 
 (c)-2.4 = corpus distiller's `supported` set extension +
 new fixture rebuild; discharges D-138 fully + D-079 sub-gap
@@ -91,7 +96,7 @@ background. D-134 closed; future heisenbugs use 5-streak +
 D-016(applySanitize wrapper); D-052(x86_64 prologue extract);
 D-079(v128 cross-module → (c)-2.4); D-126(bulk.wast post-
 mutation per ADR-0065); D-133(arm64 op_table scratch sweep);
-D-143(γ-4 probe surfaced 113 cross-module routing FAILs — table_copy 66 / ref_func 6 / table_init 5 / imports 1). D-142 CLOSED 2026-05-18.
+D-126(dual-view table-0 sync gap — γ-4 evidence absorbed 2026-05-18). D-142 + D-143 CLOSED 2026-05-18.
 
 `blocked-by` rides (corresponding chunks):
 D-103/D-105 → (c)-2.3/2.4; D-138 → (c)-2.4;

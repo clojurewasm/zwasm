@@ -1428,8 +1428,9 @@ pub fn hasUnbindableImports(
                 // `scratch_table_refs[0]`, written by
                 // table.copy/table.init/table.set) point at
                 // SEPARATE memory regions and are NOT synced
-                // by mutating ops. Tracked as D-143 with
-                // updated root cause. Keep strict until the
+                // by mutating ops. Pre-existing D-126
+                // absorbed the γ-4 evidence (D-143 closed as
+                // duplicate). Keep strict until the
                 // fix lands.
                 if (is_spectest) continue;
                 return true;
