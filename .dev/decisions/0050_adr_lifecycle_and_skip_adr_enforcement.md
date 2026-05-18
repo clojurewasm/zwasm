@@ -305,3 +305,4 @@ history.
 | Date       | SHA          | Note                                                                                |
 |------------|--------------|-------------------------------------------------------------------------------------|
 | 2026-05-11 | `<backfill>` | Initial accepted version. Codifies Closed terminal + skip-ADR enforcement triad. |
+| 2026-05-19 | `<backfill>` | **Amend (D-3 + D-4 追加 — Phase 9 完備 substrate audit per ADR-0071)**. Skip-impl one-way ratchet を ADR lifecycle に統合: (D-3) `bench/results/skip_impl_history.yaml` を ratchet substrate とし、PR で skip-impl 数を増やす方向の変更は ADR で justify + `exempt: <ADR-NNNN>` 登録必須。(D-4) `scripts/check_skip_impl_ratchet.sh` を pre-push gate に追加 (§9.12-A で land)。skeleton; full body は §9.12-pre で展開。 |
