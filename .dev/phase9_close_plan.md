@@ -334,48 +334,70 @@ Likely sub-chunks:
 
 Each sub-chunk: 3-host gate, spec_assert PASS delta verification.
 
-### Step (d) — Cat IV: windowsmini batch sweep (Phase 9 end)
+### Step (d) — Cat IV: windowsmini batch sweep [RELOCATED to §9.13-0]
 
-**Goal**: drive windowsmini full test-all green, including
-`spec_assert_runner_non_simd`.
+**Status (2026-05-18)**: Per user 2026-05-18 confirmation +
+ADR-0049 + ADR-0056 + ADR-0065 2026-05-18 amendments, the Cat
+IV windowsmini reconcile sweep moves OUT of §9.9 close gate
+INTO a dedicated ROADMAP row §9.13-0 (between §9.12 substrate
+audit hard-gate and §9.13 Phase-10 entry hard-gate).
 
-Items in the batch:
+Rationale: §9.12 substrate audit may amend Phase 9 scope
+retroactively (e.g., reshape D-094 / D-140 cohort decisions or
+loosen invariants); running Cat IV reconcile BEFORE the
+cleanup risks duplicate work + wasted windowsmini cycles.
 
+**Step (d) is therefore NOT part of §9.9 close.** It executes
+at §9.13-0 as a separate sequence in §6 (or as an inline
+extension of §6 Step (e) below).
+
+Items + sequence (unchanged content; moved venue):
 - D-084 Win64 v128 marshal residual (per ADR-0055)
 - D-136 Win64 SEH bridge for assert_trap recovery
-- D-028 windowsmini SSH test-runner IPC flake (mitigated;
-  re-evaluate)
-- Any new Windows-platform-specific issues surfacing during
-  Cat III work (cross-module + host imports may touch
-  Windows-side instance loading)
+- D-028 windowsmini SSH test-runner IPC flake re-eval
+- Any Windows-platform-specific issues surfacing from
+  Cat III or §9.12 substrate audit cleanup
+- Plus: any deferred (b)-d-7 Win64 Class B thunks (per
+  ADR-0069 Phase 1.5)
 
-Sequence:
-
-1. Inventory each blocking item
-2. Pick implementation path per item (Win64 SEH bridge is the
-   biggest one — likely needs a small C/asm shim alongside Zig)
-3. Land items in batch (single-chunk if mechanical; multi-chunk
-   if SEH bridge alone is substantial)
-4. windowsmini full test-all green = §9.9 exit predicate satisfied
+Sequence: inventory → pick implementation → land in batch →
+windowsmini full test-all green bit-identical with Mac +
+ubuntunote = §9.13-0 [x].
 
 ### Step (e) — Phase 9 close
 
-**Goal**: §9.9 row flips `[x]`. The substrate audit hard-gate at
-9.12 fires (per ADR-0062), and the autonomous loop **stops**
-to surface the substrate audit document for collaborative
-review. Substrate audit is NOT part of this plan — it's the
-gate AFTER this plan completes.
+**Goal (revised 2026-05-18)**: §9.9 row flips `[x]` with
+Cat I + Cat II + Cat III green on Mac + ubuntunote (Cat IV
+moved to §9.13-0 per Step (d) note above). The substrate
+audit hard-gate at §9.12 fires (per ADR-0062), and the
+autonomous loop **stops** to surface the substrate audit
+document for collaborative review.
 
 Tasks:
 
 1. `audit_scaffolding` invocation (Phase 9 boundary mandatory)
 2. SHA backfill for §9.9 sub-task rows
-3. §9.9 row flip `[x]`
-4. ROADMAP Phase Status widget update (Phase 9 → DONE; next
-   gate is 9.12 substrate audit, then 9.13 Phase 10 entry)
-5. Surface to user: "Phase 9 完備 substrate audit (.dev/
-   phase9_completion_substrate_audit.md) needs collaborative
-   review; pausing autonomous mode."
+3. §9.9 row flip `[x]` (Mac + ubuntunote bit-identical at
+   `skip-impl == 0` for Cat I + II + III)
+4. ROADMAP Phase Status widget: §9.9 [x] but Phase 9 stays
+   IN-PROGRESS until §9.13-0 + §9.12 + §9.13 all clear.
+5. Surface to user: "Phase 9 完備 substrate audit ([`.dev/
+   phase9_completion_substrate_audit.md`](../phase9_completion_substrate_audit.md))
+   needs collaborative review; pausing autonomous mode."
+
+### Step (f) — §9.13-0 windowsmini reconcile (post-§9.12)
+
+After §9.12 substrate audit hard-gate clears (= §9.12 `[x]`),
+the loop auto-resumes and executes Step (d)'s items (now
+relocated here). On `§9.13-0 [x]`, the §9.13 Phase-10-entry
+hard-gate fires and the loop again surfaces to user for
+review.
+
+### Step (g) — §9.13 Phase 10 entry gate
+
+User-collaborative review per [`.dev/phase10_transition_gate.md`](../phase10_transition_gate.md).
+Phase Status widget flips Phase 9 → DONE; Phase 10 →
+IN-PROGRESS on `§9.13 [x]`.
 
 ## §7 Discipline notes for the next session
 

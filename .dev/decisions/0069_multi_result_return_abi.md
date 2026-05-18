@@ -211,35 +211,83 @@ ADR-0065.
 ## Implementation chunked plan
 
 Implementation lands across follow-on chunks, NOT in this ADR's
-commit. Suggested sequence (each ~1 commit):
+commit. Refined 2026-05-18 to make the dependency chain explicit:
 
-**Phase 1 — Class B mixed int+float (D-137)**:
-- (b)-d-1: arm64 entry.zig helpers for `(i32, f64)` / `(i64, f64)`
-  / `(f64, i32)` via inline-asm thunk capturing X0 + V0.
-- (b)-d-2: x86_64 mirror.
-- (b)-d-3: distiller `supported_multi` set + runner dispatch arms.
-- (b)-d-4: re-bake manifests; verify PASS-count gain ≥ 7.
+```
+D-135 (entry.zig comptime-gen)     ← Phase 0 prerequisite
+  ↓
+D-146 (x86_64 inline-asm thunk)    ← Phase 1.5 (small, unlocked by D-135 cap relief)
+  ↓
+Phase 2 — Class C indirect-result-pointer (D-094 + D-140)
+  ↓
+Phase 3 — D-140 large-sig (16-result; trivial extension)
+```
 
-**Phase 2 — Class C indirect-result-pointer (D-094 / D-140)**:
+**Phase 0 — D-135 prerequisite (entry.zig comptime-gen)** (NEW —
+not previously in this ADR):
+- entry.zig currently sits at ~2473 LOC with the ADR-0063
+  `FILE-SIZE-EXEMPT` marker raising the cap to 2500. Each new
+  Class B / Class C helper adds ~30 LOC; the cap is already
+  ~25 LOC away from violating. ANY further multi-result chunk
+  blocks on D-135's comptime-loop refactor reducing the
+  ~84 helpers (~12-20 LOC each) to a generator + table.
+- Acceptance: entry.zig ≤ 1500 LOC after the refactor; all
+  84 helpers still callable with identical signatures; spec
+  PASS count unchanged on Mac + ubuntunote.
+- Estimate: 1 ADR-grade chunk (touches every existing
+  call site indirectly through the comptime expansion).
+
+**Phase 1 — Class B mixed int+float (D-137)** — partially landed
+(chunks (b)-d-1 + (b)-d-2 closed cycle 9; cycle 11 (b)-d-2 reverted
+to D-146 due to Zig 0.16 `splitType` TODO):
+- (b)-d-1: arm64 entry.zig helpers for `(i32, f64)` / `(i64,
+  f64)` / `(f64, i32)` via inline-asm thunk capturing X0 + V0.
+  ✓ LANDED cycle 9 (commit `d6982a3e`).
+- (b)-d-2: heterogeneous-FP `(f64, f32)` shape. ✗ REVERTED
+  cycle 11; deferred to D-146 (blocked on D-135 cap relief
+  OR Zig upstream `splitType`).
+
+**Phase 1.5 — D-146 close (`(f64, f32)` shape + Win64 thunk)**:
+After D-135 lands, entry.zig has room for the x86_64 SysV
+inline-asm thunk (`call *fn ; movq xmm0,r0 ; movq xmm1,r1`).
+Add the same shape to arm64 (already prototyped cycle 11) +
+x86_64 + (optionally) Win64. Re-bake manifests; the 1
+remaining Class B `type-all-f32-f64` line drains.
+- (b)-d-3: x86_64 SysV inline-asm thunk for `(f64, f32)`.
+- (b)-d-4: re-land cycle-11 arm64 thunk + struct definition.
+- (b)-d-5: distiller `supported_multi` + runner dispatch arm.
+- (b)-d-6: re-bake manifests; verify PASS-count gain = 1.
+- (b)-d-7 (optional): Win64 thunk (deferred to §9.13-0 per
+  ADR-0049 + ADR-0056 + ADR-0065 2026-05-18 amendments if
+  schedule pressure).
+
+**Phase 2 — Class C indirect-result-pointer (D-094 + D-140)**:
+PREREQUISITES: D-135 (cap relief), D-146 close. Once
+prerequisites are green:
 - (b)-e-1: arm64 callee prologue capture of X8 hidden-ptr +
-  epilogue write via `*(buf + i*8)`. ADR-0017 amendment notes
-  the new prologue slot.
+  epilogue write via `*(buf + i*8)`. **ADR-0017 amendment
+  required** noting the new prologue slot.
 - (b)-e-2: arm64 caller-side allocate + LEA + capture.
-- (b)-e-3: x86_64 mirror (RDI on SysV, RCX on Win64; ADR-0026
-  amendment).
+- (b)-e-3: x86_64 mirror (RDI on SysV, RCX on Win64). **ADR-
+  0026 amendment required**.
 - (b)-e-4: entry.zig `FuncRet_i32i32i32` / `FuncRet_i32i32i64`
   / etc. declarations; distiller `supported_multi` + runner
   dispatch.
 - (b)-e-5: re-bake; verify PASS-count gain ≥ 7 (3-int-result
-  lines).
+  lines: 3 `*-i32-i32-i32` + 4 `break-multi-value`).
 
-**Phase 3 — D-140 large-sig (16-result)**:
-- (b)-f-1: extend Class C to >2-FP-class returns (V0..V7 cap → 8
-  FP slots; >8 spills via separate ptr). Single fixture only;
-  likely thin scope.
+**Phase 3 — D-140 large-sig (16-result)** — trivial extension
+of Class C ABI to >8 same-class result slots. 1 spec line
+(`large-sig`); thin scope; same `*(buf + i*8)` mechanism.
+- (b)-f-1: bump per-class cap from 8 → 16+ (or arbitrary)
+  in `marshalFunctionReturn` + caller-side buffer sizing
+  threading.
 
-After all phases: §9.9-II row close + windowsmini reconcile
-(Cat IV) is the gating remaining work for §9.9 umbrella close.
+**After all phases**: `§9.9-II [x]` cleanly. The §9.9 umbrella
+row's remaining sub-row is then just §9.9-II (since §9.9-III
+closed cycle 5, §9.9-IV moved to §9.13-0 per ADR-0049 + ADR-
+0056 + ADR-0065 2026-05-18 amendments). `§9.9 [x]` flip
+unblocks the §9.12 substrate audit hard-gate.
 
 ## References
 
@@ -280,4 +328,5 @@ After all phases: §9.9-II row close + windowsmini reconcile
 
 | Date       | SHA          | Note                                                                                                                                                                                |
 |------------|--------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 2026-05-18 | `<backfill>` | Initial Accepted version, promoted from lesson `2026-05-17-funcret-u64-padding-aligns-jit-epilogue.md`. Codifies Class A (working), Class B (D-137 deferred), Class C (D-094 / D-140 plan). |
+| 2026-05-18 | `<backfill>` | Initial Accepted version, promoted from lesson `2026-05-17-funcret-u64-padding-aligns-jit-epilogue.md`. Codifies Class A (working), Class B (D-137 deferred), Class C (D-094 / D-140 plan).                                                                                                                                                                                                                                                                                                          |
+| 2026-05-18 | `<backfill>` | **Implementation chunked plan refined** — dependency chain made explicit: D-135 (entry.zig comptime-gen) is Phase 0 prerequisite gating ALL subsequent multi-result helper additions due to ADR-0063 exempt-cap pressure (cycle-11 D-146 surfaced this empirically). D-146 close moved to new Phase 1.5 between Class B residual and Class C. Phase 2/3 unchanged. Status of cycle-9 (b)-d-1 (LANDED) + cycle-11 (b)-d-2 (REVERTED to D-146) annotated inline. |

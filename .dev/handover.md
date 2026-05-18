@@ -6,76 +6,59 @@
 ## Cold-start procedure
 
 1. **READ FIRST** [`.dev/phase9_close_plan.md`](phase9_close_plan.md)
-   §6. Cat III dispatch — D-126 + D-144 CLOSED 2026-05-18. γ-4
-   permanent relax landed.
-2. **READ NEXT** ADR-0066 §A2 amendment (bridge thunk 56 → 96 B
-   for full pinned cohort);
-   [`.dev/lessons/2026-05-18-thunk-pinned-cohort-not-just-x19.md`](lessons/2026-05-18-thunk-pinned-cohort-not-just-x19.md).
-3. `git log --oneline -10`. Latest: γ.4 cycle 4 close.
-4. `bash scripts/p9_simd_status.sh` — live SIMD status.
-5. `cat .dev/debt.md | head -90`. Next candidates: D-079, D-133.
+   §6 (revised 2026-05-18). ADR-0069 chunked plan + D-135
+   prerequisite + §9.13-0 windowsmini relocation in §6 (d)/(f).
+2. **READ NEXT** ADR-0069 implementation chain + ADR-0049 /
+   ADR-0056 / ADR-0065 2026-05-18 amends.
+3. `git log --oneline -10`. Latest: §9.13-0 wiring + ADR amends.
+4. `bash scripts/p9_simd_status.sh` — live status.
+5. `cat .dev/debt.md`. `now`: D-079, D-133. Cohort blocked
+   by D-135: D-094 / D-137 / D-140 / D-146. Cohort relocated
+   to §9.13-0: D-084 / D-028 / D-136.
 
-## Active state — §9.9-III [x] (Cat III CLOSED)
+## Active state — §9.9-III [x]; §9.9-IV moved to §9.13-0
 
-D-126 (dual-view table) + D-144 (print64 cross-module trap)
-both closed 2026-05-18 cycle 4. §9.9-III row flipped [x]
-cycle 5 (144-directive drain target satisfied).
+D-126 + D-144 closed cycle 4; §9.9-III [x] cycle 5. D-145
+closed cycle 10. Both hosts bit-identical **25316/0/697**.
 
-D-144 root cause: arm64 bridge thunk's ADR-0066 §A1 saved
-only X19, missing X24-X28 (the full reserved-invariant
-cohort per `abi.zig::reserved_invariant_gprs`). Cross-module
-BLR return left caller's X24 holding callee's typeidx_base
-→ `call_indirect sig` mismatch (`kind=3`).
+2026-05-18 wiring: §9.9-IV → §9.13-0 (post-§9.12 audit) per
+ADR-0049+0056+0065 amends. `skip-impl == 0 literally` preserved.
+ADR-0066 §A2 (thunk 56→96 B), ADR-0069 chunked plan refined.
 
-Fix: ADR-0066 §A2 grows arm64 thunk 56 → 96 B for full
-cohort save/restore. x86_64 unchanged (R15 only pin per
-ADR-0026; other invariants reload from `[R15+off]`).
+### Next-session active task — D-135 (entry.zig comptime-gen) is now the chain prerequisite
 
-2-host gate after fix: Mac 25308/0, ubuntunote 24034/0
-with γ-4 relax PERMANENT.
+2026-05-18 wiring landed (this commit): §9.9-IV moved to
+§9.13-0 per ADR-0049 + ADR-0056 + ADR-0065 amends. ADR-0069
+chunked plan refined. Dependency chain to §9.9 [x]:
 
-### Permanent diagnostic infra landed in γ.4
+```
+D-135 (entry.zig comptime-gen)     ← PHASE 0 — required next
+  ↓
+D-146 (cycle-11 (f64,f32) re-land + x86_64 inline-asm thunk)
+  ↓
+ADR-0017 + ADR-0026 amend (X8 / RDI hidden-result-ptr prologue)
+  ↓
+Class C (D-094 + D-140) — 5 chunks per arch
+  ↓
+§9.9 [x]  →  §9.12 substrate audit (USER GATE)  →
+§9.13-0 windowsmini reconcile (LOOP)  →
+§9.13 Phase 10 entry gate (USER GATE)
+```
 
-- Cycle 2/3: `host_import_stub_call_count` / `_last_trap_flag`
-  globals + `tf=` (rt.trap_flag) — `[stubs=N last_tf=M tf=K]`.
-- Cycle 4: `JitRuntime.trap_kind` (replaces `_pad1`) +
-  per-fixup-class arm64 trap stubs (1=generic, 2=cind
-  bounds, 3=cind sig). `printCallTrap` emits `kind=N`.
-
-### Next-session active task
-
-Cycle 11 landed Class B `(f64, f32)` helper on Mac (Mac was
-25317/0) but ubuntu hit Zig 0.16 `splitType(2,
-FuncRet_f64f32)` compile-time TODO on the x86_64 SysV native
-path. Reverted to keep both hosts bit-identical at
-**25316/0/697**. `aarch64_blr_clobbers` const factoring
-kept (load-bearing for entry.zig size cap). D-146 filed
-for the `(f32, f64)` residual.
-
-Next candidates:
-- §9.9-II Class C (D-094 + D-140 indirect-result-ptr ABI
-  per ADR-0069) — 3-result and large-sig 16-result shapes;
-  multi-commit project per arch.
-- D-146 — `(f64, f32)` shape; needs Zig upstream
-  `splitType` OR x86_64 SysV inline-asm thunk (entry.zig
-  cap relief needed; depends on D-135 comptime-gen).
-- §9.9-IV windowsmini reconcile (D-136 Win64 SEH bridge,
-  D-084 v128 marshal residual, D-028 IPC flake).
-- D-079 (v128 cross-module imports sub-gap ii — latent,
-  no spec coverage).
-- D-133 (arm64 op_table / op_memory hardcoded scratch
-  sweep — latent, regalloc-clobber risk class).
+**Next concrete task**: D-135 entry.zig comptime-gen.
+Without this, D-146 + Class C both hit ADR-0063 cap.
+Side candidates if D-135 stuck: D-079 (latent), D-133 (latent).
 
 ### Discipline reminders
 
-Pre-commit hook active; no `--no-verify`. 2-host per chunk;
-windowsmini batch at Phase 9 close.
+No `--no-verify`. 2-host per chunk (Mac + ubuntunote);
+windowsmini at §9.13-0 (post-§9.12).
 
 ### Outstanding `now` debts
 
-D-079; D-133. (D-145 closed cycle 10.)
-Blocked: D-094 / D-137 / D-140 / D-146 (Cat II Class B+C
-cohort); D-136 (Cat IV Win64 SEH); D-135 (entry.zig cap).
+D-079; D-133.
+Blocked by D-135: D-094 / D-137 / D-140 / D-146.
+Relocated to §9.13-0: D-084 / D-028 / D-136.
 
 ## Sandbox + References
 
