@@ -15,10 +15,11 @@
 4. `bash scripts/p9_simd_status.sh` — live SIMD status.
 5. `cat .dev/debt.md | head -90`. Next candidates: D-079, D-133.
 
-## Active state — Cat III dispatch CLOSED
+## Active state — §9.9-III [x] (Cat III CLOSED)
 
 D-126 (dual-view table) + D-144 (print64 cross-module trap)
-both closed 2026-05-18 cycle 4.
+both closed 2026-05-18 cycle 4. §9.9-III row flipped [x]
+cycle 5 (144-directive drain target satisfied).
 
 D-144 root cause: arm64 bridge thunk's ADR-0066 §A1 saved
 only X19, missing X24-X28 (the full reserved-invariant
@@ -43,14 +44,11 @@ with γ-4 relax PERMANENT.
 
 ### Next-session active task
 
-Cat III (c)-2 batch is structurally closed. Candidates for
-next session (from `now`-status debt + ROADMAP §9.9):
-
-- D-079: v128 cross-module imports (residual sub-gaps).
-- D-133: arm64 op_table / op_memory hardcoded scratch
-  sweep (latent).
-- §9.9-III close + §9.9-IV start (Cat IV sweep —
-  windowsmini reconcile per ADR-0056).
+§9.9 umbrella row still [ ] — needs §9.9-II + §9.9-IV [x].
+Candidates: §9.9-II Cat II multi-result (~1400 skip-impl;
+start with add64_u_with_carry family); §9.9-IV Cat IV
+windowsmini reconcile (D-084 / D-136 / D-028); D-079 v128
+cross-module sub-gap (ii); D-133 arm64 scratch sweep.
 
 ### Discipline reminders
 

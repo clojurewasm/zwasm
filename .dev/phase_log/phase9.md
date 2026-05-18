@@ -117,6 +117,19 @@
 
 ### Sub-chunks (commit-time order)
 
+- **9.9-III-close** — **Cat III closure** per ADR-0065. γ-4 permanent
+  relax landed; both `hasUnbindableImports` registered-exporter
+  branches and full bridge-thunk pinned-cohort save active.
+  Mac aarch64 spec_assert non-simd 25307/0/705 → **25308/0/705**
+  (+1 PASS = imports.1.wasm print64); ubuntunote x86_64
+  25195/113/2008 (γ-4 probe pre-cycle-4) → **24034/0/2015**
+  (= +113 PASS net via the cycle-3/4 thunk + dual-view fix
+  chain). 144-directive drain target satisfied: 136 cross-module
+  / 4 host imports (no-op trap stub per (c)-1b) / 2 start-trap
+  (SIGSEGV recovery) / 2 link-typecheck — all 0 FAIL. Cycle 4
+  closure commit (`b137a44b`) extends ADR-0066 §A2 (thunk
+  56 → 96 bytes for X19 + X24..X28 reserved-invariant cohort)
+  and absorbs D-126 + D-144. `[x]`
 - **9.9-a** — foundation per ADR-0045 — parallel `simd_assert_runner` + v128-aware text manifest format + `scripts/regen_spec_simd_assert.sh` skeleton + build.zig `test-spec-simd` step. Manifest list empty; runner reports "0 passed, 0 failed, 0 skipped (over 0 manifests; foundation)". NOT aggregated into test-all yet (`d8ffe36b`) `[x]`
 - **9.9-b** — v128 return marshal per ADR-0046 — both backends gain v128 single-result support: x86_64 MOVAPS XMM0, src_x; ARM64 MOV V0.16B, Vn.16B (alias of ORR V0.16B, Vn.16B, Vn.16B). resolveXmm/resolveFp (no spill staging) used to surface UnsupportedOp on spilled v128 explicitly. v128 PARAM marshal split off to follow-up chunk per ADR-0046 §"Decision" / 2. Updated emit_test_float.zig:1488 v128-result test from expectError to expect compile-success. v128-param rejection test stays valid (`aced46e5`) `[x]`
 - **9.9-c** — manifest population + JIT execution wiring per ADR-0045 — `scripts/regen_spec_simd_assert.sh` populates lightweight starter set NAMES={simd_address, simd_align, simd_const, simd_select} + wast2json + Python distillation. `simd_assert_runner.zig` gains manifest parsing + JIT execution for `() → {i32, i64, f32, f64, v128, ()}` and `(i32) → {i32, v128}` shapes. New entry helpers `callV128NoArgs` + `callV128_i32` in `src/engine/codegen/shared/entry.zig` returning `[16]u8` via `@Vector(16, u8)` (lowers to V0 / XMM0). Bad-module flag suppresses cascade FAIL on assert_returns under a module that failed compile. v128 hex tokens lower-byte-first matching in-memory little-endian Wasm v128 layout. Mac aarch64 baseline: 74 passed, 301 failed (158 UnsupportedOp + 143 BadValType — v128 valtype acceptance + missing v128.load*_lane / v128.load*x*_{s,u} codegen entries in op_simd dispatch), 478 skipped (v128-param-pending → 9.9-e; assert_invalid SKIP-VALIDATOR-GAP; cascaded-bad-module asserts). NOT aggregated into test-all (deferred to 9.9-g) (`540cef72`) `[x]`
