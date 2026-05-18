@@ -14,7 +14,7 @@ assert_return type-second-f32 () -> f32:1107296256
 assert_return type-second-f64 () -> f64:4634211053438658150
 assert_return type-all-i32-f64 () -> i32:32 f64:4610064722561534525
 assert_return type-all-i32-i32 () -> i32:2 i32:1
-assert_return type-all-f32-f64 () -> f64:4611686018427387904 f32:1065353216
+skip-impl multi-result type-all-f32-f64
 assert_return type-all-f64-i32 () -> i32:2 f64:4607182418800017408
 assert_return as-binary-all-operands () -> i32:7
 assert_return as-mixed-operands () -> i32:32

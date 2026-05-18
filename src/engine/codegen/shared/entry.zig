@@ -880,28 +880,12 @@ pub const FuncRet_f64i32 = extern struct {
     r1: u64, // i32 zero-ext; u64 ensures 16-byte total + AAPCS64 X0/X1 layout
 };
 
-/// Multi-result return for `(f64, f32)`. Class B heterogeneous-FP
-/// per ADR-0069 (NOT HFA: AAPCS64 §6.8.2 requires all elements
-/// the same FP type for HFA classification).
-///
-/// SysV: eightbyte 0 = f64 → SSE → XMM0; eightbyte 1 = f32 → SSE
-/// → XMM1. Native callconv(.c) works because JIT writes f64→V0/
-/// XMM0 + f32→V1/XMM1 in per-class slot order matching the SysV
-/// per-eightbyte classification.
-///
-/// AAPCS64: not HFA, so routes to X0+X1 GPR pair (eightbyte 0 =
-/// f64 bits in X0; eightbyte 1 = f32 bits in low 32 of X1). JIT
-/// writes f64→D0/V0 + f32→S1/V1 in FP-class slots — X0/X1 GPR
-/// pair read garbage. Inline-asm thunk captures via FMOV (D0→r0,
-/// S1→r1).
-// No explicit u32 pad after r1: that would mix INTEGER into
-// eightbyte 1 on SysV (post-merge → INTEGER → RDX), but JIT
-// writes f32 to XMM1. Implicit alignment pad has NO_CLASS so
-// eightbyte 1 stays SSE → XMM1 → matches.
-pub const FuncRet_f64f32 = extern struct {
-    r0: f64,
-    r1: f32,
-};
+// FuncRet_f64f32 + callF64f32NoArgs deferred per D-146:
+// arm64 inline-asm thunk works, but x86_64 SysV native path
+// hits Zig 0.16 `splitType` compiler TODO. Re-add when either
+// (a) Zig 0.16+ implements splitType for mixed-eightbyte FP
+// returns, or (b) cycle adds an x86_64 inline-asm thunk
+// (requires entry.zig cap relief).
 
 /// Multi-result return for `(f64, f64)`. Spec `type-f64-f64-value`.
 ///
@@ -1103,43 +1087,7 @@ pub fn callF64i32NoArgs(
     }
 }
 
-/// `() -> (f64, f32)` — Class B heterogeneous-FP per ADR-0069.
-/// arm64 inline-asm thunk captures D0 (f64) + S1 (f32); x86_64
-/// SysV uses native callconv(.c).
-pub fn callF64f32NoArgs(
-    module: linker.JitModule,
-    func_idx: u32,
-    rt: *JitRuntime,
-) Error!FuncRet_f64f32 {
-    rt.trap_flag = 0;
-    if (comptime builtin.target.cpu.arch == .aarch64) {
-        const Fn = *const fn (rt: *const JitRuntime) callconv(.c) void;
-        const f = module.entry(func_idx, Fn);
-        var r0_raw: u64 = undefined;
-        var r1_raw: u64 = undefined;
-        // fmov reads 64-bit D1 (low 32 = S1 = f32 value; high 32 is
-        // whatever the JIT epilogue left there). Truncate in Zig.
-        asm volatile (
-            \\ blr %[callee]
-            \\ fmov %[r0_bits], d0
-            \\ fmov %[r1_bits], d1
-            : [r0_bits] "=r" (r0_raw),
-              [r1_bits] "=r" (r1_raw),
-            : [callee] "r" (f),
-              [rt_arg] "{x0}" (rt),
-            : aarch64_blr_clobbers);
-        if (rt.trap_flag != 0) return Error.Trap;
-        return .{ .r0 = @bitCast(r0_raw), .r1 = @bitCast(@as(u32, @truncate(r1_raw))) };
-    } else if (comptime builtin.target.cpu.arch == .x86_64 and builtin.target.os.tag != .windows) {
-        const Fn = *const fn (rt: *const JitRuntime) callconv(.c) FuncRet_f64f32;
-        const f = module.entry(func_idx, Fn);
-        const result = f(rt);
-        if (rt.trap_flag != 0) return Error.Trap;
-        return result;
-    } else {
-        return Error.UnsupportedEntrySignature;
-    }
-}
+// callF64f32NoArgs deferred per D-146; see decl comment above.
 
 /// `() -> (f64, f64)` — HFA returned via V0+V1 / XMM0+XMM1.
 pub fn callF64f64NoArgs(

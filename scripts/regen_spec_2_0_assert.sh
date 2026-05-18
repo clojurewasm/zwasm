@@ -537,9 +537,12 @@ for c in d['commands']:
                 # SysV native per-eightbyte ABI; Win64 deferred.
                 ((), ('i32', 'f64')),
                 ((), ('f64', 'i32')),
-                # Phase 9 Cat II chunk (b)-d-2 — heterogeneous-FP
-                # `(f64, f32)` per ADR-0069 Class B (not HFA).
-                ((), ('f64', 'f32')),
+                # Phase 9 Cat II chunk (b)-d-2 — `(f64, f32)`
+                # reverted cycle-11: x86_64 SysV native path
+                # blocked by Zig 0.16 `splitType` TODO; needs
+                # x86_64 inline-asm thunk (entry.zig cap pressure
+                # makes that follow-on chunk). Tracked as D-146.
+                # ((), ('f64', 'f32')),
             }
             if (arg_kinds, result_kinds) not in supported_multi:
                 lines.append(f'skip-impl multi-result {a["field"]}')

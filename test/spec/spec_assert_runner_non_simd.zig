@@ -769,24 +769,9 @@ fn dispatchMultiResult(
         }
         return true;
     }
-    // Class B heterogeneous-FP `(f64, f32)` per ADR-0069.
-    if (args.len == 0 and
-        n_rtoks == 2 and std.mem.startsWith(u8, rtoks[0], "f64:") and std.mem.startsWith(u8, rtoks[1], "f32:"))
-    {
-        const exp_r0_spec = base.parseScalarFpExpected(rtoks[0][4..], 64) catch return failBadResult(stdout, name, rtoks[0]);
-        const exp_r1_spec = base.parseScalarFpExpected(rtoks[1][4..], 32) catch return failBadResult(stdout, name, rtoks[1]);
-        const got = entry.callF64f32NoArgs(compiled.module, func_idx, rt) catch |err| {
-            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
-            return false;
-        };
-        const got_r0_bits: u64 = @bitCast(got.r0);
-        const got_r1_bits: u32 = @bitCast(got.r1);
-        if (!base.matchScalarF64(got_r0_bits, exp_r0_spec) or !base.matchScalarF32(got_r1_bits, exp_r1_spec)) {
-            try stdout.print("FAIL  {s}: {s}({s}) → got (f64:0x{x:0>16}, f32:0x{x:0>8}), expected ({s}, {s})\n", .{ name, fn_name, args_s, got_r0_bits, got_r1_bits, rtoks[0], rtoks[1] });
-            return false;
-        }
-        return true;
-    }
+    // `(f64, f32)` dispatch deferred per D-146 (Zig 0.16 splitType
+    // TODO blocks x86_64 SysV native path; arm64 thunk works but
+    // chunk needs both arches green per chunk gate).
     try stdout.print("FAIL  {s}: multi-result unsupported for {s}({s}) -> {s}\n", .{ name, fn_name, args_s, results_s });
     return false;
 }
