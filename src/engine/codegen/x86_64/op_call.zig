@@ -686,7 +686,27 @@ pub fn captureCallResult(
                     try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(dst, .rsp, abs_off).slice());
                     try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, result, 0);
                 },
-                .f32, .f64, .v128 => return Error.UnsupportedOp,
+                .f32 => {
+                    // Mirror of callee's MOVD R10D, xmm; MOV [RAX+disp], R10D
+                    // chain but in reverse direction: load 4 B → R10D → MOVD
+                    // xmm. The `encMovssMovsdXmmMemBaseDisp32` helper would
+                    // be shorter (1 insn) but ASSERTs against RSP base (SIB
+                    // escape unsupported); the 2-insn GPR-via path
+                    // sidesteps that limitation cleanly. R10 = spill_stage
+                    // [0]; safe because xmmDefSpilled below uses
+                    // XMM14/XMM15 (fp_spill_stage), disjoint cohorts.
+                    try buf.appendSlice(allocator, inst.encMovR32FromMemDisp32(.r10, .rsp, abs_off).slice());
+                    const dst = try gpr.xmmDefSpilled(alloc, result, 0);
+                    try buf.appendSlice(allocator, inst.encMovdXmmFromR32(dst, .r10).slice());
+                    try gpr.xmmStoreSpilled(allocator, buf, alloc, spill_base_off, result, 0);
+                },
+                .f64 => {
+                    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.r10, .rsp, abs_off).slice());
+                    const dst = try gpr.xmmDefSpilled(alloc, result, 0);
+                    try buf.appendSlice(allocator, inst.encMovqXmmFromR64(dst, .r10).slice());
+                    try gpr.xmmStoreSpilled(allocator, buf, alloc, spill_base_off, result, 0);
+                },
+                .v128 => return Error.UnsupportedOp,
             }
             byte_off += 8;
             try pushed_vregs.append(allocator, result);

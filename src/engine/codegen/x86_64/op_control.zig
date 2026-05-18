@@ -311,7 +311,26 @@ pub fn marshalReturnRegs(
                         const src = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_vreg, 0);
                         try buf.appendSlice(allocator, inst.encStoreR64MemDisp32(src, .rax, byte_off).slice());
                     },
-                    .f32, .f64, .v128 => return Error.UnsupportedOp,
+                    .f32 => {
+                        // MOVD R10D, xmm; MOV [RAX+disp], R10D —
+                        // 4-byte store of low 32 bits of XMM.
+                        // R10 is `spill_stage_gprs[0]`; the
+                        // xmmLoadSpilled above uses XMM14/XMM15
+                        // (fp_spill_stage_xmms), disjoint from
+                        // R10, so R10 is free here as transfer
+                        // scratch.
+                        const src_x = try gpr.xmmLoadSpilled(allocator, buf, alloc, spill_base_off, src_vreg, 0);
+                        try buf.appendSlice(allocator, inst.encMovdR32FromXmm(.r10, src_x).slice());
+                        try buf.appendSlice(allocator, inst.encStoreR32MemDisp32(.r10, .rax, byte_off).slice());
+                    },
+                    .f64 => {
+                        // MOVQ R10, xmm; MOV [RAX+disp], R10 —
+                        // 8-byte store of low 64 bits of XMM.
+                        const src_x = try gpr.xmmLoadSpilled(allocator, buf, alloc, spill_base_off, src_vreg, 0);
+                        try buf.appendSlice(allocator, inst.encMovqR64FromXmm(.r10, src_x).slice());
+                        try buf.appendSlice(allocator, inst.encStoreR64MemDisp32(.r10, .rax, byte_off).slice());
+                    },
+                    .v128 => return Error.UnsupportedOp,
                 }
             }
             byte_off += 8;
