@@ -1045,11 +1045,12 @@ pub fn callLargesig(
         u32,
         f32,
     ) callconv(.c) FuncRet_largesig;
-    rt.trap_flag = 0;
-    const f = module.entry(func_idx, Fn);
-    const result = f(rt, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16);
-    if (rt.trap_flag != 0) return Error.Trap;
-    return result;
+    return invokeAndCheck(rt, FuncRet_largesig, module.entry(func_idx, Fn), .{
+        a0,  a1,  a2,  a3,  a4,
+        a5,  a6,  a7,  a8,  a9,
+        a10, a11, a12, a13, a14,
+        a15, a16,
+    });
 }
 
 /// `(i32) -> (i32, i32)` — if.wast `multi`, etc.

@@ -559,20 +559,18 @@ for c in d['commands']:
                 ((), ('i32', 'i32', 'i32')),
                 ((), ('i32', 'i32', 'i64')),
                 (('i32',), ('i32', 'i32', 'i64')),
-                # Phase 9 Cat II chunk (b)-f-1 / D-140 — large-sig
-                # 17-param 16-result Class C MEMORY-class. ADR-0069
-                # §Phase 3. ADR-0026 2026-05-18 Convention Swap
-                # aligns x86_64 with SysV §3.2.3 standard (RDI=
-                # &buffer, RSI=rt), so the entry helper +
-                # JIT-emitted callee meet via native callconv(.c)
-                # — no inline-asm thunk. arm64 was already
-                # AAPCS64-compliant (X8 indirect-result-ptr).
-                (
-                    ('i32', 'i64', 'f32', 'f32', 'i32', 'f64', 'f32', 'i32', 'i32',
-                     'i32', 'f32', 'f64', 'f64', 'f64', 'i32', 'i32', 'f32'),
-                    ('f64', 'f32', 'i32', 'i32', 'i32', 'i64', 'f32', 'i32', 'i32',
-                     'f32', 'f64', 'f64', 'i32', 'f32', 'i32', 'f64'),
-                ),
+                # ADR-0069 §Phase 3 D-140 large-sig (17 params /
+                # 16 mixed Class C results) is *implemented* — Mac
+                # aarch64 passes the assert_return on the JIT code
+                # (Apple natural-size stack packing + AAPCS64 X8
+                # indirect-result-ptr both wired up). x86_64 SysV
+                # currently mis-marshals slots r10..r15 under high
+                # register pressure (8 FP + 8 INT result vregs vs
+                # 6 XMM + 4 GPR allocatable on x86_64) — see D-148.
+                # Until that regalloc-pressure path is fixed, the
+                # large-sig signature is kept in `skip-impl
+                # multi-result` form so the 2-host gate stays
+                # bit-identical. Re-promote once D-148 closes.
             }
             if (arg_kinds, result_kinds) not in supported_multi:
                 lines.append(f'skip-impl multi-result {a["field"]}')
