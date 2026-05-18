@@ -478,7 +478,7 @@ pub fn marshalReturnRegs(
         if (debug_dump) {
             // Cycle-3c: OVERWRITE r10..r15 with direct local reads.
             // Pattern: MOV R11, [RBP+disp8]; MOV [RAX+buf_off], R11.
-            const direct_writes = [_]struct { local_disp: i8, buf_off: u8 }{
+            const direct_writes = [_]struct { local_disp: i32, buf_off: u8 }{
                 .{ .local_disp = -112, .buf_off = 0x50 }, // local 13 → r10
                 .{ .local_disp = -96, .buf_off = 0x58 }, // local 11 → r11
                 .{ .local_disp = -128, .buf_off = 0x60 }, // local 15 → r12
@@ -487,7 +487,10 @@ pub fn marshalReturnRegs(
                 .{ .local_disp = -104, .buf_off = 0x78 }, // local 12 → r15
             };
             for (direct_writes) |d| {
-                try buf.appendSlice(allocator, &.{ 0x4c, 0x8b, 0x5d, @as(u8, @bitCast(d.local_disp)) });
+                // MOV R11, [RBP+disp32]:  4c 8b 9d <disp32-LE>
+                const lb = std.mem.toBytes(d.local_disp);
+                try buf.appendSlice(allocator, &.{ 0x4c, 0x8b, 0x9d, lb[0], lb[1], lb[2], lb[3] });
+                // MOV [RAX+disp8], R11:  4c 89 58 <disp8>
                 try buf.appendSlice(allocator, &.{ 0x4c, 0x89, 0x58, d.buf_off });
             }
         }
