@@ -252,18 +252,32 @@ Three spikes were run as `private/spikes/q3-*/` under §9.12-pre. Summaries:
 
 ### Spike `q3-interp-dispatch-bench` — dispatch shape cycle cost
 
-- **Status**: pending; running at ADR draft time. Results to be backfilled
-  in the `Status: Accepted` revision history row when the spike completes.
-- **Expected shape of conclusion**: 3 dispatch forms (indirect call via
-  `DispatchTable.interp[op]`; `@call(.always_tail, ...)` zware-style;
-  `inline switch (op) { ... }`) compared on synthetic op streams at N=50
-  and N=581 ZirOp counts.
-- **Provisional adoption decision**: independent of bench outcome.
-  Hypothesis C's `inline switch` is the chosen substrate regardless,
-  because the design-quality axes (1 op = 1 file; cross-layer consistency)
-  outweigh per-cycle dispatch cost differences for an interpreter that is
-  not the primary hot path (JIT is). The bench informs future
-  micro-optimisation choices, not the substrate decision itself.
+- **Result**: at production N (= 581 ZirOp count) **the three dispatch
+  shapes tie within ±1.5 %**. Hypothesis C is **not** justified on perf
+  grounds; the bench is a perf-null result.
+- ReleaseFast, Apple M4 Pro, 10M op stream, 5-trial median:
+
+  | N (op count) | indirect (ns/op) | tail (ns/op) | inline-switch (ns/op) | inline-sw vs indirect |
+  |-------------:|-----------------:|-------------:|----------------------:|----------------------:|
+  | 50 | 6.89 | 7.31 | **0.91** | **0.13×** (7.6× faster) |
+  | 128 | 27.8 | 29.1 | 27.6 | 0.99× |
+  | 256 | 126.7 | 124.8 | 125.0 | 0.99× |
+  | 581 (full ZirOp) | 358 | 361 | 360 | 1.01× |
+
+- The `inline switch` win at small N is concentrated where the jump table
+  fits in icache + BTB and per-op work is tiny; that condition does not
+  hold at zwasm v2's production scale.
+- Caveats: ubuntunote x86_64 re-run is recommended before finalising
+  (different branch predictor + icache shape); real handlers carry
+  push/pop + spec-trap paths that further dilute dispatch differences;
+  this is `ReleaseFast` only.
+- **Adoption decision (substrate-shape-axes only)**: Hypothesis C is
+  adopted because the design-quality axes (1 op = 1 file; cross-layer
+  consistency; build-option DCE) decide it. The bench result is cited
+  as evidence that adoption does **not** pay a hot-path tax at production
+  N. The bench informs future micro-optimisation choices (small-N
+  fast-path generation; tag-range partitioning) and does not gate the
+  substrate decision itself.
 
 ## Alternatives considered
 
@@ -371,10 +385,12 @@ Three spikes were run as `private/spikes/q3-*/` under §9.12-pre. Summaries:
 - ADR-0071 (Phase 9 substrate audit resolution; Hypothesis C adoption is
   the keystone decision this ADR realises in implementation detail).
 - 3 spikes:
-  - `private/spikes/q3-zig-inline-switch/` (compile-time wall measurement).
-  - `private/spikes/q3-interp-dispatch-bench/` (dispatch shape cycle bench
-    — pending; backfilled at §9.12 collab gate).
-  - `private/spikes/q3-build-option-dce-poc/` (representative-op DCE PoC).
+  - `private/spikes/q3-zig-inline-switch/` (compile-time wall measurement;
+    no wall at 581 tags).
+  - `private/spikes/q3-interp-dispatch-bench/` (dispatch shape cycle bench;
+    perf null at production N; substrate decision proceeds on design-quality axes).
+  - `private/spikes/q3-build-option-dce-poc/` (representative-op DCE PoC;
+    literal absence confirmed via `nm` + `xxd`).
 - User feedback 2026-05-19 (the adoption-of-build-option-DCE axis as
   Phase 9 completion requirement iii).
 - Master plan Chapter 4 (proposed build-option DCE substrate architecture)
@@ -384,4 +400,4 @@ Three spikes were run as `private/spikes/q3-*/` under §9.12-pre. Summaries:
 
 | Date       | SHA          | Note                                                                              |
 |------------|--------------|-----------------------------------------------------------------------------------|
-| 2026-05-19 | `<backfill>` | Initial draft — build-option DCE substrate; 4-layer detail + spike results (build-option-dce-poc + zig-inline-switch). interp-dispatch-bench spike result to be backfilled when complete. |
+| 2026-05-19 | `<backfill>` | Initial draft — build-option DCE substrate; 4-layer detail + Alternatives A/B/C/D/E + 3 spike summaries (q3-build-option-dce-poc, q3-zig-inline-switch, q3-interp-dispatch-bench). |
