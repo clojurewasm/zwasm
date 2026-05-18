@@ -4,7 +4,7 @@
 >
 > **Origin**: After §9.9 [x] flip in the 2026-05-18 to 19 sessions, the user presented 7 requirements plus 3 additional feedback items (skip-impl 100% as top priority / removal of cost/risk wording / adopting the build-option DCE axis). Investigation → integration → self-review → first draft → policy adjustment → this second draft.
 >
-> **Status**: Confirmed draft. In this session it has been promoted to `.dev/phase9_completion_close_plan.md` and the full scaffolding has been set up. Next `/continue` will launch the autonomous loop starting from §9.12-pre (ADR drafts + 3 spikes).
+> **Status**: Confirmed draft. In this session it has been promoted to `.dev/phase9_completion_master_plan.md` and the full scaffolding has been set up. Next `/continue` will launch the autonomous loop starting from §9.12-pre (ADR drafts + 3 spikes).
 
 ---
 
@@ -696,7 +696,7 @@ Each spike is self-contained and disposable (= `private/spikes/<name>/`). When t
 
 ### 9.1 Items completed in this session (autonomous setup)
 
-1. Promote this master plan to `.dev/phase9_completion_close_plan.md` (git-tracked)
+1. Promote this master plan to `.dev/phase9_completion_master_plan.md` (git-tracked)
 2. Expand ROADMAP §9 sub-rows (§9.12 / §9.12-pre / §9.12-A..I / §9.13-0 / §9.13)
 3. Update Phase Status widget wording
 4. Refresh handover.md so the next `/continue` can resume autonomously from §9.12-pre
@@ -751,7 +751,7 @@ Commit units used in this session:
 
 ### 10.2 git-tracked targets (landed in this session)
 
-- `.dev/phase9_completion_close_plan.md` (committed version of this plan)
+- `.dev/phase9_completion_master_plan.md` (committed version of this plan)
 - `.dev/ROADMAP.md` (§9 sub-rows + Phase Status widget)
 - `.dev/handover.md` (§9.12-pre cold-start)
 - `.dev/decisions/0070_libc_dependency_policy.md` (skeleton)

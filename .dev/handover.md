@@ -5,7 +5,7 @@
 
 ## Cold-start procedure
 
-1. **READ FIRST** [`.dev/phase9_completion_close_plan.md`](phase9_completion_close_plan.md)
+1. **READ FIRST** [`.dev/phase9_completion_master_plan.md`](phase9_completion_master_plan.md)
    = Phase 9 completion master plan (v2; finalized). `§9.12-pre` is the next `[ ]` task.
 2. `git log --oneline -10`. 2026-05-19 setup commit group: `bdd433d5` (ADR
    skeletons) + `31411280` (master plan + ROADMAP §9.12 sub-row expansion
@@ -16,7 +16,7 @@
    (193 skip-impl + 495 skip-adr).
 4. `bash scripts/p9_completion_status.sh` (to be completed in §9.12-A; skeleton in this session)
    — live progress status for Phase 9 completion.
-5. `.dev/debt.md` `now` rows: D-079 / D-102 / D-103 / D-105 / D-133 / D-149.
+5. `.dev/debt.md` `now` rows: (none — all 6 prior `now` debts re-classified to `blocked-by: §9.12-X` since their discharge is embedded in §9.12-C / §9.12-E / §9.12-I work; see Step 0.5b live status).
 
 ## Active state — §9.9 [x]; §9.12 hard gate; next = §9.12-pre
 
@@ -43,7 +43,7 @@ suppress ScheduleWakeup + 1-sentence handoff).
 | 0070 (Q6 libc) | this session | full site inventory for necessary/replaceable/convenience |
 | 0072 (Q5 comment) | this session | rule text + catalog of violation examples |
 | 0073 (Q3 C DCE) | this session | 4 layer pattern details + 3 spike results |
-| 0050 amend | this session | D-3 / D-4 full body |
+| 0050 amend | this session | D-5 / D-6 full body |
 | 0023 §4.5 amend | this session | per-op file pattern migration detail |
 
 ### 3 spike (`private/spikes/`)
@@ -70,7 +70,7 @@ suppress ScheduleWakeup + 1-sentence handoff).
 
 ## Sandbox + References
 
-PRIMARY: [`phase9_completion_close_plan.md`](phase9_completion_close_plan.md)
+PRIMARY: [`phase9_completion_master_plan.md`](phase9_completion_master_plan.md)
 (master plan v2).
 Gate doc: [`phase9_completion_substrate_audit.md`](phase9_completion_substrate_audit.md)
 (Q1-Q6 + tentative answers).

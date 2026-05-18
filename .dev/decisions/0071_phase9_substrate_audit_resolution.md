@@ -23,7 +23,7 @@ sessions:
    manifest skip-impl (1).
 
 2. **The user finalized the 7 requirements for Phase 9 completion**
-   ([`.dev/phase9_completion_close_plan.md`](../phase9_completion_close_plan.md) Chapter 1):
+   ([`.dev/phase9_completion_master_plan.md`](../phase9_completion_master_plan.md) Chapter 1):
    - Full resolution of debt / ADRs, Wasm 2.0 completion 100%, fixation of
      learnings, Phase 10 ground preparation, bench baseline, scaffolding
      iteration speed, windowsmini cross-platform sweep.
@@ -154,7 +154,7 @@ Phase 9 completion**.
   - ADR-0070 (libc dependency policy; Q6)
   - ADR-0072 (comment-as-invariant rule; Q5)
   - ADR-0073 (build-option DCE substrate; details of Q3 C adoption)
-- Master plan: [`.dev/phase9_completion_close_plan.md`](../phase9_completion_close_plan.md)
+- Master plan: [`.dev/phase9_completion_master_plan.md`](../phase9_completion_master_plan.md)
 - Design discussion: [`.dev/phase9_completion_substrate_audit.md`](../phase9_completion_substrate_audit.md)
 - Survey outputs (gitignored): `private/notes/p9-close-q3-arch-survey.md`, `private/notes/p9-close-skip-impl-inventory.md`
 

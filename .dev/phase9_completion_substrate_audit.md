@@ -378,7 +378,7 @@ Items can be batched into one PR if scope allows.
 > explicit answer + cross-reference to the relevant ADR.
 >
 > **Tentative answers landed 2026-05-19** per
-> [`phase9_completion_close_plan.md`](phase9_completion_close_plan.md)
+> [`phase9_completion_master_plan.md`](phase9_completion_master_plan.md)
 > master plan + ADR-0071 (Proposed) + ADR-0070 / 0072 / 0073 (Proposed).
 > Marked `tentative` (T) until §9.12 collab gate Accepts these ADRs.
 
