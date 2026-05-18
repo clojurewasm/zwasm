@@ -1,6 +1,6 @@
 # 0066 — Per-import bridge thunks for cross-module function-import dispatch
 
-- **Status**: Accepted (amended 2026-05-17 — bridge thunk shape extended to save caller's pinned callee-saved register per D-142 fix (A); see Amendment §A1 below)
+- **Status**: Accepted (amended 2026-05-17 §A1 + 2026-05-18 §A2 — bridge thunk shape extended to save caller's full pinned reserved-invariant cohort: §A1 added X19 / R15 per D-142 fix (A); §A2 extended arm64 to X19 + X24..X28 per D-144 fix; x86_64 unchanged at R15 per ADR-0026's single-pin design. See Amendments §A1 + §A2 below.)
 - **Date**: 2026-05-17
 - **Author**: zwasm v2 maintainer (Phase 9 §9.9-III Cat III work)
 - **Tags**: phase-9, cat-iii, cross-module, host-imports, jit, abi, instance, store, dispatch, thunks, callee-saved, aapcs64
@@ -504,6 +504,130 @@ ubuntunote-side already-functional path is preserved.
   0055).
 - SysV AMD64 ABI §3.2.1 "Registers and the Stack Frame".
 
+## Amendment §A2 (2026-05-18) — bridge thunk saves the full pinned reserved-invariant cohort (D-144 fix)
+
+### Why amend
+
+§A1 (2026-05-17) closed the X19 corruption half of the
+cross-module bridge gap. D-144 (2026-05-18) surfaced that
+§A1's fix was **necessary but not sufficient** — the same
+"prologue overwrites a callee-saved register without first
+stack-saving it" violation applies to **all six** of arm64's
+reserved-invariant callee-saved registers, not just X19.
+
+Per [`src/engine/codegen/arm64/abi.zig`](../../src/engine/codegen/arm64/abi.zig)
+`reserved_invariant_gprs`, the cohort is:
+
+- X19 — `runtime_ptr_save_gpr` (§A1-fixed)
+- X24 — `typeidx_base` (table 0 — array of u32 typeidx values)
+- X25 — `table_size` (W25, u32 count of entries)
+- X26 — `funcptr_base` (table 0 — array of u64 funcptrs)
+- X27 — `mem_limit` (linear-memory size in bytes)
+- X28 — `vm_base` (linear-memory base pointer)
+
+v2's arm64 prologue (per ADR-0017 sub-2d-ii + ADR-0018) loads
+each of these from `*JitRuntime` in the entry sequence
+without first stack-saving the caller's value. Like X19,
+this is invisible same-module (caller_rt ≡ callee_rt) but
+silently corrupts the caller's view across cross-module
+bridge thunks.
+
+The terminal symptom: `imports.1.wasm print64 i64:24` invoked
+under γ-4 relax, after the cross-module call to imports.0's
+`func-i64->i64` returned, observed `call_indirect (type
+$func_f64) ... (i32.const 1)` trapping with **kind=3
+(sig-mismatch)**. Root cause was caller's X24 still pointing
+at the callee's (imports.0's) `typeidx_base` — a different
+backing array than the caller's expected one. `typeidx_base[1]`
+read read garbage; sig check failed; trap.
+
+(The kind=3 vs kind=2 vs kind=1 disambiguation was made
+possible by cycle 4's `JitRuntime.trap_kind` field + per-
+fixup-class arm64 trap stubs — permanent diagnostic infra
+landed alongside this amendment.)
+
+### Amended arm64 thunk shape (96 bytes, was 56)
+
+Extends §A1's save block from one STR (X19) to six STRs
+(X19, X24, X25, X26, X27, X28). Frame grows 32 → 80 bytes
+to accommodate the 48-byte save area.
+
+```text
+offset  encoding                          disassembly
+0x00    STP X29, X30, [SP, #-80]!         ; alloc 80-byte frame, save FP+LR
+0x04    STR X19, [SP, #16]                ; save caller's X19 = caller_rt
+0x08    STR X24, [SP, #24]                ; save caller's X24 = typeidx_base
+0x0C    STR X25, [SP, #32]                ; save caller's X25 = table_size
+0x10    STR X26, [SP, #40]                ; save caller's X26 = funcptr_base
+0x14    STR X27, [SP, #48]                ; save caller's X27 = mem_limit
+0x18    STR X28, [SP, #56]                ; save caller's X28 = vm_base
+0x1C    ADR X16, +52                      ; X16 ← literal pool (offset 0x50)
+0x20    LDR X0,  [X16]                    ; X0  ← callee_rt
+0x24    LDR X16, [X16, #8]                ; X16 ← callee_entry
+0x28    BLR X16                           ; CALL
+0x2C    LDR X19, [SP, #16]                ; RESTORE caller's X19
+0x30    LDR X24, [SP, #24]                ; ... X24
+0x34    LDR X25, [SP, #32]                ; ... X25
+0x38    LDR X26, [SP, #40]                ; ... X26
+0x3C    LDR X27, [SP, #48]                ; ... X27
+0x40    LDR X28, [SP, #56]                ; ... X28
+0x44    LDP X29, X30, [SP], #80           ; restore FP+LR, pop frame
+0x48    RET                               ; return to importer
+0x4C    (4-byte NOP pad to 16-byte align)
+0x50    .quad callee_rt
+0x58    .quad callee_entry
+```
+
+`thunk_bytes` arm64: `56` → `96` (19 instrs × 4 = 76 + 4-byte
+pad + 16-byte literal pool). Frame layout: `[SP+0]=FP, [SP+8]
+=LR, [SP+16]=X19, [SP+24]=X24, [SP+32]=X25, [SP+40]=X26,
+[SP+48]=X27, [SP+56]=X28, [SP+64..72]=padding`.
+
+### x86_64 — unchanged
+
+The x86_64 thunk shape from §A1 (27 bytes, `PUSH R15 / MOV /
+MOV / CALL / POP R15 / RET`) is **correct as-is**. Per ADR-0026
+Cc-pivot, x86_64 pins only R15 (= runtime_ptr); other
+invariants (vm_base / mem_limit / funcptr_base / table_size /
+typeidx_base) are NOT in registers but reloaded from
+`[R15 + offset]` at point of use. No additional callee-saved
+register pinning, so no §A2 extension needed.
+
+This asymmetry (arm64 saves 6 regs, x86_64 saves 1) reflects
+the two architectures' different invariant-reservation
+strategies. §A2 documents it explicitly so future readers
+don't infer x86_64 has an analogous gap.
+
+### Sibling-search discipline (lesson)
+
+§A1's fix at X19 alone, missing X24-X28, repeated the same-
+shape-cohort failure mode that `.claude/rules/bug_fix_survey.md`
+exists to prevent. The lesson
+[`2026-05-18-thunk-pinned-cohort-not-just-x19.md`](../lessons/2026-05-18-thunk-pinned-cohort-not-just-x19.md)
+captures the discipline gap: when fixing one member of a
+structural cohort (here: pinned-callee-saved regs), grep for
+sibling members of the same axis before landing the fix. The
+audit grep `grep reserved_invariant_gprs
+src/engine/codegen/arm64/abi.zig` would have surfaced X24-X28
+at §A1 time.
+
+The auto-loaded rule
+[`abi_callee_saved_pinning.md`](../../.claude/rules/abi_callee_saved_pinning.md)
+is updated alongside §A2 to enumerate the full cohort (X19 +
+X24..X28) so future thunk-shape edits cannot re-miss the
+sibling set.
+
+### References — Amendment §A2
+
+- D-144 (the surfacing fail; row removed at closure 2026-05-18).
+- Lesson [`2026-05-18-thunk-pinned-cohort-not-just-x19.md`](../lessons/2026-05-18-thunk-pinned-cohort-not-just-x19.md).
+- Updated rule [`abi_callee_saved_pinning.md`](../../.claude/rules/abi_callee_saved_pinning.md).
+- Closure commit `b137a44b` (thunk 56 → 96 bytes + JitRuntime
+  trap_kind field + per-fixup-class arm64 trap stubs).
+- [`src/engine/codegen/arm64/abi.zig`](../../src/engine/codegen/arm64/abi.zig)
+  `reserved_invariant_gprs` — single source of truth for the
+  pinned-cohort list (the §A2 fix is a 1-to-1 mirror).
+
 ## References
 
 - ROADMAP §9.9-III (Cat III absorption per ADR-0065)
@@ -547,3 +671,4 @@ ubuntunote-side already-functional path is preserved.
 |------------|--------------|----------------------------------------------------------------------------------------------------------------------------|
 | 2026-05-17 | `<backfill>` | Initial accepted version (Phase 9 §9.9-III (c)-2 design).                                                                  |
 | 2026-05-17 | `<backfill>` | Amendment §A1 — bridge thunk shape extended to save caller's pinned callee-saved reg (X19 on arm64, R15 on x86_64) per D-142 fix (A). Tail-call shape rescinded for cross-module dispatch; same-module call paths unchanged. |
+| 2026-05-18 | `b137a44b`   | Amendment §A2 — arm64 bridge thunk extended from §A1's X19-only save to the full reserved-invariant cohort (X19 + X24..X28; thunk 56 → 96 bytes) per D-144 fix. x86_64 unchanged (R15 is the only pinned invariant per ADR-0026; other invariants reload from `[R15+off]` at use). Paired infra: `JitRuntime.trap_kind` field + per-fixup-class arm64 trap stubs (`kind=1` generic / `kind=2` cind bounds / `kind=3` cind sig) — permanent diagnostic infra enabling the §A1 → §A2 root-cause localisation. |
