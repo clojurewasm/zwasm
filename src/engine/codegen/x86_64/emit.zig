@@ -1689,6 +1689,16 @@ pub fn compile(
         }
     }
 
+    if (func.sig.params.len == 17 and func.sig.results.len == 16) {
+        std.debug.print("=== x86_64 large-sig func[{d}] frame={d} spill_base_off={d} spill_bytes={d} uses_rt={any} ===\n", .{ func.func_idx, frame_bytes, spill_base_off, alloc.spillBytes(), uses_runtime_ptr });
+        for (layout.disps, 0..) |d, idx| {
+            std.debug.print("  local[{d}] ({s}) -> RBP{d}\n", .{ idx, @tagName(func.localValType(@intCast(idx))), d });
+        }
+        var i: usize = 0;
+        while (i + 4 <= buf.items.len) : (i += 1) {
+            std.debug.print("  [{d:>4}] {x:0>2}\n", .{ i, buf.items[i] });
+        }
+    }
     return .{
         .bytes = try buf.toOwnedSlice(allocator),
         .n_slots = alloc.n_slots,
