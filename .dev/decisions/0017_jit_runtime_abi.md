@@ -84,8 +84,18 @@ a native function with the following ABI:
   - FP (f32/f64) args → V0, V1, ..., V7 — **8 FP-arg slots**,
     unaffected by the X0 reservation.
 - X8 (indirect-result-location pointer in AAPCS64) is **not used
-  for Wasm args**; reserved for future multi-result returns
-  (Wasm 2.0+).
+  for Wasm args**. For Class A/B returns (struct ≤ 16 B per
+  ADR-0069), X8 is unused and the function ignores it. For
+  Class C MEMORY-class returns (struct > 16 B; v2 classifies
+  as `sig.results.len > 2`), the caller passes the buffer
+  pointer in X8 and the **prologue captures X8 to a frame
+  slot** before any code that might clobber it; the epilogue
+  reads the slot back and writes each result to `[X8, #(i*8)]`
+  via X16 (IP0 intra-procedure scratch — chosen over X14/X15
+  which `gprLoadSpilled` reserves as the spill-stage cohort).
+  See "MEMORY-class return
+  capture slot" sub-section below + 2026-05-18 amendment
+  entry.
 - Results return in W0/X0 (i32/i64) or S0/D0 (f32/f64) per
   AAPCS64.
 
@@ -104,6 +114,43 @@ instructions (~5 cycles uncached). Acceptable per ROADMAP §2 (P3
 cold-start prioritises predictable dispatch over absolute peak
 throughput; P7 backend equality is enforced operationally per
 ADR-0019).
+
+### MEMORY-class return capture slot (ADR-0069 §Phase 2)
+
+When the function's return tuple is MEMORY-class per AAPCS64
+§6.8.2 (v2 trigger: `sig.results.len > 2`), the prologue grows
+by one 4-byte STR after the standard frame-SUB:
+
+```
+SUB SP, SP, #frame_bytes               ; (frame_bytes already
+                                       ;  includes 8 B for the
+                                       ;  X8 capture slot)
+STR X8, [SP, #indirect_result_slot_off]
+```
+
+`indirect_result_slot_off` = `spill_base_off + spill_bytes`
+(top of the locals/spill region, just below the 16-byte
+alignment pad). `frame_bytes_unaligned` includes 8 B for this
+slot before the standard 16-byte alignment round-up.
+
+The epilogue (`marshalFunctionReturn` MEMORY-class branch)
+emits `LDR X16, [SP, #indirect_result_slot_off]` followed by
+per-result `STR X<n>, [X16, #(i*8)]` (or `STR S<n>` / `STR
+D<n>` for FP results), bypassing the X0..X7 / V0..V7
+register pool entirely. X16 (IP0) is chosen over the spill-
+stage cohort X14/X15 because `gprLoadSpilled` clobbers
+X14/X15 when staging spilled source vregs — parking the
+buffer pointer in X14 would lose it on the first spilled
+result write. X8 is caller-saved per AAPCS64
+§6.4.1 so the bridge thunk does NOT need to save/restore it
+(per `abi_callee_saved_pinning.md` — X8 is not in the
+reserved-invariant cohort).
+
+Body-start offset for MEMORY-class functions is
+`prologue.body_start_offset_memory_return()` = 48 (standard
+post-sentinel post-SUB-SP 44 bytes + the 4-byte STR X8).
+Class A/B returns leave the prologue unchanged at 40/44 bytes
+per `body_start_offset(has_frame)`.
 
 ### `entry` frame becomes trivial
 
@@ -334,4 +381,66 @@ spill them because the body never modified them; AAPCS64
      asserts still hold; `*X0` / `*RDI` calling convention
      unchanged); honest-recorded so future readers see the
      current size without scanning the codebase.
+  SHA: `<backfill>`
+
+- 2026-05-18 — **Amendment**: MEMORY-class return capture slot
+  added per ADR-0069 §Phase 2 chunk (b)-e-1. The original
+  "Decision" section reserved X8 for "future multi-result
+  returns (Wasm 2.0+)" but did not specify the prologue or
+  epilogue shape; this amendment fills the gap.
+
+  **Decision**: when `func.sig.results.len > 2` (equivalent
+  to AAPCS64 §6.8.2 composite > 16 B, given each FuncRet_*
+  field is 8 bytes per ADR-0069 Class A convention), the
+  prologue:
+  1. Includes 8 B for an X8 capture slot in `frame_bytes_
+     unaligned` (slot offset = `spill_base_off + spill_
+     bytes`).
+  2. After `SUB SP, SP, #frame_bytes`, emits `STR X8, [SP,
+     #indirect_result_slot_off]` to save the caller's
+     hidden indirect-result-pointer.
+
+  `EmitCtx` carries `return_is_memory_class: bool` and
+  `indirect_result_slot_off: u32` so handlers (currently
+  `marshalFunctionReturn`) consult the classification
+  uniformly. The epilogue loads X16 ← [SP, #slot] (NOT X14
+  — `gprLoadSpilled` would clobber X14 while staging a
+  spilled source vreg) and writes per-result indirect
+  stores. Body-start offset
+  for MEMORY-class functions is `prologue.body_start_
+  offset_memory_return()` = 48 bytes (vs 40/44 for
+  Class A/B).
+
+  **Alternatives considered**:
+  1. **Capture X8 to a dedicated reg (rather than frame slot)**.
+     Possible candidate: X23 (only saved when `uses_globals`,
+     so often free). Rejected: X23 may be live; reserving
+     a NEW callee-saved reg specifically for X8 capture
+     would shrink the regalloc pool and pay cost on every
+     MEMORY-class function regardless of body shape. Frame
+     slot is paid only by MEMORY-class functions and adds
+     no pool pressure.
+  2. **Capture X8 to JitRuntime field**. Rejected: thread
+     safety (multiple concurrent calls would race) plus
+     ADR-0017 §"Layout extends only at the tail" discipline
+     would force a JitRuntime size growth for a per-call
+     value.
+  3. **Position slot at `[SP, #0]` (bottom of frame)**.
+     Equivalent in cost; chose top-of-spill positioning
+     to keep outgoing-args at `[SP, #0]` consistent with
+     §9.7 / 7.9-d-11 AAPCS64 §6.4.2 layout (stage C.13/
+     C.14 outgoing args at low addresses).
+
+  **Consequences**:
+  - Bridge thunks unchanged (X8 not in reserved-invariant
+    cohort per `abi_callee_saved_pinning.md`; AAPCS64 §6.4.1
+    designates X8 as caller-saved).
+  - MEMORY-class functions always carry a frame (the 8 B
+    slot forces frame_bytes > 0), so `body_start_offset_
+    memory_return()` returns the with-frame value + 4.
+  - Class A/B returns continue to use the existing
+    register-marshal path unchanged.
+  - x86_64 parallel work (ADR-0026 amendment + RDI capture)
+    lands in ADR-0069 §Phase 2 chunk (b)-e-3.
+
   SHA: `<backfill>`
