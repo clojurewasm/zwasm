@@ -44,17 +44,27 @@ with γ-4 relax PERMANENT.
 
 ### Next-session active task
 
-D-145 closed cycle 10 — x86_64 `emitTableCopy` same-table
-branch was missing typeidx mirror (only mirrored funcptrs;
-arm64 sibling already mirrored both). Fix added 4 instrs
-(RAX = typeidx_base reload + RDI = u32 scratch) inside the
-existing JE-skip-fp guard, both BWD and FWD loops.
-Both hosts now bit-identical at **25316/0/697**.
+Cycle 11 landed Class B `(f64, f32)` helper on Mac (Mac was
+25317/0) but ubuntu hit Zig 0.16 `splitType(2,
+FuncRet_f64f32)` compile-time TODO on the x86_64 SysV native
+path. Reverted to keep both hosts bit-identical at
+**25316/0/697**. `aarch64_blr_clobbers` const factoring
+kept (load-bearing for entry.zig size cap). D-146 filed
+for the `(f32, f64)` residual.
 
-Next candidates: §9.9-II Class C (D-094/D-140 indirect-
-result-pointer ABI per ADR-0069); §9.9-II Class B residual
-`(f32, f64)` shape (1 line: type-all-f32-f64); §9.9-IV
-windowsmini reconcile.
+Next candidates:
+- §9.9-II Class C (D-094 + D-140 indirect-result-ptr ABI
+  per ADR-0069) — 3-result and large-sig 16-result shapes;
+  multi-commit project per arch.
+- D-146 — `(f64, f32)` shape; needs Zig upstream
+  `splitType` OR x86_64 SysV inline-asm thunk (entry.zig
+  cap relief needed; depends on D-135 comptime-gen).
+- §9.9-IV windowsmini reconcile (D-136 Win64 SEH bridge,
+  D-084 v128 marshal residual, D-028 IPC flake).
+- D-079 (v128 cross-module imports sub-gap ii — latent,
+  no spec coverage).
+- D-133 (arm64 op_table / op_memory hardcoded scratch
+  sweep — latent, regalloc-clobber risk class).
 
 ### Discipline reminders
 
@@ -64,6 +74,8 @@ windowsmini batch at Phase 9 close.
 ### Outstanding `now` debts
 
 D-079; D-133. (D-145 closed cycle 10.)
+Blocked: D-094 / D-137 / D-140 / D-146 (Cat II Class B+C
+cohort); D-136 (Cat IV Win64 SEH); D-135 (entry.zig cap).
 
 ## Sandbox + References
 
