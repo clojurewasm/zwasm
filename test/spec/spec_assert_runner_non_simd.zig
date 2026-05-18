@@ -947,6 +947,25 @@ fn dispatchMultiResult(
             base.matchScalarF64(got_r15, exp_r15);
         if (!ok) {
             try stdout.print("FAIL  {s}: {s}({s}) -> large-sig mismatch\n", .{ name, fn_name, args_s });
+            const slots = [_]struct { tag: []const u8, got: u64, exp: []const u8 }{
+                .{ .tag = "r0(f64)", .got = got_r0, .exp = rtoks[0] },
+                .{ .tag = "r1(f32)", .got = got_r1, .exp = rtoks[1] },
+                .{ .tag = "r2(i32)", .got = got_r2, .exp = rtoks[2] },
+                .{ .tag = "r3(i32)", .got = got_r3, .exp = rtoks[3] },
+                .{ .tag = "r4(i32)", .got = got_r4, .exp = rtoks[4] },
+                .{ .tag = "r5(i64)", .got = got_r5, .exp = rtoks[5] },
+                .{ .tag = "r6(f32)", .got = got_r6, .exp = rtoks[6] },
+                .{ .tag = "r7(i32)", .got = got_r7, .exp = rtoks[7] },
+                .{ .tag = "r8(i32)", .got = got_r8, .exp = rtoks[8] },
+                .{ .tag = "r9(f32)", .got = got_r9, .exp = rtoks[9] },
+                .{ .tag = "r10(f64)", .got = got.r10, .exp = rtoks[10] },
+                .{ .tag = "r11(f64)", .got = got_r11, .exp = rtoks[11] },
+                .{ .tag = "r12(i32)", .got = got_r12, .exp = rtoks[12] },
+                .{ .tag = "r13(f32)", .got = got_r13, .exp = rtoks[13] },
+                .{ .tag = "r14(i32)", .got = got_r14, .exp = rtoks[14] },
+                .{ .tag = "r15(f64)", .got = got_r15, .exp = rtoks[15] },
+            };
+            for (slots) |s| try stdout.print("  {s}: got=0x{x:0>16} exp={s}\n", .{ s.tag, s.got, s.exp });
             return false;
         }
         return true;
