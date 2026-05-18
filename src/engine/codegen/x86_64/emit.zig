@@ -149,20 +149,25 @@ fn computeOutgoingMaxBytes(
         // in caller's outgoing region (Microsoft x64 §Param passing).
         const bytes: u32 = switch (abi.current_cc) {
             .sysv => blk: {
-                const n_int_overflow: u32 = if (n_int > 5) n_int - 5 else 0;
+                // ADR-0026 2026-05-18 Convention Swap: MEMORY-class
+                // callee receives &buffer in RDI (slot 0) + rt in
+                // RSI (slot 1), shrinking the user int-reg pool to
+                // 4 slots (RDX/RCX/R8/R9). Non-MEMORY callee
+                // retains 5 user int regs (RSI..R9).
+                const callee_is_memory_class = callee_sig.results.len > 2;
+                const n_user_int_regs: u32 = if (callee_is_memory_class) 4 else 5;
+                const n_int_overflow: u32 = if (n_int > n_user_int_regs) n_int - n_user_int_regs else 0;
                 const n_fp_total = n_fp + 2 * n_v128;
                 const n_fp_overflow: u32 = if (n_fp_total > 8) n_fp_total - 8 else 0;
                 const overflow_bytes: u32 = (n_int_overflow + n_fp_overflow) * 8;
-                // ADR-0069 §Phase 2 chunk (b)-e-3 + ADR-0026
-                // 2026-05-18 amend: MEMORY-class return reserves
-                // an N×8 B buffer slot at the top of THIS call's
-                // outgoing-args footprint. The caller LEAs R11
-                // = &buffer immediately before CALL; the callee
-                // captures R11 into its own frame slot. Mirrors
-                // arm64's `indirect_result_slot_bytes` accounting.
-                // Win64 deferred (RCX hidden-arg shape stays on
-                // §9.13-0 sweep).
-                const return_buf_bytes: u32 = if (callee_sig.results.len > 2)
+                // MEMORY-class return reserves an N×8 B buffer slot
+                // at the top of THIS call's outgoing-args footprint.
+                // The caller LEAs RDI = &buffer immediately before
+                // CALL (Convention Swap above); the callee captures
+                // RDI into its own frame slot. Mirrors arm64's
+                // `indirect_result_slot_bytes` accounting. Win64
+                // MEMORY-class deferred to §9.13-0.
+                const return_buf_bytes: u32 = if (callee_is_memory_class)
                     @as(u32, @intCast(callee_sig.results.len)) * 8
                 else
                     0;
@@ -267,21 +272,23 @@ pub fn compile(
     const locals_bytes: u32 = layout.total_bytes;
     const spill_bytes: u32 = alloc.spillBytes();
     const r15_save_bytes: u32 = if (uses_runtime_ptr) 8 else 0;
-    // ADR-0026 2026-05-18 amend / ADR-0069 §Phase 2 chunk (b)-e-3:
+    // ADR-0026 2026-05-18 amend (Convention Swap) / ADR-0069 §Phase 2:
     // MEMORY-class returns (struct > 16 B per SysV §3.2.3; v2
-    // trigger = `sig.results.len > 2`) receive the hidden
-    // indirect-result-pointer in R11 at entry (zwasm-internal
-    // convention — RDI stays as runtime_ptr per ADR-0026). The
-    // prologue captures R11 into an 8-byte frame slot positioned
-    // BELOW the spill region; the epilogue (`marshalReturnRegs`)
-    // loads it back into RAX (caller-saved scratch, also SysV
-    // §3.2.3 RAX=&buffer compliance bonus) and writes each
-    // result to `[RAX, #(i*8)]`. Win64 deferred to §9.13-0.
+    // trigger = `sig.results.len > 2`) follow the standard SysV
+    // §3.2.3 hidden-arg shape — RDI = &result_buffer, RSI = rt
+    // (= the function's natural arg0 shifted one int-slot deeper).
+    // Aligns with Zig's auto-generated `callconv(.c)` lowering for
+    // struct returns > 16 B so entry.zig helpers don't need inline-
+    // asm thunks. The prologue captures RDI into an 8-byte frame
+    // slot positioned BELOW the spill region; the epilogue
+    // (`marshalReturnRegs`) loads it into RAX and writes each
+    // result to `[RAX + i*8]`. Win64 MEMORY-class deferred to
+    // §9.13-0.
     const return_is_memory_class: bool = func.sig.results.len > 2 and abi.current_cc == .sysv;
     const indirect_result_slot_bytes: u32 = if (return_is_memory_class) 8 else 0;
     const spill_base_off: u32 = locals_bytes + r15_save_bytes + 8;
-    // R11-capture slot lives BELOW the spill region (deeper into
-    // the frame, larger RBP-negative offset). Slot anchored at
+    // Buffer-ptr capture slot lives BELOW the spill region (deeper
+    // into the frame, larger RBP-negative offset). Slot anchored at
     // `[RBP - (spill_base_off + spill_bytes)]`; the +8 below
     // gives the slot its own 8-byte cell.
     const indirect_result_slot_neg_off: u32 = spill_base_off + spill_bytes;
@@ -327,12 +334,16 @@ pub fn compile(
     }
     try buf.appendSlice(allocator, inst.encMovRR(.q, .rbp, .rsp).slice());
     if (uses_runtime_ptr) {
-        // MOV R15, <entry_arg0> — entry shim's runtime_ptr snapshot.
-        // Cc-pivot per ADR-0026: SysV passes *const JitRuntime in
-        // RDI; Win64 in RCX. Both encodings are 3 bytes (REX.W+B
-        // + opcode + modrm) so the prologue's frame-bytes formula
-        // stays Cc-agnostic.
-        try buf.appendSlice(allocator, inst.encMovRR(.q, abi.current.runtime_ptr_save_gpr, abi.current.entry_arg0_gpr).slice());
+        // MOV R15, <runtime_ptr_arg_gpr> — entry shim's runtime_ptr
+        // snapshot. Cc-pivot per ADR-0026: SysV passes *const
+        // JitRuntime in RDI for non-MEMORY-class returns; for
+        // MEMORY-class returns (ADR-0026 2026-05-18 Convention Swap)
+        // SysV §3.2.3 inserts the hidden &buffer ptr into RDI and
+        // shifts rt to RSI. Win64 passes in RCX (MEMORY-class Win64
+        // deferred). Both encodings are 3 bytes (REX.W+B + opcode +
+        // modrm) so the prologue's frame-bytes formula stays Cc-agnostic.
+        const rt_src_gpr: abi.Gpr = if (return_is_memory_class) .rsi else abi.current.entry_arg0_gpr;
+        try buf.appendSlice(allocator, inst.encMovRR(.q, abi.current.runtime_ptr_save_gpr, rt_src_gpr).slice());
     }
     // §9.8a / 8a.2 (ADR-0034) — JIT-execution sentinel: ARM64
     // has the inject landed at d6e29ac; x86_64 inject is deferred
@@ -350,20 +361,21 @@ pub fn compile(
         // imm8 form is 4 bytes; imm32 is 7 bytes.
         try buf.appendSlice(allocator, rspSub(frame_bytes).slice());
     }
-    // ADR-0026 2026-05-18 amend / ADR-0069 §Phase 2 chunk (b)-e-3:
-    // MEMORY-class returns — capture the caller-supplied R11
-    // hidden indirect-result-pointer into the frame slot just
-    // below the spill region. Emitted AFTER `SUB RSP, frame_bytes`
-    // so the slot offset is RBP-relative and stable through
-    // the body. Param shuffle below uses RSI/RDX/RCX/R8/R9 +
-    // XMM0..XMM7 (SysV); R11 isn't an arg reg so the capture
-    // doesn't fight arg marshalling. The body's
-    // `gprLoadSpilled` staging through R10/R11 is safe because
-    // the captured value lives in the frame slot, not in R11
-    // itself.
+    // ADR-0026 2026-05-18 amend (Convention Swap) / ADR-0069 §Phase 2:
+    // MEMORY-class returns — capture the caller-supplied SysV
+    // hidden indirect-result-pointer (RDI per §3.2.3) into the
+    // frame slot just below the spill region. Emitted AFTER
+    // `SUB RSP, frame_bytes` so the slot offset is RBP-relative
+    // and stable through the body. RDI's user value (= the
+    // shifted runtime_ptr) was already stashed into R15 above;
+    // this STR captures RDI itself for the epilogue's MEMORY-class
+    // write path. Param shuffle below uses RDX/RCX/R8/R9 +
+    // XMM0..XMM7 when self is MEMORY-class (slots 2-5 instead
+    // of 1-5). The body's `gprLoadSpilled` staging through
+    // R10/R11 is unaffected.
     if (return_is_memory_class) {
         const disp: i32 = -@as(i32, @intCast(indirect_result_slot_neg_off));
-        try buf.appendSlice(allocator, inst.encStoreR64MemRBPDisp32(disp, .r11).slice());
+        try buf.appendSlice(allocator, inst.encStoreR64MemRBPDisp32(disp, .rdi).slice());
     }
 
     // §9.7 / 7.8-x86-params: marshal i32 params from arg regs to
@@ -387,7 +399,12 @@ pub fn compile(
         // [RBP + 16 + 8*slot] (Microsoft x64 ABI §"Argument
         // Passing"); the prologue copies them via RAX scratch
         // into the local frame slot.
-        var int_arg_idx: usize = 1;
+        // ADR-0026 2026-05-18 Convention Swap: when SELF returns
+        // MEMORY-class, SysV §3.2.3 places &buffer in RDI (slot 0)
+        // and shifts rt to RSI (slot 1); user int args begin at
+        // RDX (slot 2). For non-MEMORY-class, slot 0 = RDI = rt;
+        // user int args begin at RSI (slot 1).
+        var int_arg_idx: usize = if (return_is_memory_class) 2 else 1;
         var fp_arg_idx: usize = if (abi.current_cc == .win64) 1 else 0;
         // §9.7 / 7.10-j: per-overflow NSAA index for SysV. Mirror of
         // the caller-side counter in op_call.marshalCallArgs (chunk

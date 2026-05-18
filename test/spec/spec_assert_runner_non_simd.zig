@@ -346,7 +346,8 @@ fn nonSimdRunAssertReturn(
     // §9.9 / 9.9-l-1b-d093-d61: capacity 5 → 8 to fit the
     // 8-arg `(f64 ×8, f64)` + 6-arg `(f32 i32 i64 i32 f64 i32, f64)`
     // shapes added in d-61's runner-shape-gap drain.
-    var args: [8]ArgValue = undefined;
+    // Cap raised 8 → 24 for `func.wast::large-sig` (17 params).
+    var args: [24]ArgValue = undefined;
     const n_args = base.parseAssertReturnArgs(args_s, &args) catch |err| {
         if (err == error.TooManyArgs) {
             try stdout.print("FAIL  {s}: > {d} args unsupported ({s})\n", .{ name, args.len, args_s });
@@ -584,8 +585,10 @@ fn dispatchMultiResult(
     stdout: *std.Io.Writer,
     name: []const u8,
 ) anyerror!bool {
-    // Parse result tokens once; downstream arms re-use.
-    var rtoks: [4][]const u8 = undefined;
+    // Parse result tokens once; downstream arms re-use. Cap raised
+    // from 4 → 16 to accommodate `func.wast::large-sig` (ADR-0069
+    // §Phase 3 / D-140) — 16-result Class C MEMORY-class.
+    var rtoks: [16][]const u8 = undefined;
     var n_rtoks: usize = 0;
     {
         var it = std.mem.tokenizeScalar(u8, results_s, ' ');
@@ -843,6 +846,107 @@ fn dispatchMultiResult(
         const got_r2: u64 = got.r2;
         if (got_r0 != exp_r0 or got_r1 != exp_r1 or got_r2 != exp_r2) {
             try stdout.print("FAIL  {s}: {s}({s}) → got (i32:{d}, i32:{d}, i64:{d}), expected (i32:{d}, i32:{d}, i64:{d})\n", .{ name, fn_name, args_s, got_r0, got_r1, got_r2, exp_r0, exp_r1, exp_r2 });
+            return false;
+        }
+        return true;
+    }
+    // `func.wast::large-sig` — 17 params + 16 mixed-class results.
+    // ADR-0069 §Phase 3 / D-140: Class C MEMORY-class with mixed
+    // int/f32/f64 slots. Convention Swap (ADR-0026 2026-05-18)
+    // routes &buffer in RDI/X8 and rt in RSI/X0; native callconv(.c)
+    // matches end-to-end.
+    if (args.len == 17 and n_rtoks == 16 and
+        args[0] == .i32 and args[1] == .i64 and args[2] == .f32 and args[3] == .f32 and
+        args[4] == .i32 and args[5] == .f64 and args[6] == .f32 and args[7] == .i32 and
+        args[8] == .i32 and args[9] == .i32 and args[10] == .f32 and args[11] == .f64 and
+        args[12] == .f64 and args[13] == .f64 and args[14] == .i32 and args[15] == .i32 and
+        args[16] == .f32 and
+        std.mem.startsWith(u8, rtoks[0], "f64:") and std.mem.startsWith(u8, rtoks[1], "f32:") and
+        std.mem.startsWith(u8, rtoks[2], "i32:") and std.mem.startsWith(u8, rtoks[3], "i32:") and
+        std.mem.startsWith(u8, rtoks[4], "i32:") and std.mem.startsWith(u8, rtoks[5], "i64:") and
+        std.mem.startsWith(u8, rtoks[6], "f32:") and std.mem.startsWith(u8, rtoks[7], "i32:") and
+        std.mem.startsWith(u8, rtoks[8], "i32:") and std.mem.startsWith(u8, rtoks[9], "f32:") and
+        std.mem.startsWith(u8, rtoks[10], "f64:") and std.mem.startsWith(u8, rtoks[11], "f64:") and
+        std.mem.startsWith(u8, rtoks[12], "i32:") and std.mem.startsWith(u8, rtoks[13], "f32:") and
+        std.mem.startsWith(u8, rtoks[14], "i32:") and std.mem.startsWith(u8, rtoks[15], "f64:"))
+    {
+        const exp_r0 = base.parseScalarFpExpected(rtoks[0][4..], 64) catch return failBadResult(stdout, name, rtoks[0]);
+        const exp_r1 = base.parseScalarFpExpected(rtoks[1][4..], 32) catch return failBadResult(stdout, name, rtoks[1]);
+        const exp_r2 = base.parseI32Token(rtoks[2][4..]) catch return failBadResult(stdout, name, rtoks[2]);
+        const exp_r3 = base.parseI32Token(rtoks[3][4..]) catch return failBadResult(stdout, name, rtoks[3]);
+        const exp_r4 = base.parseI32Token(rtoks[4][4..]) catch return failBadResult(stdout, name, rtoks[4]);
+        const exp_r5 = base.parseI64Token(rtoks[5][4..]) catch return failBadResult(stdout, name, rtoks[5]);
+        const exp_r6 = base.parseScalarFpExpected(rtoks[6][4..], 32) catch return failBadResult(stdout, name, rtoks[6]);
+        const exp_r7 = base.parseI32Token(rtoks[7][4..]) catch return failBadResult(stdout, name, rtoks[7]);
+        const exp_r8 = base.parseI32Token(rtoks[8][4..]) catch return failBadResult(stdout, name, rtoks[8]);
+        const exp_r9 = base.parseScalarFpExpected(rtoks[9][4..], 32) catch return failBadResult(stdout, name, rtoks[9]);
+        const exp_r10 = base.parseScalarFpExpected(rtoks[10][4..], 64) catch return failBadResult(stdout, name, rtoks[10]);
+        const exp_r11 = base.parseScalarFpExpected(rtoks[11][4..], 64) catch return failBadResult(stdout, name, rtoks[11]);
+        const exp_r12 = base.parseI32Token(rtoks[12][4..]) catch return failBadResult(stdout, name, rtoks[12]);
+        const exp_r13 = base.parseScalarFpExpected(rtoks[13][4..], 32) catch return failBadResult(stdout, name, rtoks[13]);
+        const exp_r14 = base.parseI32Token(rtoks[14][4..]) catch return failBadResult(stdout, name, rtoks[14]);
+        const exp_r15 = base.parseScalarFpExpected(rtoks[15][4..], 64) catch return failBadResult(stdout, name, rtoks[15]);
+        // ArgValue stores `.f32` as the u32 bit-pattern and `.f64`
+        // as u64 — bitcast to the parameter's float type at the
+        // call site so the JIT receives the value in the FP class
+        // register pool (not the int class).
+        const got = entry.callLargesig(
+            compiled.module, func_idx, rt,
+            args[0].i32,
+            args[1].i64,
+            @as(f32, @bitCast(args[2].f32)),
+            @as(f32, @bitCast(args[3].f32)),
+            args[4].i32,
+            @as(f64, @bitCast(args[5].f64)),
+            @as(f32, @bitCast(args[6].f32)),
+            args[7].i32,
+            args[8].i32,
+            args[9].i32,
+            @as(f32, @bitCast(args[10].f32)),
+            @as(f64, @bitCast(args[11].f64)),
+            @as(f64, @bitCast(args[12].f64)),
+            @as(f64, @bitCast(args[13].f64)),
+            args[14].i32,
+            args[15].i32,
+            @as(f32, @bitCast(args[16].f32)),
+        ) catch |err| {
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
+            return false;
+        };
+        // Extract: f64 / f32 slots read via low-bits truncate then
+        // bitcast; i32 slots truncate to u32; i64 slots use the
+        // full u64 directly.
+        const got_r0: u64 = got.r0;
+        const got_r1: u32 = @truncate(got.r1);
+        const got_r2: u32 = @truncate(got.r2);
+        const got_r3: u32 = @truncate(got.r3);
+        const got_r4: u32 = @truncate(got.r4);
+        const got_r5: u64 = got.r5;
+        const got_r6: u32 = @truncate(got.r6);
+        const got_r7: u32 = @truncate(got.r7);
+        const got_r8: u32 = @truncate(got.r8);
+        const got_r9: u32 = @truncate(got.r9);
+        const got_r10: u64 = got.r10;
+        const got_r11: u64 = got.r11;
+        const got_r12: u32 = @truncate(got.r12);
+        const got_r13: u32 = @truncate(got.r13);
+        const got_r14: u32 = @truncate(got.r14);
+        const got_r15: u64 = got.r15;
+        const ok = base.matchScalarF64(got_r0, exp_r0) and
+            base.matchScalarF32(got_r1, exp_r1) and
+            got_r2 == exp_r2 and got_r3 == exp_r3 and got_r4 == exp_r4 and
+            got_r5 == exp_r5 and
+            base.matchScalarF32(got_r6, exp_r6) and
+            got_r7 == exp_r7 and got_r8 == exp_r8 and
+            base.matchScalarF32(got_r9, exp_r9) and
+            base.matchScalarF64(got_r10, exp_r10) and
+            base.matchScalarF64(got_r11, exp_r11) and
+            got_r12 == exp_r12 and
+            base.matchScalarF32(got_r13, exp_r13) and
+            got_r14 == exp_r14 and
+            base.matchScalarF64(got_r15, exp_r15);
+        if (!ok) {
+            try stdout.print("FAIL  {s}: {s}({s}) -> large-sig mismatch\n", .{ name, fn_name, args_s });
             return false;
         }
         return true;
@@ -1301,7 +1405,8 @@ fn nonSimdRunAssertTrap(
     // §9.9 / 9.9-l-1b-d093-d61: capacity 5 → 8 to fit the
     // 8-arg `(f64 ×8, f64)` + 6-arg `(f32 i32 i64 i32 f64 i32, f64)`
     // shapes added in d-61's runner-shape-gap drain.
-    var args: [8]ArgValue = undefined;
+    // Cap raised 8 → 24 for `func.wast::large-sig` (17 params).
+    var args: [24]ArgValue = undefined;
     const n_args = base.parseAssertReturnArgs(args_s, &args) catch |err| {
         if (err == error.TooManyArgs) {
             try stdout.print("FAIL  {s}: assert_trap > {d} args unsupported ({s})\n", .{ name, args.len, args_s });
@@ -1498,7 +1603,8 @@ fn nonSimdRunInvokeAction(
     // §9.9 / 9.9-l-1b-d093-d61: capacity 5 → 8 to fit the
     // 8-arg `(f64 ×8, f64)` + 6-arg `(f32 i32 i64 i32 f64 i32, f64)`
     // shapes added in d-61's runner-shape-gap drain.
-    var args: [8]ArgValue = undefined;
+    // Cap raised 8 → 24 for `func.wast::large-sig` (17 params).
+    var args: [24]ArgValue = undefined;
     const n_args = base.parseAssertReturnArgs(args_s, &args) catch |err| {
         if (err == error.TooManyArgs) {
             try stdout.print("FAIL  {s}: invoke-action > {d} args unsupported ({s})\n", .{ name, args.len, args_s });

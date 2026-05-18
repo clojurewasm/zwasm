@@ -559,6 +559,20 @@ for c in d['commands']:
                 ((), ('i32', 'i32', 'i32')),
                 ((), ('i32', 'i32', 'i64')),
                 (('i32',), ('i32', 'i32', 'i64')),
+                # Phase 9 Cat II chunk (b)-f-1 / D-140 — large-sig
+                # 17-param 16-result Class C MEMORY-class. ADR-0069
+                # §Phase 3. ADR-0026 2026-05-18 Convention Swap
+                # aligns x86_64 with SysV §3.2.3 standard (RDI=
+                # &buffer, RSI=rt), so the entry helper +
+                # JIT-emitted callee meet via native callconv(.c)
+                # — no inline-asm thunk. arm64 was already
+                # AAPCS64-compliant (X8 indirect-result-ptr).
+                (
+                    ('i32', 'i64', 'f32', 'f32', 'i32', 'f64', 'f32', 'i32', 'i32',
+                     'i32', 'f32', 'f64', 'f64', 'f64', 'i32', 'i32', 'f32'),
+                    ('f64', 'f32', 'i32', 'i32', 'i32', 'i64', 'f32', 'i32', 'i32',
+                     'f32', 'f64', 'f64', 'i32', 'f32', 'i32', 'f64'),
+                ),
             }
             if (arg_kinds, result_kinds) not in supported_multi:
                 lines.append(f'skip-impl multi-result {a["field"]}')

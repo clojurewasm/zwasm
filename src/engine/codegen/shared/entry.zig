@@ -908,49 +908,27 @@ pub fn callI32i32NoArgs(
 /// `() -> (i32, i32, i32)` — Class C MEMORY-class per ADR-0069
 /// §Phase 2.
 ///
-/// On arm64: Zig's `extern struct` of 24 B routes via AAPCS64
-/// §6.8.2 indirect-result-pointer in X8. The JIT-emitted callee
-/// captures X8 in its prologue, writes results via `[X8, #(i*8)]`
-/// in the epilogue. Standard `callconv(.c)` matches the JIT
-/// emit shape — no thunk needed.
+/// Native `callconv(.c)` matches the JIT emit shape on both
+/// supported arches (ADR-0026 2026-05-18 Convention Swap):
 ///
-/// On x86_64 SysV: Zig's `callconv(.c)` would emit `RDI=&buffer,
-/// RSI=runtime_ptr` per SysV §3.2.3, but zwasm's internal JIT
-/// convention is `R11=&buffer, RDI=runtime_ptr` per ADR-0026
-/// 2026-05-18 amend (RDI stays as runtime_ptr to avoid an arg-
-/// reg shift across Class A/B/C function emit paths). Inline-asm
-/// thunk re-pins RDI/R11 via input constraints before CALL.
+/// - arm64 AAPCS64 §6.8.2: 24 B struct routes via the X8 indirect-
+///   result-pointer register (separate from X0..X7 arg regs).
+///   JIT-emitted callee captures X8 in prologue, writes results
+///   via `[X8, #(i*8)]`.
+/// - x86_64 SysV §3.2.3: 24 B struct is MEMORY-class; caller
+///   passes `&buffer` in RDI (slot 0), shifting `rt` to RSI
+///   (slot 1). JIT-emitted callee captures RDI in prologue,
+///   writes results via `[RDI + i*8]`.
 ///
 /// Win64: NOT YET SUPPORTED — Win64 indirect-result uses RCX-as-
-/// hidden-arg per Microsoft x64; deferred to §9.13-0 per
-/// ADR-0049 + ADR-0056 + ADR-0065 amendments.
+/// hidden-arg per Microsoft x64; deferred to §9.13-0.
 pub fn callI32i32i32NoArgs(
     module: linker.JitModule,
     func_idx: u32,
     rt: *JitRuntime,
 ) Error!FuncRet_i32i32i32 {
-    rt.trap_flag = 0;
-    if (comptime builtin.target.cpu.arch == .aarch64) {
-        const Fn = *const fn (*const JitRuntime) callconv(.c) FuncRet_i32i32i32;
-        const result = module.entry(func_idx, Fn)(rt);
-        if (rt.trap_flag != 0) return Error.Trap;
-        return result;
-    } else if (comptime builtin.target.cpu.arch == .x86_64 and builtin.target.os.tag != .windows) {
-        const Fn = *const fn (rt: *const JitRuntime) callconv(.c) void;
-        const f = module.entry(func_idx, Fn);
-        var r: FuncRet_i32i32i32 = undefined;
-        asm volatile (
-            \\ callq *%[callee]
-            :
-            : [callee] "r" (f),
-              [rt_arg] "{rdi}" (rt),
-              [buf] "{r11}" (&r),
-            : x86_64_sysv_call_clobbers);
-        if (rt.trap_flag != 0) return Error.Trap;
-        return r;
-    } else {
-        return Error.UnsupportedEntrySignature;
-    }
+    const Fn = *const fn (*const JitRuntime) callconv(.c) FuncRet_i32i32i32;
+    return invokeAndCheck(rt, FuncRet_i32i32i32, module.entry(func_idx, Fn), .{});
 }
 
 /// `() -> (i32, i32, i64)` — Class C MEMORY-class per ADR-0069
@@ -958,74 +936,120 @@ pub fn callI32i32i32NoArgs(
 /// loop.wast.
 ///
 /// Layout + ABI identical to `callI32i32i32NoArgs`; only the third
-/// result's width differs (W-form vs X-form on arm64 / 32 vs 64
-/// of buffer slot 2 on both arches). Per the u64-padded
+/// result's width differs (W-form vs X-form on arm64; 32 vs 64
+/// bits of buffer slot 2 on x86_64). Per the u64-padded
 /// `FuncRet_i32i32i64` layout, each slot is 8 B regardless.
 pub fn callI32i32i64NoArgs(
     module: linker.JitModule,
     func_idx: u32,
     rt: *JitRuntime,
 ) Error!FuncRet_i32i32i64 {
-    rt.trap_flag = 0;
-    if (comptime builtin.target.cpu.arch == .aarch64) {
-        const Fn = *const fn (*const JitRuntime) callconv(.c) FuncRet_i32i32i64;
-        const result = module.entry(func_idx, Fn)(rt);
-        if (rt.trap_flag != 0) return Error.Trap;
-        return result;
-    } else if (comptime builtin.target.cpu.arch == .x86_64 and builtin.target.os.tag != .windows) {
-        const Fn = *const fn (rt: *const JitRuntime) callconv(.c) void;
-        const f = module.entry(func_idx, Fn);
-        var r: FuncRet_i32i32i64 = undefined;
-        asm volatile (
-            \\ callq *%[callee]
-            :
-            : [callee] "r" (f),
-              [rt_arg] "{rdi}" (rt),
-              [buf] "{r11}" (&r),
-            : x86_64_sysv_call_clobbers);
-        if (rt.trap_flag != 0) return Error.Trap;
-        return r;
-    } else {
-        return Error.UnsupportedEntrySignature;
-    }
+    const Fn = *const fn (*const JitRuntime) callconv(.c) FuncRet_i32i32i64;
+    return invokeAndCheck(rt, FuncRet_i32i32i64, module.entry(func_idx, Fn), .{});
 }
 
 /// `(i32) -> (i32, i32, i64)` — Class C MEMORY-class with one
 /// user arg. Spec corpus: `break-multi-value` in if.wast (two
 /// fixture occurrences).
 ///
-/// arg0 (i32) goes in arm64's X1 / x86_64-SysV's RSI per zwasm
-/// calling convention (ADR-0017). The x86_64 thunk pins RSI via
-/// input constraint, layered on top of the RDI/R11 pinning.
+/// Per ADR-0026 2026-05-18 Convention Swap, native `callconv(.c)`
+/// places `&buffer` in RDI, `rt` in RSI, `a0` in RDX on x86_64
+/// SysV — matching the JIT-emitted callee's param marshal start
+/// at slot 2. arm64 places `rt` in X0, `a0` in X1, `&buffer` in
+/// X8 — independent slot, no shift.
 pub fn callI32i32i64_i32(
     module: linker.JitModule,
     func_idx: u32,
     rt: *JitRuntime,
     a0: u32,
 ) Error!FuncRet_i32i32i64 {
+    const Fn = *const fn (*const JitRuntime, u32) callconv(.c) FuncRet_i32i32i64;
+    return invokeAndCheck(rt, FuncRet_i32i32i64, module.entry(func_idx, Fn), .{a0});
+}
+
+/// Multi-result return for `func.wast::large-sig`: 16 results in
+/// declaration order `(f64, f32, i32, i32, i32, i64, f32, i32, i32,
+/// f32, f64, f64, i32, f32, i32, f64)`. Class C MEMORY-class per
+/// ADR-0069 §Phase 3 (128 B > 16 B threshold on both arches).
+///
+/// Layout: 16 × u64 slots matching the JIT's 8-byte-per-slot stride.
+/// f64 slots receive a full 8-byte STR Dn / MOV [RAX+disp]; f32 slots
+/// receive a 4-byte STR Sn / MOV [RAX+disp] (upper 4 bytes of slot
+/// remain uninitialised — read via `@truncate(r_i)` then `@bitCast`).
+/// i32 slots are zero-extended to 8 bytes via X-form STR / 8-byte
+/// MOV; i64 slots use the natural 8-byte store.
+pub const FuncRet_largesig = extern struct {
+    r0: u64,
+    r1: u64,
+    r2: u64,
+    r3: u64,
+    r4: u64,
+    r5: u64,
+    r6: u64,
+    r7: u64,
+    r8: u64,
+    r9: u64,
+    r10: u64,
+    r11: u64,
+    r12: u64,
+    r13: u64,
+    r14: u64,
+    r15: u64,
+};
+
+/// Call `func.wast::large-sig` — 17 params + 16 results. Class C
+/// MEMORY-class. Native `callconv(.c)` per ADR-0026 2026-05-18
+/// Convention Swap places &buffer in RDI / X8 and rt in RSI / X0;
+/// the JIT-emitted callee's prologue captures the buffer ptr and
+/// the epilogue writes each result slot via the standard MEMORY-
+/// class path. No inline-asm thunk needed.
+pub fn callLargesig(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: u32,
+    a1: u64,
+    a2: f32,
+    a3: f32,
+    a4: u32,
+    a5: f64,
+    a6: f32,
+    a7: u32,
+    a8: u32,
+    a9: u32,
+    a10: f32,
+    a11: f64,
+    a12: f64,
+    a13: f64,
+    a14: u32,
+    a15: u32,
+    a16: f32,
+) Error!FuncRet_largesig {
+    const Fn = *const fn (
+        *const JitRuntime,
+        u32,
+        u64,
+        f32,
+        f32,
+        u32,
+        f64,
+        f32,
+        u32,
+        u32,
+        u32,
+        f32,
+        f64,
+        f64,
+        f64,
+        u32,
+        u32,
+        f32,
+    ) callconv(.c) FuncRet_largesig;
     rt.trap_flag = 0;
-    if (comptime builtin.target.cpu.arch == .aarch64) {
-        const Fn = *const fn (*const JitRuntime, u32) callconv(.c) FuncRet_i32i32i64;
-        const result = module.entry(func_idx, Fn)(rt, a0);
-        if (rt.trap_flag != 0) return Error.Trap;
-        return result;
-    } else if (comptime builtin.target.cpu.arch == .x86_64 and builtin.target.os.tag != .windows) {
-        const Fn = *const fn (rt: *const JitRuntime, a0: u32) callconv(.c) void;
-        const f = module.entry(func_idx, Fn);
-        var r: FuncRet_i32i32i64 = undefined;
-        asm volatile (
-            \\ callq *%[callee]
-            :
-            : [callee] "r" (f),
-              [rt_arg] "{rdi}" (rt),
-              [arg0] "{rsi}" (a0),
-              [buf] "{r11}" (&r),
-            : x86_64_sysv_call_clobbers);
-        if (rt.trap_flag != 0) return Error.Trap;
-        return r;
-    } else {
-        return Error.UnsupportedEntrySignature;
-    }
+    const f = module.entry(func_idx, Fn);
+    const result = f(rt, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16);
+    if (rt.trap_flag != 0) return Error.Trap;
+    return result;
 }
 
 /// `(i32) -> (i32, i32)` — if.wast `multi`, etc.

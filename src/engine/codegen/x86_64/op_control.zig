@@ -401,17 +401,18 @@ pub fn marshalReturnRegs(
 ) Error!void {
     if (func.sig.results.len == 0) return;
     if (pushed_vregs.items.len < func.sig.results.len) return;
-    // ADR-0026 2026-05-18 amend / ADR-0069 §Phase 2 chunk (b)-e-3:
+    // ADR-0026 2026-05-18 Convention Swap / ADR-0069 §Phase 2:
     // MEMORY-class returns — caller passed the hidden indirect-
-    // result-pointer in R11; the prologue captured it to
-    // `[RBP - indirect_result_slot_neg_off]`. Load it back into
-    // RAX (caller-saved scratch + SysV §3.2.3 compliance bonus —
-    // RAX returns the buffer address on MEMORY-class) and write
-    // each result to `[RAX + i*8]`. R10/R11 stay reserved as
-    // `gprLoadSpilled` spill stage; RAX is outside that cohort.
-    // f32/f64/v128 results in MEMORY-class are deferred — no spec
-    // fixture in the 3-int-result cohort exercises them; Phase 3
-    // large-sig 16-result extension adds mixed-class support.
+    // result-pointer in RDI (SysV §3.2.3); the prologue captured
+    // it to `[RBP - indirect_result_slot_neg_off]`. Load it back
+    // into RAX (caller-saved scratch + SysV §3.2.3 compliance
+    // bonus — RAX returns the buffer address on MEMORY-class)
+    // and write each result to `[RAX + i*8]`. R10/R11 stay
+    // reserved as `gprLoadSpilled` spill stage; RAX is outside
+    // that cohort. v128 in MEMORY-class returns is deferred —
+    // ADR-0069 §Phase 3 covers up-to-16 result slots of mixed
+    // int/f32/f64 (the large-sig fixture) but v128 multi-result
+    // remains UnsupportedOp.
     if (return_is_memory_class) {
         const slot_disp: i32 = -@as(i32, @intCast(indirect_result_slot_neg_off));
         try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, .rbp, slot_disp).slice());

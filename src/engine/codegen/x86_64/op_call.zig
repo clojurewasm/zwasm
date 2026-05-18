@@ -101,7 +101,13 @@ fn computeSysvCallOverflowBytes(callee_sig: zir.FuncType) u32 {
             .v128 => {},
         }
     }
-    const n_int_overflow: u32 = if (n_int > 5) n_int - 5 else 0;
+    // ADR-0026 2026-05-18 Convention Swap: MEMORY-class callees
+    // consume two int-arg slots (RDI=buffer, RSI=rt) before user
+    // ints, leaving 4 user int regs (RDX/RCX/R8/R9). Non-MEMORY
+    // callees keep slot 0=RDI=rt and have 5 user int regs.
+    const callee_is_memory_class = callee_sig.results.len > 2;
+    const n_user_int_regs: u32 = if (callee_is_memory_class) 4 else 5;
+    const n_int_overflow: u32 = if (n_int > n_user_int_regs) n_int - n_user_int_regs else 0;
     const n_fp_overflow: u32 = if (n_fp > 8) n_fp - 8 else 0;
     return (n_int_overflow + n_fp_overflow) * 8;
 }
@@ -122,23 +128,22 @@ pub fn emitCall(
     if (callee_idx >= func_sigs.len) return Error.AllocationMissing;
     const callee_sig = func_sigs[callee_idx];
 
+    const memory_class_return: bool = callee_sig.results.len > 2 and abi.current_cc == .sysv;
     try marshalCallArgs(allocator, buf, alloc, pushed_vregs, spill_base_off, callee_sig);
 
-    // ADR-0026 2026-05-18 amend / ADR-0069 §Phase 2 chunk (b)-e-3:
+    // ADR-0026 2026-05-18 Convention Swap / ADR-0069 §Phase 2:
     // when callee returns MEMORY-class (SysV §3.2.3; v2 trigger
     // `results.len > 2`), LEA the per-call return buffer's
-    // address into R11 just before CALL. Emitted after
+    // address into RDI = arg slot 0 (the SysV hidden indirect-
+    // result-pointer) just before CALL. Emitted after
     // `marshalCallArgs` because the arg shuffle may stage spilled
     // values through R10/R11; the LEA happens after the last
     // stage use. Buffer lives at the top of THIS call's outgoing-
     // args footprint (= `[RSP + per_call_overflow_bytes]`).
-    // Win64 deferred to §9.13-0 — MEMORY-class on Win64 surfaces
-    // as UnsupportedOp from the callee's epilogue branch (no
-    // caller-side emit here).
-    const memory_class_return: bool = callee_sig.results.len > 2 and abi.current_cc == .sysv;
+    // Win64 MEMORY-class deferred to §9.13-0.
     const return_buffer_off: u32 = if (memory_class_return) computeSysvCallOverflowBytes(callee_sig) else 0;
     if (memory_class_return) {
-        try buf.appendSlice(allocator, inst.encLeaR64BaseRspDisp32(.r11, @intCast(return_buffer_off)).slice());
+        try buf.appendSlice(allocator, inst.encLeaR64BaseRspDisp32(.rdi, @intCast(return_buffer_off)).slice());
     }
 
     if (callee_idx < num_imports) {
@@ -170,12 +175,17 @@ pub fn emitCall(
         return;
     }
 
-    // Restore <entry_arg0> = runtime_ptr from R15 before
-    // transferring control. The callee's prologue captures arg0
-    // into its own R15 (per ADR-0026). entry_arg0 is caller-
+    // Restore <runtime_ptr arg slot> = runtime_ptr from R15 before
+    // transferring control. The callee's prologue captures that
+    // slot into its own R15 (per ADR-0026). The slot is caller-
     // saved in both SysV (RDI) and Win64 (RCX) and may have been
     // clobbered by an earlier call.
-    try buf.appendSlice(allocator, inst.encMovRR(.q, abi.current.entry_arg0_gpr, abi.runtime_ptr_save_gpr).slice());
+    //
+    // ADR-0026 2026-05-18 Convention Swap: when the callee returns
+    // MEMORY-class on SysV, RDI is now occupied by &result_buffer
+    // (set via LEA above) and rt moves to RSI per SysV §3.2.3.
+    const rt_dst_gpr: abi.Gpr = if (memory_class_return) .rsi else abi.current.entry_arg0_gpr;
+    try buf.appendSlice(allocator, inst.encMovRR(.q, rt_dst_gpr, abi.runtime_ptr_save_gpr).slice());
 
     // Win64 ABI: caller reserves 32 bytes of shadow space below
     // the call site for the callee to optionally spill its 4
@@ -398,22 +408,23 @@ pub fn emitCallIndirect(
         try buf.appendSlice(allocator, inst.encMovR64FromBaseIdxLsl3(.rax, .rax, idx_r).slice());
     }
 
-    // ADR-0026 2026-05-18 amend / ADR-0069 §Phase 2 chunk (b)-e-3:
+    // ADR-0026 2026-05-18 Convention Swap / ADR-0069 §Phase 2:
     // mirror of `emitCall` — for MEMORY-class callees, LEA the
-    // return buffer's address into R11 before transferring
-    // control. Placed AFTER the bounds/sig/funcptr load (which
-    // uses RAX as scratch) but BEFORE the `entry_arg0` restore
-    // + CALL.
+    // return buffer's address into RDI (SysV §3.2.3 hidden
+    // indirect-result-pointer) before transferring control.
+    // Placed AFTER the bounds/sig/funcptr load (which uses RAX
+    // as scratch) but BEFORE the runtime_ptr-slot restore + CALL.
     const memory_class_return: bool = callee_sig.results.len > 2 and abi.current_cc == .sysv;
     const return_buffer_off: u32 = if (memory_class_return) computeSysvCallOverflowBytes(callee_sig) else 0;
     if (memory_class_return) {
-        try buf.appendSlice(allocator, inst.encLeaR64BaseRspDisp32(.r11, @intCast(return_buffer_off)).slice());
+        try buf.appendSlice(allocator, inst.encLeaR64BaseRspDisp32(.rdi, @intCast(return_buffer_off)).slice());
     }
 
-    // Restore <entry_arg0> = runtime_ptr (callee's prologue reads
-    // it as its inbound JitRuntime ptr per ADR-0026: RDI on SysV,
-    // RCX on Win64).
-    try buf.appendSlice(allocator, inst.encMovRR(.q, abi.current.entry_arg0_gpr, abi.runtime_ptr_save_gpr).slice());
+    // Restore runtime_ptr arg slot (callee's prologue reads it
+    // as its inbound JitRuntime ptr per ADR-0026 / Convention Swap):
+    // RDI on SysV non-MEMORY, RSI on SysV MEMORY-class, RCX on Win64.
+    const rt_dst_gpr: abi.Gpr = if (memory_class_return) .rsi else abi.current.entry_arg0_gpr;
+    try buf.appendSlice(allocator, inst.encMovRR(.q, rt_dst_gpr, abi.runtime_ptr_save_gpr).slice());
 
     // Win64 shadow space (32 bytes; SysV no-op; both no-op when
     // §9.7 / 7.10-f prologue pre-allocation took ownership).
@@ -477,16 +488,23 @@ pub fn marshalCallArgs(
 
     // arg_gprs slot 0 carries `*const JitRuntime` (RDI on SysV,
     // RCX on Win64) — skip; user int args start at slot 1.
+    // ADR-0026 2026-05-18 Convention Swap: when the SysV callee
+    // returns MEMORY-class (results.len > 2), SysV §3.2.3 places
+    // &result_buffer in RDI (slot 0) and shifts rt to RSI (slot 1);
+    // user int args then start at RDX = slot 2.
     // FP args use a separate slot counter on SysV (§3.2.3 — int and
     // FP register pools are independent), but a SHARED counter on
     // Win64 (Microsoft x64 §"Argument Passing" — arg N occupies
     // either arg_gprs[N] or arg_xmms[N], advancing both indices).
-    //   SysV: arg_gprs[1..6] = RSI, RDX, RCX, R8, R9 (5 user GPRs)
-    //         arg_xmms[0..7] = XMM0..XMM7 (8 user FP slots)
-    //   Win64: arg_gprs[1..4] = RDX, R8, R9 (3 user GPRs);
-    //          arg_xmms[1..4] = XMM1..XMM3 (3 user FP slots,
-    //          shared count with int).
-    var gpr_arg_slot: usize = 1;
+    //   SysV non-MEMORY: arg_gprs[1..6] = RSI, RDX, RCX, R8, R9
+    //                    (5 user GPRs)
+    //   SysV MEMORY    : arg_gprs[2..6] = RDX, RCX, R8, R9
+    //                    (4 user GPRs)
+    //   SysV (both)    : arg_xmms[0..7] = XMM0..XMM7 (8 user FP)
+    //   Win64          : arg_gprs[1..4] = RDX, R8, R9 (3 user GPRs);
+    //                    arg_xmms[1..4] = XMM1..XMM3 (shared count).
+    const callee_is_memory_class: bool = callee_sig.results.len > 2 and abi.current_cc == .sysv;
+    var gpr_arg_slot: usize = if (callee_is_memory_class) 2 else 1;
     var fp_arg_slot: usize = if (abi.current_cc == .win64) 1 else 0;
     // SysV NSAA index (per-overflow counter; increments only on
     // overflow). Win64 reuses gpr_arg_slot/fp_arg_slot's shared

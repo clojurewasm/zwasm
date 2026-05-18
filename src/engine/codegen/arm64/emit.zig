@@ -39,6 +39,7 @@
 //! per ROADMAP §A3.
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const zir = @import("../../../ir/zir.zig");
 const inst = @import("inst.zig");
@@ -124,20 +125,58 @@ fn computeOutgoingMaxBytes(
             else => null,
         };
         const callee_sig = sig orelse continue;
-        var n_int: u32 = 0;
-        var n_fp: u32 = 0;
-        for (callee_sig.params) |p| {
-            switch (p) {
-                .i32, .i64, .funcref, .externref => n_int += 1,
-                .f32, .f64 => n_fp += 1,
-                .v128 => {},
-            }
-        }
         // X0 = `*JitRuntime` per ADR-0017, so user int args use
         // X1..X7 (7 slots). FP args use V0..V7 (8 slots).
-        const n_int_overflow: u32 = if (n_int > 7) n_int - 7 else 0;
-        const n_fp_overflow: u32 = if (n_fp > 8) n_fp - 8 else 0;
-        const overflow_bytes: u32 = (n_int_overflow + n_fp_overflow) * 8;
+        // Apple arm64 packs stack args at natural size; standard
+        // AAPCS64 uses uniform 8-byte stride. Mirror of the
+        // prologue's `apple_natural_packing` cursor.
+        const apple_natural_packing: bool = builtin.target.os.tag == .macos or
+            builtin.target.os.tag == .ios or
+            builtin.target.os.tag == .watchos or
+            builtin.target.os.tag == .tvos;
+        var int_slot: u32 = 1; // X1..X7
+        var fp_slot: u32 = 0; // V0..V7
+        var stack_byte_off: u32 = 0;
+        for (callee_sig.params) |p| {
+            switch (p) {
+                .i32 => {
+                    if (int_slot >= 8) {
+                        const sz: u32 = if (apple_natural_packing) 4 else 8;
+                        stack_byte_off = (stack_byte_off + sz - 1) & ~(sz - 1);
+                        stack_byte_off += sz;
+                    } else int_slot += 1;
+                },
+                .i64, .funcref, .externref => {
+                    if (int_slot >= 8) {
+                        stack_byte_off = (stack_byte_off + 7) & ~@as(u32, 7);
+                        stack_byte_off += 8;
+                    } else int_slot += 1;
+                },
+                .f32 => {
+                    if (fp_slot >= 8) {
+                        const sz: u32 = if (apple_natural_packing) 4 else 8;
+                        stack_byte_off = (stack_byte_off + sz - 1) & ~(sz - 1);
+                        stack_byte_off += sz;
+                    } else fp_slot += 1;
+                },
+                .f64 => {
+                    if (fp_slot >= 8) {
+                        stack_byte_off = (stack_byte_off + 7) & ~@as(u32, 7);
+                        stack_byte_off += 8;
+                    } else fp_slot += 1;
+                },
+                .v128 => {
+                    if (fp_slot >= 8) {
+                        stack_byte_off = (stack_byte_off + 15) & ~@as(u32, 15);
+                        stack_byte_off += 16;
+                    } else fp_slot += 1;
+                },
+            }
+        }
+        // Round up the outgoing-args region to 16-byte boundary to
+        // preserve SP alignment (AAPCS64 §6.2.3 / Apple ABI both
+        // require 16-byte aligned SP at BL).
+        const overflow_bytes: u32 = (stack_byte_off + 15) & ~@as(u32, 15);
         // ADR-0069 §Phase 2 chunk (b)-e-2: when callee returns
         // MEMORY-class (struct > 16 B per AAPCS64 §6.8.2; v2
         // trigger = `results.len > 2`), reserve a per-result
@@ -419,11 +458,25 @@ pub fn compile(
     var p_idx: u32 = 0;
     var int_arg_idx: u5 = 1; // X0 = runtime ptr; user int args from X1
     var fp_arg_idx: u5 = 0; // V0..V7 for FP args
-    // §9.7 / 7.9-d-7: per-call NSAA index (Arm IHI 0055 §6.4.2
-    // stage C.13/C.14). Each overflowed arg consumes one 8-byte
-    // slot at [X29, #(16 + 8*stack_arg_idx)]; +16 skips the
-    // saved FP/LR pair pushed by the prologue's pre-index STP.
-    var stack_arg_idx: u14 = 0;
+    // Overflow-args byte cursor in the caller's outgoing-args
+    // region; reads at `[X29, #(16 + stack_byte_off)]` with +16
+    // skipping the saved FP/LR pair pushed by the prologue's
+    // pre-index STP.
+    //
+    // Standard AAPCS64 (Arm IHI 0055 §6.4.2 stage C.13/C.14):
+    // every scalar overflow consumes 8 bytes regardless of width.
+    //
+    // **Apple arm64 (macOS / iOS / watchOS / tvOS)**: per Apple's
+    // "Writing ARM64 Code for Apple Platforms" — stack overflow
+    // args use their NATURAL size with natural alignment, NOT a
+    // uniform 8-byte stride. Consecutive i32 + f32 thus pack into
+    // 4+4 bytes, not 8+8. The `apple_natural_packing` flag picks
+    // the appropriate cursor advance.
+    const apple_natural_packing: bool = builtin.target.os.tag == .macos or
+        builtin.target.os.tag == .ios or
+        builtin.target.os.tag == .watchos or
+        builtin.target.os.tag == .tvos;
+    var stack_byte_off: u32 = 0;
     while (p_idx < num_params) : (p_idx += 1) {
         // §9.7 / 7.9-d-11 / §9.9-e-1: param slot lives at
         // `[SP, #(local_base_off + layout.offsets[p_idx])]`. The
@@ -447,15 +500,15 @@ pub fn compile(
         switch (param_ty) {
             .i32 => {
                 if (int_arg_idx > 7) {
-                    const stack_off_u: u32 = 16 + @as(u32, stack_arg_idx) * 8;
+                    const slot_size: u32 = if (apple_natural_packing) 4 else 8;
+                    const align_mask: u32 = slot_size - 1;
+                    stack_byte_off = (stack_byte_off + align_mask) & ~align_mask;
+                    const stack_off_u: u32 = 16 + stack_byte_off;
                     if (stack_off_u > 32760) return Error.UnsupportedOp;
-                    // i32 stack args are zero-extended to 8 bytes
-                    // by the caller per AAPCS64 §6.4.2 stage C.16
-                    // (8-byte slot, low 4 bytes hold the value).
                     const stack_off_w: u14 = @intCast(stack_off_u);
                     try gpr.writeU32(allocator, &buf, inst.encLdrImmW(16, 29, stack_off_w));
                     try gpr.writeU32(allocator, &buf, inst.encStrImmW(16, 31, param_off_w));
-                    stack_arg_idx += 1;
+                    stack_byte_off += slot_size;
                 } else {
                     try gpr.writeU32(allocator, &buf, inst.encStrImmW(int_arg_idx, 31, param_off_w));
                     int_arg_idx += 1;
@@ -465,12 +518,13 @@ pub fn compile(
             // marshal path (8-byte gpr-class slot per ADR-0061).
             .i64, .funcref, .externref => {
                 if (int_arg_idx > 7) {
-                    const stack_off_u: u32 = 16 + @as(u32, stack_arg_idx) * 8;
+                    stack_byte_off = (stack_byte_off + 7) & ~@as(u32, 7);
+                    const stack_off_u: u32 = 16 + stack_byte_off;
                     if (stack_off_u > 32760) return Error.UnsupportedOp;
                     const stack_off: u15 = @intCast(stack_off_u);
                     try gpr.writeU32(allocator, &buf, inst.encLdrImm(16, 29, stack_off));
                     try gpr.writeU32(allocator, &buf, inst.encStrImm(16, 31, param_off_x));
-                    stack_arg_idx += 1;
+                    stack_byte_off += 8;
                 } else {
                     try gpr.writeU32(allocator, &buf, inst.encStrImm(int_arg_idx, 31, param_off_x));
                     int_arg_idx += 1;
@@ -478,16 +532,15 @@ pub fn compile(
             },
             .f32 => {
                 if (fp_arg_idx > 7) {
-                    const stack_off_u: u32 = 16 + @as(u32, stack_arg_idx) * 8;
+                    const slot_size: u32 = if (apple_natural_packing) 4 else 8;
+                    const align_mask: u32 = slot_size - 1;
+                    stack_byte_off = (stack_byte_off + align_mask) & ~align_mask;
+                    const stack_off_u: u32 = 16 + stack_byte_off;
                     if (stack_off_u > 32760) return Error.UnsupportedOp;
-                    // f32 stack args are zero-extended to 8 bytes
-                    // by the caller; load the low 4 bytes via
-                    // `LDR S16` (4-byte align — 16+8K is always
-                    // 8-aligned, so 4-aligned holds).
                     const stack_off: u14 = @intCast(stack_off_u);
                     try gpr.writeU32(allocator, &buf, inst.encLdrSImm(16, 29, stack_off));
                     try gpr.writeU32(allocator, &buf, inst.encStrSImm(16, 31, param_off_w));
-                    stack_arg_idx += 1;
+                    stack_byte_off += slot_size;
                 } else {
                     try gpr.writeU32(allocator, &buf, inst.encStrSImm(fp_arg_idx, 31, param_off_w));
                     fp_arg_idx += 1;
@@ -495,12 +548,13 @@ pub fn compile(
             },
             .f64 => {
                 if (fp_arg_idx > 7) {
-                    const stack_off_u: u32 = 16 + @as(u32, stack_arg_idx) * 8;
+                    stack_byte_off = (stack_byte_off + 7) & ~@as(u32, 7);
+                    const stack_off_u: u32 = 16 + stack_byte_off;
                     if (stack_off_u > 32760) return Error.UnsupportedOp;
                     const stack_off: u15 = @intCast(stack_off_u);
                     try gpr.writeU32(allocator, &buf, inst.encLdrDImm(16, 29, stack_off));
                     try gpr.writeU32(allocator, &buf, inst.encStrDImm(16, 31, param_off_x));
-                    stack_arg_idx += 1;
+                    stack_byte_off += 8;
                 } else {
                     try gpr.writeU32(allocator, &buf, inst.encStrDImm(fp_arg_idx, 31, param_off_x));
                     fp_arg_idx += 1;
@@ -510,19 +564,16 @@ pub fn compile(
             // §6.4 SIMD calling convention. v128 args arrive in
             // V0..V7; stash via `STR Q V<n>, [SP, #param_off_v128]`.
             // Overflow path per §6.4.2 stage C.4: align next stack
-            // arg to 16 (consume 1 padding slot if odd), then load
-            // the 16-byte v128 from `[X29, #(16 + 8*stack_arg_idx)]`
-            // and re-store. Each overflow v128 consumes 2 of the
-            // 8-byte stack-arg slots.
+            // arg to 16, then load 16 bytes.
             .v128 => {
                 if (fp_arg_idx > 7) {
-                    if (stack_arg_idx & 1 != 0) stack_arg_idx += 1;
-                    const stack_off_u: u32 = 16 + @as(u32, stack_arg_idx) * 8;
+                    stack_byte_off = (stack_byte_off + 15) & ~@as(u32, 15);
+                    const stack_off_u: u32 = 16 + stack_byte_off;
                     if (stack_off_u > 65520) return Error.UnsupportedOp;
                     const stack_off: u16 = @intCast(stack_off_u);
                     try gpr.writeU32(allocator, &buf, inst_neon.encLdrQImm(16, 29, stack_off));
                     try gpr.writeU32(allocator, &buf, inst_neon.encStrQImm(16, 31, param_off_v128));
-                    stack_arg_idx += 2;
+                    stack_byte_off += 16;
                 } else {
                     try gpr.writeU32(allocator, &buf, inst_neon.encStrQImm(fp_arg_idx, 31, param_off_v128));
                     fp_arg_idx += 1;

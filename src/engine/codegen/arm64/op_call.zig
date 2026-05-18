@@ -37,6 +37,7 @@
 //! Zone 2 (`src/engine/codegen/arm64/`).
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const zir = @import("../../../ir/zir.zig");
 const inst = @import("inst.zig");
@@ -342,10 +343,21 @@ fn marshalCallArgs(ctx: *EmitCtx, callee_sig: FuncType) Error!void {
 
     var gpr_arg_slot: inst.Xn = 1;
     var fp_arg_slot: inst.Vn = 0;
-    // §9.7 / 7.9-d-11: NSAA index for caller-side stack-arg
-    // lowering. Each overflow consumes one 8-byte slot at
-    // `[SP, #(stack_arg_idx*8)]` in the outgoing-args region.
-    var stack_arg_idx: u32 = 0;
+    // Per-call NSAA byte cursor (caller-side). Mirror of arm64
+    // emit.zig prologue's stack-arg byte cursor.
+    //
+    // Standard AAPCS64: every scalar overflow consumes 8 bytes
+    // regardless of width; v128 consumes 16 with 16-byte align.
+    //
+    // **Apple arm64 (macOS/iOS/watchOS/tvOS)** per Apple's
+    // "Writing ARM64 Code for Apple Platforms": stack overflow
+    // args use their NATURAL size with natural alignment, so
+    // consecutive i32+f32 pack into 4+4=8 bytes (not 8+8).
+    const apple_natural_packing: bool = builtin.target.os.tag == .macos or
+        builtin.target.os.tag == .ios or
+        builtin.target.os.tag == .watchos or
+        builtin.target.os.tag == .tvos;
+    var stack_byte_off: u32 = 0;
     var k: u32 = 0;
     while (k < n_args) : (k += 1) {
         const src_vreg = arg_vregs[k];
@@ -353,10 +365,12 @@ fn marshalCallArgs(ctx: *EmitCtx, callee_sig: FuncType) Error!void {
             .i32 => {
                 const ws = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
                 if (gpr_arg_slot >= 8) {
-                    const off_u: u32 = stack_arg_idx * 8;
-                    if (off_u > 16380) return Error.UnsupportedOp;
-                    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImmW(ws, 31, @intCast(off_u)));
-                    stack_arg_idx += 1;
+                    const slot_size: u32 = if (apple_natural_packing) 4 else 8;
+                    const align_mask: u32 = slot_size - 1;
+                    stack_byte_off = (stack_byte_off + align_mask) & ~align_mask;
+                    if (stack_byte_off > 16380) return Error.UnsupportedOp;
+                    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImmW(ws, 31, @intCast(stack_byte_off)));
+                    stack_byte_off += slot_size;
                 } else {
                     if (ws != gpr_arg_slot) {
                         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(gpr_arg_slot, 31, ws));
@@ -367,10 +381,10 @@ fn marshalCallArgs(ctx: *EmitCtx, callee_sig: FuncType) Error!void {
             .i64 => {
                 const xs = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
                 if (gpr_arg_slot >= 8) {
-                    const off_u: u32 = stack_arg_idx * 8;
-                    if (off_u > 32760) return Error.UnsupportedOp;
-                    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImm(xs, 31, @intCast(off_u)));
-                    stack_arg_idx += 1;
+                    stack_byte_off = (stack_byte_off + 7) & ~@as(u32, 7);
+                    if (stack_byte_off > 32760) return Error.UnsupportedOp;
+                    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImm(xs, 31, @intCast(stack_byte_off)));
+                    stack_byte_off += 8;
                 } else {
                     if (xs != gpr_arg_slot) {
                         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(gpr_arg_slot, 31, xs));
@@ -381,10 +395,12 @@ fn marshalCallArgs(ctx: *EmitCtx, callee_sig: FuncType) Error!void {
             .f32 => {
                 const vs = try gpr.fpLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
                 if (fp_arg_slot >= 8) {
-                    const off_u: u32 = stack_arg_idx * 8;
-                    if (off_u > 16380) return Error.UnsupportedOp;
-                    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrSImm(vs, 31, @intCast(off_u)));
-                    stack_arg_idx += 1;
+                    const slot_size: u32 = if (apple_natural_packing) 4 else 8;
+                    const align_mask: u32 = slot_size - 1;
+                    stack_byte_off = (stack_byte_off + align_mask) & ~align_mask;
+                    if (stack_byte_off > 16380) return Error.UnsupportedOp;
+                    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrSImm(vs, 31, @intCast(stack_byte_off)));
+                    stack_byte_off += slot_size;
                 } else {
                     if (vs != fp_arg_slot) {
                         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encFmovSReg(fp_arg_slot, vs));
@@ -395,10 +411,10 @@ fn marshalCallArgs(ctx: *EmitCtx, callee_sig: FuncType) Error!void {
             .f64 => {
                 const vs = try gpr.fpLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
                 if (fp_arg_slot >= 8) {
-                    const off_u: u32 = stack_arg_idx * 8;
-                    if (off_u > 32760) return Error.UnsupportedOp;
-                    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrDImm(vs, 31, @intCast(off_u)));
-                    stack_arg_idx += 1;
+                    stack_byte_off = (stack_byte_off + 7) & ~@as(u32, 7);
+                    if (stack_byte_off > 32760) return Error.UnsupportedOp;
+                    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrDImm(vs, 31, @intCast(stack_byte_off)));
+                    stack_byte_off += 8;
                 } else {
                     if (vs != fp_arg_slot) {
                         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encFmovDReg(fp_arg_slot, vs));
@@ -415,13 +431,10 @@ fn marshalCallArgs(ctx: *EmitCtx, callee_sig: FuncType) Error!void {
             .v128 => {
                 const vs = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
                 if (fp_arg_slot >= 8) {
-                    // Align stack_arg_idx to even (16-byte) before
-                    // placing v128.
-                    if (stack_arg_idx & 1 != 0) stack_arg_idx += 1;
-                    const off_u: u32 = stack_arg_idx * 8;
-                    if (off_u > 65520) return Error.UnsupportedOp;
-                    try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encStrQImm(vs, 31, @intCast(off_u)));
-                    stack_arg_idx += 2;
+                    stack_byte_off = (stack_byte_off + 15) & ~@as(u32, 15);
+                    if (stack_byte_off > 65520) return Error.UnsupportedOp;
+                    try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encStrQImm(vs, 31, @intCast(stack_byte_off)));
+                    stack_byte_off += 16;
                 } else {
                     if (vs != fp_arg_slot) {
                         try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encMovV16B(fp_arg_slot, vs));
@@ -434,10 +447,10 @@ fn marshalCallArgs(ctx: *EmitCtx, callee_sig: FuncType) Error!void {
             .funcref, .externref => {
                 const xs = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
                 if (gpr_arg_slot >= 8) {
-                    const off_u: u32 = stack_arg_idx * 8;
-                    if (off_u > 32760) return Error.UnsupportedOp;
-                    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImm(xs, 31, @intCast(off_u)));
-                    stack_arg_idx += 1;
+                    stack_byte_off = (stack_byte_off + 7) & ~@as(u32, 7);
+                    if (stack_byte_off > 32760) return Error.UnsupportedOp;
+                    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImm(xs, 31, @intCast(stack_byte_off)));
+                    stack_byte_off += 8;
                 } else {
                     if (xs != gpr_arg_slot) {
                         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(gpr_arg_slot, 31, xs));
