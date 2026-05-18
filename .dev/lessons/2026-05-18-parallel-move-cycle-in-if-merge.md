@@ -1,6 +1,7 @@
 # Parallel-move cycle in arm64 if-arm multi-value merge
 
-**Citing**: `<backfill>` (D-147 root-cause cycle)
+**Citing**: `33a3eee3` (root-cause diagnosis) + `1cd516d7` (D-147 close
+via parallel-move resolver)
 
 ## Trigger
 
