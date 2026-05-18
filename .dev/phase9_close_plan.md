@@ -365,7 +365,18 @@ Sequence: inventory → pick implementation → land in batch →
 windowsmini full test-all green bit-identical with Mac +
 ubuntunote = §9.13-0 [x].
 
-### Step (e) — Phase 9 close
+### Step (e) — Phase 9 close [DONE 2026-05-18]
+
+**Status**: §9.9 row flipped `[x]` at this session. `audit_scaffolding`
+fired (Phase-9 boundary mandatory; report at
+`private/audit-2026-05-18.md` — 3 block / 9 soon / 12 watch).
+Block findings discharged inline: D-142 / D-134 moved to
+§Recently discharged; ADR Phase-9 cohort SHA backfill (75
+`<backfill>` placeholders) queued as D-149 `now` for next-resume
+discharge. §9.9-II `[x] fb063b09`, §9.9-III `[x] 2dbd3f15`
+SHA-pointered. Phase Status widget: Phase 9 stays IN-PROGRESS
+until §9.13 [x]. Hard gate at §9.12 surfaces; autonomous loop
+paused per ADR-0062.
 
 **Goal (revised 2026-05-18)**: §9.9 row flips `[x]` with
 Cat I + Cat II + Cat III green on Mac + ubuntunote (Cat IV
