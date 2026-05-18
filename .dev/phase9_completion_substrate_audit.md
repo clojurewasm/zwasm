@@ -375,45 +375,48 @@ Items can be batched into one PR if scope allows.
 
 > Filled by the user-led review session. Each Q gets an
 > explicit answer + cross-reference to the relevant ADR.
+>
+> **Tentative answers landed 2026-05-19** per
+> [`phase9_completion_close_plan.md`](phase9_completion_close_plan.md)
+> マスター計画書 + ADR-0071 (Proposed) + ADR-0070 / 0072 / 0073 (Proposed).
+> Marked `tentative` (T) until §9.12 collab gate Accepts these ADRs.
 
 ### Q2 — Scope decisions
 
 - **P13** (ZirOp enum sized for full target):
-  - [ ] Accept as-is
-  - [ ] Amend (text below)
-  - [ ] Reject (text below)
-  - ADR ref:
+  - [T] **Accept as-is** — Day-1 ZIR で 581 tags 宣言済み、Wasm 3.0 slot 揃い
+  - ADR ref: ADR-0071 §Q2 (Proposed)
 - **P14** (no pervasive build-time if-branching):
-  - [ ] Accept as-is
-  - [ ] Amend (text below)
-  - [ ] Reject (text below)
-  - ADR ref:
+  - [T] **Amend (sharpen)** — "runtime if-branching on feature flags のみ禁止;
+    `comptime` 文脈の `if (comptime build_options.X)` および build-option DCE
+    用途は許容"
+  - ADR ref: ADR-0071 §Q2 (Proposed) + ADR-0073 (Proposed)
 - **§4.5** (dispatch-table feature modules):
-  - [ ] Accept as-is
-  - [ ] Amend (text below)
-  - [ ] Reject (text below)
-  - ADR ref:
+  - [T] **Amend** — DispatchTable interp 軸 = required (mvp 完成済; 他 features
+    は §9.12-B); validator/lower/emit/jit 軸 = per-op file pattern
+    (`src/instruction/wasm_X_Y/<op>.zig` + `dispatch_collector.zig`)
+  - ADR ref: ADR-0071 §Q2 + ADR-0023 §4.5 amend (2026-05-19 Revision history)
 - **§4.6** (build flags `-Dwasm=` / `-Denable=`):
-  - [ ] Accept as-is
-  - [ ] Amend (text below)
-  - [ ] Reject (text below)
-  - ADR ref:
+  - [T] **Accept (Q3 と整合; build-option DCE 全 layer 一貫で活用)**
+  - ADR ref: ADR-0071 §Q2 + ADR-0073 (Proposed)
 
 ### Q3 — Architecture decision
 
-- [ ] Hypothesis A — DispatchTable function-pointer
-- [ ] Hypothesis B — Comptime-gated switch
-- [ ] Hypothesis C — Hybrid (per-op file + inline-switch)
-- [ ] Hypothesis D — Other (specify)
-- ADR ref:
-- Spike evidence path(s):
+- [T] **Hypothesis C — per-op file + comptime collector + build-option DCE**
+  - 採用理由: 設計品質 (1 op = 1 ファイル; 5 軸集約; 全 layer 一貫); build-option
+    による真の DCE; bug 原因 root-cause が即 localize
+- ADR ref: ADR-0071 §Q3 + ADR-0073 (Proposed; 全 layer DCE 実装 detail)
+- Spike evidence path(s) (§9.12-pre で create + 計測):
+  - `private/spikes/q3-zig-inline-switch/` (581-tag `inline switch` Zig 0.16 compile-time wall 計測)
+  - `private/spikes/q3-interp-dispatch-bench/` (DispatchTable interp vs `.always_tail` cycle 差)
+  - `private/spikes/q3-build-option-dce-poc/` (代表 op `i32.add` を C パターンで 6 build option 組合せで symbol/size/test 検証)
 
 ### Q4 — Audit boundary
 
-- [ ] Decision-only (implementation in Phase 10)
-- [ ] Decision + minimal POC (one op)
-- [ ] Decision + full skeleton (all ops, no behaviour change)
-- ADR ref:
+- [T] **Decision + minimal POC (one op)** — 代表 op `i32.add` を C パターンで実装、
+  `-Dwasm=v1_0/v2_0/v3_0` × `-Dwasi=p1/p2` の 6 build で test pass。残りの op 全
+  移行は §9.12-B (Phase 10 持ち越しなし)。
+- ADR ref: ADR-0071 §Q4 (Proposed)
 
 ### Q5 — Substrate hygiene triggers (one row per accumulated trigger)
 
@@ -422,22 +425,26 @@ Items can be batched into one PR if scope allows.
 > accrue during the rest of Phase 9.
 
 - **D-132 / regalloc-pool-scratch-overlap**
-  - [ ] Comptime disjointness extended to op-internal scratch
-  - [ ] `audit_scaffolding` §G magic-numeral lint added
-  - [ ] `bug_fix_survey.md` enforcement in `/continue` Step 4
-  - [ ] "Comment-as-invariant" rule filed
-  - [ ] Test-design stress-axis requirement codified
-  - ADR / rule / debt refs:
+  - [T] Comptime disjointness extended to op-internal scratch (§9.12-C `abi.zig` named-constant array 化)
+  - [T] `audit_scaffolding` §G magic-numeral lint added (§9.12-C; D-133 sweep)
+  - [T] `bug_fix_survey.md` enforcement in `/continue` Step 4 (§9.12-C)
+  - [T] **"Comment-as-invariant" rule filed** — `.claude/rules/comment_as_invariant.md` (ADR-0072 §9.12-C で land)
+  - [T] Test-design stress-axis requirement codified (`.claude/rules/edge_case_testing.md` "stress axes" 節追加; §9.12-C)
+  - ADR / rule / debt refs: ADR-0071 §Q5 + ADR-0072 (Proposed) + D-133 (discharge at §9.12-C)
+
+- **Cat III runtime/instance/store/linker hygiene anchor**
+  - [T] `.claude/rules/runtime_instance_layer.md` 新設 (§9.12-C)
+  - ADR / rule / debt refs: ADR-0071 §Q5
 
 ### Q6 — libc dependency boundary decisions
 
-- [ ] ADR `00NN_libc_dependency_policy.md` authored
-      (necessary / replaceable / convenience classification)
-- [ ] `.claude/rules/libc_boundary.md` filed
-- [ ] ROADMAP §14 amendment line added (with ADR cite)
-- [ ] `audit_scaffolding` grep extension landed
-- [ ] Mechanical-replacement chunk scheduled in Phase 10 prep
-- ADR / rule / debt refs:
+- [T] **ADR-0070** `libc_dependency_policy.md` authored
+      (necessary / replaceable / convenience classification — Proposed)
+- [T] `.claude/rules/libc_boundary.md` (§9.12-D で land)
+- [T] ROADMAP §14 amendment line added (§9.12-D; "Unconscious libc fanout" with cite to ADR-0070)
+- [T] `audit_scaffolding §G.5` 拡張 (§9.12-D)
+- [T] Mechanical-replacement chunk scheduled (§9.12-D Sample migration: std.c.{write,_exit,getenv,munmap} → std.posix.*)
+- ADR / rule / debt refs: ADR-0071 §Q6 + ADR-0070 (Proposed)
 
 ## Outcome (audit summary — fill at close)
 

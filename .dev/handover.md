@@ -5,81 +5,79 @@
 
 ## Cold-start procedure
 
-1. **HARD GATE — read first**:
-   [`phase9_completion_substrate_audit.md`](phase9_completion_substrate_audit.md).
-   §9.9 closed at this session; next `[ ]` row is §9.12 (🔒
-   substrate re-examination per ADR-0062). The `/continue`
-   loop's hard-gate detector pauses autonomous mode here for
-   collaborative review. Do NOT auto-pick the next ROADMAP row.
-2. `git log --oneline -10`. Latest pre-resume:
-   `<this-session-commit> chore(p9): §9.9 [x] flip — Cat I+II+III drained, hard gate at §9.12`.
-3. `bash scripts/p9_simd_status.sh` — live status (SIMD 13301/0/440
-   bit-identical Mac + ubuntunote; non-simd 25325/0/688 bit-identical).
-4. `cat .dev/debt.md` — `now` rows: D-079, D-102, D-103, D-105,
-   D-133, D-149 (audit cohort SHA backfill).
+1. **READ FIRST** [`.dev/phase9_completion_close_plan.md`](phase9_completion_close_plan.md)
+   = Phase 9 完備 マスター計画書 (v2; 確定稿)。`§9.12-pre` が次の `[ ]` task。
+2. `git log --oneline -10`. 2026-05-19 setup commit 群: `15df00bd` (ADR
+   skeletons) + commit 2 (master plan + ROADMAP §9.12 sub-row expansion +
+   handover + substrate audit doc) + commit 3 (enforcement scaffold).
+3. `bash scripts/p9_simd_status.sh` — live SIMD 状態 (13301/0/440 Mac+ubuntu
+   bit-identical)。non-simd live: `zig build test-spec-wasm-2.0-assert` で
+   25325/0/688 (193 skip-impl + 495 skip-adr)。
+4. `bash scripts/p9_completion_status.sh` (§9.12-A で完成、本セッション skeleton)
+   — Phase 9 完備の progress live status。
+5. `.dev/debt.md` `now` rows: D-079 / D-102 / D-103 / D-105 / D-133 / D-149。
 
-## Active state — §9.9 closed; Phase 9 IN-PROGRESS pending §9.12
+## Active state — §9.9 [x]; §9.12 hard gate; next = §9.12-pre
 
-- §9.9 `[x]` (umbrella row; this session).
-- §9.9-II `[x] fb063b09` (Cat II multi-result drained).
-- §9.9-III `[x] 2dbd3f15` (Cat III instance / cross-module).
-- §9.9-IV `[~] moved to §9.13-0` (windowsmini reconcile post-§9.12).
-- §9.10 `[~] moved to Phase 11` (SIMD per-op gap analysis).
-- §9.11 `[x] f06a3c9b` (prior phase-9 boundary cohort).
-- §9.12 `[ ]` 🔒 — **substrate audit hard gate**, NEXT.
-- §9.13-0 `[ ]` — windowsmini Cat IV reconcile (post-§9.12).
-- §9.13 `[ ]` 🔒 — Phase 10 entry gate (post-§9.13-0).
+- §9.9 + §9.9-II + §9.9-III all `[x]` (commits `a8af42e3` / `fb063b09` /
+  `2dbd3f15`)
+- §9.12 + サブ行 §9.12-pre / §9.12-A〜I / §9.13-0 / §9.13 が ROADMAP §9 に
+  展開済み (本セッション commit 2)。
+- Phase Status widget: Phase 9 IN-PROGRESS (§9.13 [x] で DONE)。
+- ADR skeletons (Proposed): 0070 / 0071 / 0072 / 0073; 0050 / 0023 amend
+  Revision history (本セッション commit 1)。
 
-Phase Status widget: Phase 9 stays `IN-PROGRESS` until §9.13 [x].
+## Next-session active task = §9.12-pre (autonomous)
 
-## Hard gate procedure — §9.12 substrate re-examination
+ADR drafts + 3 spike (`private/spikes/q3-*`)。Exit: 6 ADR が `Status: Proposed`
+で full draft 化 (Context / Decision / Alternatives / Consequences / References
+全部 populate) + 3 spike measurement report → §9.12 collab gate fire (HARD;
+ScheduleWakeup 抑止 + 1 文 handoff)。
 
-Per ADR-0062 + `/continue` skill §"Exception — hard human-in-loop
-transition gates": surface the gate document to the user,
-collaborative review walks Q2 / Q3 / Q4 decisions (DispatchTable
-completion vs comptime-switch vs per-op-file hybrid), then user
-flips §9.12 `[x]`. Phase 10 feature work waits behind this.
+### ADR drafts (skeleton → full)
 
-## Outstanding upstream blocker
+| ADR | Skeleton land | §9.12-pre で populate する内容 |
+|---|---|---|
+| 0071 (keystone) | 本セッション | Q2 P14 sharpening + Q3 C 採用 + Q4 boundary; Alternatives A/B/D-1 詳細 |
+| 0070 (Q6 libc) | 本セッション | necessary/replaceable/convenience 全 site 一覧 |
+| 0072 (Q5 comment) | 本セッション | rule text + 違反例カタログ |
+| 0073 (Q3 C DCE) | 本セッション | 4 layer pattern 詳細 + 3 spike 結果 |
+| 0050 amend | 本セッション | D-3 / D-4 full body |
+| 0023 §4.5 amend | 本セッション | per-op file pattern 移行 detail |
 
-D-148 (Zig 0.16 self-hosted x86_64 Debug backend miscompile for
-`callconv(.c)` 9-FP-scalar + MEMORY-class return) is filed at
-[Codeberg ziglang/zig#35343](https://codeberg.org/ziglang/zig/issues/35343).
-Workaround in `build.zig` (`.use_llvm = true` on the non-simd
-spec_assert runner exe; commit `a8474d1a`); minimal Zig-only
-repro at `private/spikes/d148-zig-sysv-fp-args/`. Removal
-condition: upstream fix lands → drop the override.
+### 3 spike (`private/spikes/`)
+
+| Spike | 計測 |
+|---|---|
+| `q3-zig-inline-switch/` | 581-tag `inline switch (op) { inline else => \|tag\| ... }` の Zig 0.16 compile-time + IR size; quota wall に当たるか |
+| `q3-interp-dispatch-bench/` | 中央 `DispatchTable.interp[op]` 間接 call vs zware `@call(.always_tail, lookup[op], ...)` の cycle 差 |
+| `q3-build-option-dce-poc/` | 代表 op `i32.add` を C パターンで実装し `-Dwasm={v1_0,v2_0,v3_0}` × `-Dwasi={p1,p2}` 6 build で symbol/size/test 確認 |
+
+## Outstanding upstream / Phase-10 blockers
+
+- **D-148** (Zig 0.16 self-hosted x86_64 backend miscompile): blocked-by
+  upstream; workaround `build.zig` `.use_llvm = true` 継続。Codeberg
+  ziglang/zig#35343 監視。
+- D-079 / D-102 / D-103 / D-105: barrier 解消済み (`now`); §9.12-E で discharge
+- D-133: §9.12-C で D-133 sweep に含む
 
 ### Discipline reminders
 
-No `--no-verify`. 2-host per chunk (Mac + ubuntunote);
-windowsmini reconcile stays at §9.13-0 (post-§9.12).
-
-### Outstanding `now` debts (after §9.9 close)
-
-- D-079: v128 cross-module imports (barrier dissolved per
-  ADR-0065; needs discharge attempt next resume).
-- D-102 / D-103 / D-105: cross-module data/elem/memory imports
-  (barrier dissolved at §9.9-III; discharge via Cat III code).
-- D-133: arm64 op_table / op_memory hardcoded X10/X11/X12
-  scratch sweep.
-- D-149: ADR Phase-9 cohort SHA backfill (75 `<backfill>`
-  placeholders across decisions/0003..0069; per audit §F.7).
-- D-148: blocked-by upstream Zig fix; workaround in place.
-- §9.13-0 cohort: D-084 / D-028 / D-136 (windowsmini SEH).
+- No `--no-verify`. 2-host per chunk (Mac + ubuntunote)。
+- windowsmini は §9.13-0 まで待機 (per ADR-0049)。
+- §9.12 hard gate: §9.12-pre [x] 後、ScheduleWakeup 抑止 + 1 文 handoff。
 
 ## Sandbox + References
 
-`~/.cache/zig` → `ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-cache`.
-Per-chunk 2-host; windowsmini at §9.13-0.
-
-PRIMARY: [`phase9_completion_substrate_audit.md`](phase9_completion_substrate_audit.md)
-(§9.12 hard gate). Close plan:
-[`phase9_close_plan.md`](phase9_close_plan.md) §6 Step (f) /
-(g) (post-§9.12 sequencing).
-ADRs: [`0062`](decisions/0062_phase9_completion_substrate_audit.md)
-(gate doc anchor), [`0026`](decisions/0026_x86_64_runtime_invariant_strategy.md)
-(Convention Swap), [`0069`](decisions/0069_multi_result_return_abi.md)
-(multi-result ABI), [`0065`](decisions/0065_wasm_1_0_instance_work_phase9_rescope.md)
-(Cat III absorption).
-Audit: `private/audit-2026-05-18.md` (Phase-9 boundary findings).
+PRIMARY: [`phase9_completion_close_plan.md`](phase9_completion_close_plan.md)
+(マスター計画書 v2)。
+Gate doc: [`phase9_completion_substrate_audit.md`](phase9_completion_substrate_audit.md)
+(Q1-Q6 + tentative answers)。
+ADRs: [`0071`](decisions/0071_phase9_substrate_audit_resolution.md) (keystone),
+[`0070`](decisions/0070_libc_dependency_policy.md),
+[`0072`](decisions/0072_comment_as_invariant_rule.md),
+[`0073`](decisions/0073_build_option_dce_substrate.md);
+amends: [`0023`](decisions/0023_src_directory_structure_normalization.md),
+[`0050`](decisions/0050_adr_lifecycle_and_skip_adr_enforcement.md)。
+Survey 出力 (gitignored): `private/notes/p9-close-*.md`,
+`private/notes/p9_close_master_plan_ja*.md`。
