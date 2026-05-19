@@ -321,6 +321,32 @@ change between iterations.
    exist (first cycle after the rule landed, or the log was
    cleared), skip this step silently.
 
+   **Non-code-gap exception**: when the log SHA is older than
+   origin HEAD but the diff between them touches **no** code
+   gate inputs (= no `src/`, `test/`, `include/`, `build.zig`,
+   `build.zig.zon`, `flake.nix`, `flake.lock`), the gap is
+   skill / docs / hook / `bench(ci)` commits that never needed
+   ubuntu verification. Skip the revert silently. Check:
+
+   ```sh
+   log_sha=$(awk '/OK \(HEAD=/{print $NF}' /tmp/ubuntu.log | tail -1 | tr -d '().')
+   git diff --name-only "${log_sha}..origin/zwasm-from-scratch" -- \
+       src/ test/ include/ build.zig build.zig.zon flake.nix flake.lock
+   ```
+
+   Empty output → non-code-gap → proceed to Step 6 as if
+   matched. Non-empty output → genuine code was pushed without
+   verification → revert per the FAIL path below.
+
+   This exception exists because skill-edit commits, hook
+   updates, `bench(ci): record <sha>` bot commits, and CLAUDE.md
+   tweaks can land on origin between code cycles. The previous
+   strict shape mis-fired on these by attempting to `git reset
+   --mixed HEAD~2` — destroying valid docs commits. The
+   exception preserves the verification discipline (real code
+   is still ubuntu-checked one-cycle-deferred) while letting
+   non-code commits flow through.
+
    **Force-push is forbidden** by §14, so the failing commit
    pair WAS already on origin. After local revert + fix, the
    next cycle's single push lands as a follow-up commit pair
