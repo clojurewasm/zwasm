@@ -72,6 +72,7 @@ pub const platform = struct {
 pub const ir = struct {
     pub const zir = @import("ir/zir.zig");
     pub const dispatch_table = @import("ir/dispatch_table.zig");
+    pub const dispatch_collector = @import("ir/dispatch_collector.zig");
     pub const lower = @import("ir/lower.zig");
     pub const verifier = @import("ir/verifier.zig");
     pub const analysis = struct {
@@ -192,6 +193,7 @@ test {
     _ = @import("cli/diag_print.zig");
     _ = @import("ir/zir.zig");
     _ = @import("ir/dispatch_table.zig");
+    _ = @import("ir/dispatch_collector.zig");
     _ = @import("ir/hoist/pass.zig");
     _ = @import("ir/coalesce/pass.zig");
     _ = @import("engine/codegen/aot/format.zig");
