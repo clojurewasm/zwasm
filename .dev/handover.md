@@ -15,8 +15,8 @@
    (374/581 IR-axis, 348/314 arch-axis); B53+ is gated on ADR-0075**.
 3. `git log --oneline -10` — recent autonomous-loop chunks under
    `chore(p9b):` / `feat(p9b):` prefix. Last source commit
-   `8c8d849d` (B58 — Wasm 1.0 int→float convert cohort migrated
-   to `(ctx, ins)`; existing B26 stubs converted in place).
+   `89261705` (B59 — reinterpret + promote/demote cohort migrated
+   to `(ctx, ins)`; existing B28 stubs converted in place).
 4. `bash scripts/p9_completion_status.sh` — live progress.
 5. `bash scripts/p9_simd_status.sh` — live SIMD status.
 6. `.dev/debt.md` `now` rows: none.
@@ -83,35 +83,39 @@
 | B56 | Cohort migration: trapping trunc cohort (`i{32,64}.trunc_f{32,64}_{s,u}`) to `(ctx, ins)`. 8 per-op aliases (signed family via `emitI32TruncF32S` alias; unsigned via `emitI32TruncF32U` alias) + 8 per-op files + `collected_x86_64_ctx_ops` 8 → 16. | `d663b8f4` |
 | B57 | Cohort migration: Wasm 2.0 trunc_sat cohort (`i{32,64}.trunc_sat_f{32,64}_{s,u}`, 8 ops) to `(ctx, ins)`. Existing B27 7-arg stubs converted in place; moved from `collected_x86_64_ops` (314 → 306) to `collected_x86_64_ctx_ops` (16 → 24). Three group aliases per consumer (`emitFpTruncSatSigned` / `U32` / `U64`). | `3877b3cf` |
 | B58 | Cohort migration: Wasm 1.0 int→float convert cohort (`f{32,64}.convert_i{32,64}_{s,u}`, 8 ops) to `(ctx, ins)`. Existing B26 7-arg stubs converted in place; moved from `collected_x86_64_ops` (306 → 298) to `collected_x86_64_ctx_ops` (24 → 32). Two group aliases (`emitFpConvertSimple` for 6 of 8, `emitFpConvertI64Unsigned` for i64_u pair). | `8c8d849d` |
-| **B59** | **Cohort migration: reinterpret + promote/demote cohort (`i{32,64}.reinterpret_f{32,64}`, `f{32,64}.reinterpret_i{32,64}`, `f64.promote_f32`, `f32.demote_f64`, 6 ops)** to `(ctx, ins)`. Same `emitFpConvertSimple` consumer (1 group alias). Existing B28 7-arg stubs in `x86_64/ops/wasm_1_0/` — convert in place per B57/B58 pattern. | **NEXT** |
-| B59..B6x | Bulk migrate remaining x86_64 emit fns in cohorts (5–15 ops/chunk per LOOP.md). Suggested order: reinterpret/promote/demote → table ops → globals → memory load/store → const → call → local. | |
+| B59 | Cohort migration: reinterpret + promote/demote cohort (`i{32,64}.reinterpret_f{32,64}`, `f{32,64}.reinterpret_i{32,64}`, `f64.promote_f32`, `f32.demote_f64`, 6 ops) to `(ctx, ins)`. B28 7-arg stubs converted in place; moved from `collected_x86_64_ops` (298 → 292) to `_ctx_ops` (32 → 38). Single `emitFpConvertSimple` consumer (1 primary + 5 aliases). | `89261705` |
+| **B60** | **Cohort migration: scalar load/store cohort (24 ops via `op_memory.emitMemOp` — `i{32,64}.load*`, `i{32,64}.store*`, `f{32,64}.load`/`store`)** to `(ctx, ins)`. Single legacy consumer. Existing per-op stubs at `x86_64/ops/wasm_1_0/` (likely from earlier B-series) — convert in place per B57/B58/B59 pattern. May exceed 800 LOC threshold — split into load (12) + store (12) sub-chunks if needed. | **NEXT** |
+| B60..B6x | Bulk migrate remaining x86_64 emit fns in cohorts (5–15 ops/chunk per LOOP.md). Suggested order: scalar load/store → memory.{fill,copy,init} → table ops → globals → const → call → local. | |
 | B6x+1 | Inline-switch dispatcher cutover per ADR-0073 — both arches' `emit.zig` giant switch replaced by `inline for (collected_X_ops) |op_mod| { if (op_mod.op_tag == ins.op) return op_mod.emit(ctx, ins); }`. Moment per-op files become load-bearing. | |
 
-## Active state — §9.12-B mid-flight; B58 convert cohort landed 2026-05-20
+## Active state — §9.12-B mid-flight; B59 reinterpret cohort landed 2026-05-20
 
-**B59 is the active task** — cohort migrate the reinterpret +
-promote/demote variants (`i{32,64}.reinterpret_f{32,64}`,
-`f{32,64}.reinterpret_i{32,64}`, `f64.promote_f32`,
-`f32.demote_f64`, 6 ops) to `(ctx, ins)`. B58 closed the convert
-cohort at `8c8d849d` (`collected_x86_64_ctx_ops` 24 → 32;
-`collected_x86_64_ops` 306 → 298 by moving B26 stubs).
+**B60 is the active task** — cohort migrate the scalar load/store
+variants (~24 ops via `op_memory.emitMemOp` — `i32/i64.load*`,
+`i32/i64.store*`, `f32/f64.load`/`store`) to the `(ctx, ins)`
+shape. B59 closed the reinterpret/promote/demote cohort at
+`89261705` (`collected_x86_64_ctx_ops` 32 → 38;
+`collected_x86_64_ops` 298 → 292 by moving B28 stubs).
 
-The loop for B59 mirrors B57/B58:
+The loop for B60 mirrors B57-B59:
 
-1. Add `(ctx, ins)` adapters in x86_64/op_convert.zig wrapping
-   `emitFpConvertSimple` (the same consumer; emit.zig's first arm
-   at lines ~922-927 — the only legacy arm still using simple
-   path after B58).
-2. Replace that single legacy arm with 6 per-op arms calling
-   `(ctx, ins)` adapters via `&ctx`.
-3. The B28 stubs at `x86_64/ops/wasm_1_0/` already exist —
-   convert in place per B57/B58 pattern. (Locations:
-   `i32_reinterpret_f32.zig`, `i64_reinterpret_f64.zig`,
-   `f32_reinterpret_i32.zig`, `f64_reinterpret_i64.zig`,
-   `f64_promote_f32.zig`, `f32_demote_f64.zig`.)
-4. Update `collected_x86_64_ctx_ops` (32 → 38) + legacy tuple
-   (298 → 292) + both assertion tests.
-5. Verify 2-host green; commit + push.
+1. Survey `op_memory.emitMemOp` signature — it likely takes
+   `bounds_fixups` + `ins.payload` + `func.func_idx`; the ctx
+   adapter unpacks all from `*EmitCtx`.
+2. Add `(ctx, ins)` adapter in op_memory.zig (or wrapper in
+   op_convert/separate file); aliases for all 24 variants.
+3. Replace the grouped arm in emit.zig (lines ~962-985) with
+   24 per-op arms calling `(ctx, ins)` adapters via `&ctx`.
+4. Convert existing per-op stub files in place (likely
+   `i32_load.zig`, `i32_load8_s.zig`, etc — check first).
+5. Update `collected_x86_64_ctx_ops` (38 → 62) + legacy tuple
+   (292 → 268) + both assertion tests.
+6. If diff > 800 LOC: split into load-only (12) + store-only
+   (12) sub-chunks per LOOP.md chunk granularity.
+7. Verify 2-host green; commit + push.
+
+Note: op_convert.zig is now 1009 LOC (soft cap warn at 1000) —
+the file may need a split plan in §9.12-D cleanup. Not blocking.
 
 §9.12-B exit criterion stays as ROADMAP §9.12-B specifies (6 build
 combos green + DCE 0 + completeness comptime check). Per-op file
