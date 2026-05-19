@@ -286,6 +286,16 @@ const i64x2_gt_s = @import("../instruction/wasm_2_0/i64x2_gt_s.zig");
 const i64x2_le_s = @import("../instruction/wasm_2_0/i64x2_le_s.zig");
 const i64x2_ge_s = @import("../instruction/wasm_2_0/i64x2_ge_s.zig");
 
+const v128_any_true = @import("../instruction/wasm_2_0/v128_any_true.zig");
+const i8x16_all_true = @import("../instruction/wasm_2_0/i8x16_all_true.zig");
+const i16x8_all_true = @import("../instruction/wasm_2_0/i16x8_all_true.zig");
+const i32x4_all_true = @import("../instruction/wasm_2_0/i32x4_all_true.zig");
+const i64x2_all_true = @import("../instruction/wasm_2_0/i64x2_all_true.zig");
+const i8x16_bitmask = @import("../instruction/wasm_2_0/i8x16_bitmask.zig");
+const i16x8_bitmask = @import("../instruction/wasm_2_0/i16x8_bitmask.zig");
+const i32x4_bitmask = @import("../instruction/wasm_2_0/i32x4_bitmask.zig");
+const i64x2_bitmask = @import("../instruction/wasm_2_0/i64x2_bitmask.zig");
+
 const f32x4_eq = @import("../instruction/wasm_2_0/f32x4_eq.zig");
 const f32x4_ne = @import("../instruction/wasm_2_0/f32x4_ne.zig");
 const f32x4_lt = @import("../instruction/wasm_2_0/f32x4_lt.zig");
@@ -708,6 +718,15 @@ pub const collected_ops = .{
     f64x2_gt,
     f64x2_le,
     f64x2_ge,
+    v128_any_true,
+    i8x16_all_true,
+    i16x8_all_true,
+    i32x4_all_true,
+    i64x2_all_true,
+    i8x16_bitmask,
+    i16x8_bitmask,
+    i32x4_bitmask,
+    i64x2_bitmask,
 };
 
 comptime {
@@ -861,9 +880,9 @@ test "zirOpTagCount matches the ZirOp enum field count" {
     try std.testing.expect(n >= 200);
 }
 
-test "migratedOpCount tracks collected_ops length (264 after §9.12-B / B41 SIMD float cmp)" {
+test "migratedOpCount tracks collected_ops length (273 after §9.12-B / B42 SIMD bool reductions)" {
     // Running tally: 162 + i16x8 cmp 10 = 172.
-    try std.testing.expectEqual(@as(usize, 264), migratedOpCount());
+    try std.testing.expectEqual(@as(usize, 273), migratedOpCount());
 }
 
 test "migrationComplete is false until §9.12-B migrates all 581 ops" {
