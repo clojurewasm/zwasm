@@ -286,6 +286,23 @@ const i64x2_gt_s = @import("../instruction/wasm_2_0/i64x2_gt_s.zig");
 const i64x2_le_s = @import("../instruction/wasm_2_0/i64x2_le_s.zig");
 const i64x2_ge_s = @import("../instruction/wasm_2_0/i64x2_ge_s.zig");
 
+const i8x16_narrow_i16x8_s = @import("../instruction/wasm_2_0/i8x16_narrow_i16x8_s.zig");
+const i8x16_narrow_i16x8_u = @import("../instruction/wasm_2_0/i8x16_narrow_i16x8_u.zig");
+const i16x8_narrow_i32x4_s = @import("../instruction/wasm_2_0/i16x8_narrow_i32x4_s.zig");
+const i16x8_narrow_i32x4_u = @import("../instruction/wasm_2_0/i16x8_narrow_i32x4_u.zig");
+const i16x8_extend_low_i8x16_s = @import("../instruction/wasm_2_0/i16x8_extend_low_i8x16_s.zig");
+const i16x8_extend_high_i8x16_s = @import("../instruction/wasm_2_0/i16x8_extend_high_i8x16_s.zig");
+const i16x8_extend_low_i8x16_u = @import("../instruction/wasm_2_0/i16x8_extend_low_i8x16_u.zig");
+const i16x8_extend_high_i8x16_u = @import("../instruction/wasm_2_0/i16x8_extend_high_i8x16_u.zig");
+const i32x4_extend_low_i16x8_s = @import("../instruction/wasm_2_0/i32x4_extend_low_i16x8_s.zig");
+const i32x4_extend_high_i16x8_s = @import("../instruction/wasm_2_0/i32x4_extend_high_i16x8_s.zig");
+const i32x4_extend_low_i16x8_u = @import("../instruction/wasm_2_0/i32x4_extend_low_i16x8_u.zig");
+const i32x4_extend_high_i16x8_u = @import("../instruction/wasm_2_0/i32x4_extend_high_i16x8_u.zig");
+const i64x2_extend_low_i32x4_s = @import("../instruction/wasm_2_0/i64x2_extend_low_i32x4_s.zig");
+const i64x2_extend_high_i32x4_s = @import("../instruction/wasm_2_0/i64x2_extend_high_i32x4_s.zig");
+const i64x2_extend_low_i32x4_u = @import("../instruction/wasm_2_0/i64x2_extend_low_i32x4_u.zig");
+const i64x2_extend_high_i32x4_u = @import("../instruction/wasm_2_0/i64x2_extend_high_i32x4_u.zig");
+
 const v128_any_true = @import("../instruction/wasm_2_0/v128_any_true.zig");
 const i8x16_all_true = @import("../instruction/wasm_2_0/i8x16_all_true.zig");
 const i16x8_all_true = @import("../instruction/wasm_2_0/i16x8_all_true.zig");
@@ -727,6 +744,22 @@ pub const collected_ops = .{
     i16x8_bitmask,
     i32x4_bitmask,
     i64x2_bitmask,
+    i8x16_narrow_i16x8_s,
+    i8x16_narrow_i16x8_u,
+    i16x8_narrow_i32x4_s,
+    i16x8_narrow_i32x4_u,
+    i16x8_extend_low_i8x16_s,
+    i16x8_extend_high_i8x16_s,
+    i16x8_extend_low_i8x16_u,
+    i16x8_extend_high_i8x16_u,
+    i32x4_extend_low_i16x8_s,
+    i32x4_extend_high_i16x8_s,
+    i32x4_extend_low_i16x8_u,
+    i32x4_extend_high_i16x8_u,
+    i64x2_extend_low_i32x4_s,
+    i64x2_extend_high_i32x4_s,
+    i64x2_extend_low_i32x4_u,
+    i64x2_extend_high_i32x4_u,
 };
 
 comptime {
@@ -880,9 +913,9 @@ test "zirOpTagCount matches the ZirOp enum field count" {
     try std.testing.expect(n >= 200);
 }
 
-test "migratedOpCount tracks collected_ops length (273 after §9.12-B / B42 SIMD bool reductions)" {
+test "migratedOpCount tracks collected_ops length (289 after §9.12-B / B43 SIMD narrow+extend)" {
     // Running tally: 162 + i16x8 cmp 10 = 172.
-    try std.testing.expectEqual(@as(usize, 273), migratedOpCount());
+    try std.testing.expectEqual(@as(usize, 289), migratedOpCount());
 }
 
 test "migrationComplete is false until §9.12-B migrates all 581 ops" {
