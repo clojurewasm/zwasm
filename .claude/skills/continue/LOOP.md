@@ -318,6 +318,37 @@ ScheduleWakeup(
 )
 ```
 
+**Override notice — the `ScheduleWakeup` tool description
+contradicts this skill on purpose.** The tool's docs advocate
+1200–1800s defaults and warn "Don't pick 300s" + cache-cost
+arguments against short polls. Those defaults are correct for
+general autonomous loops that don't have ADR-0076 D3's deferred-
+verification structure. **This skill overrides them.** Reasons:
+
+1. ADR-0076 D3 makes each cycle's ubuntu test a background
+   job whose result is verified at the **next** cycle's Step
+   0.7. The wait is not "polling" — it's a structural one-cycle
+   lag. Bigger delay just postpones B-row progress without
+   buying anything.
+2. The harness re-invokes you immediately when a
+   `task-notification` arrives (e.g. the ubuntu bg bash
+   completes). 60s vs 1200s is **irrelevant** to that path —
+   notifications cut through any wakeup.
+3. Cache-warmth optimization the tool docs cite is dominated
+   by the per-cycle commit / push / git fetch latency. The
+   "5-minute cache window" framing is not load-bearing for
+   this loop's economics.
+4. The user invoked `/continue` for **autonomy**, not for
+   throughput optimization. A 60s heartbeat means manual
+   `/continue` resumes from the user feel instant; a 1200s
+   heartbeat means the user wonders "is the loop still
+   running?" and pre-empts it.
+
+If you find yourself reaching for 300s / 1200s / 1800s
+because the tool description recommends it, **stop**.
+Re-read this section. The mandate is 60s. The tool
+description's defaults do not apply inside `/continue`.
+
 `prompt = "/continue"` re-fires this skill from the resume
 procedure on the next wakeup. (Do **not** pass
 `<<autonomous-loop-dynamic>>` — that sentinel is for `/loop`
