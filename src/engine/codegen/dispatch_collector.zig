@@ -793,6 +793,8 @@ const x86_64_table_copy = @import("x86_64/ops/wasm_1_0/table_copy.zig");
 const x86_64_table_init = @import("x86_64/ops/wasm_1_0/table_init.zig");
 const x86_64_call = @import("x86_64/ops/wasm_1_0/call.zig");
 const x86_64_call_indirect = @import("x86_64/ops/wasm_1_0/call_indirect.zig");
+const x86_64_block = @import("x86_64/ops/wasm_1_0/block.zig");
+const x86_64_loop = @import("x86_64/ops/wasm_1_0/loop.zig");
 
 const x86_64_i32_add = @import("x86_64/ops/wasm_1_0/i32_add.zig");
 const x86_64_i32_sub = @import("x86_64/ops/wasm_1_0/i32_sub.zig");
@@ -1596,6 +1598,8 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_table_init,
     x86_64_call,
     x86_64_call_indirect,
+    x86_64_block,
+    x86_64_loop,
 };
 
 comptime {
@@ -1682,9 +1686,12 @@ test "collected_x86_64_ctx_ops tracks B54+ migrations to `(ctx, ins)` shape" {
     // (global.get/set, 2 new per-op files, +2 = 66). B63: table
     // ops cohort (7 new per-op files: table.get/set/size/grow/
     // fill/copy/init, +7 = 73). B64: call cohort (call +
-    // call_indirect, 2 new per-op files, +2 = 75). The B6x+1
-    // cutover folds this tuple back into `collected_x86_64_ops`.
-    try std.testing.expectEqual(@as(usize, 75), collected_x86_64_ctx_ops.len);
+    // call_indirect, 2 new per-op files, +2 = 75). B65: control
+    // structure cohort (block + loop, 2 new per-op files, +2 = 77;
+    // br/br_if/br_table/if/else/end/return/unreachable deferred —
+    // no Zone 1 meta files). The B6x+1 cutover folds this tuple
+    // back into `collected_x86_64_ops`.
+    try std.testing.expectEqual(@as(usize, 77), collected_x86_64_ctx_ops.len);
 }
 
 // Note: a `dispatch(.arm64, tag, args)` test at this layer would

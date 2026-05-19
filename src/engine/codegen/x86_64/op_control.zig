@@ -26,6 +26,7 @@ const std = @import("std");
 
 const zir = @import("../../../ir/zir.zig");
 const regalloc = @import("../shared/regalloc.zig");
+const ctx_mod = @import("ctx.zig");
 const inst = @import("inst.zig");
 const abi = @import("abi.zig");
 const gpr = @import("gpr.zig");
@@ -36,6 +37,29 @@ const Allocator = std.mem.Allocator;
 const Error = types.Error;
 const Label = label_mod.Label;
 const ZirFunc = zir.ZirFunc;
+
+/// §9.12-B / B65 (ADR-0075) — `(ctx, ins)` adapters for the
+/// control-structure cohort (`block`, `loop`). Two distinct
+/// adapters (different signatures — loop takes `buf` for the
+/// back-edge target). Decomposes per-op at the B6x+1 cutover.
+pub fn emitBlockCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    return emitBlock(
+        ctx.allocator,
+        ctx.labels,
+        ctx.pushed_vregs,
+        ins.extra,
+    );
+}
+
+pub fn emitLoopCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    return emitLoop(
+        ctx.allocator,
+        ctx.buf,
+        ctx.labels,
+        ctx.pushed_vregs,
+        ins.extra,
+    );
+}
 
 /// Mirror of `Label.merge_top_vregs.len` — comptime-knowable cap
 /// on Wasm 2.0 multi-value if/else result arity. Mirrors
