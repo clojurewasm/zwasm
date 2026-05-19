@@ -147,6 +147,13 @@ const arm64_i64_div_s = @import("arm64/ops/wasm_1_0/i64_div_s.zig");
 const arm64_i64_div_u = @import("arm64/ops/wasm_1_0/i64_div_u.zig");
 const arm64_i64_rem_s = @import("arm64/ops/wasm_1_0/i64_rem_s.zig");
 const arm64_i64_rem_u = @import("arm64/ops/wasm_1_0/i64_rem_u.zig");
+const arm64_i32_wrap_i64 = @import("arm64/ops/wasm_1_0/i32_wrap_i64.zig");
+const arm64_i64_extend_i32_s = @import("arm64/ops/wasm_1_0/i64_extend_i32_s.zig");
+const arm64_i64_extend_i32_u = @import("arm64/ops/wasm_1_0/i64_extend_i32_u.zig");
+
+const x86_64_i32_wrap_i64 = @import("x86_64/ops/wasm_1_0/i32_wrap_i64.zig");
+const x86_64_i64_extend_i32_s = @import("x86_64/ops/wasm_1_0/i64_extend_i32_s.zig");
+const x86_64_i64_extend_i32_u = @import("x86_64/ops/wasm_1_0/i64_extend_i32_u.zig");
 
 const x86_64_i32_add = @import("x86_64/ops/wasm_1_0/i32_add.zig");
 const x86_64_i32_sub = @import("x86_64/ops/wasm_1_0/i32_sub.zig");
@@ -269,6 +276,9 @@ pub const collected_arm64_ops = .{
     arm64_i64_div_u,
     arm64_i64_rem_s,
     arm64_i64_rem_u,
+    arm64_i32_wrap_i64,
+    arm64_i64_extend_i32_s,
+    arm64_i64_extend_i32_u,
 };
 
 /// Tuple of all migrated x86_64 per-op modules.
@@ -328,6 +338,9 @@ pub const collected_x86_64_ops = .{
     x86_64_i64_extend8_s,
     x86_64_i64_extend16_s,
     x86_64_i64_extend32_s,
+    x86_64_i32_wrap_i64,
+    x86_64_i64_extend_i32_s,
+    x86_64_i64_extend_i32_u,
 };
 
 comptime {
@@ -386,10 +399,10 @@ test "ArchAxis enum has exactly 2 variants per ADR-0074 (Zone 2 arch-axes)" {
     try std.testing.expectEqual(@as(usize, 2), @typeInfo(ArchAxis).@"enum".fields.len);
 }
 
-test "migratedArchOpCount tracks collected per-arch tuples (B20: arm64=63, x86_64=55)" {
-    // arm64 = 55 + div/rem 8; x86_64 div/rem deferred (bounds_fixups arg).
-    try std.testing.expectEqual(@as(usize, 63), migratedArchOpCount(.arm64));
-    try std.testing.expectEqual(@as(usize, 55), migratedArchOpCount(.x86_64));
+test "migratedArchOpCount tracks collected per-arch tuples (B21: arm64=66, x86_64=58)" {
+    // arm64 = 63 + width-conv 3; x86_64 = 55 + width-conv 3.
+    try std.testing.expectEqual(@as(usize, 66), migratedArchOpCount(.arm64));
+    try std.testing.expectEqual(@as(usize, 58), migratedArchOpCount(.x86_64));
 }
 
 // Note: a `dispatch(.arm64, tag, args)` test at this layer would
