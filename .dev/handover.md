@@ -15,8 +15,8 @@
    (374/581 IR-axis, 348/314 arch-axis); B53+ is gated on ADR-0075**.
 3. `git log --oneline -10` — recent autonomous-loop chunks under
    `chore(p9b):` / `feat(p9b):` prefix. Last source commit
-   `f4aac465` (B62 — globals cohort: global.get/set 2 ops
-   migrated to `(ctx, ins)`; 2 new per-op files).
+   `344e1d29` (B63 — table ops cohort: 7 ops migrated to
+   `(ctx, ins)`; 7 new per-op files; ctx 66 → 73).
 4. `bash scripts/p9_completion_status.sh` — live progress.
 5. `bash scripts/p9_simd_status.sh` — live SIMD status.
 6. `.dev/debt.md` `now` rows: none.
@@ -87,32 +87,30 @@
 | B60 | Cohort migration: scalar load/store cohort (23 ops via `op_memory.emitMemOp`) to `(ctx, ins)`. 23 NEW per-op files (these ops were never in legacy tuple — only emit.zig's grouped switch arm). Single primary `emitI32Load` + 22 aliases. `collected_x86_64_ctx_ops` 38 → 61; legacy tuple unchanged at 292. | `18ac9b49` |
 | B61 | Cohort migration: bulk-memory cohort (`memory.fill` / `memory.copy` / `memory.init`, 3 ops) to `(ctx, ins)`. 3 distinct adapters (no aliases — fill/copy/init use distinct legacy helpers). 3 NEW per-op files. `_ctx_ops` 61 → 64; legacy unchanged at 292. data.drop / elem.drop deferred (no Zone 1 meta files). | `84abd51e` |
 | B62 | Cohort migration: globals cohort (`global.get` / `global.set`, 2 ops) to `(ctx, ins)`. 2 distinct adapters (set has no `next_vreg`). 2 NEW per-op files. `_ctx_ops` 64 → 66; legacy unchanged at 292. | `f4aac465` |
-| **B63** | **Cohort migration: table ops cohort (`table.get`, `table.set`, `table.size`, `table.grow`, `table.fill`, `table.copy`, 6 ops)** to `(ctx, ins)`. Heterogeneous consumers (`op_table.emit*`). Adapters thread `ctx.func_idx` + `ins.payload`/`ins.extra` (table.copy uses extra for src+dst table indices). New per-op files. `table.init` may need separate handling if it consumes data_idx. | **NEXT** |
-| B63..B6x | Bulk migrate remaining x86_64 emit fns in cohorts (5–15 ops/chunk per LOOP.md). Suggested order: table ops → const → call → local → control → drop ops (after Zone 1 meta). | |
+| B63 | Cohort migration: table ops cohort (`table.{get,set,size,grow,fill,copy,init}`, 7 ops) to `(ctx, ins)`. 7 distinct adapters (heterogeneous — table.copy/init use ins.extra; table.grow uses outgoing_max_bytes). 7 NEW per-op files. `_ctx_ops` 66 → 73; legacy unchanged at 292. | `344e1d29` |
+| **B64** | **Cohort migration: scalar const cohort (`i32.const`, `i64.const`, `f32.const`, `f64.const`, 4 ops)** to `(ctx, ins)`. Inline in emit.zig (no helper yet); adapters call shared `gpr.gprDefSpilled` + `inst.encMovImm*` directly. Per-op files create new helpers in op_const.zig (or extract into one); 4 ops total. May need ref.func / ref.null too — survey first. | **NEXT** |
+| B64..B6x | Bulk migrate remaining x86_64 emit fns in cohorts (5–15 ops/chunk per LOOP.md). Suggested order: const → call → local → control → drop ops (after Zone 1 meta). | |
 | B6x+1 | Inline-switch dispatcher cutover per ADR-0073 — both arches' `emit.zig` giant switch replaced by `inline for (collected_X_ops) |op_mod| { if (op_mod.op_tag == ins.op) return op_mod.emit(ctx, ins); }`. Moment per-op files become load-bearing. | |
 
-## Active state — §9.12-B mid-flight; B62 globals cohort landed 2026-05-20
+## Active state — §9.12-B mid-flight; B63 table ops cohort landed 2026-05-20
 
-**B63 is the active task** — cohort migrate `table.get` /
-`table.set` / `table.size` / `table.grow` / `table.fill` /
-`table.copy` / `table.init` (7 ops) to `(ctx, ins)`. B62 closed
-the globals cohort at `f4aac465` (`collected_x86_64_ctx_ops`
-64 → 66).
+**B64 is the active task** — cohort migrate scalar `*.const`
+ops (`i32.const`, `i64.const`, `f32.const`, `f64.const` and
+possibly `ref.func`, `ref.null` — survey first) to `(ctx, ins)`.
+B63 closed the table cohort at `344e1d29`
+(`collected_x86_64_ctx_ops` 66 → 73).
 
-The loop for B63:
+The loop for B64:
 
-1. Survey `op_table.emit*` signatures (likely take `func_idx` +
-   `ins.payload` + bounds_fixups + outgoing_max_bytes for some
-   variants — emit.zig arms at lines 999-1024).
-2. Add per-op `(ctx, ins)` adapters in op_table.zig. Some need
-   `ins.extra` (e.g. table.copy: src + dst table indices,
-   table.init: src elem + dst table).
-3. Replace ~7 emit.zig arms with `(ctx, ins)` calls.
-4. Create 7 NEW per-op files (check Zone 1 meta files exist
-   for `table_get`, `table_set`, `table_size`, `table_grow`,
-   `table_fill`, `table_copy`, `table_init`).
-5. Update collector (66 → 73 if all 7) + assertion.
-6. Verify 2-host green; commit + push.
+1. Survey emit.zig dispatch arms for `i32.const`, `i64.const`,
+   `f32.const`, `f64.const`, `ref.func`, `ref.null` — likely
+   inline bodies (no `op_const.zig` extracted yet). Look around
+   emit.zig lines 726-749 (i32.const + i64.const inline).
+2. Decide whether to extract per-op helpers into op_const.zig
+   first, or keep inline and add adapters that call
+   `inst.encMovImm*` directly.
+3. Create per-op files; update collector; bump assertion.
+4. Verify 2-host green; commit + push.
 
 Note: op_convert.zig at 1009 LOC — file split plan deferred to
 §9.12-D cleanup.
