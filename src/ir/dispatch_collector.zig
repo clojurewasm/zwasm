@@ -424,6 +424,30 @@ const i64x2_shl = @import("../instruction/wasm_2_0/i64x2_shl.zig");
 const i64x2_shr_s = @import("../instruction/wasm_2_0/i64x2_shr_s.zig");
 const i64x2_shr_u = @import("../instruction/wasm_2_0/i64x2_shr_u.zig");
 
+const i32_load = @import("../instruction/wasm_1_0/i32_load.zig");
+const i32_load8_s = @import("../instruction/wasm_1_0/i32_load8_s.zig");
+const i32_load8_u = @import("../instruction/wasm_1_0/i32_load8_u.zig");
+const i32_load16_s = @import("../instruction/wasm_1_0/i32_load16_s.zig");
+const i32_load16_u = @import("../instruction/wasm_1_0/i32_load16_u.zig");
+const i32_store = @import("../instruction/wasm_1_0/i32_store.zig");
+const i32_store8 = @import("../instruction/wasm_1_0/i32_store8.zig");
+const i32_store16 = @import("../instruction/wasm_1_0/i32_store16.zig");
+const i64_load = @import("../instruction/wasm_1_0/i64_load.zig");
+const i64_load8_s = @import("../instruction/wasm_1_0/i64_load8_s.zig");
+const i64_load8_u = @import("../instruction/wasm_1_0/i64_load8_u.zig");
+const i64_load16_s = @import("../instruction/wasm_1_0/i64_load16_s.zig");
+const i64_load16_u = @import("../instruction/wasm_1_0/i64_load16_u.zig");
+const i64_load32_s = @import("../instruction/wasm_1_0/i64_load32_s.zig");
+const i64_load32_u = @import("../instruction/wasm_1_0/i64_load32_u.zig");
+const i64_store = @import("../instruction/wasm_1_0/i64_store.zig");
+const i64_store8 = @import("../instruction/wasm_1_0/i64_store8.zig");
+const i64_store16 = @import("../instruction/wasm_1_0/i64_store16.zig");
+const i64_store32 = @import("../instruction/wasm_1_0/i64_store32.zig");
+const f32_load = @import("../instruction/wasm_1_0/f32_load.zig");
+const f32_store = @import("../instruction/wasm_1_0/f32_store.zig");
+const f64_load = @import("../instruction/wasm_1_0/f64_load.zig");
+const f64_store = @import("../instruction/wasm_1_0/f64_store.zig");
+
 const global_get = @import("../instruction/wasm_1_0/global_get.zig");
 const global_set = @import("../instruction/wasm_1_0/global_set.zig");
 const table_get = @import("../instruction/wasm_1_0/table_get.zig");
@@ -835,6 +859,29 @@ pub const collected_ops = .{
     table_fill,
     table_copy,
     table_init,
+    i32_load,
+    i32_load8_s,
+    i32_load8_u,
+    i32_load16_s,
+    i32_load16_u,
+    i32_store,
+    i32_store8,
+    i32_store16,
+    i64_load,
+    i64_load8_s,
+    i64_load8_u,
+    i64_load16_s,
+    i64_load16_u,
+    i64_load32_s,
+    i64_load32_u,
+    i64_store,
+    i64_store8,
+    i64_store16,
+    i64_store32,
+    f32_load,
+    f32_store,
+    f64_load,
+    f64_store,
 };
 
 comptime {
@@ -988,9 +1035,9 @@ test "zirOpTagCount matches the ZirOp enum field count" {
     try std.testing.expect(n >= 200);
 }
 
-test "migratedOpCount tracks collected_ops length (325 after §9.12-B / B46 arm64 globals+table)" {
+test "migratedOpCount tracks collected_ops length (348 after §9.12-B / B47 arm64 load/store)" {
     // Running tally: 162 + i16x8 cmp 10 = 172.
-    try std.testing.expectEqual(@as(usize, 325), migratedOpCount());
+    try std.testing.expectEqual(@as(usize, 348), migratedOpCount());
 }
 
 test "migrationComplete is false until §9.12-B migrates all 581 ops" {
