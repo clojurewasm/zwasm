@@ -32,9 +32,10 @@
 | B8 | lower.zig wire (mirror of B7; closes 5-of-5 dispatcher wires) | `bc7cde3d` |
 | B9 | ADR-0074 — per-op file zone split along axis boundary (Zone 1: validate/lower/interp; Zone 2: arm64/x86_64). Amends ADR-0023 §4.5. Design-only; no code change | `5b42f526` |
 | B10 | Zone 2 collector at `src/engine/codegen/dispatch_collector.zig` (ArchAxis = arm64/x86_64) + per-arch i32_add stubs at `src/engine/codegen/<arch>/ops/wasm_1_0/i32_add.zig`. i32_add.zig handlers aggregate narrowed to 3 IR-axes. arm64/x86_64 emit.zig wires retargeted to Zone 2 collector | `23ee2e6d` |
-| B11 | arm64 i32.add real body migration; dispatcher refactor to bool-return + inferred-error pattern (no DispatchError shrapnel; per-arch file existing = migrated); x86_64 i32.add stub deferred to B12 | `<backfill>` |
-| B12 | x86_64 i32.add real body migration (mirror of B11; reuse op_alu_int.emitI32Binary's 7-arg signature) | **NEXT** |
-| B13..Bn | per-arch cohort migration (5-15 ops/chunk per arch). IR-axis (validate/lower/interp) migration deferred until cross-Zone-1 circular-dep is resolved (likely requires extracting Validator/Lower types to a dispatcher-free module) | |
+| B11 | arm64 i32.add real body migration; dispatcher refactor to bool-return + inferred-error pattern (no DispatchError shrapnel; per-arch file existing = migrated); x86_64 i32.add stub deferred to B12 | `e39db505` |
+| B12 | x86_64 i32.add real body migration (mirror of B11; reuse op_alu_int.emitI32Binary's 7-arg signature) | `<backfill>` |
+| B13 | i32 binary ALU cohort migration to per-arch op files: i32.sub / i32.mul / i32.and / i32.or / i32.xor (5 ops × 2 arches; same emit body pattern as i32.add) | **NEXT** |
+| B14..Bn | per-arch cohort migration (5-15 ops/chunk per arch). IR-axis (validate/lower/interp) migration deferred until cross-Zone-1 circular-dep is resolved (likely requires extracting Validator/Lower types to a dispatcher-free module) | |
 
 ## Active state — §9.12-A [x]; §9.12-B autonomous (HUGE row)
 
