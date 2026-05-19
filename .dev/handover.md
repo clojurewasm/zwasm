@@ -14,7 +14,8 @@
    row. **B30..B52 covered the dispatcher-signature-compatible cohort
    (374/581 IR-axis, 348/314 arch-axis); B53+ is gated on ADR-0075**.
 3. `git log --oneline -10` — recent autonomous-loop chunks under
-   `chore(p9b):` prefix. Last source commit `fbf6d338` (B52).
+   `chore(p9b):` / `feat(p9b):` prefix. Last source commit
+   `952e1a33` (B53 — ADR-0075 Accepted + EmitCtx substrate).
 4. `bash scripts/p9_completion_status.sh` — live progress.
 5. `bash scripts/p9_simd_status.sh` — live SIMD status.
 6. `.dev/debt.md` `now` rows: none.
@@ -75,32 +76,35 @@
 | B50 | arm64 control flow scalar cohort (6 ops, arm64-only). 12 new files | `<backfill>` |
 | B51 | arm64 trapping trunc cohort: 8 ops, arm64-only. 16 new files | `<backfill>` |
 | B52 | SIMD splats + ref.is_null cohort (7 ops, both arches): i{8x16,16x8,32x4,64x2}.splat + f{32x4,64x2}.splat + ref.is_null. 21 new files. 374/348/314 of 581 | `<backfill>` |
-| **B53** | **ADR-0075 acceptance + x86_64 EmitCtx struct extension** — flip ADR-0075 Status: Proposed → Accepted in same commit. Add fields to `src/engine/codegen/x86_64/ctx.zig::EmitCtx`: `bounds_fixups`, `simd_const_fixups`, `extra_consts`, `func_idx`, `globals_offsets`, `globals_valtypes`, `tableidx` (and any others surfaced by the audit). Initialise in `x86_64/emit.zig::emitFunction`. NO behaviour change. 2-host green expected. | **NEXT** |
-| B54 | PoC: migrate `i32.div_s` end-to-end to `(ctx, ins)` shape (exercises `bounds_fixups`). New x86_64 emit fn sig at `op_alu_int.emitI32DivS(ctx, ins)`; dispatch arm at `x86_64/emit.zig` updated; per-op file `x86_64/ops/wasm_1_0/i32_div_s.zig` migrates from arm64-only to both arches; collector x86_64 count test +1. | |
+| B53 | ADR-0075 Accepted + x86_64 EmitCtx substrate. New file `src/engine/codegen/x86_64/ctx.zig` mirrors arm64's shape; `EmitCtx.init(args: InitArgs)` factory keeps emit.zig under the 2000-line hard cap. Initialised once at the top of `compile()`'s body-loop; `_ = &ctx;` keeps it inert until B54. No behaviour change. | `952e1a33` |
+| **B54** | **PoC: migrate `i32.div_s` end-to-end to `(ctx, ins)` shape** (exercises `bounds_fixups`). New x86_64 emit fn sig at `op_alu_int.emitI32DivS(ctx, ins)`; dispatch arm at `x86_64/emit.zig` updated; per-op file `x86_64/ops/wasm_1_0/i32_div_s.zig` migrates from arm64-only to both arches; collector x86_64 count test +1. | **NEXT** |
 | B55..B6x | Bulk migrate remaining ~70 x86_64 emit fns in cohorts (5–15 ops/chunk per LOOP.md). Same pattern as B11..B12 was for arm64 i32.add but applied at scale. Migration order suggestion: trapping trunc 8 → div/rem 8 → table ops → globals → memory load/store → const → call → local — bottom up by dependency. | |
 | B6x+1 | Inline-switch dispatcher cutover per ADR-0073 — both arches' `emit.zig` giant switch replaced by `inline for (collected_X_ops) |op_mod| { if (op_mod.op_tag == ins.op) return op_mod.emit(ctx, ins); }`. Moment per-op files become load-bearing. | |
 
-## Active state — §9.12-B mid-flight; ADR-0075 confirmed 2026-05-19
+## Active state — §9.12-B mid-flight; ADR-0075 Accepted 2026-05-19
 
-**B53 is the active task.** ADR-0075 Status: Proposed — user-confirmed
-direction (`1a`: mirror arm64's `(ctx, ins)` shape on x86_64). The
-loop should:
+**B54 is the active task** — PoC migrate `i32.div_s` end-to-end to the
+`(ctx, ins)` shape. B53 landed the substrate (`x86_64/ctx.zig` +
+`EmitCtx.init(InitArgs)` factory; initialised inert at the top of
+`compile()`'s body-loop). 2-host green at `952e1a33`.
 
-1. Flip ADR-0075 Status: Proposed → Accepted in the B53 commit.
-2. Extend `src/engine/codegen/x86_64/ctx.zig::EmitCtx` with the
-   missing fields (see ADR-0075 §Implementation plan B53).
-3. Initialise the new fields at the top of
-   `src/engine/codegen/x86_64/emit.zig::emitFunction`.
-4. Verify 2-host green; commit + push.
-5. Proceed to B54 (PoC migrate `i32.div_s`) per the chunk table above.
+The loop for B54:
+
+1. Re-signature `op_alu_int.emitI32DivS` (x86_64) to
+   `(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void`.
+2. Update `compile()`'s dispatch arm for `.@"i32.div_s"` to call
+   the new shape.
+3. Create / migrate `x86_64/ops/wasm_1_0/i32_div_s.zig` so the
+   per-op file owns the x86_64 wire (arm64 already does).
+4. Update `dispatch_collector.zig` x86_64 collected_ops + tests.
+5. Verify 2-host green; commit + push.
 
 §9.12-B exit criterion stays as ROADMAP §9.12-B specifies (6 build
-combos green + DCE 0 + completeness comptime check). The per-op file
+combos green + DCE 0 + completeness comptime check). Per-op file
 substrate becomes load-bearing at B6x+1 (inline-switch cutover).
 
-Discipline: B53 itself is substrate-only (no per-op file changes), so
-chunk size is "1 op equivalent = ADR-grade substrate change" per
-LOOP.md exception. B54+ resume the 5-15 ops/chunk default.
+Discipline: B53 was substrate-only (no per-op file changes); B54
+re-enters the 5-15 ops/chunk default starting after this PoC.
 
 ## Outstanding upstream / Phase-10 blockers
 
