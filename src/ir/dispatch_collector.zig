@@ -424,6 +424,10 @@ const i64x2_shl = @import("../instruction/wasm_2_0/i64x2_shl.zig");
 const i64x2_shr_s = @import("../instruction/wasm_2_0/i64x2_shr_s.zig");
 const i64x2_shr_u = @import("../instruction/wasm_2_0/i64x2_shr_u.zig");
 
+const memory_fill = @import("../instruction/wasm_1_0/memory_fill.zig");
+const memory_copy = @import("../instruction/wasm_1_0/memory_copy.zig");
+const memory_init = @import("../instruction/wasm_1_0/memory_init.zig");
+
 const i32_load = @import("../instruction/wasm_1_0/i32_load.zig");
 const i32_load8_s = @import("../instruction/wasm_1_0/i32_load8_s.zig");
 const i32_load8_u = @import("../instruction/wasm_1_0/i32_load8_u.zig");
@@ -882,6 +886,9 @@ pub const collected_ops = .{
     f32_store,
     f64_load,
     f64_store,
+    memory_fill,
+    memory_copy,
+    memory_init,
 };
 
 comptime {
@@ -1035,9 +1042,9 @@ test "zirOpTagCount matches the ZirOp enum field count" {
     try std.testing.expect(n >= 200);
 }
 
-test "migratedOpCount tracks collected_ops length (348 after §9.12-B / B47 arm64 load/store)" {
+test "migratedOpCount tracks collected_ops length (351 after §9.12-B / B48 arm64 memory.{fill,copy,init})" {
     // Running tally: 162 + i16x8 cmp 10 = 172.
-    try std.testing.expectEqual(@as(usize, 348), migratedOpCount());
+    try std.testing.expectEqual(@as(usize, 351), migratedOpCount());
 }
 
 test "migrationComplete is false until §9.12-B migrates all 581 ops" {
