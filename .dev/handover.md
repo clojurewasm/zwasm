@@ -35,9 +35,10 @@
 | B11 | arm64 i32.add real body migration; dispatcher refactor to bool-return + inferred-error pattern (no DispatchError shrapnel; per-arch file existing = migrated); x86_64 i32.add stub deferred to B12 | `e39db505` |
 | B12 | x86_64 i32.add real body migration (mirror of B11; reuse op_alu_int.emitI32Binary's 7-arg signature) | `48bf44f4` |
 | B13 | i32 binary ALU cohort migration to per-arch op files: i32.sub / i32.mul / i32.and / i32.or / i32.xor (5 ops × 2 arches; same emit body pattern as i32.add). 15 new files + collector updates | `d83aba97` |
-| B14 | i64 binary ALU cohort migration: i64.add/sub/mul/and/or/xor × 2 arches. 18 new files | `<backfill>` |
-| B15 | i32/i64 compare cohort: eq/ne/lt_s/lt_u/gt_s/gt_u/le_s/le_u/ge_s/ge_u (10 ops × 2 widths × 2 arches; arm64 emitI32Compare/emitI64Compare; x86_64 mirror) | **NEXT** |
-| B16..Bn | per-arch cohort migration (5-15 ops/chunk per arch). IR-axis (validate/lower/interp) migration deferred until cross-Zone-1 circular-dep is resolved | |
+| B14 | i64 binary ALU cohort migration: i64.add/sub/mul/and/or/xor × 2 arches. 18 new files | `0df0c44c` |
+| B15 | i32 compare cohort: eq/ne/lt_s/lt_u/gt_s/gt_u/le_s/le_u/ge_s/ge_u × 2 arches. 30 new files | `<backfill>` |
+| B16 | i64 compare cohort: same 10 ops at i64 width × 2 arches. Mirror of B15 with emitI64Compare. 30 new files | **NEXT** |
+| B17..Bn | per-arch cohort migration (5-15 ops/chunk per arch). IR-axis (validate/lower/interp) migration deferred until cross-Zone-1 circular-dep is resolved | |
 
 ## Active state — §9.12-A [x]; §9.12-B autonomous (HUGE row)
 
