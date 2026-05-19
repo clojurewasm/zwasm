@@ -18,6 +18,13 @@
    Mac+ubuntu bit-identical).
 5. `.dev/debt.md` `now` rows: none.
 
+## §9.12-B progress (sub-chunks)
+
+| Sub-chunk | Description | SHA |
+|---|---|---|
+| B1 | i32_add per-op file foundation (template + collector wire; stubs only; legacy dispatch retains authority) | `bb85b918` |
+| B2 | Wire dispatch_collector.dispatcher(.validate) into validator.zig (single-op route via collected_ops; rest via legacy switch) | **NEXT** |
+
 ## Active state — §9.12-A [x]; §9.12-B autonomous (HUGE row)
 
 §9.12-B Q3 C adoption completion + build-option DCE extension across
