@@ -8,8 +8,10 @@ paths:
 
 # Runtime / instance / store / linker layer hygiene
 
-> **Status**: skeleton (2026-05-19). Justified by ADR-0071 §Q5
-> (Cat III hygiene anchor). Completed in §9.12-C.
+> **Status**: landed at §9.12-A (2026-05-19). Auto-loaded on
+> `src/runtime/instance/**` + `src/runtime/store.zig` +
+> `src/runtime/runtime.zig`. Justified by ADR-0071 §Q5 (Cat III
+> hygiene anchor; Accepted 2026-05-19).
 
 ## The rule
 
@@ -54,17 +56,38 @@ corruption / etc.).
 
 ## Enforcement
 
-- This rule auto-loads on the listed paths
+- This rule auto-loads on the listed paths.
 - The D-132 / D-133 grep extensions in `audit_scaffolding §G` also apply
-  to runtime/instance/
-- `bash scripts/zone_check.sh --gate` detects zone violations (transition
-  to enforce mode in §9.12-G)
+  to `runtime/instance/`.
+- `bash scripts/zone_check.sh --gate` detects zone violations (will
+  transition from `info` to `enforce` mode in §9.12-G).
+- The companion rules `.claude/rules/comment_as_invariant.md` (ADR-0072)
+  and `.claude/rules/no_fallback_on_failure.md` apply unconditionally
+  in this layer — Cat III code is one of the highest-risk surfaces for
+  silently-degraded error handling and false-invariant comments.
+
+## Reviewer checklist
+
+When reviewing a diff touching `runtime/instance/` / `runtime/store.zig`
+/ `runtime/runtime.zig`:
+
+- [ ] Does any new `import` statement bring in `engine/codegen/*` or
+      `cli/*`? FAIL — Zone direction violation.
+- [ ] Does any new comment make an invariant claim ("X is always Y",
+      "owned by Z") without a paired `comptime assert` / `std.debug.assert`
+      / lint? Per ADR-0072, either pair it or delete the prose.
+- [ ] Does any new `catch` use `{}` / `return null` / `.default`
+      without an `// EXEMPT-FALLBACK:` marker? Per no_fallback_on_failure.
+- [ ] Do new bridge thunks / cross-module dispatchers preserve the
+      ABI invariants codified in ADR-0066 + ADR-0068?
 
 ## Related
 
 - ADR-0066 (cross-module import bridge thunks)
 - ADR-0068 (dual-view table storage fix)
-- ADR-0071 §Q5 (Phase 9 complete hygiene resolution)
+- ADR-0071 §Q5 (Phase 9 substrate audit Q5 hygiene resolution; Accepted)
+- ADR-0072 (comment-as-invariant rule; Accepted)
 - D-079 / D-102 / D-103 / D-105 (Cat III tail debt; discharged in §9.12-E)
 - `.dev/lessons/2026-05-17-d134-rosetta-2-signal-translation-limit.md`
 - `.dev/lessons/2026-05-17-gamma3d-dispatch-write-segv-bisect.md`
+- `.claude/rules/comment_as_invariant.md`, `.claude/rules/no_fallback_on_failure.md`

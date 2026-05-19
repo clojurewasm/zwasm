@@ -7,7 +7,9 @@ paths:
 
 # Spike lifecycle
 
-> **Status**: skeleton (2026-05-19). Completed in the §9.12-A enforcement layer.
+> **Status**: landed at §9.12-A (2026-05-19). Enforced by
+> `scripts/audit_spikes.sh` (existing) + `audit_scaffolding §G.4`
+> (existing; reject-lesson landing check).
 
 ## The rule
 
@@ -43,10 +45,28 @@ about "recording experimental results".
 
 ## Enforcement
 
-- `scripts/audit_spikes.sh` (existing; lifecycle check reinforced in §9.12-A)
-- `audit_scaffolding §G.4` (existing; verifies that the reject lesson has landed)
-- running > 14d produces a `soon` audit finding
-- rejected w/o lesson produces a `block` audit finding
+- `scripts/audit_spikes.sh` runs as part of the periodic audit cadence
+  and per `audit_scaffolding §G.4`.
+- Findings:
+  - `running` > 14d → `soon` audit finding.
+  - `rejected` without a paired `lessons/<YYYY-MM-DD>-<slug>-rejected.md`
+    → `block` audit finding (= cannot Phase-close until resolved).
+  - `merged-into-prod` without a cited production SHA → `block`.
+- The 3 spikes landed in §9.12-pre (`q3-zig-inline-switch`,
+  `q3-interp-dispatch-bench`, `q3-build-option-dce-poc`) all have
+  `merged-into-prod` Status with their measurements absorbed into
+  ADR-0073. They serve as the reference template for future spikes.
+
+## Reviewer checklist
+
+When reviewing a `private/spikes/<slug>/` addition or change:
+
+- [ ] Does `README.md` declare a Status from {running, merged-into-prod,
+      rejected, archived}?
+- [ ] If `running`, is the Started date present and < 14d ago?
+- [ ] If `merged-into-prod`, does the README cite the production SHA?
+- [ ] If `rejected`, does the paired lesson exist at
+      `.dev/lessons/<YYYY-MM-DD>-<slug>-rejected.md`?
 
 ## Migration to lesson on reject
 
