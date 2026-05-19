@@ -67,9 +67,10 @@
 | B43 | SIMD narrow + extend cohort: 16 ops × 2 arches. 48 new files | `<backfill>` |
 | B44 | SIMD extmul + extadd_pairwise cohort (x86_64-only; 16 ops). 32 new files | `<backfill>` |
 | B45 | SIMD misc heterogeneous cohort (swizzle + popcnt arm64 + dot + q15mulr + 7 fp conv/trunc_sat = 11 ops). 30 new files. 316/290/307 of 581 | `<backfill>` |
-| B46 | arm64 globals + table cohort (9 ops, arm64-only): global.{get,set} + table.{get,set,size,grow,fill,copy,init}. x86_64 deferred (extra positional args). 18 new files. 325/299/307 of 581 | `<backfill>` |
-| B47 | arm64 memory cohort (arm64-only): emitMemOp variants + memory.{fill,copy,init,grow,size} (assess fn list) | **NEXT** |
-| B48..Bn | arm64 call/control flow scalar cohort; arm64 const helpers; arm64 conversion residuals; **x86_64 EmitCtx consolidation** (ADR amending ADR-0074, ~80 ops); arm64 SIMD deferred backlog (sat arith + extmul + extadd_pairwise + dot + q15mulr = 26 ops); Wasm 3.0 placeholder shape (28 ops); IR-axis migration | |
+| B46 | arm64 globals + table cohort (9 ops, arm64-only). 18 new files | `<backfill>` |
+| B47 | arm64 scalar load/store cohort (23 ops, arm64-only, single delegate emitMemOp). 46 new files. 348/322/307 of 581 | `<backfill>` |
+| B48 | arm64 memory.{fill,copy,init} cohort (3 ops, arm64-only; heterogeneous: fill/copy take ctx-only, init takes ctx+ins) | **NEXT** |
+| B49..Bn | arm64 call (2 ops); arm64 control flow scalar (block/loop/if/else/br/br_if/br_table/end ~8); **x86_64 EmitCtx consolidation** (ADR amending ADR-0074, ~80 ops); arm64 SIMD deferred backlog (sat arith + extmul + extadd_pairwise + dot + q15mulr = 26 ops); Wasm 3.0 placeholder shape (28 ops); IR-axis migration | |
 
 ## Active state — §9.12-A [x]; §9.12-B autonomous (HUGE row)
 
