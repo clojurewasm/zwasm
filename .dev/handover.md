@@ -64,9 +64,10 @@
 | B40 | SIMD float unary cohort: 14 ops × 2 arches. 42 new files | `<backfill>` |
 | B41 | SIMD float compare cohort: 12 ops × 2 arches. 36 new files | `<backfill>` |
 | B42 | SIMD bool reductions cohort: 9 ops × 2 arches. 27 new files | `<backfill>` |
-| B43 | SIMD narrow + extend cohort: 4 narrow + 12 extend = 16 ops × 2 arches. 48 new files. 289/281/281 of 581 | `<backfill>` |
-| B44 | SIMD extmul + extadd_pairwise cohort: i{16x8,32x4,64x2}.extmul_{low,high}_*_{s,u} + i{16x8,32x4}.extadd_pairwise_*_{s,u} = 16 ops × 2 arches (assess fns first) | **NEXT** |
-| B45..Bn | i64x2.mul; SIMD swizzle/shuffle; SIMD splat/extract_lane/replace_lane (defer for immediates); SIMD load/store; x86_64 EmitCtx consolidation (div/rem, trapping-trunc, const, load/store, call, local/global); arm64 saturating arith backfill; IR-axis migration | |
+| B43 | SIMD narrow + extend cohort: 16 ops × 2 arches. 48 new files | `<backfill>` |
+| B44 | SIMD extmul + extadd_pairwise cohort (x86_64-only; 16 ops). 32 new files. 305/281/297 of 581 (Zone1/arm64/x86_64) | `<backfill>` |
+| B45 | SIMD q15mulr_sat_s + dot + swizzle + popcnt + bitselect-residual + relevant misc (assess fns) | **NEXT** |
+| B46..Bn | i64x2.mul; SIMD shuffle (immediate); SIMD splat/extract_lane/replace_lane (defer for immediates); SIMD load/store; x86_64 EmitCtx consolidation; arm64 deferred backlog (sat arith + extmul + extadd_pairwise); IR-axis migration | |
 
 ## Active state — §9.12-A [x]; §9.12-B autonomous (HUGE row)
 
