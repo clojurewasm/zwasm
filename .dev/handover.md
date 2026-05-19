@@ -6,90 +6,82 @@
 ## Cold-start procedure
 
 1. **READ FIRST** [`.dev/phase9_completion_master_plan.md`](phase9_completion_master_plan.md)
-   (master plan v2; finalized). §9.12 hard gate CLEARED 2026-05-19.
-2. **NEXT TASK = §9.12-A** (autonomous): scaffolding compression + 9-item
-   enforcement-layer construction (master plan §5.3 §"§9.12-A" + Chapter 7).
-3. `git log --oneline -10` — 2026-05-19 collab-gate commit group: `bdd433d5`
-   (ADR skeletons) + `31411280` (master plan + ROADMAP §9.12 expansion) +
-   `05377cf6` (enforcement scaffold) + `4259b6b6` (JA→EN) + `072d39cd`
-   (consistency cleanup) + `f7b43d2b` (ADR drafts populate) + `dc6986df`
-   (§9.12-pre [x]) + **this commit** (§9.12 collab gate cleared).
-4. `bash scripts/p9_simd_status.sh` — live SIMD status (13301/0/440 Mac+ubuntu
-   bit-identical). non-simd live: 25325/0/688.
-5. `.dev/debt.md` `now` rows: (none — all 6 prior `now` debts re-classified to
-   `blocked-by: §9.12-X` since their discharge is embedded in §9.12-C / §9.12-E
-   / §9.12-I work).
+   (master plan v2). §9.12-A `[x]` 2026-05-19; **§9.12-B is the next
+   active row** (the biggest sub-row in the §9.12 cohort).
+2. `git log --oneline -10` — recent autonomous-loop chunks under
+   `chore(p9b):` prefix. §9.12-A subchunks A1..A7 landed in commits
+   `f3626d77` (A1) through `8871f7ed` (close). Hotfix at `3461823a`.
+3. `bash scripts/p9_completion_status.sh` — live progress per the
+   enforcement-layer scripts; cites `bench/results/skip_impl_history.yaml`
+   baseline 243.
+4. `bash scripts/p9_simd_status.sh` — live SIMD status (13301/0/440
+   Mac+ubuntu bit-identical).
+5. `.dev/debt.md` `now` rows: none.
 
-## §9.12-A progress (sub-chunks)
+## Active state — §9.12-A [x]; §9.12-B autonomous (HUGE row)
 
-| Sub-chunk | Description | SHA |
-|---|---|---|
-| A1 | 5 enforcement scripts + progress tracker (master plan §7.1/7.3/7.4/7.6/7.8 + Q6 boundary) | `f3626d77` |
-| A2 | Rule body fills (no_fallback / spike_lifecycle / libc_boundary / runtime_instance_layer) | `31b913a6` |
-| A3 | dispatch_consistency_audit skill body | `c00af257` |
-| A4 | dispatch_collector.zig bootstrap (§7.2 / 7.9 comptime check) | `e5deef12` |
-| A5a | Archive moves (phase8 gate + private/audits/spikes) | `6057e408` |
-| A5b | SKILL.md compression via LOOP.md (-90 LOC SKILL net; 4 ref sections + chunk-granularity detail moved) | `5d4c5583` |
-| A5c | ROADMAP Phase 0-8 narrative archive (-384 LOC) | `f58a3b7a` |
-| A6 | Gate consolidation study (8 of 15 gates timed; recs for A7) | `e731db90` |
-| A7 | gate_commit docs-only short-circuit + A1 info wiring (docs-only 29s → 0.45s, -98%) | `f9752a1f` |
-| A8 | §9.12-A close: pre-push wiring (skip_impl_ratchet + subrow_exit) + WARN-delta caching + --quiet flag (deferred) | **NEXT** |
+§9.12-B Q3 C adoption completion + build-option DCE extension across
+all 4 layers (IR/CLI/c_api/WASI):
 
-## Active state — §9.12 [x]; §9.12-A autonomous
+1. Per-op file migration of all 581 ZirOp handlers from monolithic
+   switches in `validator.zig` / `lower.zig` / `arm64/emit.zig` /
+   `x86_64/emit.zig` / `interp/dispatch.zig` into
+   `src/instruction/wasm_X_Y/<op>.zig` per ADR-0023 §4.5 amend +
+   ADR-0073.
+2. `dispatch_collector.zig` (A4 bootstrap; currently `collected_ops =
+   {}`) gains the 581 op imports + the 5 dispatcher rewrites.
+3. **CLI** declarative `args = .{ ... }` form with `wasm_level` /
+   `wasi_level` metadata + comptime filter (per ADR-0073 §Layer 2).
+4. **c_api** `exports = .{ ... }` form with `comptime @export` filter
+   + `include/wasm.h` preprocessor gate (per ADR-0073 §Layer 3).
+5. **WASI** `syscalls = .{ ... }` form with `wasi_level` metadata
+   (per ADR-0073 §Layer 4).
+6. Exit: `zig build -Dwasm={v1_0,v2_0,v3_0} -Dwasi={p1,p2} test-all`
+   green for all 6 combinations; `scripts/check_build_dce.sh --gate`
+   = 0; per-op file completeness comptime check passes.
 
-- §9.9 / §9.12-pre / §9.12 all `[x]`. ADRs 0070 / 0071 / 0072 / 0073 are
-  Accepted (collab gate cleared); ADR-0023 §4.5 amend + ADR-0050 D-5/D-6
-  amend confirmed.
-- ROADMAP §14 amended: "Unconscious libc fanout" + "Skip-impl regression
-  without exempt ADR" added; the old "Pervasive `if (build_options.X)`"
-  line reworded to match Q2 P14 sharpening.
-- Phase Status widget §9 wording updated to "literal 100% + Phase 10
-  substrate readiness".
-- `phase9_completion_substrate_audit.md` §Decisions filled; §Outcome
-  abstract written.
+This is a multi-week / multi-chunk row. Suggested chunking:
 
-## Next-session active task = §9.12-A (autonomous, no hard gate)
+| Sub-chunk | Description |
+|---|---|
+| B1 | First batch of per-op file migrations (Wasm 1.0 control/numeric/parametric subset; ~50 ops) + dispatch_collector validate-axis wired |
+| B2 | Wasm 1.0 memory/variable/table subset (~80 ops); validator + interp axes wired |
+| B3 | Wasm 1.0 closing batch (control, refs, etc.); arm64-emit + x86_64-emit axes wired; lower.zig axis wired |
+| B4 | Wasm 2.0 (SIMD + bulk-memory + nontrap-conv + sign-ext) per-op file migration |
+| B5 | Wasm 3.0 placeholder stubs (all return `error.NotMigrated`) |
+| B6 | CLI / c_api / WASI declarative form (3 layers) |
+| B7 | check_build_dce all-6 combinations green + comptime check enforcement enabled |
 
-Master plan §5.3 §"§9.12-A":
-
-- ROADMAP Phase 0-8 narrative → `.dev/archive/roadmap_phase0_8.md` (-800-1000 LOC)
-- `.claude/skills/continue/SKILL.md` compression via `LOOP.md` (-300 LOC)
-- Closed `.dev/phase8_transition_gate.md` → `.dev/archive/phase_gates/`
-- Inventory `.dev/next-session-agenda.md`; archive 5 old `private/audit-*.md`
-- Measure 8 existing gates' wall time; study consolidation
-- Implement all 9 enforcement-layer items (master plan Chapter 7): build-DCE
-  gate / per-op completeness comptime / skip-impl ratchet / give-up detector
-  / spike lifecycle / chunk-close exit gate / Q3 C consistency audit /
-  progress tracker / feature-level metadata comptime check
-- Seed `bench/results/skip_impl_history.yaml` baseline = 243; seed
-  `.dev/p9_completion_progress.yaml` initial state
-
-Exit: cold-start read guide -40%; gate_commit time -20%; all 9 enforcement
-items hooked into pre-commit / pre-push; ratchet history + progress tracker
-yaml seeded.
+Default chunk size per `LOOP.md` §Chunk granularity = 5-15 ops or
+substrate change.
 
 ## Outstanding upstream / Phase-10 blockers
 
-- **D-148** (Zig 0.16 self-hosted x86_64 backend miscompile): blocked-by
-  upstream; workaround `build.zig` `.use_llvm = true` continues. Watching
-  Codeberg ziglang/zig#35343.
-- D-079 / D-102 / D-103 / D-105: barrier cleared (`now`); discharge in §9.12-E.
-- D-133: included in the D-133 sweep in §9.12-C.
+- **D-148** (Zig 0.16 self-hosted x86_64 backend miscompile):
+  blocked-by upstream; workaround `build.zig` `.use_llvm = true`
+  continues.
 
 ### Discipline reminders
 
-- No `--no-verify`. 2-host per chunk (Mac + ubuntunote); windowsmini deferred
-  to §9.13-0 per ADR-0049.
-- §9.12-A onward: normal autonomous loop with `ScheduleWakeup` re-arm at
-  Step 7. **No more hard gates until §9.13** (Phase 10 entry).
+- No `--no-verify`. 2-host per chunk (Mac + ubuntunote); windowsmini
+  deferred to §9.13-0 per ADR-0049.
+- Pre-push hook now runs check_subrow_exit + check_skip_impl_ratchet
+  (per §9.12-A close); both are cheap when there's nothing to flag.
+- Master plan §"don't give up" + ADR-0073 = no compromise on DCE
+  literal absence.
 
 ## References
 
 PRIMARY: [`phase9_completion_master_plan.md`](phase9_completion_master_plan.md).
-Gate-closed doc: [`phase9_completion_substrate_audit.md`](phase9_completion_substrate_audit.md).
-Accepted ADRs (this collab gate): [`0070`](decisions/0070_libc_dependency_policy.md)
-/ [`0071`](decisions/0071_phase9_substrate_audit_resolution.md)
-/ [`0072`](decisions/0072_comment_as_invariant_rule.md)
-/ [`0073`](decisions/0073_build_option_dce_substrate.md);
+Substrate audit doc: [`phase9_completion_substrate_audit.md`](phase9_completion_substrate_audit.md)
+(§Decisions filled at §9.12 collab close).
+Accepted ADRs: [`0070`](decisions/0070_libc_dependency_policy.md) /
+[`0071`](decisions/0071_phase9_substrate_audit_resolution.md) /
+[`0072`](decisions/0072_comment_as_invariant_rule.md) /
+[`0073`](decisions/0073_build_option_dce_substrate.md);
 amends [`0023`](decisions/0023_src_directory_structure_normalization.md) §4.5
 + [`0050`](decisions/0050_adr_lifecycle_and_skip_adr_enforcement.md) D-5/D-6.
+Enforcement: [`scripts/p9_completion_status.sh`](../scripts/p9_completion_status.sh)
++ [`gate_consolidation_study.md`](gate_consolidation_study.md).
+Bootstrap framework: [`src/ir/dispatch_collector.zig`](../src/ir/dispatch_collector.zig)
+(empty `collected_ops` ready for §9.12-B per-op files).
