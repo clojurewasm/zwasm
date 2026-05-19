@@ -969,6 +969,29 @@ pub fn emitF32ConvertI64U(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error
 }
 pub const emitF64ConvertI64U = emitF32ConvertI64U;
 
+/// §9.12-B / B59 (ADR-0075) — `(ctx, ins)` adapters for the
+/// reinterpret + promote/demote cohort. Single legacy consumer
+/// (`emitFpConvertSimple` — same helper as B58 simple path; the
+/// 6 reinterpret/promote/demote variants stayed on the legacy
+/// arm in emit.zig at B58 close and now migrate here). Primary
+/// adapter + 5 aliases. Decomposes per-op at the B6x+1 cutover.
+pub fn emitI32ReinterpretF32(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    return emitFpConvertSimple(
+        ctx.allocator,
+        ctx.buf,
+        ctx.alloc,
+        ctx.pushed_vregs,
+        ctx.next_vreg,
+        ctx.spill_base_off,
+        ins.op,
+    );
+}
+pub const emitI64ReinterpretF64 = emitI32ReinterpretF32;
+pub const emitF32ReinterpretI32 = emitI32ReinterpretF32;
+pub const emitF64ReinterpretI64 = emitI32ReinterpretF32;
+pub const emitF64PromoteF32 = emitI32ReinterpretF32;
+pub const emitF32DemoteF64 = emitI32ReinterpretF32;
+
 /// Materialise an FP bit pattern into XMM7 via RAX scratch.
 /// Used by the FP trunc-trap helpers above. Module-private —
 /// `emitFpTruncSatU64` inlines its own copy because it also needs
