@@ -65,9 +65,10 @@
 | B41 | SIMD float compare cohort: 12 ops × 2 arches. 36 new files | `<backfill>` |
 | B42 | SIMD bool reductions cohort: 9 ops × 2 arches. 27 new files | `<backfill>` |
 | B43 | SIMD narrow + extend cohort: 16 ops × 2 arches. 48 new files | `<backfill>` |
-| B44 | SIMD extmul + extadd_pairwise cohort (x86_64-only; 16 ops). 32 new files. 305/281/297 of 581 (Zone1/arm64/x86_64) | `<backfill>` |
-| B45 | SIMD q15mulr_sat_s + dot + swizzle + popcnt + bitselect-residual + relevant misc (assess fns) | **NEXT** |
-| B46..Bn | i64x2.mul; SIMD shuffle (immediate); SIMD splat/extract_lane/replace_lane (defer for immediates); SIMD load/store; x86_64 EmitCtx consolidation; arm64 deferred backlog (sat arith + extmul + extadd_pairwise); IR-axis migration | |
+| B44 | SIMD extmul + extadd_pairwise cohort (x86_64-only; 16 ops). 32 new files | `<backfill>` |
+| B45 | SIMD misc heterogeneous cohort (swizzle + popcnt arm64 + dot + q15mulr + 7 fp conv/trunc_sat = 11 ops). 30 new files. 316/290/307 of 581 | `<backfill>` |
+| B46 | Wasm 1.0 control / parametric / locals scalar cohort: drop / select / select_typed / nop / unreachable (assess fns; some likely defer for EmitCtx access) | **NEXT** |
+| B47..Bn | SIMD i64x2.mul; SIMD shuffle (immediate); SIMD splat/extract_lane/replace_lane (immediates); SIMD load/store; x86_64 EmitCtx consolidation (div/rem + trapping-trunc + const + load/store + call + local/global + popcnt + 3 simd_const_fixups fp ops); arm64 deferred backlog (sat arith + extmul + extadd_pairwise + dot + q15mulr); IR-axis migration | |
 
 ## Active state — §9.12-A [x]; §9.12-B autonomous (HUGE row)
 
