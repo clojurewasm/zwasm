@@ -245,6 +245,21 @@ const f64_gt = @import("../instruction/wasm_1_0/f64_gt.zig");
 const f64_le = @import("../instruction/wasm_1_0/f64_le.zig");
 const f64_ge = @import("../instruction/wasm_1_0/f64_ge.zig");
 
+const f32_abs = @import("../instruction/wasm_1_0/f32_abs.zig");
+const f32_neg = @import("../instruction/wasm_1_0/f32_neg.zig");
+const f32_sqrt = @import("../instruction/wasm_1_0/f32_sqrt.zig");
+const f32_ceil = @import("../instruction/wasm_1_0/f32_ceil.zig");
+const f32_floor = @import("../instruction/wasm_1_0/f32_floor.zig");
+const f32_trunc = @import("../instruction/wasm_1_0/f32_trunc.zig");
+const f32_nearest = @import("../instruction/wasm_1_0/f32_nearest.zig");
+const f64_abs = @import("../instruction/wasm_1_0/f64_abs.zig");
+const f64_neg = @import("../instruction/wasm_1_0/f64_neg.zig");
+const f64_sqrt = @import("../instruction/wasm_1_0/f64_sqrt.zig");
+const f64_ceil = @import("../instruction/wasm_1_0/f64_ceil.zig");
+const f64_floor = @import("../instruction/wasm_1_0/f64_floor.zig");
+const f64_trunc = @import("../instruction/wasm_1_0/f64_trunc.zig");
+const f64_nearest = @import("../instruction/wasm_1_0/f64_nearest.zig");
+
 /// Tuple of all migrated per-op modules. Order is not load-bearing;
 /// `dispatcher` uses `op_tag` for routing.
 pub const collected_ops = .{
@@ -334,6 +349,20 @@ pub const collected_ops = .{
     f64_gt,
     f64_le,
     f64_ge,
+    f32_abs,
+    f32_neg,
+    f32_sqrt,
+    f32_ceil,
+    f32_floor,
+    f32_trunc,
+    f32_nearest,
+    f64_abs,
+    f64_neg,
+    f64_sqrt,
+    f64_ceil,
+    f64_floor,
+    f64_trunc,
+    f64_nearest,
 };
 
 comptime {
@@ -485,9 +514,9 @@ test "zirOpTagCount matches the ZirOp enum field count" {
     try std.testing.expect(n >= 200);
 }
 
-test "migratedOpCount tracks collected_ops length (86 after §9.12-B / B23 float cmp cohort)" {
-    // Running tally: 74 + float cmp 12 = 86.
-    try std.testing.expectEqual(@as(usize, 86), migratedOpCount());
+test "migratedOpCount tracks collected_ops length (100 after §9.12-B / B24 float unary cohort)" {
+    // Running tally: 86 + float unary 14 = 100.
+    try std.testing.expectEqual(@as(usize, 100), migratedOpCount());
 }
 
 test "migrationComplete is false until §9.12-B migrates all 581 ops" {
