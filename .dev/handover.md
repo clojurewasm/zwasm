@@ -26,8 +26,8 @@
 | B2 | dispatcher(comptime axis: Axis) function in dispatch_collector | `3660e3fa` |
 | B3 | Dispatcher wire design note (`.dev/dispatcher_wire_design.md`); B-sequence revised per bytecode-vs-ZirOp layer findings | `19f3e04c` |
 | B4 | arm64/emit.zig wire (cleanest; ZirOp + switch; i32.add proof-of-pattern; dispatcher narrowed to DispatchError) | `a33b6eb7` |
-| B5 | x86_64/emit.zig wire (mirror) | **NEXT** |
-| B6 | interp populateDispatchTable |  |
+| B5 | x86_64/emit.zig wire (mirror of B4 pattern) | `a9f6b499` |
+| B6 | interp populateDispatchTable | **NEXT** |
 | B7 | byteToZirOp helper + validator.zig wire |  |
 | B8 | lower.zig wire |  |
 | B9..Bn | per-op-file body migrations (5-15 ops/chunk) |  |
