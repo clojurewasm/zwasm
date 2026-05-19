@@ -243,13 +243,18 @@ pub fn opModuleFor(comptime tag: ZirOp) ?type {
 /// the legacy dispatcher in that file becomes a thin call to
 /// `dispatcher(.<axis>)(op, &ctx)` that falls through to a residual
 /// legacy switch only when `error.NotMigrated` is returned.
-pub fn dispatcher(comptime axis: Axis) fn (op: ZirOp, ctx: anytype) anyerror!void {
+pub fn dispatcher(comptime axis: Axis) fn (op: ZirOp, args: anytype) DispatchError!void {
     return struct {
-        fn dispatch(op: ZirOp, ctx: anytype) anyerror!void {
+        fn dispatch(op: ZirOp, args: anytype) DispatchError!void {
             inline for (collected_ops) |op_mod| {
                 if (comptime !enabledByBuild(op_mod)) continue;
                 if (op == op_mod.op_tag) {
-                    return @field(op_mod.handlers, @tagName(axis))(ctx);
+                    // Per-op handlers in B-sub-chunks (until they migrate
+                    // to real bodies) only return DispatchError values.
+                    // Once real bodies land, the dispatcher will become
+                    // generic over the axis's Error set; B-pre work uses
+                    // the narrow set so callers can match exhaustively.
+                    return @call(.auto, @field(op_mod.handlers, @tagName(axis)), args);
                 }
             }
             return DispatchError.NotMigrated;
@@ -303,14 +308,14 @@ test "dispatcher(.validate) routes i32.add to its per-op stub (returns NotMigrat
     // invokes the stub; the err propagates back to the caller. Once
     // B-sub-chunks implement real validate bodies, this same call
     // shape will return `void` on success.
-    const result = dispatcher(.validate)(.@"i32.add", {});
+    const result = dispatcher(.validate)(.@"i32.add", .{});
     try std.testing.expectError(error.NotMigrated, result);
 }
 
 test "dispatcher(.validate) returns NotMigrated for not-yet-migrated tags" {
     // `unreachable` is not migrated; collector returns NotMigrated so
     // the legacy validator switch retains authority.
-    const result = dispatcher(.validate)(.@"unreachable", {});
+    const result = dispatcher(.validate)(.@"unreachable", .{});
     try std.testing.expectError(error.NotMigrated, result);
 }
 

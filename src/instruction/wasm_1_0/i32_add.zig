@@ -60,27 +60,27 @@ pub const handlers = .{
 // (the legacy modules each use their own ctx type today).
 // ---------------------------------------------------------------------
 
-fn validate_i32_add(ctx: anytype) !void {
-    _ = ctx;
+// Stubs use zero parameters so the dispatcher's `@call(.auto, fn,
+// args_tuple)` can be invoked with `.{}` (an empty tuple) and the
+// per-op signature matches. Once real handler bodies migrate
+// (B9..Bn), the dispatcher signature widens to accept per-axis ctx
+// tuples and these zero-param stubs gain the appropriate args.
+fn validate_i32_add() collector.DispatchError!void {
     return error.NotMigrated;
 }
 
-fn lower_i32_add(ctx: anytype) !void {
-    _ = ctx;
+fn lower_i32_add() collector.DispatchError!void {
     return error.NotMigrated;
 }
 
-fn emit_arm64_i32_add(ctx: anytype) !void {
-    _ = ctx;
+fn emit_arm64_i32_add() collector.DispatchError!void {
     return error.NotMigrated;
 }
 
-fn emit_x86_64_i32_add(ctx: anytype) !void {
-    _ = ctx;
+fn emit_x86_64_i32_add() collector.DispatchError!void {
     return error.NotMigrated;
 }
 
-fn interp_i32_add(ctx: anytype) !void {
-    _ = ctx;
+fn interp_i32_add() collector.DispatchError!void {
     return error.NotMigrated;
 }

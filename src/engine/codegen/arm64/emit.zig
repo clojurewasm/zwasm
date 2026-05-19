@@ -42,6 +42,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const zir = @import("../../../ir/zir.zig");
+const dispatch_collector = @import("../../../ir/dispatch_collector.zig");
 const inst = @import("inst.zig");
 const inst_neon = @import("inst_neon.zig");
 const abi = @import("abi.zig");
@@ -804,6 +805,21 @@ pub fn compile(
                 else => {},
             }
             continue;
+        }
+        // §9.12-B / B4: route through dispatch_collector before the
+        // legacy switch. Migrated per-op modules' `.handlers.arm64` get
+        // first crack; NotMigrated means the legacy switch below
+        // retains authority. Per ADR-0073 + ADR-0023 §4.5 amend +
+        // `.dev/dispatcher_wire_design.md` §2.3.
+        if (dispatch_collector.dispatcher(.arm64)(ins.op, .{})) |_| {
+            // Migrated op handled; skip the legacy switch.
+            continue;
+        } else |err| switch (err) {
+            // DispatchError exhaustively covered — both arms fall
+            // through to the legacy switch below. Per-op handlers in
+            // §9.12-B / B-pre return `DispatchError!void`; once real
+            // bodies land the dispatcher widens and this switch grows.
+            error.NotMigrated, error.UnsupportedOpForBuildLevel => {},
         }
         switch (ins.op) {
             .@"i32.const" => try op_const.emitI32Const(&ctx, &ins),
