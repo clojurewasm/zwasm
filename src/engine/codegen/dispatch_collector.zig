@@ -226,6 +226,16 @@ const arm64_i64x2_ge_s = @import("arm64/ops/wasm_2_0/i64x2_ge_s.zig");
 const arm64_i8x16_avgr_u = @import("arm64/ops/wasm_2_0/i8x16_avgr_u.zig");
 const arm64_i16x8_avgr_u = @import("arm64/ops/wasm_2_0/i16x8_avgr_u.zig");
 
+const arm64_global_get = @import("arm64/ops/wasm_1_0/global_get.zig");
+const arm64_global_set = @import("arm64/ops/wasm_1_0/global_set.zig");
+const arm64_table_get = @import("arm64/ops/wasm_1_0/table_get.zig");
+const arm64_table_set = @import("arm64/ops/wasm_1_0/table_set.zig");
+const arm64_table_size = @import("arm64/ops/wasm_1_0/table_size.zig");
+const arm64_table_grow = @import("arm64/ops/wasm_1_0/table_grow.zig");
+const arm64_table_fill = @import("arm64/ops/wasm_1_0/table_fill.zig");
+const arm64_table_copy = @import("arm64/ops/wasm_1_0/table_copy.zig");
+const arm64_table_init = @import("arm64/ops/wasm_1_0/table_init.zig");
+
 const arm64_i8x16_swizzle = @import("arm64/ops/wasm_2_0/i8x16_swizzle.zig");
 const arm64_i8x16_popcnt = @import("arm64/ops/wasm_2_0/i8x16_popcnt.zig");
 const arm64_f32x4_convert_i32x4_s = @import("arm64/ops/wasm_2_0/f32x4_convert_i32x4_s.zig");
@@ -1011,6 +1021,15 @@ pub const collected_arm64_ops = .{
     arm64_f32x4_demote_f64x2_zero,
     arm64_i32x4_trunc_sat_f32x4_s,
     arm64_i32x4_trunc_sat_f32x4_u,
+    arm64_global_get,
+    arm64_global_set,
+    arm64_table_get,
+    arm64_table_set,
+    arm64_table_size,
+    arm64_table_grow,
+    arm64_table_fill,
+    arm64_table_copy,
+    arm64_table_init,
 };
 
 /// Tuple of all migrated x86_64 per-op modules.
@@ -1382,9 +1401,9 @@ test "ArchAxis enum has exactly 2 variants per ADR-0074 (Zone 2 arch-axes)" {
     try std.testing.expectEqual(@as(usize, 2), @typeInfo(ArchAxis).@"enum".fields.len);
 }
 
-test "migratedArchOpCount tracks collected per-arch tuples (B45: arm64=290, x86_64=307)" {
+test "migratedArchOpCount tracks collected per-arch tuples (B46: arm64=299, x86_64=307)" {
     // arm64 = 162 + 10 i16x8 cmp; x86_64 = 154 + 10.
-    try std.testing.expectEqual(@as(usize, 290), migratedArchOpCount(.arm64));
+    try std.testing.expectEqual(@as(usize, 299), migratedArchOpCount(.arm64));
     try std.testing.expectEqual(@as(usize, 307), migratedArchOpCount(.x86_64));
 }
 

@@ -424,6 +424,16 @@ const i64x2_shl = @import("../instruction/wasm_2_0/i64x2_shl.zig");
 const i64x2_shr_s = @import("../instruction/wasm_2_0/i64x2_shr_s.zig");
 const i64x2_shr_u = @import("../instruction/wasm_2_0/i64x2_shr_u.zig");
 
+const global_get = @import("../instruction/wasm_1_0/global_get.zig");
+const global_set = @import("../instruction/wasm_1_0/global_set.zig");
+const table_get = @import("../instruction/wasm_1_0/table_get.zig");
+const table_set = @import("../instruction/wasm_1_0/table_set.zig");
+const table_size = @import("../instruction/wasm_1_0/table_size.zig");
+const table_grow = @import("../instruction/wasm_1_0/table_grow.zig");
+const table_fill = @import("../instruction/wasm_1_0/table_fill.zig");
+const table_copy = @import("../instruction/wasm_1_0/table_copy.zig");
+const table_init = @import("../instruction/wasm_1_0/table_init.zig");
+
 const i32_div_s = @import("../instruction/wasm_1_0/i32_div_s.zig");
 const i32_div_u = @import("../instruction/wasm_1_0/i32_div_u.zig");
 const i32_rem_s = @import("../instruction/wasm_1_0/i32_rem_s.zig");
@@ -816,6 +826,15 @@ pub const collected_ops = .{
     f32x4_demote_f64x2_zero,
     i32x4_trunc_sat_f32x4_s,
     i32x4_trunc_sat_f32x4_u,
+    global_get,
+    global_set,
+    table_get,
+    table_set,
+    table_size,
+    table_grow,
+    table_fill,
+    table_copy,
+    table_init,
 };
 
 comptime {
@@ -969,9 +988,9 @@ test "zirOpTagCount matches the ZirOp enum field count" {
     try std.testing.expect(n >= 200);
 }
 
-test "migratedOpCount tracks collected_ops length (316 after §9.12-B / B45 SIMD misc)" {
+test "migratedOpCount tracks collected_ops length (325 after §9.12-B / B46 arm64 globals+table)" {
     // Running tally: 162 + i16x8 cmp 10 = 172.
-    try std.testing.expectEqual(@as(usize, 316), migratedOpCount());
+    try std.testing.expectEqual(@as(usize, 325), migratedOpCount());
 }
 
 test "migrationComplete is false until §9.12-B migrates all 581 ops" {
