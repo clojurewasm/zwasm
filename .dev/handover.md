@@ -15,8 +15,8 @@
    (374/581 IR-axis, 348/314 arch-axis); B53+ is gated on ADR-0075**.
 3. `git log --oneline -10` — recent autonomous-loop chunks under
    `chore(p9b):` / `feat(p9b):` prefix. Last source commit
-   `d663b8f4` (B56 — full Wasm 1.0 trapping trunc cohort
-   migrated to `(ctx, ins)`).
+   `3877b3cf` (B57 — Wasm 2.0 trunc_sat cohort migrated to
+   `(ctx, ins)`; existing B27 stubs converted in place).
 4. `bash scripts/p9_completion_status.sh` — live progress.
 5. `bash scripts/p9_simd_status.sh` — live SIMD status.
 6. `.dev/debt.md` `now` rows: none.
@@ -81,30 +81,32 @@
 | B54 | PoC: migrate `i32.div_s` end-to-end to `(ctx, ins)`. New `op_alu_int.emitI32DivS(ctx, ins)` adapter; emit.zig dispatch arm splits div_s from div_u/rem_s/rem_u; new per-op file `x86_64/ops/wasm_1_0/i32_div_s.zig`; parallel `collected_x86_64_ctx_ops` tracks the migration (legacy tuple stays 314 until B6x+1 cutover). | `f1f62ba8` |
 | B55 | Cohort migration: remaining div / rem variants (`i32.div_u` / `i32.rem_s` / `i32.rem_u` + i64 family) to `(ctx, ins)`. 7 per-op aliases (i32 cohort via `emitI32DivS` alias; i64 via `emitI64DivS` alias) + 7 per-op files + `collected_x86_64_ctx_ops` 1 → 8. | `c4ef5e11` |
 | B56 | Cohort migration: trapping trunc cohort (`i{32,64}.trunc_f{32,64}_{s,u}`) to `(ctx, ins)`. 8 per-op aliases (signed family via `emitI32TruncF32S` alias; unsigned via `emitI32TruncF32U` alias) + 8 per-op files + `collected_x86_64_ctx_ops` 8 → 16. | `d663b8f4` |
-| **B57** | **Cohort migration: trunc_sat cohort (Wasm 2.0 saturating trunc — `i{32,64}.trunc_sat_f{32,64}_{s,u}`, 8 ops)** to `(ctx, ins)`. Three legacy consumers (`emitFpTruncSatSigned` / `emitFpTruncSatU32` / `emitFpTruncSatU64`); group aliases per consumer. No `bounds_fixups` (saturating, not trapping). | **NEXT** |
-| B57..B6x | Bulk migrate remaining x86_64 emit fns in cohorts (5–15 ops/chunk per LOOP.md). Migration order suggestion: trunc_sat 8 → table ops → globals → memory load/store → const → call → local — bottom up by dependency. | |
+| B57 | Cohort migration: Wasm 2.0 trunc_sat cohort (`i{32,64}.trunc_sat_f{32,64}_{s,u}`, 8 ops) to `(ctx, ins)`. Existing B27 7-arg stubs converted in place; moved from `collected_x86_64_ops` (314 → 306) to `collected_x86_64_ctx_ops` (16 → 24). Three group aliases per consumer (`emitFpTruncSatSigned` / `U32` / `U64`). | `3877b3cf` |
+| **B58** | **Cohort migration: int→float convert cohort (`f{32,64}.convert_i{32,64}_{s,u}`, 8 ops)** to `(ctx, ins)`. Two legacy consumers: `emitFpConvertSimple` (7 of 8) + `emitFpConvertI64Unsigned` (the f{32,64}.convert_i64_u pair). Existing B26 7-arg stubs at `x86_64/ops/wasm_1_0/f{32,64}_convert_*.zig` — convert in place per B57 pattern. | **NEXT** |
+| B58..B6x | Bulk migrate remaining x86_64 emit fns in cohorts (5–15 ops/chunk per LOOP.md). Suggested order: convert cohort → reinterpret/promote/demote → table ops → globals → memory load/store → const → call → local. | |
 | B6x+1 | Inline-switch dispatcher cutover per ADR-0073 — both arches' `emit.zig` giant switch replaced by `inline for (collected_X_ops) |op_mod| { if (op_mod.op_tag == ins.op) return op_mod.emit(ctx, ins); }`. Moment per-op files become load-bearing. | |
 
-## Active state — §9.12-B mid-flight; B56 trapping trunc cohort landed 2026-05-20
+## Active state — §9.12-B mid-flight; B57 trunc_sat cohort landed 2026-05-20
 
-**B57 is the active task** — cohort migrate the Wasm 2.0
-saturating trunc variants (`i{32,64}.trunc_sat_f{32,64}_{s,u}`,
-8 ops) to the `(ctx, ins)` shape. B56 closed the trapping trunc
-cohort at `d663b8f4` (`collected_x86_64_ctx_ops` 8 → 16).
+**B58 is the active task** — cohort migrate the int→float convert
+variants (`f{32,64}.convert_i{32,64}_{s,u}`, 8 ops) to the
+`(ctx, ins)` shape. B57 closed the trunc_sat cohort at `3877b3cf`
+(`collected_x86_64_ctx_ops` 16 → 24; `collected_x86_64_ops`
+314 → 306 by moving B27 stubs).
 
-The loop for B57 mirrors B55/B56:
+The loop for B58 mirrors B57:
 
 1. Add `(ctx, ins)` adapters in x86_64/op_convert.zig wrapping
-   `emitFpTruncSatSigned` / `emitFpTruncSatU32` /
-   `emitFpTruncSatU64`. Three group aliases (the legacy impls
-   already dispatch on `ins.op` internally per emit.zig's grouped
-   arms at the `i32.trunc_sat_*` / `i64.trunc_sat_*` rows).
+   `emitFpConvertSimple` (covers f32/f64.convert_i32_{s,u} +
+   f32/f64.convert_i64_s — 6 of 8) and `emitFpConvertI64Unsigned`
+   (covers f32/f64.convert_i64_u — 2 of 8).
 2. Split each variant off its legacy grouped arm in emit.zig;
    call adapters via `&ctx`.
-3. Create per-op files at `x86_64/ops/wasm_2_0/<op>.zig`
-   (Wasm 2.0 — non-trapping sat variants, distinct from B56's
-   wasm_1_0/ trapping family).
-4. Update `collected_x86_64_ctx_ops` + assertion test (16 → 24).
+3. The B26 7-arg stub files at `x86_64/ops/wasm_1_0/f{32,64}_convert_*.zig`
+   already exist — convert in place to the `(ctx, ins)` shape
+   (mirror of B57's stub-conversion pattern).
+4. Update `collected_x86_64_ctx_ops` (24 → 32) + legacy tuple
+   (306 → 298) + both assertion tests.
 5. Verify 2-host green; commit + push.
 
 §9.12-B exit criterion stays as ROADMAP §9.12-B specifies (6 build
