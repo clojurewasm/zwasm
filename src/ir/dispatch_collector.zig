@@ -286,6 +286,17 @@ const i64x2_gt_s = @import("../instruction/wasm_2_0/i64x2_gt_s.zig");
 const i64x2_le_s = @import("../instruction/wasm_2_0/i64x2_le_s.zig");
 const i64x2_ge_s = @import("../instruction/wasm_2_0/i64x2_ge_s.zig");
 
+const i8x16_add_sat_s = @import("../instruction/wasm_2_0/i8x16_add_sat_s.zig");
+const i8x16_add_sat_u = @import("../instruction/wasm_2_0/i8x16_add_sat_u.zig");
+const i8x16_sub_sat_s = @import("../instruction/wasm_2_0/i8x16_sub_sat_s.zig");
+const i8x16_sub_sat_u = @import("../instruction/wasm_2_0/i8x16_sub_sat_u.zig");
+const i8x16_avgr_u = @import("../instruction/wasm_2_0/i8x16_avgr_u.zig");
+const i16x8_add_sat_s = @import("../instruction/wasm_2_0/i16x8_add_sat_s.zig");
+const i16x8_add_sat_u = @import("../instruction/wasm_2_0/i16x8_add_sat_u.zig");
+const i16x8_sub_sat_s = @import("../instruction/wasm_2_0/i16x8_sub_sat_s.zig");
+const i16x8_sub_sat_u = @import("../instruction/wasm_2_0/i16x8_sub_sat_u.zig");
+const i16x8_avgr_u = @import("../instruction/wasm_2_0/i16x8_avgr_u.zig");
+
 const i8x16_min_s = @import("../instruction/wasm_2_0/i8x16_min_s.zig");
 const i8x16_min_u = @import("../instruction/wasm_2_0/i8x16_min_u.zig");
 const i8x16_max_s = @import("../instruction/wasm_2_0/i8x16_max_s.zig");
@@ -600,6 +611,16 @@ pub const collected_ops = .{
     i32x4_min_u,
     i32x4_max_s,
     i32x4_max_u,
+    i8x16_add_sat_s,
+    i8x16_add_sat_u,
+    i8x16_sub_sat_s,
+    i8x16_sub_sat_u,
+    i8x16_avgr_u,
+    i16x8_add_sat_s,
+    i16x8_add_sat_u,
+    i16x8_sub_sat_s,
+    i16x8_sub_sat_u,
+    i16x8_avgr_u,
 };
 
 comptime {
@@ -753,9 +774,9 @@ test "zirOpTagCount matches the ZirOp enum field count" {
     try std.testing.expect(n >= 200);
 }
 
-test "migratedOpCount tracks collected_ops length (212 after §9.12-B / B37 SIMD int min/max)" {
+test "migratedOpCount tracks collected_ops length (222 after §9.12-B / B38 SIMD sat+avgr)" {
     // Running tally: 162 + i16x8 cmp 10 = 172.
-    try std.testing.expectEqual(@as(usize, 212), migratedOpCount());
+    try std.testing.expectEqual(@as(usize, 222), migratedOpCount());
 }
 
 test "migrationComplete is false until §9.12-B migrates all 581 ops" {
