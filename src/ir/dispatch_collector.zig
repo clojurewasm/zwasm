@@ -246,6 +246,17 @@ const i32x4_abs = @import("../instruction/wasm_2_0/i32x4_abs.zig");
 const i64x2_neg = @import("../instruction/wasm_2_0/i64x2_neg.zig");
 const i64x2_abs = @import("../instruction/wasm_2_0/i64x2_abs.zig");
 
+const i8x16_eq = @import("../instruction/wasm_2_0/i8x16_eq.zig");
+const i8x16_ne = @import("../instruction/wasm_2_0/i8x16_ne.zig");
+const i8x16_lt_s = @import("../instruction/wasm_2_0/i8x16_lt_s.zig");
+const i8x16_lt_u = @import("../instruction/wasm_2_0/i8x16_lt_u.zig");
+const i8x16_gt_s = @import("../instruction/wasm_2_0/i8x16_gt_s.zig");
+const i8x16_gt_u = @import("../instruction/wasm_2_0/i8x16_gt_u.zig");
+const i8x16_le_s = @import("../instruction/wasm_2_0/i8x16_le_s.zig");
+const i8x16_le_u = @import("../instruction/wasm_2_0/i8x16_le_u.zig");
+const i8x16_ge_s = @import("../instruction/wasm_2_0/i8x16_ge_s.zig");
+const i8x16_ge_u = @import("../instruction/wasm_2_0/i8x16_ge_u.zig");
+
 const i32_div_s = @import("../instruction/wasm_1_0/i32_div_s.zig");
 const i32_div_u = @import("../instruction/wasm_1_0/i32_div_u.zig");
 const i32_rem_s = @import("../instruction/wasm_1_0/i32_rem_s.zig");
@@ -474,6 +485,16 @@ pub const collected_ops = .{
     i32x4_abs,
     i64x2_neg,
     i64x2_abs,
+    i8x16_eq,
+    i8x16_ne,
+    i8x16_lt_s,
+    i8x16_lt_u,
+    i8x16_gt_s,
+    i8x16_gt_u,
+    i8x16_le_s,
+    i8x16_le_u,
+    i8x16_ge_s,
+    i8x16_ge_u,
 };
 
 comptime {
@@ -625,9 +646,9 @@ test "zirOpTagCount matches the ZirOp enum field count" {
     try std.testing.expect(n >= 200);
 }
 
-test "migratedOpCount tracks collected_ops length (152 after §9.12-B / B31 SIMD neg/abs)" {
-    // Running tally: 144 + neg/abs 8 = 152.
-    try std.testing.expectEqual(@as(usize, 152), migratedOpCount());
+test "migratedOpCount tracks collected_ops length (162 after §9.12-B / B32 i8x16 cmp)" {
+    // Running tally: 152 + i8x16 cmp 10 = 162.
+    try std.testing.expectEqual(@as(usize, 162), migratedOpCount());
 }
 
 test "migrationComplete is false until §9.12-B migrates all 581 ops" {

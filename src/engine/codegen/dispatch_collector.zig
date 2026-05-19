@@ -172,6 +172,27 @@ const arm64_i32x4_neg = @import("arm64/ops/wasm_2_0/i32x4_neg.zig");
 const arm64_i32x4_abs = @import("arm64/ops/wasm_2_0/i32x4_abs.zig");
 const arm64_i64x2_neg = @import("arm64/ops/wasm_2_0/i64x2_neg.zig");
 const arm64_i64x2_abs = @import("arm64/ops/wasm_2_0/i64x2_abs.zig");
+const arm64_i8x16_eq = @import("arm64/ops/wasm_2_0/i8x16_eq.zig");
+const arm64_i8x16_ne = @import("arm64/ops/wasm_2_0/i8x16_ne.zig");
+const arm64_i8x16_lt_s = @import("arm64/ops/wasm_2_0/i8x16_lt_s.zig");
+const arm64_i8x16_lt_u = @import("arm64/ops/wasm_2_0/i8x16_lt_u.zig");
+const arm64_i8x16_gt_s = @import("arm64/ops/wasm_2_0/i8x16_gt_s.zig");
+const arm64_i8x16_gt_u = @import("arm64/ops/wasm_2_0/i8x16_gt_u.zig");
+const arm64_i8x16_le_s = @import("arm64/ops/wasm_2_0/i8x16_le_s.zig");
+const arm64_i8x16_le_u = @import("arm64/ops/wasm_2_0/i8x16_le_u.zig");
+const arm64_i8x16_ge_s = @import("arm64/ops/wasm_2_0/i8x16_ge_s.zig");
+const arm64_i8x16_ge_u = @import("arm64/ops/wasm_2_0/i8x16_ge_u.zig");
+
+const x86_64_i8x16_eq = @import("x86_64/ops/wasm_2_0/i8x16_eq.zig");
+const x86_64_i8x16_ne = @import("x86_64/ops/wasm_2_0/i8x16_ne.zig");
+const x86_64_i8x16_lt_s = @import("x86_64/ops/wasm_2_0/i8x16_lt_s.zig");
+const x86_64_i8x16_lt_u = @import("x86_64/ops/wasm_2_0/i8x16_lt_u.zig");
+const x86_64_i8x16_gt_s = @import("x86_64/ops/wasm_2_0/i8x16_gt_s.zig");
+const x86_64_i8x16_gt_u = @import("x86_64/ops/wasm_2_0/i8x16_gt_u.zig");
+const x86_64_i8x16_le_s = @import("x86_64/ops/wasm_2_0/i8x16_le_s.zig");
+const x86_64_i8x16_le_u = @import("x86_64/ops/wasm_2_0/i8x16_le_u.zig");
+const x86_64_i8x16_ge_s = @import("x86_64/ops/wasm_2_0/i8x16_ge_s.zig");
+const x86_64_i8x16_ge_u = @import("x86_64/ops/wasm_2_0/i8x16_ge_u.zig");
 
 const x86_64_i8x16_neg = @import("x86_64/ops/wasm_2_0/i8x16_neg.zig");
 const x86_64_i8x16_abs = @import("x86_64/ops/wasm_2_0/i8x16_abs.zig");
@@ -546,6 +567,16 @@ pub const collected_arm64_ops = .{
     arm64_i32x4_abs,
     arm64_i64x2_neg,
     arm64_i64x2_abs,
+    arm64_i8x16_eq,
+    arm64_i8x16_ne,
+    arm64_i8x16_lt_s,
+    arm64_i8x16_lt_u,
+    arm64_i8x16_gt_s,
+    arm64_i8x16_gt_u,
+    arm64_i8x16_le_s,
+    arm64_i8x16_le_u,
+    arm64_i8x16_ge_s,
+    arm64_i8x16_ge_u,
 };
 
 /// Tuple of all migrated x86_64 per-op modules.
@@ -694,6 +725,16 @@ pub const collected_x86_64_ops = .{
     x86_64_i32x4_abs,
     x86_64_i64x2_neg,
     x86_64_i64x2_abs,
+    x86_64_i8x16_eq,
+    x86_64_i8x16_ne,
+    x86_64_i8x16_lt_s,
+    x86_64_i8x16_lt_u,
+    x86_64_i8x16_gt_s,
+    x86_64_i8x16_gt_u,
+    x86_64_i8x16_le_s,
+    x86_64_i8x16_le_u,
+    x86_64_i8x16_ge_s,
+    x86_64_i8x16_ge_u,
 };
 
 comptime {
@@ -752,10 +793,10 @@ test "ArchAxis enum has exactly 2 variants per ADR-0074 (Zone 2 arch-axes)" {
     try std.testing.expectEqual(@as(usize, 2), @typeInfo(ArchAxis).@"enum".fields.len);
 }
 
-test "migratedArchOpCount tracks collected per-arch tuples (B31: arm64=152, x86_64=144)" {
-    // arm64 = 144 + 8 neg/abs; x86_64 = 136 + 8.
-    try std.testing.expectEqual(@as(usize, 152), migratedArchOpCount(.arm64));
-    try std.testing.expectEqual(@as(usize, 144), migratedArchOpCount(.x86_64));
+test "migratedArchOpCount tracks collected per-arch tuples (B32: arm64=162, x86_64=154)" {
+    // arm64 = 152 + 10 i8x16 cmp; x86_64 = 144 + 10.
+    try std.testing.expectEqual(@as(usize, 162), migratedArchOpCount(.arm64));
+    try std.testing.expectEqual(@as(usize, 154), migratedArchOpCount(.x86_64));
 }
 
 // Note: a `dispatch(.arm64, tag, args)` test at this layer would
