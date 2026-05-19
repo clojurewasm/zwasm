@@ -219,6 +219,13 @@ const i64_trunc_sat_f32_u = @import("../instruction/wasm_2_0/i64_trunc_sat_f32_u
 const i64_trunc_sat_f64_s = @import("../instruction/wasm_2_0/i64_trunc_sat_f64_s.zig");
 const i64_trunc_sat_f64_u = @import("../instruction/wasm_2_0/i64_trunc_sat_f64_u.zig");
 
+const v128_not = @import("../instruction/wasm_2_0/v128_not.zig");
+const v128_and = @import("../instruction/wasm_2_0/v128_and.zig");
+const v128_or = @import("../instruction/wasm_2_0/v128_or.zig");
+const v128_xor = @import("../instruction/wasm_2_0/v128_xor.zig");
+const v128_andnot = @import("../instruction/wasm_2_0/v128_andnot.zig");
+const v128_bitselect = @import("../instruction/wasm_2_0/v128_bitselect.zig");
+
 const i32_div_s = @import("../instruction/wasm_1_0/i32_div_s.zig");
 const i32_div_u = @import("../instruction/wasm_1_0/i32_div_u.zig");
 const i32_rem_s = @import("../instruction/wasm_1_0/i32_rem_s.zig");
@@ -423,6 +430,12 @@ pub const collected_ops = .{
     f64_reinterpret_i64,
     f32_demote_f64,
     f64_promote_f32,
+    v128_not,
+    v128_and,
+    v128_or,
+    v128_xor,
+    v128_andnot,
+    v128_bitselect,
 };
 
 comptime {
@@ -574,9 +587,9 @@ test "zirOpTagCount matches the ZirOp enum field count" {
     try std.testing.expect(n >= 200);
 }
 
-test "migratedOpCount tracks collected_ops length (128 after §9.12-B / B28 reinterpret+demote/promote)" {
-    // Running tally: 122 + reinterpret/demote/promote 6 = 128.
-    try std.testing.expectEqual(@as(usize, 128), migratedOpCount());
+test "migratedOpCount tracks collected_ops length (134 after §9.12-B / B29 v128 logical)" {
+    // Running tally: 128 + v128 logical 6 = 134.
+    try std.testing.expectEqual(@as(usize, 134), migratedOpCount());
 }
 
 test "migrationComplete is false until §9.12-B migrates all 581 ops" {
