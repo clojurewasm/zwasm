@@ -372,7 +372,7 @@ five sections above are ☑**. Until then:
 
 ## §8. Why no ADR for this gate?
 
-Same reasoning as `phase8_transition_gate.md` §"Why no ADR
+Same reasoning as `archive/phase_gates/phase8_transition_gate.md` §"Why no ADR
 for this gate?": gate doc + ROADMAP row + SKILL.md carve-out
 together define a **workflow regime**, not a §1/§2/§4/§5
 design choice. ROADMAP §18.2 deviation watch lists the
@@ -426,7 +426,7 @@ workflow rule.
 
 ## §11. References
 
-- `.dev/phase8_transition_gate.md` (template; structure mirrored)
+- `.dev/archive/phase_gates/phase8_transition_gate.md` (template; structure mirrored)
 - `.claude/skills/continue/SKILL.md` §"Exception — hard
   human-in-loop transition gates" (the carve-out this doc
   registers under)

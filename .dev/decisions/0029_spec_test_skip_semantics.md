@@ -137,8 +137,9 @@ decision.
   flip.
 - skip_*.md ADRs become first-class artifacts visible from the
   runner output (proposal_skipped count).
-- Phase 8 transition gate review (7.13 `phase8_transition_gate
-  .md`) can sanity-check that **every** proposal-skip ADR has a
+- Phase 8 transition gate review (7.13
+  `archive/phase_gates/phase8_transition_gate.md`) can
+  sanity-check that **every** proposal-skip ADR has a
   removal condition consistent with §9.8+ phase plan.
 - `bug_fix_survey.md` Step 3 (cite ROADMAP §14 forbidden-list
   nearby) extends naturally: when adding an `skip-impl`,
@@ -165,7 +166,7 @@ decision.
 - The proposal-skip ADRs (`skip_simd.md`, `skip_gc.md` etc) for
   Wasm 2.0+ proposals land later; this ADR establishes the
   vocabulary they will use.
-- Phase 7→8 transition gate (`phase8_transition_gate.md` §3a)
+- Phase 7→8 transition gate (`archive/phase_gates/phase8_transition_gate.md` §3a)
   references this ADR as the canonical exit-criterion source —
   one new line in §3a.
 
@@ -176,7 +177,7 @@ decision.
 - ROADMAP §9.7 / 7.8 (mirrors 7.5; same amendment)
 - `.dev/decisions/skip_*.md` (existing per-fixture skip ADRs)
 - `.dev/proposal_watch.md` (Wasm proposal phase tracking)
-- `.dev/phase8_transition_gate.md` §3a (Phase 7→8 deferred-work DAG)
+- `.dev/archive/phase_gates/phase8_transition_gate.md` §3a (Phase 7→8 deferred-work DAG)
 - Lessons:
   - `2026-05-06-spec-citation-gap.md` (related: per-handler
     spec citation rule)

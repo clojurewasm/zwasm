@@ -216,6 +216,6 @@ substrate audit clears.
 - `.claude/skills/continue/SKILL.md` §"Exception — hard
   human-in-loop transition gates" (the trigger mechanism).
 - `.dev/phase10_transition_gate.md` (precedent gate doc).
-- `.dev/phase8_transition_gate.md` (precedent gate doc).
+- `.dev/archive/phase_gates/phase8_transition_gate.md` (precedent gate doc; archived 2026-05-19 in §9.12-A).
 - 2026-05-16 chat discussion (substrate drift surfaced; user
   directive on sequencing).

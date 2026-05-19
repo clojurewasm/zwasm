@@ -81,4 +81,4 @@ who edits CHECKS.md or LOOP.md.
   pre-split observation; this lesson is its successor)
 - D-030 (discharged 2026-05-07; emit.zig 8-chunk split)
 - D-051 (Phase 8 prologue extraction; new this resume)
-- `.dev/phase8_transition_gate.md` §3 file-size box
+- `.dev/archive/phase_gates/phase8_transition_gate.md` §3 file-size box (archived 2026-05-19 in §9.12-A)

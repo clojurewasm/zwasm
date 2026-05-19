@@ -179,7 +179,7 @@ ADR amendment finalisation.
 
 **Question.** What goes in `.dev/phase10_transition_gate.md`
 (the collaborative review checklist analogous to
-`.dev/phase8_transition_gate.md`)?
+`.dev/archive/phase_gates/phase8_transition_gate.md`)?
 
 **Why it matters.** `/continue` skill's hard-gate detector
 requires a row to contain `🔒` AND a `phase<N>_transition_gate.md`
@@ -193,7 +193,7 @@ writing them OR start implementation without architecture.
 
 **Survey scope.**
 
-- Read `.dev/phase8_transition_gate.md` end-to-end for shape /
+- Read `.dev/archive/phase_gates/phase8_transition_gate.md` end-to-end for shape /
   section structure / "design cleanliness extrapolation" + "deferred
   -work dependency DAG" formats.
 - Enumerate Phase 10's 4 subsystems' current state in the codebase
