@@ -226,6 +226,9 @@ const arm64_i64x2_ge_s = @import("arm64/ops/wasm_2_0/i64x2_ge_s.zig");
 const arm64_i8x16_avgr_u = @import("arm64/ops/wasm_2_0/i8x16_avgr_u.zig");
 const arm64_i16x8_avgr_u = @import("arm64/ops/wasm_2_0/i16x8_avgr_u.zig");
 
+const arm64_call = @import("arm64/ops/wasm_1_0/call.zig");
+const arm64_call_indirect = @import("arm64/ops/wasm_1_0/call_indirect.zig");
+
 const arm64_memory_fill = @import("arm64/ops/wasm_1_0/memory_fill.zig");
 const arm64_memory_copy = @import("arm64/ops/wasm_1_0/memory_copy.zig");
 const arm64_memory_init = @import("arm64/ops/wasm_1_0/memory_init.zig");
@@ -1084,6 +1087,8 @@ pub const collected_arm64_ops = .{
     arm64_memory_fill,
     arm64_memory_copy,
     arm64_memory_init,
+    arm64_call,
+    arm64_call_indirect,
 };
 
 /// Tuple of all migrated x86_64 per-op modules.
@@ -1455,9 +1460,9 @@ test "ArchAxis enum has exactly 2 variants per ADR-0074 (Zone 2 arch-axes)" {
     try std.testing.expectEqual(@as(usize, 2), @typeInfo(ArchAxis).@"enum".fields.len);
 }
 
-test "migratedArchOpCount tracks collected per-arch tuples (B48: arm64=325, x86_64=307)" {
+test "migratedArchOpCount tracks collected per-arch tuples (B49: arm64=327, x86_64=307)" {
     // arm64 = 162 + 10 i16x8 cmp; x86_64 = 154 + 10.
-    try std.testing.expectEqual(@as(usize, 325), migratedArchOpCount(.arm64));
+    try std.testing.expectEqual(@as(usize, 327), migratedArchOpCount(.arm64));
     try std.testing.expectEqual(@as(usize, 307), migratedArchOpCount(.x86_64));
 }
 

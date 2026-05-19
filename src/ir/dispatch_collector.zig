@@ -424,6 +424,9 @@ const i64x2_shl = @import("../instruction/wasm_2_0/i64x2_shl.zig");
 const i64x2_shr_s = @import("../instruction/wasm_2_0/i64x2_shr_s.zig");
 const i64x2_shr_u = @import("../instruction/wasm_2_0/i64x2_shr_u.zig");
 
+const call = @import("../instruction/wasm_1_0/call.zig");
+const call_indirect = @import("../instruction/wasm_1_0/call_indirect.zig");
+
 const memory_fill = @import("../instruction/wasm_1_0/memory_fill.zig");
 const memory_copy = @import("../instruction/wasm_1_0/memory_copy.zig");
 const memory_init = @import("../instruction/wasm_1_0/memory_init.zig");
@@ -889,6 +892,8 @@ pub const collected_ops = .{
     memory_fill,
     memory_copy,
     memory_init,
+    call,
+    call_indirect,
 };
 
 comptime {
@@ -1042,9 +1047,9 @@ test "zirOpTagCount matches the ZirOp enum field count" {
     try std.testing.expect(n >= 200);
 }
 
-test "migratedOpCount tracks collected_ops length (351 after §9.12-B / B48 arm64 memory.{fill,copy,init})" {
+test "migratedOpCount tracks collected_ops length (353 after §9.12-B / B49 arm64 call cohort)" {
     // Running tally: 162 + i16x8 cmp 10 = 172.
-    try std.testing.expectEqual(@as(usize, 351), migratedOpCount());
+    try std.testing.expectEqual(@as(usize, 353), migratedOpCount());
 }
 
 test "migrationComplete is false until §9.12-B migrates all 581 ops" {
