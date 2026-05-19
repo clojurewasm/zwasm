@@ -42,7 +42,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const zir = @import("../../../ir/zir.zig");
-const dispatch_collector = @import("../../../ir/dispatch_collector.zig");
+const dispatch_collector = @import("../dispatch_collector.zig");
 const inst = @import("inst.zig");
 const inst_neon = @import("inst_neon.zig");
 const abi = @import("abi.zig");

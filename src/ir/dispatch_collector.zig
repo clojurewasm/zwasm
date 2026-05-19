@@ -37,12 +37,12 @@ const ZirOp = zir.ZirOp;
 pub const WasmLevel = @TypeOf(build_options.wasm_level);
 pub const WasiLevel = @TypeOf(build_options.wasi_level);
 
-/// The 5 dispatch axes per op (per ADR-0023 §4.5 amend).
-pub const Axis = enum {
+/// IR-zone dispatch axes (per ADR-0074 split). The arch axes
+/// (`arm64` / `x86_64`) live at the Zone 2 collector
+/// `src/engine/codegen/dispatch_collector.zig::ArchAxis`.
+pub const IRAxis = enum {
     validate,
     lower,
-    arm64,
-    x86_64,
     interp,
 };
 
@@ -74,9 +74,10 @@ pub const Feature = enum {
 // ---------------------------------------------------------------------
 
 /// Comptime invariant check: a per-op file must export `op_tag`,
-/// `wasm_level`, and a `handlers` struct with all 5 axes. Emits a
-/// descriptive `@compileError` naming the missing field if any axis
-/// or required declaration is absent.
+/// `wasm_level`, and a `handlers` struct with all IR-zone axes
+/// (validate / lower / interp). Per-arch handlers live in Zone 2
+/// per-arch op files per ADR-0074 and are validated separately by
+/// `engine/codegen/dispatch_collector.zig::validateArchOpModule`.
 pub fn validateOpModule(comptime mod: type) void {
     comptime {
         if (!@hasDecl(mod, "op_tag")) {
@@ -86,10 +87,10 @@ pub fn validateOpModule(comptime mod: type) void {
             @compileError("per-op file missing `pub const wasm_level: ?WasmLevel = ...;`");
         }
         if (!@hasDecl(mod, "handlers")) {
-            @compileError("per-op file missing `pub const handlers = .{ .validate, .lower, .arm64, .x86_64, .interp };`");
+            @compileError("per-op file missing `pub const handlers = .{ .validate, .lower, .interp };`");
         }
         const H = @TypeOf(mod.handlers);
-        for (@typeInfo(Axis).@"enum".fields) |axis_field| {
+        for (@typeInfo(IRAxis).@"enum".fields) |axis_field| {
             if (!@hasField(H, axis_field.name)) {
                 @compileError("per-op file '" ++ @tagName(mod.op_tag) ++ "' missing handler `." ++ axis_field.name ++ "` in `pub const handlers`");
             }
@@ -274,7 +275,7 @@ pub fn opModuleFor(comptime tag: ZirOp) ?type {
 /// the legacy dispatcher in that file becomes a thin call to
 /// `dispatcher(.<axis>)(op, &ctx)` that falls through to a residual
 /// legacy switch only when `error.NotMigrated` is returned.
-pub fn dispatcher(comptime axis: Axis) fn (op: ZirOp, args: anytype) DispatchError!void {
+pub fn dispatcher(comptime axis: IRAxis) fn (op: ZirOp, args: anytype) DispatchError!void {
     return struct {
         fn dispatch(op: ZirOp, args: anytype) DispatchError!void {
             inline for (collected_ops) |op_mod| {
@@ -329,8 +330,8 @@ test "opModuleFor returns null for not-yet-migrated tags" {
     try std.testing.expectEqual(@as(?type, null), result);
 }
 
-test "Axis enum has exactly 5 variants per ADR-0023 §4.5 amend" {
-    try std.testing.expectEqual(@as(usize, 5), @typeInfo(Axis).@"enum".fields.len);
+test "IRAxis enum has exactly 3 variants per ADR-0074 (Zone 1 IR-axes only)" {
+    try std.testing.expectEqual(@as(usize, 3), @typeInfo(IRAxis).@"enum".fields.len);
 }
 
 test "dispatcher(.validate) routes i32.add to its per-op stub (returns NotMigrated by design)" {
@@ -360,10 +361,9 @@ test "populateDispatchTable is callable + no-op for current stubs" {
     try std.testing.expect(table.interp[@intFromEnum(ZirOp.@"i32.add")] == null);
 }
 
-test "dispatcher returns a callable function value per axis" {
-    // Smoke: every Axis variant resolves to a non-null fn pointer.
-    inline for (@typeInfo(Axis).@"enum".fields) |f| {
-        const axis: Axis = @enumFromInt(f.value);
+test "dispatcher returns a callable function value per IR-axis" {
+    inline for (@typeInfo(IRAxis).@"enum".fields) |f| {
+        const axis: IRAxis = @enumFromInt(f.value);
         const fn_ref = dispatcher(axis);
         _ = fn_ref;
     }

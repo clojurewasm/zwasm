@@ -42,7 +42,7 @@
 const std = @import("std");
 
 const zir = @import("../../../ir/zir.zig");
-const dispatch_collector = @import("../../../ir/dispatch_collector.zig");
+const dispatch_collector = @import("../dispatch_collector.zig");
 const regalloc = @import("../shared/regalloc.zig");
 const inst = @import("inst.zig");
 const usage = @import("usage.zig");

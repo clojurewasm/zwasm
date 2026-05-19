@@ -130,6 +130,7 @@ pub const instruction = struct {
 pub const engine = struct {
     pub const runner = @import("engine/runner.zig");
     pub const codegen = struct {
+        pub const dispatch_collector = @import("engine/codegen/dispatch_collector.zig");
         pub const shared = struct {
             pub const reg_class = @import("engine/codegen/shared/reg_class.zig");
             pub const regalloc = @import("engine/codegen/shared/regalloc.zig");
@@ -195,6 +196,7 @@ test {
     _ = @import("ir/zir.zig");
     _ = @import("ir/dispatch_table.zig");
     _ = @import("ir/dispatch_collector.zig");
+    _ = @import("engine/codegen/dispatch_collector.zig");
     _ = @import("ir/wasm_byte_map.zig");
     _ = @import("ir/hoist/pass.zig");
     _ = @import("ir/coalesce/pass.zig");
