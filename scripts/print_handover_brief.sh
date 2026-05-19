@@ -24,6 +24,17 @@ Editing .dev/ROADMAP.md? A PreToolUse hook re-prints this rule at the moment of 
 - Deviation from §1, §2 (P/A), §4 (architecture / Zone / ZirOp), §5 (layout), §9 phase scope/exit, §11 layers, §14 forbidden list — file .dev/decisions/NNNN_<slug>.md FIRST per §18, reference it in the commit, then edit.
 - "Quiet" edits to load-bearing sections are forbidden (§18.3). If unsure, ask the user.
 
+=== /continue re-arm literal (compact-safe reminder) ===
+/continue Step 8 (and Phase boundary 5) always uses:
+  ScheduleWakeup(delaySeconds=60, prompt="/continue")
+The literal 60 is the harness runtime floor (clamp [60, 3600]).
+The ScheduleWakeup tool description's "default 1200-1800s for
+idle ticks" does NOT apply inside /continue — see
+.claude/skills/continue/LOOP.md §"Self-perpetuation" for the
+5-reason override. This block is re-printed on every
+SessionStart + PostCompact so the literal survives compaction
+even if SKILL.md gets truncated in the summary.
+
 EOF
 
 if [ -f "$CTX/.dev/handover.md" ]; then

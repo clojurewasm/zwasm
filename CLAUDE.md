@@ -61,6 +61,13 @@ load-bearing ROADMAP deviations only — see ROADMAP §18).
 
 ## Working agreement
 
+- **`/continue` re-arm is always `ScheduleWakeup(delaySeconds=60,
+  prompt="/continue")`** — `60` is the harness runtime floor
+  (clamp `[60, 3600]`), NOT the tool description's "default
+  1200–1800s for idle ticks". The skill wants the shortest
+  heartbeat the harness allows. Full reasoning:
+  [`.claude/skills/continue/LOOP.md`](.claude/skills/continue/LOOP.md)
+  §"Self-perpetuation".
 - TDD: red → green → refactor.
 - **Step 0 (Survey) before each task**: Explore subagent surveys
   reference codebases (zwasm v1, wasmtime, zware, wasm3,
