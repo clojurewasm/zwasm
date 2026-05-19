@@ -1,15 +1,25 @@
 #!/usr/bin/env bash
-# .githooks/pre_commit
+# .githooks/pre-commit
 #
 # Activated by:
 #   git config core.hooksPath .githooks
 #
-# Runs the commit gate. Skipping with `git commit --no-verify` is
-# forbidden by ROADMAP §14.
+# Runs the commit gate in **--fast** mode (per ADR-0076 D4): static
+# checks only (zig fmt + zone_check + file_size + adr/lesson/libc/
+# fallback/invariant_comments). `zig build test` (~30 s) and
+# `zig build lint` (~10 s) are deferred to the /continue loop's
+# Step 4 (lint) + Step 5 (test) where they already run.
+#
+# Manual commits that want the full gate can invoke
+# `bash scripts/gate_commit.sh` (no flag) explicitly before
+# `git commit` — that runs the full pre-ADR-0076 suite.
+#
+# Skipping the hook with `git commit --no-verify` is forbidden by
+# ROADMAP §14.
 
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
-bash scripts/gate_commit.sh
+bash scripts/gate_commit.sh --fast

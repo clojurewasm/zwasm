@@ -4,35 +4,31 @@
 # Activated by:
 #   git config core.hooksPath .githooks
 #
-# Runs the **commit gate only** (zig fmt + zone + file_size + zig
-# build test). This is the same suite the pre-commit hook runs;
-# rerunning it pre-push catches the case where multiple commits
-# were stacked locally and a later one broke the gate.
+# Per ADR-0076 D4: pre-push runs ONLY the chunk-close ratchets, NOT
+# the commit gate again. Rationale: every staged commit has already
+# passed the pre-commit hook (--fast static checks); the loop's
+# Step 5 (test) + Step 4 (lint) ran before commit. Re-running the
+# commit gate at push time was pure duplication that added ~30 s
+# to every push without catching anything pre-commit didn't.
 #
-# The full 3-host merge gate (Mac + OrbStack + windowsmini test-all)
-# lives in `scripts/gate_merge.sh` and is invoked **manually**:
-#   - At Phase boundary close, as part of the §9.<N> SHA backfill
-#     ritual.
-#   - Before any push to `main` (the A13 merge gate).
-# Per-push to `zwasm-from-scratch` does not run the full gate
-# because test-all takes 15–45 minutes across hosts and the
-# autonomous /continue loop pushes per chunk. See
-# `.claude/skills/continue/SKILL.md` § "Phase boundary" for the
-# canonical invocation site.
+# Two ratchets remain — both are cheap when they have nothing to do:
+# subrow_exit only fires when HEAD contains a §9.12-X `[x]` flip;
+# skip_impl_ratchet uses cached test logs (or warns if absent).
+#
+# The full 3-host merge gate (Mac + ubuntunote + windowsmini
+# test-all) lives in `scripts/gate_merge.sh` and is invoked
+# **manually** for `main` pushes (A13 merge gate). Per-push to
+# `zwasm-from-scratch` does NOT run the merge gate — per-chunk
+# Mac + ubuntunote (background, ADR-0076 D3) is the autonomous
+# discipline.
+#
+# Skipping the hook with `git push --no-verify` is forbidden by
+# ROADMAP §14.
 
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
-
-bash scripts/gate_commit.sh
-
-# Per §9.12-A enforcement-layer wiring (master plan §7.3 + §7.6):
-# fire the chunk-close exit gate + skip-impl ratchet on pre-push so
-# the rare-but-load-bearing checks run before the commit becomes
-# visible on origin. Both are cheap when they have nothing to do:
-# subrow_exit only checks when HEAD contains a §9.12-X `[x]` flip;
-# ratchet uses cached test logs (or warns if absent).
 
 if [ -x scripts/check_subrow_exit.sh ]; then
     echo "[pre-push] check_subrow_exit --gate ..."

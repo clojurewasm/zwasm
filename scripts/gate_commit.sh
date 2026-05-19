@@ -23,6 +23,22 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# --- arg parsing ---------------------------------------------------------
+#
+# --fast: skip `zig build test` and `zig build lint`. Used by the
+# pre-commit / pre-push hooks (ADR-0076 D4): the /continue loop is
+# already responsible for running test (Step 5) + lint (Step 4) before
+# commit, and re-running them inside the git hook is pure duplication.
+# Manual commits OR explicit `bash scripts/gate_commit.sh` (no flag)
+# still run the full gate as a safety net.
+
+FAST_MODE=0
+for arg in "$@"; do
+    case "$arg" in
+        --fast) FAST_MODE=1 ;;
+    esac
+done
+
 # --- diff classification -------------------------------------------------
 
 STAGED="$(git diff --cached --name-only)"
@@ -62,8 +78,18 @@ fi
 if [ "$DOCS_ONLY" -eq 1 ]; then
     echo "[gate_commit] (docs-only diff — skipping zone_check + file_size_check + check_skip_adrs)"
 else
-    echo "[gate_commit] zone_check --gate ..."
-    bash scripts/zone_check.sh --gate
+    # zone_check.sh walks every `src/**/*.zig` file with a per-file
+    # awk + grep + cd subshell, costing ~100 s in current shape.
+    # In --fast mode it is delegated to `audit_scaffolding` (periodic)
+    # — the rule itself is load-bearing, but per-commit enforcement
+    # at this cost is not. Full-gate mode (no --fast) still runs it
+    # as a manual-commit safety net (per ADR-0076 D4 amend).
+    if [ "$FAST_MODE" -eq 1 ]; then
+        echo "[gate_commit] (--fast — skipping zone_check; audit_scaffolding owns it per ADR-0076 D4)"
+    else
+        echo "[gate_commit] zone_check --gate ..."
+        bash scripts/zone_check.sh --gate
+    fi
 
     echo "[gate_commit] file_size_check --gate ..."
     bash scripts/file_size_check.sh --gate
@@ -126,15 +152,34 @@ if [ "$DOCS_ONLY" -eq 0 ]; then
     fi
 fi
 
-# --- gate: zig build test (skipped on docs-only) ------------------------
+# --- gate: zig build test (skipped on docs-only OR --fast) ---------------
 
-if [ ! -f build.zig ]; then
+if [ "$FAST_MODE" -eq 1 ]; then
+    echo "[gate_commit] (--fast — skipping zig build test; /continue Step 5 owns it per ADR-0076 D4)"
+elif [ ! -f build.zig ]; then
     echo "[gate_commit] (no build.zig — skipping zig build test)"
 elif [ "$DOCS_ONLY" -eq 1 ]; then
     echo "[gate_commit] (docs/config-only diff — skipping zig build test)"
 else
     echo "[gate_commit] zig build test ..."
     zig build test
+fi
+
+# --- gate: zig build lint (skipped on docs-only OR --fast) ---------------
+#
+# Lint findings are platform-independent and architecturally orthogonal
+# to test failures, so they get their own gate. In --fast mode the
+# /continue Step 4 owns it (per ADR-0076 D4).
+
+if [ "$FAST_MODE" -eq 1 ]; then
+    echo "[gate_commit] (--fast — skipping zig build lint; /continue Step 4 owns it per ADR-0076 D4)"
+elif [ ! -f build.zig ]; then
+    echo "[gate_commit] (no build.zig — skipping zig build lint)"
+elif [ "$DOCS_ONLY" -eq 1 ]; then
+    echo "[gate_commit] (docs/config-only diff — skipping zig build lint)"
+else
+    echo "[gate_commit] zig build lint ..."
+    zig build lint -- --max-warnings 0
 fi
 
 echo "[gate_commit] All gates passed."

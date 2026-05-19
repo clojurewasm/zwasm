@@ -121,11 +121,27 @@ Drift → `soon`.
 If a developer reports a false positive, capture in `private/audit-*`
 as `block` until fixed.
 
-### D.3 zone_check.sh false positives
+### D.3 zone_check.sh — periodic enforcement (per ADR-0076 D4)
 
-`bash scripts/zone_check.sh` (info mode) reports any zone violations.
-For each, verify it's a real violation; if the rule itself is wrong
-(e.g. test code crossing zones), flag as `block`.
+Per ADR-0076 D4, `zone_check.sh --gate` is **no longer in
+pre-commit** (cost ~100 s per invocation). audit_scaffolding now
+owns periodic enforcement:
+
+```sh
+bash scripts/zone_check.sh --gate
+```
+
+Any non-zero exit is a `block` finding. For info-mode false
+positives (e.g. test code crossing zones legitimately), still
+flag as `block` if the rule itself is wrong. The full-gate
+mode (manual `bash scripts/gate_commit.sh` without `--fast`)
+also re-runs zone_check as the manual-commit safety net.
+
+Cadence: every audit_scaffolding invocation (phase boundary
++ opportunistic). Future follow-up: zone_check.sh itself
+should be rewritten to drop the per-file awk+grep+cd
+subshell fork (currently the cost driver); once it lands
+< 5 s, it can return to pre-commit.
 
 ## E. Cross-section consistency
 
