@@ -15,7 +15,8 @@
    (374/581 IR-axis, 348/314 arch-axis); B53+ is gated on ADR-0075**.
 3. `git log --oneline -10` — recent autonomous-loop chunks under
    `chore(p9b):` / `feat(p9b):` prefix. Last source commit
-   `f1f62ba8` (B54 — i32.div_s PoC migrated to `(ctx, ins)`).
+   `c4ef5e11` (B55 — full i32+i64 div/rem cohort migrated to
+   `(ctx, ins)`).
 4. `bash scripts/p9_completion_status.sh` — live progress.
 5. `bash scripts/p9_simd_status.sh` — live SIMD status.
 6. `.dev/debt.md` `now` rows: none.
@@ -78,27 +79,29 @@
 | B52 | SIMD splats + ref.is_null cohort (7 ops, both arches): i{8x16,16x8,32x4,64x2}.splat + f{32x4,64x2}.splat + ref.is_null. 21 new files. 374/348/314 of 581 | `<backfill>` |
 | B53 | ADR-0075 Accepted + x86_64 EmitCtx substrate. New file `src/engine/codegen/x86_64/ctx.zig` mirrors arm64's shape; `EmitCtx.init(args: InitArgs)` factory keeps emit.zig under the 2000-line hard cap. Initialised once at the top of `compile()`'s body-loop; `_ = &ctx;` keeps it inert until B54. No behaviour change. | `952e1a33` |
 | B54 | PoC: migrate `i32.div_s` end-to-end to `(ctx, ins)`. New `op_alu_int.emitI32DivS(ctx, ins)` adapter; emit.zig dispatch arm splits div_s from div_u/rem_s/rem_u; new per-op file `x86_64/ops/wasm_1_0/i32_div_s.zig`; parallel `collected_x86_64_ctx_ops` tracks the migration (legacy tuple stays 314 until B6x+1 cutover). | `f1f62ba8` |
-| **B55** | **Cohort migration: remaining div / rem variants (`i32.div_u` / `i32.rem_s` / `i32.rem_u` + i64 family)** to `(ctx, ins)`. Mirror of B54 pattern × 7 ops; same `bounds_fixups` consumer. Add per-op files + update `collected_x86_64_ctx_ops`. | **NEXT** |
-| B55..B6x | Bulk migrate remaining ~70 x86_64 emit fns in cohorts (5–15 ops/chunk per LOOP.md). Same pattern as B11..B12 was for arm64 i32.add but applied at scale. Migration order suggestion: trapping trunc 8 → div/rem 8 → table ops → globals → memory load/store → const → call → local — bottom up by dependency. | |
+| B55 | Cohort migration: remaining div / rem variants (`i32.div_u` / `i32.rem_s` / `i32.rem_u` + i64 family) to `(ctx, ins)`. 7 per-op aliases (i32 cohort via `emitI32DivS` alias; i64 via `emitI64DivS` alias) + 7 per-op files + `collected_x86_64_ctx_ops` 1 → 8. | `c4ef5e11` |
+| **B56** | **Cohort migration: trapping trunc cohort (`i32.trunc_f32_s/u` / `i32.trunc_f64_s/u` / `i64.trunc_f32_s/u` / `i64.trunc_f64_s/u`)** to `(ctx, ins)`. Same `bounds_fixups` consumer (trap on invalid / overflow). Add per-op adapters + per-op files. | **NEXT** |
+| B56..B6x | Bulk migrate remaining x86_64 emit fns in cohorts (5–15 ops/chunk per LOOP.md). Migration order suggestion: trapping trunc 8 → table ops → globals → memory load/store → const → call → local — bottom up by dependency. | |
 | B6x+1 | Inline-switch dispatcher cutover per ADR-0073 — both arches' `emit.zig` giant switch replaced by `inline for (collected_X_ops) |op_mod| { if (op_mod.op_tag == ins.op) return op_mod.emit(ctx, ins); }`. Moment per-op files become load-bearing. | |
 
-## Active state — §9.12-B mid-flight; B54 PoC landed 2026-05-19
+## Active state — §9.12-B mid-flight; B55 div/rem cohort landed 2026-05-20
 
-**B55 is the active task** — cohort migrate the remaining div / rem
-variants (`i32.div_u` / `i32.rem_s` / `i32.rem_u` + i64 family) to the
-`(ctx, ins)` shape. B54 proved the wire end-to-end at `f1f62ba8`.
+**B56 is the active task** — cohort migrate the trapping trunc
+variants (`i32.trunc_f32_s/u`, `i32.trunc_f64_s/u`,
+`i64.trunc_f32_s/u`, `i64.trunc_f64_s/u`) to the `(ctx, ins)`
+shape. B55 closed the div/rem cohort at `c4ef5e11`
+(`collected_x86_64_ctx_ops` 1 → 8).
 
-The loop for B55:
+The loop for B56:
 
-1. Add `op_alu_int.emitI32DivU` / `emitI32RemS` / `emitI32RemU` +
-   `emitI64DivS` / `emitI64DivU` / `emitI64RemS` / `emitI64RemU`
-   adapters in x86_64/op_alu_int.zig (mirror of B54's pattern).
-2. Split each variant off the legacy 4-op `=>` arm in emit.zig;
+1. Add `(ctx, ins)` adapter(s) in x86_64/op_alu_float.zig
+   (or wherever the trapping trunc legacy entry lives — likely
+   `emitTruncFloatToInt` family). Mirror of B55's alias pattern
+   if the legacy impl dispatches on `ins.op` internally.
+2. Split each variant off its legacy grouped arm in emit.zig;
    call adapters via `&ctx`.
-3. Create per-op files for each at
-   `x86_64/ops/wasm_1_0/<op>.zig` (mirror of i32_div_s.zig).
-4. Update `collected_x86_64_ctx_ops` to track 8 ops; assertion
-   test bumps to 8.
+3. Create per-op files at `x86_64/ops/wasm_1_0/<op>.zig`.
+4. Update `collected_x86_64_ctx_ops` + assertion test.
 5. Verify 2-host green; commit + push.
 
 §9.12-B exit criterion stays as ROADMAP §9.12-B specifies (6 build
