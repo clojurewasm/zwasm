@@ -762,7 +762,42 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
     const globals_valtypes = elay.valtypes;
     errdefer allocator.free(globals_valtypes);
     const globals_byte_size = elay.byte_size;
-    const validator_tables: []const zir.TableEntry = if (tables_buf) |t| t.items else &.{};
+    // close-plan §6 (j) Step B cohort 3 — validator table-index space is
+    // imports prefix + defined. Pre-fix shape only exposed defined tables
+    // so `call_indirect`/`table.*` against an imported table (e.g.
+    // `(import "spectest" "table" ...)` in elem.57 / linking.17 /
+    // imports.60-61 / table_grow.6) surfaced as `InvalidFuncIndex` at
+    // table_idx=0 even though the imported table existed.
+    var num_table_imports_main: u32 = 0;
+    if (imports_buf) |ib| {
+        for (ib.items) |imp| if (imp.kind == .table) {
+            num_table_imports_main += 1;
+        };
+    }
+    const validator_tables: []const zir.TableEntry = blk: {
+        const total: usize = @as(usize, num_table_imports_main) + (if (tables_buf) |t| t.items.len else 0);
+        if (total == 0) break :blk &.{};
+        const out = try a.alloc(zir.TableEntry, total);
+        var write_idx: usize = 0;
+        if (imports_buf) |ib| {
+            for (ib.items) |imp| {
+                if (imp.kind != .table) continue;
+                out[write_idx] = .{
+                    .elem_type = imp.payload.table.elem_type,
+                    .min = imp.payload.table.min,
+                    .max = imp.payload.table.max,
+                };
+                write_idx += 1;
+            }
+        }
+        if (tables_buf) |t| {
+            for (t.items) |tbl| {
+                out[write_idx] = tbl;
+                write_idx += 1;
+            }
+        }
+        break :blk out;
+    };
     const validator_data_count: u32 = if (datas_buf) |d| @intCast(d.items.len) else 0;
     const validator_elem_count: u32 = if (elems_buf) |e| @intCast(e.items.len) else 0;
 

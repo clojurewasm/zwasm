@@ -690,13 +690,17 @@ pub fn decodeElement(parent_alloc: Allocator, body: []const u8) Error!Elements {
             5 => {
                 // passive, reftype, vec(reftype-expr).
                 if (pos >= body.len) return Error.UnexpectedEnd;
-                const reftype = body[pos];
+                const reftype_byte = body[pos];
                 pos += 1;
-                if (reftype != 0x70) return Error.InvalidFunctype;
+                const reftype_vt: ValType = switch (reftype_byte) {
+                    0x70 => .funcref,
+                    0x6F => .externref,
+                    else => return Error.InvalidFunctype,
+                };
                 const n = try leb128.readUleb128(u32, body, &pos);
                 const funcs = try alloc.alloc(u32, n);
                 for (funcs) |*f| f.* = try readFuncrefInitExpr(body, &pos);
-                e.* = .{ .kind = .passive, .elem_type = .funcref, .funcidxs = funcs };
+                e.* = .{ .kind = .passive, .elem_type = reftype_vt, .funcidxs = funcs };
             },
             6 => {
                 // active, explicit tableidx, offset_expr, reftype,
@@ -706,9 +710,13 @@ pub fn decodeElement(parent_alloc: Allocator, body: []const u8) Error!Elements {
                 try scanInitExpr(body, &pos);
                 const expr = body[expr_start..pos];
                 if (pos >= body.len) return Error.UnexpectedEnd;
-                const reftype = body[pos];
+                const reftype_byte = body[pos];
                 pos += 1;
-                if (reftype != 0x70) return Error.InvalidFunctype;
+                const reftype_vt: ValType = switch (reftype_byte) {
+                    0x70 => .funcref,
+                    0x6F => .externref,
+                    else => return Error.InvalidFunctype,
+                };
                 const n = try leb128.readUleb128(u32, body, &pos);
                 const funcs = try alloc.alloc(u32, n);
                 for (funcs) |*f| f.* = try readFuncrefInitExpr(body, &pos);
@@ -716,20 +724,24 @@ pub fn decodeElement(parent_alloc: Allocator, body: []const u8) Error!Elements {
                     .kind = .active,
                     .tableidx = tableidx,
                     .offset_expr = expr,
-                    .elem_type = .funcref,
+                    .elem_type = reftype_vt,
                     .funcidxs = funcs,
                 };
             },
             7 => {
                 // declarative, reftype, vec(reftype-expr).
                 if (pos >= body.len) return Error.UnexpectedEnd;
-                const reftype = body[pos];
+                const reftype_byte = body[pos];
                 pos += 1;
-                if (reftype != 0x70) return Error.InvalidFunctype;
+                const reftype_vt: ValType = switch (reftype_byte) {
+                    0x70 => .funcref,
+                    0x6F => .externref,
+                    else => return Error.InvalidFunctype,
+                };
                 const n = try leb128.readUleb128(u32, body, &pos);
                 const funcs = try alloc.alloc(u32, n);
                 for (funcs) |*f| f.* = try readFuncrefInitExpr(body, &pos);
-                e.* = .{ .kind = .declarative, .elem_type = .funcref, .funcidxs = funcs };
+                e.* = .{ .kind = .declarative, .elem_type = reftype_vt, .funcidxs = funcs };
             },
             else => return Error.InvalidFunctype,
         }
@@ -739,10 +751,14 @@ pub fn decodeElement(parent_alloc: Allocator, body: []const u8) Error!Elements {
     return .{ .arena = arena, .items = items };
 }
 
-/// Decode one funcref init expression appearing in element-section
-/// form 4 / 6: either `ref.func F; end` (0xD2 LEB128(F) 0x0B) or
-/// `ref.null funcref; end` (0xD0 0x70 0x0B). Returns the funcidx
-/// or `std.math.maxInt(u32)` for null.
+/// Decode one funcref/externref init expression appearing in
+/// element-section form 4 / 5 / 6 / 7. Supports per Wasm spec
+/// §3.3.2.10 const-expr: `ref.func F; end` (0xD2 LEB128(F) 0x0B),
+/// `ref.null t; end` (0xD0 0x70|0x6F 0x0B), and `global.get N;
+/// end` (0x23 LEB128(N) 0x0B). For null and global.get the
+/// funcidx is `std.math.maxInt(u32)` (null sentinel) — close-plan
+/// §6 (j) Step B cohort 3 admits the parse form so elem.68
+/// compiles; runtime population is a separate cohort.
 fn readFuncrefInitExpr(body: []const u8, pos: *usize) Error!u32 {
     if (pos.* >= body.len) return Error.UnexpectedEnd;
     const op = body[pos.*];
@@ -751,8 +767,13 @@ fn readFuncrefInitExpr(body: []const u8, pos: *usize) Error!u32 {
         0xD2 => try leb128.readUleb128(u32, body, pos),
         0xD0 => blk: {
             if (pos.* >= body.len) return Error.UnexpectedEnd;
-            if (body[pos.*] != 0x70) return Error.BadValType;
+            const rt_byte = body[pos.*];
+            if (rt_byte != 0x70 and rt_byte != 0x6F) return Error.BadValType;
             pos.* += 1;
+            break :blk std.math.maxInt(u32);
+        },
+        0x23 => blk: {
+            _ = try leb128.readUleb128(u32, body, pos);
             break :blk std.math.maxInt(u32);
         },
         else => return Error.InvalidFunctype,
