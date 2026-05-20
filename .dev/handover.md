@@ -15,9 +15,9 @@
    (374/581 IR-axis, 348/314 arch-axis); B53+ is gated on ADR-0075**.
 3. `git log --oneline -10` — recent autonomous-loop chunks under
    `chore(p9b):` / `feat(p9b):` prefix. Last source commit
-   `c1780807` (B110 — arm64 inline-switch cutover). B111: §9.12-B
-   exit check found DCE gap → D-150 filed; needs multi-chunk substrate
-   work to land §9.12-B exit criterion.
+   `59bde111` (B112 — D-150 closed; `wasm_2_0_enabled` comptime gate
+   in src/api/instance.zig; all 6 build combos DCE-clean; §9.12-B
+   exit criterion met → flipped to [x]).
 4. `bash scripts/p9_completion_status.sh` — live progress.
 5. `bash scripts/p9_simd_status.sh` — live SIMD status.
 6. `.dev/debt.md` `now` rows: none.
@@ -136,23 +136,21 @@
 | B108 | Soft inline-switch cutover for x86_64: new `dispatchX86_64Ctx` walks collected_x86_64_ctx_ops (391); wired before the giant switch. | `d2b1e9d2` |
 | B109 | Pruned 242 dead switch arms in x86_64/emit.zig. emit.zig 1628→1300 LOC. Remaining arms cover payload-laden / no-Zone-1-meta ops (extract_lane / replace_lane / shuffle / i64x2.mul / v128.const / load_lane / store_lane / popcnt / trunc_sat_f64x2 / convert_low_i32x4_u + multi-line `end`). | `fc6cc1d3` |
 | B110 | arm64 inline-switch cutover (mirror of B109 for arm64). Removed 221 dead arms in arm64/emit.zig + 6 unused imports. emit.zig 1995→1630 LOC. Per-op files load-bearing for 348 ops via dispatch_collector.dispatch(.arm64, ...). Both arches complete. | `c1780807` |
-| B111 | §9.12-B exit check ran `check_build_dce.sh --gate`. 4/6 combos clean; **2/6 FAIL**: v1_0:p1 and v1_0:p2 contain `_instruction.wasm_2_0.*` symbols. Root: `src/zwasm.zig` + `src/api/instance.zig` + `src/ir/dispatch_collector.zig` unconditionally reference wasm_2_0 meta files. Filed D-150 with multi-chunk discharge plan. | (debt-only) |
-| **B112** | **Begin D-150 DCE discharge — chunk (a): wrap `src/zwasm.zig` wasm_2_0 umbrella in comptime conditional**. Smallest first step. Then re-run DCE check; address next gap. | **NEXT** |
+| B111 | §9.12-B exit check ran `check_build_dce.sh --gate`. 4/6 combos clean; **2/6 FAIL**: v1_0:p1 and v1_0:p2 contain `_instruction.wasm_2_0.*` symbols. Filed D-150. | (debt-only) |
+| B112 | D-150 closed: `wasm_2_0_enabled` comptime gate in src/api/instance.zig (imports + register calls). All 6 DCE combos now clean. v1_0 binary -7.5KB. §9.12-B flipped to [x]. | `59bde111` |
+| **§9.12-C** | **Q5 hygiene landings** (per ROADMAP §9.12-C): `.claude/rules/comment_as_invariant.md`, abi.zig comptime disjointness, D-133 sweep (route arm64 op_table/op_memory hardcoded X10/X11/X12 through named-constants), stress axes section in edge_case_testing.md, audit §G grep strengthening, bug_fix_survey.md tightening, runtime_instance_layer.md (Cat III code zone rule), dedup sweep of overlapping rule greps. Exit: D-133 closed; comment_as_invariant rule auto-load functioning; audit grep detections 0. | **NEXT** |
 
-## Active state — §9.12-B inline-switch cutover landed; DCE gap remains 2026-05-20
+## Active state — §9.12-B closed; §9.12-C is the active row 2026-05-20
 
-**B112 is the active task** — discharge D-150 chunk (a): wrap
-`src/zwasm.zig`'s `wasm_2_0` umbrella in `comptime if
-(build_options.wasm_level)`. Smallest scope first; then run
-`bash scripts/check_build_dce.sh --gate` to measure delta.
+**§9.12-C is the active task** — Q5 hygiene landings. Multiple
+sub-items (comment_as_invariant rule already exists; check what
+new work is actually outstanding vs already-landed). Read ROADMAP
+§9.12-C row carefully; pick the first concrete sub-item; execute
+in TDD loop.
 
-Subsequent chunks (B113+) per D-150 plan:
-- (b) wrap `src/api/instance.zig` import.
-- (c) audit `src/ir/dispatch_collector.zig` references; consider
-  filtering `collected_ops` tuple by build options.
-- (d) verify v1_0 builds DCE-clean.
-
-Once D-150 closes, §9.12-B can flip [x]; then §9.12-C/D/E proceed.
+After §9.12-C closes, §9.12-D (libc-boundary sample migration) and
+§9.12-E (skip-impl == 0 ratchet) remain. §9.12 then closes; next is
+the Phase 9 → Phase 10 hard gate at row 9.13 per LOOP.md "hard gates".
 
 §9.12-B exit criterion stays as ROADMAP §9.12-B specifies (6 build
 combos green + DCE 0 + completeness comptime check). Per-op file
