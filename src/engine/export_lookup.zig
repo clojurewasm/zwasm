@@ -106,6 +106,109 @@ pub fn findExportGlobal(allocator: Allocator, wasm_bytes: []const u8, name: []co
     return Error.ExportNotFound;
 }
 
+/// §9.12-E / B140 — look up an exported function by name and
+/// resolve its signature via the type section. Returns a
+/// caller-owned `FuncType` whose `params` + `results` are
+/// freshly allocated via `allocator`; caller frees both slices.
+///
+/// Used by the spec runner's `applyAssertUnlinkable` callback
+/// to compare an importer's expected func type against the
+/// registered exporter's actual func type (B141 wiring).
+pub fn getExportFuncType(allocator: Allocator, wasm_bytes: []const u8, name: []const u8) Error!zir.FuncType {
+    var module = try parser.parse(allocator, wasm_bytes);
+    defer module.deinit(allocator);
+
+    const export_section = module.find(.@"export") orelse return Error.ExportNotFound;
+    var exports = try sections.decodeExports(allocator, export_section.body);
+    defer exports.deinit();
+
+    var func_idx: ?u32 = null;
+    for (exports.items) |e| {
+        if (!std.mem.eql(u8, e.name, name)) continue;
+        if (e.kind != .func) return Error.ExportIsNotFunction;
+        func_idx = e.idx;
+        break;
+    }
+    const fidx = func_idx orelse return Error.ExportNotFound;
+
+    // Count imported funcs (they occupy the low end of the
+    // func index space). Defined funcs start at num_func_imports.
+    var num_func_imports: u32 = 0;
+    if (module.find(.import)) |is| {
+        var imports = try sections.decodeImports(allocator, is.body);
+        defer imports.deinit();
+        for (imports.items) |imp| {
+            if (imp.kind == .func) num_func_imports += 1;
+        }
+    }
+
+    // Resolve the funcidx → typeidx. For defined funcs, walk
+    // the function section. For imported funcs, walk the import
+    // section's payload.func_typeidx fields.
+    const typeidx: u32 = if (fidx >= num_func_imports) blk: {
+        const func_sec = module.find(.function) orelse return Error.ExportNotFound;
+        const func_typeidxs = try sections.decodeFunctions(allocator, func_sec.body);
+        defer allocator.free(func_typeidxs);
+        const defined_off = fidx - num_func_imports;
+        if (defined_off >= func_typeidxs.len) return Error.ExportNotFound;
+        break :blk func_typeidxs[defined_off];
+    } else blk: {
+        const import_sec = module.find(.import) orelse return Error.ExportNotFound;
+        var imports = try sections.decodeImports(allocator, import_sec.body);
+        defer imports.deinit();
+        var seen: u32 = 0;
+        for (imports.items) |imp| {
+            if (imp.kind != .func) continue;
+            if (seen == fidx) break :blk imp.payload.func_typeidx;
+            seen += 1;
+        }
+        return Error.ExportNotFound;
+    };
+
+    const type_sec = module.find(.type) orelse return Error.ExportNotFound;
+    var types = try sections.decodeTypes(allocator, type_sec.body);
+    defer types.deinit();
+    if (typeidx >= types.items.len) return Error.ExportNotFound;
+    const src = types.items[typeidx];
+
+    // Caller-owned copies; `types` arena is freed by deinit().
+    const params = try allocator.alloc(zir.ValType, src.params.len);
+    errdefer allocator.free(params);
+    const results = try allocator.alloc(zir.ValType, src.results.len);
+    @memcpy(params, src.params);
+    @memcpy(results, src.results);
+    return .{ .params = params, .results = results };
+}
+
+test "getExportFuncType: returns sig for exported defined func" {
+    // Module: (type (func (param i32) (result i32)))
+    //         (func (type 0) (i32.const 42))
+    //         (export "f" (func 0))
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d,
+        0x01, 0x00, 0x00, 0x00,
+        // type section (id=1): 1 type, (i32) -> (i32)
+        0x01, 0x06, 0x01, 0x60,
+        0x01, 0x7f, 0x01, 0x7f,
+        // function section (id=3): 1 func, typeidx=0
+        0x03, 0x02, 0x01, 0x00,
+        // export section (id=7): "f" → func 0
+        0x07, 0x05, 0x01, 0x01,
+        0x66, 0x00, 0x00,
+        // code section (id=10): body = i32.const 42; end
+        0x0a,
+        0x06, 0x01, 0x04, 0x00,
+        0x41, 0x2a, 0x0b,
+    };
+    const ft = try getExportFuncType(std.testing.allocator, &bytes, "f");
+    defer std.testing.allocator.free(ft.params);
+    defer std.testing.allocator.free(ft.results);
+    try std.testing.expectEqual(@as(usize, 1), ft.params.len);
+    try std.testing.expectEqual(zir.ValType.i32, ft.params[0]);
+    try std.testing.expectEqual(@as(usize, 1), ft.results.len);
+    try std.testing.expectEqual(zir.ValType.i32, ft.results[0]);
+}
+
 test "findExportGlobal: returns idx for named global export" {
     // Minimal module bytes containing:
     //   - magic + version
