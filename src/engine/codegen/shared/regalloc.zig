@@ -53,6 +53,56 @@ pub const VerifyError = error{
     OverlappingVregsShareSlot,
 };
 
+/// Per-op scratch reservation lookup (ADR-0077).
+///
+/// Returns the regalloc slot ids that the op's emit handler
+/// will clobber internally as op-internal scratch. Empty slice
+/// = no reservation (the common case). The shared regalloc
+/// stays arch-agnostic — per-arch tables live in `arm64/abi.zig`
+/// / `x86_64/abi.zig` and the emit pipeline supplies the lookup
+/// fn at `computeWith` call time. `null` disables the fence
+/// (preserves pre-ADR-0077 semantics for callers not yet wired).
+///
+/// Returned slot ids MUST be `< force_spill_threshold` (= the
+/// per-arch `allocatable_gprs.len`); ids ≥ threshold name spill
+/// region, which is unreachable via op-internal clobber. The
+/// per-arch comptime `validate_op_scratch_reservation_table`
+/// (B124) enforces this at build time; runtime
+/// `slotForbidden` defensively ignores out-of-range ids.
+pub const ScratchReservationFn = *const fn (op: zir.ZirOp) []const u16;
+
+/// Build a u16 bitmask of forbidden slot ids for a vreg by
+/// union-ing the reservation tables of every op strictly inside
+/// the vreg's live range (`def_pc < pc < last_use_pc`).
+///
+/// Strict-strict PC shape mirrors ADR-0060's `spans_call`: a
+/// vreg consumed AT the op's PC is read by the op's emit
+/// prologue before any internal clobber; a vreg defined AT the
+/// op's PC materialises in a result register post-clobber.
+/// Neither case needs the fence. Spike-validated at B121
+/// (private/spikes/regalloc-live-fence/fence.zig).
+fn forbiddenMaskForVreg(
+    instrs: []const zir.ZirInstr,
+    r: LiveRange,
+    fence: ScratchReservationFn,
+) u16 {
+    var mask: u16 = 0;
+    var pc: u32 = r.def_pc + 1;
+    while (pc < r.last_use_pc) : (pc += 1) {
+        if (pc >= instrs.len) break;
+        for (fence(instrs[pc].op)) |sid| {
+            if (sid < 16) mask |= @as(u16, 1) << @intCast(sid);
+        }
+    }
+    return mask;
+}
+
+inline fn slotForbidden(mask: u16, slot_id: u16, force_spill_threshold: u16) bool {
+    if (slot_id >= force_spill_threshold) return false;
+    if (slot_id >= 16) return false;
+    return (mask & (@as(u16, 1) << @intCast(slot_id))) != 0;
+}
+
 /// Cap on distinct slots before `compute` returns `SlotOverflow`.
 /// Mirrors the validator's `max_operand_stack` (1024) — bounded
 /// in straight-line code. Slot ids are u16 so the hard cap reaches
@@ -281,7 +331,7 @@ const ActiveEntry = struct { slot: u16, last_use_pc: u32 };
 /// `n_slots` and the overlap-free verifier post-condition
 /// are unchanged).
 pub fn compute(allocator: Allocator, func: *const ZirFunc) Error!Allocation {
-    return computeWith(allocator, func, max_reg_slots_gpr_default);
+    return computeWith(allocator, func, max_reg_slots_gpr_default, null);
 }
 
 /// D-095 / d-16 (ADR-0060): force-spill call-crossing vregs.
@@ -299,6 +349,7 @@ pub fn computeWith(
     allocator: Allocator,
     func: *const ZirFunc,
     force_spill_threshold: u16,
+    scratch_reservations: ?ScratchReservationFn,
 ) Error!Allocation {
     const live = func.liveness orelse return Error.LivenessMissing;
     if (live.ranges.len == 0) return .{ .slots = &.{}, .n_slots = 0 };
@@ -381,11 +432,22 @@ pub fn computeWith(
             break :blk false;
         };
 
+        // ADR-0077: per-vreg op-scratch fence mask. When the
+        // function has no fence supplier, `forbidden` stays 0
+        // and `slotForbidden` is a no-op — preserves pre-fence
+        // behaviour bit-for-bit.
+        const forbidden: u16 = if (scratch_reservations) |fence|
+            forbiddenMaskForVreg(func.instrs.items, r, fence)
+        else
+            0;
+
         const assigned: u16 = blk: {
             if (spans_call) {
                 // Scan free pool for an already-minted spill slot.
                 // Keeps the spill region tight when many call-
-                // crossing vregs share lifetimes.
+                // crossing vregs share lifetimes. Spill ids are
+                // ≥ force_spill_threshold so the fence cannot
+                // apply (slotForbidden short-circuits there).
                 var fi: u16 = 0;
                 while (fi < free_len) : (fi += 1) {
                     if (free_buf[fi] >= force_spill_threshold) {
@@ -404,10 +466,31 @@ pub fn computeWith(
                 n_spill_minted += 1;
                 break :blk @as(u16, @intCast(s_u32));
             }
-            // Pre-d-16 behaviour: LIFO pop or sequential mint.
+            // LIFO pop, filtered by the ADR-0077 fence mask:
+            // walk free pool from the top down, take the first
+            // non-forbidden entry. Stable swap-and-pop maintains
+            // the compact array. When `forbidden == 0` (the
+            // overwhelming common case), the top entry passes
+            // immediately — same cost as pre-fence behaviour.
             if (free_len > 0) {
-                free_len -= 1;
-                break :blk free_buf[free_len];
+                var fi: i32 = @as(i32, free_len) - 1;
+                while (fi >= 0) : (fi -= 1) {
+                    const idx: u16 = @intCast(fi);
+                    if (!slotForbidden(forbidden, free_buf[idx], force_spill_threshold)) {
+                        const s = free_buf[idx];
+                        free_buf[idx] = free_buf[free_len - 1];
+                        free_len -= 1;
+                        break :blk s;
+                    }
+                }
+            }
+            // Mint: advance past forbidden ids.
+            while (slotForbidden(forbidden, n_slots, force_spill_threshold)) {
+                if (n_slots >= max_slots) {
+                    std.debug.print("regalloc: SlotOverflow (mint past fence) at func[{d}] vreg={d} ranges.len={d}\n", .{ func.func_idx, vreg, live.ranges.len });
+                    return Error.SlotOverflow;
+                }
+                n_slots += 1;
             }
             if (n_slots >= max_slots) {
                 std.debug.print("regalloc: SlotOverflow at func[{d}] vreg={d} ranges.len={d} (>{d} simultaneously live)\n", .{ func.func_idx, vreg, live.ranges.len, max_slots });
@@ -1516,4 +1599,91 @@ test "compute: SIMD function gets populated shape_tags" {
     try testing.expect(alloc.shape_tags != null);
     try testing.expectEqual(ShapeTag.scalar, alloc.shapeTag(0));
     try testing.expectEqual(ShapeTag.v128, alloc.shapeTag(1));
+}
+
+// ADR-0077 fence integration tests. The shared regalloc stays
+// arch-agnostic; the per-arch reservation table lands at B125.
+// These tests use a stub fence fn that reserves slots {0..4}
+// for `.@"table.fill"` (mirrors the production reservation set
+// per the B119 live-scratch census).
+
+fn testFenceTableFill(op: zir.ZirOp) []const u16 {
+    const reservation = [_]u16{ 0, 1, 2, 3, 4 };
+    return if (op == .@"table.fill") &reservation else &.{};
+}
+
+test "fence: null reservation is bit-for-bit identical to pre-fence walker" {
+    var f = freshFunc();
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .nop });
+    try f.instrs.append(testing.allocator, .{ .op = .@"table.fill" });
+    try f.instrs.append(testing.allocator, .{ .op = .nop });
+    const ranges = [_]LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+    };
+    f.liveness = .{ .ranges = &ranges };
+    // Even with .@"table.fill" inside the live range, a null
+    // reservation fn skips the fence — vreg gets slot 0.
+    const alloc = try computeWith(testing.allocator, &f, max_reg_slots_gpr_default, null);
+    defer deinit(testing.allocator, alloc);
+    try testing.expectEqual(@as(u16, 0), alloc.slots[0]);
+    try verify(&f, alloc);
+}
+
+test "fence: vreg crossing reserving op is forced past slots 0..4" {
+    var f = freshFunc();
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .nop });
+    try f.instrs.append(testing.allocator, .{ .op = .@"table.fill" });
+    try f.instrs.append(testing.allocator, .{ .op = .nop });
+    try f.instrs.append(testing.allocator, .{ .op = .nop });
+    const ranges = [_]LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 3 },
+    };
+    f.liveness = .{ .ranges = &ranges };
+    const alloc = try computeWith(testing.allocator, &f, max_reg_slots_gpr_default, testFenceTableFill);
+    defer deinit(testing.allocator, alloc);
+    try testing.expect(alloc.slots[0] >= 5);
+    try verify(&f, alloc);
+}
+
+test "fence is PC-local: non-crossing vreg keeps slot 0 even with fence active" {
+    var f = freshFunc();
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .nop });
+    try f.instrs.append(testing.allocator, .{ .op = .nop });
+    try f.instrs.append(testing.allocator, .{ .op = .@"table.fill" });
+    try f.instrs.append(testing.allocator, .{ .op = .nop });
+    try f.instrs.append(testing.allocator, .{ .op = .nop });
+    // v0 dies before table.fill; v1 born after it. Neither
+    // crosses; both should reuse slot 0.
+    const ranges = [_]LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+        .{ .def_pc = 3, .last_use_pc = 4 },
+    };
+    f.liveness = .{ .ranges = &ranges };
+    const alloc = try computeWith(testing.allocator, &f, max_reg_slots_gpr_default, testFenceTableFill);
+    defer deinit(testing.allocator, alloc);
+    try testing.expectEqual(@as(u16, 0), alloc.slots[0]);
+    try testing.expectEqual(@as(u16, 0), alloc.slots[1]);
+    try verify(&f, alloc);
+}
+
+test "fence: boundary PC (vreg ending AT reserving op) is safe on slot 0" {
+    var f = freshFunc();
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .nop });
+    try f.instrs.append(testing.allocator, .{ .op = .nop });
+    try f.instrs.append(testing.allocator, .{ .op = .@"table.fill" });
+    // v0 last_use AT the table.fill PC — consumed before any
+    // clobber. Strict-strict shape (def_pc < pc < last_use_pc)
+    // excludes pc=2 from the fence range.
+    const ranges = [_]LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+    };
+    f.liveness = .{ .ranges = &ranges };
+    const alloc = try computeWith(testing.allocator, &f, max_reg_slots_gpr_default, testFenceTableFill);
+    defer deinit(testing.allocator, alloc);
+    try testing.expectEqual(@as(u16, 0), alloc.slots[0]);
+    try verify(&f, alloc);
 }

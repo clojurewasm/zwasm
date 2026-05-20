@@ -193,7 +193,11 @@ pub fn compileOne(
         ),
         else => @compileError("unsupported host arch"),
     };
-    var alloc = try regalloc.computeWith(allocator, &func, force_spill_threshold);
+    // ADR-0077 fence supplier is null pre-B125 — emit pipeline
+    // wires the per-arch reservation lookup once the per-arch
+    // table lands. Pre-B125 behaviour is bit-for-bit identical
+    // to the pre-fence path.
+    var alloc = try regalloc.computeWith(allocator, &func, force_spill_threshold, null);
     errdefer regalloc.deinit(allocator, alloc);
     // D-045 chunk 13b: override per-arch class boundaries so that
     // slot ids past the host's pool size resolve to `.spill` (not
