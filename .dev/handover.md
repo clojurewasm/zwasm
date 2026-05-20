@@ -15,9 +15,9 @@
    (374/581 IR-axis, 348/314 arch-axis); B53+ is gated on ADR-0075**.
 3. `git log --oneline -10` — recent autonomous-loop chunks under
    `chore(p9b):` / `feat(p9b):` prefix. Last source commit
-   `59bde111` (B112 — D-150 closed; `wasm_2_0_enabled` comptime gate
-   in src/api/instance.zig; all 6 build combos DCE-clean; §9.12-B
-   exit criterion met → flipped to [x]).
+   `03959b75` (B113 — abi.zig named-constant scratch pools
+   `table_emit_scratch_gprs` + `memory_emit_scratch_gprs` + comptime
+   disjointness assert; D-133 sweep substrate prep).
 4. `bash scripts/p9_completion_status.sh` — live progress.
 5. `bash scripts/p9_simd_status.sh` — live SIMD status.
 6. `.dev/debt.md` `now` rows: none.
@@ -138,19 +138,19 @@
 | B110 | arm64 inline-switch cutover (mirror of B109 for arm64). Removed 221 dead arms in arm64/emit.zig + 6 unused imports. emit.zig 1995→1630 LOC. Per-op files load-bearing for 348 ops via dispatch_collector.dispatch(.arm64, ...). Both arches complete. | `c1780807` |
 | B111 | §9.12-B exit check ran `check_build_dce.sh --gate`. 4/6 combos clean; **2/6 FAIL**: v1_0:p1 and v1_0:p2 contain `_instruction.wasm_2_0.*` symbols. Filed D-150. | (debt-only) |
 | B112 | D-150 closed: `wasm_2_0_enabled` comptime gate in src/api/instance.zig (imports + register calls). All 6 DCE combos now clean. v1_0 binary -7.5KB. §9.12-B flipped to [x]. | `59bde111` |
-| **§9.12-C** | **Q5 hygiene landings** (per ROADMAP §9.12-C): `.claude/rules/comment_as_invariant.md`, abi.zig comptime disjointness, D-133 sweep (route arm64 op_table/op_memory hardcoded X10/X11/X12 through named-constants), stress axes section in edge_case_testing.md, audit §G grep strengthening, bug_fix_survey.md tightening, runtime_instance_layer.md (Cat III code zone rule), dedup sweep of overlapping rule greps. Exit: D-133 closed; comment_as_invariant rule auto-load functioning; audit grep detections 0. | **NEXT** |
+| B113 | §9.12-C substrate prep: abi.zig adds `table_emit_scratch_gprs` + `memory_emit_scratch_gprs` named-constant pools + extended comptime disjointness assert. | `03959b75` |
+| **B114** | **D-133 sweep — route hardcoded X10/X11/X12 sites through named constants**: op_table.zig (emitTableFill, emitTableGrow, emitTableCopy, emitTableInit, emitElemDrop) + op_memory.zig (emitMemoryInit, emitDataDrop). Mechanical refactor. Each site needs a regression fixture per dual_view_table_sync.md. | **NEXT** |
 
-## Active state — §9.12-B closed; §9.12-C is the active row 2026-05-20
+## Active state — §9.12-C mid-flight (B113 substrate prep landed) 2026-05-20
 
-**§9.12-C is the active task** — Q5 hygiene landings. Multiple
-sub-items (comment_as_invariant rule already exists; check what
-new work is actually outstanding vs already-landed). Read ROADMAP
-§9.12-C row carefully; pick the first concrete sub-item; execute
-in TDD loop.
+**B114 is the active task** — D-133 sweep: route the hardcoded
+`encLdrImm(10/11/12, ...)` patterns in op_table.zig + op_memory.zig
+through the new `abi.table_emit_scratch_gprs` / `memory_emit_scratch_gprs`
+constants. Sites enumerated in D-133 row + handover chunk table.
 
-After §9.12-C closes, §9.12-D (libc-boundary sample migration) and
-§9.12-E (skip-impl == 0 ratchet) remain. §9.12 then closes; next is
-the Phase 9 → Phase 10 hard gate at row 9.13 per LOOP.md "hard gates".
+After B114, the remaining §9.12-C sub-items: stress axes section
+in edge_case_testing.md, audit §G grep strengthening,
+bug_fix_survey.md tightening, dedup sweep. Then §9.12-D/E.
 
 §9.12-B exit criterion stays as ROADMAP §9.12-B specifies (6 build
 combos green + DCE 0 + completeness comptime check). Per-op file
