@@ -14,10 +14,10 @@
    row. **B30..B52 covered the dispatcher-signature-compatible cohort
    (374/581 IR-axis, 348/314 arch-axis); B53+ is gated on ADR-0075**.
 3. `git log --oneline -10` — recent autonomous-loop chunks under
-   `chore(p9c):` / `feat(p9c):` prefix. Last code commit `1f470ce3`
-   (B122 walker fence plumbing). **Loop active at B123 —
-   arm64 per-arch reservation table, step 2 of ADR-0077 8-step
-   plan.**
+   `chore(p9c):` / `feat(p9c):` prefix. Last code commit `b4efef51`
+   (B123 arm64 reservation table). **Loop active at B124 —
+   comptime `validateRegallocOpScratchReservation`, step 3 of
+   ADR-0077 8-step plan.**
 4. `bash scripts/p9_completion_status.sh` — live progress.
 5. `bash scripts/p9_simd_status.sh` — live SIMD status.
 6. `.dev/debt.md` `now` rows: none.
@@ -147,21 +147,20 @@
 | B119 | D-133 sweep investigation **BLOCKED**: B118's "≤ 2 simultaneous scratch" claim holds only for trivial single-load ops (already discharged at d-64/d-66). The 5 remaining bulk handlers (`emitTableFill` / `emitTableCopy` / `emitTableInit` / `emitMemoryInit`) hold ≥ 4 simultaneously-live scratches in their loop bodies that cannot map to {X14, X15} or even {X14..X17}. `emitTableGrow` re-classified — not a D-133 site (uses AAPCS64 args). Three resolution paths enumerated in updated D-133 body (per-handler stack save/restore / pool extension / live-vreg fence) — ADR-required. Lesson at `.dev/lessons/2026-05-20-d133-sweep-pool-size-insufficient.md`. Latent count stays at 55 (no corpus trigger; deferral acceptable). | (debt+lesson only) |
 | B120 | ADR-0077 Proposed → **Accepted** (user-confirmed 2026-05-20). Path (c) regalloc op-internal scratch reservation. Spike skeleton `private/spikes/regalloc-live-fence/` scaffolded with hypothesis + setup + 8-step post-spike implementation plan. D-133 row updated to `blocked-by: ADR-0077 implementation`. | `1bc9c09b` |
 | B121 | Spike validation. `private/spikes/regalloc-live-fence/fence.zig` (gitignored) — 7-test self-contained harness validates ADR-0077 end-to-end (API shape + walker integration + verifier). All 7 tests green. ADR-0077 needs no amendment. Findings captured at `.dev/lessons/2026-05-20-regalloc-fence-design-validation.md`. | `e6bc9cff` |
-| B122 | Regalloc walker fence plumbing. `ScratchReservationFn` type + `forbiddenMaskForVreg` / `slotForbidden` helpers + 4th param on `computeWith` (null = no-op fence). `compile.zig` passes null; bit-for-bit identical to pre-fence path until B125. 4 new tests cover null-fence regression, crossing-vreg force, PC-locality, boundary PC. Mac test-all green. | `<this commit>` |
-| **B123** | Per-arch reservation table — `src/engine/codegen/arm64/abi.zig` declares `op_scratch_reservation_table: [ZirOp.count][]const u16` populated for the 5 D-133 bulk handlers (table.fill / table.copy / table.init / memory.init + matching scratch sets per B119 live-scratch census). NO wire to `compile.zig` yet (B125). Step 2 of ADR-0077 8-step plan. | **NEXT** |
+| B122 | Regalloc walker fence plumbing. `ScratchReservationFn` type + `forbiddenMaskForVreg` / `slotForbidden` helpers + 4th param on `computeWith` (null = no-op fence). `compile.zig` passes null; bit-for-bit identical to pre-fence path until B125. 4 new tests cover null-fence regression, crossing-vreg force, PC-locality, boundary PC. Mac test-all green. | `1f470ce3` |
+| B123 | arm64 op_scratch_reservation_table — `src/engine/codegen/arm64/abi.zig` declares the comptime `[zir_op_count][]const u16` table with bulk-handler reservation {0..4} populated for table.fill/copy/init + memory.init. Exposes `opScratchReservation(op)` as a `ScratchReservationFn`-compatible accessor. Comptime allocatable-range check; 5 unit tests including shape-assignment to shared regalloc's type. NO wire to compile.zig yet (B125). | `<this commit>` |
+| **B124** | Comptime `validateRegallocOpScratchReservation` — strengthens B123's inline comptime check into a named, exported validator at `shared/regalloc.zig` (or arm64/abi.zig host module per ADR-0077). Adds richer comptime asserts: every reserved slot id strictly < `force_spill_threshold`; no duplicates within a single op's reservation set; etc. Step 3 of ADR-0077 8-step plan. | **NEXT** |
 
 ## Active state — §9.12-C mid-flight; ADR-0077 Accepted + spike-validated; impl in progress
 
-**Loop active at B123** — arm64 per-arch reservation table (step 2 of
-ADR-0077's 8-step post-spike plan). Step 1 (regalloc walker fence
-plumbing) closed at B122 / `1f470ce3`.
+**Loop active at B124** — comptime validator strengthening (step 3
+of ADR-0077's 8-step post-spike plan).
 
 ### Remaining steps (per `private/spikes/regalloc-live-fence/README.md` §"Post-spike implementation plan")
 
 1. ~~**B122**: regalloc walker fence plumbing~~ — DONE `1f470ce3`.
-2. **B123 (NEXT)**: per-arch reservation tables in
-   `src/engine/codegen/arm64/abi.zig` (5 D-133 bulk handlers).
-3. **B124**: `validateRegallocOpScratchReservation` comptime check.
+2. ~~**B123**: arm64 per-arch reservation table~~ — DONE `b4efef51`.
+3. **B124 (NEXT)**: `validateRegallocOpScratchReservation` comptime check.
 4. **B125**: wire `compile.zig` to pass the arm64 reservation lookup
    (replaces the `null` placeholder) + `VerifyError.OpScratchOverlap`
    post-condition scan.
