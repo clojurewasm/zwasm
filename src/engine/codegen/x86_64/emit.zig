@@ -1104,18 +1104,19 @@ pub fn compile(
             // 2A "CMPPS" Table 3-7. eq/ne/lt/le direct with imm
             // 0/4/1/2; gt/ge swap operands + imm 1/2 per cranelift
             // `lower.isle:2169-2172`.
-            .@"f32x4.eq" => try op_simd_float.emitF32x4Eq(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f32x4.ne" => try op_simd_float.emitF32x4Ne(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f32x4.lt" => try op_simd_float.emitF32x4Lt(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f32x4.gt" => try op_simd_float.emitF32x4Gt(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f32x4.le" => try op_simd_float.emitF32x4Le(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f32x4.ge" => try op_simd_float.emitF32x4Ge(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.eq" => try op_simd_float.emitF64x2Eq(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.ne" => try op_simd_float.emitF64x2Ne(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.lt" => try op_simd_float.emitF64x2Lt(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.gt" => try op_simd_float.emitF64x2Gt(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.le" => try op_simd_float.emitF64x2Le(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.ge" => try op_simd_float.emitF64x2Ge(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            // §9.12-B / B103: SIMD float compare cohort migrated to ctx tuple.
+            .@"f32x4.eq" => try op_simd_float.emitF32x4EqCtx(&ctx, &ins),
+            .@"f32x4.ne" => try op_simd_float.emitF32x4NeCtx(&ctx, &ins),
+            .@"f32x4.lt" => try op_simd_float.emitF32x4LtCtx(&ctx, &ins),
+            .@"f32x4.gt" => try op_simd_float.emitF32x4GtCtx(&ctx, &ins),
+            .@"f32x4.le" => try op_simd_float.emitF32x4LeCtx(&ctx, &ins),
+            .@"f32x4.ge" => try op_simd_float.emitF32x4GeCtx(&ctx, &ins),
+            .@"f64x2.eq" => try op_simd_float.emitF64x2EqCtx(&ctx, &ins),
+            .@"f64x2.ne" => try op_simd_float.emitF64x2NeCtx(&ctx, &ins),
+            .@"f64x2.lt" => try op_simd_float.emitF64x2LtCtx(&ctx, &ins),
+            .@"f64x2.gt" => try op_simd_float.emitF64x2GtCtx(&ctx, &ins),
+            .@"f64x2.le" => try op_simd_float.emitF64x2LeCtx(&ctx, &ins),
+            .@"f64x2.ge" => try op_simd_float.emitF64x2GeCtx(&ctx, &ins),
             // §9.7 / 9.7-p: FP arithmetic add/sub/mul/div + sqrt
             // for f32x4 + f64x2 (10 ops). ADDPS/SUBPS/MULPS/DIVPS/
             // SQRTPS (SSE 0F 58/5C/59/5E/51) + PD variants (SSE2 66

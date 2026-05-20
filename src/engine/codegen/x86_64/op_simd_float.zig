@@ -190,6 +190,69 @@ pub fn emitF64x2NearestCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Erro
     return emitF64x2Nearest(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
 }
 
+// §9.12-B / B103 (ADR-0075) — `(ctx, ins)` adapters for the
+// SIMD float compare cohort (12 ops; all 5-arg).
+
+pub fn emitF32x4EqCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitF32x4Eq(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+}
+
+pub fn emitF32x4NeCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitF32x4Ne(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+}
+
+pub fn emitF32x4LtCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitF32x4Lt(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+}
+
+pub fn emitF32x4GtCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitF32x4Gt(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+}
+
+pub fn emitF32x4LeCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitF32x4Le(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+}
+
+pub fn emitF32x4GeCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitF32x4Ge(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+}
+
+pub fn emitF64x2EqCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitF64x2Eq(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+}
+
+pub fn emitF64x2NeCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitF64x2Ne(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+}
+
+pub fn emitF64x2LtCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitF64x2Lt(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+}
+
+pub fn emitF64x2GtCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitF64x2Gt(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+}
+
+pub fn emitF64x2LeCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitF64x2Le(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+}
+
+pub fn emitF64x2GeCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitF64x2Ge(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+}
+
 /// Wasm spec §4.4.4 (f*x*.{eq, ne, lt, gt, le, ge}) — pop two
 /// v128, push v128 where each lane is all-ones if the IEEE-754
 /// comparison holds else all-zero. Wasm requires ordered eq / lt /
