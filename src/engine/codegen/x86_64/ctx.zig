@@ -58,6 +58,7 @@ pub const InitArgs = struct {
     num_imports: u32,
     globals_offsets: []const u32,
     globals_valtypes: []const zir.ValType,
+    dead_code: *bool,
 };
 
 /// Per-function emit context for x86_64. Threaded as `*EmitCtx`
@@ -156,6 +157,10 @@ pub const EmitCtx = struct {
     /// Cached `func.func_idx`. Consumed by trace.writeBounds /
     /// trace.writeCallTrap and the per-arch trap-stub epilogue.
     func_idx: u32,
+    /// §9.12-B / B73: pointer to compile()'s dead_code local.
+    /// Set true by `unreachable` (and select arm) to skip
+    /// emitting until the next control-flow boundary resets it.
+    dead_code: *bool,
 
     pub fn init(args: InitArgs) EmitCtx {
         const simd_consts_base: u32 =
@@ -184,6 +189,7 @@ pub const EmitCtx = struct {
             .globals_offsets = args.globals_offsets,
             .globals_valtypes = args.globals_valtypes,
             .func_idx = args.func.func_idx,
+            .dead_code = args.dead_code,
         };
     }
 

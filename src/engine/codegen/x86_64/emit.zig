@@ -652,6 +652,7 @@ pub fn compile(
 
     // §9.12-B / B53+ (ADR-0075) — per-function emit context.
     // B53 substrate; B54 wires the first consumer (`i32.div_s`).
+    // B73 added `dead_code` pointer for unreachable adapter.
     var ctx = ctx_mod.EmitCtx.init(.{
         .allocator = allocator,
         .buf = &buf,
@@ -674,6 +675,7 @@ pub fn compile(
         .num_imports = num_imports,
         .globals_offsets = globals_offsets,
         .globals_valtypes = globals_valtypes,
+        .dead_code = &dead_code,
     });
 
     for (func.instrs.items) |ins| {
@@ -1440,20 +1442,10 @@ pub fn compile(
             // extracted into `op_alu_int.emitSelectCtx` `(ctx, ins)`
             // adapter (handles v128 / fp / GPR 3-path dispatch).
             .select, .select_typed => try op_alu_int.emitSelectCtx(&ctx, &ins),
-            .@"unreachable" => {
-                // Wasm spec §4.4.6.1 — trap unconditionally.
-                // Emit JMP rel32 placeholder; record fixup so the
-                // function-end trap-stub block patches the disp32
-                // to land in the trap stub (which sets trap_flag,
-                // clears EAX, runs epilogue, RETs). Mirrors arm64
-                // `unreachable` semantics but uses JMP rel32 (5
-                // bytes) instead of B (4 bytes); the fixup list
-                // is separate to carry the 5-byte disp formula.
-                const fixup_at: u32 = @intCast(buf.items.len);
-                try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
-                try unreach_fixups.append(allocator, fixup_at);
-                dead_code = true;
-            },
+            // §9.12-B / B73: unreachable inline body extracted into
+            // `op_control.emitUnreachableCtx` `(ctx, ins)` adapter
+            // (ctx extended with `dead_code: *bool` field).
+            .@"unreachable" => try op_control.emitUnreachableCtx(&ctx, &ins),
             // §9.12-B / B72: nop inline body extracted into
             // `op_control.emitNopCtx` `(ctx, ins)` adapter.
             .nop => try op_control.emitNopCtx(&ctx, &ins),

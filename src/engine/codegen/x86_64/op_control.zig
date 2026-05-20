@@ -1175,6 +1175,23 @@ pub fn emitNopCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
 }
 
+/// §9.12-B / B73 (ADR-0075) — `(ctx, ins)` adapter for
+/// `unreachable`. Emits a 5-byte JMP rel32 placeholder targeting
+/// the function-end trap stub (which sets trap_flag, clears EAX,
+/// runs epilogue, RETs). Fixup byte offset recorded in
+/// `ctx.unreach_fixups`; sets `ctx.dead_code` so the body-loop
+/// skips subsequent ops until the next control-flow boundary
+/// resets it.
+///
+/// Wasm spec §4.4.6.1 (unreachable).
+pub fn emitUnreachableCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    const fixup_at: u32 = @intCast(ctx.buf.items.len);
+    try ctx.buf.appendSlice(ctx.allocator, inst.encJmpRel32(0).slice());
+    try ctx.unreach_fixups.append(ctx.allocator, fixup_at);
+    ctx.dead_code.* = true;
+}
+
 /// §9.12-B / B69 (ADR-0075) — `(ctx, ins)` adapter for `drop`.
 /// Pops the top operand without emitting any machine bytes;
 /// only the operand-stack tracker advances. Extracted from
