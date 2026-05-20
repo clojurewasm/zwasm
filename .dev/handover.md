@@ -22,14 +22,16 @@
 ## Active state
 
 - Phase 9.12-E。close-plan §6 work sequence 実行中。
-- 完了: (a)〜(g)。直近 (g) は ADR-0079 (Proposed) で
-  `runner.zig` 1995 行 → driver / compile / setup 3-file split
-  を設計。D-141 の `blocked-by:` を旧 "substrate audit Q3"
-  → "per-file split ADRs Accept + impl" に更新。
-- 次: **(h) blocked-by escalation** — `audit_scaffolding
-  §F` 拡張: `blocked-by:` row の Last reviewed が 3 cycles
-  経過 → 自動 escalate、5 cycles → ADR or lesson 必須。
-  現状 33 blocked-by rows をこの基準で再評価。
+- 完了: (a)〜(h)。直近 (h) は audit `§F.2a` で blocked-by
+  escalation の age ladder (14d soon / 30d block) を定義 +
+  `.dev/blocked_by_sweep_2026-05-21.md` で 28 rows を分類
+  (20 clean、7 soon、0 block)。re-walk work は D-156 起票。
+- 次: **(i) Phase 9 exit redefinition ADR** — `skip-impl == 0
+  on all 3 hosts` → `skip-impl == 0 OR every residual blocked
+  by named-successor-phase ADR`。D-079/D-136/D-153 を
+  successor phase に escape valve。**Status: Proposed まで
+  進めて stop** (Phase 9 完備の意味を変えるため user collab
+  必須)。
 - D-153 は close-plan §6 (j) まで凍結。
 
 ## §9.12-B progress chunks
