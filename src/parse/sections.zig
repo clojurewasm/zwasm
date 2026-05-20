@@ -755,10 +755,16 @@ pub fn decodeElement(parent_alloc: Allocator, body: []const u8) Error!Elements {
 /// element-section form 4 / 5 / 6 / 7. Supports per Wasm spec
 /// §3.3.2.10 const-expr: `ref.func F; end` (0xD2 LEB128(F) 0x0B),
 /// `ref.null t; end` (0xD0 0x70|0x6F 0x0B), and `global.get N;
-/// end` (0x23 LEB128(N) 0x0B). For null and global.get the
-/// funcidx is `std.math.maxInt(u32)` (null sentinel) — close-plan
-/// §6 (j) Step B cohort 3 admits the parse form so elem.68
-/// compiles; runtime population is a separate cohort.
+/// end` (0x23 LEB128(N) 0x0B).
+///
+/// Encoding in funcidx slot:
+/// - `ref.func F`: funcidx = F (assumed F < 0x80000000 which holds
+///   for any realistic module — F is bound by total_funcs).
+/// - `ref.null t`: funcidx = `std.math.maxInt(u32)` (null sentinel).
+/// - `global.get N`: funcidx = `0x80000000 | N` (top-bit marker;
+///   close-plan §6 (j) Step B cohort 6). Table-init then reads
+///   the imported funcref global value at `scratch_globals[
+///   globals_offsets[N]]` and substitutes it as the table entry.
 fn readFuncrefInitExpr(body: []const u8, pos: *usize) Error!u32 {
     if (pos.* >= body.len) return Error.UnexpectedEnd;
     const op = body[pos.*];
@@ -773,8 +779,9 @@ fn readFuncrefInitExpr(body: []const u8, pos: *usize) Error!u32 {
             break :blk std.math.maxInt(u32);
         },
         0x23 => blk: {
-            _ = try leb128.readUleb128(u32, body, pos);
-            break :blk std.math.maxInt(u32);
+            const n = try leb128.readUleb128(u32, body, pos);
+            if (n >= 0x80000000) return Error.InvalidFunctype;
+            break :blk 0x80000000 | n;
         },
         else => return Error.InvalidFunctype,
     };
@@ -782,6 +789,19 @@ fn readFuncrefInitExpr(body: []const u8, pos: *usize) Error!u32 {
     if (body[pos.*] != 0x0B) return Error.InvalidFunctype;
     pos.* += 1;
     return idx;
+}
+
+/// Close-plan §6 (j) Step B cohort 6 — funcref init-expression
+/// marker constants. Element segments carrying `global.get N`
+/// entries encode the global index with the top bit set; consumers
+/// (`applyTableInitForTable`, `populateTableRefs`) detect this and
+/// resolve via `GlobalsCtx`.
+pub const ELEM_GLOBAL_GET_MARKER: u32 = 0x80000000;
+pub fn elemEntryIsGlobalGet(funcidx: u32) bool {
+    return (funcidx & ELEM_GLOBAL_GET_MARKER) != 0 and funcidx != std.math.maxInt(u32);
+}
+pub fn elemEntryGlobalIdx(funcidx: u32) u32 {
+    return funcidx & 0x7FFFFFFF;
 }
 
 /// Walk one constant expression starting at `pos.*` and advance past

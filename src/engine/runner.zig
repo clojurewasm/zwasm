@@ -318,6 +318,10 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             for (es_buf.items) |seg| {
                 for (seg.funcidxs) |fidx| {
                     if (fidx == std.math.maxInt(u32)) continue;
+                    // Close-plan §6 (j) Step B cohort 6 — `global.get N`
+                    // marker (top-bit set): skip the funcidx range
+                    // check, the entry is resolved at table-init time.
+                    if (sections.elemEntryIsGlobalGet(fidx)) continue;
                     if (fidx >= total_funcs_early) return Error.InvalidFuncIndex;
                 }
                 if (seg.kind == .active) {
@@ -1199,6 +1203,26 @@ pub fn applyTableInitForTableCtx(
         if (base + seg.funcidxs.len > funcptrs_buf.len) return Error.UnsupportedEntrySignature;
         for (seg.funcidxs, 0..) |fidx, i| {
             if (fidx == std.math.maxInt(u32)) continue; // ref.null funcref
+            // Close-plan §6 (j) Step B cohort 6 — global.get N marker:
+            // dereference the imported funcref global at
+            // `scratch_globals[ctx.offsets[N]]` (= 8-byte FuncEntity
+            // pointer, populated by the spec runner's
+            // applyImportedGlobalsFromRegistered) and copy out
+            // .funcptr / .typeidx for the table entry.
+            if (sections.elemEntryIsGlobalGet(fidx)) {
+                const c = ctx orelse return Error.UnsupportedEntrySignature;
+                const gidx = sections.elemEntryGlobalIdx(fidx);
+                if (gidx >= c.num_imports or gidx >= c.offsets.len) return Error.UnsupportedEntrySignature;
+                const g_off = c.offsets[gidx];
+                if (g_off + 8 > c.buf.len) return Error.UnsupportedEntrySignature;
+                const ptr_value = std.mem.readInt(u64, c.buf[g_off..][0..8], .little);
+                if (ptr_value == 0) continue; // null funcref via uninitialised global
+                const FuncEntity = @import("../runtime/instance/func.zig").FuncEntity;
+                const fe: *const FuncEntity = @ptrFromInt(@as(usize, @intCast(ptr_value)));
+                funcptrs_buf[base + i] = fe.funcptr;
+                typeidxs_buf[base + i] = fe.typeidx;
+                continue;
+            }
             if (fidx >= compiled.func_sigs.len) return Error.UnsupportedEntrySignature;
             const f_off = compiled.module.func_offsets[fidx];
             const raw_typeidx = compiled.func_typeidxs[fidx];

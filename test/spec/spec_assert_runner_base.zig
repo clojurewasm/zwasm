@@ -788,6 +788,17 @@ fn populateElemSegments(
         for (seg.funcidxs, 0..) |fidx, k| {
             if (fidx == std.math.maxInt(u32)) {
                 scratch_elem_refs_arena[off + k] = Value.null_ref;
+            } else if (zwasm.parse.sections.elemEntryIsGlobalGet(fidx)) {
+                // Close-plan §6 (j) Step B cohort 6 — leave as
+                // null_ref in the elem-segment scratch. Active
+                // segments are marked dropped just below so JIT
+                // table.init / elem.drop never reads this slot;
+                // the table itself was populated with the resolved
+                // FuncEntity ptr by populateTableRefs. Passive /
+                // declarative globals.get-elems aren't supported
+                // by the current corpus (would need ctx-aware
+                // resolution here too).
+                scratch_elem_refs_arena[off + k] = Value.null_ref;
             } else if (fidx >= compiled.func_sigs.len) {
                 return error.UnsupportedEntrySignature;
             } else {
@@ -885,6 +896,20 @@ fn populateTableRefs(
         for (seg.funcidxs, 0..) |fidx, i| {
             if (fidx == std.math.maxInt(u32)) {
                 refs_out[base + i] = Value.null_ref;
+                continue;
+            }
+            // Close-plan §6 (j) Step B cohort 6 — global.get N marker.
+            // The imported funcref global's value at
+            // scratch_globals[offsets[N]] IS the FuncEntity pointer
+            // (resolved at exporter side via resolveFuncrefGlobals,
+            // copied via applyImportedGlobalsFromRegistered).
+            if (zwasm.parse.sections.elemEntryIsGlobalGet(fidx)) {
+                const c = gctx orelse return error.UnsupportedEntrySignature;
+                const gidx = zwasm.parse.sections.elemEntryGlobalIdx(fidx);
+                if (gidx >= c.num_imports or gidx >= c.offsets.len) return error.UnsupportedEntrySignature;
+                const g_off = c.offsets[gidx];
+                if (g_off + 8 > c.buf.len) return error.UnsupportedEntrySignature;
+                refs_out[base + i] = std.mem.readInt(u64, c.buf[g_off..][0..8], .little);
                 continue;
             }
             if (fidx >= compiled.func_sigs.len) return error.UnsupportedEntrySignature;
@@ -1204,6 +1229,25 @@ pub const RegisteredExporter = struct {
                     };
                 }
                 self.scratch_func_entities = fe;
+                // Close-plan §6 (j) Step B cohort 6 — now that
+                // scratch_func_entities exists, resolve funcref-typed
+                // defined globals from raw funcidx (placeholder) to
+                // FuncEntity*. The exporter's scratch_globals slots
+                // (already populated by applyDefinedGlobalsInit above)
+                // get rewritten in place. Subsequent
+                // applyImportedGlobalsFromRegistered byte-copies the
+                // resolved pointer to importer-side scratch_globals.
+                if (self.scratch_globals) |gbuf| {
+                    try runner_mod.resolveFuncrefGlobals(
+                        allocator,
+                        self.bytes_owned,
+                        compiled.globals_offsets,
+                        compiled.globals_valtypes,
+                        gbuf,
+                        fe,
+                        compiled.num_global_imports,
+                    );
+                }
             }
         }
         if (self.scratch_elem_segments == null) {
