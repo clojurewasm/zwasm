@@ -32,7 +32,8 @@
     D-094 / D-062 — defer per karpathy-guidelines), multi-
     cycle architectural (D-141 per-file ADRs / D-081 / D-055),
     external blocker (D-010/021/028/148), Phase-future-row
-    blocked (~12 rows), now-status (D-155 ADR-0078 follow-up).
+    blocked (~12 rows), now-status (D-155 part 1 ratchet —
+    part 2 audit gate landed via `check_skip_taxonomy.sh`).
 - **§9.12-G partial** (`39f1dc15`): Wasm 3.0 ZirOp mapping doc,
   include/wasm.h byte-identical, zone_check --gate enforced.
   Remaining: Phase-10-feature ZirOp comptime reject infra,
@@ -51,6 +52,8 @@
     + their actual splits (each ~ ADR-0079-sized).
 - **autonomous-cycle-eligible**:
   - Phase 10 ZirOp comptime-reject infra (§9.12-G残).
+  - D-155 part 1 (ratchet per-class semantic shift via log
+    parser + ADR-0078 table classify).
 
 Loop has reached equilibrium for single-cycle-tractable work;
 remaining items need batch-session or multi-cycle architectural
