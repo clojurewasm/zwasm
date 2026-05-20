@@ -15,9 +15,9 @@
    (374/581 IR-axis, 348/314 arch-axis); B53+ is gated on ADR-0075**.
 3. `git log --oneline -10` — recent autonomous-loop chunks under
    `chore(p9b):` / `feat(p9b):` prefix. Last source commit
-   `95fa70fd` (B78 — local.{get,set,tee} migrated; ctx 96 → 99;
-   2-field ctx ext for total_locals + local_disps; new
-   op_locals.zig host; emit.zig 1753 → 1599 LOC).
+   `075224c0` (B79 — i32 binary ALU cohort moved from legacy
+   to ctx; legacy 292 → 286; ctx 99 → 105; emitI32BinaryCtx
+   adapter; no ctx ext).
 4. `bash scripts/p9_completion_status.sh` — live progress.
 5. `bash scripts/p9_simd_status.sh` — live SIMD status.
 6. `.dev/debt.md` `now` rows: none.
@@ -104,39 +104,36 @@
 | B76 | Cohort migration: `if` + `else` (2 ops) to `(ctx, ins)`. emitIfCtx threads ins.extra (blocktype/arity); emitElseCtx is a thin wrapper. All ctx fields already present (no extension). 2 NEW per-op files. `_ctx_ops` 93 → 95. `end` deferred (function-level form pulls in marshal + epilogue + trap-stub + bounds-fixup, ~60 LOC; split into emitEndInter/emitEndIntra is a chunk of its own). | `fdcc03e7` |
 | B77 | Single-op migration: `end` to `(ctx, ins)`. emitEndCtx dispatches on `labels.items.len`: intra-function form reuses existing emitEndIntra; function-level form (new emitEndInter helper) extracts marshalReturnRegs + epilogue + RET + trap stub (bounds_fixups/unreach_fixups) + SIMD const-pool emission + RIP-rel fixup patching. emit.zig dispatch arm snapshots labels.len pre-call for body-loop break. All ctx fields already present (no extension); new jit_abi import in op_control. 1 NEW per-op file. `_ctx_ops` 95 → 96. emit.zig 1828 → 1753 LOC. | `0e2f75d2` |
 | B78 | Cohort migration: local ops (`local.get` / `local.set` / `local.tee`, 3 ops) to `(ctx, ins)`. New op_locals.zig host module with 3 helpers + 3 adapters. ctx ext: `total_locals: u32` + `local_disps: []const i32` (set once at function entry; mirror B74 pattern). Unused `localValType` wrapper deleted (was a no-op pass-through). 3 NEW per-op files. `_ctx_ops` 96 → 99. emit.zig 1753 → 1599 LOC. | `95fa70fd` |
-| **B79** | **Inline-switch dispatcher cutover (ADR-0073) — x86_64 emit.zig.** Replace the giant switch with `inline for (collected_x86_64_ctx_ops) |op_mod| { if (op_mod.op_tag == ins.op) { try op_mod.emit(&ctx, &ins); break; } } else { try fallback }` (fallback = remaining legacy arms). Function-end `break` discipline (B77's labels.len pre-snapshot) needs preserving — likely via post-dispatch check on `ins.op == .end and ctx.labels.items.len == 0`. Substrate decision; may need ADR. | **NEXT** |
-| B79+ | After B79: shrink legacy `collected_x86_64_ops` tuple as more ops migrate; eventually merge into unified `collected_x86_64_ops`. atomic.fence (UnsupportedOp gates); data.drop / elem.drop (no Zone 1 meta files) remain deferred. | |
+| B79 | Legacy → ctx cohort move: i32 binary ALU (i32.add/sub/mul/and/or/xor, 6 ops). New `emitI32BinaryCtx(ctx, ins)` adapter wraps existing emitI32Binary (threading ins.op into its internal dispatch). 6 per-op files regenerated to (ctx, ins). dispatch_collector tuple swap: legacy 292 → 286; ctx 99 → 105. emit.zig arm calls the new adapter. Pattern mirrors B57/B58/B59. | `075224c0` |
+| **B80** | **Legacy → ctx cohort move: i64 binary ALU (i64.add/sub/mul/and/or/xor, 6 ops).** Identical pattern to B79; emitI64Binary already exists in op_alu_int.zig. Add emitI64BinaryCtx adapter, regenerate 6 per-op files, swap tuples, update emit.zig arm. Legacy 286 → 280; ctx 105 → 111. | **NEXT** |
+| B80..B8x | Same shape for remaining legacy cohorts: i32/i64 compare (20), i32/i64 shift (10), eqz (2), bitcount (6), sign-extension (5), FP arith (8), FP compare (12), FP unary (14), FP min/max+copysign (6), SIMD cohorts (B29-B45). Eventually the inline-switch cutover (per ADR-0073) folds all into a single `inline for` dispatcher. | |
 | B6x+1 | Inline-switch dispatcher cutover per ADR-0073 — both arches' `emit.zig` giant switch replaced by `inline for (collected_X_ops) |op_mod| { if (op_mod.op_tag == ins.op) return op_mod.emit(ctx, ins); }`. Moment per-op files become load-bearing. | |
 
-## Active state — §9.12-B mid-flight; B78 local ops landed 2026-05-20
+## Active state — §9.12-B mid-flight; B79 i32 binary cohort landed 2026-05-20
 
-**B79 is the active task** — inline-switch dispatcher cutover
-on x86_64 (per ADR-0073). B78 closed local ops at `95fa70fd`
-(`collected_x86_64_ctx_ops` 96 → 99; emit.zig 1753 → 1599 LOC).
+**B80 is the active task** — legacy → ctx cohort move for i64
+binary ALU (i64.add/sub/mul/and/or/xor, 6 ops). B79 closed
+i32 binary at `075224c0` (legacy 292 → 286; ctx 99 → 105).
 
-The loop for B79:
+The loop for B80 (identical pattern to B79):
 
-1. Survey arm64/emit.zig — has the inline-switch cutover landed
-   on the arm64 side yet? If yes, mirror; if no, B79 is on x86_64
-   alone (arm64 inline-switch is a sibling chunk).
-2. Decision: do all 99 ctx ops first (= replace switch arms with
-   `inline for` lookup) and keep the remaining ~190 legacy ops on
-   the existing switch (= dual dispatch)? Or wait until more ops
-   migrate? Inline-for over a 99-op tuple compiles + the legacy
-   switch still handles fallthrough — should be fine. Check
-   `@setEvalBranchQuota` budget.
-3. The function-end `break` discipline (B77's labels.len
-   pre-snapshot for `.end`) needs preserving. Post-dispatch check
-   on `ins.op == .end and ctx.labels.items.len == 0` is the
-   straightforward shape.
-4. May want ADR for the unified-dispatcher shape if the design
-   crosses §4 (ZirOp dispatch boundary).
+1. Add `emitI64BinaryCtx(ctx, ins)` adapter in op_alu_int.zig
+   wrapping existing emitI64Binary.
+2. Regenerate 6 per-op files at
+   x86_64/ops/wasm_1_0/i64_{add,sub,mul,and,or,xor}.zig to the
+   (ctx, ins) shape (the script-like for-loop in B79's history
+   is reusable).
+3. Move the 6 entries from collected_x86_64_ops (286 → 280) to
+   collected_x86_64_ctx_ops (105 → 111) in dispatch_collector.
+4. Update emit.zig `.@"i64.add"...=>` arm to call
+   `op_alu_int.emitI64BinaryCtx(&ctx, &ins)`.
 5. Verify 2-host green; commit + push.
 
-Note: op_control.zig 1421 LOC, op_convert.zig 1009 LOC, emit.zig
-1599 LOC.
-Remaining ctx migration: atomic.fence (UnsupportedOp gate),
-data/elem.drop (no Zone 1 meta) — deferred indefinitely.
+Decision note on B79+ vs inline-switch cutover (ADR-0073):
+inline-for cutover deferred until all legacy ops migrate. Per
+chunk pattern, B80..B8x walk through the remaining cohorts
+listed in the table above. B85+ when legacy tuple is empty
+becomes the natural cutover boundary.
 
 §9.12-B exit criterion stays as ROADMAP §9.12-B specifies (6 build
 combos green + DCE 0 + completeness comptime check). Per-op file
