@@ -21,27 +21,42 @@
 
 ## Active state
 
-- Phase 9.12-E。close-plan §6 完了 (a)〜(i) + (j) impl 開始。
-- ADR-0080 は user-collab spike 結果を経て **Rejected**
-  (commit `dc07b79`)。spectest を `.wat` で auto-register
-  する v1/wazero 方式を採用 → §6 (j) を spike-first から
-  direct implementation に変更。
-- §6 (j) Step A 完了 (commit `f5b3f62`): `test/spec/spectest.wat`
-  + build.zig wat2wasm step + @embedFile route。
-  Mac 計測: runtime-skip 192 → 80 (-112)、新規 43 failures
-  surface (= B146-B158 残バグ cohort)。
-- 次: **§6 (j) Step B** — 43 failures を root-cause cohort
-  単位で discharge。優先順:
-  1. 21 × UnsupportedEntrySignature (init-time) — 最大
-     cohort。entry helper signature dispatch gap の可能性。
-     どの export を呼んで起きるか trace 必要。
-  2. 7 × globals-zero (`got 0, expected 666`) — per-exporter
-     scratch_globals wiring が import 側 zero buffer を読む
-     bug。`rt.globals_base` の cross-module 切り替え不全。
-  3. 5 × InvalidFuncIndex / 2 × InvalidFunctype — funcref
-     resolution gap (elem/imports cohort)。
-  4. 4 × assert_uninstantiable but instantiated cleanly —
-     unlinkable/uninstantiable 区別の緩さ。
+- Phase 9.12-E。close-plan §6 (j) direct-implementation 進行中。
+- ADR-0080 → Rejected (`dc07b79`)。spectest を `.wat` で
+  auto-register する v1/wazero 方式を採用。
+- §6 (j) Step A 完了 (`f5b3f62`): test/spec/spectest.wat +
+  build.zig wat2wasm step + @embedFile route。
+  Mac: runtime-skip 192 → 80、新規 43 failures surface。
+- 次: **§6 (j) Step B cohort 1 — UnsupportedEntrySignature × 21**。
+
+## Step B 即実行手順 (cold-start から再開時)
+
+```sh
+# 1. ログ再生 (前回の /tmp/spec-spike2.log は揮発するため)
+zig build test-spec-wasm-2.0-assert > /tmp/spec.log 2>&1
+grep "^FAIL " /tmp/spec.log | sort | head -30
+grep "UnsupportedEntrySignature" /tmp/spec.log | head -20
+
+# 2. 仮説検証 — どの export が呼ばれた直後に出るか trace
+#    `init` 文字列を含む FAIL のコンテキスト周辺を読む。
+#    例: "imports data-init: UnsupportedEntrySignature"
+#    → imports.wast の data-init 直前の `(invoke ...)` を確認。
+grep -B 5 -A 2 "UnsupportedEntrySignature" /tmp/spec.log | head -50
+```
+
+調査開始ファイル:
+- `src/runtime/entry.zig` — entry helper の signature dispatch
+  table (callI32NoArgs / callI32_i32 / ...)。missing signature
+  cases を grep。
+- `test/spec/spec_assert_runner_base.zig::routeAssertReturn`
+  系 — どこから UnsupportedEntrySignature が raise される
+  か確認。
+- 該当 fixture: `test/spec/wasm-2.0-assert/imports/imports.NN.wat`
+  (`grep "imports/imports\\." /tmp/spec.log` で具体的 .wasm 名
+  を確認、対応 .wat を読む)。
+
+cohort 順位 + 仮説詳細は `.dev/phase9_structural_debt_close_plan.md`
+§6 (j) Step B 参照。
 
 ## Open questions / blockers
 

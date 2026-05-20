@@ -1,15 +1,19 @@
 # Phase 9 構造的負債 close plan
 
-> **Status**: Proposed 2026-05-20。`/continue` Step 1a の
+> **Status**: In progress 2026-05-21 (§6 (a)〜(i) done; (j)
+> Step A done, Step B in progress)。`/continue` Step 1a の
 > close-plan override に hooked済み — handover.md がこの doc
 > を Cold-start procedure step 1 で参照することで、次セッ
 > ションは ROADMAP §9.<N> の通常 task より先にこの plan の
-> §6 Work sequence を実行する。
+> §6 Work sequence (= §6 (j) Step B cohort discharge) を
+> 実行する。
 >
-> **STOP**: §6 が完了するまで **D-153 / B159 以降の cross-
-> module imports work は触らない**。架構改造 in flight は
-> 凍結。`.dev/lessons/2026-05-20-refactor-tradeoffs-honest-
-> accounting.md` の経緯参照。
+> ~~**STOP**: D-153 / B159 以降の cross-module imports work
+> は触らない~~ ← 2026-05-21 解除。§6 (j) direct-implementation
+> 路線で進行中 (Step A: spectest.wat auto-register infra land
+> commit `f5b3f626`; Step B: 43 surfaced failures の cohort
+> discharge)。経緯: `.dev/lessons/2026-05-20-refactor-
+> tradeoffs-honest-accounting.md` + ADR-0080 Rejection note。
 
 ## §1. なぜ存在するか
 
@@ -137,26 +141,77 @@ D-153 (12 cycle 経過時点で skip-impl 不動) はそれ自体が
 - 現状 33 blocked-by rows をこの基準で再評価
 - **Accept**: CHECKS.md updated、initial sweep 結果 commit
 
-### (i) Phase 9 exit redefinition ADR — D1 解消
+### (i) Phase 9 exit redefinition ADR — D1 解消 [**REJECTED 2026-05-21**]
 
-- `.dev/decisions/00NN_phase9_exit_redefinition.md` (or amendment to ADR-0056 / ADR-0062)
-- 現 exit: "skip-impl == 0 on all 3 hosts"
-- 新 exit: "skip-impl == 0 OR every residual blocked by named-successor-phase ADR"
-- D-079 / D-136 / D-153 (cross-module imports) を successor phase に escape valve
-- §9.12-E ロックインを解除
-- **Accept**: ADR Proposed (要 user collab for Phase 9 完備 redefinition なので Status: Proposed で stop)
+- ~~`.dev/decisions/00NN_phase9_exit_redefinition.md`~~ → ADR-0080
+  authored Proposed (commit `52a93fbc`), then **Rejected**
+  (commit `dc07b791`) per user-collab spike findings.
+- 経緯: 当初 §9.12-E lockin の escape valve として "Phase 10
+  successor ADR" 路線を提案したが、user 指摘「spectest が何な
+  のか明らかにすれば解決」+ spike 結果で direct implementation
+  の方が筋が良いと判明。
+- 結果: 旧 exit "skip-impl == 0 literally" を **保持** (= 緩め
+  ない)。manifest_skip_impl は実は既に 0 (close-plan §6 (e) で
+  判明); 残る runtime SKIP は §6 (j) Step B で discharge。
+- ADR-0080 の Rejection note に lineage を保存。
 
-### (j) D-153 resume
+### (j) D-153 direct implementation [in progress]
 
-- (a) 〜 (i) 全て land 後、再開
-- 新しい設計: `.claude/rules/architectural_spike.md` に従い `private/spikes/d153/` で spike → design ADR → impl chunks
-- 既存 B146〜B158 commits は維持 (preparatory infra として有効)
-- **Accept**: 新規 `.dev/decisions/00NN_cross_module_imports_design.md` Proposed
+> **Pivot 2026-05-21**: spike-first redesign を放棄し、v1/wazero
+> 路線の direct implementation に切替。private/spikes/d153/ は
+> 経由せず、test/spec/spectest.wat + build.zig wat2wasm step で
+> 接続。
+
+**Step A — spectest.wat auto-register infrastructure** [done; commit `f5b3f626`]
+
+- test/spec/spectest.wat (23 lines, re-derived from
+  WebAssembly/spec/interpreter/host/spectest.ml @ f5a260a20).
+- build.zig: wat2wasm step + WriteFiles + spectest_module で
+  @embedFile 化 (CI-grade reproducibility per user request)。
+- spec_assert_runner_base.zig::runCorpus で spectest を
+  auto-register。
+- hasUnbindableImports の `.table/.memory/.global` arms を
+  registered.contains() consult に変更 (mirror `.func`)。
+- 計測: 25352→25308 passed、0→43 failed、192→80 runtime-skip。
+
+**Step B — surfaced failure cohort discharge** [next]
+
+43 failures を 4 root-cause cohort に分類。優先順:
+
+1. **UnsupportedEntrySignature × 21** (init-time、最大 cohort)
+   - 調査開始点: `grep "UnsupportedEntrySignature" /tmp/spec-spike2.log`
+     で full context 確認 → どの fixture / 直前の SKIP/PASS で
+     起きたか trace。
+   - 仮説: spectest export (print_*, table/memory ops) を fixture
+     が呼ぶ際、entry helper layer の signature dispatch table に
+     該当 signature 不在。`src/runtime/entry.zig` の `callXxx`
+     family を grep。
+2. **globals-zero × 7** (`got 0, expected 666`)
+   - 仮説: per-exporter `scratch_globals` wiring (B146-B158)
+     が import 経路で zero buffer を読む。`rt.globals_base`
+     cross-module 切替を trace。
+3. **InvalidFuncIndex × 5 + InvalidFunctype × 2** (compile-time)
+   - 仮説: funcref resolution gap (elem/imports cohort)。
+4. **assert_uninstantiable but instantiated cleanly × 4**
+   - 仮説: unlinkable/uninstantiable 区別の緩さ。
+
+各 cohort は 1-2 cycle で discharge 想定。Step B 完了基準:
+runtime-skip ≤ 20 OR 43 failures 全消化。
+
+- B146〜B158 commits は **維持** (preparatory infra として
+  Step A の auto-register infra + hasUnbindableImports flip が
+  既に再利用している)。
+- **Accept**: §9.12-E exit (`skip-impl == 0 literally`) 達成
+  (manifest 部分は既に 0; runtime SKIP を上記 cohort 順次で
+  ゼロに)。
 
 ## §7. Hard constraints
 
-- **D-153 / B159 以降の cross-module imports work には触らない** (§6 (j) まで)
-- B146〜B158 の commit を revert しない (preparatory infra として有効、後段で再活用)
+- ~~**D-153 / B159 以降の cross-module imports work には触らない**~~
+  ← 2026-05-21 解除。§6 (j) direct-implementation 路線で Step A
+  既 land、Step B で残 cohort を順次 discharge。
+- B146〜B158 の commit を revert しない (preparatory infra として
+  Step A が auto-register + hasUnbindableImports flip で再利用)。
 - file_size_check が新規 WARN を出した時点で「ADR-file-split 起草」を debt 起票 (B1 再発防止)
 - 各 step の commit message に `[close-plan §6 (X)]` tag 必須
 
