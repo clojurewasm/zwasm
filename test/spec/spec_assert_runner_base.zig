@@ -1561,6 +1561,41 @@ pub fn isSpectestNonFuncBindable(imp: zwasm.parse.sections.Import) bool {
     };
 }
 
+/// §9.12-E / B155 (D-153 Step 6): write spectest global-import
+/// initial values into the importer's `scratch_globals` buffer
+/// at the offsets `compiled.globals_offsets[0..num_global_imports]`
+/// carved out by `computeGlobalsLayout`'s imports prefix.
+/// Spec testsuite values per `spectest_catalog`. For each
+/// non-spectest or non-global import the function silently
+/// skips (caller's responsibility to ensure imports are
+/// bindable via `isSpectestNonFuncBindable` first). Wires up
+/// at the spec runner's `on_module_loaded` callback before
+/// `applyDefinedGlobalsInit` runs (write disjoint regions).
+pub fn applySpectestGlobalImports(
+    allocator: std.mem.Allocator,
+    wasm_bytes: []const u8,
+    globals_offsets: []const u32,
+    scratch_globals: []u8,
+) void {
+    var module = zwasm.parse.parser.parse(allocator, wasm_bytes) catch return;
+    defer module.deinit(allocator);
+    const sec = module.find(.import) orelse return;
+    var imports = zwasm.parse.sections.decodeImports(allocator, sec.body) catch return;
+    defer imports.deinit();
+    var gi: u32 = 0;
+    for (imports.items) |imp| {
+        if (imp.kind != .global) continue;
+        defer gi += 1;
+        if (!std.mem.eql(u8, imp.module, "spectest")) continue;
+        const e = spectest_catalog.findNonFuncExport(imp.name) orelse continue;
+        if (e.kind != .global) continue;
+        if (gi >= globals_offsets.len) return;
+        const off: usize = globals_offsets[gi];
+        if (off + 8 > scratch_globals.len) return;
+        std.mem.writeInt(u64, scratch_globals[off..][0..8], e.init_bits, .little);
+    }
+}
+
 pub fn hasUnbindableImports(
     allocator: std.mem.Allocator,
     wasm_bytes: []const u8,
