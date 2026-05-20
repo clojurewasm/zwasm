@@ -13,12 +13,11 @@
    (master plan v2). §9.12-A `[x]` 2026-05-19; §9.12-B is the active
    row. **B30..B52 covered the dispatcher-signature-compatible cohort
    (374/581 IR-axis, 348/314 arch-axis); B53+ is gated on ADR-0075**.
-3. `git log --oneline -10` — recent commits under `chore(p9*):` /
-   `feat(p9*):` / `refactor(p9*):` / `docs(adr):` prefix.
-   **§9.12-C closed at B129** (ADR-0077 complete); **§9.12-D
-   closed at B132** (ADR-0070 complete; replaceable 9 → 0).
-   Loop advances to §9.12-E — primary Phase 9 completion exit
-   (Wasm 2.0 skip-impl 243 → 0). Substantial multi-chunk work.
+3. `git log --oneline -10` — recent commits include B133 (§9.12-E
+   open). **§9.12-E in progress**: SIMD lane-index check landed
+   (B133); alignment check next (B134). Survey at
+   `private/notes/p9_12-E-simd-validator-gap-survey.md` covers
+   both halves of SKIP-VALIDATOR-GAP SIMD (50 sites).
 4. `bash scripts/p9_completion_status.sh` — live progress.
 5. `bash scripts/p9_simd_status.sh` — live SIMD status.
 6. `.dev/debt.md` `now` rows: none.
@@ -158,8 +157,9 @@
 | B129 | §9.12-C close — D-133 row deleted from `debt.md`; §9.12-C `[ ]` → `[x]` in ROADMAP. ADR-0077 8-step plan complete; the regalloc op-internal scratch fence is fully implemented (substrate + reservation table + validator + production wire + handler sweep + boundary fixtures + strict gate). | `9558e5f7` |
 | B130 | §9.12-D first migration — `std.c.munmap` → `std.posix.munmap` in `src/platform/jit_mem.zig` (clean win). Harden `check_libc_boundary.sh` to exclude `.zig-cache/` / `zig-out/` (4 unclassified false positives → 0). File D-151 naming the 6-site Zig 0.16 stdlib gap that blocks §9.12-D's literal exit. | `823f4ad8` |
 | B131 | ADR-0070 amendment — reclassify `_exit` / `fork` / `waitpid` / `alarm` from Replaceable → Necessary (empirical: Zig 0.16 std.posix lacks all four; std.process.exit not async-signal-safe). Script's NECESSARY/REPLACEABLE_SYMS arrays updated to match. D-151 deleted (barrier dissolved). Replaceable count 8 → 3. | `8dfe9018` |
-| B132 | §9.12-D CLOSE — migrate `std.c.pid_t` → `std.posix.pid_t` + `std.c.kill` → `std.posix.kill catch {}` (EXEMPT-FALLBACK in SIGALRM handler). ADR-0070 §B132 amendment reclassifies `std.c.getenv` Replaceable → Necessary (c_api context: no `std.process.Init` available so `Environ.getPosix` is structurally unavailable). Replaceable count 3 → 0. `check_libc_boundary --gate` returns 0; §9.12-D `[ ]` → `[x]`. | `<this commit>` |
-| **B133** | §9.12-E (Wasm 2.0 100% complete) is the next active row. Scope: SKIP-CROSS-MODULE-IMPORTS 100 + SKIP-NO-LINK-TYPECHECK 26 + SKIP-VALIDATOR-GAP SIMD 50 + exports non-invoke-action 1 + D-079 v128 cross-module imports (ii). Substantial multi-chunk work; likely surfaces architectural questions worth user touchpoint. | **NEXT** |
+| B132 | §9.12-D CLOSE — migrate `std.c.pid_t` → `std.posix.pid_t` + `std.c.kill` → `std.posix.kill catch {}` (EXEMPT-FALLBACK in SIGALRM handler). ADR-0070 §B132 amendment reclassifies `std.c.getenv` Replaceable → Necessary (c_api context: no `std.process.Init` available so `Environ.getPosix` is structurally unavailable). Replaceable count 3 → 0. `check_libc_boundary --gate` returns 0; §9.12-D `[ ]` → `[x]`. | `b098a688` |
+| B133 | §9.12-E first chunk — SIMD lane-index validator range check (Wasm SIMD §3.3.6.X). New `Error.InvalidLaneIndex` + `readLaneIdx` helper; 4 handlers (extract_lane / replace_lane / load_lane / store_lane) take a `lane_count` parameter; 20 call sites in `dispatchPrefixFD` pass concrete counts per shape. Discharges lane-index portion of SKIP-VALIDATOR-GAP SIMD (50 total). | `<this commit>` |
+| **B134** | §9.12-E continuation — SIMD **alignment-immediate** range check (the other half of SKIP-VALIDATOR-GAP SIMD). Per the survey at `private/notes/p9_12-E-simd-validator-gap-survey.md`: generic `opLoad(.v128)` + load_lane / store_lane / load*_splat ops read align uleb but don't enforce `align ≤ log2(natural_alignment)`. Strategy: similar helper-based shape to B133's `readLaneIdx`. | **NEXT** |
 
 ## Active state — §9.12-C CLOSED at B129 (ADR-0077 complete); §9.12-D NEXT
 
