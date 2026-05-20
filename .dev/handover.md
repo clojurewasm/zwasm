@@ -21,14 +21,16 @@
 
 ## Active state
 
-- Phase 9.12-E。D-153 (cross-module imports for spectest
-  globals) は B146→B158 で preparatory infra (catalog +
-  predicate + validator_globals shape + applyDefined…
-  signature etc.) を land 済。
-- B156 で flip 試行 → 6 regressions → revert。B158 で
-  Errors 1+2 の根本原因 (validator_globals shape) を fix。
-- **D-153 は凍結中** — close-plan §6 完了後に
-  §6 (j) で spike-first 設計から再開。
+- Phase 9.12-E。close-plan §6 work sequence 実行中。
+- 完了: (a) handover cleanup — 6f07057b で chunk table
+  移管 + handover ≤80 lines、(b) chunk type taxonomy —
+  LOOP.md §"Chunk types" 追加 + phase_log v2 schema 定義。
+- 次: **(c) architectural cycle cap** — `architectural`
+  type chunk の 3-cycle 経過 measurable progress なし →
+  mandatory step-back rule を LOOP.md に追加。D-153 が
+  retroactively 適用される (12 cycles 経過済)。
+- D-153 (cross-module imports) は close-plan §6 (j) まで
+  凍結。B146→B158 preparatory infra は維持。
 
 ## §9.12-B progress chunks
 
