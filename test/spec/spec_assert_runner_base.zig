@@ -23,6 +23,7 @@ const entry = zwasm.engine.codegen.shared.entry;
 const jit_mem = zwasm.platform.jit_mem;
 const shared_thunk = zwasm.engine.codegen.shared.thunk;
 const Value = zwasm.runtime.Value;
+const spectest_catalog = @import("spectest_catalog.zig");
 
 /// Parse a decimal integer token into its u32 bit pattern. Wasm
 /// asserts emit i32 results as decimal strings; signed values may
@@ -1535,6 +1536,30 @@ pub fn extractMemoryLimits(allocator: std.mem.Allocator, wasm_bytes: []const u8)
 /// downstream compileWasm gets the same bytes and surfaces a
 /// real error, so the runner still reports something useful
 /// rather than swallowing the malformed input as SKIP).
+/// §9.12-E / B147 (D-153 Part 2): predicate for "this spectest
+/// non-func import (global / table / memory) IS bindable per the
+/// canonical catalog at `test/spec/spectest_catalog.zig`". Returns
+/// true iff the imp.name is in the catalog AND the imp.kind matches
+/// AND (for globals) the imp.payload.global.valtype matches.
+///
+/// Not yet wired into `hasUnbindableImports` — the wholesale
+/// `.table/.memory/.global => return true` rejection stays, so
+/// SKIP-CROSS-MODULE-IMPORTS keeps firing for now. B148+ will:
+/// (1) call this predicate from hasUnbindableImports's Path #2,
+/// (2) populate importer-side storage (scratch_globals slot,
+/// scratch_funcptrs region, growable_memory pool) with the
+/// catalog initial values + correct widths at `.module` setup.
+pub fn isSpectestNonFuncBindable(imp: zwasm.parse.sections.Import) bool {
+    if (!std.mem.eql(u8, imp.module, "spectest")) return false;
+    const e = spectest_catalog.findNonFuncExport(imp.name) orelse return false;
+    return switch (imp.kind) {
+        .func => false,
+        .global => e.kind == .global and imp.payload.global.valtype == e.valtype,
+        .table => e.kind == .table,
+        .memory => e.kind == .memory,
+    };
+}
+
 pub fn hasUnbindableImports(
     allocator: std.mem.Allocator,
     wasm_bytes: []const u8,
