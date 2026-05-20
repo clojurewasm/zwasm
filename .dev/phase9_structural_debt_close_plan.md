@@ -174,29 +174,43 @@ D-153 (12 cycle 経過時点で skip-impl 不動) はそれ自体が
   registered.contains() consult に変更 (mirror `.func`)。
 - 計測: 25352→25308 passed、0→43 failed、192→80 runtime-skip。
 
-**Step B — surfaced failure cohort discharge** [next]
+**Step B — surfaced failure cohort discharge** [in progress]
 
 43 failures を 4 root-cause cohort に分類。優先順:
 
-1. **UnsupportedEntrySignature × 21** (init-time、最大 cohort)
-   - 調査開始点: `grep "UnsupportedEntrySignature" /tmp/spec-spike2.log`
-     で full context 確認 → どの fixture / 直前の SKIP/PASS で
-     起きたか trace。
-   - 仮説: spectest export (print_*, table/memory ops) を fixture
-     が呼ぶ際、entry helper layer の signature dispatch table に
-     該当 signature 不在。`src/runtime/entry.zig` の `callXxx`
-     family を grep。
-2. **globals-zero × 7** (`got 0, expected 666`)
-   - 仮説: per-exporter `scratch_globals` wiring (B146-B158)
-     が import 経路で zero buffer を読む。`rt.globals_base`
-     cross-module 切替を trace。
-3. **InvalidFuncIndex × 5 + InvalidFunctype × 2** (compile-time)
-   - 仮説: funcref resolution gap (elem/imports cohort)。
+1. **UnsupportedEntrySignature × 21** [部分着 `2ddcdd7c`]
+   - 真の root cause: data/elem/global の active offset_expr が
+     `(global.get N)` を含み、imported global の値を読もうと
+     する → 既存 `evalConstI32Expr` が `i32.const` のみ対応で
+     UnsupportedConstExpr → caller が UES に包む。
+   - 修正 (cohort 2 と統合): `runner_validate.GlobalsCtx` +
+     `evalConst*Ctx`、`applyActiveDataSegmentsCtx` /
+     `applyTableInit*Ctx` / `patchTableImportFuncptrs Ctx`、
+     spec runner 側 `applyImportedGlobalsFromRegistered` で
+     importer 側 `scratch_globals[0..num_imports)` を populate。
+   - 残: 11 data data-init + 2 linking data-init + 2 imports
+     data-init = 15。これらは fixture が cross-fixture import
+     (`(register "M") + (import "M" ...)`) を持つ or 別 root
+     cause。次 cycle で bisect 必要。
+2. **globals-zero × 8** [完了 `2ddcdd7c`]
+   - `imports: get-X(()) → got 0, expected 666` 系 8 件。
+     cohort 1 の修正で同時 discharge。
+3. **InvalidFuncIndex × 5 + InvalidFunctype × 2** (compile-time) [次]
+   - fixtures: imports.60/61, elem.57, linking.17, table_grow.6
+     (InvalidFuncIndex); elem.66/68 (InvalidFunctype)。
+   - 仮説: declarative elem segment の typeidx range check OR
+     funcidx resolution 経路。
 4. **assert_uninstantiable but instantiated cleanly × 4**
-   - 仮説: unlinkable/uninstantiable 区別の緩さ。
+   - 仮説: unlinkable/uninstantiable 区別の緩さ。linking と elem
+     系 2 件ずつ。
+
+Discharge 計測 (cohort 1+2 部分着 `2ddcdd7c` 時点):
+- 25308 → 25373 PASS (+65)
+- 43 → 30 failed (-13)
+- 80 → 22 runtime-skip
 
 各 cohort は 1-2 cycle で discharge 想定。Step B 完了基準:
-runtime-skip ≤ 20 OR 43 failures 全消化。
+runtime-skip ≤ 20 OR 残 failures 全消化。
 
 - B146〜B158 commits は **維持** (preparatory infra として
   Step A の auto-register infra + hasUnbindableImports flip が
