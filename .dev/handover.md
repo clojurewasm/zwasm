@@ -5,9 +5,9 @@
 
 ## Cold-start procedure
 
-1. `git log --oneline -10` — last code commit: `bf13981c`
-   (Wasm 3.0 tail-call per-op stubs × 3 — return_call /
-   return_call_indirect / return_call_ref; §9.12-G Phase 10 prep).
+1. `git log --oneline -10` — last code commit: `4df000bb`
+   (Wasm 3.0 EH + typed-func-refs per-op stubs × 7; §9.12-G
+   Phase 10 prep; cumulative 10 Wasm 3.0 stubs landed).
 2. **Live status** (when uncertain):
    `bash scripts/p9_completion_status.sh` —
    `bash scripts/check_skip_impl_ratchet.sh --report` —
@@ -33,19 +33,19 @@
     inventory-only mark); ADR Decision § class column
     unchanged (still Proposed pending user Accept).
 - **§9.12-G partial** (`39f1dc15` + `d641dcd8` + `d0da6e21` +
-  `bf13981c`): Wasm 3.0 ZirOp mapping doc; include/wasm.h byte-
-  identical; zone_check --gate enforced; dispatcher emits
-  UnsupportedOpForBuildLevel for build-filtered ops (Phase 10
-  comptime-reject infra; DCE-safe); CLI `run --invoke <name>`
-  mode (Phase 11 bench prerequisite); **Wasm 3.0 tail-call per-op
-  stubs landed** (return_call / return_call_indirect /
-  return_call_ref under `src/instruction/wasm_3_0/`). Remaining
-  Phase 10 ZirOp stub coverage: GC (struct.*/array.*/ref.test/
-  ref.cast/i31), EH (try_table/throw/throw_ref), memory64,
-  multi-memory, typed-func-refs (call_ref/br_on_null/
-  ref.as_non_null — existing tags); `src/api/instance.zig`
-  (1424 LOC) health + helper extraction (batch-session); c_api
-  Instance tests (D-139 blocked).
+  `bf13981c` + `4df000bb`): Wasm 3.0 ZirOp mapping doc;
+  include/wasm.h byte-identical; zone_check --gate enforced;
+  dispatcher emits UnsupportedOpForBuildLevel for build-filtered
+  ops (Phase 10 comptime-reject infra; DCE-safe); CLI `run
+  --invoke <name>` mode (Phase 11 bench prerequisite); **Wasm 3.0
+  per-op stubs landed cumulatively × 10**: tail-call (return_call
+  / _indirect / _ref), EH (try_table / throw / throw_ref),
+  typed-func-refs (call_ref / br_on_null / br_on_non_null /
+  ref.as_non_null). Remaining Phase 10 ZirOp stub coverage: GC
+  (struct.*/array.*/ref.test/ref.cast/i31) — large cohort,
+  bundle-by-sub-feature; memory64; multi-memory; relaxed-simd;
+  `src/api/instance.zig` (1424 LOC) health + helper extraction
+  (batch-session); c_api Instance tests (D-139 blocked).
 - **§9.12-F partial** (active debt 24; "< 15" target needs
   multi-cycle): Dissolved-barrier closures so far: D-149/153/
   154/156/102/103/105/155 (across `3ace7fb4` + `129c66c5` +
@@ -63,14 +63,17 @@
   - D-141 per-file ADRs (validator.zig 1790 / dispatch_
     collector 1887 / regalloc 1851 / inst.zig × 2 archs / …).
 - **autonomous-cycle-eligible**:
-  - §9.12-G Wasm 3.0 EH per-op stubs (try_table / throw /
-    throw_ref) — same pattern as tail-call (`bf13981c`).
-  - §9.12-G Wasm 3.0 typed-func-refs per-op stubs (call_ref /
-    br_on_null / br_on_non_null / ref.as_non_null) — tags
-    already exist in zir.zig:572-575.
-  - §9.12-G Wasm 3.0 GC ZirOp stubs (struct.* / array.* /
-    ref.test / ref.cast / i31) — large cohort, can be
-    bundled by sub-feature (struct ops first, array ops next).
+  - §9.12-G Wasm 3.0 GC struct cohort stubs (struct.new /
+    _default / .get / .get_s / .get_u / .set) — 6 ops, same
+    pattern as `4df000bb`.
+  - §9.12-G Wasm 3.0 GC array cohort stubs (array.new /
+    _default / _fixed / _data / _elem / .get / .get_s / .get_u
+    / .set / .len / .fill / .copy / .init_data / .init_elem) —
+    14 ops, split into 2 chunks if diff > 800 LOC.
+  - §9.12-G Wasm 3.0 GC ref/cast cohort (ref.test / ref.test_null
+    / ref.cast / ref.cast_null / br_on_cast / br_on_cast_fail /
+    any.convert_extern / extern.convert_any / ref.i31 / i31.get_s
+    / i31.get_u) — 11 ops.
 
 Loop has reached equilibrium for single-cycle-tractable work;
 remaining items need batch-session or multi-cycle architectural
