@@ -15,9 +15,9 @@
    (374/581 IR-axis, 348/314 arch-axis); B53+ is gated on ADR-0075**.
 3. `git log --oneline -10` — recent autonomous-loop chunks under
    `chore(p9b):` / `feat(p9b):` prefix. Last source commit
-   `71dc1156` (B107 — SIMD residual (21 ops) moved from legacy to
-   ctx; legacy 21 → 0 — **x86_64 legacy tuple empty**; ctx 370 →
-   391).
+   `d2b1e9d2` (B108 — soft inline-switch cutover for x86_64;
+   `dispatchX86_64Ctx` walks collected_x86_64_ctx_ops (391) before
+   the giant switch).
 4. `bash scripts/p9_completion_status.sh` — live progress.
 5. `bash scripts/p9_simd_status.sh` — live SIMD status.
 6. `.dev/debt.md` `now` rows: none.
@@ -132,25 +132,27 @@
 | B104 | Legacy → ctx SIMD cohort move: bool reductions (9 ops). Legacy 58 → 49; ctx 333 → 342. | `d4bdad29` |
 | B105 | Legacy → ctx SIMD cohort move: narrow + extend (16 ops; 12 extend 5-arg + 4 narrow 6-arg). FILE-SIZE-EXEMPT marker added (file at 2015 lines). Legacy 49 → 33; ctx 342 → 358. | `20aae453` |
 | B106 | Legacy → ctx SIMD cohort move: extmul (12 ops; all 5-arg). Adapters in op_simd_int_cmp_lane.zig (FILE-SIZE-EXEMPT already in place from B105). Legacy 33 → 21; ctx 358 → 370. | `9732e831` |
-| B107 | Legacy → ctx SIMD residual cohort (21 ops): ref.is_null + 6 splats + swizzle + 4 extadd_pairwise + dot + q15mulr_sat + 7 fp-conv. Legacy 21 → 0 — **x86_64 legacy tuple empty**. ctx 370 → 391. | `71dc1156` |
-| **B6x+1** | **Inline-switch dispatcher cutover per ADR-0073** — both arches' `emit.zig` giant switch replaced by `inline for (collected_X_ops) \|op_mod\| { if (op_mod.op_tag == ins.op) return op_mod.emit(ctx, ins); }`. Moment per-op files become load-bearing. Note: x86_64 still has inline arms for ops without per-op files (extract_lane/replace_lane/shuffle/i64x2.mul/v128.const/popcnt/etc. — these need Zone 1 meta files first OR remain dispatched inline). | **NEXT** |
+| B107 | Legacy → ctx SIMD residual cohort (21 ops): ref.is_null + 6 splats + swizzle + 4 extadd_pairwise + dot + q15mulr_sat + 7 fp-conv. Legacy 21 → 0 — x86_64 legacy tuple empty. ctx 370 → 391. | `71dc1156` |
+| B108 | Soft inline-switch cutover for x86_64: new `dispatchX86_64Ctx` walks collected_x86_64_ctx_ops (391); wired before the giant switch. Switch arms calling Ctx adapters become dead code (pruned in B109). | `d2b1e9d2` |
+| **B109** | **Prune dead switch arms in x86_64/emit.zig**: remove arms that route to Ctx adapters (now handled by dispatchX86_64Ctx). Keep arms for ops outside the ctx tuple (extract_lane/replace_lane/shuffle/i64x2.mul/v128.const/load_lane/store_lane/popcnt/trunc_sat_f64x2/convert_low_i32x4_u). | **NEXT** |
 
-## Active state — §9.12-B mid-flight; B107 cleared x86_64 legacy tuple 2026-05-20
+## Active state — §9.12-B mid-flight; B108 soft cutover landed 2026-05-20
 
-**B6x+1 is the active task** — inline-switch dispatcher cutover per
-ADR-0073: both arches' `emit.zig` giant switch is replaced by
-`inline for (collected_X_ops) |op_mod| { if (op_mod.op_tag == ins.op)
-return op_mod.emit(ctx, ins); }`. Per-op files become load-bearing.
+**B109 is the active task** — prune dead arms in x86_64/emit.zig.
+The B108 soft cutover (commit `d2b1e9d2`) wired `dispatchX86_64Ctx`
+before the giant switch, so all 391 ctx_ops arms in the switch are
+now dead code. Step-by-step removal keeps risk low: prune ~50
+arms per chunk, run test-all, repeat.
 
-B107 closed at `71dc1156`: legacy x86_64 tuple is now empty (21 → 0);
-ctx tuple 370 → 391.
+Keep arms for ops outside the ctx tuple: extract_lane / replace_lane
+/ shuffle / i64x2.mul / v128.const / load_lane / store_lane / popcnt
+/ trunc_sat_f64x2 / convert_low_i32x4_u (payload-laden or no Zone 1
+meta yet).
 
-Caveat for B6x+1: x86_64 still has emit.zig inline arms for ops that
-lack per-op files — extract_lane/replace_lane/shuffle/i64x2.mul/
-v128.const/popcnt/trunc_sat_f64x2/convert_low_i32x4_u/load_lane/
-store_lane/shift_lane (i*x*.shl etc when payload-laden). These need
-Zone 1 meta files OR remain inline. Investigation needed before
-cutover.
+Then mirror to arm64 (B110+): arm64/emit.zig has its own giant
+switch dispatching through `dispatch_collector.dispatch(.arm64, ...)`
+which is the 7-arg shape; arm64 ops use a different shape than
+x86_64 ctx — separate cutover discipline.
 
 §9.12-B exit criterion stays as ROADMAP §9.12-B specifies (6 build
 combos green + DCE 0 + completeness comptime check). Per-op file
