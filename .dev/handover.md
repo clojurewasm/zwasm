@@ -5,9 +5,10 @@
 
 ## Cold-start procedure
 
-1. `git log --oneline -10` — last code commit: `7b2e1b02`
-   (elem init-expr reftype mismatch rejected at decode →
-   §9.12-E 0 runtime-skip)。close-plan §6 (j) Step B 完。
+1. `git log --oneline -10` — last commit: `3ace7fb4`
+   (debt cleanup §9.12-F: 6 dissolved-barrier closures
+   post-§9.12-E)。直近 code: `7b2e1b02` (elem reftype reject)。
+   close-plan §6 (j) Step B 完。
 2. **Live status**: `zig build test-spec-wasm-2.0-assert >
    /tmp/spec.log 2>&1 || true; grep "passed\\|^FAIL " /tmp/spec.log`
    — Mac aarch64 baseline expected at HEAD `7b2e1b02`:
@@ -24,12 +25,18 @@
   green). close-plan §6 (j) Step B 完了 — 43 → 0 FAIL, 192 → 0
   runtime-skip, +93 PASS over 7 chunks。close-plan §7
   (Accept) を次 cycle で正式に締める想定。
-- 次: **§9.12-F (Phase-9-eligible debt cohort)** —
-  D-094 (x86_64 multi-result indirect-result-buffer) /
-  D-090 (lower.zig type-stack walker) / D-062 (arm64 v128
-  9th+ stack overflow) / D-141 (file_size_check WARN; ADR-0079
-  per file 含む) / D-081 (emit.zig source split) / D-055
-  (emit_test_*.zig migration)。Exit: debt active rows < 15。
+- §9.12-F **進行中** (`3ace7fb4`): 6 dissolved-barrier closures
+  (D-153/154/156/102/103/105); D-079 barrier rewritten honestly。
+  active rows 31 → 25 (target < 15; multi-cycle)。
+- 次: §9.12-F 残り debt の discharge or 真摯な barrier 維持。
+  実装可能枠: D-090 (lower.zig type-stack walker) /
+  D-094 (x86_64 multi-result hidden-ptr ABI) / D-062 (arm64
+  v128 stack-overflow); architectural / multi-cycle 枠:
+  D-141 + ADR-0079 implementation (runner.zig split).
+  外部 blocker 枠: D-010/D-021/D-028/D-148 は維持。
+  Phase-future-row 枠: D-007/D-018/D-020/D-022/D-026/D-058/
+  D-059/D-074/D-075/D-082/D-136/D-139/D-149 は当該 Phase row
+  open まで凍結。
 
 ## Ubuntu mirror verification
 
