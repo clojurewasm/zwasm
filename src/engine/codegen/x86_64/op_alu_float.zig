@@ -372,6 +372,20 @@ fn emitFpAbsNeg(allocator: Allocator, buf: *std.ArrayList(u8), dst: inst.Xmm, sr
 ///
 /// **Scratch**: AL is used as the SETNP/SETP byte. RAX is not
 /// in the regalloc pool so AL doesn't collide with any vreg.
+/// §9.12-B / B87 (ADR-0075) — `(ctx, ins)` adapter for the FP
+/// compare cohort (f32/f64.eq/ne/lt/gt/le/ge, 12 ops).
+pub fn emitFpCompareCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    return emitFpCompare(
+        ctx.allocator,
+        ctx.buf,
+        ctx.alloc,
+        ctx.pushed_vregs,
+        ctx.next_vreg,
+        ctx.spill_base_off,
+        ins.op,
+    );
+}
+
 pub fn emitFpCompare(
     allocator: Allocator,
     buf: *std.ArrayList(u8),

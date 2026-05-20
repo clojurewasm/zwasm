@@ -1,26 +1,15 @@
-//! x86_64 emit handler for `f32.ne` — Zone 2 per ADR-0074.
-//! Delegates to op_alu_float.emitFpCompare (7-arg).
-
-const std = @import("std");
+//! x86_64 emit handler for `f32.ne` — B87 (ADR-0075 ctx, ins).
+//! Delegates to op_alu_float.emitFpCompareCtx.
 
 const meta = @import("../../../../../instruction/wasm_1_0/f32_ne.zig");
+const ctx_mod = @import("../../ctx.zig");
 const op_alu_float = @import("../../op_alu_float.zig");
-const regalloc = @import("../../../shared/regalloc.zig");
-const types = @import("../../types.zig");
 const zir = @import("../../../../../ir/zir.zig");
 
 pub const op_tag = meta.op_tag;
 pub const wasm_level = meta.wasm_level;
 pub const wasi_level = meta.wasi_level;
 
-pub fn emit(
-    allocator: std.mem.Allocator,
-    buf: *std.ArrayList(u8),
-    alloc: regalloc.Allocation,
-    pushed_vregs: *std.ArrayList(u32),
-    next_vreg: *u32,
-    spill_base_off: u32,
-    op: zir.ZirOp,
-) types.Error!void {
-    return op_alu_float.emitFpCompare(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, op);
+pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void {
+    return op_alu_float.emitFpCompareCtx(ctx, ins);
 }

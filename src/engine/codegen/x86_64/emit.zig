@@ -857,6 +857,7 @@ pub fn compile(
             .@"f64.mul",
             .@"f64.div",
             => try op_alu_float.emitFpBinaryCtx(&ctx, &ins),
+            // §9.12-B / B87: FP compare cohort migrated to ctx tuple.
             .@"f32.eq",
             .@"f32.ne",
             .@"f32.lt",
@@ -869,7 +870,7 @@ pub fn compile(
             .@"f64.gt",
             .@"f64.le",
             .@"f64.ge",
-            => try op_alu_float.emitFpCompare(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
+            => try op_alu_float.emitFpCompareCtx(&ctx, &ins),
             .@"f32.abs",
             .@"f32.neg",
             .@"f32.sqrt",
