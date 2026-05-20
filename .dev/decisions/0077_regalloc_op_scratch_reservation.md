@@ -219,5 +219,5 @@ once the D-133 sweep lands (sites go from 55 → 0).
 
 | Date       | SHA          | Note                                                                                                                                                                          |
 |------------|--------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 2026-05-20 | `<backfill>` | Initial Proposed version (B119 outcome).                                                                                                                                      |
+| 2026-05-20 | `342554b2` | Initial Proposed version (B119 outcome).                                                                                                                                      |
 | 2026-05-20 | `<backfill>` | User review → Status: Accepted. Implementation deferred to fresh session; spike-first per `.claude/rules/spike_lifecycle.md`; D-133 row updated to point at ADR-0077 impl. |

@@ -320,4 +320,4 @@ semantics are preserved.
 
 | Date | SHA | Note |
 |---|---|---|
-| 2026-05-05 | `<backfill>` | Initial accepted version (#7 of 7-issue cleanup batch) — design only; M3-a implementation tracked as separate Phase 7 chunk |
+| 2026-05-05 | `618ac144` | Initial accepted version (#7 of 7-issue cleanup batch) — design only; M3-a implementation tracked as separate Phase 7 chunk |

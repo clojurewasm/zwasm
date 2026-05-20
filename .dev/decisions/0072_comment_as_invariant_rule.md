@@ -218,5 +218,5 @@ The rule cites these as illustrative:
 
 | Date       | SHA          | Note                                                         |
 |------------|--------------|--------------------------------------------------------------|
-| 2026-05-19 | `<backfill>` | Initial draft — Q5 deliverable; rule body + violation catalog + 4-option enforcement list. |
+| 2026-05-19 | `bdd433d5` | Initial draft — Q5 deliverable; rule body + violation catalog + 4-option enforcement list. |
 | 2026-05-19 | `<backfill>` | **Accepted** at §9.12 collab gate. Landing in §9.12-C (rule + lint + D-133 sweep). 新規ルール / lint 投入と同時に既存 `no_workaround.md` / `bug_fix_survey.md` / `audit_scaffolding §G` の重複・陳腐化を整理する dedup sweep を §9.12-C scope に含む。 |

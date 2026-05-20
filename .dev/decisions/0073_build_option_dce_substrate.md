@@ -400,5 +400,5 @@ Three spikes were run as `private/spikes/q3-*/` under §9.12-pre. Summaries:
 
 | Date       | SHA          | Note                                                                              |
 |------------|--------------|-----------------------------------------------------------------------------------|
-| 2026-05-19 | `<backfill>` | Initial draft — build-option DCE substrate; 4-layer detail + Alternatives A/B/C/D/E + 3 spike summaries (q3-build-option-dce-poc, q3-zig-inline-switch, q3-interp-dispatch-bench). |
+| 2026-05-19 | `bdd433d5` | Initial draft — build-option DCE substrate; 4-layer detail + Alternatives A/B/C/D/E + 3 spike summaries (q3-build-option-dce-poc, q3-zig-inline-switch, q3-interp-dispatch-bench). |
 | 2026-05-19 | `<backfill>` | **Accepted** at §9.12 collab gate. 妥協なしで 4 層一貫 DCE を着地する方針。実装着地は §9.12-B。 |

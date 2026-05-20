@@ -312,6 +312,6 @@ that those axes induce compromise).
 
 | Date       | SHA          | Note                                                                              |
 |------------|--------------|-----------------------------------------------------------------------------------|
-| 2026-05-19 | `<backfill>` | Initial skeleton — §9.12 scope amendment justification; full draft in §9.12-pre.  |
+| 2026-05-19 | `bdd433d5` | Initial skeleton — §9.12 scope amendment justification; full draft in §9.12-pre.  |
 | 2026-05-19 | `<backfill>` | Full draft populated in §9.12-pre — Alternatives A/B/D-1/E/F + Consequences + Structural cohesion caveat (Q2 P14). |
 | 2026-05-19 | `<backfill>` | **Accepted** at §9.12 collab gate. Q2 P13 = Accept (re-evaluate at §9.12-B if op gaps) / Q2 P14 = Amend with structural cohesion caveat / Q2 §4.5 = Amend (interp required; 4 axes per-op file) / Q2 §4.6 = Accept (4-layer DCE) / Q3 = Hypothesis C / Q4 = Decision + minimal PoC / Q5 = 5 deliverables + dedup sweep / Q6 = under-management forward-looking policy. ROADMAP §9.12 → [x]; §14 forbidden list amended; Phase Status widget wording updated. |

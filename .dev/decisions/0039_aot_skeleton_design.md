@@ -262,5 +262,5 @@ matching-arch.
 
 | Date | SHA | Note |
 |---|---|---|
-| 2026-05-09 | `<backfill>` | Initial accepted version (§9.8b / 8b.3-b design framing; inline-bytes `.cwasm` v0.1 format + pipeline reuse + bench-delta deferred to Phase 12) |
+| 2026-05-09 | `b01be4dc` | Initial accepted version (§9.8b / 8b.3-b design framing; inline-bytes `.cwasm` v0.1 format + pipeline reuse + bench-delta deferred to Phase 12) |
 | 2026-05-09 | `<backfill>` | **Implementation amendment** during 8b.3-c: `CwasmHeader` is **60 bytes** not 56. The original "Total header size: 56 bytes" comment in the Decision § miscounted (4 magic + 14 × u32 = 60, not 4 magic + 13 × u32 = 56). The field shape is unchanged — `relocs_size` was always intended to fit at offset 56..60 — only the byte-count comment was off. `src/engine/codegen/aot/format.zig:header_size = 60` is the authoritative constant; Phase 12 loader reads against it. No load-bearing design change; numeric correction only. |

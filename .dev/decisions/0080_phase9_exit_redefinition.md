@@ -230,5 +230,5 @@ named structural barrier with a successor-phase plan.
 
 | Date       | SHA          | Note                                    |
 |------------|--------------|-----------------------------------------|
-| 2026-05-21 | `<backfill>` | Initial Proposed version.               |
+| 2026-05-21 | `52a93fbc` | Initial Proposed version.               |
 -->

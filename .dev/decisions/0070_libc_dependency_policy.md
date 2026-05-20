@@ -190,7 +190,7 @@ later selected on Linux Debug builds for leak detection).
 
 | Date       | SHA          | Note                                                          |
 |------------|--------------|---------------------------------------------------------------|
-| 2026-05-19 | `<backfill>` | Initial draft — Q6 deliverable with full inventory + 3-category policy. |
+| 2026-05-19 | `bdd433d5` | Initial draft — Q6 deliverable with full inventory + 3-category policy. |
 | 2026-05-20 | `<backfill>` | §9.12-D / B131 amendment — reclassify `_exit` / `fork` / `waitpid` / `alarm` from Replaceable → Necessary. Zig 0.16 `std.posix` lacks all four; the originally-claimed `std.posix.{exit,fork,waitpid,alarm}` targets do not exist (verified via `lib/std/posix.zig` grep). Necessary set grows from 6 → 7 (counting fork/waitpid/alarm as one row); Replaceable shrinks from 8 → 4 (post-B130 munmap → 3). D-151 (the gap-naming row in `debt.md`) is discharged by this amendment. |
 | 2026-05-20 | `<backfill>` | §9.12-D / B132 close — migrated `std.c.kill` → `std.posix.kill` (with EXEMPT-FALLBACK marker on the SIGALRM-handler `catch {}`) and `std.c.pid_t` → `std.posix.pid_t`. Reclassified `std.c.getenv` from Replaceable → Necessary because the `wasm_engine_new` c_api export is called from C code without `std.process.Init`, so `std.process.Environ.getPosix` is structurally unavailable. Replaceable set 3 → 0; §9.12-D `[ ]` → `[x]`. |
 | 2026-05-19 | `<backfill>` | **Accepted** at §9.12 collab gate. User intent: libc 依存サーフェスを Phase 10+ (AOT / 組込 / Windows native) 着手前に管理下に置き見据える。3-category 分類 + 5 deliverable 着地は §9.12-D で実施。 |
