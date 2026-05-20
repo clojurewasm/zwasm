@@ -807,6 +807,7 @@ const x86_64_memory_size = @import("x86_64/ops/wasm_1_0/memory_size.zig");
 const x86_64_memory_grow = @import("x86_64/ops/wasm_1_0/memory_grow.zig");
 const x86_64_nop = @import("x86_64/ops/wasm_1_0/nop.zig");
 const x86_64_unreachable = @import("x86_64/ops/wasm_1_0/unreachable_.zig");
+const x86_64_return = @import("x86_64/ops/wasm_1_0/return_.zig");
 
 const x86_64_i32_add = @import("x86_64/ops/wasm_1_0/i32_add.zig");
 const x86_64_i32_sub = @import("x86_64/ops/wasm_1_0/i32_sub.zig");
@@ -1624,6 +1625,7 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_memory_grow,
     x86_64_nop,
     x86_64_unreachable,
+    x86_64_return,
 };
 
 comptime {
@@ -1723,8 +1725,10 @@ test "collected_x86_64_ctx_ops tracks B54+ migrations to `(ctx, ins)` shape" {
     // memory.grow (2 new per-op files + 2 Zone 1 meta backfills,
     // +2 = 87). B72: nop (1 new per-op file + 1 meta backfill,
     // +1 = 88). B73: unreachable (1 new per-op file; ctx extended
-    // with `dead_code: *bool`, +1 = 89).
-    try std.testing.expectEqual(@as(usize, 89), collected_x86_64_ctx_ops.len);
+    // with `dead_code: *bool`, +1 = 89). B74: return (1 new
+    // per-op file; ctx extended with `frame_bytes: u32` +
+    // `uses_runtime_ptr: bool`, +1 = 90).
+    try std.testing.expectEqual(@as(usize, 90), collected_x86_64_ctx_ops.len);
 }
 
 // Note: a `dispatch(.arm64, tag, args)` test at this layer would

@@ -28,6 +28,7 @@ const zir = @import("../../../ir/zir.zig");
 const regalloc = @import("../shared/regalloc.zig");
 const ctx_mod = @import("ctx.zig");
 const inst = @import("inst.zig");
+const rbp_disp = @import("rbp_disp.zig");
 const abi = @import("abi.zig");
 const gpr = @import("gpr.zig");
 const types = @import("types.zig");
@@ -1189,6 +1190,37 @@ pub fn emitUnreachableCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error
     const fixup_at: u32 = @intCast(ctx.buf.items.len);
     try ctx.buf.appendSlice(ctx.allocator, inst.encJmpRel32(0).slice());
     try ctx.unreach_fixups.append(ctx.allocator, fixup_at);
+    ctx.dead_code.* = true;
+}
+
+/// §9.12-B / B74 (ADR-0075) — `(ctx, ins)` adapter for `return`.
+/// Inlines the same marshal + epilogue + RET sequence as the
+/// function-level `end` form (multiple physical RETs are
+/// harmless on x86_64; subsequent dead bytes are unreachable at
+/// runtime). Sets `ctx.dead_code` so the body-loop skips
+/// subsequent ops until the next control-flow boundary.
+///
+/// Wasm spec §4.4.7 (return).
+pub fn emitReturnCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    try marshalReturnRegs(
+        ctx.allocator,
+        ctx.buf,
+        ctx.alloc,
+        ctx.pushed_vregs,
+        ctx.spill_base_off,
+        ctx.func,
+        ctx.return_is_memory_class,
+        ctx.indirect_result_slot_neg_off,
+    );
+    if (ctx.frame_bytes > 0) {
+        try ctx.buf.appendSlice(ctx.allocator, rbp_disp.rspAdd(ctx.frame_bytes).slice());
+    }
+    if (ctx.uses_runtime_ptr) {
+        try ctx.buf.appendSlice(ctx.allocator, inst.encPopR(.r15).slice());
+    }
+    try ctx.buf.appendSlice(ctx.allocator, inst.encPopR(.rbp).slice());
+    try ctx.buf.appendSlice(ctx.allocator, inst.encRet().slice());
     ctx.dead_code.* = true;
 }
 

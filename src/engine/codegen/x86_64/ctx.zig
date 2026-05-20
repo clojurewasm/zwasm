@@ -59,6 +59,8 @@ pub const InitArgs = struct {
     globals_offsets: []const u32,
     globals_valtypes: []const zir.ValType,
     dead_code: *bool,
+    frame_bytes: u32,
+    uses_runtime_ptr: bool,
 };
 
 /// Per-function emit context for x86_64. Threaded as `*EmitCtx`
@@ -161,6 +163,14 @@ pub const EmitCtx = struct {
     /// Set true by `unreachable` (and select arm) to skip
     /// emitting until the next control-flow boundary resets it.
     dead_code: *bool,
+    /// §9.12-B / B74: per-function frame size in bytes (set once
+    /// at function entry; consumed by return + br family for
+    /// `ADD RSP, frame_bytes` in the epilogue).
+    frame_bytes: u32,
+    /// §9.12-B / B74: whether the function reserves R15 for the
+    /// runtime_ptr_save (set once at function entry; consumed by
+    /// the epilogue to decide POP R15).
+    uses_runtime_ptr: bool,
 
     pub fn init(args: InitArgs) EmitCtx {
         const simd_consts_base: u32 =
@@ -190,6 +200,8 @@ pub const EmitCtx = struct {
             .globals_valtypes = args.globals_valtypes,
             .func_idx = args.func.func_idx,
             .dead_code = args.dead_code,
+            .frame_bytes = args.frame_bytes,
+            .uses_runtime_ptr = args.uses_runtime_ptr,
         };
     }
 

@@ -676,6 +676,8 @@ pub fn compile(
         .globals_offsets = globals_offsets,
         .globals_valtypes = globals_valtypes,
         .dead_code = &dead_code,
+        .frame_bytes = frame_bytes,
+        .uses_runtime_ptr = uses_runtime_ptr,
     });
 
     for (func.instrs.items) |ins| {
@@ -1452,29 +1454,10 @@ pub fn compile(
             // §9.12-B / B69: drop inline body extracted into
             // `op_control.emitDropCtx` `(ctx, ins)` adapter.
             .drop => try op_control.emitDropCtx(&ctx, &ins),
-            .@"return" => {
-                // Wasm spec §4.4.7 (return) — pop the function's
-                // result(s) and exit. We inline the same marshal +
-                // epilogue + RET sequence as the function-level
-                // `end` form below; multiple physical RETs are
-                // harmless on x86_64 (no jump table needed, unlike
-                // ARM64 where return_fixups consolidate to a single
-                // epilogue). Subsequent ops in the same body may
-                // emit dead bytes that are unreachable at runtime.
-                // D-093 (d-11): multi-result return marshal via the
-                // shared op_control helper (mirrors arm64's
-                // `marshalFunctionReturn`).
-                try op_control.marshalReturnRegs(allocator, &buf, alloc, &pushed_vregs, spill_base_off, func, return_is_memory_class, indirect_result_slot_neg_off);
-                if (frame_bytes > 0) {
-                    try buf.appendSlice(allocator, rspAdd(frame_bytes).slice());
-                }
-                if (uses_runtime_ptr) {
-                    try buf.appendSlice(allocator, inst.encPopR(.r15).slice());
-                }
-                try buf.appendSlice(allocator, inst.encPopR(.rbp).slice());
-                try buf.appendSlice(allocator, inst.encRet().slice());
-                dead_code = true;
-            },
+            // §9.12-B / B74: return inline body extracted into
+            // `op_control.emitReturnCtx` `(ctx, ins)` adapter
+            // (ctx extended with `frame_bytes` + `uses_runtime_ptr`).
+            .@"return" => try op_control.emitReturnCtx(&ctx, &ins),
             .block => try op_control.emitBlockCtx(&ctx, &ins),
             .loop => try op_control.emitLoopCtx(&ctx, &ins),
             .br => {
