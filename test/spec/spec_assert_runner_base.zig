@@ -1632,7 +1632,16 @@ pub fn hasUnbindableImports(
                 if (registered.contains(imp.module)) continue;
                 return true;
             },
-            .table, .memory, .global => return true,
+            // SPIKE D-153 (close-plan §6 (j), 2026-05-21): non-func
+            // imports are bindable IFF the source module is
+            // registered (auto-registered for "spectest" at
+            // runCorpus start). Previously: unconditional return
+            // true. Triggers preparatory infra (B146-B158) for
+            // global / table / memory binding.
+            .table, .memory, .global => {
+                if (registered.contains(imp.module)) continue;
+                return true;
+            },
         }
     }
     return false;
@@ -2430,6 +2439,37 @@ pub fn runCorpus(
     // — the `compiled` field stays null and `RegisteredExporter`
     // behaves as bytes-only storage (parity with (c)-1c shape).
     var registered: std.StringHashMapUnmanaged(RegisteredExporter) = .empty;
+
+    // Close-plan §6 (j) D-153 / direct-implementation route
+    // (2026-05-21). Auto-register the canonical `spectest` host
+    // module at corpus start. The bytes are compiled at build
+    // time from `test/spec/spectest.wat` (see build.zig
+    // `spectest_wat2wasm` step); `@embedFile` resolves through
+    // the `spectest_module` anonymous module wired in build.zig.
+    //
+    // Effect: testsuite fixtures with `(import "spectest" ...)`
+    // bind via the existing cross-module resolver (β path) —
+    // no host-binding pathway needed. Eliminates 100+ runtime
+    // SKIP-CROSS-MODULE-IMPORTS events that previously blocked
+    // §9.12-E close.
+    //
+    // Canonical reference: WebAssembly/spec/interpreter/host/
+    // spectest.ml (56 OCaml lines; the .wat is a faithful
+    // re-derivation, cross-checked against zwasm v1 and
+    // wazero's testdata/spectest.wat).
+    {
+        const spectest_module = @import("spectest_module");
+        const alias_owned = try gpa.dupe(u8, "spectest");
+        const bytes_owned = try gpa.dupe(u8, spectest_module.bytes);
+        const gop = try registered.getOrPut(gpa, alias_owned);
+        if (gop.found_existing) {
+            gpa.free(alias_owned);
+            gpa.free(bytes_owned);
+        } else {
+            gop.value_ptr.* = .{ .bytes_owned = bytes_owned };
+        }
+    }
+
     defer {
         if (current_wasm) |b| gpa.free(b);
         if (current_compiled) |*c| c.deinit(gpa);
