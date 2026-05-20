@@ -10,9 +10,10 @@
    `/continue` Step 1a の override を発火させ、ROADMAP
    §9.<N> task より先に §6 Work sequence を実行する。
 2. **READ NEXT** [`.dev/lessons/2026-05-20-refactor-tradeoffs-honest-accounting.md`](lessons/2026-05-20-refactor-tradeoffs-honest-accounting.md) — 経緯記録。
-3. `git log --oneline -10` — last code commit: `2ddcdd7c`
-   (close-plan §6 (j) Step B cohort 1+2 partial discharge:
-   const-expr `global.get` + imported-globals init).
+3. `git log --oneline -10` — last code commit: `45bc96d3`
+   (close-plan §6 (j) Step B cohort 3 部分着: validator-tables
+   imports prefix + elem-form 4/5/6/7 const-expr/externref)。
+   前 commit `2ddcdd7c` (cohort 1+2 部分着) は維持。
 4. **Live status**: `zig build test-spec-wasm-2.0-assert >
    /tmp/spec.log 2>&1 || true; grep "^FAIL " /tmp/spec.log |
    sort | uniq -c | sort -rn` — current breakdown is the
@@ -26,12 +27,18 @@
 - §6 (j) Step B cohort 1+2 部分着 (`2ddcdd7c`): const-expr
   `global.get N` for imported globals + importer-side
   `scratch_globals` の `[0..num_imports)` を registered
-  exporter から populate。SIMD / non-SIMD runner 両方に
-  ctx 配線。runner.zig は ADR-0079 marker で 2000-line
-  cap 超を一時的に許容。
-- 次: **§6 (j) Step B cohort 3 — InvalidFuncIndex × 5 +
-  InvalidFunctype × 2** (compile-time 失敗、imports.wast /
-  elem.wast / table_grow.wast / linking.wast)。
+  exporter から populate。
+- §6 (j) Step B cohort 3 部分着 (`45bc96d3`): validator
+  `tables` array に imports prefix を追加 + elem-form 4/5/6/7
+  decoder の `global.get` / `externref` 受理。
+- 次: 残 cohort
+  - cohort 4 (assert_uninstantiable cleanly × 4) — linking ×
+    2 + elem × 2。
+  - cohort 1 残り (data data-init UES × 15) — cross-fixture
+    import 経路の bisect。
+  - cohort 5 (imports: grow × 4) — imported memory grow path。
+  - cohort 6 (elem.68 call_imported_elem trap) — global.get
+    funcref runtime resolution。
 
 ## Step B 再開時の手順 (cold-start)
 

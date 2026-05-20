@@ -195,19 +195,36 @@ D-153 (12 cycle 経過時点で skip-impl 不動) はそれ自体が
 2. **globals-zero × 8** [完了 `2ddcdd7c`]
    - `imports: get-X(()) → got 0, expected 666` 系 8 件。
      cohort 1 の修正で同時 discharge。
-3. **InvalidFuncIndex × 5 + InvalidFunctype × 2** (compile-time) [次]
-   - fixtures: imports.60/61, elem.57, linking.17, table_grow.6
-     (InvalidFuncIndex); elem.66/68 (InvalidFunctype)。
-   - 仮説: declarative elem segment の typeidx range check OR
-     funcidx resolution 経路。
+3. **InvalidFuncIndex × 5 + InvalidFunctype × 2** [完了 `45bc96d3`]
+   - 真の root cause:
+     (a) `compileWasm` の `validator_tables` が defined tables
+         のみで imports prefix 欠如 → imported table への
+         `call_indirect`/`table.*` で `table_idx=0 >=
+         tables.len(0)` → InvalidFuncIndex。
+     (b) `decodeElement` form 4/5/6/7 が `0x23 global.get`
+         opcode を未対応 + form 5/6/7 reftype が funcref
+         (0x70) のみ受理 → externref (0x6F) reject 経由で
+         InvalidFunctype。
+   - 修正: validator_tables の imports prefix 結合 + decoder
+     拡張 (`readFuncrefInitExpr` に 0x23 受理、form 5/6/7 で
+     reftype byte に応じ `elem_type` を funcref/externref 分岐)。
+   - elem.68 (call_imported_elem) は compile 後の call_indirect
+     で trap → cohort 6 に分離。
 4. **assert_uninstantiable but instantiated cleanly × 4**
    - 仮説: unlinkable/uninstantiable 区別の緩さ。linking と elem
      系 2 件ずつ。
+5. **imports: grow × 4** [新 cohort]
+   - imported memory `(import "spectest" "memory" ...)` で
+     `memory.grow` 経路。
+6. **elem.68 call_imported_elem trap** [新 cohort]
+   - elem-form 4 の `global.get` を null sentinel で受理した
+     ため、runtime call_indirect が table[null entry] で trap。
+     imported funcref global の runtime resolution が必要。
 
-Discharge 計測 (cohort 1+2 部分着 `2ddcdd7c` 時点):
-- 25308 → 25373 PASS (+65)
-- 43 → 30 failed (-13)
-- 80 → 22 runtime-skip
+Discharge 累計 (`45bc96d3` 時点):
+- 25308 → 25383 PASS (+75)
+- 43 → 24 failed (-19)
+- 80 → 9 runtime-skip
 
 各 cohort は 1-2 cycle で discharge 想定。Step B 完了基準:
 runtime-skip ≤ 20 OR 残 failures 全消化。
