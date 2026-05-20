@@ -14,13 +14,11 @@
    row. **B30..B52 covered the dispatcher-signature-compatible cohort
    (374/581 IR-axis, 348/314 arch-axis); B53+ is gated on ADR-0075**.
 3. `git log --oneline -10` — recent commits under `chore(p9*):` /
-   `feat(p9*):` / `refactor(p9*):` / `test(p9*):` prefix.
-   **§9.12-C closed at B129** (ADR-0077 complete); §9.12-D
-   started at B130 (munmap migrated, count 9 → 8). **B131 flagged
-   for user review**: §9.12-D literal exit (`check_libc_boundary
-   0`) requires either ADR-0070 amendment (reclassify 6 sites to
-   `necessary`) or new `src/platform/posix_shims.zig` — both
-   load-bearing per `lessons_vs_adr.md` decision tree.
+   `feat(p9*):` / `refactor(p9*):` / `docs(adr):` prefix.
+   **§9.12-C closed at B129** (ADR-0077 complete); §9.12-D in
+   progress: B130 munmap, B131 ADR-0070 amendment (replaceable
+   count 9 → 3). Next: B132 migrates the remaining 3 sites
+   (kill, pid_t, getenv) to close §9.12-D.
 4. `bash scripts/p9_completion_status.sh` — live progress.
 5. `bash scripts/p9_simd_status.sh` — live SIMD status.
 6. `.dev/debt.md` `now` rows: none.
@@ -158,8 +156,9 @@
 | B127 | Boundary fixtures — 4 new fixtures under `test/edge_cases/p9/regalloc/` (one per bulk op). Each pushes V0=42 before the op so V0 strictly crosses; without fence V0 → X9 clobber; with fence returns 42. Edge-case runner: 51 → 55 passed. | `9e63c713` |
 | B128 | Strict gate flip — `gate_commit.sh` invokes `check_invariant_comments.sh --strict` between the libc/fallback info checks and `zig build test`. New D-132/D-133-class digit literals now fail pre-commit. | `d8fe353b` |
 | B129 | §9.12-C close — D-133 row deleted from `debt.md`; §9.12-C `[ ]` → `[x]` in ROADMAP. ADR-0077 8-step plan complete; the regalloc op-internal scratch fence is fully implemented (substrate + reservation table + validator + production wire + handler sweep + boundary fixtures + strict gate). | `9558e5f7` |
-| B130 | §9.12-D first migration — `std.c.munmap` → `std.posix.munmap` in `src/platform/jit_mem.zig` (clean win). Harden `check_libc_boundary.sh` to exclude `.zig-cache/` / `zig-out/` (4 unclassified false positives → 0). File D-151 naming the 6-site Zig 0.16 stdlib gap that blocks §9.12-D's literal exit (`fork`/`waitpid`/`alarm`/`_exit`/`getenv`/`write` not in std.posix). | `<this commit>` |
-| **B131** | §9.12-D continuation — needs design call: amend ADR-0070 to reclassify the 6 gap sites as `necessary` (mirrors `sigsetjmp` precedent), OR write `src/platform/posix_shims.zig` raw-syscall wrappers + route the test runner through them. Both are load-bearing; flagging for user review. | **REVIEW** |
+| B130 | §9.12-D first migration — `std.c.munmap` → `std.posix.munmap` in `src/platform/jit_mem.zig` (clean win). Harden `check_libc_boundary.sh` to exclude `.zig-cache/` / `zig-out/` (4 unclassified false positives → 0). File D-151 naming the 6-site Zig 0.16 stdlib gap that blocks §9.12-D's literal exit. | `823f4ad8` |
+| B131 | ADR-0070 amendment — reclassify `_exit` / `fork` / `waitpid` / `alarm` from Replaceable → Necessary (empirical: Zig 0.16 std.posix lacks all four; std.process.exit not async-signal-safe). Script's NECESSARY/REPLACEABLE_SYMS arrays updated to match. D-151 deleted (barrier dissolved). Replaceable count 8 → 3. | `<this commit>` |
+| **B132** | §9.12-D close path — migrate remaining 3 replaceable sites: `std.c.kill` → `std.posix.kill` (with EXEMPT-FALLBACK in SIGALRM handler), `std.c.pid_t` → `std.posix.pid_t` (trivial type rename), `std.c.getenv` → `std.process.getEnvVarOwned` (c_api alloc threading; biggest piece). When count hits 0, flip §9.12-D `[ ]` → `[x]`. | **NEXT** |
 
 ## Active state — §9.12-C CLOSED at B129 (ADR-0077 complete); §9.12-D NEXT
 
@@ -178,22 +177,21 @@ Loop advances to §9.12-D (Q6 libc dependency boundary).
 7. ~~**B128**: strict gate flip~~ — DONE.
 8. ~~**B129**: D-133 close + §9.12-C [x]~~ — DONE.
 
-### §9.12-D scope discovery (B130 outcome)
+### §9.12-D remaining work (post-B131)
 
-`check_libc_boundary.sh` count after B130: 8 replaceable.
-ADR-0070's migration table claims `std.posix.{exit,fork,alarm,
-waitpid,getenv,write}` exist as drop-in targets, but Zig 0.16's
-`std.posix` only exposes `munmap`, `kill`, `pid_t` of the
-flagged symbols. Confirmed by `grep -nE "^pub (fn|const)" lib/
-std/posix.zig`. The runner already documents this inline at
-`test/realworld/run_runner_jit.zig:134-136`.
+`check_libc_boundary.sh` count: 3 replaceable.
+- `std.c.pid_t` @ run_runner_jit.zig:91 → `std.posix.pid_t`
+  (1-line type rename).
+- `std.c.kill` @ run_runner_jit.zig:101 → `std.posix.kill`
+  (returns error union; SIGALRM handler discard via
+  `catch {}` with EXEMPT-FALLBACK per
+  `no_fallback_on_failure.md` signal-handler clause).
+- `std.c.getenv` @ instance.zig:212 → `std.process.getEnvVarOwned`
+  (Zone 3 c_api; needs allocator threading or
+  `src/platform/env.zig` helper).
 
-§9.12-D's literal exit therefore needs a design call (see B131
-NEXT in chunk table above). Pragmatic next session: amend
-ADR-0070 to move the 6 gap symbols to `necessary` + update
-`check_libc_boundary.sh` REPLACEABLE_SYMS / NECESSARY lists
-to match. D-151 in `debt.md` carries the structural gap until
-that lands.
+B132 lands all 3 + flips §9.12-D `[ ]` → `[x]` when the
+strict gate hits 0.
 
 ### Spike validation summary (B121)
 
