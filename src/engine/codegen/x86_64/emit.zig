@@ -1150,12 +1150,13 @@ pub fn compile(
             // 3-instr synthesis for not (PCMPEQB ones,ones + PXOR);
             // 5-instr PAND/PANDN/POR chain for bitselect; PTEST +
             // SETNE + MOVZX for any_true (SSE4.1 PTEST).
-            .@"v128.not" => try op_simd.emitV128Not(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"v128.and" => try op_simd.emitV128And(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"v128.or" => try op_simd.emitV128Or(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"v128.xor" => try op_simd.emitV128Xor(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"v128.andnot" => try op_simd.emitV128Andnot(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"v128.bitselect" => try op_simd.emitV128Bitselect(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            // §9.12-B / B90: v128 logical cohort migrated to ctx tuple.
+            .@"v128.not" => try op_simd.emitV128NotCtx(&ctx, &ins),
+            .@"v128.and" => try op_simd.emitV128AndCtx(&ctx, &ins),
+            .@"v128.or" => try op_simd.emitV128OrCtx(&ctx, &ins),
+            .@"v128.xor" => try op_simd.emitV128XorCtx(&ctx, &ins),
+            .@"v128.andnot" => try op_simd.emitV128AndnotCtx(&ctx, &ins),
+            .@"v128.bitselect" => try op_simd.emitV128BitselectCtx(&ctx, &ins),
             .@"v128.any_true" => try op_simd.emitV128AnyTrue(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             // §9.7 / 9.7-s: per-shape all_true + bitmask reductions
             // (8 ops). all_true via SSE4.1 PXOR + PCMPEQ_<lane> +

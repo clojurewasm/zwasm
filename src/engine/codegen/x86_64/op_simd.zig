@@ -42,11 +42,13 @@
 
 const std = @import("std");
 
+const zir = @import("../../../ir/zir.zig");
 const regalloc = @import("../shared/regalloc.zig");
 const inst = @import("inst.zig");
 const abi = @import("abi.zig");
 const gpr = @import("gpr.zig");
 const types = @import("types.zig");
+const ctx_mod = @import("ctx.zig");
 const jit_abi = @import("../shared/jit_abi.zig");
 const trace = @import("../../../diagnostic/trace.zig");
 
@@ -630,6 +632,39 @@ pub fn emitV128Store64Lane(allocator: Allocator, buf: *std.ArrayList(u8), alloc:
 /// synthesise via `PCMPEQB scratch, scratch` (= all-ones) +
 /// `PXOR dst, scratch` (= ~src). 3-instruction emit including the
 /// MOVAPS preamble to copy src into dst.
+/// §9.12-B / B90 (ADR-0075) — `(ctx, ins)` adapters for the v128
+/// logical cohort (v128.not/and/andnot/or/xor/bitselect). Each
+/// wraps its existing 6-arg helper.
+pub fn emitV128NotCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitV128Not(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
+}
+
+pub fn emitV128AndCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitV128And(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
+}
+
+pub fn emitV128OrCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitV128Or(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
+}
+
+pub fn emitV128XorCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitV128Xor(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
+}
+
+pub fn emitV128AndnotCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitV128Andnot(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
+}
+
+pub fn emitV128BitselectCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitV128Bitselect(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
+}
+
 pub fn emitV128Not(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
