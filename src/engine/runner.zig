@@ -457,10 +457,9 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
         errdefer allocator.free(sigs);
         const typeidxs = try allocator.alloc(u32, sig_count);
         errdefer allocator.free(typeidxs);
-        const empty_global_offsets = try allocator.alloc(u32, 0);
-        errdefer allocator.free(empty_global_offsets);
-        const empty_global_valtypes = try allocator.alloc(zir.ValType, 0);
-        errdefer allocator.free(empty_global_valtypes);
+        const elay = try @import("export_lookup.zig").computeGlobalsLayout(allocator, wasm_bytes); // D-152 §9.12-E
+        errdefer allocator.free(elay.offsets);
+        errdefer allocator.free(elay.valtypes);
         if (imports_buf) |ib| {
             // Need a type section to resolve func imports' typeidx.
             if (sig_count > 0) {
@@ -588,9 +587,9 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             .func_sigs = sigs,
             .func_typeidxs = typeidxs,
             .num_imports = sig_count,
-            .globals_offsets = empty_global_offsets,
-            .globals_valtypes = empty_global_valtypes,
-            .globals_byte_size = 0,
+            .globals_offsets = elay.offsets,
+            .globals_valtypes = elay.valtypes,
+            .globals_byte_size = elay.byte_size,
             .arena = arena,
         };
     }

@@ -1780,15 +1780,72 @@ fn nonSimdHandleAssertUninstantiable(
     return false;
 }
 
+/// §9.12-E / B138 (D-152 discharge): same-module `(get "field")`
+/// action handler. Body shape `<field> <type> <value>`. Looks up
+/// the named global via `engine.export_lookup.findExportGlobal`,
+/// indexes `scratch_globals` at `compiled.globals_offsets[idx]`,
+/// compares vs expected. Returns true on PASS.
+fn nonSimdHandleGetAction(
+    gpa: std.mem.Allocator,
+    wasm_bytes: []const u8,
+    compiled: *const runner_mod.CompiledWasm,
+    body: []const u8,
+    stdout: *std.Io.Writer,
+    name: []const u8,
+) anyerror!bool {
+    var it = std.mem.tokenizeScalar(u8, body, ' ');
+    const field = it.next() orelse return false;
+    const type_str = it.next() orelse return false;
+    const value_str = it.next() orelse return false;
+
+    const export_idx = zwasm.engine.export_lookup.findExportGlobal(gpa, wasm_bytes, field) catch |err| {
+        try stdout.print("FAIL  {s}: get-action({s}) export lookup: {s}\n", .{ name, field, @errorName(err) });
+        return false;
+    };
+    const defined_idx: usize = @intCast(export_idx);
+    if (defined_idx >= compiled.globals_offsets.len) {
+        try stdout.print("FAIL  {s}: get-action({s}) idx={d} ≥ globals_offsets.len {d}\n", .{ name, field, defined_idx, compiled.globals_offsets.len });
+        return false;
+    }
+    const byte_off: usize = compiled.globals_offsets[defined_idx];
+    if (byte_off + 8 > scratch_globals.len) return false;
+    const slot = scratch_globals[byte_off..][0..8];
+
+    if (std.mem.eql(u8, type_str, "i32")) {
+        const expected = std.fmt.parseInt(u32, value_str, 10) catch 0;
+        const actual = std.mem.readInt(u32, slot[0..4], .little);
+        if (actual == expected) return true;
+        try stdout.print("FAIL  {s}: get-action({s}) i32 expected={d} actual={d}\n", .{ name, field, expected, actual });
+        return false;
+    } else if (std.mem.eql(u8, type_str, "i64")) {
+        const expected = std.fmt.parseInt(u64, value_str, 10) catch 0;
+        const actual = std.mem.readInt(u64, slot[0..8], .little);
+        if (actual == expected) return true;
+        try stdout.print("FAIL  {s}: get-action({s}) i64 expected={d} actual={d}\n", .{ name, field, expected, actual });
+        return false;
+    } else if (std.mem.eql(u8, type_str, "f32")) {
+        const expected = std.fmt.parseInt(u32, value_str, 10) catch 0;
+        const actual = std.mem.readInt(u32, slot[0..4], .little);
+        if (actual == expected) return true;
+        try stdout.print("FAIL  {s}: get-action({s}) f32 expected_bits=0x{x} actual_bits=0x{x}\n", .{ name, field, expected, actual });
+        return false;
+    } else if (std.mem.eql(u8, type_str, "f64")) {
+        const expected = std.fmt.parseInt(u64, value_str, 10) catch 0;
+        const actual = std.mem.readInt(u64, slot[0..8], .little);
+        if (actual == expected) return true;
+        try stdout.print("FAIL  {s}: get-action({s}) f64 expected_bits=0x{x} actual_bits=0x{x}\n", .{ name, field, expected, actual });
+        return false;
+    } else {
+        try stdout.print("FAIL  {s}: get-action({s}) unsupported type {s}\n", .{ name, field, type_str });
+        return false;
+    }
+}
+
 const non_simd_callbacks: base.RunnerCallbacks = .{
     .on_module_loaded = nonSimdOnModuleLoaded,
     .handle_assert_return = nonSimdRunAssertReturn,
     .handle_assert_trap = nonSimdRunAssertTrap,
     .handle_invoke_action = nonSimdRunInvokeAction,
     .handle_assert_uninstantiable = nonSimdHandleAssertUninstantiable,
-    // .handle_get_action stays null pending D-152: compileWasm's
-    // empty-fn path (modules with no functions, just globals)
-    // returns globals_offsets = []; scratch_globals isn't populated
-    // by applyDefinedGlobalsInit. SKIP-NON-INVOKE-ACTION fallback
-    // is the base runner's default route in this case.
+    .handle_get_action = nonSimdHandleGetAction,
 };
