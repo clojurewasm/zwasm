@@ -210,9 +210,17 @@ D-153 (12 cycle 経過時点で skip-impl 不動) はそれ自体が
      reftype byte に応じ `elem_type` を funcref/externref 分岐)。
    - elem.68 (call_imported_elem) は compile 後の call_indirect
      で trap → cohort 6 に分離。
-4. **assert_uninstantiable but instantiated cleanly × 4**
-   - 仮説: unlinkable/uninstantiable 区別の緩さ。linking と elem
-     系 2 件ずつ。
+4. **assert_uninstantiable but instantiated cleanly × 4** [完了 `ce67cd4a`]
+   - 真の root cause: `applyTableInit` の OOB 判定が
+     `funcptrs_buf.len` で行われ、runner 側は `scratch_funcptrs[0..]`
+     (= 1024) 全部を渡していたので、declared table-0 size より
+     大きい index への elem write が OOB と判定されなかった。
+   - 修正: runner 側に `base.effectiveTable0Min(importer,
+     registered)` を追加し、`scratch_funcptrs[0..effective_min]`
+     を applyTableInit に渡す。imported table の場合は
+     exporter の actual size を、defined table の場合は declared
+     min を返す。importer-declared min は lower bound にすぎず、
+     table の真の size ではない点に注意。
 5. **imports: grow × 4** [新 cohort]
    - imported memory `(import "spectest" "memory" ...)` で
      `memory.grow` 経路。
@@ -221,9 +229,9 @@ D-153 (12 cycle 経過時点で skip-impl 不動) はそれ自体が
      ため、runtime call_indirect が table[null entry] で trap。
      imported funcref global の runtime resolution が必要。
 
-Discharge 累計 (`45bc96d3` 時点):
-- 25308 → 25383 PASS (+75)
-- 43 → 24 failed (-19)
+Discharge 累計 (`ce67cd4a` 時点):
+- 25308 → 25387 PASS (+79)
+- 43 → 20 failed (-23)
 - 80 → 9 runtime-skip
 
 各 cohort は 1-2 cycle で discharge 想定。Step B 完了基準:
