@@ -22,15 +22,18 @@
 ## Active state
 
 - Phase 9.12-E。close-plan §6 work sequence 実行中。
-- 完了: (a) handover cleanup — 6f07057b で chunk table
-  移管 + handover ≤80 lines、(b) chunk type taxonomy —
-  LOOP.md §"Chunk types" 追加 + phase_log v2 schema 定義。
-- 次: **(c) architectural cycle cap** — `architectural`
-  type chunk の 3-cycle 経過 measurable progress なし →
-  mandatory step-back rule を LOOP.md に追加。D-153 が
-  retroactively 適用される (12 cycles 経過済)。
+- 完了: (a) handover cleanup、(b) chunk type taxonomy +
+  v2 phase_log schema、(c) architectural cycle cap rule
+  (LOOP.md §"Chunk types" 内に landed in (b))、(d) spike
+  discipline 厳格化 — `architectural_spike.md` + audit §G.5
+  + no_workaround cross-reference。
+- 次: **(e) tally field rename** — `test/spec/spec_assert_
+  runner_base.zig::AssertTally.skipped` → `manifest_skip_impl`
+  rename + 新 `runtime_skip` field 追加。skip-impl
+  semantics の厳密化。全 consumer 更新 + ratchet history
+  recompute。
 - D-153 (cross-module imports) は close-plan §6 (j) まで
-  凍結。B146→B158 preparatory infra は維持。
+  凍結。
 
 ## §9.12-B progress chunks
 
