@@ -1123,10 +1123,11 @@ pub fn compile(
             // sqrt uses new emitV128FpUnop. min/max defer to 9.7-q
             // (NaN-correction synthesis ~7 instr per cranelift
             // `lower.isle` F32X4/F64X2 fmin/fmax).
-            .@"f32x4.add" => try op_simd_float.emitF32x4Add(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"f32x4.sub" => try op_simd_float.emitF32x4Sub(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"f32x4.mul" => try op_simd_float.emitF32x4Mul(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"f32x4.div" => try op_simd_float.emitF32x4Div(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            // §9.12-B / B100: SIMD f32x4 arith migrated to ctx tuple.
+            .@"f32x4.add" => try op_simd_float.emitF32x4AddCtx(&ctx, &ins),
+            .@"f32x4.sub" => try op_simd_float.emitF32x4SubCtx(&ctx, &ins),
+            .@"f32x4.mul" => try op_simd_float.emitF32x4MulCtx(&ctx, &ins),
+            .@"f32x4.div" => try op_simd_float.emitF32x4DivCtx(&ctx, &ins),
             .@"f32x4.sqrt" => try op_simd_float.emitF32x4Sqrt(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"f64x2.add" => try op_simd_float.emitF64x2Add(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             .@"f64x2.sub" => try op_simd_float.emitF64x2Sub(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
@@ -1141,8 +1142,8 @@ pub fn compile(
             // zero-aware) where naive MIN/MAX would return src2 on
             // unordered inputs (off-spec). XMM14 + XMM15 used as
             // scratch.
-            .@"f32x4.min" => try op_simd_float.emitF32x4Min(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f32x4.max" => try op_simd_float.emitF32x4Max(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.min" => try op_simd_float.emitF32x4MinCtx(&ctx, &ins),
+            .@"f32x4.max" => try op_simd_float.emitF32x4MaxCtx(&ctx, &ins),
             .@"f64x2.min" => try op_simd_float.emitF64x2Min(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"f64x2.max" => try op_simd_float.emitF64x2Max(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-r: v128 bitwise ops + v128.any_true (7 ops).
@@ -1305,8 +1306,8 @@ pub fn compile(
             // swapped (dst=c2, src=c1) to align Wasm pseudo-min/max
             // semantics with x86's "return src on equal/NaN/zero".
             // Cranelift maps the same way (`lower.isle:1542-1545`).
-            .@"f32x4.pmin" => try op_simd_float.emitF32x4Pmin(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f32x4.pmax" => try op_simd_float.emitF32x4Pmax(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.pmin" => try op_simd_float.emitF32x4PminCtx(&ctx, &ins),
+            .@"f32x4.pmax" => try op_simd_float.emitF32x4PmaxCtx(&ctx, &ins),
             .@"f64x2.pmin" => try op_simd_float.emitF64x2Pmin(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"f64x2.pmax" => try op_simd_float.emitF64x2Pmax(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // §9.7 / 9.7-ax: v128.load + v128.store foundation

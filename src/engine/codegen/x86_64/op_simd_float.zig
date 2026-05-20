@@ -18,15 +18,61 @@
 
 const std = @import("std");
 
+const zir = @import("../../../ir/zir.zig");
 const regalloc = @import("../shared/regalloc.zig");
 const inst = @import("inst.zig");
 const abi = @import("abi.zig");
 const gpr = @import("gpr.zig");
 const types = @import("types.zig");
+const ctx_mod = @import("ctx.zig");
 const op_simd = @import("op_simd.zig");
 
 const Allocator = std.mem.Allocator;
 const Error = types.Error;
+
+// §9.12-B / B100 (ADR-0075) — `(ctx, ins)` adapters for the
+// SIMD f32x4 arith cohort (8 ops). add/sub/mul/div are 6-arg;
+// min/max/pmin/pmax are 5-arg.
+
+pub fn emitF32x4AddCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitF32x4Add(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
+}
+
+pub fn emitF32x4SubCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitF32x4Sub(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
+}
+
+pub fn emitF32x4MulCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitF32x4Mul(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
+}
+
+pub fn emitF32x4DivCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitF32x4Div(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
+}
+
+pub fn emitF32x4MinCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitF32x4Min(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+}
+
+pub fn emitF32x4MaxCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitF32x4Max(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+}
+
+pub fn emitF32x4PminCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitF32x4Pmin(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+}
+
+pub fn emitF32x4PmaxCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitF32x4Pmax(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+}
 
 /// Wasm spec §4.4.4 (f*x*.{eq, ne, lt, gt, le, ge}) — pop two
 /// v128, push v128 where each lane is all-ones if the IEEE-754
