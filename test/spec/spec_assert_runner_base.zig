@@ -1565,6 +1565,82 @@ pub fn effectiveMemory0Min(
     return limits.min;
 }
 
+/// Close-plan §6 (j) Step B cohort 5 — effective memory-0 max
+/// in pages. Imported memory resolves to MIN(exporter actual max,
+/// importer declared max) per Wasm spec instantiation semantics
+/// (the importer's `(memory N M)` only states an upper acceptable
+/// bound; the runtime cap is the actual exporter's max). Defined
+/// memory uses its declared max. `null` when no memory exists or
+/// neither side declares a max.
+pub fn effectiveMemory0Max(
+    allocator: std.mem.Allocator,
+    importer_wasm: []const u8,
+    registered: ?*const std.StringHashMapUnmanaged(RegisteredExporter),
+) ?u32 {
+    var temp_arena = std.heap.ArenaAllocator.init(allocator);
+    defer temp_arena.deinit();
+    const ta = temp_arena.allocator();
+    var module = zwasm.parse.parser.parse(ta, importer_wasm) catch return null;
+    if (module.find(.import)) |s| {
+        var imports = zwasm.parse.sections.decodeImports(ta, s.body) catch return null;
+        defer imports.deinit();
+        for (imports.items) |imp| {
+            if (imp.kind != .memory) continue;
+            const importer_max = imp.payload.memory.max;
+            if (registered) |reg| {
+                if (reg.getPtr(imp.module)) |exp| {
+                    const exporter_max = extractExporterMemoryMax(allocator, exp.bytes_owned, imp.name);
+                    if (exporter_max) |em| {
+                        if (importer_max) |im| return @min(em, im);
+                        return em;
+                    }
+                }
+            }
+            return importer_max;
+        }
+    }
+    const limits = extractMemoryLimits(allocator, importer_wasm);
+    return limits.max;
+}
+
+fn extractExporterMemoryMax(
+    allocator: std.mem.Allocator,
+    exporter_wasm: []const u8,
+    export_name: []const u8,
+) ?u32 {
+    var temp_arena = std.heap.ArenaAllocator.init(allocator);
+    defer temp_arena.deinit();
+    const ta = temp_arena.allocator();
+    var module = zwasm.parse.parser.parse(ta, exporter_wasm) catch return null;
+    const export_sec = module.find(.@"export") orelse return null;
+    var exports = zwasm.parse.sections.decodeExports(ta, export_sec.body) catch return null;
+    defer exports.deinit();
+    var exp_mem_idx: ?u32 = null;
+    for (exports.items) |e| {
+        if (e.kind != .memory) continue;
+        if (!std.mem.eql(u8, e.name, export_name)) continue;
+        exp_mem_idx = e.idx;
+        break;
+    }
+    const midx = exp_mem_idx orelse return null;
+    var seen: u32 = 0;
+    if (module.find(.import)) |s| {
+        var imports = zwasm.parse.sections.decodeImports(ta, s.body) catch return null;
+        defer imports.deinit();
+        for (imports.items) |imp| {
+            if (imp.kind != .memory) continue;
+            if (seen == midx) return imp.payload.memory.max;
+            seen += 1;
+        }
+    }
+    const m_sec = module.find(.memory) orelse return null;
+    var mems = zwasm.parse.sections.decodeMemory(ta, m_sec.body) catch return null;
+    defer mems.deinit();
+    const defined_idx = midx - seen;
+    if (defined_idx >= mems.items.len) return null;
+    return mems.items[defined_idx].max;
+}
+
 fn extractExporterMemoryMin(
     allocator: std.mem.Allocator,
     exporter_wasm: []const u8,

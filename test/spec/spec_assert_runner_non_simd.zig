@@ -172,9 +172,9 @@ fn nonSimdOnModuleLoaded(
     // OOB'd → 15 spurious data-init UES (data.2/.4/.6/.8/.12/.21-.26
     // + imports.95/.96 + linking.31/.32).
     const mem_min_pages = base.effectiveMemory0Min(gpa, wasm_bytes, base.current_registered);
-    const mem_limits = base.extractMemoryLimits(gpa, wasm_bytes);
+    const mem_max_pages = base.effectiveMemory0Max(gpa, wasm_bytes, base.current_registered);
     base.resetGrowableMemory(mem_min_pages);
-    base.current_mem_max_pages = mem_limits.max;
+    base.current_mem_max_pages = mem_max_pages;
     @memset(scratch_globals[0..], 0);
 
     // Close-plan §6 (j) Step B cohort 1 — populate the importer's
@@ -1765,9 +1765,9 @@ fn nonSimdHandleAssertUninstantiable(
     name: []const u8,
 ) anyerror!bool {
     const u_mem_min_pages = base.effectiveMemory0Min(gpa, wasm_bytes, base.current_registered);
-    const mem_limits = base.extractMemoryLimits(gpa, wasm_bytes);
+    const u_mem_max_pages = base.effectiveMemory0Max(gpa, wasm_bytes, base.current_registered);
     base.resetGrowableMemory(u_mem_min_pages);
-    base.current_mem_max_pages = mem_limits.max;
+    base.current_mem_max_pages = u_mem_max_pages;
     @memset(scratch_globals[0..], 0);
 
     runner_mod.applyActiveDataSegments(
