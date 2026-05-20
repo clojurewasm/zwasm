@@ -15,8 +15,9 @@
    (374/581 IR-axis, 348/314 arch-axis); B53+ is gated on ADR-0075**.
 3. `git log --oneline -10` — recent autonomous-loop chunks under
    `chore(p9b):` / `feat(p9b):` prefix. Last source commit
-   `9732e831` (B106 — SIMD extmul (12 ops) moved from legacy to
-   ctx; legacy 33 → 21; ctx 358 → 370).
+   `71dc1156` (B107 — SIMD residual (21 ops) moved from legacy to
+   ctx; legacy 21 → 0 — **x86_64 legacy tuple empty**; ctx 370 →
+   391).
 4. `bash scripts/p9_completion_status.sh` — live progress.
 5. `bash scripts/p9_simd_status.sh` — live SIMD status.
 6. `.dev/debt.md` `now` rows: none.
@@ -131,25 +132,25 @@
 | B104 | Legacy → ctx SIMD cohort move: bool reductions (9 ops). Legacy 58 → 49; ctx 333 → 342. | `d4bdad29` |
 | B105 | Legacy → ctx SIMD cohort move: narrow + extend (16 ops; 12 extend 5-arg + 4 narrow 6-arg). FILE-SIZE-EXEMPT marker added (file at 2015 lines). Legacy 49 → 33; ctx 342 → 358. | `20aae453` |
 | B106 | Legacy → ctx SIMD cohort move: extmul (12 ops; all 5-arg). Adapters in op_simd_int_cmp_lane.zig (FILE-SIZE-EXEMPT already in place from B105). Legacy 33 → 21; ctx 358 → 370. | `9732e831` |
-| **B107** | **Legacy → ctx SIMD cohort: extadd_pairwise + swizzle + popcnt + dot + q15mulr cohort (~7 ops).** Survey op_simd_int_arith.zig + op_simd_int_cmp_lane.zig for remaining helpers. Per-op ctx adapters; regenerate per-op files; legacy 21 → ~14; ctx 370 → ~377. | **NEXT** |
-| B107..B9x | After B107: remaining fp-conv ops + any stragglers. Eventually inline-switch cutover (ADR-0073). | |
-| B6x+1 | Inline-switch dispatcher cutover per ADR-0073 — both arches' `emit.zig` giant switch replaced by `inline for (collected_X_ops) |op_mod| { if (op_mod.op_tag == ins.op) return op_mod.emit(ctx, ins); }`. Moment per-op files become load-bearing. | |
+| B107 | Legacy → ctx SIMD residual cohort (21 ops): ref.is_null + 6 splats + swizzle + 4 extadd_pairwise + dot + q15mulr_sat + 7 fp-conv. Legacy 21 → 0 — **x86_64 legacy tuple empty**. ctx 370 → 391. | `71dc1156` |
+| **B6x+1** | **Inline-switch dispatcher cutover per ADR-0073** — both arches' `emit.zig` giant switch replaced by `inline for (collected_X_ops) \|op_mod\| { if (op_mod.op_tag == ins.op) return op_mod.emit(ctx, ins); }`. Moment per-op files become load-bearing. Note: x86_64 still has inline arms for ops without per-op files (extract_lane/replace_lane/shuffle/i64x2.mul/v128.const/popcnt/etc. — these need Zone 1 meta files first OR remain dispatched inline). | **NEXT** |
 
-## Active state — §9.12-B mid-flight; B106 SIMD extmul landed 2026-05-20
+## Active state — §9.12-B mid-flight; B107 cleared x86_64 legacy tuple 2026-05-20
 
-**B107 is the active task** — remaining SIMD heterogeneous cohort
-(extadd_pairwise × 4 + swizzle + dot + q15mulr ≈ 7 ops, plus
-i8x16.popcnt if applicable). B106 closed at `9732e831` (legacy 33 →
-21; ctx 358 → 370).
+**B6x+1 is the active task** — inline-switch dispatcher cutover per
+ADR-0073: both arches' `emit.zig` giant switch is replaced by
+`inline for (collected_X_ops) |op_mod| { if (op_mod.op_tag == ins.op)
+return op_mod.emit(ctx, ins); }`. Per-op files become load-bearing.
 
-The loop for B107:
+B107 closed at `71dc1156`: legacy x86_64 tuple is now empty (21 → 0);
+ctx tuple 370 → 391.
 
-1. Survey emit.zig remaining `.@"i*x*..."` legacy arms.
-2. Add per-op ctx adapters.
-3. Regenerate per-op files.
-4. Move entries from legacy to ctx.
-5. Update emit.zig arms.
-6. Verify 2-host green; commit + push.
+Caveat for B6x+1: x86_64 still has emit.zig inline arms for ops that
+lack per-op files — extract_lane/replace_lane/shuffle/i64x2.mul/
+v128.const/popcnt/trunc_sat_f64x2/convert_low_i32x4_u/load_lane/
+store_lane/shift_lane (i*x*.shl etc when payload-laden). These need
+Zone 1 meta files OR remain inline. Investigation needed before
+cutover.
 
 §9.12-B exit criterion stays as ROADMAP §9.12-B specifies (6 build
 combos green + DCE 0 + completeness comptime check). Per-op file
