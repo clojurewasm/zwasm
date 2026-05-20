@@ -1,19 +1,11 @@
 # Phase 9 構造的負債 close plan
 
-> **Status**: In progress 2026-05-21 (§6 (a)〜(i) done; (j)
-> Step A done, Step B in progress)。`/continue` Step 1a の
-> close-plan override に hooked済み — handover.md がこの doc
-> を Cold-start procedure step 1 で参照することで、次セッ
-> ションは ROADMAP §9.<N> の通常 task より先にこの plan の
-> §6 Work sequence (= §6 (j) Step B cohort discharge) を
-> 実行する。
->
-> ~~**STOP**: D-153 / B159 以降の cross-module imports work
-> は触らない~~ ← 2026-05-21 解除。§6 (j) direct-implementation
-> 路線で進行中 (Step A: spectest.wat auto-register infra land
-> commit `f5b3f626`; Step B: 43 surfaced failures の cohort
-> discharge)。経緯: `.dev/lessons/2026-05-20-refactor-
-> tradeoffs-honest-accounting.md` + ADR-0080 Rejection note。
+> **Status**: CLOSED 2026-05-21 — §6 (a)〜(h) + (j) Step A +
+> Step B (cohorts 1-6) all done; (i) Rejected (ADR-0080).
+> Cumulative discharge: 43 → 0 FAIL, +93 PASS, 192 → 0
+> runtime-skip; ROADMAP §9.12-E [x] at `7b2e1b02`. handover.md
+> Cold-start procedure step 1 reference removed; future cycles
+> follow normal `/continue` ROADMAP-first lookup.
 
 ## §1. なぜ存在するか
 
@@ -155,7 +147,7 @@ D-153 (12 cycle 経過時点で skip-impl 不動) はそれ自体が
   判明); 残る runtime SKIP は §6 (j) Step B で discharge。
 - ADR-0080 の Rejection note に lineage を保存。
 
-### (j) D-153 direct implementation [in progress]
+### (j) D-153 direct implementation [CLOSED 2026-05-21 §9.12-E [x] `7b2e1b02`]
 
 > **Pivot 2026-05-21**: spike-first redesign を放棄し、v1/wazero
 > 路線の direct implementation に切替。private/spikes/d153/ は
@@ -174,7 +166,7 @@ D-153 (12 cycle 経過時点で skip-impl 不動) はそれ自体が
   registered.contains() consult に変更 (mirror `.func`)。
 - 計測: 25352→25308 passed、0→43 failed、192→80 runtime-skip。
 
-**Step B — surfaced failure cohort discharge** [in progress]
+**Step B — surfaced failure cohort discharge** [CLOSED 2026-05-21 `b4da5b91`]
 
 43 failures を 4 root-cause cohort に分類。優先順:
 
