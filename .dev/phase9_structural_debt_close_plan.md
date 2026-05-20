@@ -229,10 +229,19 @@ D-153 (12 cycle 経過時点で skip-impl 不動) はそれ自体が
      ため、runtime call_indirect が table[null entry] で trap。
      imported funcref global の runtime resolution が必要。
 
-Discharge 累計 (`ce67cd4a` 時点):
-- 25308 → 25387 PASS (+79)
-- 43 → 20 failed (-23)
-- 80 → 9 runtime-skip
+Discharge 累計 (`72a87509` 時点):
+- 25308 → 25397 PASS (+89)
+- 43 → 3 failed (-40)
+- 80 → 1 runtime-skip
+
+Cohort 1-residual (data data-init UES × 15) 完 (`72a87509`):
+真の root cause は cohort 4 と同じく "imported entity の actual
+size を取得していなかった" 。`base.effectiveMemory0Min(importer,
+registered)` を追加し、imported memory の場合 exporter の actual
+min から `growable_memory` を sizing。pre-fix は
+`extractMemoryLimits` が defined memory しか見ないため、
+imports.95/.96, data.{2,4,6,8,12,21-26}, linking.{31,32} などが
+spurious UES に。FAIL line に fixture 名を入れる軽量改修も同時に。
 
 各 cohort は 1-2 cycle で discharge 想定。Step B 完了基準:
 runtime-skip ≤ 20 OR 残 failures 全消化。

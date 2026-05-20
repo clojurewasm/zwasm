@@ -10,9 +10,9 @@
    `/continue` Step 1a の override を発火させ、ROADMAP
    §9.<N> task より先に §6 Work sequence を実行する。
 2. **READ NEXT** [`.dev/lessons/2026-05-20-refactor-tradeoffs-honest-accounting.md`](lessons/2026-05-20-refactor-tradeoffs-honest-accounting.md) — 経緯記録。
-3. `git log --oneline -10` — last code commit: `ce67cd4a`
-   (close-plan §6 (j) Step B cohort 4: effectiveTable0Min で
-   active-elem OOB を spec-correct な actual table size で判定)。
+3. `git log --oneline -10` — last code commit: `72a87509`
+   (close-plan §6 (j) Step B cohort 1-residual: effectiveMemory0Min
+   + fixture filename in FAIL line)。
 4. **Live status**: `zig build test-spec-wasm-2.0-assert >
    /tmp/spec.log 2>&1 || true; grep "^FAIL " /tmp/spec.log |
    sort | uniq -c | sort -rn` — current breakdown is the
@@ -28,14 +28,16 @@
   `scratch_globals` の `[0..num_imports)` を registered
   exporter から populate。
 - §6 (j) Step B cohort 3 完 (`45bc96d3`)。cohort 4 完 (`ce67cd4a`)。
-- 次: 残 cohort
-  - cohort 1 残り (data data-init UES × 15) — cross-fixture
-    import 経路の bisect。fixture 名が FAIL line に出ない
-    ため、runner の FAIL print に file を入れる軽量改修が
-    最初の step。
-  - cohort 5 (imports: grow × 4) — imported memory grow path。
-  - cohort 6 (elem.68 call_imported_elem trap) — global.get
-    funcref runtime resolution。
+  cohort 1-residual 完 (`72a87509`): imported memory の effective
+  size を spectest exporter の actual min から取得。FAIL line に
+  fixture 名を入れる軽量改修も同時に land。
+- 次: 残 3 件
+  - cohort 5 (imports: grow × 2) — `grow(i32:0) → got 3, expected 2`
+    + `grow(i32:1) → got 2, expected 4294967295`。imported memory
+    grow の state 蓄積 / max-pages cap 判定。
+  - cohort 6 (elem: call_imported_elem trap) — global.get funcref
+    runtime resolution (elem-form 4 の `global.get N` を null
+    sentinel として decode した結果)。
 
 ## Step B 再開時の手順 (cold-start)
 
