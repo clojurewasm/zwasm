@@ -1234,17 +1234,19 @@ pub fn compile(
             // unary via emitV128FpUnop. i64x2.abs synthesises via
             // 5-instr sign-mask + PXOR + PSUBQ recipe (no PABSQ
             // in SSE; SSE4.2 PCMPGTQ available per ADR-0041).
-            .@"i8x16.abs" => try op_simd_int_arith.emitI8x16Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i16x8.abs" => try op_simd_int_arith.emitI16x8Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i32x4.abs" => try op_simd_int_arith.emitI32x4Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i64x2.abs" => try op_simd_int_arith.emitI64x2Abs(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            // §9.12-B / B92: SIMD int abs cohort migrated to ctx tuple.
+            .@"i8x16.abs" => try op_simd_int_arith.emitI8x16AbsCtx(&ctx, &ins),
+            .@"i16x8.abs" => try op_simd_int_arith.emitI16x8AbsCtx(&ctx, &ins),
+            .@"i32x4.abs" => try op_simd_int_arith.emitI32x4AbsCtx(&ctx, &ins),
+            .@"i64x2.abs" => try op_simd_int_arith.emitI64x2AbsCtx(&ctx, &ins),
             // §9.7 / 9.7-aa: i*x*.neg (4 ops). 3-instr recipe via
             // emitV128IntNeg helper: PXOR XMM14,XMM14 + PSUB_<shape>
             // XMM14, src + MOVAPS dst, XMM14. Aliasing-safe.
-            .@"i8x16.neg" => try op_simd_int_arith.emitI8x16Neg(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i16x8.neg" => try op_simd_int_arith.emitI16x8Neg(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i32x4.neg" => try op_simd_int_arith.emitI32x4Neg(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i64x2.neg" => try op_simd_int_arith.emitI64x2Neg(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            // §9.12-B / B92: SIMD int neg cohort migrated to ctx tuple.
+            .@"i8x16.neg" => try op_simd_int_arith.emitI8x16NegCtx(&ctx, &ins),
+            .@"i16x8.neg" => try op_simd_int_arith.emitI16x8NegCtx(&ctx, &ins),
+            .@"i32x4.neg" => try op_simd_int_arith.emitI32x4NegCtx(&ctx, &ins),
+            .@"i64x2.neg" => try op_simd_int_arith.emitI64x2NegCtx(&ctx, &ins),
             // §9.7 / 9.7-ab: FP convert signed + promote/demote
             // (4 ops). Single-instr unary CVT* via emitV128FpUnop.
             // u-variants and trunc-sat defer (cranelift uses
