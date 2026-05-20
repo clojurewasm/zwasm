@@ -402,4 +402,4 @@ survive any of those reshapes.
 | Date       | SHA          | Note                                                                                                                          |
 |------------|--------------|-------------------------------------------------------------------------------------------------------------------------------|
 | 2026-05-18 | `f3d9437c` | Initial proposed version (Phase 9 §9.9-III D-126 discharge plan). User review pending before flipping `Status: Accepted`.                          |
-| 2026-05-18 | `<backfill>` | Accepted with audit-prep amendments §A1–A7 (user-approved 100% PASS not negotiable + 9.12 audit-friendly). Sub-chunks collapsed 6→3 (α/β/γ). Q6 anchor for 9.12. |
+| 2026-05-18 | `6277515a` | Accepted with audit-prep amendments §A1–A7 (user-approved 100% PASS not negotiable + 9.12 audit-friendly). Sub-chunks collapsed 6→3 (α/β/γ). Q6 anchor for 9.12. |
