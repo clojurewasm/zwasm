@@ -5,10 +5,9 @@
 
 ## Cold-start procedure
 
-1. `git log --oneline -10` — last commit: `3ace7fb4`
-   (debt cleanup §9.12-F: 6 dissolved-barrier closures
-   post-§9.12-E)。直近 code: `7b2e1b02` (elem reftype reject)。
-   close-plan §6 (j) Step B 完。
+1. `git log --oneline -10` — last code commit: `166cb319`
+   (ADR-0079 Step 1: setupRuntime carve → src/engine/setup.zig)。
+   runner.zig 2051 → 1577 LOC (FILE-SIZE-EXEMPT marker 解除)。
 2. **Live status**: `zig build test-spec-wasm-2.0-assert >
    /tmp/spec.log 2>&1 || true; grep "passed\\|^FAIL " /tmp/spec.log`
    — Mac aarch64 baseline expected at HEAD `7b2e1b02`:
@@ -57,10 +56,14 @@
   this loop iteration ではない。speculative-preventive の
   3 件を fix する vs ADR-0079 を impl する のいずれかが
   next cycle の高 yield 候補。
-- 次 cycle: **ADR-0079 runner.zig 3-way split impl** を試行
-  (architectural chunk per LOOP.md; 3-cycle cap で進捗
-  measurable)。または §9.12-G の小タスク (zone_check `--gate`
-  既に enforced; Wasm 3.0 ZirOp mapping table 起草) に移行。
+- ADR-0079 Step 1 完 (`166cb319`): setupRuntime + RuntimeOwned
+  + hostDispatchTrap → setup.zig (556 LOC)。runner.zig 1577。
+- 次 cycle: **ADR-0079 Step 2** (carve compile.zig with
+  compileWasm + applyDefinedGlobalsInit + resolveFuncrefGlobals
+  + applyTableInit* + patchTableImportFuncptrs* +
+  countDeclaredTables + declaredTableMin/Max + applyActiveData
+  Segments*; ~900 LOC target)。Step 3 (runner.zig final shrink
+  ~380 LOC) は Step 2 完了で自動的に達成。
 
 ## Ubuntu mirror verification
 
