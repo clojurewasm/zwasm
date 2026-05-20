@@ -204,4 +204,4 @@ amendment to this ADR (rather than re-opening 8b.2-d).
 
 | Date | SHA | Note |
 |---|---|---|
-| 2026-05-09 | `<backfill>` | Initial accepted version (§9.8b / 8b.2-d class-aware deferral to Phase 15; mirrors ADR-0036 pattern) |
+| 2026-05-09 | `e85d60a9` | Initial accepted version (§9.8b / 8b.2-d class-aware deferral to Phase 15; mirrors ADR-0036 pattern) |

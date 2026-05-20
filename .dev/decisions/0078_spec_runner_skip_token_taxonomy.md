@@ -175,5 +175,5 @@ plan C3 failure mode).
 
 | Date       | SHA          | Note                                    |
 |------------|--------------|-----------------------------------------|
-| 2026-05-21 | `<backfill>` | Initial Proposed version.               |
+| 2026-05-21 | `a8e8d524` | Initial Proposed version.               |
 -->

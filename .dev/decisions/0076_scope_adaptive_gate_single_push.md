@@ -210,4 +210,4 @@ exactly the wall-clock penalty of this block.
 | Date       | SHA          | Note                                                                                                  |
 |------------|--------------|-------------------------------------------------------------------------------------------------------|
 | 2026-05-19 | `3063dd0d`   | Initial accepted version (D1 + D2 + D3).                                                              |
-| 2026-05-20 | `<backfill>` | D4 amend — pre-commit / pre-push hook slim-down (`gate_commit.sh --fast`; pre-push drops gate re-run).|
+| 2026-05-20 | `c1e16f7d` | D4 amend — pre-commit / pre-push hook slim-down (`gate_commit.sh --fast`; pre-push drops gate re-run).|

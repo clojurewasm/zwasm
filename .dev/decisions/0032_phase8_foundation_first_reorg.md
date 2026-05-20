@@ -237,4 +237,4 @@ forcing per-commit bench delta would be noise.
 
 | Date       | Commit       | Summary |
 |------------|--------------|---------|
-| 2026-05-08 | `<backfill>` | Initial Decision; Phase 8 reorg into 8a (foundation) + 8b (bench-driven optimisation); D-053 promoted to ROADMAP row 8a.5; /continue skill amended with bench-delta discipline trigger. |
+| 2026-05-08 | `c50296c6` | Initial Decision; Phase 8 reorg into 8a (foundation) + 8b (bench-driven optimisation); D-053 promoted to ROADMAP row 8a.5; /continue skill amended with bench-delta discipline trigger. |

@@ -237,4 +237,4 @@ shipped substrate for.
 
 | Date | SHA | Note |
 |---|---|---|
-| 2026-05-09 | `<backfill>` | Initial accepted version (§9.8b ≥10% aggregate target migrated to Phase 12 + Phase 15; §9.8b closure on substrate-coherence audit) |
+| 2026-05-09 | `99fcceb1` | Initial accepted version (§9.8b ≥10% aggregate target migrated to Phase 12 + Phase 15; §9.8b closure on substrate-coherence audit) |

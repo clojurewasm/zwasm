@@ -214,5 +214,5 @@ applies uniformly across all 5 axes.
 
 | Date       | SHA          | Note                                    |
 |------------|--------------|-----------------------------------------|
-| 2026-05-19 | `<backfill>` | Initial accepted version (B9).          |
+| 2026-05-19 | `5b42f526` | Initial accepted version (B9).          |
 -->

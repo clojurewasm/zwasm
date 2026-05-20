@@ -220,4 +220,4 @@ checkpoint regardless of per-row contribution mix.
 
 | Date | SHA | Note |
 |---|---|---|
-| 2026-05-09 | `<backfill>` | Initial accepted version (8b.1 scope downgrade per multi-cycle implementation evidence) |
+| 2026-05-09 | `70d3deba` | Initial accepted version (8b.1 scope downgrade per multi-cycle implementation evidence) |

@@ -320,7 +320,7 @@ orchestration, no embedded test logic.
   per-edit ADR) to avoid "ADR-of-an-ADR" recursion atop ADR-0011's
   reopen + this ADR's breakdown + ADR-0014's wiring.
 
-- **2026-05-11 (`<backfill>`, post-audit honest record)**: per
+- **2026-05-11 (`3d0e8a7c`, post-audit honest record)**: per
   the 2026-05-11 ADR audit (`private/20250511_adr_audit/SUMMARY.md`
   §2.3 / batch_A `## ADR-0012_first_principles_test_bench_redesign`),
   this ADR's §6 work items closed strict at Phase 6 boundary

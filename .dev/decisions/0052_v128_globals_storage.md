@@ -321,4 +321,4 @@ Concretely:
 
 | Date       | SHA          | Note                          |
 |------------|--------------|-------------------------------|
-| 2026-05-11 | `<backfill>` | Initial accepted version (rationale-only; implementation lands at §9.9-h-2). |
+| 2026-05-11 | `02f64c5c` | Initial accepted version (rationale-only; implementation lands at §9.9-h-2). |

@@ -158,5 +158,5 @@ register state to preserve).
 
 | Date       | SHA          | Note                                    |
 |------------|--------------|-----------------------------------------|
-| 2026-05-14 | `<backfill>` | Initial accepted version (d-16).        |
+| 2026-05-14 | `5ccae2cd` | Initial accepted version (d-16).        |
 -->

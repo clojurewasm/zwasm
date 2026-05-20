@@ -400,5 +400,5 @@ exit").
 
 | Date       | SHA          | Note                                                                                |
 |------------|--------------|-------------------------------------------------------------------------------------|
-| 2026-05-11 | `<backfill>` | Initial accepted version. Codifies Closed terminal + skip-ADR enforcement triad. |
+| 2026-05-11 | `6376e707` | Initial accepted version. Codifies Closed terminal + skip-ADR enforcement triad. |
 | 2026-05-19 | `<backfill>` | **Amend (add D-5 + D-6 — Phase 9 completion substrate audit per ADR-0071)**. Integrate skip-impl one-way ratchet into the ADR lifecycle: (D-5) treat `bench/results/skip_impl_history.yaml` as the ratchet substrate; any PR that changes skip-impl counts in the increasing direction must be justified by an ADR and registered with `exempt: <ADR-NNNN>`. (D-6) add `scripts/check_skip_impl_ratchet.sh` to the pre-push gate (lands in §9.12-A). Skeleton; full body (new `### D-5` / `### D-6` sub-sections) to be expanded in §9.12-pre. The existing D-3 (check_skip_adrs evolution) and D-4 (ADR template Revision history footer) keep their original meanings. |

@@ -413,5 +413,5 @@ implementation if convenient.
 
 | Date       | SHA          | Note                                                                                  |
 |------------|--------------|---------------------------------------------------------------------------------------|
-| 2026-05-04 | `<backfill>` | Initial accepted version (4-piece debug toolkit).                                     |
-| 2026-05-11 | `<backfill>` | **Path migration + status note** (per 2026-05-11 ADR audit, SUMMARY §3.3 / batch_B). Decision §"Part 1" / §"Part 3" reference `src/util/dbg.zig`; ADR-0023 §7 step 15 relocated this to `src/support/dbg.zig`. Part 2 (`-Dsanitize=address`) and Part 4 (`run-repro` step) both LANDED — `build.zig:34` + `:526-552` are the current sources of truth; ROADMAP §9.6 / 6.K.7 pending-status wording in this ADR is stale. No design change; honest record only. |
+| 2026-05-04 | `4d849aef` | Initial accepted version (4-piece debug toolkit).                                     |
+| 2026-05-11 | `e85bd561` | **Path migration + status note** (per 2026-05-11 ADR audit, SUMMARY §3.3 / batch_B). Decision §"Part 1" / §"Part 3" reference `src/util/dbg.zig`; ADR-0023 §7 step 15 relocated this to `src/support/dbg.zig`. Part 2 (`-Dsanitize=address`) and Part 4 (`run-repro` step) both LANDED — `build.zig:34` + `:526-552` are the current sources of truth; ROADMAP §9.6 / 6.K.7 pending-status wording in this ADR is stale. No design change; honest record only. |

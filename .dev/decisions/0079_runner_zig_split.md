@@ -179,5 +179,5 @@ an `infrastructure`-typed chunk family per
 
 | Date       | SHA          | Note                                    |
 |------------|--------------|-----------------------------------------|
-| 2026-05-21 | `<backfill>` | Initial Proposed version.               |
+| 2026-05-21 | `7faf9da4` | Initial Proposed version.               |
 -->

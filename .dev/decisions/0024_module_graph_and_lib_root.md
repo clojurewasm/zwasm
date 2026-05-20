@@ -301,4 +301,4 @@ shape (D-4) keeps each file's purpose single.
 
 | Date       | Commit       | Why-class | Summary                                                   |
 |------------|--------------|-----------|-----------------------------------------------------------|
-| 2026-05-05 | `<backfill>` | initial   | Adopted; closes the "import of file outside module path" gap surfaced by `test-c-api` after ADR-0023 item 11 landed. |
+| 2026-05-05 | `3aaca6bf` | initial   | Adopted; closes the "import of file outside module path" gap surfaced by `test-c-api` after ADR-0023 item 11 landed. |

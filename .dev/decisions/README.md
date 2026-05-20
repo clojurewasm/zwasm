@@ -146,7 +146,7 @@ When an ADR is amended in place (per ROADMAP §18), add a footer:
 | Date       | Commit       | Summary                                  |
 |------------|--------------|------------------------------------------|
 | 2026-05-04 | `ffc0cf0`    | Initial Decision (Alpha funcref).        |
-| 2026-05-04 | `<backfill>` | §3.γ rejected-alternatives expanded.     |
+| 2026-05-04 | `8a08c9bf` | §3.γ rejected-alternatives expanded.     |
 ```
 
 Rules:

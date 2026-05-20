@@ -460,4 +460,4 @@ wiring).
 
 | Date | SHA | Note |
 |---|---|---|
-| 2026-05-09 | `<backfill>` | Initial accepted version (§9.8a / 8a.1-a design framing) |
+| 2026-05-09 | `93da3902` | Initial accepted version (§9.8a / 8a.1-a design framing) |
