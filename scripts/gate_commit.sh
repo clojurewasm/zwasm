@@ -9,7 +9,8 @@
 #   7. scripts/check_lesson_citing.sh                        — info only (warn count).
 #   8. scripts/check_libc_boundary.sh (report)              — info; skipped on docs-only.
 #   9. scripts/check_fallback_patterns.sh (report)          — info; skipped on docs-only.
-#  10. zig build test (Mac native)                          — skipped on docs-only.
+#  10. scripts/check_invariant_comments.sh --strict         — gate (ADR-0077, B128); skipped on docs-only.
+#  11. zig build test (Mac native)                          — skipped on docs-only.
 #
 # Per the A6 gate consolidation study (§9.12-A / A6), docs/config-only
 # diffs cannot move src/-related gate outcomes, so they short-circuit.
@@ -149,6 +150,14 @@ if [ "$DOCS_ONLY" -eq 0 ]; then
         if [ -n "${n:-}" ] && [ "$n" != "0" ]; then
             echo "[gate_commit] (info) check_fallback_patterns: $n fail site(s) — cleanup in §9.12-A follow-up"
         fi
+    fi
+    # ADR-0077 strict gate (§9.12-C / B128). The B126 sweep
+    # discharged all 55 latent overlap sites; --strict now fails
+    # on any new digit-literal in the arm64 op_*.zig pool range,
+    # forbidding re-introduction of the D-132/D-133 failure mode.
+    if [ -x scripts/check_invariant_comments.sh ]; then
+        echo "[gate_commit] check_invariant_comments --strict ..."
+        bash scripts/check_invariant_comments.sh --strict > /dev/null
     fi
 fi
 
