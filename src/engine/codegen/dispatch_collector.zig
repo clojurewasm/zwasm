@@ -814,6 +814,9 @@ const x86_64_br_table = @import("x86_64/ops/wasm_1_0/br_table.zig");
 const x86_64_if = @import("x86_64/ops/wasm_1_0/if_.zig");
 const x86_64_else = @import("x86_64/ops/wasm_1_0/else_.zig");
 const x86_64_end = @import("x86_64/ops/wasm_1_0/end_.zig");
+const x86_64_local_get = @import("x86_64/ops/wasm_1_0/local_get.zig");
+const x86_64_local_set = @import("x86_64/ops/wasm_1_0/local_set.zig");
+const x86_64_local_tee = @import("x86_64/ops/wasm_1_0/local_tee.zig");
 
 const x86_64_i32_add = @import("x86_64/ops/wasm_1_0/i32_add.zig");
 const x86_64_i32_sub = @import("x86_64/ops/wasm_1_0/i32_sub.zig");
@@ -1638,6 +1641,9 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_if,
     x86_64_else,
     x86_64_end,
+    x86_64_local_get,
+    x86_64_local_set,
+    x86_64_local_tee,
 };
 
 comptime {
@@ -1745,8 +1751,11 @@ test "collected_x86_64_ctx_ops tracks B54+ migrations to `(ctx, ins)` shape" {
     // +2 = 95). B77: end (1 new per-op file, +1 = 96 —
     // function-level form + label-end form both route through
     // op_control.emitEndCtx; emit.zig dispatch snapshots
-    // labels.len pre-call to decide body-loop break).
-    try std.testing.expectEqual(@as(usize, 96), collected_x86_64_ctx_ops.len);
+    // labels.len pre-call to decide body-loop break). B78:
+    // local.{get,set,tee} (3 new per-op files, +3 = 99;
+    // new op_locals.zig host module, ctx ext for total_locals
+    // + local_disps).
+    try std.testing.expectEqual(@as(usize, 99), collected_x86_64_ctx_ops.len);
 }
 
 // Note: a `dispatch(.arm64, tag, args)` test at this layer would

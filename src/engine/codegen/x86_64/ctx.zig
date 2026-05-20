@@ -61,6 +61,8 @@ pub const InitArgs = struct {
     dead_code: *bool,
     frame_bytes: u32,
     uses_runtime_ptr: bool,
+    total_locals: u32,
+    local_disps: []const i32,
 };
 
 /// Per-function emit context for x86_64. Threaded as `*EmitCtx`
@@ -171,6 +173,14 @@ pub const EmitCtx = struct {
     /// runtime_ptr_save (set once at function entry; consumed by
     /// the epilogue to decide POP R15).
     uses_runtime_ptr: bool,
+    /// §9.12-B / B78: total local count (= num_params +
+    /// num_declared_locals). Set once at function entry;
+    /// consumed by emitLocalGet/Set/Tee for the bound check.
+    total_locals: u32,
+    /// §9.12-B / B78: per-local RBP-relative disps. Set once at
+    /// function entry from `layout.disps`; consumed by
+    /// emitLocalGet/Set/Tee.
+    local_disps: []const i32,
 
     pub fn init(args: InitArgs) EmitCtx {
         const simd_consts_base: u32 =
@@ -202,6 +212,8 @@ pub const EmitCtx = struct {
             .dead_code = args.dead_code,
             .frame_bytes = args.frame_bytes,
             .uses_runtime_ptr = args.uses_runtime_ptr,
+            .total_locals = args.total_locals,
+            .local_disps = args.local_disps,
         };
     }
 

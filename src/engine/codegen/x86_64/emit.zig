@@ -59,11 +59,11 @@ const op_control = @import("op_control.zig");
 const op_call = @import("op_call.zig");
 const op_globals = @import("op_globals.zig");
 const op_table = @import("op_table.zig");
+const op_locals = @import("op_locals.zig");
 const op_simd = @import("op_simd.zig");
 const op_simd_int_arith = @import("op_simd_int_arith.zig");
 const op_simd_int_cmp_lane = @import("op_simd_int_cmp_lane.zig");
 const op_simd_float = @import("op_simd_float.zig");
-const gpr = @import("gpr.zig");
 const rbp_disp = @import("rbp_disp.zig");
 
 // rbp/rsp form-selectors live in rbp_disp.zig per D-052
@@ -678,6 +678,8 @@ pub fn compile(
         .dead_code = &dead_code,
         .frame_bytes = frame_bytes,
         .uses_runtime_ptr = uses_runtime_ptr,
+        .total_locals = total_locals,
+        .local_disps = layout.disps,
     });
 
     for (func.instrs.items) |ins| {
@@ -909,9 +911,9 @@ pub fn compile(
             .@"i32.trunc_f64_u" => try op_convert.emitI32TruncF64U(&ctx, &ins),
             .@"i64.trunc_f32_u" => try op_convert.emitI64TruncF32U(&ctx, &ins),
             .@"i64.trunc_f64_u" => try op_convert.emitI64TruncF64U(&ctx, &ins),
-            .@"local.get" => try emitLocalGet(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, func, num_params, total_locals, layout.disps, ins.payload),
-            .@"local.set" => try emitLocalSet(allocator, &buf, alloc, &pushed_vregs, spill_base_off, func, num_params, total_locals, layout.disps, ins.payload),
-            .@"local.tee" => try emitLocalTee(allocator, &buf, alloc, &pushed_vregs, spill_base_off, func, num_params, total_locals, layout.disps, ins.payload),
+            .@"local.get" => try op_locals.emitLocalGetCtx(&ctx, &ins),
+            .@"local.set" => try op_locals.emitLocalSetCtx(&ctx, &ins),
+            .@"local.tee" => try op_locals.emitLocalTeeCtx(&ctx, &ins),
             .@"i32.load" => try op_memory.emitI32Load(&ctx, &ins),
             .@"i32.load8_s" => try op_memory.emitI32Load8S(&ctx, &ins),
             .@"i32.load8_u" => try op_memory.emitI32Load8U(&ctx, &ins),
@@ -1500,14 +1502,6 @@ pub fn compile(
 ///       when  uses_runtime_ptr (R15 occupies [RBP-8]).
 /// Surfaces `UnsupportedOp` for indices the i8 disp cannot
 /// reach (15 locals max either way; coincidentally same cap).
-/// Returns the declared Wasm type of local index `idx`. Params
-/// occupy idx 0..num_params-1; declared locals follow. Mirror
-/// of arm64/emit.zig:localValType.
-fn localValType(func: *const ZirFunc, num_params: u32, local_idx: u32) zir.ValType {
-    _ = num_params;
-    return func.localValType(local_idx);
-}
-
 /// §9.7 / 7.10-g: localDisp returns i32 (was i8). The i8 form
 /// previously capped total_locals at 15 (deepest local at
 /// `[RBP - 136]` overflows i8). i32 widening uses the disp32
@@ -1605,149 +1599,3 @@ fn computeLocalLayout(allocator: Allocator, func: *const ZirFunc, base_off_for_l
 
 // rbp/rsp form-selectors moved to rbp_disp.zig (D-052 progression);
 // aliased at the top of this file so call-sites stay the same.
-
-/// `local.get K` — push a fresh vreg holding the value loaded
-/// from [RBP + localDisp(K)].
-fn emitLocalGet(
-    allocator: Allocator,
-    buf: *std.ArrayList(u8),
-    alloc: regalloc.Allocation,
-    pushed_vregs: *std.ArrayList(u32),
-    next_vreg: *u32,
-    spill_base_off: u32,
-    func: *const ZirFunc,
-    num_params: u32,
-    total_locals: u32,
-    disps: []const i32,
-    idx: u32,
-) Error!void {
-    if (idx >= total_locals) return Error.UnsupportedOp;
-    const disp = disps[idx];
-    const vreg = next_vreg.*;
-    next_vreg.* += 1;
-    if (vreg >= alloc.slots.len) return Error.SlotOverflow;
-    switch (localValType(func, num_params, idx)) {
-        .i32 => {
-            const dst_r = try gpr.gprDefSpilled(alloc, vreg, 0);
-            try buf.appendSlice(allocator, rbpLoadR32(dst_r, disp).slice());
-            try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, vreg, 0);
-        },
-        // D-093 (d-33): reftype shares i64 8-byte gpr slot.
-        .i64, .funcref, .externref => {
-            const dst_r = try gpr.gprDefSpilled(alloc, vreg, 0);
-            try buf.appendSlice(allocator, rbpLoadR64(dst_r, disp).slice());
-            try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, vreg, 0);
-        },
-        .f32 => {
-            const dst_x = try gpr.xmmDefSpilled(alloc, vreg, 0);
-            try buf.appendSlice(allocator, rbpLoadXmmF32(dst_x, disp).slice());
-            try gpr.xmmStoreSpilled(allocator, buf, alloc, spill_base_off, vreg, 0);
-        },
-        .f64 => {
-            const dst_x = try gpr.xmmDefSpilled(alloc, vreg, 0);
-            try buf.appendSlice(allocator, rbpLoadXmmF64(dst_x, disp).slice());
-            try gpr.xmmStoreSpilled(allocator, buf, alloc, spill_base_off, vreg, 0);
-        },
-        .v128 => {
-            // §9.9-e-2: Wasm spec §3.5.3 + §4.4.5.1 — local.get
-            // copies the local's stored value (16 bytes for v128).
-            // MOVUPS xmm, [RBP+disp] reads the full 128-bit lane
-            // group; xmm spill helpers handle XMM-vs-spill-frame
-            // placement.
-            const dst_x = try gpr.xmmDefSpilled(alloc, vreg, 0);
-            try buf.appendSlice(allocator, rbpLoadXmmV128(dst_x, disp).slice());
-            try gpr.xmmStoreSpilled(allocator, buf, alloc, spill_base_off, vreg, 0);
-        },
-    }
-    try pushed_vregs.append(allocator, vreg);
-}
-
-/// `local.set K` — pop the top vreg and store its low 32 bits
-/// into [RBP + disp].
-fn emitLocalSet(
-    allocator: Allocator,
-    buf: *std.ArrayList(u8),
-    alloc: regalloc.Allocation,
-    pushed_vregs: *std.ArrayList(u32),
-    spill_base_off: u32,
-    func: *const ZirFunc,
-    num_params: u32,
-    total_locals: u32,
-    disps: []const i32,
-    idx: u32,
-) Error!void {
-    if (idx >= total_locals) return Error.UnsupportedOp;
-    const disp = disps[idx];
-    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-    const src_v = pushed_vregs.pop().?;
-    switch (localValType(func, num_params, idx)) {
-        .i32 => {
-            const src_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
-            try buf.appendSlice(allocator, rbpStoreR32(disp, src_r).slice());
-        },
-        // D-093 (d-33): reftype shares i64 8-byte gpr slot.
-        .i64, .funcref, .externref => {
-            const src_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
-            try buf.appendSlice(allocator, rbpStoreR64(disp, src_r).slice());
-        },
-        .f32 => {
-            const src_x = try gpr.xmmLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
-            try buf.appendSlice(allocator, rbpStoreXmmF32(disp, src_x).slice());
-        },
-        .f64 => {
-            const src_x = try gpr.xmmLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
-            try buf.appendSlice(allocator, rbpStoreXmmF64(disp, src_x).slice());
-        },
-        .v128 => {
-            // §9.9-e-2: Wasm spec §4.4.5.2 — local.set writes 16
-            // bytes via MOVUPS [RBP+disp], xmm.
-            const src_x = try gpr.xmmLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
-            try buf.appendSlice(allocator, rbpStoreXmmV128(disp, src_x).slice());
-        },
-    }
-}
-
-/// `local.tee K` — store the top vreg's value into [RBP + disp]
-/// WITHOUT popping.
-fn emitLocalTee(
-    allocator: Allocator,
-    buf: *std.ArrayList(u8),
-    alloc: regalloc.Allocation,
-    pushed_vregs: *std.ArrayList(u32),
-    spill_base_off: u32,
-    func: *const ZirFunc,
-    num_params: u32,
-    total_locals: u32,
-    disps: []const i32,
-    idx: u32,
-) Error!void {
-    if (idx >= total_locals) return Error.UnsupportedOp;
-    const disp = disps[idx];
-    if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
-    const src_v = pushed_vregs.items[pushed_vregs.items.len - 1];
-    switch (localValType(func, num_params, idx)) {
-        .i32 => {
-            const src_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
-            try buf.appendSlice(allocator, rbpStoreR32(disp, src_r).slice());
-        },
-        // D-093 (d-33): reftype shares i64 8-byte gpr slot.
-        .i64, .funcref, .externref => {
-            const src_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
-            try buf.appendSlice(allocator, rbpStoreR64(disp, src_r).slice());
-        },
-        .f32 => {
-            const src_x = try gpr.xmmLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
-            try buf.appendSlice(allocator, rbpStoreXmmF32(disp, src_x).slice());
-        },
-        .f64 => {
-            const src_x = try gpr.xmmLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
-            try buf.appendSlice(allocator, rbpStoreXmmF64(disp, src_x).slice());
-        },
-        .v128 => {
-            // §9.9-e-2: Wasm spec §4.4.5.3 — local.tee mirrors
-            // local.set's 16-byte write.
-            const src_x = try gpr.xmmLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
-            try buf.appendSlice(allocator, rbpStoreXmmV128(disp, src_x).slice());
-        },
-    }
-}
