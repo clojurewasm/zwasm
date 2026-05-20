@@ -15,8 +15,9 @@
    (374/581 IR-axis, 348/314 arch-axis); B53+ is gated on ADR-0075**.
 3. `git log --oneline -10` — recent autonomous-loop chunks under
    `chore(p9b):` / `feat(p9b):` prefix. Last source commit
-   `fc6cc1d3` (B109 — pruned 242 dead switch arms in x86_64/emit.zig;
-   per-op files load-bearing for 391 ops; emit.zig 1628→1300 LOC).
+   `6d89236e` (fix B109's select_typed regression — restored arm that
+   was bundled with .select in the original switch; .select is in
+   ctx tuple but .select_typed lacks Zone 1 meta).
 4. `bash scripts/p9_completion_status.sh` — live progress.
 5. `bash scripts/p9_simd_status.sh` — live SIMD status.
 6. `.dev/debt.md` `now` rows: none.
