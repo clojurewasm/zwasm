@@ -1236,16 +1236,7 @@ pub const collected_x86_64_ops = .{
     // i64 compare cohort moved at B82 (10 ops; emitI64CompareCtx).
     x86_64_i32_eqz,
     x86_64_i64_eqz,
-    x86_64_i32_shl,
-    x86_64_i32_shr_s,
-    x86_64_i32_shr_u,
-    x86_64_i32_rotl,
-    x86_64_i32_rotr,
-    x86_64_i64_shl,
-    x86_64_i64_shr_s,
-    x86_64_i64_shr_u,
-    x86_64_i64_rotl,
-    x86_64_i64_rotr,
+    // i32+i64 shift cohorts moved at B83 (10 ops; emitI{32,64}ShiftCtx).
     x86_64_i32_clz,
     x86_64_i32_ctz,
     x86_64_i32_popcnt,
@@ -1654,6 +1645,17 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_i64_le_u,
     x86_64_i64_ge_s,
     x86_64_i64_ge_u,
+    // B83: i32 + i64 shift cohorts moved from legacy.
+    x86_64_i32_shl,
+    x86_64_i32_shr_s,
+    x86_64_i32_shr_u,
+    x86_64_i32_rotl,
+    x86_64_i32_rotr,
+    x86_64_i64_shl,
+    x86_64_i64_shr_s,
+    x86_64_i64_shr_u,
+    x86_64_i64_rotl,
+    x86_64_i64_rotr,
 };
 
 comptime {
@@ -1725,8 +1727,8 @@ test "migratedArchOpCount tracks collected per-arch tuples (B59: arm64=348, x86_
     // tuple before, so x86_64 count unchanged).
     try std.testing.expectEqual(@as(usize, 348), migratedArchOpCount(.arm64));
     // B79 i32 binary (6); B80 i64 binary (6); B81 i32 compare (10);
-    // B82 i64 compare (10).
-    try std.testing.expectEqual(@as(usize, 260), migratedArchOpCount(.x86_64));
+    // B82 i64 compare (10); B83 i32+i64 shift (10).
+    try std.testing.expectEqual(@as(usize, 250), migratedArchOpCount(.x86_64));
 }
 
 test "collected_x86_64_ctx_ops tracks B54+ migrations to `(ctx, ins)` shape" {
@@ -1773,8 +1775,9 @@ test "collected_x86_64_ctx_ops tracks B54+ migrations to `(ctx, ins)` shape" {
     // from legacy (+6 = 111). B81: i32 compare cohort (10 ops;
     // emitI32CompareCtx) moved from legacy (+10 = 121).
     // B82: i64 compare cohort (10 ops; emitI64CompareCtx) moved
-    // from legacy (+10 = 131).
-    try std.testing.expectEqual(@as(usize, 131), collected_x86_64_ctx_ops.len);
+    // from legacy (+10 = 131). B83: i32+i64 shift cohorts (10 ops;
+    // emitI{32,64}ShiftCtx) moved from legacy (+10 = 141).
+    try std.testing.expectEqual(@as(usize, 141), collected_x86_64_ctx_ops.len);
 }
 
 // Note: a `dispatch(.arm64, tag, args)` test at this layer would

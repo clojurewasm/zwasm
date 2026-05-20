@@ -266,6 +266,20 @@ pub fn emitI32Eqz(
 ///   excludes RCX.
 /// - dst != rhs (when dst != lhs): the MOV dst, lhs would clobber
 ///   rhs before the shift reads CL. Guard mirrors emitI32Binary.
+/// §9.12-B / B83 (ADR-0075) — `(ctx, ins)` adapter for the i32
+/// shift cohort (shl/shr_s/shr_u/rotl/rotr).
+pub fn emitI32ShiftCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    return emitI32Shift(
+        ctx.allocator,
+        ctx.buf,
+        ctx.alloc,
+        ctx.pushed_vregs,
+        ctx.next_vreg,
+        ctx.spill_base_off,
+        ins.op,
+    );
+}
+
 pub fn emitI32Shift(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
@@ -528,6 +542,20 @@ pub fn emitI64Eqz(
 /// 64-bit shift family. CL is the count register (shared with
 /// i32 shifts; abi.zig already excludes RCX from the regalloc
 /// pool). The MOV ECX, rhs is 32-bit since only CL is read.
+/// §9.12-B / B83 (ADR-0075) — `(ctx, ins)` adapter for the i64
+/// shift cohort.
+pub fn emitI64ShiftCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    return emitI64Shift(
+        ctx.allocator,
+        ctx.buf,
+        ctx.alloc,
+        ctx.pushed_vregs,
+        ctx.next_vreg,
+        ctx.spill_base_off,
+        ins.op,
+    );
+}
+
 pub fn emitI64Shift(
     allocator: Allocator,
     buf: *std.ArrayList(u8),

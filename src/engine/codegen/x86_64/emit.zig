@@ -758,12 +758,13 @@ pub fn compile(
             .@"i32.ge_u",
             => try op_alu_int.emitI32CompareCtx(&ctx, &ins),
             .@"i32.eqz" => try op_alu_int.emitI32Eqz(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            // §9.12-B / B83: i32 shift cohort migrated to ctx tuple.
             .@"i32.shl",
             .@"i32.shr_s",
             .@"i32.shr_u",
             .@"i32.rotl",
             .@"i32.rotr",
-            => try op_alu_int.emitI32Shift(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
+            => try op_alu_int.emitI32ShiftCtx(&ctx, &ins),
             .@"i32.clz",
             .@"i32.ctz",
             .@"i32.popcnt",
@@ -806,12 +807,13 @@ pub fn compile(
             // §9.12-B / B68: ref.func inline body extracted into
             // `op_alu_int.emitRefFunc` `(ctx, ins)` adapter.
             .@"ref.func" => try op_alu_int.emitRefFunc(&ctx, &ins),
+            // §9.12-B / B83: i64 shift cohort migrated to ctx tuple.
             .@"i64.shl",
             .@"i64.shr_s",
             .@"i64.shr_u",
             .@"i64.rotl",
             .@"i64.rotr",
-            => try op_alu_int.emitI64Shift(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
+            => try op_alu_int.emitI64ShiftCtx(&ctx, &ins),
             .@"i64.clz",
             .@"i64.ctz",
             .@"i64.popcnt",
