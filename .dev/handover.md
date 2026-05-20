@@ -14,10 +14,10 @@
    row. **B30..B52 covered the dispatcher-signature-compatible cohort
    (374/581 IR-axis, 348/314 arch-axis); B53+ is gated on ADR-0075**.
 3. `git log --oneline -10` — recent autonomous-loop chunks under
-   `chore(p9b):` / `feat(p9b):` prefix. Last source commit
-   `c3652994` (B118 — abi.zig comment-as-invariant: documented
-   spill_stage/table_emit pool overlap rationale; ≤2 simultaneous
-   scratch invariant).
+   `chore(p9b):` / `feat(p9b):` prefix. Last code commit `c3652994`
+   (B118 abi.zig overlap rationale). B119 `7321a94b` (D-133 sweep
+   blocker doc'd), B120 `<this commit>` (ADR-0077 Proposed).
+   **Loop paused at ADR-0077 user-review gate.**
 4. `bash scripts/p9_completion_status.sh` — live progress.
 5. `bash scripts/p9_simd_status.sh` — live SIMD status.
 6. `.dev/debt.md` `now` rows: none.
@@ -145,22 +145,35 @@
 | B117 | Lesson capture: `2026-05-20-inline-switch-cutover-dce-substrate-coupling.md` documents B108-B112 retrospective (use-site DCE gating requirement + B109 select_typed regression). | `c356d5ae` |
 | B118 | abi.zig overlap rationale documented inline (spill_stage/table_emit X14/X15 share is intentional + d-64 pattern keeps simultaneous use ≤ 2). Sets the contract for the D-133 sweep. | `c3652994` |
 | B119 | D-133 sweep investigation **BLOCKED**: B118's "≤ 2 simultaneous scratch" claim holds only for trivial single-load ops (already discharged at d-64/d-66). The 5 remaining bulk handlers (`emitTableFill` / `emitTableCopy` / `emitTableInit` / `emitMemoryInit`) hold ≥ 4 simultaneously-live scratches in their loop bodies that cannot map to {X14, X15} or even {X14..X17}. `emitTableGrow` re-classified — not a D-133 site (uses AAPCS64 args). Three resolution paths enumerated in updated D-133 body (per-handler stack save/restore / pool extension / live-vreg fence) — ADR-required. Lesson at `.dev/lessons/2026-05-20-d133-sweep-pool-size-insufficient.md`. Latent count stays at 55 (no corpus trigger; deferral acceptable). | (debt+lesson only) |
+| B120 | ADR-0077 Proposed: regalloc op-internal scratch reservation. Adopts path (c) over (a)/(b) per あるべき論 (root-cause fix vs runtime workaround). Pending user review → Accepted → spike (`private/spikes/regalloc-live-fence/`) → implementation in fresh session. | (ADR-only) |
+| **next** | **Wait for user to review ADR-0077 + flip Status to Accepted**. Then fresh session: spike → implementation → D-133 sweep → boundary fixtures → §9.12-C close. | **HUMAN GATE** |
 
-## Active state — §9.12-C mid-flight 2026-05-20
+## Active state — §9.12-C mid-flight; ADR-0077 Proposed (user review pending) 2026-05-20
 
-**D-133 sweep deferred** pending ADR for resolution-path
-choice. B119 surfaced that the 5 bulk handlers
-(emitTableFill/Copy/Init + emitMemoryInit; emitTableGrow not a
-site) need ≥ 4 simultaneous scratches beyond the operand
-holders, which exceeds the {14, 15} pool size declared by B118.
-Three options live in the updated D-133 body. The latent
-count stays at 55 — no corpus trigger today, so the deferral
-fits the no_workaround.md gate (paired with debt-row + lesson
-naming the structural barrier).
+**Loop paused at human gate**. B120 landed ADR-0077 (regalloc op-internal
+scratch reservation, Status: Proposed) selecting path (c) — the
+あるべき論 root-cause fix — over (a) per-handler stack save/restore
+or (b) pool extension.
 
-Next §9.12-C sub-items: audit §G grep strengthening (already
-mostly landed via B115), dedup sweep. Then §9.12-D
-(libc-boundary sample migration) and §9.12-E.
+**Resumption procedure** for the next session:
+1. User reviews `.dev/decisions/0077_regalloc_op_scratch_reservation.md`
+   + flips Status: Proposed → Accepted (or amends Decision).
+2. Fresh-context Claude/subagent walks the implementation:
+   a. Spike `private/spikes/regalloc-live-fence/` to validate the API
+      shape against the 5 bulk handlers.
+   b. Spike outcome → ADR amend (if needed) or merged-into-prod.
+   c. Implement regalloc walker fence in `src/engine/codegen/shared/regalloc.zig`.
+   d. Per-arch reservation tables in `arm64/abi.zig` (+ x86_64 mirror
+      when relevant).
+   e. D-133 sweep through the 5 bulk handlers + boundary fixtures.
+   f. `check_invariant_comments.sh --strict` → 0 hits; promote to
+      pre-commit gate.
+3. D-133 closes → §9.12-C exit criteria met (with audit grep + dedup).
+4. §9.12-D / §9.12-E proceed.
+
+**Why pause now**: ADR-0077 is load-bearing per ROADMAP §18.2
+(touches §14 forbidden-list class). Decision-grade design should not
+be autonomously self-merged inside this session's deep context.
 
 §9.12-B exit criterion stays as ROADMAP §9.12-B specifies (6 build
 combos green + DCE 0 + completeness comptime check). Per-op file
