@@ -175,6 +175,7 @@ fn nonSimdOnModuleLoaded(
         compiled.globals_offsets,
         compiled.globals_valtypes,
         scratch_globals[0..],
+        compiled.num_global_imports,
     ) catch |err| {
         try stdout.print("FAIL  {s} globals-init: {s}\n", .{ name, @errorName(err) });
         return err;
@@ -216,6 +217,7 @@ fn nonSimdOnModuleLoaded(
         compiled.globals_valtypes,
         scratch_globals[0..],
         base.scratch_func_entities[0..base.active_func_count],
+        compiled.num_global_imports,
     ) catch |err| {
         try stdout.print("FAIL  {s} resolve-funcref-globals: {s}\n", .{ name, @errorName(err) });
         return err;
@@ -1722,6 +1724,7 @@ fn nonSimdHandleAssertUninstantiable(
         compiled.globals_offsets,
         compiled.globals_valtypes,
         scratch_globals[0..],
+        compiled.num_global_imports,
     ) catch return true;
     runner_mod.applyTableInit(
         gpa,

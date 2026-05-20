@@ -1003,8 +1003,9 @@ pub fn applyDefinedGlobalsInit(
     globals_offsets: []const u32,
     globals_valtypes: []const zir.ValType,
     globals_buf: []u8,
+    num_global_imports: u32,
 ) Error!void {
-    if (globals_offsets.len == 0) return;
+    if (globals_offsets.len <= num_global_imports) return;
     var temp_arena = std.heap.ArenaAllocator.init(allocator);
     defer temp_arena.deinit();
     const ta = temp_arena.allocator();
@@ -1012,11 +1013,10 @@ pub fn applyDefinedGlobalsInit(
     const section = module.find(.global) orelse return;
     var globals_decoded = try sections.decodeGlobals(ta, section.body);
     defer globals_decoded.deinit();
-    if (globals_decoded.items.len != globals_offsets.len) return Error.UnsupportedEntrySignature;
-
+    if (globals_decoded.items.len + num_global_imports != globals_offsets.len) return Error.UnsupportedEntrySignature;
     for (globals_decoded.items, 0..) |gd, gi| {
-        const off = globals_offsets[gi];
-        const vt = globals_valtypes[gi];
+        const off = globals_offsets[num_global_imports + gi];
+        const vt = globals_valtypes[num_global_imports + gi];
         switch (vt) {
             .v128 => {
                 if (off + 16 > globals_buf.len) return Error.UnsupportedEntrySignature;
@@ -1042,8 +1042,9 @@ pub fn resolveFuncrefGlobals(
     globals_valtypes: []const zir.ValType,
     globals_buf: []u8,
     func_entities: []const @import("../runtime/instance/func.zig").FuncEntity,
+    num_global_imports: u32,
 ) Error!void {
-    if (globals_offsets.len == 0) return;
+    if (globals_offsets.len <= num_global_imports) return;
     var temp_arena = std.heap.ArenaAllocator.init(allocator);
     defer temp_arena.deinit();
     const ta = temp_arena.allocator();
@@ -1051,12 +1052,12 @@ pub fn resolveFuncrefGlobals(
     const section = module.find(.global) orelse return;
     var globals_decoded = try sections.decodeGlobals(ta, section.body);
     defer globals_decoded.deinit();
-    if (globals_decoded.items.len != globals_offsets.len) return Error.UnsupportedEntrySignature;
+    if (globals_decoded.items.len + num_global_imports != globals_offsets.len) return Error.UnsupportedEntrySignature;
     for (globals_decoded.items, 0..) |gd, gi| {
-        if (globals_valtypes[gi] != .funcref) continue;
+        if (globals_valtypes[num_global_imports + gi] != .funcref) continue;
         const fidx = rv.initExprRefFunc(gd.init_expr) orelse continue;
         if (fidx >= func_entities.len) continue;
-        const off = globals_offsets[gi];
+        const off = globals_offsets[num_global_imports + gi];
         if (off + 8 > globals_buf.len) return Error.UnsupportedEntrySignature;
         std.mem.writeInt(u64, globals_buf[off..][0..8], @intFromPtr(&func_entities[fidx]), .little);
     }

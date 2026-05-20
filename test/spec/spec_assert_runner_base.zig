@@ -1085,6 +1085,7 @@ pub const RegisteredExporter = struct {
                 compiled.globals_offsets,
                 compiled.globals_valtypes,
                 buf,
+                compiled.num_global_imports,
             );
             self.scratch_globals = buf;
         }
