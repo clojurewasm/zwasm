@@ -1239,20 +1239,7 @@ pub const collected_x86_64_ops = .{
     // sign-extension (5) + width-conversion (3) = 8 ops moved at B85.
     // FP arith cohort (8 ops; emitFpBinaryCtx) moved at B86.
     // FP compare cohort (12 ops; emitFpCompareCtx) moved at B87.
-    x86_64_f32_abs,
-    x86_64_f32_neg,
-    x86_64_f32_sqrt,
-    x86_64_f32_ceil,
-    x86_64_f32_floor,
-    x86_64_f32_trunc,
-    x86_64_f32_nearest,
-    x86_64_f64_abs,
-    x86_64_f64_neg,
-    x86_64_f64_sqrt,
-    x86_64_f64_ceil,
-    x86_64_f64_floor,
-    x86_64_f64_trunc,
-    x86_64_f64_nearest,
+    // FP unary cohort (14 ops; emitFpUnaryCtx) moved at B88.
     x86_64_f32_min,
     x86_64_f32_max,
     x86_64_f64_min,
@@ -1664,6 +1651,21 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_f64_gt,
     x86_64_f64_le,
     x86_64_f64_ge,
+    // B88: FP unary cohort moved from legacy.
+    x86_64_f32_abs,
+    x86_64_f32_neg,
+    x86_64_f32_sqrt,
+    x86_64_f32_ceil,
+    x86_64_f32_floor,
+    x86_64_f32_trunc,
+    x86_64_f32_nearest,
+    x86_64_f64_abs,
+    x86_64_f64_neg,
+    x86_64_f64_sqrt,
+    x86_64_f64_ceil,
+    x86_64_f64_floor,
+    x86_64_f64_trunc,
+    x86_64_f64_nearest,
 };
 
 comptime {
@@ -1734,8 +1736,8 @@ test "migratedArchOpCount tracks collected per-arch tuples (B59: arm64=348, x86_
     // load/store per-op files directly to ctx tuple (not in legacy
     // tuple before, so x86_64 count unchanged).
     try std.testing.expectEqual(@as(usize, 348), migratedArchOpCount(.arm64));
-    // B79..B86 walked cohorts; B87 FP compare (12 ops).
-    try std.testing.expectEqual(@as(usize, 214), migratedArchOpCount(.x86_64));
+    // B79..B87 walked cohorts; B88 FP unary (14 ops).
+    try std.testing.expectEqual(@as(usize, 200), migratedArchOpCount(.x86_64));
 }
 
 test "collected_x86_64_ctx_ops tracks B54+ migrations to `(ctx, ins)` shape" {
@@ -1788,8 +1790,9 @@ test "collected_x86_64_ctx_ops tracks B54+ migrations to `(ctx, ins)` shape" {
     // B85: sign-extension(5) + width-conversion(3) = 8 ops moved
     // (+8 = 157). B86: FP arith (8 ops; emitFpBinaryCtx) moved
     // (+8 = 165). B87: FP compare (12 ops; emitFpCompareCtx)
-    // moved (+12 = 177).
-    try std.testing.expectEqual(@as(usize, 177), collected_x86_64_ctx_ops.len);
+    // moved (+12 = 177). B88: FP unary (14 ops; emitFpUnaryCtx)
+    // moved (+14 = 191).
+    try std.testing.expectEqual(@as(usize, 191), collected_x86_64_ctx_ops.len);
 }
 
 // Note: a `dispatch(.arm64, tag, args)` test at this layer would

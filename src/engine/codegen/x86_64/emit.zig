@@ -871,6 +871,7 @@ pub fn compile(
             .@"f64.le",
             .@"f64.ge",
             => try op_alu_float.emitFpCompareCtx(&ctx, &ins),
+            // §9.12-B / B88: FP unary cohort migrated to ctx tuple.
             .@"f32.abs",
             .@"f32.neg",
             .@"f32.sqrt",
@@ -885,7 +886,7 @@ pub fn compile(
             .@"f64.floor",
             .@"f64.trunc",
             .@"f64.nearest",
-            => try op_alu_float.emitFpUnary(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
+            => try op_alu_float.emitFpUnaryCtx(&ctx, &ins),
             .@"f32.copysign",
             .@"f64.copysign",
             => try op_alu_float.emitFpCopysign(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),

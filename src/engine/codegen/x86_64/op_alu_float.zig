@@ -281,6 +281,21 @@ pub fn emitFpCopysign(
 /// + XMM7 (per abi.zig comment "XMM7 is reserved as a SIMD
 /// scratch"; pool starts at XMM8). Neither collides with any
 /// live vreg.
+/// §9.12-B / B88 (ADR-0075) — `(ctx, ins)` adapter for the FP
+/// unary cohort (f32/f64.abs/neg/sqrt/ceil/floor/trunc/nearest,
+/// 14 ops).
+pub fn emitFpUnaryCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    return emitFpUnary(
+        ctx.allocator,
+        ctx.buf,
+        ctx.alloc,
+        ctx.pushed_vregs,
+        ctx.next_vreg,
+        ctx.spill_base_off,
+        ins.op,
+    );
+}
+
 pub fn emitFpUnary(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
