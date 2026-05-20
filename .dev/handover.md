@@ -15,8 +15,8 @@
    (374/581 IR-axis, 348/314 arch-axis); B53+ is gated on ADR-0075**.
 3. `git log --oneline -10` — recent autonomous-loop chunks under
    `chore(p9b):` / `feat(p9b):` prefix. Last source commit
-   `fdcc03e7` (B76 — if + else migrated; ctx 93 → 95; no ctx
-   ext needed; end deferred to dedicated chunk).
+   `0e2f75d2` (B77 — end migrated; ctx 95 → 96; no ctx ext
+   needed; emit.zig 1828 → 1753 LOC via emitEndInter extract).
 4. `bash scripts/p9_completion_status.sh` — live progress.
 5. `bash scripts/p9_simd_status.sh` — live SIMD status.
 6. `.dev/debt.md` `now` rows: none.
@@ -101,38 +101,42 @@
 | B74 | Single-op migration: `return` to `(ctx, ins)` with ctx extension (added `frame_bytes: u32` + `uses_runtime_ptr: bool` set-once fields). Marshal + epilogue + RET sequence extracted. 1 NEW per-op file. `_ctx_ops` 89 → 90. | `2166c0a8` |
 | B75 | Cohort migration: br family (`br` + `br_if` + `br_table`, 3 ops) to `(ctx, ins)`. All ctx fields already present post-B74 (no extension). emitBrCtx sets dead_code; br_if / br_table fall through. 3 NEW per-op files. `_ctx_ops` 90 → 93. | `a19573c8` |
 | B76 | Cohort migration: `if` + `else` (2 ops) to `(ctx, ins)`. emitIfCtx threads ins.extra (blocktype/arity); emitElseCtx is a thin wrapper. All ctx fields already present (no extension). 2 NEW per-op files. `_ctx_ops` 93 → 95. `end` deferred (function-level form pulls in marshal + epilogue + trap-stub + bounds-fixup, ~60 LOC; split into emitEndInter/emitEndIntra is a chunk of its own). | `fdcc03e7` |
-| **B77** | **Single-op migration: `end` to `(ctx, ins)`.** Function-level form (label_stack empty) emits marshalReturnRegs + epilogue + RET stub block + bounds-fixup patching; label-end form (label_stack non-empty) is a thin label-pop. Likely split into `emitEndInterCtx` + `emitEndIntraCtx`. May need ctx ext for marshal-side fields (already covered by B74 frame_bytes / uses_runtime_ptr — check first). 1 NEW per-op file. | **NEXT** |
-| B77..B6x | After B77: local ops (local.get/set/tee with layout.disps threading — needs emit.zig private helper extraction + ctx ext for num_params/total_locals/layout). Then B6x+1 inline-switch cutover folding ctx tuple into unified `collected_x86_64_ops`. | |
+| B77 | Single-op migration: `end` to `(ctx, ins)`. emitEndCtx dispatches on `labels.items.len`: intra-function form reuses existing emitEndIntra; function-level form (new emitEndInter helper) extracts marshalReturnRegs + epilogue + RET + trap stub (bounds_fixups/unreach_fixups) + SIMD const-pool emission + RIP-rel fixup patching. emit.zig dispatch arm snapshots labels.len pre-call for body-loop break. All ctx fields already present (no extension); new jit_abi import in op_control. 1 NEW per-op file. `_ctx_ops` 95 → 96. emit.zig 1828 → 1753 LOC. | `0e2f75d2` |
+| **B78** | **Cohort migration: local ops (`local.get` / `local.set` / `local.tee`, 3 ops)** to `(ctx, ins)`. Existing emitLocalGet/Set/Tee helpers take num_params + total_locals + layout.disps positional args (private fn in emit.zig). Likely needs ctx extension for these 3 fields (set once at function entry; mirror frame_bytes/uses_runtime_ptr pattern) OR move into emit.zig's compile() scope as `*const`. 3 NEW per-op files. | **NEXT** |
+| B78..B6x | After B78: remaining ops (atomic.fence — UnsupportedOp gates; data.drop / elem.drop — no Zone 1 meta files). Then B6x+1 inline-switch cutover folding ctx tuple into unified `collected_x86_64_ops`. | |
 | B6x+1 | Inline-switch dispatcher cutover per ADR-0073 — both arches' `emit.zig` giant switch replaced by `inline for (collected_X_ops) |op_mod| { if (op_mod.op_tag == ins.op) return op_mod.emit(ctx, ins); }`. Moment per-op files become load-bearing. | |
 
-## Active state — §9.12-B mid-flight; B76 if + else landed 2026-05-20
+## Active state — §9.12-B mid-flight; B77 end landed 2026-05-20
 
-**B77 is the active task** — migrate `end` (1 op, function-level
-form + label-end form) to `(ctx, ins)`. B76 closed if + else at
-`fdcc03e7` (`collected_x86_64_ctx_ops` 93 → 95).
+**B78 is the active task** — migrate `local.get` / `local.set` /
+`local.tee` (3 ops) to `(ctx, ins)`. B77 closed end at
+`0e2f75d2` (`collected_x86_64_ctx_ops` 95 → 96; emit.zig 1828
+→ 1753 LOC).
 
-The loop for B77:
+The loop for B78:
 
-1. Survey emit.zig arm for `.end` (around line 1471). The arm
-   distinguishes function-level (label_stack empty → marshal +
-   epilogue + RET + trap stub + bounds-fixup patching) from
-   label-end (label_stack non-empty → label-pop + fixup patches).
-2. Identify ctx field needs. Function-level form reads
-   frame_bytes + uses_runtime_ptr (already present from B74).
-   Trap stub block + bounds_fixups slice may need additional ctx
-   fields — check first.
-3. Add `emitEndInterCtx` (function-level) + `emitEndIntraCtx`
-   (label-end) adapters in op_control.zig — OR a single
-   `emitEndCtx` if the inner dispatch on `label_stack.items.len`
-   stays within the adapter.
-4. Replace emit.zig `.end` arm; create per-op file.
-5. Update collector + assertion (95 → 96).
+1. Survey emit.zig arms ~lines 912-914 (.@"local.{get,set,tee}").
+   The 3 helpers `emitLocalGet/Set/Tee` (private fn in emit.zig
+   ~lines 1611+) take positional args:
+   `(allocator, buf, alloc, pushed_vregs, [next_vreg for get],
+    spill_base_off, func, num_params, total_locals, layout.disps,
+    ins.payload)`.
+2. Identify ctx field needs. Missing fields: `num_params: u32`
+   (set-once), `total_locals: u32` (set-once), `layout_disps:
+   []const i32` (or whatever layout.disps's type is — read-only
+   slice). Mirror the B74 pattern (set once at function entry).
+3. Extract the 3 helpers from emit.zig into op_control.zig (or
+   a new op_locals.zig if op_control is getting bulky — already
+   1421 LOC). Add `emitLocalGetCtx/SetCtx/TeeCtx` adapters.
+4. Replace emit.zig arms; create 3 per-op files.
+5. Update collector + assertion (96 → 99).
 6. Verify 2-host green; commit + push.
 
-Note: op_convert.zig 1009 LOC, op_control.zig now ~1320 LOC.
-Remaining after B77: local ops (local.get/set/tee with
-layout.disps — needs ctx ext for num_params/total_locals).
-Then B6x+1 inline-switch cutover.
+Note: op_control.zig now 1421 LOC (post-B77 emitEndInter
+extract). op_convert.zig 1009 LOC. emit.zig 1753 LOC (down
+from 1828 thanks to B77 extract).
+Remaining after B78: atomic.fence (UnsupportedOp gate), data/
+elem.drop (no Zone 1 meta). Then B6x+1 inline-switch cutover.
 
 §9.12-B exit criterion stays as ROADMAP §9.12-B specifies (6 build
 combos green + DCE 0 + completeness comptime check). Per-op file
