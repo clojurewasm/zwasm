@@ -34,12 +34,14 @@ const trap_surface = @import("trap_surface.zig");
 const vec = @import("vec.zig");
 const dispatch = @import("../interp/dispatch.zig");
 const interp_mvp = @import("../interp/mvp.zig");
-const ext_sign_ext = @import("../instruction/wasm_2_0/sign_extension.zig");
-const ext_sat_trunc = @import("../instruction/wasm_2_0/nontrap_conversion.zig");
-const ext_bulk_memory = @import("../instruction/wasm_2_0/bulk_memory.zig");
-const ext_ref_types = @import("../instruction/wasm_2_0/reference_types.zig");
+const build_options = @import("build_options");
+const wasm_2_0_enabled = @intFromEnum(build_options.wasm_level) >= @intFromEnum(@as(@TypeOf(build_options.wasm_level), .v2_0));
+const ext_sign_ext = if (wasm_2_0_enabled) @import("../instruction/wasm_2_0/sign_extension.zig") else struct {};
+const ext_sat_trunc = if (wasm_2_0_enabled) @import("../instruction/wasm_2_0/nontrap_conversion.zig") else struct {};
+const ext_bulk_memory = if (wasm_2_0_enabled) @import("../instruction/wasm_2_0/bulk_memory.zig") else struct {};
+const ext_ref_types = if (wasm_2_0_enabled) @import("../instruction/wasm_2_0/reference_types.zig") else struct {};
 const dbg = @import("../support/dbg.zig");
-const ext_table_ops = @import("../instruction/wasm_2_0/table_ops.zig");
+const ext_table_ops = if (wasm_2_0_enabled) @import("../instruction/wasm_2_0/table_ops.zig") else struct {};
 const parser = @import("../parse/parser.zig");
 const cross_module = @import("cross_module.zig");
 const sections = @import("../parse/sections.zig");
@@ -679,11 +681,13 @@ fn dispatchTable() *const dispatch_table_mod.DispatchTable {
     if (!g_dispatch_table_initialized) {
         g_dispatch_table_storage = .init();
         interp_mvp.register(&g_dispatch_table_storage);
-        ext_sign_ext.register(&g_dispatch_table_storage);
-        ext_sat_trunc.register(&g_dispatch_table_storage);
-        ext_bulk_memory.register(&g_dispatch_table_storage);
-        ext_ref_types.register(&g_dispatch_table_storage);
-        ext_table_ops.register(&g_dispatch_table_storage);
+        if (comptime wasm_2_0_enabled) {
+            ext_sign_ext.register(&g_dispatch_table_storage);
+            ext_sat_trunc.register(&g_dispatch_table_storage);
+            ext_bulk_memory.register(&g_dispatch_table_storage);
+            ext_ref_types.register(&g_dispatch_table_storage);
+            ext_table_ops.register(&g_dispatch_table_storage);
+        }
         g_dispatch_table_initialized = true;
     }
     return &g_dispatch_table_storage;
