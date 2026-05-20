@@ -2851,6 +2851,56 @@ pub fn runCorpus(
 
 const testing = std.testing;
 
+test "isSpectestNonFuncBindable: spectest.global_i32 as global i32 → true" {
+    const imp: zwasm.parse.sections.Import = .{
+        .module = "spectest",
+        .name = "global_i32",
+        .kind = .global,
+        .payload = .{ .global = .{ .valtype = .i32, .mutable = false } },
+    };
+    try testing.expect(isSpectestNonFuncBindable(imp));
+}
+
+test "isSpectestNonFuncBindable: spectest.global_i32 as global f32 → false (valtype mismatch)" {
+    const imp: zwasm.parse.sections.Import = .{
+        .module = "spectest",
+        .name = "global_i32",
+        .kind = .global,
+        .payload = .{ .global = .{ .valtype = .f32, .mutable = false } },
+    };
+    try testing.expect(!isSpectestNonFuncBindable(imp));
+}
+
+test "isSpectestNonFuncBindable: spectest.table as table → true" {
+    const imp: zwasm.parse.sections.Import = .{
+        .module = "spectest",
+        .name = "table",
+        .kind = .table,
+        .payload = .{ .table = .{ .elem_type = .funcref, .min = 10, .max = 20 } },
+    };
+    try testing.expect(isSpectestNonFuncBindable(imp));
+}
+
+test "isSpectestNonFuncBindable: spectest.unknown → false (not in catalog)" {
+    const imp: zwasm.parse.sections.Import = .{
+        .module = "spectest",
+        .name = "unknown",
+        .kind = .global,
+        .payload = .{ .global = .{ .valtype = .i32, .mutable = false } },
+    };
+    try testing.expect(!isSpectestNonFuncBindable(imp));
+}
+
+test "isSpectestNonFuncBindable: non-spectest module → false" {
+    const imp: zwasm.parse.sections.Import = .{
+        .module = "other_module",
+        .name = "global_i32",
+        .kind = .global,
+        .payload = .{ .global = .{ .valtype = .i32, .mutable = false } },
+    };
+    try testing.expect(!isSpectestNonFuncBindable(imp));
+}
+
 test "parseI32Token: unsigned decimal" {
     try testing.expectEqual(@as(u32, 42), try parseI32Token("42"));
     try testing.expectEqual(@as(u32, 0), try parseI32Token("0"));
