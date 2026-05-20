@@ -1046,11 +1046,12 @@ pub fn compile(
             // §9.7 / 9.7-k: int compare eq/ne family. PCMPEQ B/W/D
             // (SSE2) + PCMPEQQ (SSE4.1); ne paths apply NOT via
             // PXOR with an all-ones mask (PCMPEQB scratch, scratch).
-            .@"i8x16.eq" => try op_simd_int_cmp_lane.emitI8x16Eq(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            // §9.12-B / B93: SIMD i8x16 compare cohort migrated to ctx tuple.
+            .@"i8x16.eq" => try op_simd_int_cmp_lane.emitI8x16EqCtx(&ctx, &ins),
             .@"i16x8.eq" => try op_simd_int_cmp_lane.emitI16x8Eq(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             .@"i32x4.eq" => try op_simd_int_cmp_lane.emitI32x4Eq(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             .@"i64x2.eq" => try op_simd_int_cmp_lane.emitI64x2Eq(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i8x16.ne" => try op_simd_int_cmp_lane.emitI8x16Ne(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i8x16.ne" => try op_simd_int_cmp_lane.emitI8x16NeCtx(&ctx, &ins),
             .@"i16x8.ne" => try op_simd_int_cmp_lane.emitI16x8Ne(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"i32x4.ne" => try op_simd_int_cmp_lane.emitI32x4Ne(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"i64x2.ne" => try op_simd_int_cmp_lane.emitI64x2Ne(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
@@ -1058,10 +1059,10 @@ pub fn compile(
             // (12 ops). PCMPGT_<shape> direct for gt; operand swap for
             // lt; PXOR-with-all-ones NOT for le/ge. i64x2 signed
             // compares defer to 9.7-m (PCMPGTQ is SSE4.2 — needs ADR).
-            .@"i8x16.gt_s" => try op_simd_int_cmp_lane.emitI8x16GtS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i8x16.lt_s" => try op_simd_int_cmp_lane.emitI8x16LtS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i8x16.le_s" => try op_simd_int_cmp_lane.emitI8x16LeS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i8x16.ge_s" => try op_simd_int_cmp_lane.emitI8x16GeS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i8x16.gt_s" => try op_simd_int_cmp_lane.emitI8x16GtSCtx(&ctx, &ins),
+            .@"i8x16.lt_s" => try op_simd_int_cmp_lane.emitI8x16LtSCtx(&ctx, &ins),
+            .@"i8x16.le_s" => try op_simd_int_cmp_lane.emitI8x16LeSCtx(&ctx, &ins),
+            .@"i8x16.ge_s" => try op_simd_int_cmp_lane.emitI8x16GeSCtx(&ctx, &ins),
             .@"i16x8.gt_s" => try op_simd_int_cmp_lane.emitI16x8GtS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"i16x8.lt_s" => try op_simd_int_cmp_lane.emitI16x8LtS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"i16x8.le_s" => try op_simd_int_cmp_lane.emitI16x8LeS(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
@@ -1085,10 +1086,10 @@ pub fn compile(
             // rhs); ge/le = eq(lhs, max/min). PMAXUB/PMINUB SSE2;
             // PMAXU{W,D} / PMINU{W,D} SSE4.1. i64x2 unsigned not in
             // Wasm SIMD spec.
-            .@"i8x16.gt_u" => try op_simd_int_cmp_lane.emitI8x16GtU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i8x16.lt_u" => try op_simd_int_cmp_lane.emitI8x16LtU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i8x16.le_u" => try op_simd_int_cmp_lane.emitI8x16LeU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i8x16.ge_u" => try op_simd_int_cmp_lane.emitI8x16GeU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i8x16.gt_u" => try op_simd_int_cmp_lane.emitI8x16GtUCtx(&ctx, &ins),
+            .@"i8x16.lt_u" => try op_simd_int_cmp_lane.emitI8x16LtUCtx(&ctx, &ins),
+            .@"i8x16.le_u" => try op_simd_int_cmp_lane.emitI8x16LeUCtx(&ctx, &ins),
+            .@"i8x16.ge_u" => try op_simd_int_cmp_lane.emitI8x16GeUCtx(&ctx, &ins),
             .@"i16x8.gt_u" => try op_simd_int_cmp_lane.emitI16x8GtU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"i16x8.lt_u" => try op_simd_int_cmp_lane.emitI16x8LtU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"i16x8.le_u" => try op_simd_int_cmp_lane.emitI16x8LeU(allocator, &buf, alloc, &pushed_vregs, &next_vreg),

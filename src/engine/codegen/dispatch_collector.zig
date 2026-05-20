@@ -1261,16 +1261,7 @@ pub const collected_x86_64_ops = .{
     // × 4 widths + i16x8/i32x4.mul; i64x2.mul skipped — no Zone 1
     // meta file).
     // SIMD int neg/abs cohort moved at B92 (8 ops).
-    x86_64_i8x16_eq,
-    x86_64_i8x16_ne,
-    x86_64_i8x16_lt_s,
-    x86_64_i8x16_lt_u,
-    x86_64_i8x16_gt_s,
-    x86_64_i8x16_gt_u,
-    x86_64_i8x16_le_s,
-    x86_64_i8x16_le_u,
-    x86_64_i8x16_ge_s,
-    x86_64_i8x16_ge_u,
+    // SIMD i8x16 compare cohort moved at B93 (10 ops).
     x86_64_i16x8_eq,
     x86_64_i16x8_ne,
     x86_64_i16x8_lt_s,
@@ -1676,6 +1667,17 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_i16x8_abs,
     x86_64_i32x4_abs,
     x86_64_i64x2_abs,
+    // B93: SIMD i8x16 compare cohort moved from legacy.
+    x86_64_i8x16_eq,
+    x86_64_i8x16_ne,
+    x86_64_i8x16_lt_s,
+    x86_64_i8x16_lt_u,
+    x86_64_i8x16_gt_s,
+    x86_64_i8x16_gt_u,
+    x86_64_i8x16_le_s,
+    x86_64_i8x16_le_u,
+    x86_64_i8x16_ge_s,
+    x86_64_i8x16_ge_u,
 };
 
 comptime {
@@ -1746,8 +1748,8 @@ test "migratedArchOpCount tracks collected per-arch tuples (B59: arm64=348, x86_
     // load/store per-op files directly to ctx tuple (not in legacy
     // tuple before, so x86_64 count unchanged).
     try std.testing.expectEqual(@as(usize, 348), migratedArchOpCount(.arm64));
-    // B79..B91 walked cohorts; B92 SIMD int neg/abs (8 ops).
-    try std.testing.expectEqual(@as(usize, 170), migratedArchOpCount(.x86_64));
+    // B79..B92 walked cohorts; B93 SIMD i8x16 compare (10 ops).
+    try std.testing.expectEqual(@as(usize, 160), migratedArchOpCount(.x86_64));
 }
 
 test "collected_x86_64_ctx_ops tracks B54+ migrations to `(ctx, ins)` shape" {
@@ -1807,8 +1809,10 @@ test "collected_x86_64_ctx_ops tracks B54+ migrations to `(ctx, ins)` shape" {
     // moved (+6 = 203). B91: SIMD int binary arith (10 ops; add/sub
     // × 4 widths + i16x8/i32x4.mul; i64x2.mul deferred — no Zone 1
     // meta) moved (+10 = 213). B92: SIMD int neg/abs (8 ops;
-    // 5-arg helpers, ins ignored) moved (+8 = 221).
-    try std.testing.expectEqual(@as(usize, 221), collected_x86_64_ctx_ops.len);
+    // 5-arg helpers, ins ignored) moved (+8 = 221). B93: SIMD
+    // i8x16 compare cohort (10 ops; eq is 6-arg, others 5-arg)
+    // moved (+10 = 231).
+    try std.testing.expectEqual(@as(usize, 231), collected_x86_64_ctx_ops.len);
 }
 
 // Note: a `dispatch(.arm64, tag, args)` test at this layer would
