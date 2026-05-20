@@ -14,10 +14,10 @@
    row. **B30..B52 covered the dispatcher-signature-compatible cohort
    (374/581 IR-axis, 348/314 arch-axis); B53+ is gated on ADR-0075**.
 3. `git log --oneline -10` — recent autonomous-loop chunks under
-   `chore(p9c):` / `feat(p9c):` / `refactor(p9c):` prefix. Last code
-   commit `c4d8910b` (B126 5-handler sweep). **Loop active at B127 —
-   boundary fixtures under test/edge_cases/p9/regalloc/, step 6 of
-   ADR-0077 8-step plan.**
+   `chore(p9c):` / `feat(p9c):` / `refactor(p9c):` / `test(p9c):`
+   prefix. Last commit: B127 boundary fixtures. **Loop active at
+   B128 — flip `check_invariant_comments.sh --strict` to pre-commit
+   gate, step 7 of ADR-0077 8-step plan.**
 4. `bash scripts/p9_completion_status.sh` — live progress.
 5. `bash scripts/p9_simd_status.sh` — live SIMD status.
 6. `.dev/debt.md` `now` rows: none.
@@ -151,13 +151,14 @@
 | B123 | arm64 op_scratch_reservation_table — `src/engine/codegen/arm64/abi.zig` declares the comptime `[zir_op_count][]const u16` table with bulk-handler reservation {0..4} populated for table.fill/copy/init + memory.init. Exposes `opScratchReservation(op)` as a `ScratchReservationFn`-compatible accessor. Comptime allocatable-range check; 5 unit tests including shape-assignment to shared regalloc's type. NO wire to compile.zig yet (B125). | `d90b22ce` |
 | B124 | `validateRegallocOpScratchReservation` shared validator at `shared/regalloc.zig`. arm64/abi.zig replaces inline comptime check with delegated call. Asserts: every reserved slot id < force_spill_threshold, no duplicates within an op's set. 3 happy-path comptime tests. Future x86_64 mirror reuses without duplication. | `bd13e546` |
 | B125 | **Load-bearing wire**. compile.zig comptime arch dispatch supplies `&arm64.abi.opScratchReservation` (x86_64 stays null). VerifyError gains `OpScratchOverlap`; `verifyWith` extension keeps `verify`'s back-compat signature stable. test-all green ⟹ no regressions from fence activation. | `cb008ad4` |
-| B126 | Sweep 5 D-133 bulk handlers — op_table.zig (emitTableFill/Copy/Init, 44 sites) + op_memory.zig (emitMemoryInit, 11 sites) substitute magic numerals 9..13 with named `sxN` constants referencing `abi.allocatable_caller_saved_scratch_gprs`. `check_invariant_comments.sh` count 55 → 0. No functional change (regalloc fence already guarantees safety since B125). | `<this commit>` |
-| **B127** | Boundary fixtures — add register-pressure-class trigger fixtures under `test/edge_cases/p9/regalloc/` per ADR-0020 / `edge_case_testing.md` stress axis #3. Demonstrates a synthetic Wasm function where a live vreg crosses `table.fill` and would alias X9..X13 without the fence — confirms the verifier post-condition fires and the runtime trace shows correct values. Step 6 of ADR-0077 8-step plan. | **NEXT** |
+| B126 | Sweep 5 D-133 bulk handlers — op_table.zig (emitTableFill/Copy/Init, 44 sites) + op_memory.zig (emitMemoryInit, 11 sites) substitute magic numerals 9..13 with named `sxN` constants referencing `abi.allocatable_caller_saved_scratch_gprs`. `check_invariant_comments.sh` count 55 → 0. No functional change (regalloc fence already guarantees safety since B125). | `1d6e4680` |
+| B127 | Boundary fixtures — 4 new fixtures under `test/edge_cases/p9/regalloc/` (one per bulk op). Each pushes V0=42 before the op so V0 strictly crosses; without fence V0 → X9 clobber; with fence returns 42. Edge-case runner: 51 → 55 passed. | `<this commit>` |
+| **B128** | Pre-commit gate flip — `scripts/check_invariant_comments.sh --strict` wired as pre-commit gate via `gate_commit.sh` (or `pre-commit` hook). Now that count is 0, the gate prevents new prose-only register-pool invariants from landing. Step 7 of ADR-0077 8-step plan. | **NEXT** |
 
 ## Active state — §9.12-C mid-flight; ADR-0077 Accepted + spike-validated; impl in progress
 
-**Loop active at B127** — boundary fixtures under
-`test/edge_cases/p9/regalloc/` (step 6 of ADR-0077's 8-step plan).
+**Loop active at B128** — flip `check_invariant_comments.sh --strict`
+to pre-commit gate (step 7 of ADR-0077's 8-step plan).
 
 ### Remaining steps (per `private/spikes/regalloc-live-fence/README.md` §"Post-spike implementation plan")
 
@@ -166,9 +167,8 @@
 3. ~~**B124**: `validateRegallocOpScratchReservation`~~ — DONE `bd13e546`.
 4. ~~**B125**: load-bearing wire (fence active in production)~~ — DONE `6bc39358`.
 5. ~~**B126**: 5-handler sweep~~ — DONE `c4d8910b` (lint 55 → 0).
-6. **B127 (NEXT)**: Boundary fixtures under `test/edge_cases/p9/regalloc/`
-   (register-pressure-class trigger).
-7. **B128**: `check_invariant_comments.sh --strict` → 0 (pre-commit gate flip).
+6. ~~**B127**: 4 boundary fixtures~~ — DONE (edge-case runner 51 → 55).
+7. **B128 (NEXT)**: `check_invariant_comments.sh --strict` → pre-commit gate flip.
 8. **B129**: D-133 → close. §9.12-C exit met.
 
 ### Spike validation summary (B121)
