@@ -1240,12 +1240,7 @@ pub const collected_x86_64_ops = .{
     // FP arith cohort (8 ops; emitFpBinaryCtx) moved at B86.
     // FP compare cohort (12 ops; emitFpCompareCtx) moved at B87.
     // FP unary cohort (14 ops; emitFpUnaryCtx) moved at B88.
-    x86_64_f32_min,
-    x86_64_f32_max,
-    x86_64_f64_min,
-    x86_64_f64_max,
-    x86_64_f32_copysign,
-    x86_64_f64_copysign,
+    // FP min/max + copysign (6 ops; emitFp{MinMax,Copysign}Ctx) moved at B89.
     // B57: i{32,64}.trunc_sat_f{32,64}_{s,u} migrated from
     // `collected_x86_64_ops` (314 → 306) to
     // `collected_x86_64_ctx_ops` (16 → 24) as part of the
@@ -1666,6 +1661,13 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_f64_floor,
     x86_64_f64_trunc,
     x86_64_f64_nearest,
+    // B89: FP min/max + copysign cohorts moved from legacy.
+    x86_64_f32_min,
+    x86_64_f32_max,
+    x86_64_f64_min,
+    x86_64_f64_max,
+    x86_64_f32_copysign,
+    x86_64_f64_copysign,
 };
 
 comptime {
@@ -1736,8 +1738,8 @@ test "migratedArchOpCount tracks collected per-arch tuples (B59: arm64=348, x86_
     // load/store per-op files directly to ctx tuple (not in legacy
     // tuple before, so x86_64 count unchanged).
     try std.testing.expectEqual(@as(usize, 348), migratedArchOpCount(.arm64));
-    // B79..B87 walked cohorts; B88 FP unary (14 ops).
-    try std.testing.expectEqual(@as(usize, 200), migratedArchOpCount(.x86_64));
+    // B79..B88 walked cohorts; B89 FP min/max+copysign (6 ops).
+    try std.testing.expectEqual(@as(usize, 194), migratedArchOpCount(.x86_64));
 }
 
 test "collected_x86_64_ctx_ops tracks B54+ migrations to `(ctx, ins)` shape" {
@@ -1791,8 +1793,9 @@ test "collected_x86_64_ctx_ops tracks B54+ migrations to `(ctx, ins)` shape" {
     // (+8 = 157). B86: FP arith (8 ops; emitFpBinaryCtx) moved
     // (+8 = 165). B87: FP compare (12 ops; emitFpCompareCtx)
     // moved (+12 = 177). B88: FP unary (14 ops; emitFpUnaryCtx)
-    // moved (+14 = 191).
-    try std.testing.expectEqual(@as(usize, 191), collected_x86_64_ctx_ops.len);
+    // moved (+14 = 191). B89: FP min/max+copysign (6 ops;
+    // emitFp{MinMax,Copysign}Ctx) moved (+6 = 197).
+    try std.testing.expectEqual(@as(usize, 197), collected_x86_64_ctx_ops.len);
 }
 
 // Note: a `dispatch(.arm64, tag, args)` test at this layer would

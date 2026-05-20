@@ -105,6 +105,20 @@ pub fn emitFpConst(
 ///
 /// All branches use rel32 placeholders patched at end-of-emit
 /// to keep the layout independent of REX-byte length variance.
+/// §9.12-B / B89 (ADR-0075) — `(ctx, ins)` adapter for FP
+/// min/max cohort (f32/f64.min/max, 4 ops).
+pub fn emitFpMinMaxCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    return emitFpMinMax(
+        ctx.allocator,
+        ctx.buf,
+        ctx.alloc,
+        ctx.pushed_vregs,
+        ctx.next_vreg,
+        ctx.spill_base_off,
+        ins.op,
+    );
+}
+
 pub fn emitFpMinMax(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
@@ -223,6 +237,20 @@ pub fn emitFpMinMax(
 /// **Scratches**: RAX/RCX/RDX — none in regalloc pool (RAX is
 /// return_gpr, RCX/RDX are arg_gprs[3]/[2]; pool excludes both).
 /// All caller-saved (no calls within this op so OK).
+/// §9.12-B / B89 (ADR-0075) — `(ctx, ins)` adapter for FP
+/// copysign cohort (f32/f64.copysign, 2 ops).
+pub fn emitFpCopysignCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    return emitFpCopysign(
+        ctx.allocator,
+        ctx.buf,
+        ctx.alloc,
+        ctx.pushed_vregs,
+        ctx.next_vreg,
+        ctx.spill_base_off,
+        ins.op,
+    );
+}
+
 pub fn emitFpCopysign(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
