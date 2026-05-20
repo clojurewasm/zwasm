@@ -16,8 +16,9 @@
 3. `git log --oneline -10` — recent autonomous-loop chunks under
    `chore(p9b):` / `feat(p9b):` prefix. Last code commit `c3652994`
    (B118 abi.zig overlap rationale). B119 `7321a94b` (D-133 sweep
-   blocker doc'd), B120 `<this commit>` (ADR-0077 Proposed).
-   **Loop paused at ADR-0077 user-review gate.**
+   blocker), B120 (ADR-0077 Proposed → **Accepted**). **Loop ready
+   for fresh-session pickup at B121 — spike-then-impl per
+   ADR-0077.**
 4. `bash scripts/p9_completion_status.sh` — live progress.
 5. `bash scripts/p9_simd_status.sh` — live SIMD status.
 6. `.dev/debt.md` `now` rows: none.
@@ -145,35 +146,49 @@
 | B117 | Lesson capture: `2026-05-20-inline-switch-cutover-dce-substrate-coupling.md` documents B108-B112 retrospective (use-site DCE gating requirement + B109 select_typed regression). | `c356d5ae` |
 | B118 | abi.zig overlap rationale documented inline (spill_stage/table_emit X14/X15 share is intentional + d-64 pattern keeps simultaneous use ≤ 2). Sets the contract for the D-133 sweep. | `c3652994` |
 | B119 | D-133 sweep investigation **BLOCKED**: B118's "≤ 2 simultaneous scratch" claim holds only for trivial single-load ops (already discharged at d-64/d-66). The 5 remaining bulk handlers (`emitTableFill` / `emitTableCopy` / `emitTableInit` / `emitMemoryInit`) hold ≥ 4 simultaneously-live scratches in their loop bodies that cannot map to {X14, X15} or even {X14..X17}. `emitTableGrow` re-classified — not a D-133 site (uses AAPCS64 args). Three resolution paths enumerated in updated D-133 body (per-handler stack save/restore / pool extension / live-vreg fence) — ADR-required. Lesson at `.dev/lessons/2026-05-20-d133-sweep-pool-size-insufficient.md`. Latent count stays at 55 (no corpus trigger; deferral acceptable). | (debt+lesson only) |
-| B120 | ADR-0077 Proposed: regalloc op-internal scratch reservation. Adopts path (c) over (a)/(b) per あるべき論 (root-cause fix vs runtime workaround). Pending user review → Accepted → spike (`private/spikes/regalloc-live-fence/`) → implementation in fresh session. | (ADR-only) |
-| **next** | **Wait for user to review ADR-0077 + flip Status to Accepted**. Then fresh session: spike → implementation → D-133 sweep → boundary fixtures → §9.12-C close. | **HUMAN GATE** |
+| B120 | ADR-0077 Proposed → **Accepted** (user-confirmed 2026-05-20). Path (c) regalloc op-internal scratch reservation. Spike skeleton `private/spikes/regalloc-live-fence/` scaffolded with hypothesis + setup + 8-step post-spike implementation plan. D-133 row updated to `blocked-by: ADR-0077 implementation`. | `<this commit>` |
+| **B121** | **(fresh session)** Run the regalloc-live-fence spike per `private/spikes/regalloc-live-fence/README.md`. Validate API shape, then promote: amend ADR-0077 or merge spike code. Then walk the 8-step post-spike plan: regalloc walker fence + per-arch reservation tables + verifier + D-133 sweep + boundary fixtures. | **NEXT** |
 
-## Active state — §9.12-C mid-flight; ADR-0077 Proposed (user review pending) 2026-05-20
+## Active state — §9.12-C mid-flight; ADR-0077 Accepted; READY FOR FRESH-SESSION PICKUP 2026-05-20
 
-**Loop paused at human gate**. B120 landed ADR-0077 (regalloc op-internal
-scratch reservation, Status: Proposed) selecting path (c) — the
-あるべき論 root-cause fix — over (a) per-handler stack save/restore
-or (b) pool extension.
+**Loop paused — clean handoff state**. ADR-0077 Status: **Accepted**.
+Spike skeleton at `private/spikes/regalloc-live-fence/README.md` is
+pre-populated with hypothesis + setup + post-spike implementation plan
+(8-step sequence).
 
-**Resumption procedure** for the next session:
-1. User reviews `.dev/decisions/0077_regalloc_op_scratch_reservation.md`
-   + flips Status: Proposed → Accepted (or amends Decision).
-2. Fresh-context Claude/subagent walks the implementation:
-   a. Spike `private/spikes/regalloc-live-fence/` to validate the API
-      shape against the 5 bulk handlers.
-   b. Spike outcome → ADR amend (if needed) or merged-into-prod.
-   c. Implement regalloc walker fence in `src/engine/codegen/shared/regalloc.zig`.
-   d. Per-arch reservation tables in `arm64/abi.zig` (+ x86_64 mirror
-      when relevant).
-   e. D-133 sweep through the 5 bulk handlers + boundary fixtures.
-   f. `check_invariant_comments.sh --strict` → 0 hits; promote to
-      pre-commit gate.
-3. D-133 closes → §9.12-C exit criteria met (with audit grep + dedup).
-4. §9.12-D / §9.12-E proceed.
+### Fresh-session entry path
 
-**Why pause now**: ADR-0077 is load-bearing per ROADMAP §18.2
-(touches §14 forbidden-list class). Decision-grade design should not
-be autonomously self-merged inside this session's deep context.
+The next `/continue` (or manual fresh session) should:
+
+1. **Read** (in this order):
+   - `.dev/decisions/0077_regalloc_op_scratch_reservation.md`
+     (Accepted, full design)
+   - `private/spikes/regalloc-live-fence/README.md` (Hypothesis +
+     Setup + post-spike plan)
+   - `.dev/lessons/2026-05-20-d133-sweep-pool-size-insufficient.md`
+     (B119 live-scratch census per handler — informs the
+     reservation table contents)
+2. **Spike** (≤ 1 day per `.claude/rules/extended_challenge.md` Step
+   4): validate the API shape inside
+   `private/spikes/regalloc-live-fence/` without touching `src/`.
+3. **Promote**: amend ADR-0077 with validated shape (or land
+   spike code as impl skeleton).
+4. **Implement** per the 8-step post-spike plan in the spike README.
+5. **Close D-133**: sweep the 5 bulk handlers, add boundary fixtures
+   under `test/edge_cases/p9/regalloc/`, run
+   `check_invariant_comments.sh --strict` → 0.
+6. **§9.12-C close** (D-133 done → exit criterion met).
+7. **§9.12-D + §9.12-E** proceed sequentially.
+
+### Anchor commands for a fresh session
+
+```sh
+cd ~/Documents/MyProducts/zwasm_from_scratch
+git log --oneline -10                                      # Step 3 of resume procedure
+cat .dev/decisions/0077_regalloc_op_scratch_reservation.md
+cat private/spikes/regalloc-live-fence/README.md
+cat .dev/lessons/2026-05-20-d133-sweep-pool-size-insufficient.md
+```
 
 §9.12-B exit criterion stays as ROADMAP §9.12-B specifies (6 build
 combos green + DCE 0 + completeness comptime check). Per-op file

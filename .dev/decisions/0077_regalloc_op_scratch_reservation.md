@@ -1,6 +1,6 @@
 # 0077 — Make regalloc aware of op-internal scratch reservations
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-05-20
 - **Author**: autonomous-loop (Claude) + shota.508 (review)
 - **Tags**: regalloc, ABI, scratch, D-132, D-133, §9.12-C, substrate
@@ -215,10 +215,9 @@ once the D-133 sweep lands (sites go from 55 → 0).
 - Scripts:
   - `scripts/check_invariant_comments.sh` (gate flip target post-impl)
 
-<!--
 ## Revision history
 
-| Date       | SHA          | Note                                    |
-|------------|--------------|-----------------------------------------|
-| 2026-05-20 | `<backfill>` | Initial Proposed version (B119 outcome). |
--->
+| Date       | SHA          | Note                                                                                                                                                                          |
+|------------|--------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 2026-05-20 | `<backfill>` | Initial Proposed version (B119 outcome).                                                                                                                                      |
+| 2026-05-20 | `<backfill>` | User review → Status: Accepted. Implementation deferred to fresh session; spike-first per `.claude/rules/spike_lifecycle.md`; D-133 row updated to point at ADR-0077 impl. |
