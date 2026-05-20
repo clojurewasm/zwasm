@@ -730,10 +730,23 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
         }
     }
 
-    const validator_globals = try a.alloc(validator_mod.GlobalEntry, if (globals_buf) |g| g.items.len else 0);
+    // §9.12-E / B158: validator_globals indexed by FULL wasm global
+    // index space (imports prefix + defined; mirrors B153/B154's
+    // globals_offsets shape). Without this, opGlobalGet/Set rejects
+    // imported-global references as out-of-bounds (B156 Errors 1+2).
+    const defined_globals_n: usize = if (globals_buf) |g| g.items.len else 0;
+    const validator_globals = try a.alloc(validator_mod.GlobalEntry, @as(usize, nm_global_imports) + defined_globals_n);
+    if (imports_buf) |ib| {
+        var gi: usize = 0;
+        for (ib.items) |imp| {
+            if (imp.kind != .global) continue;
+            validator_globals[gi] = .{ .valtype = imp.payload.global.valtype, .mutable = imp.payload.global.mutable };
+            gi += 1;
+        }
+    }
     if (globals_buf) |g| {
         for (g.items, 0..) |gd, gi| {
-            validator_globals[gi] = .{ .valtype = gd.valtype, .mutable = gd.mutable };
+            validator_globals[@as(usize, nm_global_imports) + gi] = .{ .valtype = gd.valtype, .mutable = gd.mutable };
         }
     }
 
