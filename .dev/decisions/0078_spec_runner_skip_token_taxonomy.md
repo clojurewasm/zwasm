@@ -158,8 +158,17 @@ plan C3 failure mode).
     (`runner_internal` informational). YAML schema extended with
     three per-class fields; pre-extension rows default missing
     fields to 0 (backward compat).
-  - `audit_scaffolding §G.1` grep-against-table extension (per
-    the workaround-pairings check). Also `D-NNN` follow-up.
+  - ~~`audit_scaffolding §G.1` grep-against-table extension (per
+    the workaround-pairings check).~~ LANDED at 0abe32d8 as
+    `scripts/check_skip_taxonomy_pairing.sh` + audit
+    `§G.1.2` (paired-artifact resolution): debt-trackable rows
+    are resolved against `.dev/debt.md` + `git log` discharge
+    history; ADR-required rows are resolved against
+    `.dev/decisions/*.md` file existence. Current Proposed table
+    surfaces 6 drift findings (4 discharged-D-NNN citations + 1
+    placeholder + 1 debt-trackable lacking any D-NNN) — to be
+    addressed at the next ADR-0078 amendment cycle alongside
+    user Accept.
 
 ## References
 
