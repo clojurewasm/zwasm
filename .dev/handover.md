@@ -22,18 +22,17 @@
 ## Active state
 
 - Phase 9.12-E。close-plan §6 work sequence 実行中。
-- 完了: (a) handover cleanup、(b) chunk type taxonomy +
-  v2 phase_log schema、(c) architectural cycle cap rule
-  (LOOP.md §"Chunk types" 内に landed in (b))、(d) spike
-  discipline 厳格化 — `architectural_spike.md` + audit §G.5
-  + no_workaround cross-reference。
-- 次: **(e) tally field rename** — `test/spec/spec_assert_
-  runner_base.zig::AssertTally.skipped` → `manifest_skip_impl`
-  rename + 新 `runtime_skip` field 追加。skip-impl
-  semantics の厳密化。全 consumer 更新 + ratchet history
-  recompute。
-- D-153 (cross-module imports) は close-plan §6 (j) まで
-  凍結。
+- 完了: (a)〜(e)。直近 (e) で AssertTally 分割 — manifest
+  `skip-impl` lines は実は 0 だった (旧 192 は runtime
+  SKIP events だった)。Phase 9 完備 gate signal が見え
+  るようになった。
+- 次: **(f) skip-token taxonomy ADR** — 既存 SKIP-* token
+  (V2-InstanceAllocFailed / VALIDATOR-GAP / PARSER-GAP /
+  CROSS-MODULE-IMPORTS / NO-LINK-TYPECHECK /
+  NON-INVOKE-ACTION / WASMTIME-UNUSABLE / NO-INSTANTIATE-CB)
+  の class 定義 ADR (debt-trackable / ADR-required /
+  runner-internal)。
+- D-153 は close-plan §6 (j) まで凍結。
 
 ## §9.12-B progress chunks
 
