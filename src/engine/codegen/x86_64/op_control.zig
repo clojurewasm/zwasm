@@ -1193,6 +1193,64 @@ pub fn emitUnreachableCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error
     ctx.dead_code.* = true;
 }
 
+/// §9.12-B / B75 (ADR-0075) — `(ctx, ins)` adapters for the
+/// br family (`br`, `br_if`, `br_table`). All ctx fields already
+/// exist post-B74. `br` sets `ctx.dead_code = true` (mirrors
+/// emit.zig); br_if / br_table fall through and DO NOT set
+/// dead_code.
+pub fn emitBrCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    try emitBr(
+        ctx.allocator,
+        ctx.buf,
+        ctx.alloc,
+        ctx.pushed_vregs,
+        ctx.labels,
+        ctx.spill_base_off,
+        ctx.func,
+        ctx.frame_bytes,
+        ctx.uses_runtime_ptr,
+        ctx.return_is_memory_class,
+        ctx.indirect_result_slot_neg_off,
+        ins.payload,
+    );
+    ctx.dead_code.* = true;
+}
+
+pub fn emitBrIfCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    return emitBrIf(
+        ctx.allocator,
+        ctx.buf,
+        ctx.alloc,
+        ctx.pushed_vregs,
+        ctx.labels,
+        ctx.spill_base_off,
+        ctx.func,
+        ctx.frame_bytes,
+        ctx.uses_runtime_ptr,
+        ctx.return_is_memory_class,
+        ctx.indirect_result_slot_neg_off,
+        ins.payload,
+    );
+}
+
+pub fn emitBrTableCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    return emitBrTable(
+        ctx.allocator,
+        ctx.buf,
+        ctx.func,
+        ctx.alloc,
+        ctx.pushed_vregs,
+        ctx.labels,
+        ctx.spill_base_off,
+        ctx.frame_bytes,
+        ctx.uses_runtime_ptr,
+        ctx.return_is_memory_class,
+        ctx.indirect_result_slot_neg_off,
+        ins.payload,
+        ins.extra,
+    );
+}
+
 /// §9.12-B / B74 (ADR-0075) — `(ctx, ins)` adapter for `return`.
 /// Inlines the same marshal + epilogue + RET sequence as the
 /// function-level `end` form (multiple physical RETs are

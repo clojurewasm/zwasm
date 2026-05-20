@@ -1460,15 +1460,12 @@ pub fn compile(
             .@"return" => try op_control.emitReturnCtx(&ctx, &ins),
             .block => try op_control.emitBlockCtx(&ctx, &ins),
             .loop => try op_control.emitLoopCtx(&ctx, &ins),
-            .br => {
-                try op_control.emitBr(allocator, &buf, alloc, &pushed_vregs, &labels, spill_base_off, func, frame_bytes, uses_runtime_ptr, return_is_memory_class, indirect_result_slot_neg_off, ins.payload);
-                // br is an unconditional control transfer; subsequent
-                // ops in the same body are unreachable until the
-                // matching `end` re-enters live emission.
-                dead_code = true;
-            },
-            .br_if => try op_control.emitBrIf(allocator, &buf, alloc, &pushed_vregs, &labels, spill_base_off, func, frame_bytes, uses_runtime_ptr, return_is_memory_class, indirect_result_slot_neg_off, ins.payload),
-            .br_table => try op_control.emitBrTable(allocator, &buf, func, alloc, &pushed_vregs, &labels, spill_base_off, frame_bytes, uses_runtime_ptr, return_is_memory_class, indirect_result_slot_neg_off, ins.payload, ins.extra),
+            // §9.12-B / B75: br family extracted into `(ctx, ins)`
+            // adapters in op_control. emitBrCtx sets dead_code
+            // (br is unconditional); br_if / br_table fall through.
+            .br => try op_control.emitBrCtx(&ctx, &ins),
+            .br_if => try op_control.emitBrIfCtx(&ctx, &ins),
+            .br_table => try op_control.emitBrTableCtx(&ctx, &ins),
             .@"if" => try op_control.emitIf(allocator, &buf, alloc, &pushed_vregs, &labels, spill_base_off, ins.extra),
             .@"else" => try op_control.emitElse(allocator, &buf, &pushed_vregs, &labels),
             .end => {
