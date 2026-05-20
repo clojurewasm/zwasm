@@ -15,8 +15,8 @@
    (374/581 IR-axis, 348/314 arch-axis); B53+ is gated on ADR-0075**.
 3. `git log --oneline -10` — recent autonomous-loop chunks under
    `chore(p9b):` / `feat(p9b):` prefix. Last source commit
-   `4ec2bff1` (B89 — FP min/max + copysign (6 ops) moved from
-   legacy to ctx; legacy 200 → 194; ctx 191 → 197).
+   `766ffade` (B90 — v128 logical (6 ops, first SIMD migration)
+   moved from legacy to ctx; legacy 194 → 188; ctx 197 → 203).
 4. `bash scripts/p9_completion_status.sh` — live progress.
 5. `bash scripts/p9_simd_status.sh` — live SIMD status.
 6. `.dev/debt.md` `now` rows: none.
@@ -113,28 +113,30 @@
 | B86 | Legacy → ctx cohort move: FP arith (8 ops). Legacy 234 → 226; ctx 157 → 165. | `130eeec9` |
 | B87 | Legacy → ctx cohort move: FP compare (12 ops). Legacy 226 → 214; ctx 165 → 177. | `2b3c1d81` |
 | B88 | Legacy → ctx cohort move: FP unary (14 ops). Legacy 214 → 200; ctx 177 → 191. | `22f6a06f` |
-| B89 | Legacy → ctx cohort move: FP min/max (4) + copysign (2) = 6 ops. emitFp{MinMax,Copysign}Ctx adapters. Legacy 200 → 194; ctx 191 → 197. | `4ec2bff1` |
-| **B90** | **Legacy → ctx SIMD cohort: v128 logical (6 ops: v128.not/and/andnot/or/xor/bitselect).** First SIMD cohort migration. Locate emitSimdLogical (or per-op) helper; add ctx adapter(s); regenerate 6 per-op files (wasm_2_0/); legacy 194 → 188; ctx 197 → 203. | **NEXT** |
-| B90..B9x | After B90: remaining SIMD cohorts (~74 ops): int binary arith (10), int neg/abs (8), int compare (36 across widths), shifts (12), min/max (12), sat arith (10), float arith (16), float unary (14), float compare (12), bool reductions (9), narrow/extend (16), extmul (16), swizzle/popcnt/dot/q15mulr/fp-conv (11), splats (6). Eventually inline-switch cutover (ADR-0073). | |
+| B89 | Legacy → ctx cohort move: FP min/max+copysign (6 ops). Legacy 200 → 194; ctx 191 → 197. | `4ec2bff1` |
+| B90 | Legacy → ctx SIMD cohort move: v128 logical (6 ops). First SIMD migration; per-op ctx adapters in op_simd.zig (added ctx_mod + zir imports). Legacy 194 → 188; ctx 197 → 203. | `766ffade` |
+| **B91** | **Legacy → ctx SIMD cohort: int binary arith (B30 stubs; ~10 ops: i{8x16,16x8,32x4,64x2}.add/sub + i16x8/i32x4/i64x2.mul).** Use emitSimdIntArithCtx adapter pattern; regenerate ~10 per-op files. Legacy 188 → 178; ctx 203 → 213. | **NEXT** |
+| B91..B9x | After B91: remaining SIMD cohorts: int neg/abs (8), int compare (36 across widths), shifts (12), min/max (12), sat arith (10), float arith (16), float unary (14), float compare (12), bool reductions (9), narrow/extend (16), extmul (16), swizzle/popcnt/dot/q15mulr/fp-conv (11), splats (6). Eventually inline-switch cutover (ADR-0073). | |
 | B6x+1 | Inline-switch dispatcher cutover per ADR-0073 — both arches' `emit.zig` giant switch replaced by `inline for (collected_X_ops) |op_mod| { if (op_mod.op_tag == ins.op) return op_mod.emit(ctx, ins); }`. Moment per-op files become load-bearing. | |
 
-## Active state — §9.12-B mid-flight; B89 FP min/max+copysign landed 2026-05-20
+## Active state — §9.12-B mid-flight; B90 v128 logical landed 2026-05-20
 
-**B90 is the active task** — first SIMD legacy → ctx cohort
-move for v128 logical ops (6 ops: not/and/andnot/or/xor/bitselect).
-B89 closed FP min/max+copysign at `4ec2bff1` (legacy 200 → 194;
-ctx 191 → 197).
+**B91 is the active task** — SIMD int binary arith cohort
+(~10 ops: i8x16.add/sub, i16x8.add/sub/mul, i32x4.add/sub/mul,
+i64x2.add/sub/mul). B90 closed v128 logical at `766ffade`
+(legacy 194 → 188; ctx 197 → 203).
 
-The loop for B90:
+The loop for B91:
 
-1. Locate the emit helper(s) for v128.{not,and,andnot,or,xor,bitselect}
-   in op_simd.zig (or similar). May be one helper or per-op.
-2. Add ctx adapter(s).
-3. Regenerate 6 per-op files at wasm_2_0/v128_{not,and,andnot,or,
-   xor,bitselect}.zig.
-4. Move 6 entries from legacy (194 → 188) to ctx (197 → 203).
-5. Update emit.zig arm.
-6. Verify 2-host green; commit + push.
+1. Locate the emit helper(s) in op_simd_int_arith.zig (B30 added
+   per-op stubs there).
+2. Survey signature: likely `(allocator, buf, alloc, pushed_vregs,
+   next_vreg, spill_base_off, op)` 7-arg form OR per-op helpers.
+3. Add ctx adapter(s).
+4. Regenerate ~10 per-op files at wasm_2_0/i*x*_add/sub/mul.zig.
+5. Move ~10 entries from legacy (188 → 178) to ctx (203 → 213).
+6. Update emit.zig arm.
+7. Verify 2-host green; commit + push.
 
 §9.12-B exit criterion stays as ROADMAP §9.12-B specifies (6 build
 combos green + DCE 0 + completeness comptime check). Per-op file
