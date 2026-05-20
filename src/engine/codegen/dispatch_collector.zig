@@ -1228,12 +1228,8 @@ pub const collected_arm64_ops = .{
 
 /// Tuple of all migrated x86_64 per-op modules.
 pub const collected_x86_64_ops = .{
-    x86_64_i32_add,
-    x86_64_i32_sub,
-    x86_64_i32_mul,
-    x86_64_i32_and,
-    x86_64_i32_or,
-    x86_64_i32_xor,
+    // i32 binary ALU cohort moved to collected_x86_64_ctx_ops at B79
+    // (i32.add/sub/mul/and/or/xor; same emitI32BinaryCtx adapter).
     x86_64_i64_add,
     x86_64_i64_sub,
     x86_64_i64_mul,
@@ -1644,6 +1640,13 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_local_get,
     x86_64_local_set,
     x86_64_local_tee,
+    // B79: i32 binary ALU cohort moved from legacy tuple.
+    x86_64_i32_add,
+    x86_64_i32_sub,
+    x86_64_i32_mul,
+    x86_64_i32_and,
+    x86_64_i32_or,
+    x86_64_i32_xor,
 };
 
 comptime {
@@ -1714,7 +1717,8 @@ test "migratedArchOpCount tracks collected per-arch tuples (B59: arm64=348, x86_
     // load/store per-op files directly to ctx tuple (not in legacy
     // tuple before, so x86_64 count unchanged).
     try std.testing.expectEqual(@as(usize, 348), migratedArchOpCount(.arm64));
-    try std.testing.expectEqual(@as(usize, 292), migratedArchOpCount(.x86_64));
+    // B79 moved i32 binary ALU cohort (6 ops) from legacy to ctx.
+    try std.testing.expectEqual(@as(usize, 286), migratedArchOpCount(.x86_64));
 }
 
 test "collected_x86_64_ctx_ops tracks B54+ migrations to `(ctx, ins)` shape" {
@@ -1754,8 +1758,10 @@ test "collected_x86_64_ctx_ops tracks B54+ migrations to `(ctx, ins)` shape" {
     // labels.len pre-call to decide body-loop break). B78:
     // local.{get,set,tee} (3 new per-op files, +3 = 99;
     // new op_locals.zig host module, ctx ext for total_locals
-    // + local_disps).
-    try std.testing.expectEqual(@as(usize, 99), collected_x86_64_ctx_ops.len);
+    // + local_disps). B79: i32 binary ALU cohort (i32.add/sub/
+    // mul/and/or/xor, 6 ops) moved from legacy tuple (+6 = 105;
+    // emitI32BinaryCtx adapter wraps existing emitI32Binary).
+    try std.testing.expectEqual(@as(usize, 105), collected_x86_64_ctx_ops.len);
 }
 
 // Note: a `dispatch(.arm64, tag, args)` test at this layer would

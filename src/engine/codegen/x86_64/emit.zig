@@ -733,13 +733,18 @@ pub fn compile(
             // extracted into `op_alu_int.emitI{32,64}Const` adapters.
             .@"i32.const" => try op_alu_int.emitI32Const(&ctx, &ins),
             .@"i64.const" => try op_alu_int.emitI64Const(&ctx, &ins),
+            // §9.12-B / B79: i32 binary ALU cohort migrated to
+            // collected_x86_64_ctx_ops; per-op file's emit fn
+            // dispatches via the inline-for path (TBD B79+1 cutover).
+            // For now, manual ctx adapter call here keeps dual-path
+            // dispatch consistent with sibling cohorts.
             .@"i32.add",
             .@"i32.sub",
             .@"i32.mul",
             .@"i32.and",
             .@"i32.or",
             .@"i32.xor",
-            => try op_alu_int.emitI32Binary(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
+            => try op_alu_int.emitI32BinaryCtx(&ctx, &ins),
             .@"i32.eq",
             .@"i32.ne",
             .@"i32.lt_s",

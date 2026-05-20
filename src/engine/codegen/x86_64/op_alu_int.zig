@@ -57,6 +57,22 @@ const Error = types.Error;
 /// when the regalloc port needs to handle slot reuse. Note:
 /// post-D-045 13b spill-aware emit, dst-stage and rhs-stage can
 /// in principle collide (both R10) — D-029 follow-up.
+/// §9.12-B / B79 (ADR-0075) — `(ctx, ins)` adapter for the i32
+/// binary ALU cohort (i32.add/sub/mul/and/or/xor). Threads
+/// `ins.op` into the existing emitI32Binary's internal op
+/// dispatch. No semantics change.
+pub fn emitI32BinaryCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    return emitI32Binary(
+        ctx.allocator,
+        ctx.buf,
+        ctx.alloc,
+        ctx.pushed_vregs,
+        ctx.next_vreg,
+        ctx.spill_base_off,
+        ins.op,
+    );
+}
+
 pub fn emitI32Binary(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
