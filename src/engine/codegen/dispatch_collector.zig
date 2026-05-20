@@ -1272,30 +1272,10 @@ pub const collected_x86_64_ops = .{
     // SIMD f64x2 arith cohort moved at B101 (8 ops).
     // SIMD float unary cohort moved at B102 (14 ops; all 5-arg).
     // SIMD float compare cohort moved at B103 (12 ops; all 5-arg).
-    x86_64_ref_is_null,
-    x86_64_i8x16_splat,
-    x86_64_i16x8_splat,
-    x86_64_i32x4_splat,
-    x86_64_i64x2_splat,
-    x86_64_f32x4_splat,
-    x86_64_f64x2_splat,
     // SIMD bool reductions cohort moved at B104 (9 ops; all 6-arg).
     // SIMD narrow+extend cohort moved at B105 (16 ops; 4 narrow 6-arg + 12 extend 5-arg).
     // SIMD extmul cohort moved at B106 (12 ops; all 5-arg).
-    x86_64_i16x8_extadd_pairwise_i8x16_s,
-    x86_64_i16x8_extadd_pairwise_i8x16_u,
-    x86_64_i32x4_extadd_pairwise_i16x8_s,
-    x86_64_i32x4_extadd_pairwise_i16x8_u,
-    x86_64_i8x16_swizzle,
-    x86_64_i32x4_dot_i16x8_s,
-    x86_64_i16x8_q15mulr_sat_s,
-    x86_64_f32x4_convert_i32x4_s,
-    x86_64_f32x4_convert_i32x4_u,
-    x86_64_f64x2_convert_low_i32x4_s,
-    x86_64_f64x2_promote_low_f32x4,
-    x86_64_f32x4_demote_f64x2_zero,
-    x86_64_i32x4_trunc_sat_f32x4_s,
-    x86_64_i32x4_trunc_sat_f32x4_u,
+    // B107 SIMD residual: ref.is_null + splats (6) + swizzle + extadd_pairwise (4) + dot + q15mulr + fp-conv (7) = 21 ops moved to ctx.
 };
 
 /// §9.12-B / B54 (ADR-0075) — x86_64 per-op modules migrated to
@@ -1703,6 +1683,27 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_i64x2_extmul_high_i32x4_s,
     x86_64_i64x2_extmul_low_i32x4_u,
     x86_64_i64x2_extmul_high_i32x4_u,
+    x86_64_ref_is_null,
+    x86_64_i8x16_splat,
+    x86_64_i16x8_splat,
+    x86_64_i32x4_splat,
+    x86_64_i64x2_splat,
+    x86_64_f32x4_splat,
+    x86_64_f64x2_splat,
+    x86_64_i8x16_swizzle,
+    x86_64_i16x8_extadd_pairwise_i8x16_s,
+    x86_64_i16x8_extadd_pairwise_i8x16_u,
+    x86_64_i32x4_extadd_pairwise_i16x8_s,
+    x86_64_i32x4_extadd_pairwise_i16x8_u,
+    x86_64_i32x4_dot_i16x8_s,
+    x86_64_i16x8_q15mulr_sat_s,
+    x86_64_f32x4_convert_i32x4_s,
+    x86_64_f32x4_convert_i32x4_u,
+    x86_64_f64x2_convert_low_i32x4_s,
+    x86_64_f64x2_promote_low_f32x4,
+    x86_64_f32x4_demote_f64x2_zero,
+    x86_64_i32x4_trunc_sat_f32x4_s,
+    x86_64_i32x4_trunc_sat_f32x4_u,
 };
 
 comptime {
@@ -1773,8 +1774,8 @@ test "migratedArchOpCount tracks collected per-arch tuples (B59: arm64=348, x86_
     // load/store per-op files directly to ctx tuple (not in legacy
     // tuple before, so x86_64 count unchanged).
     try std.testing.expectEqual(@as(usize, 348), migratedArchOpCount(.arm64));
-    // B79..B105 walked cohorts; B106 SIMD extmul (12 ops).
-    try std.testing.expectEqual(@as(usize, 21), migratedArchOpCount(.x86_64));
+    // B79..B106 walked cohorts; B107 SIMD residual (21 ops) — legacy tuple empty.
+    try std.testing.expectEqual(@as(usize, 0), migratedArchOpCount(.x86_64));
 }
 
 test "collected_x86_64_ctx_ops tracks B54+ migrations to `(ctx, ins)` shape" {
@@ -1851,8 +1852,10 @@ test "collected_x86_64_ctx_ops tracks B54+ migrations to `(ctx, ins)` shape" {
     // bool reductions (9 ops; all 6-arg) moved (+9 = 342). B105:
     // SIMD narrow+extend (16 ops; 4 narrow 6-arg + 12 extend
     // 5-arg) moved (+16 = 358). B106: SIMD extmul (12 ops; all
-    // 5-arg) moved (+12 = 370).
-    try std.testing.expectEqual(@as(usize, 370), collected_x86_64_ctx_ops.len);
+    // 5-arg) moved (+12 = 370). B107: SIMD residual (ref.is_null
+    // + 6 splats + swizzle + 4 extadd_pairwise + dot + q15mulr +
+    // 7 fp-conv = 21 ops) moved (+21 = 391); legacy tuple empty.
+    try std.testing.expectEqual(@as(usize, 391), collected_x86_64_ctx_ops.len);
 }
 
 // Note: a `dispatch(.arm64, tag, args)` test at this layer would

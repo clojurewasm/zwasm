@@ -798,7 +798,7 @@ pub fn compile(
             // §9.12-B / B68: ref.null inline body extracted into
             // `op_alu_int.emitRefNull` `(ctx, ins)` adapter.
             .@"ref.null" => try op_alu_int.emitRefNull(&ctx, &ins),
-            .@"ref.is_null" => try op_alu_int.emitI64Eqz(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"ref.is_null" => try op_alu_int.emitI64EqzCtx(&ctx, &ins),
             // §9.9 / 9.9-m-1b: ref.func idx — load
             // func_entities_ptr from JitRuntime, add idx * size.
             // Recipe:
@@ -1004,7 +1004,7 @@ pub fn compile(
             // shapes follow in 9.7-f). Splat broadcasts a scalar i32
             // across 4 lanes; extract_lane pulls one lane back to
             // scalar via PEXTRD (SSE4.1).
-            .@"i32x4.splat" => try op_simd_int_cmp_lane.emitI32x4Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i32x4.splat" => try op_simd_int_cmp_lane.emitI32x4SplatCtx(&ctx, &ins),
             .@"i32x4.extract_lane" => try op_simd_int_cmp_lane.emitI32x4ExtractLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.payload),
             // §9.7 / 9.7-aw: i64x2.extract_lane via PEXTRQ (SSE4.1
             // REX.W=1 variant of PEXTRD). Mirror of i32x4.extract_
@@ -1027,20 +1027,20 @@ pub fn compile(
             // §9.7 / 9.7-h: integer splat siblings (i32x4 already
             // landed in 9.7-e). i8x16 via PSHUFB-broadcast; i16x8
             // via PSHUFLW + PSHUFD; i64x2 via PUNPCKLQDQ.
-            .@"i8x16.splat" => try op_simd_int_cmp_lane.emitI8x16Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i16x8.splat" => try op_simd_int_cmp_lane.emitI16x8Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i64x2.splat" => try op_simd_int_cmp_lane.emitI64x2Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i8x16.splat" => try op_simd_int_cmp_lane.emitI8x16SplatCtx(&ctx, &ins),
+            .@"i16x8.splat" => try op_simd_int_cmp_lane.emitI16x8SplatCtx(&ctx, &ins),
+            .@"i64x2.splat" => try op_simd_int_cmp_lane.emitI64x2SplatCtx(&ctx, &ins),
             // §9.7 / 9.7-i: f32x4 lane access trio. XMM-source
             // semantics — splat / extract reuse encPshufd; replace
             // uses the new INSERTPS encoder (SSE4.1 3A 21 /r ib).
-            .@"f32x4.splat" => try op_simd_float.emitF32x4Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.splat" => try op_simd_float.emitF32x4SplatCtx(&ctx, &ins),
             .@"f32x4.extract_lane" => try op_simd_float.emitF32x4ExtractLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.payload),
             .@"f32x4.replace_lane" => try op_simd_float.emitF32x4ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.payload),
             // §9.7 / 9.7-j: f64x2 lane access trio. splat + extract_lane
             // reuse encPshufd (imm 0x44 / 0xEE for low/high qword).
             // replace_lane uses MOVAPS preamble + MOVSD (lane=0) /
             // MOVLHPS (lane=1).
-            .@"f64x2.splat" => try op_simd_float.emitF64x2Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.splat" => try op_simd_float.emitF64x2SplatCtx(&ctx, &ins),
             .@"f64x2.extract_lane" => try op_simd_float.emitF64x2ExtractLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.payload),
             .@"f64x2.replace_lane" => try op_simd_float.emitF64x2ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, ins.payload),
             // §9.7 / 9.7-k: int compare eq/ne family. PCMPEQ B/W/D
@@ -1258,24 +1258,24 @@ pub fn compile(
             // (4 ops). Single-instr unary CVT* via emitV128FpUnop.
             // u-variants and trunc-sat defer (cranelift uses
             // const-pool float magic numbers; ADR-0042 pending).
-            .@"f32x4.convert_i32x4_s" => try op_simd_float.emitF32x4ConvertI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.convert_low_i32x4_s" => try op_simd_float.emitF64x2ConvertLowI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.promote_low_f32x4" => try op_simd_float.emitF64x2PromoteLowF32x4(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f32x4.demote_f64x2_zero" => try op_simd_float.emitF32x4DemoteF64x2Zero(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.convert_i32x4_s" => try op_simd_float.emitF32x4ConvertI32x4SCtx(&ctx, &ins),
+            .@"f64x2.convert_low_i32x4_s" => try op_simd_float.emitF64x2ConvertLowI32x4SCtx(&ctx, &ins),
+            .@"f64x2.promote_low_f32x4" => try op_simd_float.emitF64x2PromoteLowF32x4Ctx(&ctx, &ins),
+            .@"f32x4.demote_f64x2_zero" => try op_simd_float.emitF32x4DemoteF64x2ZeroCtx(&ctx, &ins),
             // §9.7 / 9.7-ae: 2 inline-synth FP convert / trunc-sat
             // ops. The 4 const-pool-dependent variants
             // (f64x2.convert_low_i32x4_u, i32x4.trunc_sat_f32x4_u,
             // i32x4.trunc_sat_f64x2_{s,u}_zero) defer to 9.7-ag
             // pending ADR-0042 const-pool plumbing.
-            .@"f32x4.convert_i32x4_u" => try op_simd_float.emitF32x4ConvertI32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i32x4.trunc_sat_f32x4_s" => try op_simd_float.emitI32x4TruncSatF32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.convert_i32x4_u" => try op_simd_float.emitF32x4ConvertI32x4UCtx(&ctx, &ins),
+            .@"i32x4.trunc_sat_f32x4_s" => try op_simd_float.emitI32x4TruncSatF32x4SCtx(&ctx, &ins),
             // §9.7 / 9.7-at: i32x4.trunc_sat_f32x4_u closes the
             // last of the 4 deferred 9.7-ae u-variants. The
             // "3-scratch" framing turned out to be a non-issue:
             // dst (regalloc'd from XMM8..XMM13) + XMM14 + XMM15
             // gives 3 distinct physical xmms within the existing
             // fp_spill_stage_xmms reservation. No ABI change.
-            .@"i32x4.trunc_sat_f32x4_u" => try op_simd_float.emitI32x4TruncSatF32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.trunc_sat_f32x4_u" => try op_simd_float.emitI32x4TruncSatF32x4UCtx(&ctx, &ins),
             // §9.7 / 9.7-au: int min/max + saturating arith +
             // avgr_u (22 ops). All single-instruction native
             // SSE2/SSE4.1 ops; each wrapper dispatches via
@@ -1362,8 +1362,8 @@ pub fn compile(
             // saturate exactly per Wasm spec; PMADDWD (SSE2)
             // implements pairwise dot product with wrapping i32
             // accumulation matching the Wasm spec.
-            .@"i16x8.q15mulr_sat_s" => try op_simd_int_arith.emitI16x8Q15mulrSatS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            .@"i32x4.dot_i16x8_s" => try op_simd_int_arith.emitI32x4DotI16x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i16x8.q15mulr_sat_s" => try op_simd_int_arith.emitI16x8Q15mulrSatSCtx(&ctx, &ins),
+            .@"i32x4.dot_i16x8_s" => try op_simd_int_arith.emitI32x4DotI16x8SCtx(&ctx, &ins),
             // §9.7 / 9.7-ag: i16x8.extmul × 4. Cranelift recipe
             // `lower.isle:1197-1285` — PMOVSX/ZX BW each operand
             // (extend i8→i16) + PMULLW. High variants prefix
@@ -1392,19 +1392,19 @@ pub fn compile(
             // PCMPEQB + PABSB synthesises a 0x01-per-byte vector;
             // PMADDUBSW (SSSE3) reduces to pairwise add. No
             // const-pool dep.
-            .@"i16x8.extadd_pairwise_i8x16_s" => try op_simd_int_cmp_lane.emitI16x8ExtaddPairwiseI8x16S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"i16x8.extadd_pairwise_i8x16_u" => try op_simd_int_cmp_lane.emitI16x8ExtaddPairwiseI8x16U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i16x8.extadd_pairwise_i8x16_s" => try op_simd_int_cmp_lane.emitI16x8ExtaddPairwiseI8x16SCtx(&ctx, &ins),
+            .@"i16x8.extadd_pairwise_i8x16_u" => try op_simd_int_cmp_lane.emitI16x8ExtaddPairwiseI8x16UCtx(&ctx, &ins),
             // §9.7 / 9.7-ak: i32x4.extadd_pairwise_i16x8_s.
             // Inline-synth 0x00010001-per-dword mask + PMADDWD.
             // The _u variant is deferred (PMADDWD reads i16 as
             // signed; u16 inputs need pre-correction via ADR-0042
             // const-pool sign-flip + post-add fixup).
-            .@"i32x4.extadd_pairwise_i16x8_s" => try op_simd_int_cmp_lane.emitI32x4ExtaddPairwiseI16x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.extadd_pairwise_i16x8_s" => try op_simd_int_cmp_lane.emitI32x4ExtaddPairwiseI16x8SCtx(&ctx, &ins),
             // §9.7/9.7-aq — i32x4.extadd_pairwise_i16x8_u via
             // sign-flip XOR + PMADDWD-with-+1 + bias-correction-add.
             // 11-instr inline-synth (no const-pool dep) — closes
             // the extadd_pairwise family.
-            .@"i32x4.extadd_pairwise_i16x8_u" => try op_simd_int_cmp_lane.emitI32x4ExtaddPairwiseI16x8U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i32x4.extadd_pairwise_i16x8_u" => try op_simd_int_cmp_lane.emitI32x4ExtaddPairwiseI16x8UCtx(&ctx, &ins),
             // §9.7/9.7-ar — i8x16.shuffle via PSHUFB-pair + POR.
             // The handler reads the original Wasm mask from
             // func.simd_consts[ins.payload], derives a-mask /
@@ -1447,7 +1447,7 @@ pub fn compile(
             // §9.7 / 9.7-ac: i8x16.swizzle (1 op). 10-instr inline
             // recipe synthesises 0x0F broadcast + PCMPGTB-detect of
             // idx>15 + POR-correct + PSHUFB. No const-pool dep.
-            .@"i8x16.swizzle" => try op_simd_int_cmp_lane.emitI8x16Swizzle(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"i8x16.swizzle" => try op_simd_int_cmp_lane.emitI8x16SwizzleCtx(&ctx, &ins),
             // §9.7 / 9.7-ad: FP unop family (12 ops). abs / neg
             // via inline sign-mask synthesis (PCMPEQB ones +
             // PSLL{D,Q}-imm 31/63); ceil/floor/trunc/nearest via
