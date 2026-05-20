@@ -45,6 +45,18 @@ const emit = switch (builtin.target.cpu.arch) {
     else => @compileError("unsupported host arch — JIT requires aarch64 or x86_64"),
 };
 
+/// ADR-0077 — per-arch op-internal scratch reservation lookup.
+/// arm64 supplies the 5-D-133-handler reservation set via
+/// `arm64/abi.zig::opScratchReservation`. x86_64 has no current
+/// hardcoded op-internal scratch (per ADR-0077 §Consequences);
+/// future SIMD work that introduces such patterns will add the
+/// mirror table and switch this arm.
+const scratch_reservations: ?regalloc.ScratchReservationFn = switch (builtin.target.cpu.arch) {
+    .aarch64 => &@import("../arm64/abi.zig").opScratchReservation,
+    .x86_64 => null,
+    else => @compileError("unsupported host arch"),
+};
+
 pub const Error = lowerer.Error || liveness.Error || regalloc.Error || emit.Error || hoist.Error || coalesce.Error || Allocator.Error;
 
 /// One function's compilation result. `func` retains lowered
@@ -193,11 +205,11 @@ pub fn compileOne(
         ),
         else => @compileError("unsupported host arch"),
     };
-    // ADR-0077 fence supplier is null pre-B125 — emit pipeline
-    // wires the per-arch reservation lookup once the per-arch
-    // table lands. Pre-B125 behaviour is bit-for-bit identical
-    // to the pre-fence path.
-    var alloc = try regalloc.computeWith(allocator, &func, force_spill_threshold, null);
+    // ADR-0077 fence supplier — arm64 supplies the 5-D-133-handler
+    // reservation; x86_64 stays null (no current hardcoded
+    // op-internal scratch). Wired at B125; comptime-resolved per
+    // `scratch_reservations` const above.
+    var alloc = try regalloc.computeWith(allocator, &func, force_spill_threshold, scratch_reservations);
     errdefer regalloc.deinit(allocator, alloc);
     // D-045 chunk 13b: override per-arch class boundaries so that
     // slot ids past the host's pool size resolve to `.spill` (not

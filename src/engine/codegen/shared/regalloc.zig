@@ -51,6 +51,14 @@ pub const VerifyError = error{
     SlotsLengthMismatch,
     SlotIndexExceedsCount,
     OverlappingVregsShareSlot,
+    /// ADR-0077 — a live vreg's assigned slot id falls inside an
+    /// op's `op_scratch_reservation_table` set across the op's
+    /// PC range, meaning the op handler's internal scratch
+    /// clobber would corrupt the vreg's value mid-emit. Surfaces
+    /// only when `verifyWith` is called with a non-null
+    /// `scratch_reservations` fence — `verify` (the thin null
+    /// wrapper) never returns this variant.
+    OpScratchOverlap,
 };
 
 /// Per-op scratch reservation lookup (ADR-0077).
@@ -649,6 +657,26 @@ const max_reg_slots_gpr_default: u16 = 8;
 /// straight-line code). Interval-tree refinement is a §9.7 / 7.3
 /// follow-up if a profile demands it.
 pub fn verify(func: *const ZirFunc, alloc: Allocation) VerifyError!void {
+    return verifyWith(func, alloc, null);
+}
+
+/// `verify` + ADR-0077 op-scratch-overlap post-condition.
+///
+/// When `scratch_reservations` is non-null, additionally scans
+/// every live vreg's strict-interior PC range and emits
+/// `OpScratchOverlap` if the vreg's assigned slot id falls in
+/// the op's reservation set. PC shape mirrors `computeWith`'s
+/// fence (`def_pc < pc < last_use_pc`), so verification fires
+/// iff the walker should have skipped the slot id but didn't —
+/// the canonical regression check for a buggy fence
+/// integration. Spill slots (id ≥ `force_spill_threshold`,
+/// derived from `alloc.max_reg_slots_gpr`) are exempt: they
+/// never resolve to a clobberable register.
+pub fn verifyWith(
+    func: *const ZirFunc,
+    alloc: Allocation,
+    scratch_reservations: ?ScratchReservationFn,
+) VerifyError!void {
     const live = func.liveness orelse return;
     if (alloc.slots.len != live.ranges.len) return VerifyError.SlotsLengthMismatch;
     for (alloc.slots) |s| {
@@ -660,6 +688,20 @@ pub fn verify(func: *const ZirFunc, alloc: Allocation) VerifyError!void {
             const overlaps = (a.def_pc < b.last_use_pc) and (b.def_pc < a.last_use_pc);
             if (overlaps and alloc.slots[ai] == alloc.slots[bi]) {
                 return VerifyError.OverlappingVregsShareSlot;
+            }
+        }
+    }
+    if (scratch_reservations) |fence| {
+        const force_spill_threshold: u16 = alloc.max_reg_slots_gpr;
+        for (live.ranges, 0..) |r, vreg| {
+            const sid = alloc.slots[vreg];
+            if (sid >= force_spill_threshold) continue;
+            var pc: u32 = r.def_pc + 1;
+            while (pc < r.last_use_pc) : (pc += 1) {
+                if (pc >= func.instrs.items.len) break;
+                for (fence(func.instrs.items[pc].op)) |reserved_sid| {
+                    if (sid == reserved_sid) return VerifyError.OpScratchOverlap;
+                }
             }
         }
     }
@@ -1743,6 +1785,50 @@ test "validateRegallocOpScratchReservation: edge case — single-slot reservatio
         t[0] = &.{7}; // = allocatable_gprs.len - 1 = max legal slot id.
         validateRegallocOpScratchReservation(t, 8);
     }
+}
+
+test "verifyWith: detects op-scratch overlap on hand-broken allocation" {
+    // Same shape as the fence test, but inject an allocation that
+    // bypasses the fence (slot 0 for a vreg crossing table.fill).
+    // verifyWith with the fence active must catch it; verify
+    // without the fence accepts it (back-compat).
+    var f = freshFunc();
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .nop });
+    try f.instrs.append(testing.allocator, .{ .op = .@"table.fill" });
+    try f.instrs.append(testing.allocator, .{ .op = .nop });
+    try f.instrs.append(testing.allocator, .{ .op = .nop });
+    const ranges = [_]LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 3 },
+    };
+    f.liveness = .{ .ranges = &ranges };
+
+    const broken_slots = [_]u16{0};
+    const broken: Allocation = .{ .slots = &broken_slots, .n_slots = 1 };
+    try testing.expectError(VerifyError.OpScratchOverlap, verifyWith(&f, broken, testFenceTableFill));
+    // Back-compat: verify (null fence) accepts the same allocation.
+    try verify(&f, broken);
+}
+
+test "verifyWith: spill-region slot ids are exempt from the post-condition" {
+    // A vreg parked in the spill region (slot >= max_reg_slots_gpr)
+    // cannot collide with op-internal scratch — the spill stage
+    // regs are X14/X15, outside `allocatable_gprs`. Verifier
+    // must not flag this.
+    var f = freshFunc();
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .nop });
+    try f.instrs.append(testing.allocator, .{ .op = .@"table.fill" });
+    try f.instrs.append(testing.allocator, .{ .op = .nop });
+    const ranges = [_]LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+    };
+    f.liveness = .{ .ranges = &ranges };
+
+    // Slot 9 is spill territory under the default max_reg_slots_gpr=8.
+    const spilled_slots = [_]u16{9};
+    const spilled: Allocation = .{ .slots = &spilled_slots, .n_slots = 10 };
+    try verifyWith(&f, spilled, testFenceTableFill);
 }
 
 test "fence: boundary PC (vreg ending AT reserving op) is safe on slot 0" {
