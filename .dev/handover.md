@@ -15,9 +15,9 @@
    (374/581 IR-axis, 348/314 arch-axis); B53+ is gated on ADR-0075**.
 3. `git log --oneline -10` — recent autonomous-loop chunks under
    `chore(p9b):` / `feat(p9b):` prefix. Last source commit
-   `6d89236e` (fix B109's select_typed regression — restored arm that
-   was bundled with .select in the original switch; .select is in
-   ctx tuple but .select_typed lacks Zone 1 meta).
+   `c1780807` (B110 — arm64 inline-switch cutover; pruned 221 dead
+   arms in arm64/emit.zig; 1995→1630 LOC; both arches now load-bearing
+   on per-op files).
 4. `bash scripts/p9_completion_status.sh` — live progress.
 5. `bash scripts/p9_simd_status.sh` — live SIMD status.
 6. `.dev/debt.md` `now` rows: none.
@@ -135,21 +135,19 @@
 | B107 | Legacy → ctx SIMD residual cohort (21 ops): ref.is_null + 6 splats + swizzle + 4 extadd_pairwise + dot + q15mulr_sat + 7 fp-conv. Legacy 21 → 0 — x86_64 legacy tuple empty. ctx 370 → 391. | `71dc1156` |
 | B108 | Soft inline-switch cutover for x86_64: new `dispatchX86_64Ctx` walks collected_x86_64_ctx_ops (391); wired before the giant switch. | `d2b1e9d2` |
 | B109 | Pruned 242 dead switch arms in x86_64/emit.zig. emit.zig 1628→1300 LOC. Remaining arms cover payload-laden / no-Zone-1-meta ops (extract_lane / replace_lane / shuffle / i64x2.mul / v128.const / load_lane / store_lane / popcnt / trunc_sat_f64x2 / convert_low_i32x4_u + multi-line `end`). | `fc6cc1d3` |
-| **B110** | **Mirror cutover to arm64**: `arm64/emit.zig` has the legacy 7-arg shape via `dispatch_collector.dispatch(.arm64, ...)` already handling 348 ops in `collected_arm64_ops`. The giant switch still holds remaining arms. Audit which arm64 arms are dead-vs-live; prune the dead ones. | **NEXT** |
+| B110 | arm64 inline-switch cutover (mirror of B109 for arm64). Removed 221 dead arms in arm64/emit.zig + 6 unused imports. emit.zig 1995→1630 LOC. Per-op files load-bearing for 348 ops via dispatch_collector.dispatch(.arm64, ...). Both arches complete. | `c1780807` |
+| **B111** | **§9.12-B exit check + Phase boundary work**: ROADMAP §9.12-B exit criterion is "6 build combos green + DCE 0 + completeness comptime check". Verify, then close §9.12-B and proceed to §9.12-C/D/E. | **NEXT** |
 
-## Active state — §9.12-B mid-flight; x86_64 inline-switch cutover hard-landed 2026-05-20
+## Active state — §9.12-B inline-switch cutover complete (both arches) 2026-05-20
 
-**B110 is the active task** — mirror the cutover to arm64.
-arm64/emit.zig has its own giant switch but routes through
-`dispatch_collector.dispatch(.arm64, ...)` for the 348 ops in
-`collected_arm64_ops` (legacy 7-arg shape). The switch arms calling
-the same ops are dead. Audit + prune them.
+**B111 is the active task** — verify §9.12-B exit criterion and close
+the row. Exit criterion (per master plan §9.12-B): "6 build combos
+green + DCE 0 + completeness comptime check". Investigate what those
+checks look like; trigger them; address gaps as standalone chunks.
 
-If arm64's existing dispatch already covers all collected ops via
-the 7-arg tuple, B110 is mechanical (prune arms calling op_X.emitYZ
-with the 7-arg signature when the op_tag matches a collected entry).
-Distinct from x86_64 because no ctx adapter migration was needed —
-arm64's per-op file emit signatures already match the dispatcher.
+After §9.12-B closes, §9.12-C (dedup-sweep), §9.12-D (libc-boundary
+sample migration), §9.12-E (skip-impl == 0 ratchet) remain in the
+Phase 9 substrate audit close cycle.
 
 §9.12-B exit criterion stays as ROADMAP §9.12-B specifies (6 build
 combos green + DCE 0 + completeness comptime check). Per-op file
