@@ -222,6 +222,19 @@ pub fn emitI32Compare(
 /// Emits TEST src, src ; SETE dst_low8 ; MOVZX dst, dst_low8.
 /// Same 3-instr shape as compare; operand reuse means no
 /// separate rhs vreg.
+/// §9.12-B / B84 (ADR-0075) — `(ctx, ins)` adapter for `i32.eqz`.
+pub fn emitI32EqzCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitI32Eqz(
+        ctx.allocator,
+        ctx.buf,
+        ctx.alloc,
+        ctx.pushed_vregs,
+        ctx.next_vreg,
+        ctx.spill_base_off,
+    );
+}
+
 pub fn emitI32Eqz(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
@@ -339,6 +352,20 @@ pub fn emitI32Shift(
 ///   spec — the older BSR/BSF would leave dst undefined at 0
 ///   and would need a fixup; LZCNT/TZCNT exist exactly to
 ///   provide defined-at-zero semantics.
+/// §9.12-B / B84 (ADR-0075) — `(ctx, ins)` adapter for the i32
+/// bitcount cohort (clz/ctz/popcnt).
+pub fn emitI32BitcountCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    return emitI32Bitcount(
+        ctx.allocator,
+        ctx.buf,
+        ctx.alloc,
+        ctx.pushed_vregs,
+        ctx.next_vreg,
+        ctx.spill_base_off,
+        ins.op,
+    );
+}
+
 pub fn emitI32Bitcount(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
@@ -514,6 +541,19 @@ pub fn emitI64Compare(
 
 /// Wasm spec §4.4.1.2 (i64.eqz) — TEST is 64-bit (.q); SETcc +
 /// MOVZX stay 8/32-bit (i32 result).
+/// §9.12-B / B84 (ADR-0075) — `(ctx, ins)` adapter for `i64.eqz`.
+pub fn emitI64EqzCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    _ = ins;
+    return emitI64Eqz(
+        ctx.allocator,
+        ctx.buf,
+        ctx.alloc,
+        ctx.pushed_vregs,
+        ctx.next_vreg,
+        ctx.spill_base_off,
+    );
+}
+
 pub fn emitI64Eqz(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
@@ -601,6 +641,20 @@ pub fn emitI64Shift(
 /// Wasm spec §4.4.1.4 (i64 clz / ctz / popcnt) — direct mapping
 /// to LZCNT64 / TZCNT64 / POPCNT64 (REX.W variants). Defined-at-
 /// zero semantics match Wasm (returns 64 for input 0).
+/// §9.12-B / B84 (ADR-0075) — `(ctx, ins)` adapter for the i64
+/// bitcount cohort.
+pub fn emitI64BitcountCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    return emitI64Bitcount(
+        ctx.allocator,
+        ctx.buf,
+        ctx.alloc,
+        ctx.pushed_vregs,
+        ctx.next_vreg,
+        ctx.spill_base_off,
+        ins.op,
+    );
+}
+
 pub fn emitI64Bitcount(
     allocator: Allocator,
     buf: *std.ArrayList(u8),

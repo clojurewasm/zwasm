@@ -1234,15 +1234,8 @@ pub const collected_x86_64_ops = .{
     // same emitI64BinaryCtx adapter).
     // i32 compare cohort moved at B81 (10 ops; emitI32CompareCtx).
     // i64 compare cohort moved at B82 (10 ops; emitI64CompareCtx).
-    x86_64_i32_eqz,
-    x86_64_i64_eqz,
     // i32+i64 shift cohorts moved at B83 (10 ops; emitI{32,64}ShiftCtx).
-    x86_64_i32_clz,
-    x86_64_i32_ctz,
-    x86_64_i32_popcnt,
-    x86_64_i64_clz,
-    x86_64_i64_ctz,
-    x86_64_i64_popcnt,
+    // bitcount + eqz cohorts moved at B84 (8 ops; emitI{32,64}{Bitcount,Eqz}Ctx).
     x86_64_i32_extend8_s,
     x86_64_i32_extend16_s,
     x86_64_i64_extend8_s,
@@ -1656,6 +1649,15 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_i64_shr_u,
     x86_64_i64_rotl,
     x86_64_i64_rotr,
+    // B84: bitcount + eqz cohorts moved from legacy.
+    x86_64_i32_clz,
+    x86_64_i32_ctz,
+    x86_64_i32_popcnt,
+    x86_64_i64_clz,
+    x86_64_i64_ctz,
+    x86_64_i64_popcnt,
+    x86_64_i32_eqz,
+    x86_64_i64_eqz,
 };
 
 comptime {
@@ -1726,9 +1728,8 @@ test "migratedArchOpCount tracks collected per-arch tuples (B59: arm64=348, x86_
     // load/store per-op files directly to ctx tuple (not in legacy
     // tuple before, so x86_64 count unchanged).
     try std.testing.expectEqual(@as(usize, 348), migratedArchOpCount(.arm64));
-    // B79 i32 binary (6); B80 i64 binary (6); B81 i32 compare (10);
-    // B82 i64 compare (10); B83 i32+i64 shift (10).
-    try std.testing.expectEqual(@as(usize, 250), migratedArchOpCount(.x86_64));
+    // B79..B83 walked cohorts; B84 bitcount(6) + eqz(2) = 8.
+    try std.testing.expectEqual(@as(usize, 242), migratedArchOpCount(.x86_64));
 }
 
 test "collected_x86_64_ctx_ops tracks B54+ migrations to `(ctx, ins)` shape" {
@@ -1777,7 +1778,8 @@ test "collected_x86_64_ctx_ops tracks B54+ migrations to `(ctx, ins)` shape" {
     // B82: i64 compare cohort (10 ops; emitI64CompareCtx) moved
     // from legacy (+10 = 131). B83: i32+i64 shift cohorts (10 ops;
     // emitI{32,64}ShiftCtx) moved from legacy (+10 = 141).
-    try std.testing.expectEqual(@as(usize, 141), collected_x86_64_ctx_ops.len);
+    // B84: bitcount(6) + eqz(2) = 8 ops moved from legacy (+8 = 149).
+    try std.testing.expectEqual(@as(usize, 149), collected_x86_64_ctx_ops.len);
 }
 
 // Note: a `dispatch(.arm64, tag, args)` test at this layer would

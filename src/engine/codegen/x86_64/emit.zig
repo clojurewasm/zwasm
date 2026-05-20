@@ -757,7 +757,7 @@ pub fn compile(
             .@"i32.ge_s",
             .@"i32.ge_u",
             => try op_alu_int.emitI32CompareCtx(&ctx, &ins),
-            .@"i32.eqz" => try op_alu_int.emitI32Eqz(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i32.eqz" => try op_alu_int.emitI32EqzCtx(&ctx, &ins),
             // §9.12-B / B83: i32 shift cohort migrated to ctx tuple.
             .@"i32.shl",
             .@"i32.shr_s",
@@ -768,7 +768,7 @@ pub fn compile(
             .@"i32.clz",
             .@"i32.ctz",
             .@"i32.popcnt",
-            => try op_alu_int.emitI32Bitcount(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
+            => try op_alu_int.emitI32BitcountCtx(&ctx, &ins),
             // §9.12-B / B80: i64 binary ALU cohort migrated to ctx tuple.
             .@"i64.add",
             .@"i64.sub",
@@ -789,7 +789,7 @@ pub fn compile(
             .@"i64.ge_s",
             .@"i64.ge_u",
             => try op_alu_int.emitI64CompareCtx(&ctx, &ins),
-            .@"i64.eqz" => try op_alu_int.emitI64Eqz(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"i64.eqz" => try op_alu_int.emitI64EqzCtx(&ctx, &ins),
             // §9.9 / 9.9-m-1a (per ADR-0056): Wasm 2.0 reference-types
             // partial — null + is_null. ref.func deferred to m-1b
             // (needs JitRuntime extension). ref.null = push 0
@@ -817,7 +817,7 @@ pub fn compile(
             .@"i64.clz",
             .@"i64.ctz",
             .@"i64.popcnt",
-            => try op_alu_int.emitI64Bitcount(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op),
+            => try op_alu_int.emitI64BitcountCtx(&ctx, &ins),
             .@"i32.wrap_i64",
             .@"i64.extend_i32_u",
             .@"i64.extend_i32_s",
