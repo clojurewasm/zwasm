@@ -1559,6 +1559,58 @@ pub fn hasUnbindableImports(
     return false;
 }
 
+/// §9.12-E / B141 — link-time func-import type-check against
+/// the registered exporter map. Returns `true` iff at least one
+/// `func` import in `wasm_bytes` has an actual signature
+/// (resolved via the registered exporter's wasm) that does NOT
+/// match the importer's expected signature (resolved via the
+/// importer's type section at `imp.payload.func_typeidx`).
+/// A `true` return means assert_unlinkable PASSes ("incompatible
+/// import type"); `false` means every bindable import's type
+/// matches and the directive falls through to the SKIP path.
+///
+/// Non-func imports (table / memory / global) are intentionally
+/// not checked here — Wasm 2.0 spec testsuite's assert_unlinkable
+/// for those would have already been caught by `hasUnbindableImports`
+/// at the SIMD/Wasm-2.0 runner level (Track-D scope).
+pub fn hasIncompatibleImportType(
+    allocator: std.mem.Allocator,
+    wasm_bytes: []const u8,
+    registered: *const std.StringHashMapUnmanaged(RegisteredExporter),
+) bool {
+    var module = zwasm.parse.parser.parse(allocator, wasm_bytes) catch return false;
+    defer module.deinit(allocator);
+    const sec = module.find(.import) orelse return false;
+    var imports = zwasm.parse.sections.decodeImports(allocator, sec.body) catch return false;
+    defer imports.deinit();
+    // Importer's type section — resolves imp.payload.func_typeidx
+    // to a FuncType (params + results).
+    const type_sec = module.find(.type) orelse return false;
+    var types = zwasm.parse.sections.decodeTypes(allocator, type_sec.body) catch return false;
+    defer types.deinit();
+
+    for (imports.items) |imp| {
+        if (imp.kind != .func) continue;
+        if (std.mem.eql(u8, imp.module, "spectest")) continue;
+        const exp = registered.getPtr(imp.module) orelse continue;
+        const want_tidx = imp.payload.func_typeidx;
+        if (want_tidx >= types.items.len) return true;
+        const want = types.items[want_tidx];
+        const exporter_ft = zwasm.engine.export_lookup.getExportFuncType(allocator, exp.bytes_owned, imp.name) catch {
+            // Exporter doesn't have this export OR the lookup
+            // failed — treat as a mismatch so the linker rejects.
+            return true;
+        };
+        defer allocator.free(exporter_ft.params);
+        defer allocator.free(exporter_ft.results);
+        if (exporter_ft.params.len != want.params.len) return true;
+        if (exporter_ft.results.len != want.results.len) return true;
+        for (exporter_ft.params, want.params) |sp, wp| if (sp != wp) return true;
+        for (exporter_ft.results, want.results) |sr, wr| if (sr != wr) return true;
+    }
+    return false;
+}
+
 /// d-22 (D-106): parse the wasm bytes' start section (id=8) to
 /// discover the module's start funcidx. Returns `null` when no
 /// start section exists (most modules) or parsing fails. The
@@ -2670,14 +2722,21 @@ pub fn runCorpus(
                 if (runner_mod.compileWasm(gpa, wasm_bytes)) |compiled_ok| {
                     var c = compiled_ok;
                     c.deinit(gpa);
-                    // Path 3: module compiled cleanly. Without
-                    // link-time import-type checking against the
-                    // host's spectest binding, we cannot verify
-                    // an "incompatible import type" assertion;
-                    // surface as SKIP rather than FAIL so the gate
-                    // stays accurate. ADR-grade gap (no host link-
-                    // type validator yet).
-                    try stdout.print("SKIP-NO-LINK-TYPECHECK  {s}: assert_unlinkable {s} (compile + bindable; need link-time type check)\n", .{ name, file });
+                    // Path 3a (§9.12-E / B141): link-time func-
+                    // import type-check vs the registered exporter
+                    // map. A mismatch means the importer would
+                    // fail to link → PASS assert_unlinkable.
+                    if (hasIncompatibleImportType(gpa, wasm_bytes, &registered)) {
+                        tally.passed += 1;
+                        continue;
+                    }
+                    // Path 3b: module compiles, every bindable
+                    // func import's type matches. Remaining
+                    // assert_unlinkable cases need non-func
+                    // import-type checking (table / memory /
+                    // global) which is Track-D scope. SKIP-ADR
+                    // for ratchet hygiene.
+                    try stdout.print("SKIP-NO-LINK-TYPECHECK  {s}: assert_unlinkable {s} (compile + bindable; need non-func link-time type check)\n", .{ name, file });
                     tally.skipped_adr += 1;
                 } else |_| {
                     tally.passed += 1;
