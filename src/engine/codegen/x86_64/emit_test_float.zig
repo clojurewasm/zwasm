@@ -886,13 +886,14 @@ test "compile: f32.lt — UCOMISS swapped + SETA + MOVZX" {
     // — only the i32 result bank moves from R10 → RBX, and SETcc/MOVZX with
     // RBX still need a forced 0x40 REX byte for BL access, so byte counts and
     // the SETA offset (28) are preserved.
-    //   [24..28] UCOMISS XMM9, XMM8 (swap; 4 bytes: REX 45 0F 2E C8)
-    //   [28..32] SETA BL (4 bytes: 40 0F 97 C3)
-    //   [32..36] MOVZX EBX, BL (4 bytes: 40 0F B6 DB)
+    //   [body+20..+24] UCOMISS XMM9, XMM8 (swap; 4 bytes: REX 45 0F 2E C8)
+    //   [body+24..+28] SETA BL (4 bytes: 40 0F 97 C3)
+    //   [body+28..+32] MOVZX EBX, BL (4 bytes: 40 0F B6 DB)
+    const body_start = prologue.body_start_offset(false, 0);
     const expected_ucomiss = inst.encUcomiss(.xmm9, .xmm8); // swapped: a=rhs, b=lhs
-    try testing.expectEqualSlices(u8, expected_ucomiss.slice(), out.bytes[24 .. 24 + expected_ucomiss.len]);
+    try testing.expectEqualSlices(u8, expected_ucomiss.slice(), out.bytes[body_start + 20 .. body_start + 20 + expected_ucomiss.len]);
     const expected_seta = inst.encSetccR(.a, .rbx);
-    try testing.expectEqualSlices(u8, expected_seta.slice(), out.bytes[28 .. 28 + expected_seta.len]);
+    try testing.expectEqualSlices(u8, expected_seta.slice(), out.bytes[body_start + 24 .. body_start + 24 + expected_seta.len]);
 }
 
 test "compile: f32.eq — UCOMISS + SETNP/SETE + AND combine" {
@@ -912,19 +913,20 @@ test "compile: f32.eq — UCOMISS + SETNP/SETE + AND combine" {
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
-    // After 2× f32.const (20 bytes) at body offset 4..24:
-    //   [24..28] UCOMISS XMM8, XMM9   (4 bytes; no swap for eq)
-    //   [28..32] SETNP AL             (4 bytes: 40 0F 9B C0)
-    //   [32..36] MOVZX EAX, AL        (4 bytes: 40 0F B6 C0)
-    //   [36..40] SETE BL              (4 bytes: 40 0F 94 C3) — slot 0 = RBX after chunk 13b
-    //   [40..44] MOVZX EBX, BL
-    //   [44..46] AND EBX, EAX         (2 bytes: 21 C3 — no REX needed)
+    // After 2× f32.const (20 bytes) at body offset body..body+20:
+    //   [body+20..+24] UCOMISS XMM8, XMM9   (4 bytes; no swap for eq)
+    //   [body+24..+28] SETNP AL             (4 bytes: 40 0F 9B C0)
+    //   [body+28..+32] MOVZX EAX, AL        (4 bytes: 40 0F B6 C0)
+    //   [body+32..+36] SETE BL              (4 bytes: 40 0F 94 C3) — slot 0 = RBX after chunk 13b
+    //   [body+36..+40] MOVZX EBX, BL
+    //   [body+40..+42] AND EBX, EAX         (2 bytes: 21 C3 — no REX needed)
+    const body_start = prologue.body_start_offset(false, 0);
     const expected_ucomiss = inst.encUcomiss(.xmm8, .xmm9);
-    try testing.expectEqualSlices(u8, expected_ucomiss.slice(), out.bytes[24 .. 24 + expected_ucomiss.len]);
+    try testing.expectEqualSlices(u8, expected_ucomiss.slice(), out.bytes[body_start + 20 .. body_start + 20 + expected_ucomiss.len]);
     const expected_setnp = inst.encSetccR(.np, .rax);
-    try testing.expectEqualSlices(u8, expected_setnp.slice(), out.bytes[28 .. 28 + expected_setnp.len]);
+    try testing.expectEqualSlices(u8, expected_setnp.slice(), out.bytes[body_start + 24 .. body_start + 24 + expected_setnp.len]);
     const expected_and = inst.encAndRR(.d, .rbx, .rax);
-    try testing.expectEqualSlices(u8, expected_and.slice(), out.bytes[44 .. 44 + expected_and.len]);
+    try testing.expectEqualSlices(u8, expected_and.slice(), out.bytes[body_start + 40 .. body_start + 40 + expected_and.len]);
 }
 
 test "compile: f64.gt — UCOMISD + SETA + MOVZX" {
@@ -944,10 +946,11 @@ test "compile: f64.gt — UCOMISD + SETA + MOVZX" {
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
-    // 2× f64.const = 30 bytes at [4..34]. Then at [34..]:
+    // 2× f64.const = 30 bytes at [body..body+30]. Then at [body+30..]:
     //   UCOMISD XMM8, XMM9 (5 bytes; 66 prefix + REX)
+    const body_start = prologue.body_start_offset(false, 0);
     const expected_ucomisd = inst.encUcomisd(.xmm8, .xmm9);
-    try testing.expectEqualSlices(u8, expected_ucomisd.slice(), out.bytes[34 .. 34 + expected_ucomisd.len]);
+    try testing.expectEqualSlices(u8, expected_ucomisd.slice(), out.bytes[body_start + 30 .. body_start + 30 + expected_ucomisd.len]);
 }
 
 test "compile: f32.add stack underflow → AllocationMissing" {
