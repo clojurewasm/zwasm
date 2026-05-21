@@ -1,6 +1,6 @@
 # 0084 — Extract FP encoders from `arm64/inst.zig` into `inst_fp.zig`
 
-- **Status**: Proposed
+- **Status**: Proposed (amended 2026-05-21 — mid-impl discovery scope adjustment, see Revision history)
 - **Date**: 2026-05-21
 - **Author**: autonomous /continue loop (D-141 per-file ADR series, post-ADR-0083)
 - **Tags**: file-layout, refactor, zone-2, codegen-arm64, file-size-cap
@@ -242,4 +242,5 @@ Per the survey's "Extractable Mass Estimate":
 
 | Date       | SHA          | Note                                    |
 |------------|--------------|-----------------------------------------|
-| 2026-05-21 | `<backfill>` | Initial Proposed version.               |
+| 2026-05-21 | `067c7d38`   | Initial Proposed version.               |
+| 2026-05-21 | `<pending>`  | **Mid-impl discovery — scope amendment**. First impl attempt (Python extraction script ran successfully — moved 274 LOC across 52 FP encoder blocks; inst.zig dropped 1807 → 1579) revealed broader caller fanout than the ADR's "8 of 23 callers" estimate. Actual usage of FP encoders (`encScvtfX/encUcvtfX/encFcvtX/encF<Cap>/encFmovX/encFsqrtX` pattern): 13 caller files with ~120 call sites total. `bounds_check.zig` uses `encFCmpS`/`encFmovStoFromW` for v128 zero-comparison (18 sites); `emit_test_alu_float.zig` (38 sites); `op_alu_float.zig` (33), `op_convert.zig` (22), plus scattered uses in op_call/op_alu_int/op_control/emit/emit_test_call/emit_test_alu_int/emit_test_local. Carve remains valid (the extracted FP block is structurally cohesive) but caller-side migration is mechanical-but-large: `sed` rewrite of `inst\.encF` → `inst_fp.encF` across 13 files + verification each remains green. Also FP-specific in-source tests (~125 LOC) must move alongside the encoders. **Re-classify implementation as 2-cycle architectural chunk** (per LOOP.md architectural-chunk 3-cycle cap): cycle A executes the file extraction + caller sed-migration; cycle B addresses any test/build fallout. Mid-impl reverted (`git checkout`) until next cycle picks up with full context.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |

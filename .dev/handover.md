@@ -5,9 +5,10 @@
 
 ## Cold-start procedure
 
-1. `git log --oneline -10` — last code commit: `067c7d38`
-   (ADR-0084 Proposed — arm64/inst.zig FP machinery extraction
-   ~355 LOC). Impl cycle next.
+1. `git log --oneline -10` — last commit pending: ADR-0084
+   amendment (mid-impl discovery: 13 caller files / ~120 sites,
+   not 2 as estimated; carve reverted; re-classified as 2-cycle
+   architectural).
 2. **User directive (2026-05-21)**: batch-session architectural
    mode.
 3. **Live status**: `bash scripts/p9_completion_status.sh` —
@@ -15,19 +16,24 @@
 
 ## Authorized next-session pickup (priority order — updated 2026-05-21)
 
-1. **PRIMARY: ADR-0084 impl (arm64/inst.zig FP extraction)**.
-   ADR Proposed at `067c7d38`. Carve cycle:
-   - Create `src/engine/codegen/arm64/inst_fp.zig` with 35 FP
-     encoders (16 conversions + 16 binary + 12 unary/rounding +
-     7 move/select) + their in-source tests (~355 LOC total).
-     `const inst = @import("inst.zig"); const Cond = inst.Cond;`
-     for shared enum.
-   - Delete the same content from inst.zig (1807 → ~1455 LOC).
-   - Update 2 caller files: `op_alu_float.zig` + `op_convert.zig`
-     to add `const inst_fp = @import("inst_fp.zig");` and
-     rewrite `inst.encF...` to `inst_fp.encF...` for FP-side
-     encoders.
-   - Cohort gate + lint.
+1. **PRIMARY: ADR-0084 impl (arm64/inst.zig FP extraction —
+   amended scope)**. ADR amended at this cycle. Carve sequence
+   (cycle A: extract + sed; cycle B: fallout fix if any):
+   - `python3 /tmp/extract_fp.py` worked first try (script
+     left in repo or re-write same shape); extracts 52 FP
+     blocks → inst_fp.zig 295 LOC; inst.zig 1808 → 1579.
+   - Move FP-specific in-source tests (~125 LOC) — separate
+     pass: identify `test "..."` blocks that reference
+     `enc(Scvtf|Ucvtf|Fcvt|F[A-Z]|Fmov|Fsqrt)` names; move
+     them to inst_fp.zig.
+   - `sed` rewrite `inst\.encF<...>` → `inst_fp.encF<...>`
+     across 13 caller files (~120 sites): op_alu_float (33),
+     op_convert (22), bounds_check (18), emit_test_alu_float
+     (38), op_call (4), emit (2), emit_test_call (3),
+     emit_test_alu_int (2), op_alu_int (2), op_control (1),
+     emit_test_local (1).
+   - Cohort gate (test-all) + lint. Mac aarch64 strictly
+     required (FP encoders are aarch64-native).
 2. **Subsequent D-141 candidates** (after #1 lands):
    - **arm64/emit.zig** (1630 LOC) — mirror of x86_64/emit.zig
      after ADR-0081; same shape likely applies.
