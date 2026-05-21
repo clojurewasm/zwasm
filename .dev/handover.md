@@ -5,26 +5,27 @@
 
 ## Cold-start procedure
 
-1. `git log --oneline -10` — last code commit lands D-159 + D-160
-   discharge (FILE-SIZE-EXEMPT markers on `dispatch_collector_ops.zig`
-   / `inst_neon_arith.zig` / `inst_sse_packed.zig` + ADR-0075
-   §9.12-B amendment covering uniform pure-encoder catalogs).
+1. `git log --oneline -10` — most recent code-affecting commit
+   is the D-159+D-160 discharge pair (`799b9b10` + `65e79aa1`,
+   ubuntu OK). Latest cycle: ADR-0094 Proposed (SIBLING-PUB
+   marker + audit grep for cross-file struct-method extraction;
+   D-158 design phase).
 2. **User directive (2026-05-21)**: batch-session architectural
-   mode — Phase 9 closure quality. Address structural debts
-   (D-158) BEFORE any further struct-method extraction.
+   mode — Phase 9 closure quality. ADR-0094 implementation
+   cycle is the next action (D-158 discharge).
 3. **Live status**: `bash scripts/p9_completion_status.sh`.
 
-## Active `now` debts (after D-159/D-160 discharge)
+## Active `now` debts
 
-- **D-158** (ADR-grade, priority): cross-file private boundary
-  in Zig 0.16 — Validator/Lowerer/op_control_merge_mov
-  pub-surface leak from ADR-0083/0089/0093 (in spirit of
-  ROADMAP §P1 violation). Needs ADR-grade investigation:
-  (a) free-fn refactor with explicit `*Self`, (b) accept
-  leakage + INDEX-of-pub discipline + audit grep, (c) Zig
-  stdlib mechanism if discovered, (d) different sibling
-  pattern. **Block further struct-method extraction until
-  resolved.**
+- **D-158** (ADR-0094 Proposed; impl cycle next): cross-file
+  private boundary in Zig 0.16 — Validator/Lowerer/op_control_
+  merge_mov pub-surface leak from ADR-0083/0089/0093. Design
+  chose **SIBLING-PUB marker + audit grep**. Implementation
+  cycle deliverables: (1) `scripts/check_sibling_pub.sh`
+  (gate+info modes), (2) marker application to 5 leak sites,
+  (3) audit_scaffolding §F extension, (4) gate_commit.sh
+  integration, (5) lesson update. **Still blocks further
+  struct-method extraction until impl cycle lands.**
 - **D-055** (mechanical, multi-cycle): ~95 hardcoded
   byte-offset sites in x86_64 `emit_test_int.zig` /
   `emit_test_float.zig` migrate to `prologue.body_start_offset()`-
@@ -33,10 +34,10 @@
 
 ## Authorized next-session pickup (priority order)
 
-1. **D-158 ADR investigation** (next focus). Survey Zig 0.16
-   cross-file private boundary strategies; draft ADR-grade
-   decision; update lesson `2026-05-21-cross-file-struct-method-
-   syntax-zig-0-16.md` Citing header.
+1. **ADR-0094 implementation cycle** (D-158 discharge):
+   `scripts/check_sibling_pub.sh` design + 5 marker
+   applications + audit_scaffolding §F + gate_commit
+   integration + lesson update. Architectural chunk.
 2. **Remaining D-141 candidates — all need ADR-grade survey
    (NOT single-cycle mechanical)**:
    - `parse/sections.zig` (1556 LOC) — per-section vs Wasm-
@@ -90,6 +91,8 @@ work needs survey-first discipline.
 
 - [ROADMAP](./ROADMAP.md) §9.12 — F (D-141 sweep partial) / G / H / I open.
 - [`debt.md`](./debt.md) — 26 active rows.
+- [`decisions/0094_sibling_pub_marker_for_cross_file_struct_methods.md`](./decisions/0094_sibling_pub_marker_for_cross_file_struct_methods.md)
+  — Proposed; D-158 design phase.
 - [`decisions/0075_x86_64_emitctx_ctx_passing_unification.md`](./decisions/0075_x86_64_emitctx_ctx_passing_unification.md)
   — amended Consequences (D-160 discharge).
 - [`lessons/INDEX.md`](./lessons/INDEX.md).
