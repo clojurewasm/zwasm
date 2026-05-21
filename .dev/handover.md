@@ -5,9 +5,9 @@
 
 ## Cold-start procedure
 
-1. `git log --oneline -10` — last code commit `7a6bb076` lands
-   D-055 partial: 13 tests cumulative (5+5+3). 40 range sites
-   remain in emit_test_float + ~16 in emit_test_int.
+1. `git log --oneline -10` — last code commit `979cec20` lands
+   D-055 partial: 16 tests cumulative. Range sites remaining:
+   ~37 in emit_test_float + ~16 in emit_test_int.
 2. **User directive (2026-05-21)**: batch-session architectural
    mode — Phase 9 closure quality. D-158 closed; D-141 remaining
    candidates need ADR-grade survey first.
@@ -15,11 +15,11 @@
 
 ## Active `now` debts
 
-- **D-055** (mechanical, multi-cycle, partial): cumulative 13
-  tests migrated (commits `783e6c11`, `1028486a`, `7a6bb076`).
-  Range sites remaining: 40 in emit_test_float + 16 in
-  emit_test_int. Next cycle: continue from emit_test_float
-  line ~572 (f32.min and onward — large multi-assert tests).
+- **D-055** (mechanical, multi-cycle, partial): cumulative 16
+  tests migrated (commits `783e6c11`, `1028486a`, `7a6bb076`,
+  `979cec20`). Range sites remaining: ~37 in emit_test_float +
+  ~16 in emit_test_int. Next cycle: continue from
+  emit_test_float line ~689 (f32.copysign onward).
 
 ## Authorized next-session pickup (priority order)
 
