@@ -5,30 +5,37 @@
 
 ## Cold-start procedure
 
-1. `git log --oneline -10` — last code commit: `7945084f`
-   (ADR-0081 Proposed — Phase 1 emit_setup.zig extraction, ~163
-   LOC pure-function helpers). Awaiting impl cycle.
+1. `git log --oneline -10` — last code commit: `b8d91990`
+   (ADR-0081 Phase 1 impl landed; emit_setup.zig extracted;
+   emit.zig 1300 → 1144 LOC). ADR-0081 Status: Accepted.
 2. **User directive (2026-05-21)**: batch-session architectural
    mode.
 3. **Live status**: `bash scripts/p9_completion_status.sh` —
-   D-055 `Status: now`; D-081 blocked; ADR-0081 Phase 1 sized
-   at ~163 LOC move (mechanical, single-cycle).
+   D-055 `Status: now`; D-081 blocked.
 
 ## Authorized next-session pickup (priority order — updated 2026-05-21)
 
-1. **PRIMARY: ADR-0081 Phase 1 impl (emit_setup.zig
-   extraction)**. ADR Proposed at `7945084f`. Mechanical:
-   - **next cycle**: create
-     `src/engine/codegen/x86_64/emit_setup.zig` with the four
-     declarations (computeOutgoingMaxBytes lines 117-195,
-     localDisp 1217-1237, LocalLayout 1238-1252,
-     computeLocalLayout 1253-end). Update emit.zig: remove
-     those four decls, add 5-line import + alias block + `pub
-     const localDisp = setup.localDisp;` re-export for tests.
-     Test gate: `cohort` (test-all). emit.zig 1300 → ~1140.
-   - **after impl**: ADR-0081 Status: Proposed → Accepted on
-     green gate. D-141 row's "emit.zig × 2 arches" slot closes
-     for x86_64 side.
+1. **PRIMARY: next D-141 per-file ADR**. Pick next bloated
+   file from priority list. Suggested order:
+   - `src/ir/dispatch_collector.zig` (1397 LOC; touched
+     extensively this session; high familiarity) — ADR-0082
+     candidate.
+   - `src/validate/validator.zig` (1699 LOC; higher LOC but
+     less recent context).
+   - `src/engine/codegen/x86_64/op_simd_int_cmp_lane.zig`
+     (2121 LOC — over hard cap; urgent if any further SIMD
+     work).
+   Each: Step 0 survey with measurement-focused brief (per
+   `2026-05-21-emit-zig-survey-per-op-pattern-already-absorbed.md`
+   lesson) → ADR Proposed → impl cycle.
+2. **D-055 discharge (independent)**. ~95 hardcoded byte-offset
+   sites in emit_test_int.zig + emit_test_float.zig migrate to
+   `setup.localDisp()` / `prologue.body_start_offset()`-
+   relative; wire `inst.encMovMemDisp32Imm32` call in emit.zig
+   prologue. Mechanical multi-cycle (50+ test array edits per
+   chunk per LOOP.md granularity).
+3. **§9.12-F debt-cohort walk (continue)**. Each resume's
+   Step 0.5 walks remaining `blocked-by:` rows.
 2. **D-081 decision deferred to ADR-0081 cycle**: re-blocked
    pending ADR-0054 amendment OR alternative path. Not urgent
    for §9.12-F debt target (D-081's barrier wording is now
@@ -63,12 +70,12 @@
   stub coverage structurally complete. Remaining: api/instance
   split (#3 above) + c_api Instance tests (D-139 blocked).
 - **§9.12-F**: 24 debt rows; D-149/153/154/156/102/103/105/155
-  closed; D-157 filed. 2026-05-21 resume: D-055 stays `Status:
-  now` (mechanical work, unpaired from D-081 post-ADR-0080
-  Withdraw); D-081 re-blocked pending ADR-0081 pivot decision.
-  ADR-0080 Withdrawn same-day; lesson
-  `emit-zig-survey-per-op-pattern-already-absorbed.md` captures
-  the survey-time discipline gap.
+  closed; D-157 filed. 2026-05-21: ADR-0081 Accepted (`b8d91990`);
+  D-141's x86_64 emit.zig slot closed. D-055 `Status: now` (test
+  migration unpaired from D-081). D-081 still blocked (ADR-0054
+  amendment path). ADR-0080 Withdrawn precedent + lesson
+  `emit-zig-survey-per-op-pattern-already-absorbed.md` shapes
+  future ADR drafts.
 
 ## Operational note for the batch-session loop
 
