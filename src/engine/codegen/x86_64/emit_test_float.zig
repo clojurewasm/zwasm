@@ -495,10 +495,11 @@ test "compile: f32.convert_i32_u — CVTSI2SS XMM8, R10 (REX.W on i32 src for ze
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
-    // i32.const 0xFFFFFFFF at [4..9]; CVTSI2SS XMM8, RBX (i64 form) at [9..14].
+    // i32.const 0xFFFFFFFF at [body..body+5]; CVTSI2SS XMM8, RBX (i64 form) at [body+5..body+10].
     // (slot 0 = RBX after chunk 13b pool shrink — i32.const is 5 bytes.)
+    const body_start = prologue.body_start_offset(false, 0);
     const expected = inst.encCvtsi2Scalar(.f32, true, .xmm8, .rbx);
-    try testing.expectEqualSlices(u8, expected.slice(), out.bytes[9 .. 9 + expected.len]);
+    try testing.expectEqualSlices(u8, expected.slice(), out.bytes[body_start + 5 .. body_start + 5 + expected.len]);
 }
 
 test "compile: f32.convert_i64_u — branch-based slow-path emit" {
@@ -517,35 +518,37 @@ test "compile: f32.convert_i64_u — branch-based slow-path emit" {
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
-    // i32.const at [4..9] (slot 0 = RBX after chunk 13b pool shrink). Then:
-    //   [9..12]  TEST RBX, RBX            (3 bytes; REX.W = 48 + 85 + DB)
-    //   [12..18] JS rel32 placeholder     (6 bytes)
-    //   [18..23] CVTSI2SS XMM8, RBX i64   (5 bytes; F3 + REX.W+R + 0F 2A C3)
-    //   [23..28] JMP rel32 to end         (5 bytes)
-    //   slow_path at 28:
+    // i32.const at [body..body+5] (slot 0 = RBX after chunk 13b pool shrink). Then:
+    //   [body+5..+8]   TEST RBX, RBX            (3 bytes; REX.W = 48 + 85 + DB)
+    //   [body+8..+14]  JS rel32 placeholder     (6 bytes)
+    //   [body+14..+19] CVTSI2SS XMM8, RBX i64   (5 bytes; F3 + REX.W+R + 0F 2A C3)
+    //   [body+19..+24] JMP rel32 to end         (5 bytes)
+    //   slow_path at body+24:
+    const body_start = prologue.body_start_offset(false, 0);
     const expected_test = inst.encTestRR(.q, .rbx, .rbx);
-    try testing.expectEqualSlices(u8, expected_test.slice(), out.bytes[9 .. 9 + expected_test.len]);
+    try testing.expectEqualSlices(u8, expected_test.slice(), out.bytes[body_start + 5 .. body_start + 5 + expected_test.len]);
     // JS rel32 opcode bytes (disp patched at end-of-emit).
-    try testing.expectEqual(@as(u8, 0x0F), out.bytes[12]);
-    try testing.expectEqual(@as(u8, 0x88), out.bytes[13]); // Jcc.s = 8
+    try testing.expectEqual(@as(u8, 0x0F), out.bytes[body_start + 8]);
+    try testing.expectEqual(@as(u8, 0x88), out.bytes[body_start + 9]); // Jcc.s = 8
     const expected_pos_cvt = inst.encCvtsi2Scalar(.f32, true, .xmm8, .rbx);
-    try testing.expectEqualSlices(u8, expected_pos_cvt.slice(), out.bytes[18 .. 18 + expected_pos_cvt.len]);
-    // JMP rel32 opcode at 23.
-    try testing.expectEqual(@as(u8, 0xE9), out.bytes[23]);
-    // Slow path starts at 28: MOV RAX, RBX (3 bytes; REX.W = 48 89 D8)
+    try testing.expectEqualSlices(u8, expected_pos_cvt.slice(), out.bytes[body_start + 14 .. body_start + 14 + expected_pos_cvt.len]);
+    // JMP rel32 opcode at body+19.
+    try testing.expectEqual(@as(u8, 0xE9), out.bytes[body_start + 19]);
+    // Slow path starts at body+24: MOV RAX, RBX (3 bytes; REX.W = 48 89 D8)
     const expected_mov_rax = inst.encMovRR(.q, .rax, .rbx);
-    try testing.expectEqualSlices(u8, expected_mov_rax.slice(), out.bytes[28 .. 28 + expected_mov_rax.len]);
+    try testing.expectEqualSlices(u8, expected_mov_rax.slice(), out.bytes[body_start + 24 .. body_start + 24 + expected_mov_rax.len]);
     // After slow path: MOV RAX (3) + SHR RAX (4) + MOV RCX (3) + AND RCX (4) + OR (3) +
-    //                  CVTSI2SS (5) + ADDSS dst,dst (5) = 27 bytes. Slow path ends at 28+27=55.
+    //                  CVTSI2SS (5) + ADDSS dst,dst (5) = 27 bytes. Slow path ends at body+24+27=body+51.
     // Verify ADDSS is the final slow-path insn (5 bytes).
     const expected_addss = inst.encSseScalarBinary(.f32, 0x58, .xmm8, .xmm8);
-    try testing.expectEqualSlices(u8, expected_addss.slice(), out.bytes[50 .. 50 + expected_addss.len]);
-    // Verify JS rel32 disp points at slow_path (28).
-    const js_disp = std.mem.readInt(i32, out.bytes[14..18], .little);
-    try testing.expectEqual(@as(i32, 28 - 12 - 6), js_disp);
-    // Verify JMP rel32 disp points at end (55).
-    const jmp_disp = std.mem.readInt(i32, out.bytes[24..28], .little);
-    try testing.expectEqual(@as(i32, 55 - 23 - 5), jmp_disp);
+    try testing.expectEqualSlices(u8, expected_addss.slice(), out.bytes[body_start + 46 .. body_start + 46 + expected_addss.len]);
+    // Verify JS rel32 disp points at slow_path (body+24). Disps are
+    // body-relative deltas; the literal (24 - 8 - 6) is unchanged by body_start.
+    const js_disp = std.mem.readInt(i32, out.bytes[body_start + 10 .. body_start + 14][0..4], .little);
+    try testing.expectEqual(@as(i32, 24 - 8 - 6), js_disp);
+    // Verify JMP rel32 disp points at end (body+51).
+    const jmp_disp = std.mem.readInt(i32, out.bytes[body_start + 20 .. body_start + 24][0..4], .little);
+    try testing.expectEqual(@as(i32, 51 - 19 - 5), jmp_disp);
 }
 
 test "compile: f32.convert_i32_s — CVTSI2SS XMM8, R10D" {
@@ -563,10 +566,11 @@ test "compile: f32.convert_i32_s — CVTSI2SS XMM8, R10D" {
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
-    // After i32.const at [4..9] (slot 0 = RBX, 5 bytes after chunk 13b):
-    // CVTSI2SS XMM8, EBX at [9..14].
+    // After i32.const at [body..body+5] (slot 0 = RBX, 5 bytes after chunk 13b):
+    // CVTSI2SS XMM8, EBX at [body+5..body+10].
+    const body_start = prologue.body_start_offset(false, 0);
     const expected = inst.encCvtsi2Scalar(.f32, false, .xmm8, .rbx);
-    try testing.expectEqualSlices(u8, expected.slice(), out.bytes[9 .. 9 + expected.len]);
+    try testing.expectEqualSlices(u8, expected.slice(), out.bytes[body_start + 5 .. body_start + 5 + expected.len]);
 }
 
 test "compile: f32.min — branch-based emit (UCOMISS + JP/JE + 3 paths)" {
