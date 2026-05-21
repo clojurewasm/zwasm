@@ -605,6 +605,21 @@ const array_copy = @import("../instruction/wasm_3_0/array_copy.zig");
 const array_init_data = @import("../instruction/wasm_3_0/array_init_data.zig");
 const array_init_elem = @import("../instruction/wasm_3_0/array_init_elem.zig");
 
+// Wasm 3.0 GC — ref/cast cohort (8 ops). Same wasm_level: .v3_0 shape.
+const ref_test = @import("../instruction/wasm_3_0/ref_test.zig");
+const ref_test_null = @import("../instruction/wasm_3_0/ref_test_null.zig");
+const ref_cast = @import("../instruction/wasm_3_0/ref_cast.zig");
+const ref_cast_null = @import("../instruction/wasm_3_0/ref_cast_null.zig");
+const br_on_cast = @import("../instruction/wasm_3_0/br_on_cast.zig");
+const br_on_cast_fail = @import("../instruction/wasm_3_0/br_on_cast_fail.zig");
+const any_convert_extern = @import("../instruction/wasm_3_0/any_convert_extern.zig");
+const extern_convert_any = @import("../instruction/wasm_3_0/extern_convert_any.zig");
+
+// Wasm 3.0 GC — i31 cohort (3 ops).
+const ref_i31 = @import("../instruction/wasm_3_0/ref_i31.zig");
+const i31_get_s = @import("../instruction/wasm_3_0/i31_get_s.zig");
+const i31_get_u = @import("../instruction/wasm_3_0/i31_get_u.zig");
+
 /// Tuple of all migrated per-op modules. Order is not load-bearing;
 /// `dispatcher` uses `op_tag` for routing.
 pub const collected_ops = .{
@@ -1022,6 +1037,21 @@ pub const collected_ops = .{
     array_copy,
     array_init_data,
     array_init_elem,
+
+    // Wasm 3.0 GC ref/cast cohort (§9.12-G Phase 10 prep).
+    ref_test,
+    ref_test_null,
+    ref_cast,
+    ref_cast_null,
+    br_on_cast,
+    br_on_cast_fail,
+    any_convert_extern,
+    extern_convert_any,
+
+    // Wasm 3.0 GC i31 cohort (§9.12-G Phase 10 prep).
+    ref_i31,
+    i31_get_s,
+    i31_get_u,
 };
 
 comptime {
@@ -1194,7 +1224,7 @@ test "zirOpTagCount matches the ZirOp enum field count" {
     try std.testing.expect(n >= 200);
 }
 
-test "migratedOpCount tracks collected_ops length (404 after §9.12-G GC array cohort)" {
+test "migratedOpCount tracks collected_ops length (415 after §9.12-G GC ref/cast + i31)" {
     // Running tally:
     //   374 §9.12-B / B52 baseline
     // +   3 Wasm 3.0 tail-call (return_call / _indirect / _ref)
@@ -1202,11 +1232,14 @@ test "migratedOpCount tracks collected_ops length (404 after §9.12-G GC array c
     // +   4 Wasm 3.0 typed-func-refs (call_ref / br_on_null /
     //         br_on_non_null / ref.as_non_null)
     // +   6 Wasm 3.0 GC struct (6 ops)
-    // +  14 Wasm 3.0 GC array (.new / _default / _fixed / _data /
-    //         _elem / .get / .get_s / .get_u / .set / .len /
-    //         .fill / .copy / .init_data / .init_elem)
-    // = 404.
-    try std.testing.expectEqual(@as(usize, 404), migratedOpCount());
+    // +  14 Wasm 3.0 GC array (14 ops)
+    // +   8 Wasm 3.0 GC ref/cast (ref.test / ref.test_null /
+    //         ref.cast / ref.cast_null / br_on_cast /
+    //         br_on_cast_fail / any.convert_extern /
+    //         extern.convert_any)
+    // +   3 Wasm 3.0 GC i31 (ref.i31 / i31.get_s / i31.get_u)
+    // = 415.
+    try std.testing.expectEqual(@as(usize, 415), migratedOpCount());
 }
 
 test "opModuleFor resolves GC struct cohort stubs" {
@@ -1233,6 +1266,20 @@ test "opModuleFor resolves GC array cohort stubs" {
     try std.testing.expect(comptime opModuleFor(.@"array.copy") != null);
     try std.testing.expect(comptime opModuleFor(.@"array.init_data") != null);
     try std.testing.expect(comptime opModuleFor(.@"array.init_elem") != null);
+}
+
+test "opModuleFor resolves GC ref/cast + i31 cohort stubs" {
+    try std.testing.expect(comptime opModuleFor(.@"ref.test") != null);
+    try std.testing.expect(comptime opModuleFor(.@"ref.test_null") != null);
+    try std.testing.expect(comptime opModuleFor(.@"ref.cast") != null);
+    try std.testing.expect(comptime opModuleFor(.@"ref.cast_null") != null);
+    try std.testing.expect(comptime opModuleFor(.br_on_cast) != null);
+    try std.testing.expect(comptime opModuleFor(.br_on_cast_fail) != null);
+    try std.testing.expect(comptime opModuleFor(.@"any.convert_extern") != null);
+    try std.testing.expect(comptime opModuleFor(.@"extern.convert_any") != null);
+    try std.testing.expect(comptime opModuleFor(.@"ref.i31") != null);
+    try std.testing.expect(comptime opModuleFor(.@"i31.get_s") != null);
+    try std.testing.expect(comptime opModuleFor(.@"i31.get_u") != null);
 }
 
 test "opModuleFor resolves Phase 10 Wasm 3.0 stubs (tail-call + EH + typed-func-refs)" {
