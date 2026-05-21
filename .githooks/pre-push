@@ -11,9 +11,14 @@
 # commit gate at push time was pure duplication that added ~30 s
 # to every push without catching anything pre-commit didn't.
 #
-# Two ratchets remain — both are cheap when they have nothing to do:
-# subrow_exit only fires when HEAD contains a §9.12-X `[x]` flip;
-# skip_impl_ratchet uses cached test logs (or warns if absent).
+# Four cheap audit gates — all run on every push, all <1s when
+# they have nothing to do:
+# - subrow_exit only fires when HEAD contains a §9.12-X `[x]` flip;
+# - skip_impl_ratchet uses cached test logs (or warns if absent);
+# - check_skip_taxonomy validates SKIP-* emissions vs ADR-0078 table
+#   (catches new tokens landing without classification);
+# - check_skip_taxonomy_pairing validates Paired-artifact resolution
+#   (catches missing ADR file refs).
 #
 # The full 3-host merge gate (Mac + ubuntunote + windowsmini
 # test-all) lives in `scripts/gate_merge.sh` and is invoked
@@ -38,4 +43,14 @@ fi
 if [ -x scripts/check_skip_impl_ratchet.sh ]; then
     echo "[pre-push] check_skip_impl_ratchet --gate ..."
     bash scripts/check_skip_impl_ratchet.sh --gate
+fi
+
+if [ -x scripts/check_skip_taxonomy.sh ]; then
+    echo "[pre-push] check_skip_taxonomy --gate ..."
+    bash scripts/check_skip_taxonomy.sh --gate
+fi
+
+if [ -x scripts/check_skip_taxonomy_pairing.sh ]; then
+    echo "[pre-push] check_skip_taxonomy_pairing --gate ..."
+    bash scripts/check_skip_taxonomy_pairing.sh --gate
 fi
