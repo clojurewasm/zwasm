@@ -5,10 +5,11 @@
 
 ## Cold-start procedure
 
-1. `git log --oneline -10` — last code commit: `1a008ee5`
-   (ADR-0089 — lower_simd.zig extraction; lower.zig 1109 → 775
-   LOC; ADR-0083 cross-file struct-method pattern applied;
-   Accepted same cycle). Total D-141 closures: 10.
+1. `git log --oneline -10` — last code commit: `30ae661f`
+   (ADR-0090 — regalloc_shape_tags.zig extraction;
+   regalloc.zig 1851 → 1529 LOC; mirror of ADR-0088
+   re-export pattern; Accepted same cycle). Total D-141
+   closures: 11.
 2. **User directive (2026-05-21)**: batch-session architectural
    mode.
 3. **Live status**: `bash scripts/p9_completion_status.sh` —
