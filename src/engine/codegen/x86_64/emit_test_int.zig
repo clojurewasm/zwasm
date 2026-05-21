@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: per-op JIT-emit test catalog; P2 pure-data dominance (test blocks) (per ADR-0099)
 //! x86_64 emit pass — i32/i64 + control/memory/calls test family
 //! (D-051 follow-up split per ADR-0030). Tests for floating-point
 //! ops live in the sibling `emit_test_float.zig`. Both files are

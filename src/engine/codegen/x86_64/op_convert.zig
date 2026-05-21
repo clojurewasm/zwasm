@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: per-op handler catalog (Wasm FP↔int conversion sub-language); P1 spec-defined (per ADR-0099)
 //! x86_64 emit pass — FP↔i / FP↔FP conversion handlers (D-030 chunk-d).
 //!
 //! Extracted from `emit.zig` per ADR-0023 §269-314 + the ARM64

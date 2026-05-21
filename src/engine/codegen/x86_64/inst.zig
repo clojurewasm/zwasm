@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: uniform pure-encoder catalog (SysV/Win64 x86_64 ISA encoders); P2 pure-data dominance (per ADR-0099)
 //! x86_64 instruction encoder (§9.7 / 7.6 chunk b).
 //!
 //! Mirrors the role of `arm64/inst.zig` but x86_64 instructions

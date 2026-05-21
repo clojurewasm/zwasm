@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: SIMD int-cmp/lane per-op test catalog; P2 pure-data dominance (per ADR-0099)
 //! Byte-level tests for x86_64 SIMD int-cmp/lane op handlers.
 //! Mirror of `op_simd_int_cmp_lane.zig` per ADR-0054 §"Naming
 //! convention" (4-way mirror split with `<source>_test.zig`

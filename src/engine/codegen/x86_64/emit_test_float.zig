@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: per-op JIT-emit test catalog (FP family); P2 pure-data dominance (per ADR-0099)
 //! x86_64 emit pass — f32/f64 floating-point test family
 //! (D-051 follow-up split per ADR-0030). Tests for integer /
 //! control / memory / calls live in the sibling

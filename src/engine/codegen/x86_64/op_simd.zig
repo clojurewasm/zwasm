@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: per-op handler catalog (Wasm SIMD-128 sub-language); P1 spec-defined (per ADR-0099)
 //! x86_64 emit pass — SIMD-128 op handlers (§9.7 / 9.7-a + 9.7-b
 //! per ADR-0041).
 //!

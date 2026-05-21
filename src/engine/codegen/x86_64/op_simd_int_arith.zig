@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: per-op handler catalog (Wasm SIMD int arith sub-language); P1 spec-defined (per ADR-0099)
 //! x86_64 emit pass - SIMD-128 integer arithmetic op handlers
 //! (split from `op_simd.zig` per
 //! `.dev/phase10_prep/track_b_source_split.md` Sec 9.9 / 9.9-h-15;

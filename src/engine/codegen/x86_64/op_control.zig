@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: per-op handler catalog (Wasm control-flow sub-language); P1 spec-defined (per ADR-0099)
 //! x86_64 emit pass — control-flow handlers (D-030 chunk-f).
 //!
 //! Extracted from `emit.zig` per ADR-0023 §269-314 + the ARM64

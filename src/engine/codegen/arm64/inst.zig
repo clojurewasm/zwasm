@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: uniform pure-encoder catalog (AAPCS64 ISA encoders); P2 pure-data dominance (per ADR-0099)
 //! ARM64 instruction encoder (§9.7 / 7.2 chunk a).
 //!
 //! Produces fixed-width `u32` encodings for the AArch64 ops the

@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: per-op handler catalog (Wasm i32 ALU sub-language); P1 spec-defined (per ADR-0099)
 //! x86_64 emit pass — i32 ALU / compare / shift / bitcount /
 //! width-cross handlers (D-030 chunk-b).
 //!

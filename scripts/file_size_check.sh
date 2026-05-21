@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # File-size cap enforcement (ROADMAP §A2).
 #
-# Soft cap (1000 lines): warning, requires ADR for split plan.
+# Soft cap (1000 lines): warning, requires ADR for split plan,
+#   UNLESS the file declares the FILE-SIZE-EXEMPT marker — in which
+#   case the marker suppresses the WARN per ADR-0099 D1 (reframe:
+#   soft cap is a smell detector, not a metric to drive to zero;
+#   the marker captures "smell investigated, no valid extraction").
 # Hard cap (2000 lines): gate fails.
 # Exempt hard cap (2500 lines): allowed only when the file
 #   declares `// FILE-SIZE-EXEMPT: <reason> (per ADR-NNNN)`
@@ -35,9 +39,12 @@ while IFS= read -r f; do
         continue
     fi
 
-    # Per-file hard-cap exemption — marker must cite an ADR. The
-    # exemption raises the hard cap to EXEMPT_CAP but does NOT
-    # remove the soft cap warning (the file is still tracked).
+    # Per-file exemption — marker must cite an ADR. The marker
+    # serves two purposes per ADR-0099 D1 (reframe):
+    #   - [SOFT, HARD] range: suppresses the soft-cap WARN (the
+    #     file has been investigated; no design smell present)
+    #   - [HARD, EXEMPT_CAP] range: raises the hard cap (catalog
+    #     pattern; legitimate uniform-pattern file > 2000 LOC)
     exempt=0
     if head -5 "$f" 2>/dev/null | grep -qE '^// FILE-SIZE-EXEMPT:.*ADR-[0-9]+'; then
         exempt=1
@@ -57,8 +64,10 @@ while IFS= read -r f; do
         violations=$((violations + 1))
     elif [ "$lines" -gt "$HARD_CAP" ] && [ "$exempt" -eq 1 ]; then
         echo "EXEMPT: $f ($lines lines, in [$HARD_CAP, $EXEMPT_CAP] via FILE-SIZE-EXEMPT marker)" >&2
+    elif [ "$lines" -gt "$SOFT_CAP" ] && [ "$exempt" -eq 1 ]; then
+        echo "EXEMPT: $f ($lines lines, in [$SOFT_CAP, $HARD_CAP] via FILE-SIZE-EXEMPT marker per ADR-0099 D1)" >&2
     elif [ "$lines" -gt "$SOFT_CAP" ]; then
-        echo "WARN: $f ($lines lines) — needs ADR for split plan" >&2
+        echo "WARN: $f ($lines lines) — needs ADR for split plan OR FILE-SIZE-EXEMPT marker (per ADR-0099 D1)" >&2
         warnings=$((warnings + 1))
     fi
 done < <(find src -name '*.zig' 2>/dev/null || true)
