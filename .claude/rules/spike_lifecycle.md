@@ -22,16 +22,23 @@ A `private/spikes/<slug>/` directory **MUST have a lifecycle Status**:
 | `rejected` | Not adopted. Conclusion MUST be recorded in `.dev/lessons/YYYY-MM-DD-<slug>-rejected.md` |
 | `archived` | Past rejection; spike dir remains but no activity |
 
-Each spike's README.md MUST declare its Status explicitly in the frontmatter or at the top:
+Each spike's README.md MUST declare its Status explicitly in the frontmatter or at the top. Canonical shape (matches `scripts/new_spike.sh` output — use it for new spikes):
 
 ```markdown
-# spike: q3-zig-inline-switch
+# Spike: q3-zig-inline-switch
 
+**Created**: 2026-05-19 (@ <sha>)
 **Status**: running
-**Started**: 2026-05-19
 **Outcome**: <TBD>
 **Hypothesis**: Does a 581-tag `inline switch` hit a Zig 0.16 compile-time wall?
 ```
+
+`scripts/audit_spikes.sh` accepts `**Started**:` / `**Date**:` as
+synonyms for the creation-date field and the `- **Status**:`
+bullet-list form, for backward compatibility with historical
+spike READMEs (q3-* cohort used the bullet form + `Date`). New
+spikes should use `scripts/new_spike.sh` and take the canonical
+shape above.
 
 ## Why
 
