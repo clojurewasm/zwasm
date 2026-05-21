@@ -5,72 +5,51 @@
 
 ## Cold-start procedure
 
-1. `git log --oneline -10` — last code commit: `41dcc43d`
-   (ADR-0093 — op_control_merge_mov.zig extraction;
-   op_control.zig 1127 → 877 LOC, UNDER soft cap; private-
-   helper-relocation variant of ADR-0090; Accepted same
-   cycle). **Session total: 14 D-141 closures + 3 lessons.**
+1. `git log --oneline -10` — last code commit lands D-159 + D-160
+   discharge (FILE-SIZE-EXEMPT markers on `dispatch_collector_ops.zig`
+   / `inst_neon_arith.zig` / `inst_sse_packed.zig` + ADR-0075
+   §9.12-B amendment covering uniform pure-encoder catalogs).
 2. **User directive (2026-05-21)**: batch-session architectural
-   mode — Phase 9 closure quality. Substantially advanced.
-3. **Live status**: `bash scripts/p9_completion_status.sh` —
-   D-055 `Status: now`; D-081 blocked.
+   mode — Phase 9 closure quality. Address structural debts
+   (D-158) BEFORE any further struct-method extraction.
+3. **Live status**: `bash scripts/p9_completion_status.sh`.
 
-## Structural debts surfaced 2026-05-21 (priority — discharge before more D-141 extraction)
+## Active `now` debts (after D-159/D-160 discharge)
 
-User-triggered honest retrospective at end of 2026-05-21 session
-revealed compromises that should be addressed BEFORE pushing for
-more D-141 closures. **Step 0.5 debt sweep will pick these up.**
+- **D-158** (ADR-grade, priority): cross-file private boundary
+  in Zig 0.16 — Validator/Lowerer/op_control_merge_mov
+  pub-surface leak from ADR-0083/0089/0093 (in spirit of
+  ROADMAP §P1 violation). Needs ADR-grade investigation:
+  (a) free-fn refactor with explicit `*Self`, (b) accept
+  leakage + INDEX-of-pub discipline + audit grep, (c) Zig
+  stdlib mechanism if discovered, (d) different sibling
+  pattern. **Block further struct-method extraction until
+  resolved.**
+- **D-055** (mechanical, multi-cycle): ~95 hardcoded
+  byte-offset sites in x86_64 `emit_test_int.zig` /
+  `emit_test_float.zig` migrate to `prologue.body_start_offset()`-
+  relative pattern + wire `inst.encMovMemDisp32Imm32` call.
+  Barrier dissolved 2026-05-21; mechanical work remains.
 
-- **D-158** (ADR-grade): cross-file private boundary in Zig 0.16
-  — Validator/Lowerer/op_control_merge_mov pub-surface leak from
-  ADR-0083/0089/0093 (in spirit of ROADMAP §P1 violation; needs
-  ADR-grade investigation of strategies).
-- **D-159** (mechanical, ≤ 1 min): codegen/dispatch_collector_ops.zig
-  FILE-SIZE-EXEMPT marker per ADR-0086 Consequences.
-- **D-160** (mechanical-ish): ADR-0075 §9.12-B amendment +
-  FILE-SIZE-EXEMPT marker for `inst_neon_arith.zig` (1282) +
-  `inst_sse_packed.zig` (1086).
+## Authorized next-session pickup (priority order)
 
-See lesson `2026-05-21-d141-sweep-structural-debts.md` for the
-honest accounting. **AI loop discipline note**: continuation-pressure
-mode rationalizes marginal extractions (ADR-0092: 1527 → 1403, still
-over cap; ADR-0093: similar). Soft cap is a smell not a constraint
-per user direction "意味があるならハードキャップ無視可". Address D-158
-before any further struct-method extraction (avoid compounding the
-pub-surface leak).
-
-## Authorized next-session pickup (priority order — 2026-05-21)
-
-**Mechanical-extraction sweep is exhausted.** 11 D-141 closures
-this session covered every file with a clean single-cycle
-extraction shape (re-export / pure top-level helper / struct-
-method-mirror-of-ADR-0083). Remaining files need ADR-grade
-design surveys before extraction can proceed.
-
-1. **REMAINING D-141 candidates — all need ADR-grade survey
+1. **D-158 ADR investigation** (next focus). Survey Zig 0.16
+   cross-file private boundary strategies; draft ADR-grade
+   decision; update lesson `2026-05-21-cross-file-struct-method-
+   syntax-zig-0-16.md` Citing header.
+2. **Remaining D-141 candidates — all need ADR-grade survey
    (NOT single-cycle mechanical)**:
-   - **parse/sections.zig** (1556 LOC) — 16 small structs
-     interleaved with 10+ decoders. Design choice: per-section
-     split (7+ new files, ADR-0080 fragmentation trap) vs
-     Wasm-version-cohort split (sections_core / sections_2_0)
-     vs FILE-SIZE-EXEMPT marker.
-   - **api/instance.zig** (1431 LOC) — c_api Instance
-     lifecycle; 7 fns with many file-internal dependencies
-     (buildBindings calls parkAsZombie / lookupSourceExportType
-     / dispatchTable). Re-export pattern does NOT apply.
-     §9.12-G item — needs c_api lifecycle redesign.
-   - **engine/compile.zig** (1225 LOC) — one huge
-     `pub fn compileWasm` spanning lines 29-903 (~875 LOC).
-     Extraction requires breaking compileWasm into phased
-     sub-fns (parse / validate / lower / emit / link). ADR-grade.
-   - **regalloc.zig** (1529 LOC after ADR-0090) — still over
-     soft cap. Compute/verify/vreg-class axis split possible
-     but needs design choice on which to extract first.
-2. **D-055 discharge (independent)**. ~95 hardcoded byte-offset
-   sites migrate; mechanical, multi-cycle.
-3. **§9.12-G `src/api/instance.zig` split** (per c_api lifecycle).
-4. **§9.12-H bench baseline** (Mac Wasm 2.0 + wasmtime).
-5. **§9.12-I ADR/lesson curation closure**.
+   - `parse/sections.zig` (1556 LOC) — per-section vs Wasm-
+     version-cohort split vs FILE-SIZE-EXEMPT marker.
+   - `api/instance.zig` (1431 LOC) — c_api lifecycle redesign.
+   - `engine/compile.zig` (1225 LOC) — compileWasm phased
+     sub-fn split.
+   - `regalloc.zig` (1529 LOC after ADR-0090) — compute/verify/
+     vreg-class axis split.
+3. **D-055 discharge** (independent, multi-cycle mechanical).
+4. **§9.12-G `src/api/instance.zig` split** (per c_api lifecycle).
+5. **§9.12-H bench baseline** (Mac Wasm 2.0 + wasmtime).
+6. **§9.12-I ADR/lesson curation closure**.
 
 ## Active state (snapshot)
 
@@ -79,16 +58,11 @@ design surveys before extraction can proceed.
 - **ADR-0078 fully load-bearing**: G.1.1 + G.1.2 + amendment.
 - **§9.12-G partial**: 41 Wasm 3.0 stubs landed; dispatcher
   comptime-reject; CLI --invoke.
-- **§9.12-F**: **11 D-141 slots closed THIS session**
-  (runner.zig / x86_64-emit.zig / ir-dispatch_collector /
-  validator / arm64-inst / arm64-emit / codegen-dispatch_collector
-  / ir-zir / ir-liveness / ir-lower / regalloc). ADRs 0079
-  +0081+0082+0083+0084+0085+0086+0087+0088+0089+0090 all
-  Accepted. 3 lessons captured (cross-file-struct-method-syntax-
-  zig-0-16 / emit-zig-survey-per-op-pattern-already-absorbed /
-  pure-data-extraction-via-reexport).
+- **§9.12-F**: 11 D-141 slots closed in 2026-05-21 session.
+  ADRs 0079+0081+0082+0083+0084+0085+0086+0087+0088+0089+0090
+  Accepted. 3 lessons captured.
 
-## Pattern menu (for next-session reference)
+## Pattern menu (next-session reference)
 
 | Pattern | When applicable | Examples |
 |---|---|---|
@@ -103,20 +77,19 @@ survey checklist before drafting the next per-file ADR.
 ## Operational note for the batch-session loop
 
 `/continue` resume Steps 0-7 apply per cycle. Granularity
-`architectural`. Cite ADR-0079/0081/0082/0083/0086/0088 shape
-precedents in commit bodies. Remaining work needs survey-first
-discipline (not assume the same mechanical pattern will apply).
+`architectural`. Soft cap is a smell not a constraint per
+user direction (意味があるならハードキャップ無視可). Remaining
+work needs survey-first discipline.
 
 ## Open questions / blockers
 
-- なし。autonomous batch-session at natural breakpoint —
-  mechanical-extraction sweep complete; next surface needs
-  design choices.
+- なし。Mechanical-extraction sweep complete; D-158 needs
+  ADR investigation before further struct-method extraction.
 
 ## See
 
 - [ROADMAP](./ROADMAP.md) §9.12 — F (D-141 sweep partial) / G / H / I open.
-- [`debt.md`](./debt.md) — 24 active rows.
-- [`decisions/0090_regalloc_shape_tags_extraction.md`](./decisions/0090_regalloc_shape_tags_extraction.md)
-  — most recent extraction.
-- [`lessons/INDEX.md`](./lessons/INDEX.md) — 3 lessons from this session.
+- [`debt.md`](./debt.md) — 26 active rows.
+- [`decisions/0075_x86_64_emitctx_ctx_passing_unification.md`](./decisions/0075_x86_64_emitctx_ctx_passing_unification.md)
+  — amended Consequences (D-160 discharge).
+- [`lessons/INDEX.md`](./lessons/INDEX.md).
