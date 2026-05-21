@@ -1,9 +1,10 @@
 # 0097 — Extract regalloc verify family into `regalloc_verify.zig`
 
-- **Status**: Accepted
+- **Status**: Rolled back (see ADR-0100)
 - **Date**: 2026-05-21
 - **Author**: autonomous /continue loop (D-141 per-file ADR series, post-ADR-0096)
-- **Tags**: file-layout, refactor, zone-2, regalloc, file-size-cap
+- **Tags**: file-layout, refactor, zone-2, regalloc, file-size-cap, rolled-back
+- **Rolled-back-by**: ADR-0100 (verify family re-incorporated into regalloc.zig at Cycle 4 — this extraction triggered N3 shallow-module per ADR-0099 §D2)
 
 ## Context
 

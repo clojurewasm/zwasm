@@ -1,9 +1,10 @@
 # 0095 — Extract element-section decoder into `sections_element.zig`
 
-- **Status**: Accepted
+- **Status**: Superseded by ADR-0101 (see ADR-0100)
 - **Date**: 2026-05-21
 - **Author**: autonomous /continue loop (D-141 per-file ADR series, post-ADR-0094)
-- **Tags**: file-layout, refactor, zone-1, parse, file-size-cap
+- **Tags**: file-layout, refactor, zone-1, parse, file-size-cap, superseded
+- **Superseded-by**: ADR-0101 (see ADR-0100 for rationale — this extraction triggered N1+N2 per ADR-0099 §D2)
 
 ## Context
 
