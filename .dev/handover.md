@@ -10,17 +10,29 @@
 **Authoritative work source for this session**:
 [`.dev/phase9_13_0_execution_plan.md`](./phase9_13_0_execution_plan.md).
 The `/continue` skill's Step 1a close-plan override activates;
-follow that doc's §6 Work sequence (10 rows). §0 Preflight
-(windowsmini env check) runs at the head of the first resume.
+follow that doc's §6 Work sequence. **§0 preflight** is now
+just a 1-line tool inventory check (env was provisioned
+2026-05-22 by `scripts/windows/install_tools.ps1`).
 
 | Track | First action | User touchpoint |
 |---|---|---|
-| W0 — windowsmini survey | background subagent (per §7 prompt template) | none |
+| W0 — windowsmini test-all survey | check Bash `bwapumur8` result OR re-launch (background subagent) | none |
 | WA — §9.12-F ADR draft | main session, parallel with W0 | ADR-flip Proposed → Accepted |
 
-§9.12-E ★ DONE (Wasm 2.0 100%, 4 testsuites green, bit-identical
-Mac+ubuntu). §9.12-I (ADR Accepted < 30) is batched at row 10
-(§9.13-0 close + Phase 9 boundary).
+§9.12-E ★ DONE (Wasm 2.0 100%). §9.12-I batched at row 10
+(§9.13-0 close).
+
+## windowsmini state (2026-05-22 — fresh)
+
+- HEAD `9218f91e` (synced).
+- All 8 tools installed + on PATH: zig 0.16.0 / hyperfine /
+  wasm-tools / wasmtime / wabt (wat2wasm + wast2json) /
+  yq 4.53.2 / lldb 22.1.6 / python311.dll.
+- `zig build` ✓ (was failing pre-wabt-install).
+- `zig build test` ✓ 1744/1775 pass, 2 crashes (both D-136
+  SEH expected; smoke landscape clean).
+- `zig build test-all` running in background (Bash
+  `bwapumur8`); result drives W0 close.
 
 ## Current Phase 9 state
 
@@ -32,24 +44,22 @@ Mac+ubuntu). §9.12-I (ADR Accepted < 30) is batched at row 10
 
 ## Active `now` debts
 
-- なし (handled as §9.13-0 chunks per execution plan §6).
+- なし.
 
 ## Open questions / blockers
 
-- §9.12-F exit re-framing — WA ADR draft is autonomous;
-  ADR-flip review needs user (per
-  `handover_framing.md` § "user-judgment" allowed only for
-  §18 deviation ADR-flip).
+- §9.12-F exit re-framing — WA ADR draft autonomous;
+  ADR-flip review needs user.
 
 ## Recent context
 
-- §9.12-G closed (`4bd62842`); §9.12-H closed (`600bd7cf`).
-- §9.12-I batches 1+2 + ADR-0034 flip.
-- §9.12-F discharges: D-018 / D-055 / D-090 / D-141 / D-081.
-- Plateau-period cleanups + `2026-05-21-debt-stale-framing-pattern.md`.
-- 2026-05-22 framing-fix commits (`026a578f`, `ab3966bb`):
-  new `handover_framing.md`, framing-grep gate in `/continue`
-  Resume Step 1, LOOP.md anti-patterns 7-8 added.
+- 2026-05-22 framing-fix commits (`068bb814`, `c2aef7b7`):
+  new `handover_framing.md`, framing-grep gate, anti-patterns
+  7-8.
+- 2026-05-22 wiring (`2cf3754a`): `phase9_13_0_execution_plan.md`.
+- 2026-05-22 windows install (`b5d28ed2`, `9218f91e`):
+  `scripts/windows/install_tools.ps1` — wabt/yq/lldb
+  parity with flake.nix.
 
 ## See
 
@@ -57,5 +67,7 @@ Mac+ubuntu). §9.12-I (ADR Accepted < 30) is batched at row 10
   [`phase9_13_0_execution_plan.md`](./phase9_13_0_execution_plan.md).
 - [ROADMAP](./ROADMAP.md) §9.13-0 + §9.12-F + §9.12-I.
 - [`debt.md`](./debt.md): D-022 / D-028 / D-084 / D-136.
-- [`lessons/INDEX.md`](./lessons/INDEX.md).
+- Windows setup:
+  [`scripts/windows/install_tools.ps1`](../scripts/windows/install_tools.ps1)
+  + [`windows_ssh_setup.md`](./windows_ssh_setup.md).
 - Framing rule: [`handover_framing.md`](../.claude/rules/handover_framing.md).

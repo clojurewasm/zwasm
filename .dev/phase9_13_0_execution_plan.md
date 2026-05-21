@@ -7,31 +7,49 @@
 
 ## §0 Preflight — environment health check (run FIRST)
 
-windowsmini was last gated at §9.6 / 6.F (per ADR-0049 the
-per-chunk gate is deferred, so the clone may have drifted).
-Run before W0:
+windowsmini was provisioned 2026-05-22 by
+`scripts/windows/install_tools.ps1` (commit `cfbd3b16`).
+Tool inventory verified:
+zig 0.16.0 / hyperfine 1.20.0 / wasm-tools 1.246.1 /
+wasmtime 42.0.1 / wabt 1.0.41 (wat2wasm + wast2json) /
+yq 4.53.2 / lldb 22.1.6 (LLVM, with Python 3.11 DLL).
+
+### §0.1 Tool inventory check (each resume)
 
 ```sh
-ssh windowsmini "uname -a 2>/dev/null; powershell -Command 'Get-Host | Select-Object Version'; \
-    cd ~/Documents/MyProducts/zwasm_from_scratch && git rev-parse HEAD && git status -sb && zig version"
+ssh windowsmini "bash -lc '
+for t in zig hyperfine wasm-tools wasmtime wat2wasm wast2json yq lldb; do
+  command -v \$t >/dev/null && echo OK \$t || echo MISS \$t
+done'"
 ```
 
-Expected:
-- SSH responds within 5s.
-- `git rev-parse HEAD` returns a commit sha (clone exists).
-- `zig version` returns `0.16.0`.
-- `git status -sb` is clean OR only shows untracked
-  build artifacts.
+Expected: 8 × `OK` lines.
 
-If any fail → `extended_challenge.md` 3-step. Common
-remediation:
-- Clone missing: `ssh windowsmini "cd ~/Documents/MyProducts && git clone <origin> zwasm_from_scratch"`.
-- HEAD drift: `bash scripts/run_remote_windows.sh test-all`
-  internally does `git fetch + reset --hard
-  origin/zwasm-from-scratch`, so a stale clone is
-  self-repaired at first run. No separate pull needed.
-- zig version mismatch: re-run `.dev/windows_ssh_setup.md`
-  setup steps for the Zig install.
+### §0.2 If any tool missing: re-run installer
+
+```sh
+ssh windowsmini "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass \
+    -File C:\\Users\\shota\\Documents\\MyProducts\\zwasm_from_scratch\\scripts\\windows\\install_tools.ps1"
+```
+
+The PS1 is idempotent — tools already at the pinned version
+are skipped. PATH wiring re-applied at the end. After running,
+open a new SSH session for PATH to propagate.
+
+`-OnlyTool <name>` (zig / hyperfine / wasm-tools / wasmtime /
+wabt / yq / lldb) targets a single tool; `-Force` reinstalls
+even if present.
+
+### §0.3 HEAD drift check
+
+```sh
+ssh windowsmini "bash -lc 'cd ~/Documents/MyProducts/zwasm_from_scratch && git rev-parse HEAD'"
+```
+
+If output differs from `git rev-parse origin/zwasm-from-scratch`:
+`scripts/run_remote_windows.sh` does `git fetch + reset --hard`
+automatically on each run, so a stale clone self-repairs at
+W0. No separate pull needed.
 
 Preflight is a single bash call. **Not a separate cycle**;
 runs at the head of the first resume that opens §9.13-0.
@@ -98,14 +116,33 @@ dispatches W0): see §7 below.
 
 ### W0 — survey (subagent-eligible)
 
+**Status (2026-05-22)**: partial coverage from `zig build
+test` smoke run on windowsmini (HEAD `9218f91e`):
+
+- **1744/1775 unit tests passed, 29 skipped, 2 crashed**.
+- Both crashes in `spec_assert_runner_base.zig`:
+  - `sigsegv guard: handler siglongjmps back to caller frame
+    on raised SIGSEGV` (exit 3 = Windows access violation)
+  - `sigsegv guard: armed=false after recovery so subsequent
+    SEGV is unexpected`
+- Both map to **D-136 (Win64 SEH bridge)** — planned W3
+  work. No surprises; landscape matches pre-survey hypothesis.
+- `zig build test-all` triggered in background; result
+  appended to handover at completion (Bash task `bwapumur8`).
+
+**Remaining**: full test-all FAIL enumeration confirms
+D-022 / D-028 / D-084 mapping (smoke run covered `test`
+only; `test-all` adds `test-spec*`, `test-edge-cases`,
+`test-realworld*`, `test-wasmtime-misc-runtime`).
+
 - Command: `bash scripts/run_remote_windows.sh test-all > /tmp/win.log 2>&1`
-  (Bash timeout ≥ 1200000 ms; cold build is slow).
+  (Bash timeout ≥ 1800000 ms; cold build is slow).
 - Read log tail (last 400 lines via `tail -n 400 /tmp/win.log`).
 - Produce `private/notes/p9-9.13-0-survey.md`:
-  - For each FAIL: test name, error class, file:line if
-    available, mapping to one of D-022 / D-028 / D-084 / D-136
-    (or "new — file new debt row").
-  - For pass/skip counts: pasted as-is.
+  - For each FAIL beyond the 2 known D-136 crashes: test
+    name, error class, file:line if available, mapping to
+    D-022 / D-028 / D-084 (or "NEW — file new debt row").
+  - Pass/skip counts pasted as-is.
   - Recommended W1–W6 priority order based on evidence.
 - Commit: NONE (gitignored notes). Handover update at chunk
   close per main-session Step 7.
