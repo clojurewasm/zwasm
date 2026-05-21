@@ -62,22 +62,26 @@ fi
 
 # --- debt sweep ---------------------------------------------------------
 
+# debt.md is a markdown table inside `## Active`; rows look like:
+#   | D-NNN | layer | now (...optional note)        | description... |
+#   | D-NNN | layer | blocked-by: <barrier>          | description... |
+# The Status column (3rd `|`-delimited cell) starts with either `now`
+# or `blocked-by:`. Match `now` at start of the trimmed cell.
 echo "--- debt 'now' rows ---"
-n_now=$(awk '
-  /^## Active/ { active=1; next }
-  /^## / { active=0 }
-  active && /^### D-/ { id=$2 }
-  active && /^- Status:[[:space:]]*now/ { print id }
-' "$ROOT/.dev/debt.md" | wc -l | tr -d ' ')
-echo "  now rows: $n_now"
-if [ "$n_now" -gt 0 ]; then
-  awk '
-    /^## Active/ { active=1; next }
-    /^## / { active=0 }
-    active && /^### D-/ { id=$0 }
-    active && /^- Status:[[:space:]]*now/ { print "  " id }
-  ' "$ROOT/.dev/debt.md"
-fi
+mapfile -t now_rows < <(awk -F'|' '
+  /^## Active/  { active=1; next }
+  /^## / && !/^## Active/ { active=0 }
+  active && /^\| D-[0-9]+ \|/ {
+    id=$2; status=$4
+    gsub(/^[[:space:]]+|[[:space:]]+$/, "", id)
+    gsub(/^[[:space:]]+|[[:space:]]+$/, "", status)
+    if (status ~ /^now($|[^a-z])/) print id "  " status
+  }
+' "$ROOT/.dev/debt.md")
+echo "  now rows: ${#now_rows[@]}"
+for row in "${now_rows[@]}"; do
+  [ -n "$row" ] && echo "  $row"
+done
 echo ""
 
 # --- enforcement-layer 9 items wiring -----------------------------------
