@@ -5,11 +5,11 @@
 
 ## Cold-start procedure
 
-1. `git log --oneline -10` — D-141 sweep cont.: ADR-0097
-   extracts regalloc verify family to `regalloc_verify.zig`
-   (regalloc.zig 1401→1274 LOC; still WARN, follow-up
-   compute extraction needed). Prior: ADR-0095/0096 closed
-   parse/sections.zig. D-055 unchanged (27 emit_test_int sites).
+1. `git log --oneline -10` — D-141 sweep cont.: ADR-0098
+   extracts regalloc compute family to `regalloc_compute.zig`
+   (regalloc.zig 1274→550 LOC; dropped from WARN list; 18 files
+   remain). Prior cycle: ADR-0097 (verify Step 1). D-055
+   unchanged (27 emit_test_int sites).
 2. **User directive (2026-05-21)**: batch-session architectural
    mode — Phase 9 closure quality. D-141 per-file ADR cycle
    continues; remaining candidates need own ADR-grade survey.
@@ -29,12 +29,12 @@
 1. **Remaining D-141 candidates** (architectural, each needs
    own ADR-grade survey — NOT single-cycle mechanical):
    - `api/instance.zig` (1431 LOC) — c_api lifecycle redesign.
-   - `shared/regalloc.zig` follow-up (1274 LOC post-ADR-0097) —
-     Step 2 = extract computeWith + computeSpillOffsets + fence
-     helpers to `regalloc_compute.zig` (dissolves WARN).
    - `validate/validator.zig` (1365 LOC) — Wasm 2.0 bulk
      memory/table ops + dispatch helpers (post-ADR-0083 SIMD
      extraction); blocked by per-op-file migration.
+   - arm64/{emit,inst,inst_neon_arith}.zig and x86_64/{emit,
+     inst,op_*,inst_sse_packed,op_control,op_simd_*}.zig —
+     codegen per-arch files; per-family split candidates.
    - codegen *_test.zig pairs (emit_test_int 1607, emit_test_float
      1571, op_simd_int_cmp_lane_test 1190) — test-file splits
      await D-055/D-081 closure.
@@ -52,11 +52,11 @@
 - **ADR-0078 fully load-bearing**: G.1.1 + G.1.2 + amendment.
 - **§9.12-G partial**: 41 Wasm 3.0 stubs landed; dispatcher
   comptime-reject; CLI --invoke.
-- **§9.12-F**: 14 D-141 slots closed (2026-05-21 session).
-  ADRs 0079+0081-0090+0095-0097 Accepted. ADR-0094 Accepted
+- **§9.12-F**: 15 D-141 slots closed (2026-05-21 session).
+  ADRs 0079+0081-0090+0095-0098 Accepted. ADR-0094 Accepted
   (D-158). 3 lessons captured. `engine/compile.zig` +
-  `parse/sections.zig` both dropped from WARN list; 19 files
-  remain (regalloc.zig reduced but still WARN pending Step 2).
+  `parse/sections.zig` + `shared/regalloc.zig` all dropped
+  from WARN list; 18 files remain.
 
 ## Pattern menu (next-session reference)
 
@@ -92,4 +92,5 @@ work needs survey-first discipline.
 - [`decisions/0095_sections_element_extraction.md`](./decisions/0095_sections_element_extraction.md) — Accepted.
 - [`decisions/0096_sections_data_and_codes_extraction.md`](./decisions/0096_sections_data_and_codes_extraction.md) — Accepted.
 - [`decisions/0097_regalloc_verify_extraction.md`](./decisions/0097_regalloc_verify_extraction.md) — Accepted.
+- [`decisions/0098_regalloc_compute_extraction.md`](./decisions/0098_regalloc_compute_extraction.md) — Accepted.
 - [`lessons/INDEX.md`](./lessons/INDEX.md).
