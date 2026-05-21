@@ -3,86 +3,87 @@
 > ≤ 80 lines. No numeric predictions (per
 > [`no_handover_predictions.md`](../.claude/rules/no_handover_predictions.md)).
 
-## Cold-start procedure — §9.12-F + §9.12-I in progress
+## Cold-start procedure — §9.12-F + §9.12-I in progress (structurally blocked)
 
-§9.12-F (debt active rows < 15) and §9.12-I (ADR canonical pass)
-both open. Current state:
+Two open §9.12 sub-rows both gated on Phase 9 deep code work:
 
 | Exit criterion                  | Latest fact                                                                |
 |---------------------------------|----------------------------------------------------------------------------|
-| §9.12-F: debt active rows < 15  | 23 (down from 24 last cycle; D-018 discharged this commit)                 |
-| §9.12-I: ADR `Accepted` < 30    | strict 33 / loose 52 — structurally blocked on Phase 9 + §9.12 close       |
-| `check_adr_history.sh --gate` 0 | 1 pending (template only) — ✓                                              |
-| `check_lesson_citing.sh` 0      | 0 unfilled ✓                                                               |
+| §9.12-F: debt active rows < 15  | 23 (24 - 1 D-018 discharge last cycle); 8 over target                      |
+| §9.12-I: ADR `Accepted` < 30    | strict 33 / loose 52; blocked on P9 cohort (17) + §9.12 file-layout (~13)  |
 
-**This commit (debt sweep)**:
+**This commit (debt sweep — Last reviewed bumps)**:
 
-- D-018 discharged. §9.12-H bench (`600bd7cf`) ran 26-fixture
-  × 2-runtime hyperfine pass; RSS profile reflects page-
-  allocation, not arena bloat. Per D-018's own discharge
-  criterion ("no measurable pressure"), close. Long-running
-  cross-module workload bench (Phase 11+) can re-open if
-  specific pathology surfaces.
-- D-155 removed from Discharged section (per "remove after
-  one cycle" rule in debt.md header).
-- §9.12-F sub-items re-walked, barriers hold (Last reviewed
-  bumped to 2026-05-21):
-  - D-022: blocked-by ADR-0028 M3-a-2 (trap event runtime
-    write) + interp trap-location wiring. ADR-0028 status
-    closed but M3-a-2 implementation not landed.
-  - D-062: blocked-by arm64 v128 stack-overflow path (9th+
-    v128 arg).
-  - D-090: blocked-by lower.zig type-stack walker (~150
-    LOC + ADR-grade decision); discharge trigger (non-i32
-    select fixture in corpus) not fired.
-  - D-094: blocked-by x86_64 multi-result indirect-result-
-    buffer ABI; discharge trigger (real workload demanding
-    >2 same-class results) not fired.
-- D-055 (status `now`, mechanical): 95 expectEqualSlices
-  sites + 5-line wire. Multi-cycle work; no progress this
-  commit.
-- D-081 (blocked-by ADR-0054 amendment OR ADR-0081 successor):
-  ADR-0081 Accepted but doesn't dissolve barrier (per its
-  Withdrawn-pair lesson). Holds.
+Per Step 0.5 escalation rule (rows reviewed > 3 cycles ago):
+8 rows bumped to 2026-05-21 after re-walking barriers. All barriers
+hold:
 
-**Next pickup**: § §9.12-F's < 15 exit needs ~8 more
-discharges. Candidates requiring concrete code work:
-D-055 (mechanical multi-cycle), D-090 (lower.zig type-stack
-walker), D-094 (x86_64 indirect-result-buffer ABI), D-141
-(per-file split ADRs + impl). Each is a substantial work
-item; sequence by impact.
+- D-026 (blocked-by emcc env-stub host-func wiring) — Phase 11 scope.
+- D-058 / D-059 (blocked-by Phase 10 boundary audit_scaffolding) —
+  Phase 10 not yet open.
+- D-074 (blocked-by no Phase row for tier-provisioning) — Phase 11.
+- D-075 (blocked-by no Phase row for Zig library facade) — v0.1.0 RC.
+- D-082 (blocked-by Phase 11 embenchen full-perf-suite) — Phase 11.
+- D-136 (blocked-by Win64 SEH bridge) — §9.13-0 Cat IV.
+- D-139 (blocked-by no Phase row for c_api Instance path test) —
+  v0.1.0 RC.
+
+**Why §9.12-F is structurally blocked**: 23 active rows split into:
+- 1 `now` (D-055; mechanical multi-cycle migration; ~95 expectEqual
+  Slices test sites + 5-line wire — too large for a single cycle).
+- 22 `blocked-by`, of which:
+  - 9 deferred to Phase 10 / 11 / 14 / v0.1.0 RC (won't resolve in
+    Phase 9).
+  - 5 §9.12 sub-items (D-055 / D-081 / D-090 / D-094 / D-141) —
+    deep code work, each 1+ cycle.
+  - 3 external (D-010 Zig stdlib semantics; D-028 windowsmini IPC
+    flake; D-148 upstream Zig fix).
+  - 5 §9.13-0 / SEH / Track-D / future (D-026 / D-136 / D-157 /
+    D-082 / D-022).
+
+Reaching `< 15` requires either (a) several cycles of mechanical
+D-055 site migration + D-141 per-file ADRs landing, or (b) §18
+amendment of the exit criterion to exclude provably-deferred-to-
+future-phase rows. Neither is a one-cycle action.
+
+**Next pickup**: D-055 migration batch 1 (~10 test sites in
+emit_test_int.zig / emit_test_float.zig moved from hardcoded
+prologue offsets to `prologue.body_start_offset()`-relative). The
+migration is behavior-preserving (tests stay green); the eventual
+5-line `inst.encMovMemDisp32Imm32` wire-up in `x86_64/emit.zig`
+prologue happens after all ~95 sites land. Each migration cycle
+makes ≤ 10% progress toward unblocking the JIT-execution sentinel
+on x86_64.
 
 ## Recent context
 
 - §9.12-G closed (`4bd62842`); §9.12-H closed (`600bd7cf`).
-- §9.12-I batch 1 (`1095d225`): 27 ADRs flipped.
-- §9.12-I batch 2 (`5e2b1a6e`): 2 P7 meta ADRs flipped.
-- §9.12-F debt sweep (this commit): D-018 discharged; 4 sub-
-  items Last reviewed bumped.
+- §9.12-I batch 1 (`1095d225`) + batch 2 (`5e2b1a6e`).
+- §9.12-F D-018 discharge (`02397144` + SHA backfill `3df2f7ff`).
 
 ## Active `now` debts
 
-- **D-055** (mechanical, multi-cycle): emit_test_int has
-  ~95 sites pending; barrier dissolved per row.
+- **D-055** (mechanical, multi-cycle): ~95 expectEqualSlices sites +
+  5-line wire; barrier dissolved per row.
 
 ## Other queued work
 
-1. **§9.12-F next discharge candidates** — D-141 (file-size
-   per-file ADRs), D-090 / D-094 (deep ABI work), D-055
-   (mechanical sites).
-2. **§9.12-I revisit after Phase 9 + §9.12-F close**.
+1. **D-055 migration batches** — per-cycle ~10 sites.
+2. **D-141 per-file file-size ADRs** — 18 WARN files; many qualify
+   for P1/P2 conditions per ADR-0099 D2.
+3. **§9.12-I revisit after Phase 9 close**.
 
 ## Active state (snapshot)
 
 - §9.12-A enforcement: 11 items OK.
-- §9.12-F: `[ ]` in ROADMAP — 23 active debts; exit < 15.
-- §9.12-G: closed (`4bd62842`).
-- §9.12-H: closed (`600bd7cf`).
-- §9.12-I: 2 batches landed; structurally blocked on P9 + §9.12-F.
+- §9.12-F: 23 active rows; exit `< 15` blocked on multi-cycle work.
+- §9.12-G / §9.12-H: closed.
+- §9.12-I: 29 ADRs flipped to Closed (P1-P7-P8 cohort); blocked on
+  Phase 9 close.
 
 ## Open questions / blockers
 
-- なし for §9.12-F continued discharge.
+- なし for D-055 migration batches.
 
 ## See
 
