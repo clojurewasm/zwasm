@@ -22,6 +22,19 @@
 #                                                 # ~12x slower on Win = under 1s).
 #   bash scripts/run_bench.sh --phase-record \
 #        --reason='<phase-tag>: <gist>'           # ALSO append to history.yaml
+#   bash scripts/run_bench.sh --compare=wasmtime  # Run each fixture against
+#                                                 # BOTH zwasm and wasmtime;
+#                                                 # YAML entries gain a
+#                                                 # `runtime:` field. Phase 11
+#                                                 # bench prerequisite per
+#                                                 # §9.12-H. Wazero/wasmer/bun
+#                                                 # /node deferred to Phase 11.
+#   bash scripts/run_bench.sh --capture-rss       # Capture max RSS via
+#                                                 # /usr/bin/time -l (macOS) /
+#                                                 # /usr/bin/time -v (Linux);
+#                                                 # adds `max_rss_kb` to each
+#                                                 # YAML entry. Requires
+#                                                 # /usr/bin/time on PATH.
 #
 # Per ADR-0012 §7: recent.yaml gitignored, history.yaml committed
 # at phase boundaries only.
@@ -45,6 +58,8 @@ WINDOWS_SUBSET=0
 BENCH=""
 REASON=""
 DIFF_REF=""
+COMPARE=""
+CAPTURE_RSS=0
 for arg in "$@"; do
     case "$arg" in
         --quick) QUICK=1 ;;
@@ -54,6 +69,8 @@ for arg in "$@"; do
         --reason=*) REASON="${arg#--reason=}" ;;
         --diff=*) DIFF_REF="${arg#--diff=}" ;;
         --diff)  ;;  # next iteration provides ref via positional pickup; see below
+        --compare=*) COMPARE="${arg#--compare=}" ;;
+        --capture-rss) CAPTURE_RSS=1 ;;
     esac
 done
 # §9.8a / 8a.3 — `--diff <ref>` (space-separated form). The
@@ -83,6 +100,44 @@ WINDOWS_SUBSET_NAMES=(
 if ! command -v hyperfine >/dev/null 2>&1; then
     echo "[run_bench] hyperfine not on PATH; aborting (the dev shell pins it via flake.nix)." >&2
     exit 1
+fi
+
+# §9.12-H — comparator runtime presence check (--compare=<name>).
+# Currently only `wasmtime` is supported; wazero / wasmer / bun /
+# node are Phase 11 scope per ROADMAP §9.12-H.
+if [ -n "$COMPARE" ]; then
+    case "$COMPARE" in
+        wasmtime)
+            if ! command -v wasmtime >/dev/null 2>&1; then
+                echo "[run_bench] --compare=wasmtime: wasmtime not on PATH" >&2
+                exit 1
+            fi
+            ;;
+        *)
+            echo "[run_bench] --compare=$COMPARE not supported (only 'wasmtime' at §9.12-H; wazero / wasmer / bun / node are Phase 11 scope)" >&2
+            exit 1
+            ;;
+    esac
+fi
+
+# §9.12-H — RSS capture relies on /usr/bin/time -l (macOS BSD) /
+# /usr/bin/time -v (Linux GNU). Probe both forms; record the
+# canonical command in TIME_CMD or disable on missing tool.
+TIME_CMD=""
+if [ "$CAPTURE_RSS" -eq 1 ]; then
+    if [ -x /usr/bin/time ]; then
+        case "$(uname -s)" in
+            Darwin) TIME_CMD="/usr/bin/time -l" ;;
+            Linux)  TIME_CMD="/usr/bin/time -v" ;;
+            *)
+                echo "[run_bench] --capture-rss: no /usr/bin/time variant for $(uname -s); RSS will be null" >&2
+                CAPTURE_RSS=0
+                ;;
+        esac
+    else
+        echo "[run_bench] --capture-rss: /usr/bin/time not present; RSS will be null" >&2
+        CAPTURE_RSS=0
+    fi
 fi
 
 echo "[run_bench] building ReleaseSafe..."
@@ -162,6 +217,57 @@ date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     echo "  benches:"
 } > "$RECENT"
 
+# §9.12-H — runtime matrix. `zwasm` is always first; `wasmtime`
+# joins when --compare=wasmtime. YAML entries gain a `runtime:`
+# field iff the matrix has > 1 entry, so historical single-runtime
+# entries remain shape-compatible.
+RUNTIMES=("zwasm")
+if [ "$COMPARE" = "wasmtime" ]; then
+    RUNTIMES+=("wasmtime")
+fi
+
+# Capture max RSS (kB) from /usr/bin/time stderr after a single
+# invocation. macOS reports bytes; Linux reports kB. Echo "null"
+# on parse failure to keep YAML well-formed.
+measure_rss_kb() {
+    local rt="$1"
+    local wasm="$2"
+    local rss_out
+    rss_out=$(mktemp)
+    case "$rt" in
+        zwasm)    $TIME_CMD "$ZWASM" run "$wasm" 2>"$rss_out" >/dev/null || true ;;
+        wasmtime) $TIME_CMD wasmtime run "$wasm" 2>"$rss_out" >/dev/null || true ;;
+    esac
+    case "$(uname -s)" in
+        Darwin)
+            # `... maximum resident set size` (bytes on macOS BSD time)
+            local bytes
+            bytes=$(awk '/maximum resident set size/ {print $1; exit}' "$rss_out" 2>/dev/null)
+            rm -f "$rss_out"
+            if [ -z "$bytes" ] || ! [ "$bytes" -eq "$bytes" ] 2>/dev/null; then
+                echo null
+            else
+                echo $((bytes / 1024))
+            fi
+            ;;
+        Linux)
+            # `Maximum resident set size (kbytes): N` (GNU time -v)
+            local kb
+            kb=$(awk '/Maximum resident set size/ {print $NF; exit}' "$rss_out" 2>/dev/null)
+            rm -f "$rss_out"
+            if [ -z "$kb" ] || ! [ "$kb" -eq "$kb" ] 2>/dev/null; then
+                echo null
+            else
+                echo "$kb"
+            fi
+            ;;
+        *)
+            rm -f "$rss_out"
+            echo null
+            ;;
+    esac
+}
+
 ran_any=0
 for entry in "${BENCHES[@]}"; do
     name="${entry%%:*}"
@@ -180,39 +286,45 @@ for entry in "${BENCHES[@]}"; do
         echo "[run_bench] missing $wasm — skipping $name" >&2
         continue
     fi
-    echo "[run_bench] $name ($wasm)"
-    json=$(mktemp)
-    err=$(mktemp)
-    # §9.9 / 9.9-j-2 (per ADR-0056): capture stderr to $err for
-    # diagnostic surfacing on failure — was `>/dev/null 2>&1` which
-    # silently swallowed hyperfine + zwasm error messages, making
-    # bench-script failures opaque.
-    if ! hyperfine --warmup "$WARMUP" --runs "$RUNS" \
-            --shell=none \
-            --export-json "$json" \
-            "$ZWASM run $wasm" >/dev/null 2>"$err"; then
-        echo "    (failed; first stderr lines:)" >&2
-        head -5 "$err" | sed 's/^/      /' >&2
-        rm -f "$json" "$err"
-        cat <<EOF >> "$RECENT"
+    for runtime in "${RUNTIMES[@]}"; do
+        case "$runtime" in
+            zwasm)    cmd="$ZWASM run $wasm" ;;
+            wasmtime) cmd="wasmtime run $wasm" ;;
+        esac
+        echo "[run_bench] $name ($wasm) — runtime=$runtime"
+        json=$(mktemp)
+        err=$(mktemp)
+        # §9.9 / 9.9-j-2 (per ADR-0056): capture stderr to $err for
+        # diagnostic surfacing on failure — was `>/dev/null 2>&1` which
+        # silently swallowed hyperfine + zwasm error messages, making
+        # bench-script failures opaque.
+        if ! hyperfine --warmup "$WARMUP" --runs "$RUNS" \
+                --shell=none \
+                --export-json "$json" \
+                "$cmd" >/dev/null 2>"$err"; then
+            echo "    (failed; first stderr lines:)" >&2
+            head -5 "$err" | sed 's/^/      /' >&2
+            rm -f "$json" "$err"
+            cat <<EOF >> "$RECENT"
     - name: $name
+      runtime: $runtime
       mean_ms: null
       stddev_ms: null
       min_ms: null
       max_ms: null
 EOF
-        continue
-    fi
-    rm -f "$err"
-    # §9.9 / 9.9-j-2 (per ADR-0056 + Agent Y finding #1): use python
-    # to parse hyperfine's JSON. Prior `grep -oE '[0-9.]+'`
-    # regex did not match scientific notation (e.g. `8.31753e-06`),
-    # captured `8.31753`, then awk `* 1000 = 8317.53` — mathematically
-    # impossible alongside its own `min_ms=2.12 / max_ms=2.13`.
-    # Multiple `bench/results/history.yaml` entries were already
-    # contaminated (commit c27f74da and prior); see annotation in
-    # history.yaml flagging affected rows.
-    metrics=$(python3 - "$json" <<'PY'
+            continue
+        fi
+        rm -f "$err"
+        # §9.9 / 9.9-j-2 (per ADR-0056 + Agent Y finding #1): use python
+        # to parse hyperfine's JSON. Prior `grep -oE '[0-9.]+'`
+        # regex did not match scientific notation (e.g. `8.31753e-06`),
+        # captured `8.31753`, then awk `* 1000 = 8317.53` — mathematically
+        # impossible alongside its own `min_ms=2.12 / max_ms=2.13`.
+        # Multiple `bench/results/history.yaml` entries were already
+        # contaminated (commit c27f74da and prior); see annotation in
+        # history.yaml flagging affected rows.
+        metrics=$(python3 - "$json" <<'PY'
 import json, sys
 with open(sys.argv[1]) as f:
     d = json.load(f)
@@ -220,16 +332,24 @@ r = d["results"][0]
 print(f"{r['mean']*1000:.2f} {r['stddev']*1000:.2f} {r['min']*1000:.2f} {r['max']*1000:.2f}")
 PY
 )
-    read -r mean stddev min max <<<"$metrics"
-    rm -f "$json"
-    cat <<EOF >> "$RECENT"
+        read -r mean stddev min max <<<"$metrics"
+        rm -f "$json"
+        rss_line=""
+        if [ "$CAPTURE_RSS" -eq 1 ]; then
+            rss_kb=$(measure_rss_kb "$runtime" "$wasm")
+            rss_line="
+      max_rss_kb: $rss_kb"
+        fi
+        cat <<EOF >> "$RECENT"
     - name: $name
+      runtime: $runtime
       mean_ms: $mean
       stddev_ms: $stddev
       min_ms: $min
-      max_ms: $max
+      max_ms: $max$rss_line
 EOF
-    ran_any=1
+        ran_any=1
+    done
 done
 
 if [ $ran_any -eq 0 ]; then

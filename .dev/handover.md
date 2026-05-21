@@ -3,61 +3,42 @@
 > ≤ 80 lines. No numeric predictions (per
 > [`no_handover_predictions.md`](../.claude/rules/no_handover_predictions.md)).
 
-## Cold-start procedure — §9.12-G CLOSED; §9.12-H next
+## Cold-start procedure — §9.12-H in progress
 
-§9.12-G (Phase 10 prep substrate) flipped to `[x]` this commit.
-All exit criteria satisfied:
+§9.12-H bench baseline (Mac aarch64 Wasm 2.0 + wasmtime comparison).
 
-- 44 wasm_3_0 placeholders register `wasm_level: .v3_0` →
-  dispatcher's build-level filter emits
-  `Error.UnsupportedOpForBuildLevel` at comptime for `-Dwasm=v1_0`
-  / `-Dwasm=v2_0` builds (dispatch_collector.zig test at line 459
-  verifies the mechanism).
-- `bash scripts/zone_check.sh --gate` exits 0 (BASELINE=0 + 0
-  current violations).
-- 19 inline c_api Instance-path test blocks (488 LOC, ~34% of
-  api/instance.zig) cover null-arg / lifecycle / dispatch /
-  marshaling / import binding / export discovery.
+**Sub-deliverables**:
 
-Future ZirOp additions (memory64 / relaxed-simd / multi-memory)
-are properly tracked in `.dev/wasm_3_0_zirop_mapping.md` Coverage
-gaps section as Phase 10-open work; they require a ZirOp slot
-policy ADR (per-op vs index-type-dispatched shared slots), not
-in §9.12-G scope.
-
-**Next pickup: §9.12-H** — Bench baseline (Mac Wasm 2.0 +
-wasmtime comparison).
-
-1. Survey `scripts/run_bench.sh` for current `--compare` /
-   `--capture-rss` flag state.
-2. Extend with wasmtime-compare path on Mac aarch64
-   ReleaseSafe; 26 fixtures × hyperfine `--warmup 3 --runs 5`.
-3. Add separate `runtime: zwasm` / `wasmtime` rows to
-   `bench/results/history.yaml`.
-4. Partial D-074 resolution; wazero/wasmer/bun/node + `-Dwith-
-   bench-compare` flag are deferred to Phase 11.
-5. Exit: "p9-close: Wasm-2.0 baseline (Mac aarch64)" row in
-   `bench/results/history.yaml`; zwasm vs wasmtime mean_ms
-   ratio documented.
-
-## §9.12-G sub-deliverable closure summary (this commit)
-
-| # | Status | Where landed |
+| # | Deliverable | Status |
 |---|---|---|
-| (a) | ✅ | `c305deb1` — wasm_3_0_zirop_mapping currency refresh |
-| (b) | ✅ | satisfied by current state — 44 placeholders cover GC/EH/tail-call/typed-funcref; memory64 (shared opcodes) / multi-memory (no new opcodes) / relaxed-simd (Phase-10-open) tracked in mapping doc |
-| (c) | ✅ | `fa810b6d` — instance.zig FILE-SIZE-EXEMPT + audit |
-| (d) | ✅ | pre-existed — main.zig:18,62-75 + run.zig:50-56 + 2 inline tests at run.zig:254,262 |
-| (e) | ✅ | `038d861f` — check_wasm_h_upstream.sh; identical |
-| (f) | ✅ | pre-existed — gate_commit.sh:92 already `--gate`-invokes |
-| (g) | ✅ | `568bb888` — .dev/architecture/zone_layout.md |
+| (1) | `--compare=wasmtime` flag in `scripts/run_bench.sh` (dual-runtime hyperfine + `runtime:` YAML field) | ✅ this commit |
+| (2) | `--capture-rss` flag (/usr/bin/time -l on Mac, -v on Linux; `max_rss_kb` YAML field) | ✅ this commit |
+| (3) | 26-fixture full bench run on Mac aarch64 ReleaseSafe with `--phase-record --compare=wasmtime --reason="p9-close: Wasm-2.0 baseline (Mac aarch64)"`; appends row to `bench/results/history.yaml` | open (next cycle: substantial wall-clock — 26 × 2 runtimes × hyperfine 5-runs + 3-warmups ≈ ~10-20 min) |
+| (4) | Document zwasm vs wasmtime mean_ms ratio (in commit body or audit doc) | open (after (3); pulled from the history.yaml row) |
 
-## Recent reform context (file-size discipline)
+**Smoke-test evidence (this cycle)** on `tinygo/fib` quick mode:
+- zwasm: mean 2.11 ms, max_rss 3488 KB
+- wasmtime: mean 5.27 ms, max_rss 13696 KB
+- (Single quick run; not the baseline record.)
 
-Cycles C1..C6 (2026-05-21) landed ADR-0099 + 0100 + 0101 + rule +
-script + lesson + init_expr.zig redesign. Reform complete;
-planning artefacts archived at
-`private/archive/2026-05-21-file-size-reform/`.
+**Next pickup**: (3) — run the full 26-fixture phase-record.
+Command:
+
+```sh
+bash scripts/run_bench.sh --compare=wasmtime --capture-rss \
+    --phase-record \
+    --reason="p9-close: Wasm-2.0 baseline (Mac aarch64; §9.12-H)"
+```
+
+After it lands, commit the new `bench/results/history.yaml` row +
+note the mean_ms ratio in handover.
+
+## Recent context
+
+- §9.12-G closed (`4bd62842`); all 7 sub-deliverables a-g done.
+- File-size reform (cycles C1..C6, 2026-05-21): ADR-0099/0100/0101
+  + rule + script + lesson + init_expr.zig redesign. Archived
+  at `private/archive/2026-05-21-file-size-reform/`.
 
 ## Active `now` debts
 
@@ -66,7 +47,7 @@ planning artefacts archived at
 
 ## Other queued work
 
-1. **§9.12-H** — bench baseline (this cycle's pickup).
+1. **§9.12-H (3) + (4)** — this cycle's next pickup.
 2. **§9.12-I** — ADR/lesson curation closure (Phase 9 close).
 3. **D-055 continuation**.
 4. **Phase 10 ZirOp slot policy ADR** — gates memory64 /
@@ -76,20 +57,19 @@ planning artefacts archived at
 
 - §9.12-A enforcement: 11 items OK + `check_wasm_h_upstream.sh`.
 - §9.12-F (D-141 + reform): closed.
-- §9.12-G: **CLOSED** this commit.
-- §9.12-H: next.
+- §9.12-G: closed (`4bd62842`).
+- §9.12-H: in progress — (1)+(2) ✅ this commit; (3)+(4) open.
 - §9.12-I: open.
 
 ## Open questions / blockers
 
-- なし for §9.12-H entry.
+- なし for §9.12-H continuation.
 
 ## See
 
 - [ROADMAP](./ROADMAP.md) §9.12-H scope + exit
-- [`.dev/architecture/zone_layout.md`](./architecture/zone_layout.md)
-- [`.dev/architecture/api_instance_audit.md`](./architecture/api_instance_audit.md)
-- [`.dev/wasm_3_0_zirop_mapping.md`](./wasm_3_0_zirop_mapping.md)
-- [`scripts/run_bench.sh`](../scripts/run_bench.sh) — extend at §9.12-H
-- [`bench/results/history.yaml`](../bench/results/history.yaml)
+- [`scripts/run_bench.sh`](../scripts/run_bench.sh) — `--compare`
+  + `--capture-rss` flags landed
+- [`bench/README.md`](../bench/README.md) — YAML schema reference
+- [`bench/results/history.yaml`](../bench/results/history.yaml) — destination for (3)
 - [`debt.md`](./debt.md), [`lessons/INDEX.md`](./lessons/INDEX.md)
