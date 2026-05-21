@@ -1,6 +1,6 @@
 # 0028 — Diagnostic M3 trace ringbuffer (前倒し)
 
-- **Status**: Accepted
+- **Status**: Closed (Phase 7 DONE)
 - **Date**: 2026-05-05
 - **Author**: zwasm-from-scratch loop (chaploud)
 - **Tags**: diagnostic, trace, jit, debug, infrastructure

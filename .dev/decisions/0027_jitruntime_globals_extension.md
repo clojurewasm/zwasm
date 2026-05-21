@@ -1,6 +1,6 @@
 # 0027 — Extend JitRuntime with `globals_base` + `globals_count` for Wasm globals access
 
-- **Status**: Accepted
+- **Status**: Closed (Phase 7 DONE)
 - **Date**: 2026-05-05
 - **Author**: zwasm-from-scratch loop (chaploud)
 - **Tags**: jit, abi, runtime, globals
