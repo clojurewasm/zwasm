@@ -926,11 +926,12 @@ pub fn compile(
                 //     CSEL Wd
                 //   - i64 / funcref / externref (extra=0x7E/0x70/0x6F):
                 //     CSEL Xd
-                //   - f32 / f64 (extra=0x7D/0x7C): UnsupportedOp
-                //     pending m-4b (needs FCSEL S/D encoders)
-                //   - untyped .select with non-i32 operands:
-                //     UnsupportedOp pending m-4c (lower-time type
-                //     inference)
+                //   - f32 / f64 (extra=0x7D/0x7C): FCSEL S/D (m-4b)
+                //   - untyped .select with non-i32 operands: handled
+                //     via validator's `out_select_types` → lower's
+                //     `select_types[idx]` → `ins.extra` byte, so the
+                //     switch below dispatches correctly (D-090 close,
+                //     2026-05-21 `2f54f753`)
                 if (pushed_vregs.items.len < 3) return Error.AllocationMissing;
                 const cond_v = pushed_vregs.pop().?;
                 const val2_v = pushed_vregs.pop().?;
@@ -949,10 +950,13 @@ pub fn compile(
                     try pushed_vregs.append(allocator, result_v);
                 } else {
                     // §9.9 / 9.9-m-4a (GPR) + 9.9-m-4b (FP):
-                    // dispatch on `ins.extra` for select_typed (0x1C).
-                    // For untyped .select (0x1B), extra=0 → i32 CSEL
-                    // Wd default. Lower-time type inference for
-                    // untyped non-i32 select pending m-4c.
+                    // dispatch on `ins.extra` — for select_typed
+                    // (0x1C) lower emits the valtype byte directly;
+                    // for untyped .select (0x1B) lower threads the
+                    // validator-resolved valtype from
+                    // `out_select_types[]` (D-090 close). extra=0
+                    // (default fallback for bypass-the-validator unit
+                    // tests) → i32 CSEL Wd.
                     const TypeClass = enum { gpr32, gpr64, fp32, fp64 };
                     const tc: TypeClass = switch (ins.extra) {
                         0x7E, 0x70, 0x6F => .gpr64, // i64 / funcref / externref
