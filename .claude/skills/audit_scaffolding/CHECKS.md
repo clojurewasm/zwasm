@@ -615,6 +615,13 @@ hard-cap violation that should have triggered meta_audit at
 the 800-LOC mark (sub-7.3), not be discovered at the
 retrospective.
 
+**Per ADR-0099**: the soft cap is a **smell detector, not a
+metric**. WARN findings should trigger investigation against
+the §D2 4+4 conditions, with `FILE-SIZE-EXEMPT` as the default
+outcome when no valid extraction exists. Mechanical extraction
+to "make the WARN disappear" is the failure mode this
+discipline rejects.
+
 ### J.2 §A2 hard-cap violation
 
 Any `src/**/*.zig` whose line count is ≥ 2000 (the §A2 hard cap).
@@ -682,7 +689,31 @@ severity — lightest of the three CHECKS categories). The user
 usually accepts this trigger; it is the default cadence for
 `meta_audit` per its SKILL.md.
 
-## H. Output
+### J.8 Split-quality smell (added 2026-05-21; ADR-0099 §D4)
+
+Fire `bash scripts/check_split_smell.sh` and surface every
+finding as a `watch` severity entry (informational; not
+blocking). Categories:
+
+- `N1-helper-circular` — child sibling imports parent and
+  calls parent helper functions (per ADR-0099 §D2 N1).
+- `N3-shallow` — naming-pattern sibling with substantive
+  code < 100 LOC (§D2 N3).
+- `N4-test-dup` — test helper duplicated across siblings
+  (§D2 N4).
+- `hub-emptiness` — parent file is mostly re-exports
+  (possible over-split signal).
+
+Each finding triages against §D2:
+- If a tie-breaker (P1+N2 managed, P3+N1-type-only) explains
+  it — accept; no action.
+- If a `FILE-SIZE-EXEMPT` marker explains it — accept.
+- Otherwise — file a rollback / redesign ADR per §D2.
+
+The script is gate-wired (gate_commit.sh between
+`file_size_check` and `check_skip_adrs`) as informational; the
+audit re-runs it for periodic cross-check and surfaces deltas
+since the last audit run.
 
 Write to `private/audit-YYYY-MM-DD.md`:
 

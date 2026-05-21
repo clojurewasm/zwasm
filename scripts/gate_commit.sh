@@ -95,6 +95,15 @@ else
     echo "[gate_commit] file_size_check --gate ..."
     bash scripts/file_size_check.sh --gate
 
+    # Per ADR-0099 §D4: informational split-smell checker. Surfaces
+    # N1 (helper-circular import) / N3 (shallow module) / N4 (test
+    # dup) / hub-emptiness findings to stderr but never gates the
+    # commit. Reviewers triage findings against §D2 4+4 conditions.
+    if [ -x scripts/check_split_smell.sh ]; then
+        echo "[gate_commit] check_split_smell (info; per ADR-0099) ..."
+        bash scripts/check_split_smell.sh || true
+    fi
+
     # Per ADR-0029 Path B (chunk 9.9-h-24): verify prefix-vocab
     # coherence — every `skip-adr-<id>` manifest line resolves to an
     # existing `.dev/decisions/skip_<id>.md` ADR, and every skip-ADR
