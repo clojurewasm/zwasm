@@ -5,10 +5,10 @@
 
 ## Cold-start procedure
 
-1. `git log --oneline -10` — last code commit: `653d5e4e`
-   / `a117677c` (ADR-0084 impl landed; arm64/inst.zig 1807 →
-   1405 LOC; inst_fp.zig 510 LOC new; 127 caller substitutions
-   across 11 files). ADR-0084 Accepted.
+1. `git log --oneline -10` — last code commit: `f16d4593` /
+   `6d71eb60` (ADR-0085 — arm64/emit_setup.zig extraction;
+   emit.zig 1632 → 1479 LOC; mirror of ADR-0081 x86_64 case;
+   Accepted same cycle).
 2. **User directive (2026-05-21)**: batch-session architectural
    mode.
 3. **Live status**: `bash scripts/p9_completion_status.sh` —
@@ -16,18 +16,18 @@
 
 ## Authorized next-session pickup (priority order — updated 2026-05-21)
 
-1. **PRIMARY: next D-141 per-file ADR candidate** — top of
-   priority list (verified actual LOC):
-   - **arm64/emit.zig** (1630 LOC) — mirror of x86_64/emit.zig
-     after ADR-0081; same prologue + frame helper extraction
-     shape likely applies. Spike-first to confirm structure.
-   - **x86_64/inst.zig** (1328 LOC) — parallel of arm64/inst.zig
-     just split. Same FP machinery extraction pattern may
-     apply directly (ADR-0085 candidate).
+1. **PRIMARY: next D-141 per-file ADR candidate**:
    - **lower.zig** (1109 LOC) — `Lowerer = struct {...}`
      struct-method-heavy. Apply ADR-0083 pattern + lesson
-     `2026-05-21-cross-file-struct-method-syntax-zig-0-16.md`
+     `cross-file-struct-method-syntax-zig-0-16.md`
      pre-extraction checklist.
+   - **NOTE**: `x86_64/inst.zig` (1328 LOC) is **already**
+     per-family split (orchestrator + inst_alu / inst_mem /
+     inst_branch / inst_sse children) per the file's own
+     docstring — NOT a refactor target.
+   - Remaining D-141 candidates: x86_64 emit_test_int/float.zig
+     (blocked by D-055/D-081), op_simd_float.zig (1543 LOC), op_simd.zig
+     (1104 LOC), op_simd_int_arith.zig (1137 LOC).
 2. **Subsequent D-141 candidates** (after #1 lands):
    - **arm64/emit.zig** (1630 LOC) — mirror of x86_64/emit.zig
      after ADR-0081; same shape likely applies.
