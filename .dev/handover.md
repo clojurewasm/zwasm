@@ -5,9 +5,10 @@
 
 ## Cold-start procedure
 
-1. `git log --oneline -10` — last code commit `6d482ea0` lands
-   D-055 partial: 25 tests cumulative. Range sites remaining:
-   ~5 in emit_test_float + 8 in emit_test_int (near completion).
+1. `git log --oneline -10` — last code commit `3b46c27a` lands
+   D-055 partial: 30 tests cumulative. emit_test_float ~99%
+   done (1 unreachable test remaining). emit_test_int has 27
+   sites pending.
 2. **User directive (2026-05-21)**: batch-session architectural
    mode — Phase 9 closure quality. D-158 closed; D-141 remaining
    candidates need ADR-grade survey first.
@@ -15,11 +16,11 @@
 
 ## Active `now` debts
 
-- **D-055** (mechanical, multi-cycle, partial): cumulative 25
-  tests migrated. Near completion: 5 sites remain in
-  emit_test_float (lines ~1066, 1094, 1121, 1193, 1286) + 8 in
-  emit_test_int. After full migration, sentinel wire-up is a
-  5-line patch in x86_64/emit.zig.
+- **D-055** (mechanical, multi-cycle, partial): cumulative 30
+  tests migrated. emit_test_float ~99% done (1 unreachable test
+  with prescan-induced runtime_ptr remaining). emit_test_int
+  starts next cycle (27 sites). After full migration, sentinel
+  wire-up is a 5-line patch in x86_64/emit.zig.
 
 ## Authorized next-session pickup (priority order)
 
