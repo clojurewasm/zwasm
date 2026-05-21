@@ -2,7 +2,7 @@
 
 **Date**: 2026-05-21
 **Keywords**: D-141, pub-surface-leak, marginal-extraction, private-helper-relocation, FILE-SIZE-EXEMPT, ADR-0075 amend, Step-0 skip drift, retrospective, structural debt, completion-vs-progress, AI compromise pattern
-**Citing**: `<pending>` (this lesson + paired debt rows D-158 / D-159 / D-160)
+**Citing**: `ce43d124` (this lesson + paired debt rows D-158 / D-159 / D-160)
 
 ## Context
 

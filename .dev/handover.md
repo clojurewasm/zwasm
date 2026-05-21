@@ -3,50 +3,48 @@
 > ≤ 80 lines. No numeric predictions (per
 > [`no_handover_predictions.md`](../.claude/rules/no_handover_predictions.md)).
 
-## Cold-start procedure — §9.12-H ready to flip [x]; §9.12-I next
+## Cold-start procedure — §9.12-I in progress
 
-§9.12-H deliverables (3)+(4) landed this commit (the
-phase-record bench row + mean_ms ratio documentation). With
-(1)+(2) already in `06a09da6`, §9.12-H is functionally complete;
-the `[x]` flip + handover retargeting happen in the same
-commit pair.
+§9.12-I (ADR + lesson + private/ closure). 2 of 3 exit
+criteria now met this commit:
 
-**Baseline measurements** (Mac aarch64 ReleaseSafe, hyperfine
-`--warmup 3 --runs 5`, 26 fixtures × 2 runtimes, history.yaml
-row `p9-close: Wasm-2.0 baseline (Mac aarch64; §9.12-H)`):
+| Exit criterion | Pre-commit | Post-commit |
+|---|---|---|
+| `check_adr_history.sh --gate` 0 | 5 pending (3 real + 2 templates) | 1 pending (template only) — gate exits 0 ✓ |
+| `check_lesson_citing.sh` 0 | 2 unfilled | 0 ✓ |
+| ADR `Accepted` count < 30 | 85 | 85 (open — canonical pass deferred) |
 
-- **zwasm wins startup-dominated workloads** (tinygo/* +
-  cljw/* + handwritten/nbody): zwasm 1.05–2.89x faster than
-  wasmtime. zwasm RSS ~3.3–5.5 MB; wasmtime RSS ~13 MB.
-- **wasmtime wins compute-heavy workloads** (shootout/*):
-  wasmtime 8–100x faster (fib2 / heapsort / sieve / matrix /
-  base64). zwasm's per-op JIT-emit overhead dominates on the
-  long-running benches; wasmtime's AOT optimisation amortises.
-- shootout/nestedloop is the one shootout zwasm wins (1.56x
-  faster) — light loop body, startup-cost-dominated.
+**This commit (mechanical backfills)**:
+- ADR-0075 row: `<backfill>` → `799b9b10` (D-160 amend).
+- ADR-0080 row: `<backfill>` → `2b8e2447` (Withdrawn commit).
+- ADR-0094 rows (2): `<backfill>` → `ac89b0a6` (Proposed) +
+  `5653180c` (Accepted at f777edaa).
+- Lesson `d141-sweep-structural-debts.md`: Citing `<pending>` →
+  `ce43d124`.
+- Lesson `emit-zig-survey-per-op-pattern-already-absorbed.md`:
+  Citing `<backfill>` → `2b8e2447`.
 
-Total (26-fixture sum): zwasm 87.06s / wasmtime 1.80s; the
-shootout outliers dominate the aggregate — the ratio is most
-useful per-fixture, not as a single number.
+**Next pickup**: ADR Status canonical pass — flip ~55 ADRs
+from `Accepted` to `Closed (Phase X DONE)` where the ADR's
+authoring phase has been marked DONE per the §9 Phase Status
+widget. The §9.12-I row text says "~22-25 entries" specifically
+for the Phase-9-cohort; older phases also need pruning to reach
+the `< 30` exit target. This is a substantial multi-cycle pass
+(85 → < 30 = ~55+ flips); approach in batches by phase.
 
-**Next pickup: §9.12-I** — ADR + lesson + private/ closure
-(Phase 9 close). Sub-deliverables per ROADMAP:
-
-1. D-149 discharge (ADR Phase-9 cohort SHA backfill 75 → 0).
-2. ADR Status canonical pass (~22-25 `Accepted` → `Closed (Phase X DONE)`).
-3. skip-ADR Status wording cleanup.
-4. Lesson Citing backfill.
-5. Lesson promotion scan (3+ citations → ADR conversion).
-
-Exit: `check_adr_history.sh --gate` 0; `check_lesson_citing.sh`
-0; ADR `Accepted` count < 30.
+Approach:
+1. Group ADRs by authoring phase via `git log --follow`.
+2. For each phase Status: DONE (per Phase Status widget),
+   batch-flip `Accepted` → `Closed (Phase N DONE)` on its
+   ADRs.
+3. skip-ADR Status wording cleanup (skip_cross_module_register
+   / skip_cross_module_action — separate scan).
+4. Lesson promotion scan (3+ citations).
 
 ## Recent context
 
-- §9.12-G closed (`4bd62842`); §9.12-H (1)+(2) `06a09da6`;
-  §9.12-H (3)+(4) this commit.
-- File-size reform (cycles C1..C6, 2026-05-21): ADR-0099/0100/0101
-  + rule + script + lesson + init_expr.zig redesign.
+- §9.12-G closed (`4bd62842`); §9.12-H closed (`600bd7cf`).
+- File-size reform (cycles C1..C6): ADR-0099/0100/0101 etc.
 
 ## Active `now` debts
 
@@ -55,31 +53,26 @@ Exit: `check_adr_history.sh --gate` 0; `check_lesson_citing.sh`
 
 ## Other queued work
 
-1. **§9.12-I** — this cycle's next pickup.
+1. **§9.12-I ADR canonical pass** — next cycle (multi-cycle).
 2. **D-055 continuation**.
 3. **Phase 10 ZirOp slot policy ADR** — gates memory64 /
-   relaxed-simd file-level placeholder additions.
-4. **Bench follow-ups (Phase 11 scope)**: wazero / wasmer /
-   bun / node comparators; `-Dwith-bench-compare` build flag.
-5. **Bench observation: zwasm compute-heavy gap** — the
-   shootout 8–100x wasmtime advantage is the canonical Phase
-   11+ optimisation target; not actionable in Phase 9 close.
+   relaxed-simd file-level placeholders.
 
 ## Active state (snapshot)
 
-- §9.12-A enforcement: 11 items OK + `check_wasm_h_upstream.sh`.
+- §9.12-A enforcement: 11 items OK.
 - §9.12-F (D-141 + reform): closed.
-- §9.12-G: closed (`4bd62842`).
-- §9.12-H: this commit closes it.
-- §9.12-I: next.
+- §9.12-G: closed.
+- §9.12-H: closed.
+- §9.12-I: in progress (this commit + canonical pass to come).
 
 ## Open questions / blockers
 
-- なし for §9.12-I.
+- なし for §9.12-I canonical pass.
 
 ## See
 
 - [ROADMAP](./ROADMAP.md) §9.12-I scope + exit
-- [`bench/results/history.yaml`](../bench/results/history.yaml) — baseline row landed
-- [`scripts/run_bench.sh`](../scripts/run_bench.sh)
+- [`scripts/check_adr_history.sh`](../scripts/check_adr_history.sh)
+- [`scripts/check_lesson_citing.sh`](../scripts/check_lesson_citing.sh)
 - [`debt.md`](./debt.md), [`lessons/INDEX.md`](./lessons/INDEX.md)

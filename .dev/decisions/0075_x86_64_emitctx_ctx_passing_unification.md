@@ -104,4 +104,4 @@ See Decision above.
 |------------|--------------|-----------------------------------------------------------------|
 | 2026-05-19 | `4a6303d2`   | Initial proposed version (docs wire-up commit).                 |
 | 2026-05-19 | `952e1a33` | Accepted at §9.12-B / B53 — EmitCtx struct + init landed.       |
-| 2026-05-21 | `<backfill>` | Consequences amended — FILE-SIZE-EXEMPT extension to cover pure-encoder catalogs (D-160 discharge). |
+| 2026-05-21 | `799b9b10` | Consequences amended — FILE-SIZE-EXEMPT extension to cover pure-encoder catalogs (D-160 discharge). |

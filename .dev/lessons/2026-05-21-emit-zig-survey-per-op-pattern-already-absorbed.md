@@ -2,7 +2,7 @@
 
 **Date**: 2026-05-21
 **Keywords**: ADR-0080, emit.zig, per-op-file, ADR-0074, survey overestimate, dispatch arm, code already extracted, file split, architectural, withdraw
-**Citing**: `<backfill>` (ADR-0080 Withdraw amendment commit)
+**Citing**: `2b8e2447` (ADR-0080 Withdraw amendment commit)
 
 ## What happened
 
