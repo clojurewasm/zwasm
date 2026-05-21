@@ -32,24 +32,12 @@ pub const Error = error{
     OutOfMemory,
 } || leb128.Error;
 
-pub const CodeEntry = struct {
-    /// Flattened locals: each `(count valtype)` decl is expanded so
-    /// the validator/lowerer can index `locals[i]` directly.
-    locals: []const ValType,
-    /// Expression bytes (terminated by the implicit function-frame
-    /// `end`). Borrowed from the input; the caller keeps the input
-    /// alive for as long as `body` is referenced.
-    body: []const u8,
-};
-
-pub const Codes = struct {
-    arena: std.heap.ArenaAllocator,
-    items: []CodeEntry,
-
-    pub fn deinit(self: *Codes) void {
-        self.arena.deinit();
-    }
-};
+// Code section (Wasm §5.5.11) extracted to `sections_codes.zig`
+// per ADR-0096; re-exports below preserve `sections.X` namespace.
+const codes_mod = @import("sections_codes.zig");
+pub const CodeEntry = codes_mod.CodeEntry;
+pub const Codes = codes_mod.Codes;
+pub const decodeCodes = codes_mod.decodeCodes;
 
 pub const Types = struct {
     arena: std.heap.ArenaAllocator,
@@ -320,61 +308,10 @@ pub fn decodeGlobals(parent_alloc: Allocator, body: []const u8) Error!Globals {
     return .{ .arena = arena, .items = items };
 }
 
-/// Decode the body of a code section (`SectionId.code`):
-///   vec(code), code = size:u32 (vec(local_decl) + expr)
-///   local_decl = count:u32 valtype
-/// Returns one `CodeEntry` per defined function. `entry.body` is a
-/// borrowed slice into `body`; the caller keeps `body` alive for as
-/// long as the result is used.
-pub fn decodeCodes(parent_alloc: Allocator, body: []const u8) Error!Codes {
-    var arena = std.heap.ArenaAllocator.init(parent_alloc);
-    errdefer arena.deinit();
-    const alloc = arena.allocator();
+// decodeCodes moved to `sections_codes.zig` per ADR-0096.
 
-    var pos: usize = 0;
-    const fn_count = try leb128.readUleb128(u32, body, &pos);
-    const items = try alloc.alloc(CodeEntry, fn_count);
-
-    for (items) |*entry| {
-        const size = try leb128.readUleb128(u32, body, &pos);
-        const size_us: usize = @intCast(size);
-        if (size_us > body.len - pos) return Error.UnexpectedEnd;
-        const code = body[pos .. pos + size_us];
-        pos += size_us;
-
-        var inner: usize = 0;
-        const decl_count = try leb128.readUleb128(u32, code, &inner);
-
-        // First pass: total locals so we can allocate exactly once.
-        var probe = inner;
-        var total: u64 = 0;
-        for (0..decl_count) |_| {
-            const c = try leb128.readUleb128(u32, code, &probe);
-            total += c;
-            if (probe >= code.len) return Error.UnexpectedEnd;
-            probe += 1; // skip the valtype byte
-        }
-        if (total > std.math.maxInt(u32)) return Error.LocalsOverflow;
-
-        const locals = try alloc.alloc(ValType, @intCast(total));
-        var w: usize = 0;
-        for (0..decl_count) |_| {
-            const c = try leb128.readUleb128(u32, code, &inner);
-            const t = try readValType(code, &inner);
-            for (0..c) |_| {
-                locals[w] = t;
-                w += 1;
-            }
-        }
-
-        entry.* = .{ .locals = locals, .body = code[inner..] };
-    }
-
-    if (pos != body.len) return Error.TrailingBytes;
-    return .{ .arena = arena, .items = items };
-}
-
-pub const DataKind = enum { active, passive };
+// DataKind moved to `sections_data.zig` (re-exported below after
+// the memory section).
 
 /// One Wasm memory's limits. v0.1.0 only allows one memory per
 /// module (`memidx == 0`); multi-memory is post-v0.1.0.
@@ -425,97 +362,13 @@ pub fn decodeMemory(parent_alloc: Allocator, body: []const u8) Error!Memories {
     return .{ .arena = arena, .items = items };
 }
 
-pub const DataSegment = struct {
-    kind: DataKind,
-    /// memidx for active segments (kind 0/2). Always 0 in chunk 4b
-    /// since multi-memory is post-v0.1.0.
-    memidx: u32 = 0,
-    /// Init-expression bytes for active segments (terminated by the
-    /// trailing `end`). Empty for passive. Borrowed from the input.
-    offset_expr: []const u8 = &.{},
-    /// The actual data bytes. Borrowed from the input.
-    bytes: []const u8,
-};
-
-pub const Datas = struct {
-    arena: std.heap.ArenaAllocator,
-    items: []DataSegment,
-
-    pub fn deinit(self: *Datas) void {
-        self.arena.deinit();
-    }
-};
-
-/// Decode the body of a data section (`SectionId.data`):
-///   vec(data), data has three forms (Wasm 2.0 §5.5.13):
-///     0x00 expr bytes               — active, memidx 0
-///     0x01 bytes                    — passive
-///     0x02 memidx expr bytes        — active, explicit memidx
-/// `bytes` is `vec(byte)` = uleb size + raw bytes. `expr` is the
-/// init-expression terminated by 0x0B.
-///
-/// Multi-memory (form 0x02 with non-zero memidx) is post-v0.1.0;
-/// chunk 4b accepts memidx but does not require it to be 0.
-pub fn decodeData(parent_alloc: Allocator, body: []const u8) Error!Datas {
-    var arena = std.heap.ArenaAllocator.init(parent_alloc);
-    errdefer arena.deinit();
-    const alloc = arena.allocator();
-
-    var pos: usize = 0;
-    const count = try leb128.readUleb128(u32, body, &pos);
-    const items = try alloc.alloc(DataSegment, count);
-
-    for (items) |*d| {
-        const flag = try leb128.readUleb128(u32, body, &pos);
-        switch (flag) {
-            0 => {
-                const expr_start = pos;
-                try scanInitExpr(body, &pos);
-                const expr = body[expr_start..pos];
-                const size = try leb128.readUleb128(u32, body, &pos);
-                const size_us: usize = @intCast(size);
-                if (size_us > body.len - pos) return Error.UnexpectedEnd;
-                d.* = .{
-                    .kind = .active,
-                    .memidx = 0,
-                    .offset_expr = expr,
-                    .bytes = body[pos .. pos + size_us],
-                };
-                pos += size_us;
-            },
-            1 => {
-                const size = try leb128.readUleb128(u32, body, &pos);
-                const size_us: usize = @intCast(size);
-                if (size_us > body.len - pos) return Error.UnexpectedEnd;
-                d.* = .{
-                    .kind = .passive,
-                    .bytes = body[pos .. pos + size_us],
-                };
-                pos += size_us;
-            },
-            2 => {
-                const memidx = try leb128.readUleb128(u32, body, &pos);
-                const expr_start = pos;
-                try scanInitExpr(body, &pos);
-                const expr = body[expr_start..pos];
-                const size = try leb128.readUleb128(u32, body, &pos);
-                const size_us: usize = @intCast(size);
-                if (size_us > body.len - pos) return Error.UnexpectedEnd;
-                d.* = .{
-                    .kind = .active,
-                    .memidx = memidx,
-                    .offset_expr = expr,
-                    .bytes = body[pos .. pos + size_us],
-                };
-                pos += size_us;
-            },
-            else => return Error.InvalidFunctype, // reused: bad flag byte
-        }
-    }
-
-    if (pos != body.len) return Error.TrailingBytes;
-    return .{ .arena = arena, .items = items };
-}
+// Data section (Wasm 2.0 §5.5.13) extracted to `sections_data.zig`
+// per ADR-0096; re-exports below preserve `sections.X` namespace.
+const data_mod = @import("sections_data.zig");
+pub const DataKind = data_mod.DataKind;
+pub const DataSegment = data_mod.DataSegment;
+pub const Datas = data_mod.Datas;
+pub const decodeData = data_mod.decodeData;
 
 // Element section (Wasm 2.0 §5.5.12) extracted to
 // `sections_element.zig` per ADR-0095. Types + decoder +
@@ -653,7 +506,7 @@ fn skipLeb128(body: []const u8, pos: *usize, comptime max_bytes: usize) Error!vo
 /// local decl). The reftype branches were enabled by D-093 / d-32;
 /// the runtime path through `op_globals` for reftype globals lands
 /// at d-33.
-fn readValType(body: []const u8, pos: *usize) Error!ValType {
+pub fn readValType(body: []const u8, pos: *usize) Error!ValType {
     if (pos.* >= body.len) return Error.UnexpectedEnd;
     const b = body[pos.*];
     pos.* += 1;
@@ -814,87 +667,7 @@ test "decodeFunctions: rejects trailing bytes" {
     try testing.expectError(Error.TrailingBytes, r);
 }
 
-test "decodeCodes: empty section" {
-    var c = try decodeCodes(testing.allocator, &[_]u8{0x00});
-    defer c.deinit();
-    try testing.expectEqual(@as(usize, 0), c.items.len);
-}
-
-test "decodeCodes: single function with no locals + bare end" {
-    // count=1; size=2; locals_count=0; expr=0x0B
-    const body = [_]u8{ 0x01, 0x02, 0x00, 0x0B };
-    var c = try decodeCodes(testing.allocator, &body);
-    defer c.deinit();
-    try testing.expectEqual(@as(usize, 1), c.items.len);
-    try testing.expectEqual(@as(usize, 0), c.items[0].locals.len);
-    try testing.expectEqualSlices(u8, &[_]u8{0x0B}, c.items[0].body);
-}
-
-test "decodeCodes: locals expansion (3 i32 + 2 i64)" {
-    // count=1; size=N; locals_count=2; (3 i32) (2 i64); expr=0x0B
-    const body = [_]u8{
-        0x01, // fn count
-        0x06, // body size = 6 bytes
-        0x02, // 2 local decls
-        0x03, 0x7F, // 3x i32
-        0x02, 0x7E, // 2x i64
-        0x0B, // end
-    };
-    var c = try decodeCodes(testing.allocator, &body);
-    defer c.deinit();
-    try testing.expectEqual(@as(usize, 1), c.items.len);
-    try testing.expectEqualSlices(
-        ValType,
-        &[_]ValType{ .i32, .i32, .i32, .i64, .i64 },
-        c.items[0].locals,
-    );
-    try testing.expectEqualSlices(u8, &[_]u8{0x0B}, c.items[0].body);
-}
-
-test "decodeCodes: two functions, body slices borrow correctly" {
-    const body = [_]u8{
-        0x02,
-        0x02, 0x00, 0x0B, // fn 0: no locals, end
-        0x04, 0x00, 0x41, 0x07, 0x0B, // fn 1: no locals, i32.const 7, end
-    };
-    var c = try decodeCodes(testing.allocator, &body);
-    defer c.deinit();
-    try testing.expectEqual(@as(usize, 2), c.items.len);
-    try testing.expectEqualSlices(u8, &[_]u8{0x0B}, c.items[0].body);
-    try testing.expectEqualSlices(u8, &[_]u8{ 0x41, 0x07, 0x0B }, c.items[1].body);
-}
-
-test "decodeCodes: rejects size overrun" {
-    const body = [_]u8{ 0x01, 0xFF, 0x00 }; // size=255 but only 1 byte follows
-    try testing.expectError(Error.UnexpectedEnd, decodeCodes(testing.allocator, &body));
-}
-
-test "decodeCodes: rejects bad valtype in locals decl" {
-    // 0x5F is unassigned in the Wasm 2.0 valtype space; reftype
-    // bytes 0x70 / 0x6F are now accepted (see `decodeCodes: accepts
-    // funcref local decl` below).
-    const body = [_]u8{ 0x01, 0x04, 0x01, 0x01, 0x5F, 0x0B };
-    try testing.expectError(Error.BadValType, decodeCodes(testing.allocator, &body));
-}
-
-test "decodeCodes: accepts funcref local decl (Wasm 2.0 §5.3.1)" {
-    // Function with `(local funcref)`. Per §4.5.3.1 locals are
-    // initialised to null reftype; the parser only verifies the
-    // declaration decodes.
-    const body = [_]u8{ 0x01, 0x04, 0x01, 0x01, 0x70, 0x0B };
-    var c = try decodeCodes(testing.allocator, &body);
-    defer c.deinit();
-    try testing.expectEqual(@as(usize, 1), c.items.len);
-    try testing.expectEqualSlices(ValType, &[_]ValType{.funcref}, c.items[0].locals);
-}
-
-test "decodeCodes: accepts externref local decl (Wasm 2.0 §5.3.1)" {
-    const body = [_]u8{ 0x01, 0x04, 0x01, 0x01, 0x6F, 0x0B };
-    var c = try decodeCodes(testing.allocator, &body);
-    defer c.deinit();
-    try testing.expectEqual(@as(usize, 1), c.items.len);
-    try testing.expectEqualSlices(ValType, &[_]ValType{.externref}, c.items[0].locals);
-}
+// decodeCodes tests moved to `sections_codes.zig` per ADR-0096.
 
 test "decodeGlobals: empty section" {
     var g = try decodeGlobals(testing.allocator, &[_]u8{0x00});
@@ -1055,70 +828,7 @@ test "decodeGlobals: v128 init_expr whose lane byte equals 0x0B (simd_const.388)
     try testing.expectEqual(@as(usize, 19), g.items[1].init_expr.len);
 }
 
-test "decodeData: empty section" {
-    var d = try decodeData(testing.allocator, &[_]u8{0x00});
-    defer d.deinit();
-    try testing.expectEqual(@as(usize, 0), d.items.len);
-}
-
-test "decodeData: single active segment with i32.const 0 offset + 3 bytes" {
-    // count=1; flag=0; offset_expr = 0x41 0x00 0x0B; size=3; bytes=AA BB CC
-    const body = [_]u8{
-        0x01,
-        0x00,
-        0x41,
-        0x00,
-        0x0B,
-        0x03,
-        0xAA,
-        0xBB,
-        0xCC,
-    };
-    var d = try decodeData(testing.allocator, &body);
-    defer d.deinit();
-    try testing.expectEqual(@as(usize, 1), d.items.len);
-    try testing.expectEqual(DataKind.active, d.items[0].kind);
-    try testing.expectEqual(@as(u32, 0), d.items[0].memidx);
-    try testing.expectEqualSlices(u8, &[_]u8{ 0x41, 0x00, 0x0B }, d.items[0].offset_expr);
-    try testing.expectEqualSlices(u8, &[_]u8{ 0xAA, 0xBB, 0xCC }, d.items[0].bytes);
-}
-
-test "decodeData: single passive segment with 4 bytes" {
-    // count=1; flag=1; size=4; bytes
-    const body = [_]u8{ 0x01, 0x01, 0x04, 0x11, 0x22, 0x33, 0x44 };
-    var d = try decodeData(testing.allocator, &body);
-    defer d.deinit();
-    try testing.expectEqual(@as(usize, 1), d.items.len);
-    try testing.expectEqual(DataKind.passive, d.items[0].kind);
-    try testing.expectEqualSlices(u8, &[_]u8{}, d.items[0].offset_expr);
-    try testing.expectEqualSlices(u8, &[_]u8{ 0x11, 0x22, 0x33, 0x44 }, d.items[0].bytes);
-}
-
-test "decodeData: active form 2 with explicit memidx" {
-    // count=1; flag=2; memidx=0; offset_expr = 0x41 0x10 0x0B; size=2; bytes
-    const body = [_]u8{
-        0x01,
-        0x02,
-        0x00,
-        0x41,
-        0x10,
-        0x0B,
-        0x02,
-        0xDE,
-        0xAD,
-    };
-    var d = try decodeData(testing.allocator, &body);
-    defer d.deinit();
-    try testing.expectEqual(DataKind.active, d.items[0].kind);
-    try testing.expectEqual(@as(u32, 0), d.items[0].memidx);
-    try testing.expectEqualSlices(u8, &[_]u8{ 0xDE, 0xAD }, d.items[0].bytes);
-}
-
-test "decodeData: rejects unknown flag byte" {
-    const body = [_]u8{ 0x01, 0x05 };
-    try testing.expectError(Error.InvalidFunctype, decodeData(testing.allocator, &body));
-}
-
+// decodeData tests moved to `sections_data.zig` per ADR-0096.
 // decodeElement tests moved to `sections_element.zig` per ADR-0095.
 
 test "decodeTables: empty section" {
