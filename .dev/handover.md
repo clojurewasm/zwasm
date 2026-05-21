@@ -5,9 +5,10 @@
 
 ## Cold-start procedure
 
-1. `git log --oneline -10` — last code commit: `ba4c6690`
-   (spike_lifecycle rule — canonical README shape aligned with
-   new_spike.sh output; audit-vs-rule-vs-scaffold drift closed).
+1. `git log --oneline -10` — last code commit: `1e2a9fbd`
+   (pre-push hook wires check_skip_taxonomy + pairing; 2 ADR-0078
+   audit gates now run at push time alongside subrow_exit +
+   skip_impl_ratchet).
 2. **Live status** (when uncertain):
    `bash scripts/p9_completion_status.sh` —
    `bash scripts/check_skip_impl_ratchet.sh --report` —
