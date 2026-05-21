@@ -151,6 +151,14 @@ if [ "$DOCS_ONLY" -eq 0 ]; then
         echo "[gate_commit] check_invariant_comments --strict ..."
         bash scripts/check_invariant_comments.sh --strict > /dev/null
     fi
+    # ADR-0094 (D-158): SIBLING-PUB marker audit. Walks
+    # `// SIBLING-PUB:` markers + verifies no unauthorized
+    # importer calls the pub decl. @import-filter eliminates
+    # false positives on common names (e.g. `emit`).
+    if [ -x scripts/check_sibling_pub.sh ]; then
+        echo "[gate_commit] check_sibling_pub --gate ..."
+        bash scripts/check_sibling_pub.sh --gate > /dev/null
+    fi
 fi
 
 # --- gate: zig build test (skipped on docs-only OR --fast) ---------------

@@ -393,6 +393,7 @@ pub const Validator = struct {
     // Operand-stack helpers
     // ----------------------------------------------------------------
 
+    // SIBLING-PUB: validator_simd.zig (per ADR-0083 extraction)
     pub fn pushType(self: *Validator, t: ValType) Error!void {
         if (self.operand_len == max_operand_stack) return Error.OperandStackOverflow;
         self.operand_buf[self.operand_len] = .{ .known = t };
@@ -408,6 +409,7 @@ pub const Validator = struct {
     /// Pop one operand and assert it has the expected type. In an
     /// unreachable region pop returns `bot` (synthesised) instead of
     /// underflowing.
+    // SIBLING-PUB: validator_simd.zig (per ADR-0083 extraction)
     pub fn popExpect(self: *Validator, expected: ValType) Error!void {
         const top = try self.popAny();
         switch (top) {

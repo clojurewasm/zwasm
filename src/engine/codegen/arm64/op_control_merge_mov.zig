@@ -44,7 +44,8 @@ const merge_top_vregs_cap: u8 = 8;
 ///
 /// Cost: 1 extra MOV per cycle (regardless of cycle length).
 /// O(N²) loop is fine for N ≤ `merge_top_vregs_cap` = 8.
-pub fn resolveAndEmitMergeMovsRegBatch(ctx: *EmitCtx, moves: []ParallelMove) Error!void {
+// Same-file helper; not called outside this module (per ADR-0094 audit).
+fn resolveAndEmitMergeMovsRegBatch(ctx: *EmitCtx, moves: []ParallelMove) Error!void {
     var pending: u32 = 0;
     for (moves) |m| {
         if (!m.done) pending += 1;
@@ -89,6 +90,7 @@ pub fn resolveAndEmitMergeMovsRegBatch(ctx: *EmitCtx, moves: []ParallelMove) Err
     }
 }
 
+// SIBLING-PUB: op_control.zig (per ADR-0093 extraction)
 pub const ParallelMove = struct {
     src_reg: inst.Xn,
     dst_reg: inst.Xn,
@@ -114,6 +116,7 @@ pub const ParallelMove = struct {
 /// register pool so concurrent loads + defs of the same class
 /// never alias (R10/R11 on x86_64, X14/X15 on arm64; V29/V30
 /// for FP / v128 stage on arm64; XMM14/XMM15 on x86_64).
+// SIBLING-PUB: op_control.zig (per ADR-0093 extraction)
 pub fn emitMergeMov(
     ctx: *EmitCtx,
     src_vreg: u32,
@@ -179,6 +182,7 @@ pub fn emitMergeMov(
 ///
 /// No-op when the target is not `.block` or `result_arity ==
 /// 0` (legacy single-arm shapes).
+// SIBLING-PUB: op_control.zig (per ADR-0093 extraction)
 pub fn captureOrEmitBlockMergeMov(ctx: *EmitCtx, tgt_idx: usize) Error!bool {
     const arity: u32 = ctx.labels.items[tgt_idx].result_arity;
     if (arity == 0) return false;
@@ -271,6 +275,7 @@ pub fn captureOrEmitBlockMergeMov(ctx: *EmitCtx, tgt_idx: usize) Error!bool {
 /// Unpack `(param_arity, result_arity)` from a block-open
 /// ZirInstr's `extra` field. Per lower.zig's `readBlockArity`
 /// the packing is `(params << 8) | results`, both u8.
+// SIBLING-PUB: op_control.zig (per ADR-0093 extraction)
 pub fn unpackBlockArity(extra: u32) struct { params: u8, results: u8 } {
     return .{
         .params = @intCast((extra >> 8) & 0xFF),

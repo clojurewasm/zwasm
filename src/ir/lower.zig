@@ -153,6 +153,7 @@ pub const Lowerer = struct {
 
     /// Append a 16-byte SIMD constant to the per-function pool;
     /// return the index for `ZirInstr.payload` encoding.
+    // SIBLING-PUB: lower_simd.zig (per ADR-0089 extraction)
     pub fn appendSimdConst(self: *Lowerer, bytes: [16]u8) Error!u32 {
         const idx: u32 = @intCast(self.simd_consts.items.len);
         try self.simd_consts.append(self.alloc, bytes);
@@ -483,6 +484,7 @@ pub const Lowerer = struct {
         }
     }
 
+    // SIBLING-PUB: lower_simd.zig (per ADR-0089 extraction)
     pub fn emit(self: *Lowerer, op: ZirOp, payload: u32, extra: u32) Error!void {
         // D-093 (d-1): skip ZirInstr emission while in the dead
         // region following an unconditional terminator. Operand
@@ -586,6 +588,7 @@ pub const Lowerer = struct {
     }
 
     /// memarg-bearing op (load*/store*): payload = offset, extra = align.
+    // SIBLING-PUB: lower_simd.zig (per ADR-0089 extraction)
     pub fn emitMemarg(self: *Lowerer, op: ZirOp) Error!void {
         const align_arg = try leb128.readUleb128(u32, self.body, &self.pos);
         const offset = try leb128.readUleb128(u32, self.body, &self.pos);
