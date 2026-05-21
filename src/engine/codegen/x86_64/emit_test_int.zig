@@ -95,7 +95,9 @@ test "compile: (i32.const 0xDEADBEEF) end — little-endian imm32" {
     // Differs from the 42 case only at the imm32 bytes. The imm32 follows the
     // 4-byte prologue + 1-byte MOV-EBX opcode (0xBB) → starts at offset 5.
     try testing.expectEqual(@as(usize, 13), out.bytes.len);
-    try testing.expectEqualSlices(u8, &.{ 0xEF, 0xBE, 0xAD, 0xDE }, out.bytes[5..9]);
+    // D-055 migration: imm32 = body_start (4) + 1-byte MOV-EBX opcode (0xBB).
+    const imm32_off = prologue.body_start_offset(false, 0) + 1;
+    try testing.expectEqualSlices(u8, &.{ 0xEF, 0xBE, 0xAD, 0xDE }, out.bytes[imm32_off .. imm32_off + 4]);
 }
 
 test "compile: void function with `end` only emits prologue + epilogue" {
@@ -206,8 +208,12 @@ test "compile: local.tee preserves stack — uses top vreg without popping" {
     // + MOV [RBP-8] EBX (3) + MOV EAX EBX (2) + ADD RSP + POP RBP + RET.
     // Spot-check: STORE [RBP-8] EBX = 89 5D F8 at offset 19..22,
     // followed by MOV EAX, EBX = 89 D8 at 22..24.
-    try testing.expectEqualSlices(u8, &.{ 0x89, 0x5D, 0xF8 }, out.bytes[19..22]);
-    try testing.expectEqualSlices(u8, &.{ 0x89, 0xD8 }, out.bytes[22..24]);
+    // D-055 migration: prologue size sourced from body_start_offset()
+    // (false, 8) → 8; + zero-init (6) + MOV EBX (5) = 19.
+    const body_start = prologue.body_start_offset(false, 8);
+    const store_off = body_start + 6 + 5;
+    try testing.expectEqualSlices(u8, &.{ 0x89, 0x5D, 0xF8 }, out.bytes[store_off .. store_off + 3]);
+    try testing.expectEqualSlices(u8, &.{ 0x89, 0xD8 }, out.bytes[store_off + 3 .. store_off + 5]);
 }
 
 test "compile: (block (br 0) end) end — forward br with end-patch" {
@@ -649,9 +655,11 @@ test "compile: (i32.const 0)(i32.const 99) i32.store offset=0 — store path" {
     //   (no return marshalling — sig.results.len == 0)
     // Epilogue: ADD RSP,8 / POP R15 / POP RBP / RET                  8
     // Trap stub: 21 bytes
-    try testing.expectEqualSlices(u8, &.{ 0x44, 0x89, 0x24, 0x10 }, out.bytes[13 + 5 + 6 + 7 + 2 + 4 + 7 + 6 ..][0..4]);
+    // D-055 migration: prologue size sourced from body_start_offset().
+    const body_start = prologue.body_start_offset(true, 8);
+    try testing.expectEqualSlices(u8, &.{ 0x44, 0x89, 0x24, 0x10 }, out.bytes[body_start + 5 + 6 + 7 + 2 + 4 + 7 + 6 ..][0..4]);
     // Verify the JA was patched (disp != 0); JA = 0x0F 0x87
-    const ja_at = 13 + 5 + 6 + 7 + 2 + 4 + 7;
+    const ja_at = body_start + 5 + 6 + 7 + 2 + 4 + 7;
     try testing.expect(out.bytes[ja_at] == 0x0F and out.bytes[ja_at + 1] == 0x87);
     const disp = std.mem.readInt(i32, out.bytes[ja_at + 2 ..][0..4], .little);
     try testing.expect(disp > 0); // forward to trap stub
@@ -1041,7 +1049,9 @@ test "compile: (i32.const 8) (i32.const 3) i32.sub end — SUB opcode 29" {
     defer deinit(testing.allocator, out);
     // Spot-check (slot 2 = R13, slot 1 = R12 after chunk 13b pool shrink):
     // SUB R13D, R12D = 45 29 E5 lives at offset 18..21.
-    try testing.expectEqualSlices(u8, &.{ 0x45, 0x29, 0xE5 }, out.bytes[18..21]);
+    // D-055 migration: prologue size sourced from body_start_offset().
+    const sub_off = prologue.body_start_offset(false, 0) + 14;
+    try testing.expectEqualSlices(u8, &.{ 0x45, 0x29, 0xE5 }, out.bytes[sub_off .. sub_off + 3]);
 }
 
 test "compile: (i32.const 6) (i32.const 7) i32.mul end — IMUL 0F AF" {
@@ -1065,7 +1075,9 @@ test "compile: (i32.const 6) (i32.const 7) i32.mul end — IMUL 0F AF" {
     // chunk 13b pool shrink). dst=R13D (R=1), src=R12D (B=1) → REX = 0x45.
     // ModR/M: mod=11, reg=101 (r13), rm=100 (r12) → 11 101 100 = EC.
     // So 45 0F AF EC at offset 18..22.
-    try testing.expectEqualSlices(u8, &.{ 0x45, 0x0F, 0xAF, 0xEC }, out.bytes[18..22]);
+    // D-055 migration: prologue size sourced from body_start_offset().
+    const imul_off = prologue.body_start_offset(false, 0) + 14;
+    try testing.expectEqualSlices(u8, &.{ 0x45, 0x0F, 0xAF, 0xEC }, out.bytes[imul_off .. imul_off + 4]);
 }
 
 test "compile: (i32.const 7) (i32.const 5) i32.eq end — CMP+SETE+MOVZX" {
@@ -1409,8 +1421,10 @@ test "compile: i32.wrap_i64 emits MOV r32_dst, r32_src (self-MOV zero-extends)" 
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{});
     defer deinit(testing.allocator, out);
     // Layout: 4 prologue + 5 mov-EBX-imm32 = 9. Then MOV EBX, EBX = 2 bytes.
+    // D-055 migration: prologue size sourced from body_start_offset().
+    const off = prologue.body_start_offset(false, 0) + 5;
     const expected = inst.encMovRR(.d, .rbx, .rbx);
-    try testing.expectEqualSlices(u8, expected.slice(), out.bytes[9 .. 9 + expected.len]);
+    try testing.expectEqualSlices(u8, expected.slice(), out.bytes[off .. off + expected.len]);
 }
 
 test "compile: i64.extend_i32_u emits MOV r32_dst, r32_src" {
@@ -1430,8 +1444,10 @@ test "compile: i64.extend_i32_u emits MOV r32_dst, r32_src" {
     defer deinit(testing.allocator, out);
     // Layout (slot 0 = RBX after chunk 13b pool shrink):
     // 4 prologue + 5 mov-EBX-imm32 = 9. Then MOV EBX, EBX = 2 bytes.
+    // D-055 migration: prologue size sourced from body_start_offset().
+    const off = prologue.body_start_offset(false, 0) + 5;
     const expected = inst.encMovRR(.d, .rbx, .rbx);
-    try testing.expectEqualSlices(u8, expected.slice(), out.bytes[9 .. 9 + expected.len]);
+    try testing.expectEqualSlices(u8, expected.slice(), out.bytes[off .. off + expected.len]);
 }
 
 test "compile: i64.extend_i32_s emits MOVSXD r64_dst, r32_src" {
@@ -1452,8 +1468,10 @@ test "compile: i64.extend_i32_s emits MOVSXD r64_dst, r32_src" {
     defer deinit(testing.allocator, out);
     // Layout (slot 0 = RBX after chunk 13b pool shrink):
     // 4 prologue + 5 mov-EBX-imm32 = 9. Then MOVSXD RBX, EBX = 3 bytes.
+    // D-055 migration: prologue size sourced from body_start_offset().
+    const off = prologue.body_start_offset(false, 0) + 5;
     const expected = inst.encMovsxdR64R32(.rbx, .rbx);
-    try testing.expectEqualSlices(u8, expected.slice(), out.bytes[9 .. 9 + expected.len]);
+    try testing.expectEqualSlices(u8, expected.slice(), out.bytes[off .. off + expected.len]);
 }
 
 test "compile: call N — 0 args, void return — emits MOV RDI,R15 + CALL + fixup" {
