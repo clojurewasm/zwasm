@@ -124,3 +124,52 @@ generally available as a refactor tool but ceases to be the
 *default* extraction shape — future file growth would surface
 new design questions (per-family, per-version, etc.) rather
 than re-applying the same mechanical pattern.
+
+## When this lesson does NOT apply (added 2026-05-21 post-retrospective)
+
+This lesson covers the **Pure-data re-export pattern only**. Per
+ADR-0099, file-size-driven extractions fall into multiple
+patterns:
+
+| Pattern | Lesson / discipline | Examples |
+|---|---|---|
+| Pure-data re-export | THIS lesson | ADR-0082, 0086, 0087, 0088, 0090 |
+| Spec-defined closed sub-language (P1) | ADR-0099 §D2 P1 | ADR-0083, 0089 |
+| Independent change cadence + deep interface (P3) | ADR-0099 §D2 P3 | ADR-0091, 0092, 0093, 0098 |
+| Per-caller migration (sed-rewrite) | ADR-0084 narrative | ADR-0084 |
+| **FILE-SIZE-EXEMPT (no valid extraction)** | ADR-0063 + ADR-0099 §D1 | entry.zig, op_simd_int_cmp_lane.zig |
+
+**Do NOT use this lesson as justification when:**
+- The dominant block is < 40% of file LOC (the lesson's threshold)
+- The extracted "data" actually has methods or carries state
+- The extraction requires pub-ifying a private helper (N2)
+- The extracted module would be < 100 LOC substantive (N3)
+
+When the conditions don't fit, the ADR-0099 §D2 4+4 conditions
+govern.
+
+### Retrospective: ADR-0091 was a border case
+
+ADR-0091's Context section wrote:
+> "Does ONE block exceed 40% of file LOC? The 326-LOC tail is 27%
+> — below the 40% threshold, but cohesive."
+
+That phrasing weakened the threshold without explicit justification.
+Under ADR-0099, the correct evaluation is:
+
+- The extraction's positive condition is P3 (independent change
+  cadence + deep interface), not P2
+- P2's 40% threshold is irrelevant when the justification is P3
+
+ADR-0091 is retroactively recategorised under P3 (the
+post-instantiate helpers are conceptually distinct from
+compileWasm orchestration; consumed by Instance lifecycle + spec
+runner). The extraction stands.
+
+### Self-review note
+
+The lesson at the time was implicitly suggesting that "below 40%"
+→ "ADR-grade design choice required" → "but still might be
+extractable." That ambiguity is the drift signal. The amendment
+clarifies: below 40% → use a *different* positive condition
+(P1/P3/P4) OR don't extract.

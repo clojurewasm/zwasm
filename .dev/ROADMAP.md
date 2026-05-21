@@ -1090,8 +1090,14 @@ zwasm_from_scratch/
 └── private/                    # gitignored agent scratch
 ```
 
-**File-size discipline (A2)** (rubric finalised by ADR-0023):
-- Soft cap 1,000 lines: warning + ADR for split plan.
+**File-size discipline (A2)** (rubric finalised by ADR-0023;
+reframed by ADR-0099):
+- Soft cap 1,000 lines: WARN. **Smell detector, not metric.**
+  Per ADR-0099 §D1, investigate first; extract only if a valid
+  P1-P4 condition fires AND no N1-N4 condition rejects (§D2
+  4+4 conditions). Default outcome when no valid extraction
+  exists: `// FILE-SIZE-EXEMPT: <rationale> (per ADR-0099)` on
+  lines 1-5.
 - Hard cap 2,000 lines: gate fails; §A2 violation requires ADR.
 - **Tests-split rubric**: production code ≤ 800 LOC requires
   inline `test "..."` blocks. Production code > 800 LOC and
@@ -1101,6 +1107,8 @@ zwasm_from_scratch/
   placement.
 - Auto-generated files are exempt with `// AUTO-GENERATED FROM <source>`
   on lines 1-3.
+- Split-quality is checked informationally by
+  `scripts/check_split_smell.sh` (per ADR-0099 §D4).
 
 **Naming (A11)**: all paths are `snake_case`. No hyphens in file or
 directory names. Migrating from CW-v2-style hyphens (`gate-commit.sh`)
