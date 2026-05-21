@@ -5,26 +5,32 @@
 
 ## Cold-start procedure
 
-1. `git log --oneline -10` — last code commit: `7bec6946`
-   (ADR-0082 impl landed; dispatch_collector.zig 1397 → 500 LOC;
-   new dispatch_collector_ops.zig 923 LOC). ADR-0082 Accepted.
+1. `git log --oneline -10` — last code commit: `e9258a24`
+   (ADR-0083 Proposed — validator_simd.zig extraction, ~420 LOC).
+   Impl cycle next.
 2. **User directive (2026-05-21)**: batch-session architectural
    mode.
 3. **Live status**: `bash scripts/p9_completion_status.sh` —
-   D-055 `Status: now`; D-081 blocked.
+   D-055 `Status: now`; D-081 blocked; ADR-0083 awaits impl.
 
 ## Authorized next-session pickup (priority order — updated 2026-05-21)
 
-1. **PRIMARY: next D-141 per-file ADR**. Suggested order:
-   - `src/validate/validator.zig` (1699 LOC) — ADR-0083
-     candidate. Validator-internal helpers likely have
-     measurable extractable mass (per-spec-version dispatch
-     tables, error-construction helpers, type-stack walker).
-     Step 0 survey must measure 1-line routes vs inline-recipe
-     LOC distribution per ADR-0080 lesson.
+1. **PRIMARY: ADR-0083 impl (validator_simd.zig extraction)**.
+   ADR Proposed at `e9258a24`. Carve cycle:
+   - Create `src/validate/validator_simd.zig` with lines
+     900–1320 (SIMD 0xFD dispatcher + SIMD op helpers).
+     `validator_simd.dispatchPrefixFD(self, sub_op)` takes
+     `*Validator` from validator.zig.
+   - Update `validator.zig`: delete lines 900–1320, add
+     `0xFD => return @import("validator_simd.zig").dispatchPrefixFD(self, sub_op);`
+     dispatch arm. validator.zig 1790 → ~1370 LOC.
+   - Cohort gate (test-all).
+2. **Next D-141 candidate** (after ADR-0083 lands):
    - `src/engine/codegen/x86_64/op_simd_int_cmp_lane.zig`
      (2121 LOC — over hard cap; urgent).
-   - `src/engine/codegen/{arm64,x86_64}/regalloc.zig`.
+   - `src/engine/codegen/{arm64,x86_64}/regalloc.zig` (~1851).
+   - ADR-0084 candidate: validator memory/table/ref bulk
+     extraction (~174 LOC) when concrete pressure surfaces.
 2. **D-055 discharge (independent)**. ~95 test-array hardcoded
    byte-offset sites migrate to `setup.localDisp()` /
    `prologue.body_start_offset()`-relative; wire
