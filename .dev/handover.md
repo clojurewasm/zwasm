@@ -5,9 +5,10 @@
 
 ## Cold-start procedure
 
-1. `git log --oneline -10` — last code commit: `acac31cd`
-   (progress yaml — 9.12-E flipped in_progress → done; tracker
-   reconciled with ROADMAP truth).
+1. `git log --oneline -10` — last code commit: `1e27ad64`
+   (lesson: audit-script vs data format drift; captures the
+   false-negative class generalising 33af8d5a / 37bd8101 /
+   2e8f0f22 from this session).
 2. **Live status** (when uncertain):
    `bash scripts/p9_completion_status.sh` —
    `bash scripts/check_skip_impl_ratchet.sh --report` —
