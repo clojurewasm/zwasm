@@ -1122,14 +1122,16 @@ pub fn callI32f64NoArgs(
         if (rt.trap_flag != 0) return Error.Trap;
         return result;
     } else {
-        // Win64: no inline-asm thunk yet (§9.13-0 D-022).
-        // @panic keeps the shared `Error` set narrow so
-        // Class A/C exhaustive-switch callers don't widen
-        // for a variant that can't fire on their path; the
-        // 3 Class B mixed-class helpers crash visibly at
-        // runtime IF actually invoked on Win64 (no silent
-        // wrong-result).  Discharge by implementing the
-        // Win64 ABI thunks.
+        // INVARIANT — do NOT "fix" Win64 build errors by
+        // widening shared `Error`.  Adding a variant here
+        // (e.g. `UnsupportedEntrySignature`) forces every
+        // Class A/C caller's exhaustive
+        // `switch (err) { error.Trap => ... }` to widen for
+        // a variant comptime-pruned on Mac/Linux → API
+        // pollution for a Win64-only concern.  Crash via
+        // @panic; if Win64 actually invokes this signature,
+        // the D-022 tag surfaces immediately at runtime.
+        // See `.claude/rules/platform_panic_vs_error.md`.
         @panic("Class B mixed-class entry helper: no Win64 thunk yet (D-022)");
     }
 }
@@ -1173,14 +1175,16 @@ pub fn callF64i32NoArgs(
         if (rt.trap_flag != 0) return Error.Trap;
         return result;
     } else {
-        // Win64: no inline-asm thunk yet (§9.13-0 D-022).
-        // @panic keeps the shared `Error` set narrow so
-        // Class A/C exhaustive-switch callers don't widen
-        // for a variant that can't fire on their path; the
-        // 3 Class B mixed-class helpers crash visibly at
-        // runtime IF actually invoked on Win64 (no silent
-        // wrong-result).  Discharge by implementing the
-        // Win64 ABI thunks.
+        // INVARIANT — do NOT "fix" Win64 build errors by
+        // widening shared `Error`.  Adding a variant here
+        // (e.g. `UnsupportedEntrySignature`) forces every
+        // Class A/C caller's exhaustive
+        // `switch (err) { error.Trap => ... }` to widen for
+        // a variant comptime-pruned on Mac/Linux → API
+        // pollution for a Win64-only concern.  Crash via
+        // @panic; if Win64 actually invokes this signature,
+        // the D-022 tag surfaces immediately at runtime.
+        // See `.claude/rules/platform_panic_vs_error.md`.
         @panic("Class B mixed-class entry helper: no Win64 thunk yet (D-022)");
     }
 }
@@ -1242,14 +1246,16 @@ pub fn callF64f32NoArgs(
         if (rt.trap_flag != 0) return Error.Trap;
         return .{ .r0 = r0_raw, .r1 = r1_raw };
     } else {
-        // Win64: no inline-asm thunk yet (§9.13-0 D-022).
-        // @panic keeps the shared `Error` set narrow so
-        // Class A/C exhaustive-switch callers don't widen
-        // for a variant that can't fire on their path; the
-        // 3 Class B mixed-class helpers crash visibly at
-        // runtime IF actually invoked on Win64 (no silent
-        // wrong-result).  Discharge by implementing the
-        // Win64 ABI thunks.
+        // INVARIANT — do NOT "fix" Win64 build errors by
+        // widening shared `Error`.  Adding a variant here
+        // (e.g. `UnsupportedEntrySignature`) forces every
+        // Class A/C caller's exhaustive
+        // `switch (err) { error.Trap => ... }` to widen for
+        // a variant comptime-pruned on Mac/Linux → API
+        // pollution for a Win64-only concern.  Crash via
+        // @panic; if Win64 actually invokes this signature,
+        // the D-022 tag surfaces immediately at runtime.
+        // See `.claude/rules/platform_panic_vs_error.md`.
         @panic("Class B mixed-class entry helper: no Win64 thunk yet (D-022)");
     }
 }
