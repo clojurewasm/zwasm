@@ -107,10 +107,13 @@ pub fn main(init: std.process.Init) !void {
                 const stderr = &stderr_writer.interface;
                 const source: diag_print.Source = .{ .filename = path, .bytes = bytes };
                 if (diagnostic.lastDiagnostic()) |diag| {
+                    // EXEMPT-FALLBACK: ADR-0016 phase 1 — diagnostic render is last-resort stderr; re-entry on failure is meaningless.
                     diag_print.formatDiagnostic(diag, source, stderr) catch {};
                 } else {
+                    // EXEMPT-FALLBACK: ADR-0016 phase 1 — fallback render is last-resort stderr; re-entry on failure is meaningless.
                     diag_print.renderFallback(err, source, stderr) catch {};
                 }
+                // EXEMPT-FALLBACK: ADR-0016 phase 1 — flushing the same stderr that just rendered the diagnostic; failure here is unrecoverable.
                 stderr.flush() catch {};
                 std.process.exit(1);
             };
@@ -120,6 +123,7 @@ pub fn main(init: std.process.Init) !void {
             const code = cli_compile.run(gpa, io, &arg_it) catch |err| {
                 var buf: [256]u8 = undefined;
                 const msg = std.fmt.bufPrint(&buf, "zwasm compile: {s}", .{@errorName(err)}) catch "zwasm compile: failed";
+                // EXEMPT-FALLBACK: ADR-0016 phase 1 — compile-error stderr report is last-resort; the process exits 1 regardless.
                 printlnErr(io, msg) catch {};
                 std.process.exit(1);
             };

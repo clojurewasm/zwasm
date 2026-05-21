@@ -586,6 +586,7 @@ pub export fn wasm_instance_new(
 
     const bindings = buildBindings(arena.allocator(), bytes, imports_array, store) catch {
         if (inst.arena) |a2| {
+            // EXEMPT-FALLBACK: ADR-0014 — parkAsZombie OOM accepts arena leak over UAF of cross-module references.
             parkAsZombie(alloc, store, inst_rt, a2) catch {};
             inst.arena = null;
         } else {
@@ -611,6 +612,7 @@ pub export fn wasm_instance_new(
             // no graceful recovery — accept the leak (arena +
             // runtime stay around until process exit) and report
             // the original instantiation failure.
+            // EXEMPT-FALLBACK: ADR-0014 — parkAsZombie OOM accepts arena leak over UAF of cross-module references.
             parkAsZombie(alloc, store, inst_rt, arena2) catch {};
             inst.arena = null;
         } else {
@@ -649,6 +651,7 @@ pub export fn wasm_instance_delete(i: ?*Instance) callconv(.c) void {
             // Park instead of free. If parkAsZombie OOMs we accept
             // the arena leak (process exit cleans it up) rather
             // than UAF the cross-module references.
+            // EXEMPT-FALLBACK: ADR-0014 — parkAsZombie OOM accepts arena leak over UAF of cross-module references.
             parkAsZombie(alloc, store, rt, arena) catch {};
             handle.arena = null;
         } else {

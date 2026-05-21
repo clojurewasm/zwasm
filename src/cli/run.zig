@@ -188,10 +188,13 @@ fn surfaceTrap(io: std.Io, trap: anytype) void {
         w.print("zwasm: trap kind={s} msg={s}\n", .{
             @tagName(trap.kind),
             p[0..trap.message_len],
+            // EXEMPT-FALLBACK: ADR-0016 phase 1 — surfaceTrap is best-effort trap stderr; closed-pipe failure has no recovery path.
         }) catch {};
     } else {
+        // EXEMPT-FALLBACK: ADR-0016 phase 1 — surfaceTrap is best-effort trap stderr; closed-pipe failure has no recovery path.
         w.print("zwasm: trap kind={s}\n", .{@tagName(trap.kind)}) catch {};
     }
+    // EXEMPT-FALLBACK: ADR-0016 phase 1 — final stderr flush on trap surfacing; failure here is unrecoverable.
     w.flush() catch {};
 }
 
