@@ -317,12 +317,12 @@ rows proceed in main session.
 |---|---|---|---|---|
 | 1 | ~~**W0** survey~~ DONE 2026-05-22 | — | — | `private/notes/p9-9.13-0-survey.md` (gitignored) |
 | 2 | **WA** ADR draft | `architectural` (doc-only) | NO | `.dev/decisions/NNNN_phase9_debt_exit_reframe.md` Status: Proposed |
-| 3 | **W4-pre** F1 `entry.zig` compile fix (re-prioritised from row 7 per W0 evidence: spec-runner doesn't compile, blocking W3 verification) | `emit` | NO | Add `UnsupportedEntrySignature` to `Error` decl; Mac+ubuntu green; ubuntu deferred |
+| 3 | ~~**F1-fix** `entry.zig` Win64 build~~ DONE `0c2474c2` (`@panic("D-022")` in 3 Class B mixed helpers' else-branch; shared `Error = error{Trap}` preserved; cascade-free) | — | — | windowsmini `zig build` exit 0; test 1744/1775; test-all 37/39 |
 | 4 | **W1** D-028 flake measurement (re-launchable any time) | `survey` | YES (background) | `private/notes/p9-d028-flake-rate.md` |
 | 5 | **W2** D-084 v128 marshal | `emit` | NO | Source diff + Mac green; ubuntu deferred |
 | 6 | **W3.a** SEH bridge ADR draft | `architectural` (doc-only) | NO | `.dev/decisions/NNNN_win64_seh_bridge.md` Status: Proposed |
 | 7 | **W3.b** SEH shim impl | `emit` (post-ADR) | NO | C/Zig shim + spec_assert_runner integration; Mac+ubuntu green |
-| 8 | **W4** windowsmini reconcile run | verification | NO | `bash scripts/run_remote_windows.sh test-all` exit 0; D-022 close |
+| 8 | **W4** windowsmini reconcile run (final post-W3 verification) | verification | NO | `bash scripts/run_remote_windows.sh test-all` exit 0; D-022 / D-084 / D-136 / D-028 all closed |
 | 9 | **W5** posix.* Windows availability | `infrastructure` | NO | grep+convert; cross-compile green |
 | 10 | **W6** build-option DCE × Windows | verification | NO | 6 combos green; check_build_dce 0 |
 | 11 | §9.13-0 close + Phase 9 boundary | phase-boundary | NO | §9.13-0 [x]; `should_gate_windows.sh --record`; §9.12-I batch ADR Status flip; SHA backfill |

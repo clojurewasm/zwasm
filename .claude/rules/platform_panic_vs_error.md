@@ -1,10 +1,10 @@
 ---
 paths:
-  - "src/engine/codegen/shared/entry.zig"
-  - "src/engine/codegen/shared/*.zig"
+  - "src/engine/codegen/**/*.zig"
   - "src/platform/**"
   - "src/runtime/**"
   - "src/api/**"
+  - "src/wasi/**"
 ---
 
 # Platform-conditional gaps: `@panic` over widening shared `Error`

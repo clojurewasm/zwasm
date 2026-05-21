@@ -82,7 +82,7 @@ windowsmini round-trip (which costs ~8 min for test-all).
 Catches ~90% of Win64 issues at Mac iteration speed.
 
 Workflow integrated into
-`.dev/phase9_13_0_execution_plan.md` §0.2.1 as a 4-tier
+`.dev/phase9_13_0_close_plan.md` §0.2.1 as a 4-tier
 layered loop (L0 cross-compile → L1 rsync+build → L2
 test → L3 final commit/push/test-all).
 
