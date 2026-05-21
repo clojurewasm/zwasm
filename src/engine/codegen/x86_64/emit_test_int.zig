@@ -11,6 +11,7 @@ const zir = @import("../../../ir/zir.zig");
 const regalloc = @import("../shared/regalloc.zig");
 const inst = @import("inst.zig");
 const abi = @import("abi.zig");
+const prologue = @import("prologue.zig");
 
 const emit = @import("emit.zig");
 const compile = emit.compile;
@@ -590,11 +591,16 @@ test "compile: (i32.const 0) i32.load offset=0 end — ADR-0026 prologue + bound
     @memcpy(exp_prologue[off .. off + exp_sub_rsp_8.len], exp_sub_rsp_8.slice());
     off += exp_sub_rsp_8.len;
     try testing.expectEqual(@as(usize, 13), off);
-    try testing.expectEqualSlices(u8, &exp_prologue, out.bytes[0..13]);
-    // Spot-check the JA placeholder is patched (disp = 15 = 0x0F): JA = 0x0F 0x87 at byte 38.
-    try testing.expectEqualSlices(u8, &.{ 0x0F, 0x87, 0x0F, 0x00, 0x00, 0x00 }, out.bytes[38..44]);
-    // Spot-check trap stub starts at 59 with the trap_flag store:
-    try testing.expectEqualSlices(u8, &.{ 0x41, 0xC7, 0x87, 0x28, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00 }, out.bytes[59..70]);
+    // D-055 migration: prologue size sourced from prologue.body_start_offset() so the
+    // assertion survives sentinel injection (sentinel adds +7 to uses_runtime_ptr cases).
+    const body_start = prologue.body_start_offset(true, 8);
+    try testing.expectEqualSlices(u8, &exp_prologue, out.bytes[0..body_start]);
+    // JA placeholder = body_start + 25 (after const + memory-load + LEA bytes per layout comment).
+    const ja_off = body_start + 25;
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0x87, 0x0F, 0x00, 0x00, 0x00 }, out.bytes[ja_off .. ja_off + 6]);
+    // Trap stub starts at body_start + 46 (body 38 bytes + epilogue 8 bytes).
+    const trap_off = body_start + 46;
+    try testing.expectEqualSlices(u8, &.{ 0x41, 0xC7, 0x87, 0x28, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00 }, out.bytes[trap_off .. trap_off + 11]);
 }
 
 test "compile: i32.load with stack underflow → AllocationMissing" {
@@ -1480,11 +1486,13 @@ test "compile: call N — 0 args, void return — emits MOV RDI,R15 + CALL + fix
     //   CALL rel32       5 bytes        → 21
     // No per-call SUB RSP, 32 / ADD RSP, 32 on Win64 anymore —
     // outgoing_max_bytes>0 makes emitShadowAlloc/Free no-op.
+    // D-055 migration: prologue size sourced from body_start_offset().
+    // Both SysV (frame=8) and Win64 (frame=40) fit in imm8 → body_start = 13 today.
+    const body_start = prologue.body_start_offset(true, 8);
     const expected_mov = inst.encMovRR(.q, abi.current.entry_arg0_gpr, abi.current.runtime_ptr_save_gpr);
-    try testing.expectEqualSlices(u8, expected_mov.slice(), out.bytes[13 .. 13 + expected_mov.len]);
-    // CALL byte offset = post-prologue (13) + MOV <arg0>, R15
-    // (3) = 16 on both Cc.
-    const call_off: u32 = 16;
+    try testing.expectEqualSlices(u8, expected_mov.slice(), out.bytes[body_start .. body_start + expected_mov.len]);
+    // CALL byte offset = post-prologue + MOV <arg0>, R15 (3 bytes).
+    const call_off: u32 = body_start + 3;
     const expected_call = inst.encCallRel32(0);
     try testing.expectEqualSlices(u8, expected_call.slice(), out.bytes[call_off .. call_off + expected_call.len]);
 
@@ -1518,7 +1526,8 @@ test "compile: call N — 0 args, i32 return — captures EAX into result vreg" 
     //   + 3                  MOV <arg0>, R15 (runtime_ptr restore)
     //   + 5                  CALL rel32
     //   = 21
-    const capture_off: u32 = 13 + 3 + 5;
+    // D-055 migration: prologue size sourced from body_start_offset().
+    const capture_off: u32 = prologue.body_start_offset(true, 8) + 3 + 5;
     const expected_capture = inst.encMovRR(.d, .rbx, .rax);
     try testing.expectEqualSlices(u8, expected_capture.slice(), out.bytes[capture_off .. capture_off + expected_capture.len]);
 }
@@ -1548,8 +1557,10 @@ test "compile: call N — 1 i32 arg — marshals top-of-stack into arg_gprs[1] (
     //   MOV <arg1>, EBX                  (2-3 bytes; varies by arch) → marshal
     //   MOV <arg0>, R15                  (3 bytes) → runtime_ptr restore
     //   CALL rel32                       (5 bytes)
+    // D-055 migration: prologue size sourced from body_start_offset() + i32.const 5 bytes.
+    const marshal_off: u32 = prologue.body_start_offset(true, 8) + 5;
     const expected_marshal = inst.encMovRR(.d, abi.current.arg_gprs[1], .rbx);
-    try testing.expectEqualSlices(u8, expected_marshal.slice(), out.bytes[18 .. 18 + expected_marshal.len]);
+    try testing.expectEqualSlices(u8, expected_marshal.slice(), out.bytes[marshal_off .. marshal_off + expected_marshal.len]);
 }
 
 test "compile: call_indirect — bounds + sig (JAE+JNE → trap stub) + CALL RAX" {
@@ -1586,22 +1597,28 @@ test "compile: call_indirect — bounds + sig (JAE+JNE → trap stub) + CALL RAX
     //   [62..66]  MOV RAX, [RAX + RBX*8]  (load funcptr, 4 bytes)
     //   [66..69]  MOV RDI, R15            (restore runtime_ptr, 3 bytes)
     //   [69..71]  CALL RAX                (indirect)
+    // D-055 migration: all assertions use body_start_offset() so they survive
+    // future +7 prologue shift from JIT-execution sentinel injection.
+    const body_start = prologue.body_start_offset(true, 8);
     const expected_table_size_load = inst.encMovR32FromMemDisp32(.rax, .r15, 24);
-    try testing.expectEqualSlices(u8, expected_table_size_load.slice(), out.bytes[18 .. 18 + expected_table_size_load.len]);
+    const table_size_off = body_start + 5;
+    try testing.expectEqualSlices(u8, expected_table_size_load.slice(), out.bytes[table_size_off .. table_size_off + expected_table_size_load.len]);
     // JAE/JNE rel32 disp32 is patched at function-tail to point at the
     // trap stub; assert only the opcode bytes (0F 83 / 0F 85).
-    try testing.expectEqual(@as(u8, 0x0F), out.bytes[27]);
-    try testing.expectEqual(@as(u8, 0x83), out.bytes[28]);
+    try testing.expectEqual(@as(u8, 0x0F), out.bytes[body_start + 14]);
+    try testing.expectEqual(@as(u8, 0x83), out.bytes[body_start + 15]);
     const expected_typeidx_load = inst.encMovR32FromBaseIdxLsl2(.rax, .rax, .rbx);
-    try testing.expectEqualSlices(u8, expected_typeidx_load.slice(), out.bytes[40 .. 40 + expected_typeidx_load.len]);
-    try testing.expectEqual(@as(u8, 0x0F), out.bytes[49]);
-    try testing.expectEqual(@as(u8, 0x85), out.bytes[50]);
+    const typeidx_off = body_start + 27;
+    try testing.expectEqualSlices(u8, expected_typeidx_load.slice(), out.bytes[typeidx_off .. typeidx_off + expected_typeidx_load.len]);
+    try testing.expectEqual(@as(u8, 0x0F), out.bytes[body_start + 36]);
+    try testing.expectEqual(@as(u8, 0x85), out.bytes[body_start + 37]);
     const expected_funcptr_load = inst.encMovR64FromBaseIdxLsl3(.rax, .rax, .rbx);
-    try testing.expectEqualSlices(u8, expected_funcptr_load.slice(), out.bytes[62 .. 62 + expected_funcptr_load.len]);
+    const funcptr_off = body_start + 49;
+    try testing.expectEqualSlices(u8, expected_funcptr_load.slice(), out.bytes[funcptr_off .. funcptr_off + expected_funcptr_load.len]);
     // §9.7 / 7.10-f: per-call SUB RSP, 32 on Win64 is gone — the
     // shadow lives in the prologue's outgoing region. CALL RAX
     // offset is the same on both Cc.
-    const call_off: u32 = 69;
+    const call_off: u32 = body_start + 56;
     const expected_call = inst.encCallReg(.rax);
     try testing.expectEqualSlices(u8, expected_call.slice(), out.bytes[call_off .. call_off + expected_call.len]);
 }
