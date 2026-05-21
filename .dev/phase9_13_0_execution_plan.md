@@ -45,17 +45,22 @@ even if present.
 The naive cycle (Mac edit → commit gate → push → windowsmini
 pull → `test-all`) takes ~9 min. Use the layered loop:
 
-| Layer | Command | Cost | Catches |
+| Layer | Command | Measured time (2026-05-22) | Catches |
 |---|---|---|---|
-| **L0 (inner)** | `zig build -Dtarget=x86_64-windows-gnu` (Mac) | ~5-20s | ~90% — Win64 compile errors, exhaustive-switch, inferred-error-set issues, comptime branch mistakes |
-| **L1 (mid)** | `rsync -av --delete src/ windowsmini:~/Documents/MyProducts/zwasm_from_scratch/src/` + `ssh windowsmini "bash -lc 'cd ~/Documents/MyProducts/zwasm_from_scratch && zig build'"` | ~5s rsync + ~30s warm build | MSVC ABI compile differences vs MinGW |
-| **L2 (outer)** | rsync + `ssh windowsmini "...zig build test"` | + ~30s-3min | Unit test regressions |
+| **L0 (inner)** | `zig build -Dtarget=x86_64-windows-gnu` (Mac, MinGW ABI) | **3.2s** warm | ~90% — Win64 compile errors, exhaustive-switch, inferred-error-set issues, comptime branch mistakes |
+| **L1 (mid)** | `tar cf - src/ test/ build.zig \| ssh windowsmini "cd ~/Documents/MyProducts/zwasm_from_scratch && tar xf -"` + `ssh windowsmini "bash -lc 'cd ~/.../zwasm_from_scratch && zig build'"` | **3.9s** sync + ~13s warm build | MSVC ABI compile differences vs MinGW |
+| **L2 (outer)** | sync + `ssh windowsmini "...zig build test"` | ~40s warm | Unit test regressions |
 | **L3 (final)** | commit → push → windowsmini pull → `zig build test-all` | ~10 min | Full gate, spec runners, edge cases |
 
 **Discipline**:
 - Inner loop = L0 (Mac cross-compile). Iterate freely.
 - Promote to L1 only when L0 is clean.
-- L3 is the **chunk close**, not the iteration tool.
+- L3 is the **chunk close**, not the iteration tool. Each
+  L3 cycle incurs ~25s commit-gate (file_size_check,
+  libc_boundary, fallback_patterns, etc.) + ~5s push +
+  ~5s windowsmini pull, before the ~8min test-all itself.
+  **Do not commit during iteration** — batch into one L3
+  at chunk close.
 
 **MSVC vs MinGW ABI gap**: Mac cross-compile uses
 `x86_64-windows-gnu` (MinGW); windowsmini native is MSVC.
@@ -64,8 +69,7 @@ usage, type inference, comptime branches). Differences
 surface in runtime ABI (SEH semantics, struct passing
 conventions) — these need L2/L3 on windowsmini.
 
-**SSH multiplexing** (one-time user setup, optional but
-recommended): add to `~/.ssh/config`:
+**SSH multiplexing** (active per 2026-05-22 ~/.ssh/config):
 ```
 Host windowsmini
     ControlMaster auto
@@ -73,17 +77,20 @@ Host windowsmini
     ControlPersist 10m
 ```
 First `ssh windowsmini` opens a shared socket; subsequent
-calls reuse it (cost: ~3s → ~50ms).
+calls reuse it. Saves ~250ms per call; verify via
+`ssh -O check windowsmini`.
 
-**rsync pattern** (avoids `git push` round-trip during
-iteration):
+**`tar | ssh tar` pattern** (NOT rsync — windowsmini lacks
+rsync; tar is stock both sides):
 ```sh
-rsync -av --delete \
-    --exclude=.zig-cache --exclude=zig-out --exclude=.git \
-    src/ test/ build.zig \
-    windowsmini:~/Documents/MyProducts/zwasm_from_scratch/
+tar cf - --exclude=.zig-cache --exclude=zig-out --exclude=.git \
+    src/ test/ build.zig | \
+    ssh windowsmini "cd ~/Documents/MyProducts/zwasm_from_scratch && tar xf -"
 ```
-Use only during L1/L2 iteration; **commit to git for L3**.
+Use during L1/L2 iteration; **commit to git for L3**.
+Full src/ tree resync is ~4s — acceptable for sync-on-every
+-iteration. For more frequent edits, narrow the tar tree to
+just changed files.
 
 ### §0.3 HEAD drift check
 
