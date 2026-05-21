@@ -18,6 +18,7 @@ const std = @import("std");
 
 const leb128 = @import("../support/leb128.zig");
 const zir = @import("../ir/zir.zig");
+const init_expr = @import("init_expr.zig");
 
 const Allocator = std.mem.Allocator;
 const ValType = zir.ValType;
@@ -67,11 +68,11 @@ pub fn decodeTypes(parent_alloc: Allocator, body: []const u8) Error!Types {
 
         const param_count = try leb128.readUleb128(u32, body, &pos);
         const params = try alloc.alloc(ValType, param_count);
-        for (params) |*p| p.* = try readValType(body, &pos);
+        for (params) |*p| p.* = try init_expr.readValType(body, &pos);
 
         const result_count = try leb128.readUleb128(u32, body, &pos);
         const results = try alloc.alloc(ValType, result_count);
-        for (results) |*r| r.* = try readValType(body, &pos);
+        for (results) |*r| r.* = try init_expr.readValType(body, &pos);
 
         ft.* = .{ .params = params, .results = results };
     }
@@ -175,7 +176,7 @@ pub fn decodeImports(parent_alloc: Allocator, body: []const u8) Error!Imports {
                 break :blk .{ .memory = .{ .min = limits.min, .max = limits.max } };
             },
             .global => blk: {
-                const t = try readValType(body, &pos);
+                const t = try init_expr.readValType(body, &pos);
                 if (pos >= body.len) return Error.UnexpectedEnd;
                 const m = body[pos];
                 pos += 1;
@@ -291,7 +292,7 @@ pub fn decodeGlobals(parent_alloc: Allocator, body: []const u8) Error!Globals {
     const items = try alloc.alloc(GlobalDef, count);
 
     for (items) |*g| {
-        const t = try readValType(body, &pos);
+        const t = try init_expr.readValType(body, &pos);
         if (pos >= body.len) return Error.UnexpectedEnd;
         const m = body[pos];
         pos += 1;
@@ -300,7 +301,7 @@ pub fn decodeGlobals(parent_alloc: Allocator, body: []const u8) Error!Globals {
         // Include the terminating end (0x0B) in the init_expr slice so
         // callers can drive a validator/lowerer the same way they would a
         // function body.
-        try scanInitExpr(body, &pos);
+        try init_expr.scanInitExpr(body, &pos);
         g.* = .{ .valtype = t, .mutable = m == 1, .init_expr = body[start..pos] };
     }
 
@@ -438,89 +439,13 @@ pub fn decodeExports(parent_alloc: Allocator, body: []const u8) Error!Exports {
     return .{ .arena = arena, .items = items };
 }
 
-/// Walk one constant expression starting at `pos.*` and advance past
-/// its terminating `end` (0x0B).
-///
-/// Wasm spec §3.3.2.10 (constant expressions) defines the closed set
-/// of opcodes legal in init expressions: `t.const c` for each value
-/// type t, `ref.null t`, `ref.func x`, `global.get x`, and `end`.
-/// The SIMD proposal adds `v128.const` (prefix 0xFD sub-op 0x0C +
-/// 16 immediate bytes).
-///
-/// Replacing the prior naive byte-scan for 0x0B is mandatory: the
-/// `v128.const` immediate is raw bytes and can legally contain 0x0B
-/// (case study: simd_const.388.wasm — a global's v128.const lane
-/// byte 11 = 0x0B caused the next global's globaltype byte to be
-/// read inside the lane data → BadValType).
-pub fn scanInitExpr(body: []const u8, pos: *usize) Error!void {
-    while (true) {
-        if (pos.* >= body.len) return Error.UnexpectedEnd;
-        const op = body[pos.*];
-        pos.* += 1;
-        switch (op) {
-            0x0B => return,
-            0x41 => try skipLeb128(body, pos, 5), // i32.const (sleb128)
-            0x42 => try skipLeb128(body, pos, 10), // i64.const (sleb128)
-            0x43 => { // f32.const
-                if (pos.* + 4 > body.len) return Error.UnexpectedEnd;
-                pos.* += 4;
-            },
-            0x44 => { // f64.const
-                if (pos.* + 8 > body.len) return Error.UnexpectedEnd;
-                pos.* += 8;
-            },
-            0x23 => _ = try leb128.readUleb128(u32, body, pos), // global.get
-            0xD0 => { // ref.null reftype
-                if (pos.* >= body.len) return Error.UnexpectedEnd;
-                pos.* += 1;
-            },
-            0xD2 => _ = try leb128.readUleb128(u32, body, pos), // ref.func
-            0xFD => { // SIMD prefix — only v128.const (0x0C) is constant
-                const sub = try leb128.readUleb128(u32, body, pos);
-                if (sub != 0x0C) return Error.InvalidFunctype;
-                if (pos.* + 16 > body.len) return Error.UnexpectedEnd;
-                pos.* += 16;
-            },
-            else => return Error.InvalidFunctype,
-        }
-    }
-}
-
-/// Advance `pos.*` past a LEB128 byte sequence (signed or unsigned).
-/// Only the continuation bits are inspected; the value is discarded.
-fn skipLeb128(body: []const u8, pos: *usize, comptime max_bytes: usize) Error!void {
-    var i: usize = 0;
-    while (i < max_bytes) : (i += 1) {
-        if (pos.* >= body.len) return Error.UnexpectedEnd;
-        const byte = body[pos.*];
-        pos.* += 1;
-        if ((byte & 0x80) == 0) return;
-    }
-    return Error.InvalidFunctype;
-}
-
-/// Wasm spec §5.3.1 (valtype) — `valtype ::= numtype | vectype | reftype`
-/// where `numtype ∈ {i32, i64, f32, f64}`, `vectype = v128`, and
-/// `reftype ∈ {funcref, externref}`. Returned by section decoders
-/// that read a typed slot (functype params/results, globaltype,
-/// local decl). The reftype branches were enabled by D-093 / d-32;
-/// the runtime path through `op_globals` for reftype globals lands
-/// at d-33.
-pub fn readValType(body: []const u8, pos: *usize) Error!ValType {
-    if (pos.* >= body.len) return Error.UnexpectedEnd;
-    const b = body[pos.*];
-    pos.* += 1;
-    return switch (b) {
-        0x7F => .i32,
-        0x7E => .i64,
-        0x7D => .f32,
-        0x7C => .f64,
-        0x7B => .v128, // Wasm 2.0 SIMD §5.3.5
-        0x70 => .funcref, // Wasm 2.0 §5.3.1 reftype
-        0x6F => .externref, // Wasm 2.0 §5.3.1 reftype
-        else => Error.BadValType,
-    };
-}
+// scanInitExpr / readValType / skipLeb128 extracted to
+// `init_expr.zig` per ADR-0101 (post-ADR-0099 redesign). Re-exports
+// preserve the `sections.scanInitExpr` / `sections.readValType`
+// public surface for any external caller that still reaches them
+// by namespace; internal callers use `init_expr.X` directly.
+pub const scanInitExpr = init_expr.scanInitExpr;
+pub const readValType = init_expr.readValType;
 
 // ============================================================
 // Tests

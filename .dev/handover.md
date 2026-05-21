@@ -3,54 +3,51 @@
 > ≤ 80 lines. No numeric predictions (per
 > [`no_handover_predictions.md`](../.claude/rules/no_handover_predictions.md)).
 
-## Cold-start procedure — FILE-SIZE REFORM Cycle 5c next
+## Cold-start procedure — FILE-SIZE REFORM Cycle 6 next
 
-**Pickup is Cycle 5 sub-step 5c of the file-size discipline reform.**
+**Pickup is Cycle 6 (verification + condensed lesson + archive)
+of the file-size discipline reform.**
 
-1. Read `private/file-size-reform/07-execution-plan.md` §"Cycle 5"
-   sub-step 5c (workspace gitignored; archived at 6c).
-2. Execute sub-step 5c: in `src/parse/sections.zig`:
-   - Replace internal `scanInitExpr(...)` calls with
-     `init_expr.scanInitExpr(...)`.
-   - Replace internal `readValType(...)` calls with
-     `init_expr.readValType(...)` (in decodeTypes / decodeGlobals
-     etc.; 4-5 sites).
-   - Delete the `scanInitExpr`, `readValType`, `skipLeb128`
-     function definitions from sections.zig (lines ~455-523).
-   - Add `const init_expr = @import("init_expr.zig");` near top.
-3. Then Cycle 6 (verification + lesson + archive).
+1. Read `private/file-size-reform/07-execution-plan.md` §"Cycle 6"
+   (workspace gitignored; archived at 6c).
+2. Execute Cycle 6 sub-steps in order:
+   - **6a (verification)**: run `bash scripts/check_split_smell.sh`
+     (expect 6 findings: api/wasm.zig hub, testFenceTableFill N4 dup,
+     inst_neon N3, regalloc_compute N1 test-context, sections_codes
+     N3, sections_data N3 — last 2 are P1 spec-axis acceptable
+     carve-outs not anticipated in the original 4-expected plan).
+     Run `zig build test` (green). Run `bash scripts/file_size_check.sh`
+     (sections.zig now 825 LOC < 1000 soft cap).
+   - **6b (condensed lesson)**: create
+     `.dev/lessons/2026-05-21-file-size-cap-as-smell-detector-not-metric.md`
+     (~50-80 LOC; drift pattern + 4+4 framework summary + ADR
+     pointers). Update lessons/INDEX.md.
+   - **6c (archive)**: `mv private/file-size-reform/ →
+     private/archive/2026-05-21-file-size-reform/`. Refresh
+     handover.md back to normal cold-start procedure pointing at
+     §9.12-G / §9.12-H / §9.12-I etc.
 
-**Recovery**: `grep -n 'scanInitExpr\|readValType\|skipLeb128' src/parse/sections.zig`
-shows which sites + defs remain.
+## Cycles landed (this session; see `git log` for detail)
 
-## Cycles landed (this session)
-
-- **C1** (`a33e3dea`): ADR-0099 + rule + script + lesson + §A2 reframe.
-- **C2** (`ce67bb45`): check_split_smell wired into gate + audit §J.
-- **C3** (`a061d709`): ADR-0100 + 0095/0096/0097 Status updates.
-- **C4** (`dc6edf9a`): ADR-0097 rollback executed.
-- **C5a** (`d99d37bc`): ADR-0101 + init_expr.zig created.
-- **C5b** (this commit): 3 siblings re-pointed at init_expr —
-  sections_element (4 sites), sections_codes (1), sections_data (2).
-
-check_split_smell: 6 findings (was 9; 3 sections N1-helper-circular
-cleared). Residual 6: 4 expected + 2 sections N3-shallow
-(sections_codes 58 LOC, sections_data 77 LOC — both Wasm §5.5.x
-spec-axis siblings; P1 acceptable per ADR-0099 §D2 tie-breaker
-even though substantive < 100). 5c does not change these.
+- C1..C5c: ADR-0099 (✅) + gate wire (✅) + ADR-0100 (✅) +
+  ADR-0097 rollback (✅) + ADR-0101 init_expr extraction
+  (✅ 5a/5b/5c). sections.zig 1190 → 825 LOC; verify family
+  back in regalloc.zig (694 LOC). check_split_smell: 6 findings
+  (4 expected + 2 sections N3 spec-axis carve-out; ADR-0099 §D2
+  tie-breaker acceptable).
 
 ## Background (short)
 
 Post-D-141 retrospective: 3 of 15 sweep extractions don't satisfy
 proper architectural standards. Reform plan: ADR-0099 (✅C1) →
 gate wire (✅C2) → ADR-0100 (✅C3) → 0097 rollback (✅C4) →
-ADR-0101 init_expr (✅C5a, ✅C5b; 5c pending) → verify + lesson +
+ADR-0101 init_expr (✅C5a, ✅C5b, ✅C5c) → verify + lesson +
 archive (C6).
 
 ## Active `now` debts
 
 - **D-055** (mechanical, multi-cycle): emit_test_int has 27 sites
-  pending. **Defer until reform lands.**
+  pending. **Defer until reform lands (Cycle 6c).**
 
 ## Other queued work (post-reform)
 
@@ -69,8 +66,8 @@ archive (C6).
 
 ## Open questions / blockers
 
-- なし。5c is mechanical (sections.zig internal-caller re-point
-  + delete helper defs).
+- なし。Cycle 6 mostly docs (lesson + archive); 6a verification
+  is read-only.
 
 ## See
 
