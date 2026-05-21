@@ -5,10 +5,10 @@
 
 ## Cold-start procedure
 
-1. `git log --oneline -10` — last code commit: `614212af`
-   (Wasm 3.0 GC ref/cast + i31 cohorts per-op stubs × 11;
-   §9.12-G Phase 10 prep; cumulative 41 Wasm 3.0 stubs landed
-   across all 6 discrete-opcode cohorts).
+1. `git log --oneline -10` — last code commit: `33af8d5a`
+   (audit_spikes recognises older spike README formats; 3
+   spurious findings cleared; §9.12-I "private/ closure"
+   partial credit).
 2. **Live status** (when uncertain):
    `bash scripts/p9_completion_status.sh` —
    `bash scripts/check_skip_impl_ratchet.sh --report` —
