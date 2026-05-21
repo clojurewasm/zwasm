@@ -3,42 +3,50 @@
 > ≤ 80 lines. No numeric predictions (per
 > [`no_handover_predictions.md`](../.claude/rules/no_handover_predictions.md)).
 
-## Cold-start procedure — §9.12-H in progress
+## Cold-start procedure — §9.12-H ready to flip [x]; §9.12-I next
 
-§9.12-H bench baseline (Mac aarch64 Wasm 2.0 + wasmtime comparison).
+§9.12-H deliverables (3)+(4) landed this commit (the
+phase-record bench row + mean_ms ratio documentation). With
+(1)+(2) already in `06a09da6`, §9.12-H is functionally complete;
+the `[x]` flip + handover retargeting happen in the same
+commit pair.
 
-**Sub-deliverables**:
+**Baseline measurements** (Mac aarch64 ReleaseSafe, hyperfine
+`--warmup 3 --runs 5`, 26 fixtures × 2 runtimes, history.yaml
+row `p9-close: Wasm-2.0 baseline (Mac aarch64; §9.12-H)`):
 
-| # | Deliverable | Status |
-|---|---|---|
-| (1) | `--compare=wasmtime` flag in `scripts/run_bench.sh` (dual-runtime hyperfine + `runtime:` YAML field) | ✅ this commit |
-| (2) | `--capture-rss` flag (/usr/bin/time -l on Mac, -v on Linux; `max_rss_kb` YAML field) | ✅ this commit |
-| (3) | 26-fixture full bench run on Mac aarch64 ReleaseSafe with `--phase-record --compare=wasmtime --reason="p9-close: Wasm-2.0 baseline (Mac aarch64)"`; appends row to `bench/results/history.yaml` | open (next cycle: substantial wall-clock — 26 × 2 runtimes × hyperfine 5-runs + 3-warmups ≈ ~10-20 min) |
-| (4) | Document zwasm vs wasmtime mean_ms ratio (in commit body or audit doc) | open (after (3); pulled from the history.yaml row) |
+- **zwasm wins startup-dominated workloads** (tinygo/* +
+  cljw/* + handwritten/nbody): zwasm 1.05–2.89x faster than
+  wasmtime. zwasm RSS ~3.3–5.5 MB; wasmtime RSS ~13 MB.
+- **wasmtime wins compute-heavy workloads** (shootout/*):
+  wasmtime 8–100x faster (fib2 / heapsort / sieve / matrix /
+  base64). zwasm's per-op JIT-emit overhead dominates on the
+  long-running benches; wasmtime's AOT optimisation amortises.
+- shootout/nestedloop is the one shootout zwasm wins (1.56x
+  faster) — light loop body, startup-cost-dominated.
 
-**Smoke-test evidence (this cycle)** on `tinygo/fib` quick mode:
-- zwasm: mean 2.11 ms, max_rss 3488 KB
-- wasmtime: mean 5.27 ms, max_rss 13696 KB
-- (Single quick run; not the baseline record.)
+Total (26-fixture sum): zwasm 87.06s / wasmtime 1.80s; the
+shootout outliers dominate the aggregate — the ratio is most
+useful per-fixture, not as a single number.
 
-**Next pickup**: (3) — run the full 26-fixture phase-record.
-Command:
+**Next pickup: §9.12-I** — ADR + lesson + private/ closure
+(Phase 9 close). Sub-deliverables per ROADMAP:
 
-```sh
-bash scripts/run_bench.sh --compare=wasmtime --capture-rss \
-    --phase-record \
-    --reason="p9-close: Wasm-2.0 baseline (Mac aarch64; §9.12-H)"
-```
+1. D-149 discharge (ADR Phase-9 cohort SHA backfill 75 → 0).
+2. ADR Status canonical pass (~22-25 `Accepted` → `Closed (Phase X DONE)`).
+3. skip-ADR Status wording cleanup.
+4. Lesson Citing backfill.
+5. Lesson promotion scan (3+ citations → ADR conversion).
 
-After it lands, commit the new `bench/results/history.yaml` row +
-note the mean_ms ratio in handover.
+Exit: `check_adr_history.sh --gate` 0; `check_lesson_citing.sh`
+0; ADR `Accepted` count < 30.
 
 ## Recent context
 
-- §9.12-G closed (`4bd62842`); all 7 sub-deliverables a-g done.
+- §9.12-G closed (`4bd62842`); §9.12-H (1)+(2) `06a09da6`;
+  §9.12-H (3)+(4) this commit.
 - File-size reform (cycles C1..C6, 2026-05-21): ADR-0099/0100/0101
-  + rule + script + lesson + init_expr.zig redesign. Archived
-  at `private/archive/2026-05-21-file-size-reform/`.
+  + rule + script + lesson + init_expr.zig redesign.
 
 ## Active `now` debts
 
@@ -47,29 +55,31 @@ note the mean_ms ratio in handover.
 
 ## Other queued work
 
-1. **§9.12-H (3) + (4)** — this cycle's next pickup.
-2. **§9.12-I** — ADR/lesson curation closure (Phase 9 close).
-3. **D-055 continuation**.
-4. **Phase 10 ZirOp slot policy ADR** — gates memory64 /
+1. **§9.12-I** — this cycle's next pickup.
+2. **D-055 continuation**.
+3. **Phase 10 ZirOp slot policy ADR** — gates memory64 /
    relaxed-simd file-level placeholder additions.
+4. **Bench follow-ups (Phase 11 scope)**: wazero / wasmer /
+   bun / node comparators; `-Dwith-bench-compare` build flag.
+5. **Bench observation: zwasm compute-heavy gap** — the
+   shootout 8–100x wasmtime advantage is the canonical Phase
+   11+ optimisation target; not actionable in Phase 9 close.
 
 ## Active state (snapshot)
 
 - §9.12-A enforcement: 11 items OK + `check_wasm_h_upstream.sh`.
 - §9.12-F (D-141 + reform): closed.
 - §9.12-G: closed (`4bd62842`).
-- §9.12-H: in progress — (1)+(2) ✅ this commit; (3)+(4) open.
-- §9.12-I: open.
+- §9.12-H: this commit closes it.
+- §9.12-I: next.
 
 ## Open questions / blockers
 
-- なし for §9.12-H continuation.
+- なし for §9.12-I.
 
 ## See
 
-- [ROADMAP](./ROADMAP.md) §9.12-H scope + exit
-- [`scripts/run_bench.sh`](../scripts/run_bench.sh) — `--compare`
-  + `--capture-rss` flags landed
-- [`bench/README.md`](../bench/README.md) — YAML schema reference
-- [`bench/results/history.yaml`](../bench/results/history.yaml) — destination for (3)
+- [ROADMAP](./ROADMAP.md) §9.12-I scope + exit
+- [`bench/results/history.yaml`](../bench/results/history.yaml) — baseline row landed
+- [`scripts/run_bench.sh`](../scripts/run_bench.sh)
 - [`debt.md`](./debt.md), [`lessons/INDEX.md`](./lessons/INDEX.md)
