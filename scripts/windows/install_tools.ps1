@@ -158,30 +158,62 @@ function Install-SingleFile {
     return $stampedDir
 }
 
-function Install-NSISExe {
+function Install-Winget {
+    param(
+        [Parameter(Mandatory)][string]$Name,        # display name
+        [Parameter(Mandatory)][string]$PackageId,   # winget package id
+        [Parameter(Mandatory)][string]$Version,     # for the log
+        [Parameter(Mandatory)][string]$VerifyExe    # absolute path of a file that proves install success
+    )
+    # LLVM's NSIS installer requires UAC elevation that an OpenSSH
+    # session cannot provide; silent NSIS exits 0 without installing.
+    # winget handles elevation cleanly via the user's session
+    # (or fails loudly), so it is the reliable path for these
+    # tools.  Machine-scope is forced for packages that don't
+    # support --scope user (e.g. LLVM).
+    if ((Test-Path $VerifyExe) -and -not $Force) {
+        Write-Host "[skip] $Name $Version (exists at $VerifyExe)"
+        return $VerifyExe
+    }
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        throw "winget not available; install Microsoft App Installer or use the Microsoft Store route for $Name"
+    }
+    Write-Host "[install] $Name $Version (winget $PackageId)"
+    & winget install $PackageId -e --silent `
+        --accept-source-agreements --accept-package-agreements
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Name winget install failed (exit $LASTEXITCODE)"
+    }
+    if (-not (Test-Path $VerifyExe)) {
+        throw "$Name winget reported success but $VerifyExe not found"
+    }
+    return $VerifyExe
+}
+
+function Install-WingetUser {
     param(
         [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$PackageId,
         [Parameter(Mandatory)][string]$Version,
-        [Parameter(Mandatory)][string]$Url
+        [Parameter(Mandatory)][string]$VerifyExe
     )
-    # NSIS-based installer (LLVM uses NSIS).  /S = silent.
-    # /D=<path> MUST be last and unquoted; this is an NSIS oddity.
-    $stampedDir = Join-Path $installRoot ("{0}-{1}" -f $Name, $Version)
-    if ((Test-Path $stampedDir) -and -not $Force) {
-        Write-Host "[skip] $Name $Version (exists)"
-        return $stampedDir
+    if ((Test-Path $VerifyExe) -and -not $Force) {
+        Write-Host "[skip] $Name $Version (exists at $VerifyExe)"
+        return $VerifyExe
     }
-    Write-Host "[install] $Name $Version (NSIS silent install)"
-    $installer = Join-Path $workDir ("{0}-{1}-install.exe" -f $Name, $Version)
-    Download-File -Url $Url -Dest $installer
-    # /D MUST be last arg, unquoted, even if path contains spaces.
-    # User-writable destination -> no admin required.
-    & $installer /S /D=$stampedDir
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        throw "winget not available for $Name"
+    }
+    Write-Host "[install] $Name $Version (winget $PackageId, user scope)"
+    & winget install $PackageId -e --silent --scope user `
+        --accept-source-agreements --accept-package-agreements
     if ($LASTEXITCODE -ne 0) {
-        throw "$Name installer failed (exit $LASTEXITCODE)"
+        throw "$Name winget install failed (exit $LASTEXITCODE)"
     }
-    Remove-Item -Force $installer -ErrorAction SilentlyContinue
-    return $stampedDir
+    if (-not (Test-Path $VerifyExe)) {
+        throw "$Name winget reported success but $VerifyExe not found"
+    }
+    return $VerifyExe
 }
 
 # --- Install plan ---
@@ -228,11 +260,27 @@ if ($OnlyTool -in @('all', 'yq')) {
 }
 
 if ($OnlyTool -in @('all', 'lldb')) {
+    # LLVM bundles lldb (+ dsymutil + llvm-objdump + clang-format).
+    # Installed via winget because NSIS silent install fails over
+    # SSH without UAC; winget handles elevation cleanly.
+    # LLVM does not support per-user scope -> machine install at
+    # C:\Program Files\LLVM.
     $v = $versions['lldb']
-    # LLVM NSIS installer bundles lldb + dsymutil + clang-format etc.
-    # Per-user install path -> no admin needed.
-    $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-$v/LLVM-$v-win64.exe"
-    $paths['lldb'] = Install-NSISExe -Name 'llvm' -Version $v -Url $url
+    $llvmExe = Install-Winget -Name 'llvm' -PackageId 'LLVM.LLVM' `
+        -Version $v `
+        -VerifyExe 'C:\Program Files\LLVM\bin\lldb.exe'
+    $paths['lldb'] = Split-Path $llvmExe -Parent
+
+    # lldb on Windows is dynamically linked to Python 3.11 (python311.dll).
+    # Without it: `lldb --version` exits with 'unable to find python311.dll'.
+    # Install Python 3.11 in user scope so the DLL lands at a known
+    # location and joins User PATH (winget Python.Python.3.11 -- scope user).
+    $pyVer = '3.11'
+    $pyVerify = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python311\python311.dll'
+    $pyDir = Install-WingetUser -Name 'python' -PackageId 'Python.Python.3.11' `
+        -Version $pyVer `
+        -VerifyExe $pyVerify
+    $paths['python311'] = Split-Path $pyDir -Parent
 }
 
 # --- PATH wiring (User scope, idempotent) ---
@@ -268,7 +316,12 @@ if ($paths.ContainsKey('wasm-tools'))  { $pathsToAdd += $paths['wasm-tools'] }
 if ($paths.ContainsKey('wasmtime'))    { $pathsToAdd += $paths['wasmtime'] }
 if ($paths.ContainsKey('wabt'))        { $pathsToAdd += (Join-Path $paths['wabt']  'bin') }
 if ($paths.ContainsKey('yq'))          { $pathsToAdd += $paths['yq'] }
-if ($paths.ContainsKey('lldb'))        { $pathsToAdd += (Join-Path $paths['lldb']  'bin') }
+# lldb dir is already the LLVM bin dir (Split-Path of lldb.exe).
+# OpenSSH bash sessions don't inherit Machine PATH changes that
+# happen during the session, so we also add to User PATH which IS
+# inherited at SSH login time.
+if ($paths.ContainsKey('lldb'))        { $pathsToAdd += $paths['lldb'] }
+if ($paths.ContainsKey('python311'))   { $pathsToAdd += $paths['python311'] }
 
 # Git for Windows bash (needed by `bash scripts/*.sh`).  Skip if absent.
 $gitBin = 'C:\Program Files\Git\bin'
