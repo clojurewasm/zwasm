@@ -589,6 +589,22 @@ const struct_get_s = @import("../instruction/wasm_3_0/struct_get_s.zig");
 const struct_get_u = @import("../instruction/wasm_3_0/struct_get_u.zig");
 const struct_set = @import("../instruction/wasm_3_0/struct_set.zig");
 
+// Wasm 3.0 GC — array cohort (14 ops). Same wasm_level: .v3_0 shape.
+const array_new = @import("../instruction/wasm_3_0/array_new.zig");
+const array_new_default = @import("../instruction/wasm_3_0/array_new_default.zig");
+const array_new_fixed = @import("../instruction/wasm_3_0/array_new_fixed.zig");
+const array_new_data = @import("../instruction/wasm_3_0/array_new_data.zig");
+const array_new_elem = @import("../instruction/wasm_3_0/array_new_elem.zig");
+const array_get = @import("../instruction/wasm_3_0/array_get.zig");
+const array_get_s = @import("../instruction/wasm_3_0/array_get_s.zig");
+const array_get_u = @import("../instruction/wasm_3_0/array_get_u.zig");
+const array_set = @import("../instruction/wasm_3_0/array_set.zig");
+const array_len = @import("../instruction/wasm_3_0/array_len.zig");
+const array_fill = @import("../instruction/wasm_3_0/array_fill.zig");
+const array_copy = @import("../instruction/wasm_3_0/array_copy.zig");
+const array_init_data = @import("../instruction/wasm_3_0/array_init_data.zig");
+const array_init_elem = @import("../instruction/wasm_3_0/array_init_elem.zig");
+
 /// Tuple of all migrated per-op modules. Order is not load-bearing;
 /// `dispatcher` uses `op_tag` for routing.
 pub const collected_ops = .{
@@ -990,6 +1006,22 @@ pub const collected_ops = .{
     struct_get_s,
     struct_get_u,
     struct_set,
+
+    // Wasm 3.0 GC array cohort (§9.12-G Phase 10 prep).
+    array_new,
+    array_new_default,
+    array_new_fixed,
+    array_new_data,
+    array_new_elem,
+    array_get,
+    array_get_s,
+    array_get_u,
+    array_set,
+    array_len,
+    array_fill,
+    array_copy,
+    array_init_data,
+    array_init_elem,
 };
 
 comptime {
@@ -1162,17 +1194,19 @@ test "zirOpTagCount matches the ZirOp enum field count" {
     try std.testing.expect(n >= 200);
 }
 
-test "migratedOpCount tracks collected_ops length (390 after §9.12-G GC struct cohort)" {
+test "migratedOpCount tracks collected_ops length (404 after §9.12-G GC array cohort)" {
     // Running tally:
     //   374 §9.12-B / B52 baseline
     // +   3 Wasm 3.0 tail-call (return_call / _indirect / _ref)
     // +   3 Wasm 3.0 EH (try_table / throw / throw_ref)
     // +   4 Wasm 3.0 typed-func-refs (call_ref / br_on_null /
     //         br_on_non_null / ref.as_non_null)
-    // +   6 Wasm 3.0 GC struct (.new / .new_default / .get /
-    //         .get_s / .get_u / .set)
-    // = 390.
-    try std.testing.expectEqual(@as(usize, 390), migratedOpCount());
+    // +   6 Wasm 3.0 GC struct (6 ops)
+    // +  14 Wasm 3.0 GC array (.new / _default / _fixed / _data /
+    //         _elem / .get / .get_s / .get_u / .set / .len /
+    //         .fill / .copy / .init_data / .init_elem)
+    // = 404.
+    try std.testing.expectEqual(@as(usize, 404), migratedOpCount());
 }
 
 test "opModuleFor resolves GC struct cohort stubs" {
@@ -1182,6 +1216,23 @@ test "opModuleFor resolves GC struct cohort stubs" {
     try std.testing.expect(comptime opModuleFor(.@"struct.get_s") != null);
     try std.testing.expect(comptime opModuleFor(.@"struct.get_u") != null);
     try std.testing.expect(comptime opModuleFor(.@"struct.set") != null);
+}
+
+test "opModuleFor resolves GC array cohort stubs" {
+    try std.testing.expect(comptime opModuleFor(.@"array.new") != null);
+    try std.testing.expect(comptime opModuleFor(.@"array.new_default") != null);
+    try std.testing.expect(comptime opModuleFor(.@"array.new_fixed") != null);
+    try std.testing.expect(comptime opModuleFor(.@"array.new_data") != null);
+    try std.testing.expect(comptime opModuleFor(.@"array.new_elem") != null);
+    try std.testing.expect(comptime opModuleFor(.@"array.get") != null);
+    try std.testing.expect(comptime opModuleFor(.@"array.get_s") != null);
+    try std.testing.expect(comptime opModuleFor(.@"array.get_u") != null);
+    try std.testing.expect(comptime opModuleFor(.@"array.set") != null);
+    try std.testing.expect(comptime opModuleFor(.@"array.len") != null);
+    try std.testing.expect(comptime opModuleFor(.@"array.fill") != null);
+    try std.testing.expect(comptime opModuleFor(.@"array.copy") != null);
+    try std.testing.expect(comptime opModuleFor(.@"array.init_data") != null);
+    try std.testing.expect(comptime opModuleFor(.@"array.init_elem") != null);
 }
 
 test "opModuleFor resolves Phase 10 Wasm 3.0 stubs (tail-call + EH + typed-func-refs)" {
