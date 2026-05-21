@@ -5,10 +5,10 @@
 
 ## Cold-start procedure
 
-1. `git log --oneline -10` — last commit pending: ADR-0084
-   amendment (mid-impl discovery: 13 caller files / ~120 sites,
-   not 2 as estimated; carve reverted; re-classified as 2-cycle
-   architectural).
+1. `git log --oneline -10` — last code commit: `653d5e4e`
+   / `a117677c` (ADR-0084 impl landed; arm64/inst.zig 1807 →
+   1405 LOC; inst_fp.zig 510 LOC new; 127 caller substitutions
+   across 11 files). ADR-0084 Accepted.
 2. **User directive (2026-05-21)**: batch-session architectural
    mode.
 3. **Live status**: `bash scripts/p9_completion_status.sh` —
@@ -16,24 +16,18 @@
 
 ## Authorized next-session pickup (priority order — updated 2026-05-21)
 
-1. **PRIMARY: ADR-0084 impl (arm64/inst.zig FP extraction —
-   amended scope)**. ADR amended at this cycle. Carve sequence
-   (cycle A: extract + sed; cycle B: fallout fix if any):
-   - `python3 /tmp/extract_fp.py` worked first try (script
-     left in repo or re-write same shape); extracts 52 FP
-     blocks → inst_fp.zig 295 LOC; inst.zig 1808 → 1579.
-   - Move FP-specific in-source tests (~125 LOC) — separate
-     pass: identify `test "..."` blocks that reference
-     `enc(Scvtf|Ucvtf|Fcvt|F[A-Z]|Fmov|Fsqrt)` names; move
-     them to inst_fp.zig.
-   - `sed` rewrite `inst\.encF<...>` → `inst_fp.encF<...>`
-     across 13 caller files (~120 sites): op_alu_float (33),
-     op_convert (22), bounds_check (18), emit_test_alu_float
-     (38), op_call (4), emit (2), emit_test_call (3),
-     emit_test_alu_int (2), op_alu_int (2), op_control (1),
-     emit_test_local (1).
-   - Cohort gate (test-all) + lint. Mac aarch64 strictly
-     required (FP encoders are aarch64-native).
+1. **PRIMARY: next D-141 per-file ADR candidate** — top of
+   priority list (verified actual LOC):
+   - **arm64/emit.zig** (1630 LOC) — mirror of x86_64/emit.zig
+     after ADR-0081; same prologue + frame helper extraction
+     shape likely applies. Spike-first to confirm structure.
+   - **x86_64/inst.zig** (1328 LOC) — parallel of arm64/inst.zig
+     just split. Same FP machinery extraction pattern may
+     apply directly (ADR-0085 candidate).
+   - **lower.zig** (1109 LOC) — `Lowerer = struct {...}`
+     struct-method-heavy. Apply ADR-0083 pattern + lesson
+     `2026-05-21-cross-file-struct-method-syntax-zig-0-16.md`
+     pre-extraction checklist.
 2. **Subsequent D-141 candidates** (after #1 lands):
    - **arm64/emit.zig** (1630 LOC) — mirror of x86_64/emit.zig
      after ADR-0081; same shape likely applies.
