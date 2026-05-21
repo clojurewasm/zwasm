@@ -119,6 +119,24 @@ change between iterations.
 ## Resume procedure (run on every session pickup)
 
 1. Read `.dev/handover.md`. (The `SessionStart` hook already prints it.)
+   **Framing grep — mandatory on every resume** (per
+   [`.claude/rules/handover_framing.md`](../../rules/handover_framing.md)):
+
+   ```sh
+   grep -nE "user-judgment territory|wait for natural trigger|wait for .* fixtures|needs commitment to|substantial multi-cycle|deep .* work or wait|pivot to .* OR" .dev/handover.md
+   ```
+
+   If non-empty → the **FIRST chunk of this resume is the
+   handover.md rewrite itself**. Replace forbidden framing with
+   concrete chunk descriptions, commit
+   (`chore(handover): remove forbidden framing`), then re-read
+   handover and proceed. **Do not enter the prose-suggested
+   chunk while forbidden framing is present** — the framing is
+   by construction unreliable. The 2026-05-22 retrospective
+   showed that handover framing can override the anti-pattern
+   list when it uses different words for the same surrender;
+   this grep closes that gap.
+
 1a. **Close-plan / amendment-cycle override**. If handover.md's
     `Cold-start procedure` step 1 directs to a
     `.dev/phase*_close_plan.md` document (canonical:

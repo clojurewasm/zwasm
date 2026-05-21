@@ -601,3 +601,16 @@ beats inventing new ways to stop.
   `ScheduleWakeup` and one short sentence.
 - **"Auto-compact might be coming, safer to stop"** — forbidden;
   PostCompact recovers, the loop continues.
+- **"Wait for natural trigger" / "needs commitment" / "substantial
+  multi-cycle work"** — forbidden in handover.md framing per
+  [`handover_framing.md`](../../rules/handover_framing.md). These
+  are surrender phrases dressed up to bypass the phrase-grep above.
+  Multi-cycle work is just multi-cycle; iterate. If handover.md
+  contains any of these, the **first action on resume is to
+  rewrite handover.md**, not to enter the prose-suggested chunk.
+- **"3-option pickup" in handover.md** — listing `(a) / (b) /
+  (c) Wait for ...` for the next session implies the user picks.
+  The loop picks in handover itself. Concrete failure mode:
+  2026-05-22 null-op night (~50 cycles, zero behaviour delta).
+  Per `handover_framing.md`, drop the Wait option and execute
+  the substantive branch(es) in parallel.
