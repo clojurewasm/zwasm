@@ -5,11 +5,11 @@
 
 ## Cold-start procedure
 
-1. `git log --oneline -10` — last code commit will land
-   D-141 sweep cont.: ADR-0095 extracts element-section
-   decoder to `sections_element.zig` (sections.zig
-   1556→1190 LOC; still WARN). D-055 mechanical remainder
-   unchanged (27 emit_test_int sites pending).
+1. `git log --oneline -10` — D-141 sweep cont.: ADR-0096
+   extracts data + codes section decoders to siblings
+   (sections.zig 1190→900 LOC; dropped from WARN list,
+   19 files remain). ADR-0095 prior cycle. D-055 mechanical
+   remainder unchanged (27 emit_test_int sites pending).
 2. **User directive (2026-05-21)**: batch-session architectural
    mode — Phase 9 closure quality. D-141 per-file ADR cycle
    continues; remaining candidates need own ADR-grade survey.
@@ -31,9 +31,12 @@
    - `api/instance.zig` (1431 LOC) — c_api lifecycle redesign.
    - `src/engine/codegen/shared/regalloc.zig` (1401 LOC after
      ADR-0090) — compute/verify/vreg-class axis split.
-   - `parse/sections.zig` follow-up (1190 LOC post-ADR-0095) —
-     candidates: bundle data + codes families to a sibling,
-     OR FILE-SIZE-EXEMPT-marker review when sub-1500.
+   - `validate/validator.zig` (1365 LOC) — Wasm 2.0 bulk
+     memory/table ops + dispatch helpers (post-ADR-0083 SIMD
+     extraction).
+   - codegen *_test.zig pairs (emit_test_int 1607, emit_test_float
+     1571, op_simd_int_cmp_lane_test 1190) — test-file splits
+     await D-055/D-081 closure.
 2. **D-055 continuation** (multi-cycle mechanical, partial at
    `783e6c11`; continue from emit_test_int line ~159).
 3. **§9.12-G `src/api/instance.zig` split** (per c_api lifecycle).
@@ -48,11 +51,11 @@
 - **ADR-0078 fully load-bearing**: G.1.1 + G.1.2 + amendment.
 - **§9.12-G partial**: 41 Wasm 3.0 stubs landed; dispatcher
   comptime-reject; CLI --invoke.
-- **§9.12-F**: 12 D-141 slots closed (2026-05-21 session).
-  ADRs 0079+0081+0082+0083+0084+0085+0086+0087+0088+0089+0090+0095
-  Accepted. ADR-0094 Accepted (D-158). 3 lessons captured.
-  `engine/compile.zig` is no longer in WARN list (915 LOC <
-  soft cap).
+- **§9.12-F**: 13 D-141 slots closed (2026-05-21 session).
+  ADRs 0079+0081-0090+0095+0096 Accepted. ADR-0094 Accepted
+  (D-158). 3 lessons captured. `engine/compile.zig` +
+  `parse/sections.zig` both dropped from WARN list; 19 files
+  remain (was 20).
 
 ## Pattern menu (next-session reference)
 
@@ -86,4 +89,5 @@ work needs survey-first discipline.
 - [ROADMAP](./ROADMAP.md) §9.12 — F (D-141 sweep partial) / G / H / I open.
 - [`debt.md`](./debt.md) — 25 active rows.
 - [`decisions/0095_sections_element_extraction.md`](./decisions/0095_sections_element_extraction.md) — Accepted.
+- [`decisions/0096_sections_data_and_codes_extraction.md`](./decisions/0096_sections_data_and_codes_extraction.md) — Accepted.
 - [`lessons/INDEX.md`](./lessons/INDEX.md).
