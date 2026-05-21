@@ -226,9 +226,11 @@ pub fn runI32Export(
 /// post-call value of `JitRuntime.jit_executed_flag` (per
 /// §9.8a / 8a.2 ADR-0034 sentinel) so callers can distinguish
 /// "JIT body actually executed" (`flag != 0`) from "compile-
-/// passed but never invoked" (`flag == 0`). On Mac aarch64
-/// hosts the ARM64 prologue inject sets the flag; x86_64
-/// hosts always return 0 until D-055 lands the x86_64 wire-up.
+/// passed but never invoked" (`flag == 0`). Both ARM64 (since
+/// `d6e29ac`) and x86_64 (since D-055 close at `871c78e1`)
+/// prologue injects set the flag — `uses_runtime_ptr=true`
+/// only; functions with no memory / call ops keep flag at 0
+/// since the sentinel is gated on R15 / X19 availability.
 pub fn runVoidExport(
     allocator: Allocator,
     wasm_bytes: []const u8,
