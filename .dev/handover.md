@@ -5,10 +5,10 @@
 
 ## Cold-start procedure
 
-1. `git log --oneline -10` — last lesson commit captures the
-   re-export pattern validated across ADR-0082/0086/0087/0088
-   (3791 LOC moved across 4 sibling extractions with 0 caller
-   migration). Most recent code commit: `0f3f863f` (ADR-0088).
+1. `git log --oneline -10` — last code commit: `1a008ee5`
+   (ADR-0089 — lower_simd.zig extraction; lower.zig 1109 → 775
+   LOC; ADR-0083 cross-file struct-method pattern applied;
+   Accepted same cycle). Total D-141 closures: 10.
 2. **User directive (2026-05-21)**: batch-session architectural
    mode.
 3. **Live status**: `bash scripts/p9_completion_status.sh` —
@@ -16,18 +16,18 @@
 
 ## Authorized next-session pickup (priority order — updated 2026-05-21)
 
-1. **PRIMARY: next D-141 candidate (priority by extractability)**:
+1. **PRIMARY: remaining D-141 candidates need ADR-grade survey
+   (not single-cycle mechanical)**:
    - **parse/sections.zig** (1556 LOC) — 16 structs + decode
      functions; per-section axis split — bigger refactor with
-     7+ new files. Survey first; ADR-grade design choice.
+     7+ new files. Survey-first; ADR-grade design choice.
    - **api/instance.zig** (1431 LOC) — c_api Instance lifecycle;
      §9.12-G item.
    - **engine/compile.zig** (1225 LOC) — huge `pub fn compileWasm`
      spanning lines 29-903 (~875 LOC); needs ADR-grade
-     extraction axis (compileWasm phase split? section-by-
-     section dispatch?). Survey-first.
-   - **lower.zig** (1109 LOC) — `Lowerer = struct {...}`
-     struct-method-heavy. ADR-0083 pattern.
+     extraction axis. Survey-first.
+   - **regalloc.zig** (1851 LOC) — has methods + state; likely
+     ADR-0083 pattern again.
 2. **Subsequent D-141 candidates** (after #1 lands):
    - **arm64/emit.zig** (1630 LOC) — mirror of x86_64/emit.zig
      after ADR-0081; same shape likely applies.
