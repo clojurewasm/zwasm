@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: uniform pure-encoder catalog (per ADR-0075 §9.12-B amendment 2026-05-21)
 //! x86_64 SSE2/SSSE3/SSE4.1/SSE4.2 packed-integer encoder family —
 //! all `encP*` shape encoders (PADD/PSUB/PMUL/PCMP/PMIN/PMAX/PAND/
 //! POR/PXOR/PANDN/PSHUF*/PSHUFB/PSLL*/PSRL*/PSRA*/PEXTR*/PINSR*/

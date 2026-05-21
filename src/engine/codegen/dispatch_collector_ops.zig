@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: codegen op registry — pure data, structurally homogeneous (per ADR-0086 §Consequences)
 //! Codegen op registry — pure data extracted from
 //! `dispatch_collector.zig` per ADR-0086 (mirror of ADR-0082's
 //! ir/dispatch_collector_ops.zig).

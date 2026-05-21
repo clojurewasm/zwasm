@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: uniform pure-encoder catalog (per ADR-0075 §9.12-B amendment 2026-05-21)
 //\! ARM64 NEON arithmetic & conversion encoder family —
 //\! ADD/SUB/MUL/MIN/MAX/ABS/NEG/CNT/AVGR/sat-arith encoders
 //\! (per-shape variants), shifts (USHL/SSHL/SSHR imm),

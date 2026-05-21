@@ -72,6 +72,7 @@ See Decision above.
 
 - **Neutral / follow-ups**:
   - Inline-switch dispatcher cutover (originally §9.12-B's Q3 C target per ADR-0073) becomes a clean follow-up chunk after this ADR lands: replace the giant switch in `arm64/emit.zig` + `x86_64/emit.zig` with a comptime-generated dispatch over `collected_arm64_ops` / `collected_x86_64_ops`. Tracking debt: D-NEW-1.
+  - **FILE-SIZE-EXEMPT extension — uniform-shape declaration catalogs** (2026-05-21 amendment, D-160). The original §9.12-B exemption wording (the marker precedent on `op_simd_int_cmp_lane.zig`) referenced "uniform `(ctx, ins)` adapter catalogs". The same structural property — homogeneous N-line declarations with no per-decl logic — also covers **pure-encoder catalogs** (`inst_neon_arith.zig` 114 NEON `encXxx` fns; `inst_sse_packed.zig` 96 SSE `encXxx` fns). Both file classes are exempt from the soft-cap split obligation under §9.12-B, since the WARN signal (reviewer eye-glaze risk) is already addressed by the structural homogeneity: any single encoder is a 5-line transliteration of the underlying ISA encoding table, and grouping by encoding family (NEON arith / SSE packed) is the canonical taxonomy. The exemption covers both `(ctx, ins)` adapter catalogs and pure-encoder catalogs; the unifying criterion is "uniform-shape declaration catalog without per-decl logic".
   - x86_64 `op_simd.zig` / `op_simd_int_cmp_lane.zig` SIMD const-fixup helpers (popcnt + 3 fp ops in the deferred list at B45) become migratable once `ctx.simd_const_fixups` / `ctx.extra_consts` fields exist.
   - arm64 deferred backlog (sat arith + extmul + extadd_pairwise + dot + q15mulr = 26 ops) is orthogonal — those need new arm64 NEON emit fns, not dispatcher changes. Tracked separately as `now` debt rows.
 
@@ -103,3 +104,4 @@ See Decision above.
 |------------|--------------|-----------------------------------------------------------------|
 | 2026-05-19 | `4a6303d2`   | Initial proposed version (docs wire-up commit).                 |
 | 2026-05-19 | `952e1a33` | Accepted at §9.12-B / B53 — EmitCtx struct + init landed.       |
+| 2026-05-21 | `<backfill>` | Consequences amended — FILE-SIZE-EXEMPT extension to cover pure-encoder catalogs (D-160 discharge). |
