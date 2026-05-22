@@ -53,9 +53,14 @@ Per ADR-0105 + ADR-0106 Implementation plans:
 2a. [x] `ResultAbi` enum foundation in `result_abi.zig` (`7dd79884`)
     per `private/spikes/adr-0106-cycle2/SPIKE.md` Alt 2 (per-module
     compile flag, phased migration).
-2b. [ ] Thread `ResultAbi` into `x86_64/emit.zig::compile()` + branch
-    prologue (capture RSI=results) + epilogue (write [RSI+8*i])
-    when `.buffer_write`. Defaults preserve existing behaviour.
+2b. [x] `Allocation.result_abi: ResultAbi = .register_write` field
+    threaded via regalloc (`1909b06e`). compile() signature
+    unchanged (358 callsites). Cycle-4 debt: promote to CompileOpts struct.
+2c. [ ] x86_64 emit reads `alloc.result_abi` + branches prologue
+    (capture RSI=results into frame slot) + epilogue (write
+    `[results_ptr + 8*i]` per result) when `.buffer_write`.
+    Hand-rolled `result_abi = .buffer_write` test exercises the
+    new path end-to-end.
 3. [ ] arm64 JIT epilogue rewrites — write `results[i]` instead
    of X0/X1.
 4. [ ] Remove `FuncRet_*` extern struct family from `entry.zig`.
