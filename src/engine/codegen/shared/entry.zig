@@ -21,6 +21,7 @@ const builtin = @import("builtin");
 
 const linker = @import("linker.zig");
 const jit_abi = @import("jit_abi.zig");
+const stack_limit_mod = @import("../../../platform/stack_limit.zig");
 
 /// Shared clobber set for the AAPCS64 inline-asm BLR thunks used by
 /// the Class B entry helpers (ADR-0069). Lists all caller-saved
@@ -163,6 +164,8 @@ inline fn invokeAndCheck(
     f: anytype,
     args: anytype,
 ) Error!R {
+    // ADR-0105 D1 — populate stack_limit per call for the prologue probe.
+    rt.stack_limit = stack_limit_mod.computeStackLimit(stack_limit_mod.STACK_GUARD_HEADROOM);
     rt.trap_flag = 0;
     const result = @call(.auto, f, .{rt} ++ args);
     if (rt.trap_flag != 0) return Error.Trap;
@@ -175,6 +178,7 @@ inline fn invokeAndCheckVoid(
     f: anytype,
     args: anytype,
 ) Error!void {
+    rt.stack_limit = stack_limit_mod.computeStackLimit(stack_limit_mod.STACK_GUARD_HEADROOM);
     rt.trap_flag = 0;
     @call(.auto, f, .{rt} ++ args);
     if (rt.trap_flag != 0) return Error.Trap;
