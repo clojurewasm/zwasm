@@ -55,15 +55,24 @@ else
 fi
 
 # I2 — c_api Wasm-2.0 utilisation tests present
-for f in test/api/c_api_wasm2_reftype.zig \
-         test/api/c_api_wasm2_bulk_traps.zig \
-         test/api/c_api_mixed_exports.zig; do
-  if [ -f "$f" ]; then ok "I2: $f present"; else fail "I2: $f missing"; fi
-done
-if [ -d test/runners/fixtures/cross_module_funcref ]; then
-  ok "I2: test/runners/fixtures/cross_module_funcref/ present"
+# Per project idiom: c_api tests live as in-source `test "..."` blocks in
+# src/api/instance.zig (zig build test discovers them via core runner).
+# Check for the 4 required test block name prefixes.
+api_test_file=src/api/instance.zig
+if [ ! -f "$api_test_file" ]; then
+  fail "I2: $api_test_file not found"
 else
-  fail "I2: test/runners/fixtures/cross_module_funcref/ missing"
+  for prefix in \
+    'wasm 2.0 reftype c_api round-trip' \
+    'wasm 2.0 bulk-traps via c_api' \
+    'wasm 2.0 mixed-exports c_api walk' \
+    'wasm 2.0 cross-module funcref via wasm_instance_new'; do
+    if grep -qF "test \"$prefix" "$api_test_file"; then
+      ok "I2: test block '$prefix' present in $api_test_file"
+    else
+      fail "I2: test block '$prefix' MISSING in $api_test_file (per master plan §5.2)"
+    fi
+  done
 fi
 
 # I3 — Zig facade minimum subset in src/zwasm.zig
@@ -79,11 +88,12 @@ else
     fi
   done
 fi
-zig_facade_test=test/api/zig_facade_wasm2.zig
-if [ -f "$zig_facade_test" ]; then
-  ok "I3: $zig_facade_test present"
+# Zig facade test lives as in-source `test "..."` block in src/zwasm.zig
+# (same project idiom as c_api tests — see I2 rationale).
+if grep -qF 'test "zwasm facade Wasm 2.0' "$zwasm_zig" 2>/dev/null; then
+  ok "I3: Zig facade test block present in src/zwasm.zig"
 else
-  fail "I3: $zig_facade_test missing"
+  fail "I3: 'zwasm facade Wasm 2.0' test block MISSING in src/zwasm.zig (per master plan §5.2)"
 fi
 
 # I4 — wast_runtime_runner (smoke version) in test-all

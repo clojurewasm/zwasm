@@ -59,15 +59,26 @@ be removed. `windowsmini` test-all must PASS the corresponding
 
 ### I2 — c_api Wasm-2.0 utilisation tests present
 
-The following files MUST exist + be wired into `test-all`:
+Wasm-2.0 c_api utilisation tests MUST exist as **in-source `test
+"..."` blocks** inside `src/api/instance.zig` (per project idiom —
+existing `wasm_engine_new` / `wasm_instance_new` / `wasm_func_call`
+tests follow the same pattern at lines 1000+; `zig build test`
+discovers them via the core test runner).
 
-- `test/api/c_api_wasm2_reftype.zig` (funcref / externref args+results)
-- `test/api/c_api_wasm2_bulk_traps.zig` (memory.copy / table.init OOB)
-- `test/api/c_api_mixed_exports.zig` (extern_kind walk)
-- `test/runners/fixtures/cross_module_funcref/` (cross-module funcref
-  via `wasm_instance_new` imports[])
+Required test block name prefixes (substring grep):
 
-Per audit Agent 2 §A.2 + §D. Per master plan §5.2. Per ADR-0104 D1.3.
+- `wasm 2.0 reftype c_api round-trip` — funcref / externref
+  args+results marshalling through `wasm_func_call`.
+- `wasm 2.0 bulk-traps via c_api` — `memory.copy` / `table.init`
+  OOB → `wasm_trap_t*` from `wasm_func_call`.
+- `wasm 2.0 mixed-exports c_api walk` — `wasm_instance_exports()`
+  returning multiple `wasm_extern_kind`s (func/memory/table/global).
+- `wasm 2.0 cross-module funcref via wasm_instance_new` —
+  imports[] threading funcref from instance A into instance B.
+
+Per audit Agent 2 §A.2 + §D + project c_api test idiom (in-source
+test blocks; `test/c_api/` does not exist by design). Per master
+plan §5.2 (updated 2026-05-22 to reflect idiom). Per ADR-0104 D1.3.
 
 ### I3 — Zig facade minimum subset implemented
 
@@ -79,9 +90,12 @@ minimum subset:
 - `pub const Instance` (with `module.instantiate(.{})` + `invoke(...)` + `deinit()`)
 - `pub const Value` (tagged union for i32/i64/f32/f64/v128/funcref/externref)
 
-Plus `test/api/zig_facade_wasm2.zig` exercising them.
+Plus an in-source `test "zwasm facade Wasm 2.0 ..."` block in
+`src/zwasm.zig` exercising them (per project idiom — `zig build
+test` discovers via core test runner).
 
-Per audit Agent 2 §B + §D. Per master plan §5.2. Per ADR-0104 D1.3.
+Per audit Agent 2 §B + §D. Per master plan §5.2 (idiom-corrected
+2026-05-22). Per ADR-0104 D1.3.
 
 ### I4 — `wast_runtime_runner` (smoke) in `test-all`
 

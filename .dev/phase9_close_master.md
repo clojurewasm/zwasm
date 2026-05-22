@@ -192,21 +192,31 @@ auto-load this list. Do not edit elsewhere.
 
 ### §5.2 — c_api / Zig API Wasm-2.0 utilisation tests
 
-- [ ] `test/api/c_api_wasm2_reftype.zig` — funcref/externref
-  args+results round-trip (~80 LOC).
-- [ ] `test/api/c_api_wasm2_bulk_traps.zig` — `memory.copy` /
-  `table.init` OOB via c_api + `wasm_trap_message` assertion
+**Idiom note (2026-05-22 idiom-correction)**: c_api tests live as
+in-source `test "..."` blocks in `src/api/instance.zig`
+(matches existing pattern at lines 1000+). Zig facade tests live
+as in-source `test "..."` block in `src/zwasm.zig`. `test/api/`
+directory is NOT created; `zig build test` discovers all via
+core runner.
+
+- [ ] `src/api/instance.zig`: add `test "wasm 2.0 reftype c_api
+  round-trip"` — funcref/externref args+results marshalling
+  (~80 LOC).
+- [ ] `src/api/instance.zig`: add `test "wasm 2.0 bulk-traps via
+  c_api"` — `memory.copy` / `table.init` OOB → `wasm_trap_t*`
   (~120 LOC).
-- [ ] `test/api/c_api_mixed_exports.zig` —
-  `wasm_extern_kind` walk over memory/table/global/func
-  (~60 LOC).
-- [ ] `test/runners/fixtures/cross_module_funcref/` +
-  `wast_runtime_runner` extension — cross-module funcref via
-  `wasm_instance_new` imports[] (~150 LOC + 2 wat/wasm).
-- [ ] `src/zwasm.zig` facade subset — `Runtime` / `Module` /
-  `Instance` / `Value` thin wrappers + `test/api/zig_facade_wasm2.zig`
-  (~250 LOC). Closes D-075's Phase-9-eligible subset.
-- [ ] Add `wast_runtime_runner` to `test-all` (build.zig:454).
+- [ ] `src/api/instance.zig`: add `test "wasm 2.0 mixed-exports
+  c_api walk"` — `wasm_instance_exports()` returning multiple
+  `wasm_extern_kind`s (~60 LOC).
+- [ ] `src/api/instance.zig`: add `test "wasm 2.0 cross-module
+  funcref via wasm_instance_new"` — imports[] threading funcref
+  from instance A into instance B (~150 LOC).
+- [ ] `src/zwasm.zig` facade subset — `pub const Runtime` /
+  `Module` / `Instance` / `Value` thin wrappers + in-source
+  `test "zwasm facade Wasm 2.0 round-trip"` block (~250 LOC).
+  Closes D-075's Phase-9-eligible subset.
+- [x] `wast_runtime_runner` smoke step in `test-all` (verified
+  at build.zig:616 — landed pre-Phase-9-close).
 
 ### §5.3 — Other Phase-9-scope debt close candidates
 
