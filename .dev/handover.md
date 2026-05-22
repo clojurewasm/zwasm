@@ -82,22 +82,27 @@ Per ADR-0105 + ADR-0106 Implementation plans:
 3d. [x] Thread `result_abi` through shared `compileOne`
     (`7c3e20ae`). All 3 callsites updated; default `.register_write`
     preserves behaviour.
-3e. [ ] **JIT-emitted wrapper thunk** (revised approach per
-    `private/spikes/adr-0106-cycle3e-call-lowering/SPIKE.md`
-    §"REVISED APPROACH"). Per-function thunk in new
-    `wrapper_thunk.zig`; declared in Zig as
-    `fn(rt, results, args) callconv(.c) ErrCode` (single u32
-    return — Win64-safe, no hidden RCX). Body calls function
-    via raw assembly (register convention preserved
-    internally; no Win64 ABI rules at internal call). Body
-    itself unchanged (register_write default). Intra-module
-    Wasm `call` unchanged. ~300-400 LOC total vs the
-    big-bang's ~750-850 LOC.
-    Steps: (i) per-arch wrapper emit (~250 LOC, new
-    `shared/wrapper_thunk.zig`); (ii) linker exposes
-    per-function thunk address; (iii) 3 spec runner multi-
-    result callsites use thunk path; (iv) remove
-    SKIP-WIN64-MULTI-RESULT arm.
+3e (Phase 1). [x] `wrapper_thunk.zig` type foundation +
+    public `emit` API stub (`a3139eed`). `EmitParams /
+    EmitOutput / Error` types declared; stub returns
+    `UnsupportedOp`. Sets stable callsite contract for the
+    Phase 2' per-arch byte emit.
+3e (Phase 2'). [ ] Per-arch wrapper emit byte sequences
+    (x86_64 + arm64). Args load from `[R8/RDX/X2 + 8*i]`;
+    CALL/BL body via PC-relative displacement; result
+    capture (RAX/RDX or X0/X1); store to `[RDX/RSI/X1 +
+    8*i]`; ErrCode return in EAX. ~250 LOC across the two
+    arches. Tests verify byte sequences match expected per
+    arch.
+3e (Phase 2''). [ ] linker.JitModule exposes per-function
+    thunk address (`module.entry_buf(idx, BufferWriteFn)`).
+    ~30 LOC in linker.zig + emit pipeline integration.
+3e (Phase 3'). [ ] Spec runner 3 multi-result callsites
+    use `invokeMultiResultNoArgs(rt, module.entry_buf(idx,
+    BufferWriteFn), results)`. ~30 LOC change.
+4. [ ] Remove `SKIP-WIN64-MULTI-RESULT` arm from
+    spec_assert_runner_base.zig. windowsmini phase-boundary
+    reconciliation verifies. D-094 + D-164 close; I1c OK.
 4. [ ] Remove `FuncRet_*` extern struct family + remove
    `SKIP-WIN64-MULTI-RESULT` arm. D-094 + D-164 close;
    gate I1c OK (after cycle 3e lands + windowsmini reconciliation).
