@@ -111,10 +111,15 @@ Per ADR-0105 + ADR-0106 Implementation plans:
     WZR + RET). Stack-save chosen over X19-save (X19 pinned
     + clobbered by body). All 3 SKIP-arm shapes now have
     arm64 wrapper coverage; SysV + arm64 sibling pair done.
-3e (Phase 2'f). [ ] Linker hookup: per-function thunk address
-    exposed via `module.entry_buf(idx, BufferWriteFn)` in
-    `shared/linker.zig`. compileWasm calls `wrapper_thunk.emit`
-    for multi-result funcs + appends bytes to module image.
+3e (Phase 2'f). [x] `JitModule.thunk_offsets: ?[]const u32` +
+    `entry_buf(idx, Fn)` method foundation (`4c7941c9`).
+    `NO_THUNK` sentinel = 0xFFFFFFFF. Caller pattern stable.
+3e (Phase 2'g). [ ] Linker pass-2 emit: extend `link()` to
+    accept per-function wrapper-bytes input + place them in
+    `block.bytes` after the bodies + populate `thunk_offsets`.
+    Required: an integration test that compiles a multi-result
+    Wasm fn through compileWasm → linker → invokeMultiResultNoArgs
+    via `module.entry_buf` end-to-end.
 3e (Phase 2'g). [ ] Spec runner 3 multi-result callsites
     (`spec_assert_runner_non_simd.zig:767/817/892`) use
     `invokeMultiResultNoArgs(rt, module.entry_buf(idx,
