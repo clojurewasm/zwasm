@@ -16,29 +16,28 @@ bucket-3 gate dissolved. §0 preflight is a 10-canary check
 (8 build tools + handle64 / Procmon64 — full Sysinternals
 bundle at `711bdcce`).
 
-## Active task — W3.b-2b (dispatch-ladder callsite wiring)
+## Active task — W4 (windowsmini reconcile)
 
-W3.b-2 partial landed at `72d8a0e8`: `callJitOrTrap` helper +
-2 simple production callsites
-(`spec_assert_runner_non_simd.zig:339` start-init,
-`:1837` uninstantiable) + 2 sigsegv-guard unittests skipped on
-Windows.
+W3.b-2 fully landed across `72d8a0e8` (helper + 2 simple sites +
+2 unittest skips) and `af4eff55` (dispatch-ladder via local
+`Dispatch` struct). All 3 Windows-arm sigsetjmp sites in
+`spec_assert_runner_non_simd.zig` now route through
+`callJitOrTrap`. The 2 sigsegv-guard unittests in
+`spec_assert_runner_base.zig` are Windows-skipped.
 
-Remaining callsite: `spec_assert_runner_non_simd.zig:1498`
-(assert_return/trap dispatch ladder — runtime n_args × arg-type
-branch inside the sigsetjmp block). Needs a closure-style
-wrapper to fold the ladder into a single `callJitOrTrap`
-invocation. Type: `emit`.
+Next chunk: **W4** windowsmini reconcile run. Per close-plan §6
+row 8 — fire `bash scripts/run_remote_windows.sh test-all >
+/tmp/win.log 2>&1` against windowsmini, verify
+`spec_assert_runner_non_simd` runs green (= D-136 discharged),
+new FAILs filed as debt or fixed inline. Type: `verification`.
 
-Spike status: refined design merged into prod; the
-`private/spikes/win64-recovery-pc-sp/` directory will flip to
-`merged-into-prod` (with `72d8a0e8` SHA) when W3.b-2b lands
-the remaining ladder callsite AND W4 reconcile confirms
-windowsmini green.
+After W4 green: spike status flips `merged-into-prod`; row 10
+W6 Windows DCE symbol verification; row 11 §9.13-0 close +
+Phase 9 boundary (= 9.13 transition).
 
-After W3.b-2b: **W4** (windowsmini reconcile run; verifies
-`spec_assert_runner_non_simd` green) → row 10 W6 Windows
-DCE check → row 11 §9.13-0 close + Phase 9 boundary.
+ADR-0049 says windowsmini per-chunk gate is deferred, but the
+W4 reconcile IS the once-per-phase-boundary execution. The
+loop fires this run as a `verification` chunk type.
 
 ## Critical: do NOT widen shared `Error` for Win64 gaps
 
