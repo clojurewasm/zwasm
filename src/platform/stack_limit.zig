@@ -125,6 +125,43 @@ fn computeWindows(headroom: usize) usize {
 }
 
 // ============================================================
+// Diagnostic
+// ============================================================
+
+/// ADR-0105 R3 diagnostic: once-per-thread stderr report of the
+/// JIT-prologue stack-probe context (`stack_limit` value, current
+/// approximate SP, margin). Permanent per `.claude/rules/
+/// extended_challenge.md` Step 5 — multi-cycle Win64 stack-probe
+/// investigations re-use this to confirm the probe sees a sane
+/// `rt.stack_limit` BEFORE the recursion crashes the process.
+/// One stderr line per thread; safe to leave wired in production
+/// (cheap once-flag check + ignored after first call).
+threadlocal var diag_seen: bool = false;
+
+pub fn diagOnce(stack_limit_value: usize) void {
+    if (diag_seen) return;
+    diag_seen = true;
+    var sp: usize = 0;
+    if (comptime builtin.cpu.arch == .x86_64) {
+        sp = asm volatile ("mov %%rsp, %[sp]"
+            : [sp] "=r" (-> usize),
+        );
+    } else if (comptime builtin.cpu.arch == .aarch64) {
+        sp = asm volatile ("mov %[sp], sp"
+            : [sp] "=r" (-> usize),
+        );
+    }
+    const margin: usize = if (stack_limit_value > 0 and sp >= stack_limit_value)
+        sp - stack_limit_value
+    else
+        0;
+    std.debug.print(
+        "[stack_probe] stack_limit=0x{x} sp=0x{x} margin=0x{x} os={s} arch={s}\n",
+        .{ stack_limit_value, sp, margin, @tagName(builtin.os.tag), @tagName(builtin.cpu.arch) },
+    );
+}
+
+// ============================================================
 // Tests
 // ============================================================
 
