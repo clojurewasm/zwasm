@@ -109,6 +109,16 @@ pub fn compileOne(
     globals_offsets: []const u32,
     globals_valtypes: []const zir.ValType,
     select_types: []const u8,
+    /// ADR-0106 path (a) — result-marshal ABI selector for the
+    /// JIT-emitted function. `.register_write` (default for legacy
+    /// callsites) keeps the per-class C-ABI result regs (RAX/RDX
+    /// or X0..X7,V0..V7). `.buffer_write` switches the emit to
+    /// the uniform `fn(*JitRuntime, [*]u64 results, [*]const u64
+    /// args) callconv(.c) ErrCode` shape. Set by upstream callers
+    /// per-module (e.g. spec runner on Win64 for multi-result
+    /// fixtures); ALL functions in one module must share the
+    /// same ABI (per ADR-0106 §"The fundamental constraint").
+    result_abi: @import("result_abi.zig").ResultAbi,
 ) Error!FuncResult {
     var func = ZirFunc.init(func_idx, sig, locals);
     errdefer func.deinit(allocator);
@@ -253,6 +263,10 @@ pub fn compileOne(
     try coalesce.run(allocator, &func, alloc.slots);
     errdefer coalesce.deinitArtifacts(allocator, &func);
 
+    // ADR-0106 path (a) cycle 3d — set the result-marshal ABI on
+    // the Allocation before the emit pass reads it. `alloc` is
+    // a local `var`; the mutation is scoped to this function.
+    alloc.result_abi = result_abi;
     trace.passEnter(func_idx, .emit);
     const out = try emit.compile(allocator, &func, alloc, func_sigs, module_types, num_imports, globals_offsets, globals_valtypes);
     errdefer emit.deinit(allocator, out);
@@ -296,7 +310,7 @@ test "compileOne: pass_diagnostics records all 6 passes when trace enabled" {
     // Pure instruction bytes: `i32.const 7` (0x41 0x07) + `end` (0x0B).
     const body = [_]u8{ 0x41, 0x07, 0x0B };
     const sig: FuncType = .{ .params = &.{}, .results = &.{.i32} };
-    var r = try compileOne(testing.allocator, 42, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{});
+    var r = try compileOne(testing.allocator, 42, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{}, .register_write);
     defer deinitFuncResult(testing.allocator, &r);
 
     // Per-function slot populated with 6 records, in pipeline order.
@@ -333,7 +347,7 @@ test "compileOne: tiny straight-line module — (func (result i32) i32.const 7 e
     const body = [_]u8{ 0x41, 0x07, 0x0B };
     const sig: FuncType = .{ .params = &.{}, .results = &.{.i32} };
 
-    var r = try compileOne(testing.allocator, 0, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{});
+    var r = try compileOne(testing.allocator, 0, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{}, .register_write);
     defer deinitFuncResult(testing.allocator, &r);
 
     const bodies = [_]linker.FuncBody{

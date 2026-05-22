@@ -858,6 +858,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             globals_offsets,
             globals_valtypes,
             select_types.items,
+            .register_write,
         ) catch |err| {
             std.debug.print("compileWasm: func[{d}] params={d} results={d} → {s}\n", .{
                 wasm_idx,
