@@ -63,12 +63,16 @@ Per ADR-0105 + ADR-0106 Implementation plans:
 2d. [x] arm64 emit branches prologue+epilogue on `result_abi`
     (`a714da31`). Mac test-all green (0-arg buffer_write test
     now runs natively).
-2e. [ ] Param-marshal change: when `.buffer_write`, args from
-    `[args_ptr + i*8]` not per-class regs (both arches).
-3. [ ] arm64 JIT epilogue rewrites — write `results[i]` instead
-   of X0/X1.
-4. [ ] Remove `FuncRet_*` extern struct family from `entry.zig`.
-   Remove `SKIP-WIN64-MULTI-RESULT` arm. D-094 + D-164 close;
+2e. [x] Param marshal for `.buffer_write` (`daca5e40`). x86_64
+    SysV + arm64; Mac green with 1-arg identity test. Win64 +
+    v128 + multi-arg overflow deferred to 2f.
+2f. [ ] Win64 buffer_write param marshal (R8 + shadow-space) +
+    v128 + multi-arg overflow handling.
+3. [ ] Migrate spec runner's JIT module compile to
+   `.buffer_write` for a single fixture; verify ubuntu round-
+   trip; iterate on bugs.
+4. [ ] Remove `FuncRet_*` extern struct family + remove
+   `SKIP-WIN64-MULTI-RESULT` arm. D-094 + D-164 close;
    gate I1c OK.
 
 ### ADR-0163 (Win64 call_indirect trap codegen spike) — 1-2 cycles
