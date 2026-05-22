@@ -82,20 +82,25 @@ Per ADR-0105 + ADR-0106 Implementation plans:
 3d. [x] Thread `result_abi` through shared `compileOne`
     (`7c3e20ae`). All 3 callsites updated; default `.register_write`
     preserves behaviour.
-3e. [ ] Spec runner integration — structural constraint: a JIT
-    module compiled with `.buffer_write` requires ALL entry-
-    helper callsites for that module to use buffer_write helpers
-    (a module is all-one-ABI per ADR-0106 fundamental constraint).
-    Either:
-    - (a) Big-bang: migrate ALL ~84 spec runner callsites to
-      buffer_write helpers; single compile path.
-    - (b) Parallel: detect per-module if any multi-result func
-      present, compile-twice (register_write + buffer_write);
-      spec runner picks per-module which helper family.
-    Either is substantial multi-file work; design choice + impl
-    in a future cycle. Foundation cycles 1–3d already prove the
-    buffer_write path works end-to-end across all 3 SKIP-arm
-    shapes.
+3e. [ ] Full ABI migration — module-level ABI choice ripples
+    THREE distinct surfaces:
+    - **Entry-helper callsites** in spec runner / tests (~84
+      sites). Per-module ABI requires per-module helper choice.
+    - **Intra-module Wasm `call` emit** (op_call.zig both
+      arches). JIT-emitted callers route through callees'
+      prologue/epilogue; if callees expect buffer_write
+      (= results buffer + args buffer pointers in regs), the
+      callers must allocate + pass those buffers.
+    - **Module compile selector** in `compileWasm` — auto-
+      detect or explicit flag per-module.
+    The intra-module call surface is the constraint I missed
+    in cycle 3a–3d planning: buffer_write isn't just about
+    the entry boundary — it changes the JIT-internal calling
+    convention too. A future cycle decides + implements all
+    three together (likely with a multi-cycle plan + private
+    spike for the intra-module call lowering shape). Foundation
+    cycles 1–3d remain load-bearing: the per-function emit
+    works correctly for ALL 3 SKIP-arm shapes.
 4. [ ] Remove `FuncRet_*` extern struct family + remove
    `SKIP-WIN64-MULTI-RESULT` arm. D-094 + D-164 close;
    gate I1c OK (after cycle 3e lands + windowsmini reconciliation).
