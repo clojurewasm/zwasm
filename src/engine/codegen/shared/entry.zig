@@ -103,6 +103,37 @@ const x86_64_sysv_call_clobbers: if (builtin.target.cpu.arch == .x86_64 and buil
         // non-x86_64-SysV hosts: const value collapses to void.
     };
 
+/// Shared clobber set for the x86_64 Win64 inline-asm CALL thunks used
+/// by Class B mixed-eightbyte entry helpers on Windows (D-161). The
+/// JIT body on Win64 writes results per the per-class assignment
+/// (INTEGER → RAX, SSE → XMM0/XMM1) — which does NOT match the
+/// Microsoft x64 C ABI for `{INTEGER, SSE}`-style structs (returned
+/// via hidden RCX pointer when > 8 bytes). The thunk performs the
+/// CALL in inline-asm, passes rt in RCX (Win64 first int arg), and
+/// captures the result registers directly. Lists every Win64
+/// caller-saved (volatile) GPR + XMM0–XMM5 (XMM6–XMM15 are
+/// non-volatile under Win64 and the JIT prologue preserves them).
+const x86_64_win64_call_clobbers: if (builtin.target.cpu.arch == .x86_64 and builtin.target.os.tag == .windows) std.builtin.assembly.Clobbers else void =
+    if (builtin.target.cpu.arch == .x86_64 and builtin.target.os.tag == .windows) .{
+        .rax = true,
+        .rcx = true,
+        .rdx = true,
+        .r8 = true,
+        .r9 = true,
+        .r10 = true,
+        .r11 = true,
+        .xmm0 = true,
+        .xmm1 = true,
+        .xmm2 = true,
+        .xmm3 = true,
+        .xmm4 = true,
+        .xmm5 = true,
+        .cc = true,
+        .memory = true,
+    } else {
+        // non-Win64 hosts: const value collapses to void.
+    };
+
 pub const JitRuntime = jit_abi.JitRuntime;
 pub const SegmentSlice = jit_abi.SegmentSlice;
 pub const TableSlice = jit_abi.TableSlice;
@@ -1089,11 +1120,12 @@ pub fn callI32i64_i32(
 /// X0=rt, does BLR, captures X0 (i32) + D0 (f64 bits via
 /// FMOV) into the return struct.
 ///
-/// Win64: NOT YET SUPPORTED. Win64 returns ≤ 8-byte composites
-/// in RAX; larger composites via hidden RCX ptr (= D-094 / D-140
-/// indirect-result-ptr ABI). Inline-asm thunk would need the
-/// same shape as AAPCS64 but with x86_64 register conventions;
-/// deferred to Cat IV per ADR-0069 implementation chunked plan.
+/// Win64 (D-161): inline-asm thunk passes rt in RCX (Win64 first
+/// int arg), allocates 32-byte shadow space + 8-byte alignment
+/// pad, CALLs the function pointer, and captures RAX (i32) +
+/// XMM0 (f64) directly — bypassing the MS x64 C ABI's hidden-RCX
+/// return-pointer convention for > 8-byte composites, which
+/// doesn't match the JIT body's per-class register write.
 pub fn callI32f64NoArgs(
     module: linker.JitModule,
     func_idx: u32,
@@ -1121,18 +1153,24 @@ pub fn callI32f64NoArgs(
         const result = f(rt);
         if (rt.trap_flag != 0) return Error.Trap;
         return result;
-    } else {
-        // INVARIANT — do NOT "fix" Win64 build errors by
-        // widening shared `Error`.  Adding a variant here
-        // (e.g. `UnsupportedEntrySignature`) forces every
-        // Class A/C caller's exhaustive
-        // `switch (err) { error.Trap => ... }` to widen for
-        // a variant comptime-pruned on Mac/Linux → API
-        // pollution for a Win64-only concern.  Crash via
-        // @panic; if Win64 actually invokes this signature,
-        // the D-022 tag surfaces immediately at runtime.
-        // See `.claude/rules/platform_panic_vs_error.md`.
-        @panic("Class B mixed-class entry helper: no Win64 thunk yet (D-022)");
+    } else if (comptime builtin.target.cpu.arch == .x86_64 and builtin.target.os.tag == .windows) {
+        // Win64 (D-161): rt in RCX, 32 B shadow + 8 B alignment via
+        // `sub $40`, CALL, capture RAX (i32) + XMM0 (f64).
+        const Fn = *const fn (rt: *const JitRuntime) callconv(.c) void;
+        const f = module.entry(func_idx, Fn);
+        var r0_raw: u64 = undefined;
+        var r1_raw: f64 = undefined;
+        asm volatile (
+            \\ subq $40, %rsp
+            \\ callq *%[callee]
+            \\ addq $40, %rsp
+            : [r0_out] "={rax}" (r0_raw),
+              [r1_out] "={xmm0}" (r1_raw),
+            : [callee] "r" (f),
+              [rt_arg] "{rcx}" (rt),
+            : x86_64_win64_call_clobbers);
+        if (rt.trap_flag != 0) return Error.Trap;
+        return .{ .r0 = r0_raw, .r1 = r1_raw };
     }
 }
 
@@ -1174,18 +1212,24 @@ pub fn callF64i32NoArgs(
         const result = f(rt);
         if (rt.trap_flag != 0) return Error.Trap;
         return result;
-    } else {
-        // INVARIANT — do NOT "fix" Win64 build errors by
-        // widening shared `Error`.  Adding a variant here
-        // (e.g. `UnsupportedEntrySignature`) forces every
-        // Class A/C caller's exhaustive
-        // `switch (err) { error.Trap => ... }` to widen for
-        // a variant comptime-pruned on Mac/Linux → API
-        // pollution for a Win64-only concern.  Crash via
-        // @panic; if Win64 actually invokes this signature,
-        // the D-022 tag surfaces immediately at runtime.
-        // See `.claude/rules/platform_panic_vs_error.md`.
-        @panic("Class B mixed-class entry helper: no Win64 thunk yet (D-022)");
+    } else if (comptime builtin.target.cpu.arch == .x86_64 and builtin.target.os.tag == .windows) {
+        // Win64 (D-161): same shadow-space pattern as
+        // `callI32f64NoArgs`; capture XMM0 (f64) + RAX (i32).
+        const Fn = *const fn (rt: *const JitRuntime) callconv(.c) void;
+        const f = module.entry(func_idx, Fn);
+        var r0_raw: f64 = undefined;
+        var r1_raw: u64 = undefined;
+        asm volatile (
+            \\ subq $40, %rsp
+            \\ callq *%[callee]
+            \\ addq $40, %rsp
+            : [r0_out] "={xmm0}" (r0_raw),
+              [r1_out] "={rax}" (r1_raw),
+            : [callee] "r" (f),
+              [rt_arg] "{rcx}" (rt),
+            : x86_64_win64_call_clobbers);
+        if (rt.trap_flag != 0) return Error.Trap;
+        return .{ .r0 = r0_raw, .r1 = r1_raw };
     }
 }
 
@@ -1204,10 +1248,10 @@ pub fn callF64i32NoArgs(
 /// that performs `callq *fn` with rdi=rt and captures XMM0
 /// (f64) + XMM1 (f32) directly.
 ///
-/// Win64: NOT YET SUPPORTED. Win64 returns ≤ 8-byte composites
-/// in RAX; larger composites via hidden RCX ptr (= D-094 /
-/// D-140 indirect-result-ptr ABI). Deferred to §9.13-0 per
-/// ADR-0069 implementation chunked plan.
+/// Win64 (D-161): same inline-asm thunk shape as `callI32f64NoArgs`,
+/// passing rt in RCX with 32-byte shadow space, and capturing
+/// XMM0 (f64) + XMM1 (f32) directly. The MS x64 C ABI cannot
+/// natively express a `{f64, f32}` return that lands in XMM0+XMM1.
 pub fn callF64f32NoArgs(
     module: linker.JitModule,
     func_idx: u32,
@@ -1245,18 +1289,24 @@ pub fn callF64f32NoArgs(
             : x86_64_sysv_call_clobbers);
         if (rt.trap_flag != 0) return Error.Trap;
         return .{ .r0 = r0_raw, .r1 = r1_raw };
-    } else {
-        // INVARIANT — do NOT "fix" Win64 build errors by
-        // widening shared `Error`.  Adding a variant here
-        // (e.g. `UnsupportedEntrySignature`) forces every
-        // Class A/C caller's exhaustive
-        // `switch (err) { error.Trap => ... }` to widen for
-        // a variant comptime-pruned on Mac/Linux → API
-        // pollution for a Win64-only concern.  Crash via
-        // @panic; if Win64 actually invokes this signature,
-        // the D-022 tag surfaces immediately at runtime.
-        // See `.claude/rules/platform_panic_vs_error.md`.
-        @panic("Class B mixed-class entry helper: no Win64 thunk yet (D-022)");
+    } else if (comptime builtin.target.cpu.arch == .x86_64 and builtin.target.os.tag == .windows) {
+        // Win64 (D-161): same shadow-space pattern as the other
+        // Class B Win64 thunks; capture XMM0 (f64) + XMM1 (f32).
+        const Fn = *const fn (rt: *const JitRuntime) callconv(.c) void;
+        const f = module.entry(func_idx, Fn);
+        var r0_raw: f64 = undefined;
+        var r1_raw: f32 = undefined;
+        asm volatile (
+            \\ subq $40, %rsp
+            \\ callq *%[callee]
+            \\ addq $40, %rsp
+            : [r0_out] "={xmm0}" (r0_raw),
+              [r1_out] "={xmm1}" (r1_raw),
+            : [callee] "r" (f),
+              [rt_arg] "{rcx}" (rt),
+            : x86_64_win64_call_clobbers);
+        if (rt.trap_flag != 0) return Error.Trap;
+        return .{ .r0 = r0_raw, .r1 = r1_raw };
     }
 }
 
