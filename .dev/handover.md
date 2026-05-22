@@ -87,13 +87,20 @@ Per ADR-0105 + ADR-0106 Implementation plans:
     EmitOutput / Error` types declared; stub returns
     `UnsupportedOp`. Sets stable callsite contract for the
     Phase 2' per-arch byte emit.
-3e (Phase 2'). [ ] Per-arch wrapper emit byte sequences
-    (x86_64 + arm64). Args load from `[R8/RDX/X2 + 8*i]`;
-    CALL/BL body via PC-relative displacement; result
-    capture (RAX/RDX or X0/X1); store to `[RDX/RSI/X1 +
-    8*i]`; ErrCode return in EAX. ~250 LOC across the two
-    arches. Tests verify byte sequences match expected per
-    arch.
+3e (Phase 2'a). [x] x86_64 SysV 3-int MEMORY-class wrapper
+    (`2d7c87c5`). 11 bytes; XCHG RDI,RSI + CALL + XOR + RET.
+    Body's MEMORY-class epilogue (cycle 2c) writes 3xi32
+    to caller's results buffer directly.
+3e (Phase 2'b). [ ] x86_64 SysV 2-int register-convention
+    wrapper for `(i32,i64)` + `(i64,i32)` shapes. PUSH RBX,
+    save results ptr, CALL, MOV [RBX+0]=RAX, MOV [RBX+8]=
+    RDX, POP RBX, XOR EAX, RET.
+3e (Phase 2'c). [ ] x86_64 Win64 sibling for all 3 shapes
+    (different ABI: rt=RCX, results=RDX, args=R8; body
+    expects rt=RCX for MEMORY-class).
+3e (Phase 2'd). [ ] arm64 AAPCS64 sibling. X0=rt, X1=
+    results, X2=args; MEMORY-class body expects X8=
+    hidden ptr.
 3e (Phase 2''). [ ] linker.JitModule exposes per-function
     thunk address (`module.entry_buf(idx, BufferWriteFn)`).
     ~30 LOC in linker.zig + emit pipeline integration.
