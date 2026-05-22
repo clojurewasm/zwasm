@@ -212,4 +212,4 @@ count.
 
 | Date       | SHA         | Change                          |
 |------------|-------------|----------------------------------|
-| 2026-05-22 | `<backfill>`| Status: Proposed → Accepted     |
+| 2026-05-22 | `a6e3eb4f`| Status: Proposed → Accepted     |

@@ -336,5 +336,5 @@ Concretely:
 
 | Date       | SHA         | Change                          |
 |------------|-------------|----------------------------------|
-| 2026-05-22 | `<backfill>`| Status: Proposed → Accepted     |
-| 2026-05-22 | `<backfill>`| Consequences refinement: W3.b-2 recovery PC/SP capture via `callJitOrTrap` helper (@returnAddress + inline-asm RSP). Validated via `private/spikes/win64-recovery-pc-sp/` Win64 cross-compile disasm. |
+| 2026-05-22 | `a6e3eb4f`| Status: Proposed → Accepted     |
+| 2026-05-22 | `b7d842b8`| Consequences refinement: W3.b-2 recovery PC/SP capture via `callJitOrTrap` helper (@returnAddress + inline-asm RSP). Validated via `private/spikes/win64-recovery-pc-sp/` Win64 cross-compile disasm. |
