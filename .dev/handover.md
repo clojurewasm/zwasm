@@ -19,10 +19,17 @@ session.
 
 | Next chunk | First action | Gating |
 |---|---|---|
-| W3.b (main) — SEH shim impl per ADR 0103 | `src/platform/windows_traphandler.zig` (Zone 0): `install`/`uninstall`/`arm`/`disarm` + `vehHandler` reading `EXCEPTION_POINTERS.ContextRecord.Rip`; wire `installSigsegvHandler` Windows arm; Mac cross-compile gate | **GATED** on user flip ADR 0103 Proposed → Accepted (`architectural_spike.md` ADR-first) |
+| **D-161** (autonomous) — Win64 Class B mixed-class entry helper impl | `src/engine/codegen/shared/entry.zig:1135/1188/1259` 3 `@panic("D-022")` sites — replace with Win64 inline-asm thunks mirroring existing arm64+SysV branches (callI32f64NoArgs / callF64i32NoArgs / callF64f32NoArgs); cross-compile gate `zig build -Dtarget=x86_64-windows-gnu` | **none** — autonomous-eligible; surfaced 2026-05-22 `ba68a896` windowsmini post-Defender-fix test-all (was hidden by D-028 wedge until Defender fix uncovered it) |
+| W3.b (main) — SEH shim impl per ADR 0103 | `src/platform/windows_traphandler.zig` (Zone 0): `install`/`uninstall`/`arm`/`disarm` + `vehHandler`; wire `installSigsegvHandler` Windows arm | **GATED** on user flip ADR 0103 Proposed → Accepted |
 
-Subsequent: W4 windowsmini reconcile (gated on W3.b); §9.13-0
-close + Phase 9 boundary (gated on W4 + ADR 0102 flip).
+Subsequent: W4 windowsmini reconcile (gated on W3.b + D-161
+both land); §9.13-0 close + Phase 9 boundary (gated on W4 +
+ADR 0102 flip).
+
+D-028 hypothesis #5 (Defender real-time scan) **CONFIRMED**
+at `ba68a896`: post-fix test-all completed without wedge.
+N=1; need N=5 consecutive silent runs per
+`heisenbug_discharge.md` streak rule to close.
 
 Discharged this session (do not re-walk): W0 / WA / F1 /
 W1 / W2 (struck) / W3.a / W5 (struck) / W6-Mac. Full ledger
@@ -66,7 +73,9 @@ Inner loop = Mac cross-compile
 
 ## Active `now` debts
 
-- なし.
+- **D-161** — Win64 Class B mixed-class entry helper (3 @panic
+  sites at `entry.zig:1135/1188/1259`); autonomous-eligible
+  impl, surfaced 2026-05-22 `ba68a896`.
 
 ## Open questions / blockers (user-touchpoints)
 
