@@ -1430,3 +1430,257 @@ test "zwasm_instance_get_func / wasm_func_delete: null-arg discipline" {
     try testing.expect(zwasm_instance_get_func(null, 0) == null);
     wasm_func_delete(null);
 }
+
+// ============================================================
+// Wasm 2.0 c_api utilisation tests (master plan §5.2 / I2 of
+// .claude/rules/phase9_close_invariants.md). These exercise the
+// reftype / bulk-trap / mixed-export / cross-module-funcref
+// surfaces of the wasm-c-api binding so the Phase 9 close-gate
+// I2 invariant flips OK.
+// ============================================================
+
+// (module (func (export "id") (param funcref) (result funcref) local.get 0))
+// Identity over funcref: exercises Val.kind = .funcref marshalling
+// through wasm_func_call argv/results.
+const funcref_id_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    // type: (funcref) -> (funcref). funcref = 0x70.
+    0x01, 0x06, 0x01, 0x60, 0x01, 0x70, 0x01, 0x70,
+    0x03, 0x02, 0x01, 0x00, // function: typeidx=0
+    0x07, 0x06, 0x01, 0x02, 0x69, 0x64, 0x00, 0x00, // export "id" func 0
+    // code: locals=0, local.get 0 (0x20 0x00), end
+    0x0a, 0x06, 0x01, 0x04, 0x00, 0x20, 0x00, 0x0b,
+};
+
+test "wasm 2.0 reftype c_api round-trip: funcref param+result via wasm_func_call" {
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+
+    var bytes = funcref_id_wasm;
+    const bv: ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer wasm_module_delete(m);
+
+    const inst = wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    defer wasm_instance_delete(inst);
+
+    const func = zwasm_instance_get_func(inst, 0) orelse return error.FuncResolveFailed;
+    defer wasm_func_delete(func);
+
+    // Pass null funcref in; expect null funcref back.
+    var args_data: [1]Val = .{.{ .kind = .funcref, .of = .{ .ref = null } }};
+    const args: ValVec = .{ .size = 1, .data = &args_data };
+    var results_data: [1]Val = undefined;
+    var results: ValVec = .{ .size = 1, .data = &results_data };
+
+    const trap = wasm_func_call(func, &args, &results);
+    try testing.expect(trap == null);
+    try testing.expectEqual(ValKind.funcref, results_data[0].kind);
+    try testing.expectEqual(@as(?*anyopaque, null), results_data[0].of.ref);
+}
+
+// (module
+//   (memory 1)
+//   (func (export "main")
+//     (i32.const 0) (i32.const 0) (i32.const 65537)
+//     (memory.copy)))
+// Wasm 2.0 bulk-memory `memory.copy` (0xFC 0x0A) with size that
+// exceeds memory bounds: traps with out-of-bounds memory access.
+const memory_copy_oob_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // type: () -> ()
+    0x03, 0x02, 0x01, 0x00, // function: typeidx=0
+    0x05, 0x03, 0x01, 0x00, 0x01, // memory: count=1, flag=0, min=1
+    0x07, 0x08, 0x01, 0x04, 0x6d, 0x61, 0x69, 0x6e, 0x00, 0x00, // export "main" func 0
+    // code: locals=0, i32.const 0, i32.const 0, i32.const 65537 (LEB128 0x81 0x80 0x04),
+    //       memory.copy (0xfc 0x0a 0x00 0x00), end
+    0x0a, 0x10, 0x01, 0x0e, 0x00, 0x41, 0x00, 0x41, 0x00, 0x41,
+    0x81, 0x80, 0x04, 0xfc, 0x0a, 0x00, 0x00, 0x0b,
+};
+
+test "wasm 2.0 bulk-traps via c_api: memory.copy OOB returns wasm_trap_t with message" {
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+
+    var bytes = memory_copy_oob_wasm;
+    const bv: ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer wasm_module_delete(m);
+
+    const inst = wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    defer wasm_instance_delete(inst);
+
+    const func = zwasm_instance_get_func(inst, 0) orelse return error.FuncResolveFailed;
+    defer wasm_func_delete(func);
+
+    const args: ValVec = .{ .size = 0, .data = null };
+    var results: ValVec = .{ .size = 0, .data = null };
+    const trap = wasm_func_call(func, &args, &results);
+    try testing.expect(trap != null);
+    // Bulk-memory OOB surfaces as oob_memory (Wasm 2.0 §4.5.6).
+    try testing.expectEqual(TrapKind.oob_memory, trap.?.kind);
+
+    var msg: ByteVec = .{ .size = 0, .data = null };
+    trap_surface.wasm_trap_message(trap, &msg);
+    try testing.expect(msg.size > 0);
+    vec.wasm_byte_vec_delete(&msg);
+    trap_surface.wasm_trap_delete(trap);
+}
+
+// (module
+//   (memory 1)
+//   (table 1 funcref)
+//   (global (mut i32) (i32.const 7))
+//   (func (export "f") (result i32) (i32.const 42))
+//   (export "m" (memory 0))
+//   (export "t" (table 0))
+//   (export "g" (global 0)))
+// Four exports across all four wasm_extern_kind values — the
+// c_api walk via wasm_instance_exports must surface each kind
+// with the right tag.
+const mixed_exports_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, // type: () -> (i32)
+    0x03, 0x02, 0x01, 0x00, // function: typeidx=0
+    0x04, 0x04, 0x01, 0x70, 0x00, 0x01, // table: count=1, funcref, flag=0, min=1
+    0x05, 0x03, 0x01, 0x00, 0x01, // memory: count=1, flag=0, min=1
+    0x06, 0x06, 0x01, 0x7f, 0x01, 0x41, 0x07, 0x0b, // global: count=1, i32 mut, init i32.const 7
+    // export: count=4, "f" func 0, "m" memory 0, "t" table 0, "g" global 0
+    0x07, 0x11, 0x04, 0x01, 0x66, 0x00, 0x00, 0x01,
+    0x6d, 0x02, 0x00, 0x01, 0x74, 0x01, 0x00, 0x01,
+    0x67, 0x03, 0x00,
+    // code: locals=0, i32.const 42, end
+    0x0a, 0x06, 0x01, 0x04, 0x00,
+    0x41, 0x2a, 0x0b,
+};
+
+test "wasm 2.0 mixed-exports c_api walk: func+memory+table+global surface via wasm_instance_exports" {
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+
+    var bytes = mixed_exports_wasm;
+    const bv: ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer wasm_module_delete(m);
+
+    const inst = wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    defer wasm_instance_delete(inst);
+
+    var exports_vec: ExternVec = .{ .size = 0, .data = null };
+    wasm_instance_exports(inst, &exports_vec);
+    defer wasm_extern_vec_delete(&exports_vec);
+
+    try testing.expectEqual(@as(usize, 4), exports_vec.size);
+    const data = exports_vec.data orelse return error.ExportsDataNull;
+
+    // Decoded-order matches `inst.exports_storage`. Inspect each
+    // pointed-to Extern's kind tag — c_api hosts read via
+    // `wasm_extern_kind`.
+    try testing.expectEqual(@as(u8, @intFromEnum(ExternKind.func)), wasm_extern_kind(data[0]));
+    try testing.expectEqual(@as(u8, @intFromEnum(ExternKind.memory)), wasm_extern_kind(data[1]));
+    try testing.expectEqual(@as(u8, @intFromEnum(ExternKind.table)), wasm_extern_kind(data[2]));
+    try testing.expectEqual(@as(u8, @intFromEnum(ExternKind.global)), wasm_extern_kind(data[3]));
+
+    // Func extern resolves through `wasm_extern_as_func`; non-func
+    // ones return null per upstream wasm.h discipline.
+    try testing.expect(wasm_extern_as_func(data[0]) != null);
+    try testing.expect(wasm_extern_as_func(data[1]) == null);
+    try testing.expect(wasm_extern_as_func(data[2]) == null);
+    try testing.expect(wasm_extern_as_func(data[3]) == null);
+}
+
+// (module (func (export "answer") (result i32) (i32.const 42)))
+// Module A — exports a function for module B to import.
+const cross_module_a_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, // type: () -> (i32)
+    0x03, 0x02, 0x01, 0x00, // function: typeidx=0
+    // export "answer" (6 chars) func 0
+    0x07, 0x0a, 0x01, 0x06,
+    0x61, 0x6e, 0x73, 0x77,
+    0x65, 0x72, 0x00, 0x00,
+    0x0a, 0x06, 0x01, 0x04,
+    0x00, 0x41, 0x2a, 0x0b,
+};
+
+// (module
+//   (import "a" "answer" (func (result i32)))
+//   (func (export "main") (result i32) (call 0)))
+// Module B — imports A's "answer" and calls it.
+const cross_module_b_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, // type: () -> (i32)
+    // import "a" "answer" func typeidx=0; body = count(1)+mod(2)+name(7)+desc(2) = 12
+    0x02, 0x0c, 0x01,
+    0x01, 0x61, // module "a"
+    0x06, 0x61, 0x6e, 0x73, 0x77, 0x65, 0x72, // name "answer"
+    0x00, 0x00, // desc: func typeidx=0
+    0x03, 0x02, 0x01, 0x00, // function: typeidx=0 (this is funcidx=1 after import)
+    // export "main" func idx=1
+    0x07, 0x08, 0x01, 0x04,
+    0x6d, 0x61, 0x69, 0x6e,
+    0x00, 0x01,
+    // code: locals=0, call 0, end
+    0x0a, 0x06,
+    0x01, 0x04, 0x00, 0x10,
+    0x00, 0x0b,
+};
+
+test "wasm 2.0 cross-module funcref via wasm_instance_new: B's main dispatches into A's answer" {
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+
+    // Instantiate module A — provides the funcref-typed export.
+    var bytes_a = cross_module_a_wasm;
+    const bv_a: ByteVec = .{ .size = bytes_a.len, .data = &bytes_a };
+    const m_a = wasm_module_new(s, &bv_a) orelse return error.ModuleAAllocFailed;
+    defer wasm_module_delete(m_a);
+    const inst_a = wasm_instance_new(s, m_a, null, null) orelse return error.InstanceAAllocFailed;
+    defer wasm_instance_delete(inst_a);
+
+    // Walk A's exports → take the Extern* for "answer" and pass it
+    // through B's imports[]. This is the threading the master-plan
+    // I2 invariant names ("funcref from instance A into instance B").
+    var exports_a: ExternVec = .{ .size = 0, .data = null };
+    wasm_instance_exports(inst_a, &exports_a);
+    defer wasm_extern_vec_delete(&exports_a);
+    try testing.expectEqual(@as(usize, 1), exports_a.size);
+    const data_a = exports_a.data orelse return error.ExportsDataNull;
+    const answer_ext = data_a[0] orelse return error.AnswerExternNull;
+
+    var bytes_b = cross_module_b_wasm;
+    const bv_b: ByteVec = .{ .size = bytes_b.len, .data = &bytes_b };
+    const m_b = wasm_module_new(s, &bv_b) orelse return error.ModuleBAllocFailed;
+    defer wasm_module_delete(m_b);
+
+    var imports_arr: [1]?*const Extern = .{answer_ext};
+    const imports_opaque: *const anyopaque = @ptrCast(&imports_arr);
+    const inst_b = wasm_instance_new(s, m_b, imports_opaque, null) orelse return error.InstanceBAllocFailed;
+    defer wasm_instance_delete(inst_b);
+
+    // Walk B's exports → wasm_extern_as_func borrows the "main"
+    // handle. (Not zwasm_instance_get_func — that one clamps
+    // against the defined-only funcs_storage and would mis-index
+    // when imports occupy lower funcidx slots.)
+    var exports_b: ExternVec = .{ .size = 0, .data = null };
+    wasm_instance_exports(inst_b, &exports_b);
+    defer wasm_extern_vec_delete(&exports_b);
+    try testing.expectEqual(@as(usize, 1), exports_b.size);
+    const main_b = wasm_extern_as_func(exports_b.data.?[0]) orelse return error.FuncResolveFailed;
+
+    var results_data: [1]Val = undefined;
+    var results: ValVec = .{ .size = 1, .data = &results_data };
+    const args: ValVec = .{ .size = 0, .data = null };
+    const trap = wasm_func_call(main_b, &args, &results);
+    try testing.expect(trap == null);
+    try testing.expectEqual(ValKind.i32, results_data[0].kind);
+    try testing.expectEqual(@as(i32, 42), results_data[0].of.i32);
+}
