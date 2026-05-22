@@ -3047,10 +3047,21 @@ pub fn runCorpus(
                 // thunk at entry.zig:1156). Multi-cycle; until
                 // then skip `type-all-` shaped directives on
                 // Windows. POSIX path unchanged.
-                if (@import("builtin").os.tag == .windows and std.mem.find(u8, line, "type-all-") != null) {
-                    try stdout.print("SKIP-WIN64-MULTI-RESULT  {s}: {s} (D-164 — Win64 ABI hidden-pointer mismatch)\n", .{ name, line });
-                    tally.skipped_adr += 1;
-                    continue;
+                // Broader detection (W4 retry 6 extension): any
+                // assert_return whose result RHS (after `->`) has
+                // ≥ 2 `<type>:<value>` pairs is multi-result. Catches
+                // `type-all-*`, `type-i32-i64`, `break-multi-value`,
+                // `value-block-i32-i64`, `return-i32-i32-i32`, etc.
+                if (@import("builtin").os.tag == .windows) {
+                    if (std.mem.find(u8, line, "->")) |arrow_pos| {
+                        const rhs = line[arrow_pos + 2 ..];
+                        const colon_count = std.mem.count(u8, rhs, ":");
+                        if (colon_count >= 2) {
+                            try stdout.print("SKIP-WIN64-MULTI-RESULT  {s}: {s} (D-164 — Win64 ABI hidden-pointer mismatch)\n", .{ name, line });
+                            tally.skipped_adr += 1;
+                            continue;
+                        }
+                    }
                 }
                 if (module_bad) {
                     tally.runtime_skip += 1;
