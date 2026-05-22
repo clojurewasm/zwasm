@@ -32,11 +32,13 @@ Per ADR-0105 + ADR-0106 Implementation plans:
 
 ### ADR-0105 (JIT-prologue stack-probe) — 3 cycles
 
-1. `JitRuntime.stack_limit` field + cross-platform init in
-   `instantiate.zig`.
-2. x86_64 + arm64 prologue emit + 3 trap-stub entries. Mac +
-   ubuntunote `assert_exhaustion runaway` PASS.
-3. Win64 prologue emit + `windows_traphandler.zig` EXCEPTION_
+1. [x] `JitRuntime.stack_limit` field + `src/platform/stack_limit.zig`
+   cross-platform query helper (this cycle `3aa5ee5e`).
+2. [ ] x86_64 + arm64 prologue emit (`cmp sp, [vmctx+stack_limit_off]
+   + b.ls trap-stub`) + 3 trap-stub entries + wire stack_limit init
+   into entry helpers. Mac + ubuntunote `assert_exhaustion runaway`
+   PASS.
+3. [ ] Win64 prologue emit + `windows_traphandler.zig` EXCEPTION_
    STACK_OVERFLOW filter removal + windowsmini verify. Remove
    `SKIP-WIN64-EXHAUSTION` arm from `spec_assert_runner_base.zig`.
    Closes D-162; gate I1a OK.
