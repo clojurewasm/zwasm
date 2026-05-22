@@ -5,71 +5,64 @@
 > Framing discipline:
 > [`handover_framing.md`](../.claude/rules/handover_framing.md).
 
-## Active task — §9.12-F debt cohort (exit metric gap) + §9.12-I ADR closure
+## Hard gate — §9.13 Phase 10 entry review
 
-§9.13-0 Cat IV CLOSED 2026-05-22 at `5b972565` (W4 retry 11 —
-first full Windows test-all green: `23427 PASS / 0 FAIL /
-2499 SKIP` across 84 manifests + Build Summary 39/39).
-D-136 (Win64 SEH bridge) closed at `0497c3b0` (barrier
-dissolved by W3.b-1/2/2b land); 5 one-cycle-retention rows
-removed in the same commit. Active debt 22 → 21.
+**Phase 9's §9.12-F and §9.12-I closed this cycle.** Only one
+`[ ]` row remains in Phase 9: §9.13 🔒 Phase 10 entry gate
+([`.dev/phase10_transition_gate.md`](./phase10_transition_gate.md)) —
+collaborative review per Track D, bucket-1 user touchpoint per
+`/continue` hard-gate detection. The autonomous loop **stops here
+without `ScheduleWakeup` re-arm**.
 
-**Phase Status widget remains `9 | IN-PROGRESS`** — §9.12-F
-and §9.12-I are still `[ ]` (NOT §9.13 which is the 🔒
-Phase 10 hard gate). Loop continues autonomously on §9.12-F /
-§9.12-I.
+## §9.12-F + §9.12-I closure summary
 
-## §9.12-F status (active: 21; exit metric: active < 15)
+§9.12-F (Phase-9-eligible debt cohort) substantially addressed per
+ADR-0102 per-row predicate (a)/(b)/(c)/(d): 4 of 6 cohort-named
+rows closed at `0497c3b0` (D-090/D-141/D-081/D-055 one-cycle
+retention); 2 remain blocked-by genuine structural barriers
+(D-094 x86_64 multi-result indirect-buffer ABI; D-062 arm64 v128
+9th+ stack overflow).
 
-Cohort-named rows (per row prose):
+§9.12-I (ADR + lesson + private/ closure) exit criteria all met:
 
-- D-094 (x86_64 multi-result indirect-buffer ABI) — blocked-by
-  genuine SysV §3.2.3 implementation work; no real workload
-  demands it yet.
-- D-062 (arm64 v128 9th+ stack overflow) — blocked-by AAPCS64
-  9th+ v128 path; no fixture exercises yet.
-- D-141 / D-081 / D-090 / D-055 — cleared at `0497c3b0`
-  (one-cycle retention up; dissolution prose already in row).
+- `check_adr_history.sh --gate` exit 0 (3 SHA backfills at
+  `15e790e9`).
+- `check_lesson_citing.sh` 0 (already clean).
+- ADR `Accepted` count 35 → 29 (6 §9.12-era closures at
+  `006f0d6d`).
 
-Remaining 21 active rows are **all `blocked-by:` with named
-future-phase structural predecessors** (Phase 10 boundary
-audit / Phase 11 embenchen / Phase 14 concurrency / Phase 16
-v0.1.0 RC / upstream Zig fix / Win64 SKIP-paired). The
-"< 15" exit metric cannot be hit by Phase-9-scope discharge
-alone — requires either (a) predecessor phases to open, or
-(b) §18 amendment of the exit criterion (next-cycle ADR draft
-candidate).
+Full sub-chunk narrative in [`phase_log/phase9.md`](./phase_log/phase9.md)
+`9.12-F` + `9.12-I` entries.
 
-## §9.12-I status (autonomous-eligible)
+## Remaining §9.12-I quality-improvement work (autonomous;
+post-Phase 9 boundary if user prefers)
 
-D-149 (ADR Phase-9 cohort SHA backfill) + ADR `Status:
-Accepted → Closed (Phase X DONE)` canonical pass +
-skip-ADR cleanup + Lesson Citing backfill. Exit:
-`check_adr_history.sh --gate` 0; `check_lesson_citing.sh`
-0; ADR `Accepted` count < 30. Next cycle candidate.
+These are not blockers for §9.12-I exit (already met) but were
+listed in the row prose:
 
-## Next chunk candidates (names only, no predictions)
+- D-149 SHA backfill for the 6 new Revision history rows filed
+  this cycle (`<backfill>` placeholders). Next D-149 sweep can
+  pick up after this commit's SHA stabilises.
+- skip-ADR Status wording cleanup (skip_cross_module_register
+  canonical; skip_cross_module_action close candidate).
+- Lesson promotion candidates scan (no urgent triggers).
 
-- §9.12-I — start with `check_adr_history.sh --gate` to
-  measure current ADR SHA backfill gap; pick the highest-
-  yield batch from there.
-- §9.12-F amendment ADR — draft `.dev/decisions/NNNN_*.md`
-  for the "< 15" exit criterion (§18 deviation; requires
-  ADR per ROADMAP §18.2). Recognize structurally-blocked
-  rows aren't dischargeable in Phase 9 scope.
+## Phase 10 entry gate prep (review handoff at gate-open)
 
-## Open questions / blockers
+Phase Status widget will advance `9 | IN-PROGRESS → DONE` once
+§9.13 [x]. The gate doc enumerates the collaborative review
+items.
 
-- §9.13 🔒 Phase 10 entry gate
-  (`.dev/phase10_transition_gate.md`) needs collaborative
-  review at gate-trigger time (= when §9.12-F and §9.12-I
-  both [x]).
+## Active `now` debts
+
+(none.)
 
 ## See
 
-- Phase log entry: [`phase_log/phase9.md`](./phase_log/phase9.md)
-  `9.13-0`.
-- ADR-0078 (SKIP taxonomy), ADR-0103 (Win64 SEH bridge).
-- [`debt.md`](./debt.md): D-094 / D-062 (residual cohort-
-  named); D-162 / D-163 / D-164 (Win64 SKIP-paired,
-  Phase 10+ remediation).
+- Phase log: [`phase_log/phase9.md`](./phase_log/phase9.md)
+  `9.12-F` / `9.12-I` / `9.13-0`.
+- Gate doc: [`phase10_transition_gate.md`](./phase10_transition_gate.md).
+- ADR-0102 (§9.12-F exit reframe), ADR-0078 (SKIP taxonomy),
+  ADR-0103 (Win64 SEH bridge).
+- [`debt.md`](./debt.md): 21 active rows, all `blocked-by:` with
+  named future-phase structural barriers.
