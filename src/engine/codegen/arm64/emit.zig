@@ -200,7 +200,12 @@ pub fn compile(
     // result to `[X16, #(i*8)]` (X16 chosen over X14 to dodge the
     // `gprLoadSpilled` spill-stage clobber).
     const return_is_memory_class: bool = func.sig.results.len > 2;
-    const indirect_result_slot_bytes: u32 = if (return_is_memory_class) 8 else 0;
+    // ADR-0106 path (a) cycle 2d — buffer-write ABI also needs a
+    // captured-pointer slot (for the results ptr passed in X1 per
+    // AAPCS64). Shares the same slot the MEMORY-class path uses
+    // for the hidden X8 indirect-result ptr.
+    const buffer_write: bool = alloc.result_abi == .buffer_write;
+    const indirect_result_slot_bytes: u32 = if (return_is_memory_class or buffer_write) 8 else 0;
     // §9.7 / 7.9-d-11: outgoing args (caller-side stack args)
     // occupy the BOTTOM of the frame so the callee reads them at
     // `[X29, #16 + 8*K]` (per AAPCS64 §6.4.2 stage C.13/C.14).
@@ -303,6 +308,18 @@ pub fn compile(
     // `marshalFunctionReturn`'s MEMORY-class branch.
     if (return_is_memory_class) {
         try gpr.writeU32(allocator, &buf, inst.encStrImm(8, 31, @intCast(indirect_result_slot_off)));
+    } else if (buffer_write) {
+        // ADR-0106 path (a) cycle 2d — capture the buffer-write
+        // `results` ptr (X1 per AAPCS64: X0=rt, X1=results, X2=args)
+        // to the same slot the MEMORY-class X8 capture uses. The
+        // epilogue (marshalFunctionReturn) branches on
+        // `alloc.result_abi == .buffer_write` to load this back
+        // into X16 and write each result to `[X16, #(i*8)]`.
+        // Param shuffle below would normally consume X1 as the
+        // first int arg slot — but buffer_write 0-arg test fns
+        // skip that path; multi-arg buffer_write lands alongside
+        // cycle 2e (args-pointer marshal).
+        try gpr.writeU32(allocator, &buf, inst.encStrImm(1, 31, @intCast(indirect_result_slot_off)));
     }
 
     // Multi-arg entry: store params from X1..X{num_params} into
@@ -1186,6 +1203,17 @@ pub fn compile(
                 // via shared op_control helper (mirrors the per-arch
                 // X0..X7 / V0..V7 AAPCS64 ABI).
                 try op_control.marshalFunctionReturn(&ctx);
+                // ADR-0106 path (a) cycle 2d — buffer-write ABI
+                // returns the trap-status ErrCode in W0 (= 0 on OK).
+                // marshalFunctionReturn writes results to
+                // `[X16 + i*8]` via the buffer-ptr capture and
+                // leaves X0 with the captured buffer-ptr value;
+                // we clobber W0 → 0 here so the entry helper's
+                // `code != ErrCode_OK` check passes.
+                if (buffer_write) {
+                    // MOV W0, WZR ≡ ORR W0, WZR, WZR.
+                    try gpr.writeU32(allocator, &buf, inst.encOrrReg(0, 31, 31));
+                }
                 // Capture the byte offset of the frame teardown.
                 // `return` ops emitted earlier B-fixup placeholders
                 // here (their result marshal already ran inline);

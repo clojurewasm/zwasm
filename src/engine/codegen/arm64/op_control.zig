@@ -130,7 +130,12 @@ pub fn marshalFunctionReturn(ctx: *EmitCtx) Error!void {
     // `gprLoadSpilled` clobbers X14/X15 when staging spilled
     // source vregs. v128 results deferred (no spec fixture in
     // the 3-int-result / large-sig cohort).
-    if (ctx.return_is_memory_class) {
+    // ADR-0106 path (a) cycle 2d — the buffer-write ABI reuses the
+    // MEMORY-class shape (load captured ptr to X16; write per-result
+    // to `[X16, #(i*8)]`). Slot sourced from the prologue's STR X1
+    // (buffer_write) instead of STR X8 (MEMORY-class); read here is
+    // identical.
+    if (ctx.return_is_memory_class or ctx.alloc.result_abi == .buffer_write) {
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, 31, @intCast(ctx.indirect_result_slot_off)));
         const result_base = ctx.pushed_vregs.items.len - ctx.func.sig.results.len;
         var byte_off: u32 = 0;

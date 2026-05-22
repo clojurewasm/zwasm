@@ -187,13 +187,20 @@ test "buffer-write entry: ErrCode_OK sentinel" {
 const zir = @import("../../../ir/zir.zig");
 const ZirFunc = zir.ZirFunc;
 const regalloc = @import("regalloc.zig");
-const x86_emit = @import("../x86_64/emit.zig");
-const x86_jit_mem = @import("../../../platform/jit_mem.zig");
 const linker = @import("linker.zig");
+const native_emit = if (builtin.cpu.arch == .aarch64)
+    @import("../arm64/emit.zig")
+else if (builtin.cpu.arch == .x86_64)
+    @import("../x86_64/emit.zig")
+else
+    struct {};
 
-test "buffer-write entry: x86_64 emit (i32.const 42) end → results[0] = 42 (ADR-0106 cycle 2c)" {
-    if (builtin.cpu.arch != .x86_64) return error.SkipZigTest;
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+test "buffer-write entry: native-emit (i32.const 42) end → results[0] = 42 (ADR-0106 cycle 2c/2d)" {
+    if (!(builtin.cpu.arch == .aarch64 and builtin.os.tag == .macos) and
+        !(builtin.cpu.arch == .x86_64 and builtin.os.tag != .windows))
+    {
+        return error.SkipZigTest;
+    }
     // Build the ZirFunc: () -> i32; body = i32.const 42; end.
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
     var f = ZirFunc.init(0, sig, &.{});
@@ -208,8 +215,8 @@ test "buffer-write entry: x86_64 emit (i32.const 42) end → results[0] = 42 (AD
         .result_abi = .buffer_write,
     };
     const sigs = [_]zir.FuncType{sig};
-    const out = try x86_emit.compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{});
-    defer x86_emit.deinit(testing.allocator, out);
+    const out = try native_emit.compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{});
+    defer native_emit.deinit(testing.allocator, out);
 
     const bodies = [_]linker.FuncBody{
         .{ .bytes = out.bytes, .call_fixups = out.call_fixups },
