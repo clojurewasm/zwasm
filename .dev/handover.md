@@ -95,12 +95,21 @@ Per ADR-0105 + ADR-0106 Implementation plans:
     wrapper for `(i32,i64)` + `(i64,i32)` shapes
     (`1b738af4`). 20-byte sequence; tested. All 3 SKIP-arm
     shapes now have SysV wrapper coverage.
-3e (Phase 2'c). [ ] x86_64 Win64 sibling for all 3 shapes
-    (different ABI: rt=RCX, results=RDX, args=R8; body
-    expects rt=RCX for MEMORY-class).
-3e (Phase 2'd). [ ] arm64 AAPCS64 sibling. X0=rt, X1=
-    results, X2=args; MEMORY-class body expects X8=
-    hidden ptr.
+3e (Phase 2'c). [ ] x86_64 Win64 sibling. Requires either
+    (i) extending cycle 2c emit to handle Win64 MEMORY-class
+    (RCX as hidden ptr; current cycle 2c gates on
+    `abi.current_cc == .sysv`) OR (ii) different wrapper
+    shape that does multi-result reconstruction without
+    body-side MEMORY-class. Without windowsmini access,
+    correctness verified at phase-boundary reconciliation.
+3e (Phase 2'd). [x] arm64 AAPCS64 3-int MEMORY-class wrapper
+    (`daed4952`). 16-byte sequence (MOV X8,X1 + BL + MOV W0,
+    WZR + RET); Mac aarch64 test green.
+3e (Phase 2'e). [ ] arm64 AAPCS64 2-int register-class shape
+    for `(i32,i64)` / `(i64,i32)`. Body returns result 0 in
+    X0 and result 1 in X1 per AAPCS64; wrapper saves results
+    ptr to X19 (callee-saved), CALLs body, STR X0 → [X19+0]
+    + STR X1 → [X19+8], restores X19, MOV W0 WZR, RET.
 3e (Phase 2''). [ ] linker.JitModule exposes per-function
     thunk address (`module.entry_buf(idx, BufferWriteFn)`).
     ~30 LOC in linker.zig + emit pipeline integration.
