@@ -30,7 +30,182 @@
 //! dependencies leak through the surface). zone_check.sh
 //! treats it as Zone 1.
 
+const std = @import("std");
+
 pub const version = "0.0.0-pre";
+
+// ============================================================
+// Zig facade (ADR-0025 minimum subset) — thin wrappers around the
+// C ABI binding so Zig hosts can drive the runtime idiomatically
+// without going through `?*Engine` / `wasm_*_delete`. Closes I3 of
+// `.claude/rules/phase9_close_invariants.md`. Per master plan
+// §5.2: Runtime / Module / Instance / Value + facade test.
+//
+// v0.1 scope: the underlying Engine binds `std.heap.c_allocator`
+// at `wasm_engine_new` time, so the user-supplied allocator on
+// `Runtime.init` is ignored for now. v0.2 (a follow-on ADR) will
+// plumb the user allocator through the Engine.
+// ============================================================
+
+const _api_instance = @import("api/instance.zig");
+const _vec = @import("api/vec.zig");
+const _trap_surface = @import("api/trap_surface.zig");
+
+/// Zig-idiomatic tagged-union mirror of `wasm_val_t`.
+/// Wasm spec §4.2.2 — value representation at the host boundary
+/// (i32 / i64 / f32 / f64 / v128 / funcref / externref).
+pub const Value = union(enum) {
+    i32: i32,
+    i64: i64,
+    f32: u32,
+    f64: u64,
+    v128: u128,
+    funcref: ?u64,
+    externref: ?u64,
+
+    pub fn fromI32(v: i32) Value {
+        return .{ .i32 = v };
+    }
+    pub fn fromI64(v: i64) Value {
+        return .{ .i64 = v };
+    }
+    pub fn fromF32Bits(b: u32) Value {
+        return .{ .f32 = b };
+    }
+    pub fn fromF64Bits(b: u64) Value {
+        return .{ .f64 = b };
+    }
+};
+
+fn valueToVal(v: Value) _api_instance.Val {
+    return switch (v) {
+        .i32 => |x| .{ .kind = .i32, .of = .{ .i32 = x } },
+        .i64 => |x| .{ .kind = .i64, .of = .{ .i64 = x } },
+        .f32 => |b| .{ .kind = .f32, .of = .{ .f32 = @bitCast(b) } },
+        .f64 => |b| .{ .kind = .f64, .of = .{ .f64 = @bitCast(b) } },
+        .v128 => .{ .kind = .i64, .of = .{ .i64 = 0 } }, // v128 not yet routed via Val (D-075 v0.2)
+        .funcref => |r| .{ .kind = .funcref, .of = .{ .ref = if (r) |p| @ptrFromInt(p) else null } },
+        .externref => |r| .{ .kind = .anyref, .of = .{ .ref = if (r) |p| @ptrFromInt(p) else null } },
+    };
+}
+
+fn valFromApi(v: _api_instance.Val) Value {
+    return switch (v.kind) {
+        .i32 => .{ .i32 = v.of.i32 },
+        .i64 => .{ .i64 = v.of.i64 },
+        .f32 => .{ .f32 = @bitCast(v.of.f32) },
+        .f64 => .{ .f64 = @bitCast(v.of.f64) },
+        .funcref => .{ .funcref = if (v.of.ref) |p| @intFromPtr(p) else null },
+        .anyref => .{ .externref = if (v.of.ref) |p| @intFromPtr(p) else null },
+    };
+}
+
+/// Wasm spec §4.2.4 — Engine + Store paired handle. The Zig facade
+/// folds the two wasm-c-api objects into one entry point.
+pub const Runtime = struct {
+    engine: *_api_instance.Engine,
+    store: *_api_instance.Store,
+
+    pub const InitOpts = struct {};
+
+    pub fn init(alloc: std.mem.Allocator, _: InitOpts) error{OutOfMemory}!Runtime {
+        _ = alloc;
+        const e = _api_instance.wasm_engine_new() orelse return error.OutOfMemory;
+        errdefer _api_instance.wasm_engine_delete(e);
+        const s = _api_instance.wasm_store_new(e) orelse return error.OutOfMemory;
+        return .{ .engine = e, .store = s };
+    }
+
+    pub fn deinit(self: *Runtime) void {
+        _api_instance.wasm_store_delete(self.store);
+        _api_instance.wasm_engine_delete(self.engine);
+    }
+};
+
+/// Wasm spec §4.2.1 — validated Module bytes ready for
+/// instantiation. Owned (binding copies bytes at parse time).
+pub const Module = struct {
+    handle: *_api_instance.Module,
+    rt: *Runtime,
+
+    pub fn parse(rt: *Runtime, bytes: []const u8) error{ParseFailed}!Module {
+        var bv: _vec.ByteVec = .{ .size = bytes.len, .data = @constCast(bytes.ptr) };
+        const m = _api_instance.wasm_module_new(rt.store, &bv) orelse return error.ParseFailed;
+        return .{ .handle = m, .rt = rt };
+    }
+
+    pub fn deinit(self: *Module) void {
+        _api_instance.wasm_module_delete(self.handle);
+    }
+
+    pub const InstantiateOpts = struct {};
+
+    pub fn instantiate(self: *Module, _: InstantiateOpts) error{InstantiateFailed}!Instance {
+        const i = _api_instance.wasm_instance_new(self.rt.store, self.handle, null, null) orelse return error.InstantiateFailed;
+        return .{ .handle = i, .rt = self.rt };
+    }
+};
+
+/// Wasm spec §4.2.5 — instantiated Module Instance. Exposes
+/// `invoke(name, args, results)` for the export-call golden path.
+pub const Instance = struct {
+    handle: *_api_instance.Instance,
+    rt: *Runtime,
+
+    pub fn deinit(self: *Instance) void {
+        _api_instance.wasm_instance_delete(self.handle);
+    }
+
+    pub const InvokeError = error{ ExportNotFound, NotAFunc, Trap, TooManyValues };
+
+    /// Look up `name` in the instance's export list, call the
+    /// resolved Func, and write results back. The `args` and
+    /// `results` slices map 1:1 to the Wasm function signature.
+    pub fn invoke(
+        self: *Instance,
+        name: []const u8,
+        args: []const Value,
+        results: []Value,
+    ) InvokeError!void {
+        if (args.len > 16 or results.len > 16) return InvokeError.TooManyValues;
+
+        var exports_vec: _vec.ExternVec = .{ .size = 0, .data = null };
+        _api_instance.wasm_instance_exports(self.handle, &exports_vec);
+        defer _api_instance.wasm_extern_vec_delete(&exports_vec);
+
+        const dp = exports_vec.data orelse return InvokeError.ExportNotFound;
+        const exps = self.handle.exports_storage;
+        var func: ?*_api_instance.Func = null;
+        for (exps, 0..) |exp, idx| {
+            if (idx >= exports_vec.size) break;
+            if (!std.mem.eql(u8, exp.name, name)) continue;
+            const ext = dp[idx] orelse return InvokeError.NotAFunc;
+            func = _api_instance.wasm_extern_as_func(ext);
+            break;
+        }
+        const fh = func orelse return InvokeError.ExportNotFound;
+
+        var args_buf: [16]_api_instance.Val = undefined;
+        for (args, 0..) |a, idx| args_buf[idx] = valueToVal(a);
+        const args_vec: _vec.ValVec = .{
+            .size = args.len,
+            .data = if (args.len == 0) null else @ptrCast(&args_buf),
+        };
+
+        var results_buf: [16]_api_instance.Val = undefined;
+        var results_vec: _vec.ValVec = .{
+            .size = results.len,
+            .data = if (results.len == 0) null else @ptrCast(&results_buf),
+        };
+
+        const trap = _api_instance.wasm_func_call(fh, &args_vec, &results_vec);
+        if (trap != null) {
+            _trap_surface.wasm_trap_delete(trap);
+            return InvokeError.Trap;
+        }
+        for (results, 0..) |*r, idx| r.* = valFromApi(results_buf[idx]);
+    }
+};
 
 // ============================================================
 // Force-analyse the C-ABI binding files so their `pub export
@@ -285,4 +460,40 @@ test {
     _ = @import("wasi/clocks.zig");
     _ = @import("wasi/jit_dispatch.zig");
     _ = @import("cli/run.zig");
+}
+
+// ============================================================
+// Zig facade tests (master plan §5.2 + I3 invariant)
+// ============================================================
+
+// (module (func (export "main") (result i32) i32.const 255 i32.extend8_s))
+// i32.extend8_s is the Wasm 2.0 sign-extension proposal (opcode 0xC0).
+// Sign-extending bits[0..8] of 255 (0xFF) yields -1.
+const facade_extend8_s_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, // \0asm
+    0x01, 0x00, 0x00, 0x00, // version 1
+    0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7F, // type: () -> (i32)
+    0x03, 0x02, 0x01, 0x00, // function: 1 fn, type 0
+    0x07, 0x08, 0x01, 0x04, 0x6D, 0x61, 0x69, 0x6E, 0x00, 0x00, // export "main" (func 0)
+    // code section: id=0x0a, size=8 (count + entry_size + 6-byte entry),
+    //   count=1, entry_size=6, body = locals_count(0) i32.const 255 (0x41 0xff 0x01)
+    //   i32.extend8_s (0xC0) end (0x0B).
+    0x0a, 0x08, 0x01, 0x06, 0x00, 0x41, 0xff, 0x01, 0xC0, 0x0B,
+};
+
+test "zwasm facade Wasm 2.0 round-trip via Runtime / Module / Instance / Value" {
+    var rt = try Runtime.init(std.testing.allocator, .{});
+    defer rt.deinit();
+
+    var mod = try Module.parse(&rt, &facade_extend8_s_wasm);
+    defer mod.deinit();
+
+    var inst = try mod.instantiate(.{});
+    defer inst.deinit();
+
+    var results: [1]Value = .{.{ .i32 = 0 }};
+    try inst.invoke("main", &.{}, &results);
+
+    // i32.extend8_s of 0xFF = -1.
+    try std.testing.expectEqual(@as(i32, -1), results[0].i32);
 }
