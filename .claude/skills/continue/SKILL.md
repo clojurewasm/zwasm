@@ -188,8 +188,11 @@ change between iterations.
 
 1a. **Close-plan / amendment-cycle override**. If handover.md's
     `Cold-start procedure` step 1 directs to a
-    `.dev/phase*_close_plan.md` document (canonical:
-    `phase<N>_close_plan.md`), that doc's `§6 Work sequence` is
+    `.dev/phase*_close_plan.md` OR `.dev/phase*_close_master.md`
+    document (canonical names: `phase<N>_close_plan.md` for
+    amendment-cycle plans; `phase<N>_close_master.md` for
+    post-amendment master plans introduced 2026-05-22 per ADR-0104),
+    that doc's `§6 Work sequence` is
     the **authoritative work source for this session** —
     superseding the ROADMAP-first lookup in Step 2 below. The
     plan doc exists precisely because the ROADMAP is
@@ -199,7 +202,7 @@ change between iterations.
     closes, the override no longer fires (handover.md gets
     refreshed at step (a)-6 to point at the next step).
 
-    Detection: scan handover.md for `phase*_close_plan.md`
+    Detection: scan handover.md for `phase*_close_plan.md` OR `phase*_close_master.md`
     reference in the Cold-start procedure section or Active
     state section. If matched → plan supersedes ROADMAP for THIS
     session. If unmatched → proceed to Step 2 normally.
@@ -396,7 +399,7 @@ change between iterations.
    ubuntu verification. Skip the revert silently. Check:
 
    ```sh
-   log_sha=$(awk '/OK \(HEAD=/{print $NF}' /tmp/ubuntu.log | tail -1 | tr -d '().')
+   log_sha=$(awk -F'[=)]' '/OK \(HEAD=/{print $2}' /tmp/ubuntu.log | tail -1)
    git diff --name-only "${log_sha}..origin/zwasm-from-scratch" -- \
        src/ test/ include/ build.zig build.zig.zon flake.nix flake.lock
    ```
@@ -563,7 +566,7 @@ re-prioritised between turns), trust ROADMAP and update handover;
 do not silently follow the stale handover.
 
 **Exception — close-plan override active**: when Resume Step 1a
-fired (handover.md directs at a `.dev/phase*_close_plan.md`),
+fired (handover.md directs at a `.dev/phase*_close_plan.md` or `.dev/phase*_close_master.md`),
 the plan doc is the authoritative source for the active task,
 and `trust ROADMAP over handover` is **inverted** for the
 duration of the plan's step (a) (the amendment cycle). After
