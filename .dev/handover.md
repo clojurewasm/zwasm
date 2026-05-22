@@ -37,9 +37,9 @@ Per ADR-0105 + ADR-0106 Implementation plans:
 2a. [x] arm64 prologue probe + stack-overflow trap stub (`7b86f715`).
     stack_limit=0 default keeps probe a no-op; Mac test-all green.
 2b. [x] x86_64 prologue probe + trap stub (`c2caba63`).
-2c. [ ] Wire stack_limit init at entry-helper sites + spec runner;
-    verify `assert_exhaustion runaway` PASS via probe (not via
-    OS guard page).
+2c. [x] Wire stack_limit init via `invokeAndCheck`/`invokeAndCheckVoid`
+    central helpers (`0b534d66`). All ~14 entry-helper sites
+    auto-populate via the shared helper. Mac test-all green.
 3. [ ] Win64 prologue emit + `windows_traphandler.zig` EXCEPTION_
    STACK_OVERFLOW filter removal + windowsmini verify. Remove
    `SKIP-WIN64-EXHAUSTION` arm from `spec_assert_runner_base.zig`.
