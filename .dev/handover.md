@@ -79,9 +79,15 @@ Per ADR-0105 + ADR-0106 Implementation plans:
 3c. [x] Shape coverage tests for ALL 3 SKIP-arm shapes
     `(i32,i64)` + `(i64,i32)` + `(i32,i32,i32)` via buffer_write
     end-to-end (`2330cea7`). Mac arm64 + Linux x86_64 verified.
-3d. [ ] Wire `invokeMultiResultNoArgs` into spec_assert_runner_non_simd.zig's
-    3 callsites (lines 767/817/892) when on Win64 + module
-    compile passes `result_abi = .buffer_write` on Win64.
+3d. [x] Thread `result_abi` through shared `compileOne`
+    (`7c3e20ae`). All 3 callsites updated; default `.register_write`
+    preserves behaviour.
+3e. [ ] Wire spec runner: when on Win64, prod `compileWasm` calls
+    `compileOne` with `.buffer_write` + the 3 multi-result
+    callsites in spec_assert_runner_non_simd.zig use
+    `invokeMultiResultNoArgs` instead of `callXX_yy` helpers.
+    Remove SKIP-WIN64-MULTI-RESULT arm. D-094 + D-164 close;
+    I1c FAIL → OK; gate 17/18.
 4. [ ] Remove `FuncRet_*` extern struct family + remove
    `SKIP-WIN64-MULTI-RESULT` arm. D-094 + D-164 close;
    gate I1c OK.
