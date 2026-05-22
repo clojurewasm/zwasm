@@ -59,9 +59,30 @@ pub const JitModule = struct {
     /// `func_offsets[i]` = byte offset of function `i`'s entry
     /// within `block.bytes`. Allocator-owned.
     func_offsets: []const u32,
+    /// ADR-0106 cycle 3e Phase 2'f — per-function wrapper thunk
+    /// offset. `thunk_offsets[i]` = byte offset of function `i`'s
+    /// **buffer-write wrapper thunk** entry within `block.bytes`,
+    /// or `NO_THUNK` (= sentinel `0xFFFFFFFF`) when no thunk was
+    /// emitted (e.g. function has no multi-result signature, or
+    /// arch / shape isn't supported yet).
+    ///
+    /// Set to an allocator-owned `[]const u32` only when at least
+    /// one function in the module has a wrapper thunk. Otherwise
+    /// `null` — `entry_buf` panics in that case. The dual storage
+    /// (body_offset + thunk_offset) lets the entry helper
+    /// (`callI32i32i32NoArgs` etc.) read the thunk address while
+    /// intra-module Wasm `call` dispatch still routes to the body
+    /// address via `func_offsets[i]` per ADR-0017 / ADR-0066.
+    thunk_offsets: ?[]const u32 = null,
+
+    /// Sentinel for `thunk_offsets[i]` when function `i` has no
+    /// emitted wrapper thunk (single-result, unsupported shape, or
+    /// non-target arch).
+    pub const NO_THUNK: u32 = 0xFFFFFFFF;
 
     pub fn deinit(self: *JitModule, allocator: Allocator) void {
         allocator.free(self.func_offsets);
+        if (self.thunk_offsets) |to| allocator.free(to);
         jit_mem.free(self.block);
     }
 
@@ -110,6 +131,38 @@ pub const JitModule = struct {
     /// bug; the resolver must populate `host_dispatch_base[i]`
     /// without ever reaching for the importer's own JIT module's
     /// entry().
+    /// ADR-0106 cycle 3e Phase 2'f — fetch the buffer-write wrapper
+    /// thunk for function `idx` as a typed function pointer. The
+    /// thunk's Zig-side signature is `fn(rt, results, args)
+    /// callconv(.c) ErrCode` per `entry_buffer_write.BufferWriteFn`.
+    ///
+    /// Panics when:
+    /// - The module has no `thunk_offsets` array (no wrapper thunks
+    ///   were emitted; caller should use `entry()` instead).
+    /// - `idx` is out of range.
+    /// - `thunk_offsets[idx] == NO_THUNK` (function `idx` has no
+    ///   wrapper — sig is single-result OR unsupported shape).
+    pub fn entry_buf(self: JitModule, idx: u32, comptime Fn: type) Fn {
+        const offsets = self.thunk_offsets orelse std.debug.panic(
+            "JitModule.entry_buf: idx {d} — module has no thunk_offsets",
+            .{idx},
+        );
+        if (idx >= offsets.len) {
+            std.debug.panic(
+                "JitModule.entry_buf: idx {d} >= thunk_offsets.len {d}",
+                .{ idx, offsets.len },
+            );
+        }
+        const off = offsets[idx];
+        if (off == NO_THUNK) {
+            std.debug.panic(
+                "JitModule.entry_buf: idx {d} has no wrapper thunk (NO_THUNK sentinel)",
+                .{idx},
+            );
+        }
+        return @ptrCast(@alignCast(self.block.bytes.ptr + off));
+    }
+
     pub fn entryAddr(self: JitModule, idx: u32) usize {
         if (idx >= self.func_offsets.len) {
             std.debug.panic(
