@@ -252,6 +252,7 @@ pub fn compile(
         try buf.appendSlice(allocator, inst.encPushR(.r15).slice());
     }
     try buf.appendSlice(allocator, inst.encMovRR(.q, .rbp, .rsp).slice());
+    var stack_probe_fixup: u32 = 0;
     if (uses_runtime_ptr) {
         // MOV R15, <runtime_ptr_arg_gpr> — entry shim's runtime_ptr
         // snapshot. Cc-pivot per ADR-0026: SysV passes *const
@@ -263,6 +264,20 @@ pub fn compile(
         // modrm) so the prologue's frame-bytes formula stays Cc-agnostic.
         const rt_src_gpr: abi.Gpr = if (return_is_memory_class) .rsi else abi.current.entry_arg0_gpr;
         try buf.appendSlice(allocator, inst.encMovRR(.q, abi.current.runtime_ptr_save_gpr, rt_src_gpr).slice());
+        // ADR-0105 D2 — JIT-prologue stack-probe. Sibling to arm64's
+        // probe at the same prologue position (per ADR-0105 D2 syntax
+        // translated to Intel: `CMP RSP, [R15 + stack_limit_off]`
+        // followed by `JBE rel32` to the stack-overflow trap stub).
+        // When stack_limit = 0 (default; probe disabled), JBE never
+        // fires since RSP > 0 always. Probe placed BEFORE the
+        // jit_executed_flag sentinel so a probe-trap doesn't pollute
+        // the "function executed" flag. Gated on uses_runtime_ptr
+        // since the probe reads via R15. Functions without R15
+        // cannot recurse (no `call` op → no `uses_runtime_ptr` per
+        // `usage.usesRuntimePtr`) so they cannot stack-overflow.
+        try buf.appendSlice(allocator, inst.encCmpR64MemDisp32(.rsp, .r15, @intCast(jit_abi.stack_limit_off)).slice());
+        stack_probe_fixup = @intCast(buf.items.len);
+        try buf.appendSlice(allocator, inst.encJccRel32(.be, 0).slice());
         // §9.8a / 8a.2 (ADR-0034) — JIT-execution sentinel: write 1
         // to `JitRuntime.jit_executed_flag` so post-call readers can
         // distinguish "JIT body actually ran" from "compile-passed
@@ -594,6 +609,7 @@ pub fn compile(
         .uses_runtime_ptr = uses_runtime_ptr,
         .total_locals = total_locals,
         .local_disps = layout.disps,
+        .stack_probe_fixup = stack_probe_fixup,
     });
 
     for (func.instrs.items) |ins| {

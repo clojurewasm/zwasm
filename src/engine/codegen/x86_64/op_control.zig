@@ -1304,6 +1304,29 @@ fn emitEndInter(ctx: *ctx_mod.EmitCtx) Error!void {
         }
     }
 
+    // ADR-0105 D3 — stack-overflow trap stub. Probe at prologue fired
+    // BEFORE the `SUB RSP, frame_bytes`, so the stub MUST NOT add
+    // frame_bytes back (RSP is still at the post-PUSH-R15 position;
+    // POP R15 + POP RBP + RET unwinds cleanly). Sets trap_flag=1 +
+    // trap_kind=4 (0=unmarked, 1=generic, 2=cind-bounds, 3=cind-sig,
+    // 4=stack-overflow). Gated on ctx.stack_probe_fixup != 0 (= probe
+    // was emitted, = uses_runtime_ptr was true).
+    if (ctx.stack_probe_fixup != 0) {
+        const stub_byte: u32 = @intCast(ctx.buf.items.len);
+        try ctx.buf.appendSlice(ctx.allocator, inst.encStoreImm32MemDisp32(abi.runtime_ptr_save_gpr, jit_abi.trap_flag_off, 1).slice());
+        try ctx.buf.appendSlice(ctx.allocator, inst.encStoreImm32MemDisp32(abi.runtime_ptr_save_gpr, jit_abi.trap_kind_off, 4).slice());
+        try ctx.buf.appendSlice(ctx.allocator, inst.encXorRR(.d, .rax, .rax).slice());
+        // No `ADD RSP, frame_bytes` — probe fires before frame alloc.
+        try ctx.buf.appendSlice(ctx.allocator, inst.encPopR(.r15).slice());
+        try ctx.buf.appendSlice(ctx.allocator, inst.encPopR(.rbp).slice());
+        try ctx.buf.appendSlice(ctx.allocator, inst.encRet().slice());
+        // Patch the JBE rel32 placeholder. JBE rel32 is 6 bytes (0F 86
+        // + disp32); disp is relative to the byte AFTER the placeholder.
+        const disp: i32 = @as(i32, @intCast(stub_byte)) -
+            @as(i32, @intCast(ctx.stack_probe_fixup)) - 6;
+        inst.patchRel32(ctx.buf.items, ctx.stack_probe_fixup, 6, disp);
+    }
+
     if (ctx.simd_const_fixups.items.len > 0) {
         while (ctx.buf.items.len % 16 != 0) try ctx.buf.append(ctx.allocator, 0);
         const pool_byte: u32 = @intCast(ctx.buf.items.len);

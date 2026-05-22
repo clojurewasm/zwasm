@@ -63,6 +63,8 @@ pub const InitArgs = struct {
     uses_runtime_ptr: bool,
     total_locals: u32,
     local_disps: []const i32,
+    /// ADR-0105 D2/D3 — see EmitCtx field of the same name.
+    stack_probe_fixup: u32,
 };
 
 /// Per-function emit context for x86_64. Threaded as `*EmitCtx`
@@ -181,6 +183,14 @@ pub const EmitCtx = struct {
     /// function entry from `layout.disps`; consumed by
     /// emitLocalGet/Set/Tee.
     local_disps: []const i32,
+    /// ADR-0105 D2/D3 — byte offset of the JIT-prologue stack-probe's
+    /// `JBE rel32` placeholder. `0` = probe not emitted (no
+    /// uses_runtime_ptr → function cannot recurse → no probe needed).
+    /// When non-zero, the function-end handler in op_control.zig
+    /// emits a dedicated stack-overflow trap stub with fb=0 (probe
+    /// fires BEFORE the SUB RSP) and patches this fixup to its
+    /// disp32.
+    stack_probe_fixup: u32,
 
     pub fn init(args: InitArgs) EmitCtx {
         const simd_consts_base: u32 =
@@ -214,6 +224,7 @@ pub const EmitCtx = struct {
             .uses_runtime_ptr = args.uses_runtime_ptr,
             .total_locals = args.total_locals,
             .local_disps = args.local_disps,
+            .stack_probe_fixup = args.stack_probe_fixup,
         };
     }
 

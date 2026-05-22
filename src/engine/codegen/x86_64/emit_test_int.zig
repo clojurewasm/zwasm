@@ -574,38 +574,53 @@ test "compile: (i32.const 0) i32.load offset=0 end — ADR-0026 prologue + bound
     // JA patch: trap_byte = 59. fixup_byte = 38, insn_size = 6.
     //   disp = 59 - 38 - 6 = 15 = 0x0F.
     //
-    // Total length: 80 bytes pre-D-055-sentinel; +11 sentinel bytes
-    // after D-055 close = 91 bytes (uses_runtime_ptr=true).
-    try testing.expectEqual(@as(usize, 91), out.bytes.len);
-    // Spot-check the prologue (verifies ADR-0026 structure).
+    // Total length: 91 pre-ADR-0105-probe; +13 probe + 28 stack-
+    // overflow trap stub after ADR-0105 D2/D3 close = 132 bytes
+    // (uses_runtime_ptr=true; stub = 11 STR trap_flag + 11 STR
+    // trap_kind + 2 XOR + 2 POP R15 + 1 POP RBP + 1 RET = 28).
+    try testing.expectEqual(@as(usize, 132), out.bytes.len);
+    // Spot-check the prologue (verifies ADR-0026 + ADR-0105 structure).
     // The MOV R15, <entry_arg0> byte differs by Cc; derive the
     // expected sequence dynamically so this works on both SysV
-    // and Win64 builds.
+    // and Win64 builds. The ADR-0105 D2 probe inserts CMP+JBE
+    // between mov_r15_arg0 and the sentinel; the JBE's disp32
+    // gets patched to the stack-overflow trap stub at function
+    // close so we assert the opcode prefix only (the 4 disp32
+    // bytes are exercised by the trap-stub patch test below).
     const exp_push_rbp = inst.encPushR(.rbp);
     const exp_push_r15 = inst.encPushR(.r15);
     const exp_mov_rbp_rsp = inst.encMovRR(.q, .rbp, .rsp);
     const exp_mov_r15_arg0 = inst.encMovRR(.q, abi.current.runtime_ptr_save_gpr, abi.current.entry_arg0_gpr);
+    const exp_probe_cmp = inst.encCmpR64MemDisp32(.rsp, .r15, @import("../shared/jit_abi.zig").stack_limit_off);
     const exp_sentinel = inst.encMovMemDisp32Imm32(.r15, @import("../shared/jit_abi.zig").jit_executed_flag_off, 1);
     const exp_sub_rsp_8 = inst.encSubRSpImm8(8);
-    var exp_prologue: [24]u8 = undefined;
+    // Pre-probe block (push_rbp + push_r15 + mov_rbp_rsp + mov_r15_arg0 + probe_cmp).
+    var pre_probe: [16]u8 = undefined;
     var off: usize = 0;
-    @memcpy(exp_prologue[off .. off + exp_push_rbp.len], exp_push_rbp.slice());
+    @memcpy(pre_probe[off .. off + exp_push_rbp.len], exp_push_rbp.slice());
     off += exp_push_rbp.len;
-    @memcpy(exp_prologue[off .. off + exp_push_r15.len], exp_push_r15.slice());
+    @memcpy(pre_probe[off .. off + exp_push_r15.len], exp_push_r15.slice());
     off += exp_push_r15.len;
-    @memcpy(exp_prologue[off .. off + exp_mov_rbp_rsp.len], exp_mov_rbp_rsp.slice());
+    @memcpy(pre_probe[off .. off + exp_mov_rbp_rsp.len], exp_mov_rbp_rsp.slice());
     off += exp_mov_rbp_rsp.len;
-    @memcpy(exp_prologue[off .. off + exp_mov_r15_arg0.len], exp_mov_r15_arg0.slice());
+    @memcpy(pre_probe[off .. off + exp_mov_r15_arg0.len], exp_mov_r15_arg0.slice());
     off += exp_mov_r15_arg0.len;
-    @memcpy(exp_prologue[off .. off + exp_sentinel.len], exp_sentinel.slice());
+    @memcpy(pre_probe[off .. off + exp_probe_cmp.len], exp_probe_cmp.slice());
+    off += exp_probe_cmp.len;
+    try testing.expectEqual(@as(usize, 16), off);
+    try testing.expectEqualSlices(u8, &pre_probe, out.bytes[0..16]);
+    // JBE rel32 opcode prefix at bytes [16..18]; disp32 [18..22] patched.
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0x86 }, out.bytes[16..18]);
+    // Post-probe block (sentinel + sub_rsp_8) at [22..body_start].
+    var post_probe: [15]u8 = undefined;
+    off = 0;
+    @memcpy(post_probe[off .. off + exp_sentinel.len], exp_sentinel.slice());
     off += exp_sentinel.len;
-    @memcpy(exp_prologue[off .. off + exp_sub_rsp_8.len], exp_sub_rsp_8.slice());
+    @memcpy(post_probe[off .. off + exp_sub_rsp_8.len], exp_sub_rsp_8.slice());
     off += exp_sub_rsp_8.len;
-    try testing.expectEqual(@as(usize, 24), off);
-    // D-055 migration: prologue size sourced from prologue.body_start_offset() so the
-    // assertion survives the sentinel injection (sentinel adds +11 to uses_runtime_ptr cases).
+    try testing.expectEqual(@as(usize, 15), off);
     const body_start = prologue.body_start_offset(true, 8);
-    try testing.expectEqualSlices(u8, &exp_prologue, out.bytes[0..body_start]);
+    try testing.expectEqualSlices(u8, &post_probe, out.bytes[22..body_start]);
     // JA placeholder = body_start + 25 (after const + memory-load + LEA bytes per layout comment).
     const ja_off = body_start + 25;
     try testing.expectEqualSlices(u8, &.{ 0x0F, 0x87, 0x0F, 0x00, 0x00, 0x00 }, out.bytes[ja_off .. ja_off + 6]);
