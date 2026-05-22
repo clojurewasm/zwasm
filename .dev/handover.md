@@ -91,10 +91,10 @@ Per ADR-0105 + ADR-0106 Implementation plans:
     (`2d7c87c5`). 11 bytes; XCHG RDI,RSI + CALL + XOR + RET.
     Body's MEMORY-class epilogue (cycle 2c) writes 3xi32
     to caller's results buffer directly.
-3e (Phase 2'b). [ ] x86_64 SysV 2-int register-convention
-    wrapper for `(i32,i64)` + `(i64,i32)` shapes. PUSH RBX,
-    save results ptr, CALL, MOV [RBX+0]=RAX, MOV [RBX+8]=
-    RDX, POP RBX, XOR EAX, RET.
+3e (Phase 2'b). [x] x86_64 SysV 2-int register-convention
+    wrapper for `(i32,i64)` + `(i64,i32)` shapes
+    (`1b738af4`). 20-byte sequence; tested. All 3 SKIP-arm
+    shapes now have SysV wrapper coverage.
 3e (Phase 2'c). [ ] x86_64 Win64 sibling for all 3 shapes
     (different ABI: rt=RCX, results=RDX, args=R8; body
     expects rt=RCX for MEMORY-class).
