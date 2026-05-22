@@ -182,19 +182,37 @@ pub fn emit(
         try bytes.appendSlice(allocator, &.{ 0x31, 0xC0, 0xC3 });
     } else if (n_results == 2 and all_gpr_class(params.sig.results)) {
         // 2-int register-class: body writes results to RAX (result 0)
-        // and RDX (result 1). Wrapper saves results-ptr to RBX
-        // (callee-saved), calls body, then writes RAX → [RBX+0] and
-        // RDX → [RBX+8]. Per ADR-0106 path (a) `[*]u64 results`
-        // shape, each result occupies 8 bytes regardless of i32/i64;
-        // the body's i32-result-zero-extends-to-64 + MOV r/m64
-        // produces the correct u64-slot semantics for the typed
-        // result helper to mask later.
-        try bytes.append(allocator, 0x53); // PUSH RBX
-        try bytes.appendSlice(allocator, &.{ 0x48, 0x89, 0xF3 }); // MOV RBX, RSI
-        try emitCallRel32(allocator, &bytes, params, 1 + 3);
-        try bytes.appendSlice(allocator, &.{ 0x48, 0x89, 0x03 }); // MOV [RBX], RAX
-        try bytes.appendSlice(allocator, &.{ 0x48, 0x89, 0x53, 0x08 }); // MOV [RBX+8], RDX
-        try bytes.append(allocator, 0x5B); // POP RBX
+        // and RDX (result 1). Save results-ptr (RSI) to STACK across
+        // the CALL — RBX is in `allocatable_callee_saved_gprs` per
+        // abi.zig, so the body's regalloc may use RBX as scratch.
+        // The body's prologue saves RBX *only if* its regalloc
+        // allocated RBX; for small functions that don't pressure
+        // callee-saved regs, RBX is silently clobbered without a
+        // save (surfaced by 2-int e2e test ubuntu fail at fault
+        // 0x77 = result 0 value, indicating RBX = old RAX after
+        // body's epilogue did MOV RAX, RBX without a paired POP).
+        //
+        // Stack-save shape (24 bytes):
+        //   SUB RSP, 8         ; 48 83 EC 08  — keep SysV alignment
+        //   MOV [RSP], RSI     ; 48 89 34 24  — save results ptr
+        //   CALL body          ; E8 + disp32
+        //   MOV RSI, [RSP]     ; 48 8B 34 24  — restore
+        //   ADD RSP, 8         ; 48 83 C4 08
+        //   MOV [RSI], RAX     ; 48 89 06     — result 0 → buf[0]
+        //   MOV [RSI+8], RDX   ; 48 89 56 08  — result 1 → buf[8]
+        //   XOR EAX, EAX       ; 31 C0
+        //   RET                ; C3
+        //
+        // Alignment: wrapper-entry RSP ≡ 8 (mod 16). SUB RSP, 8
+        // → RSP ≡ 0 (mod 16). CALL pushes 8 → body sees ≡ 8 (mod
+        // 16) ✓ per SysV.
+        try bytes.appendSlice(allocator, &.{ 0x48, 0x83, 0xEC, 0x08 }); // SUB RSP, 8
+        try bytes.appendSlice(allocator, &.{ 0x48, 0x89, 0x34, 0x24 }); // MOV [RSP], RSI
+        try emitCallRel32(allocator, &bytes, params, 4 + 4);
+        try bytes.appendSlice(allocator, &.{ 0x48, 0x8B, 0x34, 0x24 }); // MOV RSI, [RSP]
+        try bytes.appendSlice(allocator, &.{ 0x48, 0x83, 0xC4, 0x08 }); // ADD RSP, 8
+        try bytes.appendSlice(allocator, &.{ 0x48, 0x89, 0x06 }); // MOV [RSI], RAX
+        try bytes.appendSlice(allocator, &.{ 0x48, 0x89, 0x56, 0x08 }); // MOV [RSI+8], RDX
         try bytes.appendSlice(allocator, &.{ 0x31, 0xC0, 0xC3 }); // XOR EAX,EAX ; RET
     } else {
         return Error.UnsupportedOp;
@@ -580,7 +598,7 @@ test "wrapper_thunk: emit aarch64 3-int MEMORY-class (24 bytes)" {
     try testing.expectEqual(@as(u32, 0xD65F03C0), std.mem.readInt(u32, out.bytes[20..24], .little));
 }
 
-test "wrapper_thunk: emit x86_64 SysV 2-int register-class (i32, i64) (20 bytes)" {
+test "wrapper_thunk: emit x86_64 SysV 2-int register-class (i32, i64) (31 bytes)" {
     if (builtin.cpu.arch != .x86_64 or builtin.os.tag == .windows) {
         return error.SkipZigTest;
     }
@@ -592,20 +610,23 @@ test "wrapper_thunk: emit x86_64 SysV 2-int register-class (i32, i64) (20 bytes)
     };
     const out = try emit(testing.allocator, params);
     defer testing.allocator.free(out.bytes);
-    try testing.expectEqual(@as(usize, 20), out.bytes.len);
-    // PUSH RBX
-    try testing.expectEqual(@as(u8, 0x53), out.bytes[0]);
-    // MOV RBX, RSI
-    try testing.expectEqualSlices(u8, &.{ 0x48, 0x89, 0xF3 }, out.bytes[1..4]);
-    // CALL opcode + disp32 = 200 - (100 + 4 + 5) = 91
-    try testing.expectEqual(@as(u8, 0xE8), out.bytes[4]);
-    const disp = std.mem.readInt(i32, out.bytes[5..9], .little);
-    try testing.expectEqual(@as(i32, 91), disp);
-    // MOV [RBX], RAX ; MOV [RBX+8], RDX
-    try testing.expectEqualSlices(u8, &.{ 0x48, 0x89, 0x03 }, out.bytes[9..12]);
-    try testing.expectEqualSlices(u8, &.{ 0x48, 0x89, 0x53, 0x08 }, out.bytes[12..16]);
-    // POP RBX ; XOR EAX, EAX ; RET
-    try testing.expectEqualSlices(u8, &.{ 0x5B, 0x31, 0xC0, 0xC3 }, out.bytes[16..20]);
+    try testing.expectEqual(@as(usize, 31), out.bytes.len);
+    // SUB RSP, 8
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x83, 0xEC, 0x08 }, out.bytes[0..4]);
+    // MOV [RSP], RSI
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x89, 0x34, 0x24 }, out.bytes[4..8]);
+    // CALL opcode + disp32 = 200 - (100 + 8 + 5) = 87
+    try testing.expectEqual(@as(u8, 0xE8), out.bytes[8]);
+    const disp = std.mem.readInt(i32, out.bytes[9..13], .little);
+    try testing.expectEqual(@as(i32, 87), disp);
+    // MOV RSI, [RSP] ; ADD RSP, 8
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x8B, 0x34, 0x24 }, out.bytes[13..17]);
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x83, 0xC4, 0x08 }, out.bytes[17..21]);
+    // MOV [RSI], RAX ; MOV [RSI+8], RDX
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x89, 0x06 }, out.bytes[21..24]);
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x89, 0x56, 0x08 }, out.bytes[24..28]);
+    // XOR EAX, EAX ; RET
+    try testing.expectEqualSlices(u8, &.{ 0x31, 0xC0, 0xC3 }, out.bytes[28..31]);
 }
 
 test "wrapper_thunk: emit x86_64 SysV 3-int-result MEMORY-class (11 bytes)" {
