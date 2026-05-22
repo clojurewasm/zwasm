@@ -483,27 +483,11 @@ pub fn marshalReturnRegs(
     const xmm_result_regs = [_]abi.Xmm{ .xmm0, .xmm1 };
     const gpr_cap: u8 = switch (abi.current_cc) {
         .sysv => 2,
-        // Win64 (W4 retry 7 fix, 2026-05-22): the original cap=1
-        // reflected Win64 ABI §3.2.4 returning ≤ 1 value in RAX
-        // (no register-pair convention). But this cap applies to
-        // ALL JIT epilogues, including internal Wasm-to-Wasm
-        // calls — where the JIT controls both sides and follows
-        // its own SysV-style RAX/RDX convention. cap=1 was
-        // silent-truncating result[1] for `as-binary-all-operands`
-        // / `as-mixed-operands` (got i32:0 in second slot;
-        // 3 FAILs on retry 7). cap=2 makes internal multi-result
-        // work, matching SysV. The entry-boundary mismatch (Zig
-        // C-ABI caller expects Win64 hidden-pointer for the
-        // 16-byte struct return) is already handled separately
-        // by D-164's SKIP-WIN64-MULTI-RESULT until the per-shape
-        // Win64 inline-asm thunks in entry.zig land.
-        .win64 => 2,
+        .win64 => 1,
     };
     const xmm_cap: u8 = switch (abi.current_cc) {
         .sysv => 2,
-        // Same rationale as gpr_cap above — internal Wasm-to-Wasm
-        // multi-result via XMM0+XMM1 mirrors SysV.
-        .win64 => 2,
+        .win64 => 1,
     };
     // D-093 (d-12) — cap-exceed silent-truncate (workaround per
     // D-094 debt row). SysV §3.2.3 limits result regs to 2/class;
