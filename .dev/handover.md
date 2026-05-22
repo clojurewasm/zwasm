@@ -16,32 +16,27 @@ bucket-3 gate dissolved. §0 preflight is a 10-canary check
 (8 build tools + handle64 / Procmon64 — full Sysinternals
 bundle at `711bdcce`).
 
-## Active task — W3.b-2 (callJitOrTrap helper + 5-callsite wiring)
+## Active task — W3.b-2b (dispatch-ladder callsite wiring)
 
-W3.b-1 landed at `c97cb72f` (`src/platform/windows_traphandler.zig`
-+ `installSigsegvHandler` Windows arm via VEH install). The
-W3.b-2 design is now spike-validated at
-`private/spikes/win64-recovery-pc-sp/` (gitignored) — Win64
-cross-compile disasm confirms inline asm compiles; the survey's
-Option B local-label pattern is refined into a wrapper-function
-shape using `@returnAddress()` + inline-asm RSP capture (ADR-0103
-Consequences refinement landed alongside).
+W3.b-2 partial landed at `72d8a0e8`: `callJitOrTrap` helper +
+2 simple production callsites
+(`spec_assert_runner_non_simd.zig:339` start-init,
+`:1837` uninstantiable) + 2 sigsegv-guard unittests skipped on
+Windows.
 
-Next chunk implements `windows_traphandler.callJitOrTrap()` per
-the refined design and wires the 5 callsites on the Windows arm:
+Remaining callsite: `spec_assert_runner_non_simd.zig:1498`
+(assert_return/trap dispatch ladder — runtime n_args × arg-type
+branch inside the sigsetjmp block). Needs a closure-style
+wrapper to fold the ladder into a single `callJitOrTrap`
+invocation. Type: `emit`.
 
-- `test/spec/spec_assert_runner_base.zig:3602` and `:3620`
-  (in-source `test "..."` unittests for SIGSEGV recovery itself)
-- `test/spec/spec_assert_runner_non_simd.zig:339`, `:1498`,
-  `:1837` (production runner path during assert_trap fixtures)
+Spike status: refined design merged into prod; the
+`private/spikes/win64-recovery-pc-sp/` directory will flip to
+`merged-into-prod` (with `72d8a0e8` SHA) when W3.b-2b lands
+the remaining ladder callsite AND W4 reconcile confirms
+windowsmini green.
 
-Type: `emit` (post-spike). POSIX path keeps `sigsetjmp` +
-`siglongjmp` inline (per discipline at base.zig:2306-2312).
-Windows arm delegates to `callJitOrTrap(info, jit_fn, args) →
-true` (=trapped). Spike status flips `merged-into-prod` when
-the helper lands in production.
-
-After W3.b-2: **W4** (windowsmini reconcile run; verifies
+After W3.b-2b: **W4** (windowsmini reconcile run; verifies
 `spec_assert_runner_non_simd` green) → row 10 W6 Windows
 DCE check → row 11 §9.13-0 close + Phase 9 boundary.
 
