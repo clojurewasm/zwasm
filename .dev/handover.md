@@ -68,9 +68,13 @@ Per ADR-0105 + ADR-0106 Implementation plans:
     v128 + multi-arg overflow deferred to 2f.
 2f. [ ] Win64 buffer_write param marshal (R8 + shadow-space) +
     v128 + multi-arg overflow handling.
-3. [ ] Migrate spec runner's JIT module compile to
-   `.buffer_write` for a single fixture; verify ubuntu round-
-   trip; iterate on bugs.
+3a. [x] Multi-result buffer_write hand-rolled test
+    (`() → (i32, i32, i32)` D-164 trigger shape; `2882d2ba`).
+    Fixed branch ordering: buffer_write now takes precedence
+    over MEMORY-class in prologue capture.
+3b. [ ] Migrate spec runner's JIT module compile to
+    `.buffer_write` for a single multi-result fixture
+    (e.g. `type-all`); verify ubuntu round-trip.
 4. [ ] Remove `FuncRet_*` extern struct family + remove
    `SKIP-WIN64-MULTI-RESULT` arm. D-094 + D-164 close;
    gate I1c OK.
