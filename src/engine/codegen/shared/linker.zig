@@ -54,6 +54,20 @@ pub const FuncBody = struct {
     call_fixups: []const emit.CallFixup,
 };
 
+/// ADR-0106 cycle 3e Phase 2'g — per-function buffer-write
+/// wrapper thunk specification. Lists which `func_idx` in
+/// `func_bodies` needs a wrapper emitted alongside its body.
+/// The wrapper's Zig-side signature is `fn(rt, results, args)
+/// callconv(.c) ErrCode` per `entry_buffer_write.BufferWriteFn`.
+pub const WrapperSpec = struct {
+    /// Function index in the wasm-space (= same indexing as
+    /// `func_bodies`, offset by `num_imports`).
+    func_idx: u32,
+    /// Function signature; used by `wrapper_thunk.emit` to pick
+    /// the per-shape wrapper byte sequence.
+    sig: @import("../../../ir/zir.zig").FuncType,
+};
+
 pub const JitModule = struct {
     block: jit_mem.JitBlock,
     /// `func_offsets[i]` = byte offset of function `i`'s entry
@@ -289,6 +303,101 @@ pub fn link(allocator: Allocator, func_bodies: []const FuncBody, num_imports: u3
     return .{ .block = block, .func_offsets = offsets };
 }
 
+/// ADR-0106 cycle 3e Phase 2'g — link + emit per-function
+/// wrapper thunks alongside the bodies.
+///
+/// Composes existing `link()` with a Phase 2'-style wrapper
+/// emit pass: bodies first (at offset 0..body_size), wrappers
+/// appended after (at offset body_size..total_size).
+/// `thunk_offsets[func_idx]` records the wrapper's offset, or
+/// `NO_THUNK` (0xFFFFFFFF) when no wrapper was emitted.
+///
+/// When `wrapper_specs.len == 0`, behaves identically to
+/// `link()` and returns `thunk_offsets = null`.
+/// When ALL specs return `UnsupportedOp` from `wrapper_thunk.
+/// emit` (e.g. arch not implemented, shape unsupported), also
+/// returns `thunk_offsets = null` — the body link still
+/// succeeds.
+///
+/// Implementation: two-pass. Pass 1 calls `link()` to compute
+/// body offsets + a body-only JitBlock. Pass 2 computes
+/// wrapper bytes via `wrapper_thunk.emit`, allocates a NEW
+/// JitBlock of total size, copies bodies + wrappers,
+/// populates `thunk_offsets`. The pass-1 block is freed.
+pub fn linkWithThunks(
+    allocator: Allocator,
+    func_bodies: []const FuncBody,
+    num_imports: u32,
+    wrapper_specs: []const WrapperSpec,
+) Error!JitModule {
+    if (wrapper_specs.len == 0) {
+        return link(allocator, func_bodies, num_imports);
+    }
+
+    var body_module = try link(allocator, func_bodies, num_imports);
+    errdefer body_module.deinit(allocator);
+
+    const total_funcs = body_module.func_offsets.len;
+    const body_size = body_module.block.bytes.len;
+
+    var wrapper_bytes_list: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (wrapper_bytes_list.items) |b| allocator.free(b);
+        wrapper_bytes_list.deinit(allocator);
+    }
+
+    var thunk_offsets = try allocator.alloc(u32, total_funcs);
+    errdefer allocator.free(thunk_offsets);
+    @memset(thunk_offsets, JitModule.NO_THUNK);
+
+    const wrapper_thunk = @import("wrapper_thunk.zig");
+    var wrapper_total: usize = 0;
+    for (wrapper_specs) |spec| {
+        if (spec.func_idx >= total_funcs) return Error.UnknownCallTarget;
+        const body_offset = body_module.func_offsets[spec.func_idx];
+        if (body_offset == IMPORT_SENTINEL_OFFSET) return Error.UnknownCallTarget;
+        const thunk_offset_usize = body_size + wrapper_total;
+        const wrapper_out = wrapper_thunk.emit(allocator, .{
+            .sig = spec.sig,
+            .body_offset = body_offset,
+            .thunk_offset = @intCast(thunk_offset_usize),
+        }) catch |err| switch (err) {
+            error.UnsupportedOp => continue,
+            error.OutOfMemory => return error.OutOfMemory,
+        };
+        try wrapper_bytes_list.append(allocator, wrapper_out.bytes);
+        thunk_offsets[spec.func_idx] = @intCast(thunk_offset_usize);
+        wrapper_total += wrapper_out.bytes.len;
+    }
+
+    if (wrapper_total == 0) {
+        allocator.free(thunk_offsets);
+        return body_module;
+    }
+
+    const total_size = body_size + wrapper_total;
+    var block = try jit_mem.alloc(total_size);
+    errdefer jit_mem.free(block);
+    try jit_mem.setWritable(block);
+    @memcpy(block.bytes[0..body_size], body_module.block.bytes);
+    var off: usize = body_size;
+    for (wrapper_bytes_list.items) |w| {
+        @memcpy(block.bytes[off..][0..w.len], w);
+        off += w.len;
+    }
+    try jit_mem.setExecutable(block);
+
+    const offsets_copy = try allocator.dupe(u32, body_module.func_offsets);
+    errdefer allocator.free(offsets_copy);
+    body_module.deinit(allocator);
+
+    return .{
+        .block = block,
+        .func_offsets = offsets_copy,
+        .thunk_offsets = thunk_offsets,
+    };
+}
+
 // ============================================================
 // Tests
 // ============================================================
@@ -376,4 +485,64 @@ test "link: 2-function module — fn0 calls fn1, returns 7" {
     try testing.expectEqual(@intFromPtr(f1), module.entryAddr(1));
     // Distinct functions live at distinct offsets.
     try testing.expect(module.entryAddr(0) != module.entryAddr(1));
+}
+
+test "linkWithThunks: single multi-result function — wrapper invocation writes results buffer" {
+    if (!(builtin.cpu.arch == .aarch64 and builtin.os.tag == .macos) and
+        !(builtin.cpu.arch == .x86_64 and builtin.os.tag != .windows))
+    {
+        return error.SkipZigTest;
+    }
+    const entry_buf = @import("entry_buffer_write.zig");
+
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32, .i32, .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 100 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 200 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 300 });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 3 },
+        .{ .def_pc = 1, .last_use_pc = 3 },
+        .{ .def_pc = 2, .last_use_pc = 3 },
+    } };
+    const slots = [_]u16{ 0, 1, 2 };
+    const alloc: regalloc.Allocation = .{
+        .slots = &slots,
+        .n_slots = 3,
+        .result_abi = .register_write,
+    };
+    const sigs = [_]zir.FuncType{sig};
+    const out = try emit.compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{});
+    defer emit.deinit(testing.allocator, out);
+
+    const bodies = [_]FuncBody{.{ .bytes = out.bytes, .call_fixups = out.call_fixups }};
+    const specs = [_]WrapperSpec{.{ .func_idx = 0, .sig = sig }};
+
+    var module = try linkWithThunks(testing.allocator, &bodies, 0, &specs);
+    defer module.deinit(testing.allocator);
+
+    try testing.expect(module.thunk_offsets != null);
+    try testing.expect(module.thunk_offsets.?[0] != JitModule.NO_THUNK);
+
+    const fn_ptr = module.entry_buf(0, entry_buf.BufferWriteFn);
+    var rt: entry_buf.JitRuntime = .{
+        .vm_base = undefined,
+        .mem_limit = 0,
+        .funcptr_base = undefined,
+        .table_size = 0,
+        .typeidx_base = undefined,
+        .trap_flag = 0,
+        .globals_base = undefined,
+        .globals_count = 0,
+        .host_dispatch_base = undefined,
+        .host_dispatch_count = 0,
+    };
+    var args_buf: [1]u64 = .{0};
+    var results_buf: [3]u64 = .{ 0, 0, 0 };
+    try entry_buf.invokeBufferWrite(&rt, fn_ptr, &args_buf, &results_buf);
+    try testing.expectEqual(@as(u32, 100), @as(u32, @intCast(results_buf[0] & 0xFFFFFFFF)));
+    try testing.expectEqual(@as(u32, 200), @as(u32, @intCast(results_buf[1] & 0xFFFFFFFF)));
+    try testing.expectEqual(@as(u32, 300), @as(u32, @intCast(results_buf[2] & 0xFFFFFFFF)));
 }
