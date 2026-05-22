@@ -16,28 +16,30 @@ bucket-3 gate dissolved. §0 preflight is a 10-canary check
 (8 build tools + handle64 / Procmon64 — full Sysinternals
 bundle at `711bdcce`).
 
-## Active task — W3.b-2 (arm/disarm callsite integration)
+## Active task — W3.b-2 (callJitOrTrap helper + 5-callsite wiring)
 
-W3.b-1 landed (`src/platform/windows_traphandler.zig` +
-`installSigsegvHandler` Windows arm via VEH install). Next
-chunk wires `arm(RecoveryInfo)` / `disarm()` into the 5
-`sigsetjmp(@ptrCast(&sigsegv_recover_buf), 1)` callsites on
-the Windows arm:
+W3.b-1 landed at `c97cb72f` (`src/platform/windows_traphandler.zig`
++ `installSigsegvHandler` Windows arm via VEH install). The
+W3.b-2 design is now spike-validated at
+`private/spikes/win64-recovery-pc-sp/` (gitignored) — Win64
+cross-compile disasm confirms inline asm compiles; the survey's
+Option B local-label pattern is refined into a wrapper-function
+shape using `@returnAddress()` + inline-asm RSP capture (ADR-0103
+Consequences refinement landed alongside).
+
+Next chunk implements `windows_traphandler.callJitOrTrap()` per
+the refined design and wires the 5 callsites on the Windows arm:
 
 - `test/spec/spec_assert_runner_base.zig:3602` and `:3620`
+  (in-source `test "..."` unittests for SIGSEGV recovery itself)
 - `test/spec/spec_assert_runner_non_simd.zig:339`, `:1498`,
-  `:1837`
+  `:1837` (production runner path during assert_trap fixtures)
 
-Type: `emit`. Per ADR-0103 §4, POSIX path keeps `sigsetjmp`
-+ `siglongjmp`; Windows arm gets `windows_traphandler.arm(.{
-.jit_code_start, .jit_code_end, .recovery_pc, .recovery_sp,
-.recovery_rax_trap_code }) → callJit → disarm()`. The
-recovery context shape (capturing PC/SP at the callsite)
-needs Step-0 verification against v1 / Wasmtime patterns
-since Zig has no portable `setjmp`-like primitive that gets
-us the resume PC/SP cleanly — the spike question is whether
-to use MSVCRT `_setjmp` (analogue of POSIX `sigsetjmp`) or
-inline-asm RIP/RSP capture.
+Type: `emit` (post-spike). POSIX path keeps `sigsetjmp` +
+`siglongjmp` inline (per discipline at base.zig:2306-2312).
+Windows arm delegates to `callJitOrTrap(info, jit_fn, args) →
+true` (=trapped). Spike status flips `merged-into-prod` when
+the helper lands in production.
 
 After W3.b-2: **W4** (windowsmini reconcile run; verifies
 `spec_assert_runner_non_simd` green) → row 10 W6 Windows

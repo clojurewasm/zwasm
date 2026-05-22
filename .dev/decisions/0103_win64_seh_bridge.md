@@ -241,6 +241,49 @@ Concretely:
   Test gate: Mac cross-compile (`-Dtarget=x86_64-windows-gnu`)
   green; ubuntu deferred per ADR-0076 D3; windowsmini
   verified at W4 reconcile.
+- **W3.b-2 recovery PC/SP capture mechanism** (refined
+  2026-05-22 via `private/spikes/win64-recovery-pc-sp/`):
+  The `arm(RecoveryInfo)` callsites do NOT capture
+  `recovery_pc` / `recovery_sp` via inline-asm local labels
+  (the survey's initial Option B sketch). The spike showed
+  that `lea 1f(%%rip), %[pc]` captures an address INSIDE
+  the asm block, which lacks the asymmetry POSIX
+  `sigsetjmp` provides (first call 0 vs longjmp-returned ≠0).
+  Instead, the runner wraps the JIT call in a helper:
+
+  ```zig
+  pub fn callJitOrTrap(
+      info: RecoveryInfoSetup,
+      comptime jit_fn: anytype,
+      args: anytype,
+  ) bool {
+      var rsp_on_entry: usize = undefined;
+      asm volatile (
+          "mov %%rsp, %[sp]"
+          : [sp] "=r" (rsp_on_entry),
+          :
+          : .{ .memory = true }
+      );
+      arm(.{
+          .jit_code_start = info.jit_code_start,
+          .jit_code_end = info.jit_code_end,
+          .recovery_pc = @returnAddress(),
+          .recovery_sp = rsp_on_entry + 8,
+          .recovery_rax_trap_code = 1,
+      });
+      defer disarm();
+      @call(.never_inline, jit_fn, args);
+      return false; // VEH-redirected path returns true via RAX
+  }
+  ```
+
+  `@returnAddress()` gives the caller's RIP after the call;
+  inline asm captures RSP; VEH sets `Rip / Rsp / Rax` on
+  trap. The caller's `if (callJitOrTrap(...))` then sees
+  `true` and maps to `Error.Trap`. POSIX path remains the
+  existing inline `sigsetjmp` per the discipline at
+  `spec_assert_runner_base.zig:2306-2312`. See spike notes
+  for full rationale and disasm verification.
 
 ## References
 
@@ -294,3 +337,4 @@ Concretely:
 | Date       | SHA         | Change                          |
 |------------|-------------|----------------------------------|
 | 2026-05-22 | `<backfill>`| Status: Proposed → Accepted     |
+| 2026-05-22 | `<backfill>`| Consequences refinement: W3.b-2 recovery PC/SP capture via `callJitOrTrap` helper (@returnAddress + inline-asm RSP). Validated via `private/spikes/win64-recovery-pc-sp/` Win64 cross-compile disasm. |
