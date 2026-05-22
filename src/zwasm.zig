@@ -65,6 +65,7 @@ pub const support = struct {
 };
 pub const platform = struct {
     pub const jit_mem = @import("platform/jit_mem.zig");
+    pub const windows_traphandler = @import("platform/windows_traphandler.zig");
     // signal / fs / time are placeholders per ADR-0023 §3 P-H.
 };
 
@@ -242,6 +243,7 @@ test {
     _ = @import("engine/codegen/x86_64/emit.zig");
     _ = @import("engine/codegen/x86_64/emit_test.zig");
     _ = @import("platform/jit_mem.zig");
+    _ = @import("platform/windows_traphandler.zig");
     _ = @import("engine/codegen/shared/linker.zig");
     _ = @import("engine/codegen/shared/entry.zig");
     _ = @import("engine/codegen/shared/jit_abi.zig");

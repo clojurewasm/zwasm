@@ -2596,13 +2596,17 @@ pub fn installSigsegvHandler() void {
     // shape on Windows; the SEGV-recovery contract is POSIX-only
     // by design (no Mach exception ports / SEH bridge implemented).
     //
-    // TODO(D-136): early-return is a Windows-compat workaround,
-    // not a real SEGV-recovery implementation. `assert_trap`
-    // fixtures crash spec_assert_runner_non_simd mid-corpus on
-    // Windows because the OS terminates the process instead of
-    // returning to the harness via siglongjmp. Discharge requires
-    // a Win64 SEH bridge equivalent. See `.dev/debt.md` D-136.
-    if (@import("builtin").os.tag == .windows) return;
+    // Windows: install the VEH-based trap bridge (ADR-0103 /
+    // D-136 in-flight discharge). The bridge is process-wide
+    // (single AddVectoredExceptionHandler registration) +
+    // threadlocal recovery state, mirroring v1 + Wasmtime +
+    // Wasmer. The matching `arm` / `disarm` callsites land in
+    // a follow-up chunk (W3.b' — replacing the sigsetjmp pair
+    // on the Windows arm of the JIT-entry callsites).
+    if (@import("builtin").os.tag == .windows) {
+        @import("zwasm").platform.windows_traphandler.install();
+        return;
+    }
 
     // Explicitly install our own alternate signal stack rather than
     // relying on Zig's start-up code: `Thread.maybeAttachSignalStack`
