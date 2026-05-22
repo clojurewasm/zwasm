@@ -16,53 +16,78 @@ bucket-3 gate dissolved. §0 preflight is a 10-canary check
 (8 build tools + handle64 / Procmon64 — full Sysinternals
 bundle at `711bdcce`).
 
-## Active task — W4 retry 5 (new crash class investigation)
+## Bucket-3 stop — Win64 spec-compliance strategic direction needed
 
-W4 retry chain summary (HEAD = `007e26e1`):
+W4 retry chain summary:
 
 | Retry | HEAD | Result | Crash directive |
 |---|---|---|---|
 | 1 | `f73e7a98` | exit 253 zero output | unknown (no beacons) |
 | 2 | `1567516e` | exit 1 | `assert_exhaustion runaway ()` |
 | 3 | `09ee5bb9` | exit 29 (STACK_OVERFLOW filter active) | `assert_exhaustion runaway ()` (downstream re-fault) |
-| 4 | `007e26e1` | exit 1 | `assert_trap as-call_indirect-last ()` (NEW class — earlier than D-162) |
+| 4 | `007e26e1` | exit 1 | `assert_trap as-call_indirect-last ()` (call.0.wasm OOB) |
+| 5 | `45cb3365` | exit 1 | `assert_return type-all-i32-i64 () -> i64:2 i32:1` (call_indirect.0.wasm multi-result) |
 
-Permanent value landed this chain: per-manifest beacon
-(`ee7403ff`), per-directive beacon (`aeb01a23`), VEH
-EXCEPTION_STACK_OVERFLOW filter (`09ee5bb9`), SKIP-WIN64-
-EXHAUSTION + D-162 debt row + ADR-0078 taxonomy
-(`007e26e1`).
+Each retry surfaced a NEW Win64-specific crash class. Three so
+far: D-162 (stack overflow), D-163 (call_indirect bounds-check
+trap), and an as-yet-unfiled multi-result calling convention
+issue (retry 5). The "skip-accumulate" pattern reveals that
+Win64 has multiple JIT-codegen and runtime-recovery gaps, not
+a single bug. Per architectural_spike.md's "3-cycle cap"
+discipline (cycles 1-3 produced clear progress; 4-5 had
+diminishing returns), the loop pauses for strategic direction.
 
-**Next chunk** (W4 retry 5 investigation): the
-`assert_trap as-call_indirect-last ()` crash class is distinct
-from D-162. The fixture exercises `(call_indirect ... unreachable)`
-in `call.0.wasm`. The wasm-1.0 spec_assert_runner ran 212 PASS
-including its own `unreachable: assert_trap as-call_indirect-
-last ()` directive, so the corpus path isn't intrinsically
-broken — something about `call.0.wasm`'s module shape OR cumulative
-state after 55 directives surfaces the bug. Candidates:
+**Strategic options (user-gated)**:
 
-- Win64 `call_indirect` JIT codegen specific to call.0.wasm's
-  type signatures (cross-checked: callI32NoArgs etc. work for
-  wasm-1.0 runner, so NOT the entry-helper layer).
-- Cumulative per-module state exhaustion (55 JIT invocations
-  → FD / handle / stack pressure).
-- Trap stub control-flow interaction with VEH's redirected
-  recovery PC (the as-call_indirect-last fixture exercises
-  unreachable-as-trap; VEH recovery may overlap with trap stub).
+(a) **Continue skip-accumulation**. File D-164 for the
+    multi-result crash class, repeat W4 retry, file
+    D-165/166/... as more surface. Eventually corpus completes
+    with N SKIP tokens, §9.13-0 closes. Pro: autonomous.
+    Con: Win64 spec compliance becomes a long list of debts.
 
-Next investigation: read `test/spec/wasm-2.0-assert/call/
-call.0.wasm` (via `wasm2wat` or hexdump) to extract the
-`as-call_indirect-last` shape, then either fix in JIT codegen
-OR add a finer-grained skip token (e.g.
-`SKIP-WIN64-CALL-INDIRECT-TRAP`) with a paired D-163 debt row.
-Type: `architectural` (4th cycle in the W4 retry chain — per
-architectural_spike.md, cycles 1-3 produced clear measurable
-progress; this is now investigation continuation).
+(b) **Deep root-cause investigation**. windowsmini lldb-attach
+    + Procmon trace + JIT disasm inspection across all 3+
+    crash classes. Likely 1+ day of focused debugging.
+    Resolves D-162/D-163/multi-result class fundamentally.
 
-After W4 green: spike `private/spikes/win64-recovery-pc-sp/`
-status flips `merged-into-prod`; row 10 W6 Windows DCE symbol
-verification; row 11 §9.13-0 close + Phase 9 boundary.
+(c) **Scope-down Win64 for v0.1.0**. New ADR: defer full Win64
+    spec compliance to Phase 10+; v0.1.0 RC ships with
+    "Windows: build + unit-test only; spec corpus on Mac /
+    Linux" framing. Removes W4 as a Phase 9 close blocker.
+    Most aggressive simplification.
+
+**Permanent value landed across this session**: W3.b-1 trap
+handler module (`c97cb72f`), W3.b-2 callJitOrTrap helper +
+callsites (`72d8a0e8`, `af4eff55`), VEH STACK_OVERFLOW filter
+(`09ee5bb9`), per-manifest + per-directive beacons (`ee7403ff`,
+`aeb01a23`), D-162 SKIP-WIN64-EXHAUSTION (`007e26e1`), D-163
+SKIP-WIN64-CALL-INDIRECT-TRAP (`45cb3365`). ADR-0103 design
+refined; spike `private/spikes/win64-recovery-pc-sp/` design
+merged into prod (status flip pending W4 closure).
+
+**To resume**: pick (a) / (b) / (c) and re-invoke /continue.
+
+After resolution: spike status flips `merged-into-prod`;
+close-plan §6 row 8 → row 10 W6 Windows DCE → row 11 §9.13-0
+close + Phase 9 boundary.
+
+## Autonomous prep paths walked this resume (do not re-walk)
+
+- W3.b-1/2/2b implementation: COMPLETE (`c97cb72f` / `72d8a0e8` /
+  `af4eff55`).
+- ADR-0103 spike `private/spikes/win64-recovery-pc-sp/`:
+  design validated via Win64 cross-compile + disasm (`b66ba743`
+  refinement; ready for `merged-into-prod` flip).
+- W4 reconcile retry chain (5 cycles, 2 SKIP tokens filed):
+  diminishing returns at retries 4-5. Architectural-spike
+  3-cycle cap exceeded.
+- ADR-0078 taxonomy + ADR-0070 libc_boundary impact noted
+  (D-162 mentions `_resetstkoflw()` as a future amendment
+  trigger).
+- Reference-repo enrichment (Wasmtime VEH pattern at
+  `~/Documents/OSS/wasmtime/crates/wasmtime/src/runtime/vm/
+  sys/windows/vectored_exceptions.rs:107-289`): captured in
+  ADR-0103 §References at design time.
 
 ## Critical: do NOT widen shared `Error` for Win64 gaps
 
