@@ -56,11 +56,14 @@ Per ADR-0105 + ADR-0106 Implementation plans:
 2b. [x] `Allocation.result_abi: ResultAbi = .register_write` field
     threaded via regalloc (`1909b06e`). compile() signature
     unchanged (358 callsites). Cycle-4 debt: promote to CompileOpts struct.
-2c. [ ] x86_64 emit reads `alloc.result_abi` + branches prologue
-    (capture RSI=results into frame slot) + epilogue (write
-    `[results_ptr + 8*i]` per result) when `.buffer_write`.
-    Hand-rolled `result_abi = .buffer_write` test exercises the
-    new path end-to-end.
+2c. [x] x86_64 emit branches prologue+epilogue on `result_abi`
+    (`d0aa6a85`). Mac compile + Linux x86_64 cross-compile green;
+    ubuntu runtime test exercises end-to-end. Param marshal for
+    buffer-write deferred to alongside cycle 2d/3.
+2d. [ ] arm64 emit sibling — capture X1 (= results) → frame slot
+    + epilogue write `[X<slot> + i*8]` + MOV W0, WZR (ErrCode_OK).
+2e. [ ] Param-marshal change: when `.buffer_write`, args from
+    `[args_ptr + i*8]` not per-class regs (both arches).
 3. [ ] arm64 JIT epilogue rewrites — write `results[i]` instead
    of X0/X1.
 4. [ ] Remove `FuncRet_*` extern struct family from `entry.zig`.
