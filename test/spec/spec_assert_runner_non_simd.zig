@@ -1500,132 +1500,135 @@ fn nonSimdRunAssertTrap(
     // Invoke via the simplest matching shape. Result type is
     // immaterial — `Error.Trap` is the only PASS outcome.
     //
-    // SIGSEGV recovery (D-103 / d-29): wrap the dispatch in
-    // `sigsetjmp`. If the JIT body dereferences null (e.g. an
-    // `elem.wast` trap-assert whose body crashes before the trap
-    // stub sets `trap_flag`), the SIGSEGV handler `siglongjmp`s
-    // back to the sigsetjmp site below; the second-return path
-    // breaks out of the block with `trapped = true`. The
-    // `sigsetjmp` call is inline here (not factored to a helper)
-    // because its captured frame must be the function whose
-    // dispatch follows — see the discipline note in
-    // `spec_assert_runner_base.zig`.
-    const trapped: bool = blk: {
-        if (base.sigsetjmp(@ptrCast(&base.sigsegv_recover_buf), 1) != 0) {
-            // Recovered from in-body SEGV / SIGBUS → treat as
-            // trap. d-30 verified this path catches the 2
-            // elem.wast SEGVs (`assert_trap init ()` on elem.75
-            // / elem.76); recovery is semantically equivalent to
-            // the trap stub firing for assert_trap per Wasm spec
-            // §A.2 ("any trap during invocation").
-            base.sigsegv_armed.store(false, .release);
-            break :blk true;
-        }
-        // §9.9 / 9.9-l-1b-d093-d62: `sigsegv_armed` is now an
-        // `std.atomic.Value(bool)` — release-store pairs with the
-        // handler's acquire-load to defeat compiler folding under
-        // SA.ONSTACK altstack delivery (Linux x86_64 was observed
-        // eliding the BSS read once the handler frame became
-        // dataflow-invisible to the dispatcher).
-        base.sigsegv_armed.store(true, .release);
-        defer base.sigsegv_armed.store(false, .release);
+    // SIGSEGV recovery (D-103 / d-29 / W3.b-2b): the dispatch
+    // ladder runs under either POSIX `sigsetjmp` (Mac / Linux)
+    // or Win64 `callJitOrTrap` VEH protection (ADR-0103). The
+    // dispatch logic itself is factored into a local
+    // `Dispatch.run` method so the Windows comptime arm can
+    // route it via `@call(.never_inline, ...)` through the
+    // helper, while POSIX keeps the `sigsetjmp` callsite inline
+    // per the discipline at `spec_assert_runner_base.zig:2306`.
+    const Dispatch = struct {
+        compiled: *const runner_mod.CompiledWasm,
+        func_idx: u32,
+        rt: *entry.JitRuntime,
+        n_args: usize,
+        args_ptr: [*]const ArgValue,
+        shape_matched: bool = false,
 
-        if (n_args == 0) {
-            _ = entry.callI32NoArgs(compiled.module, func_idx, &rt) catch |err| {
-                break :blk err == entry.Error.Trap;
-            };
-            break :blk false;
+        fn run(self: *@This()) entry.Error!void {
+            const args_in = self.args_ptr;
+            if (self.n_args == 0) {
+                self.shape_matched = true;
+                _ = try entry.callI32NoArgs(self.compiled.module, self.func_idx, self.rt);
+                return;
+            }
+            if (self.n_args == 1 and args_in[0] == .i32) {
+                self.shape_matched = true;
+                _ = try entry.callI32_i32(self.compiled.module, self.func_idx, self.rt, args_in[0].i32);
+                return;
+            }
+            if (self.n_args == 1 and args_in[0] == .i64) {
+                self.shape_matched = true;
+                _ = try entry.callI64_i64(self.compiled.module, self.func_idx, self.rt, args_in[0].i64);
+                return;
+            }
+            if (self.n_args == 2 and args_in[0] == .i32 and args_in[1] == .i32) {
+                self.shape_matched = true;
+                _ = try entry.callI32_i32i32(self.compiled.module, self.func_idx, self.rt, args_in[0].i32, args_in[1].i32);
+                return;
+            }
+            if (self.n_args == 2 and args_in[0] == .i64 and args_in[1] == .i64) {
+                self.shape_matched = true;
+                _ = try entry.callI64_i64i64(self.compiled.module, self.func_idx, self.rt, args_in[0].i64, args_in[1].i64);
+                return;
+            }
+            // §9.9 / 9.9-l-1b-trap-widen — f32 / f64 arg shapes.
+            if (self.n_args == 1 and args_in[0] == .f32) {
+                self.shape_matched = true;
+                const a0: f32 = @bitCast(args_in[0].f32);
+                _ = try entry.callI32_f32(self.compiled.module, self.func_idx, self.rt, a0);
+                return;
+            }
+            if (self.n_args == 1 and args_in[0] == .f64) {
+                self.shape_matched = true;
+                const a0: f64 = @bitCast(args_in[0].f64);
+                _ = try entry.callI32_f64(self.compiled.module, self.func_idx, self.rt, a0);
+                return;
+            }
+            // D-114 / d-41 — store-trap shapes.
+            if (self.n_args == 2 and args_in[0] == .i32 and args_in[1] == .i64) {
+                self.shape_matched = true;
+                try entry.callVoid_i32i64(self.compiled.module, self.func_idx, self.rt, args_in[0].i32, args_in[1].i64);
+                return;
+            }
+            if (self.n_args == 2 and args_in[0] == .i32 and args_in[1] == .f32) {
+                self.shape_matched = true;
+                const a1: f32 = @bitCast(args_in[1].f32);
+                try entry.callVoid_i32f32(self.compiled.module, self.func_idx, self.rt, args_in[0].i32, a1);
+                return;
+            }
+            if (self.n_args == 2 and args_in[0] == .i32 and args_in[1] == .f64) {
+                self.shape_matched = true;
+                const a1: f64 = @bitCast(args_in[1].f64);
+                try entry.callVoid_i32f64(self.compiled.module, self.func_idx, self.rt, args_in[0].i32, a1);
+                return;
+            }
+            // §9.9 / 9.9-l-1b-d093-d56 — `(i32, i32, i32)` shape.
+            if (self.n_args == 3 and args_in[0] == .i32 and args_in[1] == .i32 and args_in[2] == .i32) {
+                self.shape_matched = true;
+                _ = try entry.callI32_i32i32i32(self.compiled.module, self.func_idx, self.rt, args_in[0].i32, args_in[1].i32, args_in[2].i32);
+                return;
+            }
+            // §9.9 / 9.9-l-1b-d093-d63 — `(i32, i64, i32)` shape.
+            if (self.n_args == 3 and args_in[0] == .i32 and args_in[1] == .i64 and args_in[2] == .i32) {
+                self.shape_matched = true;
+                try entry.callVoid_i32i64i32(self.compiled.module, self.func_idx, self.rt, args_in[0].i32, args_in[1].i64, args_in[2].i32);
+                return;
+            }
+            // No arm matched — leave shape_matched = false.
         }
-        if (n_args == 1 and args[0] == .i32) {
-            _ = entry.callI32_i32(compiled.module, func_idx, &rt, args[0].i32) catch |err| {
-                break :blk err == entry.Error.Trap;
+    };
+
+    var dispatch = Dispatch{
+        .compiled = compiled,
+        .func_idx = func_idx,
+        .rt = &rt,
+        .n_args = n_args,
+        .args_ptr = &args,
+    };
+
+    const trapped: bool = blk: {
+        if (comptime @import("builtin").os.tag == .windows) {
+            // Win64 VEH path (ADR-0103 / W3.b-2b).
+            const jit_start = @intFromPtr(compiled.module.block.bytes.ptr);
+            const jit_end = jit_start + compiled.module.block.bytes.len;
+            if (@import("zwasm").platform.windows_traphandler.callJitOrTrap(
+                jit_start,
+                jit_end,
+                Dispatch.run,
+                .{&dispatch},
+            )) break :blk true;
+        } else {
+            if (base.sigsetjmp(@ptrCast(&base.sigsegv_recover_buf), 1) != 0) {
+                // Recovered from in-body SEGV / SIGBUS → treat as
+                // trap. d-30 verified this path catches the 2
+                // elem.wast SEGVs (`assert_trap init ()` on
+                // elem.75 / elem.76).
+                base.sigsegv_armed.store(false, .release);
+                break :blk true;
+            }
+            base.sigsegv_armed.store(true, .release);
+            defer base.sigsegv_armed.store(false, .release);
+            dispatch.run() catch |err| switch (err) {
+                error.Trap => break :blk true,
             };
-            break :blk false;
         }
-        if (n_args == 1 and args[0] == .i64) {
-            _ = entry.callI64_i64(compiled.module, func_idx, &rt, args[0].i64) catch |err| {
-                break :blk err == entry.Error.Trap;
-            };
-            break :blk false;
+        if (!dispatch.shape_matched) {
+            try stdout.print("FAIL  {s}: assert_trap unsupported shape n_args={d} for {s}({s})\n", .{ name, n_args, fn_name, args_s });
+            return false;
         }
-        if (n_args == 2 and args[0] == .i32 and args[1] == .i32) {
-            _ = entry.callI32_i32i32(compiled.module, func_idx, &rt, args[0].i32, args[1].i32) catch |err| {
-                break :blk err == entry.Error.Trap;
-            };
-            break :blk false;
-        }
-        if (n_args == 2 and args[0] == .i64 and args[1] == .i64) {
-            _ = entry.callI64_i64i64(compiled.module, func_idx, &rt, args[0].i64, args[1].i64) catch |err| {
-                break :blk err == entry.Error.Trap;
-            };
-            break :blk false;
-        }
-        // §9.9 / 9.9-l-1b-trap-widen — f32 / f64 arg shapes.
-        // Trap-result type is immaterial; reuse the cross-type
-        // entry helpers added at widen (callI32_f32 / callI64_f64
-        // etc.) since they share the same FP-arg ABI lane.
-        if (n_args == 1 and args[0] == .f32) {
-            const a0: f32 = @bitCast(args[0].f32);
-            _ = entry.callI32_f32(compiled.module, func_idx, &rt, a0) catch |err| {
-                break :blk err == entry.Error.Trap;
-            };
-            break :blk false;
-        }
-        if (n_args == 1 and args[0] == .f64) {
-            const a0: f64 = @bitCast(args[0].f64);
-            _ = entry.callI32_f64(compiled.module, func_idx, &rt, a0) catch |err| {
-                break :blk err == entry.Error.Trap;
-            };
-            break :blk false;
-        }
-        // D-114 / d-41 — assert_trap shapes for store traps:
-        // memory_trap.wast traps `(invoke "i64.store" addr v)`,
-        // `f32.store`, `f64.store` at OOB addresses. Trap-result
-        // type is immaterial; reuse callVoid_* helpers (void
-        // function ABI is a superset of the JIT's emit assumption).
-        if (n_args == 2 and args[0] == .i32 and args[1] == .i64) {
-            entry.callVoid_i32i64(compiled.module, func_idx, &rt, args[0].i32, args[1].i64) catch |err| {
-                break :blk err == entry.Error.Trap;
-            };
-            break :blk false;
-        }
-        if (n_args == 2 and args[0] == .i32 and args[1] == .f32) {
-            const a1: f32 = @bitCast(args[1].f32);
-            entry.callVoid_i32f32(compiled.module, func_idx, &rt, args[0].i32, a1) catch |err| {
-                break :blk err == entry.Error.Trap;
-            };
-            break :blk false;
-        }
-        if (n_args == 2 and args[0] == .i32 and args[1] == .f64) {
-            const a1: f64 = @bitCast(args[1].f64);
-            entry.callVoid_i32f64(compiled.module, func_idx, &rt, args[0].i32, a1) catch |err| {
-                break :blk err == entry.Error.Trap;
-            };
-            break :blk false;
-        }
-        // §9.9 / 9.9-l-1b-d093-d56 — `(i32, i32, i32)` covers
-        // memory_copy / memory_fill / memory_init `run` style
-        // assert_traps (3-i32 dest/src/len) and call.wast's
-        // `as-call-{first,mid1,mid2,last}` 3-arg trap variants.
-        // The d-55 callI32_i32i32i32 helper is reused; result
-        // type immaterial for trap detection.
-        if (n_args == 3 and args[0] == .i32 and args[1] == .i32 and args[2] == .i32) {
-            _ = entry.callI32_i32i32i32(compiled.module, func_idx, &rt, args[0].i32, args[1].i32, args[2].i32) catch |err| {
-                break :blk err == entry.Error.Trap;
-            };
-            break :blk false;
-        }
-        // §9.9 / 9.9-l-1b-d093-d63: `(i32, i64, i32)` trap path —
-        // table_fill OOB asserts after reftype aliasing. Result
-        // type immaterial for trap detection; use the void helper.
-        if (n_args == 3 and args[0] == .i32 and args[1] == .i64 and args[2] == .i32) {
-            entry.callVoid_i32i64i32(compiled.module, func_idx, &rt, args[0].i32, args[1].i64, args[2].i32) catch |err| {
-                break :blk err == entry.Error.Trap;
-            };
-            break :blk false;
-        }
-        try stdout.print("FAIL  {s}: assert_trap unsupported shape n_args={d} for {s}({s})\n", .{ name, n_args, fn_name, args_s });
-        return false;
+        break :blk false;
     };
 
     if (!trapped) {
