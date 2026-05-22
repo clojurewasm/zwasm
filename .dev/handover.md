@@ -45,10 +45,20 @@ Inner loop = Mac cross-compile
 
 ## windowsmini state
 
-- 8 tools (zig 0.16 / hyperfine / wasm-tools / wasmtime / wabt /
-  yq / lldb) installed via `scripts/windows/install_tools.ps1`.
+- 9 tools (zig 0.16 / hyperfine / wasm-tools / wasmtime / wabt /
+  yq / lldb / **sysinternals** [`711bdcce`]) installed via
+  `scripts/windows/install_tools.ps1`.
+- Defender exclusion baseline configured 2026-05-22: 8
+  ExclusionPath (LLVM + sysinternals + CrashDumps + repo +
+  caches) + 17 ExclusionProcess (all `addExecutable` outputs).
 - `zig build test-all`: 37/39 steps OK; only spec_wasm_2_0
   runtime fails (D-136 SEH crashes inside).
+- **Debug wiring** (per b737d53e): `debug_jit_auto` skill
+  Recipes 9-14 + `windows_ssh_setup.md` "Interactive JIT debug
+  session" section now provide windowsmini-equivalent
+  "actively wired" debug posture (lldb-via-SSH, Procmon, fd
+  count via handle64, llvm-objdump PE, WER post-mortem).
+  Real-cycle試運転 deferred to W3.b implementation phase.
 - Surveys: `private/notes/p9-9.13-0-survey.md` (W0),
   `private/notes/p9-d028-flake-rate.md` (W1 partial),
   `private/notes/p9-9.13-0-w3a-survey.md` (W3.a).
