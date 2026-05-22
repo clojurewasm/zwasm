@@ -55,6 +55,17 @@ NECESSARY=(
   "std.c.waitpid"
   "std.c.alarm"
   "std.c.getenv"
+  # ADR-0105 D1 (2026-05-23): stack-limit query for JIT-prologue
+  # stack-probe. macOS pthread_get_stackaddr_np / pthread_get_stacksize_np
+  # + Linux pthread_getattr_np / pthread_attr_getstack / pthread_attr_destroy.
+  # All Zig 0.16 std.posix lacks them; the JIT prologue needs the
+  # thread-stack low-end for the cmp/jbe probe.
+  "pthread_get_stackaddr_np"
+  "pthread_get_stacksize_np"
+  "pthread_getattr_np"
+  "pthread_attr_getstack"
+  "pthread_attr_destroy"
+  "std.c.pthread_self"
 )
 
 # replaceable: symbol → suggested target. Post-B132 the working

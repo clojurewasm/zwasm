@@ -332,6 +332,17 @@ pub const JitRuntime = extern struct {
     /// so JIT-emitted BLR/CALL through this slot is SEGV-safe out
     /// of the box. Spec runners override with `growableTableGrowFn`.
     table_grow_fn: *const fn (rt: *JitRuntime, tableidx: u32, init: u64, delta: u32) callconv(.c) i32 = defaultTableGrowReject,
+    /// ADR-0105 D1 — JIT-prologue stack-probe threshold. Set at
+    /// entry-helper construction time via
+    /// `platform.stack_limit.computeStackLimit(STACK_GUARD_HEADROOM)`;
+    /// the JIT prologue (cycle 2) emits `cmp sp, [vmctx +
+    /// stack_limit_off] + b.ls trap-stub` so SP descending below
+    /// this threshold traps cleanly via the existing trap-stub
+    /// path BEFORE the OS guard page faults. Sentinel `0` =
+    /// "probe disabled" (the comparison always passes, since SP
+    /// > 0). Cross-platform per ADR-0105 D1 (macOS pthread_*np,
+    /// Linux pthread_getattr_np, Win64 GetCurrentThreadStackLimits).
+    stack_limit: usize = 0,
 };
 
 /// Default `memory_grow_fn` — unconditionally refuses growth by
@@ -399,6 +410,9 @@ pub const memory_grow_fn_off: u12 = @offsetOf(JitRuntime, "memory_grow_fn");
 pub const tables_jit_ci_ptr_off: u12 = @offsetOf(JitRuntime, "tables_jit_ci_ptr");
 pub const tables_jit_ci_count_off: u12 = @offsetOf(JitRuntime, "tables_jit_ci_count");
 pub const table_grow_fn_off: u12 = @offsetOf(JitRuntime, "table_grow_fn");
+/// ADR-0105 D1 / D2 — stack-probe threshold field offset. X-form
+/// (8-byte usize); prologue emits `LDR Xn, [vmctx, #stack_limit_off]`.
+pub const stack_limit_off: u12 = @offsetOf(JitRuntime, "stack_limit");
 
 /// Total size of the head section consumed by the prologue.
 pub const head_size: u32 = @sizeOf(JitRuntime);
@@ -505,6 +519,9 @@ comptime {
     // §9.9 / 9.9-l-1b-d093-d48 (D-122 / D-125): table_grow_fn is X-form pointer.
     if ((table_grow_fn_off & 7) != 0) @compileError("table_grow_fn_off not 8-aligned");
     if (table_grow_fn_off > 32760) @compileError("table_grow_fn_off exceeds X-form imm12 budget");
+    // ADR-0105 D1: stack_limit is X-form (usize); imm12 scales by 8.
+    if ((stack_limit_off & 7) != 0) @compileError("stack_limit_off not 8-aligned");
+    if (stack_limit_off > 32760) @compileError("stack_limit_off exceeds X-form imm12 budget");
 }
 
 // ============================================================
@@ -525,8 +542,8 @@ test "JitRuntime: layout offsets match documented prologue load sequence" {
     try testing.expectEqual(@as(u12, 80), jit_executed_flag_off);
 }
 
-test "JitRuntime: total size = 224 bytes (post-§9.9 / 9.9-l-1b-d093-d48 table_grow_fn tail)" {
-    try testing.expectEqual(@as(u32, 224), head_size);
+test "JitRuntime: total size = 232 bytes (post-ADR-0105 D1 stack_limit tail)" {
+    try testing.expectEqual(@as(u32, 232), head_size);
 }
 
 test "JitRuntime: §9.9 / 9.9-l-1b-d093-d8a callout offsets (host_state + memory_grow_fn)" {
@@ -541,6 +558,10 @@ test "JitRuntime: §9.9 / 9.9-l-1b-d093-d42 tables_jit_ci offsets" {
 
 test "JitRuntime: §9.9 / 9.9-l-1b-d093-d48 table_grow_fn offset" {
     try testing.expectEqual(@as(u12, 216), table_grow_fn_off);
+}
+
+test "JitRuntime: ADR-0105 D1 stack_limit offset (tail field; X-form imm12-safe)" {
+    try testing.expectEqual(@as(u12, 224), stack_limit_off);
 }
 
 test "TableJitCallInfo: layout is 16 bytes with funcptr_base/typeidx_base at expected offsets" {
