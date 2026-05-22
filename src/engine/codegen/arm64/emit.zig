@@ -306,20 +306,14 @@ pub fn compile(
     // and BEFORE param shuffle (which uses X1..X7 + V0..V7 only —
     // X8 is safe until captured). The epilogue reads it back at
     // `marshalFunctionReturn`'s MEMORY-class branch.
-    if (return_is_memory_class) {
-        try gpr.writeU32(allocator, &buf, inst.encStrImm(8, 31, @intCast(indirect_result_slot_off)));
-    } else if (buffer_write) {
-        // ADR-0106 path (a) cycle 2d — capture the buffer-write
-        // `results` ptr (X1 per AAPCS64: X0=rt, X1=results, X2=args)
-        // to the same slot the MEMORY-class X8 capture uses. The
-        // epilogue (marshalFunctionReturn) branches on
-        // `alloc.result_abi == .buffer_write` to load this back
-        // into X16 and write each result to `[X16, #(i*8)]`.
-        // Param shuffle below would normally consume X1 as the
-        // first int arg slot — but buffer_write 0-arg test fns
-        // skip that path; multi-arg buffer_write lands alongside
-        // cycle 2e (args-pointer marshal).
+    // ADR-0106 path (a) cycle 3a — buffer_write takes precedence
+    // over the MEMORY-class case. When `sig.results.len > 2`
+    // AND buffer_write, both flags fire; we want X1 (results
+    // ptr) in the slot, not X8 (MEMORY-class hidden ptr).
+    if (buffer_write) {
         try gpr.writeU32(allocator, &buf, inst.encStrImm(1, 31, @intCast(indirect_result_slot_off)));
+    } else if (return_is_memory_class) {
+        try gpr.writeU32(allocator, &buf, inst.encStrImm(8, 31, @intCast(indirect_result_slot_off)));
     }
 
     // Multi-arg entry: store params from X1..X{num_params} into

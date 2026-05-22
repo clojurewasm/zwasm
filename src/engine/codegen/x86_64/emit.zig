@@ -310,19 +310,17 @@ pub fn compile(
     // XMM0..XMM7 when self is MEMORY-class (slots 2-5 instead
     // of 1-5). The body's `gprLoadSpilled` staging through
     // R10/R11 is unaffected.
-    if (return_is_memory_class) {
-        const disp: i32 = -@as(i32, @intCast(indirect_result_slot_neg_off));
-        try buf.appendSlice(allocator, inst.encStoreR64MemRBPDisp32(disp, .rdi).slice());
-    } else if (buffer_write) {
-        // ADR-0106 path (a) cycle 2c — capture the buffer-write
-        // `results` pointer arg (RSI in SysV / RDX in Win64) to the
-        // same frame slot the MEMORY-class path uses. The epilogue
-        // in op_control.zig::marshalReturnRegs branches on
-        // `alloc.result_abi == .buffer_write` to load this back
-        // into RAX and write each result to `[RAX + i*8]`.
+    // ADR-0106 path (a) cycle 3a — buffer_write takes precedence
+    // over MEMORY-class. For `sig.results.len > 2` SysV buffer_write
+    // both flags fire; we want RSI (results ptr) in the slot, not
+    // RDI (the MEMORY-class hidden ptr).
+    if (buffer_write) {
         const disp: i32 = -@as(i32, @intCast(indirect_result_slot_neg_off));
         const results_ptr_gpr: abi.Gpr = if (abi.current_cc == .win64) .rdx else .rsi;
         try buf.appendSlice(allocator, inst.encStoreR64MemRBPDisp32(disp, results_ptr_gpr).slice());
+    } else if (return_is_memory_class) {
+        const disp: i32 = -@as(i32, @intCast(indirect_result_slot_neg_off));
+        try buf.appendSlice(allocator, inst.encStoreR64MemRBPDisp32(disp, .rdi).slice());
     }
 
     // §9.7 / 7.8-x86-params: marshal i32 params from arg regs to

@@ -195,6 +195,63 @@ else if (builtin.cpu.arch == .x86_64)
 else
     struct {};
 
+test "buffer-write entry: native-emit () → (i32, i32, i32) multi-result via buffer (ADR-0106 cycle 3a / D-164 trigger shape)" {
+    if (!(builtin.cpu.arch == .aarch64 and builtin.os.tag == .macos) and
+        !(builtin.cpu.arch == .x86_64 and builtin.os.tag != .windows))
+    {
+        return error.SkipZigTest;
+    }
+    // Build ZirFunc: () -> (i32, i32, i32); body = i32.const 11; 22; 33; end.
+    // 3 results trigger the D-164 SysV §3.2.3 > 2 GPR-class results path
+    // — the case that motivated ADR-0106 path (a) buffer-write redesign.
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32, .i32, .i32 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 11 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 22 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 33 });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 3 },
+        .{ .def_pc = 1, .last_use_pc = 3 },
+        .{ .def_pc = 2, .last_use_pc = 3 },
+    } };
+    const slots = [_]u16{ 0, 1, 2 };
+    const alloc: regalloc.Allocation = .{
+        .slots = &slots,
+        .n_slots = 3,
+        .result_abi = .buffer_write,
+    };
+    const sigs = [_]zir.FuncType{sig};
+    const out = try native_emit.compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{});
+    defer native_emit.deinit(testing.allocator, out);
+
+    const bodies = [_]linker.FuncBody{
+        .{ .bytes = out.bytes, .call_fixups = out.call_fixups },
+    };
+    var module = try linker.link(testing.allocator, &bodies, 0);
+    defer module.deinit(testing.allocator);
+    const fn_ptr = module.entry(0, BufferWriteFn);
+    var rt: JitRuntime = .{
+        .vm_base = undefined,
+        .mem_limit = 0,
+        .funcptr_base = undefined,
+        .table_size = 0,
+        .typeidx_base = undefined,
+        .trap_flag = 0,
+        .globals_base = undefined,
+        .globals_count = 0,
+        .host_dispatch_base = undefined,
+        .host_dispatch_count = 0,
+    };
+    var args_buf: [1]u64 = .{0};
+    var results_buf: [3]u64 = .{ 0, 0, 0 };
+    try invokeBufferWrite(&rt, fn_ptr, &args_buf, &results_buf);
+    try testing.expectEqual(@as(u64, 11), results_buf[0] & 0xFFFFFFFF);
+    try testing.expectEqual(@as(u64, 22), results_buf[1] & 0xFFFFFFFF);
+    try testing.expectEqual(@as(u64, 33), results_buf[2] & 0xFFFFFFFF);
+}
+
 test "buffer-write entry: native-emit (i32) → i32 identity via [args_ptr+0] (ADR-0106 cycle 2e)" {
     if (!(builtin.cpu.arch == .aarch64 and builtin.os.tag == .macos) and
         !(builtin.cpu.arch == .x86_64 and builtin.os.tag != .windows))
