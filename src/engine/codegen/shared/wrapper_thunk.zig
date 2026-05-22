@@ -442,6 +442,80 @@ test "wrapper_thunk: end-to-end execution — () → (i32, i32, i32) via wrapper
     try testing.expectEqual(@as(u32, 33), @as(u32, @intCast(results_buf[2] & 0xFFFFFFFF)));
 }
 
+test "wrapper_thunk: end-to-end execution — () → (i32, i64) via wrapper" {
+    if (!(builtin.cpu.arch == .aarch64 and builtin.os.tag == .macos) and
+        !(builtin.cpu.arch == .x86_64 and builtin.os.tag != .windows))
+    {
+        return error.SkipZigTest;
+    }
+    const zir = @import("../../../ir/zir.zig");
+    const ZirFunc = zir.ZirFunc;
+    const regalloc = @import("regalloc.zig");
+    const native_emit = if (builtin.cpu.arch == .aarch64)
+        @import("../arm64/emit.zig")
+    else
+        @import("../x86_64/emit.zig");
+    const jit_mem = @import("../../../platform/jit_mem.zig");
+    const entry_buf = @import("entry_buffer_write.zig");
+
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32, .i64 } };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0x77 });
+    try f.instrs.append(testing.allocator, .{ .op = .@"i64.const", .payload = 0xABCDEF12 });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+        .{ .def_pc = 1, .last_use_pc = 2 },
+    } };
+    const slots = [_]u16{ 0, 1 };
+    const alloc: regalloc.Allocation = .{
+        .slots = &slots,
+        .n_slots = 2,
+        .result_abi = .register_write,
+    };
+    const sigs = [_]zir.FuncType{sig};
+    const body_out = try native_emit.compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{});
+    defer native_emit.deinit(testing.allocator, body_out);
+
+    const body_offset: u32 = 0;
+    const thunk_offset: u32 = @intCast(body_out.bytes.len);
+
+    const wrapper_out = try emit(testing.allocator, .{
+        .sig = sig,
+        .body_offset = body_offset,
+        .thunk_offset = thunk_offset,
+    });
+    defer testing.allocator.free(wrapper_out.bytes);
+
+    const total_size = body_out.bytes.len + wrapper_out.bytes.len;
+    var block = try jit_mem.alloc(total_size);
+    defer jit_mem.free(block);
+    try jit_mem.setWritable(block);
+    @memcpy(block.bytes[body_offset..][0..body_out.bytes.len], body_out.bytes);
+    @memcpy(block.bytes[thunk_offset..][0..wrapper_out.bytes.len], wrapper_out.bytes);
+    try jit_mem.setExecutable(block);
+
+    const fn_ptr: entry_buf.BufferWriteFn = @ptrCast(@alignCast(block.bytes.ptr + thunk_offset));
+    var rt: entry_buf.JitRuntime = .{
+        .vm_base = undefined,
+        .mem_limit = 0,
+        .funcptr_base = undefined,
+        .table_size = 0,
+        .typeidx_base = undefined,
+        .trap_flag = 0,
+        .globals_base = undefined,
+        .globals_count = 0,
+        .host_dispatch_base = undefined,
+        .host_dispatch_count = 0,
+    };
+    var args_buf: [1]u64 = .{0};
+    var results_buf: [2]u64 = .{ 0, 0 };
+    try entry_buf.invokeBufferWrite(&rt, fn_ptr, &args_buf, &results_buf);
+    try testing.expectEqual(@as(u32, 0x77), @as(u32, @intCast(results_buf[0] & 0xFFFFFFFF)));
+    try testing.expectEqual(@as(u64, 0xABCDEF12), results_buf[1]);
+}
+
 test "wrapper_thunk: emit returns UnsupportedOp for 0-result sig" {
     const params: EmitParams = .{
         .sig = .{ .params = &.{}, .results = &.{} },
