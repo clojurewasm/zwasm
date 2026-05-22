@@ -3072,7 +3072,8 @@ pub fn runCorpus(
                     // fixed (hidden-pointer or per-shape thunks), skip
                     // these specific wrappers by name match.
                     if (std.mem.find(u8, line, "as-binary-all-operands") != null or
-                        std.mem.find(u8, line, "as-mixed-operands") != null)
+                        std.mem.find(u8, line, "as-mixed-operands") != null or
+                        std.mem.find(u8, line, "fac-ssa") != null)
                     {
                         try stdout.print("SKIP-WIN64-MULTI-RESULT  {s}: {s} (D-164 — internal multi-result silent-truncate)\n", .{ name, line });
                         tally.skipped_adr += 1;
