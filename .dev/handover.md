@@ -73,39 +73,22 @@ that emits the bounds-check + trap-stub bytes for the
 `x86_64-windows-gnu`, and inspect via `llvm-objdump -d`. The
 spike doc enumerates which hypotheses each probe distinguishes.
 
-## Work landed this session (2026-05-23 cycle)
+## Work landed this session (2026-05-23)
 
-ADR-0106 cycle 3e: Phase 2'a/2'b/2'd/2'e (per-arch wrapper emit
-for SysV + arm64 covering 2-int + 3-int shapes), Phase 2'f
-(`JitModule.entry_buf` + `thunk_offsets`), Phase 2'g
-(`linker.linkWithThunks` + `WrapperSpec`), Phase 2'h step 1
-(compileWasm wires linkWithThunks), Phase 2'h step 2 (entry
-helpers Win64-route via `module.entry_buf` + `invokeBufWin64NoArgs`),
-Phase 2'i (Win64 2-int wrapper), Phase 2'j (Win64 3-int
-MEMORY-class wrapper with XCHG RCX↔RDX), Phase 2'k (body-side
-cycle 2c MEMORY-class extended to Win64 — gate + Cc-aware
-rt_src_gpr/hidden_ptr_gpr), Phase 2'l (SKIP-WIN64-MULTI-RESULT
-arm removed). D-094 + D-164 closed. Two latent wrapper bugs
-caught + fixed via end-to-end tests (arm64 X30-not-saved +
-x86_64 RBX clobbered). Lesson recorded:
+ADR-0106 cycle 3e Phase 2'a → 2'l (full implementation chain:
+per-arch wrapper emit SysV+arm64+Win64 × 2-int+3-int shapes,
+linker hookup, compileWasm wiring, entry helpers Win64-routing,
+body-side cycle 2c MEMORY-class Win64 extension, SKIP arm
+removal). D-094 + D-164 closed. 2 latent wrapper bugs caught
+via e2e tests (arm64 X30 + x86_64 RBX). Lesson:
 `2026-05-23-wrapper-thunk-stack-save-not-callee-saved.md`.
-D-163 wasmtime+Wasmer survey + spike + debt row refinement
-(`3b456290`).
+D-163 survey + spike + debt refinement (`3b456290`).
 
-## Active `now` debts
-
-(None — D-094 + D-164 discharged this session.)
+## Active `now` debts: none.
 
 ## See
 
-- [`phase9_close_master.md`](./phase9_close_master.md).
-- ADR-0104 (Phase 9 honest-accounting reframe).
-- ADR-0105 (JIT-prologue stack-probe — D-162 closed prior).
-- ADR-0106 (multi-result ABI redesign — cycles 1 through 3e
-  Phase 2'l landed this session).
-- ADR-0078 (SKIP taxonomy — only `SKIP-WIN64-CALL-INDIRECT-TRAP`
-  arm remains; closes with D-163).
-- `private/spikes/d-163-win64-call-indirect-trap/` (gitignored
-  hypothesis enumeration + probe ranking).
-- `.dev/debt.md`: D-163 row body refined with hypothesis
-  ranking.
+- [`phase9_close_master.md`](./phase9_close_master.md) (§5.1
+  D-163 only remaining; §6 exit predicate).
+- ADR-0104 / 0105 / 0106 / 0078.
+- `private/spikes/d-163-win64-call-indirect-trap/` (gitignored).

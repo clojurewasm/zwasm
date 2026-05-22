@@ -159,26 +159,16 @@ auto-load this list. Do not edit elsewhere.
 
 ### §5.1 — Win64 codegen redesign per ADR-0105 / ADR-0106
 
-- [ ] D-162 close — JIT-prologue stack-probe implementation per
-  ADR-0105.
-  - Emit cmp [VMCtx + stack_limit_off], rsp + jbe trap-stub in
-    JIT function prologue (x86_64) + cmp / b.ls equivalent
-    (arm64).
-  - SP-comparison threshold = VMCtx field set at instance
-    instantiation (per-instance stack-limit).
-  - Remove EXCEPTION_STACK_OVERFLOW filter from
-    `windows_traphandler.zig::vehHandler`.
-  - Remove `SKIP-WIN64-EXHAUSTION` arm from
-    `spec_assert_runner_base.zig`.
-  - Verify on all 3 hosts: `assert_exhaustion runaway` PASS.
-- [ ] D-164 close — multi-result ABI per ADR-0106.
-  - Per ADR-0106 decision, either:
-    (a) replace `FuncRet_*` entry helpers with `[*]u64`
-        buffer-write entry ABI, or
-    (b) introduce uniform implicit-SRet ABI lowering in
-        `src/engine/codegen/` shared abi module.
-  - Remove `SKIP-WIN64-MULTI-RESULT` arm from spec runner.
-  - Verify: `assert_return type-all-*` PASS on Win64.
+- [x] D-162 close — JIT-prologue stack-probe per ADR-0105
+  (`7c1ec732` impl; `2ce381e6` debt close + `b160206b` row
+  flip). SKIP-WIN64-EXHAUSTION arm removed. windowsmini
+  reconciliation at Phase 9 close boundary.
+- [x] D-164 close — multi-result ABI per ADR-0106 path (a)
+  buffer-write. Implementation chain cycles 1 → 3e Phase
+  2'l (`f8b9eff7` → `17953c9e`). SKIP-WIN64-MULTI-RESULT
+  arm removed (`17953c9e`). windowsmini reconciliation
+  at Phase 9 close boundary verifies `assert_return
+  type-all-*` PASS on Win64.
 - [ ] D-163 close — Win64 call_indirect trap codegen bug spike.
   - Disassemble `emitCallIndirect` Win64 branch at the OOB
     fixture's index 306 site.
@@ -199,31 +189,24 @@ as in-source `test "..."` block in `src/zwasm.zig`. `test/api/`
 directory is NOT created; `zig build test` discovers all via
 core runner.
 
-- [ ] `src/api/instance.zig`: add `test "wasm 2.0 reftype c_api
-  round-trip"` — funcref/externref args+results marshalling
-  (~80 LOC).
-- [ ] `src/api/instance.zig`: add `test "wasm 2.0 bulk-traps via
-  c_api"` — `memory.copy` / `table.init` OOB → `wasm_trap_t*`
-  (~120 LOC).
-- [ ] `src/api/instance.zig`: add `test "wasm 2.0 mixed-exports
-  c_api walk"` — `wasm_instance_exports()` returning multiple
-  `wasm_extern_kind`s (~60 LOC).
-- [ ] `src/api/instance.zig`: add `test "wasm 2.0 cross-module
-  funcref via wasm_instance_new"` — imports[] threading funcref
-  from instance A into instance B (~150 LOC).
-- [ ] `src/zwasm.zig` facade subset — `pub const Runtime` /
-  `Module` / `Instance` / `Value` thin wrappers + in-source
-  `test "zwasm facade Wasm 2.0 round-trip"` block (~250 LOC).
-  Closes D-075's Phase-9-eligible subset.
+- [x] `src/api/instance.zig`: 4 Wasm-2.0 c_api utilisation
+  test blocks landed (`a35e0f21`) — reftype round-trip /
+  bulk-traps / mixed-exports walk / cross-module funcref.
+  I2 invariant green.
+- [x] `src/zwasm.zig` facade subset — `Runtime` / `Module` /
+  `Instance` / `Value` types + in-source test block
+  (`6c4faeea`). I3 invariant green. Closes D-075's
+  Phase-9-eligible subset.
 - [x] `wast_runtime_runner` smoke step in `test-all` (verified
   at build.zig:616 — landed pre-Phase-9-close).
 
 ### §5.3 — Other Phase-9-scope debt close candidates
 
-- [ ] D-094 — x86_64 multi-result MEMORY-class indirect-result-
-  buffer ABI implementation (precedent: D-084 v128 hidden-ptr).
-- [ ] D-062 — arm64 v128 9th+ stack-arg overflow path
-  (precedent: §9.9-i-1 x86_64 sibling).
+- [x] D-094 — x86_64 multi-result MEMORY-class indirect-
+  result-buffer ABI landed via ADR-0106 cycle 2c (`d0aa6a85`).
+  Closed in debt.md alongside D-164 (`17953c9e`).
+- [x] D-062 — arm64 v128 9th+ stack-arg overflow path closed
+  (`d0b3941b` — §9.9-f-3 sibling landed both sides).
 
 ### §5.4 — Stale ADR / debt cleanup (concurrent with §5.1-§5.3)
 
