@@ -3231,6 +3231,8 @@ pub fn runCorpus(
                 };
             },
             .assert_return => {
+                std.debug.print("[d-166] before assert_return '{s}': mem_bytes={d}\n", .{ line, current_mem_bytes });
+                defer std.debug.print("[d-166] after assert_return '{s}': mem_bytes={d}\n", .{ line, current_mem_bytes });
                 // ADR-0106 cycle 3e Phase 2'h step 2 (2026-05-23):
                 // D-164 SKIP arm removed. The wrapper-thunk path
                 // (`module.entry_buf` + buffer-write helpers, see
@@ -3269,6 +3271,8 @@ pub fn runCorpus(
                 }
             },
             .assert_trap => {
+                std.debug.print("[d-166] before assert_trap '{s}': mem_bytes={d}\n", .{ line, current_mem_bytes });
+                defer std.debug.print("[d-166] after assert_trap '{s}': mem_bytes={d}\n", .{ line, current_mem_bytes });
                 // D-163 caller-side bounds-check trap path crashes
                 // on Win64 (cycle 9+; cycle 14 narrowed to JIT body
                 // / trap-stub RET — entry helper exonerated by
