@@ -165,11 +165,11 @@ inline fn invokeAndCheck(
     f: anytype,
     args: anytype,
 ) Error!R {
-    // ADR-0105 D1 — populate stack_limit per call for the prologue probe.
-    rt.stack_limit = stack_limit_mod.computeStackLimit(stack_limit_mod.STACK_GUARD_HEADROOM);
+    rt.stack_limit = stack_limit_mod.computeStackLimit(stack_limit_mod.STACK_GUARD_HEADROOM); // ADR-0105 D1
     rt.trap_flag = 0;
     stack_limit_mod.diagOnceWithRt(rt, jit_abi.stack_limit_off, rt.stack_limit);
     const result = @call(.auto, f, .{rt} ++ args);
+    std.debug.print("[d-163e] flag={d}\n", .{rt.trap_flag}); // D-163 c14 probe
     if (rt.trap_flag == 0) return result;
     if (rt.trap_kind == 4) std.debug.print("[d-165] kind=4 cumulative_trap_stub_entry_count={d}\n", .{rt.trap_stub_entry_count});
     return Error.Trap;
