@@ -46,23 +46,27 @@ Tackle in this order (autonomous-eligible, ROI-descending):
    `src/api/instance.zig`.
 3. **A3. D-079 (ii)** — c_api v128 cross-module: extend
    `Runtime.globals` to v128-aware + plumb into instantiate.zig.
-4. **A4. D-163 wasm-2.0 (in flight, cycle 12 → 13)** —
+4. **A4. D-163 wasm-2.0 (in flight, cycle 13 → 14)** —
    investigate wasm-2.0/call/ caller-side bounds-check trap
-   crash on Win64. Cycle 12 (`f0b32dac`) decoded `func56`
-   (call_indirect with bounds check, ~223 bytes) on windowsmini
-   via `[d-163-jit]` dump + `ndisasm -b 64`: Prologue
-   `SUB RSP, 0x58` exactly matches bounds-trap-stub
-   `ADD RSP, 0x58`; R15 preserved through body; alignment OK.
-   **H1 / H3 / H4 REJECTED** for static layout. Crash is
-   runtime-side (entry helper / VEH / unwind metadata).
-   See lesson `2026-05-23-d163-static-jit-layout-verified.md`.
-   Cycle 13 next: bypass SKIP arm in
-   `spec_assert_runner_base.zig:3085` temporarily, run on
-   windowsmini, capture stderr + exit code + timing to narrow
-   runtime root cause. Companion: 2 NEW Win64 FAILs
-   (`type-all-i32-i32`, `as-call-all-operands` garbage 1st
-   i32) need separate triage (D-094/D-164 territory). Order:
-   can interleave with A1-A3.
+   crash on Win64. Cycle 12 (`f0b32dac`): static JIT layout
+   verified correct (H1/H3/H4 REJECTED). Cycle 13 (`01e71017`):
+   SKIP-arm bypass run captured silent process death —
+   reaches `[W4 DIR] call : assert_trap as-call_indirect-last`,
+   exit 1 near-instant (~0.8 s SSH-end-to-end), NO SEGV
+   handler text, NO Error.Trap return from entry helper.
+   Working hypothesis: **uncaught Win64 SEH from missing
+   `.pdata`/`.xdata` unwind metadata** for JIT frames colliding
+   with caller-side bounds-trap-stub RET path. (Callee-side
+   `unreachable` trap works because it returns to caller's
+   continuation, not directly across a SEH boundary.) Cycle
+   14 next: instrument entry helper (`shared/entry.zig`)
+   with stderr write between "JIT call returned" and
+   "check trap_flag" to narrow JIT-side vs entry-helper-side
+   death; reference wasmtime's `UNWIND_INFO` emission as
+   the canonical Win64 fix path. Companion: 2 NEW Win64
+   FAILs (`type-all-i32-i32`, `as-call-all-operands`) need
+   separate triage (D-094/D-164 territory). Order: can
+   interleave with A1-A3.
 
 ### Phase B — windowsmini reconcile (single shot after A1+A2+A3)
 
