@@ -30,63 +30,31 @@ Closed cycles 10-25: `git log --grep="cycle 2[0-5]\|A1\|A2\|A4"`.
 - 31: stale-comment cleanup.
 - 32-34: ADR-0107 + ADR-0108 enrichment passes
   (Alt. D + 9 catalog precedents + 4 hazards).
+- 35: user opted per-file cap override → ADR-0099
+  amended (Revision 2026-05-24) + ADR-0108 Withdrawn
+  + D-168 discharged + entry.zig marker cap=3000.
 
 ## Remaining work
 
 ### Autonomous-eligible (next session pick from here)
 
-(none — all gating-ADR autonomous-prep levers walked;
-bucket-3 unlocked. See "Bucket-3 stop" section below.)
+- **D-167 wire-up (single cycle)** — user decision cycle 35
+  unblocked entry.zig cap via ADR-0099 per-file `(cap=N)`
+  override. Discharge: add `invokeBufWin64Args` helper to
+  `entry_buffer_write.zig` + Win64 if-arms in `entry.zig`
+  for `callI32i32_i32` / `callI32i64_i32` /
+  `callI64i32_i64i64i32` (+ `callI32i32i64_i32` shape 3/3)
+  + windowsmini integration verify.
 
-### After ADR-0108 Accept (unblocks D-168 → D-167 wire-up)
+### Still user-gated
 
-Single-cycle wire-up of D-167 shapes 1-3 in entry.zig +
-`invokeBufWin64Args` helper + windowsmini integration verify.
+- **ADR-0107** Accept → D-079 (ii) c_api byte-buffer globals
+  migration (~2-3 cycles, 4 hazards documented in ADR
+  Consequences).
+- **§9.13 hard gate** — ADR-0105 + ADR-0106 Track D collab
+  review + Phase B `[x]` re-flip per
+  `phase9_close_master.md` §5.3a Phase B.
 
-### After ADR-0107 Accept (unblocks D-079 (ii))
-
-2-3-cycle byte-buffer Runtime.globals migration per the
-ADR. 4 implementation hazards documented in ADR-0107
-Consequences (validator/Runtime split, globals_storage
-consolidation, c_api aliasing choice, mvp.zig slice
-rewrite).
-
-## Bucket-3 stop — user touchpoint required
-
-All autonomous prep walked; loop stops without re-arm per
-`/continue` SKILL.md stop-condition #3.
-
-**Gating user touchpoint(s)**:
-
-- **ADR-0108** (`.dev/decisions/0108_uniform_pattern_catalog_cap.md`)
-  — `Status: Proposed → Accepted` flip. Unblocks D-168 →
-  D-167 wire-up cycle.
-- **ADR-0107** (`.dev/decisions/0107_byte_buffer_globals_for_v128_cross_module.md`)
-  — `Status: Proposed → Accepted` flip. Unblocks D-079 (ii)
-  byte-buffer Runtime.globals migration.
-
-**Autonomous prep walked this session** (do not re-walk):
-
-- ADR-0108: spike-(a) null result cycle 30 (ADR §Alternatives);
-  ref-repo enriched cycle 33 with 9 catalog precedents from
-  wasmtime/cranelift + wasm-tools + zware (entry.zig at 2500
-  LOC is SMALLER than 8 of 9 cited).
-- ADR-0107: consequences refined cycle 30; ref-repo enriched
-  cycle 32 (Alternative D wasmtime VMGlobalDefinition); spike-
-  equivalent code review cycle 34 surfaced 4 implementation
-  hazards documented in ADR Consequences.
-
-**To resume**: flip the named ADR(s) `Status: Accepted` and
-re-invoke `/continue`. The next loop will pick up the
-corresponding discharge cycle immediately.
-
-### User-gated
-
-- **§9.13 hard gate** — ADR-0105 + ADR-0106 `Status: Accepted`
-  flip via Track D collab review + Phase B `[x]` re-flip with
-  cited SHAs (per `phase9_close_master.md` §5.3a Phase B).
-  (NOTE: D-079 (ii) / ADR-0107 + D-168 / ADR-0108 are listed
-  under Bucket-3 stop section below — same gating shape.)
 
 ## Cold-start procedure
 

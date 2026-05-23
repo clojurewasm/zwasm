@@ -1,6 +1,6 @@
 # 0108 — Uniform-pattern catalog file-size tier (CATALOG-EXEMPT marker)
 
-- **Status**: Proposed
+- **Status**: Withdrawn 2026-05-24 — user opted for ADR-0099 per-file cap override (`(cap=N)` marker suffix) instead of a new global tier. ADR-0099 Revision 2026-05-24 carries the implementation. See entry.zig:1 for the only site (cap=3000). This ADR remains in-tree as design-decision lineage.
 - **Date**: 2026-05-23
 - **Author**: claude (autonomous loop, cycle 30)
 - **Tags**: scaffolding, file_size_check, entry.zig, D-167, D-168

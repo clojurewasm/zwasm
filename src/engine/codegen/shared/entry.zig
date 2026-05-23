@@ -1,4 +1,4 @@
-// FILE-SIZE-EXEMPT: uniform-pattern catalog (84 callXX_yy helpers) per ADR-0063
+// FILE-SIZE-EXEMPT: uniform-pattern catalog (114 callXX_yy per-shape entry helpers; monotonic growth with Wasm signature shapes) (cap=3000) (per ADR-0063 + ADR-0099 Revision 2026-05-24)
 // Comptime generation is a follow-up; see ADR-0063 Alternative B + debt ledger.
 
 //! JIT entry frame (ADR-0017).
