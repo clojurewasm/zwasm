@@ -3267,18 +3267,18 @@ pub fn runCorpus(
                 }
             },
             .assert_trap => {
-                // D-163 caller-side bounds-check trap path crashes
-                // on Win64 (cycle 9+; cycle 14 narrowed to JIT body
-                // / trap-stub RET — entry helper exonerated by
-                // `[d-163e] flag=...` print not appearing for the
-                // as-call_indirect-last directive). SKIP narrowed
-                // to wasm-2.0 corpus.
-                // D-163 cycle 20 probe: SKIP arm BYPASSED post-D-166-fix
-                // to verify if Win64 caller-side bounds-check trap now
-                // succeeds (D-166's scratch_typeidxs reset means OOB
-                // call_indirect now triggers sig-mismatch trap stub,
-                // distinct from the previously-untested bounds-check
-                // trap stub). Restore arm at probe close.
+                // D-163 CLOSED at cycle 20 via D-166 fix
+                // (`e5042b3e`): root cause was NOT a Win64-specific
+                // trap-stub-RET issue but the spec runner's
+                // scratch_typeidxs not being reset between modules.
+                // The "silent process death" symptom on Win64 was a
+                // wild call through a stale funcptr (sig-mismatch
+                // false-negative because the leftover typeidx happened
+                // to match the expected typeidx). With scratch_typeidxs
+                // reset to maxInt(u32) sentinel between modules, OOB
+                // call_indirect now correctly triggers the sig-mismatch
+                // trap stub on all 3 hosts — the same trap stub the
+                // bounds-check JAE would target. SKIP arm retired.
                 if (module_bad) {
                     tally.runtime_skip += 1;
                     continue;

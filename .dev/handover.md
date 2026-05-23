@@ -41,24 +41,23 @@ code. Phase B (below) bundles the Win64 verification once.
 Tackle in this order (autonomous-eligible, ROI-descending):
 
 1. **A1. D-157 CLOSED** (cycle 15-16; SKIP 56→0 wasm-2.0).
-2. **A2. D-139 CLOSED** (cycle 17, `c423cb4e`). c_api Instance
-   audit coverage tests.
-3. **D-166 CLOSED** (cycle 19, `e5042b3e`). Root cause:
-   spec_assert runner did not reset scratch_typeidxs to sentinel
-   between modules; leftover stale typeidx matched current
-   call_indirect's expected typeidx → sig check passed → wild
-   funcptr executed → mem corruption (off-by-one). Fix:
-   `@memset scratch_typeidxs[..] = maxInt(u32)` before
-   `applyTableInitCtx`. ubuntu 5 fails → 0.
+2. **A2. D-139 CLOSED** (cycle 17; c_api Instance audit tests).
+3. **D-166 + A4 D-163 CLOSED** (cycle 19-20, `e5042b3e`). Single
+   root cause: `scratch_typeidxs` not reset between modules in
+   spec runner. Symptoms differed per host (Mac OK / ubuntu
+   off-by-one / Win64 silent process death) but ONE fix at
+   `spec_assert_runner_non_simd.zig:251` closes both. Phase 9
+   close gate: 17/18 → **18/18**. See lesson
+   `2026-05-23-d163-d166-shared-root-cause.md`.
 
 **Remaining**:
-- A3 (D-079 ii v128 cross-module): structural Runtime.globals
-  refactor (`[]*Value` → byte-buffer w/ offsets+valtypes). Scope
-  ≈ 13 callsites across 4 files + JIT codegen update. ADR-0107
-  proposed (user-gated) before full migration.
-- A4 (D-163 Win64): narrowing complete (entry helper exonerated;
-  ADD-RSP suspect; needs live debugger session per user
-  "windows一気に解決" 段取り).
+- A3 (D-079 ii v128 cross-module): structural `Runtime.globals`
+  refactor; ADR-0107 needed before full migration (user-gated).
+- 2 Win64 multi-result fails surfaced in cycle 11
+  (`type-all-i32-i32`, `as-call-all-operands`) — distinct from
+  D-163; D-094/D-164 territory needs separate investigation.
+- §9.13 hard gate ADR-0105 + ADR-0106 Accepted flip (user
+  touchpoint).
 2. **A2. D-139** — c_api Instance audit + coverage tests in
    `src/api/instance.zig`.
 3. **A3. D-079 (ii)** — c_api v128 cross-module: extend

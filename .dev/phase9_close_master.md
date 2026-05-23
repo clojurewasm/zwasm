@@ -186,37 +186,20 @@ auto-load this list. Do not edit elsewhere.
   arm removed (`17953c9e`). windowsmini reconciliation
   at Phase 9 close boundary verifies `assert_return
   type-all-*` PASS on Win64.
-- [ ] D-163 close — Win64 call_indirect trap path. Cycle 8
-  evidence (`wasm-1.0/unreachable/` `assert_trap
-  as-call_indirect-last` PASS at log line 14615) was a
-  **callee-side `unreachable` trap** (called function body
-  traps via the `unreachable` opcode → callee's epilogue trap
-  path), **structurally distinct** from the **caller-side
-  `call_indirect` bounds-check trap** that `wasm-2.0/call/`'s
-  `assert_trap as-call_indirect-last` ()` exercises. Cycle 8
-  assumed shared "call_indirect trap" framing implied a shared
-  trap path; it does not. Note: R3 = `17917f07` (D-162
-  stack-probe headroom) is unrelated to the `call_indirect`
-  trap-stub path. The SKIP arm was removed at `0de438a6` and
-  cycle 9 verification on `wasm-2.0/call/call.0.wasm` exposed
-  that the **caller-side bounds-check trap path has never been
-  verified to PASS on Win64** (exit 1 in ~5 sec on windowsmini
-  is the first-ever attempt at this shape). SKIP arm restored
-  (cycle 9), scope narrowed to wasm-2.0 corpus. Spike
-  hypotheses (`private/spikes/d-163-win64-call-indirect-trap/`)
-  H1 (`ADD RSP` shadow-space mismatch in bounds-trap stub) and
-  H4 (caller-side frame alignment) are now upweighted given
-  the caller-side framing; H3 (R15↔entry_arg0 pre-trap)
-  remains plausible. Cycle 10 next probe: capture
-  `D165_DUMP_JIT=1` runtime dump of the affected function on
-  windowsmini, decode the trap-stub bytes, compare against
-  prologue's `SUB RSP` value. Treat as Phase A4
-  (autonomous-eligible per `test/private/d-165/`-style
-  isolation + cmd /c orchestration per `debug_jit_auto/SKILL.md`
-  Recipes 15-17). Mac-side Win64 cross-build verified working
-  (cycle 10: `zig build install -Dtarget=x86_64-windows-gnu`
-  produces `zig-out/bin/zwasm-spec-wasm-2-0-assert.exe`,
-  4.4 MB PE32+).
+- [x] D-163 close — Win64 call_indirect trap path. **Closed
+  cycle 20** via D-166 fix (`e5042b3e`); root cause shared
+  with D-166 (ubuntu memory_grow off-by-one). Both symptoms
+  caused by spec_assert_runner_non_simd's `scratch_typeidxs`
+  NOT being reset to `maxInt(u32)` sentinel between modules
+  → stale typeidx happens to match expected → sig-check
+  passes → stale funcptr (= dangling JIT body from freed
+  prior module) wild-jump → Mac OK / ubuntu off-by-one /
+  Win64 silent process death. Fix at
+  `spec_assert_runner_non_simd.zig:251` (`@memset
+  scratch_typeidxs[..]=maxInt(u32)` before applyTableInitCtx).
+  SKIP arm retired (commit `<this commit>`). Phase 9 close
+  invariants 17/18 → **18/18** post-fix. See lesson
+  `2026-05-23-d163-d166-shared-root-cause.md`.
 
 ### §5.2 — c_api / Zig API Wasm-2.0 utilisation tests
 
