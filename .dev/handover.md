@@ -40,8 +40,19 @@ code. Phase B (below) bundles the Win64 verification once.
 
 Tackle in this order (autonomous-eligible, ROI-descending):
 
-1. **A1. D-157** — `instantiate.zig` non-func import-type check.
-   Exit: 56 `SKIP-NO-LINK-TYPECHECK` → 0 on Mac+ubuntu.
+1. **A1. D-157 (in flight, cycle 15 → 16)** — `instantiate.zig`
+   already covers all 4 kinds (line 714); spec runner's
+   `hasIncompatibleImportType` mirror extended cycle 15
+   (`6e48e680`) with spectest non-func + cross-module helpers
+   (`crossModuleGlobalMismatch` / `crossModuleTableMismatch` /
+   `crossModuleMemoryMismatch`). Effect: SKIP-NO-LINK-TYPECHECK
+   56 → 54. The 54 remaining cross-module cases (e.g.
+   `imports.40.wasm`: `(import "test" "unknown" (global i32))`)
+   should be caught by mechanism but aren't firing. Cycle 16:
+   debug-print trace through the cross-module branch to
+   identify whether `registered.getPtr("test")` returns null
+   or the helpers return false unexpectedly. Exit: 54 → 0
+   on Mac+ubuntu.
 2. **A2. D-139** — c_api Instance audit + coverage tests in
    `src/api/instance.zig`.
 3. **A3. D-079 (ii)** — c_api v128 cross-module: extend
