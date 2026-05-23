@@ -17,7 +17,7 @@
 `assert_exhaustion fac-rec i64:1073741824` hangs after
 `fac : assert_return fac-ssa` (line ~28527).
 
-## Active chunk — D-165 cycle 2 (Win64 fac-rec hang spike)
+## Active chunk — D-165 cycle 3 (Win64 fac-rec hang spike)
 
 Phase 9 close gate: I1 = SKIP-WIN64-CALL-INDIRECT-TRAP.
 Blocking sequence: **D-165 → D-163 → §9.13-0 → Phase 9 DONE**.
@@ -29,41 +29,45 @@ cycle-1 static-analysis corrections).
 ### Hypotheses (per `hypothesis_enumeration.md`)
 
 1. ~~Probe doesn't fire (frame_bytes=0)~~ — REJECTED cycle 1
-   via `emit_setup.zig:104-111` read: Win64 shadow space
-   forces `frame_bytes ≥ 56`; probe IS reachable.
-2. ~~`stack_limit = 0` globally~~ — REJECTED by analogy:
-   runaway PASSes on cycle 8 with the same runner.
-3. (active, **leading**) Post-CALL marshal regression from
-   R1/R2/R3 diff. Signature: Win64 `marshalReturnRegs` or
-   wrapper-thunk arm handles single-i64-result trap-return
-   with pre-cap=1 semantics. Probe: cross-build to
-   `x86_64-windows-gnu`, Mac-host unit test inspects emitted
-   bytes for fac-rec's prologue probe + post-CALL marshal +
-   trap stub (no windowsmini round-trip).
-4. (active) Trap-flag propagation stall for single-i64-result
-   Win64. Signature: `rt.trap_flag = 1` set but runner's
-   post-call check reads i64 result before checking the
-   flag. Probe: read wasm/jit entry shim for single-i64-
-   result Win64 path.
+   via `emit_setup.zig:104-111` read; on Win64 `frame_bytes
+   ≥ 56` (shadow space).
+2. ~~`stack_limit = 0` globally~~ — REJECTED cycle 1 by
+   analogy: runaway PASSes on cycle 8 with the same runner.
+3. ~~Byte-shape regression in i64-result emit~~ — REJECTED
+   cycle 2 (`03715de1`). New unit test `compile: self-
+   recursive (i64)->i64 — probe + i64-result marshal (D-165
+   cycle 2)` asserts JBE-patched + SUB RSP > 0 + REX.W MOV
+   r64,RAX post-CALL marshal. PASS on Mac SysV + Win64 cross-
+   build clean. The minimal `local.get 0; call 0; end` shape
+   emits the structurally-correct prologue + marshal.
+4. (active, **leading**) Trap-flag propagation stall for
+   single-i64-result Win64. Signature: `rt.trap_flag = 1`
+   set but runner's post-call check reads i64 result before
+   checking the flag, OR the wasm/jit entry shim's
+   trap-detection branch for single-i64-result on Win64 is
+   broken. Probe (cycle 3): read the wasm/jit entry shim for
+   single-i64-result Win64 path —
+   `src/engine/codegen/shared/entry.zig` +
+   `entry_buffer_write.zig`; grep for trap_flag usage on the
+   i64 return path.
 5. (active) Cumulative unwind cost ≥ runner timeout.
    Signature: 13K-frame unwind crosses commit regions
    per-frame; external wall-clock timeout fires, not a true
    infinite loop. Probe: instrument unwind frame count OR
    bisect fac-rec input on windowsmini.
 
-### Cycle 2 plan
+### Cycle 3 plan
 
-1. Add `test "Win64 fac-rec prologue + post-CALL marshal +
-   trap stub byte sequence"` to
-   `src/engine/codegen/x86_64/emit_test_int.zig`. Mac-host
-   gate; classifies as `substrate`.
-2. Test: parse fac.0.wasm → force `abi.current_cc = .win64`
-   → emit func 0 → assert byte signatures (CMP RSP
-   [R15+stack_limit_off], JBE rel32, jit_executed_flag
-   write, SUB RSP ≥ 56, CALL self, trap-stub tail).
-3. PASS → H3 narrows to runtime/OS interaction; cycle 3
-   moves to H4 entry-shim read. FAIL → diff reveals
-   regression site.
+1. Read entry-shim layer to map the i64-result return path
+   on Win64. Identify where `rt.trap_flag` is checked after
+   a Wasm call returns.
+2. Compare with the `()->()` path that works for runaway.
+3. If a missing trap_flag check is found → fix it; add a
+   unit test asserting the entry shim observes trap_flag for
+   single-i64-result on both Cc.
+4. If the check is present → pivot to H5 (instrument runner
+   to surface frame-unwind cost OR bisect fac-rec input on
+   windowsmini).
 
 ### After D-165 resolved
 
@@ -81,6 +85,7 @@ to OK; gate exits 0; flip §9.13-0 [x] → Phase 9 DONE.
 - ✅ **R2** Win64 `marshalReturnRegs` cap=1→2 (`aac986d9`).
 - ✅ **R1** Win64 wrapper 2-XMM + `callF64f64NoArgs`
   (`73bcf80f`).
+- ✅ **D-165 cycle 2** byte-shape unit test (`03715de1`).
 
 windowsmini SSH-reachable, autonomous-eligible per ADR-0049.
 
