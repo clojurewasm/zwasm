@@ -169,16 +169,15 @@ auto-load this list. Do not edit elsewhere.
   arm removed (`17953c9e`). windowsmini reconciliation
   at Phase 9 close boundary verifies `assert_return
   type-all-*` PASS on Win64.
-- [ ] D-163 close — Win64 call_indirect trap codegen bug spike.
-  - Disassemble `emitCallIndirect` Win64 branch at the OOB
-    fixture's index 306 site.
-  - Compare bounds-check + trap-stub epilogue with POSIX
-    sibling.
-  - Fix the divergence (likely ABI mismatch in trap-stub
-    epilogue OR bounds-check producing non-AV exception).
-  - Remove `SKIP-WIN64-CALL-INDIRECT-TRAP` arm.
-  - Verify: `assert_trap as-call_indirect-last` PASS on
-    Win64.
+- [x] D-163 close — Win64 call_indirect trap path. SKIP arm
+  removed (`0de438a6`); windowsmini reconcile cycle 8 verified
+  `call: assert_trap as-call_indirect-last ()` PASS without
+  FAIL/SKIP/crash (log line 14615). The codegen-bug spike was
+  not needed — R3 stack-probe (`1e2d716d`) broader trap-path
+  fix repaired this trap path alongside the runaway exhaustion
+  path. Originally hypothesised as separate ABI mismatch /
+  bounds-check non-AV; actual root cause was the same Win64
+  commit-region early-overflow R3 fixed.
 
 ### §5.2 — c_api / Zig API Wasm-2.0 utilisation tests
 
