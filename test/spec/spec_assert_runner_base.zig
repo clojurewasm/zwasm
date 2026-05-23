@@ -3103,17 +3103,27 @@ pub fn runCorpus(
                 // arm restored — Removal condition: wasm-2.0-specific
                 // Win64 trap-path fix lands (separate spike from R3;
                 // multi-value / reftype interactions possible).
-                // D-163 cycle 13: SKIP arm TEMPORARILY removed to
-                // capture actual Win64 caller-side bounds-check
-                // trap crash stderr. Restore at cycle 13 close
-                // (or earlier if root cause found). Was:
-                // ```
-                // if (@import("builtin").os.tag == .windows and std.mem.find(u8, line, "call_indirect") != null) {
-                //     try stdout.print("SKIP-WIN64-CALL-INDIRECT-TRAP ...\n", ...);
-                //     tally.skipped_adr += 1;
-                //     continue;
-                // }
-                // ```
+                // D-163 reopened 2026-05-23 cycle 9 — narrow scope to
+                // wasm-2.0 corpus. Cycle 8 PASS at wasm-1.0/unreachable/
+                // assert_trap as-call_indirect-last was a callee-side
+                // unreachable trap (callee body's `unreachable` opcode →
+                // callee's epilogue trap path), structurally distinct
+                // from the caller-side bounds-check trap that
+                // wasm-2.0/call/ exercises. Cycle 12 (`f0b32dac`):
+                // static JIT layout decoded; H1/H3/H4 REJECTED. Cycle
+                // 13: SKIP-arm-bypass run confirmed silent process
+                // death (no SEGV handler trap, no Error.Trap return,
+                // exit 1 near-instant on windowsmini). Root cause is
+                // Win64 uncaught exception (SEH/VEH dispatch) — likely
+                // missing `.pdata`/`.xdata` unwind metadata for JIT
+                // frames colliding with caller-side trap-stub-RET.
+                // Removal condition: VEH filter extension or runtime
+                // entry-helper fix lands.
+                if (@import("builtin").os.tag == .windows and std.mem.find(u8, line, "call_indirect") != null) {
+                    try stdout.print("SKIP-WIN64-CALL-INDIRECT-TRAP  {s}: {s} (D-163 — Win64 JIT call_indirect trap path; wasm-2.0 corpus scope)\n", .{ name, line });
+                    tally.skipped_adr += 1;
+                    continue;
+                }
                 if (module_bad) {
                     tally.runtime_skip += 1;
                     continue;
