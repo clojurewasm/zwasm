@@ -31,35 +31,31 @@ A4 D-163/D-166 shared root-cause, Win64 2-i32-result fix,
 ADR-0107 Proposed, cycle 21-24 D-167 revert): `git log
 --grep="cycle 2[0-5]"` and `git log --grep="A1\|A2\|A4"`.
 
-## Cycle 26 progress (D-167 spike work-order step 1, shape 1/3)
+## Cycles 26-27 progress (D-167 spike work-order step 1, shapes 1-2/3)
 
-**1-arg + 2-int-result wrapper shape LANDED** with Mac byte
-test. `emitX8664Win64` predicate now allows `n_params == 1
-and n_results == 2 and all_gpr`. Bytes per spike README §
-"Win64 byte sequences (proven from cycle 21-24)". Wrapper
-extension only; entry.zig if-arm wire-up deferred until
-remaining shapes land (incremental approach per spike work
-order step 3). Implicitly covers both `callI32i32_i32` and
-`callI32i64_i32` (same wrapper bytes; result types differ
-only in body-side emit).
+**1-arg + 2-int-result (36 bytes; cycle 26) + 3-arg + 2-int-result
+(44 bytes; cycle 27) wrapper shapes LANDED** with Mac byte
+tests. `emitX8664Win64` predicate now allows `n_params ∈
+{0, 1, 3}` with `n_results == 2 and all_gpr` for multi-arg.
+Bytes per spike README § "Win64 byte sequences (proven from
+cycle 21-24)". Wrapper extension only; entry.zig if-arm
+wire-up deferred until remaining shape lands (incremental
+approach per spike work order step 3). Shape 1/3 implicitly
+covers `callI32i32_i32` + `callI32i64_i32`; shape 2/3 covers
+`callI64i32_i64i64i32`.
 
 ## Remaining work
 
 ### Autonomous-eligible (next session pick from here)
 
-- **D-167 shape 2/3** — 3-arg + 2-int-result Win64 wrapper
-  (`callI64i32_i64i64i32`). Recipe: per-shape Mac byte test
-  in `wrapper_thunk.zig` (44 bytes per spike README; mind
-  the a2-FIRST load ordering because R8 holds args ptr and
-  gets overwritten by a1). Extend `emitX8664Win64` predicate
-  to allow `n_params == 3`. Same TDD red→green cycle as 1/3.
 - **D-167 shape 3/3** — 1-arg + 3-int MEMORY-class
   (`callI32i32i64_i32`). Body uses Win64 MEMORY-class
   convention (RCX = hidden ptr, RDX = rt). Cycle 21-24's
   3-int extension was the same shape as the existing 0-arg
   3-int MEMORY arm; just add `n_params == 1` allowance with
-  `MOV RDX/RCX` rearrangement.
-- **D-167 wire-up** — after all 3 shapes Mac-green: add
+  `MOV RDX/RCX` rearrangement + a0 load into a Win64 GPR
+  arg-slot register.
+- **D-167 wire-up** — after shape 3/3 Mac-green: add
   entry.zig Win64 if-arms calling `invokeBufWin64Args`
   helper (to add back in `entry_buffer_write.zig`), then
   windowsmini integration verify ESPECIALLY simd_assert
