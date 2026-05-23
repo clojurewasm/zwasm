@@ -1081,20 +1081,12 @@ pub fn callLargesig(
 
 /// `(i32) -> (i32, i32)` — if.wast `multi`, etc.
 pub fn callI32i32_i32(module: linker.JitModule, func_idx: u32, rt: *JitRuntime, a0: u32) Error!FuncRet_i32i32 {
-    if (builtin.os.tag == .windows) {
-        const r = try entry_buffer_write.invokeBufWin64Args(rt, module, func_idx, &.{@as(u64, a0)}, 2);
-        return .{ .r0 = r[0], .r1 = r[1] };
-    }
     const Fn = *const fn (*const JitRuntime, u32) callconv(.c) FuncRet_i32i32;
     return invokeAndCheck(rt, FuncRet_i32i32, module.entry(func_idx, Fn), .{a0});
 }
 
 /// `(i32) -> (i32, i64)` — break-br_if-num-num / break-br_table-num-num.
 pub fn callI32i64_i32(module: linker.JitModule, func_idx: u32, rt: *JitRuntime, a0: u32) Error!FuncRet_i32i64 {
-    if (builtin.os.tag == .windows) {
-        const r = try entry_buffer_write.invokeBufWin64Args(rt, module, func_idx, &.{@as(u64, a0)}, 2);
-        return .{ .r0 = @intCast(r[0] & 0xFFFFFFFF), .r1 = r[1] };
-    }
     const Fn = *const fn (*const JitRuntime, u32) callconv(.c) FuncRet_i32i64;
     return invokeAndCheck(rt, FuncRet_i32i64, module.entry(func_idx, Fn), .{a0});
 }
