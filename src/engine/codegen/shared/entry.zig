@@ -942,12 +942,12 @@ pub fn callI64i32NoArgs(
     return invokeAndCheck(rt, FuncRet_i64i32, module.entry(func_idx, Fn), .{});
 }
 
-/// `() -> (i32, i32)` — uses `FuncRet_i32i32` (u64-padded layout).
-pub fn callI32i32NoArgs(
-    module: linker.JitModule,
-    func_idx: u32,
-    rt: *JitRuntime,
-) Error!FuncRet_i32i32 {
+/// `() -> (i32, i32)` — Win64: 16-B aggregate is MEMORY-class; route via wrapper-thunk like callI32i32i32NoArgs.
+pub fn callI32i32NoArgs(module: linker.JitModule, func_idx: u32, rt: *JitRuntime) Error!FuncRet_i32i32 {
+    if (builtin.os.tag == .windows) {
+        const r = try entry_buffer_write.invokeBufWin64NoArgs(rt, module, func_idx, 2);
+        return .{ .r0 = r[0], .r1 = r[1] };
+    }
     const Fn = *const fn (*const JitRuntime) callconv(.c) FuncRet_i32i32;
     return invokeAndCheck(rt, FuncRet_i32i32, module.entry(func_idx, Fn), .{});
 }
