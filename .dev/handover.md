@@ -17,7 +17,7 @@
 `assert_exhaustion fac-rec i64:1073741824` hangs after
 `fac : assert_return fac-ssa` (line ~28527).
 
-## Active chunk — D-165 cycle 4 (Win64 fac-rec hang spike)
+## Active chunk — D-165 cycle 5 (windowsmini reconcile + observe)
 
 Phase 9 close gate: I1 = SKIP-WIN64-CALL-INDIRECT-TRAP.
 Blocking sequence: **D-165 → D-163 → §9.13-0 → Phase 9 DONE**.
@@ -26,63 +26,59 @@ Spike: `private/spikes/d-165-win64-fac-rec-hang/`.
 
 ### Hypotheses (per `hypothesis_enumeration.md`)
 
-1. ~~Probe doesn't fire (frame_bytes=0)~~ — REJECTED cycle 1
-   (Win64 shadow space forces `frame_bytes ≥ 56`).
-2. ~~`stack_limit = 0` globally~~ — REJECTED cycle 1 by analogy.
+1. ~~Probe doesn't fire (frame_bytes=0)~~ — REJECTED cycle 1.
+2. ~~`stack_limit = 0` globally~~ — REJECTED cycle 1.
 3. ~~Byte-shape regression in i64-result emit~~ — REJECTED
-   cycle 2 (`0fe14a5f`) and refined cycle 3 (`e6a56734`). Unit
-   test `compile: self-recursive (i64)->i64 — probe + i64-
-   result marshal` asserts JBE-patched + SUB RSP ≥ 48 (Win64) /
-   ≥ 16 (SysV) + REX.W MOV r64,RAX post-CALL + MOV
-   entry_arg0_gpr,runtime_ptr_save_gpr pre-CALL. PASS on Mac
-   SysV native + Win64 cross-build clean.
+   cycle 2 + 3 via emit unit tests.
 4. ~~Trap-flag propagation stall (host-side)~~ — REJECTED
-   cycle 3 by read of `src/engine/codegen/shared/entry.zig:
-   162-175` `invokeAndCheck`: BOTH `callI64_i64` and
-   `callI32NoArgs` flow through this helper which clears
-   `rt.trap_flag = 0` pre-call and returns `Error.Trap` on
-   non-zero post-call. Same path on Win64.
-5. (active, **leading**) Probe fires correctly on Win64 but
-   the recovery path interacts with Win64 commit-region
-   geometry such that trap_stub's `POP R15; POP RBP; RET`
-   sequence faults on a guard-page boundary AND VEH no longer
-   handles `EXCEPTION_STACK_OVERFLOW` (per ADR-0105 D4 removal,
-   `windows_traphandler.zig:157`). Signature: process hangs in
-   default OS exception handling. Probe: instrument trap stub
-   with a counter at [R15 + diagnostic_off] OR enable
-   `diagOnceWithRt` print in trap stub; rerun on windowsmini;
-   observe whether trap stub fires for fac-rec.
+   cycle 3 via `entry.zig:162-175` `invokeAndCheck` read.
+5. (active, **leading**) Probe-fire interaction with Win64
+   commit-region geometry. Permanent diagnostic landed cycle 4
+   (`cea1cb92`): `JitRuntime.trap_stub_entry_count` (u32 at
+   offset 232) increments at the start of every x86_64
+   stack-overflow trap stub firing. Discrimination:
+   - count > 0, flag = 1 → probe fires + flag OK → unwind /
+     commit-region.
+   - count > 0, flag = 0 → stub fires but flag write lost.
+   - count = 0 after hang → probe never fires (revisit H1).
 
-### Cycle 4 plan (runtime instrumentation)
+### Cycle 5 plan (runtime evidence)
 
-Static analysis exhausted (3-cycle cap reached; H1-H4 rejected).
-Cycle 4 lands **runtime instrumentation** for windowsmini:
+The cycle-4 diagnostic is now in the JIT. Cycle 5 reconciles on
+windowsmini and surfaces the counter:
 
-1. Add `trap_stub_entry_count: u32` to `JitRuntime`; emit
-   `INC DWORD PTR [R15+off]` as first inst in trap stub
-   (op_control.zig:1334+). Mac/Linux paths unchanged.
-2. Surface counter via `invokeAndCheck` diagnostic.
-3. Push; reconcile via `bash scripts/run_remote_windows.sh
-   test-all`. Observe:
-   - count > 0, flag=0 → flag-write lost.
-   - count = 0 → probe never fires (revisit H1 with evidence).
-   - count > 0, flag=1 → unwind cost hypothesis.
+1. `bash scripts/run_remote_windows.sh test-all > /tmp/win.log
+   2>&1` against current origin HEAD (`cea1cb92` + handover).
+2. After test-all completes (or aborts on hang), inspect:
+   - For each `assert_exhaustion ... passed/failed` directive,
+     correlate with the post-call counter snapshot (need a
+     small runner-side probe to surface `rt.trap_stub_entry_count`
+     after Error.Trap — add as cycle-5 sub-step if not yet
+     present).
+3. If reconcile times out on fac-rec exhaustion → SSH into
+   windowsmini and attach lldb to surface counter state at
+   the hang point. windowsmini SSH per ADR-0049.
+
+Mac-host build classifies as `substrate` (cycle 4 already
+verified PASS + Win64 cross-build clean). Cycle 5 is reconcile-
+driven; if the runner needs a code change to surface the counter
+on Trap, that lands as a small runner edit in the same cycle.
 
 ### After D-165 resolved
 
 Remove `SKIP-WIN64-CALL-INDIRECT-TRAP` arm in
-`spec_assert_runner_base.zig:3088`, re-run windowsmini,
-observe `call: assert_trap as-call_indirect-last ()`. If
-PASS → D-163 closed; flip I1; gate exits 0; flip §9.13-0 [x]
-→ Phase 9 DONE.
+`spec_assert_runner_base.zig:3088`, re-run windowsmini; if PASS
+→ D-163 closed; flip I1; gate exits 0; flip §9.13-0 → Phase 9
+DONE.
 
 ## Closed this session (2026-05-23)
 
-- ✅ **R3 / D-162**, **R2**, **R1** (Win64 stack-probe / cap /
-  wrapper); D-094, D-164 (multi-result ABI).
+- ✅ **R3 / D-162**, **R2**, **R1**, **D-094**, **D-164**.
 - ✅ **D-165 cycle 2** byte-shape test (`0fe14a5f`).
-- ✅ **D-165 cycle 3** arg-marshal extension (`e6a56734`) +
-  H4 ruled out via entry.zig read.
+- ✅ **D-165 cycle 3** arg-marshal extension (`a5f7236b`) +
+  H4 ruled out.
+- ✅ **D-165 cycle 4** `trap_stub_entry_count` diagnostic
+  (`cea1cb92`); JitRuntime size 232 → 240.
 
 windowsmini SSH-reachable, autonomous-eligible per ADR-0049.
 
