@@ -44,22 +44,34 @@ Tackle in this order (autonomous-eligible, ROI-descending):
 2. **A2. D-139 CLOSED** (cycle 17; c_api Instance audit tests).
 3. **D-166 + A4 D-163 CLOSED** (cycle 19-20, `e5042b3e`).
    Shared root cause: `scratch_typeidxs` not reset between
-   modules → stale sig-mismatch false-negative. Phase 9 close
-   gate: 17/18 → **18/18**.
-4. **Win64 2-i32-result fix** (`a40bc6d6`). `callI32i32NoArgs`
-   missing Win64 wrapper-thunk path (asymmetric with the
-   3-result version). After fix: wasm-2.0/call/ Win64 isolated
-   = 90 passed 0 failed 0 SKIPs.
+   modules. Phase 9 close gate: 17/18 → **18/18 PASS**.
+4. **Win64 2-i32-result fix** (`a40bc6d6`). wasm-2.0/call/
+   Win64 isolated = 90 passed 0 failed 0 SKIPs.
 5. **ADR-0107 Proposed** (`6b3c6705`). Byte-buffer
    `Runtime.globals` migration for D-079 (ii). User-gated.
+6. **Cycle 21-24 wrapper_thunk extension attempt REVERTED**
+   (`9a11b8d0`+) — extension to 1-3-arg multi-result wrappers
+   compiled OK on Mac + ubuntu but regressed simd_assert on
+   windowsmini (process death after compile of simd_bitwise.17
+   func10). Filed as D-167 for safer re-attempt.
 
-**Remaining work (all user-gated)**:
-- A3 D-079 ii — blocked-by: ADR-0107 Accept.
-- §9.13 hard gate — ADR-0105 + ADR-0106 are Accepted; awaiting
-  collaborative flip per Track D + Phase B `[x]` re-flip with
-  cited SHAs.
+**Verified test state**:
+- Mac aarch64 `zig build test` / `test-all`: green.
+- ubuntu test-all: green (25457 passed wasm-2.0-assert).
+- windowsmini test-all: simd_assert green (13351/0 fail);
+  spec_assert_non_simd has D-167 1+arg multi-result fails
+  (~10-11 directives across `break-br_if-num-num` /
+  `break-br_table-num-num` / `break-br_table-nested-num-num` /
+  `add64_u_with_carry`).
 
-windowsmini full reconcile in BG; ubuntu test-all = exit 0.
+**Remaining work**:
+- **D-167** — Win64 1+arg multi-result wrapper extension. Cycle
+  21-24 attempt revealed wrapper extension needs spike-first
+  discipline. Recommend `private/spikes/d167-*` before
+  re-attempting.
+- **A3 D-079 ii** — blocked-by: ADR-0107 Accept (user-gated).
+- **§9.13 hard gate** — ADR-0105 + ADR-0106 Accepted flip
+  (user touchpoint; Track D collab).
 2. **A2. D-139** — c_api Instance audit + coverage tests in
    `src/api/instance.zig`.
 3. **A3. D-079 (ii)** — c_api v128 cross-module: extend
