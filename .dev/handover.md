@@ -41,14 +41,14 @@ code. Phase B (below) bundles the Win64 verification once.
 Tackle in this order (autonomous-eligible, ROI-descending):
 
 1. **A1. D-157 CLOSED** (cycle 15 + 16, `6e48e680` + `bf4edaca`).
-   `runtime/instance/instantiate.zig` already covered all 4
-   kinds (line 714); spec runner's `hasIncompatibleImportType`
-   mirror extended with spectest non-func arm + cross-module
-   helpers + root-cause fix for the type-section early-return
-   gap. Exit: `SKIP-NO-LINK-TYPECHECK` 56 → 0 on wasm-2.0
-   corpus; passed 25457 / failed 0 / skipped 469. D-157 row
-   removed from debt.md. ubuntu reconcile via ADR-0076 D3
-   background kick (cycle 17 Step 0.7 verifies).
+   `hasIncompatibleImportType` mirror extended; SKIP 56 → 0
+   on Mac aarch64 + ubuntu (verified test substrate scope).
+   D-157 row removed.
+
+**New debt filed cycle 16**: D-166 — ubuntu memory_grow 5
+off-by-one fails (pre-existing; Mac green; undetected because
+prior ubuntu kicks used `test` substrate scope). Cycle 17+
+investigation: diff `current_mem_bytes` trace across hosts.
 2. **A2. D-139** — c_api Instance audit + coverage tests in
    `src/api/instance.zig`.
 3. **A3. D-079 (ii)** — c_api v128 cross-module: extend
