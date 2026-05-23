@@ -26,51 +26,39 @@ pre-cycle-20). I1 satisfied — no SKIP-WIN64-* emission.
   `break-br_table-num-num` / `break-br_table-nested-num-num` /
   `add64_u_with_carry`). NOT blocking Phase 9 close gate.
 
-Closed 2026-05-23 cycles 10-25 summary (A1 D-157, A2 D-139,
-A4 D-163/D-166 shared root-cause, Win64 2-i32-result fix,
-ADR-0107 Proposed, cycle 21-24 D-167 revert): `git log
---grep="cycle 2[0-5]"` and `git log --grep="A1\|A2\|A4"`.
+Closed cycles 10-25: `git log --grep="cycle 2[0-5]\|A1\|A2\|A4"`.
 
-## Cycle 29 finding (D-167 wire-up blocked by entry.zig cap)
+## Cycles 26-30 progress
 
-Attempted D-167 wire-up (3 Win64 if-arms in
-`src/engine/codegen/shared/entry.zig`); pre-commit gate
-emitted `EXEMPT-CAP EXCEEDED` (2521 vs cap 2500). File was
-exactly at exempt-cap before edits. Compact 1-line
-forwarding to a Win64-side helper module would still net
-≥ 3 lines (one per if-arm). Reverted; filed **D-168** for
-the structural split required before wire-up can land.
-
-## Cycles 26-28 progress (D-167 spike step 1 COMPLETE)
-
-3 wrapper shapes Mac-green: 1-arg+2-int (cycle 26),
-3-arg+2-int (cycle 27), 1-arg+3-int MEMORY (cycle 28).
-`emitX8664Win64` predicate covers all 4 entry-helper unique
-shapes. Shape 3/3 inherits body-side `.sysv`-gating caveat
-from existing 0-arg 3-int arm (separate cycle work). See
-`git log --grep="D-167 shape"`.
+- 26-28: D-167 spike step 1 COMPLETE — 3 wrapper shapes
+  Mac-green (1-arg+2-int, 3-arg+2-int, 1-arg+3-int MEMORY)
+  via TDD red→green; `git log --grep="D-167 shape"`.
+- 29: D-167 wire-up attempt hit entry.zig EXEMPT-CAP EXCEEDED
+  (2521 vs 2500). Reverted; filed **D-168**.
+- 30: D-168 options (a/b/c) reject per ADR-0099 N3-shallow;
+  drafted **ADR-0108** (CATALOG-EXEMPT cap 4000 tier) for
+  the option (d) path. D-168 → `blocked-by: ADR-0108 Accept`.
 
 ## Remaining work
 
 ### Autonomous-eligible (next session pick from here)
 
-- **D-168 entry.zig structural split** (filed cycle 29) —
-  `src/engine/codegen/shared/entry.zig` is exactly at
-  exempt-cap=2500. D-167 wire-up attempted cycle 29 added
-  21 lines to that file (3 Win64 if-arms) and triggered
-  `EXEMPT-CAP EXCEEDED` block. Even with compact 1-line
-  forwarding to a Win64-side helper module (3 lines added),
-  the cap is still exceeded. **D-167 wire-up is blocked
-  until entry.zig is split.** Discharge path: see D-168 in
-  debt.md for split strategy options.
-- **D-167 wire-up shape 1-3** — blocked by D-168.
-  After split: add `invokeBufWin64Args` helper +
-  `entry.zig` Win64 if-arms for `callI32i32_i32` /
-  `callI32i64_i32` / `callI64i32_i64i64i32`. Body-side
-  cycle 2c MEMORY-class Win64 extension still required for
-  shape 3/3 (`callI32i32i64_i32`).
-- **D-167 windowsmini integration verify** — final step;
-  blocked by all above.
+- **D-167 body-side cycle 2c MEMORY-class Win64 extension**
+  — independent of D-168. cycle 2c MEMORY-class body emit
+  currently `.sysv`-gated in `emit_setup.zig`; extend to
+  Win64 (RCX = hidden ptr, RDX = rt — matches wrapper's
+  body view per ADR-0106 path (a) Phase 2'j note in
+  `wrapper_thunk.zig` 0-arg arm). Spike-first per
+  `architectural_spike.md`. Required for D-167 shape 3/3
+  runtime correctness; can land in parallel with ADR-0108
+  review.
+
+### User-gated (this session)
+
+- **ADR-0108** — `Status: Proposed → Accepted` flip needed
+  to unblock D-168 → D-167 wire-up shape 1-2. Review
+  uniform-pattern-catalog tier (cap 4000) + alternatives
+  in `.dev/decisions/0108_uniform_pattern_catalog_cap.md`.
 
 ### User-gated
 
