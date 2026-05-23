@@ -46,27 +46,29 @@ Tackle in this order (autonomous-eligible, ROI-descending):
    `src/api/instance.zig`.
 3. **A3. D-079 (ii)** — c_api v128 cross-module: extend
    `Runtime.globals` to v128-aware + plumb into instantiate.zig.
-4. **A4. D-163 wasm-2.0 (in flight, cycle 13 → 14)** —
+4. **A4. D-163 wasm-2.0 (in flight, cycle 14 → 15)** —
    investigate wasm-2.0/call/ caller-side bounds-check trap
-   crash on Win64. Cycle 12 (`f0b32dac`): static JIT layout
-   verified correct (H1/H3/H4 REJECTED). Cycle 13 (`01e71017`):
-   SKIP-arm bypass run captured silent process death —
-   reaches `[W4 DIR] call : assert_trap as-call_indirect-last`,
-   exit 1 near-instant (~0.8 s SSH-end-to-end), NO SEGV
-   handler text, NO Error.Trap return from entry helper.
-   Working hypothesis: **uncaught Win64 SEH from missing
-   `.pdata`/`.xdata` unwind metadata** for JIT frames colliding
-   with caller-side bounds-trap-stub RET path. (Callee-side
-   `unreachable` trap works because it returns to caller's
-   continuation, not directly across a SEH boundary.) Cycle
-   14 next: instrument entry helper (`shared/entry.zig`)
-   with stderr write between "JIT call returned" and
-   "check trap_flag" to narrow JIT-side vs entry-helper-side
-   death; reference wasmtime's `UNWIND_INFO` emission as
-   the canonical Win64 fix path. Companion: 2 NEW Win64
-   FAILs (`type-all-i32-i32`, `as-call-all-operands`) need
-   separate triage (D-094/D-164 territory). Order: can
-   interleave with A1-A3.
+   crash on Win64. Cycle 12: static JIT layout verified
+   (H1/H3/H4 REJECTED). Cycle 13: silent process death
+   captured. Cycle 14 (`8f59b8bb`): POST-print probe in
+   `invokeAndCheck` confirmed `@call(f, ...)` does NOT
+   return for `as-call_indirect-last` → **entry helper
+   exonerated**; death is in JIT body or bounds-check
+   trap-stub RET path. Notable asymmetry: stack-overflow
+   trap stub (kind=4, no `ADD RSP`) returns cleanly on
+   Win64; bounds-check stub (with `ADD RSP, 0x58`) does
+   NOT. The `ADD RSP` is the prime suspect (interaction
+   with Win64 SEH unwinder / CET shadow stack).
+   See lessons `2026-05-23-d163-static-jit-layout-verified.md`,
+   `2026-05-23-d163-entry-helper-exonerated.md`.
+   Cycle 15 next: codegen-side sentinel write at the START
+   of the bounds-check trap stub
+   (`op_control.zig::emitEndInter`). If after crash sentinel
+   visible in JitRuntime state → stub IS entered, death is
+   post-stub-entry (RET path / RSP corruption / SEH). If
+   absent → JAE took wrong target. Companion: 2 NEW Win64
+   FAILs (`type-all-i32-i32`, `as-call-all-operands`) still
+   queued. Order: can interleave with A1-A3.
 
 ### Phase B — windowsmini reconcile (single shot after A1+A2+A3)
 
