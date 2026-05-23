@@ -2964,8 +2964,11 @@ pub fn runCorpus(
                 // intra-function bytes (probe JBE patched; CALL
                 // rel32 still placeholder). Use to inspect fac-ssa
                 // pick0/pick1 call-site code on Win64.
-                if (std.process.getEnvVarOwned(gpa, "D165_DUMP_JIT") catch null) |env_val| {
-                    defer gpa.free(env_val);
+                // D-165 cycle 9: always dump per-defined-function JIT
+                // bytes. Revert after root cause closed (= disable
+                // by env-var gating once `std.c.getenv` integration
+                // path is decided). For now: cheap noise OK in debug.
+                if (true) {
                     for (compiled.func_results, 0..) |*fr, def_idx| {
                         const wasm_idx = compiled.num_imports + @as(u32, @intCast(def_idx));
                         std.debug.print("[d-165-jit] func{d} (wasm_idx={d}) len={d} bytes=", .{ def_idx, wasm_idx, fr.out.bytes.len });

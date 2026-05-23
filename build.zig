@@ -375,6 +375,11 @@ pub fn build(b: *std.Build) void {
         .root_module = non_simd_assert_runner_mod,
         .use_llvm = true,
     });
+    // D-165 cycle 9 diag: install to zig-out/bin/ so D165_DUMP_JIT
+    // dumps + ad-hoc isolated runs against custom manifest dirs can
+    // use a stable path (`zig-out/bin/zwasm-spec-wasm-2-0-assert(.exe)`)
+    // instead of hunting for the latest .zig-cache/o/*/*.exe hash.
+    b.installArtifact(non_simd_assert_runner_exe);
     const run_non_simd_assert = b.addRunArtifact(non_simd_assert_runner_exe);
     run_non_simd_assert.addArg(b.pathFromRoot("test/spec/wasm-2.0-assert"));
     const test_spec_wasm_2_0_assert_step = b.step("test-spec-wasm-2.0-assert", "Run Wasm 2.0 non-SIMD scalar spec assertion runner (§9.9 / 9.9-l-1b per ADR-0057; corpus lands at k-1)");
