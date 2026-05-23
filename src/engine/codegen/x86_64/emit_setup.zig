@@ -102,12 +102,29 @@ pub fn computeOutgoingMaxBytes(
                 break :blk overflow_bytes + return_buf_bytes;
             },
             .win64 => blk: {
+                // D-165 close (2026-05-23): Win64 internal JIT-to-JIT
+                // MEMORY-class return ABI mirrors SysV §3.2.3 with
+                // RCX-as-hidden-ptr / RDX-as-rt. Callee with > 2
+                // results consumes 2 int-arg slots (RCX=&buffer,
+                // RDX=rt) before user ints → 2 user int regs
+                // (R8/R9). Non-MEMORY callees keep slot 0=RCX=rt
+                // and have 3 user int regs (RDX/R8/R9).
+                const callee_is_memory_class = callee_sig.results.len > 2;
                 const n_int_w = n_int + n_v128;
                 const n_total = n_int_w + n_fp;
-                const n_overflow: u32 = if (n_total > 3) n_total - 3 else 0;
+                const n_user_int_regs: u32 = if (callee_is_memory_class) 2 else 3;
+                const n_overflow: u32 = if (n_total > n_user_int_regs) n_total - n_user_int_regs else 0;
                 const shadow_and_overflow = abi.current.shadow_space_bytes + n_overflow * 8;
                 const scratch_base = (shadow_and_overflow + 15) & ~@as(u32, 15);
-                break :blk scratch_base + n_v128 * 16;
+                // Return buffer for MEMORY-class lives at the TOP
+                // of THIS call's outgoing-args footprint (= above
+                // v128 scratch); caller LEA RCX=&buffer per
+                // emitCall's Win64 hidden-ptr setup.
+                const return_buf_bytes: u32 = if (callee_is_memory_class)
+                    @as(u32, @intCast(callee_sig.results.len)) * 8
+                else
+                    0;
+                break :blk scratch_base + n_v128 * 16 + return_buf_bytes;
             },
         };
         if (bytes > max_bytes) max_bytes = bytes;

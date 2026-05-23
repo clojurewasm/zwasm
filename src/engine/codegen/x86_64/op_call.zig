@@ -120,34 +120,51 @@ pub fn emitCallIndirectCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Erro
 /// **Scope**: i32 args + i32 / void return only. f32/f64/i64
 /// args + return surface as UnsupportedOp (lifted alongside
 /// 7.7-fp / globals i64 chunks).
-/// ADR-0069 §Phase 2 chunk (b)-e-3 SysV-only helper. Mirror of
-/// arm64's `computeCallOverflowBytes`: returns the size of THIS
-/// call's overflow-args region at the bottom of the outgoing-args
-/// footprint, so the MEMORY-class return buffer can be placed
-/// immediately above. SysV §3.2.3 only — Win64 MEMORY-class is
-/// deferred per ADR-0049 + ADR-0056 + ADR-0065. v128 args
-/// excluded (mirrors `computeOutgoingMaxBytes` SysV branch's
-/// scope; v128 overflow into outgoing args is rare and adds
-/// 16 B alignment complications).
-fn computeSysvCallOverflowBytes(callee_sig: zir.FuncType) u32 {
+/// ADR-0069 §Phase 2 chunk (b)-e-3 / D-165 close 2026-05-23 —
+/// returns the byte offset within THIS call's outgoing-args
+/// footprint where the MEMORY-class return buffer is placed.
+/// SysV §3.2.3: buffer immediately above the overflow-args region
+/// at the bottom of outgoing-args. Win64 (D-165): buffer at top
+/// of outgoing-args, above shadow(32) + overflow + v128 scratch.
+/// v128 args excluded from SysV path (rare + 16B alignment
+/// complications). For non-MEMORY callees, return value is
+/// unused.
+fn computeCallReturnBufferOff(callee_sig: zir.FuncType) u32 {
     var n_int: u32 = 0;
     var n_fp: u32 = 0;
+    var n_v128: u32 = 0;
     for (callee_sig.params) |p| {
         switch (p) {
             .i32, .i64, .funcref, .externref => n_int += 1,
             .f32, .f64 => n_fp += 1,
-            .v128 => {},
+            .v128 => n_v128 += 1,
         }
     }
-    // ADR-0026 2026-05-18 Convention Swap: MEMORY-class callees
-    // consume two int-arg slots (RDI=buffer, RSI=rt) before user
-    // ints, leaving 4 user int regs (RDX/RCX/R8/R9). Non-MEMORY
-    // callees keep slot 0=RDI=rt and have 5 user int regs.
     const callee_is_memory_class = callee_sig.results.len > 2;
-    const n_user_int_regs: u32 = if (callee_is_memory_class) 4 else 5;
-    const n_int_overflow: u32 = if (n_int > n_user_int_regs) n_int - n_user_int_regs else 0;
-    const n_fp_overflow: u32 = if (n_fp > 8) n_fp - 8 else 0;
-    return (n_int_overflow + n_fp_overflow) * 8;
+    return switch (abi.current_cc) {
+        .sysv => blk: {
+            // SysV: MEMORY callees consume 2 slots (RDI=buffer,
+            // RSI=rt) → 4 user int regs (RDX/RCX/R8/R9); non-MEMORY
+            // 5 user int regs (RSI..R9).
+            const n_user_int_regs: u32 = if (callee_is_memory_class) 4 else 5;
+            const n_int_overflow: u32 = if (n_int > n_user_int_regs) n_int - n_user_int_regs else 0;
+            const n_fp_overflow: u32 = if (n_fp > 8) n_fp - 8 else 0;
+            break :blk (n_int_overflow + n_fp_overflow) * 8;
+        },
+        .win64 => blk: {
+            // Win64 D-165: mirror of SysV with 2-slot shift for
+            // MEMORY (RCX=buffer, RDX=rt) → 2 user int regs
+            // (R8/R9); non-MEMORY 3 user int regs (RDX/R8/R9).
+            // Buffer sits above shadow + overflow + v128 scratch.
+            const n_int_w = n_int + n_v128;
+            const n_total = n_int_w + n_fp;
+            const n_user_int_regs: u32 = if (callee_is_memory_class) 2 else 3;
+            const n_overflow: u32 = if (n_total > n_user_int_regs) n_total - n_user_int_regs else 0;
+            const shadow_and_overflow = abi.current.shadow_space_bytes + n_overflow * 8;
+            const scratch_base = (shadow_and_overflow + 15) & ~@as(u32, 15);
+            break :blk scratch_base + n_v128 * 16;
+        },
+    };
 }
 
 pub fn emitCall(
@@ -166,22 +183,25 @@ pub fn emitCall(
     if (callee_idx >= func_sigs.len) return Error.AllocationMissing;
     const callee_sig = func_sigs[callee_idx];
 
-    const memory_class_return: bool = callee_sig.results.len > 2 and abi.current_cc == .sysv;
+    const memory_class_return: bool = callee_sig.results.len > 2;
     try marshalCallArgs(allocator, buf, alloc, pushed_vregs, spill_base_off, callee_sig);
 
-    // ADR-0026 2026-05-18 Convention Swap / ADR-0069 §Phase 2:
-    // when callee returns MEMORY-class (SysV §3.2.3; v2 trigger
-    // `results.len > 2`), LEA the per-call return buffer's
-    // address into RDI = arg slot 0 (the SysV hidden indirect-
-    // result-pointer) just before CALL. Emitted after
-    // `marshalCallArgs` because the arg shuffle may stage spilled
-    // values through R10/R11; the LEA happens after the last
-    // stage use. Buffer lives at the top of THIS call's outgoing-
-    // args footprint (= `[RSP + per_call_overflow_bytes]`).
-    // Win64 MEMORY-class deferred to §9.13-0.
-    const return_buffer_off: u32 = if (memory_class_return) computeSysvCallOverflowBytes(callee_sig) else 0;
+    // ADR-0026 2026-05-18 Convention Swap / ADR-0069 §Phase 2 +
+    // D-165 close 2026-05-23 (Win64 mirror). When callee returns
+    // MEMORY-class (results.len > 2), LEA the per-call return
+    // buffer's address into the hidden-ptr arg reg just before
+    // CALL — RDI on SysV (slot 0; SysV §3.2.3), RCX on Win64
+    // (slot 0; Microsoft x64 §"Return values for >8 B structs").
+    // Emitted after `marshalCallArgs` because the arg shuffle may
+    // stage spilled values through R10/R11; the LEA happens after
+    // the last stage use. SysV buffer placement = above overflow
+    // args at bottom of outgoing region; Win64 placement = above
+    // shadow + overflow + v128 scratch at top. Computed by
+    // `computeCallReturnBufferOff`.
+    const return_buffer_off: u32 = if (memory_class_return) computeCallReturnBufferOff(callee_sig) else 0;
     if (memory_class_return) {
-        try buf.appendSlice(allocator, inst.encLeaR64BaseRspDisp32(.rdi, @intCast(return_buffer_off)).slice());
+        const hidden_ptr_gpr: abi.Gpr = if (abi.current_cc == .win64) .rcx else .rdi;
+        try buf.appendSlice(allocator, inst.encLeaR64BaseRspDisp32(hidden_ptr_gpr, @intCast(return_buffer_off)).slice());
     }
 
     if (callee_idx < num_imports) {
@@ -219,10 +239,14 @@ pub fn emitCall(
     // saved in both SysV (RDI) and Win64 (RCX) and may have been
     // clobbered by an earlier call.
     //
-    // ADR-0026 2026-05-18 Convention Swap: when the callee returns
-    // MEMORY-class on SysV, RDI is now occupied by &result_buffer
-    // (set via LEA above) and rt moves to RSI per SysV §3.2.3.
-    const rt_dst_gpr: abi.Gpr = if (memory_class_return) .rsi else abi.current.entry_arg0_gpr;
+    // ADR-0026 2026-05-18 Convention Swap + D-165 close 2026-05-23
+    // (Win64 mirror): when the callee returns MEMORY-class, slot 0
+    // is now occupied by &result_buffer (RDI on SysV / RCX on
+    // Win64) and rt moves to slot 1 (RSI on SysV / RDX on Win64).
+    const rt_dst_gpr: abi.Gpr = if (memory_class_return)
+        (if (abi.current_cc == .win64) .rdx else .rsi)
+    else
+        abi.current.entry_arg0_gpr;
     try buf.appendSlice(allocator, inst.encMovRR(.q, rt_dst_gpr, abi.runtime_ptr_save_gpr).slice());
 
     // Win64 ABI: caller reserves 32 bytes of shadow space below
@@ -446,22 +470,27 @@ pub fn emitCallIndirect(
         try buf.appendSlice(allocator, inst.encMovR64FromBaseIdxLsl3(.rax, .rax, idx_r).slice());
     }
 
-    // ADR-0026 2026-05-18 Convention Swap / ADR-0069 §Phase 2:
-    // mirror of `emitCall` — for MEMORY-class callees, LEA the
-    // return buffer's address into RDI (SysV §3.2.3 hidden
-    // indirect-result-pointer) before transferring control.
+    // ADR-0026 2026-05-18 Convention Swap / ADR-0069 §Phase 2 +
+    // D-165 close 2026-05-23 (Win64 mirror): mirror of `emitCall`
+    // — for MEMORY-class callees, LEA the return buffer's address
+    // into the hidden-ptr arg reg (RDI on SysV / RCX on Win64).
     // Placed AFTER the bounds/sig/funcptr load (which uses RAX
     // as scratch) but BEFORE the runtime_ptr-slot restore + CALL.
-    const memory_class_return: bool = callee_sig.results.len > 2 and abi.current_cc == .sysv;
-    const return_buffer_off: u32 = if (memory_class_return) computeSysvCallOverflowBytes(callee_sig) else 0;
+    const memory_class_return: bool = callee_sig.results.len > 2;
+    const return_buffer_off: u32 = if (memory_class_return) computeCallReturnBufferOff(callee_sig) else 0;
     if (memory_class_return) {
-        try buf.appendSlice(allocator, inst.encLeaR64BaseRspDisp32(.rdi, @intCast(return_buffer_off)).slice());
+        const hidden_ptr_gpr: abi.Gpr = if (abi.current_cc == .win64) .rcx else .rdi;
+        try buf.appendSlice(allocator, inst.encLeaR64BaseRspDisp32(hidden_ptr_gpr, @intCast(return_buffer_off)).slice());
     }
 
     // Restore runtime_ptr arg slot (callee's prologue reads it
-    // as its inbound JitRuntime ptr per ADR-0026 / Convention Swap):
-    // RDI on SysV non-MEMORY, RSI on SysV MEMORY-class, RCX on Win64.
-    const rt_dst_gpr: abi.Gpr = if (memory_class_return) .rsi else abi.current.entry_arg0_gpr;
+    // as its inbound JitRuntime ptr per ADR-0026 / Convention Swap
+    // + D-165 close): slot 0 (RDI SysV / RCX Win64) when non-
+    // MEMORY; slot 1 (RSI SysV / RDX Win64) when MEMORY-class.
+    const rt_dst_gpr: abi.Gpr = if (memory_class_return)
+        (if (abi.current_cc == .win64) .rdx else .rsi)
+    else
+        abi.current.entry_arg0_gpr;
     try buf.appendSlice(allocator, inst.encMovRR(.q, rt_dst_gpr, abi.runtime_ptr_save_gpr).slice());
 
     // Win64 shadow space (32 bytes; SysV no-op; both no-op when
@@ -541,9 +570,18 @@ pub fn marshalCallArgs(
     //   SysV (both)    : arg_xmms[0..7] = XMM0..XMM7 (8 user FP)
     //   Win64          : arg_gprs[1..4] = RDX, R8, R9 (3 user GPRs);
     //                    arg_xmms[1..4] = XMM1..XMM3 (shared count).
-    const callee_is_memory_class: bool = callee_sig.results.len > 2 and abi.current_cc == .sysv;
+    // D-165 close 2026-05-23: Win64 MEMORY-class also shifts user
+    // args by 1 slot (RCX=&buffer, RDX=rt → user starts at R8 =
+    // slot 2). Mirror of SysV.
+    const callee_is_memory_class: bool = callee_sig.results.len > 2;
     var gpr_arg_slot: usize = if (callee_is_memory_class) 2 else 1;
-    var fp_arg_slot: usize = if (abi.current_cc == .win64) 1 else 0;
+    // SysV: FP slots independent of GPR. Win64: shared counter
+    // tracks combined int+fp slot, so init mirrors gpr_arg_slot
+    // (= 2 for MEMORY else 1).
+    var fp_arg_slot: usize = if (abi.current_cc == .win64)
+        (if (callee_is_memory_class) 2 else 1)
+    else
+        0;
     // SysV NSAA index (per-overflow counter; increments only on
     // overflow). Win64 reuses gpr_arg_slot/fp_arg_slot's shared
     // value to derive its overflow slot.
