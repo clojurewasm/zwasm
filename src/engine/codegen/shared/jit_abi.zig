@@ -343,6 +343,17 @@ pub const JitRuntime = extern struct {
     /// > 0). Cross-platform per ADR-0105 D1 (macOS pthread_*np,
     /// Linux pthread_getattr_np, Win64 GetCurrentThreadStackLimits).
     stack_limit: usize = 0,
+    /// D-165 cycle 4 (2026-05-23) — JIT trap-stub entry counter.
+    /// Incremented unconditionally as the first instruction in the
+    /// x86_64 stack-overflow trap stub (op_control.zig:1334+).
+    /// arm64 path unchanged for this cycle (Mac runaway PASSes;
+    /// arm64 diagnostic added when needed). Allows host-side
+    /// observation of "did the probe fire and the trap stub run"
+    /// for the Win64 fac-rec hang investigation — distinguishing
+    /// "probe never fired" (count=0) from "probe fired but unwind
+    /// stalled" (count>0 with trap_flag possibly 1).
+    trap_stub_entry_count: u32 = 0,
+    _pad12: u32 = 0,
 };
 
 /// Default `memory_grow_fn` — unconditionally refuses growth by
@@ -413,6 +424,10 @@ pub const table_grow_fn_off: u12 = @offsetOf(JitRuntime, "table_grow_fn");
 /// ADR-0105 D1 / D2 — stack-probe threshold field offset. X-form
 /// (8-byte usize); prologue emits `LDR Xn, [vmctx, #stack_limit_off]`.
 pub const stack_limit_off: u12 = @offsetOf(JitRuntime, "stack_limit");
+/// D-165 cycle 4 — trap-stub entry counter; W-form (4-byte u32).
+/// x86_64 trap stub emits `INC DWORD PTR [R15 + this]` as its
+/// first instruction; arm64 unchanged.
+pub const trap_stub_entry_count_off: u12 = @offsetOf(JitRuntime, "trap_stub_entry_count");
 
 /// Total size of the head section consumed by the prologue.
 pub const head_size: u32 = @sizeOf(JitRuntime);
@@ -542,8 +557,14 @@ test "JitRuntime: layout offsets match documented prologue load sequence" {
     try testing.expectEqual(@as(u12, 80), jit_executed_flag_off);
 }
 
-test "JitRuntime: total size = 232 bytes (post-ADR-0105 D1 stack_limit tail)" {
-    try testing.expectEqual(@as(u32, 232), head_size);
+test "JitRuntime: total size = 240 bytes (post-D-165 cycle 4 trap_stub_entry_count tail)" {
+    try testing.expectEqual(@as(u32, 240), head_size);
+}
+
+test "JitRuntime: D-165 cycle 4 trap_stub_entry_count offset (W-form imm12-safe)" {
+    try testing.expectEqual(@as(u12, 232), trap_stub_entry_count_off);
+    // 4-aligned (W-form); imm12 budget unchecked but 232 << 16380 trivially.
+    if ((trap_stub_entry_count_off & 3) != 0) @compileError("trap_stub_entry_count_off not 4-aligned");
 }
 
 test "JitRuntime: §9.9 / 9.9-l-1b-d093-d8a callout offsets (host_state + memory_grow_fn)" {

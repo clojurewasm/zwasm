@@ -1333,6 +1333,20 @@ fn emitEndInter(ctx: *ctx_mod.EmitCtx) Error!void {
     // was emitted, = uses_runtime_ptr was true).
     if (ctx.stack_probe_fixup != 0) {
         const stub_byte: u32 = @intCast(ctx.buf.items.len);
+        // D-165 cycle 4 — INC DWORD PTR [R15 + trap_stub_entry_count_off].
+        // Encoding: REX.B (0x41) + FF /0 (ModR/M reg=0) + mod=10 r/m=111
+        // (R15 base) + disp32. Total 7 bytes. Permanent runtime
+        // diagnostic for the Win64 fac-rec hang: count > 0 + flag=0
+        // narrows to "stub fired but flag-write lost"; count = 0
+        // narrows to "probe never fires"; count > 0 + flag = 1
+        // narrows to "unwind cost / commit-region interaction".
+        // Increments BEFORE the trap-flag store so a faulty
+        // disp-imm32 path at the flag store wouldn't mask the count.
+        const inc_disp: i32 = @intCast(jit_abi.trap_stub_entry_count_off);
+        try ctx.buf.appendSlice(ctx.allocator, &.{ 0x41, 0xFF, 0x87 });
+        var inc_disp_bytes: [4]u8 = undefined;
+        std.mem.writeInt(i32, &inc_disp_bytes, inc_disp, .little);
+        try ctx.buf.appendSlice(ctx.allocator, &inc_disp_bytes);
         try ctx.buf.appendSlice(ctx.allocator, inst.encStoreImm32MemDisp32(abi.runtime_ptr_save_gpr, jit_abi.trap_flag_off, 1).slice());
         try ctx.buf.appendSlice(ctx.allocator, inst.encStoreImm32MemDisp32(abi.runtime_ptr_save_gpr, jit_abi.trap_kind_off, 4).slice());
         try ctx.buf.appendSlice(ctx.allocator, inst.encXorRR(.d, .rax, .rax).slice());

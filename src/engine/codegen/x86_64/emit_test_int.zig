@@ -563,22 +563,15 @@ test "compile: (i32.const 0) i32.load offset=0 end — ADR-0026 prologue + bound
     //   41 5F                       POP R15                           [55..57]
     //   5D                          POP RBP                           [57]
     //   C3                          RET                               [58]
-    // Trap stub:
+    // Bounds-check trap stub (kind=1) — UNCHANGED by D-165 cycle 4.
+    // The D-165 INC is added to the SEPARATE stack-probe trap stub
+    // (kind=4) which is appended AFTER this bounds stub.
+    //
     //   41 C7 87 28 00 00 00 01 00 00 00   MOV [R15+40], 1            [59..70]
-    //   31 C0                              XOR EAX, EAX               [70..72]
-    //   48 83 C4 08                        ADD RSP, 8                 [72..76]
-    //   41 5F                              POP R15                    [76..78]
-    //   5D                                 POP RBP                    [78]
-    //   C3                                 RET                        [79]
+    //   ...
     //
-    // JA patch: trap_byte = 59. fixup_byte = 38, insn_size = 6.
-    //   disp = 59 - 38 - 6 = 15 = 0x0F.
-    //
-    // Total length: 91 pre-ADR-0105-probe; +13 probe + 28 stack-
-    // overflow trap stub after ADR-0105 D2/D3 close = 132 bytes
-    // (uses_runtime_ptr=true; stub = 11 STR trap_flag + 11 STR
-    // trap_kind + 2 XOR + 2 POP R15 + 1 POP RBP + 1 RET = 28).
-    try testing.expectEqual(@as(usize, 132), out.bytes.len);
+    // Total length: 132 (pre-D-165) + 7 (INC in kind=4 stub) = 139.
+    try testing.expectEqual(@as(usize, 139), out.bytes.len);
     // Spot-check the prologue (verifies ADR-0026 + ADR-0105 structure).
     // The MOV R15, <entry_arg0> byte differs by Cc; derive the
     // expected sequence dynamically so this works on both SysV
@@ -624,9 +617,18 @@ test "compile: (i32.const 0) i32.load offset=0 end — ADR-0026 prologue + bound
     // JA placeholder = body_start + 25 (after const + memory-load + LEA bytes per layout comment).
     const ja_off = body_start + 25;
     try testing.expectEqualSlices(u8, &.{ 0x0F, 0x87, 0x0F, 0x00, 0x00, 0x00 }, out.bytes[ja_off .. ja_off + 6]);
-    // Trap stub starts at body_start + 46 (body 38 bytes + epilogue 8 bytes).
+    // Bounds-check trap stub starts at body_start + 46 (body 38 bytes
+    // + epilogue 8 bytes). UNCHANGED by D-165 cycle 4 — the INC was
+    // added to the separate kind=4 stack-probe stub.
     const trap_off = body_start + 46;
     try testing.expectEqualSlices(u8, &.{ 0x41, 0xC7, 0x87, 0x28, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00 }, out.bytes[trap_off .. trap_off + 11]);
+    // D-165 cycle 4 — verify the kind=4 stack-probe stub at the tail
+    // begins with INC DWORD PTR [R15 + trap_stub_entry_count_off=232].
+    // The tail stub is the last 35 bytes: 7 (INC) + 11 (MOV trap_flag)
+    // + 11 (MOV trap_kind) + 2 (XOR) + 2 (POP R15) + 1 (POP RBP) +
+    // 1 (RET).
+    const kind4_off: usize = out.bytes.len - 35;
+    try testing.expectEqualSlices(u8, &.{ 0x41, 0xFF, 0x87, 0xE8, 0x00, 0x00, 0x00 }, out.bytes[kind4_off .. kind4_off + 7]);
 }
 
 test "compile: i32.load with stack underflow → AllocationMissing" {
