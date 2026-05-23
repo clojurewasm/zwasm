@@ -1861,6 +1861,7 @@ pub var current_mem_max_pages: ?u32 = null;
 /// Called from each runner's `on_module_loaded` callback. Zeros the
 /// in-use region so prior module state doesn't leak into this one.
 pub fn resetGrowableMemory(initial_pages: u32) void {
+    std.debug.print("[d-166] reset to {d} pages\n", .{initial_pages});
     current_mem_bytes = @as(u64, initial_pages) * 65536;
     if (current_mem_bytes > GROWABLE_MEMORY_CAPACITY) {
         // Pathological declared initial size — clamp + log. Spec
