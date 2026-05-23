@@ -46,18 +46,24 @@ Tackle in this order (autonomous-eligible, ROI-descending):
    `src/api/instance.zig`.
 3. **A3. D-079 (ii)** — c_api v128 cross-module: extend
    `Runtime.globals` to v128-aware + plumb into instantiate.zig.
-4. **A4. D-163 wasm-2.0 (in flight, cycle 10 → 11)** —
+4. **A4. D-163 wasm-2.0 (in flight, cycle 11 → 12)** —
    investigate wasm-2.0/call/ caller-side bounds-check trap
-   crash on Win64. Cycle 10 verified Mac cross-build path
-   (`zig build install -Dtarget=x86_64-windows-gnu` produces
-   4.4 MB PE32+) and corrected cycle 8 misattribution narrative
-   (commit `7de1119d`). Next chunk (cycle 11): capture
-   `D165_DUMP_JIT=1` runtime dump of the affected function on
-   windowsmini (build natively per Recipe 15), decode trap-stub
-   bytes locally, compare against prologue `SUB RSP`. Active
-   spike: `private/spikes/d-163-win64-call-indirect-trap/`
-   H1 (shadow-space ADD-RSP mismatch) + H3 (R15 pre-trap) +
-   H4 (alignment). Order: can interleave with A1-A3.
+   crash on Win64. Cycles 10-11 progress: Mac cross-build path
+   verified (cycle 10, `7de1119d`); cycle 11 re-enabled
+   `[d-163-jit]` per-function hex dump (`9ceb9d0d`; identical
+   shape to D-165 cycle 9 `abf04319`, removed at D-165 close);
+   windowsmini isolation dir created (`test/private/d-163/iso/call/`
+   copy of wasm-2.0-assert/call/); native build + initial run
+   verified runner reaches the SKIP arm (87 passed, 2 NEW
+   FAILs surfaced — `type-all-i32-i32` and `as-call-all-operands`
+   return garbage 32-bit values, possible D-094/D-164 territory
+   regression to triage). Cycle 12 next: rebuild on windowsmini
+   with diag commit, capture `[d-163-jit]` lines, identify the
+   function containing `as-call_indirect-last` (table-0 OOB
+   index 306), decode trap-stub bytes, compare ADD-RSP vs
+   prologue SUB-RSP (H1) and check R15 state (H3). Spike:
+   `private/spikes/d-163-win64-call-indirect-trap/`. Order:
+   can interleave with A1-A3.
 
 ### Phase B — windowsmini reconcile (single shot after A1+A2+A3)
 
@@ -83,13 +89,13 @@ autonomous step after Phase A + B complete.
 ## Closed this session (2026-05-23)
 
 - ✅ R3 / D-162, R2, R1, D-094, D-164, D-165.
-- ⚠️ D-163 SKIP arm retired `0de438a6`, reopened cycle 9 (path
-  confusion; cycle 10 corrected narrative — see commit
-  `7de1119d`). Caller-side bounds-check trap is open work.
+- ⚠️ D-163 caller-side bounds-check trap — open work (cycle 12
+  next). Cycle 11 surfaced 2 NEW Win64 FAILs in wasm-2.0/call/
+  (`type-all-i32-i32`, `as-call-all-operands` returning garbage
+  i32 — pattern matches D-094/D-164 territory; triage queued).
 
-Cycle 9-10 debug infra: `debug_jit_auto/SKILL.md` Recipes
-15-17; `build.zig` `installArtifact`; lessons 2026-05-23-*.
-windowsmini SSH-reachable, autonomous-eligible per ADR-0049.
+windowsmini SSH-reachable per ADR-0049. Debug infra:
+`debug_jit_auto/SKILL.md` Recipes 15-17.
 
 ## See
 
