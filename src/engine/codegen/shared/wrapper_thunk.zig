@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: ADR-0106 path (a) wrapper-thunk substrate — per-arch emit (x86_64 SysV/Win64, arm64 AAPCS64) + paired byte tests change in lockstep per TDD discipline; extraction would create N3-shallow test-only or per-arch siblings per ADR-0099 D2.
 //! Buffer-write entry wrapper thunk (ADR-0106 cycle 3e
 //! foundation).
 //!
@@ -299,11 +300,38 @@ pub fn emitX8664Win64(
     if (!results_all_gpr and !results_all_xmm) return Error.UnsupportedOp;
 
     const n_results = params.sig.results.len;
-    // Multi-arg shapes only support 2-int register-class today.
-    if (n_params != 0 and !(n_results == 2 and results_all_gpr)) return Error.UnsupportedOp;
+    // Multi-arg shapes today: 2-int register-class (n_params ∈
+    // {1,3}) OR 3-int MEMORY-class (n_params == 1 only).
+    if (n_params != 0) {
+        const ok_2int = n_results == 2 and results_all_gpr;
+        const ok_3int_mem = n_params == 1 and n_results == 3 and results_all_gpr;
+        if (!ok_2int and !ok_3int_mem) return Error.UnsupportedOp;
+    }
 
     var bytes: std.ArrayList(u8) = .empty;
     errdefer bytes.deinit(allocator);
+
+    if (n_params == 1 and n_results == 3 and results_all_gpr) {
+        // 1-arg + 3-int MEMORY-class shape (22 bytes; D-167
+        // shape 3/3). Mirrors the 0-arg 3-int arm below but
+        // prepends `MOV R8, [R8]` to load a0 from args[0]
+        // while R8 still holds the args ptr. Body view at
+        // entry (Win64 MEMORY-class): RCX = hidden results
+        // ptr, RDX = rt, R8 = a0.
+        //
+        // **Same body-side gating caveat as the 0-arg 3-int
+        // arm**: cycle 2c MEMORY-class body emit is
+        // `.sysv`-only today; this wrapper is byte-correct
+        // but runtime-correctness needs the body-side
+        // extension (cf. ADR-0106 Phase 2'j note above).
+        try bytes.appendSlice(allocator, &.{ 0x48, 0x83, 0xEC, 0x28 }); // SUB RSP, 0x28
+        try bytes.appendSlice(allocator, &.{ 0x4D, 0x8B, 0x00 }); // MOV R8, [R8]  (a0)
+        try bytes.appendSlice(allocator, &.{ 0x48, 0x87, 0xCA }); // XCHG RCX, RDX
+        try emitCallRel32(allocator, &bytes, params, 4 + 3 + 3);
+        try bytes.appendSlice(allocator, &.{ 0x48, 0x83, 0xC4, 0x28 }); // ADD RSP, 0x28
+        try bytes.appendSlice(allocator, &.{ 0x31, 0xC0, 0xC3 }); // XOR EAX,EAX ; RET
+        return .{ .bytes = try bytes.toOwnedSlice(allocator) };
+    }
 
     if (n_params == 3 and n_results == 2 and results_all_gpr) {
         // 3-arg + 2-int register-class shape (44 bytes; D-167
@@ -730,6 +758,53 @@ test "wrapper_thunk: emitX8664Win64 3-arg 2-int register-class (i64, i64, i32) -
     try testing.expectEqualSlices(u8, &.{ 0x48, 0x83, 0xC4, 0x28 }, out.bytes[37..41]);
     // XOR EAX, EAX ; RET
     try testing.expectEqualSlices(u8, &.{ 0x31, 0xC0, 0xC3 }, out.bytes[41..44]);
+}
+
+test "wrapper_thunk: emitX8664Win64 1-arg 3-int MEMORY-class (i32) -> (i32, i32, i64) (22 bytes)" {
+    // D-167 spike step (1) shape 3/3 — 1-arg + 3-int Win64
+    // MEMORY-class wrapper. Body uses Win64 MEMORY-class
+    // convention: RCX = hidden ptr to results buf, RDX = rt,
+    // R8 = a0 (Win64 GPR slot 2 for the first non-hidden
+    // arg). Mirrors the existing 0-arg 3-int arm (19 bytes)
+    // plus a `MOV R8, [R8]` that loads a0 from args[0] while
+    // R8 still holds the args ptr — after the MOV, R8 holds
+    // a0 and the args ptr is consumed.
+    //
+    // **Same body-side gating caveat as the 0-arg arm**: the
+    // cycle 2c MEMORY-class body emit gates on `.sysv`-only;
+    // bodies on Win64 use register_write today. This wrapper
+    // is byte-correct but not runtime-correct until the
+    // body-side extension lands (cf. ADR-0106 Phase 2'j note
+    // on the existing 0-arg 3-int arm).
+    //
+    // Concrete helper: `callI32i32i64_i32` — 1 i32 arg, 3
+    // results (i32, i32, i64); the i64 result is what pushes
+    // the result count past 2 and forces MEMORY-class on Win64.
+    const ValType = @import("../../../ir/zir.zig").ValType;
+    const params_arr = [_]ValType{.i32};
+    const results = [_]ValType{ .i32, .i32, .i64 };
+    const params: EmitParams = .{
+        .sig = .{ .params = &params_arr, .results = &results },
+        .body_offset = 400,
+        .thunk_offset = 0,
+    };
+    const out = try emitX8664Win64(testing.allocator, params);
+    defer testing.allocator.free(out.bytes);
+    try testing.expectEqual(@as(usize, 22), out.bytes.len);
+    // SUB RSP, 0x28
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x83, 0xEC, 0x28 }, out.bytes[0..4]);
+    // MOV R8, [R8]  (a0 from args[0])
+    try testing.expectEqualSlices(u8, &.{ 0x4D, 0x8B, 0x00 }, out.bytes[4..7]);
+    // XCHG RCX, RDX  (swap rt ↔ results so body sees RCX=results, RDX=rt)
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x87, 0xCA }, out.bytes[7..10]);
+    // CALL rel32: body_offset(400) - (0 + 10 + 5) = 385
+    try testing.expectEqual(@as(u8, 0xE8), out.bytes[10]);
+    const disp = std.mem.readInt(i32, out.bytes[11..15], .little);
+    try testing.expectEqual(@as(i32, 385), disp);
+    // ADD RSP, 0x28
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x83, 0xC4, 0x28 }, out.bytes[15..19]);
+    // XOR EAX, EAX ; RET
+    try testing.expectEqualSlices(u8, &.{ 0x31, 0xC0, 0xC3 }, out.bytes[19..22]);
 }
 
 test "wrapper_thunk: EmitParams + EmitOutput types present" {
