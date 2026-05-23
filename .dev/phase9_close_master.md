@@ -271,18 +271,24 @@ windowsmini reconcile runs ONCE after all 3 land Mac+ubuntu green
 
 Order chosen per autonomous-eligibility + ROI:
 
-- [ ] **A1. D-157 close** — `assert_unlinkable` non-func import-
-  type checking. 56 Wasm 2.0 spec corpus fixtures emit
-  `SKIP-NO-LINK-TYPECHECK` because `instantiate.zig` only
-  checks func-import types at link time. Discharge path:
-  extend `runtime/instance/instantiate.zig` to verify
-  table / memory / global import types against the target
-  imports' declared shapes at bind time. Existing infra:
-  runner's Path 3a `hasIncompatibleImportType()` (func path)
-  generalises naturally. Per-chunk gate: Mac + ubuntu
-  `test-all` green; `SKIP-NO-LINK-TYPECHECK` count drops from
-  56 → 0 on both hosts. Highest-ROI starter (mechanical,
-  clear exit predicate, no API surface change).
+- [x] **A1. D-157 close** — `assert_unlinkable` non-func import-
+  type checking. `runtime/instance/instantiate.zig::
+  checkImportTypeMatches` was already complete (line 714,
+  pre-cycle); the spec runner's `hasIncompatibleImportType`
+  mirror was func-only. Cycle 15 (`6e48e680`) added the
+  spectest non-func arm + cross-module helpers
+  (`crossModuleGlobalMismatch` / `crossModuleTableMismatch` /
+  `crossModuleMemoryMismatch`). Cycle 16 (`bf4edaca`)
+  identified + fixed the root-cause gap: the function's
+  entry had `const type_sec = module.find(.type) orelse
+  return false;` — modules with only non-func imports
+  (no type section) early-returned BEFORE the per-import
+  loop ran. Fix: optional `types_opt`, consolidated
+  spectest into the generic registered-map path. Exit
+  criterion achieved on Mac: `SKIP-NO-LINK-TYPECHECK` 56 → 0
+  on wasm-2.0 corpus; session passed 25457 / failed 0 /
+  skipped 469 (down from 525). ubuntu reconcile via
+  ADR-0076 D3 background kick.
 - [ ] **A2. D-139 close** — spec_assert bypasses c_api
   `wasm_instance_new` / `setupRuntime` path. Discharge path:
   audit which c_api Instance behaviours (zombie list, arena
