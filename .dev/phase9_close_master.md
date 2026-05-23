@@ -159,6 +159,23 @@ auto-load this list. Do not edit elsewhere.
 
 ### §5.1 — Win64 codegen redesign per ADR-0105 / ADR-0106
 
+- [x] D-165 close — Win64 internal JIT-to-JIT MEMORY-class
+  return ABI + Win64 capture cap=1→2 mirror. Two fixes landed
+  together (cycle 9, 2026-05-23):
+  - `75f96dee` — caller-side MEMORY-class hidden-RCX / rt-RDX
+    shift in `op_call.zig` + `emit_setup.zig`; `op_call.zig:169`
+    no longer gates on `abi.current_cc == .sysv`.
+  - `99a047f6` — `captureCallResult` gpr_cap/xmm_cap 1→2 on
+    Win64 (mirror of R2 `marshalReturnRegs` body-write fix).
+    The actual D-165 trigger: `pick0` (2-i64-result register-
+    class) had its second result silently truncated, fac-ssa's
+    loop logic corrupted, infinite loop in JIT body.
+  Verified on windowsmini: full upstream `fac/manifest.txt` (6
+  assert_returns + assert_exhaustion fac-rec i64:1073741824) →
+  7 passed, 0 failed with `[d-165] kind=4 count=1` (probe fired
+  cleanly on exhaustion).
+
+
 - [x] D-162 close — JIT-prologue stack-probe per ADR-0105
   (`7c1ec732` impl; `2ce381e6` debt close + `b160206b` row
   flip). SKIP-WIN64-EXHAUSTION arm removed. windowsmini

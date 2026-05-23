@@ -2956,27 +2956,6 @@ pub fn runCorpus(
                 };
                 current_compiled = compiled;
 
-                // D-165 cycle 9: when env D165_DUMP_JIT=1, dump
-                // per-defined-function JIT bytes as hex to stderr
-                // for offline disassembly via `llvm-objdump
-                // --disassemble -b binary -m x86_64
-                // --x86-asm-syntax=intel`. Output is the pre-link
-                // intra-function bytes (probe JBE patched; CALL
-                // rel32 still placeholder). Use to inspect fac-ssa
-                // pick0/pick1 call-site code on Win64.
-                // D-165 cycle 9: always dump per-defined-function JIT
-                // bytes. Revert after root cause closed (= disable
-                // by env-var gating once `std.c.getenv` integration
-                // path is decided). For now: cheap noise OK in debug.
-                if (true) {
-                    for (compiled.func_results, 0..) |*fr, def_idx| {
-                        const wasm_idx = compiled.num_imports + @as(u32, @intCast(def_idx));
-                        std.debug.print("[d-165-jit] func{d} (wasm_idx={d}) len={d} bytes=", .{ def_idx, wasm_idx, fr.out.bytes.len });
-                        for (fr.out.bytes) |b| std.debug.print("{x:0>2}", .{b});
-                        std.debug.print("\n", .{});
-                    }
-                }
-
                 // §9.9-III (c)-2.3-β-2b per ADR-0066: allocate
                 // per-module dispatch slice + thunk arena, then
                 // resolve cross-module func imports against the

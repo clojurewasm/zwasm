@@ -33,6 +33,37 @@ The mini PC must already have, per zwasm v1's setup:
 `rsync` is **not** required on `windowsmini`; v2 syncs via
 `git pull` from `origin`, mirroring zwasm v1.
 
+## `ssh windowsmini cmd /c '...'` — the orchestration short-circuit
+
+**Reach for `cmd /c` first.** windowsmini's default OpenSSH
+shell is PowerShell 7. Nesting `bash -lc` re-enters Git-Bash
+with MSYS path conversion. Both layers trap on Windows-native
+CLI switches (`/F`, `/FI`, `$var` etc) at exactly the wrong
+moment. Codified after D-165 cycle 9 debug session (see
+[`.dev/lessons/2026-05-23-windowsmini-ssh-quoting-traps.md`](lessons/2026-05-23-windowsmini-ssh-quoting-traps.md)
++ [`.claude/skills/debug_jit_auto/SKILL.md`](../.claude/skills/debug_jit_auto/SKILL.md)
+Recipe 15).
+
+```bash
+# RELIABLE — cmd interprets Windows switches and paths directly
+ssh windowsmini cmd /c "<windows-cmd>"
+ssh windowsmini 'cmd /c "cd /d C:\Users\shota\... && git pull && zig build install"'
+
+# OK for bash-style scripts (single-quoted body)
+ssh windowsmini bash -lc "'<bash-body>'"
+
+# AVOID — bare PowerShell interpretation of bash-like input
+ssh windowsmini '<looks-like-bash-but-runs-in-pwsh>'
+```
+
+Use `bash -lc "'...'"` only when you genuinely want
+bash/POSIX semantics on Windows (uncommon for debug ops). For
+`taskkill`, `tasklist`, `dir`, log paths, lldb attach, etc.
+use `cmd /c "..."`.
+
+Log path convention: `%USERPROFILE%\<file>.log` (= `C:\Users\shota\<file>.log`).
+`C:\tmp\` does NOT exist by default.
+
 ## SSH alias
 
 The Mac's `~/.ssh/config` should already have:

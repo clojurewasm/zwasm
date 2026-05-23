@@ -519,6 +519,115 @@ Set-ItemProperty -Path "$reg\zwasm-spec-runner.exe" -Name DumpCount -Value 10
 (Not yet applied on windowsmini as of 2026-05-22 — add when
 first Win64 crash needs post-mortem analysis.)
 
+### Recipe 15 — `ssh windowsmini cmd /c '...'` stable orchestration (HANG / interactive debug)
+
+Codifies the 8-trap learning from D-165 cycle 9
+(`.dev/lessons/2026-05-23-windowsmini-ssh-quoting-traps.md`).
+The default OpenSSH shell on windowsmini is PowerShell 7;
+nesting `bash -lc` re-enters Git-Bash with MSYS path
+conversion. Both layers introduce quoting traps that bite
+hard at exactly the wrong moment (during root-cause hunts).
+
+**Stable form** — bypasses PowerShell + Git-Bash + MSYS:
+
+```bash
+ssh windowsmini cmd /c "<windows-cmd-with-windows-paths>"
+```
+
+Inside the double-quoted string, `cmd /c` interprets
+Windows-native switches (`/F`, `/FI`, `/T`, `/NOBREAK`, etc.)
+without path conversion. Chain commands with cmd `&&`:
+
+```bash
+ssh windowsmini 'cmd /c "cd /d C:\Users\shota\Documents\MyProducts\zwasm_from_scratch && git fetch origin zwasm-from-scratch && git reset --hard origin/zwasm-from-scratch && zig build install"'
+```
+
+Note: `cd /d <path>` forces drive change too — required when
+the SSH-default shell starts on a different drive.
+
+**8 specific traps + fixes** (see lesson file for full
+detail):
+
+1. PowerShell parses bash `$var` → use `bash -lc "'...'"` OR `cmd /c '...'`.
+2. PowerShell parses `(...)` / `foreach($p in ...)` → `cmd /c` or `.ps1` file.
+3. MSYS path-converts `/F` `/FI` args → `cmd /c` bypass (preferred).
+4. `tasklist /FI` filter quoting → `cmd /c 'tasklist /FI "..." /NH /FO CSV'`.
+5. Cygwin PID ≠ Win-native PID → re-fetch via tasklist.
+6. SSH background `&` doesn't auto-detach → `< /dev/null` + redirect logs.
+7. tasklist header row → `/NH /FO CSV`.
+8. lldb attach works without admin — verified.
+
+**Log file locations**:
+- `%USERPROFILE%\d165-win.log` is a friendly Windows path.
+- `C:\tmp\` does NOT exist by default (don't write there).
+- For pulling back to Mac: `scp -q windowsmini:d165-win.log /tmp/d165-win.log`.
+
+### Recipe 16 — JIT bytes dump via runner instrumentation (HANG-friendly, no debugger)
+
+When you suspect a JIT-emitted body has bad bytes (and the
+runtime hangs / corrupts / loops infinitely so `lldb -b -o
+"process launch"` can't reach the bug site without manual
+interrupt), instrument the runner to dump the bytes BEFORE
+execution. Pre-execution dump bypasses the hang.
+
+D-165 cycle 9 pattern (now reverted; reference for re-introduction):
+
+```zig
+// in test/spec/spec_assert_runner_base.zig at module-load site
+// (after current_compiled = compiled;):
+for (compiled.func_results, 0..) |*fr, def_idx| {
+    const wasm_idx = compiled.num_imports + @as(u32, @intCast(def_idx));
+    std.debug.print("[<tag>] func{d} (wasm_idx={d}) len={d} bytes=", .{ def_idx, wasm_idx, fr.out.bytes.len });
+    for (fr.out.bytes) |b| std.debug.print("{x:0>2}", .{b});
+    std.debug.print("\n", .{});
+}
+```
+
+(Currently `std.posix.getenv` / `std.process.getEnvVarOwned`
+both unavailable in 0.16 stdlib at this surface; `std.c.getenv`
+re-introduces libc concern. Cycle 9 used `if (true)` unconditional
++ revert. Future re-introduction: pick one and codify.)
+
+Run, redirect stderr to file, scp back to Mac:
+
+```bash
+# Win-side: dump to file
+ssh windowsmini 'cmd /c "cd /d <repo> && start /B zig-out\bin\zwasm-spec-wasm-2-0-assert.exe <manifest-dir> > %USERPROFILE%\d165-win.log 2>&1"'
+sleep N  # wait for compile + dump to finish, before any hang
+ssh windowsmini 'cmd /c "taskkill /F /IM zwasm-spec-wasm-2-0-assert.exe 2>nul"'
+scp -q windowsmini:d165-win.log /tmp/d165-win.log
+
+# Mac-side: extract a specific function's bytes and disassemble
+grep "func7" /tmp/d165-win.log | awk -F'bytes=' '{ print $2 }' \
+    | xxd -r -p > /tmp/func7.bin
+llvm-objdump --disassemble -b binary -m x86_64 --x86-asm-syntax=intel /tmp/func7.bin
+```
+
+This dumped fac-ssa's 390-byte body and was on the critical
+path to identifying the pick0/pick1 MEMORY-class + cap=1
+bugs in D-165 cycle 9.
+
+### Recipe 17 — manifest-bisect via `test/private/d-165/` scratch dir
+
+To isolate which directive triggers a JIT-runtime bug:
+
+1. `cp test/spec/wasm-2.0-assert/<feature>/fac.0.wasm
+   test/private/d-165/fac/` — copies the upstream wasm.
+2. Write a custom `test/private/d-165/fac/manifest.txt` with
+   progressively-narrowed directives.
+3. Run `zig-out/bin/zwasm-spec-wasm-2-0-assert test/private/d-165`.
+4. Iterate: bisect by adding/removing directives until you
+   isolate the minimal trigger (Recipe 17a — 1 cycle ≈ 5-15
+   seconds round-trip via scp + cmd /c).
+
+`test/private/` is gitignored — no commit pressure for the
+scratch fixture. Reverts to base state by `rm -rf test/private/d-165/fac/*; cp ... fac.0.wasm fac/`.
+
+`installArtifact(non_simd_assert_runner_exe)` in `build.zig`
+ensures `zig-out/bin/<runner>` is the stable canonical path
+(landed cycle 9 / `12fb9e4f`). Without this you'd hunt for
+the latest `.zig-cache/o/HASH/<runner>.exe` per build.
+
 ## When to invoke each recipe (decision tree)
 
 ```
