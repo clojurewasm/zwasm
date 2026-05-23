@@ -56,12 +56,15 @@ pre-cycle-20). I1 satisfied — no SKIP-WIN64-* emission.
 ### Autonomous-eligible (next session pick from here)
 
 - **D-167** — Win64 1+arg multi-result wrapper extension.
-  Spike-first per debt-entry recommendation: build
-  `private/spikes/d167-win64-multi-arg-wrapper/` with
-  per-shape byte-test before touching `wrapper_thunk.zig`.
-  Cycle 21-24 retrospective: simd_assert regressed because
-  simd has scalar multi-result functions hitting the wrapper
-  path; per-shape test isolation would have caught it.
+  **Spike with full context already exists** at
+  `private/spikes/d167-win64-multi-arg-wrapper/README.md` —
+  contains cycle 21-24 retrospective, proven Win64 byte
+  sequences (1-arg + 3-arg 2-int-result), 4 work-order steps,
+  failure-mode diagnosis. Read FIRST. Recipe: (1) per-shape
+  Mac byte tests in `wrapper_thunk.zig` first, (2) synthetic
+  end-to-end execution test, (3) land wrapper extension only
+  after Mac tests green, (4) windowsmini integration verify
+  ESPECIALLY simd_assert (cycle 24's regression site).
 
 ### User-gated
 
