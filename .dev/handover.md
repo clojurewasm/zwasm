@@ -40,15 +40,20 @@ code. Phase B (below) bundles the Win64 verification once.
 
 Tackle in this order (autonomous-eligible, ROI-descending):
 
-1. **A1. D-157 CLOSED** (cycle 15 + 16, `6e48e680` + `bf4edaca`).
-   `hasIncompatibleImportType` mirror extended; SKIP 56 → 0
-   on Mac aarch64 + ubuntu (verified test substrate scope).
-   D-157 row removed.
+1. **A1. D-157 CLOSED** (cycle 15-16; SKIP 56→0 wasm-2.0).
+2. **A2. D-139 CLOSED** (cycle 17, `c423cb4e`). c_api Instance
+   audit coverage: 2 new in-source test blocks in
+   `src/api/instance.zig` — arena ownership (4 instances,
+   non-sequential delete) + zombie lifecycle (B retains funcref
+   into A after wasm_instance_delete(A)). Mac substrate green.
 
-**New debt filed cycle 16**: D-166 — ubuntu memory_grow 5
-off-by-one fails (pre-existing; Mac green; undetected because
-prior ubuntu kicks used `test` substrate scope). Cycle 17+
-investigation: diff `current_mem_bytes` trace across hosts.
+**New debt cycle 16**: D-166 — ubuntu memory_grow 5 off-by-one
+(pre-existing; investigation queued post-windowsmini).
+
+**User-paused 2026-05-23**: A2 closed, awaiting user direction.
+Active = A3 (D-079 ii v128 cross-module) OR A4 (D-163 Win64
+caller-side bounds-check trap, narrowing complete per lessons
+`2026-05-23-d163-*`).
 2. **A2. D-139** — c_api Instance audit + coverage tests in
    `src/api/instance.zig`.
 3. **A3. D-079 (ii)** — c_api v128 cross-module: extend
