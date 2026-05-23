@@ -61,6 +61,13 @@ Closed cycles 10-25: `git log --grep="cycle 2[0-5]\|A1\|A2\|A4"`.
    — Phase A の設計記録、Accepted。
 3. **[`.dev/phase9_value_widen_plan.md`](./phase9_value_widen_plan.md)**
    — Phase A 実装計画 6 sub-phase。
+4. **[`../docs/cw_v1_consumer_contracts.md`](../docs/cw_v1_consumer_contracts.md)**
+   — CW v1 (ClojureWasmFromScratch) consumer feedback
+   contracts。Phase A.4d / A.4f / A.5 + Phase F の各 gate
+   item として埋め込み済み (★必須 3件 C-1/C-2/C-3 +
+   answered Q1-Q6 + long-term L-1/L-2 + co-exist §5)。
+   **Phase A 着手前に必読** — drift 発生で CW v1
+   dogfooding 破壊。
 
 ### Autonomous-eligible (next session pick from here)
 

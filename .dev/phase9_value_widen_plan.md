@@ -179,7 +179,33 @@ Per Phase 1 scope audit, in dependency order:
 **Exit per sub-phase**: Mac+ubuntu test-all green + lint
 green + commit. Windows reconcile at Phase 4 completion.
 
-### Phase 5 — Cope code removal verification (1 cycle, autonomous)
+### Phase 5 — Cope code removal verification + CW v1 contract gate (1 cycle, autonomous)
+
+**CW v1 consumer contract verification** (added cycle 37
+post-CW-v1 feedback; rails per
+[`../docs/cw_v1_consumer_contracts.md`](../docs/cw_v1_consumer_contracts.md)
+§6 checklist):
+
+- C-1: `comptime std.debug.assert(@alignOf(FuncEntity) >= 8)`
+  asserted at FuncEntity declaration site
+- C-2: `Trap` enum has 12 variants exactly; header comment
+  "ABI-stable variant set per cw_v1_consumer_contracts.md §1 C-2"
+- C-3: `grep -rn 'c_allocator\|page_allocator\|GeneralPurposeAllocator'
+  src/api/ src/runtime/` audited; all hits classified
+  (test-only / Debug-only OK; production-path hits forbidden
+  without ADR)
+- L-1: `Instance.invoke` API present, not deprecated
+- L-2: linker memory default behavior verified (undefined
+  memory import → instantiate error)
+- §5 co-exist: `src/api/instance.zig` intact + functional
+  (wasm-c-api binding survives Phase A cascade)
+
+Phase 5 cannot close without every contract box ticked.
+Failure of any box requires fix-in-same-chunk OR explicit
+ADR amendment documenting the deviation + CW v1 maintainer
+notification.
+
+### Phase 5 — Cope code grep portion (continues)
 
 Grep verification that no ADR-0052 / ADR-0107 cope code
 remains:
