@@ -1,6 +1,6 @@
 # 0052 — Adopt per-valtype byte offsets for v128 globals storage
 
-- **Status**: Accepted
+- **Status**: Accepted (per-valtype byte offsets cope-mechanism portion superseded by ADR-0110 Value=16 widen 2026-05-24; the wider ADR-0052 — "Wasm 2.0 v128 globals must be loadable, and ADR-0052 was the Phase 9 §9.9-g-20 emergency landing path" — stays valid as historical record). Once ADR-0110 §9.13-V implementation completes, this ADR's `globals_offsets[]` + `globals_byte_storage` + per-valtype JIT dispatch switch will be removed; only the v128-globals existence + alignment requirement persists in spirit.
 - **Date**: 2026-05-11
 - **Author**: zwasm-from-scratch loop (chaploud)
 - **Tags**: jit, abi, runtime, globals, simd, v128

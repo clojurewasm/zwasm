@@ -1,6 +1,6 @@
 # 0107 — Migrate `Runtime.globals` to byte-buffer for v128 cross-module support
 
-- **Status**: Proposed
+- **Status**: Withdrawn 2026-05-24 — superseded by ADR-0110 (Value widen to 16-byte). The "byte-buffer globals propagation to c_api" goal is root-cause-fixed by ADR-0110's Value=16 widen (uniform 16-byte Value = no per-valtype offsets needed anywhere = no c_api byte-buffer propagation needed). Stays in-tree as design-decision lineage (per ADR-0108 Withdrawn pattern). See ADR-0110 §Context for the reframe rationale + `docs/runtime_deep_comparison.md` §1-2 for the industry-audit data that triggered the reframe.
 - **Date**: 2026-05-23
 - **Author**: claude (autonomous loop)
 - **Tags**: runtime, instance, v128, cross-module, jit-codegen, c_api, D-079
