@@ -13,81 +13,87 @@
 `bash scripts/check_phase9_close_invariants.sh --gate`.
 
 **Gate state (mac-host)**: 17/18 passed.
-**windowsmini state (2026-05-23 `/tmp/win.log`)**:
-`assert_exhaustion fac-rec i64:1073741824` hangs after
-`fac : assert_return fac-ssa` (line ~28527).
+**windowsmini state (2026-05-23, cycle 6 reconcile partial,
+HEAD=b23b8678)**: hangs at `fac : assert_exhaustion fac-rec
+i64:1073741824`. `runaway`/`mutual-runaway` PASS via probe
+(both call + call_indirect paths). 4× `[d-165] kind=4
+cumulative_trap_stub_entry_count=1` printed.
 
-## Active chunk — D-165 cycle 6 (windowsmini reconcile + bisect)
+## Active chunk — D-165 cycle 7 (i64-shape probe gating)
 
 Phase 9 close gate: I1 = SKIP-WIN64-CALL-INDIRECT-TRAP.
-Blocking sequence: **D-165 → D-163 → §9.13-0 → Phase 9 DONE**.
-
 Spike: `private/spikes/d-165-win64-fac-rec-hang/`.
 
 ### Hypotheses (per `hypothesis_enumeration.md`)
 
-1. ~~Probe doesn't fire (frame_bytes=0)~~ — REJECTED cycle 1.
-2. ~~`stack_limit = 0` globally~~ — REJECTED cycle 1.
-3. ~~Byte-shape regression in i64-result emit~~ — REJECTED
-   cycle 2 + 3.
-4. ~~Trap-flag propagation stall (host-side)~~ — REJECTED
-   cycle 3 via `entry.zig:162-175`.
-5. (active, **leading**) Probe-fire interaction with Win64
-   commit-region geometry. Diagnostic ladder landed cycles 4+5:
-   - cycle 4 (`8c7f3d48`): `JitRuntime.trap_stub_entry_count`
-     u32 + INC at x86_64 stack-overflow trap stub start.
-   - cycle 5 (`7624019f`): `invokeAndCheck` prints
-     `[d-165] kind=4 cumulative_trap_stub_entry_count=N` on
-     Error.Trap with kind=4.
+1. (**RESURRECTED** by cycle 6 evidence) Probe doesn't
+   fire for the (i64)→i64 self-recursive shape on Win64.
+   Cycle 6 windowsmini reconcile evidence:
+   - runaway (() → ()): probe FIRES, count=1, trap clean.
+   - mutual-runaway (() → ()): probe FIRES, count=1.
+   - call_indirect runaway/mutual-runaway: probe FIRES.
+   - fac-rec ((i64) → i64): no `[d-165]` print; process hangs.
+   Cycle 1 static analysis + cycle 2 emit byte-shape test
+   said byte-level wiring is correct. So either (a) runtime
+   conditions are subtly different for i64 shape, OR (b) the
+   probe fires but trap_stub itself hangs on i64 trap path.
+2. ~~stack_limit = 0~~ — REJECTED (runaway probe fires).
+3. ~~Byte-shape regression~~ — REJECTED cycle 2 + 3.
+4. ~~Host-side trap-flag check~~ — REJECTED cycle 3.
+5. ~~Unwind cost timeout~~ — IMPLAUSIBLE (runaway unwinds
+   fine; fac-rec's i64.mul × 0 per frame is fast).
 
-### Cycle 6 plan (runtime evidence)
+### Cycle 7 plan
 
-1. Run windowsmini reconcile against HEAD:
+Two paths, both targeting H1's "why doesn't probe fire for
+i64 shape but does for void shape":
 
-   ```sh
-   bash scripts/run_remote_windows.sh test-all > /tmp/win.log 2>&1
-   ```
+**Path A — bisect input value on windowsmini.** Write a
+custom `test/edge_cases/p9/fac-rec/exhaustion-small.{wat,
+wasm,expect}` fixture with `assert_exhaustion fac-rec
+i64:10000` (~10K depth, probe should fire well before
+that on Win64 with 1 MiB headroom). If PASS → input-
+dependent (something about 1073741824 specifically).
+If HANG → input-independent (i64 shape just doesn't
+probe-fire on Win64).
 
-2. After test-all completes (or aborts at fac-rec hang), grep:
+**Path B — disassemble Win64 fac-rec emit.** Cross-build
+`zig build -Dtarget=x86_64-windows-gnu` + `llvm-objdump
+-d` the fac-rec body bytes. Compare prologue probe
+encoding against runaway's. Difference (if any) localises
+the bug to a specific encoding asymmetry.
 
-   ```sh
-   grep '\[d-165\]' /tmp/win.log | head -50
-   ```
+Path B is cheaper (no windowsmini round-trip; static
+inspection only). Path A confirms / rejects input-
+dependence.
 
-3. Read the cumulative count for runaway PASS (confirms Win64
-   probe works) and for any other assert_exhaustion fixture
-   that reaches the print.
-
-4. If fac-rec still hangs: write a custom `.wast` fixture with
-   smaller exhaustion input (1M, 100K, 10K) to bisect the
-   threshold between probe-fires-correctly and hang.
-
-windowsmini reconcile is the Phase-9-close boundary action;
-per the close-plan override (handover Step 1a), D-165 runtime
-verification supersedes the per-chunk ADR-0049 forbid for this
-specific work.
+windowsmini reconcile cycle 6 still running in
+background; on completion or timeout the result is
+recorded but the diagnostic evidence above (4× count=1
+on runaway-family) is already conclusive for those paths.
 
 ### After D-165 resolved
 
 Remove `SKIP-WIN64-CALL-INDIRECT-TRAP` arm in
-`spec_assert_runner_base.zig:3088`; re-run windowsmini; if PASS
-→ D-163 closed; flip I1; gate exits 0; flip §9.13-0 → Phase 9
-DONE.
+`spec_assert_runner_base.zig:3088`; re-run windowsmini.
+PASS → D-163 closed; flip I1; gate exits 0; §9.13-0 →
+Phase 9 DONE.
 
 ## Closed this session (2026-05-23)
 
 - ✅ **R3 / D-162**, **R2**, **R1**, **D-094**, **D-164**.
-- ✅ **D-165 cycles 2-3** byte-shape tests (`0fe14a5f` +
-  `a5f7236b`); H3, H4 ruled out.
-- ✅ **D-165 cycle 4** `trap_stub_entry_count` JIT diagnostic
+- ✅ **D-165 cycles 2-3** byte-shape tests; H3, H4 ruled out.
+- ✅ **D-165 cycle 4** trap_stub_entry_count diagnostic
   (`8c7f3d48`); size 232 → 240.
 - ✅ **D-165 cycle 5** kind=4 stderr surface (`7624019f`).
+- ✅ **D-165 cycle 6** windowsmini partial reconcile:
+  runaway probe fires (count=1); fac-rec hangs no print.
 
 windowsmini SSH-reachable, autonomous-eligible per ADR-0049.
 
 ## See
 
-- `/tmp/win.log` (windowsmini test-all; 17703 lines).
+- `/tmp/win.log` line 17590 (first `[d-165]` evidence).
 - `private/spikes/d-165-win64-fac-rec-hang/ANALYSIS_REFINED.md`.
 - [`phase9_close_master.md`](./phase9_close_master.md) §5.1.
 - ADR-0104 / 0105 / 0106 / 0078.
