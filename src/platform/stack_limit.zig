@@ -39,7 +39,22 @@ const builtin = @import("builtin");
 /// Headroom kept above the actual stack low-end for trap-stub
 /// epilogue, signal-handler frame, and recovery state. Per
 /// ADR-0105 D6 — initial conservative value; tunable per amend.
-pub const STACK_GUARD_HEADROOM: usize = 16 * 1024;
+///
+/// R3 cycle 6 (2026-05-23): Win64 path bumped to 1 MiB
+/// experimentally. Mac+Linux runaway test trapped at 16 KiB
+/// successfully; Win64 runaway crashed STACK_OVERFLOW (exit 253)
+/// despite probe + stack_limit being correctly written (via_off
+/// cross-check passed in cycle 4). One remaining hypothesis is a
+/// Win64 commit-pattern early-overflow where the OS raises
+/// `EXCEPTION_STACK_OVERFLOW` BEFORE SP descends to `low + 16K`.
+/// A 1 MiB headroom would make the probe fire WELL before any
+/// Windows commit boundary. If the probe still doesn't fire at
+/// 1 MiB, the bug is in the probe instruction stream execution
+/// itself (not stack-limit value).
+pub const STACK_GUARD_HEADROOM: usize = if (builtin.os.tag == .windows)
+    1024 * 1024
+else
+    16 * 1024;
 
 /// Sentinel returned when the per-platform query fails OR the
 /// platform isn't supported. The JIT prologue treats `0` as
@@ -215,6 +230,7 @@ test "computeStackLimit: returns non-zero on supported hosts (Mac / Linux / Wind
     }
 }
 
-test "STACK_GUARD_HEADROOM: 16 KiB per ADR-0105 D6 initial value" {
-    try testing.expectEqual(@as(usize, 16 * 1024), STACK_GUARD_HEADROOM);
+test "STACK_GUARD_HEADROOM: 16 KiB per ADR-0105 D6 initial value (1 MiB on Win64 per R3 cycle 6)" {
+    const expected: usize = if (builtin.os.tag == .windows) 1024 * 1024 else 16 * 1024;
+    try testing.expectEqual(expected, STACK_GUARD_HEADROOM);
 }
