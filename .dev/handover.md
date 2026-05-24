@@ -109,16 +109,20 @@ Closed cycles 10-25: `git log --grep="cycle 2[0-5]\|A1\|A2\|A4"`.
 - 44: **§9.13-V Phase A.4c — regalloc spill stride *8→*16**
   (269cb783)。`src/engine/codegen/shared/regalloc.zig` の
   `Allocation.slot` + `spillBytes` legacy fallback formula を
-  `*8` から `*16` に switch (Value=16 widen と整合)。
-  ADR-0053 spill_offsets path 不変。Test expectations
-  bulk update: regalloc.zig (4 tests), regalloc_compute.zig
-  (1 test), arm64/gpr.zig (4 tests; qLoadSpilled
-  "rejects unaligned" は base offset 非整合に rewrite),
-  x86_64/op_simd_int_arith_test.zig (1 rationale comment)。
-  **Mac `zig build test` GREEN under Value=16** (1760/1760
-  pass; pre-A.4c は 1744/2-fail)。SlotOverflow at abs_off=40
-  head failure dissolved。Lint green。`test-all` の Phase
-  A.4b/A.4f/A.4g cascade 残。
+  `*8` から `*16` に switch。Test expectations bulk update。
+  Mac `zig build test` GREEN (1760/1760)。SlotOverflow 解消。
+- 45: **§9.13-V Phase A.4b — globals layout uniform 16-byte
+  stride** (36c50710)。`src/engine/export_lookup.zig`
+  computeGlobalsLayout の per-valtype 8/16 sizing を uniform 16
+  に collapse — c_api `[*]Value` stride と spec-runner byte buffer
+  を converge。`src/engine/codegen/{arm64,x86_64}/op_globals.zig`
+  fallback `idx*8 → idx*16`。Test expectations 2 sites flip
+  (arm64 STR W to [X23+16]; x86_64 MOV [RAX+16])。**Mac
+  `zig build test-all` GREEN under Value=16**: edge 68/0,
+  wast 72/0, spec_assert 212/0, wast_runtime 266/0。Phase A.4
+  cascade restoration COMPLETE in 3 cycle (estimate 3.5-5);
+  A.4f/A.4g re-classified as post-green cleanup ではなく
+  cascade-blocker。
 
 ## Remaining work
 
@@ -143,24 +147,26 @@ Closed cycles 10-25: `git log --grep="cycle 2[0-5]\|A1\|A2\|A4"`.
 ### Autonomous-eligible (next session pick from here)
 
 優先順 (A.1 38; A.2.1 39; A.2.2 40; A.2.3 41; A.3 42; A.4a 43;
-A.4c 44 on feature branch; **Phase A.4b 起点**):
+A.4c 44; A.4b 45 on feature branch; **Phase A.4f 起点**):
 
-1. **§9.13-V Phase A.4b — JIT codegen globals stride**
-   (**NEXT**, ~1 cycle, autonomous, feature branch)。Plan doc
-   §2 Phase 4b + REPORT §2.b。arm64 LSL #3 (×8) → LSL #4 (×16)
-   + Q-form (v128) routing decision; x86_64 idx*8 → idx*16 +
-   MOVUPS for v128。Sites: `src/engine/codegen/arm64/op_globals.zig:45`
-   (out-of-range fallback `idx*8`), `src/engine/codegen/x86_64/
-   op_globals.zig:74` (同), `arm64/abi.zig:143` (LSL #3 doc),
-   `shared/jit_abi.zig:184-190` (globals_base entry size doc),
-   `x86_64/inst_mem.zig:191,231` (idx*8 doc), per-valtype switch
-   in `.global_get`/`.global_set` (`arm64/op_globals.zig:1-251`
-   + `x86_64/op_globals.zig:1-298`) を collapse-or-keep judgement。
-2. **§9.13-V Phase A.4f** — host call marshal + c_api
-   evalConstExprValue v128.const arm (D-169 discharge)。
-3. **§9.13-V Phase A.4g** — spec runner GlobalsCtx removal
-   (~1.5-2 cycle long pole; 26 sites per REPORT §2.g)。
-4. **§9.13-V Phase A.5 / A.6** — cope code grep clean + 3-host
+1. **§9.13-V Phase A.4f — c_api v128.const arm + marshalValOut
+   v128** (**NEXT**, ~0.5 cycle, autonomous, feature branch)。
+   D-169 discharge。`src/runtime/instance/instantiate.zig:340-373`
+   `evalConstExprValue` switch に `0xFD => switch (expr[pos])
+   { 0x0C => ...read 16 bytes... return .{ .v128 = bytes } }`
+   arm を追加。`src/api/instance.zig:735-745` marshalValOut の
+   `.v128 => .{ .kind = .i64, .of = .{ .i64 = 0 } }, // unreachable
+   for MVP` cope を実装に置換。cycle 41 で reverted した
+   v128_cross_instance fixture を recreate (R-new-8)。
+2. **§9.13-V Phase A.4g — spec runner GlobalsCtx removal**
+   (~1.5-2 cycle long pole)。Test-all GREEN baseline で
+   incremental に行える: REPORT §2.g 26 sites の `globals_offsets`
+   / `globals_byte_size` / `GlobalsCtx` を順次削除、
+   `applyImportedGlobalsFromRegistered` (~100 LOC simplification,
+   R-new-8 highest-risk) を uniform `importer_buf[slot] =
+   exporter_buf[slot]` に置換。各 chunk で test-all green を
+   gate。
+3. **§9.13-V Phase A.5 / A.6** — cope code grep clean + 3-host
    verify + merge to main。Phase A.6 で feature → main rebase
    merge + ubuntu/windowsmini reconcile。
 3. **§9.13-V Phase A.3-A.6** — Value flip + cascade + merge
@@ -191,13 +197,15 @@ intentionally runtime-red until Phase A.4 cascade restores
 green; main `zwasm-from-scratch` stable at bcc4951f). `now`
 debts: D-167 (folded into §9.13-V Phase A.4f) + **D-169**
 (c_api v128 const init gap; discharged inside Phase A.4f).
-**Mac `zig build test` is GREEN** under Value=16 as of cycle 44
-(A.4c landed); only `test-all` (spec runner + realworld + WASI)
-remains red until A.4b/A.4f/A.4g land. Phase A.4b (JIT codegen
-globals stride) is the next chunk per plan doc §2 Phase 4b。
-**Ubuntu per-chunk gate SKIPPED on feature branch** (`run_remote_ubuntu.sh`
-hardcoded to origin/zwasm-from-scratch); gate re-asserted at
-A.6 merge.
+**Mac `zig build test-all` is GREEN** under Value=16 as of cycle
+45 (A.4b landed) — edge 68/0, wast 72/0, spec_assert 212/0,
+wast_runtime 266/0. Phase A.4 cascade restoration COMPLETE in
+3 cycles (under 3.5-5 estimate). Phase A.4f (D-169 discharge:
+c_api v128.const arm in evalConstExprValue + marshalValOut)
+is the next chunk; A.4g (spec runner GlobalsCtx removal,
+~1.5-2 cycle long pole) follows; A.5/A.6 close。**Ubuntu
+per-chunk gate SKIPPED on feature branch**; gate re-asserted
+at A.6 merge.
 **Step 1a override**: `phase9_close_master.md` reference
 above triggers close-plan override per SKILL.md; Step 2
 (ROADMAP §9 first `[ ]` lookup) is therefore informational
