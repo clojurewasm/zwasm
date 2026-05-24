@@ -6,40 +6,35 @@
 
 ## Current state
 
-- **Phase**: 9 IN-PROGRESS. §9.13-V `[x]`; Phase B.1 (D-167) CLOSED.
-- **Last commit**: `4339eb02` D-167 wire-up + `7680cbd2` handover;
-  this cycle = D-167 discharge + handover refresh.
+- **Phase**: 9 IN-PROGRESS. Phase B.3 (D-139) in flight.
+- **Last commit**: `64c2378c` — D-139 audit doc + gap C2
+  (multi-store isolation) test landed.
 - **Phase 9 close gate (mac-host)**: **18/18 PASS**.
-- **Test state at `7680cbd2`**: Mac+ubuntu test-all GREEN;
-  **windowsmini test-all GREEN — simd_assert 13351 PASS, 0 FAIL,
-  0 directive fails** (all 9 pre-existing D-167 fails CLEARED).
-- **D-028 heisenbug streak**: 1/5 silent (recorded
-  `7680cbd2`); needs 4 more silent runs across distinct binary
-  layouts to discharge.
+- **Test state at `64c2378c`**: Mac `zig build test` GREEN; lint
+  GREEN. ubuntu kick for `fe666b0f` (D-167 close) verified
+  GREEN at Step 0.7. windowsmini at `7680cbd2`: 0 FAIL.
+- **D-028 heisenbug streak**: 1/5 silent.
 
-## Active task — Phase B.3 (D-139 c_api Instance audit + coverage)
+## Active task — Phase B.3 D-139 cont. (gap A2 transitive zombie)
 
-Per [`phase9_remaining_flow.md`](./phase9_remaining_flow.md) §2.
-B.2 (D-028) discharge progresses organically as future
-windowsmini Phase-boundary runs accumulate silent outcomes (≥ 5
-across ≥ 3 distinct SHAs per `.claude/rules/heisenbug_discharge.md`).
+Per [`c_api_instance_audit_2026-05-24.md`](./c_api_instance_audit_2026-05-24.md) §4 discharge plan.
+Audit + gap C2 closed this chunk (`64c2378c`). Next chunks:
 
-**B.3 — D-139 c_api Instance audit + coverage**:
-- Audit `src/api/instance.zig` Instance lifecycle path: arena
-  ownership, zombie-instance contract, deinit ordering vs
-  cross-instance shared slices (cross-ref ADR-0014 §6.K).
-- Add coverage tests (in-source `test "..."` blocks per project
-  idiom; `zig build test` discovers via core runner) for:
-  - Instance allocator strict-pass + double-deinit safety
-  - Zombie list traversal (shared globals slice survival across
-    one instance deinit while owner instance lives)
-  - Arena ownership (cross-instance memory.copy bounds, table
-    aliasing)
+- **NEXT** — Gap A2: `"wasm 2.0 c_api zombie transitive: 3-instance
+  diamond funcref graph survives delete order A→C→B"` —
+  multi-zombie park + transitive import chain.
+- **THEN** — Gap B3 (reverse-order arena delete) + Gap A3
+  (partial-init trap zombie) + Gap C3 (store_delete cleanup
+  order) + Gap C4 (engine reuse across stores).
+- **THEN** — D-139 close commit (`chore(debt): close D-139 ...`).
 
-After Phase B closes (B.1 ✓, B.2 streak, B.3 D-139): §9.13-0 row
-exit predicate per ADR-0104 D1.2-1.6 evaluation, then Phase C
-(§9.12-I ADR canonical pass), Phase D (§9.12-F debt verify),
-Phase E (§9.13 hard gate, user collab), Phase F (Phase 10 open).
+3 new debts filed at C2 (blocked on ADR-0025 v0.1.0 RC c_api
+accessor exports): D-171 (A1 global zombie), D-172 (B1 table
+alias), D-173 (B2 memory alias). Documented in audit §3 / §4.
+
+After Phase B.3 fully closes → §9.13-0 row exit predicate
+evaluation, then Phase C/D/E/F per
+[`phase9_remaining_flow.md`](./phase9_remaining_flow.md) §2.
 
 ## Cold-start procedure
 
