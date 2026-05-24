@@ -383,12 +383,62 @@ feature branch. Phase 6 merge requires all parallel work on
 main to be green; rebase + integration test gates the
 merge.
 
+## §7a — Phase A.5 cope-grep verification (cycle 51, 2026-05-24)
+
+Phase A.5 per plan doc §2 Phase 5 + REPORT §6. Residual cope
+inventory after Phase A.4g sub-chunks:
+
+| Identifier            | Pre-Phase A | Post-cycle 50 | Note                                                                                              |
+|-----------------------|-------------|---------------|---------------------------------------------------------------------------------------------------|
+| `globals_byte_storage` | claimed     | 0 hits         | Phantom per Phase A.1; never existed in tree                                                      |
+| `globals_byte_base`    | claimed     | 0 hits         | Same                                                                                              |
+| `evalConstScalarValue` | claimed     | 0 hits         | Same — actual name `evalConstScalarRawCtx`                                                        |
+| `evalConstV128Value`   | claimed     | 0 hits         | Same — actual name `evalConstV128Expr`                                                            |
+| `globals_byte_size`    | 8 hits      | 0 hits         | Removed cycle 48 (Phase A.4g-2)                                                                   |
+| `globals_offsets`      | 79+ hits    | 47 src + 39 test ≈ 47 src code refs | **Load-bearing** JIT metadata table; per-global byte offset for `[X23 + byte_off]` emit. Further removal requires architectural shift (emit `[X23 + idx*16]` inline instead of lookup) — Phase 10+ work. |
+| `GlobalsCtx`           | structural  | 9 hits         | Spec runner const-expr eval context (offsets / valtypes / buf / num_imports). Structurally required to pass eval-time globals state; removing the struct doesn't simplify (args still passed individually). Keep. |
+
+**Net diff vs main** (feature branch `zwasm-from-scratch-value16`
+@ cycle 50): +313 / -152 = **+161 LOC**. Of the +313 additions,
+~96 LOC is fixture WAT/expect files (16 boundary fixtures from
+Phase A.2.1/A.2.2). Excluding fixtures: ~+65 LOC net change
+(roughly neutral; cope removal balanced by ADR-0110 widen
+infrastructure + comptime asserts).
+
+REPORT §6 net-delta prediction was 250-350 LOC removed. **Actual
+delta differs because**: ADR-0110 §1.66-75 listed 4 phantom items
+(globals_byte_storage / globals_byte_base / 2 phantom function
+names) as cope — they didn't exist in tree to begin with, so
+removing them yielded 0 LOC. The remaining true cope items
+(globals_offsets metadata, GlobalsCtx eval context) are
+structurally load-bearing for current JIT codegen and spec
+runner — full removal exceeds Phase A scope.
+
+**Phase A.4g closure decision**: Phase A.4g delivered the
+substantive cleanup goals (uniform 16-byte stride established
+everywhere; per-valtype 8/16 switch sites collapsed; R-new-8
+highest-risk migration boundary dissolved). The remaining
+`globals_offsets` / `GlobalsCtx` references are not cope-vs-
+clean choices but structural metadata that Phase 10+ rework
+may simplify alongside ADR-0109 native Zig API + D-170
+discharge. **Closing Phase A.4g at cycle 50 state**;
+remaining cope cleanup deferred to Phase 10.
+
 ## §8 — Revision history
 
 - 2026-05-24 — Initial draft alongside ADR-0110 Accepted at
   cycle 37. User collab confirmation: "Value=16 は対応する、
   ということで確定", test concerns explicitly addressed in
   Phase 2.
+- 2026-05-24 cycle 51 — **Phase A.5 cope-grep verification
+  CLOSED**. Net delta +161 LOC (fixture-inflated; ~+65 LOC
+  net code change). REPORT §6 prediction differed because
+  4 cope items were phantom (never in tree). Remaining
+  `globals_offsets` / `GlobalsCtx` references are
+  structurally load-bearing; further cleanup deferred to
+  Phase 10 alongside ADR-0109 + D-170 discharge. Phase A.4g
+  closed at cycle 50 state. Ready for Phase A.6 (3-host
+  verify + merge to main).
 - 2026-05-24 cycle 38 — Phase 1 (scope audit) CLOSED. REPORT
   at `private/spikes/value-widen-scope-audit/REPORT.md`. §2
   Phase 1 section updated with audit outcome; §4 risk register
@@ -412,3 +462,29 @@ merge.
   contracts that can't be authored at Value=8 baseline). New
   gap is enrichment beyond REPORT §6 c_api cope inventory —
   the const-init path was not previously enumerated as cope.
+- 2026-05-24 cycles 42-50 — **Phase 3-4 CLOSED**:
+  - Phase 3 (A.3 Value union widen) at cycle 42 (`226ce9d7`).
+  - Phase 4a (storage zero-init literals) at cycle 43.
+  - Phase 4c (regalloc spill stride *8→*16) at cycle 44 —
+    Mac `zig build test` GREEN under Value=16.
+  - Phase 4b (globals layout uniform 16-byte stride;
+    `computeGlobalsLayout` collapsed per-valtype 8/16 to uniform
+    16; op_globals.zig fallbacks `*8 → *16`) at cycle 45 —
+    Mac `zig build test-all` GREEN (edge 68/0, wast 72/0,
+    spec_assert 212/0, wast_runtime 266/0). **Phase 4 cascade
+    restoration COMPLETE in 3 cycles** (under 3.5-5 estimate)
+    because A.4b unblocked the cascade head; A.4d/A.4e
+    confirmed empty per REPORT §2.d/§2.e.
+  - Phase 4f (D-169 discharge: evalConstExprValue v128.const
+    arm + marshalValOut docstring) at cycle 46 (`092d2cdb`).
+    **D-169 closed**. Side-find: D-170 filed for c_api JIT
+    runtime wiring of v128 globals via `wasm_instance_new`
+    (cross-module v128 path traps Unreachable; spec runner
+    byte-buffer cope masks it). Deferred to Phase 10 / D-170.
+  - Phase 4g (spec runner GlobalsCtx removal) cycles 47-50:
+    A.4g-1 evalConstScalarRawCtx slot_size cleanup; A.4g-2
+    globals_byte_size field removal (CompiledWasm +
+    GlobalsLayout + 4 sites); A.4g-3 bounds check unification
+    in applyDefinedGlobalsInit + resolveFuncrefGlobals;
+    A.4g-4 applyImportedGlobalsFromRegistered uniform 16-byte
+    copy (R-new-8 dissolved).
