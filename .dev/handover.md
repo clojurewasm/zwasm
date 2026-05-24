@@ -173,6 +173,13 @@ Closed cycles 10-25: `git log --grep="cycle 2[0-5]\|A1\|A2\|A4"`.
   Phase A.4g closure decision at cycle 50 state: substantive
   cleanup met; residual structural metadata は Phase 10+
   rework alongside ADR-0109 + D-170 で簡素化見込み。
+- 52: **§9.13-V Phase A.6 prep — ADR-0110 Revision history**
+  (5acc3250)。Phase A.1-A.5 implementation cycle SHAs を
+  ADR-0110 Revision history に追加 (cycles 38-51 lineage)。
+  Status: `Implemented (feature branch state). Closure pending
+  Phase A.6 merge to main`。ADR-0052 / ADR-0107 / ADR-0104 は
+  既に supersession-aware Status line を持つ; no further ADR
+  edits needed。
 
 ## Remaining work
 
@@ -196,30 +203,30 @@ Closed cycles 10-25: `git log --grep="cycle 2[0-5]\|A1\|A2\|A4"`.
 
 ### Autonomous-eligible (next session pick from here)
 
-優先順 (... A.4g-4 50; A.5 51 on feature branch;
-**Phase A.6 起点**):
+優先順 (... A.5 51; A.6-prep ADR-0110 history 52 on feature
+branch; **Phase A.6 remaining 起点**):
 
-1. **§9.13-V Phase A.6 — ADR revision history + 3-host verify
-   + merge prep** (**NEXT**, ~1 cycle)。
-   Autonomous prep:
-   - ADR-0110 Revision history entry: cycle 38-50 SHAs
-     (Phase A.1 audit + A.2 fixtures + A.3 widen + A.4
-     cascade + A.5 verification)。
-   - ADR-0052 cope-portion supersession confirmation note
-     (Phase A.4 で cope mechanisms removed)。
-   - ADR-0107 Withdrawn lineage check。
-   - ADR-0104 Phase 9 真スコープ §9.13-V row 完了
-     conditions audit。
-   - ubuntu test-all on feature branch (script rev to test
-     non-main branches OR rebase to main first then standard
-     script)。
-   - windowsmini test-all on feature branch (similar)。
-   Phase A.6 完了後、§9.13-V row `[x]` flip + merge to main
-   は user-gated (substantial work landing on main branch)。
+1. **§9.13-V Phase A.6 — feature-branch 3-host verify + merge
+   to zwasm-from-scratch** (**NEXT**, ~1-2 cycle; **partially
+   user-gated**)。Plan doc §2 Phase 6 explicitly says "user-
+   gated review"。Autonomous prep done at cycle 52 (ADR-0110
+   Revision history)。Remaining work:
+   - **Autonomous**: `scripts/run_remote_ubuntu.sh` を
+     `--branch <name>` arg 対応に extension、feature branch
+     上で ubuntu test-all 実行。同 windowsmini 用 script も
+     extension。
+   - **User-gated**: feature branch (zwasm-from-scratch-
+     value16) を zwasm-from-scratch (main dev branch) に
+     merge する操作は substantial scale (20+ commits, +161
+     LOC) で、user collab review が plan doc 既定 (§5 Phase 6
+     "user-gated review")。
+   - Post-merge: 3-host gate on merged main + §9.13-V row
+     `[x]` flip + ADR-0110 Status: Closed (implemented)。
 2. **Phase B / C / D / E / F** — flow doc §2 per
    `.dev/phase9_remaining_flow.md` (windowsmini reconcile,
    §9.12-I ADR closure, §9.12-F debt cohort verify, §9.13
-   collab gate, Phase 10 open)。Phase A 完了 unblocks all。
+   collab gate, Phase 10 open)。Phase A.6 merge 完了 unblocks
+   all。
 3. **§9.13-V Phase A.3-A.6** — Value flip + cascade + merge
    (feature branch `zwasm-from-scratch-value16`; D-167
    wire-up を A.4 内 に統合)。Phase 4d/4e はほぼ空、Phase
@@ -249,11 +256,12 @@ green; main `zwasm-from-scratch` stable at bcc4951f). `now`
 debts: D-167 (folded into §9.13-V Phase A.4f) + **D-169**
 (c_api v128 const init gap; discharged inside Phase A.4f).
 **Mac `zig build test-all` is GREEN** under Value=16. Phase
-A.5 closure at cycle 51 confirms residual cope is structural;
-Phase A.4g closed at cycle 50 state. Next: **Phase A.6**
-(ADR revision histories + 3-host verify + merge prep);
-the merge to main is user-gated。**Ubuntu per-chunk gate
-SKIPPED on feature branch**; gate re-asserted at A.6.
+A.5 closure at cycle 51 + ADR-0110 Revision history at cycle
+52 complete the autonomous prep. Next: Phase A.6 remaining
+work — `scripts/run_remote_ubuntu.sh` `--branch` arg extension
++ feature-branch 3-host verification (autonomous), followed
+by user-gated merge to zwasm-from-scratch (plan §5 marks
+Phase 6 "user-gated review")。
 **Step 1a override**: `phase9_close_master.md` reference
 above triggers close-plan override per SKILL.md; Step 2
 (ROADMAP §9 first `[ ]` lookup) is therefore informational
