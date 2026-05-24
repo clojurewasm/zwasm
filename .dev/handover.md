@@ -38,6 +38,19 @@
   wasm-c-api spec, NOT v0.1.0 RC blocked. v128 paths permanently
   excluded from c_api (industry-aligned).
 
+## Now-debt sequencing (fresh-session safety)
+
+Only **D-170** is `now`. D-171/D-172/D-173 are `blocked-by: Phase F
+(Phase 10 open) c_api spec-accessor completion` — they do NOT
+block §9.13-0 close. Fresh-session `/continue` chain is therefore:
+
+1. Cycle 1-3: D-170 implementation (fixture + fix + green)
+2. Cycle 4: §9.13-0 `[x]` flip + Step 7 retarget detects §9.13
+   hard gate (🔒 + `phase10_transition_gate.md`) → skip
+   `ScheduleWakeup`, surface to user
+3. After user clears §9.13 gate (collab review) → autonomous
+   resumes → Phase F (Phase 10 open) → D-171/172/173 in scope
+
 ## Active task — D-170 implementation (§9.13-0 close)
 
 Per `2026-05-24-c_api-v128-spec-boundary.md` discharge plan:
