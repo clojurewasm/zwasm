@@ -180,6 +180,14 @@ Closed cycles 10-25: `git log --grep="cycle 2[0-5]\|A1\|A2\|A4"`.
   Phase A.6 merge to main`。ADR-0052 / ADR-0107 / ADR-0104 は
   既に supersession-aware Status line を持つ; no further ADR
   edits needed。
+- 53: **§9.13-V Phase A.6 prep — run_remote_ubuntu.sh
+  `--branch` arg** (a186bc5a)。`scripts/run_remote_ubuntu.sh`
+  に `--branch <name> [step]` form 追加。default invocation の
+  semantics は不変 (per-chunk loop は `--branch` を渡さない;
+  ADR-0076 D3 main-dev-branch verify が継続)。Phase A.6
+  feature-branch ubuntu verification を unblock。ubuntu
+  test-all on feature branch を background でキック (task
+  bql6d6pbi); 次 cycle 結果検証。
 
 ## Remaining work
 
