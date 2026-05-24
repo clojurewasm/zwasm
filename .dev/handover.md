@@ -17,25 +17,27 @@
 - **D-028 heisenbug streak**: 1/5 silent (accumulates organically
   through Phase C/D/E windowsmini boundary runs).
 
-## Active task — Phase C (§9.12-I ADR canonical closure)
+## Active task — Phase C cont. (ADR canonical pass to <30)
 
-Per [`phase9_remaining_flow.md`](./phase9_remaining_flow.md) §2 Phase C
-(1-2 cycles, autonomous):
+Per [`phase9_remaining_flow.md`](./phase9_remaining_flow.md) §2 Phase C.
 
-- **C.1 — ADR Status canonical pass** (~22-25 Phase 9 cohort ADRs):
-  walk `.dev/decisions/*.md` for ADRs touched in Phase 9; flip
-  `Status: Accepted → Closed (Phase 9 DONE)` for ones whose
-  implementation has fully landed.
-- **C.2 — Lesson Citing backfill** (3 lessons with unfilled
-  Citing per pre-commit gate output).
-- **C.3 — verify `bash scripts/check_adr_history.sh --gate`
-  exits 0**.
+**Chunk 1 closed at `ba852dd9`**:
+- 15 ADRs flipped Accepted → Closed (0105 + 0106 + 0081-0093
+  extraction cohort).
+- 3 lesson Citing backfills (check_lesson_citing.sh: OK).
+- 2 ADR Revision history `<backfill>` resolved (783517cb).
 
-Exit: `scripts/check_adr_history.sh --gate` 0;
-`scripts/check_lesson_citing.sh` 0; ADR `Accepted` count < 30.
+Current Accepted count: **37** (target **<30** per §9.12-I exit).
 
-Then Phase D (§9.12-F debt verify, 1 cycle), then Phase E
-(§9.13 hard gate, **user collab**), then Phase F (Phase 10 open).
+**NEXT — continue ADR canonical pass** (~7 more flips needed):
+candidates include 0054 (track-b source split), 0057 (spec_assert
+runner factoring), 0074 (per-op file zone split), 0075 (x86_64
+emitctx unification), 0077 (regalloc op scratch reservation) —
+all with implementation landed in §9.12 era. Verify per-ADR
+implementation evidence before flip.
+
+After §9.12-I exits → Phase D (§9.12-F debt verify, 1 cycle) →
+Phase E (§9.13 hard gate, **user collab**) → Phase F.
 
 ## Cold-start procedure
 
