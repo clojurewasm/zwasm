@@ -36,10 +36,15 @@ blocks** lines 946–1787. Phase 9 I2 invariant baseline (per
 
 - **A1**. `"wasm 2.0 c_api zombie with mutable global: B reads
   A's global after wasm_instance_delete(A)"` — exercises
-  cross-module global mutation across zombie. **Blocked**:
-  needs `wasm_extern_as_global` + `wasm_global_get/set` c_api
-  exports (currently only `wasm_extern_as_func` exercised).
-  File debt row.
+  cross-module global mutation across zombie. **Blocked on
+  scalar c_api accessor completion** (D-171): needs
+  `wasm_extern_as_global` + `wasm_global_get/set` for i32/i64/
+  f32/f64 (spec-standard per `include/wasm.h:452-459`, industry
+  exposes these in wasmtime + wasmer). v128 mutable-global case
+  is permanently NOT in c_api per spec (`wasm_val_t` lacks
+  128-bit slot) — Zig-side v128 via ADR-0109 native API only,
+  per `2026-05-24-c_api-v128-spec-boundary.md`. Test target =
+  scalar mutable global only.
 - **A2**. `"wasm 2.0 c_api zombie transitive: 3-instance
   diamond funcref graph survives delete order A→C→B"` —
   multi-zombie park + transitive import chain.
@@ -51,12 +56,16 @@ blocks** lines 946–1787. Phase 9 I2 invariant baseline (per
 
 - **B1**. `"wasm 2.0 c_api arena ownership: table alias across
   3 instances; cross-instance table.set visible to all"` —
-  **Blocked**: needs `wasm_extern_as_table` + `wasm_table_set`.
-  File debt row.
+  **Blocked on c_api accessor completion** (D-172): needs
+  `wasm_extern_as_table` + `wasm_table_get/set/size/grow`
+  (spec-standard per `include/wasm.h:483-497`, industry
+  standard). NOT v0.1.0 RC blocked; normal spec-completion work.
 - **B2**. `"wasm 2.0 c_api arena ownership: memory alias across
   3 instances; memory.copy cross-instance visible"` —
-  **Blocked**: needs `wasm_extern_as_memory` +
-  `wasm_memory_data`. File debt row.
+  **Blocked on c_api accessor completion** (D-173): needs
+  `wasm_extern_as_memory` + `wasm_memory_data/data_size/size/grow`
+  (spec-standard per `include/wasm.h:471-481`, industry
+  standard). NOT v0.1.0 RC blocked; normal spec-completion work.
 - **B3**. `"wasm 2.0 c_api arena ownership: reverse-order
   delete (B then A) from forward-order instantiate"` — arena
   deinit order independence.
@@ -110,9 +119,15 @@ ADR not required.
   - **Landed in `src/api/instance.zig`**: C2 (`64c2378c`),
     A2 (`38e31003`), B3 (`034878b6`), C4 (`288691ed`),
     C3 (`57039f10` via D-174 cascade fix), A3 (this commit).
-  - **Filed as new debts** (blocked on c_api accessor exports
-    per ADR-0025 v0.1.0 RC scope): D-171 (A1 mutable-global
-    zombie), D-172 (B1 table alias), D-173 (B2 memory alias).
+  - **Filed as new debts** (`now`, blocked on **spec-standard c_api
+    accessor completion** per industry audit `2026-05-24-c_api-v128-
+    spec-boundary.md`): D-171 (A1 scalar-global accessors;
+    `include/wasm.h:452-459`), D-172 (B1 table accessors;
+    `include/wasm.h:483-497`), D-173 (B2 memory accessors;
+    `include/wasm.h:471-481`). All three are NOT v0.1.0 RC blocked —
+    they are normal wasm-c-api spec completion (matches what
+    wasmtime + wasmer expose). v128 paths permanently excluded
+    from c_api per spec (`wasm_val_t` lacks 128-bit slot).
   - **A2 simplification**: simpler multi-consumer pattern
     landed instead of full transitive C→A→B diamond; deferred
     to D-075 v0.1.0 RC.
@@ -123,3 +138,9 @@ ADR not required.
     harness scope, not c_api-specific.
   Final coverage: 7 new in-source test blocks under "D-139
   §5.3a A2" comment block lines 1688-1989 in `src/api/instance.zig`.
+- 2026-05-24 — **Reframe per industry audit** (lesson
+  `2026-05-24-c_api-v128-spec-boundary.md`). Gaps A1/B1/B2's
+  "v0.1.0 RC blocked" framing in earlier revision history
+  reframed: spec-standard scalar accessors are normal completion
+  work (D-171/172/173 now `Status: now`). v128 paths permanently
+  excluded from c_api per spec — Zig-side via ADR-0109 native API.
