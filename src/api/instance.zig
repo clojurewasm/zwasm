@@ -1731,6 +1731,55 @@ test "wasm 2.0 c_api arena ownership: 4 instances of same module, independent cl
     wasm_instance_delete(insts[2]);
 }
 
+test "wasm 2.0 c_api cross-module Store binding: multiple stores on same engine are isolated" {
+    // D-139 gap C2 per .dev/c_api_instance_audit_2026-05-24.md §3.
+    // Two stores on the same engine each instantiate the same module
+    // independently; their zombie lists + instances registries do
+    // not cross-contaminate. wasm_store_delete on one does not
+    // affect liveness of instances on the other.
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+
+    const s1 = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s1);
+    const s2 = wasm_store_new(e) orelse return error.StoreAllocFailed;
+
+    var bytes_s1 = minimal_wasm;
+    var bytes_s2 = minimal_wasm;
+    const bv_s1: ByteVec = .{ .size = bytes_s1.len, .data = &bytes_s1 };
+    const bv_s2: ByteVec = .{ .size = bytes_s2.len, .data = &bytes_s2 };
+
+    const mod1 = wasm_module_new(s1, &bv_s1) orelse return error.ModuleAllocFailed;
+    defer wasm_module_delete(mod1);
+    const mod2 = wasm_module_new(s2, &bv_s2) orelse return error.ModuleAllocFailed;
+    // No `defer wasm_module_delete(mod2)` — mod2 must be deleted
+    // BEFORE its owning store s2 below; deferring would run after
+    // s2 is freed and dereference dead store memory.
+
+    const inst1 = wasm_instance_new(s1, mod1, null, null) orelse return error.InstanceAllocFailed;
+    defer wasm_instance_delete(inst1);
+    const inst2 = wasm_instance_new(s2, mod2, null, null) orelse return error.InstanceAllocFailed;
+
+    // Isolation invariant 1: each instance's store back-pointer
+    // resolves only to its own store.
+    try testing.expect(inst1.store == s1);
+    try testing.expect(inst2.store == s2);
+    try testing.expect(inst1.store != inst2.store);
+
+    // Isolation invariant 2: deleting s2's instance + module + store
+    // does not disturb s1's instance. Delete order child→parent:
+    // inst2 → mod2 → s2. inst1 stays live through the function's
+    // defer at s1.
+    wasm_instance_delete(inst2);
+    wasm_module_delete(mod2);
+    wasm_store_delete(s2);
+
+    // inst1 must still be usable after s2 teardown — runtime intact,
+    // module pointer reachable.
+    try testing.expect(inst1.runtime != null);
+    try testing.expect(inst1.module == @as(*const anyopaque, @ptrCast(mod1)));
+}
+
 test "wasm 2.0 c_api zombie lifecycle: B holds funcref into A after wasm_instance_delete(A)" {
     const e = wasm_engine_new() orelse return error.EngineAllocFailed;
     defer wasm_engine_delete(e);

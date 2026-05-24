@@ -1,0 +1,108 @@
+# c_api Instance lifecycle audit (D-139)
+
+> **Doc-state**: ACTIVE — load-bearing for Phase 9 §9.13-0 close
+> (D-139 discharge per [`phase9_close_master.md`](./phase9_close_master.md) §5.3a Phase A2).
+> Filed 2026-05-24 cycle (post-§9.13-V merge, post-D-167 close).
+
+## §1 — Purpose
+
+Discharge D-139 = "c_api Instance lifecycle audit + paired
+in-source tests" per close-master §5.3a Phase A2. spec_assert
+bypasses the c_api `wasm_instance_new` / `setupRuntime` path,
+so spec-corpus coverage doesn't exercise c_api Instance
+behaviours (zombie list, arena ownership, cross-module Store
+binding). Approach: **(b) add per-c_api-feature in-source
+fixtures** in `src/api/instance.zig` (not (a) reroute
+spec_assert).
+
+## §2 — Existing coverage (as of cycle baseline)
+
+`src/api/instance.zig` carries **31 in-source `test "..."`
+blocks** lines 946–1787. Phase 9 I2 invariant baseline (per
+`scripts/check_phase9_close_invariants.sh` I2):
+
+| Block | Lines | Scope                              |
+|-------|-------|------------------------------------|
+| `wasm 2.0 reftype c_api round-trip`              | 1455–1482 | Funcref param+result, single instance |
+| `wasm 2.0 bulk-traps via c_api: memory.copy OOB` | 1503–1560 | Trap lifecycle, single instance       |
+| `wasm 2.0 mixed-exports c_api walk`              | 1561–1596 | Func+Memory+Table+Global exports cast |
+| `wasm 2.0 cross-module funcref via wasm_instance_new` | 1635–1686 | Two-instance import resolution |
+| `wasm 2.0 c_api arena ownership: 4 instances of same module` | 1692–1732 | 4-instance independent arena cleanup |
+| `wasm 2.0 c_api zombie lifecycle: B holds funcref into A after delete(A)` | 1734–1787 | Zombie keep-alive baseline |
+
+## §3 — Gap inventory (10 gaps; 6 unblocked, 4 blocked)
+
+### Category A — Zombie list (cross-instance shared storage survival)
+
+- **A1**. `"wasm 2.0 c_api zombie with mutable global: B reads
+  A's global after wasm_instance_delete(A)"` — exercises
+  cross-module global mutation across zombie. **Blocked**:
+  needs `wasm_extern_as_global` + `wasm_global_get/set` c_api
+  exports (currently only `wasm_extern_as_func` exercised).
+  File debt row.
+- **A2**. `"wasm 2.0 c_api zombie transitive: 3-instance
+  diamond funcref graph survives delete order A→C→B"` —
+  multi-zombie park + transitive import chain.
+- **A3**. `"wasm 2.0 c_api zombie partial-init: element-
+  segment trap parks C's arena; B's imports into C still valid"`
+  — `instantiateRuntime` trap-path zombie append.
+
+### Category B — Arena ownership (cross-instance aliasing)
+
+- **B1**. `"wasm 2.0 c_api arena ownership: table alias across
+  3 instances; cross-instance table.set visible to all"` —
+  **Blocked**: needs `wasm_extern_as_table` + `wasm_table_set`.
+  File debt row.
+- **B2**. `"wasm 2.0 c_api arena ownership: memory alias across
+  3 instances; memory.copy cross-instance visible"` —
+  **Blocked**: needs `wasm_extern_as_memory` +
+  `wasm_memory_data`. File debt row.
+- **B3**. `"wasm 2.0 c_api arena ownership: reverse-order
+  delete (B then A) from forward-order instantiate"` — arena
+  deinit order independence.
+
+### Category C — Cross-module Store binding
+
+- **C1**. Host-import registry. **Defer** to Cat III runner
+  harness scope (not c_api-specific).
+- **C2**. `"wasm 2.0 c_api cross-module Store binding: multiple
+  stores on same engine are isolated"` — Store isolation +
+  cross-store import rejection.
+- **C3**. `"wasm 2.0 c_api cross-module Store binding:
+  wasm_store_delete while live instance exists (cleanup order)"`
+  — Store teardown safety.
+- **C4**. `"wasm 2.0 c_api cross-module Store binding: engine-
+  allocator survives store deinit; new store on same engine
+  works"` — Engine reuse across multi-Store lifecycles.
+
+## §4 — Discharge plan
+
+| Cycle    | Action                                                |
+|----------|-------------------------------------------------------|
+| this     | File this audit + add **C2** (multi-store isolation) test. File 3 new debt rows (A1 / B1 / B2) for blocked gaps. |
+| next     | Add **A2** (transitive diamond) + **B3** (reverse-order arena delete). |
+| then     | Add **A3** (partial-init trap zombie) + **C3** (store_delete safety) + **C4** (engine reuse). |
+| then     | D-139 close commit (`chore(debt): close D-139 ...`). |
+
+Each chunk is `test-only` per LOOP.md classification — Mac+ubuntu
+gate per chunk; windowsmini at Phase boundary. No new public API
+introduced (only test consumers of existing c_api surface), so
+ADR not required.
+
+## §5 — Sources
+
+- [`phase9_close_master.md`](./phase9_close_master.md) §5.3a
+  Phase A2 (D-139 close criteria).
+- ADR-0014 §6.K (cross-instance Runtime / zombie contract).
+- `src/api/instance.zig` (31 existing test blocks).
+- `src/runtime/store.zig` lines 59 (`zombies` list) + 72
+  (`instances` registry).
+- `src/runtime/runtime.zig` lines 96–180 (Runtime struct +
+  `globals: []*Value` indirection).
+- `include/wasm.h` + `~/Documents/OSS/wasm-c-api/include/wasm.h`
+  (c_api surface).
+
+## §6 — Revision history
+
+- 2026-05-24 — Initial draft post-§9.13-V merge, post-D-167
+  close. Audit subagent inventory + gap classification.
