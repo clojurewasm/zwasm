@@ -152,6 +152,14 @@ Closed cycles 10-25: `git log --grep="cycle 2[0-5]\|A1\|A2\|A4"`.
   for scalars) を switch 外 unified guard (`off + 16`) へ hoist。
   resolveFuncrefGlobals も同様。Mac test-all 維持 green。
   cumulative ~8/26。
+- 50: **§9.13-V Phase A.4g-4 — applyImportedGlobalsFromRegistered
+  uniform 16-byte copy (R-new-8 highest-risk)** (8fe9d801)。
+  REPORT §2.g item g.20。`spec_assert_runner_base.zig:1782-1880`
+  の `width = if (vt == .v128) 16 else 8` switch を uniform 16
+  に collapse、bounds check + memcpy 全部 16-byte。Behaviour-
+  preservation: scalar values 低 8 byte に居住 + 高 8 byte は
+  `@memset` の zero-init で 0 のまま、不変。R-new-8 dissolved。
+  Mac test-all 維持 green。cumulative ~9/26。
 
 ## Remaining work
 
@@ -175,23 +183,24 @@ Closed cycles 10-25: `git log --grep="cycle 2[0-5]\|A1\|A2\|A4"`.
 
 ### Autonomous-eligible (next session pick from here)
 
-優先順 (... A.4g-2 48; A.4g-3 49 on feature branch;
-**Phase A.4g-4 起点**):
+優先順 (... A.4g-3 49; A.4g-4 50 on feature branch;
+**Phase A.4g-5 起点**):
 
-1. **§9.13-V Phase A.4g-4 — applyImportedGlobalsFromRegistered
-   simplification** (**NEXT**, ~1 cycle, R-new-8 highest-risk)。
-   `spec_assert_runner_base.zig:1782-1880` ~100 LOC の
-   per-valtype `width = if (vt == .v128) 16 else 8` byte-copy
-   logic を uniform 16-byte copy に置換。
-2. **§9.13-V Phase A.4g-5 — GlobalsCtx struct removal** (~0.5
-   cycle)。`runner_validate.zig:163-168` の `GlobalsCtx`
-   struct + その 6 fn signatures (compile_init.zig:33,83,
-   130,159,242,333) を `[]const Value` 直接渡しに simplify。
-3. **§9.13-V Phase A.4g-6+ remaining**: spec_assert_runner_*.zig
-   `scratch_globals: []u8 → []Value` 移行 + docstrings。
-4. **§9.13-V Phase A.5 / A.6** — cope code grep clean + 3-host
-   verify + merge to main。Phase A.6 で feature → main rebase
-   merge + ubuntu/windowsmini reconcile。
+1. **§9.13-V Phase A.4g-5 — incremental cope cleanup**
+   (**NEXT**, ~1 cycle)。REPORT §2.g remaining items: GlobalsCtx
+   struct + scratch_globals []u8 → []Value migration は test
+   infra 全面書き換え (~15+ sites) で大規模; 既に green な状態
+   を維持しつつ docstrings update + 小規模 simplification を先に
+   landing。
+2. **§9.13-V Phase A.5 — cope code grep verification** (~0.5
+   cycle)。REPORT §6 grep verification: `globals_offsets` /
+   `GlobalsCtx` / `globals_byte_size` の hit counts 確認;
+   残 cope sites の inventory + net code delta measurement。
+3. **§9.13-V Phase A.6 — 3-host verify + merge to main**
+   (~1 cycle, partial user-gated for merge)。feature → main
+   rebase merge + ubuntu/windowsmini reconcile + bench delta。
+   GlobalsCtx struct + scratch_globals 残 cope の正式 removal は
+   Phase A.5/A.6 までに完了 OR Phase 10 へ defer 判断。
 3. **§9.13-V Phase A.3-A.6** — Value flip + cascade + merge
    (feature branch `zwasm-from-scratch-value16`; D-167
    wire-up を A.4 内 に統合)。Phase 4d/4e はほぼ空、Phase
