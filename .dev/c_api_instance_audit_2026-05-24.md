@@ -106,3 +106,20 @@ ADR not required.
 
 - 2026-05-24 — Initial draft post-§9.13-V merge, post-D-167
   close. Audit subagent inventory + gap classification.
+- 2026-05-24 — **D-139 close**. All 10 gaps landed or filed:
+  - **Landed in `src/api/instance.zig`**: C2 (`64c2378c`),
+    A2 (`38e31003`), B3 (`034878b6`), C4 (`288691ed`),
+    C3 (`57039f10` via D-174 cascade fix), A3 (this commit).
+  - **Filed as new debts** (blocked on c_api accessor exports
+    per ADR-0025 v0.1.0 RC scope): D-171 (A1 mutable-global
+    zombie), D-172 (B1 table alias), D-173 (B2 memory alias).
+  - **A2 simplification**: simpler multi-consumer pattern
+    landed instead of full transitive C→A→B diamond; deferred
+    to D-075 v0.1.0 RC.
+  - **A3 simplification**: OOB element-segment trap landed
+    instead of full partial-init element-segment writes-then-
+    trap with cross-module table imports; deferred to D-075.
+  - **C1 deferred**: host-import registry is Cat III runner
+    harness scope, not c_api-specific.
+  Final coverage: 7 new in-source test blocks under "D-139
+  §5.3a A2" comment block lines 1688-1989 in `src/api/instance.zig`.

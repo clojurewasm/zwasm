@@ -1688,6 +1688,22 @@ const cross_module_b_wasm = [_]u8{
     0x00, 0x0b,
 };
 
+// Module with an active element segment whose offset is out-of-
+// bounds for the declared table: writes funcidx=0 into table[5]
+// on a 1-entry table. Wasm 2.0 §4.5.4 says active element bounds
+// are checked at instantiation; OOB raises a trap caught by the
+// wasm_instance_new wrapper → arena parks on store.zombies.
+// Used by gap A3 to exercise the parkAsZombie catch-path.
+const trapping_oob_elem_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // type: () -> ()
+    0x03, 0x02, 0x01, 0x00, // function: typeidx=0
+    0x04, 0x04, 0x01, 0x70, 0x00, 0x01, // table: 1 funcref, min=1
+    0x09, 0x07, 0x01, // element section: count=1
+    0x00, 0x41, 0x05, 0x0b, 0x01, 0x00, // active seg: table=0, offset=i32.const 5, vec<funcidx>=[0]
+    0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b, // code: 1 func, body locals=0 end
+};
+
 test "wasm 2.0 cross-module funcref via wasm_instance_new: B's main dispatches into A's answer" {
     const e = wasm_engine_new() orelse return error.EngineAllocFailed;
     defer wasm_engine_delete(e);
@@ -1888,6 +1904,52 @@ test "wasm 2.0 c_api zombie lifecycle: B holds funcref into A after wasm_instanc
     const trap = wasm_func_call(main_b, &av, &rv);
     try testing.expect(trap == null);
     try testing.expectEqual(@as(i32, 42), rd[0].of.i32);
+}
+
+test "wasm 2.0 c_api zombie partial-init: OOB element segment parks arena; store cleanup reaps it" {
+    // D-139 gap A3 per .dev/c_api_instance_audit_2026-05-24.md §3.
+    // Simpler form of the audit's full partial-init scenario: an
+    // active element segment with OOB offset traps at instantiation
+    // (Wasm 2.0 §4.5.4 — active elem bounds are runtime-checked).
+    // The trap must trigger the parkAsZombie catch path in
+    // wasm_instance_new — without this the arena leaks AND any
+    // cross-module funcrefs into the failed instance UAF.
+    // wasm_store_delete then cleanly reaps the zombie (no second
+    // leak; verified by the test's normal teardown succeeding).
+    //
+    // The full audit scenario (element-segment writes-then-trap with
+    // cross-module table imports) requires hand-rolling a more
+    // intricate Wasm module with table imports + multiple element
+    // segments; deferred to v0.1.0 RC (D-075). This chunk covers
+    // the structural plumbing — the parkAsZombie path itself —
+    // which is the load-bearing invariant.
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+
+    var bytes = trapping_oob_elem_wasm;
+    const bv: ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer wasm_module_delete(m);
+
+    // Pre-condition: empty zombie list.
+    try testing.expectEqual(@as(usize, 0), s.zombies.items.len);
+
+    // wasm_instance_new must return null (OOB trap) AND park the
+    // failed instance's arena on the store's zombie list.
+    const inst = wasm_instance_new(s, m, null, null);
+    try testing.expect(inst == null);
+
+    // Zombie list grew by exactly one entry. Without the catch-path
+    // parkAsZombie this would be 0 (arena freed prematurely) or the
+    // test would crash on UAF later.
+    try testing.expectEqual(@as(usize, 1), s.zombies.items.len);
+
+    // live_instances stays empty: the failed-instance handle was
+    // removed by removeFromLiveInstances inside the catch path
+    // (D-174 fix) before being destroyed.
+    try testing.expectEqual(@as(usize, 0), s.live_instances.items.len);
 }
 
 test "wasm 2.0 c_api cross-module Store binding: wasm_store_delete cascades over live instance" {
