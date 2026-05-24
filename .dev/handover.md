@@ -59,6 +59,14 @@ Closed cycles 10-25: `git log --grep="cycle 2[0-5]\|A1\|A2\|A4"`.
   plan doc §2 Phase 1 + §4 risk register (R8/R9/R10 追加、
   R1 dissolved、R2 downgraded) + §5 cycle estimate + §8
   revision history 更新。
+- 39: **§9.13-V Phase A.2.1 — Value-layer scalar boundary
+  fixtures landed** (5 WAT/wasm/expect triples at
+  `test/edge_cases/p9/value_semantics/`): i32/i64 INT_MIN
+  via global, f64 NaN payload via global (non-canonical via
+  reinterpret_i64), f32/f64 -0 via global。全 Value=8 baseline
+  green。Side-find: build.zig で run_edge_p9 が test_all_step
+  に wired されていなかった (test_edge_step 経由のみ); 1-line
+  fix で p9 corpus 全 60 fixture が test-all に組み入れ。
 
 ## Remaining work
 
@@ -82,20 +90,27 @@ Closed cycles 10-25: `git log --grep="cycle 2[0-5]\|A1\|A2\|A4"`.
 
 ### Autonomous-eligible (next session pick from here)
 
-優先順 (Phase A.1 closed cycle 38; A.2 起点):
+優先順 (Phase A.1 closed cycle 38; A.2.1 closed cycle 39; A.2.2 起点):
 
-1. **§9.13-V Phase A.2 — test coverage** (2-3 cycle, **NEXT**)。
-   user-flagged "テスト不足感" 対応; Value=8 baseline で
-   boundary fixtures 整備。Plan doc §3 + REPORT §10 で計 6
-   fixture category: 数値域 / v128 lane / NaN payload / ref
-   encoding / cross-instance v128 import (REPORT §10 add) /
-   globals 16B alignment + Value.zero v128 readback (REPORT
-   §10 add)。
-2. **§9.13-V Phase A.3-A.6** — Value flip + cascade + merge
+1. **§9.13-V Phase A.2.2 — v128 lane matrix + NaN propagation**
+   (**NEXT**, ~1 cycle)。`test/edge_cases/p9/v128_lane_ops/`
+   に shape × op × boundary-lane fixtures。`test/edge_cases/p9/
+   v128_nan_payload/` で f32x4 / f64x2 NaN payload preservation。
+   v128 globals は ADR-0052 cope path 経由 (`scratch_globals`
+   byte buffer); これも Value=cope-state baseline として green
+   establish。
+2. **§9.13-V Phase A.2.3 — cross-instance v128 + alignment +
+   zero-init** (~1 cycle)。
+   `test/edge_cases/p9/v128_cross_instance/` で R-new-8
+   highest-risk fixture (export v128 global from module A
+   with recognisable lanes, import into module B);
+   plus globals 16B alignment runtime assertion + Value.zero
+   v128 readback (REPORT §10 additions)。
+3. **§9.13-V Phase A.3-A.6** — Value flip + cascade + merge
    (feature branch `zwasm-from-scratch-value16`; D-167
    wire-up を A.4 内 に統合)。Phase 4d/4e はほぼ空、Phase
    4g が long pole (REPORT §8 reference)。
-3. **Phase B / C / D** — windowsmini reconcile + ADR closure
+4. **Phase B / C / D** — windowsmini reconcile + ADR closure
    + debt cohort verify。Phase A と並列実行可能 (詳細は flow
    doc §4)。
 
@@ -114,10 +129,10 @@ Closed cycles 10-25: `git log --grep="cycle 2[0-5]\|A1\|A2\|A4"`.
 
 Per `/continue` SKILL.md Resume Steps 0.5 / 0.7 / 0.8.
 **Current state**: autonomous-eligible. `now` debts:
-D-167 (folded into §9.13-V Phase A.4) + §9.13-V Phase A.2
-test coverage is the next chunk (see flow doc §2 + plan doc
-§2 Phase 2 + REPORT §10 for the three additional fixture
-categories beyond plan §3).
+D-167 (folded into §9.13-V Phase A.4) + §9.13-V Phase A.2.2
+(v128 lane matrix + NaN propagation) is the next chunk
+(plan doc §3 categories 2/3 + REPORT §10 — see
+"Autonomous-eligible" #1 above).
 **Step 1a override**: `phase9_close_master.md` reference
 above triggers close-plan override per SKILL.md; Step 2
 (ROADMAP §9 first `[ ]` lookup) is therefore informational
