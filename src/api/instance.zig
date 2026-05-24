@@ -1834,6 +1834,45 @@ test "wasm 2.0 c_api zombie lifecycle: B holds funcref into A after wasm_instanc
     try testing.expectEqual(@as(i32, 42), rd[0].of.i32);
 }
 
+test "wasm 2.0 c_api cross-module Store binding: engine-allocator survives store deinit; new store on same engine works" {
+    // D-139 gap C4 per .dev/c_api_instance_audit_2026-05-24.md §3.
+    // Engine E owns the allocator binding; Stores S1, S2 derive
+    // from E independently. After deleting S1 + its instance, a
+    // fresh wasm_store_new(E) → S3 must still succeed and host
+    // a new instance — proving E's allocator is not store-tied.
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+
+    // Stage 1: create S1, instantiate on it, then tear down
+    // (instance → store), leaving only E live.
+    var bytes_1 = minimal_wasm;
+    {
+        const s1 = wasm_store_new(e) orelse return error.Store1AllocFailed;
+        const bv_1: ByteVec = .{ .size = bytes_1.len, .data = &bytes_1 };
+        const m_1 = wasm_module_new(s1, &bv_1) orelse return error.Module1AllocFailed;
+        const inst_1 = wasm_instance_new(s1, m_1, null, null) orelse return error.Instance1AllocFailed;
+        try testing.expect(inst_1.runtime != null);
+        wasm_instance_delete(inst_1);
+        wasm_module_delete(m_1);
+        wasm_store_delete(s1);
+    }
+
+    // Stage 2: fresh store + instance from the SAME engine. If
+    // E's allocator had been tied to S1's lifetime, this would
+    // either UAF or fail to alloc.
+    var bytes_2 = minimal_wasm;
+    const s2 = wasm_store_new(e) orelse return error.Store2AllocFailed;
+    defer wasm_store_delete(s2);
+    const bv_2: ByteVec = .{ .size = bytes_2.len, .data = &bytes_2 };
+    const m_2 = wasm_module_new(s2, &bv_2) orelse return error.Module2AllocFailed;
+    defer wasm_module_delete(m_2);
+    const inst_2 = wasm_instance_new(s2, m_2, null, null) orelse return error.Instance2AllocFailed;
+    defer wasm_instance_delete(inst_2);
+
+    try testing.expect(inst_2.runtime != null);
+    try testing.expect(inst_2.store == s2);
+}
+
 test "wasm 2.0 c_api arena ownership: reverse-order delete (B then A) from forward-order instantiate" {
     // D-139 gap B3 per .dev/c_api_instance_audit_2026-05-24.md §3.
     // Focused 2-instance variant of the existing 4-instance arena
