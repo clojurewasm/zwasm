@@ -12,12 +12,26 @@ const std = @import("std");
 
 const FuncEntity = @import("instance/func.zig").FuncEntity;
 
-/// 64-bit value slot. The dispatch loop knows the type from the
+/// 128-bit value slot (per ADR-0110, widened from 8 bytes in
+/// §9.13-V Phase A.3 — v128 SIMD is now first-class; Wasm v3.0
+/// terminal width). The dispatch loop knows the type from the
 /// `ZirOp`; the union never carries a runtime tag (per §P3
 /// cold-start: no per-slot type byte). Float values are stored as
 /// their IEEE-754 bit pattern via `bits64` on entry/exit so NaN
 /// canonicalisation can be deferred to the boundary opcodes that
 /// need it (Wasm 1.0 §6.2.3).
+///
+/// Slot layout (little-endian; scalar variants alias the low 8 B
+/// of the 16-byte slot — Value-shape transparency for existing
+/// scalar Wasm semantics):
+/// ```
+///   bytes [0..8]   = scalar payload (i32/i64/f32/f64/ref).
+///   bytes [8..16]  = high half. v128 spans full [0..16].
+/// ```
+/// `bits128` is the canonical full-slot accessor; `bits64` aliases
+/// the low 8 bytes for backward-compatible read/write. Phase A.4
+/// cascade migrates JIT codegen / regalloc / globals stride to
+/// the 16-byte uniform stride.
 pub const Value = extern union {
     i32: i32,
     u32: u32,
@@ -26,6 +40,15 @@ pub const Value = extern union {
     f32: f32,
     f64: f64,
     bits64: u64,
+    /// Full 128-bit slot view. Used for v128 SIMD payload and as
+    /// the canonical zero-init (per `Value.zero` below). The
+    /// low 64 bits coincide with `bits64`; the high 64 bits are
+    /// observable only via this accessor or `v128`.
+    bits128: u128,
+    /// 16-byte view for Wasm v128 SIMD (Wasm 2.0 §2.3.4). Lane
+    /// indexing is little-endian per Wasm spec — lane 0 is byte
+    /// [0..N], lane MAX is byte [16-N..16].
+    v128: [16]u8,
     /// Reference value (Wasm 2.0 §9.2 / 2.3 chunk 5). Funcref:
     /// `@intFromPtr(*const FuncEntity)` — the pointer carries
     /// source-runtime identity so cross-module `call_indirect`
@@ -39,7 +62,7 @@ pub const Value = extern union {
     /// x86_64 ucrt) per the C-standard `malloc` contract.
     ref: u64,
 
-    pub const zero: Value = .{ .bits64 = 0 };
+    pub const zero: Value = .{ .bits128 = 0 };
     pub const null_ref: u64 = 0;
 
     pub fn fromI32(v: i32) Value {
@@ -56,6 +79,12 @@ pub const Value = extern union {
     }
     pub fn fromRef(r: u64) Value {
         return .{ .ref = r };
+    }
+
+    /// Construct a Value from a v128 byte array (Wasm 2.0 §2.3.4
+    /// — lane 0 at byte [0..N], lane MAX at byte [16-N..16]).
+    pub fn fromV128(bytes: [16]u8) Value {
+        return .{ .v128 = bytes };
     }
 
     /// Encode a `*FuncEntity` as a funcref `Value`. The pointer
@@ -86,8 +115,28 @@ comptime {
 
 const testing = std.testing;
 
-test "Value: extern union slot is 8 bytes" {
-    try testing.expectEqual(@as(usize, 8), @sizeOf(Value));
+test "Value: extern union slot is 16 bytes (ADR-0110 §9.13-V)" {
+    try testing.expectEqual(@as(usize, 16), @sizeOf(Value));
+    // Wasm 2.0 §2.3.4 v128 requires 16-byte alignment for native
+    // MOVUPS / LDR Q access; the union widening must lift @alignOf
+    // accordingly so JIT-emitted vector loads on the operand stack
+    // and globals storage don't fault on misalignment.
+    try testing.expect(@alignOf(Value) >= 16);
+}
+
+test "Value.zero zeroes all 16 bytes (post-widen invariant)" {
+    const z = Value.zero;
+    for (z.v128) |byte| try testing.expectEqual(@as(u8, 0), byte);
+    try testing.expectEqual(@as(u128, 0), z.bits128);
+}
+
+test "Value.fromV128 round-trip preserves all lanes" {
+    const lanes: [16]u8 = .{
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+    };
+    const v = Value.fromV128(lanes);
+    for (lanes, 0..) |want, i| try testing.expectEqual(want, v.v128[i]);
 }
 
 test "Value.fromI32 / fromI64 round-trip" {
