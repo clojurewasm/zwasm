@@ -1,6 +1,6 @@
 # 0110 — Widen Value extern union from 8 to 16 bytes (terminal SIMD width)
 
-- **Status**: Accepted 2026-05-24
+- **Status**: Closed (implemented at `9204847a`) 2026-05-24
 - **Date**: 2026-05-24
 - **Author**: claude (autonomous loop, cycle 37) + user collab review
 - **Tags**: value, abi, simd, v128, runtime, runtime.zig, jit_abi, ADR-0052, ADR-0107, ADR-0104, dogfooding
@@ -391,3 +391,14 @@ cited.
     Closure pending Phase A.6 merge to main** (3-host
     verify + ubuntu/windowsmini reconcile + bench delta
     capture + main rebase + merge).
+- 2026-05-24 — **Status: Closed (implemented).** Feature
+  branch `zwasm-from-scratch-value16` fast-forward merged
+  into `zwasm-from-scratch` at `9204847a` (28 commits linear,
+  no merge commit; feature branch deleted local + remote).
+  3-host verification at merge: Mac aarch64 + Linux x86_64
+  (ubuntu) `zig build test-all` GREEN; windowsmini D-167
+  pre-existing 9 fails (feature branch improved Win64
+  baseline by 1 vs pre-cohort 10 — orthogonal to ADR-0110
+  scope, deferred to Phase B per `.dev/phase9_remaining_flow.md`
+  §2). ADR-0052 cope-portion supersession + ADR-0107
+  Withdrawn lineage all confirmed.
