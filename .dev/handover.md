@@ -160,6 +160,19 @@ Closed cycles 10-25: `git log --grep="cycle 2[0-5]\|A1\|A2\|A4"`.
   preservation: scalar values 低 8 byte に居住 + 高 8 byte は
   `@memset` の zero-init で 0 のまま、不変。R-new-8 dissolved。
   Mac test-all 維持 green。cumulative ~9/26。
+- 51: **§9.13-V Phase A.5 — cope-grep verification CLOSED**
+  (57cd4147)。Plan doc §7a 追加: 4 phantom items (globals_byte_
+  storage / globals_byte_base / evalConstScalarValue /
+  evalConstV128Value) 全部 0 hits 確認、`globals_byte_size`
+  0 hits、`globals_offsets` 47 src refs (load-bearing JIT
+  metadata; full removal は Phase 10+ architectural shift)、
+  `GlobalsCtx` 9 refs (structural eval-context)。Net diff
+  vs main: +161 LOC (fixture inflated; ~+65 net code change)。
+  REPORT §6 prediction 250-350 LOC removed と差異は 4
+  phantom items が tree 不在で 0 LOC contribution だったため。
+  Phase A.4g closure decision at cycle 50 state: substantive
+  cleanup met; residual structural metadata は Phase 10+
+  rework alongside ADR-0109 + D-170 で簡素化見込み。
 
 ## Remaining work
 
@@ -183,24 +196,30 @@ Closed cycles 10-25: `git log --grep="cycle 2[0-5]\|A1\|A2\|A4"`.
 
 ### Autonomous-eligible (next session pick from here)
 
-優先順 (... A.4g-3 49; A.4g-4 50 on feature branch;
-**Phase A.4g-5 起点**):
+優先順 (... A.4g-4 50; A.5 51 on feature branch;
+**Phase A.6 起点**):
 
-1. **§9.13-V Phase A.4g-5 — incremental cope cleanup**
-   (**NEXT**, ~1 cycle)。REPORT §2.g remaining items: GlobalsCtx
-   struct + scratch_globals []u8 → []Value migration は test
-   infra 全面書き換え (~15+ sites) で大規模; 既に green な状態
-   を維持しつつ docstrings update + 小規模 simplification を先に
-   landing。
-2. **§9.13-V Phase A.5 — cope code grep verification** (~0.5
-   cycle)。REPORT §6 grep verification: `globals_offsets` /
-   `GlobalsCtx` / `globals_byte_size` の hit counts 確認;
-   残 cope sites の inventory + net code delta measurement。
-3. **§9.13-V Phase A.6 — 3-host verify + merge to main**
-   (~1 cycle, partial user-gated for merge)。feature → main
-   rebase merge + ubuntu/windowsmini reconcile + bench delta。
-   GlobalsCtx struct + scratch_globals 残 cope の正式 removal は
-   Phase A.5/A.6 までに完了 OR Phase 10 へ defer 判断。
+1. **§9.13-V Phase A.6 — ADR revision history + 3-host verify
+   + merge prep** (**NEXT**, ~1 cycle)。
+   Autonomous prep:
+   - ADR-0110 Revision history entry: cycle 38-50 SHAs
+     (Phase A.1 audit + A.2 fixtures + A.3 widen + A.4
+     cascade + A.5 verification)。
+   - ADR-0052 cope-portion supersession confirmation note
+     (Phase A.4 で cope mechanisms removed)。
+   - ADR-0107 Withdrawn lineage check。
+   - ADR-0104 Phase 9 真スコープ §9.13-V row 完了
+     conditions audit。
+   - ubuntu test-all on feature branch (script rev to test
+     non-main branches OR rebase to main first then standard
+     script)。
+   - windowsmini test-all on feature branch (similar)。
+   Phase A.6 完了後、§9.13-V row `[x]` flip + merge to main
+   は user-gated (substantial work landing on main branch)。
+2. **Phase B / C / D / E / F** — flow doc §2 per
+   `.dev/phase9_remaining_flow.md` (windowsmini reconcile,
+   §9.12-I ADR closure, §9.12-F debt cohort verify, §9.13
+   collab gate, Phase 10 open)。Phase A 完了 unblocks all。
 3. **§9.13-V Phase A.3-A.6** — Value flip + cascade + merge
    (feature branch `zwasm-from-scratch-value16`; D-167
    wire-up を A.4 内 に統合)。Phase 4d/4e はほぼ空、Phase
@@ -230,10 +249,11 @@ green; main `zwasm-from-scratch` stable at bcc4951f). `now`
 debts: D-167 (folded into §9.13-V Phase A.4f) + **D-169**
 (c_api v128 const init gap; discharged inside Phase A.4f).
 **Mac `zig build test-all` is GREEN** under Value=16. Phase
-A.4g progress: cycle 47 cleaned 1/26 sites (slot_size switch).
-Next: Phase A.4g-2 (globals_byte_size field removal,
-g.10-g.13)。**Ubuntu per-chunk gate SKIPPED on feature branch**;
-gate re-asserted at A.6 merge.
+A.5 closure at cycle 51 confirms residual cope is structural;
+Phase A.4g closed at cycle 50 state. Next: **Phase A.6**
+(ADR revision histories + 3-host verify + merge prep);
+the merge to main is user-gated。**Ubuntu per-chunk gate
+SKIPPED on feature branch**; gate re-asserted at A.6.
 **Step 1a override**: `phase9_close_master.md` reference
 above triggers close-plan override per SKILL.md; Step 2
 (ROADMAP §9 first `[ ]` lookup) is therefore informational
