@@ -6,79 +6,62 @@
 
 ## Current state
 
-- **Phase**: 9 IN-PROGRESS. §9.12-F `[x]`, §9.12-I `[x]`. Remaining
-  `[ ]` in §9: §9.13-0 (one blocker: D-170) + §9.13 (hard gate).
+- **Phase**: 9 IN-PROGRESS. §9.12-F `[x]`, §9.12-I `[x]`.
+  Remaining `[ ]` in §9: §9.13-0 + §9.13 (hard gate).
 - **Phase 9 close gate (mac-host)**: **18/18 PASS**.
-- **Last code commit**: `153e31d1` (§9.12-F close); subsequent
-  cycles = docs (this commit: debt-row + audit-doc reframe per
-  industry audit lesson `2026-05-24-c_api-v128-spec-boundary.md`).
+- **Last code commit**: `00cb63de` (D-170 / D-079 (ii) close —
+  in-source c_api regression test for cross-module v128 global
+  threading; master plan §5.3a Phase A.3 discharge).
 
-## §9.13-0 close path — corrected per industry audit
+## §9.13-0 close path
 
-**Industry audit findings** (lesson `c_api-v128-spec-boundary`):
+Per `.dev/phase9_close_master.md` §5.3a:
 
-- wasm-c-api **spec excludes v128 from `wasm_val_t`** (no
-  128-bit slot in union; `include/wasm.h:329-338`).
-- wasmtime + wasmer **conform** — v128 globals work internally
-  via pointer aliasing but are NEVER exposed via c_api.
-- zwasm v2 post-Phase A.4g matches industry pattern (`Runtime.
-  globals: []*Value` pointer aliasing, uniform 16-byte cells).
+- Phase A — per-debt discharge with in-source tests
+  - A.1 D-157 (SKIP-NO-LINK-TYPECHECK) — **[x]**
+  - A.2 D-139 (c_api Instance lifecycle audit) — **[x]**
+  - A.3 D-079 (ii) / D-170 (v128 cross-module) — **[x]
+    (`00cb63de`)**
+- Phase B — windowsmini reconcile (single shot after Phase A
+  complete)
+  - B.1 `bash scripts/run_remote_windows.sh test-all` once
+  - B.2 §9.13-0 `[x]` flip + §9.12-F / §9.12-I re-confirm +
+    SHA backfill
 
-**Reframed scope**:
+## Active task — Phase B.1 windowsmini reconcile
 
-- **D-170** (now-current, NOT Phase 10+): residual init-order
-  bug in `instantiateRuntime` cross-module v128 globals wiring;
-  industry confirms the shape is right, just a small fix
-  (~50 LOC). c_api `wasm_func_call` uses **interp dispatch**
-  (not JIT) so the original "JIT-execute" framing was wrong.
-- **D-079 (ii)**: structural side discharged at Phase A.4g;
-  retires when D-170 closes.
-- **D-171/D-172/D-173**: now-current spec-standard accessor
-  completion (scalar globals/tables/memories) — these ARE in
-  wasm-c-api spec, NOT v0.1.0 RC blocked. v128 paths permanently
-  excluded from c_api (industry-aligned).
+Phase A is complete. Next chunk type: `infrastructure`
+(phase-boundary windowsmini reconcile per ADR-0049 + ADR-0067
+single-shot discipline).
 
-## Now-debt sequencing (fresh-session safety)
+1. Run `bash scripts/run_remote_windows.sh test-all > /tmp/win.log 2>&1`
+   (long-running SSH; use `run_in_background: true`; Bash timeout
+   ≥ 600000 ms). The wrapper does `git fetch + reset --hard
+   origin/zwasm-from-scratch` on windowsmini before run, so it
+   tests `00cb63de` HEAD.
+2. Read `/tmp/win.log` tail: required = zero
+   `SKIP-WIN64-EXHAUSTION` / `SKIP-WIN64-CALL-INDIRECT-TRAP` /
+   `SKIP-WIN64-MULTI-RESULT` / `SKIP-NO-LINK-TYPECHECK`
+   emission; PASS counts ≥ prior windowsmini green
+   (`7680cbd2` = simd_assert_runner 13351 pass).
+3. If a Win64-specific issue surfaces, in scope to fix within
+   the same Phase B reconcile (single re-iterate per master
+   plan §5.3a B.1).
+4. On green: Phase B.2 — flip §9.13-0 `[x]` in ROADMAP §9
+   citing the windowsmini-green commit; backfill SHA columns
+   for the §9 rows whose Status column is bare.
 
-Only **D-170** is `now`. D-171/D-172/D-173 are `blocked-by: Phase F
-(Phase 10 open) c_api spec-accessor completion` — they do NOT
-block §9.13-0 close. Fresh-session `/continue` chain is therefore:
-
-1. Cycle 1-3: D-170 implementation (fixture + fix + green)
-2. Cycle 4: §9.13-0 `[x]` flip + Step 7 retarget detects §9.13
-   hard gate (🔒 + `phase10_transition_gate.md`) → skip
-   `ScheduleWakeup`, surface to user
-3. After user clears §9.13 gate (collab review) → autonomous
-   resumes → Phase F (Phase 10 open) → D-171/172/173 in scope
-
-## Active task — D-170 implementation (§9.13-0 close)
-
-Per `2026-05-24-c_api-v128-spec-boundary.md` discharge plan:
-
-1. **Step 0 already done** (industry + codebase audits this
-   session).
-2. **Step 2 Red** — create `test/edge_cases/p9/v128_cross_instance/`:
-   - `exporter.wat`: defines v128 global, exports it.
-   - `importer.wat`: imports v128 global + exports func that
-     reads it via `global.get` and returns the v128.
-   - `.expect`: declares the imported lane value.
-   - Compile WAT → wasm.
-   - Run via `zig build test-edge` — expect trap `Unreachable`.
-3. **Step 3 Green** — audit + fix `src/runtime/instance/
-   instantiate.zig:681-717` cross-module globals init order;
-   ensure source `globals_storage` is populated with v128 bits
-   before importer's `Runtime.globals[]` pointer-aliases.
-4. **Steps 4-7** — lint + Mac test-all + commit + push +
-   ubuntu kick.
-
-After D-170 closes → §9.13-0 [x] → §9.13 hard gate (user
-collab) → Phase F (Phase 10 open).
+After §9.13-0 `[x]`, next ROADMAP row is §9.13 (🔒 Phase 10
+entry gate `.dev/phase10_transition_gate.md`); per `/continue`
+LOOP.md "Exception — hard human-in-loop transition gates", the
+autonomous loop STOPS at that detection and surfaces to user
+for collaborative review.
 
 ## Cold-start procedure
 
 Per `/continue` SKILL.md Resume Steps 0.5 / 0.7 / 0.8.
 Authoritative remaining-work source:
-[`phase9_remaining_flow.md`](./phase9_remaining_flow.md) §2.
+[`phase9_close_master.md`](./phase9_close_master.md) §5.3a + §6.
 
 **Mandatory before any §9.x [x] flip**:
 `bash scripts/check_phase9_close_invariants.sh --gate`
@@ -86,12 +69,12 @@ Authoritative remaining-work source:
 
 ## See
 
+- [`phase9_close_master.md`](./phase9_close_master.md) §5.3a / §6
+  — current authoritative close-plan (Doc-state: ACTIVE)
 - [`lessons/2026-05-24-c_api-v128-spec-boundary.md`](./lessons/2026-05-24-c_api-v128-spec-boundary.md)
-  — **industry audit, load-bearing for D-079/D-170/D-171-173**
-- [`c_api_instance_audit_2026-05-24.md`](./c_api_instance_audit_2026-05-24.md)
-  — D-139 audit (reframed per industry lesson)
-- ADR-0104 (Phase 9 真スコープ); ADR-0110 Closed (Value=16 widen);
-  ADR-0109 Proposed (native Zig API, v128 access path)
-- [`phase9_remaining_flow.md`](./phase9_remaining_flow.md) §2
-- `private/spikes/d170-c_api-v128-cross-module/REPORT.md`
-  — pre-audit notes (superseded by lesson; kept for lineage)
+  — industry audit; load-bearing for D-079 / D-170 / D-171 /
+  D-172 / D-173
+- ADR-0104 (Phase 9 真スコープ); ADR-0110 Closed (Value=16
+  widen); ADR-0109 Proposed (native Zig API, v128 access path)
+- `.dev/debt.md` Active rows + Discharged-this-cycle (D-170 +
+  D-079 retired)

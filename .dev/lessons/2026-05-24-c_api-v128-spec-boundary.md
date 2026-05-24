@@ -1,6 +1,6 @@
 # c_api v128 — spec excludes it permanently; industry-uniform pattern is "v128 internal, never c_api"
 
-**Citing**: commit `<this commit>` (D-079 reframe + D-170 reframe + D-171/D-172/D-173 reframe). Audit subagent run 2026-05-24 covered wasmtime + wasmer + v1 zwasm + wasm-c-api spec.
+**Citing**: commits `1d8d7d15` (initial reframe + audit) + `00cb63de` (D-170 / D-079 (ii) discharge: regression-detector test confirms cross-module v128 wiring works as predicted; no `instantiateRuntime` fix needed). Audit subagent run 2026-05-24 covered wasmtime + wasmer + v1 zwasm + wasm-c-api spec.
 
 ## What we believed
 
