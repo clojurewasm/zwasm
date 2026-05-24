@@ -1833,3 +1833,93 @@ test "wasm 2.0 c_api zombie lifecycle: B holds funcref into A after wasm_instanc
     try testing.expect(trap == null);
     try testing.expectEqual(@as(i32, 42), rd[0].of.i32);
 }
+
+test "wasm 2.0 c_api zombie multi-consumer: 2 instances hold funcref into A after wasm_instance_delete(A)" {
+    // D-139 gap A2 per .dev/c_api_instance_audit_2026-05-24.md §3.
+    // Extends the baseline single-consumer zombie test with a
+    // second consumer of A: both B-instances hold funcref into A.
+    // Deleting A parks it as one zombie; both consumers keep it
+    // alive; sequential delete of consumers releases the zombie
+    // only when the last reference drops.
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+
+    var bytes_a = cross_module_a_wasm;
+    const bv_a: ByteVec = .{ .size = bytes_a.len, .data = &bytes_a };
+    const m_a = wasm_module_new(s, &bv_a) orelse return error.ModuleAAllocFailed;
+    defer wasm_module_delete(m_a);
+    const inst_a = wasm_instance_new(s, m_a, null, null) orelse return error.InstanceAAllocFailed;
+    // Intentionally NOT deferred — explicit pre-consumer delete
+    // below exercises zombie keep-alive across multiple consumers.
+
+    var bytes_b1 = cross_module_b_wasm;
+    var bytes_b2 = cross_module_b_wasm;
+    const bv_b1: ByteVec = .{ .size = bytes_b1.len, .data = &bytes_b1 };
+    const bv_b2: ByteVec = .{ .size = bytes_b2.len, .data = &bytes_b2 };
+    const m_b1 = wasm_module_new(s, &bv_b1) orelse return error.ModuleB1AllocFailed;
+    defer wasm_module_delete(m_b1);
+    const m_b2 = wasm_module_new(s, &bv_b2) orelse return error.ModuleB2AllocFailed;
+    defer wasm_module_delete(m_b2);
+
+    // Cache A's "answer" extern once; share into both consumers'
+    // imports[]. The exports vec is released before the explicit
+    // A delete so no live pointers dangle through the zombie park.
+    const inst_b1, const inst_b2 = blk: {
+        var exports_a: ExternVec = .{ .size = 0, .data = null };
+        wasm_instance_exports(inst_a, &exports_a);
+        defer wasm_extern_vec_delete(&exports_a);
+        const answer_ext = exports_a.data.?[0] orelse return error.AnswerExternNull;
+        var imports_arr1: [1]?*const Extern = .{answer_ext};
+        var imports_arr2: [1]?*const Extern = .{answer_ext};
+        const imp1_opaque: *const anyopaque = @ptrCast(&imports_arr1);
+        const imp2_opaque: *const anyopaque = @ptrCast(&imports_arr2);
+        const b1 = wasm_instance_new(s, m_b1, imp1_opaque, null) orelse return error.InstanceB1AllocFailed;
+        const b2 = wasm_instance_new(s, m_b2, imp2_opaque, null) orelse return error.InstanceB2AllocFailed;
+        break :blk .{ b1, b2 };
+    };
+    defer wasm_instance_delete(inst_b2);
+    // inst_b1 deleted mid-test to verify zombie A survives one
+    // consumer drop (and only releases when the LAST consumer goes).
+
+    // Cache b2's main handle via defer (b2 lives through to end).
+    var exports_b2: ExternVec = .{ .size = 0, .data = null };
+    wasm_instance_exports(inst_b2, &exports_b2);
+    defer wasm_extern_vec_delete(&exports_b2);
+    const main_b2 = wasm_extern_as_func(exports_b2.data.?[0]) orelse return error.MainB2Null;
+
+    // b1's exports vec must be released BEFORE inst_b1 is deleted
+    // mid-test — defer would dereference freed instance arena.
+    var exports_b1: ExternVec = .{ .size = 0, .data = null };
+    wasm_instance_exports(inst_b1, &exports_b1);
+    const main_b1 = wasm_extern_as_func(exports_b1.data.?[0]) orelse return error.MainB1Null;
+
+    // Stage 1: A is live. Both consumers can call into A.
+    var rd: [1]Val = undefined;
+    var rv: ValVec = .{ .size = 1, .data = &rd };
+    const av: ValVec = .{ .size = 0, .data = null };
+    try testing.expect(wasm_func_call(main_b1, &av, &rv) == null);
+    try testing.expectEqual(@as(i32, 42), rd[0].of.i32);
+    try testing.expect(wasm_func_call(main_b2, &av, &rv) == null);
+    try testing.expectEqual(@as(i32, 42), rd[0].of.i32);
+
+    // Stage 2: A parked as zombie. Both consumers MUST still resolve
+    // their funcref into A.
+    wasm_instance_delete(inst_a);
+    try testing.expect(wasm_func_call(main_b1, &av, &rv) == null);
+    try testing.expectEqual(@as(i32, 42), rd[0].of.i32);
+    try testing.expect(wasm_func_call(main_b2, &av, &rv) == null);
+    try testing.expectEqual(@as(i32, 42), rd[0].of.i32);
+
+    // Stage 3: one consumer drops; the other must still resolve. A
+    // remains zombied (one consumer alive); funcref stays valid.
+    wasm_extern_vec_delete(&exports_b1);
+    wasm_instance_delete(inst_b1);
+    // main_b1 handle now dangles — no further use. main_b2 must work.
+    try testing.expect(wasm_func_call(main_b2, &av, &rv) == null);
+    try testing.expectEqual(@as(i32, 42), rd[0].of.i32);
+
+    // Stage 4 (implicit on defer): inst_b2 deletion releases A's
+    // zombie; wasm_store_delete then drains the empty zombie list.
+}
