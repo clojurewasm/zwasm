@@ -675,6 +675,7 @@ pub fn build(b: *std.Build) void {
     // exit. Single-cause cohort: 8 fixtures pass + assertion gone.
     // Mac 35/0 + OrbStack 35/0 post-fix.
     test_all_step.dependOn(&run_edge_p7.step);
+    test_all_step.dependOn(&run_edge_p9.step);
     test_all_step.dependOn(&run_realworld_run_jit.step);
     test_all_step.dependOn(&run_wasmtime_misc_runtime.step);
 
