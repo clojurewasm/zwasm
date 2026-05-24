@@ -75,6 +75,16 @@ Closed cycles 10-25: `git log --grep="cycle 2[0-5]\|A1\|A2\|A4"`.
   `v128_nan_payload/`。全 ADR-0052 cope-state baseline green。
   Phase A.4g unification の behaviour-preservation contract が
   これで成立。p9 corpus: 60 → 68 → 68 passed。
+- 41: **§9.13-V Phase A.2.3 closed with gap-surface outcome
+  (no new fixtures)**. REPORT §10 item 1 (cross-instance v128
+  import) 試みた fixture が wasm_instance_new で
+  InstanceAllocFailed → 原因は **c_api evalConstExprValue が
+  v128.const opcode (0xFD 0x0C) を reject** (Value=8 は v128
+  slot を持たない構造的制約)。Fixture revert + **D-169 filed**
+  blocked-by Phase A.3。REPORT §10 items 1/2/3 全て post-widen
+  contract に整理 — Phase A.3 後に landing。Phase A.2 全体は
+  cycles 39-41 (2 substantive + 1 gap-surface) で close、
+  estimate 2-3 cycle 内。
 
 ## Remaining work
 
@@ -98,20 +108,19 @@ Closed cycles 10-25: `git log --grep="cycle 2[0-5]\|A1\|A2\|A4"`.
 
 ### Autonomous-eligible (next session pick from here)
 
-優先順 (Phase A.1 closed 38; A.2.1 closed 39; A.2.2 closed 40; A.2.3 起点):
+優先順 (Phase A.1 closed 38; A.2.1 closed 39; A.2.2 closed 40; A.2.3 closed 41; **Phase A.3 起点**):
 
-1. **§9.13-V Phase A.2.3 — cross-instance v128 + alignment +
-   zero-init** (**NEXT**, ~1 cycle)。
-   `test/edge_cases/p9/v128_cross_instance/` で R-new-8
-   highest-risk fixture: export v128 global from module A
-   with recognisable lanes, import into module B; the migration
-   from per-valtype 8/16 byte-copy in `applyImportedGlobalsFromRegistered`
-   (test/spec/spec_assert_runner_base.zig:1782-1880) to uniform
-   `importer_buf[slot] = exporter_buf[slot]` must NOT regress
-   v128 cross-instance behaviour。Plus globals 16B alignment
-   runtime assertion + Value.zero v128 readback (REPORT §10
-   additions; Zig in-source tests in src/runtime/value.zig
-   + harness alignment check)。
+1. **§9.13-V Phase A.3 — Value definition flip** (**NEXT**, 1
+   cycle, autonomous; **feature branch
+   `zwasm-from-scratch-value16`**)。Plan doc §2 Phase 3 per
+   ADR-0110。src/runtime/value.zig を 8-byte extern union から
+   16-byte に widen; `Value.v128: [16]u8` + `Value.bits128: u128`
+   variants 追加。`@sizeOf(Value) == 16` + `@alignOf(Value) >= 16`
+   comptime assert flip。Intentionally tree-breaking — Phase
+   A.4 cascade (3.5-5 cycle) で green を restore。**Feature
+   branch workflow**: main の per-chunk push 規律と異なる; A.6
+   merge gate で 3-host green を確認してから main へ rebase
+   merge。詳細: plan doc §2 Phase 3 + flow doc §2 Phase A.3-A.6。
 3. **§9.13-V Phase A.3-A.6** — Value flip + cascade + merge
    (feature branch `zwasm-from-scratch-value16`; D-167
    wire-up を A.4 内 に統合)。Phase 4d/4e はほぼ空、Phase
@@ -134,10 +143,13 @@ Closed cycles 10-25: `git log --grep="cycle 2[0-5]\|A1\|A2\|A4"`.
 ## Cold-start procedure
 
 Per `/continue` SKILL.md Resume Steps 0.5 / 0.7 / 0.8.
-**Current state**: autonomous-eligible. `now` debts:
-D-167 (folded into §9.13-V Phase A.4) + §9.13-V Phase A.2.3
-(cross-instance v128 import + alignment + zero-init) is
-the next chunk (plan doc §3 categories 4/5 + REPORT §10).
+**Current state**: autonomous-eligible (feature-branch
+workflow). `now` debts: D-167 (folded into §9.13-V Phase A.4).
+**D-169** filed cycle 41 — blocked-by Phase A.3 (c_api v128
+const init gap surfaced during A.2.3 attempt). Phase A.3
+(Value definition flip on feature branch
+`zwasm-from-scratch-value16`) is the next chunk per plan doc
+§2 Phase 3。
 **Step 1a override**: `phase9_close_master.md` reference
 above triggers close-plan override per SKILL.md; Step 2
 (ROADMAP §9 first `[ ]` lookup) is therefore informational
