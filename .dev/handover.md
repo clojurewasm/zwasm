@@ -97,6 +97,15 @@ Closed cycles 10-25: `git log --grep="cycle 2[0-5]\|A1\|A2\|A4"`.
   stride doubling の target)。Main (zwasm-from-scratch) は
   bcc4951f に stable。Phase A.4 cascade で green を restore
   予定。
+- 43: **§9.13-V Phase A.4a — storage layouts (zero-init
+  literals)** (e6ba1f5a)。2 sites の `.bits64 = 0` →
+  `.bits128 = 0` 切り替え: `src/engine/setup.zig:187`
+  (globals_buf @memset)、`src/api/instance.zig:905`
+  (c_api function-call locals init for loop)。Other
+  REPORT §2.a sites は "no source change" (auto-doubling
+  via `[N]Value` / `[]Value` typed allocations)。Phase A.4a
+  単独では runtime green を restore しない (regalloc /
+  JIT codegen 残)。Compile + lint green。
 
 ## Remaining work
 
@@ -120,26 +129,28 @@ Closed cycles 10-25: `git log --grep="cycle 2[0-5]\|A1\|A2\|A4"`.
 
 ### Autonomous-eligible (next session pick from here)
 
-優先順 (A.1 38; A.2.1 39; A.2.2 40; A.2.3 41; A.3 42 on feature
-branch; **Phase A.4a 起点**):
+優先順 (A.1 38; A.2.1 39; A.2.2 40; A.2.3 41; A.3 42; A.4a 43
+on feature branch; **Phase A.4c 起点**):
 
-1. **§9.13-V Phase A.4a — storage layouts** (**NEXT**, ~0.5 cycle,
-   autonomous, feature branch `zwasm-from-scratch-value16`)。
-   Plan doc §2 Phase 4a + REPORT §2.a。`src/engine/setup.zig`
-   の `@memset(globals_buf, .{ .bits64 = 0 })` literal を
-   `.{ .bits128 = 0 }` に switch (a.8 site)。`Runtime.globals_storage`
-   / `Runtime.operand_buf` は `[N]Value` で sizeof 自動 doubling
-   (a.5, a.6); source change なし、bench footprint 32→64 KiB
-   per Runtime。`Runtime.globals: []*Value` indirection 保持
-   (R-new-10)。Phase A.4 残り 4b/4c/4f/4g + (4d/4e empty) は
-   後続 chunk。
-2. **§9.13-V Phase A.4b-g** — JIT codegen globals stride
-   (LSL #3 → #4 + Q-reg / MOVUPS), regalloc spill `*8 → *16`,
-   host call marshal + c_api evalConstExprValue v128 arm
-   (D-169 discharge), spec runner GlobalsCtx removal (~1.5-2
-   cycle long pole)。詳細: plan doc §2 Phase 4a-g + REPORT §2
-   per-sub-phase inventory。
-3. **§9.13-V Phase A.5 / A.6** — cope code grep clean + 3-host
+1. **§9.13-V Phase A.4c — regalloc spill stride doubling**
+   (**NEXT**, ~0.5 cycle, autonomous, feature branch)。Plan
+   doc §2 Phase 4c + REPORT §2.c。
+   `src/engine/codegen/shared/regalloc.zig:223` の
+   `return .{ .spill = (id - max_reg_slots_gpr) * 8 }` legacy
+   fallback を `* 16` に switch。同 :253 spillBytes fallback
+   も同様。test expectations (regalloc.zig:485-534 + arm64/gpr.zig
+   docstrings + x86_64/op_simd_int_arith_test.zig:420,422) を
+   bulk update。これで SlotOverflow at abs_off=40 (qLoadSpilled.
+   spill) が解消、runtime cascade の先頭 fail が dissolve。
+2. **§9.13-V Phase A.4b** — JIT codegen globals stride
+   (arm64 LSL #3 → #4 + Q-reg; x86_64 idx*8 → idx*16 + MOVUPS;
+   per-valtype switch in `.global_get`/`.global_set` collapse
+   decision)。
+3. **§9.13-V Phase A.4f** — host call marshal +
+   c_api evalConstExprValue v128.const arm (D-169 discharge)。
+4. **§9.13-V Phase A.4g** — spec runner GlobalsCtx removal
+   (~1.5-2 cycle long pole; 26 sites per REPORT §2.g)。
+5. **§9.13-V Phase A.5 / A.6** — cope code grep clean + 3-host
    verify + merge to main。Phase A.6 で feature → main rebase
    merge + ubuntu/windowsmini reconcile。
 3. **§9.13-V Phase A.3-A.6** — Value flip + cascade + merge
@@ -170,11 +181,11 @@ intentionally runtime-red until Phase A.4 cascade restores
 green; main `zwasm-from-scratch` stable at bcc4951f). `now`
 debts: D-167 (folded into §9.13-V Phase A.4f) + **D-169**
 (c_api v128 const init gap; discharged inside Phase A.4f).
-Phase A.4a (storage layouts: `@memset` literal switch +
-sizeof auto-doubling) is the next chunk per plan doc §2
-Phase 4a。**Ubuntu per-chunk gate SKIPPED on feature branch**
-(`run_remote_ubuntu.sh` hardcoded to origin/zwasm-from-scratch);
-gate re-asserted at A.6 merge.
+Phase A.4c (regalloc spill stride `*8 → *16` — resolves the
+SlotOverflow at abs_off=40 head failure) is the next chunk
+per plan doc §2 Phase 4c。**Ubuntu per-chunk gate SKIPPED
+on feature branch** (`run_remote_ubuntu.sh` hardcoded to
+origin/zwasm-from-scratch); gate re-asserted at A.6 merge.
 **Step 1a override**: `phase9_close_master.md` reference
 above triggers close-plan override per SKILL.md; Step 2
 (ROADMAP §9 first `[ ]` lookup) is therefore informational
