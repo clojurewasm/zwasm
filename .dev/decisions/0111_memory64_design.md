@@ -160,6 +160,34 @@ cited.
   https://github.com/WebAssembly/memory64
 - `~/Documents/OSS/wasmtime/cranelift/codegen/src/wasm/` — full
   u64 offset carry through CLIF (industry precedent).
+- `~/Documents/OSS/wasmtime/crates/environ/src/types.rs:2115-2118`
+  (`pub enum IndexType { I32, I64 }`): wasmtime's per-memory /
+  per-table index-type discriminant. Same shape as zwasm v2
+  decision §1 — single `idx_type` field on the memory/table
+  descriptor selects between 32-bit and 64-bit address space.
+  Confirms the two-state enum is industry-standard (not
+  three-state with a default).
+- `~/Documents/OSS/wasmtime/crates/environ/src/types.rs:2123-2126`
+  (`pub struct Limits { pub min: u64, pub max: Option<u64> }`):
+  wasmtime stores limits as `u64` UNIVERSALLY — even for I32
+  memories the storage type is widened. zwasm v2 matches this
+  per decision §2 (parser widens limits to u64 at decode time;
+  bounds-check arm picks i32 vs i64 path by idx_type at JIT
+  time). Validates the "store wide, branch narrow" pattern.
+- `~/Documents/OSS/wasmtime/crates/environ/src/types.rs:2373-2377`
+  (`fn fits_size(&self, size: u64) -> bool`): wasmtime's
+  memory-limits-fit check distinguishes
+  `IndexType::I32 => size < 0xffff_ffff` from
+  `IndexType::I64 => true` (always fits — u64 storage). Direct
+  precedent for zwasm v2's validator bounds-check on the i32
+  arm; the i64 arm has no upper-bound check beyond the storage
+  type's natural cap (matches Wasm 3.0 §2.5.5).
+- `~/Documents/OSS/wasmtime/crates/environ/src/types.rs:2396-2398`
+  (`match ty.memory64 { false => IndexType::I32, true =>
+  IndexType::I64 }`): wasmtime's parser→IndexType conversion.
+  Mirrors zwasm v2's `decodeMemory64Flag` path. Confirms the
+  decode-time arm selection is the only branch (every
+  downstream consumer reads `idx_type`, not a re-parsed flag).
 - `~/Documents/OSS/WebAssembly/memory64/test/core/*.wast` —
   127-file spec testsuite (consumed at 10.M close).
 - `~/Documents/OSS/WebAssembly/spec/interpreter/exec/memory.ml`
@@ -181,6 +209,15 @@ cited.
   collab review at 10.D. Co-drafted in the 10.D ADR round
   alongside ADR-0112..0117 (over multiple /continue cycles per
   the 7-ADR scope).
+- 2026-05-26 — References enrichment via /continue autonomous
+  prep path. Added 4 concrete wasmtime citations from
+  `crates/environ/src/types.rs`: line 2115 (IndexType {I32, I64}
+  enum), line 2123 (`Limits { min: u64, max: Option<u64> }`
+  universal u64 storage), line 2373 (`fits_size` arm-specific
+  bounds), line 2396 (parser memory64 → IndexType conversion).
+  Confirms zwasm v2's decisions §1-§3 (two-state idx_type +
+  universal u64 storage + decode-time arm selection) match
+  industry standard. No semantic change to the 6 decisions.
 - 2026-05-25 — Status: Proposed → **Accepted** (user collab 1/7).
   All 6 decisions accepted. Enhancement added: `-Dwasm=v2_0`
   build symbol-absence gate (= `nm` check that `emitMem64Wrap`-class
