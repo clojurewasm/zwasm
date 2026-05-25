@@ -41,9 +41,11 @@
 - **10.M-spec-corpus = SHIPPED 2026-05-26** (`3d6aba35`): bake 5
   additional memory64 wast manifests. Detail: phase_log §10.M。
 - **10.M-realworld-doc = SHIPPED 2026-05-26** (`5327f5ff`):
-  retire impl-driven `SKIP-P10-MEM64-GAP` from clang_wasm64
-  PROVENANCE; remaining gap is toolchain-side (needs emcc
-  -sMEMORY64=1). New token `SKIP-P10-MEM64-REALWORLD-TOOLCHAIN`.
+  retire impl-driven `SKIP-P10-MEM64-GAP`; remaining gap is
+  toolchain-side. New `SKIP-P10-MEM64-REALWORLD-TOOLCHAIN`.
+- **10.G-smoke-doc = SHIPPED 2026-05-26** (`dd3dd7d4`):
+  retire `gc/struct` from SMOKE; wabt 1.0.40 wast2json doesn't
+  support GC proposal type syntax. Awaits wabt bump.
 - **Mac `zig build test-all`**: green (scope=unclear)。
 
 ## Phase 10 progress
