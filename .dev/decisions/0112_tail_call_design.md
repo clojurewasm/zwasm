@@ -190,6 +190,15 @@ transitions to `Closed (Implemented)` with the impl SHA range cited.
   trampoline + flag pattern (re-derived in v2 step 6).
 - `~/Documents/MyProducts/zwasm/src/interp/vm.zig:838-889` —
   v1 trampoline shape (READ; not copied — per no_copy_from_v1).
+  **Note (2026-05-26 verification)**: v1 has NO JIT codegen for
+  tail-call ops — `~/Documents/MyProducts/zwasm/src/jit*` does
+  not exist and `grep return_call` across v1 src/ matches only
+  the interp / opcode-enum / validator paths. The JIT-side
+  codegen for `return_call` / `return_call_indirect` /
+  `return_call_ref` is **green-field in zwasm v2**; there is no
+  v1 precedent to follow or reject. The primary codegen
+  references remain wasmtime/cranelift + wasmer/singlepass
+  (cited above).
 - ADR-0017 — JIT register inventory (X16 / X17 / R11 scratch
   for callee_entry; no reservation change).
 - ADR-0018 — regalloc reserved set (terminator axis is
@@ -214,3 +223,10 @@ transitions to `Closed (Implemented)` with the impl SHA range cited.
   All 7 decisions accepted as drafted (inline emit + frame_teardown
   shared helper; interpreter trampoline + pc_continue; safepoint-free
   comptime invariant; op_tail_call.zig as separate file).
+- 2026-05-26 — References §: clarified that v1 has NO JIT codegen
+  for tail-call ops (interp-only); the JIT-side codegen for
+  `return_call` / `return_call_indirect` / `return_call_ref` in
+  zwasm v2 is green-field. Primary precedents remain
+  wasmtime/cranelift + wasmer/singlepass. Verification grep
+  done at this commit; recorded so future cycles don't re-walk
+  the v1-precedent question.
