@@ -269,6 +269,25 @@ close: -Dwasm=v2_0 symbol-absence gate).
 
 ### Sub-chunks (commit-time order)
 
+- **10.M-3** — MemArgExtra + bit-6 memidx decode (`f0809d0c`).
+  `zir.MemArgExtra: packed struct(u32) { align_pow2: u5,
+  memidx: u8, _pad: u19 }` with `pack`/`unpack` helpers added.
+  `lower.zig::emitMemarg` parses Wasm 3.0 §5.4.6 memarg encoding:
+  align uleb bit 6 (0x40) signals memidx LEB follows; effective
+  log2-align = `raw_align & 0x3F` when bit-6 set, else raw value.
+  Range checks: `align_pow2 ≤ 31` (u5) + `memidx ≤ 255` (u8);
+  malformed surfaces as new `Error.BadMemarg` (added to
+  `lower.Error`; zero exhaustive-switch cascade per
+  platform_panic_vs_error grep). Legacy single-memory modules
+  (memidx=0) encode as `extra == align` — byte-identical to
+  pre-10.M-3 layout, so codegen consumers (op_memory.zig,
+  op_alu*.zig) which ignore `extra` for memory ops stay
+  transparent. 4 new lower_tests: existing v128.load test
+  migrated to `MemArgExtra.unpack` assertion; new tests cover
+  bit-6 align=0x42 + explicit memidx=1, implicit memidx=0
+  without bit-6, and align=32 reject. Mac `test-all` GREEN,
+  lint clean, zone+fs gates exit 0.
+
 - **10.M-2** — Runtime data shape (`939b7bbe`).
   New `src/runtime/instance/memory_instance.zig` introduces
   `MemoryInstance { bytes, idx_type, pages_min, pages_max }`,

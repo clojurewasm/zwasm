@@ -11,12 +11,14 @@
   impl rows unlocked。
 - **10.M-1 = SHIPPED 2026-05-25** (`063e80e8`): parser+validator
   memory64 widening。
-- **10.M-2 = SHIPPED 2026-05-25** (`939b7bbe`): Runtime データ shape。
-  `MemoryInstance { bytes, idx_type, pages_min, pages_max }` +
-  `Runtime.memories: []MemoryInstance` 追加。`rt.memory` は
-  `memories[0].bytes` の pointer alias として残存 (`setMemory0Bytes`
-  helper で同期)。~80 reader 触らず。multi-memory > 1 reject は維持
-  (10.M-3 で MemArg memidx wire-up と同時にリフト)。Mac `test-all` GREEN。
+- **10.M-2 = SHIPPED** (`939b7bbe`): Runtime data shape (MemoryInstance +
+  memories[] + setMemory0Bytes alias)。
+- **10.M-3 = SHIPPED 2026-05-25** (`f0809d0c`): MemArgExtra packed struct
+  + bit-6 memidx decode。`zir.MemArgExtra { align_pow2:u5, memidx:u8, _pad:u19 }`
+  追加。`lower.zig::emitMemarg` が Wasm 3.0 §5.4.6 align uleb bit-6
+  flag を decode (memidx LEB が follow)。`Error.BadMemarg` 追加
+  (align > 31 / memidx > 255 を reject)。legacy memidx=0 は extra byte-identical
+  (= raw align)。codegen は extra 未消費 (align は opt-time hint のみ) で透過。
 - **Mac `zig build test`**: green (substrate baseline)。
 
 ## Phase 10 progress
@@ -34,13 +36,13 @@ Per ADR-0111 (Accepted)。`phase10_design_plan_ja.md` §3.1 source-of-truth。
 
 - 10.M-1 [x] SHIPPED `063e80e8` (parser+validator widening)
 - 10.M-2 [x] SHIPPED `939b7bbe` (Runtime.memories[] + setMemory0Bytes alias)
-- **10.M-3 NEXT**: `MemArg extra: packed struct(u32) { align_pow2: u5, memidx: u8, _: u19 }`
-  per Wasm 3.0 §5.4.6 (parser + lowerer wire-up)。memarg align uleb の
-  bit-6 を読んで memidx LEB が follow するか判定 (Wasm 3.0 §5.4.6)。
-  ZirInstr.extra (u32) の新フォーマット導入 + lowerer で per-memidx
-  routing (現状全 emit が memories[0] 固定)。memidx > 0 が emit-time
-  に到達したら一旦 trap (multi-memory > 1 reject はまだ instantiate
-  で hold)。
+- 10.M-3 [x] SHIPPED `f0809d0c` (MemArgExtra packed + bit-6 memidx decode)
+- **10.M-4 NEXT**: codegen — arm64/x86_64 で i64 wrap-check + 64-bit offset
+  materialise (X17 MOVZ+MOVK 4-lane / R10 MOV imm64)。**i32 fast-path
+  byte-identical** を `emit_test_memory.zig` で機械検証。`memories[0].idx_type`
+  を読んで comptime + runtime 2-stage gate (ADR-0111 D4)。codegen は
+  `MemArgExtra.unpack(ins.extra).memidx == 0` を assert (multi-memory
+  routing は instantiate side の reject lift 後; 10.M-5+ 領域)。
 - 10.M-4: codegen — arm64/x86_64 で i64 wrap-check + 64-bit offset
   materialise (X17 MOVZ+MOVK 4-lane / R10 MOV imm64)。**i32
   fast-path byte-identical** を `emit_test_memory.zig` で機械検証。
