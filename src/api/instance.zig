@@ -1179,6 +1179,31 @@ pub export fn wasm_table_set(t: ?*Table, idx: u32, ref: ?*Ref) callconv(.c) bool
     return true;
 }
 
+/// `wasm_table_grow(*Table, delta, *Ref init)` — Wasm spec §4.4.6
+/// (`table.grow`) — request `delta` additional slots, filling each
+/// with `init`'s ref payload (null `init` → `runtime.Value.null_ref`).
+/// Returns `true` on success, `false` on allocator failure or
+/// detached handle. The Table's declared `max` limit is enforced
+/// (grow past `max` returns false). Mirrors `wasm_memory_grow`
+/// realloc semantics for the table's `refs` slice.
+pub export fn wasm_table_grow(t: ?*Table, delta: u32, init: ?*Ref) callconv(.c) bool {
+    const handle = t orelse return false;
+    const inst = handle.instance orelse return false;
+    const rt = inst.runtime orelse return false;
+    if (handle.table_idx >= rt.tables.len) return false;
+    const tab_ptr = &rt.tables[handle.table_idx];
+    const old_len = tab_ptr.refs.len;
+    const new_len = old_len + delta;
+    if (handle.max) |m| {
+        if (new_len > m) return false;
+    }
+    const grown = rt.alloc.realloc(tab_ptr.refs, new_len) catch return false;
+    const payload: u64 = if (init) |r| r.ref else runtime.Value.null_ref;
+    for (grown[old_len..new_len]) |*slot| slot.* = .{ .ref = payload };
+    tab_ptr.refs = grown;
+    return true;
+}
+
 // --- extern vec (pointer-vec; vec_delete also frees pointed-to objects)
 //
 // `wasm_extern_vec_new_empty` / `_new_uninitialized` / `_new`
@@ -2826,4 +2851,58 @@ test "wasm 2.0 c_api table accessors: size + get + set round-trip (D-172)" {
     try testing.expect(wasm_table_get(null, 0) == null);
     try testing.expect(!wasm_table_set(null, 0, &sentinel));
     wasm_ref_delete(null);
+}
+
+// 10.F-c follow-up: c_api `wasm_table_grow` (deferred from D-172).
+// Exercises grow round-trip + max-limit rejection + init-fill.
+test "wasm 2.0 c_api wasm_table_grow: grow + init-fill + max-limit (10.F-c)" {
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+
+    var bytes = mixed_exports_wasm;
+    const bv: ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer wasm_module_delete(m);
+
+    const inst = wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    defer wasm_instance_delete(inst);
+
+    var exports: ExternVec = .{ .size = 0, .data = null };
+    wasm_instance_exports(inst, &exports);
+    defer wasm_extern_vec_delete(&exports);
+
+    const tab = wasm_extern_as_table(exports.data.?[2]) orelse return error.TableNull;
+    try testing.expectEqual(@as(u32, 1), wasm_table_size(tab));
+
+    // mixed_exports_wasm declares `(table 1 funcref)` — no explicit
+    // max, so grow is unbounded. Grow by 3 slots with init=0xBEEF.
+    var init_ref: Ref = .{ .instance = null, .ref = 0xBEEF };
+    try testing.expect(wasm_table_grow(tab, 3, &init_ref));
+    try testing.expectEqual(@as(u32, 4), wasm_table_size(tab));
+
+    // Original slot 0 untouched; grown slots 1..3 carry the init payload.
+    const r0 = wasm_table_get(tab, 0) orelse return error.RefNull;
+    defer wasm_ref_delete(r0);
+    try testing.expectEqual(@as(u64, runtime.Value.null_ref), r0.ref);
+    for (1..4) |i| {
+        const r = wasm_table_get(tab, @intCast(i)) orelse return error.RefNull;
+        defer wasm_ref_delete(r);
+        try testing.expectEqual(@as(u64, 0xBEEF), r.ref);
+    }
+
+    // Grow by 0 is a no-op.
+    try testing.expect(wasm_table_grow(tab, 0, null));
+    try testing.expectEqual(@as(u32, 4), wasm_table_size(tab));
+
+    // Null init defaults to null_ref.
+    try testing.expect(wasm_table_grow(tab, 1, null));
+    try testing.expectEqual(@as(u32, 5), wasm_table_size(tab));
+    const r4 = wasm_table_get(tab, 4) orelse return error.RefNull;
+    defer wasm_ref_delete(r4);
+    try testing.expectEqual(@as(u64, runtime.Value.null_ref), r4.ref);
+
+    // Null tolerance.
+    try testing.expect(!wasm_table_grow(null, 1, null));
 }
