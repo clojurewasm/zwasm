@@ -31,6 +31,8 @@ pub const dispatch_table = @import("../ir/dispatch_table.zig");
 const value_mod = @import("value.zig");
 const trap_mod = @import("trap.zig");
 const frame_mod = @import("frame.zig");
+const memory_instance_mod = @import("instance/memory_instance.zig");
+pub const MemoryInstance = memory_instance_mod.MemoryInstance;
 
 const Allocator = std.mem.Allocator;
 const ValType = zir.ValType;
@@ -110,7 +112,21 @@ pub const Runtime = struct {
     /// dispatch to recover the source instance from a FuncEntity's
     /// runtime back-ref. Not consulted on the hot path.
     instance: ?*anyopaque = null,
+    /// Linear-memory bytes for memory 0 (legacy single-memory
+    /// shortcut). Pointer-alias of `memories[0].bytes` once
+    /// `memories.len > 0`; the invariant is enforced by
+    /// `setMemory0Bytes` (always go through it when mutating).
+    /// Multi-memory (`memories.len > 1`) is still rejected at
+    /// instantiate per ADR-0111 D2 until 10.M-3 wires MemArg
+    /// memidx through codegen.
     memory: []u8 = &.{},
+    /// Per-memory runtime descriptors (Wasm 3.0 §5.4.6
+    /// multi-memory data shape, ADR-0111 D2). `memories[0]`
+    /// mirrors `memory` (idx_type + page bounds + bytes alias).
+    /// `memories.len > 1` is a parser-permitted shape (10.M-1)
+    /// but currently rejected at runtime instantiate until MemArg
+    /// memidx wire-up at 10.M-3 enables per-memidx routing.
+    memories: []MemoryInstance = &.{},
     /// Module global slots. **Pointer-per-entry** so cross-module
     /// global imports alias the source instance's storage (per
     /// ADR-0014 §2.1 / 6.K.3). Defined globals point at slots in
@@ -191,6 +207,20 @@ pub const Runtime = struct {
         return .{ .alloc = alloc };
     }
 
+    /// Update memory 0's backing bytes while keeping the
+    /// `memory` ↔ `memories[0].bytes` pointer-alias invariant
+    /// (ADR-0111 D2). Use at every `rt.memory = X` mutation
+    /// site; when `memories.len == 0` (test setups that don't
+    /// drive the full instantiate path) only `memory` is
+    /// updated — the invariant `memories[0].bytes == memory`
+    /// holds vacuously.
+    pub fn setMemory0Bytes(self: *Runtime, bytes: []u8) void {
+        self.memory = bytes;
+        if (self.memories.len >= 1) {
+            self.memories[0].bytes = bytes;
+        }
+    }
+
     pub fn deinit(self: *Runtime) void {
         // Per ADR-0014 §2.2 / 6.K.2: all resources are arena-owned
         // in the c_api path; tests pass `testing.allocator` directly.
@@ -208,6 +238,7 @@ pub const Runtime = struct {
         // arena-owned slices stay intact while testing.allocator-
         // owned slices still release without leaking.
         rawFreeOwned(self.alloc, u8, self.memory);
+        rawFreeOwned(self.alloc, MemoryInstance, self.memories);
         rawFreeOwned(self.alloc, *Value, self.globals);
         rawFreeOwned(self.alloc, Value, self.globals_storage);
         rawFreeOwned(self.alloc, bool, self.data_dropped);
@@ -269,9 +300,44 @@ test "Runtime.init / deinit clean (no allocations)" {
     var r = Runtime.init(testing.allocator);
     defer r.deinit();
     try testing.expectEqual(@as(usize, 0), r.memory.len);
+    try testing.expectEqual(@as(usize, 0), r.memories.len);
     try testing.expectEqual(@as(usize, 0), r.globals.len);
     try testing.expectEqual(@as(u32, 0), r.operand_len);
     try testing.expectEqual(@as(u32, 0), r.frame_len);
+}
+
+test "Runtime.setMemory0Bytes: preserves memory ↔ memories[0].bytes alias (ADR-0111 D2)" {
+    var r = Runtime.init(testing.allocator);
+    defer r.deinit();
+
+    // Empty memories: setMemory0Bytes updates memory only (alias
+    // vacuously holds — no memories[0] to mirror).
+    const stub: []u8 = &.{};
+    r.setMemory0Bytes(stub);
+    try testing.expectEqual(@as(usize, 0), r.memory.len);
+    try testing.expectEqual(@as(usize, 0), r.memories.len);
+
+    // Populated memories: setMemory0Bytes mirrors into memories[0].
+    const mi = try testing.allocator.alloc(MemoryInstance, 1);
+    defer testing.allocator.free(mi);
+    mi[0] = .{};
+    r.memories = mi;
+    const bytes = try testing.allocator.alloc(u8, 128);
+    defer testing.allocator.free(bytes);
+    r.setMemory0Bytes(bytes);
+    try testing.expectEqual(bytes.ptr, r.memory.ptr);
+    try testing.expectEqual(bytes.ptr, r.memories[0].bytes.ptr);
+    try testing.expectEqual(@as(usize, 128), r.memory.len);
+    try testing.expectEqual(@as(usize, 128), r.memories[0].bytes.len);
+    // Re-set with a different slice: alias re-syncs.
+    const bytes2 = try testing.allocator.alloc(u8, 64);
+    defer testing.allocator.free(bytes2);
+    r.setMemory0Bytes(bytes2);
+    try testing.expectEqual(bytes2.ptr, r.memory.ptr);
+    try testing.expectEqual(bytes2.ptr, r.memories[0].bytes.ptr);
+    // Avoid Runtime.deinit's rawFreeOwned re-touching the stub slice.
+    r.memory = &.{};
+    r.memories = &.{};
 }
 
 test "Runtime: push/pop operand stack round-trip" {

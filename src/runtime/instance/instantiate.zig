@@ -568,12 +568,25 @@ pub fn instantiateRuntime(
     }
 
     // Memory wiring. Imported memory aliases the source's slice
-    // (no copy); defined memory is allocated locally.
+    // (no copy); defined memory is allocated locally. Each wiring
+    // path also populates `rt.memories[0]` (ADR-0111 D2) so the
+    // per-memory descriptor (idx_type + page bounds) is reachable
+    // from the runtime side; `rt.memory` keeps its pointer-alias
+    // semantics via setMemory0Bytes.
     if (imp_memory_count > 1) return error.MultiMemoryUnsupported;
     if (imp_memory_count == 1) {
         for (imports_decoded.?.items, 0..) |it, idx| {
             if (it.kind != .memory) continue;
-            rt.memory = bindings.?[idx].memory.memory;
+            const mi = try a.alloc(runtime_mod.MemoryInstance, 1);
+            const m = bindings.?[idx].memory;
+            mi[0] = .{
+                .bytes = m.memory,
+                .idx_type = m.source_idx_type,
+                .pages_min = m.source_min,
+                .pages_max = m.source_max,
+            };
+            rt.memories = mi;
+            rt.memory = m.memory;
             break;
         }
     } else if (module.find(.memory)) |memory_section| {
@@ -581,10 +594,19 @@ pub fn instantiateRuntime(
         defer memories.deinit();
         if (memories.items.len > 1) return error.MultiMemoryUnsupported;
         if (memories.items.len == 1) {
-            const pages = memories.items[0].min;
+            const entry = memories.items[0];
+            const pages = entry.min;
             const bytes_total: usize = @as(usize, pages) * 65536;
             const mem = try a.alloc(u8, bytes_total);
             @memset(mem, 0);
+            const mi = try a.alloc(runtime_mod.MemoryInstance, 1);
+            mi[0] = .{
+                .bytes = mem,
+                .idx_type = entry.idx_type,
+                .pages_min = entry.min,
+                .pages_max = entry.max,
+            };
+            rt.memories = mi;
             rt.memory = mem;
             dbg.print("instantiate.alloc", "memory rt={x} ptr={x} len={d}", .{
                 @intFromPtr(rt), @intFromPtr(mem.ptr), mem.len,

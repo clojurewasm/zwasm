@@ -127,8 +127,12 @@ fn driveOne(rt: *Runtime, table: *const DispatchTable, t: ZirOp, payload: u32, e
 }
 
 fn allocMem(rt: *Runtime, len: usize) !void {
-    rt.memory = try rt.alloc.alloc(u8, len);
-    @memset(rt.memory, 0);
+    const bytes = try rt.alloc.alloc(u8, len);
+    @memset(bytes, 0);
+    const mi = try rt.alloc.alloc(runtime.MemoryInstance, 1);
+    mi[0] = .{ .bytes = bytes, .pages_min = @intCast(len / 65536) };
+    rt.memories = mi;
+    rt.memory = bytes;
 }
 
 test "register: bulk-memory slots populated" {

@@ -255,7 +255,7 @@ fn memoryGrow(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
         return;
     };
     @memset(new_mem[rt.memory.len..], 0);
-    rt.memory = new_mem;
+    rt.setMemory0Bytes(new_mem);
     try rt.pushOperand(.{ .u32 = old_pages });
 }
 

@@ -1096,7 +1096,7 @@ pub export fn wasm_memory_grow(m: ?*Memory, delta: u32) callconv(.c) bool {
     const new_bytes = new_pages * 65536;
     const grown = rt.alloc.realloc(rt.memory, new_bytes) catch return false;
     @memset(grown[rt.memory.len..new_bytes], 0);
-    rt.memory = grown;
+    rt.setMemory0Bytes(grown);
     return true;
 }
 
