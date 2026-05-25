@@ -928,6 +928,24 @@ Design source: ADR-0112 (Accepted 2026-05-25) + ADR-0113 §A.
 
 **SHA pointer**: backfilled at Phase 10 close.
 
+- **10.TC-3e** — same-module callee_rt restore helpers
+  (`2b6242c5`). Lands step (2) of the ADR-0112 D3/D4 tail-call
+  emit sequence for the same-module case (caller_rt ==
+  callee_rt). `arm64/op_tail_call.zig::emitLoadCalleeRtSameModule`
+  emits `MOV X0, X19` (ORR X0, XZR, X19 — canonical AAPCS64
+  reg-to-reg move idiom); `x86_64/op_tail_call.zig` equivalent
+  emits `MOV RDI, R15` (4C 89 FF = REX.W+REX.R + MOV r/m64,r64
+  + ModR/M with mod=11 reg=7 rm=7). Sources via
+  `abi.runtime_ptr_save_gpr` constants (X19 / R15). The
+  callee's prologue does `MOV X19, X0` (arm64; ADR-0017
+  sub-2d-ii) / `MOV R15, RDI` (x86_64; ADR-0026 Cc-pivot),
+  so the caller must deliver runtime_ptr in X0 / RDI before
+  the BR / JMP. Cross-module case (caller_rt != callee_rt)
+  routes through 10.TC-3f cross_module_tail_call.zig
+  (deferred). 4 unit tests (2/arch): byte-snapshot + ABI
+  constant sanity. Mac `test-all` GREEN; lint exit 0.
+  ADR-0112 D3/D4, ADR-0017, ADR-0026.
+
 - **10.TC-3d** — op_tail_call.zig per-arch helpers
   (`176b00f5`). Lands step (5) of the ADR-0112 D3/D4 tail-call
   emit sequence: `arm64/op_tail_call.zig::emitTailJump` emits
