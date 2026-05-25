@@ -57,13 +57,22 @@ pub const SimdConstFixup = struct {
     const_idx: u32,
 };
 
+const exception_table = @import("../shared/exception_table.zig");
+
 pub const EmitOutput = struct {
     bytes: []u8,
     n_slots: u16,
     call_fixups: []CallFixup,
+    /// Phase 10.E IT-2 (ADR-0114 + phase10_eh_integration_plan.md
+    /// §IT-2): per-function EH HandlerEntry slice harvested from
+    /// the `ExceptionTable.Builder` at compile end. IT-5 folds the
+    /// per-function slices into the per-Instance ExceptionTable on
+    /// CompiledWasm. Empty for functions without try_table.
+    exception_handlers: []const exception_table.HandlerEntry = &.{},
 };
 
 pub fn deinit(allocator: Allocator, out: EmitOutput) void {
     if (out.bytes.len != 0) allocator.free(out.bytes);
     if (out.call_fixups.len != 0) allocator.free(out.call_fixups);
+    if (out.exception_handlers.len != 0) allocator.free(out.exception_handlers);
 }

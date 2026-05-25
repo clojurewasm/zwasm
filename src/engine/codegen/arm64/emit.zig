@@ -104,11 +104,18 @@ pub const EmitOutput = struct {
     /// patches once function-body addresses are known.
     /// Caller-owned; pair with `deinit` to free.
     call_fixups: []CallFixup,
+    /// Phase 10.E IT-2 (ADR-0114 + phase10_eh_integration_plan.md
+    /// §IT-2): per-function EH HandlerEntry slice harvested from
+    /// the `ExceptionTable.Builder` at compile end. IT-5 folds the
+    /// per-function slices into the per-Instance ExceptionTable on
+    /// CompiledWasm. Empty for functions without try_table.
+    exception_handlers: []const exception_table.HandlerEntry = &.{},
 };
 
 pub fn deinit(allocator: Allocator, out: EmitOutput) void {
     if (out.bytes.len != 0) allocator.free(out.bytes);
     if (out.call_fixups.len != 0) allocator.free(out.call_fixups);
+    if (out.exception_handlers.len != 0) allocator.free(out.exception_handlers);
 }
 
 /// Emit ARM64 machine code for `func`. Requires `alloc.slots`
@@ -631,6 +638,11 @@ pub fn compile(
     }
     var eh_builder: exception_table.Builder = .empty;
     defer eh_builder.deinit(allocator);
+    // IT-2 — stack of open try_table blocks awaiting matching `end`.
+    // Each `try_table.emit` pushes; the `end` op pops + patches the
+    // matched Builder rows' pc_end with the current buf offset.
+    var open_try_tables: std.ArrayList(exception_table.OpenTryTable) = .empty;
+    defer open_try_tables.deinit(allocator);
 
     // Bundle compile()'s mutable state behind a pointer-based
     // EmitCtx so extracted op-handler modules (op_const, op_alu,
@@ -664,6 +676,7 @@ pub fn compile(
         .globals_valtypes = globals_valtypes,
         .memory0_idx_type = memory0_idx_type,
         .exception_table_builder = if (has_try_table) &eh_builder else null,
+        .open_try_tables = if (has_try_table) &open_try_tables else null,
     };
 
     // §9.7 / 7.5-emit-deadcode: track polymorphic-stack dead
@@ -1229,6 +1242,22 @@ pub fn compile(
                 // Disambiguation: if `labels` is non-empty, we're in
                 // form (A). Otherwise form (B).
                 if (labels.items.len > 0) {
+                    // IT-2 — if this `end` closes a try_table block,
+                    // patch the pc_end of the catch entries this
+                    // try_table registered. Match by labels-stack
+                    // depth at try_table emit time.
+                    if (open_try_tables.items.len > 0) {
+                        const top = open_try_tables.items[open_try_tables.items.len - 1];
+                        if (top.labels_depth == labels.items.len) {
+                            const now: u32 = @intCast(buf.items.len);
+                            const start: usize = top.entry_start;
+                            const end_excl: usize = start + top.entry_count;
+                            for (eh_builder.entries.items[start..end_excl]) |*e| {
+                                e.pc_end = now;
+                            }
+                            _ = open_try_tables.pop();
+                        }
+                    }
                     try op_control.emitEndIntra(&ctx, &ins);
                     continue;
                 }
@@ -1522,10 +1551,21 @@ pub fn compile(
         }
     }
 
+    // IT-2 — harvest the per-function EH handler entries into an
+    // owned slice; the Builder.entries ArrayList transfers ownership
+    // here so the surrounding `defer eh_builder.deinit(allocator)`
+    // becomes a no-op for the entries slot (it still frees nothing
+    // extra). Empty slice for non-EH functions.
+    const exception_handlers: []const exception_table.HandlerEntry = if (has_try_table)
+        try eh_builder.entries.toOwnedSlice(allocator)
+    else
+        &[_]exception_table.HandlerEntry{};
+
     return .{
         .bytes = try buf.toOwnedSlice(allocator),
         .n_slots = alloc.n_slots,
         .call_fixups = try call_fixups.toOwnedSlice(allocator),
+        .exception_handlers = exception_handlers,
     };
 }
 

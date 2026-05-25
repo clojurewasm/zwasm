@@ -1851,6 +1851,40 @@ test "compile: self-recursive (i64)->i64 — probe + i64-result marshal (D-165 c
     try testing.expect(rt_restore_found);
 }
 
+test "compile: try_table emit populates EmitOutput.exception_handlers (IT-2)" {
+    // Mirror of arm64 sibling IT-2 test.
+    const exception_table = @import("../shared/exception_table.zig");
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+
+    try f.instrs.append(testing.allocator, .{ .op = .try_table, .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{} };
+
+    f.eh_landing_pads = try testing.allocator.dupe(zir.LandingPad, &[_]zir.LandingPad{
+        .{ .block_idx = 0, .catches_start = 0, .catches_end = 2 },
+    });
+    f.eh_catch_entries = try testing.allocator.dupe(zir.CatchEntry, &[_]zir.CatchEntry{
+        .{ .kind = .catch_all, .tag_idx = 0, .label_idx = 0 },
+        .{ .kind = .catch_, .tag_idx = 7, .label_idx = 0 },
+    });
+
+    const alloc: regalloc.Allocation = .{ .slots = &[_]u16{}, .n_slots = 0 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    defer deinit(testing.allocator, out);
+
+    try testing.expectEqual(@as(usize, 2), out.exception_handlers.len);
+    try testing.expectEqual(exception_table.CatchKind.catch_all, out.exception_handlers[0].kind);
+    try testing.expectEqual(@as(?u32, null), out.exception_handlers[0].tag_idx);
+    try testing.expectEqual(exception_table.CatchKind.catch_, out.exception_handlers[1].kind);
+    try testing.expectEqual(@as(?u32, 7), out.exception_handlers[1].tag_idx);
+    try testing.expectEqual(out.exception_handlers[0].pc_start, out.exception_handlers[1].pc_start);
+    try testing.expectEqual(out.exception_handlers[0].pc_start, out.exception_handlers[0].pc_end);
+}
+
 test "compile: try_table reaches per-op emit with ExceptionTable.Builder wired (IT-1)" {
     // Phase 10 EH integration IT-1 — compile() detects `.try_table`
     // ops in func.instrs and allocates a per-function

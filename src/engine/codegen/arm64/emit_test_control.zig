@@ -14,6 +14,7 @@ const inst = @import("inst.zig");
 const prologue = @import("prologue.zig");
 const regalloc = @import("../shared/regalloc.zig");
 const emit = @import("emit.zig");
+const exception_table = @import("../shared/exception_table.zig");
 
 const ZirFunc = zir.ZirFunc;
 const compile = emit.compile;
@@ -258,6 +259,61 @@ test "compile: br_if 0 — forward CBNZ fixup" {
     const body0 = prologue.body_start_offset(false);
     const cbnz = std.mem.readInt(u32, out.bytes[body0 + 4 ..][0..4], .little);
     try testing.expectEqual(@as(u32, inst.encCbnzW(9, 2)), cbnz);
+}
+
+test "compile: try_table emit populates EmitOutput.exception_handlers (IT-2)" {
+    // Phase 10 EH integration IT-2 — compile() of a function with
+    // a populated try_table block produces an
+    // `EmitOutput.exception_handlers` slice with one HandlerEntry
+    // per catch clause, with kind/tag_idx round-tripped from the
+    // ZirFunc catch-vec. pc_end is patched by the matching `end`
+    // op to the current buf offset (= pc_start for an empty inner
+    // body, in this minimal fixture).
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+
+    // try_table block_idx=0; matching `end`; then function-level
+    // `end`. No inner ops — pc_start == pc_end after patch
+    // (degenerate but valid for the round-trip test).
+    try f.instrs.append(testing.allocator, .{ .op = .try_table, .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{} };
+
+    // One LandingPad referencing two catch clauses: catch_all and
+    // catch_ with tag_idx=7. The codegen iterates the half-open
+    // slice and adds one HandlerEntry per clause.
+    f.eh_landing_pads = try testing.allocator.dupe(zir.LandingPad, &[_]zir.LandingPad{
+        .{ .block_idx = 0, .catches_start = 0, .catches_end = 2 },
+    });
+    f.eh_catch_entries = try testing.allocator.dupe(zir.CatchEntry, &[_]zir.CatchEntry{
+        .{ .kind = .catch_all, .tag_idx = 0, .label_idx = 0 },
+        .{ .kind = .catch_, .tag_idx = 7, .label_idx = 0 },
+    });
+
+    const alloc: regalloc.Allocation = .{ .slots = &[_]u16{}, .n_slots = 0 };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    defer deinit(testing.allocator, out);
+
+    try testing.expectEqual(@as(usize, 2), out.exception_handlers.len);
+
+    // Entry 0 — catch_all (no tag).
+    try testing.expectEqual(exception_table.CatchKind.catch_all, out.exception_handlers[0].kind);
+    try testing.expectEqual(@as(?u32, null), out.exception_handlers[0].tag_idx);
+
+    // Entry 1 — catch_ with tag_idx=7.
+    try testing.expectEqual(exception_table.CatchKind.catch_, out.exception_handlers[1].kind);
+    try testing.expectEqual(@as(?u32, 7), out.exception_handlers[1].tag_idx);
+
+    // Both entries share pc_start (same try_table). pc_end is
+    // patched to the post-inner-block buf offset; in this empty-
+    // body case it equals pc_start (the matching `end` fired
+    // immediately after the try_table emit). The placeholder
+    // value `pc_start + 1` MUST have been overwritten.
+    try testing.expectEqual(out.exception_handlers[0].pc_start, out.exception_handlers[1].pc_start);
+    try testing.expectEqual(out.exception_handlers[0].pc_start, out.exception_handlers[0].pc_end);
 }
 
 test "compile: try_table reaches per-op emit with ExceptionTable.Builder wired (IT-1)" {

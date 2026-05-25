@@ -170,6 +170,14 @@ pub const EmitCtx = struct {
     /// contain no try_table (back-compat for every existing
     /// EmitCtx construction site).
     exception_table_builder: ?*exception_table.Builder = null,
+    /// 10.E-codegen IT-2: stack of open `try_table` blocks; one
+    /// `OpenTryTable` entry per try_table currently between its
+    /// emit and its matching `end`. The end-op patches pc_end of
+    /// the `entry_start..entry_start+entry_count` Builder rows
+    /// when popping a label whose stack position matches
+    /// `labels_depth`. Optional: null for functions without any
+    /// try_table; non-null iff `exception_table_builder` is non-null.
+    open_try_tables: ?*std.ArrayList(exception_table.OpenTryTable) = null,
     /// Per-defined-global metadata (ADR-0052; §9.9 / 9.9-h-2).
     /// Indexed by **defined** global idx (= wasm-space global
     /// idx minus the leading imported-global count). Parallel

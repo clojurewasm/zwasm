@@ -95,6 +95,23 @@ pub const ExceptionTable = struct {
     }
 };
 
+/// Per-arch emit-time bookkeeping for an open `try_table` block.
+/// One entry pushed at `try_table.emit`, popped + patched at the
+/// matching `end` op (the `pc_end` placeholder originally written
+/// by `try_table.emit` becomes the real post-inner-block PC).
+///
+/// `labels_depth` is the depth of the per-arch label stack at the
+/// time this try_table pushed its inner-block label (= the index of
+/// the pushed label, 1-indexed; equivalently `labels.items.len`
+/// immediately after the push). The matching `end` identifies the
+/// closing try_table by comparing the popped label's stack position
+/// to this field.
+pub const OpenTryTable = struct {
+    labels_depth: u32,
+    entry_start: u32,
+    entry_count: u32,
+};
+
 /// Build-time accumulator for the exception table. The per-arch
 /// `op_exception_handling.zig` instantiates one per function being
 /// compiled, calls `add(...)` as it lowers each catch clause, and

@@ -650,6 +650,9 @@ pub fn compile(
     }
     var eh_builder: exception_table.Builder = .empty;
     defer eh_builder.deinit(allocator);
+    // IT-2 — see arm64/emit.zig open_try_tables comment.
+    var open_try_tables: std.ArrayList(exception_table.OpenTryTable) = .empty;
+    defer open_try_tables.deinit(allocator);
 
     // §9.12-B / B53+ (ADR-0075) — per-function emit context.
     // B53 substrate; B54 wires the first consumer (`i32.div_s`).
@@ -684,6 +687,7 @@ pub fn compile(
         .stack_probe_fixup = stack_probe_fixup,
         .memory0_idx_type = memory0_idx_type,
         .exception_table_builder = if (has_try_table) &eh_builder else null,
+        .open_try_tables = if (has_try_table) &open_try_tables else null,
     });
 
     for (func.instrs.items) |ins| {
@@ -739,6 +743,23 @@ pub fn compile(
         // (extract_lane / replace_lane / shuffle / i64x2.mul /
         // v128.const / load_lane / store_lane / popcnt /
         // trunc_sat_f64x2 / convert_low_i32x4_u).
+        // IT-2 — if this `end` closes a try_table block, patch the
+        // pc_end of its catch entries BEFORE dispatch (which would
+        // pop the matching label and break the depth match). Mirror
+        // of the arm64 emit.zig logic, hoisted above the ctx
+        // dispatcher because `.end` is in `collected_x86_64_ctx_ops`.
+        if (ins.op == .end and labels.items.len > 0 and open_try_tables.items.len > 0) {
+            const top = open_try_tables.items[open_try_tables.items.len - 1];
+            if (top.labels_depth == labels.items.len) {
+                const now: u32 = @intCast(buf.items.len);
+                const start: usize = top.entry_start;
+                const end_excl: usize = start + top.entry_count;
+                for (eh_builder.entries.items[start..end_excl]) |*e| {
+                    e.pc_end = now;
+                }
+                _ = open_try_tables.pop();
+            }
+        }
         if (try dispatch_collector.dispatchX86_64Ctx(ins.op, &ctx, &ins)) {
             continue;
         }
@@ -1184,6 +1205,9 @@ pub fn compile(
                 // through op_control.emitEndCtx. Function-level
                 // form (label stack empty pre-call) breaks the
                 // body loop; intra-function form continues.
+                // IT-2 patch lives ABOVE the ctx dispatcher
+                // (line ~746), since `.end` is now in the ctx
+                // tuple — this switch arm is dead-path safety.
                 const at_function_end = labels.items.len == 0;
                 try op_control.emitEndCtx(&ctx, &ins);
                 if (at_function_end) break;
@@ -1195,10 +1219,17 @@ pub fn compile(
         }
     }
 
+    // IT-2 — see arm64/emit.zig harvest comment.
+    const exception_handlers: []const exception_table.HandlerEntry = if (has_try_table)
+        try eh_builder.entries.toOwnedSlice(allocator)
+    else
+        &[_]exception_table.HandlerEntry{};
+
     return .{
         .bytes = try buf.toOwnedSlice(allocator),
         .n_slots = alloc.n_slots,
         .call_fixups = try call_fixups.toOwnedSlice(allocator),
+        .exception_handlers = exception_handlers,
     };
 }
 

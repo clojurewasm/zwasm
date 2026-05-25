@@ -73,6 +73,9 @@ pub const InitArgs = struct {
     /// Defaults to `null`; populated by `compile()` only when the
     /// function contains a `try_table` op.
     exception_table_builder: ?*exception_table.Builder = null,
+    /// EH integration IT-2 — see EmitCtx field of the same name.
+    /// Non-null iff `exception_table_builder` is non-null.
+    open_try_tables: ?*std.ArrayList(exception_table.OpenTryTable) = null,
 };
 
 /// Per-function emit context for x86_64. Threaded as `*EmitCtx`
@@ -167,6 +170,8 @@ pub const EmitCtx = struct {
     /// contain no try_table (back-compat for every existing
     /// EmitCtx construction site).
     exception_table_builder: ?*exception_table.Builder = null,
+    /// 10.E-codegen IT-2: see arm64/ctx.zig field of the same name.
+    open_try_tables: ?*std.ArrayList(exception_table.OpenTryTable) = null,
     /// Per-defined-global metadata (ADR-0052; §9.9 / 9.9-h-2).
     /// Indexed by **defined** global idx (= wasm-space global
     /// idx minus the leading imported-global count). Parallel
@@ -249,6 +254,7 @@ pub const EmitCtx = struct {
             .stack_probe_fixup = args.stack_probe_fixup,
             .memory0_idx_type = args.memory0_idx_type,
             .exception_table_builder = args.exception_table_builder,
+            .open_try_tables = args.open_try_tables,
         };
     }
 
