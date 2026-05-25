@@ -617,6 +617,27 @@ Design source: ADR-0114 + ADR-0117 (cross-subsystem invariants).
 
 **SHA pointer**: backfilled at Phase 10 close.
 
+- **10.E-codegen-1** — shared/exception_table.zig storage
+  (`34f81932`). Per ADR-0114 D3: per-Instance EH handler table
+  with `HandlerEntry { pc_start, pc_end, tag_idx, landing_pad_pc,
+  kind }` records + `ExceptionTable.lookup(pc, throw_tag_idx) →
+  ?HandlerMatch` linear scan + `Builder` accumulator with
+  `kind ↔ tag_idx-presence` invariant asserts. Keys on `tag_idx`
+  (the module's tag-section index) matching the interp's
+  `feature/exception_handling/exception.zig` keying — migration
+  to `*TagInstance` pointer-equality (ADR-0114 D7) happens
+  on both sides together. Insertion order = innermost-try_table
+  first; first match wins (per Wasm 3.0 §4.5.10). PC range
+  `[pc_start, pc_end)` half-open. Per-function sorted-by-PC
+  binary-search optimisation deferred to Phase 11+. 7 unit
+  tests: empty table; catch_ exact match + miss; catch_all any
+  tag in range; catch_ref / catch_all_ref kind propagation;
+  insertion-order wins for nested try_table; PC end exclusive;
+  Builder.finalize aliases entries. Consumed by 10.E-codegen-2
+  (unwind.zig FP-walk) + 10.E-codegen-4 (per-arch
+  op_exception_handling.zig). Mac `test-all` GREEN; lint exit
+  0. ADR-0114 D3, ADR-0113 (callsite_metadata cohort).
+
 - **10.E-N-3** — production tag_param_counts wiring through
   CompiledWasm (`d2f8e5c7`). `CompiledWasm.tag_param_counts:
   []u32` field added; compileWasm pre-resolves per-tag param

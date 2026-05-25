@@ -74,10 +74,14 @@
   Step (5) of ADR-0112 D3/D4. 6 unit tests. Detail:
   phase_log §10.TC.
 - **10.TC-3e = SHIPPED 2026-05-26** (`2b6242c5`): same-module
-  callee_rt restore — `emitLoadCalleeRtSameModule` in both
-  arches. arm64 MOV X0, X19; x86_64 MOV RDI, R15. Step (2) of
-  ADR-0112 D3/D4 (same-module path; cross-module deferred to
-  10.TC-3g). 4 unit tests. Detail: phase_log §10.TC.
+  callee_rt restore — arm64 MOV X0, X19 / x86_64 MOV RDI, R15.
+  4 unit tests. Detail: phase_log §10.TC.
+- **10.E-codegen-1 = SHIPPED 2026-05-26** (`34f81932`):
+  shared/exception_table.zig storage per ADR-0114 D3.
+  HandlerEntry { pc_start, pc_end, tag_idx, landing_pad_pc,
+  kind } + ExceptionTable.lookup linear scan + Builder. 7 unit
+  tests. Consumed by 10.E-codegen-2 (unwind.zig) + 10.E-codegen-4
+  (per-arch op_exception_handling.zig).
 - **Mac `zig build test-all`**: green (scope=unclear)。
 
 ## Phase 10 progress
@@ -91,34 +95,37 @@ ROADMAP §10 = 13-row task table。
     cross-module + spec corpus + regalloc terminator-class 残)
 - Pending: 10.E / 10.G / 10.P
 
-## Active task — 10.E-codegen-1 shared/exception_table.zig storage
+## Active task — 10.E-codegen-2 shared/unwind.zig FP-walk algorithm
 
-Tail-call codegen has 5 atoms (3a/3b/3c/3d/3e) landed in 5
-consecutive cycles. Remaining tail-call sub-chunks (3f cross_module
-+ 3g return_call_indirect + 3h return_call_ref + integration into
-emitReturnCall body + per-op wire-up + collected_arch_ops) need
-deep integration with op_call marshalling + CallFixup literal-pool
-patterns. **Pivot to 10.E-codegen** which has discrete atoms.
+10.E-codegen-1 (`34f81932`) landed the exception table storage.
+Next: `src/engine/codegen/shared/unwind.zig` per ADR-0114 D5 —
+the FP-walk unwind algorithm consumed by the `zwasm_throw`
+trampoline. Per ADR-0114 D5 the algorithm is:
 
-Next: `src/engine/codegen/shared/exception_table.zig` per ADR-0114
-D3 — the per-Instance storage of `(pc_range, tag_idx,
-landing_pad_pc, params_locals_rewrite)` 4-arrays consumed by both
-the FP-walk unwinder and try_table landing-pad dispatch. Storage
-type definition + sorted insertion + binary-search lookup +
-unit tests is one atom; FP-walk emit + zwasm_throw trampoline +
-per-arch op_exception_handling.zig follow.
+  pc = current_throw_site
+  fp = current_frame_pointer
+  loop:
+    handler = exception_table.lookup(pc, throw.tag)
+    if handler != null: jump handler.target_pc with payload
+    (caller_fp, caller_pc) = load_frame_chain(fp)
+    if caller_fp == null: emit "uncaught exception" trap
+    fp = caller_fp ; pc = caller_pc
 
-Refs: ADR-0114 D3, ADR-0113 (callsite_metadata cohort that this
-storage joins).
+Cross-platform: same algorithm on Mac aarch64 / Linux x86_64 /
+Win64 (FP register conventions are spec-defined per-ABI; the
+walk shape is platform-agnostic). Initial atom: the pure
+walker function (frame-chain traversal + table lookup + match
+return). Per-arch register conventions enter at the trampoline
+landing (10.E-codegen-3).
+
+Refs: ADR-0114 D5, exception_table.zig (landed 10.E-codegen-1).
 
 **Next sub-chunk candidates (names only, NO predictions)**:
-- 10.E-codegen-1 — shared/exception_table.zig storage (active above)
-- 10.E-codegen-2 — shared/unwind.zig FP-walk emit
+- 10.E-codegen-2 — shared/unwind.zig FP-walk (active task)
 - 10.E-codegen-3 — zwasm_throw trampoline (assembly stub per arch)
 - 10.E-codegen-4 — per-arch op_exception_handling.zig
 - 10.TC-3f — cross_module_tail_call.zig (deferred)
 - 10.TC-3g/h — return_call_indirect / return_call_ref emit bodies
-  (deferred; need op_call.marshalCallArgs reuse)
 - 10.E-N-4 — c_api instantiate → interp Runtime tag_param_counts
 - 10.G-4 — struct ops (needs GC heap impl first)
 - 10.M-realworld — clang_wasm64 realworld fixture
