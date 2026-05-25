@@ -474,6 +474,8 @@ pub const Lowerer = struct {
                 const idx = try leb128.readUleb128(u32, self.body, &self.pos);
                 try self.emit(.@"ref.func", idx, 0);
             },
+            // Wasm 3.0 typed function references (function-references proposal).
+            0xD3 => try self.emit(.@"ref.as_non_null", 0, 0),
 
             // Wasm 2.0+ prefix opcodes (sat-trunc / bulk-memory / ...)
             0xFC => try self.emitPrefixFC(),

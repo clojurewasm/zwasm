@@ -668,6 +668,9 @@ pub const Validator = struct {
             0xD1 => try self.opRefIsNull(),
             0xD2 => try self.opRefFunc(),
 
+            // Wasm 3.0 typed function references (function-references proposal).
+            0xD3 => try self.opRefAsNonNull(),
+
             // Wasm 2.0 prefix opcodes (§9.2 / 2.3 chunk 2 onward)
             0xFC => try self.dispatchPrefixFC(),
 
@@ -966,6 +969,29 @@ pub const Validator = struct {
             .known => |t| if (t != .funcref and t != .externref) return Error.StackTypeMismatch,
         }
         try self.pushType(.i32);
+    }
+
+    /// Wasm spec 3.0 §3.3.8.5 (function-references proposal):
+    /// `ref.as_non_null` — pop reftype; if null, trap at runtime.
+    /// Statically, narrows `(ref null T)` to `(ref T)` — same Wasm
+    /// valtype here since v2.0 reftype catalogue does NOT yet
+    /// model the typed-ref nullability axis (the .funcref /
+    /// .externref enum is opaque to nullability). Push the same
+    /// reftype back. Validator surface preserves backward-compat
+    /// for legacy reftype callers; nullability tightening lands
+    /// at 10.G (WasmGC) where `(ref $sig)` typed refs need their
+    /// own typed-ref module per `phase10_design_plan_ja.md` §3.2.
+    fn opRefAsNonNull(self: *Validator) Error!void {
+        const top = try self.popAny();
+        switch (top) {
+            .bot => {
+                try self.pushType(.funcref);
+            },
+            .known => |t| {
+                if (t != .funcref and t != .externref) return Error.StackTypeMismatch;
+                try self.pushType(t);
+            },
+        }
     }
 
     /// Wasm spec §3.4.7.3 / §3.4.10 (ref.func x): read funcidx,

@@ -37,10 +37,12 @@ const dispatch = @import("../interp/dispatch.zig");
 const interp_mvp = @import("../interp/mvp.zig");
 const build_options = @import("build_options");
 const wasm_2_0_enabled = @intFromEnum(build_options.wasm_level) >= @intFromEnum(@as(@TypeOf(build_options.wasm_level), .v2_0));
+const wasm_3_0_enabled = @intFromEnum(build_options.wasm_level) >= @intFromEnum(@as(@TypeOf(build_options.wasm_level), .v3_0));
 const ext_sign_ext = if (wasm_2_0_enabled) @import("../instruction/wasm_2_0/sign_extension.zig") else struct {};
 const ext_sat_trunc = if (wasm_2_0_enabled) @import("../instruction/wasm_2_0/nontrap_conversion.zig") else struct {};
 const ext_bulk_memory = if (wasm_2_0_enabled) @import("../instruction/wasm_2_0/bulk_memory.zig") else struct {};
 const ext_ref_types = if (wasm_2_0_enabled) @import("../instruction/wasm_2_0/reference_types.zig") else struct {};
+const ext_function_references = if (wasm_3_0_enabled) @import("../instruction/wasm_3_0/function_references.zig") else struct {};
 const dbg = @import("../support/dbg.zig");
 const ext_table_ops = if (wasm_2_0_enabled) @import("../instruction/wasm_2_0/table_ops.zig") else struct {};
 const parser = @import("../parse/parser.zig");
@@ -861,6 +863,9 @@ pub fn dispatchTable() *const dispatch_table_mod.DispatchTable {
             ext_bulk_memory.register(&g_dispatch_table_storage);
             ext_ref_types.register(&g_dispatch_table_storage);
             ext_table_ops.register(&g_dispatch_table_storage);
+        }
+        if (comptime wasm_3_0_enabled) {
+            ext_function_references.register(&g_dispatch_table_storage);
         }
         g_dispatch_table_initialized = true;
     }

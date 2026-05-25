@@ -29,6 +29,9 @@ pub const Trap = error{
     StackOverflow,
     CallStackExhausted,
     OutOfMemory,
+    /// Wasm 3.0 typed function references (§3.3.8): `ref.as_non_null`
+    /// trap on null ref. Spec message: "null reference".
+    NullReference,
 };
 
 /// Per-instruction trace event (Phase 6 / §9.6 / 6.A per ADR-0013).
