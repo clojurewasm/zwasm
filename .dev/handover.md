@@ -43,15 +43,17 @@
   dispatch (tag-equality + payload push); bundles 10.E-N-2
   Runtime.tag_param_counts. Detail: phase_log §10.E。
 - **10.E-5d = SHIPPED 2026-05-26** (`82be1d75`): cross-frame
-  throw unwind. New `Runtime.PendingException` slot carries
-  the in-flight exception across the invoke pop-frame boundary;
-  `invoke()` intercepts `Trap.UncaughtException` post-popFrame
-  and retries `findAndDispatchCatch` against the caller frame.
-  Laddering across nested calls keeps the slot set until a
-  catch claims it or the trap escapes the top-level invocation.
-  2 new mvp_tests (caller catch_all catches callee throw;
-  no caller try_table → trap propagates with slot survival).
-  Detail: phase_log §10.E。
+  throw unwind via Runtime.pending_exception slot + invoke()
+  post-popFrame catch retry. Detail: phase_log §10.E。
+- **10.E-exnref-a = SHIPPED 2026-05-26** (`49cf7157`): Exception
+  heap object + catch_all_ref / catch_ref dispatch arms. New
+  `feature/exception_handling/exception.zig` with Exception
+  struct; Value.fromExceptionRef / refAsExceptionPtr helpers;
+  Runtime.pending_exception now `?*Exception` + per-throw
+  live_exceptions tracker freed at deinit. throwOp allocates;
+  findAndDispatchCatch's catch_all_ref pushes [exnref] and
+  catch_ref pushes [payload..., exnref] when tag_idx matches.
+  2 new mvp_tests. Detail: phase_log §10.E。
 - **Mac `zig build test-all`**: green (scope=unclear)。
 
 ## Phase 10 progress
@@ -65,22 +67,18 @@ ROADMAP §10 = 13-row task table。
     cross-module + spec corpus + regalloc terminator-class 残)
 - Pending: 10.E / 10.G / 10.P
 
-## Active task — 10.E-exnref + catch_ref dispatch
+## Active task — 10.E-exnref-b throw_ref impl
 
-EH interp foundation is complete (throw + catch_ + catch_all
-+ cross-frame unwind). Remaining gap: exnref value type for
-catch_ref / catch_all_ref dispatch (catch_ref pushes the
-originating exnref in addition to tag params; catch_all_ref
-pushes only the exnref). Per ADR-0114 D1, requires `Exception`
-extern struct heap object under `src/feature/exception_handling/`,
-arena-allocated at throw time; PendingException slot likely
-carries `*Exception` instead of inline payload. Then
-findAndDispatchCatch's catch_ref / catch_all_ref arms (already
-present, deferred) activate.
+`throw_ref` (0x0A) pops an exnref and re-raises the wrapped
+Exception via the same unwinder. Pop exnref → resolve via
+`Value.refAsExceptionPtr` → write to `rt.pending_exception` →
+re-enter `findAndDispatchCatch` on current frame; on miss
+propagate Trap.UncaughtException. Refs: mvp.zig:throwRefOp,
+value.zig:refAsExceptionPtr, feature/exception_handling/
+exception.zig:Exception.
 
 **Next sub-chunk candidates (names only, NO predictions)**:
-- 10.E-exnref — Exception struct + catch_ref / catch_all_ref
-  dispatch (the active task)
+- 10.E-exnref-b — throw_ref interp impl (the active task)
 - 10.E-N-3 — production Runtime.tag_param_counts wiring in
   compileWasm (currently only tests populate the slot)
 - 10.G-3 — heap-top reftype detection extension

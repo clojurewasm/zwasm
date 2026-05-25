@@ -571,6 +571,37 @@ Design source: ADR-0114 + ADR-0117 (cross-subsystem invariants).
 
 **SHA pointer**: backfilled at Phase 10 close.
 
+- **10.E-exnref-a** — Exception heap object + catch_all_ref /
+  catch_ref dispatch (`49cf7157`). New
+  `feature/exception_handling/exception.zig` (Zone 1) with
+  `Exception { tag_idx: u32, payload_len: u32, payload:
+  [max_payload]Value }` (max_payload=16; inline storage). Deviates
+  from ADR-0114 D1's eventual `extern struct { *TagInstance,
+  [*]Value, ... }`: `tag_idx` substitutes for *TagInstance until
+  cross-module tag identity wires through (single-module
+  validator-range-checked tag_idx is sufficient for now); inline
+  payload eliminates one allocation per throw (cap matches
+  max_block_arity which the validator already enforces). Value
+  gains `fromExceptionRef(*anyopaque)` + `refAsExceptionPtr` —
+  opaque pointer avoids the cycle of feature/exception_handling
+  importing back into runtime/value. Runtime now carries
+  `pending_exception: ?*Exception` (was inline struct value) +
+  `live_exceptions: ArrayList(*Exception)` tracker freed at
+  deinit (pre-GC leak strategy; ADR-0117 I1 GC walker enumerates
+  exception payloads at 10.G). throwOp allocates per throw,
+  appends to live_exceptions, writes pointer to
+  pending_exception. findAndDispatchCatch signature now takes
+  `*Exception`; gains `catch_all_ref` arm (pushes 1-element
+  [exnref] payload) and `catch_ref` arm (matches by tag_idx,
+  pushes `[payload..., exnref]` via stack-local combined buffer
+  capped at `max_exception_payload + 1`). invoke() cross-frame
+  unwind threads the new pointer-based contract. 2 new mvp_tests
+  (catch_all_ref: throw 0 caught, exnref lands on inner block,
+  rt.live_exceptions.len==1; catch_ref with i32 param tag:
+  [88, exnref] pushed, drop removes exnref, 88 returned).
+  Mac `test-all` GREEN; lint + zone + fs gates exit 0. Wasm
+  spec 3.0 §3.3.10.6-8 + §4.5; ADR-0114 D1 + D6; ADR-0117 I1.
+
 - **10.E-5d** — cross-frame throw unwind (`82be1d75`).
   `Runtime` gains `PendingException { tag_idx, payload_len,
   payload: [16]Value }` + `max_exception_payload = 16` constant
