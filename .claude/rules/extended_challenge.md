@@ -111,12 +111,9 @@ reach for:
   `textbook_survey.md` for Step 0 (task-start) — Step 4 makes
   it **explicitly allowed mid-cycle**, when an unforeseen sub-
   question surfaces during implementation.
-- **Spike (throwaway code)**: under `private/spikes/<slug>/`
-  (gitignored per `no_workaround.md` spike discipline). Use
-  when an assumption needs runtime verification — encoder
-  output, type-system behaviour, hot-loop timing. Bound: ≤ 1
-  day; outcome → ADR (Rejected if rejected; or merged into the
-  real implementation) or lesson if observational.
+- **Spike (throwaway code)**: see [`spike_discipline.md`](spike_discipline.md)
+  §1 (when) + §3 (Status lifecycle). Spike outcome → ADR or
+  lesson; never as on-branch impl.
 - **Runtime debug toolkit** (lldb / gdb / ndisasm / strace /
   SIGSEGV-handler): invoke the `debug_jit_auto` skill
   (`.claude/skills/debug_jit_auto/SKILL.md`) for the canonical

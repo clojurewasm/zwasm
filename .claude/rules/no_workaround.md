@@ -1,57 +1,85 @@
 ---
+description: "Fix root causes; never work around. Forbid silent fallbacks (catch {} / catch |err| return null / catch |err| .default) AND indefinite workarounds (quick fix / temporarily skip / disable for now). Absorbs former no_fallback_on_failure.md per ADR-0118 D3."
 paths:
   - "src/**/*.zig"
   - "build.zig"
+  - "test/spec/spec_assert_runner_base.zig"
+  - "test/spec/spec_assert_runner_non_simd.zig"
 ---
 
-# No-workaround rule
+# No workaround / no silent fallback
 
-Auto-loaded when editing Zig source. Codifies a v1 lesson that drove
-this redesign.
+Two faces of the same root-cause discipline. Both forbid bypassing a
+real problem with code that *looks* like it handles it.
 
-## Three principles (from ROADMAP §P1 / §P3 / §P14)
+## Three workaround principles (ROADMAP §P1 / §P3 / §P14)
 
-1. **Fix root causes, never work around.** Missing feature?
-   Implement it first. Spec gap? File a ROADMAP §9.<N+1> task; do
-   not paper over.
-2. **Spec fidelity over expedience.** Never simplify the API or the
-   IR to avoid a gap. The Wasm spec is ground truth (P1).
-3. **Defer rather than work around.** If a feature is genuinely not
-   ready for the current phase, place it in a later phase and add
-   a `// TODO(p<N>): <one line>` comment with the phase number.
-   Never embed an indefinite workaround.
+1. **Fix root causes.** Missing feature → implement it. Spec gap →
+   file a ROADMAP §9.<N+1> task. Don't paper over.
+2. **Spec fidelity over expedience.** Don't simplify the API / IR to
+   avoid a gap. Wasm spec is ground truth (P1).
+3. **Defer, don't workaround.** Genuinely-not-ready feature → later
+   phase + `// TODO(p<N>): <one line>` comment with the phase number.
+   No indefinite workarounds.
 
-## Forbidden phrases in commit messages
+## Forbidden silent-fallback patterns
 
-- `quick fix` — escalate to root cause or ADR-document the limitation.
-- `temporarily skip` — spec test skip=0 is a release gate (A10).
-- `disable for now` — disable forever or fix; avoid the third option.
-- `workaround for <upstream>` without an ADR reference.
+Auto-detected by `scripts/check_fallback_patterns.sh --gate`:
+
+- `catch |err| return null` / `catch |err| return undefined` (false info)
+- `catch |err| .<default_value>` (silent semantic demotion)
+- `catch |err| switch (err) { else => continue }` (ignore unknowns)
+- `catch {}` (complete silence)
+- New code emitting `SKIP-*` runtime tokens (bypasses ADR-0050 D-5 skip-impl ratchet)
+
+**Allowed alternatives**: propagate via `!void` / `!T`, exhaustive
+`switch (err)` with justified per-arm action, `switch (err) { else => |e| return e }` (re-throw unknowns).
+
+## EXEMPT-FALLBACK marker
+
+Rare unavoidable cases (e.g. `stderr.flush() catch {}` in diagnostic
+path where propagation = infinite re-entry):
+
+```zig
+// EXEMPT-FALLBACK: <one-line reason citing ADR-NNNN or D-NNN>
+stderr.flush() catch {};
+```
+
+Marker reason MUST cite concrete artifact; vague text ("legacy",
+"best-effort") rejected by the gate script.
+
+## Forbidden commit-message phrases
+
+- `quick fix` — escalate to root cause OR file ADR for the limitation
+- `temporarily skip` — spec skip=0 is release gate (A10)
+- `disable for now` — disable forever or fix; no third option
+- `workaround for <upstream>` without an ADR reference
 
 ## When a workaround is genuinely needed (gate bar)
 
-Sometimes the upstream is broken. The bar:
+Upstream broken? Bar:
 
-1. ADR documents the workaround with upstream issue link, expected
-   expiry condition, and removal plan.
-2. Workaround is contained in one file (`src/platform/` for OS quirks,
-   `src/util/` for stdlib gaps).
-3. A `// TODO(adr-NNNN): remove once <condition>` comment marks it.
-4. `audit_scaffolding`'s "lies" check periodically verifies the
-   removal condition still hasn't fired.
-
-詳細(v1 anti-patterns D116/W54/D117, spike boundary, reviewer
-checklist) は
-[`references/no_workaround_details.md`](../references/no_workaround_details.md)
-を参照。
+1. ADR documents workaround (upstream issue link, expiry condition, removal plan)
+2. Containment in one file (`src/platform/` for OS quirks, `src/util/` for stdlib gaps)
+3. `// TODO(adr-NNNN): remove once <condition>` marker
+4. `audit_scaffolding §G "lies" check` periodically re-verifies removal condition
 
 ## Sibling rules
 
-- [`architectural_spike.md`](architectural_spike.md) — forbids
-  on-branch architectural spikes ("helper先 land → wire-up 別
-  cycle" pattern that caused D-153's 12-cycle drift). Code
-  commits to `zwasm-from-scratch` must have an observable
-  behaviour point; experimentation belongs in
-  `private/spikes/`.
-- [`spike_lifecycle.md`](spike_lifecycle.md) — Status
-  discipline for `private/spikes/<slug>/`.
+- [`spike_discipline.md`](spike_discipline.md) — when experimentation
+  belongs in `private/spikes/`. On-branch architectural spikes (helper
+  先 land → wire-up 別 cycle, D-153 pattern) are forbidden under this
+  rule too.
+- [`extended_challenge.md`](extended_challenge.md) — the 3+2 step
+  procedure when stuck. Step 1 (specifically identify what's missing)
+  + Step 2 (self-provision when in scope) MUST run before declaring
+  "absent" and reaching for a fallback.
+
+## References
+
+- ADR-0050 (skip-impl ratchet)
+- ADR-0070 (libc dependency policy — `replaceable` category embodies P14)
+- ADR-0071 §Q3/§Q5 (Phase 9 substrate audit resolution)
+- `references/no_workaround_details.md` — v1 anti-patterns D116/W54/D117,
+  spike boundary, full reviewer checklist
+- `bench/results/skip_impl_history.yaml` — skip-impl one-way ratchet
