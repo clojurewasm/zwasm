@@ -25,26 +25,21 @@
   under `feature/gc/i31.zig`。
 - **10.G-i31-ops = SHIPPED** (`52a6c225`): 3 i31 ops interp impl
   + Value helpers + 0xFB GC prefix dispatcher。
-- **10.E-1 = SHIPPED** (`ffb56dd7`): tag section parse skeleton。
-- **10.E-2 = SHIPPED** (`390856f8` + `cec18589`): decodeTags +
-  TagEntry + sections.zig FILE-SIZE-EXEMPT marker。
 - **10.G-2 = SHIPPED** (`d5810162`): needs_gc_heap parse-time
-  predicate (byte-scan type section).
-- **10.E-3a = SHIPPED** (`c2238c9a`): BlockKind.try_table enum
-  entry + validator labelType arm。
-- **10.E-3b = SHIPPED** (`da8880a9`): try_table opcode 0x1F +
-  catch-vec skeleton。
-- **10.E-4 = SHIPPED 2026-05-25** (`753aec8f`): throw / throw_ref
-  opcodes (0x08 / 0x0A) — validator + interp Trap.UncaughtException
-  emission。
-- **10.E-5a = SHIPPED 2026-05-25** (`da1cec05`): EH catch
-  metadata storage + lowerer wire-up. Detail: phase_log §10.E。
-- **10.E-5b = SHIPPED 2026-05-25** (`d8a4aa43`): interp throw
-  unwinder (catch_all). `Label.block_idx` added; throwOp walks
-  current frame's label stack, looks up LandingPad by block_idx,
-  dispatches via doBranch on first catch_all match. catch_ /
-  catch_ref / catch_all_ref + cross-frame unwind deferred to
-  10.E-5c (post Module.tags wiring at 10.E-N). 4 new mvp_tests.
+  predicate.
+- **10.E-1..3b = SHIPPED** (`ffb56dd7` / `390856f8` `cec18589` /
+  `c2238c9a` / `da8880a9`): tag-section parser + TagEntry +
+  BlockKind.try_table + try_table opcode parse skeleton.
+  Detail: phase_log §10.E。
+- **10.E-4 = SHIPPED** (`753aec8f`): throw / throw_ref opcodes
+  (validator + interp Trap.UncaughtException emission).
+- **10.E-5a = SHIPPED** (`da1cec05`): EH catch metadata storage
+  + lowerer wire-up. Detail: phase_log §10.E。
+- **10.E-5b = SHIPPED** (`d8a4aa43`): interp throw unwinder
+  (catch_all only). Detail: phase_log §10.E。
+- **10.E-N-1 = SHIPPED 2026-05-26** (`aa60df61`): Module.tags
+  wiring through validator (range check + pop tag's params
+  per typeidx; new `Error.InvalidTagIndex`; 8 new tests).
   Detail: phase_log §10.E。
 - **Mac `zig build test-all`**: green (scope=unclear)。
 
@@ -59,30 +54,31 @@ ROADMAP §10 = 13-row task table。
     cross-module + spec corpus + regalloc terminator-class 残)
 - Pending: 10.E / 10.G / 10.P
 
-## Active task — 10.E-N Module.tags wiring
+## Active task — 10.E-N-2 interp-side Module.tags wiring
 
-Bring `Module.tags` (decoded at 10.E-2 / `390856f8` + `cec18589`)
-through to the validator + interp side so:
+Bring `Module.tags` through to the interp / runtime so the
+catch_ / catch_ref dispatch (10.E-5c) can pop tag params at
+throw time and push them at the catch landing. Validator side
+landed at 10.E-N-1.
 
-- Validator's `opThrow` pops the tag's params from the operand
-  stack (currently a TODO — only reads tag_idx and discards).
-- Interp `throwOp` can pop the same params and stash them so the
-  `catch_` / `catch_ref` matching at unwind time can push them on
-  the catch label's stack post-restore. Enables 10.E-5c
-  (catch_ + catch_ref dispatch) which currently fall through to
-  Trap.UncaughtException by design.
-- Validator's `validateCatchVec` adds tag_idx range check
-  (currently `0x00 / 0x01` arms read tag_idx and discard the
-  range validation).
+Steps:
+- CompiledWasm gets `tags` field (new) carrying the decoded
+  TagEntry slice or equivalent (typeidx + param count).
+- Runtime / interp ctx reaches the tags so `throwOp` can pop
+  params per `tags[tag_idx].typeidx → module_types[typeidx].params`
+  count, save them into a small stash, and (on catch_ match)
+  push them at the catch's target label height.
 
 Refs: `src/parse/sections.zig:decodeTags / TagEntry`,
-`src/validate/validator.zig:opThrow / validateCatchVec`,
+`src/engine/compile.zig:tags_slice` (decoded but currently
+discarded after validate), `src/engine/runner.zig:CompiledWasm`,
 `src/interp/mvp.zig:throwOp / findAndDispatchCatch`,
-`src/runtime/trap.zig:UncaughtException`.
+`src/runtime/runtime.zig:Runtime` (where tags would live for
+interp access).
 
 **Next sub-chunk candidates (names only, NO predictions)**:
-- 10.E-N — Module.tags wiring (the active task above)
-- 10.E-5c — catch_ / catch_ref dispatch (after 10.E-N)
+- 10.E-N-2 — interp-side Module.tags wiring (the active task)
+- 10.E-5c — catch_ / catch_ref dispatch (after 10.E-N-2)
 - 10.E-5d — cross-frame throw unwind (caller's try_table)
 - 10.G-3 — heap-top reftype detection extension
 - 10.G-4 — struct ops (needs GC heap impl first)

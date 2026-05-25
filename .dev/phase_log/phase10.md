@@ -571,6 +571,36 @@ Design source: ADR-0114 + ADR-0117 (cross-subsystem invariants).
 
 **SHA pointer**: backfilled at Phase 10 close.
 
+- **10.E-N-1** — Module.tags wiring through validator
+  (`aa60df61`). `Validator.tags: []const sections.TagEntry =
+  &.{}` field added (default empty preserves existing
+  `validateFunction` 9-arg call sites). Two new entry points:
+  test-side `validateFunctionWithTags(...10 args + tags)`
+  mirroring `validateFunction`'s shape; production
+  `validateFunctionAndCollectSelectTypesWithMemory` extended
+  with trailing `tags` param. `compileWasm` decodes the tag
+  section via `sections.decodeTags(a, ts.body)` when
+  `module.find(.tag)` is non-null (arena-allocated; freed
+  when `a` deinits), threads through. `opThrow` now strict:
+  range-checks `tag_idx >= self.tags.len → Error.InvalidTagIndex`
+  (new variant), looks up `tags[tag_idx].typeidx →
+  module_types[typeidx]`, pops params via
+  `popLabelTypes(blockTypeOfSlice(ft.params))` (last-first,
+  matching spec stack order), then markUnreachable.
+  `validateCatchVec` range-checks tag_idx on `catch_` (0x00)
+  and `catch_ref` (0x01); catch_all variants stay
+  label-only. 8 new validator tests (throw with valid /
+  out-of-range / no-tags / matching i32 param / underflow /
+  type mismatch; try_table catch out-of-range tag_idx;
+  catch_all with empty tags). 2 existing 10.E-4 tests
+  migrated from `validateFunction` to the new wrapper
+  (their placeholder bodies threw against an empty tags
+  slice, which is now strictly rejected). Mac `test-all`
+  GREEN; lint exit 0. Wasm spec 3.0 §3.3.10.7 + §4.5;
+  ADR-0114 D3. 10.E-N-2 lands interp-side wiring
+  (Runtime sees tags so throwOp can pop dynamic param
+  values for catch_/catch_ref dispatch at 10.E-5c).
+
 - **10.E-5b** — interp throw unwinder, catch_all only
   (`d8a4aa43`). `Label.block_idx: u32 = 0` added to
   `runtime.frame.Label`; populated by `blockOp` / `loopOp` /
