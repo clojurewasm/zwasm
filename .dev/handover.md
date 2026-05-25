@@ -7,8 +7,8 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24)。
-- **Last commit**: `c3895cd1` — ADR-0111 memory64 design Proposed
-  (10.D autonomous prep path; user collab gate at Accept flip)。
+- **Last commit**: `8d535ec1` — ADR-0112 Tail Call design Proposed
+  (10.D autonomous prep 2/7; user collab gate at Accept flip)。
 - **Phase 9 close invariants gate (mac-host)**: **18/18 PASS** 維持。
 - **Mac `zig build test`**: 1827/1841 passed (substrate baseline);
   ubuntu test-all 10.Z verified GREEN at `b6e07451`。
@@ -23,9 +23,9 @@ gate. 1 cycle = 1 ADR draft (pacing matched to context budget)。
 
 | ADR | Topic | Status |
 |---|---|---|
-| 0111 | memory64 design | **Proposed `c3895cd1`** |
-| **0112 NEXT** | Tail Call design (per design plan §3.3) | not drafted |
-| 0113 | callsite_metadata + regalloc 3-axis (per §3.4) | not drafted |
+| 0111 | memory64 design | Proposed `c3895cd1` |
+| 0112 | Tail Call design (per design plan §3.3) | **Proposed `8d535ec1`** |
+| **0113 NEXT** | callsite_metadata + regalloc 3-axis (per §3.4) | not drafted |
 | 0114 | Exception Handling design (per §3.4) | not drafted |
 | 0115 | GC heap + collector design (per §3.5) | not drafted |
 | 0116 | GC roots + RTT + i31 (per §3.5) | not drafted |
