@@ -54,10 +54,13 @@
   tag_param_counts wiring through `CompiledWasm`.
   Detail: phase_log §10.E。
 - **10.G-3 = SHIPPED 2026-05-26** (`8bebcc76`): detectNeedsGcHeap
-  extends parse-time predicate to scan heap-top reftype bytes
-  (anyref / eqref / i31ref / exnref) across type / global /
-  table / element / code sections. 7 new tests. Detail:
+  scans heap-top reftype bytes across sections. Detail:
   phase_log §10.G。
+- **10.M-5b = SHIPPED 2026-05-26** (`37771003`): SIMD lane-memarg
+  bit-6 memidx decode (validator_simd + lower_simd). Closes the
+  10.M-4b carry-over; non-lane SIMD load/store already worked
+  via the scalar emitMemarg. 3 new lower_tests. Detail:
+  phase_log §10.M。
 - **Mac `zig build test-all`**: green (scope=unclear)。
 
 ## Phase 10 progress
@@ -71,19 +74,21 @@ ROADMAP §10 = 13-row task table。
     cross-module + spec corpus + regalloc terminator-class 残)
 - Pending: 10.E / 10.G / 10.P
 
-## Active task — 10.M-5b SIMD memarg memory64
+## Active task — 10.M-spec-corpus memory64 spec testsuite
 
-10.M-4b note deferred SIMD memarg parse/lower to 10.M-5b:
-`validator_simd.zig::readSimdMemarg` + `lower_simd.zig::
-emitMemargLane` still hardcode the 2-uleb shape. Extend both
-to consume the Wasm 3.0 memarg encoding (align bit 6 signals
-memidx LEB follows), mirroring the 10.M-3 scalar MemArgExtra
-wiring. Refs: validator_simd.zig:readSimdMemarg,
-lower_simd.zig:emitMemargLane, zir.MemArgExtra (already exists),
-ADR-0111 D4.
+The memory64 impl is now full-stack (parser + validator + runtime
++ codegen + SIMD memarg). Bring up the spec corpus by importing
+the Wasm 3.0 memory64 proposal testsuite under
+`test/spec/wasm-3.0-assert/memory64/` (mirroring the
+tail-call / exception-handling directories), wiring it into the
+spec-assert runner with a 3.0-gated arm. Refs: existing
+`test/spec/wasm-3.0-assert/{tail-call,exception-handling}/`
+import pattern, `test/spec/spec_assert_runner_base.zig`,
+ADR-0050 (skip-impl ratchet for new corpus arrivals).
 
 **Next sub-chunk candidates (names only, NO predictions)**:
-- 10.M-5b — SIMD memarg memory64 (the active task above)
+- 10.M-spec-corpus — memory64 spec testsuite import (the active
+  task above)
 - 10.TC-3 — regalloc terminator-class + codegen tail-call
 - 10.E-codegen — ADR-0114 D3-D6 codegen-side EH (exception_table,
   FP-walk unwind, zwasm_throw trampoline, op_exception_handling)

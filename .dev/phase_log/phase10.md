@@ -269,6 +269,29 @@ close: -Dwasm=v2_0 symbol-absence gate).
 
 ### Sub-chunks (commit-time order)
 
+- **10.M-5b** — SIMD lane-memarg memory64 (`37771003`).
+  Closes the 10.M-4b carry-over. `validator_simd.zig::
+  readSimdMemarg` + `lower_simd.zig::emitMemargLane` now decode
+  the Wasm 3.0 §5.4.6 memarg encoding (align uleb's bit 6
+  signals memidx LEB follows; effective log2-align is
+  `align & 0x3F` when bit-6 set). Mirrors the scalar
+  `lower.zig::emitMemarg` shape landed at 10.M-3. memidx is
+  decoded-and-discarded — multi-memory > 1 is rejected at
+  instantiate per ADR-0111 D5, so memidx must be 0 in valid
+  modules; consuming the uleb keeps validator + lowerer cursor
+  positions in sync. The lane variant's `extra` field is
+  already consumed by the lane byte, so memidx routing for
+  per-lane multi-memory codegen would need a side table when
+  the JIT side eventually wires it. The non-lane SIMD ops
+  (v128.load / store / *_splat / *_zero) already use the
+  shared `Lowerer.emitMemarg` (SIBLING-PUB) and have handled
+  bit-6 since 10.M-3 — only the lane variants needed this
+  update. 3 new lower_tests (v128.load8_lane with bit-6 +
+  memidx=0; v128.store32_lane legacy 2-uleb regression;
+  v128.load64_lane with bit-6 + memidx=2). Mac `test-all`
+  GREEN; lint exit 0. Wasm spec 3.0 §3.3.7 + §5.4.6;
+  ADR-0111 D4 + D5.
+
 ## Row 10.R — function-references typed-ref family
 
 Per `phase10_design_plan_ja.md` §3.2. 5-op proposal (GC
