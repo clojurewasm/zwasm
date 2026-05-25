@@ -36,6 +36,7 @@ const std = @import("std");
 
 const inst = @import("inst.zig");
 const gpr = @import("gpr.zig");
+const abi = @import("abi.zig");
 
 /// X16 — the AAPCS64 intra-procedure-call scratch (IP0) per
 /// Arm IHI 0055 §6.4. ADR-0066 § (bridge thunk) already uses
@@ -43,6 +44,26 @@ const gpr = @import("gpr.zig");
 /// the same convention so the regalloc layer's pinned-cohort
 /// stays a single set.
 pub const tail_target_gpr: inst.Xn = 16;
+
+/// Emit step (2) of the ADR-0112 D3 tail-call sequence for
+/// the SAME-MODULE case: restore X0 = runtime_ptr so the
+/// callee's prologue (which does `MOV X19, X0` per ADR-0017
+/// sub-2d-ii) sees the correct runtime pointer. For
+/// same-module tail-call, caller_rt == callee_rt and X19 is
+/// already correct, so we simply `MOV X0, X19` (encoded as
+/// `ORR X0, XZR, X19` per the canonical AAPCS64 idiom).
+///
+/// Cross-module tail-call (ADR-0112 D4 / 10.TC-3f follow-on)
+/// loads callee_rt from the caller's literal pool instead;
+/// that path lives in `cross_module_tail_call.zig`.
+pub fn emitLoadCalleeRtSameModule(
+    allocator: std.mem.Allocator,
+    buf: *std.ArrayList(u8),
+) !void {
+    // ORR X0, XZR, X19  ≡  MOV X0, X19 (the canonical move
+    // between two GPRs in the AAPCS64 encoding — XZR is reg 31).
+    try gpr.writeU32(allocator, buf, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr));
+}
 
 /// Emit step (5) of the ADR-0112 D3 tail-call sequence: the
 /// `BR X16` unconditional branch to the callee entry. Caller
@@ -90,4 +111,18 @@ test "op_tail_call arm64: emitTailJump X17 — alternate IP1 target (Arm IHI 005
 
 test "op_tail_call arm64: tail_target_gpr matches ADR-0066 thunk convention (X16 = IP0)" {
     try testing.expectEqual(@as(inst.Xn, 16), tail_target_gpr);
+}
+
+test "op_tail_call arm64: emitLoadCalleeRtSameModule emits MOV X0, X19 (ORR X0, XZR, X19)" {
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+
+    try emitLoadCalleeRtSameModule(testing.allocator, &buf);
+    try testing.expectEqual(@as(usize, 4), buf.items.len);
+    const word = std.mem.readInt(u32, buf.items[0..4], .little);
+    try testing.expectEqual(inst.encOrrReg(0, 31, 19), word);
+}
+
+test "op_tail_call arm64: emitLoadCalleeRtSameModule uses abi.runtime_ptr_save_gpr (X19) as source" {
+    try testing.expectEqual(@as(inst.Xn, 19), abi.runtime_ptr_save_gpr);
 }
