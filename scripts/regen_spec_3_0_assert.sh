@@ -41,6 +41,15 @@ fi
 # (10.R / 10.TC / 10.E / 10.G full-corpus expand lands per-row).
 # memory64.wast itself is excluded — uses non-standard
 # `(module definition ...)` syntax that wast2json rejects.
+#
+# `gc/struct` is intentionally absent: upstream wabt 1.0.40
+# (currently pinned in flake.nix) does NOT support GC proposal
+# syntax in wast2json — `i8`/`i16`/`anyref`/`struct`/`sub`/etc.
+# trigger "unexpected token" rejects. The GC corpus bakes when
+# wabt is bumped to a release with full GC type support
+# (upstream tracking issue: WebAssembly/wabt#2398-class). Until
+# then `gc/` only has `raw/` .wast files available for manual
+# reading; the runner's `gc 0 manifests` is the correct state.
 declare -a SMOKE=(
     "memory64/address64"
     "memory64/align64"
@@ -50,7 +59,6 @@ declare -a SMOKE=(
     "memory64/memory_trap64"
     "tail-call/return_call"
     "exception-handling/try_table"
-    "gc/struct"
     "function-references/ref"
 )
 
