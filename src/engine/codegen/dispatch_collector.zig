@@ -335,3 +335,57 @@ test "axisOf: partial override — only is_terminator declared, others default" 
     try std.testing.expectEqual(@as(u8, 1), axis.n_successor_edges);
     try std.testing.expectEqual(false, axis.is_safepoint);
 }
+
+// ADR-0112 D2 + ADR-0113 §A — return_call / return_call_indirect /
+// return_call_ref are terminators (frame teardown + tail-jump
+// leaves the function): is_terminator=true, n_successor_edges=0,
+// is_safepoint=false (safepoint-free invariant between teardown
+// and BR/JMP per ADR-0112 D7).
+
+test "axisOf: arm64 ops/wasm_3_0/return_call.zig declares terminator axes (ADR-0112 + ADR-0113 §A)" {
+    const rc_mod = @import("arm64/ops/wasm_3_0/return_call.zig");
+    const axis = axisOf(rc_mod);
+    try std.testing.expectEqual(true, axis.is_terminator);
+    try std.testing.expectEqual(@as(u8, 0), axis.n_successor_edges);
+    try std.testing.expectEqual(false, axis.is_safepoint);
+}
+
+test "axisOf: arm64 ops/wasm_3_0/return_call_indirect.zig declares terminator axes" {
+    const rci_mod = @import("arm64/ops/wasm_3_0/return_call_indirect.zig");
+    const axis = axisOf(rci_mod);
+    try std.testing.expectEqual(true, axis.is_terminator);
+    try std.testing.expectEqual(@as(u8, 0), axis.n_successor_edges);
+    try std.testing.expectEqual(false, axis.is_safepoint);
+}
+
+test "axisOf: arm64 ops/wasm_3_0/return_call_ref.zig declares terminator axes" {
+    const rcr_mod = @import("arm64/ops/wasm_3_0/return_call_ref.zig");
+    const axis = axisOf(rcr_mod);
+    try std.testing.expectEqual(true, axis.is_terminator);
+    try std.testing.expectEqual(@as(u8, 0), axis.n_successor_edges);
+    try std.testing.expectEqual(false, axis.is_safepoint);
+}
+
+test "axisOf: x86_64 ops/wasm_3_0/return_call.zig declares terminator axes" {
+    const rc_mod = @import("x86_64/ops/wasm_3_0/return_call.zig");
+    const axis = axisOf(rc_mod);
+    try std.testing.expectEqual(true, axis.is_terminator);
+    try std.testing.expectEqual(@as(u8, 0), axis.n_successor_edges);
+    try std.testing.expectEqual(false, axis.is_safepoint);
+}
+
+test "axisOf: x86_64 ops/wasm_3_0/return_call_indirect.zig declares terminator axes" {
+    const rci_mod = @import("x86_64/ops/wasm_3_0/return_call_indirect.zig");
+    const axis = axisOf(rci_mod);
+    try std.testing.expectEqual(true, axis.is_terminator);
+    try std.testing.expectEqual(@as(u8, 0), axis.n_successor_edges);
+    try std.testing.expectEqual(false, axis.is_safepoint);
+}
+
+test "axisOf: x86_64 ops/wasm_3_0/return_call_ref.zig declares terminator axes" {
+    const rcr_mod = @import("x86_64/ops/wasm_3_0/return_call_ref.zig");
+    const axis = axisOf(rcr_mod);
+    try std.testing.expectEqual(true, axis.is_terminator);
+    try std.testing.expectEqual(@as(u8, 0), axis.n_successor_edges);
+    try std.testing.expectEqual(false, axis.is_safepoint);
+}
