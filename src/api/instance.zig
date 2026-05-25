@@ -1589,6 +1589,51 @@ test "wasm_instance_new: lowers Module funcs into Runtime" {
     try testing.expectEqual(@as(usize, 1), rt.funcs[0].instrs.items.len);
 }
 
+test "wasm_instance_new: populates Runtime.tag_param_counts from tag section (10.E-N-4)" {
+    // Same shape as compileWasm's tag-section test (engine/runner.zig)
+    // but routed through the c_api / instantiateRuntime path.
+    // type(1): [(i32) -> ()]; tag(13): [attr=0, typeidx=0].
+    // Expected: rt.tag_param_counts = [1].
+    var bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        // type section: count=1; functype: 0x60, params=[i32], results=[]
+        0x01, 0x05, 0x01, 0x60, 0x01, 0x7F, 0x00,
+        // tag section (id 13): count=1; tag: attr=0x00, typeidx=0
+        0x0D,
+        0x03, 0x01, 0x00, 0x00,
+    };
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+    const bv: ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer wasm_module_delete(m);
+    const i = wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    defer wasm_instance_delete(i);
+
+    const rt = i.runtime.?;
+    try testing.expectEqual(@as(usize, 1), rt.tag_param_counts.len);
+    try testing.expectEqual(@as(u32, 1), rt.tag_param_counts[0]);
+}
+
+test "wasm_instance_new: tag_param_counts empty for module without tag section" {
+    // minimal_wasm has no tag section → rt.tag_param_counts stays
+    // at the default empty slice.
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+    var bytes = minimal_wasm;
+    const bv: ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer wasm_module_delete(m);
+    const i = wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    defer wasm_instance_delete(i);
+
+    try testing.expectEqual(@as(usize, 0), i.runtime.?.tag_param_counts.len);
+}
+
 test "wasm_instance_*: null-arg discipline" {
     try testing.expect(wasm_instance_new(null, null, null, null) == null);
     wasm_instance_delete(null);

@@ -527,6 +527,24 @@ pub fn instantiateRuntime(
     rt.funcs = func_ptrs;
     rt.module_types = types.items;
 
+    // 10.E-N-4: production tag_param_counts wiring. Mirror of
+    // engine/runner.zig::compileWasm's tag-section handling for
+    // the interp-side Runtime: decode tags + resolve per-tag
+    // param count via the type section. The interp throw / catch
+    // path (feature/exception_handling/exception.zig + mvp.zig
+    // throwOp) consumes Runtime.tag_param_counts[tag_idx] to know
+    // how many operand-stack values to pop into the Exception
+    // payload. Wasm 3.0 §3.3.10.7 (throw).
+    if (module.find(.tag)) |tag_section| {
+        const tag_entries = try sections.decodeTags(a, tag_section.body);
+        const counts = try a.alloc(u32, tag_entries.len);
+        for (tag_entries, 0..) |entry, i| {
+            if (entry.typeidx >= types.items.len) return error.InvalidTypeIndex;
+            counts[i] = @intCast(types.items[entry.typeidx].params.len);
+        }
+        rt.tag_param_counts = counts;
+    }
+
     // §9.6 / 6.K.1 (ADR-0014 §2.1): per-instance FuncEntity array.
     // Imported funcs (per 6.K.3) point at the source runtime so
     // call_indirect through a foreign-funcref cell routes via
