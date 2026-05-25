@@ -768,7 +768,7 @@ pub export fn wasm_instance_delete(i: ?*Instance) callconv(.c) void {
 var g_dispatch_table_storage: dispatch_table_mod.DispatchTable = undefined;
 var g_dispatch_table_initialized: bool = false;
 
-fn dispatchTable() *const dispatch_table_mod.DispatchTable {
+pub fn dispatchTable() *const dispatch_table_mod.DispatchTable {
     if (!g_dispatch_table_initialized) {
         g_dispatch_table_storage = .init();
         interp_mvp.register(&g_dispatch_table_storage);

@@ -36,18 +36,15 @@ pub const version = "0.0.0-pre";
 
 // ============================================================
 // Zig facade (ADR-0109 native API) — first-principles Engine +
-// Module + Instance + Value surface. Engine + Module live in
-// `src/zwasm/{engine,module}.zig`; Instance + Value stay here
-// until J.3 lifts Instance onto the native surface. Closes I3
-// of `.claude/rules/phase9_close_invariants.md`.
+// Module + Instance + Trap + Value surface. Engine / Module /
+// Instance live in `src/zwasm/{engine,module,instance}.zig`.
+// Closes I3 of `.claude/rules/phase9_close_invariants.md`.
 // ============================================================
-
-const _api_instance = @import("api/instance.zig");
-const _vec = @import("api/vec.zig");
-const _trap_surface = @import("api/trap_surface.zig");
 
 pub const Engine = @import("zwasm/engine.zig").Engine;
 pub const Module = @import("zwasm/module.zig").Module;
+pub const Instance = @import("zwasm/instance.zig").Instance;
+pub const Trap = @import("zwasm/instance.zig").Trap;
 
 /// Zig-idiomatic tagged-union mirror of `wasm_val_t`.
 /// Wasm spec §4.2.2 — value representation at the host boundary
@@ -72,91 +69,6 @@ pub const Value = union(enum) {
     }
     pub fn fromF64Bits(b: u64) Value {
         return .{ .f64 = b };
-    }
-};
-
-fn valueToVal(v: Value) _api_instance.Val {
-    return switch (v) {
-        .i32 => |x| .{ .kind = .i32, .of = .{ .i32 = x } },
-        .i64 => |x| .{ .kind = .i64, .of = .{ .i64 = x } },
-        .f32 => |b| .{ .kind = .f32, .of = .{ .f32 = @bitCast(b) } },
-        .f64 => |b| .{ .kind = .f64, .of = .{ .f64 = @bitCast(b) } },
-        .v128 => .{ .kind = .i64, .of = .{ .i64 = 0 } }, // v128 not yet routed via Val (D-075 v0.2)
-        .funcref => |r| .{ .kind = .funcref, .of = .{ .ref = if (r) |p| @ptrFromInt(p) else null } },
-        .externref => |r| .{ .kind = .anyref, .of = .{ .ref = if (r) |p| @ptrFromInt(p) else null } },
-    };
-}
-
-fn valFromApi(v: _api_instance.Val) Value {
-    return switch (v.kind) {
-        .i32 => .{ .i32 = v.of.i32 },
-        .i64 => .{ .i64 = v.of.i64 },
-        .f32 => .{ .f32 = @bitCast(v.of.f32) },
-        .f64 => .{ .f64 = @bitCast(v.of.f64) },
-        .funcref => .{ .funcref = if (v.of.ref) |p| @intFromPtr(p) else null },
-        .anyref => .{ .externref = if (v.of.ref) |p| @intFromPtr(p) else null },
-    };
-}
-
-/// Wasm spec §4.2.5 — instantiated Module Instance. Exposes
-/// `invoke(name, args, results)` for the export-call golden path.
-/// J.3 will replace this with the native Instance per ADR-0109 §3.5.
-pub const Instance = struct {
-    handle: *_api_instance.Instance,
-    c_store: *_api_instance.Store,
-
-    pub fn deinit(self: *Instance) void {
-        _api_instance.wasm_instance_delete(self.handle);
-    }
-
-    pub const InvokeError = error{ ExportNotFound, NotAFunc, Trap, TooManyValues };
-
-    /// Look up `name` in the instance's export list, call the
-    /// resolved Func, and write results back. The `args` and
-    /// `results` slices map 1:1 to the Wasm function signature.
-    pub fn invoke(
-        self: *Instance,
-        name: []const u8,
-        args: []const Value,
-        results: []Value,
-    ) InvokeError!void {
-        if (args.len > 16 or results.len > 16) return InvokeError.TooManyValues;
-
-        var exports_vec: _vec.ExternVec = .{ .size = 0, .data = null };
-        _api_instance.wasm_instance_exports(self.handle, &exports_vec);
-        defer _api_instance.wasm_extern_vec_delete(&exports_vec);
-
-        const dp = exports_vec.data orelse return InvokeError.ExportNotFound;
-        const exps = self.handle.exports_storage;
-        var func: ?*_api_instance.Func = null;
-        for (exps, 0..) |exp, idx| {
-            if (idx >= exports_vec.size) break;
-            if (!std.mem.eql(u8, exp.name, name)) continue;
-            const ext = dp[idx] orelse return InvokeError.NotAFunc;
-            func = _api_instance.wasm_extern_as_func(ext);
-            break;
-        }
-        const fh = func orelse return InvokeError.ExportNotFound;
-
-        var args_buf: [16]_api_instance.Val = undefined;
-        for (args, 0..) |a, idx| args_buf[idx] = valueToVal(a);
-        const args_vec: _vec.ValVec = .{
-            .size = args.len,
-            .data = if (args.len == 0) null else @ptrCast(&args_buf),
-        };
-
-        var results_buf: [16]_api_instance.Val = undefined;
-        var results_vec: _vec.ValVec = .{
-            .size = results.len,
-            .data = if (results.len == 0) null else @ptrCast(&results_buf),
-        };
-
-        const trap = _api_instance.wasm_func_call(fh, &args_vec, &results_vec);
-        if (trap != null) {
-            _trap_surface.wasm_trap_delete(trap);
-            return InvokeError.Trap;
-        }
-        for (results, 0..) |*r, idx| r.* = valFromApi(results_buf[idx]);
     }
 };
 
@@ -524,4 +436,84 @@ test "zwasm facade T1.2: Module.compile rejects invalid bytes" {
     // Bad magic — native parser returns `InvalidMagic`.
     const bad_magic = [_]u8{ 0xff, 0xff, 0xff, 0xff, 0x01, 0x00, 0x00, 0x00 };
     try std.testing.expectError(error.ParseFailed, eng.compile(&bad_magic));
+}
+
+test "zwasm facade T1.3: Instance.invoke happy-path (untyped raw Value)" {
+    var eng = try Engine.init(std.testing.allocator, .{});
+    defer eng.deinit();
+
+    var mod = try eng.compile(&facade_extend8_s_wasm);
+    defer mod.deinit();
+
+    var inst = try mod.instantiate(.{});
+    defer inst.deinit();
+
+    var results: [1]Value = .{Value.fromI32(0)};
+    try inst.invoke("main", &.{}, &results);
+
+    try std.testing.expectEqual(@as(i32, -1), results[0].i32);
+}
+
+// (module (func (export "div") (param i32 i32) (result i32)
+//   local.get 0 local.get 1 i32.div_s))
+// `i32.div_s 1 0` traps with DivByZero per Wasm spec §4.4.
+const facade_div_s_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, // magic
+    0x01, 0x00, 0x00, 0x00, // version
+    // type: (i32, i32) -> (i32)
+    0x01, 0x07, 0x01, 0x60,
+    0x02, 0x7F, 0x7F, 0x01,
+    0x7F,
+    // func: 1 fn, type 0
+    0x03, 0x02, 0x01,
+    0x00,
+    // export "div" (func 0)
+    0x07, 0x07, 0x01,
+    0x03, 0x64, 0x69, 0x76,
+    0x00, 0x00,
+    // code: id 0x0a, size 9, count 1, entry_size 7
+    //   locals_count 0, local.get 0 (0x20 0x00), local.get 1 (0x20 0x01), i32.div_s (0x6D), end (0x0B)
+    0x0a, 0x09,
+    0x01, 0x07, 0x00, 0x20,
+    0x00, 0x20, 0x01, 0x6D,
+    0x0B,
+};
+
+test "zwasm facade T1.4: invoke surfaces error.DivByZero (no Trap catchall)" {
+    var eng = try Engine.init(std.testing.allocator, .{});
+    defer eng.deinit();
+
+    var mod = try eng.compile(&facade_div_s_wasm);
+    defer mod.deinit();
+
+    var inst = try mod.instantiate(.{});
+    defer inst.deinit();
+
+    var results: [1]Value = .{Value.fromI32(0)};
+    const args: [2]Value = .{ Value.fromI32(1), Value.fromI32(0) };
+    try std.testing.expectError(error.DivByZero, inst.invoke("div", &args, &results));
+}
+
+test "zwasm facade T1.4-types: Instance.invoke return type carries all 12 Trap variants" {
+    const InvokeError = Instance.InvokeError;
+    const info = @typeInfo(InvokeError).error_set orelse @compileError("expected concrete error_set");
+    // Walk every runtime.Trap variant and confirm it is present in InvokeError.
+    const required = [_][]const u8{
+        "Unreachable",              "DivByZero",
+        "IntOverflow",              "InvalidConversionToInt",
+        "OutOfBoundsLoad",          "OutOfBoundsStore",
+        "OutOfBoundsTableAccess",   "UninitializedElement",
+        "IndirectCallTypeMismatch", "StackOverflow",
+        "CallStackExhausted",       "OutOfMemory",
+    };
+    inline for (required) |name| {
+        var found = false;
+        for (info) |e| {
+            if (std.mem.eql(u8, e.name, name)) {
+                found = true;
+                break;
+            }
+        }
+        try std.testing.expect(found);
+    }
 }
