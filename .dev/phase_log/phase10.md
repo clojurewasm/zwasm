@@ -125,6 +125,23 @@ J.1+ gated on execution plan doc)
   `pub const Runtime` → `pub const Engine`. zone_check classifier
   extended `src/zwasm/*` → `lib`. Mac 1812/1826 PASS, I3 18/18,
   ubuntu kicked post-push (`017193bc`)
+- **10.J / J.5** — `src/zwasm/{linker,caller,host_func_marshal}.zig` new.
+  `Linker.defineFunc(comptime Sig, user_fn)` comptime-derives the Wasm
+  signature from the Zig fn's `*Caller` + scalar params; `instantiate(
+  module)` parses imports + types natively and runtime-side
+  type-checks each func import against the registered host fn's
+  comptime-derived Wasm signature (SignatureMismatch surfaces before
+  any runtime state). `host_func_marshal.thunkFor(Sig)` comptime-emits
+  the per-Sig thunk (pop args, build `*Caller`, `@call` user fn, push
+  results). `Caller.memory()` returns the importing instance's
+  `Memory` view; `allocator()` returns the per-call allocator.
+  `api/instance.zig::instantiateInternal` extracted from
+  `wasm_instance_new` body (behaviour-neutral refactor) so both c_api
+  and native paths share the post-arena instance setup. 4 tests
+  landed: T1.9 host add round-trip, T1.10 caller.memory write+read,
+  T1.11 SignatureMismatch on arity mismatch, T1.12 cross-instance
+  memory sharing via `defineMemory`. Mac 1823/1837 PASS, lint clean,
+  I3 18/18, ubuntu kicked post-push (`b10922d2`)
 - **10.J / J.4** — `src/zwasm/typed_func.zig` + `src/zwasm/memory.zig`
   new. `TypedFunc(comptime Sig)` uses `@typeInfo(.@"fn")` +
   `std.meta.ArgsTuple` to derive the call shape; per-scalar marshal

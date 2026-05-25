@@ -177,7 +177,7 @@ implementation train starts at J.2.
 | Risk | **CRITICAL** — TypedFunc comptime layer is the architectural novelty. Code survey §5 deemed it FEASIBLE in Zig 0.16 with caveats (anytype params blocked; explicit `*Caller` required; recursive struct corner cases); but the conclusion is not zero-risk. **Mitigation**: if J.4 hits a comptime wall, fall back to a **0.5-cycle spike** at `private/spikes/typed_func/` (per `extended_challenge.md` Step 4 + `architectural_spike.md`) before re-attempting impl. If the spike rejects the design, file an ADR-0109 amendment instead of papering over. |
 | Commit message form | `feat(zwasm,p10): J.4 TypedFunc comptime marshal + Memory + multi-result per ADR-0109` |
 
-### J.5 — `Linker` + host imports + `Caller` ctx + host-func marshal layer
+### J.5 — `Linker` + host imports + `Caller` ctx + host-func marshal layer — **CLOSED `b10922d2`**
 
 | Field | Value |
 |---|---|
