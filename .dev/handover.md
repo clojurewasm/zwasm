@@ -96,10 +96,11 @@
   shared/zwasm_throw.zig — Zig dispatcher entry. 4 end-to-end
   unit tests.
 - **10.E-codegen-3f = SHIPPED 2026-05-26** (`9af0770e`):
-  arm64/sp_restore.zig — `emitSpFromGpr` emits MOV SP, Xn
-  (ADD SP, Xn, #0 canonical form). Zero-locals restore only;
-  frame_bytes-aware follow-up lands when CodeMap.Entry gains
-  the field. 3 byte-snapshot tests.
+  arm64/sp_restore.zig — MOV SP, Xn emit. 3 byte-snapshot tests.
+- **10.E-codegen-3g = SHIPPED 2026-05-26** (`654de49f`):
+  x86_64/sp_restore.zig — MOV RSP, <src_gpr> emit (48 89 EC
+  canonical for RBP). Mirror of arm64; zero-locals only. 3
+  byte-snapshot tests including R11 REX.W+REX.R encoding.
 - **Mac `zig build test-all`**: green (scope=unclear)。
 
 ## Phase 10 progress
@@ -113,25 +114,31 @@ ROADMAP §10 = 13-row task table。
     cross-module + spec corpus + regalloc terminator-class 残)
 - Pending: 10.E / 10.G / 10.P
 
-## Active task — 10.E-codegen-3g x86_64 SP-restore emit helper
+## Active task — 10.E-codegen-3h frame_bytes-aware SP-restore + CodeMap.Entry extension
 
-10.E-codegen-3f (`9af0770e`) landed arm64 sp_restore.zig. Next:
-mirror for x86_64 — `src/engine/codegen/x86_64/sp_restore.zig`
-emitting `MOV RSP, <src_gpr>` (= MOV r64, r64 form). On
-SysV/Win64 the prologue's `MOV RBP, RSP` (after the PUSH RBP)
-leaves RBP == RSP at prologue-completion; the zero-locals
-restore is just `MOV RSP, RBP` (= 48 89 EC).
+Both per-arch SP-restore emits (3f arm64 + 3g x86_64) landed as
+zero-locals only. Next: extend `CodeMap.Entry` with
+`frame_bytes: u32` so the trampoline can subtract it post-SP=FP
+restore (arm64 SUB SP, SP, #frame_bytes; x86_64 SUB RSP, #N
+which already has encoder `encSubRSpImm32`). Plus the matching
+per-arch emit helper `emitSpRestoreFull` composing
+emitSpFromGpr + the frame_bytes subtraction.
 
-Same shape as arm64: zero-locals restore only; frame_bytes-
-aware follow-up lands when CodeMap.Entry gains the field.
+CodeMap.Builder.add gains a frame_bytes parameter (default 0
+for back-compat); existing 10 unit tests stay green with the
+default; new tests cover the frame_bytes != 0 path.
 
-Refs: ADR-0114 D6, System V AMD64 §3.2.2, arm64/sp_restore.zig
-(landed) for the mirror shape.
+Refs: ADR-0114 D6, code_map.zig + sp_restore per-arch (landed),
+arm64/inst.encAddImm12Lsl12 + inst.encAddImm12 (already used
+in emit.zig:1248-1249 epilogue path; mirror for SUB), x86_64
+encSubRSpImm32 (already exists).
 
 **Next sub-chunk candidates (names only, NO predictions)**:
-- 10.E-codegen-3g — x86_64 SP-restore emit helper (active)
-- 10.E-codegen-3h — assembly entry/exit glue + frame_bytes-aware restore
-- 10.E-codegen-4 — per-arch op_exception_handling.zig (try_table / throw emit)
+- 10.E-codegen-3h — frame_bytes-aware SP-restore + CodeMap.Entry (active)
+- 10.E-codegen-3i — assembly entry/exit glue (per-arch zwasm_throw
+  shim that loads X29/RBP + LR/RIP + calls dispatchThrow)
+- 10.E-codegen-4 — per-arch op_exception_handling.zig (try_table
+  / throw emit hooked into the dispatch pipeline)
 - 10.TC-3f/g/h — tail-call follow-ons (deferred)
 - 10.E-N-4 — c_api instantiate → interp Runtime tag_param_counts
 - 10.G-4 — struct ops (needs GC heap impl first)

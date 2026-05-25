@@ -617,6 +617,18 @@ Design source: ADR-0114 + ADR-0117 (cross-subsystem invariants).
 
 **SHA pointer**: backfilled at Phase 10 close.
 
+- **10.E-codegen-3g** — x86_64 sp_restore.zig RSP=RBP restore
+  emit (`654de49f`). Mirror of 10.E-codegen-3f's arm64
+  version. `emitSpFromGpr` emits `MOV RSP, <src_gpr>` (64-bit
+  reg-to-reg move). Zero-locals restore: SysV/Win64 prologue
+  leaves RBP == RSP at prologue-completion, so `MOV RSP, RBP`
+  (= 48 89 EC) is the canonical zero-locals shape; functions
+  with locals need follow-up `SUB RSP, #frame_bytes` (lands
+  10.E-codegen-3h). 3 byte-snapshot tests: MOV RSP, RBP
+  canonical; MOV RSP, RAX (alt src); MOV RSP, R11 (REX.W +
+  REX.R encoding for R-high reg). Mac `test-all` GREEN; lint
+  exit 0. ADR-0114 D6, System V AMD64 §3.2.2.
+
 - **10.E-codegen-3f** — arm64 sp_restore.zig SP=FP restore emit
   (`9af0770e`). Per ADR-0114 D6: the assembly trampoline calls
   `emitSpFromGpr(allocator, buf, src_gpr)` to emit `MOV SP, Xn`
