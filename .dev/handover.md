@@ -39,11 +39,11 @@
 - **10.M-5b = SHIPPED 2026-05-26** (`37771003`): SIMD lane-memarg
   bit-6 memidx decode. Detail: phase_log §10.M。
 - **10.M-spec-corpus = SHIPPED 2026-05-26** (`3d6aba35`): bake 5
-  additional memory64 wast manifests (align64 / load64 /
-  memory_grow64 / memory_redundancy64 / memory_trap64). Smoke
-  set extends from 4 to 9 manifests; runner skeleton reports
-  memory64 directives 150 → 835. memory64.wast excluded
-  (non-standard syntax). Detail: phase_log §10.M。
+  additional memory64 wast manifests. Detail: phase_log §10.M。
+- **10.M-realworld-doc = SHIPPED 2026-05-26** (`5327f5ff`):
+  retire impl-driven `SKIP-P10-MEM64-GAP` from clang_wasm64
+  PROVENANCE; remaining gap is toolchain-side (needs emcc
+  -sMEMORY64=1). New token `SKIP-P10-MEM64-REALWORLD-TOOLCHAIN`.
 - **Mac `zig build test-all`**: green (scope=unclear)。
 
 ## Phase 10 progress
