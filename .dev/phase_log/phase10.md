@@ -617,6 +617,24 @@ Design source: ADR-0114 + ADR-0117 (cross-subsystem invariants).
 
 **SHA pointer**: backfilled at Phase 10 close.
 
+- **10.E-codegen-4b** — EmitCtx.exception_table_builder field
+  substrate (`e06daffe`). Per ADR-0114 D2: adds optional
+  `exception_table_builder: ?*exception_table.Builder = null`
+  field to both per-arch EmitCtx (arm64/ctx.zig + x86_64/
+  ctx.zig). Imports shared/exception_table.zig in both arches.
+  Default null preserves back-compat for every existing
+  EmitCtx construction site (no positional init breaks; Zig
+  struct literals honour the default). Functions containing
+  no try_table operate exactly as before; functions with
+  try_table populate the pointer at compile-pass setup time
+  so per-op `op_exception_handling.zig` emit handlers can call
+  `Builder.add(...)` per ADR-0114 D2. This is the substrate
+  atom for the try_table emit body; per-op handler integration
+  (decoding catch_vec from ZirInstr + calling Builder.add +
+  recording pc_start/pc_end fixups) lands next via 4b-2 OR
+  4c (throw/throw_ref emit, which doesn't need this field).
+  Mac `test-all` GREEN; lint exit 0. ADR-0114 D2.
+
 - **10.E-N-4** — c_api instantiate → Runtime.tag_param_counts
   production wiring (`52b9bb67`). Closes the 10.E-N-3 →
   c_api path. `instantiate.instantiateRuntime` now decodes

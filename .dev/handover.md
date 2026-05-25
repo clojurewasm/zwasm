@@ -105,13 +105,12 @@
   per-arch EH op_exception_handling skeletons. 6 files +
   6 axisOf tests.
 - **10.E-N-4 = SHIPPED 2026-05-26** (`52b9bb67`):
-  c_api instantiate → interp Runtime.tag_param_counts wiring.
-  `instantiate.instantiateRuntime` now decodes the tag section
-  + resolves per-tag param count via types + assigns to
-  `rt.tag_param_counts`. 2 c_api unit tests verify the
-  production path via wasm_instance_new. Closes the 10.E-N-3
-  → c_api path that previously needed test-only Runtime
-  construction.
+  c_api instantiate → Runtime.tag_param_counts production wiring.
+  2 c_api unit tests.
+- **10.E-codegen-4b = SHIPPED 2026-05-26** (`e06daffe`):
+  EmitCtx.exception_table_builder optional field (both arches).
+  Default null preserves back-compat; future op handlers populate
+  via compile-pass setup.
 - **Mac `zig build test-all`**: green (scope=unclear)。
 
 ## Phase 10 progress
@@ -125,29 +124,34 @@ ROADMAP §10 = 13-row task table。
     cross-module + spec corpus + regalloc terminator-class 残)
 - Pending: 10.E / 10.G / 10.P
 
-## Active task — 10.E-codegen-4b try_table emit body (EmitCtx integration)
+## Active task — 10.E-codegen-4c throw / throw_ref emit body atom
 
-10.E-N-4 closed the c_api tag wiring. Returning to 10.E-codegen-4b
-try_table emit body. Per ADR-0114 D2: decode catch_vec from
-ZirInstr → call ExceptionTable.Builder.add per catch clause →
-emit zero JIT bytes (inner block emits via existing `block`
-recursion). Needs EmitCtx access to a per-function
-ExceptionTable.Builder + pc_start/pc_end fixup mechanism. Mirrors
-how br_table / bounds_fixups thread fixup metadata through
-EmitCtx.
+10.E-codegen-4b (`e06daffe`) landed the EmitCtx field substrate.
+For try_table emit body the next atom is wiring the per-op file's
+emit fn to read `ctx.exception_table_builder` and call
+`Builder.add(...)`. But ZirInstr.payload encoding for try_table's
+catch_vec needs accessors that 10.E-3b parsed but didn't expose
+through EmitCtx-visible APIs.
 
-Initial atom: add `exc_table_builder: ?*ExceptionTable.Builder`
-optional field to per-arch EmitCtx (arm64 + x86_64 ctx.zig).
-Default null; tests opt-in by setting the pointer. Future
-chunks populate via the runner.
+Pivot: 10.E-codegen-4c throw / throw_ref emit atom is more
+tractable — it doesn't need EmitCtx.exception_table_builder
+(throw is a dispatcher CALL site, not a Builder.add site). The
+emit needs:
+- Marshal `tag_idx` (u32 from ZirInstr.payload) into RDI/X0.
+- Marshal `payload[*]` (popped from operand stack) into a heap
+  Exception via runtime helper, OR pass count via X1/RSI.
+- CALL the `zwasm_throw` dispatcher (`shared/zwasm_throw.zig`).
 
-Refs: ADR-0114 D2, exception_table.zig Builder (landed),
-src/ir/lower.zig (catch_entries already populated by
-10.E-3b parse).
+Initial atom for 4c: skeleton that decodes the ZIR payload for
+tag_idx and CALLs a runtime symbol via a fixup placeholder.
+Real marshalling lands as a follow-on.
+
+Refs: ADR-0114 D6, shared/zwasm_throw.zig (landed), arm64/x86_64
+op_call.zig (CALL template).
 
 **Next sub-chunk candidates (names only, NO predictions)**:
-- 10.E-codegen-4b — try_table emit body / EmitCtx integration (active)
-- 10.E-codegen-4c — throw / throw_ref emit body
+- 10.E-codegen-4c — throw / throw_ref emit body atom (active)
+- 10.E-codegen-4b-2 — try_table emit body via ExceptionTable.Builder
 - 10.E-codegen-3i — assembly entry/exit glue per arch
 - 10.TC-3f/g/h — tail-call follow-ons (deferred)
 - 10.G-4 — struct ops (needs GC heap impl first)
