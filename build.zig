@@ -207,6 +207,15 @@ pub fn build(b: *std.Build) void {
     const spec_assert_base_tests = b.addTest(.{ .root_module = spec_assert_base_test_mod });
     const run_spec_assert_base_tests = b.addRunArtifact(spec_assert_base_tests);
     const test_step = b.step("test", "Run unit tests");
+
+    // §10 / 10.T-4: emit_test golden bless workflow entry point.
+    // Skeleton — auto-bless impl is deferred per design plan §4.7
+    // until first cluster hits ≥ 10 pending mismatches. Today
+    // routes through `scripts/bless_emit_tests.sh` which reports
+    // sidecar status.
+    const bless_step = b.step("bless", "Apply pending emit_test golden mismatches (10.T-4 skeleton; impl deferred per design plan §4.7)");
+    const bless_cmd = b.addSystemCommand(&.{ "bash", "scripts/bless_emit_tests.sh" });
+    bless_step.dependOn(&bless_cmd.step);
     test_step.dependOn(&run_core_tests.step);
     test_step.dependOn(&run_cli_tests.step);
     test_step.dependOn(&run_spec_assert_base_tests.step);
