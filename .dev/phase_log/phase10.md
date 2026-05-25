@@ -257,3 +257,38 @@ J.1+ gated on execution plan doc)
   T1.4 (div-by-zero → `error.DivByZero`), T1.4-types (`@typeInfo`
   walks the 12 Trap variant names). Mac 1815/1829 PASS,
   I3 18/18, ubuntu kicked post-push (`698c23ce`)
+
+
+## Row 10.M — memory64 + multi-memory impl
+
+Per ADR-0111 (Accepted 2026-05-25). Source-of-truth:
+[`phase10_design_plan_ja.md`](../phase10_design_plan_ja.md) §3.1.
+Sub-chunks split per the handover candidate list (1: parser; 2:
+runtime cascade; 3: MemArg memidx; 4: codegen; 5: spec corpus;
+close: -Dwasm=v2_0 symbol-absence gate).
+
+### Sub-chunks (commit-time order)
+
+- **10.M-1** — parser + validator widening (`063e80e8`).
+  `MemoryEntry.idx_type: enum(u1) { i32, i64 } = .i32` field
+  added; `min`/`max` widened `u32 → u64`; new `readMemLimits`
+  decodes Wasm 3.0 §5.4.4 4-bit flag byte (bits: 0x01 has_max,
+  0x02 shared (reject — threads OOS), 0x04 i64, 0x08 reserved),
+  accepting 0x00/0x01 always and 0x04/0x05 only when
+  `comptime build_options.wasm_level >= .v3_0` (else
+  `Error.Memory64Unsupported`). Cascade through
+  `ImportPayload.memory` → `ImportShape.memory` (instance.zig)
+  + `MemoryImport.source_idx_type` (import.zig) + host linker
+  (zwasm/linker.zig). `engine/compile.zig` validator
+  per-idx_type page cap (i32: 65536 = 4 GiB; i64: 2^32 per
+  Wasm 3.0 §A.1 implementation-limit ceiling). spec_assert
+  runner helpers (`extractMemoryLimits`,
+  `effectiveMemory0Min/Max`, `extract{Memory,Exporter}Min/Max`,
+  `crossModuleMemoryMismatch`, `memLimitsMismatch`) widened
+  return types u32→u64; runner call sites use `@intCast` to
+  preserve the existing `current_mem_max_pages: ?u32` runner
+  state (10.M-2 widens runner state). 6 new parser tests
+  (i32 default / i64 min only / i64 min+max / multi-memory /
+  shared reject / reserved bits reject). Mac `test-all` GREEN,
+  lint clean, zone_check + file_size_check exit 0.
+
