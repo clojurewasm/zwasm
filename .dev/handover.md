@@ -7,56 +7,68 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24)。
-- **Last commit**: `698a8b8f` — ADR-0116 GC roots + RTT + i31 design
-  Proposed (10.D autonomous prep 6/7; user collab gate at Accept flip)。
+- **Last commit**: `4561dfe1` — ADR-0117 GC × EH × TC integration
+  invariants Proposed (10.D autonomous prep 7/7 FINAL)。All 7 ADRs
+  of 10.D round drafted; user collab gate at Accept flip。
 - **Phase 9 close invariants gate (mac-host)**: **18/18 PASS** 維持。
 - **Mac `zig build test`**: 1827/1841 passed (substrate baseline);
   ubuntu test-all 10.Z verified GREEN at `b6e07451`。
 
-## Active task — 10.D ADR round (7 ADRs; 6/7 drafted)
+## Active task — 10.T test infra setup (10.D 7/7 ADR drafts COMPLETE)
 
-10.D = USER COLLAB GATE。`/continue` loop は autonomous prep
-paths per `.claude/skills/continue/SKILL.md` §"Autonomous prep
-paths for user-gated ADRs" を walk 中: each ADR drafted as
-`Status: Proposed`; user reviews + flips `Accepted` at collab
-gate. 1 cycle = 1 ADR draft (pacing matched to context budget)。
+**10.D status**: all 7 ADRs drafted as `Status: Proposed`. User
+collab gate now ACTIVE — Accept flip needed to unlock impl rows
+10.M / 10.R / 10.TC / 10.E / 10.G. Autonomous prep paths fully
+exhausted for 10.D.
 
 | ADR | Topic | Status |
 |---|---|---|
 | 0111 | memory64 design | Proposed `c3895cd1` |
-| 0112 | Tail Call design (per design plan §3.3) | Proposed `8d535ec1` |
-| 0113 | callsite_metadata + regalloc 3-axis (per §3.4) | Proposed `e527b52b` |
-| 0114 | Exception Handling design (per §3.4) | Proposed `027ae91a` |
-| 0115 | GC heap + collector design (per §3.5) | Proposed `f37f3e56` |
-| 0116 | GC roots + RTT + i31 (per §3.5) | **Proposed `698a8b8f`** |
-| **0117 NEXT** | GC × EH × TC integration invariants | not drafted |
+| 0112 | Tail Call design | Proposed `8d535ec1` |
+| 0113 | callsite_metadata + regalloc 3-axis | Proposed `e527b52b` |
+| 0114 | Exception Handling design | Proposed `027ae91a` |
+| 0115 | GC heap + collector design | Proposed `f37f3e56` |
+| 0116 | GC roots + RTT + i31 | Proposed `698a8b8f` |
+| 0117 | GC × EH × TC integration invariants | Proposed `4561dfe1` |
 
-**10.D close criterion**: all 7 ADRs `Accepted` (user-flipped)
-+ ROADMAP §12 (AOT) amended with "stack-map emission compatible
-with GC root walker" exit criterion. Impl rows 10.M / 10.R / 10.TC /
-10.E / 10.G unlock thereafter.
+**Active pivot to 10.T** (autonomous-eligible per ROADMAP §10
+row text "テスト infra 整備 (実装陣前)"; NOT blocked by 10.D
+Accept gate — only impl rows are). Sub-chunks in order:
 
-**10.T independence**: per ROADMAP §10 row text "テスト infra
-整備 (実装陣前)", test infra setup (`scripts/import_proposal_corpus.sh`,
-`spec_assert_runner_wasm_3_0.zig`, runner skeletons, fixture
-directories) is NOT strictly blocked by 10.D's ADR Accept — only
-the impl rows are. The /continue loop may pivot to 10.T sub-tasks
-between 10.D ADR drafts if the user-gated pause is long.
+- **10.T-1 NEXT**: `scripts/import_proposal_corpus.sh` — fetch
+  4 spec corpora (memory64 / tail-call / exception-handling /
+  gc + function-references prereq) from
+  `~/Documents/OSS/WebAssembly/*/test/core/` into
+  `test/spec/wasm-3.0-assert/<proposal>/` with deterministic
+  hashing.
+- 10.T-2: `spec_assert_runner_wasm_3_0.zig` — 5 sub-corpus
+  runner skeleton (memory64 / tail-call / EH / GC /
+  function-references).
+- 10.T-3: `gc_stress_runner.zig` + `eh_frequency_runner.zig`
+  skeletons (impl after 10.G / 10.E land).
+- 10.T-4: Phase 9 `emit_test_*.zig` baseline 採取 +
+  `ZWASM_TEST_BLESS=1` bless workflow.
+- 10.T-5: `test/realworld/p10/` 9 fixture / 5 toolchain
+  skeleton (Dart / wasm_of_ocaml / Hoot / emscripten_eh /
+  clang_musttail / clang_wasm64).
 
 ## Phase 10 progress
 
 ROADMAP §10 = 13-row task table。10.0/10.C9/10.J/10.F/10.Z done
-(5/13); **10.D in-progress (6/7 ADRs drafted; final ADR-0117 next)**;
-10.T/10.M/10.R/10.TC/10.E/10.G/10.P pending。
+(5/13); **10.D ADR drafts 7/7 COMPLETE (Accept flip pending)**;
+**10.T pivot active** (autonomous; ADR-Accept-independent);
+10.M/10.R/10.TC/10.E/10.G/10.P pending impl。
 
-## Open questions / blockers (per handover_framing.md bucket-3 framing)
+## Open questions / blockers (per handover_framing.md)
 
 - ADR-0111..0117 all require `Status: Proposed → Accepted` user
-  flip at 10.D close. Autonomous prep walks 1 ADR draft per
-  cycle (context-budget-paced).
-- After 7-ADR drafts land, bucket 3 unlocks: user touchpoint =
-  ADR round review. The loop has no further autonomous lever
-  for 10.D itself at that point.
+  flip to close 10.D. Autonomous prep fully walked (7/7 drafts
+  landed). Loop has no further autonomous lever for 10.D
+  itself — but 10.T is independent and autonomous-eligible.
+- 10.D close also requires ROADMAP §12 (AOT) amendment: add
+  "stack-map emission compatible with GC root walker" exit
+  criterion. This is a load-bearing §18.2 edit; user reviews
+  at ADR Accept time.
 
 ## Key refs
 
