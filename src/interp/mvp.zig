@@ -89,6 +89,8 @@ pub fn register(table: *DispatchTable) void {
     // is harmless on Wasm-2.0-only builds.
     table.interp[op(.call_ref)] = callRefOp;
     table.interp[op(.return_call_ref)] = returnCallRefOp;
+    table.interp[op(.return_call)] = returnCallOp;
+    table.interp[op(.return_call_indirect)] = returnCallIndirectOp;
 
     // Parametric
     table.interp[op(.drop)] = drop;
@@ -390,33 +392,14 @@ fn callRefOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     try invoke(rt, dispatch_tbl, callee);
 }
 
-/// Wasm spec 3.0 §3.3.10.5 (`return_call_ref typeidx`): tail-call
-/// variant of call_ref. Pops funcref + the typeidx-determined args,
-/// runs the same null + sig-mismatch checks, invokes the callee,
-/// then promotes the callee's results to the enclosing function's
-/// results (= `returnOp` post-pass) and marks the caller frame
-/// done. Not a true tail call (interp still stacks frames during
-/// `invoke()`); a stack-non-growing variant arrives with 10.TC
-/// (ADR-0113 §A regalloc terminator-class extension).
-fn returnCallRefOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
-    const rt = Runtime.fromOpaque(c);
-    const ref_v = rt.popOperand();
-    if (ref_v.ref == runtime.Value.null_ref) return Trap.NullReference;
-    const fe = runtime.Value.refAsFuncEntity(ref_v) orelse return Trap.NullReference;
-    const callee_rt = fe.runtime;
-    if (fe.func_idx >= callee_rt.funcs.len) return Trap.IndirectCallTypeMismatch;
-    const callee = callee_rt.funcs[fe.func_idx];
-
-    if (instr.payload >= rt.module_types.len) return Trap.IndirectCallTypeMismatch;
-    const expected = rt.module_types[instr.payload];
-    if (!sigEq(callee.sig, expected)) return Trap.IndirectCallTypeMismatch;
-
-    const dispatch_tbl = rt.table orelse return Trap.Unreachable;
-    try invoke(rt, dispatch_tbl, callee);
-
-    // Tail-call: promote callee's results to caller's results +
-    // mark caller frame done. Validator guaranteed callee.results
-    // matches caller's return type element-wise.
+/// Tail-call epilogue shared by the `return_call*` family. After
+/// `invoke()` returns, the callee's results sit at the top of the
+/// operand stack. The validator guaranteed `callee.results` matches
+/// the enclosing function's return type element-wise — so those
+/// values ARE the caller's return values. Reset the caller's
+/// operand stack to its operand_base, push the saved results back,
+/// and mark the frame done so the dispatch loop exits cleanly.
+fn tailReturn(rt: *Runtime) anyerror!void {
     const caller_frame = rt.currentFrame();
     const arity: u32 = @intCast(caller_frame.sig.results.len);
     if (arity > max_block_arity) return Trap.Unreachable;
@@ -433,6 +416,81 @@ fn returnCallRefOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     }
     caller_frame.label_len = 0;
     caller_frame.done = true;
+}
+
+/// Wasm spec 3.0 §3.3.10.5 (`return_call_ref typeidx`): tail-call
+/// variant of call_ref. Pops funcref + the typeidx-determined args,
+/// runs the same null + sig-mismatch checks, invokes the callee,
+/// then promotes the callee's results to the enclosing function's
+/// results via `tailReturn`. Not a true tail call (interp still
+/// stacks frames during `invoke()`); a stack-non-growing variant
+/// arrives with 10.TC (ADR-0113 §A regalloc terminator-class
+/// extension).
+fn returnCallRefOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const ref_v = rt.popOperand();
+    if (ref_v.ref == runtime.Value.null_ref) return Trap.NullReference;
+    const fe = runtime.Value.refAsFuncEntity(ref_v) orelse return Trap.NullReference;
+    const callee_rt = fe.runtime;
+    if (fe.func_idx >= callee_rt.funcs.len) return Trap.IndirectCallTypeMismatch;
+    const callee = callee_rt.funcs[fe.func_idx];
+
+    if (instr.payload >= rt.module_types.len) return Trap.IndirectCallTypeMismatch;
+    const expected = rt.module_types[instr.payload];
+    if (!sigEq(callee.sig, expected)) return Trap.IndirectCallTypeMismatch;
+
+    const dispatch_tbl = rt.table orelse return Trap.Unreachable;
+    try invoke(rt, dispatch_tbl, callee);
+    try tailReturn(rt);
+}
+
+/// Wasm spec 3.0 §3.3.10.3 (`return_call funcidx`): tail-call
+/// variant of `call`. Mirrors `callOp` + `tailReturn`. Host imports
+/// (rt.host_calls) are tail-called the same way as Zir-defined
+/// funcs — the host fn pushes its results, then `tailReturn`
+/// promotes them to the caller's results.
+fn returnCallOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const idx: u32 = @intCast(instr.payload);
+    if (idx < rt.host_calls.len) {
+        if (rt.host_calls[idx]) |hc| {
+            try hc.fn_ptr(rt, hc.ctx);
+            try tailReturn(rt);
+            return;
+        }
+    }
+    if (idx >= rt.funcs.len) return Trap.Unreachable;
+    const callee = rt.funcs[idx];
+    const tbl = rt.table orelse return Trap.Unreachable;
+    try invoke(rt, tbl, callee);
+    try tailReturn(rt);
+}
+
+/// Wasm spec 3.0 §3.3.10.4 (`return_call_indirect typeidx tableidx`):
+/// tail-call variant of `call_indirect`. Mirrors `callIndirectOp` +
+/// `tailReturn`. Encoding: `instr.payload` = typeidx, `instr.extra`
+/// = tableidx.
+fn returnCallIndirectOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const tableidx = instr.extra;
+    if (tableidx >= rt.tables.len) return Trap.Unreachable;
+    const tbl = rt.tables[tableidx];
+
+    const sel = rt.popOperand().u32;
+    if (sel >= tbl.refs.len) return Trap.OutOfBoundsTableAccess;
+    const ref_v = tbl.refs[sel];
+    const fe = runtime.Value.refAsFuncEntity(ref_v) orelse return Trap.UninitializedElement;
+    const callee_rt = fe.runtime;
+    if (fe.func_idx >= callee_rt.funcs.len) return Trap.UninitializedElement;
+    const callee = callee_rt.funcs[fe.func_idx];
+
+    if (instr.payload >= rt.module_types.len) return Trap.IndirectCallTypeMismatch;
+    const expected = rt.module_types[instr.payload];
+    if (!sigEq(callee.sig, expected)) return Trap.IndirectCallTypeMismatch;
+
+    const dispatch_tbl = rt.table orelse return Trap.Unreachable;
+    try invoke(rt, dispatch_tbl, callee);
+    try tailReturn(rt);
 }
 
 inline fn sigEq(a: zir.FuncType, b: zir.FuncType) bool {

@@ -576,6 +576,9 @@ pub const Validator = struct {
             0x0F => try self.opReturn(),
             0x10 => try self.opCall(),
             0x11 => try self.opCallIndirect(),
+            // Wasm 3.0 tail-call proposal.
+            0x12 => try self.opReturnCall(),
+            0x13 => try self.opReturnCallIndirect(),
 
             // Parametric
             0x1A => try self.opDrop(),
@@ -1139,21 +1142,66 @@ pub const Validator = struct {
             i -= 1;
             try self.popExpect(callee.params[i]);
         }
-        // Callee's results must match the enclosing function's return
-        // type element-wise — the tail call's results ARE the
-        // function's results.
+        try self.checkResultsMatchFnReturn(callee.results);
+        // Polymorphic-stack from here (terminator).
+        self.markUnreachable();
+    }
+
+    /// Tail-call result-type check used by `return_call*` family
+    /// (Wasm 3.0 §3.3.10.3-5). The callee's results MUST match the
+    /// enclosing function's return type element-wise — otherwise the
+    /// tail call would lose values and the function would
+    /// type-violate at its `end`.
+    fn checkResultsMatchFnReturn(self: *Validator, callee_results: []const ValType) Error!void {
         const fn_frame = &self.control_buf[0];
         switch (fn_frame.end_type) {
-            .empty => if (callee.results.len != 0) return Error.StackTypeMismatch,
+            .empty => if (callee_results.len != 0) return Error.StackTypeMismatch,
             .single => |t| {
-                if (callee.results.len != 1 or callee.results[0] != t) return Error.StackTypeMismatch;
+                if (callee_results.len != 1 or callee_results[0] != t) return Error.StackTypeMismatch;
             },
             .multi => |ts| {
-                if (callee.results.len != ts.len) return Error.StackTypeMismatch;
-                for (callee.results, ts) |a, b| if (a != b) return Error.StackTypeMismatch;
+                if (callee_results.len != ts.len) return Error.StackTypeMismatch;
+                for (callee_results, ts) |a, b| if (a != b) return Error.StackTypeMismatch;
             },
         }
-        // Polymorphic-stack from here (terminator).
+    }
+
+    /// Wasm spec 3.0 §3.3.10.3 (tail-call): `return_call funcidx` —
+    /// tail-call variant of `call`. Pop callee's params + verify
+    /// callee's results match the enclosing function's return type;
+    /// then polymorphic-stack (terminator).
+    fn opReturnCall(self: *Validator) Error!void {
+        const idx = try leb128.readUleb128(u32, self.body, &self.pos);
+        if (idx >= self.func_types.len) return Error.InvalidFuncIndex;
+        const callee = self.func_types[idx];
+        var i: usize = callee.params.len;
+        while (i > 0) {
+            i -= 1;
+            try self.popExpect(callee.params[i]);
+        }
+        try self.checkResultsMatchFnReturn(callee.results);
+        self.markUnreachable();
+    }
+
+    /// Wasm spec 3.0 §3.3.10.4 (tail-call): `return_call_indirect
+    /// typeidx tableidx` — tail-call variant of `call_indirect`.
+    /// Pop i32 selector + callee's params; verify callee's results
+    /// match the enclosing function's return type; polymorphic-stack.
+    /// Table must be `funcref` (same constraint as call_indirect).
+    fn opReturnCallIndirect(self: *Validator) Error!void {
+        const type_idx = try leb128.readUleb128(u32, self.body, &self.pos);
+        const table_idx = try leb128.readUleb128(u32, self.body, &self.pos);
+        if (table_idx >= self.tables.len) return Error.InvalidFuncIndex;
+        if (self.tables[table_idx].elem_type != .funcref) return Error.InvalidFuncIndex;
+        if (type_idx >= self.module_types.len) return Error.InvalidFuncIndex;
+        const callee = self.module_types[type_idx];
+        try self.popExpect(.i32);
+        var i: usize = callee.params.len;
+        while (i > 0) {
+            i -= 1;
+            try self.popExpect(callee.params[i]);
+        }
+        try self.checkResultsMatchFnReturn(callee.results);
         self.markUnreachable();
     }
 

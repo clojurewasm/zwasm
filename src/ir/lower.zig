@@ -247,6 +247,9 @@ pub const Lowerer = struct {
             0x0E => try self.emitBrTable(),
             0x10 => try self.emitUlebPayload(.call),
             0x11 => try self.emitCallIndirect(),
+            // Wasm 3.0 tail-call proposal (function-references + tail-call).
+            0x12 => try self.emitUlebPayload(.return_call),
+            0x13 => try self.emitReturnCallIndirect(),
 
             // Parametric
             0x1B => {
@@ -636,6 +639,14 @@ pub const Lowerer = struct {
         const type_idx = try leb128.readUleb128(u32, self.body, &self.pos);
         const table_idx = try leb128.readUleb128(u32, self.body, &self.pos);
         try self.emit(.call_indirect, type_idx, table_idx);
+    }
+
+    /// return_call_indirect: type_idx + table_idx (Wasm 3.0 tail-call
+    /// proposal §3.4.10.4). Same encoding as call_indirect.
+    fn emitReturnCallIndirect(self: *Lowerer) Error!void {
+        const type_idx = try leb128.readUleb128(u32, self.body, &self.pos);
+        const table_idx = try leb128.readUleb128(u32, self.body, &self.pos);
+        try self.emit(.return_call_indirect, type_idx, table_idx);
     }
 
     /// br_table: emit ZirOp.br_table with payload = count of labels.
