@@ -55,7 +55,7 @@ close)
 (`src/ir/zir.zig:73`) for memory64 offset carry per design plan
 §3.1 / Z.1。
 
-**Status**: `[ ]` (attempt 1/3 measured cascade; cycle-2 pending)。
+**Status**: `[x]` (cycle-2 succeeded; 2/3 attempts used)。
 
 ### Sub-chunks (commit-time order)
 
@@ -65,7 +65,14 @@ close)
   phase10_z_chunk_plan.md` 新規で cycle-2 subagent strategy 文書化。
   Architectural-chunk attempt 1/3.
 - **10.Z-cycle2** — Subagent-driven mechanical migration per
-  `.dev/phase10_z_chunk_plan.md` §"Cycle-2 strategy" (planned)
+  `.dev/phase10_z_chunk_plan.md` §"Cycle-2 strategy" `[x] 7fb6593d`
+  (30 files modified: IR substrate + memory ops helper signature
+  widen + arm64/x86_64 codegen `@intCast` at consumer + i32.const
+  `@truncate` narrow + parser/dispatch test-fixture explicit
+  `@as(u32, ...)` cast at payload assignment. Mac `zig build
+  test-all` GREEN 1773/1787, substrate `test` 1827/1841, lint
+  clean, I3 18/18. emit_test_*.zig byte-identical maintained.
+  ROADMAP §10 / 10.Z `[x]` flipped.)
 
 
 ## Row 10.F — c_api scalar accessors
