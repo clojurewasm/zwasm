@@ -91,13 +91,13 @@
   shared/frame_chain_adapter.zig — bridges per-arch frame_chain
   → unwind.FrameChainLoader via NormalizePcFn. 5 unit tests.
 - **10.E-codegen-3d = SHIPPED 2026-05-26** (`2d6e3c78`):
-  shared/code_map.zig — per-Instance JIT code map. Binary
-  search by start_addr; .inside{rel_pc, func_idx} | .outside.
-  normalizeForUnwind closes the adapter's NormalizePcFn slot
-  with non_jit_pc_sentinel (=u32 maxInt) for non-JIT frames so
-  unwind walks through host/OS frames. 10 unit tests.
-  End-to-end EH unwind path now fully composable:
-  trampoline → adapter ctx (=code_map) → unwind.walk → handler.
+  shared/code_map.zig — per-Instance JIT code map. 10 unit tests.
+- **10.E-codegen-3e = SHIPPED 2026-05-26** (`a2043d1c`):
+  shared/zwasm_throw.zig — Zig dispatcher entry per ADR-0114 D6.
+  `dispatchThrow(table, code_map, ThrowSite, max_depth)` →
+  UnwindResult. Closes the full EH-unwind data pipeline; only
+  arch-specific assembly entry/exit glue + per-arch
+  op_exception_handling remain. 4 end-to-end unit tests.
 - **Mac `zig build test-all`**: green (scope=unclear)。
 
 ## Phase 10 progress
@@ -111,36 +111,39 @@ ROADMAP §10 = 13-row task table。
     cross-module + spec corpus + regalloc terminator-class 残)
 - Pending: 10.E / 10.G / 10.P
 
-## Active task — 10.E-codegen-3e zwasm_throw trampoline (arm64 first)
+## Active task — 10.E-codegen-3f arm64 SP-restore emit helper
 
-All EH-unwind data-flow pieces (3a-3d) landed. Next: the
-arm64 `zwasm_throw` trampoline per ADR-0114 D6 — a small
-zig-wrapped assembly entry the JIT-emitted `throw` op jumps
-into. The trampoline:
-  (1) Captures throw-site context: caller's X29 (= initial fp),
-      caller's LR (= initial absolute pc), tag_idx, payload.
-  (2) Builds the `frame_chain_adapter.Context` referencing the
-      live Instance's `CodeMap`.
-  (3) Calls `unwind.walk(table, tag_idx, initial_pc, initial_fp,
-      loader, max_depth)`.
-  (4) On `.handler{landing_pad_pc, kind, handler_fp}`: restore
-      SP to handler_fp's prologue boundary, push exnref if
-      catch_ref/catch_all_ref, jump to landing_pad_pc.
-  (5) On `.uncaught`: write trap_flag=1 + return 0 to entry
-      shim (existing bounds_fixup trap shape).
+10.E-codegen-3e (`a2043d1c`) landed the Zig dispatcher entry.
+Next: arm64 SP-restore emit helper that the assembly trampoline
+calls after `dispatchThrow` returns `.handler{handler_fp, ...}`.
+Per ADR-0114 D6 the restoration is: MOV SP, handler_fp's
+prologue boundary (= the SP value the handler frame had right
+after its prologue ran). Concretely on AAPCS64:
+  MOV SP, X29  (=handler_fp restored)
+  then standard frame-recovery from there.
 
-Initial atom: the Zig entry shell that takes the captured
-context + Runtime ptr and dispatches via the already-landed
-walk/adapter/code_map plumbing. Arch-specific SP-restore + JMP
-to landing_pad_pc lands in 10.E-codegen-3f. Pure Zig fn first;
-the assembly entry/exit glue last.
+Actually, the handler frame is mid-execution when the throw
+fires — its SP may have already advanced past its prologue
+boundary (e.g. due to local spills, function calls in flight).
+For the landing-pad-jump shape we need the handler frame's
+PROLOGUE-completion SP, which equals X29 (= FP) since AAPCS64
+prologue leaves SP == FP after the SUB SP, #frame_bytes is
+applied. So the restoration shape is: SP = handler_fp -
+frame_bytes_of_handler_function.
 
-Refs: ADR-0114 D6, unwind.zig + frame_chain_adapter.zig +
-code_map.zig + exception_table.zig (landed).
+This frame_bytes lookup is per-function metadata we don't yet
+expose. Initial atom: just emit the SP=handler_fp restore as
+a placeholder (correct for zero-locals functions); the
+frame_bytes-aware restore lands when CodeMap.Entry gains
+the frame_bytes field.
+
+Refs: ADR-0114 D6, ADR-0017 (arm64 prologue layout), code_map.zig
+(landed).
 
 **Next sub-chunk candidates (names only, NO predictions)**:
-- 10.E-codegen-3e — zwasm_throw trampoline Zig entry (active)
-- 10.E-codegen-3f — per-arch SP-restore + landing-pad jump emit
+- 10.E-codegen-3f — arm64 SP-restore emit helper (active)
+- 10.E-codegen-3g — x86_64 SP-restore emit helper
+- 10.E-codegen-3h — assembly entry/exit glue per arch
 - 10.E-codegen-4 — per-arch op_exception_handling.zig
 - 10.TC-3f/g/h — tail-call follow-ons (deferred)
 - 10.E-N-4 — c_api instantiate → interp Runtime tag_param_counts

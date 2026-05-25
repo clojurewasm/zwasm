@@ -617,6 +617,36 @@ Design source: ADR-0114 + ADR-0117 (cross-subsystem invariants).
 
 **SHA pointer**: backfilled at Phase 10 close.
 
+- **10.E-codegen-3e** — shared/zwasm_throw.zig Zig dispatcher
+  (`a2043d1c`). Per ADR-0114 D6: the entry point invoked by the
+  JIT-emitted throw / throw_ref ops (via arch-specific assembly
+  glue, 10.E-codegen-3f follow-on). `dispatchThrow(table,
+  code_map, ThrowSite, max_unwind_depth)` walks the full
+  pipeline: code_map.lookup of the absolute throw-site address
+  → initial_pc (with non_jit_pc_sentinel fallthrough for
+  non-JIT addresses); builds the adapter Context pinning the
+  code_map as the per-frame normalizer; invokes unwind.walk;
+  returns the UnwindResult for the caller (assembly glue) to
+  act on (.handler → restore SP to handler_fp + JMP
+  landing_pad_pc; .uncaught → trap_flag=1 + return 0 to entry
+  shim per the existing bounds_fixup trap shape). API:
+  ThrowSite { initial_fp, throw_site_addr, tag_idx };
+  default_max_unwind_depth = 4096 (Phase 10 cap; Phase 11+
+  Runtime override). INVARIANT (paired with ADR-0114 D5/D6 +
+  ADR-0112 D7): function body is 4 statements (lookup +
+  context build + loader build + walk); no allocator /
+  host-call / signal-check between entry and return — local
+  safepoint-free audit is unambiguous. 4 unit tests build
+  end-to-end pipelines: handler in current frame; uncaught;
+  multi-step walk with inner-miss outer-catch_all (DISJOINT
+  PC ranges to force the walk step); throw-site address
+  outside any JIT function (sentinel falls through initial
+  lookup, walker advances to JIT caller frame and catches).
+  End-to-end EH unwind data path is now production-shaped —
+  only arch-specific assembly entry/exit glue (3f-h) +
+  per-arch op_exception_handling.zig (4) remain. Mac
+  `test-all` GREEN; lint exit 0. ADR-0114 D5/D6.
+
 - **10.E-codegen-3d** — shared/code_map.zig per-Instance
   JIT code map (`2d6e3c78`). Per ADR-0114 D5: translates
   absolute saved-LR (AAPCS64) / saved-RIP (SysV/Win64) into
