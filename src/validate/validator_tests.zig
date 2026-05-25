@@ -13,11 +13,15 @@ const std = @import("std");
 const validator = @import("validator.zig");
 const zir = @import("../ir/zir.zig");
 
+const sections = @import("../parse/sections.zig");
+
 const validateFunction = validator.validateFunction;
+const validateFunctionWithTags = validator.validateFunctionWithTags;
 const Error = validator.Error;
 const GlobalEntry = validator.GlobalEntry;
 const ValType = zir.ValType;
 const FuncType = zir.FuncType;
+const TagEntry = sections.TagEntry;
 
 const testing = std.testing;
 
@@ -726,11 +730,12 @@ test "validate (try_table): catch_all with out-of-range label_idx fails" {
 }
 
 test "validate (try_table): catch (0x00) with tag_idx + label_idx parses + validates label range" {
-    // try_table () (catch 0 0) end ; end
-    // 0x1F 0x40 0x01 0x00 0x00 0x00 0x0B 0x0B
-    // Tag-index range validation pending Module.tags; label_idx=0 → OK.
+    // try_table () (catch 0 0) end ; end — tag 0 declared (empty params).
     const body = [_]u8{ 0x1F, 0x40, 0x01, 0x00, 0x00, 0x00, 0x0B, 0x0B };
-    try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
+    const empty_ft: FuncType = .{ .params = &.{}, .results = &.{} };
+    const types_arr = [_]FuncType{empty_ft};
+    const tags_arr = [_]TagEntry{.{ .attribute = 0, .typeidx = 0 }};
+    try validateFunctionWithTags(empty_sig, &.{}, &body, &.{}, &.{}, &types_arr, 0, &.{}, 0, &tags_arr);
 }
 
 test "validate (try_table): unknown catch kind byte rejected" {
@@ -748,8 +753,12 @@ test "validate (throw): polymorphic-stack from terminator" {
     // body: throw 0 ; end
     // Even though caller is () -> i32, throw marks the rest unreachable
     // and the function's end_type (i32) is satisfied polymorphically.
+    // Tag 0 = empty-param tag (module_types[0] = () -> ()).
     const body = [_]u8{ 0x08, 0x00, 0x0B };
-    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
+    const empty_ft: FuncType = .{ .params = &.{}, .results = &.{} };
+    const types_arr = [_]FuncType{empty_ft};
+    const tags_arr = [_]TagEntry{.{ .attribute = 0, .typeidx = 0 }};
+    try validateFunctionWithTags(i32_result_sig, &.{}, &body, &.{}, &.{}, &types_arr, 0, &.{}, 0, &tags_arr);
 }
 
 test "validate (throw): code after throw is unreachable" {
@@ -757,7 +766,79 @@ test "validate (throw): code after throw is unreachable" {
     // i32.const after throw runs in polymorphic mode; end_type i32
     // satisfied polymorphically (no explicit value left on stack).
     const body = [_]u8{ 0x08, 0x00, 0x41, 0x63, 0x0B };
-    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
+    const empty_ft: FuncType = .{ .params = &.{}, .results = &.{} };
+    const types_arr = [_]FuncType{empty_ft};
+    const tags_arr = [_]TagEntry{.{ .attribute = 0, .typeidx = 0 }};
+    try validateFunctionWithTags(i32_result_sig, &.{}, &body, &.{}, &.{}, &types_arr, 0, &.{}, 0, &tags_arr);
+}
+
+// Wasm 3.0 EH Module.tags wiring (10.E-N-1)
+
+test "validate (throw): tag_idx >= tags.len → InvalidTagIndex" {
+    // body: throw 1 ; end  — tag_idx=1 but only 1 tag declared (idx 0).
+    const body = [_]u8{ 0x08, 0x01, 0x0B };
+    const empty_ft: FuncType = .{ .params = &.{}, .results = &.{} };
+    const types_arr = [_]FuncType{empty_ft};
+    const tags_arr = [_]TagEntry{.{ .attribute = 0, .typeidx = 0 }};
+    const r = validateFunctionWithTags(empty_sig, &.{}, &body, &.{}, &.{}, &types_arr, 0, &.{}, 0, &tags_arr);
+    try testing.expectError(Error.InvalidTagIndex, r);
+}
+
+test "validate (throw): no tags declared at all → InvalidTagIndex" {
+    // body: throw 0 ; end — module has no tag section.
+    const body = [_]u8{ 0x08, 0x00, 0x0B };
+    const r = validateFunctionWithTags(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0, &.{});
+    try testing.expectError(Error.InvalidTagIndex, r);
+}
+
+test "validate (throw): pops tag's params (i32) from operand stack" {
+    // body: i32.const 5 ; throw 0 ; end
+    // Tag 0 = (param i32). throw 0 pops the i32 then markUnreachable.
+    const body = [_]u8{ 0x41, 0x05, 0x08, 0x00, 0x0B };
+    const params = [_]ValType{.i32};
+    const ft: FuncType = .{ .params = &params, .results = &.{} };
+    const types_arr = [_]FuncType{ft};
+    const tags_arr = [_]TagEntry{.{ .attribute = 0, .typeidx = 0 }};
+    try validateFunctionWithTags(empty_sig, &.{}, &body, &.{}, &.{}, &types_arr, 0, &.{}, 0, &tags_arr);
+}
+
+test "validate (throw): missing tag params on stack → StackUnderflow" {
+    // body: throw 0 ; end — tag 0 expects i32 param but stack is empty.
+    const body = [_]u8{ 0x08, 0x00, 0x0B };
+    const params = [_]ValType{.i32};
+    const ft: FuncType = .{ .params = &params, .results = &.{} };
+    const types_arr = [_]FuncType{ft};
+    const tags_arr = [_]TagEntry{.{ .attribute = 0, .typeidx = 0 }};
+    const r = validateFunctionWithTags(empty_sig, &.{}, &body, &.{}, &.{}, &types_arr, 0, &.{}, 0, &tags_arr);
+    try testing.expectError(Error.StackUnderflow, r);
+}
+
+test "validate (throw): wrong tag-param type on stack → StackTypeMismatch" {
+    // body: i64.const 5 ; throw 0 ; end — tag 0 wants i32, got i64.
+    const body = [_]u8{ 0x42, 0x05, 0x08, 0x00, 0x0B };
+    const params = [_]ValType{.i32};
+    const ft: FuncType = .{ .params = &params, .results = &.{} };
+    const types_arr = [_]FuncType{ft};
+    const tags_arr = [_]TagEntry{.{ .attribute = 0, .typeidx = 0 }};
+    const r = validateFunctionWithTags(empty_sig, &.{}, &body, &.{}, &.{}, &types_arr, 0, &.{}, 0, &tags_arr);
+    try testing.expectError(Error.StackTypeMismatch, r);
+}
+
+test "validate (try_table): catch with out-of-range tag_idx → InvalidTagIndex" {
+    // try_table () (catch 3 0) end ; end — only 1 tag (idx 0) declared.
+    const body = [_]u8{ 0x1F, 0x40, 0x01, 0x00, 0x03, 0x00, 0x0B, 0x0B };
+    const empty_ft: FuncType = .{ .params = &.{}, .results = &.{} };
+    const types_arr = [_]FuncType{empty_ft};
+    const tags_arr = [_]TagEntry{.{ .attribute = 0, .typeidx = 0 }};
+    const r = validateFunctionWithTags(empty_sig, &.{}, &body, &.{}, &.{}, &types_arr, 0, &.{}, 0, &tags_arr);
+    try testing.expectError(Error.InvalidTagIndex, r);
+}
+
+test "validate (try_table): catch_all (no tag_idx) still accepts with empty tags" {
+    // try_table () (catch_all 0) end ; end — catch_all has no tag_idx
+    // so tags.len=0 doesn't gate it. Validates label_idx normally.
+    const body = [_]u8{ 0x1F, 0x40, 0x01, 0x02, 0x00, 0x0B, 0x0B };
+    try validateFunctionWithTags(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0, &.{});
 }
 
 test "validate (throw_ref): pops reftype + marks unreachable" {

@@ -785,6 +785,18 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
         break :blk out;
     } else &.{};
 
+    // Wasm 3.0 EH §4.5 (10.E-N-1): decode the tag section into an
+    // arena-allocated slice so the validator can range-check
+    // `throw tag_idx` + try_table catch / catch_ref `tag_idx`
+    // against `module.tags[]` and pop each tag's param types per
+    // its `module_types[typeidx]`. Absent section → empty slice
+    // (default `Validator.tags`). Freed when `a` (the compileWasm
+    // arena) deinits.
+    const tags_slice: []const sections.TagEntry = if (module.find(.tag)) |ts|
+        try sections.decodeTags(a, ts.body)
+    else
+        &.{};
+
     // §9.9 / 9.9-l-1b-d093-d82 (skip-impl drainage):
     // Wasm spec §3.4.7.3 / §3.4.10 declared-funcrefs set. A
     // funcidx is "declared" iff it appears in some global
@@ -859,6 +871,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             data_count_section_present,
             &select_types,
             memory0_idx_type,
+            tags_slice,
         ) catch |err| {
             std.debug.print("compileWasm: func[{d}] params={d} results={d} → validate {s}\n", .{
                 wasm_idx,

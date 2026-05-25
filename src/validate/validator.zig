@@ -85,6 +85,12 @@ pub const Error = error{
     /// / store64_lane / load64_zero / loadXxY ≤ 3 (8-byte);
     /// 32-bit ≤ 2; 16-bit ≤ 1; 8-bit ≤ 0. Validation-time reject.
     InvalidSimdAlignment,
+    /// Wasm 3.0 EH §3.3.10.7: a `throw tag_idx` op (or a
+    /// `try_table` catch / catch_ref clause) references a tag
+    /// index outside `module.tags[]`. Reported by `opThrow` and
+    /// `validateCatchVec` once `Module.tags` reaches the validator
+    /// (10.E-N).
+    InvalidTagIndex,
     NotImplemented,
     OutOfMemory,
 } || leb128.Error;
@@ -220,6 +226,39 @@ pub fn validateFunction(
     try v.run();
 }
 
+/// Wasm 3.0 EH (10.E-N-1) — `validateFunction` variant that also
+/// threads the decoded tag section so `throw` and try_table catch
+/// clauses range-check `tag_idx` against `module.tags[]`. Used
+/// by EH unit tests; production `compileWasm` threads tags into
+/// `validateFunctionAndCollectSelectTypesWithMemory` directly.
+pub fn validateFunctionWithTags(
+    sig: FuncType,
+    locals: []const ValType,
+    body: []const u8,
+    func_types: []const FuncType,
+    globals: []const GlobalEntry,
+    module_types: []const FuncType,
+    data_count: u32,
+    tables: []const zir.TableEntry,
+    elem_count: u32,
+    tags: []const sections.TagEntry,
+) Error!void {
+    var v = Validator{
+        .sig = sig,
+        .locals = locals,
+        .body = body,
+        .pos = 0,
+        .func_types = func_types,
+        .globals = globals,
+        .module_types = module_types,
+        .data_count = data_count,
+        .tables = tables,
+        .elem_count = elem_count,
+        .tags = tags,
+    };
+    try v.run();
+}
+
 /// Same as `validateFunction`, but additionally collects per-untyped-
 /// `select` (opcode 0x1B) resolved operand valtype bytes into
 /// `out_select_types`, in body-walk order. Used by the lower / emit
@@ -287,6 +326,7 @@ pub fn validateFunctionAndCollectSelectTypesWithMemory(
     data_count_section_present: bool,
     out_select_types: *std.ArrayList(u8),
     memory0_idx_type: sections.MemoryEntry.IdxType,
+    tags: []const sections.TagEntry,
 ) Error!void {
     var v = Validator{
         .sig = sig,
@@ -306,6 +346,7 @@ pub fn validateFunctionAndCollectSelectTypesWithMemory(
         .data_count_section_present = data_count_section_present,
         .out_select_types = out_select_types,
         .out_allocator = allocator,
+        .tags = tags,
     };
     try v.run();
 }
@@ -372,6 +413,16 @@ pub const Validator = struct {
     /// Default `true` keeps legacy callers / unit tests
     /// unaffected.
     data_count_section_present: bool = true,
+    /// Wasm 3.0 EH §4.5 — decoded tag section. `throw tag_idx`
+    /// and try_table catch (0x00 / 0x01) reference this by index
+    /// to look up the tag's params (= the FuncType at
+    /// `module_types[tags[tag_idx].typeidx]`). Default `&.{}`
+    /// preserves the pre-10.E-N behaviour for callers that
+    /// didn't thread the tag section through (their `throw`
+    /// will now reject with `Error.InvalidTagIndex` — the
+    /// existing test surface migrated at 10.E-N-1; production
+    /// `compileWasm` passes the decoded section).
+    tags: []const sections.TagEntry = &.{},
 
     operand_buf: [max_operand_stack]TypeOrBot = undefined,
     operand_len: usize = 0,
@@ -723,19 +774,18 @@ pub const Validator = struct {
     /// catch_ref carry tag_idx + label_idx; 0x02 catch_all / 0x03
     /// catch_all_ref carry label_idx only.
     /// Wasm spec 3.0 §3.3.10.7 — `throw tag_idx`: raise an
-    /// exception with the tag's payload. Pops the tag's params
-    /// from the operand stack; polymorphic-stack from here
-    /// (terminator). Tag-index range validation + per-param
-    /// type popping pending Module.tags wiring (10.E-N) — for
-    /// now the foundation skeleton reads + skips the tag_idx
-    /// and marks unreachable.
+    /// exception with the tag's payload. Range-checks tag_idx
+    /// against `self.tags`, looks up the tag's typeidx →
+    /// `module_types[typeidx]`, pops the params (last-first)
+    /// from the operand stack, then marks unreachable
+    /// (terminator).
     fn opThrow(self: *Validator) Error!void {
-        _ = try leb128.readUleb128(u32, self.body, &self.pos);
-        // TODO(10.E-N): once Module.tags reaches the validator,
-        // pop the tag's param types here. Skipping for now lets
-        // body validation accept `throw` without false-positive
-        // stack-mismatch errors; downstream polymorphic-mode
-        // handles the unreachable suffix.
+        const tag_idx = try leb128.readUleb128(u32, self.body, &self.pos);
+        if (tag_idx >= self.tags.len) return Error.InvalidTagIndex;
+        const tag = self.tags[tag_idx];
+        if (tag.typeidx >= self.module_types.len) return Error.InvalidFuncIndex;
+        const ft = self.module_types[tag.typeidx];
+        try self.popLabelTypes(blockTypeOfSlice(ft.params));
         self.markUnreachable();
     }
 
@@ -779,7 +829,8 @@ pub const Validator = struct {
             self.pos += 1;
             switch (kind) {
                 0x00, 0x01 => {
-                    _ = try leb128.readUleb128(u32, self.body, &self.pos); // tag_idx (range check pending Module.tags)
+                    const tag_idx = try leb128.readUleb128(u32, self.body, &self.pos);
+                    if (tag_idx >= self.tags.len) return Error.InvalidTagIndex;
                     const label_idx = try leb128.readUleb128(u32, self.body, &self.pos);
                     if (label_idx >= self.control_len) return Error.InvalidBranchDepth;
                 },
