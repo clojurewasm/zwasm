@@ -251,8 +251,40 @@ the impl SHA range cited.
 - `~/Documents/OSS/wasmtime/crates/wasmtime/src/runtime/vm/` —
   6-array per-callsite exception table + FP-walk unwind
   (industry precedent).
-- `~/Documents/OSS/wasmtime/crates/cranelift/src/translate/exceptions.rs`
-  — wasmtime's try_table lowering pattern.
+- `~/Documents/OSS/wasmtime/crates/cranelift/src/translate/stack.rs:570-575`
+  (`pub struct HandlerState { handlers: Vec<(Option<ExceptionTag>,
+  Block)> }`): wasmtime's per-try-table handler list with
+  `Option<ExceptionTag>` (None = catch_all). Direct precedent
+  for zwasm v2 `ExceptionTable.HandlerEntry { tag_idx: ?u32 }`
+  shape (10.E-codegen-1; null = catch_all). Comment at line
+  566-569 explicitly notes the LIFO-flatten optimisation:
+  "the LIFO stack of try_table's with left-to-right scans
+  within a table" — same insertion-order discipline as zwasm
+  v2 `Builder.add` (10.E-codegen-1).
+- `~/Documents/OSS/wasmtime/crates/cranelift/src/translate/stack.rs:468-475`
+  (`pub(crate) fn push_try_table_block(... checkpoint:
+  HandlerStateCheckpoint ...)`): wasmtime threads a checkpoint
+  through nested try_table blocks so handler-state restoration
+  on block-exit is LIFO-correct. zwasm v2 mirror: the
+  per-function `ExceptionTable.Builder` accumulates handlers
+  across nested try_tables; the insertion-order-wins lookup
+  achieves the same nested semantics without an explicit
+  checkpoint stack.
+- `~/Documents/OSS/wasmtime/crates/wasmtime/src/runtime/exception.rs:36-43`
+  (`pub struct ThrownException` — opaque "error type *without*
+  payload"; payload stored via `host_data_table` indirection):
+  wasmtime stores throw payloads separately from the error
+  marker. Direct contrast with zwasm v2's `Exception { tag_idx,
+  payload_len, payload[16]Value }` inline-payload shape
+  (`feature/exception_handling/exception.zig` D1). zwasm v2
+  trades the indirection for a fixed-size payload cap (16
+  values; matches per-tag param-count cap) per ADR-0114 D1.
+- `~/Documents/OSS/wasmtime/crates/cranelift/src/translate/code_translator.rs:633`
+  (`try_table.catches.iter().rev()`): already cited in ADR-0117
+  References — wasmtime processes catch clauses in REVERSE
+  order to unify within-table left-to-right matching with
+  inside-out nested-try_table semantics. zwasm v2's
+  `Builder.add` insertion-order matches this.
 - `~/Documents/OSS/WebAssembly/exception-handling/test/core/` —
   4-wast / 76-assertion spec corpus (consumed at 10.E close).
 - `include/wasm.h:252-296` — wasm-c-api spec tag accessor
@@ -270,6 +302,16 @@ the impl SHA range cited.
 
 ## Revision history
 
+- 2026-05-26 — References enrichment via /continue autonomous
+  prep path. Added 4 concrete wasmtime citations: cranelift
+  stack.rs:570 (HandlerState `Vec<(Option<ExceptionTag>, Block)>`
+  mirror of zwasm v2 HandlerEntry.tag_idx nullable shape),
+  stack.rs:468 (`push_try_table_block` checkpoint threading vs
+  zwasm v2 Builder.add insertion-order), wasmtime exception.rs:36
+  (`ThrownException` payloadless vs zwasm v2 inline-payload
+  contrast per ADR-0114 D1), code_translator.rs:633
+  (`try_table.catches.iter().rev()` cross-ref with ADR-0117).
+  No semantic change to the design.
 - 2026-05-25 — Initial draft via /continue autonomous prep path
   (per `.claude/skills/continue/SKILL.md` §"Autonomous prep
   paths for user-gated ADRs"). Status: Proposed pending user
