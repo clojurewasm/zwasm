@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: Wasm spec §5.5 section-body decoder catalog (P1 spec-defined closed sub-language; uniform decoder pattern per section id) (per ADR-0099 D1)
 //! Wasm section-body decoders (type / function / code).
 //!
 //! Phase 1 / §9.1 / 1.9 lands these incrementally — this file
