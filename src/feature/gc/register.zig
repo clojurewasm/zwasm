@@ -23,6 +23,13 @@ const dispatch_table = @import("../../ir/dispatch_table.zig");
 // type name; the helper module is `i31_pack` to avoid shadowing.)
 pub const i31_pack = @import("i31.zig");
 
+// 10.G-2: parse-time `needs_gc_heap` predicate per ADR-0115 D2.
+// Re-exported so the runtime / instance-build path can call
+// `feature.gc.needs_heap_detector.detectNeedsGcHeap(&module)`
+// to gate heap-slab materialisation. Also makes the detector's
+// in-source unit tests discoverable by `zig build test`.
+pub const needs_heap_detector = @import("needs_heap_detector.zig");
+
 pub fn register(_: *dispatch_table.DispatchTable) void {
     // Placeholder — feature implementation deferred per ADR-0023.
 }
