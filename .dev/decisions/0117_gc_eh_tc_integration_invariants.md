@@ -314,6 +314,35 @@ gate. At that point:
   cross-subsystem precedent (wasmtime's invariants live
   scattered across vm/gc/, vm/exception/, vm/calls/; this ADR
   consolidates them up-front).
+- `~/Documents/OSS/wasmtime/crates/cranelift/src/translate/
+  code_translator.rs:612-649` (TryTable handler block creation):
+  wasmtime processes `try_table.catches.iter().rev()` so that
+  left-to-right matching within one try_table unifies with
+  inside-out semantics of nested try_tables. Mirrors zwasm v2
+  `ExceptionTable.Builder.add` insertion-order discipline
+  (innermost-try_table first; first-match wins per
+  `shared/exception_table.zig::lookup` linear scan). Confirms
+  Invariant I3's directional walk.
+- `~/Documents/OSS/wasmtime/crates/cranelift/src/translate/
+  code_translator.rs:748-764` (ReturnCall): sets
+  `environ.stacks.reachable = false` after the tail-jump,
+  classifying the op as a terminator with no fallthrough.
+  Mirrors zwasm v2 ADR-0113 §A `is_terminator=true /
+  n_successor_edges=0` for return_call (per-op files at
+  `engine/codegen/{arm64,x86_64}/ops/wasm_3_0/return_call*.zig`).
+  Confirms Invariant I2's safepoint-free terminator shape.
+- `~/Documents/OSS/wasmtime/crates/cranelift/src/func_environ.rs:1200-1215`
+  (safepoint × moving-GC interaction comment): "we don't
+  re-sync GC-rooted values, and we don't root the
+  instrumentation slots explicitly. This is safe as long as
+  we don't have a moving GC. But if/when we do build a moving
+  GC, we will need to handle this, probably by invalidating
+  the 'freshness' of all ref-typed values after a safepoint
+  and re-writing them". Direct precedent for Invariant I4's
+  try_table-over-GC-call stack-map requirement — wasmtime
+  records the same invariant as a deferred TODO; zwasm v2
+  codifies it ahead of the moving-GC need so the structural
+  shape is right from day 1.
 
 ## Revision history
 
@@ -325,6 +354,17 @@ gate. At that point:
   /continue prep cycles. After Accept flip on all 7 ADRs,
   10.D closes and impl rows 10.M / 10.R / 10.TC / 10.E / 10.G
   unlock.
+- 2026-05-26 — References enrichment via /continue autonomous
+  prep path. Added concrete wasmtime file/line citations for
+  Invariants I2 (return_call terminator shape — cranelift
+  `code_translator.rs:748-764`), I3 (try_table reverse-order
+  catch insertion — `code_translator.rs:612-649`), and I4
+  (safepoint × moving-GC interaction — `func_environ.rs:1200-1215`,
+  wasmtime's deferred-TODO comment that zwasm v2 codifies
+  ahead-of-need). Replaces the generic
+  `~/Documents/OSS/wasmtime/.../vm/` pointer with three
+  specific cross-subsystem precedents. No semantic change to
+  the 6 invariants.
 - 2026-05-25 — Status: Proposed → **Accepted** (user collab 7/7;
   final ADR). All 6 invariants accepted as drafted (I1 exnref
   rooted across unwind / I2 tail-call no-leak / I3 FP-walk skips
