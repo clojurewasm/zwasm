@@ -269,6 +269,41 @@ close: -Dwasm=v2_0 symbol-absence gate).
 
 ### Sub-chunks (commit-time order)
 
+- **10.M-4b** — arm64 i64 idx_type wrap-check emit +
+  memory0_idx_type plumbing (`d651d40b`).
+  ADR-0111 D4 vertical slice: codegen now distinguishes i32 vs
+  i64 memory at the per-arch emit layer. **Plumbing** (16 files):
+  `compileOne` (shared) gains 12th param
+  `memory0_idx_type: sections.MemoryEntry.IdxType`; arm64 +
+  x86_64 `compile()` gain 9th param; arm64 `EmitCtx` adds
+  matching field (default `.i32` for ergonomic init).
+  `src/engine/compile.zig::compileWasm` reads memory 0's
+  idx_type from import memory (precedence) or first defined
+  memory; passes through to compileOne. 30+ direct test call
+  sites updated mechanically to pass `.i32`. **arm64 emit body**
+  (`op_memory.zig::emitMemOpI64`, new): comptime + runtime
+  2-stage gate at emitMemOp entry — `if (comptime wasm_level >=
+  v3_0) if (ctx.memory0_idx_type == .i64) return emitMemOpI64`
+  else falls to existing i32 fast path (byte-identical per
+  9 existing emit_test_memory assertions). i64 path differs
+  in TWO points: (1) X-form addr load `encOrrReg(ip0, 31,
+  w_addr)` vs i32's `encOrrRegW` (zero-extends u32); (2)
+  4-lane MOVZ+MOVK offset materialise (lanes 0..3) vs i32's
+  2-lane (lanes 0..1) — Wasm 3.0 memarg offset is u64.
+  Bounds-check, store value pop, final LDR/STR shapes
+  identical (encoders are X-form already; X27 mem_limit is
+  u64; validator caps i64 pages at 2^32 per 10.M-1
+  compile.zig so ea+access_size cannot overflow u64).
+  **Tests**: 2 new emit_test_memory cases — `memory64
+  i32.load — X-form addr load` (asserts `encOrrReg` divergence
+  at body+4, identical bytes afterward) + `memory64 i64.load
+  offset=0x100000000 — 4-lane MOVZ+MOVK` (verifies lane 2
+  materialise via `encMovkImm16(17, 1, 2)`). x86_64
+  `compile()` accepts the param but discards it (`_ =
+  memory0_idx_type;`); body mirror deferred to 10.M-4c. Mac
+  `test-all` GREEN (1782/1796; 0 leaks); lint + zone + fs
+  gates exit 0.
+
 - **10.M-4a** — codegen memidx==0 invariant assert (`60ec148f`).
   Anchors `MemArgExtra.memidx == 0` at the 2 scalar memory-op
   dispatch points (arm64 op_memory.zig::emitMemOp +

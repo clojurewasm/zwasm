@@ -14,10 +14,15 @@
 - **10.M-2 = SHIPPED** (`939b7bbe`): Runtime data shape (MemoryInstance +
   memories[] + setMemory0Bytes alias)。
 - **10.M-3 = SHIPPED** (`f0809d0c`): MemArgExtra packed + bit-6 memidx decode。
-- **10.M-4a = SHIPPED 2026-05-25** (`60ec148f`): codegen memidx==0 invariant
-  assert (arm64 op_memory.zig::emitMemOp + x86_64 op_memory.zig::emitI32Load 22-alias
-  wrapper)。`.claude/rules/comment_as_invariant.md` 準拠で prose-only 不変量を
-  Debug-runtime assert に格上げ。10.M-4b (i64 wrap-check 本体) の substrate。
+- **10.M-4a = SHIPPED** (`60ec148f`): codegen memidx==0 invariant assert (D3 anchor)。
+- **10.M-4b = SHIPPED 2026-05-25** (`d651d40b`): arm64 i64 idx_type wrap-check
+  emit + `memory0_idx_type` plumbing (ADR-0111 D4)。`compileOne` / `compile`
+  に 9th/12th param 追加、`engine/compile.zig` で memory section から idx_type
+  抽出。arm64 `emitMemOpI64`: X-form addr load (`encOrrReg`) + 4-lane MOVZ+MOVK
+  offset materialise。comptime + runtime 2-stage gate (`build_options.wasm_level
+  >= .v3_0` AND `ctx.memory0_idx_type == .i64`)。i32 fast-path byte-identical
+  (existing 9 emit_test_memory tests). 2 new tests for i64 path。
+  x86_64 は signature 受理のみ (param discard); 本体は 10.M-4c。
 - **Mac `zig build test`**: green (substrate baseline)。
 
 ## Phase 10 progress
@@ -37,13 +42,17 @@ Per ADR-0111 (Accepted)。`phase10_design_plan_ja.md` §3.1 source-of-truth。
 - 10.M-2 [x] SHIPPED `939b7bbe` (Runtime.memories[] + setMemory0Bytes alias)
 - 10.M-3 [x] SHIPPED `f0809d0c` (MemArgExtra packed + bit-6 memidx decode)
 - 10.M-4a [x] SHIPPED `60ec148f` (codegen memidx==0 invariant assert; D4 anchor)
-- **10.M-4b NEXT**: arm64 i64 wrap-check + 64-bit offset materialise (X17
-  MOVZ+MOVK 4-lane)。`memories[0].idx_type` plumbing through codegen
-  (ZirFunc or EmitCtx) + comptime + runtime 2-stage gate per ADR-0111 D4。
-  i32 fast-path byte-identical を `emit_test_memory.zig` で機械検証。
-  load_lane/store_lane の memidx 抽出 (`emitMemargLane` で現在 align
-  bit-6 を破棄中) は同 chunk か 10.M-4c で。
-- 10.M-4c: x86_64 mirror (R10 MOV imm64 4-lane 同等パス)。
+- 10.M-4b [x] SHIPPED `d651d40b` (arm64 i64 wrap-check + memory0_idx_type plumbing)
+- **10.M-4c NEXT**: x86_64 i64 idx_type emit (R10 MOV imm64 4-lane analogue)。
+  arm64/op_memory.zig::emitMemOpI64 と同じ comptime + runtime 2-stage gate
+  shape を x86_64/op_memory.zig に。`emitMemOp(allocator, ..., op, offset, func_idx)`
+  legacy signature が `ins` を受けないため、`emitI32Load` wrapper か `emitMemOp`
+  自体に idx_type 引き渡しが必要 (1 引数追加で良い)。
+- 10.M-4d (optional): `lower_simd.zig::emitMemargLane` の memidx 抽出
+  (現在 align bit-6 を破棄中)。load_lane/store_lane の multi-memory 対応
+  (parser-only; codegen は同様 deferred)。
+- 10.M-5: spec corpus + edge_cases + `realworld/p10/clang_wasm64/` green。
+- 10.M-close: `-Dwasm=v2_0` symbol-absence gate を `scripts/check_phase10_close_invariants.sh` に追加。
 - 10.M-5: spec corpus + edge_cases + `realworld/p10/clang_wasm64/`
   green。
 - 10.M-close: `-Dwasm=v2_0` symbol-absence gate を
