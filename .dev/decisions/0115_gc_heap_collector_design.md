@@ -278,6 +278,34 @@ the impl SHA range cited.
   https://github.com/WebAssembly/function-references
 - `~/Documents/OSS/wasmtime/crates/wasmtime/src/runtime/vm/gc/` —
   per-Store slab + pluggable collector industry precedent.
+- `~/Documents/OSS/wasmtime/crates/wasmtime/src/runtime/vm/gc/gc_runtime.rs:43`
+  (`fn new_gc_heap(&self, engine) -> Result<Box<dyn GcHeap>>`):
+  wasmtime's `GcRuntime` trait factory method that produces a
+  fresh `dyn GcHeap` per Store. Direct precedent for this ADR's
+  decision §1 (per-Runtime slab) — each store gets its own heap,
+  the trait object enables collector pluggability.
+- `~/Documents/OSS/wasmtime/crates/wasmtime/src/runtime/vm/gc/gc_runtime.rs:87`
+  (`pub unsafe trait GcHeap`): the collector's vtable surface
+  (`alloc_raw` / `alloc_uninit_struct_or_exn` / `alloc_uninit_array`
+  / `drop_gc_ref` / `reset` / `allocated_bytes`). Mirrors this
+  ADR's decision §3 pluggable vtable shape — same allocation
+  primitives + the `reset` method for heap reuse across stores.
+  Note: wasmtime's reset/reuse model (line 50: "may be reused
+  with new stores after its original store is dropped") is more
+  aggressive than zwasm v2's per-Runtime-bound model; this ADR
+  diverges per ADR-0014 §6.K.2 single-allocator policy.
+- `~/Documents/OSS/wasmtime/crates/wasmtime/src/runtime/vm/gc/enabled/drc.rs:85`
+  (`pub struct DrcCollector`): wasmtime's deferred-reference-
+  counted collector. Reference for the "must-ship mark_sweep
+  collector + null test-only" decision §4 — wasmtime ships DRC
+  as its main collector; zwasm v2 chose mark-sweep instead per
+  P&A simplicity vs DRC's barrier complexity.
+- `~/Documents/OSS/wasmtime/crates/wasmtime/src/runtime/vm/gc/enabled/null.rs`
+  (`pub struct NullCollector`): wasmtime's null collector
+  (bump-allocates until OOM; no GC). Direct precedent for this
+  ADR's decision §4 null-collector test-only path — same
+  semantic (allocate-only, never collect) for test fixtures
+  that don't need reclamation.
 - `~/Documents/OSS/wasmtime/crates/wasmtime/src/runtime/vm/instance/allocator/pooling/gc_heap_pool.rs`
   — wasmtime's per-Instance heap pool.
 - `~/Documents/OSS/WebAssembly/gc/test/core/gc/` — 18-wast /
@@ -302,6 +330,14 @@ the impl SHA range cited.
   collab review at 10.D. Co-drafted in the 10.D ADR round
   alongside ADR-0111 / 0112 / 0113 / 0114 / 0116 / 0117 (over
   multiple /continue cycles per the 7-ADR scope).
+- 2026-05-26 — References enrichment via /continue autonomous
+  prep path. Added 4 concrete wasmtime citations: `gc_runtime.rs:43`
+  (GcRuntime::new_gc_heap factory), `gc_runtime.rs:87` (GcHeap
+  trait vtable shape + reset model divergence note),
+  `enabled/drc.rs:85` (wasmtime's DrcCollector — zwasm v2 chose
+  mark-sweep instead), `enabled/null.rs::NullCollector`
+  (test-only null collector precedent). No semantic change to
+  the 9 decisions.
 - 2026-05-25 — Status: Proposed → **Accepted** (user collab 5/7).
   All 9 decisions accepted. Enhancement: `Module.needs_gc_heap`
   parse-time bit gets declared as a load-bearing field with a
