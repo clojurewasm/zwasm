@@ -41,6 +41,14 @@ pub const SectionId = enum(u8) {
     code = 10,
     data = 11,
     data_count = 12,
+    /// Wasm 3.0 exception-handling proposal (§4.5 binary format):
+    /// the tag section declares exception tags + their typeidx
+    /// payload signatures. Per the proposal binary format, the
+    /// section appears between memory (5) and global (6) in the
+    /// canonical section order. This file currently accepts the
+    /// section's bytes and stores it on `Module.sections`; entry
+    /// decoding lands per 10.E-N sub-chunks.
+    tag = 13,
     _,
 };
 
@@ -74,7 +82,7 @@ pub fn parse(alloc: Allocator, input: []const u8) Error!Module {
 
     var pos: usize = 8;
     var last_known_order: u8 = 0;
-    var seen = [_]bool{false} ** 13;
+    var seen = [_]bool{false} ** 14;
 
     while (pos < input.len) {
         const id_byte = input[pos];
@@ -99,7 +107,7 @@ pub fn parse(alloc: Allocator, input: []const u8) Error!Module {
             try sections.append(alloc, .{ .id = .custom, .body = body });
             continue;
         }
-        if (id_byte > 12) return Error.UnknownSectionId;
+        if (id_byte > 13) return Error.UnknownSectionId;
 
         if (seen[id_byte]) return Error.DuplicateSection;
         seen[id_byte] = true;
@@ -124,6 +132,8 @@ pub fn parse(alloc: Allocator, input: []const u8) Error!Module {
 /// it via `memory.init` / `data.drop`). TinyGo emits data_count
 /// at this position; an earlier mistaken placement between import
 /// and function rejected those modules with `SectionOutOfOrder`.
+/// Wasm 3.0 exception-handling proposal §4.5 adds tag(13) between
+/// memory(5) and global(6).
 /// Returns 0 for unknown ids; callers must reject those before calling.
 fn orderIndex(id: u8) u8 {
     return switch (id) {
@@ -132,13 +142,14 @@ fn orderIndex(id: u8) u8 {
         3 => 3,
         4 => 4,
         5 => 5,
-        6 => 6,
-        7 => 7,
-        8 => 8,
-        9 => 9,
-        12 => 10,
-        10 => 11,
-        11 => 12,
+        13 => 6, // tag (Wasm 3.0 EH; between memory and global)
+        6 => 7,
+        7 => 8,
+        8 => 9,
+        9 => 10,
+        12 => 11,
+        10 => 12,
+        11 => 13,
         else => 0,
     };
 }
@@ -275,9 +286,50 @@ test "parse: custom sections allowed anywhere; do not affect ordering" {
 test "parse: rejects unknown section id" {
     const bytes = [_]u8{
         0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-        0x0d, 0x00, // id=13 (tag, not yet supported)
+        0x0e, 0x00, // id=14 (not yet defined)
     };
     try testing.expectError(Error.UnknownSectionId, parse(testing.allocator, &bytes));
+}
+
+test "parse: accepts tag section (id=13; Wasm 3.0 EH §4.5)" {
+    // Empty tag section (count=0); body decoding lands per 10.E-N.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x0d, 0x01, 0x00, // id=13 (tag), size=1, body=[count=0]
+    };
+    var m = try parse(testing.allocator, &bytes);
+    defer m.deinit(testing.allocator);
+    try testing.expectEqual(@as(usize, 1), m.sections.items.len);
+    try testing.expectEqual(SectionId.tag, m.sections.items[0].id);
+}
+
+test "parse: tag section ordering — memory(5) before tag(13) before global(6)" {
+    // Canonical Wasm 3.0 EH §4.5 ordering. Three sections in id-byte
+    // order 5 / 13 / 6 — orderIndex maps these to ord 5 / 6 / 7,
+    // which is strictly ascending and parses cleanly.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x05, 0x01, 0x00, // memory section (count=0)
+        0x0d, 0x01, 0x00, // tag section (count=0)
+        0x06, 0x01, 0x00, // global section (count=0)
+    };
+    var m = try parse(testing.allocator, &bytes);
+    defer m.deinit(testing.allocator);
+    try testing.expectEqual(@as(usize, 3), m.sections.items.len);
+    try testing.expectEqual(SectionId.memory, m.sections.items[0].id);
+    try testing.expectEqual(SectionId.tag, m.sections.items[1].id);
+    try testing.expectEqual(SectionId.global, m.sections.items[2].id);
+}
+
+test "parse: tag section out of order — global(6) before tag(13) fails" {
+    // Reverse: global(6) appears before tag(13). orderIndex maps
+    // global to ord 7 and tag to ord 6 — non-ascending → reject.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x06, 0x01, 0x00, // global section (count=0)
+        0x0d, 0x01, 0x00, // tag section (count=0) — out of order
+    };
+    try testing.expectError(Error.SectionOutOfOrder, parse(testing.allocator, &bytes));
 }
 
 test "parse: rejects section size that overruns input" {
@@ -309,4 +361,5 @@ test "SectionId enum tags match Wasm spec ids" {
     try testing.expectEqual(@as(u8, 7), @intFromEnum(SectionId.@"export"));
     try testing.expectEqual(@as(u8, 11), @intFromEnum(SectionId.data));
     try testing.expectEqual(@as(u8, 12), @intFromEnum(SectionId.data_count));
+    try testing.expectEqual(@as(u8, 13), @intFromEnum(SectionId.tag));
 }
