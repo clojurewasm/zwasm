@@ -571,6 +571,25 @@ Design source: ADR-0114 + ADR-0117 (cross-subsystem invariants).
 
 **SHA pointer**: backfilled at Phase 10 close.
 
+- **10.E-N-3** — production tag_param_counts wiring through
+  CompiledWasm (`d2f8e5c7`). `CompiledWasm.tag_param_counts:
+  []u32` field added; compileWasm pre-resolves per-tag param
+  counts from `tags_slice[i].typeidx → types[typeidx].params.len`
+  on both return paths (main path + empty-function early-return,
+  the latter decoding tags + types on-demand so modules with
+  just types + tags get a populated slot too). Out-of-range
+  `tag.typeidx` → `Error.InvalidFuncIndex`. `CompiledWasm.deinit`
+  frees the slice when non-empty (mirrors globals_offsets
+  discipline). 3 new compileWasm unit tests (single i32-param
+  tag → [1]; no tag section → empty; 3 tags with mixed-arity
+  types → [0, 2, 0]). The consumer at `Runtime.tag_param_counts`
+  already exists (10.E-N-2); production wiring through
+  `instantiate.instantiateRuntime` lands as 10.E-N-4 when the
+  JIT-side EH codegen exercises throw via the interp bridge.
+  Until then, tests construct Runtime directly + set the slot
+  from a test-built slice. Mac `test-all` GREEN; lint exit 0.
+  Wasm spec 3.0 §4.5; ADR-0114 D1.
+
 - **10.E-exnref-b** — throw_ref interp impl (`e448356d`).
   `throwRefOp` (0x0A) pops the exnref, resolves the wrapped
   `*Exception` via `Value.refAsExceptionPtr` + `@ptrCast +

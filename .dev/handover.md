@@ -49,11 +49,12 @@
   heap object + catch_all_ref / catch_ref dispatch arms.
   Detail: phase_log §10.E。
 - **10.E-exnref-b = SHIPPED 2026-05-26** (`e448356d`): throw_ref
-  interp impl. Pops exnref → resolves `*Exception` → routes back
-  through `findAndDispatchCatch` (re-uses original Exception
-  object; no re-allocation). Null exnref → Trap.NullReference.
-  2 new mvp_tests (nested re-raise via outer catch_all_ref; null
-  trap). EH interp foundation complete. Detail: phase_log §10.E。
+  interp impl (re-raise via exnref). Detail: phase_log §10.E。
+- **10.E-N-3 = SHIPPED 2026-05-26** (`d2f8e5c7`): production
+  tag_param_counts wiring through `CompiledWasm`. compileWasm
+  pre-resolves per-tag param counts from tag section + types
+  on both main + empty-fn return paths. 3 new compileWasm unit
+  tests. Detail: phase_log §10.E。
 - **Mac `zig build test-all`**: green (scope=unclear)。
 
 ## Phase 10 progress
@@ -67,25 +68,30 @@ ROADMAP §10 = 13-row task table。
     cross-module + spec corpus + regalloc terminator-class 残)
 - Pending: 10.E / 10.G / 10.P
 
-## Active task — 10.E-N-3 production tag_param_counts wiring
+## Active task — 10.TC-3 codegen tail-call (regalloc terminator)
 
-EH interp foundation complete (throw + throw_ref + try_table +
-4 catch flavors + cross-frame unwind + exnref). Remaining
-interp gap: compileWasm populates `Runtime.tag_param_counts`
-from tag-section + module_types so production Wasm exercises
-the param-pop path. Currently only tests set the slot.
-Refs: `src/engine/compile.zig:tags_slice` (decoded; threaded
-only to validator), `src/engine/runner.zig:setupRuntime`,
-`src/runtime/runtime.zig:tag_param_counts`.
+Pivoting from EH (interp side fully complete: 10.E-1..N-3) to
+Tail Call codegen. 10.TC-1/1b shipped interp impl + validator
+unit tests for return_call / return_call_indirect / return_call_ref;
+ADR-0113 §A regalloc terminator-class extension + per-arch
+`op_tail_call.zig` codegen has been queued since. Spec corpus
++ cross-module + 95-wast suite follow once codegen lands.
+
+Refs: ADR-0112 (tail call design), ADR-0113 §A (regalloc
+terminator axis), `src/engine/codegen/{arm64,x86_64}/`,
+`src/runtime/trap.zig`, `test/spec/wasm-3.0-assert/tail-call/`.
 
 **Next sub-chunk candidates (names only, NO predictions)**:
-- 10.E-exnref-b — throw_ref interp impl (the active task)
-- 10.E-N-3 — production Runtime.tag_param_counts wiring in
-  compileWasm (currently only tests populate the slot)
+- 10.TC-3 — regalloc terminator-class + codegen tail-call
+  (the active task above)
+- 10.E-codegen — ADR-0114 D3-D6 codegen-side EH (exception_table,
+  FP-walk unwind, zwasm_throw trampoline, op_exception_handling)
+- 10.E-N-4 — c_api instantiate → interp Runtime tag_param_counts
+  wiring (only needed once a Wasm-with-throw path exercises
+  the interp Runtime via c_api)
 - 10.G-3 — heap-top reftype detection extension
 - 10.G-4 — struct ops (needs GC heap impl first)
 - 10.M-5b — SIMD memarg memory64 (validator + lower + codegen)
-- 10.TC-3 — regalloc terminator-class + codegen tail-call
 
 ## Open questions / blockers
 
