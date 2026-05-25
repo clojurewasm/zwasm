@@ -46,14 +46,14 @@
   throw unwind via Runtime.pending_exception slot + invoke()
   post-popFrame catch retry. Detail: phase_log §10.E。
 - **10.E-exnref-a = SHIPPED 2026-05-26** (`49cf7157`): Exception
-  heap object + catch_all_ref / catch_ref dispatch arms. New
-  `feature/exception_handling/exception.zig` with Exception
-  struct; Value.fromExceptionRef / refAsExceptionPtr helpers;
-  Runtime.pending_exception now `?*Exception` + per-throw
-  live_exceptions tracker freed at deinit. throwOp allocates;
-  findAndDispatchCatch's catch_all_ref pushes [exnref] and
-  catch_ref pushes [payload..., exnref] when tag_idx matches.
-  2 new mvp_tests. Detail: phase_log §10.E。
+  heap object + catch_all_ref / catch_ref dispatch arms.
+  Detail: phase_log §10.E。
+- **10.E-exnref-b = SHIPPED 2026-05-26** (`e448356d`): throw_ref
+  interp impl. Pops exnref → resolves `*Exception` → routes back
+  through `findAndDispatchCatch` (re-uses original Exception
+  object; no re-allocation). Null exnref → Trap.NullReference.
+  2 new mvp_tests (nested re-raise via outer catch_all_ref; null
+  trap). EH interp foundation complete. Detail: phase_log §10.E。
 - **Mac `zig build test-all`**: green (scope=unclear)。
 
 ## Phase 10 progress
@@ -67,15 +67,16 @@ ROADMAP §10 = 13-row task table。
     cross-module + spec corpus + regalloc terminator-class 残)
 - Pending: 10.E / 10.G / 10.P
 
-## Active task — 10.E-exnref-b throw_ref impl
+## Active task — 10.E-N-3 production tag_param_counts wiring
 
-`throw_ref` (0x0A) pops an exnref and re-raises the wrapped
-Exception via the same unwinder. Pop exnref → resolve via
-`Value.refAsExceptionPtr` → write to `rt.pending_exception` →
-re-enter `findAndDispatchCatch` on current frame; on miss
-propagate Trap.UncaughtException. Refs: mvp.zig:throwRefOp,
-value.zig:refAsExceptionPtr, feature/exception_handling/
-exception.zig:Exception.
+EH interp foundation complete (throw + throw_ref + try_table +
+4 catch flavors + cross-frame unwind + exnref). Remaining
+interp gap: compileWasm populates `Runtime.tag_param_counts`
+from tag-section + module_types so production Wasm exercises
+the param-pop path. Currently only tests set the slot.
+Refs: `src/engine/compile.zig:tags_slice` (decoded; threaded
+only to validator), `src/engine/runner.zig:setupRuntime`,
+`src/runtime/runtime.zig:tag_param_counts`.
 
 **Next sub-chunk candidates (names only, NO predictions)**:
 - 10.E-exnref-b — throw_ref interp impl (the active task)

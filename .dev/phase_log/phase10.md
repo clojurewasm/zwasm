@@ -571,6 +571,33 @@ Design source: ADR-0114 + ADR-0117 (cross-subsystem invariants).
 
 **SHA pointer**: backfilled at Phase 10 close.
 
+- **10.E-exnref-b** — throw_ref interp impl (`e448356d`).
+  `throwRefOp` (0x0A) pops the exnref, resolves the wrapped
+  `*Exception` via `Value.refAsExceptionPtr` + `@ptrCast +
+  @alignCast`, writes to `rt.pending_exception`, then re-enters
+  `findAndDispatchCatch` against the current frame. The
+  Exception heap object is NOT re-allocated — throw_ref just
+  routes the existing object back through the unwinder, so
+  catch arms match against the original tag_idx + payload.
+  On a local match the slot is cleared; on miss the trap
+  propagates via the existing 10.E-5d cross-frame unwind path.
+  Null exnref → `Trap.NullReference` per Wasm spec 3.0
+  §3.3.10.8 step 2. 2 new mvp_tests: nested try_table with
+  inner catch_all_ref grabbing original throw + body re-raises
+  via throw_ref + outer catch_all_ref catches the re-raised
+  exnref (verifies `rt.live_exceptions.len == 1` — single
+  Exception object, no re-allocation); null exnref → trap
+  (pushed via `.ref = null_ref` directly, not via i32.const 0
+  — extern-union poison-byte trap when only the .i32 field
+  is set would race the null check on garbage upper bytes).
+  Mac `test-all` GREEN; lint exit 0. Wasm spec 3.0 §3.3.10.8;
+  ADR-0114 D1 + D6. This completes the EH interp foundation
+  (throw + throw_ref + try_table + 4 catch flavors +
+  cross-frame unwind + exnref). Remaining EH work is
+  production-side: tag_param_counts wiring in compileWasm
+  (10.E-N-3); regalloc N-successor codegen impl per ADR-0114
+  D3-D6; spec corpus integration.
+
 - **10.E-exnref-a** — Exception heap object + catch_all_ref /
   catch_ref dispatch (`49cf7157`). New
   `feature/exception_handling/exception.zig` (Zone 1) with
