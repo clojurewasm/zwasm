@@ -80,11 +80,13 @@ zwasm_zig=src/zwasm.zig
 if [ ! -f "$zwasm_zig" ]; then
   fail "I3: $zwasm_zig not found"
 else
-  for sym in 'pub const Runtime' 'pub const Module' 'pub const Instance' 'pub const Value'; do
+  # ADR-0109 amended I3 (2026-05-25): `Engine` replaces the
+  # `Runtime` c_api veneer; Module / Instance / Value retained.
+  for sym in 'pub const Engine' 'pub const Module' 'pub const Instance' 'pub const Value'; do
     if grep -qE "^$sym" "$zwasm_zig"; then
       ok "I3: $sym present in src/zwasm.zig"
     else
-      fail "I3: $sym MISSING in src/zwasm.zig (ADR-0025 minimum subset; master plan §5.2)"
+      fail "I3: $sym MISSING in src/zwasm.zig (ADR-0109 native facade; master plan §5.2)"
     fi
   done
 fi

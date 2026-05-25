@@ -45,7 +45,7 @@ zone_of() {
         # upward-import violations. Other classifications still
         # apply to imports *of* zwasm.zig from leaf code (treated
         # as Zone 1 by upward-import callers).
-        src/zwasm.zig)                                                                       echo lib ;;
+        src/zwasm.zig|src/zwasm/*)                                                           echo lib ;;
         *)                                                   echo "x" ;;
     esac
 }

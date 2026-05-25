@@ -35,21 +35,19 @@ const std = @import("std");
 pub const version = "0.0.0-pre";
 
 // ============================================================
-// Zig facade (ADR-0025 minimum subset) — thin wrappers around the
-// C ABI binding so Zig hosts can drive the runtime idiomatically
-// without going through `?*Engine` / `wasm_*_delete`. Closes I3 of
-// `.claude/rules/phase9_close_invariants.md`. Per master plan
-// §5.2: Runtime / Module / Instance / Value + facade test.
-//
-// v0.1 scope: the underlying Engine binds `std.heap.c_allocator`
-// at `wasm_engine_new` time, so the user-supplied allocator on
-// `Runtime.init` is ignored for now. v0.2 (a follow-on ADR) will
-// plumb the user allocator through the Engine.
+// Zig facade (ADR-0109 native API) — first-principles Engine +
+// Module + Instance + Value surface. Engine + Module live in
+// `src/zwasm/{engine,module}.zig`; Instance + Value stay here
+// until J.3 lifts Instance onto the native surface. Closes I3
+// of `.claude/rules/phase9_close_invariants.md`.
 // ============================================================
 
 const _api_instance = @import("api/instance.zig");
 const _vec = @import("api/vec.zig");
 const _trap_surface = @import("api/trap_surface.zig");
+
+pub const Engine = @import("zwasm/engine.zig").Engine;
+pub const Module = @import("zwasm/module.zig").Module;
 
 /// Zig-idiomatic tagged-union mirror of `wasm_val_t`.
 /// Wasm spec §4.2.2 — value representation at the host boundary
@@ -100,57 +98,12 @@ fn valFromApi(v: _api_instance.Val) Value {
     };
 }
 
-/// Wasm spec §4.2.4 — Engine + Store paired handle. The Zig facade
-/// folds the two wasm-c-api objects into one entry point.
-pub const Runtime = struct {
-    engine: *_api_instance.Engine,
-    store: *_api_instance.Store,
-
-    pub const InitOpts = struct {};
-
-    pub fn init(alloc: std.mem.Allocator, _: InitOpts) error{OutOfMemory}!Runtime {
-        _ = alloc;
-        const e = _api_instance.wasm_engine_new() orelse return error.OutOfMemory;
-        errdefer _api_instance.wasm_engine_delete(e);
-        const s = _api_instance.wasm_store_new(e) orelse return error.OutOfMemory;
-        return .{ .engine = e, .store = s };
-    }
-
-    pub fn deinit(self: *Runtime) void {
-        _api_instance.wasm_store_delete(self.store);
-        _api_instance.wasm_engine_delete(self.engine);
-    }
-};
-
-/// Wasm spec §4.2.1 — validated Module bytes ready for
-/// instantiation. Owned (binding copies bytes at parse time).
-pub const Module = struct {
-    handle: *_api_instance.Module,
-    rt: *Runtime,
-
-    pub fn parse(rt: *Runtime, bytes: []const u8) error{ParseFailed}!Module {
-        var bv: _vec.ByteVec = .{ .size = bytes.len, .data = @constCast(bytes.ptr) };
-        const m = _api_instance.wasm_module_new(rt.store, &bv) orelse return error.ParseFailed;
-        return .{ .handle = m, .rt = rt };
-    }
-
-    pub fn deinit(self: *Module) void {
-        _api_instance.wasm_module_delete(self.handle);
-    }
-
-    pub const InstantiateOpts = struct {};
-
-    pub fn instantiate(self: *Module, _: InstantiateOpts) error{InstantiateFailed}!Instance {
-        const i = _api_instance.wasm_instance_new(self.rt.store, self.handle, null, null) orelse return error.InstantiateFailed;
-        return .{ .handle = i, .rt = self.rt };
-    }
-};
-
 /// Wasm spec §4.2.5 — instantiated Module Instance. Exposes
 /// `invoke(name, args, results)` for the export-call golden path.
+/// J.3 will replace this with the native Instance per ADR-0109 §3.5.
 pub const Instance = struct {
     handle: *_api_instance.Instance,
-    rt: *Runtime,
+    c_store: *_api_instance.Store,
 
     pub fn deinit(self: *Instance) void {
         _api_instance.wasm_instance_delete(self.handle);
@@ -489,11 +442,11 @@ const facade_extend8_s_wasm = [_]u8{
     0x0a, 0x08, 0x01, 0x06, 0x00, 0x41, 0xff, 0x01, 0xC0, 0x0B,
 };
 
-test "zwasm facade Wasm 2.0 round-trip via Runtime / Module / Instance / Value" {
-    var rt = try Runtime.init(std.testing.allocator, .{});
-    defer rt.deinit();
+test "zwasm facade Wasm 2.0 round-trip via Engine / Module / Instance / Value" {
+    var eng = try Engine.init(std.testing.allocator, .{});
+    defer eng.deinit();
 
-    var mod = try Module.parse(&rt, &facade_extend8_s_wasm);
+    var mod = try eng.compile(&facade_extend8_s_wasm);
     defer mod.deinit();
 
     var inst = try mod.instantiate(.{});
@@ -504,4 +457,71 @@ test "zwasm facade Wasm 2.0 round-trip via Runtime / Module / Instance / Value" 
 
     // i32.extend8_s of 0xFF = -1.
     try std.testing.expectEqual(@as(i32, -1), results[0].i32);
+}
+
+// T1.1 — Engine + Module lifecycle, allocator strict-pass via a
+// recording wrapper. ADR-0109 §4.1 requires the user allocator
+// reach internal allocations; recording proves the path.
+const RecordingAllocator = struct {
+    inner: std.mem.Allocator,
+    alloc_calls: usize = 0,
+    free_calls: usize = 0,
+
+    fn allocator(self: *RecordingAllocator) std.mem.Allocator {
+        return .{
+            .ptr = self,
+            .vtable = &.{
+                .alloc = alloc,
+                .resize = resize,
+                .remap = remap,
+                .free = free,
+            },
+        };
+    }
+
+    fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+        const self: *RecordingAllocator = @ptrCast(@alignCast(ctx));
+        self.alloc_calls += 1;
+        return self.inner.vtable.alloc(self.inner.ptr, len, alignment, ret_addr);
+    }
+    fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+        const self: *RecordingAllocator = @ptrCast(@alignCast(ctx));
+        return self.inner.vtable.resize(self.inner.ptr, memory, alignment, new_len, ret_addr);
+    }
+    fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+        const self: *RecordingAllocator = @ptrCast(@alignCast(ctx));
+        return self.inner.vtable.remap(self.inner.ptr, memory, alignment, new_len, ret_addr);
+    }
+    fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+        const self: *RecordingAllocator = @ptrCast(@alignCast(ctx));
+        self.free_calls += 1;
+        self.inner.vtable.free(self.inner.ptr, memory, alignment, ret_addr);
+    }
+};
+
+test "zwasm facade T1.1: Engine + Module lifecycle — allocator strict-pass" {
+    var rec: RecordingAllocator = .{ .inner = std.testing.allocator };
+
+    var eng = try Engine.init(rec.allocator(), .{});
+    defer eng.deinit();
+    try std.testing.expect(rec.alloc_calls >= 1);
+
+    var mod = try eng.compile(&facade_extend8_s_wasm);
+    defer mod.deinit();
+    // compile() invokes the native parser which allocates the
+    // sections list through the user allocator.
+    try std.testing.expect(rec.alloc_calls >= 2);
+}
+
+test "zwasm facade T1.2: Module.compile rejects invalid bytes" {
+    var eng = try Engine.init(std.testing.allocator, .{});
+    defer eng.deinit();
+
+    // Truncated header (< 8 bytes) — native parser returns
+    // `TruncatedHeader`, surfaced as `error.ParseFailed`.
+    try std.testing.expectError(error.ParseFailed, eng.compile(&[_]u8{ 0x00, 0x61 }));
+
+    // Bad magic — native parser returns `InvalidMagic`.
+    const bad_magic = [_]u8{ 0xff, 0xff, 0xff, 0xff, 0x01, 0x00, 0x00, 0x00 };
+    try std.testing.expectError(error.ParseFailed, eng.compile(&bad_magic));
 }

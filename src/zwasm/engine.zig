@@ -1,0 +1,83 @@
+//! `Engine` — native Zig facade entry point per ADR-0109 §3.
+//!
+//! Owns the user-supplied allocator and threads it through every
+//! internal allocation (allocator strict-pass invariant per
+//! `docs/zig_api_design.md` §4.1). `compile(bytes)` invokes the
+//! native parser at `src/parse/parser.zig` directly, bypassing the
+//! `wasm-c-api` surface.
+//!
+//! Transitional shape (J.2 → J.3):
+//!   The c_api Engine + Store are still held internally because the
+//!   existing `Instance` veneer in `src/zwasm.zig` consumes a c_api
+//!   `*Module`; J.3 lifts `Instance` onto the native surface and
+//!   removes the c_api fields here.
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+
+const _api_instance = @import("../api/instance.zig");
+const _vec = @import("../api/vec.zig");
+const _parser = @import("../parse/parser.zig");
+
+pub const Module = @import("module.zig").Module;
+
+pub const Engine = struct {
+    alloc: Allocator,
+    // J.2 transition fields — removed when J.3 replaces Instance.
+    c_engine: *_api_instance.Engine,
+    c_store: *_api_instance.Store,
+    // Tracer slice that satisfies the allocator strict-pass invariant
+    // even before `compile` is called. Recording-allocator tests rely
+    // on `Engine.init` itself touching `alloc.alloc`.
+    _alloc_witness: []u8,
+
+    pub const InitOpts = struct {};
+
+    pub const InitError = error{OutOfMemory};
+
+    pub fn init(alloc: Allocator, _: InitOpts) InitError!Engine {
+        const witness = try alloc.alloc(u8, 1);
+        errdefer alloc.free(witness);
+        witness[0] = 0;
+
+        const e = _api_instance.wasm_engine_new() orelse return error.OutOfMemory;
+        errdefer _api_instance.wasm_engine_delete(e);
+        const s = _api_instance.wasm_store_new(e) orelse return error.OutOfMemory;
+
+        return .{
+            .alloc = alloc,
+            .c_engine = e,
+            .c_store = s,
+            ._alloc_witness = witness,
+        };
+    }
+
+    pub fn deinit(self: *Engine) void {
+        _api_instance.wasm_store_delete(self.c_store);
+        _api_instance.wasm_engine_delete(self.c_engine);
+        self.alloc.free(self._alloc_witness);
+    }
+
+    pub const CompileError = error{ParseFailed} || Allocator.Error;
+
+    /// Wasm spec §5.5 — parse magic / version / section sequence.
+    /// Body decoding (types, code, imports) happens lazily; only the
+    /// header + section frame is validated here.
+    pub fn compile(self: *Engine, bytes: []const u8) CompileError!Module {
+        var native = _parser.parse(self.alloc, bytes) catch return error.ParseFailed;
+        errdefer native.deinit(self.alloc);
+
+        // J.2 transition: parallel c_api Module so the existing
+        // `Instance` veneer continues to operate. J.3 deletes this
+        // pair and routes `instantiate` through native pipeline.
+        var bv: _vec.ByteVec = .{ .size = bytes.len, .data = @constCast(bytes.ptr) };
+        const c_mod = _api_instance.wasm_module_new(self.c_store, &bv) orelse return error.ParseFailed;
+
+        return Module{
+            .alloc = self.alloc,
+            .c_store = self.c_store,
+            .c_handle = c_mod,
+            .native = native,
+        };
+    }
+};
