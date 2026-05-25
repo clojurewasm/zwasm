@@ -38,8 +38,13 @@
 - **10.E-5b = SHIPPED** (`d8a4aa43`): interp throw unwinder
   (catch_all only). Detail: phase_log §10.E。
 - **10.E-N-1 = SHIPPED 2026-05-26** (`aa60df61`): Module.tags
-  wiring through validator (range check + pop tag's params
-  per typeidx; new `Error.InvalidTagIndex`; 8 new tests).
+  wiring through validator. Detail: phase_log §10.E。
+- **10.E-5c = SHIPPED 2026-05-26** (`3cbb12aa`): interp catch_
+  dispatch (tag-equality + payload push), bundling 10.E-N-2
+  (Runtime.tag_param_counts) since the latter was unobservable
+  without the former. throwOp pops tag's params into a stash;
+  findAndDispatchCatch matches catch_ by tag_idx and unwinds
+  via new dispatchCatchWithPayload helper. 2 new mvp_tests.
   Detail: phase_log §10.E。
 - **Mac `zig build test-all`**: green (scope=unclear)。
 
@@ -54,32 +59,25 @@ ROADMAP §10 = 13-row task table。
     cross-module + spec corpus + regalloc terminator-class 残)
 - Pending: 10.E / 10.G / 10.P
 
-## Active task — 10.E-N-2 interp-side Module.tags wiring
+## Active task — 10.E-5d cross-frame throw unwind
 
-Bring `Module.tags` through to the interp / runtime so the
-catch_ / catch_ref dispatch (10.E-5c) can pop tag params at
-throw time and push them at the catch landing. Validator side
-landed at 10.E-N-1.
+When `throw` finds no catch in the current frame, pop the frame
+and re-attempt against the caller's labels. The interp's `call`
+machinery catches `Trap.UncaughtException` from the callee, then
+re-walks the now-current caller frame via `findAndDispatchCatch`.
+Exception payload must survive the frame pop — stash it on
+Runtime as a thread-local-equivalent slot before frame pop.
 
-Steps:
-- CompiledWasm gets `tags` field (new) carrying the decoded
-  TagEntry slice or equivalent (typeidx + param count).
-- Runtime / interp ctx reaches the tags so `throwOp` can pop
-  params per `tags[tag_idx].typeidx → module_types[typeidx].params`
-  count, save them into a small stash, and (on catch_ match)
-  push them at the catch's target label height.
-
-Refs: `src/parse/sections.zig:decodeTags / TagEntry`,
-`src/engine/compile.zig:tags_slice` (decoded but currently
-discarded after validate), `src/engine/runner.zig:CompiledWasm`,
-`src/interp/mvp.zig:throwOp / findAndDispatchCatch`,
-`src/runtime/runtime.zig:Runtime` (where tags would live for
-interp access).
+Refs: `src/runtime/runtime.zig:Runtime.tag_param_counts`,
+`src/interp/mvp.zig:throwOp / findAndDispatchCatch /
+dispatchCatchWithPayload`, `src/interp/mvp.zig:callOp` (entry
+point for cross-frame propagation interception).
 
 **Next sub-chunk candidates (names only, NO predictions)**:
-- 10.E-N-2 — interp-side Module.tags wiring (the active task)
-- 10.E-5c — catch_ / catch_ref dispatch (after 10.E-N-2)
-- 10.E-5d — cross-frame throw unwind (caller's try_table)
+- 10.E-5d — cross-frame throw unwind (the active task)
+- 10.E-N-3 — production Runtime.tag_param_counts wiring in
+  compileWasm
+- 10.E-exnref — exnref + catch_ref / catch_all_ref dispatch
 - 10.G-3 — heap-top reftype detection extension
 - 10.G-4 — struct ops (needs GC heap impl first)
 - 10.M-5b — SIMD memarg memory64 (validator + lower + codegen)

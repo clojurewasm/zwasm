@@ -571,6 +571,35 @@ Design source: ADR-0114 + ADR-0117 (cross-subsystem invariants).
 
 **SHA pointer**: backfilled at Phase 10 close.
 
+- **10.E-5c** — interp catch_ dispatch with tag-equality +
+  payload push (`3cbb12aa`). Bundles 10.E-N-2 (Runtime
+  tag_param_counts) since the latter was unobservable
+  without the former consuming the popped payload.
+  `Runtime.tag_param_counts: []const u32 = &.{}` field
+  pre-resolves per-tag param counts from
+  `module.tags[i].typeidx → module_types[typeidx].params.len`
+  at module setup; default empty preserves existing test /
+  runner paths (throw pops 0 params as safe fallback).
+  `throwOp` now pops `rt.tag_param_counts[tag_idx]` operand
+  values into a stack-local `payload_buf` (capped at
+  `max_block_arity`=16) before walking the catch vec.
+  `findAndDispatchCatch` gains `payload: []const Value`
+  parameter + `catch_` arm matching when
+  `entry.tag_idx == thrown_tag_idx`, then unwinds via new
+  `dispatchCatchWithPayload` helper (manual pop-labels +
+  set operand_len + push payload — doBranch can't be reused
+  because its restoreToLabel uses target.branch_arity
+  (block result count) rather than tag's param count).
+  `catch_ref` / `catch_all_ref` stay deferred pending exnref.
+  2 new mvp_tests: catch_ with matching tag_idx + i32 param →
+  caught with payload pushed at target block (block's end
+  pops the catch's i32 → function returns 77); catch_ with
+  non-matching tag_idx → falls through to UncaughtException.
+  Previous 10.E-5b "currently uncaught — defers to 10.E-N"
+  placeholder test superseded; the negative case is now
+  the non-matching-tag test. Mac `test-all` GREEN; lint
+  exit 0. Wasm spec 3.0 §3.3.10.7 + §4.5; ADR-0114 D3.
+
 - **10.E-N-1** — Module.tags wiring through validator
   (`aa60df61`). `Validator.tags: []const sections.TagEntry =
   &.{}` field added (default empty preserves existing
