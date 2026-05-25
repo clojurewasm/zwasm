@@ -213,6 +213,17 @@ the impl SHA range cited.
 - `~/Documents/OSS/wasmtime/cranelift/frontend/src/ssa.rs` —
   SSA construction respects the three axes during phi
   placement.
+- `~/Documents/OSS/regalloc2/src/ssa.rs:103-123` — regalloc2's
+  terminator classification uses TWO booleans (`f.is_branch` +
+  `f.is_ret`) rather than zwasm v2's unified `is_terminator`.
+  Both produce the same "stop range extension at the terminator"
+  effect for the regalloc layer; zwasm v2's unification trades
+  fine-grained branch-vs-ret discrimination for a single-bit
+  axis per the §P13 "type up-front, slots over flags" principle.
+  regalloc2 has no `safepoint` axis at the SSA layer — that
+  metadata lives in the host (cranelift's VCode); ADR-0113's
+  `is_safepoint` axis matches the placement (codegen layer,
+  not regalloc2 itself).
 - ADR-0018 — regalloc reserved set (this ADR is additive; no
   reservation change).
 - ADR-0087 — ZirOp catalog (closed enum; per-op-file constants
@@ -238,3 +249,12 @@ the impl SHA range cited.
   foundation: bounds_fixups refactor (1-edge → CallsiteEdge[1])
   lands in the FIRST of EH/TC/GC impl rows to ship; subsequent
   rows consume the shape unchanged.
+- 2026-05-26 — References §: cited regalloc2's
+  `f.is_branch + f.is_ret` two-boolean terminator classification
+  (`~/Documents/OSS/regalloc2/src/ssa.rs:103-123`), and noted
+  regalloc2 has no safepoint axis at the SSA layer (lives in the
+  host's codegen). zwasm v2's unified `is_terminator` is a
+  deliberate §P13 simplification vs regalloc2's two-bool shape;
+  `is_safepoint` placement at the codegen layer aligns with
+  cranelift's VCode model. Documented to avoid re-walking the
+  regalloc2 precedent question in future cycles.
