@@ -38,11 +38,14 @@
   opcodes (0x08 / 0x0A) — validator + interp Trap.UncaughtException
   emission。
 - **10.E-5a = SHIPPED 2026-05-25** (`da1cec05`): EH catch
-  metadata storage shape filled in on ZirFunc (`eh_landing_pads`
-  + flat `eh_catch_entries` per ADR-0114 D3); lowerer wires
-  catch-vec decode into LandingPad with half-open slice; 5
-  lower_tests covering empty / mixed / ref-variants / nested /
-  malformed. Detail: phase_log §10.E。
+  metadata storage + lowerer wire-up. Detail: phase_log §10.E。
+- **10.E-5b = SHIPPED 2026-05-25** (`d8a4aa43`): interp throw
+  unwinder (catch_all). `Label.block_idx` added; throwOp walks
+  current frame's label stack, looks up LandingPad by block_idx,
+  dispatches via doBranch on first catch_all match. catch_ /
+  catch_ref / catch_all_ref + cross-frame unwind deferred to
+  10.E-5c (post Module.tags wiring at 10.E-N). 4 new mvp_tests.
+  Detail: phase_log §10.E。
 - **Mac `zig build test-all`**: green (scope=unclear)。
 
 ## Phase 10 progress
@@ -56,26 +59,31 @@ ROADMAP §10 = 13-row task table。
     cross-module + spec corpus + regalloc terminator-class 残)
 - Pending: 10.E / 10.G / 10.P
 
-## Active task — 10.E-5b interp unwinder
+## Active task — 10.E-N Module.tags wiring
 
-Consume `func.eh_landing_pads` + `func.eh_catch_entries` (landed
-10.E-5a) from the interp dispatch loop. On `Trap.UncaughtException`
-emitted by `throwOp` / `throwRefOp`: walk the label stack
-inward-out to find the enclosing `.try_table` BlockInfo, look up
-its `LandingPad` by `block_idx`, linear-scan its catches for tag
-match (incl. `catch_all` variants), restore operand-stack height
-to the chosen label's height, push tag params (and exnref for
-`_ref` variants), jump pc to the catch's `label_idx` target.
+Bring `Module.tags` (decoded at 10.E-2 / `390856f8` + `cec18589`)
+through to the validator + interp side so:
 
-Refs: `src/runtime/trap.zig:UncaughtException`,
-`src/interp/mvp.zig:{throwOp, throwRefOp, blockOp}`,
-`src/validate/validator.zig:opThrow` (tag-param popping pending
-Module.tags wiring at 10.E-N).
+- Validator's `opThrow` pops the tag's params from the operand
+  stack (currently a TODO — only reads tag_idx and discards).
+- Interp `throwOp` can pop the same params and stash them so the
+  `catch_` / `catch_ref` matching at unwind time can push them on
+  the catch label's stack post-restore. Enables 10.E-5c
+  (catch_ + catch_ref dispatch) which currently fall through to
+  Trap.UncaughtException by design.
+- Validator's `validateCatchVec` adds tag_idx range check
+  (currently `0x00 / 0x01` arms read tag_idx and discard the
+  range validation).
+
+Refs: `src/parse/sections.zig:decodeTags / TagEntry`,
+`src/validate/validator.zig:opThrow / validateCatchVec`,
+`src/interp/mvp.zig:throwOp / findAndDispatchCatch`,
+`src/runtime/trap.zig:UncaughtException`.
 
 **Next sub-chunk candidates (names only, NO predictions)**:
-- 10.E-5b — interp unwinder (the active task above)
-- 10.E-N — Module.tags wiring through validator (tag_idx range +
-  tag-params popping on throw)
+- 10.E-N — Module.tags wiring (the active task above)
+- 10.E-5c — catch_ / catch_ref dispatch (after 10.E-N)
+- 10.E-5d — cross-frame throw unwind (caller's try_table)
 - 10.G-3 — heap-top reftype detection extension
 - 10.G-4 — struct ops (needs GC heap impl first)
 - 10.M-5b — SIMD memarg memory64 (validator + lower + codegen)

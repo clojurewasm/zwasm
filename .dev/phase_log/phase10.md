@@ -571,6 +571,34 @@ Design source: ADR-0114 + ADR-0117 (cross-subsystem invariants).
 
 **SHA pointer**: backfilled at Phase 10 close.
 
+- **10.E-5b** — interp throw unwinder, catch_all only
+  (`d8a4aa43`). `Label.block_idx: u32 = 0` added to
+  `runtime.frame.Label`; populated by `blockOp` / `loopOp` /
+  `ifOp` (try_table reuses blockOp) from `instr.payload`. New
+  `findAndDispatchCatch` walks the current frame's label stack
+  inward-out (depth 0 = innermost); for each label whose owning
+  `BlockInfo.kind == .try_table`, scans the matching
+  `LandingPad` in `func.eh_landing_pads` (linear by `block_idx`
+  equality, since try_tables are rare per body). On `catch_all`
+  match dispatches via `doBranch(depth + 1 + catch.label_idx)`
+  — the `+ 1` skips past the try_table's own label per the
+  validator's catch-label numbering (`validateCatchVec` runs
+  *before* `pushFrame(.try_table, …)`, so catch `label_idx=0` is
+  the label just outside try_table, not the try_table itself).
+  `catch_` / `catch_ref` matching is deferred — Module.tags
+  wiring (10.E-N) is needed for tag-equality + param
+  marshalling; `catch_all_ref` is deferred for exnref support
+  (10.E-N). When no catch matches in the current frame,
+  propagates `Trap.UncaughtException` (cross-frame unwind →
+  10.E-5d). `throwRefOp` still uncaught pending exnref. 4 new
+  mvp_tests (throw caught by enclosing catch_all → outer block
+  end with operand stack preserved; throw with no try_table →
+  uncaught; catch_-only try_table → uncaught until 10.E-N pins
+  the deferred behavior; Label.block_idx default + blockOp
+  population regression). Mac `zig build test-all` GREEN; lint
+  + zone + fs gates exit 0. Wasm spec 3.0 §3.3.10.7-8 + §4.5;
+  ADR-0114 D3.
+
 - **10.E-5a** — EH catch metadata storage + lowerer wire-up
   (`da1cec05`). `zir.CatchKind` enum (catch_ / catch_ref /
   catch_all / catch_all_ref; raw byte values 0x00..0x03 per
