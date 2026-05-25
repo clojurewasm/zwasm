@@ -617,6 +617,26 @@ Design source: ADR-0114 + ADR-0117 (cross-subsystem invariants).
 
 **SHA pointer**: backfilled at Phase 10 close.
 
+- **10.E-codegen-3h** — frame_bytes-aware SP-restore
+  (`e246da18`). Per ADR-0114 D6: completes the SP-restore
+  primitive for functions with locals. Three coordinated
+  changes — `CodeMap.Entry` gains `frame_bytes: u32 = 0`
+  (default for back-compat; arm64 `SUB SP, SP, #N` /
+  x86_64 `SUB RSP, #N` frame-allocation size); per-arch
+  `emitSpRestoreFull(allocator, buf, src_gpr, frame_bytes)`
+  composes `emitSpFromGpr` + the SUB sequence. arm64 splits
+  large frame_bytes into LSL-12 + low imm12 per AAPCS64
+  large-frame discipline (mirrors emit.zig:1248-1249 epilogue
+  ADD pattern); x86_64 promotes Imm8 (≤127) → Imm32 (>127).
+  Trampoline call shape: `emitSpRestoreFull(handler_fp,
+  code_map.Entry.frame_bytes)` from .handler return path.
+  EH landing path now production-shape complete: trampoline →
+  dispatchThrow → .handler → emitSpRestoreFull → JMP
+  landing_pad_pc. 8 new unit tests (2 code_map + 3 arm64 +
+  3 x86_64): defaults; explicit round-trip; arm64 frame=0/16/
+  0x12345 (LSL-12 split); x86_64 frame=0/16/256 (Imm8↔Imm32
+  promote). Mac `test-all` GREEN; lint exit 0. ADR-0114 D6.
+
 - **10.E-codegen-3g** — x86_64 sp_restore.zig RSP=RBP restore
   emit (`654de49f`). Mirror of 10.E-codegen-3f's arm64
   version. `emitSpFromGpr` emits `MOV RSP, <src_gpr>` (64-bit

@@ -98,9 +98,13 @@
 - **10.E-codegen-3f = SHIPPED 2026-05-26** (`9af0770e`):
   arm64/sp_restore.zig — MOV SP, Xn emit. 3 byte-snapshot tests.
 - **10.E-codegen-3g = SHIPPED 2026-05-26** (`654de49f`):
-  x86_64/sp_restore.zig — MOV RSP, <src_gpr> emit (48 89 EC
-  canonical for RBP). Mirror of arm64; zero-locals only. 3
-  byte-snapshot tests including R11 REX.W+REX.R encoding.
+  x86_64/sp_restore.zig — MOV RSP, <src_gpr> emit. 3 tests.
+- **10.E-codegen-3h = SHIPPED 2026-05-26** (`e246da18`):
+  frame_bytes-aware SP-restore. CodeMap.Entry gains
+  `frame_bytes: u32 = 0`; per-arch emitSpRestoreFull composes
+  emitSpFromGpr + SUB SP/RSP, #frame_bytes (arm64 LSL-12
+  split; x86_64 Imm8↔Imm32 promote). 8 new tests. EH landing
+  path now production-shape complete.
 - **Mac `zig build test-all`**: green (scope=unclear)。
 
 ## Phase 10 progress
@@ -114,31 +118,35 @@ ROADMAP §10 = 13-row task table。
     cross-module + spec corpus + regalloc terminator-class 残)
 - Pending: 10.E / 10.G / 10.P
 
-## Active task — 10.E-codegen-3h frame_bytes-aware SP-restore + CodeMap.Entry extension
+## Active task — 10.E-codegen-4 per-arch op_exception_handling.zig (try_table parse-skeleton)
 
-Both per-arch SP-restore emits (3f arm64 + 3g x86_64) landed as
-zero-locals only. Next: extend `CodeMap.Entry` with
-`frame_bytes: u32` so the trampoline can subtract it post-SP=FP
-restore (arm64 SUB SP, SP, #frame_bytes; x86_64 SUB RSP, #N
-which already has encoder `encSubRSpImm32`). Plus the matching
-per-arch emit helper `emitSpRestoreFull` composing
-emitSpFromGpr + the frame_bytes subtraction.
+All EH unwind / restoration primitives landed (3a-3h: storage +
+walk + frame-chain reader + adapter + code_map + dispatcher +
+sp_restore). Next: hook the try_table / throw / throw_ref ZIR ops
+into the dispatch pipeline via per-arch `op_exception_handling.zig`
+per ADR-0114 D2.
 
-CodeMap.Builder.add gains a frame_bytes parameter (default 0
-for back-compat); existing 10 unit tests stay green with the
-default; new tests cover the frame_bytes != 0 path.
+Initial atom (3a-equivalent for this row): create both per-arch
+files with `op_tag` / `wasm_level` / `emit` skeletons returning
+`UnsupportedOp` for the 3 ops (try_table / throw / throw_ref).
+Declare 3-axis: try_table = is_terminator=false /
+n_successor_edges=(1 + N_catches; per-op constant 1 here for
+catch-all shape) / is_safepoint=false; throw / throw_ref =
+is_terminator=true / n_successor_edges=0 / is_safepoint=false.
+Add axisOf tests like 10.TC-3b's tail-call axes did.
 
-Refs: ADR-0114 D6, code_map.zig + sp_restore per-arch (landed),
-arm64/inst.encAddImm12Lsl12 + inst.encAddImm12 (already used
-in emit.zig:1248-1249 epilogue path; mirror for SUB), x86_64
-encSubRSpImm32 (already exists).
+Refs: ADR-0114 D2 + ADR-0113 §A/B (N-successor axis), instruction
+/wasm_3_0/try_table.zig + throw.zig + throw_ref.zig stubs,
+10.TC-3b skeleton pattern.
 
 **Next sub-chunk candidates (names only, NO predictions)**:
-- 10.E-codegen-3h — frame_bytes-aware SP-restore + CodeMap.Entry (active)
-- 10.E-codegen-3i — assembly entry/exit glue (per-arch zwasm_throw
-  shim that loads X29/RBP + LR/RIP + calls dispatchThrow)
-- 10.E-codegen-4 — per-arch op_exception_handling.zig (try_table
-  / throw emit hooked into the dispatch pipeline)
+- 10.E-codegen-4 — per-arch op_exception_handling.zig skeletons (active)
+- 10.E-codegen-4b — try_table emit body (push handler entries to
+  per-Instance ExceptionTable.Builder; emit zero JIT bytes per
+  ADR-0114 D2)
+- 10.E-codegen-4c — throw / throw_ref emit body (marshal payload
+  + tag_idx into argregs + CALL zwasm_throw dispatcher)
+- 10.E-codegen-3i — assembly entry/exit glue per arch
 - 10.TC-3f/g/h — tail-call follow-ons (deferred)
 - 10.E-N-4 — c_api instantiate → interp Runtime tag_param_counts
 - 10.G-4 — struct ops (needs GC heap impl first)
