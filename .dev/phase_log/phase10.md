@@ -617,6 +617,30 @@ Design source: ADR-0114 + ADR-0117 (cross-subsystem invariants).
 
 **SHA pointer**: backfilled at Phase 10 close.
 
+- **10.E-codegen-3d** — shared/code_map.zig per-Instance
+  JIT code map (`2d6e3c78`). Per ADR-0114 D5: translates
+  absolute saved-LR (AAPCS64) / saved-RIP (SysV/Win64) into
+  module-relative PC for `ExceptionTable.lookup`. Closes the
+  PC-normalization slot exposed by 10.E-codegen-3c's
+  `frame_chain_adapter.NormalizePcFn`. `Entry { start_addr,
+  len, func_idx }` + `Lookup = .inside{rel_pc, func_idx} |
+  .outside` + `CodeMap.lookup` binary search +
+  `Builder` (sort-on-finalize). `normalizeForUnwind`
+  conforms to `frame_chain_adapter.NormalizePcFn`: `.inside`
+  → relative PC; `.outside` → `non_jit_pc_sentinel`
+  (= u32 maxInt). The sentinel is load-bearing: no
+  `HandlerEntry` covers maxInt, so the unwinder's lookup
+  falls through and walks through non-JIT host/OS frames
+  until either a real handler or top-of-stack. `adapterContextFor`
+  is the convenience constructor the trampoline uses. 10 unit
+  tests cover: empty map; single function; PC at start_addr +
+  PC at start+len boundary (half-open); below first; in-gap;
+  out-of-order add gets sorted; 8-entry binary search +
+  gap probes; normalizeForUnwind inside + outside; adapterContextFor
+  consume path. End-to-end EH unwind path now fully composable:
+  trampoline → adapter ctx (=code_map) → unwind.walk → handler.
+  Mac `test-all` GREEN; lint exit 0. ADR-0114 D5.
+
 - **10.E-codegen-3c** — frame_chain_adapter.zig per-arch
   bridge (`a7b22ec2`). Per ADR-0114 D5/D6: bridges the
   per-arch `frame_chain.loadFrame` raw reader to the
