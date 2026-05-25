@@ -1,0 +1,172 @@
+module memory_trap64.0.wasm
+assert_return store i64:18446744073709551612 i32:42 -> ()
+assert_return load i64:18446744073709551612 -> i32:42
+assert_trap store i64:18446744073709551613 i32:13
+assert_trap load i64:18446744073709551613
+assert_trap store i64:18446744073709551614 i32:13
+assert_trap load i64:18446744073709551614
+assert_trap store i64:18446744073709551615 i32:13
+assert_trap load i64:18446744073709551615
+assert_trap store i64:0 i32:13
+assert_trap load i64:0
+assert_trap store i64:2147483648 i32:13
+assert_trap load i64:2147483648
+module memory_trap64.1.wasm
+assert_trap i32.store i64:65536 i32:0
+assert_trap i32.store i64:65535 i32:0
+assert_trap i32.store i64:65534 i32:0
+assert_trap i32.store i64:65533 i32:0
+assert_trap i32.store i64:18446744073709551615 i32:0
+assert_trap i32.store i64:18446744073709551614 i32:0
+assert_trap i32.store i64:18446744073709551613 i32:0
+assert_trap i32.store i64:18446744073709551612 i32:0
+assert_trap i64.store i64:65536 i64:0
+assert_trap i64.store i64:65535 i64:0
+assert_trap i64.store i64:65534 i64:0
+assert_trap i64.store i64:65533 i64:0
+assert_trap i64.store i64:65532 i64:0
+assert_trap i64.store i64:65531 i64:0
+assert_trap i64.store i64:65530 i64:0
+assert_trap i64.store i64:65529 i64:0
+assert_trap i64.store i64:18446744073709551615 i64:0
+assert_trap i64.store i64:18446744073709551614 i64:0
+assert_trap i64.store i64:18446744073709551613 i64:0
+assert_trap i64.store i64:18446744073709551612 i64:0
+assert_trap i64.store i64:18446744073709551611 i64:0
+assert_trap i64.store i64:18446744073709551610 i64:0
+assert_trap i64.store i64:18446744073709551609 i64:0
+assert_trap i64.store i64:18446744073709551608 i64:0
+assert_trap f32.store i64:65536 f32:0
+assert_trap f32.store i64:65535 f32:0
+assert_trap f32.store i64:65534 f32:0
+assert_trap f32.store i64:65533 f32:0
+assert_trap f32.store i64:18446744073709551615 f32:0
+assert_trap f32.store i64:18446744073709551614 f32:0
+assert_trap f32.store i64:18446744073709551613 f32:0
+assert_trap f32.store i64:18446744073709551612 f32:0
+assert_trap f64.store i64:65536 f64:0
+assert_trap f64.store i64:65535 f64:0
+assert_trap f64.store i64:65534 f64:0
+assert_trap f64.store i64:65533 f64:0
+assert_trap f64.store i64:65532 f64:0
+assert_trap f64.store i64:65531 f64:0
+assert_trap f64.store i64:65530 f64:0
+assert_trap f64.store i64:65529 f64:0
+assert_trap f64.store i64:18446744073709551615 f64:0
+assert_trap f64.store i64:18446744073709551614 f64:0
+assert_trap f64.store i64:18446744073709551613 f64:0
+assert_trap f64.store i64:18446744073709551612 f64:0
+assert_trap f64.store i64:18446744073709551611 f64:0
+assert_trap f64.store i64:18446744073709551610 f64:0
+assert_trap f64.store i64:18446744073709551609 f64:0
+assert_trap f64.store i64:18446744073709551608 f64:0
+assert_trap i32.store8 i64:65536 i32:0
+assert_trap i32.store8 i64:18446744073709551615 i32:0
+assert_trap i32.store16 i64:65536 i32:0
+assert_trap i32.store16 i64:65535 i32:0
+assert_trap i32.store16 i64:18446744073709551615 i32:0
+assert_trap i32.store16 i64:18446744073709551614 i32:0
+assert_trap i64.store8 i64:65536 i64:0
+assert_trap i64.store8 i64:18446744073709551615 i64:0
+assert_trap i64.store16 i64:65536 i64:0
+assert_trap i64.store16 i64:65535 i64:0
+assert_trap i64.store16 i64:18446744073709551615 i64:0
+assert_trap i64.store16 i64:18446744073709551614 i64:0
+assert_trap i64.store32 i64:65536 i64:0
+assert_trap i64.store32 i64:65535 i64:0
+assert_trap i64.store32 i64:65534 i64:0
+assert_trap i64.store32 i64:65533 i64:0
+assert_trap i64.store32 i64:18446744073709551615 i64:0
+assert_trap i64.store32 i64:18446744073709551614 i64:0
+assert_trap i64.store32 i64:18446744073709551613 i64:0
+assert_trap i64.store32 i64:18446744073709551612 i64:0
+assert_trap i32.load i64:65536
+assert_trap i32.load i64:65535
+assert_trap i32.load i64:65534
+assert_trap i32.load i64:65533
+assert_trap i32.load i64:18446744073709551615
+assert_trap i32.load i64:18446744073709551614
+assert_trap i32.load i64:18446744073709551613
+assert_trap i32.load i64:18446744073709551612
+assert_trap i64.load i64:65536
+assert_trap i64.load i64:65535
+assert_trap i64.load i64:65534
+assert_trap i64.load i64:65533
+assert_trap i64.load i64:65532
+assert_trap i64.load i64:65531
+assert_trap i64.load i64:65530
+assert_trap i64.load i64:65529
+assert_trap i64.load i64:18446744073709551615
+assert_trap i64.load i64:18446744073709551614
+assert_trap i64.load i64:18446744073709551613
+assert_trap i64.load i64:18446744073709551612
+assert_trap i64.load i64:18446744073709551611
+assert_trap i64.load i64:18446744073709551610
+assert_trap i64.load i64:18446744073709551609
+assert_trap i64.load i64:18446744073709551608
+assert_trap f32.load i64:65536
+assert_trap f32.load i64:65535
+assert_trap f32.load i64:65534
+assert_trap f32.load i64:65533
+assert_trap f32.load i64:18446744073709551615
+assert_trap f32.load i64:18446744073709551614
+assert_trap f32.load i64:18446744073709551613
+assert_trap f32.load i64:18446744073709551612
+assert_trap f64.load i64:65536
+assert_trap f64.load i64:65535
+assert_trap f64.load i64:65534
+assert_trap f64.load i64:65533
+assert_trap f64.load i64:65532
+assert_trap f64.load i64:65531
+assert_trap f64.load i64:65530
+assert_trap f64.load i64:65529
+assert_trap f64.load i64:18446744073709551615
+assert_trap f64.load i64:18446744073709551614
+assert_trap f64.load i64:18446744073709551613
+assert_trap f64.load i64:18446744073709551612
+assert_trap f64.load i64:18446744073709551611
+assert_trap f64.load i64:18446744073709551610
+assert_trap f64.load i64:18446744073709551609
+assert_trap f64.load i64:18446744073709551608
+assert_trap i32.load8_s i64:65536
+assert_trap i32.load8_s i64:18446744073709551615
+assert_trap i32.load8_u i64:65536
+assert_trap i32.load8_u i64:18446744073709551615
+assert_trap i32.load16_s i64:65536
+assert_trap i32.load16_s i64:65535
+assert_trap i32.load16_s i64:18446744073709551615
+assert_trap i32.load16_s i64:18446744073709551614
+assert_trap i32.load16_u i64:65536
+assert_trap i32.load16_u i64:65535
+assert_trap i32.load16_u i64:18446744073709551615
+assert_trap i32.load16_u i64:18446744073709551614
+assert_trap i64.load8_s i64:65536
+assert_trap i64.load8_s i64:18446744073709551615
+assert_trap i64.load8_u i64:65536
+assert_trap i64.load8_u i64:18446744073709551615
+assert_trap i64.load16_s i64:65536
+assert_trap i64.load16_s i64:65535
+assert_trap i64.load16_s i64:18446744073709551615
+assert_trap i64.load16_s i64:18446744073709551614
+assert_trap i64.load16_u i64:65536
+assert_trap i64.load16_u i64:65535
+assert_trap i64.load16_u i64:18446744073709551615
+assert_trap i64.load16_u i64:18446744073709551614
+assert_trap i64.load32_s i64:65536
+assert_trap i64.load32_s i64:65535
+assert_trap i64.load32_s i64:65534
+assert_trap i64.load32_s i64:65533
+assert_trap i64.load32_s i64:18446744073709551615
+assert_trap i64.load32_s i64:18446744073709551614
+assert_trap i64.load32_s i64:18446744073709551613
+assert_trap i64.load32_s i64:18446744073709551612
+assert_trap i64.load32_u i64:65536
+assert_trap i64.load32_u i64:65535
+assert_trap i64.load32_u i64:65534
+assert_trap i64.load32_u i64:65533
+assert_trap i64.load32_u i64:18446744073709551615
+assert_trap i64.load32_u i64:18446744073709551614
+assert_trap i64.load32_u i64:18446744073709551613
+assert_trap i64.load32_u i64:18446744073709551612
+assert_return i64.load i64:65528 -> i64:7523094288207667809
+assert_return i64.load i64:0 -> i64:7523094288207667809

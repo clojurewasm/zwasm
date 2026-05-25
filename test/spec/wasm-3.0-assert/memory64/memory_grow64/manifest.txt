@@ -1,0 +1,49 @@
+module memory_grow64.0.wasm
+assert_return size () -> i64:0
+assert_trap store_at_zero ()
+assert_trap load_at_zero ()
+assert_trap store_at_page_size ()
+assert_trap load_at_page_size ()
+assert_return grow i64:1 -> i64:0
+assert_return size () -> i64:1
+assert_return load_at_zero () -> i32:0
+assert_return store_at_zero () -> ()
+assert_return load_at_zero () -> i32:2
+assert_trap store_at_page_size ()
+assert_trap load_at_page_size ()
+assert_return grow i64:4 -> i64:1
+assert_return size () -> i64:5
+assert_return load_at_zero () -> i32:2
+assert_return store_at_zero () -> ()
+assert_return load_at_zero () -> i32:2
+assert_return load_at_page_size () -> i32:0
+assert_return store_at_page_size () -> ()
+assert_return load_at_page_size () -> i32:3
+module memory_grow64.1.wasm
+assert_return grow i64:0 -> i64:0
+assert_return grow i64:1 -> i64:0
+assert_return grow i64:0 -> i64:1
+assert_return grow i64:2 -> i64:1
+assert_return grow i64:800 -> i64:3
+assert_return grow i64:1 -> i64:803
+module memory_grow64.2.wasm
+assert_return grow i64:0 -> i64:0
+assert_return grow i64:1 -> i64:0
+assert_return grow i64:1 -> i64:1
+assert_return grow i64:2 -> i64:2
+assert_return grow i64:6 -> i64:4
+assert_return grow i64:0 -> i64:10
+assert_return grow i64:1 -> i64:18446744073709551615
+assert_return grow i64:65536 -> i64:18446744073709551615
+module memory_grow64.3.wasm
+assert_return check-memory-zero i64:0 i64:65535 -> i32:0
+assert_return grow i64:1 -> i64:1
+assert_return check-memory-zero i64:65536 i64:131071 -> i32:0
+assert_return grow i64:1 -> i64:2
+assert_return check-memory-zero i64:131072 i64:196607 -> i32:0
+assert_return grow i64:1 -> i64:3
+assert_return check-memory-zero i64:196608 i64:262143 -> i32:0
+assert_return grow i64:1 -> i64:4
+assert_return check-memory-zero i64:262144 i64:327679 -> i32:0
+assert_return grow i64:1 -> i64:5
+assert_return check-memory-zero i64:327680 i64:393215 -> i32:0

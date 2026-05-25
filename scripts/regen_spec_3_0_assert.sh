@@ -34,11 +34,20 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 1
 fi
 
-# Smoke set: 1 canonical wast per proposal that exercises the
-# proposal-specific feature (NOT a base-spec re-export). These
-# anchor the wast2json + manifest pipeline; 10.T-2b expands.
+# Smoke set: per-proposal smoke set anchoring the wast2json +
+# manifest pipeline. memory64 expanded at 10.M-spec-corpus to
+# cover the full set of memory64-specific .wast files (suffix
+# `64`); other proposals still on the 1-wast smoke set
+# (10.R / 10.TC / 10.E / 10.G full-corpus expand lands per-row).
+# memory64.wast itself is excluded — uses non-standard
+# `(module definition ...)` syntax that wast2json rejects.
 declare -a SMOKE=(
     "memory64/address64"
+    "memory64/align64"
+    "memory64/load64"
+    "memory64/memory_grow64"
+    "memory64/memory_redundancy64"
+    "memory64/memory_trap64"
     "tail-call/return_call"
     "exception-handling/try_table"
     "gc/struct"
