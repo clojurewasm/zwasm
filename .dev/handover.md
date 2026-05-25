@@ -102,11 +102,16 @@
 - **10.E-codegen-3h = SHIPPED 2026-05-26** (`e246da18`):
   frame_bytes-aware SP-restore. 8 new tests.
 - **10.E-codegen-4 = SHIPPED 2026-05-26** (`f5524688`):
-  per-arch EH op_exception_handling skeletons. 6 files
-  (try_table / throw / throw_ref × 2 arches) declaring
-  ADR-0113 §A axes — try_table=fallthrough(false/1/false);
-  throw/throw_ref=terminator(true/0/false). 6 axisOf tests.
-  Emit stubs return UnsupportedOp pending 4b/4c bodies.
+  per-arch EH op_exception_handling skeletons. 6 files +
+  6 axisOf tests.
+- **10.E-N-4 = SHIPPED 2026-05-26** (`52b9bb67`):
+  c_api instantiate → interp Runtime.tag_param_counts wiring.
+  `instantiate.instantiateRuntime` now decodes the tag section
+  + resolves per-tag param count via types + assigns to
+  `rt.tag_param_counts`. 2 c_api unit tests verify the
+  production path via wasm_instance_new. Closes the 10.E-N-3
+  → c_api path that previously needed test-only Runtime
+  construction.
 - **Mac `zig build test-all`**: green (scope=unclear)。
 
 ## Phase 10 progress
@@ -120,35 +125,31 @@ ROADMAP §10 = 13-row task table。
     cross-module + spec corpus + regalloc terminator-class 残)
 - Pending: 10.E / 10.G / 10.P
 
-## Active task — 10.E-codegen-4b try_table emit body
+## Active task — 10.E-codegen-4b try_table emit body (EmitCtx integration)
 
-10.E-codegen-4 (`f5524688`) landed EH skeletons + axes. Next:
-try_table emit body per ADR-0114 D2. The try_table op should:
-- Decode the parsed catch_vec from the ZirInstr (catches_start /
-  catches_end into ZirFunc.eh_catch_entries per 10.E-3b parse).
-- Call ExceptionTable.Builder.add(...) per catch clause, with
-  pc_start = current emit position (= start of the inner block
-  body), pc_end populated later when the block end is emitted,
-  tag_idx + landing_pad_pc + CatchKind from the catch entry.
-- Emit ZERO JIT bytes (the inner block's body emits normally
-  via the existing `block` op recursion).
+10.E-N-4 closed the c_api tag wiring. Returning to 10.E-codegen-4b
+try_table emit body. Per ADR-0114 D2: decode catch_vec from
+ZirInstr → call ExceptionTable.Builder.add per catch clause →
+emit zero JIT bytes (inner block emits via existing `block`
+recursion). Needs EmitCtx access to a per-function
+ExceptionTable.Builder + pc_start/pc_end fixup mechanism. Mirrors
+how br_table / bounds_fixups thread fixup metadata through
+EmitCtx.
 
-Need: EmitCtx access to a per-function ExceptionTable.Builder
-(new field; goes into ctx.zig EmitCtx). Plus a way to record
-pc_start now and patch pc_end at try_table-close (= the
-matching `end` op emit). This mirrors how br_table /
-bounds_fixups thread fixup metadata through EmitCtx.
+Initial atom: add `exc_table_builder: ?*ExceptionTable.Builder`
+optional field to per-arch EmitCtx (arm64 + x86_64 ctx.zig).
+Default null; tests opt-in by setting the pointer. Future
+chunks populate via the runner.
 
 Refs: ADR-0114 D2, exception_table.zig Builder (landed),
 src/ir/lower.zig (catch_entries already populated by
 10.E-3b parse).
 
 **Next sub-chunk candidates (names only, NO predictions)**:
-- 10.E-codegen-4b — try_table emit body (active)
+- 10.E-codegen-4b — try_table emit body / EmitCtx integration (active)
 - 10.E-codegen-4c — throw / throw_ref emit body
 - 10.E-codegen-3i — assembly entry/exit glue per arch
 - 10.TC-3f/g/h — tail-call follow-ons (deferred)
-- 10.E-N-4 — c_api instantiate → interp Runtime tag_param_counts
 - 10.G-4 — struct ops (needs GC heap impl first)
 - 10.M-realworld — clang_wasm64 realworld fixture
 

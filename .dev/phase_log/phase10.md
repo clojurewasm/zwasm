@@ -617,6 +617,24 @@ Design source: ADR-0114 + ADR-0117 (cross-subsystem invariants).
 
 **SHA pointer**: backfilled at Phase 10 close.
 
+- **10.E-N-4** — c_api instantiate → Runtime.tag_param_counts
+  production wiring (`52b9bb67`). Closes the 10.E-N-3 →
+  c_api path. `instantiate.instantiateRuntime` now decodes
+  the tag section (via `sections.decodeTags`) + resolves
+  each tag's param count via `types.items[entry.typeidx].
+  params.len` + assigns to `rt.tag_param_counts`. Modules
+  without a tag section keep the default `&.{}`
+  (back-compat for every existing c_api test). The interp
+  throw / catch path (feature/exception_handling/exception.zig
+  + mvp.zig throwOp) now reads production-populated
+  `Runtime.tag_param_counts[tag_idx]` instead of test-only
+  manually-constructed Runtime state. 2 new c_api unit tests
+  in src/api/instance.zig route byte-level Wasm modules
+  through wasm_engine_new → wasm_module_new → wasm_instance_new
+  → instantiateRuntime, verifying tag-bearing + tag-free
+  modules end-to-end. Mac `test-all` GREEN; lint exit 0.
+  ADR-0014 §2.1, 10.E-N-3 mirror, Wasm 3.0 §3.3.10.7.
+
 - **10.E-codegen-4** — per-arch EH op_exception_handling
   skeletons (`f5524688`). Per ADR-0114 D2 + ADR-0113 §A/B:
   6 per-op files (3 ops × 2 arches) under
