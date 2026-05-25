@@ -28,12 +28,14 @@
 - **10.E-1 = SHIPPED** (`ffb56dd7`): tag section parse skeleton。
 - **10.E-2 = SHIPPED** (`390856f8` + `cec18589`): decodeTags +
   TagEntry + sections.zig FILE-SIZE-EXEMPT marker。
-- **10.G-2 = SHIPPED 2026-05-25** (`d5810162`): needs_gc_heap
-  parse-time predicate per ADR-0115 D2。`feature/gc/needs_heap_detector.zig`
-  with `detectNeedsGcHeap(module) bool`; byte-scans type-section
-  body for GC declaration tags (0x4E rec / 0x5E array / 0x5F
-  struct). 6 unit tests。Heap-top reftype byte detection (anyref /
-  eqref / i31ref / exnref) lands per future ADR-0115 D2 amendment。
+- **10.G-2 = SHIPPED** (`d5810162`): needs_gc_heap parse-time
+  predicate (byte-scan type section).
+- **10.E-3a = SHIPPED 2026-05-25** (`c2238c9a`): BlockKind.try_table
+  enum entry (slot 4) + validator labelType arm (end_type rule) +
+  enum-tag-stability test extended (block=0 / loop=1 / if_then=2 /
+  else_open=3 / try_table=4)。 Only switch-on-BlockKind in the
+  codebase was validator's labelType; no other dispatch sites
+  needed adjustment。0x1F opcode + catch-vec parse comes in 10.E-3b。
 - **Mac `zig build test`**: green。
 
 ## Phase 10 progress
@@ -69,16 +71,13 @@ row。
   heavy。
 
 **Phase 10 candidates** (parallelisable):
-- **10.E-3 NEXT (BlockKind.try_table foundation)**: add
-  `BlockKind.try_table` enum entry to zir.zig + update all
-  switch-on-BlockKind dispatch sites (validator opBlock-class,
-  lower openBlock/closeBlock, debug/format paths)。Foundation
-  for the try_table control structure。Tests: BlockKind enum
-  tag stability test + a no-op smoke that emits/closes a
-  try_table-kind frame。Multi-file structural change; bounded
-  scope per chunk。
-- 10.E-3b: 0x1F dispatch in lower.zig + validator.zig (read
-  blocktype + vec(catch) + emit `.try_table` instruction)
+- **10.E-3b NEXT**: 0x1F opcode handling in lower.zig +
+  validator.zig — read blocktype + vec(catch); emit `.try_table`
+  ZirOp with catch metadata。Catch clause variants per Wasm 3.0
+  EH §4.5: 0x00 catch / 0x01 catch_ref / 0x02 catch_all /
+  0x03 catch_all_ref (tag_idx + label_idx encodings)。Validator
+  pushes a try_table frame (kind=.try_table); body validates
+  like block。Interp body / unwinder later (10.E-5)。
 - 10.E-4: throw / throw_ref opcodes — parse + validator +
   Trap.UncaughtException variant (= no try_table on stack)
 - 10.E-5: try_table + throw interp (frame unwinding)
