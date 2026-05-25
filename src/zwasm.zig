@@ -45,6 +45,8 @@ pub const Engine = @import("zwasm/engine.zig").Engine;
 pub const Module = @import("zwasm/module.zig").Module;
 pub const Instance = @import("zwasm/instance.zig").Instance;
 pub const Trap = @import("zwasm/instance.zig").Trap;
+pub const TypedFunc = @import("zwasm/typed_func.zig").TypedFunc;
+pub const Memory = @import("zwasm/memory.zig").Memory;
 
 /// Zig-idiomatic tagged-union mirror of `wasm_val_t`.
 /// Wasm spec §4.2.2 — value representation at the host boundary
@@ -492,6 +494,104 @@ test "zwasm facade T1.4: invoke surfaces error.DivByZero (no Trap catchall)" {
     var results: [1]Value = .{Value.fromI32(0)};
     const args: [2]Value = .{ Value.fromI32(1), Value.fromI32(0) };
     try std.testing.expectError(error.DivByZero, inst.invoke("div", &args, &results));
+}
+
+// T1.5 fixture — `(module (func (export "add") (param i32 i32) (result i32)
+//   local.get 0 local.get 1 i32.add))`. i32.add opcode = 0x6A.
+const facade_add_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x07, 0x01, 0x60, 0x02, 0x7F, 0x7F, 0x01, 0x7F, // type (i32,i32)->(i32)
+    0x03, 0x02, 0x01, 0x00,
+    0x07, 0x07, 0x01, 0x03, 0x61, 0x64, 0x64, 0x00, 0x00, // export "add" func 0
+    0x0a, 0x09, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x01,
+    0x6A, 0x0B,
+};
+
+test "zwasm facade T1.5: TypedFunc happy-path — fn(i32,i32) i32" {
+    var eng = try Engine.init(std.testing.allocator, .{});
+    defer eng.deinit();
+    var mod = try eng.compile(&facade_add_wasm);
+    defer mod.deinit();
+    var inst = try mod.instantiate(.{});
+    defer inst.deinit();
+
+    const add = inst.typedFunc(fn (i32, i32) i32, "add");
+    try std.testing.expectEqual(@as(i32, 5), try add.call(.{ 2, 3 }));
+}
+
+// T1.6 fixture — `(module (func (export "swap") (param i32 i32) (result i32 i32)
+//   local.get 1 local.get 0))`. Multi-result Wasm 2.0 — type vec(result)=2.
+const facade_swap_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    // type: (i32,i32) -> (i32,i32) — body = 8 bytes
+    0x01, 0x08, 0x01, 0x60, 0x02, 0x7F, 0x7F, 0x02,
+    0x7F, 0x7F, 0x03, 0x02, 0x01, 0x00,
+    0x07, 0x08, 0x01, 0x04, 0x73, 0x77, 0x61, 0x70, 0x00, 0x00, // "swap" func 0
+    // code: size=8, entry_size=6 (locals 0 + 2 local.get + end = 6)
+    0x0a, 0x08, 0x01, 0x06, 0x00, 0x20, 0x01, 0x20, 0x00, 0x0B,
+};
+
+test "zwasm facade T1.6: TypedFunc multi-result via anonymous struct" {
+    var eng = try Engine.init(std.testing.allocator, .{});
+    defer eng.deinit();
+    var mod = try eng.compile(&facade_swap_wasm);
+    defer mod.deinit();
+    var inst = try mod.instantiate(.{});
+    defer inst.deinit();
+
+    const swap = inst.typedFunc(fn (i32, i32) struct { i32, i32 }, "swap");
+    const r = try swap.call(.{ 7, 13 });
+    try std.testing.expectEqual(@as(i32, 13), r[0]);
+    try std.testing.expectEqual(@as(i32, 7), r[1]);
+}
+
+// T1.7 fixture — `(module (memory (export "mem") 1))`. One page memory.
+const facade_mem_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x05, 0x03, 0x01, 0x00, 0x01, // memory: 1 mem, no max, min=1
+    0x07, 0x07, 0x01, 0x03, 0x6D, 0x65, 0x6D, 0x02, 0x00, // export "mem" memory 0
+};
+
+test "zwasm facade T1.7: Memory write+read i32 round-trip" {
+    var eng = try Engine.init(std.testing.allocator, .{});
+    defer eng.deinit();
+    var mod = try eng.compile(&facade_mem_wasm);
+    defer mod.deinit();
+    var inst = try mod.instantiate(.{});
+    defer inst.deinit();
+
+    const mem = inst.memory() orelse return error.TestUnexpectedResult;
+    try std.testing.expect(mem.size() >= 1);
+    try mem.write(0x100, @as(i32, 42));
+    try std.testing.expectEqual(@as(i32, 42), try mem.read(i32, 0x100));
+}
+
+// T1.8 fixture — returns the f64 quiet-NaN bit pattern
+// 0x7FF8_0000_0000_0001 verbatim (no canonicalisation). Bytes
+// LE: 01 00 00 00 00 00 F8 7F.
+const facade_qnan_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7C, // type () -> f64
+    0x03, 0x02, 0x01, 0x00,
+    0x07, 0x08, 0x01, 0x04, 0x71, 0x6E, 0x61, 0x6E, 0x00, 0x00, // "qnan" func 0
+    // code: id 0x0a, size 0x0d, count 1, entry_size 0x0b, locals 0,
+    //   f64.const (0x44) + 8 bytes payload, end (0x0B)
+    0x0a, 0x0d, 0x01, 0x0b, 0x00, 0x44, 0x01, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0xF8, 0x7F, 0x0B,
+};
+
+test "zwasm facade T1.8: NaN-boxing — f64 quiet NaN bits preserved" {
+    var eng = try Engine.init(std.testing.allocator, .{});
+    defer eng.deinit();
+    var mod = try eng.compile(&facade_qnan_wasm);
+    defer mod.deinit();
+    var inst = try mod.instantiate(.{});
+    defer inst.deinit();
+
+    const qnan = inst.typedFunc(fn () f64, "qnan");
+    const got = try qnan.call(.{});
+    const got_bits: u64 = @bitCast(got);
+    try std.testing.expectEqual(@as(u64, 0x7FF8_0000_0000_0001), got_bits);
 }
 
 test "zwasm facade T1.4-types: Instance.invoke return type carries all 12 Trap variants" {

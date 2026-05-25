@@ -14,12 +14,13 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const _api_instance = @import("../api/instance.zig");
-const _sections = @import("../parse/sections.zig");
 const _runtime_value = @import("../runtime/value.zig");
 const _runtime_trap = @import("../runtime/trap.zig");
 const _dispatch = @import("../interp/dispatch.zig");
 const _zir = @import("../ir/zir.zig");
 
+const _memory = @import("memory.zig");
+const _typed_func = @import("typed_func.zig");
 const _zwasm = @import("../zwasm.zig");
 
 /// Wasm spec §4.4 — runtime trap conditions. Re-exported from
@@ -32,6 +33,26 @@ pub const Instance = struct {
 
     pub fn deinit(self: *Instance) void {
         _api_instance.wasm_instance_delete(self.handle);
+    }
+
+    /// Wasm spec §4.5.3 — comptime-typed export-function wrapper.
+    /// `Sig` must be a Zig function type whose param + result
+    /// types map to Wasm scalars (i32/i64/f32/f64); multi-result
+    /// signatures use an anonymous-struct return type
+    /// (`fn(i32, i32) struct { i32, i32 }`). Lookup of the export
+    /// itself is deferred to `.call()` so the typed wrapper is a
+    /// cheap value (no syscall on construction).
+    pub fn typedFunc(self: *Instance, comptime Sig: type, name: []const u8) _typed_func.TypedFunc(Sig) {
+        return .{ .instance = self, .export_name = name };
+    }
+
+    /// Wasm spec §4.2.8 — first memory instance, if any. Wasm 1.0
+    /// allows at most one per module; v0.1 of the facade returns
+    /// the implicit memory0 view.
+    pub fn memory(self: *Instance) ?_memory.Memory {
+        const rt = self.handle.runtime orelse return null;
+        if (rt.memory.len == 0) return null;
+        return .{ .rt = rt };
     }
 
     /// Binding-shape errors (mismatched export name / kind / arity)
