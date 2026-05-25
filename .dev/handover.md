@@ -7,10 +7,10 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24)。
-- **Last commit**: `1e381c52` — 10.T-3 gc_stress + eh_frequency
-  runner skeletons (matrix shapes per ADR-0114 + ADR-0115/0116;
-  impl-body activates with 10.G / 10.E)。10.D 7/7 ADRs drafted
-  (Accept pending)。
+- **Last commit**: `3fab618b` — 10.T-4 bless workflow skeleton
+  (scripts/bless_emit_tests.sh + zig build bless; auto-bless impl
+  deferred per design plan §4.7)。10.D 7/7 ADRs drafted (Accept
+  pending)。
 - **Phase 9 close invariants gate (mac-host)**: **18/18 PASS** 維持。
 - **Mac `zig build test`**: 1827/1841 passed (substrate baseline);
   ubuntu test-all 10.Z verified GREEN at `b6e07451`。
@@ -42,11 +42,12 @@ Accept gate — only impl rows are). Sub-chunks in order:
   smoke bake (4/5).
 - 10.T-2b ✓ `9748e805`: wasm-3.0 runner skeleton.
 - 10.T-3 ✓ `1e381c52`: gc_stress + eh_frequency skeletons.
-- **10.T-4 NEXT**: Phase 9 `emit_test_*.zig` baseline 採取 +
-  `ZWASM_TEST_BLESS=1` bless workflow (per design plan §4.7;
-  current ~50-op emit_test golden snapshots stay as Phase 10
-  byte-identical baseline; Z chunk verified pre-commit). Then
-  10.T-5 realworld/p10/ skeleton (9 fixture / 5 toolchain).
+- 10.T-4 ✓ `3fab618b`: bless workflow skeleton (`zig build bless`).
+- **10.T-5 NEXT**: `test/realworld/p10/` skeleton (9 fixture /
+  5 toolchain — Dart / wasm_of_ocaml / Hoot / emscripten_eh /
+  clang_musttail / clang_wasm64 directories + manifest stubs;
+  fixture artifacts land cycle-by-cycle as toolchains are
+  exercised at impl rows 10.M / 10.TC / 10.E / 10.G).
 - 10.T-3: `gc_stress_runner.zig` + `eh_frequency_runner.zig`
   skeletons (impl after 10.G / 10.E land).
 - 10.T-4: Phase 9 `emit_test_*.zig` baseline 採取 +
