@@ -85,10 +85,16 @@
   arm64/frame_chain.zig — AAPCS64 frame-prefix read. 4 unit
   tests.
 - **10.E-codegen-3b = SHIPPED 2026-05-26** (`dcffaba4`):
-  x86_64/frame_chain.zig — SysV/Win64 frame-prefix read
-  (`[RBP, #0]` = saved RBP, `[RBP, #8]` = saved RIP). Same
-  `loadFrame(fp) ?RawFrameLink` shape; same `fp == 0`
-  sentinel; same INVARIANT. 4 unit tests.
+  x86_64/frame_chain.zig — SysV/Win64 frame-prefix read.
+  4 unit tests.
+- **10.E-codegen-3c = SHIPPED 2026-05-26** (`a7b22ec2`):
+  shared/frame_chain_adapter.zig — bridges per-arch
+  frame_chain.loadFrame → unwind.FrameChainLoader via a
+  NormalizePcFn callback (absolute ret-addr → module-relative
+  PC). Comptime arch switch resolves caller_lr vs caller_rip
+  field name. 5 unit tests including end-to-end synthetic walk:
+  ExceptionTable + 2-frame chain + walk → handler hit. End-to-end
+  EH path is now structurally testable.
 - **Mac `zig build test-all`**: green (scope=unclear)。
 
 ## Phase 10 progress
@@ -102,29 +108,28 @@ ROADMAP §10 = 13-row task table。
     cross-module + spec corpus + regalloc terminator-class 残)
 - Pending: 10.E / 10.G / 10.P
 
-## Active task — 10.E-codegen-3c FrameChainLoader adapter (arm64 + x86_64)
+## Active task — 10.E-codegen-3d code_map.zig PC normalizer
 
-Both per-arch `frame_chain.zig` files landed (3a + 3b). Next: a
-per-arch adapter that bridges `frame_chain.loadFrame(fp)` to the
-shared `unwind.FrameChainLoader` interface. The adapter holds the
-PC-normalization callback (saved-LR / saved-RIP → module-relative
-PC via the active function's code-map). Initial atom: just the
-adapter struct + a trivial identity-PC-normalization variant for
-test integration, then a synthetic-frame integration test that
-walks `frame_chain` → `unwind.walk` → handler hit end-to-end.
+10.E-codegen-3c (`a7b22ec2`) landed the adapter with a callback
+slot for PC normalization. Next: the real per-Instance code-map
+that translates absolute return-addresses (saved LR/RIP) →
+module-relative PC. Per-function entry: `{ start_addr, len,
+func_idx }` records, sorted by `start_addr`; binary-search by
+ret_addr to find the containing function, then `ret_addr -
+start_addr` is the relative PC. Lives at
+`src/engine/codegen/shared/code_map.zig`.
 
-The PC normalization (absolute LR/RIP → relative pc lookup via a
-per-instance code-map) is a separate concern that lands when the
-JIT-side throw site identifier wiring goes in (post-trampoline);
-identity-normalization for now lets the adapter + walk integration
-land observable.
+This decouples the EH unwinder from the trampoline's
+arch-specific concerns and gives the adapter a real normalizer
+to plug into via NormalizePcFn.
 
-Refs: ADR-0114 D5/D6, unwind.zig (landed), frame_chain.zig per
-arch (landed).
+Refs: ADR-0114 D5/D6, shared/frame_chain_adapter.zig (landed),
+existing JIT compile / linker layer (function start addr is
+known at emit time).
 
 **Next sub-chunk candidates (names only, NO predictions)**:
-- 10.E-codegen-3c — FrameChainLoader adapter (active above)
-- 10.E-codegen-3d — zwasm_throw trampoline assembly stub per arch
+- 10.E-codegen-3d — shared/code_map.zig PC normalizer (active above)
+- 10.E-codegen-3e — zwasm_throw trampoline assembly stub per arch
 - 10.E-codegen-4 — per-arch op_exception_handling.zig
 - 10.TC-3f/g/h — tail-call follow-ons (deferred)
 - 10.E-N-4 — c_api instantiate → interp Runtime tag_param_counts

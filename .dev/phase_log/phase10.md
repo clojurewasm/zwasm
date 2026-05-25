@@ -617,6 +617,28 @@ Design source: ADR-0114 + ADR-0117 (cross-subsystem invariants).
 
 **SHA pointer**: backfilled at Phase 10 close.
 
+- **10.E-codegen-3c** — frame_chain_adapter.zig per-arch
+  bridge (`a7b22ec2`). Per ADR-0114 D5/D6: bridges the
+  per-arch `frame_chain.loadFrame` raw reader to the
+  platform-agnostic `unwind.FrameChainLoader` interface via
+  a `NormalizePcFn` callback (absolute saved LR/RIP →
+  module-relative PC for `ExceptionTable.lookup`). Comptime
+  switch on `builtin.target.cpu.arch` resolves the field name
+  difference (caller_lr on AAPCS64 / caller_rip on SysV/Win64)
+  without renaming landed per-arch files. Mirrors the
+  `shared/thunk.zig` + `shared/frame_teardown.zig`
+  arch-dispatch pattern. The trampoline (10.E-codegen-3e
+  follow-on) supplies the real PC normalizer via the
+  per-Instance code-map (10.E-codegen-3d follow-on). 5 unit
+  tests: basic load + normalize; fp==0 sentinel; end-to-end
+  walk with synthetic 2-frame chain hitting catch_ handler;
+  end-to-end walk with empty table → uncaught; probe verifies
+  normalizer receives raw absolute address (no pre-mutation).
+  End-to-end EH unwind path is now structurally testable —
+  only the assembly-stub entry/exit glue + JIT-emit
+  integration remain. Mac `test-all` GREEN; lint exit 0.
+  ADR-0114 D5/D6.
+
 - **10.E-codegen-3b** — x86_64 frame_chain.zig SysV/Win64
   frame-prefix read (`dcffaba4`). Mirror of 10.E-codegen-3a's
   arm64 version. `loadFrame(fp) ?RawFrameLink` reads the
