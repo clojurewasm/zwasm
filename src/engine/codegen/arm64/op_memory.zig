@@ -36,6 +36,7 @@
 //! Zone 2 (`src/engine/codegen/arm64/`).
 
 const std = @import("std");
+const build_options = @import("build_options");
 
 const zir = @import("../../../ir/zir.zig");
 const inst = @import("inst.zig");
@@ -76,6 +77,17 @@ const sx12: inst.Xn = abi.allocatable_caller_saved_scratch_gprs[3];
 pub fn emitMemOp(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const memarg = zir.MemArgExtra.unpack(ins.extra);
     std.debug.assert(memarg.memidx == 0);
+    // ADR-0111 D4 — 2-stage gate (comptime + runtime). When the
+    // build is v2.0 the i64 arm is comptime-pruned (DCE-confirmed
+    // by the v0.2 `-Dwasm=v2_0` symbol-absence gate). When v3.0,
+    // the runtime check selects the i32 fast-path (byte-identical
+    // to pre-10.M-4b emit, per emit_test_memory.zig assertions) or
+    // the i64 wrap-check path.
+    if (comptime @intFromEnum(build_options.wasm_level) >= @intFromEnum(@TypeOf(build_options.wasm_level).v3_0)) {
+        if (ctx.memory0_idx_type == .i64) {
+            return emitMemOpI64(ctx, ins);
+        }
+    }
     const is_store = switch (ins.op) {
         .@"i32.store",
         .@"i32.store8",
@@ -225,6 +237,175 @@ pub fn emitMemOp(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         }
         // D-034 spill-aware: FP result def uses fpDefSpilled (V29
         // stage if spilled); GPR result def stages through X16.
+        const wd: inst.Xn = if (is_fp_value)
+            try gpr.fpDefSpilled(ctx.alloc, result, 0)
+        else
+            try gpr.gprDefSpilled(ctx.alloc, result, 0);
+        const word: u32 = switch (ins.op) {
+            .@"i32.load" => inst.encLdrWReg(wd, 28, ip0),
+            .@"i32.load8_s" => inst.encLdrsbWReg(wd, 28, ip0),
+            .@"i32.load8_u" => inst.encLdrbWReg(wd, 28, ip0),
+            .@"i32.load16_s" => inst.encLdrshWReg(wd, 28, ip0),
+            .@"i32.load16_u" => inst.encLdrhWReg(wd, 28, ip0),
+            .@"i64.load" => inst.encLdrXReg(wd, 28, ip0),
+            .@"i64.load8_s" => inst.encLdrsbXReg(wd, 28, ip0),
+            .@"i64.load8_u" => inst.encLdrbWReg(wd, 28, ip0),
+            .@"i64.load16_s" => inst.encLdrshXReg(wd, 28, ip0),
+            .@"i64.load16_u" => inst.encLdrhWReg(wd, 28, ip0),
+            .@"i64.load32_s" => inst.encLdrswXReg(wd, 28, ip0),
+            .@"i64.load32_u" => inst.encLdrWReg(wd, 28, ip0),
+            .@"f32.load" => inst.encLdrSReg(wd, 28, ip0),
+            .@"f64.load" => inst.encLdrDReg(wd, 28, ip0),
+            else => unreachable,
+        };
+        try gpr.writeU32(ctx.allocator, ctx.buf, word);
+        if (is_fp_value) {
+            try gpr.fpStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result, 0);
+        } else {
+            try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result, 0);
+        }
+        try ctx.pushed_vregs.append(ctx.allocator, result);
+    }
+}
+
+/// Wasm 3.0 §5.4.7 memory64 (memory.load/store with i64 idx_type).
+/// Differs from `emitMemOp`'s i32 fast path in:
+///   1. Address load uses X-form `encOrrReg` (full 64-bit) instead
+///      of W-form `encOrrRegW` (zero-extended u32).
+///   2. Offset materialise extends to 4 lanes (MOVZ + 3 MOVK)
+///      when the offset spans bits 32..63 — needed because Wasm 3.0
+///      memarg offset is u64.
+/// All other shapes (per-op access_size, store value pop, bounds
+/// check via X27 mem_limit, final LDR/STR via [X28, X16]) are
+/// identical to the i32 path — the existing encoders are already
+/// X-form. mem_limit (X27) is u64; the validator caps i64 memory
+/// pages at 2^32 per ADR-0111 / engine/compile.zig so `ea + access_size`
+/// cannot overflow u64. Per ADR-0111 D4.
+///
+/// This function is NOT exposed via `pub` — only `emitMemOp`'s
+/// gate calls into it.
+fn emitMemOpI64(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
+    const is_store = switch (ins.op) {
+        .@"i32.store",
+        .@"i32.store8",
+        .@"i32.store16",
+        .@"i64.store",
+        .@"i64.store8",
+        .@"i64.store16",
+        .@"i64.store32",
+        .@"f32.store",
+        .@"f64.store",
+        => true,
+        else => false,
+    };
+    const is_fp_value = switch (ins.op) {
+        .@"f32.load", .@"f64.load", .@"f32.store", .@"f64.store" => true,
+        else => false,
+    };
+    const ip0: inst.Xn = 16;
+    const ip1: inst.Xn = 17;
+    const offset_imm = ins.payload;
+    const access_size: u12 = switch (ins.op) {
+        .@"i32.load8_s",
+        .@"i32.load8_u",
+        .@"i32.store8",
+        .@"i64.load8_s",
+        .@"i64.load8_u",
+        .@"i64.store8",
+        => 1,
+        .@"i32.load16_s",
+        .@"i32.load16_u",
+        .@"i32.store16",
+        .@"i64.load16_s",
+        .@"i64.load16_u",
+        .@"i64.store16",
+        => 2,
+        .@"i32.load",
+        .@"i32.store",
+        .@"i64.load32_s",
+        .@"i64.load32_u",
+        .@"i64.store32",
+        .@"f32.load",
+        .@"f32.store",
+        => 4,
+        .@"i64.load",
+        .@"i64.store",
+        .@"f64.load",
+        .@"f64.store",
+        => 8,
+        else => unreachable,
+    };
+
+    var addr_vreg: u32 = 0;
+    var val_vreg: u32 = 0;
+    if (is_store) {
+        if (ctx.pushed_vregs.items.len < 2) return Error.AllocationMissing;
+        val_vreg = ctx.pushed_vregs.pop().?;
+        addr_vreg = ctx.pushed_vregs.pop().?;
+    } else {
+        if (ctx.pushed_vregs.items.len < 1) return Error.AllocationMissing;
+        addr_vreg = ctx.pushed_vregs.pop().?;
+    }
+    const w_addr = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, addr_vreg, 0);
+
+    // i64 ea = idx (X-form, full 64-bit) + offset. `encOrrReg`
+    // copies all 64 bits (vs `encOrrRegW` which would truncate to
+    // u32).
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(ip0, 31, w_addr));
+    if (offset_imm != 0) {
+        if (offset_imm <= 0xFFFFFF) {
+            const off_high: u12 = @intCast((offset_imm >> 12) & 0xFFF);
+            const off_low: u12 = @intCast(offset_imm & 0xFFF);
+            if (off_high != 0) {
+                try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12Lsl12(ip0, ip0, off_high));
+            }
+            if (off_low != 0) {
+                try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(ip0, ip0, off_low));
+            }
+        } else {
+            const lane0: u16 = @truncate(offset_imm & 0xFFFF);
+            const lane1: u16 = @truncate((offset_imm >> 16) & 0xFFFF);
+            const lane2: u16 = @truncate((offset_imm >> 32) & 0xFFFF);
+            const lane3: u16 = @truncate((offset_imm >> 48) & 0xFFFF);
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(ip1, lane0));
+            if (lane1 != 0) try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(ip1, lane1, 1));
+            if (lane2 != 0) try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(ip1, lane2, 2));
+            if (lane3 != 0) try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(ip1, lane3, 3));
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(ip0, ip0, ip1));
+        }
+    }
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(ip1, ip0, access_size));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(ip1, 27));
+    const fixup_at: u32 = @intCast(ctx.buf.items.len);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hi, 0));
+    try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+    trace.writeBounds(ctx.func.func_idx, fixup_at);
+
+    if (is_store) {
+        const wv: inst.Xn = if (is_fp_value)
+            try gpr.fpLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, val_vreg, 1)
+        else
+            try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, val_vreg, 1);
+        const word: u32 = switch (ins.op) {
+            .@"i32.store" => inst.encStrWReg(wv, 28, ip0),
+            .@"i32.store8" => inst.encStrbWReg(wv, 28, ip0),
+            .@"i32.store16" => inst.encStrhWReg(wv, 28, ip0),
+            .@"i64.store" => inst.encStrXReg(wv, 28, ip0),
+            .@"i64.store8" => inst.encStrbWReg(wv, 28, ip0),
+            .@"i64.store16" => inst.encStrhWReg(wv, 28, ip0),
+            .@"i64.store32" => inst.encStrWReg(wv, 28, ip0),
+            .@"f32.store" => inst.encStrSReg(wv, 28, ip0),
+            .@"f64.store" => inst.encStrDReg(wv, 28, ip0),
+            else => unreachable,
+        };
+        try gpr.writeU32(ctx.allocator, ctx.buf, word);
+    } else {
+        const result = ctx.next_vreg.*;
+        ctx.next_vreg.* += 1;
+        if (result >= ctx.alloc.slots.len) {
+            std.debug.print("arm64/op_memory: i64 load SlotOverflow func[{d}] op={s} vreg={d} >= slots.len={d}\n", .{ ctx.func.func_idx, @tagName(ins.op), result, ctx.alloc.slots.len });
+            return Error.SlotOverflow;
+        }
         const wd: inst.Xn = if (is_fp_value)
             try gpr.fpDefSpilled(ctx.alloc, result, 0)
         else

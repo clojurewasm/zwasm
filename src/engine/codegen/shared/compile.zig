@@ -119,6 +119,11 @@ pub fn compileOne(
     /// fixtures); ALL functions in one module must share the
     /// same ABI (per ADR-0106 §"The fundamental constraint").
     result_abi: @import("result_abi.zig").ResultAbi,
+    /// ADR-0111 D4 — memory 0's idx_type. `.i32` (legacy
+    /// ≤ 4 GiB; byte-identical fast path) or `.i64` (memory64
+    /// 64-bit offset materialise + wrap-check). Per-module
+    /// constant; codegen branches on it inside emitMemOp.
+    memory0_idx_type: @import("../../../parse/sections.zig").MemoryEntry.IdxType,
 ) Error!FuncResult {
     var func = ZirFunc.init(func_idx, sig, locals);
     errdefer func.deinit(allocator);
@@ -268,7 +273,7 @@ pub fn compileOne(
     // a local `var`; the mutation is scoped to this function.
     alloc.result_abi = result_abi;
     trace.passEnter(func_idx, .emit);
-    const out = try emit.compile(allocator, &func, alloc, func_sigs, module_types, num_imports, globals_offsets, globals_valtypes);
+    const out = try emit.compile(allocator, &func, alloc, func_sigs, module_types, num_imports, globals_offsets, globals_valtypes, memory0_idx_type);
     errdefer emit.deinit(allocator, out);
     {
         const applied: u32 = @intCast(func.instrs.items.len);
@@ -310,7 +315,7 @@ test "compileOne: pass_diagnostics records all 6 passes when trace enabled" {
     // Pure instruction bytes: `i32.const 7` (0x41 0x07) + `end` (0x0B).
     const body = [_]u8{ 0x41, 0x07, 0x0B };
     const sig: FuncType = .{ .params = &.{}, .results = &.{.i32} };
-    var r = try compileOne(testing.allocator, 42, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{}, .register_write);
+    var r = try compileOne(testing.allocator, 42, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{}, .register_write, .i32);
     defer deinitFuncResult(testing.allocator, &r);
 
     // Per-function slot populated with 6 records, in pipeline order.
@@ -347,7 +352,7 @@ test "compileOne: tiny straight-line module — (func (result i32) i32.const 7 e
     const body = [_]u8{ 0x41, 0x07, 0x0B };
     const sig: FuncType = .{ .params = &.{}, .results = &.{.i32} };
 
-    var r = try compileOne(testing.allocator, 0, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{}, .register_write);
+    var r = try compileOne(testing.allocator, 0, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{}, .register_write, .i32);
     defer deinitFuncResult(testing.allocator, &r);
 
     const bodies = [_]linker.FuncBody{

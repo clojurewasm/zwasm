@@ -749,14 +749,28 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
     // (load/store/size/grow/fill/copy/init) in function bodies
     // when the module has no memory.
     var validator_memory_count: u32 = 0;
+    // ADR-0111 D4 — memory 0's idx_type. Threaded into per-func
+    // emit so codegen can select i32 fast-path vs i64 wrap-check.
+    // Imports take precedence (memidx 0 is the first imported
+    // memory if any); otherwise the first defined memory.
+    var memory0_idx_type: sections.MemoryEntry.IdxType = .i32;
+    var memory0_idx_type_known = false;
     if (imports_buf) |ib| {
         for (ib.items) |imp| if (imp.kind == .memory) {
+            if (!memory0_idx_type_known) {
+                memory0_idx_type = imp.payload.memory.idx_type;
+                memory0_idx_type_known = true;
+            }
             validator_memory_count += 1;
         };
     }
     if (module.find(.memory)) |ms| {
         var ms_buf = try sections.decodeMemory(a, ms.body);
         defer ms_buf.deinit();
+        if (!memory0_idx_type_known and ms_buf.items.len > 0) {
+            memory0_idx_type = ms_buf.items[0].idx_type;
+            memory0_idx_type_known = true;
+        }
         validator_memory_count += @intCast(ms_buf.items.len);
     }
 
@@ -866,6 +880,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             globals_valtypes,
             select_types.items,
             .register_write,
+            memory0_idx_type,
         ) catch |err| {
             std.debug.print("compileWasm: func[{d}] params={d} results={d} → {s}\n", .{
                 wasm_idx,

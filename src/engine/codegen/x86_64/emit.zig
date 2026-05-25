@@ -43,6 +43,7 @@
 const std = @import("std");
 
 const zir = @import("../../../ir/zir.zig");
+const sections = @import("../../../parse/sections.zig");
 const dispatch_collector = @import("../dispatch_collector.zig");
 const regalloc = @import("../shared/regalloc.zig");
 const inst = @import("inst.zig");
@@ -123,7 +124,9 @@ pub fn compile(
     num_imports: u32,
     globals_offsets: []const u32,
     globals_valtypes: []const zir.ValType,
+    memory0_idx_type: sections.MemoryEntry.IdxType,
 ) Error!EmitOutput {
+    _ = memory0_idx_type; // 10.M-4c: x86_64 i64 wrap-check pending; parameter accepted for cross-arch symmetry.
     if (alloc.slots.len != (func.liveness orelse return Error.AllocationMissing).ranges.len) {
         return Error.AllocationMissing;
     }

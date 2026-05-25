@@ -43,6 +43,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const zir = @import("../../../ir/zir.zig");
+const sections = @import("../../../parse/sections.zig");
 const dispatch_collector = @import("../dispatch_collector.zig");
 const inst = @import("inst.zig");
 const inst_fp = @import("inst_fp.zig");
@@ -129,6 +130,7 @@ pub fn compile(
     num_imports: u32,
     globals_offsets: []const u32,
     globals_valtypes: []const zir.ValType,
+    memory0_idx_type: sections.MemoryEntry.IdxType,
 ) Error!EmitOutput {
     if (alloc.slots.len != (func.liveness orelse return Error.AllocationMissing).ranges.len) {
         return Error.AllocationMissing;
@@ -642,6 +644,7 @@ pub fn compile(
         .num_imports = num_imports,
         .globals_offsets = globals_offsets,
         .globals_valtypes = globals_valtypes,
+        .memory0_idx_type = memory0_idx_type,
     };
 
     // §9.7 / 7.5-emit-deadcode: track polymorphic-stack dead

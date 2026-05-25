@@ -20,6 +20,7 @@
 const std = @import("std");
 
 const zir = @import("../../../ir/zir.zig");
+const sections = @import("../../../parse/sections.zig");
 const regalloc = @import("../shared/regalloc.zig");
 const label_mod = @import("label.zig");
 
@@ -175,6 +176,17 @@ pub const EmitCtx = struct {
     /// the i32 emit shape with `idx*8` byte offset.
     globals_offsets: []const u32,
     globals_valtypes: []const zir.ValType,
+    /// Memory 0's address-space discriminator (Wasm 3.0 §5.4.4
+    /// memory64 proposal; ADR-0111 D2/D4). `.i32` for legacy
+    /// (≤ 4 GiB) modules — the byte-identical fast path; `.i64`
+    /// for memory64 modules — triggers the 64-bit offset
+    /// materialise + wrap-check emit shape in `op_memory.zig::
+    /// emitMemOp`. Multi-memory (`memories[memidx]` for memidx > 0)
+    /// is rejected at runtime instantiate today; codegen only sees
+    /// memory 0 per the `MemArgExtra.memidx == 0` assert in 10.M-4a.
+    /// Default `.i32` keeps the 36 existing compile() call sites
+    /// behaviour-preserving when they pass struct-literal default.
+    memory0_idx_type: sections.MemoryEntry.IdxType = .i32,
 
     /// Pop two operands + allocate a result vreg. Shared header
     /// for every binary op-handler. Returns the lhs / rhs / result
