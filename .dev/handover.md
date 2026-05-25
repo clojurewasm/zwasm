@@ -127,66 +127,56 @@ ROADMAP §10 = 13-row task table。
     cross-module + spec corpus + regalloc terminator-class 残)
 - Pending: 10.E / 10.G / 10.P
 
-## Active task — bucket-3-stop candidate; integration plan landed
+## Active chunk — 10.E-codegen IT-1+IT-2 bundle (next continuous session)
 
 Phase 10 EH-on-JIT integration plan landed at `803cffe2`
-(`.dev/phase10_eh_integration_plan.md`). The doc consolidates
-the 13-cycle foundation chain into 6 integration tasks (IT-1..6)
-with concrete call sites + acceptance criteria + sequencing.
-Future implementer (user collab or multi-cycle autonomous
-resume) can pick up at IT-1 without re-deriving design.
+(`.dev/phase10_eh_integration_plan.md`) — 6 integration tasks
+(IT-1..6) with concrete call sites + acceptance + sequencing.
 
-This is the natural pause for the autonomous loop. Remaining
-ROADMAP §10 work all needs user-paced multi-cycle integration:
-- 10.E (EH integration) — covered by phase10_eh_integration_plan.md
-- 10.TC (tail-call codegen integration) — same chain-level concern
-- 10.G-4 (struct ops) — blocked-by GC heap impl
-- 10.M-realworld — toolchain-blocked
-- 10.P (Phase 10 close gate) — user-touchpoint by construction
+Next continuous session picks up the **IT-1 + IT-2 bundle**
+(per lesson `e62db476` — N≥5 atoms without behavior signal
+triggers chain-level pivot; the integration cycle IS the
+pivot, but it needs N-cycle continuity that survives session
+boundaries, not single-cycle atom rhythm):
 
-**Bucket-3 candidate**: autonomous prep paths walked (all 7 P10
-ADRs enriched + integration plan doc landed + lesson recorded).
-The next forward step structurally needs the user.
+1. Wire `arm64/ops/wasm_3_0/try_table.zig` +
+   `x86_64/ops/wasm_3_0/try_table.zig` into
+   `dispatch_collector::collected_{arm64,x86_64_ctx}_ops`
+   (currently axisOf-only).
+2. Add ExceptionTable.Builder allocation + try_table-presence
+   scan in `arm64/emit.zig::compile()` +
+   `x86_64/emit.zig::compile()`; populate
+   `EmitCtx.exception_table_builder`.
+3. Implement try_table emit body: iterate
+   `func.eh_catch_entries[ins.catches_start..ins.catches_end]`
+   → `Builder.add(HandlerEntry{ pc_start, pc_end (fixup),
+   landing_pad_pc (label-resolved), tag_idx, kind })`.
+4. pc_end fixup deferred via `bounds_fixups`-shaped placeholder
+   list patched at the matching `end` op (mirrors
+   `return_fixups` shape).
+5. Unit test on each arch: compile a synthetic
+   try_table-containing ZirFunc, assert
+   `ctx.exception_table_builder.?.entries.len > 0` +
+   round-trip HandlerEntry fields match the catch-vec.
 
-## Active task — Phase 10 ADR enrichment cycle complete (legacy header retained below)
+Observable behaviour point per `architectural_spike.md`:
+HandlerEntry count after compile matches parsed catch count.
 
-This /continue cycle enriched 4 Phase 10 ADRs with concrete
-wasmtime citations:
-- ADR-0117 (`04e0baf3`) — 3 cross-subsystem precedents
-- ADR-0115 (`b12e8600`) — 4 GC heap/collector vtable
-- ADR-0116 (`f7e717d9`) — 4 i31 + VMGcRef
-- ADR-0111 (`ef2ca908`) — 4 IndexType + Limits
-- ADR-0114 (`e46ada66`) — 4 EH HandlerState + ThrownException
+## Bucket-3 stop — no `now` autonomous work this resume
 
-Plus ADR-0112 + ADR-0113 enriched in prior session (per
-handover). All 7 Phase-10 ADRs (0111-0117) now have concrete
-wasmtime citations. Per /continue SKILL.md stop bucket 3
-"autonomous prep paths exhausted" — every gating ADR has at
-least one enrichment commit. But ADRs are already Accepted, so
-they're not currently user-input-gated; the enrichment is
-phase-close / future-audit reference depth.
+All Phase-10 autonomous prep paths walked:
+- 7 ADRs (0111-0117) enriched with wasmtime citations
+- Integration plan doc landed (`803cffe2`)
+- Foundation-atom-rhythm lesson recorded (`e62db476`)
+- 13-cycle EH codegen foundation shipped (all helpers exist)
 
-Per the lesson e62db476 chain-level recommendation: foundation
-chains and per-ADR enrichment cycles are reaching the natural
-pause. Remaining ROADMAP §10 work is genuinely multi-cycle
-architectural (10.E-codegen-4c, 10.TC-3f/g/h) blocked by the
-same chain-level concern.
-
-**Open questions / blockers**: ROADMAP §10 IN-PROGRESS rows
-(10.M / 10.R / 10.TC / 10.E) all need user-paced multi-cycle
-integration work; autonomous prep paths walked. The Phase 10
-close gate (10.P) is the next user-touchpoint.
-
-**Next sub-chunk candidates (names only, NO predictions)**:
-- 10.E-codegen-4c — throw / throw_ref emit body (deferred per lesson)
-- 10.E-codegen-4b-2 — try_table emit body via ExceptionTable.Builder
-- 10.TC-3f/g/h — tail-call follow-ons (same chain-level concern)
-- 10.G-4 — struct ops (needs GC heap impl first)
-- 10.M-realworld — clang_wasm64 realworld fixture (toolchain blocked)
+Loop stops without `ScheduleWakeup` re-arm. Next /continue
+picks up the IT-1+IT-2 bundle above with full session budget
+to avoid the foundation-atom-rhythm anti-pattern.
 
 ## Open questions / blockers
 
-なし。impl 着手可。
+なし。次セッションは IT-1+IT-2 bundle 着手可。
 
 ## Key refs
 
