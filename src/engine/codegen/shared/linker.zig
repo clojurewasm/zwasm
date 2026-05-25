@@ -22,6 +22,7 @@ const builtin_arch = @import("builtin");
 const Allocator = std.mem.Allocator;
 
 const jit_mem = @import("../../../platform/jit_mem.zig");
+const code_map = @import("code_map.zig");
 /// 7.5-close-d042 / §9.7 / 7.8 prep: comptime arch dispatch
 /// matching `compile.zig` (commit `0925134`). Both backends
 /// expose `CallFixup` with the same
@@ -89,6 +90,14 @@ pub const JitModule = struct {
     /// address via `func_offsets[i]` per ADR-0017 / ADR-0066.
     thunk_offsets: ?[]const u32 = null,
 
+    /// Phase 10.E IT-4 (ADR-0114 D5) — per-Instance JIT code map
+    /// entries sorted by `start_addr`. Built at link time from
+    /// `func_offsets`; consumed by the FP-walk unwinder via
+    /// `codeMap().lookup(ret_addr)` to translate a saved LR / RIP
+    /// into a `(func_idx, relative_pc)` pair. Empty for modules
+    /// with zero defined functions (import-only). Owned slice.
+    code_map_entries: []const code_map.Entry = &.{},
+
     /// Sentinel for `thunk_offsets[i]` when function `i` has no
     /// emitted wrapper thunk (single-result, unsupported shape, or
     /// non-target arch).
@@ -97,7 +106,14 @@ pub const JitModule = struct {
     pub fn deinit(self: *JitModule, allocator: Allocator) void {
         allocator.free(self.func_offsets);
         if (self.thunk_offsets) |to| allocator.free(to);
+        if (self.code_map_entries.len > 0) allocator.free(self.code_map_entries);
         jit_mem.free(self.block);
+    }
+
+    /// View the per-module code map. The returned `CodeMap` aliases
+    /// `code_map_entries`; valid for the JitModule's lifetime.
+    pub fn codeMap(self: JitModule) code_map.CodeMap {
+        return .{ .entries = self.code_map_entries };
     }
 
     /// Cast function `idx`'s entry to a function pointer of the
@@ -300,7 +316,66 @@ pub fn link(allocator: Allocator, func_bodies: []const FuncBody, num_imports: u3
     }
 
     try jit_mem.setExecutable(block);
-    return .{ .block = block, .func_offsets = offsets };
+
+    // IT-4 — build per-Instance code map entries. Each defined
+    // function gets one Entry with absolute start_addr + len +
+    // wasm-space func_idx. Sorted by start_addr by construction
+    // (func_offsets is monotonically increasing). frame_bytes is
+    // a placeholder (0) until IT-6's SP-restore path consumes it
+    // for handler dispatch. `total_size` (the sum of body lengths,
+    // pre-page-alignment) is the upper bound for the last
+    // function — `block.bytes.len` is page-aligned and would
+    // overshoot.
+    const code_map_entries = try buildCodeMapEntries(
+        allocator,
+        block,
+        offsets,
+        num_imports,
+        @intCast(total_size),
+    );
+
+    return .{
+        .block = block,
+        .func_offsets = offsets,
+        .code_map_entries = code_map_entries,
+    };
+}
+
+/// IT-4 helper — derive `CodeMap.Entry`s from a linked JitBlock's
+/// `func_offsets`. Caller owns the returned slice. `code_total` is
+/// the sum of body lengths (= one-past-end offset of the last
+/// defined function); `block.bytes.len` is page-aligned by
+/// `jit_mem.alloc` and overshoots the actual function range.
+fn buildCodeMapEntries(
+    allocator: Allocator,
+    block: jit_mem.JitBlock,
+    offsets: []const u32,
+    num_imports: u32,
+    code_total: u32,
+) Allocator.Error![]code_map.Entry {
+    const defined_count = offsets.len - num_imports;
+    if (defined_count == 0) return &[_]code_map.Entry{};
+
+    var entries = try allocator.alloc(code_map.Entry, defined_count);
+    errdefer allocator.free(entries);
+
+    const block_addr = @intFromPtr(block.bytes.ptr);
+
+    for (0..defined_count) |i| {
+        const wasm_idx: u32 = @intCast(num_imports + i);
+        const off = offsets[wasm_idx];
+        const next_off: u32 = if (i + 1 < defined_count)
+            offsets[num_imports + i + 1]
+        else
+            code_total;
+        entries[i] = .{
+            .start_addr = block_addr + off,
+            .len = next_off - off,
+            .func_idx = wasm_idx,
+            .frame_bytes = 0, // populated by IT-6 SP-restore path
+        };
+    }
+    return entries;
 }
 
 /// ADR-0106 cycle 3e Phase 2'g — link + emit per-function
@@ -391,10 +466,29 @@ pub fn linkWithThunks(
     errdefer allocator.free(offsets_copy);
     body_module.deinit(allocator);
 
+    // IT-4 — rebuild code_map_entries against the new block. The
+    // body_module's entries point at the freed block; rebuilding
+    // here ensures the returned JitModule's entries match the
+    // wrapper-extended block addresses. The body offsets stay
+    // identical (wrappers append past the body region) so func_idx
+    // → offset mapping is unchanged; only start_addr shifts to the
+    // new block.bytes.ptr. `body_size` bounds the body region (the
+    // wrapper region is non-Wasm and intentionally excluded from
+    // the unwinder's per-function lookup).
+    const code_map_entries = try buildCodeMapEntries(
+        allocator,
+        block,
+        offsets_copy,
+        num_imports,
+        @intCast(body_size),
+    );
+    errdefer allocator.free(code_map_entries);
+
     return .{
         .block = block,
         .func_offsets = offsets_copy,
         .thunk_offsets = thunk_offsets,
+        .code_map_entries = code_map_entries,
     };
 }
 
@@ -545,4 +639,67 @@ test "linkWithThunks: single multi-result function — wrapper invocation writes
     try testing.expectEqual(@as(u32, 100), @as(u32, @intCast(results_buf[0] & 0xFFFFFFFF)));
     try testing.expectEqual(@as(u32, 200), @as(u32, @intCast(results_buf[1] & 0xFFFFFFFF)));
     try testing.expectEqual(@as(u32, 300), @as(u32, @intCast(results_buf[2] & 0xFFFFFFFF)));
+}
+
+test "link: populates code_map entries for each defined function (IT-4)" {
+    // Phase 10.E IT-4 — link() builds per-Instance CodeMap entries
+    // from func_offsets so the FP-walk unwinder can translate a
+    // saved LR / RIP into (func_idx, relative_pc). Synthetic bytes
+    // (no real emit) are enough: link() copies them verbatim into
+    // an executable JitBlock and we verify codeMap().lookup against
+    // the resulting addresses.
+    //
+    // Layout: 2 defined functions of 16 + 32 bytes (offsets
+    // 0 + 16). num_imports = 1 → wasm-space idx 1 + 2.
+    var body0_bytes = [_]u8{0} ** 16;
+    var body1_bytes = [_]u8{0} ** 32;
+    const bodies = [_]FuncBody{
+        .{ .bytes = body0_bytes[0..], .call_fixups = &.{} },
+        .{ .bytes = body1_bytes[0..], .call_fixups = &.{} },
+    };
+    var module = try link(testing.allocator, &bodies, 1);
+    defer module.deinit(testing.allocator);
+
+    const cmap = module.codeMap();
+    try testing.expectEqual(@as(usize, 2), cmap.entries.len);
+
+    const block_addr = @intFromPtr(module.block.bytes.ptr);
+
+    // fn1 (wasm idx 1) lives at offset 0; first defined function.
+    try testing.expectEqual(@as(usize, block_addr), cmap.entries[0].start_addr);
+    try testing.expectEqual(@as(u32, 16), cmap.entries[0].len);
+    try testing.expectEqual(@as(u32, 1), cmap.entries[0].func_idx);
+
+    // fn2 (wasm idx 2) starts at offset 16; length = 32.
+    try testing.expectEqual(@as(usize, block_addr + 16), cmap.entries[1].start_addr);
+    try testing.expectEqual(@as(u32, 32), cmap.entries[1].len);
+    try testing.expectEqual(@as(u32, 2), cmap.entries[1].func_idx);
+
+    // lookup() mid-fn1 returns the right relative_pc.
+    const hit0 = cmap.lookup(block_addr + 8);
+    try testing.expect(hit0 == .inside);
+    try testing.expectEqual(@as(u32, 8), hit0.inside.relative_pc);
+    try testing.expectEqual(@as(u32, 1), hit0.inside.func_idx);
+
+    // lookup() mid-fn2 returns the right relative_pc.
+    const hit1 = cmap.lookup(block_addr + 16 + 12);
+    try testing.expect(hit1 == .inside);
+    try testing.expectEqual(@as(u32, 12), hit1.inside.relative_pc);
+    try testing.expectEqual(@as(u32, 2), hit1.inside.func_idx);
+
+    // lookup() at start_addr exactly → relative_pc = 0.
+    const hit_start = cmap.lookup(block_addr);
+    try testing.expect(hit_start == .inside);
+    try testing.expectEqual(@as(u32, 0), hit_start.inside.relative_pc);
+    try testing.expectEqual(@as(u32, 1), hit_start.inside.func_idx);
+
+    // lookup() past block → .outside.
+    try testing.expectEqual(code_map.Lookup.outside, cmap.lookup(block_addr + 16 + 32));
+}
+
+test "link: import-only module — code_map empty" {
+    // Zero defined functions → empty code_map entries.
+    var module = try link(testing.allocator, &.{}, 2);
+    defer module.deinit(testing.allocator);
+    try testing.expectEqual(@as(usize, 0), module.codeMap().entries.len);
 }
