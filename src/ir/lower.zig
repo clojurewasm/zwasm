@@ -476,6 +476,7 @@ pub const Lowerer = struct {
             },
             // Wasm 3.0 typed function references (function-references proposal).
             0xD3 => try self.emit(.@"ref.as_non_null", 0, 0),
+            0xD4 => try self.emitUlebPayload(.br_on_null),
 
             // Wasm 2.0+ prefix opcodes (sat-trunc / bulk-memory / ...)
             0xFC => try self.emitPrefixFC(),

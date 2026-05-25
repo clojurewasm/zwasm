@@ -670,6 +670,7 @@ pub const Validator = struct {
 
             // Wasm 3.0 typed function references (function-references proposal).
             0xD3 => try self.opRefAsNonNull(),
+            0xD4 => try self.opBrOnNull(),
 
             // Wasm 2.0 prefix opcodes (§9.2 / 2.3 chunk 2 onward)
             0xFC => try self.dispatchPrefixFC(),
@@ -992,6 +993,40 @@ pub const Validator = struct {
                 try self.pushType(t);
             },
         }
+    }
+
+    /// Wasm spec 3.0 §3.3.8.6 (function-references proposal):
+    /// `br_on_null l` — pop reftype; if null at runtime, branch
+    /// to label l (consume l.label_types from stack as branch
+    /// values). Otherwise the (non-null) reftype is preserved on
+    /// the fall-through path. Stack effect: precondition
+    /// `[t1*, reftype]` where label l takes `[t1*]`; postcondition
+    /// (fall-through) `[t1*, reftype]` (reftype narrowed to
+    /// non-null, but v2.0 catalogue can't express the narrowing).
+    /// Branch path destination expects `[t1*]`.
+    fn opBrOnNull(self: *Validator) Error!void {
+        const depth = try leb128.readUleb128(u32, self.body, &self.pos);
+        // Pop reftype first (it's the topmost value, the null-test
+        // condition that the branch consumes).
+        const top = try self.popAny();
+        const reftype: ValType = switch (top) {
+            .bot => .funcref, // polymorphic; pick any reftype
+            .known => |t| blk: {
+                if (t != .funcref and t != .externref) return Error.StackTypeMismatch;
+                break :blk t;
+            },
+        };
+        // Resolve target label; verify stack carries label's types.
+        const target = self.frameAt(depth) orelse return Error.InvalidBranchDepth;
+        const lt = target.labelType();
+        try self.popLabelTypes(lt);
+        // Fall-through: push label types back + reftype back.
+        switch (lt) {
+            .empty => {},
+            .single => |t| try self.pushType(t),
+            .multi => |ts| for (ts) |t| try self.pushType(t),
+        }
+        try self.pushType(reftype);
     }
 
     /// Wasm spec §3.4.7.3 / §3.4.10 (ref.func x): read funcidx,
