@@ -172,7 +172,11 @@ const ControlFrame = struct {
     fn labelType(self: ControlFrame) BlockType {
         return switch (self.kind) {
             .loop => self.start_type,
-            .block, .if_then, .else_open => self.end_type,
+            // try_table: branches to the try_table label arrive
+            // on `end` (catch dispatch uses the catch's own
+            // label_idx, not this frame's label), so use the
+            // block end_type rule. Per Wasm 3.0 EH §3.3.10.6.
+            .block, .if_then, .else_open, .try_table => self.end_type,
         };
     }
 

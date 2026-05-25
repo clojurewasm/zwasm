@@ -48,6 +48,14 @@ pub const BlockKind = enum(u8) {
     loop,
     if_then,
     else_open,
+    /// Wasm 3.0 exception-handling proposal (§3.3.10.6 / §4.5):
+    /// `try_table` introduces a control frame that establishes
+    /// exception handlers via its catch vec. Label types follow
+    /// the `block` rule (end_type) — branches to the try_table
+    /// label arrive on `end`, not on `throw` (catch dispatch
+    /// uses the catch's own label_idx). Foundation entry for
+    /// 10.E-N opcode/validator/interp wiring.
+    try_table,
 };
 
 pub const BlockInfo = struct {
@@ -470,6 +478,12 @@ test "ValType / BlockKind: enum tags are stable" {
     try std.testing.expectEqual(@as(u8, 1), @intFromEnum(ValType.i64));
     try std.testing.expectEqual(@as(u8, 0), @intFromEnum(BlockKind.block));
     try std.testing.expectEqual(@as(u8, 1), @intFromEnum(BlockKind.loop));
+    try std.testing.expectEqual(@as(u8, 2), @intFromEnum(BlockKind.if_then));
+    try std.testing.expectEqual(@as(u8, 3), @intFromEnum(BlockKind.else_open));
+    // Wasm 3.0 EH addition: try_table comes after the pre-existing
+    // 4 control-frame kinds (per ADR-0114 EH design; foundation
+    // wiring at 10.E-3).
+    try std.testing.expectEqual(@as(u8, 4), @intFromEnum(BlockKind.try_table));
 }
 
 test "FuncType holds slices without copying" {
