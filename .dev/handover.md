@@ -109,8 +109,11 @@
   2 c_api unit tests.
 - **10.E-codegen-4b = SHIPPED 2026-05-26** (`e06daffe`):
   EmitCtx.exception_table_builder optional field (both arches).
-  Default null preserves back-compat; future op handlers populate
-  via compile-pass setup.
+- **lesson-eh-foundation-atom-rhythm = SHIPPED 2026-05-26**
+  (`e62db476`): chain-level observation that 13-cycle EH
+  codegen foundation atoms didn't move EH-on-JIT behavior.
+  Recommends chain-level pivot guard around N=5 atoms without
+  behavior-signal movement.
 - **Mac `zig build test-all`**: green (scope=unclear)。
 
 ## Phase 10 progress
@@ -124,36 +127,33 @@ ROADMAP §10 = 13-row task table。
     cross-module + spec corpus + regalloc terminator-class 残)
 - Pending: 10.E / 10.G / 10.P
 
-## Active task — 10.E-codegen-4c throw / throw_ref emit body atom
+## Active task — ADR-0117 cross-subsystem invariant enrichment
 
-10.E-codegen-4b (`e06daffe`) landed the EmitCtx field substrate.
-For try_table emit body the next atom is wiring the per-op file's
-emit fn to read `ctx.exception_table_builder` and call
-`Builder.add(...)`. But ZirInstr.payload encoding for try_table's
-catch_vec needs accessors that 10.E-3b parsed but didn't expose
-through EmitCtx-visible APIs.
+The lesson (`e62db476`) recommends pausing the per-cycle EH
+foundation-atom rhythm and pivoting to a different track. Next
+cycle picks an autonomous prep path: ADR-0117 (cross-subsystem
+invariant audit) reference enrichment. Per the lesson, foundation
+chain reached its natural pause; integration work needs a focused
+multi-cycle design pass not autonomous-loop-eligible at per-cycle
+granularity.
 
-Pivot: 10.E-codegen-4c throw / throw_ref emit atom is more
-tractable — it doesn't need EmitCtx.exception_table_builder
-(throw is a dispatcher CALL site, not a Builder.add site). The
-emit needs:
-- Marshal `tag_idx` (u32 from ZirInstr.payload) into RDI/X0.
-- Marshal `payload[*]` (popped from operand stack) into a heap
-  Exception via runtime helper, OR pass count via X1/RSI.
-- CALL the `zwasm_throw` dispatcher (`shared/zwasm_throw.zig`).
+ADR-0117 reference enrichment: walk v1 (`~/Documents/MyProducts/zwasm/`)
++ wasmtime + wasm3 for prior-art on cross-subsystem invariants
+(safepoint-free, root-walking, GC barrier discipline) and cite
+concrete file/line references into ADR-0117's `References` section.
+Docs-only commit; autonomous prep value retained for the user at
+ADR-flip / phase-close review time.
 
-Initial atom for 4c: skeleton that decodes the ZIR payload for
-tag_idx and CALLs a runtime symbol via a fixup placeholder.
-Real marshalling lands as a follow-on.
-
-Refs: ADR-0114 D6, shared/zwasm_throw.zig (landed), arm64/x86_64
-op_call.zig (CALL template).
+Refs: ADR-0117 (cross-subsystem invariants), autonomous prep
+paths per /continue skill stop bucket 3 prep list.
 
 **Next sub-chunk candidates (names only, NO predictions)**:
-- 10.E-codegen-4c — throw / throw_ref emit body atom (active)
+- ADR-0117 reference enrichment (active)
+- ADR-0115 / 0116 (GC stack-map design) reference enrichment
+- ADR-0111 (memory64) reference enrichment
+- 10.E-codegen-4c — throw / throw_ref emit body (deferred per lesson)
 - 10.E-codegen-4b-2 — try_table emit body via ExceptionTable.Builder
-- 10.E-codegen-3i — assembly entry/exit glue per arch
-- 10.TC-3f/g/h — tail-call follow-ons (deferred)
+- 10.TC-3f/g/h — tail-call follow-ons (same chain-level concern)
 - 10.G-4 — struct ops (needs GC heap impl first)
 - 10.M-realworld — clang_wasm64 realworld fixture
 
