@@ -127,27 +127,41 @@ ROADMAP §10 = 13-row task table。
     cross-module + spec corpus + regalloc terminator-class 残)
 - Pending: 10.E / 10.G / 10.P
 
-## Active task — ADR-0111 (memory64) reference enrichment
+## Active task — Phase 10 ADR enrichment cycle complete; pivot needed
 
-ADR-0116 enriched (`f7e717d9`) with 4 concrete wasmtime citations
-(ExternRefHostDataTable root-walker indirection, VMGcRef tagged-
-pointer + I31_REF_DISCRIMINANT, i31.rs canonical pack pattern,
-is_i31 hot-path). Next: ADR-0111 (memory64) reference enrichment
-from wasmtime `crates/wasmtime/src/runtime/vm/memory/` (memory64
-support, idx_type encoding, large-memory bounds-check).
+This /continue cycle enriched 4 Phase 10 ADRs with concrete
+wasmtime citations:
+- ADR-0117 (`04e0baf3`) — 3 cross-subsystem precedents
+- ADR-0115 (`b12e8600`) — 4 GC heap/collector vtable
+- ADR-0116 (`f7e717d9`) — 4 i31 + VMGcRef
+- ADR-0111 (`ef2ca908`) — 4 IndexType + Limits
+- ADR-0114 (`e46ada66`) — 4 EH HandlerState + ThrownException
 
-Same shape: docs-only commit, cites specific file/line references.
+Plus ADR-0112 + ADR-0113 enriched in prior session (per
+handover). All 7 Phase-10 ADRs (0111-0117) now have concrete
+wasmtime citations. Per /continue SKILL.md stop bucket 3
+"autonomous prep paths exhausted" — every gating ADR has at
+least one enrichment commit. But ADRs are already Accepted, so
+they're not currently user-input-gated; the enrichment is
+phase-close / future-audit reference depth.
 
-Refs: ADR-0111, wasmtime memory/ source.
+Per the lesson e62db476 chain-level recommendation: foundation
+chains and per-ADR enrichment cycles are reaching the natural
+pause. Remaining ROADMAP §10 work is genuinely multi-cycle
+architectural (10.E-codegen-4c, 10.TC-3f/g/h) blocked by the
+same chain-level concern.
+
+**Open questions / blockers**: ROADMAP §10 IN-PROGRESS rows
+(10.M / 10.R / 10.TC / 10.E) all need user-paced multi-cycle
+integration work; autonomous prep paths walked. The Phase 10
+close gate (10.P) is the next user-touchpoint.
 
 **Next sub-chunk candidates (names only, NO predictions)**:
-- ADR-0111 (memory64) reference enrichment (active)
-- ADR-0112 / ADR-0113 / ADR-0114 reference re-walk for gaps
 - 10.E-codegen-4c — throw / throw_ref emit body (deferred per lesson)
 - 10.E-codegen-4b-2 — try_table emit body via ExceptionTable.Builder
 - 10.TC-3f/g/h — tail-call follow-ons (same chain-level concern)
 - 10.G-4 — struct ops (needs GC heap impl first)
-- 10.M-realworld — clang_wasm64 realworld fixture
+- 10.M-realworld — clang_wasm64 realworld fixture (toolchain blocked)
 
 ## Open questions / blockers
 
