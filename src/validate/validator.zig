@@ -23,6 +23,7 @@ const std = @import("std");
 
 const leb128 = @import("../support/leb128.zig");
 const zir = @import("../ir/zir.zig");
+const sections = @import("../parse/sections.zig");
 const dispatch_collector = @import("../ir/dispatch_collector.zig");
 const wasm_byte_map = @import("../ir/wasm_byte_map.zig");
 const validator_simd = @import("validator_simd.zig");
@@ -281,6 +282,7 @@ pub fn validateFunctionAndCollectSelectTypesWithMemory(
     elem_types: []const ValType,
     data_count_section_present: bool,
     out_select_types: *std.ArrayList(u8),
+    memory0_idx_type: sections.MemoryEntry.IdxType,
 ) Error!void {
     var v = Validator{
         .sig = sig,
@@ -294,6 +296,7 @@ pub fn validateFunctionAndCollectSelectTypesWithMemory(
         .tables = tables,
         .elem_count = elem_count,
         .memory_count = memory_count,
+        .memory0_idx_type = memory0_idx_type,
         .declared_funcs = declared_funcs,
         .elem_types = elem_types,
         .data_count_section_present = data_count_section_present,
@@ -329,6 +332,15 @@ pub const Validator = struct {
     /// `validateFunctionAndCollectSelectTypesWithMemory`
     /// which sets memory_count explicitly per module.
     memory_count: u32 = 1,
+    /// ADR-0111 D2 — memory 0's idx_type for Wasm 3.0 memory64.
+    /// Determines the address operand type at opLoad/opStore
+    /// (i32-indexed memory → pop i32 addr; i64-indexed → pop
+    /// i64 addr). Default `.i32` keeps legacy `validateFunction`
+    /// / `validateFunctionAndCollectSelectTypes` callers behaviour
+    /// -preserving (they don't thread memory64 state); production
+    /// `compileWasm` uses the WithMemory entry which sets it
+    /// explicitly per module.
+    memory0_idx_type: sections.MemoryEntry.IdxType = .i32,
     /// §9.9 / 9.9-l-1b-d093-d82 — declared-funcrefs bitset per
     /// Wasm spec §3.4.10. Length = total funcs (imports +
     /// defined); entry `true` iff that funcidx appears in some
@@ -1252,15 +1264,35 @@ pub const Validator = struct {
         try self.pushType(t);
     }
 
+    /// Wasm 3.0 §5.4.6 — memarg align uleb bit 6 (0x40) signals
+    /// an explicit memidx LEB follows. Mirrors `lower.zig::emitMemarg`
+    /// byte consumption so validator + lowerer stay in sync; without
+    /// this the validator's position desyncs on bit-6-set memargs
+    /// and subsequent opcodes parse from wrong offsets.
     fn skipMemarg(self: *Validator) Error!void {
-        _ = try leb128.readUleb128(u32, self.body, &self.pos); // align
+        const raw_align = try leb128.readUleb128(u32, self.body, &self.pos);
+        if ((raw_align & 0x40) != 0) {
+            _ = try leb128.readUleb128(u32, self.body, &self.pos); // memidx
+        }
         _ = try leb128.readUleb128(u32, self.body, &self.pos); // offset
+    }
+
+    /// Address operand type for memory ops per Wasm 3.0 §3.4.7 —
+    /// `.i32` for legacy i32-indexed memory; `.i64` for memory64.
+    /// Determined by `self.memory0_idx_type` (multi-memory still
+    /// rejected at instantiate; codegen sees only memory 0 per
+    /// 10.M-4a `MemArgExtra.memidx == 0` assert).
+    fn memAddrType(self: *const Validator) ValType {
+        return switch (self.memory0_idx_type) {
+            .i32 => .i32,
+            .i64 => .i64,
+        };
     }
 
     fn opLoad(self: *Validator, t: ValType) Error!void {
         if (self.memory_count == 0) return Error.UnknownMemory;
         try self.skipMemarg();
-        try self.popExpect(.i32); // address
+        try self.popExpect(self.memAddrType()); // address (i32 or i64)
         try self.pushType(t);
     }
 
@@ -1268,7 +1300,7 @@ pub const Validator = struct {
         if (self.memory_count == 0) return Error.UnknownMemory;
         try self.skipMemarg();
         try self.popExpect(t); // value
-        try self.popExpect(.i32); // address
+        try self.popExpect(self.memAddrType()); // address (i32 or i64)
     }
 
     fn opMemorySize(self: *Validator) Error!void {

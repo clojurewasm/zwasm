@@ -858,6 +858,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             elem_types_slice,
             data_count_section_present,
             &select_types,
+            memory0_idx_type,
         ) catch |err| {
             std.debug.print("compileWasm: func[{d}] params={d} results={d} → validate {s}\n", .{
                 wasm_idx,
