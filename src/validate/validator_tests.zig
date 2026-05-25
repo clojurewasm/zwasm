@@ -649,3 +649,62 @@ test "validate (simd): unknown 0xFD sub-opcode → NotImplemented" {
     const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
     try testing.expectError(Error.NotImplemented, r);
 }
+
+// ============================================================
+// Wasm 3.0 tail-call validator coverage (10.TC-1b)
+// ============================================================
+
+test "validate (tail-call): return_call with matching callee sig + matching fn return" {
+    // body: return_call 0 ; end
+    // caller sig: () -> i32; callee[0] sig: () -> i32 → tail call OK.
+    const body = [_]u8{ 0x12, 0x00, 0x0B };
+    const callee_sig: FuncType = .{ .params = &.{}, .results = &i32_arr };
+    const func_types = [_]FuncType{callee_sig};
+    try validateFunction(i32_result_sig, &.{}, &body, &func_types, &.{}, &.{}, 0, &.{}, 0);
+}
+
+test "validate (tail-call): return_call with callee.results != fn.results fails" {
+    // caller sig: () -> () (empty); callee[0] sig: () -> i32 → mismatch.
+    const body = [_]u8{ 0x12, 0x00, 0x0B };
+    const callee_sig: FuncType = .{ .params = &.{}, .results = &i32_arr };
+    const func_types = [_]FuncType{callee_sig};
+    const r = validateFunction(empty_sig, &.{}, &body, &func_types, &.{}, &.{}, 0, &.{}, 0);
+    try testing.expectError(Error.StackTypeMismatch, r);
+}
+
+test "validate (tail-call): return_call with funcidx out of range fails" {
+    // body: return_call 99 ; end
+    const body = [_]u8{ 0x12, 0x63, 0x0B };
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
+    try testing.expectError(Error.InvalidFuncIndex, r);
+}
+
+test "validate (tail-call): return_call_indirect with matching sig + funcref table" {
+    // body: i32.const 0 ; return_call_indirect typeidx=0 tableidx=0 ; end
+    // caller sig: () -> i32; module_types[0] = () -> i32; table[0] = funcref.
+    const body = [_]u8{ 0x41, 0x00, 0x13, 0x00, 0x00, 0x0B };
+    const fn_type: FuncType = .{ .params = &.{}, .results = &i32_arr };
+    const module_types = [_]FuncType{fn_type};
+    const tables = [_]zir.TableEntry{.{ .elem_type = .funcref, .min = 1 }};
+    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &module_types, 0, &tables, 0);
+}
+
+test "validate (tail-call): return_call_indirect with non-funcref table fails" {
+    // table[0] = externref → return_call_indirect rejects (same as call_indirect §3.3.5.6).
+    const body = [_]u8{ 0x41, 0x00, 0x13, 0x00, 0x00, 0x0B };
+    const fn_type: FuncType = .{ .params = &.{}, .results = &.{} };
+    const module_types = [_]FuncType{fn_type};
+    const tables = [_]zir.TableEntry{.{ .elem_type = .externref, .min = 1 }};
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &module_types, 0, &tables, 0);
+    try testing.expectError(Error.InvalidFuncIndex, r);
+}
+
+test "validate (tail-call): return_call_indirect with fn-return mismatch fails" {
+    // caller sig: () -> () (empty); module_types[0] = () -> i32 → mismatch.
+    const body = [_]u8{ 0x41, 0x00, 0x13, 0x00, 0x00, 0x0B };
+    const fn_type: FuncType = .{ .params = &.{}, .results = &i32_arr };
+    const module_types = [_]FuncType{fn_type};
+    const tables = [_]zir.TableEntry{.{ .elem_type = .funcref, .min = 1 }};
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &module_types, 0, &tables, 0);
+    try testing.expectError(Error.StackTypeMismatch, r);
+}
