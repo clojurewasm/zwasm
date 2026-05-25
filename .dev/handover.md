@@ -26,10 +26,14 @@
 - **10.G-i31-ops = SHIPPED** (`52a6c225`): 3 i31 ops interp impl
   + Value helpers + 0xFB GC prefix dispatcher。
 - **10.E-1 = SHIPPED** (`ffb56dd7`): tag section parse skeleton。
-- **10.E-2 = SHIPPED 2026-05-25** (`390856f8` + `cec18589`):
-  `decodeTags` body decoder (TagEntry { attribute, typeidx } slice)
-  + InvalidTagAttribute error + 6 unit tests + sections.zig
-  FILE-SIZE-EXEMPT marker (P1 spec-defined catalog per ADR-0099 D2)。
+- **10.E-2 = SHIPPED** (`390856f8` + `cec18589`): decodeTags +
+  TagEntry + sections.zig FILE-SIZE-EXEMPT marker。
+- **10.G-2 = SHIPPED 2026-05-25** (`d5810162`): needs_gc_heap
+  parse-time predicate per ADR-0115 D2。`feature/gc/needs_heap_detector.zig`
+  with `detectNeedsGcHeap(module) bool`; byte-scans type-section
+  body for GC declaration tags (0x4E rec / 0x5E array / 0x5F
+  struct). 6 unit tests。Heap-top reftype byte detection (anyref /
+  eqref / i31ref / exnref) lands per future ADR-0115 D2 amendment。
 - **Mac `zig build test`**: green。
 
 ## Phase 10 progress
@@ -65,16 +69,23 @@ row。
   heavy。
 
 **Phase 10 candidates** (parallelisable):
-- **10.E-3 NEXT**: try_table opcode parse + validator skeleton。
-  try_table is a control structure (new BlockKind) with catch
-  clauses; needs new lower path + validator. Per spec
-  §3.3.10.5-6 (EH) the opcode is 0x1F + blocktype + vec(catch)。
-  Interp body / unwinder come later (10.E-5).
-- 10.E-4: throw / throw_ref opcodes (0x08 / 0x0A) — parse +
-  validator + early Trap variant for "no handler" case
-- 10.E-5: try_table + throw interp impl (frame unwinding)
-- 10.G-2: Module.needs_gc_heap parse-time detector
-- 10.G-3: struct ops (most-impactful next GC slice; needs heap)
+- **10.E-3 NEXT (BlockKind.try_table foundation)**: add
+  `BlockKind.try_table` enum entry to zir.zig + update all
+  switch-on-BlockKind dispatch sites (validator opBlock-class,
+  lower openBlock/closeBlock, debug/format paths)。Foundation
+  for the try_table control structure。Tests: BlockKind enum
+  tag stability test + a no-op smoke that emits/closes a
+  try_table-kind frame。Multi-file structural change; bounded
+  scope per chunk。
+- 10.E-3b: 0x1F dispatch in lower.zig + validator.zig (read
+  blocktype + vec(catch) + emit `.try_table` instruction)
+- 10.E-4: throw / throw_ref opcodes — parse + validator +
+  Trap.UncaughtException variant (= no try_table on stack)
+- 10.E-5: try_table + throw interp (frame unwinding)
+- 10.G-3: heap-top reftype detection extension to
+  needs_heap_detector (anyref / eqref / i31ref / exnref bytes
+  in func sigs / globals / tables / locals)
+- 10.G-4: struct ops (needs GC heap impl first)
 - 10.M-5b: SIMD memarg memory64 (validator + lower + codegen)
 - 10.TC-3: regalloc terminator-class + codegen tail-call
 
