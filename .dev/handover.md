@@ -7,13 +7,13 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24)。
-- **Last commit**: `027ae91a` — ADR-0114 Exception Handling design
-  Proposed (10.D autonomous prep 4/7; user collab gate at Accept flip)。
+- **Last commit**: `f37f3e56` — ADR-0115 GC heap + collector design
+  Proposed (10.D autonomous prep 5/7; user collab gate at Accept flip)。
 - **Phase 9 close invariants gate (mac-host)**: **18/18 PASS** 維持。
 - **Mac `zig build test`**: 1827/1841 passed (substrate baseline);
   ubuntu test-all 10.Z verified GREEN at `b6e07451`。
 
-## Active task — 10.D ADR round (7 ADRs; 4/7 drafted)
+## Active task — 10.D ADR round (7 ADRs; 5/7 drafted)
 
 10.D = USER COLLAB GATE。`/continue` loop は autonomous prep
 paths per `.claude/skills/continue/SKILL.md` §"Autonomous prep
@@ -26,9 +26,9 @@ gate. 1 cycle = 1 ADR draft (pacing matched to context budget)。
 | 0111 | memory64 design | Proposed `c3895cd1` |
 | 0112 | Tail Call design (per design plan §3.3) | Proposed `8d535ec1` |
 | 0113 | callsite_metadata + regalloc 3-axis (per §3.4) | Proposed `e527b52b` |
-| 0114 | Exception Handling design (per §3.4) | **Proposed `027ae91a`** |
-| **0115 NEXT** | GC heap + collector design (per §3.5) | not drafted |
-| 0116 | GC roots + RTT + i31 (per §3.5) | not drafted |
+| 0114 | Exception Handling design (per §3.4) | Proposed `027ae91a` |
+| 0115 | GC heap + collector design (per §3.5) | **Proposed `f37f3e56`** |
+| **0116 NEXT** | GC roots + RTT + i31 (per §3.5) | not drafted |
 | 0117 | GC × EH × TC integration invariants | not drafted |
 
 **10.D close criterion**: all 7 ADRs `Accepted` (user-flipped)
@@ -46,7 +46,7 @@ between 10.D ADR drafts if the user-gated pause is long.
 ## Phase 10 progress
 
 ROADMAP §10 = 13-row task table。10.0/10.C9/10.J/10.F/10.Z done
-(5/13); **10.D in-progress (4/7 ADRs drafted)**; 10.T/10.M/10.R/
+(5/13); **10.D in-progress (5/7 ADRs drafted)**; 10.T/10.M/10.R/
 10.TC/10.E/10.G/10.P pending。
 
 ## Open questions / blockers (per handover_framing.md bucket-3 framing)
