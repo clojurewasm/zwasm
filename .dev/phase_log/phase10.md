@@ -125,6 +125,17 @@ J.1+ gated on execution plan doc)
   `pub const Runtime` → `pub const Engine`. zone_check classifier
   extended `src/zwasm/*` → `lib`. Mac 1812/1826 PASS, I3 18/18,
   ubuntu kicked post-push (`017193bc`)
+- **10.J / J.6** — `test/api/zig_facade_runner.zig` new (~155 LOC).
+  Walks a corpus dir, drives each `.wasm` through Engine → Module →
+  Instance natively. Pre-scans imports to classify as PASS /
+  SKIP-WASI / SKIP-IMPORTS / FAIL-PARSE / FAIL-INST. Wired into
+  `build.zig` as `test-api-zig-facade` step + added to `test-all`
+  aggregate. Current outcome over test/realworld/wasm/ (55 fixtures):
+  0 PASS, 55 SKIP-WASI, 0 FAIL — every realworld fixture imports
+  `wasi_snapshot_preview1`, so the SKIP-WASI count flips to PASS
+  once J.7's `defineWasi` lands. D-176 opened in same commit
+  (blocked-by J.7). Mac 1823/1837 PASS, lint clean, I3 18/18,
+  ubuntu kicked post-push (`97434726`)
 - **10.J / J.5** — `src/zwasm/{linker,caller,host_func_marshal}.zig` new.
   `Linker.defineFunc(comptime Sig, user_fn)` comptime-derives the Wasm
   signature from the Zig fn's `*Caller` + scalar params; `instantiate(

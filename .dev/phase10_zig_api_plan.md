@@ -190,7 +190,7 @@ implementation train starts at J.2.
 | Risk | MEDIUM — host-func comptime marshal mirrors TypedFunc layer; if J.4 went clean, J.5 inherits the working machinery. Per survey §7 the existing `HostCall` ABI is reusable; the new code is just the comptime adapter generator. |
 | Commit message form | `feat(zwasm,p10): J.5 Linker + Caller + host imports per ADR-0109` |
 
-### J.6 — Tier-2 integration runner (`test/api/zig_facade_runner.zig`)
+### J.6 — Tier-2 integration runner (`test/api/zig_facade_runner.zig`) — **CLOSED `97434726`**
 
 | Field | Value |
 |---|---|
