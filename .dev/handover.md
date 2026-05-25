@@ -7,51 +7,43 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24)。
-- **Last commit**: `cf6f009e` — 10.F-b D-172 table accessors。
-  `pub const Table` + minimal `pub const Ref` + 6 c_api exports
-  (`wasm_ref_delete` / `wasm_extern_as_table` / `wasm_table_delete` /
-  `wasm_table_size` / `wasm_table_get` / `wasm_table_set`)
-  per `include/wasm.h:466-477 + 327-365`。Tier-1 round-trip test
-  PASS。`wasm_table_grow` deferred to 10.F-c。File-size exempt cap
-  2800→3000 via ADR-0099 (cap=N) override。
+- **Last commit**: `3889661b` — 10.F-c `wasm_table_grow` (deferred
+  from D-172) + 10.F close。ROADMAP §10 / 10.F `[x]` flipped。
+  D-171 + D-172 + D-173 全 discharged; D-178 新規 (v0.2 host-side
+  `wasm_global_new` 用)。
 - **Phase 9 close invariants gate (mac-host)**: **18/18 PASS** 維持。
-- **Mac `zig build test`**: 1826/1840 passed (14 skipped); lint clean。
+- **Mac `zig build test`**: 1827/1841 passed (14 skipped); lint clean。
+- **File size**: src/api/instance.zig 2908 lines (cap 3000)。
 
-## Active task — 10.F-c NEXT (D-171 wasm_global_new + wasm_table_grow follow-up)
+## Active task — 10.Z NEXT (ZirInstr 128-bit 拡張)
 
-10.F は 3 sub-chunks 構成:
+10.F 完了。Phase 10 内の次の `[ ]` 行は **10.Z**。
 
-| Sub-chunk | Scope | Status |
+| Row | Scope | Status |
 |---|---|---|
-| 10.F-a | D-173 memory accessors | CLOSED `7a8c3ae2` |
-| 10.F-b | D-172 table accessors (get/set/size + Ref) | CLOSED `cf6f009e` |
-| **10.F-c NEXT** | D-171 `wasm_global_new` (host-side standalone) + deferred `wasm_table_grow` follow-up + any 10.F audit gap finalisation | 着手準備完了 |
-| 10.F close | D-171/D-172/D-173 全 discharged; ROADMAP §10 / 10.F `[x]` flip | 10.F-c 後 |
+| 10.0 | Phase 9→10 transition | `[x]` |
+| 10.C9 | Phase 9 close 後始末 | `[x]` |
+| 10.J | Native Zig API (ADR-0109) | `[x]` |
+| 10.F | c_api scalar accessors (D-171/172/173) | **CLOSED `3889661b`** |
+| **10.Z NEXT** | ZirInstr 128-bit 拡張 (`payload: u32 → u64`) per design plan §3.1 / Z.1 chunk。業界全社 (wasmtime/wasmer-LLVM/WAMR/spec ref) full u64 実態に追従; memory64 offset を spec full に carry。Phase 9 corpus 全 host 再 green + 既存 `emit_test_*.zig` byte-identical 確認。Spike なし; 失敗時 chunk revert | `[ ]` |
+| 10.D / 10.T / 10.M / 10.R / 10.TC / 10.E / 10.G / 10.P | Phase 10 残行 (design + memory64 + function-references + Tail Call + EH + GC + close) | `[ ]` |
 
-**10.F-c exit criterion** (per `include/wasm.h:452-459` + audit §3 A1):
-(a) `wasm_global_new(store, type, init) → ?*Global` — host-side
-standalone Global construction (no Instance back-pointer; backed
-by a Store-anchored Value cell);
-(b) `wasm_globaltype_new(valtype, mutability) → ?*GlobalType` の
-最小 surface 追加 (wasm_global_new の引数として必要);
-(c) `wasm_table_grow(?*Table, u32 delta, ?*Ref init) → bool` —
-deferred from 10.F-b; realloc-extend `rt.tables[idx].refs` with
-init fill;
-(d) Tier-1 round-trip tests: 標準で新しい Global を作って Extern wrap
-してインスタンス imports へ渡す + table.grow round-trip;
-(e) D-171 / D-172 / D-173 all in Discharged section; ROADMAP §10
-row 10.F flips `[x]`。
-詳細: audit §3 A1 + `include/wasm.h:452-459`。
+**10.Z exit criterion** (per ROADMAP §10 row):
+(a) `ZirInstr.payload: u32 → u64` widen per design plan §3.1 / Z.1 chunk;
+(b) wasmtime / wasmer-LLVM / WAMR / spec-ref が full u64 を使う実態に追従;
+(c) memory64 offset を spec full に carry;
+(d) Phase 9 corpus 全 host (Mac + ubuntu + windowsmini phase boundary) 再 green;
+(e) 既存 `emit_test_*.zig` の byte-identical 維持を確認。
+Spike なし; 失敗時は chunk revert per ROADMAP §10 row text。
 
 ## Phase 10 progress
 
-ROADMAP §10 = 13-row task table。10.0/10.C9/10.J done; **10.F active
-(3 sub-chunks; 2 done)**; 10.Z/10.D/10.T/10.M/10.R/10.TC/10.E/10.G/10.P pending。
+ROADMAP §10 = 13-row task table。10.0/10.C9/10.J/10.F done (4/13); **10.Z active**;
+10.D/10.T/10.M/10.R/10.TC/10.E/10.G/10.P pending。
 
 ## Key refs
 
 - **ROADMAP §10**: [`ROADMAP.md`](./ROADMAP.md) lines 1338+
-- **c_api audit**: [`c_api_instance_audit_2026-05-24.md`](./c_api_instance_audit_2026-05-24.md) §3 A1/B1/B2
-- **lesson (v128 spec boundary)**: [`lessons/2026-05-24-c_api-v128-spec-boundary.md`](./lessons/2026-05-24-c_api-v128-spec-boundary.md)
-- **wasm-c-api spec**: `include/wasm.h:452-477 + 327-365`
+- **Phase 10 design plan**: [`phase10_design_plan_ja.md`](./phase10_design_plan_ja.md) §3.1 (Z.1 ZirInstr 128-bit 拡張)
+- **c_api audit (closed)**: [`c_api_instance_audit_2026-05-24.md`](./c_api_instance_audit_2026-05-24.md) §3 A1/B1/B2 (all unblocked at 10.F close)
 - **Sub-chunk log**: [`phase_log/phase10.md`](./phase_log/phase10.md)

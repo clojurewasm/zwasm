@@ -55,8 +55,9 @@ close)
 accessors を `src/api/instance.zig` に追加 (D-171 / D-172 /
 D-173; `phase9_close_master.md` §5.3a Phase F)。
 
-**Status**: [ ] (partial; D-171 minimum-viable landed; remaining
-chunks queued)
+**Status**: `[x]` (10.F-a/b/c all closed; D-171 / D-172 / D-173 all
+discharged in `.dev/debt.md`; D-178 new debt opened for v0.2
+host-side `wasm_global_new`).
 
 ### Sub-chunks (commit-time order)
 
@@ -66,9 +67,19 @@ chunks queued)
   i32 global in-source test green; Mac test-all green; v128
   permanently spec-prohibited per `2026-05-24-c_api-v128-spec
   -boundary.md` `[x] 142502a5`
-- **10.F-D171-full** — `wasm_global_new` + `wasm_global_type`
-  (host-side standalone construction; Extern wrap → `wasm
-  _instance_new(imports[])` シナリオ用) (planned)
+- **10.F-D171-full** — `wasm_global_new` + `wasm_globaltype_new` +
+  `wasm_valtype_new` (host-side standalone construction; Extern
+  wrap → `wasm_instance_new(imports[])` シナリオ用) DEFERRED to
+  v0.2 follow-up; tracked as new debt D-178. The audit's A1
+  requirement is already satisfied by the MV `142502a5`
+  (export-derived path); standalone construction is orthogonal.
+- **10.F-c** — `wasm_table_grow` (deferred from 10.F-b) +
+  10.F close `[x] 3889661b` (Wasm spec §4.4.6 table.grow:
+  realloc-extend `rt.tables[idx].refs` + init-fill +
+  declared-max enforcement; Tier-1 test "wasm 2.0 c_api
+  wasm_table_grow: grow + init-fill + max-limit" PASS; D-171
+  formally closed with D-178 deferral note; D-172 + D-173 already
+  in discharged section; ROADMAP §10 / 10.F `[x]` flipped.)
 - **10.F-D172** — `wasm_extern_as_table` + `wasm_table_get/
   set/size` + minimal `wasm_ref_t` + `wasm_ref_delete` `[x] cf6f009e`
   (pub const Table + pub const Ref + 6 c_api exports per
