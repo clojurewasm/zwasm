@@ -7,10 +7,9 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24)。
-- **Last commit**: `ad16c2cc` — 10.T-1 import_proposal_corpus.sh
-  + raw .wast for 5 Wasm 3.0 proposals (424 .wast / 15 MB; matches
-  Phase 9 wasm-2.0-assert precedent)。10.D 7/7 ADRs drafted (Accept
-  pending)。
+- **Last commit**: `433967fb` — 10.T-2a regen_spec_3_0_assert.sh
+  + smoke bake (4/5 proposals; gc/struct fails wabt 1.0.39 GC
+  type syntax → D-179)。10.D 7/7 ADRs drafted (Accept pending)。
 - **Phase 9 close invariants gate (mac-host)**: **18/18 PASS** 維持。
 - **Mac `zig build test`**: 1827/1841 passed (substrate baseline);
   ubuntu test-all 10.Z verified GREEN at `b6e07451`。
@@ -37,12 +36,14 @@ row text "テスト infra 整備 (実装陣前)"; NOT blocked by 10.D
 Accept gate — only impl rows are). Sub-chunks in order:
 
 - 10.T-1 ✓ `ad16c2cc`: `scripts/import_proposal_corpus.sh` +
-  424 raw .wast committed (memory64 120 / tail-call 92 /
-  exception-handling 94 / gc 18 / function-references 100).
-- **10.T-2 NEXT**: `test/spec/spec_assert_runner_wasm_3_0.zig`
-  — 5 sub-corpus runner skeleton + wast2json bake + manifest
-  auto-generation (generalize `regen_spec_2_0_assert.sh`
-  pattern for Wasm 3.0 enable flags).
+  424 raw .wast committed.
+- 10.T-2a ✓ `433967fb`: `scripts/regen_spec_3_0_assert.sh` +
+  smoke bake (4/5: memory64+tail-call+EH+function-references
+  PASS; gc/struct blocked on wabt → D-179).
+- **10.T-2b NEXT**: `test/spec/spec_assert_runner_wasm_3_0.zig`
+  — sub-corpus selector + assert directive dispatch (reuses
+  `spec_assert_runner_base.zig` shape; adds `assert_exception`
+  handler for EH proposal). Wire into `build.zig` test-all.
 - 10.T-3: `gc_stress_runner.zig` + `eh_frequency_runner.zig`
   skeletons (impl after 10.G / 10.E land).
 - 10.T-4: Phase 9 `emit_test_*.zig` baseline 採取 +
