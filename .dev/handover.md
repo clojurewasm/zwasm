@@ -30,13 +30,16 @@
   TagEntry + sections.zig FILE-SIZE-EXEMPT marker。
 - **10.G-2 = SHIPPED** (`d5810162`): needs_gc_heap parse-time
   predicate (byte-scan type section).
-- **10.E-3a = SHIPPED 2026-05-25** (`c2238c9a`): BlockKind.try_table
-  enum entry (slot 4) + validator labelType arm (end_type rule) +
-  enum-tag-stability test extended (block=0 / loop=1 / if_then=2 /
-  else_open=3 / try_table=4)。 Only switch-on-BlockKind in the
-  codebase was validator's labelType; no other dispatch sites
-  needed adjustment。0x1F opcode + catch-vec parse comes in 10.E-3b。
-- **Mac `zig build test`**: green。
+- **10.E-3a = SHIPPED** (`c2238c9a`): BlockKind.try_table enum
+  entry + validator labelType arm。
+- **10.E-3b = SHIPPED 2026-05-25** (`da8880a9`): 0x1F opcode parse
+  + catch-vec skeleton。lower openTryTable (mirrors openBlock +
+  skipCatchVec)、validator opTryTable (label-range validation on
+  catch entries; tag-range + label-type matching pending)、interp
+  `.try_table` reuses blockOp for no-exception path。5 validator
+  unit tests (empty / catch_all / OOB label / catch with tag /
+  unknown kind). throw / unwind path lands at 10.E-5。
+- **Mac `zig build test-all`**: green (scope=unclear)。
 
 ## Phase 10 progress
 
@@ -71,16 +74,17 @@ row。
   heavy。
 
 **Phase 10 candidates** (parallelisable):
-- **10.E-3b NEXT**: 0x1F opcode handling in lower.zig +
-  validator.zig — read blocktype + vec(catch); emit `.try_table`
-  ZirOp with catch metadata。Catch clause variants per Wasm 3.0
-  EH §4.5: 0x00 catch / 0x01 catch_ref / 0x02 catch_all /
-  0x03 catch_all_ref (tag_idx + label_idx encodings)。Validator
-  pushes a try_table frame (kind=.try_table); body validates
-  like block。Interp body / unwinder later (10.E-5)。
-- 10.E-4: throw / throw_ref opcodes — parse + validator +
-  Trap.UncaughtException variant (= no try_table on stack)
-- 10.E-5: try_table + throw interp (frame unwinding)
+- **10.E-4 NEXT**: throw / throw_ref opcodes — parse + validator
+  + `Trap.UncaughtException` Trap variant (= no try_table on
+  stack to catch it)。`throw` opcode is 0x08 + tag_idx; pops
+  the tag's payload types; polymorphic-stack from here (=
+  terminator)。`throw_ref` opcode is 0x0A; pops exnref; same
+  terminator semantics。Validator: range-check tag_idx (pending
+  Module.tags wiring; for now allow any) + pop tag.params +
+  markUnreachable。Interp: trap UncaughtException for now (real
+  unwind lands at 10.E-5)。
+- 10.E-5: try_table + throw interp (frame unwinding + catch
+  dispatch + catch metadata storage)
 - 10.G-3: heap-top reftype detection extension to
   needs_heap_detector (anyref / eqref / i31ref / exnref bytes
   in func sigs / globals / tables / locals)
