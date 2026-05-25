@@ -269,6 +269,35 @@ close: -Dwasm=v2_0 symbol-absence gate).
 
 ### Sub-chunks (commit-time order)
 
+- **10.M-5** — validator memory64 widening + end-to-end test
+  (`96dafb3c`). Closes the parser → validator → lowerer →
+  codegen → runtime chain. **Validator** (`src/validate/
+  validator.zig`): `memory0_idx_type:
+  sections.MemoryEntry.IdxType = .i32` field added; legacy
+  entries unchanged via default. `skipMemarg` mirrors
+  `lower.zig::emitMemarg` byte consumption (bit 6 → optional
+  memidx LEB); without this position desyncs on bit-6-set
+  memargs. New `memAddrType()` returns `.i32`/`.i64` per
+  `memory0_idx_type`; `opLoad`/`opStore` pop address with
+  this dispatcher instead of hardcoded `.i32`. **Plumbing**:
+  `validateFunctionAndCollectSelectTypesWithMemory` adds 16th
+  `memory0_idx_type` param; 1 call site (`engine/compile.zig::
+  compileWasm`) already extracted the value at 10.M-4b.
+  **End-to-end test**: new `runI32Export: memory64 store+load
+  round-trip via i64 idx_type` in `src/engine/runner.zig` —
+  hand-crafted 51-byte Wasm 3.0 module `(memory i64 1) (func
+  (export "test") (result i32) i64.const 0 i32.const 42
+  i32.store offset=0 align=2 i64.const 0 i32.load offset=0
+  align=2)` — verifies parser → validator → lower → codegen
+  (emitMemOpI64 X-form addr + wrap-check) → runtime
+  (Runtime.memories[0].idx_type=.i64). Returns 42 (stored,
+  then loaded). Mac-aarch64 gate (existing runI32Export
+  pattern). **SIMD coverage**: `validator_simd.zig::
+  readSimdMemarg` + `lower_simd.zig::emitMemargLane` still
+  hardcode 2-uleb shape; deferred as 10.M-5b (v128.load/
+  store on i64-indexed memory; rare for current corpora).
+  Mac `test-all` GREEN; lint + zone + fs gates exit 0.
+
 - **10.M-4c** — x86_64 i64 idx_type wrap-check mirror
   (`affef52f`). Closes 10.M-4 cross-arch symmetry. `x86_64/
   ctx.zig::InitArgs` + `EmitCtx` add `memory0_idx_type`
