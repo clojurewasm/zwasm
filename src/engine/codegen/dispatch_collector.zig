@@ -75,6 +75,32 @@ pub fn validateArchOpModule(comptime mod: type) void {
     }
 }
 
+/// ADR-0113 §A — regalloc 3-axis classification. A per-op file
+/// may declare any subset of `{is_terminator, n_successor_edges,
+/// is_safepoint}`; absent declarations fall back to safe
+/// defaults that match the regular-call shape (returns to
+/// caller, single successor, no GC safepoint). The defaults are
+/// chosen so a per-op file that hasn't migrated to the 3-axis
+/// regime still classifies sanely for the regalloc layer.
+///
+/// As regalloc consumers come online (tail-call terminator-class,
+/// EH N-successor catch dispatch, GC stack-map safepoint
+/// walking), per-op files opt in by overriding the axes they
+/// diverge from. Per ADR-0113 §A's per-op file convention.
+pub const Axis3 = struct {
+    is_terminator: bool,
+    n_successor_edges: u8,
+    is_safepoint: bool,
+};
+
+pub fn axisOf(comptime mod: type) Axis3 {
+    return comptime .{
+        .is_terminator = if (@hasDecl(mod, "is_terminator")) mod.is_terminator else false,
+        .n_successor_edges = if (@hasDecl(mod, "n_successor_edges")) mod.n_successor_edges else 1,
+        .is_safepoint = if (@hasDecl(mod, "is_safepoint")) mod.is_safepoint else false,
+    };
+}
+
 // ---------------------------------------------------------------------
 // Per-arch collected op modules.
 //
@@ -270,3 +296,42 @@ test "collected_x86_64_ctx_ops tracks B54+ migrations to `(ctx, ins)` shape" {
 // `.{}`. The dispatcher's wire contract is covered by integration
 // tests at `arm64/emit.zig` (and `x86_64/emit.zig` once B12 lands)
 // going through real spec-driven fixtures.
+
+// ADR-0113 §A: 3-axis classification — comptime tests.
+
+test "axisOf: per-op file without explicit axes falls back to call defaults" {
+    // A struct with no axis declarations should resolve to the
+    // "regular call" defaults: returns to caller, 1 successor,
+    // not a safepoint.
+    const FakeOp = struct {};
+    const axis = axisOf(FakeOp);
+    try std.testing.expectEqual(false, axis.is_terminator);
+    try std.testing.expectEqual(@as(u8, 1), axis.n_successor_edges);
+    try std.testing.expectEqual(false, axis.is_safepoint);
+}
+
+test "axisOf: arm64 ops/wasm_1_0/call.zig declares regular-call axes (ADR-0113 §A)" {
+    const call_mod = @import("arm64/ops/wasm_1_0/call.zig");
+    const axis = axisOf(call_mod);
+    try std.testing.expectEqual(false, axis.is_terminator);
+    try std.testing.expectEqual(@as(u8, 1), axis.n_successor_edges);
+    try std.testing.expectEqual(true, axis.is_safepoint);
+}
+
+test "axisOf: x86_64 ops/wasm_1_0/call.zig declares regular-call axes (ADR-0113 §A)" {
+    const call_mod = @import("x86_64/ops/wasm_1_0/call.zig");
+    const axis = axisOf(call_mod);
+    try std.testing.expectEqual(false, axis.is_terminator);
+    try std.testing.expectEqual(@as(u8, 1), axis.n_successor_edges);
+    try std.testing.expectEqual(true, axis.is_safepoint);
+}
+
+test "axisOf: partial override — only is_terminator declared, others default" {
+    const FakeTerminatorOp = struct {
+        pub const is_terminator: bool = true;
+    };
+    const axis = axisOf(FakeTerminatorOp);
+    try std.testing.expectEqual(true, axis.is_terminator);
+    try std.testing.expectEqual(@as(u8, 1), axis.n_successor_edges);
+    try std.testing.expectEqual(false, axis.is_safepoint);
+}
