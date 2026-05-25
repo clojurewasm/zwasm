@@ -7,9 +7,10 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24)。
-- **Last commit**: `4561dfe1` — ADR-0117 GC × EH × TC integration
-  invariants Proposed (10.D autonomous prep 7/7 FINAL)。All 7 ADRs
-  of 10.D round drafted; user collab gate at Accept flip。
+- **Last commit**: `ad16c2cc` — 10.T-1 import_proposal_corpus.sh
+  + raw .wast for 5 Wasm 3.0 proposals (424 .wast / 15 MB; matches
+  Phase 9 wasm-2.0-assert precedent)。10.D 7/7 ADRs drafted (Accept
+  pending)。
 - **Phase 9 close invariants gate (mac-host)**: **18/18 PASS** 維持。
 - **Mac `zig build test`**: 1827/1841 passed (substrate baseline);
   ubuntu test-all 10.Z verified GREEN at `b6e07451`。
@@ -35,15 +36,13 @@ exhausted for 10.D.
 row text "テスト infra 整備 (実装陣前)"; NOT blocked by 10.D
 Accept gate — only impl rows are). Sub-chunks in order:
 
-- **10.T-1 NEXT**: `scripts/import_proposal_corpus.sh` — fetch
-  4 spec corpora (memory64 / tail-call / exception-handling /
-  gc + function-references prereq) from
-  `~/Documents/OSS/WebAssembly/*/test/core/` into
-  `test/spec/wasm-3.0-assert/<proposal>/` with deterministic
-  hashing.
-- 10.T-2: `spec_assert_runner_wasm_3_0.zig` — 5 sub-corpus
-  runner skeleton (memory64 / tail-call / EH / GC /
-  function-references).
+- 10.T-1 ✓ `ad16c2cc`: `scripts/import_proposal_corpus.sh` +
+  424 raw .wast committed (memory64 120 / tail-call 92 /
+  exception-handling 94 / gc 18 / function-references 100).
+- **10.T-2 NEXT**: `test/spec/spec_assert_runner_wasm_3_0.zig`
+  — 5 sub-corpus runner skeleton + wast2json bake + manifest
+  auto-generation (generalize `regen_spec_2_0_assert.sh`
+  pattern for Wasm 3.0 enable flags).
 - 10.T-3: `gc_stress_runner.zig` + `eh_frequency_runner.zig`
   skeletons (impl after 10.G / 10.E land).
 - 10.T-4: Phase 9 `emit_test_*.zig` baseline 採取 +
