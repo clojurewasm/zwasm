@@ -21,6 +21,7 @@
 const std = @import("std");
 
 const zir = @import("../../../ir/zir.zig");
+const sections = @import("../../../parse/sections.zig");
 const regalloc = @import("../shared/regalloc.zig");
 const label_mod = @import("label.zig");
 const types = @import("types.zig");
@@ -65,6 +66,8 @@ pub const InitArgs = struct {
     local_disps: []const i32,
     /// ADR-0105 D2/D3 — see EmitCtx field of the same name.
     stack_probe_fixup: u32,
+    /// ADR-0111 D4 — see EmitCtx field of the same name.
+    memory0_idx_type: sections.MemoryEntry.IdxType = .i32,
 };
 
 /// Per-function emit context for x86_64. Threaded as `*EmitCtx`
@@ -191,6 +194,12 @@ pub const EmitCtx = struct {
     /// fires BEFORE the SUB RSP) and patches this fixup to its
     /// disp32.
     stack_probe_fixup: u32,
+    /// ADR-0111 D4 — memory 0's idx_type. `.i32` (legacy ≤ 4 GiB;
+    /// byte-identical fast path) or `.i64` (memory64 64-bit MOV
+    /// + u64 offset materialise). Per-module constant; codegen
+    /// branches on it at emitMemOp's entry. Default `.i32` keeps
+    /// existing init args ergonomic.
+    memory0_idx_type: sections.MemoryEntry.IdxType = .i32,
 
     pub fn init(args: InitArgs) EmitCtx {
         const simd_consts_base: u32 =
@@ -225,6 +234,7 @@ pub const EmitCtx = struct {
             .total_locals = args.total_locals,
             .local_disps = args.local_disps,
             .stack_probe_fixup = args.stack_probe_fixup,
+            .memory0_idx_type = args.memory0_idx_type,
         };
     }
 

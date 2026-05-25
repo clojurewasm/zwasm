@@ -25,6 +25,7 @@
 //! Zone 2 (`src/engine/codegen/x86_64/`).
 
 const std = @import("std");
+const build_options = @import("build_options");
 
 const zir = @import("../../../ir/zir.zig");
 const regalloc = @import("../shared/regalloc.zig");
@@ -239,6 +240,17 @@ pub fn emitI32Load(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     // prose invariant per `.claude/rules/comment_as_invariant.md`.
     const memarg = zir.MemArgExtra.unpack(ins.extra);
     std.debug.assert(memarg.memidx == 0);
+    // ADR-0111 D4 — 2-stage gate (comptime + runtime). Mirrors
+    // arm64/op_memory.zig::emitMemOp; see that file for the full
+    // design rationale. v2.0 builds prune the i64 arm via comptime
+    // DCE; v3.0 + idx_type=.i32 takes the byte-identical fast path
+    // (existing emit_test_int memory asserts verify); v3.0 +
+    // idx_type=.i64 dispatches to emitMemOpI64.
+    if (comptime @intFromEnum(build_options.wasm_level) >= @intFromEnum(@TypeOf(build_options.wasm_level).v3_0)) {
+        if (ctx.memory0_idx_type == .i64) {
+            return emitMemOpI64(ctx, ins);
+        }
+    }
     return emitMemOp(
         ctx.allocator,
         ctx.buf,
@@ -274,6 +286,133 @@ pub const emitF32Load = emitI32Load;
 pub const emitF64Load = emitI32Load;
 pub const emitF32Store = emitI32Load;
 pub const emitF64Store = emitI32Load;
+
+/// Wasm 3.0 §5.4.7 memory64 (memory.load/store with i64 idx_type).
+/// x86_64 mirror of arm64/op_memory.zig::emitMemOpI64. Differs from
+/// emitMemOp's i32 fast path in TWO points:
+///   1. Idx MOV uses 64-bit width (`encMovRR(.q, ...)`) instead of
+///      32-bit (`encMovRR(.d, ...)` which zero-extends). The Wasm
+///      3.0 spec defines memory64 addresses as full 64-bit; AMD64
+///      MOV r64 copies all 64 bits.
+///   2. Offset materialise: u64 offsets always go through MOVABS
+///      RCX (10 bytes) + ADD RDX, RCX (3 bytes). The 32-bit
+///      `ADD RDX, imm32` fast path is still used when offset fits
+///      in i32::MAX (offsets 0..2^31-1) — that's a byte-identical
+///      sub-case of i32 path encoding.
+/// All other shapes (LEA RCX, [RDX+access_size]; CMP RCX, mem_limit;
+/// JA trap; final MOV/MOVZX/MOVSX with [RAX+RDX] addressing) are
+/// X-form already (LEA r64, CMP r64, base-idx 64-bit base) so they
+/// stay identical to the i32 path. Per ADR-0111 D4.
+fn emitMemOpI64(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    const op = ins.op;
+    const offset: u64 = ins.payload;
+    const is_store = switch (op) {
+        .@"i32.store",
+        .@"i32.store8",
+        .@"i32.store16",
+        .@"i64.store",
+        .@"i64.store8",
+        .@"i64.store16",
+        .@"i64.store32",
+        .@"f32.store",
+        .@"f64.store",
+        => true,
+        else => false,
+    };
+    const is_fp = switch (op) {
+        .@"f32.load", .@"f64.load", .@"f32.store", .@"f64.store" => true,
+        else => false,
+    };
+
+    var idx_v: u32 = 0;
+    var val_v: u32 = 0;
+    if (is_store) {
+        if (ctx.pushed_vregs.items.len < 2) return Error.AllocationMissing;
+        val_v = ctx.pushed_vregs.pop().?;
+        idx_v = ctx.pushed_vregs.pop().?;
+    } else {
+        if (ctx.pushed_vregs.items.len < 1) return Error.AllocationMissing;
+        idx_v = ctx.pushed_vregs.pop().?;
+    }
+    const idx_r = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, idx_v, 0);
+
+    const access_size: i8 = switch (op) {
+        .@"i32.load8_s", .@"i32.load8_u", .@"i32.store8", .@"i64.load8_s", .@"i64.load8_u", .@"i64.store8" => 1,
+        .@"i32.load16_s", .@"i32.load16_u", .@"i32.store16", .@"i64.load16_s", .@"i64.load16_u", .@"i64.store16" => 2,
+        .@"i32.load", .@"i32.store", .@"f32.load", .@"f32.store", .@"i64.load32_s", .@"i64.load32_u", .@"i64.store32" => 4,
+        .@"i64.load", .@"i64.store", .@"f64.load", .@"f64.store" => 8,
+        else => unreachable,
+    };
+
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.vm_base_off).slice());
+    // i64 idx: full 64-bit MOV RDX, idx_r — divergence from i32 path's `.d` (zero-extend).
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.q, .rdx, idx_r).slice());
+    if (offset != 0) {
+        if (offset <= 0x7FFFFFFF) {
+            try ctx.buf.appendSlice(ctx.allocator, inst.encAddR64Imm32(.rdx, @intCast(offset)).slice());
+        } else {
+            try ctx.buf.appendSlice(ctx.allocator, inst.encMovImm64Q(.rcx, offset).slice());
+            try ctx.buf.appendSlice(ctx.allocator, inst.encAddRR(.q, .rdx, .rcx).slice());
+        }
+    }
+    try ctx.buf.appendSlice(ctx.allocator, inst.encLeaR64BaseDisp8(.rcx, .rdx, access_size).slice());
+    try ctx.buf.appendSlice(ctx.allocator, inst.encCmpR64MemDisp32(.rcx, abi.runtime_ptr_save_gpr, jit_abi.mem_limit_off).slice());
+    const fixup_at: u32 = @intCast(ctx.buf.items.len);
+    try ctx.buf.appendSlice(ctx.allocator, inst.encJccRel32(.a, 0).slice());
+    try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+    trace.writeBounds(ctx.func_idx, fixup_at);
+
+    if (is_store) {
+        if (is_fp) {
+            const src_x = try gpr.xmmLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, val_v, 0);
+            const kind: inst.SseScalarKind = if (op == .@"f64.store") .f64 else .f32;
+            try ctx.buf.appendSlice(ctx.allocator, inst.encMovssMovsdMemBaseIdx(kind, true, src_x, .rax, .rdx).slice());
+        } else {
+            const src_r = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, val_v, 1);
+            const enc = switch (op) {
+                .@"i32.store" => inst.encStoreR32MemBaseIdx(src_r, .rax, .rdx),
+                .@"i32.store8" => inst.encStoreR8MemBaseIdx(src_r, .rax, .rdx),
+                .@"i32.store16" => inst.encStoreR16MemBaseIdx(src_r, .rax, .rdx),
+                .@"i64.store" => inst.encStoreR64MemBaseIdx(src_r, .rax, .rdx),
+                .@"i64.store8" => inst.encStoreR8MemBaseIdx(src_r, .rax, .rdx),
+                .@"i64.store16" => inst.encStoreR16MemBaseIdx(src_r, .rax, .rdx),
+                .@"i64.store32" => inst.encStoreR32MemBaseIdx(src_r, .rax, .rdx),
+                else => unreachable,
+            };
+            try ctx.buf.appendSlice(ctx.allocator, enc.slice());
+        }
+    } else {
+        const result_v = ctx.next_vreg.*;
+        ctx.next_vreg.* += 1;
+        if (result_v >= ctx.alloc.slots.len) return Error.SlotOverflow;
+        if (is_fp) {
+            const dst_x = try gpr.xmmDefSpilled(ctx.alloc, result_v, 0);
+            const kind: inst.SseScalarKind = if (op == .@"f64.load") .f64 else .f32;
+            try ctx.buf.appendSlice(ctx.allocator, inst.encMovssMovsdMemBaseIdx(kind, false, dst_x, .rax, .rdx).slice());
+            try gpr.xmmStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_v, 0);
+        } else {
+            const dst_r = try gpr.gprDefSpilled(ctx.alloc, result_v, 0);
+            const enc = switch (op) {
+                .@"i32.load" => inst.encMovR32FromBaseIdx(dst_r, .rax, .rdx),
+                .@"i32.load8_s" => inst.encMovsxR32_8MemBaseIdx(dst_r, .rax, .rdx),
+                .@"i32.load8_u" => inst.encMovzxR32_8MemBaseIdx(dst_r, .rax, .rdx),
+                .@"i32.load16_s" => inst.encMovsxR32_16MemBaseIdx(dst_r, .rax, .rdx),
+                .@"i32.load16_u" => inst.encMovzxR32_16MemBaseIdx(dst_r, .rax, .rdx),
+                .@"i64.load" => inst.encMovR64FromBaseIdx(dst_r, .rax, .rdx),
+                .@"i64.load8_s" => inst.encMovsxR64_8MemBaseIdx(dst_r, .rax, .rdx),
+                .@"i64.load8_u" => inst.encMovzxR64_8MemBaseIdx(dst_r, .rax, .rdx),
+                .@"i64.load16_s" => inst.encMovsxR64_16MemBaseIdx(dst_r, .rax, .rdx),
+                .@"i64.load16_u" => inst.encMovzxR64_16MemBaseIdx(dst_r, .rax, .rdx),
+                .@"i64.load32_s" => inst.encMovsxdR64_32MemBaseIdx(dst_r, .rax, .rdx),
+                .@"i64.load32_u" => inst.encMovR32FromBaseIdx(dst_r, .rax, .rdx),
+                else => unreachable,
+            };
+            try ctx.buf.appendSlice(ctx.allocator, enc.slice());
+            try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_v, 0);
+        }
+        try ctx.pushed_vregs.append(ctx.allocator, result_v);
+    }
+}
 
 /// §9.12-B / B61 (ADR-0075) — `(ctx, ins)` adapters for the
 /// bulk-memory cohort (`memory.fill`, `memory.copy`,
