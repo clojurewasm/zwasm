@@ -572,6 +572,8 @@ pub const Validator = struct {
             0x02 => try self.opBlock(.block),
             0x03 => try self.opBlock(.loop),
             0x04 => try self.opIf(),
+            // Wasm 3.0 EH `try_table` (§3.3.10.6 / §4.5).
+            0x1F => try self.opTryTable(),
             0x05 => try self.opElse(),
             0x0B => try self.opEnd(),
             0x0C => try self.opBr(),
@@ -705,6 +707,53 @@ pub const Validator = struct {
 
     fn opUnreachable(self: *Validator) Error!void {
         self.markUnreachable();
+    }
+
+    /// Wasm 3.0 EH §3.3.10.6 — `try_table blocktype vec(catch) ...
+    /// end`. Pushes a `.try_table` control frame; body validates
+    /// like `block`. The catch vec is validated for label-index
+    /// range (each catch's branch target must reference an
+    /// existing outer label) but NOT for label-type compatibility
+    /// — full type checking lands at 10.E-5 alongside the interp
+    /// unwind path. Catch encoding per §4.5: 0x00 catch / 0x01
+    /// catch_ref carry tag_idx + label_idx; 0x02 catch_all / 0x03
+    /// catch_all_ref carry label_idx only.
+    fn opTryTable(self: *Validator) Error!void {
+        const bt = try self.readBlockType();
+        try self.validateCatchVec();
+        try self.popLabelTypes(bt.start);
+        try self.pushFrame(.try_table, bt.start, bt.end);
+        switch (bt.start) {
+            .empty => {},
+            .single => |t| try self.pushType(t),
+            .multi => |ts| for (ts) |t| try self.pushType(t),
+        }
+    }
+
+    /// Validates a try_table's catch vec — currently just label
+    /// range. Tag-index range validation lands when Module.tags[]
+    /// reaches the validator (10.E-N). Label-type matching lands
+    /// at 10.E-5 with the interp unwind path.
+    fn validateCatchVec(self: *Validator) Error!void {
+        const count = try leb128.readUleb128(u32, self.body, &self.pos);
+        var i: u32 = 0;
+        while (i < count) : (i += 1) {
+            if (self.pos >= self.body.len) return Error.UnexpectedEnd;
+            const kind = self.body[self.pos];
+            self.pos += 1;
+            switch (kind) {
+                0x00, 0x01 => {
+                    _ = try leb128.readUleb128(u32, self.body, &self.pos); // tag_idx (range check pending Module.tags)
+                    const label_idx = try leb128.readUleb128(u32, self.body, &self.pos);
+                    if (label_idx >= self.control_len) return Error.InvalidBranchDepth;
+                },
+                0x02, 0x03 => {
+                    const label_idx = try leb128.readUleb128(u32, self.body, &self.pos);
+                    if (label_idx >= self.control_len) return Error.InvalidBranchDepth;
+                },
+                else => return Error.BadBlockType,
+            }
+        }
     }
 
     fn opBlock(self: *Validator, kind: BlockKind) Error!void {

@@ -190,6 +190,11 @@ pub const Lowerer = struct {
             0x02 => try self.openBlock(.block, .block),
             0x03 => try self.openBlock(.loop, .loop),
             0x04 => try self.openBlock(.if_then, .@"if"),
+            // Wasm 3.0 exception-handling proposal (§4.5):
+            // `try_table blocktype vec(catch) instr* end`. Foundation
+            // wiring — the catch vec is parsed-and-discarded; body
+            // runs like a block; full catch dispatch lands at 10.E-5.
+            0x1F => try self.openTryTable(),
             0x05 => try self.emitElse(),
             0x0B => {
                 if (self.block_stack_len == 0) {
@@ -707,6 +712,66 @@ pub const Lowerer = struct {
     fn markUnreachable(self: *Lowerer) void {
         if (self.unreachable_at_depth == null) {
             self.unreachable_at_depth = @intCast(self.block_stack_len);
+        }
+    }
+
+    /// Wasm 3.0 EH `try_table` opener — mirrors `openBlock` but
+    /// inserts the catch-vec parse between `readBlockArity` and
+    /// the frame push. The catch vec is currently consumed-and-
+    /// discarded; full catch dispatch (label-types matching,
+    /// runtime unwind) lands at 10.E-5. The emitted ZirInstr's
+    /// payload + extra slots stay 0 — sufficient for the
+    /// foundation-shape interp at the current scope where the body
+    /// runs like a block (no exceptions actually raised).
+    fn openTryTable(self: *Lowerer) Error!void {
+        const arity = try self.readBlockArity();
+        try self.skipCatchVec();
+
+        if (self.block_stack_len == max_control_stack) return Error.ControlStackOverflow;
+        if (self.unreachable_at_depth != null) {
+            self.block_stack[self.block_stack_len] = unreachable_block_sentinel;
+            self.block_stack_len += 1;
+            return;
+        }
+
+        const block_idx: u32 = @intCast(self.out.blocks.items.len);
+        const start_inst: u32 = @intCast(self.out.instrs.items.len);
+        try self.out.blocks.append(self.alloc, .{
+            .kind = .try_table,
+            .start_inst = start_inst,
+            .end_inst = 0,
+        });
+        try self.emit(.try_table, block_idx, arity);
+
+        self.block_stack[self.block_stack_len] = block_idx;
+        self.block_stack_len += 1;
+    }
+
+    /// Parse-and-discard the catch vec that follows `try_table`'s
+    /// blocktype. Spec catch encoding (Wasm 3.0 EH §4.5):
+    ///   0x00 tag_idx label_idx  -- catch
+    ///   0x01 tag_idx label_idx  -- catch_ref
+    ///   0x02 label_idx          -- catch_all
+    ///   0x03 label_idx          -- catch_all_ref
+    /// Storage for catch metadata lands at 10.E-5 when the interp
+    /// unwind path needs to dispatch on a matching catch.
+    fn skipCatchVec(self: *Lowerer) Error!void {
+        const count = try leb128.readUleb128(u32, self.body, &self.pos);
+        var i: u32 = 0;
+        while (i < count) : (i += 1) {
+            if (self.pos >= self.body.len) return Error.UnexpectedEnd;
+            const kind = self.body[self.pos];
+            self.pos += 1;
+            switch (kind) {
+                0x00, 0x01 => {
+                    _ = try leb128.readUleb128(u32, self.body, &self.pos); // tag_idx
+                    _ = try leb128.readUleb128(u32, self.body, &self.pos); // label_idx
+                },
+                0x02, 0x03 => {
+                    _ = try leb128.readUleb128(u32, self.body, &self.pos); // label_idx
+                },
+                else => return Error.BadBlockType,
+            }
         }
     }
 

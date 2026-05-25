@@ -699,6 +699,47 @@ test "validate (tail-call): return_call_indirect with non-funcref table fails" {
     try testing.expectError(Error.InvalidFuncIndex, r);
 }
 
+// ============================================================
+// Wasm 3.0 EH try_table parse/validator coverage (10.E-3b)
+// ============================================================
+
+test "validate (try_table): empty catch vec, empty body → OK" {
+    // body: 0x1F (try_table) 0x40 (empty blocktype) 0x00 (count=0)
+    //       0x0B (end of try_table) 0x0B (end of function)
+    const body = [_]u8{ 0x1F, 0x40, 0x00, 0x0B, 0x0B };
+    try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
+}
+
+test "validate (try_table): catch_all targeting outer label → OK" {
+    // body: try_table () (catch_all 0) end ; end
+    // 0x1F 0x40 0x01 0x02 0x00 0x0B 0x0B
+    // catch_all label_idx=0 → function frame (always exists).
+    const body = [_]u8{ 0x1F, 0x40, 0x01, 0x02, 0x00, 0x0B, 0x0B };
+    try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
+}
+
+test "validate (try_table): catch_all with out-of-range label_idx fails" {
+    // catch_all label_idx=99 → no such label.
+    const body = [_]u8{ 0x1F, 0x40, 0x01, 0x02, 0x63, 0x0B, 0x0B };
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
+    try testing.expectError(Error.InvalidBranchDepth, r);
+}
+
+test "validate (try_table): catch (0x00) with tag_idx + label_idx parses + validates label range" {
+    // try_table () (catch 0 0) end ; end
+    // 0x1F 0x40 0x01 0x00 0x00 0x00 0x0B 0x0B
+    // Tag-index range validation pending Module.tags; label_idx=0 → OK.
+    const body = [_]u8{ 0x1F, 0x40, 0x01, 0x00, 0x00, 0x00, 0x0B, 0x0B };
+    try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
+}
+
+test "validate (try_table): unknown catch kind byte rejected" {
+    // 0x04 is not a valid catch kind (only 0x00..0x03 defined).
+    const body = [_]u8{ 0x1F, 0x40, 0x01, 0x04, 0x00, 0x0B, 0x0B };
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
+    try testing.expectError(Error.BadBlockType, r);
+}
+
 test "validate (tail-call): return_call_indirect with fn-return mismatch fails" {
     // caller sig: () -> () (empty); module_types[0] = () -> i32 → mismatch.
     const body = [_]u8{ 0x41, 0x00, 0x13, 0x00, 0x00, 0x0B };

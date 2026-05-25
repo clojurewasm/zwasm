@@ -69,6 +69,10 @@ pub fn register(table: *DispatchTable) void {
 
     // Control flow
     table.interp[op(.block)] = blockOp;
+    // Wasm 3.0 EH `try_table` foundation: same label-stack
+    // semantics as `block` for the no-exception path. Full catch
+    // dispatch + frame unwind on `throw` land at 10.E-5.
+    table.interp[op(.try_table)] = blockOp;
     table.interp[op(.loop)] = loopOp;
     table.interp[op(.@"if")] = ifOp;
     table.interp[op(.@"else")] = elseOp;
