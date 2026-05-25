@@ -617,6 +617,24 @@ Design source: ADR-0114 + ADR-0117 (cross-subsystem invariants).
 
 **SHA pointer**: backfilled at Phase 10 close.
 
+- **10.E-codegen-3a** — arm64 frame_chain.zig AAPCS64
+  frame-prefix read (`de2f79fe`). Per ADR-0114 D6 + AAPCS64
+  §6.4: `loadFrame(fp) ?RawFrameLink` reads the prologue-
+  planted prefix at `[X29, #0]` (saved FP) + `[X29, #8]`
+  (saved LR = absolute return address). `fp == 0` returns
+  null (top-of-Wasm-stack sentinel planted by the entry
+  shim). Raw read only — the trampoline (10.E-codegen-3c
+  follow-on) composes this into `unwind.FrameChainLoader`
+  via a PC-normalization callback that converts saved-LR
+  (absolute address) to module-relative PC for
+  `ExceptionTable.lookup`. INVARIANT (paired with ADR-0114
+  D5 + ADR-0112 D7): two pointer-relative loads, no alloc /
+  host-call / signal-check between entry and return. 4 unit
+  tests with synthetic 2-slot u64 arrays: fp==0 sentinel;
+  basic 2-slot read; caller_fp==0 propagation; chained walk.
+  Mac `test-all` GREEN; lint exit 0. ADR-0114 D6, ADR-0017
+  (prologue layout), Arm IHI 0055 §6.4.
+
 - **10.E-codegen-2** — shared/unwind.zig FP-walk algorithm
   (`3b0000ad`). Per ADR-0114 D5: platform-agnostic frame-chain
   walker callable from per-arch zwasm_throw trampoline.

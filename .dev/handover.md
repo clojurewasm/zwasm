@@ -80,11 +80,12 @@
   shared/exception_table.zig storage. HandlerEntry +
   ExceptionTable.lookup + Builder. 7 unit tests.
 - **10.E-codegen-2 = SHIPPED 2026-05-26** (`3b0000ad`):
-  shared/unwind.zig FP-walk algorithm per ADR-0114 D5.
-  walk(table, throw_tag_idx, initial_pc, initial_fp, loader,
-  max_depth) → UnwindResult.{handler|uncaught}. Single-Instance
-  only; cross-instance dispatch deferred to 10.E-codegen-2b.
-  7 unit tests with synthetic frame chains.
+  shared/unwind.zig FP-walk per ADR-0114 D5. 7 unit tests.
+- **10.E-codegen-3a = SHIPPED 2026-05-26** (`de2f79fe`):
+  arm64/frame_chain.zig — AAPCS64 frame-prefix read
+  (`[X29, #0]` = saved FP, `[X29, #8]` = saved LR). Returns
+  null for `fp == 0` (top-of-Wasm-stack sentinel). 4 unit
+  tests with synthetic 2-slot frame arrays.
 - **Mac `zig build test-all`**: green (scope=unclear)。
 
 ## Phase 10 progress
@@ -98,35 +99,24 @@ ROADMAP §10 = 13-row task table。
     cross-module + spec corpus + regalloc terminator-class 残)
 - Pending: 10.E / 10.G / 10.P
 
-## Active task — 10.E-codegen-3 zwasm_throw trampoline (arm64 first)
+## Active task — 10.E-codegen-3b x86_64 frame_chain.zig
 
-10.E-codegen-1 (`34f81932`) + 10.E-codegen-2 (`3b0000ad`) landed
-the exception_table storage + the FP-walk algorithm. Next: the
-arm64 `zwasm_throw` trampoline per ADR-0114 D6 — a small assembly
-stub invoked from `throw` / `throw_ref` emit. The trampoline:
-  (1) Captures the throw-site context (FP, LR, tag, payload).
-  (2) Writes the Exception object into the thread-local
-      pending-exception slot.
-  (3) Materialises the per-arch FrameChainLoader (AAPCS64 reads
-      `[X29, #0]` for caller FP + `[X29, #8]` for caller LR).
-  (4) Calls `unwind.walk(...)` to get the landing.
-  (5) On .handler: restores SP to handler_fp's prologue boundary,
-      copies payload to handler's operand stack, jumps to
-      landing_pad_pc.
-  (6) On .uncaught: writes trap_flag=1, returns 0 to the entry
-      shim (mirrors existing bounds_fixup trap shape).
+10.E-codegen-3a (`de2f79fe`) landed arm64 frame_chain.zig. Next:
+mirror for x86_64 — `src/engine/codegen/x86_64/frame_chain.zig`
+reading the SysV/Win64 frame prefix planted by the prologue's
+`PUSH RBP; MOV RBP, RSP`:
+  [RBP, #0] = caller's saved RBP
+  [RBP, #8] = caller's saved RIP (return address)
 
-Initial atom: the FrameChainLoader concrete implementation
-(arm64 reads `[X29, #0]` + `[X29, #8]` and packages as FrameLink).
-Pure helper; arch-specific test verifies byte sequence + a
-synthetic-stack walk integration test consumes it.
+Same `loadFrame(fp) → ?RawFrameLink` shape as arm64; same
+`fp == 0` sentinel; same INVARIANT (no alloc / host-call /
+signal-check). 4 unit tests with synthetic 2-slot frame arrays.
 
-Refs: ADR-0114 D5/D6, shared/unwind.zig + exception_table.zig
-(landed), ADR-0017 (AAPCS64 prologue layout).
+Refs: ADR-0114 D6/D5, System V AMD64 §3.2.2, arm64/frame_chain.zig
+(landed) for the mirror shape.
 
 **Next sub-chunk candidates (names only, NO predictions)**:
-- 10.E-codegen-3a — arm64 FrameChainLoader concrete (active above)
-- 10.E-codegen-3b — x86_64 FrameChainLoader concrete
+- 10.E-codegen-3b — x86_64 frame_chain.zig (active above)
 - 10.E-codegen-3c — zwasm_throw assembly stub per arch
 - 10.E-codegen-4 — per-arch op_exception_handling.zig
 - 10.TC-3f/g/h — tail-call follow-ons (deferred)
