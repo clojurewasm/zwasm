@@ -617,6 +617,30 @@ Design source: ADR-0114 + ADR-0117 (cross-subsystem invariants).
 
 **SHA pointer**: backfilled at Phase 10 close.
 
+- **10.E-codegen-2** — shared/unwind.zig FP-walk algorithm
+  (`3b0000ad`). Per ADR-0114 D5: platform-agnostic frame-chain
+  walker callable from per-arch zwasm_throw trampoline.
+  `walk(table, throw_tag_idx, initial_pc, initial_fp, loader,
+  max_depth) → UnwindResult.{handler|uncaught}`. The FP register
+  conventions are ABI-pinned per platform (AAPCS64 X29, SysV /
+  Win64 RBP) but the walk algorithm is platform-agnostic — the
+  per-arch trampoline (10.E-codegen-3 follow-on) supplies the
+  `FrameChainLoader.load_fn` that materialises one chain step.
+  `FrameLink { caller_fp, caller_pc }` is the per-step shape;
+  `HandlerLanding { landing_pad_pc, kind, handler_fp }` carries
+  the catching-frame's FP so the trampoline can restore SP +
+  push the exnref before jumping. `max_depth` bounds corrupted
+  chains. Single-Instance only for Phase 10 (cross-instance
+  EH dispatched per-frame deferred to 10.E-codegen-2b at
+  Phase 11+ per ADR-0114). INVARIANT (paired with ADR-0112 D7):
+  no allocator / host-call / signal-check in the walk body.
+  7 unit tests with synthetic in-memory frame chains: handler
+  in current frame; no handler → uncaught; walk to caller +
+  catch; catch_all matches any tag; max_depth on self-cycle;
+  loader returning null → uncaught; handler_fp reports
+  catching frame at depth 2. Mac `test-all` GREEN; lint exit
+  0. ADR-0114 D5, exception_table.zig + ADR-0112 D7.
+
 - **10.E-codegen-1** — shared/exception_table.zig storage
   (`34f81932`). Per ADR-0114 D3: per-Instance EH handler table
   with `HandlerEntry { pc_start, pc_end, tag_idx, landing_pad_pc,
