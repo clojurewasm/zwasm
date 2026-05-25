@@ -284,8 +284,38 @@ the impl SHA range cited.
 - WebAssembly GC proposal § 4.3.7 (RTT display depth) + § 4.5
   (subtyping):
   https://github.com/WebAssembly/gc/blob/main/proposals/gc/MVP.md
-- `~/Documents/OSS/wasmtime/crates/wasmtime/src/runtime/vm/gc/host_data.rs`
-  — wasmtime root-walker pattern (industry precedent).
+- `~/Documents/OSS/wasmtime/crates/wasmtime/src/runtime/vm/gc/host_data.rs:26`
+  (`pub struct ExternRefHostDataTable`): wasmtime's host-data
+  table threaded through `Id` indices rather than raw
+  pointers. Root walker visits this table via
+  `drop_gc_ref(host_data_table, gc_ref)` (gc_runtime.rs:172).
+  Industry precedent for this ADR's decision §3 root-walker
+  pattern: host roots live in a table indexed by stable id,
+  not raw pointers, so a moving collector can update the
+  indirection without rewriting host code.
+- `~/Documents/OSS/wasmtime/crates/wasmtime/src/runtime/vm/gc/gc_ref.rs:151`
+  (`pub struct VMGcRef(NonZeroU32)`): wasmtime's tagged-pointer
+  representation. Bit 0 = `I31_REF_DISCRIMINANT` (gc_ref.rs:183
+  `pub const I31_REF_DISCRIMINANT: u32 = 1`); when set, the
+  upper 31 bits are the inline i31 value, NOT a heap pointer.
+  Direct precedent for this ADR's decision §6 unboxed-i31
+  representation: the i31 fits in the same word as a heap
+  pointer via low-bit tag. zwasm v2 uses an equivalent tag
+  scheme on the `Value.ref` discriminator.
+- `~/Documents/OSS/wasmtime/crates/wasmtime/src/runtime/vm/gc/i31.rs:62`
+  (`fn wrapping_u32(value) -> Self { Self((value << 1) |
+  DISCRIMINANT) }`): the canonical pack/unpack pair. Pack =
+  `(value << 1) | 1`; unpack = `self.0 >> 1`. zwasm v2's
+  `feature/gc/i31.zig` (landed 10.G-i31-helpers `e79bb7a1`)
+  uses the same shift+OR pattern. Confirms decision §6
+  interoperability with wasmtime's i31 representation.
+- `~/Documents/OSS/wasmtime/crates/wasmtime/src/runtime/vm/gc/gc_ref.rs:389`
+  (`pub fn is_i31(&self) -> bool`): the discriminant check
+  that gates pack/unpack vs heap-pointer dereference. zwasm
+  v2 mirror: `Value.refAsI31Bits` / `Value.fromI31` in
+  `runtime/value.zig`. Confirms decision §6's compile-time
+  branch elision (the i31 tag check is hot on every GcRef
+  read; wasmtime inlines, zwasm v2 inlines).
 - `~/Documents/OSS/wasmtime/crates/wasmtime/src/runtime/vm/stack_map.rs`
   — wasmtime per-callsite stack-map shape.
 - `~/Documents/OSS/WebAssembly/gc/test/core/gc/` — 18-wast /
@@ -311,6 +341,16 @@ the impl SHA range cited.
   collab review at 10.D. Co-drafted in the 10.D ADR round
   alongside ADR-0111..0115 / 0117 (over multiple /continue
   cycles per the 7-ADR scope).
+- 2026-05-26 — References enrichment via /continue autonomous
+  prep path. Added 4 concrete wasmtime citations:
+  `host_data.rs:26` (ExternRefHostDataTable root-walker indirection
+  pattern — decision §3 mirror), `gc_ref.rs:151+183` (VMGcRef
+  tagged-pointer with I31_REF_DISCRIMINANT = 1 low bit —
+  decision §6 mirror), `i31.rs:62` (canonical pack
+  `(value << 1) | DISCRIMINANT` matching zwasm v2's
+  feature/gc/i31.zig from 10.G-i31-helpers), `gc_ref.rs:389`
+  (`is_i31()` discriminant check — zwasm v2 mirror
+  `Value.refAsI31Bits`). No semantic change to the 9 decisions.
 - 2026-05-25 — Status: Proposed → **Accepted** (user collab 6/7).
   All 9 decisions accepted. Enhancement: when the parser rejects
   an RTT chain of depth ≥ 8 (decision §9), the diagnostic message
