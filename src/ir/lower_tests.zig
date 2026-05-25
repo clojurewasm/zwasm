@@ -655,7 +655,45 @@ test "lower (simd): v128.load passes memarg through emitMemarg" {
     try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
     try testing.expectEqual(ZirOp.@"v128.load", f.instrs.items[0].op);
     try testing.expectEqual(@as(u32, 0x10), f.instrs.items[0].payload); // offset
-    try testing.expectEqual(@as(u32, 4), f.instrs.items[0].extra); // align
+    // pack(align=4, memidx=0) = (0 << 5) | 4 = 4 (legacy single-memory)
+    const ex = zir.MemArgExtra.unpack(f.instrs.items[0].extra);
+    try testing.expectEqual(@as(u5, 4), ex.align_pow2);
+    try testing.expectEqual(@as(u8, 0), ex.memidx);
+}
+
+test "lower (memarg): bit-6 align flag carries explicit memidx (Wasm 3.0 §5.4.6)" {
+    var f = newFunc(empty_sig);
+    defer f.deinit(testing.allocator);
+    // i32.load with align uleb = 0x42 (= 0x40 | 2 → memidx LEB follows;
+    // effective align=2); memidx=1; offset=0x08
+    const body = [_]u8{ 0x28, 0x42, 0x01, 0x08, 0x0B };
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
+    try testing.expectEqual(ZirOp.@"i32.load", f.instrs.items[0].op);
+    try testing.expectEqual(@as(u32, 0x08), f.instrs.items[0].payload);
+    const ex = zir.MemArgExtra.unpack(f.instrs.items[0].extra);
+    try testing.expectEqual(@as(u5, 2), ex.align_pow2);
+    try testing.expectEqual(@as(u8, 1), ex.memidx);
+}
+
+test "lower (memarg): align without bit-6 → implicit memidx=0" {
+    var f = newFunc(empty_sig);
+    defer f.deinit(testing.allocator);
+    // i32.store align=2 offset=0 (no memidx LEB)
+    const body = [_]u8{ 0x41, 0x00, 0x41, 0x00, 0x36, 0x02, 0x00, 0x0B };
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
+    // instr[2] is the store (after two const ops)
+    try testing.expectEqual(ZirOp.@"i32.store", f.instrs.items[2].op);
+    const ex = zir.MemArgExtra.unpack(f.instrs.items[2].extra);
+    try testing.expectEqual(@as(u5, 2), ex.align_pow2);
+    try testing.expectEqual(@as(u8, 0), ex.memidx);
+}
+
+test "lower (memarg): align > 31 → Error.BadMemarg" {
+    var f = newFunc(empty_sig);
+    defer f.deinit(testing.allocator);
+    // i32.load align=32 (= 0x20; without bit-6 flag); offset=0
+    const body = [_]u8{ 0x28, 0x20, 0x00, 0x0B };
+    try testing.expectError(error.BadMemarg, lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{}));
 }
 
 test "lower (simd): v128.store routes via emitMemarg" {

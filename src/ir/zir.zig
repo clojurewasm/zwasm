@@ -74,6 +74,36 @@ pub const ZirInstr = struct {
     extra: u32 = 0,
 };
 
+/// Per Wasm 3.0 §5.4.6 / ADR-0111 D3, memarg-bearing ops
+/// (load*/store*/load_lane/store_lane) carry alignment + an
+/// explicit memidx through `ZirInstr.extra`. Encoded as a
+/// packed-u32 so the existing `extra: u32` field stays
+/// byte-identical for non-memarg ops. `_pad` is reserved zero
+/// (future memory64-related extensions: page-size hint, etc.).
+pub const MemArgExtra = packed struct(u32) {
+    /// log2 of byte alignment (Wasm spec §5.4.6 memarg align;
+    /// always ≤ natural alignment of the op — i32: ≤ 2 /
+    /// i64: ≤ 3 / v128: ≤ 4). 5 bits permits 0..31, well
+    /// beyond any Wasm-permitted op.
+    align_pow2: u5 = 0,
+    /// Memory index (Wasm 3.0 multi-memory). 0 for legacy
+    /// single-memory modules; 1..255 for multi-memory enabled
+    /// modules (parser+validator support at 10.M-3; runtime
+    /// instantiate still rejects > 1 until codegen wires
+    /// per-memidx access at 10.M-4).
+    memidx: u8 = 0,
+    _pad: u19 = 0,
+
+    pub fn pack(align_pow2: u5, memidx: u8) u32 {
+        const m: MemArgExtra = .{ .align_pow2 = align_pow2, .memidx = memidx };
+        return @bitCast(m);
+    }
+
+    pub fn unpack(extra: u32) MemArgExtra {
+        return @bitCast(extra);
+    }
+};
+
 /// Returns true if `op` is a SIMD-128 ZirOp (operates on or
 /// produces v128 vregs). Per ADR-0041 §"Decision" / 1
 /// (shape-as-variant), the predicate uses tag-name prefix

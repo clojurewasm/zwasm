@@ -54,6 +54,10 @@ pub const Error = error{
     UnexpectedEnd,
     UnexpectedOpcode,
     BadBlockType,
+    /// Malformed memarg per Wasm 3.0 §5.4.6: align value
+    /// > 31 (exceeds u5 width of MemArgExtra.align_pow2), or
+    /// memidx > 255 (exceeds u8 width of MemArgExtra.memidx).
+    BadMemarg,
     ControlStackOverflow,
     TrailingBytes,
     NotImplemented,
@@ -587,12 +591,28 @@ pub const Lowerer = struct {
         try self.emit(op, v, 0);
     }
 
-    /// memarg-bearing op (load*/store*): payload = offset, extra = align.
+    /// memarg-bearing op (load*/store*): payload = offset,
+    /// extra = packed MemArgExtra { align_pow2, memidx, _pad }
+    /// per Wasm 3.0 §5.4.6 (ADR-0111 D3). The align uleb's bit
+    /// 6 (0x40) is the memidx-presence flag — if set, a memidx
+    /// uleb follows and the effective log2-align is `align & 0x3F`.
     // SIBLING-PUB: lower_simd.zig (per ADR-0089 extraction)
     pub fn emitMemarg(self: *Lowerer, op: ZirOp) Error!void {
-        const align_arg = try leb128.readUleb128(u32, self.body, &self.pos);
+        const raw_align = try leb128.readUleb128(u32, self.body, &self.pos);
+        const has_memidx = (raw_align & 0x40) != 0;
+        const align_pow2_val = if (has_memidx) (raw_align & 0x3F) else raw_align;
+        if (align_pow2_val > std.math.maxInt(u5)) return Error.BadMemarg;
+        const memidx_val: u32 = if (has_memidx)
+            try leb128.readUleb128(u32, self.body, &self.pos)
+        else
+            0;
+        if (memidx_val > std.math.maxInt(u8)) return Error.BadMemarg;
         const offset = try leb128.readUleb128(u32, self.body, &self.pos);
-        try self.emit(op, offset, align_arg);
+        const extra = zir.MemArgExtra.pack(
+            @intCast(align_pow2_val),
+            @intCast(memidx_val),
+        );
+        try self.emit(op, offset, extra);
     }
 
     /// memory.size / memory.grow: must be followed by reserved 0x00 byte.
