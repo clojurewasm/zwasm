@@ -825,3 +825,46 @@ Design source: ADR-0114 + ADR-0117 (cross-subsystem invariants).
   wiring at 10.E-N.
 
 - **10.E-1** — tag section parse skeleton (`ffb56dd7`).
+
+
+## Row 10.G — WasmGC impl
+
+**Scope** (parent row §10 / 10.G): Value.anyref arm + needs_gc_heap
+parse-time flag + needs_heap_detector + feature/gc/heap.zig +
+Collector vtable + regalloc stack-map (ADR-0113 §C) + collector_null
+(α) + delegation + i31 + RTT 8-deep + op_gc family + op_i31 +
+collector_mark_sweep (β) + gc_stress_runner + cross fixtures +
+spec corpus ~578 assertion + realworld (dart + wasm_of_ocaml +
+hoot). Design source: ADR-0115 + ADR-0116.
+
+**SHA pointer**: backfilled at Phase 10 close.
+
+- **10.G-3** — detectNeedsGcHeap heap-top reftype scan
+  (`8bebcc76`). Extends the parse-time predicate (ADR-0115 D2) to
+  flag heap-managed-ref usage even when no GC type declaration
+  is present. New `scanForHeapReftype` byte-stream scan walks
+  type / global / table / element / code section bodies looking
+  for any of anyref (0x6E) / eqref (0x6D) / i31ref (0x6C) /
+  exnref (0x69). Function / import sections are intentionally
+  not scanned (typeidx LEB128s only; reftype reach resolves
+  through the scanned type section). Original
+  `scanTypeSectionForGcTags` renamed to `scanForGcDeclTags` for
+  symmetry. False-positive tolerance preserved per ADR-0115 D2
+  (a coincidence-matching byte over-triggers the flag; cost is
+  an empty-heap walk at instantiate, never correctness). 7 new
+  tests (anyref / eqref / i31ref / exnref in each scanned
+  section; function-section typeidx isolation; clean (i32)→(i32)
+  regression). Module-level docstring updates the "Current
+  coverage" list and removes "heap-top reftype" from
+  "Future coverage". Mac `test-all` GREEN; lint exit 0.
+  Wasm spec 3.0 GC §5.3 (heap-type encoding); ADR-0115 D2.
+
+- **10.G-2** — needs_gc_heap parse-time predicate (`d5810162`).
+  Byte-scan type section for struct/array/rec declaration tags.
+  10.G-3 extended to cover heap-top reftype bytes.
+
+- **10.G-i31-ops** — 3 i31 ops interp impl (`52a6c225`).
+  Value helpers + 0xFB GC prefix dispatcher.
+
+- **10.G-i31-helpers** — pack/unpack helpers under
+  `feature/gc/i31.zig` (`e79bb7a1`).

@@ -51,10 +51,13 @@
 - **10.E-exnref-b = SHIPPED 2026-05-26** (`e448356d`): throw_ref
   interp impl (re-raise via exnref). Detail: phase_log §10.E。
 - **10.E-N-3 = SHIPPED 2026-05-26** (`d2f8e5c7`): production
-  tag_param_counts wiring through `CompiledWasm`. compileWasm
-  pre-resolves per-tag param counts from tag section + types
-  on both main + empty-fn return paths. 3 new compileWasm unit
-  tests. Detail: phase_log §10.E。
+  tag_param_counts wiring through `CompiledWasm`.
+  Detail: phase_log §10.E。
+- **10.G-3 = SHIPPED 2026-05-26** (`8bebcc76`): detectNeedsGcHeap
+  extends parse-time predicate to scan heap-top reftype bytes
+  (anyref / eqref / i31ref / exnref) across type / global /
+  table / element / code sections. 7 new tests. Detail:
+  phase_log §10.G。
 - **Mac `zig build test-all`**: green (scope=unclear)。
 
 ## Phase 10 progress
@@ -68,30 +71,26 @@ ROADMAP §10 = 13-row task table。
     cross-module + spec corpus + regalloc terminator-class 残)
 - Pending: 10.E / 10.G / 10.P
 
-## Active task — 10.TC-3 codegen tail-call (regalloc terminator)
+## Active task — 10.M-5b SIMD memarg memory64
 
-Pivoting from EH (interp side fully complete: 10.E-1..N-3) to
-Tail Call codegen. 10.TC-1/1b shipped interp impl + validator
-unit tests for return_call / return_call_indirect / return_call_ref;
-ADR-0113 §A regalloc terminator-class extension + per-arch
-`op_tail_call.zig` codegen has been queued since. Spec corpus
-+ cross-module + 95-wast suite follow once codegen lands.
-
-Refs: ADR-0112 (tail call design), ADR-0113 §A (regalloc
-terminator axis), `src/engine/codegen/{arm64,x86_64}/`,
-`src/runtime/trap.zig`, `test/spec/wasm-3.0-assert/tail-call/`.
+10.M-4b note deferred SIMD memarg parse/lower to 10.M-5b:
+`validator_simd.zig::readSimdMemarg` + `lower_simd.zig::
+emitMemargLane` still hardcode the 2-uleb shape. Extend both
+to consume the Wasm 3.0 memarg encoding (align bit 6 signals
+memidx LEB follows), mirroring the 10.M-3 scalar MemArgExtra
+wiring. Refs: validator_simd.zig:readSimdMemarg,
+lower_simd.zig:emitMemargLane, zir.MemArgExtra (already exists),
+ADR-0111 D4.
 
 **Next sub-chunk candidates (names only, NO predictions)**:
+- 10.M-5b — SIMD memarg memory64 (the active task above)
 - 10.TC-3 — regalloc terminator-class + codegen tail-call
-  (the active task above)
 - 10.E-codegen — ADR-0114 D3-D6 codegen-side EH (exception_table,
   FP-walk unwind, zwasm_throw trampoline, op_exception_handling)
 - 10.E-N-4 — c_api instantiate → interp Runtime tag_param_counts
-  wiring (only needed once a Wasm-with-throw path exercises
-  the interp Runtime via c_api)
-- 10.G-3 — heap-top reftype detection extension
+  wiring (only needed once Wasm-with-throw exercises the interp
+  Runtime via c_api)
 - 10.G-4 — struct ops (needs GC heap impl first)
-- 10.M-5b — SIMD memarg memory64 (validator + lower + codegen)
 
 ## Open questions / blockers
 
