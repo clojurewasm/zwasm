@@ -40,6 +40,18 @@ pub const Label = struct {
     arity: u32,
     branch_arity: u32,
     target_pc: u32,
+    /// Index into the owning `ZirFunc.blocks` — set by every
+    /// block-pushing op (`block` / `loop` / `if` / `try_table`)
+    /// from the `ZirInstr.payload` field. Wasm 3.0 EH's interp
+    /// unwinder (10.E-5b) uses this to identify `.try_table`
+    /// labels by reading `func.blocks.items[block_idx].kind`,
+    /// then looks up the matching `LandingPad` in
+    /// `func.eh_landing_pads`. Defaults to 0 so existing
+    /// ad-hoc test fixtures that don't construct a real func
+    /// still produce well-defined Labels (BlockInfo at index
+    /// 0 is fine to read; the unwinder only consults the
+    /// kind, and `.block` is the safe default).
+    block_idx: u32 = 0,
 };
 
 comptime {
