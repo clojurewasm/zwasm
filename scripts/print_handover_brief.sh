@@ -2,40 +2,24 @@
 # scripts/print_handover_brief.sh — emit the resume brief that
 # SessionStart and PostCompact hooks inject into Claude's context.
 #
-# Single source of truth for the brief shape: language policy +
-# `.dev/handover.md` body + last 3 git commits. Used by:
-#   - SessionStart hook (cold-start every session)
-#   - PostCompact hook (re-inject after autoCompact mid-session)
+# Per ADR-0118 D5: this script now emits ONLY dynamic state.
+# Frozen reminders (language policy, /continue literal=60, ROADMAP §18
+# anchor) live in CLAUDE.md "Frozen loop invariants" section — read
+# once per cold-start. This avoids ~50 lines of recurring tokens at
+# every SessionStart + PostCompact.
 #
-# Stdout is the brief; stderr is suppressed. Exits 0 even when
-# handover or git fail — the hook should never block the agent.
+# Dynamic state emitted:
+#   - .dev/handover.md body
+#   - last 3 git commits (oneline + decorate)
+#   - ubuntu.log verdict (Step 0.7 anchor)
+#   - bundle-active status (per ADR-0118 D6)
+#
+# Stdout is the brief; stderr suppressed. Exits 0 even on failure —
+# the hook should never block the agent.
 
 set -u
 
 CTX="${CLAUDE_PROJECT_DIR:-$(dirname "$0")/..}"
-
-printf '=== language policy ===\n'
-printf 'Reply to the user in Japanese (画面表示は日本語). Code, identifiers, file paths, commit messages, and English docs stay in English. See .claude/output_styles/japanese.md.\n\n'
-
-cat <<'EOF'
-=== ROADMAP §18 / ADR re-anchor ===
-Editing .dev/ROADMAP.md? A PreToolUse hook re-prints this rule at the moment of edit; remember it now too:
-- Routine status update ([ ]->[x], expanding the next phase table inline, backfilling SHA pointers, advancing the Phase Status widget) — proceed.
-- Deviation from §1, §2 (P/A), §4 (architecture / Zone / ZirOp), §5 (layout), §9 phase scope/exit, §11 layers, §14 forbidden list — file .dev/decisions/NNNN_<slug>.md FIRST per §18, reference it in the commit, then edit.
-- "Quiet" edits to load-bearing sections are forbidden (§18.3). If unsure, ask the user.
-
-=== /continue re-arm literal (compact-safe reminder) ===
-/continue Step 8 (and Phase boundary 5) always uses:
-  ScheduleWakeup(delaySeconds=60, prompt="/continue")
-The literal 60 is the harness runtime floor (clamp [60, 3600]).
-The ScheduleWakeup tool description's "default 1200-1800s for
-idle ticks" does NOT apply inside /continue — see
-.claude/skills/continue/LOOP.md §"Self-perpetuation" for the
-5-reason override. This block is re-printed on every
-SessionStart + PostCompact so the literal survives compaction
-even if SKILL.md gets truncated in the summary.
-
-EOF
 
 if [ -f "$CTX/.dev/handover.md" ]; then
     printf '=== .dev/handover.md ===\n'
@@ -45,5 +29,20 @@ fi
 
 printf '=== git log -3 ===\n'
 git -C "$CTX" log -3 --decorate --oneline 2>/dev/null || true
+printf '\n'
+
+# Bundle-active state (per ADR-0118 D6).
+if [ -x "$CTX/scripts/check_bundle_active.sh" ]; then
+    printf '=== bundle status ===\n'
+    bash "$CTX/scripts/check_bundle_active.sh" 2>&1 | head -3 || true
+    printf '\n'
+fi
+
+# Prior-cycle ubuntu verdict (Step 0.7 anchor).
+if [ -f /tmp/ubuntu.log ]; then
+    printf '=== /tmp/ubuntu.log tail ===\n'
+    tail -3 /tmp/ubuntu.log 2>/dev/null || true
+    printf '\n'
+fi
 
 exit 0

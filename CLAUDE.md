@@ -2,148 +2,109 @@
 
 A from-scratch WebAssembly runtime in Zig 0.16.0.
 
-> Project memory loaded by Claude Code on every session. Pointers
-> only — detailed plans live in `.dev/ROADMAP.md`, runnable
-> procedures in `.claude/skills/`, the canonical 3-host gate
-> discipline in `.claude/skills/continue/LOOP.md`.
+> Pointers only — detailed plans live in [`.dev/ROADMAP.md`](.dev/ROADMAP.md),
+> runnable procedures in [`.claude/skills/`](.claude/skills/), the
+> autonomous loop in [`.claude/skills/continue/SKILL.md`](.claude/skills/continue/SKILL.md).
 
 ## Identity
 
 **Project name (in all docs and the published artifact): `zwasm`.**
 Binary / package: `zwasm`.
 
-This branch is a ground-up redesign of zwasm on top of the v1 git
-history (commit 517cc5a, charter):
+This branch is a ground-up redesign of zwasm on top of v1 git history
+(commit 517cc5a, charter):
 
-- Working dir: `~/Documents/MyProducts/zwasm_from_scratch/`
-  (distinct from `~/Documents/MyProducts/zwasm/`, the read-only
-  v1 reference clone).
+- Working dir: `~/Documents/MyProducts/zwasm_from_scratch/` (distinct
+  from `~/Documents/MyProducts/zwasm/`, the read-only v1 reference clone).
 - Branch: `zwasm-from-scratch`. **Never push to `main`**; push to
-  `zwasm-from-scratch` only with explicit user approval (or
-  autonomously inside the `/continue` loop). `--force` always
-  forbidden.
+  `zwasm-from-scratch` only with explicit user approval (or autonomously
+  inside `/continue`). `--force` always forbidden.
 - v1 ABI compatibility is out of scope; `docs/migration_v1_to_v2.md`
-  ships at v0.1.0 release time.
+  ships at v0.1.0 release.
 
-### Read-only reference clones
-
-Read-only locations under `~/Documents/OSS/`, plus `zwasm/` (v1)
-and `ClojureWasmFromScratch/` under `~/Documents/MyProducts/`. The
-full list lives in [`.dev/reference_clones.md`](.dev/reference_clones.md);
-the `additionalDirectories` setting in `.claude/settings.json`
-mirrors it. Never edit or commit from any of these paths.
-
-The investigation that motivated this project lives at
-`~/zwasm/private/v2-investigation/` (CONCLUSION.md + surveys).
-Treat it as v2 design rationale; ROADMAP.md is the operational
-plan that descended from it.
+Read-only reference clones: `~/Documents/OSS/` + `zwasm/` (v1) +
+`ClojureWasmFromScratch/`. Full list at
+[`.dev/reference_clones.md`](.dev/reference_clones.md); mirrored in
+`additionalDirectories` setting. Never edit or commit from these
+paths. Pre-redesign investigation: `~/zwasm/private/v2-investigation/`.
 
 ## Language policy
 
-Public project. **English by default** for code, comments,
-identifiers, commit messages, README, ROADMAP, ADRs, `.dev/`,
-`.claude/`, all configuration. **Japanese** for chat replies only.
-Enforced by [`.claude/output_styles/japanese.md`](.claude/output_styles/japanese.md)
-+ a SessionStart hook that re-injects the directive.
+Public project. **English by default** for code, comments, identifiers,
+commit messages, README, ROADMAP, ADRs, `.dev/`, `.claude/`, all config.
+**Japanese** for chat replies only. Enforced by
+[`.claude/output_styles/japanese.md`](.claude/output_styles/japanese.md)
++ SessionStart hook.
 
-**Bilingual exception**: meta-prose pointers at the tail of an
-otherwise-English file ("詳細は <ref> を参照。") and culturally-
-loaded one-word labels (例: 気付いたら即追加, 裏取り) are allowed
-when they anchor a concept more cleanly than the English
-equivalent. Never use Japanese in normative rule text or code
-identifiers.
+**Bilingual exception**: meta-prose pointers ("詳細は <ref> を参照。")
+and culturally-loaded one-word labels (例: 気付いたら即追加, 裏取り)
+where they anchor a concept more cleanly. Never in normative rule
+text or code identifiers.
 
-zwasm v2 does **not** maintain `docs/ja/learn_zwasm/` chapters
-(the CW v2 two-cadence learning material discipline is
-intentionally dropped — P9). Knowledge compression lives in
-ROADMAP narrative + ADRs (`.dev/decisions/`, written for
-load-bearing ROADMAP deviations only — see ROADMAP §18).
+## Frozen loop invariants (read once per session)
 
-## Working agreement
-
-- **`/continue` re-arm is always `ScheduleWakeup(delaySeconds=60,
-  prompt="/continue")`** — `60` is the harness runtime floor
-  (clamp `[60, 3600]`), NOT the tool description's "default
-  1200–1800s for idle ticks". The skill wants the shortest
-  heartbeat the harness allows. Full reasoning:
+- **`/continue` re-arm = `ScheduleWakeup(delaySeconds=60,
+  prompt="/continue")`** — literal `60` is harness runtime floor
+  (clamp `[60, 3600]`). The tool description's "default 1200-1800s"
+  does NOT apply here. Full reasoning:
   [`.claude/skills/continue/LOOP.md`](.claude/skills/continue/LOOP.md)
   §"Self-perpetuation".
+- **ROADMAP §18 amendment**: routine `[x]` flips + SHA backfills + next
+  phase table expansion = no ADR. Deviation in §1 / §2 (P/A) / §4
+  (architecture / Zone / ZirOp) / §5 (layout) / §9 phase scope/exit /
+  §11 / §14 forbidden list = file `.dev/decisions/NNNN_<slug>.md` per
+  §18.2 FIRST.
+- **3-host gate**: Mac aarch64 + `ubuntunote` Linux x86_64 (SSH) +
+  `windowsmini` SSH. Per-chunk autonomous = 2-host (Mac + ubuntunote)
+  per ADR-0049 + ADR-0067. windowsmini = phase boundary. OrbStack
+  retired from per-chunk gate per ADR-0067 (D-134); scratch only.
+
+## Working agreement (short list)
+
 - TDD: red → green → refactor.
-- **Step 0 (Survey) before each task**: Explore subagent surveys
-  reference codebases (zwasm v1, wasmtime, zware, wasm3,
-  wasm-c-api, Zig stdlib, regalloc2 when JIT-relevant) and lands
-  200–400 lines under `private/notes/<phase>-<task>-survey.md`.
-  Skip exception is narrow — see
-  [`.claude/rules/textbook_survey.md`](.claude/rules/textbook_survey.md).
-- **No copy-paste from v1** —
-  [`.claude/rules/no_copy_from_v1.md`](.claude/rules/no_copy_from_v1.md)
-  is load-bearing. Read v1; re-derive in v2.
-- **3-host gate** (`zig build test` + `test-all` etc.) on Mac
-  aarch64 + `ubuntunote` native Linux x86_64 (SSH) +
-  `windowsmini` SSH. Per-chunk autonomous loop runs the
-  **2-host subset (Mac + ubuntunote)** per ADR-0049 + ADR-0067;
-  windowsmini is reconciled at phase boundaries. Canonical
-  invocation discipline (parallel, background, file-logged, no
-  re-rerun for re-grep) lives in
-  [`.claude/skills/continue/LOOP.md` §"Parallel test gate"](.claude/skills/continue/LOOP.md).
-  Setup: [`.dev/ubuntunote_setup.md`](.dev/ubuntunote_setup.md),
-  [`.dev/windows_ssh_setup.md`](.dev/windows_ssh_setup.md).
-  OrbStack is **retired from the per-chunk gate** per ADR-0067
-  (D-134 Rosetta translation race); retained as a Mac-local
-  scratch host — see [`.dev/orbstack_setup.md`](.dev/orbstack_setup.md).
-- Commit at the natural granularity of code changes.
-  `private/notes/` is optional scratch.
-- Subagent fork is the default for: Step 0 surveys, large test
-  logs (>200 lines), cross-codebase searches (>5 files), audit /
-  simplify / security-review fan-out.
-- ROADMAP corrections follow [`ROADMAP §18`](.dev/ROADMAP.md#18-amendment-policy):
-  edit in place as a now-snapshot. ADRs are required only for
-  **load-bearing** changes (scope / exit criterion in §1, §2,
-  §4, §5, §9 phase rows, §11, §14). Sub-chunk progress prose
-  belongs in commit messages and `.dev/phase_log/<phase>.md`,
-  not in §9 row cells (§18.3).
-- `private/` is gitignored agent scratch and **not authoritative**.
-  If a `private/` proposal matters, promote to ROADMAP / ADR /
-  lesson / debt / `handover.md`.
-- **Debt + lessons live in git, not in your head.**
-  [`.dev/debt.md`](.dev/debt.md) is the ledger (refresh per
-  `/continue` Step 0.5). [`.dev/lessons/`](.dev/lessons/) holds
-  re-derivable observations ([`INDEX.md`](.dev/lessons/INDEX.md)
-  is the keyword index — grep per Step 0.4). Boundary in
-  [`.claude/rules/lessons_vs_adr.md`](.claude/rules/lessons_vs_adr.md).
-- **Don't paper over absences.** Walk the 3-step procedure in
-  [`.claude/rules/extended_challenge.md`](.claude/rules/extended_challenge.md)
-  before declaring something missing or shipping a SKIP-X
-  workaround.
+- Step 0 Survey before each task per
+  [`textbook_survey.md`](.claude/rules/textbook_survey.md). No copy-paste
+  from v1 per [`no_copy_from_v1.md`](.claude/rules/no_copy_from_v1.md).
+- Commit at natural granularity. `private/` is gitignored agent scratch
+  (not authoritative; promote to ROADMAP/ADR/lesson/debt/handover if it
+  matters).
+- Subagent fork for: Step 0 surveys, large test logs (>200 lines),
+  cross-codebase searches (>5 files), audit/simplify/security-review
+  fan-out.
+- Debt + lessons live in git: [`.dev/debt.md`](.dev/debt.md) (ledger,
+  refresh per `/continue` Step 0.5), [`.dev/lessons/`](.dev/lessons/)
+  (re-derivable observations, INDEX.md is the keyword index for Step
+  0.4).
+- Don't paper over absences. Walk the 3-step procedure in
+  [`extended_challenge.md`](.claude/rules/extended_challenge.md) before
+  declaring something missing or shipping a SKIP-X workaround.
 
-## Skills (the runnable procedures)
+## Skills
 
-- [`continue`](.claude/skills/continue/SKILL.md) — autonomous
-  resume + per-task TDD loop. Triggers on "続けて" / "/continue"
-  / "resume". Stops only on user intervention or
-  provably-unsolvable problems (per `extended_challenge.md`).
-- [`audit_scaffolding`](.claude/skills/audit_scaffolding/SKILL.md)
-  — adaptive audit for staleness / bloat / lies / debt+lessons
-  coherence / extended-challenge consistency across CLAUDE.md,
-  `.dev/`, `.claude/`, `scripts/`.
+- [`continue`](.claude/skills/continue/SKILL.md) — autonomous resume +
+  per-task TDD loop. Triggers on "続けて" / "/continue" / "resume".
+  Stop conditions in
+  [`STOP_BUCKETS.md`](.claude/skills/continue/STOP_BUCKETS.md).
+- [`audit_scaffolding`](.claude/skills/audit_scaffolding/SKILL.md) —
+  adaptive audit (staleness / bloat / lies / debt+lessons coherence /
+  extended-challenge consistency) across CLAUDE.md, `.dev/`, `.claude/`,
+  `scripts/`.
+- [`debug_jit_auto`](.claude/skills/debug_jit_auto/SKILL.md) — SEGV /
+  miscompile / runtime-crash investigation toolkit.
 
 ## Layout (pointer)
 
-`src/` Zig source (parse / validate / ir / runtime / instruction
-/ feature / engine / interp / wasi / api / cli / diagnostic /
-support / platform — shape per ADR-0023 + ADR-0024).
-`include/` public C headers.
-`build.zig` build script.
-`flake.nix` Nix dev shell pinned to Zig 0.16.0.
-`.dev/` ROADMAP + handover + debt + lessons + decisions +
-phase_log + setup docs.
+`src/` Zig source (parse / validate / ir / runtime / instruction /
+feature / engine / interp / wasi / api / cli / diagnostic / support /
+platform — shape per ADR-0023 + ADR-0024).
+`include/` public C headers. `build.zig` build script. `flake.nix` Nix
+dev shell pinned to Zig 0.16.0.
+`.dev/` ROADMAP + handover + debt + lessons + decisions + phase_log +
+setup docs.
 `.claude/` settings, skills, rules, output styles.
-`scripts/` gate, zone_check, file_size_check, bench,
-run_remote_windows, ...
-`test/` unified `zig build test-all` aggregator + per-layer
-suites.
-`bench/` append-only benchmark history.
-`private/` gitignored agent scratch.
+`scripts/` gate, zone_check, file_size_check, bench, run_remote_*, ...
+`test/` unified `zig build test-all` aggregator + per-layer suites.
+`bench/` append-only benchmark history. `private/` gitignored scratch.
 
 ## Build & test (pointer)
 
@@ -155,39 +116,34 @@ zig build test-all      # all enabled layers
 zig fmt src/            # format
 ```
 
-Three-host invocation discipline (parallel, background,
-file-logged, never re-rerun for re-grep) is in
-[`.claude/skills/continue/LOOP.md`](.claude/skills/continue/LOOP.md).
+3-host invocation discipline in
+[`GATE.md`](.claude/skills/continue/GATE.md).
 
 ## Pre-commit gate
 
-Authoritative script:
-[`scripts/gate_commit.sh`](scripts/gate_commit.sh) wraps the full
-local gate (`zig build test`, `zone_check`, `file_size_check`,
-`spill_aware_check`, `zig build lint`). The autonomous `/continue`
-loop runs it per-task; manual commits should call it before
+[`scripts/gate_commit.sh`](scripts/gate_commit.sh) — full local gate
+(`zig build test`, `zone_check`, `file_size_check`, `spill_aware_check`,
+`zig build lint`). `/continue` runs per-task; manual commits call before
 `git commit`.
 
-Per-chunk parallel host gate is two-host (Mac + ubuntunote) per
-ADR-0049 + ADR-0067; windowsmini reconciliation is phase-boundary
-only.
-The strict three-host `test-all` is the **A13 merge gate** —
-required for any push to `main` and automated by
-`scripts/gate_merge.sh`.
+Per-chunk parallel host gate = 2-host (Mac + ubuntunote). windowsmini
+reconciliation = phase boundary. Strict 3-host `test-all` = A13 merge
+gate (any `main` push); automated by `scripts/gate_merge.sh`.
 
 ## References
 
-- [`.dev/ROADMAP.md`](.dev/ROADMAP.md) — single source of truth
-  for mission, principles, phase plan. If this file conflicts
-  with ROADMAP, ROADMAP wins.
-- [`.dev/handover.md`](.dev/handover.md) — current state (≤ 80
-  lines, replaced not appended).
+- [`.dev/ROADMAP.md`](.dev/ROADMAP.md) — single source of truth (mission,
+  principles, phase plan). Conflicts → ROADMAP wins.
+- [`.dev/handover.md`](.dev/handover.md) — current state (≤ 100 lines,
+  replaced not appended). Optional `## Active bundle` section per
+  ADR-0118 D6.
 - [`.dev/debt.md`](.dev/debt.md) — debt ledger.
-- [`.dev/lessons/`](.dev/lessons/) — observational notes (see
-  `INDEX.md`).
-- [`.dev/decisions/`](.dev/decisions/) — ADRs (load-bearing
-  deviations only). See [`README.md`](.dev/decisions/README.md).
-- [`.dev/phase_log/`](.dev/phase_log/) — sub-chunk records
-  offloaded from §9 ROADMAP rows (per §18.3).
-- [`.dev/proposal_watch.md`](.dev/proposal_watch.md) — Wasm
-  proposal tracking (quarterly review).
+- [`.dev/lessons/`](.dev/lessons/) — observational notes (see INDEX.md).
+- [`.dev/decisions/`](.dev/decisions/) — ADRs (load-bearing deviations
+  only).
+- [`.dev/phase_log/`](.dev/phase_log/) — sub-chunk records (§18.3).
+- [`.dev/proposal_watch.md`](.dev/proposal_watch.md) — Wasm proposal
+  tracking (quarterly).
+- [`ADR-0118`](.dev/decisions/0118_meta_loop_consolidation.md) — meta-
+  ADR for the rule/skill consolidation + bundle-mode that shaped the
+  current loop scaffolding.
