@@ -235,10 +235,22 @@ pub fn zwasmThrowTrampoline() callconv(.naked) noreturn {
 
 const testing = std.testing;
 
-/// Wrapper that sets up the pinned `*JitRuntime` register and calls
-/// the trampoline. Sets X0/RDI = tag_idx before the call so the
-/// trampoline's tag_idx marshal sees a known value.
+/// Wrapper that sets up the pinned `*JitRuntime` register, installs
+/// a 2-slot **sentinel frame** as the trampoline's initial X29 / RBP,
+/// and calls the trampoline. The sentinel terminates the unwinder's
+/// frame-chain walk at depth 1 (`caller_fp == 0` → `.uncaught`) so
+/// the test never depends on the host process's frame-pointer chain
+/// being intact — Zig 0.16's self-hosted x86_64 backend doesn't
+/// reliably maintain RBP-chaining, so walking the host stack would
+/// dereference garbage and SEGV in a subsequent test (see lesson
+/// `2026-05-28-eh-test-wrapper-host-fp-walk-segv.md`).
 fn invokeTrampolineWith(rt: *jit_abi.JitRuntime, tag_idx: u32) void {
+    // Sentinel "frame" the trampoline's naked stub will capture as
+    // initial X29 / RBP: slot 0 = caller_fp = 0 (= top-of-Wasm-stack
+    // sentinel per ADR-0114 D5 + arm64/frame_chain.zig docstring),
+    // slot 1 = caller_lr = 0 (unused after caller_fp termination).
+    var sentinel: [2]usize align(16) = .{ 0, 0 };
+    const sentinel_ptr: usize = @intFromPtr(&sentinel);
     // Widen tag_idx to u64 so the "r" constraint guarantees a
     // full-width X (arm64) / RAX-class (x86_64) register with
     // the upper bits zero.
@@ -246,44 +258,47 @@ fn invokeTrampolineWith(rt: *jit_abi.JitRuntime, tag_idx: u32) void {
     switch (builtin.target.cpu.arch) {
         .aarch64 => {
             const trampoline_addr: usize = @intFromPtr(&zwasmThrowTrampoline);
-            // Save the caller's X19 into X10, install the mock RT
-            // into X19, marshal tag_idx into W0 (the trampoline's
-            // first arg-marshal MOV reads X0), BL the trampoline,
-            // then restore X19. Comments live outside the asm
-            // template body — the LLVM ARM64 inline-asm parser
-            // doesn't reliably accept `//` mid-line.
-            // u32 `tag_idx` is held zero-extended in an X reg via
-            // the "r" constraint; `mov x0, %[tag]` copies the full
-            // 64-bit value (upper 32 bits are zero by virtue of
-            // the Zig u32 type), giving the trampoline's `mov x2, x0`
-            // a clean tag_idx in W2 / X2.
+            // STP saves X19 + X29 on the stack (16-byte aligned). The
+            // trampoline body then sees X19 = rt and X29 = sentinel_ptr.
+            // BLR clobbers X0..X17 + X30 (AAPCS64 caller-saved set);
+            // the trampoline's own prologue saves X29/X30. After return,
+            // LDP restores both. Comments live outside the asm template
+            // body — the LLVM ARM64 inline-asm parser doesn't reliably
+            // accept `//` mid-line.
             asm volatile (
-                \\mov x10, x19
+                \\stp x19, x29, [sp, #-16]!
                 \\mov x19, %[rt]
+                \\mov x29, %[sentinel]
                 \\mov x0, %[tag]
                 \\blr %[addr]
-                \\mov x19, x10
+                \\ldp x19, x29, [sp], #16
                 :
                 : [rt] "r" (rt),
                   [addr] "r" (trampoline_addr),
                   [tag] "r" (tag_idx_widened),
+                  [sentinel] "r" (sentinel_ptr),
                 : aarch64_invoke_clobbers);
         },
         .x86_64 => {
             const trampoline_addr: usize = @intFromPtr(&zwasmThrowTrampoline);
-            // Save caller's R15 into R12, install mock RT into
-            // R15, marshal tag_idx into EDI, CALL trampoline,
-            // restore R15.
+            // R12 is callee-saved in SysV → preserved across the
+            // trampoline's CALL → safe slot to save R15. RBP is also
+            // callee-saved; push it on the stack, install the sentinel,
+            // call, then restore.
             asm volatile (
                 \\movq %%r15, %%r12
                 \\movq %[rt], %%r15
+                \\pushq %%rbp
+                \\movq %[sentinel], %%rbp
                 \\movq %[tag], %%rdi
                 \\callq *%[addr]
+                \\popq %%rbp
                 \\movq %%r12, %%r15
                 :
                 : [rt] "r" (rt),
                   [addr] "r" (trampoline_addr),
                   [tag] "r" (tag_idx_widened),
+                  [sentinel] "r" (sentinel_ptr),
                 : x86_64_invoke_clobbers);
         },
         else => @compileError("unsupported host arch"),
@@ -292,13 +307,12 @@ fn invokeTrampolineWith(rt: *jit_abi.JitRuntime, tag_idx: u32) void {
 
 const aarch64_invoke_clobbers = if (builtin.target.cpu.arch == .aarch64)
     std.builtin.assembly.Clobbers{
-        // BL clobbers the AAPCS64 caller-saved set (X0..X17, X30, V0..V7).
-        // Listing the project's pinned (X19) + scratch usage explicitly.
+        // BLR clobbers the AAPCS64 caller-saved set (X0..X17, X30, V0..V7).
+        // X19 + X29 are saved/restored via STP/LDP within the asm body.
         .x0 = true,
         .x1 = true,
         .x2 = true,
         .x3 = true,
-        .x10 = true,
         .x17 = true,
         .x30 = true,
         .memory = true,
@@ -309,11 +323,16 @@ else {
 
 const x86_64_invoke_clobbers = if (builtin.target.cpu.arch == .x86_64)
     std.builtin.assembly.Clobbers{
+        // SysV caller-saved set touched by the CALL into trampolineCore.
+        // R12 is written (used as R15 save slot); RBP is saved/restored
+        // on the stack within the asm body.
         .rax = true,
         .rcx = true,
         .rdx = true,
         .rdi = true,
         .rsi = true,
+        .r8 = true,
+        .r9 = true,
         .r10 = true,
         .r11 = true,
         .r12 = true,
