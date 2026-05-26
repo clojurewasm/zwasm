@@ -6,70 +6,72 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `6fb4d743` — **EH cycle stabilised end-to-end on
-  Mac aarch64 + Linux x86_64 SysV**. Single-frame + cross-frame
-  + 2-level cross-frame + payload propagation + multi-catch all
-  green on both arches. 6 e2e JIT regressions + 1 interp
-  safepoint-free invariant + dispatcher unit tests + D-183
-  contract pin (`toModuleRelativePc` multi-function module-
-  relative output). PC consolidation refactor (`c54ea0d5`).
-- **10.D = CLOSED 2026-05-25**; **10.M (incl D-181 ungate),
-  10.R 1..5, 10.TC-1, 10.G-i31-ops/2/3, 10.E** (IT-1..IT-6 +
-  10.E-N-1..N-3 + 10.E-5b/5c + 10.E-payload-prop bundle +
-  D-183/D-184 cross-frame fixes): SHIPPED.
-- Closed this session: D-181 (memory64 x86_64), D-182 (catch
-  landing pad load+push), D-183 (cross-frame Mac aarch64),
-  D-184 (cross-frame x86_64 via sniffed loadFrame).
-- **D-180 structural defenses STILL IN PLACE** (`2808bc81` +
-  `a98c7b1f`): x86_64 `usesRuntimePtr` whitelist drift detector
-  + test discipline §4 + paired lesson.
+- **HEAD**: `f51d246d` — emscripten_eh PROVENANCE refresh.
+  Prior session shipped 27 commits centered on Phase 10.E EH
+  codegen end-to-end (Mac aarch64 + Linux x86_64 SysV).
+- **ROADMAP §10 progress**: 7/13 DONE (10.0/10.C9/10.J/10.F/
+  10.Z/10.D/10.T), 4 IN-PROGRESS (10.M/10.R/10.TC/10.E with
+  10.E core substantively done), 2 Pending (10.G/10.P).
+- **Active debt rows**: 16 — all `blocked-by:` with named
+  structural barriers (Phase 11 / toolchain / GC / v0.2). Zero
+  `now`-status rows.
+- **D-180 structural defenses STILL IN PLACE** (x86_64
+  `usesRuntimePtr` whitelist drift detector + test discipline
+  §4 + lesson).
 
-## ROADMAP §10 progress
+## Session highlights (prior session; for handoff context)
 
-- DONE (8/13): 10.0 / 10.C9 / 10.J / 10.F / 10.Z / 10.T / 10.D /
-  10.E (full codegen + interp + cross-frame + cross-arch).
-- IN-PROGRESS (3): 10.M (D-181 closed; realworld toolchain-
-  blocked) / 10.R (5/5; gated on 10.G) / 10.TC.
-- Pending (2): 10.G / 10.P (close gate).
+**4 debts closed end-to-end (D-181/D-182/D-183/D-184)**:
+- D-181 — memory64 i64-idx ungated for x86_64 SysV.
+- D-182 — JIT catch landing pad load+push (per-clause prelude
+  pattern; 10.E-payload-prop bundle close).
+- D-183 — cross-frame EH dispatch (module-relative PC + DWARF
+  ret_addr-1).
+- D-184 — x86_64 cross-frame via `loadFrameSniffed` (CodeMap-
+  aware sniff disambiguates the `PUSH RBP; PUSH R15; MOV RBP,
+  RSP` prologue's `[RBP+0]=saved R15` layout).
+
+**1 bundle closed (10.E-payload-prop; ADR-0120 5 cycles)**:
+Runtime.eh_payload_buf + JitRuntime mirror + EmitCtx threading
++ throw.emit pop-N+store-N + per-clause landing-pad prelude.
+ADR-0120 Status: Proposed (impl fully shipped + 6 e2e
+regressions; user flip to Accepted is purely formal).
+
+**Lessons (3 new this session)**:
+- `2026-05-28-eh-catch-landing-pad-per-clause-prelude.md`
+- `2026-05-28-x86_64-prologue-rbp-r15-unwinder-mismatch.md`
+- (`2026-05-28-x86_64-uses-runtime-ptr-eh-gap.md` already
+  shipped pre-session)
+
+**6 JIT e2e EH regressions in `src/engine/runner.zig`**:
+single-frame catch_all (42), tagged catch returns 77,
+throw+catch_ payload 88, cross-frame catch_all 42, 2-level
+cross-frame 77, cross-frame+payload 55, multi-catch
+per-clause prelude. Plus 1 interp tail-call chain (frame depth
+invariant) + dispatcher unit tests + toModuleRelativePc
+contract pin.
 
 ## Next candidates (names + Refs; no predictions)
 
-- **10.TC codegen** — return_call / return_call_indirect /
-  return_call_ref JIT emit + frame_teardown helper (ADR-0112,
-  ADR-0113 §A foundations shipped pre-bundle). Multi-cycle
-  bundle.
-- **10.E exnref / catch_ref / catch_all_ref** — v0.2 scope per
-  ADR-0120 §3.
-- **10.E spec corpus wiring** — 76 assertion fixtures from the
-  Wasm 3.0 EH proposal. Smoke-baked at 10.T-2a; runner-side
-  wiring open. spec_assert_runner_wasm_3_0.zig is currently a
-  skeleton (130-line enumerate-and-count).
-- **10.E × TC cross fixture** (`return_call_in_try_table.wat`)
-  — depends on 10.TC codegen landing.
+- **10.TC emit-body wiring** — return_call / return_call_indirect
+  / return_call_ref JIT emit body. Helpers all shipped
+  (10.TC-3a..3e). Pending: per-op `emit` body that integrates
+  frame_teardown + arg marshal + emitLoadCalleeRtSameModule +
+  emitTailJump. Multi-cycle.
+- **10.E spec corpus runner** — `spec_assert_runner_wasm_3_0.zig`
+  is a 130-line skeleton (enumerate-and-count). Adding actual
+  assert_return / assert_trap / assert_exception execution is
+  multi-cycle.
+- **10.G WasmGC** — large multi-cycle bundle; design plan +
+  ADRs (0115/0116/0117) already shipped.
 - **10.M-realworld** — toolchain-blocked (D-179 wabt 1.0.41+).
-- **eh_frequency_runner impl** — currently a skeleton (`test/
-  runners/eh_frequency_runner.zig`); the throw_rate × catch_depth
-  matrix would validate the "EH bears zero cost on the non-
-  throwing fast path" invariant from ADR-0114.
-
-## Session highlights (2026-05-28; for handoff context)
-
-24 commits across this session focused on Phase 10.E EH on JIT:
-- ADR-0120 (Proposed) — JIT payload-marshalling design.
-- 10.E-payload-prop bundle (5 cycles) — Runtime/JitRuntime
-  fields + EmitCtx threading + throw.emit pop-N+store-N +
-  per-clause landing-pad prelude. Closed at `bc486030`.
-- D-183 + D-184 cross-frame discharge — module-relative PC
-  normalisation + DWARF ret_addr-1 + CodeMap-aware sniffed
-  loadFrame.
-- 3 lessons: per-clause prelude pattern, x86_64 prologue/RBP/R15
-  inversion, EH catch landing pad design.
+- **10.E follow-on**: c_api tag accessors, cross-module EH
+  propagation (v0.2), eh_frequency_runner bench scaffolding
+  (Phase 8b).
 
 ## Open questions / blockers
 
-- ADR-0120 — Status: Proposed pending user flip to Accepted
-  (impl fully shipped + 6 e2e regressions; user flip is purely
-  formal at this point).
+- ADR-0120 — Status: Proposed pending user flip to Accepted.
 - 10.G-4 (struct ops) — blocked-by GC heap impl.
 - 10.M-realworld — toolchain-blocked (D-179).
 - 10.P close gate — user touchpoint by construction.
@@ -77,11 +79,8 @@
 ## Key refs
 
 - ADR-0017, ADR-0026, ADR-0111, ADR-0114 D1/D5/D6, ADR-0119,
-  **ADR-0120** (this session's load-bearing decision).
+  **ADR-0120** (this session's design — Proposed).
 - ROADMAP §10, Phase log `.dev/phase_log/phase10.md`.
-- Lessons (Phase 10 EH cycle):
-  - `2026-05-26-eh-codegen-foundation-atom-rhythm.md`
-  - `2026-05-28-eh-test-wrapper-host-fp-walk-segv.md`
-  - `2026-05-28-x86_64-uses-runtime-ptr-eh-gap.md`
-  - `2026-05-28-eh-catch-landing-pad-per-clause-prelude.md`
-  - `2026-05-28-x86_64-prologue-rbp-r15-unwinder-mismatch.md`
+- Lessons (Phase 10 EH cycle): see
+  `.dev/lessons/INDEX.md` entries 2026-05-26..2026-05-28 (5 EH
+  lessons total).
