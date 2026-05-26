@@ -6,11 +6,12 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `9c16b0bb` — feat(p10): feature/gc/type_info.zig +
-  materialiseGcTypes (cycle 20; ADR-0116 §3a impl). 6 extern
-  types + per-Instance materialiser; 7 layout tests pin slot
-  offsets + sizes. Architectural cycle 2/3; next wires into
-  Instance lifecycle.
+- **HEAD**: `5c00600f` — feat(p10): wire Instance.gc_type_infos
+  at instantiate (cycle 21; ADR-0116 §3a impl). materialise
+  alongside gc_heap gate; GcTypeInfos refactored to caller-arena
+  owned. Architectural cycle 3/3 COMPLETE for RTT substrate.
+  Cycles 22+ pivot to struct.new interp (Heap.allocate + write
+  field-encoded values).
 - **ROADMAP §10 progress**: 7/13 DONE, 4 IN-PROGRESS, 2 Pending.
 - **Active debt rows**: 18 — all `blocked-by:` with named
   structural barriers. Zero `now`-status rows.
@@ -56,25 +57,29 @@ future op_gc consumers. EH 40 fails still gated on the bigger
 ## Active bundle
 
 - **Bundle-ID**: 10.G-op_gc
-- **Cycles-remaining**: ~6 (per `.dev/phase10_g_op_bundle_plan.md`)
+- **Cycles-remaining**: ~5 (per `.dev/phase10_g_op_bundle_plan.md`)
 - **Continuity-memo**: Cycles 1-6 substrate. Cycles 7-12 no-RTT
   GC ops. Cycles 13-14 ADR-0121 + decodeTypes 0x5F/0x5E. Cycles
   15-18: struct.new/new_default, array.new family, struct.get/set,
   array.get/set/fill (full validator+lower). Off-bundle ADR-0122
   skip-categorization detour `67741848`. Cycle 19 (`7100bfd1`)
   ADR-0116 §3a StructInfo/ArrayInfo runtime layout amend. Cycle
-  20 (`9c16b0bb`) created `src/feature/gc/type_info.zig` per
-  ADR-0116 §3a. Cycle 21 (next): wire materialisation into
-  `runtime/instance/instantiate.zig` — add `Instance.gc_type_infos:
-  ?type_info.GcTypeInfos` field gated on `Module.needs_gc_heap`
-  (parallels cycle 5's `Runtime.gc_heap` gating). Materialise
-  via `try type_info.materialiseGcTypes(arena, types)` immediately
-  after `decodeTypes`. Same-cycle test: instantiate a GC module
-  → assert Instance.gc_type_infos != null with correct
-  struct_infos[0] populated. Cycle 22+: struct.new interp
-  (Heap.allocate + write fields). Cycle 23+: struct.get/set
-  interp. Cycle 24+: array.new family interp. Cycle ~25+:
-  collector_mark_sweep.zig (β).
+  20 (`9c16b0bb`) created type_info.zig substrate. Cycle 21
+  (`5c00600f`) wired Instance.gc_type_infos via instantiate-time
+  materialiser (alongside the gc_heap gate). Cycle 22 (next):
+  struct.new + struct.new_default interp handlers. Read
+  `inst.gc_type_infos.?.struct_infos[typeidx].?` for payload_size;
+  call `rt.gc_heap.?.allocate(ObjectHeader+payload)` to get
+  GcRef; write ObjectHeader{ .kind=.struct_, .info=typeidx } at
+  offset 0; for struct.new write each field's popped Value at
+  fields[i].offset; for struct.new_default zero-init the payload.
+  Push GcRef as `.ref = packed_addr` (low-bit-0 invariant per
+  ADR-0116 §5). New file `src/instruction/wasm_3_0/struct_ops.zig`
+  registers both handlers. Cycle 23: struct.get + struct.set
+  interp (read/write field via FieldInfo.offset). Cycle 24:
+  array.new family interp (ArrayHeader + length slot + element
+  init). Cycle 25: array.get + array.set + array.fill interp.
+  Cycle ~26+: collector_mark_sweep.zig (β must-ship).
   **Per ADR-0122 D6 ongoing**: every cycle's Step 4 reviews 1-2
   nearby `skip.blocker(.@"D-193")` sites for 3-min ungate probes.
 - **Exit-condition**: wasm-3.0-assert exception-handling /
