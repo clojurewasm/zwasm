@@ -108,33 +108,34 @@ pub const CodeMap = struct {
 /// frame.
 pub const non_jit_pc_sentinel: u32 = std.math.maxInt(u32);
 
-/// `frame_chain_adapter.NormalizePcFn` adapter. `ctx` MUST be
-/// a `*const CodeMap`. Returns **module-relative** PC (=
-/// `ret_addr - block_addr`) where `block_addr` is the JIT
-/// block's base address. This matches `collectModuleTable`'s
-/// shift convention: `HandlerEntry.pc_start / pc_end` are
-/// stored as module-relative offsets within the JitBlock; the
-/// FP-walk unwinder calls `ExceptionTable.lookup` with the
-/// module-relative caller PC so range checks match the stored
-/// entries. Per the D-183 close commit + ADR-0114 D5/D6.
+/// Translate an absolute address into a module-relative PC
+/// (= `addr - block_addr`) for `ExceptionTable.lookup`. Returns
+/// `non_jit_pc_sentinel` when `map` is empty or `addr` falls
+/// outside any function's range. D-183/D-184 ground truth:
+/// `HandlerEntry.pc_start / pc_end` are stored module-relative
+/// (post-`collectModuleTable` shift); the FP-walk unwinder
+/// must call `ExceptionTable.lookup` with the matching
+/// module-relative PC so range checks resolve correctly.
 ///
 /// `block_addr` is derived from `entries[0].start_addr` — the
-/// first DEFINED function's start_addr equals the JitBlock's
+/// first defined function's start_addr equals the JitBlock's
 /// base (defined functions are sequential starting at offset 0
-/// within the JitBlock; see `buildCodeMapEntries`). Empty map
-/// returns the sentinel.
-pub fn normalizeForUnwind(ret_addr: usize, ctx: ?*anyopaque) u32 {
-    const map: *const CodeMap = @ptrCast(@alignCast(ctx.?));
+/// within the JitBlock; see `buildCodeMapEntries`).
+pub fn toModuleRelativePc(map: *const CodeMap, addr: usize) u32 {
     if (map.entries.len == 0) return non_jit_pc_sentinel;
-    // Range-bound the lookup so non-JIT frames surface the
-    // sentinel (the walker treats it as "no handler here, keep
-    // walking").
-    switch (map.lookup(ret_addr)) {
+    switch (map.lookup(addr)) {
         .outside => return non_jit_pc_sentinel,
         .inside => {},
     }
     const block_addr = map.entries[0].start_addr;
-    return @intCast(ret_addr - block_addr);
+    return @intCast(addr - block_addr);
+}
+
+/// `frame_chain_adapter.NormalizePcFn` adapter. `ctx` MUST be a
+/// `*const CodeMap`. Thin wrapper around `toModuleRelativePc`.
+pub fn normalizeForUnwind(ret_addr: usize, ctx: ?*anyopaque) u32 {
+    const map: *const CodeMap = @ptrCast(@alignCast(ctx.?));
+    return toModuleRelativePc(map, ret_addr);
 }
 
 /// Convenience: build a `frame_chain_adapter.Context` whose

@@ -81,21 +81,9 @@ pub fn dispatchThrow(
     // (1) Normalise the throw-site absolute address to a
     // module-relative PC (= absolute - block_addr) to match
     // `collectModuleTable`'s pc_start/pc_end shift convention.
-    // D-183: prior code returned function-relative
-    // `hit.relative_pc` which only happens to equal module-
-    // relative for the first defined function (offset 0 in the
-    // JitBlock); for cross-frame catches in non-first functions
-    // the lookup would miss because the stored pc_start was
-    // module-relative but the lookup PC was function-relative.
-    const initial_pc = blk: {
-        if (code_map.entries.len == 0) break :blk code_map_mod.non_jit_pc_sentinel;
-        switch (code_map.lookup(site.throw_site_addr)) {
-            .outside => break :blk code_map_mod.non_jit_pc_sentinel,
-            .inside => {},
-        }
-        const block_addr = code_map.entries[0].start_addr;
-        break :blk @as(u32, @intCast(site.throw_site_addr - block_addr));
-    };
+    // See `code_map.toModuleRelativePc` for the rationale +
+    // sentinel semantics (D-183/D-184).
+    const initial_pc = code_map_mod.toModuleRelativePc(code_map, site.throw_site_addr);
 
     // (2) Build the adapter context. The code_map serves both
     // as the initial-PC normaliser (above) and the per-frame
