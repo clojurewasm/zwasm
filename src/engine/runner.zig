@@ -481,6 +481,44 @@ test "runI32Export: tagged catch routes by tag_idx — throw $e1 → catch $e1 r
     try testing.expectEqual(@as(u32, 77), try runI32Export(testing.allocator, &bytes, "test"));
 }
 
+test "runI32Export: throw + catch_ with i32 payload returns 88 (10.E-payload-prop bundle close tripwire)" {
+    // D-182: 10.E-payload-prop bundle Cycles 1-4 wired the
+    // Runtime + JitRuntime payload-buf fields + throw.emit
+    // pop-N+store-N (HEADs d27c6857 → 78eb1d14 per ADR-0120).
+    // Cycle 5 catch landing pad load+push synthesis is the
+    // remaining gap — the catch_ JMP target needs prelude code
+    // that loads `eh_payload_buf[i]` into the block's result
+    // vreg slot before falling through to the post-block
+    // continuation. The regalloc-coordinated emit (knowing the
+    // block-result vreg's slot at catch-label end-op-patch
+    // time + per-clause JMP-to-common-continuation pattern) is
+    // non-trivial and lands at Cycle 5 follow-on. This test
+    // documents the bundle's exit-condition and serves as a
+    // tripwire: when D-182 discharges, the gate flips to a
+    // green expectation.
+    return error.SkipZigTest;
+    // (module
+    //   (type $t0 (func (param i32)))
+    //   (tag $e0 (type $t0))
+    //   (func (export "test") (result i32)
+    //     (block $catch (result i32)
+    //       (try_table (catch $e0 $catch)
+    //         i32.const 88
+    //         throw $e0
+    //       )
+    //       i32.const 99
+    //     )))
+    // const bytes = [_]u8{
+    //     0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x09, 0x02, 0x60,
+    //     0x01, 0x7f, 0x00, 0x60, 0x00, 0x01, 0x7f, 0x03, 0x02, 0x01, 0x01, 0x0d,
+    //     0x03, 0x01, 0x00, 0x00, 0x07, 0x08, 0x01, 0x04, 0x74, 0x65, 0x73, 0x74,
+    //     0x00, 0x00, 0x0a, 0x16, 0x01, 0x14, 0x00, 0x02, 0x7f, 0x1f, 0x40, 0x01,
+    //     0x00, 0x00, 0x00, 0x41, 0xd8, 0x00, 0x08, 0x00, 0x0b, 0x41, 0xe3, 0x00,
+    //     0x0b, 0x0b,
+    // };
+    // try testing.expectEqual(@as(u32, 88), try runI32Export(testing.allocator, &bytes, "test"));
+}
+
 test "compileWasm: empty module (header only) compiles to empty CompiledWasm" {
     // §9.9 / 9.9-l-1b-d093-d69: ungated (was Mac-only) so the
     // testing.allocator (DebugAllocator) leak gate runs on all
