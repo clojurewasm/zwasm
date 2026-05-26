@@ -6,13 +6,14 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `0b51e6da` — D-183 CLOSED on Mac aarch64
-  (`c05b0393` module-relative PC + DWARF ret_addr-1). Linux
-  x86_64 SysV SEGVs at `loadFrame.slots[0]` (catch doesn't
-  match → walker traverses into host frames where Zig 0.16
-  self-hosted backend doesn't maintain RBP chaining). D-184
-  filed with 4 investigation paths; cross-frame test gated
-  Mac-aarch64-only.
+- **HEAD**: `90cba314` — **D-183 + D-184 BOTH CLOSED**.
+  Cross-frame EH works on Mac aarch64 + Linux x86_64 SysV.
+  Root cause of x86_64 gap: zwasm prologue `PUSH RBP; PUSH R15;
+  MOV RBP, RSP` puts RBP at saved-R15 (not saved-RBP). Fix:
+  CodeMap-aware sniffed loadFrame disambiguates via lookup of
+  slot[1] vs slot[2] (which one resolves to a JIT body
+  address). Mac local + cross-compile x86_64-linux green;
+  ubuntu verify pending Step 0.7.
 - **10.D = CLOSED 2026-05-25**; **10.M (incl D-181 ungate),
   10.R 1..5, 10.TC-1, 10.G-i31-ops/2/3, 10.E** (IT-1..IT-6 +
   10.E-N-1..N-3 + 10.E-5b/5c + 10.E-payload-prop bundle):
@@ -37,9 +38,6 @@
 
 ## Next candidates (names + Refs)
 
-- **D-184 discharge** — x86_64 SysV cross-frame catch-match
-  gap. 4 investigation paths in the debt row; probe-driven
-  cycle.
 - **10.TC codegen** — return_call / return_call_indirect /
   return_call_ref JIT emit + frame_teardown helper (ADR-0112,
   ADR-0113 §A foundations shipped pre-bundle). Multi-cycle
