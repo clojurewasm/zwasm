@@ -6,10 +6,14 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `94e5e3fe` — feat(p10): struct.get + struct.set
-  validator+lower (10.G op_gc cycle 17; ADR-0121 D5). Sub-ops
-  2/5 wired (typeidx + fieldidx); sub-ops 3/4 (packed get_s/_u)
-  reject NotImplemented per ADR-0121 D3. Interp deferred.
+- **HEAD**: `67741848` — feat(p10): ADR-0122 test skip
+  categorization + full migration (architectural cycle, off-bundle).
+  60+ raw SkipZigTest sites → helper-routed (skip.phaseEnd /
+  skip.blocker) + comptime-arch + check_skip_helpers.sh gate.
+  D-193 umbrella row tracks ~21 Mac aarch64-only triage. Per
+  ADR-0122 D6, `/continue` Step 4 now reviews skip.blocker sites
+  per commit for ungate probes. Bundle 10.G op_gc cycle 17
+  (`94e5e3fe`) was the prior op-by-op work.
 - **ROADMAP §10 progress**: 7/13 DONE, 4 IN-PROGRESS, 2 Pending.
 - **Active debt rows**: 18 — all `blocked-by:` with named
   structural barriers. Zero `now`-status rows.
@@ -56,16 +60,19 @@ future op_gc consumers. EH 40 fails still gated on the bigger
 
 - **Bundle-ID**: 10.G-op_gc
 - **Cycles-remaining**: ~9 (per `.dev/phase10_g_op_bundle_plan.md`)
-- **Continuity-memo**: Cycles 1-6 substrate. Cycles 7-12 wired
-  no-RTT GC ops. Cycles 13-14 ADR-0121 + decodeTypes 0x5F/0x5E
-  + side-tables. Cycle 15 struct.new family. Cycle 16 array.new
-  family. Cycle 17 (`94e5e3fe`) struct.get + struct.set; packed
-  get_s/_u reject NotImplemented. Cycle 18 (next): array.get +
-  array.set + array.fill (sub-ops 11/14/16). Validator pops
-  arrayref + i32 idx (+ value for set), pushes element.valtype
+- **Continuity-memo**: Cycles 1-6 substrate. Cycles 7-12 no-RTT
+  GC ops. Cycles 13-14 ADR-0121 + decodeTypes 0x5F/0x5E. Cycle 15
+  struct.new family. Cycle 16 array.new family. Cycle 17 struct.get
+  + struct.set. **Off-bundle architectural detour (`67741848`)**:
+  ADR-0122 test skip categorization + 60-site migration + audit
+  gate landed user-driven 2026-05-27 session. Cycle 18 (next):
+  array.get + array.set + array.fill (sub-ops 11/14/16). Validator
+  pops arrayref + i32 idx (+ value for set), pushes element.valtype
   (for get). array.get_s/_u (12/13) reject packed same as cycle 17.
   Cycle 19+: ADR-0116 amendment for StructInfo/ArrayInfo runtime
   layout — unblocks interp for cycles 15-18 ops.
+  **Per ADR-0122 D6 ongoing**: every cycle's Step 4 reviews 1-2
+  nearby `skip.blocker(.@"D-193")` sites for 3-min ungate probes.
 - **Exit-condition**: wasm-3.0-assert exception-handling /
   function-references / gc corpora open for op_gc dispatch +
   at least the first i31 spec directive flips green via the
