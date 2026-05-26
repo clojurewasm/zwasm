@@ -40,6 +40,7 @@ const abi = @import("abi.zig");
 const ctx_mod = @import("ctx.zig");
 const op_call = @import("op_call.zig");
 const frame_teardown = @import("../shared/frame_teardown.zig");
+const canonical_type = @import("../shared/canonical_type.zig");
 const zir = @import("../../../ir/zir.zig");
 
 /// X16 — the AAPCS64 intra-procedure-call scratch (IP0) per
@@ -149,6 +150,80 @@ pub fn emitDirectReturnCall(
     try emitLoadCalleeRtSameModule(ctx.allocator, ctx.buf);
     try frame_teardown.emit(ctx.allocator, ctx.buf, .{ .frame_bytes = ctx.frame_bytes });
     try emitDirectTailJump(ctx.allocator, ctx.buf, ctx.call_fixups, @intCast(ins.payload));
+}
+
+/// Wasm spec 3.0 §3.3.8.19 (tail-call proposal) —
+/// `return_call_indirect type_idx tableidx`. Mirror of
+/// `op_call.emitCallIndirect` minus the captureCallResult tail,
+/// with frame_teardown inserted between funcptr load and BR X16.
+///
+/// Restrictions in this initial wiring:
+///   - `table_idx == 0` only (single-table fast path; multi-table
+///     follow-on chunk). `ins.extra > 0` → `UnsupportedOp`.
+///   - `results.len <= 2` (no MEMORY-class return-buffer dance;
+///     the tail-called frame inherits the caller's X8 if any).
+///
+/// Sequence:
+///   (1) pop idx vreg, marshal args (caller's frame still live
+///       for outgoing-args stack region),
+///   (2) bounds check (CMP W17, W25 ; B.HS cind_bounds_fixup) —
+///       trap stub does full epilogue+RET, caller's frame OK,
+///   (3) sig check (LDR W16, [X24, X17, LSL #2] ; CMP imm ;
+///       B.NE cind_sig_fixup),
+///   (4) funcptr load (LDR X16, [X26, X17, LSL #3]),
+///   (5) MOV X0, X19 (emitLoadCalleeRtSameModule),
+///   (6) frame_teardown.emit (caller's frame gone),
+///   (7) BR X16 (emitTailJump).
+///
+/// NOT-a-safepoint invariant (ADR-0112 D7): the bounds+sig
+/// branches both target the trap stub (which does its own
+/// epilogue); the path from teardown to BR X16 has no allocator
+/// / host-call / signal-check branch.
+pub fn emitIndirectReturnCall(
+    ctx: *ctx_mod.EmitCtx,
+    ins: *const zir.ZirInstr,
+) ctx_mod.Error!void {
+    if (ins.payload >= ctx.module_types.len) return ctx_mod.Error.AllocationMissing;
+    const callee_sig: zir.FuncType = ctx.module_types[ins.payload];
+    const table_idx: u32 = ins.extra;
+    if (table_idx != 0) return ctx_mod.Error.UnsupportedOp;
+    if (callee_sig.results.len > 2) return ctx_mod.Error.UnsupportedOp;
+
+    if (ctx.pushed_vregs.items.len < 1) return ctx_mod.Error.AllocationMissing;
+    const idx_vreg = ctx.pushed_vregs.pop().?;
+
+    try op_call.marshalCallArgs(ctx, callee_sig);
+
+    const w_idx = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, idx_vreg, 0);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(17, 31, w_idx));
+
+    const expected_typeidx: u32 = canonical_type.canonicalTypeidx(ctx.module_types, @intCast(ins.payload));
+    if (expected_typeidx >= 4096) return ctx_mod.Error.UnsupportedOp;
+
+    // Bounds: CMP W17, W25 ; B.HS trap.
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegW(17, 25));
+    {
+        const fixup_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hs, 0));
+        try ctx.cind_bounds_fixups.append(ctx.allocator, fixup_at);
+    }
+
+    // Sig: LDR W16, [X24, X17, LSL #2] ; CMP W16, #expected ; B.NE trap.
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrWRegLsl2(16, 24, 17));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmW(16, @intCast(expected_typeidx)));
+    {
+        const fixup_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.ne, 0));
+        try ctx.cind_sig_fixups.append(ctx.allocator, fixup_at);
+    }
+
+    // Funcptr load: LDR X16, [X26, X17, LSL #3]. X16 = tail-target
+    // (per `tail_target_gpr`) — matches the BR X16 in step (7).
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrXRegLsl3(tail_target_gpr, 26, 17));
+
+    try emitLoadCalleeRtSameModule(ctx.allocator, ctx.buf);
+    try frame_teardown.emit(ctx.allocator, ctx.buf, .{ .frame_bytes = ctx.frame_bytes });
+    try emitTailJump(ctx.allocator, ctx.buf, tail_target_gpr);
 }
 
 // ---------------------------------------------------------------------
