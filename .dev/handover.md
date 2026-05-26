@@ -6,11 +6,10 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `2dc566b1` — feat(p10): any.convert_extern +
-  extern.convert_any vertical slice (10.G op_gc cycle 10).
-  any↔extern hierarchy reinterpretation; full lower+validator+
-  interp; identity runtime semantics (reftypes share `.ref:u64`
-  slot, validator-tracked distinction).
+- **HEAD**: `1c57e8a1` — feat(p10): ref.eq vertical slice (10.G
+  op_gc cycle 11). Reference identity comparison; full lower+
+  validator+interp; ZirOp tag added. Pointer-eq on `.ref:u64`
+  slot; null_ref == null_ref returns 1 per spec.
 - **ROADMAP §10 progress**: 7/13 DONE, 4 IN-PROGRESS, 2 Pending.
 - **Active debt rows**: 18 — all `blocked-by:` with named
   structural barriers. Zero `now`-status rows.
@@ -56,21 +55,19 @@ future op_gc consumers. EH 40 fails still gated on the bigger
 ## Active bundle
 
 - **Bundle-ID**: 10.G-op_gc
-- **Cycles-remaining**: ~16 (per `.dev/phase10_g_op_bundle_plan.md`)
-- **Continuity-memo**: Cycle 1 ADR amend. Cycle 2 ValType.i31ref
-  cascade. Cycle 3 parser 0x6C. Cycle 4 validator opRefNull.
-  Cycle 5 opRefI31 typed push. Cycle 6 extend ValType with 4
-  remaining GC variants. Cycle 7 (`63cf843a`) ref.test +
-  ref.test_null vertical slice. Cycle 8 (`93e63ba7`) ref.cast +
-  ref.cast_null vertical slice. Cycle 9 (`a262a7d2`) br_on_cast
-  + br_on_cast_fail validator+lower (interp deferred to RTT
-  integration). Cycle 10 (`2dc566b1`) any.convert_extern +
-  extern.convert_any vertical slice (identity runtime). Cycle 11
-  (next): ref.eq (sub-op 19 = 0x13) — pop 2 eqrefs, push i32.
-  Needs ZirOp tag addition (not in zir_ops.zig yet) + validator
-  popExpect cascade + interp pointer-eq handler. Cycle 12+:
-  struct.new / struct.get / struct.set — gated on RTT TypeInfo
-  (sub-chunk 5 of plan).
+- **Cycles-remaining**: ~15 (per `.dev/phase10_g_op_bundle_plan.md`)
+- **Continuity-memo**: Cycles 1-6 substrate (ValType extension +
+  parser/validator wires). Cycle 7 (`63cf843a`) ref.test family.
+  Cycle 8 (`93e63ba7`) ref.cast family. Cycle 9 (`a262a7d2`)
+  br_on_cast family validator+lower (interp deferred to RTT).
+  Cycle 10 (`2dc566b1`) any↔extern convert vertical slice.
+  Cycle 11 (`1c57e8a1`) ref.eq vertical slice. Cycle 12 (next):
+  struct ops architectural prep — survey ADR-0116 RTT TypeInfo
+  design, parse the type-section's struct-type encoding (already
+  partial in src/parse/sections.zig), file ADR-0121 (or
+  amend ADR-0116) for the StructInfo runtime layout. Cycles 13-15:
+  struct.new + struct.new_default + struct.get + struct.set
+  vertical slice once RTT lands. Cycle 16+: array ops mirror.
 - **Exit-condition**: wasm-3.0-assert exception-handling /
   function-references / gc corpora open for op_gc dispatch +
   at least the first i31 spec directive flips green via the
