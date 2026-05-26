@@ -6,10 +6,10 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `e953b089` — feat(p10): Value.anyref arm +
-  Module.needs_gc_heap flag (10.G-foundation cycle 1). Opens the
-  10.G WasmGC bundle per ADR-0115/0116. Both additive — no
-  semantic consumer yet.
+- **HEAD**: `3fa32ddf` — feat(p10): parser wires
+  needs_heap_detector → Module.needs_gc_heap (10.G-foundation
+  cycle 2). Detector existed but was unwired; now every parsed
+  Module carries the correct GC-touch flag.
 - **ROADMAP §10 progress**: 7/13 DONE, 4 IN-PROGRESS, 2 Pending.
 - **Active debt rows**: 18 — all `blocked-by:` with named
   structural barriers. Zero `now`-status rows.
@@ -17,19 +17,18 @@
 ## Active bundle
 
 - **Bundle-ID**: 10.G-foundation
-- **Cycles-remaining**: ~6 (estimate; foundation substrate before
-  full GC heap impl)
-- **Continuity-memo**: Cycle 1 (HEAD `e953b089`) lands Value.anyref
-  + Module.needs_gc_heap flag (both additive). Next steps: (2)
-  parser recognises GC valtype bytes (anyref 0x6E, eqref 0x6D,
-  structref 0x6B, arrayref 0x6A, i31ref 0x6C); (3)
-  needs_heap_detector.zig walks sections + flips the flag; (4)
-  feature/gc/heap.zig per-Store slab (ADR-0115 §1-5); (5)
-  Collector vtable + null collector α (ADR-0115 §10); (6)
-  regalloc stack-map axis (ADR-0113 §C / ADR-0115 §7).
-- **Exit-condition**: needs_gc_heap detector flips true on a wasm
-  module declaring `(type $s (struct (field i32)))` AND
-  feature/gc/heap.zig allocates the per-Store slab on first GC op.
+- **Cycles-remaining**: ~4
+- **Continuity-memo**: Cycle 1 (`e953b089`) lands Value.anyref +
+  Module.needs_gc_heap field. Cycle 2 (`3fa32ddf`) wires the
+  pre-existing needs_heap_detector into parser.parse — the flag
+  now reflects reality. Next steps: (3) feature/gc/heap.zig
+  per-Store slab (ADR-0115 §1-5); (4) Collector vtable + null
+  collector α (ADR-0115 §10); (5) regalloc stack-map axis
+  (ADR-0113 §C / ADR-0115 §7); (6) instantiate-side gate that
+  allocates heap iff Module.needs_gc_heap.
+- **Exit-condition**: feature/gc/heap.zig allocates the per-Store
+  slab on first GC op AND instantiate-side gate consumes
+  Module.needs_gc_heap to skip when false.
 
 ## Spec runner observable (HEAD `e953b089`)
 
@@ -45,21 +44,21 @@ memory64 / tail-call / function-references all clean. Remaining 40
 fails all in exception-handling (gate per D-192 / 10.G).
 
 Recent commits this resume:
+- `3fa32ddf` feat — parser wires needs_heap_detector (10.G cycle 2).
 - `e953b089` feat — Value.anyref + Module.needs_gc_heap (10.G cycle 1).
 - `94d16e33` chore — audit_scaffolding §F+§G clean; retarget at 10.G.
 - `9b03db83` chore — pivot 10.E-EH-compile-runtime bundle; file D-192.
 - `908414b2` fix — frontendValidate threads tags for EH compile.
-- `755d33d2` fix — wast baker emits invoke action (D-191 close; memory64 FULL).
 
 ## Next sub-chunk candidates (names only)
 
-- **10.G-foundation cycle 2** — parser GC valtype byte recognition
-  (anyref 0x6E / eqref 0x6D / structref 0x6B / arrayref 0x6A /
-  i31ref 0x6C). Single-cycle: add ValType variants + sections
-  decoder branches.
-- **10.G-foundation cycle 3** — needs_heap_detector.zig walks
-  type / import / global / table / element / function sections
-  for GC valtype references; sets Module.needs_gc_heap = true.
+- **10.G-foundation cycle 3** — feature/gc/heap.zig per-Store
+  slab (ADR-0115 §1-5): pub const Heap struct, allocate(size)
+  → GcRef offset, deinit drops back to runtime arena. No
+  collector / no root walk yet — just bump-pointer in slab.
+- **10.G-foundation cycle 4** — Collector vtable + null collector
+  α (ADR-0115 §10): noop_collect, noop_walk_roots; pluggable
+  pointer for future mark/sweep impl.
 - **10.M-realworld** — toolchain-blocked (D-179 wabt 1.0.41+).
 - **10.P close gate** — user touchpoint by construction.
 
