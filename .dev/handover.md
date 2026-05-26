@@ -6,61 +6,51 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `ea414cf0` — pin memory64 instantiate gap at address64.0
-  (test-only regression marker; isolates the handover-named
-  candidate). Compile path green for memory64 fixtures
-  (frontendValidate memory0_idx_type plumbing live since
-  `639c2916`); gap is past the c_api boundary, inside
-  `instantiateRuntime`.
+- **HEAD**: `b04a214e` — fix(p10): instantiate active data on
+  memory64 (i64.const offset). One-line dispatch fix
+  (evalConstMemAddrExpr) at the data-install site moved 396
+  directives green; address64.0 regression marker tightened to
+  expect-success.
 - **ROADMAP §10 progress**: 7/13 DONE, 4 IN-PROGRESS, 2 Pending.
 - **Active debt rows**: 17 — all `blocked-by:` with named
   structural barriers. Zero `now`-status rows.
 
-## Spec runner observable (HEAD `8b5b2ae1`; unchanged this cycle)
+## Spec runner observable (HEAD `b04a214e`)
 
 ```
-[memory64           ] return=337 (pass=81 fail=244) trap=205 (pass=17 fail=188) invalid=83 (pass=83 fail=0) exception=0
-[tail-call          ] return=31  (pass=31 fail=0  ) trap=0   (pass=0  fail=0  ) invalid=10 (pass=10 fail=0) exception=0
-[exception-handling ] return=34  (pass=0  fail=33 ) trap=2   (pass=0  fail=2  ) invalid=7  (pass=6  fail=1) exception=4 (pass=0 fail=4)
+[memory64           ] return=337 (pass=289 fail=36 ) trap=205 (pass=205 fail=0  ) invalid=83  (pass=83  fail=0) exception=0
+[tail-call          ] return=31  (pass=31  fail=0  ) trap=0   (pass=0   fail=0  ) invalid=10  (pass=10  fail=0) exception=0
+[exception-handling ] return=34  (pass=0   fail=33 ) trap=2   (pass=0   fail=2  ) invalid=7   (pass=6   fail=1) exception=4 (pass=0 fail=4)
 [gc                 ] (no corpus — D-179 wabt)
-[function-references] return=0   (pass=0  fail=0  ) trap=0   (pass=0  fail=0  ) invalid=12 (pass=12 fail=0) exception=0
-total: return pass=112 fail=277; trap pass=17 fail=190; invalid pass=111 fail=1; exception pass=0 fail=4
+[function-references] return=0   (pass=0   fail=0  ) trap=0   (pass=0   fail=0  ) invalid=12  (pass=12  fail=0) exception=0
+total: return pass=320 fail=69; trap pass=205 fail=2; invalid pass=111 fail=1; exception pass=0 fail=4
 ```
 
-assert_invalid 111/1 — only try_table.10 remains (deep EH
-catch_all_ref typing, requires exnref ValType extension).
+memory64 trap 188→0 (full sweep); return 244→36 fail (36 residual,
+multi-value or per-fixture remaining). assert_invalid 111/1 — only
+try_table.10 remains.
 
 Recent commits this resume:
+- `b04a214e` fix — instantiate active data on memory64 (+396 dirs).
+- `7d815816` chore — retarget handover at memory64 instantiate gap.
 - `ea414cf0` test — pin memory64 instantiate gap at address64.0.
 - `24f0353f` chore — retarget handover after bulk mem ops memAddrType.
 - `01de05e8` — bulk mem ops memAddrType (preemptive; no runner delta).
-- `8b5b2ae1` — opMemorySize/Grow memAddrType plumb (+46 dirs).
-- `a2a3ac3b` test — D-189 regression fixture correction.
 
-## Active task — memory64 instantiate gap (bundle candidate)
+## Active task — memory64 residual return fails (36)
 
-This-cycle observation: address64.0.wasm compiles green but
-`linker.instantiate` returns `error.InstantiateFailed`. The error
-is the c_api wrapper around any `return error.<X>` site in
-`runtime/instance/instantiate.zig::instantiateRuntime` (51 raise
-sites; coarsely swallowed at `api/instance.zig:754` catch). Next
-chunk = NARROW which specific site fires — candidates from inspect:
-`MultiMemoryUnsupported` (host-allocator path for i64 memory size),
-`DataSegmentOutOfRange` (active-data install on i64 memory),
-plus any memory.size/grow / bulk-mem residual after the
-`8b5b2ae1` + `01de05e8` plumbing landed.
-
-Tractable per-cycle deliverable: thread a stage-name into
-`instantiateRuntime`'s catch (or via `diagnostic.setDiag`) so the
-underlying error name surfaces past the c_api boundary. Once the
-specific raise site is named, single-cycle fixes per-fixture can
-proceed against the wasm-3.0-assert memory64 corpus.
+memory64 return 244→36 fail. The remaining 36 are spread across
+the wasm-3.0-assert/memory64 corpus. Next sub-chunk: bisect what
+shape (likely multi-value, oob trap discrimination, or per-op
+codegen edge) the residuals share. Per-case investigation; can be
+walked single-cycle by greping the runner for "fail" emit (after
+adding a verbose mode) OR by writing a manifest-bisect test à la
+the tail-call/D-187 pattern at line 790 of wasm_3_0_manifest.zig.
 
 ## Next sub-chunk candidates (names only)
 
-- **memory64 instantiate gap** — current active per above.
-  Multi-cycle bundle candidate when next cycle narrows the
-  specific raise site.
+- **memory64 return residual (36)** — active per above; per-case
+  bisect.
 - **EH module-compile gap** — `try_table` op validator + interp
   dispatch substrate. The 33+2+4 EH directive fails all root
   here. Multi-cycle (10.E scope).
