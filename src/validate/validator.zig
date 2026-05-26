@@ -80,11 +80,12 @@ pub const Error = error{
     InvalidLaneIndex,
     /// Wasm spec §3.3.7 (memarg alignment): a memory op's
     /// alignment immediate (log2 of byte alignment) exceeds the
-    /// op's natural alignment. For SIMD specifically: v128.load /
-    /// store ≤ 4 (16-byte natural); v128.load64_splat / load64_lane
-    /// / store64_lane / load64_zero / loadXxY ≤ 3 (8-byte);
-    /// 32-bit ≤ 2; 16-bit ≤ 1; 8-bit ≤ 0. Validation-time reject.
-    InvalidSimdAlignment,
+    /// op's natural alignment. Covers both scalar and SIMD memory
+    /// ops. Naturals: v128.load / store ≤ 4 (16-byte); v128.load64_splat
+    /// / load64_lane / store64_lane / load64_zero / loadXxY ≤ 3
+    /// (8-byte); i64/f64 ≤ 3; 32-bit ≤ 2; 16-bit ≤ 1; 8-bit ≤ 0.
+    /// Validation-time reject (spec assert_invalid).
+    InvalidAlignment,
     /// Wasm 3.0 EH §3.3.10.7: a `throw tag_idx` op (or a
     /// `try_table` catch / catch_ref clause) references a tag
     /// index outside `module.tags[]`. Reported by `opThrow` and
@@ -693,20 +694,33 @@ pub const Validator = struct {
             0x26 => try self.opTableSet(),
 
             // Loads (memarg → align uleb32 + offset uleb32)
-            0x28 => try self.opLoad(.i32),
-            0x29 => try self.opLoad(.i64),
-            0x2A => try self.opLoad(.f32),
-            0x2B => try self.opLoad(.f64),
-            0x2C, 0x2D, 0x2E, 0x2F => try self.opLoad(.i32),
-            0x30, 0x31, 0x32, 0x33, 0x34, 0x35 => try self.opLoad(.i64),
+            // §3.3.7 natural-alignment caps: load8≤0, load16≤1,
+            // load32≤2, load64≤3 (log2 of byte width).
+            0x28 => try self.opLoad(.i32, 2), // i32.load
+            0x29 => try self.opLoad(.i64, 3), // i64.load
+            0x2A => try self.opLoad(.f32, 2), // f32.load
+            0x2B => try self.opLoad(.f64, 3), // f64.load
+            0x2C => try self.opLoad(.i32, 0), // i32.load8_s
+            0x2D => try self.opLoad(.i32, 0), // i32.load8_u
+            0x2E => try self.opLoad(.i32, 1), // i32.load16_s
+            0x2F => try self.opLoad(.i32, 1), // i32.load16_u
+            0x30 => try self.opLoad(.i64, 0), // i64.load8_s
+            0x31 => try self.opLoad(.i64, 0), // i64.load8_u
+            0x32 => try self.opLoad(.i64, 1), // i64.load16_s
+            0x33 => try self.opLoad(.i64, 1), // i64.load16_u
+            0x34 => try self.opLoad(.i64, 2), // i64.load32_s
+            0x35 => try self.opLoad(.i64, 2), // i64.load32_u
 
             // Stores
-            0x36 => try self.opStore(.i32),
-            0x37 => try self.opStore(.i64),
-            0x38 => try self.opStore(.f32),
-            0x39 => try self.opStore(.f64),
-            0x3A, 0x3B => try self.opStore(.i32),
-            0x3C, 0x3D, 0x3E => try self.opStore(.i64),
+            0x36 => try self.opStore(.i32, 2), // i32.store
+            0x37 => try self.opStore(.i64, 3), // i64.store
+            0x38 => try self.opStore(.f32, 2), // f32.store
+            0x39 => try self.opStore(.f64, 3), // f64.store
+            0x3A => try self.opStore(.i32, 0), // i32.store8
+            0x3B => try self.opStore(.i32, 1), // i32.store16
+            0x3C => try self.opStore(.i64, 0), // i64.store8
+            0x3D => try self.opStore(.i64, 1), // i64.store16
+            0x3E => try self.opStore(.i64, 2), // i64.store32
 
             // memory.size / memory.grow (each carries a reserved 0x00 byte)
             0x3F => try self.opMemorySize(),
@@ -1729,6 +1743,22 @@ pub const Validator = struct {
         _ = try leb128.readUleb128(u32, self.body, &self.pos); // offset
     }
 
+    /// Wasm spec §3.3.7 (memarg alignment) — read the memarg
+    /// align uleb (mask off bit 6 multi-memory flag), validate
+    /// the actual alignExp ≤ `max_align_log2` (the op's natural
+    /// alignment exponent). Then consume the optional memidx +
+    /// offset uleb just like `skipMemarg`. Rejects with
+    /// `Error.InvalidAlignment` on out-of-range align.
+    fn readMemargCheckAlign(self: *Validator, max_align_log2: u32) Error!void {
+        const raw_align = try leb128.readUleb128(u32, self.body, &self.pos);
+        const align_log2 = raw_align & ~@as(u32, 0x40);
+        if (align_log2 > max_align_log2) return Error.InvalidAlignment;
+        if ((raw_align & 0x40) != 0) {
+            _ = try leb128.readUleb128(u32, self.body, &self.pos); // memidx
+        }
+        _ = try leb128.readUleb128(u32, self.body, &self.pos); // offset
+    }
+
     /// Address operand type for memory ops per Wasm 3.0 §3.4.7 —
     /// `.i32` for legacy i32-indexed memory; `.i64` for memory64.
     /// Determined by `self.memory0_idx_type` (multi-memory still
@@ -1741,16 +1771,16 @@ pub const Validator = struct {
         };
     }
 
-    fn opLoad(self: *Validator, t: ValType) Error!void {
+    fn opLoad(self: *Validator, t: ValType, max_align_log2: u32) Error!void {
         if (self.memory_count == 0) return Error.UnknownMemory;
-        try self.skipMemarg();
+        try self.readMemargCheckAlign(max_align_log2);
         try self.popExpect(self.memAddrType()); // address (i32 or i64)
         try self.pushType(t);
     }
 
-    fn opStore(self: *Validator, t: ValType) Error!void {
+    fn opStore(self: *Validator, t: ValType, max_align_log2: u32) Error!void {
         if (self.memory_count == 0) return Error.UnknownMemory;
-        try self.skipMemarg();
+        try self.readMemargCheckAlign(max_align_log2);
         try self.popExpect(t); // value
         try self.popExpect(self.memAddrType()); // address (i32 or i64)
     }

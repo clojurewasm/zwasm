@@ -38,7 +38,7 @@ pub fn dispatchPrefixFD(self: *Validator) Error!void {
     const sub = try leb128.readUleb128(u32, self.body, &self.pos);
     switch (sub) {
         // Loads — natural alignment per Wasm SIMD spec §3.3.7.
-        // align_log2 ≤ log2(natural_bytes); Error.InvalidSimdAlignment otherwise.
+        // align_log2 ≤ log2(natural_bytes); Error.InvalidAlignment otherwise.
         0 => try opSimdLoad(self, 4), // v128.load (16 bytes → log2=4)
         1, 2, 3, 4, 5, 6 => try opSimdLoad(self, 3), // load{8x8,16x4,32x2}_{s,u} (8 bytes → log2=3)
         7 => try opSimdLoad(self, 0), // v128.load8_splat (1 byte)
@@ -354,7 +354,7 @@ pub fn readLaneIdx(self: *Validator, lane_count: u8) Error!void {
 /// when set, a memidx uleb follows the align and the effective
 /// log2-align is `align & 0x3F` (low 6 bits). The validator
 /// range-checks the effective alignment against the op's
-/// natural alignment (Error.InvalidSimdAlignment).
+/// natural alignment (Error.InvalidAlignment).
 ///
 /// memidx is decoded-and-discarded — the runtime instantiate
 /// path rejects multi-memory > 1 per ADR-0111 D5, so memidx
@@ -368,7 +368,7 @@ pub fn readSimdMemarg(self: *Validator, max_align_log2: u8) Error!void {
     const raw_align = try leb128.readUleb128(u32, self.body, &self.pos);
     const has_memidx = (raw_align & 0x40) != 0;
     const align_log2: u32 = if (has_memidx) (raw_align & 0x3F) else raw_align;
-    if (align_log2 > max_align_log2) return Error.InvalidSimdAlignment;
+    if (align_log2 > max_align_log2) return Error.InvalidAlignment;
     if (has_memidx) {
         _ = try leb128.readUleb128(u32, self.body, &self.pos); // memidx (decoded-and-discarded; multi-memory rejected at instantiate)
     }

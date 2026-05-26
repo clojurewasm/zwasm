@@ -687,6 +687,31 @@ test "D-188 bisect: EH + func-refs invalid-accepted fixtures (regression marker)
     try testing.expectEqual(@as(u32, 1), accepted_count);
 }
 
+test "D-189 partial: align64 invalid fixtures rejected (memarg natural-align rule)" {
+    // All 37 wasm-3.0-assert/memory64/align64/*.wasm fixtures
+    // are listed as assert_invalid with reason "alignment must
+    // not be larger than natural" (Wasm spec §3.4.7). They
+    // exercise the per-op natural-alignment cap (load8≤1,
+    // load16≤2, load≤4, i64.load≤8, etc.). Before the fix
+    // `skipMemarg` consumed the align byte without validating
+    // it → all 37 fixtures incorrectly compiled. After the fix
+    // each fixture's align-too-large memarg triggers
+    // `Error.AlignmentTooLarge` (or maps via the c_api boundary
+    // to ParseFailed) → all 37 reject.
+    const fixtures = [_][]const u8{
+        @embedFile("wasm-3.0-assert/memory64/align64/align64.0.wasm"),
+        @embedFile("wasm-3.0-assert/memory64/align64/align64.1.wasm"),
+        @embedFile("wasm-3.0-assert/memory64/align64/align64.2.wasm"),
+    };
+    for (fixtures, 0..) |bytes, i| {
+        const outcome = try compileExpectInvalid(testing.allocator, bytes);
+        if (outcome != .rejected) {
+            std.debug.print("[D-189 align64.{d}] expected rejected, got accepted\n", .{i});
+        }
+        try testing.expectEqual(CompileOutcome.rejected, outcome);
+    }
+}
+
 test "EH gap regression: try_table.0.wasm currently rejects at compile (10.E pending)" {
     // Documents the current EH module-compile gap (drives the
     // 33/34 assert_return + 2/2 assert_trap + 4/4 assert_exception
