@@ -6,9 +6,9 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `73845cf0` — ADR-0120 Proposed (JIT payload-marshalling
-  shape for EH); precondition for 10.E-payload-prop bundle. Mac
-  local + ubuntu (HEAD `228d2d79`) both green.
+- **HEAD**: `d27c6857` — 10.E-payload-prop Cycle 1 shipped
+  (Runtime.eh_payload_buf + eh_payload_len fields + test). Mac
+  local green. Ubuntu verify pending Step 0.7 next cycle.
 - **10.D = CLOSED 2026-05-25**, **10.M (incl D-181 ungate),
   10.R 1..5, 10.TC-1, 10.G-i31-ops/2/3, 10.E (IT-1..IT-6 codegen
   foundation + interp catch_/catch_all dispatch + tag-equality)**:
@@ -24,7 +24,7 @@
 ## Active bundle
 
 - **Bundle-ID**: 10.E-payload-prop
-- **Cycles-remaining**: ~5 (per ADR-0120 Consequence §1)
+- **Cycles-remaining**: ~4 (Cycle 1 shipped `d27c6857`)
 - **Continuity-memo**: payload propagation through
   `Runtime.eh_payload_buf: [16]u64` + `EmitCtx.tag_param_counts:
   []const u32 = &.{}` threading per ADR-0120. Throw emits
@@ -43,17 +43,27 @@
   10.R (5/5; gated on 10.G) / 10.TC.
 - Pending (2): 10.G / 10.P (close gate).
 
-## Active task — Cycle 1 of 10.E-payload-prop bundle
+## Active task — Cycle 2 of 10.E-payload-prop bundle
 
-Per ADR-0120 Consequence §1 Cycle 1:
-- Add `eh_payload_buf: [16]u64` + `eh_payload_len: u32` to
-  `Runtime` (src/runtime/runtime.zig).
-- Add `tag_param_counts: []const u32 = &.{}` field to per-arch
-  EmitCtx (arm64 + x86_64 ctx.zig); thread through compile.zig
-  from CompiledWasm.tag_param_counts.
-- Same-cycle observable test: Runtime construction + EmitCtx init
-  default-state verification (mirrors how 10.M-3 / 10.M-4a landed
-  the memory0_idx_type threading).
+Cycle 1 shipped (`d27c6857`): `Runtime.eh_payload_buf: [16]u64` +
+`eh_payload_len: u32` fields with default zero-init + paired
+unit test.
+
+**NEXT (Cycle 2)** — EmitCtx threading + throw.emit writes:
+- Add `tag_param_counts: []const u32 = &.{}` to per-arch EmitCtx
+  (arm64 + x86_64 ctx.zig) + InitArgs (x86_64) with default.
+- Thread through emit.compile + shared/compile.zig::compileOne +
+  engine/compile.zig (existing tag_param_counts var). Update
+  ~20 emit.compile test sites with `&.{}` default at new position.
+- throw.emit on both arches: read N = `ctx.tag_param_counts[tag_idx]`
+  at emit time; emit byte sequence that pops N vregs from
+  `pushed_vregs` and stores each at `[runtime_ptr +
+  eh_payload_buf_off + i*8]`; write N to `[runtime_ptr +
+  eh_payload_len_off]`. Existing tag_idx marshal into W0/RDI
+  preserved.
+- Same-cycle observable test: existing `throw $e1 → catch $e1
+  returns 77` still green (N=0 tags pay zero extra cost beyond
+  one `STR Wzr` for `eh_payload_len = 0`).
 
 ## Next candidates (after bundle close)
 
