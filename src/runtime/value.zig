@@ -61,6 +61,15 @@ pub const Value = extern union {
     /// (Mac aarch64 darwin, Linux x86_64 glibc/musl, Windows
     /// x86_64 ucrt) per the C-standard `malloc` contract.
     ref: u64,
+    /// Wasm 3.0 GC `anyref` (Internal hierarchy) — 32-bit GcRef
+    /// (offset into the per-Store GC slab). `0` = null sentinel
+    /// (offset 0 reserved; never allocated). Lives in parallel
+    /// with `ref: u64` (Phase 2 funcref / externref); ADR-0115 §6
+    /// authorises this arm as the cycle-1 substrate for 10.G
+    /// WasmGC. Future cycles add eqref / structref / arrayref
+    /// (all share this u32 GcRef encoding per ADR-0116) + i31ref
+    /// (tagged via low-bit discriminant per ADR-0116 §135-149).
+    anyref: u32,
 
     pub const zero: Value = .{ .bits128 = 0 };
     pub const null_ref: u64 = 0;
@@ -212,4 +221,18 @@ test "Value.fromF32Bits / fromF64Bits store IEEE bits" {
     const f64_one_bits: u64 = 0x3FF0_0000_0000_0000;
     const b = Value.fromF64Bits(f64_one_bits);
     try testing.expectEqual(f64_one_bits, b.bits64);
+}
+
+test "Value.anyref: u32 arm exists (10.G-foundation cycle 1; ADR-0115 §6)" {
+    // GC ValType `anyref` (Internal hierarchy) stores a 32-bit GcRef
+    // (offset into the per-Store GC slab, 0 = null sentinel). Per
+    // ADR-0115 §6 the arm is parallel to (future) funcref:u32 /
+    // externref:u32 reshapes; cycle 1 lands the arm only, no
+    // semantic consumers yet — needs_heap_detector / op_gc / heap.zig
+    // come in subsequent cycles of the 10.G bundle.
+    const v: Value = .{ .anyref = 0xDEAD_BEEF };
+    try testing.expectEqual(@as(u32, 0xDEAD_BEEF), v.anyref);
+    // Null sentinel: zero.
+    const n: Value = .{ .anyref = 0 };
+    try testing.expectEqual(@as(u32, 0), n.anyref);
 }
