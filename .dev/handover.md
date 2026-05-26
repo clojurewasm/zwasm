@@ -6,10 +6,11 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `1c57e8a1` — feat(p10): ref.eq vertical slice (10.G
-  op_gc cycle 11). Reference identity comparison; full lower+
-  validator+interp; ZirOp tag added. Pointer-eq on `.ref:u64`
-  slot; null_ref == null_ref returns 1 per spec.
+- **HEAD**: `8f6b69a7` — feat(p10): array.len vertical slice
+  (10.G op_gc cycle 12). Sub-op 15 wired full lower+validator+
+  interp; cycle-12 stub traps NullReference (array creation
+  ops + ArrayInfo RTT haven't landed). All no-RTT 0xFB sub-ops
+  now have parse paths.
 - **ROADMAP §10 progress**: 7/13 DONE, 4 IN-PROGRESS, 2 Pending.
 - **Active debt rows**: 18 — all `blocked-by:` with named
   structural barriers. Zero `now`-status rows.
@@ -55,19 +56,23 @@ future op_gc consumers. EH 40 fails still gated on the bigger
 ## Active bundle
 
 - **Bundle-ID**: 10.G-op_gc
-- **Cycles-remaining**: ~15 (per `.dev/phase10_g_op_bundle_plan.md`)
+- **Cycles-remaining**: ~14 (per `.dev/phase10_g_op_bundle_plan.md`)
 - **Continuity-memo**: Cycles 1-6 substrate (ValType extension +
   parser/validator wires). Cycle 7 (`63cf843a`) ref.test family.
   Cycle 8 (`93e63ba7`) ref.cast family. Cycle 9 (`a262a7d2`)
   br_on_cast family validator+lower (interp deferred to RTT).
   Cycle 10 (`2dc566b1`) any↔extern convert vertical slice.
-  Cycle 11 (`1c57e8a1`) ref.eq vertical slice. Cycle 12 (next):
-  struct ops architectural prep — survey ADR-0116 RTT TypeInfo
-  design, parse the type-section's struct-type encoding (already
-  partial in src/parse/sections.zig), file ADR-0121 (or
-  amend ADR-0116) for the StructInfo runtime layout. Cycles 13-15:
-  struct.new + struct.new_default + struct.get + struct.set
-  vertical slice once RTT lands. Cycle 16+: array ops mirror.
+  Cycle 11 (`1c57e8a1`) ref.eq vertical slice. Cycle 12
+  (`8f6b69a7`) array.len vertical slice (NullReference stub).
+  Cycle 13 (next): struct ops architectural prep — extend
+  decodeTypes in src/parse/sections.zig to recognise 0x5F
+  (struct-type) + 0x5E (array-type) prefixes; add StructDef /
+  ArrayDef + Types.struct_defs / array_defs side-tables; pure
+  parser-side substrate with same-cycle decoder tests (no
+  validator-side consumer yet). Cycle 14: file ADR amendment
+  (ADR-0116 or new ADR-0121) for StructInfo / ArrayInfo runtime
+  layout (RTT 8-deep display). Cycles 15+: struct.new family +
+  array.new family vertical slices once RTT lands.
 - **Exit-condition**: wasm-3.0-assert exception-handling /
   function-references / gc corpora open for op_gc dispatch +
   at least the first i31 spec directive flips green via the
