@@ -470,6 +470,42 @@ test "validate: br_on_cast_fail inside block round-trip (10.G op_gc cycle 9)" {
     try validateFunction(fn_sig, &.{}, &body, &.{}, &.{}, &module_types, 0, &.{}, 0);
 }
 
+test "validate: any.convert_extern round-trip (10.G op_gc cycle 10)" {
+    // Wasm 3.0 GC §3.3.5.7 — `(ref.null externref ; any.convert_extern ;
+    //   ref.is_null ; end)`. Validator: ref.null externref pushes
+    // externref; any.convert_extern pops externref, pushes anyref;
+    // ref.is_null pops + pushes i32.
+    //
+    // Opcode encoding:
+    //   0xD0 0x6F        — ref.null externref
+    //   0xFB 0x1A        — any.convert_extern
+    //   0xD1             — ref.is_null
+    //   0x0B             — end
+    const body = [_]u8{ 0xD0, 0x6F, 0xFB, 0x1A, 0xD1, 0x0B };
+    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
+}
+
+test "validate: extern.convert_any round-trip (10.G op_gc cycle 10)" {
+    // Mirror direction: `(ref.null anyref ; extern.convert_any ;
+    //   ref.is_null ; end)`. Validator: pops anyref, pushes externref.
+    //
+    // Opcode encoding:
+    //   0xD0 0x6E        — ref.null anyref
+    //   0xFB 0x1B        — extern.convert_any
+    //   0xD1             — ref.is_null
+    //   0x0B             — end
+    const body = [_]u8{ 0xD0, 0x6E, 0xFB, 0x1B, 0xD1, 0x0B };
+    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
+}
+
+test "validate: any.convert_extern with anyref input → StackTypeMismatch (10.G op_gc cycle 10)" {
+    // Wrong input type: pushing anyref but the op expects externref.
+    // 0xD0 0x6E ; 0xFB 0x1A ; 0xD1 ; 0x0B
+    const body = [_]u8{ 0xD0, 0x6E, 0xFB, 0x1A, 0xD1, 0x0B };
+    const r = validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
+    try testing.expectError(Error.StackTypeMismatch, r);
+}
+
 test "validate: ref.i31 → i31.get_s round-trip (10.G op_gc cycle 5; ADR-0115 §6 typed precision)" {
     // Wasm 3.0 GC §3.x — `(i32.const 42 ; ref.i31 ; i31.get_s)`
     // round-trips through ValType.i31ref (no longer the .funcref

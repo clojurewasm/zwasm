@@ -612,6 +612,11 @@ pub const Lowerer = struct {
                 const tag: zir.ZirOp = if (sub == 24) .br_on_cast else .br_on_cast_fail;
                 try self.emit(tag, labelidx, extra);
             },
+            // any.convert_extern / extern.convert_any (Wasm 3.0 GC
+            // §3.3.5.7). No immediates; reinterpret the operand
+            // between any and extern hierarchies.
+            26 => try self.emit(.@"any.convert_extern", 0, 0),
+            27 => try self.emit(.@"extern.convert_any", 0, 0),
             28 => try self.emit(.@"ref.i31", 0, 0),
             29 => try self.emit(.@"i31.get_s", 0, 0),
             30 => try self.emit(.@"i31.get_u", 0, 0),

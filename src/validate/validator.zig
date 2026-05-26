@@ -1132,9 +1132,10 @@ pub const Validator = struct {
     /// Wasm 3.0 GC prefix (0xFB). Dispatches i31 sub-trio (28-30)
     /// + ref.test / ref.test_null (20 / 21; 10.G op_gc cycle 7)
     /// + ref.cast / ref.cast_null (22 / 23; 10.G op_gc cycle 8)
-    /// + br_on_cast / br_on_cast_fail (24 / 25; 10.G op_gc cycle 9);
-    /// other GC sub-opcodes light up per 10.G heap / struct /
-    /// array sub-chunks.
+    /// + br_on_cast / br_on_cast_fail (24 / 25; 10.G op_gc cycle 9)
+    /// + any.convert_extern / extern.convert_any (26 / 27; 10.G op_gc
+    /// cycle 10); other GC sub-opcodes light up per 10.G heap /
+    /// struct / array sub-chunks.
     fn dispatchPrefixFB(self: *Validator) Error!void {
         const sub = try leb128.readUleb128(u32, self.body, &self.pos);
         switch (sub) {
@@ -1148,6 +1149,10 @@ pub const Validator = struct {
             // consume flags + labelidx + ht1 + ht2, pop reftype,
             // pop+repush label types, push reftype back on fall-through.
             24, 25 => try self.opBrOnCast(),
+            // any.convert_extern (26): pop externref, push anyref.
+            26 => try self.opConvertRef(.externref, .anyref),
+            // extern.convert_any (27): pop anyref, push externref.
+            27 => try self.opConvertRef(.anyref, .externref),
             28 => try self.opRefI31(),
             29, 30 => try self.opI31Get(), // .get_s / .get_u share validator shape
             else => return Error.NotImplemented,
@@ -1191,6 +1196,17 @@ pub const Validator = struct {
                 try self.pushType(t);
             },
         }
+    }
+
+    /// Wasm spec 3.0 §3.3.5.7 — `any.convert_extern` /
+    /// `extern.convert_any`: reinterpret a reftype between the
+    /// `any` and `extern` hierarchies. Stack effect: pop `from`,
+    /// push `to`. Pre-RTT both directions are unconditional (no
+    /// runtime check); the validator narrows the type for the
+    /// fall-through, mirroring the spec's static signature.
+    fn opConvertRef(self: *Validator, from: ValType, to: ValType) Error!void {
+        try self.popExpect(from);
+        try self.pushType(to);
     }
 
     /// Wasm spec 3.0 §3.3.5.5 — `br_on_cast flags l ht1 ht2` /
