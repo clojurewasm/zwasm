@@ -326,6 +326,21 @@ architectural-typed work).
 
 ### Sub-chunks (commit-time order)
 
+- **10.R-3** — `br_on_non_null` impl (`b31dc63f`). Third op in
+  10.R typed-function-references family. lower.zig 0xD6 + uleb
+  labelidx → emit `.br_on_non_null` (same `emitUlebPayload`
+  shape as 10.R-2). validator.zig 0xD6 → new `opBrOnNonNull`:
+  pop reftype (polymorphic funcref/externref/.bot); resolve
+  label l; non-null path pushes label_types + reftype before
+  branching, null path consumes ref + falls through. Interp
+  handler in `function_references.zig` reuses the local
+  `branchTo` helper (added at 10.R-2) — null → consume + fall
+  through; non-null → push back + branch. 2 new tests: null
+  fall-through (ref consumed, pc unchanged) + non-null branch
+  (ref carried at top via branch_arity=1, pc jumps). Sibling
+  to 10.R-2; 10.R-4/5 (call_ref / return_call_ref) blocked-by
+  `(ref $sig)` typed-funcref Value shape (per D-186).
+
 - **10.R-2** — `br_on_null` impl (`86f37b3a`). Second op in
   10.R typed-function-references family. lower.zig 0xD4 + uleb
   labelidx → emit `.br_on_null` (mirror of `br_if`'s
