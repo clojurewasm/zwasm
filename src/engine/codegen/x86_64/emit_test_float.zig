@@ -37,7 +37,7 @@ test "compile: f32.const — MOV EAX,bits + MOVD XMM8,EAX" {
     } };
     const slots = [_]u16{0}; // FP slot 0 → XMM8
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // Prologue (uses_runtime_ptr=false; no calls/memory) = 4 bytes.
     //   PUSH RBP        55              (1)
@@ -69,7 +69,7 @@ test "compile: f64.const — MOVABS RAX,bits + MOVQ XMM8,RAX" {
     } };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // Body layout (post-prologue at 4):
     //   MOVABS RAX,bits 48 b8 + 8 imm   (10) → body+10
@@ -97,7 +97,7 @@ test "compile: f32.add — MOVAPS XMM10,XMM8 + ADDSS XMM10,XMM9" {
     // FP slots 0,1,2 → XMM8, XMM9, XMM10.
     const slots = [_]u16{ 0, 1, 2 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // Body layout (4-byte prologue):
     //   [4..14]  f32.const 0x3F800000 (10 bytes: MOV EAX + MOVD XMM8)
@@ -128,7 +128,7 @@ test "compile: f64.mul — MOVAPS XMM10,XMM8 + MULSD XMM10,XMM9" {
     } };
     const slots = [_]u16{ 0, 1, 2 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // Body layout (4-byte prologue):
     //   [4..19]  f64.const 1.0 (15 bytes: MOVABS RAX + MOVQ XMM8,RAX)
@@ -155,7 +155,7 @@ test "compile: f64.promote_f32 — CVTSS2SD XMM9, XMM8" {
     } };
     const slots = [_]u16{ 0, 1 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // After f32.const at [body..body+10]: CVTSS2SD XMM9, XMM8 at [body+10..body+15].
     const body_start = prologue.body_start_offset(false, 0);
@@ -177,7 +177,7 @@ test "compile: i32.reinterpret_f32 — MOVD R10D, XMM8 (XMM→GPR bit-cast)" {
     // FP slot 0 → XMM8; result GPR slot 0 → RBX (after chunk 13b pool shrink).
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // After f32.const at [body..body+10]: MOVD EBX, XMM8 at [body+10..body+15].
     const body_start = prologue.body_start_offset(false, 0);
@@ -199,7 +199,7 @@ test "compile: f32.reinterpret_i32 — MOVD XMM8, R10D (GPR→XMM bit-cast)" {
     // GPR slot 0 → RBX (after chunk 13b pool shrink); FP slot 0 → XMM8.
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // After i32.const at [body..body+5] (5 bytes for EBX): MOVD XMM8, EBX at [body+5..body+10].
     const body_start = prologue.body_start_offset(false, 0);
@@ -221,7 +221,7 @@ test "compile: f32.load — emit MOVSS xmm_dst, [rax + rdx] after eff-addr/bound
     // GPR slot 0 (idx) → R10; FP slot 0 (result) → XMM8.
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // Verify the f32.load handler emits MOVSS XMM8, [RAX + RDX]
     // somewhere in the byte stream after the bounds prologue.
@@ -245,7 +245,7 @@ test "compile: f64.store — emit MOVSD [rax+rdx], xmm_src + bounds prologue wit
     // GPR slot 0 (idx) → R10; FP slot 1 (val) → XMM9.
     const slots = [_]u16{ 0, 1 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // Verify the f64.store emits MOVSD [RAX+RDX], XMM9.
     const expected = inst.encMovssMovsdMemBaseIdx(.f64, true, .xmm9, .rax, .rdx);
@@ -272,7 +272,7 @@ test "compile: i32.trunc_f32_u — Wasm 1.0 trapping unsigned via .q-trick" {
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     const neg_one = inst.encMovImm32W(.rax, 0xBF800000);
     const upper = inst.encMovImm32W(.rax, 0x4F800000);
@@ -296,7 +296,7 @@ test "compile: i64.trunc_f64_u — Wasm 1.0 trapping with 2^63 split path" {
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     const neg_one = inst.encMovImm64Q(.rax, 0xBFF0000000000000);
     const upper = inst.encMovImm64Q(.rax, 0x43F0000000000000);
@@ -323,7 +323,7 @@ test "compile: i32.trunc_f32_s — Wasm 1.0 trapping; NaN/upper/lower → bounds
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // Verify presence of the 3 thresholds + CVTTSS2SI in the
     // emitted byte stream (full layout asserted via opcode+
@@ -350,7 +350,7 @@ test "compile: i64.trunc_sat_f32_u — 2^63 split path with SUBSS + sign-bit OR"
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // Verify a few key encoder outputs are present (full byte
     // sequence is too long to assert exhaustively).
@@ -386,7 +386,7 @@ test "compile: i32.trunc_sat_f32_u — UCOMI/JP + clamp paths + CVTTSS2SI .q for
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // After f32.const at [body..body+10]:
     //   [body+10..+14] UCOMISS XMM8, XMM8     (4 bytes; REX.R+B)
@@ -431,7 +431,7 @@ test "compile: i32.trunc_sat_f32_s — CVTTSS2SI + CMP INT_MIN + branch saturati
     // FP slot 0 → XMM8; result GPR slot 0 → RBX (after chunk 13b pool shrink).
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // After f32.const at [body..body+10]:
     //   [body+10..+15] CVTTSS2SI EBX, XMM8      (5 bytes; F3 + REX + 0F + 2C + ModRM)
@@ -466,7 +466,7 @@ test "compile: i64.trunc_sat_f64_s — CVTTSD2SI .q + i64 sentinel via MOVABS+CM
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // After f64.const at [body..body+15]:
     //   [body+15..+20] CVTTSD2SI RBX, XMM8 (5 bytes; F2 + REX.W+R + 0F + 2C + ModRM 0xD8)
@@ -494,7 +494,7 @@ test "compile: f32.convert_i32_u — CVTSI2SS XMM8, R10 (REX.W on i32 src for ze
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // i32.const 0xFFFFFFFF at [body..body+5]; CVTSI2SS XMM8, RBX (i64 form) at [body+5..body+10].
     // (slot 0 = RBX after chunk 13b pool shrink — i32.const is 5 bytes.)
@@ -517,7 +517,7 @@ test "compile: f32.convert_i64_u — branch-based slow-path emit" {
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // i32.const at [body..body+5] (slot 0 = RBX after chunk 13b pool shrink). Then:
     //   [body+5..+8]   TEST RBX, RBX            (3 bytes; REX.W = 48 + 85 + DB)
@@ -565,7 +565,7 @@ test "compile: f32.convert_i32_s — CVTSI2SS XMM8, R10D" {
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // After i32.const at [body..body+5] (slot 0 = RBX, 5 bytes after chunk 13b):
     // CVTSI2SS XMM8, EBX at [body+5..body+10].
@@ -589,7 +589,7 @@ test "compile: f32.min — branch-based emit (UCOMISS + JP/JE + 3 paths)" {
     } };
     const slots = [_]u16{ 0, 1, 2 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // Body offsets after 2× f32.const (10+10=20 bytes) at body..body+20:
     //   [body+20..+24] UCOMISS XMM8, XMM9     (4 bytes)
@@ -643,7 +643,7 @@ test "compile: f32.min — dst aliasing rhs slot is handled via commutative swap
     // Before D-092 this surfaced UnsupportedOp at op_alu_float.zig:105.
     const slots = [_]u16{ 0, 1, 1 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // After the swap, lhs↔rhs roles are exchanged, so the emit
     // produces: UCOMISS XMM9,XMM8 ; ... ; MOVAPS XMM9,XMM9 (no-op,
@@ -674,7 +674,7 @@ test "compile: f64.max — eq path uses ANDPD, common uses MAXSD" {
     } };
     const slots = [_]u16{ 0, 1, 2 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // After 2× f64.const (15+15=30 bytes) at body..body+30:
     //   [body+30..+35] UCOMISD XMM8, XMM9   (5 bytes: 66 prefix + REX)
@@ -709,7 +709,7 @@ test "compile: f32.copysign — bit-twiddle via RAX/RDX/RCX scratches" {
     } };
     const slots = [_]u16{ 0, 1, 2 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // After 2× f32.const (10+10=20 bytes) at body offset body..body+20:
     //   [body+20..+25] MOVD EAX, XMM8        (5 bytes)
@@ -746,7 +746,7 @@ test "compile: f64.copysign — same shape with .q widths and MOVABS masks" {
     } };
     const slots = [_]u16{ 0, 1, 2 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // After 2× f64.const (15+15=30 bytes) at body offset body..body+30:
     //   [body+30..+35] MOVQ RAX, XMM8        (5 bytes; 66 + REX.W + REX.R + ...)
@@ -781,7 +781,7 @@ test "compile: f32.sqrt — SQRTSS XMM9, XMM8" {
     } };
     const slots = [_]u16{ 0, 1 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // After f32.const at [body..body+10]: SQRTSS XMM9, XMM8 at [body+10..body+15].
     const body_start = prologue.body_start_offset(false, 0);
@@ -802,7 +802,7 @@ test "compile: f64.ceil — ROUNDSD XMM9, XMM8, mode=2" {
     } };
     const slots = [_]u16{ 0, 1 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // After f64.const at [body..body+15]: ROUNDSD XMM9, XMM8, 2 at [body+15..body+22].
     const body_start = prologue.body_start_offset(false, 0);
@@ -823,7 +823,7 @@ test "compile: f32.abs — mask materialisation + MOVAPS + ANDPS" {
     } };
     const slots = [_]u16{ 0, 1 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // After f32.const at [body..body+10]:
     //   [body+10..+15] MOV EAX, 0x7FFFFFFF (5 bytes)
@@ -850,7 +850,7 @@ test "compile: f64.neg — XORPD with sign-bit mask" {
     } };
     const slots = [_]u16{ 0, 1 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // After f64.const at [body..body+15]:
     //   [body+15..+25] MOVABS RAX, 0x80...0 (10 bytes)
@@ -880,7 +880,7 @@ test "compile: f32.lt — UCOMISS swapped + SETA + MOVZX" {
     // Slots 0,1 → XMM8, XMM9; slot 2 (i32 result) → RBX (after chunk 13b).
     const slots = [_]u16{ 0, 1, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // After 2× f32.const (10+10=20 bytes) at body offset 4..24. With slot 0
     // for the (FP-bank-only) f32.const operands the FP encoding is unchanged
@@ -912,7 +912,7 @@ test "compile: f32.eq — UCOMISS + SETNP/SETE + AND combine" {
     } };
     const slots = [_]u16{ 0, 1, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // After 2× f32.const (20 bytes) at body offset body..body+20:
     //   [body+20..+24] UCOMISS XMM8, XMM9   (4 bytes; no swap for eq)
@@ -945,7 +945,7 @@ test "compile: f64.gt — UCOMISD + SETA + MOVZX" {
     } };
     const slots = [_]u16{ 0, 1, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // 2× f64.const = 30 bytes at [body..body+30]. Then at [body+30..]:
     //   UCOMISD XMM8, XMM9 (5 bytes; 66 prefix + REX)
@@ -967,7 +967,7 @@ test "compile: f32.add stack underflow → AllocationMissing" {
     } };
     const slots = [_]u16{ 0, 1 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32));
+    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{}));
 }
 
 test "compile: call_indirect — out-of-range type_idx → AllocationMissing" {
@@ -982,7 +982,7 @@ test "compile: call_indirect — out-of-range type_idx → AllocationMissing" {
     } };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32));
+    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{}));
 }
 
 test "compile: call N — out-of-range callee_idx → AllocationMissing" {
@@ -995,7 +995,7 @@ test "compile: call N — out-of-range callee_idx → AllocationMissing" {
     f.liveness = .{ .ranges = &[_]zir.LiveRange{} };
     const slots = [_]u16{};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 0 };
-    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc, &func_sigs, &.{}, 0, &.{}, &.{}, .i32));
+    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc, &func_sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}));
 }
 
 test "compile: i32.wrap_i64 with stack underflow → AllocationMissing" {
@@ -1009,7 +1009,7 @@ test "compile: i32.wrap_i64 with stack underflow → AllocationMissing" {
     } };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32));
+    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{}));
 }
 
 test "compile: i32.add with stack underflow → AllocationMissing" {
@@ -1025,7 +1025,7 @@ test "compile: i32.add with stack underflow → AllocationMissing" {
     } };
     const slots = [_]u16{ 0, 1 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32));
+    try testing.expectError(Error.AllocationMissing, compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{}));
 }
 
 // FP / i64 -aware function-level `end` return marshal (D-032).
@@ -1056,7 +1056,7 @@ test "compile: f32.const → end emits MOVAPS XMM0, XMM8 (FP-aware return marsha
     } };
     const slots = [_]u16{0}; // FP slot 0 → XMM8.
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // Layout (uses_runtime_ptr = false, frame_bytes = 0):
     //   [0..body] prologue: PUSH RBP ; MOV RBP, RSP
@@ -1085,7 +1085,7 @@ test "compile: f64.const → end emits MOVAPS XMM0, XMM8 (same MOVAPS works for 
     } };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // Layout:
     //   [0..body] prologue
@@ -1112,7 +1112,7 @@ test "compile: i64-result end emits MOV RAX, src (.q full width avoids truncatio
     // GPR slot 0 → RBX (after chunk 13b pool shrink). Both vregs share slot id 0.
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // Layout (slot 0 = RBX after chunk 13b — i32.const + self-MOV both shed REX):
     //   [0..body]   prologue
@@ -1136,7 +1136,7 @@ test "compile: nop emits no body bytes (between prologue and epilogue)" {
     f.liveness = .{ .ranges = &[_]zir.LiveRange{} };
     const slots = [_]u16{};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 0 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // Layout (uses_runtime_ptr = false, frame_bytes = 0):
     //   [0..4] prologue: PUSH RBP ; MOV RBP, RSP
@@ -1157,7 +1157,7 @@ test "compile: drop pops vreg without machine bytes (i32.const, drop, end)" {
     } };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // Layout (slot 0 = RBX after chunk 13b pool shrink):
     //   [0..4]   prologue
@@ -1182,7 +1182,7 @@ test "compile: return mid-function (i32.const, return, end) emits MOV EAX + epil
     } };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // Layout (slot 0 = RBX after chunk 13b pool shrink):
     //   [0..body]    prologue: PUSH RBP ; MOV RBP, RSP (4 bytes)
@@ -1224,7 +1224,7 @@ test "compile: i64.add emits ADD .q (REX.W) — 64-bit width preserved" {
     // vreg 1 → R12 (slot 1), vreg 2 reuses slot 0 → RBX.
     const slots = [_]u16{ 0, 1, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // i64.add lowers to: MOV RBX, RBX (skip — same reg) + ADD RBX, R12 (.q).
     // After 4-byte prologue + 2× MOVABS (10 each) = byte 24 the
@@ -1253,7 +1253,7 @@ test "compile: i64.clz emits LZCNT .q (REX.W; F3 prefix) — 64-bit count" {
     // vreg 0 → RBX (slot 0); vreg 1 (result) → R12 (slot 1) after chunk 13b.
     const slots = [_]u16{ 0, 1 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // After prologue (4) + MOVABS RBX (10) = byte 14: LZCNT R12, RBX (.q form).
     const lzcnt_off = 14;
@@ -1280,7 +1280,7 @@ test "compile: i64.const emits MOVABS r64, imm64 (10 bytes)" {
     } };
     const slots = [_]u16{0}; // GPR slot 0 → RBX after chunk 13b pool shrink
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // Layout (uses_runtime_ptr = false, frame_bytes = 0):
     //   [0..body]    prologue: PUSH RBP ; MOV RBP, RSP
@@ -1318,7 +1318,7 @@ test "compile: unreachable emits JMP rel32 + trap stub patches disp to trap_byte
     f.liveness = .{ .ranges = &[_]zir.LiveRange{} };
     const slots = [_]u16{};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 0 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // Prologue post-`unreachable`-prescan addition:
     //   PUSH RBP (1) + PUSH R15 (2) + MOV RBP RSP (3)
@@ -1359,7 +1359,7 @@ test "compile: SysV callee with 6 i32 params — 6th param read from caller stac
 
     const slots = [_]u16{};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 0 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
 
     // 6 i32 args: slots 1..5 fill arg_gprs[1..5] (RSI..R9). The 6th
@@ -1404,7 +1404,7 @@ test "compile: i32.load with offset > i32 imm32 range (§9.7 / 7.10-i) lowers vi
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
 
     // Look for the MOVABS RCX, 0x80000000 byte sequence anywhere
@@ -1444,7 +1444,7 @@ test "compile: br N — function-depth (depth == labels.len) emits inline epilog
 
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
 
     // The compiled body must contain exactly two RET (0xC3) bytes —
@@ -1477,7 +1477,7 @@ test "compile: total_locals=20 (>15 cap) — disp32 form lifts the i8 limit" {
 
     const slots = [_]u16{};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 0 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
 
     // Deepest local 19 at [RBP - 8*(19+1)] = [RBP - 160]
@@ -1536,7 +1536,7 @@ test "compile: call N — 6 i32 args, SysV: 6th arg overflows to caller stack [R
     // via `gprLoadSpilled` then writes them to the outgoing region.
     const slots = [_]u16{ 0, 1, 2, 3, 4, 5 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 6, .max_reg_slots_gpr = 4 };
-    const out = try compile(testing.allocator, &f, alloc, &func_sigs, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &func_sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
 
     // Locate the STR W to [RSP + 0] for the 6th arg (slot 5).
@@ -1571,7 +1571,7 @@ test "compile: v128-result end emits MOVAPS XMM0, src marshal (§9.9-b per ADR-0
     } };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer testing.allocator.free(out.bytes);
     // Sanity: emit succeeded with non-empty body.
     try testing.expect(out.bytes.len > 0);

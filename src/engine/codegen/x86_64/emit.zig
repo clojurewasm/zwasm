@@ -126,6 +126,10 @@ pub fn compile(
     globals_offsets: []const u32,
     globals_valtypes: []const zir.ValType,
     memory0_idx_type: sections.MemoryEntry.IdxType,
+    /// Wasm 3.0 EH (10.E-payload-prop Cycle 3; ADR-0120) — per-tag
+    /// param counts threaded into EmitCtx via InitArgs for throw /
+    /// try_table payload marshalling. Pass `&.{}` for tag-less modules.
+    tag_param_counts: []const u32,
 ) Error!EmitOutput {
     if (alloc.slots.len != (func.liveness orelse return Error.AllocationMissing).ranges.len) {
         return Error.AllocationMissing;
@@ -692,6 +696,7 @@ pub fn compile(
         .exception_table_builder = if (has_try_table) &eh_builder else null,
         .open_try_tables = if (has_try_table) &open_try_tables else null,
         .landing_pad_fixups = if (has_try_table) &landing_pad_fixups else null,
+        .tag_param_counts = tag_param_counts,
     });
 
     for (func.instrs.items) |ins| {

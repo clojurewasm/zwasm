@@ -79,6 +79,10 @@ pub const InitArgs = struct {
     /// EH integration IT-6 prep — see EmitCtx field of the same
     /// name. Non-null iff `exception_table_builder` is non-null.
     landing_pad_fixups: ?*std.ArrayList(exception_table.LandingPadFixup) = null,
+    /// Phase 10.E-payload-prop Cycle 3 (ADR-0120) — see EmitCtx
+    /// field of the same name. Default-empty preserves existing
+    /// InitArgs construction sites.
+    tag_param_counts: []const u32 = &.{},
 };
 
 /// Per-function emit context for x86_64. Threaded as `*EmitCtx`
@@ -223,6 +227,11 @@ pub const EmitCtx = struct {
     /// branches on it at emitMemOp's entry. Default `.i32` keeps
     /// existing init args ergonomic.
     memory0_idx_type: sections.MemoryEntry.IdxType = .i32,
+    /// Phase 10.E-payload-prop Cycle 3 (ADR-0120) — per-tag param
+    /// count threaded from `CompiledWasm.tag_param_counts` for
+    /// `throw.emit` / `try_table.emit` payload-marshalling.
+    /// Default-empty preserves existing EmitCtx construction sites.
+    tag_param_counts: []const u32 = &.{},
 
     pub fn init(args: InitArgs) EmitCtx {
         const simd_consts_base: u32 =
@@ -261,6 +270,7 @@ pub const EmitCtx = struct {
             .exception_table_builder = args.exception_table_builder,
             .open_try_tables = args.open_try_tables,
             .landing_pad_fixups = args.landing_pad_fixups,
+            .tag_param_counts = args.tag_param_counts,
         };
     }
 

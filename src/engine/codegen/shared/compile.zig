@@ -124,6 +124,11 @@ pub fn compileOne(
     /// 64-bit offset materialise + wrap-check). Per-module
     /// constant; codegen branches on it inside emitMemOp.
     memory0_idx_type: @import("../../../parse/sections.zig").MemoryEntry.IdxType,
+    /// Wasm 3.0 EH (10.E-payload-prop Cycle 3; ADR-0120) — per-tag
+    /// param counts threaded into per-arch EmitCtx for
+    /// throw / try_table payload marshalling. `&.{}` for modules
+    /// without tags.
+    tag_param_counts: []const u32,
 ) Error!FuncResult {
     var func = ZirFunc.init(func_idx, sig, locals);
     errdefer func.deinit(allocator);
@@ -273,7 +278,7 @@ pub fn compileOne(
     // a local `var`; the mutation is scoped to this function.
     alloc.result_abi = result_abi;
     trace.passEnter(func_idx, .emit);
-    const out = try emit.compile(allocator, &func, alloc, func_sigs, module_types, num_imports, globals_offsets, globals_valtypes, memory0_idx_type);
+    const out = try emit.compile(allocator, &func, alloc, func_sigs, module_types, num_imports, globals_offsets, globals_valtypes, memory0_idx_type, tag_param_counts);
     errdefer emit.deinit(allocator, out);
     {
         const applied: u32 = @intCast(func.instrs.items.len);
@@ -352,7 +357,7 @@ test "compileOne: tiny straight-line module — (func (result i32) i32.const 7 e
     const body = [_]u8{ 0x41, 0x07, 0x0B };
     const sig: FuncType = .{ .params = &.{}, .results = &.{.i32} };
 
-    var r = try compileOne(testing.allocator, 0, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{}, .register_write, .i32);
+    var r = try compileOne(testing.allocator, 0, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{}, .register_write, .i32, &.{});
     defer deinitFuncResult(testing.allocator, &r);
 
     const bodies = [_]linker.FuncBody{

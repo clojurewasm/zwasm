@@ -45,7 +45,7 @@ test "compile: block + br 0 + end — forward unconditional branch fixup" {
     };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
 
     // Stream:
@@ -80,7 +80,7 @@ test "compile: loop + br 0 + end — backward unconditional branch" {
     } };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
 
     // Loop entry recorded at body0; br targets it from body0 → disp = 0 words.
@@ -113,7 +113,7 @@ test "compile: if (i32.const N) end — single-arm if; CBZ skips to end" {
     };
     const slots = [_]u16{ 0, 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
 
     // Stream:
@@ -150,7 +150,7 @@ test "compile: if/else/end — CBZ skips to else; B-uncond skips to end" {
     };
     const slots = [_]u16{ 0, 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
 
     // Stream:
@@ -205,7 +205,7 @@ test "compile: br_table — emits CMP+B.NE+B chain + default B" {
     };
     const slots = [_]u16{ 0, 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
 
     // Stream:
@@ -245,7 +245,7 @@ test "compile: br_if 0 — forward CBNZ fixup" {
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
 
     // Stream:
@@ -298,7 +298,7 @@ test "compile: try_table emit populates EmitOutput.exception_handlers (IT-2)" {
     });
 
     const alloc: regalloc.Allocation = .{ .slots = &[_]u16{}, .n_slots = 0 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
 
     try testing.expectEqual(@as(usize, 2), out.exception_handlers.len);
@@ -345,7 +345,7 @@ test "compile: throw emits B placeholder + appends bounds_fixup (IT-3 trap-path)
     f.liveness = .{ .ranges = &[_]zir.LiveRange{} };
     const alloc: regalloc.Allocation = .{ .slots = &[_]u16{}, .n_slots = 0 };
 
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
 
     // Prologue (STP + MOV FP, SP = 8 bytes) + B placeholder
@@ -377,6 +377,6 @@ test "compile: try_table reaches per-op emit with ExceptionTable.Builder wired (
     const alloc: regalloc.Allocation = .{ .slots = &[_]u16{}, .n_slots = 0 };
     try testing.expectError(
         Error.UnsupportedOp,
-        compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32),
+        compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{}),
     );
 }

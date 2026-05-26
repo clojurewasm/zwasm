@@ -211,6 +211,15 @@ pub const EmitCtx = struct {
     /// Default `.i32` keeps the 36 existing compile() call sites
     /// behaviour-preserving when they pass struct-literal default.
     memory0_idx_type: sections.MemoryEntry.IdxType = .i32,
+    /// Wasm 3.0 EH (10.E-payload-prop Cycle 3; ADR-0120) — per-tag
+    /// param count threaded from `CompiledWasm.tag_param_counts`
+    /// (compile.zig). Indexed by `tag_idx`. `throw.emit` /
+    /// `try_table.emit` consume this to know how many operand
+    /// values to marshal between the regalloc stack and the
+    /// per-Runtime `eh_payload_buf`. Default-empty preserves the
+    /// existing EmitCtx construction sites (entry / linker /
+    /// wrapper_thunk test helpers and any pre-EH compile path).
+    tag_param_counts: []const u32 = &.{},
 
     /// Pop two operands + allocate a result vreg. Shared header
     /// for every binary op-handler. Returns the lhs / rhs / result

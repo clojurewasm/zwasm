@@ -31,9 +31,12 @@
 //! Zone 2 (`src/engine/codegen/x86_64/ops/`).
 
 const builtin = @import("builtin");
+const std = @import("std");
 const meta = @import("../../../../../instruction/wasm_3_0/throw.zig");
 const ctx_mod = @import("../../ctx.zig");
+const abi = @import("../../abi.zig");
 const inst = @import("../../inst.zig");
+const jit_abi = @import("../../../shared/jit_abi.zig");
 const trampoline_mod = @import("../../../shared/throw_trampoline.zig");
 const zir = @import("../../../../../ir/zir.zig");
 
@@ -48,6 +51,18 @@ pub const is_safepoint: bool = false;
 
 pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void {
     const tag_idx: u32 = @intCast(ins.payload);
+
+    // 10.E-payload-prop Cycle 3 (ADR-0120) — write `eh_payload_len`
+    // BEFORE the trampoline call. See arm64 sibling for the
+    // full rationale; until Cycle 4 wires the pop+store of N
+    // payload values, Cycle 3 unconditionally writes zero
+    // (matching the pre-Cycle-3 observable behaviour of the
+    // IT-6 N=0 tagged-catch tests).
+    if (ctx.tag_param_counts.len > tag_idx) {
+        std.debug.assert(ctx.tag_param_counts[tag_idx] <= 16);
+    }
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovMemDisp32Imm32(abi.runtime_ptr_save_gpr, jit_abi.eh_payload_len_off, 0).slice());
+
     // Marshal tag_idx into the platform's first-arg register so
     // the trampoline's naked stub can re-route it to
     // `trampolineCore`'s arg2. SysV → RDI; Win64 → RCX.

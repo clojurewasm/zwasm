@@ -42,7 +42,7 @@ test "compile: call N (no-arg skeleton) emits BL placeholder + records fixup + r
     var sigs: [8]zir.FuncType = undefined;
     for (&sigs) |*s| s.* = .{ .params = &.{}, .results = &.{} };
     sigs[7] = .{ .params = &.{}, .results = &.{.i32} };
-    const out = try compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
 
     const body0 = prologue.body_start_offset(false);
@@ -71,7 +71,7 @@ test "compile: call N — i64 callee result captured via X-form ORR" {
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     const sigs = [_]zir.FuncType{.{ .params = &.{}, .results = &.{.i64} }};
-    const out = try compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     const body0 = prologue.body_start_offset(false);
     // After MOV X0,X19 + BL: ORR X9,XZR,X0 (X-form for i64) at body+8.
@@ -90,7 +90,7 @@ test "compile: call N — f32 callee result captured via FMOV S, S0" {
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     const sigs = [_]zir.FuncType{.{ .params = &.{}, .results = &.{.f32} }};
-    const out = try compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     const body0 = prologue.body_start_offset(false);
     // After MOV X0,X19 + BL: FMOV S16, S0 (f32 slot 0 → V16) at body+8.
@@ -118,7 +118,7 @@ test "compile: call N — i32 + i64 args marshalled into W1/X2 (X0=runtime ptr p
     const sigs = [_]zir.FuncType{
         .{ .params = &.{ .i32, .i64 }, .results = &.{.i32} },
     };
-    const out = try compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
 
     // Layout (bytes, post-ADR-0017 prologue = 32, sub-2d-ii):
@@ -158,7 +158,7 @@ test "compile: call N — f32 + f64 args marshalled into S0/D1" {
     const sigs = [_]zir.FuncType{
         .{ .params = &.{ .f32, .f64 }, .results = &.{.f32} },
     };
-    const out = try compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // The two arg-marshal MOVs land just before the BL: search the
     // tail for FMOV S0, S16 + FMOV D1, D17 + BL 0.
@@ -192,7 +192,7 @@ test "compile: call N — void callee pushes no result vreg" {
     f.liveness = .{ .ranges = &.{} };
     const empty: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
     const sigs = [_]zir.FuncType{.{ .params = &.{}, .results = &.{} }};
-    const out = try compile(testing.allocator, &f, empty, &sigs, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, empty, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     const body0 = prologue.body_start_offset(false);
     // Body: MOV X0,X19 / BL / (epilogue follows).
@@ -235,7 +235,7 @@ test "compile: call N — 8 i32 args, 8th arg spills to caller stack [SP, #0] (S
     const sigs = [_]zir.FuncType{
         .{ .params = &.{ .i32, .i32, .i32, .i32, .i32, .i32, .i32, .i32 }, .results = &.{.i32} },
     };
-    const out = try compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
 
     // Caller-side marshal: args 0..6 go to W1..W7, arg 7 (overflow)
@@ -278,7 +278,7 @@ test "compile: call N — i32 result in spill slot lands STR W0 (spill-aware)" {
     const sigs = [_]zir.FuncType{
         .{ .params = &.{}, .results = &.{.i32} },
     };
-    const out = try compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // Expect STR W0, [SP, #0] after the BL — the call's i32 result
     // (W0 per AAPCS64) flushed to spill_base_off = 0 (no locals,
@@ -312,7 +312,7 @@ test "compile: call_indirect — bounds (CMP/B.HS) + sig (LDR/CMP/B.NE) + funcpt
     var types: [4]zir.FuncType = undefined;
     for (&types) |*t| t.* = .{ .params = &.{}, .results = &.{} };
     types[3] = .{ .params = &.{}, .results = &.{.i32} };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &types, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &types, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
 
     // Layout (post-sub-2d-ii prologue=32):
@@ -372,7 +372,7 @@ test "compile: bundled Class C MEMORY-class — caller LEA X8 + callee STR X8 + 
     const slots = [_]u16{ 0, 1, 2 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
     const sigs = [_]zir.FuncType{.{ .params = &.{}, .results = &.{ .i32, .i32, .i32 } }};
-    const out = try compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
 
     // Frame layout:

@@ -36,10 +36,14 @@
 //!
 //! Zone 2 (`src/engine/codegen/arm64/ops/`).
 
+const std = @import("std");
+
 const meta = @import("../../../../../instruction/wasm_3_0/throw.zig");
 const ctx_mod = @import("../../ctx.zig");
+const abi = @import("../../abi.zig");
 const gpr = @import("../../gpr.zig");
 const inst = @import("../../inst.zig");
+const jit_abi = @import("../../../shared/jit_abi.zig");
 const trampoline_mod = @import("../../../shared/throw_trampoline.zig");
 const zir = @import("../../../../../ir/zir.zig");
 
@@ -62,6 +66,25 @@ const scratch: inst.Xn = 16;
 
 pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void {
     const tag_idx: u32 = @intCast(ins.payload);
+
+    // 10.E-payload-prop Cycle 3 (ADR-0120) — write `eh_payload_len`
+    // BEFORE the trampoline call. Cycle 3 ships N=0 always (the
+    // pop+store of N payload values lands at Cycle 4); the
+    // landing-pad reads `eh_payload_len` to know how many slots
+    // to push, so writing the correct value here is the
+    // load-bearing contract. For tag_idx valid against the
+    // threaded `tag_param_counts`, the value would be
+    // `tag_param_counts[tag_idx]`; until Cycle 4 wires the
+    // pop+store, we conservatively emit STR Wzr (zero) so the
+    // landing pad pushes nothing — matching the pre-Cycle-3
+    // observable behaviour of the IT-6 N=0 tagged-catch tests.
+    if (ctx.tag_param_counts.len > tag_idx) {
+        // Debug-only check that threading is consistent with the
+        // validator's range check at compile time.
+        std.debug.assert(ctx.tag_param_counts[tag_idx] <= 16);
+    }
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImmW(31, abi.runtime_ptr_save_gpr, jit_abi.eh_payload_len_off));
+
     // Marshal tag_idx into W0 — the trampoline's naked stub reads
     // X0 as the throw-site tag indicator and re-routes it to X2
     // (= trampolineCore's `tag_idx` arg). MOVZ + MOVK covers the

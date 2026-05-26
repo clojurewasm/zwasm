@@ -942,6 +942,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             select_types.items,
             .register_write,
             memory0_idx_type,
+            tag_param_counts,
         ) catch |err| {
             std.debug.print("compileWasm: func[{d}] params={d} results={d} → {s}\n", .{
                 wasm_idx,

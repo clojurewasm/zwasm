@@ -40,7 +40,7 @@ test "compile: i32.load — emits zero-extend + bounds-check + LDR W reg-offset 
     };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     const body0 = prologue.body_start_offset(false);
     // After MOVZ-W9 (body+0..4), spec-strict load sequence at body+4:
@@ -88,7 +88,7 @@ test "compile: memory64 i32.load — X-form addr load (encOrrReg, not encOrrRegW
     };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i64);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i64, &.{});
     defer deinit(testing.allocator, out);
     const body0 = prologue.body_start_offset(false);
     // body+4: ORR X16, XZR, X9 (X-form, encOrrReg) — i64 path
@@ -120,7 +120,7 @@ test "compile: memory64 i64.load offset=0x100000000 — 4-lane MOVZ+MOVK for u64
     };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i64);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i64, &.{});
     defer deinit(testing.allocator, out);
     const body0 = prologue.body_start_offset(false);
     // body+4: ORR X16, XZR, X<addr> (X-form)
@@ -148,7 +148,7 @@ test "compile: i32.load offset=0x10000000 — MOVZ/MOVK X17 + ADD reg" {
     };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // 0x10000000 split: low_16 = 0x0000, high_16 = 0x1000.
     // Sequence after ORR W16,WZR,W9: MOVZ X17,#0 / MOVK X17,#0x1000 lsl#16
@@ -196,7 +196,7 @@ test "compile: memory ops dispatch correctly per variant" {
         } };
         const slots = [_]u16{ 0, 0 };
         const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-        const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+        const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
         defer deinit(testing.allocator, out);
         const body0 = prologue.body_start_offset(false);
         // After MOVZ W9 + ORR W16 + (no ADD: offset=0) + ADD X17,X16,#size
@@ -224,7 +224,7 @@ test "compile: f32.load + f64.load dispatch to S/D-form LDR" {
         } };
         const slots = [_]u16{ 0, 0 };
         const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-        const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+        const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
         defer deinit(testing.allocator, out);
         const body0 = prologue.body_start_offset(false);
         // Spec-strict bounds adds ADD X17,X16,#size before CMP/B.HI → +4 byte offset.
@@ -243,7 +243,7 @@ test "compile: memory.size emits LSR W_dest, W27, #16" {
     } };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     const body0 = prologue.body_start_offset(false);
     // LSR at body+0.
@@ -263,7 +263,7 @@ test "compile: memory.grow emits BLR-via-memory_grow_fn + X28/X27 reload (ADR-00
     } };
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     const body0 = prologue.body_start_offset(false);
     // Stream from body+0:
@@ -298,7 +298,7 @@ test "compile: i32.store — emits bounds-check + STR W reg-offset" {
     } };
     const slots = [_]u16{ 0, 1 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
     // Stream:
     //  [0]  STP / MOV-FP                      (8 bytes)
@@ -329,7 +329,7 @@ test "compile: global.get 0 (i32) — emits LDR W from [X23 + 0]" {
     } };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
 
     const body0 = prologue.body_start_offset(false);
@@ -351,7 +351,7 @@ test "compile: (i32.const 99) global.set 1 (i32) — emits STR W to [X23 + 16] (
     } };
     const slots = [_]u16{0};
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
-    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32);
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{});
     defer deinit(testing.allocator, out);
 
     const body0 = prologue.body_start_offset(false);
