@@ -378,6 +378,19 @@ test "validate: ref.null with bad reftype byte → BadValType" {
     try testing.expectError(Error.BadValType, r);
 }
 
+test "validate: ref.null i31ref pushes i31ref; ref.is_null consumes + pushes i32 (10.G op_gc cycle 4)" {
+    // Wasm 3.0 GC §3.3.5.1 — `ref.null i31ref` pushes a null
+    // i31ref onto the operand stack; `ref.is_null` then consumes
+    // the reftype and pushes i32 (1 for null, 0 otherwise). Pins
+    // cycle 4 of the 10.G-op_gc bundle: the validator's reftype-
+    // check sites (opRefNull / opRefIsNull / opRefAsNonNull /
+    // br_on_null / br_on_non_null / etc.) accept i31ref alongside
+    // funcref/externref via the `t != .i31ref` cascade addition.
+    // i31ref encoded as byte 0x6C (cycle 3 parser wire).
+    const body = [_]u8{ 0xD0, 0x6C, 0xD1, 0x0B };
+    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
+}
+
 test "validate: ref.func with valid funcidx pushes funcref" {
     const types = [_]FuncType{empty_sig};
     // ref.func 0 ; ref.is_null ; end

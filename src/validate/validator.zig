@@ -885,7 +885,7 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (t != .funcref and t != .externref) return Error.StackTypeMismatch,
+            .known => |t| if (t != .funcref and t != .externref and t != .i31ref) return Error.StackTypeMismatch,
         }
         self.markUnreachable();
     }
@@ -1156,7 +1156,7 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (t != .funcref and t != .externref) return Error.StackTypeMismatch,
+            .known => |t| if (t != .funcref and t != .externref and t != .i31ref) return Error.StackTypeMismatch,
         }
         try self.pushType(.i32);
     }
@@ -1226,7 +1226,8 @@ pub const Validator = struct {
     }
 
     /// ref.null t: 0xD0 reftype. Reads a single byte: 0x70=funcref,
-    /// 0x6F=externref. Pushes the corresponding reference type.
+    /// 0x6F=externref, 0x6C=i31ref (Wasm 3.0 GC — 10.G op_gc
+    /// cycle 4). Pushes the corresponding reference type.
     fn opRefNull(self: *Validator) Error!void {
         if (self.pos >= self.body.len) return Error.UnexpectedEnd;
         const b = self.body[self.pos];
@@ -1234,6 +1235,11 @@ pub const Validator = struct {
         const t: ValType = switch (b) {
             0x70 => .funcref,
             0x6F => .externref,
+            // 10.G op_gc cycle 4: i31ref per Wasm 3.0 GC §5.3.1.
+            // Other GC reftypes (anyref 0x6E / eqref 0x6D /
+            // structref 0x6B / arrayref 0x6A) land with their
+            // ValType variants in subsequent cycles.
+            0x6C => .i31ref,
             else => return Error.BadValType,
         };
         try self.pushType(t);
@@ -1245,7 +1251,7 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (t != .funcref and t != .externref) return Error.StackTypeMismatch,
+            .known => |t| if (t != .funcref and t != .externref and t != .i31ref) return Error.StackTypeMismatch,
         }
         try self.pushType(.i32);
     }
@@ -1267,7 +1273,7 @@ pub const Validator = struct {
                 try self.pushType(.funcref);
             },
             .known => |t| {
-                if (t != .funcref and t != .externref) return Error.StackTypeMismatch;
+                if (t != .funcref and t != .externref and t != .i31ref) return Error.StackTypeMismatch;
                 try self.pushType(t);
             },
         }
@@ -1290,7 +1296,7 @@ pub const Validator = struct {
         const reftype: ValType = switch (top) {
             .bot => .funcref, // polymorphic; pick any reftype
             .known => |t| blk: {
-                if (t != .funcref and t != .externref) return Error.StackTypeMismatch;
+                if (t != .funcref and t != .externref and t != .i31ref) return Error.StackTypeMismatch;
                 break :blk t;
             },
         };
@@ -1324,7 +1330,7 @@ pub const Validator = struct {
         const reftype: ValType = switch (top) {
             .bot => .funcref, // polymorphic; pick any reftype
             .known => |t| blk: {
-                if (t != .funcref and t != .externref) return Error.StackTypeMismatch;
+                if (t != .funcref and t != .externref and t != .i31ref) return Error.StackTypeMismatch;
                 break :blk t;
             },
         };
@@ -1375,7 +1381,7 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (t != .funcref and t != .externref) return Error.StackTypeMismatch,
+            .known => |t| if (t != .funcref and t != .externref and t != .i31ref) return Error.StackTypeMismatch,
         }
         // Pop args in reverse, then push results.
         var i: usize = callee.params.len;
@@ -1406,7 +1412,7 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (t != .funcref and t != .externref) return Error.StackTypeMismatch,
+            .known => |t| if (t != .funcref and t != .externref and t != .i31ref) return Error.StackTypeMismatch,
         }
         // Pop callee params in reverse (the tail-call args).
         var i: usize = callee.params.len;
