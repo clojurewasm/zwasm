@@ -181,6 +181,81 @@ Each item is 30 seconds.
 
 If unsure: run the grep. 30 seconds vs one re-fix cycle.
 
+## §3 — Inline-asm test wrappers invoking FP-walking code MUST install a sentinel frame
+
+When an inline-asm test wrapper invokes a function that walks the
+frame-pointer chain (EH unwinder, debug ring-buffer snapshot,
+panic handler walk, any future stack-walking primitive), the
+wrapper MUST plant a 2-slot sentinel `{ 0, 0 }` and install its
+address as the trampoline's initial `X29` (arm64) / `RBP`
+(x86_64). **Never** let the walker traverse the host process's
+frame chain.
+
+Why: host-side FP-chain integrity is **not** a portable test
+substrate.
+
+- **AAPCS64** (Mac aarch64) mandates `X29` chaining for every
+  non-leaf call → walk eventually terminates at a zero-FP frame.
+  Tests "work" on Mac and the bug is invisible.
+- **SysV ABI** (Linux x86_64) does NOT mandate `RBP` as a frame
+  pointer. Zig 0.16's self-hosted x86_64 backend doesn't
+  reliably preserve `RBP` → walker dereferences garbage →
+  CORRUPTS adjacent state (e.g. per-thread
+  `@errorReturnTrace()`) → a LATER unrelated test crashes, often
+  in stdlib `returnError` at a tiny SEGV address (commonly `0x9`).
+
+The corruption surfaces as a heisenbug in a different test —
+diagnostics easily mis-attribute to the crashing test, not the
+one that walked the host stack. See lesson
+`2026-05-28-eh-test-wrapper-host-fp-walk-segv.md`.
+
+### Canonical pattern
+
+```zig
+var sentinel: [2]usize align(16) = .{ 0, 0 };
+const sentinel_ptr: usize = @intFromPtr(&sentinel);
+switch (builtin.target.cpu.arch) {
+    .aarch64 => asm volatile (
+        \\stp x19, x29, [sp, #-16]!
+        \\mov x29, %[sentinel]
+        \\…
+        \\blr %[addr]
+        \\ldp x19, x29, [sp], #16
+        : : [sentinel] "r" (sentinel_ptr), …),
+    .x86_64 => asm volatile (
+        \\pushq %%rbp
+        \\movq %[sentinel], %%rbp
+        \\…
+        \\callq *%[addr]
+        \\popq %%rbp
+        : : [sentinel] "r" (sentinel_ptr), …),
+    else => @compileError("unsupported host arch"),
+}
+```
+
+### Reviewer checklist (apply at Step 4 / pre-commit)
+
+- [ ] Does the test wrapper's inline asm install `X29` / `RBP`
+      before calling into FP-walking code? (Search: `mov x29,
+      %\[` and `movq.*, %%rbp` near a `blr`/`callq`.)
+- [ ] If NOT — does the called function walk the frame chain
+      transitively? If yes, the test is fragile; add a sentinel.
+- [ ] If YES — is the sentinel a local `[2]usize align(16)` with
+      both slots zero?
+
+### When §3 does NOT fire
+
+- Inline asm that doesn't invoke FP-walking code (e.g. JIT byte-
+  shape probes that just execute encoded instructions in an
+  isolated buffer).
+- Direct-call tests that bypass the asm wrapper entirely (e.g.
+  `trampolineCore(initial_fp = synthetic, …)` with explicit
+  fixture values — sentinel-equivalent control).
+- Test fixtures whose explicit purpose IS to verify host-FP-chain
+  walking (very rare; must be host-pinned via `if (!(macos and
+  aarch64)) return error.SkipZigTest;` with a comment citing
+  this exception).
+
 ## Anti-patterns
 
 - **"We'll add the fixture later"** — add the WAT today; runner
@@ -199,6 +274,13 @@ If unsure: run the grep. 30 seconds vs one re-fix cycle.
 - **Phase 8 + 15 optimization safety net**: every refactor either
   keeps boundary fixtures green or fails them loudly. Without
   fixtures, regressions surface only when downstream breaks.
+- **§3 origin**: IT-6 cycle 3c-ii (`bcf46f3b` → `7d67e247`,
+  2026-05-28). `invokeTrampolineWith` let the unwinder walk the
+  host RBP-chain on ubuntu Linux x86_64; corrupted
+  `@errorReturnTrace()` state surfaced as a heisenbug-style SEGV
+  in an unrelated `error.SkipZigTest` return path. Mac was green
+  (AAPCS64 mandates X29 chaining). Without §3, every future EH
+  test would pay the same hidden cost.
 
 ## Stale-ness
 

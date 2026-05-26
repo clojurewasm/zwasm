@@ -24,12 +24,15 @@
 - **10.E IT-6 cycle 3c-i SHIPPED** (`73c163d4`): JitRuntime gains
   `eh_table_entries` + `eh_table_count` + `eh_code_map_entries` +
   `eh_code_map_count`; setupRuntime wires from CompiledWasm.
-- **10.E IT-6 cycle 3c-ii SHIPPED** (`6646e469`): trampoline body
-  split into naked stub + `trampolineCore` (callconv .c Zig fn) per
-  ADR-0119. End-to-end pipe naked-stub → core → `dispatchThrow` →
-  unwind walk → trap_flag now exercised on Mac aarch64 + Linux SysV.
-  Also fixed two latent test-fixture bugs (inverted AAPCS64 saved-LR
-  semantics in `zwasm_throw` unwind tests).
+- **10.E IT-6 cycle 3c-ii SHIPPED** (`6646e469` + `7d67e247`
+  follow-up): trampoline body split into naked stub +
+  `trampolineCore` (callconv .c Zig fn) per ADR-0119. End-to-end
+  pipe naked-stub → core → `dispatchThrow` → unwind walk →
+  trap_flag exercised on Mac aarch64 + Linux SysV. Sentinel-frame
+  fix in `invokeTrampolineWith` (lesson
+  `2026-05-28-eh-test-wrapper-host-fp-walk-segv.md`; `test_discipline.md` §3)
+  resolves ubuntu SEGV that the initial cycle 3c-ii commit
+  introduced by walking the host RBP-chain.
 
 ## ROADMAP §10 progress
 
