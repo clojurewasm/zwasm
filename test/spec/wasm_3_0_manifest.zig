@@ -192,6 +192,20 @@ pub fn invokeInstance(
     return results[0];
 }
 
+/// D-190 — void-result variant. Drives side-effecting funcs
+/// (memory.store / table.set / global.set) that the spec runner
+/// previously skipped because results_len != 1. Without this,
+/// state-dependent sequences (`store_at_zero () → load_at_zero
+/// () -> i32:2`) saw zeroed memory because the store never ran.
+pub fn invokeInstanceVoid(
+    instance: *zwasm_root.Instance,
+    func_name: []const u8,
+    args: []const zwasm_root.Value,
+) RunError!void {
+    var results: [0]zwasm_root.Value = .{};
+    instance.invoke(func_name, args, results[0..0]) catch return RunError.InvokeFailed;
+}
+
 pub const TrapOutcome = enum {
     /// invoke errored — assert_trap passes (something trapped).
     trapped,

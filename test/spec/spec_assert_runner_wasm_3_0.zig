@@ -205,12 +205,10 @@ pub fn main(init: std.process.Init) !void {
                             call_args[ai] = manifest_parser.runtimeToZwasm(rv, tv.ty);
                         }
                         if (!call_args_ok) continue;
-                        // Single-scalar result only (cycle-3 scope);
-                        // void / multi-value defer.
-                        if (d.results_len != 1) continue;
-                        const expected_tv = d.results[0];
-                        const expected_rv = manifest_parser.parsePayload(expected_tv) catch continue;
-                        const expected_zv = manifest_parser.runtimeToZwasm(expected_rv, expected_tv.ty);
+                        // Multi-value defer (cycle-3 scope); void
+                        // (0 results) handled inline below so the
+                        // state-mutating call still runs.
+                        if (d.results_len > 1) continue;
                         const instance = if (cur_instance) |*i| i else {
                             // Setup failure earlier in this module block;
                             // count as fail since the assert couldn't
@@ -218,6 +216,22 @@ pub fn main(init: std.process.Init) !void {
                             summary.asserts_return_fail += 1;
                             continue;
                         };
+                        if (d.results_len == 0) {
+                            // Void-result assert_return — invoke for
+                            // side effects (store ops, table.set, etc.)
+                            // so subsequent state-dependent directives
+                            // see the mutation. Pass on clean return,
+                            // fail on trap or setup error.
+                            manifest_parser.invokeInstanceVoid(instance, d.func_name, call_args[0..d.args_len]) catch {
+                                summary.asserts_return_fail += 1;
+                                continue;
+                            };
+                            summary.asserts_return_pass += 1;
+                            continue;
+                        }
+                        const expected_tv = d.results[0];
+                        const expected_rv = manifest_parser.parsePayload(expected_tv) catch continue;
+                        const expected_zv = manifest_parser.runtimeToZwasm(expected_rv, expected_tv.ty);
                         const got = manifest_parser.invokeInstance(instance, d.func_name, call_args[0..d.args_len]) catch {
                             summary.asserts_return_fail += 1;
                             continue;

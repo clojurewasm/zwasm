@@ -262,7 +262,15 @@ fn memoryGrow(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     // Wasm 1.0 max: 2^16 pages = 4 GiB. Wasm 3.0 memory64 max:
     // 2^48 pages = 16 EiB (per memory64 spec). The interp's realloc
     // path can't service 2^48 pages anyway — cap at host usize.
-    const page_cap: u64 = if (is_i64) std.math.maxInt(u48) else std.math.maxInt(u16) + 1;
+    // Per-module `pages_max` (the limits-section `max`) tightens
+    // this further when declared (Wasm spec §3.4.4); without it
+    // the grow can succeed past the module's stated max.
+    const spec_cap: u64 = if (is_i64) std.math.maxInt(u48) else std.math.maxInt(u16) + 1;
+    const declared_max: u64 = if (rt.memories.len > 0 and rt.memories[0].pages_max != null)
+        rt.memories[0].pages_max.?
+    else
+        spec_cap;
+    const page_cap: u64 = @min(spec_cap, declared_max);
     const new_pages_widened = @addWithOverflow(old_pages, delta);
     if (new_pages_widened[1] != 0 or new_pages_widened[0] > page_cap) {
         // Fail returns -1 in the matching width.
