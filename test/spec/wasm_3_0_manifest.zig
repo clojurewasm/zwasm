@@ -687,6 +687,20 @@ test "D-188 bisect: EH + func-refs invalid-accepted fixtures (regression marker)
     try testing.expectEqual(@as(u32, 1), accepted_count);
 }
 
+test "EH gap regression: try_table.0.wasm currently rejects at compile (10.E pending)" {
+    // Documents the current EH module-compile gap (drives the
+    // 33/34 assert_return + 2/2 assert_trap + 4/4 assert_exception
+    // fails for exception-handling in the spec runner). When 10.E
+    // EH validator + execution rounds close enough that try_table.0
+    // compiles, this test flips red as a prompt to retighten to
+    // the post-fix state (compile OK + invoke produces values).
+    const wasm_bytes = @embedFile("wasm-3.0-assert/exception-handling/try_table/try_table.0.wasm");
+    const alloc = testing.allocator;
+    var engine = try zwasm_root.Engine.init(alloc, .{});
+    defer engine.deinit();
+    try testing.expectError(error.ParseFailed, engine.compile(wasm_bytes));
+}
+
 test "memory64: address64.0.wasm compiles (frontendValidate memory0_idx_type plumbing)" {
     // Regression marker for the memory64 frontendValidate fix.
     // Before the fix, `validator.validateFunction` defaulted
