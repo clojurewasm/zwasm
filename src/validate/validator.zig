@@ -1137,14 +1137,14 @@ pub const Validator = struct {
     }
 
     /// Wasm spec 3.0 §3.x (GC) — `ref.i31`: pop i32, push an
-    /// i31-tagged reftype. v2.0 reftype catalogue can't express
-    /// the (ref i31) precision; we push `.funcref` as the
-    /// validator stand-in (same caveat as 10.R-1..5 typed-ref
-    /// catalogue limitation — typed precision deferred to 10.G
-    /// typed-ref catalogue extension).
+    /// i31-tagged reftype. Push `.i31ref` per ADR-0115 §6
+    /// Revision 2026-05-29 (cycle 1 of 10.G-op_gc bundle).
+    /// Previously stood in with `.funcref` while the typed-ref
+    /// catalogue extension was pending; this cycle (5) wires the
+    /// proper type so `i31.get_*` validator-pops match.
     fn opRefI31(self: *Validator) Error!void {
         try self.popExpect(.i32);
-        try self.pushType(.funcref);
+        try self.pushType(.i31ref);
     }
 
     /// Wasm spec 3.0 §3.x (GC) — `i31.get_s` / `i31.get_u`: pop a

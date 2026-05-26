@@ -378,6 +378,20 @@ test "validate: ref.null with bad reftype byte → BadValType" {
     try testing.expectError(Error.BadValType, r);
 }
 
+test "validate: ref.i31 → i31.get_s round-trip (10.G op_gc cycle 5; ADR-0115 §6 typed precision)" {
+    // Wasm 3.0 GC §3.x — `(i32.const 42 ; ref.i31 ; i31.get_s)`
+    // round-trips through ValType.i31ref (no longer the .funcref
+    // stand-in from pre-cycle-5). Validator: ref.i31 pops i32,
+    // pushes .i31ref; i31.get_s pops the reftype (accepts
+    // .i31ref via cycle 4's cascade), pushes i32. Pins the typed-
+    // precision wire after the cycle 1 ADR amendment authorised
+    // the ValType extension.
+    // Opcode encoding: 0x41 0x2A (i32.const 42) ; 0xFB 0x1C
+    // (ref.i31) ; 0xFB 0x1D (i31.get_s) ; 0x0B (end).
+    const body = [_]u8{ 0x41, 0x2A, 0xFB, 0x1C, 0xFB, 0x1D, 0x0B };
+    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
+}
+
 test "validate: ref.null i31ref pushes i31ref; ref.is_null consumes + pushes i32 (10.G op_gc cycle 4)" {
     // Wasm 3.0 GC §3.3.5.1 — `ref.null i31ref` pushes a null
     // i31ref onto the operand stack; `ref.is_null` then consumes
