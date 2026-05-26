@@ -20,6 +20,7 @@ const std = @import("std");
 
 const leb128 = @import("../support/leb128.zig");
 const module_mod = @import("../runtime/module.zig");
+const needs_heap_detector = @import("../feature/gc/needs_heap_detector.zig");
 
 const Allocator = std.mem.Allocator;
 const Module = module_mod.Module;
@@ -119,7 +120,14 @@ pub fn parse(alloc: Allocator, input: []const u8) Error!Module {
         try sections.append(alloc, .{ .id = @enumFromInt(id_byte), .body = body });
     }
 
-    return Module{ .input = input, .sections = sections };
+    var module = Module{ .input = input, .sections = sections };
+    // 10.G-foundation cycle 2 (ADR-0115 §1 + D2) — populate the
+    // parse-time GC predicate. Detector is byte-level + false-
+    // positive-tolerant (over-counts an empty heap walk at
+    // instantiate, never breaks correctness). When false, GC
+    // heap + collector vtable + root walk all skip.
+    module.needs_gc_heap = needs_heap_detector.detectNeedsGcHeap(&module);
+    return module;
 }
 
 /// Wasm 1.0 §5.5 declares the order:
@@ -170,6 +178,25 @@ test "parse: empty MVP module (header only)" {
     defer m.deinit(testing.allocator);
     try testing.expectEqual(@as(usize, 0), m.sections.items.len);
     try testing.expectEqual(@as(usize, 8), m.input.len);
+}
+
+test "parse: needs_gc_heap flag set true when type section declares struct (10.G-foundation cycle 2; ADR-0115 §1)" {
+    // Wire test: parser runs needs_heap_detector at the end of
+    // parse() so Module.needs_gc_heap reflects the module's
+    // actual GC-type usage. Struct-tag byte 0x5F in type section
+    // body flips the flag.
+    const bytes = empty_module_bytes ++ [_]u8{ 0x01, 0x03, 0x01, 0x5F, 0x00 };
+    var m = try parse(testing.allocator, &bytes);
+    defer m.deinit(testing.allocator);
+    try testing.expectEqual(true, m.needs_gc_heap);
+}
+
+test "parse: needs_gc_heap stays false for non-GC module (clean i32 functype)" {
+    // type section: count=1, (i32) -> (i32). No GC bytes anywhere.
+    const bytes = empty_module_bytes ++ [_]u8{ 0x01, 0x06, 0x01, 0x60, 0x01, 0x7F, 0x01, 0x7F };
+    var m = try parse(testing.allocator, &bytes);
+    defer m.deinit(testing.allocator);
+    try testing.expectEqual(false, m.needs_gc_heap);
 }
 
 test "parse: rejects truncated header" {
