@@ -17,73 +17,52 @@
 - **10.E IT-6 prep SHIPPED**: frame_bytes thread (`9ac268f1`),
   landing_pad_pc forward fixup (`18b2a077`), ADR-0119 draft
   (`e725bce7`), spike-validated flip to Accepted (`213df2f2`).
-- **10.E IT-6 cycle 3a SHIPPED** (`14b32f74` + `0d099a41`
-  fix-forward): trampoline scaffolding under
-  `shared/throw_trampoline.zig` (naked fn, trap-only body).
+- **10.E IT-6 cycle 3a SHIPPED** (`14b32f74` + `0d099a41`):
+  trampoline scaffolding under `shared/throw_trampoline.zig`.
 - **10.E IT-6 cycle 3b SHIPPED** (`7c7169ad`): `op_throw` /
-  `op_throw_ref` retargeted (both archs) — JIT bytes now load
-  the trampoline address and BLR/CALL into it before the
-  trap-stub fallback B/JMP.
-- **10.E IT-6 cycle 3c-i SHIPPED** (`73c163d4`): JitRuntime
-  gains `eh_table_entries` + `eh_table_count` + `eh_code_map_entries`
-  + `eh_code_map_count` (defaults null/0); setupRuntime wires
-  from CompiledWasm.exception_table + module.code_map_entries.
+  `op_throw_ref` retargeted to BLR/CALL the trampoline (both archs).
+- **10.E IT-6 cycle 3c-i SHIPPED** (`73c163d4`): JitRuntime gains
+  `eh_table_entries` + `eh_table_count` + `eh_code_map_entries` +
+  `eh_code_map_count`; setupRuntime wires from CompiledWasm.
+- **10.E IT-6 cycle 3c-ii SHIPPED** (`6646e469`): trampoline body
+  split into naked stub + `trampolineCore` (callconv .c Zig fn) per
+  ADR-0119. End-to-end pipe naked-stub → core → `dispatchThrow` →
+  unwind walk → trap_flag now exercised on Mac aarch64 + Linux SysV.
+  Also fixed two latent test-fixture bugs (inverted AAPCS64 saved-LR
+  semantics in `zwasm_throw` unwind tests).
 
 ## ROADMAP §10 progress
 
 - DONE (7/13): 10.0 / 10.C9 / 10.J / 10.F / 10.Z / 10.T / 10.D
 - IN-PROGRESS (4): 10.M (7/8) / 10.R (5/5; gated on 10.G) /
   10.TC (codegen + cross-module + spec corpus 残) /
-  10.E (codegen IT-6 trampoline impl 残)
+  10.E (codegen IT-6 cycle 3c-iii 残)
 - Pending (3): 10.G / 10.P (close gate)
 
 ## Active bundle
 
 - **Bundle-ID**: `10.E-codegen-IT-6`
-- **Cycles-remaining**: `~2` (cycle 3c-ii blocked-by issues
-  surfaced below + cycle 3c-iii final handler dispatch)
-- **Continuity-memo**: 3c-i (JitRuntime fields + setup wire)
-  shipped. Trampoline + retargeted throw sites + per-Instance
-  EH data are all in place. **Cycle 3c-ii attempted 2026-05-28;
-  WIP stashed** (`stash@{0}`: `wip-cycle-3c-ii-trampoline-body-
-  asm-errors-and-zwasm-throw-test-failures`) pending resolution
-  of two blockers:
-
-  1. **ARM64 inline-asm operand syntax** — LLVM 21 inline-asm
-     parser rejects `// foo` mid-line comments (works for
-     x86_64 SysV but not aarch64). The trampoline-core split
-     architecture (a `callconv(.c)` Zig fn called from a tiny
-     naked stub via BLR/CALL) is sound; the issue is purely
-     in the asm body's syntax. Resolution: strip ALL mid-line
-     `//` from arm64 asm templates; comments live outside.
-     The stash has partial cleanup; needs final fix-up.
-
-  2. **Pre-existing `zwasm_throw.zig` test failures** — adding
-     `@import("zwasm_throw.zig")` from `throw_trampoline.zig`
-     brought 4 zwasm_throw tests into the test graph for the
-     first time. Two of them fail:
-     - `dispatchThrow: handler in caller frame after one
-       unwind step` → expects `.handler`, gets `.uncaught`
-     - `dispatchThrow: throw-site outside any JIT function
-       → walks via sentinel` → same shape
-     These are **latent bugs in the foundation chain** (the
-     synthetic frame-chain walk doesn't yield the expected
-     handler match). Resolution requires investigating the
-     `unwind.walk` implementation against the test fixtures
-     — may be a test-fixture issue OR a real unwinder bug.
-     Bucket-2 territory; needs Step-0-survey of unwind.zig.
+- **Cycles-remaining**: `~1` (cycle 3c-iii final handler dispatch)
+- **Continuity-memo**: trampoline body, throw-site retargeting, and
+  per-Instance EH data wiring are all in place. The `.handler`
+  branch in `trampolineCore` currently traps as a placeholder;
+  cycle 3c-iii implements actual handler dispatch:
+  1. Restore SP via `sp_restore.emitSpRestoreFull` (arm64 +
+     x86_64) at handler_fp's prologue boundary using frame_bytes.
+  2. Resolve `landing_pad_pc` (module-relative) to absolute via
+     `CodeMap.Entry.start_addr + landing_pad_pc`.
+  3. JMP / BR to the absolute landing-pad address from
+     `trampolineCore` (will require a small arch-shim helper
+     since `trampolineCore` is regular Zig — likely a tiny per-
+     arch `@extern(.naked)` thunk that takes (new_sp, target_pc)
+     and never returns).
+  4. Update the "handler found path" trampoline test to assert
+     `trap_flag == 0` + observable landing-pad execution.
+  5. Win64 trampoline body (currently `@compileError`) — fold in
+     RCX/RDX/R8/R9 + shadow-space ABI shuffle.
 - **Exit-condition**: end-to-end `throw 0 / catch_all 0` fixture
   compiles + runs + lands at the catch block (per integration
   plan §IT-6 acceptance).
-
-**Cycle 3c-ii resumption recipe**:
-1. `git stash show -p stash@{0}` to inspect WIP.
-2. Pop the stash (`git stash pop`); strip mid-line `//` from
-   arm64 asm templates (blocker 1).
-3. Step-0-survey of `unwind.zig` + `frame_chain_adapter.zig`
-   against the failing `zwasm_throw` tests (blocker 2).
-4. After both clear, finish trampoline-core split + handler
-   dispatch (cycle 3c-iii).
 
 ## Open questions / blockers
 
@@ -96,8 +75,7 @@
 - **ADR-0119 Accepted** (`213df2f2`,
   `.dev/decisions/0119_eh_trampoline_naked_zig.md`)
 - **Spike** `private/spikes/p10-it6-naked-trampoline/` —
-  Status: merged-into-prod (zero-prologue empirical evidence,
-  per-host disasm in README)
+  Status: merged-into-prod.
 - **Integration plan** (`.dev/phase10_eh_integration_plan.md`)
 - **ADR-0114** (EH design — D6 specifies the trampoline shape)
 - **ROADMAP §10**
