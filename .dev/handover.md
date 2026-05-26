@@ -6,66 +6,81 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `228d2d79` — D-181 CLOSED. memory64 i64-idx runner test
-  now exercises Mac aarch64 + Linux x86_64 SysV; ubuntu run @
-  `228d2d79` exit 0. Discharged row moved to debt §Discharged.
-- **10.D = CLOSED 2026-05-25**, **10.M sub-chunks 1..fixture-2,
-  10.R 1..5, 10.TC-1, 10.G-i31-ops/2/3, 10.E (codegen + interp +
-  IT-6 bundle full)**: all SHIPPED.
-- **10.E IT-6 BUNDLE CLOSED** (`c9b9d16c` → corrected at `a98c7b1f`):
-  end-to-end `throw + catch_all` returns 42 + tagged `catch $e1`
-  returns 77 + uncaught variant traps. Both arches actually wired
-  (was previously Mac-only-hidden by gate; D-180 caught this).
-- **Win64 trampoline body SHIPPED** (`ce169224`): cross-compile
-  green; runtime gate stays at phase boundary.
+- **HEAD**: `73845cf0` — ADR-0120 Proposed (JIT payload-marshalling
+  shape for EH); precondition for 10.E-payload-prop bundle. Mac
+  local + ubuntu (HEAD `228d2d79`) both green.
+- **10.D = CLOSED 2026-05-25**, **10.M (incl D-181 ungate),
+  10.R 1..5, 10.TC-1, 10.G-i31-ops/2/3, 10.E (IT-1..IT-6 codegen
+  foundation + interp catch_/catch_all dispatch + tag-equality)**:
+  SHIPPED.
+- **D-181 = CLOSED `f37977df`** — memory64 i64-idx runner test
+  ungated for x86_64 SysV; ubuntu verified @ HEAD `228d2d79`.
 - **D-180 structural defenses SHIPPED** (`2808bc81` + `a98c7b1f`):
   x86_64 `usesRuntimePtr` whitelist drift detector +
-  `test_discipline.md` §4 (host-only test gates must pair with
-  debt-row OR spec-pinned rationale) + lesson
+  `test_discipline.md` §4 (host-only gates pair with debt row OR
+  spec-pinned rationale) + lesson
   `2026-05-28-x86_64-uses-runtime-ptr-eh-gap.md`.
+
+## Active bundle
+
+- **Bundle-ID**: 10.E-payload-prop
+- **Cycles-remaining**: ~5 (per ADR-0120 Consequence §1)
+- **Continuity-memo**: payload propagation through
+  `Runtime.eh_payload_buf: [16]u64` + `EmitCtx.tag_param_counts:
+  []const u32 = &.{}` threading per ADR-0120. Throw emits
+  pop-N+store-to-buf; try_table.emit synthesizes landing-pad
+  load-from-buf+push. v128/exnref tag params deferred to v0.2.
+- **Exit-condition**: `runI32Export: throw + catch_ with i32
+  payload returns 88` test passes on Mac aarch64 + Linux x86_64
+  SysV (currently silent-drops, returns 0; probe verified this
+  cycle).
 
 ## ROADMAP §10 progress
 
 - DONE (8/13): 10.0 / 10.C9 / 10.J / 10.F / 10.Z / 10.T / 10.D /
-  10.E.
-- IN-PROGRESS (3): 10.M (7/8) / 10.R (5/5; gated on 10.G) / 10.TC.
+  10.E (foundation; bundle 10.E-payload-prop completes scope).
+- IN-PROGRESS (3): 10.M (D-181 closed; realworld toolchain-blocked) /
+  10.R (5/5; gated on 10.G) / 10.TC.
 - Pending (2): 10.G / 10.P (close gate).
 
-## Active task — throw_ref op emit body (IT-6 follow-on)
+## Active task — Cycle 1 of 10.E-payload-prop bundle
 
-Next chunk = **throw_ref op + 10.E-N tag-equality dispatch**
-per `.dev/phase10_eh_integration_plan.md` §IT-6 follow-on +
-phase log §10.E-N entries:
-- 10.E-N-1: `Module.tags` wiring through validator
-- 10.E-N-2: interp-side production tag_param_counts wiring
-- 10.E-N-3: codegen-side tag-equality + payload push at
-  catch_/catch_ref dispatch (cycle 3c-iv scope; throw_ref pops
-  exnref + dereferences)
+Per ADR-0120 Consequence §1 Cycle 1:
+- Add `eh_payload_buf: [16]u64` + `eh_payload_len: u32` to
+  `Runtime` (src/runtime/runtime.zig).
+- Add `tag_param_counts: []const u32 = &.{}` field to per-arch
+  EmitCtx (arm64 + x86_64 ctx.zig); thread through compile.zig
+  from CompiledWasm.tag_param_counts.
+- Same-cycle observable test: Runtime construction + EmitCtx init
+  default-state verification (mirrors how 10.M-3 / 10.M-4a landed
+  the memory0_idx_type threading).
 
-Existing IT-6 catch_all + throw frame already wired both arches
-(D-180 close confirmed). exnref dispatch is the open follow-on
-that converts "throw_ref pops any exnref + uncaught" path into
-"throw_ref + catch_ref payload push".
+## Next candidates (after bundle close)
 
-## Next candidates (names + Refs; no predictions)
-
-- **10.E-N-1 / N-2 / N-3** — exnref dereferencing + Module.tags.
+- **10.TC codegen** — return_call / return_call_indirect /
+  return_call_ref JIT emit + frame_teardown helper. ADR-0112 +
+  ADR-0113 §A foundations already shipped.
+- **10.TC interp end-to-end runner test** — 10.TC-1 + 10.TC-1b
+  shipped; e2e runI32Export-shape test would catch regressions
+  before JIT codegen lands.
 - **10.M-realworld** — toolchain-blocked (D-179 wabt 1.0.41+).
-- **10.TC** — Wasm 3.0 spec corpus extension wiring into the
-  spec runner.
 
 ## Open questions / blockers
 
+- ADR-0120 — Status: Proposed pending user flip to Accepted. Loop
+  proceeds with the Proposed design; user can intervene at any
+  cycle boundary.
 - 10.G-4 (struct ops) — blocked-by GC heap impl.
 - 10.M-realworld — toolchain-blocked (D-179).
 - 10.P close gate — user touchpoint by construction.
 
 ## Key refs
 
-- ADR-0017 (pinned rt regs X19/R15); ADR-0026 (Cc-pivot).
-- ADR-0111 (memory64; D4 emit shape underwrites D-181).
-- ADR-0114 (EH design), ADR-0119 (naked-Zig trampoline).
-- Integration plan `.dev/phase10_eh_integration_plan.md`.
+- ADR-0114 D1/D6 (EH design + zwasm_throw trampoline),
+  ADR-0119 (naked-Zig trampoline), ADR-0120 (Proposed; this
+  bundle's design).
+- Integration plan `.dev/phase10_eh_integration_plan.md` §IT-3
+  (now superseded by ADR-0120 for marshalling shape).
 - ROADMAP §10, Phase log `.dev/phase_log/phase10.md`.
 - Lessons (Phase 10 EH cycle):
   - `2026-05-26-eh-codegen-foundation-atom-rhythm.md` (`e62db476`)
