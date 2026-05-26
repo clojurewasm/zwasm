@@ -310,6 +310,36 @@ test "code_map: binary search correctness on 8-entry map" {
     }
 }
 
+test "code_map: toModuleRelativePc — multi-function, second func's addrs → module-relative (D-183)" {
+    // D-183 load-bearing contract: for multi-function modules,
+    // `toModuleRelativePc` returns `addr - first_func.start_addr`
+    // (= module-relative), NOT `addr - containing_func.start_addr`
+    // (= function-relative). HandlerEntries are stored
+    // module-relative post-collectModuleTable shift; the
+    // unwinder's `ExceptionTable.lookup` consumes module-relative
+    // PC. This test pins the contract.
+    var b: Builder = .empty;
+    defer b.deinit(testing.allocator);
+    try b.add(testing.allocator, .{ .start_addr = 0x10000, .len = 0x80, .func_idx = 0 });
+    try b.add(testing.allocator, .{ .start_addr = 0x10080, .len = 0x80, .func_idx = 1 });
+    const m = b.finalize();
+
+    // Addr inside func 0 (the first; block_addr = func0.start_addr).
+    // module-relative = 0x10042 - 0x10000 = 0x42.
+    try testing.expectEqual(@as(u32, 0x42), toModuleRelativePc(&m, 0x10042));
+    // Addr inside func 1: module-relative = 0x100C0 - 0x10000 = 0xC0
+    // (NOT function-relative 0x40). This is the value the
+    // unwinder feeds `ExceptionTable.lookup` for func1's PC.
+    try testing.expectEqual(@as(u32, 0xC0), toModuleRelativePc(&m, 0x100C0));
+    // Outside both → sentinel.
+    try testing.expectEqual(non_jit_pc_sentinel, toModuleRelativePc(&m, 0x20000));
+    // Empty map → sentinel (defensive).
+    var b2: Builder = .empty;
+    defer b2.deinit(testing.allocator);
+    const empty_m = b2.finalize();
+    try testing.expectEqual(non_jit_pc_sentinel, toModuleRelativePc(&empty_m, 0x10042));
+}
+
 test "code_map: normalizeForUnwind — inside → relative_pc" {
     var b: Builder = .empty;
     defer b.deinit(testing.allocator);
