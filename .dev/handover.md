@@ -7,30 +7,14 @@
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
 - **HEAD**: `908414b2` — fix(p10): frontendValidate threads tags
-  for EH module compile (10.E open). try_table.0.wasm now compiles
-  green; opens the 10.E bundle's compile path. Runtime dispatch is
-  the multi-cycle scope.
+  for EH module compile (10.E open). Cycle-1 slice of the
+  10.E-EH-compile-runtime bundle closed; deeper EH path
+  structurally blocked (file D-192 this cycle).
 - **ROADMAP §10 progress**: 7/13 DONE, 4 IN-PROGRESS, 2 Pending.
-- **Active debt rows**: 17 — all `blocked-by:` with named
-  structural barriers. Zero `now`-status rows.
-
-## Active bundle
-
-- **Bundle-ID**: 10.E-EH-compile-runtime
-- **Cycles-remaining**: ~5 (estimate; spec runner EH 40 dirs all
-  root here)
-- **Continuity-memo**: try_table.0.wasm compiles (this cycle).
-  Next steps: (1) try_table interp body — push exception_handler
-  frame on entry, pop on end / branch out; (2) throw interp body —
-  unwind operand stack + raise Trap.UncaughtException with
-  tag_idx + payload; (3) interp dispatch loop catches
-  Trap.UncaughtException, walks frame stack looking for matching
-  handler, transfers control to landing pad; (4) extend
-  invokeInstanceExpectException to convert returned-with-exception
-  outcome.
-- **Exit-condition**: wasm-3.0-assert/exception-handling/try_table
-  manifest's first concrete assert_return (`simple-throw-catch
-  args=1 -> i32:23`) passes in spec runner.
+- **Active debt rows**: 18 — all `blocked-by:` with named
+  structural barriers. Zero `now`-status rows. (D-192 filed; bundle
+  10.E-EH-compile-runtime pivots from "exit-condition unreachable"
+  to debt-tracked.)
 
 ## Spec runner observable (HEAD `908414b2`)
 
@@ -43,10 +27,9 @@
 total: return pass=368 fail=34; trap pass=205 fail=2; invalid pass=110 fail=2; exception pass=0 fail=4
 ```
 
-assert_invalid 110/2 (was 111/1) — try_table.8 newly false-accepted
-alongside try_table.10; both share the catch_ref/catch_all_ref
-typing gap, both close together when 10.E per-clause result-type
-unification lands.
+EH return/trap/exception all 0/N — root at try_table.1.wasm
+compile (uses exnref ValType byte 0x69 + cross-module `test::e0`
+tag imports). Both blockers structural; per D-192.
 
 Recent commits this resume:
 - `908414b2` fix — frontendValidate threads tags for EH (10.E open).
@@ -55,21 +38,32 @@ Recent commits this resume:
 - `c09cc64f` chore — retarget at D-191.
 - `bf0ac870` fix — memory.grow pages_max + void-result asserts (+19).
 
+## Active task — bucket-3 prep next survey for next tractable single-cycle slice
+
+The remaining 10.E EH return/trap/exception path is gated on
+ADR-grade work (exnref ValType, runner registry) — multi-cycle
+prep + ADR flips. ROADMAP §10 IN-PROGRESS rows that AREN'T
+blocked at the moment:
+
+- **10.M** memory64 — corpus FULLY GREEN (closed by D-191).
+- **10.TC** tail-call — corpus FULLY GREEN (closed by D-187).
+- **10.E** EH — gated per D-192.
+- **10.R** typed-funcref — gated per D-186.
+
+Phase 10 unblocked work is sparse. Next survey: scan
+ROADMAP §10 task tables for chunks that don't have a `blocked-by`
+debt row pointing at them; if all remaining work is gated, surface
+bucket-3 stop.
+
 ## Next sub-chunk candidates (names only)
 
-- **10.E IT-1: try_table interp body** — push exception_handler
-  frame; pop on end / branch out. First substrate step of the bundle.
-- **10.E IT-2: throw interp body** — raise Trap.UncaughtException
-  with tag_idx + payload tucked in Runtime.eh_payload_buf.
-- **10.E IT-3: interp unwinder** — dispatch.run catch of
-  UncaughtException; walk handler stack; transfer to landing pad.
-- **D-188 final (try_table.8 + try_table.10)** — per-clause
-  catch_ref result-type unification. Closes alongside 10.E
-  validator strictness.
-- **10.R-4 / 10.R-5 (call_ref / return_call_ref)** — blocked-by
-  D-186 (typed-funcref Value shape ADR).
-- **10.G WasmGC** — large multi-cycle bundle.
-- **10.M-realworld** — toolchain-blocked (D-179 wabt 1.0.41+).
+- **ROADMAP §10 task table audit** — scan for any `[ ]` row not
+  covered by a current `blocked-by:` debt row.
+- **10.G WasmGC** — large multi-cycle bundle (still on the
+  schedule; needs D-179 wabt bump for corpus bake).
+- **ADR work to unblock D-192**: file exnref ValType ADR
+  (Wasm 3.0 §3.3.10 typed reference extension; affects
+  `ir/zir.zig::ValType` + parser valtype switch + validator).
 
 ## Open questions / blockers
 
@@ -80,6 +74,8 @@ Recent commits this resume:
 - D-186 — `return_call_ref` blocked-by 10.R-3/4/5.
 - D-188 — 2 now (try_table.8 + try_table.10); blocked-by 10.E
   validator strictness.
+- **D-192 (new)** — EH runtime path blocked-by exnref ValType +
+  cross-module register support.
 
 ## Key refs
 
