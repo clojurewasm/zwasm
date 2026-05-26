@@ -415,14 +415,7 @@ test "runI32Export: simple i32.const probe on all hosts (sanity)" {
 }
 
 test "runI32Export: throw + catch_all returns 42 (IT-6 cycle 3c-iii-d end-to-end)" {
-    if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
-        // D-180: end-to-end EH fixture returns 0 (not 42) on Linux
-        // x86_64 SysV when this gate is removed. Investigation
-        // ongoing. The trampoline body + tag_idx marshal compile
-        // green on SysV but the resulting binary mis-marshals the
-        // catch-arm return value. Gate kept until D-180 closes.
-        return error.SkipZigTest;
-    }
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
     // (module
     //   (tag $e0)
     //   (func (export "test") (result i32)

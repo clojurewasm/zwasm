@@ -152,6 +152,15 @@ pub fn trampolineCore(
                     // via X29/RBP; restore it from the matched frame.
                     rt.eh_handler_fp = h.handler_fp;
                     rt.eh_handler_active = 1;
+                    // D-180 probe — emit diagnostic on every handler
+                    // dispatch so we can compare arm64 vs x86_64.
+                    std.debug.print(
+                        "\n[d180] handler hit: abs_pc=0x{x} start_addr=0x{x} rel_lp=0x{x} -> eh_handler_pc=0x{x} (frame_bytes={d}, handler_fp=0x{x}, new_sp=0x{x})\n",
+                        .{
+                            h.handler_abs_pc, hit.start_addr, h.landing_pad_pc,
+                            rt.eh_handler_pc, hit.frame_bytes, h.handler_fp, rt.eh_handler_sp,
+                        },
+                    );
                     // trap_flag stays 0 — handler dispatch will run.
                 },
                 .outside => {
