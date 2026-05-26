@@ -6,8 +6,8 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `d189955c` — x86_64 return_call.emit wired end-to-end
-  (10.TC emit-body cycle 5; both arches green for same-module direct).
+- **HEAD**: `99d10707` — arm64 return_call_indirect emit body
+  (10.TC emit-body cycle 6; bounds+sig check + BR X16 path).
 - **ROADMAP §10 progress**: 7/13 DONE (10.0/10.C9/10.J/10.F/
   10.Z/10.D/10.T), 4 IN-PROGRESS (10.M/10.R/10.TC/10.E with
   10.E core substantively done), 2 Pending (10.G/10.P).
@@ -22,38 +22,32 @@
 
 - **Bundle-ID**: 10.TC-emit-body
 - **Cycles-remaining**: ~3
-- **Continuity-memo**: cycles 1-5 landed. Cycle 1 (`c2039bbb`):
-  `CallFixup.is_tail` + arm64 linker B/BL dispatch. Cycle 2
-  (`4d0e20f1`): arm64 `emitDirectTailJump`. Cycle 3 (`b03545fe`):
-  arm64 `return_call.emit` wired end-to-end (e2e fixture green
-  on Mac aarch64). Cycle 4 (`aa1c53e6`): `frame_teardown.Params
-  .uses_runtime_ptr` plumbed + x86_64 POP R15 fix. Cycle 5
-  (`d189955c`): x86_64 `return_call.emit` wired end-to-end via
-  inline-for dispatcher (collected_x86_64_ctx_ops 394 → 395);
-  `.return_call` added to x86_64 `usesRuntimePtr` whitelist;
-  e2e fixture (linker.zig) now green on BOTH Mac aarch64 and
-  Linux x86_64 SysV. Same-module direct `return_call` complete.
+- **Continuity-memo**: cycles 1-6 landed. Same-module direct
+  `return_call` complete on both arches (cycles 1-5). Cycle 6
+  (`99d10707`): arm64 `return_call_indirect` emit body via
+  `op_tail_call.emitIndirectReturnCall` (bounds+sig check trap
+  fixups + LDR funcptr→X16 + frame_teardown + BR X16 / single-
+  table fast path, restrictions: table_idx==0 only,
+  results.len<=2). Byte-snapshot tests in emit_test_call.zig.
 - **Exit-condition**: x86_64 SysV mirror of cycle 3 wired
   end-to-end (JMP rel32 opcode at emit + emitDirectReturnCall
   + same e2e fixture green on Linux x86_64) AND `return_call_
   indirect` / `return_call_ref` arm64+x86_64 wired with at
   least one e2e fixture each.
-- **Next cycle (cycle 6)**: `return_call_indirect` arm64 emit
-  body. Uses the BR X16 path (D4 prescribed shape) because the
-  callee target comes from a runtime table lookup, not the
-  linker. Sub-steps: (a) arm64 ops/wasm_3_0/return_call_indirect
-  .zig stub flips to delegation → new
-  `op_tail_call.emitIndirectReturnCall(ctx, ins)`. (b) Same as
-  `op_call.emitCallIndirect` shape for bounds + sig check
-  (reuse cind_bounds_fixups + cind_sig_fixups), then LDR funcptr
-  into X16, marshal args, MOV X0,X19, frame_teardown, BR X16
-  (use existing `emitTailJump(target=X16)`). Open question: does
-  the existing bounds-trap shape work pre-teardown? Yes — bounds
-  check uses CMP+B.HS which fits before marshal/teardown.
-  (c) Add `.return_call_indirect` dispatch arm in arm64/emit.zig.
-  (d) e2e fixture in linker.zig: 2-fn module with table containing
-  fn1; fn0 does `return_call_indirect 0 0` after `i32.const 0`;
-  verify execute returns fn1's value.
+- **Next cycle (cycle 7)**: x86_64 `return_call_indirect` mirror.
+  Sub-steps: (a) `x86_64/op_tail_call.zig` gains
+  `emitIndirectReturnCall(ctx, ins)`: pop idx, marshal args,
+  bounds check via cind_bounds_fixups (CMP + Jcc rel32 trap),
+  sig check via cind_sig_fixups (MOV r32 from typeidx table +
+  CMP imm32 + Jcc), funcptr load (MOV R11, [funcptr_base + idx*8]),
+  emitLoadCalleeRtSameModule, frame_teardown, emitTailJump(R11).
+  Mirror restrictions from arm64: table_idx==0, results.len<=2.
+  (b) Wire `x86_64/ops/wasm_3_0/return_call_indirect.zig` stub
+  to delegate; set ctx.dead_code.* = true. (c) Add to
+  collected_x86_64_ctx_ops (count 395 → 396; bump assertion).
+  (d) Add .return_call_indirect to usesRuntimePtr whitelist
+  (reads R15 for typeidx_base / funcptr_base). (e) Mirror
+  byte-snapshot test in x86_64/emit_test_*.zig.
 
 ## Session highlights (prior session; for handoff context)
 
