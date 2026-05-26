@@ -5,16 +5,18 @@
 //! (tag_idx, payload) into argregs and CALLs the `zwasm_throw`
 //! dispatcher.
 //!
-//! ## IT-6 cycle 3b shape (current)
+//! ## Current shape (IT-6 cycle 3c + tag_idx marshal)
 //!
-//! Emits MOVABS imm64 → R10 + CALL R10 + JMP-rel32 fallback
-//! targeting the function trap stub. The trampoline (cycle 3a)
-//! currently sets `trap_flag=1` then RETs; control resumes at
-//! the JMP and lands at the trap stub for the standard epilogue.
-//! Cycle 3c replaces the trampoline body with the full
-//! dispatchThrow integration; the emit shape stays the same.
+//! Marshals `tag_idx` (= `ins.payload`, u32) into the platform's
+//! first-arg register before MOVABS R10, addr + CALL R10:
+//! - SysV (Linux / Mac): MOV EDI, imm32 — RDI is SysV first arg.
+//!   Trampoline naked stub re-routes RDI → RDX (= trampolineCore
+//!   tag_idx arg2).
+//! - Win64: MOV ECX, imm32 — RCX is Win64 first arg. Trampoline
+//!   stashes RCX → R10 then routes → R8 (= trampolineCore arg2).
 //!
-//! Byte layout (17 bytes):
+//! Byte layout (SysV — 22 bytes; Win64 — 22 bytes):
+//!   MOV E{DI,CX}, imm32  ; 5 bytes
 //!   MOVABS R10, imm64    ; 10 bytes (49 ba + 8-byte addr)
 //!   CALL R10             ; 3 bytes (41 ff d2)
 //!   JMP <trap_stub>      ; 5 bytes (e9 + disp32, patched)
@@ -28,6 +30,7 @@
 //!
 //! Zone 2 (`src/engine/codegen/x86_64/ops/`).
 
+const builtin = @import("builtin");
 const meta = @import("../../../../../instruction/wasm_3_0/throw.zig");
 const ctx_mod = @import("../../ctx.zig");
 const inst = @import("../../inst.zig");
@@ -44,7 +47,16 @@ pub const n_successor_edges: u8 = 0;
 pub const is_safepoint: bool = false;
 
 pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void {
-    _ = ins;
+    const tag_idx: u32 = @intCast(ins.payload);
+    // Marshal tag_idx into the platform's first-arg register so
+    // the trampoline's naked stub can re-route it to
+    // `trampolineCore`'s arg2. SysV → RDI; Win64 → RCX.
+    const first_arg_reg = if (builtin.target.os.tag == .windows)
+        inst.Gpr.rcx
+    else
+        inst.Gpr.rdi;
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovImm32W(first_arg_reg, tag_idx).slice());
+
     const addr: u64 = @intFromPtr(&trampoline_mod.zwasmThrowTrampoline);
     try emitTrampolineCallAndTrap(ctx, addr);
     ctx.dead_code.* = true;

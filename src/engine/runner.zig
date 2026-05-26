@@ -445,6 +445,41 @@ test "runI32Export: throw + catch_all returns 42 (IT-6 cycle 3c-iii-d end-to-end
     try testing.expectError(entry.Error.Trap, runI32Export(testing.allocator, &uncaught_bytes, "test"));
 }
 
+test "runI32Export: tagged catch routes by tag_idx — throw $e1 → catch $e1 returns 77" {
+    if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
+        return error.SkipZigTest;
+    }
+    // (module
+    //   (tag $e0) (tag $e1)
+    //   (func (export "test") (result i32)
+    //     (block $catch_e1
+    //       (block $catch_e0
+    //         (try_table (catch $e0 $catch_e0) (catch $e1 $catch_e1)
+    //           (throw $e1))
+    //         unreachable)
+    //       unreachable)
+    //     (i32.const 77)))
+    //
+    // Exercises op_throw's tag_idx marshal: throws tag 1; the
+    // unwinder must match the SECOND HandlerEntry (catch $e1 → 1),
+    // NOT the first (catch $e0 → 0). Without the marshal, the
+    // throw site delivers garbage `tag_idx`, and the dispatcher's
+    // match would be undefined — likely hitting catch_e0 (= trap
+    // via unreachable between $catch_e0 and $catch_e1) or
+    // mis-matching entirely. With the marshal, tag 1 hits the
+    // SECOND entry → branch to $catch_e1 → fall through to
+    // `(i32.const 77)` → return 77.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x60,
+        0x00, 0x00, 0x60, 0x00, 0x01, 0x7f, 0x03, 0x02, 0x01, 0x01, 0x0d, 0x05,
+        0x02, 0x00, 0x00, 0x00, 0x00, 0x07, 0x08, 0x01, 0x04, 0x74, 0x65, 0x73,
+        0x74, 0x00, 0x00, 0x0a, 0x1b, 0x01, 0x19, 0x00, 0x02, 0x40, 0x02, 0x40,
+        0x1f, 0x40, 0x02, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x08, 0x01, 0x0b,
+        0x00, 0x0b, 0x00, 0x0b, 0x41, 0xcd, 0x00, 0x0b,
+    };
+    try testing.expectEqual(@as(u32, 77), try runI32Export(testing.allocator, &bytes, "test"));
+}
+
 test "compileWasm: empty module (header only) compiles to empty CompiledWasm" {
     // §9.9 / 9.9-l-1b-d093-d69: ungated (was Mac-only) so the
     // testing.allocator (DebugAllocator) leak gate runs on all

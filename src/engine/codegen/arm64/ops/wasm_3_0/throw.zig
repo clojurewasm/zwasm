@@ -6,21 +6,20 @@
 //! `zwasm_throw` dispatcher; on .uncaught it sets trap_flag=1
 //! and returns, on .handler it JMPs to the landing pad.
 //!
-//! ## IT-6 cycle 3b shape (current)
+//! ## Current shape (IT-6 cycle 3c + tag_idx marshal)
 //!
-//! Emits the address-load + BLR sequence targeting the per-arch
-//! `shared/throw_trampoline.zig::zwasmThrowTrampoline` (per
-//! ADR-0119; address is `@intFromPtr` of the naked-fn symbol,
-//! known at Zig compile time). The trampoline (cycle 3a) currently
-//! sets `trap_flag=1` and returns to the throw site; the post-CALL
-//! B placeholder then routes to the function's trap stub (same
-//! IT-3 path) which finishes the trap epilogue.
+//! Marshals `tag_idx` (= `ins.payload`, u32 — Phase 10.Z widened
+//! to u64 but tag indices fit in u32) into W0 before the BLR. The
+//! trampoline's naked stub (`shared/throw_trampoline.zig`) reads
+//! W0/X0 as the throw-site tag indicator and re-routes it to X2
+//! (= trampolineCore's `tag_idx` arg) before calling
+//! `dispatchThrow`. The dispatcher matches it against installed
+//! `HandlerEntry.tag_idx` for tagged catches (`.catch_` /
+//! `.catch_ref`); catch_all / catch_all_ref clauses ignore it.
 //!
-//! Cycle 3c replaces the trampoline body with the full
-//! dispatchThrow integration (handler vs uncaught branch); the
-//! emit shape stays the same.
-//!
-//! Byte layout (24 bytes):
+//! Byte layout (32 bytes — was 24 pre-marshal):
+//!   MOVZ W0, #(tag_idx & 0xFFFF)             ; 4 bytes
+//!   MOVK W0, #((tag_idx >> 16) & 0xFFFF), LSL #16  ; 4 bytes
 //!   MOVZ X16, #(addr & 0xFFFF)               ; 4 bytes
 //!   MOVK X16, #((addr >> 16) & 0xFFFF), LSL #16  ; 4 bytes
 //!   MOVK X16, #((addr >> 32) & 0xFFFF), LSL #32  ; 4 bytes
@@ -31,7 +30,9 @@
 //! X16 is the AAPCS64 intra-procedure scratch (IP0), free to
 //! clobber across calls. Per ADR-0017 X19 (the pinned runtime
 //! ptr) is inherited intact through the BLR — the trampoline
-//! reads `[X19, #trap_flag_off]` from it.
+//! reads `[X19, #trap_flag_off]` from it. W0 is caller-saved and
+//! used as the AAPCS64 first int arg; the trampoline shuffles
+//! it to its actual arg position (X2) before calling core.
 //!
 //! Zone 2 (`src/engine/codegen/arm64/ops/`).
 
@@ -60,7 +61,18 @@ pub const is_safepoint: bool = false;
 const scratch: inst.Xn = 16;
 
 pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void {
-    _ = ins;
+    const tag_idx: u32 = @intCast(ins.payload);
+    // Marshal tag_idx into W0 — the trampoline's naked stub reads
+    // X0 as the throw-site tag indicator and re-routes it to X2
+    // (= trampolineCore's `tag_idx` arg). MOVZ + MOVK covers the
+    // full u32 range; for typical small tag indices the high MOVK
+    // could be elided but emitting both keeps the byte layout
+    // uniform (8 bytes always) and avoids a per-call branch.
+    const tag_lo: u16 = @intCast(tag_idx & 0xFFFF);
+    const tag_hi: u16 = @intCast((tag_idx >> 16) & 0xFFFF);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(0, tag_lo));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(0, tag_hi, 1));
+
     const addr: u64 = @intFromPtr(&trampoline_mod.zwasmThrowTrampoline);
     try emitTrampolineCallAndTrap(ctx, addr);
 }
