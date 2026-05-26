@@ -186,74 +186,11 @@ test "dispatchThrow: handler in caller frame after one unwind step" {
     try cb.add(testing.allocator, .{ .start_addr = 0x20000, .len = 0x100, .func_idx = 1 });
     const cmap = cb.finalize();
 
-    // Exception table: f0 has NO handler (any PC in [0, 0x100) → miss for tag 5).
-    // f1 has catch_ tag=5 at landing 0x90.
-    // Innermost-first insertion: f1's entry covers the f1 PC range when called from f0.
-    // PC keys are module-relative; the unwinder asks for the PC in the *caller's*
-    // function on the second walk step, which is in f1's range.
-    var eb: Builder = .empty;
-    defer eb.deinit(testing.allocator);
-    // f1's handler range. Using relative PCs.
-    try eb.add(testing.allocator, .{
-        .pc_start = 0,
-        .pc_end = 0x100,
-        .tag_idx = 5,
-        .landing_pad_pc = 0x90,
-        .kind = .catch_,
-    });
-    const table = eb.finalize();
-
-    // Build a frame chain in memory:
-    //   outer frame (caller, f1): saved_fp=0 (top), saved_lr=0x20050 (= rel PC 0x50 in f1).
-    //   inner frame (callee, f0): saved_fp=&outer, saved_lr=0 (unused).
-    var outer: [2]usize = .{ 0, 0x20050 };
-    var inner: [2]usize = .{ @intFromPtr(&outer), 0 };
-    const inner_fp: usize = @intFromPtr(&inner);
-
-    // Wait: with rel PC 0x50 in f1 hitting the [0, 0x100) range → match on tag=5,
-    // but we want f0's throw to MISS first. Currently f0 PC also covers
-    // [0, 0x100); with relative pc 0x42 also in that range, the FIRST entry hits.
-    // To force the miss-then-hit pattern: f0 throw at PC outside [0, 0x100) range
-    // — but f0 itself is len 0x100, so any PC in f0 falls in the same range.
-    //
-    // The chunk's value lies in the WALK happening (handler_fp = outer, not inner).
-    // With both frames covered by the same handler entry, the IMMEDIATE first-frame
-    // hit returns handler_fp = inner. Change the throw tag to something the handler
-    // doesn't catch, then add a catch_all in f1 to verify the walk.
-
-    // Re-build the table for the walk-step case.
-    var eb2: Builder = .empty;
-    defer eb2.deinit(testing.allocator);
-    // Inner f0 has catch tag=7 (won't match throw of tag 5).
-    try eb2.add(testing.allocator, .{
-        .pc_start = 0,
-        .pc_end = 0x100,
-        .tag_idx = 7,
-        .landing_pad_pc = 0x10,
-        .kind = .catch_,
-    });
-    // Outer f1 has catch_all matching anything.
-    try eb2.add(testing.allocator, .{
-        .pc_start = 0,
-        .pc_end = 0x100,
-        .tag_idx = null,
-        .landing_pad_pc = 0x90,
-        .kind = .catch_all,
-    });
-    const table2 = eb2.finalize();
-
-    // The unwinder doesn't distinguish which function a PC belongs to — it
-    // just matches PC ranges in entry order. Inner's entry (catch_ tag=7) misses
-    // for throw tag=5. Outer's entry (catch_all) hits. But the outer entry's
-    // PC range also covers inner's PC, so the FIRST step's lookup would walk
-    // both entries and the catch_all matches at the inner frame already.
-    //
-    // To truly force a multi-step walk: the entries' PC ranges must be DISJOINT
-    // such that inner's pc only matches inner's entries. Make inner's range
-    // [0, 0x50) and outer's range [0x50, 0x100). Throw at rel pc 0x42 (in inner
-    // range) of tag 5 (not 7) → inner miss. Walk to outer, lr=0x20070 (rel 0x70 in
-    // outer range) → catch_all hit at landing 0x90.
-
+    // PC ranges must be disjoint so the inner-then-outer walk is
+    // actually exercised: inner's range [0, 0x50) catches tag 7
+    // (won't match the throw of tag 5); outer's range [0x50, 0x100)
+    // is catch_all. Inner's relative throw PC 0x42 misses → walker
+    // steps to outer at relative PC 0x70 → catch_all hits.
     var eb3: Builder = .empty;
     defer eb3.deinit(testing.allocator);
     try eb3.add(testing.allocator, .{
@@ -272,8 +209,18 @@ test "dispatchThrow: handler in caller frame after one unwind step" {
     });
     const table3 = eb3.finalize();
 
-    // outer's saved_lr at rel pc 0x70 → in [0x50, 0x100) catch_all range.
-    outer[1] = 0x20070;
+    // Build the frame chain. AAPCS64 `[X29, #8]` = caller's saved LR
+    // = the return address into the *caller* (per arm64/frame_chain.zig
+    // §6.4). So inner.saved_lr holds outer's resumption PC, NOT inner's
+    // own PC. Outer is top-of-stack: outer.saved_fp=0 terminates the walk.
+    //
+    //   outer frame (f1, top of stack): saved_fp=0, saved_lr unused.
+    //   inner frame (f0, throw site):   saved_fp=&outer,
+    //                                   saved_lr=0x20070 (= rel PC 0x70
+    //                                   in f1's [0x50, 0x100) catch_all).
+    var outer: [2]usize = .{ 0, 0 };
+    var inner: [2]usize = .{ @intFromPtr(&outer), 0x20070 };
+    const inner_fp: usize = @intFromPtr(&inner);
 
     const site: ThrowSite = .{
         .initial_fp = inner_fp,
@@ -310,9 +257,10 @@ test "dispatchThrow: throw-site outside any JIT function → walks via sentinel"
     const table = eb.finalize();
 
     // 2-frame chain. Inner frame's throw is from a non-JIT address (host code).
-    // outer caller is at JIT pc 0x30050 (rel 0x50, hit).
-    var outer: [2]usize = .{ 0, 0x30050 };
-    var inner: [2]usize = .{ @intFromPtr(&outer), 0 };
+    // Outer is top-of-stack. Per AAPCS64 §6.4, inner.saved_lr is the
+    // return address into the *caller* (= outer's JIT PC 0x30050, rel 0x50).
+    var outer: [2]usize = .{ 0, 0 };
+    var inner: [2]usize = .{ @intFromPtr(&outer), 0x30050 };
     const inner_fp: usize = @intFromPtr(&inner);
 
     const site: ThrowSite = .{
