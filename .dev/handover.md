@@ -6,11 +6,11 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `63cf843a` — feat(p10): ref.test + ref.test_null
-  vertical slice (10.G op_gc cycle 7). First ref-test family
-  ops; full lower+validator+interp; cycle-7 stub semantics
-  (1 iff !null for test; always 1 for test_null). RTT refinement
-  defers to later cycles.
+- **HEAD**: `93e63ba7` — feat(p10): ref.cast + ref.cast_null
+  vertical slice (10.G op_gc cycle 8). Second cast-family pair;
+  full lower+validator+interp; cycle-8 stub semantics (ref.cast
+  traps NullReference on null; ref.cast_null round-trips both).
+  RTT subtype-mismatch trap defers to type_hierarchy.zig.
 - **ROADMAP §10 progress**: 7/13 DONE, 4 IN-PROGRESS, 2 Pending.
 - **Active debt rows**: 18 — all `blocked-by:` with named
   structural barriers. Zero `now`-status rows.
@@ -56,18 +56,18 @@ future op_gc consumers. EH 40 fails still gated on the bigger
 ## Active bundle
 
 - **Bundle-ID**: 10.G-op_gc
-- **Cycles-remaining**: ~19 (per `.dev/phase10_g_op_bundle_plan.md`)
+- **Cycles-remaining**: ~18 (per `.dev/phase10_g_op_bundle_plan.md`)
 - **Continuity-memo**: Cycle 1 ADR amend. Cycle 2 ValType.i31ref
   cascade. Cycle 3 parser 0x6C. Cycle 4 validator opRefNull.
   Cycle 5 opRefI31 typed push. Cycle 6 extend ValType with 4
   remaining GC variants. Cycle 7 (`63cf843a`) ref.test +
-  ref.test_null vertical slice. Cycle 8 (next): ref.cast +
-  ref.cast_null (trap on type mismatch — pre-RTT stub: ref.cast
-  traps only on null mismatch; ref.cast_null never traps).
-  Cycle 9-10: br_on_cast / br_on_cast_fail (branch shape;
-  consumes flags + label + rt1 + rt2 per Wasm 3.0 GC encoding).
-  Cycle 11+: struct.new / struct.get / struct.set — gated on
-  RTT TypeInfo (sub-chunk 5 of plan).
+  ref.test_null vertical slice. Cycle 8 (`93e63ba7`) ref.cast +
+  ref.cast_null vertical slice (interp traps NullReference on
+  null cast; cast_null round-trips). Cycle 9-10 (next):
+  br_on_cast / br_on_cast_fail (branch shape; consumes flags +
+  label + rt1 + rt2 per Wasm 3.0 GC encoding §3.3.5.5). Cycle
+  11+: struct.new / struct.get / struct.set — gated on RTT
+  TypeInfo (sub-chunk 5 of plan).
 - **Exit-condition**: wasm-3.0-assert exception-handling /
   function-references / gc corpora open for op_gc dispatch +
   at least the first i31 spec directive flips green via the
