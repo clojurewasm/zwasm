@@ -1,14 +1,14 @@
 //! x86_64 emit handler for `throw_ref` — Zone 2 per ADR-0074
-//! + ADR-0114 D2. Mirror of arm64 sibling.
+//! + ADR-0114 D2 + ADR-0119. Mirror of arm64 sibling.
 //!
 //! Wasm spec 3.0 §3.3.10.8. Pop exnref, resolve *Exception,
 //! re-enter dispatcher (same shape as throw, per ADR-0114 D6).
 //!
-//! ## IT-3 minimum scope (current shape)
+//! ## IT-6 cycle 3b shape (current)
 //!
-//! Same as `throw.zig` sibling — JMP-rel32 placeholder to the
-//! function trap stub; full dispatcher CALL + handler dispatch
-//! lands at IT-6.
+//! Reuses `throw.emitTrampolineCallAndTrap` — same MOVABS+CALL+JMP
+//! sequence as `throw`. The exnref pop + deref divergence lands
+//! at cycle 3c alongside the full dispatchThrow integration.
 //!
 //! Registered in `dispatch_collector.collected_x86_64_ctx_ops`.
 //!
@@ -16,7 +16,8 @@
 
 const meta = @import("../../../../../instruction/wasm_3_0/throw_ref.zig");
 const ctx_mod = @import("../../ctx.zig");
-const inst = @import("../../inst.zig");
+const trampoline_mod = @import("../../../shared/throw_trampoline.zig");
+const throw_op = @import("throw.zig");
 const zir = @import("../../../../../ir/zir.zig");
 
 pub const op_tag = meta.op_tag;
@@ -30,9 +31,7 @@ pub const is_safepoint: bool = false;
 
 pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void {
     _ = ins;
-    // IT-3 minimum — see throw.zig sibling.
-    const fixup_at: u32 = @intCast(ctx.buf.items.len);
-    try ctx.buf.appendSlice(ctx.allocator, inst.encJmpRel32(0).slice());
-    try ctx.unreach_fixups.append(ctx.allocator, fixup_at);
+    const addr: u64 = @intFromPtr(&trampoline_mod.zwasmThrowTrampoline);
+    try throw_op.emitTrampolineCallAndTrap(ctx, addr);
     ctx.dead_code.* = true;
 }
