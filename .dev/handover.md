@@ -6,10 +6,11 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `9049486b` — feat(p10): extend ValType + parser +
-  validator with 4 remaining GC variants (10.G op_gc cycle 6).
-  anyref / eqref / structref / arrayref now in the enum + parser
-  + validator. Closes the ValType extension front.
+- **HEAD**: `63cf843a` — feat(p10): ref.test + ref.test_null
+  vertical slice (10.G op_gc cycle 7). First ref-test family
+  ops; full lower+validator+interp; cycle-7 stub semantics
+  (1 iff !null for test; always 1 for test_null). RTT refinement
+  defers to later cycles.
 - **ROADMAP §10 progress**: 7/13 DONE, 4 IN-PROGRESS, 2 Pending.
 - **Active debt rows**: 18 — all `blocked-by:` with named
   structural barriers. Zero `now`-status rows.
@@ -56,19 +57,17 @@ future op_gc consumers. EH 40 fails still gated on the bigger
 
 - **Bundle-ID**: 10.G-op_gc
 - **Cycles-remaining**: ~19 (per `.dev/phase10_g_op_bundle_plan.md`)
-- **Continuity-memo**: Cycle 1 (`3b1a4c43`) ADR-0115 §6 amend.
-  Cycle 2 (`a4556584`) ValType.i31ref + 16-site cascade. Cycle 3
-  (`ccc39156`) parser 0x6C. Cycle 4 (`56e1dd0b`) validator
-  opRefNull + reftype cascade. Cycle 5 (`3e8049dd`) opRefI31
-  typed push; vertical i31 slice complete. Cycle 6 (`9049486b`)
-  extend ValType with remaining 4 GC variants + parser/validator
-  recognition; ValType extension front CLOSED. Cycle 7 (next):
-  op_gc.zig dispatcher skeleton (sub-chunks 5-7 of plan):
-  struct.new / struct.get / struct.set OR ref.test / ref.cast /
-  br_on_cast. struct ops need RTT TypeInfo first; ref.test/cast
-  may be smaller substrate without RTT. Pick whichever the
-  plan's "Cycle-budget estimate" anchors lighter; lean ref.test
-  family for the next single-cycle slice.
+- **Continuity-memo**: Cycle 1 ADR amend. Cycle 2 ValType.i31ref
+  cascade. Cycle 3 parser 0x6C. Cycle 4 validator opRefNull.
+  Cycle 5 opRefI31 typed push. Cycle 6 extend ValType with 4
+  remaining GC variants. Cycle 7 (`63cf843a`) ref.test +
+  ref.test_null vertical slice. Cycle 8 (next): ref.cast +
+  ref.cast_null (trap on type mismatch — pre-RTT stub: ref.cast
+  traps only on null mismatch; ref.cast_null never traps).
+  Cycle 9-10: br_on_cast / br_on_cast_fail (branch shape;
+  consumes flags + label + rt1 + rt2 per Wasm 3.0 GC encoding).
+  Cycle 11+: struct.new / struct.get / struct.set — gated on
+  RTT TypeInfo (sub-chunk 5 of plan).
 - **Exit-condition**: wasm-3.0-assert exception-handling /
   function-references / gc corpora open for op_gc dispatch +
   at least the first i31 spec directive flips green via the
