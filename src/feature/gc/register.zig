@@ -33,11 +33,17 @@ pub const needs_heap_detector = @import("needs_heap_detector.zig");
 // 10.G-foundation cycle 3: per-Store GC heap slab per ADR-0115
 // §1 / §5. Bump-pointer allocator over a Runtime-arena-backed
 // slab; 32-bit GcRef offsets, 2-byte alignment, 4 KB grow
-// granularity, 4 GiB cap. Re-exported so the future
-// instantiate-side gate can allocate a Heap on first GC op
-// when Module.needs_gc_heap is true. Collector vtable + null
-// collector α land at cycle 4.
+// granularity, 4 GiB cap.
 pub const heap = @import("heap.zig");
+
+// 10.G-foundation cycle 4: Collector vtable + null collector α
+// per ADR-0115 §3 / §10. Pluggable interface mirroring
+// std.mem.Allocator shape (vtable + ctx). collector_null wraps
+// Heap as allocator-only (collect/walkRoots no-ops);
+// collector_mark_sweep (β must-ship) lands in subsequent bundle
+// cycles.
+pub const collector_iface = @import("collector_iface.zig");
+pub const collector_null = @import("collector_null.zig");
 
 pub fn register(_: *dispatch_table.DispatchTable) void {
     // Placeholder — feature implementation deferred per ADR-0023.
