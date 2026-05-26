@@ -64,6 +64,7 @@ const op_simd_int_arith = @import("op_simd_int_arith.zig");
 const op_simd_int_cmp_lane = @import("op_simd_int_cmp_lane.zig");
 const op_simd_float = @import("op_simd_float.zig");
 const rbp_disp = @import("rbp_disp.zig");
+const gpr = @import("gpr.zig");
 
 // rbp/rsp form-selectors live in rbp_disp.zig per D-052
 // progression (extract when emit.zig approached the 2000-LOC
@@ -771,18 +772,86 @@ pub fn compile(
             }
         }
         if (try dispatch_collector.dispatchX86_64Ctx(ins.op, &ctx, &ins)) {
-            // IT-6 prep — post-dispatch landing_pad_pc patch.
-            // Mirror of the arm64 emit.zig flow.
+            // IT-6 prep + 10.E-payload-prop D-182 — post-dispatch
+            // landing_pad_pc patch (mirror of arm64 emit.zig). See
+            // arm64 sibling for the per-clause-prelude rationale;
+            // x86_64 differs only in the encoders (MOV r64 ← [R15
+            // + disp32] / MOV [RBP - off], r64 / JMP rel32).
             if (ins.op == .end and end_pre_pop_depth > 0 and landing_pad_fixups.items.len > 0) {
-                const land_pc: u32 = @intCast(buf.items.len);
-                var i: usize = 0;
-                while (i < landing_pad_fixups.items.len) {
-                    const fx = landing_pad_fixups.items[i];
-                    if (fx.target_labels_depth == end_pre_pop_depth) {
-                        eh_builder.entries.items[fx.entry_idx].landing_pad_pc = land_pc;
+                var any_payload = false;
+                var probe_i: usize = 0;
+                while (probe_i < landing_pad_fixups.items.len) : (probe_i += 1) {
+                    const fx = landing_pad_fixups.items[probe_i];
+                    if (fx.target_labels_depth != end_pre_pop_depth) continue;
+                    const k = eh_builder.entries.items[fx.entry_idx].kind;
+                    if (k == .catch_ or k == .catch_ref) {
+                        if (eh_builder.entries.items[fx.entry_idx].tag_idx) |t| {
+                            if (ctx.tag_param_counts.len > t and ctx.tag_param_counts[t] > 0) {
+                                any_payload = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (!any_payload) {
+                    const land_pc: u32 = @intCast(buf.items.len);
+                    var i: usize = 0;
+                    while (i < landing_pad_fixups.items.len) {
+                        const fx = landing_pad_fixups.items[i];
+                        if (fx.target_labels_depth == end_pre_pop_depth) {
+                            eh_builder.entries.items[fx.entry_idx].landing_pad_pc = land_pc;
+                            _ = landing_pad_fixups.swapRemove(i);
+                        } else {
+                            i += 1;
+                        }
+                    }
+                } else {
+                    var jmp_placeholders: std.ArrayList(u32) = .empty;
+                    defer jmp_placeholders.deinit(allocator);
+
+                    var i: usize = 0;
+                    while (i < landing_pad_fixups.items.len) {
+                        const fx = landing_pad_fixups.items[i];
+                        if (fx.target_labels_depth != end_pre_pop_depth) {
+                            i += 1;
+                            continue;
+                        }
+                        const entry = &eh_builder.entries.items[fx.entry_idx];
+                        const clause_start: u32 = @intCast(buf.items.len);
+
+                        if (entry.kind == .catch_ or entry.kind == .catch_ref) {
+                            const tag_idx = entry.tag_idx orelse return Error.UnsupportedOp;
+                            const n_payload: u32 = if (ctx.tag_param_counts.len > tag_idx)
+                                ctx.tag_param_counts[tag_idx]
+                            else
+                                0;
+                            if (n_payload > 0) {
+                                if (pushed_vregs.items.len < n_payload) return Error.AllocationMissing;
+                                var k: u32 = 0;
+                                while (k < n_payload) : (k += 1) {
+                                    const target_vreg = pushed_vregs.items[pushed_vregs.items.len - n_payload + k];
+                                    const dest_reg = try gpr.gprDefSpilled(alloc, target_vreg, 0);
+                                    const off: i32 = @intCast(jit_abi.eh_payload_buf_off + k * 8);
+                                    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(dest_reg, abi.runtime_ptr_save_gpr, off).slice());
+                                    try gpr.gprStoreSpilled(allocator, &buf, alloc, spill_base_off, target_vreg, 0);
+                                }
+                            }
+                        }
+
+                        const jmp_off: u32 = @intCast(buf.items.len);
+                        try buf.appendSlice(allocator, inst.encJmpRel32(0).slice());
+                        try jmp_placeholders.append(allocator, jmp_off);
+
+                        entry.landing_pad_pc = clause_start;
                         _ = landing_pad_fixups.swapRemove(i);
-                    } else {
-                        i += 1;
+                    }
+
+                    const common_pc: u32 = @intCast(buf.items.len);
+                    for (jmp_placeholders.items) |fx_byte| {
+                        const disp: i32 = @as(i32, @intCast(common_pc)) -
+                            @as(i32, @intCast(fx_byte)) - 5;
+                        inst.patchRel32(buf.items, fx_byte, 5, disp);
                     }
                 }
             }

@@ -482,15 +482,14 @@ test "runI32Export: tagged catch routes by tag_idx — throw $e1 → catch $e1 r
 }
 
 test "runI32Export: throw + catch_ with i32 payload returns 88 (10.E-payload-prop bundle close)" {
-    // D-182 discharge — bundle 10.E-payload-prop closed.
-    // arm64: throw.emit pops N + stores at eh_payload_buf;
-    // emit.zig's catch-label end-op-patch site emits per-clause
-    // prelude loading eh_payload_buf[i] into the block result
-    // vreg + JMP to common continuation. x86_64 mirror lands in
-    // a follow-up cycle; Mac aarch64 path is the gate here.
-    if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
-        return error.SkipZigTest;
-    }
+    // D-182 discharge — bundle 10.E-payload-prop closed on both
+    // arches. Throw side: throw.emit pops N values + stores at
+    // eh_payload_buf. Catch side: emit.zig (arm64 + x86_64) at
+    // the catch-label end-op-patch site emits per-clause prelude
+    // loading eh_payload_buf[i] into the block-result vreg slot
+    // (via gprDefSpilled + gprStoreSpilled) + JMP-to-common
+    // continuation. windowsmini = phase-boundary per ADR-0067.
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
     // (module
     //   (type $t0 (func (param i32)))
     //   (tag $e0 (type $t0))
