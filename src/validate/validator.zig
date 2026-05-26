@@ -1790,7 +1790,10 @@ pub const Validator = struct {
         if (self.pos >= self.body.len) return Error.UnexpectedEnd;
         if (self.body[self.pos] != 0x00) return Error.InvalidOpcode;
         self.pos += 1;
-        try self.pushType(.i32);
+        // Wasm 3.0 memory64 — result is the memory's idx_type
+        // (i32 for default memory, i64 for memory64 per
+        // ADR-0111 D1).
+        try self.pushType(self.memAddrType());
     }
 
     fn opMemoryGrow(self: *Validator) Error!void {
@@ -1798,8 +1801,9 @@ pub const Validator = struct {
         if (self.pos >= self.body.len) return Error.UnexpectedEnd;
         if (self.body[self.pos] != 0x00) return Error.InvalidOpcode;
         self.pos += 1;
-        try self.popExpect(.i32);
-        try self.pushType(.i32);
+        // Wasm 3.0 memory64 — delta + result use memory's idx_type.
+        try self.popExpect(self.memAddrType());
+        try self.pushType(self.memAddrType());
     }
 
     // ----------------------------------------------------------------
