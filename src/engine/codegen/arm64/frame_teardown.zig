@@ -46,6 +46,10 @@ pub const Params = struct {
     frame_bytes: u32 = 0,
     n_incoming: u8 = 0,
     n_outgoing: u8 = 0,
+    /// arm64-ignored — X19 is MOV-installed (not stack-saved)
+    /// per ADR-0017 sub-2d-ii. Carried in Params for facade
+    /// structural symmetry with x86_64 (which DOES stack-save R15).
+    uses_runtime_ptr: bool = false,
 };
 
 /// Emit the tail-call frame-teardown sequence:

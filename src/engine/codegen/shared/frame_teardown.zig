@@ -46,11 +46,20 @@ const arch_impl = switch (builtin.target.cpu.arch) {
 /// - `n_incoming`: caller's incoming-args slot count (for
 ///   future AAPCS64 §6.4.2 overflow-region adjustment).
 /// - `n_outgoing`: callee's outgoing-args slot count (same).
+/// - `uses_runtime_ptr`: true iff the caller's prologue
+///   PUSH-saved R15 (x86_64, per ADR-0026 Cc-pivot). Required
+///   so the x86_64 teardown emits `POP R15` between `ADD RSP`
+///   and `POP RBP` — otherwise the stack offset misaligns and
+///   `POP RBP` loads the saved R15 word instead of saved RBP.
+///   Arm64 ignores this field (X19 is MOV-installed, not
+///   stack-saved, per ADR-0017 sub-2d-ii; same-module tail-call
+///   keeps the same value).
 pub const Params = struct {
     n_clobber_saved: u8 = 0,
     frame_bytes: u32 = 0,
     n_incoming: u8 = 0,
     n_outgoing: u8 = 0,
+    uses_runtime_ptr: bool = false,
 };
 
 /// Emit the tail-call frame-teardown bytes for the active
@@ -74,6 +83,7 @@ pub fn emit(
         .frame_bytes = params.frame_bytes,
         .n_incoming = params.n_incoming,
         .n_outgoing = params.n_outgoing,
+        .uses_runtime_ptr = params.uses_runtime_ptr,
     });
 }
 
