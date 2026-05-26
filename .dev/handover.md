@@ -6,12 +6,11 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `a262a7d2` — feat(p10): br_on_cast + br_on_cast_fail
-  validator+lower (10.G op_gc cycle 9). Branch-on-cast family
-  parse+validator wired for sub-ops 24/25; opBrOnCast mirrors
-  opBrOnNonNull's label-type contract. Interp deferred (gc
-  corpus D-179-blocked; runtime semantics land with struct ops
-  + RTT TypeInfo).
+- **HEAD**: `2dc566b1` — feat(p10): any.convert_extern +
+  extern.convert_any vertical slice (10.G op_gc cycle 10).
+  any↔extern hierarchy reinterpretation; full lower+validator+
+  interp; identity runtime semantics (reftypes share `.ref:u64`
+  slot, validator-tracked distinction).
 - **ROADMAP §10 progress**: 7/13 DONE, 4 IN-PROGRESS, 2 Pending.
 - **Active debt rows**: 18 — all `blocked-by:` with named
   structural barriers. Zero `now`-status rows.
@@ -57,7 +56,7 @@ future op_gc consumers. EH 40 fails still gated on the bigger
 ## Active bundle
 
 - **Bundle-ID**: 10.G-op_gc
-- **Cycles-remaining**: ~17 (per `.dev/phase10_g_op_bundle_plan.md`)
+- **Cycles-remaining**: ~16 (per `.dev/phase10_g_op_bundle_plan.md`)
 - **Continuity-memo**: Cycle 1 ADR amend. Cycle 2 ValType.i31ref
   cascade. Cycle 3 parser 0x6C. Cycle 4 validator opRefNull.
   Cycle 5 opRefI31 typed push. Cycle 6 extend ValType with 4
@@ -65,10 +64,13 @@ future op_gc consumers. EH 40 fails still gated on the bigger
   ref.test_null vertical slice. Cycle 8 (`93e63ba7`) ref.cast +
   ref.cast_null vertical slice. Cycle 9 (`a262a7d2`) br_on_cast
   + br_on_cast_fail validator+lower (interp deferred to RTT
-  integration). Cycle 10 (next): struct.new / struct.new_default
-  validator+lower (sub-ops 0/1; consume typeidx; pre-RTT push a
-  generic .structref). Cycle 11+: struct.get / struct.set —
-  gated on RTT TypeInfo (sub-chunk 5 of plan).
+  integration). Cycle 10 (`2dc566b1`) any.convert_extern +
+  extern.convert_any vertical slice (identity runtime). Cycle 11
+  (next): ref.eq (sub-op 19 = 0x13) — pop 2 eqrefs, push i32.
+  Needs ZirOp tag addition (not in zir_ops.zig yet) + validator
+  popExpect cascade + interp pointer-eq handler. Cycle 12+:
+  struct.new / struct.get / struct.set — gated on RTT TypeInfo
+  (sub-chunk 5 of plan).
 - **Exit-condition**: wasm-3.0-assert exception-handling /
   function-references / gc corpora open for op_gc dispatch +
   at least the first i31 spec directive flips green via the
