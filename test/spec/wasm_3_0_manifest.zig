@@ -225,6 +225,53 @@ pub fn runOneTrap(
     return .returned_normally;
 }
 
+pub const ExceptionOutcome = enum {
+    /// invoke errored with `Trap.UncaughtException` —
+    /// assert_exception passes.
+    uncaught_exception,
+    /// invoke returned normally — assert_exception fails (function
+    /// completed without throwing).
+    returned_normally,
+    /// invoke errored with a non-exception trap (DivByZero, OOB,
+    /// etc.) — assert_exception fails (function trapped but not
+    /// via the EH path).
+    other_trap,
+};
+
+/// `assert_exception` execution path: same compile + sig + invoke
+/// shape as runOneTrap, but discriminates the trap class. Only
+/// `Trap.UncaughtException` counts as the expected outcome; any
+/// other trap (DivByZero, OOB, etc.) is `.other_trap` (failed
+/// because the function trapped for an unrelated reason).
+/// Requires the c_api `mapDispatchErr` to route UncaughtException
+/// through (added alongside this helper).
+pub fn runOneExpectException(
+    alloc: std.mem.Allocator,
+    wasm_bytes: []const u8,
+    func_name: []const u8,
+    args: []const zwasm_root.Value,
+) RunError!ExceptionOutcome {
+    var engine = zwasm_root.Engine.init(alloc, .{}) catch return RunError.OutOfMemory;
+    defer engine.deinit();
+    var module = engine.compile(wasm_bytes) catch return RunError.LoadFailed;
+    defer module.deinit();
+    var linker = zwasm_root.Linker.init(&engine);
+    defer linker.deinit();
+    var instance = linker.instantiate(&module) catch return RunError.LoadFailed;
+    defer instance.deinit();
+
+    const sig = instance.exportFuncSig(func_name) orelse return RunError.LoadFailed;
+    const n_results = sig.results.len;
+    var results_buf: [4]zwasm_root.Value = undefined;
+    if (n_results > results_buf.len) return RunError.InvokeFailed;
+    const results = results_buf[0..n_results];
+
+    instance.invoke(func_name, args, results) catch |err| {
+        return if (err == error.UncaughtException) .uncaught_exception else .other_trap;
+    };
+    return .returned_normally;
+}
+
 pub const CompileOutcome = enum {
     /// Engine.compile errored — assert_invalid / assert_malformed
     /// passes (the validator/parser rejected as expected).
@@ -567,6 +614,27 @@ test "compileExpectInvalid: return_call.1.wasm rejected (assert_invalid path)" {
     const wasm_bytes = @embedFile("wasm-3.0-assert/tail-call/return_call/return_call.1.wasm");
     const outcome = try compileExpectInvalid(testing.allocator, wasm_bytes);
     try testing.expectEqual(CompileOutcome.rejected, outcome);
+}
+
+test "runOneExpectException: trap_on_neg i32:-1 reports .other_trap (not exception)" {
+    // Sanity guard: a non-EH trap (here `unreachable` via
+    // handcrafted_trap) must be classified `.other_trap`, NOT
+    // `.uncaught_exception`. Verifies the trap-class discrimination
+    // doesn't conflate generic traps with EH exceptions.
+    const wasm_bytes = @embedFile("wasm-1.0-assert/handcrafted_trap/m.wasm");
+    const args = [_]zwasm_root.Value{.{ .i32 = -1 }};
+    const outcome = try runOneExpectException(testing.allocator, wasm_bytes, "trap_on_neg", &args);
+    try testing.expectEqual(ExceptionOutcome.other_trap, outcome);
+}
+
+test "runOneExpectException: normal return reports .returned_normally" {
+    // Sanity: a function that returns cleanly is `.returned_normally`,
+    // not exception/trap. Mirrors the runOneTrap returned_normally
+    // guard.
+    const wasm_bytes = @embedFile("wasm-1.0-assert/handcrafted_trap/m.wasm");
+    const args = [_]zwasm_root.Value{.{ .i32 = 5 }};
+    const outcome = try runOneExpectException(testing.allocator, wasm_bytes, "trap_on_neg", &args);
+    try testing.expectEqual(ExceptionOutcome.returned_normally, outcome);
 }
 
 test "compileExpectInvalid: return_call.0.wasm accepted (no false rejection)" {

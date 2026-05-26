@@ -57,6 +57,8 @@ const ProposalSummary = struct {
     asserts_malformed_pass: u32 = 0,
     asserts_malformed_fail: u32 = 0,
     asserts_exception: u32 = 0,
+    asserts_exception_pass: u32 = 0,
+    asserts_exception_fail: u32 = 0,
     skips: u32 = 0,
 };
 
@@ -95,6 +97,8 @@ pub fn main(init: std.process.Init) !void {
     var grand_total_invalid_fail: u32 = 0;
     var grand_total_malformed_pass: u32 = 0;
     var grand_total_malformed_fail: u32 = 0;
+    var grand_total_exception_pass: u32 = 0;
+    var grand_total_exception_fail: u32 = 0;
 
     for (PROPOSALS) |proposal| {
         var summary: ProposalSummary = .{ .name = proposal };
@@ -254,7 +258,32 @@ pub fn main(init: std.process.Init) !void {
                             .accepted => summary.asserts_malformed_fail += 1,
                         }
                     },
-                    .assert_exception => summary.asserts_exception += 1,
+                    .assert_exception => {
+                        summary.asserts_exception += 1;
+                        const bytes = cur_module_bytes orelse continue;
+                        // Parse args (same gate as assert_return /
+                        // assert_trap); v128 / refs skip.
+                        var call_args: [4]zwasm.Value = undefined;
+                        var call_args_ok = true;
+                        var ai: u8 = 0;
+                        while (ai < d.args_len) : (ai += 1) {
+                            const tv = d.args[ai];
+                            const rv = manifest_parser.parsePayload(tv) catch {
+                                call_args_ok = false;
+                                break;
+                            };
+                            call_args[ai] = manifest_parser.runtimeToZwasm(rv, tv.ty);
+                        }
+                        if (!call_args_ok) continue;
+                        const outcome = manifest_parser.runOneExpectException(gpa, bytes, d.func_name, call_args[0..d.args_len]) catch {
+                            summary.asserts_exception_fail += 1;
+                            continue;
+                        };
+                        switch (outcome) {
+                            .uncaught_exception => summary.asserts_exception_pass += 1,
+                            .returned_normally, .other_trap => summary.asserts_exception_fail += 1,
+                        }
+                    },
                     .skip_impl, .skip_validator, .skip_runtime => summary.skips += 1,
                     .unknown => {},
                 }
@@ -264,13 +293,14 @@ pub fn main(init: std.process.Init) !void {
         const total_directives = summary.modules + summary.asserts_return + summary.asserts_trap +
             summary.asserts_invalid + summary.asserts_malformed + summary.asserts_exception + summary.skips;
         try stdout.print(
-            "[{s:<22}] manifests={d:<3} module={d:<3} return={d:<4} (pass={d:<4} fail={d:<4}) trap={d:<4} (pass={d:<4} fail={d:<4}) invalid={d:<3} (pass={d:<3} fail={d:<3}) malformed={d:<3} (pass={d:<3} fail={d:<3}) exception={d:<3} skip={d}\n",
+            "[{s:<22}] manifests={d:<3} module={d:<3} return={d:<4} (pass={d:<4} fail={d:<4}) trap={d:<4} (pass={d:<4} fail={d:<4}) invalid={d:<3} (pass={d:<3} fail={d:<3}) malformed={d:<3} (pass={d:<3} fail={d:<3}) exception={d:<3} (pass={d:<3} fail={d:<3}) skip={d}\n",
             .{ proposal, summary.manifests, summary.modules, summary.asserts_return,
                summary.asserts_return_pass, summary.asserts_return_fail,
                summary.asserts_trap, summary.asserts_trap_pass, summary.asserts_trap_fail,
                summary.asserts_invalid, summary.asserts_invalid_pass, summary.asserts_invalid_fail,
                summary.asserts_malformed, summary.asserts_malformed_pass, summary.asserts_malformed_fail,
-               summary.asserts_exception, summary.skips },
+               summary.asserts_exception, summary.asserts_exception_pass, summary.asserts_exception_fail,
+               summary.skips },
         );
         grand_total_manifests += summary.manifests;
         grand_total_directives += total_directives;
@@ -282,15 +312,18 @@ pub fn main(init: std.process.Init) !void {
         grand_total_invalid_fail += summary.asserts_invalid_fail;
         grand_total_malformed_pass += summary.asserts_malformed_pass;
         grand_total_malformed_fail += summary.asserts_malformed_fail;
+        grand_total_exception_pass += summary.asserts_exception_pass;
+        grand_total_exception_fail += summary.asserts_exception_fail;
     }
 
     try stdout.print(
-        "[wasm-3.0-assert] total: {d} manifests, {d} directives; assert_return pass={d} fail={d}; assert_trap pass={d} fail={d}; assert_invalid pass={d} fail={d}; assert_malformed pass={d} fail={d} (multi-value execution + assert_exception land in follow-on cycles)\n",
+        "[wasm-3.0-assert] total: {d} manifests, {d} directives; assert_return pass={d} fail={d}; assert_trap pass={d} fail={d}; assert_invalid pass={d} fail={d}; assert_malformed pass={d} fail={d}; assert_exception pass={d} fail={d} (multi-value execution + assert_trap class discrimination land in follow-on cycles)\n",
         .{ grand_total_manifests, grand_total_directives,
            grand_total_return_pass, grand_total_return_fail,
            grand_total_trap_pass, grand_total_trap_fail,
            grand_total_invalid_pass, grand_total_invalid_fail,
-           grand_total_malformed_pass, grand_total_malformed_fail },
+           grand_total_malformed_pass, grand_total_malformed_fail,
+           grand_total_exception_pass, grand_total_exception_fail },
     );
     try stdout.flush();
 }

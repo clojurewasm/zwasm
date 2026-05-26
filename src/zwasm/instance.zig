@@ -193,6 +193,8 @@ fn mapDispatchErr(err: anyerror) Instance.InvokeError {
         error.IndirectCallTypeMismatch => error.IndirectCallTypeMismatch,
         error.StackOverflow => error.StackOverflow,
         error.CallStackExhausted => error.CallStackExhausted,
+        error.NullReference => error.NullReference,
+        error.UncaughtException => error.UncaughtException,
         error.OutOfMemory => error.OutOfMemory,
         else => @panic("zwasm.Instance.invoke: dispatch returned non-Trap error variant"),
     };
