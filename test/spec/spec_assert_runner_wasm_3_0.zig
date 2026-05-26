@@ -352,6 +352,30 @@ pub fn main(init: std.process.Init) !void {
                             .returned_normally, .other_trap => summary.asserts_exception_fail += 1,
                         }
                     },
+                    .invoke => {
+                        // D-191 — wast `(invoke "fn" args)` action.
+                        // Side-effect driver for subsequent state-
+                        // dependent asserts. Drop result silently
+                        // (matches spec: an action by itself has
+                        // no expected outcome other than non-trap).
+                        _ = cur_module_bytes orelse continue;
+                        var call_args: [4]zwasm.Value = undefined;
+                        var call_args_ok = true;
+                        var ai: u8 = 0;
+                        while (ai < d.args_len) : (ai += 1) {
+                            const tv = d.args[ai];
+                            const rv = manifest_parser.parsePayload(tv) catch {
+                                call_args_ok = false;
+                                break;
+                            };
+                            call_args[ai] = manifest_parser.runtimeToZwasm(rv, tv.ty);
+                        }
+                        if (!call_args_ok) continue;
+                        const instance = if (cur_instance) |*i| i else continue;
+                        // Failure is informational only — the action
+                        // wasn't an assertion. Counters don't increment.
+                        manifest_parser.invokeInstanceVoid(instance, d.func_name, call_args[0..d.args_len]) catch {};
+                    },
                     .skip_impl, .skip_validator, .skip_runtime => summary.skips += 1,
                     .unknown => {},
                 }

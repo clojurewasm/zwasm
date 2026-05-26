@@ -49,6 +49,10 @@ pub const TypedValue = struct {
 
 pub const Kind = enum {
     module,
+    /// D-191 — wast `(invoke "fn" args)` action directive between
+    /// asserts; drives state mutation for subsequent state-dependent
+    /// assertions. Carries args + func_name; no results section.
+    invoke,
     assert_return,
     assert_trap,
     assert_exception,
@@ -435,11 +439,19 @@ pub fn parseLine(
     const is_assert_return = std.mem.eql(u8, kind_str, "assert_return");
     const is_assert_trap = std.mem.eql(u8, kind_str, "assert_trap");
     const is_assert_exception = std.mem.eql(u8, kind_str, "assert_exception");
-    if (!is_assert_return and !is_assert_trap and !is_assert_exception) {
+    const is_invoke = std.mem.eql(u8, kind_str, "invoke");
+    if (!is_assert_return and !is_assert_trap and !is_assert_exception and !is_invoke) {
         return directive; // .unknown
     }
 
-    directive.kind = if (is_assert_return) .assert_return else if (is_assert_trap) .assert_trap else .assert_exception;
+    directive.kind = if (is_assert_return)
+        .assert_return
+    else if (is_assert_trap)
+        .assert_trap
+    else if (is_assert_exception)
+        .assert_exception
+    else
+        .invoke;
 
     // Split rest into tokens; first non-typed token is funcname,
     // typed tokens (`<ty>:<val>`) until `->` are args, after
@@ -526,6 +538,27 @@ test "parseLine: assert_return with void result `()`" {
     try testing.expectEqual(Kind.assert_return, d.kind);
     try testing.expectEqual(@as(u8, 2), d.args_len);
     try testing.expectEqual(@as(u8, 0), d.results_len); // void
+}
+
+test "parseLine: invoke action (D-191) — args parsed, no results section" {
+    var args: [4]TypedValue = undefined;
+    var results: [4]TypedValue = undefined;
+    const d = try parseLine("invoke zero_everything ()", &args, &results);
+    try testing.expectEqual(Kind.invoke, d.kind);
+    try testing.expectEqualStrings("zero_everything", d.func_name);
+    try testing.expectEqual(@as(u8, 0), d.args_len);
+    try testing.expectEqual(@as(u8, 0), d.results_len);
+}
+
+test "parseLine: invoke action with typed args (D-191)" {
+    var args: [4]TypedValue = undefined;
+    var results: [4]TypedValue = undefined;
+    const d = try parseLine("invoke malloc i64:42", &args, &results);
+    try testing.expectEqual(Kind.invoke, d.kind);
+    try testing.expectEqualStrings("malloc", d.func_name);
+    try testing.expectEqual(@as(u8, 1), d.args_len);
+    try testing.expectEqualStrings("i64", d.args[0].ty);
+    try testing.expectEqualStrings("42", d.args[0].payload);
 }
 
 test "parseLine: assert_trap no result" {

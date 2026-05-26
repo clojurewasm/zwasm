@@ -134,6 +134,20 @@ for c in d['commands']:
         args_s = ' '.join(fmt(x) for x in args) if args else '()'
         field = a.get('field', '<non-invoke>')
         lines.append(f'assert_exception {field} {args_s}')
+    elif t == 'action':
+        # D-191 — wast `(invoke "fn" args)` action directive between
+        # asserts. Side-effect driver for state-dependent sequences
+        # (e.g. memory_redundancy64's `zero_everything` call between
+        # test_store_to_load and test_redundant_load). Previously
+        # dropped as `skip-impl directive-action`; runner now invokes
+        # via invokeInstanceVoid.
+        a = c.get('action', {})
+        if a.get('type') != 'invoke':
+            lines.append('skip-impl non-invoke-action')
+            continue
+        args = a.get('args', [])
+        args_s = ' '.join(fmt(x) for x in args) if args else '()'
+        lines.append(f'invoke {a["field"]} {args_s}')
     else:
         lines.append(f'skip-impl directive-{t}')
 with open(dst, 'w') as f:

@@ -1,8 +1,8 @@
 module memory_redundancy64.0.wasm
 assert_return test_store_to_load () -> i32:128
-skip-impl directive-action
+invoke zero_everything ()
 assert_return test_redundant_load () -> i32:128
-skip-impl directive-action
+invoke zero_everything ()
 assert_return test_dead_store () -> f32:35
-skip-impl directive-action
+invoke zero_everything ()
 assert_return malloc_aliasing () -> i32:43
