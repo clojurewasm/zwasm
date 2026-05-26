@@ -118,9 +118,14 @@ pub fn usesRuntimePtr(func: *const ZirFunc) bool {
             // (emitLoadCalleeRtSameModule) — reads R15. Must be
             // whitelisted so the prologue PUSH-saves R15 (otherwise
             // the MOV reads uninitialised R15 → silent miscompile,
-            // D-180-class). The return_call_{indirect,ref} siblings
-            // will land here when their emit bodies wire up.
+            // D-180-class). return_call_ref will land here when its
+            // emit body wires up.
             .return_call,
+            // return_call_indirect ALSO reads R15: bounds via
+            // [R15+table_size_off], sig via [R15+typeidx_base_off],
+            // funcptr via [R15+funcptr_base_off]. Same D-180 risk
+            // class.
+            .return_call_indirect,
             // Trap-stub emitters: unreachable + div / rem (i32/i64
             // × s/u) + trunc_trap (i32/i64 × f32/f64 × s/u). All
             // write `[r15+trap_flag_off]` on the trap path; require

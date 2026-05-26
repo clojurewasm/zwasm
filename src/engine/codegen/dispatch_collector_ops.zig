@@ -820,6 +820,7 @@ const x86_64_try_table = @import("x86_64/ops/wasm_3_0/try_table.zig");
 const x86_64_throw = @import("x86_64/ops/wasm_3_0/throw.zig");
 const x86_64_throw_ref = @import("x86_64/ops/wasm_3_0/throw_ref.zig");
 const x86_64_return_call = @import("x86_64/ops/wasm_3_0/return_call.zig");
+const x86_64_return_call_indirect = @import("x86_64/ops/wasm_3_0/return_call_indirect.zig");
 
 /// Tuple of all migrated arm64 per-op modules.
 pub const collected_arm64_ops = .{
@@ -1663,4 +1664,8 @@ pub const collected_x86_64_ctx_ops = .{
     // delegates to op_tail_call.emitDirectReturnCall (sibling
     // arm64 wired via the manual switch in arm64/emit.zig).
     x86_64_return_call,
+    // ADR-0112 D4 / 10.TC emit-body cycle 8 — return_call_indirect
+    // emit delegates to op_tail_call.emitIndirectReturnCall (JMP R11
+    // path; sibling arm64 wired via manual switch in arm64/emit.zig).
+    x86_64_return_call_indirect,
 };

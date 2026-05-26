@@ -32,6 +32,9 @@ const op_call = @import("op_call.zig");
 // host-dispatched. x86_64 emit always wants x86_64 bytes regardless
 // of host, so import the sibling directly.
 const frame_teardown = @import("frame_teardown.zig");
+const gpr = @import("gpr.zig");
+const canonical_type = @import("../shared/canonical_type.zig");
+const jit_abi = @import("../shared/jit_abi.zig");
 const zir = @import("../../../ir/zir.zig");
 
 /// R11 — System V AMD64 caller-saved scratch (no fixed role in
@@ -153,6 +156,98 @@ pub fn emitDirectReturnCall(
         .uses_runtime_ptr = ctx.uses_runtime_ptr,
     });
     try emitDirectTailJump(ctx.allocator, ctx.buf, ctx.call_fixups, @intCast(ins.payload));
+}
+
+/// Wasm spec 3.0 §3.3.8.19 (tail-call proposal) —
+/// `return_call_indirect type_idx tableidx` on x86_64 SysV.
+/// Mirror of `arm64/op_tail_call.emitIndirectReturnCall`. Uses the
+/// JMP R11 path (D4 prescribed) since the callee target comes from
+/// a runtime table lookup, not the linker.
+///
+/// Restrictions mirror arm64 initial scope (follow-on chunks lift):
+///   - `table_idx == 0` only.
+///   - `callee_sig.results.len <= 2`.
+///
+/// Sequence (single-table fast path):
+///   (1) pop idx vreg, marshal args,
+///   (2) load idx_r,
+///   (3) bounds: MOV EAX,[R15+table_size_off] ; CMP idx_r,EAX ;
+///       JAE rel32 → bounds_fixups,
+///   (4) sig: MOV RAX,[R15+typeidx_base_off] ; MOV EAX,[RAX+idx_r*4] ;
+///       CMP EAX,canonical ; JNE rel32 → bounds_fixups,
+///   (5) funcptr: MOV RAX,[R15+funcptr_base_off] ;
+///       MOV R11,[RAX+idx_r*8],
+///   (6) MOV RDI, R15 (emitLoadCalleeRtSameModule),
+///   (7) frame_teardown.emit (ADD RSP + POP R15? + POP RBP, no RET),
+///   (8) JMP R11 (emitTailJump).
+///
+/// Note (x86_64 vs arm64 fixup-list shape): x86_64 emit puts both
+/// cind bounds AND cind sig fixups into the SHARED `bounds_fixups`
+/// list (op_call.emitCallIndirect convention) — the trap stub at
+/// function tail handles both via the same epilogue+RET shape. arm64
+/// uses separate cind_bounds_fixups + cind_sig_fixups lists routed
+/// through dedicated EmitCindStub variants.
+pub fn emitIndirectReturnCall(
+    ctx: *ctx_mod.EmitCtx,
+    ins: *const zir.ZirInstr,
+) ctx_mod.Error!void {
+    if (ins.payload >= ctx.module_types.len) return ctx_mod.Error.AllocationMissing;
+    const callee_sig: zir.FuncType = ctx.module_types[ins.payload];
+    const table_idx: u32 = ins.extra;
+    if (table_idx != 0) return ctx_mod.Error.UnsupportedOp;
+    if (callee_sig.results.len > 2) return ctx_mod.Error.UnsupportedOp;
+
+    if (ctx.pushed_vregs.items.len < 1) return ctx_mod.Error.AllocationMissing;
+    const idx_vreg = ctx.pushed_vregs.pop().?;
+
+    try op_call.marshalCallArgs(
+        ctx.allocator,
+        ctx.buf,
+        ctx.alloc,
+        ctx.pushed_vregs,
+        ctx.spill_base_off,
+        callee_sig,
+    );
+
+    // Load idx AFTER marshalCallArgs (D-097 d-18 mirror — marshalling
+    // stages spilled args through R10/scratch; loading idx before
+    // would risk clobber).
+    const idx_r = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, idx_vreg, 0);
+
+    const expected_typeidx: u32 = canonical_type.canonicalTypeidx(ctx.module_types, @intCast(ins.payload));
+
+    // Bounds: MOV EAX, [R15+table_size_off] ; CMP idx_r, EAX ; JAE trap.
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovR32FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.table_size_off).slice());
+    try ctx.buf.appendSlice(ctx.allocator, inst.encCmpRR(.d, idx_r, .rax).slice());
+    {
+        const fixup_at: u32 = @intCast(ctx.buf.items.len);
+        try ctx.buf.appendSlice(ctx.allocator, inst.encJccRel32(.ae, 0).slice());
+        try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+    }
+
+    // Sig: MOV RAX, [R15+typeidx_base_off] ; MOV EAX, [RAX + idx_r*4] ;
+    //      CMP EAX, canonical ; JNE trap.
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.typeidx_base_off).slice());
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovR32FromBaseIdxLsl2(.rax, .rax, idx_r).slice());
+    try ctx.buf.appendSlice(ctx.allocator, inst.encCmpRImm32(.rax, expected_typeidx).slice());
+    {
+        const fixup_at: u32 = @intCast(ctx.buf.items.len);
+        try ctx.buf.appendSlice(ctx.allocator, inst.encJccRel32(.ne, 0).slice());
+        try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+    }
+
+    // Funcptr: MOV RAX, [R15+funcptr_base_off] ; MOV R11, [RAX + idx_r*8].
+    // Loading into R11 (tail target) directly — RAX is the LDR-base
+    // scratch; R11 is the JMP target per `tail_target_gpr`.
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.funcptr_base_off).slice());
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromBaseIdxLsl3(tail_target_gpr, .rax, idx_r).slice());
+
+    try emitLoadCalleeRtSameModule(ctx.allocator, ctx.buf);
+    try frame_teardown.emit(ctx.allocator, ctx.buf, .{
+        .frame_bytes = ctx.frame_bytes,
+        .uses_runtime_ptr = ctx.uses_runtime_ptr,
+    });
+    try emitTailJump(ctx.allocator, ctx.buf, tail_target_gpr);
 }
 
 // ---------------------------------------------------------------------
