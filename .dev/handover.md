@@ -6,17 +6,17 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `01de05e8` — bulk memory ops (memory.copy/fill/init)
-  plumb memAddrType (no runner delta this cycle; preemptive spec
-  correctness pairing with the prior cycle's `8b5b2ae1`
-  memory.size/grow plumb). Stack: 10.M validator gaps closing
-  incrementally — memory64 corpus return 82→112, trap 1→17,
-  invalid 111/1 since the start of this resume.
+- **HEAD**: `ea414cf0` — pin memory64 instantiate gap at address64.0
+  (test-only regression marker; isolates the handover-named
+  candidate). Compile path green for memory64 fixtures
+  (frontendValidate memory0_idx_type plumbing live since
+  `639c2916`); gap is past the c_api boundary, inside
+  `instantiateRuntime`.
 - **ROADMAP §10 progress**: 7/13 DONE, 4 IN-PROGRESS, 2 Pending.
 - **Active debt rows**: 17 — all `blocked-by:` with named
   structural barriers. Zero `now`-status rows.
 
-## Spec runner observable (HEAD `8b5b2ae1`)
+## Spec runner observable (HEAD `8b5b2ae1`; unchanged this cycle)
 
 ```
 [memory64           ] return=337 (pass=81 fail=244) trap=205 (pass=17 fail=188) invalid=83 (pass=83 fail=0) exception=0
@@ -27,30 +27,45 @@
 total: return pass=112 fail=277; trap pass=17 fail=190; invalid pass=111 fail=1; exception pass=0 fail=4
 ```
 
-assert_invalid now 111/1 — only try_table.10 remains (deep EH
+assert_invalid 111/1 — only try_table.10 remains (deep EH
 catch_all_ref typing, requires exnref ValType extension).
 
 Recent commits this resume:
+- `ea414cf0` test — pin memory64 instantiate gap at address64.0.
+- `24f0353f` chore — retarget handover after bulk mem ops memAddrType.
 - `01de05e8` — bulk mem ops memAddrType (preemptive; no runner delta).
 - `8b5b2ae1` — opMemorySize/Grow memAddrType plumb (+46 dirs).
 - `a2a3ac3b` test — D-189 regression fixture correction.
-- `49e6a44a` — D-189 close (37 align64 cases reject).
-- `639c2916` — 10.M memory64 frontendValidate plumbing (+52 dirs).
+
+## Active task — memory64 instantiate gap (bundle candidate)
+
+This-cycle observation: address64.0.wasm compiles green but
+`linker.instantiate` returns `error.InstantiateFailed`. The error
+is the c_api wrapper around any `return error.<X>` site in
+`runtime/instance/instantiate.zig::instantiateRuntime` (51 raise
+sites; coarsely swallowed at `api/instance.zig:754` catch). Next
+chunk = NARROW which specific site fires — candidates from inspect:
+`MultiMemoryUnsupported` (host-allocator path for i64 memory size),
+`DataSegmentOutOfRange` (active-data install on i64 memory),
+plus any memory.size/grow / bulk-mem residual after the
+`8b5b2ae1` + `01de05e8` plumbing landed.
+
+Tractable per-cycle deliverable: thread a stage-name into
+`instantiateRuntime`'s catch (or via `diagnostic.setDiag`) so the
+underlying error name surfaces past the c_api boundary. Once the
+specific raise site is named, single-cycle fixes per-fixture can
+proceed against the wasm-3.0-assert memory64 corpus.
 
 ## Next sub-chunk candidates (names only)
 
-- **memory64 instantiate gap** — modules compile but
-  `linker.instantiate` fails. Likely runtime memory-allocator
-  path for i64 memory size. Multi-cycle bundle (10.M runtime
-  scope).
+- **memory64 instantiate gap** — current active per above.
+  Multi-cycle bundle candidate when next cycle narrows the
+  specific raise site.
 - **EH module-compile gap** — `try_table` op validator + interp
   dispatch substrate. The 33+2+4 EH directive fails all root
   here. Multi-cycle (10.E scope).
-- **memory64 return/trap fail bisect** — 274 return + 204 trap
-  still fail; mix of runtime memory.size/grow with i64 results
-  + load/store edge cases. Per-case investigation.
 - **D-188 final (try_table.10)** — `catch_all_ref` typing in
-  try_table. Requires exnref ValType extension (multi-cycle).
+  try_table. Blocked-by exnref ValType extension (multi-cycle).
 - **10.R-4 / 10.R-5 (call_ref / return_call_ref)** — blocked-by
   D-186 (typed-funcref Value shape ADR).
 - **10.G WasmGC** — large multi-cycle bundle.
