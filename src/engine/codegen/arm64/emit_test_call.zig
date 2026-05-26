@@ -448,3 +448,72 @@ test "compile: bundled Class C MEMORY-class — caller LEA X8 + callee STR X8 + 
         try testing.expectEqual(@as(u32, 0x3E4), w >> 22); // STR Xt opcode prefix
     }
 }
+
+// ADR-0112 D3 + 10.TC emit-body cycle 6 — return_call_indirect
+// emit body byte-snapshot. Mirror of the call_indirect probe
+// minus the captureCallResult tail, with frame_teardown +
+// BR X16 in place of BLR X17 + capture.
+test "compile: return_call_indirect — bounds + sig + funcptr-to-X16 + frame_teardown + BR X16" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 5 });
+    try f.instrs.append(testing.allocator, .{ .op = .return_call_indirect, .payload = 3, .extra = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+    const slots = [_]u16{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    var types: [4]zir.FuncType = undefined;
+    for (&types) |*t| t.* = .{ .params = &.{}, .results = &.{} };
+    types[3] = .{ .params = &.{}, .results = &.{.i32} };
+    const out = try compile(testing.allocator, &f, alloc, &.{}, &types, 0, &.{}, &.{}, .i32, &.{});
+    defer deinit(testing.allocator, out);
+
+    const body0 = prologue.body_start_offset(false);
+    // After MOVZ W9 #5 (body+0):
+    //   [+4]  ORR W17, WZR, W9               ; zero-extend idx
+    //   [+8]  CMP W17, W25                   ; bounds
+    //   [+12] B.HS trap_stub                 ; placeholder
+    //   [+16] LDR W16, [X24, X17, LSL #2]    ; sig load
+    //   [+20] CMP W16, #3                    ; sig compare
+    //   [+24] B.NE trap_stub                 ; placeholder
+    //   [+28] LDR X16, [X26, X17, LSL #3]    ; funcptr → X16 (tail target)
+    //   [+32] ORR X0, XZR, X19               ; restore runtime_ptr
+    //   [+36] LDP X29, X30, [SP], #16        ; frame_teardown (frame_bytes=0)
+    //   [+40] BR X16                         ; tail-jump
+    try testing.expectEqual(@as(u32, inst.encOrrRegW(17, 31, 9)), std.mem.readInt(u32, out.bytes[body0 + 4 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encCmpRegW(17, 25)), std.mem.readInt(u32, out.bytes[body0 + 8 ..][0..4], .little));
+    const bhs = std.mem.readInt(u32, out.bytes[body0 + 12 ..][0..4], .little);
+    try testing.expectEqual(@as(u32, 0x2), bhs & 0xF); // cond=.hs
+    try testing.expectEqual(@as(u32, inst.encLdrWRegLsl2(16, 24, 17)), std.mem.readInt(u32, out.bytes[body0 + 16 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encCmpImmW(16, 3)), std.mem.readInt(u32, out.bytes[body0 + 20 ..][0..4], .little));
+    const bne = std.mem.readInt(u32, out.bytes[body0 + 24 ..][0..4], .little);
+    try testing.expectEqual(@as(u32, 0x1), bne & 0xF); // cond=.ne
+    try testing.expectEqual(@as(u32, inst.encLdrXRegLsl3(16, 26, 17)), std.mem.readInt(u32, out.bytes[body0 + 28 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr)), std.mem.readInt(u32, out.bytes[body0 + 32 ..][0..4], .little));
+    // LDP X29, X30, [SP], #16 (frame_teardown for frame_bytes=0)
+    try testing.expectEqual(@as(u32, 0xA8C17BFD), std.mem.readInt(u32, out.bytes[body0 + 36 ..][0..4], .little));
+    // BR X16 = 0xD61F0200
+    try testing.expectEqual(@as(u32, 0xD61F0200), std.mem.readInt(u32, out.bytes[body0 + 40 ..][0..4], .little));
+}
+
+test "compile: return_call_indirect — multi-table (table_idx > 0) rejected as UnsupportedOp (initial scope)" {
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var f = ZirFunc.init(0, sig, &.{});
+    defer f.deinit(testing.allocator);
+    try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
+    try f.instrs.append(testing.allocator, .{ .op = .return_call_indirect, .payload = 3, .extra = 1 });
+    try f.instrs.append(testing.allocator, .{ .op = .end });
+    f.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 1 },
+    } };
+    const slots = [_]u16{0};
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    var types: [4]zir.FuncType = undefined;
+    for (&types) |*t| t.* = .{ .params = &.{}, .results = &.{} };
+    types[3] = .{ .params = &.{}, .results = &.{.i32} };
+    const result = compile(testing.allocator, &f, alloc, &.{}, &types, 0, &.{}, &.{}, .i32, &.{});
+    try testing.expectError(error.UnsupportedOp, result);
+}
