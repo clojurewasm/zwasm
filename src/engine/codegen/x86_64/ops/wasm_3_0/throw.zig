@@ -35,6 +35,7 @@ const std = @import("std");
 const meta = @import("../../../../../instruction/wasm_3_0/throw.zig");
 const ctx_mod = @import("../../ctx.zig");
 const abi = @import("../../abi.zig");
+const gpr = @import("../../gpr.zig");
 const inst = @import("../../inst.zig");
 const jit_abi = @import("../../../shared/jit_abi.zig");
 const trampoline_mod = @import("../../../shared/throw_trampoline.zig");
@@ -52,16 +53,35 @@ pub const is_safepoint: bool = false;
 pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void {
     const tag_idx: u32 = @intCast(ins.payload);
 
-    // 10.E-payload-prop Cycle 3 (ADR-0120) — write `eh_payload_len`
-    // BEFORE the trampoline call. See arm64 sibling for the
-    // full rationale; until Cycle 4 wires the pop+store of N
-    // payload values, Cycle 3 unconditionally writes zero
-    // (matching the pre-Cycle-3 observable behaviour of the
-    // IT-6 N=0 tagged-catch tests).
-    if (ctx.tag_param_counts.len > tag_idx) {
-        std.debug.assert(ctx.tag_param_counts[tag_idx] <= 16);
+    // 10.E-payload-prop Cycle 4 (ADR-0120) — mirror of arm64
+    // sibling. Pop N payload values, store each as a 64-bit
+    // write at `[R15 + eh_payload_buf_off + i*8]`, then store N
+    // (or 0) to `[R15 + eh_payload_len_off]`. See arm64
+    // throw.emit for the operand-stack-order rationale.
+    //
+    // Gpr-class only this cycle; f32/f64/v128/exnref tag params
+    // deferred per ADR-0120 Consequence §3.
+    const n_payload: u32 = if (ctx.tag_param_counts.len > tag_idx)
+        ctx.tag_param_counts[tag_idx]
+    else
+        0;
+    std.debug.assert(n_payload <= 16);
+
+    if (n_payload > 0) {
+        if (ctx.pushed_vregs.items.len < n_payload) return ctx_mod.Error.AllocationMissing;
+        var i: u32 = n_payload;
+        while (i > 0) {
+            i -= 1;
+            const val_vreg = ctx.pushed_vregs.pop().?;
+            const stage_reg = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, val_vreg, 0);
+            const slot_off: i32 = @intCast(jit_abi.eh_payload_buf_off + i * 8);
+            try ctx.buf.appendSlice(ctx.allocator, inst.encStoreR64MemDisp32(stage_reg, abi.runtime_ptr_save_gpr, slot_off).slice());
+        }
     }
-    try ctx.buf.appendSlice(ctx.allocator, inst.encMovMemDisp32Imm32(abi.runtime_ptr_save_gpr, jit_abi.eh_payload_len_off, 0).slice());
+
+    // Write N to eh_payload_len. encMovMemDisp32Imm32 stores a
+    // 32-bit immediate (works for both N=0 and N>0).
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovMemDisp32Imm32(abi.runtime_ptr_save_gpr, jit_abi.eh_payload_len_off, n_payload).slice());
 
     // Marshal tag_idx into the platform's first-arg register so
     // the trampoline's naked stub can re-route it to

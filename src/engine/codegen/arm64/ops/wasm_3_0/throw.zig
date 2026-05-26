@@ -67,23 +67,50 @@ const scratch: inst.Xn = 16;
 pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void {
     const tag_idx: u32 = @intCast(ins.payload);
 
-    // 10.E-payload-prop Cycle 3 (ADR-0120) — write `eh_payload_len`
-    // BEFORE the trampoline call. Cycle 3 ships N=0 always (the
-    // pop+store of N payload values lands at Cycle 4); the
-    // landing-pad reads `eh_payload_len` to know how many slots
-    // to push, so writing the correct value here is the
-    // load-bearing contract. For tag_idx valid against the
-    // threaded `tag_param_counts`, the value would be
-    // `tag_param_counts[tag_idx]`; until Cycle 4 wires the
-    // pop+store, we conservatively emit STR Wzr (zero) so the
-    // landing pad pushes nothing — matching the pre-Cycle-3
-    // observable behaviour of the IT-6 N=0 tagged-catch tests.
-    if (ctx.tag_param_counts.len > tag_idx) {
-        // Debug-only check that threading is consistent with the
-        // validator's range check at compile time.
-        std.debug.assert(ctx.tag_param_counts[tag_idx] <= 16);
+    // 10.E-payload-prop Cycle 4 (ADR-0120) — pop N payload values
+    // from the regalloc operand stack and store each at
+    // `[X19 + eh_payload_buf_off + i*8]`, then write N to
+    // `[X19 + eh_payload_len_off]`. Per ADR-0120 D1 cap N ≤ 16
+    // (matches `Exception.payload[16]` ADR-0114 D1). Wasm
+    // operand-stack order: [..., p_0, p_1, ..., p_{N-1}] with
+    // p_{N-1} on top; popping in reverse means the last-popped
+    // value goes to index 0. Loop from high index down so each
+    // pop deposits into its natural buf slot.
+    //
+    // For tag_idx outside `tag_param_counts.len` (test-side
+    // EmitCtx defaults to `&.{}`), N=0 — same as pre-Cycle-4
+    // shape; no pops, just a `STR Wzr` for the length.
+    //
+    // Gpr-class only this cycle: i32 / i64 / funcref / externref
+    // operand values flow through `gprLoadSpilled`. f32 / f64 /
+    // v128 / exnref tag params fall back to v0.2 scope per
+    // ADR-0120 Consequence §3.
+    const n_payload: u32 = if (ctx.tag_param_counts.len > tag_idx)
+        ctx.tag_param_counts[tag_idx]
+    else
+        0;
+    std.debug.assert(n_payload <= 16);
+
+    if (n_payload > 0) {
+        if (ctx.pushed_vregs.items.len < n_payload) return ctx_mod.Error.AllocationMissing;
+        var i: u32 = n_payload;
+        while (i > 0) {
+            i -= 1;
+            const val_vreg = ctx.pushed_vregs.pop().?;
+            const stage_reg = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, val_vreg, 0);
+            const slot_off: u14 = @intCast(jit_abi.eh_payload_buf_off + i * 8);
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImm(stage_reg, abi.runtime_ptr_save_gpr, slot_off));
+        }
     }
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImmW(31, abi.runtime_ptr_save_gpr, jit_abi.eh_payload_len_off));
+
+    // Write N to eh_payload_len. For N=0 emit STR Wzr (1 instr);
+    // for N>0 materialise N into W17 via MOVZ then STR.
+    if (n_payload == 0) {
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImmW(31, abi.runtime_ptr_save_gpr, jit_abi.eh_payload_len_off));
+    } else {
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(17, @intCast(n_payload)));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImmW(17, abi.runtime_ptr_save_gpr, jit_abi.eh_payload_len_off));
+    }
 
     // Marshal tag_idx into W0 — the trampoline's naked stub reads
     // X0 as the throw-site tag indicator and re-routes it to X2
