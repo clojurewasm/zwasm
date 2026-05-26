@@ -289,7 +289,8 @@ test "collected_x86_64_ctx_ops tracks B54+ migrations to `(ctx, ins)` shape" {
     // 7 fp-conv = 21 ops) moved (+21 = 391); legacy tuple empty.
     // Phase 10 EH (ADR-0114) — IT-1 added x86_64_try_table (+1 = 392);
     // IT-3 added x86_64_throw + x86_64_throw_ref (+2 = 394).
-    try std.testing.expectEqual(@as(usize, 394), collected_x86_64_ctx_ops.len);
+    // 10.TC emit-body cycle 5 (ADR-0112) — x86_64_return_call (+1 = 395).
+    try std.testing.expectEqual(@as(usize, 395), collected_x86_64_ctx_ops.len);
 }
 
 // Note: a `dispatch(.arm64, tag, args)` test at this layer would

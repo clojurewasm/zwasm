@@ -685,8 +685,11 @@ test "link: is_tail=false (default) patches BL opcode (regression for the dispat
 // correctly, fn1's body runs and its RET goes straight back to the
 // Zig stub — the same observable as a regular call but via the
 // B-fixup path (no LR clobber, no return through fn0).
-test "link+execute: fn0 return_call fn1 returns 7 via B fixup (ADR-0112 D3)" {
-    if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
+test "link+execute: fn0 return_call fn1 returns 7 via B/JMP fixup (ADR-0112 D3/D4)" {
+    // Both arches wired in 10.TC-emit-body cycles 3 (arm64) + 5 (x86_64).
+    if (!(builtin.cpu.arch == .aarch64 and builtin.os.tag == .macos) and
+        !(builtin.cpu.arch == .x86_64 and builtin.os.tag != .windows))
+    {
         return error.SkipZigTest;
     }
     const sigs = [_]zir.FuncType{
@@ -726,29 +729,41 @@ test "link+execute: fn0 return_call fn1 returns 7 via B fixup (ADR-0112 D3)" {
     var module = try link(testing.allocator, &bodies, 0);
     defer module.deinit(testing.allocator);
 
-    // Verify the fixup at fn0's tail-jump site patched into a B
-    // (0x14 prefix), not BL (0x94). The byte_offset is the start
-    // of the B placeholder which sits after marshalCallArgs (no
-    // args → no bytes), emitLoadCalleeRtSameModule (4B), and
-    // frame_teardown (4B for frame_bytes=0 → single LDP).
-    var byte_off: usize = module.func_offsets[0];
-    // Skip prologue + body so we find the B-patched word. The
-    // exact prologue size varies — scan forward for the 0x14...
-    // prefix. (Robust to prologue layout changes that don't
-    // touch the tail-call wire-up.)
+    // Verify the fixup at fn0's tail-jump site patched into a
+    // PC-relative tail-jump opcode (arm64: B 0x14..., not BL
+    // 0x94...; x86_64: JMP 0xE9, not CALL 0xE8). Forward-scan is
+    // robust to prologue layout changes that don't touch the
+    // tail-call wire-up.
+    const fn0_off: usize = module.func_offsets[0];
     const block_end: usize = module.func_offsets[1];
-    var found_b: bool = false;
-    while (byte_off + 4 <= block_end) : (byte_off += 4) {
-        const w = std.mem.readInt(u32, module.block.bytes[byte_off..][0..4], .little);
-        // B encoding: top 6 bits = 000101 = 0x14000000 / 0x17... .
-        // Avoid false-positive against the conditional B.cond
-        // (0x54...) and unconditional BR (0xD61F...).
-        if ((w & 0xFC000000) == 0x14000000) {
-            found_b = true;
-            break;
-        }
+    var found_tail_jmp: bool = false;
+    switch (builtin.cpu.arch) {
+        .aarch64 => {
+            var byte_off: usize = fn0_off;
+            while (byte_off + 4 <= block_end) : (byte_off += 4) {
+                const w = std.mem.readInt(u32, module.block.bytes[byte_off..][0..4], .little);
+                if ((w & 0xFC000000) == 0x14000000) {
+                    found_tail_jmp = true;
+                    break;
+                }
+            }
+        },
+        .x86_64 => {
+            // JMP rel32 = 0xE9 (5 bytes). CALL rel32 = 0xE8 (also 5
+            // bytes); structurally similar but starts with the
+            // different opcode byte. Scan byte-by-byte since x86
+            // instruction boundaries aren't 4-aligned.
+            var byte_off: usize = fn0_off;
+            while (byte_off + 5 <= block_end) : (byte_off += 1) {
+                if (module.block.bytes[byte_off] == 0xE9) {
+                    found_tail_jmp = true;
+                    break;
+                }
+            }
+        },
+        else => @compileError("unsupported host arch for tail-call e2e probe"),
     }
-    try testing.expect(found_b);
+    try testing.expect(found_tail_jmp);
 
     // End-to-end execute: fn0 tail-calls fn1; fn1 returns 7.
     var memory: [0]u8 = .{};

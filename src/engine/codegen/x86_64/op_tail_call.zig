@@ -25,6 +25,11 @@ const std = @import("std");
 
 const inst = @import("inst.zig");
 const abi = @import("abi.zig");
+const types = @import("types.zig");
+const ctx_mod = @import("ctx.zig");
+const op_call = @import("op_call.zig");
+const frame_teardown = @import("../shared/frame_teardown.zig");
+const zir = @import("../../../ir/zir.zig");
 
 /// R11 — System V AMD64 caller-saved scratch (no fixed role in
 /// the ABI) per System V §3.2.3. ADR-0066 § (bridge thunk)
@@ -67,6 +72,84 @@ pub fn emitTailJump(
 ) !void {
     const enc = inst.encJmpReg(target);
     try buf.appendSlice(allocator, enc.slice());
+}
+
+/// Same-module direct tail-call alternative to the JMP R11
+/// path: emit `JMP rel32` placeholder (0xE9 + 4-byte disp32=0)
+/// and register a `CallFixup{is_tail=true}` so the post-emit
+/// linker patches disp32 to a PC-relative offset targeting the
+/// callee body. Refinement of ADR-0112 D4 (not deviation): D4
+/// prescribes JMP R11 for cross-module where the callee target
+/// isn't reachable by rel32; for same-module direct the linker
+/// has the offset and a single JMP rel32 (5 bytes) is shorter
+/// than the load-then-JMP-R11 sequence.
+///
+/// `patchRel32` on the linker side preserves the opcode byte
+/// (0xE9) and only writes disp32, so the JMP-vs-CALL choice is
+/// made here at emit-time (the arm64 sibling does it at link-
+/// time because `encBL` rewrites the whole word).
+///
+/// Caller MUST have already:
+///   (1) marshalled args into RDI/RSI/RDX/RCX/R8/R9 + XMM0..7,
+///   (2) emitted `emitLoadCalleeRtSameModule` (RDI ← R15),
+///   (3) emitted `frame_teardown.emit(.uses_runtime_ptr)`
+///       (caller's R15 + RBP popped, frame gone).
+pub fn emitDirectTailJump(
+    allocator: std.mem.Allocator,
+    buf: *std.ArrayList(u8),
+    call_fixups: *std.ArrayList(types.CallFixup),
+    target_func_idx: u32,
+) !void {
+    const fixup_at: u32 = @intCast(buf.items.len);
+    const enc = inst.encJmpRel32(0);
+    try buf.appendSlice(allocator, enc.slice());
+    try call_fixups.append(allocator, types.CallFixup{
+        .byte_offset = fixup_at,
+        .target_func_idx = target_func_idx,
+        .is_tail = true,
+    });
+}
+
+/// Wasm spec 3.0 §3.3.8.18 (tail-call proposal) — `return_call N`
+/// on x86_64 SysV. Mirror of `arm64/op_tail_call.emitDirectReturnCall`.
+/// Orchestrates the ADR-0112 D4 sequence for the same-module
+/// direct case:
+///   (1) marshal args via `op_call.marshalCallArgs`,
+///   (2) restore RDI = R15 via `emitLoadCalleeRtSameModule`,
+///   (3) `frame_teardown.emit({frame_bytes, uses_runtime_ptr})`,
+///   (4) `emitDirectTailJump(target_func_idx)`.
+///
+/// Step (3) of D4 (load callee_entry → R11) is elided here —
+/// the linker materialises the callee body offset directly into
+/// the JMP rel32 disp32 (saving the load + indirect-jump steps).
+/// Cross-module / indirect / ref tail-calls (which can't reach
+/// via rel32) take the JMP R11 path through follow-on chunks.
+///
+/// Import-as-callee is rejected (UnsupportedOp): a host import
+/// doesn't follow v2's prologue convention and must route through
+/// the cross-module bridge thunk (10.TC-3f follow-on).
+pub fn emitDirectReturnCall(
+    ctx: *ctx_mod.EmitCtx,
+    ins: *const zir.ZirInstr,
+) ctx_mod.Error!void {
+    if (ins.payload >= ctx.func_sigs.len) return ctx_mod.Error.AllocationMissing;
+    if (ins.payload < ctx.num_imports) return ctx_mod.Error.UnsupportedOp;
+    const callee_sig: zir.FuncType = ctx.func_sigs[ins.payload];
+
+    try op_call.marshalCallArgs(
+        ctx.allocator,
+        ctx.buf,
+        ctx.alloc,
+        ctx.pushed_vregs,
+        ctx.spill_base_off,
+        callee_sig,
+    );
+    try emitLoadCalleeRtSameModule(ctx.allocator, ctx.buf);
+    try frame_teardown.emit(ctx.allocator, ctx.buf, .{
+        .frame_bytes = ctx.frame_bytes,
+        .uses_runtime_ptr = ctx.uses_runtime_ptr,
+    });
+    try emitDirectTailJump(ctx.allocator, ctx.buf, ctx.call_fixups, @intCast(ins.payload));
 }
 
 // ---------------------------------------------------------------------
@@ -122,4 +205,40 @@ test "op_tail_call x86_64: emitLoadCalleeRtSameModule emits MOV RDI, R15 (4C 89 
 
 test "op_tail_call x86_64: emitLoadCalleeRtSameModule uses abi.runtime_ptr_save_gpr (R15) as source" {
     try testing.expectEqual(inst.Gpr.r15, abi.runtime_ptr_save_gpr);
+}
+
+test "op_tail_call x86_64: emitDirectTailJump emits 0xE9 + 4-byte disp32=0 + records CallFixup{is_tail=true}" {
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    var fixups: std.ArrayList(types.CallFixup) = .empty;
+    defer fixups.deinit(testing.allocator);
+
+    // Pre-pad so byte_offset is non-zero (regression value).
+    try buf.appendSlice(testing.allocator, &.{ 0x90, 0x90 }); // 2 NOPs
+
+    try emitDirectTailJump(testing.allocator, &buf, &fixups, 11);
+
+    // 2 NOPs + 5-byte JMP rel32 placeholder.
+    try testing.expectEqual(@as(usize, 7), buf.items.len);
+    try testing.expectEqual(@as(u8, 0xE9), buf.items[2]); // JMP rel32 opcode
+    try testing.expectEqual(@as(u8, 0x00), buf.items[3]);
+    try testing.expectEqual(@as(u8, 0x00), buf.items[4]);
+    try testing.expectEqual(@as(u8, 0x00), buf.items[5]);
+    try testing.expectEqual(@as(u8, 0x00), buf.items[6]);
+
+    try testing.expectEqual(@as(usize, 1), fixups.items.len);
+    try testing.expectEqual(@as(u32, 2), fixups.items[0].byte_offset);
+    try testing.expectEqual(@as(u32, 11), fixups.items[0].target_func_idx);
+    try testing.expectEqual(true, fixups.items[0].is_tail);
+}
+
+test "op_tail_call x86_64: emitDirectTailJump byte_offset == JMP opcode position (not pre-pad start)" {
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    var fixups: std.ArrayList(types.CallFixup) = .empty;
+    defer fixups.deinit(testing.allocator);
+
+    try buf.appendSlice(testing.allocator, &.{ 0x90, 0x90, 0x90, 0x90 }); // 4 NOPs
+    try emitDirectTailJump(testing.allocator, &buf, &fixups, 0);
+    try testing.expectEqual(@as(u32, 4), fixups.items[0].byte_offset);
 }
