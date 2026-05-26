@@ -6,60 +6,66 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `755d33d2` — fix(p10): wast baker emits invoke action
-  directives; runner dispatches them (D-191 close). 3 coordinated
-  changes (baker + parser + dispatch) closed the last memory64
-  residual. **memory64 corpus is FULLY GREEN: 337/337 return,
-  205/205 trap, 83/83 invalid, 0 skip.**
+- **HEAD**: `908414b2` — fix(p10): frontendValidate threads tags
+  for EH module compile (10.E open). try_table.0.wasm now compiles
+  green; opens the 10.E bundle's compile path. Runtime dispatch is
+  the multi-cycle scope.
 - **ROADMAP §10 progress**: 7/13 DONE, 4 IN-PROGRESS, 2 Pending.
 - **Active debt rows**: 17 — all `blocked-by:` with named
-  structural barriers. Zero `now`-status rows. (D-191 discharged.)
+  structural barriers. Zero `now`-status rows.
 
-## Spec runner observable (HEAD `755d33d2`)
+## Active bundle
+
+- **Bundle-ID**: 10.E-EH-compile-runtime
+- **Cycles-remaining**: ~5 (estimate; spec runner EH 40 dirs all
+  root here)
+- **Continuity-memo**: try_table.0.wasm compiles (this cycle).
+  Next steps: (1) try_table interp body — push exception_handler
+  frame on entry, pop on end / branch out; (2) throw interp body —
+  unwind operand stack + raise Trap.UncaughtException with
+  tag_idx + payload; (3) interp dispatch loop catches
+  Trap.UncaughtException, walks frame stack looking for matching
+  handler, transfers control to landing pad; (4) extend
+  invokeInstanceExpectException to convert returned-with-exception
+  outcome.
+- **Exit-condition**: wasm-3.0-assert/exception-handling/try_table
+  manifest's first concrete assert_return (`simple-throw-catch
+  args=1 -> i32:23`) passes in spec runner.
+
+## Spec runner observable (HEAD `908414b2`)
 
 ```
 [memory64           ] return=337 (pass=337 fail=0  ) trap=205 (pass=205 fail=0  ) invalid=83  (pass=83  fail=0) exception=0  skip=0
 [tail-call          ] return=31  (pass=31  fail=0  ) trap=0   (pass=0   fail=0  ) invalid=10  (pass=10  fail=0) exception=0
-[exception-handling ] return=34  (pass=0   fail=34 ) trap=2   (pass=0   fail=2  ) invalid=7   (pass=6   fail=1) exception=4 (pass=0 fail=4)
+[exception-handling ] return=34  (pass=0   fail=34 ) trap=2   (pass=0   fail=2  ) invalid=7   (pass=5   fail=2  ) exception=4 (pass=0 fail=4)
 [gc                 ] (no corpus — D-179 wabt)
 [function-references] return=0   (pass=0   fail=0  ) trap=0   (pass=0   fail=0  ) invalid=12  (pass=12  fail=0) exception=0
-total: return pass=368 fail=34; trap pass=205 fail=2; invalid pass=111 fail=1; exception pass=0 fail=4
+total: return pass=368 fail=34; trap pass=205 fail=2; invalid pass=110 fail=2; exception pass=0 fail=4
 ```
 
-memory64 + tail-call + function-references all clean. assert_invalid
-111/1 — only try_table.10 left (D-188, exnref). Remaining 40 fails
-all from exception-handling (10.E bundle territory).
+assert_invalid 110/2 (was 111/1) — try_table.8 newly false-accepted
+alongside try_table.10; both share the catch_ref/catch_all_ref
+typing gap, both close together when 10.E per-clause result-type
+unification lands.
 
 Recent commits this resume:
-- `755d33d2` fix — baker emits invoke action directives (D-191 close, memory64 FULL).
-- `c09cc64f` chore — retarget at D-191; file baker debt.
+- `908414b2` fix — frontendValidate threads tags for EH (10.E open).
+- `3b9026b7` chore — close D-191; retarget at 10.E.
+- `755d33d2` fix — wast baker emits invoke action directives (D-191).
+- `c09cc64f` chore — retarget at D-191.
 - `bf0ac870` fix — memory.grow pages_max + void-result asserts (+19).
-- `f50fb629` chore — close D-190; retarget at residual 8.
-- `1e5ceb71` fix — spec runner shares Instance per module block (D-190 close).
-
-## Active task — 10.E EH module-compile gap (bundle candidate)
-
-memory64 fully closed. The remaining 40 spec runner fails (34
-return + 2 trap + 4 exception) all root at the missing `try_table`
-op validator + interp dispatch in `src/instruction/wasm_3_0/` +
-EH-on-interp dispatch substrate. This is multi-cycle 10.E scope;
-bundling is appropriate (per bundle vs debt rule, we'd re-arm
-/continue to immediately work this next cycle).
-
-Per spike_discipline + architectural_spike rules, the foundation-
-atom chain pattern is forbidden (lesson 2026-05-26). Bundle mode
-with a named observable exit-condition is the structural defense.
-
-Next cycle opens the 10.E codegen-IT bundle with a specific
-exit-condition (try_table.0.wasm compiles + first directive
-shape — likely simple-throw-catch — invokes successfully).
 
 ## Next sub-chunk candidates (names only)
 
-- **10.E EH module-compile gap (bundle)** — active per above;
-  multi-cycle, 40 directives unblock.
-- **D-188 final (try_table.10)** — `catch_all_ref` typing. Blocked-by
-  exnref ValType extension (multi-cycle).
+- **10.E IT-1: try_table interp body** — push exception_handler
+  frame; pop on end / branch out. First substrate step of the bundle.
+- **10.E IT-2: throw interp body** — raise Trap.UncaughtException
+  with tag_idx + payload tucked in Runtime.eh_payload_buf.
+- **10.E IT-3: interp unwinder** — dispatch.run catch of
+  UncaughtException; walk handler stack; transfer to landing pad.
+- **D-188 final (try_table.8 + try_table.10)** — per-clause
+  catch_ref result-type unification. Closes alongside 10.E
+  validator strictness.
 - **10.R-4 / 10.R-5 (call_ref / return_call_ref)** — blocked-by
   D-186 (typed-funcref Value shape ADR).
 - **10.G WasmGC** — large multi-cycle bundle.
@@ -72,8 +78,8 @@ shape — likely simple-throw-catch — invokes successfully).
 - 10.M-realworld — toolchain-blocked (D-179).
 - 10.P close gate — user touchpoint by construction.
 - D-186 — `return_call_ref` blocked-by 10.R-3/4/5.
-- D-188 — 1 remaining (try_table.10); blocked-by 10.E validator
-  + exnref ValType extension.
+- D-188 — 2 now (try_table.8 + try_table.10); blocked-by 10.E
+  validator strictness.
 
 ## Key refs
 
