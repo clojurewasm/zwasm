@@ -40,12 +40,38 @@
 ## Active bundle
 
 - **Bundle-ID**: `10.E-codegen-IT-6`
-- **Cycles-remaining**: `~1-2` (cycle 3c-ii: trampoline body
-  dispatchThrow integration + .handler dispatch)
+- **Cycles-remaining**: `~2` (cycle 3c-ii blocked-by issues
+  surfaced below + cycle 3c-iii final handler dispatch)
 - **Continuity-memo**: 3c-i (JitRuntime fields + setup wire)
   shipped. Trampoline + retargeted throw sites + per-Instance
-  EH data are all in place. The trampoline body (currently
-  trap-only) is the last load-bearing slot before bundle close.
+  EH data are all in place. **Cycle 3c-ii attempted 2026-05-28;
+  WIP stashed** (`stash@{0}`: `wip-cycle-3c-ii-trampoline-body-
+  asm-errors-and-zwasm-throw-test-failures`) pending resolution
+  of two blockers:
+
+  1. **ARM64 inline-asm operand syntax** — LLVM 21 inline-asm
+     parser rejects `// foo` mid-line comments (works for
+     x86_64 SysV but not aarch64). The trampoline-core split
+     architecture (a `callconv(.c)` Zig fn called from a tiny
+     naked stub via BLR/CALL) is sound; the issue is purely
+     in the asm body's syntax. Resolution: strip ALL mid-line
+     `//` from arm64 asm templates; comments live outside.
+     The stash has partial cleanup; needs final fix-up.
+
+  2. **Pre-existing `zwasm_throw.zig` test failures** — adding
+     `@import("zwasm_throw.zig")` from `throw_trampoline.zig`
+     brought 4 zwasm_throw tests into the test graph for the
+     first time. Two of them fail:
+     - `dispatchThrow: handler in caller frame after one
+       unwind step` → expects `.handler`, gets `.uncaught`
+     - `dispatchThrow: throw-site outside any JIT function
+       → walks via sentinel` → same shape
+     These are **latent bugs in the foundation chain** (the
+     synthetic frame-chain walk doesn't yield the expected
+     handler match). Resolution requires investigating the
+     `unwind.walk` implementation against the test fixtures
+     — may be a test-fixture issue OR a real unwinder bug.
+     Bucket-2 territory; needs Step-0-survey of unwind.zig.
 - **Exit-condition**: end-to-end `throw 0 / catch_all 0` fixture
   compiles + runs + lands at the catch block (per integration
   plan §IT-6 acceptance).
