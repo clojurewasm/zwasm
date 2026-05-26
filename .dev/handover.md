@@ -6,11 +6,11 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `3b3b8654` — docs(p10): file ADR-0121 struct/array
-  typedef parse + RTT layout (10.G op_gc cycle 13). Architectural
-  prep for the next sub-bundle (struct.new + array.new vertical
-  slices). Sequences the 6-decision path; sub-cycle implementation
-  lands cycle 14.
+- **HEAD**: `b5b3a39f` — feat(p10): struct/array typedef parse +
+  Types side-tables (10.G op_gc cycle 14; ADR-0121 D1+D2+D3+D4).
+  decodeTypes now dispatches on 0x60/0x5F/0x5E; sparse side-
+  tables (kinds/struct_defs/array_defs) preserved across the
+  arena lifetime. Validator integration (D5) deferred to cycle 15.
 - **ROADMAP §10 progress**: 7/13 DONE, 4 IN-PROGRESS, 2 Pending.
 - **Active debt rows**: 18 — all `blocked-by:` with named
   structural barriers. Zero `now`-status rows.
@@ -56,23 +56,21 @@ future op_gc consumers. EH 40 fails still gated on the bigger
 ## Active bundle
 
 - **Bundle-ID**: 10.G-op_gc
-- **Cycles-remaining**: ~13 (per `.dev/phase10_g_op_bundle_plan.md`)
-- **Continuity-memo**: Cycles 1-6 substrate (ValType extension +
-  parser/validator wires). Cycle 7 (`63cf843a`) ref.test family.
-  Cycle 8 (`93e63ba7`) ref.cast family. Cycle 9 (`a262a7d2`)
-  br_on_cast family validator+lower (interp deferred to RTT).
-  Cycle 10 (`2dc566b1`) any↔extern convert vertical slice.
-  Cycle 11 (`1c57e8a1`) ref.eq vertical slice. Cycle 12
-  (`8f6b69a7`) array.len vertical slice (NullReference stub).
-  Cycle 13 (`3b3b8654`) ADR-0121 filed for struct/array typedef
-  parse + RTT layout. Cycle 14 (next): implement ADR-0121 D1+D2
-  — extend src/parse/sections.zig decodeTypes for 0x5F + 0x5E
-  prefixes; add TypeKind / StructDef / ArrayDef + Types.kinds /
-  struct_defs / array_defs side-tables; same-cycle decoder tests
-  (2-3 round-trip tests covering single-field + multi-field
-  struct + 1D array). Cycle 15: validator integration for
-  struct.new / struct.new_default. Cycle 16+: struct.get /
-  struct.set / array.new family vertical slices.
+- **Cycles-remaining**: ~12 (per `.dev/phase10_g_op_bundle_plan.md`)
+- **Continuity-memo**: Cycles 1-6 substrate. Cycles 7-12 wired
+  no-RTT GC ops (test/cast/br_on_cast/convert/eq/array.len).
+  Cycle 13 (`3b3b8654`) ADR-0121 filed. Cycle 14 (`b5b3a39f`)
+  implemented ADR-0121 D1+D2+D3+D4 — decodeTypes accepts
+  0x5F/0x5E; side-tables in place. Cycle 15 (next): wire
+  struct.new + struct.new_default validator+lower (sub-ops
+  0/1). Validator consumes typeidx (uleb32), looks up
+  Types.kinds[idx] == .structdef + Types.struct_defs[idx].?,
+  pops one Value per field in reverse declared order, pushes
+  .structref. Lower-side packs typeidx in payload. Interp
+  handler stubs trap NotImplemented (struct allocation needs
+  GC heap StructInfo header layout — ADR-0116 amendment
+  forthcoming). Cycle 16+: struct.get / struct.set + array.new
+  family vertical slices.
 - **Exit-condition**: wasm-3.0-assert exception-handling /
   function-references / gc corpora open for op_gc dispatch +
   at least the first i31 spec directive flips green via the
