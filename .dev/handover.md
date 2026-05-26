@@ -11,65 +11,36 @@
 - **10.R sub-chunks 1..5 = SHIPPED**.
 - **10.TC-1 = SHIPPED** (`a83e095f`).
 - **10.G-i31-ops / 10.G-2 / 10.G-3 = SHIPPED**.
-- **10.E interp side = COMPLETE**.
-- **10.E codegen IT-1..IT-5 = SHIPPED** (`c3424788`, `2d938570`,
-  `466674b7`, `5b75bee5`, `14fafdc6`).
-- **10.E IT-6 prep SHIPPED**: frame_bytes thread (`9ac268f1`),
-  landing_pad_pc forward fixup (`18b2a077`), ADR-0119 draft
-  (`e725bce7`), spike-validated flip to Accepted (`213df2f2`).
-- **10.E IT-6 cycle 3a SHIPPED** (`14b32f74` + `0d099a41`):
-  trampoline scaffolding under `shared/throw_trampoline.zig`.
-- **10.E IT-6 cycle 3b SHIPPED** (`7c7169ad`): `op_throw` /
-  `op_throw_ref` retargeted to BLR/CALL the trampoline (both archs).
-- **10.E IT-6 cycle 3c-i SHIPPED** (`73c163d4`): JitRuntime gains
-  `eh_table_entries` + `eh_table_count` + `eh_code_map_entries` +
-  `eh_code_map_count`; setupRuntime wires from CompiledWasm.
-- **10.E IT-6 cycle 3c-ii SHIPPED** (`6646e469` + `7d67e247`
-  follow-up): trampoline body split into naked stub +
-  `trampolineCore` (callconv .c Zig fn) per ADR-0119. Sentinel-
-  frame fix in `invokeTrampolineWith` resolves ubuntu SEGV
-  (lesson `2026-05-28-eh-test-wrapper-host-fp-walk-segv.md`;
-  `test_discipline.md` §3).
-- **10.E IT-6 cycle 3c-iii (a/b) SHIPPED** (`9d989144`):
-  handler-dispatch data plumbing. `code_map.Lookup.inside`
-  carries `start_addr` + `frame_bytes`; `unwind.FrameLink` +
-  `HandlerLanding` carry `caller_abs_pc` / `handler_abs_pc`;
-  `unwind.walk` threads `initial_abs_pc`; `trampolineCore`
-  `.handler` branch resolves the catching function's entry,
-  computes absolute SP + landing-pad PC, writes them to new
-  JitRuntime fields `eh_handler_{active,sp,pc}`.
-- **10.E IT-6 cycle 3c-iii-c SHIPPED** (`27fdaad7`):
-  naked-stub branch on `eh_handler_active` + JMP path. Both
-  arches: after `blr/callq core`, branch on the flag; on `1`
-  install SP/FP from JitRuntime and BR/JMP to absolute
-  `eh_handler_pc`. Added `eh_handler_fp` field for FP restore.
-  Mac aarch64 + Linux x86_64 SysV green (2000/2014 pass).
+- **10.E codegen IT-1..IT-5 = SHIPPED**.
+- **10.E IT-6 BUNDLE CLOSED** (`c9b9d16c`): end-to-end
+  `(block (try_table (catch_all $b) (throw $e)) ...)` fixture in
+  `src/engine/runner.zig` compiles + runs + lands at the catch
+  block (returns 42), paired uncaught variant traps cleanly.
+  Mac aarch64 + Linux x86_64 SysV both green at HEAD (2001/2015
+  pass, 14 skip, 0 fail). 10.E codegen-side COMPLETE; Win64 EH
+  trampoline body still `@compileError` (deferred).
 
 ## ROADMAP §10 progress
 
-- DONE (7/13): 10.0 / 10.C9 / 10.J / 10.F / 10.Z / 10.T / 10.D
-- IN-PROGRESS (4): 10.M (7/8) / 10.R (5/5; gated on 10.G) /
-  10.TC (codegen + cross-module + spec corpus 残) /
-  10.E (codegen IT-6 cycle 3c-iii 残)
-- Pending (3): 10.G / 10.P (close gate)
+- DONE (8/13): 10.0 / 10.C9 / 10.J / 10.F / 10.Z / 10.T / 10.D /
+  10.E (codegen-side; Win64 follow-on tracked below).
+- IN-PROGRESS (3): 10.M (7/8) / 10.R (5/5; gated on 10.G) /
+  10.TC (codegen + cross-module + spec corpus 残).
+- Pending (2): 10.G / 10.P (close gate).
 
-## Active bundle
+## Next candidates (names + Refs)
 
-- **Bundle-ID**: `10.E-codegen-IT-6`
-- **Cycles-remaining**: `~1` (cycle 3c-iii-d end-to-end fixture)
-- **Continuity-memo**: full trampoline → core → dispatchThrow →
-  unwind → naked-stub branch → SP/FP install → BR-to-landing-pad
-  pipeline is in place on Mac aarch64 + Linux x86_64 SysV.
-  Next: minimal `(throw 0) (catch_all 0)` end-to-end fixture that
-  the existing IT-3/IT-5 emit pipeline can compile; verify the
-  catch-block return path executes (distinct return value from
-  throw + catch path). Add the fixture under `test/edge_cases/p10/`
-  or directly in `src/engine/runner.zig` test block. Win64
-  trampoline body (currently `@compileError`) is the final
-  remaining work after that.
-- **Exit-condition**: end-to-end `throw 0 / catch_all 0` fixture
-  compiles + runs + lands at the catch block (per integration
-  plan §IT-6 acceptance).
+- **Win64 EH trampoline body** — `throw_trampoline.zig` x86_64-windows
+  arm currently `@compileError`. Implement Win64 ABI arg shuffling
+  (RCX/RDX/R8/R9 + shadow space) so the EH pipeline is fully cross-
+  platform. Touches: arm64/x86_64 SysV are already green; this is
+  Win64-only.
+- **10.M-realworld** — toolchain-blocked (clang_wasm64 fixture);
+  barrier in D-179 (wabt 1.0.41+ GC type syntax).
+- **10.TC** — Wasm 3.0 spec corpus extension + cross-module EH
+  fixtures. The naked-stub trampoline + handler dispatch pipeline
+  now lets the EH spec subset (`exception-handling/try_table.wast`
+  etc.) be run end-to-end; gap is wiring it into the spec runner.
 
 ## Open questions / blockers
 
@@ -84,8 +55,10 @@
 - **Spike** `private/spikes/p10-it6-naked-trampoline/` —
   Status: merged-into-prod.
 - **Integration plan** (`.dev/phase10_eh_integration_plan.md`)
-- **ADR-0114** (EH design — D6 specifies the trampoline shape)
+- **ADR-0114** (EH design)
 - **ROADMAP §10**
 - **Phase log** (`.dev/phase_log/phase10.md`)
-- **Lesson** `2026-05-26-eh-codegen-foundation-atom-rhythm.md`
-  (`e62db476`)
+- **Lessons**:
+  - `2026-05-26-eh-codegen-foundation-atom-rhythm.md` (`e62db476`)
+  - `2026-05-28-eh-test-wrapper-host-fp-walk-segv.md`
+    (sentinel-frame discipline → `test_discipline.md` §3)
