@@ -1129,16 +1129,39 @@ pub const Validator = struct {
     /// are memory.copy/memory.fill (chunk 4); 8/9/12+ land in later
     /// chunks (data section / table section dependencies).
     /// Encoding: 0xFC <uleb32 sub-opcode>.
-    /// Wasm 3.0 GC prefix (0xFB). Currently dispatches only the
-    /// i31 sub-trio (28 / 29 / 30); other GC sub-opcodes light up
-    /// per 10.G heap / struct / array sub-chunks.
+    /// Wasm 3.0 GC prefix (0xFB). Dispatches i31 sub-trio (28-30)
+    /// + ref.test / ref.test_null (20 / 21; 10.G op_gc cycle 7);
+    /// other GC sub-opcodes light up per 10.G heap / struct /
+    /// array sub-chunks.
     fn dispatchPrefixFB(self: *Validator) Error!void {
         const sub = try leb128.readUleb128(u32, self.body, &self.pos);
         switch (sub) {
+            // ref.test / ref.test_null share validator shape:
+            // consume heap_type byte, pop reftype, push i32.
+            20, 21 => try self.opRefTest(),
             28 => try self.opRefI31(),
             29, 30 => try self.opI31Get(), // .get_s / .get_u share validator shape
             else => return Error.NotImplemented,
         }
+    }
+
+    /// Wasm spec 3.0 §3.3.5.3 — `ref.test heap_type` /
+    /// `ref.test_null heap_type`: consume heap_type byte (no
+    /// validator constraint for cycle 7 — RTT lands later with
+    /// type_hierarchy.zig); pop reftype; push i32.
+    fn opRefTest(self: *Validator) Error!void {
+        if (self.pos >= self.body.len) return Error.UnexpectedEnd;
+        // Heap-type byte consumed; runtime stores it via lower-
+        // side payload. Validator-side range-check defers until
+        // RTT (sub-chunks 5-7 of plan); for cycle 7 accept any
+        // single-byte heap_type encoding.
+        self.pos += 1;
+        const top = try self.popAny();
+        switch (top) {
+            .bot => {},
+            .known => |t| if (t != .funcref and t != .externref and t != .i31ref and t != .anyref and t != .eqref and t != .structref and t != .arrayref) return Error.StackTypeMismatch,
+        }
+        try self.pushType(.i32);
     }
 
     /// Wasm spec 3.0 §3.x (GC) — `ref.i31`: pop i32, push an

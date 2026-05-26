@@ -378,6 +378,27 @@ test "validate: ref.null with bad reftype byte → BadValType" {
     try testing.expectError(Error.BadValType, r);
 }
 
+test "validate: ref.test heap_type round-trip (10.G op_gc cycle 7)" {
+    // Wasm 3.0 GC §3.3.5.3 — `(ref.null anyref ; ref.test anyref ; end)`.
+    // Validator: ref.null anyref pushes anyref; ref.test anyref
+    // consumes heap_type byte (0x6E for anyref), pops reftype,
+    // pushes i32. Round-trip validates clean against i32-result sig.
+    //
+    // Opcode encoding:
+    //   0xD0 0x6E       — ref.null anyref
+    //   0xFB 0x14 0x6E  — ref.test anyref
+    //   0x0B            — end
+    const body = [_]u8{ 0xD0, 0x6E, 0xFB, 0x14, 0x6E, 0x0B };
+    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
+}
+
+test "validate: ref.test_null heap_type round-trip (10.G op_gc cycle 7)" {
+    // Mirror: ref.test_null variant accepts null operands;
+    // validator shape identical to ref.test (sub-op 21 = 0x15).
+    const body = [_]u8{ 0xD0, 0x6E, 0xFB, 0x15, 0x6E, 0x0B };
+    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
+}
+
 test "validate: ref.i31 → i31.get_s round-trip (10.G op_gc cycle 5; ADR-0115 §6 typed precision)" {
     // Wasm 3.0 GC §3.x — `(i32.const 42 ; ref.i31 ; i31.get_s)`
     // round-trips through ValType.i31ref (no longer the .funcref

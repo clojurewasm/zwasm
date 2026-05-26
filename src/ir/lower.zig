@@ -558,11 +558,29 @@ pub const Lowerer = struct {
     /// sub-opcodes land in later chunks.
     /// Wasm 3.0 GC prefix (0xFB). Sub-opcodes encode struct / array /
     /// ref.test / ref.cast / i31 / br_on_cast etc.; this dispatcher
-    /// currently handles only the i31 trio. Other sub-opcodes land
-    /// per 10.G heap / struct / array sub-chunks.
+    /// currently handles the i31 trio + ref.test / ref.test_null
+    /// (10.G op_gc cycle 7). Other sub-opcodes land per 10.G heap /
+    /// struct / array sub-chunks.
     fn emitPrefixFB(self: *Lowerer) Error!void {
         const sub = try leb128.readUleb128(u32, self.body, &self.pos);
         switch (sub) {
+            // ref.test / ref.test_null (Wasm 3.0 GC §3.3.5.3).
+            // Each consumes a heap_type byte from the body. The
+            // byte is stored in payload (u32-extended) so the
+            // future RTT integration can subtype-test against it
+            // when type_hierarchy.zig lands.
+            20 => {
+                if (self.pos >= self.body.len) return Error.UnexpectedEnd;
+                const heap_type_byte = self.body[self.pos];
+                self.pos += 1;
+                try self.emit(.@"ref.test", heap_type_byte, 0);
+            },
+            21 => {
+                if (self.pos >= self.body.len) return Error.UnexpectedEnd;
+                const heap_type_byte = self.body[self.pos];
+                self.pos += 1;
+                try self.emit(.@"ref.test_null", heap_type_byte, 0);
+            },
             28 => try self.emit(.@"ref.i31", 0, 0),
             29 => try self.emit(.@"i31.get_s", 0, 0),
             30 => try self.emit(.@"i31.get_u", 0, 0),

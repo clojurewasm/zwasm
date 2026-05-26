@@ -44,6 +44,7 @@ const ext_bulk_memory = if (wasm_2_0_enabled) @import("../instruction/wasm_2_0/b
 const ext_ref_types = if (wasm_2_0_enabled) @import("../instruction/wasm_2_0/reference_types.zig") else struct {};
 const ext_function_references = if (wasm_3_0_enabled) @import("../instruction/wasm_3_0/function_references.zig") else struct {};
 const ext_i31_ops = if (wasm_3_0_enabled) @import("../instruction/wasm_3_0/i31_ops.zig") else struct {};
+const ext_ref_test_ops = if (wasm_3_0_enabled) @import("../instruction/wasm_3_0/ref_test_ops.zig") else struct {};
 const dbg = @import("../support/dbg.zig");
 const ext_table_ops = if (wasm_2_0_enabled) @import("../instruction/wasm_2_0/table_ops.zig") else struct {};
 const parser = @import("../parse/parser.zig");
@@ -868,6 +869,7 @@ pub fn dispatchTable() *const dispatch_table_mod.DispatchTable {
         if (comptime wasm_3_0_enabled) {
             ext_function_references.register(&g_dispatch_table_storage);
             ext_i31_ops.register(&g_dispatch_table_storage);
+            ext_ref_test_ops.register(&g_dispatch_table_storage);
         }
         g_dispatch_table_initialized = true;
     }
