@@ -155,7 +155,7 @@ pub fn compile(
             // ADR-0055).
             // D-093 (d-33): reftype params share the i64 gpr-class
             // 8-byte slot per ADR-0061.
-            .i32, .i64, .f32, .f64, .v128, .funcref, .externref => {},
+            .i32, .i64, .f32, .f64, .v128, .funcref, .externref, .i31ref => {},
         }
     }
     const num_locals: u32 = func.totalLocalCount();
@@ -391,7 +391,7 @@ pub fn compile(
                 );
                 switch (ptype) {
                     .i32 => try buf.appendSlice(allocator, rbpStoreR32(off, .rax).slice()),
-                    .i64, .f32, .f64, .funcref, .externref => try buf.appendSlice(allocator, rbpStoreR64(off, .rax).slice()),
+                    .i64, .f32, .f64, .funcref, .externref, .i31ref => try buf.appendSlice(allocator, rbpStoreR64(off, .rax).slice()),
                     .v128 => unreachable, // guarded above.
                 }
             }
@@ -411,7 +411,7 @@ pub fn compile(
             const off: i32 = layout.disps[p_idx];
             const ptype = func.sig.params[p_idx];
             switch (ptype) {
-                .i32, .i64, .f32, .f64, .v128, .funcref, .externref => {},
+                .i32, .i64, .f32, .f64, .v128, .funcref, .externref, .i31ref => {},
             }
             // Win64 stack-arg fallback for slot >= 4. The shared
             // slot is `int_arg_idx` (== `fp_arg_idx` under Win64).
@@ -433,7 +433,7 @@ pub fn compile(
                         try buf.appendSlice(allocator, rbpStoreR32(off, .rax).slice());
                     },
                     // D-093 (d-33): reftype shares i64 8-byte gpr slot.
-                    .i64, .f32, .f64, .funcref, .externref => {
+                    .i64, .f32, .f64, .funcref, .externref, .i31ref => {
                         try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, .rbp, stack_disp).slice());
                         try buf.appendSlice(allocator, rbpStoreR64(off, .rax).slice());
                     },
@@ -472,7 +472,7 @@ pub fn compile(
                         try buf.appendSlice(allocator, rbpStoreR32(off, .rax).slice());
                     },
                     // D-093 (d-33): reftype shares i64 8-byte gpr slot.
-                    .i64, .f32, .f64, .funcref, .externref => {
+                    .i64, .f32, .f64, .funcref, .externref, .i31ref => {
                         try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, .rbp, stack_disp).slice());
                         try buf.appendSlice(allocator, rbpStoreR64(off, .rax).slice());
                     },
@@ -489,7 +489,7 @@ pub fn compile(
                     if (abi.current_cc == .win64) fp_arg_idx += 1;
                 },
                 // D-093 (d-33): reftype shares i64 8-byte gpr slot.
-                .i64, .funcref, .externref => {
+                .i64, .funcref, .externref, .i31ref => {
                     try buf.appendSlice(allocator, rbpStoreR64(off, abi.current.arg_gprs[int_arg_idx]).slice());
                     int_arg_idx += 1;
                     if (abi.current_cc == .win64) fp_arg_idx += 1;

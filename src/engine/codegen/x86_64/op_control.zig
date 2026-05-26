@@ -457,7 +457,7 @@ pub fn marshalReturnRegs(
             const src_vreg = pushed_vregs.items[result_base + i];
             if (src_vreg < alloc.slots.len) {
                 switch (result_kind) {
-                    .i32, .i64, .funcref, .externref => {
+                    .i32, .i64, .funcref, .externref, .i31ref => {
                         const src = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_vreg, 0);
                         try buf.appendSlice(allocator, inst.encStoreR64MemDisp32(src, .rax, byte_off).slice());
                     },
@@ -521,7 +521,7 @@ pub fn marshalReturnRegs(
         if (src_vreg >= alloc.slots.len) {
             // D-093 (d-5): dead placeholder; skip.
             switch (result_kind) {
-                .i32, .i64, .funcref, .externref => gpr_used += 1,
+                .i32, .i64, .funcref, .externref, .i31ref => gpr_used += 1,
                 .f32, .f64, .v128 => xmm_used += 1,
             }
             continue;
@@ -537,7 +537,7 @@ pub fn marshalReturnRegs(
                 const src = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_vreg, 0);
                 if (src != dst) try buf.appendSlice(allocator, inst.encMovRR(.d, dst, src).slice());
             },
-            .i64, .funcref, .externref => {
+            .i64, .funcref, .externref, .i31ref => {
                 if (gpr_used >= gpr_cap) {
                     gpr_used += 1;
                     continue; // D-094 silent-truncate

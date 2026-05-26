@@ -26,6 +26,16 @@ pub const ValType = enum(u8) {
     v128,
     funcref,
     externref,
+    /// Wasm 3.0 GC `i31ref` — low-bit-tagged i32 carried in
+    /// `Value.anyref` (offset stored via i31_pack tag encoding,
+    /// per ADR-0116 §135-149). i31 has NO heap allocation —
+    /// it's the only Internal-hierarchy ValType that doesn't
+    /// reach into the per-Store GC slab. Added per ADR-0115 §6
+    /// Revision 2026-05-29 (cycle 2 of 10.G-op_gc bundle). The
+    /// other 4 Internal-hierarchy types (anyref / eqref /
+    /// structref / arrayref) land in subsequent cycles via the
+    /// same closed-enum + per-site arm-out cascade pattern.
+    i31ref,
 };
 
 pub const FuncType = struct {

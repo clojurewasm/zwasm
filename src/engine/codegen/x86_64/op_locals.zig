@@ -59,7 +59,7 @@ pub fn emitLocalGet(
             try buf.appendSlice(allocator, rbpLoadR32(dst_r, disp).slice());
             try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, vreg, 0);
         },
-        .i64, .funcref, .externref => {
+        .i64, .funcref, .externref, .i31ref => {
             const dst_r = try gpr.gprDefSpilled(alloc, vreg, 0);
             try buf.appendSlice(allocator, rbpLoadR64(dst_r, disp).slice());
             try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, vreg, 0);
@@ -105,7 +105,7 @@ pub fn emitLocalSet(
             const src_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
             try buf.appendSlice(allocator, rbpStoreR32(disp, src_r).slice());
         },
-        .i64, .funcref, .externref => {
+        .i64, .funcref, .externref, .i31ref => {
             const src_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
             try buf.appendSlice(allocator, rbpStoreR64(disp, src_r).slice());
         },
@@ -146,7 +146,7 @@ pub fn emitLocalTee(
             const src_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
             try buf.appendSlice(allocator, rbpStoreR32(disp, src_r).slice());
         },
-        .i64, .funcref, .externref => {
+        .i64, .funcref, .externref, .i31ref => {
             const src_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
             try buf.appendSlice(allocator, rbpStoreR64(disp, src_r).slice());
         },

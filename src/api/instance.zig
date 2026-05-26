@@ -918,6 +918,14 @@ fn marshalValOut(v: runtime.Value, kind: zir.ValType) Val {
         .funcref => .{ .kind = .funcref, .of = .{ .ref = if (v.ref == runtime.Value.null_ref) null else @ptrFromInt(v.ref) } },
         .externref => .{ .kind = .anyref, .of = .{ .ref = if (v.ref == runtime.Value.null_ref) null else @ptrFromInt(v.ref) } },
         .v128 => .{ .kind = .i64, .of = .{ .i64 = 0 } }, // unreachable for MVP
+        // 10.G op_gc cycle 2 (ADR-0115 §6 Revision 2026-05-29):
+        // i31ref carried as `anyref` u32 GcRef (low-bit tag per
+        // ADR-0116). c_api wasm_val_t shape doesn't yet have an
+        // i31 arm — marshal as anyref pointer to match
+        // externref's existing path. Real i31 c_api shape lands
+        // alongside the i31 op handlers (sub-chunk 4 per
+        // `.dev/phase10_g_op_bundle_plan.md`).
+        .i31ref => .{ .kind = .anyref, .of = .{ .ref = if (v.ref == runtime.Value.null_ref) null else @ptrFromInt(v.ref) } },
     };
 }
 

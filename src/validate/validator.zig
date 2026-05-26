@@ -146,6 +146,8 @@ fn valTypeByte(t: ValType) u8 {
         .v128 => 0x7B,
         .funcref => 0x70,
         .externref => 0x6F,
+        // Wasm 3.0 GC §5.3.1 — i31ref byte = 0x6C per ADR-0116.
+        .i31ref => 0x6C,
     };
 }
 
@@ -1708,7 +1710,10 @@ pub const Validator = struct {
             fn check(t: ValType) bool {
                 return switch (t) {
                     .i32, .i64, .f32, .f64, .v128 => true,
-                    .funcref, .externref => false,
+                    // 10.G op_gc cycle 2: i31ref is a reftype per
+                    // Wasm 3.0 spec — untyped select rejects ref
+                    // operands per Wasm 2.0 §3.3.2.2.
+                    .funcref, .externref, .i31ref => false,
                 };
             }
         }.check;

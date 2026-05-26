@@ -62,7 +62,7 @@ pub fn computeOutgoingMaxBytes(
         var n_v128: u32 = 0;
         for (callee_sig.params) |p| {
             switch (p) {
-                .i32, .i64, .funcref, .externref => n_int += 1,
+                .i32, .i64, .funcref, .externref, .i31ref => n_int += 1,
                 .f32, .f64 => n_fp += 1,
                 // §9.9 / 9.9-i-1: Win64 v128 is a hidden-pointer
                 // arg — consumes one int-arg-reg slot for the

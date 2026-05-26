@@ -66,7 +66,13 @@ pub fn applyDefinedGlobalsInit(
                 const bytes = try rv.evalConstV128Expr(gd.init_expr);
                 @memcpy(globals_buf[off..][0..16], &bytes);
             },
-            .i32, .i64, .f32, .f64, .funcref, .externref => {
+            .i32, .i64, .f32, .f64, .funcref, .externref, .i31ref => {
+                // 10.G op_gc cycle 2: i31ref shares the scalar
+                // const-expr init shape (low-bit-tagged u32 GcRef
+                // per ADR-0116; fits the 8-byte slot like other
+                // reftypes). Real `ref.i31` init-expr support
+                // lands at sub-chunk 4 (i31 op family); this arm
+                // unblocks parse-time global declarations.
                 const raw = try rv.evalConstScalarRawCtx(gd.init_expr, gctx);
                 std.mem.writeInt(u64, globals_buf[off..][0..8], raw, .little);
             },

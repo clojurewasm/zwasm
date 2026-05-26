@@ -68,7 +68,7 @@ fn computeCallOverflowBytes(callee_sig: FuncType) u32 {
     var n_fp: u32 = 0;
     for (callee_sig.params) |p| {
         switch (p) {
-            .i32, .i64, .funcref, .externref => n_int += 1,
+            .i32, .i64, .funcref, .externref, .i31ref => n_int += 1,
             .f32, .f64 => n_fp += 1,
             .v128 => {},
         }
@@ -449,7 +449,7 @@ pub fn marshalCallArgs(ctx: *EmitCtx, callee_sig: FuncType) Error!void {
             },
             // D-093 (d-33): reftype params share the i64 X-form
             // marshal path (8-byte gpr-class slot per ADR-0061).
-            .funcref, .externref => {
+            .funcref, .externref, .i31ref => {
                 const xs = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
                 if (gpr_arg_slot >= 8) {
                     stack_byte_off = (stack_byte_off + 7) & ~@as(u32, 7);
@@ -513,7 +513,7 @@ fn captureCallResult(ctx: *EmitCtx, callee_sig: FuncType, memory_class: bool, bu
                         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImmW(14, 31, @intCast(dst_off)));
                     },
                 },
-                .i64, .funcref, .externref => switch (ctx.alloc.slot(result, .gpr)) {
+                .i64, .funcref, .externref, .i31ref => switch (ctx.alloc.slot(result, .gpr)) {
                     .reg => |id| {
                         const xd = abi.slotToReg(id) orelse return Error.SlotOverflow;
                         if (abs_off > 32760) return Error.SlotOverflow;
@@ -566,7 +566,7 @@ fn captureCallResult(ctx: *EmitCtx, callee_sig: FuncType, memory_class: bool, bu
         var n_gpr: u8 = 0;
         var n_fp: u8 = 0;
         for (callee_sig.results) |rt| switch (rt) {
-            .i32, .i64, .funcref, .externref => n_gpr += 1,
+            .i32, .i64, .funcref, .externref, .i31ref => n_gpr += 1,
             .f32, .f64, .v128 => n_fp += 1,
         };
         if (n_gpr > 8 or n_fp > 8) return Error.UnsupportedOp;
@@ -580,7 +580,7 @@ fn captureCallResult(ctx: *EmitCtx, callee_sig: FuncType, memory_class: bool, bu
         if (result >= ctx.alloc.slots.len) return Error.AllocationMissing;
 
         const src_reg: inst.Xn = switch (result_type) {
-            .i32, .i64, .funcref, .externref => blk: {
+            .i32, .i64, .funcref, .externref, .i31ref => blk: {
                 const id: inst.Xn = @intCast(n_gpr_used);
                 n_gpr_used += 1;
                 break :blk id;
@@ -607,7 +607,7 @@ fn captureCallResult(ctx: *EmitCtx, callee_sig: FuncType, memory_class: bool, bu
                     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImmW(src_reg, 31, @intCast(abs_off)));
                 },
             },
-            .i64, .funcref, .externref => switch (ctx.alloc.slot(result, .gpr)) {
+            .i64, .funcref, .externref, .i31ref => switch (ctx.alloc.slot(result, .gpr)) {
                 .reg => |id| {
                     const xd = abi.slotToReg(id) orelse {
                         std.debug.print("arm64/op_call: captureCallResult.i64 SlotOverflow func[{d}] result_vreg={d} slot_id={d}\n", .{ ctx.func.func_idx, result, id });

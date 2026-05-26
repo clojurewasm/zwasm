@@ -52,7 +52,7 @@ fn win64V128ScratchBase(callee_sig: zir.FuncType) u32 {
         .i32, .i64 => n_int += 1,
         .f32, .f64 => n_fp += 1,
         .v128 => n_v128 += 1,
-        .funcref, .externref => {},
+        .funcref, .externref, .i31ref => {},
     };
     const n_total = n_int + n_v128 + n_fp;
     const n_overflow: u32 = if (n_total > 3) n_total - 3 else 0;
@@ -135,7 +135,7 @@ fn computeCallReturnBufferOff(callee_sig: zir.FuncType) u32 {
     var n_v128: u32 = 0;
     for (callee_sig.params) |p| {
         switch (p) {
-            .i32, .i64, .funcref, .externref => n_int += 1,
+            .i32, .i64, .funcref, .externref, .i31ref => n_int += 1,
             .f32, .f64 => n_fp += 1,
             .v128 => n_v128 += 1,
         }
@@ -620,7 +620,7 @@ pub fn marshalCallArgs(
                 if (abi.current_cc == .win64) fp_arg_slot += 1;
             },
             // D-093 (d-33): reftype shares i64 8-byte gpr slot.
-            .i64, .funcref, .externref => {
+            .i64, .funcref, .externref, .i31ref => {
                 if (gpr_arg_slot >= abi.current.arg_gprs.len) {
                     const src = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_vreg, 0);
                     const disp = computeOverflowDisp(nsaa_idx, gpr_arg_slot);
@@ -775,7 +775,7 @@ pub fn captureCallResult(
                     try buf.appendSlice(allocator, inst.encMovR32FromMemDisp32(dst, .rsp, abs_off).slice());
                     try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, result, 0);
                 },
-                .i64, .funcref, .externref => {
+                .i64, .funcref, .externref, .i31ref => {
                     const dst = try gpr.gprDefSpilled(alloc, result, 0);
                     try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(dst, .rsp, abs_off).slice());
                     try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, result, 0);
@@ -851,7 +851,7 @@ pub fn captureCallResult(
                     try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, result, 0);
                 }
             },
-            .i64, .funcref, .externref => {
+            .i64, .funcref, .externref, .i31ref => {
                 if (gpr_used >= gpr_cap) {
                     gpr_used += 1;
                 } else {

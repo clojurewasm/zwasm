@@ -172,6 +172,10 @@ fn runtimeToZwasm(v: _runtime_value.Value, vt: _zir.ValType) _zwasm.Value {
         .v128 => .{ .v128 = v.bits128 },
         .funcref => .{ .funcref = if (v.ref == 0) null else v.ref },
         .externref => .{ .externref = if (v.ref == 0) null else v.ref },
+        // 10.G op_gc cycle 2: i31ref marshals as externref-shape
+        // (host opaque u64 ref). Real native API i31ref slot lands
+        // alongside the i31 op handlers (sub-chunk 4).
+        .i31ref => .{ .externref = if (v.ref == 0) null else v.ref },
     };
 }
 

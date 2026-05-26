@@ -564,7 +564,9 @@ fn writeInsn(allocator: std.mem.Allocator, bytes: *std.ArrayList(u8), word: u32)
 
 fn all_gpr_class(results: []const @import("../../../ir/zir.zig").ValType) bool {
     for (results) |r| switch (r) {
-        .i32, .i64, .funcref, .externref => {},
+        // 10.G op_gc cycle 2: i31ref is a u32 GcRef (low-bit-tagged
+        // i32 per ADR-0116) — fits the gpr class like other reftypes.
+        .i32, .i64, .funcref, .externref, .i31ref => {},
         .f32, .f64, .v128 => return false,
     };
     return true;
@@ -573,7 +575,7 @@ fn all_gpr_class(results: []const @import("../../../ir/zir.zig").ValType) bool {
 fn all_xmm_class(results: []const @import("../../../ir/zir.zig").ValType) bool {
     for (results) |r| switch (r) {
         .f32, .f64 => {},
-        .i32, .i64, .funcref, .externref, .v128 => return false,
+        .i32, .i64, .funcref, .externref, .v128, .i31ref => return false,
     };
     return true;
 }

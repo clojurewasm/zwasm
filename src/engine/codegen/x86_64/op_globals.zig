@@ -90,7 +90,7 @@ pub fn emitGlobalGet(
     const shape = lookupGlobalShape(idx, globals_offsets, globals_valtypes);
     switch (shape.vt) {
         .i32 => try emitI32GlobalGet(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, idx, shape.byte_off),
-        .i64, .funcref, .externref => try emitI64GlobalGet(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, idx, shape.byte_off),
+        .i64, .funcref, .externref, .i31ref => try emitI64GlobalGet(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, idx, shape.byte_off),
         .f32 => try emitFpGlobalGet(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, idx, shape.byte_off, .f32),
         .f64 => try emitFpGlobalGet(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, idx, shape.byte_off, .f64),
         .v128 => try emitV128GlobalGet(allocator, buf, alloc, pushed_vregs, next_vreg, idx, shape.byte_off),
@@ -110,7 +110,7 @@ pub fn emitGlobalSet(
     const shape = lookupGlobalShape(idx, globals_offsets, globals_valtypes);
     switch (shape.vt) {
         .i32 => try emitI32GlobalSet(allocator, buf, alloc, pushed_vregs, spill_base_off, idx, shape.byte_off),
-        .i64, .funcref, .externref => try emitI64GlobalSet(allocator, buf, alloc, pushed_vregs, spill_base_off, idx, shape.byte_off),
+        .i64, .funcref, .externref, .i31ref => try emitI64GlobalSet(allocator, buf, alloc, pushed_vregs, spill_base_off, idx, shape.byte_off),
         .f32 => try emitFpGlobalSet(allocator, buf, alloc, pushed_vregs, spill_base_off, idx, shape.byte_off, .f32),
         .f64 => try emitFpGlobalSet(allocator, buf, alloc, pushed_vregs, spill_base_off, idx, shape.byte_off, .f64),
         .v128 => try emitV128GlobalSet(allocator, buf, alloc, pushed_vregs, idx, shape.byte_off),
