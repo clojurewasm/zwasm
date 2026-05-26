@@ -6,14 +6,12 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `67741848` — feat(p10): ADR-0122 test skip
-  categorization + full migration (architectural cycle, off-bundle).
-  60+ raw SkipZigTest sites → helper-routed (skip.phaseEnd /
-  skip.blocker) + comptime-arch + check_skip_helpers.sh gate.
-  D-193 umbrella row tracks ~21 Mac aarch64-only triage. Per
-  ADR-0122 D6, `/continue` Step 4 now reviews skip.blocker sites
-  per commit for ungate probes. Bundle 10.G op_gc cycle 17
-  (`94e5e3fe`) was the prior op-by-op work.
+- **HEAD**: `8b657b30` — feat(p10): array.get + array.set +
+  array.fill validator+lower (10.G op_gc cycle 18; ADR-0121 D5).
+  No-RTT validator+lower surface for full struct + array
+  catalogue COMPLETE. Cycle 19+ pivots to ADR-0116 amendment +
+  interp wiring. Prior architectural detour ADR-0122 (`67741848`)
+  landed test skip categorization with check_skip_helpers gate.
 - **ROADMAP §10 progress**: 7/13 DONE, 4 IN-PROGRESS, 2 Pending.
 - **Active debt rows**: 18 — all `blocked-by:` with named
   structural barriers. Zero `now`-status rows.
@@ -59,18 +57,22 @@ future op_gc consumers. EH 40 fails still gated on the bigger
 ## Active bundle
 
 - **Bundle-ID**: 10.G-op_gc
-- **Cycles-remaining**: ~9 (per `.dev/phase10_g_op_bundle_plan.md`)
+- **Cycles-remaining**: ~8 (per `.dev/phase10_g_op_bundle_plan.md`)
 - **Continuity-memo**: Cycles 1-6 substrate. Cycles 7-12 no-RTT
-  GC ops. Cycles 13-14 ADR-0121 + decodeTypes 0x5F/0x5E. Cycle 15
-  struct.new family. Cycle 16 array.new family. Cycle 17 struct.get
-  + struct.set. **Off-bundle architectural detour (`67741848`)**:
-  ADR-0122 test skip categorization + 60-site migration + audit
-  gate landed user-driven 2026-05-27 session. Cycle 18 (next):
-  array.get + array.set + array.fill (sub-ops 11/14/16). Validator
-  pops arrayref + i32 idx (+ value for set), pushes element.valtype
-  (for get). array.get_s/_u (12/13) reject packed same as cycle 17.
-  Cycle 19+: ADR-0116 amendment for StructInfo/ArrayInfo runtime
-  layout — unblocks interp for cycles 15-18 ops.
+  GC ops. Cycles 13-14 ADR-0121 + decodeTypes 0x5F/0x5E. Cycles
+  15-18: struct.new/new_default, array.new family, struct.get/set,
+  array.get/set/fill (full validator+lower for struct + array
+  catalogues). Off-bundle architectural detour `67741848`
+  (ADR-0122 skip categorization). Cycle 19 (next): file ADR-0116
+  amendment for StructInfo/ArrayInfo runtime layout — needed to
+  unblock interp wiring for cycles 15-18 ops. StructInfo carries
+  field-count + field-offset table (compact layout per ADR-0115
+  §"Object header"). ArrayInfo carries element-size + length-slot
+  offset. Both materialise from Types.struct_defs/array_defs at
+  instantiate time. Cycle 20+: struct.new interp (Heap.allocate
+  + write field-encoded values + return GcRef cast to ref slot).
+  Cycle 21+: array.new + array.get/set/fill interp. Cycle ~22+:
+  collector_mark_sweep.zig (β must-ship per ADR-0115 §10).
   **Per ADR-0122 D6 ongoing**: every cycle's Step 4 reviews 1-2
   nearby `skip.blocker(.@"D-193")` sites for 3-min ungate probes.
 - **Exit-condition**: wasm-3.0-assert exception-handling /
