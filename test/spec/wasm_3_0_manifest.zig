@@ -177,6 +177,54 @@ pub fn runOne(
     return results[0];
 }
 
+pub const TrapOutcome = enum {
+    /// invoke errored — assert_trap passes (something trapped).
+    trapped,
+    /// invoke returned normally — assert_trap fails (no trap).
+    returned_normally,
+};
+
+/// `assert_trap` execution path: compile + instantiate + look up
+/// the export's sig (so results are sized correctly + the arity
+/// check doesn't trip pre-execution), then invoke. Any
+/// `Instance.InvokeError` from invoke is treated as a trap
+/// (matches the v1 spec runner's lenient policy — the bake step
+/// drops the original trap-reason string, so trap-class
+/// discrimination is a follow-on enhancement). Returns
+/// `.returned_normally` if invoke succeeds (assert_trap fail).
+///
+/// Setup errors (compile failure, instantiate failure, export
+/// not found, not-a-func) propagate as `RunError` — the caller
+/// can decide whether to count them as fail or skip.
+pub fn runOneTrap(
+    alloc: std.mem.Allocator,
+    wasm_bytes: []const u8,
+    func_name: []const u8,
+    args: []const zwasm_root.Value,
+) RunError!TrapOutcome {
+    var engine = zwasm_root.Engine.init(alloc, .{}) catch return RunError.OutOfMemory;
+    defer engine.deinit();
+    var module = engine.compile(wasm_bytes) catch return RunError.LoadFailed;
+    defer module.deinit();
+    var linker = zwasm_root.Linker.init(&engine);
+    defer linker.deinit();
+    var instance = linker.instantiate(&module) catch return RunError.LoadFailed;
+    defer instance.deinit();
+
+    const sig = instance.exportFuncSig(func_name) orelse return RunError.LoadFailed;
+    const n_results = sig.results.len;
+    // Stack-bounded; the wasm-3.0-assert corpus's assert_trap funcs
+    // top out at single-scalar results today. Multi-result trap
+    // funcs land alongside multi-value execution in a follow-on
+    // cycle (matches the assert_return single-scalar gate).
+    var results_buf: [4]zwasm_root.Value = undefined;
+    if (n_results > results_buf.len) return RunError.InvokeFailed;
+    const results = results_buf[0..n_results];
+
+    instance.invoke(func_name, args, results) catch return .trapped;
+    return .returned_normally;
+}
+
 /// Adapter for the cycle-2 parsePayload output (runtime.Value
 /// extern union) → cycle-3 runOne input (zwasm.Value tagged union).
 /// The two types differ structurally: runtime.Value stores floats
@@ -450,6 +498,37 @@ test "runOne e2e: return_call.0.wasm type-i32 () -> i32:306 (10.TC verify)" {
     const wasm_bytes = @embedFile("wasm-3.0-assert/tail-call/return_call/return_call.0.wasm");
     const result = try runOne(testing.allocator, wasm_bytes, "type-i32", &.{});
     try testing.expectEqual(@as(i32, 306), result.i32);
+}
+
+test "runOneTrap: handcrafted_trap always_traps reports .trapped" {
+    // wasm-1.0 handcrafted_trap/m.wasm exports two fns: `always_traps`
+    // (unconditional `unreachable`) and `trap_on_neg` (traps when arg
+    // < 0). Cross-corpus fixture — Wasm 3.0 corpus's assert_trap
+    // funcs require parser/codegen support that isn't all green yet
+    // (memory64 / EH); the 1.0 fixture exercises ONLY the
+    // runOneTrap dispatch surface, which is corpus-agnostic.
+    const wasm_bytes = @embedFile("wasm-1.0-assert/handcrafted_trap/m.wasm");
+    const outcome = try runOneTrap(testing.allocator, wasm_bytes, "always_traps", &.{});
+    try testing.expectEqual(TrapOutcome.trapped, outcome);
+}
+
+test "runOneTrap: trap_on_neg i32:5 returns normally (no false trap)" {
+    // Sanity guard: `trap_on_neg` with arg 5 (≥ 0) does NOT trap;
+    // ensures the helper doesn't classify normal returns as trapped
+    // (e.g. by swallowing a setup-side error).
+    const wasm_bytes = @embedFile("wasm-1.0-assert/handcrafted_trap/m.wasm");
+    const args = [_]zwasm_root.Value{.{ .i32 = 5 }};
+    const outcome = try runOneTrap(testing.allocator, wasm_bytes, "trap_on_neg", &args);
+    try testing.expectEqual(TrapOutcome.returned_normally, outcome);
+}
+
+test "runOneTrap: trap_on_neg i32:-1 traps" {
+    // Pairs with the assert_return above; verifies the trap path
+    // fires when arg < 0.
+    const wasm_bytes = @embedFile("wasm-1.0-assert/handcrafted_trap/m.wasm");
+    const args = [_]zwasm_root.Value{.{ .i32 = -1 }};
+    const outcome = try runOneTrap(testing.allocator, wasm_bytes, "trap_on_neg", &args);
+    try testing.expectEqual(TrapOutcome.trapped, outcome);
 }
 
 // ============================================================

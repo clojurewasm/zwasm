@@ -46,6 +46,25 @@ pub const Instance = struct {
         return .{ .instance = self, .export_name = name };
     }
 
+    /// Wasm spec §4.5.3 — surface the named export's function
+    /// signature for callers that need to size args / results
+    /// buffers without invoking. Returns null if the name has no
+    /// matching export, the export isn't a function, or the
+    /// func slot is missing. Consumed today by the wasm-3.0-spec
+    /// runner's `assert_trap` path, which sizes a results buffer
+    /// to `sig.results.len` before calling `invoke` (so the
+    /// arity check doesn't trip before the function actually
+    /// runs).
+    pub fn exportFuncSig(self: *Instance, name: []const u8) ?_zir.FuncType {
+        for (self.handle.exports_storage) |exp| {
+            if (!std.mem.eql(u8, exp.name, name)) continue;
+            if (exp.kind != .func) return null;
+            if (exp.idx >= self.handle.func_ptrs_storage.len) return null;
+            return self.handle.func_ptrs_storage[exp.idx].sig;
+        }
+        return null;
+    }
+
     /// Wasm spec §4.2.8 — first memory instance, if any. Wasm 1.0
     /// allows at most one per module; v0.1 of the facade returns
     /// the implicit memory0 view.
