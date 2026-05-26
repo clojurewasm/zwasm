@@ -2138,6 +2138,7 @@ pub fn callVoid_i32v128(
 // ============================================================
 
 const testing = std.testing;
+const skip = @import("../../../test_support/skip.zig");
 const zir = @import("../../../ir/zir.zig");
 const ZirFunc = zir.ZirFunc;
 const regalloc = @import("regalloc.zig");
@@ -2145,7 +2146,7 @@ const emit = @import("../arm64/emit.zig");
 
 test "entry: i32.load offset=0 reads memory[0..4] through X28 vm_base" {
     if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
 
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
@@ -2192,7 +2193,7 @@ test "entry: i32.load offset=0 reads memory[0..4] through X28 vm_base" {
 
 test "entry: ADR-0018 sub-1c — spilled i32.const returns 42 via STR/LDR round-trip" {
     if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
     // Force vreg 0 into spill territory (slot 10). The JIT body's
     // prologue extends frame by 8 + 16-align = 16 bytes; i32.const
@@ -2241,7 +2242,7 @@ test "entry: ADR-0018 sub-1c — spilled i32.const returns 42 via STR/LDR round-
 
 test "entry: ADR-0027 — global.set 0 then global.get 0 (i32) round-trips through JitRuntime.globals_base" {
     if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
 
     const Value = @import("../../../runtime/value.zig").Value;
@@ -2297,7 +2298,7 @@ test "entry: ADR-0027 — global.set 0 then global.get 0 (i32) round-trips throu
 
 test "entry: pure constant function returns 42 (sanity — no memory access)" {
     if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
 
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
@@ -2340,7 +2341,7 @@ test "entry: pure constant function returns 42 (sanity — no memory access)" {
 
 test "entry: callI32_i32i32 — 2 i32 params summed via i32.add" {
     if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
     // (param i32 i32) (result i32) — body: local.get 0; local.get 1; i32.add; end
     const sig: zir.FuncType = .{ .params = &.{ .i32, .i32 }, .results = &.{.i32} };
@@ -2387,7 +2388,7 @@ test "entry: callI32_i32i32 — 2 i32 params summed via i32.add" {
 
 test "entry: callI32_i32 — 1 i32 param echoed through W1 → SP slot 0 → result" {
     if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
     const sig: zir.FuncType = .{ .params = &.{.i32}, .results = &.{.i32} };
     var fn0 = ZirFunc.init(0, sig, &.{});
@@ -2429,7 +2430,7 @@ test "entry: callI32_i32 — 1 i32 param echoed through W1 → SP slot 0 → res
 
 test "entry: f32 local round-trip — local.get 0 of f32 param via V0" {
     if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
     // (param f32) (result f32) — body: local.get 0; end
     // The prologue STR S0, [SP, #0] (multi-arg-entry FP path);
@@ -2478,7 +2479,7 @@ test "entry: f32 local round-trip — local.get 0 of f32 param via V0" {
 
 test "entry: callI64NoArgs — i64.const 0xDEADBEEFCAFE returns full 64-bit" {
     if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
     // (result i64) — body: i64.const 0xDEADBEEFCAFE; end
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i64} };

@@ -274,6 +274,7 @@ pub fn runVoidExport(
 /// from `setupRuntime`; caller defers `.deinit(allocator)`.
 const builtin = @import("builtin");
 const testing = std.testing;
+const skip = @import("../test_support/skip.zig");
 
 // File-loading harness lands at sub-7.5b-iii (needs std.Io
 // plumbing). Today's tests use hand-inlined wasm bytes —
@@ -287,7 +288,7 @@ test "runI32Export: memory64 store+load round-trip via i64 idx_type (ADR-0111 D4
     // (src/engine/codegen/x86_64/usage.zig:60). Ungated for Mac aarch64
     // + Linux x86_64 SysV per ADR-0111 D4. Windows skip retained
     // (phase-boundary host).
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
     // (module
     //   (memory i64 1)
     //   (func (export "test") (result i32)
@@ -331,7 +332,7 @@ test "runI32Export: memory64 store+load round-trip via i64 idx_type (ADR-0111 D4
 }
 
 test "runI32Export: trunc_sat_f32_s/pos_inf returns INT32_MAX" {
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
     // (module (func (export "test") (result i32) f32.const +inf
     //   i32.trunc_sat_f32_s)) — compiled via wat2wasm 1.0.39.
     const bytes = [_]u8{
@@ -347,7 +348,7 @@ test "runI32Export: trunc_sat_f32_s/pos_inf returns INT32_MAX" {
 }
 
 test "runI32Export: trunc_sat_f32_s/nan returns 0" {
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
     // (module (func (export "test") (result i32) f32.const nan
     //   i32.trunc_sat_f32_s))
     const bytes = [_]u8{
@@ -363,7 +364,7 @@ test "runI32Export: trunc_sat_f32_s/nan returns 0" {
 }
 
 test "runI32Export: trunc_sat_f32_s/neg_inf returns INT32_MIN (as u32 = 0x80000000)" {
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
     // (module (func (export "test") (result i32) f32.const -inf
     //   i32.trunc_sat_f32_s))
     const bytes = [_]u8{
@@ -379,7 +380,7 @@ test "runI32Export: trunc_sat_f32_s/neg_inf returns INT32_MIN (as u32 = 0x800000
 }
 
 test "runI32Export: trunc_f32_s/nan traps (sub-7.5b-ii trap_flag detection)" {
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
     // (module (func (export "test") (result i32) f32.const nan
     //   i32.trunc_f32_s)) — Wasm 1.0 trapping trunc; NaN → trap.
     // Same module shape as the sat variant, only the opcode
@@ -396,7 +397,7 @@ test "runI32Export: trunc_f32_s/nan traps (sub-7.5b-ii trap_flag detection)" {
 }
 
 test "runI32Export: simple i32.const probe on all hosts (sanity)" {
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
     // (module (func (export "test") (result i32) (i32.const 42)))
     // Simplest possible runI32Export fixture — verifies the basic
     // entry-shim + JIT pipeline works on the current host
@@ -411,7 +412,7 @@ test "runI32Export: simple i32.const probe on all hosts (sanity)" {
 }
 
 test "runI32Export: throw + catch_all returns 42 (IT-6 cycle 3c-iii-d end-to-end)" {
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
     // (module
     //   (tag $e0)
     //   (func (export "test") (result i32)
@@ -449,7 +450,7 @@ test "runI32Export: throw + catch_all returns 42 (IT-6 cycle 3c-iii-d end-to-end
 }
 
 test "runI32Export: tagged catch routes by tag_idx — throw $e1 → catch $e1 returns 77" {
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
     // (module
     //   (tag $e0) (tag $e1)
     //   (func (export "test") (result i32)
@@ -487,7 +488,7 @@ test "runI32Export: cross-frame throw — callee throws, caller's try_table catc
     // vs saved-R15 slot via CodeMap lookup. Test ungated for
     // Mac aarch64 + Linux x86_64 SysV; windows = phase-boundary
     // gate per ADR-0067.
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
     // (module
     //   (tag $e0)
     //   (func $callee (throw $e0))
@@ -519,7 +520,7 @@ test "runI32Export: cross-frame throw — callee throws, caller's try_table catc
 }
 
 test "runI32Export: multi-catch try_table — tag-correct clause's prelude pushes payload (D-182 per-clause)" {
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
     // (module
     //   (type $t (func (param i32)))
     //   (tag $e0 (type $t))
@@ -555,7 +556,7 @@ test "runI32Export: multi-catch try_table — tag-correct clause's prelude pushe
 }
 
 test "runI32Export: cross-frame throw with i32 payload — propagates via eh_payload_buf across frames" {
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
     // (module
     //   (type $t0 (func (param i32)))
     //   (tag $e0 (type $t0))
@@ -587,7 +588,7 @@ test "runI32Export: cross-frame throw with i32 payload — propagates via eh_pay
 }
 
 test "runI32Export: 2-level cross-frame throw — inner→mid→test catches via outermost try_table" {
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
     // (module
     //   (tag $e0)
     //   (func $inner (throw $e0))
@@ -627,7 +628,7 @@ test "runI32Export: throw + catch_ with i32 payload returns 88 (10.E-payload-pro
     // loading eh_payload_buf[i] into the block-result vreg slot
     // (via gprDefSpilled + gprStoreSpilled) + JMP-to-common
     // continuation. windowsmini = phase-boundary per ADR-0067.
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
     // (module
     //   (type $t0 (func (param i32)))
     //   (tag $e0 (type $t0))

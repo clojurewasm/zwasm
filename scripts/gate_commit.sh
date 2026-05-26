@@ -111,6 +111,13 @@ else
     # fixture-path existence checks for cited `.wasm` files.
     echo "[gate_commit] check_skip_adrs --gate ..."
     bash scripts/check_skip_adrs.sh --gate > /dev/null
+    # ADR-0122 (2026-05-27) — test-time SkipZigTest categorization:
+    # all skips must route via src/test_support/skip.zig helpers
+    # (phaseEnd / blocker categories) or be comptime arch-pinned
+    # with paired SIBLING-AT comment. Orthogonal to check_skip_adrs
+    # (which covers runtime SKIP-* token taxonomy from spec runners).
+    echo "[gate_commit] check_skip_helpers --gate ..."
+    bash scripts/check_skip_helpers.sh --gate > /dev/null
 fi
 
 # --- gate: check_adr_history (only when an ADR changed or empty diff) ---

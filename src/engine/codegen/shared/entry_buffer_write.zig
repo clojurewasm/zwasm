@@ -140,6 +140,7 @@ pub fn invokeBufWin64Args(
 // ============================================================
 
 const testing = std.testing;
+const skip = @import("../../../test_support/skip.zig");
 
 /// Hand-rolled arm64 JIT bytes: writes `results[0] = 42`, returns 0.
 ///
@@ -179,7 +180,7 @@ test "buffer-write entry: hand-rolled JIT writes results[0] = 42 (ADR-0106 path 
     if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64) and
         !(builtin.cpu.arch == .x86_64 and builtin.os.tag != .windows))
     {
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
     const bytes: [16]u8 = if (builtin.cpu.arch == .aarch64)
         aarch64_results0_eq_42
@@ -268,7 +269,7 @@ test "buffer-write entry: invokeMultiResultNoArgs unpacks 3-i32 result (ADR-0106
     if (!(builtin.cpu.arch == .aarch64 and builtin.os.tag == .macos) and
         !(builtin.cpu.arch == .x86_64 and builtin.os.tag != .windows))
     {
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32, .i32, .i32 } };
     var f = ZirFunc.init(0, sig, &.{});
@@ -320,7 +321,7 @@ test "buffer-write entry: native-emit () → (i32, i64) shape (SKIP arm callI32i
     if (!(builtin.cpu.arch == .aarch64 and builtin.os.tag == .macos) and
         !(builtin.cpu.arch == .x86_64 and builtin.os.tag != .windows))
     {
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i32, .i64 } };
     var f = ZirFunc.init(0, sig, &.{});
@@ -369,7 +370,7 @@ test "buffer-write entry: native-emit () → (i64, i32) shape (SKIP arm callI64i
     if (!(builtin.cpu.arch == .aarch64 and builtin.os.tag == .macos) and
         !(builtin.cpu.arch == .x86_64 and builtin.os.tag != .windows))
     {
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{ .i64, .i32 } };
     var f = ZirFunc.init(0, sig, &.{});
@@ -442,7 +443,7 @@ test "buffer-write entry: native-emit () → (i32, i32, i32) multi-result via bu
     if (!(builtin.cpu.arch == .aarch64 and builtin.os.tag == .macos) and
         !(builtin.cpu.arch == .x86_64 and builtin.os.tag != .windows))
     {
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
     // Build ZirFunc: () -> (i32, i32, i32); body = i32.const 11; 22; 33; end.
     // 3 results trigger the D-164 SysV §3.2.3 > 2 GPR-class results path
@@ -499,7 +500,7 @@ test "buffer-write entry: native-emit (i32) → i32 identity via [args_ptr+0] (A
     if (!(builtin.cpu.arch == .aarch64 and builtin.os.tag == .macos) and
         !(builtin.cpu.arch == .x86_64 and builtin.os.tag != .windows))
     {
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
     // Build ZirFunc: (param i32) → i32; body = local.get 0; end.
     const sig: zir.FuncType = .{ .params = &.{.i32}, .results = &.{.i32} };
@@ -547,7 +548,7 @@ test "buffer-write entry: native-emit (i32.const 42) end → results[0] = 42 (AD
     if (!(builtin.cpu.arch == .aarch64 and builtin.os.tag == .macos) and
         !(builtin.cpu.arch == .x86_64 and builtin.os.tag != .windows))
     {
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
     // Build the ZirFunc: () -> i32; body = i32.const 42; end.
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };

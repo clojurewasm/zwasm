@@ -209,14 +209,18 @@ test "RecoveryInfo struct shape" {
 }
 
 test "install/uninstall non-Windows no-op" {
-    if (comptime builtin.os.tag == .windows) return error.SkipZigTest;
+    // SIBLING-AT: src/platform/windows_traphandler.zig:62 (install impl)
+    // — POSIX no-op path; Windows VEH path verified by W4 reconcile.
+    if (comptime builtin.os.tag == .windows) return;
     install();
     uninstall();
     // Reaching here = no crash; install/uninstall returned cleanly.
 }
 
 test "arm/disarm non-Windows no-op leaves threadlocal untouched" {
-    if (comptime builtin.os.tag == .windows) return error.SkipZigTest;
+    // SIBLING-AT: src/platform/windows_traphandler.zig:62 (install impl)
+    // — POSIX no-op path; Windows VEH path verified by W4 reconcile.
+    if (comptime builtin.os.tag == .windows) return;
     arm(.{
         .jit_code_start = 0xDEADBEEF,
         .jit_code_end = 0xFEEDFACE,

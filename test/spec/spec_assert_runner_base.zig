@@ -3853,7 +3853,9 @@ test "sigsegv guard: handler siglongjmps back to caller frame on raised SIGSEGV"
     // + sigsetjmp recovery. Windows VEH equivalent (ADR-0103) is
     // exercised by `spec_assert_runner_non_simd` fixtures hitting
     // actual hardware faults — W4 reconcile validates that path.
-    if (@import("builtin").os.tag == .windows) return error.SkipZigTest;
+    // SIBLING-AT: test/spec/spec_assert_runner_non_simd.zig (W4 VEH path)
+    // — POSIX-only sigsetjmp; Windows path uses VEH per ADR-0103.
+    if (comptime @import("builtin").os.tag == .windows) return;
     installSigsegvHandler();
 
     // Inline `sigsetjmp` — its captured frame is THIS test's
@@ -3882,7 +3884,9 @@ test "sigsegv guard: handler siglongjmps back to caller frame on raised SIGSEGV"
 
 test "sigsegv guard: armed=false after recovery so subsequent SEGV is unexpected" {
     // POSIX-only — see prior `sigsegv guard` test.
-    if (@import("builtin").os.tag == .windows) return error.SkipZigTest;
+    // SIBLING-AT: test/spec/spec_assert_runner_non_simd.zig (W4 VEH path)
+    // — POSIX-only sigsetjmp; Windows path uses VEH per ADR-0103.
+    if (comptime @import("builtin").os.tag == .windows) return;
     installSigsegvHandler();
 
     if (sigsetjmp(@ptrCast(&sigsegv_recover_buf), 1) == 0) {

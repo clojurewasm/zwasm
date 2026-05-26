@@ -305,15 +305,16 @@ pub fn compileOne(
 // ============================================================
 
 const testing = std.testing;
+const skip = @import("../../../test_support/skip.zig");
 const linker = @import("linker.zig");
 const entry = @import("entry.zig");
 
 test "compileOne: pass_diagnostics records all 6 passes when trace enabled" {
-    if (!trace.enabled) return error.SkipZigTest;
+    if (!trace.enabled) return error.SkipZigTest; // build-flag gate; ADR-0122 D7 exempt
     if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64) and
         builtin.cpu.arch != .x86_64)
     {
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
     trace.clear();
 
@@ -349,7 +350,7 @@ test "compileOne: pass_diagnostics records all 6 passes when trace enabled" {
 
 test "compileOne: tiny straight-line module — (func (result i32) i32.const 7 end) returns 7" {
     if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
     // Pure instruction bytes (locals prefix is consumed by
     // sections.decodeCodes before this function): `i32.const 7`

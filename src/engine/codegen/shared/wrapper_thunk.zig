@@ -601,6 +601,7 @@ fn emitCallRel32(
 }
 
 const testing = std.testing;
+const skip = @import("../../../test_support/skip.zig");
 
 test "wrapper_thunk: emitX8664Win64 2-int register-class (i32, i64) (33 bytes)" {
     // Pure byte-sequence test — no host gating. The bytes are
@@ -815,10 +816,13 @@ test "wrapper_thunk: EmitParams + EmitOutput types present" {
 }
 
 test "wrapper_thunk: end-to-end execution — () → (i32, i32, i32) via wrapper" {
+    // D-180 hazard: this gate hides Linux aarch64. D-193 tracks
+    // per-site triage. Win64 deferred per ADR-0122 phaseEnd batch.
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
     if (!(builtin.cpu.arch == .aarch64 and builtin.os.tag == .macos) and
-        !(builtin.cpu.arch == .x86_64 and builtin.os.tag != .windows))
+        !(builtin.cpu.arch == .x86_64))
     {
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
     // Build ZirFunc: () → (i32, i32, i32); body = 11; 22; 33; end.
     const zir = @import("../../../ir/zir.zig");
@@ -899,10 +903,13 @@ test "wrapper_thunk: end-to-end execution — () → (i32, i32, i32) via wrapper
 }
 
 test "wrapper_thunk: end-to-end execution — () → (i32, i64) via wrapper" {
+    // D-180 hazard: this gate hides Linux aarch64. D-193 tracks
+    // per-site triage. Win64 deferred per ADR-0122 phaseEnd batch.
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
     if (!(builtin.cpu.arch == .aarch64 and builtin.os.tag == .macos) and
-        !(builtin.cpu.arch == .x86_64 and builtin.os.tag != .windows))
+        !(builtin.cpu.arch == .x86_64))
     {
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
     const zir = @import("../../../ir/zir.zig");
     const ZirFunc = zir.ZirFunc;
@@ -983,7 +990,8 @@ test "wrapper_thunk: emit returns UnsupportedOp for 0-result sig" {
 }
 
 test "wrapper_thunk: emit aarch64 2-int register-class (i32, i64) (28 bytes)" {
-    if (builtin.cpu.arch != .aarch64) return error.SkipZigTest;
+    // SIBLING-AT: src/engine/codegen/shared/wrapper_thunk.zig:1041 (x86_64 SysV)
+    if (comptime builtin.cpu.arch != .aarch64) return;
     const results = [_]@TypeOf(@as(@import("../../../ir/zir.zig").ValType, .i32)){ .i32, .i64 };
     const params: EmitParams = .{
         .sig = .{ .params = &.{}, .results = &results },
@@ -1011,7 +1019,8 @@ test "wrapper_thunk: emit aarch64 2-int register-class (i32, i64) (28 bytes)" {
 }
 
 test "wrapper_thunk: emit aarch64 3-int MEMORY-class (24 bytes)" {
-    if (builtin.cpu.arch != .aarch64) return error.SkipZigTest;
+    // SIBLING-AT: src/engine/codegen/shared/wrapper_thunk.zig:1041 (x86_64 SysV)
+    if (comptime builtin.cpu.arch != .aarch64) return;
     const i32_results = [_]@TypeOf(@as(@import("../../../ir/zir.zig").ValType, .i32)){ .i32, .i32, .i32 };
     const params: EmitParams = .{
         .sig = .{ .params = &.{}, .results = &i32_results },
@@ -1037,9 +1046,9 @@ test "wrapper_thunk: emit aarch64 3-int MEMORY-class (24 bytes)" {
 }
 
 test "wrapper_thunk: emit x86_64 SysV 2-int register-class (i32, i64) (31 bytes)" {
-    if (builtin.cpu.arch != .x86_64 or builtin.os.tag == .windows) {
-        return error.SkipZigTest;
-    }
+    // SIBLING-AT: src/engine/codegen/shared/wrapper_thunk.zig:986 (aarch64)
+    if (comptime builtin.cpu.arch != .x86_64) return;
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
     const results = [_]@TypeOf(@as(@import("../../../ir/zir.zig").ValType, .i32)){ .i32, .i64 };
     const params: EmitParams = .{
         .sig = .{ .params = &.{}, .results = &results },
@@ -1068,9 +1077,9 @@ test "wrapper_thunk: emit x86_64 SysV 2-int register-class (i32, i64) (31 bytes)
 }
 
 test "wrapper_thunk: emit x86_64 SysV 3-int-result MEMORY-class (11 bytes)" {
-    if (builtin.cpu.arch != .x86_64 or builtin.os.tag == .windows) {
-        return error.SkipZigTest;
-    }
+    // SIBLING-AT: src/engine/codegen/shared/wrapper_thunk.zig:986 (aarch64)
+    if (comptime builtin.cpu.arch != .x86_64) return;
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
     const i32_results = [_]@TypeOf(@as(@import("../../../ir/zir.zig").ValType, .i32)){ .i32, .i32, .i32 };
     const params: EmitParams = .{
         .sig = .{ .params = &.{}, .results = &i32_results },

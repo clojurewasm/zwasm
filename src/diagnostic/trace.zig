@@ -538,12 +538,12 @@ test "trace: JIT emit invokes writeBounds for i32.load (integration, both backen
     const compile = switch (builtin.cpu.arch) {
         .aarch64 => @import("../engine/codegen/arm64/emit.zig").compile,
         .x86_64 => @import("../engine/codegen/x86_64/emit.zig").compile,
-        else => return error.SkipZigTest,
+        else => unreachable,
     };
     const deinit = switch (builtin.cpu.arch) {
         .aarch64 => @import("../engine/codegen/arm64/emit.zig").deinit,
         .x86_64 => @import("../engine/codegen/x86_64/emit.zig").deinit,
-        else => return error.SkipZigTest,
+        else => unreachable,
     };
 
     clear();

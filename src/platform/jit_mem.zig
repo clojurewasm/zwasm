@@ -188,11 +188,12 @@ pub fn setWritable(block: JitBlock) Error!void {
 }
 
 const testing = std.testing;
+const skip = @import("../test_support/skip.zig");
 
 test "JitBlock: emit MOVZ X0,#42 + RET, execute, returns 42" {
     if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
         // Other hosts: the JIT spec gate is not yet wired; skip.
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
     const inst = @import("../engine/codegen/arm64/inst.zig");
     var block = try alloc(page_size);

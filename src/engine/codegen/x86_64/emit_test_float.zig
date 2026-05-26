@@ -1350,7 +1350,8 @@ test "compile: SysV callee with 6 i32 params — 6th param read from caller stac
     // i32-param-arg-overflow] at emit.zig:382 since arg_gprs.len = 6
     // and int_arg_idx starts at 1 (slot 0 = runtime ptr); 6 user
     // i32 args overflow at the 6th.
-    if (abi.current_cc != .sysv) return error.SkipZigTest;
+    // SIBLING-AT: src/engine/codegen/arm64/emit_test_alu_float.zig (AAPCS64 path)
+    if (comptime abi.current_cc != .sysv) return;
     const sig: zir.FuncType = .{ .params = &[_]zir.ValType{ .i32, .i32, .i32, .i32, .i32, .i32 }, .results = &.{} };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
@@ -1507,7 +1508,8 @@ test "compile: call N — 6 i32 args, SysV: 6th arg overflows to caller stack [R
     // Win64 path differs (3 user GPR slots, shared int/fp counter,
     // shadow space precedes overflow); covered by separate test
     // gating on `abi.current_cc == .win64`.
-    if (abi.current_cc != .sysv) return error.SkipZigTest;
+    // SIBLING-AT: src/engine/codegen/arm64/emit_test_alu_float.zig (AAPCS64 path)
+    if (comptime abi.current_cc != .sysv) return;
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
     const callee_sig: zir.FuncType = .{ .params = &.{ .i32, .i32, .i32, .i32, .i32, .i32 }, .results = &.{} };
     const func_sigs = [_]zir.FuncType{ sig, callee_sig };

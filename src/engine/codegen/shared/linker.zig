@@ -515,6 +515,7 @@ pub fn linkWithThunks(
 
 const builtin = @import("builtin");
 const testing = std.testing;
+const skip = @import("../../../test_support/skip.zig");
 const zir = @import("../../../ir/zir.zig");
 const jit_abi = @import("jit_abi.zig");
 const ZirFunc = zir.ZirFunc;
@@ -522,7 +523,7 @@ const regalloc = @import("regalloc.zig");
 
 test "link: 2-function module — fn0 calls fn1, returns 7" {
     if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
     const sigs = [_]zir.FuncType{
         .{ .params = &.{}, .results = &.{.i32} }, // fn0
@@ -608,7 +609,7 @@ test "link: 2-function module — fn0 calls fn1, returns 7" {
 // follow-on cycle wiring return_call.emit).
 test "link: is_tail=true patches B opcode at fixup site (ADR-0112 D4)" {
     if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
 
     // fn0 body: 4-byte placeholder at offset 0 + RET. After link,
@@ -648,7 +649,7 @@ test "link: is_tail=true patches B opcode at fixup site (ADR-0112 D4)" {
 
 test "link: is_tail=false (default) patches BL opcode (regression for the dispatch branch)" {
     if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
 
     const ret_word: u32 = 0xD65F03C0;
@@ -690,7 +691,7 @@ test "link+execute: fn0 return_call fn1 returns 7 via B/JMP fixup (ADR-0112 D3/D
     if (!(builtin.cpu.arch == .aarch64 and builtin.os.tag == .macos) and
         !(builtin.cpu.arch == .x86_64 and builtin.os.tag != .windows))
     {
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
     const sigs = [_]zir.FuncType{
         .{ .params = &.{}, .results = &.{.i32} }, // fn0
@@ -789,7 +790,7 @@ test "linkWithThunks: single multi-result function — wrapper invocation writes
     if (!(builtin.cpu.arch == .aarch64 and builtin.os.tag == .macos) and
         !(builtin.cpu.arch == .x86_64 and builtin.os.tag != .windows))
     {
-        return error.SkipZigTest;
+        return skip.blocker(.@"D-193");
     }
     const entry_buf = @import("entry_buffer_write.zig");
 
