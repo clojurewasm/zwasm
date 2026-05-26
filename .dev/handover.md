@@ -6,9 +6,9 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `528b1636` — 10.R-3 br_on_non_null phase-log backfill
-  (impl was at `b31dc63f`; this commit reconciles the sub-chunk
-  ledger). 10.TC-emit-body bundle closed at `c329c270`.
+- **HEAD**: `3ae3cfaa` — wasm 3.0 spec manifest parser foundation
+  (10.E spec-runner bundle cycle 1; `test/spec/wasm_3_0_manifest
+  .zig` + 8 unit tests on the Directive parse shape).
 - **ROADMAP §10 progress**: 7/13 DONE (10.0/10.C9/10.J/10.F/
   10.Z/10.D/10.T), 4 IN-PROGRESS (10.M/10.R/10.TC/10.E with
   10.E core + 10.TC same-module direct + indirect substantively
@@ -42,15 +42,34 @@ Observable deltas at close (HEAD `ae2abab7`):
 - D-186 filed for `return_call_ref` deferral (blocked-by 10.R
   call_ref codegen + typed-funcref Value shape).
 
-## Next candidates
+## Active bundle
 
-- **10.E spec corpus runner** — `spec_assert_runner_wasm_3_0.zig`
-  is a 130-line skeleton (enumerate-and-count). Adding actual
-  assert_return / assert_trap / assert_exception execution is
-  multi-cycle; natural next bundle. Smallest first step: pick
-  one wasm-3.0-assert corpus directory and add the
-  assert_return execution path through `cli_run.runWasmCaptured`
-  comparing return values against the spec's expected results.
+- **Bundle-ID**: 10.E-spec-runner
+- **Cycles-remaining**: ~5
+- **Continuity-memo**: cycle 1 (`3ae3cfaa`) shipped the manifest
+  parser foundation — `test/spec/wasm_3_0_manifest.zig` with
+  Directive {kind, module_path, func_name, args, results, ...}
+  + parseLine() over alloc-free TypedValue slices. 8 unit tests
+  cover module / assert_return (no-args + typed-args + void
+  result) / assert_trap / assert_invalid / skip-impl / overflow.
+  No execution dispatch yet — parser only.
+- **Exit-condition**: at least ONE assert_return directive from a
+  wasm-3.0-assert sub-corpus manifest executes end-to-end via
+  `cli_run.runWasmCaptured` (or equivalent invocation path) with
+  the parsed args + expected result matched against actual
+  return; `zig build test-spec-wasm-3.0-assert` reports >0
+  assertions passed (vs the current skeleton's 0).
+- **Next cycle (cycle 2)**: TypedValue → `runtime.Value` payload
+  parser. Add `parsePayload(tv: TypedValue) !runtime.Value`:
+  i32/i64 via std.fmt.parseInt; f32/f64 via @bitCast from the
+  uleb-decoded u32/u64 bit pattern. Same-cycle observable:
+  unit tests round-tripping a few payloads from each manifest.
+  Subsequent cycles wire: module loader (3) → execute dispatcher
+  through cli_run (4) → trap comparison (5) → integration into
+  spec_assert_runner_wasm_3_0.zig main loop (close).
+
+## Next candidates (after 10.E-spec-runner bundle closes)
+
 - **10.R-4/5** — `call_ref` / `return_call_ref`. Needs the
   `(ref $sig)` typed-funcref Value shape decision first (per
   D-186). Survey-then-spike chunk before implementation.
