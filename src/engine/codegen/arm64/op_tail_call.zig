@@ -229,10 +229,14 @@ pub fn emitIndirectReturnCall(
     // Funcptr load: LDR X16, [X26, X17, LSL #3]. X16 = tail-target
     // (per `tail_target_gpr`) — matches the BR X16 in step (7).
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrXRegLsl3(tail_target_gpr, 26, 17));
+    std.debug.print("[D-185] post-funcptr buf.len={d} (%4={d})\n", .{ ctx.buf.items.len, ctx.buf.items.len % 4 });
 
     try emitLoadCalleeRtSameModule(ctx.allocator, ctx.buf);
+    std.debug.print("[D-185] post-loadCalleeRt buf.len={d} (%4={d}) ctx.frame_bytes={d}\n", .{ ctx.buf.items.len, ctx.buf.items.len % 4, ctx.frame_bytes });
     try frame_teardown.emit(ctx.allocator, ctx.buf, .{ .frame_bytes = ctx.frame_bytes });
+    std.debug.print("[D-185] post-frame_teardown buf.len={d} (%4={d})\n", .{ ctx.buf.items.len, ctx.buf.items.len % 4 });
     try emitTailJump(ctx.allocator, ctx.buf, tail_target_gpr);
+    std.debug.print("[D-185] post-tailJump buf.len={d} (%4={d})\n", .{ ctx.buf.items.len, ctx.buf.items.len % 4 });
 }
 
 // ---------------------------------------------------------------------

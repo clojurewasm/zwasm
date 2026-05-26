@@ -1552,7 +1552,13 @@ pub fn compile(
                         }
                     }
                 };
+                if (cind_bounds_fixups.items.len > 0) {
+                    std.debug.print("[D-185] EmitCindStub bounds: stub_byte={d} (%4={d}) fixups={any}\n", .{ buf.items.len, buf.items.len % 4, cind_bounds_fixups.items });
+                }
                 try EmitCindStub.emit(allocator, &buf, cind_bounds_fixups.items, 2, frame_bytes);
+                if (cind_sig_fixups.items.len > 0) {
+                    std.debug.print("[D-185] EmitCindStub sig: stub_byte={d} (%4={d}) fixups={any}\n", .{ buf.items.len, buf.items.len % 4, cind_sig_fixups.items });
+                }
                 try EmitCindStub.emit(allocator, &buf, cind_sig_fixups.items, 3, frame_bytes);
                 // ADR-0105 D3 — stack-overflow trap stub. Probe fired
                 // BEFORE `SUB SP, SP, frame_bytes`, so the stub must
