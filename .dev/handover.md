@@ -6,32 +6,38 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `e5eed624` — feat(p10): Collector vtable +
-  collector_null (10.G-foundation cycle 4). Pluggable interface
-  mirroring std.mem.Allocator shape; null collector wraps Heap
-  as allocator-only.
+- **HEAD**: `96a17d5a` — feat(p10): Runtime.gc_heap +
+  instantiate-side gate (10.G-foundation cycle 5; ADR-0115 §1).
+  Closes the 10.G-foundation bundle's exit-condition (instantiate
+  consumes Module.needs_gc_heap to materialise Heap iff true).
 - **ROADMAP §10 progress**: 7/13 DONE, 4 IN-PROGRESS, 2 Pending.
 - **Active debt rows**: 18 — all `blocked-by:` with named
   structural barriers. Zero `now`-status rows.
 
-## Active bundle
+## 10.G-foundation bundle CLOSED (5 cycles; ~310 LOC + 18 tests)
 
-- **Bundle-ID**: 10.G-foundation
-- **Cycles-remaining**: ~2
-- **Continuity-memo**: Cycle 1 (`e953b089`) Value.anyref +
-  Module.needs_gc_heap field. Cycle 2 (`3fa32ddf`) parser wires
-  needs_heap_detector. Cycle 3 (`e3bd30e1`) feature/gc/heap.zig
-  per-Store slab. Cycle 4 (`e5eed624`) Collector vtable +
-  collector_null. Next: (5) Runtime.gc_heap field + instantiate-
-  side gate that materialises Heap iff Module.needs_gc_heap;
-  (6) `-Dgc-collector={null,mark_sweep}` build-option dispatch
-  (sets up the seam for the future mark_sweep impl).
-- **Exit-condition**: instantiate-side gate consumes
-  Module.needs_gc_heap (Heap created when true, null when false)
-  AND a Tier-1 test wires Collector.allocObject through Runtime
-  into an observable GcRef.
+Substrate landed for the larger 10.G WasmGC implementation:
 
-## Spec runner observable (HEAD `e953b089`)
+- `e953b089` cycle 1 — Value.anyref arm + Module.needs_gc_heap field.
+- `3fa32ddf` cycle 2 — parser wires needs_heap_detector.
+- `e3bd30e1` cycle 3 — feature/gc/heap.zig per-Store slab (7 tests).
+- `e5eed624` cycle 4 — Collector vtable + collector_null (6 tests).
+- `96a17d5a` cycle 5 — Runtime.gc_heap + instantiate gate (3 tests).
+
+zig build test 2116/2130 (was 2099/2113 at bundle open; +17
+foundation tests + +1 wire test in parser at cycle 2).
+
+What's NOT yet in place (post-foundation, future bundles):
+- GC valtype parser/validator (anyref/eqref/structref/arrayref/
+  i31ref enum variants + decoder branches).
+- op_gc.zig dispatch (struct.new / struct.get / struct.set /
+  array.* / ref.test / ref.cast / br_on_cast).
+- collector_mark_sweep.zig (β must-ship per ADR-0115 §10).
+- `-Dgc-collector={null,mark_sweep}` build-option dispatch.
+- Root walker (Mode A `zwasm_runtime_with_root_scope` per §4).
+- regalloc stack-map axis (ADR-0113 §C / ADR-0115 §7).
+
+## Spec runner observable (HEAD `96a17d5a`; unchanged)
 
 ```
 [memory64           ] return=337 (pass=337 fail=0  ) trap=205 (pass=205 fail=0  ) invalid=83  (pass=83  fail=0) skip=0
@@ -41,36 +47,33 @@
 total: return pass=368 fail=34; trap pass=205 fail=2; invalid pass=110 fail=2; exception pass=0 fail=4
 ```
 
-memory64 / tail-call / function-references all clean. Remaining 40
-fails all in exception-handling (gate per D-192 / 10.G).
+Foundation cycles produce no spec-runner delta — they substrate
+future op_gc consumers. EH 40 fails still gated on the bigger
+10.G work (per D-192).
 
-Recent commits this resume:
-- `e5eed624` feat — Collector vtable + collector_null (10.G cycle 4).
-- `e3bd30e1` feat — feature/gc/heap.zig per-Store slab (10.G cycle 3).
-- `3fa32ddf` feat — parser wires needs_heap_detector (10.G cycle 2).
-- `e953b089` feat — Value.anyref + Module.needs_gc_heap (10.G cycle 1).
-- `94d16e33` chore — audit_scaffolding §F+§G clean; retarget at 10.G.
+## Active task — survey for next tractable §10 work
+
+Foundation closed; next move requires choosing a parent bundle:
+(A) GC valtype parser+validator extensions (cycle ~6-10 of larger
+10.G impl), OR (B) opportunistic wait for user touchpoint on
+ADR-0120 / Phase 10 close prep / D-179 wabt bump.
+
+(A) is autonomous-eligible. (B) is bucket-3 territory if no
+single-cycle work remains.
 
 ## Next sub-chunk candidates (names only)
 
-- **10.G-foundation cycle 5** — Instantiate-side gate: add
-  `Runtime.gc_heap: ?*Heap` + `Runtime.gc_collector: ?Collector`
-  fields; `instantiateRuntime` materialises them iff
-  `Module.needs_gc_heap` (zero-overhead invariant per ADR-0115
-  §1). End-to-end Tier-1 test: instance.invoke a synthesised
-  struct.new equivalent allocates a non-null GcRef.
-- **10.G-foundation cycle 6** — `-Dgc-collector={null,mark_sweep}`
-  build-option dispatch (sets up the seam for the future
-  mark_sweep impl); also `-Dgc=false` strips feature/gc/ via
-  compile-time DCE (WAMR-equivalent nuclear strip per ADR-0115
-  §3).
+- **10.G op_gc impl bundle (parent of foundation)** — GC
+  valtype enum extensions + parser/validator + op_gc.zig
+  dispatch + collector_mark_sweep impl. Multi-cycle, large.
 - **10.M-realworld** — toolchain-blocked (D-179 wabt 1.0.41+).
 - **10.P close gate** — user touchpoint by construction.
 
 ## Open questions / blockers
 
 - ADR-0120 — Status: Proposed pending user flip to Accepted.
-- 10.G-4 (struct ops) — blocked-by GC heap impl (10.G bundle scope).
+- 10.G-4 (struct ops) — blocked-by GC heap impl (now substrate
+  in place; ops layer is next bundle).
 - 10.M-realworld — toolchain-blocked (D-179).
 - 10.P close gate — user touchpoint by construction.
 - D-186 — `return_call_ref` blocked-by 10.R-3/4/5 (GC-gated).
@@ -81,11 +84,10 @@ Recent commits this resume:
 
 ## Key refs
 
-- ADR-0017, ADR-0026, ADR-0109, ADR-0111 (memory64 design),
-  ADR-0112, ADR-0113 §A/§B/§C, ADR-0114, ADR-0115 (GC heap), ADR-0116
-  (GC roots + RTT + i31), ADR-0117 (GC×EH×TC integration), ADR-0119,
-  ADR-0120.
-- ROADMAP §10 row 10.G; Phase log `.dev/phase_log/phase10.md` Row
-  10.T / 10.TC / 10.E / 10.M.
+- ADR-0017, ADR-0026, ADR-0109, ADR-0111 (memory64),
+  ADR-0112, ADR-0113 §A/§B/§C, ADR-0114, ADR-0115 (GC heap;
+  cycles 1-5 implement §1+§3+§5+§6+§10), ADR-0116 (GC roots
+  + RTT + i31), ADR-0117, ADR-0119, ADR-0120.
+- ROADMAP §10 row 10.G; Phase log `.dev/phase_log/phase10.md`.
 - Lessons (recent): `.dev/lessons/INDEX.md` entries 2026-05-26
   (shared-facade-host-dispatched) + 2026-05-28 (5 EH lessons).
