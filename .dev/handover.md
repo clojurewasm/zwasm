@@ -6,9 +6,8 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `73187e6f` — D-185 closed; arm64 return_call_indirect
-  re-applied with arm64/x86_64 op_tail_call imports flipped from
-  shared facade to sibling frame_teardown (host-dispatch bug fix).
+- **HEAD**: `ae2abab7` — x86_64 return_call_indirect emit body
+  (10.TC emit-body cycle 8; JMP R11 path).
 - **ROADMAP §10 progress**: 7/13 DONE (10.0/10.C9/10.J/10.F/
   10.Z/10.D/10.T), 4 IN-PROGRESS (10.M/10.R/10.TC/10.E with
   10.E core substantively done), 2 Pending (10.G/10.P).
@@ -22,38 +21,34 @@
 ## Active bundle
 
 - **Bundle-ID**: 10.TC-emit-body
-- **Cycles-remaining**: ~3
-- **Continuity-memo**: cycles 1-5 + cycle 7 (D-185 investigation
-  + fix) landed. Same-module direct `return_call` complete on
-  both arches. Cycle 6 first attempt (`99d10707`) reverted at
-  `aa6f3928` due to ubuntu @divExact panic. Cycle 7 (`73187e6f`)
-  diagnosed via D-185 probes: shared `frame_teardown` facade is
-  host-dispatched (`builtin.target.cpu.arch`) so arm64 emit on
-  x86_64 host wrote 1 byte (POP RBP) instead of 4 (LDP), mis-
-  aligning the byte stream. Fix: arm64/op_tail_call.zig +
-  x86_64/op_tail_call.zig import sibling frame_teardown directly.
-  Cycle 6's arm64 return_call_indirect re-applied with the fix.
-  D-185 closed; lesson `2026-05-26-shared-facade-host-dispatched-
-  cross-arch-byte-test` filed.
+- **Cycles-remaining**: ~2
+- **Continuity-memo**: cycles 1-8 landed (cycle 6 reverted + re-
+  applied via cycle 7's D-185 fix). Same-module direct
+  `return_call` complete on both arches; `return_call_indirect`
+  arm64 (cycle 6, re-applied at `73187e6f`) + x86_64 (cycle 8,
+  `ae2abab7`) both wired to the JMP R11 / BR X16 path. Single-
+  table fast-path scope (table_idx==0, results.len<=2) on both
+  arches. Cycle 7 lesson `shared-facade-host-dispatched-cross-arch-
+  byte-test` filed.
 - **Exit-condition**: x86_64 SysV mirror of cycle 3 wired
   end-to-end (JMP rel32 opcode at emit + emitDirectReturnCall
   + same e2e fixture green on Linux x86_64) AND `return_call_
   indirect` / `return_call_ref` arm64+x86_64 wired with at
   least one e2e fixture each.
-- **Next cycle (cycle 8)**: x86_64 `return_call_indirect` mirror.
-  Sub-steps: (a) `x86_64/op_tail_call.zig` gains
-  `emitIndirectReturnCall(ctx, ins)` mirroring arm64 shape —
-  pop idx, marshal args, bounds check via cind_bounds_fixups
-  (CMP + Jcc rel32 trap), sig check via cind_sig_fixups, MOV
-  R11 ← [funcptr_base + idx*8], MOV RDI ← R15, frame_teardown
-  (sibling import, NOT shared facade — D-185 lesson),
-  emitTailJump(R11). Restrictions mirror arm64: table_idx==0,
-  results.len<=2. (b) Wire x86_64 ops stub to delegate; set
-  ctx.dead_code.* = true. (c) Add to collected_x86_64_ctx_ops
-  (count 395 → 396; bump assertion). (d) Add `.return_call_
-  indirect` to x86_64 usesRuntimePtr whitelist. (e) Mirror
-  byte-snapshot test (will run cross-arch so the D-185 fix
-  is the structural defense against regression).
+- **Next cycle (cycle 9)**: `return_call_ref` arm64 + x86_64
+  emit body. Wasm 3.0 §3.3.8.20 — pops a funcref from the stack
+  (instead of via table index), validates non-null, BR/JMP to
+  the resolved funcptr. Sub-steps: (a) arm64
+  `op_tail_call.emitRefReturnCall(ctx, ins)`: pop funcref vreg
+  → X16, null-check (CBZ → trap), MOV X0 ← X19,
+  frame_teardown, BR X16. ins.payload = (ref $sig) type index
+  for validation (already enforced at validator stage). (b)
+  x86_64 mirror: pop funcref → R11, TEST R11,R11 + JZ → trap,
+  MOV RDI ← R15, frame_teardown, JMP R11. (c) Wire both
+  per-op stubs to delegate. (d) Add to dispatch (arm64 manual
+  switch + x86_64 collected_x86_64_ctx_ops 396 → 397). (e)
+  Add `.return_call_ref` to x86_64 usesRuntimePtr whitelist.
+  (f) Byte-snapshot test for both arches.
 
 ## Session highlights (prior session; for handoff context)
 
