@@ -20,8 +20,11 @@
   - IT-3 (`466674b7`): throw / throw_ref as unconditional trap
   - IT-4 (`5b75bee5`): linker populates CodeMap entries
   - IT-5 (`14fafdc6`): CompiledWasm.exception_table aggregation
-- **10.E IT-6 prep SHIPPED** (`9ac268f1`): frame_bytes threading
-  EmitOutput → FuncBody → CodeMap.Entry (was IT-4 placeholder).
+- **10.E IT-6 prep SHIPPED** (`9ac268f1`, `18b2a077`):
+  - `9ac268f1`: frame_bytes threading EmitOutput → FuncBody →
+    CodeMap.Entry (was IT-4 placeholder).
+  - `18b2a077`: landing_pad_pc forward fixup at catch-label end
+    (was IT-2 placeholder).
 
 ## ROADMAP §10 progress
 
@@ -34,26 +37,26 @@
 ## Active bundle
 
 - **Bundle-ID**: `10.E-codegen-IT-6`
-- **Cycles-remaining**: `~3` (landing_pad_pc prep + trampoline
-  ADR + trampoline impl)
-- **Continuity-memo**: IT-6 splits into autonomous prep
-  (landing_pad_pc forward fixup at try_table.emit) + ADR-grade
-  design choice (pure-Zig `naked` fn vs per-arch `.s` file for
-  the trampoline entry stub — flagged in integration-plan §IT-6
-  "Open questions for user collab") + trampoline impl that
-  replaces IT-3's unconditional trap.
+- **Cycles-remaining**: `~2` (trampoline ADR + trampoline impl;
+  landing_pad_pc + frame_bytes prep both shipped)
+- **Continuity-memo**: with placeholders dissolved, the remaining
+  work is the load-bearing trampoline — ADR-grade design choice
+  (pure-Zig `naked` fn vs per-arch `.s` file, flagged in
+  integration-plan §IT-6 "Open questions for user collab") +
+  trampoline impl that replaces IT-3's unconditional-trap shape
+  with a real CALL into `shared/zwasm_throw.dispatchThrow`.
 - **Exit-condition**: end-to-end `throw 0 / catch_all 0` fixture
   compiles + runs + lands at the catch block (per integration
   plan §IT-6 acceptance).
 
-Next /continue resume picks up the **landing_pad_pc forward
-fixup** sub-task — at try_table.emit, register a per-catch fixup
-that the matching catch-label's `end` op patches with the JIT
-byte offset. Same shape as br/br_if forward fixups. Touchpoint:
-`src/engine/codegen/{arm64,x86_64}/ops/wasm_3_0/try_table.zig`
-+ `op_control.emitEndIntra`-equivalents. The placeholder
-currently stored in `HandlerEntry.landing_pad_pc` is the raw
-relative br-depth from IT-2.
+Next /continue resume picks up the **trampoline-design ADR**
+sub-task — draft `.dev/decisions/0119_<slug>.md` (or whichever
+number is next) per `lessons_vs_adr.md` decision tree (this IS
+load-bearing: it picks pure-Zig vs `.s` for every throw site,
+rejects the other, and gates every downstream op_throw emit
+rewrite). Spike option per `spike_discipline.md` §1 is
+appropriate if the `naked`-fn semantics need empirical
+validation against the Zig 0.16 codegen.
 
 ## Open questions / blockers
 
@@ -62,7 +65,8 @@ relative br-depth from IT-2.
 - 10.P close gate — user touchpoint by construction
 - IT-6 trampoline design (naked Zig vs `.s` file) — flagged
   user-collab in `.dev/phase10_eh_integration_plan.md` §IT-6
-  "Open questions for user collab"; ADR will land mid-bundle
+  "Open questions for user collab"; ADR (draft this cycle) is
+  expected to surface for user review at flip time per §18.2
 
 ## Key refs
 
