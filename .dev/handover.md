@@ -6,8 +6,9 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `79749ffe` — TypedValue → runtime.Value payload parser
-  (10.E spec-runner bundle cycle 2; parsePayload + 8 new tests).
+- **HEAD**: `734c6219` — runOne + first e2e manifest execution
+  (10.E-spec-runner bundle cycle 3; bundle exit-condition MET
+  on Mac; ubuntu verify gates close).
 - **ROADMAP §10 progress**: 7/13 DONE (10.0/10.C9/10.J/10.F/
   10.Z/10.D/10.T), 4 IN-PROGRESS (10.M/10.R/10.TC/10.E with
   10.E core + 10.TC same-module direct + indirect substantively
@@ -44,26 +45,27 @@ Observable deltas at close (HEAD `ae2abab7`):
 ## Active bundle
 
 - **Bundle-ID**: 10.E-spec-runner
-- **Cycles-remaining**: ~4
-- **Continuity-memo**: cycles 1-2 landed in
-  `test/spec/wasm_3_0_manifest.zig`. Cycle 1 (`3ae3cfaa`): parseLine
-  over alloc-free TypedValue slices + Directive shape (8 tests).
-  Cycle 2 (`79749ffe`): parsePayload → runtime.Value with
-  i32/i64 unsigned-wrap @bitCast + f32/f64 bit-pattern @bitCast +
-  PayloadError mapping (8 more tests; 17 total in the file).
-  Parser layer COMPLETE — execution dispatch starts cycle 3.
+- **Cycles-remaining**: ~1 (close pending ubuntu verify)
+- **Continuity-memo**: cycles 1-3 landed in
+  `test/spec/wasm_3_0_manifest.zig`. C1 (`3ae3cfaa`): parseLine +
+  Directive shape (8 tests). C2 (`79749ffe`): parsePayload →
+  runtime.Value + PayloadError (8 more tests). C3 (`734c6219`):
+  `runOne(alloc, wasm_bytes, func_name, args[]) → zwasm.Value`
+  via Native Zig API (ADR-0109; Engine + Linker + Instance.invoke)
+  + first e2e test executing `return_call.0.wasm type-i32 () →
+  i32:306` via @embedFile-pinned fixture. 19 tests total in file;
+  Mac aarch64 all green; bundle exit-condition MET pending ubuntu.
 - **Exit-condition**: at least ONE assert_return directive from a
   wasm-3.0-assert sub-corpus manifest executes end-to-end via
   `cli_run.runWasmCaptured` (or equivalent invocation path) with
   the parsed args + expected result matched against actual
   return; `zig build test-spec-wasm-3.0-assert` reports >0
   assertions passed (vs the current skeleton's 0).
-- **Next cycle (cycle 3)**: module loader + invoke integration.
-  Survey `spec_assert_runner_base.zig` (4091 LOC) for the
-  existing module-load + invoke pattern. Add `runOne(dir,
-  directive, args[], expected[])` helper. Same-cycle observable:
-  ONE wasm-3.0-assert manifest entry executes end-to-end
-  through runOne (e.g. return_call.0.wasm `type-i32 () -> i32:306`).
+- **Next cycle (cycle 4 = close)**: verify ubuntu green via
+  Step 0.7, then close-commit with observable deltas (19 tests
+  + e2e fixture green both arches). Full
+  spec_assert_runner_wasm_3_0.zig main-loop integration =
+  separate bundle (this one just lands primitives).
 
 ## Next candidates (after 10.E-spec-runner bundle closes)
 
