@@ -6,9 +6,10 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `d27c6857` — 10.E-payload-prop Cycle 1 shipped
-  (Runtime.eh_payload_buf + eh_payload_len fields + test). Mac
-  local green. Ubuntu verify pending Step 0.7 next cycle.
+- **HEAD**: `36a53773` — 10.E-payload-prop Cycles 1+2 shipped
+  (Runtime.eh_payload_buf @ `d27c6857`; JitRuntime.eh_payload_buf
+  + offset constants @ `36a53773`). Mac local green; ubuntu @
+  `327082b5` green; cycle 2 ubuntu verify pending next Step 0.7.
 - **10.D = CLOSED 2026-05-25**, **10.M (incl D-181 ungate),
   10.R 1..5, 10.TC-1, 10.G-i31-ops/2/3, 10.E (IT-1..IT-6 codegen
   foundation + interp catch_/catch_all dispatch + tag-equality)**:
@@ -24,7 +25,7 @@
 ## Active bundle
 
 - **Bundle-ID**: 10.E-payload-prop
-- **Cycles-remaining**: ~4 (Cycle 1 shipped `d27c6857`)
+- **Cycles-remaining**: ~3 (Cycles 1+2 shipped: `d27c6857`, `36a53773`)
 - **Continuity-memo**: payload propagation through
   `Runtime.eh_payload_buf: [16]u64` + `EmitCtx.tag_param_counts:
   []const u32 = &.{}` threading per ADR-0120. Throw emits
@@ -43,13 +44,13 @@
   10.R (5/5; gated on 10.G) / 10.TC.
 - Pending (2): 10.G / 10.P (close gate).
 
-## Active task — Cycle 2 of 10.E-payload-prop bundle
+## Active task — Cycle 3 of 10.E-payload-prop bundle
 
-Cycle 1 shipped (`d27c6857`): `Runtime.eh_payload_buf: [16]u64` +
-`eh_payload_len: u32` fields with default zero-init + paired
-unit test.
+Cycle 1 (`d27c6857`): Runtime fields. Cycle 2 (`36a53773`):
+JitRuntime fields + `eh_payload_buf_off` / `eh_payload_len_off`
+constants + offset/size tests.
 
-**NEXT (Cycle 2)** — EmitCtx threading + throw.emit writes:
+**NEXT (Cycle 3)** — EmitCtx threading + throw.emit writes:
 - Add `tag_param_counts: []const u32 = &.{}` to per-arch EmitCtx
   (arm64 + x86_64 ctx.zig) + InitArgs (x86_64) with default.
 - Thread through emit.compile + shared/compile.zig::compileOne +
@@ -60,10 +61,12 @@ unit test.
   `pushed_vregs` and stores each at `[runtime_ptr +
   eh_payload_buf_off + i*8]`; write N to `[runtime_ptr +
   eh_payload_len_off]`. Existing tag_idx marshal into W0/RDI
-  preserved.
+  preserved. NB: payload-buf base offset exceeds u12 imm12
+  budget — emit will need a 2-instr address synthesis (MOVZ +
+  ADD or LEA-equivalent) per arch.
 - Same-cycle observable test: existing `throw $e1 → catch $e1
   returns 77` still green (N=0 tags pay zero extra cost beyond
-  one `STR Wzr` for `eh_payload_len = 0`).
+  the eh_payload_len = 0 store).
 
 ## Next candidates (after bundle close)
 
