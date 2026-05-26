@@ -117,28 +117,12 @@ pub fn trampolineCore(
         .tag_idx = tag_idx,
     };
 
-    // D-184 probe — TEMPORARY diagnostic prints to surface x86_64
-    // SysV cross-frame failure. Revert after gathering data.
-    std.debug.print("[D-184] trampolineCore initial_fp={x} throw_site_addr={x} tag_idx={d}\n", .{ initial_fp, throw_site_addr, tag_idx });
-    std.debug.print("[D-184] cmap.entries.len={d}", .{cmap.entries.len});
-    for (cmap.entries, 0..) |e, i| {
-        std.debug.print(" [{d}]={{start_addr={x},len={x},func_idx={d},frame_bytes={d}}}", .{ i, e.start_addr, e.len, e.func_idx, e.frame_bytes });
-    }
-    std.debug.print("\n", .{});
-    std.debug.print("[D-184] table.entries.len={d}", .{table.entries.len});
-    for (table.entries, 0..) |e, i| {
-        const tag_str: u32 = if (e.tag_idx) |t| t else 0xFFFF_FFFF;
-        std.debug.print(" [{d}]={{pc_start={x},pc_end={x},tag={x},landing={x},kind={s}}}", .{ i, e.pc_start, e.pc_end, tag_str, e.landing_pad_pc, @tagName(e.kind) });
-    }
-    std.debug.print("\n", .{});
-
     const result = zwasm_throw.dispatchThrow(
         table,
         &cmap,
         site,
         zwasm_throw.default_max_unwind_depth,
     );
-    std.debug.print("[D-184] dispatchThrow result tag = {s}\n", .{@tagName(result)});
 
     switch (result) {
         .uncaught => {

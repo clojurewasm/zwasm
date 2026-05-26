@@ -482,9 +482,11 @@ test "runI32Export: tagged catch routes by tag_idx — throw $e1 → catch $e1 r
 }
 
 test "runI32Export: cross-frame throw — callee throws, caller's try_table catches (D-183)" {
-    // D-184 PROBE — temporarily ungated for x86_64 SysV to
-    // capture diagnostic output from trampolineCore + walk.
-    // Revert to Mac-only gate after data captured.
+    // D-184 closed — x86_64 prologue-aware sniffed loadFrame in
+    // frame_chain.loadFrameSniffed disambiguates the saved-RBP
+    // vs saved-R15 slot via CodeMap lookup. Test ungated for
+    // Mac aarch64 + Linux x86_64 SysV; windows = phase-boundary
+    // gate per ADR-0067.
     if (builtin.os.tag == .windows) return error.SkipZigTest;
     // (module
     //   (tag $e0)

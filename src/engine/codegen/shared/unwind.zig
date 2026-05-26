@@ -128,10 +128,7 @@ pub fn walk(
     var fp = initial_fp;
     var depth: u32 = 0;
     while (depth < max_depth) : (depth += 1) {
-        // D-184 probe — TEMPORARY iteration diagnostic.
-        std.debug.print("[D-184/walk] depth={d} pc={x} abs_pc={x} fp={x}\n", .{ depth, pc, abs_pc, fp });
         if (table.lookup(pc, throw_tag_idx)) |hit| {
-            std.debug.print("[D-184/walk] MATCH at depth={d}: landing_pad_pc={x}\n", .{ depth, hit.landing_pad_pc });
             return .{ .handler = .{
                 .landing_pad_pc = hit.landing_pad_pc,
                 .kind = hit.kind,
@@ -139,19 +136,12 @@ pub fn walk(
                 .handler_abs_pc = abs_pc,
             } };
         }
-        const link = loader.load(fp, loader.ctx) orelse {
-            std.debug.print("[D-184/walk] loader.load returned null at depth={d}\n", .{depth});
-            return .uncaught;
-        };
-        if (link.caller_fp == 0) {
-            std.debug.print("[D-184/walk] caller_fp==0 sentinel at depth={d}\n", .{depth});
-            return .uncaught;
-        }
+        const link = loader.load(fp, loader.ctx) orelse return .uncaught;
+        if (link.caller_fp == 0) return .uncaught;
         fp = link.caller_fp;
         pc = link.caller_pc;
         abs_pc = link.caller_abs_pc;
     }
-    std.debug.print("[D-184/walk] depth exhausted ({d})\n", .{depth});
     // Depth exhausted — treat as uncaught. The trampoline
     // distinguishes this from a clean top-of-stack via the
     // depth counter (Phase 11+ if diagnostic granularity warrants).

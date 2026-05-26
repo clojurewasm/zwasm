@@ -49,6 +49,49 @@ pub fn loadFrame(fp: usize) ?RawFrameLink {
     };
 }
 
+/// D-184 — x86_64 prologue-aware sniffed frame read. The zwasm
+/// JIT prologue is `PUSH RBP; PUSH R15; MOV RBP, RSP` when the
+/// function uses_runtime_ptr (= EH ops, calls, memory ops, …
+/// per `usage.usesRuntimePtr`). MOV RBP, RSP captures RBP AFTER
+/// the R15 push, so `[RBP, 0] = saved R15`, `[RBP, 8] = saved
+/// RBP`, `[RBP, 16] = saved RIP`. For non-uses_runtime_ptr
+/// functions the prologue is just `PUSH RBP; MOV RBP, RSP`,
+/// giving the standard SysV `[RBP, 0] = saved RBP`, `[RBP, 8] =
+/// saved RIP` layout. The unwinder doesn't know per-frame which
+/// layout applies, so it sniffs: if `[fp, 8]` resolves through
+/// the CodeMap as a JIT body address (i.e., a saved RIP), the
+/// function used standard SysV; if `[fp, 16]` resolves but
+/// `[fp, 8]` does not, the function pushed R15 between RBP-save
+/// and MOV. The check is unambiguous because saved-RBP / saved-
+/// R15 are stack / heap addresses (never JIT-body); only the
+/// saved-RIP at the correct slot resolves to `.inside`.
+pub fn loadFrameSniffed(
+    fp: usize,
+    code_map: *const @import("../shared/code_map.zig").CodeMap,
+) ?RawFrameLink {
+    if (fp == 0) return null;
+    const slots: [*]const usize = @ptrFromInt(fp);
+    // Sniff standard layout first (most caller frames in EH chain
+    // do NOT push R15 between RBP-save and MOV; non-throwing
+    // intermediate frames are uses_runtime_ptr=false often).
+    switch (code_map.lookup(slots[1])) {
+        .inside => return .{ .caller_fp = slots[0], .caller_rip = slots[1] },
+        .outside => {},
+    }
+    switch (code_map.lookup(slots[2])) {
+        .inside => return .{ .caller_fp = slots[1], .caller_rip = slots[2] },
+        .outside => {},
+    }
+    // Neither slot is a JIT body address — frame chain has
+    // escaped the JIT module (entry shim / host stack). Return
+    // the slot0/slot1 default; the unwinder will see the
+    // non-JIT caller_rip resolve to the `non_jit_pc_sentinel`
+    // and either match a sentinel handler or step further into
+    // host frames where `loadFrame` may return null (fp == 0)
+    // or the heuristic may fail safely on the next iteration.
+    return .{ .caller_fp = slots[0], .caller_rip = slots[1] };
+}
+
 // ---------------------------------------------------------------------
 // Unit tests — pure pointer read; synthetic frame planted in test
 // memory. No JIT emit / no actual stack walk required.

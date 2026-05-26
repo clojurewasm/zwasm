@@ -51,8 +51,31 @@ pub const Context = struct {
 /// the active arch's `frame_chain.loadFrame`. The `ctx` arg
 /// MUST be a `*const Context` pointing at the live closure.
 pub fn loadFrameLink(fp: usize, ctx: ?*anyopaque) ?unwind.FrameLink {
-    const raw = arch_frame_chain.loadFrame(fp) orelse return null;
     const adapter_ctx: *const Context = @ptrCast(@alignCast(ctx.?));
+    // D-184 — x86_64 uses a prologue-aware sniffed read because
+    // the zwasm uses_runtime_ptr prologue (`PUSH RBP; PUSH R15;
+    // MOV RBP, RSP`) lands RBP at saved-R15, not saved-RBP. arm64
+    // uses the standard `STP X29, X30; MOV X29, SP` shape — no
+    // sniff needed.
+    const raw = switch (builtin.target.cpu.arch) {
+        .aarch64 => arch_frame_chain.loadFrame(fp) orelse return null,
+        .x86_64 => blk: {
+            // Sniff requires the CodeMap; the production path
+            // (`code_map.adapterContextFor`) sets `normalize_ctx`
+            // to the CodeMap pointer. Unit tests that supply an
+            // `identityTruncate`-style normalize set `normalize_ctx`
+            // to null — fall back to the plain `loadFrame` shape
+            // for those (the synthetic frames in those tests
+            // don't model the zwasm uses_runtime_ptr layout).
+            if (adapter_ctx.normalize_ctx) |ctx_ptr| {
+                const code_map_mod = @import("code_map.zig");
+                const code_map: *const code_map_mod.CodeMap = @ptrCast(@alignCast(ctx_ptr));
+                break :blk arch_frame_chain.loadFrameSniffed(fp, code_map) orelse return null;
+            }
+            break :blk arch_frame_chain.loadFrame(fp) orelse return null;
+        },
+        else => unreachable,
+    };
     const ret_addr = switch (builtin.target.cpu.arch) {
         .aarch64 => raw.caller_lr,
         .x86_64 => raw.caller_rip,
