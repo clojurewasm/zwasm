@@ -301,6 +301,7 @@ test {
     _ = @import("engine/codegen/shared/jit_abi.zig");
     _ = @import("engine/codegen/shared/compile.zig");
     _ = @import("engine/codegen/shared/thunk.zig");
+    _ = @import("engine/codegen/shared/throw_trampoline.zig");
     _ = @import("engine/codegen/arm64/thunk.zig");
     _ = @import("engine/codegen/x86_64/thunk.zig");
     _ = @import("engine/runner.zig");
