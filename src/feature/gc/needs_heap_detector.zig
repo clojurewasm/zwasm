@@ -308,4 +308,6 @@ test {
     _ = @import("type_info.zig");
     // 10.G op_gc cycle 26: collector_mark_sweep.zig (β must-ship).
     _ = @import("collector_mark_sweep.zig");
+    // 10.G op_gc cycle 29: root_scope.zig (Mode A host API).
+    _ = @import("root_scope.zig");
 }
