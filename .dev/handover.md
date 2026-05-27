@@ -6,12 +6,12 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `c5f3df3b` — feat(p10): MarkSweepCollector root
-  walker (cycle 27). walkRootsImpl conservatively scans
-  operand-stack + frame-locals + globals; reports candidate
-  GcRefs via user callback. +3 tests pin filter discipline
-  (i31/null/oob/unaligned rejected). Cycle 28+ adds transitive
-  trace from marked objects.
+- **HEAD**: `8f018707` — feat(p10): MarkSweepCollector
+  transitive trace (cycle 28). markFromRoot now recursively
+  traces struct/array payload heap-reftype slots; cycle break
+  via mark-bit gate. +4 tests pin field/element/cycle/non-reftype-
+  decoy paths. **Mark-sweep collector complete.** Cycle 29
+  Mode A host API next.
 - **ROADMAP §10 progress**: 7/13 DONE, 4 IN-PROGRESS, 2 Pending.
 - **Active debt rows**: 18 — all `blocked-by:` with named
   structural barriers. Zero `now`-status rows.
@@ -57,8 +57,8 @@ future op_gc consumers. EH 40 fails still gated on the bigger
 ## Active bundle
 
 - **Bundle-ID**: 10.G-op_gc
-- **Cycles-remaining**: ~3 (transitive trace + Mode A host API
-  + spec-runner integration once D-179 unblocks)
+- **Cycles-remaining**: ~2 (Mode A host API + spec-runner
+  integration once D-179 unblocks)
 - **Continuity-memo**: Cycles 1-6 substrate. Cycles 7-12 no-RTT
   GC ops. Cycles 13-14 ADR-0121 + decodeTypes 0x5F/0x5E. Cycles
   15-18: struct.new/new_default, array.new family, struct.get/set,
@@ -69,20 +69,16 @@ future op_gc consumers. EH 40 fails still gated on the bigger
   (`5c00600f`) Instance.gc_type_infos. Cycle 22 (`bbcd0602`)
   struct.new family. Cycle 23 (`fdb8ccfa`) struct.get/set. Cycle
   24 (`198f4add`) array.new family. Cycle 25 (`548545bf`)
-  array.get/set/fill+len. Cycle 26 (`0f842625`)
-  collector_mark_sweep.zig β must-ship. Cycle 27 (`c5f3df3b`)
-  conservative root walker. Cycle 28 (next): transitive trace
-  from marked objects. For each marked ObjectHeader.info →
-  typeidx, look up StructInfo.fields[] OR ArrayInfo.element +
-  ArrayHeader.length; per reftype-classified slot
-  (FieldInfo.valtype_byte in funcref/externref/i31ref/anyref/
-  eqref/structref/arrayref), read 8-byte payload at
-  ref+header_size+offset, conservatively probe as GcRef,
-  recursively markFromRoot. Track work-list to avoid cycles
-  (mark set already gates re-visits). Cycle 29: Mode A
-  `zwasm_runtime_with_root_scope` host API per ADR-0115 §4 /
-  ADR-0116 §1 — defers if API design needs ADR amendment.
-  Cycle 30+ (D-179 unblocked): spec-runner gc corpus integration.
+  array.get/set/fill+len. Cycle 26 (`0f842625`) β collector.
+  Cycle 27 (`c5f3df3b`) root walker. Cycle 28 (`8f018707`)
+  transitive trace. **Mark-sweep collector complete.** Cycle 29
+  (next): Mode A `zwasm_runtime_with_root_scope` host API per
+  ADR-0115 §4 / ADR-0116 §1. Likely: add
+  `pub fn withRootScope(rt: *Runtime, ctx: anytype, cb: fn(...))`
+  that binds collector + invokes callback synchronously; cb body
+  can safely allocate without collection mid-scope. May need ADR
+  amendment for ergonomics; defer to /continue judgment. Cycle
+  30+ (D-179 unblocked): spec-runner gc corpus integration.
   **Per ADR-0122 D6 ongoing**: every cycle's Step 4 reviews 1-2
   nearby `skip.blocker(.@"D-193")` sites for 3-min ungate probes.
 - **Exit-condition**: wasm-3.0-assert exception-handling /
