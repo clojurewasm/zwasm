@@ -6,14 +6,14 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `27914a0e` — chore(p10): §8 I7 SKIP→PASS; close-gate
-  reached **15 PASS / 9 SKIP / 0 FAIL (62% coverage)** after 9
-  opportunistic upgrade cycles (31-39). Remaining 9 SKIPs are
-  ALL externally-blocked (D-179 / D-192) OR deliverable-bound
-  (p10/cross fixtures, bench baseline, synthetic test fixtures)
-  OR fire-only-at-close (widget status, runtime SKIP-P10
-  emissions). Next cycles pivot to **10.TC Tail Call** bundle —
-  substantive forward progress on a new ROADMAP row.
+- **HEAD**: `20b9da01` — chore(p10): ADR-0122 D-193 first ungate
+  (wrapper_thunk end-to-end tests) verified Linux x86_64 green
+  via ubuntu (HEAD=20b9da01 exit 0). **User-requested stop at
+  cycle 41**. Session totaled ~40 cycles starting from cycle 7
+  of 10.G-op_gc bundle through full GC stack + close-gate
+  scaffold + 10.P invariant promotions to 15/24 PASS. To
+  resume: invoke /continue (next bundle = 10.TC JIT-side or
+  more D-193 ungate sites). No Active bundle.
 - **ROADMAP §10 progress**: 7/13 DONE, 4 IN-PROGRESS, 2 Pending.
 - **Active debt rows**: 18 — all `blocked-by:` with named
   structural barriers. Zero `now`-status rows.
