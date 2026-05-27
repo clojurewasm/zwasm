@@ -6,12 +6,12 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `548545bf` — feat(p10): array.get + array.set +
-  array.fill + array.len interp (cycle 25). Full struct + array
-  catalogue interp COMPLETE. array.len upgraded from cycle-12
-  NullReference stub to ArrayHeader.length read. +6 tests pin
-  round-trip + bounds-check traps. Cycle 26 collector_mark_sweep
-  (β must-ship) next.
+- **HEAD**: `0f842625` — feat(p10): collector_mark_sweep.zig β
+  must-ship (cycle 26). First non-stub Collector impl per
+  ADR-0115 §10; STW mark+sweep over Heap slab + ObjectHeader/
+  ArrayHeader. +5 tests. Bundle 10.G-op_gc sub-chunks 1-8
+  wired; remaining sub-chunk 9 (root walker, ADR-0115 §4) +
+  ADR-0116 transitive trace land at cycles 27+.
 - **ROADMAP §10 progress**: 7/13 DONE, 4 IN-PROGRESS, 2 Pending.
 - **Active debt rows**: 18 — all `blocked-by:` with named
   structural barriers. Zero `now`-status rows.
@@ -57,7 +57,8 @@ future op_gc consumers. EH 40 fails still gated on the bigger
 ## Active bundle
 
 - **Bundle-ID**: 10.G-op_gc
-- **Cycles-remaining**: ~1 (per `.dev/phase10_g_op_bundle_plan.md`)
+- **Cycles-remaining**: ~4 (sub-chunk 9 root walker + ADR-0116
+  transitive trace + spec-runner integration once D-179 unblocks)
 - **Continuity-memo**: Cycles 1-6 substrate. Cycles 7-12 no-RTT
   GC ops. Cycles 13-14 ADR-0121 + decodeTypes 0x5F/0x5E. Cycles
   15-18: struct.new/new_default, array.new family, struct.get/set,
@@ -68,21 +69,17 @@ future op_gc consumers. EH 40 fails still gated on the bigger
   (`5c00600f`) Instance.gc_type_infos. Cycle 22 (`bbcd0602`)
   struct.new family. Cycle 23 (`fdb8ccfa`) struct.get/set. Cycle
   24 (`198f4add`) array.new family. Cycle 25 (`548545bf`)
-  array.get/set/fill+len. **Full struct+array catalogue interp
-  complete.** Cycle 26 (next): collector_mark_sweep.zig — β
-  must-ship per ADR-0115 §10. STW mark-sweep: walkRootsFn calls
-  back into Runtime to enumerate operand-stack + local-slot
-  reftype values; mark walks payload slots interpreting them by
-  FieldInfo.valtype_byte (only reftype slots are followed).
-  Free pass: scan Heap from offset 2 (skip null_ref), decode each
-  ObjectHeader (kind + info → TypeInfo / payload_size for struct;
-  read length for array), skip over object, check mark bit
-  (ADR-0116 §3a says info high bit = mark phase), unmarked
-  objects' bytes can be reclaimed (compacting deferred to Phase
-  11; this cut keeps the bump-cursor model and lets sweep mark
-  them with kind=.tombstone for next-alloc skip). New file
-  `src/feature/gc/collector_mark_sweep.zig` implements Collector
-  vtable per ADR-0115 §3 — first non-stub Collector impl.
+  array.get/set/fill+len. Cycle 26 (`0f842625`)
+  collector_mark_sweep.zig β must-ship. Cycle 27 (next): sub-chunk
+  9 root walker. Wire `MarkSweepCollector.walkRootsImpl` to
+  enumerate Runtime.operand_stack reftype slots + Runtime.locals
+  reftype slots + Runtime.globals reftype slots, feeding GcRefs
+  to user callback. Cycle 28: transitive trace from marked
+  objects — decode payload slots via FieldInfo.valtype_byte;
+  for each reftype slot recursively markFromRoot. Cycle 29:
+  Mode A `zwasm_runtime_with_root_scope` host API per ADR-0115
+  §4 / ADR-0116 §1. Cycle 30+ (D-179 unblocked): spec-runner
+  gc corpus integration to verify against the actual gc spec.
   **Per ADR-0122 D6 ongoing**: every cycle's Step 4 reviews 1-2
   nearby `skip.blocker(.@"D-193")` sites for 3-min ungate probes.
 - **Exit-condition**: wasm-3.0-assert exception-handling /
