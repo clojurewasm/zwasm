@@ -222,8 +222,18 @@ else
   ok "§8 I17: private/spikes/ absent"
 fi
 
-# §8 I18 — debt.md no Phase 10 trigger-not-fired masquerade
-skip "§8 I18: audit_scaffolding §F deep walk deferred"
+# §8 I18 — debt.md no `now`-status rows lingering past trigger.
+# Every row's Status is either `now` (discharge this resume) OR
+# `blocked-by: <named barrier>`. A `now` row that survives a
+# resume without action is the "trigger-not-fired masquerade".
+# Mechanical: count `| now ` cell occurrences vs total D-NNN rows.
+debt_now=$(awk -F'|' '/^\| D-[0-9]+/ { for(i=1;i<=NF;i++) if($i ~ /^ now /) { c++; break } } END { print c+0 }' .dev/debt.md)
+debt_total=$(awk '/^\| D-[0-9]+/ { c++ } END { print c+0 }' .dev/debt.md)
+if [ "$debt_now" -eq 0 ] && [ "$debt_total" -gt 0 ]; then
+  ok "§8 I18: debt.md has 0 now-status rows ($debt_total total; all blocked-by)"
+else
+  fail "§8 I18: debt.md has $debt_now now-status rows of $debt_total total; discharge before Phase 10 close"
+fi
 
 # §8 I19 — gc_stress_runner + eh_frequency_runner test-all green
 skip "§8 I19: stress runners skeleton + impl deferred (T.6)"
