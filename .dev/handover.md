@@ -6,12 +6,14 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `ec44d894` — chore(p10): §8 I12 SKIP→PASS; ADR-0111..
-  0117 all Accepted-verified mechanically. Distribution: 7 PASS
-  / 17 SKIP / 0 FAIL. Loop continues opportunistic SKIP→PASS
-  upgrades + ADR-0122 D-193 site triage as autonomous-eligible
-  work. External-blocked: D-179 (gc spec corpus), D-186 (typed-
-  funcref Value), D-192 (EH runtime).
+- **HEAD**: `27914a0e` — chore(p10): §8 I7 SKIP→PASS; close-gate
+  reached **15 PASS / 9 SKIP / 0 FAIL (62% coverage)** after 9
+  opportunistic upgrade cycles (31-39). Remaining 9 SKIPs are
+  ALL externally-blocked (D-179 / D-192) OR deliverable-bound
+  (p10/cross fixtures, bench baseline, synthetic test fixtures)
+  OR fire-only-at-close (widget status, runtime SKIP-P10
+  emissions). Next cycles pivot to **10.TC Tail Call** bundle —
+  substantive forward progress on a new ROADMAP row.
 - **ROADMAP §10 progress**: 7/13 DONE, 4 IN-PROGRESS, 2 Pending.
 - **Active debt rows**: 18 — all `blocked-by:` with named
   structural barriers. Zero `now`-status rows.
