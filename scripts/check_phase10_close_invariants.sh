@@ -203,9 +203,30 @@ fi
 # §8 I14 — wasm.h tag accessors complete
 skip "§8 I14: EH tag accessors gated on D-192 EH runtime"
 
-# §8 I15 — safepoint-free invariant via comptime assert
-sp=$(grep -rl "pub const is_safepoint: bool = false" src/ 2>/dev/null | wc -l | tr -d ' ')
-skip "§8 I15: is_safepoint=false decls=$sp; comptime-assert verify deferred"
+# §8 I15 — safepoint-free invariant on tail-call + cross-module
+# bridge ops. Per ADR-0117, return_call / return_call_indirect /
+# return_call_ref MUST carry `pub const is_safepoint: bool = false`
+# in their per-arch op files (arm64 + x86_64). Walk both arches,
+# require all 6 files to declare the flag.
+i15_files=(
+  src/engine/codegen/arm64/ops/wasm_3_0/return_call.zig
+  src/engine/codegen/arm64/ops/wasm_3_0/return_call_indirect.zig
+  src/engine/codegen/arm64/ops/wasm_3_0/return_call_ref.zig
+  src/engine/codegen/x86_64/ops/wasm_3_0/return_call.zig
+  src/engine/codegen/x86_64/ops/wasm_3_0/return_call_indirect.zig
+  src/engine/codegen/x86_64/ops/wasm_3_0/return_call_ref.zig
+)
+i15_missing=0
+for f in "${i15_files[@]}"; do
+  if [ ! -f "$f" ] || ! grep -q "pub const is_safepoint: bool = false" "$f"; then
+    i15_missing=$((i15_missing + 1))
+  fi
+done
+if [ $i15_missing -eq 0 ]; then
+  ok "§8 I15: tail-call return_call/indirect/ref (arm64 + x86_64) all declare is_safepoint=false"
+else
+  fail "§8 I15: $i15_missing of ${#i15_files[@]} tail-call op files missing is_safepoint=false decl"
+fi
 
 # §8 I16 — regalloc 3-axis default-off Phase 9 corpus green
 skip "§8 I16: regalloc 3-axis JIT-side work; deferred to 10.E/G JIT"
