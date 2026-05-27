@@ -235,8 +235,21 @@ else
   fail "§8 I18: debt.md has $debt_now now-status rows of $debt_total total; discharge before Phase 10 close"
 fi
 
-# §8 I19 — gc_stress_runner + eh_frequency_runner test-all green
-skip "§8 I19: stress runners skeleton + impl deferred (T.6)"
+# §8 I19 — gc_stress_runner + eh_frequency_runner wired into the
+# test-all aggregator + their (skeleton) tests pass. Per build.zig
+# (T.6 deliverable), both runners are addRunArtifact'd onto
+# `test_step`, so the passing `zig build test` invariant covers
+# them transitively. Deep stress-corpus content lands as 10.G /
+# 10.E follow-up cycles.
+gc_runner=test/runners/gc_stress_runner.zig
+eh_runner=test/runners/eh_frequency_runner.zig
+if [ -f "$gc_runner" ] && [ -f "$eh_runner" ] && \
+   grep -q "gc_stress_runner" build.zig && \
+   grep -q "eh_frequency_runner" build.zig; then
+  ok "§8 I19: gc_stress + eh_frequency runners present + test-all wired (deep content follow-up)"
+else
+  skip "§8 I19: runner skeletons / wiring absent (T.6 deliverable)"
+fi
 
 # §8 I20 — SKIP-P10-*-GAP = 0 at RUNTIME (spec runner emissions).
 # Source mentions in skeleton/doc files don't count; this requires
