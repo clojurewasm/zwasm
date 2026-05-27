@@ -117,17 +117,64 @@ pub const MarkSweepCollector = struct {
         return self.heap.allocate(size) catch null;
     }
 
-    /// Mark single root. Public so tests + future indirect tracers
-    /// can invoke. Idempotent — re-marking is a no-op.
+    /// Mark single root + transitively trace payload reftype
+    /// slots (cycle 28). Idempotent: checks mark bit before
+    /// recursing so cycles terminate. Conservative scan within
+    /// each marked object — any payload slot whose declared
+    /// valtype is a heap reftype (per `isHeapReftype`) is probed
+    /// via the same filters as `tryReportRef` and recursively
+    /// marked.
     pub fn markFromRoot(self: *MarkSweepCollector, ref: GcRef) void {
         if (ref == heap_mod.null_ref) return;
-        if (ref >= self.heap.bytes.len) return; // defensive
-        // Read header, set mark bit, write back.
-        const off: usize = ref;
+        if (ref + header_size > self.heap.bytes.len) return; // defensive
         var hdr: ObjectHeader = undefined;
-        @memcpy(std.mem.asBytes(&hdr)[0..header_size], self.heap.bytes[off .. off + header_size]);
+        @memcpy(std.mem.asBytes(&hdr)[0..header_size], self.heap.bytes[ref .. ref + header_size]);
+        if ((hdr.info & mark_bit_mask) != 0) return; // already marked → cycle break
         hdr.info |= mark_bit_mask;
-        @memcpy(self.heap.bytes[off .. off + header_size], std.mem.asBytes(&hdr)[0..header_size]);
+        @memcpy(self.heap.bytes[ref .. ref + header_size], std.mem.asBytes(&hdr)[0..header_size]);
+        const typeidx = hdr.info & ~mark_bit_mask;
+        switch (hdr.kind) {
+            .struct_ => self.traceStructPayload(ref, typeidx),
+            .array => self.traceArrayPayload(ref, typeidx),
+        }
+    }
+
+    fn traceStructPayload(self: *MarkSweepCollector, ref: u32, typeidx: u32) void {
+        if (typeidx >= self.gc_type_infos.struct_infos.len) return;
+        const si = self.gc_type_infos.struct_infos[typeidx] orelse return;
+        var i: u32 = 0;
+        while (i < si.type_info.field_count) : (i += 1) {
+            const field = si.fields[i];
+            if (!isHeapReftype(field.valtype_byte)) continue;
+            self.followSlot(ref + header_size + field.offset);
+        }
+    }
+
+    fn traceArrayPayload(self: *MarkSweepCollector, ref: u32, typeidx: u32) void {
+        if (typeidx >= self.gc_type_infos.array_infos.len) return;
+        const ai = self.gc_type_infos.array_infos[typeidx] orelse return;
+        if (!isHeapReftype(ai.element.valtype_byte)) return;
+        if (ref + array_header_size > self.heap.bytes.len) return;
+        var ahdr: ArrayHeader = undefined;
+        @memcpy(std.mem.asBytes(&ahdr)[0..array_header_size], self.heap.bytes[ref .. ref + array_header_size]);
+        var i: u32 = 0;
+        while (i < ahdr.length) : (i += 1) {
+            self.followSlot(ref + array_header_size + i * ai.element.size);
+        }
+    }
+
+    /// Read 8-byte payload slot, probe as GcRef per the same
+    /// filters as `tryReportRef`, recursively markFromRoot.
+    fn followSlot(self: *MarkSweepCollector, slot_off: u32) void {
+        if (slot_off + 8 > self.heap.bytes.len) return;
+        var slot_bytes: [8]u8 = undefined;
+        @memcpy(&slot_bytes, self.heap.bytes[slot_off .. slot_off + 8]);
+        const slot: u64 = std.mem.readInt(u64, &slot_bytes, .little);
+        if (slot == 0) return;
+        if ((slot & 1) != 0) return;
+        if (slot < heap_mod.Heap.min_align or slot >= self.heap.cursor) return;
+        if ((slot % heap_mod.Heap.min_align) != 0) return;
+        self.markFromRoot(@intCast(slot));
     }
 
     fn collectImpl(ctx: *anyopaque) void {
@@ -235,6 +282,18 @@ pub const MarkSweepCollector = struct {
         }
     }
 };
+
+/// True iff the declared valtype is a heap-allocating reftype
+/// per the Wasm 3.0 GC hierarchy. Excludes i31ref (low-bit-1
+/// tagged per ADR-0116 §6 — no heap allocation) and externref
+/// (no heap object owned by the GC; host-side ref).
+fn isHeapReftype(valtype_byte: u8) bool {
+    const zir = @import("../../ir/zir.zig");
+    return switch (@as(zir.ValType, @enumFromInt(valtype_byte))) {
+        .funcref, .anyref, .eqref, .structref, .arrayref => true,
+        .externref, .i31ref, .i32, .i64, .f32, .f64, .v128 => false,
+    };
+}
 
 fn tryReportRef(v: runtime_mod.Value, heap_lo: u64, heap_hi: u64, cb: RootCallback, cb_ctx: *anyopaque) void {
     const r = v.ref;
@@ -491,4 +550,135 @@ test "MarkSweepCollector: rt.globals reftype value reported as root (10.G op_gc 
     c.collector().walkRoots(Collected.cb, @ptrCast(rt));
     try testing.expectEqual(@as(usize, 1), Collected.seen_len);
     try testing.expectEqual(ref1, Collected.seen[0]);
+}
+
+test "MarkSweepCollector: transitive trace via struct field (10.G op_gc cycle 28)" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    // struct { anyref var } — single reftype field (heap reftype per isHeapReftype).
+    const body = [_]u8{ 0x01, 0x5F, 0x01, 0x6E, 0x01 };
+    const env = try buildArenaedHeap(&arena, &body);
+
+    // Allocate "child" struct first, then "parent" struct holding child's ref.
+    const sz: u32 = header_size + 8;
+    const child_ref = try env.heap.allocate(sz);
+    const child_hdr: ObjectHeader = .{ .kind = .struct_, .info = 0 };
+    @memcpy(env.heap.bytes[child_ref .. child_ref + header_size], std.mem.asBytes(&child_hdr)[0..header_size]);
+
+    const parent_ref = try env.heap.allocate(sz);
+    const parent_hdr: ObjectHeader = .{ .kind = .struct_, .info = 0 };
+    @memcpy(env.heap.bytes[parent_ref .. parent_ref + header_size], std.mem.asBytes(&parent_hdr)[0..header_size]);
+    // Parent's field 0 holds child_ref.
+    var slot: [8]u8 = undefined;
+    std.mem.writeInt(u64, &slot, @as(u64, child_ref), .little);
+    @memcpy(env.heap.bytes[parent_ref + header_size .. parent_ref + header_size + 8], &slot);
+
+    var c = MarkSweepCollector.init(env.heap, &env.gti);
+    // Mark only the parent; child should be marked transitively.
+    c.markFromRoot(parent_ref);
+    c.collector().collect();
+
+    // Both survived → survivors=2, dead_bytes=0.
+    try testing.expectEqual(@as(u32, 2), c.last_stats.objects_seen);
+    try testing.expectEqual(@as(u32, 2), c.last_stats.survivors);
+    try testing.expectEqual(@as(u32, 0), c.last_stats.dead_bytes);
+}
+
+test "MarkSweepCollector: transitive trace via array element (10.G op_gc cycle 28)" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    // array<anyref var>
+    const body = [_]u8{ 0x01, 0x5E, 0x6E, 0x01 };
+    const env = try buildArenaedHeap(&arena, &body);
+
+    // Allocate child struct (no struct typedef in module — fake it with typeidx=0 but ai resolves array_infos[0]).
+    // Use array typedef for both: parent is array of 1 element holding child's GcRef.
+    const child_sz: u32 = array_header_size + 8;
+    const child_ref = try env.heap.allocate(child_sz);
+    const child_ahdr: ArrayHeader = .{
+        .header = .{ .kind = .array, .info = 0 },
+        .length = 1,
+    };
+    @memcpy(env.heap.bytes[child_ref .. child_ref + array_header_size], std.mem.asBytes(&child_ahdr)[0..array_header_size]);
+
+    const parent_ref = try env.heap.allocate(child_sz);
+    const parent_ahdr: ArrayHeader = .{
+        .header = .{ .kind = .array, .info = 0 },
+        .length = 1,
+    };
+    @memcpy(env.heap.bytes[parent_ref .. parent_ref + array_header_size], std.mem.asBytes(&parent_ahdr)[0..array_header_size]);
+    // Parent's element 0 holds child_ref.
+    var slot: [8]u8 = undefined;
+    std.mem.writeInt(u64, &slot, @as(u64, child_ref), .little);
+    @memcpy(env.heap.bytes[parent_ref + array_header_size .. parent_ref + array_header_size + 8], &slot);
+
+    var c = MarkSweepCollector.init(env.heap, &env.gti);
+    c.markFromRoot(parent_ref);
+    c.collector().collect();
+
+    try testing.expectEqual(@as(u32, 2), c.last_stats.objects_seen);
+    try testing.expectEqual(@as(u32, 2), c.last_stats.survivors);
+}
+
+test "MarkSweepCollector: cycle in struct refs terminates (10.G op_gc cycle 28)" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const body = [_]u8{ 0x01, 0x5F, 0x01, 0x6E, 0x01 };
+    const env = try buildArenaedHeap(&arena, &body);
+
+    const sz: u32 = header_size + 8;
+    const a_ref = try env.heap.allocate(sz);
+    const a_hdr: ObjectHeader = .{ .kind = .struct_, .info = 0 };
+    @memcpy(env.heap.bytes[a_ref .. a_ref + header_size], std.mem.asBytes(&a_hdr)[0..header_size]);
+    const b_ref = try env.heap.allocate(sz);
+    const b_hdr: ObjectHeader = .{ .kind = .struct_, .info = 0 };
+    @memcpy(env.heap.bytes[b_ref .. b_ref + header_size], std.mem.asBytes(&b_hdr)[0..header_size]);
+    // a.field0 = b; b.field0 = a → cycle.
+    var slot_a: [8]u8 = undefined;
+    std.mem.writeInt(u64, &slot_a, @as(u64, b_ref), .little);
+    @memcpy(env.heap.bytes[a_ref + header_size .. a_ref + header_size + 8], &slot_a);
+    var slot_b: [8]u8 = undefined;
+    std.mem.writeInt(u64, &slot_b, @as(u64, a_ref), .little);
+    @memcpy(env.heap.bytes[b_ref + header_size .. b_ref + header_size + 8], &slot_b);
+
+    var c = MarkSweepCollector.init(env.heap, &env.gti);
+    c.markFromRoot(a_ref); // would recurse forever without cycle break
+    c.collector().collect();
+
+    try testing.expectEqual(@as(u32, 2), c.last_stats.objects_seen);
+    try testing.expectEqual(@as(u32, 2), c.last_stats.survivors);
+}
+
+test "MarkSweepCollector: i32 field NOT traced as reftype (10.G op_gc cycle 28)" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    // struct { i32 var } — non-reftype field; the slot's u64 value
+    // happens to fall in heap range but should NOT be followed.
+    const body = [_]u8{ 0x01, 0x5F, 0x01, 0x7F, 0x01 };
+    const env = try buildArenaedHeap(&arena, &body);
+
+    const sz: u32 = header_size + 8;
+    const survivor_ref = try env.heap.allocate(sz);
+    const survivor_hdr: ObjectHeader = .{ .kind = .struct_, .info = 0 };
+    @memcpy(env.heap.bytes[survivor_ref .. survivor_ref + header_size], std.mem.asBytes(&survivor_hdr)[0..header_size]);
+
+    const decoy_ref = try env.heap.allocate(sz);
+    const decoy_hdr: ObjectHeader = .{ .kind = .struct_, .info = 0 };
+    @memcpy(env.heap.bytes[decoy_ref .. decoy_ref + header_size], std.mem.asBytes(&decoy_hdr)[0..header_size]);
+
+    // survivor.field0 = decoy_ref as if it were a heap address;
+    // because the field's valtype is i32 (non-reftype), trace
+    // should NOT follow.
+    var slot: [8]u8 = undefined;
+    std.mem.writeInt(u64, &slot, @as(u64, decoy_ref), .little);
+    @memcpy(env.heap.bytes[survivor_ref + header_size .. survivor_ref + header_size + 8], &slot);
+
+    var c = MarkSweepCollector.init(env.heap, &env.gti);
+    c.markFromRoot(survivor_ref);
+    c.collector().collect();
+
+    // Only survivor marked; decoy is dead.
+    try testing.expectEqual(@as(u32, 2), c.last_stats.objects_seen);
+    try testing.expectEqual(@as(u32, 1), c.last_stats.survivors);
+    try testing.expectEqual(sz, c.last_stats.dead_bytes);
 }
