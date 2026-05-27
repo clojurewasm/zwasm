@@ -6,10 +6,12 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `198f4add` — feat(p10): array.new + array.new_default
-  + array.new_fixed interp (cycle 24). ArrayHeader+payload
-  allocation green; +3 tests. Cycle 25 wires array.get/set/fill +
-  upgrades array.len to read ArrayHeader.length.
+- **HEAD**: `548545bf` — feat(p10): array.get + array.set +
+  array.fill + array.len interp (cycle 25). Full struct + array
+  catalogue interp COMPLETE. array.len upgraded from cycle-12
+  NullReference stub to ArrayHeader.length read. +6 tests pin
+  round-trip + bounds-check traps. Cycle 26 collector_mark_sweep
+  (β must-ship) next.
 - **ROADMAP §10 progress**: 7/13 DONE, 4 IN-PROGRESS, 2 Pending.
 - **Active debt rows**: 18 — all `blocked-by:` with named
   structural barriers. Zero `now`-status rows.
@@ -55,7 +57,7 @@ future op_gc consumers. EH 40 fails still gated on the bigger
 ## Active bundle
 
 - **Bundle-ID**: 10.G-op_gc
-- **Cycles-remaining**: ~2 (per `.dev/phase10_g_op_bundle_plan.md`)
+- **Cycles-remaining**: ~1 (per `.dev/phase10_g_op_bundle_plan.md`)
 - **Continuity-memo**: Cycles 1-6 substrate. Cycles 7-12 no-RTT
   GC ops. Cycles 13-14 ADR-0121 + decodeTypes 0x5F/0x5E. Cycles
   15-18: struct.new/new_default, array.new family, struct.get/set,
@@ -64,21 +66,23 @@ future op_gc consumers. EH 40 fails still gated on the bigger
   ADR-0116 §3a StructInfo/ArrayInfo runtime layout amend. Cycle
   20 (`9c16b0bb`) created type_info.zig substrate. Cycle 21
   (`5c00600f`) Instance.gc_type_infos. Cycle 22 (`bbcd0602`)
-  struct.new family interp. Cycle 23 (`fdb8ccfa`) struct.get/set
-  interp. Cycle 24 (`198f4add`) array.new family interp
-  (array_ops.zig new file). Cycle 25 (next): array.get/set/fill
-  interp + upgrade cycle-12 array.len NullReference stub →
-  ArrayHeader.length read. Append to array_ops.zig (extend
-  register()). array.get pops i32 idx + GcRef (trap null), reads
-  ArrayHeader.length for bounds check (trap OutOfBoundsStore),
-  reads element at offset 12 + idx * element.size, pushes Value.
-  array.set: pop value + idx + GcRef + bounds check + write.
-  array.fill: pop count + value + idx + GcRef + bounds check
-  range (idx+count ≤ length) + memset/loop fill. array.len:
-  pop GcRef (trap null), read header.length, push i32.
-  Cycle 26+: collector_mark_sweep.zig (β must-ship per ADR-0115
-  §10) — STW mark walks Instance.gc_type_infos to decode object
-  payloads + follow reftype slots.
+  struct.new family. Cycle 23 (`fdb8ccfa`) struct.get/set. Cycle
+  24 (`198f4add`) array.new family. Cycle 25 (`548545bf`)
+  array.get/set/fill+len. **Full struct+array catalogue interp
+  complete.** Cycle 26 (next): collector_mark_sweep.zig — β
+  must-ship per ADR-0115 §10. STW mark-sweep: walkRootsFn calls
+  back into Runtime to enumerate operand-stack + local-slot
+  reftype values; mark walks payload slots interpreting them by
+  FieldInfo.valtype_byte (only reftype slots are followed).
+  Free pass: scan Heap from offset 2 (skip null_ref), decode each
+  ObjectHeader (kind + info → TypeInfo / payload_size for struct;
+  read length for array), skip over object, check mark bit
+  (ADR-0116 §3a says info high bit = mark phase), unmarked
+  objects' bytes can be reclaimed (compacting deferred to Phase
+  11; this cut keeps the bump-cursor model and lets sweep mark
+  them with kind=.tombstone for next-alloc skip). New file
+  `src/feature/gc/collector_mark_sweep.zig` implements Collector
+  vtable per ADR-0115 §3 — first non-stub Collector impl.
   **Per ADR-0122 D6 ongoing**: every cycle's Step 4 reviews 1-2
   nearby `skip.blocker(.@"D-193")` sites for 3-min ungate probes.
 - **Exit-condition**: wasm-3.0-assert exception-handling /
