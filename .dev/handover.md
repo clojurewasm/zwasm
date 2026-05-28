@@ -6,45 +6,44 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cycle 90 — **3 ADR/debt gates closed in one pass**:
-  - **D-179 discharged** (Track A `6e5e7e53`): baker swap wabt →
-    wasm-tools; GC corpus unlocked, +568 spec runner directives.
-  - **ADR-0120 revised + Accepted + Cycle 1 impl** (Track B
-    `510eca36`): `eh_payload []u64` pre-sized at instantiate (no
-    magic cap); D5 v128 slot accounting; D6 catch_ref lazy
-    reification.
-  - **ADR-0123 revised + Accepted + Cycle 1 impl** (Track C
-    `d6b187f8`): RefType / HeapType / AbstractHeapType substrate
-    added. Bundle 10.R-valtype-widen opens.
+- **HEAD**: cycle 91 (`80ad0128`) — **ADR-0123 Cycle 2 landed**:
+  `ValType` pivoted from `enum(u8)` to `union(enum)`; 30 files
+  migrated (29 src + 1 test); ~50 distinct switch / comparison
+  sites updated. New helpers (`eql`, `specByte`, `isFuncref`, etc.)
+  + pub-const aliases (funcref/externref/i31ref/anyref/eqref/
+  structref/arrayref) preserve construction ergonomics.
+- Cycle 90 (`6e5e7e53` + `510eca36` + `d6b187f8`) before that:
+  D-179 baker swap; ADR-0120 Accept + Cycle 1 impl; ADR-0123 Accept
+  + Cycle 1 substrate.
 - Mac aarch64 test-all + lint green.
 
 ## Active bundle
 
 - **Bundle-ID**: 10.R-valtype-widen
-- **Cycles-remaining**: ~4-5
-- **Continuity-memo**: Substrate types (RefType / HeapType /
-  AbstractHeapType) added at cycle 90 Cycle 1. Cycle 2 pivots
-  `ValType` from `enum(u8)` to `union(enum)` with `ref: RefType`
-  variant; migrate 7 abstract-ref enum tags (funcref / externref /
-  i31ref / anyref / eqref / structref / arrayref) to
-  `.ref = RefType.abs(.X, true)`. Zig `require_exhaustive_enum_switch`
-  lint guides every site.
+- **Cycles-remaining**: ~3 (Cycle 2 closed at `80ad0128`)
+- **Continuity-memo**: ValType pivot to union(enum) landed; all
+  29 src + 1 test files migrated. Cycle 3 next adds `0x63` /
+  `0x64` byte parsing in `src/parse/sections.zig::readValType`
+  + the corresponding writer-side multi-byte emission.
 - **Exit-condition**: function-references spec corpus assert_return
   pass-rate ≥ 30/39 (currently 3/39); call_ref + return_call_ref
   green-baked + validated; 0 ParseFailed for any
   function-references module.
 
-## Active task — cycle 91: ValType pivot (Cycle 2 of bundle)
+## Active task — cycle 92: parser typed-funcref bytes (Cycle 3 of bundle)
 
 Smallest red test:
-`test "ValType: union(enum) — .ref = RefType.abs(.func, true) equals legacy funcref representation"`
-in `src/ir/zir.zig`. Existing 7 abstract-ref enum tags get an
-`.absRef(...)` constructor + comptime-assert preservation of byte
-mapping (funcref = 0x70, externref = 0x6F, etc.) per Wasm 3.0 §5.3.1.
+`test "readValType: 0x64 + LEB-prefix funcidx → RefType.conc(idx, false)"`
+in `src/parse/sections.zig`. Add 0x63 (nullable typed) + 0x64
+(non-nullable typed) arms to `readValType` switch; both consume
+a subsequent LEB128 type-section index (or a negative heap-head
+LEB for the 12 abstract heads — Wasm 3.0 §5.3.4). Validator's
+type-stack tracking already handles RefType correctly via the
+Cycle 2 helpers.
 
-After cycle 2 lands, cycles 3-5 per ADR-0123 Consequences §5:
-- Cycle 3: parser `0x63` / `0x64` for `(ref null? ht)`.
-- Cycle 4: validator static narrowing rules.
+After cycle 3 lands, cycles 4-5 per ADR-0123 Consequences §5:
+- Cycle 4: validator static narrowing rules (ref.as_non_null /
+  br_on_null narrow .nullable flag; ref.func yields non-nullable).
 - Cycle 5: call_ref / return_call_ref impl (D3/D4) + spec corpus
   pass-rate ramp.
 
