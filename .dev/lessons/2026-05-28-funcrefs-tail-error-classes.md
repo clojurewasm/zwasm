@@ -39,7 +39,7 @@ validator level, not the parser.
 
 | Error | Likely cause | Fix locus |
 |---|---|---|
-| `BadBlockType` | Block instr (`0x02 .. 0x05`) reads result type byte; the prefix-byte-or-LEB protocol probably doesn't accept `0x63`/`0x64` typed-ref bytes as block result types | `validator.zig::readBlockType` (or similar) — extend to typed-funcref result types |
+| `BadBlockType` ✅ CLOSED cycle 100 (`2fa216b9`) | Block instr reads result type byte; `0x63`/`0x64` typed-ref prefixes decode as SLEB -29/-28 and hit the BadBlockType else arm | `readBlockType` (validator) + `readBlockArity` (lower) now delegate the trailing heap-type to `init_expr.readTypedRef` (made pub). **Gotcha**: that helper is index-free (serves init-expr contexts), so the validator must bound-check a concrete heap-type index against `module_types.len` itself — else ref.9/ref.10 (`(ref 1)` with only type 0) get wrongly accepted (D-188 marker). function-references ParseFailed 10 → 7 |
 | `BadValType` | Some valtype-reading path beyond `init_expr.readValType` (which was patched in cycle 92). Candidate: `readMemargReftypeByte` in `validator.zig::opTableSet` etc. | Find non-patched reftype-byte sites; reuse `init_expr.readValType` for consistency |
 | `StackTypeMismatch` | Validator type-stack interaction: nullability narrowing (cycle 93) pushes non-null but downstream `popExpect` is strict-eql against nullable. Same root cause as the cycle-93 carve-out (subtype-aware popExpect) | Add `popSubtype` helper that accepts `(ref ht)` where `(ref null ht)` is expected (Wasm 3.0 §3.3.4 subtype rules) |
 | `StackUnderflow` | Probably downstream of a `StackTypeMismatch` that left stack in wrong state | Same as above |
