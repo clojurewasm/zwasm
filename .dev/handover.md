@@ -6,11 +6,12 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `24b054c4` — chore(p10): ADR-0122 D-193 ungate, entry.zig
-  8 executing tests converted to comptime `native_emit` dispatch
-  (10.G cycle 43). Mac aarch64 `zig build test` exit 0 (switch →
-  arm64/emit, byte-identical). Linux x86_64 verification pending via
-  ubuntu kick — Step 0.7 next cycle reads `/tmp/ubuntu.log`.
+- **HEAD**: `293793a0` — chore(p10): ADR-0122 D-193 ungate, 3 portable
+  codegen tests (compile.zig 312/351 + linker.zig 524) (10.G cycle 44).
+  Mac aarch64 `zig build test` exit 0 + lint clean. cycle 43
+  (`24b054c4`, entry.zig 8 tests) verified green on Linux x86_64
+  (ubuntu `OK (HEAD=9d38d9f7)`). cycle 44 Linux x86_64 verification
+  pending via ubuntu kick — Step 0.7 next cycle reads `/tmp/ubuntu.log`.
 - **ROADMAP §10 progress**: 7/13 DONE, 4 IN-PROGRESS, 2 Pending.
 - **Active debt rows**: 18 — all `blocked-by:` with named structural
   barriers. Zero `now`-status rows.
@@ -20,27 +21,22 @@
 ## Active task — D-193 per-site ungate (ADR-0122 D6)
 
 Discharging the Mac-aarch64-only test gates that hide Linux x86_64
-coverage (D-180 hazard class). 15 sites remain (see D-193 row).
+coverage (D-180 hazard class). 12 sites remain (see D-193 row).
 
-**NEXT chunk**: `linker.zig` 524/610/650 ungate. These three executing
-tests (2-func link returns 7; is_tail B-opcode patch; is_tail=false
-BL patch) are portable — `linker.zig:30` already binds emit via the
-comptime arch switch — but gated `if (!(mac aarch64)) skip.blocker`.
-Apply the cycle-41 recipe: replace each gate with
-`if (windows) return skip.phaseEnd(.win64)`. Observable delta: 3 tests
-newly execute the x86_64 link/fixup path on ubuntu.
+**NEXT chunk** — Group A cleanup batch (9 sites): `entry_buffer_write.zig`
+×7 + `linker.zig` 689/789. Their gates already include x86_64 (they
+run on ubuntu today); ungate removes the defensive over-skip on
+non-CI hosts (Linux aarch64 / Mac x86_64). Recipe: remove the
+`if (!(mac aarch64) and !(x86_64 and !win)) skip.blocker` block, add
+`if (windows) return skip.phaseEnd(.win64)`. The 6 arch-first
+entry_buffer_write gates are identical (replace_all); site 179 is
+os-first (separate edit). No CI delta — pure non-CI-host cleanup.
 
-**Then**: Group A cleanup batch — `compile.zig` 312/351,
-`entry_buffer_write.zig` ×7, `linker.zig` 689/789. Their gates already
-include x86_64 (already run there); ungate removes the defensive
-over-skip on non-CI hosts (Linux aarch64 / Mac x86_64). compile.zig
-312 has no windows guard (pure pipeline, already runs on win); the
-rest get the windows→phaseEnd conversion.
-
-**Last**: `jit_mem.zig` MOVZ-X0-#42 probe — the one true category-a
-site (asserts execution of arm64-specific bytes). Needs an x86_64
-sibling test OR a comptime arch guard + SIBLING-AT comment per
-ADR-0122 D3. Dedicated cycle.
+**Last** — Category (a), 3 arm64-byte-pinned sites (dedicated cycle):
+`jit_mem.zig` MOVZ-X0-#42 probe; `linker.zig` 610 (asserts B 0x14… +
+`inst.encB`) + 650 (asserts BL 0x94…). These test arm64-specific
+machine code; ungating breaks x86_64 compile. Need an x86_64 sibling
+test OR comptime arch guard + SIBLING-AT comment per ADR-0122 D3.
 
 ## Larger §10 work (not started; bigger than per-cycle ungate)
 
