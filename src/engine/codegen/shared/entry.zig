@@ -2542,3 +2542,71 @@ test "entry: callI64NoArgs — i64.const 0xDEADBEEFCAFE returns full 64-bit" {
     };
     try testing.expectEqual(@as(u64, 0xDEADBEEFCAFE), try callI64NoArgs(module, 0, &rt));
 }
+
+test "entry: ref.as_non_null traps on null funcref source — JIT 10.R cycle 51" {
+    // 10.R / ADR-0123 D2: closes the spike_discipline §2 gap from
+    // cycle-50's scaffolding commit (`86e5bfaf`). Exercises the new
+    // arm64 + x86_64 ref.as_non_null emit handler end-to-end through
+    // JIT.
+    //
+    // Body: (func (result i32) ref.null funcref ; ref.as_non_null ;
+    //        ref.is_null ; end)
+    // - ref.null pushes the null sentinel (0).
+    // - ref.as_non_null compares to 0 and traps (B.EQ/JE → generic
+    //   bounds_fixups trap stub → trap_flag=1 → Error.Trap per
+    //   entry.zig invokeAndCheck).
+    // - ref.is_null + end are unreached on the null path; the
+    //   function signature still type-checks ((result i32) satisfied
+    //   by ref.is_null's i32 even if execution traps).
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var fn0 = ZirFunc.init(0, sig, &.{});
+    defer fn0.deinit(testing.allocator);
+    // arm64/emit.zig:789 / x86_64 emit ignore ref.null's payload —
+    // both unconditionally emit MOVZ Xd, #0 / XOR Rd, Rd. payload=0
+    // is a safe default for a JIT-execution test that bypasses parse.
+    try fn0.instrs.append(testing.allocator, .{ .op = .@"ref.null", .payload = 0 });
+    try fn0.instrs.append(testing.allocator, .{ .op = .@"ref.as_non_null" });
+    try fn0.instrs.append(testing.allocator, .{ .op = .@"ref.is_null" });
+    try fn0.instrs.append(testing.allocator, .{ .op = .end });
+    // Identity-passthrough liveness: ref.as_non_null does NOT allocate
+    // a new result vreg (it pushes its src vreg back unchanged per
+    // ref_as_non_null.zig emit). So vreg 0 = ref.null result + lives
+    // until ref.is_null at pc 2 consumes it; vreg 1 = ref.is_null
+    // result + lives to end at pc 3. They overlap at pc 2 → two
+    // distinct physical slots.
+    fn0.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 2 },
+        .{ .def_pc = 2, .last_use_pc = 3 },
+    } };
+    const slots = [_]u16{ 0, 1 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    const sigs = [_]zir.FuncType{sig};
+
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
+    defer emit.deinit(testing.allocator, out0);
+
+    const bodies = [_]linker.FuncBody{
+        .{ .bytes = out0.bytes, .call_fixups = out0.call_fixups },
+    };
+    var module = try linker.link(testing.allocator, &bodies, 0);
+    defer module.deinit(testing.allocator);
+
+    var memory: [0]u8 = .{};
+    var rt: JitRuntime = .{
+        .vm_base = &memory,
+        .mem_limit = 0,
+        .funcptr_base = undefined,
+        .table_size = 0,
+        .typeidx_base = undefined,
+        .trap_flag = 0,
+        .globals_base = undefined,
+        .globals_count = 0,
+        .host_dispatch_base = undefined,
+        .host_dispatch_count = 0,
+    };
+    // ref.as_non_null traps on null → callI32NoArgs returns Error.Trap.
+    try testing.expectError(Error.Trap, callI32NoArgs(module, 0, &rt));
+    // And trap_flag was set by the trap stub.
+    try testing.expect(rt.trap_flag != 0);
+}
