@@ -6,67 +6,76 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `1bf0b798` — feat(p10): try_table per-clause label-type
-  validation (10.R cycle 61, D-188 FULLY DISCHARGED). `validateCatchVec`
-  now enforces catch / catch_all label-type matching; catch_ref /
-  catch_all_ref reject under v2's exnref-less ValType subset (tighten
-  to structural matching when exnref lands via D-192). Mac aarch64
-  test-all + lint green. **`assert_invalid pass=118 fail=0`** across
-  full wasm-3.0-assert corpus.
-- **D-188 FULLY DISCHARGED** across 3 cycles: ref.1..5 (initial fix),
-  ref_func.4/5 (cycle 60), try_table.8/10 (cycle 61). Bisect retained
-  at `accepted_count == 0` as regression marker.
-- **D-194 / D-195(c) DISCHARGED** earlier (cycles 58 / 60). Active
-  debt rows: 16 — all `blocked-by:` with named barriers; zero `now`
-  rows.
+- **HEAD**: `3d2600ca` — feat(p10): relax MultiMemoryUnsupported
+  for defined memories (10.M cycle 62, bundle open). Two
+  defined-memory gates in `instantiate.zig` relaxed: defined memory
+  section now loop-allocates N `MemoryInstance` entries; active data
+  segments route to `rt.memories[seg.memidx]` with per-target bounds
+  + idx_type. Imports still capped at 1; memidx > 0 memory ops
+  still pinned to memories[0] in emit. Mac aarch64 test-all + lint
+  green.
+- **D-188 FULLY DISCHARGED** (cycle 61) — wasm-3.0-assert
+  `assert_invalid pass=118 fail=0`. **D-194 / D-195(c) DISCHARGED**
+  earlier. Active debt rows: 16 — all `blocked-by:`; zero `now` rows.
 
 ## Active bundle
 
-- None — 10.R-function-references closed cycle 59; subsequent cycles
-  (60-61) were autonomous-eligible single-cycle chunks (D-195 sub-gap
-  c, D-188 EH validator close) outside any bundle. No active multi-
-  cycle integration.
+- **Bundle-ID**: 10.M-multi-memory
+- **Cycles-remaining**: ~3
+- **Continuity-memo**: ADR-0111 (memory64 + multi-memory design).
+  Cycle 62 (`3d2600ca`): relaxed defined-memory + active-data
+  segment gates. Remaining work:
+  - **Cycle 63 candidate**: relax import-side memory cap (line 806
+    `imp_memory_count > 1 → MultiMemoryUnsupported`). Requires
+    import binding shape extension to carry N memories per import
+    set OR pre-loop iteration. Examine `bindings.?[idx].memory`
+    structure first.
+  - **Cycle 64 candidate**: MemArgExtra.memidx > 0 plumbing through
+    emit so memory ops route to `rt.memories[memidx]` instead of
+    the implicit memories[0]. Touches arm64/x86_64 codegen + the
+    runtime memory-base pointer materialise. ADR-0111 D2 says
+    "codegen-zero" for memidx=0; memidx>0 needs explicit base
+    materialise from `rt.memories[N].bytes.ptr`.
+  - **Cycle 65 candidate**: bake multi-memory raw corpus from
+    upstream `memory64/test/core/multi-memory/` + wire into spec
+    runner.
+- **Exit-condition**: spec runner shows ≥1 multi-memory return/trap
+  fixture passing on both arches (e.g. `memory_size0.wast` with
+  size queries on memidx 0 + memidx 1).
 
-## Active task — cycle 62: next autonomous chunk
+## Active task — cycle 63: import memory cap relax
 
-Cycle 62 candidates (ordered by smallest red + best observable delta):
-
-1. **10.M memory64 multi-memory** — `memories: []MemoryInstance`
-   plumbing per ROADMAP §10 row 10.M. Spec single-memory cases all
-   pass; multi-memory adds `memidx > 0` reachability. Independent
-   of ADR-0120 / 0123 / D-179. Likely the cleanest next bundle.
-2. **D-195 sub-gap (b)** — cross-module `(register …)` runner
-   registry; sibling to D-192. Would unblock 2 EH + 1 ref_func
-   instantiate-fail modules. Spec runner observable: drops
-   `instantiate FAIL` count by 3.
-3. **10.E EH runtime path** — throw / try_table interp execution
-   (return + trap fixtures); currently 34 return + 2 trap + 4
-   exception directives all fail at instantiate (D-192 blocker on
-   try_table.1) — the validator side is now spec-correct as of
-   cycle 61, but the runtime EH dispatch needs wiring.
-
-Cycle 62 picks (1) — multi-memory is non-blocked, well-scoped, and
-the spec corpus already has memory64 fixtures to anchor a smallest
-red.
+Smallest red: hand-craft a wasm that imports 2 memories (or 1 import
++ 1 defined) — currently `error.MultiMemoryUnsupported` at line 806.
+Examine `ImportBinding` shape in `src/runtime/instance/import.zig`;
+the binding-supplier API needs to deliver multiple memory bindings.
+If the supplier shape is already N-friendly, the loop relaxation is
+mechanical. If not, file a debt note for the API extension and pick
+a different cycle-63 target (e.g., MemArgExtra.memidx > 0 emit, the
+cycle-64 candidate).
 
 ## Larger §10 work (blocked / later)
 
-- **10.M memory64** — single-memory spec passes; multi-memory work
-  remains (cycle-62 target). clang_wasm64 realworld gated on D-179.
-- **10.E EH** — validator side spec-correct as of cycle 61; runtime
-  EH dispatch + cross-module register (D-192) remain external-gated.
+- **10.M memory64 multi-memory** — IN-PROGRESS bundle (cycle 62
+  open). Single-memory memory64 already green.
+- **10.E EH** — validator side spec-correct as of cycle 61;
+  runtime EH dispatch + cross-module register (D-192) remain
+  external-gated.
 - **10.G WasmGC op-corpus** — D-179-blocked (wabt 1.0.41+).
 - **10.P close gate** — user touchpoint by construction.
 
-## Spec runner observable (post-cycle-61)
+## Spec runner observable (post-cycle-62; counts unchanged from cycle-61)
 
 ```
 [memory64           ] return=337 trap=205 invalid=83  (all pass)
 [tail-call          ] return=31  trap=0   invalid=10  (all pass)
 [exception-handling ] return=34(fail34) trap=2(fail2) invalid=7(pass=7 fail=0) exception=4(fail4)
 [function-references] return=39(fail36) trap=4(fail4)  invalid=18(pass=18 fail=0)
-[wasm-3.0-assert    ] assert_invalid pass=118 fail=0  <- D-188 fully closed
+[wasm-3.0-assert    ] assert_invalid pass=118 fail=0
 ```
+
+(Cycle 62 substrate change is invisible to the runner — multi-memory
+corpus not yet baked.)
 
 ## Open questions / blockers
 
@@ -80,6 +89,7 @@ red.
 
 ## Key refs
 
+- ADR-0111 (memory64 + multi-memory design) — active bundle anchor.
 - ADR-0122 (test skip categorization) — D-193 discharge complete.
 - ADR-0076 (D1 gate / D2 single-push / D3 ubuntu kick).
-- ROADMAP §10 rows 10.M / 10.R / 10.TC / 10.E; `.dev/phase_log/phase10.md`.
+- ROADMAP §10 row 10.M; `.dev/phase_log/phase10.md`.
