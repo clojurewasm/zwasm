@@ -6,59 +6,56 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cycle 106 (`<this commit>`) — SCOPING/PIVOT (no code
-  delta). Categorized the 15 function-references return fails: **8 =
-  ref_func.1** (its `(import "M" "f")` is UnknownImport because the
-  manifest `register` directive is `skip-impl directive-register` —
-  D-192 cross-module register substrate, shared with EH try_table);
-  ~7 scattered (externref-value arg/result handling in the runner +
-  others — to categorize). The funcrefs ENGINE is parse-complete
-  (ParseFailed=0) + 24/39 returns pass; the return-rate ≥32 is gated on
-  the harness substrate D-192, not engine bugs.
-- Prior: 105 element ref.func func-family + ParseFailed→0 (`6e58b534`);
+- **HEAD**: cycle 107 (`590578e1`) — baked `register M` into the
+  ref_func manifest (was stale `skip-impl directive-register`). D-192
+  register infra was already complete (baker emits register; runner
+  binds func exports via defineCrossModuleFunc); only the manifest was
+  stale. ref_func.1's `(import "M" "f")` now RESOLVES — UnknownImport →
+  **InstantiateFailed** (the next, deeper runtime gap). No regression
+  (invalid 18, return pass 24).
+- Prior: 106 scoping/pivot (`e0766509`, funcrefs return-rate gated on
+  D-192); 105 element ref.func func-family + ParseFailed→0 (`6e58b534`);
   104 unreachable-poly (`8304714d`); 103 typed table/elem decode
-  (`d24ad2da`); 102 ref.func typed (`7b9218c2`); 101 0xD4 (`c82e8124`);
-  100 Gate 4 (`2fa216b9`).
-- Mac test + lint green (cycle 105/106 — no src change cycle 106).
-  ubuntu: cycle-105 HEAD confirmed green (`a0692437`); cycle 106 is
-  docs-only (non-code-gap, no kick needed).
+  (`d24ad2da`); 102 ref.func typed (`7b9218c2`); 100-101 Gate 4 + 0xD4.
+- Mac test + lint green. ubuntu: cycle-105 HEAD green (`a0692437`);
+  cycle 106 docs-only; cycle-107 kick backgrounded (manifest change —
+  zig build test unaffected, but kicked for consistency).
 
 ## Active bundle
 
 - **Bundle-ID**: 10.X-D192-register (cross-module `register` directive;
   shared by func-refs ref_func.1 + EH try_table)
-- **Cycles-remaining**: ~4
-- **Continuity-memo**: cycle 106 re-scoped here from 10.R-funcrefs-exec
-  (whose ≥32 exit-condition is gated on this substrate). The manifest
-  `register` directive is `skip-impl directive-register` at corpus-bake
-  time, so a module registered under a name (ref_func.0 as "M",
-  try_table.0 providing `test::e0`/`test::throw`) is never available to
-  a later module's imports → UnknownImport. D-192 = implement the
-  `register` directive: (a) corpus baker emits it (find the skip-impl
-  site in `scripts/regen_spec_3_0_assert.sh` / the bake pipeline);
-  (b) the runner (`spec_assert_runner_wasm_3_0.zig`) already keeps a
-  per-manifest Engine+Linker (cycle 71) — wire `register <name>` to
-  `Linker.define*` the registered instance's exports under `<name>` so
-  later `instantiate` resolves cross-module imports. **Step 0**: survey
-  the bake skip-impl site + the runner's register/Linker path + how EH
-  try_table.0→.1 needs the same.
+- **Cycles-remaining**: ~3
+- **Continuity-memo**: cycle 107 closed the register-manifest gap
+  (`register M` baked); the register INFRA was already complete. ref_
+  func.1 import now resolves → the blocker is now **InstantiateFailed**
+  (ref_func.1 AND ref_func.3, the latter self-contained = clean red
+  test). ref_func.3 = `(global funcref (ref.func 0))` + active +
+  declarative elem segments (`(elem (ref.func N))`). Likely a runtime
+  instantiate-time gap: `ref.func` in a GLOBAL init expr, or element-
+  segment table init with ref.func, not handled by the instantiate
+  evaluator. Once instantiate works, ref_func.1 (+register M) runs its
+  8 asserts → return 24→~32. **Corpus-drift caveat**: a full re-bake
+  churns ref_func.2.wasm → invalid-accepted under wast2json 1.0.39 (the
+  committed .wasm predate it); re-bake .wasm only with that managed.
 - **Exit-condition**: ref_func.1 instantiates + its 8 assert_returns
   pass (function-references return ≥ 32/39) AND try_table.1 (EH)
   instantiates against try_table.0's registered tag/func.
 
-## Active task — cycle 107: survey + begin the `register` directive substrate (D-192)
+## Active task — cycle 108: ref_func.3 InstantiateFailed (runtime ref.func global/elem init)
 
-**Step 0 (survey)**: (1) where corpus baking emits `skip-impl
-directive-register` (grep `scripts/regen_spec_3_0_assert.sh` +
-`wast2json` adapter) — the `register` line must be baked into the
-manifest instead of skipped; (2) the runner's per-manifest Linker +
-how `register <name>` would map the instance's exports into the Linker
-namespace for later `instantiate` import resolution; (3) `Linker.define*`
-API surface. Then the smallest red step: bake + handle `register` for
-ref_func (register ref_func.0 as "M") so ref_func.1 resolves `(import
-"M" "f")`. Parallel ~7 scattered funcrefs return fails (externref-value
-handling) tracked under the old funcrefs-exec framing — revisit after
-D-192 if return < 32.
+ref_func.3 is self-contained (no imports) but InstantiateFailed —
+clean red test for the instantiate-time gap that also blocks ref_func.1.
+**Step 0**: isolate the instantiate failure (a focused test compiling +
+instantiating ref_func.3 via Engine+Linker, mirroring the runner; OR
+stage-tag the `instantiateRuntime` / global-init-eval / element-init
+path in `runtime/instance/instantiate.zig` + `instance.zig`). ref_func.3
+has `(global funcref (ref.func 0))` + `(elem (i32.const 0) func 2)` +
+`(elem (ref.func 3))` (declarative/funcref expr). Likely
+`evalConstExprValue` / element-init doesn't handle `ref.func` →
+InstantiateFailed. Smallest red test per the localized op (an
+instantiate unit test or edge_cases fixture). Then ref_func.1 (+register)
+unblocks.
 
 ## Larger §10 work (later bundles)
 
