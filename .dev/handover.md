@@ -6,52 +6,49 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cycle 104 (`8304714d`) — `ref.as_non_null` / `br_on_non_null`
-  stay polymorphic (`.bot`) in unreachable code instead of collapsing
-  to concrete funcref (which mismatched downstream `(ref $sig)`).
-  function-references ParseFailed **3 → 1**, return pass **7 → 12**,
-  trap pass **1 → 4**.
-- Prior: cycle 103 typed-ref table/elem decode + bound check
-  (`d24ad2da`); 102 ref.func typed `(ref $sig)` + bundle-1 close
-  (`7b9218c2`); 101 ref.as_non_null 0xD4 (`c82e8124`); 100 Gate 4
-  BadBlockType (`2fa216b9`).
-- Mac aarch64 test + lint green (cycle 104). ubuntu x86_64 SSH gate:
-  cycle-103 HEAD confirmed green; cycle-104 kick backgrounded —
+- **HEAD**: cycle 105 (`6e58b534`) — element `ref.func` init-expr
+  accepts concrete typed-funcref segment types (`(ref $sig)`, not just
+  abstract funcref). **function-references ParseFailed 1 → 0 — ALL 15
+  modules now compile**; return pass **12 → 24**. Bundle
+  10.R-funcrefs-tail-2 exit-condition (ParseFailed=0) MET.
+- Prior: 104 unreachable-polymorphism (`8304714d`); 103 typed-ref
+  table/elem decode + bound (`d24ad2da`); 102 ref.func typed +
+  bundle-1 close (`7b9218c2`); 101 ref.as_non_null 0xD4 (`c82e8124`);
+  100 Gate 4 (`2fa216b9`).
+- Mac aarch64 test + lint green (cycle 105). ubuntu x86_64 SSH gate:
+  cycle-104 HEAD confirmed green; cycle-105 kick backgrounded —
   Step 0.7 next resume verifies.
 
 ## Active bundle
 
-- **Bundle-ID**: 10.R-funcrefs-tail-2 (follow-up; cycles 105+)
-- **Cycles-remaining**: ~1
-- **Continuity-memo**: cycle 104 cleared 2 of 3 remaining ParseFailed
-  (br_on_non_null.0 + ref_as_non_null.0, via unreachable-polymorphism).
-  ONE module left: **`ref_is_null.0`**. Cycle-104 probe (code-section
-  index + body dump) corrected the earlier "empty func" guess: code#0
-  has `bodylen=7 first=0x00` (NOT empty — starts with `unreachable`)
-  and fires **BadValType**. So the func is `unreachable; <ops>` where
-  some op reads a reftype byte the validator rejects. Candidate (per
-  ref_is_null.0's shape): a typed-`select (result (ref null 0))`
-  (0x1C typed-select reftype vec), or another reftype-byte op in
-  unreachable context. **Step 0 cycle 105**: dump code#0's 7 bytes
-  (re-add the body-slice probe) to name the exact op, then fix.
-- **Exit-condition**: function-references ParseFailed = 0 (all 15
-  modules across the 7 manifests compile) — currently 1. Cycle 105
-  closes the bundle when ref_is_null.0 clears.
+- **Bundle-ID**: 10.R-funcrefs-exec (follow-up; cycles 106+)
+- **Cycles-remaining**: ~3
+- **Continuity-memo**: bundle 10.R-funcrefs-tail-2 CLOSED cycle 105 —
+  function-references ParseFailed 3→0 (all modules compile), return
+  pass 7→24 (delta across cycles 100-105). NEXT surface: the **15
+  function-references return fails** (24/39 pass) — modules that now
+  compile but mis-execute. These are runtime/codegen gaps (call_ref
+  dispatch + sig check, ref.func runtime value, br_on_null/non_null +
+  ref.as_non_null runtime semantics, typed-table get/set). **Step 0
+  each cycle**: probe which assert_return directives fail + why (the
+  spec runner reports per-directive return pass/fail; add a probe to
+  name the failing export + actual-vs-expected), then fix the
+  highest-yield runtime op.
+- **Exit-condition**: function-references return pass-rate ≥ 32/39
+  (currently 24/39) — i.e. clear at least half the 15 remaining
+  return fails via runtime/codegen fixes.
 
-## Active task — cycle 105: ref_is_null.0 BadValType (last ParseFailed → bundle close)
+## Active task — cycle 106: probe + fix highest-yield function-references return fail
 
-`ref_is_null.0` code#0 (`bodylen=7 first=0x00`) fails BadValType in an
-`unreachable; …` body. **Step 0**: re-add the per-func probe in
-`instantiate.zig` printing `code.body` bytes for the failing func, run
-`zig build test-spec-wasm-3.0-assert`, read the 7 bytes to identify the
-reftype-byte op (likely `0x1C` typed-`select` with a `(ref null 0)`
-result, or a typed-ref op the validator's reftype reader rejects).
-Smallest red test per the localized op (a `validateFunctionWithMemIdx-
-AndTags` body test). On clear: ParseFailed = 0 → **close bundle
-10.R-funcrefs-tail-2** (delta-cite return 7→12, ParseFailed 3→0) and
-open follow-up for the function-references return pass-rate (12/39 →
-the assert_return bodies that parse but mis-execute: call_ref dispatch,
-ref.func runtime value).
+All 15 modules compile (ParseFailed=0); 15 assert_returns still fail
+at execution. **Step 0 (probe)**: instrument the wasm-3.0-assert
+runner (or a focused test) to print which function-references exports
+fail assert_return + the actual-vs-expected values, to localize the
+runtime gap (likely `call_ref` dispatch / sig-mismatch trap, or
+`ref.func` producing a runtime funcref the table/call path mishandles).
+Then fix the highest-yield runtime/codegen op with a focused red test
+(prefer a `test/edge_cases/p10/funcrefs/` fixture or an interp/codegen
+unit test). Smallest red test per the localized execution gap.
 
 ## Larger §10 work (later bundles)
 
@@ -65,13 +62,13 @@ ref.func runtime value).
   type); 10.G must refine once struct/array heads enter module_types.
 - **10.P close gate** — user touchpoint by construction.
 
-## Spec runner observable (post-cycle-104)
+## Spec runner observable (post-cycle-105)
 
 ```
 [memory64           ] return=337 trap=205 invalid=83  (all pass)
 [tail-call          ] return=71  trap=7   invalid=24  (all pass)
 [exception-handling ] return=34(fail34) trap=2(fail2) invalid=7(pass) exception=4(fail4)
-[function-references] return=39(pass=12 fail=21) trap=4(pass=4) invalid=18(pass) ParseFailed=1 (10→7→6→3→1)
+[function-references] return=39(pass=24 fail=15) trap=4(pass=4) invalid=18(pass) ParseFailed=0 (10→7→6→3→1→0)
 [gc                 ] return=407(fail) trap=100(fail) invalid=60(pass=55 fail=5) malformed=1(pass)
 [multi-memory       ] return=407(pass=371 fail=36) trap=238(pass=237 fail=1)
 ```

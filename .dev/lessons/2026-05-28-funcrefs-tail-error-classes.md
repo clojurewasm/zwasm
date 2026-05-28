@@ -114,6 +114,23 @@ to surface the class; revert before commit. "No fv.diag before the
 runner's compile-FAIL line" = failure is in an earlier stage
 (parse / preDecodeSectionBodies / section decode), not a func body.
 
+**Interleaving trap (cycle 105, cost ~2 cycles of wrong attribution)**:
+`grep -B1 "<module> compile FAIL"` for the preceding fv.diag is
+UNRELIABLE in the spec runner — many modules fail and their stderr
+diags interleave, so the adjacent fv.diag may be a DIFFERENT module's
+(cycle-104's "ref_is_null.0 func#0 BadValType" was actually a single-
+func GC module's `select (result (ref 1))` diag). **Isolate**: add a
+temp test that compiles the ONE module in the core/manifest test
+binary (it `@embedFile`s fixtures; runs sequentially, no cross-module
+interleave) with `[MARKER-START]`/`[MARKER-END]` around the compile —
+grep between markers. Then stage-tag `frontendValidate`'s return-false
+points (parse / preDecode.<section> / per-func) to localize. ref_is_
+null.0 actually failed at **preDecode.element decode** —
+`readFuncrefInitExpr` rejected `ref.func` for a concrete `(ref 0)`
+segment (`isFuncref()` only matches abstract nullable funcref).
+`@embedFile` can't reach outside the src/ package, so the isolation
+test goes in `test/spec/`, not `src/`.
+
 ## Related
 
 - Bundle `10.R-valtype-widen` (closed partial 2026-05-28 cycle 94)
