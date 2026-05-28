@@ -6,11 +6,11 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cycle 87 — debt.md re-evaluation pass for 11 stale rows
-  (D-026/007/010/020/021/022/028/074/075/082/148). All barriers
-  verified to still hold via individual probes; Last-reviewed
-  bumped to 2026-05-28. No discharges. Cycle 86 `check_doc_state
-  --gate` wiring confirmed operational on this commit.
+- **HEAD**: cycle 88 — spec-corpus expansion survey. Filed lesson
+  `2026-05-28-spec-corpus-expansion-exhausted.md`: no autonomous
+  corpus-expansion candidates remain across §10 corpora. All forward
+  spec-runner-observable yield is structurally gated on ADR-0120 /
+  ADR-0123 Accept or D-179 wabt upgrade.
 - Active debt rows: **18** — all `blocked-by:`; zero `now`.
 - Mac aarch64 test-all + lint green at HEAD prior to this chunk
   (52d9c784); ubuntu kick at 52d9c784 confirmed green (Step 0.7
@@ -21,28 +21,29 @@
 
 - None.
 
-## Active task — cycle 88: next autonomous chunk
+## Active task — cycle 89: next autonomous chunk
 
-`[wasm-3.0-assert] assert_invalid pass=134 fail=0` unchanged.
-Autonomous yield within §10 row 10.E / 10.G / further 10.M
-remains gated on ADR-0120 / ADR-0123 Accept or D-179 wabt
-upgrade.
+Spec-runner-observable yield exhausted per cycle-88 survey (see
+lesson). Remaining autonomous candidates are infrastructure
+hardening:
 
-Cycle 88 candidates:
+1. **`check_uses_runtime_ptr.sh` extension** — lesson
+   `2026-05-28-d180-detector-misses-bounds-fixups.md` names a
+   hardening opportunity: extend regex to detect indirect R15
+   use via `bounds_fixups.append` / `unreach_fixups.append`
+   in per-op files. Closes the D-180 detector gap.
+2. **`cleanup_orphans.sh` allowlist extension** — observed
+   yesterday: `cljw repl | grep` pipeline orphan. Hook covers
+   it; review for other dev-tool patterns that could orphan
+   (wasmtime, node REPLs, etc.).
+3. **handover.md archive prune** — top-level "## Larger §10
+   work" + "Open questions / blockers" stable across many
+   cycles; consider moving stable content to CLAUDE.md to keep
+   handover ≤ 50 lines.
 
-1. **Function-references / 10.R bake extension** — survey
-   whether any ADR-0123-independent .wast modules remain
-   un-baked in the function-references upstream corpus.
-   Pure infra cycle.
-2. **Wasm 1.0 / 2.0 corpus coverage audit** — survey upstream
-   corpus for un-baked fixtures; alt infra cycle.
-3. **Cycle-82 audit §A staleness re-run** — confirm cohort
-   discharge closed the original `block` findings; small
-   verification chunk.
-
-Cycle 88 picks (1) — function-references bake extension; lowest
-risk + measurable observable delta if any ADR-independent
-modules exist.
+Cycle 89 picks (1) — concrete drift-detector hardening directly
+named in a recent lesson; closes the named gap with a small
+mechanical change.
 
 ## Larger §10 work (blocked / later)
 
