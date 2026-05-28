@@ -6,17 +6,18 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cycle 108 (`e3a22ec2`) — `ref.func` in a global init expr
-  now resolves at instantiate (evalConstExprValue had no 0xD2 arm; the
-  global-init loop resolves against rt.func_entities). With cycle-107's
-  `register M`, **ref_func.1 instantiates + runs its 8 asserts**:
-  function-references **return pass 24 → 32**. D-192 funcrefs clause MET.
-- Prior: 107 register M baked (`590578e1`); 106 scoping/pivot
-  (`e0766509`); 105 element ref.func func-family + ParseFailed→0
-  (`6e58b534`); 104 unreachable-poly (`8304714d`); 100-103 funcrefs
-  parse chain.
-- Mac test + lint green (cycle 108). ubuntu: cycle-107 HEAD green
-  (`bb426c07`); cycle-108 kick backgrounded.
+- **HEAD**: cycle 110 (`447c1048`) — EH cross-module step 1:
+  `ImportKind.tag` (0x04) + `ImportPayload.tag_typeidx` + decode arm +
+  the exhaustive-switch cascade (7 files, step-1 stub arms). Observable
+  stage move: **exception-handling/try_table.1 + .5 go from compile
+  FAIL:ParseFailed → parse+compile+INSTANTIATE** (surprise: they
+  instantiate without the step-2 tag binding — the remaining 0/34 is
+  execution-side, not instantiate).
+- Prior: 109 EH survey + bundle re-scope (`06473742`); 108 ref.func
+  global-init → funcrefs return 24→32 (`e3a22ec2`); 107 register M
+  (`590578e1`); 100-106 funcrefs parse+return chain.
+- Mac test + lint green (cycle 110). ubuntu: cycle-108 HEAD green
+  (`622a7027`); cycle 109 docs-only; cycle-110 kick backgrounded.
 
 ## Active bundle
 
@@ -40,20 +41,23 @@
   ≥ 5/34 (currently 0/34) — i.e. cross-module throw/catch matches via
   `*TagInstance` for at least the simple-throw-catch cases.
 
-## Active task — cycle 110: EH tag-import parser side (step 1 of ADR-0114 substrate)
+## Active task — cycle 111: probe WHY try_table.1's asserts fail (now that it instantiates)
 
-**Step 0 done (cycle 109 survey)** — see the lesson. Step 1 (smallest
-observable): extend `parse/sections.zig` `ImportKind` with `tag = 0x04`
-+ `ImportPayload.tag_typeidx` + accept `0x04` in the import-kind switch
-(line ~286), and un-filter tag exports (`sections.zig:606` — recognise
-kind=4 export as a `.tag` ExportDesc variant instead of dropping). Red
-test: decode an import section with a tag import (`0x04` kind) +
-assert the ImportKind.tag entry; decode a tag export + assert it
-appears. Observable: try_table.1 PARSES past the tag import (ParseFailed
-→ instantiate-stage). NOTE: the ImportKind enum extension cascades into
-every `switch (ImportKind)` (instantiate, linker) — those arms land in
-step 2; step 1 may need stub arms to compile. Deviation watch: ADR-0114
-is the design (Accepted); this is impl, not a §4 deviation.
+Step 1 (cycle 110) un-blocked parse+instantiate for try_table.1/.5, so
+the 5-step plan re-orders: instantiate-binding (old step 2) is NOT the
+blocker (try_table.1 instantiates with the unbound tag — the throw func
+import `test::throw` resolves via the runner's register func-binding;
+the tag import apparently doesn't block instantiate). **Step 0 (probe)**:
+instrument the wasm_3_0 runner's assert_return/assert_exception path (or
+a focused test) to find WHY try_table.1's `simple-throw-catch` etc.
+fail — distinguish (a) **JIT throw/throw_ref emit incomplete**
+(`arm64/emit.zig:1172` per the lesson — the runner may JIT-compile the
+EH funcs), (b) **tag-identity mismatch** (cross-module throw tag_idx ≠
+catch import tag_idx; ADR-0114 *TagInstance, step 4), or (c) interp
+EH path. The probe picks which of steps 3-5 to do next. Smallest red
+test per the localized execution gap. NOTE: tag-export un-filter +
+Linker tag binding (old step 2) deferred — only do if a fixture proves
+they're needed (try_table.1 instantiates without them).
 
 ## Larger §10 work (later bundles)
 
