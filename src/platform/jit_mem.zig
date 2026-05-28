@@ -190,19 +190,33 @@ pub fn setWritable(block: JitBlock) Error!void {
 const testing = std.testing;
 const skip = @import("../test_support/skip.zig");
 
-test "JitBlock: emit MOVZ X0,#42 + RET, execute, returns 42" {
-    if (!(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)) {
-        // Other hosts: the JIT spec gate is not yet wired; skip.
-        return skip.blocker(.@"D-193");
-    }
-    const inst = @import("../engine/codegen/arm64/inst.zig");
+test "JitBlock: emit native const-42 fn + execute, returns 42" {
+    // D-193 / ADR-0122 D3: portable via comptime per-arch machine code.
+    // The alloc + W^X toggle + exec primitive (this file) is host-
+    // portable; only the instruction bytes are arch-specific, so both
+    // arm64 + x86_64 run the SAME test (no skipped sibling → no
+    // SIBLING-AT). Win deferred per ADR-0122 phaseEnd batch.
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
     var block = try alloc(page_size);
     defer free(block);
-    // The block starts writable (MAP_JIT + thread W^X disabled).
-    // To be sure we're in W mode for this thread, request it:
+    // Block starts writable (MAP_JIT + thread W^X disabled on macOS);
+    // request W mode explicitly for this thread.
     try setWritable(block);
-    std.mem.writeInt(u32, block.bytes[0..4], inst.encMovzImm16(0, 42), .little);
-    std.mem.writeInt(u32, block.bytes[4..8], inst.encRet(30), .little);
+    switch (builtin.cpu.arch) {
+        .aarch64 => {
+            const inst = @import("../engine/codegen/arm64/inst.zig");
+            std.mem.writeInt(u32, block.bytes[0..4], inst.encMovzImm16(0, 42), .little);
+            std.mem.writeInt(u32, block.bytes[4..8], inst.encRet(30), .little);
+        },
+        .x86_64 => {
+            // mov eax, 42 (B8 2A 00 00 00) ; ret (C3) — Intel SDM Vol 2
+            // (B8+rd MOV r32,imm32; C3 RET). EAX is the callconv(.c)
+            // integer return register on both SysV + Win64.
+            const code = [_]u8{ 0xB8, 0x2A, 0x00, 0x00, 0x00, 0xC3 };
+            @memcpy(block.bytes[0..code.len], &code);
+        },
+        else => @compileError("unsupported arch for JIT exec test"),
+    }
 
     try setExecutable(block);
     const Fn = *const fn () callconv(.c) u32;
