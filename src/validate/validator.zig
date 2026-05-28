@@ -1050,12 +1050,11 @@ pub const Validator = struct {
     /// Mismatch → `StackTypeMismatch`. (Tag-index + label-index
     /// range checks subsume the prior pre-cycle-61 surface.)
     ///
-    /// `catch_ref` / `catch_all_ref` always reject under the current
-    /// ValType subset: zwasm v2's parser doesn't yet decode the
-    /// `exnref` byte (0x69) — gated on D-192 / ADR-0120 — so no
-    /// valid label-type tuple can contain `exnref`. The blanket
-    /// reject is spec-correct for the current substrate; tighten to
-    /// structural matching once `exnref` lands.
+    /// `catch_ref` / `catch_all_ref` push an `exnref` as the last
+    /// pushed value. Since cycle 112 landed `ValType.exnref` (bare
+    /// `0x69`), these match structurally against the branch target's
+    /// label type via `labelTypeEqParamsPlusExn` (was a blanket
+    /// reject while `exnref` was un-decodable).
     fn validateCatchVec(self: *Validator) Error!void {
         const count = try leb128.readUleb128(u32, self.body, &self.pos);
         var i: u32 = 0;
@@ -1086,9 +1085,11 @@ pub const Validator = struct {
                     if (tag_idx >= self.tags.len) return Error.InvalidTagIndex;
                     const label_idx = try leb128.readUleb128(u32, self.body, &self.pos);
                     if (label_idx >= self.control_len) return Error.InvalidBranchDepth;
-                    // exnref absent from v2 ValType subset → no valid
-                    // label-type can contain it → spec-correct reject.
-                    return Error.StackTypeMismatch;
+                    const target = &self.control_buf[self.control_len - 1 - label_idx];
+                    const typeidx = self.tags[tag_idx].typeidx;
+                    if (typeidx >= self.module_types.len) return Error.InvalidTagIndex;
+                    const tag_params = self.module_types[typeidx].params;
+                    if (!labelTypeEqParamsPlusExn(target.labelType(), tag_params)) return Error.StackTypeMismatch;
                 },
                 0x02 => {
                     // catch_all depth — pushes []
@@ -1098,11 +1099,11 @@ pub const Validator = struct {
                     if (!labelTypesEq(.empty, target.labelType())) return Error.StackTypeMismatch;
                 },
                 0x03 => {
-                    // catch_all_ref depth — pushes [exnref]
+                    // catch_all_ref depth — pushes [exnref] (no tag params)
                     const label_idx = try leb128.readUleb128(u32, self.body, &self.pos);
                     if (label_idx >= self.control_len) return Error.InvalidBranchDepth;
-                    // Same exnref-absence rationale as 0x01.
-                    return Error.StackTypeMismatch;
+                    const target = &self.control_buf[self.control_len - 1 - label_idx];
+                    if (!labelTypeEqParamsPlusExn(target.labelType(), &.{})) return Error.StackTypeMismatch;
                 },
                 else => return Error.BadBlockType,
             }
@@ -2557,6 +2558,31 @@ fn valTypeIsSubtypeFree(actual: ValType, expected: ValType) bool {
             .abstract => |e_abs| a_abs == e_abs,
             .concrete => false,
         },
+    };
+}
+
+/// True iff `expected` (a branch target's label type) structurally
+/// equals `tag_params ++ [exnref]` — the tuple a `catch_ref` clause
+/// pushes. `catch_all_ref` passes empty `tag_params`, so the pushed
+/// tuple is just `[exnref]`. Avoids materialising the concatenated
+/// slice (the validator has no scratch allocator on this path).
+fn labelTypeEqParamsPlusExn(expected: BlockType, tag_params: []const ValType) bool {
+    const n = tag_params.len;
+    if (n == 0) {
+        // pushed = [exnref] → single element.
+        return switch (expected) {
+            .single => |t| t.eql(ValType.exnref),
+            .empty, .multi => false,
+        };
+    }
+    // n >= 1 → pushed has n+1 (≥2) elements → must be `.multi`.
+    return switch (expected) {
+        .multi => |ts| blk: {
+            if (ts.len != n + 1) break :blk false;
+            for (tag_params, ts[0..n]) |p, e| if (!p.eql(e)) break :blk false;
+            break :blk ts[n].eql(ValType.exnref);
+        },
+        .empty, .single => false,
     };
 }
 

@@ -31,6 +31,8 @@ const i32_arr = [_]ValType{.i32};
 const i64_arr = [_]ValType{.i64};
 const i32_result_sig: FuncType = .{ .params = &.{}, .results = &i32_arr };
 const i64_result_sig: FuncType = .{ .params = &.{}, .results = &i64_arr };
+const exnref_arr = [_]ValType{ValType.exnref};
+const exnref_result_sig: FuncType = .{ .params = &.{}, .results = &exnref_arr };
 
 test "validate: empty function (() -> ()) with bare `end`" {
     try validateFunction(empty_sig, &.{}, &[_]u8{0x0B}, &.{}, &.{}, &.{}, 0, &.{}, 0);
@@ -1682,6 +1684,34 @@ test "validate (try_table): unknown catch kind byte rejected" {
     const body = [_]u8{ 0x1F, 0x40, 0x01, 0x04, 0x00, 0x0B, 0x0B };
     const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
     try testing.expectError(Error.BadBlockType, r);
+}
+
+test "validate (try_table): catch_all_ref to [exnref] label → OK (10.E cycle 113; exnref landed cyc112)" {
+    // () -> (exnref): try_table () (catch_all_ref 0) end ; ref.null exn ; end.
+    // catch_all_ref pushes [exnref] to label 0 (function frame, results
+    // = [exnref]) → structural match. Was a blanket StackTypeMismatch
+    // reject pre-cycle-113 ("tighten once exnref lands", validator.zig).
+    const body = [_]u8{ 0x1F, 0x40, 0x01, 0x03, 0x00, 0x0B, 0xD0, 0x69, 0x0B };
+    try validateFunction(exnref_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
+}
+
+test "validate (try_table): catch_ref (empty-param tag) to [exnref] label → OK (10.E cycle 113)" {
+    // () -> (exnref): try_table () (catch_ref 0 0) end ; ref.null exn ; end.
+    // tag 0 = () -> () (empty params) → catch_ref pushes [] ++ [exnref]
+    // = [exnref], matching the function-frame label type.
+    const body = [_]u8{ 0x1F, 0x40, 0x01, 0x01, 0x00, 0x00, 0x0B, 0xD0, 0x69, 0x0B };
+    const empty_ft: FuncType = .{ .params = &.{}, .results = &.{} };
+    const types_arr = [_]FuncType{empty_ft};
+    const tags_arr = [_]TagEntry{.{ .attribute = 0, .typeidx = 0 }};
+    try validateFunctionWithTags(exnref_result_sig, &.{}, &body, &.{}, &.{}, &types_arr, 0, &.{}, 0, &tags_arr);
+}
+
+test "validate (try_table): catch_all_ref to non-exnref ([i32]) label → StackTypeMismatch" {
+    // () -> i32: catch_all_ref pushes [exnref] but label 0 expects [i32]
+    // → structural mismatch (locks the matching, not a blanket accept).
+    const body = [_]u8{ 0x1F, 0x40, 0x01, 0x03, 0x00, 0x0B, 0x41, 0x00, 0x0B };
+    const r = validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
+    try testing.expectError(Error.StackTypeMismatch, r);
 }
 
 // ============================================================
