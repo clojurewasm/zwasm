@@ -363,12 +363,11 @@ pub fn decodeTables(parent_alloc: Allocator, body: []const u8) Error!Tables {
     const items = try alloc.alloc(zir.TableEntry, count);
 
     for (items) |*t| {
-        if (pos >= body.len) return Error.UnexpectedEnd;
-        const reftype_byte = body[pos];
-        pos += 1;
-        const elem_type: ValType = switch (reftype_byte) {
-            0x70 => .funcref,
-            0x6F => .externref,
+        // function-references: table elem_type may be any reftype,
+        // incl. the typed `(ref null? $t)` forms — decode via the shared
+        // reftype reader instead of a hardcoded funcref/externref switch.
+        const elem_type = init_expr.readRefType(body, &pos) catch |e| switch (e) {
+            error.UnexpectedEnd => return Error.UnexpectedEnd,
             else => return Error.BadValType,
         };
         if (pos >= body.len) return Error.UnexpectedEnd;
@@ -1077,6 +1076,20 @@ test "decodeTables: externref with min and max" {
 
 test "decodeTables: rejects unknown reftype byte" {
     try testing.expectError(Error.BadValType, decodeTables(testing.allocator, &[_]u8{ 0x01, 0x55, 0x00, 0x00 }));
+}
+
+test "decodeTables: typed-ref (ref null 0) table (function-references)" {
+    // count=1; reftype (ref null 0) = 0x63 0x00; flag=0; min=2.
+    // ref_is_null.0 declares `(table 2 (ref null 0))`.
+    const body = [_]u8{ 0x01, 0x63, 0x00, 0x00, 0x02 };
+    var t = try decodeTables(testing.allocator, &body);
+    defer t.deinit();
+    const et = t.items[0].elem_type;
+    try testing.expect(et == .ref);
+    try testing.expectEqual(true, et.ref.nullable);
+    try testing.expect(et.ref.heap_type == .concrete);
+    try testing.expectEqual(@as(u32, 0), et.ref.heap_type.concrete);
+    try testing.expectEqual(@as(u32, 2), t.items[0].min);
 }
 
 test "decodeMemory: min only + min/max forms (i32 default)" {

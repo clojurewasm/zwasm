@@ -163,6 +163,18 @@ pub fn readTypedRef(body: []const u8, pos: *usize, nullable: bool) Error!ValType
     } };
 }
 
+/// Wasm spec §5.3.4 (reftype) — a reftype-only valtype: the abstract
+/// single-byte heads (`funcref`/`externref`/GC heads) or the multi-byte
+/// `0x63`/`0x64` typed refs. Rejects numeric / vector valtypes. Used by
+/// table-type and element-segment decoders (10.R-funcrefs-tail-2:
+/// `(table (ref null $t))`, typed elem segments) so reftype-byte sites
+/// share one decoder instead of hardcoding `0x70`/`0x6F`.
+pub fn readRefType(body: []const u8, pos: *usize) Error!ValType {
+    const vt = try readValType(body, pos);
+    if (!vt.isRef()) return Error.BadValType;
+    return vt;
+}
+
 // ============================================================
 // Tests
 // ============================================================

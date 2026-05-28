@@ -131,12 +131,10 @@ pub fn decodeElement(parent_alloc: Allocator, body: []const u8) sections.Error!E
             },
             5 => {
                 // passive, reftype, vec(reftype-expr).
-                if (pos >= body.len) return sections.Error.UnexpectedEnd;
-                const reftype_byte = body[pos];
-                pos += 1;
-                const reftype_vt: ValType = switch (reftype_byte) {
-                    0x70 => .funcref,
-                    0x6F => .externref,
+                // function-references: element reftype may be any
+                // reftype incl. typed `(ref null? $t)` — shared reader.
+                const reftype_vt = init_expr.readRefType(body, &pos) catch |err| switch (err) {
+                    error.UnexpectedEnd => return sections.Error.UnexpectedEnd,
                     else => return sections.Error.InvalidFunctype,
                 };
                 const n = try leb128.readUleb128(u32, body, &pos);
@@ -151,12 +149,10 @@ pub fn decodeElement(parent_alloc: Allocator, body: []const u8) sections.Error!E
                 const expr_start = pos;
                 try init_expr.scanInitExpr(body, &pos);
                 const expr = body[expr_start..pos];
-                if (pos >= body.len) return sections.Error.UnexpectedEnd;
-                const reftype_byte = body[pos];
-                pos += 1;
-                const reftype_vt: ValType = switch (reftype_byte) {
-                    0x70 => .funcref,
-                    0x6F => .externref,
+                // function-references: element reftype may be any
+                // reftype incl. typed `(ref null? $t)` — shared reader.
+                const reftype_vt = init_expr.readRefType(body, &pos) catch |err| switch (err) {
+                    error.UnexpectedEnd => return sections.Error.UnexpectedEnd,
                     else => return sections.Error.InvalidFunctype,
                 };
                 const n = try leb128.readUleb128(u32, body, &pos);
@@ -172,12 +168,10 @@ pub fn decodeElement(parent_alloc: Allocator, body: []const u8) sections.Error!E
             },
             7 => {
                 // declarative, reftype, vec(reftype-expr).
-                if (pos >= body.len) return sections.Error.UnexpectedEnd;
-                const reftype_byte = body[pos];
-                pos += 1;
-                const reftype_vt: ValType = switch (reftype_byte) {
-                    0x70 => .funcref,
-                    0x6F => .externref,
+                // function-references: element reftype may be any
+                // reftype incl. typed `(ref null? $t)` — shared reader.
+                const reftype_vt = init_expr.readRefType(body, &pos) catch |err| switch (err) {
+                    error.UnexpectedEnd => return sections.Error.UnexpectedEnd,
                     else => return sections.Error.InvalidFunctype,
                 };
                 const n = try leb128.readUleb128(u32, body, &pos);

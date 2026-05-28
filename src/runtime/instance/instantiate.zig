@@ -402,7 +402,19 @@ fn preDecodeSectionBodies(alloc: std.mem.Allocator, module: *Module) bool {
     }
     if (module.find(.table)) |s| {
         var t = sections.decodeTables(alloc, s.body) catch return false;
-        t.deinit();
+        defer t.deinit();
+        // ADR-0123 — table elem_type typed-funcref bounds. ref.4
+        // fixture: `(table (ref null 1))` with no type 1 defined.
+        // decodeTables now accepts typed reftypes (10.R-funcrefs-tail-2)
+        // so the concrete-index bound must be enforced at load time.
+        const ntypes: usize = if (module.find(.type)) |ts| blk: {
+            var ty = sections.decodeTypes(alloc, ts.body) catch break :blk 0;
+            defer ty.deinit();
+            break :blk ty.items.len;
+        } else 0;
+        for (t.items) |tbl| {
+            if (!validRefTypeIdx(tbl.elem_type, ntypes)) return false;
+        }
     }
     if (module.find(.memory)) |s| {
         var m = sections.decodeMemory(alloc, s.body) catch return false;
@@ -467,7 +479,17 @@ fn preDecodeSectionBodies(alloc: std.mem.Allocator, module: *Module) bool {
             def_func_count = @intCast(fns.len);
         }
         const total_funcs = imp_func_count + def_func_count;
+        // ADR-0123 — element reftype typed-funcref bounds. ref.5
+        // fixture: `(elem (ref 1))` with no type 1 defined.
+        // decodeElement now accepts typed reftypes (10.R-funcrefs-tail-2)
+        // so the concrete-index bound must be enforced at load time.
+        const ntypes: usize = if (module.find(.type)) |ts| blk: {
+            var ty = sections.decodeTypes(alloc, ts.body) catch break :blk 0;
+            defer ty.deinit();
+            break :blk ty.items.len;
+        } else 0;
         for (e.items) |seg| {
+            if (!validRefTypeIdx(seg.elem_type, ntypes)) return false;
             for (seg.funcidxs) |fidx| {
                 if (fidx == std.math.maxInt(u32)) continue; // ref.null sentinel
                 if (fidx >= total_funcs) return false;
