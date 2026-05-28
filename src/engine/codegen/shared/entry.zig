@@ -2673,3 +2673,71 @@ test "entry: br_on_null branches to block end on null funcref — JIT 10.R cycle
     };
     try testing.expectEqual(@as(u32, 7), try callI32NoArgs(module, 0, &rt));
 }
+
+test "entry: br_on_non_null falls through on null funcref param — JIT 10.R cycle 57" {
+    // 10.R / ADR-0123 D2: closes the spike_discipline §2 gap from
+    // cycle-56's scaffolding commit (`f30d08a7`). End-to-end exercises
+    // the arm64 br_on_non_null emit handler.
+    //
+    // Body: (func (param funcref) (result i32)
+    //         (block (result funcref)
+    //           (local.get 0)
+    //           (br_on_non_null 0)   ; non-null → branch with funcref
+    //           (ref.null funcref))  ; null fall-through pushes null
+    //         (ref.is_null))
+    //
+    // Called with funcref = 0 (null): br_on_non_null does NOT branch;
+    // fall through pushes ref.null; block result = null; ref.is_null
+    // returns 1. callI32_i64(0) → 1.
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    if (builtin.cpu.arch != .aarch64) return skip.blocker(.@"D-194");
+
+    const sig: zir.FuncType = .{ .params = &.{.funcref}, .results = &.{.i32} };
+    var fn0 = ZirFunc.init(0, sig, &.{});
+    defer fn0.deinit(testing.allocator);
+    try fn0.instrs.append(testing.allocator, .{ .op = .block, .payload = 0, .extra = 1 });
+    try fn0.instrs.append(testing.allocator, .{ .op = .@"local.get", .payload = 0 });
+    try fn0.instrs.append(testing.allocator, .{ .op = .br_on_non_null, .payload = 0 });
+    try fn0.instrs.append(testing.allocator, .{ .op = .@"ref.null", .payload = 0 });
+    try fn0.instrs.append(testing.allocator, .{ .op = .end }); // closes block
+    try fn0.instrs.append(testing.allocator, .{ .op = .@"ref.is_null" });
+    try fn0.instrs.append(testing.allocator, .{ .op = .end }); // closes func
+    // Liveness: 3 vregs total across both paths. vreg 0 (local.get
+    // result) lives until ref.is_null on branch-taken (worst case);
+    // vreg 1 (ref.null result) lives until ref.is_null on fall-through;
+    // vreg 2 (ref.is_null result) lives until func end. Conservative
+    // distinct-slot allocation (n_slots=3) avoids merge-slot subtleties.
+    fn0.liveness = .{ .ranges = &[_]zir.LiveRange{
+        .{ .def_pc = 1, .last_use_pc = 5 },
+        .{ .def_pc = 3, .last_use_pc = 5 },
+        .{ .def_pc = 5, .last_use_pc = 6 },
+    } };
+    const slots = [_]u16{ 0, 1, 2 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
+    const sigs = [_]zir.FuncType{sig};
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
+    defer emit.deinit(testing.allocator, out0);
+
+    const bodies = [_]linker.FuncBody{
+        .{ .bytes = out0.bytes, .call_fixups = out0.call_fixups },
+    };
+    var module = try linker.link(testing.allocator, &bodies, 0);
+    defer module.deinit(testing.allocator);
+
+    var memory: [0]u8 = .{};
+    var rt: JitRuntime = .{
+        .vm_base = &memory,
+        .mem_limit = 0,
+        .funcptr_base = undefined,
+        .table_size = 0,
+        .typeidx_base = undefined,
+        .trap_flag = 0,
+        .globals_base = undefined,
+        .globals_count = 0,
+        .host_dispatch_base = undefined,
+        .host_dispatch_count = 0,
+    };
+    // funcref = 0 (null) → null path: br_on_non_null does NOT branch;
+    // ref.null pushed; block result = null; ref.is_null returns 1.
+    try testing.expectEqual(@as(u32, 1), try callI32_i64(module, 0, &rt, 0));
+}
