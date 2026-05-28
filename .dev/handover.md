@@ -6,11 +6,12 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cycle 88 — spec-corpus expansion survey. Filed lesson
-  `2026-05-28-spec-corpus-expansion-exhausted.md`: no autonomous
-  corpus-expansion candidates remain across §10 corpora. All forward
-  spec-runner-observable yield is structurally gated on ADR-0120 /
-  ADR-0123 Accept or D-179 wabt upgrade.
+- **HEAD**: cycle 89 — extended `check_uses_runtime_ptr.sh` to
+  catch indirect R15 use via `bounds_fixups.append` /
+  `unreach_fixups.append` (closes the d180-detector channel-gap
+  named in lesson `2026-05-28-d180-detector-misses-bounds-fixups
+  .md`); also fixed a pre-existing whitelist name-normalization
+  bug (dot vs underscore).
 - Active debt rows: **18** — all `blocked-by:`; zero `now`.
 - Mac aarch64 test-all + lint green at HEAD prior to this chunk
   (52d9c784); ubuntu kick at 52d9c784 confirmed green (Step 0.7
@@ -21,29 +22,25 @@
 
 - None.
 
-## Active task — cycle 89: next autonomous chunk
+## Active task — cycle 90: next autonomous chunk
 
-Spec-runner-observable yield exhausted per cycle-88 survey (see
-lesson). Remaining autonomous candidates are infrastructure
-hardening:
+Spec-runner-observable yield exhausted per cycle-88 survey.
+Infrastructure-hardening candidates that remain:
 
-1. **`check_uses_runtime_ptr.sh` extension** — lesson
-   `2026-05-28-d180-detector-misses-bounds-fixups.md` names a
-   hardening opportunity: extend regex to detect indirect R15
-   use via `bounds_fixups.append` / `unreach_fixups.append`
-   in per-op files. Closes the D-180 detector gap.
-2. **`cleanup_orphans.sh` allowlist extension** — observed
-   yesterday: `cljw repl | grep` pipeline orphan. Hook covers
-   it; review for other dev-tool patterns that could orphan
-   (wasmtime, node REPLs, etc.).
-3. **handover.md archive prune** — top-level "## Larger §10
-   work" + "Open questions / blockers" stable across many
-   cycles; consider moving stable content to CLAUDE.md to keep
-   handover ≤ 50 lines.
+1. **`cleanup_orphans.sh` allowlist review** — extend dev-tool
+   patterns if other common orphan-prone invocations identified.
+2. **handover.md prune** — "## Larger §10 work" + "Open
+   questions / blockers" sections are stable across many cycles;
+   consider moving to CLAUDE.md to keep handover ≤ 50 lines.
+3. **gate_commit.sh `check_uses_runtime_ptr` --gate wiring** —
+   currently informational. Now that the detector is hardened
+   (cycle 89), promote to `--gate` mode when
+   `src/engine/codegen/x86_64/` is touched.
 
-Cycle 89 picks (1) — concrete drift-detector hardening directly
-named in a recent lesson; closes the named gap with a small
-mechanical change.
+Cycle 90 picks (3) — analogous to cycle-86 wiring of the
+rule-paths / skill-descriptions / doc-state lints into
+gate_commit. Promotes a hardened detector from informational
+to enforcing.
 
 ## Larger §10 work (blocked / later)
 
