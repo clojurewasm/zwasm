@@ -6,12 +6,15 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `293793a0` — chore(p10): ADR-0122 D-193 ungate, 3 portable
-  codegen tests (compile.zig 312/351 + linker.zig 524) (10.G cycle 44).
-  Mac aarch64 `zig build test` exit 0 + lint clean. cycle 43
-  (`24b054c4`, entry.zig 8 tests) verified green on Linux x86_64
-  (ubuntu `OK (HEAD=9d38d9f7)`). cycle 44 Linux x86_64 verification
-  pending via ubuntu kick — Step 0.7 next cycle reads `/tmp/ubuntu.log`.
+- **HEAD**: `c8468551` — chore(p10): ADR-0122 D-193 ungate, Group A
+  batch (entry_buffer_write ×7 + linker 689/789, 9 already-x86_64
+  tests) (10.G cycle 45). Mac aarch64 `zig build test` exit 0 + lint
+  clean. cycle 44 (`1b360b94`) verified green on Linux x86_64 (ubuntu
+  `OK (HEAD=1b360b94)`). cycle 45 verification pending via ubuntu kick
+  — Step 0.7 next cycle reads `/tmp/ubuntu.log`.
+- **D-193 portable backlog CLEARED** (~23 → 3 over cycles 41/43/44/45).
+  The 3 remaining are all category-(a) arm64-byte-pinned — real
+  per-arch test work, not 3-min ungates.
 - **ROADMAP §10 progress**: 7/13 DONE, 4 IN-PROGRESS, 2 Pending.
 - **Active debt rows**: 18 — all `blocked-by:` with named structural
   barriers. Zero `now`-status rows.
@@ -21,22 +24,26 @@
 ## Active task — D-193 per-site ungate (ADR-0122 D6)
 
 Discharging the Mac-aarch64-only test gates that hide Linux x86_64
-coverage (D-180 hazard class). 12 sites remain (see D-193 row).
+coverage (D-180 hazard class). 3 category-(a) sites remain (see D-193
+row). These are arm64-byte-pinned — ungating naively breaks x86_64
+compile — so each needs an x86_64 sibling OR comptime byte-selection
++ SIBLING-AT comment per ADR-0122 D3 (real per-arch test code).
 
-**NEXT chunk** — Group A cleanup batch (9 sites): `entry_buffer_write.zig`
-×7 + `linker.zig` 689/789. Their gates already include x86_64 (they
-run on ubuntu today); ungate removes the defensive over-skip on
-non-CI hosts (Linux aarch64 / Mac x86_64). Recipe: remove the
-`if (!(mac aarch64) and !(x86_64 and !win)) skip.blocker` block, add
-`if (windows) return skip.phaseEnd(.win64)`. The 6 arch-first
-entry_buffer_write gates are identical (replace_all); site 179 is
-os-first (separate edit). No CI delta — pure non-CI-host cleanup.
+**NEXT chunk** — `jit_mem.zig` MOVZ-X0-#42 probe. The test allocs a
+RWX page, writes `MOVZ X0,#42`+`RET` (arm64 machine code), execs, and
+expects 42. The alloc+exec primitive (jit_mem) is portable; only the
+4-byte instruction stream is arch-specific. Convert: comptime-select
+the bytes — arm64 `{ MOVZ X0,#42; RET }` vs x86_64 `{ mov eax,42; ret }`
+(`B8 2A 00 00 00 C3`) — keep the alloc/exec/result-check portable; add
+a SIBLING-AT comment. Result delta: jit_mem exec primitive newly
+covered on Linux x86_64. Verify byte encodings against ISA refs
+(Arm IHI 0055 MOVZ + Intel SDM MOV imm32) before committing.
 
-**Last** — Category (a), 3 arm64-byte-pinned sites (dedicated cycle):
-`jit_mem.zig` MOVZ-X0-#42 probe; `linker.zig` 610 (asserts B 0x14… +
-`inst.encB`) + 650 (asserts BL 0x94…). These test arm64-specific
-machine code; ungating breaks x86_64 compile. Need an x86_64 sibling
-test OR comptime arch guard + SIBLING-AT comment per ADR-0122 D3.
+**Then** — `linker.zig` 610/650 (is_tail B/BL fixup patch). Needs a
+Step 0 survey of `link()`'s per-arch fixup-patch dispatch (does it
+patch x86_64 JMP/CALL rel32?) before writing x86_64 sibling tests.
+
+After these 3, D-193 fully discharged → close the umbrella row.
 
 ## Larger §10 work (not started; bigger than per-cycle ungate)
 
