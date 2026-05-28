@@ -379,7 +379,37 @@ fn preDecodeSectionBodies(alloc: std.mem.Allocator, module: *Module) bool {
     }
     if (module.find(.element)) |s| {
         var e = sections.decodeElement(alloc, s.body) catch return false;
-        e.deinit();
+        defer e.deinit();
+        // 10.TC cycle 81 — element-section funcidx range check.
+        // Sibling to D-188's no-code-section pre-decode (cycle 60).
+        // Without this, modules with only `(table)` + `(elem
+        // (ref.func N))` referencing a non-existent funcidx N pass
+        // the no-code shortcut and reach instantiate as "valid"
+        // when spec demands invalid. Compute total_funcs from
+        // imports + function section; reject elem entries whose
+        // funcidx is out of range. Tail-call corpus surfaced this
+        // via `tail-call/return_call_indirect.27.wasm` (cycle 80).
+        var imp_func_count: u32 = 0;
+        if (module.find(.import)) |is| {
+            var im = sections.decodeImports(alloc, is.body) catch return false;
+            defer im.deinit();
+            for (im.items) |it| {
+                if (it.kind == .func) imp_func_count += 1;
+            }
+        }
+        var def_func_count: u32 = 0;
+        if (module.find(.function)) |fs| {
+            const fns = sections.decodeFunctions(alloc, fs.body) catch return false;
+            defer alloc.free(fns);
+            def_func_count = @intCast(fns.len);
+        }
+        const total_funcs = imp_func_count + def_func_count;
+        for (e.items) |seg| {
+            for (seg.funcidxs) |fidx| {
+                if (fidx == std.math.maxInt(u32)) continue; // ref.null sentinel
+                if (fidx >= total_funcs) return false;
+            }
+        }
     }
     return true;
 }
