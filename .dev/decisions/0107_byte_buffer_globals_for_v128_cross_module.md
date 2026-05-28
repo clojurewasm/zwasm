@@ -211,7 +211,7 @@ since cross-module global imports are immutable in Wasm 2.0).
 
 | Date       | SHA          | Note                                    |
 |------------|--------------|-----------------------------------------|
-| 2026-05-23 | `<backfill>` | Initial Proposed.                       |
-| 2026-05-23 | `<backfill>` | Cycle 32 enrichment — added Alternative D (wasmtime fixed-16-byte-cell model) + zware scalar-only counter-precedent. Per `/continue` SKILL.md autonomous-prep walk for user-gated ADRs. |
-| 2026-05-23 | `<backfill>` | Cycle 34 spike-equivalent investigation — reviewed actual code state at validator.zig:815, instantiate.zig:690/700, api/instance.zig:512, interp/mvp.zig:728; surfaced 4 implementation hazards (validator/Runtime split, globals_storage consolidation, c_api aliasing choice, mvp.zig slice rewrite). Outcome: design verified by existing GlobalsCtx precedent; no ADR changes needed; hazards documented for impl reference. |
+| 2026-05-23 | `6b3c6705` | Initial Proposed.                       |
+| 2026-05-23 | `321edbba` | Cycle 32 enrichment — added Alternative D (wasmtime fixed-16-byte-cell model) + zware scalar-only counter-precedent. Per `/continue` SKILL.md autonomous-prep walk for user-gated ADRs. |
+| 2026-05-23 | `ad89fa0b` | Cycle 34 spike-equivalent investigation — reviewed actual code state at validator.zig:815, instantiate.zig:690/700, api/instance.zig:512, interp/mvp.zig:728; surfaced 4 implementation hazards (validator/Runtime split, globals_storage consolidation, c_api aliasing choice, mvp.zig slice rewrite). Outcome: design verified by existing GlobalsCtx precedent; no ADR changes needed; hazards documented for impl reference. |
 -->

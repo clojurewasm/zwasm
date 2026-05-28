@@ -217,4 +217,4 @@ ADR-0119 is superseded if either:
 | Date       | SHA          | Note                                                          |
 |------------|--------------|---------------------------------------------------------------|
 | 2026-05-27 | `e725bce7`   | Initial Proposed.                                             |
-| 2026-05-27 | `<backfill>` | Flipped to Accepted; spike validation added to References §. |
+| 2026-05-27 | `213df2f2` | Flipped to Accepted; spike validation added to References §. |
