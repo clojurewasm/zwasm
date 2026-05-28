@@ -1751,7 +1751,16 @@ pub const Validator = struct {
             },
             .known => |t| {
                 if (!t.isRef()) return Error.StackTypeMismatch;
-                try self.pushType(t);
+                // ADR-0123 D2 (cycle 93 / 10.R-valtype-widen Cycle 4):
+                // narrow the popped ref's `nullable` flag to false.
+                // `ref.as_non_null` traps at runtime on null; on the
+                // fall-through path the result is statically known
+                // non-null.
+                const narrowed: ValType = .{ .ref = .{
+                    .nullable = false,
+                    .heap_type = t.ref.heap_type,
+                } };
+                try self.pushType(narrowed);
             },
         }
     }
@@ -1787,7 +1796,16 @@ pub const Validator = struct {
             .single => |t| try self.pushType(t),
             .multi => |ts| for (ts) |t| try self.pushType(t),
         }
-        try self.pushType(reftype);
+        // ADR-0123 D2 (cycle 93 / 10.R-valtype-widen Cycle 4):
+        // `br_on_null` narrows the fall-through path's reftype to
+        // non-null (the branch only fires when the ref IS null, so
+        // post-branch the value must be non-null). Branch-target
+        // path still receives the original ref kind via label_types.
+        const narrowed: ValType = if (reftype.isRef()) .{ .ref = .{
+            .nullable = false,
+            .heap_type = reftype.ref.heap_type,
+        } } else reftype;
+        try self.pushType(narrowed);
     }
 
     /// Wasm spec 3.0 §3.3.8.7 (function-references proposal):
