@@ -31,22 +31,64 @@
   done** for br_on_null/br_on_non_null — full impl plan distilled
   below; cycle 54 executes with fresh context.
 
-  **br_on_null impl (cycle 54a)** — files to create:
+  **br_on_null impl (cycle 54b — REFINED per cycle-54a's deeper read
+  of br_if at op_control.zig:281-367)**. First-cut scope: forward-block
+  targets only. Function-return (depth == labels.len) + loop targets
+  → return `Error.UnsupportedOp` (file follow-up debt row when first
+  needed; out-of-scope for the first impl). Files to create:
   `src/engine/codegen/{arm64,x86_64}/ops/wasm_3_0/br_on_null.zig`
   + register in `dispatch_collector_ops.zig` (count bumps +1 each).
-  Pattern (mirrors ref.as_non_null's null-check, BUT label fixup
-  instead of bounds_fixups → **no usesRuntimePtr whitelist needed**;
-  br_if doesn't reference R15/X19 directly, just `ctx.labels[idx].pending`):
-  - Pop src vreg manually; `gprLoadSpilled(src) → reg`.
-  - arm64: `encCmpImmX(Xn, 0)` + `encBCond(.eq, 0)` placeholder;
-    append fixup to `labels[depth].pending` (Fixup kind `.b_uncond`).
-  - x86_64: `encTestRR(.q, Rn, Rn)` + `encJccRel32(.e, 0)`; append
-    fixup `{byte_offset, insn_size=6}` to `labels[depth].pending`.
-  - **Push src back** (non-null fall-through keeps ref on stack as
-    spec-typed non-null; survey's mid-text confusion corrected at end).
-  - Label-fixup patching happens at `emitEndIntra` (already wired by
-    br_if). Survey cites: arm64 op_control.zig:281-360 + x86_64
-    op_control.zig:759-860 for the canonical br_if pattern.
+  No `usesRuntimePtr` whitelist needed (label fixup, not trap).
+
+  **arm64 pseudocode (mirrors br_if's CBZ-skip + merge + B path at
+  lines 348-358, but X-form null check + inverted condition + push
+  src back)**:
+  ```
+  pop src vreg; load Xn = src via gprLoadSpilled
+  if ins.payload >= labels.items.len → UnsupportedOp (return)
+  tgt_idx = labels.items.len - 1 - ins.payload
+  if labels[tgt_idx].kind != .block → UnsupportedOp (return)
+  // Skip-on-non-null using X-form CMP + B.NE (CBNZ is W-form,
+  // wrong for funcref u64).
+  cmp_at = buf.items.len; emit encCmpImmX(Xn, 0)
+  bne_at = buf.items.len; emit encBCond(.ne, 0) placeholder
+  // Branch-taken path (null): merge label values + B → fixup.
+  _ = try merge_mov.captureOrEmitBlockMergeMov(ctx, tgt_idx)
+    // idempotent — captures merge state on first br to this block,
+    // emits MOVs on subsequent. Safe to call uniformly.
+  b_at = buf.items.len; emit encB(0) placeholder
+  labels[tgt_idx].pending.append({byte_offset = b_at, kind = .b_uncond})
+  // Patch B.NE disp to point past B (to skip target = current pos).
+  skip_byte = buf.items.len
+  bne_disp_words: i19 = @intCast(@divExact(skip_byte - bne_at, 4))
+  // Re-encode B.NE with patched disp (read-modify-write the 4 bytes).
+  writeInt(u32, buf[bne_at..][0..4], encBCond(.ne, bne_disp_words), .little)
+  // Non-null fall-through: push src back so ref stays on operand stack.
+  pushed_vregs.append(src)
+  ```
+
+  **x86_64 pseudocode** (analogous, mirroring br_if at op_control.zig:759-860):
+  TEST R,R (.q for 64-bit) + JNE rel32 placeholder skip + merge_mov
+  + JMP rel32 placeholder appended to `labels[tgt_idx].pending` as
+  `{byte_offset, insn_size=5}`. Patch JNE disp via `inst.patchRel32`
+  (insn_size=6 for Jcc). Push src back at skip target.
+
+  **Test (entry.zig new in-source test)** —
+  `(func (result i32) (block (result i32) (i32.const 7) (ref.null funcref)
+  (br_on_null 0) drop (i32.const 42)))`. ZirInstrs: `.block` with
+  `.payload=0, .extra=1` (per mvp.zig:1214 precedent — extra=1 means
+  1 block-result), `.@"i32.const" .payload=7`, `.@"ref.null" .payload=0`,
+  `.@"br_on_null" .payload=0` (depth 0 = innermost), `.drop`,
+  `.@"i32.const" .payload=42`, `.end`. Expected:
+  `callI32NoArgs == 7` (null path → branch + 7 as block result).
+
+  **Vreg / liveness budget** (4 distinct vregs):
+  - vreg 0: i32.const 7 result (pc 0). Lives until block end (pc 6).
+  - vreg 1: ref.null result (pc 1). Lives until br_on_null at pc 2.
+  - vreg 2: drop input (= vreg 1 popped) — no new vreg; or vreg 2 if
+    the dispatch model allocates a phantom.
+  - vreg 3: i32.const 42 result (pc 4). Lives until block end (pc 6).
+  - Confirm at write-time via existing block tests in mvp.zig:928+.
 
   **br_on_non_null impl (cycle 54b)** — same shape, inverse condition:
   `B.NE` (arm64) / `JNE` (x86_64); branch-taken passes ref AS the
