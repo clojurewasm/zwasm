@@ -86,6 +86,53 @@ Decode + find where the validator's type stack diverges (candidates: plain
 `catch N L` label-type match for a param-carrying tag, try_table-result
 flow, or br-to-block-result). NEXT (cyc114).
 
+## Instantiate-binding implementation plan (cycle 115 survey)
+
+UnknownImport for `test::e0` comes from `linker.zig:452`
+(`.tag => return error.UnknownImport` stub). The cross-module FUNC path
+is the template to mirror (cite for each hop):
+- decode export → `exports_storage`+`export_types` (`sections.zig`
+  decodeExports; `instance.zig` ExportType; `api/instance.zig:~1291` +
+  `exportDescToExternKind:959`)
+- runner `.register .func` → `Linker.defineCrossModuleFunc`
+  (`linker.zig:267`) → appends `Entry{module,name,Payload.cross_module_func}`
+- `Linker.instantiate` import loop (`linker.zig:365` findEntry,
+  `387-406` `.func` resolve) → `ImportBinding.func` (`import.zig:34`)
+- `instantiate.zig` instantiateRuntime consumes bindings.
+
+**Crux — tag-export discovery**: tag exports are FILTERED at decode
+(`sections.zig:620` `if (kind_byte==4) continue`) because `ExternKind`
+(c_api, `api/instance.zig:216`) has NO tag variant (ADR-0114 §8:
+wasm-c-api lacks it). So tags must NOT flow through `exports_storage`/
+`ExternKind` (would break `wasm_instance_exports`). **Decision: Option C
+— the runner's `.register` (TEST-side) does a manual tolerant export-
+section scan for kind=4 (precedent: `instantiate.zig:282-307`), gets the
+tag name + index, calls `Linker.defineCrossModuleTag`.** Keeps the c_api
+boundary clean; no ExternKind ABI change; no production tag-export
+registry (that'd be the ADR-grade Option B — defer unless a non-test
+consumer needs it).
+
+**Substrate gaps**: `TagInstance` does NOT exist (`exception.zig:11`
+"eventual *TagInstance"); no `rt.tags`; `ImportBinding` has no `.tag`;
+`rt.tag_param_counts` (`instantiate.zig:960`) is DEFINED-only (same
+import-offset latent bug the cyc114 validator fix addressed — fix in the
+execution cycle). Per ADR-0114 identity = `*TagInstance` pointer
+equality, but that's EXECUTION (throw/catch match), SEPARABLE from
+instantiate-resolution.
+
+**Cycle 116 = minimal instantiate-OK chain** (defer *TagInstance to the
+execution cycle; resolution holds source (inst, tag-index) + the tag's
+FuncType for type-match): (1) `ImportBinding.tag` variant
+(`import.zig`); (2) `Linker.Payload.cross_module_tag` + a
+`defineCrossModuleTag` mirroring `defineCrossModuleFunc` (source tag
+discovered by the caller, passed in); (3) `linker.zig:452` `.tag` arm →
+type-check + `ImportBinding.tag`; (4) runner `.register` tag-export scan
+(Option C) → `defineCrossModuleTag`; (5) instantiate's `.tag` binding
+arm (`~1284`, currently `ImportTypeMismatch`) accepts it. Observable:
+try_table.1 UnknownImport → instantiate OK (DIRECT binary run). Then
+execution cycle: `TagInstance`+`rt.tags`+identity match + the
+tag_param_counts import-offset fix.
+
 ## How to apply (10.E-xmodule-tags bundle plan, per ADR-0114)
 
 Multi-cycle, each cycle moving a STAGE (avoid on-branch-spike):

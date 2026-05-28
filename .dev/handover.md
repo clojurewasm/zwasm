@@ -6,58 +6,57 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cycle 114 (`5fdab0bf`) — `frontendValidate` now prepends
-  IMPORTED tags to the validator tag index space (was defined-only via
-  `decodeTags`). try_table.1 imports `test::e0` ×2, so catch/throw
-  indices were offset by 2 → `catch-complex-1` StackTypeMismatch (the
-  cyc110-113 "ParseFailed" was THIS validate failure, masked per D-197).
-  **try_table.1 + try_table.5 now PASS validation** (imp=2 defined=7
-  total=9, direct-binary verified). STAGE: validate → **instantiate
-  FAIL: UnknownImport** (Linker doesn't bind the imported tag yet).
-- Prior: 113 catch_ref/catch_all_ref structural matching (`c968689c`,
-  correct but orthogonal); 112 exnref ValType (`64315609`); 111
-  stale-cache correction; 110 ImportKind.tag.
-- Mac test+lint green cyc114; no spec-corpus regression. ubuntu: cyc113
-  HEAD green (`OK (HEAD=1226ff90)`); cyc114 kick backgrounded.
+- **HEAD**: cycle 115 (`<this commit>`) — SURVEY + plan for the
+  instantiate-side cross-module tag binding (the `UnknownImport`
+  blocker). Mapped the cross-module FUNC path as the template + the
+  exact 7 sites; decided Option C (runner-side manual tag-export scan,
+  test-side) over the ADR-grade tag-export registry — keeps the c_api
+  `ExternKind` boundary clean. Full plan in the EH lesson. No code this
+  cycle (complex coupled ADR-0114 substrate; planning de-risks it).
+- Prior: 114 imported-tags-in-validator-tag-space (`5fdab0bf`,
+  try_table.1/.5 → VALIDATE); 113 catch_ref/catch_all_ref (`c968689c`);
+  112 exnref ValType (`64315609`).
+- Mac green cyc114. ubuntu: cyc114 HEAD green (`OK (HEAD=b6083018)`).
+  Cycle 115 = docs-only (survey/plan).
 
 ## Active bundle
 
 - **Bundle-ID**: 10.E-xmodule-tags (EH cross-module, ADR-0114)
-- **Cycles-remaining**: ~4 (parse+validate done; instantiate-binding
-  next, then execution)
-- **Continuity-memo**: PARSE (cyc112) + VALIDATE (cyc114) now pass for
+- **Cycles-remaining**: ~4 (parse+validate done + planned; instantiate-
+  binding impl next (cyc116), then execution-identity)
+- **Continuity-memo**: PARSE (cyc112) + VALIDATE (cyc114) pass for
   try_table.1/.5. Blocker chain: ~~parse~~ → ~~validate~~ →
-  **INSTANTIATE (UnknownImport)** → execution. try_table.1 imports
-  `test::e0` (tag) + `test::throw` (func) from try_table.0. The runner's
-  `.register` handler binds memory+func exports (cyc110) but NOT tags;
-  tag exports were filtered at decode (`sections.zig:606` `kind==4
-  continue`); no `ImportBinding.tag` / Linker tag API; instantiate's
-  `.tag` import arm returns `ImportTypeMismatch` (stub). Per
-  ADR-0114 + the cyc109 lesson plan. **VERIFY by running the runner
-  BINARY DIRECTLY** (`/tmp/c<NN>` cache-dir + `/bin/ls -t`; zig-build
-  stderr is cache/lossy — D-197 + cache lesson).
+  **INSTANTIATE (UnknownImport)** → execution. The exact 7-site
+  implementation plan (mirror the cross-module FUNC path; Option C
+  runner-side tag-export scan; defer `*TagInstance` to execution) is in
+  the EH lesson §"Instantiate-binding implementation plan". **VERIFY by
+  running the runner BINARY DIRECTLY** (`/tmp/c<NN>` cache-dir +
+  `/bin/ls -t`; zig-build stderr is cache/lossy — D-197 + cache lesson).
 - **Exit-condition**: exception-handling try_table corpus return pass
   ≥ 5/34 (currently 0/34).
 
-## Active task — cycle 115: instantiate-side tag binding (UnknownImport)
+## Active task — cycle 116: implement the minimal instantiate-OK tag chain
 
-try_table.1 validates but `instantiate FAIL: UnknownImport` — the
-imported `test::e0` tag isn't bound. Step-probe what the c_api
-instantiate path needs (the runner uses `Engine.compile` →
-`Linker.instantiate`). Likely chain (do the smallest first, verify each
-by DIRECT binary run): (1) un-filter tag EXPORTS at decode
-(`sections.zig:606`) so try_table.0's `e0` tag export reaches
-`exports_storage` + `export_types` (ExportType.tag already exists,
-`instance.zig:96`); (2) runner `.register` (`spec_assert_runner_wasm_3_0.zig:357`)
-binds tag exports into the Linker; (3) Linker tag-resolution +
-`ImportBinding.tag` so instantiate's `.tag` arm resolves instead of
-`ImportTypeMismatch`. This is identity-by-index for now; ADR-0114
-`*TagInstance` pointer-identity is a LATER step (only needed once
-cross-module throw/catch executes). Smallest red: a focused test or the
-corpus stage-move (UnknownImport → instantiate OK). Deviation watch:
-new `Linker.Payload.tag` / `ImportBinding.tag` variants are §4-adjacent
-type additions — routine if mirroring the func/memory binding shape;
-file ADR only if the identity model changes.
+Pure execution of the recorded plan (EH lesson §"Instantiate-binding
+implementation plan"). Mirror the cross-module FUNC path. 5 pieces,
+defer `*TagInstance` identity to the execution cycle (resolution holds
+source (inst, tag-index) + the tag's FuncType for type-match):
+1. `ImportBinding.tag` variant (`src/runtime/instance/import.zig:34`).
+2. `Linker.Payload.cross_module_tag` + `defineCrossModuleTag` mirroring
+   `defineCrossModuleFunc` (`linker.zig:267`); caller passes the source
+   tag (inst + index + sig).
+3. `linker.zig:452` `.tag` arm → findEntry + type-check → `ImportBinding.tag`.
+4. Runner `.register` tag-export scan (Option C, manual kind=4 scan like
+   `instantiate.zig:282-307`) → `defineCrossModuleTag`
+   (`spec_assert_runner_wasm_3_0.zig:357`).
+5. instantiate's `.tag` binding arm (`instantiate.zig:~1284`, currently
+   `ImportTypeMismatch`) accepts it.
+Red: try_table.1 `UnknownImport` → instantiate OK (DIRECT binary run) +
+a Linker unit test for `defineCrossModuleTag`/resolve. Deviation watch:
+these are routine func-path mirrors under Accepted ADR-0114 — no new
+ADR (Option C is test-side; Option B registry deferred). Then execution
+cycle: `TagInstance`+`rt.tags`+identity + the `rt.tag_param_counts`
+import-offset fix (`instantiate.zig:960`, same class as cyc114).
 
 ## Larger §10 work (later bundles)
 
