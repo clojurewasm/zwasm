@@ -108,6 +108,24 @@ pub const Exception = @import("../feature/exception_handling/exception.zig").Exc
 /// same fixed-size buffer can carry tag payload marshalling).
 pub const max_exception_payload: u32 = 16;
 
+/// ADR-0120 D5 — slot-count encoding of a Wasm value type in the
+/// EH payload buffer. v128 spans 2 u64 slots (low 8 bytes, high
+/// 8 bytes); all other v0.1 types fit in 1 slot. `exnref` is
+/// rejected as a tag param at module-load (v0.1 scope; tags do
+/// not carry exnref payloads — the unwinder handles exnref
+/// reification separately per ADR-0120 D6).
+///
+/// Used both by `Runtime.init` to pre-size `eh_payload` and by
+/// the per-arch throw/catch emit paths to compute the slot
+/// offset for the i-th param.
+pub fn slotCountForValType(v: zir.ValType) u32 {
+    return switch (v) {
+        .v128 => 2,
+        .i32, .i64, .f32, .f64, .funcref, .externref => 1,
+        .i31ref, .anyref, .eqref, .structref, .arrayref => 1,
+    };
+}
+
 /// Per-instance interpreter state. Owns linear memory + globals
 /// (heap-backed); operand and frame stacks are inline.
 pub const Runtime = struct {
@@ -213,23 +231,42 @@ pub const Runtime = struct {
     /// production pipeline has populated this field.
     tag_param_counts: []const u32 = &.{},
 
-    /// Wasm 3.0 EH (10.E-payload-prop Cycle 1; ADR-0120) — JIT
-    /// payload staging region. Written by JIT throw sites (each
-    /// pops N vregs and stores i ∈ [0, N) at `eh_payload_buf[i]`,
-    /// where N = `tag_param_counts[tag_idx]`), read by JIT catch
-    /// landing pads (push each as a fresh vreg before the catch
-    /// block's body). Width = u64 covers i32/i64/f32/f64 tag
-    /// params; v128/exnref tag params are out of scope for v0.1
-    /// per ADR-0120 Consequence §3. Length-16 matches ADR-0114
-    /// D1's `Exception.payload[16]Value` inline cap. Default
-    /// zero-init keeps existing test paths behaviour-preserving
-    /// (interp throwOp uses operand_buf directly; this slot is
-    /// JIT-only). Currently unconsumed — Cycle 2 wires throw.emit
-    /// writes; Cycle 3 wires try_table.emit landing-pad reads.
-    eh_payload_buf: [16]u64 = [_]u64{0} ** 16,
-    /// EH payload length (N from `tag_param_counts[tag_idx]` at
-    /// the most recent throw site). See `eh_payload_buf`.
+    /// Wasm 3.0 EH (10.E-payload-prop Cycle 1; ADR-0120 D1+D5+D6)
+    /// — JIT payload staging region. Written by JIT throw sites
+    /// (each pops N slots and stores them via
+    /// `[runtime_ptr + eh_payload_ptr_off + i*8]`), read by JIT
+    /// catch landing pads (each loads back N slots, pushes as
+    /// fresh vregs onto the catch block's operand stack).
+    ///
+    /// Slot encoding (ADR-0120 D5):
+    ///   - i32 / i64 / f32 / f64 / funcref / externref → 1 slot
+    ///   - v128 → 2 slots (low 8 bytes at `i`, high at `i+1`)
+    ///   - exnref → rejected at module-load as tag param (v0.1 scope)
+    ///
+    /// Slice is pre-sized at `Runtime.init` to
+    /// `sum(slot_count(tag.params))` over the module's tag
+    /// section, so:
+    ///   - No magic cap (the original ADR-0120 draft had `[16]u64`).
+    ///   - Throw-site bounds are validated at module-load, not
+    ///     runtime.
+    ///   - The slice pointer is stable for Runtime lifetime;
+    ///     JIT can literal-pool it once per compile.
+    ///
+    /// Cycle 1 (this commit): field shape + module-load slot
+    /// count sum. Currently unread by emit code — Cycle 2 wires
+    /// throw.emit writes; Cycle 3 wires try_table.emit
+    /// landing-pad reads.
+    eh_payload: []u64 = &.{},
+    /// EH payload length (slot count from
+    /// `tag_param_slot_counts[tag_idx]` at the most recent
+    /// throw site). See `eh_payload`.
     eh_payload_len: u32 = 0,
+    /// Slot-count-per-tag table (ADR-0120 D5). Same shape as
+    /// `tag_param_counts` but counts SLOTS not PARAMS — v128
+    /// contributes 2 slots, all other v0.1 types contribute 1.
+    /// Indexed by `tag_idx`. Read by JIT throw / catch emit;
+    /// runtime size sum lives in `eh_payload.len`.
+    tag_param_slot_counts: []const u32 = &.{},
 
     /// Wasm 3.0 EH (10.E-5d / 10.E-exnref-a) — in-flight exception
     /// slot for cross-frame unwind. `throwOp` allocates an
@@ -418,14 +455,27 @@ test "Runtime.init / deinit clean (no allocations)" {
     try testing.expectEqual(@as(u32, 0), r.frame_len);
 }
 
-test "Runtime.init: EH payload staging defaults (ADR-0120 10.E-payload-prop Cycle 1)" {
+test "Runtime.init: EH payload staging defaults (ADR-0120 10.E-payload-prop Cycle 1 revised)" {
+    // ADR-0120 D1 revised (2026-05-28 cycle 90): eh_payload is a slice
+    // pre-sized at instantiate; default-init Runtime has zero-length
+    // slice + empty slot-count table. Module-load populates both per
+    // tag section content.
     var r = Runtime.init(testing.allocator);
     defer r.deinit();
     try testing.expectEqual(@as(u32, 0), r.eh_payload_len);
-    try testing.expectEqual(@as(usize, 16), r.eh_payload_buf.len);
-    for (r.eh_payload_buf) |slot| {
-        try testing.expectEqual(@as(u64, 0), slot);
-    }
+    try testing.expectEqual(@as(usize, 0), r.eh_payload.len);
+    try testing.expectEqual(@as(usize, 0), r.tag_param_slot_counts.len);
+}
+
+test "slotCountForValType: ADR-0120 D5 slot encoding" {
+    // v128 spans 2 u64 slots; all other v0.1 types fit in 1.
+    try testing.expectEqual(@as(u32, 1), slotCountForValType(.i32));
+    try testing.expectEqual(@as(u32, 1), slotCountForValType(.i64));
+    try testing.expectEqual(@as(u32, 1), slotCountForValType(.f32));
+    try testing.expectEqual(@as(u32, 1), slotCountForValType(.f64));
+    try testing.expectEqual(@as(u32, 1), slotCountForValType(.funcref));
+    try testing.expectEqual(@as(u32, 1), slotCountForValType(.externref));
+    try testing.expectEqual(@as(u32, 2), slotCountForValType(.v128));
 }
 
 test "Runtime.init: gc_heap defaults to null (10.G-foundation cycle 5; ADR-0115 §1 zero-overhead gate)" {

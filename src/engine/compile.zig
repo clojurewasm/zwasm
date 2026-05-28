@@ -25,6 +25,7 @@ const rv = @import("runner_validate.zig");
 const runner_mod = @import("runner.zig");
 const Error = runner_mod.Error;
 const CompiledWasm = runner_mod.CompiledWasm;
+const runtime_mod = @import("../runtime/runtime.zig");
 
 pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledWasm {
     var module = try parser.parse(allocator, wasm_bytes);
@@ -471,22 +472,30 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
         // the interp Runtime still wants the slot populated so
         // a host-side throw could marshal payload via the
         // standard pop path.
-        const empty_tag_param_counts: []u32 = blk: {
-            const tag_section = module.find(.tag) orelse break :blk &.{};
+        const TagInfo = struct { counts: []u32, slot_counts: []u32 };
+        const empty_tag_info: TagInfo = blk: {
+            const tag_section = module.find(.tag) orelse break :blk .{ .counts = &.{}, .slot_counts = &.{} };
             const tags_only = try sections.decodeTags(a, tag_section.body);
-            if (tags_only.len == 0) break :blk &.{};
+            if (tags_only.len == 0) break :blk .{ .counts = &.{}, .slot_counts = &.{} };
             const type_section_for_tags = module.find(.type) orelse return Error.MissingTypeSection;
             var types_for_tags = try sections.decodeTypes(a, type_section_for_tags.body);
             defer types_for_tags.deinit();
-            const out = try allocator.alloc(u32, tags_only.len);
-            errdefer allocator.free(out);
+            const out_counts = try allocator.alloc(u32, tags_only.len);
+            errdefer allocator.free(out_counts);
+            const out_slots = try allocator.alloc(u32, tags_only.len);
+            errdefer allocator.free(out_slots);
             for (tags_only, 0..) |tag, i| {
                 if (tag.typeidx >= types_for_tags.items.len) return Error.InvalidFuncIndex;
-                out[i] = @intCast(types_for_tags.items[tag.typeidx].params.len);
+                const params = types_for_tags.items[tag.typeidx].params;
+                out_counts[i] = @intCast(params.len);
+                var slots: u32 = 0;
+                for (params) |p| slots += runtime_mod.slotCountForValType(p);
+                out_slots[i] = slots;
             }
-            break :blk out;
+            break :blk .{ .counts = out_counts, .slot_counts = out_slots };
         };
-        errdefer if (empty_tag_param_counts.len > 0) allocator.free(empty_tag_param_counts);
+        errdefer if (empty_tag_info.counts.len > 0) allocator.free(empty_tag_info.counts);
+        errdefer if (empty_tag_info.slot_counts.len > 0) allocator.free(empty_tag_info.slot_counts);
 
         return .{
             .module = empty_module,
@@ -497,7 +506,8 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             .globals_offsets = elay.offsets,
             .globals_valtypes = elay.valtypes,
             .num_global_imports = num_global_imports_empty,
-            .tag_param_counts = empty_tag_param_counts,
+            .tag_param_counts = empty_tag_info.counts,
+            .tag_param_slot_counts = empty_tag_info.slot_counts,
             // No defined functions → no JIT exception entries (IT-5).
             .exception_table = .{ .entries = &.{} },
             .arena = arena,
@@ -844,6 +854,27 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
     };
     errdefer if (tag_param_counts.len > 0) allocator.free(tag_param_counts);
 
+    // ADR-0120 D5 / cycle 1 — parallel slot-count table (v128 = 2
+    // slots; all v0.1 numeric/ref types = 1). The JIT throw / catch
+    // emit reads this to compute `[runtime_ptr + payload_off + i*8]`
+    // offsets when v128 tag params are present. Default `&.{}`
+    // keeps behaviour-preserving for modules without tags.
+    const tag_param_slot_counts: []u32 = blk: {
+        if (tags_slice.len == 0) break :blk &.{};
+        const out = try allocator.alloc(u32, tags_slice.len);
+        errdefer allocator.free(out);
+        for (tags_slice, 0..) |tag, i| {
+            if (tag.typeidx >= types.items.len) return Error.InvalidFuncIndex;
+            var slots: u32 = 0;
+            for (types.items[tag.typeidx].params) |p| {
+                slots += runtime_mod.slotCountForValType(p);
+            }
+            out[i] = slots;
+        }
+        break :blk out;
+    };
+    errdefer if (tag_param_slot_counts.len > 0) allocator.free(tag_param_slot_counts);
+
     // §9.9 / 9.9-l-1b-d093-d82 (skip-impl drainage):
     // Wasm spec §3.4.7.3 / §3.4.10 declared-funcrefs set. A
     // funcidx is "declared" iff it appears in some global
@@ -1023,6 +1054,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
         .globals_valtypes = globals_valtypes,
         .num_global_imports = nm_global_imports,
         .tag_param_counts = tag_param_counts,
+        .tag_param_slot_counts = tag_param_slot_counts,
         .exception_table = .{ .entries = exception_entries },
         .arena = arena,
     };

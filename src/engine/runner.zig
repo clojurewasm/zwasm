@@ -168,6 +168,13 @@ pub const CompiledWasm = struct {
     /// `Runtime.tag_param_counts` after `setup` writes it.
     /// Empty slice when the module has no tag section.
     tag_param_counts: []u32,
+    /// ADR-0120 D5 (10.E-payload-prop cycle 1) — slot-count
+    /// variant of tag_param_counts. v128 = 2 slots; all other
+    /// v0.1 types = 1 slot. Consumed by JIT throw / catch emit
+    /// to compute `[runtime_ptr + payload_ptr_off + i*8]`
+    /// offsets when v128 tag params are present. Empty slice
+    /// when no tag section.
+    tag_param_slot_counts: []u32,
     /// Phase 10.E IT-5 (ADR-0114 D3) — per-Instance JIT exception
     /// table flattened from per-function `EmitOutput.exception_handlers`
     /// at compile end. pc_start / pc_end are module-relative
@@ -186,6 +193,7 @@ pub const CompiledWasm = struct {
         allocator.free(self.globals_offsets);
         allocator.free(self.globals_valtypes);
         if (self.tag_param_counts.len > 0) allocator.free(self.tag_param_counts);
+        if (self.tag_param_slot_counts.len > 0) allocator.free(self.tag_param_slot_counts);
         if (self.exception_table.entries.len > 0) allocator.free(self.exception_table.entries);
         self.module.deinit(allocator);
         self.arena.deinit();

@@ -843,11 +843,33 @@ pub fn instantiateRuntime(
     if (module.find(.tag)) |tag_section| {
         const tag_entries = try sections.decodeTags(a, tag_section.body);
         const counts = try a.alloc(u32, tag_entries.len);
+        // ADR-0120 D5: parallel slot-count table (v128 = 2 slots,
+        // all v0.1 numeric/ref types = 1 slot). Computed alongside
+        // tag_param_counts because both walk the same tag section
+        // + same types lookup.
+        const slot_counts = try a.alloc(u32, tag_entries.len);
+        var total_slots: u32 = 0;
         for (tag_entries, 0..) |entry, i| {
             if (entry.typeidx >= types.items.len) return error.InvalidTypeIndex;
-            counts[i] = @intCast(types.items[entry.typeidx].params.len);
+            const params = types.items[entry.typeidx].params;
+            counts[i] = @intCast(params.len);
+            var slots: u32 = 0;
+            for (params) |p| {
+                slots += runtime_mod.slotCountForValType(p);
+            }
+            slot_counts[i] = slots;
+            if (slots > total_slots) total_slots = slots;
         }
         rt.tag_param_counts = counts;
+        rt.tag_param_slot_counts = slot_counts;
+        // ADR-0120 D1: pre-size eh_payload to the maximum per-tag
+        // slot count. The buffer is single-use (one throw in flight
+        // at a time per Runtime per ADR-0120 D5+Consequence §5),
+        // so capacity = max(per-tag) not sum.
+        if (total_slots > 0) {
+            rt.eh_payload = try a.alloc(u64, total_slots);
+            @memset(rt.eh_payload, 0);
+        }
     }
 
     // §9.6 / 6.K.1 (ADR-0014 §2.1): per-instance FuncEntity array.

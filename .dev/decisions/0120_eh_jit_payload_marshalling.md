@@ -1,6 +1,6 @@
 # 0120 — JIT payload-marshalling shape for EH throw → catch propagation
 
-- **Status**: Proposed
+- **Status**: Accepted (2026-05-28 — cycle 90 D5/D6 revision + autonomous flip per user direction "完成形がきれい" framing)
 - **Date**: 2026-05-28
 - **Author**: zwasm-from-scratch loop
 - **Tags**: phase-10, exception-handling, codegen, abi
@@ -40,23 +40,48 @@ cycles can proceed without re-litigating the design.
 
 ## Decision
 
-**Use a fixed-size per-Runtime payload buffer with throw-side
-write + landing-pad-side read**:
+**Per-Runtime payload buffer pre-sized at instantiate time** (no
+magic cap; cleanly admits v128 + exnref). Throw-side store, catch-
+side load via runtime-pointer offset.
+
+Cycle-90 revision: the original draft proposed a hardcoded
+`[16]u64` inline buffer (v1-zwasm precedent). The survey under
+`completed-design-form` lens (wasmtime: heap GC object; wazero
+wazevo JIT: heap `[]uint64` slice; v1 zwasm: `[16]u64` inline)
+found three considerations the v2 design should integrate:
+
+- **No magic cap**: spec defines no max payload arity; the cap
+  is implementation-side. Pre-computing `max_arity` at instantiate
+  time gives an exact fit without arbitrary 16-slot limit.
+- **v128 admissibility**: a tag with `(param v128)` needs 16 bytes
+  per slot. Slot-counting in u64-units (`v128 = 2 slots`) keeps
+  the buffer uniform-stride without requiring an `[N]u128` layout.
+- **exnref reification**: `catch_ref` / `catch_all_ref` semantics
+  produce an opaque exnref handle; lazy heap-allocate on the
+  catch_ref path (rare relative to plain `catch`) — keeps the
+  common-throw fast path zero-allocation.
 
 1. **Per-Runtime field** (Zone 1, `src/runtime/runtime.zig`):
    ```zig
    /// EH payload staging region — written by JIT throw sites
-   /// (each pops N vregs and stores them here, N ≤ 16 per
-   /// ADR-0114 D1's inline-payload cap), read by JIT catch
-   /// landing pads (push each as a fresh vreg before the catch
-   /// block's body runs). Co-located with the thread-local
-   /// Exception slot (ADR-0114 D6).
-   eh_payload_buf: [16]u64 = [_]u64{0} ** 16,
+   /// (each pops N vregs and stores them here, slot-counted in
+   /// u64 units: i32/i64/f32/f64 = 1 slot, v128 = 2 slots), read
+   /// by JIT catch landing pads (load each value back, push as
+   /// fresh vregs into the catch block's operand stack).
+   ///
+   /// Slice pointer + len are pre-sized at instantiate time:
+   /// `eh_payload.len == sum(tag.param_slot_count for each tag)`.
+   /// The slice is stable for Runtime lifetime; the JIT can
+   /// literal-pool the pointer once per compile.
+   eh_payload: []u64 = &.{},
    eh_payload_len: u32 = 0,
    ```
 
-   Width = `u64` (covers i32/i64/f32/f64; v128/exnref tag params
-   are out of scope for v0.1 — see Consequences §3).
+   Slot width = `u64`. Per-tag param-slot encoding rules:
+   - i32 / i64 / f32 / f64 / funcref / externref → 1 slot
+   - v128 → 2 slots (low 8 bytes at index `i`, high at `i+1`)
+   - exnref → not in v0.1 tag params; rejected at module-load
+     time when `(tag $t (param exnref))` declared.
 
 2. **Throw-site emit shape** (per-arch
    `src/engine/codegen/{arm64,x86_64}/ops/wasm_3_0/throw.zig`):
@@ -100,10 +125,41 @@ write + landing-pad-side read**:
    only EH-touching paths consult it.
 
 5. **Invariant** (mechanised via `comment_as_invariant.md` + a
-   comptime-assert sibling): `eh_payload_buf.len * 8 ==
-   payload_buf_byte_cap`. The 16-slot cap is shared with
-   ADR-0114 D1's `Exception.payload[16]Value` inline cap; if
-   either is widened, both grow together.
+   debug-assert in `instantiate()`): `eh_payload.len ==
+   sum(slot_count(tag.params)) for tag in module.tag_section`.
+   No magic cap; the slice is precisely sized at instantiate.
+   ADR-0114 D1's `Exception.payload` inline cap is a separate
+   ABI invariant (interp side); the JIT-side `eh_payload` slice
+   is shape-decoupled from interp's inline buffer.
+
+6. **D5 — v128 slot accounting**. At module-load time, compute
+   `tag_param_slot_counts[i] = sum(slot_count(p) for p in
+   tag[i].params)` where `slot_count(v128) = 2`, others = 1. The
+   JIT emits N stores at throw site (N = slot count, NOT param
+   count). The catch landing pad emits N loads + a per-slot type
+   demux: for v128 params, the catch prelude loads 2 consecutive
+   u64 slots into a single v128 vreg (`LDP X.., X..` arm64 / two
+   `MOV` + shuffle on x86_64). The runtime-side `eh_payload` is
+   uniformly `[]u64`; v128 demultiplex is JIT-side only.
+
+7. **D6 — `catch_ref` / `catch_all_ref` exnref reification**.
+   When the JIT compiles a `try_table` that has any `_ref`-suffixed
+   catch clause, the catch landing pad additionally calls the
+   `zwasm_reify_exnref` runtime helper which:
+   - Heap-allocates an `Exception` object (per ADR-0114 D1 shape)
+     via the Runtime arena allocator.
+   - Copies tag_idx + the live `eh_payload[0..N]` slots into the
+     allocation.
+   - Returns the `*Exception` as a 64-bit handle, pushed as a new
+     vreg onto the regalloc operand stack.
+
+   Allocation cost is paid only on the `_ref` path (rare relative
+   to plain `catch`); plain catch path stays zero-allocation. The
+   exnref is GC-traceable per ADR-0114 D2.
+
+   When no `_ref` clauses appear in any `try_table` of any
+   compiled function, the `zwasm_reify_exnref` symbol is not
+   referenced and DCE'd from the runtime binary.
 
 ## Alternatives considered
 
@@ -160,19 +216,33 @@ write + landing-pad-side read**:
    the existing `throw + catch_all returns 42` IT-6 test: +4
    bytes per throw, no semantic change.
 
-3. **v128 / exnref tag params deferred to v0.2**: the `u64`
-   buffer width covers all v0.1 Wasm-3.0 tag-param types
-   (i32/i64/f32/f64). v128 (16-byte) and `exnref` (16-byte
-   `?*Exception`) tag params would require either widening the
-   buffer to 16-byte slots OR a sidecar buffer. Filed as
-   follow-up: D-NNN at v0.2 scope (no Phase 10 row blocked).
+3. **v128 admissible from v0.1** (D5): a tag with `(param v128)`
+   is supported through the 2-slot encoding. catch landing pad's
+   v128 demux is 2 LDR + an arm64 INS or x86_64 PINSRQ; the JIT
+   emit handler treats v128 as the natural extension of the
+   uniform-slot pattern.
 
-4. **Thread-locality**: `eh_payload_buf` is a per-`Runtime`
-   field, not thread-local. v2's current single-threaded model
-   makes this safe; multi-threaded guests (Phase 14+) need
-   per-thread payload bufs paired with the per-thread Exception
-   slot, but the field shape stays the same — just promoted to
-   a `[*]ThreadLocal` lookup.
+4. **exnref reification on-demand only** (D6): `catch_ref` /
+   `catch_all_ref` allocates an Exception object lazily on the
+   catch path; plain `catch` stays zero-allocation. The
+   `zwasm_reify_exnref` runtime helper symbol is DCE'd from
+   builds with no `_ref` clauses in any compiled function.
+
+5. **Thread-locality**: `eh_payload` is a per-`Runtime` field,
+   not thread-local. v2's current single-threaded model makes
+   this safe; multi-threaded guests (Phase 14+) need per-thread
+   payload bufs paired with the per-thread Exception slot, but
+   the slice-shape stays the same — just promoted to a
+   `[*]ThreadLocal` lookup.
+
+6. **Industry alignment** (cycle-90 survey-informed): the v2
+   slice-shape JIT emit (`STR [runtime_ptr + payload_ptr_off +
+   i*8]` after dereferencing the slice pointer) matches wazero
+   wazevo JIT's `[paramsPtr + i*8]` shape exactly. The only
+   difference is wazero stores the pointer in execCtx then
+   dereferences per access; v2 stores the pointer in Runtime
+   then dereferences per access. Equivalent emit + same
+   industry-precedent.
 
 ## References
 
@@ -188,3 +258,19 @@ write + landing-pad-side read**:
 - `src/engine/codegen/shared/exception_table.zig:51`
   (HandlerEntry shape — landing_pad_pc consumes this ADR's emit
   sequence)
+- `.dev/lessons/2026-05-28-spec-corpus-expansion-exhausted.md`
+  (cycle-88 survey identifying ADR-0120 as one of three forward
+  gates)
+- Industry survey (cycle 90): wasmtime Cranelift (GC-heap
+  Exception, `cranelift/src/func_environ/gc/enabled.rs:540-635`);
+  wazero wazevo JIT (`internal/engine/wazevo/frontend/lower.go:
+  3445-3525`, `[paramsPtr + i*8]` JIT shape — v2's structural
+  precedent); WAMR interpreter (operand-stack-windowed, no JIT
+  EH); v1 zwasm (`Vm.pending_exception [16]u64`, interp only).
+
+## Revision history
+
+| Date | Commit | Notes |
+|------|--------|-------|
+| 2026-05-28 | `<backfill>` | Initial Proposed (D1-D4 fixed [16]u64). |
+| 2026-05-28 | `<backfill>` | Accepted + D5 (v128 slot accounting) + D6 (exnref reification) added per cycle-90 industry survey. Decision body revised from `[16]u64` magic-cap to `[]u64` pre-sized at instantiate; "完成形がきれい" lens applied — no arbitrary cap, v128 admissible from v0.1, exnref reification lazy on _ref path only. |
