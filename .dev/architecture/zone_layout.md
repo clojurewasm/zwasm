@@ -1,5 +1,7 @@
 # Zone layout — full architecture reference
 
+> **Doc-state**: ACTIVE
+
 > **Status**: living reference. The auto-loaded discipline rule
 > [`.claude/rules/zone_deps.md`](../../.claude/rules/zone_deps.md)
 > is the concise version Claude sees during source edits; this

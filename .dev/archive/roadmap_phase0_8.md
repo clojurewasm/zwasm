@@ -1,5 +1,7 @@
 # ROADMAP — Phase 0-8 narrative (archived 2026-05-19 in §9.12-A / A5c)
 
+> **Doc-state**: ARCHIVED
+
 > This file is the **historical record** of Phase 0 through Phase 8b
 > task tables, extracted from `.dev/ROADMAP.md` lines 1198-1620 during
 > the scaffolding-compression chunk §9.12-A / A5c (master plan §9.12-A).

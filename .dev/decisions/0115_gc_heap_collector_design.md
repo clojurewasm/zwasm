@@ -165,7 +165,7 @@ decisions per `phase10_design_plan_ja.md` §3.5):
    ADR-0114) stores `?*Exception` pointer, NOT a GcRef — but is
    root-scanned by the GC walker.
 
-   **`ValType` enum extension** (this Revision 2026-05-29
+   **`ValType` enum extension** (this Revision 2026-05-27
    amendment): the parser-/validator-side ValType enum
    (`ir/zir.zig::ValType`) extends with 5 new closed-enum
    variants:
@@ -404,7 +404,7 @@ the impl SHA range cited.
   Mode A; `-Dgc=false` nuclear strip ships as a Phase 10
   invariant (10.P close); `null` collector test-only; mark_sweep
   must-ship.
-- 2026-05-29 — Decision §6 amended via /continue autonomous
+- 2026-05-27 — Decision §6 amended via /continue autonomous
   prep path (per `.dev/phase10_g_op_bundle_plan.md` sub-chunk
   1). Added `ValType` enum extension (5 new closed variants
   for anyref / eqref / structref / arrayref / i31ref) +

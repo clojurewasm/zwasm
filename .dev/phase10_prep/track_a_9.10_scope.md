@@ -1,5 +1,7 @@
 # Phase 10 prep — Track A: §9.10 scope reality check
 
+> **Doc-state**: ARCHIVED-IN-PLACE
+
 > Status: **DECIDED — Option (3): move §9.10 entirely to Phase 11**
 > Decision date: 2026-05-11 (user-confirmed in prep mode session)
 > Date: 2026-05-11

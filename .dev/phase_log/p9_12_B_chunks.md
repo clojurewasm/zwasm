@@ -1,5 +1,7 @@
 ## §9.12-B progress (sub-chunks)
 
+> **Doc-state**: ARCHIVED-IN-PLACE
+
 > **Schema version 1 (pre-2026-05-21)** — `Sub-chunk | Description
 > | SHA`. B1–B158 are grandfathered without a `Type` column per
 > close-plan §6 (b). New phase_log files use schema v2

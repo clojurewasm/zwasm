@@ -1,5 +1,7 @@
 # Meta-audit 2026-05-08 — Phase 7 → Phase 8 transition gate
 
+> **Doc-state**: ARCHIVED-IN-PLACE
+
 ## Trigger
 
 Phase boundary (§9.7 / 7.13 collaborative review) + user-explicit

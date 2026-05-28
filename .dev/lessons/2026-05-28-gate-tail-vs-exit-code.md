@@ -1,6 +1,6 @@
 # Trust exit codes, not output tails, for gate verification
 
-**Date**: 2026-05-29
+**Date**: 2026-05-28
 **Citing**: cycle-65 retrospective (`1e88350f` + `2f33dc06` shipped
 with broken local Mac test; ubuntu kick failed at cycle 66 resume).
 

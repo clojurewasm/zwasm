@@ -1,5 +1,7 @@
 # Meta-audit reports
 
+> **Doc-state**: ACTIVE
+
 This directory holds retrospective reports from `meta_audit` skill
 runs (`.claude/skills/meta_audit/SKILL.md`). One file per run:
 

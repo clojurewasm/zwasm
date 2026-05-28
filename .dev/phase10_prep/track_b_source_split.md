@@ -1,5 +1,7 @@
 # Phase 10 prep — Track B: D-057 / D-065 source-split partition
 
+> **Doc-state**: ARCHIVED-IN-PLACE
+
 > Status: **DECIDED — 5 design choices confirmed**
 > (Q1=4-way, Q2=single ADR, Q3=4-way mirror + `_test.zig` suffix,
 > Q4=`_int`/`_float`, Q5=tiered pub). See §8 for resolved

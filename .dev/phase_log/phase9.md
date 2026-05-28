@@ -1,5 +1,7 @@
 # Phase 9 execution log
 
+> **Doc-state**: ARCHIVED-IN-PLACE
+
 > Sub-chunk records absorbed from `.dev/ROADMAP.md` §9.9 task list
 > (Phase 9 task table) on 2026-05-11. ROADMAP itself is a now-snapshot
 > per §18; per-sub-chunk prose lives here, not there. Authoritative

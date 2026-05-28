@@ -6,44 +6,45 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: 10.TC cycle 81 — elem-section funcidx range check in
-  `frontendValidate::preDecodeSectionBodies`. `[tail-call]
-  invalid=24 pass=24 fail=0` (closed the return_call_indirect.27
-  gap from cycle 80). Mac aarch64 test-all + lint green.
-- **D-188 / D-194 / D-195(c) DISCHARGED** earlier. **D-195(b)
-  WIRED** (cycles 71-78). Active debt rows: 17 — all
-  `blocked-by:`; zero `now`.
+- **HEAD**: cycle 82 — `audit_scaffolding` follow-through.
+  Bookkeeping: D-186 re-flipped to Active (was mis-filed); 11
+  future-dated `2026-05-29` entries corrected to actual commit
+  dates; 13 oldest Discharged rows pruned; lesson file renamed
+  `2026-05-28-gate-tail-vs-exit-code.md`; Doc-state markers added
+  to 12 `.dev/*.md` files.
+- Active debt rows: **20** — all `blocked-by:`; zero `now`.
+- Mac aarch64 test-all + lint green at HEAD prior to this chunk
+  (52d9c784); ubuntu kick at 52d9c784 confirmed green (Step 0.7
+  passed; "failed command:" output is intentional negative-path
+  test stderr, not a failure).
 
 ## Active bundle
 
 - None.
 
-## Active task — cycle 82: next autonomous chunk
+## Active task — cycle 83: next autonomous chunk
 
-`[wasm-3.0-assert] assert_invalid pass=134 fail=0` — all 134
-invalid directives across all corpora pass. The autonomous yield
-within the §10 row 10.E / 10.G / further 10.M is structurally
-gated on user-facing ADR flips (ADR-0120 / ADR-0123) or wabt
-upgrade (D-179).
+`[wasm-3.0-assert] assert_invalid pass=134 fail=0` unchanged.
+Autonomous yield within §10 row 10.E / 10.G / further 10.M
+remains gated on ADR-0120 / ADR-0123 Accept or D-179 wabt
+upgrade.
 
-Cycle 82 candidates:
+Cycle 83 candidates (remaining audit `soon` findings):
 
-1. **Function-references / 10.R spec corpus extension** — call_ref
-   / return_call_ref bake (currently 7 manifests in function-
-   references; could bake the remaining ADR-0123-independent
-   shapes if any exist). Likely most modules need typed-ref
-   parser so few easy wins remain.
-2. **Wasm 1.0 / 2.0 corpus coverage audit** — survey whether
-   either corpus has unbaked fixtures that would expand coverage.
-   Pure infra cycle.
-3. **Bench refresh / phase 10 review prep** — anticipate phase
-   close hand-off.
-4. **`audit_scaffolding` skill invocation** — periodic discipline
-   check; ROADMAP §F debt coherence audit.
+1. **ADR `<backfill>` SHA placeholders (8 across ADR-0118 /
+   ADR-0119)** — phase-boundary cohort; safe to batch.
+2. **debug_jit_auto SKILL.md** = 733 lines (CHECKS §B.4
+   threshold 500); split recipes into sibling RECIPES.md.
+3. **D-058 / D-059 audit-lint script authoring** — these debt
+   rows discharge-trigger is "Phase 10 boundary audit"; cycle 82
+   IS that audit, so file the scripts inline OR document
+   non-discharge per row.
+4. **Function-references / 10.R bake extension** (was cycle-82
+   alt-candidate 1).
 
-Cycle 82 picks (4) — opportunistic `audit_scaffolding` run. We've
-shipped 30+ cycles this session; periodic audit catches drift
-before it compounds.
+Cycle 83 picks (1) — ADR backfill is small, mechanical, and
+clears the longest-standing `<backfill>` strings before they
+accumulate.
 
 ## Larger §10 work (blocked / later)
 
@@ -52,11 +53,11 @@ before it compounds.
 - **10.G WasmGC** — D-179-blocked (wabt 1.0.41+).
 - **10.P close gate** — user touchpoint by construction.
 
-## Spec runner observable (post-cycle-81)
+## Spec runner observable (post-cycle-81; unchanged by cycle 82)
 
 ```
 [memory64           ] return=337 trap=205 invalid=83  (all pass)
-[tail-call          ] return=71  trap=7   invalid=24  (all pass)  <- +1 invalid via cycle 81 fix
+[tail-call          ] return=71  trap=7   invalid=24  (all pass)
 [exception-handling ] return=34(fail34) trap=2(fail2) invalid=7(pass=7 fail=0) exception=4(fail4)
 [function-references] return=39(fail36) trap=4(fail4) invalid=18(pass=18 fail=0)
 [multi-memory       ] return=407(pass=382 fail=25) trap=238(pass=237 fail=1)
@@ -77,5 +78,5 @@ before it compounds.
 
 - ADR-0112 (Tail Call), ADR-0114 (EH), ADR-0120 / 0123 (Proposed).
 - ADR-0076 (D1 gate / D2 single-push / D3 ubuntu kick).
-- `.dev/lessons/2026-05-29-gate-tail-vs-exit-code.md`.
+- `.dev/lessons/2026-05-28-gate-tail-vs-exit-code.md`.
 - ROADMAP §10; `.dev/phase_log/phase10.md`.

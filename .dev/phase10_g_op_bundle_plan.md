@@ -2,7 +2,7 @@
 
 > **Doc-state**: ACTIVE — load-bearing for the 10.G op_gc impl
 > bundle (post-foundation; ROADMAP §10 row 10.G). Drafted via
-> /continue autonomous prep path 2026-05-29 after the 6-cycle
+> /continue autonomous prep path 2026-05-27 after the 6-cycle
 > 10.G-foundation bundle closed (HEAD `62bebe25`). Captures the
 > integration path so the next bundle starts with a sequenced
 > sub-chunk list rather than re-deriving from ADR-0115/0116.

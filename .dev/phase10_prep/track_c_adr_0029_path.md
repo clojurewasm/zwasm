@@ -1,5 +1,7 @@
 # Phase 10 prep — Track C: ADR-0029 path A vs B (skip semantics)
 
+> **Doc-state**: ARCHIVED-IN-PLACE
+
 > Status: **DECIDED — Path B + all 5 sub-decisions confirmed**
 > (Q1=Path B, Q2=warning+count, Q3=filename stub, Q4=defer
 > (c)-path to Phase 10/11 with accountable new debt D-082,

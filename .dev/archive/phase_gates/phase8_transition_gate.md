@@ -1,5 +1,7 @@
 # Phase 7 → Phase 8 transition gate
 
+> **Doc-state**: ARCHIVED
+
 > **Hard human-in-loop gate** before §9.8 opens. The autonomous
 > `/continue` loop **must stop** when it reaches this gate and
 > surface to the user; no `ScheduleWakeup` fires until the gate

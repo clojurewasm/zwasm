@@ -1,5 +1,7 @@
 # `src/api/instance.zig` structural audit — §9.12-G (c)
 
+> **Doc-state**: ACTIVE
+
 **Date**: 2026-05-21
 **Subject**: `src/api/instance.zig` (1431 LOC; soft-cap WARN)
 **Scope**: ADR-0099 §D2 P3 evaluation per §9.12-G deliverable (c)

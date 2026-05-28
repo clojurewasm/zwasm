@@ -1,5 +1,7 @@
 # Phase 10 execution log
 
+> **Doc-state**: ACTIVE
+
 > Sub-chunk records for Phase 10 (Wasm 3.0 — GC, EH, Tail Call,
 > memory64) absorbed from `.dev/ROADMAP.md` §10 task table per
 > §18.3 (ROADMAP rows stay now-snapshots; per-sub-chunk prose
