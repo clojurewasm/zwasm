@@ -1,5 +1,5 @@
 module load1.0.wasm
-skip-impl directive-register
+register M
 module load1.1.wasm
 assert_return read i32:20 -> i32:1
 assert_return read i32:21 -> i32:2

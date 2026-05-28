@@ -189,6 +189,18 @@ for c in d['commands']:
         args = a.get('args', [])
         args_s = ' '.join(fmt(x) for x in args) if args else '()'
         lines.append(f'invoke {a["field"]} {args_s}')
+    elif t == 'register':
+        # 10.M-D195b cycle 70 — wast `(register "name" $module_id?)`
+        # exports the most-recent module under `name` for subsequent
+        # modules' imports to find via Linker.defineMemory /
+        # defineFunc. wast2json's JSON shape: `{type:register, as:<name>}`
+        # (plus optional `name:$module_id` when the wast uses
+        # `(register "name" $m)`). Previously dropped as
+        # `skip-impl directive-register`; runner picks up the name
+        # at cycle 70 + does the actual cross-instance binding in
+        # subsequent cycles.
+        as_name = c.get('as', '?')
+        lines.append(f'register {as_name}')
     else:
         lines.append(f'skip-impl directive-{t}')
 with open(dst, 'w') as f:

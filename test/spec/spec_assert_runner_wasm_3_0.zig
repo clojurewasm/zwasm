@@ -392,6 +392,18 @@ pub fn main(init: std.process.Init) !void {
                         // wasn't an assertion. Counters don't increment.
                         manifest_parser.invokeInstanceVoid(instance, d.func_name, call_args[0..d.args_len]) catch {};
                     },
+                    .register => {
+                        // 10.M-D195b cycle 70 — the bake script now
+                        // emits structured `register <as>` lines.
+                        // Cycle 70 acknowledges the directive (counts
+                        // as skip until the cross-instance binding
+                        // path lands cycle 71+). Without this arm
+                        // `parseLine` would have returned `.unknown`
+                        // and silently skipped — the explicit count
+                        // makes the gap visible in the per-proposal
+                        // summary.
+                        summary.skips += 1;
+                    },
                     .skip_impl, .skip_validator, .skip_runtime => summary.skips += 1,
                     .unknown => {},
                 }

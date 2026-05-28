@@ -58,6 +58,14 @@ pub const Kind = enum {
     assert_exception,
     assert_invalid,
     assert_malformed,
+    /// 10.M-D195b cycle 70 — wast `(register "name" $module_id?)`
+    /// directive. The most-recent instance gets registered under
+    /// `name` so subsequent modules' imports can resolve through
+    /// the spec runner's per-name registry. `func_name` carries the
+    /// registered-as name; binding wiring lands in subsequent
+    /// cycles (cycle 71: memory imports; cycle 72: func + invoke
+    /// dispatch routing).
+    register,
     skip_impl,
     skip_validator,
     skip_runtime,
@@ -435,6 +443,14 @@ pub fn parseLine(
         directive.module_path = rest;
         return directive;
     }
+    if (std.mem.eql(u8, kind_str, "register")) {
+        // 10.M-D195b cycle 70 — `register <as>` directive. The
+        // registered-as name lands in func_name (the field is
+        // generic; future-cycle handler reads it as the name).
+        directive.kind = .register;
+        directive.func_name = rest;
+        return directive;
+    }
 
     const is_assert_return = std.mem.eql(u8, kind_str, "assert_return");
     const is_assert_trap = std.mem.eql(u8, kind_str, "assert_trap");
@@ -577,6 +593,14 @@ test "parseLine: skip-impl directive captures reason" {
     const d = try parseLine("skip-impl directive-action", &args, &results);
     try testing.expectEqual(Kind.skip_impl, d.kind);
     try testing.expectEqualStrings("directive-action", d.reason);
+}
+
+test "parseLine: register directive captures registered-as name (10.M-D195b cycle 70)" {
+    var args: [4]TypedValue = undefined;
+    var results: [4]TypedValue = undefined;
+    const d = try parseLine("register M", &args, &results);
+    try testing.expectEqual(Kind.register, d.kind);
+    try testing.expectEqualStrings("M", d.func_name);
 }
 
 test "parseLine: assert_invalid captures wasm path" {
