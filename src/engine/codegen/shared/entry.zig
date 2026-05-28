@@ -2610,3 +2610,66 @@ test "entry: ref.as_non_null traps on null funcref source — JIT 10.R cycle 51"
     // And trap_flag was set by the trap stub.
     try testing.expect(rt.trap_flag != 0);
 }
+
+test "entry: br_on_null branches to block end on null funcref — JIT 10.R cycle 55" {
+    // 10.R / ADR-0123 D2: closes the spike_discipline §2 gap from
+    // cycle-54b's scaffolding commit (`1b0fc917`). End-to-end exercises
+    // the arm64 br_on_null emit handler.
+    //
+    // Body: (func (result i32)
+    //         (block
+    //           (ref.null funcref)
+    //           (br_on_null 0)   ; null → branch to block end (always taken)
+    //           (drop))          ; fall-through path (unreached at runtime; validator OK)
+    //         (i32.const 7))
+    // Expected: callI32NoArgs returns 7 — branch around the drop, block
+    // end (arity 0, empty stack), then i32.const 7 + func end → 7.
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    // x86_64 br_on_null deferred (D-194): x86_64 br_if not yet
+    // migrated to (ctx, ins) shape + captureOrEmitBlockMergeMov not
+    // pub-exported on x86_64. Per ADR-0122 D5 use skip.blocker helper.
+    if (builtin.cpu.arch != .aarch64) return skip.blocker(.@"D-194");
+
+    const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
+    var fn0 = ZirFunc.init(0, sig, &.{});
+    defer fn0.deinit(testing.allocator);
+    try fn0.instrs.append(testing.allocator, .{ .op = .block });
+    try fn0.instrs.append(testing.allocator, .{ .op = .@"ref.null", .payload = 0 });
+    try fn0.instrs.append(testing.allocator, .{ .op = .br_on_null, .payload = 0 });
+    try fn0.instrs.append(testing.allocator, .{ .op = .drop });
+    try fn0.instrs.append(testing.allocator, .{ .op = .end }); // closes block
+    try fn0.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
+    try fn0.instrs.append(testing.allocator, .{ .op = .end }); // closes func
+    fn0.liveness = .{
+        .ranges = &[_]zir.LiveRange{
+            .{ .def_pc = 1, .last_use_pc = 3 }, // vreg 0: ref.null result → drop
+            .{ .def_pc = 5, .last_use_pc = 6 }, // vreg 1: i32.const 7 → func end
+        },
+    };
+    const slots = [_]u16{ 0, 0 };
+    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    const sigs = [_]zir.FuncType{sig};
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
+    defer emit.deinit(testing.allocator, out0);
+
+    const bodies = [_]linker.FuncBody{
+        .{ .bytes = out0.bytes, .call_fixups = out0.call_fixups },
+    };
+    var module = try linker.link(testing.allocator, &bodies, 0);
+    defer module.deinit(testing.allocator);
+
+    var memory: [0]u8 = .{};
+    var rt: JitRuntime = .{
+        .vm_base = &memory,
+        .mem_limit = 0,
+        .funcptr_base = undefined,
+        .table_size = 0,
+        .typeidx_base = undefined,
+        .trap_flag = 0,
+        .globals_base = undefined,
+        .globals_count = 0,
+        .host_dispatch_base = undefined,
+        .host_dispatch_count = 0,
+    };
+    try testing.expectEqual(@as(u32, 7), try callI32NoArgs(module, 0, &rt));
+}

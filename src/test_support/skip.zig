@@ -72,6 +72,10 @@ pub const Blocker = enum {
     @"D-186",
     /// wabt 1.0.41+ for gc spec corpus baking.
     @"D-179",
+    /// 10.R x86_64 br_on_null + br_on_non_null JIT emit. Blocked-by
+    /// x86_64 br_if not migrated to (ctx, ins) shape; arm64 landed
+    /// cycle 54b.
+    @"D-194",
 };
 
 /// Phase-end batch deferral. See `Win64Phase` doc.
