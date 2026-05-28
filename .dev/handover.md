@@ -6,14 +6,16 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cycle 94 (`2f127b96`) — **ADR-0123 Cycle 5 partial-
-  close**: opRefNull extended (12 abstract heads + concrete LEB
-  idx), lower.zig 0xD0 handles typed-null, br_on_null opcode fix
-  (0xD4 → spec-correct 0xD5). 3 function-references modules
-  newly parse (fail 36 → 33). Bundle structural pivot done.
-- Cycles 91-93 before: ValType pivot to union(enum); parser
-  0x63/0x64 typed-funcref bytes; validator narrowing on
-  ref.as_non_null + br_on_null fall-through.
+- **HEAD**: cycle 95 (`7fbb833c`) — diagnostic probe of 10
+  remaining ParseFailed function-refs modules. Lesson
+  `2026-05-28-funcrefs-tail-error-classes.md` captures the
+  error class inventory (BadBlockType×3, BadValType×1,
+  StackTypeMismatch×4, StackUnderflow×1, NotImplemented×3,
+  UndeclaredFuncRef×?). Highest-yield fix: subtype-aware
+  popExpect (cycle-93 carve-out) addresses 5/12.
+- Cycles 91-94 before: ValType pivot to union(enum); parser
+  typed-funcref bytes; validator narrowing; bundle 10.R-
+  valtype-widen partial-closed at `2f127b96`.
 - Cycle 90 (`6e5e7e53` + `510eca36` + `d6b187f8`) before that:
   D-179 baker swap; ADR-0120 Accept + Cycle 1 impl; ADR-0123 Accept
   + Cycle 1 substrate.
@@ -43,22 +45,27 @@
   green-baked + validated; 0 ParseFailed for any
   function-references module.
 
-## Active task — cycle 95: probe + diagnose 10 ParseFailed modules
+## Active task — cycle 96: subtype-aware popExpect (Cycle 2 of bundle)
 
-Smallest red test: trace one ParseFailed module (e.g.
-`function-references/br_on_null/br_on_null.0.wasm`) through
-compileWasm with a debug print at the failure site to identify
-which lower/validator dispatch arm rejects. Likely candidates:
-- `ref.func` (0xD2) emit `RefType.abs(.func, true)` rather
-  than non-null per spec §3.3.10.10 — Cycle 5 carve-out.
-- `table.set` / `table.get` typed-table interaction.
-- `local.tee` / `local.set` against narrowed RefType (popExpect
-  strict-eql blocks `(ref ht)` ↔ `(ref null ht)` subtyping).
+Per cycle-95 lesson `2026-05-28-funcrefs-tail-error-classes.md`:
+add `popSubtype(expected)` helper in `src/validate/validator.zig`
+that accepts `(ref ht)` where `(ref null ht)` is expected (Wasm
+3.0 §3.3.4 subtype rules). Migrate the 5+ call sites in
+`opRefAsNonNull` / `opBrOnNull` / `opCallRef` / `opReturnCallRef`
+/ `popExpect` general path from `.eql`-strict to subtype-aware.
 
-Smaller follow-ups after primary diagnosis:
-- Subtype-aware popExpect helper (cycle-93 carve-out).
-- opRefFunc non-null push.
-- opBrOnNonNull label-type subtype match.
+Smallest red test: `test "validator: pop (ref ht) where (ref null
+ht) expected succeeds via subtype rule"`.
+
+Expected delta: 5/12 of the remaining function-references
+failures clear (4× StackTypeMismatch + 1× StackUnderflow). Bundle
+exit-condition advances toward ≥30/39 pass.
+
+After cycle 96 lands, cycles 97+ per lesson:
+- Block result typed-ref handling (BadBlockType ×3)
+- BadValType non-patched site probe (×1)
+- NotImplemented opcode identification (×3)
+- UndeclaredFuncRef case-by-case (judgment)
 
 ## Larger §10 work (post-bundle)
 
