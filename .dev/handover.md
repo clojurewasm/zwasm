@@ -26,27 +26,50 @@
 - **Bundle-ID**: 10.R-function-references
 - **Cycles-remaining**: ~2
 - **Continuity-memo**: ADR-0123 (Proposed) — call_ref/return_call_ref
-  gated on Accept. **ref.as_non_null JIT COMPLETE** (cycles 50-51:
-  `86e5bfaf` handlers + dispatch + count tests at 350/397; `529e7b53`
-  trap-on-null execution test in entry.zig passes Mac aarch64).
-  Identity-passthrough liveness model confirmed working: ref.as_non_null
-  pops src vreg, null-checks reg, pushes src back (no new vreg, no
-  MOV); the next consumer reads from src's slot unchanged. The trap
-  fires through bounds_fixups → generic trap stub → trap_flag=1 →
-  Error.Trap. **NEXT chunk — br_on_null + br_on_non_null JIT emit**
-  (other 2 ADR-independent null-ops). Same recipe family, but the
-  CMP/null-check branches into a LABEL fixup (br_if machinery) instead
-  of bounds_fixups (trap). Bundle them together — both have identical
-  shape (null-check + conditional br). Survey first: read br_if's emit
-  to understand label fixup machinery + how label-value passing
-  works on the null-taken branch (br_on_null passes the label's
-  values which sit BELOW the ref on the stack; br_on_non_null passes
-  the ref itself as the branch value when non-null). After br_on_null
-  family, the 3 ADR-independent null-ops are all JIT-emit-green; the
-  bundle exit-condition (function-references spec return/trap fixtures
-  run for the 3 ops) becomes the spec-runner wiring chunk (final pre-
-  ADR-Accept cycle). call_ref/return_call_ref impl waits for ADR-0123
-  Accept flip (still in open-questions).
+  gated on Accept. **ref.as_non_null JIT COMPLETE on both arches**
+  (cycles 50/51/51b, last green at `af477394`). **Cycle-53 survey
+  done** for br_on_null/br_on_non_null — full impl plan distilled
+  below; cycle 54 executes with fresh context.
+
+  **br_on_null impl (cycle 54a)** — files to create:
+  `src/engine/codegen/{arm64,x86_64}/ops/wasm_3_0/br_on_null.zig`
+  + register in `dispatch_collector_ops.zig` (count bumps +1 each).
+  Pattern (mirrors ref.as_non_null's null-check, BUT label fixup
+  instead of bounds_fixups → **no usesRuntimePtr whitelist needed**;
+  br_if doesn't reference R15/X19 directly, just `ctx.labels[idx].pending`):
+  - Pop src vreg manually; `gprLoadSpilled(src) → reg`.
+  - arm64: `encCmpImmX(Xn, 0)` + `encBCond(.eq, 0)` placeholder;
+    append fixup to `labels[depth].pending` (Fixup kind `.b_uncond`).
+  - x86_64: `encTestRR(.q, Rn, Rn)` + `encJccRel32(.e, 0)`; append
+    fixup `{byte_offset, insn_size=6}` to `labels[depth].pending`.
+  - **Push src back** (non-null fall-through keeps ref on stack as
+    spec-typed non-null; survey's mid-text confusion corrected at end).
+  - Label-fixup patching happens at `emitEndIntra` (already wired by
+    br_if). Survey cites: arm64 op_control.zig:281-360 + x86_64
+    op_control.zig:759-860 for the canonical br_if pattern.
+
+  **br_on_non_null impl (cycle 54b)** — same shape, inverse condition:
+  `B.NE` (arm64) / `JNE` (x86_64); branch-taken passes ref AS the
+  label value (so push src to label's value position before branch);
+  fall-through drops ref. Subtler than br_on_null — verify with a
+  separate cycle.
+
+  **Test shape (cycle 54a)** — `entry.zig` test:
+  `(func (result i32) block (result i32) (i32.const 7) (ref.null funcref)
+  (br_on_null 0) drop (i32.const 42) end)`. Null path: br_on_null
+  branches with i32=7 → returns 7. Non-null path: drop ref, push 42
+  → returns 42. ZIR: `.block` op with `extra=(0<<8)|1` (0 params,
+  1 result), `.@"i32.const"` payload=7, `.@"ref.null"` payload=0,
+  `.@"br_on_null"` payload=0 (depth), `.drop`, `.@"i32.const"`
+  payload=42, `.end`. Resolve at impl-time: exact `.block`
+  ZirInstr.extra encoding (the survey's `(0<<8)|1` is likely; verify
+  via existing block tests if any).
+
+  Bundle exit after br_on_null+br_on_non_null: the 3 ADR-independent
+  null-ops are all JIT-green; final pre-ADR-Accept chunk = wire
+  function-references spec return/trap fixtures into the runner.
+  call_ref/return_call_ref impl waits for ADR-0123 Accept flip
+  (still in open-questions).
 - **Exit-condition**: function-references spec return/trap fixtures run
   (not just invalid=12); the 5 ops execute under interp + JIT on both
   arches. (Autonomous portion: 3 null-ops JIT green; call_ref family
