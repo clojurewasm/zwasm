@@ -6,56 +6,57 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: 10.M-D195b cycle 78 — init-expr `global.get` support
-  + data-segment init deferred to after globals. `data0.3` /
-  `data0.5` now instantiate cleanly. Spec runner unchanged at
-  `[multi-memory] return=407 pass=382 fail=25` (data0.* have no
-  assertions; the fix is correctness-only at this granularity).
+- **HEAD**: 10.E cycle 79 — survey + first runtime fix:
+  `sections.decodeExports` now recognises kind=4 (tag) and drops
+  the export entry (keeps ExportDesc at 4 variants; tag refs go
+  through the tag section directly). `try_table.0.wasm` now
+  instantiates cleanly. Exception-handling corpus pass-rate
+  unchanged because asserts target `try_table.1` which still
+  ParseFails pending exnref ValType (D-192 / ADR-0120 Proposed).
 - **D-188 / D-194 / D-195(c) DISCHARGED** earlier. **D-195(b)
-  memory + func + spectest stubs + globals + init-expr global.get
-  WIRED** (cycles 71-78). Active debt rows: 17 — all `blocked-by:`;
-  zero `now`.
+  memory + func + spectest + globals + init-expr global.get
+  WIRED** (cycles 71-78). Active debt rows: 17 — all
+  `blocked-by:`; zero `now`.
 
 ## Active bundle
 
 - None.
 
-## Active task — cycle 79: pivot to 10.E EH runtime path
+## Active task — cycle 80: next autonomous chunk
 
-10.M autonomous portion is now thoroughly complete; further yield
-is gated on either (a) upstream-corrupted-fixture re-bake (out-of-
-band) or (b) function/global imports for cross-module register-as
-forms (low-yield). The next highest-value §10 row is **10.E** —
-`[exception-handling] return=34(fail34) trap=2(fail2) exception=4(fail4)`.
+The cycle-79 EH survey identifies the next gap clearly: ALL EH
+return/trap/exception assertions target `try_table.1.wasm` which
+needs the `exnref` ValType (byte 0x69) at the parser layer.
+That's ADR-0120 Proposed territory + an ADR-grade §4 ValType
+deviation. Cycle 80 autonomous candidates:
 
-Cycle 79 candidates:
+1. **ADR-0120 user-flip prep — surface the gating** — the
+   `try_table.1` ParseFailed is the last structural barrier
+   to flipping `[exception-handling] return=0/34 → ~30/34`.
+   ADR-0120 is Proposed; the user touchpoint is the Accept
+   flip. Per `STOP_BUCKETS.md` bucket 3 (autonomous prep
+   walked) → write the autonomous prep memo: ADR-0120 amendment
+   refining the impl plan ahead of the Accept flip. Not a
+   bucket-3 stop yet (other candidates exist).
+2. **10.TC tail-call expansion** — `[tail-call] return=31 trap=0
+   invalid=10` all pass. Bake more upstream tail-call fixtures
+   (~95 in upstream corpus; we have 1 baked). Pure infra cycle.
+3. **10.G WasmGC** — D-179-blocked.
 
-1. **10.E EH runtime — try_table.0 instantiate** — currently
-   `instantiate FAIL: InstantiateFailed`. Tag section processing
-   + throw/catch dispatch wiring. Multi-cycle bundle.
-2. **10.E EH runtime — survey existing substrate** — IT-1..IT-6
-   landed earlier in this project's history; the validator side
-   is spec-correct (cycle 61). Survey what runtime EH path exists
-   today + identify the next concrete gap.
-3. **Bake more 10.G or function-references fixtures** — both
-   gated on external (D-179 wabt / ADR-0123 typed-ref). Defer.
-
-Cycle 79 picks (2) — survey before write. The EH runtime substrate
-is multi-cycle-old; understanding the existing state before adding
-to it is essential per `textbook_survey.md`.
+Cycle 80 picks (2) — 10.TC fixture expansion. Pure infrastructure
+chunk; surfaces any remaining tail-call substrate gaps.
 
 ## Larger §10 work (blocked / later)
 
-- **10.M memory64 multi-memory** — substantially complete (37
-  manifests / 619 passing directives + correctness for `data0.3/5`
-  init-expr global.get). D-196 tail = upstream-corrupted fixtures
-  + named-module register form (low-yield).
-- **10.E EH** — validator spec-correct (cycle 61); runtime EH
-  dispatch is the next bundle (cycle 79+).
+- **10.E EH** — runtime EH dispatch + cross-module register
+  (D-192) external-gated on ADR-0120 Accept (`exnref` ValType).
+  Validator + codegen + tag-kind exports all wired; runtime
+  unwind path is the next bundle once exnref lands.
+- **10.M memory64 multi-memory** — autonomous substantially done.
 - **10.G WasmGC** — D-179-blocked (wabt 1.0.41+).
 - **10.P close gate** — user touchpoint by construction.
 
-## Spec runner observable (post-cycle-78; counts unchanged)
+## Spec runner observable (post-cycle-79; counts unchanged)
 
 ```
 [memory64           ] return=337 trap=205 invalid=83  (all pass)
@@ -67,14 +68,19 @@ to it is essential per `textbook_survey.md`.
 [wasm-3.0-assert    ] assert_return pass=750  assert_trap pass=442  assert_invalid pass=120 fail=0
 ```
 
+(try_table.0 instantiate trace gone from stderr; numeric counts
+unchanged because asserts target try_table.1 which still
+ParseFails.)
+
 ## Open questions / blockers
 
-- ADR-0120 — Status: Proposed pending user flip to Accepted.
+- ADR-0120 — Status: Proposed; user Accept flip unblocks
+  ~30 EH spec directives (the largest single yield available).
 - ADR-0123 — Status: Proposed. Accept flip unblocks call_ref +
   return_call_ref impl + typed-ref parser (D-195 sub-gap a).
 - D-179 — wabt 1.0.41+ blocks GC corpus + clang_wasm64 realworld.
-- D-192 — EH cross-module register-as form (specific module-id);
-  bundle 10.E runtime path subsumes this.
+- D-192 — EH cross-module register-as form; subsumed by ADR-0120
+  + exnref ValType bundle.
 - 10.P close gate — user touchpoint by construction.
 
 ## Key refs
@@ -83,4 +89,4 @@ to it is essential per `textbook_survey.md`.
 - ADR-0120 (10.E-payload-prop — Proposed).
 - ADR-0076 (D1 gate / D2 single-push / D3 ubuntu kick).
 - `.dev/lessons/2026-05-29-gate-tail-vs-exit-code.md`.
-- ROADMAP §10 row 10.E; `.dev/phase_log/phase10.md`.
+- ROADMAP §10 row 10.E / 10.TC; `.dev/phase_log/phase10.md`.
