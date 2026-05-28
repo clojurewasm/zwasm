@@ -38,6 +38,7 @@ const sections = @import("../../parse/sections.zig");
 const validator = @import("../../validate/validator.zig");
 const zir = @import("../../ir/zir.zig");
 const leb128 = @import("../../support/leb128.zig");
+const testing = std.testing;
 const import_mod = @import("import.zig");
 const instance_mod = @import("instance.zig");
 const heap_mod = @import("../../feature/gc/heap.zig");
@@ -214,11 +215,37 @@ pub fn frontendValidate(alloc: std.mem.Allocator, binary: []const u8) bool {
     // against module.tags[] instead of failing on the empty
     // default. Modules without a tag section pass an empty slice
     // (preserves prior behavior for non-EH modules).
-    const tags_slice: []const sections.TagEntry = if (module.find(.tag)) |s|
+    // Tag index space = imported tags (kind .tag) ++ defined tags
+    // (section 13), per Wasm index-space ordering. Cross-module EH
+    // (10.E): try_table.1 imports test::e0 ×2, so catch/throw tag
+    // indices are offset by the import count — a defined-only slice
+    // mis-resolves them (wrong params → StackTypeMismatch).
+    var imp_tag_count: usize = 0;
+    if (imports_decoded) |im| for (im.items) |it| {
+        if (it.kind == .tag) imp_tag_count += 1;
+    };
+    const defined_tags: []const sections.TagEntry = if (module.find(.tag)) |s|
         sections.decodeTags(alloc, s.body) catch return false
     else
         &.{};
-    defer if (tags_slice.len > 0) alloc.free(tags_slice);
+    defer if (defined_tags.len > 0) alloc.free(defined_tags);
+    const tags_slice: []const sections.TagEntry = if (imp_tag_count == 0)
+        defined_tags
+    else blk: {
+        const combined = alloc.alloc(sections.TagEntry, imp_tag_count + defined_tags.len) catch return false;
+        var ci: usize = 0;
+        if (imports_decoded) |im| for (im.items) |it| {
+            if (it.kind != .tag) continue;
+            combined[ci] = .{ .attribute = 0, .typeidx = it.payload.tag_typeidx };
+            ci += 1;
+        };
+        for (defined_tags) |t| {
+            combined[ci] = t;
+            ci += 1;
+        }
+        break :blk combined;
+    };
+    defer if (imp_tag_count > 0) alloc.free(tags_slice);
 
     // 10.R cycle 60 (D-195 sub-gap c) — Wasm spec §3.4.10 declared-
     // funcrefs bitset. `ref.func N` must reference a function that
@@ -1283,4 +1310,22 @@ fn checkImportTypeMatches(
         // type-matching lands with the Linker tag-binding (step 2).
         .tag => return error.ImportTypeMismatch,
     }
+}
+
+test "frontendValidate: imported tag occupies the tag index space (10.E-xmodule-tags cycle 114)" {
+    // Module imports 1 tag (typeidx 0 = () -> ()) and a func body
+    // `throw 0` references it by index 0. The validator's tag index
+    // space must be [imported tags] ++ [defined tags]; pre-cycle-114
+    // `frontendValidate` passed a DEFINED-only slice (here empty) →
+    // `throw 0` → InvalidTagIndex → validate fail. This mirrors the
+    // wasm-3.0 corpus red: try_table.1 imports test::e0 ×2, so every
+    // catch/throw index was offset by 2 (func[5] StackTypeMismatch).
+    const m = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // header
+        0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // type: () -> ()
+        0x02, 0x08, 0x01, 0x01, 0x6d, 0x01, 0x74, 0x04, 0x00, 0x00, // import "m"."t" tag (typeidx 0)
+        0x03, 0x02, 0x01, 0x00, // function: 1 func, type 0
+        0x0a, 0x06, 0x01, 0x04, 0x00, 0x08, 0x00, 0x0b, // code: (throw 0) end
+    };
+    try testing.expect(frontendValidate(testing.allocator, &m));
 }
