@@ -6,11 +6,15 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `529e7b53` — test(p10): ref.as_non_null JIT execution
-  test (10.R cycle 51) — closes cycle-50's §2 gap; ref.as_non_null
-  JIT emit is now **complete** (handlers + dispatch + test). Mac
-  aarch64 test exit 0 + lint clean. cycle-50 ubuntu green at
-  `aec7bdf6`. cycle-51 ubuntu kick pending (Step 0.7 next cycle).
+- **HEAD**: `af477394` — fix(p10): cycle-51b fix-forward for
+  D-180-class miss in x86_64 ref.as_non_null. Cycle-51 ubuntu kick
+  FAILED (`expected Error.Trap, found 0` on Linux x86_64): my new
+  bounds_fixups.append in ref_as_non_null.zig triggered the trap
+  stub's R15 write, but R15 was uninit because the op wasn't in
+  `usage.zig::usesRuntimePtr` whitelist. Added it → ubuntu re-kick
+  GREEN at `af477394`. **ref.as_non_null JIT is now truly complete
+  on both arches.** Lesson recorded:
+  `.dev/lessons/2026-05-28-d180-detector-misses-bounds-fixups.md`.
 - **D-193 FULLY DISCHARGED** (cycle 47, `eccab477`): all ~23
   Mac-aarch64-only test gates cleared over cycles 41-47; D-180-hazard
   coverage gap gone; 0 `skip.blocker(.@"D-193")` sites repo-wide.
