@@ -207,10 +207,17 @@ fn readFuncrefInitExpr(body: []const u8, pos: *usize, expected: ValType) section
     pos.* += 1;
     const idx: u32 = switch (op) {
         0xD2 => blk: {
-            // ref.func produces funcref. Reject when the segment's
-            // declared reftype is externref (elem.51 case — Wasm spec
-            // §3.4.6 type mismatch).
-            if (!expected.isFuncref()) return sections.Error.InvalidFunctype;
+            // ref.func produces a (typed) funcref; valid when the
+            // segment's reftype is in the func family — abstract `func`
+            // (any nullability) or a concrete typed func ref `(ref $sig)`
+            // (pre-GC every concrete type is a func type; ref_is_null.0
+            // elem 1: `(ref 0)` with `ref.func 0`). Reject externref /
+            // other heads (elem.51: ref.func into an externref segment).
+            const ok = expected == .ref and switch (expected.ref.heap_type) {
+                .abstract => |a| a == .func,
+                .concrete => true,
+            };
+            if (!ok) return sections.Error.InvalidFunctype;
             break :blk try leb128.readUleb128(u32, body, pos);
         },
         0xD0 => blk: {
@@ -280,6 +287,21 @@ test "decodeElement: single active form 0 with two funcidxs" {
     try testing.expectEqual(ElementKind.active, e.items[0].kind);
     try testing.expectEqual(@as(u32, 0), e.items[0].tableidx);
     try testing.expectEqualSlices(u32, &[_]u32{ 0, 1 }, e.items[0].funcidxs);
+}
+
+test "decodeElement: form 6 typed-ref (ref 0) elem with ref.func init expr" {
+    // ref_is_null.0 elem 1: active, tableidx, offset, reftype (ref 0),
+    // vec [ref.func 0]. `ref.func` produces a typed funcref that must
+    // satisfy the concrete (ref 0) segment type (not just abstract
+    // funcref). count=1; flag=6; tableidx=0; offset=i32.const 0;end;
+    // reftype=(ref 0)=0x64 0x00; n=1; expr=ref.func 0;end.
+    const body = [_]u8{ 0x01, 0x06, 0x00, 0x41, 0x00, 0x0B, 0x64, 0x00, 0x01, 0xD2, 0x00, 0x0B };
+    var e = try decodeElement(testing.allocator, &body);
+    defer e.deinit();
+    try testing.expectEqual(ElementKind.active, e.items[0].kind);
+    try testing.expect(e.items[0].elem_type == .ref);
+    try testing.expect(e.items[0].elem_type.ref.heap_type == .concrete);
+    try testing.expectEqualSlices(u32, &[_]u32{0}, e.items[0].funcidxs);
 }
 
 test "decodeElement: passive form 1 with elemkind=funcref" {
