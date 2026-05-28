@@ -1,0 +1,5 @@
+module align0.0.wasm
+assert_return f32_align_switch i32:0 -> f32:1092616192
+assert_return f32_align_switch i32:1 -> f32:1092616192
+assert_return f32_align_switch i32:2 -> f32:1092616192
+assert_return f32_align_switch i32:3 -> f32:1092616192

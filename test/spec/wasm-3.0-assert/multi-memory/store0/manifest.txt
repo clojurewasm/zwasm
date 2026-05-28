@@ -1,0 +1,5 @@
+module store0.0.wasm
+invoke store1 i32:0 i64:1
+invoke store2 i32:0 i64:2
+assert_return load1 i32:0 -> i64:1
+assert_return load2 i32:0 -> i64:2

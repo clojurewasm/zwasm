@@ -283,6 +283,27 @@ pub fn frontendValidate(alloc: std.mem.Allocator, binary: []const u8) bool {
     const def_memory_count_validate: u32 = if (memories_owned) |m| @intCast(m.items.len) else 0;
     const total_memory_count: u32 = imp_memory_count_validate + def_memory_count_validate;
 
+    // 10.M cycle 68 — decode data section + DataCount section so the
+    // validator can range-check memory.init dataidx against the
+    // actual segment count (was hard-pinned to 0, rejecting every
+    // memory.init / data.drop with InvalidFuncIndex). compile.zig's
+    // similar path was already threaded; frontendValidate had a
+    // pre-existing gap surfaced by 10.M corpus expansion at cycle 68.
+    var datas_owned: ?sections.Datas = if (module.find(.data)) |s|
+        sections.decodeData(alloc, s.body) catch return false
+    else
+        null;
+    defer if (datas_owned) |*d| d.deinit();
+    const data_count_validate: u32 = if (datas_owned) |d| @intCast(d.items.len) else 0;
+    // `data_count_section_present` defaults to `true` on the
+    // Validator struct; `validateFunctionWithMemIdxAndTags` doesn't
+    // override it. Modules using memory.init MUST declare a
+    // DataCount section per Wasm 2.0 §5.5.16 — the parser already
+    // rejects malformed orderings, and validator's MEMINIT-without-
+    // DataCount check is best-effort. Future: thread the actual
+    // `data_count_section_present` boolean if a fixture surfaces a
+    // miscompile around its absence.
+
     for (codes_owned.items, defined_func_indices) |code, type_idx| {
         const sig = types_owned.items[type_idx];
         validator.validateFunctionWithMemIdxAndTags(
@@ -292,7 +313,7 @@ pub fn frontendValidate(alloc: std.mem.Allocator, binary: []const u8) bool {
             func_types,
             global_entries,
             types_owned.items,
-            0, // data_count
+            data_count_validate,
             table_entries,
             0, // elem_count
             total_memory_count,

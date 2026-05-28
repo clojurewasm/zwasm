@@ -1,0 +1,13 @@
+module memory_init0.0.wasm
+invoke init i32:0 i32:1 i32:2
+assert_return load8_u i32:0 -> i32:187
+assert_return load8_u i32:1 -> i32:204
+assert_return load8_u i32:2 -> i32:0
+invoke init i32:65532 i32:0 i32:4
+assert_trap init i32:65534 i32:0 i32:3
+assert_return load8_u i32:65534 -> i32:204
+assert_return load8_u i32:65535 -> i32:221
+invoke init i32:65536 i32:0 i32:0
+invoke init i32:0 i32:4 i32:0
+assert_trap init i32:65537 i32:0 i32:0
+assert_trap init i32:0 i32:5 i32:0

@@ -1,0 +1,16 @@
+module memory_fill0.0.wasm
+invoke fill i32:1 i32:255 i32:3
+assert_return load8_u i32:0 -> i32:0
+assert_return load8_u i32:1 -> i32:255
+assert_return load8_u i32:2 -> i32:255
+assert_return load8_u i32:3 -> i32:255
+assert_return load8_u i32:4 -> i32:0
+invoke fill i32:0 i32:48042 i32:2
+assert_return load8_u i32:0 -> i32:170
+assert_return load8_u i32:1 -> i32:170
+invoke fill i32:0 i32:0 i32:65536
+assert_trap fill i32:65280 i32:1 i32:257
+assert_return load8_u i32:65280 -> i32:0
+assert_return load8_u i32:65535 -> i32:0
+invoke fill i32:65536 i32:0 i32:0
+assert_trap fill i32:65537 i32:0 i32:0

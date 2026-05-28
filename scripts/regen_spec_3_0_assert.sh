@@ -74,6 +74,18 @@ declare -a SMOKE=(
     # (cross-memory copies between memidx 0 and 1).
     "multi-memory/data0"
     "multi-memory/memory_copy0"
+    # 10.M cycle 68 — additional corpus coverage; surfaced the
+    # frontendValidate data_count threading gap (fixed this cycle).
+    # All exercises load/store/size/copy/fill/init at memidx > 0;
+    # memory.init also requires the DataCount section (Wasm 2.0
+    # §5.5.16) which the new fixtures all carry.
+    "multi-memory/memory_init0"
+    "multi-memory/memory_fill0"
+    "multi-memory/store0"
+    "multi-memory/load1"
+    "multi-memory/align0"
+    "multi-memory/address0"
+    "multi-memory/memory_size1"
 )
 
 bake_one() {
