@@ -632,13 +632,48 @@ pub const Validator = struct {
     /// Pop one operand and assert it has the expected type. In an
     /// unreachable region pop returns `bot` (synthesised) instead of
     /// underflowing.
+    ///
+    /// ADR-0123 Cycle 6 (10.R-funcrefs-tail bundle Cycle 2): the
+    /// match is subtype-aware rather than strict-eql:
+    /// - numeric / v128: must be identical (no subtyping)
+    /// - ref types: `(ref ht)` (non-null) is a subtype of
+    ///   `(ref null ht)` (nullable) — popping a non-null where
+    ///   nullable is expected is OK.  Heap type must still match
+    ///   exactly (full subtype lattice for heap types lands with
+    ///   10.G — for now only nullability flexibility).
+    /// Wasm spec 3.0 §3.3.4 subtype rules.
     // SIBLING-PUB: validator_simd.zig (per ADR-0083 extraction)
     pub fn popExpect(self: *Validator, expected: ValType) Error!void {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (!t.eql(expected)) return Error.StackTypeMismatch,
+            .known => |t| if (!valTypeIsSubtype(t, expected)) return Error.StackTypeMismatch,
         }
+    }
+
+    /// Returns true iff `actual` is assignment-compatible with `expected`
+    /// per the Wasm 3.0 subtype rules subset implemented for 10.R:
+    /// - Identical types match.
+    /// - Non-null ref is a subtype of nullable ref of the same heap_type.
+    /// - Full heap-type subtype lattice (any > eq > struct/array/i31; etc.)
+    ///   deferred to 10.G.
+    fn valTypeIsSubtype(actual: ValType, expected: ValType) bool {
+        if (actual.eql(expected)) return true;
+        // Only ref-shaped sub-typing supported here.
+        if (actual != .ref or expected != .ref) return false;
+        // Nullability subtype: (ref ht) <: (ref null ht).
+        // Heap type must be identical (lattice subtyping = 10.G).
+        if (actual.ref.nullable and !expected.ref.nullable) return false;
+        // actual nullable=false, expected nullable=true is the
+        // permitted relaxation; actual nullable=true, expected
+        // nullable=true falls through to the eql-true path above.
+        const ah = actual.ref.heap_type;
+        const eh = expected.ref.heap_type;
+        if (@as(@typeInfo(@TypeOf(ah)).@"union".tag_type.?, ah) != @as(@typeInfo(@TypeOf(eh)).@"union".tag_type.?, eh)) return false;
+        return switch (ah) {
+            .abstract => |a| a == eh.abstract,
+            .concrete => |a| a == eh.concrete,
+        };
     }
 
     fn popAny(self: *Validator) Error!TypeOrBot {
