@@ -6,47 +6,52 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `eccab477` — chore(p10): ADR-0122 **D-193 FULLY
-  DISCHARGED** — linker 610/650 is_tail fixup tests portable via
-  comptime per-arch byte shape (10.G cycle 47). Mac aarch64
-  `zig build test` exit 0 + lint clean. cycle 46 (`347f1fa7`) verified
-  green on Linux x86_64 (ubuntu `OK`). cycle 47 pending ubuntu kick —
-  Step 0.7 next cycle reads `/tmp/ubuntu.log`.
-- **D-193 closed**: all ~23 original Mac-aarch64-only test gates
-  cleared over cycles 41/43/44/45/46/47 (debt row → Discharged). The
-  D-180-hazard coverage gap (Mac-only executing tests hiding Linux
-  x86_64) is gone. 0 `skip.blocker(.@"D-193")` sites repo-wide.
+- **HEAD**: `c786a2d8` — docs(p10): **ADR-0123** (10.R function-
+  references typed-funcref representation, Proposed) (cycle 48).
+  Docs-only — code unchanged from `89403a63` (already ubuntu-green
+  `OK (HEAD=89403a63)`). **No ubuntu kick this cycle** (non-code-gap;
+  Step 0.7 next cycle: c786a2d8 is docs-only, nothing new to verify).
+- **D-193 FULLY DISCHARGED** (cycle 47, `eccab477`): all ~23
+  Mac-aarch64-only test gates cleared over cycles 41-47; D-180-hazard
+  coverage gap gone; 0 `skip.blocker(.@"D-193")` sites repo-wide.
 - **Active debt rows**: 17 — all `blocked-by:` with named barriers.
   Zero `now`-status rows.
-- **No Active bundle** yet — opening 10.R next (see below).
 
-## Active task — pivot to ROADMAP §10 row 10.R (function-references)
+## Active bundle
 
-The D-193 test-gate stream (cycles 41-47) is complete. Re-grounded in
-ROADMAP §10: open feature rows are 10.M / 10.R / 10.TC / 10.E / 10.G /
-10.P. Frontier analysis:
-- memory64 (10.M) + tail-call (10.TC) spec corpora already pass
-  (337/337, 31/31). 10.TC's last piece return_call_ref is **blocked
-  by 10.R** (D-186). 10.E blocked (D-188/D-192: exnref ValType ADR +
-  cross-module register). 10.G op-corpus D-179-blocked (wabt 1.0.41+).
-- **10.R is the unblocked high-leverage pick**: `ref.as_non_null` /
-  `br_on_null` / `br_on_non_null` / `call_ref` / `return_call_ref` +
-  `(ref $sig)` typed funcref typing; `feature/function_references/`.
-  GC prerequisite (MVP.md:14-22) AND unblocks 10.TC return_call_ref.
-  Its spec corpus bakes green (per D-179).
+- **Bundle-ID**: 10.R-function-references
+- **Cycles-remaining**: ~5
+- **Continuity-memo**: ADR-0123 (Proposed) decides the representation —
+  sig type-index rides in `ZirInstr.payload` (mirrors call_indirect),
+  type stack stays generic funcref, runtime sig-dispatch (null-trap +
+  `IndirectCallTypeMismatch`), static typed-ref + nullability narrowing
+  deferred to 10.G. **call_ref / return_call_ref impl is gated on
+  ADR-0123 Accept** (user flip). The 3 null-manipulation ops
+  (ref.as_non_null / br_on_null / br_on_non_null) are
+  representation-independent (generic-ref null-check) and proceed NOW.
+- **Exit-condition**: function-references spec return/trap fixtures run
+  (not just invalid=12); the 5 ops execute under interp + JIT on both
+  arches. (Autonomous portion: 3 null-ops JIT green; call_ref family
+  after ADR Accept.)
 
-**NEXT chunk — 10.R Step 0 survey** (Explore subagent, then open a
-bundle): (1) locate the governing ADR — function-references typing is
-likely folded into ADR-0116 (RTT/typed-ref/i31) or ADR-0115; confirm
-whether `(ref $sig)` Value shape + validator typing is ADR-covered or
-needs a new ADR (ROADMAP §4 ValType deviation → file first if
-uncovered). (2) Survey v1 `function_references` + wasmtime +
-wasm-tools for the typed-funcref Value shape, null-typing, and
-br_on_null/br_on_non_null branch typing. (3) Identify the smallest red
-test — likely `ref.as_non_null` (traps on null, identity otherwise) or
-`br_on_null` validator typing. Then open `## Active bundle` for 10.R
-with cycles-remaining + exit-condition (function-references spec
-return/trap fixtures run, not just invalid=12).
+## Active task — 10.R: JIT-emit the null-manipulation ops
+
+Survey done (cycle 48): the 3 null-ops are parsed+validated+interpreted
+(generic reftype) but **JIT-stubbed**; call_ref/return_call_ref are
+parse-only (gated on ADR-0123). Per ADR-0123 D2 the null-ops are
+representation-independent → unblocked.
+
+**NEXT chunk** — JIT-emit `ref.as_non_null` (arm64 + x86_64). Smallest
+red: a JIT-compiled function using ref.as_non_null currently hits the
+unregistered-handler path (dispatch slot null per survey). Emit a
+null-check: if the popped ref (`Value.ref` u64, null=0) is 0 → branch
+to the trap stub (`NullReference`); else leave it in place (identity).
+Register the emit handler in the dispatch table (likely via
+`feature/function_references/register.zig`, currently an empty
+placeholder — wiring it is part of this chunk). Then `br_on_null` +
+`br_on_non_null` (null-conditional branch, reuse br_if fixup machinery)
+as the following chunk. Mind the D-193 lesson: no arm64-pinned byte
+asserts — test via execution or comptime per-arch.
 
 ## Trivial follow-up (2-min, opportunistic)
 
@@ -76,6 +81,9 @@ return/trap fixtures run, not just invalid=12).
 ## Open questions / blockers
 
 - ADR-0120 — Status: Proposed pending user flip to Accepted.
+- ADR-0123 — Status: Proposed. Accept flip unblocks call_ref /
+  return_call_ref impl (the 3 null-ops proceed without it). Low-risk
+  decision (avoids ValType overhaul; defers typed-ref to 10.G).
 - D-179 — wabt 1.0.41+ blocks GC corpus + clang_wasm64 realworld.
 - D-188 / D-192 — EH blocked on exnref ValType + cross-module register.
 - 10.P close gate — user touchpoint by construction.
