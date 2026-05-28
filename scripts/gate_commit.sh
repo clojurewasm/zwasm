@@ -45,6 +45,9 @@ done
 STAGED="$(git diff --cached --name-only)"
 SRC_TOUCHED=0
 ADR_TOUCHED=0
+RULES_TOUCHED=0
+SKILLS_TOUCHED=0
+DEV_MD_TOUCHED=0
 ANY_STAGED=0
 if [ -n "$STAGED" ]; then
     ANY_STAGED=1
@@ -55,6 +58,26 @@ if [ -n "$STAGED" ]; then
                 ;;
             .dev/decisions/*.md|.dev/decisions/*/*.md)
                 ADR_TOUCHED=1
+                ;;
+        esac
+        case "$f" in
+            .claude/rules/*.md)
+                RULES_TOUCHED=1
+                ;;
+            .claude/skills/*/SKILL.md)
+                SKILLS_TOUCHED=1
+                ;;
+        esac
+        # .dev/*.md but not .dev/decisions/*.md (covered by ADR_TOUCHED)
+        # nor lessons (Citing field has its own check). Doc-state marker
+        # check applies to phase_log / archive / architecture / meta_audits /
+        # phase10_prep / and the loose top-level .dev/*.md files.
+        case "$f" in
+            .dev/decisions/*|.dev/lessons/*)
+                # Skip — handled by check_adr_history / check_lesson_citing.
+                ;;
+            .dev/*.md|.dev/*/*.md|.dev/*/*/*.md)
+                DEV_MD_TOUCHED=1
                 ;;
         esac
     done <<< "$STAGED"
@@ -214,6 +237,29 @@ elif [ "$DOCS_ONLY" -eq 1 ]; then
 else
     echo "[gate_commit] zig build lint ..."
     zig build lint -- --max-warnings 0
+fi
+
+# --- scope-gated lints: rules / skills / .dev/*.md markers --------------
+#
+# Per D-058 / D-059 (discharged at cycle 85) + cycle-82 audit's §H
+# block finding (Doc-state markers missing on 12 .dev/*.md files;
+# fixed in cycle 82 but check wasn't gate-wired). Each lint runs only
+# when its scope is touched, so docs-only commits don't pay the
+# full-tree walk cost.
+
+if [ "$RULES_TOUCHED" -eq 1 ] && [ -x scripts/check_rule_paths.sh ]; then
+    echo "[gate_commit] check_rule_paths --gate ..."
+    bash scripts/check_rule_paths.sh --gate > /dev/null
+fi
+
+if [ "$SKILLS_TOUCHED" -eq 1 ] && [ -x scripts/check_skill_descriptions.sh ]; then
+    echo "[gate_commit] check_skill_descriptions --gate ..."
+    bash scripts/check_skill_descriptions.sh --gate > /dev/null
+fi
+
+if [ "$DEV_MD_TOUCHED" -eq 1 ] && [ -x scripts/check_doc_state.sh ]; then
+    echo "[gate_commit] check_doc_state --gate ..."
+    bash scripts/check_doc_state.sh --gate > /dev/null
 fi
 
 echo "[gate_commit] All gates passed."
