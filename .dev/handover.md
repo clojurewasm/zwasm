@@ -6,12 +6,12 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `1b0fc917` — feat(p10): arm64 br_on_null JIT emit handler
-  + dispatch registration (10.R cycle 54b scaffolding; arm64 count
-  351; SIBLING-PUB list extended for captureOrEmitBlockMergeMov). §2
-  deviation acknowledged: execution test = cycle 55's very-next source
-  commit per cycle-50→cycle-51 pattern. Mac aarch64 test exit 0. x86_64
-  br_on_null deferred (br_if not migrated to ctx-shape there).
+- **HEAD**: `de4d09a2` — test(p10): br_on_null JIT execution test (10.R
+  cycle 55) — closes cycle-54b §2 gap; **arm64 br_on_null is complete
+  end-to-end** (handlers + dispatch + execution test returns 7 via
+  null-branch around drop). D-194 filed for x86_64 br_on_null +
+  br_on_non_null impl; Blocker enum extended; gate `skip.blocker(.@"D-194")`.
+  Mac aarch64 test exit 0. cycle-54b ubuntu green at `7bed037a`.
 - **D-193 FULLY DISCHARGED** (cycle 47, `eccab477`): all ~23
   Mac-aarch64-only test gates cleared over cycles 41-47; D-180-hazard
   coverage gap gone; 0 `skip.blocker(.@"D-193")` sites repo-wide.
