@@ -6,50 +6,52 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cycle 102 (`7b9218c2`) — `ref.func` yields the typed
-  non-null `(ref $sig)` (ADR-0123 D4) + `(ref $sig) <: func` subtype
-  in `valTypeIsSubtypeFree`. **Bundle 10.R-funcrefs-tail CLOSED**:
-  exit-condition met (function-references return pass **0 → 7/39**,
-  ParseFailed **6 → 3**; delta landed `7b9218c2`).
-- Cycle 100 = Gate 4 BadBlockType (`2fa216b9`); cycle 101 =
-  ref.as_non_null 0xD4 opcode fix (`c82e8124`).
-- Mac aarch64 test + lint green (cycle 102). ubuntu x86_64 SSH gate:
-  cycle-101 HEAD confirmed green; cycle-102 kick backgrounded —
+- **HEAD**: cycle 103 (`d24ad2da`) — typed-ref table + element reftype
+  decode (`decodeTables`/`decodeElement` via `init_expr.readRefType`)
+  + concrete-index bound check in `preDecodeSectionBodies` (ref.4/ref.5
+  stay assert_invalid). Foundation for typed-ref tables/elems.
+- Bundle 10.R-funcrefs-tail CLOSED cycle 102 (`7b9218c2`, return 0→7,
+  ParseFailed 6→3). Cycle 100 Gate 4 (`2fa216b9`); 101 ref.as_non_null
+  0xD4 (`c82e8124`); 102 ref.func typed `(ref $sig)` (`7b9218c2`).
+- Mac aarch64 test + lint green (cycle 103). ubuntu x86_64 SSH gate:
+  cycle-102 HEAD confirmed green; cycle-103 kick backgrounded —
   Step 0.7 next resume verifies.
 
 ## Active bundle
 
-- **Bundle-ID**: 10.R-funcrefs-tail-2 (follow-up; cycles 103+)
-- **Cycles-remaining**: ~3
-- **Continuity-memo**: 3 function-references modules still ParseFailed
-  after the typed-ref work — `ref_is_null.0`, `br_on_non_null.0`,
-  `ref_as_non_null.0`. Two (`ref_is_null.0`, `ref_as_non_null.0`) fail
-  **before** the per-function validate loop (section decode / preDecode
-  stage) — they use typed-ref tables `(table (ref null 0))` + typed
-  elem segments `(elem (table) (ref 0) (ref.func 0))` + declarative
-  `(elem func N)`. `br_on_non_null.0` fails IN a func body (its sibling
-  `.2` cleared cycle 102, so the gap is specific to `.0`'s shape:
-  `block (result (ref 0))` + `br_on_non_null` + `call_ref`).
-  **Step 0 each cycle**: re-probe (temp `frontendValidate` per-func
-  error print, OR section-decode probe for the pre-loop failures) to
-  localize before fixing.
+- **Bundle-ID**: 10.R-funcrefs-tail-2 (follow-up; cycles 104+)
+- **Cycles-remaining**: ~2
+- **Continuity-memo**: cycle 103 landed the typed-table/elem decode +
+  bound-check FOUNDATION (ref_is_null.0's `(table (ref null 0))` +
+  typed elem now decode). The 3 remaining ParseFailed all now fail IN
+  func bodies (re-probed cycle 103 via temp `frontendValidate` per-func
+  print):
+  - `ref_is_null.0` → **func#0 BadValType** — ANOMALOUS: func 0 is
+    `(func (type 0))` (empty body), which shouldn't BadValType. Next
+    cycle MUST print func#0's body bytes (the per-func probe attributes
+    by code-section index; verify the attribution + dump body) before
+    assuming the op. Candidate: a typed-`select` / typed-`ref.null`
+    site, OR a mis-decoded code entry.
+  - `br_on_non_null.0`, `ref_as_non_null.0` → **StackTypeMismatch**
+    (per-func, concrete typed ref `(ref 0)` flowing through
+    `block (result (ref 0))`/`br_on_non_null`/`call_ref`).
 - **Exit-condition**: function-references ParseFailed = 0 (all 15
   modules across the 7 manifests compile) — currently 3.
 
-## Active task — cycle 103: diagnose + fix the highest-yield of the 3 remaining ParseFailed
+## Active task — cycle 104: br_on_non_null.0 / ref_as_non_null.0 StackTypeMismatch (per-func typed-ref)
 
-**Step 0 (re-probe)**: the 2 pre-loop failures need a section-decode
-probe (where does `frontendValidate` return false before the per-func
-loop?) — likely `sections.decodeTables` rejecting `(ref null 0)`
-elem_type, or `sections.decodeElement` rejecting typed elem exprs.
-`br_on_non_null.0` needs the per-func error class (temp probe at
-instantiate.zig ~line 322). Then fix the highest-yield gate. Smallest
-red test per the localized gap (table/elem decode unit test, or a
-`validateFunctionWithMemIdxAndTags` body test).
+Highest-yield clean target (2 modules, same class). **Step 0**: re-add
+the per-func probe (instantiate.zig per-func validate `catch` print) to
+get the exact failing op, OR bisect via a `validateFunctionWithMemIdx-
+AndTags` body test replicating the `block (result (ref 0))` +
+`br_on_non_null` + `call_ref` shape. Likely a concrete-typed-ref
+subtype/equality gap in `opBrOnNonNull` / block-end type check / the
+`call_ref` callee-type match. Smallest red test per the localized op.
 
-After ParseFailed = 0: raise the function-references return pass-rate
-(currently 7/39) — the assert_return bodies that parse but mis-execute
-(call_ref dispatch, ref.func runtime value) are the next surface.
+Parallel: `ref_is_null.0` func#0 BadValType is anomalous — dump the
+code-section func#0 body bytes (re-probe with body slice print) to
+confirm WHICH op/site fails before fixing. After ParseFailed = 0:
+raise the function-references return pass-rate (currently 7/39).
 
 ## Larger §10 work (later bundles)
 
@@ -63,7 +65,7 @@ After ParseFailed = 0: raise the function-references return pass-rate
   type); 10.G must refine once struct/array heads enter module_types.
 - **10.P close gate** — user touchpoint by construction.
 
-## Spec runner observable (post-cycle-102)
+## Spec runner observable (post-cycle-103; ParseFailed/return unchanged from 102 — cycle 103 = decode foundation)
 
 ```
 [memory64           ] return=337 trap=205 invalid=83  (all pass)
