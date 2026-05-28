@@ -1,0 +1,8 @@
+module exports0.0.wasm
+module exports0.1.wasm
+module exports0.2.wasm
+module exports0.3.wasm
+module exports0.4.wasm
+module exports0.5.wasm
+module exports0.6.wasm
+module exports0.7.wasm

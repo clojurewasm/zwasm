@@ -86,6 +86,21 @@ declare -a SMOKE=(
     "multi-memory/align0"
     "multi-memory/address0"
     "multi-memory/memory_size1"
+    # 10.M cycle 69 — broaden multi-memory coverage; all single-
+    # module fixtures (no cross-module `(register …)` dependency).
+    # Surfaces no new substrate gaps as of cycle 69 — pass-rate
+    # contribution is mechanical.
+    "multi-memory/address1"
+    "multi-memory/binary0"
+    "multi-memory/data1"
+    "multi-memory/data_drop0"
+    "multi-memory/exports0"
+    "multi-memory/memory_size2"
+    "multi-memory/memory_size3"
+    "multi-memory/memory_trap0"
+    "multi-memory/memory_trap1"
+    "multi-memory/load2"
+    "multi-memory/memory_copy1"
 )
 
 bake_one() {

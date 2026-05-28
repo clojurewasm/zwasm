@@ -1,0 +1,7 @@
+module binary0.0.wasm
+module binary0.1.wasm
+module binary0.2.wasm
+module binary0.3.wasm
+module binary0.4.wasm
+assert_malformed binary0.5.wasm
+assert_malformed binary0.6.wasm

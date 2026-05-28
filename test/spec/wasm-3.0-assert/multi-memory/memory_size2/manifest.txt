@@ -1,0 +1,21 @@
+module memory_size2.0.wasm
+assert_return size () -> i32:0
+assert_return sizen () -> i32:0
+assert_return grow i32:3 -> ()
+assert_return sizen () -> i32:0
+assert_return size () -> i32:0
+assert_return grow i32:1 -> ()
+assert_return sizen () -> i32:0
+assert_return size () -> i32:1
+assert_return grow i32:0 -> ()
+assert_return sizen () -> i32:0
+assert_return size () -> i32:1
+assert_return grow i32:4 -> ()
+assert_return sizen () -> i32:0
+assert_return size () -> i32:1
+assert_return grow i32:1 -> ()
+assert_return sizen () -> i32:0
+assert_return size () -> i32:2
+assert_return grown i32:1 -> ()
+assert_return sizen () -> i32:0
+assert_return size () -> i32:2

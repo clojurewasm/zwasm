@@ -1,0 +1,11 @@
+module data_drop0.0.wasm
+invoke init_passive i32:1
+invoke drop_passive ()
+invoke drop_passive ()
+assert_return init_passive i32:0 -> ()
+assert_trap init_passive i32:1
+invoke init_passive i32:0
+invoke drop_active ()
+assert_return init_active i32:0 -> ()
+assert_trap init_active i32:1
+invoke init_active i32:0

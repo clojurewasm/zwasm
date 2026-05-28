@@ -1,0 +1,2 @@
+assert_invalid memory_size3.0.wasm
+assert_invalid memory_size3.1.wasm

@@ -1,0 +1,14 @@
+module memory_copy1.0.wasm
+invoke copy i32:10 i32:0 i32:4
+assert_return load8_u i32:9 -> i32:0
+assert_return load8_u i32:10 -> i32:170
+assert_return load8_u i32:11 -> i32:187
+assert_return load8_u i32:12 -> i32:204
+assert_return load8_u i32:13 -> i32:221
+assert_return load8_u i32:14 -> i32:0
+invoke copy i32:65280 i32:0 i32:256
+invoke copy i32:65024 i32:65280 i32:256
+invoke copy i32:65536 i32:0 i32:0
+invoke copy i32:0 i32:65536 i32:0
+assert_trap copy i32:65537 i32:0 i32:0
+assert_trap copy i32:0 i32:65537 i32:0
