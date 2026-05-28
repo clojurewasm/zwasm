@@ -6,10 +6,12 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `ffa69d46` — chore(p10): remove dead
-  `skip.Blocker.@"D-193"` variant (D-193 discharged) (10.R cycle 49).
-  Mac aarch64 test exit 0 + lint clean. cycle-49 ubuntu kick pending
-  (Step 0.7 next cycle). ADR-0123 filed cycle 48 (`c786a2d8`).
+- **HEAD**: `86e5bfaf` — feat(p10): 10.R ref.as_non_null JIT emit
+  handlers + dispatch registration (cycle 50 scaffolding; §2
+  deviation acknowledged, bounded — execution test = cycle 51's
+  source commit). Mac aarch64 test exit 0; count tests pass at
+  arm64=350 / x86_64_ctx=397. cycle-49 ubuntu green at `c7dfeb2b`.
+  cycle-50 ubuntu kick pending (Step 0.7 next cycle).
 - **D-193 FULLY DISCHARGED** (cycle 47, `eccab477`): all ~23
   Mac-aarch64-only test gates cleared over cycles 41-47; D-180-hazard
   coverage gap gone; 0 `skip.blocker(.@"D-193")` sites repo-wide.
@@ -19,29 +21,32 @@
 ## Active bundle
 
 - **Bundle-ID**: 10.R-function-references
-- **Cycles-remaining**: ~4
-- **Continuity-memo**: ADR-0123 (Proposed): sig type-index in
-  `ZirInstr.payload`, generic funcref on type stack, runtime
-  sig-dispatch, typed-ref deferred to 10.G. **call_ref/return_call_ref
-  gated on ADR-0123 Accept**; the 3 null-ops are representation-
-  independent → proceed now. **ref.as_non_null JIT emit plan (cycle-49
-  survey, fully scoped)**: (1) Key finding — JIT traps are UNIFORMLY
-  generic `Error.Trap` (entry.zig:173/188 map any `trap_flag!=0` →
-  Error.Trap; `trap_kind` is diagnostic-only) → ref.as_non_null reuses
-  the existing generic trap-fixup path, NO trap-reason plumbing. (2)
-  Create `src/engine/codegen/{arm64,x86_64}/ops/wasm_3_0/ref_as_non_null.zig`
-  + register in `dispatch_collector_ops.zig` (mirror the ref_is_null
-  registration at wasm_1_0). (3) Emit = pop src vreg, load reg, `CMP
-  reg,#0; B.EQ/JE → append to bounds_fixups` (generic trap stub at
-  epilogue, per arm64 emit.zig:1480 / x86_64 op_control.zig:1331),
-  then push src vreg back (IDENTITY — confirm ctx API for leaving the
-  ref on the vstack; ref_is_null allocates a new bool result, we don't).
-  (4) Test WITHOUT funcref-entry harness: source funcref internally —
-  non-null `ref.func $g; ref.as_non_null; ref.is_null` → callI32NoArgs
-  == 0; null `ref.null func; ref.as_non_null` → Error.Trap. CONFIRM
-  ref.func/ref.null have JIT emit first; avoid arm64-pinned byte
-  asserts (D-193 lesson). NOTE: survey's `(call (ref.as_non_null ...))`
-  WAT is malformed (`call` takes a func-idx, not a funcref operand).
+- **Cycles-remaining**: ~3
+- **Continuity-memo**: ADR-0123 (Proposed) — call_ref/return_call_ref
+  gated on Accept. **Cycle-50 landed scaffolding** (`86e5bfaf`):
+  arm64/x86_64 `ref_as_non_null.zig` emit handlers + dispatch
+  registration; count tests at 350/397; §2 deviation note (no
+  execution test yet). Cycle-49 verified findings: JIT traps surface
+  as generic `Error.Trap` (entry.zig:173/188); `trap_kind` is
+  diagnostic-only; arm64 ref.func/ref.null are inline-emit at
+  emit.zig:789/807 (per-op file pattern not used on arm64 for them);
+  callI32_i64 exists (entry.zig:547) for u64-arg entry. **Cycle-51
+  NEXT chunk — execution test** that closes the §2 gap: write the
+  trap-on-null case first (simplest, no funcref-entry plumbing needed)
+  in `src/engine/codegen/shared/entry.zig` (file already has the
+  comptime native_emit binding from cycle 43). Test shape:
+  `(func (result i32) ref.null funcref ; ref.as_non_null ; ref.is_null ; end)`
+  → expect `callI32NoArgs(...)` returns `Error.Trap`. Resolve at
+  test-write time: (a) `ref.null`'s payload encoding for funcref
+  RefType (check zir.zig + arm64/emit.zig:789 — payload is probably 0
+  for funcref or an enum like `@intFromEnum(zir.ValType.funcref)`),
+  (b) liveness model with identity-passthrough (vreg 0 lives pc 0-2:
+  ref.null→ref.is_null; vreg 1 lives pc 2-3: ref.is_null→end; slots
+  `[_]u16{0,1}` n_slots=2 — both physically distinct since they
+  overlap at pc 2), (c) regalloc.Allocation shape (mirror entry.zig
+  existing tests like 2147+). Then add the non-null case
+  (ref.func 0 inside a 2-func module — needs funcptr_base setup like
+  the linker.zig:524 test pattern).
 - **Exit-condition**: function-references spec return/trap fixtures run
   (not just invalid=12); the 5 ops execute under interp + JIT on both
   arches. (Autonomous portion: 3 null-ops JIT green; call_ref family
