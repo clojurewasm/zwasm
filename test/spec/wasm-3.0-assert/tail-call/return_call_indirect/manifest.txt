@@ -1,0 +1,75 @@
+module return_call_indirect.0.wasm
+assert_return type-i32 () -> i32:306
+assert_return type-i64 () -> i64:356
+assert_return type-f32 () -> f32:1165172736
+assert_return type-f64 () -> f64:4660882566700597248
+assert_return type-index () -> i64:100
+assert_return type-first-i32 () -> i32:32
+assert_return type-first-i64 () -> i64:64
+assert_return type-first-f32 () -> f32:1068037571
+assert_return type-first-f64 () -> f64:4610064722561534525
+assert_return type-second-i32 () -> i32:32
+assert_return type-second-i64 () -> i64:64
+assert_return type-second-f32 () -> f32:1107296256
+assert_return type-second-f64 () -> f64:4634211053438658150
+assert_return dispatch i32:5 i64:2 -> i64:2
+assert_return dispatch i32:5 i64:5 -> i64:5
+assert_return dispatch i32:12 i64:5 -> i64:120
+assert_return dispatch i32:17 i64:2 -> i64:2
+assert_trap dispatch i32:0 i64:2
+assert_trap dispatch i32:15 i64:2
+assert_trap dispatch i32:20 i64:2
+assert_trap dispatch i32:4294967295 i64:2
+assert_trap dispatch i32:1213432423 i64:2
+assert_return dispatch-structural i32:5 -> i64:9
+assert_return dispatch-structural i32:5 -> i64:9
+assert_return dispatch-structural i32:12 -> i64:362880
+assert_return dispatch-structural i32:17 -> i64:9
+assert_trap dispatch-structural i32:11
+assert_trap dispatch-structural i32:16
+assert_return call-tab i32:0 -> i32:306
+assert_return call-tab i32:1 -> i32:307
+assert_return call-tab i32:2 -> i32:308
+assert_return fac i64:0 -> i64:1
+assert_return fac i64:1 -> i64:1
+assert_return fac i64:5 -> i64:120
+assert_return fac i64:25 -> i64:7034535277573963776
+assert_return even i32:0 -> i32:44
+assert_return even i32:1 -> i32:99
+assert_return even i32:100 -> i32:44
+assert_return even i32:77 -> i32:99
+assert_return even i32:100000 -> i32:44
+assert_return even i32:111111 -> i32:99
+assert_return odd i32:0 -> i32:99
+assert_return odd i32:1 -> i32:44
+assert_return odd i32:200 -> i32:99
+assert_return odd i32:77 -> i32:44
+assert_return odd i32:200002 -> i32:99
+assert_return odd i32:300003 -> i32:44
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+skip-adr-skip_text_format_parser directive-assert_malformed-text
+assert_invalid return_call_indirect.12.wasm
+assert_invalid return_call_indirect.13.wasm
+assert_invalid return_call_indirect.14.wasm
+assert_invalid return_call_indirect.15.wasm
+assert_invalid return_call_indirect.16.wasm
+module return_call_indirect.17.wasm
+module return_call_indirect.18.wasm
+assert_invalid return_call_indirect.19.wasm
+assert_invalid return_call_indirect.20.wasm
+assert_invalid return_call_indirect.21.wasm
+assert_invalid return_call_indirect.22.wasm
+assert_invalid return_call_indirect.23.wasm
+assert_invalid return_call_indirect.24.wasm
+assert_invalid return_call_indirect.25.wasm
+assert_invalid return_call_indirect.26.wasm
+assert_invalid return_call_indirect.27.wasm

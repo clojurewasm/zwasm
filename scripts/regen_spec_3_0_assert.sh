@@ -58,6 +58,8 @@ declare -a SMOKE=(
     "memory64/memory_redundancy64"
     "memory64/memory_trap64"
     "tail-call/return_call"
+    # 10.TC cycle 80 — return_call_indirect spec corpus expansion.
+    "tail-call/return_call_indirect"
     "exception-handling/try_table"
     "function-references/ref"
     # 10.M cycle 65 — multi-memory corpus (load/store via memidx > 0).
