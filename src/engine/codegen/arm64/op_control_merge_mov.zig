@@ -182,7 +182,7 @@ pub fn emitMergeMov(
 ///
 /// No-op when the target is not `.block` or `result_arity ==
 /// 0` (legacy single-arm shapes).
-// SIBLING-PUB: op_control.zig, br_on_null.zig (per ADR-0093 extraction; ops/wasm_3_0/br_on_null.zig sibling added 10.R cycle 54b — same merge semantics for the null-branch path)
+// SIBLING-PUB: op_control.zig, br_on_null.zig, br_on_non_null.zig (per ADR-0093 extraction; ops/wasm_3_0/br_on_null.zig sibling added 10.R cycle 54b — same merge semantics for the null-branch path; br_on_non_null.zig added cycle 56 — label expects k+1 values including the ref)
 pub fn captureOrEmitBlockMergeMov(ctx: *EmitCtx, tgt_idx: usize) Error!bool {
     const arity: u32 = ctx.labels.items[tgt_idx].result_arity;
     if (arity == 0) return false;

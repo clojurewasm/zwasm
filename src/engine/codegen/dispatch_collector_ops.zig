@@ -832,6 +832,9 @@ const x86_64_ref_as_non_null = @import("x86_64/ops/wasm_3_0/ref_as_non_null.zig"
 // pub-export OR br_if's migration to the (ctx, ins) shape).
 const arm64_br_on_null = @import("arm64/ops/wasm_3_0/br_on_null.zig");
 
+// 10.R cycle 56 — br_on_non_null JIT emit (arm64 only; x86_64 = D-194).
+const arm64_br_on_non_null = @import("arm64/ops/wasm_3_0/br_on_non_null.zig");
+
 /// Tuple of all migrated arm64 per-op modules.
 pub const collected_arm64_ops = .{
     arm64_i32_add,
@@ -1187,6 +1190,8 @@ pub const collected_arm64_ops = .{
     arm64_ref_as_non_null,
     // 10.R function-references cycle 54b (arm64 only; x86_64 = debt row).
     arm64_br_on_null,
+    // 10.R function-references cycle 56 (arm64 only; x86_64 = D-194).
+    arm64_br_on_non_null,
 };
 
 /// Tuple of all migrated x86_64 per-op modules.

@@ -206,9 +206,9 @@ test "migratedArchOpCount tracks collected per-arch tuples (B59: arm64=348, x86_
     // tuple before, so x86_64 count unchanged).
     // Phase 10 EH (ADR-0114) — IT-1 added arm64_try_table (+1 = 349).
     // 10.R cycle 50 added arm64_ref_as_non_null (+1 = 350); cycle 54b
-    // added arm64_br_on_null (+1 = 351; x86_64 br_on_null deferred to
-    // debt row).
-    try std.testing.expectEqual(@as(usize, 351), migratedArchOpCount(.arm64));
+    // added arm64_br_on_null (+1 = 351); cycle 56 added
+    // arm64_br_on_non_null (+1 = 352; x86_64 = D-194).
+    try std.testing.expectEqual(@as(usize, 352), migratedArchOpCount(.arm64));
     // B79..B106 walked cohorts; B107 SIMD residual (21 ops) — legacy tuple empty.
     try std.testing.expectEqual(@as(usize, 0), migratedArchOpCount(.x86_64));
 }
