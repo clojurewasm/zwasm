@@ -172,7 +172,7 @@ pub fn setupRuntime(
             table_size = tables_buf.items[0].min;
             table_metas = try ta.alloc(TableMeta, tables_buf.items.len);
             for (tables_buf.items, 0..) |t, i| {
-                table_metas[i] = .{ .min = t.min, .max = t.max, .is_funcref = (t.elem_type == .funcref) };
+                table_metas[i] = .{ .min = t.min, .max = t.max, .is_funcref = (t.elem_type.isFuncref()) };
             }
         }
     }

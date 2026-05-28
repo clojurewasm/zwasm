@@ -121,8 +121,7 @@ pub const max_exception_payload: u32 = 16;
 pub fn slotCountForValType(v: zir.ValType) u32 {
     return switch (v) {
         .v128 => 2,
-        .i32, .i64, .f32, .f64, .funcref, .externref => 1,
-        .i31ref, .anyref, .eqref, .structref, .arrayref => 1,
+        .i32, .i64, .f32, .f64, .ref => 1,
     };
 }
 

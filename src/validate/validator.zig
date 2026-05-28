@@ -144,15 +144,30 @@ fn valTypeByte(t: ValType) u8 {
         .f32 => 0x7D,
         .f64 => 0x7C,
         .v128 => 0x7B,
-        .funcref => 0x70,
-        .externref => 0x6F,
-        // Wasm 3.0 GC §5.3.1 — heap-top reftype bytes per
-        // ADR-0115/0116 (10.G op_gc cycles 2 + 6).
-        .i31ref => 0x6C,
-        .anyref => 0x6E,
-        .eqref => 0x6D,
-        .structref => 0x6B,
-        .arrayref => 0x6A,
+        // ADR-0123 (Cycle 2): legacy abstract-ref bytes map through
+        // the nullable abstract head. Non-nullable / concrete refs
+        // need the 0x63 / 0x64 multi-byte form (caller-side handled).
+        .ref => |r| switch (r.heap_type) {
+            .abstract => |a| switch (a) {
+                .func => 0x70,
+                .extern_ => 0x6F,
+                .any => 0x6E,
+                .eq => 0x6D,
+                .i31 => 0x6C,
+                .struct_ => 0x6B,
+                .array => 0x6A,
+                .exn => 0x69,
+                .none => 0x71,
+                .noextern => 0x72,
+                .nofunc => 0x73,
+                .noexn => 0x74,
+            },
+            // Concrete typed-ref (`(ref null? $idx)`) — single-byte
+            // path returns a sentinel; multi-byte 0x63/0x64 encoding
+            // owned by the binary writer's encode-RefType helper
+            // when 10.R-valtype-widen Cycle 3 lands the parser side.
+            .concrete => 0x40,
+        },
     };
 }
 
@@ -622,7 +637,7 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (t != expected) return Error.StackTypeMismatch,
+            .known => |t| if (!t.eql(expected)) return Error.StackTypeMismatch,
         }
     }
 
@@ -952,7 +967,7 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (t != .funcref and t != .externref and t != .i31ref and t != .anyref and t != .eqref and t != .structref and t != .arrayref) return Error.StackTypeMismatch,
+            .known => |t| if (!t.isRef()) return Error.StackTypeMismatch,
         }
         self.markUnreachable();
     }
@@ -1311,7 +1326,7 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (t != .funcref and t != .externref and t != .i31ref and t != .anyref and t != .eqref and t != .structref and t != .arrayref) return Error.StackTypeMismatch,
+            .known => |t| if (!t.isRef()) return Error.StackTypeMismatch,
         }
         try self.pushType(.i32);
     }
@@ -1330,7 +1345,7 @@ pub const Validator = struct {
         switch (top) {
             .bot => try self.pushBot(),
             .known => |t| {
-                if (t != .funcref and t != .externref and t != .i31ref and t != .anyref and t != .eqref and t != .structref and t != .arrayref) return Error.StackTypeMismatch;
+                if (!t.isRef()) return Error.StackTypeMismatch;
                 try self.pushType(t);
             },
         }
@@ -1389,7 +1404,7 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (t != .structref and t != .anyref and t != .eqref) return Error.StackTypeMismatch,
+            .known => |t| if (!(t.isStructRef() or t.isAnyRef() or t.isEqRef())) return Error.StackTypeMismatch,
         }
         try self.pushType(field.valtype);
     }
@@ -1404,7 +1419,7 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (t != .structref and t != .anyref and t != .eqref) return Error.StackTypeMismatch,
+            .known => |t| if (!(t.isStructRef() or t.isAnyRef() or t.isEqRef())) return Error.StackTypeMismatch,
         }
     }
 
@@ -1426,7 +1441,7 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (t != .arrayref and t != .anyref and t != .eqref) return Error.StackTypeMismatch,
+            .known => |t| if (!(t.isArrayRef() or t.isAnyRef() or t.isEqRef())) return Error.StackTypeMismatch,
         }
         try self.pushType(ad.element.valtype);
     }
@@ -1441,7 +1456,7 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (t != .arrayref and t != .anyref and t != .eqref) return Error.StackTypeMismatch,
+            .known => |t| if (!(t.isArrayRef() or t.isAnyRef() or t.isEqRef())) return Error.StackTypeMismatch,
         }
     }
 
@@ -1457,7 +1472,7 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (t != .arrayref and t != .anyref and t != .eqref) return Error.StackTypeMismatch,
+            .known => |t| if (!(t.isArrayRef() or t.isAnyRef() or t.isEqRef())) return Error.StackTypeMismatch,
         }
     }
 
@@ -1512,7 +1527,7 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (t != .funcref and t != .externref and t != .i31ref and t != .anyref and t != .eqref and t != .structref and t != .arrayref) return Error.StackTypeMismatch,
+            .known => |t| if (!t.isRef()) return Error.StackTypeMismatch,
         }
         try self.pushType(.i32);
     }
@@ -1527,7 +1542,7 @@ pub const Validator = struct {
             const top = try self.popAny();
             switch (top) {
                 .bot => {},
-                .known => |t| if (t != .funcref and t != .externref and t != .i31ref and t != .anyref and t != .eqref and t != .structref and t != .arrayref) return Error.StackTypeMismatch,
+                .known => |t| if (!t.isRef()) return Error.StackTypeMismatch,
             }
         }
         try self.pushType(.i32);
@@ -1567,7 +1582,7 @@ pub const Validator = struct {
         const reftype: ValType = switch (top) {
             .bot => .funcref,
             .known => |t| blk: {
-                if (t != .funcref and t != .externref and t != .i31ref and t != .anyref and t != .eqref and t != .structref and t != .arrayref) return Error.StackTypeMismatch;
+                if (!t.isRef()) return Error.StackTypeMismatch;
                 break :blk t;
             },
         };
@@ -1576,11 +1591,11 @@ pub const Validator = struct {
         switch (lt) {
             .empty => return Error.StackTypeMismatch,
             .single => |t| {
-                if (t != reftype) return Error.StackTypeMismatch;
+                if (!t.eql(reftype)) return Error.StackTypeMismatch;
             },
             .multi => |ts| {
                 if (ts.len == 0) return Error.StackTypeMismatch;
-                if (ts[ts.len - 1] != reftype) return Error.StackTypeMismatch;
+                if (!ts[ts.len - 1].eql(reftype)) return Error.StackTypeMismatch;
                 const prefix = ts[0 .. ts.len - 1];
                 var i: usize = prefix.len;
                 while (i > 0) {
@@ -1613,7 +1628,7 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (t != .funcref and t != .externref and t != .i31ref and t != .anyref and t != .eqref and t != .structref and t != .arrayref) return Error.StackTypeMismatch,
+            .known => |t| if (!t.isRef()) return Error.StackTypeMismatch,
         }
         try self.pushType(.i32);
     }
@@ -1713,7 +1728,7 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (t != .funcref and t != .externref and t != .i31ref and t != .anyref and t != .eqref and t != .structref and t != .arrayref) return Error.StackTypeMismatch,
+            .known => |t| if (!t.isRef()) return Error.StackTypeMismatch,
         }
         try self.pushType(.i32);
     }
@@ -1735,7 +1750,7 @@ pub const Validator = struct {
                 try self.pushType(.funcref);
             },
             .known => |t| {
-                if (t != .funcref and t != .externref and t != .i31ref and t != .anyref and t != .eqref and t != .structref and t != .arrayref) return Error.StackTypeMismatch;
+                if (!t.isRef()) return Error.StackTypeMismatch;
                 try self.pushType(t);
             },
         }
@@ -1758,7 +1773,7 @@ pub const Validator = struct {
         const reftype: ValType = switch (top) {
             .bot => .funcref, // polymorphic; pick any reftype
             .known => |t| blk: {
-                if (t != .funcref and t != .externref and t != .i31ref and t != .anyref and t != .eqref and t != .structref and t != .arrayref) return Error.StackTypeMismatch;
+                if (!t.isRef()) return Error.StackTypeMismatch;
                 break :blk t;
             },
         };
@@ -1792,7 +1807,7 @@ pub const Validator = struct {
         const reftype: ValType = switch (top) {
             .bot => .funcref, // polymorphic; pick any reftype
             .known => |t| blk: {
-                if (t != .funcref and t != .externref and t != .i31ref and t != .anyref and t != .eqref and t != .structref and t != .arrayref) return Error.StackTypeMismatch;
+                if (!t.isRef()) return Error.StackTypeMismatch;
                 break :blk t;
             },
         };
@@ -1804,12 +1819,12 @@ pub const Validator = struct {
         switch (lt) {
             .empty => return Error.StackTypeMismatch,
             .single => |t| {
-                if (t != reftype) return Error.StackTypeMismatch;
+                if (!t.eql(reftype)) return Error.StackTypeMismatch;
                 // Prefix is empty; no further pop/push.
             },
             .multi => |ts| {
                 if (ts.len == 0) return Error.StackTypeMismatch;
-                if (ts[ts.len - 1] != reftype) return Error.StackTypeMismatch;
+                if (!ts[ts.len - 1].eql(reftype)) return Error.StackTypeMismatch;
                 const prefix = ts[0 .. ts.len - 1];
                 var i: usize = prefix.len;
                 while (i > 0) {
@@ -1843,7 +1858,7 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (t != .funcref and t != .externref and t != .i31ref and t != .anyref and t != .eqref and t != .structref and t != .arrayref) return Error.StackTypeMismatch,
+            .known => |t| if (!t.isRef()) return Error.StackTypeMismatch,
         }
         // Pop args in reverse, then push results.
         var i: usize = callee.params.len;
@@ -1874,7 +1889,7 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (t != .funcref and t != .externref and t != .i31ref and t != .anyref and t != .eqref and t != .structref and t != .arrayref) return Error.StackTypeMismatch,
+            .known => |t| if (!t.isRef()) return Error.StackTypeMismatch,
         }
         // Pop callee params in reverse (the tail-call args).
         var i: usize = callee.params.len;
@@ -1897,11 +1912,11 @@ pub const Validator = struct {
         switch (fn_frame.end_type) {
             .empty => if (callee_results.len != 0) return Error.StackTypeMismatch,
             .single => |t| {
-                if (callee_results.len != 1 or callee_results[0] != t) return Error.StackTypeMismatch;
+                if (callee_results.len != 1 or !callee_results[0].eql(t)) return Error.StackTypeMismatch;
             },
             .multi => |ts| {
                 if (callee_results.len != ts.len) return Error.StackTypeMismatch;
-                for (callee_results, ts) |a, b| if (a != b) return Error.StackTypeMismatch;
+                for (callee_results, ts) |a, b| if (!a.eql(b)) return Error.StackTypeMismatch;
             },
         }
     }
@@ -1932,7 +1947,7 @@ pub const Validator = struct {
         const type_idx = try leb128.readUleb128(u32, self.body, &self.pos);
         const table_idx = try leb128.readUleb128(u32, self.body, &self.pos);
         if (table_idx >= self.tables.len) return Error.InvalidFuncIndex;
-        if (self.tables[table_idx].elem_type != .funcref) return Error.InvalidFuncIndex;
+        if (!self.tables[table_idx].elem_type.isFuncref()) return Error.InvalidFuncIndex;
         if (type_idx >= self.module_types.len) return Error.InvalidFuncIndex;
         const callee = self.module_types[type_idx];
         try self.popExpect(.i32);
@@ -2008,7 +2023,7 @@ pub const Validator = struct {
         if (elemidx >= self.elem_count) return Error.InvalidFuncIndex;
         if (tableidx >= self.tables.len) return Error.InvalidFuncIndex;
         if (self.elem_types.len != 0) {
-            if (self.elem_types[elemidx] != self.tables[tableidx].elem_type) {
+            if (!self.elem_types[elemidx].eql(self.tables[tableidx].elem_type)) {
                 return Error.StackTypeMismatch;
             }
         }
@@ -2031,7 +2046,7 @@ pub const Validator = struct {
         const dst = try leb128.readUleb128(u32, self.body, &self.pos);
         const src = try leb128.readUleb128(u32, self.body, &self.pos);
         if (dst >= self.tables.len or src >= self.tables.len) return Error.InvalidFuncIndex;
-        if (self.tables[dst].elem_type != self.tables[src].elem_type) {
+        if (!self.tables[dst].elem_type.eql(self.tables[src].elem_type)) {
             return Error.StackTypeMismatch;
         }
         try self.popExpect(.i32);
@@ -2149,7 +2164,7 @@ pub const Validator = struct {
         // call_indirect requires the referenced table to have
         // reftype `funcref`. Externref tables cannot back
         // call_indirect.
-        if (self.tables[table_idx].elem_type != .funcref) return Error.InvalidFuncIndex;
+        if (!self.tables[table_idx].elem_type.isFuncref()) return Error.InvalidFuncIndex;
         if (type_idx >= self.module_types.len) return Error.InvalidFuncIndex;
         const callee = self.module_types[type_idx];
         // Pop the function-table index (i32), then args in reverse.
@@ -2182,7 +2197,7 @@ pub const Validator = struct {
                     // 10.G op_gc cycle 2: i31ref is a reftype per
                     // Wasm 3.0 spec — untyped select rejects ref
                     // operands per Wasm 2.0 §3.3.2.2.
-                    .funcref, .externref, .i31ref, .anyref, .eqref, .structref, .arrayref => false,
+                    .ref => false,
                 };
             }
         }.check;
@@ -2200,7 +2215,7 @@ pub const Validator = struct {
                 .known => |ka| switch (b) {
                     .bot => break :blk a,
                     .known => |kb| {
-                        if (ka != kb) return Error.StackTypeMismatch;
+                        if (!ka.eql(kb)) return Error.StackTypeMismatch;
                         break :blk a;
                     },
                 },
@@ -2368,7 +2383,7 @@ pub const Validator = struct {
                     const top = self.operand_buf[frame.height];
                     switch (top) {
                         .bot => {},
-                        .known => |k| if (k != t) return Error.StackTypeMismatch,
+                        .known => |k| if (!k.eql(t)) return Error.StackTypeMismatch,
                     }
                 }
             },
@@ -2379,7 +2394,7 @@ pub const Validator = struct {
                     const expected_t = ts[offset + i];
                     switch (slot) {
                         .bot => {},
-                        .known => |k| if (k != expected_t) return Error.StackTypeMismatch,
+                        .known => |k| if (!k.eql(expected_t)) return Error.StackTypeMismatch,
                     }
                 }
             },
@@ -2391,11 +2406,18 @@ fn labelTypesEq(a: BlockType, b: BlockType) bool {
     return switch (a) {
         .empty => b == .empty,
         .single => |t1| switch (b) {
-            .single => |t2| t1 == t2,
+            .single => |t2| t1.eql(t2),
             else => false,
         },
         .multi => |ts1| switch (b) {
-            .multi => |ts2| std.mem.eql(ValType, ts1, ts2),
+            .multi => |ts2| blk: {
+                // ADR-0123 Cycle 2: ValType is union(enum); std.mem.eql
+                // can't derive == for unions whose inner types are
+                // also unions. Manual loop via ValType.eql.
+                if (ts1.len != ts2.len) break :blk false;
+                for (ts1, ts2) |x, y| if (!x.eql(y)) break :blk false;
+                break :blk true;
+            },
             else => false,
         },
     };

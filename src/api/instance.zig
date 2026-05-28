@@ -918,28 +918,28 @@ fn marshalValIn(v: Val) runtime.Value {
 }
 
 fn marshalValOut(v: runtime.Value, kind: zir.ValType) Val {
+    // ADR-0123 Cycle 2: ValType pivoted to union(enum). The c_api
+    // wasm_val_t shape distinguishes only funcref vs anyref (plus
+    // i31/struct/array all bucket through `.anyref` per ADR-0115
+    // §6's u32 GcRef encoding); the inner switch maps every
+    // abstract heap head to one of those two c_api shapes.
     return switch (kind) {
         .i32 => .{ .kind = .i32, .of = .{ .i32 = v.i32 } },
         .i64 => .{ .kind = .i64, .of = .{ .i64 = v.i64 } },
         .f32 => .{ .kind = .f32, .of = .{ .f32 = @bitCast(@as(u32, @truncate(v.bits64))) } },
         .f64 => .{ .kind = .f64, .of = .{ .f64 = @bitCast(v.bits64) } },
-        .funcref => .{ .kind = .funcref, .of = .{ .ref = if (v.ref == runtime.Value.null_ref) null else @ptrFromInt(v.ref) } },
-        .externref => .{ .kind = .anyref, .of = .{ .ref = if (v.ref == runtime.Value.null_ref) null else @ptrFromInt(v.ref) } },
         .v128 => .{ .kind = .i64, .of = .{ .i64 = 0 } }, // unreachable for MVP
-        // 10.G op_gc cycle 2 (ADR-0115 §6 Revision 2026-05-29):
-        // i31ref carried as `anyref` u32 GcRef (low-bit tag per
-        // ADR-0116). c_api wasm_val_t shape doesn't yet have an
-        // i31 arm — marshal as anyref pointer to match
-        // externref's existing path. Real i31 c_api shape lands
-        // alongside the i31 op handlers (sub-chunk 4 per
-        // `.dev/phase10_g_op_bundle_plan.md`).
-        .i31ref => .{ .kind = .anyref, .of = .{ .ref = if (v.ref == runtime.Value.null_ref) null else @ptrFromInt(v.ref) } },
-        // 10.G op_gc cycle 6: remaining GC reftypes (anyref /
-        // eqref / structref / arrayref) all marshal as c_api
-        // .anyref shape — same u32 GcRef encoding per
-        // ADR-0115 §6. Concrete struct.new / array.new op-host
-        // marshalling lands at op_gc impl (sub-chunks 5-6).
-        .anyref, .eqref, .structref, .arrayref => .{ .kind = .anyref, .of = .{ .ref = if (v.ref == runtime.Value.null_ref) null else @ptrFromInt(v.ref) } },
+        .ref => |r| blk: {
+            const ref_ptr: ?*anyopaque = if (v.ref == runtime.Value.null_ref) null else @ptrFromInt(v.ref);
+            // c_api wasm_val_t kinds: only .funcref + .anyref are
+            // distinct. All non-func abstract heads + concrete typed
+            // refs marshal as .anyref (same u32 GcRef encoding).
+            const c_kind: ValKind = switch (r.heap_type) {
+                .abstract => |a| if (a == .func) .funcref else .anyref,
+                .concrete => .anyref, // typed-funcref → .funcref shape; struct/array → .anyref shape; collapsed for Tier-1
+            };
+            break :blk .{ .kind = c_kind, .of = .{ .ref = ref_ptr } };
+        },
     };
 }
 

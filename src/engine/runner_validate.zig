@@ -146,7 +146,7 @@ pub fn validateGlobalInitExpr(
     // Result type must match the declared valtype. Reftype
     // sub-typing (funcref is not a supertype of externref or
     // vice-versa) is enforced; numeric types are exact match.
-    if (produced != want_valtype) return Error.InvalidGlobalInitExpr;
+    if (!produced.eql(want_valtype)) return Error.InvalidGlobalInitExpr;
     if (pos >= expr.len or expr[pos] != 0x0B) return Error.InvalidGlobalInitExpr;
     if (pos + 1 != expr.len) return Error.InvalidGlobalInitExpr;
 }

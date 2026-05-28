@@ -436,7 +436,7 @@ pub const Linker = struct {
                             .global_alias => |g| g,
                             else => return error.ImportKindMismatch,
                         };
-                        if (decl.valtype != ga.source_valtype) return error.SignatureMismatch;
+                        if (!decl.valtype.eql(ga.source_valtype)) return error.SignatureMismatch;
                         if (decl.mutable != ga.source_mutable) return error.SignatureMismatch;
                         bindings_list.append(scratch, .{ .global = .{
                             .slot = ga.slot,
@@ -478,6 +478,6 @@ pub const Linker = struct {
 
 fn sigEqual(a: []const _zir.ValType, b: []const _zir.ValType) bool {
     if (a.len != b.len) return false;
-    for (a, b) |x, y| if (x != y) return false;
+    for (a, b) |x, y| if (!x.eql(y)) return false;
     return true;
 }

@@ -66,7 +66,7 @@ pub fn applyDefinedGlobalsInit(
                 const bytes = try rv.evalConstV128Expr(gd.init_expr);
                 @memcpy(globals_buf[off..][0..16], &bytes);
             },
-            .i32, .i64, .f32, .f64, .funcref, .externref, .i31ref, .anyref, .eqref, .structref, .arrayref => {
+            .i32, .i64, .f32, .f64, .ref => {
                 // 10.G op_gc cycle 2: i31ref shares the scalar
                 // const-expr init shape (low-bit-tagged u32 GcRef
                 // per ADR-0116; fits the 8-byte slot like other
@@ -102,7 +102,7 @@ pub fn resolveFuncrefGlobals(
     defer globals_decoded.deinit();
     if (globals_decoded.items.len + num_global_imports != globals_offsets.len) return Error.UnsupportedEntrySignature;
     for (globals_decoded.items, 0..) |gd, gi| {
-        if (globals_valtypes[num_global_imports + gi] != .funcref) continue;
+        if (!globals_valtypes[num_global_imports + gi].isFuncref()) continue;
         const fidx = rv.initExprRefFunc(gd.init_expr) orelse continue;
         if (fidx >= func_entities.len) continue;
         const off = globals_offsets[num_global_imports + gi];

@@ -100,7 +100,7 @@ fn vregClassOfOp(ins: zir.ZirInstr, func: *const ZirFunc) ?VregClass {
         .@"local.get" => switch (func.localValType(@intCast(ins.payload))) {
             .f32, .f64 => VregClass.fpr,
             .v128 => VregClass.v128,
-            .i32, .i64, .funcref, .externref, .i31ref, .anyref, .eqref, .structref, .arrayref => VregClass.gpr,
+            .i32, .i64, .ref => VregClass.gpr,
         },
         // Ops that don't push (advance the vreg counter).
         .@"local.tee",

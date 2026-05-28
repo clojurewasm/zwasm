@@ -170,16 +170,19 @@ fn runtimeToZwasm(v: _runtime_value.Value, vt: _zir.ValType) _zwasm.Value {
         .f32 => .{ .f32 = @truncate(v.bits64) },
         .f64 => .{ .f64 = v.bits64 },
         .v128 => .{ .v128 = v.bits128 },
-        .funcref => .{ .funcref = if (v.ref == 0) null else v.ref },
-        .externref => .{ .externref = if (v.ref == 0) null else v.ref },
-        // 10.G op_gc cycle 2: i31ref marshals as externref-shape
-        // (host opaque u64 ref). Real native API i31ref slot lands
-        // alongside the i31 op handlers (sub-chunk 4).
-        .i31ref => .{ .externref = if (v.ref == 0) null else v.ref },
-        // 10.G op_gc cycle 6: remaining GC reftypes marshal as
-        // externref-shape (host opaque u64 ref). Per-type native
-        // API slots land at op_gc dispatch (sub-chunks 5-7).
-        .anyref, .eqref, .structref, .arrayref => .{ .externref = if (v.ref == 0) null else v.ref },
+        // ADR-0123 Cycle 2: ValType pivoted to union(enum). Map
+        // each ref-shape to the native facade's Value variant.
+        // Per ADR-0115 §6 / ADR-0116, non-func abstract heads + all
+        // concrete typed refs marshal as `.externref` (host opaque
+        // u64 ref); only func head gets the `.funcref` variant for
+        // call_ref / table.set marshalling.
+        .ref => |r| switch (r.heap_type) {
+            .abstract => |a| if (a == .func)
+                .{ .funcref = if (v.ref == 0) null else v.ref }
+            else
+                .{ .externref = if (v.ref == 0) null else v.ref },
+            .concrete => .{ .externref = if (v.ref == 0) null else v.ref },
+        },
     };
 }
 

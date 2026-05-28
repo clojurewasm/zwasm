@@ -543,8 +543,8 @@ fn returnCallIndirectOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
 inline fn sigEq(a: zir.FuncType, b: zir.FuncType) bool {
     if (a.params.len != b.params.len) return false;
     if (a.results.len != b.results.len) return false;
-    for (a.params, b.params) |x, y| if (x != y) return false;
-    for (a.results, b.results) |x, y| if (x != y) return false;
+    for (a.params, b.params) |x, y| if (!x.eql(y)) return false;
+    for (a.results, b.results) |x, y| if (!x.eql(y)) return false;
     return true;
 }
 

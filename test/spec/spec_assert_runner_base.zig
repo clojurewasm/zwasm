@@ -717,7 +717,7 @@ pub fn setupMultiTableScratchCtx(
             const sec = module.find(.table) orelse break :blk_ft true;
             var tabs = zwasm.parse.sections.decodeTables(ta, sec.body) catch break :blk_ft true;
             defer tabs.deinit();
-            break :blk_ft (k < tabs.items.len and tabs.items[k].elem_type == .funcref);
+            break :blk_ft (k < tabs.items.len and tabs.items[k].elem_type.isFuncref());
         };
         const fp_slice: [*]allowzero u64 = if (!tbl_is_funcref)
             @ptrFromInt(0)
@@ -1826,7 +1826,7 @@ pub fn applyImportedGlobalsFromRegistered(
 
         const importer_off = importer_globals_offsets[importer_global_slot];
         const importer_vt = importer_globals_valtypes[importer_global_slot];
-        if (importer_vt != exporter_vt) continue;
+        if (!importer_vt.eql(exporter_vt)) continue;
         // Post-ADR-0110 widen: uniform 16-byte slot stride; the
         // per-valtype 8/16 byte-copy switch collapsed (R-new-8).
         // Scalar values occupy the low 8 bytes; high 8 stay zero
@@ -1935,7 +1935,7 @@ pub fn isSpectestNonFuncBindable(imp: zwasm.parse.sections.Import) bool {
     const e = spectest_catalog.findNonFuncExport(imp.name) orelse return false;
     return switch (imp.kind) {
         .func => false,
-        .global => e.kind == .global and imp.payload.global.valtype == e.valtype,
+        .global => e.kind == .global and imp.payload.global.valtype.eql(e.valtype),
         .table => e.kind == .table,
         .memory => e.kind == .memory,
     };
@@ -2064,8 +2064,8 @@ pub fn hasIncompatibleImportType(
                 defer allocator.free(exporter_ft.results);
                 if (exporter_ft.params.len != want.params.len) return true;
                 if (exporter_ft.results.len != want.results.len) return true;
-                for (exporter_ft.params, want.params) |sp, wp| if (sp != wp) return true;
-                for (exporter_ft.results, want.results) |sr, wr| if (sr != wr) return true;
+                for (exporter_ft.params, want.params) |sp, wp| if (!sp.eql(wp)) return true;
+                for (exporter_ft.results, want.results) |sr, wr| if (!sr.eql(wr)) return true;
             },
             .global, .table, .memory => {
                 // Mirror `instantiate.zig::checkImportTypeMatches`
@@ -2153,7 +2153,7 @@ fn crossModuleGlobalMismatch(
         for (imps.items) |im| {
             if (im.kind != .global) continue;
             if (imported_globals == global_idx) {
-                return im.payload.global.valtype != want_valtype or im.payload.global.mutable != want_mutable;
+                return !im.payload.global.valtype.eql(want_valtype) or im.payload.global.mutable != want_mutable;
             }
             imported_globals += 1;
         }
@@ -2164,7 +2164,7 @@ fn crossModuleGlobalMismatch(
     defer globals.deinit();
     if (defined_idx >= globals.items.len) return true;
     const g = globals.items[defined_idx];
-    return g.valtype != want_valtype or g.mutable != want_mutable;
+    return !g.valtype.eql(want_valtype) or g.mutable != want_mutable;
 }
 
 /// Walk the exporter's import + table sections to find the
@@ -2209,7 +2209,7 @@ fn tableLimitsMismatch(
     want_min: u32,
     want_max: ?u32,
 ) bool {
-    if (src_elem != want_elem) return true;
+    if (!src_elem.eql(want_elem)) return true;
     if (src_min < want_min) return true;
     if (want_max) |wm| {
         const sm = src_max orelse return true;

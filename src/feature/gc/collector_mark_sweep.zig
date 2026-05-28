@@ -283,15 +283,22 @@ pub const MarkSweepCollector = struct {
     }
 };
 
-/// True iff the declared valtype is a heap-allocating reftype
+/// True iff the declared valtype byte is a heap-allocating reftype
 /// per the Wasm 3.0 GC hierarchy. Excludes i31ref (low-bit-1
 /// tagged per ADR-0116 §6 — no heap allocation) and externref
 /// (no heap object owned by the GC; host-side ref).
+///
+/// ADR-0123 Cycle 2: ValType is no longer `enum(u8)` so we can't
+/// `@enumFromInt(valtype_byte)`. Switch directly on the spec-pinned
+/// byte values per Wasm 3.0 §5.3.1.
 fn isHeapReftype(valtype_byte: u8) bool {
-    const zir = @import("../../ir/zir.zig");
-    return switch (@as(zir.ValType, @enumFromInt(valtype_byte))) {
-        .funcref, .anyref, .eqref, .structref, .arrayref => true,
-        .externref, .i31ref, .i32, .i64, .f32, .f64, .v128 => false,
+    return switch (valtype_byte) {
+        0x70 => true, // funcref
+        0x6E => true, // anyref
+        0x6D => true, // eqref
+        0x6B => true, // structref
+        0x6A => true, // arrayref
+        else => false, // numeric / v128 / externref / i31ref / typed refs
     };
 }
 

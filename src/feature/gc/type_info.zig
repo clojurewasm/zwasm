@@ -142,7 +142,7 @@ pub const GcTypeInfos = struct {
 fn fieldSlotSize(valtype: ValType) Error!u8 {
     return switch (valtype) {
         .v128 => Error.UnsupportedFieldSize,
-        .i32, .i64, .f32, .f64, .funcref, .externref, .i31ref, .anyref, .eqref, .structref, .arrayref => slot_size,
+        .i32, .i64, .f32, .f64, .ref => slot_size,
     };
 }
 
@@ -182,7 +182,7 @@ pub fn materialiseGcTypes(alloc: Allocator, types: sections.Types) Error!GcTypeI
                     fields[fi] = .{
                         .offset = offset,
                         .size = sz,
-                        .valtype_byte = @intFromEnum(spec_field.valtype),
+                        .valtype_byte = spec_field.valtype.specByte(),
                         .mutable = spec_field.mutable,
                     };
                     offset += sz;
@@ -203,7 +203,7 @@ pub fn materialiseGcTypes(alloc: Allocator, types: sections.Types) Error!GcTypeI
                     .element = .{
                         .offset = 0,
                         .size = sz,
-                        .valtype_byte = @intFromEnum(ad.element.valtype),
+                        .valtype_byte = ad.element.valtype.specByte(),
                         .mutable = ad.element.mutable,
                     },
                 };
@@ -255,7 +255,7 @@ test "materialiseGcTypes: single i32 struct → 1 field offset=0 size=8" {
     try testing.expectEqual(@as(u32, 8), si.payload_size);
     try testing.expectEqual(@as(u32, 0), si.fields[0].offset);
     try testing.expectEqual(slot_size, si.fields[0].size);
-    try testing.expectEqual(@intFromEnum(ValType.i32), si.fields[0].valtype_byte);
+    try testing.expectEqual(@as(u8, 0x7F), si.fields[0].valtype_byte);
     try testing.expectEqual(false, si.fields[0].mutable);
 }
 
@@ -293,7 +293,7 @@ test "materialiseGcTypes: array of i32 → element.size=8 offset=0" {
     const ai = gti.array_infos[0].?;
     try testing.expectEqual(@as(u32, 0), ai.element.offset);
     try testing.expectEqual(slot_size, ai.element.size);
-    try testing.expectEqual(@intFromEnum(ValType.i32), ai.element.valtype_byte);
+    try testing.expectEqual(@as(u8, 0x7F), ai.element.valtype_byte);
     try testing.expectEqual(true, ai.element.mutable);
 }
 

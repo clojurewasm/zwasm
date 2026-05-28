@@ -216,7 +216,7 @@ fn readFuncrefInitExpr(body: []const u8, pos: *usize, expected: ValType) section
             // ref.func produces funcref. Reject when the segment's
             // declared reftype is externref (elem.51 case — Wasm spec
             // §3.4.6 type mismatch).
-            if (expected != .funcref) return sections.Error.InvalidFunctype;
+            if (!expected.isFuncref()) return sections.Error.InvalidFunctype;
             break :blk try leb128.readUleb128(u32, body, pos);
         },
         0xD0 => blk: {
@@ -227,7 +227,7 @@ fn readFuncrefInitExpr(body: []const u8, pos: *usize, expected: ValType) section
                 0x6F => .externref,
                 else => return sections.Error.BadValType,
             };
-            if (rt_vt != expected) return sections.Error.InvalidFunctype;
+            if (!rt_vt.eql(expected)) return sections.Error.InvalidFunctype;
             pos.* += 1;
             break :blk std.math.maxInt(u32);
         },

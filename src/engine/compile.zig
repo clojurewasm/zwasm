@@ -224,7 +224,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
                             break :blk defined_tables_reftypes[di];
                         }
                     };
-                    if (seg.elem_type != tbl_reftype) {
+                    if (!seg.elem_type.eql(tbl_reftype)) {
                         return Error.ElemSegmentTypeMismatch;
                     }
                 }

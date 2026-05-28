@@ -1138,10 +1138,10 @@ fn checkImportTypeMatches(
                     if (sft.params.len != want_ft.params.len) return error.ImportTypeMismatch;
                     if (sft.results.len != want_ft.results.len) return error.ImportTypeMismatch;
                     for (sft.params, want_ft.params) |sp, wp| {
-                        if (sp != wp) return error.ImportTypeMismatch;
+                        if (!sp.eql(wp)) return error.ImportTypeMismatch;
                     }
                     for (sft.results, want_ft.results) |sr, wr| {
-                        if (sr != wr) return error.ImportTypeMismatch;
+                        if (!sr.eql(wr)) return error.ImportTypeMismatch;
                     }
                 },
                 .wasi => {
@@ -1154,13 +1154,13 @@ fn checkImportTypeMatches(
         .global => {
             const want = it.payload.global;
             const g = binding.global;
-            if (g.source_valtype != want.valtype) return error.ImportTypeMismatch;
+            if (!g.source_valtype.eql(want.valtype)) return error.ImportTypeMismatch;
             if (g.source_mutable != want.mutable) return error.ImportTypeMismatch;
         },
         .table => {
             const want = it.payload.table;
             const t = binding.table;
-            if (t.source_elem_type != want.elem_type) return error.ImportTypeMismatch;
+            if (!t.source_elem_type.eql(want.elem_type)) return error.ImportTypeMismatch;
             if (t.source_min < want.min) return error.ImportTypeMismatch;
             if (want.max) |wm| {
                 const sm = t.source_max orelse return error.ImportTypeMismatch;

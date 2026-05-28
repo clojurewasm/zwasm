@@ -39,8 +39,8 @@ const zir = @import("../../../ir/zir.zig");
 pub fn funcTypeEql(a: zir.FuncType, b: zir.FuncType) bool {
     if (a.params.len != b.params.len) return false;
     if (a.results.len != b.results.len) return false;
-    for (a.params, b.params) |x, y| if (x != y) return false;
-    for (a.results, b.results) |x, y| if (x != y) return false;
+    for (a.params, b.params) |x, y| if (!x.eql(y)) return false;
+    for (a.results, b.results) |x, y| if (!x.eql(y)) return false;
     return true;
 }
 

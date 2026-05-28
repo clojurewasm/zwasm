@@ -68,7 +68,7 @@ pub fn computeOutgoingMaxBytes(
                 },
                 // 10.G op_gc cycle 2: i31ref u32 GcRef shares the
                 // 8-byte gpr-class slot with other reftypes.
-                .i64, .funcref, .externref, .i31ref, .anyref, .eqref, .structref, .arrayref => {
+                .i64, .ref => {
                     if (int_slot >= 8) {
                         stack_byte_off = (stack_byte_off + 7) & ~@as(u32, 7);
                         stack_byte_off += 8;

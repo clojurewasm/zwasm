@@ -59,7 +59,7 @@ pub fn emitGlobalGet(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const shape = lookupGlobalShape(ctx, globalidx);
     switch (shape.vt) {
         .i32 => try emitI32GlobalGet(ctx, globalidx, shape.byte_off),
-        .i64, .funcref, .externref, .i31ref, .anyref, .eqref, .structref, .arrayref => try emitI64GlobalGet(ctx, globalidx, shape.byte_off),
+        .i64, .ref => try emitI64GlobalGet(ctx, globalidx, shape.byte_off),
         .f32 => try emitF32GlobalGet(ctx, globalidx, shape.byte_off),
         .f64 => try emitF64GlobalGet(ctx, globalidx, shape.byte_off),
         .v128 => try emitV128GlobalGet(ctx, globalidx, shape.byte_off),
@@ -72,7 +72,7 @@ pub fn emitGlobalSet(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const shape = lookupGlobalShape(ctx, globalidx);
     switch (shape.vt) {
         .i32 => try emitI32GlobalSet(ctx, globalidx, shape.byte_off),
-        .i64, .funcref, .externref, .i31ref, .anyref, .eqref, .structref, .arrayref => try emitI64GlobalSet(ctx, globalidx, shape.byte_off),
+        .i64, .ref => try emitI64GlobalSet(ctx, globalidx, shape.byte_off),
         .f32 => try emitF32GlobalSet(ctx, globalidx, shape.byte_off),
         .f64 => try emitF64GlobalSet(ctx, globalidx, shape.byte_off),
         .v128 => try emitV128GlobalSet(ctx, globalidx, shape.byte_off),

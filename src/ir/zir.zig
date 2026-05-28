@@ -18,39 +18,169 @@ const Allocator = std.mem.Allocator;
 
 const trace = @import("../diagnostic/trace.zig");
 
-pub const ValType = enum(u8) {
+/// ADR-0123 (Accepted 2026-05-28 cycle 90) D1 — typed-funcref
+/// representation. ValType is a tagged union over the spec's
+/// value-type space: numeric heads (i32/i64/f32/f64/v128) carry
+/// no payload; the single `ref` head carries a `RefType` with
+/// nullability + heap-type kind (abstract head like `func` /
+/// `extern` / `any` / etc., or a concrete type-section index for
+/// `(ref null? $typeidx)`).
+///
+/// Wasm 3.0 §5.3 binary mapping (preserved by-byte for the legacy
+/// abstract refs):
+///   0x7F i32        0x7E i64        0x7D f32        0x7C f64
+///   0x7B v128
+///   0x70 funcref    = ValType.funcref    = .{ .ref = .abs(.func, true) }
+///   0x6F externref  = ValType.externref  = .{ .ref = .abs(.extern_, true) }
+///   0x6E anyref     = ValType.anyref     = .{ .ref = .abs(.any, true) }
+///   0x6D eqref      = ValType.eqref      = .{ .ref = .abs(.eq, true) }
+///   0x6C i31ref     = ValType.i31ref     = .{ .ref = .abs(.i31, true) }
+///   0x6B structref  = ValType.structref  = .{ .ref = .abs(.struct_, true) }
+///   0x6A arrayref   = ValType.arrayref   = .{ .ref = .abs(.array, true) }
+///   0x69 exn        (10.E + 10.G; not yet a ValType — used in tags)
+///   0x63 (ref null ht)  = .{ .ref = .{ .nullable = true,  .heap_type = ht } }
+///   0x64 (ref ht)       = .{ .ref = .{ .nullable = false, .heap_type = ht } }
+///
+/// The pub-const aliases below preserve value-construction
+/// ergonomics for the 7 abstract heads (`const t: ValType =
+/// .funcref;` still works via inferred-tag → const resolution).
+/// Switch patterns must use the new `.ref => |r| switch
+/// (r.heap_type) ...` nested form per ADR-0123 D2 + Zig's
+/// `require_exhaustive_enum_switch` lint.
+pub const ValType = union(enum) {
     i32,
     i64,
     f32,
     f64,
     v128,
-    funcref,
-    externref,
-    /// Wasm 3.0 GC `i31ref` — low-bit-tagged i32 carried in
-    /// `Value.anyref` (offset stored via i31_pack tag encoding,
-    /// per ADR-0116 §135-149). i31 has NO heap allocation —
-    /// it's the only Internal-hierarchy ValType that doesn't
-    /// reach into the per-Store GC slab. Added per ADR-0115 §6
-    /// Revision 2026-05-29 (cycle 2 of 10.G-op_gc bundle).
-    i31ref,
-    /// Wasm 3.0 GC heap-top reftype `anyref` — Internal-hierarchy
-    /// any reference. u32 GcRef offset into per-Store GC slab
-    /// per ADR-0115 §6. Heap-allocating ops (struct.new etc.)
-    /// land in subsequent cycles; this variant is parse-time
-    /// substrate. Byte 0x6E per Wasm 3.0 §5.3.1.
-    anyref,
-    /// Wasm 3.0 GC `eqref` — Internal-hierarchy equality-
-    /// comparable reference. Shares the u32 GcRef encoding with
-    /// anyref. Byte 0x6D per Wasm 3.0 §5.3.1.
-    eqref,
-    /// Wasm 3.0 GC `structref` — Internal-hierarchy struct
-    /// reference. Heap-allocated via struct.new (sub-chunk 5);
-    /// shares u32 GcRef encoding. Byte 0x6B per Wasm 3.0 §5.3.1.
-    structref,
-    /// Wasm 3.0 GC `arrayref` — Internal-hierarchy array
-    /// reference. Heap-allocated via array.new (sub-chunk 6);
-    /// shares u32 GcRef encoding. Byte 0x6A per Wasm 3.0 §5.3.1.
-    arrayref,
+    ref: RefType,
+
+    pub const funcref: ValType = .{ .ref = RefType.abs(.func, true) };
+    pub const externref: ValType = .{ .ref = RefType.abs(.extern_, true) };
+    pub const anyref: ValType = .{ .ref = RefType.abs(.any, true) };
+    pub const eqref: ValType = .{ .ref = RefType.abs(.eq, true) };
+    pub const i31ref: ValType = .{ .ref = RefType.abs(.i31, true) };
+    pub const structref: ValType = .{ .ref = RefType.abs(.struct_, true) };
+    pub const arrayref: ValType = .{ .ref = RefType.abs(.array, true) };
+
+    /// Reverse-map a RefType to a legacy abstract-ref ValType. Used
+    /// by post-migration code paths that still want the byte-pinned
+    /// abstract reference (e.g. binary writer). Returns null when
+    /// the RefType is concrete or non-nullable (which the legacy
+    /// enum couldn't express).
+    pub fn legacyAbsRef(self: ValType) ?AbstractHeapType {
+        if (self != .ref) return null;
+        if (!self.ref.nullable) return null;
+        return switch (self.ref.heap_type) {
+            .abstract => |a| a,
+            .concrete => null,
+        };
+    }
+
+    /// True if `self` is `.funcref` (i.e. `(ref null func)`).
+    pub fn isFuncref(self: ValType) bool {
+        return self == .ref and self.ref.nullable and
+            self.ref.heap_type == .abstract and
+            self.ref.heap_type.abstract == .func;
+    }
+
+    /// True if `self` is `.externref` (i.e. `(ref null extern)`).
+    pub fn isExternref(self: ValType) bool {
+        return self == .ref and self.ref.nullable and
+            self.ref.heap_type == .abstract and
+            self.ref.heap_type.abstract == .extern_;
+    }
+
+    /// True if `self` is the abstract heap `ht` (any nullability,
+    /// abstract head only — concrete typed refs return false).
+    pub fn isAbsHead(self: ValType, ht: AbstractHeapType) bool {
+        if (self != .ref) return false;
+        if (self.ref.heap_type != .abstract) return false;
+        return self.ref.heap_type.abstract == ht;
+    }
+
+    pub fn isStructRef(self: ValType) bool {
+        return self.isAbsHead(.struct_);
+    }
+    pub fn isArrayRef(self: ValType) bool {
+        return self.isAbsHead(.array);
+    }
+    pub fn isAnyRef(self: ValType) bool {
+        return self.isAbsHead(.any);
+    }
+    pub fn isEqRef(self: ValType) bool {
+        return self.isAbsHead(.eq);
+    }
+    pub fn isI31Ref(self: ValType) bool {
+        return self.isAbsHead(.i31);
+    }
+
+    /// True for any ref-shaped ValType (abstract or concrete,
+    /// nullable or not).
+    pub fn isRef(self: ValType) bool {
+        return self == .ref;
+    }
+
+    /// Map the ValType to its Wasm 3.0 binary spec byte (§5.3).
+    /// For concrete typed refs (`(ref null? $idx)`) returns the
+    /// abstract-head byte for spec compatibility; callers needing
+    /// the multi-byte 0x63/0x64 prefix consult `RefType` directly.
+    /// This helper replaces the pre-ADR-0123 `@intFromEnum` pattern
+    /// where the ValType enum tag value equalled the spec byte.
+    pub fn specByte(self: ValType) u8 {
+        return switch (self) {
+            .i32 => 0x7F,
+            .i64 => 0x7E,
+            .f32 => 0x7D,
+            .f64 => 0x7C,
+            .v128 => 0x7B,
+            .ref => |r| switch (r.heap_type) {
+                .abstract => |a| switch (a) {
+                    .func => 0x70,
+                    .extern_ => 0x6F,
+                    .any => 0x6E,
+                    .eq => 0x6D,
+                    .i31 => 0x6C,
+                    .struct_ => 0x6B,
+                    .array => 0x6A,
+                    .exn => 0x69,
+                    .none => 0x71,
+                    .noextern => 0x72,
+                    .nofunc => 0x73,
+                    .noexn => 0x74,
+                },
+                // Concrete typed ref: return the corresponding
+                // abstract head's byte. Callers needing the full
+                // 0x63/0x64 multi-byte form handle that separately.
+                .concrete => 0x70,
+            },
+        };
+    }
+
+    /// Deep structural equality. Zig auto-derives `==` for unions
+    /// only when the inner types support it; `RefType` contains a
+    /// `HeapType` union which the auto-derive can't traverse, so
+    /// we provide an explicit comparison.
+    pub fn eql(a: ValType, b: ValType) bool {
+        const TagT = @typeInfo(ValType).@"union".tag_type.?;
+        const ta: TagT = a;
+        const tb: TagT = b;
+        if (ta != tb) return false;
+        return switch (a) {
+            .i32, .i64, .f32, .f64, .v128 => true,
+            .ref => |ra| blk: {
+                const rb = b.ref;
+                if (ra.nullable != rb.nullable) break :blk false;
+                const hta: @typeInfo(HeapType).@"union".tag_type.? = ra.heap_type;
+                const htb: @typeInfo(HeapType).@"union".tag_type.? = rb.heap_type;
+                if (hta != htb) break :blk false;
+                break :blk switch (ra.heap_type) {
+                    .abstract => |a_abs| a_abs == rb.heap_type.abstract,
+                    .concrete => |a_idx| a_idx == rb.heap_type.concrete,
+                };
+            },
+        };
+    }
 };
 
 // ADR-0123 (Accepted 2026-05-28) Cycle 1 — typed-funcref

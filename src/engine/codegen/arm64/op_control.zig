@@ -143,7 +143,7 @@ pub fn marshalFunctionReturn(ctx: *EmitCtx) Error!void {
             const src_vreg = ctx.pushed_vregs.items[result_base + i];
             if (src_vreg < ctx.alloc.slots.len) {
                 switch (result_kind) {
-                    .i32, .i64, .funcref, .externref, .i31ref, .anyref, .eqref, .structref, .arrayref => {
+                    .i32, .i64, .ref => {
                         const src_xn = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
                         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImm(src_xn, 16, @intCast(byte_off)));
                     },
@@ -165,7 +165,7 @@ pub fn marshalFunctionReturn(ctx: *EmitCtx) Error!void {
     var n_gpr_cap: u8 = 0;
     var n_fp_cap: u8 = 0;
     for (ctx.func.sig.results) |rt| switch (rt) {
-        .i32, .i64, .funcref, .externref, .i31ref, .anyref, .eqref, .structref, .arrayref => n_gpr_cap += 1,
+        .i32, .i64, .ref => n_gpr_cap += 1,
         .f32, .f64, .v128 => n_fp_cap += 1,
     };
     if (n_gpr_cap > 8 or n_fp_cap > 8) return Error.UnsupportedOp;
@@ -178,7 +178,7 @@ pub fn marshalFunctionReturn(ctx: *EmitCtx) Error!void {
         if (src_vreg >= ctx.alloc.slots.len) {
             // D-093 (d-5): dead-fall-through placeholder; skip.
             switch (result_kind) {
-                .i32, .i64, .funcref, .externref, .i31ref, .anyref, .eqref, .structref, .arrayref => n_gpr += 1,
+                .i32, .i64, .ref => n_gpr += 1,
                 .f32, .f64, .v128 => n_fp += 1,
             }
             continue;
@@ -201,7 +201,7 @@ pub fn marshalFunctionReturn(ctx: *EmitCtx) Error!void {
                     try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encMovV16B(dst, src_vn));
                 }
             },
-            .i32, .i64, .funcref, .externref, .i31ref, .anyref, .eqref, .structref, .arrayref => {
+            .i32, .i64, .ref => {
                 const dst: inst.Xn = @intCast(n_gpr);
                 n_gpr += 1;
                 const src_xn = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
