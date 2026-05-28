@@ -171,6 +171,52 @@ pub fn main(init: std.process.Init) !void {
             var name_to_idx: std.StringHashMap(usize) = std.StringHashMap(usize).init(gpa);
             defer name_to_idx.deinit();
 
+            // 10.M-D195b cycle 74 — pre-register a synthetic
+            // `spectest` module's memory before processing any
+            // manifest directive. The Wasm spec testsuite expects
+            // a host-provided `spectest` module with conventional
+            // exports (memory, globals, table, print funcs); many
+            // multi-memory fixtures (imports2/4, linking2, data0.3/5)
+            // declare `(import "spectest" "memory" …)` and currently
+            // fail with UnknownImport. This synth covers the memory
+            // export only; globals / table / funcs land in cycle 75+
+            // when fixtures surface the gap.
+            //
+            // Bytes: `(module (memory (export "memory") 1 2))` —
+            // single memory section, single export section.
+            const spectest_bytes = [_]u8{
+                0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+                // memory section: 1 entry, flags=1, min=1, max=2
+                0x05, 0x04, 0x01, 0x01, 0x01, 0x02,
+                // export "memory" memory 0
+                0x07, 0x0a, 0x01, 0x06, 'm', 'e', 'm', 'o', 'r', 'y', 0x02, 0x00,
+            };
+            if (cur_engine.compile(&spectest_bytes)) |spectest_mod_compiled| {
+                var spectest_mod = spectest_mod_compiled;
+                if (modules_list.append(gpa, spectest_mod)) |_| {
+                    const m_ptr = &modules_list.items[modules_list.items.len - 1];
+                    if (cur_linker.instantiate(m_ptr)) |inst| {
+                        var inst_mut = inst;
+                        if (instances_list.append(gpa, inst_mut)) |_| {
+                            const inst_ptr = &instances_list.items[instances_list.items.len - 1];
+                            if (inst_ptr.memory()) |mem| {
+                                cur_linker.defineMemory("spectest", "memory", mem) catch {};
+                            }
+                        } else |_| {
+                            inst_mut.deinit();
+                        }
+                    } else |_| {
+                        // spectest instantiate failure is non-fatal:
+                        // fixtures that don't reference spectest still
+                        // run; ones that do will fail UnknownImport.
+                    }
+                } else |_| {
+                    spectest_mod.deinit();
+                }
+            } else |_| {
+                // spectest compile failure is non-fatal — see above.
+            }
+
             // Sub-corpus dir (e.g. `tail-call/return_call/`) — both
             // the manifest AND the .wasm files it cites live here.
             var sub_dir = pdir.openDir(io, entry.name, .{}) catch continue;
@@ -243,16 +289,36 @@ pub fn main(init: std.process.Init) !void {
                         };
                         const inst = &instances_list.items[idx];
                         const exports = inst.handle.exports_storage;
+                        var memory_bound = false;
                         for (exports) |exp| {
-                            if (exp.kind != .memory) continue;
-                            // Instance.memory() returns the implicit
-                            // memory0; multi-memory exports (memidx > 0)
-                            // need a richer accessor (future cycle).
-                            const mem_opt = inst.memory();
-                            if (mem_opt) |mem| {
-                                cur_linker.defineMemory(d.func_name, exp.name, mem) catch {};
+                            switch (exp.kind) {
+                                .memory => {
+                                    if (memory_bound) continue;
+                                    // Instance.memory() returns the
+                                    // implicit memory0; multi-memory
+                                    // exports (memidx > 0) need a
+                                    // richer accessor (future cycle).
+                                    if (inst.memory()) |mem| {
+                                        cur_linker.defineMemory(d.func_name, exp.name, mem) catch {};
+                                        memory_bound = true;
+                                    }
+                                },
+                                .func => {
+                                    // 10.M-D195b cycle 74 — bind every
+                                    // func export through the cross-
+                                    // module thunk so the importer
+                                    // resolves via `findEntry` and
+                                    // dispatches into the source
+                                    // instance's runtime.
+                                    cur_linker.defineCrossModuleFunc(d.func_name, exp.name, inst, exp.name) catch {};
+                                },
+                                .table, .global => {
+                                    // Out of scope for cycle 74; table /
+                                    // global cross-module exports remain
+                                    // unbound (importing modules will
+                                    // fail with UnknownImport for those).
+                                },
                             }
-                            break; // single memory0 binding; bail after first
                         }
                         // 10.M-D195b cycle 72 — also register the
                         // instance under the `<as>` name so tagged

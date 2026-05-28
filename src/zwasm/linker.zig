@@ -12,6 +12,7 @@ const Allocator = std.mem.Allocator;
 
 const _api_instance = @import("../api/instance.zig");
 const _api_wasi = @import("../api/wasi.zig");
+const _cross_module = @import("../api/cross_module.zig");
 const _sections = @import("../parse/sections.zig");
 const _runtime = @import("../runtime/runtime.zig");
 const _runtime_import = @import("../runtime/instance/import.zig");
@@ -74,6 +75,14 @@ pub const Linker = struct {
     pub const Payload = union(enum) {
         host_func: HostFuncEntry,
         memory_alias: MemoryAlias,
+        /// 10.M-D195b extension cycle 74 — cross-instance func
+        /// binding. Resolves `(import "<as>" "<name>" (func …))`
+        /// to a function in another already-instantiated module's
+        /// runtime. The Linker holds the `CallCtx` arena slot via
+        /// `ctx_storage` so it stays alive for the importing
+        /// instance's lifetime (cross-module thunk dereferences
+        /// `ctx` at every call).
+        cross_module_func: CrossModuleFuncEntry,
     };
 
     pub const HostFuncEntry = struct {
@@ -85,6 +94,13 @@ pub const Linker = struct {
 
     pub const MemoryAlias = struct {
         bytes: []u8,
+    };
+
+    pub const CrossModuleFuncEntry = struct {
+        source_rt: *_runtime.Runtime,
+        source_funcidx: u32,
+        source_signature: _zir.FuncType,
+        ctx_ptr: *_cross_module.CallCtx,
     };
 
     pub fn init(engine: *_engine.Engine) Linker {
@@ -172,6 +188,62 @@ pub const Linker = struct {
         });
     }
 
+    /// 10.M-D195b cycle 74 — bind a cross-instance function. The
+    /// `source_inst` is a previously-instantiated module that
+    /// exports `<source_name>` as a function; the importing
+    /// module's `(import <module> <name> (func …))` resolves to
+    /// the source's funcidx via the cross-module dispatch thunk
+    /// (`src/api/cross_module.zig`). `source_inst` must outlive
+    /// every Instance instantiated through this Linker (the
+    /// CallCtx aliases its runtime).
+    pub fn defineCrossModuleFunc(
+        self: *Linker,
+        module: []const u8,
+        name: []const u8,
+        source_inst: *_zwasm.Instance,
+        source_name: []const u8,
+    ) !void {
+        const source_rt = source_inst.handle.runtime orelse return error.SignatureMismatch;
+        // Find the export by name + ensure it's a func.
+        var src_funcidx: u32 = std.math.maxInt(u32);
+        for (source_inst.handle.exports_storage) |exp| {
+            if (!std.mem.eql(u8, exp.name, source_name)) continue;
+            if (exp.kind != .func) return error.ImportKindMismatch;
+            src_funcidx = exp.idx;
+            break;
+        }
+        if (src_funcidx == std.math.maxInt(u32)) return error.UnknownImport;
+        const src_sig = source_inst.exportFuncSig(source_name) orelse return error.SignatureMismatch;
+
+        const ctx_ptr = try self.engine.alloc.create(_cross_module.CallCtx);
+        errdefer self.engine.alloc.destroy(ctx_ptr);
+        ctx_ptr.* = .{
+            .source_rt = source_rt,
+            .source_funcidx = src_funcidx,
+            .dispatch_table = _api_instance.dispatchTable(),
+        };
+        try self.ctx_storage.append(self.engine.alloc, .{
+            .ptr = @ptrCast(ctx_ptr),
+            .destroy_fn = struct {
+                fn d(a: Allocator, p: *anyopaque) void {
+                    const cp: *_cross_module.CallCtx = @ptrCast(@alignCast(p));
+                    a.destroy(cp);
+                }
+            }.d,
+        });
+
+        try self.entries.append(self.engine.alloc, .{
+            .module = module,
+            .name = name,
+            .payload = .{ .cross_module_func = .{
+                .source_rt = source_rt,
+                .source_funcidx = src_funcidx,
+                .source_signature = src_sig,
+                .ctx_ptr = ctx_ptr,
+            } },
+        });
+    }
+
     /// Instantiate `mod` against the registered imports, returning
     /// a native `Instance`. Per ADR-0109 §3.2 the signature
     /// type-check happens here against each `(import ...)`
@@ -225,10 +297,6 @@ pub const Linker = struct {
                 const entry = self.findEntry(it.module, it.name) orelse return error.UnknownImport;
                 switch (it.kind) {
                     .func => {
-                        const host = switch (entry.payload) {
-                            .host_func => |h| h,
-                            else => return error.ImportKindMismatch,
-                        };
                         const typeidx = switch (it.payload) {
                             .func_typeidx => |t| t,
                             else => return error.SignatureMismatch,
@@ -236,18 +304,40 @@ pub const Linker = struct {
                         const types = (module_types orelse return error.SignatureMismatch).items;
                         if (typeidx >= types.len) return error.SignatureMismatch;
                         const declared = types[typeidx];
-                        if (!sigEqual(declared.params, host.params) or !sigEqual(declared.results, host.results)) {
-                            return error.SignatureMismatch;
-                        }
-                        bindings_list.append(scratch, .{
-                            .func = .{
-                                .host_call = .{ .fn_ptr = host.thunk_fn, .ctx = host.ctx },
-                                // `.wasi` variant skips the runtime-side
-                                // cross-module type-check; we already
-                                // type-checked above against `host.params/results`.
-                                .source = .wasi,
+                        switch (entry.payload) {
+                            .host_func => |host| {
+                                if (!sigEqual(declared.params, host.params) or !sigEqual(declared.results, host.results)) {
+                                    return error.SignatureMismatch;
+                                }
+                                bindings_list.append(scratch, .{
+                                    .func = .{
+                                        .host_call = .{ .fn_ptr = host.thunk_fn, .ctx = host.ctx },
+                                        .source = .wasi,
+                                    },
+                                }) catch return error.OutOfMemory;
                             },
-                        }) catch return error.OutOfMemory;
+                            .cross_module_func => |cmf| {
+                                // 10.M-D195b cycle 74 — cross-instance
+                                // func binding. Reuse the existing
+                                // cross_module.thunk dispatcher; the
+                                // runtime-side type-check at call
+                                // boundary uses source_signature.
+                                if (!sigEqual(declared.params, cmf.source_signature.params) or !sigEqual(declared.results, cmf.source_signature.results)) {
+                                    return error.SignatureMismatch;
+                                }
+                                bindings_list.append(scratch, .{
+                                    .func = .{
+                                        .host_call = .{ .fn_ptr = _cross_module.thunk, .ctx = @ptrCast(cmf.ctx_ptr) },
+                                        .source = .{ .cross_module = .{
+                                            .source_runtime = cmf.source_rt,
+                                            .source_funcidx = cmf.source_funcidx,
+                                            .source_signature = cmf.source_signature,
+                                        } },
+                                    },
+                                }) catch return error.OutOfMemory;
+                            },
+                            else => return error.ImportKindMismatch,
+                        }
                     },
                     .memory => {
                         const memlimits = switch (it.payload) {
