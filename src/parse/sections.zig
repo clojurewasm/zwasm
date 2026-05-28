@@ -582,7 +582,18 @@ pub fn decodeExports(parent_alloc: Allocator, body: []const u8) Error!Exports {
     const count = try leb128.readUleb128(u32, body, &pos);
     const items = try alloc.alloc(Export, count);
 
-    for (items) |*e| {
+    // 10.E cycle 79 — Wasm 3.0 EH adds export-kind 0x04 (tag); the
+    // upstream `wasm-c-api` doesn't include it in `wasm_externkind_t`
+    // so the v2 c_api surface (`ExternKind`) doesn't either. To let
+    // EH-using modules (try_table.0.wasm exports `e0` as kind=4)
+    // instantiate, we recognise kind=4 at decode but FILTER the
+    // export from `items` — the body's tag references go through
+    // the tag section directly, not through exports_storage.
+    // ExportDesc stays at 4 variants; downstream switches don't
+    // need a `.tag` arm. Future-cycle: cross-instance tag imports
+    // (D-192 sibling) will need a richer kind type.
+    var write_i: usize = 0;
+    for (0..count) |_| {
         const name_len = try leb128.readUleb128(u32, body, &pos);
         if (pos + name_len > body.len) return Error.UnexpectedEnd;
         const name_copy = try alloc.dupe(u8, body[pos .. pos + name_len]);
@@ -591,14 +602,15 @@ pub fn decodeExports(parent_alloc: Allocator, body: []const u8) Error!Exports {
         if (pos >= body.len) return Error.UnexpectedEnd;
         const kind_byte = body[pos];
         pos += 1;
-        if (kind_byte > 3) return Error.BadValType;
-        const kind: ExportDesc = @enumFromInt(kind_byte);
-
+        if (kind_byte > 4) return Error.BadValType;
         const idx = try leb128.readUleb128(u32, body, &pos);
-        e.* = .{ .name = name_copy, .kind = kind, .idx = idx };
+        if (kind_byte == 4) continue; // drop tag exports (see comment above)
+        const kind: ExportDesc = @enumFromInt(kind_byte);
+        items[write_i] = .{ .name = name_copy, .kind = kind, .idx = idx };
+        write_i += 1;
     }
     if (pos != body.len) return Error.TrailingBytes;
-    return .{ .arena = arena, .items = items };
+    return .{ .arena = arena, .items = items[0..write_i] };
 }
 
 // scanInitExpr / readValType / skipLeb128 extracted to
