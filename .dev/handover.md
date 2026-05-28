@@ -6,63 +6,68 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `f2a8a84e` — feat(p10): relax MultiMemoryUnsupported for
-  imported memories (10.M cycle 63). Import path loop-allocates N
-  `MemoryInstance` entries (mirror of cycle-62 defined-memory path).
-  Behaviour-neutral for 0/1-import cases; N-import path latent until
-  corpus baking exercises it. Mac aarch64 test-all + lint green.
-- **D-188 FULLY DISCHARGED** (cycle 61): `assert_invalid pass=118
-  fail=0` across wasm-3.0-assert. **D-194 / D-195(c) DISCHARGED**
-  earlier. Active debt rows: 16 — all `blocked-by:`; zero `now`.
+- **HEAD**: `5bd57371` — feat(p10): interp MemArgExtra.memidx > 0
+  routing (10.M cycle 64). All 24 interp load/store handlers in
+  `src/instruction/wasm_1_0/memory.zig` migrated to consult
+  `MemArgExtra.unpack(instr.extra).memidx` via the new
+  `memorySlice` helper. End-to-end round-trip test (i32.store +
+  i32.load via memidx=1) passes. Mac aarch64 test-all + lint green.
+- **D-188 FULLY DISCHARGED** (cycle 61). **D-194 / D-195(c)
+  DISCHARGED** earlier. Active debt rows: 16 — all `blocked-by:`;
+  zero `now`.
 
 ## Active bundle
 
 - **Bundle-ID**: 10.M-multi-memory
-- **Cycles-remaining**: ~2
+- **Cycles-remaining**: ~1
 - **Continuity-memo**: ADR-0111 (memory64 + multi-memory design).
-  Cycle 62 (`3d2600ca`): defined-memory + data-segment gates
-  relaxed. Cycle 63 (`f2a8a84e`): imported-memory cap relaxed. Now:
-  - **Cycle 64 candidate (next)**: MemArgExtra.memidx > 0 plumbing.
-    Interp memory ops in `src/instruction/wasm_1_0/memory.zig` hard-
-    pin to `rt.memory` (= memories[0]); extend to read `MemArgExtra.
-    unpack(instr.extra).memidx` and route via `rt.memories[memidx].
-    bytes`. Touches every load/store/n-form/size/grow/copy/fill/init
-    handler — bundle this group together (single shared substrate
-    change). JIT codegen path is a separate sibling (out of scope
-    for cycle 64; tackled in cycle 65 alongside corpus baking).
-  - **Cycle 65 candidate**: bake multi-memory raw corpus from
-    upstream `~/Documents/OSS/WebAssembly/memory64/test/core/multi-
-    memory/` into `test/spec/wasm-3.0-assert/multi-memory/raw/` →
-    select 1-2 simplest .wast (e.g., `memory_size0.wast`) →
-    `regen_spec_3_0_assert.sh` bake → wire into runner.
+  Cycles 62-64 landed: defined-memory + data-segment + imported-
+  memory caps relaxed; interp load/store memidx>0 routing wired.
+  Remaining:
+  - **Cycle 65 candidate (next)**: bake one simple multi-memory
+    fixture from upstream `~/Documents/OSS/WebAssembly/memory64/
+    test/core/multi-memory/memory_size0.wast` (or `data0.wast`)
+    into `test/spec/wasm-3.0-assert/multi-memory/raw/` →
+    `regen_spec_3_0_assert.sh` bake → wire into spec runner. NOTE
+    the corpus uses `memory.size` / `memory.grow` with
+    memidx > 0 in some fixtures; `lower.zig::emitMemoryReserved`
+    currently rejects non-zero memidx (`if (body[pos] != 0x00)
+    return BadBlockType`). May need a sibling relax in lower.zig
+    before the corpus bake compiles. Pick `data0.wast` first if it
+    only uses load/store (already wired this cycle).
+  - **Stretch / cycle 66**: relax `lower.zig::emitMemoryReserved`
+    + thread memidx through to memory.size / memory.grow handlers.
 - **Exit-condition**: spec runner shows ≥1 multi-memory return/trap
-  fixture passing on at least the interp path (JIT memidx > 0 is a
-  separate bundle).
+  fixture passing on the interp path (JIT memidx > 0 is a separate
+  future bundle).
 
-## Active task — cycle 64: MemArgExtra.memidx > 0 plumbing (interp)
+## Active task — cycle 65: bake first multi-memory spec fixture
 
-Smallest red: an in-source unit test that builds a 2-memory module +
-function that does `i32.load (memory 1)` from memidx 1; the function
-returns 0 (uninitialized memory). Pre-change: interp hits memories[0]
-silently, returning whatever's at memories[0][0..4] (= 0 anyway, but
-the wrong path). Post-change: routes to memories[1].
+Smallest red:
+1. Add `multi-memory` proposal entry to `scripts/import_proposal_
+   corpus.sh` pointing at `memory64/test/core/multi-memory`.
+2. Copy one .wast (`data0.wast` is a candidate — uses defined
+   memories + data segments + load/store, no memory.size/grow).
+3. Run `regen_spec_3_0_assert.sh multi-memory data0` → produces
+   `test/spec/wasm-3.0-assert/multi-memory/data0/`.
+4. Add manifest registration to `spec_assert_runner_wasm_3_0.zig`'s
+   PROPOSALS list (or new `multi-memory` proposal name).
+5. Run spec runner → verify the new manifest passes its
+   assert_return/assert_trap directives.
 
-Surface: `MemArgExtra.unpack(instr.extra).memidx` lookup per handler
-in `src/instruction/wasm_1_0/memory.zig` (and SIMD memory ops in
-`wasm_2_0/simd_memory.zig` if any). Replace `rt.memory` with
-`rt.memories[memidx].bytes`. Per-target bounds check + per-target
-idx_type (for offset width).
+If `data0.wast` fixtures use `memory.size`/`grow` with memidx > 0,
+fall back to a hand-picked simpler fixture or defer to cycle 66.
 
 ## Larger §10 work (blocked / later)
 
-- **10.M memory64 multi-memory** — IN-PROGRESS bundle (cycle 62-63
-  open; ~2 cycles remaining).
+- **10.M memory64 multi-memory** — IN-PROGRESS bundle (cycles 62-64
+  landed; cycle 65 = corpus baking).
 - **10.E EH** — validator side spec-correct (cycle 61); runtime EH
   dispatch + cross-module register (D-192) external-gated.
 - **10.G WasmGC** — D-179-blocked (wabt 1.0.41+).
 - **10.P close gate** — user touchpoint by construction.
 
-## Spec runner observable (post-cycle-63; unchanged from cycle-61)
+## Spec runner observable (post-cycle-64; unchanged from cycle-61)
 
 ```
 [memory64           ] return=337 trap=205 invalid=83  (all pass)
@@ -72,8 +77,8 @@ idx_type (for offset width).
 [wasm-3.0-assert    ] assert_invalid pass=118 fail=0
 ```
 
-(Cycles 62-63 substrate change is invisible to the runner — multi-
-memory corpus not yet baked.)
+Cycles 62-64 are observable via the new in-source tests
+(`10.M cycle 62/64`) but not yet via the spec runner.
 
 ## Open questions / blockers
 
