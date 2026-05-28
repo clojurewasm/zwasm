@@ -38,7 +38,6 @@ const sections = @import("../../parse/sections.zig");
 const validator = @import("../../validate/validator.zig");
 const zir = @import("../../ir/zir.zig");
 const leb128 = @import("../../support/leb128.zig");
-const dbg = @import("../../support/dbg.zig");
 const import_mod = @import("import.zig");
 const instance_mod = @import("instance.zig");
 const heap_mod = @import("../../feature/gc/heap.zig");
@@ -838,64 +837,56 @@ pub fn instantiateRuntime(
     // per-memory descriptor (idx_type + page bounds) is reachable
     // from the runtime side; `rt.memory` keeps its pointer-alias
     // semantics via setMemory0Bytes.
-    // 10.M cycle 63 — relax single-memory cap for IMPORTED memories.
-    // Loop over all memory-kind imports and allocate N
-    // MemoryInstance entries (aliased to the source bindings; no
-    // copy). `rt.memory` keeps aliasing memories[0] for the
-    // legacy single-memory emit-side `[base, offset]` shape.
-    //
-    // **Imports + defined combination remains a pre-existing limitation**:
-    // when both are present, the `else if (module.find(.memory))`
-    // branch below is skipped (silently dropping defined memories).
-    // Filed as a future-cycle item; spec allows the combination but
-    // current usage in the test corpus uses one or the other.
-    if (imp_memory_count > 0) {
-        const mi = try a.alloc(runtime_mod.MemoryInstance, imp_memory_count);
+    // 10.M cycle 71 — additive memory wiring: imports + defined.
+    // Pre-cycle-71 the if/else-if dropped defined memories whenever
+    // ≥1 memory was imported. Wasm 3.0 multi-memory allows both;
+    // load1.wast (D-195(b) bundle) exercises the combination.
+    // Total = imp_memory_count + defined section count. Fill imports
+    // first (memidx 0..imp-1), then defined (memidx imp..total-1).
+    // `rt.memory` keeps aliasing memories[0] for the legacy emit
+    // path's `[base, offset]` shape.
+    var defined_memories: ?sections.Memories = if (module.find(.memory)) |s|
+        sections.decodeMemory(a, s.body) catch null
+    else
+        null;
+    defer if (defined_memories) |*m| m.deinit();
+    const def_memory_count: usize = if (defined_memories) |m| m.items.len else 0;
+    const total_memory_count_alloc: usize = imp_memory_count + def_memory_count;
+    if (total_memory_count_alloc > 0) {
+        const mi = try a.alloc(runtime_mod.MemoryInstance, total_memory_count_alloc);
         var slot: usize = 0;
-        for (imports_decoded.?.items, 0..) |it, idx| {
-            if (it.kind != .memory) continue;
-            const m = bindings.?[idx].memory;
-            mi[slot] = .{
-                .bytes = m.memory,
-                .idx_type = m.source_idx_type,
-                .pages_min = m.source_min,
-                .pages_max = m.source_max,
-            };
-            slot += 1;
+        // Imports first.
+        if (imp_memory_count > 0) {
+            for (imports_decoded.?.items, 0..) |it, idx| {
+                if (it.kind != .memory) continue;
+                const m = bindings.?[idx].memory;
+                mi[slot] = .{
+                    .bytes = m.memory,
+                    .idx_type = m.source_idx_type,
+                    .pages_min = m.source_min,
+                    .pages_max = m.source_max,
+                };
+                slot += 1;
+            }
         }
-        rt.memories = mi;
-        rt.memory = mi[0].bytes;
-    } else if (module.find(.memory)) |memory_section| {
-        // 10.M cycle 62 — relax single-memory cap for DEFINED memories.
-        // Loop-allocate N MemoryInstance entries (one per declared
-        // memory). `rt.memory` (the legacy `[*]u8` alias) continues
-        // to point at memories[0] for backward compat with the
-        // single-memory-shaped emit / load-store paths; memidx > 0
-        // ops require ADR-0111's MemArgExtra.memidx plumbing through
-        // emit (separate cycle). Imported memories still capped at 1
-        // at line 806 (binding shape carries one memory per slot).
-        var memories = try sections.decodeMemory(a, memory_section.body);
-        defer memories.deinit();
-        if (memories.items.len > 0) {
-            const mi = try a.alloc(runtime_mod.MemoryInstance, memories.items.len);
-            for (memories.items, 0..) |entry, i| {
+        // Then defined.
+        if (defined_memories) |memories| {
+            for (memories.items) |entry| {
                 const pages = entry.min;
                 const bytes_total: usize = @as(usize, pages) * 65536;
                 const mem = try a.alloc(u8, bytes_total);
                 @memset(mem, 0);
-                mi[i] = .{
+                mi[slot] = .{
                     .bytes = mem,
                     .idx_type = entry.idx_type,
                     .pages_min = entry.min,
                     .pages_max = entry.max,
                 };
+                slot += 1;
             }
-            rt.memories = mi;
-            rt.memory = mi[0].bytes;
-            dbg.print("instantiate.alloc", "memory rt={x} count={d} ptr0={x} len0={d}", .{
-                @intFromPtr(rt), mi.len, @intFromPtr(mi[0].bytes.ptr), mi[0].bytes.len,
-            });
         }
+        rt.memories = mi;
+        rt.memory = mi[0].bytes;
     }
 
     if (module.find(.data)) |data_section| {

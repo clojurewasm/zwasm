@@ -135,25 +135,34 @@ pub fn main(init: std.process.Init) !void {
             var cur_module_bytes: ?[]u8 = null;
             defer if (cur_module_bytes) |b| gpa.free(b);
 
-            // D-190 — Engine/Module/Linker/Instance share-state across
-            // all directives following each `module <path>` block.
-            // Each `module` directive tears down the prior context
-            // and creates a fresh one; subsequent assert_returns /
-            // assert_traps / assert_exceptions invoke against the
-            // shared Instance so state-dependent sequences (e.g.,
-            // memory_grow64's grow → size → load) accumulate per
-            // spec semantics. Setup failure leaves cur_instance =
-            // null so dependent directives skip cleanly.
-            var cur_engine: ?zwasm.Engine = null;
-            var cur_module: ?zwasm.Module = null;
-            var cur_linker: ?zwasm.Linker = null;
-            var cur_instance: ?zwasm.Instance = null;
+            // 10.M-D195b cycle 71 — multi-instance lifetime for
+            // cross-module `(register …)` support. Pre-cycle-71 each
+            // `module` directive tore down the prior Engine/Module/
+            // Linker/Instance and created fresh state. Cross-module
+            // imports + Linker.defineMemory entries need shared
+            // state across modules — so the runner now keeps a
+            // single Engine + Linker per manifest, accumulating
+            // Modules + Instances in arrays. Each instantiate
+            // resolves against the cumulative Linker entries
+            // (populated by prior `register <as>` directives).
+            var cur_engine: zwasm.Engine = zwasm.Engine.init(gpa, .{}) catch continue;
+            defer cur_engine.deinit();
+            var cur_linker: zwasm.Linker = zwasm.Linker.init(&cur_engine);
+            defer cur_linker.deinit();
+            var modules_list: std.ArrayList(zwasm.Module) = .empty;
             defer {
-                if (cur_instance) |*i| i.deinit();
-                if (cur_linker) |*l| l.deinit();
-                if (cur_module) |*m| m.deinit();
-                if (cur_engine) |*e| e.deinit();
+                for (modules_list.items) |*m| m.deinit();
+                modules_list.deinit(gpa);
             }
+            var instances_list: std.ArrayList(zwasm.Instance) = .empty;
+            defer {
+                for (instances_list.items) |*i| i.deinit();
+                instances_list.deinit(gpa);
+            }
+            // The most-recently-instantiated index into `instances_list`,
+            // or null when no module is currently active (compile /
+            // instantiate failed).
+            var cur_inst_idx: ?usize = null;
 
             // Sub-corpus dir (e.g. `tail-call/return_call/`) — both
             // the manifest AND the .wasm files it cites live here.
@@ -172,32 +181,65 @@ pub fn main(init: std.process.Init) !void {
                         if (cur_module_bytes) |b| gpa.free(b);
                         cur_module_bytes = sub_dir.readFileAlloc(io, d.module_path, gpa, .limited(4 << 20)) catch {
                             cur_module_bytes = null;
+                            cur_inst_idx = null;
                             continue;
                         };
-                        // D-190 — tear down prior context (defers
-                        // are scope-bound; explicit teardown happens
-                        // here per `module` directive).
-                        if (cur_instance) |*i| { i.deinit(); cur_instance = null; }
-                        if (cur_linker) |*l| { l.deinit(); cur_linker = null; }
-                        if (cur_module) |*m| { m.deinit(); cur_module = null; }
-                        if (cur_engine) |*e| { e.deinit(); cur_engine = null; }
-                        cur_engine = zwasm.Engine.init(gpa, .{}) catch continue;
-                        cur_module = (cur_engine.?).compile(cur_module_bytes.?) catch |e| {
-                            // Compile failed — leave cur_engine alive
-                            // but cur_module/instance null; dependent
-                            // asserts will skip via the orelse path.
-                            // 10.R cycle 59 — surface per-module compile
-                            // failures to stderr so the runner emits
-                            // an observable signal (silent skip masked
-                            // function-references corpus expansion).
+                        // 10.M-D195b cycle 71 — compile + instantiate
+                        // against the shared engine + linker, then
+                        // accumulate. Cross-module imports declared
+                        // by the new module resolve against the
+                        // linker's existing entries (populated by
+                        // prior `register <as>` directives).
+                        var compiled = cur_engine.compile(cur_module_bytes.?) catch |e| {
                             std.debug.print("[wasm-3.0-assert] {s}/{s} compile FAIL: {s}\n", .{ proposal, d.module_path, @errorName(e) });
+                            cur_inst_idx = null;
                             continue;
                         };
-                        cur_linker = zwasm.Linker.init(&cur_engine.?);
-                        cur_instance = (cur_linker.?).instantiate(&cur_module.?) catch |e| {
+                        modules_list.append(gpa, compiled) catch {
+                            compiled.deinit();
+                            cur_inst_idx = null;
+                            continue;
+                        };
+                        const m_ptr = &modules_list.items[modules_list.items.len - 1];
+                        var inst = cur_linker.instantiate(m_ptr) catch |e| {
                             std.debug.print("[wasm-3.0-assert] {s}/{s} instantiate FAIL: {s}\n", .{ proposal, d.module_path, @errorName(e) });
+                            cur_inst_idx = null;
                             continue;
                         };
+                        instances_list.append(gpa, inst) catch {
+                            inst.deinit();
+                            cur_inst_idx = null;
+                            continue;
+                        };
+                        cur_inst_idx = instances_list.items.len - 1;
+                    },
+                    .register => {
+                        // 10.M-D195b cycle 71 — bind the most-recent
+                        // instance's memory exports into the shared
+                        // Linker under `<as>` so subsequent modules'
+                        // `(import "<as>" "<name>" memory)` resolves
+                        // via Linker.findEntry. Only memory exports
+                        // wired this cycle (func/table/global cross-
+                        // module imports are out of scope until a
+                        // fixture surfaces the gap).
+                        const idx = cur_inst_idx orelse {
+                            summary.skips += 1;
+                            continue;
+                        };
+                        const inst = &instances_list.items[idx];
+                        const exports = inst.handle.exports_storage;
+                        for (exports) |exp| {
+                            if (exp.kind != .memory) continue;
+                            // Instance.memory() returns the implicit
+                            // memory0; multi-memory exports (memidx > 0)
+                            // need a richer accessor (future cycle).
+                            const mem_opt = inst.memory();
+                            if (mem_opt) |mem| {
+                                cur_linker.defineMemory(d.func_name, exp.name, mem) catch {};
+                            }
+                            break; // single memory0 binding; bail after first
+                        }
+                        summary.skips += 1;
                     },
                     .assert_return => {
                         summary.asserts_return += 1;
@@ -222,13 +264,14 @@ pub fn main(init: std.process.Init) !void {
                         // (0 results) handled inline below so the
                         // state-mutating call still runs.
                         if (d.results_len > 1) continue;
-                        const instance = if (cur_instance) |*i| i else {
+                        const idx_ret = cur_inst_idx orelse {
                             // Setup failure earlier in this module block;
                             // count as fail since the assert couldn't
                             // be evaluated.
                             summary.asserts_return_fail += 1;
                             continue;
                         };
+                        const instance = &instances_list.items[idx_ret];
                         if (d.results_len == 0) {
                             // Void-result assert_return — invoke for
                             // side effects (store ops, table.set, etc.)
@@ -274,10 +317,11 @@ pub fn main(init: std.process.Init) !void {
                             call_args[ai] = manifest_parser.runtimeToZwasm(rv, tv.ty);
                         }
                         if (!call_args_ok) continue;
-                        const instance = if (cur_instance) |*i| i else {
+                        const idx_trap = cur_inst_idx orelse {
                             summary.asserts_trap_fail += 1;
                             continue;
                         };
+                        const instance = &instances_list.items[idx_trap];
                         // assert_trap directives carry no results
                         // section in the baked manifest — invokeInstanceTrap
                         // looks up sig.results.len internally. Any
@@ -355,10 +399,11 @@ pub fn main(init: std.process.Init) !void {
                             call_args[ai] = manifest_parser.runtimeToZwasm(rv, tv.ty);
                         }
                         if (!call_args_ok) continue;
-                        const instance = if (cur_instance) |*i| i else {
+                        const idx_exc = cur_inst_idx orelse {
                             summary.asserts_exception_fail += 1;
                             continue;
                         };
+                        const instance = &instances_list.items[idx_exc];
                         const outcome = manifest_parser.invokeInstanceExpectException(instance, d.func_name, call_args[0..d.args_len]) catch {
                             summary.asserts_exception_fail += 1;
                             continue;
@@ -387,22 +432,11 @@ pub fn main(init: std.process.Init) !void {
                             call_args[ai] = manifest_parser.runtimeToZwasm(rv, tv.ty);
                         }
                         if (!call_args_ok) continue;
-                        const instance = if (cur_instance) |*i| i else continue;
+                        const idx_inv = cur_inst_idx orelse continue;
+                        const instance = &instances_list.items[idx_inv];
                         // Failure is informational only — the action
                         // wasn't an assertion. Counters don't increment.
                         manifest_parser.invokeInstanceVoid(instance, d.func_name, call_args[0..d.args_len]) catch {};
-                    },
-                    .register => {
-                        // 10.M-D195b cycle 70 — the bake script now
-                        // emits structured `register <as>` lines.
-                        // Cycle 70 acknowledges the directive (counts
-                        // as skip until the cross-instance binding
-                        // path lands cycle 71+). Without this arm
-                        // `parseLine` would have returned `.unknown`
-                        // and silently skipped — the explicit count
-                        // makes the gap visible in the per-proposal
-                        // summary.
-                        summary.skips += 1;
                     },
                     .skip_impl, .skip_validator, .skip_runtime => summary.skips += 1,
                     .unknown => {},
