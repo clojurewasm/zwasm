@@ -62,6 +62,30 @@ is first, so the earliest blocker wins):
 
 Only AFTER parse succeeds do the execution-side steps below apply.
 
+## CORRECTION #2 (cycle 113) — blocker is the VALIDATOR, not parse
+
+Direct-binary probe of `frontendValidate` proved try_table.1 (`24 funcs,
+7 tags`) + try_table.2 + try_table.5 ALL **reach the validator** — so
+Type(exnref, cyc112) + Import(tag, cyc110) + **Tag section (id 13)** all
+decode fine. `decodeTags` ALREADY EXISTS + is wired (`instantiate.zig:218,
+934`), so the cyc111 "Tag section decode" hypothesis was ALSO wrong. The
+real blocker: **`validate func[5] FAIL StackTypeMismatch`** (func[5] =
+`catch-complex-1`). The runner's "ParseFailed" is a lie — `Engine.compile`
+collapses validate errors (D-197). The "parse-side" framing held only for
+exnref (cyc112); everything else is the **EH validator**.
+
+cyc113 fixed ONE validator bug: `validateCatchVec` blanket-rejected
+`catch_ref`(0x01)/`catch_all_ref`(0x03) (stale "exnref absent" rationale);
+now structural-matches `tag.params ++ [exnref]` / `[exnref]`. **But this is
+ORTHOGONAL to catch-complex-1** — it uses plain `catch`(0x00) over nested
+`try_table (result i32)` / `block` / `if`-`else` / `throw` / `br 1`, and
+still StackTypeMismatch-es. catch-complex-1 body (type 5 = (i32)->(i32),
+from the fv113 probe — record for cyc114 decode):
+`02401f7f0100030002401f7f0100020020004504400802052000410146044008030508040b0b41020b0c010b41030b0f0b41040b`
+Decode + find where the validator's type stack diverges (candidates: plain
+`catch N L` label-type match for a param-carrying tag, try_table-result
+flow, or br-to-block-result). NEXT (cyc114).
+
 ## How to apply (10.E-xmodule-tags bundle plan, per ADR-0114)
 
 Multi-cycle, each cycle moving a STAGE (avoid on-branch-spike):
