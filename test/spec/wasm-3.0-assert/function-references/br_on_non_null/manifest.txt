@@ -1,0 +1,9 @@
+module br_on_non_null.0.wasm
+assert_trap unreachable ()
+assert_return nullable-null () -> i32:4294967295
+assert_return nonnullable-f () -> i32:7
+assert_return nullable-f () -> i32:7
+module br_on_non_null.1.wasm
+module br_on_non_null.2.wasm
+assert_return args-null i32:3 -> i32:3
+assert_return args-f i32:3 -> i32:9

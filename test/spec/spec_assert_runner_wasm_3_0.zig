@@ -175,14 +175,20 @@ pub fn main(init: std.process.Init) !void {
                         if (cur_module) |*m| { m.deinit(); cur_module = null; }
                         if (cur_engine) |*e| { e.deinit(); cur_engine = null; }
                         cur_engine = zwasm.Engine.init(gpa, .{}) catch continue;
-                        cur_module = (cur_engine.?).compile(cur_module_bytes.?) catch {
+                        cur_module = (cur_engine.?).compile(cur_module_bytes.?) catch |e| {
                             // Compile failed — leave cur_engine alive
                             // but cur_module/instance null; dependent
                             // asserts will skip via the orelse path.
+                            // 10.R cycle 59 — surface per-module compile
+                            // failures to stderr so the runner emits
+                            // an observable signal (silent skip masked
+                            // function-references corpus expansion).
+                            std.debug.print("[wasm-3.0-assert] {s}/{s} compile FAIL: {s}\n", .{ proposal, d.module_path, @errorName(e) });
                             continue;
                         };
                         cur_linker = zwasm.Linker.init(&cur_engine.?);
-                        cur_instance = (cur_linker.?).instantiate(&cur_module.?) catch {
+                        cur_instance = (cur_linker.?).instantiate(&cur_module.?) catch |e| {
+                            std.debug.print("[wasm-3.0-assert] {s}/{s} instantiate FAIL: {s}\n", .{ proposal, d.module_path, @errorName(e) });
                             continue;
                         };
                     },
@@ -298,7 +304,10 @@ pub fn main(init: std.process.Init) !void {
                         };
                         switch (outcome) {
                             .rejected => summary.asserts_invalid_pass += 1,
-                            .accepted => summary.asserts_invalid_fail += 1,
+                            .accepted => {
+                                std.debug.print("[wasm-3.0-assert] {s}/{s} invalid-accepted (D-188 / D-195 — depends)\n", .{ proposal, d.module_path });
+                                summary.asserts_invalid_fail += 1;
+                            },
                         }
                     },
                     .assert_malformed => {

@@ -1,0 +1,7 @@
+module ref_as_non_null.0.wasm
+assert_trap unreachable ()
+assert_trap nullable-null ()
+assert_return nonnullable-f () -> i32:7
+assert_return nullable-f () -> i32:7
+assert_invalid ref_as_non_null.1.wasm
+module ref_as_non_null.2.wasm

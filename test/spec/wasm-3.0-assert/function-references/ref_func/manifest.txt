@@ -1,0 +1,17 @@
+module ref_func.0.wasm
+skip-impl directive-register
+module ref_func.1.wasm
+assert_return is_null-f () -> i32:0
+assert_return is_null-g () -> i32:0
+assert_return is_null-v () -> i32:0
+assert_return call-f i32:4 -> i32:4
+assert_return call-g i32:4 -> i32:5
+assert_return call-v i32:4 -> i32:4
+invoke set-g ()
+assert_return call-v i32:4 -> i32:5
+invoke set-f ()
+assert_return call-v i32:4 -> i32:4
+assert_invalid ref_func.2.wasm
+module ref_func.3.wasm
+assert_invalid ref_func.4.wasm
+assert_invalid ref_func.5.wasm

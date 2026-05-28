@@ -1,0 +1,4 @@
+module ref_null.0.wasm
+assert_return externref () -> externref:null
+assert_return funcref () -> funcref:null
+assert_return ref () -> funcref:null

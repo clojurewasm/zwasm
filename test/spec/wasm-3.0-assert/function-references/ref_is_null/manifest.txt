@@ -1,0 +1,22 @@
+module ref_is_null.0.wasm
+assert_return funcref funcref:null -> i32:1
+assert_return externref externref:null -> i32:1
+assert_return ref-null () -> i32:1
+assert_return externref externref:1 -> i32:0
+invoke init externref:0
+assert_return funcref-elem i32:0 -> i32:1
+assert_return externref-elem i32:0 -> i32:1
+assert_return ref-elem i32:0 -> i32:1
+assert_return funcref-elem i32:1 -> i32:0
+assert_return externref-elem i32:1 -> i32:0
+assert_return ref-elem i32:1 -> i32:0
+invoke deinit ()
+assert_return funcref-elem i32:0 -> i32:1
+assert_return externref-elem i32:0 -> i32:1
+assert_return ref-elem i32:0 -> i32:1
+assert_return funcref-elem i32:1 -> i32:1
+assert_return externref-elem i32:1 -> i32:1
+assert_return ref-elem i32:1 -> i32:1
+module ref_is_null.1.wasm
+assert_invalid ref_is_null.2.wasm
+assert_invalid ref_is_null.3.wasm

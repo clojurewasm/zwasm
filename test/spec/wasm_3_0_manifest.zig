@@ -794,6 +794,13 @@ test "D-188 bisect: EH + func-refs invalid-accepted fixtures (regression marker)
         .{ .name = "ref.10", .bytes = @embedFile("wasm-3.0-assert/function-references/ref/ref.10.wasm") },
         .{ .name = "ref.11", .bytes = @embedFile("wasm-3.0-assert/function-references/ref/ref.11.wasm") },
         .{ .name = "ref.12", .bytes = @embedFile("wasm-3.0-assert/function-references/ref/ref.12.wasm") },
+        // 10.R cycle 59 corpus expansion — ref_func.4 / ref_func.5
+        // surface a NEW validator gap: `ref.func N` must reference a
+        // function in the declared funcref set (elements section or
+        // `(elem declare ...)`). Current validator accepts unrestricted
+        // `ref.func 0`. Sub-gap (c) of D-195; ADR-0123-independent.
+        .{ .name = "ref_func.4", .bytes = @embedFile("wasm-3.0-assert/function-references/ref_func/ref_func.4.wasm") },
+        .{ .name = "ref_func.5", .bytes = @embedFile("wasm-3.0-assert/function-references/ref_func/ref_func.5.wasm") },
     };
 
     var accepted_count: u32 = 0;
@@ -804,22 +811,24 @@ test "D-188 bisect: EH + func-refs invalid-accepted fixtures (regression marker)
             accepted_count += 1;
         }
     }
-    // Current state: 2 fixtures incorrectly accepted (try_table.8 +
-    // try_table.10 — both root at the deep EH validator gap around
-    // catch_ref / catch_all_ref typing: a try_table block declared
-    // with empty / wrong block-result type doesn't reject when its
-    // catch_ref / catch_all_ref clause pushes (exnref) onto the
-    // block's stack. Same 10.E barrier; tighten both when per-clause
-    // result-type unification lands. try_table.8 surfaced after the
-    // 10.E frontendValidate tags plumbing (this cycle) — prior to
-    // the fix, ALL try_table modules failed earlier in validator
-    // (empty tags slice rejected throw / catch). The 5 function-
-    // references "unknown type" cases (ref.1..5) closed at the
-    // D-188 first-cycle fix in `instantiate.zig::frontendValidate`
-    // (pre-decode pass forced section-body validation regardless
-    // of code-section presence). Tighten further when the EH
-    // try_table type-check rule lands.
-    try testing.expectEqual(@as(u32, 2), accepted_count);
+    // Current state: 4 fixtures incorrectly accepted (D-188 + D-195):
+    //   - try_table.8 + try_table.10 (D-188) — EH validator gap around
+    //     catch_ref / catch_all_ref typing: a try_table block declared
+    //     with empty / wrong block-result type doesn't reject when its
+    //     catch_ref / catch_all_ref clause pushes (exnref) onto the
+    //     block's stack. Same 10.E barrier; tighten both when per-clause
+    //     result-type unification lands.
+    //   - ref_func.4 + ref_func.5 (D-195 sub-gap c) — `ref.func N`
+    //     reference-set validator missing: spec requires N to appear in
+    //     the declared funcref set (elements section or
+    //     `(elem declare ...)`). Current validator accepts unrestricted
+    //     `ref.func 0`. Function-references-specific; ADR-0123-independent.
+    // The 5 function-references "unknown type" cases (ref.1..5) closed
+    // at the D-188 first-cycle fix in `instantiate.zig::frontendValidate`
+    // (pre-decode pass forced section-body validation regardless of
+    // code-section presence). Tighten further when the EH try_table
+    // type-check rule + ref.func declared-set rule land.
+    try testing.expectEqual(@as(u32, 4), accepted_count);
 }
 
 test "D-189 partial: align64 invalid fixtures rejected (memarg natural-align rule)" {
