@@ -6,56 +6,57 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cycle 111 (`<this commit>`) — **CORRECTION**: cycle-110's
-  "try_table.1/.5 → INSTANTIATE" claim was FALSE. Direct-binary run of
-  the wasm-3.0-assert runner shows try_table.1/.5 STILL
-  `compile FAIL: ParseFailed`; the 34 EH return-fails are 33×NO-CURINST
-  (try_table.1 never parses) + 1×InvokeFailed (imported-mismatch under
-  try_table.2, which DOES instantiate). The EH blocker is **parse-side,
-  not execution-side**. The false claim was a stale `zig build`
-  run-step-cache + lossy-stderr artifact (new lesson
-  `2026-05-29-zig-run-step-cache-stale-diag.md`).
-- Prior: 110 EH step-1 ImportKind.tag (`447c1048`; correct but
-  currently UNREACHABLE — Type section fails before Import section);
-  108 ref.func global-init → funcrefs return 24→32; 100-107 funcrefs.
-- Mac test+lint green at cycle 110 (`e71677c8`). ubuntu: cycle-110 HEAD
-  green (`OK (HEAD=e71677c8)`). Cycle 111 = docs-only correction.
+- **HEAD**: cycle 112 (`64315609`) — EH parse blocker #1 CLEARED:
+  `ValType.exnref` + `readValType` bare-`0x69` arm. try_table.1's Type
+  section (catch_ref result tuples `(i32, exnref)` = `7f 69`) now
+  decodes. No exhaustive-switch cascade (alias over existing `.exn`
+  AbstractHeapType). Mac test+lint green; no spec-corpus regression
+  (5 non-EH proposals unchanged, direct-binary run). try_table.1/.5
+  STILL `ParseFailed` — now at blocker #2 (module-defined Tag section
+  id 13), cycle 113.
+- Prior: 111 CORRECTION (cycle-110's "→ INSTANTIATE" was a stale
+  run-step-cache misread; blocker is parse-side — `f5884d31`); 110 EH
+  ImportKind.tag (`447c1048`, was unreachable until cyc112); 108
+  ref.func global-init → funcrefs 24→32.
+- Mac test+lint green at cycle 112. ubuntu: cycle-110 HEAD green
+  (`OK (HEAD=e71677c8)`); cyc111 docs-only; cyc112 kick backgrounded.
 
 ## Active bundle
 
 - **Bundle-ID**: 10.E-xmodule-tags (EH cross-module, ADR-0114)
-- **Cycles-remaining**: ~6 (parse-side chain re-sequenced ahead of
-  execution-side)
+- **Cycles-remaining**: ~5 (blocker #1 exnref cleared cyc112; #2 Tag
+  section next, then instantiate + execution-side)
 - **Continuity-memo**: try_table.1 PARSE blockers, in section-decode
-  order (earliest wins; Type=1 first): **(1) bare exnref `0x69` as a
-  ValType** — its Type section has functype results `(i32, exnref)`
-  = `7f 69`; `parse/init_expr.zig:readValType` has `0x7F..0x6A` +
-  typed-ref `0x63/0x64` but NO bare `0x69` (`zir.zig:40` "not yet a
-  ValType"). **(2) module Tag section (id 13)** — defines 7 tags
-  (`0d 0f 07 …`), distinct from the tag IMPORT. (3) ImportKind.tag —
-  DONE cyc110, reached only after 1+2. Then execution-side: instantiate
-  tag binding → `*TagInstance` (ADR-0114) → pointer-identity
-  throw/catch → JIT. Full chain + correction in
-  `lessons/2026-05-29-eh-cross-module-tag-substrate-scope.md`.
+  order (earliest wins; Type=1 first): **(1) bare exnref `0x69`** —
+  DONE cyc112 (`ValType.exnref` + readValType arm). **(2) module Tag
+  section (id 13)** — try_table.1 DEFINES 7 tags (`0d 0f 07 …` at byte
+  ~0x94, after Memory id 5, before Export id 7), distinct from the tag
+  IMPORT; **NEXT (cyc113)**. (3) ImportKind.tag — DONE cyc110, reached
+  only after 1+2. Then execution-side: instantiate tag binding →
+  `*TagInstance` (ADR-0114) → pointer-identity throw/catch → JIT. Full
+  chain in `lessons/2026-05-29-eh-cross-module-tag-substrate-scope.md`.
   **VERIFY runner deltas by running the BINARY DIRECTLY** (zig-build
-  stderr is cache/lossy — see the cache lesson).
+  stderr is cache/lossy — see `2026-05-29-zig-run-step-cache-stale-diag`).
 - **Exit-condition**: exception-handling try_table corpus return pass
   ≥ 5/34 (currently 0/34).
 
-## Active task — cycle 112: `ValType.exnref` + readValType 0x69 arm
+## Active task — cycle 113: module-defined Tag section (id 13) decode
 
-Smallest red test: `parse/init_expr.zig` `readValType` accepts bare
-`0x69` → `ValType.exnref`; assert a functype `(result i32 exnref)`
-(`60 00 02 7f 69`) decodes. Then add `exnref` to the `ValType`
-enum/union and walk the exhaustive-switch cascade (à la cycle-110
-`ImportKind.tag`: `zig build` → fix arm → repeat). Observable: rerun
-the runner BINARY DIRECTLY; try_table.1's Type-section ParseFail should
-move past section 1 (toward the Tag-section blocker, cycle 113).
-Watch ADR scope: `ValType` is a §4 ZirOp-adjacent type — adding a
-variant is allowed under ADR-0120 (EH payload, Accepted) + the
-zir.zig:40 plan; no new ADR (it's the planned exnref landing). If the
-cascade surfaces a design fork (e.g. exnref in the GC subtype lattice),
-file an ADR first.
+try_table.1 now ParseFails at its Tag section (id 13): `0d 0f 07 …`
+(7 tags). Survey: is there a `decodeTags`/section-13 arm at all? (cyc110
+added the tag IMPORT in section 2 + the `tag` EXPORT filter, NOT the Tag
+SECTION.) Smallest red test: `decodeTags` (new or existing) on
+`07 00 00 00 00 00 00 00 …` (count=7, each `attr=0x00 typeidx`) yields 7
+tag typeidxs; wire it into the section dispatcher (likely
+`parse/sections.zig` + the Module's tag list). Spec: Wasm 3.0 EH §5.5.x
+(tag section = vec of `(attribute=0x00, typeidx)`). Observable: rerun the
+runner BINARY DIRECTLY (`/tmp/c<NN>` cache + `/bin/ls -t` binary); the
+EH `compile FAIL: ParseFailed` for try_table.1 should advance past the
+Tag section (toward Code/validate). If a `TagSection`/`module.tags`
+storage shape is an ADR-grade choice, file first; otherwise mirror the
+existing section-decode pattern. Deviation watch: touching §4 (ZirOp /
+runtime shape) for `*TagInstance` is later (execution-side) — this cycle
+is parse-only.
 
 ## Larger §10 work (later bundles)
 
@@ -68,7 +69,7 @@ file an ADR first.
   `resolveFuncrefGlobals` unwired; externref-elem runner arg parsing.
 - **10.P close gate** — user touchpoint by construction.
 
-## Spec runner observable (cycle-111, verified by DIRECT binary run)
+## Spec runner observable (cycle-112, verified by DIRECT binary run)
 
 ```
 [memory64           ] return=337 trap=205 invalid=83  (all pass)
