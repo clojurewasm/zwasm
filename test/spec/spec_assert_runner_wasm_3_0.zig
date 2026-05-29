@@ -608,6 +608,43 @@ pub fn main(init: std.process.Init) !void {
                             .accepted => summary.asserts_malformed_fail += 1,
                         }
                     },
+                    .assert_uninstantiable => {
+                        // D-200 — the module compiles but TRAPS at
+                        // instantiation (active data/elem OOB). Instantiate
+                        // it against the current linker; PASS if
+                        // instantiation fails. The partial active-segment
+                        // writes to SHARED imported memory/table persist
+                        // (D-199 shared memory + aliased table refs), which
+                        // subsequent asserts depend on. Does NOT change the
+                        // "current" instance (tagged asserts target the
+                        // registered module).
+                        summary.asserts_trap += 1;
+                        const un_bytes = sub_dir.readFileAlloc(io, d.module_path, gpa, .limited(4 << 20)) catch {
+                            summary.asserts_trap_fail += 1;
+                            continue;
+                        };
+                        defer gpa.free(un_bytes);
+                        zwasm.diagnostic.clearDiag();
+                        var compiled = cur_engine.compile(un_bytes) catch {
+                            // Rejected at compile — still did not
+                            // instantiate; count pass (no side effects).
+                            summary.asserts_trap_pass += 1;
+                            continue;
+                        };
+                        modules_list.append(gpa, compiled) catch {
+                            compiled.deinit();
+                            summary.asserts_trap_fail += 1;
+                            continue;
+                        };
+                        const m_ptr = &modules_list.items[modules_list.items.len - 1];
+                        if (cur_linker.instantiate(m_ptr)) |inst| {
+                            var bad_inst = inst;
+                            bad_inst.deinit();
+                            summary.asserts_trap_fail += 1; // unexpectedly instantiated
+                        } else |_| {
+                            summary.asserts_trap_pass += 1; // failed as expected
+                        }
+                    },
                     .assert_exception => {
                         summary.asserts_exception += 1;
                         _ = cur_module_bytes orelse continue;

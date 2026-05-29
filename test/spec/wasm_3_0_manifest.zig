@@ -58,6 +58,10 @@ pub const Kind = enum {
     assert_exception,
     assert_invalid,
     assert_malformed,
+    /// D-200 — module compiles but traps at instantiation; the runner
+    /// instantiates it (expecting failure) so partial active-segment
+    /// writes to shared imported memory/table persist.
+    assert_uninstantiable,
     /// 10.M-D195b cycle 70 — wast `(register "name" $module_id?)`
     /// directive. The most-recent instance gets registered under
     /// `name` so subsequent modules' imports can resolve through
@@ -480,6 +484,11 @@ pub fn parseLine(
     }
     if (std.mem.eql(u8, kind_str, "assert_malformed")) {
         directive.kind = .assert_malformed;
+        directive.module_path = rest;
+        return directive;
+    }
+    if (std.mem.eql(u8, kind_str, "assert_uninstantiable")) {
+        directive.kind = .assert_uninstantiable;
         directive.module_path = rest;
         return directive;
     }

@@ -255,6 +255,15 @@ for c in d['commands']:
         lines.append(f'assert_trap {field_tok} {args_s}')
     elif t == 'assert_invalid':
         lines.append(f'assert_invalid {c.get("filename", "<inline>")}')
+    elif t == 'assert_uninstantiable':
+        # D-200 — module compiles but TRAPS at instantiation (active
+        # data/elem OOB after partial writes). The runner instantiates
+        # it (expecting failure); partial writes to SHARED imported
+        # memory/table persist (D-199), which later asserts depend on.
+        if 'filename' in c:
+            lines.append(f'assert_uninstantiable {c["filename"]}')
+        else:
+            lines.append('skip-impl directive-assert_uninstantiable-inline')
     elif t == 'assert_malformed':
         if c.get('module_type') == 'binary' and 'filename' in c:
             lines.append(f'assert_malformed {c["filename"]}')
@@ -330,7 +339,7 @@ PY
                     copy_stripped "$tmp/$2" "$out_dir/$2"
                 fi
                 ;;
-            assert_invalid|assert_malformed)
+            assert_invalid|assert_malformed|assert_uninstantiable)
                 copy_stripped "$tmp/$2" "$out_dir/$2" ;;
         esac
     done < "$out_dir/manifest.txt"
