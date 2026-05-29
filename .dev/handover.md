@@ -6,14 +6,13 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cyc158 (`c4d563fc`) — **array.init_data + array.init_elem**
-  (FB 18/19) validate+lower+exec + **elem_types threaded into the
-  validator** (dissolves the latent array.init_elem/table.init segment-
-  reftype gap): **gc return 249→255 (+6)**, trap 63→72 (+9), invalid 57
-  held, FULL test-spec exit 0, 0 panics. validator.zig per-file cap
-  3000→3200 (ADR-0099 amend; intrinsically-singular walker grows with
-  proposal coverage). cyc157 array.copy (FB 17) drove 226→249. **gc
-  return 62→255** across the session.
+- **HEAD**: cyc159 (`5783f161`) — **ref.func in GC const-expr** global
+  init (0xD2 in evalGlobalInitGc): **gc return 255→262 (+7)**, trap
+  72→84 (+12, array_init_elem.3 instantiates → its traps run). Fixed
+  the array_init_elem.3 InstantiateFailed. cyc158 array.init_data/elem
+  + elem_types threading drove 249→255 (validator.zig cap 3000→3200,
+  ADR-0099 amend). cyc157 array.copy 226→249. **gc return 62→262**
+  across the session.
 - cyc147-148 **ADR-0125 packed COMPLETE** (A union rename → B-validate
   decode → B-exec get_s/u): gc return 62→116, trap 18→54, ValidateFailed
   27→14, invalid 57 held. cyc146 ADR-0016 M3 + concrete-subtype coercion.
@@ -48,18 +47,21 @@
 - **Exit-condition**: gc return ≥ 90 **EXCEEDED (116 at cyc148)**. Open
   target: maximise return (RTT exec) toward the corpus ceiling.
 
-## Active task — cycle 159: remaining GC return levers — **NEXT**
+## Active task — cycle 160: remaining GC return levers — **NEXT**
 
-Array bulk ops DONE (copy c157, init_data/init_elem c158; gc return
-255/407). Next levers toward the corpus ceiling — first SURVEY which gc
-fixtures still return-fail/trap-fail and pick the densest cluster:
-- **ref.test/ref.cast concrete-typeidx gaps** + **struct init-op gaps**
-  (struct.new variants, field edge cases).
-- **extern.convert_any / any.convert_extern** (FB 26/27) exec wiring.
-- **D-198** (rec-group iso-recursive subtype over-reject, ~6 type-
-  subtyping fixtures) — deep/ADR-grade; bundle if picked.
+Array bulk ops DONE (c157-158); ref.func GC const-expr DONE (c159; gc
+return 262/407). Module-level instantiate/compile FAILs remaining:
+gc/type-subtyping.{45 ValidateFailed=D-198, 46 UnknownImport, 48/50
+SignatureMismatch}. The bulk of the 90 return-fails are per-assert value
+mismatches in compiling modules (not module-level FAILs) → SURVEY which
+gc modules cascade the most (re-run binary, group by export). Levers:
+- **type-subtyping 46/48/50** — UnknownImport + SignatureMismatch at
+  instantiate (import/signature handling under rec-group/sub types).
+- **ref.test/ref.cast concrete gaps** + **struct init-op gaps**.
+- **extern.convert_any / any.convert_extern** (FB 26/27) exec.
+- **D-198** (type-subtyping.45 rec-group iso-recursive) — deep/ADR.
 VERIFY full test-spec + exit-code + panic grep (cyc150 lesson; DIRECT
-binary run). No regression to 255 return / 72 trap / 57 invalid / 393
+binary). No regression to 262 return / 84 trap / 57 invalid / 393
 multi-mem.
 
 ## Larger §10 work (later bundles)
@@ -68,12 +70,12 @@ multi-mem.
   `resolveFuncrefGlobals` (off spec-corpus path). **10.P close gate** =
   user touchpoint by construction.
 
-## Spec runner observable (cycle-158, DIRECT binary run)
+## Spec runner observable (cycle-159, DIRECT binary run)
 
 ```
 [memory64           ] return=337 (all pass)    [tail-call] return=71 (all pass)
 [exception-handling ] 34/34 ✅ FULLY GREEN     [function-references] return=32/39
-[gc                 ] return=255/407 trap=72/100 invalid=57/60 malformed=1/1 skip=20  ← 10.G c158
+[gc                 ] return=262/407 trap=84/100 invalid=57/60 malformed=1/1 skip=20  ← 10.G c159
 [multi-memory       ] return=393/407 trap=238/238  ← cyc141 rt.datas fix
 ```
 
