@@ -218,7 +218,7 @@ fn runOne(gpa: std.mem.Allocator, module: *runtime.Module) !void {
     var types_owned = if (type_section) |s|
         try sections.decodeTypes(gpa, s.body)
     else
-        sections.Types{ .arena = std.heap.ArenaAllocator.init(gpa), .items = &.{}, .kinds = &.{}, .struct_defs = &.{}, .array_defs = &.{} };
+        sections.Types{ .arena = std.heap.ArenaAllocator.init(gpa), .items = &.{}, .kinds = &.{}, .struct_defs = &.{}, .array_defs = &.{}, .supertypes = &.{}, .finals = &.{} };
     defer types_owned.deinit();
 
     var imports_owned: ?sections.Imports = if (import_section) |s|
