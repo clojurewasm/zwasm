@@ -364,8 +364,19 @@ pub fn compute(
         // operand stack is reconstructed at the landing pad by the
         // emit layer; from liveness's straight-line view, the throw
         // is a stack-draining terminator.
+        // Wasm spec 3.0 §3.3.8.18-20 (tail-call) — return_call /
+        // return_call_indirect / return_call_ref consume the
+        // caller's frame and transfer control to the callee; from
+        // liveness's straight-line view they drain the operand
+        // stack identically to `return` (the args on top become
+        // the callee's params, marshalled by the emit layer; every
+        // live vreg's last use is at this pc, and control never
+        // reaches subsequent ops at this PC). ADR-0113 §A:
+        // is_terminator=true, n_successor_edges=0.
         if (instr.op == .@"return" or instr.op == .@"unreachable" or
-            instr.op == .throw or instr.op == .throw_ref)
+            instr.op == .throw or instr.op == .throw_ref or
+            instr.op == .return_call or instr.op == .return_call_indirect or
+            instr.op == .return_call_ref)
         {
             while (sim_len > 0) {
                 sim_len -= 1;

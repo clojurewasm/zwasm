@@ -419,6 +419,29 @@ test "runI32Export: simple i32.const probe on all hosts (sanity)" {
     try testing.expectEqual(@as(u32, 42), try runI32Export(testing.allocator, &bytes, "test"));
 }
 
+test "runI32Export: direct return_call tail-call returns 42 end-to-end (10.TC-JIT / D-205)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    // (module
+    //   (func $test (export "test") (result i32) (return_call $answer))
+    //   (func $answer (result i32) (i32.const 42)))
+    //
+    // Exercises the full parse→validate→JIT-compile→execute pipeline
+    // for `return_call` (Wasm 3.0 §3.3.8.18). The arm64 emit
+    // (emit.zig .return_call → op_tail_call.emitDirectReturnCall) and
+    // the B/JMP fixup are linker-tested in isolation
+    // (shared/linker.zig); this is the first runI32Export-level
+    // assertion that the same-module direct tail-call reaches the
+    // callee body and returns its result. D-205 discharge anchor.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // magic + version
+        0x01, 0x09, 0x02, 0x60, 0x00, 0x01, 0x7f, 0x60, 0x00, 0x01, 0x7f, // type: 2× () -> i32
+        0x03, 0x03, 0x02, 0x00, 0x01, // func: func0→type0, func1→type1
+        0x07, 0x08, 0x01, 0x04, 0x74, 0x65, 0x73, 0x74, 0x00, 0x00, // export "test" → func0
+        0x0a, 0x0b, 0x02, 0x04, 0x00, 0x12, 0x01, 0x0b, 0x04, 0x00, 0x41, 0x2a, 0x0b, // code: fn0 return_call 1; fn1 i32.const 42
+    };
+    try testing.expectEqual(@as(u32, 42), try runI32Export(testing.allocator, &bytes, "test"));
+}
+
 test "runI32Export: throw + catch_all returns 42 (IT-6 cycle 3c-iii-d end-to-end)" {
     if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
     // (module

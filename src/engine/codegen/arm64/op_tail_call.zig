@@ -16,10 +16,13 @@
 //!   (4) frame_teardown.emit(…)           (caller's frame disappears)
 //!   (5) BR X16                           (no LR; callee RETs to caller's caller)
 //!
-//! This file currently lands step (5) — `emitTailJump` — as the
-//! observable foundation. Subsequent chunks layer on:
-//!   10.TC-3e: callee target load + frame_teardown integration
-//!             + per-op-file wire-up into collected_arm64_ops.
+//! Landed: `emitDirectReturnCall` (same-module direct) +
+//! `emitIndirectReturnCall` (table-0, ≤2 results) — both wired into
+//! `arm64/emit.zig` dispatch via the `ops/wasm_3_0/return_call*.zig`
+//! per-op files, and exercised end-to-end through `runI32Export`
+//! (the liveness pass treats return_call* as a terminator per
+//! ADR-0113 §A; D-205). Remaining follow-ons:
+//!   return_call_ref: still a stub (funcref null-check + tail-jump).
 //!   10.TC-3f: cross_module_tail_call.zig (ADR-0112 D4).
 //!
 //! INVARIANT (ADR-0112 D7): the segment from frame_teardown
