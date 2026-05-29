@@ -559,6 +559,38 @@ test "runI32Export: return_call_ref tail-call through a funcref returns 42 (10.R
     try testing.expectEqual(@as(u32, 42), try runI32Export(testing.allocator, &bytes, "test"));
 }
 
+test "runI32Export: call_ref of a null funcref traps (10.R / D-207 null-trap)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    // (module (type $sig (func (result i32)))
+    //   (func $test (export "test") (result i32) ref.null $sig call_ref $sig))
+    //
+    // Exercises the call_ref null-check (arm64 CMP X17,#0;B.EQ — x86_64 OR r,r;JZ —
+    // → shared bounds trap stub). ref.null $sig = 0xd0 + sleb heaptype 0. Wasm
+    // spec §4.4.8.13: call_ref of a null reference traps.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // magic + version
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, // type0 () -> i32
+        0x03, 0x02, 0x01, 0x00, // func: test→type0
+        0x07, 0x08, 0x01, 0x04, 0x74, 0x65, 0x73, 0x74, 0x00, 0x00, // export "test" → func0
+        0x0a, 0x08, 0x01, 0x06, 0x00, 0xd0, 0x00, 0x14, 0x00, 0x0b, // code: ref.null 0; call_ref 0
+    };
+    try testing.expectError(entry.Error.Trap, runI32Export(testing.allocator, &bytes, "test"));
+}
+
+test "runI32Export: return_call_ref of a null funcref traps (10.R/10.TC / D-207 null-trap)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    // Same as the call_ref null-trap but the tail-call variant
+    // (return_call_ref = 0x15). The null-check fires before frame teardown.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // magic + version
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, // type0 () -> i32
+        0x03, 0x02, 0x01, 0x00, // func: test→type0
+        0x07, 0x08, 0x01, 0x04, 0x74, 0x65, 0x73, 0x74, 0x00, 0x00, // export "test" → func0
+        0x0a, 0x08, 0x01, 0x06, 0x00, 0xd0, 0x00, 0x15, 0x00, 0x0b, // code: ref.null 0; return_call_ref 0
+    };
+    try testing.expectError(entry.Error.Trap, runI32Export(testing.allocator, &bytes, "test"));
+}
+
 test "runI32Export: throw + catch_all returns 42 (IT-6 cycle 3c-iii-d end-to-end)" {
     if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
     // (module
