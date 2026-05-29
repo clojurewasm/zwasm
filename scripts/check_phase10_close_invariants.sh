@@ -230,7 +230,10 @@ else
 fi
 
 # §8 I14 — wasm.h tag accessors complete
-skip "§8 I14: EH tag accessors gated on D-192 EH runtime"
+# cyc210 rationale refresh: D-192 (EH runtime / clause) is RESOLVED (EH corpus
+# 34/34 green). The remaining barrier is the wasm.h c_api EH tag-accessor surface
+# itself (10.E c_api scope), not the EH runtime.
+skip "§8 I14: EH wasm.h c_api tag accessors not yet implemented (10.E c_api scope; D-192 EH runtime resolved)"
 
 # §8 I15 — safepoint-free invariant on tail-call + cross-module
 # bridge ops. Per ADR-0117, return_call / return_call_indirect /
@@ -309,7 +312,10 @@ src_mentions=$(grep -rlnE 'SKIP-P10-(PARSER|EH|GC|MEM64|CROSS)-GAP' src/ test/ 2
 skip "§8 I20: src mentions=$src_mentions (skeleton/doc); runtime emission check deferred to close"
 
 # §8 I21 — test/realworld/p10/ 9 fixture 5 toolchain green
-skip "§8 I21: realworld/p10 toolchain gated on D-179 + Dart/hoot"
+# cyc210 rationale refresh: D-179 (wabt corpus baking) is RESOLVED, and clang
+# realworld/p10 is DONE (cyc201 clang_musttail JIT-result-checked). Remaining
+# barrier is the OTHER toolchains (emscripten/dart/ocaml/hoot) being unavailable.
+skip "§8 I21: realworld/p10 — clang DONE (cyc201); emscripten/dart/ocaml/hoot toolchains tool-gated (D-179 resolved)"
 
 # §8 I22 — skip-list ratchet (Phase 10 close skip-impl ≤ Phase 9
 # baseline). Parse skip_impl_history.yaml — first `total:` is the
