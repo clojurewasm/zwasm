@@ -2561,6 +2561,129 @@ fn valTypeIsSubtypeFree(actual: ValType, expected: ValType) bool {
     };
 }
 
+// ============================================================
+// WasmGC structural subtype validation (ADR-0124).
+// ============================================================
+
+/// Wasm 3.0 GC §4.2.8 abstract heap-type lattice: is `a <: e`?
+/// `any`/`eq`/`struct`/`array`/`i31`/`none` are one hierarchy
+/// (none = bottom, any = top); `func`/`nofunc`, `extern`/`noextern`,
+/// `exn`/`noexn` are disjoint hierarchies.
+fn gcHeapAbstractSubtype(a: zir.AbstractHeapType, e: zir.AbstractHeapType) bool {
+    if (a == e) return true;
+    return switch (e) {
+        .any => switch (a) {
+            .eq, .i31, .struct_, .array, .none => true,
+            .func, .extern_, .any, .noextern, .nofunc, .exn, .noexn => false,
+        },
+        .eq => switch (a) {
+            .i31, .struct_, .array, .none => true,
+            .func, .extern_, .any, .eq, .noextern, .nofunc, .exn, .noexn => false,
+        },
+        .struct_ => a == .none,
+        .array => a == .none,
+        .i31 => a == .none,
+        .func => a == .nofunc,
+        .extern_ => a == .noextern,
+        .exn => a == .noexn,
+        // Bottoms have no proper subtypes.
+        .none, .nofunc, .noextern, .noexn => false,
+    };
+}
+
+/// True if concrete type `super_idx` is reachable from `sub_idx` via
+/// its declared supertype chain (transitive). Visited-bounded against
+/// malformed cycles (chains are shallow in practice).
+fn gcConcreteReaches(sub_idx: u32, super_idx: u32, supertypes: []const []const u32) bool {
+    if (sub_idx == super_idx) return true;
+    if (sub_idx >= supertypes.len) return false;
+    var depth: u32 = 0;
+    var cur = sub_idx;
+    // Single-supertype chains dominate the corpus; walk the first
+    // declared supertype up to a small bound, also scanning the
+    // declared set at each level.
+    while (depth < 64) : (depth += 1) {
+        if (cur >= supertypes.len) return false;
+        const supers = supertypes[cur];
+        if (supers.len == 0) return false;
+        for (supers) |s| if (s == super_idx) return true;
+        cur = supers[0];
+        if (cur == sub_idx) return false; // cycle guard
+    }
+    return false;
+}
+
+/// Wasm 3.0 GC §4.2.8 valtype subtyping (lattice + concrete chain).
+/// Extends `valTypeIsSubtypeFree` with the GC heap lattice + the
+/// declared-supertype chain for concrete refs.
+fn gcValTypeSubtype(actual: ValType, expected: ValType, types: *const sections.Types) bool {
+    if (actual.eql(expected)) return true;
+    if (actual != .ref or expected != .ref) return false;
+    if (actual.ref.nullable and !expected.ref.nullable) return false;
+    const ah = actual.ref.heap_type;
+    const eh = expected.ref.heap_type;
+    return switch (ah) {
+        .concrete => |a_idx| switch (eh) {
+            .concrete => |e_idx| gcConcreteReaches(a_idx, e_idx, types.supertypes),
+            .abstract => |e_abs| blk: {
+                // A concrete ref's head is the kind of its typedef.
+                const head: zir.AbstractHeapType = if (a_idx >= types.kinds.len) .any else switch (types.kinds[a_idx]) {
+                    .func => .func,
+                    .structdef => .struct_,
+                    .arraydef => .array,
+                };
+                break :blk gcHeapAbstractSubtype(head, e_abs);
+            },
+        },
+        .abstract => |a_abs| switch (eh) {
+            .abstract => |e_abs| gcHeapAbstractSubtype(a_abs, e_abs),
+            .concrete => false,
+        },
+    };
+}
+
+/// Field/element subtyping: mutability must match; a `var` (mutable)
+/// field is INVARIANT (types equal), a `const` field is COVARIANT.
+fn gcFieldSubtype(sub_f: sections.StructFieldType, sup_f: sections.StructFieldType, types: *const sections.Types) bool {
+    if (sub_f.mutable != sup_f.mutable) return false;
+    if (sub_f.mutable) return sub_f.valtype.eql(sup_f.valtype);
+    return gcValTypeSubtype(sub_f.valtype, sup_f.valtype, types);
+}
+
+/// ADR-0124 — does typedef `sub` structurally conform to its declared
+/// supertype `sup`? (Same comptype kind; struct width+depth, array
+/// element, func param-contravariant/result-covariant.) Used at
+/// type-section validation to reject non-conformant `sub`/`sub final`
+/// declarations.
+pub fn typeDefIsSubtype(sub: u32, sup: u32, types: *const sections.Types) bool {
+    if (sub == sup) return true;
+    if (sub >= types.kinds.len or sup >= types.kinds.len) return false;
+    if (types.kinds[sub] != types.kinds[sup]) return false;
+    return switch (types.kinds[sub]) {
+        .func => blk: {
+            const a = types.items[sub];
+            const b = types.items[sup];
+            if (a.params.len != b.params.len or a.results.len != b.results.len) break :blk false;
+            // params contravariant, results covariant.
+            for (a.params, b.params) |ap, bp| if (!gcValTypeSubtype(bp, ap, types)) break :blk false;
+            for (a.results, b.results) |ar, br| if (!gcValTypeSubtype(ar, br, types)) break :blk false;
+            break :blk true;
+        },
+        .structdef => blk: {
+            const a = (types.struct_defs[sub] orelse break :blk false).fields;
+            const b = (types.struct_defs[sup] orelse break :blk false).fields;
+            if (a.len < b.len) break :blk false; // width
+            for (b, 0..) |bf, i| if (!gcFieldSubtype(a[i], bf, types)) break :blk false; // depth
+            break :blk true;
+        },
+        .arraydef => blk: {
+            const a = (types.array_defs[sub] orelse break :blk false).element;
+            const b = (types.array_defs[sup] orelse break :blk false).element;
+            break :blk gcFieldSubtype(a, b, types);
+        },
+    };
+}
+
 /// True iff `expected` (a branch target's label type) structurally
 /// equals `tag_params ++ [exnref]` — the tuple a `catch_ref` clause
 /// pushes. `catch_all_ref` passes empty `tag_params`, so the pushed

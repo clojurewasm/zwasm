@@ -898,6 +898,7 @@ pub fn instantiateRuntime(
             .kinds = &.{},
             .struct_defs = &.{},
             .array_defs = &.{},
+            .supertypes = &.{},
         };
 
     var funcs: []zir.ZirFunc = &.{};

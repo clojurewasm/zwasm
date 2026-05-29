@@ -85,6 +85,12 @@ pub const Types = struct {
     struct_defs: []?StructDef,
     /// Sparse; non-null iff `kinds[i] == .arraydef`.
     array_defs: []?ArrayDef,
+    /// Parallel to `items`; declared supertype indices from a `sub` /
+    /// `sub final` typedef (Wasm 3.0 GC §5). Empty slice for a bare
+    /// comptype. Consumed by `validator.typeDefIsSubtype` (ADR-0124).
+    /// Populated once the `0x50`/`0x4F` parse lands (currently all
+    /// empty — inert until then).
+    supertypes: [][]const u32,
 
     pub fn deinit(self: *Types) void {
         self.arena.deinit();
@@ -127,8 +133,10 @@ pub fn decodeTypes(parent_alloc: Allocator, body: []const u8) Error!Types {
     const kinds = try alloc.alloc(TypeKind, count);
     const struct_defs = try alloc.alloc(?StructDef, count);
     const array_defs = try alloc.alloc(?ArrayDef, count);
+    const supertypes = try alloc.alloc([]const u32, count);
     for (struct_defs) |*s| s.* = null;
     for (array_defs) |*a| a.* = null;
+    for (supertypes) |*s| s.* = &.{}; // 0x50/0x4F parse (cyc125) populates
 
     for (items, 0..) |*ft, i| {
         if (pos >= body.len) return Error.UnexpectedEnd;
@@ -173,6 +181,7 @@ pub fn decodeTypes(parent_alloc: Allocator, body: []const u8) Error!Types {
         .kinds = kinds,
         .struct_defs = struct_defs,
         .array_defs = array_defs,
+        .supertypes = supertypes,
     };
 }
 
