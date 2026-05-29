@@ -6,17 +6,18 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cyc192 (`6a77cb19`) — **cross-module func import SUBTYPING landed**:
-  `validator.funcTypeImportCompatible` (contravariant params / covariant
-  results, §4.5.10/§3.3.5.1) wired into `checkImportTypeMatches`. **gc
-  .30/.48/.50 SignatureMismatch 3→0** — they instantiate now. Monotonic-safe
-  (eql fast-path); ZERO regression (all 5 proposals + gc 349/96/60 unchanged;
-  0 panics). Count note: .30/.48/.50 are `module` directives (uncounted), so
-  gc headline count is steady — real win = SignatureMismatch eliminated.
-- cyc190 (`0f06df6e`, ubuntu-green) — gc global-init type-check (invalid 57→60).
-- gc residual: **return=1 (.17 run InvokeFailed) + trap=4** = the .17 multi-
-  mechanism rabbit hole (D-198, deep defer). §10 ROW close also needs realworld/
-  p10 (clang_wasm64+clang_musttail autonomous; emcc/dart/ocaml/hoot tool-gated).
+- **HEAD**: cyc193 (`d3f56f4f`) — **assert_unlinkable directive implemented**
+  (runner + manifest + regen, mirror cyc184). gc/type-subtyping 8 unlinkable
+  un-skipped (skip 20→12): **pass=3 fail=5**, ZERO regression (gc 349/96/60 +
+  all 5 proposals unchanged; 0 panics). 3 pass verify cyc192's reject path
+  (concrete-result-ref); 5 fail (`.35/.36/.42/.52/.54`) wrongly LINK — func
+  types differing only in FINALITY/type-identity → **D-202** (needs cross-module
+  canonical type-def compare). **Bundle 10.X CLOSED** (cyc192 positive subtyping
+  + cyc193 unlinkable infra; residual = D-202).
+- cyc192 (`6a77cb19`) cross-module import subtyping (.30/.48/.50 link); cyc190
+  (`0f06df6e`) gc global-init type-check (invalid 57→60). All ubuntu-green.
+- gc residual fails: return=1 + trap=4 = .17 rabbit hole (D-198, deep) + 5
+  unlinkable (D-202). Both deep/niche/tracked. §10 close needs realworld/p10.
 - Earlier arc: cyc177 iso-recursive canonicalEqual; cyc147-148 ADR-0125
   packed; cyc146 ADR-0016 M3 self-attribution; cyc130-140 i31/struct/array.
 - Runner EXECUTES via interp; gc_heap + gc_type_infos + rt.datas all
@@ -27,34 +28,27 @@
 - Mac+ubuntu green through cyc190 (`OK` exit 0). 10.G-gc + 10.H-multimem
   CLOSED cyc188. Cross-module sharing substrate: D-199 memory + D-201 table/func.
 
-## Active bundle
+## Active task — cycle 194: realworld/p10 clang fixtures (§10 ROW close) — **NEXT**
 
-- **Bundle-ID**: 10.X-xmodule-import-subtype (D-198 .30/.48/.50)
-- **Cycles-remaining**: ~1
-- **Continuity-memo**: cyc192 (`6a77cb19`) DONE — positive direction:
-  `funcTypeImportCompatible` (func subtyping) in `checkImportTypeMatches`
-  `.cross_module` arm; .30/.48/.50 instantiate (SignatureMismatch 3→0). Same-
-  typespace simplification (M≡importer type defs) → D-202 tracks the distinct-
-  layout generalization. Monotonic-safe (eql fast-path). cyc193 = verify the
-  negative direction via assert_unlinkable (below).
-- **cyc193 NEXT — implement `assert_unlinkable`** to VERIFY + COUNT the negative
-  direction. The .30/.48/.50 `module` directives are followed by `skip-impl
-  directive-assert_unlinkable` lines (manifest L56-58 etc.) — those test that
-  NON-subtype imports are correctly REJECTED, but the runner doesn't implement
-  the directive so they're skipped (so cyc192's reject path is unverified by
-  corpus, only by the unit test). Mirror cyc184 `assert_uninstantiable`:
-  (1) `regen_spec_3_0_assert.sh` — emit `assert_unlinkable <wasm>` (not skip-impl)
-  + copy the .wasm; (2) `wasm_3_0_manifest.zig` — add Kind + parseLine;
-  (3) runner — compile + instantiate against `cur_linker`, count PASS if
-  instantiate fails with a LINK error (ImportTypeMismatch / UnknownImport /
-  ImportKindMismatch), not a runtime trap; (4) targeted regen for gc/type-
-  subtyping. First step: check whether the unlinkable .wasm fixtures are
-  extracted (cyc184 had to add the copy case) — `ls` the dir + read manifest.
-- **Exit-condition**: gc/type-subtyping `assert_unlinkable` directives counted +
-  passing (verifies cyc192 reject-non-subtype direction); NO regression to all
-  5 proposals / gc 349/96/60 / multi-mem 407 / EH 34; 0 panics; exit 0. If the
-  unlinkable fixtures aren't extractable (cyc184-style regen gap that balloons),
-  close the bundle on cyc192's positive win + D-202, pivot to realworld/p10.
+The gc spec-corpus is mined out to deep/niche edges (.17 = D-198; 5 unlinkable
+= D-202; both tracked). The next forward §10 work is the **realworld/p10
+fixtures** — the §10 ROW (10.G/10.M/10.E/10.TC/10.R) close criteria, currently
+skeleton dirs (no `.wasm`). Autonomous: `clang_wasm64` (memory64) +
+`clang_musttail` (tail-call) — clang✓ + wasm-tools✓ in PATH.
+**cyc194 Step 0 (survey, read-only)**: (1) `test/realworld/p10/README.md` +
+the existing `test/realworld/` harness (build.zig `test-realworld` /
+`test-realworld-run` steps) — how a fixture is declared + run via
+`cli_run.runWasm`; does it pick up p10 or need wiring? (2) Can clang target
+wasm freestanding (`clang --target=wasm32 -nostdlib -Wl,--no-entry
+-Wl,--export-all`) to produce a runnable no-import module with an exported
+func? Verify a trivial C → `.wasm` → runs in zwasm. (3) Pick the FIRST fixture
+(clang_musttail tail-call C, or clang_wasm64 >4GiB — wasm64 needs host 64-bit
++ may need large alloc, so musttail is likely simpler first).
+**Bar**: land ONE real clang fixture (`.wasm` + provenance + expected) that
+zwasm runs correctly, wired into a runnable test step; no regression; 0 panics.
+If clang can't target wasm cleanly (no wasi-sdk / wasm target), confirm via
+`clang --print-targets | grep wasm` + self-provision or debt-track per
+extended_challenge; the emscripten/dart/ocaml/hoot toolchains stay gated.
 
 ## §10 close map (after this bundle)
 
