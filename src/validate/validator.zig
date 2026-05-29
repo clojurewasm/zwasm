@@ -350,6 +350,12 @@ pub fn validateFunctionWithMemIdxAndTags(
     /// 10.R-funcrefs-tail — func-index → type-section-index map for
     /// ADR-0123 D4 typed `ref.func`. Empty → legacy abstract funcref.
     func_type_indices: []const u32,
+    /// 10.G WasmGC — type-section kinds + sparse struct/array defs so
+    /// struct.new/get/set + array.new/get/len resolve their typeidx.
+    /// Empty (`&.{}`) → non-GC callers (struct/array ops then reject).
+    module_types_kinds: []const sections.TypeKind,
+    struct_defs: []const ?sections.StructDef,
+    array_defs: []const ?sections.ArrayDef,
 ) Error!void {
     var v = Validator{
         .sig = sig,
@@ -359,6 +365,9 @@ pub fn validateFunctionWithMemIdxAndTags(
         .func_types = func_types,
         .globals = globals,
         .module_types = module_types,
+        .module_types_kinds = module_types_kinds,
+        .struct_defs = struct_defs,
+        .array_defs = array_defs,
         .data_count = data_count,
         .tables = tables,
         .elem_count = elem_count,

@@ -359,6 +359,9 @@ pub fn frontendValidate(alloc: std.mem.Allocator, binary: []const u8) bool {
             tags_slice,
             declared_funcs,
             func_type_indices,
+            types_owned.kinds,
+            types_owned.struct_defs,
+            types_owned.array_defs,
         ) catch return false;
     }
     return true;
