@@ -134,6 +134,34 @@ test "validate: br_on_cast matches label against cast-target rt2, not operand (1
     try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
 }
 
+test "subtypeCtx: concrete (ref $sub) <: (ref $super) via declared supertype chain (10.G cycle 146)" {
+    // ADR-0124 — type1 declares type0 as supertype, so (ref $1) <: (ref
+    // $0) but NOT vice-versa. Re-derived from cyc143 now that ADR-0016 M3
+    // surfaced the observable: gc/type-subtyping.6/7 fail at `call`
+    // because a narrowed (ref $sub) flows into a (ref $super) param.
+    const sup1 = [_]u32{0};
+    const sups = [_][]const u32{ &.{}, &sup1 };
+    const kinds = [_]sections.TypeKind{ .structdef, .structdef };
+    const v: validator.Validator = .{
+        .sig = empty_sig,
+        .locals = &.{},
+        .body = &.{},
+        .pos = 0,
+        .func_types = &.{},
+        .globals = &.{},
+        .module_types = &.{},
+        .data_count = 0,
+        .tables = &.{},
+        .elem_count = 0,
+        .module_types_kinds = &kinds,
+        .supertypes = &sups,
+    };
+    const ref_sub: ValType = .{ .ref = .{ .nullable = false, .heap_type = .{ .concrete = 1 } } };
+    const ref_super: ValType = .{ .ref = .{ .nullable = false, .heap_type = .{ .concrete = 0 } } };
+    try testing.expect(v.subtypeCtx(ref_sub, ref_super));
+    try testing.expect(!v.subtypeCtx(ref_super, ref_sub));
+}
+
 test "validate: br_on_cast_fail carries rt1\\rt2 to label, falls through with rt2 (10.G cycle 145)" {
     // br_on_cast_fail l ht1 ht2: branches with rt1\rt2, falls through
     // with rt2. Here ht1=any ht2=(ref i31): label (result anyref) gets
@@ -530,6 +558,7 @@ test "validate: ref.func yields typed (ref N) satisfying a typed-ref param (ADR-
         &.{}, // module_types_kinds
         &.{}, // struct_defs
         &.{}, // array_defs
+        &.{}, // supertypes
     );
 }
 
@@ -562,6 +591,7 @@ test "validate: typed (ref N) from ref.func is a subtype of funcref (global.set)
         &.{}, // module_types_kinds
         &.{}, // struct_defs
         &.{}, // array_defs
+        &.{}, // supertypes
     );
 }
 
@@ -595,6 +625,7 @@ test "validate: ref.as_non_null in unreachable code stays polymorphic (satisfies
         &.{}, // module_types_kinds
         &.{}, // struct_defs
         &.{}, // array_defs
+        &.{}, // supertypes
     );
 }
 
@@ -630,6 +661,7 @@ test "validate: br_on_non_null to a concrete (ref N) label in unreachable code" 
         &.{}, // module_types_kinds
         &.{}, // struct_defs
         &.{}, // array_defs
+        &.{}, // supertypes
     );
 }
 
@@ -660,6 +692,7 @@ test "validate: typed (ref N) from ref.func is NOT a subtype of externref" {
         &.{}, // module_types_kinds
         &.{}, // struct_defs
         &.{}, // array_defs
+        &.{}, // supertypes
     );
     try testing.expectError(Error.StackTypeMismatch, r);
 }

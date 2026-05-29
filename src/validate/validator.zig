@@ -357,6 +357,7 @@ pub fn validateFunctionWithMemIdxAndTags(
     module_types_kinds: []const sections.TypeKind,
     struct_defs: []const ?sections.StructDef,
     array_defs: []const ?sections.ArrayDef,
+    supertypes: []const []const u32,
 ) Error!void {
     var v = Validator{
         .sig = sig,
@@ -369,6 +370,7 @@ pub fn validateFunctionWithMemIdxAndTags(
         .module_types_kinds = module_types_kinds,
         .struct_defs = struct_defs,
         .array_defs = array_defs,
+        .supertypes = supertypes,
         .data_count = data_count,
         .tables = tables,
         .elem_count = elem_count,
@@ -602,6 +604,14 @@ pub const Validator = struct {
     /// consults this when those ops land.
     array_defs: []const ?sections.ArrayDef = &.{},
 
+    /// ADR-0124 — per-typeidx declared supertype lists (parallel to
+    /// `module_types`). Enables the concrete→concrete subtype rule in
+    /// `subtypeCtx`: a `(ref $sub)` satisfies a `(ref $super)` operand
+    /// (e.g. a `call` arg) when `$sub`'s declared supertype chain reaches
+    /// `$super` (`gcConcreteReaches`). Empty (default) → concrete refs
+    /// match only by identity, preserving pre-GC callers' behaviour.
+    supertypes: []const []const u32 = &.{},
+
     operand_buf: [max_operand_stack]TypeOrBot = undefined,
     operand_len: usize = 0,
 
@@ -711,7 +721,11 @@ pub const Validator = struct {
                     } else .func;
                     break :blk gcHeapAbstractSubtype(head, e_abs);
                 },
-                .concrete => false,
+                // ADR-0124 — concrete→concrete: `(ref $a)` <: `(ref $b)`
+                // iff `$a`'s declared supertype chain reaches `$b`. Drives
+                // call-arg / return / local.set coercion of narrowed GC
+                // refs (gc/type-subtyping.6/7 fail at `call` without this).
+                .concrete => |e_idx| gcConcreteReaches(idx, e_idx, self.supertypes),
             },
             .abstract => false,
         };

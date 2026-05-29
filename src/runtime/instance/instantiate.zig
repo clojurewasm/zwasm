@@ -363,6 +363,7 @@ pub fn frontendValidate(alloc: std.mem.Allocator, binary: []const u8) bool {
             types_owned.kinds,
             types_owned.struct_defs,
             types_owned.array_defs,
+            types_owned.supertypes,
         ) catch {
             // ADR-0016 M3 — the validator set the op/offset diagnostic in
             // its dispatch loop; attach the defined-function index here.
