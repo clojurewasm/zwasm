@@ -6,12 +6,14 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cycle 121 (`<this commit>`) — WasmGC corpus SURVEY
-  (docs-only). Mapped the gc 384-fail corpus: 87/88 modules
-  `compile FAIL: ParseFailed`; biggest family **type-subtyping ×44**,
-  all blocked by ONE shared gap — recursive type forms `0x4E rec` /
-  `0x4F`/`0x50 sub` unhandled in `decodeTypes`. Full plan +
-  substrate inventory in `lessons/2026-05-29-wasmgc-corpus-scope.md`.
+- **HEAD**: cycle 122 (`<this commit>`) — attempted GC Chunk 1
+  (`0x50`/`0x4F` subtype parse), **reverted**: parsing alone regressed
+  gc invalid pass 55→40 (type-subtyping fixtures are mostly
+  `assert_invalid`; they "passed" by accidentally ParseFailing on 0x50
+  — once parsed, they validate without a subtype check → wrongly
+  accepted). **Parse + subtype-validation are COUPLED** (D-188 class);
+  the structural subtype lattice is ADR-grade. No code landed; finding
+  recorded in the wasmgc lesson (CORRECTION). cyc121 = survey.
 - cyc120 (`5db875b0`): cross-module EH propagation + caller-frame catch
   → **EH corpus FULLY GREEN 34/34** (bundle 10.E CLOSED; D-192 PROVEN).
 - **Bundle 10.E-eh-tail CLOSED** — exit (return ≥ 33/34) met at 34/34;
@@ -20,7 +22,7 @@
   ADR-0114): parser→validator→instantiate-binding→*TagInstance
   identity→cross-module propagation. D-192 EH clause PROVEN.
 - Mac green cyc120. ubuntu: cyc120 HEAD green (`OK (HEAD=40d7f0d0)`);
-  cyc121 docs-only (survey, no kick).
+  cyc121-122 docs-only (survey + reverted-probe finding, no kick).
 
 ## Active bundle
 
@@ -41,21 +43,22 @@
 - **Exit-condition**: gc corpus return pass ≥ 50/407 (first execution
   slice via struct/array) — refine as chunks land.
 
-## Active task — cycle 122: Chunk 1 — recursive type parse (0x4E/0x4F/0x50)
+## Active task — cycle 123: ADR-0122 (GC subtype lattice), then coupled parse+validate
 
-The shared high-leverage gap (unblocks ~44 type-subtyping modules).
-Extend `src/parse/sections.zig decodeTypes` (~135-166): add `0x4E rec`
-(group of N typedefs — loop reading each 0x60/0x5F/0x5E/0x4F/0x50 into
-the existing `kinds[]`/`struct_defs[]`/`array_defs[]` side-tables) +
-`0x4F sub` (supertype-idx vec, then body) + `0x50 sub final`
-(supertype-idx vec — usually empty — then body). Record supertype idxs
-in a parse-side side-table; do NOT materialise the RTT chain yet
-(ADR-0121 D6 — that's Chunk 5). Smallest red: a `decodeTypes` unit test
-on a `rec` group + a `sub` typedef (hand-built bytes). Observable:
-rerun the runner BINARY DIRECTLY — gc ParseFailed 87 → ~43 (type-
-subtyping modules advance past parse). NOT ADR-grade (parse-structure
-only). Then cyc123 = Chunk 2 (subtype lattice + the 5 invalid-accepted
-kind-checks; ADR-0122). Full plan in the wasmgc lesson.
+cyc122 proved parse+validate are coupled for GC (parse-only regresses
+invalid). The subtype-conformance rules are ADR-grade → **cyc123 =
+file `.dev/decisions/0122_gc_subtype_lattice.md`** (Decision: the
+structural subtype rules — struct width+depth, array element variance,
+func param contravariant/result covariant; the abstract heap-type
+lattice struct/array <: eq <: any, i31 <: any, none <: everything,
+func <: func; Alternatives; Consequences). Then (cyc124+) implement as
+ONE coupled chunk: (a) `decodeTypes` `0x50`/`0x4F` prefix +
+`supertypes` side-table (the reverted cyc122 diff — `0x50` per typedef,
+NOT `0x4E rec`; each subtype its own index, no flattening); (b) the
+validator's `typeDefIsSubtype(sub, super)` check rejecting non-conformant
+declared subtypes. Observable: gc ParseFailed ↓ AND invalid stays ≥55
+(ideally →60). Deviation watch: this IS the §4-adjacent subtype lattice
+— ADR-0122 first is mandatory. Full finding in the wasmgc lesson.
 
 ## Larger §10 work (later bundles)
 

@@ -42,6 +42,29 @@ any↔extern, ref.eq) for the no-RTT cut. ADR-0115 (heap), ADR-0116
 (roots+RTT+i31), ADR-0121 (struct/array typedef parse; RTT
 materialisation explicitly DEFERRED).
 
+## CORRECTION (cycle 122) — Chunk 1 and Chunk 2 are COUPLED
+
+Two corrections from cyc122's attempt:
+1. The actual bytes use `0x50 sub-final` (and `0x4F sub`), NOT `0x4E
+   rec` — type-subtyping.{0,1,2} have 4E=0, 50=6-7. So each subtype is
+   its OWN type index (no flattening refactor); the gap is the
+   `0x50`/`0x4F` subtype PREFIX (`vec(typeidx)` supertypes + comptype)
+   in `decodeTypes`, recorded in a parallel `supertypes` side-table.
+2. **Parsing 0x50/0x4F ALONE regresses the invalid axis** (gc invalid
+   pass 55→40). The type-subtyping fixtures are largely `assert_invalid`
+   (BAD subtyping). They previously "passed" by accidentally ParseFailing
+   on the unknown 0x50 byte; once parsed, they validate (no subtype
+   check) → wrongly ACCEPTED → invalid regression. **Chunk 1 (parse) and
+   Chunk 2 (subtype-conformance validation) MUST land together** — a
+   D-188-class parse-vs-validate coupling. Reverted cyc122's parse-only.
+
+The subtype-conformance check (a declared subtype's comptype must
+structurally conform to each declared supertype: struct width+depth,
+array element variance, func param/result variance, + the abstract
+heap-type lattice struct/array <: eq <: any, i31 <: any, etc.) is
+**ADR-grade** → file ADR-0122 FIRST, then implement parse + validate as
+one coupled chunk (gc ParseFailed ↓ AND invalid stays ≥55, ideally →60).
+
 ## Plan (smallest-first; verify each by DIRECT binary run)
 
 1. **Chunk 1 — recursive type parse** (NEXT, cyc122). `0x4E`/`0x4F`/
