@@ -6,15 +6,13 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cyc187 (diagnosis, no src) — root-caused the last multi-mem
-  fail (linking0): **cross-module TABLE imports are UNSUPPORTED**
-  (`linker.zig:487` rejects `.table`; no `defineTable`) → the
-  uninstantiable module's table import fails early → its `elem` write
-  never reaches Mt's shared table → `call(7)` UninitializedElement.
-  Fix = cross-module table sharing, mirror D-199 (D-201b, cyc188).
-  Earlier: D-201a re-exported-import invoke (cyc186 +2), D-200
-  assert_uninstantiable (cyc184 +2/+6), D-199 shared memory (cyc182 +6);
-  gc COMPLETE 62→349. **multi-mem 406/407 ret / 244 trap.**
+- **HEAD**: cyc188 (`da7434ce`) — **cross-module TABLE imports** (D-201b,
+  linker `table_alias` + `defineTable` + `.table` binding arm + runner
+  register, mirror D-199). **multi-memory FULLY GREEN: return 407/407,
+  trap 244, invalid 2, malformed 2** — the 10.H bundle is COMPLETE
+  (393→407 this session via D-199 memory / D-200 assert_uninstantiable /
+  D-201a re-export-invoke / D-201b table). gc COMPLETE 62→349 ret / 96
+  trap / 57 inv. memory64 / tail-call / EH also all-green.
 - Earlier arc: cyc147-148 ADR-0125 packed (62→116); cyc146 ADR-0016 M3
   validate self-attribution (`compile FAIL [fn= off= op=]`) + subtypeCtx
   coercion; cyc144/145 GC blocktypes + br_on_cast; cyc141 rt.datas fix
@@ -27,21 +25,25 @@
   full substrate cyc110–120; D-192 EH clause PROVEN). Lesson
   `eh-cross-module-tag-substrate-scope` has the journey.
 - Mac+ubuntu green through cyc142 (`OK (HEAD=a763d44a)`).
+- **No active bundle**: 10.G-gc (62→349) + 10.H-multimem (396→407 all-green)
+  both CLOSED cyc188. §10 corpus: multi-mem / memory64 / tail-call / EH
+  all-green; gc 349/96/57 (residual DEFERRED — D-198 .17 + cross-module
+  sig); funcrefs 34/39 (5 gated, 10.P user touchpoint). Cross-module
+  sharing substrate: D-199 memory + D-201 table/func.
 
-## Active bundle
+## Active task — cycle 189: post-bundle consolidation (audit_scaffolding) — **NEXT**
 
-- **Bundle-ID**: 10.H-multimem-linking (multi-memory linking/import
-  return-fails — the next observable §10 cluster after the gc corpus).
-- **Cycles-remaining**: open; next = cyc181 multi-memory fail triage.
-- **Continuity-memo**: gc bundle (10.G) delivered 62→349 ret / 96 trap /
-  57 inv — substrate DONE (`feature/gc/` heap+type_info+i31+collector,
-  ADR-0115/0116/0121/0124/0125/0126 iso-recursive canon). gc residual
-  DEFERRED (D-198: .17 rabbit hole + cross-module sig). **VERIFY by DIRECT
-  binary run**; M3 attributes every compile FAIL.
-- **Exit-condition**: multi-memory return > 396 (reduce the 11-fail
-  linking/imports cluster). gc return ≥ 90 was long EXCEEDED (349).
-
-## Active task — cycle 188: cross-module table imports (D-201b) — **NEXT**
+Two §10 corpus bundles CLOSED (10.G gc 62→349, 10.H multi-mem 396→407
+all-green) + many new artifacts this arc (D-198/199/200/201, ADR-0099/
+0126 amendments, lessons). The autonomous-eligible OBSERVABLE corpus work
+is exhausted (gc residual = deep deferred edges; funcrefs gated). Invoke
+`audit_scaffolding` for a coherence pass: §F debt coherence (D-198..201
+rows accurate + discharge predicates clear), §G extended-challenge anchors,
+staleness across CLAUDE.md / `.dev/` / rules. `block` finding → fix local
+or file ADR + queue; either path continues. Then re-target at the highest-
+value remaining (likely the deferred gc edges with a fresh ROI read, or a
+ROADMAP §10 milestone check). Verify any fix keeps gc 349/96/57 + multi-mem
+407, exit 0, 0 panics.
 
 Last multi-memory fail (linking0). Cross-module TABLE imports are
 unsupported (`linker.zig:487` rejects `.table`). Implement, mirroring
@@ -74,7 +76,7 @@ rabbit hole, defer. (Deferred: gc .17 + cross-module sig per D-198.)
 [memory64           ] return=337 (all pass)    [tail-call] return=71 (all pass)
 [exception-handling ] 34/34 ✅ FULLY GREEN     [function-references] return=34/39
 [gc                 ] return=349/407 trap=96/100 invalid=57/60 malformed=1/1 skip=20  ← 10.G c179 (typed call_indirect)
-[multi-memory       ] return=406/407 trap=244/244  ← cyc186 re-exported-import invoke (+2); 1 fail left (linking0)
+[multi-memory       ] return=407/407 trap=244/244  ← cyc188 ALL-GREEN (D-199/200/201 cross-module chain)
 ```
 
 > Use `--fail-detail` (reliable per-assert), NOT the per-manifest
