@@ -259,6 +259,10 @@ pub const TableEntry = struct {
     elem_type: ValType,
     min: u32,
     max: ?u32 = null,
+    /// 10.G cycle 166 — Wasm 3.0 table-with-explicit-init-expr
+    /// (`0x40 0x00 reftype limits constexpr`): raw const-expr bytes for
+    /// the initial element value. Empty = default (null_ref) fill.
+    init_expr: []const u8 = &.{},
 };
 
 pub const BlockKind = enum(u8) {

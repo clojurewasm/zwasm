@@ -1370,15 +1370,44 @@ pub fn instantiateRuntime(
                     imp_idx += 1;
                 }
             }
-            if (tables_owned) |t| for (t.items, 0..) |entry, i| {
-                const refs = try a.alloc(Value, entry.min);
-                for (refs) |*r| r.* = .{ .ref = Value.null_ref };
-                tbl_storage[imp_table_count + i] = .{
-                    .refs = refs,
-                    .elem_type = entry.elem_type,
-                    .max = entry.max,
-                };
-            };
+            if (tables_owned) |t| {
+                // 10.G cycle 166 — imported global slots for table
+                // init-expr global.get. Tables are created before the
+                // globals loop builds rt.globals, so extract the imported
+                // slots from bindings here (i31.3 table init-expr reads
+                // `global.get $g` of an imported global).
+                var imp_glob_slots: []*Value = &.{};
+                if (imp_global_count > 0) {
+                    const gs = try a.alloc(*Value, imp_global_count);
+                    var gi: usize = 0;
+                    for (imports_decoded.?.items, 0..) |it, idx| {
+                        if (it.kind != .global) continue;
+                        gs[gi] = bindings.?[idx].global.slot;
+                        gi += 1;
+                    }
+                    imp_glob_slots = gs;
+                }
+                for (t.items, 0..) |entry, i| {
+                    const refs = try a.alloc(Value, entry.min);
+                    if (entry.init_expr.len > 0) {
+                        // Wasm 3.0 table-with-init-expr: eval the const-expr
+                        // once + fill every slot with the result.
+                        const v = evalConstExprValue(entry.init_expr) catch |e|
+                            if (e == error.UnsupportedConstExpr)
+                                try evalGlobalInitGc(entry.init_expr, rt, inst, imp_glob_slots)
+                            else
+                                return e;
+                        for (refs) |*r| r.* = v;
+                    } else {
+                        for (refs) |*r| r.* = .{ .ref = Value.null_ref };
+                    }
+                    tbl_storage[imp_table_count + i] = .{
+                        .refs = refs,
+                        .elem_type = entry.elem_type,
+                        .max = entry.max,
+                    };
+                }
+            }
             rt.tables = tbl_storage;
         }
     }

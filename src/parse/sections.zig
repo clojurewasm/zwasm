@@ -507,6 +507,33 @@ pub fn decodeTables(parent_alloc: Allocator, body: []const u8) Error!Tables {
     const items = try alloc.alloc(zir.TableEntry, count);
 
     for (items) |*t| {
+        // 10.G cycle 166 — Wasm 3.0 table-with-explicit-init-expr:
+        // `0x40 0x00 reftype limits constexpr` (the initial element value
+        // for every slot). i31.wast $i31ref_of_global_table_initializer:
+        // `(table 3 3 (ref i31) (ref.i31 (global.get $g)))`. The classic
+        // form (no 0x40 prefix) is `reftype limits`.
+        if (pos < body.len and body[pos] == 0x40) {
+            pos += 1; // 0x40 marker
+            if (pos >= body.len or body[pos] != 0x00) return Error.InvalidFunctype;
+            pos += 1; // reserved 0x00
+            const elem_type = init_expr.readRefType(body, &pos) catch |e| switch (e) {
+                error.UnexpectedEnd => return Error.UnexpectedEnd,
+                else => return Error.BadValType,
+            };
+            if (pos >= body.len) return Error.UnexpectedEnd;
+            const lflag = body[pos];
+            pos += 1;
+            if (lflag != 0 and lflag != 1) return Error.InvalidFunctype;
+            const min = try leb128.readUleb128(u32, body, &pos);
+            const max: ?u32 = if (lflag & 1 != 0) try leb128.readUleb128(u32, body, &pos) else null;
+            const ie_start = pos;
+            init_expr.scanInitExpr(body, &pos) catch |e| switch (e) {
+                error.UnexpectedEnd => return Error.UnexpectedEnd,
+                else => return Error.InvalidFunctype,
+            };
+            t.* = .{ .elem_type = elem_type, .min = min, .max = max, .init_expr = body[ie_start..pos] };
+            continue;
+        }
         // function-references: table elem_type may be any reftype,
         // incl. the typed `(ref null? $t)` forms — decode via the shared
         // reftype reader instead of a hardcoded funcref/externref switch.
