@@ -2311,7 +2311,9 @@ pub const Validator = struct {
         const type_idx = try leb128.readUleb128(u32, self.body, &self.pos);
         const table_idx = try leb128.readUleb128(u32, self.body, &self.pos);
         if (table_idx >= self.tables.len) return Error.InvalidFuncIndex;
-        if (!self.tables[table_idx].elem_type.isFuncref()) return Error.InvalidFuncIndex;
+        // Subtype-of-funcref (incl. typed funcref tables), mirroring
+        // opCallIndirect (Wasm 3.0 §3.3.5.6).
+        if (!self.subtypeCtx(self.tables[table_idx].elem_type, ValType.funcref)) return Error.InvalidFuncIndex;
         if (type_idx >= self.module_types.len) return Error.InvalidFuncIndex;
         const callee = self.module_types[type_idx];
         try self.popExpect(.i32);
@@ -2540,11 +2542,13 @@ pub const Validator = struct {
         // encoded a single 0x00 byte which decodes as uleb32(0).
         const table_idx = try leb128.readUleb128(u32, self.body, &self.pos);
         if (table_idx >= self.tables.len) return Error.InvalidFuncIndex;
-        // §9.9 / 9.9-l-1b-d093-d80 — Wasm spec §3.3.5.6:
-        // call_indirect requires the referenced table to have
-        // reftype `funcref`. Externref tables cannot back
-        // call_indirect.
-        if (!self.tables[table_idx].elem_type.isFuncref()) return Error.InvalidFuncIndex;
+        // Wasm 3.0 §3.3.5.6: call_indirect requires the table's reftype
+        // to be a SUBTYPE of `funcref` — abstract `func`/`nofunc` OR a
+        // concrete func-typed `(ref null $t)` / `(ref $t)` (a typed
+        // funcref table, gc/type-subtyping.19). Externref / struct / array
+        // tables are rejected. (Was an exact `isFuncref()` test, which
+        // accepted only the abstract `(ref null func)`.)
+        if (!self.subtypeCtx(self.tables[table_idx].elem_type, ValType.funcref)) return Error.InvalidFuncIndex;
         if (type_idx >= self.module_types.len) return Error.InvalidFuncIndex;
         const callee = self.module_types[type_idx];
         // Pop the function-table index (i32), then args in reverse.
