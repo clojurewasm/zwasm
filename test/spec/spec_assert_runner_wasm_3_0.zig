@@ -108,10 +108,15 @@ pub fn main(init: std.process.Init) !void {
     defer args.deinit();
     _ = args.next() orelse return;
     const corpus_root = args.next() orelse {
-        try stdout.print("usage: spec_assert_runner_wasm_3_0 <corpus-root>\n", .{});
+        try stdout.print("usage: spec_assert_runner_wasm_3_0 <corpus-root> [--fail-detail]\n", .{});
         try stdout.flush();
         return;
     };
+    // Per-assert FAIL detail (cycle 163 diagnostic infra). Emitted via
+    // the buffered `stdout` (reliable) — NOT std.debug.print, which
+    // under-reported vs the per-manifest breakdown in cyc161. Opt-in via
+    // a `--fail-detail` arg; off by default so gate runs stay clean.
+    const fail_detail = if (args.next()) |a| std.mem.eql(u8, a, "--fail-detail") else false;
 
     const cwd = std.Io.Dir.cwd();
     var dir = cwd.openDir(io, corpus_root, .{}) catch {
@@ -462,6 +467,7 @@ pub fn main(init: std.process.Init) !void {
                         const idx_ret: usize = if (d.module_id.len > 0)
                             (name_to_idx.get(d.module_id) orelse {
                                 summary.asserts_return_fail += 1;
+                                if (fail_detail) try stdout.print("  FAILdispatch [{s}/{s}] {s} id={s}\n", .{ proposal, entry.name, d.func_name, d.module_id });
                                 continue;
                             })
                         else
@@ -470,6 +476,7 @@ pub fn main(init: std.process.Init) !void {
                                 // count as fail since the assert couldn't
                                 // be evaluated.
                                 summary.asserts_return_fail += 1;
+                                if (fail_detail) try stdout.print("  FAILsetup [{s}/{s}] {s}\n", .{ proposal, entry.name, d.func_name });
                                 continue;
                             });
                         const instance = &instances_list.items[idx_ret];
@@ -479,8 +486,9 @@ pub fn main(init: std.process.Init) !void {
                             // so subsequent state-dependent directives
                             // see the mutation. Pass on clean return,
                             // fail on trap or setup error.
-                            manifest_parser.invokeInstanceVoid(instance, d.func_name, call_args[0..d.args_len]) catch {
+                            manifest_parser.invokeInstanceVoid(instance, d.func_name, call_args[0..d.args_len]) catch |e| {
                                 summary.asserts_return_fail += 1;
+                                if (fail_detail) try stdout.print("  FAILvoid [{s}/{s}] {s} err={s}\n", .{ proposal, entry.name, d.func_name, @errorName(e) });
                                 continue;
                             };
                             summary.asserts_return_pass += 1;
@@ -489,8 +497,9 @@ pub fn main(init: std.process.Init) !void {
                         const expected_tv = d.results[0];
                         const expected_rv = manifest_parser.parsePayload(expected_tv) catch continue;
                         const expected_zv = manifest_parser.runtimeToZwasm(expected_rv, expected_tv.ty);
-                        const got = manifest_parser.invokeInstance(instance, d.func_name, call_args[0..d.args_len]) catch {
+                        const got = manifest_parser.invokeInstance(instance, d.func_name, call_args[0..d.args_len]) catch |e| {
                             summary.asserts_return_fail += 1;
+                            if (fail_detail) try stdout.print("  FAILtrap [{s}/{s}] {s} err={s}\n", .{ proposal, entry.name, d.func_name, @errorName(e) });
                             continue;
                         };
                         // Compare by the result type's discriminator.
@@ -499,7 +508,10 @@ pub fn main(init: std.process.Init) !void {
                             else if (std.mem.eql(u8, expected_tv.ty, "f32")) got.f32 == expected_zv.f32
                             else if (std.mem.eql(u8, expected_tv.ty, "f64")) got.f64 == expected_zv.f64
                             else false;
-                        if (match) summary.asserts_return_pass += 1 else summary.asserts_return_fail += 1;
+                        if (match) summary.asserts_return_pass += 1 else {
+                            summary.asserts_return_fail += 1;
+                            if (fail_detail) try stdout.print("  FAILval [{s}/{s}] {s} exp={d} got={d} ty={s}\n", .{ proposal, entry.name, d.func_name, expected_zv.i32, got.i32, expected_tv.ty });
+                        }
                     },
                     .assert_trap => {
                         summary.asserts_trap += 1;
