@@ -6,12 +6,13 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cyc152 (`f5265178`) — **ref.cast/cast_null** runtime
-  type-test + `Trap.CastFailure` (reuses gcRefMatchesNonNull; abstract +
-  concrete). gc trap 54→56. The c150 exit-code check caught an
-  Instance.invoke Trap-classification @panic pre-commit (CastFailure
-  wasn't listed). cyc149-151: ref.test abstract+concrete RTT +
-  supertype_chain + crash fix. gc return 117.
+- **HEAD**: cyc153 (`a2ebd0bf`) — **br_on_cast/_fail exec** (interp;
+  reuse gcRefMatchesNonNull + doBranch) → **gc return 117→145** (the
+  cyc143-predicted unlock: type-subtyping family + br_on_cast fixtures).
+  RTT exec arc (cyc149-153): ref.test abstract+concrete + supertype_chain
+  + ref.cast (Trap.CastFailure) + br_on_cast. **gc return 62→145** across
+  the session. trap 56 / invalid 57. 2 crashes caught pre/at-commit by
+  the c150 exit-code lesson.
 - cyc147-148 **ADR-0125 packed COMPLETE** (A union rename → B-validate
   decode → B-exec get_s/u): gc return 62→116, trap 18→54, ValidateFailed
   27→14, invalid 57 held. cyc146 ADR-0016 M3 + concrete-subtype coercion.
@@ -46,24 +47,22 @@
 - **Exit-condition**: gc return ≥ 90 **EXCEEDED (116 at cyc148)**. Open
   target: maximise return (RTT exec) toward the corpus ceiling.
 
-## Active task — cycle 153: br_on_cast EXEC — **NEXT**
+## Active task — cycle 154: remaining gc return-fails (207) — **NEXT**
 
-ref.test + ref.cast DONE. Last RTT lever. **VERIFY by full test-spec +
-exit-code + panic grep** (lesson `runtime-exec-change-needs-testspec-
-exitcode` — already caught 2 crashes c150/152).
-- **br_on_cast / br_on_cast_fail EXEC**. The interp handler must live in
-  the INTERP (Zone 2, where `doBranch` is at `interp/mvp.zig:285`) — a
-  Zone-1 ops file can't import interp upward. Make
-  `ref_test_ops.gcRefMatchesNonNull` pub; the interp handler pops the ref,
-  matches against ht2 (`(instr.extra>>16)&0xFF`), and on match (br_on_cast)
-  / mismatch (br_on_cast_fail) calls `doBranch(payload=labelidx)`, else
-  falls through. Find where br/br_if register; add br_on_cast there.
-  ZirInstr: payload=labelidx, extra = flags | ht1<<8 | ht2<<16. Unblocks
-  br_on_cast.1/.2 (concrete subtype hierarchy) return assertions.
-- **ref_test 33-fails** (return 68 pass=35): likely an `init`-op gap
-  (any.convert_extern identity; ref.null none/nofunc/noextern) — step one
-  invoke to localize (M3 covers compile, not exec mismatch).
-No regression to 117 return / 56 trap / 57 invalid / 393 multi-mem.
+RTT exec arc DONE (return 145). **VERIFY runtime changes by full
+test-spec + exit-code + panic grep** (lesson). Pick the biggest tractable
+return-lever; attribute compile-fails via M3 (`grep "compile FAIL.*op=0x"`),
+exec-mismatches via a single-invoke trace (M3 covers only compile):
+- **array bulk ops** array.copy / array.init_data / array.init_elem
+  exec (validate+lower may exist; exec handlers?). Likely several fixtures.
+- **ref_test 33-fails / extern.0 / ref_eq.0**: `init`-op gaps
+  (any.convert_extern / extern.convert_any are identity in
+  ref_convert_ops.zig — verify; ref.null none/nofunc/noextern; ref.eq).
+- **struct/array remaining**: step a failing invoke to localize.
+- ValidateFailed=14 residue: type-subtyping.9/12/21/24/39/45 (ADR-0124
+  validateTypeSection over-reject?) + cross-module linking (.30/40/46/48/50
+  SignatureMismatch — c_api GC type import/export match).
+No regression to 145 return / 56 trap / 57 invalid / 393 multi-mem.
 
 ## Larger §10 work (later bundles)
 
