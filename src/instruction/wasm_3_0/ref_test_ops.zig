@@ -78,8 +78,14 @@ fn decodeAbstract(b: u8) ?AbstractHeapType {
 /// from the slot the GcRef offset points at. Null on a malformed heap.
 fn readObjKind(rt: *Runtime, v: Value) ?ObjectKind {
     const heap = rt.gc_heap orelse return null;
-    const ref: u32 = @intCast(v.ref);
     const hdr_size = @sizeOf(ObjectHeader);
+    // `v.ref` may NOT be a GC-heap offset — `ref.test (ref struct)` can be
+    // reached with an anyref holding a host pointer (an `any.convert_extern`
+    // result). Reject anything at/beyond the heap (as u64) BEFORE the u32
+    // cast — the cast panics on a > u32 pointer. Such a value is simply not
+    // a struct/array → no match.
+    if (v.ref >= heap.bytes.len) return null;
+    const ref: u32 = @intCast(v.ref);
     if (@as(usize, ref) + hdr_size > heap.bytes.len) return null;
     var hdr: ObjectHeader = undefined;
     @memcpy(std.mem.asBytes(&hdr)[0..hdr_size], heap.bytes[ref .. ref + hdr_size]);
