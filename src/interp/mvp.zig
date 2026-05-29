@@ -44,6 +44,7 @@ const dispatch = @import("../ir/dispatch_table.zig");
 const zir = @import("../ir/zir.zig");
 const runtime = @import("../runtime/runtime.zig");
 const memory_ops = @import("../instruction/wasm_1_0/memory.zig");
+const ref_test_ops = @import("../instruction/wasm_3_0/ref_test_ops.zig");
 const mvp_int = @import("../instruction/wasm_1_0/numeric_int.zig");
 const mvp_float = @import("../instruction/wasm_1_0/numeric_float.zig");
 const mvp_conversions = @import("../instruction/wasm_1_0/numeric_conversion.zig");
@@ -88,6 +89,8 @@ pub fn register(table: *DispatchTable) void {
     table.interp[op(.br)] = brOp;
     table.interp[op(.br_if)] = brIfOp;
     table.interp[op(.br_table)] = brTableOp;
+    table.interp[op(.br_on_cast)] = brOnCastOp;
+    table.interp[op(.br_on_cast_fail)] = brOnCastFailOp;
     table.interp[op(.@"return")] = returnOp;
     table.interp[op(.call)] = callOp;
     table.interp[op(.call_indirect)] = callIndirectOp;
@@ -315,6 +318,33 @@ fn brIfOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     if (cond != 0) {
         try doBranch(rt, rt.currentFrame(), @intCast(instr.payload));
     }
+}
+
+/// Wasm 3.0 GC §4.4.5 — `br_on_cast` / `br_on_cast_fail`. ZirInstr:
+/// payload = labelidx, extra = flags | ht1<<8 | ht2<<16 (lower.zig). The
+/// operand ref stays on the stack (it's carried on a taken branch and
+/// kept on fall-through — only its static type narrows, a validate-time
+/// concern); we branch iff the runtime type-test against ht2 matches
+/// (`br_on_cast`) or doesn't (`br_on_cast_fail`). Null matches ht2 only
+/// when ht2 is nullable (flags bit 1). Concrete ht2 walks the supertype
+/// chain via `gcRefMatchesNonNull` (10.G cycle 153).
+fn brOnCastImpl(c: *InterpCtx, instr: *const ZirInstr, is_fail: bool) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const v = rt.popOperand();
+    const flags: u8 = @truncate(instr.extra);
+    const ht2: u8 = @truncate(instr.extra >> 16);
+    const ht2_nullable = (flags & 0x02) != 0;
+    const matches = if (v.ref == Value.null_ref) ht2_nullable else ref_test_ops.gcRefMatchesNonNull(rt, v, ht2);
+    try rt.pushOperand(v); // ref remains on the stack (branch carries it / fall-through keeps it)
+    const take = if (is_fail) !matches else matches;
+    if (take) try doBranch(rt, rt.currentFrame(), @intCast(instr.payload));
+}
+
+fn brOnCastOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    return brOnCastImpl(c, instr, false);
+}
+fn brOnCastFailOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    return brOnCastImpl(c, instr, true);
 }
 
 fn brTableOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {

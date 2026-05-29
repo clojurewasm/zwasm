@@ -130,7 +130,10 @@ fn concreteReaches(rt: *Runtime, obj_idx: u32, target: u32) bool {
     return false;
 }
 
-fn gcRefMatchesNonNull(rt: *Runtime, v: Value, ht: u8) bool {
+/// Runtime type-test of a NON-NULL ref `v` against heap-type byte `ht`.
+/// Shared with the interp's br_on_cast handler (Zone 2 → Zone 1). Null
+/// handling (per the op's nullability flag) is the caller's concern.
+pub fn gcRefMatchesNonNull(rt: *Runtime, v: Value, ht: u8) bool {
     const is_i31 = Value.isI31Ref(v);
     if (decodeAbstract(ht) == null) {
         // Concrete typeidx target (single-byte; multi-byte indices aren't
