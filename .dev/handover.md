@@ -6,17 +6,15 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `9a060476` (cyc199, 10.TC-JIT IT-3). **Direct AND indirect `return_call`
-  now JIT-execute end-to-end** via `runI32Export` (path (b) in progress). IT-2
-  root-caused the blocker to the liveness pass (`stackEffect-missing` —
-  `return_call*` weren't classified as terminators, aborting `compileWasm`
-  before the already-wired arm64 emit); fix = terminator-class in
-  `src/ir/analysis/liveness.zig` (ADR-0113 §A). IT-3 proved `return_call_indirect`
-  e2e (table[0] worker). Mac test-all + ubuntu GREEN through IT-2; IT-3 Mac
-  test-all GREEN. Phase 10 is formally CLOSE-ELIGIBLE (spec corpus
-  interp-feature-complete) but the in-scope ROADMAP §10 JIT halves (10.TC/E/G)
-  aren't done — (b) completes them rather than deferring to Phase 11 (path user
-  paused on cyc197).
+- **HEAD**: `04476dce` (cyc200, 10.TC-JIT IT-4). **Same-module JIT tail-call is
+  PROVEN**: direct 0-arg (IT-2), indirect via table[0] (IT-3), and direct
+  recursion-WITH-ARGS (IT-4, sum(5,0)=15 over 6 frame-reusing levels — the
+  clang_musttail shape) all JIT-execute e2e via `runI32Export`. Root fix was
+  the liveness terminator-class (`src/ir/analysis/liveness.zig`, ADR-0113 §A,
+  IT-2); emit was already wired. **D-205's core predicate "implement JIT
+  tail-call codegen" is met.** Mac test-all + ubuntu GREEN through IT-3; IT-4
+  Mac test-all GREEN. Phase 10 CLOSE-ELIGIBLE (spec corpus interp-complete);
+  path (b) completing the §10 JIT halves rather than deferring to Phase 11.
 - cyc196 (`086c2991`) first clang-realworld fixture (clang_smoke; pipeline proven).
   Realworld-clang findings: JIT can't run `return_call` (D-205); runI32Export
   doesn't instantiate; → non-trivial clang fixtures need harness work.
@@ -39,30 +37,33 @@
 ## Active bundle
 
 - **Bundle-ID**: 10.TC-JIT (D-205 discharge)
-- **Cycles-remaining**: ~2 (IT-4 clang_musttail recursion-with-args → IT-5 cross-module)
-- **Continuity-memo**: direct + indirect `return_call` both JIT-green e2e via
-  `runI32Export` (IT-2 `ef34724c` liveness terminator-class + IT-3 `9a060476`
-  indirect test). `return_call_ref` is OUT of this bundle — it's blocked on
-  `call_ref` JIT codegen (NO `call_ref.zig` per-op file exists; function-references
-  is interp-only, JIT = 10.R scope); tracked in D-205. Remaining IN bundle:
-  `clang_musttail` realworld fixture (direct `return_call` recursion-WITH-ARGS —
-  the actual D-205 trigger) JIT-result-check, then cross-module
-  (`cross_module_tail_call.zig`, ADR-0112 D4 / 10.TC-3f). Interp trampoline done (D-187).
-- **Exit-condition**: `clang_musttail` realworld fixture JIT-result-checked
-  (direct return_call recursion-with-args executes correctly) + cross-module
-  tail-call lands → bundle close; test-all GREEN, 0 panics. (direct + indirect
-  e2e already met.)
+- **Cycles-remaining**: ~2 (IT-5 realworld result-check harness → IT-6 generate clang_musttail fixture)
+- **Continuity-memo**: same-module tail-call codegen DONE + proven (direct 0-arg
+  `ef34724c`, indirect `9a060476`, recursion-with-args `04476dce`). Remaining IN
+  bundle = wire a realworld result-check harness so `clang_musttail` can be
+  JIT-verified. Per cyc196 lesson: `runI32Export` can't do it (no full
+  instantiation + no-arg-only → clang -O2 constant-folds), and `test-realworld-run`
+  (`cli_run.runWasm`) fully instantiates but only checks instantiate+invoke
+  (no result-check, globs `test/realworld/wasm/` not `p10/`). IT-5 = extend that
+  harness: glob `p10/` + compare invoke result to a `.expect` file. clang→wasm
+  recipe (cyc196 lesson): `PATH+=lld; NIX_HARDENING_ENABLE="" clang --target=wasm32
+  -nostdlib -Wl,--no-entry -O2 -mtail-call`. OUT of bundle (separate debt):
+  cross-module tail-call (`cross_module_tail_call.zig`, 10.TC-3f); `return_call_ref`
+  (blocked-by `call_ref` JIT, 10.R).
+- **Exit-condition**: `clang_musttail` realworld fixture JIT-result-checked via
+  the new full-instantiate harness → bundle close; test-all GREEN, 0 panics.
+  (same-module codegen — direct + indirect + recursion-with-args — already met.)
 
-## Active task — 10.TC-JIT IT-4  **NEXT**
+## Active task — 10.TC-JIT IT-5  **NEXT**
 
-Wire the `clang_musttail` realworld fixture (`test/realworld/p10/clang_musttail/`)
-to JIT-result-check: it's a clang `__attribute__((musttail))` → `return_call`
-recursion-with-args module — the actual D-205 trigger. Survey the realworld/p10
-harness + the fixture's shape; if `runI32Export`-style execution doesn't fit
-(no-arg-export constraint), add the needed entry helper. First confirm a
-direct `return_call` WITH non-empty args + self-recursion JIT-executes (the IT-2/3
-tests had zero args) via a unit test, then the realworld fixture. Lighter queued:
-refresh stale 10.P SKIP rationales (I14/I21 reference resolved D-192/D-179).
+Extend the realworld run harness to result-check `p10/` fixtures: survey
+`test/realworld/run_runner_jit.zig` (+ `cli_run.runWasm` / `test-realworld-run`
+step), then add (a) globbing of `test/realworld/p10/**`, (b) per-fixture
+`.expect` comparison (mirror the edge-case `.expect` format), and (c) generate
+a non-folding `clang_musttail` `.wasm` (CPS/continuation shape per PROVENANCE.md
+so clang -O2 can't const-fold the recursion). Confirm it JIT-runs the
+`return_call` to the correct result. Lighter queued: refresh stale 10.P SKIP
+rationales (I14/I21 reference resolved D-192/D-179).
 
 ## §10 close map (after this bundle)
 

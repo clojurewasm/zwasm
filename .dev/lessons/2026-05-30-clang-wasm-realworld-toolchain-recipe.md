@@ -45,6 +45,13 @@ result, like the wasm-3.0 spec runner does via interp).
 only; see D-205. So `clang_musttail` can't be result-checked until JIT
 tail-call lands OR an interp result-check harness exists.
 
+**Update (cyc200, `04476dce`)**: JIT tail-call codegen now LANDS — direct +
+indirect + recursion-with-args all JIT-execute (root fix = the liveness
+terminator-class, not the emit). The `return_call`-can't-run gap above is
+resolved. `clang_musttail` result-check is now blocked ONLY by gaps #1+#2
+(no full-instantiation + no-arg-only result-check) — a realworld-harness
+task, not a tail-call-impl task. See D-205.
+
 ## Landed
 
 `test/edge_cases/p10/clang_smoke/loop_sum.{wasm,c,expect}` — first real
