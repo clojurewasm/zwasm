@@ -6,16 +6,16 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cycle 134 (`d4cb589f`) — abstract-head subtyping follows the
-  GC heap lattice (popExpect's valTypeIsSubtypeFree: `a_abs==e_abs` →
-  gcHeapAbstractSubtype, so (ref i31) <: anyref). **gc return 33→48
-  (+15)** — i31.5 (anyref global) + i31.6 (anyref table) pass. No
-  regression (func/extern disjoint = identity). Only i31.3 remains.
-- cyc133 (`7994ed5a`) non-funcref element→table init (return 18→33);
-  cyc132 elem_count threading; cyc131 i31ref element decode; cyc130
-  (`dc9d539a`) ref.i31 const-expr (return 2→18). gc return: 0→2→18→33→48.
-- Runner EXECUTES via interp; GC handlers (i31/struct/array) +
-  table.get/grow/fill/copy/init (generic) registered at api/instance.zig.
+- **HEAD**: cycle 135 (`3a9dfd3c`) — thread GC type info (kinds/
+  struct_defs/array_defs) into frontendValidate's validator call (was
+  empty → struct/array ops hit InvalidFuncIndex). **gc return 48→49,
+  ValidateFailed 46→44** — advanced struct.5/7/9 past the func-loop
+  error (now fail PRE-func-loop, next gap). No regression.
+- cyc134 (`d4cb589f`) GC abstract-head subtype lattice (return 33→48);
+  cyc133 non-funcref element→table init (18→33); cyc130-132 i31 exec;
+  gc return: 0→2→18→33→48→49.
+- Runner EXECUTES via interp; struct substrate landed (struct_ops.zig
+  struct.new/get/set + rt.gc_heap via setupGcHeap; handlers registered).
 - cyc120 (`5db875b0`): cross-module EH propagation + caller-frame catch
   → **EH corpus FULLY GREEN 34/34** (bundle 10.E CLOSED; D-192 PROVEN).
 - **Bundle 10.E-eh-tail CLOSED** — exit (return ≥ 33/34) met at 34/34;
@@ -45,20 +45,20 @@
 - **Exit-condition**: gc corpus return pass ≥ 50/407 (first execution
   slice via struct/array) — refine as chunks land.
 
-## Active task — cycle 135: struct/array EXECUTION (the bulk) — **NEXT**
+## Active task — cycle 136: struct.5/7/9 pre-func-loop gap + struct exec — **NEXT**
 
-gc return now 48 (exit ≥50 nearly met). i31 family done except i31.3
-(preDecode: $i31ref_of_global_table_initializer — a global.get-fed table
-initializer; small, ~3 asserts — can mop up, but struct/array is the
-high-value target). PIVOT to struct/array EXECUTION — the bulk of the
-~335 remaining return-fails. struct.new/get/set + array.new/get/len:
-handlers registered (ext_struct_ops/ext_array_ops, api/instance.zig:886-
-887); substrate landed (`feature/gc/` heap+type_info+collector_null).
-The likely gap: TypeInfo materialise at instantiate (struct.new needs
-the runtime StructInfo to size the heap alloc). Survey the simplest
-struct return fixture (instrument its failure — cyc131 lesson), find
-whether it's TypeInfo-materialise or a handler gap, fix. Observable: gc
-return ↑↑; no regression to 48 return / 2 trap / 57 invalid.
+cyc135 GC-type threading advanced struct.5/7/9 past the func-loop
+InvalidFuncIndex; they now ValidateFail BEFORE the func loop (the
+func-loop probe did NOT fire). preDecode (unchanged) passed for them
+pre-cyc135, so the gap is an early `return false` in frontendValidate
+(lines 75-344) OR wasm_module_new doing extra validation — instrument
+PER-SECTION + the early returns (cyc131 lesson; don't guess). Likely:
+the type/func-section building rejects a struct typedef (e.g. func_types
+build over a struct-kind typeidx, or a struct field reftype). Find +
+fix. Then struct EXECUTION should work (struct_ops + gc_heap landed) →
+struct return passes. Also queue: i31.3 (preDecode, ~3 asserts) +
+struct.0/10 (preDecode). Observable: gc return ↑; no regression to 49
+return / 2 trap / 57 invalid.
 
 ## Larger §10 work (later bundles)
 
@@ -75,7 +75,7 @@ return ↑↑; no regression to 48 return / 2 trap / 57 invalid.
 [tail-call          ] return=71  trap=7   invalid=24  (all pass)
 [exception-handling ] return=34/34 trap=2/2 invalid=7/7 exception=4/4  ✅ FULLY GREEN
 [function-references] return=39(pass=32 fail=1) trap=4(pass) invalid=18(pass)
-[gc                 ] return=407(pass=48 fail=335) trap=100(pass=2 fail=98) invalid=60(pass=57 fail=3) malformed=1(pass) ParseFailed=0 ValidateFailed=46  ← 10.G (cyc134; i31 family ~done, return 33→48)
+[gc                 ] return=407(pass=49 fail=334) trap=100(pass=2 fail=98) invalid=60(pass=57 fail=3) malformed=1(pass) ParseFailed=0 ValidateFailed=44  ← 10.G (cyc135; GC-type threading, return 48→49)
 [multi-memory       ] return=407(pass=387 fail=20) trap=238(pass=237 fail=1)
 ```
 
