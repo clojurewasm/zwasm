@@ -1371,6 +1371,8 @@ pub const Validator = struct {
             7 => try self.opArrayNew(.default),
             // array.new_fixed (sub-op 8): pop N init values, push arrayref.
             8 => try self.opArrayNewFixed(),
+            9 => try self.opArrayNewSeg(.data), // array.new_data $t $d
+            10 => try self.opArrayNewSeg(.elem), // array.new_elem $t $e
             // array.get (sub-op 11): pop i32 idx + arrayref, push element.
             11 => try self.opArrayGet(),
             // array.get_s / array.get_u (sub-ops 12/13): packed element
@@ -1615,6 +1617,33 @@ pub const Validator = struct {
         while (i < n) : (i += 1) {
             try self.popExpect(ad.element.valtype);
         }
+        try self.pushType(.{ .ref = .{ .nullable = false, .heap_type = .{ .concrete = typeidx } } });
+    }
+
+    const ArrayNewSegKind = enum { data, elem };
+
+    /// Wasm 3.0 GC §3.3.5.6.7/8 — `array.new_data $t $d` /
+    /// `array.new_elem $t $e`: pop `[offset:i32, size:i32]`, build a new
+    /// array of type `$t` whose elements come from data segment `$d`
+    /// (data) / element segment `$e` (elem); push the concrete `(ref $t)`.
+    /// Validate-only this cut: typeidx is arraydef, segment index in
+    /// range (data needs the DataCount section, mirroring memory.init);
+    /// runtime copy lands in the exec follow-on.
+    fn opArrayNewSeg(self: *Validator, kind: ArrayNewSegKind) Error!void {
+        const typeidx = try leb128.readUleb128(u32, self.body, &self.pos);
+        const segidx = try leb128.readUleb128(u32, self.body, &self.pos);
+        if (typeidx >= self.module_types_kinds.len) return Error.InvalidFuncIndex;
+        if (self.module_types_kinds[typeidx] != .arraydef) return Error.InvalidFuncIndex;
+        if (self.array_defs[typeidx] == null) return Error.InvalidFuncIndex;
+        switch (kind) {
+            .data => {
+                if (!self.data_count_section_present) return Error.UnknownMemory;
+                if (segidx >= self.data_count) return Error.InvalidFuncIndex;
+            },
+            .elem => if (segidx >= self.elem_count) return Error.InvalidFuncIndex,
+        }
+        try self.popExpect(.i32); // size
+        try self.popExpect(.i32); // offset
         try self.pushType(.{ .ref = .{ .nullable = false, .heap_type = .{ .concrete = typeidx } } });
     }
 
