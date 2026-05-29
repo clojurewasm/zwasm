@@ -138,11 +138,25 @@ pub fn parsePayload(tv: TypedValue) PayloadError!runtime.Value {
         const u = std.fmt.parseInt(u64, tv.payload, 10) catch |err| return mapParseErr(err);
         return runtime.Value{ .f64 = @bitCast(u) };
     }
-    // v128 / funcref / externref payloads land when a manifest in
-    // the corpus emits them; the wasm-3.0-assert sub-corpora baked
-    // so far use only i32/i64/f32/f64.
+    if (std.mem.eql(u8, tv.ty, "externref")) {
+        // Host externref `ref.extern N`: bind a non-null opaque sentinel
+        // distinct per N. Placed far above the GC heap range + low-bit-0
+        // so ref.test's readObjKind bounds-guard classifies it as a
+        // non-GC host ref (coarse extern/any match per gcAbstractMatch)
+        // and isI31Ref(v) is false. Lets `invoke init externref:N`
+        // populate externref tables (ref_test / ref_cast / br_on_cast
+        // init() previously no-op'd, cascading their asserts to fail).
+        const n = std.fmt.parseInt(u32, tv.payload, 10) catch |err| return mapParseErr(err);
+        return runtime.Value{ .ref = HOST_EXTERN_BASE + @as(u64, n) * 2 };
+    }
+    // v128 / funcref payloads land when a manifest in the corpus emits
+    // them; the wasm-3.0-assert sub-corpora baked so far use only
+    // i32/i64/f32/f64 + externref.
     return PayloadError.UnknownType;
 }
+
+/// Host-externref sentinel base for `ref.extern N` args (see parsePayload).
+const HOST_EXTERN_BASE: u64 = 0x7000_0000_0000_0000;
 
 fn mapParseErr(err: std.fmt.ParseIntError) PayloadError {
     return switch (err) {
@@ -398,6 +412,7 @@ pub fn runtimeToZwasm(rv: runtime.Value, ty: []const u8) zwasm_root.Value {
     if (std.mem.eql(u8, ty, "i64")) return .{ .i64 = rv.i64 };
     if (std.mem.eql(u8, ty, "f32")) return .{ .f32 = @bitCast(rv.f32) };
     if (std.mem.eql(u8, ty, "f64")) return .{ .f64 = @bitCast(rv.f64) };
+    if (std.mem.eql(u8, ty, "externref")) return .{ .externref = rv.ref };
     unreachable; // caller already validated via parsePayload
 }
 
