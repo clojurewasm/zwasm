@@ -63,6 +63,24 @@ pub fn scanInitExpr(body: []const u8, pos: *usize) Error!void {
                 if (pos.* + 16 > body.len) return Error.UnexpectedEnd;
                 pos.* += 16;
             },
+            0xFB => { // Wasm 3.0 GC prefix — the constant-expression subset
+                const sub = try leb128.readUleb128(u32, body, pos);
+                switch (sub) {
+                    // struct.new(0)/struct.new_default(1)/array.new(6)/
+                    // array.new_default(7): one typeidx immediate.
+                    0, 1, 6, 7 => _ = try leb128.readUleb128(u32, body, pos),
+                    // array.new_fixed(8): typeidx + element count.
+                    8 => {
+                        _ = try leb128.readUleb128(u32, body, pos);
+                        _ = try leb128.readUleb128(u32, body, pos);
+                    },
+                    26, 27, 28 => {
+                        // any.convert_extern / extern.convert_any / ref.i31
+                        // — no immediate after the sub-opcode.
+                    },
+                    else => return Error.InvalidFunctype,
+                }
+            },
             else => return Error.InvalidFunctype,
         }
     }
@@ -207,6 +225,36 @@ test "scanInitExpr: v128.const containing 0x0B lane byte does not terminate earl
     var pos: usize = 0;
     try scanInitExpr(&body, &pos);
     try testing.expectEqual(body.len, pos);
+}
+
+test "scanInitExpr: GC const exprs ref.i31 / array.new_fixed (10.G cycle 128)" {
+    // i32.const 2; ref.i31; end  (0xFB 0x1C = ref.i31, no immediate)
+    {
+        const body = [_]u8{ 0x41, 0x02, 0xFB, 0x1C, 0x0B };
+        var pos: usize = 0;
+        try scanInitExpr(&body, &pos);
+        try testing.expectEqual(body.len, pos);
+    }
+    // array.new_fixed $0 1; end  (0xFB 0x08 typeidx N — two immediates)
+    {
+        const body = [_]u8{ 0x41, 0x07, 0xFB, 0x08, 0x00, 0x01, 0x0B };
+        var pos: usize = 0;
+        try scanInitExpr(&body, &pos);
+        try testing.expectEqual(body.len, pos);
+    }
+    // struct.new $3; end  (0xFB 0x00 typeidx — one immediate)
+    {
+        const body = [_]u8{ 0xFB, 0x00, 0x03, 0x0B };
+        var pos: usize = 0;
+        try scanInitExpr(&body, &pos);
+        try testing.expectEqual(body.len, pos);
+    }
+    // A non-const GC op (e.g. struct.get = 0x02) is NOT a constant expr.
+    {
+        const body = [_]u8{ 0xFB, 0x02, 0x00, 0x00, 0x0B };
+        var pos: usize = 0;
+        try testing.expectError(Error.InvalidFunctype, scanInitExpr(&body, &pos));
+    }
 }
 
 test "readValType: i32 / v128 / funcref" {
