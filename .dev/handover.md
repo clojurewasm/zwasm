@@ -6,34 +6,34 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `92c06c60` (cyc207). **Tail-call JIT matrix COMPLETE both arches** —
-  `return_call_ref` now JIT-executes on arm64 + x86_64 (ungated `ref.func;
-  return_call_ref` → 42). x86_64 `op_tail_call.emitReturnCallRef` mirrors
-  emitIndirectReturnCall tail (frame_teardown + JMP R11) + emitCallRef funcref-deref;
-  registered in collected dispatch (count 401). Joins direct/indirect return_call
-  (10.TC-JIT) + call_ref (10.R, cyc205). funcref-call JIT (call_ref + return_call_ref)
-  done both arches. D-205 discharged; D-206 residual = cross-module TC only;
-  D-207 = call_ref/return_call_ref null-trap fixtures. Mac test-all + lint GREEN.
+- **HEAD**: `a3ed7a73` (cyc208). **funcref-call + tail-call JIT comprehensively done
+  both arches** — call_ref + return_call_ref (+ direct/indirect/recursion return_call,
+  + clang musttail) all JIT-execute, AND call_ref/return_call_ref null-funcref traps
+  verified (cyc208, D-207 discharged). x86_64 return_call_ref verified on ubuntu @
+  `42f309ca`. **D-205 + D-207 discharged; D-206 residual = cross-module tail-call only
+  (needs a multi-module JIT test harness — no current runI32Export multi-module path).**
+  Mac test-all + lint GREEN.
 - Earlier: 10.TC same-module tail-call (direct/indirect/recursion + clang musttail
   → 15, cyc198-201); EH corpus 34/34 (ADR-0114); cyc190-196 gc global-init/subtyping.
   Phase 10 CLOSE-ELIGIBLE (spec corpus interp-complete); Runner EXECUTES via interp,
   gc_heap materialised at instantiate. 10.M memory64 + 10.E EH JIT largely done;
   10.G GC JIT = interp-only (extreme: regalloc stack-map, ADR-0113 §C).
-- **Step 0.7 on resume**: cyc207 (x86_64 return_call_ref, code) kicks ubuntu @
-  `92c06c60` — verify next cycle (return_call_ref test now UNGATED → runs + must
-  pass on x86_64). Prior: cyc206 `OK (HEAD=f7303b95)` GREEN.
+- **Step 0.7 on resume**: cyc208 (null-trap fixtures, test-only ungated) kicks ubuntu
+  @ `a3ed7a73` — verify next cycle (null-trap tests run on x86_64 too). Prior: cyc207
+  `OK (HEAD=42f309ca)` GREEN — **x86_64 return_call_ref confirmed on both hosts**.
 
-## Active task — call_ref/return_call_ref null-trap fixtures (D-207)  **NEXT**
+## Active task — reassess 10.P close-invariant SKIPs after the JIT-codegen progress  **NEXT**
 
-Verify the funcref null-check trap path (implemented but untested): a null funcref
-through `call_ref`/`return_call_ref` must trap. Step-0: confirm the typed
-`ref.null $sig` body-instruction encoding (`0xd0` + heaptype; concrete type index
-as s33 → likely `0xd0 0x00` for type 0) — check `init_expr.zig` (handles concrete
-heaptype) + the function-body decoder/validator (lower.zig / validator.zig). Then a
-`runI32Export` trap-expecting test: exported `test()` does `ref.null $sig; call_ref
-$sig` → `Error.Trap` (+ a return_call_ref variant). Both arches (ungated). If the
-typed `ref.null` body encoding is unsupported → debt-document + pivot to cross-module
-TC survey (D-206). Lighter: refresh stale 10.P SKIP rationales (I14/I21 → D-192/D-179).
+The funcref-call + tail-call JIT work (cyc198-208) likely flips/refreshes some of
+the 8 deferred `check_phase10_close_invariants.sh` SKIPs (e.g. the "JIT regalloc
+3-axis / JIT codegen" SKIP — tail-call + call_ref JIT now done; the I14/I21 SKIP
+rationales reference now-RESOLVED debt D-192/D-179). Step-0: run
+`bash scripts/check_phase10_close_invariants.sh` + read the SKIP rationales; update
+those whose blocking condition is now resolved (flip SKIP→PASS where the invariant
+now holds, OR refresh the rationale text to the current barrier). Bounded
+docs/script cleanup that re-measures Phase-10-close readiness. Remaining substantive
+JIT item (debt-rowed, NOT this cycle): cross-module tail-call (D-206, multi-module
+JIT harness); GC JIT (10.G, extreme — regalloc stack-map).
 
 ## §10 close map
 
