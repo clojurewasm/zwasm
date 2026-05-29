@@ -6,12 +6,14 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cyc148 (`0b2764b9`) — **ADR-0125 packed COMPLETE**: B-exec
-  struct/array `get_s`/`get_u` sign/zero-extend (shared
-  `type_info.extendPackedToI32`). **gc return 105→116**; no regression.
-  Packed arc (A `ce8a939c` union rename → B-validate `3bce968c` decode+
-  validate → B-exec): **gc return 62→116, trap 18→54, ValidateFailed
-  27→14**, invalid 57 held throughout.
+- **HEAD**: cyc149 (`09907dca`) — **ref.test/test_null abstract RTT**:
+  real runtime type-test (i31 low-bit / struct,array via ObjectHeader.kind
+  / hierarchy tops match non-null / bottoms reject). Pure `gcAbstractMatch`
+  unit-tested. gc return holds 116 (ref_test fixtures blocked END-TO-END
+  by their `init` ops — separate gap, not ref.test). No regression.
+- cyc147-148 **ADR-0125 packed COMPLETE** (A union rename → B-validate
+  decode → B-exec get_s/u): gc return 62→116, trap 18→54, ValidateFailed
+  27→14, invalid 57 held. cyc146 ADR-0016 M3 + concrete-subtype coercion.
 - cyc146 infra (`337eb386`): **ADR-0016 M3** validate self-attribution
   (`compile FAIL: … [fn= off= op=]`, retired op-probe) + concrete→concrete
   subtypeCtx coercion (ValidateFailed 29→27). cyc144/145: GC reftype
@@ -43,23 +45,27 @@
 - **Exit-condition**: gc return ≥ 90 **EXCEEDED (116 at cyc148)**. Open
   target: maximise return (RTT exec) toward the corpus ceiling.
 
-## Active task — cycle 149: RTT exec — ref.test/ref.cast type-test — **NEXT**
+## Active task — cycle 150: RTT exec tail + ref_test end-to-end — **NEXT**
 
-Packed DONE. Next return-lever: the RTT runtime type-test (236 gc
-return-fails remain; attribute via M3 `grep "compile FAIL.*op=0x"` +
-direct-binary run on a `/tmp/x/gc/<copied dirs>` corpus).
-- **ref.test / ref.test_null / ref.cast / ref.cast_null EXEC**
-  (`ref_test_ops.zig:50-95` is a cycle-7 stub: returns 1 if non-null,
-  ignores the heap_type in `instr.payload`). Decode the ht; dispatch:
-  abstract (i31 via Value low-bit / struct,array via `ObjectHeader.kind`
-  / any,eq non-null / none) → kind check; concrete $idx → walk
-  supertype chain. ref.cast traps on mismatch. push i32 (test) / ref.
-- **Concrete-type prereq**: `TypeInfo.supertype_chain` is zero-filled at
-  `materialiseGcTypes` (~1016, comment 65-68) — thread the parser's
-  `Types.supertypes` in first (else concrete-$idx tests always miss).
-- Then **br_on_cast / br_on_cast_fail EXEC** (`br_on_cast{,_fail}.zig`
-  interp returns NotMigrated — wire the branch: reuse the ref.test match
-  + conditional br) → unblocks br_on_cast.1/.2 return assertions.
+ref.test/test_null abstract DONE (c149). Remaining RTT levers (236 gc
+return-fails; abstract ref.test correct but ref_test fixtures need their
+`init` to run). To get a return delta, pick ONE + verify by direct-binary
+run on a `/tmp/x/gc/{ref_test,ref_cast,br_on_cast,...}` corpus copy:
+- **ref_test end-to-end blocker**: ref_test.0's `init` uses
+  any.convert_extern / extern.convert_any (ref_convert_ops.zig identity —
+  check), struct.new_default, array.new_default, `ref.null none/nofunc/
+  noextern`. Find which exec-traps/mismatches (the runner prints
+  assert mismatches; or step a single invoke). Likely a small gap that
+  unblocks the whole ref_test.0 return set + makes c149's ref.test visible.
+- **ref.cast / ref.cast_null EXEC**: reuse `gcRefMatchesNonNull`; trap on
+  mismatch — needs a new `Trap.CastFailure` (widen `runtime/trap.zig`;
+  blast radius: trap_surface c_api map + spec-runner trap-reason). Spec
+  reason string "cast failure".
+- **Concrete-$idx RTT**: thread `Types.supertypes` → `TypeInfo.supertype_
+  chain` at `materialiseGcTypes` (~1016); then `gcAbstractMatch` concrete
+  branch walks the chain instead of coarse-true.
+- **br_on_cast/_fail EXEC**: wire interp (reuse match + `doBranch` from
+  `interp/mvp.zig:285`; ZirInstr extra packs flags|ht1|ht2, payload=label).
 No regression to 116 return / 54 trap / 57 invalid / 393 multi-mem.
 
 ## Larger §10 work (later bundles)
