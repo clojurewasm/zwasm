@@ -74,6 +74,10 @@ pub const Blocker = enum {
     /// x86_64 br_if not migrated to (ctx, ins) shape; arm64 landed
     /// cycle 54b.
     @"D-194",
+    /// 10.R x86_64 funcref null-check miscompile — call_ref /
+    /// return_call_ref of a NULL funcref returns 0 instead of trapping
+    /// (arm64 traps correctly). Positive (non-null) paths pass both arches.
+    @"D-208",
 };
 
 /// Phase-end batch deferral. See `Win64Phase` doc.
