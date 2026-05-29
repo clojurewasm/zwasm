@@ -6,13 +6,15 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `93270e98` (cyc205). **10.R-call_ref-JIT bundle CLOSED** — JIT `call_ref`
-  executes on BOTH arches, verified on ubuntu @ `5f104ff4` (`ref.func $double;
-  call_ref $sig` → 42, ungated test green both hosts). arm64 via manual `emit.zig`
-  switch (IT-1 `97ca5e0e`); x86_64 via collected per-op (IT-2 `3a6efef2`) — mirrors
-  the `return_call` dispatch shape. emitCallRef = pop funcref (*FuncEntity) →
-  null-check → `funcentity_funcptr_offset` deref → CALL. cyc205 added the
-  `x86_64/op_call.zig` FILE-SIZE-EXEMPT marker. Residual: null-trap fixture (D-207).
+- **HEAD**: `5453141f` (cyc206). **arm64 JIT `return_call_ref` tail-calls through a
+  funcref → 42** (`ref.func $worker; return_call_ref $sig` via `runI32Export`).
+  `op_tail_call.emitReturnCallRef` = emitCallRef funcref-deref front (pop *FuncEntity,
+  null-check, LDR X16 from `funcentity_funcptr_offset`) + tail-call tail (MOV X0,X19;
+  frame_teardown; BR X16); wired via manual `emit.zig` switch + de-stubbed per-op file.
+  Test aarch64-gated (x86_64 mirror = D-206). Mac test-all + lint GREEN.
+- **call_ref JIT done both arches** (10.R-call_ref-JIT bundle closed cyc205, ubuntu
+  @ `5f104ff4`). emitCallRef = pop funcref → null-check → funcptr deref → CALL.
+  call_ref null-trap fixture = D-207 residual.
 - **10.TC-JIT bundle CLOSED** cyc201: same-module tail-call codegen proven (direct
   0-arg/indirect/recursion-with-args) + real clang `musttail` fixture JIT-checked
   → 15. D-205 discharged; residuals D-206 (cross-module TC + return_call_ref).
@@ -20,23 +22,23 @@
   global-init/subtyping + clang_smoke; EH corpus 34/34 (ADR-0114). Runner EXECUTES
   via interp; gc_heap materialised at instantiate. 10.M memory64 + 10.E EH JIT
   largely done; 10.G GC JIT = interp-only (extreme effort, regalloc stack-map).
-- **Step 0.7 on resume**: cyc205 (EXEMPT marker, behaviour-neutral src) kicks ubuntu
-  @ `93270e98` — verify next cycle. Prior: cyc204 (IT-2) ubuntu `OK (HEAD=5f104ff4)`
-  GREEN — **x86_64 call_ref confirmed** (the ungated test ran on x86_64 + passed).
+- **Step 0.7 on resume**: cyc206 (arm64 return_call_ref, code) kicks ubuntu @
+  `5453141f` — verify next cycle (return_call_ref test is aarch64-gated, so x86_64
+  skips it; ubuntu just confirms no regression). Prior: cyc205 `OK (HEAD=44d02873)` GREEN.
 
-## Active task — return_call_ref JIT (D-206 / D-186)  **NEXT**
+## Active task — x86_64 return_call_ref JIT + ungate (D-206)  **NEXT**
 
-`call_ref` JIT done (bundle closed) UNBLOCKS `return_call_ref` — its
-`ops/wasm_3_0/return_call_ref.zig` is a one-line `UnsupportedOp` stub. It's the
-tail-call variant of call_ref: pop funcref (*FuncEntity) → null-check → load
-`funcentity_funcptr_offset` → frame_teardown → BR/JMP (tail). Reuses the
-just-built `emitCallRef` funcref-deref + the tail-call `frame_teardown` (10.TC-JIT
-bundle). liveness: `return_call_ref` is ALREADY classified as a terminator (cyc198
-fix included it). Step-0: read `op_tail_call.emitIndirectReturnCall` (the BR-after-
-teardown shape) + `emitCallRef` (funcref deref); red test = `ref.func $f;
-return_call_ref $sig` tail-call → result. arm64 first (manual switch like
-return_call), then x86_64 (collected per-op). Smaller follow-ups: null-trap fixture
-for call_ref (D-207); refresh stale 10.P SKIP rationales (I14/I21 → D-192/D-179).
+Mirror the call_ref-IT-2 pattern for return_call_ref's x86_64 half: (1) add
+`emitReturnCallRef` to `x86_64/op_tail_call.zig` (mirror x86_64 `emitReturnCall`/
+`emitIndirectReturnCall` tail-jump + `emitCallRef`'s funcref deref:
+`OR r,r; JZ`-null → `MOV r,[funcref+funcentity_funcptr_offset]` → frame_teardown →
+JMP); (2) de-stub `x86_64/ops/wasm_3_0/return_call_ref.zig` → delegate; (3) register
+`x86_64_return_call_ref` in `dispatch_collector_ops` + bump the
+`collected_x86_64_ctx_ops` count test (was 400); (4) UNGATE the runner
+return_call_ref test (drop `skip.blocker(.@"D-206")` + the D-206 Blocker variant).
+Then D-206's return_call_ref part is fully discharged (cross-module TC remains).
+Smaller follow-ups: call_ref null-trap fixture (D-207); refresh stale 10.P SKIP
+rationales (I14/I21 → D-192/D-179).
 
 ## §10 close map
 
