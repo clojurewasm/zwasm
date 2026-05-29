@@ -161,7 +161,12 @@ pub fn gcRefMatchesNonNull(rt: *Runtime, v: Value, ht: u8) bool {
 fn gcAbstractMatch(ht: u8, is_i31: bool, obj_kind: ?ObjectKind) bool {
     const a = decodeAbstract(ht) orelse return true; // concrete: coarse pre-supertype
     return switch (a) {
-        .any, .eq, .func, .extern_, .exn => true,
+        .any, .func, .extern_, .exn => true,
+        // 10.G cycle 169 — eq = i31 ∪ struct ∪ array (Wasm 3.0 GC §4.2.8).
+        // A host externref brought into the any hierarchy via
+        // any.convert_extern (obj_kind null — non-GC sentinel, not i31)
+        // is anyref but NOT eq. ref_test ref_test_eq($ta[6]) expects 0.
+        .eq => is_i31 or obj_kind != null,
         .none, .nofunc, .noextern, .noexn => false,
         .i31 => is_i31,
         .struct_ => !is_i31 and obj_kind == .struct_,
