@@ -828,6 +828,16 @@ fn evalGlobalInitGc(expr: []const u8, rt: *Runtime, inst: *const Instance) anyer
                 pos += 8;
                 sp += 1;
             },
+            0xD2 => { // ref.func N — Wasm §3.5.10 const-expr; push funcref
+                // Value resolved against rt.func_entities (mirrors the
+                // simple-global ref.func path + element-init above). Needed
+                // when ref.func feeds a GC const-expr, e.g. array.init_elem.3
+                // `(array.new $arrref (ref.func $dummy) (i32.const 12))`.
+                const fidx = try leb128.readUleb128(u32, expr, &pos);
+                if (fidx >= rt.func_entities.len) return error.UnsupportedConstExpr;
+                stack[sp] = Value.fromFuncRef(&rt.func_entities[fidx]);
+                sp += 1;
+            },
             0xFB => {
                 const sub = try leb128.readUleb128(u32, expr, &pos);
                 switch (sub) {
