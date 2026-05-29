@@ -1454,9 +1454,10 @@ pub const Validator = struct {
             // ref.test / ref.test_null share validator shape:
             // consume heap_type byte, pop reftype, push i32.
             20, 21 => try self.opRefTest(),
-            // ref.cast / ref.cast_null share validator shape:
-            // consume heap_type byte, pop reftype, push reftype back.
-            22, 23 => try self.opRefCast(),
+            // ref.cast (non-null target) / ref.cast_null (nullable):
+            // consume heap_type byte, pop reftype, push the cast TARGET.
+            22 => try self.opRefCast(false),
+            23 => try self.opRefCast(true),
             // br_on_cast / br_on_cast_fail share validator shape:
             // consume flags + labelidx + ht1 + ht2, pop reftype,
             // pop+repush label types, push reftype back on fall-through.
@@ -1491,22 +1492,24 @@ pub const Validator = struct {
         try self.pushType(.i32);
     }
 
-    /// Wasm spec 3.0 §3.3.5.4 — `ref.cast heap_type` /
-    /// `ref.cast_null heap_type`: consume heap_type byte (no
-    /// validator constraint for cycle 8 — RTT subtype refinement
-    /// lands later with type_hierarchy.zig); pop reftype; push the
-    /// reftype back. Pre-RTT we don't decode heap_type into a
-    /// ValType variant — the popped reftype is preserved as the
-    /// pushed type.
-    fn opRefCast(self: *Validator) Error!void {
+    /// Wasm spec 3.0 §3.3.5.4 — `ref.cast (ref ht)` / `ref.cast null
+    /// (ref null ht)`: pop a reftype; push the cast TARGET reftype
+    /// `(ref ht)` (non-null) or `(ref null ht)` (nullable). The target
+    /// type — not the wider operand — is what flows on; a block result
+    /// like `(result (ref null $t))` fed by `(ref.cast (ref $t) …)`
+    /// requires this narrowing (gc/type-subtyping.17). `null` heap-type
+    /// byte (multi-byte index, not stored by lower) falls back to the
+    /// operand type.
+    fn opRefCast(self: *Validator, nullable: bool) Error!void {
         if (self.pos >= self.body.len) return Error.UnexpectedEnd;
+        const ht_byte = self.body[self.pos];
         self.pos += 1;
         const top = try self.popAny();
         switch (top) {
             .bot => try self.pushBot(),
             .known => |t| {
                 if (!t.isRef()) return Error.StackTypeMismatch;
-                try self.pushType(t);
+                try self.pushType(castTargetType(ht_byte, nullable) orelse t);
             },
         }
     }
@@ -2848,6 +2851,31 @@ fn gcHeapAbstractSubtype(a: zir.AbstractHeapType, e: zir.AbstractHeapType) bool 
         // Bottoms have no proper subtypes.
         .none, .nofunc, .noextern, .noexn => false,
     };
+}
+
+/// Decode a single heap-type byte (the form `lower.zig` stores for
+/// ref.cast / ref.test targets — abstract 0x69..0x74 or a concrete
+/// typeidx < 0x40) into the cast-target `ValType`. `null` for an
+/// unrecognised byte (multi-byte index); the caller keeps the operand.
+fn castTargetType(byte: u8, nullable: bool) ?ValType {
+    const abs: ?zir.AbstractHeapType = switch (byte) {
+        0x70 => .func,
+        0x6F => .extern_,
+        0x6E => .any,
+        0x6D => .eq,
+        0x6C => .i31,
+        0x6B => .struct_,
+        0x6A => .array,
+        0x69 => .exn,
+        0x71 => .none,
+        0x72 => .noextern,
+        0x73 => .nofunc,
+        0x74 => .noexn,
+        else => null,
+    };
+    if (abs) |a| return .{ .ref = .{ .nullable = nullable, .heap_type = .{ .abstract = a } } };
+    if (byte < 0x40) return .{ .ref = .{ .nullable = nullable, .heap_type = .{ .concrete = byte } } };
+    return null;
 }
 
 /// True if concrete type `super_idx` is reachable from `sub_idx` via
