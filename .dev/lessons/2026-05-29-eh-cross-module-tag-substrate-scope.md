@@ -109,6 +109,25 @@ source `*TagInstance` shared with the catch). Multi-cycle substrate
 pointer match across the cross-module thunk). (4) try-with-param is a
 standalone try_table-param execution trap — likely tractable alone.
 
+## CLOSED (cycle 120) — EH corpus 34/34, D-192 discharged
+
+The full EH cross-module substrate landed cyc110–120 (ADR-0114):
+ImportKind.tag (110) → exnref ValType (112) → catch_ref matching (113)
+→ imported tags in validator tag-space (114) → block/if param-blocktype
+(118) → instantiate-side tag binding + `Instance.tag_exports` +
+`rt.tag_param_counts` imported++defined (116) → `*TagInstance` identity
+(119) → cross-module exc propagation + caller-frame catch (120).
+Result: **exception-handling return 34/34, trap 2/2, exception 4/4,
+invalid 7/7 — fully green**. D-192 (both clauses: exnref ValType +
+cross-module register/tags) discharged. The two interp gaps that closed
+the tail: (1) cross_module thunk moves the uncaught exc from
+`source_rt.pending_exception` → caller rt; (2) `callOp` searches the
+CURRENT frame's try_table on `Trap.UncaughtException` (the thunk leaves
+no frame on rt, unlike a same-module ZIR callee whose frame `invoke`
+pops before searching the caller). Remaining EH work = JIT throw/throw_ref
+emit (interp path is complete; arm64/emit.zig:1172 stub) — not corpus-
+gated (the spec runner uses the interp path).
+
 ## Instantiate-binding implementation plan (cycle 115 survey)
 
 UnknownImport for `test::e0` comes from `linker.zig:452`
