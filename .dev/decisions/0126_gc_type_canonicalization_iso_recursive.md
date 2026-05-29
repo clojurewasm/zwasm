@@ -359,3 +359,18 @@ apply it from this note.
   `(rec …)` spans at decode + positional intra-group / canonical-id
   inter-group comparison); the plumbing is verified-correct and re-applies
   with it. See the new "cyc176 RESULT" section.
+- 2026-05-29 — **Phase-10b LANDED (cyc177, `5c41c273`, gc 345→348).**
+  `sections.canonicalEqual` implements Wasm 3.0 GC §3.3 iso-recursive
+  equality: `decodeTypes` records each type's `(rec …)` span (`rec_span`);
+  equality compares whole rec groups with concrete refs resolved
+  POSITIONALLY intra-group / by canonical equality inter-group (the
+  intra-vs-inter distinction the flat cyc171/172/176 versions lacked —
+  well-founded via strictly-descending inter-group recursion, no depth
+  hack). It drives BOTH the validator concrete→concrete OR-arm AND the
+  `materialiseGcTypes` equivalence-class `canonical_ids`. Funcref RTT:
+  `FuncEntity.raw_typeidx` (new field, both instantiate paths) resolved in
+  `gcRefMatchesNonNull` when the target type's kind is func. Verified:
+  ref.test-on-funcref 348/360 → 1, module 378 → 0 (no regression), gc
+  invalid HELD 57, all proposals exact, exit 0, 0 panics. D-198 core
+  discharged; residual = 2 type-subtyping FAILsetup (within-module
+  supertype-declaration conformance — a distinct path, cyc178).

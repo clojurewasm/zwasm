@@ -6,14 +6,14 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cyc176 (impl+revert, no net src) — implemented the 3-piece
-  ref.test-on-funcref fix; **piece 2 (funcref-RTT) PROVEN** (FAILval
-  flipped `exp=1 got=0`→`exp=0 got=1`: expect-1 cases now pass). Reverted:
-  the sole remaining gap is `canonicalEqual` being **rec-group-blind**
-  (over-matches `.wast` module 378). cyc171/172/176 all shared this blind
-  spot → cyc177 needs rec-group-span-aware iso-recursive equality. The
-  plumbing is verified-correct (ADR-0126 cyc176 amend). cyc174
-  (`cbcd081b`): start-exec → multi-mem 396. **gc 345**.
+- **HEAD**: cyc177 (`5c41c273`) — **D-198 Phase-10b LANDED**: iso-recursive
+  rec-group canonical equality (`sections.canonicalEqual` + `rec_span` at
+  decode; positional intra-group / canonical inter-group refs) + funcref
+  RTT (`FuncEntity.raw_typeidx` resolution in `ref.test`/`ref.cast`) +
+  precise equivalence-class `canonical_ids`. **gc return 345→348 (+3)**:
+  type-subtyping ref.test-on-funcref 348/360 pass; module 378 correctly
+  stays 0 (no regression); invalid HELD 57. cyc174: start-exec → multi-mem
+  396. **gc 62→348**.
 - Earlier arc: cyc147-148 ADR-0125 packed (62→116); cyc146 ADR-0016 M3
   validate self-attribution (`compile FAIL [fn= off= op=]`) + subtypeCtx
   coercion; cyc144/145 GC blocktypes + br_on_cast; cyc141 rt.datas fix
@@ -39,28 +39,26 @@
 - **Exit-condition**: gc return ≥ 90 **EXCEEDED (345)**. Open target:
   maximise return toward the corpus ceiling (D-198 tail = cyc176).
 
-## Active task — cycle 177: rec-group-aware iso-recursive canonicalEqual — **NEXT**
+## Active task — cycle 178: the 2 residual gc type-subtyping FAILsetup — **NEXT**
 
-On-bundle (10.G), HIGH blast radius. cyc176 proved the PLUMBING correct
-(funcref→raw-typeidx resolution + `FuncEntity.raw_typeidx` + validator
-OR-arm + equivalence-class `canonical_ids`) — piece 2 confirmed (expect-1
-ref.tests 348/360 pass). The ONE remaining gap: `canonicalEqual` is
-**rec-group-blind**. Full detail in ADR-0126 "cyc176 RESULT". cyc177:
-1. **Retain rec-group spans at decode** — `sections.decodeTypes` add a
-   per-type `rec_group_id: []u32` (or `[2]u32` start/end). Decode flattens
-   `(rec …)` to consecutive indices today, discarding membership.
-2. **Rec-group-aware iso-recursive `canonicalEqual`** — two types equal iff
-   their whole rec groups are isomorphic: members pairwise, **intra-group**
-   refs POSITIONAL (member-k-of-this-group), **inter-group** refs by
-   canonical id. Standard WasmGC §3.3 canonical form. Replaces the flat
-   `sections.canonicalEqual` (cyc176, reverted — over-matched).
-3. **Re-apply the verified plumbing** (cyc176 reverted diff): the funcref
-   resolution + raw_typeidx + validator OR-arm + canonical_ids driver are
-   correct; only the equality algorithm changes.
-**Bar**: `.wast` module 378 → ref.test **0** (the rec-group distinction),
-348/360 → **1**, in ONE run. VERIFY FULL test-spec ALL proposals +
-assert_invalid: gc invalid stays 57 (ADR-0124 decode-coupling), multi-mem
-≥396, exit 0, 0 panics. Then **4th probe**: the 2 residual FAILsetup.
+D-198 Phase-10b landed (cyc177, +3). Remaining gc return-fail = **2
+FAILsetup** (type-subtyping `run`-asserts whose module fails to COMPILE,
+even with the iso-recursive validator OR-arm). These compile (not run)
+fails are the debt-row's "within-module cross-rec-group" cluster
+(type-subtyping.9/12/21/24/39/45-class). cyc178:
+1. **Identify the 2 modules** — the FAILsetup `run`-asserts in the
+   type-subtyping `.wast` whose module silently fails compile. The
+   compile failure is at `validateTypeSection`/`typeDefIsSubtype`
+   (a `sub`/`sub final` conformance check), NOT a `run` — so it's a
+   different path than the cyc177 `gcValTypeSubtype` OR-arm.
+2. **Trace why** — `typeDefIsSubtype` (validator ~2925) uses
+   `gcValTypeSubtype` for fields/params/results, which now has the
+   canonical OR-arm; but the rejecting check may be the supertype
+   *declaration* conformance (`$h sub $g2` across rec groups) needing
+   the same iso-recursive treatment, or a finality/forward-ref rule.
+3. Fix + verify FULL test-spec: gc invalid stays 57, no regression to
+   348/396/337/71/34, exit 0, 0 panics. Add to ADR-0126 if it's a 5th
+   distinct mechanism.
 
 ## Larger §10 work (later bundles)
 
@@ -73,7 +71,7 @@ assert_invalid: gc invalid stays 57 (ADR-0124 decode-coupling), multi-mem
 ```
 [memory64           ] return=337 (all pass)    [tail-call] return=71 (all pass)
 [exception-handling ] 34/34 ✅ FULLY GREEN     [function-references] return=34/39
-[gc                 ] return=345/407 trap=90/100 invalid=57/60 malformed=1/1 skip=20  ← 10.G c169
+[gc                 ] return=348/407 trap=90/100 invalid=57/60 malformed=1/1 skip=20  ← 10.G c177 (iso-recursive)
 [multi-memory       ] return=396/407 trap=238/238  ← cyc174 start-exec (+3 start0)
 ```
 
