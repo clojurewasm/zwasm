@@ -159,12 +159,21 @@ fn blockOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const fnz = frame.func orelse return Trap.Unreachable;
     if (instr.payload >= fnz.blocks.items.len) return Trap.Unreachable;
     const blk = fnz.blocks.items[instr.payload];
+    // `instr.extra` packs (params << 8) | results for typeidx
+    // blocktypes (per lower.zig readBlockArity — the high byte feeds
+    // the JIT's end-of-block height calc). The interp's label arity is
+    // the RESULT count (low byte); a param-carrying block (e.g.
+    // try_table (param i32)) would otherwise set arity = 0x100 and trip
+    // the max_block_arity guard. `height` excludes the params (they
+    // belong INSIDE the block) so `restoreToLabel` truncates to the
+    // correct base. block/try_table: br→end transfers results, so
+    // branch_arity == arity == results.
+    const results: u32 = instr.extra & 0xFF;
+    const params: u32 = (instr.extra >> 8) & 0xFF;
     try frame.pushLabel(.{
-        .height = rt.operand_len,
-        .arity = instr.extra,
-        // br to a block targets its end, transferring the
-        // block's results; same value as `arity`.
-        .branch_arity = instr.extra,
+        .height = rt.operand_len - params,
+        .arity = results,
+        .branch_arity = results,
         .target_pc = blk.end_inst + 1,
         .block_idx = @intCast(instr.payload),
     });
@@ -207,10 +216,15 @@ fn ifOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const fnz = frame.func orelse return Trap.Unreachable;
     if (instr.payload >= fnz.blocks.items.len) return Trap.Unreachable;
     const blk = fnz.blocks.items[instr.payload];
+    // Low byte = result arity, high byte = param count; see blockOp.
+    // `height` excludes params; `if (param T)` blocktypes would
+    // otherwise over-set arity + mis-place the restore base.
+    const results: u32 = instr.extra & 0xFF;
+    const params: u32 = (instr.extra >> 8) & 0xFF;
     try frame.pushLabel(.{
-        .height = rt.operand_len,
-        .arity = instr.extra,
-        .branch_arity = instr.extra,
+        .height = rt.operand_len - params,
+        .arity = results,
+        .branch_arity = results,
         .target_pc = blk.end_inst + 1,
         .block_idx = @intCast(instr.payload),
     });
@@ -1046,6 +1060,35 @@ test "block + end: arity=2 multivalue — both results survive" {
     try testing.expectEqual(@as(u32, 22), rt.popOperand().u32);
     try testing.expectEqual(@as(u32, 11), rt.popOperand().u32);
 }
+test "block (param i32): packed param byte → result-arity + params-excluded height (10.E cycle 118)" {
+    // try-with-param shape generalised: [99, 0] ; block (param i32) { drop } ; end.
+    // The typeidx blocktype packs instr.extra = (params=1 << 8)|results=0
+    // = 0x100. The interp must (a) use the low byte for label arity
+    // (else 0x100 > max_block_arity → Trap.Unreachable) and (b) exclude
+    // params from the label height (else the 99 below the param is
+    // mis-restored). After the block, only 99 remains.
+    var fnz = zir.ZirFunc.init(0, .{ .params = &.{}, .results = &.{} }, &.{});
+    defer fnz.deinit(testing.allocator);
+    try fnz.blocks.append(testing.allocator, .{ .kind = .block, .start_inst = 2, .end_inst = 4 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 99, .extra = 0 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0, .extra = 0 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .block, .payload = 0, .extra = 0x100 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .drop, .payload = 0, .extra = 0 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .end, .payload = 0, .extra = 0 });
+    try fnz.instrs.append(testing.allocator, .{ .op = .end, .payload = 0, .extra = 0 });
+
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try rt.pushFrame(.{ .sig = fnz.sig, .locals = &.{}, .operand_base = 0, .pc = 0, .func = &fnz });
+    defer _ = rt.popFrame();
+
+    try dispatch_loop.run(&rt, &t, fnz.instrs.items);
+    try testing.expectEqual(@as(u32, 1), rt.operand_len);
+    try testing.expectEqual(@as(u32, 99), rt.popOperand().u32);
+}
+
 test "unreachable: traps Trap.Unreachable" {
     var t = DispatchTable.init();
     register(&t);
