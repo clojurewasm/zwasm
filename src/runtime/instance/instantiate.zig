@@ -266,9 +266,11 @@ pub fn frontendValidate(alloc: std.mem.Allocator, binary: []const u8) bool {
             if (fidx < total_funcs) declared_funcs[fidx] = true;
         }
     };
+    var elem_seg_count: u32 = 0;
     if (module.find(.element)) |elem_section| {
         var elems = sections.decodeElement(alloc, elem_section.body) catch return false;
         defer elems.deinit();
+        elem_seg_count = @intCast(elems.items.len);
         for (elems.items) |seg| {
             for (seg.funcidxs) |fidx| {
                 // ref.null entries encoded as maxInt(u32) per the
@@ -351,7 +353,7 @@ pub fn frontendValidate(alloc: std.mem.Allocator, binary: []const u8) bool {
             types_owned.items,
             data_count_validate,
             table_entries,
-            0, // elem_count
+            elem_seg_count, // table.init / elem.drop elemidx bound
             total_memory_count,
             memory0_idx_type,
             tags_slice,
