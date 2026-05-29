@@ -124,8 +124,16 @@ fn concreteReaches(rt: *Runtime, obj_idx: u32, target: u32) bool {
     const gti = inst.gc_type_infos orelse return false;
     if (obj_idx >= gti.entries.len) return false;
     const ti = gti.entries[obj_idx];
+    // ADR-0126 Phase-10a — match the target by raw index OR structural
+    // canonical id along the self-inclusive supertype chain, so ref.test
+    // against a canonically-equal-but-distinct-index type succeeds
+    // (ref_test test-canon: $t1 / $t1' both `(sub $t0 (struct (field i32)))`).
+    const target_cid: ?u64 = if (target < gti.canonical_ids.len) gti.canonical_ids[target] else null;
     for (ti.supertype_chain[0..ti.depth]) |s| {
         if (s == target) return true;
+        if (target_cid) |tc| {
+            if (s < gti.canonical_ids.len and gti.canonical_ids[s] == tc) return true;
+        }
     }
     return false;
 }

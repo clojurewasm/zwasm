@@ -135,7 +135,41 @@ pub const GcTypeInfos = struct {
     entries: []TypeInfo,
     struct_infos: []?StructInfo,
     array_infos: []?ArrayInfo,
+    /// 10.G cycle 168 (ADR-0126 Phase-10a) — structural canonical id per
+    /// type. Two types with the same id are canonically equal (Wasm 3.0
+    /// GC §4.2.8): same kind + finality + canonical supertype + field/
+    /// elem/param-result structure. Concrete-ref fields fold the RAW
+    /// target index (conservative — recursive canonical-equal-but-
+    /// distinct-index refs do NOT merge yet; that's Phase-10b). Consulted
+    /// by `concreteReaches` (RTT) so ref.test on a structurally-equal
+    /// type matches (ref_test test-canon).
+    canonical_ids: []const u64,
 };
+
+// FNV-1a-style structural fold helpers for canonical type ids (ADR-0126).
+fn foldU64(h: u64, x: u64) u64 {
+    return (h ^ x) *% 0x100000001b3;
+}
+fn foldValType(h: u64, vt: ValType) u64 {
+    var x = foldU64(h, @as(u64, @intFromEnum(std.meta.activeTag(vt))) + 1);
+    switch (vt) {
+        .ref => |r| {
+            x = foldU64(x, if (r.nullable) 2 else 1);
+            switch (r.heap_type) {
+                .abstract => |a| x = foldU64(x, 0x100 + @as(u64, @intFromEnum(a))),
+                .concrete => |idx| x = foldU64(x, 0x10000 + @as(u64, idx)),
+            }
+        },
+        else => {},
+    }
+    return x;
+}
+fn foldStorage(h: u64, st: sections.StorageType) u64 {
+    return switch (st) {
+        .val => |vt| foldValType(h, vt),
+        .packed_ => |p| foldU64(h, 0x300 + @as(u64, @intFromEnum(p))),
+    };
+}
 
 /// Extend a packed (i8/i16) field's stored low bytes to i32 — sign-
 /// extend when `signed` (get_s) else zero-extend (get_u). `valtype_byte`
@@ -248,10 +282,49 @@ pub fn materialiseGcTypes(alloc: Allocator, types: sections.Types) Error!GcTypeI
         }
     }
 
+    // ADR-0126 Phase-10a — structural canonical ids. Index order: a
+    // declared supertype is a lower index (parent declared first), so
+    // `canonical_ids[parent]` is ready; forward/rec-group supertype refs
+    // (parent >= i) fold 0 (conservative, no canonicalization → 10b).
+    const canonical_ids = try alloc.alloc(u64, n);
+    for (canonical_ids, 0..) |*cid, i| {
+        var h: u64 = 0xcbf29ce484222325;
+        h = foldU64(h, @as(u64, @intFromEnum(types.kinds[i])) + 1);
+        h = foldU64(h, if (i < types.finals.len and types.finals[i]) 2 else 1);
+        const sup_id: u64 = blk: {
+            if (i < types.supertypes.len and types.supertypes[i].len > 0) {
+                const p = types.supertypes[i][0];
+                if (p < i) break :blk canonical_ids[p];
+            }
+            break :blk 0;
+        };
+        h = foldU64(h, sup_id);
+        switch (types.kinds[i]) {
+            .structdef => if (types.struct_defs[i]) |sd| {
+                for (sd.fields) |f| {
+                    h = foldStorage(h, f.storage);
+                    h = foldU64(h, if (f.mutable) 2 else 1);
+                }
+            },
+            .arraydef => if (types.array_defs[i]) |ad| {
+                h = foldStorage(h, ad.element.storage);
+                h = foldU64(h, if (ad.element.mutable) 2 else 1);
+            },
+            .func => {
+                const ft = types.items[i];
+                for (ft.params) |p| h = foldValType(h, p);
+                h = foldU64(h, 0xF0F0);
+                for (ft.results) |r| h = foldValType(h, r);
+            },
+        }
+        cid.* = h;
+    }
+
     return .{
         .entries = entries,
         .struct_infos = struct_infos,
         .array_infos = array_infos,
+        .canonical_ids = canonical_ids,
     };
 }
 
