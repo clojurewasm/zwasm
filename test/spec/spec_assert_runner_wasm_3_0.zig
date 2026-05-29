@@ -427,9 +427,14 @@ pub fn main(init: std.process.Init) !void {
                                     cur_linker.defineGlobal(d.func_name, exp.name, inst, exp.name) catch {};
                                 },
                                 .table => {
-                                    // Out of scope; table cross-module
-                                    // exports remain unbound (importing
-                                    // modules fail with UnknownImport).
+                                    // D-201b — bind each table export
+                                    // (refs aliased) so cross-module
+                                    // imports + their elem writes share it.
+                                    if (inst_rt) |rt| {
+                                        if (exp.idx < rt.tables.len) {
+                                            cur_linker.defineTable(d.func_name, exp.name, rt.tables[exp.idx]) catch {};
+                                        }
+                                    }
                                 },
                             }
                         }

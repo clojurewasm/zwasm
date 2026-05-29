@@ -98,6 +98,14 @@ pub const Linker = struct {
         /// runtime + tag index (param-count type-match); `*TagInstance`
         /// pointer-identity is the execution-stage step.
         cross_module_tag: CrossModuleTagEntry,
+        /// D-201b — cross-instance table alias. Holds the exporter's
+        /// `TableInstance` (value; its `refs` slice header aliases the
+        /// shared backing, so `elem`/`table.set` writes are visible to
+        /// both modules). Caller keeps the source instance alive. NOTE:
+        /// a cross-module `table.grow` (refs realloc) would stale this
+        /// snapshot — *TableInstance sharing (cf. D-199 memory) is the
+        /// follow-up if a grow-across-modules fixture needs it.
+        table_alias: TableAlias,
     };
 
     pub const HostFuncEntry = struct {
@@ -111,6 +119,11 @@ pub const Linker = struct {
         /// D-199 — the exporter's live `*MemoryInstance` (shared, so
         /// `memory.grow` is visible to importers), not a stale slice.
         inst: *_runtime.MemoryInstance,
+    };
+
+    pub const TableAlias = struct {
+        /// D-201b — the exporter's `TableInstance` (refs slice aliased).
+        inst: _runtime.TableInstance,
     };
 
     pub const CrossModuleFuncEntry = struct {
@@ -230,6 +243,18 @@ pub const Linker = struct {
             .module = module,
             .name = name,
             .payload = .{ .memory_alias = .{ .inst = inst } },
+        });
+    }
+
+    /// D-201b — export a table for cross-module import. Pass the source
+    /// instance's `rt.tables[idx]` (value; its `refs` slice aliases the
+    /// shared backing, so `elem`/`table.set` writes are mutually
+    /// visible). Caller keeps the source instance alive.
+    pub fn defineTable(self: *Linker, module: []const u8, name: []const u8, inst: _runtime.TableInstance) !void {
+        try self.entries.append(self.engine.alloc, .{
+            .module = module,
+            .name = name,
+            .payload = .{ .table_alias = .{ .inst = inst } },
         });
     }
 
@@ -484,7 +509,21 @@ pub const Linker = struct {
                             .source_mutable = ga.source_mutable,
                         } }) catch return error.OutOfMemory;
                     },
-                    .table => return error.ImportKindMismatch,
+                    .table => {
+                        // D-201b — cross-module table import: adopt the
+                        // exporter's `TableInstance` (refs aliased) so
+                        // elem / table.set writes are mutually visible.
+                        const alias = switch (entry.payload) {
+                            .table_alias => |t| t,
+                            else => return error.ImportKindMismatch,
+                        };
+                        bindings_list.append(scratch, .{ .table = .{
+                            .instance = alias.inst,
+                            .source_elem_type = alias.inst.elem_type,
+                            .source_min = @intCast(alias.inst.refs.len),
+                            .source_max = alias.inst.max,
+                        } }) catch return error.OutOfMemory;
+                    },
                     // EH tag import (10.E-xmodule-tags) — resolve against
                     // a `defineCrossModuleTag` entry. Param-count type
                     // match happens runtime-side (checkImportTypeMatches);
