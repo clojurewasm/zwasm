@@ -6,13 +6,15 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cyc184 (`4a3d2ad3`) — **implemented `assert_uninstantiable`**
-  (D-200): regen emits the directive + .wasm; runner instantiates
-  (expect-fail), partial writes to shared memory persist (D-199).
-  **multi-memory return 402→404 (+2)** (linking3 `load→97`) **+ trap
-  238→244 (+6)** (the 6 uninstantiable asserts), skip 56→50. No regression.
-  Earlier: D-199 shared memory (cyc182 +6), gc bundle COMPLETE 62→349 ret
-  / 96 trap / 57 inv (cyc174/177/178/179).
+- **HEAD**: cyc185 (diagnosis, no src) — probed the last 3 multi-memory
+  fails → TWO distinct cross-module gaps (D-201): (a) linking1 (2)
+  `ArgArityMismatch` — `instance.invoke` of a RE-EXPORTED imported func
+  hits the empty-sig `unreachable` placeholder (no cross-module dispatch
+  by name); (b) linking0 (1) `UninitializedElement` — uninstantiable
+  module's `elem` into a shared table not persisting (segment-order /
+  failed-instance funcref survival). Earlier: D-200 assert_uninstantiable
+  (cyc184 +2 ret/+6 trap), D-199 shared memory (cyc182 +6); gc bundle
+  COMPLETE 62→349. **multi-mem 404 ret / 244 trap.**
 - Earlier arc: cyc147-148 ADR-0125 packed (62→116); cyc146 ADR-0016 M3
   validate self-attribution (`compile FAIL [fn= off= op=]`) + subtypeCtx
   coercion; cyc144/145 GC blocktypes + br_on_cast; cyc141 rt.datas fix
@@ -39,24 +41,23 @@
 - **Exit-condition**: multi-memory return > 396 (reduce the 11-fail
   linking/imports cluster). gc return ≥ 90 was long EXCEEDED (349).
 
-## Active task — cycle 185: linking0/1 failed-instance funcref survival — **NEXT**
+## Active task — cycle 186: invoke a re-exported imported func (D-201a) — **NEXT**
 
-Last 3 multi-memory fails (after cyc184's +2/+6): linking0 `call(7)→0`
-(1) + linking1 `Mm.load` (2), both `InvokeFailed`. The assert_uninstantiable
-module writes an `elem` funcref into a SHARED table (linking0: Mt's table[7]
-= the failed module's `$f`), then traps. Per spec the funcref stays
-callable — but our failed instance is torn down → the funcref dangles →
-`call(7)` traps (uninitialized/dangling). cyc185:
-1. Verify the mechanism: probe linking0's `call(7)` interp error (cyc180
-   pattern) — uninitialized-element vs dangling-deref.
-2. Fix: the failed (uninstantiable) instance whose funcs are referenced
-   cross-module must be ZOMBIE-PARKED (kept alive), like cross-module
-   func imports (ADR-0014). Check whether `cur_linker.instantiate` already
-   parks failed instances (cyc174 `failBuiltInstance` parkAsZombie) — if
-   the runner deinits it, stop doing so for referenced funcs.
-HIGH-ish (cross-module lifetime). If too deep, file a debt row + defer;
-the +2/+6 already landed. Verify no regression to gc 349/96/57, multi-mem
-≥404, exit 0, 0 panics.
+linking1 (2 fails). `instance.invoke` (`zwasm/instance.zig:91`) runs
+`func_ptrs_storage[found_idx].instrs` directly — but a re-exported
+IMPORTED func's slot is the empty-sig `unreachable` placeholder, so
+`args.len != sig.params.len(0)` → `ArgArityMismatch`. Fix: when
+`found_idx < imp_func_count` (imported), dispatch via the cross-module
+path instead of the placeholder body:
+1. Use the IMPORT's declared sig (the import section's typeidx →
+   `rt.module_types`) for the arity check + frame, NOT the placeholder.
+2. Route the call through `rt.host_calls[found_idx]` (the cross-module
+   thunk, set at instantiate) OR the `FuncEntity` cross-module dispatch —
+   mirror how the `call` instruction invokes imported funcs.
+**Bar**: linking1 `$Nm::Mm.load` returns the shared-memory byte (+2
+multi-mem), no regression to gc 349/96/57 / multi-mem ≥404, exit 0, 0
+panics. Then linking0 (D-201b: elem segment order / failed-instance
+funcref survival). (Deferred: gc .17 + cross-module sig per D-198.)
 
 ## Larger §10 work (later bundles)
 
