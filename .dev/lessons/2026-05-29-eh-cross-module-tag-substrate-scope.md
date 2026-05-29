@@ -86,6 +86,29 @@ Decode + find where the validator's type stack diverges (candidates: plain
 `catch N L` label-type match for a param-carrying tag, try_table-result
 flow, or br-to-block-result). NEXT (cyc114).
 
+## Cycle 116 result + the 4-fail tail (cycle 117 probe)
+
+Cycle 116 landed the instantiate-side tag binding (ImportBinding.tag +
+Linker defineCrossModuleTag + Instance.tag_exports + rt.tag_param_counts
+spanning imported++defined) → **EH return 0→30/34, trap 0→2/2, exception
+0→4/4** (`092e990d`). The 4 remaining return fails (cyc117 direct-binary
+probe — `[eh117]` on the assert_return invoke/void catch):
+1. `catch-imported` — INVOKE-ERR InvokeFailed (cross-module identity)
+2. `catch-imported-alias` — INVOKE-ERR InvokeFailed (cross-module identity)
+3. `imported-mismatch` — INVOKE-ERR InvokeFailed (cross-module identity)
+4. `try-with-param` — VOID-ERR InvokeFailed (try_table-with-PARAM
+   execution trap; NOT tag-related — separate interp/codegen issue)
+
+Classes: (1-3) **cross-module tag identity** — the exception is thrown
+by the imported `throw` func running in try_table.0's runtime (its tag
+index), and try_table.1's catch compares its own import index →
+index-based match fails across modules → uncaught → trap. The robust
+fix is ADR-0114 `*TagInstance` pointer identity (the import binding's
+source `*TagInstance` shared with the catch). Multi-cycle substrate
+(`TagInstance` + `rt.tags` + `Exception.tag`→`*TagInstance` + throw/catch
+pointer match across the cross-module thunk). (4) try-with-param is a
+standalone try_table-param execution trap — likely tractable alone.
+
 ## Instantiate-binding implementation plan (cycle 115 survey)
 
 UnknownImport for `test::e0` comes from `linker.zig:452`
