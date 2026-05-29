@@ -104,6 +104,21 @@ test "validate (block): typed-ref blocktype (ref null func) via 0x63 0x70 accept
     try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
 }
 
+test "validate (block): abstract GC reftype blocktype (structref via 0x6B) accepted (10.G cycle 144)" {
+    // Wasm 3.0 GC §5.3.4 + blocktype §5.4.1: the single-byte abstract
+    // reftype shorthand `0x6B` (= `(ref null struct)` = structref) is a
+    // valid blocktype. Pre-fix `readBlockType` reads it as SLEB -21 and
+    // rejects it as BadBlockType (the gc/ref_test, ref_cast, br_on_cast
+    // fixtures open `(block (result structref) ...)`).
+    //   0x02 0x6B — block (result structref)
+    //   0xD0 0x6B — ref.null struct  (pushes (ref null struct))
+    //   0x0B      — end block
+    //   0x1A      — drop
+    //   0x0B      — end function
+    const body = [_]u8{ 0x02, 0x6B, 0xD0, 0x6B, 0x0B, 0x1A, 0x0B };
+    try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
+}
+
 test "validate (block): typed-ref blocktype with out-of-range concrete index rejected" {
     // function-references ref.9 / ref.10 (assert_invalid): `block
     // (result (ref 1))` but the module declares only type 0, so the

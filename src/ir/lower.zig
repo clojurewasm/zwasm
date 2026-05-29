@@ -1041,7 +1041,11 @@ pub const Lowerer = struct {
                 // (Wasm 2.0 SIMD per spec §5.3.5). §9.9 /
                 // 9.9-l-1b-d093-d45 (D-118): -16/-17 = funcref/externref
                 // reftype single valtypes (Wasm 2.0 §5.3.5).
-                -1, -2, -3, -4, -5, -16, -17 => @as(u32, 1), // single valtype
+                // Wasm 3.0 GC §5.3.4 — single-byte abstract reftype
+                // shorthands (0x6E..0x69 = anyref/eqref/i31ref/structref/
+                // arrayref/exnref) as blocktypes: 1 result, 0 params.
+                // Sibling of validator.readBlockType's GC arms (10.G c144).
+                -1, -2, -3, -4, -5, -16, -17, -18, -19, -20, -21, -22, -23 => @as(u32, 1), // single valtype
                 // function-references §5.3.4: typed-ref result via
                 // `0x63 ht` / `0x64 ht`. The SLEB read consumed the
                 // prefix (0x63 → -29, 0x64 → -28); consume the heap-type

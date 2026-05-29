@@ -799,6 +799,17 @@ pub const Validator = struct {
                 // i64 8-byte gpr-class scalar path.
                 -16 => .{ .single = .funcref }, // 0x70
                 -17 => .{ .single = .externref }, // 0x6F
+                // Wasm 3.0 GC §5.3.4 — single-byte abstract reftype
+                // shorthands as blocktypes (`(ref null <ht>)`). Mirrors
+                // `init_expr.readValType`'s 0x6E..0x69 set; the gc
+                // ref_test / ref_cast / br_on_cast fixtures open
+                // `(block (result structref) ...)`. (10.G cycle 144)
+                -18 => .{ .single = ValType.anyref }, // 0x6E
+                -19 => .{ .single = ValType.eqref }, // 0x6D
+                -20 => .{ .single = ValType.i31ref }, // 0x6C
+                -21 => .{ .single = ValType.structref }, // 0x6B
+                -22 => .{ .single = ValType.arrayref }, // 0x6A
+                -23 => .{ .single = ValType.exnref }, // 0x69
                 // function-references §5.3.4 + blocktype §5.4.1:
                 // typed-ref result via `0x63 ht` (ref null ht) / `0x64
                 // ht` (ref ht). The SLEB read above consumed the prefix

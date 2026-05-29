@@ -138,6 +138,27 @@ test "lower: nested block records BlockInfo with patched end_inst" {
     try testing.expectEqual(@as(u32, 0), close.payload);
 }
 
+test "lower: structref blocktype (0x6B) lowers with arity 1 (10.G cycle 144)" {
+    var f = newFunc(empty_sig);
+    defer f.deinit(testing.allocator);
+
+    // Wasm 3.0 GC §5.3.4: 0x6B = structref single-byte blocktype.
+    // Pre-fix readBlockArity rejected SLEB -21 as BadBlockType (sibling
+    // of validator.readBlockType). unreachable body keeps the block
+    // dead so no ref.null lowering is needed — the opener still records
+    // arity via readBlockArity.
+    //   0x02 0x6B — block (result structref)
+    //   0x00      — unreachable
+    //   0x0B 0x0B — end block ; end fn
+    const body = [_]u8{ 0x02, 0x6B, 0x00, 0x0B, 0x0B };
+    try lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{});
+
+    const open = f.instrs.items[0];
+    try testing.expectEqual(ZirOp.block, open.op);
+    // 0x6B (structref) is a single result valtype → arity 1.
+    try testing.expectEqual(@as(u32, 1), open.extra);
+}
+
 test "lower: br carries depth in payload" {
     var f = newFunc(empty_sig);
     defer f.deinit(testing.allocator);
