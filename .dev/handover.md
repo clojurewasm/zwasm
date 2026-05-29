@@ -6,13 +6,15 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cyc186 (`f8fbeeb5`) — **invoke a re-exported imported func by
-  name** (D-201a): `instance.invoke` now dispatches imported exports
-  cross-module via the `host_calls` thunk (source sig from
-  `func_entities`), not the empty-sig placeholder. **multi-memory return
-  404→406 (+2)** (linking1). Earlier: D-200 assert_uninstantiable (cyc184
-  +2 ret/+6 trap), D-199 shared memory (cyc182 +6); gc bundle COMPLETE
-  62→349. **multi-mem 406 ret / 244 trap** — 1 fail left (linking0).
+- **HEAD**: cyc187 (diagnosis, no src) — root-caused the last multi-mem
+  fail (linking0): **cross-module TABLE imports are UNSUPPORTED**
+  (`linker.zig:487` rejects `.table`; no `defineTable`) → the
+  uninstantiable module's table import fails early → its `elem` write
+  never reaches Mt's shared table → `call(7)` UninitializedElement.
+  Fix = cross-module table sharing, mirror D-199 (D-201b, cyc188).
+  Earlier: D-201a re-exported-import invoke (cyc186 +2), D-200
+  assert_uninstantiable (cyc184 +2/+6), D-199 shared memory (cyc182 +6);
+  gc COMPLETE 62→349. **multi-mem 406/407 ret / 244 trap.**
 - Earlier arc: cyc147-148 ADR-0125 packed (62→116); cyc146 ADR-0016 M3
   validate self-attribution (`compile FAIL [fn= off= op=]`) + subtypeCtx
   coercion; cyc144/145 GC blocktypes + br_on_cast; cyc141 rt.datas fix
@@ -39,23 +41,26 @@
 - **Exit-condition**: multi-memory return > 396 (reduce the 11-fail
   linking/imports cluster). gc return ≥ 90 was long EXCEEDED (349).
 
-## Active task — cycle 187: linking0 elem-segment persistence (D-201b) — **NEXT**
+## Active task — cycle 188: cross-module table imports (D-201b) — **NEXT**
 
-Last multi-memory fail. linking0 `call(7)→0` traps `UninitializedElement`:
-the assert_uninstantiable module imports Mt's table, writes
-`elem (i32.const 7) $f`, then OOB-traps on a data segment — but `table[7]`
-is uninitialized after, so the funcref didn't persist. cyc187:
-1. **Check elem-vs-data apply order** in `instantiateRuntime` — Wasm
-   §4.5.4 applies ELEM segments BEFORE data. If we apply data first, the
-   OOB data aborts before the elem write → `table[7]` never set. Likely
-   the fix (reorder: elem before data).
-2. If order is correct, the elem IS written but the funcref points at the
-   FAILED module's `$f` → needs the failed instance zombie-parked (cyc174
-   `failBuiltInstance` parkAsZombie). Probe `call(7)` (uninitialized vs
-   dangling) to disambiguate.
-**Bar**: linking0 `call(7)→0` (+1 → multi-mem 407 ALL-GREEN), no regression
-to gc 349/96/57, exit 0, 0 panics. (Deferred: gc .17 + cross-module sig
-per D-198.)
+Last multi-memory fail (linking0). Cross-module TABLE imports are
+unsupported (`linker.zig:487` rejects `.table`). Implement, mirroring
+D-199 memory sharing:
+1. **Linker registry** — add `table_alias` to the `Payload` union +
+   `defineTable(module, name, *TableInstance)` (capture the exporter's
+   live `*TableInstance` / shared refs). Mirror `defineMemory`/`MemoryAlias`.
+2. **Binding build** (`linker.zig:487` `.table` arm) — was
+   `ImportKindMismatch`; build the `.table` `TableImport` from the alias
+   (share the refs / instance).
+3. **Runner register** (`spec_assert_runner_wasm_3_0.zig`) — on `register`,
+   define exported tables (mirror the `defineMemory` register path,
+   loop exports of kind table).
+4. **Sharing**: ensure the importer's `rt.tables[slot]` aliases the
+   exporter's live refs so elem writes persist (instantiate.zig:1383
+   already value-copies; verify the binding carries live refs).
+**Bar**: linking0 `call(7)→0` → **multi-mem 407 ALL-GREEN**, no regression
+to gc 349/96/57, exit 0, 0 panics. HIGH-ish (cross-module table). If a
+rabbit hole, defer. (Deferred: gc .17 + cross-module sig per D-198.)
 
 ## Larger §10 work (later bundles)
 
