@@ -6,15 +6,13 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cyc181 (diagnosis, no src) — root-caused **8 of 11
-  multi-memory fails to broken cross-module memory sharing** (D-199):
-  `MemoryInstance.bytes` is a slice VALUE; imports copy it; `memory.grow`
-  reallocs + updates only the growing instance → importers see a STALE
-  slice (imports4/linking2/linking3). Fix design (pointer-ify
-  `rt.memories` → `[]*MemoryInstance`, share via binding) = cyc182.
-  **gc bundle COMPLETE: 62→349 ret / 96 trap / 57 inv** (cyc174 start-exec,
-  cyc177 iso-recursive canon +3, cyc178 ref.cast narrow +6, cyc179 typed
-  call_indirect +1; .17 rabbit hole deferred per D-198).
+- **HEAD**: cyc182 (`178fadef`) — **D-199 cross-module memory sharing**:
+  `rt.memories` is now `[]*MemoryInstance`; imported memory POINTS AT the
+  exporter's live instance (defined → owned `memory_storage`), so
+  `memory.grow` is shared; import compat matches the source's CURRENT
+  size. **multi-memory return 396→402 (+6)** (imports4 + linking2), no
+  regression. gc bundle COMPLETE 62→349 ret / 96 trap / 57 inv (cyc174/
+  177/178/179). multi-mem also +3 at cyc174 (start-exec, 393→396).
 - Earlier arc: cyc147-148 ADR-0125 packed (62→116); cyc146 ADR-0016 M3
   validate self-attribution (`compile FAIL [fn= off= op=]`) + subtypeCtx
   coercion; cyc144/145 GC blocktypes + br_on_cast; cyc141 rt.datas fix
@@ -41,23 +39,23 @@
 - **Exit-condition**: multi-memory return > 396 (reduce the 11-fail
   linking/imports cluster). gc return ≥ 90 was long EXCEEDED (349).
 
-## Active task — cycle 182: cross-module memory sharing (D-199) — **NEXT**
+## Active task — cycle 183: remaining 5 multi-memory linking fails — **NEXT**
 
-HIGH blast radius (20 `.memories[` sites + binding + JIT). Full diagnosis
-+ fix design in D-199. **Share a single memory object across instances**:
-1. `rt.memories: []MemoryInstance → []*MemoryInstance` (runtime.zig +
-   instance.zig). Defined memories `a.create` a `*MemoryInstance`; read/
-   write sites (`rt.memories[i].bytes`) auto-deref (mostly unchanged).
-2. Import wiring (`instantiate.zig:1328`) — importer's slot = the
-   exporter's `*MemoryInstance` (NOT a copied slice). The binding
-   (`import.zig` MemRef / `instance.zig` `.memory`) carries the source's
-   `*MemoryInstance`, not slice+min/max.
-3. `memory.grow` writes through the shared pointer → all importers see it.
-   Handle `setMemory0Bytes`/`rt.memory` alias + JIT (`ctx.zig`/`runner.zig`).
-**Bar**: multi-memory >396 (target +8: imports4/linking2/linking3), no
-regression to gc 349/96/57/337(memory64)/71/34/34, exit 0, 0 panics.
-Then linking0/1 cross-module call InvokeFailed (3, verify after share fix).
-Consider an ADR if the memory-representation change reads as §4/§5.
+D-199 landed (cyc182, +6). Remaining 5 (all cross-module, multi-memory):
+1. **linking0 (1) + linking1 (2): cross-module `call`/`Mm.load`
+   `InvokeFailed`** — a cross-module CALL (or a tagged `Mm.load` invoke
+   reading Mm's memory) errors. `--fail-detail` + probe the underlying
+   interp error (the `InvokeFailed` wrapper flattens it; add a temp print
+   at `wasm_3_0_manifest.zig` invoke catch like cyc180). Likely the
+   cross-module call dispatch or the callee's memory access.
+2. **linking3 (2): `load exp=97 got=0`** — a load reads 0 where 97 ('a')
+   expected. DISTINCT from the share fix (data into a shared/imported
+   memory not visible, or active data-seg into a cross-module memory).
+   Read `linking3.wast`; trace whether the data segment writes the shared
+   instance.
+Verify FULL test-spec: no regression to gc 349/96/57, multi-mem ≥402,
+exit 0, 0 panics. (Deferred: gc .17 rabbit hole + cross-module sig per
+D-198.)
 
 ## Larger §10 work (later bundles)
 
@@ -71,7 +69,7 @@ Consider an ADR if the memory-representation change reads as §4/§5.
 [memory64           ] return=337 (all pass)    [tail-call] return=71 (all pass)
 [exception-handling ] 34/34 ✅ FULLY GREEN     [function-references] return=34/39
 [gc                 ] return=349/407 trap=96/100 invalid=57/60 malformed=1/1 skip=20  ← 10.G c179 (typed call_indirect)
-[multi-memory       ] return=396/407 trap=238/238  ← cyc174 start-exec (+3 start0)
+[multi-memory       ] return=402/407 trap=238/238  ← cyc182 D-199 shared memory (+6)
 ```
 
 > Use `--fail-detail` (reliable per-assert), NOT the per-manifest
