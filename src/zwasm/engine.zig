@@ -58,7 +58,13 @@ pub const Engine = struct {
         self.alloc.free(self._alloc_witness);
     }
 
-    pub const CompileError = error{ParseFailed} || Allocator.Error;
+    /// `ParseFailed` = structural parse rejected the bytes (bad magic /
+    /// section frame / malformed body). `ValidateFailed` = the bytes
+    /// parsed but the validation pass (`frontendValidate`) rejected them
+    /// (type-stack / subtype / index-bounds). The split discharges D-197
+    /// — the previous single `ParseFailed` collapsed both, hiding whether
+    /// a spec-corpus `compile FAIL` was a parse gap or a validate gap.
+    pub const CompileError = error{ ParseFailed, ValidateFailed } || Allocator.Error;
 
     /// Wasm spec §5.5 — parse magic / version / section sequence.
     /// Body decoding (types, code, imports) happens lazily; only the
@@ -70,8 +76,10 @@ pub const Engine = struct {
         // J.2 transition: parallel c_api Module so the existing
         // `Instance` veneer continues to operate. J.3 deletes this
         // pair and routes `instantiate` through native pipeline.
+        // The outer parse (above) already succeeded, so a null here is a
+        // VALIDATION failure (frontendValidate false), not a parse error.
         var bv: _vec.ByteVec = .{ .size = bytes.len, .data = @constCast(bytes.ptr) };
-        const c_mod = _api_instance.wasm_module_new(self.c_store, &bv) orelse return error.ParseFailed;
+        const c_mod = _api_instance.wasm_module_new(self.c_store, &bv) orelse return error.ValidateFailed;
 
         return Module{
             .alloc = self.alloc,

@@ -443,6 +443,22 @@ test "zwasm facade T1.2: Module.compile rejects invalid bytes" {
     try std.testing.expectError(error.ParseFailed, eng.compile(&bad_magic));
 }
 
+test "zwasm facade: compile distinguishes ValidateFailed from ParseFailed (D-197)" {
+    var eng = try Engine.init(std.testing.allocator, .{});
+    defer eng.deinit();
+
+    // Parses structurally but FAILS validation: `(func (result i32))`
+    // whose body is just `end` — declares an i32 result but leaves the
+    // operand stack empty. parser.parse succeeds; frontendValidate rejects.
+    const parse_ok_validate_fail = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // magic + version
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, // type: () -> (i32)
+        0x03, 0x02, 0x01, 0x00, // func: 1 func of type 0
+        0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b, // code: 1 body {locals=0, end}
+    };
+    try std.testing.expectError(error.ValidateFailed, eng.compile(&parse_ok_validate_fail));
+}
+
 test "zwasm facade T1.3: Instance.invoke happy-path (untyped raw Value)" {
     var eng = try Engine.init(std.testing.allocator, .{});
     defer eng.deinit();
