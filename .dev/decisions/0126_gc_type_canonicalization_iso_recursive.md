@@ -195,3 +195,16 @@ apply it from this note.
   bisimulation decision, the declared-vs-structural correctness caution
   rejecting the spike's wholesale-replacement framing). Phase-10b queued
   as a fresh-context implementation (HIGH blast radius).
+- 2026-05-29 — cyc171/172 verified-but-reverted (no corpus delta;
+  spike §2): (a) validator `gcCanonicalEqual` OR-clause → fixture 45
+  validates, gc invalid HELD 57 (regression-safe) but non-observable
+  alone; (b) runtime equivalence-class `canonical_ids` (pairwise
+  canonicalEqual) → gc invalid held 57 (runtime-only can't touch
+  validate) but **did NOT flip the 2 type-subtyping FAILval** —
+  **FALSIFIES** the hypothesis that the FAILval are cross-rec-group
+  canonical-equality cases; their root cause is something else (trace
+  the exact `run` ref.test/cast per-assert). **Observable path forward**:
+  the 3 cross-module fails (45 exporter validate + 46/48/50 importer
+  link) flip only when validator-canonical-equal [verified safe] AND
+  Linker `sigSubtype` (exporter<:importer) land TOGETHER. The 2 FAILval
+  are a SEPARATE, non-canonical, currently-unexplained runtime cause.
