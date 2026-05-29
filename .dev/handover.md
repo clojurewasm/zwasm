@@ -6,14 +6,15 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cyc170 (ADR cycle, no gc delta — gc 345 held) — **ADR-0126
-  amended** with the Phase-10b implementation plan (verified 5-fixture
-  breakdown: 45 within-module ValidateFailed + 46/48/50 cross-module
-  func-import SignatureMismatch needing exporter<:importer; bisimulation
-  over rec-group-span threading; CORRECTNESS CAUTION — narrow coinductive
-  field-ref guard, NOT structural-bisim replacement of the declared
-  chain → invalid-regression risk). cyc169 ref.test eq-precise (ref_test
-  clean, +1); cyc168 canonical ids + RTT match. **gc 62→345**.
+- **HEAD**: cyc171 (verify+revert, gc 345 held) — prototyped Phase-10b
+  validator `gcCanonicalEqual` (canonical structural equality in
+  gcValTypeSubtype). **Verified: fixture 45 validates + gc invalid HELD
+  at 57 (regression-SAFE)** — but non-observable alone (gc return 345:
+  the fail shifts instantiate→runtime; the runtime `concreteReaches`
+  needs equivalence-class canonical_ids, not cyc168's raw-index fold).
+  Reverted per spike §2; combined fix recorded in ADR-0126. cyc170 ADR
+  Phase-10b plan; cyc169 ref.test eq-precise; cyc168 canonical RTT.
+  **gc 62→345**.
 - Earlier arc: cyc147-148 ADR-0125 packed (62→116); cyc146 ADR-0016 M3
   validate self-attribution (`compile FAIL [fn= off= op=]`) + subtypeCtx
   coercion; cyc144/145 GC blocktypes + br_on_cast; cyc141 rt.datas fix
@@ -42,25 +43,26 @@
 - **Exit-condition**: gc return ≥ 90 **EXCEEDED (116 at cyc148)**. Open
   target: maximise return (RTT exec) toward the corpus ceiling.
 
-## Active task — cycle 171: Phase-10b step 1 — validator coinductive field-ref (fixture 45) — **NEXT**
+## Active task — cycle 172: Phase-10b combined canonical-equivalence (observable) — **NEXT**
 
-Plan + caution in ADR-0126 "Phase-10b implementation notes". Smallest
-first landing = **fixture 45** (within-module ValidateFailed), validator-
-only:
-- FIRST re-derive the EXACT failing comparison: run `zwasm run gc/type-
-  subtyping/type-subtyping.45.wasm` (or M3 via spec runner `compile FAIL
-  [fn= off= op=]`) + decode its type section to see which
-  typeDefIsSubtype / gcFieldSubtype field-ref comparison rejects. Do
-  NOT trust the cyc170 subagent's "replace gcConcreteReaches" framing.
-- Add a NARROW coinductive visiting-pair `(sub_idx,sup_idx)` guard to the
-  concrete-ref comparison in `gcValTypeSubtype`/`gcFieldSubtype`
-  (validator.zig ~2856-2920) so mutually-recursive field refs assume-
-  equal on revisit + terminate. Keep the declared-supertype-chain walk.
-- **HIGH BLAST RADIUS**: VERIFY FULL test-spec ALL proposals +
-  assert_invalid — **gc invalid MUST stay 57** (cyc122 regressed 55→40).
-  If any invalid regresses, the coinduction is too loose → revert.
-Then step 2 = Linker `sigSubtype` (46/48/50, cross-module exporter<:
-importer). No regression to 345/90/57/393/34.
+cyc171 verified the validator `gcCanonicalEqual` is SAFE (fixture 45
+validates, gc invalid 57 held) but non-observable alone. Land the
+COMBINED fix (validator + runtime) for the assert-flip:
+1. **Shared canonical-equivalence** over the decoded types — re-apply the
+   verified `gcCanonicalEqual` (ADR-0126 Phase-10b notes have the exact
+   shape: finality + canonical supertypes + comptype, refs recurse,
+   depth-32 coinductive cutoff). Either a shared Zone-1 module both
+   import, OR duplicate the small helper in type_info.zig (operates on
+   sections.Types it already imports).
+2. **Validator**: gcValTypeSubtype concrete→concrete `OR gcCanonicalEqual`
+   (validator.zig ~2886). [verified safe c171]
+3. **Runtime**: upgrade `materialiseGcTypes` `canonical_ids` from the
+   cyc168 raw-index hash to **equivalence-class ids** (pairwise
+   canonicalEqual, O(n²), n small) so `concreteReaches` (ref_test_ops)
+   matches cross-rec-group → the type-subtyping `run` FAILval flips.
+VERIFY FULL test-spec ALL proposals + assert_invalid (gc invalid MUST
+stay 57) + exit 0 + 0 panics. Then Linker `sigSubtype` (46/48/50). No
+regression to 345/90/57/393/34.
 
 ## Larger §10 work (later bundles)
 

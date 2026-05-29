@@ -152,6 +152,28 @@ FULL test-spec ALL proposals + assert_invalid (`gc invalid` MUST stay
 57) + exit 0 + 0 panics. HIGH blast radius → fresh-context cycle, not a
 tail-of-session cram.
 
+**cyc171 verified finding (the precise fix).** Decoded fixture 45: the
+failure is `gcValTypeSubtype((ref $f1),(ref $f2))` in struct-field
+conformance, where `$f1`/`$f2` are structurally-identical bare `(func)`
+at distinct rec-group indices → it's **canonical EQUALITY**, not
+coinductive subtyping. Prototyped `gcCanonicalEqual` (recursive
+structural equality: finality + canonical supertypes + comptype, refs
+recurse, depth-32 coinductive cutoff) as an OR in gcValTypeSubtype's
+concrete→concrete arm. Result: **fixture 45 validates + `gc invalid`
+HELD at 57 (regression-safe)** — BUT gc return stayed 345 (the fail just
+shifted instantiate→runtime: the module's `run`-assert still fails
+because the RUNTIME `concreteReaches` canonical match uses cyc168's
+raw-index `canonical_ids` (insufficient cross-rec-group)). So the
+validator change alone is **non-observable** → reverted (spike_discipline
+§2). **The combined fix that flips an assert**: a SHARED canonical-
+equivalence module (operating on the decoded types) feeding BOTH (a) the
+validator (gcValTypeSubtype OR canonical-equal) AND (b) the runtime —
+upgrade cyc168 `materialiseGcTypes` to compute **equivalence-class**
+canonical_ids (pairwise `canonicalEqual`, O(n²), n small) instead of the
+raw-index hash, so `concreteReaches` matches cross-rec-group. Land both
+together for the observable +N. `gcCanonicalEqual` was verified safe — re-
+apply it from this note.
+
 ## References
 
 - Wasm 3.0 GC §4.2.8 (subtyping), §4.3.4 (defined-type / iso-recursive
