@@ -268,11 +268,17 @@ pub fn frontendValidate(alloc: std.mem.Allocator, binary: []const u8) bool {
         }
     };
     var elem_seg_count: u32 = 0;
+    // 10.G cycle 158 — per-segment elem reftype so the validator can
+    // type-check array.init_elem (segment <: array element) and
+    // table.init (segment == table elem_type). Empty = legacy callers.
+    var elem_types_validate: []zir.ValType = &.{};
     if (module.find(.element)) |elem_section| {
         var elems = sections.decodeElement(alloc, elem_section.body) catch return false;
         defer elems.deinit();
         elem_seg_count = @intCast(elems.items.len);
-        for (elems.items) |seg| {
+        elem_types_validate = alloc.alloc(zir.ValType, elems.items.len) catch return false;
+        for (elems.items, 0..) |seg, i| {
+            elem_types_validate[i] = seg.elem_type;
             for (seg.funcidxs) |fidx| {
                 // ref.null entries encoded as maxInt(u32) per the
                 // element decoder; skip those.
@@ -282,6 +288,7 @@ pub fn frontendValidate(alloc: std.mem.Allocator, binary: []const u8) bool {
             }
         }
     }
+    defer if (elem_types_validate.len != 0) alloc.free(elem_types_validate);
     if (module.find(.@"export")) |exp_section| {
         // Manual export scan tolerant of Wasm 3.0 export-kind
         // extensions (e.g., `tag = 4` from the EH proposal which
@@ -364,6 +371,7 @@ pub fn frontendValidate(alloc: std.mem.Allocator, binary: []const u8) bool {
             types_owned.struct_defs,
             types_owned.array_defs,
             types_owned.supertypes,
+            elem_types_validate,
         ) catch {
             // ADR-0016 M3 — the validator set the op/offset diagnostic in
             // its dispatch loop; attach the defined-function index here.

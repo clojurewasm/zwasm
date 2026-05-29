@@ -1,4 +1,4 @@
-// FILE-SIZE-EXEMPT: Wasm spec §3.3 validation single-pass walker (type-stack + control-stack); P1 spec-defined sub-language, intrinsically singular (splitting would create artificial seams across an unsplittable algorithm). (per ADR-0099) (cap=3000)
+// FILE-SIZE-EXEMPT: Wasm spec §3.3 validation single-pass walker (type-stack + control-stack); P1 spec-defined sub-language, intrinsically singular (splitting would create artificial seams across an unsplittable algorithm). (per ADR-0099) (cap=3200)
 //! Wasm function-body **type-stack + control-stack validator**
 //! (Phase 1 / §9.1 / 1.5).
 //!
@@ -361,6 +361,10 @@ pub fn validateFunctionWithMemIdxAndTags(
     struct_defs: []const ?sections.StructDef,
     array_defs: []const ?sections.ArrayDef,
     supertypes: []const []const u32,
+    /// 10.G cycle 158 — per-element-segment reftype for array.init_elem
+    /// (segment <: array element) + table.init (segment == table elem).
+    /// Empty (`&.{}`) → legacy callers skip the segment-reftype check.
+    elem_types: []const ValType,
 ) Error!void {
     var v = Validator{
         .sig = sig,
@@ -377,6 +381,7 @@ pub fn validateFunctionWithMemIdxAndTags(
         .data_count = data_count,
         .tables = tables,
         .elem_count = elem_count,
+        .elem_types = elem_types,
         .memory_count = memory_count,
         .memory0_idx_type = memory0_idx_type,
         .tags = tags,
@@ -1432,9 +1437,10 @@ pub const Validator = struct {
             // array.copy (sub-op 17): dst $t + src $t; pop len + src_off +
             // src_ref + dst_off + dst_ref (10.G cycle 157).
             17 => try self.opArrayCopy(),
-            // 0xFB 0x12/0x13 (18/19) = array.init_data/init_elem
-            // (NotImplemented — land next). ref.eq is 0xD3, not 19
-            // (cyc156 mis-numbering fix).
+            // array.init_data (18) / array.init_elem (19): segment → array
+            // bulk init (10.G cycle 158). ref.eq is 0xD3, not 19.
+            18 => try self.opArrayInitSeg(.data),
+            19 => try self.opArrayInitSeg(.elem),
             // ref.test / ref.test_null share validator shape:
             // consume heap_type byte, pop reftype, push i32.
             20, 21 => try self.opRefTest(),
@@ -1685,6 +1691,36 @@ pub const Validator = struct {
         try self.popExpect(.i32); // len
         try self.popExpect(.i32); // src_off
         try self.popArrayRef(); // src_ref
+        try self.popExpect(.i32); // dst_off
+        try self.popArrayRef(); // dst_ref
+    }
+
+    /// Wasm spec 3.0 §3.3.5.6.16/17 — `array.init_data $t $d` /
+    /// `array.init_elem $t $e`: pop [len:i32, src_off:i32, dst_off:i32,
+    /// dst_ref]. $t element mutable; data variant needs a numeric/packed
+    /// element + data-count section; elem variant needs the segment
+    /// reftype assignable to the element.
+    fn opArrayInitSeg(self: *Validator, kind: ArrayNewSegKind) Error!void {
+        const typeidx = try leb128.readUleb128(u32, self.body, &self.pos);
+        const segidx = try leb128.readUleb128(u32, self.body, &self.pos);
+        if (typeidx >= self.module_types_kinds.len) return Error.InvalidFuncIndex;
+        if (self.module_types_kinds[typeidx] != .arraydef) return Error.InvalidFuncIndex;
+        const ad = self.array_defs[typeidx] orelse return Error.InvalidFuncIndex;
+        if (!ad.element.mutable) return Error.StackTypeMismatch;
+        switch (kind) {
+            .data => {
+                // data segments hold raw bytes → element must be numeric/packed.
+                if (ad.element.storage.operandType().isRef()) return Error.StackTypeMismatch;
+                if (!self.data_count_section_present) return Error.UnknownMemory;
+                if (segidx >= self.data_count) return Error.InvalidFuncIndex;
+            },
+            .elem => {
+                if (segidx >= self.elem_count) return Error.InvalidFuncIndex;
+                if (segidx < self.elem_types.len and !self.subtypeCtx(self.elem_types[segidx], ad.element.storage.operandType())) return Error.StackTypeMismatch;
+            },
+        }
+        try self.popExpect(.i32); // len
+        try self.popExpect(.i32); // src_off
         try self.popExpect(.i32); // dst_off
         try self.popArrayRef(); // dst_ref
     }

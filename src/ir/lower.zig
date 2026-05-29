@@ -672,9 +672,14 @@ pub const Lowerer = struct {
                 const src_typeidx = try leb128.readUleb128(u32, self.body, &self.pos);
                 try self.emit(.@"array.copy", dst_typeidx, src_typeidx);
             },
-            // 0xFB 0x12/0x13 (18/19) = array.init_data/init_elem
-            // (NotImplemented — land next). ref.eq is 0xD3, not 19
-            // (cyc156 mis-numbering fix).
+            // array.init_data (18) / array.init_elem (19): typeidx + segidx.
+            // payload=typeidx, extra=segidx (10.G cycle 158).
+            18, 19 => {
+                const typeidx = try leb128.readUleb128(u32, self.body, &self.pos);
+                const segidx = try leb128.readUleb128(u32, self.body, &self.pos);
+                const tag: zir.ZirOp = if (sub == 18) .@"array.init_data" else .@"array.init_elem";
+                try self.emit(tag, typeidx, segidx);
+            },
             // ref.test / ref.test_null (Wasm 3.0 GC §3.3.5.3).
             // Each consumes a heap_type byte from the body. The
             // byte is stored in payload (u32-extended) so the

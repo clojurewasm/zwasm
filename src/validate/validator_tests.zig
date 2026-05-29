@@ -576,6 +576,7 @@ test "validate: ref.func yields typed (ref N) satisfying a typed-ref param (ADR-
         &.{}, // struct_defs
         &.{}, // array_defs
         &.{}, // supertypes
+        &.{}, // elem_types
     );
 }
 
@@ -609,6 +610,7 @@ test "validate: typed (ref N) from ref.func is a subtype of funcref (global.set)
         &.{}, // struct_defs
         &.{}, // array_defs
         &.{}, // supertypes
+        &.{}, // elem_types
     );
 }
 
@@ -643,6 +645,7 @@ test "validate: ref.as_non_null in unreachable code stays polymorphic (satisfies
         &.{}, // struct_defs
         &.{}, // array_defs
         &.{}, // supertypes
+        &.{}, // elem_types
     );
 }
 
@@ -679,6 +682,7 @@ test "validate: br_on_non_null to a concrete (ref N) label in unreachable code" 
         &.{}, // struct_defs
         &.{}, // array_defs
         &.{}, // supertypes
+        &.{}, // elem_types
     );
 }
 
@@ -710,6 +714,7 @@ test "validate: typed (ref N) from ref.func is NOT a subtype of externref" {
         &.{}, // struct_defs
         &.{}, // array_defs
         &.{}, // supertypes
+        &.{}, // elem_types
     );
     try testing.expectError(Error.StackTypeMismatch, r);
 }

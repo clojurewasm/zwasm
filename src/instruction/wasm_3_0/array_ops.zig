@@ -56,6 +56,8 @@ pub fn register(table: *DispatchTable) void {
     table.interp[op(.@"array.set")] = arraySet;
     table.interp[op(.@"array.fill")] = arrayFill;
     table.interp[op(.@"array.copy")] = arrayCopy;
+    table.interp[op(.@"array.init_data")] = arrayInitData;
+    table.interp[op(.@"array.init_elem")] = arrayInitElem;
     // array.len: cycle-12 stub in ref_convert_ops.zig is now
     // overridden by the real impl reading ArrayHeader.length.
     table.interp[op(.@"array.len")] = arrayLen;
@@ -385,6 +387,77 @@ fn arrayCopy(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
         const s = src_ref + array_header_size + (src_off + i) * esz;
         const d = dst_ref + array_header_size + (dst_off + i) * esz;
         @memcpy(heap.bytes[d .. d + esz], heap.bytes[s .. s + esz]);
+    }
+}
+
+/// Wasm 3.0 GC §3.3.5.6.16 — `array.init_data $t $d`: pop [len, src_off,
+/// dst_off, dst_ref]; copy `len` natural-width elements from data segment
+/// $d (LE zero-extended into the 8-byte slot, mirror array.new_data) into
+/// the existing array at dst_off. (10.G cycle 158.)
+fn arrayInitData(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const inst = @as(*const Instance, @ptrCast(@alignCast(rt.instance orelse return runtime.Trap.NullReference)));
+    const ai = try resolveArrayInfo(inst, @intCast(instr.payload));
+    const dataidx: u32 = instr.extra;
+    const len_i32 = rt.popOperand().i32;
+    const src_off_i32 = rt.popOperand().i32;
+    const dst_off_i32 = rt.popOperand().i32;
+    const dst_ref_v = rt.popOperand();
+    if (dst_ref_v.ref == Value.null_ref) return runtime.Trap.NullReference;
+    if (len_i32 < 0 or src_off_i32 < 0 or dst_off_i32 < 0) return runtime.Trap.OutOfBoundsStore;
+    const len: u32 = @intCast(len_i32);
+    const src_off: u64 = @intCast(src_off_i32);
+    const dst_off: u32 = @intCast(dst_off_i32);
+    const dst_ref: u32 = @intCast(dst_ref_v.ref);
+    const heap = rt.gc_heap orelse return runtime.Trap.NullReference;
+    const hdr = readArrayHeader(heap, dst_ref);
+    const de = @addWithOverflow(dst_off, len);
+    if (de[1] != 0 or de[0] > hdr.length) return runtime.Trap.OutOfBoundsStore;
+    if (dataidx >= rt.datas.len) return runtime.Trap.OutOfBoundsLoad;
+    const seg: []const u8 = if (dataidx < rt.data_dropped.len and rt.data_dropped[dataidx]) &.{} else rt.datas[dataidx];
+    const nat = dataElemNaturalSize(ai.element.valtype_byte) orelse return runtime.Trap.NullReference;
+    if (src_off + @as(u64, len) * nat > seg.len) return runtime.Trap.OutOfBoundsLoad;
+    var i: u32 = 0;
+    while (i < len) : (i += 1) {
+        var raw: u64 = 0;
+        const s: usize = @intCast(src_off + @as(u64, i) * nat);
+        var b: u8 = 0;
+        while (b < nat) : (b += 1) raw |= @as(u64, seg[s + b]) << @intCast(@as(u32, b) * 8);
+        const d = dst_ref + array_header_size + (dst_off + i) * ai.element.size;
+        @memcpy(heap.bytes[d .. d + 8], std.mem.asBytes(&raw)[0..8]);
+    }
+}
+
+/// Wasm 3.0 GC §3.3.5.6.17 — `array.init_elem $t $e`: pop [len, src_off,
+/// dst_off, dst_ref]; copy `len` refs from element segment $e into the
+/// existing array at dst_off (mirror array.new_elem). (10.G cycle 158.)
+fn arrayInitElem(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const inst = @as(*const Instance, @ptrCast(@alignCast(rt.instance orelse return runtime.Trap.NullReference)));
+    const ai = try resolveArrayInfo(inst, @intCast(instr.payload));
+    const elemidx: u32 = instr.extra;
+    const len_i32 = rt.popOperand().i32;
+    const src_off_i32 = rt.popOperand().i32;
+    const dst_off_i32 = rt.popOperand().i32;
+    const dst_ref_v = rt.popOperand();
+    if (dst_ref_v.ref == Value.null_ref) return runtime.Trap.NullReference;
+    if (len_i32 < 0 or src_off_i32 < 0 or dst_off_i32 < 0) return runtime.Trap.OutOfBoundsStore;
+    const len: u32 = @intCast(len_i32);
+    const src_off: u32 = @intCast(src_off_i32);
+    const dst_off: u32 = @intCast(dst_off_i32);
+    const dst_ref: u32 = @intCast(dst_ref_v.ref);
+    const heap = rt.gc_heap orelse return runtime.Trap.NullReference;
+    const hdr = readArrayHeader(heap, dst_ref);
+    const de = @addWithOverflow(dst_off, len);
+    if (de[1] != 0 or de[0] > hdr.length) return runtime.Trap.OutOfBoundsStore;
+    if (elemidx >= rt.elems.len) return runtime.Trap.OutOfBoundsLoad;
+    const seg: []const Value = if (elemidx < rt.elem_dropped.len and rt.elem_dropped[elemidx]) &.{} else rt.elems[elemidx];
+    if (@as(u64, src_off) + @as(u64, len) > seg.len) return runtime.Trap.OutOfBoundsLoad;
+    var i: u32 = 0;
+    while (i < len) : (i += 1) {
+        const v = seg[src_off + i];
+        const d = dst_ref + array_header_size + (dst_off + i) * ai.element.size;
+        @memcpy(heap.bytes[d .. d + ai.element.size], std.mem.asBytes(&v)[0..ai.element.size]);
     }
 }
 
