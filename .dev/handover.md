@@ -6,12 +6,13 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cyc179 (`653f7cab`) — **call_indirect accepts a typed-funcref
-  table** (`(ref null $t)`), was exact `isFuncref()` → now
-  `subtypeCtx(elem, funcref)`. **gc return 348→349 (+1)** (type-subtyping.19).
-  cyc178 (`3bc85318`): ref.cast narrows to target → gc trap 90→96. cyc177:
-  D-198 iso-recursive canon → gc return 345→348. cyc174: start-exec →
-  multi-mem 396. **gc 62→349 ret / 96 trap**.
+- **HEAD**: cyc180 (investigated+reverted, no net src) — .17 `run`
+  `InvokeFailed` is a MULTI-mechanism rabbit hole (runtime call_indirect
+  exact-sig [verified fix known] + a further unidentified Trap.Unreachable);
+  DEFERRED as low-ROI (1 fixture, ≥2 coordinated non-observable fixes, see
+  D-198). **gc bundle effectively COMPLETE: 62→349 ret / 96 trap / 57 inv.**
+  cyc179: typed call_indirect (+1); cyc178: ref.cast narrow (+6 trap);
+  cyc177: iso-recursive canon (+3); cyc174: start-exec (multi-mem 396).
 - Earlier arc: cyc147-148 ADR-0125 packed (62→116); cyc146 ADR-0016 M3
   validate self-attribution (`compile FAIL [fn= off= op=]`) + subtypeCtx
   coercion; cyc144/145 GC blocktypes + br_on_cast; cyc141 rt.datas fix
@@ -27,31 +28,32 @@
 
 ## Active bundle
 
-- **Bundle-ID**: 10.G-wasmgc (WasmGC spec corpus — the largest
-  remaining §10 gap; follows the CLOSED 10.E EH chain)
-- **Cycles-remaining**: open; next = the cyc176 3-piece landing (below).
-- **Continuity-memo**: substrate DONE (don't rebuild): `feature/gc/`
-  heap+type_info+i31+collector, struct_ops/array_ops registered, ADR-0115/
-  0116/0121/0124/0125. **VERIFY by DIRECT binary run**; M3 attributes
-  every compile FAIL (`grep "compile FAIL.*op=0x"`).
-- **Exit-condition**: gc return ≥ 90 **EXCEEDED (345)**. Open target:
-  maximise return toward the corpus ceiling (D-198 tail = cyc176).
+- **Bundle-ID**: 10.H-multimem-linking (multi-memory linking/import
+  return-fails — the next observable §10 cluster after the gc corpus).
+- **Cycles-remaining**: open; next = cyc181 multi-memory fail triage.
+- **Continuity-memo**: gc bundle (10.G) delivered 62→349 ret / 96 trap /
+  57 inv — substrate DONE (`feature/gc/` heap+type_info+i31+collector,
+  ADR-0115/0116/0121/0124/0125/0126 iso-recursive canon). gc residual
+  DEFERRED (D-198: .17 rabbit hole + cross-module sig). **VERIFY by DIRECT
+  binary run**; M3 attributes every compile FAIL.
+- **Exit-condition**: multi-memory return > 396 (reduce the 11-fail
+  linking/imports cluster). gc return ≥ 90 was long EXCEEDED (349).
 
-## Active task — cycle 180: .17 "run" runtime InvokeFailed — **NEXT**
+## Active task — cycle 181: multi-memory 11 counted return-fails — **NEXT**
 
-Last COUNTED gc return-fail (gc 349/96/57). type-subtyping.17 validates
-(cyc178) but `(invoke "run")` returns `InvokeFailed` at RUNTIME. "run" =
-12 blocks, each `(block (result …) (call_indirect (type $tN) …))` or
-`(… (ref.cast (ref $tN) (table.get …)))` over recursive func types
-(`$t1` returns `(ref null $t1)`), then `(br 0)`. Trace the interp error:
-1. DIRECT binary; add a runtime diag in the interp invoke path / dispatch
-   to see WHICH op errors (the InvokeFailed wraps an interp error —
-   likely a `ref.cast`/`call_indirect` runtime handler returning an
-   unexpected error, or br-0 with 12 stacked operands mishandled).
-2. Fix the runtime handler. Verify FULL test-spec: gc invalid stays 57,
-   no regression to 349/96/337/71/34/396, exit 0, 0 panics.
-(Uncounted: .30/.48/.50 bare-module cross-module `SignatureMismatch` —
-linker `sigEqual` is exact, needs subtype; real gap but not in counters.)
+gc bundle has delivered (62→349). Pivot to the next OBSERVABLE cluster:
+multi-memory return=396/407, **fail=11** (counted) across linking0(1) /
+linking1(2) / linking2(2) / linking3(2) / imports4(4) per the per-manifest
+breakdown. Fresh investigation:
+1. `--fail-detail` filtered to multi-memory → classify each fail
+   (FAILsetup / FAILval / FAILtrap) + the failing manifest.
+2. M3 `compile FAIL` / `instantiate FAIL` attribution (DIRECT binary,
+   plain mode) for the setup fails; for FAILval trace the run-assert.
+3. Likely a shared mechanism across linking0-3 (cross-module memory
+   import/export or data-segment linking). Fix the densest cluster first.
+Verify FULL test-spec: no regression to gc 349/96/57, exit 0, 0 panics.
+**Deferred gc**: .17 rabbit hole + .30/.48/.50 uncounted cross-module sig
+(D-198) — land as a focused bundle only if gc conformance is re-prioritised.
 
 ## Larger §10 work (later bundles)
 
