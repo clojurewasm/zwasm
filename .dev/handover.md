@@ -6,14 +6,14 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cycle 122 (`<this commit>`) — attempted GC Chunk 1
-  (`0x50`/`0x4F` subtype parse), **reverted**: parsing alone regressed
-  gc invalid pass 55→40 (type-subtyping fixtures are mostly
-  `assert_invalid`; they "passed" by accidentally ParseFailing on 0x50
-  — once parsed, they validate without a subtype check → wrongly
-  accepted). **Parse + subtype-validation are COUPLED** (D-188 class);
-  the structural subtype lattice is ADR-grade. No code landed; finding
-  recorded in the wasmgc lesson (CORRECTION). cyc121 = survey.
+- **HEAD**: cycle 123 (`<this commit>`) — filed **ADR-0124** (WasmGC
+  structural subtype validation lattice: abstract heap-type lattice +
+  struct width+depth / array+func variance rules; checked at
+  type-section validation now + ref.cast/test later; `typeDefIsSubtype`
+  helper + `Types.supertypes` parse feed). Accepted. Docs-only.
+- cyc122: attempted parse-only `0x50`/`0x4F` → reverted (regressed gc
+  invalid 55→40); parse+validate are COUPLED (D-188 class). cyc121 =
+  survey.
 - cyc120 (`5db875b0`): cross-module EH propagation + caller-frame catch
   → **EH corpus FULLY GREEN 34/34** (bundle 10.E CLOSED; D-192 PROVEN).
 - **Bundle 10.E-eh-tail CLOSED** — exit (return ≥ 33/34) met at 34/34;
@@ -22,7 +22,7 @@
   ADR-0114): parser→validator→instantiate-binding→*TagInstance
   identity→cross-module propagation. D-192 EH clause PROVEN.
 - Mac green cyc120. ubuntu: cyc120 HEAD green (`OK (HEAD=40d7f0d0)`);
-  cyc121-122 docs-only (survey + reverted-probe finding, no kick).
+  cyc121-123 docs-only (survey/finding/ADR-0124, no kick).
 
 ## Active bundle
 
@@ -43,22 +43,23 @@
 - **Exit-condition**: gc corpus return pass ≥ 50/407 (first execution
   slice via struct/array) — refine as chunks land.
 
-## Active task — cycle 123: ADR-0122 (GC subtype lattice), then coupled parse+validate
+## Active task — cycle 124: coupled GC subtype parse + validate (per ADR-0124)
 
-cyc122 proved parse+validate are coupled for GC (parse-only regresses
-invalid). The subtype-conformance rules are ADR-grade → **cyc123 =
-file `.dev/decisions/0122_gc_subtype_lattice.md`** (Decision: the
-structural subtype rules — struct width+depth, array element variance,
-func param contravariant/result covariant; the abstract heap-type
-lattice struct/array <: eq <: any, i31 <: any, none <: everything,
-func <: func; Alternatives; Consequences). Then (cyc124+) implement as
-ONE coupled chunk: (a) `decodeTypes` `0x50`/`0x4F` prefix +
-`supertypes` side-table (the reverted cyc122 diff — `0x50` per typedef,
-NOT `0x4E rec`; each subtype its own index, no flattening); (b) the
-validator's `typeDefIsSubtype(sub, super)` check rejecting non-conformant
-declared subtypes. Observable: gc ParseFailed ↓ AND invalid stays ≥55
-(ideally →60). Deviation watch: this IS the §4-adjacent subtype lattice
-— ADR-0122 first is mandatory. Full finding in the wasmgc lesson.
+ADR-0124 Accepted → implement as ONE coupled chunk (parse-only regresses
+invalid, cyc122). (a) `src/parse/sections.zig decodeTypes`: `0x50`/`0x4F`
+subtype prefix (read `vec(typeidx)` supertypes into a new
+`Types.supertypes: [][]const u32` side-table; bare comptype → empty) —
+the reverted cyc122 diff (each subtype its own index; NO `0x4E rec`
+flattening; also fix the `Types{}` literal in `instantiate.zig:895`).
+(b) `src/validate/validator.zig`: a `typeDefIsSubtype(sub_idx, super_idx,
+types)` per ADR-0124 (same-kind; struct width+depth, array/func variance;
+valtype lattice) + a type-section validation pass that rejects a typedef
+whose declared supertype it doesn't conform to. Wire into
+`frontendValidate`/`preDecodeSectionBodies`. Red: `decodeTypes` 0x50 test
+(parse) + a `typeDefIsSubtype` unit test (good accepts, bad rejects).
+Observable (DIRECT binary): gc ParseFailed ↓ AND invalid ≥55 (target 60,
+no regression). Big coupled cycle — if budget tightens, commit a
+coherent subset + continue.
 
 ## Larger §10 work (later bundles)
 

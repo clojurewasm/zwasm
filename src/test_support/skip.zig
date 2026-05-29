@@ -30,8 +30,8 @@
 //!     // ...
 //! }
 //!
-//! test "EH runtime path blocked on exnref" {
-//!     if (!ready) return skip.blocker(.@"D-192");
+//! test "return_call_ref blocked on 10.R codegen" {
+//!     if (!ready) return skip.blocker(.@"D-186");
 //!     // ...
 //! }
 //!
@@ -65,8 +65,6 @@ pub const Win64Phase = enum {
 /// Add a new variant only when filing the paired debt row in
 /// the same commit.
 pub const Blocker = enum {
-    /// EH runtime path: exnref ValType + cross-module register support.
-    @"D-192",
     /// `return_call_ref` blocked-by 10.R-3/4/5 (GC-gated; typed-funcref
     /// Value shape).
     @"D-186",
@@ -100,13 +98,13 @@ fn callPhaseEnd() anyerror!void {
 }
 
 fn callBlocker() anyerror!void {
-    return blocker(.@"D-192");
+    return blocker(.@"D-186");
 }
 
 test "skip.phaseEnd(.win64) returns SkipZigTest" {
     try testing.expectError(error.SkipZigTest, callPhaseEnd());
 }
 
-test "skip.blocker(.@\"D-192\") returns SkipZigTest" {
+test "skip.blocker(.@\"D-186\") returns SkipZigTest" {
     try testing.expectError(error.SkipZigTest, callBlocker());
 }

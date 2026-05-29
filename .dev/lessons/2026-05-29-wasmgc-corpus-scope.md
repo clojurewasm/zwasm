@@ -62,7 +62,7 @@ The subtype-conformance check (a declared subtype's comptype must
 structurally conform to each declared supertype: struct width+depth,
 array element variance, func param/result variance, + the abstract
 heap-type lattice struct/array <: eq <: any, i31 <: any, etc.) is
-**ADR-grade** → file ADR-0122 FIRST, then implement parse + validate as
+**ADR-grade** → file ADR-0124 FIRST, then implement parse + validate as
 one coupled chunk (gc ParseFailed ↓ AND invalid stays ≥55, ideally →60).
 
 ## Plan (smallest-first; verify each by DIRECT binary run)
@@ -76,7 +76,7 @@ one coupled chunk (gc ParseFailed ↓ AND invalid stays ≥55, ideally →60).
    "popped is structref/arrayref" check on struct/array field access
    (routine). Full ref.cast/ref.test RTT narrowing + the GC subtype
    lattice (struct/array <: eq <: any; i31 <: any; etc.) = ADR-grade →
-   file ADR-0122. Observable: gc invalid 55→60.
+   file ADR-0124. Observable: gc invalid 55→60.
 3. **Chunk 3-4 — struct/array execution** (heap alloc + get/set/len via
    lower.zig + interp + instantiate StructInfo/ArrayInfo materialise).
 4. **Chunk 5 — RTT supertype-chain materialise at instantiate** (from
