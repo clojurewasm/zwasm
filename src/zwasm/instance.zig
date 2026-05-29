@@ -103,6 +103,43 @@ pub const Instance = struct {
             return error.ExportNotFound;
         };
 
+        // D-201a — a re-exported IMPORTED func occupies the empty-sig
+        // `unreachable` placeholder in `func_ptrs_storage`; invoking it
+        // by name must dispatch CROSS-MODULE via the `host_calls` thunk
+        // (which reads args off the operand stack + pushes results) using
+        // the SOURCE func's sig, not run the placeholder body.
+        if (self.handle.runtime) |rt0| {
+            if (found_idx < rt0.host_calls.len and found_idx < rt0.func_entities.len) {
+                if (rt0.host_calls[found_idx]) |hc| {
+                    const fe = rt0.func_entities[found_idx];
+                    if (fe.func_idx >= fe.runtime.funcs.len) return error.ExportNotFound;
+                    const isig = fe.runtime.funcs[fe.func_idx].sig;
+                    if (args.len != isig.params.len) return error.ArgArityMismatch;
+                    if (results.len != isig.results.len) return error.ResultArityMismatch;
+                    const op_base = rt0.operand_len;
+                    for (args) |a| rt0.pushOperand(zwasmToRuntime(a)) catch |e| {
+                        rt0.operand_len = op_base;
+                        return mapDispatchErr(e);
+                    };
+                    hc.fn_ptr(rt0, hc.ctx) catch |err| {
+                        rt0.operand_len = op_base;
+                        return mapDispatchErr(err);
+                    };
+                    if (rt0.operand_len < op_base + isig.results.len) {
+                        rt0.operand_len = op_base;
+                        return error.ResultArityMismatch;
+                    }
+                    var ri: usize = isig.results.len;
+                    while (ri > 0) {
+                        ri -= 1;
+                        results[ri] = runtimeToZwasm(rt0.operand_buf[op_base + ri], isig.results[ri]);
+                    }
+                    rt0.operand_len = op_base;
+                    return;
+                }
+            }
+        }
+
         if (found_idx >= self.handle.func_ptrs_storage.len) return error.ExportNotFound;
         const zfunc = self.handle.func_ptrs_storage[found_idx];
         const sig = zfunc.sig;
