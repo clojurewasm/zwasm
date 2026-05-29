@@ -60,6 +60,36 @@ test "validate: ref.i31 result is non-null (ref i31), not nullable i31ref (10.G 
     try validateFunction(sig, &.{}, &[_]u8{ 0x41, 0x00, 0xFB, 0x1C, 0x0B }, &.{}, &.{}, &.{}, 0, &.{}, 0);
 }
 
+test "constExprResultType: ref.func yields concrete (ref typeidx); scalars + conservative skip (cyc190)" {
+    const fti = [_]u32{ 6, 0 }; // funcidx → typeidx
+    // ref.func 0; end -> (ref 6) non-null — GC-aware concrete, NOT funcref.
+    {
+        const r = validator.constExprResultType(&[_]u8{ 0xD2, 0x00, 0x0B }, &.{}, &fti).?;
+        try testing.expect(r.eql(.{ .ref = .{ .nullable = false, .heap_type = .{ .concrete = 6 } } }));
+    }
+    // i32.const 5; end -> i32
+    {
+        const r = validator.constExprResultType(&[_]u8{ 0x41, 0x05, 0x0B }, &.{}, &fti).?;
+        try testing.expect(r.eql(.i32));
+    }
+    // ref.null func; end -> (ref null func)
+    {
+        const r = validator.constExprResultType(&[_]u8{ 0xD0, 0x70, 0x0B }, &.{}, &fti).?;
+        try testing.expect(r.eql(ValType.funcref));
+    }
+    // global.get 0; end -> referenced global's declared type
+    {
+        const ge = [_]GlobalEntry{.{ .valtype = .i64, .mutable = false }};
+        const r = validator.constExprResultType(&[_]u8{ 0x23, 0x00, 0x0B }, &ge, &fti).?;
+        try testing.expect(r.eql(.i64));
+    }
+    // Conservative skip → null: multi-instruction (extended-const add),
+    // ref.func out of range, and a GC struct.new prefix.
+    try testing.expect(validator.constExprResultType(&[_]u8{ 0x41, 0x01, 0x41, 0x02, 0x6A, 0x0B }, &.{}, &fti) == null);
+    try testing.expect(validator.constExprResultType(&[_]u8{ 0xD2, 0x09, 0x0B }, &.{}, &fti) == null);
+    try testing.expect(validator.constExprResultType(&[_]u8{ 0xFB, 0x00, 0x03, 0x0B }, &.{}, &fti) == null);
+}
+
 test "validate: ref.i31 result satisfies anyref via GC heap lattice (10.G cycle 134)" {
     // (ref i31) <: anyref (i31 <: eq <: any). A func returning anyref
     // must accept `i32.const; ref.i31` — the abstract-head subtype check

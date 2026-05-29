@@ -2988,6 +2988,87 @@ pub fn typeDefIsSubtype(sub: u32, sup: u32, types: *const sections.Types) bool {
     };
 }
 
+/// Wasm spec §3.4.3 — infer the result valtype of a *single-instruction*
+/// constant expression (global init / offset expr). Returns null for any
+/// multi-instruction or unrecognized shape, so a caller can treat
+/// "undeterminable" as "don't reject" (conservative): an incomplete
+/// evaluator must never reject a valid module. `ref.func i` yields the
+/// concrete `(ref <func_type_indices[i]>)` (GC-aware, unlike the legacy
+/// funcref-only `runner_validate.validateGlobalInitExpr`); `global.get j`
+/// yields the referenced global's declared type.
+pub fn constExprResultType(
+    expr: []const u8,
+    global_entries: []const GlobalEntry,
+    func_type_indices: []const u32,
+) ?ValType {
+    if (expr.len < 2) return null;
+    var pos: usize = 1;
+    const produced: ValType = switch (expr[0]) {
+        0x41 => blk: { // i32.const
+            _ = leb128.readSleb128(i32, expr, &pos) catch return null;
+            break :blk .i32;
+        },
+        0x42 => blk: { // i64.const
+            _ = leb128.readSleb128(i64, expr, &pos) catch return null;
+            break :blk .i64;
+        },
+        0x43 => blk: { // f32.const
+            if (pos + 4 > expr.len) return null;
+            pos += 4;
+            break :blk .f32;
+        },
+        0x44 => blk: { // f64.const
+            if (pos + 8 > expr.len) return null;
+            pos += 8;
+            break :blk .f64;
+        },
+        0xD0 => init_expr.readTypedRef(expr, &pos, true) catch return null, // ref.null ht → (ref null ht)
+        0xD2 => blk: { // ref.func i → (ref <concrete typeof i>) non-null
+            const idx = leb128.readUleb128(u32, expr, &pos) catch return null;
+            if (idx >= func_type_indices.len) return null;
+            break :blk .{ .ref = .{ .nullable = false, .heap_type = .{ .concrete = func_type_indices[idx] } } };
+        },
+        0xFD => blk: { // v128.const (only constant SIMD op)
+            const sub = leb128.readUleb128(u32, expr, &pos) catch return null;
+            if (sub != 0x0C) return null;
+            if (pos + 16 > expr.len) return null;
+            pos += 16;
+            break :blk .v128;
+        },
+        0x23 => blk: { // global.get j → referenced global's declared type
+            const idx = leb128.readUleb128(u32, expr, &pos) catch return null;
+            if (idx >= global_entries.len) return null;
+            break :blk global_entries[idx].valtype;
+        },
+        // 0xFB GC ops (struct.new / array.new* / ref.i31 / converts) and any
+        // multi-instruction extended-const form: conservative skip.
+        else => return null,
+    };
+    // Require the single producing instruction to be immediately followed
+    // by `end` — otherwise it is a multi-instruction expr we don't type.
+    if (pos >= expr.len or expr[pos] != 0x0B) return null;
+    return produced;
+}
+
+/// Wasm spec §3.4.3 — every defined global's init-expr result type must be
+/// a subtype of the declared global type, honoring iso-recursive rec-group
+/// identity (ADR-0126 via `gcValTypeSubtype`). Conservative per
+/// `constExprResultType`: undeterminable shapes pass. This closes the
+/// native-API (`frontendValidate`) gap where global init types were never
+/// checked — the legacy JIT path validates separately in compile.zig.
+pub fn validateGlobalInits(
+    defined_globals: []const sections.GlobalDef,
+    global_entries: []const GlobalEntry,
+    func_type_indices: []const u32,
+    types: *const sections.Types,
+) bool {
+    for (defined_globals) |gd| {
+        const produced = constExprResultType(gd.init_expr, global_entries, func_type_indices) orelse continue;
+        if (!gcValTypeSubtype(produced, gd.valtype, types)) return false;
+    }
+    return true;
+}
+
 /// ADR-0124 — validate every declared subtype relationship in a type
 /// section. For each typedef carrying declared supertype(s) (`sub` /
 /// `sub final`): at most one supertype (Wasm 3.0 GC MVP), the supertype

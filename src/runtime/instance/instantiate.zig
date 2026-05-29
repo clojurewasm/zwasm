@@ -170,6 +170,21 @@ pub fn frontendValidate(alloc: std.mem.Allocator, binary: []const u8) bool {
         };
     }
 
+    // Wasm spec §3.4.3 — each defined global's init-expr result type must
+    // be a subtype of its declared type (GC iso-recursive identity per
+    // ADR-0126). The native-API validate path (this fn) previously skipped
+    // this, letting type-subtyping invalid fixtures with a rec-group-
+    // distinct `ref.func` init (e.g. `(global (ref 4) (ref.func 0))` where
+    // func 0's type ≢ type 4) slip through. Conservative: undeterminable
+    // const-expr shapes pass (an incomplete evaluator must not reject valid
+    // modules).
+    if (globals_owned) |g| {
+        if (!validator.validateGlobalInits(g.items, global_entries, func_type_indices, &types_owned)) {
+            diagnostic.setDiag(.validate, .other, .unknown, "global init-expr type mismatch (§3.4.3)", .{});
+            return false;
+        }
+    }
+
     var tables_owned: ?sections.Tables = if (module.find(.table)) |s|
         sections.decodeTables(alloc, s.body) catch return false
     else
