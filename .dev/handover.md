@@ -6,13 +6,13 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cyc182 (`178fadef`) — **D-199 cross-module memory sharing**:
-  `rt.memories` is now `[]*MemoryInstance`; imported memory POINTS AT the
-  exporter's live instance (defined → owned `memory_storage`), so
-  `memory.grow` is shared; import compat matches the source's CURRENT
-  size. **multi-memory return 396→402 (+6)** (imports4 + linking2), no
-  regression. gc bundle COMPLETE 62→349 ret / 96 trap / 57 inv (cyc174/
-  177/178/179). multi-mem also +3 at cyc174 (start-exec, 393→396).
+- **HEAD**: cyc183 (diagnosis, no src) — root-caused the **last 5
+  multi-memory fails to `skip-impl directive-assert_uninstantiable`**
+  (D-200): the runner skips uninstantiable modules whose active data/elem
+  writes to SHARED memory/table persist (before their OOB trap) and which
+  later `assert_return`s depend on (linking0 `call(7)→0`, linking3
+  `load→97`). Unblocked by D-199 (cyc182, multi-mem 396→402 +6). gc bundle
+  COMPLETE 62→349 ret / 96 trap / 57 inv (cyc174/177/178/179).
 - Earlier arc: cyc147-148 ADR-0125 packed (62→116); cyc146 ADR-0016 M3
   validate self-attribution (`compile FAIL [fn= off= op=]`) + subtypeCtx
   coercion; cyc144/145 GC blocktypes + br_on_cast; cyc141 rt.datas fix
@@ -39,23 +39,24 @@
 - **Exit-condition**: multi-memory return > 396 (reduce the 11-fail
   linking/imports cluster). gc return ≥ 90 was long EXCEEDED (349).
 
-## Active task — cycle 183: remaining 5 multi-memory linking fails — **NEXT**
+## Active task — cycle 184: implement `assert_uninstantiable` (D-200) — **NEXT**
 
-D-199 landed (cyc182, +6). Remaining 5 (all cross-module, multi-memory):
-1. **linking0 (1) + linking1 (2): cross-module `call`/`Mm.load`
-   `InvokeFailed`** — a cross-module CALL (or a tagged `Mm.load` invoke
-   reading Mm's memory) errors. `--fail-detail` + probe the underlying
-   interp error (the `InvokeFailed` wrapper flattens it; add a temp print
-   at `wasm_3_0_manifest.zig` invoke catch like cyc180). Likely the
-   cross-module call dispatch or the callee's memory access.
-2. **linking3 (2): `load exp=97 got=0`** — a load reads 0 where 97 ('a')
-   expected. DISTINCT from the share fix (data into a shared/imported
-   memory not visible, or active data-seg into a cross-module memory).
-   Read `linking3.wast`; trace whether the data segment writes the shared
-   instance.
-Verify FULL test-spec: no regression to gc 349/96/57, multi-mem ≥402,
-exit 0, 0 panics. (Deferred: gc .17 rabbit hole + cross-module sig per
-D-198.)
+Closes the last 5 multi-memory fails. Full plan in D-200. Bounded,
+multi-piece (regen targetable → low risk):
+1. **`regen_spec_3_0_assert.sh`** — add `elif t == 'assert_uninstantiable'`
+   emitting `assert_uninstantiable <filename>` (was the catch-all skip at
+   :299) + copy the .wasm (the `assert_invalid|assert_malformed)` case
+   ~:333).
+2. **manifest_parser** — parse the `assert_uninstantiable <wasm>` line.
+3. **runner** (`spec_assert_runner_wasm_3_0.zig`) — compile + instantiate
+   the module against `cur_linker`; PASS if instantiation fails (trap /
+   error); the partial data/elem side effects persist to the shared
+   exporter instance (D-199) automatically.
+4. **Targeted regen**: `bash scripts/regen_spec_3_0_assert.sh multi-memory
+   linking0` (+ linking1, linking3) — regenerates only those manifests +
+   adds the uninstantiable .wasm.
+**Bar**: multi-mem ≥402 (target → 407), no regression to gc 349/96/57,
+exit 0, 0 panics. (Deferred: gc .17 + cross-module sig per D-198.)
 
 ## Larger §10 work (later bundles)
 
