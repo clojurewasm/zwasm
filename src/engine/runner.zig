@@ -510,6 +510,32 @@ test "runI32Export: tail-recursive return_call with args sums to 15 (10.TC-JIT /
     try testing.expectEqual(@as(u32, 15), try runI32Export(testing.allocator, &bytes, "test"));
 }
 
+test "runI32Export: call_ref through a funcref returns 42 end-to-end (10.R-call_ref-JIT / D-186)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    // arm64 call_ref emit landed first (10.R-call_ref-JIT IT-1); the x86_64
+    // mirror is the next bundle cycle. Gate to aarch64 until then (D-207).
+    if (builtin.cpu.arch != .aarch64) return skip.blocker(.@"D-207");
+    // (module
+    //   (type $sig (func (param i32) (result i32)))
+    //   (func $double (export "double") (type $sig) local.get 0 i32.const 2 i32.mul)
+    //   (func $test (export "test") (result i32)
+    //     i32.const 21 (ref.func $double) (call_ref $sig)))
+    //
+    // First JIT call_ref: ref.func pushes @intFromPtr(&func_entities[0])
+    // (a *FuncEntity, already JIT-emitted); call_ref pops it, null-checks,
+    // loads the funcptr from the FuncEntity (funcentity_funcptr_offset),
+    // and BLRs. $double(21) = 42. ($double exported so ref.func 0 is in
+    // the ref-able set per spec.) Wasm spec 3.0 §3.3.8.13 (call_ref).
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // magic + version
+        0x01, 0x0a, 0x02, 0x60, 0x01, 0x7f, 0x01, 0x7f, 0x60, 0x00, 0x01, 0x7f, // type0 (i32)->i32, type1 ()->i32
+        0x03, 0x03, 0x02, 0x00, 0x01, // func: double→type0, test→type1
+        0x07, 0x11, 0x02, 0x06, 0x64, 0x6f, 0x75, 0x62, 0x6c, 0x65, 0x00, 0x00, 0x04, 0x74, 0x65, 0x73, 0x74, 0x00, 0x01, // export "double"→f0, "test"→f1
+        0x0a, 0x12, 0x02, 0x07, 0x00, 0x20, 0x00, 0x41, 0x02, 0x6c, 0x0b, 0x08, 0x00, 0x41, 0x15, 0xd2, 0x00, 0x14, 0x00, 0x0b, // code: double=local.get0*2; test=21 ref.func0 call_ref0
+    };
+    try testing.expectEqual(@as(u32, 42), try runI32Export(testing.allocator, &bytes, "test"));
+}
+
 test "runI32Export: throw + catch_all returns 42 (IT-6 cycle 3c-iii-d end-to-end)" {
     if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
     // (module

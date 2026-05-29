@@ -1179,6 +1179,7 @@ pub fn compile(
             },
             .call_indirect => try op_call.emitCallIndirect(&ctx, &ins),
             .call => try op_call.emitCall(&ctx, &ins),
+            .call_ref => try op_call.emitCallRef(&ctx, &ins),
             .return_call => {
                 try op_return_call.emit(&ctx, &ins);
                 dead_code = true;

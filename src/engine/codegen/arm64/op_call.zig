@@ -48,6 +48,7 @@ const ctx_mod = @import("ctx.zig");
 const gpr = @import("gpr.zig");
 const jit_abi = @import("../shared/jit_abi.zig");
 const canonical_type = @import("../shared/canonical_type.zig");
+const func_mod = @import("../../../runtime/instance/func.zig");
 
 const ZirInstr = zir.ZirInstr;
 const FuncType = zir.FuncType;
@@ -299,6 +300,64 @@ pub fn emitCallIndirect(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBLR(17));
+
+    try captureCallResult(ctx, callee_sig, memory_class_return, return_buffer_off);
+}
+
+/// Wasm spec 3.0 §3.3.8.13 (`call_ref $sig`) — call through a typed
+/// funcref. The funcref operand is `@intFromPtr(*const FuncEntity)`
+/// (the `ref.func` / `Value.fromFuncRef` encoding, ADR-0014 §2.1).
+/// Sequence mirrors `emitCallIndirect` MINUS the bounds/sig check:
+/// the validator guarantees the funcref's actual type ⊑ `$sig`, so
+/// only a null trap is needed (call_ref of a null funcref traps,
+/// §4.4.8.13). NOT a terminator (returns + pushes results).
+///   (1) pop funcref vreg (stack: [args..., funcref]),
+///   (2) marshalCallArgs (X1..X7 / V0..V7),
+///   (3) MEMORY-class return-buffer LEA into X8 if results.len > 2,
+///   (4) funcref ptr → X17 ; CMP X17, #0 ; B.EQ trap (null),
+///   (5) LDR X16, [X17, #funcentity_funcptr_offset]  (native entry),
+///   (6) MOV X0, X19 (runtime_ptr) ; BLR X16,
+///   (7) captureCallResult.
+/// The null trap reuses the call_indirect bounds trap stub
+/// (trap_kind 2 — single trap stub today; trap-message precision is
+/// a follow-up).
+pub fn emitCallRef(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
+    if (ins.payload >= ctx.module_types.len) return Error.AllocationMissing;
+    const callee_sig: FuncType = ctx.module_types[ins.payload];
+
+    // Stack at entry: [args..., funcref]. Pop funcref first.
+    if (ctx.pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const funcref_vreg = ctx.pushed_vregs.pop().?;
+
+    try marshalCallArgs(ctx, callee_sig);
+
+    const memory_class_return: bool = callee_sig.results.len > 2;
+    const return_buffer_off: u32 = if (memory_class_return) computeCallOverflowBytes(callee_sig) else 0;
+    if (memory_class_return) {
+        if (return_buffer_off > 4095) return Error.UnsupportedOp;
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(8, 31, @intCast(return_buffer_off)));
+    }
+
+    // Load funcref pointer into X17 (caller-saved scratch, disjoint
+    // from X1..X7 args + X8 return-buffer).
+    const x_funcref = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, funcref_vreg, 0);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(17, 31, x_funcref));
+
+    // Null check: CMP X17, #0 ; B.EQ trap. Reuses the call_indirect
+    // bounds trap stub (cind_bounds_fixups → trap_kind 2).
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmX(17, 0));
+    {
+        const fixup_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.eq, 0));
+        try ctx.cind_bounds_fixups.append(ctx.allocator, fixup_at);
+    }
+
+    // Native entry: LDR X16, [X17, #funcentity_funcptr_offset].
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, 17, @intCast(func_mod.funcentity_funcptr_offset)));
+
+    // Restore X0 = runtime_ptr (ADR-0017 sub-2d-ii) ; BLR X16.
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBLR(16));
 
     try captureCallResult(ctx, callee_sig, memory_class_return, return_buffer_off);
 }

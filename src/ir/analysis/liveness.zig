@@ -445,8 +445,12 @@ pub fn compute(
             continue;
         }
 
-        // call / call_indirect: pop callee-sig.params, push callee-sig.results.
-        if (instr.op == .call or instr.op == .call_indirect) {
+        // call / call_indirect / call_ref: pop callee-sig.params, push
+        // callee-sig.results. call_ref (Wasm 3.0 §3.3.8.13) takes the
+        // signature from `module_types[payload]` like call_indirect, and
+        // pops a funcref off the top before the params (like
+        // call_indirect pops the table index). NON-terminator.
+        if (instr.op == .call or instr.op == .call_indirect or instr.op == .call_ref) {
             const callee_sig: zir.FuncType = blk: {
                 if (instr.op == .call) {
                     if (instr.payload >= func_sigs.len) {
@@ -456,20 +460,20 @@ pub fn compute(
                     break :blk func_sigs[instr.payload];
                 } else {
                     if (instr.payload >= module_types.len) {
-                        std.debug.print("liveness: UnsupportedOp[call_indirect-payload-OOB] payload={d} types.len={d} func_idx={d}\n", .{ instr.payload, module_types.len, func.func_idx });
+                        std.debug.print("liveness: UnsupportedOp[call_indirect/call_ref-payload-OOB] payload={d} types.len={d} func_idx={d}\n", .{ instr.payload, module_types.len, func.func_idx });
                         return Error.UnsupportedOp;
                     }
                     break :blk module_types[instr.payload];
                 }
             };
-            // call_indirect's stack at entry is [args..., idx]; pop idx first.
-            // Tolerant: dead-code pops are no-ops (validator proved
-            // shape).
-            if (instr.op == .call_indirect) {
+            // call_indirect's stack at entry is [args..., idx]; call_ref's
+            // is [args..., funcref]. Pop that top operand first. Tolerant:
+            // dead-code pops are no-ops (validator proved shape).
+            if (instr.op == .call_indirect or instr.op == .call_ref) {
                 if (sim_len > 0) {
                     sim_len -= 1;
-                    const idx_vreg = sim_stack[sim_len];
-                    ranges.items[idx_vreg].last_use_pc = pc;
+                    const top_vreg = sim_stack[sim_len];
+                    ranges.items[top_vreg].last_use_pc = pc;
                 }
             }
             // Pop N args (in reverse stack order). Best-effort:
