@@ -6,14 +6,14 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cyc175 (root-cause re-scope, no src) — traced the gc
-  type-subtyping residual (5 fails = 3 FAILsetup + 2 FAILval) end-to-end:
-  it's the Runtime-types **`ref.test`-on-funcref** modules, NOT the
-  Linking cross-module imports (those pass). The miss in cyc170-172: a
-  funcref `ref.test` never resolves the func's type idx (`readObjInfo`
-  reads the GC heap, funcrefs aren't heap objects). RE-SCOPED to 3 pieces
-  (ADR-0126 cyc175 amend). cyc174 (`cbcd081b`): start-exec → multi-mem
-  393→396. cyc168/169 = Phase-10a; **gc 62→345**.
+- **HEAD**: cyc176 (impl+revert, no net src) — implemented the 3-piece
+  ref.test-on-funcref fix; **piece 2 (funcref-RTT) PROVEN** (FAILval
+  flipped `exp=1 got=0`→`exp=0 got=1`: expect-1 cases now pass). Reverted:
+  the sole remaining gap is `canonicalEqual` being **rec-group-blind**
+  (over-matches `.wast` module 378). cyc171/172/176 all shared this blind
+  spot → cyc177 needs rec-group-span-aware iso-recursive equality. The
+  plumbing is verified-correct (ADR-0126 cyc176 amend). cyc174
+  (`cbcd081b`): start-exec → multi-mem 396. **gc 345**.
 - Earlier arc: cyc147-148 ADR-0125 packed (62→116); cyc146 ADR-0016 M3
   validate self-attribution (`compile FAIL [fn= off= op=]`) + subtypeCtx
   coercion; cyc144/145 GC blocktypes + br_on_cast; cyc141 rt.datas fix
@@ -39,31 +39,28 @@
 - **Exit-condition**: gc return ≥ 90 **EXCEEDED (345)**. Open target:
   maximise return toward the corpus ceiling (D-198 tail = cyc176).
 
-## Active task — cycle 176: gc ref.test-on-funcref 3-piece coordinated landing — **NEXT**
+## Active task — cycle 177: rec-group-aware iso-recursive canonicalEqual — **NEXT**
 
-On-bundle (10.G), HIGH blast radius. Full decomposition + traps in
-ADR-0126 "Phase-10b RE-SCOPED" (cyc175). Land 3 pieces TOGETHER (none
-observable alone; 2-without-3 silently regresses `.wast` module 378):
-1. **Validator `gcCanonicalEqual`** — narrow OR-arm in `gcValTypeSubtype`
-   concrete→concrete (line ~2885): `... or gcCanonicalEqual(a,e,types)`.
-   Recursive structural equality on `sections.Types` (kind + finality +
-   canonically-equal supertypes + comptype, refs recurse, depth-32
-   coinductive cutoff). **Verified SAFE cyc175** (invalid 57; shifts 1
-   FAILsetup→FAILval). The exact helper is in the ADR section + was in
-   the cyc175 reverted diff (`git show` the revert's parent if needed).
-2. **Funcref→RAW typeidx in `ref_test_ops.gcRefMatchesNonNull`** — when
-   `gti.entries[ht].kind == .func`, resolve `Value.refAsFuncEntity(v)` and
-   `concreteReaches(fe.<RAW typeidx>, ht)`. **Do NOT use
-   `FuncEntity.typeidx`** (canonicalized via `funcTypeEql` → collapses
-   bare funcs → wrong). Get the raw declared typeidx (investigate
-   `runtime.func_typeidxs[fe.func_idx]` or add a raw field).
-3. **Precise equivalence-class `canonical_ids`** in `materialiseGcTypes`
-   (O(n²) pairwise canonicalEqual; cyc168's coarse fold conflates rec-
-   group context). **Regression boundary = `.wast` module 378** (`$f1≢$f2`
-   → `ref.test` must return 0). Verify 348/360→1 AND 378→0 same run.
-VERIFY FULL test-spec ALL proposals + assert_invalid: gc invalid stays 57,
-multi-mem ≥396, exit 0, 0 panics. Then **4th probe**: the 2 residual
-FAILsetup (modules still not compiling after piece 1).
+On-bundle (10.G), HIGH blast radius. cyc176 proved the PLUMBING correct
+(funcref→raw-typeidx resolution + `FuncEntity.raw_typeidx` + validator
+OR-arm + equivalence-class `canonical_ids`) — piece 2 confirmed (expect-1
+ref.tests 348/360 pass). The ONE remaining gap: `canonicalEqual` is
+**rec-group-blind**. Full detail in ADR-0126 "cyc176 RESULT". cyc177:
+1. **Retain rec-group spans at decode** — `sections.decodeTypes` add a
+   per-type `rec_group_id: []u32` (or `[2]u32` start/end). Decode flattens
+   `(rec …)` to consecutive indices today, discarding membership.
+2. **Rec-group-aware iso-recursive `canonicalEqual`** — two types equal iff
+   their whole rec groups are isomorphic: members pairwise, **intra-group**
+   refs POSITIONAL (member-k-of-this-group), **inter-group** refs by
+   canonical id. Standard WasmGC §3.3 canonical form. Replaces the flat
+   `sections.canonicalEqual` (cyc176, reverted — over-matched).
+3. **Re-apply the verified plumbing** (cyc176 reverted diff): the funcref
+   resolution + raw_typeidx + validator OR-arm + canonical_ids driver are
+   correct; only the equality algorithm changes.
+**Bar**: `.wast` module 378 → ref.test **0** (the rec-group distinction),
+348/360 → **1**, in ONE run. VERIFY FULL test-spec ALL proposals +
+assert_invalid: gc invalid stays 57 (ADR-0124 decode-coupling), multi-mem
+≥396, exit 0, 0 panics. Then **4th probe**: the 2 residual FAILsetup.
 
 ## Larger §10 work (later bundles)
 

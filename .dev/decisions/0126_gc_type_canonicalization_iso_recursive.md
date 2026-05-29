@@ -184,6 +184,49 @@ that STILL don't compile after Piece 1) are a SEPARATE 4th investigation
 field-subtype canonical-equal). FULL test-spec ALL proposals +
 assert_invalid: gc invalid MUST stay 57, multi-mem ≥396, exit 0, 0 panics.
 
+## cyc176 RESULT — pieces implemented; piece 2 PROVEN; the equality must be REC-GROUP-AWARE
+
+cyc176 implemented all 3 pieces (shared `sections.canonicalEqual` for the
+validator OR-arm + the `materialiseGcTypes` equivalence-class
+`canonical_ids`; `FuncEntity.raw_typeidx` set in both instantiate paths;
+funcref→raw-typeidx resolution in `gcRefMatchesNonNull` when the target
+type's kind is `.func`). Built clean, gc invalid HELD 57, no proposal
+regression. **Piece 2 (funcref-RTT) is CONFIRMED correct**: the 3 FAILval
+flipped **`exp=1 got=0` → `exp=0 got=1`** — i.e. the expect-1 cases
+(348/360) now PASS (the funcref resolves to its raw typeidx and
+`concreteReaches` matches), and only the expect-**0** cases now fail.
+
+**The sole remaining gap (reverted, re-do cyc177): `canonicalEqual` is
+REC-GROUP-BLIND.** It compares a type's own kind+finality+supertypes+
+comptype but NOT its rec-group membership. Module 378:
+`(rec $f1 (sub func)) (struct (field (ref $f1)))` vs
+`(rec $f2 (sub func)) (struct (field (ref $f1)))` — `$f1`'s struct
+self-references its OWN group's func; `$f2`'s struct references the
+EXTERNAL `$f1`. Iso-recursively these rec groups differ, so `$f1 ≢ $f2`
+(ref.test must be 0). But flat structural equality sees both as bare
+`()->()` funcs whose struct siblings both hold `(ref $f1)` (same index!)
+→ deems them equal → ref.test wrongly 1. **cyc171, cyc172, AND cyc176 all
+shared this blind spot** — flat structural/equivalence-class equality
+cannot capture iso-recursion. No conservative flat tweak fixes both 348
+(needs equal) and 378 (needs distinct).
+
+**cyc177 — the CORRECT fix (rec-group-span-aware iso-recursive equality).**
+The plumbing (funcref resolution, `FuncEntity.raw_typeidx`,
+equivalence-class `canonical_ids` driver, validator OR-arm) is
+verified-correct — only the equality ALGORITHM changes. Required:
+1. Retain **rec-group spans** at decode (`sections.decodeTypes` — add a
+   per-type `rec_group: [2]u32` start/end OR a `rec_group_id: []u32`;
+   decode currently flattens `(rec …)` to consecutive indices, discarding
+   membership — the long-standing gap ADR-0126 Context named).
+2. `canonicalEqual(a,b)` becomes **rec-group equality**: the two types'
+   whole rec groups must be isomorphic, comparing members pairwise with
+   **intra-group** concrete refs resolved POSITIONALLY (ref to "member k
+   of this group") and **inter-group** refs by the referent's canonical
+   id. This is the standard WasmGC iso-recursive canonical form (§3.3).
+3. module 378 = the bar: 348/360 → ref.test 1 AND 378 → 0 in one run;
+   gc invalid stays 57 (ADR-0124 decode-coupling caution — verify FULL
+   corpus). HIGH risk (touches decode); fresh focused cycle.
+
 ## Phase-10b implementation notes (cyc170 design spike)
 
 Post-Phase-10a, the last 5 gc fails are all `type-subtyping` (everything
@@ -299,3 +342,20 @@ apply it from this note.
   as the no-regression boundary). All three land together cyc176; the 2
   residual FAILsetup are a separate 4th investigation. cyc175 reverted
   the validator change (non-observable alone, spike §2).
+- 2026-05-29 — **Amendment (cyc176): all 3 pieces implemented; piece 2
+  (funcref-RTT) PROVEN correct; the equality must be REC-GROUP-AWARE.**
+  Built clean (shared `sections.canonicalEqual`, `FuncEntity.raw_typeidx`
+  in both instantiate paths, funcref resolution in `gcRefMatchesNonNull`,
+  equivalence-class `canonical_ids`). gc invalid HELD 57, no proposal
+  regression. The 3 FAILval flipped **`exp=1 got=0` → `exp=0 got=1`**:
+  the expect-1 cases (348/360) now PASS (piece 2 confirmed), only the
+  expect-0 cases fail. Root cause of the residual: `canonicalEqual` is
+  **rec-group-blind** — module 378 (`$f1` struct self-refs its own group;
+  `$f2` struct refs external `$f1`) needs `$f1 ≢ $f2`, but flat structural
+  equality deems them equal (both bare funcs, both struct fields hold
+  `(ref $f1)` by index) → over-match. cyc171/172/176 ALL shared this blind
+  spot. Reverted (silent value-regression on 378, unchanged aggregate
+  count). cyc177 = rec-group-span-aware iso-recursive equality (retain
+  `(rec …)` spans at decode + positional intra-group / canonical-id
+  inter-group comparison); the plumbing is verified-correct and re-applies
+  with it. See the new "cyc176 RESULT" section.
