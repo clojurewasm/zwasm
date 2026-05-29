@@ -6,16 +6,17 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cyc196 (`086c2991`) — **first clang-realworld fixture** (clang_smoke/
-  loop_sum → JIT i32:55; edge_cases/p10). Proves the clang→wasm→zwasm pipeline.
-  KEY FINDINGS (lesson `clang-wasm-realworld-toolchain-recipe`): clang recipe =
-  `NIX_HARDENING_ENABLE="" PATH=<lld-20> clang --target=wasm32 -nostdlib
-  -Wl,--no-entry -Wl,--export-all -O2`. Realworld-clang is HIGHER-cost / LOWER-
-  marginal-value than assumed: (a) JIT can't run `return_call` (D-205, tail-call
-  interp-only) → clang_musttail blocked; (b) `runI32Export` doesn't instantiate
-  (clang shadow-stack -O0 traps) + no-arg funcs constant-fold → only trivial
-  clang fixtures JIT-verify; (c) realworld-run fully instantiates but no result-
-  check. Non-trivial clang fixtures need harness work.
+- **HEAD**: cyc197 (`544d4440`) — **PAUSED at user request** (clean stop). Reassessed
+  the Phase-10-close path + implemented 10.P invariant **I2** (real spec-corpus
+  feature-completeness check; was a stub-skip). **KEY: Phase 10 is formally
+  CLOSE-ELIGIBLE** — `check_phase10_close_invariants.sh` = 16 PASS / 8 SKIP /
+  0 FAIL. Spec corpus feature-complete (all 5 proposals green via interp). The
+  8 SKIPs are deferred follow-ups (NOT close-blockers): cross fixtures, JIT
+  regalloc 3-axis (EH/GC JIT codegen), realworld toolchains (clang proven cyc196;
+  Dart/hoot gated), bench/widget close-cycle items.
+- cyc196 (`086c2991`) first clang-realworld fixture (clang_smoke; pipeline proven).
+  Realworld-clang findings: JIT can't run `return_call` (D-205); runI32Export
+  doesn't instantiate; → non-trivial clang fixtures need harness work.
 - cyc195 non-null-local definite-assignment → **test-all GREEN** (gate restored,
   bundle 10.Y closed). cyc194 restored wast-runner compile. cyc190-193: gc
   global-init / import subtyping / assert_unlinkable. gc residual: .17 (D-198)
@@ -30,25 +31,27 @@
 - Mac+ubuntu green through cyc190 (`OK` exit 0). 10.G-gc + 10.H-multimem
   CLOSED cyc188. Cross-module sharing substrate: D-199 memory + D-201 table/func.
 
-## Active task — cycle 197: reassess Phase-10-close path (realworld ROI changed) — **NEXT**
+## Resume target — cycle 198 (loop PAUSED by user at cyc197)
 
-cyc196 materially changed the realworld assumption: result-checking NON-trivial
-clang fixtures needs harness work (full-instantiation + invoke-with-result) AND
-hits JIT feature gaps (D-205 tail-call), while the spec corpus ALREADY covers
-the features (all 5 proposals green via interp). So realworld-clang is high-cost
-/ low-marginal-value. Before sinking cycles into a fixture harness, **map what
-Phase 10 close ACTUALLY requires** + pick the highest-ROI concrete chunk.
-**cyc197 (read ROADMAP §10 + the 10.P close criteria)**: (1) Read ROADMAP §10
-row 10.P + `scripts/check_phase10_close_invariants.sh` (if it exists) — are
-realworld/p10 fixtures a HARD close-criterion, or is the green spec corpus
-sufficient feature coverage? (2) Enumerate the genuine remaining Phase-10-close
-work: 10.P invariants (the 23-item script), the deep gc edges (D-198 .17 /
-D-202 finality+distinct-layout), JIT feature gaps (D-205 tail-call). (3) PICK
-the highest-value concrete chunk: likely either the 10.P close-invariants script
-(structural, advances the formal close) OR JIT tail-call (D-205, closes the
-10.TC JIT half + unblocks clang_musttail) — choose by ROI, then execute.
-**Bar**: a concrete commit (10.P invariant check, a debt/ROADMAP coherence
-update, or the start of a chosen impl); no regression; test-all stays GREEN.
+**Decision point (user-relevant)**: Phase 10 is formally CLOSE-ELIGIBLE (10.P
+0 FAIL). The spec corpus is feature-complete via INTERP; the remaining ROADMAP-
+scoped work is the **JIT codegen for the 3.0 features** (tail-call D-205 / EH /
+GC — the 10.TC/E/G JIT halves) + realworld/cross fixtures + the 8 deferred 10.P
+SKIPs. Two paths:
+- **(a) Close Phase 10 now** — interp-feature-complete; defer JIT codegen +
+  realworld/cross to Phase 11. This DEFERS the JIT halves out of 10.TC/E/G
+  scope → needs a §18 ADR (§9 phase-scope change) + audit_scaffolding phase-
+  boundary pass + the close ceremony (widget DONE, §10 SHA backfill, Phase 11
+  open).
+- **(b) Grind JIT codegen in-scope** — complete 10.TC/E/G JIT halves
+  (multi-cycle each; start JIT tail-call D-205, the most self-contained,
+  unblocks clang_musttail). In-scope autonomous default; no ADR.
+**Autonomous default if resuming without user steer**: (b) — open a bundle for
+JIT tail-call (D-205); Step-0 survey the engine/codegen tail-call dispatch
+(where `return_call` → UnsupportedOp), regalloc terminator-class (ADR-0113 §A),
+op_tail_call.zig. **Bar**: any chosen path keeps test-all GREEN, 0 panics.
+Also queued (lighter): refresh the other stale 10.P SKIP rationales (I14/I21
+reference resolved D-192/D-179).
 
 ## §10 close map (after this bundle)
 
