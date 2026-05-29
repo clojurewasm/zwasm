@@ -94,6 +94,9 @@ pub const Error = error{
     /// `validateCatchVec` once `Module.tags` reaches the validator
     /// (10.E-N).
     InvalidTagIndex,
+    /// ADR-0125 — `struct.get`/`array.get` on a packed (i8/i16) field
+    /// (must use get_s/get_u), or get_s/get_u on a non-packed field.
+    PackedFieldAccess,
     NotImplemented,
     OutOfMemory,
 } || leb128.Error;
@@ -1400,8 +1403,8 @@ pub const Validator = struct {
             // struct.get_s/_u for those (deferred per ADR-0121 D3).
             2 => try self.opStructGet(),
             // struct.get_s / struct.get_u (sub-ops 3/4): packed-type
-            // field access. ADR-0121 D3 defers packed types this cut.
-            3, 4 => return Error.NotImplemented,
+            // (i8/i16) field read, sign-/zero-extended to i32 (ADR-0125).
+            3, 4 => try self.opStructGetPacked(),
             // struct.set (sub-op 5): pop value + structref, push nothing.
             5 => try self.opStructSet(),
             // array.new (sub-op 6): pop init Value + i32 size, push arrayref.
@@ -1415,8 +1418,8 @@ pub const Validator = struct {
             // array.get (sub-op 11): pop i32 idx + arrayref, push element.
             11 => try self.opArrayGet(),
             // array.get_s / array.get_u (sub-ops 12/13): packed element
-            // types (ADR-0121 D3 defers).
-            12, 13 => return Error.NotImplemented,
+            // (i8/i16) read, sign-/zero-extended to i32 (ADR-0125).
+            12, 13 => try self.opArrayGetPacked(),
             // array.set (sub-op 14): pop value + i32 idx + arrayref.
             14 => try self.opArraySet(),
             // array.fill (sub-op 16): pop count + value + i32 idx + arrayref.
@@ -1536,9 +1539,9 @@ pub const Validator = struct {
     /// or struct.get_u (ADR-0121 D3 defers packed types).
     fn opStructGet(self: *Validator) Error!void {
         const field = try self.lookupStructField();
-        // Packed types not yet representable as ValType (ADR-0121 D3);
-        // when they land, this guard widens to "non-packed → straight
-        // push; packed → reject as 'use get_s/_u'".
+        // ADR-0125 — plain struct.get is invalid on a packed field; the
+        // module must use struct.get_s / struct.get_u.
+        if (field.storage.isPacked()) return Error.PackedFieldAccess;
         const top = try self.popAny();
         switch (top) {
             .bot => {},
@@ -1547,6 +1550,20 @@ pub const Validator = struct {
             .known => |t| if (!(t.isAnyRef() or t.isEqRef() or self.subtypeCtx(t, ValType.structref))) return Error.StackTypeMismatch,
         }
         try self.pushType(field.storage.operandType());
+    }
+
+    /// Wasm spec 3.0 §3.3.5.6.3 — `struct.get_s` / `struct.get_u
+    /// typeidx fieldidx`: pop structref, push i32 (the packed i8/i16
+    /// field sign-/zero-extended). Valid ONLY on packed fields (ADR-0125).
+    fn opStructGetPacked(self: *Validator) Error!void {
+        const field = try self.lookupStructField();
+        if (!field.storage.isPacked()) return Error.PackedFieldAccess;
+        const top = try self.popAny();
+        switch (top) {
+            .bot => {},
+            .known => |t| if (!(t.isAnyRef() or t.isEqRef() or self.subtypeCtx(t, ValType.structref))) return Error.StackTypeMismatch,
+        }
+        try self.pushType(.i32);
     }
 
     /// Wasm spec 3.0 §3.3.5.6.4 — `struct.set typeidx fieldidx`:
@@ -1577,6 +1594,8 @@ pub const Validator = struct {
     /// reject via get_s/_u routes in dispatch.
     fn opArrayGet(self: *Validator) Error!void {
         const ad = try self.lookupArrayDef();
+        // ADR-0125 — plain array.get is invalid on a packed element.
+        if (ad.element.storage.isPacked()) return Error.PackedFieldAccess;
         try self.popExpect(.i32);
         const top = try self.popAny();
         switch (top) {
@@ -1584,6 +1603,21 @@ pub const Validator = struct {
             .known => |t| if (!(t.isAnyRef() or t.isEqRef() or self.subtypeCtx(t, ValType.arrayref))) return Error.StackTypeMismatch,
         }
         try self.pushType(ad.element.storage.operandType());
+    }
+
+    /// Wasm spec 3.0 §3.3.5.6.11 — `array.get_s` / `array.get_u
+    /// typeidx`: pop i32 idx + arrayref, push i32 (packed i8/i16 element
+    /// sign-/zero-extended). Valid ONLY on packed elements (ADR-0125).
+    fn opArrayGetPacked(self: *Validator) Error!void {
+        const ad = try self.lookupArrayDef();
+        if (!ad.element.storage.isPacked()) return Error.PackedFieldAccess;
+        try self.popExpect(.i32);
+        const top = try self.popAny();
+        switch (top) {
+            .bot => {},
+            .known => |t| if (!(t.isAnyRef() or t.isEqRef() or self.subtypeCtx(t, ValType.arrayref))) return Error.StackTypeMismatch,
+        }
+        try self.pushType(.i32);
     }
 
     /// Wasm spec 3.0 §3.3.5.6.12 — `array.set typeidx`: pop value

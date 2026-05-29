@@ -162,6 +162,23 @@ test "subtypeCtx: concrete (ref $sub) <: (ref $super) via declared supertype cha
     try testing.expect(!v.subtypeCtx(ref_super, ref_sub));
 }
 
+test "validate: packed i8 field — struct.get_s → i32, plain struct.get rejects (10.G cycle 147, ADR-0125)" {
+    // type0 = struct { (field i8) }. struct.get_s is valid (→ i32);
+    // plain struct.get on a packed field is invalid (PackedFieldAccess).
+    const sd_fields = [_]sections.StructFieldType{.{ .storage = .{ .packed_ = .i8 }, .mutable = false }};
+    const struct_defs = [_]?sections.StructDef{.{ .fields = &sd_fields }};
+    const kinds = [_]sections.TypeKind{.structdef};
+    //   0xD0 0x6B           — ref.null struct
+    //   0xFB 0x03 0x00 0x00 — struct.get_s $0 0  (→ i32)
+    //   0x1A 0x0B           — drop ; end
+    const body_get_s = [_]u8{ 0xD0, 0x6B, 0xFB, 0x03, 0x00, 0x00, 0x1A, 0x0B };
+    try validateFunctionWithGcTypes(empty_sig, &.{}, &body_get_s, &.{}, &.{}, &.{}, &kinds, &struct_defs, &.{}, 0, &.{}, 0);
+    //   0xFB 0x02 ...       — plain struct.get $0 0 on a packed field → reject
+    const body_get = [_]u8{ 0xD0, 0x6B, 0xFB, 0x02, 0x00, 0x00, 0x1A, 0x0B };
+    const r = validateFunctionWithGcTypes(empty_sig, &.{}, &body_get, &.{}, &.{}, &.{}, &kinds, &struct_defs, &.{}, 0, &.{}, 0);
+    try testing.expectError(Error.PackedFieldAccess, r);
+}
+
 test "validate: br_on_cast_fail carries rt1\\rt2 to label, falls through with rt2 (10.G cycle 145)" {
     // br_on_cast_fail l ht1 ht2: branches with rt1\rt2, falls through
     // with rt2. Here ht1=any ht2=(ref i31): label (result anyref) gets

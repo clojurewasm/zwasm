@@ -147,11 +147,25 @@ pub const Types = struct {
     }
 };
 
-/// Decode a single field-type triple per Wasm 3.0 GC §5: storage
-/// type byte (one ValType byte; packed types deferred per ADR-0121
-/// D3) + mutability byte (0x00 const, 0x01 var).
+/// Decode a single field-type triple per Wasm 3.0 GC §5: storage type
+/// (`valtype | packedtype`, ADR-0125) + mutability byte (0x00 const,
+/// 0x01 var).
 fn readFieldType(body: []const u8, pos: *usize) Error!StructFieldType {
-    const valtype = try init_expr.readValType(body, pos);
+    if (pos.* >= body.len) return Error.UnexpectedEnd;
+    // ADR-0125 Part B — packed storage types: i8 (0x78) / i16 (0x77)
+    // are NOT valtypes (never on the operand stack), so peek before
+    // delegating to readValType.
+    const storage: StorageType = switch (body[pos.*]) {
+        0x78 => blk: {
+            pos.* += 1;
+            break :blk .{ .packed_ = .i8 };
+        },
+        0x77 => blk: {
+            pos.* += 1;
+            break :blk .{ .packed_ = .i16 };
+        },
+        else => .{ .val = try init_expr.readValType(body, pos) },
+    };
     if (pos.* >= body.len) return Error.UnexpectedEnd;
     const mut_byte = body[pos.*];
     pos.* += 1;
@@ -160,9 +174,7 @@ fn readFieldType(body: []const u8, pos: *usize) Error!StructFieldType {
         0x01 => true,
         else => return Error.InvalidFunctype,
     };
-    // ADR-0125 Part A — wrap the valtype; packed i8/i16 decode lands in
-    // Part B (readValType still rejects 0x78/0x77 → BadValType for now).
-    return .{ .storage = .{ .val = valtype }, .mutable = mutable };
+    return .{ .storage = storage, .mutable = mutable };
 }
 
 /// Six parallel arena-backed accumulators for `decodeTypes` — one entry
