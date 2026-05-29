@@ -6,17 +6,16 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cyc188 (`da7434ce`) — **cross-module TABLE imports** (D-201b,
-  linker `table_alias` + `defineTable` + `.table` binding arm + runner
-  register, mirror D-199). **multi-memory FULLY GREEN: return 407/407,
-  trap 244, invalid 2, malformed 2** — the 10.H bundle is COMPLETE
-  (393→407 this session via D-199 memory / D-200 assert_uninstantiable /
-  D-201a re-export-invoke / D-201b table). gc COMPLETE 62→349 ret / 96
-  trap / 57 inv. memory64 / tail-call / EH also all-green.
-- Earlier arc: cyc147-148 ADR-0125 packed (62→116); cyc146 ADR-0016 M3
-  validate self-attribution (`compile FAIL [fn= off= op=]`) + subtypeCtx
-  coercion; cyc144/145 GC blocktypes + br_on_cast; cyc141 rt.datas fix
-  (multi-mem→393); cyc130-140 i31/struct/array + const-expr.
+- **HEAD**: cyc189 (consolidation, no src) — reassessed §10 state. Spec
+  corpus mature: multi-mem 407 / memory64 337 / tail-call 71 / EH 34 all-
+  green; gc 349/96/57. Remaining spec residuals: **3 gc invalid** (.10/.15/
+  .16 global-init type-check, MISSING additive check — bounded, observable),
+  gc .17 funcref-RTT (D-198 rabbit hole), cross-module sig (uncounted).
+  §10 ROW close criteria also need **realworld/p10 fixtures** (skeleton):
+  clang_wasm64 + clang_musttail autonomous (clang✓), emscripten/dart/
+  ocaml/hoot tool-gated (emcc/dart✗). cyc188: multi-mem ALL-GREEN.
+- Earlier arc: cyc177 iso-recursive canonicalEqual; cyc147-148 ADR-0125
+  packed; cyc146 ADR-0016 M3 self-attribution; cyc130-140 i31/struct/array.
 - Runner EXECUTES via interp; gc_heap + gc_type_infos + rt.datas all
   materialised at instantiate. Arrays use 8-byte uniform slots
   (type_info.slot_size); data-seg elements are NATURAL width.
@@ -24,51 +23,54 @@
   GREEN 34/34 (cross-module propagation + caller-frame catch; ADR-0114
   full substrate cyc110–120; D-192 EH clause PROVEN). Lesson
   `eh-cross-module-tag-substrate-scope` has the journey.
-- Mac+ubuntu green through cyc142 (`OK (HEAD=a763d44a)`).
-- **No active bundle**: 10.G-gc (62→349) + 10.H-multimem (396→407 all-green)
-  both CLOSED cyc188. §10 corpus: multi-mem / memory64 / tail-call / EH
-  all-green; gc 349/96/57 (residual DEFERRED — D-198 .17 + cross-module
-  sig); funcrefs 34/39 (5 gated, 10.P user touchpoint). Cross-module
-  sharing substrate: D-199 memory + D-201 table/func.
+- Mac+ubuntu green through cyc188 (`OK (HEAD=e7454fbf)`). No active bundle:
+  10.G-gc + 10.H-multimem both CLOSED cyc188. Cross-module sharing substrate:
+  D-199 memory + D-201 table/func.
 
-## Active task — cycle 189: post-bundle consolidation (audit_scaffolding) — **NEXT**
+## Active task — cycle 190: gc global-init type-check (3 invalid → 60/60) — **NEXT**
 
-Two §10 corpus bundles CLOSED (10.G gc 62→349, 10.H multi-mem 396→407
-all-green) + many new artifacts this arc (D-198/199/200/201, ADR-0099/
-0126 amendments, lessons). The autonomous-eligible OBSERVABLE corpus work
-is exhausted (gc residual = deep deferred edges; funcrefs gated). Invoke
-`audit_scaffolding` for a coherence pass: §F debt coherence (D-198..201
-rows accurate + discharge predicates clear), §G extended-challenge anchors,
-staleness across CLAUDE.md / `.dev/` / rules. `block` finding → fix local
-or file ADR + queue; either path continues. Then re-target at the highest-
-value remaining (likely the deferred gc edges with a fresh ROI read, or a
-ROADMAP §10 milestone check). Verify any fix keeps gc 349/96/57 + multi-mem
-407, exit 0, 0 panics.
+cyc189 DIAGNOSED (Explore): gc `type-subtyping.10/.15/.16` are invalid-
+accepted because there is **NO `validateGlobals` at all** — global init-
+exprs get only `init_expr.scanInitExpr` (structural), never a result-type-
+vs-declared-type check. e.g. .10 `(global (ref 4) ref.func 0)`, func 0 is
+type 6 (`sub 2`); type 2 ≢ type 0 (rec-group-distinct) ⇒ `(ref 6) <: (ref 4)`
+false ⇒ must REJECT. This is a **new validation pass** (medium-blast: runs
+on every module's globals), hence diagnose-then-implement-fresh.
+**Wiring site**: `instantiate.zig:~353` (the func-body validate loop) —
+`func_type_indices`, `global_entries`, `types_owned` are ALL already built
+there; thread the global init-expr bytes into that scope (NOT the lighter
+early block at 498-509, which only computes an `ntypes` count). One piece:
+1. **const-expr type evaluator** (CONSERVATIVE — reject ONLY on a confidently-
+   typed concrete mismatch; skip/accept any unrecognized form so an
+   incomplete evaluator can't regress valid modules) — tree-walk init bytes:
+   i32/i64/f32/f64/v128.const → scalar; `ref.null ht`→`(ref null ht)`
+   (init_expr.readTypedRef); `ref.func i`→`(ref func_type_indices[i])`;
+   `global.get j`→imported globals[j].type; struct.new/array.new*/array.
+   new_fixed → `(ref null typeidx)`; ref.i31/any.convert_extern/extern.
+   convert_any → fixed. Then `gcValTypeSubtype(result, declared,
+   types_owned)` (validator.zig:2910; honors cyc177 `sections.canonicalEqual`
+   rec-group identity; `types_owned` already in scope at ~353). Red test
+   FIRST on .10/.15/.16 (all `ref.func` inits — fully evaluable).
+**Bar**: gc invalid 57→60, return still 349 / trap 96, NO valid-module
+regression — conservative design (skip unrecognized forms) bounds the
+surface, but STILL re-run full gc + all 5 proposals: a mis-typed ref.func/
+global.get could reject a valid global. If it trips a VALID module, REVERT
+(accepting-invalid > rejecting-valid per project preference). Element-seg +
+data-offset const-exprs share the same gap — note as follow-on, don't expand.
 
-Last multi-memory fail (linking0). Cross-module TABLE imports are
-unsupported (`linker.zig:487` rejects `.table`). Implement, mirroring
-D-199 memory sharing:
-1. **Linker registry** — add `table_alias` to the `Payload` union +
-   `defineTable(module, name, *TableInstance)` (capture the exporter's
-   live `*TableInstance` / shared refs). Mirror `defineMemory`/`MemoryAlias`.
-2. **Binding build** (`linker.zig:487` `.table` arm) — was
-   `ImportKindMismatch`; build the `.table` `TableImport` from the alias
-   (share the refs / instance).
-3. **Runner register** (`spec_assert_runner_wasm_3_0.zig`) — on `register`,
-   define exported tables (mirror the `defineMemory` register path,
-   loop exports of kind table).
-4. **Sharing**: ensure the importer's `rt.tables[slot]` aliases the
-   exporter's live refs so elem writes persist (instantiate.zig:1383
-   already value-copies; verify the binding carries live refs).
-**Bar**: linking0 `call(7)→0` → **multi-mem 407 ALL-GREEN**, no regression
-to gc 349/96/57, exit 0, 0 panics. HIGH-ish (cross-module table). If a
-rabbit hole, defer. (Deferred: gc .17 + cross-module sig per D-198.)
+## §10 close map (cyc189 reassessment)
 
-## Larger §10 work (later bundles)
+Feature impl rows (10.G/10.M/10.E/10.TC/10.R) are spec-corpus-mature but
+ROADMAP-`[ ]`; their formal close needs realworld/p10 fixtures + 10.P.
 
-- **funcrefs** return 32/39 — 1 externref-elem (runner externref-arg) +
-  `resolveFuncrefGlobals` (off spec-corpus path). **10.P close gate** =
-  user touchpoint by construction.
+- **realworld/p10** (skeleton, no `.wasm`): `clang_wasm64` + `clang_musttail`
+  AUTONOMOUS (clang✓ in PATH, wasm-tools✓) — next major chunk after the
+  spec residuals. `emscripten_eh` / `dart` / `wasm_of_ocaml` / `hoot` are
+  TOOL-GATED (emcc/dart/ocaml absent) — self-provision via nix or defer.
+- **gc .17** funcref-RTT (D-198 .17 rabbit hole) + **cross-module sig**
+  (.30/.48/.50, uncounted, D-198/201) — deeper deferred edges.
+- **funcrefs** 34/39 — 5 gated (externref-arg runner + resolveFuncrefGlobals
+  off spec-corpus path); **10.P close gate** = user touchpoint by construction.
 
 ## Spec runner observable (cycle-164, DIRECT binary run)
 
@@ -79,9 +81,8 @@ rabbit hole, defer. (Deferred: gc .17 + cross-module sig per D-198.)
 [multi-memory       ] return=407/407 trap=244/244  ← cyc188 ALL-GREEN (D-199/200/201 cross-module chain)
 ```
 
-> Use `--fail-detail` (reliable per-assert), NOT the per-manifest
-> breakdown (over-counts gc). Real gc residuals: i31(4) + type-sub(5) +
-> ref_test(2).
+> Use `--fail-detail` (reliable per-assert), NOT the per-manifest breakdown
+> (over-counts gc). Real gc residuals: i31(4) + type-sub(5) + ref_test(2).
 
 ## Open questions / blockers
 
