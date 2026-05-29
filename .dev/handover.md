@@ -6,17 +6,16 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cycle 141 (`81c5e6d3`) — array.new_data/new_elem interp exec
-  + **fixed a production rt.datas bug** (instance builder never populated
-  rt.datas; only a test helper did → memory.init/array.new_data read
-  empty). **multi-memory return 387→393 (+6)** (memory.init passive). No
-  regression. gc return 61/trap 18 held (array_new_data.2 compiles but
-  value-return still off — decodeData passive parse suspected).
-- cyc140 array.new_data/elem validate+lower (trap 10→18); cyc139 array.new
-  const-expr (55→61); cyc138 struct.new const-expr (exit ≥50 MET);
-  cyc130-137 i31/struct/array narrowing+exec. gc return 0→…→61.
-- Runner EXECUTES via interp; gc_heap + gc_type_infos + rt.datas now all
-  materialised at instantiate (859-880 / globals ~1262 / data ~1451).
+- **HEAD**: cycle 142 (`e0b5b8e3`) — array.new_data reads NATURAL element
+  size from the data segment (was the uniform 8-byte slot size → over-read
+  → OOB trap). **gc return 61→62** — array_new_data.2 (i32 from data seg)
+  passes. No regression. The 3 remaining array_new_data are packed i8/i16.
+- cyc141 array exec + rt.datas production fix (multi-memory +6→393);
+  cyc138-140 struct/array const-expr + array.new_data/elem; cyc130-137
+  i31/struct/array. gc return 0→…→62, trap 18, multi-memory 393.
+- Runner EXECUTES via interp; gc_heap + gc_type_infos + rt.datas all
+  materialised at instantiate. Arrays use 8-byte uniform slots
+  (type_info.slot_size); data-seg elements are NATURAL width.
 - cyc120 (`5db875b0`): cross-module EH propagation + caller-frame catch
   → **EH corpus FULLY GREEN 34/34** (bundle 10.E CLOSED; D-192 PROVEN).
 - **Bundle 10.E-eh-tail CLOSED** — exit (return ≥ 33/34) met at 34/34;
@@ -46,20 +45,22 @@
 - **Exit-condition**: gc return ≥ 50 **MET at cyc138 (55)**. Extended
   target: gc return ≥ 90 (array exec + ref.test/cast) — refine as lands.
 
-## Active task — cycle 142: array_new_data.2 value-return gap — **NEXT**
+## Active task — cycle 143: type-subtyping ValidateFailed (×~10) — **NEXT**
 
-array.new_data/elem exec + rt.datas landed (cyc141). array_new_data.2
-(i32 array from a PASSIVE data seg `aabbccdd` → 3721182122) compiles +
-instantiates but its assert_return still fails — value wrong/trap.
-INSTRUMENT (cyc131 lesson): run array_new_data.2 via DIRECT binary,
-check the runner's got-vs-expected line OR add a probe in arrayNewData.
-Leading suspects: (a) decodeData passive-segment parse (flag 0x01)
-yields wrong seg.bytes/kind → rt.datas[0] wrong; (b) array element-size
-(esz) for i32 ≠ 4 in materialiseGcTypes; (c) array.get reads wrong slot.
-Confirm + fix → array_new_data.2 (+ array_new_elem value asserts) pass.
-Then remaining gc: packed get_s/u (array_new_data.0/1/3, struct.10), RTT
-(ref.test/cast/br_on_cast), type-subtyping linking. No regression to
-61 return / 18 trap / 393 multi-mem.
+i31/struct/array exec largely done (return 62). Remaining gc families
+(pick most tractable; INSTRUMENT first — cyc131 lesson):
+- **type-subtyping.6/7/9/12/17/19/21/24/39/45 (ValidateFailed)** + .30/
+  40/46/48/50 (instantiate SignatureMismatch/UnknownImport). The
+  ValidateFailed ones are likely validateTypeSection edge cases (rec-
+  group forward-supertype refs — the `s >= i` check I kept strict, or
+  multi-supertype, or deeper subtype chains). The instantiate ones are
+  cross-module GC type LINKING (c_api import/export type match for GC
+  types). Localize one sub-group → fix.
+- **DEFERRED design points** (note, don't start lightly): RTT —
+  ref.test/cast/br_on_cast (×8, ADR-0116 RTT); packed get_s/u — i8/i16
+  storage (×~6: struct.10, array_new_data.0/1/3, array.0/7/8; ADR-0121
+  D3 needs packed ValType). Each is a multi-cycle sub-feature.
+No regression to 62 return / 18 trap / 57 invalid / 393 multi-mem.
 
 ## Larger §10 work (later bundles)
 
@@ -76,7 +77,7 @@ Then remaining gc: packed get_s/u (array_new_data.0/1/3, struct.10), RTT
 [tail-call          ] return=71  trap=7   invalid=24  (all pass)
 [exception-handling ] return=34/34 trap=2/2 invalid=7/7 exception=4/4  ✅ FULLY GREEN
 [function-references] return=39(pass=32 fail=1) trap=4(pass) invalid=18(pass)
-[gc                 ] return=407(pass=61 fail=309) trap=100(pass=18 fail=82) invalid=60(pass=57 fail=3) malformed=1(pass) ParseFailed=0 ValidateFailed=33  ← 10.G (cyc141 array exec)
+[gc                 ] return=407(pass=62 fail=308) trap=100(pass=18 fail=82) invalid=60(pass=57 fail=3) malformed=1(pass) ParseFailed=0 ValidateFailed=33  ← 10.G (cyc142 array.new_data natural-size, return 61→62)
 [multi-memory       ] return=407(pass=393 fail=14) trap=238(pass=238) ← cyc141 rt.datas fix (memory.init passive) +6
 ```
 
