@@ -6,13 +6,12 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: cyc173 (root-cause, no code) — **the Wasm start section is
-  validated but NEVER EXECUTED** at instantiate (only compile.zig:578-587
-  range/sig-checks the funcidx; no `find(.start)` invoke anywhere). This
-  is multi-memory start0's bug (`(start $main)` → $inc×3 never runs →
-  get=65 not 68) + a general gap for ANY start module. Pivoted off the
-  10.G D-198 tail (delta=0 ×3 cycles, ADR-0118 D6; D-198 filed in
-  ADR-0126). cyc168/169 = Phase-10a (+2); **gc 62→345**.
+- **HEAD**: cyc174 (`cbcd081b`) — **Wasm start section now EXECUTES** at
+  instantiate (was validated-but-discarded; §4.5.4 invoke added to
+  `instantiateInternal` after data init, trap→fail). **multi-memory
+  393→396 (+3, start0 fixed)**, no regression, 0 panics. api/instance.zig
+  cap 3000→3200 (ADR-0099 amend). cyc168/169 = Phase-10a (+2);
+  **gc 62→345**.
 - Earlier arc: cyc147-148 ADR-0125 packed (62→116); cyc146 ADR-0016 M3
   validate self-attribution (`compile FAIL [fn= off= op=]`) + subtypeCtx
   coercion; cyc144/145 GC blocktypes + br_on_cast; cyc141 rt.datas fix
@@ -41,32 +40,28 @@
 - **Exit-condition**: gc return ≥ 90 **EXCEEDED (116 at cyc148)**. Open
   target: maximise return (RTT exec) toward the corpus ceiling.
 
-## Active task — cycle 174: implement Wasm start-section execution — **NEXT**
+## Active task — cycle 175: gc D-198 coordinated cross-module landing — **NEXT**
 
-Bounded, observable, NOT-deep (vs the D-198 tail). The start funcidx is
-read+validated at compile.zig:580 then DISCARDED. Implement execution:
-1. Find `CompiledWasm` (grep `CompiledWasm` — likely src/engine/runner.zig
-   or a types module) + add `start_funcidx: ?u32 = null`; set it at
-   compile.zig:580-587 (the validated funcidx).
-2. `src/zwasm/instance.zig` — factor `invoke` (line 91, by-name) so the
-   post-lookup body becomes `pub fn invokeByIdx(self, funcidx, args,
-   results)`; `invoke` resolves name→idx then calls it.
-3. Zone-3 instantiate wrappers — after the instance is built, if
-   `start_funcidx` set, `invokeByIdx(start, &.{}, &.{})`; a trap →
-   `error.InstantiateFailed` (spec §4.5.4). Hook `src/zwasm/linker.zig`
-   instantiate (~515, the spec-runner path) FIRST (fixes start0 +3
-   observable); then `src/api/instance.zig` wasm_instance_new + CLI for
-   completeness. Order: start runs AFTER data init.
-VERIFY full test-spec exit 0 + 0 panics + multi-memory start0 +3 + NO
-regression (some other start-using fixture may newly run its start —
-confirm correct). No regression to 345/90/57/393/34.
+On-bundle (10.G), observable, HIGH blast radius — the ADR-0126 Phase-10b
+plan; fresh post-compact context = its "fresh-context cycle" precondition.
+Flip the **3 cross-module type-subtyping fails** (45 exporter validate +
+46/48/50 importer link) by landing TWO pieces TOGETHER (one alone is
+non-observable per cyc171):
+1. **Validator** — re-apply `gcCanonicalEqual` (recursive structural
+   equality: finality + canonical supertypes + comptype, refs recurse,
+   depth-32 coinductive cutoff) as an OR in `gcValTypeSubtype`'s
+   concrete→concrete arm. **Verified SAFE c171** (fixture 45 validates,
+   gc invalid HELD 57). See ADR-0126 cyc171 note.
+2. **Linker** — `sigSubtype` (exporter actual <: importer declared:
+   contravariant params / covariant results) replacing the EXACT
+   `ValType.eql` at linker.zig ~527 (fixes 46/48/50 SignatureMismatch).
+VERIFY FULL test-spec ALL proposals + assert_invalid: **gc invalid MUST
+stay 57** (cyc122 regression mode), exit 0, 0 panics, no regression to
+345/90/393/337/71/34. Then SEPARATELY trace the 2 FAILval (non-canonical
+root cause, c172-FALSIFIED — `--fail-detail` per-assert ref.test/cast).
 
-## Deferred — gc D-198 tail (final stubborn 5; fresh-context coordinated)
-
-Per ADR-0126 Phase-10b notes: 3 cross-module (validator gcCanonicalEqual
-[verified safe c171] + Linker sigSubtype, land TOGETHER) + 2 FAILval
-(non-canonical root cause, c172-falsified — trace per-assert). HIGH blast
-radius. Pick up after start-exec.
+> If the coordinated landing regresses gc invalid → revert both, the
+> linker sigSubtype likely over-accepts; narrow to func-import only.
 
 ## Larger §10 work (later bundles)
 
@@ -80,7 +75,7 @@ radius. Pick up after start-exec.
 [memory64           ] return=337 (all pass)    [tail-call] return=71 (all pass)
 [exception-handling ] 34/34 ✅ FULLY GREEN     [function-references] return=34/39
 [gc                 ] return=345/407 trap=90/100 invalid=57/60 malformed=1/1 skip=20  ← 10.G c169
-[multi-memory       ] return=393/407 trap=238/238  ← cyc141 rt.datas fix
+[multi-memory       ] return=396/407 trap=238/238  ← cyc174 start-exec (+3 start0)
 ```
 
 > Use `--fail-detail` (reliable per-assert), NOT the per-manifest
