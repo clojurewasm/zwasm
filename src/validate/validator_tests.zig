@@ -1859,7 +1859,8 @@ test "typeDefIsSubtype: struct width + depth (10.G ADR-0124 cycle 124)" {
     var adefs = [_]?sections.ArrayDef{ null, null };
     var items = [_]FuncType{ .{ .params = &.{}, .results = &.{} }, .{ .params = &.{}, .results = &.{} } };
     var sup = [_][]const u32{ &.{}, &.{} };
-    const t: sections.Types = .{ .arena = undefined, .items = &items, .kinds = &kinds, .struct_defs = &sdefs, .array_defs = &adefs, .supertypes = &sup };
+    var fin = [_]bool{ true, true };
+    const t: sections.Types = .{ .arena = undefined, .items = &items, .kinds = &kinds, .struct_defs = &sdefs, .array_defs = &adefs, .supertypes = &sup, .finals = &fin };
     try testing.expect(validator.typeDefIsSubtype(1, 0, &t)); // sub(2 fields) <: super(1)
     try testing.expect(!validator.typeDefIsSubtype(0, 1, &t)); // super(1) NOT <: sub(2) — width
 }
@@ -1874,8 +1875,51 @@ test "typeDefIsSubtype: array covariant lattice + cross-kind (10.G ADR-0124 cycl
     var adefs = [_]?sections.ArrayDef{ a_eq, a_i31, null };
     var items = [_]FuncType{ .{ .params = &.{}, .results = &.{} }, .{ .params = &.{}, .results = &.{} }, .{ .params = &.{}, .results = &.{} } };
     var sup = [_][]const u32{ &.{}, &.{}, &.{} };
-    const t: sections.Types = .{ .arena = undefined, .items = &items, .kinds = &kinds, .struct_defs = &sdefs, .array_defs = &adefs, .supertypes = &sup };
+    var fin = [_]bool{ true, true, true };
+    const t: sections.Types = .{ .arena = undefined, .items = &items, .kinds = &kinds, .struct_defs = &sdefs, .array_defs = &adefs, .supertypes = &sup, .finals = &fin };
     try testing.expect(validator.typeDefIsSubtype(1, 0, &t)); // array(i31ref) <: array(eqref): i31 <: eq, const covariant
     try testing.expect(!validator.typeDefIsSubtype(0, 1, &t)); // array(eqref) NOT <: array(i31ref)
     try testing.expect(!validator.typeDefIsSubtype(0, 2, &t)); // array NOT <: struct (cross-kind)
+}
+
+test "validateTypeSection: accepts conformant sub, rejects finality/structural/bounds (10.G ADR-0124 cycle 125)" {
+    // type0 = struct{i32} (non-final, sub), type1 declares supertype $0.
+    const f1 = [_]sections.StructFieldType{gcField(.i32, false)};
+    const f2 = [_]sections.StructFieldType{ gcField(.i32, false), gcField(.i64, false) };
+    var kinds = [_]sections.TypeKind{ .structdef, .structdef };
+    var sdefs = [_]?sections.StructDef{ .{ .fields = &f1 }, .{ .fields = &f2 } };
+    var adefs = [_]?sections.ArrayDef{ null, null };
+    var items = [_]FuncType{ .{ .params = &.{}, .results = &.{} }, .{ .params = &.{}, .results = &.{} } };
+    const super0 = [_]u32{0};
+
+    // Conformant: type0 non-final, type1 (width-extends $0) structurally conforms.
+    {
+        var sup = [_][]const u32{ &.{}, &super0 };
+        var fin = [_]bool{ false, true };
+        const t: sections.Types = .{ .arena = undefined, .items = &items, .kinds = &kinds, .struct_defs = &sdefs, .array_defs = &adefs, .supertypes = &sup, .finals = &fin };
+        try testing.expect(validator.validateTypeSection(&t));
+    }
+    // Finality: type0 is final → extending it is invalid (even though structure conforms).
+    {
+        var sup = [_][]const u32{ &.{}, &super0 };
+        var fin = [_]bool{ true, true };
+        const t: sections.Types = .{ .arena = undefined, .items = &items, .kinds = &kinds, .struct_defs = &sdefs, .array_defs = &adefs, .supertypes = &sup, .finals = &fin };
+        try testing.expect(!validator.validateTypeSection(&t));
+    }
+    // Structural: type1 narrower than its declared supertype $1 (forward) — and reversed roles.
+    {
+        // type0 declares supertype $1 (forward ref) → reject regardless of structure.
+        var sup = [_][]const u32{ &super0, &.{} }; // type0 → super index 0 == self
+        var fin = [_]bool{ false, false };
+        const t: sections.Types = .{ .arena = undefined, .items = &items, .kinds = &kinds, .struct_defs = &sdefs, .array_defs = &adefs, .supertypes = &sup, .finals = &fin };
+        try testing.expect(!validator.validateTypeSection(&t)); // s (0) >= i (0): self/forward
+    }
+    // Bounds: supertype index out of range.
+    {
+        const bad = [_]u32{5};
+        var sup = [_][]const u32{ &.{}, &bad };
+        var fin = [_]bool{ false, true };
+        const t: sections.Types = .{ .arena = undefined, .items = &items, .kinds = &kinds, .struct_defs = &sdefs, .array_defs = &adefs, .supertypes = &sup, .finals = &fin };
+        try testing.expect(!validator.validateTypeSection(&t));
+    }
 }

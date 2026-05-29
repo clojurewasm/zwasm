@@ -87,10 +87,14 @@ pub const Types = struct {
     array_defs: []?ArrayDef,
     /// Parallel to `items`; declared supertype indices from a `sub` /
     /// `sub final` typedef (Wasm 3.0 GC §5). Empty slice for a bare
-    /// comptype. Consumed by `validator.typeDefIsSubtype` (ADR-0124).
-    /// Populated once the `0x50`/`0x4F` parse lands (currently all
-    /// empty — inert until then).
+    /// comptype. Consumed by `validator.validateTypeSection` /
+    /// `typeDefIsSubtype` (ADR-0124).
     supertypes: [][]const u32,
+    /// Parallel to `items`; true iff the typedef is final and cannot be
+    /// extended — `sub final` (0x50) and a bare comptype (0x60/0x5F/0x5E)
+    /// are final; `sub` (0x4F) is open. Extending a final type is invalid
+    /// (Wasm 3.0 GC §3 sub-validation; ADR-0124).
+    finals: []bool,
 
     pub fn deinit(self: *Types) void {
         self.arena.deinit();
@@ -134,12 +138,29 @@ pub fn decodeTypes(parent_alloc: Allocator, body: []const u8) Error!Types {
     const struct_defs = try alloc.alloc(?StructDef, count);
     const array_defs = try alloc.alloc(?ArrayDef, count);
     const supertypes = try alloc.alloc([]const u32, count);
+    const finals = try alloc.alloc(bool, count);
     for (struct_defs) |*s| s.* = null;
     for (array_defs) |*a| a.* = null;
-    for (supertypes) |*s| s.* = &.{}; // 0x50/0x4F parse (cyc125) populates
+    for (supertypes) |*s| s.* = &.{};
+    for (finals) |*f| f.* = true; // bare comptype is final; 0x4F sets false
 
     for (items, 0..) |*ft, i| {
         if (pos >= body.len) return Error.UnexpectedEnd;
+        // Wasm 3.0 GC §5: a `sub` (0x4F) / `sub final` (0x50) typedef
+        // prefixes its comptype with a vec(typeidx) of declared
+        // supertypes. A bare comptype (0x60/0x5F/0x5E) has none and is
+        // final. The 0x4E `rec` group form is not yet handled (single
+        // subtypes only — the wast2json corpus flattens single types to
+        // bare 0x50/0x4F).
+        if (body[pos] == 0x50 or body[pos] == 0x4F) {
+            if (body[pos] == 0x4F) finals[i] = false;
+            pos += 1;
+            const super_count = try leb128.readUleb128(u32, body, &pos);
+            const supers = try alloc.alloc(u32, super_count);
+            for (supers) |*s| s.* = try leb128.readUleb128(u32, body, &pos);
+            supertypes[i] = supers;
+            if (pos >= body.len) return Error.UnexpectedEnd;
+        }
         switch (body[pos]) {
             0x60 => {
                 pos += 1;
@@ -182,6 +203,7 @@ pub fn decodeTypes(parent_alloc: Allocator, body: []const u8) Error!Types {
         .struct_defs = struct_defs,
         .array_defs = array_defs,
         .supertypes = supertypes,
+        .finals = finals,
     };
 }
 
@@ -724,6 +746,28 @@ test "decodeTypes: rejects unknown typedef prefix" {
     // 0x5F struct, 0x5E array). Other prefixes must reject.
     const body = [_]u8{ 0x01, 0x61, 0x00, 0x00 };
     try testing.expectError(Error.InvalidFunctype, decodeTypes(testing.allocator, &body));
+}
+
+test "decodeTypes: sub / sub final prefix populates supertypes + finals (10.G ADR-0124 cycle 125)" {
+    // Wasm 3.0 GC §5 subtype binary form:
+    //   type 0 = 0x4F 0x00 (struct i32)         -- `sub` (open, no supers)
+    //   type 1 = 0x50 0x01 0x00 (struct i32 i64) -- `sub final $0`
+    const body = [_]u8{
+        0x02,
+        0x4F, 0x00, 0x5F, 0x01, 0x7F, 0x00, // sub, 0 supers, struct{i32 const}
+        0x50, 0x01, 0x00, 0x5F, 0x02, 0x7F, 0x00, 0x7E, 0x00, // sub final $0, struct{i32,i64 const}
+    };
+    var t = try decodeTypes(testing.allocator, &body);
+    defer t.deinit();
+    try testing.expectEqual(@as(usize, 2), t.items.len);
+    try testing.expectEqual(TypeKind.structdef, t.kinds[0]);
+    try testing.expectEqual(TypeKind.structdef, t.kinds[1]);
+    // type 0: `sub` → not final, no declared supertypes.
+    try testing.expectEqual(false, t.finals[0]);
+    try testing.expectEqual(@as(usize, 0), t.supertypes[0].len);
+    // type 1: `sub final $0` → final, one declared supertype (index 0).
+    try testing.expectEqual(true, t.finals[1]);
+    try testing.expectEqualSlices(u32, &[_]u32{0}, t.supertypes[1]);
 }
 
 test "decodeTypes: single struct with one i32 const field (ADR-0121 D4; 10.G op_gc cycle 14)" {

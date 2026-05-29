@@ -2684,6 +2684,26 @@ pub fn typeDefIsSubtype(sub: u32, sup: u32, types: *const sections.Types) bool {
     };
 }
 
+/// ADR-0124 — validate every declared subtype relationship in a type
+/// section. For each typedef carrying declared supertype(s) (`sub` /
+/// `sub final`): at most one supertype (Wasm 3.0 GC MVP), the supertype
+/// index defined earlier (no `rec` forward refs in the flattened form),
+/// the supertype not final (`sub final` / bare comptype can't be
+/// extended), and the subtype structurally conforms. Returns false on
+/// any violation. Empty supertypes (bare comptype) are always OK.
+pub fn validateTypeSection(types: *const sections.Types) bool {
+    for (types.supertypes, 0..) |supers, i| {
+        if (supers.len == 0) continue;
+        if (supers.len > 1) return false; // GC MVP allows ≤1 supertype
+        const s = supers[0];
+        if (s >= types.kinds.len) return false; // supertype index out of bounds
+        if (s >= i) return false; // supertype must be declared earlier
+        if (s < types.finals.len and types.finals[s]) return false; // extending a final type
+        if (!typeDefIsSubtype(@intCast(i), s, types)) return false; // structural conformance
+    }
+    return true;
+}
+
 /// True iff `expected` (a branch target's label type) structurally
 /// equals `tag_params ++ [exnref]` — the tuple a `catch_ref` clause
 /// pushes. `catch_all_ref` passes empty `tag_params`, so the pushed

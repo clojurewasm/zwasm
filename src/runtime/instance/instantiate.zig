@@ -426,6 +426,12 @@ fn preDecodeSectionBodies(alloc: std.mem.Allocator, module: *Module) bool {
             for (ft.params) |p| if (!validRefTypeIdx(p, ntypes)) return false;
             for (ft.results) |r| if (!validRefTypeIdx(r, ntypes)) return false;
         }
+        // ADR-0124 — reject non-conformant `sub`/`sub final` subtype
+        // declarations (structural mismatch, extending a final type,
+        // out-of-bounds / forward supertype). Runs in the no-code path
+        // too, so type-only gc modules (type-subtyping-invalid corpus)
+        // can't bypass it.
+        if (!validator.validateTypeSection(&t)) return false;
     }
     if (module.find(.import)) |s| {
         var im = sections.decodeImports(alloc, s.body) catch return false;
@@ -899,6 +905,7 @@ pub fn instantiateRuntime(
             .struct_defs = &.{},
             .array_defs = &.{},
             .supertypes = &.{},
+            .finals = &.{},
         };
 
     var funcs: []zir.ZirFunc = &.{};
