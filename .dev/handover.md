@@ -6,44 +6,40 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS — CLOSE-ELIGIBLE** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `38afcd7a` (cyc222). **`devShells.gen` (cyc221) + 2 REAL Rust fixtures**
-  (user-directed あるべき論: nix `devShells.gen` separate from `default`, kept off the
-  ubuntu/windows test hosts; generated `.wasm` COMMITTED → run via the Zig edge-runner, NO
-  toolchain on test hosts — `.dev/toolchain_provisioning.md`). realworld/p10 runner = 4:
-  clang_musttail=15, clang_wasm64=42, `rust_loop_sum`=45 (loop, cyc221),
-  `rust_fib`=55 (recursion via `#[inline(never)]` — real call/return, NOT folded; cyc222).
-  **Cross-host model ubuntu-VERIFIED** (Step 0.7 `OK 369cfc91`: the rust `.wasm` ran on
-  x86_64 with no rustc there). CLAUDE.md + flake.nix point at the provisioning doc.
+- **HEAD**: `eddb4652` (cyc224). **Real-toolchain realworld fixtures + a real harness bug fix.**
+  nix `devShells.gen` (cyc221, user-directed あるべき論; separate from `default` so test hosts
+  stay lean; generated `.wasm` COMMITTED → run via the Zig edge-runner, NO toolchain there;
+  `.dev/toolchain_provisioning.md`). realworld/p10 runner = 5: clang_musttail=15, clang_wasm64=42,
+  rust_loop_sum=45 (loop), rust_fib=55 (recursion), **rust_data=31** (static-array sum + shadow
+  stack). **rust_data surfaced + fixed a real harness bug** (`eddb4652`): `setupRuntime` left
+  defined globals at 0 instead of evaluating their init-exprs → `__stack_pointer`=0 → shadow-stack
+  `SP-n` wrapped OOB → trap. Fix evaluates const global inits → **shadow-stack modules now run**
+  (real `-O` rust/clang code, not just trivial fixtures). The clang-recipe lesson's "-O0
+  shadow-stack traps" limitation is lifted. Cross-host model ubuntu-verified (cyc222 `OK 36547ac2`).
 - **7 cross fixtures** (`test/edge_cases/p10/cross/`): call_ref/return_call/EH × memory64,
   EH × call_ref, multivalue × call_ref, call_indirect × memory64, SIMD × call_ref. All Mac-green.
 - D-208 (cyc213) + D-209 (cyc214) fixed + ubuntu-verified. **10.P: 16 PASS / 8 SKIP / 0 FAIL**
   → close-eligible. I14 deferred (Phase-13 type-reflection c_api); D-206 deferred (≈4-6 cyc
   native cross-module JIT bridge; existing cross-module dispatch is interp-routed; not close-required).
-- **cyc223**: extended the cyc216 caching fix — the 4 `test/realworld/wasm/` runners
-  (`run_realworld{,_run,_run_jit,_diff}`, all in test-all) had the same `addArg(dir-string)`
-  false-coverage gap (missed in cyc216) → `has_side_effects=true` (`f424d7e8`). The 55-fixture
-  realworld corpus (C/C++/tinygo/cljw — already has tinygo_sort!) is now protected; 45/55 pass,
-  10 SKIP-WASI (→ Phase 11). The realworld + cross veins are mature.
-- **Step 0.7 on resume**: cyc223 build.zig change (`f424d7e8`) → ubuntu kicked. VERIFY
-  (`tail /tmp/ubuntu.log`): realworld runners re-run + pass on x86_64. rust_fib already
-  ubuntu-verified (`OK 36547ac2`).
+- cyc223: extended the cyc216 caching fix to the 4 `test/realworld/wasm/` runners (`f424d7e8`).
+- **Step 0.7 on resume**: cyc224 setup.zig fix + rust_data (`eddb4652`) → ubuntu kicked. VERIFY
+  (`tail /tmp/ubuntu.log`): all 5 realworld/p10 fixtures (incl. rust_data shadow-stack) pass on
+  x86_64. FAIL on rust_data ⟹ an x86_64 shadow-stack/global-init bug → investigate (high value).
 
-## Active task — rust_data realworld fixture (static data + memory-read codegen)  **NEXT**
+## Active task — rust algorithm realworld fixture (shadow-stack now unlocked)  **NEXT**
 
-The last genuinely-distinct rust codegen path my p10 fixtures don't cover: a `#![no_std]`
-`static DATA: [i32; N]` summed via indexed reads → exercises **data-segment init + memory
-loads** through real rustc output (where subtle data/memory bugs hide), via `runI32Export`.
-Land `test/realworld/p10/rust_data/` (gen via `nix develop .#gen`). Smallest red: sum a
-static array → known i32. **Note**: tinygo/go/emcc-libc need WASI+instantiation → the
-diff_runner corpus (`test/realworld/wasm/`, now un-cached); but that corpus is already mature
-(tinygo_sort etc.), so marginal — defer.
-**User touchpoint (held, prominent)**: Phase 10 close-eligible (10.P 0 FAIL); the high-value
-JIT work + the gen-shell realworld infra are done. The tractable fixture veins (cross,
-realworld) are now MATURE. The substantive remaining autonomous work is DEEP + not-close-
-required (D-206 cross-module bridge ≈4-6 cyc; 10.G GC JIT extreme) OR Phase-11-scoped (the 10
-SKIP-WASI). The formal Phase-10 close (→ Phase 11) is the genuinely highest-value next step
-and is a user project-direction decision. A user check-in is high-value here. NOT a stop —
-loop continues on tractable distinct fixtures; re-arm holds.
+The cyc224 fix unlocked **shadow-stack modules** → real `-O` rust/clang code (loops over arrays,
+small algorithms) is now JIT-runnable via runI32Export, a much higher bug-finding vein than the
+trivial fixtures. Next: a `#![no_std]` rust fixture running a small ALGORITHM over a static array
+— e.g. bubble-sort the array then return a chosen element, or a checksum — exercising nested
+loops + array read/write + shadow-stack spills through real rustc codegen. Gen via
+`nix develop .#gen`; land `test/realworld/p10/rust_<slug>/`; run via the edge-runner → known i32.
+A trap/wrong-value is a real codegen finding (cf. rust_data).
+**User touchpoint (held, prominent)**: Phase 10 close-eligible (10.P 0 FAIL). The real-toolchain
+fixture vein is now PRODUCTIVE again (shadow-stack unlocked → real code finds real bugs, e.g.
+cyc224). Deep not-close-required work (D-206 ≈4-6 cyc; 10.G GC JIT extreme) + the 10 SKIP-WASI
+(Phase 11) stay deferred. The formal Phase-10 close (→ Phase 11) is a user project-direction
+decision worth a check-in. NOT a stop; re-arm holds.
 **User touchpoint (held)**: Phase 10 close-eligible (10.P 0 FAIL); formal close (→ Phase 11)
 is a user project-direction decision worth a check-in. Tractable autonomous vein =
 real-toolchain realworld fixtures (now unblocked). Deep not-close-required work (D-206, 10.G
