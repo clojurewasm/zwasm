@@ -119,6 +119,12 @@ zig fmt src/            # format
 3-host invocation discipline in
 [`GATE.md`](.claude/skills/continue/GATE.md).
 
+Realworld `.wasm` fixtures are generated on the **Mac host only** via
+`nix develop .#gen` (emcc / tinygo / rustc-wasm / go / clang+lld, pinned
+in `flake.nix`); the committed `.wasm` runs on the test hosts through the
+Zig-built edge-runner (no toolchain there). See
+[`.dev/toolchain_provisioning.md`](.dev/toolchain_provisioning.md).
+
 ## Pre-commit gate
 
 [`scripts/gate_commit.sh`](scripts/gate_commit.sh) — full local gate
