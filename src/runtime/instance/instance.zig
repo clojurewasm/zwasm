@@ -93,8 +93,16 @@ pub const Instance = struct {
 /// `ImportPayload` variants in `parse/sections.zig` but with
 /// `func` resolving the typeidx to a concrete `FuncType` so the
 /// importer-vs-exporter comparison is direct.
+/// Exported func type + its type-definition FINALITY (`sub final` /
+/// bare comptype = true; `sub` open = false). Captured at
+/// `buildExportTypes` time because the parse-time `Types` (which holds
+/// `finals`) is freed after instantiate; cross-module import linking
+/// needs it to reject a FINAL import resolving against an open exported
+/// type (D-202 PHASE B).
+pub const ExportFuncType = struct { sig: zir.FuncType, final: bool };
+
 pub const ExportType = union(sections.ImportKind) {
-    func: zir.FuncType,
+    func: ExportFuncType,
     table: struct { elem_type: zir.ValType, min: u32, max: ?u32 },
     memory: struct { idx_type: sections.MemoryEntry.IdxType = .i32, min: u64, max: ?u64 },
     global: struct { valtype: zir.ValType, mutable: bool },

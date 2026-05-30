@@ -131,6 +131,12 @@ pub const Linker = struct {
         source_rt: *_runtime.Runtime,
         source_funcidx: u32,
         source_signature: _zir.FuncType,
+        /// Whether the exporter's func type-definition is FINAL
+        /// (`sub final` / bare comptype). D-202 PHASE B: a FINAL import
+        /// may only resolve against an exporter type that is itself the
+        /// same final type-definition; an open `(sub …)` exporter type
+        /// is rejected even when structurally identical.
+        source_final: bool,
         ctx_ptr: *_cross_module.CallCtx,
     };
 
@@ -314,12 +320,21 @@ pub const Linker = struct {
         source_name: []const u8,
     ) !void {
         const source_rt = source_inst.handle.runtime orelse return error.SignatureMismatch;
-        // Find the export by name + ensure it's a func.
+        // Find the export by name + ensure it's a func. Capture the
+        // exporter func type's FINALITY from `export_types` (parallel to
+        // `exports_storage`) for the D-202 PHASE B import-finality check.
         var src_funcidx: u32 = std.math.maxInt(u32);
-        for (source_inst.handle.exports_storage) |exp| {
+        var source_final = false;
+        for (source_inst.handle.exports_storage, 0..) |exp, ei| {
             if (!std.mem.eql(u8, exp.name, source_name)) continue;
             if (exp.kind != .func) return error.ImportKindMismatch;
             src_funcidx = exp.idx;
+            if (ei < source_inst.handle.export_types.len) {
+                source_final = switch (source_inst.handle.export_types[ei]) {
+                    .func => |fe| fe.final,
+                    else => false,
+                };
+            }
             break;
         }
         if (src_funcidx == std.math.maxInt(u32)) return error.UnknownImport;
@@ -349,6 +364,7 @@ pub const Linker = struct {
                 .source_rt = source_rt,
                 .source_funcidx = src_funcidx,
                 .source_signature = src_sig,
+                .source_final = source_final,
                 .ctx_ptr = ctx_ptr,
             } },
         });
@@ -464,6 +480,16 @@ pub const Linker = struct {
                                 // (valid while corpus type defs are duplicated;
                                 // distinct-layout + finality = D-202 PHASE B).
                                 if (!_validate.funcTypeImportCompatible(declared, cmf.source_signature, &module_types.?)) {
+                                    return error.SignatureMismatch;
+                                }
+                                // D-202 PHASE B: a FINAL import type may only
+                                // resolve against a final exporter type-definition.
+                                // An open `(sub …)` exporter type is a distinct
+                                // canonical type even when structurally identical,
+                                // so a `(func)`-final import importing it must be
+                                // rejected (Wasm 3.0 §3.3.5.3; assert_unlinkable
+                                // gc/type-subtyping.35/.36/.42/.52/.54).
+                                if (module_types.?.finals[typeidx] and !cmf.source_final) {
                                     return error.SignatureMismatch;
                                 }
                                 bindings_list.append(scratch, .{

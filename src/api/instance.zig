@@ -570,7 +570,7 @@ fn buildBindings(
                 };
                 const src_et = try lookupSourceExportType(source_inst, .func, it.name);
                 const source_sig = switch (src_et) {
-                    .func => |sft| sft,
+                    .func => |sft| sft.sig,
                     else => return error.ImportTypeMismatch,
                 };
                 const ctx_ptr = try arena_alloc.create(cross_module.CallCtx);

@@ -658,8 +658,8 @@ pub fn buildExportTypes(
                         if (it.kind != .func) continue;
                         if (idx == exp.idx) {
                             const tidx = it.payload.func_typeidx;
-                            const ft = if (types_owned) |t| t.items[tidx] else return error.UnsupportedImport;
-                            break :blk .{ .func = ft };
+                            const t = types_owned orelse return error.UnsupportedImport;
+                            break :blk .{ .func = .{ .sig = t.items[tidx], .final = t.finals[tidx] } };
                         }
                         idx += 1;
                     }
@@ -670,8 +670,8 @@ pub fn buildExportTypes(
                 const fs = func_section_funcs orelse return error.UnsupportedImport;
                 if (def_idx >= fs.len) return error.UnsupportedImport;
                 const tidx = fs[def_idx];
-                const ft = if (types_owned) |t| t.items[tidx] else return error.UnsupportedImport;
-                break :blk .{ .func = ft };
+                const t = types_owned orelse return error.UnsupportedImport;
+                break :blk .{ .func = .{ .sig = t.items[tidx], .final = t.finals[tidx] } };
             },
             .table => blk: {
                 var imp_count: u32 = 0;
