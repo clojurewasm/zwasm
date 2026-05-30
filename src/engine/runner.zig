@@ -945,3 +945,108 @@ test "compileWasm: multiple tags with mixed-arity types (10.E-N-3)" {
     try testing.expectEqual(@as(u32, 2), compiled.tag_param_counts[1]);
     try testing.expectEqual(@as(u32, 0), compiled.tag_param_counts[2]);
 }
+
+// ADR-0066 cross-module bridge thunk + ADR-0112 D4 (cross-module
+// tail-call). Self-contained two-module JIT harness used by the
+// D-206 bundle. It mirrors `resolveCrossModuleImports`
+// (test/spec/spec_assert_runner_base.zig) but with the minimal
+// wiring needed to JIT-execute a single cross-module call in a
+// unit test: compile both instances, emit one bridge thunk into a
+// JIT arena targeting the exporter's entry, plant it into the
+// importer's `host_dispatch_base[0]` view (= `RuntimeOwned.dispatch`,
+// per setup.zig:510), then invoke the importer's `test` export.
+//
+// `link` returns the live state the caller must keep alive across the
+// invoke (both instances + the thunk arena) and the importer's func
+// index for `test`. Result is read via `entry.callI32NoArgs`.
+const CrossModuleHarness = struct {
+    a_compiled: CompiledWasm,
+    a_owned: setup_mod.RuntimeOwned,
+    b_compiled: CompiledWasm,
+    b_owned: setup_mod.RuntimeOwned,
+    arena: @import("../platform/jit_mem.zig").JitBlock,
+    a_test_idx: u32,
+
+    const shared_thunk = @import("codegen/shared/thunk.zig");
+
+    /// Wire importer `a_bytes` (one func import resolving to exporter
+    /// `b_bytes`'s `b_export`) and return the harness. Caller owns
+    /// `deinit`.
+    fn link(
+        gpa: Allocator,
+        a_bytes: []const u8,
+        b_bytes: []const u8,
+        b_export: []const u8,
+    ) !CrossModuleHarness {
+        var b_compiled = try compileWasm(gpa, b_bytes);
+        errdefer b_compiled.deinit(gpa);
+        var b_owned = try setupRuntime(gpa, &b_compiled, b_bytes);
+        errdefer b_owned.deinit(gpa);
+
+        var a_compiled = try compileWasm(gpa, a_bytes);
+        errdefer a_compiled.deinit(gpa);
+        var a_owned = try setupRuntime(gpa, &a_compiled, a_bytes);
+        errdefer a_owned.deinit(gpa);
+
+        const b_idx = try findExportFunc(gpa, b_bytes, b_export);
+        const callee_entry = b_compiled.module.entryAddr(b_idx);
+        const callee_rt = @intFromPtr(&b_owned.rt);
+
+        // `allocArena` flips this thread to writable (Mac W^X is
+        // per-thread, so it also makes the freshly-compiled A/B
+        // blocks non-executable until `finalizeArena` flips back —
+        // safe because nothing runs in between). Mirrors the
+        // setWritable/emit/setExecutable order in
+        // `resolveCrossModuleImports`.
+        const arena = try shared_thunk.allocArena(1);
+        errdefer shared_thunk.freeArena(arena);
+        const slot = shared_thunk.thunkSlot(arena, 0);
+        shared_thunk.emitThunk(slot, callee_rt, callee_entry);
+        try shared_thunk.finalizeArena(arena);
+        a_owned.dispatch[0] = @intFromPtr(slot.ptr);
+
+        const a_test_idx = try findExportFunc(gpa, a_bytes, "test");
+        return .{
+            .a_compiled = a_compiled,
+            .a_owned = a_owned,
+            .b_compiled = b_compiled,
+            .b_owned = b_owned,
+            .arena = arena,
+            .a_test_idx = a_test_idx,
+        };
+    }
+
+    fn callTest(self: *CrossModuleHarness) !u32 {
+        return entry.callI32NoArgs(self.a_compiled.module, self.a_test_idx, &self.a_owned.rt);
+    }
+
+    fn deinit(self: *CrossModuleHarness, gpa: Allocator) void {
+        shared_thunk.freeArena(self.arena);
+        self.a_owned.deinit(gpa);
+        self.a_compiled.deinit(gpa);
+        self.b_owned.deinit(gpa);
+        self.b_compiled.deinit(gpa);
+    }
+};
+
+test "cross-module JIT CALL: A.test calls imported B.get → 42 (D-206 harness baseline)" {
+    const gpa = testing.allocator;
+    // wat2wasm:  (module (func (export "get") (result i32) i32.const 42))
+    const b_bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05, 0x01, 0x60,
+        0x00, 0x01, 0x7f, 0x03, 0x02, 0x01, 0x00, 0x07, 0x07, 0x01, 0x03, 0x67,
+        0x65, 0x74, 0x00, 0x00, 0x0a, 0x06, 0x01, 0x04, 0x00, 0x41, 0x2a, 0x0b,
+    };
+    // wat2wasm:  (module (import "b" "get" (func $get (result i32)))
+    //                    (func (export "test") (result i32) call $get))
+    const a_bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05, 0x01, 0x60,
+        0x00, 0x01, 0x7f, 0x02, 0x09, 0x01, 0x01, 0x62, 0x03, 0x67, 0x65, 0x74,
+        0x00, 0x00, 0x03, 0x02, 0x01, 0x00, 0x07, 0x08, 0x01, 0x04, 0x74, 0x65,
+        0x73, 0x74, 0x00, 0x01, 0x0a, 0x06, 0x01, 0x04, 0x00, 0x10, 0x00, 0x0b,
+    };
+
+    var h = try CrossModuleHarness.link(gpa, &a_bytes, &b_bytes, "get");
+    defer h.deinit(gpa);
+    try testing.expectEqual(@as(u32, 42), try h.callTest());
+}
