@@ -207,12 +207,19 @@ Classify: `bash scripts/classify_chunk_scope.sh` → map to gate
 command per ADR-0076 D1. Full pipeline + Step 5b bench-delta sub-step
 (Phase 8b only):  [`GATE.md`](GATE.md).
 
-### Step 6+7 — Commit pair, single push, ubuntu kick, re-arm (ADR-0076 D2)
+### Step 6+7 — Commit pair (per chunk) + push/kick/re-arm (per turn) (ADR-0076 D2+D5)
 
-The legacy 2-push cycle is replaced by single-push commit pair.
+A turn chains **N chunks**; sub-steps 1–5 run per chunk, 6–8 once at
+turn end (ADR-0076 D5-a/b). The legacy 2-push cycle is a single-push
+commit pair per chunk.
+
+**Per chunk** (every chunk in the turn):
 
 1. **Source commit**. `git add <files>; git commit -m "<type>(<scope>): <line>"`.
-   Pre-commit gate runs. Never `--no-verify` (§14 forbidden).
+   Pre-commit gate (`gate_commit.sh --fast`) runs — that IS the
+   commit check; do NOT additionally run `zig build test` / `lint` /
+   `file_size_check` standalone (D5-c; Step 5 already ran test once).
+   Never `--no-verify` (§14 forbidden).
 2. **Update handover.md** (replace, not append): Current state (5
    lines, Phase + last SHA + next task), Active task (chunk progress
    with **NEXT** marker), ≤ 100 lines. Stable content moves to
@@ -223,18 +230,29 @@ The legacy 2-push cycle is replaced by single-push commit pair.
    Touching §1/§2/§4/§5/§9 scope/§11/§14 = deviation; file ADR first.
 4. **Append `.dev/debt.md` + lessons** as needed.
 5. **Handover commit**. `git commit -m "chore(p<N>): mark §9.<N> / N.M [x]; retarget handover at N.M+1"`.
+
+→ **Then CHAIN (D5-a)**: go straight to the next chunk's Step 0 in
+the **same turn**, keeping working context. Do NOT push/kick/re-arm
+between chunks. End the turn only at a natural pause: immediately-
+actionable work exhausted, approaching context-fill / auto-compact,
+hard-gate / bucket-3 / user touchpoint, or a deliberate flush.
+
+**Per turn** (once, at the pause that ends the turn):
+
 6. **Single push (ADR-0076 D2)**. `git pull --rebase --autostash origin zwasm-from-scratch && git push origin zwasm-from-scratch`.
-   Rebase integrates bench-CI bot commits (disjoint from loop diffs).
-   Single push lands both commits atomically.
-7. **ubuntu kick (background; ADR-0076 D3)**.
+   One push lands ALL the turn's commit pairs (rebase integrates the
+   bench-CI bot commits once).
+7. **ubuntu kick (background; ADR-0076 D3+D5-b)**. ONE kick against
+   the turn's final HEAD, scope-matched to the turn's widest chunk.
    `bash scripts/run_remote_ubuntu.sh <step> > /tmp/ubuntu.log 2>&1`
    with `run_in_background: true`. Do NOT wait; Step 0.7 next cycle
-   verifies.
+   verifies (red turn → revert all the turn's commits to the last
+   ubuntu-verified HEAD).
 8. **Re-arm**: `ScheduleWakeup(delaySeconds=60, prompt="/continue")`.
    Literal `60` = harness floor (`[60, 3600]` clamp). The tool
    description's "default 1200–1800s" does NOT apply — see
    [`LOOP.md`](LOOP.md) §"Self-perpetuation". Mandatory.
-9. **Final user text**: one sentence (closed task id + next task id).
+9. **Final user text**: one sentence (turn's closed task id(s) + next task id).
 
 ## Auto-compact recovery
 
@@ -261,8 +279,10 @@ with handover + wakeup. Anchor on those.
 
 ### Repeat
 
-Steps 0–8 for each `[ ]` task in §9.<N>. Then Phase boundary. Then
-§9.<N+1>'s Step 0. Loop never voluntarily exits.
+Steps 0–5 (commit pair) for each `[ ]` task in §9.<N>, **chaining
+in-turn** (D5-a) — back-to-back without push/re-arm. At the turn's
+natural pause, Steps 6–8 (push/kick/re-arm) once. Then Phase
+boundary. Then §9.<N+1>'s Step 0. Loop never voluntarily exits.
 
 ## Phase boundary — inline, no stop
 

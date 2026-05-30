@@ -303,10 +303,20 @@ fallback is debt, not a tool.
 
 ## Self-perpetuation — overnight loop
 
-After every Step 7 commit lands and is pushed, the very last action
-of the turn is to schedule the next iteration so the loop survives
-without a fresh user message. **This is mandatory** — skipping it
-silently re-introduces user-babysitting.
+**Per-turn, not per-chunk (ADR-0076 D5).** A turn chains **N chunks
+back-to-back** (commit pair → next chunk's Step 0, same turn, keeping
+context — skip the redundant inter-chunk Resume). Only at a natural
+pause — work exhausted, approaching context-fill / auto-compact,
+hard-gate / bucket-3 / user touchpoint, or a deliberate flush — does
+the turn END: **one** `pull --rebase + push`, **one** ubuntu kick
+against the turn's final HEAD, **one** `ScheduleWakeup(60)` re-arm.
+The re-arm is the unattended-resume safety net, NOT a per-chunk
+throttle. Step 0.7 next cycle verifies that final HEAD; a red turn
+reverts the whole turn's commits to the last ubuntu-verified HEAD.
+
+When the turn ends, the very last action is to schedule the next
+iteration so the loop survives without a fresh user message. **This
+is mandatory** — skipping it silently re-introduces user-babysitting.
 
 Use `ScheduleWakeup` with **`delaySeconds = 60`** — the literal
 60 is the **harness runtime floor** (see the tool description:

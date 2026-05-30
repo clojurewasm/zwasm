@@ -65,7 +65,8 @@ reverts the last 2 commits (`git reset --mixed HEAD~2`), preserves
 the diff in the worktree, and switches to fix mode.
 
 The verification deferral is **one chunk** wide — the loop never
-gets more than one chunk ahead of ubuntu.
+gets more than one chunk ahead of ubuntu. **(Widened to one
+*turn* (N chunks) by D5 — see below.)**
 
 ### D4 — pre-commit + pre-push hook slim-down (2026-05-20 amend)
 
@@ -121,6 +122,59 @@ and still runs the full 3-host `test-all`. The loop's Step 4
 + Step 5 are the load-bearing test+lint sites under this
 discipline — if either silently skipped, broken code reaches
 origin (recovered at next cycle's Step 0.7).
+
+### D5 — In-turn chunk chaining + per-turn ubuntu batch (2026-05-30 amend)
+
+D1–D3 were written as **one chunk = one `/continue` turn = one
+ubuntu kick = one re-arm**. In practice that paid, *per chunk*, a
+60 s `ScheduleWakeup` idle gap + a full Resume Procedure (handover
+re-read, framing grep, Step 0.7, git status) + ubuntu-cadence
+friction. For small chunks the overhead-to-work ratio was poor
+(cyc228–230: 3 cycles, 1 code chunk). User directive 2026-05-30:
+raise per-turn throughput. A `/continue` **turn** may now execute
+**N chunks back-to-back** before ending:
+
+- **D5-a — In-turn chaining.** After a chunk's commit pair lands,
+  do NOT end the turn / re-arm. Proceed directly to the next
+  chunk's Step 0 in the same turn, keeping working context (skip
+  the redundant inter-chunk Resume). End the turn (→ push, kick,
+  re-arm) only at a natural pause: immediately-actionable work
+  exhausted, an approaching context-fill / auto-compact boundary,
+  a hard-gate / bucket-3 / user touchpoint, or a deliberate flush.
+  The `ScheduleWakeup(60)` re-arm is the **unattended-resume
+  safety net fired at turn end**, NOT a per-chunk throttle. The
+  frozen invariant "re-arm = `ScheduleWakeup(60)`" is unchanged —
+  only *when* it fires moves from per-chunk to per-turn.
+- **D5-b — Per-turn ubuntu batch (widens D3).** Commit pairs
+  accumulate locally through the turn; **one** `pull --rebase
+  --autostash + push` + **one** ubuntu kick fire at turn end,
+  against the turn's final HEAD. Step 0.7 verifies that final
+  HEAD. The deferral window widens from D3's "one chunk" to "one
+  turn (N chunks)". On FAIL, revert the **whole turn's commits**
+  to the last ubuntu-verified HEAD (`git reset --mixed
+  <verified-sha>`), then bisect/fix. Trade-off: coarser failure
+  attribution; acceptable because each chunk still passes the
+  local Mac gate (Step 5) before its commit, so ubuntu-red is an
+  arch-divergence signal (historically rare) and the turn batch
+  is bisectable. (D3's per-chunk-push form remains valid for a
+  one-chunk turn.)
+- **D5-c — Gate once per commit.** The pre-commit hook
+  (`gate_commit.sh --fast`) + the loop's single Step 5 `zig build
+  test` ARE the gate. Do not additionally run `zig build test` /
+  `zig build lint` / `file_size_check` standalone before the
+  commit — that re-pays D4's eliminated duplication. One test
+  pass per chunk; lint at Step 4 of a code-bearing chunk, re-run
+  only if a later chunk touches lint surface.
+- **D5-d — Bigger-chunk default.** Prefer a complete unit (both
+  arches of an emit, harness + first feature together) over atomic
+  per-step splits. Reinforces the chunk-granularity "when in doubt,
+  bundle" rule. The `architectural` 3-cycle cap still applies; D5
+  raises the floor of per-turn ambition, not the cap.
+
+Net: a green multi-chunk turn pays the 60 s gap + Resume + ubuntu
+round-trip **once per turn** instead of once per chunk. A red turn
+loses N chunks of forward motion at the next Step 0.7 instead of 1
+— the priced-in cost of the batch.
 
 ## Alternatives considered
 
@@ -211,3 +265,4 @@ exactly the wall-clock penalty of this block.
 |------------|--------------|-------------------------------------------------------------------------------------------------------|
 | 2026-05-19 | `3063dd0d`   | Initial accepted version (D1 + D2 + D3).                                                              |
 | 2026-05-20 | `c1e16f7d` | D4 amend — pre-commit / pre-push hook slim-down (`gate_commit.sh --fast`; pre-push drops gate re-run).|
+| 2026-05-30 | `<backfill>` | D5 amend — in-turn chunk chaining + per-turn ubuntu batch (widens D3 one-chunk→one-turn) + gate-once + bigger-chunk default (user throughput directive). |
