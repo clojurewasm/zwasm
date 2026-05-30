@@ -231,9 +231,16 @@ fi
 
 # §8 I14 — wasm.h tag accessors complete
 # cyc210 rationale refresh: D-192 (EH runtime / clause) is RESOLVED (EH corpus
-# 34/34 green). The remaining barrier is the wasm.h c_api EH tag-accessor surface
-# itself (10.E c_api scope), not the EH runtime.
-skip "§8 I14: EH wasm.h c_api tag accessors not yet implemented (10.E c_api scope; D-192 EH runtime resolved)"
+# 34/34 green). The remaining barrier is the wasm.h c_api EH tag-accessor surface.
+# cyc217 scope correction: this is NOT a standalone 10.E chunk. The wasm.h
+# tagtype accessors DEPEND on the broader type-reflection C-API family —
+# `wasm_tagtype_new(wasm_functype_t*)` needs `wasm_functype_t`, and
+# `wasm_tagtype_as_externtype` needs the externtype machinery — NONE of which
+# exists (src/api/ implements only runtime-object accessors: func/global/memory/
+# extern/trap/vec; zero *type-reflection* accessors). Implementing tagtype in
+# isolation is incoherent. Correctly DEFERRED to the full type-reflection c_api
+# (Phase 13 scope), not addressable within Phase 10 close.
+skip "§8 I14: EH wasm.h c_api tag accessors deferred — depend on the unimplemented type-reflection C-API family (functype/externtype); Phase 13 c_api scope, not standalone 10.E"
 
 # §8 I15 — safepoint-free invariant on tail-call + cross-module
 # bridge ops. Per ADR-0117, return_call / return_call_indirect /
