@@ -30,6 +30,7 @@ const dispatch = @import("../../ir/dispatch_table.zig");
 const zir = @import("../../ir/zir.zig");
 const runtime = @import("../../runtime/runtime.zig");
 const type_info_mod = @import("../../feature/gc/type_info.zig");
+const object_alloc = @import("../../feature/gc/object_alloc.zig");
 
 const ZirOp = zir.ZirOp;
 const ZirInstr = zir.ZirInstr;
@@ -95,18 +96,13 @@ fn resolveStructInfo(inst: *const Instance, typeidx: u32) anyerror!StructInfo {
 
 /// Allocate the struct object on the GC heap. Returns the
 /// 32-bit GcRef offset; writes the ObjectHeader at offset 0.
+/// Delegates the heap mechanics to the shared `object_alloc`
+/// helper (10.G GC-on-JIT; the JIT alloc trampoline calls the same
+/// fn). `zero_init = false` here — `struct.new` overwrites the
+/// payload with field values.
 fn allocateStruct(rt: *Runtime, typeidx: u32, payload_size: u32) anyerror!u32 {
     const heap = rt.gc_heap orelse return runtime.Trap.NullReference;
-    const total_size: u32 = header_size + payload_size;
-    const ref = try heap.allocate(total_size);
-    // Write ObjectHeader at offset 0 of the allocation.
-    const header_bytes = heap.bytes[ref .. ref + header_size];
-    const header: ObjectHeader = .{
-        .kind = .struct_,
-        .info = typeidx,
-    };
-    @memcpy(header_bytes, std.mem.asBytes(&header));
-    return ref;
+    return object_alloc.allocStructObject(heap, typeidx, payload_size, false);
 }
 
 fn structNew(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
@@ -186,15 +182,12 @@ fn structNewDefault(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const inst = @as(*const Instance, @ptrCast(@alignCast(rt.instance orelse return runtime.Trap.NullReference)));
     const typeidx: u32 = @intCast(instr.payload);
     const si = try resolveStructInfo(inst, typeidx);
-    const ref = try allocateStruct(rt, typeidx, si.payload_size);
-    // Zero-init the payload. Heap.allocate may return bytes that
-    // were previously used (after a future GC sweep frees + reuses
-    // the slot) so we explicitly zero rather than relying on
+    // Zero-init the payload (the shared helper memsets it). Heap.allocate
+    // may return bytes previously used (after a future GC sweep frees +
+    // reuses the slot) so we explicitly zero rather than relying on
     // freshly-grown pages being zeroed.
-    const heap = rt.gc_heap.?;
-    const payload_start = ref + header_size;
-    const payload_end = payload_start + si.payload_size;
-    @memset(heap.bytes[payload_start..payload_end], 0);
+    const heap = rt.gc_heap orelse return runtime.Trap.NullReference;
+    const ref = try object_alloc.allocStructObject(heap, typeidx, si.payload_size, true);
     try rt.pushOperand(.{ .ref = @as(u64, ref) });
 }
 
