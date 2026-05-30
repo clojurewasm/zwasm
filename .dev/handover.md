@@ -6,36 +6,35 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS — CLOSE-ELIGIBLE** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `d8c26eb1` (cyc221). **`devShells.gen` introduced + first REAL Rust fixture**
-  (user-directed: install absent toolchains, prefer nix, efficient cross-host, v1 あるべき論).
-  `flake.nix` gains a SEPARATE `devShells.gen` (`nix develop .#gen`) with emcc / tinygo /
-  rustc-wasm (rust-overlay `.minimal`) / go / clang+lld — kept OUT of `default` so ubuntu/
-  windows test hosts stay lean. **Cross-host model** (`.dev/toolchain_provisioning.md`):
-  generated `.wasm` is a COMMITTED artifact → test hosts run it via the Zig edge-runner, NO
-  toolchain there (Mac-generation-only). Landed `test/realworld/p10/rust_loop_sum/loop_sum`
-  (rustc 1.96.0, `#![no_std]` loop-sum → 45). realworld/p10 runner: clang_musttail=15,
-  clang_wasm64=42, rust_loop_sum=45. CLAUDE.md points at the provisioning doc.
+- **HEAD**: `38afcd7a` (cyc222). **`devShells.gen` (cyc221) + 2 REAL Rust fixtures**
+  (user-directed あるべき論: nix `devShells.gen` separate from `default`, kept off the
+  ubuntu/windows test hosts; generated `.wasm` COMMITTED → run via the Zig edge-runner, NO
+  toolchain on test hosts — `.dev/toolchain_provisioning.md`). realworld/p10 runner = 4:
+  clang_musttail=15, clang_wasm64=42, `rust_loop_sum`=45 (loop, cyc221),
+  `rust_fib`=55 (recursion via `#[inline(never)]` — real call/return, NOT folded; cyc222).
+  **Cross-host model ubuntu-VERIFIED** (Step 0.7 `OK 369cfc91`: the rust `.wasm` ran on
+  x86_64 with no rustc there). CLAUDE.md + flake.nix point at the provisioning doc.
 - **7 cross fixtures** (`test/edge_cases/p10/cross/`): call_ref/return_call/EH × memory64,
   EH × call_ref, multivalue × call_ref, call_indirect × memory64, SIMD × call_ref. All Mac-green.
 - D-208 (cyc213) + D-209 (cyc214) fixed + ubuntu-verified. **10.P: 16 PASS / 8 SKIP / 0 FAIL**
   → close-eligible. I14 deferred (Phase-13 type-reflection c_api); D-206 deferred (≈4-6 cyc
   native cross-module JIT bridge; existing cross-module dispatch is interp-routed; not close-required).
-- **Step 0.7 on resume**: cyc220 SIMD fixture (`7d826f3c`) + cyc221 gen-shell+rust (`d8c26eb1`)
-  pushed; ubuntu kicked. VERIFY (`tail /tmp/ubuntu.log`): 7 cross + rust_loop_sum pass on x86_64
-  (the rust `.wasm` is a committed artifact, runs without rustc on ubuntu). FAIL ⟹ investigate
-  (fixture-only or a real rust-codegen miscompile on x86_64).
+- **Step 0.7 on resume**: cyc222 added `rust_fib` (`38afcd7a`) → ubuntu kicked. VERIFY
+  (`tail /tmp/ubuntu.log`): rust_fib (+ the rest) pass on x86_64 (committed `.wasm`, no rustc
+  on ubuntu). FAIL ⟹ a rust-recursion x86_64 codegen miscompile → investigate (high value).
 
-## Active task — 2nd Rust realworld fixture (distinct codegen: recursion)  **NEXT**
+## Active task — tinygo → wasip1 realworld fixture (broaden toolchain) via diff_runner  **NEXT**
 
-Real-toolchain bug-finding vein (cf. clang_wasm64→D-209). The loop-sum may have const-folded;
-next a Rust fixture exercising a DISTINCT codegen path that won't fold: a `#![no_std]`
-recursive `test()->i32` (e.g. fib(10)=55 or factorial), via `nix develop .#gen` →
-`rustc --target wasm32-unknown-unknown -O --crate-type=cdylib`, JIT-run through the edge-runner.
-Land `test/realworld/p10/rust_<slug>/`. **Toolchain note**: runI32Export only runs simple
-no-arg-i32-no-WASI modules (rust `#![no_std]`, clang `-nostdlib`). go/tinygo/emcc-libc modules
-need WASI + instantiation → they belong in `test/realworld/wasm/` under the **diff_runner**
-(`test-realworld-diff`, byte-diffs stdout vs wasmtime), a separate follow-on. emcc
-`-sMEMORY64=1` (planned `clang_wasm64/` big-alloc) once its cache builds.
+Branch from rust to a DIFFERENT, harder toolchain for broader real-world validation. `tinygo`
+is in `devShells.gen`. A `tinygo build -target=wasip1` module has a real (small) runtime + WASI
+calls → it CANNOT use the no-WASI `runI32Export` edge-runner; it belongs in
+`test/realworld/wasm/` under the **diff_runner** (`zig build test-realworld-diff`, byte-diffs
+stdout vs `wasmtime run`; wasmtime is in `default`). Step 0: survey the diff_runner corpus
+conventions (how a `.wasm` is added to `test/realworld/wasm/`, provenance, the MATCH/MISMATCH/
+SKIP-WASI categories). Smallest red: a tinygo "print a constant" → stdout; run via diff_runner;
+MATCH vs wasmtime. A MISMATCH or SKIP-WASI is a real finding (WASI gap / miscompile). Prefer
+tinygo over full `go` first (go's runtime is ~MB; tinygo is lean). Follow-on: emcc
+`-sMEMORY64=1` big-alloc (lazy emcc cache builds on first use).
 **User touchpoint (held)**: Phase 10 close-eligible (10.P 0 FAIL); formal close (→ Phase 11)
 is a user project-direction decision worth a check-in. Tractable autonomous vein =
 real-toolchain realworld fixtures (now unblocked). Deep not-close-required work (D-206, 10.G
