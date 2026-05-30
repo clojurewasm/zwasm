@@ -7,7 +7,7 @@
 
 - **Phase**: **10 IN-PROGRESS — autonomous CORRECTNESS substantially COMPLETE**
   (Phase 9 = DONE 2026-05-24). All 4 proposals verified green except deep/deferred
-  residuals (see Active bundle + §10 map).
+  residuals (see §10 map + D-202 debt). D-202 bundle CLOSED (PHASE A delivered).
 - **HEAD**: `38bb0e0e` (cyc236, **D-202 PHASE A landed**). Session: cyc232
   cross-module `return_call`; cyc233 EH×TC; cyc234-235 stale-debt correction (ADRs
   0115/0116/0123/0126 Accepted, D-195 discharged, fn-references + gc corpora GREEN);
@@ -20,39 +20,33 @@
 ## Step 0.7 (next resume)
 
 - cyc236 (`38bb0e0e`, D-202 PHASE A) is **ubuntu-verified `OK (HEAD=ebca32b0)`** —
-  `.30/.48/.50` instantiate + no regression on x86_64, both arches green. cyc237 =
-  docs-only scope-correction → no ubuntu kick. No pending gate, no revert.
+  `.30/.48/.50` instantiate + no regression on x86_64, both arches green. cyc238 =
+  docs-only (D-202 bundle close + debt update) → no ubuntu kick. No pending, no revert.
 
-## Active bundle
+## Active task — Phase 10 autonomous correctness substantially COMPLETE  **NEXT**
 
-- **Bundle-ID**: D-202-xmodule-finality
-- **Cycles-remaining**: ~1-2 (PHASE B is plumbing, not ADR)
-- **Continuity-memo**: PHASE A LANDED + ubuntu-verified (`38bb0e0e`) —
-  `linker.zig` cross_module_func arm uses `validator.funcTypeImportCompatible`;
-  `.30/.48/.50` now instantiate. **PHASE B = the COUNTED RED** (`assert_unlinkable
-  pass=3 fail=5`, verified live): `.35/.36/.42/.52/.54` WRONGLY LINK — importer
-  declares a FINAL `(func)`, exporter provides an open `(sub (func))` (structurally
-  identical `()->()` so subtyping passes; only type-definition FINALITY differs).
-  **CORRECTION (cyc237): PHASE B is PLUMBING, NOT §4 ADR-grade.** Finality IS
-  retained — `sections.Types` carries `finals: []bool` + `supertypes` (`sections.zig:138-143`);
-  zir.FuncType drops it but it need not live there. Recipe: (1) `defineCrossModuleFunc`
-  (`linker.zig:309`) — capture the exporter func's typeidx + finality from
-  `source_inst` next to `exportFuncSig`; (2) store `source_typeidx`/`source_final`
-  in `CrossModuleFuncEntry` (`linker.zig:129`); (3) at the resolve check
-  (cross_module_func arm), after `funcTypeImportCompatible`, if the importer's
-  declared type is final (`module_types.finals[typeidx]`) require the exporter's
-  type to be canonically equal (finality + structure). **OPEN QUESTION (resolve
-  FIRST)**: does `source_inst` (exporter Instance) RETAIN its func→typeidx mapping
-  + type-section `finals`? `exportFuncSig` returns only the flat sig. If retained →
-  straight plumbing; if not → retain/re-decode the exporter's type section.
-- **Exit-condition**: `assert_unlinkable fail 5 → 0` (`.35/etc.` rejected), no
-  regression to the now-OK `.30/.48/.50`. Both arches, ubuntu-verified.
+**D-202-xmodule-finality bundle CLOSED cyc238** — PHASE A (positive subtyping,
+`.30/.48/.50` instantiate) delivered + ubuntu-verified (`38bb0e0e`). PHASE B (the
+FINALITY direction — `assert_unlinkable .35/.36/.42/.52/.54` fail=5, counted) is
+**involved plumbing → D-202 debt row** (the exporter `Instance` retains neither
+func→typeidx nor type-section `finals`/`supertypes`; retrieving the exporter func's
+finality needs RE-DECODING the exporter's module bytes + a func→typeidx→finals walk
+at `defineCrossModuleFunc`, then a finality guard at resolve). Best in a fresh
+context (involved GC type-system; D-202 row carries the full recipe).
 
-## Active task — D-202 cross-module type-identity (finality) check  **NEXT**
+**Honest state**: this very long session drove Phase 10's clean autonomous
+correctness to substantial completion (cross-module TC, EH×TC, stale-debt
+correction, D-202 PHASE A). The remaining AUTONOMOUS items are all
+fresh-context/dedicated-effort or low-value: D-202 PHASE B (finality plumbing,
+5 fixtures); gc per-op-file migration (behavior-preserving refactor); gc_stress /
+eh_frequency runner 本実装 (involved/perf). The HIGH-VALUE move — formal Phase 10
+close (→ Phase 11; close-eligible, 0 FAIL) — is USER-GATED. Next driving chunk =
+**D-202 PHASE B** (debt-row recipe) when context is fresh; else gc per-op migration.
+Re-armable to the Phase-10 close at any user signal.
 
-**cyc234-235 CORRECTION — the debt ledger is STALE and mis-routed the loop 3×
-this session.** Ground-truth verification (ADR Status + live corpus, NOT debt
-prose):
+(Prior context — cyc234-235 stale-debt correction, retained for the lesson):
+**the debt ledger was STALE and mis-routed the loop 3×.** Ground-truth (ADR Status
++ live corpus, NOT debt prose):
 - ADR-0115 / 0116 / **0123 / 0126 are all ACCEPTED** (0123 "user-delegated
   autonomous flip" 2026-05-28). There is NO pending user ADR flip. Debt rows
   D-195 / D-198 saying "gated on ADR-XXXX Accept" are STALE.
