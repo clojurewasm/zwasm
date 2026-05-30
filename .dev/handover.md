@@ -8,7 +8,7 @@
 - **Phase**: **10 IN-PROGRESS — committed to 100% (ADR-0128)** (Phase 9 = DONE
   2026-05-24). The prior "close-eligible" posture is RETRACTED: §10 exit requires the
   official Wasm 3.0 testsuite at pass=fail=skip=0 on **both backends** (interp + JIT).
-- **HEAD**: `801037b3` (cyc244 — 100% plan + research). cyc232-242 landed +
+- **HEAD**: `c2a8d776` (cyc244 — 100% plan + GC-on-jit bundle opened). cyc232-242 landed +
   ubuntu-verified (cross-module return_call, EH×TC, D-202 PHASE A/B-finality).
 - **Two execution paths (CODE-verified)**: the spec corpus runs **interp-only**
   (`instance.invoke`→`_dispatch.run`, `instance.zig:169`). The JIT emits 1.0/2.0 +
@@ -58,7 +58,8 @@ Six workstreams (ADR-0128). Drive in this order; each is value-prioritized, NOT 
   lowering recipe: ADR-0128 §2. Rooting DEFERRED (non-moving; `is_safepoint=false` for now).
 - **First-op order**: (1) **i31** (`ref.i31`/`i31.get_s`/`_u`) — non-allocating shift+tag,
   NO trampoline/type-info; establishes the GC op-file+registration pattern (MATCH the
-  interp i31 encoding — `src/instruction/wasm_3_0/` or `feature/gc/`). (2) struct.new/get
+  interp i31 encoding — `src/instruction/wasm_3_0/{ref_i31,i31_get_s,i31_get_u,i31_ops}.zig`).
+  (2) struct.new/get
   (add `shared/gc_alloc_trampoline.zig`). (3) array.*. (4) ref.cast/test (Cohen display,
   `n1>=n2` guard). (5) ref.eq. Then workstream 1 (spec-corpus JIT mode) verifies at scale.
 - **Exit-condition**: i31 (`ref.i31`+`i31.get_s`) green via `runI32Export`, Mac arm64 then
