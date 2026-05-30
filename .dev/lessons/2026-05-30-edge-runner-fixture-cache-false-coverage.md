@@ -19,6 +19,14 @@ corpus). Alternative: `addDirectoryArg(b.path(dir))` to track the dir as an
 input (re-runs only on change) — not chosen here (recursive-hash semantics
 less certain than "always run"; tests should always run anyway).
 
+**Incompleteness caught cyc223**: the cyc216 fix only patched the `run_edge_*`
+steps. The `test/realworld/wasm/` runners — `run_realworld`, `run_realworld_run`,
+`run_realworld_run_jit`, `run_realworld_diff` (all in `test-all`) — have the
+SAME `addArg(dir-string)` shape and were missed, leaving the 55-fixture realworld
+corpus exposed to fixture-only false coverage. Fixed cyc223 (same
+`has_side_effects = true`). Lesson: when fixing a class bug, grep ALL
+`addRunArtifact` + `addArg(b.pathFromRoot(` sites, not just the one in front of you.
+
 ## Debugging gotchas (each cost real time this session)
 
 - **Stale cached exes coexist** in `.zig-cache/o/<hash>/zwasm-edge-runner`.

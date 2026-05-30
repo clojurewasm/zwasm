@@ -589,6 +589,13 @@ pub fn build(b: *std.Build) void {
     });
     const run_realworld = b.addRunArtifact(realworld_runner_exe);
     run_realworld.addArg(b.pathFromRoot("test/realworld/wasm"));
+    // has_side_effects: the corpus dir is a plain `addArg` string (NOT a
+    // tracked input), so without this the run-artifact is cached on the exe
+    // hash and SKIPPED when only `.wasm` fixtures change → false coverage
+    // (same gap as the run_edge_* steps, fixed cyc216; these realworld/wasm
+    // runners were missed then). See lesson
+    // `2026-05-30-edge-runner-fixture-cache-false-coverage`.
+    run_realworld.has_side_effects = true;
     const test_realworld_step = b.step("test-realworld", "Run the realworld parse smoke");
     test_realworld_step.dependOn(&run_realworld.step);
 
@@ -611,6 +618,7 @@ pub fn build(b: *std.Build) void {
     });
     const run_realworld_run = b.addRunArtifact(realworld_run_runner_exe);
     run_realworld_run.addArg(b.pathFromRoot("test/realworld/wasm"));
+    run_realworld_run.has_side_effects = true; // fixture-only changes must re-run (cyc216 gap)
     const test_realworld_run_step = b.step("test-realworld-run", "Run each realworld fixture end-to-end via cli_run.runWasm");
     test_realworld_run_step.dependOn(&run_realworld_run.step);
 
@@ -634,6 +642,7 @@ pub fn build(b: *std.Build) void {
     });
     const run_realworld_run_jit = b.addRunArtifact(realworld_run_jit_exe);
     run_realworld_run_jit.addArg(b.pathFromRoot("test/realworld/wasm"));
+    run_realworld_run_jit.has_side_effects = true; // fixture-only changes must re-run (cyc216 gap)
     const test_realworld_run_jit_step = b.step("test-realworld-run-jit", "JIT-compile each realworld fixture (§9.7 / 7.9 baseline)");
     test_realworld_run_jit_step.dependOn(&run_realworld_run_jit.step);
 
@@ -656,6 +665,7 @@ pub fn build(b: *std.Build) void {
     });
     const run_realworld_diff = b.addRunArtifact(realworld_diff_runner_exe);
     run_realworld_diff.addArg(b.pathFromRoot("test/realworld/wasm"));
+    run_realworld_diff.has_side_effects = true; // fixture-only changes must re-run (cyc216 gap)
     const test_realworld_diff_step = b.step("test-realworld-diff", "Diff realworld fixtures' stdout against wasmtime");
     test_realworld_diff_step.dependOn(&run_realworld_diff.step);
 
