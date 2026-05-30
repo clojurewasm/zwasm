@@ -6,34 +6,37 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS — CLOSE-ELIGIBLE** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `9585df11` (cyc215). **I3 cross-feature edge fixtures landed**:
-  `test/edge_cases/p10/cross/` now has `call_ref_to_memory64` (→ 42) +
-  `return_call_to_memory64` (→ 99) — both stress a Wasm-3.0 proposal pair
-  (funcref-call / tail-call × memory64) through the JIT runner, locking R15/
-  runtime_ptr survival into a memory64-addressing callee. Both green on Mac;
-  WAT assembled with wasm-tools parse. 10.P I3 SKIP → now populated.
-- **D-209 VERIFIED green on ubuntu** this cycle (Step 0.7: `OK (HEAD=fd2fd267)`,
-  wast_runner 1158/1158) — the memory64 memarg-offset width fix holds on x86_64.
-  D-208 (cyc213) + D-209 (cyc214) both fixed + ubuntu-verified.
-- **10.P close-invariants (as of cyc214): 16 PASS / 8 SKIP / 0 FAIL** → close-eligible.
-  I3 now populated (was a SKIP); remaining SKIPs: I14 (EH wasm.h c_api tag accessors,
-  AUTONOMOUS), I5/I11/I16/I20/I23 (deferred-to-close-cycle), I21 (realworld tool-gated).
-- **Step 0.7 on resume**: cyc215 is a TEST-ONLY change (2 fixtures) → ubuntu kicked on
-  `9585df11`. VERIFY (`tail -3 /tmp/ubuntu.log`): the 2 cross fixtures pass on x86_64
-  (call_ref/return_call × memory64). FAIL ⟹ an x86_64 interaction bug → investigate
-  (revert is fixture-only, low-risk).
+- **HEAD**: `0b8d2a0b` (cyc216). **I3 cross fixtures = 4** + **edge-runner caching fix**.
+  `test/edge_cases/p10/cross/` now: `call_ref_to_memory64`→42, `return_call_to_memory64`→99,
+  `eh_call_ref_catch`→77 (EH unwind across a call_ref boundary), `eh_memory64_catch`→55
+  (EH × memory64 in one frame). All green on Mac via the JIT runner (assembled with
+  wasm-tools parse). **build.zig fix**: the edge/realworld run steps passed their corpus
+  dir via `addArg(string)` (untracked input) → zig cached the run-artifact + SKIPPED
+  re-running on fixture-only changes → FALSE coverage (cyc215's cross fixtures were never
+  actually run by the gate, Mac AND ubuntu). Fixed with `has_side_effects = true` on all
+  4 run_edge_* steps. Lesson `2026-05-30-edge-runner-fixture-cache-false-coverage`.
+- **D-209 VERIFIED green on ubuntu** (cyc215 Step 0.7: `OK (HEAD=fd2fd267)`, wast_runner
+  1158/1158). D-208 (cyc213) + D-209 (cyc214) both fixed + ubuntu-verified.
+- **10.P close-invariants (cyc214): 16 PASS / 8 SKIP / 0 FAIL** → close-eligible. I3 now
+  populated; remaining SKIPs: I14 (EH wasm.h c_api tag accessors, AUTONOMOUS), I5/I11/I16/
+  I20/I23 (deferred-to-close-cycle), I21 (realworld tool-gated).
+- **Step 0.7 on resume**: cyc216 changed build.zig (run-step flags forcing re-run) +
+  added 2 fixtures → ubuntu kicked on `0b8d2a0b`. This is the FIRST real x86_64 run of all
+  4 cross fixtures (the has_side_effects fix un-caches them). VERIFY (`tail /tmp/ubuntu.log`):
+  the 4 cross fixtures pass on x86_64. FAIL ⟹ an x86_64 interaction bug → investigate
+  (fixture/build-only change, low-risk revert).
 
-## Active task — I3 cont'd: EH × call_ref cross fixture (+ a 2nd pair)  **NEXT**
+## Active task — I14: EH wasm.h c_api tag accessors  **NEXT**
 
-Phase-10-close-prep, autonomous; continue broadening `test/edge_cases/p10/cross/`.
-Next pair: **EH × function-references** — a `try_table` catching a tag whose body does a
-`call_ref` to a function that `throw`s the tag → caught → returns a known i32 (stresses EH
-unwind across a call_ref boundary). Then a 2nd pair (multi-memory × tail-call OR GC × call_ref).
-Cross-feature interactions are where realworld bugs hide (D-209 surfaced this way). Mirror the
-edge-runner `.wat`/`.wasm`/`.expect` convention (`runI32Export` JIT; assemble with
-`wasm-tools parse`). Smallest red: the EH×call_ref fixture, run → expected i32.
-Deferred: I14 EH c_api tag accessors (impl, likely close-cycle scope); D-206 cross-module
-TC (multi-module JIT harness first); 10.G GC JIT (extreme).
+Cross-feature coverage (I3) is now solid (4 fixtures across the cleanly-JIT-able pairs;
+remaining clean combos hit the GC-JIT / multi-memory-JIT gaps, not worth forcing). Next
+autonomous close-prep: **I14** — implement the EH-related `wasm.h` C-API tag accessors
+(10.E c_api scope; the EH *runtime* is done, D-192 resolved — this is the public C-ABI
+surface). Step 0 survey first: enumerate which `wasm_tag_*` / exception accessors `wasm.h`
+declares vs what `src/api/` implements, and scope whether it's a clean chunk or ADR-grade.
+If substantial/ADR-grade → reconsider (the close is a user touchpoint; remaining autonomous
+work is thinning). Deferred: D-206 cross-module TC (multi-module JIT harness first); 10.G
+GC JIT (extreme).
 
 ## §10 close map
 
