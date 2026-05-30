@@ -267,8 +267,8 @@ else
   fail "§8 I15: $i15_missing of ${#i15_files[@]} tail-call op files missing is_safepoint=false decl"
 fi
 
-# §8 I16 — regalloc 3-axis default-off Phase 9 corpus green
-skip "§8 I16: regalloc 3-axis JIT-side work; deferred to 10.E/G JIT"
+# §8 I16 — GC-on-JIT op emit (ADR-0128 §2, D-211); target not permanent SKIP
+skip "§8 I16: GC-on-JIT op-emit (ADR-0128 §2, D-211) — non-moving collector ⇒ op-emit, NOT regalloc-3-axis; rooting deferred to Phase 11. Active target, not permanent SKIP."
 
 # §8 I17 — private/spikes/ all merged/rejected
 if [ -d private/spikes ]; then
@@ -322,7 +322,7 @@ skip "§8 I20: src mentions=$src_mentions (skeleton/doc); runtime emission check
 # cyc210 rationale refresh: D-179 (wabt corpus baking) is RESOLVED, and clang
 # realworld/p10 is DONE (cyc201 clang_musttail JIT-result-checked). Remaining
 # barrier is the OTHER toolchains (emscripten/dart/ocaml/hoot) being unavailable.
-skip "§8 I21: realworld/p10 — clang DONE (cyc201); emscripten/dart/ocaml/hoot toolchains tool-gated (D-179 resolved)"
+skip "§8 I21: realworld/p10 — clang DONE (cyc201); emscripten-EH/ocaml/hoot now PROVISIONED (ADR-0128 §5, toolchain_provisioning.md) — GC/EH/TC producers are an active target, not tool-gated"
 
 # §8 I22 — skip-list ratchet (Phase 10 close skip-impl ≤ Phase 9
 # baseline). Parse skip_impl_history.yaml — first `total:` is the

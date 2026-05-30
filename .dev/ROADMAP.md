@@ -1331,6 +1331,14 @@ audit at §9.12 IS a hard gate per ADR-0062.
 - All Phase-5 proposals' spec tests pass=fail=skip=0 (both backends).
 - Bench: no unexplained regression vs Phase 9 baseline.
 
+**100% plan (ADR-0128, 2026-05-31)**: "both backends" is made mechanically
+true by a **spec-corpus JIT execution mode** (run the official testsuite
+through the JIT, not just the interp); **GC-on-JIT** is emitted via the
+non-moving op-emit path (rooting deferred — ADR-0128 §2, D-211); ADR-0127
+PHASE C lands (assert_unlinkable 5→0); D-209 dissolved (payload u64).
+Close-invariant SKIPs (I3/I5/I16/I20/I21) become real targets. The "close-
+eligible" posture (8 SKIPs counted as deferred) is retracted.
+
 **Design plan**: [`.dev/phase10_design_plan_ja.md`](phase10_design_plan_ja.md) (r3; 2026-05-24 user-reviewed). Sub-chunks recorded in `phase_log/phase10.md` per ADR-0014 + §18.3.
 
 | #       | Item                                                                                                                          | Status |

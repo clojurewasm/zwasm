@@ -1,6 +1,6 @@
 # 0127 — Cross-module func import type-identity (finality + supertype + canonical)
 
-- **Status**: Proposed (2026-05-30; autonomous `/continue` prep path — D-202 PHASE C)
+- **Status**: Accepted (2026-05-31 via ADR-0128 — user "100%" directive; D-202 PHASE C implements next)
 - **Date**: 2026-05-30
 - **Author**: claude (autonomous loop)
 - **Tags**: cross-module, linker, gc, type-identity, finality, canonical, subtyping, D-202, Phase 10 / 10.M

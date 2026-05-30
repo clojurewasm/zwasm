@@ -71,6 +71,38 @@ exact command + the toolchain versions at generation time.
 - **go → wasip1**: `GOOS=wasip1 GOARCH=wasm go build -o out.wasm ...`.
 - **tinygo → wasip1**: `tinygo build -target=wasip1 -o out.wasm ...`.
 
+## Wasm 3.0 GC / EH / tail-call producers (ADR-0128 §5)
+
+Web-researched 2026-05-31. For realworld coverage of the Wasm-3.0
+proposals (GC, EH, tail-call). The committed `.wasm` runs on the test
+hosts through the edge-runner; some producers emit a JS-loader +
+sidecar `.wasm` (commit the `.wasm`, drop the JS).
+
+- **Lightest lever — hand-written `.wat` + `wat2wasm --enable-all`**
+  (WABT, already pinned). Zero host imports, exact opcodes you choose;
+  the right tool for per-opcode GC/EH/TC coverage no compiler reliably
+  emits. `wat2wasm --enable-all foo.wat -o foo.wasm`. Prefer this for
+  targeted fixtures; use the heavy toolchains below for *real programs*.
+- **emcc → native Wasm EH** (`try_table`/`throw`, NOT legacy JS EH):
+  `emcc -fwasm-exceptions -O1 -o throw.wasm throw.cpp` (pass
+  `-fwasm-exceptions` at BOTH compile + link). nixpkgs `emscripten`;
+  needs `EM_CACHE` writable (already set by the `gen` shellHook). A
+  one-flag delta on the existing clang recipe.
+- **`wasm_of_ocaml` → GC + EH + tail-call (triple crown)**: the only
+  mainstream toolchain hitting all three. opam (in the gen shell):
+  `opam install wasm_of_ocaml-compiler` (needs OCaml ≥4.14, dune ≥3.19,
+  binaryen ≥119 via `pkgs.binaryen`). Build: `ocamlfind ocamlc -package
+  js_of_ocaml -linkpkg -o prog.byte prog.ml && wasm_of_ocaml prog.byte`
+  → `prog.js` + `prog.assets/*.wasm` (commit the `.wasm`). `--effects=cps`
+  avoids the JSPI host import.
+- **guile-hoot → GC + tail-call**: nixpkgs `guile-hoot` (aarch64-darwin
+  OK). `hoot compile --output=foo.wasm foo.scm`; the main module imports
+  `reflect.wasm` + `wtf8.wasm` (commit + link all three; `--bundle` emits
+  them).
+- **dart2wasm → GC (parse/validate-only)**: nixpkgs `dart`; `dart
+  compile wasm main.dart -o main.wasm`. Heavy JS import surface → good
+  as a parse/validate-stress GC fixture, NOT a runnable one.
+
 ## Provenance
 
 Each `test/realworld/**/PROVENANCE.md` records: toolchain + version, the
