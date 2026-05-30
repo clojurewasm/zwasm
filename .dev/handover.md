@@ -8,7 +8,7 @@
 - **Phase**: **10 IN-PROGRESS — committed to 100% (ADR-0128)** (Phase 9 = DONE
   2026-05-24). The prior "close-eligible" posture is RETRACTED: §10 exit requires the
   official Wasm 3.0 testsuite at pass=fail=skip=0 on **both backends** (interp + JIT).
-- **HEAD**: `<this-commit>` (cyc244 — 100% plan + research). cyc232-242 landed +
+- **HEAD**: `801037b3` (cyc244 — 100% plan + research). cyc232-242 landed +
   ubuntu-verified (cross-module return_call, EH×TC, D-202 PHASE A/B-finality).
 - **Two execution paths (CODE-verified)**: the spec corpus runs **interp-only**
   (`instance.invoke`→`_dispatch.run`, `instance.zig:169`). The JIT emits 1.0/2.0 +
@@ -39,6 +39,30 @@ Six workstreams (ADR-0128). Drive in this order; each is value-prioritized, NOT 
 5. **Realworld GC/EH/TC producers** (§5; flake.nix `#gen`): `wasm_of_ocaml` (triple
    crown) / `emcc -fwasm-exceptions` / `guile-hoot`; `wat2wasm --enable-all` lever for
    per-opcode gaps. Updates `toolchain_provisioning.md`.
+
+## Active bundle
+
+- **Bundle-ID**: `10.G-gc-on-jit-IT-1..N`
+- **Cycles-remaining**: ~6-8
+- **Continuity-memo**: (Step-0 survey captured 2026-05-31; do NOT re-survey)
+  Op-file pattern = `codegen/{arm64,x86_64}/ops/wasm_3_0/<op>.zig` exposing `pub const
+  op_tag: ZirOp` + `wasm_level: .v3_0` + `pub fn emit(ctx: *EmitCtx, ins: *const
+  ZirInstr) Error!void`; register in BOTH `collected_{arm64,x86_64}_ops` tuples in
+  `dispatch_collector_ops.zig` (`dispatch_collector.dispatch` matches op_tag → emit, else
+  legacy switch in `emit.zig`). JIT→runtime helper convention (model =
+  `shared/throw_trampoline.zig`): rt ptr pinned X19/R15; args X0-X3 / RDI-RCX; BLR X16 /
+  CALL R10; result X0/RAX. Heap (`feature/gc/heap.zig`): `allocate(size)→GcRef`=u32 slab
+  offset; ObjectHeader 8B (kind u8 + pad + info=typeidx u32); `StructInfo.fields[i].offset`
+  (8B-uniform). `Value.anyref`=u32 on stack (regalloc treats like i32). Harness =
+  `runI32Export(alloc, wasm_bytes, name)` (no-arg→i32) in `engine/runner.zig`. Per-op
+  lowering recipe: ADR-0128 §2. Rooting DEFERRED (non-moving; `is_safepoint=false` for now).
+- **First-op order**: (1) **i31** (`ref.i31`/`i31.get_s`/`_u`) — non-allocating shift+tag,
+  NO trampoline/type-info; establishes the GC op-file+registration pattern (MATCH the
+  interp i31 encoding — `src/instruction/wasm_3_0/` or `feature/gc/`). (2) struct.new/get
+  (add `shared/gc_alloc_trampoline.zig`). (3) array.*. (4) ref.cast/test (Cohen display,
+  `n1>=n2` guard). (5) ref.eq. Then workstream 1 (spec-corpus JIT mode) verifies at scale.
+- **Exit-condition**: i31 (`ref.i31`+`i31.get_s`) green via `runI32Export`, Mac arm64 then
+  x86_64; `Builder`/emit byte-test present. Bundle continues to struct/array/ref.cast.
 
 ## §10 remaining — the six `[ ]` rows (精査)
 
