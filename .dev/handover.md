@@ -5,36 +5,35 @@
 
 ## Current state
 
-- **Phase**: **10 IN-PROGRESS — now CLOSE-ELIGIBLE** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `9d493959` (cyc214). **D-209 FIXED**: realworld memory64 memarg-offset
-  gap — clang `--target=wasm64`/lld emit the memarg `offset` as a width-padded
-  (9-byte) LEB128, valid for a u64 (memory64) offset but the validator + lowerer
-  decoded it at u32 width → `Error.Overlong`. Fix: validator `skipMemargOffset`
-  (u64 width for memory64, keyed on `memory0_idx_type`); lowerer `readMemargOffset`
-  (decode u64, range-check ≤ u32 for the payload slot) at both scalar + SIMD-lane
-  sites. New realworld fixture `clang_wasm64/wasm64_load_store` (`(memory i64 2)` +
-  i64-addressed store/load → 42) is a committed .wasm (runs without clang). Residual
-  (> 4 GiB offset, payload-u32) → D-209 blocked-by. clang_musttail still 15 (no regression).
-- **D-208 VERIFIED green on ubuntu** this cycle (Step 0.7: `OK (HEAD=733a0a98)`) — the
-  x86_64 funcref-null-trap fix (usesRuntimePtr) holds. funcref-call + tail-call JIT
-  matrix complete + verified both arches.
-- **10.P close-invariants: 16 PASS / 8 SKIP / 0 FAIL** (`check_phase10_close_invariants.sh`
-  → "close-eligible"). D-208 was the only FAIL. The 8 SKIPs are deferred-to-close-cycle
-  (I3 cross fixtures unpopulated; I5/I11/I14/I16/I20/I23 deferred; I21 realworld tool-gated).
-- **Step 0.7 on resume**: cyc214 is a CODE change (validate+lower) → ubuntu kicked on
-  `9d493959`. VERIFY (`tail -3 /tmp/ubuntu.log`): the clang_wasm64 fixture + memory64
-  corpus pass on x86_64. FAIL ⟹ revert pair (the offset-width change is the suspect).
+- **Phase**: **10 IN-PROGRESS — CLOSE-ELIGIBLE** (Phase 9 = DONE 2026-05-24).
+- **HEAD**: `9585df11` (cyc215). **I3 cross-feature edge fixtures landed**:
+  `test/edge_cases/p10/cross/` now has `call_ref_to_memory64` (→ 42) +
+  `return_call_to_memory64` (→ 99) — both stress a Wasm-3.0 proposal pair
+  (funcref-call / tail-call × memory64) through the JIT runner, locking R15/
+  runtime_ptr survival into a memory64-addressing callee. Both green on Mac;
+  WAT assembled with wasm-tools parse. 10.P I3 SKIP → now populated.
+- **D-209 VERIFIED green on ubuntu** this cycle (Step 0.7: `OK (HEAD=fd2fd267)`,
+  wast_runner 1158/1158) — the memory64 memarg-offset width fix holds on x86_64.
+  D-208 (cyc213) + D-209 (cyc214) both fixed + ubuntu-verified.
+- **10.P close-invariants (as of cyc214): 16 PASS / 8 SKIP / 0 FAIL** → close-eligible.
+  I3 now populated (was a SKIP); remaining SKIPs: I14 (EH wasm.h c_api tag accessors,
+  AUTONOMOUS), I5/I11/I16/I20/I23 (deferred-to-close-cycle), I21 (realworld tool-gated).
+- **Step 0.7 on resume**: cyc215 is a TEST-ONLY change (2 fixtures) → ubuntu kicked on
+  `9585df11`. VERIFY (`tail -3 /tmp/ubuntu.log`): the 2 cross fixtures pass on x86_64
+  (call_ref/return_call × memory64). FAIL ⟹ an x86_64 interaction bug → investigate
+  (revert is fixture-only, low-risk).
 
-## Active task — I3: populate test/edge_cases/p10/cross/ (cross-feature fixtures)  **NEXT**
+## Active task — I3 cont'd: EH × call_ref cross fixture (+ a 2nd pair)  **NEXT**
 
-Phase-10-close-prep, autonomous. The `test/edge_cases/p10/cross/` dir is empty (10.P I3
-SKIP). Add cross-feature boundary fixtures that stress two Wasm-3.0 proposals interacting
-(e.g. `call_ref` to a memory64 function; a `return_call` whose callee does a memory64
-load; an EH handler that does a `call_ref`). Mirror the edge-runner `.wat`/`.wasm`/`.expect`
-convention (runs via `runI32Export` JIT; `test/edge_cases/runner.zig`). Smallest red: one
-fixture combining tail-call + memory64, run → expected i32. These can surface interaction
-bugs the way clang_wasm64 surfaced D-209. Deferred: D-206 cross-module TC (multi-module
-JIT harness — actionable but harness-build first); 10.G GC JIT (extreme).
+Phase-10-close-prep, autonomous; continue broadening `test/edge_cases/p10/cross/`.
+Next pair: **EH × function-references** — a `try_table` catching a tag whose body does a
+`call_ref` to a function that `throw`s the tag → caught → returns a known i32 (stresses EH
+unwind across a call_ref boundary). Then a 2nd pair (multi-memory × tail-call OR GC × call_ref).
+Cross-feature interactions are where realworld bugs hide (D-209 surfaced this way). Mirror the
+edge-runner `.wat`/`.wasm`/`.expect` convention (`runI32Export` JIT; assemble with
+`wasm-tools parse`). Smallest red: the EH×call_ref fixture, run → expected i32.
+Deferred: I14 EH c_api tag accessors (impl, likely close-cycle scope); D-206 cross-module
+TC (multi-module JIT harness first); 10.G GC JIT (extreme).
 
 ## §10 close map
 
