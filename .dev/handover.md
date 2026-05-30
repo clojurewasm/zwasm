@@ -8,8 +8,9 @@
 - **Phase**: **10 IN-PROGRESS — committed to 100% (ADR-0128)** (Phase 9 = DONE
   2026-05-24). The prior "close-eligible" posture is RETRACTED: §10 exit requires the
   official Wasm 3.0 testsuite at pass=fail=skip=0 on **both backends** (interp + JIT).
-- **HEAD**: `97658b5d` (cyc246 — **x86_64 i31 emit** + ungated e2e; i31 op family now
-  complete on BOTH backends). cyc245 (`3e05fa62`, arm64 i31) ubuntu-verified green.
+- **HEAD**: `97658b5d` (cyc246 — **x86_64 i31 emit**, i31 complete on BOTH backends,
+  ubuntu-verified green). cyc247 = struct.new JIT **design grounding** (docs-only; design
+  in `phase10_g_op_bundle_plan.md`). Last CODE HEAD = `97658b5d`.
 - **Two execution paths (CODE-verified)**: the spec corpus runs **interp-only**
   (`instance.invoke`→`_dispatch.run`, `instance.zig:169`). The JIT emits 1.0/2.0 +
   tail-call + function-references + EH + **i31 (both arches)**; remaining GC (struct/
@@ -44,26 +45,22 @@ Six workstreams (ADR-0128). Drive in this order; each is value-prioritized, NOT 
 
 - **Bundle-ID**: `10.G-gc-on-jit-IT-1..N`
 - **Cycles-remaining**: ~5-6
-- **Continuity-memo**: PROVEN recipe — i31 landed both arches cyc245-246; reuse verbatim
-  for struct/array/cast/eq. Per GC op, the touch-points are: (1) op-file
-  `codegen/{arm64,x86_64}/ops/wasm_3_0/<op>.zig` (`pub const op_tag/wasm_level/wasi_level`
-  + `pub fn emit(ctx,ins) Error!void`); arm64 → `collected_arm64_ops`, x86_64 → **`collected_x86_64_ctx_ops`**
-  (NOT `_ops` — the v3_0 ops live in the ctx tuple). (2) `stackEffect` entry per *value* op
-  in `ir/analysis/liveness_stack_effect.zig` (drives liveness + `populateShapeTags`;
-  non-SIMD producers auto-tag `.scalar`=GPR) — omit → `UnsupportedOp[stackEffect-missing]`.
-  (3) bump count tests in `dispatch_collector.zig` (`migratedArchOpCount(.arm64)` + `collected_x86_64_ctx_ops.len`).
-  (4) **any trap-emitting op (bounds_fixups / JE→trap) MUST be added to x86_64
-  `usage.zig` `usesRuntimePtr`** — else D-180 silent miscompile (trap stub writes
-  trap_flag via uninit R15 on x86_64; Mac arm64 immune). struct.new's alloc trampoline
-  CALL also needs this. (5) e2e via `runI32Export` (hand-encode wasm; wat2wasm 1.0.40
-  lacks GC text). `Value.anyref`=u32 on stack. struct/array: alloc trampoline model =
-  `shared/throw_trampoline.zig` + heap `feature/gc/heap.zig` (`allocate(size)→GcRef`=u32
-  slab off, ObjectHeader 8B); rooting DEFERRED (non-moving). Per-op lowering: ADR-0128 §2.
+- **Continuity-memo**: the PROVEN per-GC-op recipe (5 touch-points, validated by i31 both
+  arches) + the full struct.new design live in **`.dev/phase10_g_op_bundle_plan.md`
+  §"GC-on-JIT emit design"** (single source — do NOT re-derive). Key invariants: arm64→
+  `collected_arm64_ops`, x86_64→`collected_x86_64_ctx_ops`; `stackEffect` entry per value
+  op; trap-emitting ops → x86_64 `usage.zig` `usesRuntimePtr` (D-180); `Value.anyref`=u32
+  on stack; struct offsets UNIFORM `8+idx*8` (ADR-0116 §3a); GC types are runtime-only
+  (`inst.gc_type_infos`) → struct.new needs `field_count` threaded to compile-time; rooting
+  DEFERRED (non-moving). e2e = `runI32Export` (hand-encode wasm; wat2wasm 1.0.40 lacks GC text).
 - **First-op order**: (1) **i31** — DONE both arches (`97658b5d`). NEXT = (2) **struct.new
-  / struct.get / struct.set** — add `shared/gc_alloc_trampoline.zig` (CALL into
-  `heap.allocate`; needs `usesRuntimePtr`); field load/store = base+`StructInfo.fields[i].offset`.
-  (3) array.new/get/set/len. (4) ref.cast/test (Cohen supertype-vector display, `n1>=n2`
-  guard, CVE-2024-4761). (5) ref.eq. Then workstream 1 (spec-corpus JIT mode).
+  / struct.get** (multi-cycle architectural; full JIT design grounded cyc247 in
+  **`.dev/phase10_g_op_bundle_plan.md` §"GC-on-JIT emit design"** — gc_alloc_fn JitRuntime
+  field per memory_grow_fn; uniform offsets `8+idx*8`; field_count threading; emitTableGrow
+  model). **Concrete next step**: survey the **regalloc clobber-point** (how `call` marks
+  caller-saved spill, `engine/codegen/shared/regalloc*.zig`) — struct.new's field vregs must
+  survive the alloc BLR. Then implement cycle A (gc_alloc_fn + threading + arm64 struct.new
+  +get + variadic liveness + runI32Export). (3) array.* (4) ref.cast/test (5) ref.eq.
 - **Exit-condition**: i31 green via `runI32Export` both arches — **DONE** (`97658b5d`).
   Bundle continues to struct/array/ref.cast; close when all GC ops emit + corpus green.
 
@@ -84,10 +81,9 @@ Six workstreams (ADR-0128). Drive in this order; each is value-prioritized, NOT 
 
 ## Step 0.7 (next resume)
 
-cyc245 (`3e05fa62`, arm64 i31) ubuntu-verified green. cyc246 (`97658b5d`) = x86_64 i31 +
-ungated e2e: the 3 `runI32Export` i31 tests now RUN on ubuntu x86_64 (incl. the null-trap
-path that exercises the R15 trap stub — the real D-180 verification for the `usesRuntimePtr`
-whitelist entry). Verify `tail -3 /tmp/ubuntu.log` next resume; FAIL → revert cyc246.
+cyc246 (`97658b5d`, x86_64 i31 + ungated e2e) ubuntu-verified green `OK (HEAD=bd4729db)` —
+the null-trap path (R15 trap stub / `usesRuntimePtr` D-180) passed on real x86_64. cyc247 is
+docs-only (struct.new design grounding) → no ubuntu pending, no revert.
 
 ## Key refs
 

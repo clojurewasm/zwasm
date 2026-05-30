@@ -173,8 +173,68 @@ The next bundle is structurally larger and benefits from
 sequenced sub-chunks rather than re-deriving the path per
 cycle. This doc is the anchor.
 
+## GC-on-JIT emit design (ADR-0128 §2 workstream; cyc245+)
+
+The 12 sub-chunks above are the INTERP 10.G bundle (landed). ADR-0128
+(2026-05-31) added the GC-on-JIT **emit** workstream: the JIT must emit
+every GC op so the spec corpus passes on BOTH backends. Per-op design:
+
+**i31 — DONE both arches** (cyc245 `3e05fa62` arm64; cyc246 `97658b5d`
+x86_64). Non-allocating shift+tag: `ref.i31`=(x<<1)|1; `i31.get_s`=
+ASR/SAR #1; `i31.get_u`=LSR/SHR #1; null/non-i31 → bit-0 test + trap
+stub. New encoders arm64 encAsrImmW/encOrrImm1W/encTstImm1W; x86_64
+encSarRImm8/encOrRImm8. Proven per-op touch-points (REUSE for all GC
+ops): (1) op-file `codegen/{arm64,x86_64}/ops/wasm_3_0/<op>.zig`; arm64→
+`collected_arm64_ops`, x86_64→`collected_x86_64_ctx_ops`. (2) `stackEffect`
+entry (value ops) in `liveness_stack_effect.zig`. (3) bump count tests in
+`dispatch_collector.zig`. (4) trap-emitting ops → x86_64 `usage.zig`
+`usesRuntimePtr` (else D-180 silent miscompile). (5) `runI32Export` e2e
+(hand-encode wasm — wat2wasm 1.0.40 lacks GC text).
+
+**struct.new / struct.get / struct.set — NEXT (multi-cycle architectural;
+design grounded cyc247, NO code yet).** Interp contract =
+`instruction/wasm_3_0/struct_ops.zig` (allocateStruct:98 / structNew:112 /
+structGet:145 / structSet:166).
+- **Alloc helper** (ADR-0128 §2 "runtime-call alloc helper, then store
+  fields inline"): add JitRuntime `gc_alloc_fn: *const fn(rt,typeidx,
+  total_size) callconv(.c) u32` (returns GcRef) + `gc_alloc_fn_off`,
+  mirroring `memory_grow_fn` (jit_abi.zig:313 field / :489 off / X-form
+  8-aligned ≤32760 comptime budget) + default-reject + wire real fn at
+  instance setup. Real fn = `heap.allocate(total_size)` + ObjectHeader
+  write (mirror struct_ops.allocateStruct).
+- **Offsets UNIFORM** = `8 (header) + field_idx*8` per ADR-0116 §3a →
+  get/set need NO type-threading (field_idx is in ZirInstr.extra). Only
+  struct.new needs `field_count` (pop count + alloc size
+  `(1+field_count)*8`); GC types are runtime-only (`inst.gc_type_infos`,
+  instantiate.zig), NOT at emit/compile time today → thread a compile-time
+  `[]u32 struct_field_counts` (decode type section structs at compile
+  time) into EmitCtx + `liveness.compute`.
+- **Liveness**: struct.new variadic-pop special-case (mirror the `call`
+  arm, liveness.zig:453 — look up field_count, pop N, push 1). struct.get
+  = 1→1, struct.set = 2→0 (fixed `stackEffect` entries).
+- **Emit** (model = `emitTableGrow`, op_table.zig:304 = runtime-call-with-
+  operand): struct.new = marshal total_size→arg reg, `LDR X16,[X19,
+  #gc_alloc_fn_off]; BLR X16` → W0=ref; **reload slab base AFTER the call**
+  (alloc may realloc `heap.bytes`); store each field at `[slab+ref+8+i*8]`;
+  push ref. struct.get = pop ref, null-trap (CMP #0 + B.EQ→bounds_fixups),
+  load `[slab+ref+8+field_idx*8]`.
+- **⚠ NEXT-CYCLE BLOCKER SURVEY**: struct.new/array.new must be a
+  **regalloc clobber-point** — the alloc BLR clobbers caller-saved, so the
+  field vregs (live across the call, stored after) must spill across it.
+  `emitTableGrow` does NOT hit this (it consumes its operands INTO the
+  call). Survey how `call`/`call_indirect` mark caller-saved clobber in
+  `engine/codegen/shared/regalloc*.zig` + add struct.new/array.new.
+- usesRuntimePtr += struct.new/get/set (alloc CALL + slab base via R15 +
+  trap stub). Packed get_s/get_u (i8/i16 ext) + struct.new_default +
+  arrays = follow-on cycles.
+
+**array.* → ref.cast/test → ref.eq** — after struct (share alloc + RTT
+machinery; ref.cast = Cohen 8-deep display, `n1>=n2` guard, CVE-2024-4761).
+
 ## Related
 
+- ADR-0128 §2 (GC-on-JIT emit workstream — the master plan this section
+  implements).
 - ADR-0115 (GC heap+collector design; cycles 1-6 implement
   §1+§3+§5+§6+§10).
 - ADR-0116 (GC roots+RTT+i31 design).
