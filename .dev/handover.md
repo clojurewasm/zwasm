@@ -27,22 +27,28 @@
   stack — confirms the unlock handles real rustc algorithmic codegen; `9e4d0cfe`). realworld/p10
   = 6 fixtures, all green. **Stale-exe pitfall** recurs: isolated `find`-by-grep can grab a
   pre-fix exe → use `zig build` EXIT + the exe passing `data_sum=31`.
-- **Step 0.7 on resume**: cyc225 added rust_bubble_sort (`9e4d0cfe`) → ubuntu kicked. VERIFY
-  (`tail /tmp/ubuntu.log`): 6 realworld/p10 pass on x86_64 (committed `.wasm`, no rustc there).
+- cyc226: `clang_O0_arr_sum`=39 — clang `-O0` (heaviest shadow-stack spill, no regalloc) runs →
+  validates the cyc224 unlock for clang too; lesson "-O0 traps" claim lifted (`0e78ecf8`).
+  realworld/p10 = 7 fixtures (rust loop/recursion/data/sort + clang musttail/wasm64/-O0), all green.
+- **Step 0.7 on resume**: cyc226 added clang_O0_arr_sum (`0e78ecf8`) → ubuntu kicked. VERIFY
+  (`tail /tmp/ubuntu.log`): 7 realworld/p10 pass on x86_64.
 
-## Active task — clang `-O0` realworld fixture (verify shadow-stack unlock for clang)  **NEXT**
+## Active task — clang `-O0` floating-point fixture (last matrix cell)  **NEXT**
 
-The clang-recipe lesson claimed "clang `-O0` shadow-stack modules trap" — cyc224's global-init
-fix should LIFT that. clang `-O0` spills everything to `__stack_pointer` (no regalloc) → the
-heaviest shadow-stack test, and a DIFFERENT toolchain than rust. Gen via `nix develop .#gen`:
-a tiny C `int test(){ int a[8]={...}; ... return a[k]; }` compiled `clang --target=wasm32
--nostdlib -Wl,--no-entry -Wl,--export-all -O0` (note: -O0, not -O2). Land
-`test/realworld/p10/clang_O0_<slug>/`; run → known i32. If it RUNS → the unlock is validated
-for clang too (close the lesson claim). If it traps → a remaining shadow-stack gap (investigate).
-**User touchpoint (held, prominent)**: Phase 10 close-eligible (10.P 0 FAIL). The shadow-stack
-unlock (cyc224) made the real-toolchain vein productive (2 real finds: D-209, global-init). Deep
-not-close-required (D-206, 10.G GC JIT) + 10 SKIP-WASI (Phase 11) stay deferred. The formal
-Phase-10 close (→ Phase 11) is a user project-direction decision worth a check-in. NOT a stop.
+The rust/clang × control-flow/memory/algorithm/shadow-stack matrix is nearly complete; the one
+distinct codegen cell left is **floating-point**. Gen via `nix develop .#gen`: a C `int test(){
+double x=...; ... return (int)(x*...); }` at `-O0` → real f64 load/store (shadow stack) + f64
+arith + f64→i32 trunc. Land `test/realworld/p10/clang_O0_fp/`; run → known i32. wasmtime-confirm.
+**After this, the realworld-fixture vein is comprehensively explored** (2 real finds: D-209
+LEB, global-init/shadow-stack; the rest validate real-toolchain codegen, which the spec corpus
+already covers → low marginal bug-rate). 
+**User touchpoint (PROMINENT — decision point)**: Phase 10 close-eligible (10.P 0 FAIL). The
+high-value autonomous work (JIT bug fixes, the user-directed gen-shell + shadow-stack unlock,
+the realworld matrix) is DONE. The substantive remaining is DEEP + not-close-required (D-206
+cross-module bridge ≈4-6 cyc; 10.G GC JIT extreme) OR Phase-11-scoped (10 SKIP-WASI). The
+formal Phase-10 close (→ Phase 11) is the genuinely highest-value next step and is a user
+project-direction decision. **Next-cycle-after-fp: either engage D-206 (deep) or surface the
+close decision.** NOT a stop now; re-arm holds.
 **User touchpoint (held, prominent)**: Phase 10 close-eligible (10.P 0 FAIL). The real-toolchain
 fixture vein is now PRODUCTIVE again (shadow-stack unlocked → real code finds real bugs, e.g.
 cyc224). Deep not-close-required work (D-206 ≈4-6 cyc; 10.G GC JIT extreme) + the 10 SKIP-WASI
