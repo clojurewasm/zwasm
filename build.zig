@@ -276,19 +276,31 @@ pub fn build(b: *std.Build) void {
         .name = "zwasm-edge-runner",
         .root_module = edge_runner_mod,
     });
+    // `has_side_effects = true` forces each fixture-runner to re-run
+    // every invocation. The runner walks its corpus dir at RUNTIME, but
+    // the dir path is a plain `addArg` string — NOT a tracked build
+    // input — so without this flag zig caches the run-artifact on the
+    // exe hash and SKIPS re-running when only fixture files change
+    // (no src/exe delta). That silently gave fixture-only additions
+    // FALSE coverage (they passed when run directly but the gate served
+    // a stale cached result). Tests must always execute; the runner is
+    // fast (~seconds for the whole corpus).
     const run_edge_p7 = b.addRunArtifact(edge_runner_exe);
     run_edge_p7.addArg(b.pathFromRoot("test/edge_cases/p7"));
+    run_edge_p7.has_side_effects = true;
     const run_edge_p9 = b.addRunArtifact(edge_runner_exe);
     run_edge_p9.addArg(b.pathFromRoot("test/edge_cases/p9"));
+    run_edge_p9.has_side_effects = true;
     const run_edge_p10 = b.addRunArtifact(edge_runner_exe);
     run_edge_p10.addArg(b.pathFromRoot("test/edge_cases/p10"));
+    run_edge_p10.has_side_effects = true;
     // Realworld p10 result-check (10.TC-JIT IT-5): the same JIT
     // edge-runner walks `test/realworld/p10/**`, result-checking any
-    // toolchain-compiled `.wasm` with a sibling `.expect`. Currently
-    // `clang_musttail/musttail_sum` — clang `__attribute__((musttail))`
-    // → `return_call` exercised through the JIT (D-205).
+    // toolchain-compiled `.wasm` with a sibling `.expect`
+    // (clang_musttail → return_call D-205; clang_wasm64 → memory64 D-209).
     const run_edge_realworld_p10 = b.addRunArtifact(edge_runner_exe);
     run_edge_realworld_p10.addArg(b.pathFromRoot("test/realworld/p10"));
+    run_edge_realworld_p10.has_side_effects = true;
     const test_edge_step = b.step("test-edge-cases", "Run edge-case fixture runner (all hosts post §9.9 / 9.9-j-2b)");
     test_edge_step.dependOn(&run_edge_p7.step);
     test_edge_step.dependOn(&run_edge_p9.step);
