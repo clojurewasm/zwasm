@@ -21,20 +21,28 @@
 - D-208 (cyc213) + D-209 (cyc214) fixed + ubuntu-verified. **10.P: 16 PASS / 8 SKIP / 0 FAIL**
   → close-eligible. I14 deferred (Phase-13 type-reflection c_api); D-206 deferred (≈4-6 cyc
   native cross-module JIT bridge; existing cross-module dispatch is interp-routed; not close-required).
-- cyc223: extended the cyc216 caching fix to the 4 `test/realworld/wasm/` runners (`f424d7e8`).
-- **Step 0.7 on resume**: cyc224 setup.zig fix + rust_data (`eddb4652`) → ubuntu kicked. VERIFY
-  (`tail /tmp/ubuntu.log`): all 5 realworld/p10 fixtures (incl. rust_data shadow-stack) pass on
-  x86_64. FAIL on rust_data ⟹ an x86_64 shadow-stack/global-init bug → investigate (high value).
+- cyc223: caching fix → realworld/wasm runners (`f424d7e8`). cyc224: setupRuntime global-init
+  fix → shadow-stack unlocked + rust_data (`eddb4652`, ubuntu-verified `OK c05eb57c`).
+  cyc225: `rust_bubble_sort`=4 (real algorithm: nested loops + array load/store on the shadow
+  stack — confirms the unlock handles real rustc algorithmic codegen; `9e4d0cfe`). realworld/p10
+  = 6 fixtures, all green. **Stale-exe pitfall** recurs: isolated `find`-by-grep can grab a
+  pre-fix exe → use `zig build` EXIT + the exe passing `data_sum=31`.
+- **Step 0.7 on resume**: cyc225 added rust_bubble_sort (`9e4d0cfe`) → ubuntu kicked. VERIFY
+  (`tail /tmp/ubuntu.log`): 6 realworld/p10 pass on x86_64 (committed `.wasm`, no rustc there).
 
-## Active task — rust algorithm realworld fixture (shadow-stack now unlocked)  **NEXT**
+## Active task — clang `-O0` realworld fixture (verify shadow-stack unlock for clang)  **NEXT**
 
-The cyc224 fix unlocked **shadow-stack modules** → real `-O` rust/clang code (loops over arrays,
-small algorithms) is now JIT-runnable via runI32Export, a much higher bug-finding vein than the
-trivial fixtures. Next: a `#![no_std]` rust fixture running a small ALGORITHM over a static array
-— e.g. bubble-sort the array then return a chosen element, or a checksum — exercising nested
-loops + array read/write + shadow-stack spills through real rustc codegen. Gen via
-`nix develop .#gen`; land `test/realworld/p10/rust_<slug>/`; run via the edge-runner → known i32.
-A trap/wrong-value is a real codegen finding (cf. rust_data).
+The clang-recipe lesson claimed "clang `-O0` shadow-stack modules trap" — cyc224's global-init
+fix should LIFT that. clang `-O0` spills everything to `__stack_pointer` (no regalloc) → the
+heaviest shadow-stack test, and a DIFFERENT toolchain than rust. Gen via `nix develop .#gen`:
+a tiny C `int test(){ int a[8]={...}; ... return a[k]; }` compiled `clang --target=wasm32
+-nostdlib -Wl,--no-entry -Wl,--export-all -O0` (note: -O0, not -O2). Land
+`test/realworld/p10/clang_O0_<slug>/`; run → known i32. If it RUNS → the unlock is validated
+for clang too (close the lesson claim). If it traps → a remaining shadow-stack gap (investigate).
+**User touchpoint (held, prominent)**: Phase 10 close-eligible (10.P 0 FAIL). The shadow-stack
+unlock (cyc224) made the real-toolchain vein productive (2 real finds: D-209, global-init). Deep
+not-close-required (D-206, 10.G GC JIT) + 10 SKIP-WASI (Phase 11) stay deferred. The formal
+Phase-10 close (→ Phase 11) is a user project-direction decision worth a check-in. NOT a stop.
 **User touchpoint (held, prominent)**: Phase 10 close-eligible (10.P 0 FAIL). The real-toolchain
 fixture vein is now PRODUCTIVE again (shadow-stack unlocked → real code finds real bugs, e.g.
 cyc224). Deep not-close-required work (D-206 ≈4-6 cyc; 10.G GC JIT extreme) + the 10 SKIP-WASI
