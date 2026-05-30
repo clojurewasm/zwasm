@@ -6,45 +6,39 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS — CLOSE-ELIGIBLE** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `<cyc217 docs/script>`. **All 4 I3 cross fixtures VERIFIED green on ubuntu**
-  (cyc216 Step 0.7: `OK (HEAD=bb2a3471)`) — first real x86_64 run, un-cached by the
-  has_side_effects fix. call_ref/return_call/EH × memory64 + EH × call_ref all pass both arches.
-- **I14 surveyed → correctly DEFERRED** (cyc217). The wasm.h tagtype accessors are NOT a
-  standalone 10.E chunk: `wasm_tagtype_new(wasm_functype_t*)` + `wasm_tagtype_as_externtype`
-  DEPEND on the type-reflection C-API family (functype/externtype) which is UNIMPLEMENTED
-  (src/api/ has only runtime-object accessors: func/global/memory/extern/trap/vec; zero
-  *type* accessors). Implementing tagtype in isolation is incoherent → Phase 13 c_api scope.
-  Close-invariant I14 rationale corrected to say so.
+- **HEAD**: `<cyc218>`. **5 cross-feature fixtures** in `test/edge_cases/p10/cross/`:
+  call_ref/return_call/EH × memory64, EH × call_ref, + cyc218 `multivalue_call_ref`→42
+  (multi-value × call_ref — multi-result capture through the funcref JIT path, an untested
+  interaction). All green on Mac; the 4 prior were ubuntu-verified (cyc216 `OK bb2a3471`).
+- **D-206 surveyed → re-scoped + DEFERRED** (cyc218). The bundle was opened on a mis-estimate:
+  the survey found the CURRENT cross-module call dispatch is INTERP-routed
+  (`host_dispatch_base[i]` → `api/cross_module.zig:thunk` → `interp_mvp.invoke`; the
+  `zwasm/linker.zig` Linker/CallCtx path, ADR-0109). There is NO native JIT→JIT cross-module
+  bridge today — ADR-0112 D4's inline-bridge would be the FIRST, per-arch + a JIT-to-JIT
+  2-module harness. ≈4-6 cycle architectural effort; NOT close-required (interp covers
+  cross-module tail-call; spec corpus green). Recorded in the D-206 debt row; bundle closed.
+- **I14 deferred** (cyc217): wasm.h tagtype accessors depend on the unimplemented
+  type-reflection C-API family (functype/externtype) → Phase 13, not standalone 10.E.
 - D-208 (cyc213) + D-209 (cyc214) fixed + ubuntu-verified. **10.P: 16 PASS / 8 SKIP / 0 FAIL**
-  → close-eligible. Remaining SKIPs all deferred-to-close-cycle (I5/I11/I16/I20/I23), tool-gated
-  (I21), or Phase-13 (I14). No autonomous SKIP-flip remains.
-- **Step 0.7 on resume**: cyc217 is DOCS/SCRIPT-only (I14 rationale + handover) → no ubuntu
-  kick; green holds at `bb2a3471`. The NEXT code chunk (D-206) kicks ubuntu.
+  → close-eligible. All remaining SKIPs are deferred-to-close-cycle (I5/I11/I16/I20/I23),
+  tool-gated (I21), or Phase-13 (I14). No autonomous SKIP-flip remains.
+- **Step 0.7 on resume**: cyc218 added 1 fixture (multivalue_call_ref) → ubuntu kicked on
+  the new HEAD. VERIFY (`tail /tmp/ubuntu.log`): the 5 cross fixtures pass on x86_64
+  (FAIL ⟹ a multi-result-via-call_ref x86_64 bug; fixture-only, low-risk revert).
 
-## Active bundle
+## Active task — call_indirect × memory64 cross fixture  **NEXT**
 
-- **Bundle-ID**: D-206-cross-module-TC
-- **Cycles-remaining**: ~3
-- **Continuity-memo**: (1) a multi-module JIT test harness (link 2 modules + JIT-run an
-  exported entry — no current `runI32Export`-style multi-module path); (2) cross-module
-  `return_call` inline-bridge emit (ADR-0112 D4; ADR-0066 thunk NOT reused) — arm64 + x86_64.
-  Current block: `op_tail_call.emitDirectReturnCall` rejects `return_call` to an import
-  (`if ins.payload < num_imports → UnsupportedOp`).
-- **Exit-condition**: a 2-module fixture where module A's exported `test` does
-  `return_call $imported` (a func imported from module B), JIT-executed → expected i32, on
-  both arches, ubuntu-verified.
-
-## Active task — D-206 cross-module tail-call JIT: multi-module JIT test harness  **NEXT**
-
-Bundle D-206-cross-module-TC, step 1. The substantive arc-completer (D-205 same-module
-tail-call → D-208 funcref-null → D-206 cross-module). Step 0 survey: how `runI32Export`
-links + JIT-runs a single module; what a 2-module variant needs (the cross-module bridge
-resolver in `engine/codegen/shared/linker.zig` / `cross_module.zig`); whether a
-`runI32Export`-style 2-module helper can be added to `src/engine/runner.zig`. Smallest red:
-a 2-module test where A return_calls B's imported func → expected i32 (will RED on
-`emitDirectReturnCall`'s import-reject). NOT close-required (interp covers it) but completes
-the tail-call JIT matrix. Deferred: 10.G GC JIT (extreme); funcref 34/39 + GC residual
-(D-198 RTT rabbit hole, deep defer).
+Continue cross-feature coverage (tractable, bug-finding-capable, close-prep). Next distinct
+untested interaction: **call_indirect × memory64** — a `(table funcref)` + `call_indirect`
+to a function that addresses `(memory i64 1)` (table-dispatch × memory64, distinct from the
+call_ref combos). Mirror the cross/ `.wat`/`.wasm`/`.expect` convention (`runI32Export` JIT;
+`wasm-tools parse`). Smallest red: the fixture, run → expected i32.
+**User touchpoint (held)**: the high-value autonomous close-prep is now essentially DONE
+(D-208/D-209 JIT fixes, 5 cross fixtures, caching fix, I14/D-206 scope findings). Phase 10
+is close-eligible (10.P 0 FAIL); the formal close (→ Phase 11) vs grinding the deep
+not-close-required work (D-206 native bridge ≈4-6 cyc; 10.G GC JIT extreme; D-198 RTT
+rabbit hole) is a high-value user check-in. NOT a stop — loop continues on tractable cross
+fixtures; re-arm holds.
 
 ## §10 close map
 
