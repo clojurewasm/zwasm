@@ -1,9 +1,37 @@
 # clang `--target=wasm64` + emscripten `-sMEMORY64=1` fixtures (Phase 10 / memory64)
 
-**Toolchain**: clang 19+ + emcc 3.x with `-sMEMORY64=1` —
-the only realworld toolchain emitting Wasm 3.0 memory64 code.
+**Toolchain**: clang 21 `--target=wasm64` (nostdlib) for the basic
+memory64-addressing case; emcc 3.x `-sMEMORY64=1` for libc-using
+big-allocation fixtures. Both emit Wasm 3.0 `(memory i64 ...)` modules.
 
-**Planned fixtures** (per design plan §4.3):
+## Landed fixtures
+
+- `wasm64_load_store.{c,wasm,expect}` (cyc214) — `clang --target=wasm64`
+  emits `(memory i64 2)`; the exported `test()` does an i64-addressed
+  `i32.store` + `i32.load` (round-trip) → 42. Result-checked through the
+  realworld-p10 JIT harness (`build.zig` `run_edge_realworld_p10` →
+  `runI32Export`; `.expect` = `i32: 42`). **This fixture surfaced D-209**:
+  clang/lld emits the memarg `offset` as a width-padded (9-byte) LEB128 —
+  valid for a u64 (memory64) offset (≤ 10 bytes) but the validator +
+  lowerer decoded it at u32 width and rejected it as `Error.Overlong`.
+  The spec corpus only uses minimal-LEB offsets, so this realworld gap
+  was invisible until a real clang binary was run. Fixed cyc214.
+
+**Build recipe (nix-wrapped toolchain; per lesson 2026-05-30 clang recipe)**:
+```sh
+WASMLD=$(ls -d /nix/store/*lld*/bin | head -1)
+PATH="$WASMLD:$PATH" NIX_HARDENING_ENABLE="" clang --target=wasm64 \
+    -nostdlib -Wl,--no-entry -Wl,--export-all -O2 \
+    -o wasm64_load_store.wasm wasm64_load_store.c
+```
+(`--target=wasm64` auto-enables memory64; the nix cc-wrapper prints a
+cross-target warning but produces a correct binary. Same `-nostdlib`,
+`--no-entry`, `--export-all`, `-O2`, `NIX_HARDENING_ENABLE=""` discipline
+as the clang_musttail recipe.)
+
+**Planned fixtures** (per design plan §4.3 — emcc + full-instantiation
+harness gated, NOT clang-buildable: they need libc malloc/memcpy + a
+>4 GiB allocation that `runI32Export` cannot drive):
 - `big_alloc.c.wasm` — `malloc(5LL * 1024 * 1024 * 1024)`
   (> 4 GiB; verifies memory64 mmap + i64 offset materialise
   per ADR-0111 D5)

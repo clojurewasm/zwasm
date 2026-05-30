@@ -2710,7 +2710,22 @@ pub const Validator = struct {
         if ((raw_align & 0x40) != 0) {
             _ = try leb128.readUleb128(u32, self.body, &self.pos); // memidx
         }
-        _ = try leb128.readUleb128(u32, self.body, &self.pos); // offset
+        try self.skipMemargOffset();
+    }
+
+    /// Wasm 3.0 §5.4.6: an i64-indexed (memory64) memory's memarg
+    /// offset is a u64 (LEB128 ≤ 10 bytes); a legacy i32 memory's is a
+    /// u32 (≤ 5 bytes). clang/lld emit width-padded offset LEBs for
+    /// memory64 (relocatable fixed-width), so decoding at u32 width
+    /// wrongly rejects a valid offset as Error.Overlong (D-209,
+    /// realworld clang_wasm64 — the spec corpus only uses minimal
+    /// LEBs, which masked this). Width keys off `memory0_idx_type`
+    /// (multi-memory mixed idx_type = separate cycle, like memAddrType).
+    fn skipMemargOffset(self: *Validator) Error!void {
+        switch (self.memory0_idx_type) {
+            .i32 => _ = try leb128.readUleb128(u32, self.body, &self.pos),
+            .i64 => _ = try leb128.readUleb128(u64, self.body, &self.pos),
+        }
     }
 
     /// Wasm spec §3.3.7 (memarg alignment) — read the memarg
@@ -2726,7 +2741,7 @@ pub const Validator = struct {
         if ((raw_align & 0x40) != 0) {
             _ = try leb128.readUleb128(u32, self.body, &self.pos); // memidx
         }
-        _ = try leb128.readUleb128(u32, self.body, &self.pos); // offset
+        try self.skipMemargOffset();
     }
 
     /// Address operand type for memory ops per Wasm 3.0 §3.4.7 —

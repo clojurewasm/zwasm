@@ -369,7 +369,7 @@ fn emitMemargLane(self: *Lowerer, op: ZirOp) Error!void {
     if (has_memidx) {
         _ = try leb128.readUleb128(u32, self.body, &self.pos); // memidx (discarded; multi-memory rejected at instantiate)
     }
-    const offset = try leb128.readUleb128(u32, self.body, &self.pos);
+    const offset = try self.readMemargOffset(); // memory64-aware width (D-209)
     if (self.pos >= self.body.len) return Error.UnexpectedEnd;
     const lane = self.body[self.pos];
     self.pos += 1;
