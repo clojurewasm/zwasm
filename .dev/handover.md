@@ -8,9 +8,9 @@
 - **Phase**: **10 IN-PROGRESS — committed to 100% (ADR-0128)** (Phase 9 = DONE
   2026-05-24). The prior "close-eligible" posture is RETRACTED: §10 exit requires the
   official Wasm 3.0 testsuite at pass=fail=skip=0 on **both backends** (interp + JIT).
-- **HEAD**: `97658b5d` (cyc246 — **x86_64 i31 emit**, i31 complete on BOTH backends,
-  ubuntu-verified green). cyc247-248 = struct ops JIT **design grounding** (docs-only; full
-  turn-key cycle decomposition in `phase10_g_op_bundle_plan.md`). Last CODE HEAD = `97658b5d`.
+- **HEAD**: `e853fda4` (cyc249 — 10.G **cycle A-1**: shared `allocStructObject` helper +
+  behavior-neutral interp adoption; first struct-on-JIT code). cyc246 (x86_64 i31)
+  ubuntu-verified green; cyc247-248 = design grounding (turn-key spec in plan doc).
 - **Two execution paths (CODE-verified)**: the spec corpus runs **interp-only**
   (`instance.invoke`→`_dispatch.run`, `instance.zig:169`). The JIT emits 1.0/2.0 +
   tail-call + function-references + EH + **i31 (both arches)**; remaining GC (struct/
@@ -53,16 +53,17 @@ Six workstreams (ADR-0128). Drive in this order; each is value-prioritized, NOT 
   on stack; struct offsets UNIFORM `8+idx*8` (ADR-0116 §3a); GC types are runtime-only
   (`inst.gc_type_infos`) → struct.new needs `field_count` threaded to compile-time; rooting
   DEFERRED (non-moving). e2e = `runI32Export` (hand-encode wasm; wat2wasm 1.0.40 lacks GC text).
-- **First-op order**: (1) **i31** — DONE both arches (`97658b5d`). NEXT = struct ops, fully
-  decomposed into TURN-KEY cycles in **`.dev/phase10_g_op_bundle_plan.md`
-  §"GC-on-JIT emit design" → "Cycle decomposition (cyc248)"** (regalloc + JitRuntime/Runtime
-  bridge resolved cyc248). **Concrete next chunk = Cycle A-1** (small, Mac-unit-testable, NO
-  setup/emit/regalloc): JitRuntime += `gc_heap`/`gc_type_infos_ptr` anyopaque fields (append
-  at struct end + offsets + budget, memory_grow_fn pattern) + new `shared/gc_alloc_trampoline.zig`
-  `jitGcAlloc(rt,typeidx)→GcRef` (mirror struct_ops allocateStruct+structNewDefault) + a unit
-  test that builds a JitRuntime w/ Heap+gti and calls it (behavior signal). Then A-2 (setup
-  GC-heap wiring + struct.new_default/get emit + runI32Export round-trip, both arches), A-3
-  (struct.new variadic + ADR-0060 force-spill amendment). (3) array.* (4) ref.cast (5) ref.eq.
+- **First-op order**: (1) **i31** — DONE both arches (`97658b5d`). struct ops decomposed
+  TURN-KEY in **`.dev/phase10_g_op_bundle_plan.md` §"Cycle decomposition (cyc248)"**.
+  **A-1 DONE** (`e853fda4`): shared `feature/gc/object_alloc.zig` `allocStructObject(heap,
+  typeidx,payload_size,zero_init)→GcRef` + behavior-neutral interp adoption. **NEXT = Cycle
+  A-2** (full spec in plan doc §"Cycle decomposition"): JitRuntime += `gc_heap`/
+  `gc_type_infos_ptr` fields (memory_grow_fn pattern) + `shared/gc_alloc_trampoline.zig`
+  `jitGcAlloc(rt,typeidx) callconv(.c)` wrapping `allocStructObject` + `setupRuntime`
+  (setup.zig:501) GC-heap/gc_type_infos wiring + arm64 `struct_new_default`/`struct_get` emit
+  + stackEffect (0→1 / 1→1) + usesRuntimePtr + runI32Export `struct.new_default 0; struct.get
+  0 0`→0 (then x86_64). A-3 = struct.new (variadic + ADR-0060 force-spill). (3) array.*
+  (4) ref.cast (5) ref.eq.
 - **Exit-condition**: i31 green via `runI32Export` both arches — **DONE** (`97658b5d`).
   Bundle continues to struct/array/ref.cast; close when all GC ops emit + corpus green.
 
@@ -84,8 +85,9 @@ Six workstreams (ADR-0128). Drive in this order; each is value-prioritized, NOT 
 ## Step 0.7 (next resume)
 
 cyc246 (`97658b5d`, x86_64 i31 + ungated e2e) ubuntu-verified green `OK (HEAD=bd4729db)` —
-the null-trap path (R15 trap stub / `usesRuntimePtr` D-180) passed on real x86_64. cyc247-248
-are docs-only (struct ops design grounding) → no ubuntu pending, no revert.
+the null-trap path (R15 trap stub / `usesRuntimePtr` D-180) passed on real x86_64. cyc249
+(`e853fda4`) = A-1 helper + behavior-neutral interp refactor (touches interp struct_ops →
+runs on x86_64); ubuntu kick pending → verify `tail -3 /tmp/ubuntu.log` next resume.
 
 ## Key refs
 
