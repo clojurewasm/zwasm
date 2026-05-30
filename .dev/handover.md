@@ -17,33 +17,36 @@
 - **10.P: 16 PASS / 8 SKIP / 0 FAIL → close-eligible.**
 - **nix**: dev shell active (zig 0.16.0 / wabt / wasmtime).
 
-## Step 0.7 (next resume — DO FIRST)
+## Step 0.7 (next resume)
 
-- cyc236 (`38bb0e0e`) is a linker code change → ubuntu kicked this turn. Next
-  resume `tail -3 /tmp/ubuntu.log`, expect `OK (HEAD=<turn-final>)` — verifies
-  `.30/.48/.50` instantiate + no regression on x86_64. On FAIL: revert the turn's
-  commits; last green = `3933c9a7` via caf7305b.
+- cyc236 (`38bb0e0e`, D-202 PHASE A) is **ubuntu-verified `OK (HEAD=ebca32b0)`** —
+  `.30/.48/.50` instantiate + no regression on x86_64, both arches green. cyc237 =
+  docs-only scope-correction → no ubuntu kick. No pending gate, no revert.
 
 ## Active bundle
 
 - **Bundle-ID**: D-202-xmodule-finality
-- **Cycles-remaining**: ~1-2 (PHASE B is ADR-grade)
-- **Continuity-memo**: PHASE A LANDED (`38bb0e0e`) — `linker.zig` cross_module_func
-  arm swapped exact `sigEqual` → `validator.funcTypeImportCompatible`; `.30/.48/.50`
-  (positive direction) now instantiate. **PHASE B remaining = the COUNTED RED**
-  (`assert_unlinkable pass=3 fail=5`, verified live): `.35/.36/.42/.52/.54` WRONGLY
-  LINK — importer declares a FINAL `(func)` type, exporter provides an open
-  `(sub (func))` (structurally identical `()->()`, so subtyping passes; only
-  type-definition FINALITY differs). The linker has no finality info: `cmf.source_signature`
-  is a flat `zir.FuncType` AND `zir.FuncType` itself drops finality/supertype
-  (they live in the parse-time `sections.Types`, freed after instantiate). So the
-  fix requires carrying func-type finality through the type representation = **§4
-  architecture change → file an ADR FIRST** (Deviation Watch). ADR options: (a)
-  add `final`/`supertype` to `zir.FuncType`; (b) thread the exporter typeidx +
-  retain its `sections.Types`/`gc_type_infos`. Then add the finality guard in
-  `linker.zig` (and mirror in `instantiate.zig` if needed).
-- **Exit-condition**: `assert_unlinkable fail 5 → 0` (`.35/etc.` correctly rejected),
-  no regression to the now-OK `.30/.48/.50`. Both arches, ubuntu-verified.
+- **Cycles-remaining**: ~1-2 (PHASE B is plumbing, not ADR)
+- **Continuity-memo**: PHASE A LANDED + ubuntu-verified (`38bb0e0e`) —
+  `linker.zig` cross_module_func arm uses `validator.funcTypeImportCompatible`;
+  `.30/.48/.50` now instantiate. **PHASE B = the COUNTED RED** (`assert_unlinkable
+  pass=3 fail=5`, verified live): `.35/.36/.42/.52/.54` WRONGLY LINK — importer
+  declares a FINAL `(func)`, exporter provides an open `(sub (func))` (structurally
+  identical `()->()` so subtyping passes; only type-definition FINALITY differs).
+  **CORRECTION (cyc237): PHASE B is PLUMBING, NOT §4 ADR-grade.** Finality IS
+  retained — `sections.Types` carries `finals: []bool` + `supertypes` (`sections.zig:138-143`);
+  zir.FuncType drops it but it need not live there. Recipe: (1) `defineCrossModuleFunc`
+  (`linker.zig:309`) — capture the exporter func's typeidx + finality from
+  `source_inst` next to `exportFuncSig`; (2) store `source_typeidx`/`source_final`
+  in `CrossModuleFuncEntry` (`linker.zig:129`); (3) at the resolve check
+  (cross_module_func arm), after `funcTypeImportCompatible`, if the importer's
+  declared type is final (`module_types.finals[typeidx]`) require the exporter's
+  type to be canonically equal (finality + structure). **OPEN QUESTION (resolve
+  FIRST)**: does `source_inst` (exporter Instance) RETAIN its func→typeidx mapping
+  + type-section `finals`? `exportFuncSig` returns only the flat sig. If retained →
+  straight plumbing; if not → retain/re-decode the exporter's type section.
+- **Exit-condition**: `assert_unlinkable fail 5 → 0` (`.35/etc.` rejected), no
+  regression to the now-OK `.30/.48/.50`. Both arches, ubuntu-verified.
 
 ## Active task — D-202 cross-module type-identity (finality) check  **NEXT**
 
