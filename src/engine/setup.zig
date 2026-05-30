@@ -16,6 +16,7 @@ const canonical_type = @import("codegen/shared/canonical_type.zig");
 const rv = @import("runner_validate.zig");
 
 const runner_mod = @import("runner.zig");
+const instantiate = @import("../runtime/instance/instantiate.zig");
 const Error = runner_mod.Error;
 const CompiledWasm = runner_mod.CompiledWasm;
 
@@ -151,10 +152,11 @@ pub fn setupRuntime(
     // — `globals_base = undefined` previously caused 0xaaaa...
     // segfaults in the realworld corpus invocation path.
     var globals_count: u32 = 0;
+    var decoded_globals: ?sections.Globals = null;
+    defer if (decoded_globals) |*g| g.deinit();
     if (module.find(.global)) |s| {
-        var globals_buf = try sections.decodeGlobals(ta, s.body);
-        defer globals_buf.deinit();
-        globals_count = @intCast(globals_buf.items.len);
+        decoded_globals = try sections.decodeGlobals(ta, s.body);
+        globals_count = @intCast(decoded_globals.?.items.len);
     }
     // §9.9 / 9.9-m-2a: parse the table section into per-table
     // descriptors. `table_size` is retained as the table-0 entry
@@ -185,6 +187,17 @@ pub fn setupRuntime(
     const globals_buf = try allocator.alloc(Value, if (globals_count == 0) 1 else globals_count);
     errdefer allocator.free(globals_buf);
     @memset(globals_buf, .{ .bits128 = 0 });
+    // Evaluate each defined global's init-expr so e.g. `__stack_pointer`
+    // holds its real value. This simplified setup previously left globals
+    // at 0, which made shadow-stack modules' `SP - n` wrap to a huge OOB
+    // address → trap (surfaced by the rust_data realworld fixture: real
+    // rustc/clang -O code spills to the shadow stack). Non-const inits
+    // (rare in these fixtures) fall back to 0.
+    if (decoded_globals) |g| {
+        for (g.items, 0..) |gd, i| {
+            globals_buf[i] = instantiate.evalConstExprValue(gd.init_expr) catch .{ .bits128 = 0 };
+        }
+    }
 
     const funcptrs_buf = try allocator.alloc(u64, if (table_size == 0) 1 else table_size);
     errdefer allocator.free(funcptrs_buf);

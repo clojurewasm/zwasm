@@ -27,10 +27,12 @@ The edge-case runner (`runI32Export`, JIT) is the only RESULT-checking
 fixture harness, but it has two limits for clang output:
 
 1. **No full instantiation** — it compiles + invokes one no-arg func in
-   isolation; it does NOT run global init-exprs / set up the shadow
-   stack. A clang `-O0` module (locals spilled to `__stack_pointer`
-   linear memory) → traps. **-O2** keeps simple funcs in wasm-locals
-   (or constant-folds) → runs.
+   isolation. **UPDATE cyc224**: it now DOES evaluate const global
+   init-exprs (`setupRuntime`, fix prompted by the `rust_data` fixture),
+   so `__stack_pointer` is correct and **shadow-stack modules now run**
+   (real `-O` rust/clang code that spills the stack). Previously they
+   trapped (`SP - n` wrapped to OOB because globals were left 0). Still
+   no WASI / args / data-active-segment-beyond-globals support.
 2. **No args** → a no-arg pure func constant-folds (clang -O2 folded
    `sum 1..10` to `i32.const 55`), so only trivial clang fixtures are
    JIT-verifiable this way.
