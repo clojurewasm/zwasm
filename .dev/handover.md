@@ -8,9 +8,10 @@
 - **Phase**: **10 IN-PROGRESS — committed to 100% (ADR-0128)** (Phase 9 = DONE
   2026-05-24). The prior "close-eligible" posture is RETRACTED: §10 exit requires the
   official Wasm 3.0 testsuite at pass=fail=skip=0 on **both backends** (interp + JIT).
-- **HEAD**: `3d4e7e77` (cyc250 — 10.G **cycle A-2a**: JitRuntime gc_heap/gc_type_infos_ptr
-  fields + `jitGcAlloc` trampoline, unit-tested). cyc249 = A-1 (shared `allocStructObject`),
-  ubuntu-verified green (`OK b7d76905`). cyc247-248 = design grounding (plan doc).
+- **HEAD**: `68a2dbf0` (cyc251 — 10.G **cycle A-2b-1**: first allocating GC op on the JIT —
+  arm64 `struct.new_default` emit + setupRuntime GC-heap + JIT-path validator GC-type
+  threading; `runI32Export` alloc round-trip green on Mac arm64). cyc250 (A-2a jitGcAlloc) +
+  cyc249 (A-1) ubuntu-verified green; cyc247-248 = design grounding (plan doc).
 - **Two execution paths (CODE-verified)**: the spec corpus runs **interp-only**
   (`instance.invoke`→`_dispatch.run`, `instance.zig:169`). The JIT emits 1.0/2.0 +
   tail-call + function-references + EH + **i31 (both arches)**; remaining GC (struct/
@@ -52,20 +53,16 @@ Six workstreams (ADR-0128). Drive in this order; each is value-prioritized, NOT 
   on stack; struct offsets UNIFORM `8+idx*8` (ADR-0116 §3a); GC types are runtime-only
   (`inst.gc_type_infos`) → struct.new needs `field_count` threaded to compile-time; rooting
   DEFERRED (non-moving). e2e = `runI32Export` (hand-encode wasm; wat2wasm 1.0.40 lacks GC text).
-- **First-op order**: (1) **i31** — DONE both arches (`97658b5d`). struct ops decomposed
-  TURN-KEY in **`.dev/phase10_g_op_bundle_plan.md` §"Cycle decomposition (cyc248)"**.
-  **A-1 DONE** (`e853fda4`): shared `feature/gc/object_alloc.zig`. **A-2a DONE** (`3d4e7e77`):
-  JitRuntime += `gc_heap`/`gc_type_infos_ptr` fields (offsets+budget; head_size 432→448) +
-  `jitGcAlloc(rt,typeidx) callconv(.c) u32` in jit_abi.zig (resolves StructInfo from rt fields,
-  wraps `allocStructObject`; 2 unit tests green). **NEXT = Cycle A-2b** (the e2e round-trip;
-  full spec in plan doc §"Cycle decomposition"): (a) `setupRuntime` (setup.zig:501) GC-heap +
-  `materialiseGcTypes` wiring (set `rt.gc_heap`/`gc_type_infos_ptr` + RuntimeOwned cleanup);
-  (b) arm64 `struct_new_default` emit (rt→X0/typeidx→W1, MOV X16,&jitGcAlloc [throw.zig
-  address-materialise], BLR, W0→result) + `struct_get` emit (pop ref, null-trap, slab via
-  `[X19,#gc_heap_off]`→`[Heap,#@offsetOf(Heap,"bytes")]`, load `[slab+ref+8+idx*8]`);
-  (c) stackEffect new_default=0→1/get=1→1; (d) register + count; (e) usesRuntimePtr += both
-  (D-180); (f) runI32Export `struct.new_default 0; struct.get 0 0`→0; then x86_64. A-3 =
-  struct.new (variadic + ADR-0060 force-spill). (3) array.* (4) ref.cast (5) ref.eq.
+- **First-op order** (struct ops decomposed TURN-KEY in **`phase10_g_op_bundle_plan.md`
+  §"Cycle decomposition (cyc248)"**): (1) **i31** both arches DONE (`97658b5d`). **A-1**
+  `object_alloc` helper (`e853fda4`) + **A-2a** JitRuntime gc fields + `jitGcAlloc` trampoline
+  (`3d4e7e77`) + **A-2b-1** arm64 `struct.new_default` emit + setupRuntime GC-heap + JIT-path
+  validator GC-type threading (`68a2dbf0`, `struct.new_default 0; ref.is_null`→0 green) — ALL
+  DONE. **NEXT = A-2b-2**: arm64 `struct_get` emit (pop ref, null-trap, slab base =
+  `[X19,#gc_heap_off]`→`[Heap,#@offsetOf(Heap,"bytes")]`, load `[slab+ref+8+idx*8]`; stackEffect
+  get=1→1; usesRuntimePtr+=get) + runI32Export `struct.new_default 0; struct.get 0 0`→0. Then
+  x86_64 struct mirror, A-3 = struct.new (variadic + ADR-0060 force-spill). (3) array.*
+  (4) ref.cast (5) ref.eq.
 - **Exit-condition**: i31 green via `runI32Export` both arches — **DONE** (`97658b5d`).
   Bundle continues to struct/array/ref.cast; close when all GC ops emit + corpus green.
 
@@ -87,9 +84,10 @@ Six workstreams (ADR-0128). Drive in this order; each is value-prioritized, NOT 
 ## Step 0.7 (next resume)
 
 cyc246 (`97658b5d`, x86_64 i31 + ungated e2e) ubuntu-verified green `OK (HEAD=bd4729db)` —
-cyc249 (`b7d76905`, A-1 helper + interp refactor) ubuntu-verified green `OK`. cyc250
-(`3d4e7e77`) = A-2a JitRuntime ABI extension + jitGcAlloc (arch-independent: comptime budget
-+ a pure fn + unit tests); ubuntu kick pending → verify `tail -3 /tmp/ubuntu.log` next resume.
+cyc250 (`f1f2f38b`, A-2a) ubuntu-verified green `OK`. cyc251 (`68a2dbf0`) = A-2b-1: the
+`struct.new_default 0; ref.is_null`→0 round-trip is aarch64-gated (skips x86_64); the
+validator/setupRuntime/regalloc changes are arch-independent (verify compile + non-GC
+neutrality on x86_64). ubuntu kick pending → verify `tail -3 /tmp/ubuntu.log` next resume.
 
 ## Key refs
 
