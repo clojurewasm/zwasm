@@ -6,21 +6,18 @@
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS — CLOSE-ELIGIBLE** (Phase 9 = DONE 2026-05-24).
-- **HEAD**: `e71d6a0a` (cyc228). This session (cyc213-229) delivered, all ubuntu-verified:
-  D-208 (x86_64 funcref-null trap: `usesRuntimePtr` gap) + D-209 (memory64 memarg-offset u64)
-  JIT bug fixes; 2 false-coverage caching fixes (`has_side_effects` on all edge+realworld
-  runners); the user-directed nix **`devShells.gen`** reproducible toolchain provisioning
-  (`.dev/toolchain_provisioning.md`); the cyc224 **shadow-stack unlock** (setupRuntime now
-  evaluates const global inits → real `-O` rust/clang code runs); a complete real-toolchain
-  **realworld/p10 matrix** (8 fixtures: rust loop/recursion/data/sort + clang musttail/wasm64/
-  -O0-int/-O0-fp); 7 cross-feature edge fixtures; a pre-close audit (scaffolding coherent).
-- **10.P: 16 PASS / 8 SKIP / 0 FAIL → close-eligible.** Tractable autonomous veins EXHAUSTED.
-- **Step 0.7 on resume**: cyc228 was docs/debt-only (no kick); cyc229 is Step-0/docs-only (no
-  kick). Last green: `OK (HEAD=0aad48c6)` (8 realworld/p10 pass x86_64). Next CODE chunk kicks ubuntu.
+- **HEAD**: `be9fb534` (cyc230). Session (cyc213-230) delivered, ubuntu-verified: D-208 + D-209
+  JIT bug fixes; 2 false-coverage caching fixes; nix **`devShells.gen`** toolchain provisioning;
+  cyc224 **shadow-stack unlock**; complete real-toolchain **realworld/p10 matrix** (8); pre-close
+  audit (coherent). **cyc230 = D-206 step 1**: 2-module JIT harness + baseline cross-module CALL
+  (green, isolated unit-level coverage that the .wast corpus didn't give).
+- **10.P: 16 PASS / 8 SKIP / 0 FAIL → close-eligible.**
+- **Step 0.7 on resume**: cyc230 (`be9fb534`) is a CODE chunk → kicks ubuntu; verify
+  `/tmp/ubuntu.log` next cycle (revert pair on FAIL). Prior green: `OK (HEAD=0aad48c6)`.
 
 ## Active bundle
 
-- **Bundle-ID**: D-206-cross-module-TC. **Cycles-remaining**: ~2-3.
+- **Bundle-ID**: D-206-cross-module-TC. **Cycles-remaining**: ~1-2 (step 1 landed cyc230).
 - **cyc229 Step-0 GROUND-TRUTH (re-scopes the wrong cyc218 survey)**: cross-module CALL via JIT
   ALREADY works natively + is spec-validated. The spec runner's `resolveCrossModuleImports`
   (`spec_assert_runner_base.zig:1476`) emits a NATIVE bridge thunk via `shared/thunk.zig:emitThunk`
@@ -33,22 +30,27 @@
   The existing `emitThunk` is CALL-shaped → return_call needs a NEW tail bridge (inline per D4,
   OR a tail-variant thunk). Reject site: `op_tail_call.emitDirectReturnCall` arm64:157 / x86_64:143
   (`if ins.payload < num_imports → UnsupportedOp`).
-- **Continuity-memo / harness gap**: a `runI32ExportTwoModule` test reuses `compileWasm` +
-  `resolveCrossModuleImports` + `entry.callI32NoArgs`; the MISSING piece is a dispatch-override
-  (the spec runner's `makeJitRuntime` has `dispatch_override: ?[]const usize`; `setupRuntime`
-  does NOT). For the tail-bridge, the emit needs callee_rt+callee_entry — host_dispatch_base[i]
-  holds the THUNK addr (embeds them in its literal pool), so either expose them at resolve time
-  OR add a tail-variant thunk reachable from the importer.
-- **Exit-condition**: a 2-module fixture where A's exported `test` does `return_call` to a
-  B-imported func, JIT-executed → expected i32, both arches, ubuntu-verified.
+- **Harness LANDED (cyc230 `be9fb534`)**: `CrossModuleHarness` in `src/engine/runner.zig` test
+  scope — compile A+B, `shared_thunk.emitThunk` into a JIT arena → plant into A's
+  `host_dispatch_base[0]` view, `entry.callI32NoArgs(A.test)`. The dispatch-override "gap" is
+  solved WITHOUT a `setupRuntime` change: overwrite `RuntimeOwned.dispatch[0]` post-setup (it
+  aliases `rt.host_dispatch_base`, setup.zig:510). Baseline `call $get` → 42 green on Mac.
+- **Step 2 (tail-bridge EMIT)**: reject site `op_tail_call.emitDirectReturnCall` arm64:157 /
+  x86_64:143 (`ins.payload < ctx.num_imports → Error.UnsupportedOp`). `cross_module_tail_call.zig`
+  does NOT exist yet (referenced in op_tail_call comments as 10.TC-3f). Per ADR-0112 D4: marshal
+  args, `frame_teardown(A)`, tail-jump `BR/JMP` to the callee with X0/RDI=callee_rt. The existing
+  `emitThunk` is CALL-shaped (BLR+RET-to-importer) → return_call needs a NEW tail bridge. The
+  callee_rt+callee_entry are embedded in the thunk slot's literal pool; for the tail path the emit
+  must reach them — either a tail-variant thunk planted alongside, or expose them at resolve time.
+- **Exit-condition**: extend the harness — A's `test` does `return_call $get` (a_return_call.wat
+  bytes already minted: `…0x12 0x00 0x0b`) → JIT-executes → 42, both arches, ubuntu-verified.
 
-## Active task — D-206 step 1: multi-module JIT test harness + baseline cross-module call  **NEXT**
+## Active task — D-206 step 2: cross-module return_call tail-bridge emit  **NEXT**
 
-Build the harness (test file, zone-exempt): instantiate B, resolve A's func-import→B's JIT entry
-(`resolveCrossModuleImports` is pub in spec_assert_runner_base; reuse or extract to a shared
-location), JIT-run A's `test`. Add a dispatch-override path (the gap). Smallest RED→GREEN: A does
-a normal `call $imported` → B returns a const → verify cross-module CALL works through the harness
-(baseline). Then step 2 = the `return_call` test (REDs on the reject) + the tail-bridge emit.
+RED first: add the `return_call` variant to `CrossModuleHarness` (importer bytes with `0x12 0x00`
+instead of `0x10 0x00`) → `compileWasm(A)` currently returns `Error.UnsupportedOp` at the reject
+site. GREEN: implement the tail-bridge per ADR-0112 D4 (arm64 first, then x86_64) so A.test
+`return_call $get` JIT-executes to 42. Both arches; ubuntu-verified at the cyc-after Step 0.7.
 NOT close-required (interp covers it); completes the tail-call JIT arc (D-205→D-208→D-206).
 **User touchpoint (held)**: Phase 10 close-eligible (10.P 0 FAIL). Formal close (→ Phase 11) is
 a high-value user decision; D-206 is the loop's autonomous continuation, re-armable to the close
