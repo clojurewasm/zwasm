@@ -242,6 +242,32 @@ pub fn runI32Export(
     return entry.callI32NoArgs(compiled.module, func_idx, &owned.rt);
 }
 
+/// Run a no-arg, i64-result exported function and return the raw 64-bit
+/// result. Mirrors `runI32Export`; differs only in the result-type gate
+/// (`.i64`) and the entry helper (`callI64NoArgs`). The spec-corpus §1
+/// JIT execution mode dispatches here for `() -> i64` asserts.
+pub fn runI64Export(
+    allocator: Allocator,
+    wasm_bytes: []const u8,
+    export_name: []const u8,
+) Error!u64 {
+    const func_idx = try findExportFunc(allocator, wasm_bytes, export_name);
+
+    var compiled = try compileWasm(allocator, wasm_bytes);
+    defer compiled.deinit(allocator);
+
+    if (func_idx >= compiled.func_sigs.len) return Error.ExportNotFound;
+    if (func_idx < compiled.num_imports) return Error.UnsupportedEntrySignature;
+    const sig = compiled.func_sigs[func_idx];
+    if (sig.params.len != 0 or sig.results.len != 1 or sig.results[0] != .i64) {
+        return Error.UnsupportedEntrySignature;
+    }
+
+    var owned = try setupRuntime(allocator, &compiled, wasm_bytes);
+    defer owned.deinit(allocator);
+    return entry.callI64NoArgs(compiled.module, func_idx, &owned.rt);
+}
+
 /// Run a no-arg, void-result exported function (e.g. `_start`)
 /// and surface trap as Error.Trap. Mirrors `runI32Export`'s
 /// setup; differs only in the entry-call helper + signature

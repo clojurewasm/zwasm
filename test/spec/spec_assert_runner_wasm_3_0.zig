@@ -115,7 +115,8 @@ const ProposalSummary = struct {
 /// `tests/wast.rs` pattern. Skips shrink as the general arg/result
 /// dispatcher lands in follow-on cycles.
 fn jitReturnEligible(args_len: usize, results_len: usize, result_ty: []const u8, module_id_len: usize) bool {
-    return args_len == 0 and results_len == 1 and module_id_len == 0 and std.mem.eql(u8, result_ty, "i32");
+    return args_len == 0 and results_len == 1 and module_id_len == 0 and
+        (std.mem.eql(u8, result_ty, "i32") or std.mem.eql(u8, result_ty, "i64"));
 }
 
 /// §1 (ADR-0128) — classify a `runI32Export` error so the JIT RED signal
@@ -563,7 +564,7 @@ pub fn main(init: std.process.Init) !void {
                             );
                             if (!elig) {
                                 summary.jit_return_skip += 1;
-                                if (fail_detail) try stdout.print("  JITskip [{s}/{s}] {s} (args={d} results={d} — only no-arg-i32 wired)\n", .{ proposal, entry.name, d.func_name, d.args_len, d.results_len });
+                                if (fail_detail) try stdout.print("  JITskip [{s}/{s}] {s} (args={d} results={d} — only no-arg i32/i64 wired)\n", .{ proposal, entry.name, d.func_name, d.args_len, d.results_len });
                                 continue;
                             }
                             const jb = cur_module_bytes orelse {
@@ -576,6 +577,28 @@ pub fn main(init: std.process.Init) !void {
                                 continue;
                             };
                             const exp_zv = manifest_parser.runtimeToZwasm(exp_rv, exp_tv.ty);
+                            // Dispatch by result type. i32 + i64 are wired (no-arg, exact
+                            // bit compare); the catch routes compile/setup rejects to skip
+                            // and execution-stage outcomes to fail (jitErrorIsUnwiredShape).
+                            if (std.mem.eql(u8, exp_tv.ty, "i64")) {
+                                const got_u = zwasm.engine.runner.runI64Export(gpa, jb, d.func_name) catch |e| {
+                                    if (jitErrorIsUnwiredShape(e)) {
+                                        summary.jit_return_skip += 1;
+                                        if (fail_detail) try stdout.print("  JITskip [{s}/{s}] {s} (unwired shape: err={s})\n", .{ proposal, entry.name, d.func_name, @errorName(e) });
+                                    } else {
+                                        summary.jit_return_fail += 1;
+                                        if (fail_detail) try stdout.print("  JITfail [{s}/{s}] {s} err={s}\n", .{ proposal, entry.name, d.func_name, @errorName(e) });
+                                    }
+                                    continue;
+                                };
+                                if (@as(i64, @bitCast(got_u)) == exp_zv.i64) {
+                                    summary.jit_return_pass += 1;
+                                } else {
+                                    summary.jit_return_fail += 1;
+                                    if (fail_detail) try stdout.print("  JITval [{s}/{s}] {s} exp={d} got={d}\n", .{ proposal, entry.name, d.func_name, exp_zv.i64, @as(i64, @bitCast(got_u)) });
+                                }
+                                continue;
+                            }
                             const got_u = zwasm.engine.runner.runI32Export(gpa, jb, d.func_name) catch |e| {
                                 if (jitErrorIsUnwiredShape(e)) {
                                     summary.jit_return_skip += 1;
@@ -929,7 +952,7 @@ pub fn main(init: std.process.Init) !void {
     );
     if (jit_mode) {
         try stdout.print(
-            "[wasm-3.0-assert] JIT execution mode (ADR-0128 §1): assert_return pass={d} fail={d} skip={d} (skip = JIT could not attempt this shape: eligibility-gated [args / i64 / fp / v128 / multi-value / void / cross-module] OR compile/setup-rejected [multi-memory / unemitted-op / const-expr-or-validate gap, per jitErrorIsUnwiredShape]; fail = JIT executed and got the wrong observable result [trap or value mismatch])\n",
+            "[wasm-3.0-assert] JIT execution mode (ADR-0128 §1): assert_return pass={d} fail={d} skip={d} (skip = JIT could not attempt this shape: eligibility-gated [args / fp / v128 / multi-value / void / cross-module] OR compile/setup-rejected [multi-memory / unemitted-op / const-expr-or-validate gap, per jitErrorIsUnwiredShape]; fail = JIT executed and got the wrong observable result [trap or value mismatch])\n",
             .{ grand_total_jit_pass, grand_total_jit_fail, grand_total_jit_skip },
         );
     }
@@ -953,18 +976,18 @@ test "wasm-3.0-assert: PROPOSALS list matches design plan §3.1-§3.5 + §4.6 + 
     try std.testing.expectEqualStrings("multi-memory", PROPOSALS[5]);
 }
 
-test "wasm-3.0-assert §1: JIT execution-mode eligibility + no-arg-i32 JIT invoke (ADR-0128 §1)" {
-    // §1 first increment — only the no-arg + single-i32-result, same-
-    // module subset is wired through the JIT (runI32Export). Every
-    // other shape is enumerated as a JIT skip (the wasmtime
-    // tests/wast.rs should_fail pattern), flipped as the general
-    // arg/result dispatcher lands.
+test "wasm-3.0-assert §1: JIT execution-mode eligibility + no-arg i32/i64 JIT invoke (ADR-0128 §1)" {
+    // §1 dispatcher increment — no-arg + single-result, same-module, with
+    // result type ∈ {i32, i64} wired through the JIT (runI32Export /
+    // runI64Export, exact bit compare). FP (f32/f64) results stay a skip
+    // pending the NaN-canonical/-arithmetic compare in the next increment;
+    // args / multi-value / cross-module also still enumerated skips.
     try std.testing.expect(jitReturnEligible(0, 1, "i32", 0)); // wired
+    try std.testing.expect(jitReturnEligible(0, 1, "i64", 0)); // wired (this increment)
     try std.testing.expect(!jitReturnEligible(1, 1, "i32", 0)); // has args
     try std.testing.expect(!jitReturnEligible(0, 2, "i32", 0)); // multi-value
     try std.testing.expect(!jitReturnEligible(0, 0, "", 0)); // void (side-effect)
-    try std.testing.expect(!jitReturnEligible(0, 1, "i64", 0)); // non-i32 result
-    try std.testing.expect(!jitReturnEligible(0, 1, "f32", 0)); // fp result
+    try std.testing.expect(!jitReturnEligible(0, 1, "f32", 0)); // fp result (next increment)
     try std.testing.expect(!jitReturnEligible(0, 1, "i32", 3)); // cross-module ($M::field)
 
     // End-to-end: the no-arg i32 export executes THROUGH the JIT entry
@@ -979,6 +1002,19 @@ test "wasm-3.0-assert §1: JIT execution-mode eligibility + no-arg-i32 JIT invok
     };
     const got = try zwasm.engine.runner.runI32Export(std.testing.allocator, &wasm, "seven");
     try std.testing.expectEqual(@as(u32, 7), got);
+
+    // End-to-end i64: exercises the full 64-bit width via `i64.const -1`
+    // (all-ones) so an i32-only path would mis-marshal. Hand-built
+    // `(module (func (export "big") (result i64) i64.const -1))`.
+    const wasm64 = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // magic + version
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7e, // type: () -> i64
+        0x03, 0x02, 0x01, 0x00, // func: typeidx 0
+        0x07, 0x07, 0x01, 0x03, 0x62, 0x69, 0x67, 0x00, 0x00, // export "big" func 0
+        0x0a, 0x06, 0x01, 0x04, 0x00, 0x42, 0x7f, 0x0b, // code: i64.const -1; end
+    };
+    const got64 = try zwasm.engine.runner.runI64Export(std.testing.allocator, &wasm64, "big");
+    try std.testing.expectEqual(@as(i64, -1), @as(i64, @bitCast(got64)));
 }
 
 test "wasm-3.0-assert §1: JIT error classification — unwired-shape → skip, executed-wrong → fail (ADR-0128 §1)" {
