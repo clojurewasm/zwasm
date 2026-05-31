@@ -240,6 +240,7 @@ pub const encMovzxR32_16MemBaseIdx = inst_mem.encMovzxR32_16MemBaseIdx;
 pub const encMovsxR32_16MemBaseIdx = inst_mem.encMovsxR32_16MemBaseIdx;
 pub const encMovR64FromBaseIdx = inst_mem.encMovR64FromBaseIdx;
 pub const encStoreR64MemBaseIdx = inst_mem.encStoreR64MemBaseIdx;
+pub const encStoreR64MemBaseIdxLsl3 = inst_mem.encStoreR64MemBaseIdxLsl3;
 pub const encMovzxR64_8MemBaseIdx = inst_mem.encMovzxR64_8MemBaseIdx;
 pub const encMovsxR64_8MemBaseIdx = inst_mem.encMovsxR64_8MemBaseIdx;
 pub const encMovzxR64_16MemBaseIdx = inst_mem.encMovzxR64_16MemBaseIdx;

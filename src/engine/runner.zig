@@ -1360,3 +1360,37 @@ test "runI32Export: array.new_default + array.len → 3 (10.G array-on-JIT A-2)"
     };
     try testing.expectEqual(@as(u32, 3), runI32Export(testing.allocator, &bytes, "f"));
 }
+
+test "runI32Export: array.set then array.get round-trip → 55 (10.G array-on-JIT A-3)" {
+    // Both arches (arm64 + x86_64 SysV emit landed together).
+    // (module
+    //   (type (array (mut i32)))                       ;; type 0
+    //   (func (export "f") (result i32) (local (ref null 0))  ;; type 1
+    //     i32.const 3  array.new_default 0  local.tee 0
+    //     i32.const 1  i32.const 55  array.set 0        ;; elem[1] = 55
+    //     local.get 0  i32.const 1  array.get 0))       ;; elem[1] → 55
+    // Exercises array.set (pop value+index+ref, bounds-check, register-
+    // offset store at [base+12+index*8]) + array.get (bounds-check +
+    // register-offset load). A `(ref null 0)` local (63 00) holds the ref.
+    // array.set = fb 0e typeidx; array.get = fb 0b typeidx; i32.const 55 =
+    // 41 37 (< 64 → single-byte signed LEB128).
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        // type: [0]=array{i32 mut} (5e 7f 01), [1]=func ()->(i32) (60 00 01 7f)
+        0x01, 0x08, 0x02, 0x5e, 0x7f, 0x01, 0x60, 0x00,
+        0x01, 0x7f,
+        0x03, 0x02, 0x01, 0x01, // func: type idx 1
+        0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00, // export "f" func 0
+        // code: body 26 bytes. locals 1×(ref null 0) [01 01 63 00];
+        // i32.const 3 [41 03] + array.new_default 0 [fb 07 00] +
+        // local.tee 0 [22 00] + i32.const 1 [41 01] + i32.const 55 [41 37] +
+        // array.set 0 [fb 0e 00] + local.get 0 [20 00] + i32.const 1 [41 01]
+        // + array.get 0 [fb 0b 00] + end [0b]. body_size=0x1a, sect=0x1c.
+        0x0a, 0x1c, 0x01, 0x1a, 0x01, 0x01, 0x63,
+        0x00, 0x41, 0x03, 0xfb, 0x07, 0x00, 0x22,
+        0x00, 0x41, 0x01, 0x41, 0x37, 0xfb, 0x0e,
+        0x00, 0x20, 0x00, 0x41, 0x01, 0xfb, 0x0b,
+        0x00, 0x0b,
+    };
+    try testing.expectEqual(@as(u32, 55), runI32Export(testing.allocator, &bytes, "f"));
+}

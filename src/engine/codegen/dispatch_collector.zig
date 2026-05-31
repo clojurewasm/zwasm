@@ -215,7 +215,8 @@ test "migratedArchOpCount tracks collected per-arch tuples (B59: arm64=348, x86_
     // 10.G GC-on-JIT added arm64 struct.new (variadic) (+1 = 358; x86_64 follow-on).
     // 10.G GC-on-JIT added arm64 struct.set (+1 = 359; A-3 cont).
     // 10.G GC-on-JIT added arm64 array.new_default + array.len (+2 = 361; array A-2).
-    try std.testing.expectEqual(@as(usize, 361), migratedArchOpCount(.arm64));
+    // 10.G GC-on-JIT added arm64 array.get + array.set (+2 = 363; array A-3).
+    try std.testing.expectEqual(@as(usize, 363), migratedArchOpCount(.arm64));
     // B79..B106 walked cohorts; B107 SIMD residual (21 ops) — legacy tuple empty.
     try std.testing.expectEqual(@as(usize, 0), migratedArchOpCount(.x86_64));
 }
@@ -313,7 +314,8 @@ test "collected_x86_64_ctx_ops tracks B54+ migrations to `(ctx, ins)` shape" {
     // 10.G GC-on-JIT added x86_64 struct.new (variadic) (+1 = 407; A-3 mirror).
     // 10.G GC-on-JIT added x86_64 struct.set (+1 = 408; A-3 cont).
     // 10.G GC-on-JIT added x86_64 array.new_default + array.len (+2 = 410; array A-2).
-    try std.testing.expectEqual(@as(usize, 410), collected_x86_64_ctx_ops.len);
+    // 10.G GC-on-JIT added x86_64 array.get + array.set (+2 = 412; array A-3).
+    try std.testing.expectEqual(@as(usize, 412), collected_x86_64_ctx_ops.len);
 }
 
 // Note: a `dispatch(.arm64, tag, args)` test at this layer would

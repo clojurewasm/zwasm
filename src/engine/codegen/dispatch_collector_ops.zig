@@ -859,6 +859,9 @@ const arm64_struct_set = @import("arm64/ops/wasm_3_0/struct_set.zig");
 // 10.G GC-on-JIT array A-2 (alloc + len; get/set/new = follow-on).
 const arm64_array_new_default = @import("arm64/ops/wasm_3_0/array_new_default.zig");
 const arm64_array_len = @import("arm64/ops/wasm_3_0/array_len.zig");
+// array A-3: get/set (register-offset element access + bounds-check).
+const arm64_array_get = @import("arm64/ops/wasm_3_0/array_get.zig");
+const arm64_array_set = @import("arm64/ops/wasm_3_0/array_set.zig");
 const x86_64_ref_i31 = @import("x86_64/ops/wasm_3_0/ref_i31.zig");
 const x86_64_i31_get_s = @import("x86_64/ops/wasm_3_0/i31_get_s.zig");
 const x86_64_i31_get_u = @import("x86_64/ops/wasm_3_0/i31_get_u.zig");
@@ -868,6 +871,8 @@ const x86_64_struct_new = @import("x86_64/ops/wasm_3_0/struct_new.zig");
 const x86_64_struct_set = @import("x86_64/ops/wasm_3_0/struct_set.zig");
 const x86_64_array_new_default = @import("x86_64/ops/wasm_3_0/array_new_default.zig");
 const x86_64_array_len = @import("x86_64/ops/wasm_3_0/array_len.zig");
+const x86_64_array_get = @import("x86_64/ops/wasm_3_0/array_get.zig");
+const x86_64_array_set = @import("x86_64/ops/wasm_3_0/array_set.zig");
 
 /// Tuple of all migrated arm64 per-op modules.
 pub const collected_arm64_ops = .{
@@ -1238,6 +1243,8 @@ pub const collected_arm64_ops = .{
     arm64_struct_set,
     arm64_array_new_default,
     arm64_array_len,
+    arm64_array_get,
+    arm64_array_set,
 };
 
 /// Tuple of all migrated x86_64 per-op modules.
@@ -1755,4 +1762,6 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_struct_set,
     x86_64_array_new_default,
     x86_64_array_len,
+    x86_64_array_get,
+    x86_64_array_set,
 };

@@ -214,6 +214,9 @@ pub fn stackEffect(op: ZirOp) ?StackEffect {
         .@"f64.gt",
         .@"f64.le",
         .@"f64.ge",
+        // Wasm 3.0 GC (10.G): array.get pops the array GcRef + i32 index,
+        // pushes the loaded element (2 → 1; bounds-checked, ADR-0116 §3a).
+        .@"array.get",
         => .{ .pops = 2, .pushes = 1 },
         // 3 → 1 select
         .select, .select_typed => .{ .pops = 3, .pushes = 1 },
@@ -272,6 +275,9 @@ pub fn stackEffect(op: ZirOp) ?StackEffect {
         .@"table.size" => .{ .pops = 0, .pushes = 1 },
         .@"table.grow" => .{ .pops = 2, .pushes = 1 },
         .@"table.fill", .@"table.copy", .@"table.init" => .{ .pops = 3, .pushes = 0 },
+        // Wasm 3.0 GC (10.G): array.set pops the array GcRef + i32 index +
+        // value, stores into the element slot (3 → 0; bounds-checked).
+        .@"array.set" => .{ .pops = 3, .pushes = 0 },
         // §9.9 / 9.9-m-1a/b (per ADR-0056): reference-typed ops.
         //   ref.null t: 0 → 1 (pushes a null reftype)
         //   ref.is_null: 1 → 1 (pop reftype, push i32 test result)
