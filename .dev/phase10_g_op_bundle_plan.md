@@ -338,14 +338,23 @@ read; do NOT re-trust the uniform-vs-packed / lowering-stub claims):**
   x86_64 CMP .q + SETE + MOVZX (mirror i32.eq). 2→1. op_tag declared directly
   in the codegen op files (ref.eq's interp is in the multi-op
   `ref_convert_ops.zig`, no per-op meta). DONE both arches.
-  **A-9 (NEXT) = `array.copy`** (trampoline, mirror A-7): NEW `jitGcArrayCopy(
-  rt, dst_typeidx, dst_ref, dst_off, src_ref, src_off, len) → u32` (1=ok /
-  0=trap) null-check both refs + bounds-check both ranges + memmove-overlap
-  copy (mirror interp arrayCopy, array_ops.zig:359). 7 args → x86_64 SysV puts
-  the 7th (len) ON THE STACK ([rsp] after the 6 GPR args, 16-byte SP
-  alignment) — arm64 fits X0-X6. array.copy pops [dst_ref, dst_off, src_ref,
-  src_off, len] = 5→0. Then array.new_data/new_elem (segment-read
-  trampolines), then ref.test / ref.cast (need RTT type-hierarchy).
+  A-9 `array.copy` (trampoline, mirror A-7): NEW `jitGcArrayCopy(rt, dst_ref,
+  dst_off, src_ref, src_off, len) → u32` (1=ok / 0=trap) null-check both refs +
+  bounds-check both ranges + memmove-overlap copy (mirror interp arrayCopy,
+  array_ops.zig:359). KEY: the two typeidx immediates are DROPPED — element
+  slot size is uniform 8 (ADR-0116 §3a, hardcoded `esz=8` in the trampoline,
+  matching the array.get/set emits' `*8`), so the call is exactly **6 args**
+  (no 7th-on-stack, no offset-packing; trampoline reads only `rt.gc_heap`, not
+  gc_type_infos). Emit = 6-arg marshal (arg regs ∉ regalloc pool → no
+  parallel-move) + CALL + post-CALL trap. 5→0; strict force-spill. DONE both
+  arches. **A-10 (NEXT) = `array.new_data` + `array.new_elem`** — alloc-from-
+  segment trampolines (mirror array.new A-4): pop offset + size (i32), alloc a
+  length-`size` array, copy `size` elements from data/elem segment `$segidx`
+  at `offset`. SURVEY: how the trampoline reaches the instance's data/elem
+  segment bytes (rt.gc_heap is present; segments are NOT — likely a new
+  JitRuntime field, or reach via the instance pointer). Lowering: sub-op 18/19,
+  `payload`=typeidx, `extra`=segidx. Then ref.test / ref.cast (RTT 8-deep
+  Cohen display per ADR-0116; architectural sub-bundle).
 - **Per-op touch-points** (same as struct, see above): op-file + register in
   `collected_{arm64_ops,x86_64_ctx_ops}` + bump dispatch_collector.zig count
   LITERALS + stackEffect (or liveness special-case if variadic) + x86_64
