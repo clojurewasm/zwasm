@@ -1,0 +1,57 @@
+//! x86_64 emit handler for `ref.cast` — Wasm 3.0 GC §3.3.5.4 (non-null
+//! target). Mirror of the arm64 handler: pop one reftype operand (full
+//! 64-bit value), trap if null OR type-mismatch, else push it back
+//! UNCHANGED — via the `jitGcRefCast(rt, ref, ht)` trampoline (returns the
+//! ref, or 0 on trap). Emit = 3-arg marshal + CALL + trap branch on a 0
+//! result + capture the 64-bit ref. 1 → 1.
+//!
+//! ht is an immediate (ins.payload byte); the ref is the popped operand
+//! (RSI, 64-bit). SysV arg regs ∉ regalloc pool → no parallel-move. `0` is
+//! an unambiguous trap sentinel (a successful non-null cast returns a
+//! non-zero ref), so `TEST RAX,RAX` (64-bit — a funcref ptr fills all 64
+//! bits) + JE → trap stub is exact.
+//!
+//! Lowering: MOV RSI, ref ; MOV RDI, R15 (rt) ; MOV EDX = ht ; MOVABS R10
+//! = &jitGcRefCast ; CALL R10 → RAX = ref/0 ; TEST RAX,RAX ; JE → trap ;
+//! else capture RAX.
+
+const meta = @import("../../../../../instruction/wasm_3_0/ref_cast.zig");
+const ctx_mod = @import("../../ctx.zig");
+const abi = @import("../../abi.zig");
+const gpr = @import("../../gpr.zig");
+const inst = @import("../../inst.zig");
+const jit_abi = @import("../../../shared/jit_abi.zig");
+const zir = @import("../../../../../ir/zir.zig");
+
+pub const op_tag = meta.op_tag;
+pub const wasm_level = meta.wasm_level;
+pub const wasi_level = meta.wasi_level;
+
+const call_scratch: abi.Gpr = .r10; // emit scratch — &fn, then CALL target.
+
+pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void {
+    const ht: u32 = @intCast(ins.payload & 0xFF);
+    const args = try ctx.popUnary(); // src=ref, result=ref (unchanged on success)
+    // RSI = ref (64-bit reftype value).
+    const xsrc = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.src, 0);
+    if (xsrc != .rsi) try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.q, .rsi, xsrc).slice());
+    // RDI = rt (R15); EDX = ht.
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.q, .rdi, abi.runtime_ptr_save_gpr).slice());
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovImm32W(.rdx, ht).slice());
+    // MOVABS R10 = &jitGcRefCast; CALL R10.
+    const addr: u64 = @intFromPtr(&jit_abi.jitGcRefCast);
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovImm64Q(call_scratch, addr).slice());
+    try ctx.buf.appendSlice(ctx.allocator, inst.encCallReg(call_scratch).slice());
+
+    // Trap on result == 0 (null / type mismatch): TEST RAX,RAX ; JE → trap.
+    try ctx.buf.appendSlice(ctx.allocator, inst.encTestRR(.q, .rax, .rax).slice());
+    const fixup: u32 = @intCast(ctx.buf.items.len);
+    try ctx.buf.appendSlice(ctx.allocator, inst.encJccRel32(.e, 0).slice());
+    try ctx.bounds_fixups.append(ctx.allocator, fixup);
+
+    // Capture RAX (the cast ref, full 64-bit) → result vreg.
+    const rd = try gpr.gprDefSpilled(ctx.alloc, args.result, 0);
+    if (rd != .rax) try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.q, rd, .rax).slice());
+    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.result, 0);
+    try ctx.pushed_vregs.append(ctx.allocator, args.result);
+}

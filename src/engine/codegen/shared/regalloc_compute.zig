@@ -161,6 +161,8 @@ pub fn computeWith(
             // ref.test / ref.test_null: CALL into jitGcRefTest; the ref
             // operand is consumed into an arg reg before the CALL (strict).
             .@"ref.test", .@"ref.test_null" => false,
+            // ref.cast: CALL into jitGcRefCast; ref consumed pre-CALL (strict).
+            .@"ref.cast" => false,
             else => null,
         };
         const inc = inclusive orelse continue;

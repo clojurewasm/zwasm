@@ -712,6 +712,23 @@ pub fn jitGcRefTest(rt: *JitRuntime, ref: u64, ht_nullbit: u32) callconv(.c) u32
     return @intFromBool(ref_test_ops.gcRefMatchesNonNullCore(gti, heap, .{ .ref = ref }, ht));
 }
 
+/// 10.G GC-on-JIT R-2 — `ref.cast` (non-null target) emit materialises this
+/// fn's address + `CALL`s it (rt=arg0, ref=arg1 [full 64-bit reftype value],
+/// ht=arg2). Returns the ref UNCHANGED on a successful cast (Wasm 3.0 GC
+/// §4.4.5), or `0` to signal a trap — a null operand (non-null target
+/// rejects it) OR a runtime type that is not a subtype of `ht`. `0` is an
+/// unambiguous trap sentinel here: a successful non-null cast always returns
+/// a non-zero ref. The match reuses the SAME `gcRefMatchesNonNullCore` the
+/// interp + jitGcRefTest use. (ref.cast_null — which lets null pass — needs
+/// an inline null-skip branch in emit and is a separate chunk.)
+pub fn jitGcRefCast(rt: *JitRuntime, ref: u64, ht: u32) callconv(.c) u64 {
+    if (ref == Value.null_ref) return 0; // null → trap (non-null target)
+    const gti: ?*const gc_type_info.GcTypeInfos = if (rt.gc_type_infos_ptr) |p| @ptrCast(@alignCast(p)) else null;
+    const heap: ?*const heap_mod.Heap = if (rt.gc_heap) |p| @ptrCast(@alignCast(p)) else null;
+    if (!ref_test_ops.gcRefMatchesNonNullCore(gti, heap, .{ .ref = ref }, @truncate(ht))) return 0;
+    return ref;
+}
+
 // ============================================================
 // Comptime offset constants — consumed by prologue emit (per-arch
 // `compile()` writes `LDR Xn, [X0, #vm_base_off]` etc.).

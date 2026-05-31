@@ -138,6 +138,8 @@ pub fn stackEffect(op: ZirOp) ?StackEffect {
         // ref.test / ref.test_null (R-1) pop one reftype, push i32 (0/1). 1 → 1.
         .@"ref.test",
         .@"ref.test_null",
+        // ref.cast (R-2) pops one reftype, pushes it back (cast or trap). 1 → 1.
+        .@"ref.cast",
         => .{ .pops = 1, .pushes = 1 },
         // 2 → 1 binop
         .@"i32.add",

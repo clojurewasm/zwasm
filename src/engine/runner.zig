@@ -1781,3 +1781,58 @@ test "runI32Export: ref.test struct on a struct ref → 1 (10.G ref.test-on-JIT 
     };
     try testing.expectEqual(@as(u32, 1), runI32Export(testing.allocator, &bytes, "f"));
 }
+
+test "runI32Export: ref.cast i31 round-trips the ref → i31.get_s 5 (10.G ref.cast-on-JIT R-2)" {
+    // (module (func (export "f") (result i32)
+    //   i32.const 5  ref.i31  ref.cast i31  i31.get_s))   ;; cast returns the ref → 5
+    // ref.cast (0xFB 0x16 <ht>) marshals (rt + 64-bit ref + ht) → CALL
+    // jitGcRefCast → CMP/TEST 0; B.EQ/JE → bounds_fixups (trap on null /
+    // mismatch); else capture the 64-bit ref. i31.get_s then extracts 5,
+    // proving the cast returned the EXACT (matching) ref unchanged.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03,
+        0x02, 0x01, 0x00, 0x07, 0x05, 0x01, 0x01, 0x66,
+        0x00, 0x00,
+        // code: i32.const 5; ref.i31; ref.cast i31 (fb 16 6c); i31.get_s (fb 1d); end.
+        0x0a, 0x0d, 0x01, 0x0b, 0x00, 0x41,
+        0x05, 0xfb, 0x1c, 0xfb, 0x16, 0x6c, 0xfb, 0x1d,
+        0x0b,
+    };
+    try testing.expectEqual(@as(u32, 5), runI32Export(testing.allocator, &bytes, "f"));
+}
+
+test "runI32Export: ref.cast i31 on null traps (10.G ref.cast-on-JIT R-2)" {
+    // (module (func (export "f") (result i32)  ref.null i31  ref.cast i31))
+    // ref.cast (non-null target) of a null ref traps (Wasm 3.0 GC §4.4.5):
+    // the trampoline returns 0 → bounds_fixups trap stub.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03,
+        0x02, 0x01, 0x00, 0x07, 0x05, 0x01, 0x01, 0x66,
+        0x00, 0x00,
+        // code: ref.null i31; ref.cast i31; drop; i32.const 0; end. The
+        // drop + const make the body type-check (result i32) even though
+        // ref.cast traps at runtime before reaching them.
+        0x0a, 0x0c, 0x01, 0x0a, 0x00, 0xd0,
+        0x6c, 0xfb, 0x16, 0x6c, 0x1a, 0x41, 0x00, 0x0b,
+    };
+    try testing.expectError(entry.Error.Trap, runI32Export(testing.allocator, &bytes, "f"));
+}
+
+test "runI32Export: ref.cast struct on an i31 ref traps (10.G ref.cast-on-JIT R-2)" {
+    // (module (func (export "f") (result i32)  i32.const 5  ref.i31  ref.cast struct))
+    // An i31 is not a struct → ref.cast struct traps (exercises the
+    // non-null type-mismatch trap path, not just the null path).
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03,
+        0x02, 0x01, 0x00, 0x07, 0x05, 0x01, 0x01, 0x66,
+        0x00, 0x00,
+        // code: i32.const 5; ref.i31; ref.cast struct; drop; i32.const 0; end.
+        0x0a, 0x0e, 0x01, 0x0c, 0x00, 0x41,
+        0x05, 0xfb, 0x1c, 0xfb, 0x16, 0x6b, 0x1a, 0x41,
+        0x00, 0x0b,
+    };
+    try testing.expectError(entry.Error.Trap, runI32Export(testing.allocator, &bytes, "f"));
+}
