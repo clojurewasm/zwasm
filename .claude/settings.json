@@ -44,7 +44,8 @@
     ]
   },
   "env": {
-    "ZIG_LOCAL_CACHE_DIR": ".zig-cache"
+    "ZIG_LOCAL_CACHE_DIR": ".zig-cache",
+    "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1"
   },
   "sandbox": {
     "allowUnsandboxedCommands": false,
@@ -75,7 +76,7 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "*",
+        "matcher": "startup|resume|clear",
         "hooks": [
           {
             "type": "command",

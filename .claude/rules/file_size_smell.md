@@ -1,3 +1,10 @@
+---
+paths:
+  - "src/**/*.zig"
+  - ".dev/decisions/*.md"
+  - "scripts/file_size_check.sh"
+---
+
 # File-size discipline: smell-detection, not metric satisfaction
 
 Auto-loaded when editing `src/**/*.zig`, `.dev/decisions/*.md`,

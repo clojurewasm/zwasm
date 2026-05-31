@@ -58,6 +58,13 @@ text or code identifiers.
   `windowsmini` SSH. Per-chunk autonomous = 2-host (Mac + ubuntunote)
   per ADR-0049 + ADR-0067. windowsmini = phase boundary. OrbStack
   retired from per-chunk gate per ADR-0067 (D-134); scratch only.
+- **Context budget (autonomous loop)**: this project pins the **200K**
+  window (`CLAUDE_CODE_DISABLE_1M_CONTEXT=1` in `.claude/settings.json`)
+  so auto-compact recycles often instead of ballooning to ~835K. It is
+  **lossless** because the `PostCompact` hook re-injects the handover
+  brief (`scripts/print_handover_brief.sh`) — so keep `.dev/handover.md`
+  current and fork big logs/surveys to subagents to keep main context
+  lean. Unused MCP plugins are off in `settings.local.json`.
 
 ## Working agreement (short list)
 

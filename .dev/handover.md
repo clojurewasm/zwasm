@@ -101,6 +101,11 @@ ubuntu-verified HEAD (`ca2ce49f` = R-3). On GREEN: proceed to br_on_cast **Cycle
 + liveness + e2e; recipe in Active-bundle NEXT + `private/notes/p10-br-on-cast-survey.md`). The
 refactor being behaviour-neutral, br_if regression on ubuntu would be the signal.
 
+**Maintenance interlude (2026-05-31)**: a context-budget + scaffolding commit landed on top of
+`b7672df0` (no src/test change — 200K-pin, hook dedup, rule condense; see CLAUDE.md "Context
+budget" + memory `feedback_context_budget_posture`). ubuntu green at `b7672df0` still validates
+code; Cycle B resumes unchanged.
+
 **Lesson (still live)**: `gate_commit.sh --fast` DEFERS `zig build test`/`lint` (Step 4/5 own
 them) — parent's full `zig build test` before push is the real gate.
 
