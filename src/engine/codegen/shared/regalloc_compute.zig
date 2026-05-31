@@ -151,6 +151,10 @@ pub fn computeWith(
             // array.copy: CALL into jitGcArrayCopy; all 5 operands consumed
             // into arg regs BEFORE the CALL (strict).
             .@"array.copy" => false,
+            // array.new_data: CALL into jitGcArrayNewData; both operands
+            // (offset, size) consumed into args before the CALL (strict);
+            // the result ref is captured from W0 after.
+            .@"array.new_data" => false,
             else => null,
         };
         const inc = inclusive orelse continue;

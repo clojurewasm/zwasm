@@ -1629,3 +1629,43 @@ test "runI32Export: array.copy src→dst then array.get → 20 (10.G array-on-JI
     };
     try testing.expectEqual(@as(u32, 20), runI32Export(testing.allocator, &bytes, "f"));
 }
+
+test "runI32Export: array.new_data + array.get → 20 (10.G array-on-JIT A-10a)" {
+    // Both arches (arm64 + x86_64 SysV emit landed together).
+    // (module (type (array (mut i32))) (data $d "\0a\00\00\00\14\00\00\00\1e\00\00\00")
+    //   (func (export "f") (result i32)
+    //     i32.const 0  i32.const 3  array.new_data 0 0   ;; array [10,20,30] from segment 0
+    //     i32.const 1  array.get 0))                      ;; elem[1] → 20
+    // array.new_data allocs a size-3 array and copies its payload from passive
+    // data segment 0, reading nat=4 bytes/elem (i32) little-endian into each
+    // 8-byte slot. Emit marshals 5 trampoline args (rt + typeidx + segidx +
+    // offset + size) → CALL jitGcArrayNewData (reuses memory.init's
+    // data_segments_ptr plumbing) → CMP/TEST 0; B.EQ/JE → bounds_fixups; push
+    // ref. 2→1. array.new_data = fb 09 typeidx segidx. Datacount section (0c)
+    // declares 1 data segment so the validator accepts segidx 0.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x08, 0x02, 0x5e, 0x7f, 0x01, 0x60, 0x00, 0x01, 0x7f, // type
+        0x03, 0x02, 0x01, 0x01, // func
+        0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00, // export "f"
+        0x0c, 0x01, 0x01, // datacount: 1 data segment
+        // code: body 15 bytes (locals 00 + i32.const 0 [41 00] + i32.const 3
+        // [41 03] + array.new_data 0 0 [fb 09 00 00] + i32.const 1 [41 01] +
+        // array.get 0 [fb 0b 00] + end 0b). body_size=0x0f, sect=0x11.
+        0x0a, 0x11, 0x01,
+        0x0f, 0x00, 0x41,
+        0x00, 0x41, 0x03,
+        0xfb, 0x09, 0x00,
+        0x00, 0x41, 0x01,
+        0xfb, 0x0b, 0x00,
+        0x0b,
+        // data: 1 passive segment (01), 12 bytes = i32 LE [10,20,30].
+        0x0b, 0x0f,
+        0x01, 0x01, 0x0c,
+        0x0a, 0x00, 0x00,
+        0x00, 0x14, 0x00,
+        0x00, 0x00, 0x1e,
+        0x00, 0x00, 0x00,
+    };
+    try testing.expectEqual(@as(u32, 20), runI32Export(testing.allocator, &bytes, "f"));
+}

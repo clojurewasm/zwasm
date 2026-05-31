@@ -607,6 +607,56 @@ pub fn jitGcArrayCopy(rt: *JitRuntime, dst_ref: u32, dst_off: u32, src_ref: u32,
     return 1;
 }
 
+/// 10.G GC-on-JIT array A-10 — `array.new_data` emit materialises this
+/// fn's address + `CALL`s it (rt=arg0, typeidx=arg1, segidx=arg2,
+/// offset=arg3, size=arg4). Allocates a `size`-element array of $typeidx
+/// and copies its payload from data segment $segidx at byte `offset`,
+/// reading the element's NATURAL size (i8=1 / i16=2 / i32,f32=4 /
+/// i64,f64=8) little-endian zero-extended into the uniform 8-byte slot —
+/// the SAME copy the interp arrayNewData does. Reuses the same
+/// `data_segments_ptr` / `data_dropped_ptr` descriptors that
+/// `memory.init` uses (ADR-0056 m-3b), so no new JitRuntime plumbing.
+/// Returns the `GcRef` (≥ 2), or `0` on trap (negative/OOB operand,
+/// segidx OOB, segment OOB, dropped segment, unmaterialised GC
+/// substrate / non-numeric element). The JIT caller maps `0` to a trap.
+pub fn jitGcArrayNewData(rt: *JitRuntime, typeidx: u32, segidx: u32, offset: u32, size: u32) callconv(.c) u32 {
+    const heap_opaque = rt.gc_heap orelse return 0;
+    const gti_opaque = rt.gc_type_infos_ptr orelse return 0;
+    const heap: *heap_mod.Heap = @ptrCast(@alignCast(heap_opaque));
+    const gti: *const gc_type_info.GcTypeInfos = @ptrCast(@alignCast(gti_opaque));
+    if (typeidx >= gti.array_infos.len) return 0;
+    const ai = gti.array_infos[typeidx] orelse return 0;
+    // Element natural (packed) size in the data segment (inline of the
+    // interp's dataElemNaturalSize; null/reftype → trap).
+    const nat: u64 = switch (ai.element.valtype_byte) {
+        0x78 => 1, // i8
+        0x77 => 2, // i16
+        0x7F, 0x7D => 4, // i32, f32
+        0x7E, 0x7C => 8, // i64, f64
+        else => return 0,
+    };
+    if (segidx >= rt.data_segments_count) return 0;
+    const dropped = segidx < rt.data_dropped_count and rt.data_dropped_ptr[segidx] != 0;
+    const seg = rt.data_segments_ptr[segidx];
+    const seg_len: u64 = if (dropped) 0 else seg.len;
+    const off64: u64 = offset; // negative i32 arrives as a large u32 → OOB below
+    const byte_len: u64 = @as(u64, size) * nat;
+    if (off64 + byte_len > seg_len) return 0; // OOB (also catches negatives)
+    const esz: u8 = ai.element.size; // uniform 8-byte slot
+    const ahsz: u32 = @sizeOf(gc_type_info.ArrayHeader);
+    const ref = object_alloc.allocArrayObject(heap, typeidx, size, esz, false) catch return 0;
+    var i: u32 = 0;
+    while (i < size) : (i += 1) {
+        var raw: u64 = 0;
+        const src: u64 = off64 + @as(u64, i) * nat;
+        var b: u64 = 0;
+        while (b < nat) : (b += 1) raw |= @as(u64, seg.ptr[@intCast(src + b)]) << @intCast(b * 8);
+        const dst_off = ref + ahsz + i * @as(u32, esz);
+        @memcpy(heap.bytes[dst_off .. dst_off + 8], std.mem.asBytes(&raw)[0..8]);
+    }
+    return ref;
+}
+
 // ============================================================
 // Comptime offset constants — consumed by prologue emit (per-arch
 // `compile()` writes `LDR Xn, [X0, #vm_base_off]` etc.).
