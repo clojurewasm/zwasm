@@ -66,12 +66,13 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
   trampoline, 6-arg marshal + post-CALL trap) `17088594` + A-8 (`ref.eq` = CMP+CSET/SETE, no
   trampoline) `a0eae42a` + A-9 (`array.copy` = `jitGcArrayCopy` trampoline, 6-arg marshal,
   typeidx dropped/esz=8) THIS turn DONE both arches.
-  **NEXT = A-10 = `array.new_data` + `array.new_elem` emit, both arches** — alloc-from-segment
-  trampolines (mirror array.new A-4): pop offset + size (i32), alloc a length-`size` array then
-  copy `size` elements from data/elem segment `$segidx` at byte/elem `offset`. Survey needed:
-  how the trampoline reaches the instance's data/elem segments (rt.gc_heap is there; need the
-  segment bytes — likely a new JitRuntime field or via the instance pointer). Then ref.test /
-  ref.cast (RTT type-hierarchy sub-bundle — Cohen 8-deep display per ADR-0116; architectural).
+  **NEXT = A-10 = `array.new_data` + `array.new_elem` emit, both arches** — SURVEY DONE, full
+  recipe in bundle plan §"array.* sub-bundle" (this turn was the A-10 survey; no code landed).
+  KEY: REUSE the existing `JitRuntime.data_segments_ptr`/`elem_segments_ptr` plumbing that
+  memory.init/table.init already use — **NO new JitRuntime field**. 2 trampolines
+  (`jitGcArrayNewData` LE-unpacks `nat` bytes/elem; `jitGcArrayNewElem` direct u64 copy) + 4
+  emit files (5-arg marshal, mirror array.fill; 2→1 push ref). lower sub-op 9/10. Then ref.test/
+  ref.cast (RTT 8-deep Cohen display per ADR-0116; architectural sub-bundle).
 - **Exit-condition**: all GC ops emit on both arches + spec corpus green via JIT mode (§1).
 
 ## §10 remaining — the six `[ ]` rows
@@ -89,13 +90,11 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 ## Step 0.7 (next resume)
 
-This turn landed A-9 code (`array.copy`) + this handover chore; prior cycle's A-8 `a0eae42a`
-already ubuntu-verified GREEN (`OK (HEAD=31f1f2da)`). ubuntu **test-all** kicked in background
-against this turn's pushed HEAD (`/tmp/ubuntu.log`). Step 0.7 next `/continue`: `tail -3
-/tmp/ubuntu.log`; expect `OK (HEAD=<final pushed SHA>)`. On FAIL → `git reset --mixed HEAD~2`
-(A-9 source + this handover chore) to last ubuntu-verified HEAD (`31f1f2da`), fix, re-gate.
-On GREEN/non-code-gap →
-proceed to A-10 (`array.new_data`/`array.new_elem`).
+A-9 (`array.copy`) is ubuntu-verified GREEN (`OK (HEAD=93925bb6)`) — all array JIT-emit ops
+through A-9 confirmed on both arches. **This turn = A-10 survey only** (recipe recorded in the
+bundle plan); NO code landed, NO ubuntu kick (docs-only commit). Step 0.7 next `/continue`: the
+docs chore is a **non-code-gap** on top of the ubuntu-verified `93925bb6` → proceed directly to
+A-10 implementation (no revert). (If ubuntu.log still shows `93925bb6` OK, that's expected.)
 
 **Lesson (still live)**: `gate_commit.sh --fast` DEFERS `zig build test`/`lint` (Step 4/5 own them) — parent's full `zig build test` before push is the real gate.
 

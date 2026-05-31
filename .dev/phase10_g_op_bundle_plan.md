@@ -346,15 +346,35 @@ read; do NOT re-trust the uniform-vs-packed / lowering-stub claims):**
   matching the array.get/set emits' `*8`), so the call is exactly **6 args**
   (no 7th-on-stack, no offset-packing; trampoline reads only `rt.gc_heap`, not
   gc_type_infos). Emit = 6-arg marshal (arg regs ∉ regalloc pool → no
-  parallel-move) + CALL + post-CALL trap. 5→0; strict force-spill. DONE both
-  arches. **A-10 (NEXT) = `array.new_data` + `array.new_elem`** — alloc-from-
-  segment trampolines (mirror array.new A-4): pop offset + size (i32), alloc a
-  length-`size` array, copy `size` elements from data/elem segment `$segidx`
-  at `offset`. SURVEY: how the trampoline reaches the instance's data/elem
-  segment bytes (rt.gc_heap is present; segments are NOT — likely a new
-  JitRuntime field, or reach via the instance pointer). Lowering: sub-op 18/19,
-  `payload`=typeidx, `extra`=segidx. Then ref.test / ref.cast (RTT 8-deep
-  Cohen display per ADR-0116; architectural sub-bundle).
+  parallel-move) + CALL + post-CALL trap. 5→0; strict force-spill. DONE both arches.
+  **A-10 (NEXT) = `array.new_data` + `array.new_elem`** — alloc-from-segment
+  trampolines (mirror array.fill/copy 5-arg pattern). SURVEY DONE (recipe
+  below; bundle them — same recipe):
+  - **NO new JitRuntime plumbing.** REUSE the existing segment descriptors
+    that `memory.init`/`table.init` (Phase 9) already use: `JitRuntime.
+    data_segments_ptr` (`[*]const SegmentSlice{ptr,len:u64}`, 16-byte stride)
+    + `data_dropped_ptr` + `data_segments_count`; `elem_segments_ptr`
+    (`[*]const ElemSlice{refs:[*]u64,len:u32}`) + `elem_dropped_ptr` +
+    `elem_segments_count`. Trampoline reads them off `rt` (it's `*JitRuntime`).
+  - **Lowering** (lower.zig ~683): sub-op **9=new_data / 10=new_elem** (NOT
+    18/19), `payload`=typeidx, `extra`=segidx. Pops size (top) + offset; push
+    1 ref. stackEffect 2→1 (fixed).
+  - **jitGcArrayNewData(rt, typeidx, segidx, offset, size) → u32** (0=trap):
+    heap=rt.gc_heap; gti=rt.gc_type_infos_ptr; nat = dataElemNaturalSize(
+    ai.element.valtype_byte) (i8=1/i16=2/i32,f32=4/i64,f64=8); bounds: segidx <
+    data_segments_count, !dropped, offset + size*nat ≤ seg.len (overflow-safe,
+    negatives-as-u32 rejected); `allocArrayObject(heap, typeidx, size,
+    element.size, false)`; per element LE-unpack `nat` bytes → 8-byte slot
+    (mirror interp arrayNewData array_ops.zig:146). Return ref / 0.
+  - **jitGcArrayNewElem(rt, typeidx, segidx, offset, size) → u32**: same shape;
+    elem_segments[segidx] = ElemSlice{refs:[*]u64,len}; copy `size` u64 Values
+    direct (8-byte, no unpack); mirror interp arrayNewElem array_ops.zig:199.
+  - **Emit** (both arches, mirror array.fill 5-arg): marshal rt + typeidx +
+    segidx + offset + size → CALL → `CMP/TEST 0; B.EQ/JE → bounds_fixups`;
+    capture W0/EAX → result vreg (2→1, like array.new A-4 — pushes ref).
+    is_call strict `=> false`; usesRuntimePtr += both. dispatch counts
+    370→372 (arm64) / 419→421 (x86_64). Then ref.test / ref.cast (RTT 8-deep
+    Cohen display per ADR-0116; architectural sub-bundle).
 - **Per-op touch-points** (same as struct, see above): op-file + register in
   `collected_{arm64_ops,x86_64_ctx_ops}` + bump dispatch_collector.zig count
   LITERALS + stackEffect (or liveness special-case if variadic) + x86_64
