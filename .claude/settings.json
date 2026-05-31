@@ -107,6 +107,10 @@
           {
             "type": "command",
             "command": "bash $CLAUDE_PROJECT_DIR/scripts/check_stale_git_lock.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash $CLAUDE_PROJECT_DIR/scripts/survey_budget_guard.sh"
           }
         ]
       },
@@ -116,6 +120,26 @@
           {
             "type": "command",
             "command": "bash $CLAUDE_PROJECT_DIR/scripts/check_roadmap_amendment.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Grep|Task|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash $CLAUDE_PROJECT_DIR/scripts/survey_budget_guard.sh"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash $CLAUDE_PROJECT_DIR/scripts/survey_budget_guard.sh"
           }
         ]
       }
