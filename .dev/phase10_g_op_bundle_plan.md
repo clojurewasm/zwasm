@@ -297,16 +297,19 @@ read; do NOT re-trust the uniform-vs-packed / lowering-stub claims):**
 - **Trampoline A-1 DONE** (`06ebc165`): `jitGcAllocArray(rt, typeidx,
   length) callconv(.c) u32` (jit_abi.zig) + `object_alloc.allocArrayObject`
   (zero-inits). length is RUNTIME → arg2 (W2/EDX). Unit-tested.
-- **Decomposition**: A-2 = `array.new_default` (pop length→arg2; CALL
-  jitGcAllocArray; push ref — strict `is_call` since length is consumed
-  into the arg BEFORE the CALL, not after) + `array.len` (pop ref,
-  null-trap, base=slab+ref, LDR W length `[base+8]`, push). A-3 = `array.get`
-  (+get_s/get_u): pop ref+index, null-trap ref, bounds-check `index <
-  [base+8]` (trap → bounds_fixups), register-offset load. A-4 = `array.set`
-  (bounds-checked register-offset store) + `array.new` (init read AFTER the
-  alloc CALL → **inclusive force-spill** like struct.new; runtime fill
-  loop). A-5 = `array.new_fixed` (variadic, mirror struct.new extra=N). Defer
-  fill/copy/init_data/init_elem (bulk).
+- **Decomposition (as-built)**: A-2 `d6dea34d` = `array.new_default` (pop
+  length→arg2; CALL jitGcAllocArray; strict `is_call`) + `array.len`. A-3
+  `dc5869ca` = `array.get` + `array.set` (null-trap, bounds-check `index >=
+  [base+8]` UNSIGNED, base+=12, **register-offset** access `[base+idx*8]`;
+  x86_64 RAX = 3rd scratch). A-4 `690bcf0d` = `array.new` — **NOT** an
+  emitted fill loop (the original plan); instead a new
+  `jitGcAllocArrayFill(rt,typeidx,length,init)` trampoline allocs + fills
+  inside Zig (mirrors interp arrayNew), so the emit stays marshal+CALL +
+  strict `is_call`. **A-5 (NEXT) = `array.new_fixed`** (variadic; N=`extra`
+  compile-time): alloc length-N via jitGcAllocArray, reload slab base AFTER
+  CALL, store N popped values inline `[base+12+i*8]` (reverse-pop, mirror
+  struct.new) → **inclusive force-spill** (is_call=true). Defer get_s/get_u
+  (packed; D-212 FP gap) + fill/copy/init_data/init_elem (bulk).
 - **Per-op touch-points** (same as struct, see above): op-file + register in
   `collected_{arm64_ops,x86_64_ctx_ops}` + bump dispatch_collector.zig count
   LITERALS + stackEffect (or liveness special-case if variadic) + x86_64

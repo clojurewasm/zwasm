@@ -8,14 +8,15 @@
 - **Phase**: **10 IN-PROGRESS — committed to 100% (ADR-0128)** (Phase 9 = DONE
   2026-05-24). §10 exit requires the official Wasm 3.0 testsuite at pass=fail=skip=0
   on **both backends** (interp + JIT).
-- **HEAD**: `dc5869ca` — 10.G **array A-3** (`array.get` + `array.set` emit both arches).
-  Both: null-trap ref, reload slab, ADD ref→base, load length `[base+8]`, UNSIGNED bounds-check
-  (`index >= length` → trap; covers negative idx), base += 12, **register-offset** element
-  access `[base + index*8]` (runtime + 4-mod-8 offset → arm64 LDR/STR `[Xn,Xm,LSL#3]`, x86_64
-  SIB `[base+idx*8]`; x86_64 needs RAX as 3rd scratch). e2e set-then-get `elem[1]=55 → 55`
-  ungated both arches. (array A-1 trampoline `06ebc165` + A-2 new_default/len `d6dea34d` DONE.)
-  Verified: arm64 `zig build test` EXIT=0 + lint 0 + x86_64 cross-compile EXIT=0; x86_64 RUNTIME
-  = ubuntu gate. Recipe: bundle plan §"array.* sub-bundle".
+- **HEAD**: `690bcf0d` — 10.G **array A-4** (`array.new` emit both arches). 2→1: pop init +
+  length, marshal rt+typeidx+length+init → CALL **`jitGcAllocArrayFill`** trampoline (alloc +
+  fill all elements with init INSIDE the trampoline — element count is runtime, mirrors interp
+  arrayNew; no emitted loop). Both operands consumed into args before CALL → strict `is_call`.
+  e2e `i32.const 7; i32.const 3; array.new 0; i32.const 1; array.get 0 → 7` ungated both arches.
+  (array A-1 trampoline `06ebc165` + A-2 new_default/len `d6dea34d` + A-3 get/set `dc5869ca`
+  DONE.) **D-212 filed**: init/field marshaling GPR-only (struct.new + array.new) — f32/f64
+  element/field types deferred (latent until §1 JIT-corpus mode). Verified: arm64 `zig build
+  test` EXIT=0 + lint 0 + x86_64 cross-compile EXIT=0; x86_64 RUNTIME = ubuntu gate.
 - **Two execution paths (CODE-verified)**: spec corpus runs **interp-only**
   (`instance.invoke`→`_dispatch.run`, `instance.zig:169`); JIT corpus run = §1. JIT emits
   1.0/2.0 + TC + func-refs + EH + i31 + full struct family (both arches); remaining GC
@@ -55,15 +56,15 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
   ungated `runI32Export` e2e (**hand-encode: i32.const ≥ 64 needs multi-byte signed LEB128** —
   bit 6 sign-extends; keep test values < 64) + ADR-0060 force-spill for alloc ops (is_call).
   array A-1 (trampoline) `06ebc165` + A-2 (new_default + len) `d6dea34d` + A-3 (get + set,
-  register-offset + bounds-check) `dc5869ca` DONE both arches. **NEXT = array A-4 = `array.new`
-  (variadic-ish) emit, both arches** (recipe in bundle plan §"array.* sub-bundle"): pop init +
-  length (2→1); length → arg2, CALL `jitGcAllocArray` → ref; then a **runtime fill loop** stores
-  the init value to all `length` elements (`[base+12+i*8]` for i=0..length-1) — NEW vs struct
-  (struct.new's field count is compile-time; array length is runtime → emit a counted loop:
-  init a counter, CMP vs length, store, increment, B.cond back). init value read AFTER the alloc
-  CALL → **inclusive force-spill** (add `array.new` to regalloc_compute.zig `is_call` as
-  inclusive, like struct.new). Then A-5 `array.new_fixed` (variadic, mirror struct.new extra=N).
-  get_s/get_u (packed) + bulk fill/copy = defer. Then ref.cast / ref.test / ref.eq.
+  register-offset + bounds-check) `dc5869ca` + A-4 (array.new via `jitGcAllocArrayFill`
+  trampoline-fill, NOT an emitted loop) `690bcf0d` DONE both arches. **NEXT = array A-5 =
+  `array.new_fixed` emit, both arches** (variadic, mirror struct.new): N = `ins.extra`
+  (compile-time element count); alloc length-N array via `jitGcAllocArray(rt, typeidx, N)`;
+  reload slab base AFTER the CALL; store the N popped element values inline at `[base+12+i*8]`
+  (i=0..N-1, reverse-pop like struct.new). **Inclusive force-spill** for array.new_fixed (values
+  read AFTER the alloc CALL → add to regalloc_compute.zig `is_call` as `true`, like struct.new).
+  No bounds-check (length=N fixed). Then `array.get_s`/`array.get_u` (packed; needs valtype_byte
+  — see D-212 FP gap too), bulk `array.fill`/`copy`/`init_*`. Then ref.cast / ref.test / ref.eq.
 - **Exit-condition**: all GC ops emit on both arches + spec corpus green via JIT mode (§1).
 
 ## §10 remaining — the six `[ ]` rows
@@ -74,23 +75,22 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 - **10.E** EH — JIT emit present; residuals = eh_frequency runner (I20), c_api tag
   accessors (I14 → Phase 13), emscripten_eh realworld (I21).
 - **10.G** GC — JIT emit PARTIAL (D-211): i31 + **full struct family** + **array.{new_default,
-  len,get,set}** DONE both arches; remaining = array.new/new_fixed (A-4/A-5) + get_s/get_u + bulk
-  / ref.cast / ref.eq + ADR-0127 PHASE C + D-198 + gc_stress (I19) + dart/hoot realworld (I21).
+  len,get,set,new}** DONE both arches; remaining = array.new_fixed (A-5) + get_s/get_u + bulk /
+  ref.cast / ref.eq + ADR-0127 PHASE C + D-198 + gc_stress (I19) + dart/hoot realworld (I21).
 - **10.P** close — flips only at 100% both-backends (ADR-0128).
 
 ## Step 0.7 (next resume)
 
-Prior `16ea1272` (array A-2) ubuntu-verified green `OK (HEAD=16ea1272)` this session. (The
+Prior `6dccd1b5` (array A-3) ubuntu-verified green `OK (HEAD=6dccd1b5)` this session. (The
 `failed command:` line in `/tmp/ubuntu.log` is **benign** negative-test stderr — reproduces
-locally with EXIT=0.) This turn = array A-3 `dc5869ca` (array.get + array.set emit both arches).
-Verified locally: full `zig build test` (arm64) EXIT=0 + lint 0 + `zig build
--Dtarget=x86_64-linux-gnu` EXIT=0. The A-3 e2e is **ungated** — x86_64 RUNTIME exec of
-array.get/set is verified ONLY by the ubuntu kick (Mac runs arm64). Verify
-`tail -3 /tmp/ubuntu.log` next resume; revert the turn's commits to the last ubuntu-green HEAD
-(`16ea1272`) on FAIL.
+locally with EXIT=0.) This turn = array A-4 `690bcf0d` (array.new emit both arches). Verified
+locally: full `zig build test` (arm64) EXIT=0 + lint 0 + `zig build -Dtarget=x86_64-linux-gnu`
+EXIT=0. The A-4 e2e is **ungated** — x86_64 RUNTIME exec of array.new is verified ONLY by the
+ubuntu kick (Mac runs arm64). **ubuntu kick launched against `690bcf0d`** (user-requested stop:
+NO ScheduleWakeup re-arm this turn). Verify `tail -3 /tmp/ubuntu.log` on next `/continue`;
+revert the turn's commits to the last ubuntu-green HEAD (`6dccd1b5`) on FAIL.
 
-**Lesson (still live)**: `gate_commit.sh --fast` DEFERS `zig build test`/`lint` (Step 4/5 own
-them); the parent's independent full `zig build test` before push is the real gate.
+**Lesson (still live)**: `gate_commit.sh --fast` DEFERS `zig build test`/`lint` (Step 4/5 own them) — parent's full `zig build test` before push is the real gate.
 
 ## Key refs
 
