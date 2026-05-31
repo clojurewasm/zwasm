@@ -183,7 +183,7 @@ each cycle SHOULD aim to land at least one of:
   (when the lesson is generalisable beyond this specific
   bug).
 - An eliminated hypothesis in the
-  [`hypothesis_enumeration.md`](../rules/hypothesis_enumeration.md)
+  [`investigation_discipline.md`](../rules/investigation_discipline.md) §1 (hypothesis enumeration — absorbed `hypothesis_enumeration.md` per ADR-0118 D3)
   list with the rejecting probe explicitly named.
 
 The opposite anti-pattern (observed across D-142 cycles 3-4
