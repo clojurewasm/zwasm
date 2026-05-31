@@ -88,12 +88,16 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 ## Step 0.7 (next resume)
 
-This turn landed no-arg f32/f64 dispatch (code chunk: `runF32Export`/`runF64Export` in
-`src/engine/runner.zig` + `recordJitRunErr` dedup in the spec runner). Classify=`unclear` → gated
-at `zig build test-all` (Mac green) + lint green; ubuntu kicked at turn end against this turn's
-HEAD (`test-all`). Next `/continue`: `tail -3 /tmp/ubuntu.log`, expect `OK (HEAD=<this turn's
-tip>)`. On FAIL: revert this turn's commits to the last ubuntu-verified code HEAD (`8c445488`, the
-prior no-arg-i64 turn, ubuntu-green). Mac aarch64 primary; ubuntu confirms x86_64.
+This turn landed no-arg f32/f64 dispatch (`e453540c`) + a gate-tooling fix
+(`scripts/mac_gate.sh`, `2134116b`). Mac `test-all` + lint green. ubuntu `test-all` kicked
+against HEAD `2134116b`; verify next `/continue` Step 0.7: `tail -3 /tmp/ubuntu.log`, expect
+`OK (HEAD=2134116b)`. On FAIL: revert to last ubuntu-verified code HEAD (`8c445488`, prior
+no-arg-i64 turn, ubuntu-green). **Loop STOPPED here without re-arm at user request** (status
+overview delivered). Resume with `/continue`. Mac aarch64 primary; ubuntu confirms x86_64.
+
+**Gate hygiene (NEW, `2134116b`)**: use `bash scripts/mac_gate.sh` for the Step-5 Mac gate —
+never `zig build test-all > log; grep -c … log` (trailing `grep -c` exits 1 on zero matches →
+false "command failed" notification on a green build). Inspect via `$MAC_GATE_LOG` separately.
 
 **Lesson (still live)**: `gate_commit.sh --fast` DEFERS `zig build test`/`lint` (Step 4/5 own
 them) — the parent's full `zig build test` before push is the real gate.
