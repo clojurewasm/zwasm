@@ -318,13 +318,23 @@ read; do NOT re-trust the uniform-vs-packed / lowering-stub claims):**
   computes from `array_defs[i].element.storage.specByte()` → compileOne →
   lowerFunctionBodyWith → Lowerer; lower stamps `extra` for sub==12 only),
   and the emit switches `ins.extra` → SXTB/SXTH (else unreachable; validator
-  restricts get_s to packed). stackEffect 2→1 (fixed). **A-6b (NEXT) =
-  `array.get_u`** = mirror A-6a UNSIGNED: reuse the threading, extend the
-  lower stamp to sub==13, add 3 NEW zero-extend encoders — arm64 `encUxtbW`
+  restricts get_s to packed). stackEffect 2→1 (fixed). A-6a `25218e9f`. A-6b
+  `array.get_u` = mirror A-6a UNSIGNED: reused the threading, extended the
+  lower stamp to sub∈{12,13}, added 3 zero-extend encoders — arm64 `encUxtbW`
   (UBFM Wd,Wn,#0,#7 = 0x53001C00) + `encUxthW` (0x53003C00); x86_64
-  `encMovzxR32R16` (0x0F 0xB7, mirror encMovsxR32R16; encMovzxR32R8 exists).
-  Then bulk fill/copy/new_data/new_elem (trampoline-based; fill = 6-arg
-  `jitGcArrayFill` + bool trap-return checked via the bounds_fixups stub).
+  `encMovzxR32R16` (0x0F 0xB7, mirror encMovsxR32R16; encMovzxR32R8 existed).
+  emit switch on extra → UXTB/UXTH (arm64) / MOVZX (x86_64). DONE both arches.
+  **A-7 (NEXT) = `array.fill`** (trampoline, mirror array.new A-4): NEW
+  `jitGcArrayFill(rt, typeidx, ref, idx, value, count) → u32` (1=ok / 0=trap)
+  does null-check + bounds-check (`idx+count ≤ length`, @addWithOverflow) +
+  fill in Zig (mirror interp arrayFill, array_ops.zig:324). Emit marshals 6
+  args (rt + typeidx + ref/idx/value/count → SysV RDI/RSI/RDX/RCX/R8/R9 fits;
+  arm64 X0-X5) → CALL → `CMP result,#0; B.EQ/JE → bounds_fixups`. 4→0 (no
+  push). Inclusive force-spill (regalloc_compute) so all 4 operands are in
+  spill slots → marshal each spill→stage→arg (avoids the parallel-move-into-
+  arg-regs hazard). usesRuntimePtr += array.fill. Then array.copy (5 ops /
+  7-arg trampoline — x86_64 7th arg on stack) + new_data/new_elem. Then
+  ref.cast / ref.test / ref.eq.
 - **Per-op touch-points** (same as struct, see above): op-file + register in
   `collected_{arm64_ops,x86_64_ctx_ops}` + bump dispatch_collector.zig count
   LITERALS + stackEffect (or liveness special-case if variadic) + x86_64
