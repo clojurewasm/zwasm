@@ -324,17 +324,23 @@ read; do NOT re-trust the uniform-vs-packed / lowering-stub claims):**
   (UBFM Wd,Wn,#0,#7 = 0x53001C00) + `encUxthW` (0x53003C00); x86_64
   `encMovzxR32R16` (0x0F 0xB7, mirror encMovsxR32R16; encMovzxR32R8 existed).
   emit switch on extra → UXTB/UXTH (arm64) / MOVZX (x86_64). DONE both arches.
-  **A-7 (NEXT) = `array.fill`** (trampoline, mirror array.new A-4): NEW
-  `jitGcArrayFill(rt, typeidx, ref, idx, value, count) → u32` (1=ok / 0=trap)
-  does null-check + bounds-check (`idx+count ≤ length`, @addWithOverflow) +
-  fill in Zig (mirror interp arrayFill, array_ops.zig:324). Emit marshals 6
-  args (rt + typeidx + ref/idx/value/count → SysV RDI/RSI/RDX/RCX/R8/R9 fits;
-  arm64 X0-X5) → CALL → `CMP result,#0; B.EQ/JE → bounds_fixups`. 4→0 (no
-  push). Inclusive force-spill (regalloc_compute) so all 4 operands are in
-  spill slots → marshal each spill→stage→arg (avoids the parallel-move-into-
-  arg-regs hazard). usesRuntimePtr += array.fill. Then array.copy (5 ops /
-  7-arg trampoline — x86_64 7th arg on stack) + new_data/new_elem. Then
-  ref.cast / ref.test / ref.eq.
+  A-7 `array.fill` (trampoline, mirror array.new A-4): NEW `jitGcArrayFill(rt,
+  typeidx, ref, idx, value, count) → u32` (1=ok / 0=trap) null-check + bounds-
+  check (`idx+count ≤ length`, @addWithOverflow; negative-as-u32 caught) + fill
+  in Zig (mirror interp arrayFill, array_ops.zig:324). Emit marshals 6 args
+  (arm64 X0-X5 / x86_64 RDI/RSI/RDX/RCX/R8/R9 — arg regs ∉ regalloc pool so NO
+  parallel-move hazard; STRICT force-spill `=> false` since operands consumed
+  before CALL) → CALL → `CMP/TEST result,0; B.EQ/JE → bounds_fixups` (the
+  fixup mechanism is POSITION-INDEPENDENT, disp=(trap_byte−fixup_byte)/4, so it
+  works post-CALL; the stub raises a GENERIC trap). 4→0 (no push). DONE both
+  arches. **A-8 (NEXT) = `array.copy`** (trampoline, mirror A-7): NEW
+  `jitGcArrayCopy(rt, dst_typeidx, dst_ref, dst_off, src_ref, src_off, len) →
+  u32` (1=ok / 0=trap) null-check both refs + bounds-check both ranges +
+  memmove-overlap copy (mirror interp arrayCopy, array_ops.zig:359). 7 args →
+  x86_64 SysV puts the 7th (len) ON THE STACK ([rsp] after the 6 GPR args,
+  16-byte SP alignment) — arm64 fits X0-X6. array.copy pops [dst_ref, dst_off,
+  src_ref, src_off, len] = 5→0. Then array.new_data/new_elem (segment-read
+  trampolines), then ref.cast / ref.test / ref.eq.
 - **Per-op touch-points** (same as struct, see above): op-file + register in
   `collected_{arm64_ops,x86_64_ctx_ops}` + bump dispatch_collector.zig count
   LITERALS + stackEffect (or liveness special-case if variadic) + x86_64

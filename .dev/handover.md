@@ -8,20 +8,20 @@
 - **Phase**: **10 IN-PROGRESS — committed to 100% (ADR-0128)** (Phase 9 = DONE
   2026-05-24). §10 exit requires the official Wasm 3.0 testsuite at pass=fail=skip=0
   on **both backends** (interp + JIT).
-- **HEAD**: 10.G **array A-6a+A-6b** (`array.get_s` + `array.get_u` emit both arches). = `array.get`
-  (A-3: null-trap + bounds-check + 8-byte slot load at `[base+12+idx*8]`) + a final packed-extend
-  to i32: get_s sign-extends (arm64 SXTB/SXTH; x86_64 MOVSX), get_u zero-extends (arm64 UXTB/UXTH
-  `encUxtbW`/`encUxthW`; x86_64 `encMovzxR32R16`). Packed width (i8 0x78 / i16 0x77) threaded
-  type-section→`ZirInstr.extra` via new `array_elem_valtypes` table (mirror `struct_field_counts`:
-  compile.zig→compileOne→lowerFunctionBodyWith→Lowerer; lower stamps sub∈{12,13}). emit switch on
-  extra (else unreachable; validator restricts to packed). e2e: i8 elem 0xC8 → get_s -56 (u32
-  4294967240) / get_u 200. A-6a `25218e9f` (ubuntu GREEN `261350de`); A-6b THIS turn. (A-5
-  `d4f2a141` + A-1..A-4 DONE.) Verified: arm64 `test-all` EXIT=0 + lint 0 + x86_64 cross EXIT=0.
+- **HEAD**: 10.G **array A-7** (`array.fill` emit both arches). First BULK array op — trampoline,
+  mirror array.new A-4: NEW `jitGcArrayFill(rt,typeidx,ref,idx,value,count) → u32` (1=ok/0=trap)
+  null-checks ref + bounds-checks `idx+count ≤ length` (@addWithOverflow, catches negative-as-u32)
+  + fills in Zig (mirror interp arrayFill). Emit marshals 6 args (arm64 X0-X5 / x86_64
+  RDI/RSI/RDX/RCX/R8/R9 — arg regs ∉ regalloc pool so no parallel-move hazard) → CALL → `CMP/TEST
+  result,0; B.EQ/JE → bounds_fixups` (bounds_fixups is position-independent → works post-CALL). 4→0
+  (no push); strict force-spill. usesRuntimePtr += array.fill. e2e: 5-elem array, fill [1,2,3]=42
+  via `(ref null 0)` local + tee, get[2] → 42. A-6a/b (`array.get_s/get_u`) DONE (ubuntu GREEN
+  `4c789a91`); A-7 THIS turn. Verified: arm64 `test-all` EXIT=0 + lint 0 + x86_64 cross EXIT=0.
 - **Two execution paths (CODE-verified)**: spec corpus runs **interp-only**
   (`instance.invoke`→`_dispatch.run`, `instance.zig:169`); JIT corpus run = §1. JIT emits
   1.0/2.0 + TC + func-refs + EH + i31 + full struct family + array.{new_default,len,get,set,
-  new,new_fixed,get_s,get_u} (both arches); remaining GC (array bulk fill/copy/init + ref.cast /
-  ref.eq) interp-only (D-211). Green gc/EH corpus = INTERP.
+  new,new_fixed,get_s,get_u,fill} (both arches); remaining GC (array copy/new_data/new_elem +
+  ref.cast / ref.eq) interp-only (D-211). Green gc/EH corpus = INTERP.
 - **ADR-0128 + ADR-0127 both Accepted** — no remaining user gate; loop runs autonomously.
 
 ## Active task — Phase 10 → 100% (ADR-0128)  **NEXT**
@@ -61,12 +61,12 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
   trampoline-fill) `690bcf0d` + A-5 (`array.new_fixed`, variadic, `jitGcAllocArray(rt,typeidx,N)`
   + inline reverse-pop stores, inclusive force-spill) `d4f2a141` + A-6a (`array.get_s` = A-3 load
   + SXTB/SXTH; element valtype threaded via `array_elem_valtypes`→`extra`) `25218e9f` + A-6b
-  (`array.get_u` = same + UXTB/UXTH / MOVZX; encUxtbW/encUxthW/encMovzxR32R16 added) THIS turn
-  DONE both arches.
-  **NEXT = array A-7 = `array.fill` emit, both arches** (trampoline, mirror array.new A-4) — full
-  recipe in bundle plan §"array.* sub-bundle": NEW `jitGcArrayFill(rt,typeidx,ref,idx,value,count)
-  → u32` (1=ok/0=trap; null+bounds-check+fill in Zig), emit marshals 6 args → CALL → `CMP 0; B.EQ
-  → bounds_fixups`; 4→0; inclusive force-spill. Then array.copy / new_data/new_elem, ref.cast/eq.
+  (`array.get_u` = same + UXTB/UXTH / MOVZX) `62de416c` + A-7 (`array.fill` = `jitGcArrayFill`
+  trampoline, 6-arg marshal + post-CALL trap) THIS turn DONE both arches.
+  **NEXT = array A-8 = `array.copy` emit, both arches** (trampoline, mirror A-7) — full recipe in
+  bundle plan §"array.* sub-bundle": `jitGcArrayCopy(rt,dst_ty,dst_ref,dst_off,src_ref,src_off,len)
+  → u32` (1=ok/0=trap; both null+bounds-check + memmove-overlap, mirror interp arrayCopy). 7 args
+  → x86_64 7th (len) ON STACK; arm64 X0-X6. 5→0. Then new_data/new_elem, ref.cast/eq.
 - **Exit-condition**: all GC ops emit on both arches + spec corpus green via JIT mode (§1).
 
 ## §10 remaining — the six `[ ]` rows
@@ -77,18 +77,18 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 - **10.E** EH — JIT emit present; residuals = eh_frequency runner (I20), c_api tag
   accessors (I14 → Phase 13), emscripten_eh realworld (I21).
 - **10.G** GC — JIT emit PARTIAL (D-211): i31 + **full struct family** + **array.{new_default,
-  len,get,set,new,new_fixed,get_s,get_u}** DONE both arches; remaining = array bulk fill/copy/init
-  (A-7+) + ref.cast / ref.eq + ADR-0127 PHASE C + D-198 + gc_stress (I19) + dart/hoot realworld (I21).
+  len,get,set,new,new_fixed,get_s,get_u,fill}** DONE both arches; remaining = array copy/new_data/
+  new_elem (A-8+) + ref.cast / ref.eq + ADR-0127 PHASE C + D-198 + gc_stress (I19) + dart/hoot (I21).
 - **10.P** close — flips only at 100% both-backends (ADR-0128).
 
 ## Step 0.7 (next resume)
 
-This turn landed array A-6b code (`array.get_u`) + this handover chore; prior cycle's A-6a
-`25218e9f` already ubuntu-verified GREEN (`OK (HEAD=261350de)`). ubuntu **test-all** kicked in
+This turn landed array A-7 code (`array.fill`) + this handover chore; prior cycle's A-6b
+`62de416c` already ubuntu-verified GREEN (`OK (HEAD=4c789a91)`). ubuntu **test-all** kicked in
 background against this turn's pushed HEAD (`/tmp/ubuntu.log`). Step 0.7 next `/continue`:
 `tail -3 /tmp/ubuntu.log`; expect `OK (HEAD=<final pushed SHA>)`. On FAIL → `git reset --mixed
-HEAD~2` (A-6b source + this handover chore) to last ubuntu-verified HEAD (`261350de`), fix,
-re-gate. On GREEN/non-code-gap → proceed to array A-7 (`array.fill`).
+HEAD~2` (A-7 source + this handover chore) to last ubuntu-verified HEAD (`4c789a91`), fix,
+re-gate. On GREEN/non-code-gap → proceed to array A-8 (`array.copy`).
 
 **Lesson (still live)**: `gate_commit.sh --fast` DEFERS `zig build test`/`lint` (Step 4/5 own them) — parent's full `zig build test` before push is the real gate.
 
