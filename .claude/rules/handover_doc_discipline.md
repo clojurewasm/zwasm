@@ -136,6 +136,33 @@ All autonomous prep walked; loop stops without re-arm.
   blockers` with named investigation Step 1-3 attempt per
   [`extended_challenge.md`](extended_challenge.md).
 
+## §6 — Length: soft/hard cap (NOT a per-cycle trim target)
+
+The length bound is **soft/hard**, mirroring `file_size_smell.md`
+(ADR-0099) — it is a smell detector, NOT a metric to drive to an
+exact number every cycle.
+
+| Cap | Lines | Behavior |
+|---|---|---|
+| **Soft** | 100 | Target. Informational. A few lines over is fine — do NOT spend a cycle micro-trimming prose back to exactly 100. |
+| **Hard** | 120 | MUST act before the handover commit: relocate stable content (Active-task workstreams, Key refs, durable invariants) to `CLAUDE.md` / a skill / a rule, OR drop closed-chunk detail. >120 = stale-prose accumulation, the failure mode a driving doc must avoid. |
+
+**Why soft/hard** (2026-05-31, user-requested): the prior hard
+`≤ 100` invited a wasteful per-cycle ritual of trimming 103→100 etc.
+on every commit pair. The lean-doc *intent* is "don't let stale prose
+accumulate," not "hit 100 exactly." Soft 100 / hard 120 captures the
+intent: relax in the 100–120 band, act only at 120. When a large
+`## Active bundle` (e.g. a multi-op emit sub-bundle) is live, the
+100–120 band is expected; it shrinks at bundle close.
+
+The trim action at hard cap is **relocation, not deletion of
+signal**: stable facts move to a more permanent home (the bundle plan,
+CLAUDE.md, a rule), so the handover stays a driving doc.
+
+No mechanical gate enforces this (per the system-defenses-over-scripts
+preference); `wc -l .dev/handover.md` at the handover-commit step is
+the check — act only when it exceeds 120.
+
 ## Reviewer checklist
 
 - [ ] No forbidden phrase from §1 table.
@@ -146,7 +173,8 @@ All autonomous prep walked; loop stops without re-arm.
       dependencies, not editorial pessimism.
 - [ ] If numbers appear in debt row narrative, prefixed with
       `Hypothesis (verified at <SHA-or-date>): ...`.
-- [ ] Total length ≤ 100 lines.
+- [ ] Length within soft/hard band (§6): ≤ 120 hard; relocate stable
+      content (don't micro-trim) when 100 < N ≤ 120.
 
 ## Stale-ness
 

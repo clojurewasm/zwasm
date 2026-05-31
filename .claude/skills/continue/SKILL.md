@@ -222,8 +222,10 @@ commit pair per chunk.
    Never `--no-verify` (§14 forbidden).
 2. **Update handover.md** (replace, not append): Current state (5
    lines, Phase + last SHA + next task), Active task (chunk progress
-   with **NEXT** marker), ≤ 100 lines. Stable content moves to
-   `CLAUDE.md` or skill/rule.
+   with **NEXT** marker). Length is **soft 100 / hard 120**
+   (`handover_doc_discipline.md` §6) — relax in the 100–120 band, do
+   NOT micro-trim to exactly 100; relocate stable content to
+   `CLAUDE.md` / skill / rule only when it exceeds 120.
 3. **Mark `[x]` for completed task in ROADMAP §9.<N>**. SHA stays
    bare; batch-backfilled at phase close. **§18 self-check** (PreToolUse
    hook re-prints): routine `[x]` flip + SHA backfill = no ADR.
