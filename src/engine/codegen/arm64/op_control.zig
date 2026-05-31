@@ -282,6 +282,16 @@ pub fn emitBrIf(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     if (ctx.pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const cond = ctx.pushed_vregs.pop().?;
     const wn = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, cond, 0);
+    try branchOnReg(ctx, ins, wn);
+}
+
+/// Conditional-branch-to-label body shared by `br_if` and `br_on_cast`:
+/// branch to the label at `ins.payload` depth when `wn != 0`. Five cases —
+/// conditional function-return (depth == labels.len), loop+param, loop-direct,
+/// forward block-with-captured-merge, forward simple. The caller supplies the
+/// condition already loaded in `wn`: `br_if` pops the operand; `br_on_cast`
+/// passes the `jitGcRefTest` result (and `br_on_cast_fail` inverts it first).
+pub fn branchOnReg(ctx: *EmitCtx, ins: *const ZirInstr, wn: inst.Xn) Error!void {
     if (ins.payload == ctx.labels.items.len) {
         // Conditional return: CBZ cond, skip ; marshal ; B
         // epilogue ; skip:

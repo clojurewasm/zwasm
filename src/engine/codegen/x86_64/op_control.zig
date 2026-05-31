@@ -793,6 +793,29 @@ pub fn emitBrIf(
     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const cond_v = pushed_vregs.pop().?;
     const cond_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, cond_v, 0);
+    try branchOnReg(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, func, frame_bytes, uses_runtime_ptr, return_is_memory_class, indirect_result_slot_neg_off, depth, cond_r);
+}
+
+/// Conditional-branch-to-label body shared by `br_if` and `br_on_cast`
+/// (mirror of arm64 `branchOnReg`): branch to the label at `depth` when
+/// `cond_r != 0`. The caller supplies the condition in `cond_r` — `br_if`:
+/// the popped operand; `br_on_cast`: the `jitGcRefTest` result (`_fail`
+/// inverts it first).
+pub fn branchOnReg(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    pushed_vregs: *std.ArrayList(u32),
+    labels: *std.ArrayList(Label),
+    spill_base_off: u32,
+    func: *const ZirFunc,
+    frame_bytes: u32,
+    uses_runtime_ptr: bool,
+    return_is_memory_class: bool,
+    indirect_result_slot_neg_off: u32,
+    depth: u32,
+    cond_r: abi.Gpr,
+) Error!void {
     if (depth == labels.items.len) {
         // Conditional function-return:
         //   TEST cond_r, cond_r
