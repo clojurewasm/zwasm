@@ -496,13 +496,13 @@ pub fn compute(
             continue;
         }
 
-        // struct.new (Wasm 3.0 GC §3.3.5.6.1): variadic — pops `extra`
-        // field operands (the field count, stamped by the lowerer from
-        // the struct type since the opcode doesn't carry it), pushes 1
-        // GcRef. NON-terminator. Like `call`, the count isn't fixed per
+        // struct.new (§3.3.5.6.1) / array.new_fixed (§3.3.5.6.8): variadic
+        // — pop `extra` operands (the field/element count, stamped by the
+        // lowerer since the opcode immediate doesn't reach liveness), push
+        // 1 GcRef. NON-terminator. Like `call`, the count isn't fixed per
         // opcode, so it can't live in `stackEffect`. Best-effort pop:
         // dead-code pops silently no-op (validator proved the shape).
-        if (instr.op == .@"struct.new") {
+        if (instr.op == .@"struct.new" or instr.op == .@"array.new_fixed") {
             const n_fields: usize = instr.extra;
             var fi: usize = 0;
             while (fi < n_fields and sim_len > 0) : (fi += 1) {

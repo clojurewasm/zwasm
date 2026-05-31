@@ -141,6 +141,9 @@ pub fn computeWith(
             // array.new: BLR/CALL into jitGcAllocArrayFill; init + length
             // both consumed into args before the CALL (strict).
             .@"array.new" => false,
+            // array.new_fixed (variadic): element operands stored AFTER the
+            // alloc CALL → inclusive upper bound (mirror struct.new).
+            .@"array.new_fixed" => true,
             else => null,
         };
         const inc = inclusive orelse continue;

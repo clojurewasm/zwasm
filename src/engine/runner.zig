@@ -1421,3 +1421,35 @@ test "runI32Export: array.new fill + array.get → 7 (10.G array-on-JIT A-4)" {
     };
     try testing.expectEqual(@as(u32, 7), runI32Export(testing.allocator, &bytes, "f"));
 }
+
+test "runI32Export: array.new_fixed 3 elems + array.get → 30 (10.G array-on-JIT A-5)" {
+    // Both arches (arm64 + x86_64 SysV emit landed together).
+    // (module
+    //   (type (array (mut i32)))             ;; type 0
+    //   (func (export "f") (result i32)        ;; type 1
+    //     i32.const 10  i32.const 20  i32.const 30
+    //     array.new_fixed 0 3                  ;; elem[0]=10 elem[1]=20 elem[2]=30
+    //     i32.const 2  array.get 0))           ;; elem[2] → 30
+    // array.new_fixed is variadic (N=3 compile-time): allocs a length-3
+    // array via jitGcAllocArray, then stores the 3 popped values inline at
+    // [base+12+i*8] in DECLARED order (reverse-pop). Reading elem[2] → 30
+    // verifies both the reverse-pop ordering (top operand 30 lands in the
+    // highest slot) AND the force-spill across the alloc CALL (a clobbered
+    // field value would corrupt the result). array.new_fixed = fb 08 typeidx N.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        // type: [0]=array{i32 mut} (5e 7f 01), [1]=func ()->(i32) (60 00 01 7f)
+        0x01, 0x08, 0x02, 0x5e, 0x7f, 0x01, 0x60, 0x00,
+        0x01, 0x7f,
+        0x03, 0x02, 0x01, 0x01, // func: type idx 1
+        0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00, // export "f" func 0
+        // code: body 17 bytes (locals 00 + i32.const 10 [41 0a] + i32.const 20
+        // [41 14] + i32.const 30 [41 1e] + array.new_fixed 0 3 [fb 08 00 03] +
+        // i32.const 2 [41 02] + array.get 0 [fb 0b 00] + end 0b).
+        // body_size=0x11, sect size=0x13.
+        0x0a, 0x13, 0x01, 0x11, 0x00, 0x41, 0x0a,
+        0x41, 0x14, 0x41, 0x1e, 0xfb, 0x08, 0x00,
+        0x03, 0x41, 0x02, 0xfb, 0x0b, 0x00, 0x0b,
+    };
+    try testing.expectEqual(@as(u32, 30), runI32Export(testing.allocator, &bytes, "f"));
+}
