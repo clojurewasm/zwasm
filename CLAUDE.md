@@ -78,6 +78,11 @@ text or code identifiers.
 - Don't paper over absences. Walk the 3-step procedure in
   [`extended_challenge.md`](.claude/rules/extended_challenge.md) before
   declaring something missing or shipping a SKIP-X workaround.
+- Bound every backgrounded long-runner with `timeout` per
+  [`orphan_prevention.md`](.claude/rules/orphan_prevention.md). The
+  remote gates self-guard via `scripts/orphan_guard.sh` (reap + bound);
+  compounds with Microsoft Defender's `.zig-cache`/`zig-out` scan
+  (cf. D-028) so orphans hurt double here.
 
 ## Skills
 

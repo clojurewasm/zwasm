@@ -34,8 +34,20 @@
 # line on stderr before exiting, so the autonomous loop's log
 # scan localises which phase broke without re-running.
 
+# Orphan guard — reap prior orphans + self-bound under timeout before
+# any work (see scripts/orphan_guard.sh + orphan_prevention.md). Must
+# run before `set -e` so the reap's empty-pgrep exits don't abort.
+_og="$(dirname "$0")/orphan_guard.sh"
+[ -f "$_og" ] && source "$_og" && orphan_guard "$0" ubuntunote "$@"
+
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+# SSH keepalive: a dead local client (parent-session kill / timeout)
+# makes the remote sshd drop the channel — and the remote `zig build` —
+# within ~2 min, so a reaped/timed-out gate doesn't leave a build
+# running on ubuntunote (the "timeout does NOT propagate" caveat).
+SSH_OPTS="-o ServerAliveInterval=30 -o ServerAliveCountMax=4"
 
 REMOTE_DIR="Documents/MyProducts/zwasm_from_scratch"
 REMOTE_BRANCH="zwasm-from-scratch"
@@ -60,7 +72,7 @@ die_step() {
 #    so the remote `nix` command resolves from a non-interactive
 #    SSH session without relying on user .bashrc.
 echo "[run_remote_ubuntu] preflight (clone + nix reachable) ..."
-ssh ubuntunote bash -lc "'
+ssh $SSH_OPTS ubuntunote bash -lc "'
     test -d $REMOTE_DIR || exit 11
     command -v nix >/dev/null 2>&1 || exit 12
 '" || {
@@ -77,7 +89,7 @@ ssh ubuntunote bash -lc "'
 #    `reset --hard` failure (concurrent mod) are distinguished
 #    by exit code below.
 echo "[run_remote_ubuntu] sync ubuntunote:~/$REMOTE_DIR to origin/$REMOTE_BRANCH ..."
-remote_sha="$(ssh ubuntunote bash -lc "'
+remote_sha="$(ssh $SSH_OPTS ubuntunote bash -lc "'
     cd $REMOTE_DIR || exit 21
     git fetch origin $REMOTE_BRANCH >&2 || exit 22
     git checkout $REMOTE_BRANCH >&2 || exit 23
@@ -108,7 +120,7 @@ fi
 # `flake.nix`, guaranteeing bit-identical toolchain with Mac
 # and any other host.
 echo "[run_remote_ubuntu] $REMOTE_CMD ..."
-ssh ubuntunote bash -lc "'
+ssh $SSH_OPTS ubuntunote bash -lc "'
     cd $REMOTE_DIR && nix develop --command bash -c \"$REMOTE_CMD\"
 '" || die_step "build — '$REMOTE_CMD' failed on ubuntunote (HEAD=$remote_sha)"
 
