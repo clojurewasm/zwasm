@@ -8,15 +8,12 @@
 - **Phase**: **10 IN-PROGRESS — committed to 100% (ADR-0128)** (Phase 9 = DONE
   2026-05-24). §10 exit requires the official Wasm 3.0 testsuite at pass=fail=skip=0
   on **both backends** (interp + JIT).
-- **HEAD**: 10.G **R-3 `ref.cast_null`** emit both arches (`b6cf1ce8`). The ref.test/cast
-  family is now COMPLETE on both arches: R-1 `ref.test`/`ref.test_null` (`c2a8fd11`), R-2
-  `ref.cast` (`8e3f6a83`), R-3 `ref.cast_null` (`b6cf1ce8`). Subtype check is the SHARED
-  Runtime-free `gcRefMatchesNonNullCore(gti, heap, v, ht)` (ref_test_ops.zig) called by BOTH
-  the interp wrapper AND the JIT trampolines `jitGcRefTest` (test family → i32; null folds in
-  via the 0x100 bit) + `jitGcRefCast` (cast → ref/0=trap). ref.cast_null reuses jitGcRefCast
-  with an INLINE null-skip branch (CBZ/JZ patched in-place; null passes, mismatch traps). 1→1;
-  force-spill; usesRuntimePtr. Verified: arm64 `zig build test` EXIT=0 + lint 0 + x86_64 cross
-  EXIT=0.
+- **HEAD**: 10.G br_on_cast **Cycle A** — extracted `branchOnReg` from `emitBrIf` both arches
+  (`7a44f910`, behaviour-neutral; br_if green 2337/2349 no delta). branchOnReg = the 5-case
+  conditional-branch-to-label core (cond-return / loop+param / loop-direct / fwd-block-capture /
+  fwd-simple), now shared. (ref.test/cast family R-1/R-2/R-3 all DONE both arches — `c2a8fd11`/
+  `8e3f6a83`/`b6cf1ce8` — via the SHARED Runtime-free `gcRefMatchesNonNullCore` + `jitGcRefTest`
+  (test→i32) / `jitGcRefCast` (cast→ref/0=trap) trampolines.)
 - **Two execution paths (CODE-verified)**: spec corpus runs **interp-only**
   (`instance.invoke`→`_dispatch.run`, `instance.zig:169`); JIT corpus run = §1. JIT emits
   1.0/2.0 + TC + func-refs + EH + i31 + full struct family + full array family + ref.eq +
@@ -65,16 +62,22 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
   wat2wasm 1.0.40 can't parse GC array/ref text; ref.cast leaves a REF on stack — trap-test
   bodies need `drop; i32.const 0` to type-check; i32.const ≥ 64 needs multi-byte signed LEB128**).
 - **NEXT = br_on_cast / br_on_cast_fail emit, both arches** (0xFB 0x18/0x19) — cast + BRANCH
-  (control-flow; SURVEY DONE this cycle, full plan in **`private/notes/p10-br-on-cast-survey.md`**).
-  Key facts: `br`/`br_if` are emit.zig CENTRAL-SWITCH arms calling `op_control.emitBr*` (NOT
-  collected per-op files) — so br_on_cast lives in op_control.zig + an emit.zig switch arm too (no
-  dispatch_collector count bumps). It pops 0 (the ref STAYS on the stack — liveness gap: add a
-  peek-don't-pop handler beside `.br_if` at liveness.zig:414). Recipe: refactor emitBrIf →
-  `branchOnReg(ctx, ins, cond_reg, branch_if_nonzero)` (the 5-case branch body), then emitBrOnCast
-  = peek ref → CALL jitGcRefTest(ht2 | ht2_nullable<<8) → branchOnReg(W0, !is_fail). HAZARDS
-  (in notes): sense-flip CBNZ↔CBZ for `_fail`; W0 must be read before merge MOVs clobber it;
-  force-spill + usesRuntimePtr for the 2 ops. Cycle A = branchOnReg refactor (behaviour-neutral,
-  br_if stays green); Cycle B = emitBrOnCast + liveness + e2e; Cycle C = `_fail` sense-flip.
+  (control-flow; full plan in **`private/notes/p10-br-on-cast-survey.md`**). **Cycle A DONE**
+  (`branchOnReg` extracted, `7a44f910`). Cycle B (NEXT): `emitBrOnCast(ctx/params, is_fail)` in
+  op_control.zig (both arches) + an emit.zig switch arm each (`.br_on_cast` / `.br_on_cast_fail`
+  → emitBrOnCast). Recipe: PEEK ref (don't pop — `ctx.pushed_vregs` top stays), `ht2 =
+  (ins.extra>>8)&0xFF`, `ht2_nullable = (ins.extra&0x02)!=0`; marshal ref→arg1 (64-bit) + rt +
+  `ht2 | (ht2_nullable?0x100:0)` → CALL jitGcRefTest → bool in W0/EAX; for `_fail` INVERT the
+  bool (CMP W0,#0;CSET W0,.eq / TEST EAX,EAX;SETE — reuse existing encoders, no sense param in
+  branchOnReg); then `branchOnReg(..., W0)`. The ref stays as pushed_vregs top → branchOnReg's
+  merge-mov carries it to the label (br_on_cast label result = the narrowed ref). LIVENESS gap:
+  add `.br_on_cast`/`.br_on_cast_fail` beside `.br_if` (liveness.zig:414) as PEEK-don't-pop
+  (extend top ref's last_use=pc, no pop). Also: regalloc_compute force-spill + x86_64
+  usesRuntimePtr for both (they CALL jitGcRefTest). NOT collected per-op (central-switch) → no
+  dispatch_collector count bumps. HAZARD: W0 read before merge MOVs clobber it (branchOnReg's
+  block-capture path reads cond first — OK; verify). e2e: block `(result (ref i31))` + ref.i31 +
+  `br_on_cast $L (ref null any)(ref i31)` → branch carries i31ref → i31.get_s → 7 (hand-encode;
+  block-type (ref i31) = `0x64 0x6c`; br_on_cast = `fb 18 flags labelidx ht1 ht2`).
 - **Exit-condition**: all GC ops emit on both arches + spec corpus green via JIT mode (§1).
 
 ## §10 remaining — the six `[ ]` rows
@@ -91,12 +94,12 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 ## Step 0.7 (next resume)
 
-**This cycle = br_on_cast SURVEY/design only (no code shipped → NO ubuntu kick this turn).** R-3
-`ref.cast_null` was ubuntu-verified GREEN this cycle (`OK (HEAD=ca2ce49f)`); all GC value ops
-(i31/struct/array/ref.eq/ref.test/test_null/cast/cast_null) are confirmed on both arches. Next
-`/continue`: Step 0.7 is already settled (no new code kicked) — proceed directly to br_on_cast
-**Cycle A** (the emitBrIf → branchOnReg behaviour-neutral refactor; plan in
-`private/notes/p10-br-on-cast-survey.md`).
+**Cycle A (branchOnReg refactor) kicked to ubuntu THIS turn** (background `test-all`, against the
+turn's pushed HEAD = the Cycle-A + handover chain tip). Next `/continue`: `tail -3 /tmp/ubuntu.log`
+— expect `[run_remote_ubuntu] OK (HEAD=<Cycle-A chain tip>)`. On FAIL: revert to the last
+ubuntu-verified HEAD (`ca2ce49f` = R-3). On GREEN: proceed to br_on_cast **Cycle B** (emitBrOnCast
++ liveness + e2e; recipe in Active-bundle NEXT + `private/notes/p10-br-on-cast-survey.md`). The
+refactor being behaviour-neutral, br_if regression on ubuntu would be the signal.
 
 **Lesson (still live)**: `gate_commit.sh --fast` DEFERS `zig build test`/`lint` (Step 4/5 own
 them) — parent's full `zig build test` before push is the real gate.
