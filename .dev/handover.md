@@ -8,13 +8,14 @@
 - **Phase**: **10 IN-PROGRESS — committed to 100% (ADR-0128)** (Phase 9 = DONE
   2026-05-24). §10 exit requires the official Wasm 3.0 testsuite at pass=fail=skip=0
   on **both backends** (interp + JIT).
-- **HEAD**: §1 spec-corpus JIT execution-mode **backbone LANDED** (`0d9cddd7`). Opt-in
-  `ZWASM_SPEC_ENGINE=jit` routes the no-arg-i32 same-module assert_return subset through the
-  JIT entry (runI32Export) + compares; reports jit pass/fail/skip. Mac aarch64 first run:
-  **pass=43 fail=96 skip=1156** (pass = funcs execute through JIT; fail = intended RED signal —
-  genuine gaps + state-dependent funcs the re-compile-per-call path can't share interp state
-  for; skip = shapes not yet wired). Default stays interp → test-all unchanged. GC-op JIT emit
-  was COMPLETE both arches at `c94bd04f` (10.G-gc-on-jit bundle CLOSED).
+- **HEAD**: §1 spec-corpus JIT mode backbone (`0d9cddd7`) + **JIT-fail classification**
+  (this turn). Opt-in `ZWASM_SPEC_ENGINE=jit` routes the no-arg-i32 same-module assert_return
+  subset through the JIT entry (runI32Export) + compares. Mac aarch64: **pass=43 fail=9
+  skip=1243** (was fail=96; a `--fail-detail` sweep showed 87 of 96 "fails" were
+  compile/setup rejections that never executed — `jitErrorIsUnwiredShape` now buckets them as
+  enumerated SKIP, leaving fail = JIT executed + wrong observable result [8 trap + 1 value]).
+  **Shared-runtime state-bridge DROPPED** (measured zero-yield: 0 of 96 were stale-state). Default
+  stays interp → test-all unchanged. GC-op JIT emit COMPLETE both arches (`c94bd04f`).
 - **Two execution paths (CODE-verified)**: spec corpus runs **interp by default**
   (`instance.invoke`→`_dispatch.run`, `instance.zig:169`); the **JIT path is now wired as an
   opt-in mode** (`ZWASM_SPEC_ENGINE=jit`, backbone above). The standalone `runI32Export`
@@ -56,14 +57,17 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
   Mode toggle: env `ZWASM_SPEC_ENGINE=jit` (simplest) — `build.zig:15` documents `-Dengine
   interp/jit/both` but it is NOT yet implemented.
 - **Exit-condition**: ≥1 `assert_return` (no-arg i32) executes THROUGH the JIT + compares.
-  ✓ **MET** (`0d9cddd7`, jit pass=43 fail=96 skip=1156). Bundle continues for dispatcher growth.
-- **NEXT chunk** (value-order): (a) **shared-runtime JIT-execute** — replace the
-  re-compile-per-call (runI32Export) with a JIT path sharing the interp run's accumulated
-  module state, so state-dependent no-arg-i32 funcs stop being false-RED (splits the ~96 fails
-  into genuine-gap vs state-artifact); (b) **general arg/result dispatcher** — 裏取り the calling
-  convention FIRST (`entry.zig` monomorphized `callI32_i32`… ⇒ C-ABI params; confirm via a
-  prologue param-load read), then wire args + i64/FP + multi-value, flipping skips. Do (a)
-  first — it cleans the RED signal (b) is measured against.
+  ✓ **MET** (`0d9cddd7`). RED signal now CLEAN (fail=9 = JIT-executed-wrong only). Bundle
+  continues for shape growth.
+- **NEXT chunk** = **general arg/result dispatcher** (the dominant lever: 1243 skips are mostly
+  args / i64 / fp / multi-value / void). **裏取り the calling convention FIRST** (see
+  Continuity-memo: `entry.zig` monomorphized `callI32_i32`… ⇒ C-ABI params, NOT operand stack;
+  confirm via a prologue param-load read — two surveys disagreed, resolve empirically), THEN wire
+  args + i64/FP + multi-value, flipping skips. Secondary lever: multi-memory setup in
+  `runI32Export`/`setupRuntime` (66 skips; needs JitRuntime per-memory base — likely its own
+  chunk). Unemitted ops (11 skips: br_on_null / return_call_indirect / …) tracked by D-198 /
+  tail-call / ADR-0127 PHASE C. **Shared-runtime state-bridge is NOT a chunk** — measured
+  zero-yield (lesson `2026-05-31-spec-jit-corpus-fails-are-gaps-not-stale-state`).
 
 ## §10 remaining — the six `[ ]` rows
 
@@ -78,10 +82,11 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 ## Step 0.7 (next resume)
 
-This turn pivoted from GC-emit (DONE) to §1. Whatever §1 chunk lands is kicked to ubuntu at
-turn end — next `/continue`: `tail -3 /tmp/ubuntu.log`, expect `[run_remote_ubuntu] OK
-(HEAD=<this turn's tip>)`. On FAIL: revert to last ubuntu-verified HEAD (`72c0c9e3`). Mac
-aarch64 is primary; ubuntu confirms the x86_64 mirror.
+This turn landed §1 JIT-fail classification (`substrate` scope → `zig build test` gate, green;
+lint green). ubuntu kicked against this turn's HEAD at turn end (covers the prior unverified §1
+backbone `0d9cddd7` too — the context-bloat commits between were doc-only). Next `/continue`:
+`tail -3 /tmp/ubuntu.log`, expect `[run_remote_ubuntu] OK (HEAD=<this turn's tip>)`. On FAIL:
+revert to last ubuntu-verified HEAD (`72c0c9e3`). Mac aarch64 primary; ubuntu confirms x86_64.
 
 **Lesson (still live)**: `gate_commit.sh --fast` DEFERS `zig build test`/`lint` (Step 4/5 own
 them) — the parent's full `zig build test` before push is the real gate.
@@ -94,6 +99,8 @@ them) — the parent's full `zig build test` before push is the real gate.
   ROADMAP §10.
 - Debt: **D-211** (GC-on-JIT — emit done; §1 verifies it), D-212 (GC FP-value marshal gap —
   surfaces under §1 mode), D-209 (stale), D-202 / D-198 / D-210. Lessons
+  `2026-05-31-spec-jit-corpus-fails-are-gaps-not-stale-state` (this turn — measure the fail
+  taxonomy before building the mechanism a narrative assumed) +
   `2026-05-31-jit-passthrough-result-clobbered-by-call` +
   `2026-05-31-wasmgc-jit-non-moving-deferred-rooting` +
   `2026-05-30-phase10-jit-coverage-partial-spec-corpus-interp`.
