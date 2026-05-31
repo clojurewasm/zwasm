@@ -228,6 +228,22 @@ pub fn encSxthX(xd: Xn, xn: Xn) u32 {
     return 0x93403C00 | (@as(u32, xn) << 5) | @as(u32, xd);
 }
 
+/// `UXTB Wd, Wn` — zero-extend low 8 bits of Wn into Wd (10.G
+/// `array.get_u` packed i8). Alias for `UBFM Wd, Wn, #0, #7`
+/// (Arm IHI 0055 §C6.2.330, UBFM 32-bit immr=0 imms=7). Same
+/// shape as `encSxtbW` but UBFM (opc=10) not SBFM (opc=00):
+/// SBFM base 0x13001C00 | (opc bit30) → 0x53001C00.
+pub fn encUxtbW(wd: Xn, wn: Xn) u32 {
+    return 0x53001C00 | (@as(u32, wn) << 5) | @as(u32, wd);
+}
+
+/// `UXTH Wd, Wn` — zero-extend low 16 bits (10.G `array.get_u`
+/// packed i16). Alias for `UBFM Wd, Wn, #0, #15`. Encoding base
+/// 0x53003C00; immr=0, imms=15.
+pub fn encUxthW(wd: Xn, wn: Xn) u32 {
+    return 0x53003C00 | (@as(u32, wn) << 5) | @as(u32, wd);
+}
+
 /// `SDIV Wd, Wn, Wm` — signed divide, 32-bit. Arm IHI 0055
 /// §C6.2.234. Trapping behaviour deferred to caller (zero-check
 /// + INT_MIN/-1 overflow check happen before this).
@@ -1416,6 +1432,12 @@ test "encSxtbW w0, w0 → 0x13001C00" {
 }
 test "encSxthW w0, w0 → 0x13003C00" {
     try testing.expectEqual(@as(u32, 0x13003C00), encSxthW(0, 0));
+}
+test "encUxtbW w0, w1 → 0x53001C20 (uxtb w0, w1)" {
+    try testing.expectEqual(@as(u32, 0x53001C20), encUxtbW(0, 1));
+}
+test "encUxthW w0, w1 → 0x53003C20 (uxth w0, w1)" {
+    try testing.expectEqual(@as(u32, 0x53003C20), encUxthW(0, 1));
 }
 test "encSxtbX x0, w0 → 0x93401C00" {
     try testing.expectEqual(@as(u32, 0x93401C00), encSxtbX(0, 0));

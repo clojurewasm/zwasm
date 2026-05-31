@@ -179,9 +179,10 @@ pub fn usesRuntimePtr(func: *const ZirFunc) bool {
             // [R15 + gc_heap_off] for the element access → need R15 pinned.
             .@"array.get",
             .@"array.set",
-            // array A-6a: array.get_s reloads the slab base for the packed
-            // element load (then MOVSX) → needs R15 pinned.
+            // array A-6a/b: array.get_s / array.get_u reload the slab base for
+            // the packed element load (then MOVSX / MOVZX) → need R15 pinned.
             .@"array.get_s",
+            .@"array.get_u",
             // array A-4: array.new CALLs jitGcAllocArrayFill (rt=RDI=R15).
             .@"array.new",
             // array A-5: array.new_fixed CALLs jitGcAllocArray (rt=RDI=R15)

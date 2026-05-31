@@ -217,6 +217,7 @@ pub const encMovImm32W = inst_alu.encMovImm32W;
 // ============================================================
 
 pub const encMovzxR32R8 = inst_mem.encMovzxR32R8;
+pub const encMovzxR32R16 = inst_mem.encMovzxR32R16;
 pub const encMovR32FromBaseIdxLsl2 = inst_mem.encMovR32FromBaseIdxLsl2;
 pub const encMovR64FromBaseIdxLsl3 = inst_mem.encMovR64FromBaseIdxLsl3;
 pub const encMovsxdR64R32 = inst_mem.encMovsxdR64R32;
@@ -1281,6 +1282,10 @@ test "encMovsxR32R8: movsbl %bl, %eax → 40 0f be c3" {
 test "encMovsxR32R16: movswl %bx, %eax → 0f bf c3" {
     const enc = encMovsxR32R16(.rax, .rbx);
     try testing.expectEqualSlices(u8, &.{ 0x0F, 0xBF, 0xC3 }, enc.slice());
+}
+test "encMovzxR32R16: movzwl %bx, %eax → 0f b7 c3" {
+    const enc = encMovzxR32R16(.rax, .rbx);
+    try testing.expectEqualSlices(u8, &.{ 0x0F, 0xB7, 0xC3 }, enc.slice());
 }
 test "encMovsxR64R8: movsbq %bl, %rax → 48 0f be c3 (REX.W)" {
     const enc = encMovsxR64R8(.rax, .rbx);

@@ -219,7 +219,8 @@ test "migratedArchOpCount tracks collected per-arch tuples (B59: arm64=348, x86_
     // 10.G GC-on-JIT added arm64 array.new (+1 = 364; array A-4).
     // 10.G GC-on-JIT added arm64 array.new_fixed (+1 = 365; array A-5).
     // 10.G GC-on-JIT added arm64 array.get_s (+1 = 366; array A-6a).
-    try std.testing.expectEqual(@as(usize, 366), migratedArchOpCount(.arm64));
+    // 10.G GC-on-JIT added arm64 array.get_u (+1 = 367; array A-6b).
+    try std.testing.expectEqual(@as(usize, 367), migratedArchOpCount(.arm64));
     // B79..B106 walked cohorts; B107 SIMD residual (21 ops) — legacy tuple empty.
     try std.testing.expectEqual(@as(usize, 0), migratedArchOpCount(.x86_64));
 }
@@ -321,7 +322,8 @@ test "collected_x86_64_ctx_ops tracks B54+ migrations to `(ctx, ins)` shape" {
     // 10.G GC-on-JIT added x86_64 array.new (+1 = 413; array A-4).
     // 10.G GC-on-JIT added x86_64 array.new_fixed (+1 = 414; array A-5).
     // 10.G GC-on-JIT added x86_64 array.get_s (+1 = 415; array A-6a).
-    try std.testing.expectEqual(@as(usize, 415), collected_x86_64_ctx_ops.len);
+    // 10.G GC-on-JIT added x86_64 array.get_u (+1 = 416; array A-6b).
+    try std.testing.expectEqual(@as(usize, 416), collected_x86_64_ctx_ops.len);
 }
 
 // Note: a `dispatch(.arm64, tag, args)` test at this layer would

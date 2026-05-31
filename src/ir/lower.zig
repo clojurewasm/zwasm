@@ -692,9 +692,10 @@ pub const Lowerer = struct {
             // array.get / array.get_s / array.get_u / array.set / array.fill
             // (Wasm 3.0 GC §3.3.5.6.10-14). Encoding: 0xFB {11..14,16}
             // typeidx(uleb32). Pack typeidx in payload. `array.get_s` (sub 12)
-            // additionally stamps the packed element valtype byte into `extra`
-            // so the JIT emit picks SXTB (i8) vs SXTH (i16) without re-deriving
-            // the type section (A-6a; mirror struct.new's field-count stamp).
+            // and `array.get_u` (sub 13) additionally stamp the packed element
+            // valtype byte into `extra` so the JIT emit picks the sign/zero-
+            // extend width (i8 vs i16) without re-deriving the type section
+            // (A-6a/b; mirror struct.new's field-count stamp).
             11, 12, 13, 14, 16 => {
                 const typeidx = try leb128.readUleb128(u32, self.body, &self.pos);
                 const tag: zir.ZirOp = switch (sub) {
@@ -705,7 +706,7 @@ pub const Lowerer = struct {
                     16 => .@"array.fill",
                     else => unreachable,
                 };
-                const extra: u32 = if (sub == 12 and typeidx < self.array_elem_valtypes.len)
+                const extra: u32 = if ((sub == 12 or sub == 13) and typeidx < self.array_elem_valtypes.len)
                     self.array_elem_valtypes[typeidx]
                 else
                     0;

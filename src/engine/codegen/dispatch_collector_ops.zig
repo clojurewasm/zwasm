@@ -868,6 +868,8 @@ const arm64_array_new = @import("arm64/ops/wasm_3_0/array_new.zig");
 const arm64_array_new_fixed = @import("arm64/ops/wasm_3_0/array_new_fixed.zig");
 // array A-6a: array.get_s (packed i8/i16 load + sign-extend).
 const arm64_array_get_s = @import("arm64/ops/wasm_3_0/array_get_s.zig");
+// array A-6b: array.get_u (packed i8/i16 load + zero-extend).
+const arm64_array_get_u = @import("arm64/ops/wasm_3_0/array_get_u.zig");
 const x86_64_ref_i31 = @import("x86_64/ops/wasm_3_0/ref_i31.zig");
 const x86_64_i31_get_s = @import("x86_64/ops/wasm_3_0/i31_get_s.zig");
 const x86_64_i31_get_u = @import("x86_64/ops/wasm_3_0/i31_get_u.zig");
@@ -882,6 +884,7 @@ const x86_64_array_set = @import("x86_64/ops/wasm_3_0/array_set.zig");
 const x86_64_array_new = @import("x86_64/ops/wasm_3_0/array_new.zig");
 const x86_64_array_new_fixed = @import("x86_64/ops/wasm_3_0/array_new_fixed.zig");
 const x86_64_array_get_s = @import("x86_64/ops/wasm_3_0/array_get_s.zig");
+const x86_64_array_get_u = @import("x86_64/ops/wasm_3_0/array_get_u.zig");
 
 /// Tuple of all migrated arm64 per-op modules.
 pub const collected_arm64_ops = .{
@@ -1257,6 +1260,7 @@ pub const collected_arm64_ops = .{
     arm64_array_new,
     arm64_array_new_fixed,
     arm64_array_get_s,
+    arm64_array_get_u,
 };
 
 /// Tuple of all migrated x86_64 per-op modules.
@@ -1779,4 +1783,5 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_array_new,
     x86_64_array_new_fixed,
     x86_64_array_get_s,
+    x86_64_array_get_u,
 };

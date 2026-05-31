@@ -1483,3 +1483,33 @@ test "runI32Export: array.get_s on i8 element 0xC8 → -56 (10.G array-on-JIT A-
     };
     try testing.expectEqual(@as(u32, 4294967240), runI32Export(testing.allocator, &bytes, "f"));
 }
+
+test "runI32Export: array.get_u on i8 element 0xC8 → 200 (10.G array-on-JIT A-6b)" {
+    // Both arches (arm64 + x86_64 SysV emit landed together).
+    // (module
+    //   (type (array (mut i8)))                ;; type 0 — PACKED i8 (5e 78 01)
+    //   (func (export "f") (result i32)          ;; type 1
+    //     i32.const -56  array.new_fixed 0 1     ;; 1-elem i8 array; slot = 0x..FFFFFFC8
+    //     i32.const 0  array.get_u 0))           ;; zero-extend low byte 0xC8 → 200
+    // array.get_u loads the 8-byte slot then ZERO-extends the low byte (UXTB /
+    // MOVZX). Storing i32.const -56 leaves the slot = 0x00000000FFFFFFC8 (the
+    // i32.const zero-extends into the 64-bit reg, then 8 bytes stored), so a raw
+    // load (no UXTB) gives 4294967240; the masked get_u gives 200 — the result
+    // confirms the zero-extend ran. array.get_u = fb 0d typeidx. i32.const -56 =
+    // signed LEB128 41 c8 7f.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        // type: [0]=array{i8 mut} (5e 78 01), [1]=func ()->(i32) (60 00 01 7f)
+        0x01, 0x08, 0x02, 0x5e, 0x78, 0x01, 0x60, 0x00,
+        0x01, 0x7f,
+        0x03, 0x02, 0x01, 0x01, // func: type idx 1
+        0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00, // export "f" func 0
+        // code: body 14 bytes (locals 00 + i32.const -56 [41 c8 7f] +
+        // array.new_fixed 0 1 [fb 08 00 01] + i32.const 0 [41 00] +
+        // array.get_u 0 [fb 0d 00] + end 0b). body_size=0x0e, sect size=0x10.
+        0x0a, 0x10, 0x01, 0x0e, 0x00, 0x41, 0xc8,
+        0x7f, 0xfb, 0x08, 0x00, 0x01, 0x41, 0x00,
+        0xfb, 0x0d, 0x00, 0x0b,
+    };
+    try testing.expectEqual(@as(u32, 200), runI32Export(testing.allocator, &bytes, "f"));
+}

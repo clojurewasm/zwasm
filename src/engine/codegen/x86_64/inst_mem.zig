@@ -138,6 +138,20 @@ pub fn encMovsxR32R16(dst: Gpr, src: Gpr) EncodedInsn {
     return enc;
 }
 
+/// `MOVZX r32, r/m16` (2-byte opcode 0x0F 0xB7 /r) — zero-extend
+/// the low 16 bits. Used by 10.G `array.get_u` on packed i16
+/// element arrays. Mirror of `encMovsxR32R16` (0x0F 0xBF); no
+/// REX.W (32-bit dest) and conditional REX (16-bit source has no
+/// byte-register ambiguity, unlike `encMovzxR32R8`).
+pub fn encMovzxR32R16(dst: Gpr, src: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (rexForRR(.d, dst, src)) |rex| enc.push(rex);
+    enc.push(0x0F);
+    enc.push(0xB7);
+    enc.push(encodeModrm(0b11, dst.low3(), src.low3()));
+    return enc;
+}
+
 /// `MOVSX r64, r/m8` (REX.W + 0x0F 0xBE /r) — sign-extend low 8
 /// bits into 64-bit dst. Used by `i64.extend8_s`.
 pub fn encMovsxR64R8(dst: Gpr, src: Gpr) EncodedInsn {
