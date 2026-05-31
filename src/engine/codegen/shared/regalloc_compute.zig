@@ -163,6 +163,8 @@ pub fn computeWith(
             .@"ref.test", .@"ref.test_null" => false,
             // ref.cast: CALL into jitGcRefCast; ref consumed pre-CALL (strict).
             .@"ref.cast" => false,
+            // ref.cast_null: CALL into jitGcRefTest; ref consumed pre-CALL (strict).
+            .@"ref.cast_null" => false,
             else => null,
         };
         const inc = inclusive orelse continue;
