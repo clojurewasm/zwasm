@@ -134,6 +134,10 @@ pub fn computeWith(
             // struct.new (variadic): field operands stored AFTER the
             // alloc CALL → inclusive upper bound (ADR-0060 amendment).
             .@"struct.new" => true,
+            // array.new_default: BLR/CALL into jitGcAllocArray; its length
+            // operand is consumed into the arg BEFORE the CALL (strict),
+            // but vregs spanning it must still force-spill.
+            .@"array.new_default" => false,
             else => null,
         };
         const inc = inclusive orelse continue;

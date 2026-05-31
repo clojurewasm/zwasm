@@ -1334,3 +1334,29 @@ test "runI32Export: struct.set then struct.get round-trip → 55 (10.G struct-on
     };
     try testing.expectEqual(@as(u32, 55), runI32Export(testing.allocator, &bytes, "f"));
 }
+
+test "runI32Export: array.new_default + array.len → 3 (10.G array-on-JIT A-2)" {
+    // Both arches (arm64 + x86_64 SysV emit landed together).
+    // (module
+    //   (type (array (mut i32)))             ;; type 0
+    //   (func (export "f") (result i32)        ;; type 1
+    //     i32.const 3  array.new_default 0  array.len))  ;; length → 3
+    // Exercises array.new_default (pop length=3 → arg2, CALL jitGcAllocArray
+    // → ref) + array.len (null-trap ref, reload slab, LDR length [base+8]).
+    // wat2wasm 1.0.40 lacks GC text; hand-encoded (array type = 5E 7F 01;
+    // array.new_default 0 = fb 07 00; array.len = fb 0f; i32.const 3 = 41 03).
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        // type: [0]=array{i32 mut} (5e 7f 01), [1]=func ()->(i32) (60 00 01 7f)
+        0x01, 0x08, 0x02, 0x5e, 0x7f, 0x01, 0x60, 0x00,
+        0x01, 0x7f,
+        0x03, 0x02, 0x01, 0x01, // func: type idx 1
+        0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00, // export "f" func 0
+        // code: body 9 bytes (locals 00 + i32.const 3 [41 03] +
+        // array.new_default 0 [fb 07 00] + array.len [fb 0f] + end 0b),
+        // body_size=0x09, sect size=0x0b.
+        0x0a, 0x0b, 0x01, 0x09, 0x00, 0x41, 0x03,
+        0xfb, 0x07, 0x00, 0xfb, 0x0f, 0x0b,
+    };
+    try testing.expectEqual(@as(u32, 3), runI32Export(testing.allocator, &bytes, "f"));
+}

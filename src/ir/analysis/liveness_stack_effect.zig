@@ -130,6 +130,11 @@ pub fn stackEffect(op: ZirOp) ?StackEffect {
         // Wasm 3.0 GC (10.G): struct.get pops the struct GcRef, pushes
         // the loaded field Value (1 → 1 scalar; ADR-0116 §3a).
         .@"struct.get",
+        // array.new_default pops the i32 length, pushes the GcRef (the
+        // alloc trampoline zero-inits). array.len pops the array GcRef,
+        // pushes the i32 length. Both 1 → 1.
+        .@"array.new_default",
+        .@"array.len",
         => .{ .pops = 1, .pushes = 1 },
         // 2 → 1 binop
         .@"i32.add",
