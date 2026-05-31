@@ -58,13 +58,19 @@ text or code identifiers.
   `windowsmini` SSH. Per-chunk autonomous = 2-host (Mac + ubuntunote)
   per ADR-0049 + ADR-0067. windowsmini = phase boundary. OrbStack
   retired from per-chunk gate per ADR-0067 (D-134); scratch only.
-- **Context budget (autonomous loop)**: this project pins the **200K**
-  window (`CLAUDE_CODE_DISABLE_1M_CONTEXT=1` in `.claude/settings.json`)
-  so auto-compact recycles often instead of ballooning to ~835K. It is
-  **lossless** because the `PostCompact` hook re-injects the handover
-  brief (`scripts/print_handover_brief.sh`) — so keep `.dev/handover.md`
-  current and fork big logs/surveys to subagents to keep main context
-  lean. Unused MCP plugins are off in `settings.local.json`.
+- **Context budget**: the **1M** window is in effect (the prior 200K pin
+  `CLAUDE_CODE_DISABLE_1M_CONTEXT=1` was removed 2026-05-31 — it made the
+  window hit 100% fast and the squeeze, not the working set, was the felt
+  pain). The real levers are **structural, not a window cap**: (1) lean
+  auto-loaded rules — `.claude/rules/*.md` are injected IN FULL by their
+  `paths:` frontmatter glob, so each carries only the load-bearing
+  invariant + enforcement pointer; verbose rationale lives in
+  `.claude/references/*.md` (no frontmatter → on-demand read only); (2)
+  fork big reads/surveys to subagents AND have them return ≤30-line
+  summaries (the report returns into main context too); (3) keep
+  `.dev/handover.md` current (SessionStart + `PostCompact` re-inject it
+  via `scripts/print_handover_brief.sh`). Unused MCP plugins off in
+  `settings.local.json`. Full rationale: `.claude/references/context_budget.md`.
 
 ## Working agreement (short list)
 
