@@ -852,6 +852,9 @@ const arm64_i31_get_u = @import("arm64/ops/wasm_3_0/i31_get_u.zig");
 // uniform 8-byte field slot off the gc_heap slab (cycle A-2b-2).
 const arm64_struct_new_default = @import("arm64/ops/wasm_3_0/struct_new_default.zig");
 const arm64_struct_get = @import("arm64/ops/wasm_3_0/struct_get.zig");
+// struct.new (variadic) — allocs then stores field operands (force-spilled
+// across the alloc BLR per ADR-0060 amend); cycle A-3. x86_64 = follow-on.
+const arm64_struct_new = @import("arm64/ops/wasm_3_0/struct_new.zig");
 const x86_64_ref_i31 = @import("x86_64/ops/wasm_3_0/ref_i31.zig");
 const x86_64_i31_get_s = @import("x86_64/ops/wasm_3_0/i31_get_s.zig");
 const x86_64_i31_get_u = @import("x86_64/ops/wasm_3_0/i31_get_u.zig");
@@ -1219,9 +1222,11 @@ pub const collected_arm64_ops = .{
     arm64_ref_i31,
     arm64_i31_get_s,
     arm64_i31_get_u,
-    // 10.G GC-on-JIT struct.new_default + struct.get (arm64 only; x86_64 = D-211).
+    // 10.G GC-on-JIT struct.new_default + struct.get + struct.new (arm64;
+    // x86_64 struct.new = follow-on mirror).
     arm64_struct_new_default,
     arm64_struct_get,
+    arm64_struct_new,
 };
 
 /// Tuple of all migrated x86_64 per-op modules.

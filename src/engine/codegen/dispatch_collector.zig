@@ -212,7 +212,8 @@ test "migratedArchOpCount tracks collected per-arch tuples (B59: arm64=348, x86_
     // i31.get_u (+3 = 355; x86_64 = D-211).
     // 10.G GC-on-JIT added arm64 struct.new_default (+1 = 356; x86_64 = D-211).
     // 10.G GC-on-JIT added arm64 struct.get (+1 = 357; x86_64 = D-211).
-    try std.testing.expectEqual(@as(usize, 357), migratedArchOpCount(.arm64));
+    // 10.G GC-on-JIT added arm64 struct.new (variadic) (+1 = 358; x86_64 follow-on).
+    try std.testing.expectEqual(@as(usize, 358), migratedArchOpCount(.arm64));
     // B79..B106 walked cohorts; B107 SIMD residual (21 ops) — legacy tuple empty.
     try std.testing.expectEqual(@as(usize, 0), migratedArchOpCount(.x86_64));
 }

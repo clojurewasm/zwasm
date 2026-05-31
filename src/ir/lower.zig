@@ -88,6 +88,25 @@ pub fn lowerFunctionBody(
     module_types: []const FuncType,
     select_types: []const u8,
 ) Error!void {
+    return lowerFunctionBodyWith(alloc, body, out, module_types, select_types, &.{});
+}
+
+/// Variant carrying `struct_field_counts` (typeidx-indexed; built from
+/// the module's struct type defs in `engine/compile.zig`). 10.G GC-on-
+/// JIT `struct.new` is variadic — its field count is determined by the
+/// struct TYPE, not the instruction encoding — so lowering stamps the
+/// count into `ZirInstr.extra` here, where the liveness pass + per-arch
+/// emit read it without re-deriving the type section. `&.{}` (the
+/// default via `lowerFunctionBody`) leaves struct.new `extra = 0`,
+/// which the interp path ignores (it reads the runtime StructInfo).
+pub fn lowerFunctionBodyWith(
+    alloc: Allocator,
+    body: []const u8,
+    out: *ZirFunc,
+    module_types: []const FuncType,
+    select_types: []const u8,
+    struct_field_counts: []const u32,
+) Error!void {
     var lo = Lowerer{
         .alloc = alloc,
         .body = body,
@@ -95,6 +114,7 @@ pub fn lowerFunctionBody(
         .pos = 0,
         .module_types = module_types,
         .select_types = select_types,
+        .struct_field_counts = struct_field_counts,
     };
     try lo.run();
 }
@@ -113,6 +133,12 @@ pub const Lowerer = struct {
     /// pre-d-39 default, which emit dispatches as gpr32 CSEL).
     select_types: []const u8 = &.{},
     select_idx: usize = 0,
+
+    /// 10.G GC-on-JIT — typeidx-indexed struct field counts (from the
+    /// module's struct defs). `struct.new` stamps `field_counts[typeidx]`
+    /// into `ZirInstr.extra` so liveness + emit know the variadic pop
+    /// count. Empty → struct.new `extra = 0` (interp path ignores it).
+    struct_field_counts: []const u32 = &.{},
 
     block_stack: [max_control_stack]u32 = undefined,
     block_stack_len: usize = 0,
@@ -599,7 +625,14 @@ pub const Lowerer = struct {
             // lookup (deferred to RTT integration).
             0 => {
                 const typeidx = try leb128.readUleb128(u32, self.body, &self.pos);
-                try self.emit(.@"struct.new", typeidx, 0);
+                // Stamp the struct's field count into `extra` so the
+                // variadic liveness pop + per-arch emit field-store loop
+                // know it without the type section (10.G GC-on-JIT A-3).
+                const field_count: u32 = if (typeidx < self.struct_field_counts.len)
+                    self.struct_field_counts[typeidx]
+                else
+                    0;
+                try self.emit(.@"struct.new", typeidx, field_count);
             },
             1 => {
                 const typeidx = try leb128.readUleb128(u32, self.body, &self.pos);

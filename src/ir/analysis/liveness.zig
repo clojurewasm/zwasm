@@ -496,6 +496,28 @@ pub fn compute(
             continue;
         }
 
+        // struct.new (Wasm 3.0 GC §3.3.5.6.1): variadic — pops `extra`
+        // field operands (the field count, stamped by the lowerer from
+        // the struct type since the opcode doesn't carry it), pushes 1
+        // GcRef. NON-terminator. Like `call`, the count isn't fixed per
+        // opcode, so it can't live in `stackEffect`. Best-effort pop:
+        // dead-code pops silently no-op (validator proved the shape).
+        if (instr.op == .@"struct.new") {
+            const n_fields: usize = instr.extra;
+            var fi: usize = 0;
+            while (fi < n_fields and sim_len > 0) : (fi += 1) {
+                sim_len -= 1;
+                const fvreg = sim_stack[sim_len];
+                ranges.items[fvreg].last_use_pc = pc;
+            }
+            const vreg: u32 = @intCast(ranges.items.len);
+            try ranges.append(allocator, .{ .def_pc = pc, .last_use_pc = pc });
+            if (sim_len == max_simulated_stack) return Error.OperandStackUnderflow;
+            sim_stack[sim_len] = vreg;
+            sim_len += 1;
+            continue;
+        }
+
         if (isControlFlow(instr.op)) return Error.UnsupportedControlFlow;
 
         const eff = stackEffect(instr.op) orelse {

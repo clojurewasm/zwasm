@@ -1270,3 +1270,37 @@ test "runI32Export: struct.new_default + struct.get 0 0 → 0 (10.G struct-on-JI
     };
     try testing.expectEqual(@as(u32, 0), runI32Export(testing.allocator, &bytes, "f"));
 }
+
+test "runI32Export: i32.const 42 + struct.new 0 + struct.get 0 0 → 42 (10.G struct-on-JIT A-3)" {
+    // x86_64 struct.new emit is the follow-on mirror (D-211); gate to
+    // arm64 so the ubuntu/windows x86_64 `zig build test` doesn't hit
+    // UnsupportedOp until it lands (matches the pre-fb991029 A-2 gate).
+    if (builtin.cpu.arch != .aarch64) return skip.blocker(.@"D-211");
+    // arm64 first; x86_64 = follow-on mirror.
+    // (module
+    //   (type (struct (field (mut i32))))    ;; type 0
+    //   (func (export "f") (result i32)        ;; type 1
+    //     i32.const 42  struct.new 0  struct.get 0 0))  ;; field 0 = 42
+    // Exercises the variadic struct.new emit: the i32.const 42 field
+    // operand is force-spilled across the jitGcAlloc BLR (ADR-0060 amend),
+    // then struct.new reloads the slab base AFTER the alloc and stores 42
+    // at [slab+ref+8]; struct.get reads it back → 42. struct.new =
+    // fb 00 typeidx; field count comes from the struct type (1), stamped
+    // into ZirInstr.extra by the lowerer. wat2wasm 1.0.40 lacks GC text;
+    // hand-encoded (i32.const 42 = 41 2a; struct.new 0 = fb 00 00).
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        // type: [0]=struct{i32 mut} (5f 01 7f 01), [1]=func ()->(i32) (60 00 01 7f)
+        0x01, 0x09, 0x02, 0x5f, 0x01, 0x7f, 0x01, 0x60,
+        0x00, 0x01, 0x7f,
+        0x03, 0x02, 0x01, 0x01, // func: type idx 1
+        0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00, // export "f" func 0
+        // code: body 11 bytes (locals 00 + i32.const 42 [41 2a] +
+        // struct.new 0 [fb 00 00] + struct.get 0 0 [fb 02 00 00] + end 0b),
+        // body_size=0x0b, sect size=0x0d.
+        0x0a, 0x0d, 0x01, 0x0b, 0x00, 0x41, 0x2a,
+        0xfb, 0x00, 0x00, 0xfb, 0x02, 0x00, 0x00,
+        0x0b,
+    };
+    try testing.expectEqual(@as(u32, 42), runI32Export(testing.allocator, &bytes, "f"));
+}

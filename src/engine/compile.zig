@@ -877,6 +877,19 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
     };
     errdefer if (tag_param_slot_counts.len > 0) allocator.free(tag_param_slot_counts);
 
+    // 10.G GC-on-JIT (A-3) — typeidx-indexed struct field counts for the
+    // lowerer to stamp into `struct.new`'s `ZirInstr.extra` (the variadic
+    // pop/store count). Non-struct typeidx → 0. Arena-allocated: read only
+    // during this call's lowering, not stored in CompiledWasm.
+    const struct_field_counts: []u32 = blk: {
+        if (types.struct_defs.len == 0) break :blk &.{};
+        const out = try a.alloc(u32, types.struct_defs.len);
+        for (types.struct_defs, 0..) |sd, i| {
+            out[i] = if (sd) |s| @intCast(s.fields.len) else 0;
+        }
+        break :blk out;
+    };
+
     // §9.9 / 9.9-l-1b-d093-d82 (skip-impl drainage):
     // Wasm spec §3.4.7.3 / §3.4.10 declared-funcrefs set. A
     // funcidx is "declared" iff it appears in some global
@@ -981,6 +994,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             .register_write,
             memory0_idx_type,
             tag_param_counts,
+            struct_field_counts,
         ) catch |err| {
             std.debug.print("compileWasm: func[{d}] params={d} results={d} → {s}\n", .{
                 wasm_idx,

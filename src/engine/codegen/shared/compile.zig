@@ -129,6 +129,11 @@ pub fn compileOne(
     /// throw / try_table payload marshalling. `&.{}` for modules
     /// without tags.
     tag_param_counts: []const u32,
+    /// 10.G GC-on-JIT (A-3) — typeidx-indexed struct field counts (from
+    /// the module's struct defs). Threaded into the lowerer so `struct.new`
+    /// stamps its variadic field count into `ZirInstr.extra`. `&.{}` for
+    /// modules without struct types.
+    struct_field_counts: []const u32,
 ) Error!FuncResult {
     var func = ZirFunc.init(func_idx, sig, locals);
     errdefer func.deinit(allocator);
@@ -142,7 +147,7 @@ pub fn compileOne(
     errdefer if (comptime trace.enabled) pass_records.deinit(allocator);
 
     trace.passEnter(func_idx, .lower);
-    try lowerer.lowerFunctionBody(allocator, body, &func, module_types, select_types);
+    try lowerer.lowerFunctionBodyWith(allocator, body, &func, module_types, select_types, struct_field_counts);
     {
         const applied: u32 = @intCast(func.instrs.items.len);
         trace.passExit(func_idx, .lower, .{ .applied = applied, .skipped = 0, .extra = applied });
@@ -318,7 +323,7 @@ test "compileOne: pass_diagnostics records all 6 passes when trace enabled" {
     // Pure instruction bytes: `i32.const 7` (0x41 0x07) + `end` (0x0B).
     const body = [_]u8{ 0x41, 0x07, 0x0B };
     const sig: FuncType = .{ .params = &.{}, .results = &.{.i32} };
-    var r = try compileOne(testing.allocator, 42, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{}, .register_write, .i32);
+    var r = try compileOne(testing.allocator, 42, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{}, .register_write, .i32, &.{}, &.{});
     defer deinitFuncResult(testing.allocator, &r);
 
     // Per-function slot populated with 6 records, in pipeline order.
@@ -356,7 +361,7 @@ test "compileOne: tiny straight-line module — (func (result i32) i32.const 7 e
     const body = [_]u8{ 0x41, 0x07, 0x0B };
     const sig: FuncType = .{ .params = &.{}, .results = &.{.i32} };
 
-    var r = try compileOne(testing.allocator, 0, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{}, .register_write, .i32, &.{});
+    var r = try compileOne(testing.allocator, 0, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{}, .register_write, .i32, &.{}, &.{});
     defer deinitFuncResult(testing.allocator, &r);
 
     const bodies = [_]linker.FuncBody{
