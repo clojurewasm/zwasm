@@ -880,6 +880,9 @@ const arm64_array_copy = @import("arm64/ops/wasm_3_0/array_copy.zig");
 const arm64_array_new_data = @import("arm64/ops/wasm_3_0/array_new_data.zig");
 // A-10b: array.new_elem (trampoline; alloc + direct ref copy from elem segment).
 const arm64_array_new_elem = @import("arm64/ops/wasm_3_0/array_new_elem.zig");
+// R-1: ref.test / ref.test_null (trampoline; subtype check → i32, no trap).
+const arm64_ref_test = @import("arm64/ops/wasm_3_0/ref_test.zig");
+const arm64_ref_test_null = @import("arm64/ops/wasm_3_0/ref_test_null.zig");
 const x86_64_ref_i31 = @import("x86_64/ops/wasm_3_0/ref_i31.zig");
 const x86_64_i31_get_s = @import("x86_64/ops/wasm_3_0/i31_get_s.zig");
 const x86_64_i31_get_u = @import("x86_64/ops/wasm_3_0/i31_get_u.zig");
@@ -900,6 +903,8 @@ const x86_64_ref_eq = @import("x86_64/ops/wasm_3_0/ref_eq.zig");
 const x86_64_array_copy = @import("x86_64/ops/wasm_3_0/array_copy.zig");
 const x86_64_array_new_data = @import("x86_64/ops/wasm_3_0/array_new_data.zig");
 const x86_64_array_new_elem = @import("x86_64/ops/wasm_3_0/array_new_elem.zig");
+const x86_64_ref_test = @import("x86_64/ops/wasm_3_0/ref_test.zig");
+const x86_64_ref_test_null = @import("x86_64/ops/wasm_3_0/ref_test_null.zig");
 
 /// Tuple of all migrated arm64 per-op modules.
 pub const collected_arm64_ops = .{
@@ -1281,6 +1286,8 @@ pub const collected_arm64_ops = .{
     arm64_array_copy,
     arm64_array_new_data,
     arm64_array_new_elem,
+    arm64_ref_test,
+    arm64_ref_test_null,
 };
 
 /// Tuple of all migrated x86_64 per-op modules.
@@ -1809,4 +1816,6 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_array_copy,
     x86_64_array_new_data,
     x86_64_array_new_elem,
+    x86_64_ref_test,
+    x86_64_ref_test_null,
 };

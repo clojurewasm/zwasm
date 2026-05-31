@@ -158,6 +158,9 @@ pub fn computeWith(
             // array.new_elem: CALL into jitGcArrayNewElem; same strict
             // shape as array.new_data (offset + size consumed pre-CALL).
             .@"array.new_elem" => false,
+            // ref.test / ref.test_null: CALL into jitGcRefTest; the ref
+            // operand is consumed into an arg reg before the CALL (strict).
+            .@"ref.test", .@"ref.test_null" => false,
             else => null,
         };
         const inc = inclusive orelse continue;

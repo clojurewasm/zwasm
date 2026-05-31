@@ -29,6 +29,7 @@ const dispatch = @import("../../ir/dispatch_table.zig");
 const zir = @import("../../ir/zir.zig");
 const runtime = @import("../../runtime/runtime.zig");
 const type_info_mod = @import("../../feature/gc/type_info.zig");
+const heap_mod = @import("../../feature/gc/heap.zig");
 
 const ZirOp = zir.ZirOp;
 const ZirInstr = zir.ZirInstr;
@@ -40,6 +41,8 @@ const Instance = runtime.Instance;
 const AbstractHeapType = zir.AbstractHeapType;
 const ObjectHeader = type_info_mod.ObjectHeader;
 const ObjectKind = type_info_mod.ObjectKind;
+const GcTypeInfos = type_info_mod.GcTypeInfos;
+const Heap = heap_mod.Heap;
 
 inline fn op(o: ZirOp) usize {
     return @intFromEnum(o);
@@ -77,8 +80,8 @@ fn decodeAbstract(b: u8) ?AbstractHeapType {
 
 /// Read a non-null heap GC object's `ObjectHeader.kind` (struct_ / array)
 /// from the slot the GcRef offset points at. Null on a malformed heap.
-fn readObjKind(rt: *Runtime, v: Value) ?ObjectKind {
-    const heap = rt.gc_heap orelse return null;
+fn readObjKindHeap(heap_opt: ?*const Heap, v: Value) ?ObjectKind {
+    const heap = heap_opt orelse return null;
     const hdr_size = @sizeOf(ObjectHeader);
     // `v.ref` may NOT be a GC-heap offset — `ref.test (ref struct)` can be
     // reached with an anyref holding a host pointer (an `any.convert_extern`
@@ -102,10 +105,10 @@ fn readObjKind(rt: *Runtime, v: Value) ?ObjectKind {
 /// coarse non-null match (precise supertype walk lands with
 /// `TypeInfo.supertype_chain` threading, next cycle).
 /// Read a non-null heap GC object's `ObjectHeader.info` (its typeidx).
-/// Same untagged-ref guard as `readObjKind` (bounds-check as u64 before
+/// Same untagged-ref guard as `readObjKindHeap` (bounds-check as u64 before
 /// the u32 cast — `v.ref` may be a non-GC host pointer).
-fn readObjInfo(rt: *Runtime, v: Value) ?u32 {
-    const heap = rt.gc_heap orelse return null;
+fn readObjInfoHeap(heap_opt: ?*const Heap, v: Value) ?u32 {
+    const heap = heap_opt orelse return null;
     const hdr_size = @sizeOf(ObjectHeader);
     if (v.ref >= heap.bytes.len) return null;
     const ref: u32 = @intCast(v.ref);
@@ -119,9 +122,7 @@ fn readObjInfo(rt: *Runtime, v: Value) ?u32 {
 /// target type `target` via its declared supertype chain (self-inclusive)?
 /// Reads the per-Instance `TypeInfo.supertype_chain` materialised at
 /// instantiate (ADR-0116 §3).
-fn concreteReaches(rt: *Runtime, obj_idx: u32, target: u32) bool {
-    const inst = @as(*const Instance, @ptrCast(@alignCast(rt.instance orelse return false)));
-    const gti = inst.gc_type_infos orelse return false;
+fn concreteReachesGti(gti: *const GcTypeInfos, obj_idx: u32, target: u32) bool {
     if (obj_idx >= gti.entries.len) return false;
     const ti = gti.entries[obj_idx];
     // ADR-0126 Phase-10a — match the target by raw index OR structural
@@ -138,36 +139,58 @@ fn concreteReaches(rt: *Runtime, obj_idx: u32, target: u32) bool {
     return false;
 }
 
-/// Runtime type-test of a NON-NULL ref `v` against heap-type byte `ht`.
-/// Shared with the interp's br_on_cast handler (Zone 2 → Zone 1). Null
-/// handling (per the op's nullability flag) is the caller's concern.
-pub fn gcRefMatchesNonNull(rt: *Runtime, v: Value, ht: u8) bool {
+/// Runtime type-test of a NON-NULL ref `v` against heap-type byte `ht`
+/// (Wasm 3.0 GC §3.3.5.3 / §4.4), parameterised on the materialised GC
+/// type table + heap DIRECTLY (not a `*Runtime`) so BOTH the interp
+/// (`gcRefMatchesNonNull` below) and the JIT `jitGcRefTest` / `jitGcRefCast`
+/// trampolines (`engine/codegen/shared/jit_abi.zig`) share one algorithm —
+/// the interp `Runtime` and the JIT `JitRuntime` are distinct types but
+/// both expose the same materialised `GcTypeInfos` + `Heap`. The validator
+/// statically narrows the operand to `ht`'s hierarchy, so the top of each
+/// hierarchy (any / eq / func / extern / exn) matches any non-null operand;
+/// the bottoms (none / nofunc / noextern / noexn) match nothing; i31 /
+/// struct / array test the concrete runtime shape; a concrete typeidx
+/// target walks the supertype chain (ADR-0116). `gti` null → concrete path
+/// can't resolve (no match); abstract path still works without it.
+pub fn gcRefMatchesNonNullCore(gti: ?*const GcTypeInfos, heap: ?*const Heap, v: Value, ht: u8) bool {
     const is_i31 = Value.isI31Ref(v);
     if (decodeAbstract(ht) == null) {
         // Concrete typeidx target (single-byte; multi-byte indices aren't
         // reachable — lower.zig stores one byte). i31 has no concrete type.
         if (is_i31) return false;
+        const g = gti orelse return false;
         // ADR-0126 — a concrete FUNC-type target tests a funcref operand:
         // resolve the funcref's RAW declared typeidx via its FuncEntity
-        // (funcrefs are NOT GC-heap objects, so `readObjInfo` can't see
+        // (funcrefs are NOT GC-heap objects, so `readObjInfoHeap` can't see
         // them → ref.test would wrongly return 0). struct/array targets
         // read the heap object's `ObjectHeader.info`.
-        if (concreteTargetIsFunc(rt, ht)) {
+        if (concreteTargetIsFuncGti(g, ht)) {
             const fe = Value.refAsFuncEntity(v) orelse return false;
-            return concreteReaches(rt, fe.raw_typeidx, ht);
+            return concreteReachesGti(g, fe.raw_typeidx, ht);
         }
-        const info = readObjInfo(rt, v) orelse return false;
-        return concreteReaches(rt, info, ht);
+        const info = readObjInfoHeap(heap, v) orelse return false;
+        return concreteReachesGti(g, info, ht);
     }
-    const obj_kind: ?ObjectKind = if (is_i31) null else readObjKind(rt, v);
+    const obj_kind: ?ObjectKind = if (is_i31) null else readObjKindHeap(heap, v);
     return gcAbstractMatch(ht, is_i31, obj_kind);
 }
 
+/// Interp entry point: resolves the materialised GC type table + heap from
+/// `rt`, then delegates to `gcRefMatchesNonNullCore`. Shared with the
+/// interp's br_on_cast handler (Zone 2 → Zone 1). Null handling (per the
+/// op's nullability flag) is the caller's concern.
+pub fn gcRefMatchesNonNull(rt: *Runtime, v: Value, ht: u8) bool {
+    const gti: ?*const GcTypeInfos = blk: {
+        const inst_opaque = rt.instance orelse break :blk null;
+        const inst = @as(*const Instance, @ptrCast(@alignCast(inst_opaque)));
+        break :blk if (inst.gc_type_infos) |*g| g else null;
+    };
+    return gcRefMatchesNonNullCore(gti, rt.gc_heap, v, ht);
+}
+
 /// Is the concrete target type index a func typedef? (Selects the
-/// funcref-resolution path in `gcRefMatchesNonNull`.)
-fn concreteTargetIsFunc(rt: *Runtime, target: u32) bool {
-    const inst = @as(*const Instance, @ptrCast(@alignCast(rt.instance orelse return false)));
-    const gti = inst.gc_type_infos orelse return false;
+/// funcref-resolution path in `gcRefMatchesNonNullCore`.)
+fn concreteTargetIsFuncGti(gti: *const GcTypeInfos, target: u32) bool {
     if (target >= gti.entries.len) return false;
     return gti.entries[target].kind == .func;
 }

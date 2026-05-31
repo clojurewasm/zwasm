@@ -1711,3 +1711,73 @@ test "runI32Export: array.new_elem + array.get + call_ref → 42 (10.G array-on-
     };
     try testing.expectEqual(@as(u32, 42), runI32Export(testing.allocator, &bytes, "f"));
 }
+
+test "runI32Export: ref.test i31 on i31 ref → 1 (10.G ref.test-on-JIT R-1)" {
+    // (module (func (export "f") (result i32)
+    //   i32.const 5  ref.i31  ref.test i31))   ;; non-null i31 matches i31 → 1
+    // ref.test (0xFB 0x14 <heaptype>) emits a 3-arg trampoline marshal
+    // (rt + 64-bit ref + ht|nullbit) → CALL jitGcRefTest → push W0/EAX (i32).
+    // The abstract i31 path: gcRefMatchesNonNullCore sees isI31Ref → match.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, // type () -> i32
+        0x03, 0x02, 0x01, 0x00, // func f0:type0
+        0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00, // export "f"
+        // code: i32.const 5; ref.i31; ref.test i31 (fb 14 6c); end.
+        0x0a, 0x0b, 0x01, 0x09, 0x00, 0x41, 0x05,
+        0xfb, 0x1c, 0xfb, 0x14, 0x6c, 0x0b,
+    };
+    try testing.expectEqual(@as(u32, 1), runI32Export(testing.allocator, &bytes, "f"));
+}
+
+test "runI32Export: ref.test i31 on null → 0 (10.G ref.test-on-JIT R-1)" {
+    // (module (func (export "f") (result i32)
+    //   ref.null i31  ref.test i31))   ;; null → ref.test returns 0
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03,
+        0x02, 0x01, 0x00, 0x07, 0x05, 0x01, 0x01, 0x66,
+        0x00, 0x00,
+        // code: ref.null i31 (d0 6c); ref.test i31 (fb 14 6c); end.
+        0x0a, 0x09, 0x01, 0x07, 0x00, 0xd0,
+        0x6c, 0xfb, 0x14, 0x6c, 0x0b,
+    };
+    try testing.expectEqual(@as(u32, 0), runI32Export(testing.allocator, &bytes, "f"));
+}
+
+test "runI32Export: ref.test_null i31 on null → 1 (10.G ref.test-on-JIT R-1)" {
+    // (module (func (export "f") (result i32)
+    //   ref.null i31  ref.test_null i31))   ;; null matches the _null variant → 1
+    // ref.test_null (0xFB 0x15) marshals ht|nullbit=0x100 → trampoline returns
+    // the null-bit (1) on a null ref.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03,
+        0x02, 0x01, 0x00, 0x07, 0x05, 0x01, 0x01, 0x66,
+        0x00, 0x00,
+        // code: ref.null i31 (d0 6c); ref.test_null i31 (fb 15 6c); end.
+        0x0a, 0x09, 0x01, 0x07, 0x00, 0xd0,
+        0x6c, 0xfb, 0x15, 0x6c, 0x0b,
+    };
+    try testing.expectEqual(@as(u32, 1), runI32Export(testing.allocator, &bytes, "f"));
+}
+
+test "runI32Export: ref.test struct on a struct ref → 1 (10.G ref.test-on-JIT R-1)" {
+    // (module (type (struct (field (mut i32))))
+    //   (func (export "f") (result i32)
+    //     struct.new_default 0  ref.test struct))   ;; a struct matches `struct` → 1
+    // Exercises the HEAP obj-kind read branch of gcRefMatchesNonNullCore
+    // (readObjKindHeap → .struct_ → gcAbstractMatch struct → 1), distinct
+    // from the i31/null paths above. struct.new_default = fb 01 0; ref.test
+    // struct = fb 14 6b (0x6b = struct abstract heaptype).
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x09, 0x02, 0x5f, 0x01, 0x7f, 0x01, 0x60, 0x00, 0x01, 0x7f, // type: struct + func
+        0x03, 0x02, 0x01, 0x01, // func: type idx 1
+        0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00, // export "f"
+        // code: struct.new_default 0 (fb 01 00); ref.test struct (fb 14 6b); end.
+        0x0a, 0x0a, 0x01, 0x08, 0x00, 0xfb, 0x01,
+        0x00, 0xfb, 0x14, 0x6b, 0x0b,
+    };
+    try testing.expectEqual(@as(u32, 1), runI32Export(testing.allocator, &bytes, "f"));
+}

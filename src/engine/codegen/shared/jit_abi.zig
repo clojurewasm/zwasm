@@ -29,6 +29,9 @@ const code_map = @import("code_map.zig");
 const heap_mod = @import("../../../feature/gc/heap.zig");
 const gc_type_info = @import("../../../feature/gc/type_info.zig");
 const object_alloc = @import("../../../feature/gc/object_alloc.zig");
+// ref.test / ref.cast share the interp's subtype-check core (one algorithm,
+// two runtimes) — see `gcRefMatchesNonNullCore`.
+const ref_test_ops = @import("../../../instruction/wasm_3_0/ref_test_ops.zig");
 
 /// `@sizeOf(FuncEntity)` — exposed for JIT emit's `ref.func`
 /// recipe (`ADD ptr, ptr, #(idx * func_entity_size)`). Comptime
@@ -691,6 +694,22 @@ pub fn jitGcArrayNewElem(rt: *JitRuntime, typeidx: u32, segidx: u32, offset: u32
         @memcpy(heap.bytes[dst_off .. dst_off + 8], std.mem.asBytes(&v)[0..8]);
     }
     return ref;
+}
+
+/// 10.G GC-on-JIT R-1 — `ref.test` / `ref.test_null` emit materialises this
+/// fn's address + `CALL`s it (rt=arg0, ref=arg1 [the full 64-bit reftype
+/// value], ht_nullbit=arg2). Returns 1 if the ref is a non-null instance of
+/// heap-type `ht_nullbit & 0xFF` (Wasm 3.0 GC §3.3.5.3), else 0. Null is
+/// folded in: a null ref returns `(ht_nullbit >> 8) & 1` — 0 for `ref.test`
+/// (nullbit=0), 1 for `ref.test_null` (nullbit=0x100) — so emit stays
+/// straight-line (no inline null branch). The non-null match reuses the SAME
+/// `gcRefMatchesNonNullCore` the interp uses (gti + heap read off JitRuntime).
+pub fn jitGcRefTest(rt: *JitRuntime, ref: u64, ht_nullbit: u32) callconv(.c) u32 {
+    if (ref == Value.null_ref) return (ht_nullbit >> 8) & 1;
+    const ht: u8 = @truncate(ht_nullbit);
+    const gti: ?*const gc_type_info.GcTypeInfos = if (rt.gc_type_infos_ptr) |p| @ptrCast(@alignCast(p)) else null;
+    const heap: ?*const heap_mod.Heap = if (rt.gc_heap) |p| @ptrCast(@alignCast(p)) else null;
+    return @intFromBool(ref_test_ops.gcRefMatchesNonNullCore(gti, heap, .{ .ref = ref }, ht));
 }
 
 // ============================================================

@@ -135,6 +135,9 @@ pub fn stackEffect(op: ZirOp) ?StackEffect {
         // pushes the i32 length. Both 1 → 1.
         .@"array.new_default",
         .@"array.len",
+        // ref.test / ref.test_null (R-1) pop one reftype, push i32 (0/1). 1 → 1.
+        .@"ref.test",
+        .@"ref.test_null",
         => .{ .pops = 1, .pushes = 1 },
         // 2 → 1 binop
         .@"i32.add",
