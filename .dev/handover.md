@@ -3,30 +3,32 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## ⚠ Pending user action (AFTER NEXT COMPACT)
+## ⚠ Pending user action — RESTART recommended (clean boundary)
 
-**Ask the user to restart the session** so the new `survey_budget_guard`
-PreToolUse hook (`196779d8`) activates — hooks load only at startup. Until
-restart it is inert; hold the "fork Step-0 surveys to an Explore subagent"
-discipline manually (lesson `2026-05-31-continue-context-burn-survey-in-main`).
-Surface this the moment a compact completes, then clear this section.
+Recommend a session restart so the `survey_budget_guard` hook (`d68e7b7e`) +
+`CLAUDE_CODE_DISABLE_1M_CONTEXT=1` 200K pin load fresh at startup. The hook IS
+already firing this session (harness applied it live), but a restart re-asserts
+the 200K window cleanly. Cycle B just landed green (`c94bd04f`) → this is a clean
+commit boundary, the ideal restart point. Clear this section after restart.
 
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS — committed to 100% (ADR-0128)** (Phase 9 = DONE
   2026-05-24). §10 exit requires the official Wasm 3.0 testsuite at pass=fail=skip=0
   on **both backends** (interp + JIT).
-- **HEAD**: 10.G br_on_cast **Cycle A** — extracted `branchOnReg` from `emitBrIf` both arches
-  (`7a44f910`, behaviour-neutral; br_if green 2337/2349 no delta). branchOnReg = the 5-case
-  conditional-branch-to-label core (cond-return / loop+param / loop-direct / fwd-block-capture /
-  fwd-simple), now shared. (ref.test/cast family R-1/R-2/R-3 all DONE both arches — `c2a8fd11`/
-  `8e3f6a83`/`b6cf1ce8` — via the SHARED Runtime-free `gcRefMatchesNonNullCore` + `jitGcRefTest`
-  (test→i32) / `jitGcRefCast` (cast→ref/0=trap) trampolines.)
+- **HEAD**: 10.G br_on_cast/br_on_cast_fail **Cycle B DONE** (`c94bd04f`) — JIT emit both arches:
+  peek ref → marshal → CALL `jitGcRefTest` → `branchOnReg` (the Cycle-A `7a44f910` shared 5-case
+  core); `_fail` inverts the bool (CMP/CSET · TEST/SETE) first. e2e i31-match→7 green (2237 pass).
+  **All GC-op JIT emit now complete on both arches** (i31 + struct/array families + ref.eq +
+  ref.test/cast/cast_null + br_on_cast/_fail). Recipe lesson: a peeked-ref vreg that spans the
+  op's internal CALL MUST be spill-homed (slot id ≥ max_reg_slots_gpr), else the CALL clobbers
+  the caller-saved reg and i31.get_s traps on garbage (regalloc_compute now force-spills both ops).
 - **Two execution paths (CODE-verified)**: spec corpus runs **interp-only**
   (`instance.invoke`→`_dispatch.run`, `instance.zig:169`); JIT corpus run = §1. JIT emits
   1.0/2.0 + TC + func-refs + EH + i31 + full struct family + full array family + ref.eq +
-  **ref.test/test_null/cast/cast_null** (both arches); remaining GC = br_on_cast/br_on_cast_fail
-  (D-211). Green gc/EH corpus = INTERP.
+  **ref.test/test_null/cast/cast_null + br_on_cast/br_on_cast_fail** (both arches — GC-op emit
+  COMPLETE). Green gc/EH corpus = INTERP. Remaining 10.G = §1 JIT-corpus verify + ADR-0127 Phase
+  C + D-198 (NOT more emit).
 - **ADR-0128 + ADR-0127 both Accepted** — no remaining user gate; loop runs autonomously.
 - **Watch**: `src/engine/runner.zig` at 1894 lines (soft-cap WARN; hard cap 2000). Accumulating
   GC-on-JIT `runI32Export` e2e tests — extract them to a `test/` sibling (or add FILE-SIZE-EXEMPT)
@@ -62,35 +64,20 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
   **Passthrough-result gotcha** (lesson `2026-05-31-jit-passthrough-result-clobbered-by-call`):
   a result = operand value set BEFORE a CALL the op emits is CLOBBERED (gprStoreSpilled is a
   no-op for reg-homed results) — capture post-CALL from the return reg, or on a no-CALL branch.
-- **DONE both arches**: i31 + struct.{new_default,get,new,set} + **array.\* (all 12)** + ref.eq
-  + **ref.test/test_null (R-1) + ref.cast (R-2) + ref.cast_null (R-3)**. Per-op SHAs in `git log`.
-  Per-GC-op touch-points (REUSE): op-file ×2 + `collected_{arm64_ops,x86_64_ctx_ops}` + bump
-  dispatch_collector.zig count LITERALS + `stackEffect` + x86_64 `usesRuntimePtr` (R15 CALL ops)
-  + regalloc_compute force-spill (CALL ops) + ungated `runI32Export` e2e (**hand-encode:
-  wat2wasm 1.0.40 can't parse GC array/ref text; ref.cast leaves a REF on stack — trap-test
-  bodies need `drop; i32.const 0` to type-check; i32.const ≥ 64 needs multi-byte signed LEB128**).
-- **NEXT = br_on_cast / br_on_cast_fail emit, both arches** (0xFB 0x18/0x19) — cast + BRANCH.
-  **Cycle A DONE** (`branchOnReg` extracted, `7a44f910`). **Cycle B = COLLECTED per-op files**
-  (NOT central-switch — follow the `br_on_null`/`br_on_non_null` precedent): create
-  `{arm64,x86_64}/ops/wasm_3_0/br_on_cast.zig` + `br_on_cast_fail.zig` (re-exports `emit`, reads
-  `is_fail = ins.op == .br_on_cast_fail`, like `ref_test_null`). Register in
-  `dispatch_collector_ops.zig` (imports + `collected_{arm64_ops,x86_64_ctx_ops}`) + BUMP count
-  LITERALS in dispatch_collector.zig (arm64 376→378 / x86_64_ctx 425→427 — verify live). Recipe
-  `emit(ctx,ins)`: PEEK ref (`pushed_vregs.items[len-1]`, do NOT pop — stays as block-result
-  top); `ht2 = (ins.extra>>16)&0xFF` (**CORRECTED — >>16 not >>8; >>8 is ht1**),
-  `ht2_nullable=(ins.extra&0x02)!=0`; marshal ref→arg1 64-bit (like ref_test) + rt +
-  `ht2|(ht2_nullable?0x100:0)` → CALL jitGcRefTest → bool W0/EAX; `_fail` INVERTs (arm64
-  `encCmpImmW(0,0);encCsetW(0,.eq)`; x86_64 `encTestRR(.d,rax,rax);encSetccR(.e,rax);
-  encMovzxR32R8(rax,rax)`); then `branchOnReg(ctx,ins,W0)` (x86_64 needs a `branchOnRegCtx`
-  ctx-wrapper in x86_64/op_control.zig — mirror `emitBrIfCtx`). branchOnReg reads cond FIRST in
-  every case → W0/RAX (∉ regalloc pool) survives merge MOVs. Also: `usage.zig` usesRuntimePtr +=
-  both + `regalloc_compute` call-PC switch += both (strict force-spill, like ref.test).
-  liveness.compute NOT needed this cycle — e2e uses entry.zig `callI32NoArgs` with HAND-AUTHORED
-  `fn.liveness` + `alloc` (br_on_null precedent, entry.zig:2633+); ref vreg must be SPILL-homed so
-  branchOnReg's post-CALL merge reload is correct. full-pipeline liveness arm deferred to §1.
-  e2e: `block (result (ref i31))` { i32.const 7; ref.i31; br_on_cast 0 ht1=any(0x6E) ht2=i31(0x6C)
-  } → i31.get_s → 7, plus a `_fail` no-match variant.
-- **Exit-condition**: all GC ops emit on both arches + spec corpus green via JIT mode (§1).
+- **DONE both arches — GC-op JIT emit COMPLETE**: i31 + struct.{new_default,get,new,set} +
+  **array.\* (all 12)** + ref.eq + ref.test/test_null/cast/cast_null + **br_on_cast/br_on_cast_fail
+  (`c94bd04f`, Cycle B)**. Per-op SHAs in `git log`. Per-GC-op touch-points (REUSE for any future
+  GC op): op-file ×2 + `collected_{arm64_ops,x86_64_ctx_ops}` + bump dispatch_collector.zig count
+  LITERALS + `stackEffect` (value ops) + x86_64 `usesRuntimePtr` (R15 CALL ops) + regalloc_compute
+  force-spill (CALL ops) + e2e. br_on_cast adds `branchOnRegCtx` (x86_64) + hand-authored-liveness
+  entry.zig e2e (peeked ref spanning the CALL MUST be spill-homed: slot id ≥ max_reg_slots_gpr).
+- **NEXT (bundle goal met → retarget)**: the GC-op-emit half is done. Remaining 10.G is the **§1
+  JIT-corpus verification backbone** (run the official Wasm 3.0 testsuite THROUGH the JIT —
+  compile-every-fn → JIT-entry invoke → compare; wasmtime `tests/wast.rs` pattern; this needs the
+  br_on/control + GC ops added to `liveness.compute`, deferred till now) + **ADR-0127 Phase C**
+  (cross-`Types` `canonicalEqual`; `gc/type-subtyping` 5→0) + **D-198** (rec-group subtype).
+- **Exit-condition**: all GC ops emit on both arches ✓ MET (`c94bd04f`). §1 corpus-green is a
+  separate workstream — close or re-scope this bundle to §1 next cycle.
 
 ## §10 remaining — the six `[ ]` rows
 
@@ -106,17 +93,15 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 ## Step 0.7 (next resume)
 
-**Cycle A (branchOnReg refactor) kicked to ubuntu THIS turn** (background `test-all`, against the
-turn's pushed HEAD = the Cycle-A + handover chain tip). Next `/continue`: `tail -3 /tmp/ubuntu.log`
-— expect `[run_remote_ubuntu] OK (HEAD=<Cycle-A chain tip>)`. On FAIL: revert to the last
-ubuntu-verified HEAD (`ca2ce49f` = R-3). On GREEN: proceed to br_on_cast **Cycle B** (emitBrOnCast
-+ liveness + e2e; recipe in Active-bundle NEXT + `private/notes/p10-br-on-cast-survey.md`). The
-refactor being behaviour-neutral, br_if regression on ubuntu would be the signal.
+**Cycle B (br_on_cast/_fail JIT emit, `c94bd04f`) kicked to ubuntu THIS turn** (background
+`test-all` against the pushed HEAD). Next `/continue`: `tail -3 /tmp/ubuntu.log` — expect
+`[run_remote_ubuntu] OK (HEAD=<Cycle-B chain tip>)`. On FAIL: revert to the last ubuntu-verified
+HEAD (`b7672df0` = Cycle A). Mac aarch64 verified green (2237 pass / 0 fail); ubuntu confirms the
+x86_64 br_on_cast mirror (the only un-cross-checked half — the emit is by-construction-symmetric).
 
-**Maintenance interlude (2026-05-31)**: a context-budget + scaffolding commit landed on top of
-`b7672df0` (no src/test change — 200K-pin, hook dedup, rule condense; see CLAUDE.md "Context
-budget" + memory `feedback_context_budget_posture`). ubuntu green at `b7672df0` still validates
-code; Cycle B resumes unchanged.
+**Scaffolding this turn (2026-05-31, no src-behaviour delta)**: context-burn lesson +
+`survey_budget_guard` hook (+ refinement) + handover. The hook IS firing live this session;
+restart re-asserts it + the 200K pin cleanly (see Pending user action above).
 
 **Lesson (still live)**: `gate_commit.sh --fast` DEFERS `zig build test`/`lint` (Step 4/5 own
 them) — parent's full `zig build test` before push is the real gate.
