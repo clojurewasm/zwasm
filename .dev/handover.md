@@ -3,6 +3,14 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
+## ⚠ Pending user action (AFTER NEXT COMPACT)
+
+**Ask the user to restart the session** so the new `survey_budget_guard`
+PreToolUse hook (`196779d8`) activates — hooks load only at startup. Until
+restart it is inert; hold the "fork Step-0 surveys to an Explore subagent"
+discipline manually (lesson `2026-05-31-continue-context-burn-survey-in-main`).
+Surface this the moment a compact completes, then clear this section.
+
 ## Current state
 
 - **Phase**: **10 IN-PROGRESS — committed to 100% (ADR-0128)** (Phase 9 = DONE
@@ -61,23 +69,27 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
   + regalloc_compute force-spill (CALL ops) + ungated `runI32Export` e2e (**hand-encode:
   wat2wasm 1.0.40 can't parse GC array/ref text; ref.cast leaves a REF on stack — trap-test
   bodies need `drop; i32.const 0` to type-check; i32.const ≥ 64 needs multi-byte signed LEB128**).
-- **NEXT = br_on_cast / br_on_cast_fail emit, both arches** (0xFB 0x18/0x19) — cast + BRANCH
-  (control-flow; full plan in **`private/notes/p10-br-on-cast-survey.md`**). **Cycle A DONE**
-  (`branchOnReg` extracted, `7a44f910`). Cycle B (NEXT): `emitBrOnCast(ctx/params, is_fail)` in
-  op_control.zig (both arches) + an emit.zig switch arm each (`.br_on_cast` / `.br_on_cast_fail`
-  → emitBrOnCast). Recipe: PEEK ref (don't pop — `ctx.pushed_vregs` top stays), `ht2 =
-  (ins.extra>>8)&0xFF`, `ht2_nullable = (ins.extra&0x02)!=0`; marshal ref→arg1 (64-bit) + rt +
-  `ht2 | (ht2_nullable?0x100:0)` → CALL jitGcRefTest → bool in W0/EAX; for `_fail` INVERT the
-  bool (CMP W0,#0;CSET W0,.eq / TEST EAX,EAX;SETE — reuse existing encoders, no sense param in
-  branchOnReg); then `branchOnReg(..., W0)`. The ref stays as pushed_vregs top → branchOnReg's
-  merge-mov carries it to the label (br_on_cast label result = the narrowed ref). LIVENESS gap:
-  add `.br_on_cast`/`.br_on_cast_fail` beside `.br_if` (liveness.zig:414) as PEEK-don't-pop
-  (extend top ref's last_use=pc, no pop). Also: regalloc_compute force-spill + x86_64
-  usesRuntimePtr for both (they CALL jitGcRefTest). NOT collected per-op (central-switch) → no
-  dispatch_collector count bumps. HAZARD: W0 read before merge MOVs clobber it (branchOnReg's
-  block-capture path reads cond first — OK; verify). e2e: block `(result (ref i31))` + ref.i31 +
-  `br_on_cast $L (ref null any)(ref i31)` → branch carries i31ref → i31.get_s → 7 (hand-encode;
-  block-type (ref i31) = `0x64 0x6c`; br_on_cast = `fb 18 flags labelidx ht1 ht2`).
+- **NEXT = br_on_cast / br_on_cast_fail emit, both arches** (0xFB 0x18/0x19) — cast + BRANCH.
+  **Cycle A DONE** (`branchOnReg` extracted, `7a44f910`). **Cycle B = COLLECTED per-op files**
+  (NOT central-switch — follow the `br_on_null`/`br_on_non_null` precedent): create
+  `{arm64,x86_64}/ops/wasm_3_0/br_on_cast.zig` + `br_on_cast_fail.zig` (re-exports `emit`, reads
+  `is_fail = ins.op == .br_on_cast_fail`, like `ref_test_null`). Register in
+  `dispatch_collector_ops.zig` (imports + `collected_{arm64_ops,x86_64_ctx_ops}`) + BUMP count
+  LITERALS in dispatch_collector.zig (arm64 376→378 / x86_64_ctx 425→427 — verify live). Recipe
+  `emit(ctx,ins)`: PEEK ref (`pushed_vregs.items[len-1]`, do NOT pop — stays as block-result
+  top); `ht2 = (ins.extra>>16)&0xFF` (**CORRECTED — >>16 not >>8; >>8 is ht1**),
+  `ht2_nullable=(ins.extra&0x02)!=0`; marshal ref→arg1 64-bit (like ref_test) + rt +
+  `ht2|(ht2_nullable?0x100:0)` → CALL jitGcRefTest → bool W0/EAX; `_fail` INVERTs (arm64
+  `encCmpImmW(0,0);encCsetW(0,.eq)`; x86_64 `encTestRR(.d,rax,rax);encSetccR(.e,rax);
+  encMovzxR32R8(rax,rax)`); then `branchOnReg(ctx,ins,W0)` (x86_64 needs a `branchOnRegCtx`
+  ctx-wrapper in x86_64/op_control.zig — mirror `emitBrIfCtx`). branchOnReg reads cond FIRST in
+  every case → W0/RAX (∉ regalloc pool) survives merge MOVs. Also: `usage.zig` usesRuntimePtr +=
+  both + `regalloc_compute` call-PC switch += both (strict force-spill, like ref.test).
+  liveness.compute NOT needed this cycle — e2e uses entry.zig `callI32NoArgs` with HAND-AUTHORED
+  `fn.liveness` + `alloc` (br_on_null precedent, entry.zig:2633+); ref vreg must be SPILL-homed so
+  branchOnReg's post-CALL merge reload is correct. full-pipeline liveness arm deferred to §1.
+  e2e: `block (result (ref i31))` { i32.const 7; ref.i31; br_on_cast 0 ht1=any(0x6E) ht2=i31(0x6C)
+  } → i31.get_s → 7, plus a `_fail` no-match variant.
 - **Exit-condition**: all GC ops emit on both arches + spec corpus green via JIT mode (§1).
 
 ## §10 remaining — the six `[ ]` rows
