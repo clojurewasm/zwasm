@@ -8,20 +8,18 @@
 - **Phase**: **10 IN-PROGRESS — committed to 100% (ADR-0128)** (Phase 9 = DONE
   2026-05-24). §10 exit requires the official Wasm 3.0 testsuite at pass=fail=skip=0
   on **both backends** (interp + JIT).
-- **HEAD**: 10.G **array A-7** (`array.fill` emit both arches). First BULK array op — trampoline,
-  mirror array.new A-4: NEW `jitGcArrayFill(rt,typeidx,ref,idx,value,count) → u32` (1=ok/0=trap)
-  null-checks ref + bounds-checks `idx+count ≤ length` (@addWithOverflow, catches negative-as-u32)
-  + fills in Zig (mirror interp arrayFill). Emit marshals 6 args (arm64 X0-X5 / x86_64
-  RDI/RSI/RDX/RCX/R8/R9 — arg regs ∉ regalloc pool so no parallel-move hazard) → CALL → `CMP/TEST
-  result,0; B.EQ/JE → bounds_fixups` (bounds_fixups is position-independent → works post-CALL). 4→0
-  (no push); strict force-spill. usesRuntimePtr += array.fill. e2e: 5-elem array, fill [1,2,3]=42
-  via `(ref null 0)` local + tee, get[2] → 42. A-6a/b (`array.get_s/get_u`) DONE (ubuntu GREEN
-  `4c789a91`); A-7 THIS turn. Verified: arm64 `test-all` EXIT=0 + lint 0 + x86_64 cross EXIT=0.
+- **HEAD**: 10.G **A-8 `ref.eq`** emit both arches. Simplest GC op — identity compare → i32, NO
+  trampoline/heap/rt-ptr. GcRef/i31/null stored zero-extended in 8-byte slots → 64-bit reg compare
+  matches interp's u64 `.ref` compare. arm64 CMP Xa,Xb + CSET Wd,EQ; x86_64 CMP .q + SETE + MOVZX
+  (mirror i32.eq). 2→1. ref.eq = single-byte 0xD3; interp in multi-op `ref_convert_ops.zig` (no
+  per-op meta) → op_tag declared directly in the codegen op files. e2e: 2 distinct array.new_fixed
+  → 0; same ref via tee/get → 1. (Array family A-1..A-7 DONE; A-7 ubuntu GREEN `d1097f21`.) A-8
+  THIS turn. Verified: arm64 `test-all` EXIT=0 + lint 0 + x86_64 cross EXIT=0.
 - **Two execution paths (CODE-verified)**: spec corpus runs **interp-only**
   (`instance.invoke`→`_dispatch.run`, `instance.zig:169`); JIT corpus run = §1. JIT emits
   1.0/2.0 + TC + func-refs + EH + i31 + full struct family + array.{new_default,len,get,set,
-  new,new_fixed,get_s,get_u,fill} (both arches); remaining GC (array copy/new_data/new_elem +
-  ref.cast / ref.eq) interp-only (D-211). Green gc/EH corpus = INTERP.
+  new,new_fixed,get_s,get_u,fill} + ref.eq (both arches); remaining GC (array copy/new_data/
+  new_elem + ref.cast/test) interp-only (D-211). Green gc/EH corpus = INTERP.
 - **ADR-0128 + ADR-0127 both Accepted** — no remaining user gate; loop runs autonomously.
 
 ## Active task — Phase 10 → 100% (ADR-0128)  **NEXT**
@@ -62,11 +60,12 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
   + inline reverse-pop stores, inclusive force-spill) `d4f2a141` + A-6a (`array.get_s` = A-3 load
   + SXTB/SXTH; element valtype threaded via `array_elem_valtypes`→`extra`) `25218e9f` + A-6b
   (`array.get_u` = same + UXTB/UXTH / MOVZX) `62de416c` + A-7 (`array.fill` = `jitGcArrayFill`
-  trampoline, 6-arg marshal + post-CALL trap) THIS turn DONE both arches.
-  **NEXT = array A-8 = `array.copy` emit, both arches** (trampoline, mirror A-7) — full recipe in
-  bundle plan §"array.* sub-bundle": `jitGcArrayCopy(rt,dst_ty,dst_ref,dst_off,src_ref,src_off,len)
-  → u32` (1=ok/0=trap; both null+bounds-check + memmove-overlap, mirror interp arrayCopy). 7 args
-  → x86_64 7th (len) ON STACK; arm64 X0-X6. 5→0. Then new_data/new_elem, ref.cast/eq.
+  trampoline, 6-arg marshal + post-CALL trap) `17088594` + A-8 (`ref.eq` = CMP+CSET/SETE, no
+  trampoline) THIS turn DONE both arches.
+  **NEXT = A-9 = `array.copy` emit, both arches** (trampoline, mirror A-7) — full recipe in bundle
+  plan §"array.* sub-bundle": `jitGcArrayCopy(rt,dst_ty,dst_ref,dst_off,src_ref,src_off,len) → u32`
+  (both null+bounds-check + memmove-overlap). 7 args → x86_64 7th (len) ON STACK; arm64 X0-X6. 5→0.
+  Then array.new_data/new_elem, then ref.test/ref.cast (RTT type-hierarchy sub-bundle).
 - **Exit-condition**: all GC ops emit on both arches + spec corpus green via JIT mode (§1).
 
 ## §10 remaining — the six `[ ]` rows
@@ -77,18 +76,19 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 - **10.E** EH — JIT emit present; residuals = eh_frequency runner (I20), c_api tag
   accessors (I14 → Phase 13), emscripten_eh realworld (I21).
 - **10.G** GC — JIT emit PARTIAL (D-211): i31 + **full struct family** + **array.{new_default,
-  len,get,set,new,new_fixed,get_s,get_u,fill}** DONE both arches; remaining = array copy/new_data/
-  new_elem (A-8+) + ref.cast / ref.eq + ADR-0127 PHASE C + D-198 + gc_stress (I19) + dart/hoot (I21).
+  len,get,set,new,new_fixed,get_s,get_u,fill}** + **ref.eq** DONE both arches; remaining = array
+  copy/new_data/new_elem (A-9+) + ref.cast/test (RTT) + ADR-0127 PHASE C + D-198 + gc_stress (I19)
+  + dart/hoot (I21).
 - **10.P** close — flips only at 100% both-backends (ADR-0128).
 
 ## Step 0.7 (next resume)
 
-This turn landed array A-7 code (`array.fill`) + this handover chore; prior cycle's A-6b
-`62de416c` already ubuntu-verified GREEN (`OK (HEAD=4c789a91)`). ubuntu **test-all** kicked in
-background against this turn's pushed HEAD (`/tmp/ubuntu.log`). Step 0.7 next `/continue`:
-`tail -3 /tmp/ubuntu.log`; expect `OK (HEAD=<final pushed SHA>)`. On FAIL → `git reset --mixed
-HEAD~2` (A-7 source + this handover chore) to last ubuntu-verified HEAD (`4c789a91`), fix,
-re-gate. On GREEN/non-code-gap → proceed to array A-8 (`array.copy`).
+This turn landed A-8 code (`ref.eq`) + this handover chore; prior cycle's A-7 `17088594` already
+ubuntu-verified GREEN (`OK (HEAD=d1097f21)`). ubuntu **test-all** kicked in background against
+this turn's pushed HEAD (`/tmp/ubuntu.log`). Step 0.7 next `/continue`: `tail -3 /tmp/ubuntu.log`;
+expect `OK (HEAD=<final pushed SHA>)`. On FAIL → `git reset --mixed HEAD~2` (A-8 source + this
+handover chore) to last ubuntu-verified HEAD (`d1097f21`), fix, re-gate. On GREEN/non-code-gap →
+proceed to A-9 (`array.copy`).
 
 **Lesson (still live)**: `gate_commit.sh --fast` DEFERS `zig build test`/`lint` (Step 4/5 own them) — parent's full `zig build test` before push is the real gate.
 

@@ -333,14 +333,19 @@ read; do NOT re-trust the uniform-vs-packed / lowering-stub claims):**
   before CALL) → CALL → `CMP/TEST result,0; B.EQ/JE → bounds_fixups` (the
   fixup mechanism is POSITION-INDEPENDENT, disp=(trap_byte−fixup_byte)/4, so it
   works post-CALL; the stub raises a GENERIC trap). 4→0 (no push). DONE both
-  arches. **A-8 (NEXT) = `array.copy`** (trampoline, mirror A-7): NEW
-  `jitGcArrayCopy(rt, dst_typeidx, dst_ref, dst_off, src_ref, src_off, len) →
-  u32` (1=ok / 0=trap) null-check both refs + bounds-check both ranges +
-  memmove-overlap copy (mirror interp arrayCopy, array_ops.zig:359). 7 args →
-  x86_64 SysV puts the 7th (len) ON THE STACK ([rsp] after the 6 GPR args,
-  16-byte SP alignment) — arm64 fits X0-X6. array.copy pops [dst_ref, dst_off,
-  src_ref, src_off, len] = 5→0. Then array.new_data/new_elem (segment-read
-  trampolines), then ref.cast / ref.test / ref.eq.
+  arches. A-8 `ref.eq` (out of array sequence — simplest remaining GC op):
+  identity compare → i32, NO trampoline/heap; arm64 CMP Xa,Xb + CSET Wd,EQ;
+  x86_64 CMP .q + SETE + MOVZX (mirror i32.eq). 2→1. op_tag declared directly
+  in the codegen op files (ref.eq's interp is in the multi-op
+  `ref_convert_ops.zig`, no per-op meta). DONE both arches.
+  **A-9 (NEXT) = `array.copy`** (trampoline, mirror A-7): NEW `jitGcArrayCopy(
+  rt, dst_typeidx, dst_ref, dst_off, src_ref, src_off, len) → u32` (1=ok /
+  0=trap) null-check both refs + bounds-check both ranges + memmove-overlap
+  copy (mirror interp arrayCopy, array_ops.zig:359). 7 args → x86_64 SysV puts
+  the 7th (len) ON THE STACK ([rsp] after the 6 GPR args, 16-byte SP
+  alignment) — arm64 fits X0-X6. array.copy pops [dst_ref, dst_off, src_ref,
+  src_off, len] = 5→0. Then array.new_data/new_elem (segment-read
+  trampolines), then ref.test / ref.cast (need RTT type-hierarchy).
 - **Per-op touch-points** (same as struct, see above): op-file + register in
   `collected_{arm64_ops,x86_64_ctx_ops}` + bump dispatch_collector.zig count
   LITERALS + stackEffect (or liveness special-case if variadic) + x86_64
