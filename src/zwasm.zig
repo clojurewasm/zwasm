@@ -305,6 +305,7 @@ test {
     _ = @import("engine/codegen/arm64/thunk.zig");
     _ = @import("engine/codegen/x86_64/thunk.zig");
     _ = @import("engine/runner.zig");
+    _ = @import("engine/runner_test.zig");
     _ = @import("ir/analysis/loop_info.zig");
     _ = @import("ir/analysis/liveness.zig");
     _ = @import("ir/verifier.zig");
