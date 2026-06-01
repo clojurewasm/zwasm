@@ -142,6 +142,9 @@ pub fn stackEffect(op: ZirOp) ?StackEffect {
         .@"ref.cast",
         // ref.cast_null (R-3) — like ref.cast but null passes. 1 → 1.
         .@"ref.cast_null",
+        // ref.as_non_null (10.R) pops a nullable ref, pushes the same ref
+        // non-null (or traps on null). 1 → 1. D-220.
+        .@"ref.as_non_null",
         => .{ .pops = 1, .pushes = 1 },
         // 2 → 1 binop
         .@"i32.add",

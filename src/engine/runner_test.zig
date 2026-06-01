@@ -1928,3 +1928,25 @@ test "JitInstance: ref.i31 global init compiles + get returns the i31 value" {
     defer inst.deinit(testing.allocator);
     try testing.expectEqual(@as(?u64, 1234), try inst.invoke(testing.allocator, "g", &.{}));
 }
+
+// ── ADR-0128 §1 / D-220: ref.as_non_null liveness stackEffect (JIT compile gate) ──
+
+test "JitInstance: ref.as_non_null module JIT-compiles (liveness stackEffect)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    // (module (func (export "f") (param funcref) (result i32)
+    //   local.get 0 ref.as_non_null drop i32.const 7))
+    // ref.as_non_null lowers (0xD4) + emits + is registered, but the
+    // liveness pass lacked a stackEffect entry → module-compile-reject
+    // (UnsupportedOp[stackEffect-missing]). Compile-only check (funcref
+    // param isn't scalar-dispatchable, so we don't invoke).
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x06, 0x01, 0x60, 0x01, 0x70, 0x01, 0x7f, // type (funcref)->(i32)
+        0x03, 0x02, 0x01, 0x00,
+        0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00, // export "f"
+        0x0a, 0x0a, 0x01, 0x08, 0x00, 0x20, 0x00,
+        0xd4, 0x1a, 0x41, 0x07, 0x0b,
+    };
+    var inst = try JitInstance.init(testing.allocator, &bytes); // compiles ⇒ green
+    inst.deinit(testing.allocator);
+}
