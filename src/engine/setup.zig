@@ -202,10 +202,10 @@ pub fn setupRuntime(
         defer datas.deinit();
         for (datas.items) |seg| {
             if (seg.kind != .active) continue;
-            const off = rv.evalConstI32Expr(seg.offset_expr) catch return Error.UnsupportedEntrySignature;
-            if (off < 0) return Error.UnsupportedEntrySignature;
-            const off_u: u64 = @intCast(off);
-            if (off_u + seg.bytes.len > memory.len) {
+            // D-219 — accepts i64.const offsets for memory64. `off_u >
+            // memory.len` first so `off_u + len` can't overflow u64.
+            const off_u = rv.evalConstOffsetU64(seg.offset_expr) catch return Error.UnsupportedEntrySignature;
+            if (off_u > memory.len or off_u + seg.bytes.len > memory.len) {
                 return Error.UnsupportedEntrySignature;
             }
             @memcpy(memory[@intCast(off_u)..][0..seg.bytes.len], seg.bytes);

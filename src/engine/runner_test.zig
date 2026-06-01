@@ -1876,3 +1876,29 @@ test "JitInstance: (i32,i32,i32)->i32 sum dispatches three args (1,2,3)->6" {
     defer inst.deinit(testing.allocator);
     try testing.expectEqual(@as(?u64, 6), try inst.invoke(testing.allocator, "f", &.{ 1, 2, 3 }));
 }
+
+// ── ADR-0128 §1 / D-219: memory64 active-data offset is i64 (JIT compile gate) ──
+
+test "JitInstance: memory64 module with active data at i64 offset compiles + loads" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    // (module (memory i64 1)
+    //   (data (i64.const 0) "\2a\00\00\00")   ;; 42 at addr 0 (offset expr is i64!)
+    //   (func (export "ld") (result i32) i64.const 0 i32.load))
+    // The JIT compile gate validated active-data offset exprs against i32,
+    // rejecting the memory64 i64.const offset with InvalidGlobalInitExpr (D-219).
+    // (i32.load — supported on mem64 per D-181; load8/16 are a separate gap.)
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, // type ()->(i32)
+        0x03, 0x02, 0x01, 0x00,
+        0x05, 0x03, 0x01, 0x04, 0x01, // memory: flag=0x04 (i64), min 1
+        0x07, 0x06, 0x01, 0x02, 0x6c, 0x64, 0x00, 0x00, // export "ld"
+        0x0a, 0x09, 0x01, 0x07, 0x00, 0x42, 0x00, 0x28, 0x02, 0x00, 0x0b, // i64.const 0; i32.load align=2 off=0
+        // data sec: 1 active seg, memidx 0, offset (i64.const 0), bytes "\2a\00\00\00"
+        0x0b, 0x0a, 0x01, 0x00, 0x42, 0x00, 0x0b, 0x04, 0x2a, 0x00, 0x00,
+        0x00,
+    };
+    var inst = try JitInstance.init(testing.allocator, &bytes);
+    defer inst.deinit(testing.allocator);
+    try testing.expectEqual(@as(?u64, 42), try inst.invoke(testing.allocator, "ld", &.{}));
+}

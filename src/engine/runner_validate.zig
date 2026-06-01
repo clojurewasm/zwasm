@@ -294,3 +294,25 @@ pub fn evalConstI32ExprCtx(expr: []const u8, ctx: ?GlobalsCtx) Error!i32 {
     if (pos >= expr.len or expr[pos] != 0x0B) return Error.UnsupportedConstExpr;
     return v;
 }
+
+/// Evaluate an active-segment offset const-expr to a u64. Accepts
+/// `i32.const` (mem32 / table — zero-extended) and `i64.const`
+/// (memory64), each followed by `end`. An offset is unsigned; the
+/// caller's bounds check rejects out-of-range values. D-219.
+pub fn evalConstOffsetU64(expr: []const u8) Error!u64 {
+    if (expr.len < 2) return Error.UnsupportedConstExpr;
+    var pos: usize = 1;
+    const v: u64 = switch (expr[0]) {
+        0x41 => blk: { // i32.const
+            const n = leb128.readSleb128(i32, expr, &pos) catch return Error.UnsupportedConstExpr;
+            break :blk @as(u32, @bitCast(n));
+        },
+        0x42 => blk: { // i64.const (memory64)
+            const n = leb128.readSleb128(i64, expr, &pos) catch return Error.UnsupportedConstExpr;
+            break :blk @bitCast(n);
+        },
+        else => return Error.UnsupportedConstExpr,
+    };
+    if (pos >= expr.len or expr[pos] != 0x0B) return Error.UnsupportedConstExpr;
+    return v;
+}

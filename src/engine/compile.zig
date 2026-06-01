@@ -44,6 +44,25 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
     defer if (imports_buf) |*ib| ib.deinit();
     if (module.find(.import)) |s| imports_buf = try sections.decodeImports(allocator, s.body);
 
+    // D-219 — memidx-0 idx_type. Active-DATA segment offset exprs are i64
+    // for memory64, i32 otherwise; the JIT compile gate must validate them
+    // against the right type (else it rejects memory64 modules with active
+    // data at InvalidGlobalInitExpr). Imported memory takes precedence
+    // (memidx 0), else the first defined memory. (Elem offsets stay i32 —
+    // tables are i32-indexed.)
+    const mem0_is_i64 = blk: {
+        if (imports_buf) |ib| {
+            for (ib.items) |imp| if (imp.kind == .memory) break :blk imp.payload.memory.idx_type == .i64;
+        }
+        if (module.find(.memory)) |ms| {
+            var mb = sections.decodeMemory(a, ms.body) catch break :blk false;
+            defer mb.deinit();
+            if (mb.items.len > 0) break :blk mb.items[0].idx_type == .i64;
+        }
+        break :blk false;
+    };
+    const data_off_vt: zir.ValType = if (mem0_is_i64) .i64 else .i32;
+
     // §9.9 / 9.9-l-1b-d093-d84 (skip-impl drainage):
     // Wasm spec §5.5.3 type section canonical encoding. Eager
     // decode catches malformed LEB128 (over-long / overflow) in
@@ -404,7 +423,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             defer ds_buf.deinit();
             for (ds_buf.items) |seg| {
                 if (seg.kind == .active) {
-                    try rv.validateGlobalInitExpr(seg.offset_expr, .i32, num_global_imports_empty, imports_buf, total_funcs_empty_for_init);
+                    try rv.validateGlobalInitExpr(seg.offset_expr, data_off_vt, num_global_imports_empty, imports_buf, total_funcs_empty_for_init);
                 }
             }
         }
@@ -637,7 +656,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
     if (datas_buf) |d| {
         for (d.items) |seg| {
             if (seg.kind == .active) {
-                try rv.validateGlobalInitExpr(seg.offset_expr, .i32, num_global_imports_main, imports_buf, total_funcs);
+                try rv.validateGlobalInitExpr(seg.offset_expr, data_off_vt, num_global_imports_main, imports_buf, total_funcs);
             }
         }
     }
