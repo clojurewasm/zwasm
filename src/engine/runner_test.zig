@@ -1750,3 +1750,51 @@ test "JitInstance: void-result invoke runs (returns null) and a 1-arg scalar inv
     try testing.expectEqual(@as(?u64, null), try inst.invoke(testing.allocator, "set", &.{77}));
     try testing.expectEqual(@as(?u64, 77), try inst.invoke(testing.allocator, "get", &.{}));
 }
+
+// ── ADR-0128 §1 / D-215: real JIT memory.grow (realloc + persist + max) ──
+
+test "JitInstance: memory.grow grows + persists, memory.size reflects it" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    // (module (memory 0)
+    //   (func (export "g") (param i32) (result i32) local.get 0 memory.grow)
+    //   (func (export "s") (result i32) memory.size))
+    // Default memory_grow_fn rejected (returned -1); a real one grows the
+    // realloc'd buffer and updates rt.vm_base/mem_limit so size persists.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x0a, 0x02, 0x60, 0x01, 0x7f, 0x01, 0x7f,
+        0x60, 0x00, 0x01, 0x7f, 0x03, 0x03, 0x02, 0x00,
+        0x01,
+        0x05, 0x03, 0x01, 0x00, 0x00, // memory: min 0, no max
+        0x07, 0x09, 0x02, 0x01, 0x67, 0x00, 0x00, 0x01, 0x73, 0x00, 0x01, // exports g,s
+        0x0a, 0x0d, 0x02,
+        0x06, 0x00, 0x20, 0x00, 0x40, 0x00, 0x0b, // g: local.get 0; memory.grow 0
+        0x04, 0x00, 0x3f, 0x00, 0x0b, // s: memory.size 0
+    };
+    var inst = try JitInstance.init(testing.allocator, &bytes);
+    defer inst.deinit(testing.allocator);
+    try testing.expectEqual(@as(?u64, 0), try inst.invoke(testing.allocator, "s", &.{})); // size 0
+    try testing.expectEqual(@as(?u64, 0), try inst.invoke(testing.allocator, "g", &.{1})); // grow→old 0
+    try testing.expectEqual(@as(?u64, 1), try inst.invoke(testing.allocator, "s", &.{})); // size 1 (persisted)
+    try testing.expectEqual(@as(?u64, 1), try inst.invoke(testing.allocator, "g", &.{1})); // grow→old 1
+    try testing.expectEqual(@as(?u64, 2), try inst.invoke(testing.allocator, "s", &.{})); // size 2
+}
+
+test "JitInstance: memory.grow past declared max returns -1" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    // (module (memory 0 1) (func (export "g") (param i32) (result i32) local.get 0 memory.grow))
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x06, 0x01, 0x60, 0x01, 0x7f, 0x01, 0x7f,
+        0x03, 0x02, 0x01, 0x00,
+        0x05, 0x04, 0x01, 0x01, 0x00, 0x01, // memory: flag=has_max, min 0, max 1
+        0x07, 0x05, 0x01, 0x01, 0x67, 0x00,
+        0x00, 0x0a, 0x08, 0x01, 0x06, 0x00,
+        0x20, 0x00, 0x40, 0x00, 0x0b,
+    };
+    var inst = try JitInstance.init(testing.allocator, &bytes);
+    defer inst.deinit(testing.allocator);
+    try testing.expectEqual(@as(?u64, 0), try inst.invoke(testing.allocator, "g", &.{1})); // 0→1 ok, old 0
+    // grow by 1 more → 2 > max 1 → -1 (i32 -1 = 0xffffffff zero-extended in the carrier)
+    try testing.expectEqual(@as(?u64, 0xffffffff), try inst.invoke(testing.allocator, "g", &.{1}));
+}

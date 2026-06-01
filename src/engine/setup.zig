@@ -24,7 +24,12 @@ const CompiledWasm = runner_mod.CompiledWasm;
 
 pub const RuntimeOwned = struct {
     rt: entry.JitRuntime,
-    memory: []u8,
+    // Linear memory is owned by a pinned heap `MemGrowCtx` (reached via
+    // `rt.host_state`) so `memory.grow` can realloc-move the backing
+    // buffer and have BOTH the JIT (`rt.vm_base` reload) and `deinit` see
+    // the current pointer (RuntimeOwned itself moves by value into
+    // JitInstance, so a field pointer here would dangle). D-215.
+    mem_ctx: ?*MemGrowCtx = null,
     dispatch: []usize,
     globals: []@import("../runtime/value.zig").Value,
     funcptrs: []u64,
@@ -78,7 +83,12 @@ pub const RuntimeOwned = struct {
             a.deinit();
             allocator.destroy(a);
         }
-        if (self.memory.len > 0) allocator.free(self.memory);
+        if (self.mem_ctx) |c| {
+            // The ctx OWNS the (possibly grown) linear-memory buffer —
+            // free the CURRENT pointer (memory.grow realloc-moves it).
+            if (c.memory.len > 0) allocator.free(c.memory);
+            allocator.destroy(c);
+        }
         allocator.free(self.dispatch);
         allocator.free(self.globals);
         allocator.free(self.funcptrs);
@@ -97,6 +107,42 @@ pub const RuntimeOwned = struct {
     }
 };
 
+/// Host-side context for `memory.grow` (D-215). Pinned on the heap; a
+/// pointer lives in `JitRuntime.host_state` so the C-ABI `jitMemoryGrow`
+/// trampoline can realloc the buffer. Owns the linear-memory slice (freed
+/// by `RuntimeOwned.deinit`).
+pub const MemGrowCtx = struct {
+    allocator: Allocator,
+    memory: []u8,
+    max_pages: u64,
+};
+
+/// Real `memory_grow_fn` (replaces `defaultMemoryGrowReject`). Grows the
+/// linear memory by `delta_pages`, returning the OLD page count or -1 on
+/// failure (max exceeded / OOM) — Wasm `memory.grow` semantics. Reallocs
+/// the backing buffer (may move it) and updates `rt.vm_base` + `rt.mem_limit`
+/// so the JIT body's post-call base reload sees the new buffer (arm64
+/// reloads X28/X27; x86_64 reloads per-access). D-215.
+///
+/// Note: the trampoline ABI returns i32. memory64 `memory.grow` yields i64;
+/// the -1 failure sentinel needs the result sign-extended to i64 at the call
+/// site (D-215 Part B) — success values (old page count) fit i32 here.
+pub fn jitMemoryGrow(rt: *entry.JitRuntime, delta_pages: u32) callconv(.c) i32 {
+    const ctx: *MemGrowCtx = @ptrCast(@alignCast(rt.host_state orelse return -1));
+    const page: u64 = 65536;
+    const old_len = ctx.memory.len;
+    const old_pages = old_len / page;
+    const new_pages = old_pages + @as(u64, delta_pages);
+    if (new_pages > ctx.max_pages) return -1;
+    const new_bytes: usize = std.math.cast(usize, new_pages * page) orelse return -1;
+    const grown = ctx.allocator.realloc(ctx.memory, new_bytes) catch return -1;
+    @memset(grown[old_len..new_bytes], 0);
+    ctx.memory = grown;
+    rt.vm_base = grown.ptr;
+    rt.mem_limit = new_bytes;
+    return @bitCast(@as(u32, @truncate(old_pages)));
+}
+
 /// Build a JitRuntime + populate its host_dispatch table + init
 /// linear memory from data segments. Shared between `runI32Export`
 /// and `runVoidExport`. The caller owns the returned `memory` and
@@ -112,6 +158,9 @@ pub fn setupRuntime(
 
     var memory: []u8 = &.{};
     errdefer if (memory.len > 0) allocator.free(memory);
+    // D-215 — memory.grow upper bound (pages). Declared max if present,
+    // else the spec address-space limit per idx_type. 0 = no memory section.
+    var mem_max_pages: u64 = 0;
 
     var temp_arena = std.heap.ArenaAllocator.init(allocator);
     defer temp_arena.deinit();
@@ -131,13 +180,20 @@ pub fn setupRuntime(
         defer memories.deinit();
         if (memories.items.len > 0) {
             const page_size: u64 = 65536;
-            const min_pages: u64 = memories.items[0].min;
+            const mem0 = memories.items[0];
+            const min_pages: u64 = mem0.min;
             const total_bytes: u64 = min_pages * page_size;
             if (total_bytes > 256 * 1024 * 1024) {
                 return Error.UnsupportedEntrySignature;
             }
             memory = try allocator.alloc(u8, @intCast(total_bytes));
             @memset(memory, 0);
+            // D-215 — grow ceiling: declared max, else the spec page
+            // limit (2^16 for mem32 [4 GiB], 2^48 for mem64).
+            mem_max_pages = mem0.max orelse if (mem0.idx_type == .i64)
+                (@as(u64, 1) << 48)
+            else
+                65536;
         }
     }
 
@@ -542,10 +598,18 @@ pub fn setupRuntime(
         }
     }
 
+    // D-215 — pin the linear-memory buffer in a heap ctx so memory.grow
+    // can realloc-move it. Owns `memory` from here on (freed via deinit).
+    const mem_ctx = try allocator.create(MemGrowCtx);
+    errdefer allocator.destroy(mem_ctx);
+    mem_ctx.* = .{ .allocator = allocator, .memory = memory, .max_pages = mem_max_pages };
+
     return .{
         .rt = .{
             .vm_base = if (memory.len > 0) memory.ptr else @ptrFromInt(@as(usize, 0x1000)),
             .mem_limit = memory.len,
+            .host_state = mem_ctx,
+            .memory_grow_fn = jitMemoryGrow,
             .funcptr_base = funcptrs_buf.ptr,
             .table_size = table_size,
             .typeidx_base = typeidxs_buf.ptr,
@@ -589,7 +653,7 @@ pub fn setupRuntime(
             .gc_heap = gc_heap_ptr,
             .gc_type_infos_ptr = gc_type_infos_ptr,
         },
-        .memory = memory,
+        .mem_ctx = mem_ctx,
         .dispatch = dispatch,
         .globals = globals_buf,
         .funcptrs = funcptrs_buf,
