@@ -1929,6 +1929,37 @@ test "JitInstance: ref.i31 global init compiles + get returns the i31 value" {
     try testing.expectEqual(@as(?u64, 1234), try inst.invoke(testing.allocator, "g", &.{}));
 }
 
+// ── ADR-0128 §1 / D-223: gc const-expr global (struct.new / array.new) ──
+
+test "runI32Export: array.new_default const-expr global + array.len → 3 (D-223)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    // (module
+    //   (type $arr (array (mut i32)))                       ;; type 0
+    //   (global $g (ref 0) (i32.const 3) (array.new_default 0)) ;; gc const-expr
+    //   (func (export "len") (result i32) global.get 0 array.len))
+    // The JIT compile gate (validateGlobalInitExpr) rejected the multi-op
+    // const-expr (i32.const; array.new_default; end → InvalidGlobalInitExpr),
+    // so the whole module was compile-skipped. Now the validator walks the
+    // const-expr + setup allocates the array on the gc heap at global init.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        // type: [0]=array{i32 mut} (5e 7f 01), [1]=func ()->(i32) (60 00 01 7f)
+        0x01, 0x08, 0x02, 0x5e, 0x7f, 0x01, 0x60, 0x00,
+        0x01, 0x7f,
+        0x03, 0x02, 0x01, 0x01, // func: type idx 1
+        // global: 1 entry, type (ref 0) [64 00], immutable [00],
+        // init i32.const 3 [41 03]; array.new_default 0 [fb 07 00]; end [0b]
+        0x06, 0x0a, 0x01, 0x64,
+        0x00, 0x00, 0x41, 0x03,
+        0xfb, 0x07, 0x00, 0x0b,
+        0x07, 0x07, 0x01, 0x03, 0x6c, 0x65, 0x6e, 0x00, 0x00, // export "len" func 0
+        // code: body 6 bytes (locals 00 + global.get 0 [23 00] + array.len [fb 0f] + end 0b)
+        0x0a, 0x08, 0x01, 0x06, 0x00, 0x23, 0x00, 0xfb, 0x0f,
+        0x0b,
+    };
+    try testing.expectEqual(@as(u32, 3), runI32Export(testing.allocator, &bytes, "len"));
+}
+
 // ── ADR-0128 §1 / D-220: ref.as_non_null liveness stackEffect (JIT compile gate) ──
 
 test "JitInstance: ref.as_non_null module JIT-compiles (liveness stackEffect)" {

@@ -42,6 +42,7 @@ const testing = std.testing;
 const import_mod = @import("import.zig");
 const instance_mod = @import("instance.zig");
 const heap_mod = @import("../../feature/gc/heap.zig");
+const type_info_mod = @import("../../feature/gc/type_info.zig");
 const diagnostic = @import("../../diagnostic/diagnostic.zig");
 
 const Module = runtime_mod.Module;
@@ -811,7 +812,18 @@ pub fn evalConstExprValue(expr: []const u8) !Value {
 /// allocate on `rt.gc_heap` using the materialised Struct/ArrayInfo and
 /// write the leading const operands into the object slots (mirrors
 /// struct_ops.zig / array_ops.zig / ADR-0116 §3a).
-fn evalGlobalInitGc(expr: []const u8, rt: *Runtime, inst: *const Instance, imported_globals: []const *Value) anyerror!Value {
+/// Primitive-param form so both the interp instantiate path and the JIT
+/// setup path (`engine/setup.zig`) can evaluate GC const-expr globals
+/// without coupling engine → Instance. `gc_heap` / `gc_type_infos` are
+/// nullable; a GC const-expr op on a module without them rejects with
+/// `UnsupportedConstExpr` (D-223).
+pub fn evalGlobalInitGc(
+    expr: []const u8,
+    gc_heap: ?*heap_mod.Heap,
+    gc_type_infos: ?type_info_mod.GcTypeInfos,
+    func_entities: []FuncEntity,
+    imported_globals: []const *Value,
+) anyerror!Value {
     const type_info = @import("../../feature/gc/type_info.zig");
     const header_size: u32 = @sizeOf(type_info.ObjectHeader);
     var stack: [16]Value = undefined;
@@ -858,8 +870,8 @@ fn evalGlobalInitGc(expr: []const u8, rt: *Runtime, inst: *const Instance, impor
                 // when ref.func feeds a GC const-expr, e.g. array.init_elem.3
                 // `(array.new $arrref (ref.func $dummy) (i32.const 12))`.
                 const fidx = try leb128.readUleb128(u32, expr, &pos);
-                if (fidx >= rt.func_entities.len) return error.UnsupportedConstExpr;
-                stack[sp] = Value.fromFuncRef(&rt.func_entities[fidx]);
+                if (fidx >= func_entities.len) return error.UnsupportedConstExpr;
+                stack[sp] = Value.fromFuncRef(&func_entities[fidx]);
                 sp += 1;
             },
             0xFB => {
@@ -871,10 +883,10 @@ fn evalGlobalInitGc(expr: []const u8, rt: *Runtime, inst: *const Instance, impor
                     },
                     0, 1 => { // struct.new / struct.new_default
                         const typeidx = try leb128.readUleb128(u32, expr, &pos);
-                        const gti = inst.gc_type_infos orelse return error.UnsupportedConstExpr;
+                        const gti = gc_type_infos orelse return error.UnsupportedConstExpr;
                         if (typeidx >= gti.struct_infos.len) return error.UnsupportedConstExpr;
                         const si = gti.struct_infos[typeidx] orelse return error.UnsupportedConstExpr;
-                        const heap = rt.gc_heap orelse return error.UnsupportedConstExpr;
+                        const heap = gc_heap orelse return error.UnsupportedConstExpr;
                         const ref = try heap.allocate(header_size + si.payload_size);
                         const hdr: type_info.ObjectHeader = .{ .kind = .struct_, .info = typeidx };
                         @memcpy(heap.bytes[ref .. ref + header_size], std.mem.asBytes(&hdr));
@@ -895,10 +907,10 @@ fn evalGlobalInitGc(expr: []const u8, rt: *Runtime, inst: *const Instance, impor
                     },
                     6, 7 => { // array.new / array.new_default
                         const typeidx = try leb128.readUleb128(u32, expr, &pos);
-                        const gti = inst.gc_type_infos orelse return error.UnsupportedConstExpr;
+                        const gti = gc_type_infos orelse return error.UnsupportedConstExpr;
                         if (typeidx >= gti.array_infos.len) return error.UnsupportedConstExpr;
                         const ai = gti.array_infos[typeidx] orelse return error.UnsupportedConstExpr;
-                        const heap = rt.gc_heap orelse return error.UnsupportedConstExpr;
+                        const heap = gc_heap orelse return error.UnsupportedConstExpr;
                         const ahs: u32 = @sizeOf(type_info.ArrayHeader);
                         // Stack (top first): size:i32, then init value (sub 6 only).
                         if (sp == 0) return error.UnsupportedConstExpr;
@@ -929,10 +941,10 @@ fn evalGlobalInitGc(expr: []const u8, rt: *Runtime, inst: *const Instance, impor
                     8 => { // array.new_fixed $t N
                         const typeidx = try leb128.readUleb128(u32, expr, &pos);
                         const nlen = try leb128.readUleb128(u32, expr, &pos);
-                        const gti = inst.gc_type_infos orelse return error.UnsupportedConstExpr;
+                        const gti = gc_type_infos orelse return error.UnsupportedConstExpr;
                         if (typeidx >= gti.array_infos.len) return error.UnsupportedConstExpr;
                         const ai = gti.array_infos[typeidx] orelse return error.UnsupportedConstExpr;
-                        const heap = rt.gc_heap orelse return error.UnsupportedConstExpr;
+                        const heap = gc_heap orelse return error.UnsupportedConstExpr;
                         const ahs: u32 = @sizeOf(type_info.ArrayHeader);
                         const ref = try heap.allocate(ahs + nlen * @as(u32, ai.element.size));
                         const ah: type_info.ArrayHeader = .{ .header = .{ .kind = .array, .info = typeidx }, .length = nlen };
@@ -1423,7 +1435,7 @@ pub fn instantiateRuntime(
                         // once + fill every slot with the result.
                         const v = evalConstExprValue(entry.init_expr) catch |e|
                             if (e == error.UnsupportedConstExpr)
-                                try evalGlobalInitGc(entry.init_expr, rt, inst, imp_glob_slots)
+                                try evalGlobalInitGc(entry.init_expr, rt.gc_heap, inst.gc_type_infos, rt.func_entities, imp_glob_slots)
                             else
                                 return e;
                         for (refs) |*r| r.* = v;
@@ -1460,7 +1472,7 @@ pub fn instantiateRuntime(
                     // Element segments materialise before globals → no
                     // imported-global slice available; elem const-expr
                     // items (array.new/struct.new) don't use global.get.
-                    for (seg.item_exprs, 0..) |ex, j| rs[j] = try evalGlobalInitGc(ex, rt, inst, &.{});
+                    for (seg.item_exprs, 0..) |ex, j| rs[j] = try evalGlobalInitGc(ex, rt.gc_heap, inst.gc_type_infos, rt.func_entities, &.{});
                     break :blk rs;
                 } else blk: {
                     // For func-family segments the slot is a funcidx → resolve
@@ -1542,7 +1554,7 @@ pub fn instantiateRuntime(
                                 // defined globals (slots[imp+i] set just
                                 // below) → global.get sees only legal
                                 // lower-index const-expr references.
-                                try evalGlobalInitGc(g.init_expr, rt, inst, slots[0 .. imp_global_count + i])
+                                try evalGlobalInitGc(g.init_expr, rt.gc_heap, inst.gc_type_infos, rt.func_entities, slots[0 .. imp_global_count + i])
                             else
                                 return e;
                     slots[imp_global_count + i] = &storage[i];

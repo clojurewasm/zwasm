@@ -72,103 +72,126 @@ pub fn validateGlobalInitExpr(
     imports_opt: ?sections.Imports,
     total_funcs: u32,
 ) Error!void {
-    if (expr.len < 2) return Error.InvalidGlobalInitExpr;
-    var pos: usize = 1;
-    const produced: zir.ValType = switch (expr[0]) {
-        0x41 => blk: { // i32.const
-            _ = leb128.readSleb128(i32, expr, &pos) catch return Error.InvalidGlobalInitExpr;
-            break :blk .i32;
-        },
-        0x42 => blk: { // i64.const
-            _ = leb128.readSleb128(i64, expr, &pos) catch return Error.InvalidGlobalInitExpr;
-            break :blk .i64;
-        },
-        0x43 => blk: { // f32.const
-            if (pos + 4 > expr.len) return Error.InvalidGlobalInitExpr;
-            pos += 4;
-            break :blk .f32;
-        },
-        0x44 => blk: { // f64.const
-            if (pos + 8 > expr.len) return Error.InvalidGlobalInitExpr;
-            pos += 8;
-            break :blk .f64;
-        },
-        0xD0 => blk: { // ref.null reftype
-            if (pos >= expr.len) return Error.InvalidGlobalInitExpr;
-            const rt_byte = expr[pos];
-            pos += 1;
-            break :blk switch (rt_byte) {
-                0x70 => zir.ValType.funcref,
-                0x6F => zir.ValType.externref,
-                // Wasm 3.0 GC abstract heaptypes (D-220). Concrete
-                // (typeidx) heaptypes stay rejected (enumerated skip).
-                0x6E => zir.ValType.anyref,
-                0x6D => zir.ValType.eqref,
-                0x6C => zir.ValType.i31ref,
-                0x6B => zir.ValType.structref,
-                0x6A => zir.ValType.arrayref,
-                0x71, 0x72, 0x73, 0x69, 0x68 => zir.ValType.anyref, // none/noextern/nofunc/exn/noexn — lenient
-                else => return Error.InvalidGlobalInitExpr,
-            };
-        },
-        0xD2 => blk: { // ref.func funcidx (Wasm 2.0)
-            const idx = leb128.readUleb128(u32, expr, &pos) catch return Error.InvalidGlobalInitExpr;
-            // Wasm spec §3.4.3: ref.func init-expr funcidx must
-            // be in [0, total_funcs). ref_func.2.wasm asserts
-            // rejection of `(global funcref (ref.func 7))` when
-            // only 2 funcs exist.
-            if (idx >= total_funcs) return Error.InvalidGlobalInitExpr;
-            break :blk .funcref;
-        },
-        0xFD => blk: { // SIMD prefix — only v128.const (0x0C) is valid in const-expr
-            const sub = leb128.readUleb128(u32, expr, &pos) catch return Error.InvalidGlobalInitExpr;
-            if (sub != 0x0C) return Error.InvalidGlobalInitExpr;
-            if (pos + 16 > expr.len) return Error.InvalidGlobalInitExpr;
-            pos += 16;
-            break :blk .v128;
-        },
-        0x23 => blk: { // global.get N
-            const idx = leb128.readUleb128(u32, expr, &pos) catch return Error.InvalidGlobalInitExpr;
-            // Init-expr global.get can only reference imported
-            // globals (§3.4.2). Defined-global self/forward
-            // references are not constant expressions.
-            if (idx >= num_global_imports) return Error.InvalidGlobalInitExpr;
-            // The referenced import must be immutable.
-            const imports = imports_opt orelse return Error.InvalidGlobalInitExpr;
-            var seen: u32 = 0;
-            for (imports.items) |imp| {
-                if (imp.kind != .global) continue;
-                if (seen == idx) {
-                    const g = imp.payload.global;
-                    if (g.mutable) return Error.InvalidGlobalInitExpr;
-                    break :blk g.valtype;
-                }
-                seen += 1;
-            }
-            // Should be unreachable given the idx < num_global_imports
-            // check; fail conservatively.
-            return Error.InvalidGlobalInitExpr;
-        },
-        else => return Error.InvalidGlobalInitExpr,
-    };
-    // Wasm 3.0 GC: a trailing `ref.i31` (0xFB 0x1C) wraps a preceding
-    // i32.const into a non-null (ref i31). struct.new / array.new const
-    // exprs (need heap alloc) stay rejected → later chunk. D-220.
-    var produced_vt = produced;
-    if (pos < expr.len and expr[pos] == 0xFB) {
+    if (expr.len < 1) return Error.InvalidGlobalInitExpr;
+    // Walk the const-expr as a sequence of value-producing ops (Wasm 3.0
+    // §3.4.3 extended GC const-exprs are multi-operand: array.new = 2-op,
+    // struct.new = N-op). This is the JIT compile gate, not the
+    // authoritative validator — the interp validator already checked
+    // operand counts + subtyping, so here we only (a) parse each op's
+    // immediates byte-correctly to reach the trailing `end`, and (b)
+    // track the LAST value-producing op's result type for the want-check
+    // (a global init produces exactly one value = the final producer). D-220 / D-223.
+    var pos: usize = 0;
+    var produced: ?zir.ValType = null;
+    while (pos < expr.len) {
+        const op = expr[pos];
         pos += 1;
-        const sub = leb128.readUleb128(u32, expr, &pos) catch return Error.InvalidGlobalInitExpr;
-        if (sub != 0x1C or !produced_vt.eql(.i32)) return Error.InvalidGlobalInitExpr;
-        produced_vt = zir.ValType.i31ref;
+        switch (op) {
+            0x0B => { // end — must be the final byte with exactly one value produced
+                if (pos != expr.len) return Error.InvalidGlobalInitExpr;
+                const pv = produced orelse return Error.InvalidGlobalInitExpr;
+                // Numeric / v128 must match exactly. For ref types accept any
+                // ref-for-ref (interp validator owns the GC subtype lattice).
+                const both_ref = isRefType(pv) and isRefType(want_valtype);
+                if (!both_ref and !pv.eql(want_valtype)) return Error.InvalidGlobalInitExpr;
+                return;
+            },
+            0x41 => { // i32.const
+                _ = leb128.readSleb128(i32, expr, &pos) catch return Error.InvalidGlobalInitExpr;
+                produced = .i32;
+            },
+            0x42 => { // i64.const
+                _ = leb128.readSleb128(i64, expr, &pos) catch return Error.InvalidGlobalInitExpr;
+                produced = .i64;
+            },
+            0x43 => { // f32.const
+                if (pos + 4 > expr.len) return Error.InvalidGlobalInitExpr;
+                pos += 4;
+                produced = .f32;
+            },
+            0x44 => { // f64.const
+                if (pos + 8 > expr.len) return Error.InvalidGlobalInitExpr;
+                pos += 8;
+                produced = .f64;
+            },
+            0xD0 => { // ref.null reftype
+                if (pos >= expr.len) return Error.InvalidGlobalInitExpr;
+                const rt_byte = expr[pos];
+                pos += 1;
+                produced = switch (rt_byte) {
+                    0x70 => zir.ValType.funcref,
+                    0x6F => zir.ValType.externref,
+                    // Wasm 3.0 GC abstract heaptypes (D-220).
+                    0x6E => zir.ValType.anyref,
+                    0x6D => zir.ValType.eqref,
+                    0x6C => zir.ValType.i31ref,
+                    0x6B => zir.ValType.structref,
+                    0x6A => zir.ValType.arrayref,
+                    0x71, 0x72, 0x73, 0x69, 0x68 => zir.ValType.anyref, // none/noextern/nofunc/exn/noexn — lenient
+                    else => return Error.InvalidGlobalInitExpr,
+                };
+            },
+            0xD2 => { // ref.func funcidx (Wasm 2.0)
+                const idx = leb128.readUleb128(u32, expr, &pos) catch return Error.InvalidGlobalInitExpr;
+                // Wasm spec §3.4.3: ref.func init-expr funcidx must
+                // be in [0, total_funcs). ref_func.2.wasm asserts
+                // rejection of `(global funcref (ref.func 7))` when
+                // only 2 funcs exist.
+                if (idx >= total_funcs) return Error.InvalidGlobalInitExpr;
+                produced = .funcref;
+            },
+            0xFD => { // SIMD prefix — only v128.const (0x0C) is valid in const-expr
+                const sub = leb128.readUleb128(u32, expr, &pos) catch return Error.InvalidGlobalInitExpr;
+                if (sub != 0x0C) return Error.InvalidGlobalInitExpr;
+                if (pos + 16 > expr.len) return Error.InvalidGlobalInitExpr;
+                pos += 16;
+                produced = .v128;
+            },
+            0x23 => { // global.get N
+                const idx = leb128.readUleb128(u32, expr, &pos) catch return Error.InvalidGlobalInitExpr;
+                // Init-expr global.get can only reference imported
+                // globals (§3.4.2). Defined-global self/forward
+                // references are not constant expressions.
+                if (idx >= num_global_imports) return Error.InvalidGlobalInitExpr;
+                // The referenced import must be immutable.
+                const imports = imports_opt orelse return Error.InvalidGlobalInitExpr;
+                var seen: u32 = 0;
+                var resolved: ?zir.ValType = null;
+                for (imports.items) |imp| {
+                    if (imp.kind != .global) continue;
+                    if (seen == idx) {
+                        const g = imp.payload.global;
+                        if (g.mutable) return Error.InvalidGlobalInitExpr;
+                        resolved = g.valtype;
+                        break;
+                    }
+                    seen += 1;
+                }
+                produced = resolved orelse return Error.InvalidGlobalInitExpr;
+            },
+            0xFB => { // Wasm 3.0 GC prefix const-exprs
+                const sub = leb128.readUleb128(u32, expr, &pos) catch return Error.InvalidGlobalInitExpr;
+                switch (sub) {
+                    0x1C => produced = zir.ValType.i31ref, // ref.i31 (wraps preceding i32)
+                    // struct.new / struct.new_default / array.new /
+                    // array.new_default — each carries a typeidx and yields
+                    // (ref $typeidx). The setup-eval allocates on the gc heap.
+                    0x00, 0x01, 0x06, 0x07 => {
+                        const ti = leb128.readUleb128(u32, expr, &pos) catch return Error.InvalidGlobalInitExpr;
+                        produced = .{ .ref = zir.RefType.conc(ti, false) };
+                    },
+                    0x08 => { // array.new_fixed $t N — typeidx then element count
+                        const ti = leb128.readUleb128(u32, expr, &pos) catch return Error.InvalidGlobalInitExpr;
+                        _ = leb128.readUleb128(u32, expr, &pos) catch return Error.InvalidGlobalInitExpr;
+                        produced = .{ .ref = zir.RefType.conc(ti, false) };
+                    },
+                    else => return Error.InvalidGlobalInitExpr,
+                }
+            },
+            else => return Error.InvalidGlobalInitExpr,
+        }
     }
-    // Numeric / v128 must match exactly. For ref types the interp's
-    // validator already checked subtyping (this is the JIT compile gate,
-    // not the authoritative validator), so accept any ref-for-ref rather
-    // than re-derive the GC subtype lattice here. D-220.
-    const both_ref = isRefType(produced_vt) and isRefType(want_valtype);
-    if (!both_ref and !produced_vt.eql(want_valtype)) return Error.InvalidGlobalInitExpr;
-    if (pos >= expr.len or expr[pos] != 0x0B) return Error.InvalidGlobalInitExpr;
-    if (pos + 1 != expr.len) return Error.InvalidGlobalInitExpr;
+    return Error.InvalidGlobalInitExpr; // ran off the end with no trailing `end`
 }
 
 fn isRefType(t: zir.ValType) bool {

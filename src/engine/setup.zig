@@ -254,15 +254,64 @@ pub fn setupRuntime(
     const globals_buf = try allocator.alloc(Value, if (globals_count == 0) 1 else globals_count);
     errdefer allocator.free(globals_buf);
     @memset(globals_buf, .{ .bits128 = 0 });
+
+    // 10.G GC-on-JIT (ADR-0128 §2): materialise the GC heap + type table
+    // for modules with a GC type section BEFORE the global-init loop, so
+    // gc const-expr globals (struct.new / array.new) can allocate into it
+    // (D-223). The JIT struct.new* / jitGcAlloc trampoline shares this
+    // slab. All GC allocations live in a dedicated arena (freed at deinit).
+    var gc_arena: ?*std.heap.ArenaAllocator = null;
+    var gc_heap_typed: ?*heap_mod.Heap = null;
+    var gc_type_infos_typed: ?*gc_type_info.GcTypeInfos = null;
+    errdefer if (gc_arena) |a| {
+        a.deinit();
+        allocator.destroy(a);
+    };
+    if (module.needs_gc_heap) {
+        if (module.find(.type)) |ts| {
+            const ga = try allocator.create(std.heap.ArenaAllocator);
+            ga.* = std.heap.ArenaAllocator.init(allocator);
+            gc_arena = ga;
+            const gaa = ga.allocator();
+            var gc_types = try sections.decodeTypes(ta, ts.body);
+            defer gc_types.deinit();
+            const gti = try gaa.create(gc_type_info.GcTypeInfos);
+            // v128 struct/array fields are deferred (ADR-0116 §3a) — map to
+            // the runI32Export "unsupported shape" error rather than widen
+            // the runner Error set with a GC-internal variant.
+            gti.* = gc_type_info.materialiseGcTypes(gaa, gc_types) catch |e| switch (e) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.UnsupportedFieldSize => return error.UnsupportedEntrySignature,
+            };
+            const heap = try gaa.create(heap_mod.Heap);
+            heap.* = heap_mod.Heap.init(gaa);
+            gc_heap_typed = heap;
+            gc_type_infos_typed = gti;
+        }
+    }
+    const gc_heap_ptr: ?*anyopaque = gc_heap_typed;
+    const gc_type_infos_ptr: ?*anyopaque = gc_type_infos_typed;
+
     // Evaluate each defined global's init-expr so e.g. `__stack_pointer`
     // holds its real value. This simplified setup previously left globals
     // at 0, which made shadow-stack modules' `SP - n` wrap to a huge OOB
     // address → trap (surfaced by the rust_data realworld fixture: real
     // rustc/clang -O code spills to the shadow stack). Non-const inits
-    // (rare in these fixtures) fall back to 0.
+    // (rare in these fixtures) fall back to 0. GC const-exprs (struct.new /
+    // array.new) reach `evalGlobalInitGc` via the UnsupportedConstExpr
+    // fallback and allocate on the heap materialised above (D-223). The
+    // empty func_entities slice means a `ref.func`-in-gc-const-expr global
+    // is not yet supported here (enumerated gap; setup func_entities is
+    // built later in this fn).
     if (decoded_globals) |g| {
+        const gti_val: ?gc_type_info.GcTypeInfos = if (gc_type_infos_typed) |t| t.* else null;
         for (g.items, 0..) |gd, i| {
-            globals_buf[i] = instantiate.evalConstExprValue(gd.init_expr) catch .{ .bits128 = 0 };
+            globals_buf[i] = instantiate.evalConstExprValue(gd.init_expr) catch |e| blk: {
+                if (e == error.UnsupportedConstExpr) {
+                    break :blk instantiate.evalGlobalInitGc(gd.init_expr, gc_heap_typed, gti_val, &.{}, &.{}) catch .{ .bits128 = 0 };
+                }
+                break :blk .{ .bits128 = 0 };
+            };
         }
     }
 
@@ -577,40 +626,6 @@ pub fn setupRuntime(
         defer elems_drop.deinit();
         for (elems_drop.items, 0..) |seg, i| {
             if (seg.kind != .passive) elem_dropped[i] = 1;
-        }
-    }
-
-    // 10.G GC-on-JIT (ADR-0128 §2): materialise the GC heap + type
-    // table for modules with a GC type section, so the JIT
-    // struct.new* / jitGcAlloc trampoline has a slab to allocate into.
-    // All GC allocations live in a dedicated arena (freed at deinit).
-    var gc_arena: ?*std.heap.ArenaAllocator = null;
-    var gc_heap_ptr: ?*anyopaque = null;
-    var gc_type_infos_ptr: ?*anyopaque = null;
-    errdefer if (gc_arena) |a| {
-        a.deinit();
-        allocator.destroy(a);
-    };
-    if (module.needs_gc_heap) {
-        if (module.find(.type)) |ts| {
-            const ga = try allocator.create(std.heap.ArenaAllocator);
-            ga.* = std.heap.ArenaAllocator.init(allocator);
-            gc_arena = ga;
-            const gaa = ga.allocator();
-            var gc_types = try sections.decodeTypes(ta, ts.body);
-            defer gc_types.deinit();
-            const gti = try gaa.create(gc_type_info.GcTypeInfos);
-            // v128 struct/array fields are deferred (ADR-0116 §3a) — map to
-            // the runI32Export "unsupported shape" error rather than widen
-            // the runner Error set with a GC-internal variant.
-            gti.* = gc_type_info.materialiseGcTypes(gaa, gc_types) catch |e| switch (e) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.UnsupportedFieldSize => return error.UnsupportedEntrySignature,
-            };
-            const heap = try gaa.create(heap_mod.Heap);
-            heap.* = heap_mod.Heap.init(gaa);
-            gc_heap_ptr = heap;
-            gc_type_infos_ptr = gti;
         }
     }
 
