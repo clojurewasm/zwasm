@@ -9,7 +9,8 @@
   2026-05-24). §10 exit requires the official Wasm 3.0 testsuite at pass=fail=skip=0
   on **both backends** (interp + JIT).
 - **HEAD**: §1 spec-corpus JIT mode — backbone (`0d9cddd7`) + fail-classification + no-arg
-  i64 + **no-arg f32/f64 dispatch** (this chunk). Opt-in `ZWASM_SPEC_ENGINE=jit`. Mac aarch64:
+  i64 + no-arg f32/f64 dispatch + **run\*Export tests extracted to `runner_test.zig`**
+  (`84ac53ae`; runner.zig 1969→354, args-chunk headroom). Opt-in `ZWASM_SPEC_ENGINE=jit`. Mac aarch64:
   **pass=54 fail=12 skip=1229** (no-arg result type now i32/i64/f32/f64 via
   `runI32/I64/F32/F64Export`; f32/f64 use exact BIT compare — NaN-safe, corpus has no `nan:`
   tokens; flipped +7 all pass, 0 FP miscompile). `jitErrorIsUnwiredShape` + `recordJitRunErr`
@@ -19,9 +20,9 @@
   opt-in mode** (`ZWASM_SPEC_ENGINE=jit`, backbone above). The standalone `runI32Export`
   (`src/engine/runner.zig`) is the underlying no-arg-i32 JIT e2e primitive.
 - **ADR-0128 + ADR-0127 both Accepted** — no remaining user gate; loop runs autonomously.
-- **Watch**: `src/engine/runner.zig` at 1894 lines (soft-cap WARN; hard cap 2000). Extract the
-  accumulating `runI32Export` e2e tests to a `test/` sibling (or FILE-SIZE-EXEMPT) before the
-  next chunk that would breach 2000 (gate BLOCKS at 2000).
+- **Watch**: size barrier DISSOLVED — `runner.zig` 354 lines; e2e tests now in
+  `src/engine/runner_test.zig` (1634, soft-WARN only; wired via `zwasm.zig` test loader).
+  As single-arg-dispatch tests grow it, split per-concept (gc/eh/tc) before 2000.
 
 ## Active task — Phase 10 → 100% (ADR-0128)  **NEXT**
 
@@ -66,10 +67,9 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
   interp path (the `_ = cur_module_bytes orelse continue;` block ~line 640 builds `call_args`);
   reuse that. Add `runI32_i32Export`-style wrappers OR a small comptime dispatch keyed on
   (arg-types, result-type). Start with **single i32 arg → i32/i64 result** (most common), grow
-  the (arg,result) matrix. **WATCH**: `src/engine/runner.zig` now **1969 lines** (31 from the
-  2000 hard cap; gate BLOCKS at 2000) — adding more run*Export wrappers WILL breach, so
-  **extract the run*Export family to an `engine/`-sibling (e.g. `runner_export.zig`) BEFORE the
-  args chunk**. Then multi-value, v128. Secondary lever: multi-memory setup (66 skips; JitRuntime
+  the (arg,result) matrix. Size barrier RESOLVED (`84ac53ae`): runner.zig 354 lines, e2e
+  tests in `runner_test.zig` — add new wrappers + their tests freely. Then multi-value,
+  v128. Secondary lever: multi-memory setup (66 skips; JitRuntime
   per-memory base — own chunk).
   Unemitted ops (br_on_null / return_call_indirect / …) tracked by D-198 / tail-call / ADR-0127
   PHASE C. **Shared-runtime state-bridge is NOT a chunk** — measured zero-yield (lesson
