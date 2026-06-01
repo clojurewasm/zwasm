@@ -24,6 +24,7 @@ const runI64Export = runner.runI64Export;
 const runF32Export = runner.runF32Export;
 const runF64Export = runner.runF64Export;
 const runVoidExport = runner.runVoidExport;
+const runScalar1Export = runner.runScalar1Export;
 
 const entry = @import("codegen/shared/entry.zig");
 const setup_mod = @import("setup.zig");
@@ -1631,4 +1632,66 @@ test "runI32Export: ref.cast_null struct on an i31 ref traps (10.G ref.cast_null
         0x00, 0x0b,
     };
     try testing.expectError(entry.Error.Trap, runI32Export(testing.allocator, &bytes, "f"));
+}
+
+// ── ADR-0128 §1 single-arg dispatch (runScalar1Export, 4×4 scalar matrix) ──
+
+test "runScalar1Export: (i32)->i32 identity returns the arg (8ac key=0)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    // (module (func (export "id") (param i32) (result i32) local.get 0))
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x06, 0x01, 0x60, 0x01, 0x7f, 0x01, 0x7f, // type (i32)->(i32)
+        0x03, 0x02, 0x01, 0x00, // func 0 : type 0
+        0x07, 0x06, 0x01, 0x02, 0x69, 0x64, 0x00, 0x00, // export "id" func 0
+        0x0a, 0x06, 0x01, 0x04, 0x00, 0x20, 0x00, 0x0b, // code: local.get 0
+    };
+    const got = try runScalar1Export(testing.allocator, &bytes, "id", 7);
+    try testing.expectEqual(@as(u32, 7), @as(u32, @truncate(got)));
+}
+
+test "runScalar1Export: (i32)->i64 extend_u widens the arg (key=4)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    // (param i32)(result i64) local.get 0 i64.extend_i32_u
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x06, 0x01, 0x60, 0x01, 0x7f, 0x01, 0x7e, // (i32)->(i64)
+        0x03, 0x02, 0x01, 0x00, 0x07, 0x06, 0x01, 0x02,
+        0x69, 0x64, 0x00, 0x00,
+        0x0a, 0x07, 0x01, 0x05, 0x00, 0x20, 0x00, 0xad, 0x0b, // local.get 0; i64.extend_i32_u
+    };
+    const got = try runScalar1Export(testing.allocator, &bytes, "id", 5);
+    try testing.expectEqual(@as(u64, 5), got);
+}
+
+test "runScalar1Export: (f32)->f32 identity round-trips the bit pattern (key=10, FP arg bank)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    // (param f32)(result f32) local.get 0
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x06, 0x01, 0x60, 0x01, 0x7d, 0x01, 0x7d, // (f32)->(f32)
+        0x03, 0x02, 0x01, 0x00, 0x07, 0x06, 0x01, 0x02,
+        0x69, 0x64, 0x00, 0x00, 0x0a, 0x06, 0x01, 0x04,
+        0x00, 0x20, 0x00, 0x0b,
+    };
+    const x: f32 = 3.5;
+    const arg_bits: u64 = @as(u32, @bitCast(x));
+    const got = try runScalar1Export(testing.allocator, &bytes, "id", arg_bits);
+    try testing.expectEqual(@as(u32, @bitCast(x)), @as(u32, @truncate(got)));
+}
+
+test "runScalar1Export: (f64)->i32 trunc_s truncates the arg (key=12, FP arg → int result)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    // (param f64)(result i32) local.get 0 i32.trunc_f64_s
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x06, 0x01, 0x60, 0x01, 0x7c, 0x01, 0x7f, // (f64)->(i32)
+        0x03, 0x02, 0x01, 0x00, 0x07, 0x06, 0x01, 0x02,
+        0x69, 0x64, 0x00, 0x00,
+        0x0a, 0x07, 0x01, 0x05, 0x00, 0x20, 0x00, 0xaa, 0x0b, // local.get 0; i32.trunc_f64_s
+    };
+    const x: f64 = 42.0;
+    const arg_bits: u64 = @bitCast(x);
+    const got = try runScalar1Export(testing.allocator, &bytes, "id", arg_bits);
+    try testing.expectEqual(@as(u32, 42), @as(u32, @truncate(got)));
 }

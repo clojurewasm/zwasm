@@ -114,10 +114,40 @@ const ProposalSummary = struct {
 /// dropped — the per-backend should_fail list of wasmtime's
 /// `tests/wast.rs` pattern. Skips shrink as the general arg/result
 /// dispatcher lands in follow-on cycles.
-fn jitReturnEligible(args_len: usize, results_len: usize, result_ty: []const u8, module_id_len: usize) bool {
-    return args_len == 0 and results_len == 1 and module_id_len == 0 and
-        (std.mem.eql(u8, result_ty, "i32") or std.mem.eql(u8, result_ty, "i64") or
-            std.mem.eql(u8, result_ty, "f32") or std.mem.eql(u8, result_ty, "f64"));
+fn isScalarTy(ty: []const u8) bool {
+    return std.mem.eql(u8, ty, "i32") or std.mem.eql(u8, ty, "i64") or
+        std.mem.eql(u8, ty, "f32") or std.mem.eql(u8, ty, "f64");
+}
+
+fn jitReturnEligible(args_len: usize, results_len: usize, result_ty: []const u8, arg0_ty: []const u8, module_id_len: usize) bool {
+    if (!(results_len == 1 and module_id_len == 0 and isScalarTy(result_ty))) return false;
+    // No-arg subset (runI32/I64/F32/F64Export) + single-scalar-arg subset
+    // (runScalar1Export → entry.callX_Y). Wider arities/non-scalar args
+    // stay enumerated skips until the multi-arg dispatcher lands.
+    if (args_len == 0) return true;
+    if (args_len == 1) return isScalarTy(arg0_ty);
+    return false;
+}
+
+/// Pack a parsed scalar arg `zwasm.Value` into the 64-bit carrier
+/// `runScalar1Export` expects (i32/f32 in the low 32, i64/f64 the full
+/// 64). null for a non-scalar type. ADR-0128 §1 single-arg dispatch.
+fn scalarArgBits(zv: zwasm.Value, ty: []const u8) ?u64 {
+    if (std.mem.eql(u8, ty, "i32")) return @as(u32, @bitCast(zv.i32));
+    if (std.mem.eql(u8, ty, "i64")) return @as(u64, @bitCast(zv.i64));
+    if (std.mem.eql(u8, ty, "f32")) return @as(u32, @bitCast(zv.f32));
+    if (std.mem.eql(u8, ty, "f64")) return @as(u64, @bitCast(zv.f64));
+    return null;
+}
+
+/// Compare a `runScalar1Export` carrier result against the expected value
+/// per result type. FP uses an exact BIT compare (NaN-safe; the corpus
+/// encodes FP results as literal bit patterns). ADR-0128 §1.
+fn jitScalarResultMatches(ty: []const u8, got: u64, exp_zv: zwasm.Value) bool {
+    if (std.mem.eql(u8, ty, "i64")) return @as(i64, @bitCast(got)) == exp_zv.i64;
+    if (std.mem.eql(u8, ty, "f32")) return @as(u32, @truncate(got)) == @as(u32, @bitCast(exp_zv.f32));
+    if (std.mem.eql(u8, ty, "f64")) return got == @as(u64, @bitCast(exp_zv.f64));
+    return @as(i32, @bitCast(@as(u32, @truncate(got)))) == exp_zv.i32; // i32 default
 }
 
 /// §1 (ADR-0128) — classify a `runI32Export` error so the JIT RED signal
@@ -583,11 +613,12 @@ pub fn main(init: std.process.Init) !void {
                                 d.args_len,
                                 d.results_len,
                                 if (d.results_len == 1) d.results[0].ty else "",
+                                if (d.args_len == 1) d.args[0].ty else "",
                                 d.module_id.len,
                             );
                             if (!elig) {
                                 summary.jit_return_skip += 1;
-                                if (fail_detail) try stdout.print("  JITskip [{s}/{s}] {s} (args={d} results={d} — only no-arg i32/i64 wired)\n", .{ proposal, entry.name, d.func_name, d.args_len, d.results_len });
+                                if (fail_detail) try stdout.print("  JITskip [{s}/{s}] {s} (args={d} results={d} — only no-arg + single-scalar-arg wired)\n", .{ proposal, entry.name, d.func_name, d.args_len, d.results_len });
                                 continue;
                             }
                             const jb = cur_module_bytes orelse {
@@ -600,6 +631,32 @@ pub fn main(init: std.process.Init) !void {
                                 continue;
                             };
                             const exp_zv = manifest_parser.runtimeToZwasm(exp_rv, exp_tv.ty);
+                            // Single-scalar-arg dispatch (ADR-0128 §1). Pack the
+                            // arg into a 64-bit carrier; runScalar1Export selects
+                            // the entry.callX_Y helper per (param, result) pair.
+                            if (d.args_len == 1) {
+                                const arg_tv = d.args[0];
+                                const arg_rv = manifest_parser.parsePayload(arg_tv) catch {
+                                    summary.jit_return_skip += 1;
+                                    continue;
+                                };
+                                const arg_zv = manifest_parser.runtimeToZwasm(arg_rv, arg_tv.ty);
+                                const arg_bits = scalarArgBits(arg_zv, arg_tv.ty) orelse {
+                                    summary.jit_return_skip += 1;
+                                    continue;
+                                };
+                                const got = zwasm.engine.runner.runScalar1Export(gpa, jb, d.func_name, arg_bits) catch |e| {
+                                    try recordJitRunErr(e, &summary, fail_detail, stdout, proposal, entry.name, d.func_name);
+                                    continue;
+                                };
+                                if (jitScalarResultMatches(exp_tv.ty, got, exp_zv)) {
+                                    summary.jit_return_pass += 1;
+                                } else {
+                                    summary.jit_return_fail += 1;
+                                    if (fail_detail) try stdout.print("  JITval1 [{s}/{s}] {s} ty={s} got=0x{x:0>16}\n", .{ proposal, entry.name, d.func_name, exp_tv.ty, got });
+                                }
+                                continue;
+                            }
                             // Dispatch by result type. i32/i64/f32/f64 are wired (no-arg,
                             // exact BIT compare — NaN-safe; the corpus encodes FP results
                             // as literal bit patterns, so no NaN-class matcher is needed).
