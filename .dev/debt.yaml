@@ -3,6 +3,15 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-235"
+    layer: "code"
+    status: "now"
+    description: |-
+      JIT `call_indirect` lacks SUBTYPE acceptance → wrongly TRAPS a legit subtype call (the gc/type-subtyping `"run"` JIT RETURN-fail, the JIT analog of the interp ADR-0131/D-198/.17 work). The JIT sig-check (arm64 `op_call.zig:239-250` + x86_64 equivalent) is a canonical-EXACT compare: `LDR W16,[X24,X17,LSL#2]; CMP W16,#expected_canonical; B.NE trap`. Spec §3.3.5.5: a callee whose declared func type is a SUBTYPE of the call's expected type must be ACCEPTED, not trapped. Exact-canonical-match correctly handles the should-TRAP cases (fail1/fail2) but rejects legit subtypes. FIX (scoped, hot-path, both arches): on the sig-check mismatch path, instead of trapping directly, CALL a new trampoline `jitCallIndirectSubtypeOk(rt, callee_typeidx /*W16*/, expected_typeidx) callconv(.c) u32` (in `jit_abi.zig`, reusing `ref_test_ops.concreteReachesGti`-style supertype-chain-on-gti logic — the same gti the GC ref.cast trampolines use); trap only if BOTH exact-fail AND subtype-fail. Perf: the trampoline only runs on the exact-mismatch path (non-subtyping modules unaffected). Mirrors the GC ref.cast trampoline pattern (jitGcRefCast). RED test: hand-encode a minimal module — `$t0=(sub (func))`, `$t1=(sub $t0 (func))` ($t1<:$t0), `$f1:$t1` in a funcref table, `(call_indirect (type $t0) (i32.const 0))` → runI32Export expects a value, currently traps. Implements ADR-0131's decided subtype semantics on the JIT backend (cite, no new ADR — codegen mechanism, not a new design decision). MUST NOT regress the 762 passing JIT assert_return / non-subtyping call_indirect. Sequence: trampoline → arm64 emit + RED test green → x86_64 emit → re-run JIT corpus (gc/type-subtyping `run` flips pass; assert_return 762→763, the 1 of the 2 return fails closed). The OTHER return fail = eh/try_table (EH-on-JIT, separate/deeper).
+    first_raised: "2026-06-02"
+    last_reviewed: "2026-06-02"
+    refs: |-
+      `src/engine/codegen/arm64/op_call.zig:239-250` (sig check) + x86_64 `op_call.zig` equivalent; `src/engine/codegen/shared/jit_abi.zig` (new trampoline, near jitGcRefCast:822); `src/instruction/wasm_3_0/ref_test_ops.zig` (concreteReachesGti:125 — reuse the supertype-chain logic); `src/engine/codegen/shared/canonical_type.zig` (canonicalTypeidx); ADR-0131; ADR-0116; D-198; ADR-0128 §10
   - id: "D-234"
     layer: "code"
     status: "now"
