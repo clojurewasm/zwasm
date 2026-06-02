@@ -1014,6 +1014,38 @@ test "runI32Export: ref.cast_null struct on an i31 ref traps (10.G ref.cast_null
     try testing.expectError(entry.Error.Trap, runI32Export(testing.allocator, &bytes, "f"));
 }
 
+test "runI32Export: 2nd ref.cast_null on a re-read NULLABLE local still traps (D-233 multi-cast desync)" {
+    // (module (func (export "f") (result i32) (local anyref)   ;; nullable operand
+    //   (local.set 0 (ref.i31 (i32.const 5)))
+    //   (drop (ref.cast_null any    (local.get 0)))   ;; cast1: i31<:any → OK
+    //   (drop (ref.cast_null struct (local.get 0)))   ;; cast2: i31≢struct → MUST trap
+    //   (i32.const 0)))
+    // Mirrors the spec ref_cast_null corpus: a NULLABLE operand (so the emit's
+    // CBZ-null-skip is live) re-read for each cast. D-233 = the 2nd cast receives
+    // operand 0 → CBZ skips → no trap. A non-null fresh-operand sequence does NOT
+    // repro (separate passing test). Expect Trap; a return = the bug reproduced.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03,
+        0x02, 0x01, 0x00, 0x07, 0x05, 0x01, 0x01, 0x66,
+        0x00, 0x00,
+        // code section: count=1, body size=0x18, locals: 1 group {count 1, anyref 0x6e}
+        0x0a, 0x1a, 0x01, 0x18, 0x01, 0x01,
+        0x6e,
+        // i32.const 5; ref.i31; local.set 0
+        0x41, 0x05, 0xfb, 0x1c, 0x21, 0x00,
+        // local.get 0; ref.cast_null any (fb 17 6e); drop
+        0x20,
+        0x00, 0xfb, 0x17, 0x6e, 0x1a,
+        // local.get 0; ref.cast_null struct (fb 17 6b); drop
+        0x20, 0x00, 0xfb,
+        0x17, 0x6b, 0x1a,
+        // i32.const 0; end
+        0x41, 0x00, 0x0b,
+    };
+    try testing.expectError(entry.Error.Trap, runI32Export(testing.allocator, &bytes, "f"));
+}
+
 // ── ADR-0128 §1 / D-220: gc ref.i31 global init-expr (JIT compile gate) ──
 
 test "JitInstance: ref.i31 global init compiles + get returns the i31 value" {
