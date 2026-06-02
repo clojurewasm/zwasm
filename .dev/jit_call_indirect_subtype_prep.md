@@ -1,6 +1,12 @@
 # JIT `call_indirect` subtype-matching — execution prep (D-235)
 
-> **Doc-state**: ACTIVE
+> **Doc-state**: ARCHIVED-IN-PLACE (D-235 RESOLVED 2026-06-03 `2b48dfdc`).
+> The bug ANALYSIS (the two real bugs, reference chain) stands; the proposed
+> MECHANISM is SUPERSEDED — the shipped fix uses a `jitCallIndirectResolve`
+> trampoline called BEFORE marshalling + operand force-spill (regalloc
+> inclusive crossing) + gti-materialisation in JIT `setup.zig`, NOT the
+> "trampoline on CMP-mismatch" here (which clobbers the op's operands — see
+> lesson `2026-06-03-jit-trampoline-mid-op-clobbers-operands` + debt D-235).
 >
 > PREP for a FRESH CLEAR session to execute D-235 in ONE focused pass (user
 > directive 2026-06-02: stop piecemeal; wire it up so the next clear-context

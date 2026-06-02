@@ -8,113 +8,90 @@
 - **Phase**: **10 IN-PROGRESS — committed to 100% (ADR-0128)** (Phase 9 = DONE
   2026-05-24). §10 exit requires the official Wasm 3.0 testsuite at pass=fail=skip=0
   on **both backends** (interp + JIT).
-- **⚡ USER DIRECTIVE (2026-06-02)**: context got big → STOP piecemeal small turns.
-  **NEXT (fresh CLEAR session): execute the JIT call_indirect-subtype fix (D-235) in
-  ONE focused pass via the complete prep `.dev/jit_call_indirect_subtype_prep.md`**
-  (design + reference chain + per-file edits + RED-test bytes + verification all wired).
-  JIT matters for perf — do it properly, NOT half-baked in bloated context. If THIS
-  context is still large on resume, do light consolidation only and hold the D-235
-  execution for a genuinely clear session.
-- **HEAD** (`d041e425`): **interp wasm-3.0 corpus FULLY GREEN** — D-232 CLOSED (ADR-0131). assert_return
-  1233/0, **assert_trap 562/0** (was 558/4), invalid 194/0, unlinkable 8/0, malformed 3/0, exception 4/0.
-  Root: `gc_type_infos` was gated on `needs_gc_heap` (struct/array) → func-only `sub`/`final` modules got no
-  type-identity table → `concreteReaches` blind → `sigEq` accepted structurally-equal-but-distinct types. Fix:
-  materialise gti when `needs_gc_heap` OR `usesTypeSubtyping` (any non-final OR declared super; ADR-0115 zero-
-  overhead kept via a `sub`-form byte pre-filter) + `concreteReaches` authoritative over `sigEq` when gti
-  present. +3 unit tests. Mac test-all green. Lesson `2026-06-02-gti-tied-to-heap-need-misses-func-subtyping`.
-- **PRIOR THIS SESSION**: level-sep PRIMARY-axis audit FULLY FIXED (ADR-0130, D-230): interp+arm64 3.0 leaks
-  comptime-gated, DCE gate revived into `gate_merge.sh`, all 6 `-Dwasm×-Dwasi` combos clean. D-231 = x86_64-side
-  gate-coverage follow-on. ADR-0127 PHASE C (cross-module type-id; assert_unlinkable 4→0).
-- **STILL PREPPED (not yet run)**: **`.dev/phase10_scope_reassessment.md`** — §10 exit vs Phase-14 deferral,
-  reframed as ROADMAP RE-STRUCTURING (multi-memory = first instance). USER-flagged; ADR-0128-amendment =
-  user-flip case. **The bundle's last open item.** JIT 762/2/531 (interp now 0-fail).
-- **Recent fixes (detail in debt.yaml)**: **D-228** (`7bb3699a`) test-all now runs the wasm_3_0 unit tests
-  (was `zig build test`-only → a stale assert false-greened both hosts). **D-229** (`a5f6b238`) param-bearing
-  e2e test gated to aarch64 (x86_64 SysV thunk lacks params; low-ROI follow-on).
-- **PER-MODULE blocker-STACK reality** (lesson `2026-06-02-jit-corpus-late-phase-is-per-module-
-  blocker-stacks`): since memory64 (+208, last big mover), every gc/funcref fix has been correct
-  but ~0 corpus — each remaining module has 3-6 DISTINCT blockers; JIT rejects at the FIRST
-  (`JITmodrej`), so a module flips only when its LAST clears. Big levers are SPENT. Remaining
-  reject causes: MultipleMemories 51 (Phase-14 deferred), InvalidGlobalInitExpr 9 (struct.new/
-  array.new const-expr — heap alloc), UnsupportedOp 7 (any.convert_extern needs EMIT),
-  StackTypeMismatch 6 (funcref br_on_null validator gap), UnsupportedEntrySignature 7, InvalidFuncIndex 4.
-- **Two paths**: spec corpus = interp by default; JIT is opt-in `ZWASM_SPEC_ENGINE=jit` (default
-  test-all unchanged). JIT entry = `runner.zig` `JitInstance`. ADR-0128 + ADR-0127 Accepted (no user gate).
-- **Watch**: `runner_test.zig` 1264 (gc tests extracted → `runner_gc_test.zig`). Over soft 1000 WARN, under hard 2000.
+- **HEAD** (`2b48dfdc`): **D-235 RESOLVED — JIT `call_indirect` subtype acceptance** (ADR-0131
+  ported to the JIT backend). JIT corpus: **gc/type-subtyping assert_trap 4 → 0**; assert_return
+  **762/2/531** (no regression — was 761/3/531); Mac test-all + lint green. +2 RED tests
+  (`runner_gc_test`: over-accept TRAPS, exact-match returns 7).
+- **D-235 SHIPPED MECHANISM (deviated from the prep — two latent prep gaps)**: (1) JIT `setup.zig`
+  also had to materialise gti for FUNC-only-subtyping modules (D-232 fixed only the interp
+  `instantiate.zig`; setup still gated on `needs_gc_heap` → `gc_type_infos_ptr=null` → over-reject).
+  (2) The prep's "trampoline on CMP-mismatch" was register-unsafe: a call spliced mid-`call_indirect`
+  clobbers caller-saved regs holding the op's arg/idx operands. SHIPPED: store RAW typeidx in
+  `typeidx_base` for subtyping modules; a `jitCallIndirectResolve(rt,table_idx,idx,expected)→funcptr|0`
+  trampoline (bounds + `concreteReachesGti` + funcptr lookup) called BEFORE marshalling; operands
+  force-spilled via regalloc inclusive crossing for `call_indirect` (`ZirFunc.uses_type_subtyping`,
+  mirroring struct.new); arm64 stashes funcptr in X17, x86_64 re-derives inline (all-callee-saved pool).
+  Non-subtyping byte-identical (gated). Lesson `2026-06-03-jit-trampoline-mid-op-clobbers-operands`.
+- **Prior context**: interp wasm-3.0 corpus FULLY GREEN (D-232/ADR-0131, `d041e425`); level-sep audit
+  (ADR-0130, D-230); ADR-0127 PHASE C (unlinkable 4→0). Two paths: spec corpus = interp by default,
+  JIT opt-in `ZWASM_SPEC_ENGINE=jit` (default test-all unchanged); JIT entry = `runner.zig` `JitInstance`.
+- **PER-MODULE blocker-STACK reality** (lesson `2026-06-02-jit-corpus-late-phase-is-per-module-blocker-
+  stacks`): each remaining JIT-corpus module has 3-6 DISTINCT blockers; rejects at the FIRST. Big levers
+  spent. The 4 type-subtyping over-accept funcs are themselves void/reftype-result → JIT-eligibility-
+  skipped at the assert level, but the per-module `trap_fail` counter still flipped 4→0.
+- **Watch**: `runner_gc_test.zig` 1476 (WARN, under hard 2000). `jit_abi.zig` 1350 (WARN).
 
 ## Active task — Phase 10 → 100% (ADR-0128)  **NEXT**
 
-Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
+D-235 closes the JIT call_indirect-subtype gap. Remaining workstreams (non-§10-table-first):
 
-1. **Spec-corpus JIT execution mode** (§1) — verification backbone — **NOW (Active bundle)**.
-2. GC-on-JIT op emit (§2) — **DONE both arches**.
-3. **ADR-0127 PHASE C** — cross-`Types` `canonicalEqual`; `gc/type-subtyping` 5→0.
-4. Quick wins: **D-209** (lift leftover `>u32` offset check; payload already u64), **D-198**
-   (rec-group subtype), **D-210** (cross-module proper-tail-call — arm64 prologue cohort-save).
-5. **Realworld GC/EH/TC producers** (§5; flake.nix `#gen`): `wasm_of_ocaml` / `emcc
-   -fwasm-exceptions` / `guile-hoot`.
+1. **§10-scope question** → `.dev/phase10_scope_reassessment.md` — §10 exit vs Phase-14 deferral
+   (multi-memory's 407 JIT skips ⇒ JIT skip=0 unreachable in Phase 10 as written). **USER-GATED**
+   (ADR-0128-amendment = user-flip case). The bundle's last gated item — surface to user, don't self-decide.
+2. **Non-gated JIT forward work**: **eh/try_table on JIT** (the 2nd of the original 2 return-fails;
+   deeper — `codegen/{arm64,x86_64}/ops/wasm_3_0/throw*.zig` + `shared/exception_table.zig` +
+   `shared/zwasm_throw.zig`); **D-234** (51 memory64 assert_trap = corpus-runner HARNESS artifact, codegen
+   proven correct — runner-side fix); **D-198** (rec-group subtype), **D-209** (stale u32 offset check),
+   **D-210** (cross-module proper-tail-call — arm64 prologue cohort-save).
+3. **Realworld GC/EH/TC producers** (§5; flake.nix `#gen`): `wasm_of_ocaml` / `emcc -fwasm-exceptions` /
+   `guile-hoot`.
 
 ## Active bundle
 
-- **Bundle-ID**: `10.G-typesubtyping-RTT` (prior `10.G-typesubtyping-PHASE-C` CLOSED — exit met: assert_unlinkable
-  fail 4→0, no regression. ADR-0127 PHASE C: predicates `canonicalEqualCross`+`superReachesCross` + linker
-  integration `add983e8`. Earlier this bundle-chain: §1 multi-value +18).
-- **Cycles-remaining**: ~1. DONE this bundle: .12/.14 global-init canonical-subtype (`8d5d67ed`) +
-  **.17 "run" CLOSED** (`80aeee1d` call_indirect-subtype + function-level-br, `24a17ed7` guard test) — the
-  cyc180/D-198 rabbit hole (2 coordinated interp fixes: root cause #2 was function-level `br 0` trapping
-  instead of returning). interp assert_return fully green (1233/0).
-- **REMAINING**: (a) **4 interp assert_trap fails — FIXED ✓** (D-232 / ADR-0131, `d041e425`): gti materialised
-  for func-subtyping + concreteReaches authoritative. interp corpus FULLY GREEN. (b) **§10-scope question** →
-  `.dev/phase10_scope_reassessment.md` (USER-flagged; ADR-0128-amendment = user-flip case) — **the bundle's LAST
-  open item; user-gated.** (c) **JIT corpus audited.** Of the 55 jit assert_trap fails: **51 memory64 =
-  harness artifacts** (codegen proven correct, D-234); **4 gc/type-subtyping = REAL** + the `"run"` return-fail
-  = ONE root cause (JIT call_indirect uses D-111 structural `funcTypeEql`, finality+subtype-BLIND, not the gti
-  subtype check). Full fix = **D-235**, complete plan in **`.dev/jit_call_indirect_subtype_prep.md`** (the
-  next-clear-session deliverable). Other return fail = eh/try_table (EH-on-JIT, separate). assert_RETURN 762/2/531.
-- **Continuity-memo**: interp wasm-3.0 = 0 fails (fully green). JIT 762/2/531. This session CLOSED: D-230
-  (level-sep + DCE gate, ADR-0130) + D-232 (gti func-subtyping, ADR-0131). D-231/D-234 = follow-ons.
-- **Exit-condition**: 4 trap_fails → 0 ✓ DONE (D-232/ADR-0131; interp corpus fully green). ONLY the §10-scope
-  question remains (USER-flip case, prepped doc) — user-gated. Bundle CLOSES once §10-scope resolved; meanwhile
-  non-gated forward work = JIT eh/try_table + re-check JIT gc/type-subtyping (interp fixes are interp-only).
+- **Bundle-ID**: `10.G-typesubtyping-RTT`. **D-235 CLOSED this turn** (`2b48dfdc`) — exit-condition met:
+  JIT gc/type-subtyping assert_trap 4→0, no regression, Mac test-all green. Earlier in this bundle-chain:
+  PHASE C (unlinkable 4→0, `add983e8`); .12/.14 global-init (`8d5d67ed`); .17 "run" interp (`80aeee1d`);
+  interp D-232/ADR-0131 (`d041e425`); §1 multi-value +18.
+- **Cycles-remaining**: ~1. **REMAINING = the §10-scope question ONLY (user-gated)**; the bundle CLOSES
+  once §10-scope resolved. All JIT/interp type-subtyping correctness is now DONE (both backends).
+- **Continuity-memo**: interp wasm-3.0 = 0 fails; JIT assert_return 762/2/531, gc/type-subtyping
+  assert_trap 0. D-235 resolved. Non-gated forward = eh-on-JIT / D-234 runner fix / D-198 / D-210.
+- **Exit-condition**: type-subtyping correct on both backends ✓ DONE. Only §10-scope (user-flip) remains.
 
 ## §10 remaining — the six `[ ]` rows
 
-- **10.M** memory64 — corpus green; D-209 STALE (payload u64; lift leftover u32 check).
+- **10.M** memory64 — corpus green; D-209 stale (payload u64; lift leftover u32 check); D-234 (51 OOB
+  assert_trap = harness artifact, codegen proven correct).
 - **10.R** function-references — JIT emit present, corpus green; residual = D-198.
 - **10.TC** tail-call — JIT matrix complete; residuals = D-210 + `wasm_of_ocaml`.
-- **10.E** EH — JIT emit present; residuals = eh_frequency runner (I20), c_api tag
-  accessors (I14 → Phase 13), emscripten_eh realworld (I21).
-- **10.G** GC — JIT emit COMPLETE both arches; §1 JIT-corpus + ADR-0127 PHASE C (unlinkable) DONE;
-  remaining = gc/type-subtyping RTT fails (this bundle) + D-198 + gc_stress (I19) + dart/hoot (I21).
+- **10.E** EH — JIT emit present; residuals = **eh/try_table on JIT (return-fail)** + eh_frequency runner
+  (I20), c_api tag accessors (I14 → Phase 13), emscripten_eh realworld (I21).
+- **10.G** GC — JIT emit COMPLETE both arches; §1 JIT-corpus + PHASE C + **D-235 (call_indirect subtype)** DONE;
+  remaining = D-198 + gc_stress (I19) + dart/hoot (I21).
 - **10.P** close — flips only at 100% both-backends (ADR-0128).
 
 ## Step 0.7 (next resume)
 
-THIS turn = RTT cycle 4: FIXED .17 "run" (call_indirect-subtype + function-level-br, `80aeee1d` + guard test
-`24a17ed7`) — interp assert_return fully green; fixed a gate regression (concreteReaches must be gti-gated,
-no raw sub==target shortcut). Then per USER directive, prepped the §10-scope question for a fresh deep
-session: **`.dev/phase10_scope_reassessment.md`**. **USER-DIRECTED STOP — loop NOT re-armed this turn.**
-ubuntu kick fired for the interp-core .17 fix (cross-host verify). Next resume Step 0.7: `tail -3
-/tmp/ubuntu.log` — expect `OK (HEAD=<final-SHA>)`; on FAIL revert to add983e8 (the last verified pre-RTT-code
-HEAD). The next session is the §10-scope deep dive (read phase10_scope_reassessment.md first). Mac aarch64; ubuntu = x86_64.
+THIS turn = D-235 EXECUTED (per the 2026-06-02 user directive — one focused pass, fresh clear session).
+JIT call_indirect now does the gti subtype check; gc/type-subtyping assert_trap 4→0, no regression, Mac
+test-all + lint green, +2 unit tests. ubuntu kick fired for `2b48dfdc` (verifies the **x86_64** emit path —
+the resolve-trampoline + inline funcptr re-derive). Next resume Step 0.7: `tail -3 /tmp/ubuntu.log` —
+expect `OK (HEAD=2b48dfdc)`; on FAIL the regression is x86_64-specific (likely the SysV arg-reg marshal in
+`emitCallIndirect`'s subtyping block or the all-callee-saved-pool assumption) → investigate, don't blind-revert.
+Mac aarch64; ubuntu = x86_64.
 
-**Gate hygiene (NEW, `2134116b`)**: use `bash scripts/mac_gate.sh` for the Step-5 Mac gate —
-never `zig build test-all > log; grep -c … log` (trailing `grep -c` exits 1 on zero matches →
-false "command failed" notification on a green build). Inspect via `$MAC_GATE_LOG` separately.
-
-**Lesson (still live)**: `gate_commit.sh --fast` DEFERS `zig build test`/`lint` (Step 4/5 own
-them) — the parent's full `zig build test` before push is the real gate.
+**Gate hygiene**: use `bash scripts/mac_gate.sh` for the Step-5 Mac gate (writes `/tmp/mac_gate.log`); never
+`zig build test-all > log; grep -c …` (trailing `grep -c` exits 1 on zero matches → false failure). For the
+JIT corpus, `zig build test-spec-wasm-3.0-assert` (NO bogus `-Dno-run` — it fails the build + reuses a STALE
+exe, the `538/22/735` false-regression trap), then `ZWASM_SPEC_ENGINE=jit <freshest-exe> test/spec/wasm-3.0-assert --fail-detail`.
 
 ## Key refs
 
-- **ADR-0128** (Phase 10 100% master plan; §1 = spec-corpus JIT execution mode); ADR-0116
-  (RTT 8-deep Cohen display + subtype check); ADR-0127 (cross-module func type-identity);
-  ADR-0126 (canonical type ids); ADR-0115 §10 (non-moving β collector); ADR-0060 (force-spill).
-  ROADMAP §10.
-- Debt: **D-211** (GC-on-JIT — emit done; §1 verifies it), D-212 (GC FP-value marshal gap —
-  surfaces under §1 mode), D-209 (stale), D-202 / D-198 / D-210. Lessons
-  `2026-05-31-spec-jit-corpus-fails-are-gaps-not-stale-state` (this turn — measure the fail
-  taxonomy before building the mechanism a narrative assumed) +
-  `2026-05-31-jit-passthrough-result-clobbered-by-call` +
-  `2026-05-31-wasmgc-jit-non-moving-deferred-rooting` +
-  `2026-05-30-phase10-jit-coverage-partial-spec-corpus-interp`.
+- **ADR-0131** (interp gti subtype; D-235 ports it to JIT); ADR-0128 (Phase 10 100% master plan);
+  ADR-0116 (RTT 8-deep Cohen + subtype); ADR-0126 (canonical type ids); ADR-0060 (force-spill — D-235
+  extends inclusive crossing to subtyping `call_indirect`). ROADMAP §10.
+- Debt: **D-234** (51 memory64 assert_trap harness artifact — runner-side), D-198 / D-209 / D-210 / D-211 / D-212.
+  Lessons: `2026-06-03-jit-trampoline-mid-op-clobbers-operands` (D-235),
+  `2026-06-02-gti-tied-to-heap-need-misses-func-subtyping`,
+  `2026-06-02-jit-corpus-fails-are-often-harness-artifacts`,
+  `2026-05-31-spec-jit-corpus-fails-are-gaps-not-stale-state`.
