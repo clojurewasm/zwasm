@@ -13,8 +13,10 @@
   at linker resolve via retained exporter `Types` (Instance arena) + `ExportFuncType.typeidx` +
   `CrossModuleFuncEntry` threading. **wasm-3.0 assert_unlinkable fail 4→0** (gc/type-subtyping.{36,42,52,54};
   no regression — 407 multi-mem + 34 EH + .30/M super-chain stay green). Prior: multi-value JIT invoke +18.
-- **wasm-3.0 interp fail tally now 5** (was 9): assert_return fail=1 + assert_trap fail=4, all in
-  gc/type-subtyping (the RTT mechanism — SEPARATE from PHASE C's import-linking). JIT corpus 762/2/531.
+- **wasm-3.0 interp fail tally = 5**: assert_return fail=1 + assert_trap fail=4, all gc/type-subtyping
+  (RTT mechanism). `8d5d67ed` fixed a SEPARATE gc/type-subtyping bug — .12/.14 globals wrongly rejected
+  (concrete-ref subtype reached supers by index, missed cross-rec-group canonical equality; now
+  `gcConcreteReachesCanonical`). The 5 asserts are unmoved — they're RUNTIME (see bundle NEXT). JIT 762/2/531.
 - **Recent fixes (detail in debt.yaml)**: **D-228** (`7bb3699a`) test-all now runs the wasm_3_0 unit tests
   (was `zig build test`-only → a stale assert false-greened both hosts). **D-229** (`a5f6b238`) param-bearing
   e2e test gated to aarch64 (x86_64 SysV thunk lacks params; low-ROI follow-on).
@@ -46,16 +48,19 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 - **Bundle-ID**: `10.G-typesubtyping-RTT` (prior `10.G-typesubtyping-PHASE-C` CLOSED — exit met: assert_unlinkable
   fail 4→0, no regression. ADR-0127 PHASE C: predicates `canonicalEqualCross`+`superReachesCross` + linker
   integration `add983e8`. Earlier this bundle-chain: §1 multi-value +18).
-- **Cycles-remaining**: ~1-2 (just opened — cycle 1 = investigate). The remaining wasm-3.0 gc/type-subtyping
-  fails are the **RTT mechanism** (NOT import linking): assert_return fail=1 + assert_trap fail=4 (interp,
-  both backends). These are ref.test/ref.cast/br_on_cast against declared sub/supertypes producing a wrong
-  trap-or-value where a subtype relation should hold (or not).
-- **NEXT (cycle 1)**: Step-0 investigate WHICH gc/type-subtyping directives trap/mismatch + the RTT shape.
-  Re-measure: `zig build test-spec-wasm-3.0-assert 2>&1 | grep -iE "type-subtyping|trap_fail"`. The raw .wast
-  is `test/spec/wasm-3.0-assert/gc/raw/type-subtyping.wast`; map the failing `assert_trap`/`assert_return`
-  directives back to their module's type hierarchy + the cast op. Likely a Cohen-display / canonical-id depth
-  or cross-rec-group subtype gap (cf. ADR-0116 RTT 8-deep + ADR-0126 canonical ids). Decide tractability →
-  fix or debt-row.
+- **Cycles-remaining**: ~1-2. Cycle-1 investigation DONE — root located.
+- **ROOT (the 5 asserts)**: ONE module (`.wast:229`) with a SELF-RECURSIVE rec-group chain — `$t0 (func
+  (result (ref null func)))`, `$t1 (sub $t0 (func (result (ref null $t1))))`, `$t2 (sub $t1 (func (result
+  (ref null $t2))))`. `(invoke "run")` (assert_return fail=1) does 6 `call_indirect (type $tN)` + 6
+  `ref.cast (ref $tN)` against a `funcref` table `[$f0:$t0,$f1:$t1,$f2:$t2]` that should ALL succeed
+  (subtype calls/casts); `fail1-6` (assert_trap, 4 failing) call_indirect/ref.cast that should TRAP. So the
+  fails are RUNTIME `call_indirect` sig-match + `ref.cast` subtype on SELF-RECURSIVE func types — too-strict
+  (run traps) and/or too-lax (some fail* don't trap).
+- **NEXT (cycle 2)**: find the runtime call_indirect type-match + ref.cast subtype-check sites (likely
+  `feature/gc/type_info.zig` canonical_ids + the runtime sig-match in interp/JIT call_indirect); verify they
+  compare self-recursive func types by canonical id / iso-recursive equality, not raw index. Smallest red:
+  a fixture invoking `run` (must not trap) + a `fail*` (must trap). Cohen-display depth (ADR-0116) +
+  canonical-id (ADR-0126) are the relevant machinery. Decide tractability → fix or debt-row if deep.
 - **ALSO OPEN (lower priority, follow-ups)**: PHASE C wired only the **linker path** (corpus). The
   api/instance.zig:572 + instantiate.zig:1657 `.cross_module` paths still do structural-only — a C-API
   cross-module import with distinct type-defs wouldn't reject. Not corpus-exercised → debt-worthy, not §10-
@@ -79,12 +84,12 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 ## Step 0.7 (next resume)
 
-THIS turn = ADR-0127 PHASE C INTEGRATION DONE (`add983e8`) — wired both predicates at linker resolve via
-retained exporter Types + ExportFuncType.typeidx + CrossModuleFuncEntry threading. wasm-3.0 assert_unlinkable
-fail 4→0, no regression (corpus + mac_gate test-all + lint all green). PHASE C bundle CLOSED. Next resume
-Step 0.7: `tail -3 /tmp/ubuntu.log` — expect `OK (HEAD=add983e8)`; on FAIL revert to last verified HEAD
-(d5183d4e). Then start the new bundle `10.G-typesubtyping-RTT`: investigate the remaining gc/type-subtyping
-assert_trap fail=4 + assert_return fail=1 (RTT mechanism). Mac aarch64; ubuntu = x86_64.
+THIS turn = (PHASE C add983e8 ubuntu-verified OK) + RTT cycle 1: fixed gc/type-subtyping.12/.14 global-init
+canonical-subtype rejection (`8d5d67ed`) + investigated the 5 RTT asserts → root = runtime call_indirect/
+ref.cast subtype on self-recursive func types (.wast:229 module). Mac-green (test-all + lint). Next resume
+Step 0.7: `tail -3 /tmp/ubuntu.log` — expect `OK (HEAD=8d5d67ed)`; on FAIL revert to last verified HEAD
+(add983e8). Then cycle 2 per Active-bundle NEXT (runtime self-recursive call_indirect/ref.cast subtype).
+Mac aarch64; ubuntu = x86_64.
 
 **Gate hygiene (NEW, `2134116b`)**: use `bash scripts/mac_gate.sh` for the Step-5 Mac gate —
 never `zig build test-all > log; grep -c … log` (trailing `grep -c` exits 1 on zero matches →
