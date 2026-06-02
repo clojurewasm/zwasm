@@ -717,6 +717,36 @@ test "compileWasm: tag_param_counts empty when no tag section (10.E-N-3)" {
     try testing.expectEqual(@as(usize, 0), compiled.tag_param_counts.len);
 }
 
+test "compileWasm: catchless try_table JIT-compiles (10.E try_table.1 try-with-param)" {
+    // A try_table with zero catch clauses is valid — it's a block that
+    // catches nothing (e.g. try_table.1's `try-with-param`:
+    // `(i32.const 0) (try_table (param i32) (drop))`). The lowerer
+    // appends a LandingPad per try_table but no catch entries, so
+    // ZirFunc.eh_catch_entries stays null when ALL of a func's
+    // try_tables are catchless → the emit's `eh_catch_entries orelse
+    // return UnsupportedOp` wrongly rejected the whole module. The
+    // catch loop over an empty [catches_start, catches_end) range is a
+    // no-op; null must coerce to an empty slice, not a hard reject.
+    //
+    // func 0: () -> () body = `try_table (empty blocktype) <0 catches> end; end`
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        // type section (1): count=1; type0 ()->()
+        0x01, 0x04, 0x01, 0x60, 0x00, 0x00,
+        // function section (3): count=1; func0 -> type0
+        0x03, 0x02,
+        0x01, 0x00,
+        // code section (10): count=1; body size=6:
+        //   local-decl count=0; try_table(0x1f) blocktype=0x40 catch-count=0x00;
+        //   end(0x0b) [closes try_table]; end(0x0b) [closes func]
+        0x0A, 0x08, 0x01, 0x06, 0x00, 0x1F,
+        0x40, 0x00, 0x0B, 0x0B,
+    };
+    var compiled = try compileWasm(testing.allocator, &bytes);
+    defer compiled.deinit(testing.allocator);
+    try testing.expectEqual(@as(usize, 1), compiled.func_results.len);
+}
+
 test "compileWasm: multiple tags with mixed-arity types (10.E-N-3)" {
     // type 0: () -> ()         (0 params)
     // type 1: (i32 i64) -> ()  (2 params)

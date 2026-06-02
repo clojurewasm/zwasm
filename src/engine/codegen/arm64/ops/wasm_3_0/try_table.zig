@@ -51,7 +51,13 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     // ZirFunc.blocks index, always in u32 range by construction.
     const block_idx: u32 = @intCast(ins.payload);
     const landing_pads = ctx.func.eh_landing_pads orelse return error.UnsupportedOp;
-    const catch_entries = ctx.func.eh_catch_entries orelse return error.UnsupportedOp;
+    // A catchless try_table (zero catch clauses — e.g. `(try_table (param i32)
+    // (drop))`) catches nothing; the lowerer appends its LandingPad but no
+    // catch entries, so eh_catch_entries stays null when ALL of a func's
+    // try_tables are catchless. The catch loop below over the empty
+    // [catches_start, catches_end) range is then a no-op — null must coerce to
+    // an empty slice, not reject the whole module.
+    const catch_entries: []const zir.CatchEntry = ctx.func.eh_catch_entries orelse &.{};
 
     // Linear search — landing_pads.len is typically O(1)-few; the
     // per-function arena owns the slice. Sorted-by-block_idx

@@ -34,7 +34,11 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
 
     const block_idx: u32 = @intCast(ins.payload);
     const landing_pads = ctx.func.eh_landing_pads orelse return error.UnsupportedOp;
-    const catch_entries = ctx.func.eh_catch_entries orelse return error.UnsupportedOp;
+    // Catchless try_table (zero catch clauses): the lowerer appends its
+    // LandingPad but no catch entries, so eh_catch_entries is null when all of
+    // a func's try_tables are catchless. The catch loop over the empty range is
+    // a no-op — coerce null to empty, don't reject. (Mirrors arm64.)
+    const catch_entries: []const zir.CatchEntry = ctx.func.eh_catch_entries orelse &.{};
 
     var lp_opt: ?zir.LandingPad = null;
     for (landing_pads) |lp| {
