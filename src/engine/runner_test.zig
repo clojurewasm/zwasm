@@ -934,9 +934,52 @@ test "JitInstance.initLinked: cross-module FUNC import dispatches to exporter (D
     var b_inst = try JitInstance.init(gpa, &b_bytes);
     defer b_inst.deinit(gpa);
     const target = b_inst.exportedFuncTarget(gpa, "get") orelse return error.TestUnexpectedResult;
-    var a_inst = try JitInstance.initLinked(gpa, &a_bytes, &.{}, &.{target});
+    var a_inst = try JitInstance.initLinked(gpa, &a_bytes, &.{}, &.{target}, &.{});
     defer a_inst.deinit(gpa);
     try testing.expectEqual(@as(?u64, 42), try a_inst.invoke(gpa, "test", &.{}));
+}
+
+test "JitInstance: cross-module TAG identity resolves to the exporter's id (ADR-0134 D3)" {
+    const gpa = testing.allocator;
+    // Exporter "test" — the real try_table.0 module: defines $e0, exports
+    // it as a tag (kind 4) + a `throw` func. (() -> ()), func, tag, export,
+    // code sections.
+    const b_bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // type () -> ()
+        0x03, 0x02, 0x01, 0x00, // func: 1 func typeidx 0
+        0x0d, 0x03, 0x01, 0x00, 0x00, // tag: 1 tag, attr 0, typeidx 0
+        0x07, 0x0e, 0x02, 0x02, 0x65, 0x30, 0x04, 0x00, // export "e0" tag 0
+        0x05, 0x74, 0x68, 0x72, 0x6f, 0x77, 0x00, 0x00, //  + "throw" func 0
+        0x0a, 0x06, 0x01, 0x04, 0x00, 0x08, 0x00, 0x0b, // code: throw $e0
+    };
+    // Importer — imports "test"."e0" as a tag TWICE (aliases).
+    const a_bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // type () -> ()
+        0x02, 0x17, 0x02, // import section, 2 imports
+        0x04, 0x74, 0x65, 0x73, 0x74, 0x02, 0x65, 0x30, 0x04, 0x00, 0x00, // "test"."e0" tag (type 0)
+        0x04, 0x74, 0x65, 0x73, 0x74, 0x02, 0x65, 0x30, 0x04, 0x00, 0x00, // again (alias)
+    };
+
+    var b_inst = try JitInstance.init(gpa, &b_bytes);
+    defer b_inst.deinit(gpa);
+    const tgt = b_inst.exportedTagTarget(gpa, "e0") orelse return error.TestUnexpectedResult;
+    try testing.expect(tgt.source_id != 0); // a defined tag's identity token
+    // A func export is not a tag; an absent name is null.
+    try testing.expectEqual(@as(?runner.TagImportTarget, null), b_inst.exportedTagTarget(gpa, "throw"));
+    try testing.expectEqual(@as(?runner.TagImportTarget, null), b_inst.exportedTagTarget(gpa, "absent"));
+
+    var a_inst = try JitInstance.initLinked(gpa, &a_bytes, &.{}, &.{}, &.{ tgt, tgt });
+    defer a_inst.deinit(gpa);
+    // Both imported tags inherit the EXPORTER's identity → equal to each
+    // other (alias) AND to the source (cross-module). This is what makes a
+    // module-1 throw match a module-2 catch once the unwinder uses the
+    // catching frame's table (cycle 2).
+    const ids = a_inst.owned.rt.tag_ids_ptr.?;
+    try testing.expectEqual(@as(u32, 2), a_inst.owned.rt.tag_ids_count);
+    try testing.expectEqual(tgt.source_id, ids[0]);
+    try testing.expectEqual(tgt.source_id, ids[1]);
 }
 
 test "cross-module JIT return_call: A.test return_call's imported B.get → 42 (D-206 step 2)" {

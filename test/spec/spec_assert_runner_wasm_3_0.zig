@@ -146,6 +146,38 @@ fn jitResolveFuncImports(
     return targets.toOwnedSlice(gpa);
 }
 
+// ADR-0134 D3 — resolve a JIT module's cross-module TAG import identities
+// in tag-import order: for each `(import "M" "e" (tag …))`, look up the
+// registered exporter JitInstance "M" + its exported tag "e" identity id.
+// The importer's setup writes the id into its own `tag_ids[k]` so a
+// cross-module throw and catch compare equal. Unresolved → zero
+// (importer falls back to a local within-module identity). gpa-owned.
+fn jitResolveTagImports(
+    gpa: std.mem.Allocator,
+    wasm_bytes: []const u8,
+    jit_exporters: *const std.StringHashMap(*zwasm.engine.runner.JitInstance),
+) ![]zwasm.engine.runner.TagImportTarget {
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var module = zwasm.parse.parser.parse(a, wasm_bytes) catch return &.{};
+    const imp_sec = module.find(.import) orelse return &.{};
+    var imports = zwasm.parse.sections.decodeImports(a, imp_sec.body) catch return &.{};
+    defer imports.deinit();
+
+    var targets: std.ArrayList(zwasm.engine.runner.TagImportTarget) = .empty;
+    errdefer targets.deinit(gpa);
+    for (imports.items) |it| {
+        if (it.kind != .tag) continue;
+        const t: zwasm.engine.runner.TagImportTarget = blk: {
+            const exp = jit_exporters.get(it.module) orelse break :blk .{};
+            break :blk exp.exportedTagTarget(gpa, it.name) orelse .{};
+        };
+        try targets.append(gpa, t);
+    }
+    return targets.toOwnedSlice(gpa);
+}
+
 pub const std_options: std.Options = .{
     .enable_segfault_handler = false,
 };
@@ -681,8 +713,14 @@ pub fn main(init: std.process.Init) !void {
                             // 2026-06-02-spec-jit-skips-weight-by-root-cause).
                             // Heap-pinned (D-225): the rt address may be baked into
                             // a later importer's thunk if this module is registered.
+                            // ADR-0134 D3 — resolve cross-module TAG import
+                            // identities so a module-1 throw and a module-2 catch
+                            // on the imported tag compare equal (the JIT analog of
+                            // the interp's shared `*TagInstance`).
+                            const ttargets = jitResolveTagImports(gpa, cur_module_bytes.?, &jit_exporters) catch &.{};
+                            defer if (ttargets.len > 0) gpa.free(ttargets);
                             cur_jit = blk: {
-                                const built = JitInstanceT.initLinked(gpa, cur_module_bytes.?, gvals, ftargets) catch |e| {
+                                const built = JitInstanceT.initLinked(gpa, cur_module_bytes.?, gvals, ftargets, ttargets) catch |e| {
                                     if (fail_detail) try stdout.print("  JITmodrej [{s}/{s}] err={s}\n", .{ proposal, d.module_path, @errorName(e) });
                                     break :blk null;
                                 };

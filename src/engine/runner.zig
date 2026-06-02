@@ -41,6 +41,9 @@ const setupRuntime = setup_mod.setupRuntime;
 /// D-225 — resolved cross-module FUNC import target (re-exported so the
 /// spec runner can build the slice for `initLinked` / `exportedFuncTarget`).
 pub const FuncImportTarget = setup_mod.FuncImportTarget;
+/// ADR-0134 D3 — resolved cross-module TAG import identity (re-exported
+/// so the spec runner can build the slice for `initLinked`).
+pub const TagImportTarget = setup_mod.TagImportTarget;
 
 // ADR-0079 Step 2 — compile carve-out (compileWasm + per-section
 // helpers). Re-exports preserve external callers' import paths
@@ -525,7 +528,7 @@ pub const JitInstance = struct {
     wasm_bytes: []const u8,
 
     pub fn init(allocator: Allocator, wasm_bytes: []const u8) Error!JitInstance {
-        return initLinked(allocator, wasm_bytes, &.{}, &.{});
+        return initLinked(allocator, wasm_bytes, &.{}, &.{}, &.{});
     }
 
     /// D-225 — `init` + cross-module import resolution. The caller (spec
@@ -541,10 +544,11 @@ pub const JitInstance = struct {
         wasm_bytes: []const u8,
         imported_global_vals: []const u64,
         func_import_targets: []const setup_mod.FuncImportTarget,
+        tag_import_targets: []const setup_mod.TagImportTarget,
     ) Error!JitInstance {
         var compiled = try compileWasm(allocator, wasm_bytes);
         errdefer compiled.deinit(allocator);
-        const owned = try setup_mod.setupRuntimeLinked(allocator, &compiled, wasm_bytes, imported_global_vals, func_import_targets);
+        const owned = try setup_mod.setupRuntimeLinked(allocator, &compiled, wasm_bytes, imported_global_vals, func_import_targets, tag_import_targets);
         return .{ .compiled = compiled, .owned = owned, .wasm_bytes = wasm_bytes };
     }
 
@@ -565,6 +569,25 @@ pub const JitInstance = struct {
             .callee_rt = @intFromPtr(&self.owned.rt),
             .callee_entry = self.compiled.module.entryAddr(idx),
         };
+    }
+
+    /// ADR-0134 D3 — resolve THIS instance as a cross-module TAG export
+    /// target: the globally-comparable identity id for `(export "<name>"
+    /// (tag …))`, = this instance's `tag_ids[exported_tag_idx]` (an
+    /// address-derived token per ADR-0114 D7). An importer writes the
+    /// returned `source_id` into its own `tag_ids[import_idx]` so a
+    /// cross-module throw and catch compare equal. Null if `name` is not
+    /// an exported tag (tag exports are dropped by `decodeExports`, so
+    /// this uses the dedicated `sections.findExportedTagIndex` scan).
+    pub fn exportedTagTarget(self: *JitInstance, allocator: Allocator, name: []const u8) ?setup_mod.TagImportTarget {
+        var module = parser.parse(allocator, self.wasm_bytes) catch return null;
+        defer module.deinit(allocator);
+        const exp_sec = module.find(.@"export") orelse return null;
+        const tag_idx = (sections.findExportedTagIndex(exp_sec.body, name) catch return null) orelse return null;
+        if (self.owned.rt.tag_ids_ptr) |p| {
+            if (tag_idx < self.owned.rt.tag_ids_count) return .{ .source_id = p[tag_idx] };
+        }
+        return null;
     }
 
     /// Invoke an export by name against the persisted runtime. `args` are

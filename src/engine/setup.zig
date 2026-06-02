@@ -36,6 +36,18 @@ pub const FuncImportTarget = struct {
     callee_entry: usize = 0,
 };
 
+/// ADR-0134 D3 — resolved identity for a cross-module TAG import, in
+/// tag-import order. `source_id` is the EXPORTER instance's
+/// globally-comparable tag identity for the imported tag (its
+/// `tag_ids[exported_tag_idx]`, an address-derived token per ADR-0114
+/// D7 pointer-identity). The importer's setup writes this id into its
+/// own `tag_ids[import_idx]` so a cross-module throw and catch compare
+/// equal. A zero `source_id` = unresolved → the importer falls back to
+/// a local within-module identity (preserves Cause A aliasing).
+pub const TagImportTarget = struct {
+    source_id: u64 = 0,
+};
+
 pub const RuntimeOwned = struct {
     rt: entry.JitRuntime,
     // Linear memory is owned by a pinned heap `MemGrowCtx` (reached via
@@ -95,10 +107,13 @@ pub const RuntimeOwned = struct {
     // bridge thunks (one slot per resolved func import); `dispatch[N]`
     // points into it. Null when the module has no resolved func imports.
     thunk_arena: ?jit_mem.JitBlock = null,
-    // 10.E Cause A — per-instance tag-identity canonical map (aliased
-    // imports collapse onto one representative). Empty when the module
-    // has < 2 imported tags.
-    tag_canon: []u32 = &.{},
+    // ADR-0134 D3 — per-instance tag-identity map (`tag_ids`) + its
+    // address-token backing (`tag_tokens`, one cell per tag whose address
+    // is a defined tag's unique identity). Empty when the module imports
+    // no tags. Both freed here; the heap backing is stable across the
+    // by-value RuntimeOwned move so the token addresses in `tag_ids` hold.
+    tag_ids: []u64 = &.{},
+    tag_tokens: []u8 = &.{},
 
     pub fn deinit(self: *RuntimeOwned, allocator: Allocator) void {
         if (self.thunk_arena) |arena| shared_thunk.freeArena(arena);
@@ -127,7 +142,8 @@ pub const RuntimeOwned = struct {
         allocator.free(self.tables_jit_ci);
         if (self.extra_funcptrs.len > 0) allocator.free(self.extra_funcptrs);
         if (self.extra_typeidxs.len > 0) allocator.free(self.extra_typeidxs);
-        if (self.tag_canon.len > 0) allocator.free(self.tag_canon);
+        if (self.tag_ids.len > 0) allocator.free(self.tag_ids);
+        if (self.tag_tokens.len > 0) allocator.free(self.tag_tokens);
     }
 };
 
@@ -199,7 +215,7 @@ pub fn setupRuntime(
     compiled: *const CompiledWasm,
     wasm_bytes: []const u8,
 ) Error!RuntimeOwned {
-    return setupRuntimeLinked(allocator, compiled, wasm_bytes, &.{}, &.{});
+    return setupRuntimeLinked(allocator, compiled, wasm_bytes, &.{}, &.{}, &.{});
 }
 
 /// D-225 — `setupRuntime` + cross-module imported-global resolution. The
@@ -216,6 +232,7 @@ pub fn setupRuntimeLinked(
     wasm_bytes: []const u8,
     imported_global_vals: []const u64,
     func_import_targets: []const FuncImportTarget,
+    tag_import_targets: []const TagImportTarget,
 ) Error!RuntimeOwned {
     const dispatch = try allocator.alloc(usize, compiled.num_imports);
     errdefer allocator.free(dispatch);
@@ -251,50 +268,92 @@ pub fn setupRuntimeLinked(
     };
 
     var num_func_imports: u32 = 0;
-    // 10.E Cause A — per-instance tag-identity canonical map over the
-    // imported-tag prefix (allocator-owned; freed via RuntimeOwned).
-    var tag_canon: []u32 = &.{};
-    errdefer if (tag_canon.len > 0) allocator.free(tag_canon);
+    // ADR-0134 D3 — imported-tag count + a within-module aliasing map
+    // (representative tag-import index per imported tag, ta-owned). Two
+    // tag imports with the same (module,name) bind one source tag, so the
+    // later collapses onto the earlier (Cause A). Consumed below to seed
+    // local identity tokens for any import the caller did not resolve.
+    var imp_tag_count: u32 = 0;
+    var imp_local_canon: []u32 = &.{};
+    // Decode the import section whenever it exists — tag imports must be
+    // counted even when `num_imports` (the dispatch-table = func-import
+    // count) is 0, e.g. a module that imports only tags.
     if (module.find(.import)) |s| {
-        if (compiled.num_imports > 0) {
-            var imports_buf = try sections.decodeImports(ta, s.body);
-            defer imports_buf.deinit();
-            jit_dispatch.populateDispatch(dispatch, imports_buf.items);
-            var imp_tag_count: u32 = 0;
-            for (imports_buf.items) |it| {
-                switch (it.kind) {
-                    .func => num_func_imports += 1,
-                    .tag => imp_tag_count += 1,
-                    .table, .memory, .global => {},
-                }
+        var imports_buf = try sections.decodeImports(ta, s.body);
+        defer imports_buf.deinit();
+        if (compiled.num_imports > 0) jit_dispatch.populateDispatch(dispatch, imports_buf.items);
+        for (imports_buf.items) |it| {
+            switch (it.kind) {
+                .func => num_func_imports += 1,
+                .tag => imp_tag_count += 1,
+                .table, .memory, .global => {},
             }
-            // Two tag imports with the same (module,name) resolve to one
-            // source tag, so collapse the later index onto the earlier —
-            // the JIT-side analog of the interp's `*TagInstance` identity
-            // key (`mvp.catchTagMatches`). Only needed when ≥2 imported
-            // tags can alias; a lone import is its own identity.
-            if (imp_tag_count > 1) {
-                const canon = try allocator.alloc(u32, imp_tag_count);
-                errdefer allocator.free(canon);
-                var ti: u32 = 0;
-                for (imports_buf.items, 0..) |it, i| {
-                    if (it.kind != .tag) continue;
-                    canon[ti] = ti;
-                    var tj: u32 = 0;
-                    for (imports_buf.items[0..i]) |prev| {
-                        if (prev.kind != .tag) continue;
-                        if (std.mem.eql(u8, prev.module, it.module) and
-                            std.mem.eql(u8, prev.name, it.name))
-                        {
-                            canon[ti] = tj;
-                            break;
-                        }
-                        tj += 1;
+        }
+        if (imp_tag_count > 0) {
+            const canon = try ta.alloc(u32, imp_tag_count);
+            var ti: u32 = 0;
+            for (imports_buf.items, 0..) |it, i| {
+                if (it.kind != .tag) continue;
+                canon[ti] = ti;
+                var tj: u32 = 0;
+                for (imports_buf.items[0..i]) |prev| {
+                    if (prev.kind != .tag) continue;
+                    if (std.mem.eql(u8, prev.module, it.module) and
+                        std.mem.eql(u8, prev.name, it.name))
+                    {
+                        canon[ti] = tj;
+                        break;
                     }
-                    ti += 1;
+                    tj += 1;
                 }
-                tag_canon = canon;
+                ti += 1;
             }
+            imp_local_canon = canon;
+        }
+    }
+
+    // ADR-0134 D3 — full-space tag-identity map (imported ++ defined),
+    // built whenever the module has ≥1 tag (imported OR defined). A
+    // defined tag's identity is the address of its own `tag_tokens` cell
+    // (unique per instance — the JIT analog of ADR-0114 D7's
+    // `*TagInstance` pointer); an exporter exposes this via
+    // `exportedTagTarget` so an importer can inherit it. An IMPORTED tag
+    // takes the EXPORTER's id when the caller resolved it
+    // (`tag_import_targets`), else the local token of its (module,name)
+    // representative (Cause A aliasing within the module). Defined-only
+    // modules still get a map (token-equality == index-equality, so EH
+    // behaviour is unchanged) so their exported tags have a stable
+    // identity to hand out. `null` only when the module has no tags at
+    // all → raw-index comparison. Both arrays are allocator-owned (freed
+    // via RuntimeOwned); token addresses stay valid across the by-value
+    // RuntimeOwned move (the backing heap does not move).
+    var tag_ids: []u64 = &.{};
+    errdefer if (tag_ids.len > 0) allocator.free(tag_ids);
+    var tag_tokens: []u8 = &.{};
+    errdefer if (tag_tokens.len > 0) allocator.free(tag_tokens);
+    {
+        const defined_tags: []const sections.TagEntry = if (module.find(.tag)) |ts|
+            try sections.decodeTags(ta, ts.body)
+        else
+            &.{};
+        const total_tags: usize = @as(usize, imp_tag_count) + defined_tags.len;
+        if (total_tags > 0) {
+            const tokens = try allocator.alloc(u8, total_tags);
+            errdefer allocator.free(tokens);
+            const ids = try allocator.alloc(u64, total_tags);
+            errdefer allocator.free(ids);
+            for (0..imp_tag_count) |k| {
+                const src: u64 = if (k < tag_import_targets.len) tag_import_targets[k].source_id else 0;
+                if (src != 0) {
+                    ids[k] = src;
+                } else {
+                    const rep = if (k < imp_local_canon.len) imp_local_canon[k] else @as(u32, @intCast(k));
+                    ids[k] = @intFromPtr(&tokens[rep]);
+                }
+            }
+            for (imp_tag_count..total_tags) |k| ids[k] = @intFromPtr(&tokens[k]);
+            tag_tokens = tokens;
+            tag_ids = ids;
         }
     }
     // D-225 — cross-module FUNC dispatch: for each func import the caller
@@ -962,8 +1021,8 @@ pub fn setupRuntimeLinked(
             // allocate; null for non-GC modules.
             .gc_heap = gc_heap_ptr,
             .gc_type_infos_ptr = gc_type_infos_ptr,
-            .tag_canon_ptr = if (tag_canon.len > 0) tag_canon.ptr else null,
-            .tag_canon_count = @intCast(tag_canon.len),
+            .tag_ids_ptr = if (tag_ids.len > 0) tag_ids.ptr else null,
+            .tag_ids_count = @intCast(tag_ids.len),
         },
         .mem_ctx = mem_ctx,
         .dispatch = dispatch,
@@ -983,7 +1042,8 @@ pub fn setupRuntimeLinked(
         .extra_typeidxs = extra_typeidxs_buf,
         .gc_arena = gc_arena,
         .thunk_arena = thunk_arena,
-        .tag_canon = tag_canon,
+        .tag_ids = tag_ids,
+        .tag_tokens = tag_tokens,
     };
 }
 

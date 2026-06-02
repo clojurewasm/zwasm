@@ -1023,6 +1023,30 @@ pub fn decodeExports(parent_alloc: Allocator, body: []const u8) Error!Exports {
     return .{ .arena = arena, .items = items[0..write_i] };
 }
 
+/// ADR-0134 D3 — find a TAG export (kind 0x04) by name, returning its
+/// index in the full tag index space, or null if absent. `decodeExports`
+/// deliberately DROPS tag exports (the wasm-c-api `ExternKind` has no tag
+/// variant); cross-module tag-identity resolution needs them, so this
+/// dedicated scan keeps them. No allocation — the name is compared
+/// against a borrowed body slice.
+pub fn findExportedTagIndex(body: []const u8, name: []const u8) Error!?u32 {
+    var pos: usize = 0;
+    const count = try leb128.readUleb128(u32, body, &pos);
+    for (0..count) |_| {
+        const name_len = try leb128.readUleb128(u32, body, &pos);
+        if (pos + name_len > body.len) return Error.UnexpectedEnd;
+        const ename = body[pos .. pos + name_len];
+        pos += name_len;
+        if (pos >= body.len) return Error.UnexpectedEnd;
+        const kind_byte = body[pos];
+        pos += 1;
+        if (kind_byte > 4) return Error.BadValType;
+        const idx = try leb128.readUleb128(u32, body, &pos);
+        if (kind_byte == 4 and std.mem.eql(u8, ename, name)) return idx;
+    }
+    return null;
+}
+
 // scanInitExpr / readValType / skipLeb128 extracted to
 // `init_expr.zig` per ADR-0101 (post-ADR-0099 redesign). Re-exports
 // preserve the `sections.scanInitExpr` / `sections.readValType`
@@ -1036,6 +1060,19 @@ pub const readValType = init_expr.readValType;
 // ============================================================
 
 const testing = std.testing;
+
+test "findExportedTagIndex: returns the tag index for a kind=4 export (ADR-0134 D3)" {
+    // 2 exports: "f" (func, idx 0) then "e0" (tag, idx 0). decodeExports
+    // drops the tag; findExportedTagIndex keeps it.
+    const body = [_]u8{
+        0x02, // count
+        0x01, 0x66, 0x00, 0x00, // "f" func 0
+        0x02, 0x65, 0x30, 0x04, 0x00, // "e0" tag 0
+    };
+    try testing.expectEqual(@as(?u32, 0), try findExportedTagIndex(&body, "e0"));
+    try testing.expectEqual(@as(?u32, null), try findExportedTagIndex(&body, "f")); // func, not tag
+    try testing.expectEqual(@as(?u32, null), try findExportedTagIndex(&body, "absent"));
+}
 
 test "decodeTypes: empty section (count=0)" {
     var t = try decodeTypes(testing.allocator, &[_]u8{0x00});

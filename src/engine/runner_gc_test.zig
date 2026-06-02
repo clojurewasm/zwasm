@@ -1370,7 +1370,7 @@ test "JitInstance.initLinked: table init-expr ref.i31(global.get imported) → 4
         0x0a, 0x0a, 0x01, 0x08, 0x00, 0x20, 0x00, 0x25, 0x00,
         0xfb, 0x1e, 0x0b,
     };
-    var inst = JitInstance.initLinked(testing.allocator, &bytes, &.{42}, &.{}) catch |e| {
+    var inst = JitInstance.initLinked(testing.allocator, &bytes, &.{42}, &.{}, &.{}) catch |e| {
         std.debug.print("\n[d225g] init ERR={s}\n", .{@errorName(e)});
         return error.TestUnexpectedResult;
     };

@@ -67,25 +67,29 @@ pub const HandlerMatch = struct {
 /// Per-Instance exception table. Immutable after JIT emit.
 pub const ExceptionTable = struct {
     entries: []const HandlerEntry,
-    /// Per-instance tag-identity canonicalization map, indexed by
-    /// local tag index. `tag_canon[i]` is the smallest local tag
-    /// index that binds the SAME runtime tag identity as `i`, so
-    /// aliased imports collapse to one representative (10.E Cause A:
-    /// `(import "test" "e0")` declared twice → idx 0 and 1 → both
-    /// canon 0). The interp keys on `*TagInstance` pointer equality
-    /// (`mvp.catchTagMatches`); this map is the JIT-side analog,
-    /// resolved from the import section at instance setup.
+    /// Per-instance tag-identity map, indexed by local tag index:
+    /// `tag_ids[i]` is a globally-comparable identity id for tag `i`.
+    /// The JIT analog of the interp's `*TagInstance` pointer key
+    /// (`mvp.catchTagMatches`, ADR-0114 D7): two local indices (same
+    /// instance OR across instances) that bind the same runtime tag
+    /// carry the same id. Aliased imports collapse to one id (10.E
+    /// Cause A: `(import "test" "e0")` ×2 → idx 0,1 → equal id); a
+    /// cross-module import inherits the SOURCE instance's id (Cause B
+    /// / ADR-0134 D3), so a module-1 throw and a module-2 catch on the
+    /// imported tag compare equal once the unwinder uses the catching
+    /// frame's own table (cycle 2).
     ///
-    /// `null` (the default) or an out-of-range index falls back to
-    /// raw-index comparison — correct for defined tags (each is its
-    /// own identity) and for the synthetic/no-import paths. Covers
-    /// only the imported-tag prefix of the index space; defined tags
-    /// (index ≥ map.len) are their own canonical representative.
-    tag_canon: ?[]const u32 = null,
+    /// Built at setup over the FULL tag index space (imported ++
+    /// defined) whenever the module has ≥1 imported tag; `null` (the
+    /// default) = defined-tags-only / synthetic → raw-index comparison
+    /// (each defined tag is its own identity). When present it must
+    /// cover every valid index; an out-of-range index widens to the
+    /// raw index (defensive).
+    tag_ids: ?[]const u64 = null,
 
-    /// Resolve a local tag index to its canonical identity id.
-    fn canon(self: ExceptionTable, idx: u32) u32 {
-        const m = self.tag_canon orelse return idx;
+    /// Resolve a local tag index to its globally-comparable identity.
+    fn identity(self: ExceptionTable, idx: u32) u64 {
+        const m = self.tag_ids orelse return idx;
         return if (idx < m.len) m[idx] else idx;
     }
 
@@ -99,15 +103,15 @@ pub const ExceptionTable = struct {
     ///   - PC must lie in `[pc_start, pc_end)`.
     ///   - `catch_all` / `catch_all_ref`: matches any tag.
     ///   - `catch_` / `catch_ref`: matches iff the catch tag and the
-    ///     thrown tag resolve to the same canonical identity (so an
-    ///     aliased-import index matches its representative).
+    ///     thrown tag resolve to the same identity id (so aliased /
+    ///     cross-module-imported indices match their source tag).
     pub fn lookup(self: ExceptionTable, pc: u32, throw_tag_idx: u32) ?HandlerMatch {
-        const throw_canon = self.canon(throw_tag_idx);
+        const throw_id = self.identity(throw_tag_idx);
         for (self.entries) |e| {
             if (pc < e.pc_start or pc >= e.pc_end) continue;
             const matches = switch (e.kind) {
                 .catch_all, .catch_all_ref => true,
-                .catch_, .catch_ref => e.tag_idx != null and self.canon(e.tag_idx.?) == throw_canon,
+                .catch_, .catch_ref => e.tag_idx != null and self.identity(e.tag_idx.?) == throw_id,
             };
             if (matches) return .{
                 .landing_pad_pc = e.landing_pad_pc,
@@ -269,10 +273,10 @@ test "exception_table: catch_ matches exact tag_idx, misses on mismatch" {
     try testing.expectEqual(@as(?HandlerMatch, null), t.lookup(50, 6));
 }
 
-test "exception_table: tag_canon collapses aliased imports (10.E Cause A)" {
-    // Two imported tags binding the same source tag → catch on idx 0
-    // must match a throw marshalled with the alias idx 1
-    // (catch-imported-alias). The canonical map maps 1 → 0.
+test "exception_table: tag_ids matches by identity — aliased + cross-module (10.E D3)" {
+    // tag_ids carries a globally-comparable identity per local index.
+    // Aliased imports share an id (Cause A); a cross-module import
+    // inherits the source id (Cause B) — both are the same comparison.
     var b: Builder = .empty;
     defer b.deinit(testing.allocator);
     try b.add(testing.allocator, .{
@@ -282,14 +286,17 @@ test "exception_table: tag_canon collapses aliased imports (10.E Cause A)" {
         .landing_pad_pc = 200,
         .kind = .catch_,
     });
-    const canon = [_]u32{ 0, 0 }; // idx0→0 ; idx1→0 (alias of 0)
-    const t: ExceptionTable = .{ .entries = b.finalize().entries, .tag_canon = &canon };
+    // idx0 + idx1 alias the same source (id 0xAA); idx2 is a distinct
+    // defined tag (id 0xBB). A cross-module source id (0xAA) need not
+    // equal any raw index — that's the point of the u64 identity.
+    const ids = [_]u64{ 0xAA, 0xAA, 0xBB };
+    const t: ExceptionTable = .{ .entries = b.finalize().entries, .tag_ids = &ids };
 
-    // Throw with the alias index → resolves to canonical 0 → hit.
+    // Throw with the alias index 1 → id 0xAA == catch idx 0's id → hit.
     try testing.expectEqual(@as(u32, 200), t.lookup(50, 1).?.landing_pad_pc);
-    // Catch idx 0 vs a defined tag (idx 2, beyond the map → identity) → miss.
+    // Throw the distinct tag idx 2 (id 0xBB) → miss.
     try testing.expectEqual(@as(?HandlerMatch, null), t.lookup(50, 2));
-    // Sanity: without a map the raw indices must differ → miss on alias.
+    // Without a map: raw-index comparison → alias idx 1 misses catch 0.
     const t_raw: ExceptionTable = .{ .entries = b.finalize().entries };
     try testing.expectEqual(@as(?HandlerMatch, null), t_raw.lookup(50, 1));
 }

@@ -444,18 +444,17 @@ pub const JitRuntime = extern struct {
     /// prologue offsets are unaffected).
     gc_heap: ?*anyopaque = null,
     gc_type_infos_ptr: ?*anyopaque = null,
-    /// 10.E Cause A — per-Instance tag-identity canonical map (see
-    /// `exception_table.ExceptionTable.tag_canon`). Indexed by local
-    /// tag index; `tag_canon_ptr[i]` is the smallest local index
-    /// binding the same runtime tag identity as `i`, collapsing
-    /// aliased imports (`(import "test" "e0")` declared twice) onto
-    /// one representative so a catch on idx 0 matches a throw on the
-    /// alias idx 1. Covers the imported-tag prefix; `null` (count 0)
-    /// = no imported tags (defined tags are each their own identity).
-    /// `trampolineCore` slices `tag_canon_ptr[0..tag_canon_count]`
-    /// into the materialized `ExceptionTable`. Layout-stable tail.
-    tag_canon_ptr: ?[*]const u32 = null,
-    tag_canon_count: u32 = 0,
+    /// 10.E (ADR-0134 D3) — per-Instance tag-identity map (see
+    /// `exception_table.ExceptionTable.tag_ids`). Indexed by local tag
+    /// index; `tag_ids_ptr[i]` is a globally-comparable identity id so
+    /// aliased imports share an id (Cause A) and a cross-module import
+    /// inherits the source instance's id (Cause B). Covers the full
+    /// tag index space when the module has ≥1 imported tag; `null`
+    /// (count 0) = defined-tags-only → raw-index comparison.
+    /// `trampolineCore` slices `tag_ids_ptr[0..tag_ids_count]` into the
+    /// materialized `ExceptionTable`. Layout-stable tail.
+    tag_ids_ptr: ?[*]const u64 = null,
+    tag_ids_count: u32 = 0,
     _pad_tc: u32 = 0,
 };
 
@@ -1099,7 +1098,7 @@ test "JitRuntime: layout offsets match documented prologue load sequence" {
     try testing.expectEqual(@as(u12, 80), jit_executed_flag_off);
 }
 
-test "JitRuntime: total size = 464 bytes (post-10.E tag_canon tail)" {
+test "JitRuntime: total size = 464 bytes (post-10.E tag_ids tail)" {
     // Phase 10.E IT-6 cycle 3c — EH dispatcher fields appended
     // (+32 bytes = 2 ptrs × 8 B + 2 u32 × 4 B + 2 u32 pads × 4 B).
     // Phase 10.E IT-6 cycle 3c-iii adds the handler-dispatch
@@ -1109,7 +1108,7 @@ test "JitRuntime: total size = 464 bytes (post-10.E tag_canon tail)" {
     // staging (+136 bytes = 16 × 8 B buf + u32 len + u32 pad).
     // 10.G GC-on-JIT (ADR-0128 §2) appends gc_heap + gc_type_infos_ptr
     // (+16 bytes = 2 × 8 B opaque pointers) → 432 + 16 = 448.
-    // 10.E Cause A appends tag_canon_ptr + count + pad
+    // 10.E (ADR-0134 D3) appends tag_ids_ptr + count + pad
     // (+16 bytes = 8 B ptr + 2 × 4 B) → 448 + 16 = 464.
     try testing.expectEqual(@as(u32, 464), head_size);
 }
