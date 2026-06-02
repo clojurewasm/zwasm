@@ -60,16 +60,20 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
   **.17 "run" CLOSED** (`80aeee1d` call_indirect-subtype + function-level-br, `24a17ed7` guard test) — the
   cyc180/D-198 rabbit hole (2 coordinated interp fixes: root cause #2 was function-level `br 0` trapping
   instead of returning). interp assert_return fully green (1233/0).
-- **REMAINING**: (a) **4 interp assert_trap fails** — other gc/type-subtyping modules (NOT .17); likely the
-  runner's "assert_trap class discrimination" limitation (verify which modules + runner-side vs interp).
-  (b) **§10-scope question** → prepped in **`.dev/phase10_scope_reassessment.md`** (USER asked for a fresh
-  deep session; reference chain + 4 decision points there). (c) JIT eh/try_table (EH-on-JIT, deep) + re-check
-  JIT gc/type-subtyping (the .17 fix is interp-only; the JIT path may still need the same subtype/br fixes).
-- **Continuity-memo**: interp fails 4 (gc/type-subtyping assert_trap). JIT 762/2/531. PHASE C follow-ups
-  (debt-worthy, non-blocking): api/instance.zig:572 + instantiate.zig:1657 `.cross_module` still structural-
-  only; wasm-3.0 runner reports-not-gates on fails.
-- **Exit-condition**: resolve the §10-scope question (ADR-0128 amend or hold) + drive the 4 trap_fails to a
-  measured floor. Then bundle CLOSES.
+- **REMAINING**: (a) **4 interp assert_trap fails MEASURED + DIAGNOSED → D-232** (handover's "runner-side
+  trap-class" hypothesis DISPROVEN): all 4 are `FAILtrapNoTrap` (real interp over-acceptance in GC
+  call_indirect), funcs fail1/fail2 in 2 type-subtyping modules. H1 CONFIRMED = `sigEq` false-positives
+  structurally-equal-but-distinct types ($t1 vs $t2-final); H2 = $t0-super-as-sub (needs probe). FIX
+  (ADR-relevant §3.3.5.5, delicate — must not regress 1233 assert_return): gate the raw sigEq short-circuit so
+  GC modules use the proper subtype check only. NEXT bundle cycle. (b) **§10-scope question** → prepped in
+  **`.dev/phase10_scope_reassessment.md`** (USER-flagged deliberate; ADR-0128-amendment = user-flip case).
+  (c) JIT eh/try_table (EH-on-JIT, deep) + re-check JIT gc/type-subtyping (the .17 fix is interp-only).
+- **Continuity-memo**: interp fails 4 (gc/type-subtyping assert_trap) → now diagnosed as D-232 (GC
+  call_indirect over-acceptance; fix = gate sigEq short-circuit for GC modules). JIT 762/2/531. PHASE C
+  follow-ups (debt-worthy): api/instance.zig:572 + instantiate.zig:1657 `.cross_module` structural-only.
+  Level-sep audit + leak FULLY CLOSED this session (D-230; ADR-0130; all 6 DCE combos clean).
+- **Exit-condition**: the §10-scope question (USER-flip case, prepped doc) + drive the 4 trap_fails to 0
+  (D-232 fix). Trap_fails now MEASURED+diagnosed (was the "floor" target); D-232 fix closes them. Then bundle CLOSES.
 
 ## §10 remaining — the six `[ ]` rows
 
