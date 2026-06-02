@@ -358,6 +358,26 @@ fn canonFieldEqualCross(ta: *const Types, a: StructFieldType, tb: *const Types, 
     return canonValTypeEqualCross(ta, a.storage.operandType(), tb, b.storage.operandType(), ga, gb, depth);
 }
 
+/// Whether type-def `src` (in `ts`) reaches a type-def canonically equal to
+/// `want` (in `tw`) by walking its DECLARED supertype chain — the OR-arm of
+/// ADR-0127 PHASE C #2. A cross-module func import of `src` against declared
+/// `want` is valid when `src` IS `want` (canonicalEqualCross) OR `src`
+/// transitively declares `want` as a supertype (this fn). Cross-`Types`:
+/// `src`/supers index `ts` (exporter), `want` indexes `tw` (importer).
+pub fn superReachesCross(ts: *const Types, src: u32, tw: *const Types, want: u32) bool {
+    return superReachesCrossRec(ts, src, tw, want, 0);
+}
+
+fn superReachesCrossRec(ts: *const Types, src: u32, tw: *const Types, want: u32, depth: u32) bool {
+    if (depth > 64) return false;
+    if (src >= ts.supertypes.len) return false;
+    for (ts.supertypes[src]) |sup| {
+        if (canonicalEqualCross(tw, want, ts, sup)) return true;
+        if (superReachesCrossRec(ts, sup, tw, want, depth + 1)) return true;
+    }
+    return false;
+}
+
 /// Decode a single field-type triple per Wasm 3.0 GC §5: storage type
 /// (`valtype | packedtype`, ADR-0125) + mutability byte (0x00 const,
 /// 0x01 var).
@@ -1153,6 +1173,29 @@ test "canonicalEqualCross: self-recursive struct defs across two Types are equal
     var tb = try decodeTypes(testing.allocator, &body);
     defer tb.deinit();
     try testing.expect(canonicalEqualCross(&ta, 0, &tb, 0));
+}
+
+test "superReachesCross: exporter subtype reaches importer's declared supertype (ADR-0127 PHASE C OR-arm)" {
+    // $t0 = (sub (func)) [idx0]; $t1 = (sub $t0 (func)) [idx1, declares super $t0].
+    const body = [_]u8{ 0x02, 0x50, 0x00, 0x60, 0x00, 0x00, 0x50, 0x01, 0x00, 0x60, 0x00, 0x00 };
+    var ts = try decodeTypes(testing.allocator, &body);
+    defer ts.deinit();
+    var tw = try decodeTypes(testing.allocator, &body);
+    defer tw.deinit();
+    // exporter $t1 (idx1) reaches importer's declared $t0 (idx0) via its super chain.
+    try testing.expect(superReachesCross(&ts, 1, &tw, 0));
+    // $t0 (idx0) has no declared supers → does not reach $t1 (idx1).
+    try testing.expect(!superReachesCross(&ts, 0, &tw, 1));
+}
+
+test "superReachesCross: no supertype chain → false (the .36 reject — exporter final, no super)" {
+    // $t2 = (sub final (func)) [idx0] has no declared supertype → reaches nothing.
+    const body = [_]u8{ 0x01, 0x4F, 0x00, 0x60, 0x00, 0x00 };
+    var ts = try decodeTypes(testing.allocator, &body);
+    defer ts.deinit();
+    var tw = try decodeTypes(testing.allocator, &[_]u8{ 0x01, 0x50, 0x00, 0x60, 0x00, 0x00 }); // open $t1
+    defer tw.deinit();
+    try testing.expect(!superReachesCross(&ts, 0, &tw, 0));
 }
 
 test "decodeTypes: 0x4E rec group expands to N consecutive type indices (10.G cycle 126)" {
