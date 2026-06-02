@@ -8,18 +8,16 @@
 - **Phase**: **10 IN-PROGRESS — committed to 100% (ADR-0128)** (Phase 9 = DONE
   2026-05-24). §10 exit requires the official Wasm 3.0 testsuite at pass=fail=skip=0
   on **both backends** (interp + JIT).
-- **HEAD** (`0319d566`): §1 spec-corpus JIT mode. **D-225 cross-module imports COMPLETE** (bundle
-  closed): imported-GLOBAL track (i31.3 `a6cfd65e` + i31.4 `c5ab78c1`) + FUNC track — direct-call bridge
-  thunk (`e964ba6e`: `setupRuntimeLinked([]FuncImportTarget)` → ADR-0066 cohort-safe thunk arena →
-  `dispatch[N]`; runner pins exporter JitInstances) + **call_indirect-of-funcref** (`0319d566`: the only
-  remaining bug was the registered exporter's borrowed module bytes being freed by the importer's module
-  directive → `exportedFuncTarget` re-parsed freed memory; `kept_bytes` transfers ownership. No funcref-
-  specific code — `FuncEntity.funcptr`=dispatch[i] thunk, mirrored by table.set → funcptrs_buf →
-  call_indirect). ref_func call-f/call-v/call-g green. Opt-in `ZWASM_SPEC_ENGINE=jit`. Mac aarch64:
-  **pass=571 fail=8 skip=716** (memory64 GREEN; interp UNCHANGED, jit_mode-guarded).
-  **fail taxonomy (8, deep tail)**: gc/array ×6 (corpus-context-dependent traps — array.5 `new` works
-  standalone, `get` takes a ref arg), gc/type-subtyping ×1 (ADR-0127 PHASE C, user-Accept-gated),
-  try_table ×1 (EH).
+- **HEAD** (`fa596f08`): §1 spec-corpus JIT mode. **D-225 cross-module imports COMPLETE** (globals +
+  funcs) + **gc/array CLUSTER RESOLVED** (`fa596f08`, +6): the JIT setup now evals GC general const-expr
+  element-segment items (`array.new`/`struct.new`/`ref.func` in `seg.item_exprs`) via evalGlobalInitGc →
+  `elem_refs`, so `array.new_elem` (gc/array.8) reads real refs instead of an empty (seg_len=0) segment →
+  trap. Opt-in `ZWASM_SPEC_ENGINE=jit`. Mac aarch64: **pass=577 fail=2 skip=716** (memory64 GREEN; interp
+  UNCHANGED, jit_mode-guarded). **The JIT-EXECUTED fail count is now 2** — both gated/deep:
+  gc/type-subtyping ×1 (ADR-0127 PHASE C, **user-Accept-gated**) + try_table ×1 (EH-on-JIT gap).
+  **skip=716 is the larger remaining §10 lever** (JIT-ineligible shapes: args>elig / v128 / multi-value /
+  void / cross-module-CALL-not-in-eligible-subset / compile-rejected [multi-memory Phase-14 / unemitted-op
+  / validate gap]). ADR-0128 §10 exit needs pass=fail=skip=0 both backends → skip-reduction is the bulk.
 - **PER-MODULE blocker-STACK reality** (lesson `2026-06-02-jit-corpus-late-phase-is-per-module-
   blocker-stacks`): since memory64 (+208, last big mover), every gc/funcref fix has been correct
   but ~0 corpus — each remaining module has 3-6 DISTINCT blockers; JIT rejects at the FIRST
@@ -45,28 +43,22 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 ## Active bundle
 
-- **Bundle-ID**: `10.G-§1-gc-array-context-traps` (D-225 cross-module bundle CLOSED at `0319d566`,
-  exit-condition met: ref_func green, pass=571).
-- **Cycles-remaining**: ~1 (ROOT CAUSE CONFIRMED — fix is a focused setup-side chunk)
-- **Continuity-memo**: NEXT = **gc/array ×6**. ROOT CAUSE CONFIRMED this cycle (instrumented, then reverted
-  probes): ALL 6 fails are in **`array.8.wasm`** (module-path traced via D-MOD/D-FAIL stderr probes), a
-  nested array-of-refs test. Its `new` = **`array.new_elem(type 1, seg 0)`** → `jitGcArrayNewElem`
-  (`jit_abi.zig:689`) returns 0 → trap, because **element segment 0 has `seg_len=0`**: `sections.decodeElement`
-  represents items as `funcidxs: []u32` (setup.zig:792 loop), which CANNOT hold GC-const-expr items
-  (`array.new`/`array.new_fixed` — array.8's elem seg 0 holds 2 such (ref 0) values), so `seg.funcidxs.len=0`
-  → setup leaves `elem_refs` empty → `array.new_elem(off=0,size=2)` sees `0+2 > 0` OOB → return 0.
-  Probe output: `[D-NEWELEM] OOB off=0 size=2 seg_len=0 (segidx=0)` ×6. get/set_get/len then trap on the
-  null array `new` should have returned. **FIX (~1 cycle, mirrors D-225 global/table GC-const-expr eval)**:
-  (1) `sections.decodeElement` must preserve general element-segment ITEM const-expr bytes (not just
-  funcidxs) for non-funcref segments; (2) setup.zig elem-segment population (754-805) evals each item via
-  `instantiate.evalGlobalInitGc(item_expr, gc_heap_typed, gti, func_entities, imp_global_ptrs)` → store the
-  Value.ref in `elem_refs`. Then array.new_elem reads real refs → array.8 green (+6, likely the last
-  gc/array fails). Verify: rerun JIT corpus, `function-references`/gc unaffected, gc/array `new`/`get`/`len` pass.
-- **Exit-condition**: array.8 `new`/`get`/`len` flip green (array.new_elem reads a populated element segment).
-  - **The other 2**: gc/type-subtyping ×1 = ADR-0127 PHASE C (Proposed, user-Accept-gated +
-    regression-risky); try_table ×1 = EH. Skip multi-memory 51 (Phase-14).
-  - **REALITY**: big levers SPENT; the tail is context-dependent (gc/array) or user-gated. Expect lower
-    per-turn corpus throughput — each remaining fail is a deliberate focused investigation.
+- **Bundle-ID**: `10.G-§1-skip-reduction` (prior gc/array bundle CLOSED at `fa596f08`, exit met: array.8
+  green, pass=577; JIT-executed fails now 2, both gated/deep).
+- **Cycles-remaining**: ~2 (re-survey + pick lever)
+- **Continuity-memo**: The §1 JIT-EXECUTED fail count is essentially done (2: type-subtyping = user-gated
+  ADR-0127 PHASE C; try_table = EH-on-JIT). The bulk of the remaining ADR-0128 §10 exit (pass=fail=skip=0
+  both backends) is now **skip=716 reduction**. NEXT = re-survey the skip taxonomy (it shifted after D-225
+  + elem-seg eval): `EXE=$(find .zig-cache/o -name zwasm-spec-wasm-3-0-assert -type f -printf '%T@ %p\n'|
+  sort -rn|head -1|cut -d' ' -f2-); ZWASM_SPEC_ENGINE=jit "$EXE" test/spec/wasm-3.0-assert --fail-detail
+  2>/dev/null | grep -E "JITskip|JITmodrej" | sed -E 's/\[[^]]*\]//g' | sort | uniq -c | sort -rn`. Two
+  skip classes: (A) RUNNER eligibility-gated (args>1 / v128 / multi-value / void / cross-module-CALL) —
+  widen `jitReturnEligible` + the arg/result marshalling in the spec runner (test-side, no engine risk);
+  (B) compile/setup-rejected `JITmodrej` (real engine gaps: unemitted ops like any.convert_extern, multi-
+  memory=Phase-14-deferred, validate gaps). Pick the biggest tractable cluster. try_table (EH-on-JIT) is a
+  separate deep bundle. type-subtyping needs a USER decision on ADR-0127 PHASE C (surface at a touchpoint).
+- **Exit-condition**: skip count drops (≥1 cluster: either a widened eligibility class flips skips→pass, or
+  an unemitted-op JITmodrej class flips to attempted).
 
 ## §10 remaining — the six `[ ]` rows
 
@@ -81,10 +73,10 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 ## Step 0.7 (next resume)
 
-Prior turn ubuntu GREEN (`OK (HEAD=c0403b4e)` — ref_func +3 remote-verified). THIS turn = gc/array
-ROOT-CAUSE investigation (instrumented jitGcArrayNewElem + runner module-trace, then REVERTED all probes
-→ no src change; memo now has the confirmed cause + fix plan). No ubuntu kick (docs-only). Next resume:
-implement the element-segment GC-const-expr eval per the memo. Mac aarch64; ubuntu = x86_64.
+Prior turn ubuntu GREEN (`OK (HEAD=c0403b4e)`). THIS turn landed the elem-segment GC-const-expr eval
+(`fa596f08`: src/engine/setup.zig; Mac gate test+lint OK) flipping gc/array +6 (pass=571→577) → ubuntu
+`test-all` kicked at end → `tail -3 /tmp/ubuntu.log` next resume (Step 0.7). On FAIL revert to `0319d566`.
+Mac aarch64; ubuntu = x86_64.
 
 **Gate hygiene (NEW, `2134116b`)**: use `bash scripts/mac_gate.sh` for the Step-5 Mac gate —
 never `zig build test-all > log; grep -c … log` (trailing `grep -c` exits 1 on zero matches →
