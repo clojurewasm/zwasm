@@ -1055,6 +1055,41 @@ test "JitInstance: void-result invoke runs (returns null) and a 1-arg scalar inv
     try testing.expectEqual(@as(?u64, 77), try inst.invoke(testing.allocator, "get", &.{}));
 }
 
+test "JitInstance.invoke: mem64 OOB i32.load traps (D-234 corpus-path repro)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    // (module (memory i64 1) (func (export "i32.load") (param $a i64) (result i32)
+    //   (i32.load (local.get $a))))  — invoke "i32.load" with 0x10000 (OOB) → must trap.
+    // This is the EXACT corpus path (JitInstance.invoke on a kept instance) where
+    // the 51 memory64 assert_trap fails live; the fresh-setupRuntime siblings trap
+    // fine. If this RETURNS instead of trapping, D-234 is reproduced in the JIT
+    // path; if it TRAPS, the corpus issue is in the runner's per-assert reuse.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x06, 0x01, 0x60, 0x01, 0x7e, 0x01, 0x7f, // type (i64)->i32
+        0x03, 0x02, 0x01, 0x00, // func
+        0x05, 0x03, 0x01, 0x04, 0x01, // memory i64 1
+        // export "i32.load" (8 bytes) func 0
+        0x07, 0x0c, 0x01, 0x08, 0x69,
+        0x33, 0x32, 0x2e, 0x6c, 0x6f,
+        0x61, 0x64, 0x00, 0x00,
+        // code: local.get 0; i32.load; end
+        0x0a,
+        0x09, 0x01, 0x07, 0x00, 0x20,
+        0x00, 0x28, 0x02, 0x00, 0x0b,
+    };
+    var inst = try JitInstance.init(testing.allocator, &bytes);
+    defer inst.deinit(testing.allocator);
+    // The corpus invokes a trap-func MANY times on the same kept instance. A JIT
+    // trap must leave the instance re-invokable (trap_flag reset). Three OOB
+    // invokes must ALL trap; a non-trap on the 2nd/3rd = the D-234 root cause.
+    try testing.expectError(error.Trap, inst.invoke(testing.allocator, "i32.load", &.{0x10000}));
+    try testing.expectError(error.Trap, inst.invoke(testing.allocator, "i32.load", &.{0x10000}));
+    try testing.expectError(error.Trap, inst.invoke(testing.allocator, "i32.load", &.{0x10000}));
+    // The corpus runs IN-BOUNDS asserts before the OOB traps on the same instance.
+    _ = try inst.invoke(testing.allocator, "i32.load", &.{0}); // in-bounds
+    try testing.expectError(error.Trap, inst.invoke(testing.allocator, "i32.load", &.{0x10000})); // OOB after in-bounds
+}
+
 // ── ADR-0128 §1 / D-215: real JIT memory.grow (realloc + persist + max) ──
 
 test "JitInstance: memory.grow grows + persists, memory.size reflects it" {
