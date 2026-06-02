@@ -3,6 +3,15 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-228"
+    layer: "infra"
+    status: "resolved"
+    description: |-
+      **RESOLVED (same commit)** — gate-coverage gap: the wasm-3.0 runner's embedded unit tests (`wasm_3_0_assert_unit_tests` / `wasm_3_0_manifest_unit_tests`, build.zig:463/478) were wired only into `zig build test`, NOT `test-all`. So `mac_gate.sh` (→ test-all, the per-chunk gate) never ran the §1 `jitReturnEligible` eligibility unit test. When the multi-value wiring (`33b479e7`) relaxed `jitReturnEligible` to admit results_len>1, the stale `!jitReturnEligible(0,2,…)` assertion at spec_assert_runner_wasm_3_0.zig:1376 went un-run → false-green at chunk 2 (Mac mac_gate + ubuntu test-all both passed). Surfaced only when `zig build test` ran directly the next chunk. FIX: `test_all_step.dependOn` both unit-test artifacts. Lesson: the per-chunk gate must include the unit tests of the subsystem under active change — `test-all` ⊉ `test`.
+    first_raised: "2026-06-02"
+    last_reviewed: "2026-06-02"
+    refs: |-
+      `build.zig` (test_all_step deps + run_wasm_3_0_assert_unit / run_wasm_3_0_manifest_unit); `test/spec/spec_assert_runner_wasm_3_0.zig:1376`; `scripts/mac_gate.sh`; ADR-0128 §1
   - id: "D-226"
     layer: "code"
     status: "resolved"

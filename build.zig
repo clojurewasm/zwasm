@@ -769,6 +769,13 @@ pub fn build(b: *std.Build) void {
     // baked manifests, exits clean. Adopts JIT-execute as impl rows
     // 10.M / 10.R / 10.TC / 10.E / 10.G land.
     test_all_step.dependOn(&run_wasm_3_0_assert.step);
+    // The wasm-3.0 runner's embedded unit tests (§1 JIT-corpus
+    // eligibility + manifest parse) were wired only into `test` — so
+    // the per-chunk gate (`mac_gate.sh` → test-all) never ran them and
+    // a stale `jitReturnEligible` assertion passed unnoticed (D-228).
+    // Aggregate them here so test-all covers the §1 corpus logic.
+    test_all_step.dependOn(&run_wasm_3_0_assert_unit.step);
+    test_all_step.dependOn(&run_wasm_3_0_manifest_unit.step);
     test_all_step.dependOn(&run_wasmtime_misc_basic.step);
     test_all_step.dependOn(&run_wast_runtime_smoke.step);
     test_all_step.dependOn(&run_c_host.step);

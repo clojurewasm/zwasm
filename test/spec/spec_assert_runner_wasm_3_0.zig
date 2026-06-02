@@ -1373,7 +1373,7 @@ test "wasm-3.0-assert §1: JIT execution-mode eligibility + no-arg i32/i64/f32/f
     try std.testing.expect(!jitReturnEligible(1, 1, "i32", "v128", 0)); // non-scalar arg0
     try std.testing.expect(jitReturnEligible(3, 1, "i32", "i32", 0)); // 3-scalar-arg wired (D-217)
     try std.testing.expect(!jitReturnEligible(4, 1, "i32", "i32", 0)); // 4-arg (future)
-    try std.testing.expect(!jitReturnEligible(0, 2, "i32", "", 0)); // multi-value
+    try std.testing.expect(jitReturnEligible(0, 2, "i32", "", 0)); // multi-value eligible count-wise (per-result scalar check at call site)
     try std.testing.expect(!jitReturnEligible(0, 1, "v128", "", 0)); // v128 result (later)
     try std.testing.expect(!jitReturnEligible(0, 1, "i32", "", 3)); // cross-module ($M::field)
 
