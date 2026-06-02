@@ -45,20 +45,24 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 - **Bundle-ID**: `10.G-§1-skip-reduction` (prior gc/array bundle CLOSED at `fa596f08`, exit met: array.8
   green, pass=577; JIT-executed fails now 2, both gated/deep).
-- **Cycles-remaining**: ~2 (re-survey + pick lever)
-- **Continuity-memo**: The §1 JIT-EXECUTED fail count is essentially done (2: type-subtyping = user-gated
-  ADR-0127 PHASE C; try_table = EH-on-JIT). The bulk of the remaining ADR-0128 §10 exit (pass=fail=skip=0
-  both backends) is now **skip=716 reduction**. NEXT = re-survey the skip taxonomy (it shifted after D-225
-  + elem-seg eval): `EXE=$(find .zig-cache/o -name zwasm-spec-wasm-3-0-assert -type f -printf '%T@ %p\n'|
-  sort -rn|head -1|cut -d' ' -f2-); ZWASM_SPEC_ENGINE=jit "$EXE" test/spec/wasm-3.0-assert --fail-detail
-  2>/dev/null | grep -E "JITskip|JITmodrej" | sed -E 's/\[[^]]*\]//g' | sort | uniq -c | sort -rn`. Two
-  skip classes: (A) RUNNER eligibility-gated (args>1 / v128 / multi-value / void / cross-module-CALL) —
-  widen `jitReturnEligible` + the arg/result marshalling in the spec runner (test-side, no engine risk);
-  (B) compile/setup-rejected `JITmodrej` (real engine gaps: unemitted ops like any.convert_extern, multi-
-  memory=Phase-14-deferred, validate gaps). Pick the biggest tractable cluster. try_table (EH-on-JIT) is a
-  separate deep bundle. type-subtyping needs a USER decision on ADR-0127 PHASE C (surface at a touchpoint).
-- **Exit-condition**: skip count drops (≥1 cluster: either a widened eligibility class flips skips→pass, or
-  an unemitted-op JITmodrej class flips to attempted).
+- **Cycles-remaining**: ~2 (skip-reduction — multi-value invoke first)
+- **Continuity-memo**: §1 JIT-EXECUTED fails = 2 (type-subtyping user-gated ADR-0127 PHASE C; try_table
+  EH-on-JIT). The remaining §10 exit bulk is **skip=716**. SKIP TAXONOMY (re-surveyed this cycle):
+  **JITmodrej** = MultipleMemories 51 (Phase-14 deferred, untouchable), UnsupportedOp 10, UnsupportedEntry
+  Signature 7, StackTypeMismatch 6, ElemSegmentTypeMismatch 2, InvalidGlobalInitExpr 1. **Eligibility-gated**
+  (runner won't attempt): args=1/results=1 ×34 (REF-typed arg0 — hard, needs ref synthesis), args=0/results=2
+  ×16 (MULTI-VALUE), args=0/results=1 ×3, args=1/results=2 ×2, args=0/results=4 ×1. **NEXT = multi-value
+  results (≈19: results=2 ×18 + results=4 ×1)** — the cleanest test-side win (no engine risk). FEASIBLE via
+  the results-buffer ABI (`result_abi.zig`: JIT epilogue writes `results[i]` to `[results_ptr+8*i]`,
+  Win64-safe; entry helper sig `fn(*JitRuntime, [*]u64 results, …args) ErrCode`). PLAN: (1) widen
+  `jitReturnEligible` to allow results_len 2..4 when all scalar/ref; (2) add `JitInstance.invokeMulti`
+  (alloc `[N]u64` buf, call via the results-buffer entry helper, return the slice); (3) assert_return JIT
+  arm: when results_len>1, invokeMulti + compare each `results[i]` vs expected (reuse `jitScalarResultMatches`).
+  CHECK FIRST: confirm an entry results-buffer helper exists (entry.zig) or add one; verify which result-ABI
+  mode the JIT emits for multi-result (register vs results_ptr) — `result_abi.zig` ResultAbiMode. Unemitted-op
+  JITmodrej (UnsupportedOp 10: tail-call/return_call_indirect, gc/br_on_cast*, ref_test/ref_cast, struct.10,
+  extern, array_init_*, br_on_null) = per-op emit bundles (later). try_table + type-subtyping unchanged.
+- **Exit-condition**: multi-value asserts flip skip→pass (gc/i31 `get_globals` () -> i32 i32, etc.).
 
 ## §10 remaining — the six `[ ]` rows
 
@@ -73,10 +77,10 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 ## Step 0.7 (next resume)
 
-Prior turn ubuntu GREEN (`OK (HEAD=c0403b4e)`). THIS turn landed the elem-segment GC-const-expr eval
-(`fa596f08`: src/engine/setup.zig; Mac gate test+lint OK) flipping gc/array +6 (pass=571→577) → ubuntu
-`test-all` kicked at end → `tail -3 /tmp/ubuntu.log` next resume (Step 0.7). On FAIL revert to `0319d566`.
-Mac aarch64; ubuntu = x86_64.
+Prior turn ubuntu GREEN (`OK (HEAD=09777262)` — gc/array +6 / pass=577 remote-verified). THIS turn = §1
+skip-taxonomy re-survey only (no src change; memo now has the full skip breakdown + the multi-value-invoke
+plan). No ubuntu kick (docs-only). Next resume: implement multi-value invoke per the memo. Mac aarch64;
+ubuntu = x86_64.
 
 **Gate hygiene (NEW, `2134116b`)**: use `bash scripts/mac_gate.sh` for the Step-5 Mac gate —
 never `zig build test-all > log; grep -c … log` (trailing `grep -c` exits 1 on zero matches →
