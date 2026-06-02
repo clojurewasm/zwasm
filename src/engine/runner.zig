@@ -493,9 +493,18 @@ pub const JitInstance = struct {
     wasm_bytes: []const u8,
 
     pub fn init(allocator: Allocator, wasm_bytes: []const u8) Error!JitInstance {
+        return initLinked(allocator, wasm_bytes, &.{});
+    }
+
+    /// D-225 — `init` + cross-module imported-global resolution. The caller
+    /// (spec runner / linker) passes the resolved imported-global values in
+    /// import order so the module's setup-time const-expr evals (defined-
+    /// global init, table explicit-init-expr) can `global.get` an imported
+    /// global. Plain `init` passes `&.{}` (no imports).
+    pub fn initLinked(allocator: Allocator, wasm_bytes: []const u8, imported_global_vals: []const u64) Error!JitInstance {
         var compiled = try compileWasm(allocator, wasm_bytes);
         errdefer compiled.deinit(allocator);
-        const owned = try setupRuntime(allocator, &compiled, wasm_bytes);
+        const owned = try setup_mod.setupRuntimeLinked(allocator, &compiled, wasm_bytes, imported_global_vals);
         return .{ .compiled = compiled, .owned = owned, .wasm_bytes = wasm_bytes };
     }
 

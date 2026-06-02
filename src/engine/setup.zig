@@ -175,6 +175,23 @@ pub fn setupRuntime(
     compiled: *const CompiledWasm,
     wasm_bytes: []const u8,
 ) Error!RuntimeOwned {
+    return setupRuntimeLinked(allocator, compiled, wasm_bytes, &.{});
+}
+
+/// D-225 — `setupRuntime` + cross-module imported-global resolution. The
+/// importing module's setup-time const-expr evals (defined-global init +
+/// table explicit-init-expr) can `global.get N` an IMPORTED global; the
+/// caller (spec runner / linker) passes the resolved import values in
+/// import order via `imported_global_vals` so e.g. `(ref.i31 (global.get
+/// $env.g))` reads 42 instead of nothing. Plain `setupRuntime` passes `&.{}`
+/// (no imports). Emitted-code `global.get` of an import is a SEPARATE gap
+/// (the JIT global model excludes import slots — see D-225 survey).
+pub fn setupRuntimeLinked(
+    allocator: Allocator,
+    compiled: *const CompiledWasm,
+    wasm_bytes: []const u8,
+    imported_global_vals: []const u64,
+) Error!RuntimeOwned {
     const dispatch = try allocator.alloc(usize, compiled.num_imports);
     errdefer allocator.free(dispatch);
     for (dispatch) |*slot| slot.* = @intFromPtr(&hostDispatchTrap);
@@ -189,6 +206,21 @@ pub fn setupRuntime(
     defer temp_arena.deinit();
     const ta = temp_arena.allocator();
     var module = try parser.parse(ta, wasm_bytes);
+
+    // D-225 — `[]*Value` view of the resolved imported-global values, in
+    // import order, for the setup-time const-expr evals' `global.get N`
+    // (N < num_global_imports). ta-allocated: read only during setup.
+    const Value = @import("../runtime/value.zig").Value;
+    const imp_global_ptrs: []const *Value = blk: {
+        if (imported_global_vals.len == 0) break :blk &.{};
+        const cells = try ta.alloc(Value, imported_global_vals.len);
+        const ptrs = try ta.alloc(*Value, imported_global_vals.len);
+        for (imported_global_vals, 0..) |v, i| {
+            cells[i] = .{ .bits64 = v };
+            ptrs[i] = &cells[i];
+        }
+        break :blk ptrs;
+    };
 
     if (module.find(.import)) |s| {
         if (compiled.num_imports > 0) {
@@ -277,7 +309,6 @@ pub fn setupRuntime(
     if (globals_count > 4096) return Error.UnsupportedEntrySignature;
     if (table_size > 4096) return Error.UnsupportedEntrySignature;
 
-    const Value = @import("../runtime/value.zig").Value;
     const globals_buf = try allocator.alloc(Value, if (globals_count == 0) 1 else globals_count);
     errdefer allocator.free(globals_buf);
     @memset(globals_buf, .{ .bits128 = 0 });
@@ -357,7 +388,7 @@ pub fn setupRuntime(
         for (g.items, 0..) |gd, i| {
             globals_buf[i] = instantiate.evalConstExprValue(gd.init_expr) catch |e| blk: {
                 if (e == error.UnsupportedConstExpr) {
-                    break :blk instantiate.evalGlobalInitGc(gd.init_expr, gc_heap_typed, gti_val, func_entities, &.{}) catch .{ .bits128 = 0 };
+                    break :blk instantiate.evalGlobalInitGc(gd.init_expr, gc_heap_typed, gti_val, func_entities, imp_global_ptrs) catch .{ .bits128 = 0 };
                 }
                 break :blk .{ .bits128 = 0 };
             };
@@ -444,7 +475,7 @@ pub fn setupRuntime(
         for (table_metas, 0..) |tm, i| {
             if (tm.init_expr.len == 0) continue;
             const v = instantiate.evalConstExprValue(tm.init_expr) catch
-                instantiate.evalGlobalInitGc(tm.init_expr, gc_heap_typed, gti_val, func_entities, &.{}) catch continue;
+                instantiate.evalGlobalInitGc(tm.init_expr, gc_heap_typed, gti_val, func_entities, imp_global_ptrs) catch continue;
             // A table init-expr always yields a reftype; `.ref` (== `.bits64`
             // offset in the extern union) holds the ref-encoded u64.
             const raw: u64 = v.ref;
