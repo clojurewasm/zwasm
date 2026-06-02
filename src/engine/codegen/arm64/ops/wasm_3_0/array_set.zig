@@ -12,6 +12,7 @@ const ctx_mod = @import("../../ctx.zig");
 const abi = @import("../../abi.zig");
 const gpr = @import("../../gpr.zig");
 const inst = @import("../../inst.zig");
+const inst_fp = @import("../../inst_fp.zig");
 const jit_abi = @import("../../../shared/jit_abi.zig");
 const heap_mod = @import("../../../../../feature/gc/heap.zig");
 const zir = @import("../../../../../ir/zir.zig");
@@ -26,7 +27,7 @@ const base: inst.Xn = 16; // IP0 — slab/object-base scratch.
 const scratch0: inst.Xn = 14; // stage-0, reused for length then value.
 
 pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void {
-    _ = ins; // typeidx unused — uniform 8-byte slot.
+    const elem_vt = ctx.func.arrayElemValType(@intCast(ins.payload)); // D-212
     // Operand stack: [.., ref, index, value] (value on top). Pop in reverse.
     if (ctx.pushed_vregs.items.len < 3) return ctx_mod.Error.AllocationMissing;
     const value_vreg = ctx.pushed_vregs.pop().?;
@@ -53,7 +54,22 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     try ctx.bounds_fixups.append(ctx.allocator, fixup);
 
     // base += header → element[0] addr; load value (X14 reuse) + STR.
+    // D-212: an f32/f64 value operand is FP-class — read it from the FP
+    // register file then FMOV into the scratch GPR (the register-offset
+    // store has no FP form). 0x7D=f32 (low 32), 0x7C=f64.
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(base, base, @intCast(header_size)));
-    const xval = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, value_vreg, 0);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrXRegLsl3(xval, base, xidx));
+    switch (elem_vt) {
+        0x7D, 0x7C => {
+            const vs = try gpr.fpLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, value_vreg, 0);
+            if (elem_vt == 0x7D)
+                try gpr.writeU32(ctx.allocator, ctx.buf, inst_fp.encFmovWFromS(scratch0, vs))
+            else
+                try gpr.writeU32(ctx.allocator, ctx.buf, inst_fp.encFmovXFromD(scratch0, vs));
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrXRegLsl3(scratch0, base, xidx));
+        },
+        else => {
+            const xval = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, value_vreg, 0);
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrXRegLsl3(xval, base, xidx));
+        },
+    }
 }

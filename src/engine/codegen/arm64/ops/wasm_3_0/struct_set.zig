@@ -55,7 +55,23 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(slab, slab, xref));
 
     // ref consumed into `slab` → stage-0 is free; load the value there and
-    // store it into the field slot (field_off is 8-aligned).
-    const xval = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, value_vreg, 0);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImm(xval, slab, @intCast(field_off)));
+    // store it into the field slot (field_off is 8-aligned). D-212: an
+    // f32/f64 value operand is FP-class — read it from the FP register file
+    // (else gprLoadSpilled reads a stale GPR home). 0x7D=f32, 0x7C=f64.
+    const field_vt = ctx.func.structFieldValType(@intCast(ins.payload), fieldidx);
+    switch (field_vt) {
+        0x7D => {
+            if (field_off > 16380) return ctx_mod.Error.SlotOverflow;
+            const vs = try gpr.fpLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, value_vreg, 0);
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrSImm(vs, slab, @intCast(field_off)));
+        },
+        0x7C => {
+            const vs = try gpr.fpLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, value_vreg, 0);
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrDImm(vs, slab, @intCast(field_off)));
+        },
+        else => {
+            const xval = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, value_vreg, 0);
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImm(xval, slab, @intCast(field_off)));
+        },
+    }
 }

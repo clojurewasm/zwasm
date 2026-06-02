@@ -27,7 +27,7 @@ const base: abi.Gpr = .rax; // object-base scratch (3rd reg; caller-saved).
 const scratch0: abi.Gpr = .r10; // stage-0, reused for length then value.
 
 pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void {
-    _ = ins; // typeidx unused — uniform 8-byte slot.
+    const elem_vt = ctx.func.arrayElemValType(@intCast(ins.payload)); // D-212
     // Operand stack: [.., ref, index, value] (value on top). Pop in reverse.
     if (ctx.pushed_vregs.items.len < 3) return ctx_mod.Error.AllocationMissing;
     const value_vreg = ctx.pushed_vregs.pop().?;
@@ -53,7 +53,21 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     try ctx.bounds_fixups.append(ctx.allocator, fixup);
 
     // base += header → element[0]; load value (R10 reuse) + store.
+    // D-212: an f32/f64 value operand is XMM-class — read it from the XMM
+    // file then MOVD/MOVQ into the scratch GPR for the register-offset store.
     try ctx.buf.appendSlice(ctx.allocator, inst.encAddR64Imm32(base, header_size).slice());
-    const xval = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, value_vreg, 0);
-    try ctx.buf.appendSlice(ctx.allocator, inst.encStoreR64MemBaseIdxLsl3(xval, base, xidx).slice());
+    switch (elem_vt) {
+        0x7D, 0x7C => {
+            const xv = try gpr.xmmLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, value_vreg, 0);
+            if (elem_vt == 0x7D)
+                try ctx.buf.appendSlice(ctx.allocator, inst.encMovdR32FromXmm(scratch0, xv).slice())
+            else
+                try ctx.buf.appendSlice(ctx.allocator, inst.encMovqR64FromXmm(scratch0, xv).slice());
+            try ctx.buf.appendSlice(ctx.allocator, inst.encStoreR64MemBaseIdxLsl3(scratch0, base, xidx).slice());
+        },
+        else => {
+            const xval = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, value_vreg, 0);
+            try ctx.buf.appendSlice(ctx.allocator, inst.encStoreR64MemBaseIdxLsl3(xval, base, xidx).slice());
+        },
+    }
 }

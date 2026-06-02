@@ -52,6 +52,22 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     try ctx.buf.appendSlice(ctx.allocator, inst.encAddRR(.q, slab, xref).slice());
 
     // ref consumed into `slab` → stage-0 free; load value there and store.
-    const xval = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, value_vreg, 0);
-    try ctx.buf.appendSlice(ctx.allocator, inst.encStoreR64MemDisp32(xval, slab, @intCast(field_off)).slice());
+    // D-212: an f32/f64 value operand is XMM-class — read it from the XMM
+    // file then MOVD/MOVQ into a scratch GPR for the store. 0x7D=f32, 0x7C=f64.
+    const field_vt = ctx.func.structFieldValType(@intCast(ins.payload), fieldidx);
+    switch (field_vt) {
+        0x7D, 0x7C => {
+            const xv = try gpr.xmmLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, value_vreg, 0);
+            const tmp: abi.Gpr = .r10; // stage-0 scratch
+            if (field_vt == 0x7D)
+                try ctx.buf.appendSlice(ctx.allocator, inst.encMovdR32FromXmm(tmp, xv).slice())
+            else
+                try ctx.buf.appendSlice(ctx.allocator, inst.encMovqR64FromXmm(tmp, xv).slice());
+            try ctx.buf.appendSlice(ctx.allocator, inst.encStoreR64MemDisp32(tmp, slab, @intCast(field_off)).slice());
+        },
+        else => {
+            const xval = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, value_vreg, 0);
+            try ctx.buf.appendSlice(ctx.allocator, inst.encStoreR64MemDisp32(xval, slab, @intCast(field_off)).slice());
+        },
+    }
 }
