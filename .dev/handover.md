@@ -8,13 +8,13 @@
 - **Phase**: **10 IN-PROGRESS — committed to 100% (ADR-0128)** (Phase 9 = DONE
   2026-05-24). §10 exit requires the official Wasm 3.0 testsuite at pass=fail=skip=0
   on **both backends** (interp + JIT).
-- **HEAD** (`cf89c88f`): §1 spec-corpus JIT mode. Session +68: D-223 globals (+43), D-212 FP-class
-  (+6), D-218 i31-elem 3-guard (+8), **D-224 table.grow** (`cf89c88f`: pre-size non-funcref tables to
-  max + fill-on-grow + descriptor-in-place; +11). Opt-in `ZWASM_SPEC_ENGINE=jit`. Mac aarch64:
-  **pass=563 fail=16 skip=716** (memory64 100% GREEN; interp test-all UNCHANGED). **fail taxonomy (16,
-  the deep tail)**: gc/array ×6 (corpus-context-dependent traps), ref_func ×4 (D-198), gc/i31 ×4
-  (i31.3/4 cross-module imported-global table-init-expr), gc/type-subtyping ×1 (ADR-0127 PHASE C),
-  try_table ×1 (EH).
+- **HEAD** (`181f2f2b`): §1 spec-corpus JIT mode. Session +69: D-223 (+43), D-212 (+6), D-218 (+8),
+  D-224 table.grow (+11), **D-225-partial ref.func-global** (`181f2f2b`: build func_entities before
+  the global loop → ref.func globals resolve non-null; +1). Opt-in `ZWASM_SPEC_ENGINE=jit`. Mac
+  aarch64: **pass=564 fail=15 skip=716** (memory64 100% GREEN; interp test-all UNCHANGED). **fail
+  taxonomy (15, deep tail)**: gc/array ×6 (corpus-context-dependent traps), ref_func call-f/call-v ×3
+  (cross-module CALL, D-225), gc/i31 ×4 (i31.3/4 cross-module imported-global), gc/type-subtyping ×1
+  (ADR-0127 PHASE C), try_table ×1 (EH).
 - **PER-MODULE blocker-STACK reality** (lesson `2026-06-02-jit-corpus-late-phase-is-per-module-
   blocker-stacks`): since memory64 (+208, last big mover), every gc/funcref fix has been correct
   but ~0 corpus — each remaining module has 3-6 DISTINCT blockers; JIT rejects at the FIRST
@@ -61,13 +61,14 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 - **Exit-condition**: ≥1 `assert_return` executes THROUGH the JIT + compares. ✓ **MET** long ago.
   Infra COMPLETE; backbone operational (pass=484). Bundle stays open as the diagnostic-driven
   gap-fixing vehicle (`JITmodrej` tally → fix biggest tractable lever).
-- **NEXT chunk** = **D-225 cross-module JIT imports** (this turn's root-cause: the §1 JIT path is
-  per-module standalone — `JitInstance.init(bytes)` — and does NOT link against the runner's
-  `cur_linker`/`cur_engine` like the interp path does; so ref_func ×4 + i31.3/4 ×4 + try_table ×1 (~9
-  of 16 fails) mis-execute on unresolved imports). The next REAL lever (after +68 from D-223/212/218/
-  224). ARCHITECTURAL BUNDLE (multi-cycle): wire JitInstance import resolution to exporter instances'
-  func_entities/global values. Start: read how the interp path (`cur_engine.compile` + `cur_linker`)
-  resolves imports + what JitInstance setup would need. See D-225.
+- **NEXT chunk** = **D-225 cross-module JIT CALL/import** (the ref.func-global piece landed `181f2f2b`,
+  +1; the remaining cross-module piece is the architectural lever). The §1 JIT path is per-module
+  standalone (`JitInstance.init(bytes)`) and does NOT link against the runner's `cur_linker`/
+  `cur_engine`; so ref_func call-f/call-v ×3 + i31.3/4 ×4 + try_table ×1 (~8 fails) mis-execute on
+  unresolved imports (the imported func's host_dispatch slot = hostDispatchTrap → trap). ARCHITECTURAL
+  BUNDLE (multi-cycle): wire JitInstance import resolution to exporter instances' func_entities/global
+  values. Start: read how the interp path (`cur_engine.compile` + `cur_linker`) resolves imports + what
+  JitInstance setup would need. See D-225.
   - **The other 7**: gc/array ×6 = CORPUS-CONTEXT-DEPENDENT traps (array.5 `new` works standalone;
     `get` takes a ref arg → repro needs the corpus sequence + the fnv-fingerprint/non-zero-probe
     method from lesson `jit-result-bug-stale-register-confound`); gc/type-subtyping ×1 = ADR-0127
@@ -88,10 +89,10 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 ## Step 0.7 (next resume)
 
-Prior turn (`5446df53`, D-224 table.grow) ubuntu `test-all` = GREEN (verified HEAD=5446df53; x86_64
-OK). THIS turn = TRIAGE (root-caused the deep tail: ~9 fails need cross-module JIT imports → new
-D-225; the §1 JIT path is standalone, no linker. debt+handover only → code == green `5446df53`).
-SKIP Step 0.7 ubuntu next resume (no code delta). Mac aarch64; ubuntu = x86_64.
+Prior turn (`34970089`, D-225 triage) ubuntu = n/a (docs only). THIS turn landed D-225-partial
+(`181f2f2b`: func_entities before the global loop → ref.func globals resolve; +1) → ubuntu `test-all`
+kicked at end → `tail -3 /tmp/ubuntu.log` next resume (Step 0.7). On FAIL revert to `34970089`.
+Mac aarch64; ubuntu = x86_64.
 
 **Gate hygiene (NEW, `2134116b`)**: use `bash scripts/mac_gate.sh` for the Step-5 Mac gate —
 never `zig build test-all > log; grep -c … log` (trailing `grep -c` exits 1 on zero matches →
