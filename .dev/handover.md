@@ -8,16 +8,16 @@
 - **Phase**: **10 IN-PROGRESS — committed to 100% (ADR-0128)** (Phase 9 = DONE
   2026-05-24). §10 exit requires the official Wasm 3.0 testsuite at pass=fail=skip=0
   on **both backends** (interp + JIT).
-- **HEAD** (`568ac652`): §1 spec-corpus JIT mode. D-225 cross-module imports COMPLETE; gc/array RESOLVED
-  (`fa596f08`, +6). THIS turn: **struct.get_s/get_u JIT emit** (`568ac652`) — packed i8/i16 sign/zero-
-  extend, both arches (mirror array.get_s/u), unit-tested, R15-whitelisted; gc/struct.10 now COMPILES.
-  Opt-in `ZWASM_SPEC_ENGINE=jit`. Mac aarch64: **pass=577 fail=2 skip=716** (memory64 GREEN; interp UNCHANGED).
-  **JIT-EXECUTED fails = 2** (gc/type-subtyping = ADR-0127 PHASE C user-gated; try_table = EH-on-JIT).
-  **STRATEGIC INSIGHT (this turn)**: per-op emit gaps (struct.get_s done; array.init_data/elem pending)
-  clear COMPILE but their consuming asserts are often **multi-value (results=2) eligibility-skipped** —
-  so emit-alone gives no corpus-count delta. The **multi-value / `buffer_write`-ABI** lever is now the
-  highest-leverage unlock (would flip struct.10's ~20 get_packed asserts + ~19 other multi-value skips),
-  but it's the MAJOR D-094/D-164 migration. skip=716 reduction = the §10 exit bulk (ADR-0128).
+- **HEAD** (`a11b1699`): §1 spec-corpus JIT mode. THIS turn: **array.init_data/init_elem JIT emit** (A-11) —
+  2 trampolines jitGcArrayInit{Data,Elem} (mirror jitGcArrayFill 6-arg-CALL) + per-arch emit; init_data reads
+  typeidx from ObjectHeader.info (mark-bit masked — won't fit the 6-arg SysV budget), init_elem needs none
+  (esz=8 uniform). R15-whitelisted, lint clean, both backends. Mac aarch64 JIT: **assert_return pass=605
+  fail=2 skip=688** (was 577/2/716 → **+28 pass, fail FLAT, −28 skip**; interp UNCHANGED). gc/array_init_data
+  + gc/array_init_elem flip modrej→compile, return asserts PASS (return_fail=0); the trap_fail=1 each is
+  PRE-EXISTING (verified vs stash baseline: identical) — separate interp/setup gap, NOT this emit.
+  **JIT-EXECUTED assert_return fails = 2** (gc/type-subtyping = ADR-0127 PHASE C user-gated; try_table =
+  EH-on-JIT). **Eligible single-result gap-ops now SPENT** (struct.get_s/u + array.init_data/elem done);
+  remaining levers = RTT-entangled convert OR major multi-value/buffer_write ABI (Active bundle).
 - **PER-MODULE blocker-STACK reality** (lesson `2026-06-02-jit-corpus-late-phase-is-per-module-
   blocker-stacks`): since memory64 (+208, last big mover), every gc/funcref fix has been correct
   but ~0 corpus — each remaining module has 3-6 DISTINCT blockers; JIT rejects at the FIRST
@@ -45,35 +45,25 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 - **Bundle-ID**: `10.G-§1-skip-reduction` (prior gc/array bundle CLOSED at `fa596f08`, exit met: array.8
   green, pass=577; JIT-executed fails now 2, both gated/deep).
-- **Cycles-remaining**: ~2 (skip-reduction)
+- **Cycles-remaining**: ~1 — THIS cycle's exit-condition MET (+28); eligible single-result gap-ops now SPENT.
 - **GAP-OP MAP (via `liveness: UnsupportedOp[stackEffect-missing] op=…` stderr diag — re-run corpus +
-  `grep -iE "liveness|unsupported op"`)**: remaining modrej gap ops = `any.convert_extern ×5` (gates
-  ref_test/ref_cast/br_on_cast/extern — RTT-ENTANGLED, defer; bundle WITH ref.test/ref.cast-on-extern-RTT,
-  verify 32+7 pass), `array.init_elem ×1` (array_init_elem.3), `array.init_data ×1` (array_init_data.2).
-  **`struct.get_s/u` DONE** (`568ac652`, struct.10 compiles). **NEXT = array.init_data/elem emit (CORPUS-
-  MOVING — verified this cycle)**: unlike struct.get_s (whose get_packed asserts are multi-value-skipped),
-  array_init_data.2 + array_init_elem.3 asserts are SINGLE-result (void `-> ()` + `array_get_nth i32:N
-  -> i32:M`, ≤3 args) = ELIGIBLE → emitting these 2 ops FLIPS ~15-20 asserts (each module has ~3
-  assert_return-void + ~6 assert_trap + several get_nth). These are IN-PLACE init from a passive data/elem
-  segment (pop array ref + dest + src + len = 4 operands, copy seg→array, bounds-trap, push nothing →
-  stack-effect 4→0). RECIPE (mirror `array.fill`=jitGcArrayFill, a proven multi-pop→6-arg-CALL emit
-  template): (1) NEW trampolines jitGcArrayInitData/Elem in jit_abi.zig — derive element-size from the
-  ref's ObjectHeader.typeidx (→ array_infos) so the sig fits 6 C-ABI args (rt, segidx, ref, dest, src, n),
-  bounds-check (ref null / dest+n>array.len / src+n>seg.len → return 0=trap), copy (data: LE-unpack per
-  elem like jitGcArrayNewData:651-659; elem: direct u64 like jitGcArrayNewElem); (2) emit (arm64+x86_64
-  array_init_data.zig + _elem.zig) — pop 4, marshal 6 args, CALL, map 0→trap (mirror array_fill.zig);
-  (3) stack-effect 4→0 (find/add the group in liveness_stack_effect — or special-case like struct.new);
-  (4) register + count tests. VERIFY: array_init_data.2/elem.3 assert_return + assert_trap flip green.
-  DEFER: multi-value/buffer_write ABI (MAJOR D-094/D-164 — flips struct.10 ~20 + ~19 results=2 skips, but
-  HIGH blast radius; FuncRet_* register structs exist in entry.zig as a Mac/ubuntu-only fallback).
-- **Continuity-memo**: §1 JIT-EXECUTED fails = 2 (type-subtyping user-gated ADR-0127 PHASE C; try_table
-  EH-on-JIT). Remaining §10 exit bulk = **skip=716**. Prior course-corrections (both reverted, net-zero,
-  corpus stays 577/2): multi-value needs the `buffer_write` ABI migration (compileWasm hardcodes
-  register_write, compile.zig:1058) — MAJOR, defer; `any.convert_extern`/`extern.convert_any` emit is
-  trivial (identity) BUT gates ref_test/ref_cast/br_on_cast which then mis-execute on extern/any RTT
-  (+50 pass / +39 FAIL → **LESSON: unblocking a modrej module ≠ passing it**; verify asserts PASS not
-  just compile). So convert bundles WITH a ref.test/ref.cast-on-extern-RTT fix, not alone.
-- **Exit-condition**: ≥1 UnsupportedOp module flips modrej→compiles AND its asserts PASS (net fail unchanged).
+  `grep -iE "liveness|unsupported op"`)**: **DONE** — `struct.get_s/u` (`568ac652`), `array.init_data`
+  + `array.init_elem` (`a11b1699`, +28 this cycle, recipe = jitGcArrayFill 6-arg-CALL template). The
+  cleanly-ELIGIBLE single-result gap-ops are now exhausted. **NEXT = pick ONE of two larger levers** (both
+  flagged high-risk; neither is an established-pattern emit chunk → fresh-context turn, likely ADR):
+  (a) `any.convert_extern ×5` — RTT-ENTANGLED: emit is trivial (identity) BUT gates ref_test/ref_cast/
+  br_on_cast which then mis-execute on extern/any RTT; MUST bundle WITH a ref.test/ref.cast-on-extern-RTT
+  fix and verify asserts PASS (prior solo attempt: +50 pass / +39 FAIL → reverted; lesson: unblock ≠ pass).
+  (b) MAJOR multi-value/`buffer_write` ABI (D-094/D-164; compileWasm hardcodes register_write,
+  compile.zig:1058) — flips struct.10 ~20 get_packed + ~19 results=2 skips, HIGH blast radius, ADR-grade;
+  FuncRet_* register structs exist in entry.zig as a Mac/ubuntu-only fallback.
+- **Continuity-memo**: §1 JIT-EXECUTED assert_return fails = 2 (type-subtyping user-gated ADR-0127 PHASE C;
+  try_table EH-on-JIT). Remaining §10 exit bulk = **skip=688**. The 2 pre-existing array_init trap_fails
+  (verified present in baseline) share the assert_trap follow-on surface (invokeInstanceTrap, runner L988) —
+  not root-caused; low ROI vs the (a)/(b) levers above.
+- **Exit-condition**: ≥1 UnsupportedOp module flips modrej→compiles AND its asserts PASS (net fail
+  unchanged) — **MET this cycle** (array_init_data/elem, +28 assert_return, fail flat). Bundle CLOSE-eligible;
+  remaining (a)/(b) levers warrant a fresh bundle each (RTT-entangled / ADR-grade).
 
 ## §10 remaining — the six `[ ]` rows
 
@@ -88,11 +78,10 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 ## Step 0.7 (next resume)
 
-Prior commit struct.get_s/u (`568ac652`) is ubuntu-GREEN (verified this turn: `OK (HEAD=94aea24d)` —
-x86_64 emit + R15 pinning confirmed). THIS turn = survey only (no src change): confirmed array.init_data/
-elem asserts are eligible → that's the CORPUS-MOVING next lever (memo has the array.fill-templated recipe).
-No ubuntu kick (docs-only; HEAD stays 94aea24d). Next resume: implement array.init_data/elem emit per the
-GAP-OP MAP. Mac aarch64; ubuntu = x86_64.
+THIS turn = array.init_data/elem JIT emit (`a11b1699`); ubuntu kick fired against it (x86_64 emit + R15
+whitelist exercised). Next resume Step 0.7: `tail -3 /tmp/ubuntu.log` — expect `OK (HEAD=a11b1699)`. On FAIL
+revert the commit. Then pick lever (a) any.convert_extern+RTT bundle OR (b) multi-value ABI (see Active
+bundle). Mac aarch64; ubuntu = x86_64.
 
 **Gate hygiene (NEW, `2134116b`)**: use `bash scripts/mac_gate.sh` for the Step-5 Mac gate —
 never `zig build test-all > log; grep -c … log` (trailing `grep -c` exits 1 on zero matches →
