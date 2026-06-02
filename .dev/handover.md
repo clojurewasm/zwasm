@@ -48,18 +48,22 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 - **Bundle-ID**: `10.G-typesubtyping-RTT` (prior `10.G-typesubtyping-PHASE-C` CLOSED — exit met: assert_unlinkable
   fail 4→0, no regression. ADR-0127 PHASE C: predicates `canonicalEqualCross`+`superReachesCross` + linker
   integration `add983e8`. Earlier this bundle-chain: §1 multi-value +18).
-- **Cycles-remaining**: ~1-2. Cycles 1-2 done — the 5 fails are ONE fixture (`.17` = .wast:229, self-recursive
-  rec-group chain $t0/$t1/$t2). **CONFIRMED cyc180 rabbit hole (D-198)**: needs ≥2 coordinated runtime fixes,
-  each non-observable until "run" fully passes (spike §2). Fix #1 = call_indirect `sigEq`→subtype (verified-
-  correct recipe in D-198: `sigEq OR (callee_rt==rt and ref_test_ops.concreteReaches(rt, fe.raw_typeidx,
-  declared))`). cyc2 RE-PROBED fix #1 → STILL return_fail=1 (root cause #2 — a `Trap.Unreachable` in "run"
-  after the call_indirects — persists, untouched by intervening canonical work). Fix #1 reverted (non-
-  observable alone). This bundle's win = the SEPARATE .12/.14 global-init fix (`8d5d67ed`).
-- **NEXT (cycle 3, focused fresh-context debug)**: IDENTIFY root cause #2 (cyc180 left it unidentified).
-  Apply fix #1 locally, run `.17` "run", trace WHERE the Trap.Unreachable fires — suspects: the recursive
-  self-ref func-type result handling, the stacked `(block (result (ref null $tN)) …)` ×12, or the final
-  `(br 0)` with 12 operands on stack. That's the leverage; with #2 identified, land fix#1+#2 as one bundle
-  → "run" passes + the 6 fail* asserts. If #2 is deep → debt-row .17 + defer (it's 1 exotic fixture).
+- **Cycles-remaining**: ~1. Cycles 1-3 done — the 5 fails are ONE fixture (`.17` = .wast:229, self-recursive
+  rec-group chain $t0/$t1/$t2). **cyc180 rabbit hole (D-198)**: ≥2 coordinated runtime fixes, non-observable
+  until "run" passes (spike §2). Fix #1 = call_indirect `sigEq`→subtype (recipe: `sigEq OR (callee_rt==rt and
+  ref_test_ops.concreteReaches(rt, fe.raw_typeidx, declared))`, make concreteReaches pub). cyc2 re-probed
+  fix #1 → still return_fail=1 (root cause #2 persists). This bundle's win = .12/.14 global-init fix (`8d5d67ed`).
+- **cyc3 IDENTIFIED root cause #2** (cyc180 couldn't): instrumented `unreachableOp` (fix #1 applied locally)
+  → it fires in a `()->()` func (2 hits, = "run"'s sig; `restoreToLabel` arity-trap did NOT fire). So "run"
+  executes an actual `unreachable` OP — but its source has none → it reaches the DEAD-CODE tail after the
+  final `(br 0)`. Hypothesis: function-level `br 0` (target = the function body label, arity 0, 12 operands
+  stacked) sets `frame.pc = target_pc` (doBranch, mvp.zig:313) which lands on a trailing `unreachable`
+  instead of returning. Probe + instrumentation REVERTED (non-observable).
+- **NEXT (cycle 4, fresh context — the fix)**: confirm via dumping "run"'s lowered ZIR (trailing op after
+  br 0) + read how the function-body label's `target_pc` is set at frame invoke (the `unreachable` may be a
+  lowering artifact for dead code, or br-0 should returnOp not jump-to-end). Fix so function-level `br 0`
+  returns. Then re-apply fix #1 → "run" passes + the fail* asserts → interp gc/type-subtyping fails 5→0
+  (interp corpus fails=0 milestone). If the control-flow fix is deep → debt-row .17 + pivot.
 - **STRATEGIC (§10 100% reality)**: the remaining §10 fails are ALL deep/deferred — `.17` RTT (here) +
   eh/try_table (EH-on-JIT) + JIT multi-memory **407 skips (Phase-14 deferred)**. Per ADR-0128 §10 exit =
   pass=fail=skip=0 BOTH backends, so JIT skip=0 is UNREACHABLE in Phase 10 (needs Phase-14 multi-memory JIT).
@@ -84,12 +88,12 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 ## Step 0.7 (next resume)
 
-THIS turn = RTT cycle 2: (8d5d67ed/.12/.14 fix ubuntu-verified OK) + re-probed the .17 call_indirect-subtype
-fix #1 → still return_fail=1 (root cause #2 persists, = cyc180 D-198 rabbit hole) → reverted (non-observable
-alone). No code commit (probe reverted); doc-only handover. HEAD stays `5faad2b9` (ubuntu-OK). Next resume
-Step 0.7: `tail -3 /tmp/ubuntu.log` should still read `OK (HEAD=5faad2b9)`. Then cycle 3 per Active-bundle NEXT:
-IDENTIFY .17 root cause #2 (fresh-context interp debug — trace the Trap.Unreachable in "run"). Also note the
-STRATEGIC §10-100%-gated-on-Phase-14 finding (surface to user). Mac aarch64; ubuntu = x86_64.
+THIS turn = RTT cycle 3: instrumented probe IDENTIFIED .17 root cause #2 — `unreachableOp` fires in "run"
+(()->()  func) → it reaches a DEAD-CODE `unreachable` after the final `(br 0)` (function-level br not
+returning). Probe + instrumentation reverted (non-observable). No code commit. HEAD stays `5faad2b9`
+(ubuntu-OK). Next resume Step 0.7: `tail -3 /tmp/ubuntu.log` should still read `OK (HEAD=5faad2b9)`. Then
+cycle 4 per Active-bundle NEXT: confirm + fix the function-level `br 0` control-flow, then fix #1 → .17 closes.
+NOTE the §10-100%-gated-on-Phase-14 finding (surface to user). Mac aarch64; ubuntu = x86_64.
 
 **Gate hygiene (NEW, `2134116b`)**: use `bash scripts/mac_gate.sh` for the Step-5 Mac gate —
 never `zig build test-all > log; grep -c … log` (trailing `grep -c` exits 1 on zero matches →
