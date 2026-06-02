@@ -8,17 +8,17 @@
 - **Phase**: **10 IN-PROGRESS — committed to 100% (ADR-0128)** (Phase 9 = DONE
   2026-05-24). §10 exit requires the official Wasm 3.0 testsuite at pass=fail=skip=0
   on **both backends** (interp + JIT).
-- **HEAD** (`a6cfd65e`): §1 spec-corpus JIT mode. Session +72: D-223 (+43), D-212 (+6), D-218 (+8),
-  D-224 (+11), D-225 ref.func-global (+1) + **runner-wiring (+3, `a6cfd65e`)**. D-225 bundle:
-  ref.func-global (`181f2f2b`) + table init-expr eval (`36904b47`) + JIT imported-global resolution
-  (`e03c2aee`, `*Linked`) + **runner wiring to `initLinked`** (`a6cfd65e`: spec runner resolves the
-  importing module's global-import VALUES from registered exporters → `initLinked`; flips gc/i31.3's
-  3 `get` asserts). Opt-in `ZWASM_SPEC_ENGINE=jit`. Mac aarch64: **pass=567 fail=12 skip=716** (memory64
-  GREEN; interp UNCHANGED, jit_mode-guarded).
-  **fail taxonomy (12, deep tail)**: gc/array ×6 (corpus-context-dependent traps), ref_func call-f/
-  call-v ×3 (cross-module FUNC dispatch, D-225), gc/i31.4 ×1 (i31ref DEFINED-global init traps in JIT —
-  NOT import resolution, that works for i31.3; the JIT GC-typed defined-global storage/get path), gc/
-  type-subtyping ×1 (ADR-0127 PHASE C), try_table ×1 (EH).
+- **HEAD** (`c5ab78c1`): §1 spec-corpus JIT mode. Session +74: D-223 (+43), D-212 (+6), D-218 (+8),
+  D-224 (+11), D-225 ref.func-global (+1) + runner-wiring (+3) + **globals-layout (+1, `c5ab78c1`)**.
+  D-225 imported-GLOBAL track COMPLETE: ref.func-global (`181f2f2b`) + table init-expr (`36904b47`) +
+  setup-time const-expr resolution (`e03c2aee`) + runner wiring (`a6cfd65e`, flips i31.3) + **import-
+  inclusive globals_buf** (`c5ab78c1`: emitted-code global layout is imports-first; globals_buf was
+  defined-only → emitted `global.get $defined` read OOB; now sized num_global_imports+globals_count,
+  flips i31.4 + fixes emitted global.get-of-import). Opt-in `ZWASM_SPEC_ENGINE=jit`. Mac aarch64:
+  **pass=568 fail=11 skip=716** (memory64 GREEN; interp UNCHANGED, jit_mode-guarded).
+  **fail taxonomy (11)**: gc/array ×6 (corpus-context-dependent traps), ref_func call-f/call-v ×3
+  (cross-module FUNC dispatch — the remaining D-225 lever), gc/type-subtyping ×1 (ADR-0127 PHASE C),
+  try_table ×1 (EH).
 - **PER-MODULE blocker-STACK reality** (lesson `2026-06-02-jit-corpus-late-phase-is-per-module-
   blocker-stacks`): since memory64 (+208, last big mover), every gc/funcref fix has been correct
   but ~0 corpus — each remaining module has 3-6 DISTINCT blockers; JIT rejects at the FIRST
@@ -46,29 +46,27 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 - **Bundle-ID**: `10.G-§1-cross-module-jit-imports` (D-225; the §1 backbone is long-operational at
   pass=564 — this sub-bundle is the current multi-cycle integration).
-- **Cycles-remaining**: ~2
-- **Continuity-memo**: wire cross-module imports into the §1 JIT path (survey + file:line in
-  `private/notes/d225-cross-module-jit-survey.md`). DONE: table init-expr eval (`36904b47`) + JIT
-  imported-global resolution into setup-time const-exprs (`e03c2aee`, `*Linked`) + **runner wiring**
-  (`a6cfd65e`: `spec_assert_runner_wasm_3_0.zig` `jitResolveImportedGlobals` reads each global-import's
-  VALUE from the registered exporter — `name_to_idx`→instance→`exports_storage`→`runtime.globals[idx]`
-  — and passes it to `JitInstance.initLinked`; flipped gc/i31.3 +3). **NEXT (flips gc/i31.4, +1)**: the
-  i31ref DEFINED-global init `(global i31ref (ref.i31 (global.get $env.g)))` still TRAPS under JIT —
-  import resolution works (i31.3 proves it), so the gap is the JIT GC-typed DEFINED-global storage/get
-  path: does `evalGlobalInitGc`'s i31 result land in the JIT global slot, and does emitted `global.get`
-  of an i31ref defined global read it? Probe: i31.4 `get () -> 42` (no-arg). **THEN ARCHITECTURAL**:
-  cross-module FUNC dispatch (ref_func call-f/call-v ×3; `dispatch[N]`=exporter JIT entry, C-ABI
-  symmetric) — the big lever. Full design: `private/notes/d225-cross-module-jit-survey.md`.
-- **Exit-condition**: a cross-module fail flips green — gc/i31.4 `get`→42 OR ref_func `call-f`.
-- **NEXT chunk** = **gc/i31.4 JIT defined-global init** (see bundle Continuity-memo). Import
-  resolution is now wired (i31.3 green); the §1 JIT path is still per-module standalone for FUNC
-  imports — ref_func call-f/call-v ×3 mis-dispatch (host_dispatch slot = hostDispatchTrap → trap),
-  the remaining architectural lever after i31.4.
+- **Cycles-remaining**: ~2 (architectural — cross-module FUNC dispatch)
+- **Continuity-memo**: imported-GLOBAL track DONE (i31.3 `a6cfd65e` + i31.4 `c5ab78c1`; setup-time
+  const-expr + runner wiring + import-inclusive globals_buf). **NEXT = cross-module FUNC dispatch**
+  (ref_func call-f/call-v ×3). The §1 JIT path compiles each module standalone (`JitInstance.initLinked`,
+  `runner.zig`); an imported FUNC's `dispatch[N]` slot = `hostDispatchTrap` → call traps. PLAN (survey
+  `private/notes/d225-cross-module-jit-survey.md`): populate `dispatch[N]` with the EXPORTER's JIT entry
+  ptr (C-ABI symmetric, no stack marshal) — but the runner creates each `JitInstance` standalone, so the
+  exporter's JIT entry isn't kept. Either (a) the runner keeps registered exporter `JitInstance`s alive +
+  threads their per-func entry ptrs into the importer's `initLinked` (parallels `jitResolveImportedGlobals`
+  but for funcs — needs an exporter→funcptr accessor on JitInstance), or (b) a host-thunk that re-enters
+  the exporter instance. Start: read how `dispatch`/`host_dispatch_base`/`populateDispatch` (setup.zig:~225)
+  wires imported funcs + what `hostDispatchTrap` does. Likely 2-cycle.
+- **Exit-condition**: ref_func `call-f` OR `call-v` flips green (cross-module FUNC call dispatches to
+  exporter, no trap).
+- **NEXT chunk** = **cross-module FUNC dispatch** (ref_func call-f/call-v ×3; see bundle Continuity-memo).
+  The remaining D-225 architectural lever now that the imported-GLOBAL track is complete.
   - **The other 8**: gc/array ×6 = CORPUS-CONTEXT-DEPENDENT traps (array.5 `new` works standalone;
     `get` takes a ref arg → repro needs the corpus sequence + the fnv-fingerprint/non-zero-probe
     method from lesson `jit-result-bug-stale-register-confound`); gc/type-subtyping ×1 = ADR-0127
     PHASE C (Proposed, user-Accept-gated + regression-risky); try_table ×1 = EH. Skip multi-memory 51 (Phase-14).
-  - **REALITY**: big levers SPENT (+72 this session); the tail is architectural (cross-module FUNC) or
+  - **REALITY**: big levers SPENT (+74 this session); the tail is architectural (cross-module FUNC) or
     context-dependent — expect lower per-turn corpus throughput; each is a deliberate focused bundle.
 
 ## §10 remaining — the six `[ ]` rows
@@ -84,10 +82,10 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 ## Step 0.7 (next resume)
 
-Prior turn ubuntu GREEN (`tail -3 /tmp/ubuntu.log` = `OK (HEAD=3643a618)`). THIS turn landed the §1
-JIT runner wiring (`a6cfd65e`: test-only spec-runner change; Mac gate test+lint OK) → ubuntu
+Prior turn ubuntu GREEN (`tail -3 /tmp/ubuntu.log` = `OK (HEAD=4344c8b5)`). THIS turn landed the JIT
+import-inclusive globals_buf fix (`c5ab78c1`: src/engine/setup.zig; Mac gate test+lint OK) → ubuntu
 `test-all` kicked at end → `tail -3 /tmp/ubuntu.log` next resume (Step 0.7). On FAIL revert to
-`3643a618`. Mac aarch64; ubuntu = x86_64.
+`4344c8b5`. Mac aarch64; ubuntu = x86_64.
 
 **Gate hygiene (NEW, `2134116b`)**: use `bash scripts/mac_gate.sh` for the Step-5 Mac gate —
 never `zig build test-all > log; grep -c … log` (trailing `grep -c` exits 1 on zero matches →
