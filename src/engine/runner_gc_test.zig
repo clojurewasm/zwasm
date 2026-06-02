@@ -867,3 +867,41 @@ test "runF32Export: cross-func ref-param struct.get f32 field → 2.5 (D-212 RED
     };
     try testing.expectEqual(@as(f32, 2.5), try runF32Export(testing.allocator, &bytes, "f"));
 }
+
+// ── D-218: table-of-i31ref active elem segment compiles + reads (3 guards) ──
+
+test "JitInstance: table-of-i31ref active elem + table.get + i31.get_u → 999/888/777 (D-218)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    // (module (table $t 3 i31ref)
+    //   (elem (table $t) (i32.const 0) i31ref (item (ref.i31 (i32.const 999)))
+    //                                          (item (ref.i31 (i32.const 888)))
+    //                                          (item (ref.i31 (i32.const 777))))
+    //   (func (export "get") (param i32) (result i32)
+    //     (i31.get_u (table.get $t (local.get 0)))))
+    // The active i31ref elem items are i31-ENCODED const-exprs; three sites
+    // (compile.zig funcidx range-check, setup active-elem-init, setup
+    // elem_refs_arena) used to treat them as funcidxs → InvalidFuncIndex /
+    // UnsupportedEntrySignature. D-218 guards all three for i31/eq/any.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x06, 0x01, 0x60, 0x01, 0x7f, 0x01, 0x7f, // type (i32)->(i32)
+        0x03, 0x02, 0x01, 0x00, // func 0 : type 0
+        0x04, 0x04, 0x01, 0x6c, 0x00, 0x03, // table: 1 table, i31ref, min 3
+        0x07, 0x07, 0x01, 0x03, 0x67, 0x65, 0x74, 0x00, 0x00, // export "get" func 0
+        // elem: flag 6 (active+tableidx+reftype+exprs), table 0, offset (i32.const 0),
+        // reftype i31ref (6c), 3 items each (ref.i31 (i32.const N)).
+        0x09, 0x1a, 0x01, 0x06, 0x00, 0x41, 0x00, 0x0b, 0x6c,
+        0x03,
+        0x41, 0xe7, 0x07, 0xfb, 0x1c, 0x0b, // 999
+        0x41, 0xf8, 0x06, 0xfb, 0x1c, 0x0b, // 888
+        0x41, 0x89, 0x06, 0xfb, 0x1c, 0x0b, // 777
+        // code: local.get 0; table.get 0; i31.get_u; end
+        0x0a, 0x0a, 0x01, 0x08, 0x00, 0x20,
+        0x00, 0x25, 0x00, 0xfb, 0x1e, 0x0b,
+    };
+    var inst = try JitInstance.init(testing.allocator, &bytes);
+    defer inst.deinit(testing.allocator);
+    try testing.expectEqual(@as(?u64, 999), try inst.invoke(testing.allocator, "get", &.{0}));
+    try testing.expectEqual(@as(?u64, 888), try inst.invoke(testing.allocator, "get", &.{1}));
+    try testing.expectEqual(@as(?u64, 777), try inst.invoke(testing.allocator, "get", &.{2}));
+}

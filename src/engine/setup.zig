@@ -464,6 +464,30 @@ pub fn setupRuntime(
             const base: usize = @intCast(off);
             const tbl = tables_descs[seg.tableidx];
             if (base + seg.funcidxs.len > tbl.len) return Error.UnsupportedEntrySignature;
+            // Wasm 3.0 GC (D-221 + D-218): an i31ref/eqref/anyref active elem
+            // segment carries i31-ENCODED values in `funcidxs` (decoder:
+            // i32ToI31Truncate == runtime Value.fromI31Truncate), NOT funcidxs.
+            // Write them straight into `tbl.refs` (table.get returns them;
+            // i31.get_{s,u} decode them) and SKIP the funcref funcptr/typeidx
+            // wiring below — whose `tbl_funcptrs.len` guard wrongly rejects an
+            // i31-only table (its `funcptrs_buf` isn't sized for it). The
+            // discriminator mirrors the decoder's `head_ok` (abstract i31/eq/any
+            // only; concrete `(ref $func)` tables still carry funcidxs).
+            // (global.get-marker items [bit31] → later chunk; left null.)
+            const seg_is_i31 = seg.elem_type == .ref and switch (seg.elem_type.ref.heap_type) {
+                .abstract => |a| a == .i31 or a == .eq or a == .any,
+                .concrete => false,
+            };
+            if (seg_is_i31) {
+                for (seg.funcidxs, 0..) |fidx, i| {
+                    if (fidx == std.math.maxInt(u32)) {
+                        tbl.refs[base + i] = Value.null_ref;
+                    } else if ((fidx & 0x80000000) == 0) {
+                        tbl.refs[base + i] = fidx;
+                    }
+                }
+                continue;
+            }
             // §9.9 / 9.9-l-1b-d093-d42: per-table funcptr/typeidx
             // slice. Table 0 writes into the legacy flat
             // `funcptrs_buf` / `typeidxs_buf` (which back the
@@ -486,22 +510,6 @@ pub fn setupRuntime(
                 if (fidx == std.math.maxInt(u32)) {
                     // ref.null — leave the slot null + sentinel typeidx.
                     tbl.refs[base + i] = Value.null_ref;
-                    continue;
-                }
-                // Wasm 3.0 GC: an i31ref/eqref/anyref active elem segment
-                // stores the i31-ENCODED value in `funcidxs` (decoder:
-                // i32ToI31Truncate == runtime Value.fromI31Truncate), NOT a
-                // funcidx. Store it directly as the table ref — table.get
-                // returns it, i31.get_{s,u} decode it. D-221. Discriminator
-                // MIRRORS the decoder's `head_ok` (abstract i31/eq/any only —
-                // concrete `(ref $func)` tables still carry funcidxs).
-                // (global.get-marker items [bit31] in these tables → later chunk.)
-                const is_i31_family = seg.elem_type == .ref and switch (seg.elem_type.ref.heap_type) {
-                    .abstract => |a| a == .i31 or a == .eq or a == .any,
-                    .concrete => false,
-                };
-                if (is_i31_family) {
-                    if ((fidx & 0x80000000) == 0) tbl.refs[base + i] = fidx;
                     continue;
                 }
                 if (fidx >= compiled.func_sigs.len) return Error.UnsupportedEntrySignature;
@@ -600,9 +608,20 @@ pub fn setupRuntime(
                     .refs = elem_refs_arena.ptr + off,
                     .len = seg_len,
                 };
+                // D-218: i31ref/eqref/anyref elem segments carry i31-ENCODED
+                // values, NOT funcidxs — store them directly (table.init reads
+                // them; i31.get decodes), mirroring the active elem-init +
+                // compile-time guards. Else the encoded value (e.g. (999<<1)|1)
+                // trips `>= func_sigs.len` → UnsupportedEntrySignature.
+                const seg_is_i31 = seg.elem_type == .ref and switch (seg.elem_type.ref.heap_type) {
+                    .abstract => |a| a == .i31 or a == .eq or a == .any,
+                    .concrete => false,
+                };
                 for (seg.funcidxs, 0..) |fidx, k| {
                     if (fidx == std.math.maxInt(u32)) {
                         elem_refs_arena[off + k] = Value.null_ref;
+                    } else if (seg_is_i31) {
+                        elem_refs_arena[off + k] = if ((fidx & 0x80000000) == 0) fidx else Value.null_ref;
                     } else if (fidx >= compiled.func_sigs.len) {
                         return Error.UnsupportedEntrySignature;
                     } else {

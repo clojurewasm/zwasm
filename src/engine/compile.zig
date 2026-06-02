@@ -214,14 +214,24 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             var es_buf = try sections.decodeElement(a, es.body);
             defer es_buf.deinit();
             for (es_buf.items) |seg| {
-                for (seg.funcidxs) |fidx| {
+                // Wasm 3.0 GC (D-218): an i31ref/eqref/anyref elem segment's
+                // `funcidxs` carry i31-ENCODED values ((n<<1)|1), NOT funcidxs
+                // (decoder: i32ToI31Truncate; see setup.zig elem-init D-221).
+                // Skip the funcidx range check for them — else the encoded
+                // value (e.g. (123<<1)|1) trips `>= total_funcs`. Mirrors the
+                // setup discriminator (abstract i31/eq/any only).
+                const seg_is_i31 = seg.elem_type == .ref and switch (seg.elem_type.ref.heap_type) {
+                    .abstract => |aa| aa == .i31 or aa == .eq or aa == .any,
+                    .concrete => false,
+                };
+                if (!seg_is_i31) for (seg.funcidxs) |fidx| {
                     if (fidx == std.math.maxInt(u32)) continue;
                     // Close-plan §6 (j) Step B cohort 6 — `global.get N`
                     // marker (top-bit set): skip the funcidx range
                     // check, the entry is resolved at table-init time.
                     if (sections.elemEntryIsGlobalGet(fidx)) continue;
                     if (fidx >= total_funcs_early) return Error.InvalidFuncIndex;
-                }
+                };
                 if (seg.kind == .active) {
                     if (seg.tableidx >= total_tables) {
                         return Error.ElemSegmentRequiresTable;
