@@ -61,18 +61,19 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 - **Exit-condition**: ≥1 `assert_return` executes THROUGH the JIT + compares. ✓ **MET** long ago.
   Infra COMPLETE; backbone operational (pass=484). Bundle stays open as the diagnostic-driven
   gap-fixing vehicle (`JITmodrej` tally → fix biggest tractable lever).
-- **NEXT chunk** = pick from the deep tail (16; big levers SPENT per the per-module-blocker lesson —
-  expect lower per-turn throughput, each is a focused investigation):
-  1. **ref_func ×4 (D-198)** — named funcref residual; call-v/call-f/is_null-v. Likely the most
-     self-contained (a known op gap, not corpus-state-dependent). Try first.
-  2. **gc/array ×6** — `new`/`get`/`set_get`/`len` traps; CORPUS-CONTEXT-DEPENDENT (array.5 `new`
-     works standalone via JitInstance; `get` takes a ref arg) → repro needs the corpus invoke
-     sequence, like the D-212 saga. Use the fnv-fingerprint + non-zero-expected probes from lesson
-     `jit-result-bug-stale-register-confound`.
-  3. **gc/i31 ×4** — i31.3/4 = table-with-init-expr + IMPORTED-global const-expr (cross-module,
-     `(table 3 3 (ref i31) (ref.i31 (global.get $env.g)))`); needs JIT cross-module import resolution
-     — deepest. 4. gc/type-subtyping ×1 (ADR-0127 PHASE C cross-`Types` canonicalEqual). 5. try_table
-     ×1 (EH). Skip multi-memory 51 (Phase-14). Prefer direct FAIL→pass flips on compiling modules.
+- **NEXT chunk** = **D-225 cross-module JIT imports** (this turn's root-cause: the §1 JIT path is
+  per-module standalone — `JitInstance.init(bytes)` — and does NOT link against the runner's
+  `cur_linker`/`cur_engine` like the interp path does; so ref_func ×4 + i31.3/4 ×4 + try_table ×1 (~9
+  of 16 fails) mis-execute on unresolved imports). The next REAL lever (after +68 from D-223/212/218/
+  224). ARCHITECTURAL BUNDLE (multi-cycle): wire JitInstance import resolution to exporter instances'
+  func_entities/global values. Start: read how the interp path (`cur_engine.compile` + `cur_linker`)
+  resolves imports + what JitInstance setup would need. See D-225.
+  - **The other 7**: gc/array ×6 = CORPUS-CONTEXT-DEPENDENT traps (array.5 `new` works standalone;
+    `get` takes a ref arg → repro needs the corpus sequence + the fnv-fingerprint/non-zero-probe
+    method from lesson `jit-result-bug-stale-register-confound`); gc/type-subtyping ×1 = ADR-0127
+    PHASE C (Proposed, user-Accept-gated + regression-risky). Skip multi-memory 51 (Phase-14).
+  - **REALITY**: big levers SPENT (+68 this session); the tail is architectural (cross-module) or
+    context-dependent — expect lower per-turn corpus throughput; each is a deliberate focused bundle.
 
 ## §10 remaining — the six `[ ]` rows
 
@@ -87,9 +88,10 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 ## Step 0.7 (next resume)
 
-Prior turn (`41e94edb`, D-224 triage) ubuntu = n/a (docs only). THIS turn landed D-224 table.grow
-(`cf89c88f`: setup.zig pre-size + jitTableGrow, +11 corpus) → ubuntu `test-all` kicked at end →
-`tail -3 /tmp/ubuntu.log` next resume (Step 0.7). On FAIL revert to `41e94edb`. Mac aarch64; ubuntu = x86_64.
+Prior turn (`5446df53`, D-224 table.grow) ubuntu `test-all` = GREEN (verified HEAD=5446df53; x86_64
+OK). THIS turn = TRIAGE (root-caused the deep tail: ~9 fails need cross-module JIT imports → new
+D-225; the §1 JIT path is standalone, no linker. debt+handover only → code == green `5446df53`).
+SKIP Step 0.7 ubuntu next resume (no code delta). Mac aarch64; ubuntu = x86_64.
 
 **Gate hygiene (NEW, `2134116b`)**: use `bash scripts/mac_gate.sh` for the Step-5 Mac gate —
 never `zig build test-all > log; grep -c … log` (trailing `grep -c` exits 1 on zero matches →
