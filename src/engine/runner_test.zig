@@ -1232,3 +1232,33 @@ test "JitInstance.invokeMulti: 2-result (i32 i32) returns both values via entry_
     try testing.expectEqual(@as(u32, 7), results[0].i32);
     try testing.expectEqual(@as(u32, 9), results[1].i32);
 }
+
+test "JitInstance.invokeMulti: 1-param 2-result returns (arg, 42) — arm64 param-bearing wrapper thunk" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    // (module (func (export "swap") (param i32) (result i32 i32)
+    //   (local.get 0) (i32.const 42)))
+    // Exercises the param-bearing wrapper thunk: param0 loaded from the
+    // buffer-write args ptr into the body's X1 (AAPCS), results in X0/X1.
+    // (const 42 = 0x2a, single-byte SLEB128 positive; 0x64 would be -28.)
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // \0asm + version
+        // type sec: 1 type, (i32) -> (i32 i32)
+        0x01, 0x07, 0x01, 0x60, 0x01, 0x7f, 0x02, 0x7f,
+        0x7f,
+        // func sec: 1 func, type 0
+        0x03, 0x02, 0x01, 0x00,
+        // export sec: 1 export, name="swap", kind=func, idx=0
+        0x07, 0x08, 0x01,
+        0x04, 0x73, 0x77, 0x61, 0x70, 0x00, 0x00,
+        // code sec: 1 body, size 6: locals=0, local.get 0, i32.const 42, end
+        0x0a,
+        0x08, 0x01, 0x06, 0x00, 0x20, 0x00, 0x41, 0x2a,
+        0x0b,
+    };
+    var inst = try JitInstance.init(testing.allocator, &bytes);
+    defer inst.deinit(testing.allocator);
+    var results = [_]TypedResult{ undefined, undefined };
+    try inst.invokeMulti(testing.allocator, "swap", &.{5}, &results);
+    try testing.expectEqual(@as(u32, 5), results[0].i32);
+    try testing.expectEqual(@as(u32, 42), results[1].i32);
+}

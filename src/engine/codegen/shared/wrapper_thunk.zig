@@ -480,14 +480,18 @@ pub fn emitX8664Win64(
 /// Total: 16 bytes. `imm26` is the body-relative-to-call-site
 /// displacement in 4-byte words, sign-extended.
 fn emitAarch64(allocator: std.mem.Allocator, params: EmitParams) Error!EmitOutput {
-    if (params.sig.params.len != 0) return Error.UnsupportedOp;
     if (!all_gpr_class(params.sig.results)) return Error.UnsupportedOp;
+    if (!all_gpr_class(params.sig.params)) return Error.UnsupportedOp;
 
     const n_results = params.sig.results.len;
+    const n_params = params.sig.params.len;
     var bytes: std.ArrayList(u8) = .empty;
     errdefer bytes.deinit(allocator);
 
     if (n_results == 3) {
+        // Param-bearing 3-result (MEMORY-class via X8) deferred — X8=results
+        // collides with param marshalling order; needs the x86_64-style reorder.
+        if (n_params != 0) return Error.UnsupportedOp;
         // 3-int MEMORY-class shape (24 bytes):
         //   STP X30, XZR, [SP, #-16]!  ; A9BF7FFE — save LR (BL clobbers X30)
         //   MOV X8, X1                  ; AA0103E8
@@ -513,24 +517,41 @@ fn emitAarch64(allocator: std.mem.Allocator, params: EmitParams) Error!EmitOutpu
         // 2-int register-class shape: body returns result 0 in X0,
         // result 1 in X1 per AAPCS64. Save results ptr (X1) + LR to
         // stack across the BL, then write X0/X1 to caller's buffer.
-        //
-        // ```text
-        //   STP X1, X30, [SP, #-16]!  ; A9BF7BE1
-        //   BL  body                   ; 94?????
-        //   LDP X9, X30, [SP], #16     ; A8C17BE9  — X9 = results, X30 = LR
-        //   STR X0, [X9, #0]           ; F9000120
-        //   STR X1, [X9, #8]           ; F9000521
-        //   MOV W0, WZR                ; 2A1F03E0
-        //   RET                        ; D65F03C0
-        // ```
-        // 7 insns × 4 = 28 bytes.
-        try writeInsn(allocator, &bytes, 0xA9BF7BE1); // STP X1, X30, [SP, #-16]!
-        try emitBLAarch64(allocator, &bytes, params, 4);
-        try writeInsn(allocator, &bytes, 0xA8C17BE9); // LDP X9, X30, [SP], #16
-        try writeInsn(allocator, &bytes, 0xF9000120); // STR X0, [X9, #0]
-        try writeInsn(allocator, &bytes, 0xF9000521); // STR X1, [X9, #8]
-        try writeInsn(allocator, &bytes, 0x2A1F03E0); // MOV W0, WZR
-        try writeInsn(allocator, &bytes, 0xD65F03C0); // RET
+        // A register_write body reads its params from X1.. (X0=rt); a
+        // 1-param body therefore needs param0 loaded into X1 from the
+        // args buffer ([X2]) AFTER results_ptr (also X1) is stacked.
+        if (n_params == 0) {
+            // ```text
+            //   STP X1, X30, [SP, #-16]!  ; A9BF7BE1
+            //   BL  body                   ; 94?????
+            //   LDP X9, X30, [SP], #16     ; A8C17BE9  — X9 = results, X30 = LR
+            //   STR X0, [X9, #0]           ; F9000120
+            //   STR X1, [X9, #8]           ; F9000521
+            //   MOV W0, WZR                ; 2A1F03E0
+            //   RET                        ; D65F03C0
+            // ```
+            // 7 insns × 4 = 28 bytes.
+            try writeInsn(allocator, &bytes, 0xA9BF7BE1); // STP X1, X30, [SP, #-16]!
+            try emitBLAarch64(allocator, &bytes, params, 4);
+            try writeInsn(allocator, &bytes, 0xA8C17BE9); // LDP X9, X30, [SP], #16
+            try writeInsn(allocator, &bytes, 0xF9000120); // STR X0, [X9, #0]
+            try writeInsn(allocator, &bytes, 0xF9000521); // STR X1, [X9, #8]
+            try writeInsn(allocator, &bytes, 0x2A1F03E0); // MOV W0, WZR
+            try writeInsn(allocator, &bytes, 0xD65F03C0); // RET
+        } else if (n_params == 1) {
+            // 8 insns × 4 = 32 bytes. LDR X1, [X2, #0] loads param0 into
+            // the body's AAPCS slot (overwriting the now-stacked X1).
+            try writeInsn(allocator, &bytes, 0xA9BF7BE1); // STP X1, X30, [SP, #-16]!
+            try writeInsn(allocator, &bytes, 0xF9400041); // LDR X1, [X2, #0]
+            try emitBLAarch64(allocator, &bytes, params, 8);
+            try writeInsn(allocator, &bytes, 0xA8C17BE9); // LDP X9, X30, [SP], #16
+            try writeInsn(allocator, &bytes, 0xF9000120); // STR X0, [X9, #0]
+            try writeInsn(allocator, &bytes, 0xF9000521); // STR X1, [X9, #8]
+            try writeInsn(allocator, &bytes, 0x2A1F03E0); // MOV W0, WZR
+            try writeInsn(allocator, &bytes, 0xD65F03C0); // RET
+        } else {
+            return Error.UnsupportedOp;
+        }
     } else {
         return Error.UnsupportedOp;
     }
@@ -1014,6 +1035,36 @@ test "wrapper_thunk: emit aarch64 2-int register-class (i32, i64) (28 bytes)" {
     try testing.expectEqual(@as(u32, 0x2A1F03E0), std.mem.readInt(u32, out.bytes[20..24], .little));
     // RET
     try testing.expectEqual(@as(u32, 0xD65F03C0), std.mem.readInt(u32, out.bytes[24..28], .little));
+}
+
+test "wrapper_thunk: emit aarch64 1-param 2-int register-class (32 bytes)" {
+    // SIBLING-AT: src/engine/codegen/shared/wrapper_thunk.zig:1041 (x86_64 SysV)
+    if (comptime builtin.cpu.arch != .aarch64) return;
+    const VT = @TypeOf(@as(@import("../../../ir/zir.zig").ValType, .i32));
+    const p = [_]VT{.i32};
+    const results = [_]VT{ .i32, .i64 };
+    const params: EmitParams = .{
+        .sig = .{ .params = &p, .results = &results },
+        .body_offset = 256,
+        .thunk_offset = 0,
+    };
+    const out = try emit(testing.allocator, params);
+    defer testing.allocator.free(out.bytes);
+    try testing.expectEqual(@as(usize, 32), out.bytes.len);
+    // STP X1, X30, [SP, #-16]!
+    try testing.expectEqual(@as(u32, 0xA9BF7BE1), std.mem.readInt(u32, out.bytes[0..4], .little));
+    // LDR X1, [X2, #0]  — param0 from args buffer into the body's AAPCS slot
+    try testing.expectEqual(@as(u32, 0xF9400041), std.mem.readInt(u32, out.bytes[4..8], .little));
+    // BL body(256) - bl_site(8) = 248 bytes = 62 words → imm26 = 62
+    try testing.expectEqual(@as(u32, 0x94000000 | 62), std.mem.readInt(u32, out.bytes[8..12], .little));
+    // LDP X9, X30, [SP], #16
+    try testing.expectEqual(@as(u32, 0xA8C17BE9), std.mem.readInt(u32, out.bytes[12..16], .little));
+    // STR X0, [X9, #0] ; STR X1, [X9, #8]
+    try testing.expectEqual(@as(u32, 0xF9000120), std.mem.readInt(u32, out.bytes[16..20], .little));
+    try testing.expectEqual(@as(u32, 0xF9000521), std.mem.readInt(u32, out.bytes[20..24], .little));
+    // MOV W0, WZR ; RET
+    try testing.expectEqual(@as(u32, 0x2A1F03E0), std.mem.readInt(u32, out.bytes[24..28], .little));
+    try testing.expectEqual(@as(u32, 0xD65F03C0), std.mem.readInt(u32, out.bytes[28..32], .little));
 }
 
 test "wrapper_thunk: emit aarch64 3-int MEMORY-class (24 bytes)" {
