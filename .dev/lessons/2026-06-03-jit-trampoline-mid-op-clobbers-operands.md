@@ -42,5 +42,14 @@ force-spill, or model the helper as a real IR op (regalloc-modeled clobber).
 (it builds + runs), grab the freshest exe (`find … | ls -t | head -1`), and
 diff JIT corpus metrics against a truly-rebuilt baseline before believing them.
 
+**Second mechanism (2026-06-03, 10.E Cause A):** even when the build SUCCEEDS, a
+bare `find .zig-cache/o -name zwasm-spec-wasm-3-0-assert | head -1` returns the
+FIRST match by find/dir order — NOT the newest. `.zig-cache/o` accumulates dozens
+of old spec-runner binaries across sessions, so `head -1` silently ran a stale exe
+and the EH-dir delta read as `0` (pass=0 fail=1 skip=33) until a stash-baseline
+showed byte-identical exe hashes. Fix: ALWAYS sort by mtime —
+`find … -type f -exec ls -t {} + | head -1`. The "byte-identical exe hash across a
+real source change" is the tell that you're holding a stale binary.
+
 Related: [[2026-06-02-gti-tied-to-heap-need-misses-func-subtyping]] (the interp
 half; D-235 fixed the same gti gap in the JIT `setup.zig`).

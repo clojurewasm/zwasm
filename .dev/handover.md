@@ -9,18 +9,19 @@
   **interp pass=fail=skip=0 (MET) + JIT 0-real-fail + every JIT skip on the forward-ref'd
   deferred-allowlist** (multi-memory-on-JIT→§14, GC-on-JIT-rooting→§11). Raw "JIT skip=0" (ADR-0128)
   was unreachable in-phase; re-scoped autonomously per ADR-0132.
-- **THIS turn = GOVERNANCE + RESCOPE (no codegen). STOPPED for user review per directive (no re-arm).**
-  **ADR-0132**: cross-phase ROADMAP re-sequencing is now AUTONOMOUS (no user-flip stop) — amended the
-  /continue deviation-watch, CLAUDE.md frozen invariants, handover-discipline §1, STOP_BUCKETS. **ADR-0133**:
-  Phase 10 exit re-scope (above) — ROADMAP §10 exit/100%-plan/10.P + Deferred-from-§10 registry rewritten,
-  close-invariant I24 added. **§10-scope question RESOLVED** (retired the recurring USER-GATED flag).
-  D-237 filed (spec-runner double-free, harness-only). Auto-memory `feedback-autonomous-roadmap-restructure`.
-- **LAST code HEAD** (`881b25e0`): **JIT try_table label carries blocktype arity** — both arches hardcoded
-  result_arity=0/param_arity=0, so the matching `end` truncation discarded the try_table's result vreg →
-  a normal-completion consumer (return/br) marshalled a stale register (pointer). Disasm-confirmed
-  (debug_jit_auto). Unpack arity from `ins.extra` mirroring `op_control.emitBlock`. JIT EH dir
-  `pass=29 fail=5 → pass=31 fail=3` (simple-throw-catch + catch-complex-1 now pass); global `791/6 → 793/4`;
-  no regression. +1 run unit test.
+- **LAST code HEAD** (`50e5ecd3`): **JIT tag-identity canon table — 10.E Cause A.** The JIT matched
+  try_table catch clauses by raw local tag index, so two tag imports binding the same source tag
+  (`(import "test" "e0")` ×2 → idx 0,1) compared `0==1` → no match → trap. Added `ExceptionTable.tag_canon`
+  (resolves throw + catch idx to a canonical representative; null/OOB → raw-idx fallback), carried via
+  `JitRuntime.tag_canon_ptr/_count` (size 448→464, layout-stable tail), built in `setup.zig` from the import
+  section (same (module,name) → collapse later idx onto earlier; only when ≥2 imported tags). The JIT analog
+  of interp's `*TagInstance` key (`mvp.catchTagMatches`). **EH JIT dir 31/3 → 32/2, global 793/4 → 794/3,
+  skip=0** (`catch-imported-alias` passes). +1 unit test. **GATE TRAP relearned**: corpus exe MUST be picked
+  by mtime (`find … -exec ls -t {} + | head -1`) — `head -1` alone returned a STALE binary and masked the
+  delta as 0 until caught.
+- **Prior governance turn** (`5447cb10`): ADR-0132 (cross-phase ROADMAP re-sequencing now AUTONOMOUS) +
+  ADR-0133 (Phase 10 exit re-scope; close-invariant I24; §10-scope RESOLVED, USER-GATED flag retired).
+  D-237 (spec-runner double-free, harness-only).
 - **Prior (this bundle chain)**: `590093f5` JIT catchless try_table (eh_catch_entries null→empty; unblocked
   try_table.1 compile, +29 EH); `3b668110` JIT tag index space includes imported tags (validator
   StackTypeMismatch); `2b48dfdc`/`74d155b7` D-235 JIT call_indirect subtype. interp wasm-3.0 corpus FULLY
@@ -31,31 +32,23 @@
   compiling, the dispatch RUNS — and the 5 fails are real dispatch-correctness bugs (below).
 - **Watch**: `runner_test.zig` 1370 / `compile.zig` 1223 / `runner_gc_test.zig` 1476 / `jit_abi.zig` 1350 (WARN, < hard 2000).
 
-## Active task — `10.E-eh-on-jit` bundle: the 3 imported-tag EH fails  **NEXT**
+## Active task — `10.E-eh-on-jit` bundle: CAUSE B (cross-instance throw)  **NEXT**
 
-try_table.1.wasm runs 34 asserts (31 pass). Catch landing-pad + try_table-result classes FIXED (`590093f5`
-catchless, `881b25e0` arity). The **3 remaining fails split into TWO root causes** (subagent disasm/read
-diagnosis; the JIT matches tags by LOCAL INDEX — `HandlerEntry.tag_idx == throw_tag_idx`, exception_table.zig:87
-— and `JitRuntime` has NO `tags: []*TagInstance` table, unlike interp `rt.tags` via instantiate.zig:1244-1281):
+try_table.1.wasm runs 34 asserts (32 pass). ✅ Cause A FIXED (`50e5ecd3`, tag-identity canon). The **2
+remaining fails are both Cause B** (`catch-imported` got=1, `imported-mismatch` got=1 — confirmed: each
+throws a tag owned by module 1 via a cross-instance call):
 
-- **CAUSE A — aliased same-module import (fixes #2 `catch-imported-alias` trap; partial #3).** In module 2 the
-  tag space is `[0]=$imported-e0, [1]=$imported-e0-alias` (both bind test::e0 = same TagInstance). catch idx 0,
-  throw marshals idx 1 → `0==1` false → no match → uncaught → trap. **DO THIS FIRST (tractable).** Fix: give the
-  JIT a tag-IDENTITY/canonical table — add `JitRuntime.tags_*` (jit_abi.zig ~381 cohort) populated in
-  `engine/setup.zig` (~910, beside eh_table_entries) from the resolved imports (imports binding the same source
-  tag → same identity/canonical id); throw marshals + `exception_table.lookup` matches by identity not raw idx
-  (mirror interp `catchTagMatches` mvp.zig:814-818). Needs imported-tag resolution at the JIT runner/setup path
-  (analog of jitResolveFuncImports — may not exist for tags yet; check). A canonical-u32 id (like ADR-0126 type
-  ids) avoids a pointer-layout change.
-- **CAUSE B — cross-INSTANCE throw (fixes #1 `catch-imported`; partial #3). DEEPER.** `catch-imported` calls
-  test::throw (module 1) via the bridge thunk, which swaps runtime_ptr to module 1's `*JitRuntime` → the throw
-  runs against module 1's EMPTY exception table → uncaught → thunk RETs normally → module 2 resumes past the
-  call with `i32.const 1` leaked → returns 1 (the catch NEVER fires; not a landing-pad reconciliation bug).
-  `unwind.zig:26-31` explicitly defers per-frame-instance dispatch. Fix: resolve the thrown tag to its identity
-  at the throw site (throwing instance's tags), then FP-walk frames matching identity against EACH frame's OWN
-  instance exception table (per-frame-instance dispatch). In §10.E scope ("cross-module exception propagation").
-
-Cause A is the next chunk. Cause B is a deeper multi-cycle sub-arc (per-frame-instance unwind) — same bundle.
+- **CAUSE B — cross-INSTANCE throw via the bridge thunk. DEEPER (multi-cycle).** `catch-imported` (and the
+  separate `imported-mismatch` module) call `test::throw` (module 1) via the D-225 bridge thunk, which swaps
+  runtime_ptr to module 1's `*JitRuntime` → the throw runs against module 1's EMPTY exception table → uncaught
+  → thunk RETs normally → caller resumes past the call with `i32.const 1` leaked → returns 1 (the catch NEVER
+  fires; not a landing-pad reconciliation bug). `unwind.zig:26-31` explicitly defers per-frame-instance
+  dispatch. Fix: resolve the thrown tag to its identity at the throw site (throwing instance's tags), then
+  FP-walk frames matching identity against EACH frame's OWN instance exception table (per-frame-instance
+  dispatch). The Cause-A canon map is per-module local ids (NOT comparable across instances) — Cause B needs a
+  GLOBAL identity (source TagInstance ptr / global canonical id) so a module-1 throw matches a module-2 catch.
+  In §10.E scope ("cross-module exception propagation"). loci: throw_trampoline.zig trampolineCore (single
+  rt/table today), exception_table.zig (tag_canon today local), the D-225 thunk in setup.zig (runtime_ptr swap).
 
 Other non-gated tracks (after EH): **D-234** (memory64 assert_trap harness artifact), **D-198**, **D-209**,
 **D-210** (return_call_indirect-in-try = func[36], TC+EH gap). Realworld GC/EH/TC producers.
@@ -66,37 +59,33 @@ Other non-gated tracks (after EH): **D-234** (memory64 assert_trap harness artif
 
 ## Active bundle
 
-- **Bundle-ID**: `10.E-eh-on-jit` (opened `3b668110`).  **Cycles-remaining**: ~2-3.
-- **Continuity-memo**: try_table.1.wasm COMPILES + RUNS, 31/34. ✅ func[6] validate (tag index space —
-  `3b668110`) → ✅ func[24] catchless try_table (`590093f5`, +29) → ✅ try_table-result-arity drop (`881b25e0`,
-  +2) → ❌ **3 imported-tag fails, diagnosed into Cause A (aliased-import identity, tractable, NEXT) + Cause B
-  (cross-INSTANCE throw via bridge thunk, deeper)** — full fix plan + loci in Active task above. Root: JIT
-  matches tags by local index; no `JitRuntime.tags` identity table. func[36] return_call_indirect-in-try =
-  separate TC+EH gap (D-210 family).
-- **Exit-condition**: JIT EH dir return-fail = 0 (currently pass=31 fail=3 skip=0 → target 34/0/0).
+- **Bundle-ID**: `10.E-eh-on-jit` (opened `3b668110`).  **Cycles-remaining**: ~1-2 (Cause B only).
+- **Continuity-memo**: try_table.1.wasm COMPILES + RUNS, 32/34. ✅ func[6] validate (`3b668110`) → ✅ catchless
+  try_table (`590093f5`, +29) → ✅ try_table-result-arity (`881b25e0`, +2) → ✅ **Cause A aliased-import identity
+  (`50e5ecd3`, +1)** → ❌ **Cause B cross-INSTANCE throw via bridge thunk (2 fails)** — full plan + loci in Active
+  task above. func[36] return_call_indirect-in-try = separate TC+EH gap (D-210 family).
+- **Exit-condition**: JIT EH dir return-fail = 0 (currently pass=32 fail=2 skip=0 → target 34/0/0).
 
 ## §10 remaining — the six `[ ]` rows
 
 - **10.M** memory64 — corpus green; D-209 stale u32; D-234 (51 OOB assert_trap = harness artifact).
 - **10.R** function-references — corpus green; residual = D-198 + br_on_null/cast modrej (StackTypeMismatch).
 - **10.TC** tail-call — JIT matrix complete; residuals = D-210 + return_call_indirect-in-try + `wasm_of_ocaml`.
-- **10.E** EH — try_table.1 compiles+runs (31/34); blocker = 3 imported-tag fails above + eh_frequency runner (I20),
+- **10.E** EH — try_table.1 compiles+runs (32/34); blocker = Cause B (2 cross-instance fails) + eh_frequency runner (I20),
   c_api tag accessors (I14 → Phase 13), emscripten_eh realworld (I21).
 - **10.G** GC — JIT emit COMPLETE; §1 + PHASE C + D-235 DONE; remaining = D-198 + gc_stress (I19) + dart/hoot (I21).
 - **10.P** close — flips only at 100% both-backends (ADR-0128).
 
 ## Step 0.7 (next resume)
 
-THIS turn = governance + Phase-10 rescope (ADRs + ROADMAP + rule files + close-script I24 + debt; NO codegen,
-NO ubuntu kick — docs/rules/bash only). **STOPPED for user review per directive (止まってください) — NOT
-re-armed.** Code state unchanged since `881b25e0`, which is ubuntu-verified OK (HEAD=e0a502aa includes it; EH
-chain 3b668110→e0a502aa 2-host green). Next session (user /continue or fresh): Step 0.7 has nothing new to
-verify; go straight to **Cause A** (the next code chunk). Mac aarch64; ubuntu = x86_64.
+THIS turn = Cause A (`50e5ecd3`, code). Mac `test-all` + lint gate GREEN. ubuntu kick fired against `50e5ecd3`
+(x86_64) — Step 0.7 next resume: `tail -3 /tmp/ubuntu.log`, revert the commit pair on FAIL. Mac aarch64.
 
 **Gate hygiene**: Step-5 Mac gate = `bash scripts/mac_gate.sh`. JIT corpus: `zig build test-spec-wasm-3.0-assert`
-(NO bogus `-Dno-run`), freshest exe via `/usr/bin/find .zig-cache/o -name zwasm-spec-wasm-3-0-assert` (shell
-`ls` alias appends `*` → exec 127), `ZWASM_SPEC_ENGINE=jit <exe> test/spec/wasm-3.0-assert --fail-detail >out 2>err`
-(SPLIT stderr — emit diagnostics splice into stdout). Per-dir `JIT: return pass/fail/skip` + `JITval`/`JITfail`/`JITmodrej`.
+(NO bogus `-Dno-run`); **pick the exe by mtime** — `/usr/bin/find .zig-cache/o -name zwasm-spec-wasm-3-0-assert
+-type f -exec ls -t {} + | head -1` (bare `head -1` returns a STALE binary → masks the delta; relearned this turn).
+`ZWASM_SPEC_ENGINE=jit <exe> test/spec/wasm-3.0-assert --fail-detail >out 2>err` (SPLIT stderr). Per-dir
+`JIT: return pass/fail/skip` + `JITval`/`JITfail`/`JITmodrej`.
 
 ## Key refs
 
