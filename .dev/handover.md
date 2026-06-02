@@ -52,15 +52,24 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
   **fail=0 both backends**, currently fail=2. ADR-0127 PHASE C closes ONE real JIT-executed fail
   (gc/type-subtyping). ADR-0127 is **Accepted** (via ADR-0128 100% directive — autonomous, NOT user-gated;
   "D-202 PHASE C implements next"). This is higher value than more §1 skip-shaving.
-- **NEXT STEP (cycle 1)**: Step-0 survey ADR-0127 PHASE C scope — structural subtyping + finality bool +
-  cross-`Types` `canonicalEqual` in `validator.zig::funcTypeImportCompatible` + `instantiate.zig::
-  checkImportTypeMatches` (.cross_module arm). The corpus targets: `gc/type-subtyping.{12,14,...}` global
-  init-expr type-mismatch + the run-Trap fail. CAUTION: PHASE C NARROWS acceptance (rejects more imports) →
-  risk of regressing currently-passing cross-module links; the existing assert_unlinkable corpus is the net.
-- **Continuity-memo**: §1 JIT-EXECUTED assert_return fails = 2 (type-subtyping = THIS bundle's target;
-  try_table = EH-on-JIT, separate). JIT corpus = **762/2/531**. See D-202 (PHASE A/B landed, C scope).
-- **Exit-condition**: gc/type-subtyping JIT-executed assert_return fail → 0 (fail 2→1), no regression in
-  assert_unlinkable / cross-module link corpus. Else document the specific blocker + reassess.
+- **SURVEY DONE (`c5c547d1`)** — SCOPE CORRECTION: PHASE C targets the **4 assert_unlinkable fails**
+  `gc/type-subtyping.{36,42,52,54}` (importer imports open `(sub (func))`, exporter provides structurally-
+  identical but canonically-DISTINCT type-def → currently WRONGLY links). NOT the assert_return run-Trap
+  (separate RTT mechanism, still fail). PHASE A (structural subtyping) + B (finality) landed (cyc236/239).
+  PHASE C adds **type-definition identity**: canonical-equal OR declared-supertype-reach across the two
+  modules' `Types`. `funcTypeImportCompatible` (validator.zig:3155) does structural-only today.
+- **IMPL PLAN**: (1) new `sections.canonicalEqualCross(types_a, idx_a, types_b, idx_b)` threading BOTH
+  `Types` (the intricate bit — rec-group positional vs inter-group canonical, per-type Types tracking; can't
+  reuse single-Types `canonicalEqual` @ sections.zig:179). (2) thread exporter `source_typeidx` through
+  `CrossModuleFuncEntry` (linker.zig:130) + `ExportFuncType` (instantiate.zig buildExportTypes:613). (3)
+  add the cross check at linker resolve (linker.zig:482) + instantiate checkImportTypeMatches (:1657).
+  **FIRST CHUNK = canonicalEqualCross + unit test (isolated, no linker wiring → zero regression risk).**
+- **Continuity-memo**: full wasm-3.0 fail tally (ubuntu interp): assert_return fail=1 + assert_trap fail=4
+  + assert_unlinkable fail=4 = 9 (both backends share linking/validation fails). PHASE C closes the 4
+  unlinkable. JIT corpus = **762/2/531**. See D-202 (PHASE A/B landed, C scope).
+- **Exit-condition**: `gc/type-subtyping.{36,42,52,54}` assert_unlinkable PASS (fail 4→0 both backends), NO
+  regression in the 441 exact-equal cross-module imports (407 multi-mem + 34 EH — canonically equal, must
+  still link). Risk: PHASE C NARROWS acceptance; the green cross-module corpus is the net.
 
 ## §10 remaining — the six `[ ]` rows
 
