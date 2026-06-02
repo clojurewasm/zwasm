@@ -116,14 +116,9 @@ check_9_12_E() {
 
 check_9_12_F() {
   local n
-  n=$(awk '
-    /^## Active/ { active=1; next }
-    /^## / { active=0 }
-    active && /^### D-/ { count++ }
-    END { print count+0 }
-  ' .dev/debt.md)
-  if [ "$n" -lt 15 ]; then echo "  OK    debt active rows: $n (< 15)"; return 0; fi
-  echo "  FAIL  debt active rows: $n (>= 15)"; return 1
+  n=$(yq -r '[.entries[] | select(.status == "now" or .status == "blocked-by")] | length' .dev/debt.yaml)
+  if [ "$n" -lt 15 ]; then echo "  OK    debt active entries: $n (< 15)"; return 0; fi
+  echo "  FAIL  debt active entries: $n (>= 15)"; return 1
 }
 
 check_9_12_G() {

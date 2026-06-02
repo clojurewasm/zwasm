@@ -114,15 +114,16 @@ fi
 # Match only Status: cells that legitimize the phrase (i.e. the row's
 # blocking barrier IS "trigger-not-fired"). Exclude reframe notes that
 # explicitly negate it ("not trigger-not-fired" / "NOT trigger-not-fired").
-debt=.dev/debt.md
+debt=.dev/debt.yaml
 if [ ! -f "$debt" ]; then
   fail "I5: $debt not found"
 else
-  bad=$(grep -nE 'blocked-by:[^|]*trigger-not-fired' "$debt" | grep -vE 'not trigger-not-fired|NOT trigger-not-fired' || true)
+  bad=$(yq -r '.entries[] | select(.status == "blocked-by") | .id + ": " + .description' "$debt" \
+    | grep -E 'trigger-not-fired' | grep -vE 'not trigger-not-fired|NOT trigger-not-fired' || true)
   if [ -n "$bad" ]; then
-    fail "I5: 'blocked-by: ... trigger-not-fired' workaround-masquerade still in debt.md (per ADR-0104 D3 reframe): $bad"
+    fail "I5: 'blocked-by … trigger-not-fired' workaround-masquerade still in debt.yaml (per ADR-0104 D3 reframe): $bad"
   else
-    ok "I5: no 'trigger-not-fired' workaround-masquerade blocked-by rows in debt.md"
+    ok "I5: no 'trigger-not-fired' workaround-masquerade blocked-by entries in debt.yaml"
   fi
 fi
 

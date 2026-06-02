@@ -3,7 +3,7 @@
 # "what's failing right now". Re-run any time; output is always
 # authoritative.
 #
-# This exists because handover.md / debt.md should NOT carry numeric
+# This exists because handover.md / debt.yaml should NOT carry numeric
 # predictions about FAIL counts (per .claude/rules/no_handover_predictions.md);
 # the rule was codified after §9.9-g-13 surfaced a drift case where
 # the prior handover predicted "16 cmp fails are alias-case" but the
@@ -91,24 +91,12 @@ if [ "$want_ubuntu" = 1 ]; then
   fi
 fi
 
-# Active `now` debt rows (so the loop knows which to discharge).
-# Truncate column 5 (description) to 1 line for at-a-glance scanning;
-# full body lives in .dev/debt.md.
-echo "=== Currently \`now\` debt rows (one-line summaries) ==="
-awk -F'|' '/^\| D-/ {
-  gsub(/^ +| +$/, "", $4)
-  gsub(/^ +| +$/, "", $2)
-  gsub(/^ +/, "", $5)
-  # Match "now" exactly OR "now <annotation>" (e.g. "now (d-22
-  # attempted; ...)" — the annotation is narrative context, the
-  # underlying status is still now).
-  if ($4 == "now" || $4 ~ /^now[ (]/) {
-    desc = $5
-    sub(/\. .*$/, ".", desc)
-    if (length(desc) > 140) desc = substr(desc, 1, 137) "..."
-    print $2 ": " desc
-  }
-}' .dev/debt.md
+# Active `now` debt entries (so the loop knows which to discharge).
+# One-line summary per entry for at-a-glance scanning; full body lives
+# in .dev/debt.yaml (status enum: now|blocked-by|resolved|partial|note).
+echo "=== Currently \`now\` debt entries (one-line summaries) ==="
+yq -r '.entries[] | select(.status == "now") | .id + ": " + (.description | sub("\. .*$"; "."))' .dev/debt.yaml \
+  | cut -c1-140
 
 echo
 echo "Logs: Mac=$MAC_LOG ubuntunote=$UBUNTU_LOG"

@@ -26,7 +26,7 @@ the Step 1+2 evidence trail), then stop.
 
 Every remaining ROADMAP / close-plan row is blocked on a user
 touchpoint (ADR `Status: Proposed → Accepted` flip, collaborative
-review, etc.); AND `.dev/debt.md` has zero `now` rows AND no
+review, etc.); AND `.dev/debt.yaml` has zero `now` rows AND no
 `blocked-by:` barrier dissolved this resume; AND the autonomous prep
 paths for each gating ADR have been walked.
 

@@ -28,7 +28,7 @@ MUST carry an **enumerated hypothesis list** built in this order:
 **Step 0 — Framing challenge** (BEFORE enumerating any hypothesis;
 per lesson `2026-05-18-debt-dedup-grep-before-file.md`):
 
-1. Grep `.dev/debt.md` for the affected source-file / function names
+1. Grep `.dev/debt.yaml` for the affected source-file / function names
    + symptom keywords ("stale" / "off-by-one" / "wrong-register" etc.) —
    does a `now`-status row already document this bug class under
    different framing?

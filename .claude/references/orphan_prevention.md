@@ -78,7 +78,7 @@ Each hit must route through a self-guarding script or carry an explicit `timeout
 
 ## Related
 
-`scripts/orphan_guard.sh` · `.dev/debt.md` D-028 (Defender rationale) ·
+`scripts/orphan_guard.sh` · `.dev/debt.yaml` D-028 (Defender rationale) ·
 `.claude/skills/continue/LOOP.md` § "Self-perpetuation" + GATE.md ·
 `~/.claude/CLAUDE.md` § "全プロジェクト共通" (global advisory + cleanup hook).
 

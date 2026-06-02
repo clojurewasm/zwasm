@@ -84,7 +84,7 @@ text or code identifiers.
 - Subagent fork for: Step 0 surveys, large test logs (>200 lines),
   cross-codebase searches (>5 files), audit/simplify/security-review
   fan-out.
-- Debt + lessons live in git: [`.dev/debt.md`](.dev/debt.md) (ledger,
+- Debt + lessons live in git: [`.dev/debt.yaml`](.dev/debt.yaml) (ledger,
   refresh per `/continue` Step 0.5), [`.dev/lessons/`](.dev/lessons/)
   (re-derivable observations, INDEX.md is the keyword index for Step
   0.4).
@@ -161,7 +161,7 @@ gate (any `main` push); automated by `scripts/gate_merge.sh`.
 - [`.dev/handover.md`](.dev/handover.md) — current state (≤ 100 lines,
   replaced not appended). Optional `## Active bundle` section per
   ADR-0118 D6.
-- [`.dev/debt.md`](.dev/debt.md) — debt ledger.
+- [`.dev/debt.yaml`](.dev/debt.yaml) — debt ledger.
 - [`.dev/lessons/`](.dev/lessons/) — observational notes (see INDEX.md).
 - [`.dev/decisions/`](.dev/decisions/) — ADRs (load-bearing deviations
   only).

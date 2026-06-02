@@ -547,7 +547,7 @@ ABI 安定性のため build-option で消せない:
 | I15 | safepoint-free invariant: tail-call thunk + cross-module bridge の `is_safepoint = false` を全 op file で comptime assert |
 | I16 | regalloc 3 axis (terminator / N-successor / stack_map) いずれも default-off で Phase 9 既存 corpus 完全再 green |
 | I17 | `private/spikes/<adr-slug>/` 全て `merged-into-prod` or `rejected` |
-| I18 | `.dev/debt.md` に Phase 10-scope `trigger-not-fired` masquerade なし |
+| I18 | `.dev/debt.yaml` に Phase 10-scope `trigger-not-fired` masquerade なし |
 | I19 | gc_stress_runner + eh_frequency_runner 共に `test-all` aggregate 配線 + green |
 | I20 | **SKIP-P10-{PARSER,EH,GC,MEM64,CROSS}-GAP = 0** (J-2 lesson) |
 | I21 | `test/realworld/p10/` 9 fixture / 5 toolchain 全 green |

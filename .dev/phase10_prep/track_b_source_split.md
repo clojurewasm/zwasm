@@ -598,7 +598,7 @@ For each split chunk (15-19):
 
 - `.dev/decisions/0030_x86_64_emit_test_split.md` (precedent —
   D-051 close)
-- `.dev/debt.md` D-057 (x86_64 hard-cap breach), D-065 (arm64
+- `.dev/debt.yaml` D-057 (x86_64 hard-cap breach), D-065 (arm64
   hard-cap breach)
 - `.dev/phase10_prep.md` §"Track B"
 - `.dev/phase10_prep/track_a_9.10_scope.md` (Track A — sibling

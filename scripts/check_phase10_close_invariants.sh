@@ -282,17 +282,16 @@ else
   ok "§8 I17: private/spikes/ absent"
 fi
 
-# §8 I18 — debt.md no `now`-status rows lingering past trigger.
-# Every row's Status is either `now` (discharge this resume) OR
-# `blocked-by: <named barrier>`. A `now` row that survives a
-# resume without action is the "trigger-not-fired masquerade".
-# Mechanical: count `| now ` cell occurrences vs total D-NNN rows.
-debt_now=$(awk -F'|' '/^\| D-[0-9]+/ { for(i=1;i<=NF;i++) if($i ~ /^ now /) { c++; break } } END { print c+0 }' .dev/debt.md)
-debt_total=$(awk '/^\| D-[0-9]+/ { c++ } END { print c+0 }' .dev/debt.md)
+# §8 I18 — debt.yaml no `now`-status entries lingering past trigger.
+# Every entry's status is `now` (discharge this resume) OR `blocked-by`
+# (named barrier). A `now` entry that survives a resume without action is
+# the "trigger-not-fired masquerade". yq counts now-status entries.
+debt_now=$(yq -r '[.entries[] | select(.status == "now")] | length' .dev/debt.yaml)
+debt_total=$(yq -r '.entries | length' .dev/debt.yaml)
 if [ "$debt_now" -eq 0 ] && [ "$debt_total" -gt 0 ]; then
-  ok "§8 I18: debt.md has 0 now-status rows ($debt_total total; all blocked-by)"
+  ok "§8 I18: debt.yaml has 0 now-status entries ($debt_total total; all blocked-by/resolved/note)"
 else
-  fail "§8 I18: debt.md has $debt_now now-status rows of $debt_total total; discharge before Phase 10 close"
+  fail "§8 I18: debt.yaml has $debt_now now-status entries of $debt_total total; discharge before Phase 10 close"
 fi
 
 # §8 I19 — gc_stress_runner + eh_frequency_runner wired into the

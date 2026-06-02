@@ -61,9 +61,9 @@ git add <source-files>
 git commit -m "<conventional commit>"
 
 # 4. Handover update + commit (Step 6+7 sub-steps 2-5).
-#    Edit .dev/handover.md, ROADMAP §9, optionally debt.md /
+#    Edit .dev/handover.md, ROADMAP §9, optionally debt.yaml /
 #    lessons. Then:
-git add .dev/handover.md .dev/ROADMAP.md [.dev/debt.md] [.dev/lessons/...]
+git add .dev/handover.md .dev/ROADMAP.md [.dev/debt.yaml] [.dev/lessons/...]
 git commit -m "chore(p<N>): mark §9.<N> / N.M done; retarget handover at N.M+1"
 
 # 5. SINGLE push (ADR-0076 D2). Source + handover land together.

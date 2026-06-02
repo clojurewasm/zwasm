@@ -2,7 +2,7 @@
 description: "Handover.md discipline — drive next chunk, don't deliberate; no numeric predictions; forbidden surrender phrases grep-enforced. Absorbs former handover_framing.md + no_handover_predictions.md per ADR-0118 D3."
 paths:
   - ".dev/handover.md"
-  - ".dev/debt.md"
+  - ".dev/debt.yaml"
   - ".dev/ROADMAP.md"
 ---
 

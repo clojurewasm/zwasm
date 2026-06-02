@@ -97,38 +97,46 @@ concept.
 
 ## Step 0.5 — Debt sweep + barrier-dissolution
 
-Read `.dev/debt.md`. For every `Status: now` row, attempt discharge
-before active task. **Effort estimate irrelevant**; only structural
-impossibility (`blocked-by: <X>` named barrier) prevents discharge.
+`.dev/debt.yaml` is the YAML SSOT (D-227 / ADR-0129); query/edit it with
+`yq` per [`yaml_ssot_yq.md`](../../rules/yaml_ssot_yq.md). For every
+`now`-status entry, attempt discharge before active task. **Effort estimate
+irrelevant**; only structural impossibility (`blocked-by` named barrier in
+`description`) prevents discharge.
 
-Discharge commit: `chore(debt): close D-NNN <one line>`. Remove the
-row in the same commit. New debts discovered during active task get
+```sh
+yq -r '.entries[] | select(.status == "now") | .id' .dev/debt.yaml          # discharge candidates
+yq -r '.entries[] | select(.status == "blocked-by") | .id + "  " + .last_reviewed' .dev/debt.yaml  # barrier sweep
+```
+
+Discharge commit: `chore(debt): close D-NNN <one line>`. **Delete** the
+entry in the same commit (`yq -i 'del(.entries[] | select(.id == env(DROW)))'`;
+git log retains the trace). New debts discovered during active task get
 appended at Step 7, not mid-task.
 
 ### Barrier-dissolution check (unconditional, every resume)
 
-Regardless of `Last reviewed` date, walk every `Status: blocked-by:
-<X>` row and re-evaluate the named barrier RIGHT NOW. Barrier is by
-construction **testable in concrete terms**:
+Regardless of `last_reviewed` date, walk every `blocked-by` entry and
+re-evaluate the named barrier (the predicate at the head of `description`)
+RIGHT NOW. Barrier is by construction **testable in concrete terms**:
 
 - "§9.7 / 7.7 完了" → grep ROADMAP for the row's `[x]`
 - "x86_64 regalloc port" → grep `src/engine/codegen/x86_64` for
   `regalloc` evidence
 - "Zig 0.17 stdlib API" → check `zig version`
 
-Barrier dissolved (named condition now satisfied) → **flip to `Status:
-now` in the same resume**, discharge alongside as if always `now`.
-Check is cheap (`grep | head` per row); runs BEFORE per-task work. The
-`Last reviewed` column updated only when barrier still holds.
+Barrier dissolved (named condition now satisfied) → **flip `status` to
+`now` in the same resume** (`yq -i`), discharge alongside as if always
+`now`. Check is cheap (`grep | head` per entry); runs BEFORE per-task work.
+The `last_reviewed` field updated only when barrier still holds.
 
 ### Stale-barrier escalation
 
-Scan `blocked-by:` rows' `Last reviewed` dates. Row reviewed > 3
+Scan `blocked-by` entries' `last_reviewed` dates. Entry reviewed > 3
 resume cycles ago (or > 14 days) without barrier dissolution → barrier
 re-walked with deeper investigation (referenced files / commands /
-ADRs); `Last reviewed` → today.
+ADRs); `last_reviewed` → today.
 
-**3+ rows hit this escalation in one resume** → fire `audit_scaffolding`
+**3+ entries hit this escalation in one resume** → fire `audit_scaffolding`
 narrow mode (`§F` debt-coherence only) before continuing. Catches the
 failure mode where multiple barriers quietly evaporated together
 (closed phase, landed ADR, Zig version bump).
@@ -149,7 +157,7 @@ bash scripts/p<N>_*_status.sh
 ```
 
 The script's output IS authoritative for "what is failing right now".
-If handover.md / debt.md narrative disagrees with live numbers, **trust
+If handover.md / debt.yaml narrative disagrees with live numbers, **trust
 the script + update the stale doc** before starting per-task TDD loop.
 Next sub-chunk: pick from handover's `Next candidates` filtered by live
 evidence.
@@ -177,7 +185,7 @@ with hard gate at 7.13 → 7.10 onward), open the hard-gate document
 - Cross-check every checkbox under "design cleanliness extrapolation"
   / "deferred-work dependency DAG" sections against current code state.
 - For any unmet checkbox mapping to concrete code change, ensure a
-  corresponding `.dev/debt.md` row exists (Status: `now` if all
+  corresponding `.dev/debt.yaml` row exists (Status: `now` if all
   predecessors landed, else `blocked-by: <named predecessor>`).
 - Gate-checkbox unmet item with NO corresponding debt row AND no
   ROADMAP §9.<phase> row → file the debt entry **immediately**.

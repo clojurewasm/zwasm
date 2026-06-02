@@ -79,14 +79,14 @@ or move entirely to Phase 11?
    automation surface today.
 6. **Phase 15 debt-entry filing template**. ADR-0043 says §9.10
    "files Phase 15 debt entries naming the candidate
-   optimisation" — there is no `.dev/debt.md` schema column
+   optimisation" — there is no `.dev/debt.yaml` schema column
    nor an `expected: phase-15-bench-driven` convention to
    distinguish §9.10-surfaced candidates from other Phase 15
    work.
 
 ### §2.3 D-074 — formal debt confirming §2.2 above
 
-`.dev/debt.md` D-074 (Status: `blocked-by: no Phase row
+`.dev/debt.yaml` D-074 (Status: `blocked-by: no Phase row
 currently scheduled for the tier-provisioning machinery;
 likely Phase 11 (WASI 0.1 full + bench infra) candidate`)
 enumerates the unimplemented ADR-0012 §1–§3 surface:
@@ -107,7 +107,7 @@ D-074's resolution are tightly coupled.
 
 ### §2.4 D-076 — ADR-0043 verify-on-open
 
-`.dev/debt.md` D-076 says: when §9.10 opens inline, verify
+`.dev/debt.yaml` D-076 says: when §9.10 opens inline, verify
 that ADR-0043 §"Decision"'s three load-bearing additions
 ("Per-op gap analysis required", "3× threshold", v1 D122
 reference) landed in the row prose. **All three are present
@@ -140,7 +140,7 @@ wazero + wasmer per ADR-0043 §"Decision".
   (or a new comparison-oriented YAML), computes
   `median(wasmtime, wazero, wasmer) / zwasm`, flags ops where
   the ratio > 3×, and emits draft debt-entry skeletons.
-- A `.dev/debt.md` convention for "Phase 15 bench-driven SIMD
+- A `.dev/debt.yaml` convention for "Phase 15 bench-driven SIMD
   candidate" rows (column? prefix on Status? tag in Refs?).
 
 **Chunk estimate** (sizing only — not a TTL prediction):
@@ -456,7 +456,7 @@ migration per Track A Option (3) + D-074/D-076 alignment`.
   §"no renumber" discipline
 - `.dev/decisions/0032_observability_baseline_substrate.md`
   §9.8b bench-driven pattern
-- `.dev/debt.md` D-074, D-076
+- `.dev/debt.yaml` D-074, D-076
 - `.dev/ROADMAP.md` §9 Phase Status widget (line 1175),
   §9.10 row (line 1649), §9.12 row (line 1651), Phase 11
   row (line 1669)

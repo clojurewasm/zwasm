@@ -92,7 +92,7 @@ Rule targets **observable spec-defined boundaries**, not internals.
 
 If a fixture file contains `// FIXME` / `// TODO` / `// HACK` /
 hardcoded shortcut / bypass-constant: file a `D-NNN` row in
-`.dev/debt.md` (same commit) naming the structural barrier
+`.dev/debt.yaml` (same commit) naming the structural barrier
 (`Status: blocked-by: <specific barrier>`). The fixture documents
 the boundary AND the gap.
 
@@ -260,7 +260,7 @@ similar) ARE arch/OS coverage gaps. Each gate falls into one of:
 | Category | What it means | What it requires |
 |---|---|---|
 | **Spec-pinned**: the test exercises arch-specific encoding only (e.g. arm64 byte-shape probes) | Other-arch behaviour is N/A | Comment naming the arch-only artifact + a sibling test for the other-arch encoding (if applicable) |
-| **Impl-pending**: the test would fail on other host because the impl isn't there yet | Real impl gap | **Paired `D-NNN` row in `.dev/debt.md`** with `Status: blocked-by:` naming the missing impl + `Refs` citing the test |
+| **Impl-pending**: the test would fail on other host because the impl isn't there yet | Real impl gap | **Paired `D-NNN` row in `.dev/debt.yaml`** with `Status: blocked-by:` naming the missing impl + `Refs` citing the test |
 | **Heisenbug-isolated**: cross-arch reveals a flaky / unreproducible failure | Diagnostic gap | Paired `D-NNN` row + `track_heisenbug.sh` discharge plan per `investigation_discipline.md` §2 |
 
 ### Forbidden phrasing in gate comments

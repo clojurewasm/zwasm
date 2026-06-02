@@ -21,7 +21,7 @@ against `ClojureWasmFromScratch` (which did not bloat) found:
   edit and re-paid after every compaction. (The subagent that first measured
   this miscalled it "~1%": 2000 lines of markdown ≈ ~20-25K tokens ≈ **~10-12%
   of a 200K window**, lines ≠ tokens.)
-- **Spiky**: huge `.dev/debt.md` rows (D-198 / D-202 are 100+ lines each) flood
+- **Spiky**: huge `.dev/debt.yaml` rows (D-198 / D-202 are 100+ lines each) flood
   main context when grepped; long subagent reports return into main context.
 
 ## The decisions
@@ -70,7 +70,7 @@ structurally broken**:
   **≤30-line conclusion** (the report returns into main context too — a 200-line
   report negates the fork). See `.claude/rules/textbook_survey.md`.
 - **Never grep whole giant debt rows into main** — query the specific row /
-  field; keep `.dev/debt.md` rows lean (long investigations → a lesson or a
+  field; keep `.dev/debt.yaml` rows lean (long investigations → a lesson or a
   reference, debt row points at it).
 - **Read only the slice you need** of a large file (offset/limit), not the whole
   file, when you already know the region.

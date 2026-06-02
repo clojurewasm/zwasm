@@ -245,7 +245,7 @@ core runner.
 
 - [x] D-094 — x86_64 multi-result MEMORY-class indirect-
   result-buffer ABI landed via ADR-0106 cycle 2c (`d0aa6a85`).
-  Closed in debt.md alongside D-164 (`17953c9e`).
+  Closed in debt.yaml alongside D-164 (`17953c9e`).
 - [x] D-062 — arm64 v128 9th+ stack-arg overflow path closed
   (`d0b3941b` — §9.9-f-3 sibling landed both sides).
 
@@ -357,7 +357,7 @@ Phase 9 = DONE when **ALL** below hold:
    removed).
 3. c_api / Zig API Wasm-2.0 tests (§5.2 list) all landed +
    green on 3 hosts.
-4. `.dev/debt.md` has zero `blocked-by:` rows whose stated
+4. `.dev/debt.yaml` has zero `blocked-by:` rows whose stated
    barrier is "trigger-not-fired" for a Phase-9-scope feature
    (D-094 / D-062 closed).
 5. ADR-0105 + ADR-0106 Status: `Accepted` (via collab user

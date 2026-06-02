@@ -7,7 +7,7 @@
 # table, verify the Paired artifact column's reference resolves.
 #
 # Classification of the Paired artifact column:
-#   - "D-NNN ..."                  → check .dev/debt.md for active row
+#   - "D-NNN ..."                  → check .dev/debt.yaml for active row
 #                                    OR `git log --grep` for discharge SHA;
 #                                    if discharged → drift finding.
 #   - ".dev/decisions/<file>.md"  → check file exists.
@@ -31,7 +31,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 ADR="$ROOT/.dev/decisions/0078_spec_runner_skip_token_taxonomy.md"
-DEBT="$ROOT/.dev/debt.md"
+DEBT="$ROOT/.dev/debt.yaml"
 
 if [ ! -f "$ADR" ]; then
   echo "[check_skip_taxonomy_pairing] FAIL — $ADR not found"
@@ -60,7 +60,7 @@ fi
 # Cache discharge SHAs per debt id ("D-NNN" → "<sha>" or empty).
 debt_active() {
   local id="$1"
-  grep -qE "^\| ${id} \|" "$DEBT" && return 0
+  D_ID="$id" yq -e '.entries[] | select(.id == env(D_ID))' "$DEBT" >/dev/null 2>&1 && return 0
   return 1
 }
 

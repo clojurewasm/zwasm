@@ -111,7 +111,7 @@ when to skip.
 
 - `emit-monolith-cost.md` (regret #1) — emit.zig at 3989 LOC was
   predictable; should have split when crossing soft cap (1000 LOC).
-- `liveness-stage-extension-debt.md` (regret #2) — staging
+- `liveness-stage-extension-debt.yaml` (regret #2) — staging
   liveness as if/elif/elif chains made a future restructure cost
   visible.
 - `adr-0017-merge-blind-spot.md` (regret #3) — ADR-0017 design
@@ -128,7 +128,7 @@ when to skip.
 - `edge_case_testing.md`: append §"fixture-internal workarounds
   trigger debt entry" (regret #4) — `// FIXME` / constant
   substitution / hardcoded shortcut inside a fixture must yield a
-  D-NNN row in `.dev/debt.md`.
+  D-NNN row in `.dev/debt.yaml`.
 - `edge_case_testing.md`: append §"test byte-offset must be
   relative" (regret #6) — magic byte literals in JIT tests must
   use `prologue_size()` + N.
@@ -332,7 +332,7 @@ all 5 new keywords are distinct.
 - 5 lessons batch (regrets #1, 2, 3, 7, 10).
 - 2 amendments to edge_case_testing.md (regrets #4, 6).
 - regret #5 (default value re-changes) → no rule, lives in commit
-  message hygiene + the new lesson `liveness-stage-extension-debt.md`.
+  message hygiene + the new lesson `liveness-stage-extension-debt.yaml`.
 - regret #8 (sub-row ROADMAP normalization) → addressed in
   ADR-0022's "process improvement" § (handover-to-ROADMAP
   discipline added to /continue skill in a future session). Not

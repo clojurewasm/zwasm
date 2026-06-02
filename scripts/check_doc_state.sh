@@ -13,7 +13,7 @@
 EXEMPT=(
   "ROADMAP.md"
   "handover.md"
-  "debt.md"
+  "debt.yaml"
   "proposal_watch.md"
   "lessons/INDEX.md"
 )

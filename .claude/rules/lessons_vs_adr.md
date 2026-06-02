@@ -3,7 +3,7 @@ paths:
   - ".dev/decisions/**"
   - ".dev/lessons/**"
   - ".dev/handover.md"
-  - ".dev/debt.md"
+  - ".dev/debt.yaml"
 ---
 
 # Lessons vs ADRs — when to use which

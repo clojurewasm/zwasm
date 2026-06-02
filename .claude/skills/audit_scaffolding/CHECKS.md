@@ -165,10 +165,17 @@ where it's promised → `block`.
 
 ## F. Debt + lessons coherence (added 2026-05-04)
 
+First run `bash scripts/check_debt_yaml.sh` (schema lint: parse,
+required fields, status enum, blocked-by⇒last_reviewed, unique IDs,
+phantom `D-NEW*`). Then the semantic checks below. `.dev/debt.yaml` is
+the YAML SSOT (D-227 / ADR-0129); query with `yq` per
+[`yaml_ssot_yq.md`](../../rules/yaml_ssot_yq.md).
+
 ### F.1 Debt-ledger Refs validity
 
-For every row in `.dev/debt.md`, check the Refs column points to
-something that still exists:
+For every entry's `refs` field
+(`yq -r '.entries[] | .id + "  " + .refs' .dev/debt.yaml`), check it
+points to something that still exists:
 
 - File path → `test -e <path>`. Missing file → `block`.
 - ADR § anchor → grep the ADR for the section. Missing → `soon`.
@@ -176,24 +183,29 @@ something that still exists:
   → `block`.
 - Skill / rule path → `test -e <path>`. Missing → `block`.
 
-A debt row whose Refs are invalid is itself debt; either the
-debt has been discharged (delete the row) or the reference is
+An entry whose `refs` are invalid is itself debt; either the
+debt has been discharged (delete the entry) or the reference is
 stale (fix it).
 
-### F.2 Debt-row Status integrity
+### F.2 Debt-entry status integrity
 
-Every row in `.dev/debt.md` MUST have `Status: now` OR
-`Status: blocked-by: <specific structural barrier>`. Vague
-"later" / "low priority" / "small effort" / "TODO" entries are
-forbidden by the file's own discipline header.
+Every entry's `status` ∈ `{now, blocked-by, resolved, partial, note}`
+(enforced by `check_debt_yaml.sh`). The barrier for a `blocked-by`
+entry is the predicate at the head of `description` and MUST be a
+**specific structural barrier**. Vague "later" / "low priority" /
+"small effort" / "TODO" framing is forbidden by `.conventions`.
 
-- Row missing `Status:` field → `block`.
-- Row with `Status: blocked-by` followed by an empty / vague
-  string ("blocked-by: later", "blocked-by: someone") →
+```sh
+yq -r '.entries[] | select(.status == "blocked-by") | .id + ": " + .description' .dev/debt.yaml
+```
+
+- `blocked-by` whose barrier is empty / vague ("later", "someone") →
   `block`.
-- Row whose `blocked-by` barrier has demonstrably been removed
-  (e.g. cited Phase has closed; cited ADR has landed) →
-  `soon` ("flip to `now` and discharge").
+- `blocked-by` whose barrier has demonstrably been removed (cited
+  Phase closed; cited ADR landed) → `soon` (flip `status` to `now`
+  and discharge).
+- `resolved` / `note` entries lingering many cycles → `soon` (delete;
+  git retains via the close commit).
 
 ### F.2a Blocked-by escalation by age (added 2026-05-21)
 
@@ -232,7 +244,7 @@ bash scripts/audit_blocked_by_age.sh   # to be authored as a follow-up debt
 
 Until the script lands, the audit performs the calendar
 arithmetic inline by `awk`-extracting the `Last reviewed`
-column from `.dev/debt.md` and comparing against `date -u
+column from `.dev/debt.yaml` and comparing against `date -u
 +%Y-%m-%d`.
 
 ### F.3 Lessons INDEX coverage
@@ -434,7 +446,7 @@ For each row in ADR-0078's canonical table, resolves the Paired
 artifact column against current ground truth:
 
 - `debt-trackable` row citing `D-NNN` (concrete) → grep
-  `.dev/debt.md` for an active row; if absent, grep `git log`
+  `.dev/debt.yaml` for an active row; if absent, grep `git log`
   for a discharge SHA. `soon` finding when the debt is
   discharged but the row still references it (the ADR table
   needs updating — either cite the discharge SHA or retire the
@@ -664,7 +676,7 @@ ADR is active.
 
 ### J.3 Debt accumulation
 
-`.dev/debt.md` Active rows count > 15. The threshold is
+`.dev/debt.yaml` Active rows count > 15. The threshold is
 intentionally low — debt rows are supposed to discharge or
 escalate, not accumulate. Emit `suggest meta_audit` listing the
 oldest 5 rows by First-raised date (`soon` severity).

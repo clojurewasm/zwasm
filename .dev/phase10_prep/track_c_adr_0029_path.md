@@ -154,7 +154,7 @@ the runner-internal hardcoded mapping. ADR-0029 stays
    > (twin-tally output + deterministic `[x]`-flip rule) was
    > delivered via the actually-shipped path.
 3. **D-073 close**: same commit deletes the row from
-   `.dev/debt.md`.
+   `.dev/debt.yaml`.
 
 ### §3.3 Path A cost / closes / new debt
 
@@ -233,7 +233,7 @@ regen sweep; skip-ADRs are authored without runner-code edits.
    D-3) extended to verify prefix-vocab coherence (every
    `skip-adr-<id>` references an existing ADR file; every
    skip-ADR has at least one prefix consumer).
-6. **D-073 close**: row deleted from `.dev/debt.md`.
+6. **D-073 close**: row deleted from `.dev/debt.yaml`.
 
 ### §4.3 Path B cost / closes / new debt
 
@@ -446,7 +446,7 @@ lines. The warning's purpose evolves across the migration:
   `skip_externref_segment.md` (NOT EFFECTIVE per ADR-0050 D-2;
   Path B's wast_runtime_runner migration discharges them)
 - `.dev/decisions/0050_*.md` D-2 (three-path effectiveness test)
-- `.dev/debt.md` D-072, D-073
+- `.dev/debt.yaml` D-072, D-073
 - `test/spec/spec_assert_runner.zig:48-71` (twin-tally output),
   `:102-113` (hardcoded reason mapping)
 - `scripts/regen_spec_simd_assert.sh:241-289` (skip directive

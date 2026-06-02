@@ -6,7 +6,7 @@
 > the age-threshold ladder defined in
 > [`audit_scaffolding §F.2a`](../.claude/skills/audit_scaffolding/CHECKS.md)
 > and classifies the 28 active `blocked-by` rows in
-> [`.dev/debt.md`](debt.md) at sweep time.
+> [`.dev/debt.yaml`](debt.yaml) at sweep time.
 
 ## Threshold ladder (re-state)
 
@@ -64,7 +64,7 @@ the 30-day threshold.
 
 This sweep document is the static snapshot. The 7 `soon` rows
 each need a barrier re-walk; that work is captured as **D-156**
-in `.dev/debt.md` (added in the same commit as this sweep). The
+in `.dev/debt.yaml` (added in the same commit as this sweep). The
 re-walk happens in subsequent `/continue` cycles, one row at a
 time, per the Step 0.5 unconditional check.
 

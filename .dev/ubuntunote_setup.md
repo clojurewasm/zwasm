@@ -182,6 +182,6 @@ OrbStack-side scaffolding becomes legacy:
   LOOP.md any longer.
 - `.dev/orbstack_setup.md` — retain; OrbStack is still a
   useful dev-convenience host for interactive scratch.
-- `.dev/debt.md` D-134 row — flip Status to `closed (root
+- `.dev/debt.yaml` D-134 row — flip Status to `closed (root
   cause removed: OrbStack-Rosetta path retired from gate)`
   with reference to the ubuntunote pivot commit.

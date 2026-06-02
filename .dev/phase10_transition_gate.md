@@ -89,14 +89,14 @@ landed:
       landed** (9.9-h-15..-20). Verify: 5 files under
       §A2 hard cap (`bash scripts/file_size_check.sh --gate`
       exit 0; **gate flipped from warn-only to hard-fail**).
-      D-057 + D-065 deleted from `.dev/debt.md`.
+      D-057 + D-065 deleted from `.dev/debt.yaml`.
 - [ ] Track B follow-up — new debt **D-081** filed
       (legacy `emit_test_int/float.zig` rename when emit.zig
       source-splits; bundled with D-052 discharge).
 - [ ] Track C (ADR-0029 Path B) — **4 chunks landed**
       (9.9-h-21..-24). Verify: `grep -rn "skip-impl\|skip-adr-"
       test/spec/` returns matches (vocab migrated); D-073
-      deleted from `.dev/debt.md`; D-072 status updated to
+      deleted from `.dev/debt.yaml`; D-072 status updated to
       "(a/b)-path closed; (c)-path → D-082".
 - [ ] Track C follow-up — new debt **D-082** filed (D-072
       (c)-path: 4 embenchen fixtures → Phase 11 / 1 externref
@@ -452,7 +452,7 @@ workflow rule.
   blocker)
 - ADR-0053 (spilled-V128 ABI; helper pub-ification template
   for Phase 10 cross-class primitives)
-- `.dev/debt.md`: D-052 (prologue extract), D-074 (Phase 11
+- `.dev/debt.yaml`: D-052 (prologue extract), D-074 (Phase 11
   bench infra), D-079 (ii) (v128 cross-module imports), D-081
   (emit_test rename; Track B follow-up), D-082 (D-072 (c)-
   path; Track C follow-up)

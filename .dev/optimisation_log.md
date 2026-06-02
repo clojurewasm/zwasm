@@ -128,7 +128,7 @@ rule above codifies the correction.
 When Phase 7 closes (= every §9.7 row marked [x]), the
 `audit_scaffolding` skill inspects this log against:
 
-1. **Debt × optimisation crossover**: every row in `.dev/debt.md`
+1. **Debt × optimisation crossover**: every row in `.dev/debt.yaml`
    must either map to a specific `O-NNN` here, or be tagged as
    "structural defect, not an optimisation". Eliminate
    duplicates — make one a pointer to the other.
@@ -150,12 +150,12 @@ When Phase 7 closes (= every §9.7 row marked [x]), the
 - `O-NNN` is monotonically assigned. Rows are not deleted even
   after `Rejected` — keep them so future maintainers can see
   "we tried this before". Same operating model as `D-NNN` in
-  `.dev/debt.md`.
+  `.dev/debt.yaml`.
 - `F-NNN` and `R-NNN` follow the same retention rule.
 
 ## Related files
 
-- `.dev/debt.md` — structural debt (act-now / blocked-by). Not
+- `.dev/debt.yaml` — structural debt (act-now / blocked-by). Not
   optimisation; defect repair.
 - `.dev/lessons/INDEX.md` — observational notes. `Rejected`
   rationales that are reusable as principles should land here

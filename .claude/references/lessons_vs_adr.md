@@ -125,7 +125,7 @@ as their own artifacts:
 
 - "I fixed bug X by Y." → commit message body.
 - "We renamed `foo` to `bar`." → commit message subject.
-- "TODO: address Z later." → `.dev/debt.md` entry.
+- "TODO: address Z later." → `.dev/debt.yaml` entry.
 - "I spent 2h on Z and concluded W." → if W is re-derivable, commit
   message; if W teaches something future-you would forget, lesson.
 
@@ -133,7 +133,7 @@ as their own artifacts:
 
 - From ADR → lesson: `References: see [`<slug>`](../lessons/<file>)`.
 - From commit → lesson: `Cf. .dev/lessons/<YYYY-MM-DD>-<slug>.md`.
-- From debt → lesson: in the Refs column of `.dev/debt.md`.
+- From debt → lesson: in the Refs column of `.dev/debt.yaml`.
 - From lesson → ADR: in the lesson's `Citing:` header.
 
 ## Stale-ness — how this rule prevents drift

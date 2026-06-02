@@ -64,7 +64,7 @@ says `no Phase row currently scheduled; likely Phase 11`. If
   §1–§3 + Amendment log.
 - Read `.dev/decisions/0043_*.md` for the "per-op gap analysis"
   + "3× threshold" + v1 D122 reference (D-076 verify task).
-- Read `.dev/debt.md` D-074 row.
+- Read `.dev/debt.yaml` D-074 row.
 - Inventory current `bench/` directory layout (`ls bench/`,
   `ls scripts/run_bench.sh` etc.) and assess gaps.
 - Check if wasmtime / wazero / wasmer are in `flake.nix` dev shell
@@ -152,7 +152,7 @@ divergence". This Track decides the resolution.
 **Survey scope.**
 
 - Read `.dev/decisions/0029_spec_test_skip_semantics.md` fully.
-- Read D-072 + D-073 + D-076 in `.dev/debt.md`.
+- Read D-072 + D-073 + D-076 in `.dev/debt.yaml`.
 - Read `test/spec/spec_assert_runner.zig:48-108` (current
   classification + reason-string mapping).
 - Read `scripts/regen_spec_simd_assert.sh:226-280` (how `skip`

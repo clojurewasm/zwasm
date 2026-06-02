@@ -187,7 +187,7 @@ Minimal code to pass. Resist over-design.
 While green. Structural improvements only; no behaviour change.
 
 **Debt observation**: smell out of scope?  Mechanical fix (≤ 5 min) →
-inline; else **append `now` debt row** to `.dev/debt.md`.
+inline; else **append `now` debt row** to `.dev/debt.yaml`.
 
 **Workaround check**: papered over missing tool/file/capability?
 Re-read `extended_challenge.md`; walk 3-step procedure (Confirm →
@@ -230,7 +230,7 @@ commit pair per chunk.
    bare; batch-backfilled at phase close. **§18 self-check** (PreToolUse
    hook re-prints): routine `[x]` flip + SHA backfill = no ADR.
    Touching §1/§2/§4/§5/§9 scope/§11/§14 = deviation; file ADR first.
-4. **Append `.dev/debt.md` + lessons** as needed.
+4. **Append `.dev/debt.yaml` + lessons** as needed.
 5. **Handover commit**. `git commit -m "chore(p<N>): mark §9.<N> / N.M [x]; retarget handover at N.M+1"`.
 
 → **Then CHAIN (D5-a)**: go straight to the next chunk's Step 0 in

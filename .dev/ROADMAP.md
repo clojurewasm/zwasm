@@ -1861,7 +1861,7 @@ that's fine, but the act of typing it is the act of re-deciding.
    day 1 (see rules/single_slot_dual_meaning.md, ADR-0014 §6.K.5)
 ❌ Workaround / SKIP-X-MISSING fallback without paired root-cause
    investigation OR a debt-ledger row naming the structural
-   barrier (see rules/extended_challenge.md, .dev/debt.md
+   barrier (see rules/extended_challenge.md, .dev/debt.yaml
    discipline; the §9.6 / 6.F windowsmini wasmtime stub case is
    the worked example)
 ```

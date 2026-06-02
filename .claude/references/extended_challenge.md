@@ -200,7 +200,7 @@ away).
 - **"I added a SKIP-X-MISSING fallback to make the gate pass"**
   — that's a workaround. Forbidden unless paired with an ADR or
   a debt-ledger row whose `Status` names the structural barrier
-  (per `.dev/debt.md` discipline).
+  (per `.dev/debt.yaml` discipline).
 - **"User will figure it out next session"** — the loop is
   designed for autonomy; passing a vague problem back to the
   user is a stop antipattern (per `/continue`'s "Anti-patterns

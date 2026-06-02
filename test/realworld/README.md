@@ -58,6 +58,6 @@ conditions tied to specific validator / WASI work items.
 ## See also
 
 - `cli_run.runWasm` / `cli_run.runWasmCaptured` (`src/cli/run.zig`)
-- `.dev/debt.md` D-007 (`RunOpts` struct refactor when envv /
+- `.dev/debt.yaml` D-007 (`RunOpts` struct refactor when envv /
   preopens are added) and D-019 (this argv convention).
 - ADR-0012 §3 — test/ taxonomy.

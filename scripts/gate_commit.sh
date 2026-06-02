@@ -49,6 +49,7 @@ RULES_TOUCHED=0
 SKILLS_TOUCHED=0
 DEV_MD_TOUCHED=0
 HANDOVER_TOUCHED=0
+DEBT_YAML_TOUCHED=0
 ANY_STAGED=0
 if [ -n "$STAGED" ]; then
     ANY_STAGED=1
@@ -84,6 +85,11 @@ if [ -n "$STAGED" ]; then
         case "$f" in
             .dev/handover.md)
                 HANDOVER_TOUCHED=1
+                ;;
+        esac
+        case "$f" in
+            .dev/debt.yaml)
+                DEBT_YAML_TOUCHED=1
                 ;;
         esac
     done <<< "$STAGED"
@@ -266,6 +272,15 @@ fi
 if [ "$DEV_MD_TOUCHED" -eq 1 ] && [ -x scripts/check_doc_state.sh ]; then
     echo "[gate_commit] check_doc_state --gate ..."
     bash scripts/check_doc_state.sh --gate > /dev/null
+fi
+
+# debt.yaml schema gate (D-227 / ADR-0129): when the ledger is touched,
+# validate parse + required fields + status enum + blocked-by review-dates
+# + unique IDs + no phantom D-NEW* (a malformed block scalar would silently
+# break every yq query the loop's Step 0.5 sweep depends on).
+if [ "$DEBT_YAML_TOUCHED" -eq 1 ] && [ -x scripts/check_debt_yaml.sh ]; then
+    echo "[gate_commit] check_debt_yaml --gate ..."
+    bash scripts/check_debt_yaml.sh --gate > /dev/null
 fi
 
 # Bundle-schema gate (ADR-0118 D6): if handover.md carries an Active

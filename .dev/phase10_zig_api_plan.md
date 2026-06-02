@@ -195,7 +195,7 @@ implementation train starts at J.2.
 | Field | Value |
 |---|---|
 | Scope | New `test/api/zig_facade_runner.zig` exe (~400 LOC) — manifest-based fixture enumeration sibling to existing `test/runners/wast_runtime_runner.zig`. Loads every `.wasm` under (configurable) `test/realworld/wasm/` + `test/edge_cases/p7/` + (future) `test/edge_cases/p10/` etc. For each fixture: parse via `Engine.compile` → instantiate via `Linker` → look up exported main / first-func → invoke via `TypedFunc` or untyped `invoke` → verify result against `.expect` companion file (where present). Reports per-corpus PASS/FAIL/SKIP. WASI-importing fixtures SKIP with reason "linker.defineWasi deferred to Phase 11" (= D-176 stub debt row added). Wired into `build.zig` as `test-api-zig-facade` step; added to `test-all` aggregate. |
-| Files touched | NEW: `test/api/zig_facade_runner.zig` (~400 LOC). EDIT: `build.zig` (~30 LOC — module + exe + step + test-all dep). NEW: `.dev/debt.md` row D-176 (WASI defineWasi deferred). |
+| Files touched | NEW: `test/api/zig_facade_runner.zig` (~400 LOC). EDIT: `build.zig` (~30 LOC — module + exe + step + test-all dep). NEW: `.dev/debt.yaml` row D-176 (WASI defineWasi deferred). |
 | Exit criterion | (a) `zig build test-api-zig-facade` runs the runner exe; (b) cljw_* (5 fixtures) all PASS; (c) Non-WASI realworld fixtures (~45) report sensible pass/fail (a few existing FAIL-on-trap fixtures should produce expected Trap variant); (d) p7 edge-case fixtures all PASS or produce expected `.expect` Trap variant; (e) WASI fixtures emit SKIP with reason; (f) `test-all` aggregate GREEN with new step wired in |
 | Tier-1 tests landed | NONE NEW for Tier-1; this chunk lands **Tier-2 + Tier-3** infrastructure |
 | Tier-2 + Tier-3 landed | **The structural anti-rot mechanism** — Tier-2 cljw_fib parity (test survey must-have #4): same fixture run through `wast_runtime_runner` (c_api path) and `zig_facade_runner` (native API path) must produce same output. Future edge_cases auto-leveraged by the runner's generic enumeration |
@@ -209,7 +209,7 @@ implementation train starts at J.2.
 | Field | Value |
 |---|---|
 | Scope | Add `Linker.defineWasi(cfg: WasiConfig)` skeleton that wires the existing `src/wasi/host.zig` machinery (currently c_api-only) into the native facade. `WasiConfig` struct lists fields per `docs/zig_api_design.md` §3.8 (`stdin / stdout / stderr / args / env / preopens`). Full WASI semantics + per-syscall surface lives in Phase 11; this chunk lands ONLY the surface API + a smoke test that a WASI-importing module instantiates successfully (no functional WASI test). D-176 closes here (skeleton landed); follow-up debt D-177 tracks full Phase 11 implementation. |
-| Files touched | NEW: `src/zwasm/wasi_config.zig` (~60 LOC) OR inline in linker.zig. EDIT: `src/zwasm/linker.zig` (add `defineWasi`); `test/api/zig_facade_runner.zig` (un-SKIP WASI fixtures with smoke-test mode). EDIT: `.dev/debt.md` (close D-176; open D-177 if needed). |
+| Files touched | NEW: `src/zwasm/wasi_config.zig` (~60 LOC) OR inline in linker.zig. EDIT: `src/zwasm/linker.zig` (add `defineWasi`); `test/api/zig_facade_runner.zig` (un-SKIP WASI fixtures with smoke-test mode). EDIT: `.dev/debt.yaml` (close D-176; open D-177 if needed). |
 | Exit criterion | (a) Tier-1 T1.13 `linker.defineWasi(.{ .args = &.{}, .env = &.{}, .stdin = ... })` + instantiate a minimal WASI module succeeds (no syscall actually exercised); (b) zig_facade_runner WASI fixtures move from SKIP to PASS (instantiation-only) or proper-FAIL (real syscall needed → still SKIP with phase-11 reason); (c) D-176 closes |
 | Tier-1 tests landed | **T1.13** WASI skeleton instantiation (ADR-0109 §3.8) |
 | Gate class | `substrate` |
@@ -222,7 +222,7 @@ implementation train starts at J.2.
 | Field | Value |
 |---|---|
 | Scope | Final audit chunk. (1) Verify every ADR-0109 §2 public symbol has ≥1 Tier-1 test (audit by hand + grep; see §4.2 coverage matrix below). (2) Verify every cross-cutting concern from test survey §5.1 is covered. (3) Verify cljw_fib produces identical output through `wast_runtime_runner` + `zig_facade_runner` (the must-have #4 structural parity check). (4) Close D-075 (Status flip to "discharged"; ADR-0109 Status → `Closed (implemented)` per its Removal condition once cw v1 dogfoods ≥ 1 minor version — for now flip to `Closed (implemented; dogfooding gate at next cw v1 sync)`. (5) Final `scripts/check_phase9_close_invariants.sh` I3 amend to grep for `pub const Engine` instead of `pub const Runtime`. (6) Mark ROADMAP §10 / 10.J `[x]`. |
-| Files touched | EDIT: `.dev/debt.md` (close D-075); `.dev/decisions/0109_native_zig_api_inversion.md` (Status flip + Revision); `scripts/check_phase9_close_invariants.sh` (I3 grep update); `.dev/ROADMAP.md` (10.J [x] + SHA backfill); `.dev/phase_log/phase10.md` (10.J close record); `.dev/handover.md` (retarget at next chunk). |
+| Files touched | EDIT: `.dev/debt.yaml` (close D-075); `.dev/decisions/0109_native_zig_api_inversion.md` (Status flip + Revision); `scripts/check_phase9_close_invariants.sh` (I3 grep update); `.dev/ROADMAP.md` (10.J [x] + SHA backfill); `.dev/phase_log/phase10.md` (10.J close record); `.dev/handover.md` (retarget at next chunk). |
 | Exit criterion | (a) Coverage matrix audit doc lands at `private/notes/p10-J.close-coverage-audit.md` showing 100% public-symbol coverage; (b) cljw_fib parity verified empirically (run both runners; assert same output bits); (c) I3 invariant gate still PASSes (with updated grep); (d) D-075 closes; (e) 10.J row `[x]`. |
 | Tier-1 tests landed | NONE NEW — this is audit + close |
 | Gate class | `substrate` (docs + script edits only) |
@@ -445,7 +445,7 @@ Both are visible scope; neither is scope-creep. J.1 withdrawal removes
 - **`docs/zig_api_design.md`** — consumer-facing spec; §3 patterns frozen as Tier-1 test scenarios in this doc's §4.6
 - **ADR-0025** (`.dev/decisions/0025_zig_library_surface.md`) — Superseded; design lineage; do not edit further
 - **ADR-0110** (`.dev/decisions/0110_value_widen_to_16_byte.md`) — Closed; this doc's J.4 inherits 16-byte Value uniform stride
-- **D-075** (`.dev/debt.md`) — impl tracker; closes at J.close
+- **D-075** (`.dev/debt.yaml`) — impl tracker; closes at J.close
 - **D-176** (to be filed at J.6) — WASI `defineWasi` full impl deferred to Phase 11
 - **D-177** (to be filed at J.7 if J.7 doesn't fully close D-176) — WASI full surface
 - **D-178** (to be filed at J.close if R5 holds) — v128 host-fn marshalling

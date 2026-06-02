@@ -2571,7 +2571,7 @@ else
 /// `__except`) producing equivalent recovery semantics, or
 /// Windows-side per-directive skipping of assert_trap, or
 /// scoping windowsmini reconcile to "build + non-assert_trap
-/// runners" via ADR-0056 amend. See `.dev/debt.md` D-136 for
+/// runners" via ADR-0056 amend. See `.dev/debt.yaml` D-136 for
 /// the full decision tree.
 fn sigsetjmpWindowsStub(env: [*]u8, savemask: c_int) callconv(.c) c_int {
     _ = env;

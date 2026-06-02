@@ -11,8 +11,8 @@
 # Behaviors:
 #   1. raw-skip count gate: error if `error.SkipZigTest` appears outside
 #      skip.zig + the migration grace baseline.
-#   2. blocker enum vs debt.md pairing: every `skip.blocker(.@"D-NNN")`
-#      arg must have a row in `.dev/debt.md`.
+#   2. blocker enum vs debt.yaml pairing: every `skip.blocker(.@"D-NNN")`
+#      arg must have a row in `.dev/debt.yaml`.
 #   3. SIBLING-AT marker: every `if (comptime ... != .ARCH) return;`
 #      under src/engine/codegen/ must have a paired SIBLING-AT comment
 #      whose path exists.
@@ -56,7 +56,7 @@ if (( raw_count > RAW_BASELINE )); then
 fi
 
 # ============================================================
-# Check 2: skip.blocker(.@"D-NNN") args must pair to .dev/debt.md rows
+# Check 2: skip.blocker(.@"D-NNN") args must pair to .dev/debt.yaml entries
 # ============================================================
 
 mapfile -t blocker_args < <(
@@ -66,8 +66,8 @@ mapfile -t blocker_args < <(
 )
 
 for d in "${blocker_args[@]}"; do
-  if ! grep -q "^| ${d} " .dev/debt.md; then
-    findings+=("[blocker-pairing] skip.blocker(.@\"${d}\") used but no row in .dev/debt.md")
+  if ! D_ID="$d" yq -e '.entries[] | select(.id == env(D_ID))' .dev/debt.yaml >/dev/null 2>&1; then
+    findings+=("[blocker-pairing] skip.blocker(.@\"${d}\") used but no entry in .dev/debt.yaml")
     if (( GATE_MODE )); then RC=1; fi
   fi
 done

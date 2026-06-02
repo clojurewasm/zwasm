@@ -37,7 +37,7 @@ the bridge lives in `audit_scaffolding/CHECKS.md §J.7`.
 for the exact predicates. Examples:
 
 - A `src/` file passes 80% of §A2 soft cap (≥ 800 LOC).
-- `.dev/debt.md` Active rows exceed 15.
+- `.dev/debt.yaml` Active rows exceed 15.
 - A debt row's `Last reviewed` is > 5 resume cycles old.
 - A §14 forbidden-list near-miss (e.g. new `pub var`) detected.
 - ADR count grew by > 5 since the last meta_audit without a
@@ -81,7 +81,7 @@ Re-read in order:
 5. ROADMAP §15 (future go/no-go decision points)
 6. The 5 most recent ADRs in `.dev/decisions/` (by NNNN)
 7. `.dev/handover.md`
-8. `.dev/debt.md` (full Active section)
+8. `.dev/debt.yaml` (full Active section)
 9. `.dev/lessons/INDEX.md`
 
 ### Step 1 — Apply the 4 honest-lens questions

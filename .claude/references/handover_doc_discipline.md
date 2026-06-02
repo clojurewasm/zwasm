@@ -58,7 +58,7 @@ Don't write speculative numbers in mutable docs:
 |---|---|---|
 | Past chunk outcome (3-host gate, deltas) | commit message body (`git show <sha>`) | handover Current/Active state, debt narrative |
 | Current FAIL counts / breakdown | `bash scripts/p<N>_*_status.sh` (live) | handover, debt |
-| `now` debt rows | `.dev/debt.md` Status column | handover (point at, don't copy) |
+| `now` debt rows | `.dev/debt.yaml` Status column | handover (point at, don't copy) |
 | ROADMAP §9.<N> chunk records (immutable) | row at chunk-close time | handover |
 | Hypothesis with TTL | debt row body, prefixed `Hypothesis (verified at <SHA-or-date>): ...` | handover |
 

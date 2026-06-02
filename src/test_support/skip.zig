@@ -60,7 +60,7 @@ pub const Win64Phase = enum {
 /// (per ADR-0122 D6) reviews these every commit and attempts a
 /// 3-minute ungate probe when nearby code changes.
 ///
-/// **Every variant here MUST appear as a row in `.dev/debt.md`**;
+/// **Every variant here MUST appear as a row in `.dev/debt.yaml`**;
 /// `scripts/check_skip_helpers.sh --gate` enforces the pairing.
 /// Add a new variant only when filing the paired debt row in
 /// the same commit.

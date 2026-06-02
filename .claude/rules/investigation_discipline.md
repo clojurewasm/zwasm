@@ -2,7 +2,7 @@
 description: "Multi-cycle bug investigation discipline — enumerated hypothesis list with rejecting-SHA tracking + heisenbug 5-silent-run discharge protocol with binary-layout diversity + cause-named close. Absorbs former hypothesis_enumeration.md + heisenbug_discharge.md per ADR-0118 D3."
 paths:
   - ".dev/handover.md"
-  - ".dev/debt.md"
+  - ".dev/debt.yaml"
   - ".dev/lessons/**"
   - "scripts/track_heisenbug.sh"
 ---
@@ -13,7 +13,7 @@ paths:
 
 ## Invariant
 
-- §1 — A bug open >1 cycle MUST carry an enumerated hypothesis list: numbered name + predicted observable signature + distinguishing probe (cheapest single experiment). Rejected ones kept ~~struck~~ with rejecting SHA (never re-walk). Step 0 BEFORE enumerating: dedup-grep `.dev/debt.md` + `.dev/lessons/INDEX.md` for source/function names + symptom keywords; if hit, update existing row / cite existing lesson, don't open fresh.
+- §1 — A bug open >1 cycle MUST carry an enumerated hypothesis list: numbered name + predicted observable signature + distinguishing probe (cheapest single experiment). Rejected ones kept ~~struck~~ with rejecting SHA (never re-walk). Step 0 BEFORE enumerating: dedup-grep `.dev/debt.yaml` + `.dev/lessons/INDEX.md` for source/function names + symptom keywords; if hit, update existing row / cite existing lesson, don't open fresh.
 - §2 — Heisenbug discharge gate = ALL of: (1) ≥5 consecutive `silent` outcomes; (2) over ≥3 structurally-distinct SHAs in the suspected code area (same-artifact streak ≠ evidence); (3) instrumentation still in binary; (4) named root cause OR ADR-documented rate-reduction mitigation. Any non-`silent` (`fail`/`segv`) resets streak to 0.
 
 ## Enforcement
