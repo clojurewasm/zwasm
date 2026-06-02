@@ -713,6 +713,43 @@ test "runI32Export: ref.test i31 on a struct ref → 0 (HA probe — cross/negat
     try testing.expectEqual(@as(u32, 0), runI32Export(testing.allocator, &bytes, "f"));
 }
 
+test "runI32Export: ref.test i31 on a table-loaded i31 ref → 1 (table-path probe, positive)" {
+    // (module (table $t 2 anyref) (func (export "f") (result i32)
+    //   i32.const 0  i32.const 5 ref.i31  table.set $t   ;; $t[0] = i31(5)
+    //   i32.const 0  table.get $t  ref.test i31))         ;; → 1
+    // Probe whether a ref READ BACK from a table mis-classifies (the corpus
+    // gc/ref_test reads $ta via table.get; the passing matrix tests use direct
+    // refs). table.set=0x26, table.get=0x25, anyref elemtype=0x6e.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, // type () -> i32
+        0x03, 0x02, 0x01, 0x00, // func
+        0x04, 0x04, 0x01, 0x6e, 0x00, 0x02, // table: 1 × anyref, min 2
+        0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00, // export "f"
+        // code: body 17 bytes (0x11); sect 0x13.
+        0x0a, 0x13, 0x01, 0x11, 0x00, 0x41, 0x00,
+        0x41, 0x05, 0xfb, 0x1c, 0x26, 0x00, 0x41,
+        0x00, 0x25, 0x00, 0xfb, 0x14, 0x6c, 0x0b,
+    };
+    try testing.expectEqual(@as(u32, 1), runI32Export(testing.allocator, &bytes, "f"));
+}
+
+test "runI32Export: ref.test struct on a table-loaded i31 ref → 0 (table-path probe, negative)" {
+    // Same as above but ref.test struct (fb 14 6b) → an i31 read from the table
+    // is NOT a struct → 0. If JIT returns 1, the table.get-reftype/ref.test path
+    // is the convert-corpus +59 culprit (independent of any.convert_extern).
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03,
+        0x02, 0x01, 0x00, 0x04, 0x04, 0x01, 0x6e, 0x00,
+        0x02, 0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00,
+        0x0a, 0x13, 0x01, 0x11, 0x00, 0x41, 0x00, 0x41,
+        0x05, 0xfb, 0x1c, 0x26, 0x00, 0x41, 0x00, 0x25,
+        0x00, 0xfb, 0x14, 0x6b, 0x0b,
+    };
+    try testing.expectEqual(@as(u32, 0), runI32Export(testing.allocator, &bytes, "f"));
+}
+
 test "runI32Export: ref.test eq on an i31 ref → 1 (abstract matrix — i31 <: eq)" {
     // i32.const 5; ref.i31; ref.test eq (fb 14 6d) → an i31 IS an eqref → 1.
     const bytes = [_]u8{
