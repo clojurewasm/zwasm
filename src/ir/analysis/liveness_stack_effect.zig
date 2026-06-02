@@ -128,8 +128,11 @@ pub fn stackEffect(op: ZirOp) ?StackEffect {
         .@"i31.get_s",
         .@"i31.get_u",
         // Wasm 3.0 GC (10.G): struct.get pops the struct GcRef, pushes
-        // the loaded field Value (1 → 1 scalar; ADR-0116 §3a).
+        // the loaded field Value (1 → 1 scalar; ADR-0116 §3a). get_s/get_u
+        // are the packed (i8/i16) sign/zero-extending variants — same shape.
         .@"struct.get",
+        .@"struct.get_s",
+        .@"struct.get_u",
         // array.new_default pops the i32 length, pushes the GcRef (the
         // alloc trampoline zero-inits). array.len pops the array GcRef,
         // pushes the i32 length. Both 1 → 1.

@@ -852,6 +852,8 @@ const arm64_i31_get_u = @import("arm64/ops/wasm_3_0/i31_get_u.zig");
 // uniform 8-byte field slot off the gc_heap slab (cycle A-2b-2).
 const arm64_struct_new_default = @import("arm64/ops/wasm_3_0/struct_new_default.zig");
 const arm64_struct_get = @import("arm64/ops/wasm_3_0/struct_get.zig");
+const arm64_struct_get_s = @import("arm64/ops/wasm_3_0/struct_get_s.zig");
+const arm64_struct_get_u = @import("arm64/ops/wasm_3_0/struct_get_u.zig");
 // struct.new (variadic) — allocs then stores field operands (force-spilled
 // across the alloc BLR per ADR-0060 amend); cycle A-3. x86_64 = follow-on.
 const arm64_struct_new = @import("arm64/ops/wasm_3_0/struct_new.zig");
@@ -892,6 +894,8 @@ const x86_64_i31_get_s = @import("x86_64/ops/wasm_3_0/i31_get_s.zig");
 const x86_64_i31_get_u = @import("x86_64/ops/wasm_3_0/i31_get_u.zig");
 const x86_64_struct_new_default = @import("x86_64/ops/wasm_3_0/struct_new_default.zig");
 const x86_64_struct_get = @import("x86_64/ops/wasm_3_0/struct_get.zig");
+const x86_64_struct_get_s = @import("x86_64/ops/wasm_3_0/struct_get_s.zig");
+const x86_64_struct_get_u = @import("x86_64/ops/wasm_3_0/struct_get_u.zig");
 const x86_64_struct_new = @import("x86_64/ops/wasm_3_0/struct_new.zig");
 const x86_64_struct_set = @import("x86_64/ops/wasm_3_0/struct_set.zig");
 const x86_64_array_new_default = @import("x86_64/ops/wasm_3_0/array_new_default.zig");
@@ -1286,6 +1290,8 @@ pub const collected_arm64_ops = .{
     // x86_64 struct.new = follow-on mirror).
     arm64_struct_new_default,
     arm64_struct_get,
+    arm64_struct_get_s,
+    arm64_struct_get_u,
     arm64_struct_new,
     arm64_struct_set,
     arm64_array_new_default,
@@ -1820,6 +1826,8 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_i31_get_u,
     x86_64_struct_new_default,
     x86_64_struct_get,
+    x86_64_struct_get_s,
+    x86_64_struct_get_u,
     x86_64_struct_new,
     x86_64_struct_set,
     x86_64_array_new_default,

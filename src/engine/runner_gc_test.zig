@@ -1017,3 +1017,40 @@ test "JitInstance.initLinked: table init-expr ref.i31(global.get imported) → 4
     try testing.expectEqual(@as(?u64, 42), try inst.invoke(testing.allocator, "get", &.{0}));
     try testing.expectEqual(@as(?u64, 42), try inst.invoke(testing.allocator, "get", &.{1}));
 }
+
+// struct.get_s / struct.get_u — Wasm 3.0 GC §3.3.13.7 packed (i8/i16)
+// field sign/zero-extension (D-225 skip-reduction; mirrors the proven
+// array.get_s/u emit). Single-result variants (the gc/struct.10 corpus
+// asserts return 2 values = multi-value-eligibility-skipped, so verify
+// the runtime extension here). Struct {mut i8}; store i32 -2 (low byte
+// 0xFE); get_s → sign-extend → -2; get_u → zero-extend → 254.
+test "JitInstance: struct.get_s / struct.get_u packed i8 sign/zero-extend (D-225)" {
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        // type0 = struct {mut i8}; type1 = ()->i32
+        0x01, 0x09, 0x02, 0x5f, 0x01, 0x78, 0x01, 0x60,
+        0x00, 0x01, 0x7f,
+        0x03, 0x03, 0x02, 0x01, 0x01, // 2 funcs, both type1
+        // export "gs" func0, "gu" func1
+        0x07, 0x0b, 0x02, 0x02, 0x67,
+        0x73, 0x00, 0x00, 0x02, 0x67,
+        0x75, 0x00, 0x01,
+        // code: gs = i32.const -2; struct.new 0; struct.get_s 0 0
+        //       gu = i32.const -2; struct.new 0; struct.get_u 0 0
+        0x0a, 0x19,
+        0x02, 0x0b, 0x00, 0x41, 0x7e,
+        0xfb, 0x00, 0x00, 0xfb, 0x03,
+        0x00, 0x00, 0x0b, 0x0b, 0x00,
+        0x41, 0x7e, 0xfb, 0x00, 0x00,
+        0xfb, 0x04, 0x00, 0x00, 0x0b,
+    };
+    var inst = JitInstance.init(testing.allocator, &bytes) catch |e| {
+        std.debug.print("\n[d225-structget] init ERR={s}\n", .{@errorName(e)});
+        return error.TestUnexpectedResult;
+    };
+    defer inst.deinit(testing.allocator);
+    const gs = (try inst.invoke(testing.allocator, "gs", &.{})).?;
+    const gu = (try inst.invoke(testing.allocator, "gu", &.{})).?;
+    try testing.expectEqual(@as(i32, -2), @as(i32, @bitCast(@as(u32, @truncate(gs)))));
+    try testing.expectEqual(@as(i32, 254), @as(i32, @bitCast(@as(u32, @truncate(gu)))));
+}
