@@ -9,16 +9,17 @@
   **interp pass=fail=skip=0 (MET) + JIT 0-real-fail + every JIT skip on the forward-ref'd
   deferred-allowlist** (multi-memory-on-JIT→§14, GC-on-JIT-rooting→§11). Raw "JIT skip=0" (ADR-0128)
   was unreachable in-phase; re-scoped autonomously per ADR-0132.
-- **LAST code HEAD** (`16a921a8`): **JIT global tag identity — cross-module (ADR-0134 D3, cycle 1).**
-  Replaced the per-module-local `tag_canon` (u32 repr idx) with a globally-comparable `tag_ids` (u64) — the
-  JIT analog of interp's `*TagInstance` key (ADR-0114 D7). `setup` builds `tag_ids` over the full tag space
-  whenever the module has ≥1 tag: defined tag's id = address of its own `tag_tokens` cell (unique/instance);
-  imported tag inherits the EXPORTER's id (`tag_import_targets`) else its (module,name) local rep token.
-  Added `TagImportTarget` + `exportedTagTarget` + non-filtering `sections.findExportedTagIndex` (decodeExports
-  drops kind=4); `initLinked` += `tag_import_targets`; spec runner `jitResolveTagImports`. Decodes imports on
-  section-presence (not `num_imports`, func-only). Observable: runner_test links 2 instances, importer's aliased
-  tags inherit exporter id. EH JIT dir 32/2 (Cause A green via REAL identity now), global 794/3, no regression.
-- **Cause A** (`50e5ecd3`): the within-module-aliased-import fix, now subsumed by D3's global identity.
+- **LAST code HEAD** (`cb55013e`): **per-frame-instance unwind machinery + EH registry (ADR-0134 D2, cycle 2a).**
+  `ExceptionTable.lookupByIdentity(pc, throw_id:u64)` matches a PRE-RESOLVED throw identity (from the THROWING
+  table) against each frame's own table. `unwind.walk` gains an optional `InstanceResolver` (per-frame table +
+  module-pc by abs pc); null result FALLS BACK to the throwing table → regression-safe with zero registrations.
+  `eh_registry.zig`: process-global live-`*JitRuntime` table (fixed-cap, alloc-free per ADR-0114 D5); `resolve`
+  finds the instance whose `CodeMap` contains the pc. `trampolineCore` threads the resolver. Unit-tested
+  (per-frame switch, registry, control-miss). **No production change yet** (registry empty until 2b) — corpus EH
+  32/2, global 794/3 unchanged. Updated the stale `unwind.zig` "Phase 11+" header.
+- **D3** (`16a921a8`): global `tag_ids` (u64) cross-module identity (`TagImportTarget`/`exportedTagTarget`/
+  `findExportedTagIndex`/`jitResolveTagImports`); throw+catch resolve to the same id. **Cause A** (`50e5ecd3`)
+  subsumed.
 - **Prior governance** (`5447cb10`): ADR-0132 (autonomous ROADMAP re-sequencing) + ADR-0133 (Phase 10 exit
   re-scope; I24; §10-scope RESOLVED). D-237 (spec-runner double-free, harness-only). **GATE TRAP**: corpus exe
   MUST be picked by mtime (`find … -exec ls -t {} + | head -1`); bare `head -1` returns a STALE binary.
@@ -32,28 +33,29 @@
   compiling, the dispatch RUNS — the 2 remaining fails are cross-instance (Cause B / ADR-0134).
 - **Watch**: `runner_test.zig` 1370 / `compile.zig` 1223 / `runner_gc_test.zig` 1476 / `jit_abi.zig` 1350 (WARN, < hard 2000).
 
-## Active task — CAUSE B cross-instance EH: **cycle 2 = D1+D2 (thunk frame-link + per-frame dispatch)**  **NEXT**
+## Active task — CAUSE B cross-instance EH: **cycle 2b = thunk frame-link + registration + handler-cmap**  **NEXT**
 
-try_table.1.wasm 32/34. ✅ Cause A (`50e5ecd3`). ✅ **D3 global tag identity** (`16a921a8`): a module-1 throw's
-tag and a module-2 catch's imported tag now resolve to the SAME `tag_ids` u64 (verified at the table/runner
-level). The 2 remaining fails (`catch-imported`, `imported-mismatch`) still fail because the UNWINDER is
-single-instance: `trampolineCore` holds the throwing instance's (module 1's) `rt`/table and walks every frame
-against it, so it never consults module 2's table where the catch lives. **Two gaps to close (ADR-0134 D1+D2)**:
+try_table.1.wasm 32/34. ✅ D3 identity (`16a921a8`) + ✅ 2a unwind machinery (`cb55013e`, the resolver/registry).
+2 fails (`catch-imported`, `imported-mismatch`) close once the registry is POPULATED + the thunk frame is
+FP-linked. **2b = three pieces**:
 
-1. **D1 — frame unreachable.** arm64 thunk (`arm64/thunk.zig` emitThunk, 96B) does `STP X29,X30,[SP,#-80]!`
-   (saves caller call-site LR+FP) but NEVER `MOV X29,SP`, so its frame isn't FP-linked → the FP-walk reaches
-   the caller frame carrying a THUNK pc, not the caller's call-site pc → caller try_table unfindable. Add
-   `MOV X29,SP` after the STP (bump `thunk_bytes` 96→100 + size asserts; x86_64 mirror in cycle 3).
-2. **D2 — per-frame dispatch.** Build a process-global block-range→`*JitRuntime` registry; the walker resolves
-   each frame's abs pc → owning instance and switches the active table + `tag_ids` to it (`unwind.walk` +
-   `trampolineCore`). A thunk-arena pc = pass-through frame (no try_table). Then the throw's `tag_ids`-resolved
-   id (D3) matches the catch entry's `tag_ids`-resolved id in module 2's table. **Update the STALE
-   `unwind.zig:26-31` "Phase 11+" comment** to describe the implemented dispatch.
+1. **D1 thunk frame-link.** `arm64/thunk.zig` emitThunk (96B) does `STP X29,X30,[SP,#-80]!` but NOT `MOV X29,SP`
+   → its frame isn't FP-linked → the FP-walk reaches the caller frame carrying a THUNK pc, not the caller's
+   call-site pc. Add `MOV X29,SP` right after the STP (instr count 19→20 → pad slot consumed; `thunk_bytes`
+   stays 96; ADR-offset to the literal pool 52→48; update the size/encoding asserts). x86_64 thunk = cycle 3.
+2. **Registration.** Populate `eh_registry` with each live JIT instance's `*JitRuntime` once heap-pinned.
+   The spec runner heap-pins exporters (jit_exporters / jit_owned) + `cur_jit`; register there +
+   unregister at cleanup (the rt address is the bridge-thunk's `callee_rt`, stable). Without this the resolver
+   returns null everywhere → fallback → still single-instance.
+3. **Handler-cmap per instance.** `trampolineCore` on `.handler` does `cmap.lookup(handler_abs_pc)` with the
+   THROWING cmap for SP-restore + landing-pad; for a cross-instance catch the handler is in module 2 → must use
+   module 2's cmap. Resolve the catching instance from `handler_abs_pc` via `eh_registry` (add a helper that
+   returns the rt/cmap) and use ITS cmap. Only fires once cross-instance handlers land.
 
-Loci: `arm64/thunk.zig`/`x86_64/thunk.zig` (frame-link), `unwind.zig` walk + FrameLink, `throw_trampoline.zig`
-trampolineCore (single rt today), a new registry (setup/runner link path registers each instance's block range).
-**Cycle-2 first read**: the FP-walk frame loader in `throw_trampoline.zig` (how it materializes FrameLink from
-the live stack) + the thunk frame layout (where caller_rt is recoverable = `[thunk_fp+16]` saved X19).
+Loci: `src/engine/codegen/arm64/thunk.zig` (emitThunk + asserts), `test/spec/spec_assert_runner_wasm_3_0.zig`
+(register/unregister at pin/cleanup), `throw_trampoline.zig` trampolineCore (handler cmap via registry).
+**Verify**: Mac JIT corpus EH dir → 34/0 (catch-imported + imported-mismatch pass). **First read**: how the
+spec runner heap-pins instances (the `pp = gpa.create(JitInstanceT)` sites + cleanup loop).
 
 Other non-gated tracks (after EH): **D-234** (memory64 assert_trap harness artifact), **D-198**, **D-209**,
 **D-210** (return_call_indirect-in-try = func[36], TC+EH gap). Realworld GC/EH/TC producers.
@@ -64,12 +66,11 @@ Other non-gated tracks (after EH): **D-234** (memory64 assert_trap harness artif
 
 ## Active bundle
 
-- **Bundle-ID**: `10.E-eh-on-jit` (opened `3b668110`).  **Cycles-remaining**: ~2 (ADR-0134 D1+D2 → x86_64+fixture).
-- **Continuity-memo**: try_table.1.wasm 32/34. ✅ catchless (`590093f5`) → ✅ result-arity (`881b25e0`) →
-  ✅ Cause A (`50e5ecd3`) → ✅ **D3 global tag identity (`16a921a8`)**: throw/catch resolve to the same `tag_ids`
-  u64 across instances (table/runner-verified). 🎯 NEXT = **cycle 2 (D1+D2)**: thunk `MOV X29,SP` frame-link +
-  per-frame-instance table switch so the unwinder consults module 2's table. func[36] return_call_indirect-in-try
-  = separate TC+EH gap (D-210 family).
+- **Bundle-ID**: `10.E-eh-on-jit` (opened `3b668110`).  **Cycles-remaining**: ~2 (2b arm64 → x86_64+fixture).
+- **Continuity-memo**: try_table.1.wasm 32/34. ✅ Cause A (`50e5ecd3`) → ✅ **D3 global identity (`16a921a8`)** →
+  ✅ **2a unwind machinery (`cb55013e`)**: resolver+registry+lookupByIdentity, unit-tested, no prod change (registry
+  empty). 🎯 NEXT = **2b**: thunk `MOV X29,SP` frame-link + REGISTER instances in `eh_registry` (spec runner pin
+  sites) + handler-cmap-per-instance → catch-imported/imported-mismatch pass. func[36] = separate TC+EH gap (D-210).
 - **Exit-condition**: JIT EH dir return-fail = 0 (currently pass=32 fail=2 skip=0 → target 34/0/0).
 
 ## §10 remaining — the six `[ ]` rows
@@ -84,9 +85,10 @@ Other non-gated tracks (after EH): **D-234** (memory64 assert_trap harness artif
 
 ## Step 0.7 (next resume)
 
-THIS turn = D3 cycle 1 (`16a921a8`, code). Mac `test-all` + lint GREEN; JIT corpus re-verified (EH 32/2, global
-794/3, no regression). ubuntu `test-all` kicked against the turn HEAD — Step 0.7 next resume: `tail -3
-/tmp/ubuntu.log`, revert the commit pair on FAIL. Mac aarch64; ubuntu x86_64. Then → cycle 2 (D1+D2).
+THIS turn = 2a unwind machinery (`cb55013e`, code). Mac `test-all` + lint GREEN; JIT corpus re-verified (EH
+32/2, global 794/3, no regression — registry empty so resolver falls back). ubuntu `test-all` kicked against the
+turn HEAD — Step 0.7 next resume: `tail -3 /tmp/ubuntu.log`, revert the commit pair on FAIL. Mac aarch64; ubuntu
+x86_64. Then → 2b (thunk + registration). (Prior D3 `b5b14e10` ubuntu-verified OK this turn.)
 
 **Gate hygiene**: Step-5 Mac gate = `bash scripts/mac_gate.sh`. JIT corpus: `zig build test-spec-wasm-3.0-assert`
 (NO bogus `-Dno-run`); **pick the exe by mtime** — `/usr/bin/find .zig-cache/o -name zwasm-spec-wasm-3-0-assert

@@ -106,8 +106,16 @@ single-instance case (collapses to the same comparison).
   spec runner `jitResolveTagImports`. runner_test verifies an importer's
   aliased tags inherit the exporter's id. EH dir 32/2, global 794/3, no
   regression (Cause A now resolved via the real cross-module identity).
-- **Cycle 2 (D1+D2)** — thunk frame-linking + block-range registry +
-  per-frame table switch in `walk`/`trampolineCore`. `catch-imported` /
+- **Cycle 2a (D2 engine)** — ✅ DONE (`cb55013e`): `ExceptionTable.lookupByIdentity`
+  + `unwind.walk`'s optional `InstanceResolver` (null result falls back
+  to the throwing table → regression-safe) + `eh_registry.zig`
+  (process-global live-rt table; `resolve` finds the instance whose
+  CodeMap contains the PC). `trampolineCore` threads the resolver. No
+  production change (registry empty); unit-tested per-frame switch.
+- **Cycle 2b (D1 + registration + handler-cmap)** — NEXT: thunk
+  `MOV X29,SP` (arm64) + register each live instance in `eh_registry`
+  (spec-runner pin sites) + resolve the catching instance's cmap from
+  `handler_abs_pc` for the cross-instance SP-restore. `catch-imported` /
   `imported-mismatch` flip to pass on arm64 (Mac host).
 - **Cycle 3** — x86_64 parity (thunk RBP-set + registry) + the
   `cross_module_throw_propagation.wat` edge fixture + 2-host gate.
