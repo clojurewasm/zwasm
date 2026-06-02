@@ -8,12 +8,13 @@
 - **Phase**: **10 IN-PROGRESS — committed to 100% (ADR-0128)** (Phase 9 = DONE
   2026-05-24). §10 exit requires the official Wasm 3.0 testsuite at pass=fail=skip=0
   on **both backends** (interp + JIT).
-- **HEAD** (`720e5793`): §1 spec-corpus JIT mode. D-223 gc const-expr globals (`824fa694`) + gc test
-  extraction (`99e122e1`) + **D-212 DISCHARGED** (`7c86b3a0` GET + `720e5793` SET: gc struct/array
-  get/set f32/f64 → FP-class; +6 corpus). Opt-in `ZWASM_SPEC_ENGINE=jit`. Mac aarch64: **pass=544
-  fail=16 skip=735** (memory64 100% GREEN; interp test-all UNCHANGED). **fail taxonomy (16)**: gc
-  ~11 (gc/array + gc/i31 `err=Trap` = D-218; gc/type-subtyping run 1 = ADR-0127 PHASE C) +
-  function-references 4 (D-198) + try_table 1 (EH). NO ty=f32 fails remain.
+- **HEAD** (`64709a95`): §1 spec-corpus JIT mode. D-223 globals + D-212 FP-class (+6) + **D-218 i31
+  elem-segment 3-guard** (`64709a95`: i31/eq/any elem items are i31-ENCODED not funcidxs; guarded
+  compile funcidx-check + 2 setup elem sites; +8). Opt-in `ZWASM_SPEC_ENGINE=jit`. Mac aarch64:
+  **pass=552 fail=27 skip=716** (memory64 100% GREEN; interp test-all UNCHANGED). **fail taxonomy (27,
+  +11 newly-visible skip→fail from now-compiling i31 modules — no pass→fail regression)**: i31 table.
+  grow/fill/copy/init (i31-encoded refs in table-mutation ops) + i31.3/4 global-init `err=Trap`; gc/
+  array ×6; ref_func ×3 (D-198); gc/type-subtyping ×1 (ADR-0127 PHASE C); try_table ×1 (EH).
 - **PER-MODULE blocker-STACK reality** (lesson `2026-06-02-jit-corpus-late-phase-is-per-module-
   blocker-stacks`): since memory64 (+208, last big mover), every gc/funcref fix has been correct
   but ~0 corpus — each remaining module has 3-6 DISTINCT blockers; JIT rejects at the FIRST
@@ -60,15 +61,14 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 - **Exit-condition**: ≥1 `assert_return` executes THROUGH the JIT + compares. ✓ **MET** long ago.
   Infra COMPLETE; backbone operational (pass=484). Bundle stays open as the diagnostic-driven
   gap-fixing vehicle (`JITmodrej` tally → fix biggest tractable lever).
-- **NEXT chunk** = **D-218 i31.1 full-stack clear** (this turn MAPPED its 3-blocker stack — see D-218
-  row). Re-apply the 2 ready fixes [B1 `compile.zig:217` funcidx i31-guard; B2 `setup.zig:484` elem-init
-  early i31 branch], then FIND+FIX B3 (3rd `UnsupportedEntrySignature` after B1+B2 — likely table.get-
-  on-i31ref-table EMIT, a codegen gap; NOT the decoder which is correct). Land all 3 + a green unit
-  test (table-of-i31ref + table.get + i31.get_u via `JitInstance.invoke` 1-arg — bytes worked out this
-  turn, see D-218 row) in ONE focused push → i31.1 green. **REALITY** (lesson per-module-blocker-stacks):
-  the remaining 16 fails are deep per-module stacks each paying ~0 until its LAST blocker clears; big
-  levers (D-223/D-212) are SPENT. Pick ONE module, clear its FULL stack. After i31: gc/array traps,
-  ref_func 4 (D-198), try_table 1 (EH), gc/type-subtyping 1 (ADR-0127 PHASE C). Skip multi-memory 51.
+- **NEXT chunk** = **D-218 i31 table-mutation ops** (now-visible after the elem fix): `table.grow`/
+  `table.fill`/`table.copy`/`table.init` on an i31ref table mis-handle the i31-encoded ref value
+  (grow returns -1; fill/copy/init likely store wrong). Repro: i31.1 exports grow/fill/copy/init
+  (`ZWASM_SPEC_ENGINE=jit <bin> --fail-detail | grep 'gc/i31'`). Likely the table.grow/fill emit or
+  setup passes the i31 value through a funcref-shaped path. Same is_i31_family discriminator pattern.
+  If i31-mutation proves deep, next tractable targets = gc/array ×6 traps, then ref_func ×3 (D-198).
+  **REALITY** (lesson per-module-blocker-stacks): remaining fails are per-op gaps; big levers SPENT;
+  pick one, clear it. Skip multi-memory 51 (Phase-14). Prefer direct FAIL→pass flips.
 
 ## §10 remaining — the six `[ ]` rows
 
@@ -83,10 +83,9 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 ## Step 0.7 (next resume)
 
-Prior turn (`3dd06d23`, D-212 fix) ubuntu `test-all` = GREEN (verified HEAD=3dd06d23; x86_64 OK).
-THIS turn = INVESTIGATION/triage (mapped D-218 i31.1 3-blocker stack; 2 fixes attempted then reverted
-[un-observable alone]; debt+handover only → code == green `3dd06d23`). SKIP Step 0.7 ubuntu next
-resume (no code delta). Mac aarch64 primary; ubuntu = x86_64.
+Prior turn (`0d2b636c`, D-218 triage) ubuntu = n/a (docs only). THIS turn landed the D-218 i31 elem
+3-guard (`64709a95`: compile.zig + setup.zig, +8 corpus) → ubuntu `test-all` kicked at end → `tail -3
+/tmp/ubuntu.log` next resume (Step 0.7). On FAIL revert to `0d2b636c`. Mac aarch64; ubuntu = x86_64.
 
 **Gate hygiene (NEW, `2134116b`)**: use `bash scripts/mac_gate.sh` for the Step-5 Mac gate —
 never `zig build test-all > log; grep -c … log` (trailing `grep -c` exits 1 on zero matches →
