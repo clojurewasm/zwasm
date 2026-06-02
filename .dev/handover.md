@@ -45,25 +45,28 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 - **Bundle-ID**: `10.G-§1-skip-reduction` (prior gc/array bundle CLOSED at `fa596f08`, exit met: array.8
   green, pass=577; JIT-executed fails now 2, both gated/deep).
-- **Cycles-remaining**: ~2 (skip-reduction — verify-PASS not just compile)
+- **Cycles-remaining**: ~2 (skip-reduction — struct.get_s is the clean lever)
+- **GAP-OP MAP (this cycle, via the `liveness: UnsupportedOp[stackEffect-missing] op=…` stderr diag —
+  re-run corpus + `grep -iE "liveness|unsupported op"`)**: the modrej gap ops are `any.convert_extern ×5`
+  (gates ref_test/ref_cast/br_on_cast/extern — RTT-ENTANGLED, see below, defer), `struct.get_s ×1`
+  (gc/struct.10), `array.init_elem ×1` (array_init_elem.3), `array.init_data ×1` (array_init_data.2).
+  **CLEANEST LEVER = `struct.get_s` (+`struct.get_u`)**: value-simple (no RTT) — like the emitted
+  `struct.get` (struct_get.zig) but SIGN/ZERO-extends the loaded packed (i8/i16) field. Recipe: (1) add
+  `.@"struct.get_s"`/`.@"struct.get_u"` to the 1→1 group in `liveness_stack_effect.zig`; (2) codegen emit
+  (arm64+x86_64 ops/wasm_3_0/struct_get_s.zig + _u — mirror struct_get.zig + a sign/zero-extend by field
+  width from the gc type-info packed-field shape); (3) register in dispatch_collector_ops + bump the 2
+  count tests (dispatch_collector.zig). VERIFY-PASS: gc/struct.10's `get_packed_*` asserts must return the
+  correctly-extended values (not just compile — unblock≠pass lesson). array.init_data/elem need IN-PLACE
+  init trampolines (cf. jitGcArrayNewData/Elem which ALLOC) — a separate chunk. The convert emit recipe
+  is proven (jit-abi identity pop+push) — re-apply ONLY inside the convert+ref.test/ref.cast-on-extern-RTT
+  bundle (verify the 32+7 pass).
 - **Continuity-memo**: §1 JIT-EXECUTED fails = 2 (type-subtyping user-gated ADR-0127 PHASE C; try_table
-  EH-on-JIT). Remaining §10 exit bulk = **skip=716**. TAXONOMY: JITmodrej = MultipleMemories 51 (Phase-14,
-  untouchable), UnsupportedOp 10, UnsupportedEntrySignature 7, StackTypeMismatch 6, +3. Eligibility-gated =
-  ref-arg ×34 (hard), multi-value ×19. **TWO COURSE-CORRECTIONS this cycle (both reverted, net-zero code,
-  corpus stays 577/2):** (1) **multi-value NOT clean** — needs `buffer_write` ABI but `compileWasm` hardcodes
-  `.register_write` (compile.zig:1058) + register dispatch helpers depend on it → full D-094/D-164 migration,
-  MAJOR, defer. (2) **`any.convert_extern`/`extern.convert_any` emit is trivial** (identity passthrough:
-  codegen no-op pop+push + stack-effect 1→1 in liveness_stack_effect.zig + register in dispatch_collector_ops
-  + counts arm64 378→380 / ctx_ops 427→429) — BUT it's used across MANY gc modules; enabling it unblocked ~89
-  asserts = +50 pass BUT **+39 FAIL** (32 gc/ref_test JITval mismatches + 7 gc/ref_cast traps): `ref.test`/
-  `ref.cast` on a convert-wrapped extern/any ref mis-executes (nontrivial RTT semantics). **LESSON: unblocking
-  a modrej module ≠ passing it** — a skip→fail trade worsens the metric. So convert must bundle WITH the
-  ref.test/ref.cast-on-extern RTT fix (verify the 32+7 PASS), not ship alone. **NEXT (pick a CLEAN lever)**:
-  for any UnsupportedOp module, first check its asserts would PASS once it compiles (disasm + reason about the
-  ops' runtime semantics) — prefer modules whose remaining ops are value-simple (e.g. tail-call/
-  return_call_indirect.0, function-references/br_on_null.1) over GC-RTT-entangled ones (ref_test/ref_cast/
-  br_on_cast/extern). Method: disasm via the python `fb`-opcode scan; the convert emit recipe above is proven
-  (re-apply when doing the convert+RTT bundle). try_table + type-subtyping unchanged.
+  EH-on-JIT). Remaining §10 exit bulk = **skip=716**. Prior course-corrections (both reverted, net-zero,
+  corpus stays 577/2): multi-value needs the `buffer_write` ABI migration (compileWasm hardcodes
+  register_write, compile.zig:1058) — MAJOR, defer; `any.convert_extern`/`extern.convert_any` emit is
+  trivial (identity) BUT gates ref_test/ref_cast/br_on_cast which then mis-execute on extern/any RTT
+  (+50 pass / +39 FAIL → **LESSON: unblocking a modrej module ≠ passing it**; verify asserts PASS not
+  just compile). So convert bundles WITH a ref.test/ref.cast-on-extern-RTT fix, not alone.
 - **Exit-condition**: ≥1 UnsupportedOp module flips modrej→compiles AND its asserts PASS (net fail unchanged).
 
 ## §10 remaining — the six `[ ]` rows
@@ -83,7 +86,8 @@ Prior turn ubuntu GREEN (`OK (HEAD=09777262)` — pass=577 remote-verified). THI
 investigation: tried convert-op emit + multi-value, both REVERTED (net-zero code; corpus stays 577/2) —
 convert-alone caused +39 fail (skip→fail), multi-value needs the buffer_write ABI migration. Memo updated
 with both course-corrections + the "verify-PASS-not-compile" lesson. No ubuntu kick (docs-only, HEAD
-unchanged = 09777262). Next resume: pick a CLEAN UnsupportedOp lever per the memo. Mac aarch64; ubuntu = x86_64.
+unchanged = 09777262). Next resume: implement `struct.get_s`/`struct.get_u` emit per the GAP-OP MAP (the
+clean lever). Mac aarch64; ubuntu = x86_64.
 
 **Gate hygiene (NEW, `2134116b`)**: use `bash scripts/mac_gate.sh` for the Step-5 Mac gate —
 never `zig build test-all > log; grep -c … log` (trailing `grep -c` exits 1 on zero matches →
