@@ -136,6 +136,28 @@ test "call_indirect: matching sig invokes callee through table" {
     try testing.expectEqual(@as(u32, 42), rt.popOperand().u32);
 }
 
+test "br: function-level br 0 returns the result (Wasm §4.4.8 implicit outermost block)" {
+    // `(func (result i32) i32.const 42 (br 0))` — `br 0` at the function top
+    // level (no enclosing blocks → label_len=0) targets the implicit function
+    // body block = a return carrying the result. Previously trapped Unreachable
+    // (doBranch `depth >= label_len`); now returns 42 (gc/type-subtyping.17 run).
+    const i32_arr = [_]zir.ValType{.i32};
+    var caller = zir.ZirFunc.init(0, .{ .params = &.{}, .results = &i32_arr }, &.{});
+    defer caller.deinit(testing.allocator);
+    try caller.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 42, .extra = 0 });
+    try caller.instrs.append(testing.allocator, .{ .op = .br, .payload = 0, .extra = 0 });
+    try caller.instrs.append(testing.allocator, .{ .op = .end, .payload = 0, .extra = 0 });
+
+    var t = DispatchTable.init();
+    mvp.register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try rt.pushFrame(.{ .sig = caller.sig, .locals = &.{}, .operand_base = 0, .pc = 0, .func = &caller });
+    defer _ = rt.popFrame();
+    try dispatch_loop.run(&rt, &t, caller.instrs.items);
+    try testing.expectEqual(@as(u32, 42), rt.popOperand().u32);
+}
+
 test "6.K.1: null funcref round-trip — ref.is_null + call_indirect" {
     var caller = zir.ZirFunc.init(0, .{ .params = &.{}, .results = &.{} }, &.{});
     defer caller.deinit(testing.allocator);
