@@ -144,6 +144,11 @@ pub fn compileOne(
     /// regalloc vreg-class classifier + struct.get/array.get emit can
     /// FP-class f32/f64 field/element results. `&.{}` when no struct types.
     struct_field_valtypes: []const []const u8,
+    /// D-235 — module-level func-subtyping flag (`usesTypeSubtyping`).
+    /// Threaded into the per-arch EmitCtx so `call_indirect` routes through
+    /// the `jitCallIndirectSubtypeOk` trampoline (the inline D-111 structural
+    /// compare is finality/subtype-blind). `false` for non-subtyping modules.
+    uses_type_subtyping: bool,
 ) Error!FuncResult {
     var func = ZirFunc.init(func_idx, sig, locals);
     errdefer func.deinit(allocator);
@@ -152,6 +157,10 @@ pub fn compileOne(
     // (→ FP-class). Set before regalloc/emit, which consult them.
     func.gc_array_elem_valtypes = array_elem_valtypes;
     func.gc_struct_field_valtypes = struct_field_valtypes;
+    // D-235 — drives regalloc's inclusive force-spill of call_indirect
+    // operands (so they survive the in-op subtype trampoline) + the
+    // per-arch subtype emit path.
+    func.uses_type_subtyping = uses_type_subtyping;
 
     // §9.8a / 8a.1-d — per-pass diagnostic records (per ADR-0033).
     // Builds in-flight; transferred to `func.pass_diagnostics` at
@@ -298,7 +307,7 @@ pub fn compileOne(
     // a local `var`; the mutation is scoped to this function.
     alloc.result_abi = result_abi;
     trace.passEnter(func_idx, .emit);
-    const out = try emit.compile(allocator, &func, alloc, func_sigs, module_types, num_imports, globals_offsets, globals_valtypes, memory0_idx_type, tag_param_counts);
+    const out = try emit.compile(allocator, &func, alloc, func_sigs, module_types, num_imports, globals_offsets, globals_valtypes, memory0_idx_type, tag_param_counts, uses_type_subtyping);
     errdefer emit.deinit(allocator, out);
     {
         const applied: u32 = @intCast(func.instrs.items.len);
@@ -338,7 +347,7 @@ test "compileOne: pass_diagnostics records all 6 passes when trace enabled" {
     // Pure instruction bytes: `i32.const 7` (0x41 0x07) + `end` (0x0B).
     const body = [_]u8{ 0x41, 0x07, 0x0B };
     const sig: FuncType = .{ .params = &.{}, .results = &.{.i32} };
-    var r = try compileOne(testing.allocator, 42, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{}, .register_write, .i32, &.{}, &.{}, &.{}, &.{});
+    var r = try compileOne(testing.allocator, 42, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{}, .register_write, .i32, &.{}, &.{}, &.{}, &.{}, false);
     defer deinitFuncResult(testing.allocator, &r);
 
     // Per-function slot populated with 6 records, in pipeline order.
@@ -376,7 +385,7 @@ test "compileOne: tiny straight-line module — (func (result i32) i32.const 7 e
     const body = [_]u8{ 0x41, 0x07, 0x0B };
     const sig: FuncType = .{ .params = &.{}, .results = &.{.i32} };
 
-    var r = try compileOne(testing.allocator, 0, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{}, .register_write, .i32, &.{}, &.{}, &.{}, &.{});
+    var r = try compileOne(testing.allocator, 0, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{}, .register_write, .i32, &.{}, &.{}, &.{}, &.{}, false);
     defer deinitFuncResult(testing.allocator, &r);
 
     const bodies = [_]linker.FuncBody{

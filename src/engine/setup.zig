@@ -19,6 +19,7 @@ const runner_mod = @import("runner.zig");
 const instantiate = @import("../runtime/instance/instantiate.zig");
 const heap_mod = @import("../feature/gc/heap.zig");
 const gc_type_info = @import("../feature/gc/type_info.zig");
+const needs_heap_detector = @import("../feature/gc/needs_heap_detector.zig");
 const shared_thunk = @import("codegen/shared/thunk.zig");
 const jit_mem = @import("../platform/jit_mem.zig");
 const Error = runner_mod.Error;
@@ -394,26 +395,40 @@ pub fn setupRuntimeLinked(
         a.deinit();
         allocator.destroy(a);
     };
-    if (module.needs_gc_heap) {
+    // gti is materialised for GC-heap modules AND func-only-subtyping modules
+    // (`sub` / `sub final` func types with no heap objects) — the latter still
+    // need the supertype-chain / canonical-id / finality table for a correct
+    // JIT `call_indirect` subtype check (D-235; mirrors the interp D-232 fix in
+    // instantiate.zig). ADR-0115 zero-overhead preserved via the cheap
+    // `mayUseTypeSubtyping` byte pre-filter.
+    if (module.needs_gc_heap or needs_heap_detector.mayUseTypeSubtyping(&module)) {
         if (module.find(.type)) |ts| {
             const ga = try allocator.create(std.heap.ArenaAllocator);
             ga.* = std.heap.ArenaAllocator.init(allocator);
-            gc_arena = ga;
             const gaa = ga.allocator();
             var gc_types = try sections.decodeTypes(ta, ts.body);
             defer gc_types.deinit();
-            const gti = try gaa.create(gc_type_info.GcTypeInfos);
-            // v128 struct/array fields are deferred (ADR-0116 §3a) — map to
-            // the runI32Export "unsupported shape" error rather than widen
-            // the runner Error set with a GC-internal variant.
-            gti.* = gc_type_info.materialiseGcTypes(gaa, gc_types) catch |e| switch (e) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.UnsupportedFieldSize => return error.UnsupportedEntrySignature,
-            };
-            const heap = try gaa.create(heap_mod.Heap);
-            heap.* = heap_mod.Heap.init(gaa);
-            gc_heap_typed = heap;
-            gc_type_infos_typed = gti;
+            if (module.needs_gc_heap or needs_heap_detector.usesTypeSubtyping(gc_types)) {
+                gc_arena = ga; // claim for errdefer cleanup; freed at deinit
+                const gti = try gaa.create(gc_type_info.GcTypeInfos);
+                // v128 struct/array fields are deferred (ADR-0116 §3a) — map to
+                // the runI32Export "unsupported shape" error rather than widen
+                // the runner Error set with a GC-internal variant.
+                gti.* = gc_type_info.materialiseGcTypes(gaa, gc_types) catch |e| switch (e) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    error.UnsupportedFieldSize => return error.UnsupportedEntrySignature,
+                };
+                const heap = try gaa.create(heap_mod.Heap);
+                heap.* = heap_mod.Heap.init(gaa);
+                gc_heap_typed = heap;
+                gc_type_infos_typed = gti;
+            } else {
+                // Byte pre-filter false-positive (a coincidental 0x50/0x4F byte):
+                // no real subtyping + no heap → free the arena so non-subtyping
+                // modules keep zero GC overhead (ADR-0115).
+                ga.deinit();
+                allocator.destroy(ga);
+            }
         }
     }
     const gc_heap_ptr: ?*anyopaque = gc_heap_typed;
@@ -628,6 +643,13 @@ pub fn setupRuntimeLinked(
         if (canon_types_section) |ts| {
             canon_types = try sections.decodeTypes(ta, ts.body);
         }
+        // D-235: subtyping modules store the RAW typeidx (not the D-111
+        // canonical) so the JIT `jitCallIndirectSubtypeOk` trampoline sees the
+        // true declared identity (finality + declared super). The canonical
+        // collapse is correct ONLY for non-subtyping modules, where the inline
+        // structural compare stays. Must match `EmitCtx.uses_type_subtyping`
+        // (both derive from the same `usesTypeSubtyping` predicate).
+        const store_raw_typeidx: bool = if (canon_types) |t| needs_heap_detector.usesTypeSubtyping(t) else false;
         for (elems.items) |seg| {
             if (seg.kind != .active) continue;
             if (seg.tableidx >= tables_descs.len) continue;
@@ -688,7 +710,9 @@ pub fn setupRuntimeLinked(
                 tbl.refs[base + i] = @intFromPtr(&func_entities[fidx]);
                 const f_off = compiled.module.func_offsets[fidx];
                 const raw_typeidx = compiled.func_typeidxs[fidx];
-                tbl_typeidxs[base + i] = if (canon_types) |t|
+                tbl_typeidxs[base + i] = if (store_raw_typeidx)
+                    raw_typeidx
+                else if (canon_types) |t|
                     canonical_type.canonicalTypeidx(t.items, raw_typeidx)
                 else
                     raw_typeidx;

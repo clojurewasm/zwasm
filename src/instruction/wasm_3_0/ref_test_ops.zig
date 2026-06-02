@@ -122,7 +122,7 @@ fn readObjInfoHeap(heap_opt: ?*const Heap, v: Value) ?u32 {
 /// target type `target` via its declared supertype chain (self-inclusive)?
 /// Reads the per-Instance `TypeInfo.supertype_chain` materialised at
 /// instantiate (ADR-0116 §3).
-fn concreteReachesGti(gti: *const GcTypeInfos, obj_idx: u32, target: u32) bool {
+pub fn concreteReachesGti(gti: *const GcTypeInfos, obj_idx: u32, target: u32) bool {
     if (obj_idx >= gti.entries.len) return false;
     const ti = gti.entries[obj_idx];
     // ADR-0126 Phase-10a — match the target by raw index OR structural

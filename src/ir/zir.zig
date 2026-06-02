@@ -646,6 +646,15 @@ pub const ZirFunc = struct {
     gc_array_elem_valtypes: []const u8 = &.{},
     gc_struct_field_valtypes: []const []const u8 = &.{},
 
+    /// D-235 — module declares func subtyping (`usesTypeSubtyping`). When
+    /// true, regalloc force-spills `call_indirect` operands (inclusive
+    /// crossing, like `struct.new`) so they survive the in-op
+    /// `jitCallIndirectResolve` trampoline call, which the subtyping emit
+    /// inserts BEFORE marshalling. Default `false` keeps non-subtyping
+    /// modules on the strict-crossing (byte-identical) path. Set by
+    /// `compileOne`; arena lifetime n/a (scalar).
+    uses_type_subtyping: bool = false,
+
     // Phase 8+ — optimisation passes.
     hoisted_constants: ?[]HoistedConst = null,
     /// Synthetic locals appended by post-lowering passes (notably

@@ -100,6 +100,7 @@ pub fn emitCallIndirectCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Erro
         ctx.module_types,
         @as(u32, @intCast(ins.payload)),
         ins.extra,
+        ctx.uses_type_subtyping,
     );
 }
 
@@ -388,6 +389,10 @@ pub fn emitCallIndirect(
     module_types: []const zir.FuncType,
     type_idx: u32,
     table_idx: u32,
+    /// D-235 — subtyping module: route the sig check through the
+    /// `jitCallIndirectResolve` trampoline (vs the finality/subtype-blind
+    /// inline D-111 CMP). `false` keeps the byte-identical inline path.
+    uses_type_subtyping: bool,
 ) Error!void {
     if (type_idx >= module_types.len) return Error.AllocationMissing;
     const callee_sig = module_types[type_idx];
@@ -395,6 +400,38 @@ pub fn emitCallIndirect(
     // Stack at entry: [args..., idx]. Pop idx first.
     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const idx_vreg = pushed_vregs.pop().?;
+
+    // D-235: subtyping modules check bounds + subtype via the
+    // `jitCallIndirectResolve` trampoline BEFORE marshalling (the inline
+    // D-111 CMP is finality/subtype-blind). The C-ABI trampoline preserves
+    // callee-saved regs; the x86_64 regalloc pool is ALL callee-saved
+    // ({RBX,R12-R14}) + force-spilled operands (regalloc inclusive crossing
+    // for subtyping call_indirect), so idx survives the call and the inline
+    // funcptr load below re-derives it. The trampoline's funcptr return is
+    // used only for the trap test here (re-derived inline); the inline
+    // bounds + sig blocks are gated off below.
+    if (uses_type_subtyping) {
+        const expected_raw: u32 = type_idx;
+        const ag = abi.current.arg_gprs; // SysV: rdi,rsi,rdx,rcx · Win64: rcx,rdx,r8,r9
+        const idx_r0 = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, idx_vreg, 0);
+        // args: ag[0]=rt, ag[1]=table_idx, ag[2]=idx, ag[3]=expected_raw.
+        // idx_r0 ∉ arg_gprs (it is callee-saved pool or a stage reg), so the
+        // arg-reg writes can't clobber it.
+        if (idx_r0 != ag[2]) try buf.appendSlice(allocator, inst.encMovRR(.d, ag[2], idx_r0).slice());
+        try buf.appendSlice(allocator, inst.encMovRR(.q, ag[0], abi.runtime_ptr_save_gpr).slice());
+        try buf.appendSlice(allocator, inst.encMovImm32W(ag[1], table_idx).slice());
+        try buf.appendSlice(allocator, inst.encMovImm32W(ag[3], expected_raw).slice());
+        const addr: u64 = @intFromPtr(&jit_abi.jitCallIndirectResolve);
+        try buf.appendSlice(allocator, inst.encMovImm64Q(.rax, addr).slice());
+        try buf.appendSlice(allocator, inst.encCallReg(.rax).slice());
+        // RAX = funcptr | 0. TEST RAX,RAX ; JE → shared trap stub.
+        try buf.appendSlice(allocator, inst.encTestRR(.q, .rax, .rax).slice());
+        {
+            const fixup_at: u32 = @intCast(buf.items.len);
+            try buf.appendSlice(allocator, inst.encJccRel32(.e, 0).slice());
+            try bounds_fixups.append(allocator, fixup_at);
+        }
+    }
 
     try marshalCallArgs(allocator, buf, alloc, pushed_vregs, spill_base_off, callee_sig);
 
@@ -416,30 +453,35 @@ pub fn emitCallIndirect(
         // [R15+funcptr_base_off]. Scalar JitRuntime fields stay
         // backed by table 0's funcptrs/typeidxs.
 
-        // Bounds: MOV EAX, [R15 + table_size_off] ; CMP idx_r, EAX ; JAE trap.
-        try buf.appendSlice(allocator, inst.encMovR32FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.table_size_off).slice());
-        try buf.appendSlice(allocator, inst.encCmpRR(.d, idx_r, .rax).slice());
-        {
-            const fixup_at: u32 = @intCast(buf.items.len);
-            try buf.appendSlice(allocator, inst.encJccRel32(.ae, 0).slice());
-            try bounds_fixups.append(allocator, fixup_at);
-        }
+        // D-235: subtyping modules already validated bounds + subtype via the
+        // resolve trampoline above → skip the inline bounds + sig (the inline
+        // D-111 CMP is finality/subtype-blind). funcptr re-derived below.
+        if (!uses_type_subtyping) {
+            // Bounds: MOV EAX, [R15 + table_size_off] ; CMP idx_r, EAX ; JAE trap.
+            try buf.appendSlice(allocator, inst.encMovR32FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.table_size_off).slice());
+            try buf.appendSlice(allocator, inst.encCmpRR(.d, idx_r, .rax).slice());
+            {
+                const fixup_at: u32 = @intCast(buf.items.len);
+                try buf.appendSlice(allocator, inst.encJccRel32(.ae, 0).slice());
+                try bounds_fixups.append(allocator, fixup_at);
+            }
 
-        // Sig: MOV RAX, [R15 + typeidx_base_off] (load u32* table)
-        //      MOV EAX, [RAX + idx_r * 4]        (load expected typeidx)
-        //      CMP EAX, canonical (imm32) ; JNE trap.
-        // Wasm spec §3.4.6 + §4.4.10.1 — sig check is **structural**
-        // FuncType equality. Compare against the canonical (lowest-
-        // index) typeidx whose shape matches `module_types[type_idx]`;
-        // `applyTableInit` writes the same canonicalization on the
-        // funcref's stored typeidx. D-111.
-        try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.typeidx_base_off).slice());
-        try buf.appendSlice(allocator, inst.encMovR32FromBaseIdxLsl2(.rax, .rax, idx_r).slice());
-        try buf.appendSlice(allocator, inst.encCmpRImm32(.rax, expected_typeidx).slice());
-        {
-            const fixup_at: u32 = @intCast(buf.items.len);
-            try buf.appendSlice(allocator, inst.encJccRel32(.ne, 0).slice());
-            try bounds_fixups.append(allocator, fixup_at);
+            // Sig: MOV RAX, [R15 + typeidx_base_off] (load u32* table)
+            //      MOV EAX, [RAX + idx_r * 4]        (load expected typeidx)
+            //      CMP EAX, canonical (imm32) ; JNE trap.
+            // Wasm spec §3.4.6 + §4.4.10.1 — sig check is **structural**
+            // FuncType equality. Compare against the canonical (lowest-
+            // index) typeidx whose shape matches `module_types[type_idx]`;
+            // `applyTableInit` writes the same canonicalization on the
+            // funcref's stored typeidx. D-111.
+            try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.typeidx_base_off).slice());
+            try buf.appendSlice(allocator, inst.encMovR32FromBaseIdxLsl2(.rax, .rax, idx_r).slice());
+            try buf.appendSlice(allocator, inst.encCmpRImm32(.rax, expected_typeidx).slice());
+            {
+                const fixup_at: u32 = @intCast(buf.items.len);
+                try buf.appendSlice(allocator, inst.encJccRel32(.ne, 0).slice());
+                try bounds_fixups.append(allocator, fixup_at);
+            }
         }
 
         // Funcptr: MOV RAX, [R15 + funcptr_base_off] ; MOV RAX, [RAX + idx_r*8].
@@ -463,30 +505,34 @@ pub fn emitCallIndirect(
         const ci_funcptr_disp: i32 = @intCast(table_idx * 16);
         const ci_typeidx_disp: i32 = @intCast((table_idx * 16) + 8);
 
-        // Bounds: MOV RAX, [R15 + tables_ptr_off]
-        //         MOV EAX, [RAX + (table_idx*table_slice_size + 8)]  ; TableSlice.len
-        //         CMP idx_r, EAX ; JAE trap.
-        try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_ptr_off).slice());
-        try buf.appendSlice(allocator, inst.encMovR32FromMemDisp32(.rax, .rax, tbl_slice_disp).slice());
-        try buf.appendSlice(allocator, inst.encCmpRR(.d, idx_r, .rax).slice());
-        {
-            const fixup_at: u32 = @intCast(buf.items.len);
-            try buf.appendSlice(allocator, inst.encJccRel32(.ae, 0).slice());
-            try bounds_fixups.append(allocator, fixup_at);
-        }
+        // D-235: subtyping modules already validated bounds + subtype via the
+        // resolve trampoline above → skip the inline bounds + sig.
+        if (!uses_type_subtyping) {
+            // Bounds: MOV RAX, [R15 + tables_ptr_off]
+            //         MOV EAX, [RAX + (table_idx*table_slice_size + 8)]  ; TableSlice.len
+            //         CMP idx_r, EAX ; JAE trap.
+            try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_ptr_off).slice());
+            try buf.appendSlice(allocator, inst.encMovR32FromMemDisp32(.rax, .rax, tbl_slice_disp).slice());
+            try buf.appendSlice(allocator, inst.encCmpRR(.d, idx_r, .rax).slice());
+            {
+                const fixup_at: u32 = @intCast(buf.items.len);
+                try buf.appendSlice(allocator, inst.encJccRel32(.ae, 0).slice());
+                try bounds_fixups.append(allocator, fixup_at);
+            }
 
-        // Sig: MOV RAX, [R15 + tables_jit_ci_ptr_off]
-        //      MOV RAX, [RAX + (table_idx*16 + 8)]  ; typeidx_base
-        //      MOV EAX, [RAX + idx_r * 4]
-        //      CMP EAX, canonical ; JNE trap.
-        try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_jit_ci_ptr_off).slice());
-        try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, .rax, ci_typeidx_disp).slice());
-        try buf.appendSlice(allocator, inst.encMovR32FromBaseIdxLsl2(.rax, .rax, idx_r).slice());
-        try buf.appendSlice(allocator, inst.encCmpRImm32(.rax, expected_typeidx).slice());
-        {
-            const fixup_at: u32 = @intCast(buf.items.len);
-            try buf.appendSlice(allocator, inst.encJccRel32(.ne, 0).slice());
-            try bounds_fixups.append(allocator, fixup_at);
+            // Sig: MOV RAX, [R15 + tables_jit_ci_ptr_off]
+            //      MOV RAX, [RAX + (table_idx*16 + 8)]  ; typeidx_base
+            //      MOV EAX, [RAX + idx_r * 4]
+            //      CMP EAX, canonical ; JNE trap.
+            try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_jit_ci_ptr_off).slice());
+            try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, .rax, ci_typeidx_disp).slice());
+            try buf.appendSlice(allocator, inst.encMovR32FromBaseIdxLsl2(.rax, .rax, idx_r).slice());
+            try buf.appendSlice(allocator, inst.encCmpRImm32(.rax, expected_typeidx).slice());
+            {
+                const fixup_at: u32 = @intCast(buf.items.len);
+                try buf.appendSlice(allocator, inst.encJccRel32(.ne, 0).slice());
+                try bounds_fixups.append(allocator, fixup_at);
+            }
         }
 
         // Funcptr: MOV RAX, [R15 + tables_jit_ci_ptr_off]

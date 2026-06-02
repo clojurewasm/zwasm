@@ -83,6 +83,9 @@ pub const InitArgs = struct {
     /// field of the same name. Default-empty preserves existing
     /// InitArgs construction sites.
     tag_param_counts: []const u32 = &.{},
+    /// D-235 — see the EmitCtx field of the same name. Default `false`
+    /// preserves existing InitArgs construction sites.
+    uses_type_subtyping: bool = false,
 };
 
 /// Per-function emit context for x86_64. Threaded as `*EmitCtx`
@@ -232,6 +235,12 @@ pub const EmitCtx = struct {
     /// `throw.emit` / `try_table.emit` payload-marshalling.
     /// Default-empty preserves existing EmitCtx construction sites.
     tag_param_counts: []const u32 = &.{},
+    /// D-235 — true iff this module declares func subtyping. When true,
+    /// `op_call.emitCallIndirect` replaces the inline D-111 structural sig
+    /// `CMP` with a `jitCallIndirectSubtypeOk` trampoline call. Default
+    /// `false` keeps non-subtyping modules + test helpers on the
+    /// byte-identical inline path.
+    uses_type_subtyping: bool = false,
 
     pub fn init(args: InitArgs) EmitCtx {
         const simd_consts_base: u32 =
@@ -271,6 +280,7 @@ pub const EmitCtx = struct {
             .open_try_tables = args.open_try_tables,
             .landing_pad_fixups = args.landing_pad_fixups,
             .tag_param_counts = args.tag_param_counts,
+            .uses_type_subtyping = args.uses_type_subtyping,
         };
     }
 

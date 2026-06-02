@@ -827,6 +827,45 @@ pub fn jitGcRefCast(rt: *JitRuntime, ref: u64, ht: u32) callconv(.c) u64 {
     return ref;
 }
 
+/// Wasm 3.0 §3.3.5.5 — JIT `call_indirect` resolve + runtime subtype check for
+/// SUBTYPING modules (gti materialised; D-235). Returns the slot's native
+/// funcptr iff `idx` is in-bounds for table `table_idx` AND the slot's stored
+/// declared func type is a SUBTYPE of the call site's `expected_typeidx`
+/// (self-inclusive, via the gti supertype chain / canonical-id,
+/// D-232/ADR-0131); else `0` (trap). Replaces the inline D-111 structural `CMP`
+/// for these modules, which is finality- AND subtype-blind: it over-accepts a
+/// `(sub final (func))` callee for a `(sub (func))` expected (structurally
+/// equal, distinct identity) and under-accepts a covariant-result subtype
+/// (structurally distinct). For subtyping modules `setup.zig` stores the RAW
+/// typeidx in `typeidx_base` (not the D-111 canonical) so this sees the true
+/// callee identity. An empty slot (sentinel typeidx `maxInt(u32)`) reaches no
+/// type → 0 → trap; an imported-function slot (funcptr left 0 — JIT host
+/// dispatch via `call_indirect` unsupported) also returns 0 → trap, matching
+/// the inline path's unset/null-slot behaviour. Both arches treat a `0` return
+/// as a trap; arm64 then calls the returned funcptr directly (it survives the
+/// arg marshal in a reserved scratch reg), x86_64 re-derives the funcptr inline
+/// (its idx survives in the all-callee-saved regalloc pool). gti null is
+/// impossible here (the module uses subtyping) but is handled as 0 for safety.
+pub fn jitCallIndirectResolve(rt: *JitRuntime, table_idx: u32, idx: u32, expected_typeidx: u32) callconv(.c) u64 {
+    const gti: *const gc_type_info.GcTypeInfos = if (rt.gc_type_infos_ptr) |p| @ptrCast(@alignCast(p)) else return 0;
+    var funcptr_base: [*]const u64 = undefined;
+    var typeidx_base: [*]const u32 = undefined;
+    var size: u32 = undefined;
+    if (table_idx == 0) {
+        funcptr_base = rt.funcptr_base;
+        typeidx_base = rt.typeidx_base;
+        size = rt.table_size;
+    } else {
+        if (table_idx >= rt.tables_jit_ci_count or table_idx >= rt.tables_count) return 0;
+        funcptr_base = rt.tables_jit_ci_ptr[table_idx].funcptr_base;
+        typeidx_base = rt.tables_jit_ci_ptr[table_idx].typeidx_base;
+        size = rt.tables_ptr[table_idx].len;
+    }
+    if (idx >= size) return 0;
+    if (!ref_test_ops.concreteReachesGti(gti, typeidx_base[idx], expected_typeidx)) return 0;
+    return funcptr_base[idx];
+}
+
 // ============================================================
 // Comptime offset constants — consumed by prologue emit (per-arch
 // `compile()` writes `LDR Xn, [X0, #vm_base_off]` etc.).

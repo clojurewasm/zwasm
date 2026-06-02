@@ -173,6 +173,68 @@ pub fn emitImportDispatch(ctx: *EmitCtx, import_idx: u32) Error!void {
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBLR(16));
 }
 
+/// D-235 — ARM64 `call_indirect` emit for SUBTYPING modules (Wasm §3.3.5.5).
+/// Replaces the inline D-111 structural sig CMP (finality/subtype-blind) with
+/// a `jitCallIndirectResolve` trampoline. Sequence: read idx → CALL resolve
+/// (rt, table_idx, idx, expected_raw) → X0 = funcptr | 0 → trap on 0 → stash
+/// funcptr in X17 (survives the arg marshal — marshal touches X1..X7/V0..V7 +
+/// stage regs + SP, never X16/X17) → marshal args → MEMORY-class X8 buffer →
+/// MOV X0,rt ; BLR X17 → capture. The trampoline runs BEFORE marshalling so
+/// its caller-saved clobber can't corrupt marshalled args; operands are
+/// force-spilled (regalloc inclusive crossing for call_indirect when the
+/// module uses subtyping) so they survive it. `expected_raw` / `table_idx`
+/// must fit MOVZ imm16 (4096+-type modules are rejected elsewhere).
+fn emitCallIndirectSubtype(
+    ctx: *EmitCtx,
+    ins: *const ZirInstr,
+    callee_sig: FuncType,
+    idx_vreg: u32,
+    table_idx: u32,
+) Error!void {
+    const expected_raw: u32 = @intCast(ins.payload);
+    if (expected_raw > 0xFFFF or table_idx > 0xFFFF) return Error.UnsupportedOp;
+
+    // Trampoline args: X0=rt, W1=table_idx, W2=idx, W3=expected_raw. Read idx
+    // into W2 first; its home reg is never X0..X3 (those aren't in the regalloc
+    // pool), so the later arg-reg writes can't clobber it.
+    const w_idx = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, idx_vreg, 0);
+    if (w_idx != 2) try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(2, 31, w_idx));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(1, @intCast(table_idx)));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(3, @intCast(expected_raw)));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr));
+    const addr: u64 = @intFromPtr(&jit_abi.jitCallIndirectResolve);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(16, @intCast(addr & 0xFFFF)));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(16, @intCast((addr >> 16) & 0xFFFF), 1));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(16, @intCast((addr >> 32) & 0xFFFF), 2));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(16, @intCast((addr >> 48) & 0xFFFF), 3));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBLR(16));
+
+    // X0 = funcptr (0 = trap: OOB / sig-subtype fail / null|imported slot).
+    // CMP X0,#0 (64-bit) ; B.EQ → call_indirect sig-trap stub (trap_kind 3; a
+    // bounds OOB also routes here — trap-reason granularity is diagnostic).
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmX(0, 0));
+    {
+        const fixup_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.eq, 0));
+        try ctx.cind_sig_fixups.append(ctx.allocator, fixup_at);
+    }
+    // Stash funcptr in X17 (reserved scratch; survives marshalCallArgs).
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(17, 31, 0));
+
+    // Marshal args now (trampoline done → no marshalled-arg clobber).
+    try marshalCallArgs(ctx, callee_sig);
+    const memory_class_return: bool = callee_sig.results.len > 2;
+    const return_buffer_off: u32 = if (memory_class_return) computeCallOverflowBytes(callee_sig) else 0;
+    if (memory_class_return) {
+        if (return_buffer_off > 4095) return Error.UnsupportedOp;
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(8, 31, @intCast(return_buffer_off)));
+    }
+    // MOV X0, rt ; BLR X17.
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBLR(17));
+    try captureCallResult(ctx, callee_sig, memory_class_return, return_buffer_off);
+}
+
 /// Indirect call: `call_indirect type_idx tableidx`. Pops the
 /// index, marshals args, runs bounds + sig checks (both branch
 /// to the shared trap stub via ctx.bounds_fixups), loads the
@@ -197,6 +259,15 @@ pub fn emitCallIndirect(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     // Stack at entry: [args..., idx]. Pop idx first.
     if (ctx.pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const idx_vreg = ctx.pushed_vregs.pop().?;
+
+    // D-235: subtyping modules route the sig check through the
+    // `jitCallIndirectResolve` trampoline (the inline D-111 structural CMP
+    // is finality/subtype-blind). The trampoline runs BEFORE marshalling, so
+    // its caller-saved clobber can't corrupt marshalled args; operands are
+    // force-spilled (regalloc inclusive crossing) so they survive it.
+    if (ctx.uses_type_subtyping) {
+        return emitCallIndirectSubtype(ctx, ins, callee_sig, idx_vreg, table_idx);
+    }
 
     try marshalCallArgs(ctx, callee_sig);
 

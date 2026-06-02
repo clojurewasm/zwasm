@@ -1417,3 +1417,60 @@ test "runI32Export: any.convert_extern + extern.convert_any null round-trip → 
     };
     try testing.expectEqual(@as(u32, 1), runI32Export(testing.allocator, &bytes, "f"));
 }
+
+// ============================================================
+// D-235 — JIT call_indirect subtype acceptance (Wasm §3.3.5.5). The inline
+// D-111 structural sig CMP is finality/subtype-blind; subtyping modules route
+// through the jitCallIndirectResolve trampoline. Two directions: (A) a
+// finality-distinct callee must TRAP (over-accept regression), (B) an
+// exact/subtype callee must be ACCEPTED + run (over-reject + gti-materialise
+// regression). Both exercise the func-only-subtyping path (no GC heap).
+// wat2wasm predates gc text; bytes hand-encoded (sub=0x50, sub final=0x4F per
+// parse/sections.zig:434).
+
+test "runI32Export: call_indirect $t1 on a $t2(final) funcref TRAPS — D-235 over-accept" {
+    // (module
+    //   (type $t1 (sub (func)))        ;; idx0 ()->()  open
+    //   (type $t2 (sub final (func)))  ;; idx1 ()->()  final — $t2 !<: $t1
+    //   (type $t3 (func (result i32))) ;; idx2
+    //   (func $f2 (type $t2)) (table funcref (elem $f2))
+    //   (func (export "f") (result i32)
+    //     (call_indirect (type $t1) (i32.const 0))  ;; $f2:$t2 via $t1 → TRAP
+    //     (i32.const 42)))
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x0f, 0x03, 0x50, 0x00, 0x60, 0x00, 0x00,
+        0x4f, 0x00, 0x60, 0x00, 0x00, 0x60, 0x00, 0x01,
+        0x7f,
+        0x03, 0x03, 0x02, 0x01, 0x02, // func: f2:type1, f:type2
+        0x04, 0x04, 0x01, 0x70, 0x00, 0x01, // table funcref min 1
+        0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x01, // export "f" = func 1
+        0x09, 0x07, 0x01, 0x00, 0x41, 0x00, 0x0b, 0x01, 0x00, // elem active tbl0 off0 [func0]
+        // code: f2 empty (02 00 0b); f body9 = locals0 + i32.const 0 (idx) +
+        // call_indirect type0 tbl0 + i32.const 42 + end.
+        0x0a, 0x0e, 0x02, 0x02, 0x00, 0x0b, 0x09, 0x00, 0x41,
+        0x00, 0x11, 0x00, 0x00, 0x41, 0x2a, 0x0b,
+    };
+    try testing.expectError(entry.Error.Trap, runI32Export(testing.allocator, &bytes, "f"));
+}
+
+test "runI32Export: call_indirect $t1 on a $t1 funcref returns 7 — D-235 exact-match accept" {
+    // (module
+    //   (type $t1 (sub (func (result i32))))  ;; idx0 — subtyping module
+    //   (func $f (type $t1) (i32.const 7)) (table funcref (elem $f))
+    //   (func (export "f") (result i32)
+    //     (call_indirect (type $t1) (i32.const 0))))  ;; exact → accept → 7
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x07, 0x01, 0x50, 0x00, 0x60, 0x00, 0x01, 0x7f, // type0 = sub ()->(i32)
+        0x03, 0x03, 0x02, 0x00, 0x00, // func: 2 funcs both type0
+        0x04, 0x04, 0x01, 0x70, 0x00, 0x01, // table funcref min 1
+        0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x01, // export "f" = func 1
+        0x09, 0x07, 0x01, 0x00, 0x41, 0x00, 0x0b, 0x01, 0x00, // elem active tbl0 off0 [func0]
+        // code: f body4 = locals0 + i32.const 7 + end; f-export body7 =
+        // locals0 + i32.const 0 (idx) + call_indirect type0 tbl0 + end.
+        0x0a, 0x0e, 0x02, 0x04, 0x00, 0x41, 0x07, 0x0b, 0x07,
+        0x00, 0x41, 0x00, 0x11, 0x00, 0x00, 0x0b,
+    };
+    try testing.expectEqual(@as(u32, 7), runI32Export(testing.allocator, &bytes, "f"));
+}

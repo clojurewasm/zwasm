@@ -131,6 +131,10 @@ pub fn compile(
     /// param counts threaded into EmitCtx via InitArgs for throw /
     /// try_table payload marshalling. Pass `&.{}` for tag-less modules.
     tag_param_counts: []const u32,
+    /// D-235 — module-level func-subtyping flag (`usesTypeSubtyping`).
+    /// Routes `call_indirect` through the subtype trampoline. `false` for
+    /// non-subtyping modules + test helpers.
+    uses_type_subtyping: bool,
 ) Error!EmitOutput {
     if (alloc.slots.len != (func.liveness orelse return Error.AllocationMissing).ranges.len) {
         return Error.AllocationMissing;
@@ -698,6 +702,7 @@ pub fn compile(
         .open_try_tables = if (has_try_table) &open_try_tables else null,
         .landing_pad_fixups = if (has_try_table) &landing_pad_fixups else null,
         .tag_param_counts = tag_param_counts,
+        .uses_type_subtyping = uses_type_subtyping,
     });
 
     for (func.instrs.items) |ins| {

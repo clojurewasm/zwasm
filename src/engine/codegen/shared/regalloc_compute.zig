@@ -126,7 +126,14 @@ pub fn computeWith(
     var call_pc_overflow = false;
     for (func.instrs.items, 0..) |ins, pc| {
         const inclusive: ?bool = switch (ins.op) {
-            .call, .call_indirect, .@"memory.grow" => false,
+            .call, .@"memory.grow" => false,
+            // D-235: a subtyping module's call_indirect inserts a
+            // `jitCallIndirectResolve` trampoline CALL before marshalling, so
+            // its operands (idx + args, last_use AT the op PC) must force-spill
+            // to survive the caller-saved clobber — inclusive crossing, like
+            // struct.new. Non-subtyping call_indirect consumes operands before
+            // its only (BLR) call → strict crossing (byte-identical).
+            .call_indirect => func.uses_type_subtyping,
             // 10.G GC-on-JIT: struct.new_default emits a BLR/CALL into
             // the jitGcAlloc trampoline (clobbers caller-saved like
             // memory.grow), so vregs live across it must force-spill.

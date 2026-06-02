@@ -238,6 +238,15 @@ pub const EmitCtx = struct {
     /// helpers); compile() populates it for real bodies.
     frame_bytes: u32 = 0,
 
+    /// D-235 — true iff this module declares func subtyping (`sub` /
+    /// `sub final` / declared super; `usesTypeSubtyping`). When true,
+    /// `op_call.emitCallIndirect` replaces the inline D-111 structural sig
+    /// `CMP` with a `jitCallIndirectSubtypeOk` trampoline call (the inline
+    /// compare is finality/subtype-blind). Default `false` keeps every
+    /// existing EmitCtx construction site (non-subtyping modules + test
+    /// helpers) on the byte-identical inline path.
+    uses_type_subtyping: bool = false,
+
     /// Pop two operands + allocate a result vreg. Shared header
     /// for every binary op-handler. Returns the lhs / rhs / result
     /// vreg ids or `AllocationMissing` (stack underflow) /

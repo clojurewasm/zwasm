@@ -2198,7 +2198,7 @@ test "entry: i32.load offset=0 reads memory[0..4] through X28 vm_base" {
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     const sigs = [_]zir.FuncType{sig};
 
-    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
     defer emit.deinit(testing.allocator, out0);
 
     const bodies = [_]linker.FuncBody{
@@ -2250,7 +2250,7 @@ test "entry: ADR-0018 sub-1c — spilled i32.const returns 42 via STR/LDR round-
         .max_reg_slots_gpr = 10,
     };
     const sigs = [_]zir.FuncType{sig};
-    const out = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
+    const out = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
     defer emit.deinit(testing.allocator, out);
 
     const bodies = [_]linker.FuncBody{
@@ -2301,7 +2301,7 @@ test "entry: ADR-0027 — global.set 0 then global.get 0 (i32) round-trips throu
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     const sigs = [_]zir.FuncType{sig};
-    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
     defer emit.deinit(testing.allocator, out0);
     const bodies = [_]linker.FuncBody{
         .{ .bytes = out0.bytes, .call_fixups = out0.call_fixups },
@@ -2353,7 +2353,7 @@ test "entry: pure constant function returns 42 (sanity — no memory access)" {
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     const sigs = [_]zir.FuncType{sig};
 
-    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
     defer emit.deinit(testing.allocator, out0);
 
     const bodies = [_]linker.FuncBody{
@@ -2402,7 +2402,7 @@ test "entry: callI32_i32i32 — 2 i32 params summed via i32.add" {
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
     const sigs = [_]zir.FuncType{sig};
 
-    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
     defer emit.deinit(testing.allocator, out0);
 
     const bodies = [_]linker.FuncBody{
@@ -2446,7 +2446,7 @@ test "entry: callI32_i32 — 1 i32 param echoed through W1 → SP slot 0 → res
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     const sigs = [_]zir.FuncType{sig};
 
-    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
     defer emit.deinit(testing.allocator, out0);
 
     const bodies = [_]linker.FuncBody{
@@ -2494,7 +2494,7 @@ test "entry: f32 local round-trip — local.get 0 of f32 param via V0" {
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     const sigs = [_]zir.FuncType{sig};
 
-    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
     defer emit.deinit(testing.allocator, out0);
 
     const bodies = [_]linker.FuncBody{
@@ -2543,7 +2543,7 @@ test "entry: callI64NoArgs — i64.const 0xDEADBEEFCAFE returns full 64-bit" {
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     const sigs = [_]zir.FuncType{sig};
 
-    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
     defer emit.deinit(testing.allocator, out0);
 
     const bodies = [_]linker.FuncBody{
@@ -2608,7 +2608,7 @@ test "entry: ref.as_non_null traps on null funcref source — JIT 10.R cycle 51"
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
     const sigs = [_]zir.FuncType{sig};
 
-    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
     defer emit.deinit(testing.allocator, out0);
 
     const bodies = [_]linker.FuncBody{
@@ -2674,7 +2674,7 @@ test "entry: br_on_null branches to block end on null funcref — JIT 10.R cycle
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     const sigs = [_]zir.FuncType{sig};
-    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
     defer emit.deinit(testing.allocator, out0);
 
     const bodies = [_]linker.FuncBody{
@@ -2740,7 +2740,7 @@ test "entry: br_on_non_null falls through on null funcref param — JIT 10.R cyc
     const slots = [_]u16{ 0, 1, 2 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
     const sigs = [_]zir.FuncType{sig};
-    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
     defer emit.deinit(testing.allocator, out0);
 
     const bodies = [_]linker.FuncBody{
@@ -2810,7 +2810,7 @@ test "entry: br_on_cast matches i31 → branch carries the ref → i31.get_s = 7
     const slots = [_]u16{ 0, 10, 1 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 11, .max_reg_slots_gpr = 10 };
     const sigs = [_]zir.FuncType{sig};
-    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{});
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
     defer emit.deinit(testing.allocator, out0);
 
     const bodies = [_]linker.FuncBody{

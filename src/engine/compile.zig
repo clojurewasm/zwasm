@@ -26,6 +26,7 @@ const runner_mod = @import("runner.zig");
 const Error = runner_mod.Error;
 const CompiledWasm = runner_mod.CompiledWasm;
 const runtime_mod = @import("../runtime/runtime.zig");
+const needs_heap_detector = @import("../feature/gc/needs_heap_detector.zig");
 
 pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledWasm {
     var module = try parser.parse(allocator, wasm_bytes);
@@ -991,6 +992,13 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
         }
     }
 
+    // D-235 — module-level func-subtyping flag, computed once and threaded
+    // into every function's emit so `call_indirect` routes through the
+    // `jitCallIndirectSubtypeOk` trampoline (the inline D-111 structural sig
+    // compare is finality/subtype-blind). Must match `setup.zig`'s
+    // `store_raw_typeidx` (both derive from the same `usesTypeSubtyping`).
+    const uses_type_subtyping = needs_heap_detector.usesTypeSubtyping(types);
+
     const results = try allocator.alloc(compile_func.FuncResult, defined_func_typeidx.len);
     errdefer allocator.free(results);
     var compiled: usize = 0;
@@ -1061,6 +1069,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             struct_field_counts,
             array_elem_valtypes,
             struct_field_valtypes,
+            uses_type_subtyping,
         ) catch |err| {
             std.debug.print("compileWasm: func[{d}] params={d} results={d} → {s}\n", .{
                 wasm_idx,
