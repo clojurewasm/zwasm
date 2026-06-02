@@ -770,16 +770,38 @@ pub fn setupRuntimeLinked(
         elem_dropped_count = @intCast(elems_buf.items.len);
         if (elem_dropped_count > 0) {
             var total_refs: usize = 0;
-            for (elems_buf.items) |seg| total_refs += seg.funcidxs.len;
+            // A segment carries EITHER funcidxs (funcref/i31-encoded) OR
+            // item_exprs (GC general const-exprs); count whichever is present.
+            for (elems_buf.items) |seg| total_refs += if (seg.item_exprs.len > 0) seg.item_exprs.len else seg.funcidxs.len;
             elem_segments_buf = try allocator.alloc(entry.ElemSlice, elem_dropped_count);
             elem_refs_arena = try allocator.alloc(u64, if (total_refs == 0) 1 else total_refs);
+            const elem_gti_val: ?gc_type_info.GcTypeInfos = if (gc_type_infos_typed) |t| t.* else null;
             var off: usize = 0;
             for (elems_buf.items, 0..) |seg, i| {
-                const seg_len: u32 = @intCast(seg.funcidxs.len);
+                const use_items = seg.item_exprs.len > 0;
+                const seg_len: u32 = @intCast(if (use_items) seg.item_exprs.len else seg.funcidxs.len);
                 elem_segments_buf[i] = .{
                     .refs = elem_refs_arena.ptr + off,
                     .len = seg_len,
                 };
+                if (use_items) {
+                    // D-225 — Wasm 3.0 GC general const-expr element items
+                    // (`array.new` / `array.new_fixed` / `struct.new` / `ref.func` …).
+                    // Eval each to a `Value.ref` so `array.new_elem` reads real refs
+                    // (else seg_len stayed 0 → OOB trap). Mirrors the global/table
+                    // init-expr eval. gc/array.8 array.new_elem depends on this.
+                    for (seg.item_exprs, 0..) |ie, k| {
+                        const v = instantiate.evalConstExprValue(ie) catch |e| blk: {
+                            if (e == error.UnsupportedConstExpr) {
+                                break :blk instantiate.evalGlobalInitGc(ie, gc_heap_typed, elem_gti_val, func_entities, imp_global_ptrs) catch Value{ .ref = Value.null_ref };
+                            }
+                            break :blk Value{ .ref = Value.null_ref };
+                        };
+                        elem_refs_arena[off + k] = v.ref;
+                    }
+                    off += seg_len;
+                    continue;
+                }
                 // D-218: i31ref/eqref/anyref elem segments carry i31-ENCODED
                 // values, NOT funcidxs — store them directly (table.init reads
                 // them; i31.get decodes), mirroring the active elem-init +
