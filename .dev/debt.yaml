@@ -39,9 +39,10 @@ entries:
       the emit handler is first-cut "forward-block targets only; function-return + loop targets → UnsupportedOp"
       (br_on_null.zig docstring); needs the loop/return-target emit path. (2) `ref_is_null.0`
       ElemSegmentTypeMismatch — NOT a ref.func issue; an elem-segment reftype validation gap on the JIT compile
-      path. (3) `ref_null.0` InvalidGlobalInitExpr — const-expr `ref.null` typing in the JIT global-init
-      validate (`rv.validateGlobalInitExpr`). Each is a separate small fix; NEXT after the higher-frequency
-      §10 rejects (tail-call return_call_indirect, UnsupportedEntrySignature ×7).
+      path. (3) ✅ `ref_null.0` DONE (`195856a1`): `rv.validateGlobalInitExpr` 0xD0 arm now reads the heaptype
+      as s33 (non-negative = concrete typeidx → concrete ref); function-references 20/0/19 → 23/0/16, global
+      808/1 → 811/1. Residual 2 left (br_on_null.1 loop-target emit, ref_is_null.0 elem). Each a separate small
+      fix; interleave with the other §10 rejects (tail-call return_call_indirect, UnsupportedEntrySignature ×7).
     first_raised: "2026-06-03"
     last_reviewed: "2026-06-03"
     refs: |-

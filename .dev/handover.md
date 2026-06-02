@@ -9,25 +9,17 @@
   **interp pass=fail=skip=0 (MET) + JIT 0-real-fail + every JIT skip on the forward-ref'd
   deferred-allowlist** (multi-memory-on-JIT→§14, GC-on-JIT-rooting→§11). Raw "JIT skip=0" (ADR-0128)
   was unreachable in-phase; re-scoped autonomously per ADR-0132.
-- **LAST code HEAD** (`4f73d9ee`): **cross-instance EH on JIT WORKS — EH JIT dir 34/0/0 (ADR-0134, Cause B DONE).**
-  A module-1 throw now reaches a module-2 catch. Three pieces (cycle 2b): (D1) arm64 bridge thunk gains
-  `MOV X29,SP` after the STP so its frame FP-links into the chain (else the FP-walk reaches the caller frame
-  carrying a thunk pc; instr 19→20 ate the pad, size 96 unchanged); (registration) the spec runner registers
-  each heap-pinned instance's `*JitRuntime` in `eh_registry` (+ unregister at every free site + per-manifest
-  reset); (handler-cmap) `trampolineCore` resolves the catching instance's `CodeMap` from `handler_abs_pc`
-  (`eh_registry.codeMapForPc`) for the cross-instance SP-restore. **EH dir 32/2 → 34/0/0; global JIT 794/3 →
-  796/1; no regression.** Built on D2 (`cb55013e`, unwind machinery: `lookupByIdentity` + `walk` `InstanceResolver`
-  + `eh_registry`) + D3 (`16a921a8`, global `tag_ids` u64 cross-module identity) + Cause A (`50e5ecd3`).
-- **10.E-eh-on-jit bundle = CLOSED** (`4f73d9ee`, exit 34/0/0 verified). x86_64 EH thunk-parity +
-  `cross_module_throw_propagation.wat` fixture = **D-238** (ADR-0134 cycle 3; arch-parity, not Mac-§10-gating).
-- **LAST code HEAD** (`faf23f0a`): **D-239 — JIT function-references precise ref.func typing + null-ref emit.**
-  JIT `compile.zig` now passes the validator's `func_type_indices` (ADR-0123 D4 precise `ref.func`, was abstract
-  funcref → StackTypeMismatch) + wired br_on_null/br_on_non_null/ref_as_non_null into BOTH arm64 + x86_64 emit
-  dispatch (handler files existed, never routed). function-references 8/0/31 → 20/0/19; global JIT **796/1 →
-  808/1**; 5 of 8 fr rejects cleared; no regression; +1 regression test.
+- **LAST code HEAD** (`195856a1`): JIT global-init accepts CONCRETE `(ref.null $t)` (the const-expr 0xD0 arm
+  only mapped abstract heaptype bytes → InvalidGlobalInitExpr; now reads the heaptype as s33, non-negative =
+  concrete typeidx). function-references 20/0/19 → 23/0/16; global JIT **808/1 → 811/1**; no regression. D-239
+  residual #3 (ref_null.0) done. Built on **D-239** (`faf23f0a`): JIT `compile.zig` passes the validator's
+  `func_type_indices` (ADR-0123 D4 precise `ref.func`, was abstract → StackTypeMismatch) + wired
+  br_on_null/br_on_non_null/ref_as_non_null into both-arch emit dispatch (handler files existed, never routed).
+- **Cross-instance EH on JIT DONE** (`4f73d9ee`, 10.E-eh-on-jit bundle CLOSED, EH dir 34/0/0; ADR-0134). x86_64
+  EH thunk-parity = D-238. Built on D2 (`cb55013e`) + D3 (`16a921a8`) + Cause A (`50e5ecd3`).
 - **§10-exit determination** (ADR-0133 §4): interp 100% MET + JIT 0 GENUINE fails MET (memory64 = D-234 harness,
   6 proof paths, `f507bf33`) + the 17 module-rejects are in-phase MUST-FIX (NOT deferrable; allowlist = only
-  multi-memory→§14 + GC-on-JIT→§11). Remaining rejects after D-239 = the Active-task list.
+  multi-memory→§14 + GC-on-JIT→§11). Remaining rejects = the Active-task list.
 - **Prior**: ADR-0132/0133 (`5447cb10`, autonomous re-sequence + Phase-10 exit re-scope). interp wasm-3.0 corpus
   FULLY GREEN. Spec corpus = interp default; JIT opt-in `ZWASM_SPEC_ENGINE=jit`; entry = `runner.zig` `JitInstance`.
   **GATE TRAP**: corpus exe MUST be picked by mtime (`find … -exec ls -t {} + | head -1`); bare `head -1` = STALE.
@@ -36,15 +28,13 @@
 ## Active task — §10-exit: **clear the remaining JIT module-rejects**  **NEXT**
 
 §10 exit (ADR-0133 §4): interp 100% (MET) + JIT 0 genuine fails (MET — memory64 = D-234 harness) + clear the
-17 module-rejects (in-phase must-fix, NOT deferrable). ✅ **D-239 DONE** (`faf23f0a`): JIT now passes the
-validator's `func_type_indices` (precise `ref.func` typing) + wired br_on_null/br_on_non_null/ref_as_non_null
-into both-arch emit dispatch → function-references 8/0/31 → 20/0/19 (+12), global 796/1 → **808/1**, 5 of 8 fr
-rejects cleared, no regression. **Remaining rejects (NEXT, pick highest-leverage)**:
-1. **tail-call** `return_call_indirect.0` UnsupportedOp (D-210) — TC emit gap (return_call_indirect not emitted).
-2. **D-239 residual 3** (distinct mechanisms, tracked in D-239): `br_on_null.1` UnsupportedOp (emit handler is
-   first-cut forward-block-only → needs loop/return-target path); `ref_is_null.0` ElemSegmentTypeMismatch
-   (elem-segment reftype validate gap); `ref_null.0` InvalidGlobalInitExpr (const-expr ref.null typing in
-   `rv.validateGlobalInitExpr`).
+module-rejects (in-phase must-fix, NOT deferrable). Progress: function-references 8/0/31 → **23/0/16** (D-239 +
+ref_null, 6 of 8 fr rejects cleared); global JIT 796/1 → **811/1**. **Remaining rejects (NEXT, pick highest-leverage)**:
+1. **D-239 residual 2**: `br_on_null.1` UnsupportedOp (the emit handler is first-cut "forward-block targets only;
+   loop/return-target → UnsupportedOp" per its docstring → needs the loop/return-target emit path);
+   `ref_is_null.0` ElemSegmentTypeMismatch (`(table $t3 2 (ref null $t))` + `(elem (table $t3) ... (ref $t)
+   (ref.func $dummy))` — typed-ref table/elem validate gap on the JIT compile path).
+2. **tail-call** `return_call_indirect.0` UnsupportedOp (D-210) — TC emit gap (return_call_indirect not emitted).
 3. **gc** `i31.6` ElemSegmentTypeMismatch + **UnsupportedEntrySignature ×7** (invoke-path eligibility — verify
    if real rejects or the eligibility-gate skips the audit classified as on-allowlist).
 4. **D-234** runner-side harness discharge (so the corpus stops false-reporting the 52 mem64 fails — needed
@@ -70,11 +60,11 @@ Other tracks: **D-238** (x86_64 EH parity), realworld GC/EH/TC producers.
 
 ## Step 0.7 (next resume)
 
-THIS turn = cross-instance EH 2b (`4f73d9ee`, code; arm64 thunk + registration + handler-cmap). Mac `test-all` +
-lint GREEN; JIT corpus EH dir 34/0/0, global 796/1, no regression. ubuntu `test-all` kicked against the turn HEAD
-— Step 0.7 next resume: `tail -3 /tmp/ubuntu.log`, revert the commit pair on FAIL. NOTE: ubuntu (x86_64) runs the
-interp+unit gate, NOT the JIT EH corpus (Mac-only); x86_64 EH thunk parity = D-238. (Prior 2a `5e076a6f`
-ubuntu-verified OK this turn.) Then → §10-exit endgame (the 1 memory64 return-fail + skip-allowlist audit).
+THIS turn = ref_null.0 const-expr fix (`195856a1`, code). Mac `test-all` + lint GREEN; JIT corpus
+function-references 23/0/16, global 811/1, no regression. ubuntu `test-all` kicked against the turn HEAD —
+Step 0.7 next resume: `tail -3 /tmp/ubuntu.log`, revert the commit pair on FAIL. NOTE: ubuntu (x86_64) runs the
+interp+unit gate, NOT the JIT corpus (Mac-only). (Prior D-239 `b847dd9c` ubuntu-verified OK this turn.) Then →
+the remaining §10 rejects (br_on_null.1 / ref_is_null.0 / tail-call return_call_indirect).
 
 **Gate hygiene**: Step-5 Mac gate = `bash scripts/mac_gate.sh`. JIT corpus: `zig build test-spec-wasm-3.0-assert`
 (NO bogus `-Dno-run`); **pick the exe by mtime** — `/usr/bin/find .zig-cache/o -name zwasm-spec-wasm-3-0-assert
