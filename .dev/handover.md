@@ -13,8 +13,13 @@
   callee whose declared type is a SUBTYPE of the call type (Wasm §3.3.5.5, gti-gated concreteReaches); #2
   function-level `br` (depth==label_len) returns via returnFromFunction (Wasm §4.4.8 implicit outermost
   block) instead of trapping. **interp assert_return now fully green (1233/0)**; no regression (gate green).
-- **⚠ USER-DIRECTED STOP this turn** (no re-arm). User asked: prep the §10-scope question for a fresh deep
-  session → see **`.dev/phase10_scope_reassessment.md`** (the wiring/reference-chain + 4 decision points).
+- **⚠ USER-DIRECTED STOP** (no re-arm). Two audits PREPPED for fresh deep sessions (wiring/reference chains):
+  (1) **`.dev/wasm_level_separation_audit.md`** — the user's PRIMARY axis: is wasm 1.0/2.0/3.0 separation
+  real or "half規約頼み"? CONFIRMED leak: mvp.zig registers handlers unconditionally + inlines 3.0 logic
+  (br_on_cast, call_indirect-subtype) NOT per-op-DCE'd → contradicts ADR-0073's "absent from v1_0 binary";
+  dispatch_consistency_audit (shape-only) can't catch it. (2) **`.dev/phase10_scope_reassessment.md`** —
+  §10 exit vs Phase-14 deferral, reframed as ROADMAP RE-STRUCTURING (multi-memory = first instance; enumerate
+  all deferred-but-§10-gating items + re-sequence phases, not a one-off ADR-0128 footnote).
 - **PRIOR**: ADR-0127 PHASE C DONE (cross-module type-def identity; assert_unlinkable 4→0; predicates
   `canonicalEqualCross` `6f1eeb4a` + `superReachesCross` `d5183d4e` + integration `add983e8`). multi-value +18.
 - **wasm-3.0 interp fails now = 4** (was 5): all gc/type-subtyping **assert_trap** (NOT .17 — other modules;

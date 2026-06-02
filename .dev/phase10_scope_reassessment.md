@@ -18,6 +18,26 @@ JIT. The honest in-phase target is likely *interp-100% + JIT-modulo-deferred-
 multi-memory*, but changing the exit bar is an ADR-0128-scope decision (user-
 gated; flagged by the user as worth a deliberate investigation).
 
+## Broader framing — this is roadmap RESTRUCTURING, not a multi-memory carve-out
+
+(User directive 2026-06-02): multi-memory-JIT is just the FIRST surfaced
+instance. The real ask is — **when Phase 10 forces items that genuinely belong
+to a later phase, re-organize the ROADMAP itself, not patch ADR-0128 with a
+one-off exclusion.** So the deep session must (a) ENUMERATE every Phase-10-
+gating item that is really later-phase work, then (b) decide the roadmap shape:
+re-sequence phases / split §10 into a "in-phase-achievable" close + a deferred
+remainder / move the deferred items to their true phase with explicit forward-
+refs. Candidate deferred-but-§10-gating items to inventory (verify + extend):
+- **multi-memory JIT** (Phase-14; 407 JIT skips) — the trigger.
+- **EH-on-JIT** `eh/try_table` (JIT fail) — is it §10 or a later EH-completion phase?
+- **GC rooting on JIT** (ADR-0115/ADR-0128 §2 deferred) — already a known deferral.
+- the non-deferred JIT skips (§ Reference chain #4) — which are truly §10-closeable.
+Where the restructuring lands: **ROADMAP §9 phase plan / phase boundaries** +
+**§18 amendment** (phase-order change needs an ADR per ROADMAP:1991) + the
+**10.P close-invariant script**. The output is likely an ADR ("Phase 10 close
+re-scope + roadmap re-sequence") PLUS ROADMAP §9/§10 edits, not just an ADR-0128
+footnote.
+
 ## Reference chain (read these, in order)
 
 1. **ADR-0128** `.dev/decisions/0128_phase10_100_percent_both_backends.md:37-39`
