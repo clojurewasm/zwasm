@@ -25,25 +25,29 @@
 
 ## Active task — `10.E-eh-on-jit` bundle: the 3 imported-tag EH fails  **NEXT**
 
-try_table.1.wasm runs 34 asserts (31 pass). The catch landing-pad + try_table-result classes are FIXED
-(`590093f5` catchless, `881b25e0` arity). The **3 remaining JIT fails are all the imported-tag class**
-(cross-module tag identity / unwind; likely two distinct sub-issues — needs `debug_jit_auto`):
+try_table.1.wasm runs 34 asserts (31 pass). Catch landing-pad + try_table-result classes FIXED (`590093f5`
+catchless, `881b25e0` arity). The **3 remaining fails split into TWO root causes** (subagent disasm/read
+diagnosis; the JIT matches tags by LOCAL INDEX — `HandlerEntry.tag_idx == throw_tag_idx`, exception_table.zig:87
+— and `JitRuntime` has NO `tags: []*TagInstance` table, unlike interp `rt.tags` via instantiate.zig:1244-1281):
 
-1. **`catch-imported`** returns `1` (expected 2): body `(call $imported-throw (i32.const 1))` — a
-   CROSS-MODULE call (test::throw) that throws test::e0. The catch `$imported-e0` should fire → `(i32.const 2)`.
-   Returns `1` = the pre-throw stack value leaked → the unwind THROUGH the cross-module call frame doesn't
-   reconcile the JIT operand stack to $h's depth (or the catch matched but stack-cleanup is wrong).
-2. **`catch-imported-alias`** TRAPS (expected 2): catches `$imported-e0`, throws `$imported-e0-alias` — two
-   imports of the SAME test::e0. Per spec both alias the same tag → catch MUST match. JIT compares tag by
-   local INDEX (HandlerEntry.tag_idx 0 vs 1) → no match → propagates → trap. Interp shares TagInstance
-   pointers (identity), JIT is index-based. Fix = imported-tag identity at JIT catch-match (the JIT exception
-   table / unwinder must resolve imported tag_idx → source TagInstance identity, not the local index).
-3. **`imported-mismatch`** (try_table.2) returns `1` (expected 3) — same cross-module imported-tag class.
+- **CAUSE A — aliased same-module import (fixes #2 `catch-imported-alias` trap; partial #3).** In module 2 the
+  tag space is `[0]=$imported-e0, [1]=$imported-e0-alias` (both bind test::e0 = same TagInstance). catch idx 0,
+  throw marshals idx 1 → `0==1` false → no match → uncaught → trap. **DO THIS FIRST (tractable).** Fix: give the
+  JIT a tag-IDENTITY/canonical table — add `JitRuntime.tags_*` (jit_abi.zig ~381 cohort) populated in
+  `engine/setup.zig` (~910, beside eh_table_entries) from the resolved imports (imports binding the same source
+  tag → same identity/canonical id); throw marshals + `exception_table.lookup` matches by identity not raw idx
+  (mirror interp `catchTagMatches` mvp.zig:814-818). Needs imported-tag resolution at the JIT runner/setup path
+  (analog of jitResolveFuncImports — may not exist for tags yet; check). A canonical-u32 id (like ADR-0126 type
+  ids) avoids a pointer-layout change.
+- **CAUSE B — cross-INSTANCE throw (fixes #1 `catch-imported`; partial #3). DEEPER.** `catch-imported` calls
+  test::throw (module 1) via the bridge thunk, which swaps runtime_ptr to module 1's `*JitRuntime` → the throw
+  runs against module 1's EMPTY exception table → uncaught → thunk RETs normally → module 2 resumes past the
+  call with `i32.const 1` leaked → returns 1 (the catch NEVER fires; not a landing-pad reconciliation bug).
+  `unwind.zig:26-31` explicitly defers per-frame-instance dispatch. Fix: resolve the thrown tag to its identity
+  at the throw site (throwing instance's tags), then FP-walk frames matching identity against EACH frame's OWN
+  instance exception table (per-frame-instance dispatch). In §10.E scope ("cross-module exception propagation").
 
-Start with #2 (clearest: aliased-import identity). See `src/engine/codegen/shared/{exception_table.zig
-(HandlerEntry.tag_idx + lookup), zwasm_throw.zig (dispatchThrow tag compare), unwind.zig}` + how the thrown
-tag's identity is passed (op_throw marshals tag_idx; cross-module throw identity). Interp ref: instantiate.zig
-cyc116 `tags_arr` TagInstance identity + import.zig source_tag_index.
+Cause A is the next chunk. Cause B is a deeper multi-cycle sub-arc (per-frame-instance unwind) — same bundle.
 
 Other non-gated tracks (after EH): **D-234** (memory64 assert_trap harness artifact), **D-198**, **D-209**,
 **D-210** (return_call_indirect-in-try = func[36], TC+EH gap). Realworld GC/EH/TC producers.
@@ -53,14 +57,13 @@ Other non-gated tracks (after EH): **D-234** (memory64 assert_trap harness artif
 
 ## Active bundle
 
-- **Bundle-ID**: `10.E-eh-on-jit` (opened `3b668110`).  **Cycles-remaining**: ~2.
-- **Continuity-memo**: try_table.1.wasm blocker STACK (now COMPILES + RUNS, 31/34). ✅ func[6] validate
-  StackTypeMismatch (tag index space — `3b668110`) → ✅ func[24] try_table UnsupportedOp (catchless —
-  `590093f5`, +29) → ✅ try_table-result-arity drop (`881b25e0`, +2: simple-throw-catch + catch-complex-1)
-  → ❌ **3 imported-tag fails** (catch-imported returns 1 [cross-module-call unwind stack leak];
-  catch-imported-alias traps [aliased-import identity, JIT index vs interp TagInstance]; imported-mismatch
-  returns 1). func[36] return_call_indirect-in-try = separate TC+EH gap (D-210 family). The handler dispatch
-  is wired; remaining = cross-module imported-tag identity + unwind-through-call stack reconciliation.
+- **Bundle-ID**: `10.E-eh-on-jit` (opened `3b668110`).  **Cycles-remaining**: ~2-3.
+- **Continuity-memo**: try_table.1.wasm COMPILES + RUNS, 31/34. ✅ func[6] validate (tag index space —
+  `3b668110`) → ✅ func[24] catchless try_table (`590093f5`, +29) → ✅ try_table-result-arity drop (`881b25e0`,
+  +2) → ❌ **3 imported-tag fails, diagnosed into Cause A (aliased-import identity, tractable, NEXT) + Cause B
+  (cross-INSTANCE throw via bridge thunk, deeper)** — full fix plan + loci in Active task above. Root: JIT
+  matches tags by local index; no `JitRuntime.tags` identity table. func[36] return_call_indirect-in-try =
+  separate TC+EH gap (D-210 family).
 - **Exit-condition**: JIT EH dir return-fail = 0 (currently pass=31 fail=3 skip=0 → target 34/0/0).
 
 ## §10 remaining — the six `[ ]` rows
@@ -75,12 +78,11 @@ Other non-gated tracks (after EH): **D-234** (memory64 assert_trap harness artif
 
 ## Step 0.7 (next resume)
 
-THIS turn = the try_table-arity fix (`881b25e0`). Empirically: EH dir pass 29→31 fail 5→3, global 791→793
-pass fail 6→4, NO other-dir regression (memory64 336/1, tail-call 31/0, gc 387/0, function-references 8/0,
-multi-memory 0/0 unchanged); gate green; +1 run unit test. ubuntu kick fired for `881b25e0` (verifies x86_64
-build of the shared try_table.zig arity change). Next resume Step 0.7: `tail -3 /tmp/ubuntu.log` — expect
-`OK (HEAD=881b25e0)`; on FAIL investigate the x86_64 try_table label-arity (the inline unpack mirrors arm64).
-PRIOR cycle `590093f5`/`d69a720b` already verified OK. Mac aarch64; ubuntu = x86_64.
+LAST code turn = try_table-arity fix (`881b25e0`) — ubuntu **verified OK (HEAD=e0a502aa**, which includes
+`881b25e0`; the whole EH chain 3b668110→e0a502aa is 2-host green). The most-recent re-invocation was a
+READ-ONLY diagnosis of the 3 imported-tag fails (subagent; Cause A/B split above) — NO code commit, NO new
+ubuntu kick. So next resume Step 0.7 has nothing new to verify (e0a502aa already OK); go straight to Cause A
+implementation. Mac aarch64; ubuntu = x86_64.
 
 **Gate hygiene**: Step-5 Mac gate = `bash scripts/mac_gate.sh`. JIT corpus: `zig build test-spec-wasm-3.0-assert`
 (NO bogus `-Dno-run`), freshest exe via `/usr/bin/find .zig-cache/o -name zwasm-spec-wasm-3-0-assert` (shell
