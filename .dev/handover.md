@@ -40,27 +40,19 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 ## Active bundle
 
-- **Bundle-ID**: `10.G-§1-jit-corpus-mode`
+- **Bundle-ID**: `10.G-§1-cross-module-jit-imports` (D-225; the §1 backbone is long-operational at
+  pass=564 — this sub-bundle is the current multi-cycle integration).
 - **Cycles-remaining**: ~3
-- **Continuity-memo**: ADR-0128 §1 — add a JIT EXECUTION path to the wasm-3.0 spec runner
-  (`test/spec/spec_assert_runner_wasm_3_0.zig`): compile every fn → instantiate → invoke the
-  exported fn via the JIT entry (NOT interp `instance.invoke`→`_dispatch.run`) → compare
-  assert_return / assert_trap (wasmtime `tests/wast.rs` pattern). **Incremental** (the whole
-  point of the should_fail list): start with the subset `runI32Export`/`callI32NoArgs` already
-  supports — **no-arg i32-result exports GREEN**; track args / i64 / f32/f64 / v128 /
-  multi-value / host-imports / typed-trap as a per-backend SKIP list (enumerated, NOT silently
-  dropped). The general arg/result **dispatcher is a SEPARATE downstream chunk** — do NOT block
-  the backbone on it. **Calling-convention 裏取り = RESOLVED** (2026-05-31, `entry.zig`
-  read): JIT'd Wasm fns are invoked via the **C ABI** (`callconv(.c)`) — X0/RDI = `*JitRuntime`,
-  then Wasm params in declaration order across GPR/FP banks per AAPCS64/SysV (int→X1../RSI..,
-  FP→V0../XMM0..), NOT the operand stack. PROOF = the existing tested monomorphized helpers,
-  esp. the mixed `callVoid_i64f32f64i32i32` family (`entry.zig:369-409`, exercises both arg
-  banks) + the `entry.zig:367` comment. The dispatcher just builds the matching `callconv(.c)`
-  fn-ptr per signature. Mode toggle: env `ZWASM_SPEC_ENGINE=jit` (simplest) — `build.zig:15`
-  documents `-Dengine interp/jit/both` but it is NOT yet implemented.
-- **Exit-condition**: ≥1 `assert_return` executes THROUGH the JIT + compares. ✓ **MET** long ago.
-  Infra COMPLETE; backbone operational (pass=484). Bundle stays open as the diagnostic-driven
-  gap-fixing vehicle (`JITmodrej` tally → fix biggest tractable lever).
+- **Continuity-memo**: wire cross-module imports into the §1 JIT path (full survey + file:line +
+  3-change plan in `private/notes/d225-cross-module-jit-survey.md`). Verdict = MEDIUM integration:
+  the JIT runner uses standalone `JitInstance.init(bytes)` (`spec_assert_runner_wasm_3_0.zig:515`),
+  no linker; cross-module imported funcs/globals trap (`hostDispatchTrap`) / read null. PLAN: (1)
+  runner keeps registered JIT exporter instances alive; (2) `JitInstance.init`/`setupRuntime` accept
+  exporter context → populate `dispatch[N]` (func: exporter JIT entry ptr; C-ABI symmetric, no stack
+  marshal) + `globals_buf[N]` (imported global value); (3) i31.3/4 ALSO need table-init-expr eval
+  (`(table … (ref.i31 (global.get $g)))`) reading the resolved imported global. Step 1 next cycle:
+  add the import-context param to `JitInstance.init` + thread registered values from the runner.
+- **Exit-condition**: a cross-module fail flips green — ref_func `call-f` OR gc/i31.3 `get`→42.
 - **NEXT chunk** = **D-225 cross-module JIT CALL/import** (the ref.func-global piece landed `181f2f2b`,
   +1; the remaining cross-module piece is the architectural lever). The §1 JIT path is per-module
   standalone (`JitInstance.init(bytes)`) and does NOT link against the runner's `cur_linker`/
@@ -89,10 +81,10 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 ## Step 0.7 (next resume)
 
-Prior turn (`34970089`, D-225 triage) ubuntu = n/a (docs only). THIS turn landed D-225-partial
-(`181f2f2b`: func_entities before the global loop → ref.func globals resolve; +1) → ubuntu `test-all`
-kicked at end → `tail -3 /tmp/ubuntu.log` next resume (Step 0.7). On FAIL revert to `34970089`.
-Mac aarch64; ubuntu = x86_64.
+Prior turn (`2f6b12f8`, D-225 ref.func-global) ubuntu `test-all` = GREEN (verified HEAD=2f6b12f8;
+x86_64 OK). THIS turn = SURVEY (scoped the D-225 cross-module bundle → `private/notes/d225-cross-
+module-jit-survey.md`; set up the Active bundle. debt+handover only → code == green `2f6b12f8`).
+SKIP Step 0.7 ubuntu next resume (no code delta). Mac aarch64; ubuntu = x86_64.
 
 **Gate hygiene (NEW, `2134116b`)**: use `bash scripts/mac_gate.sh` for the Step-5 Mac gate —
 never `zig build test-all > log; grep -c … log` (trailing `grep -c` exits 1 on zero matches →
