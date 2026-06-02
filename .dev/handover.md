@@ -45,25 +45,26 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 - **Bundle-ID**: `10.G-§1-skip-reduction` (prior gc/array bundle CLOSED at `fa596f08`, exit met: array.8
   green, pass=577; JIT-executed fails now 2, both gated/deep).
-- **Cycles-remaining**: ~1 — THIS cycle's exit-condition MET (+28); eligible single-result gap-ops now SPENT.
-- **GAP-OP MAP (via `liveness: UnsupportedOp[stackEffect-missing] op=…` stderr diag — re-run corpus +
-  `grep -iE "liveness|unsupported op"`)**: **DONE** — `struct.get_s/u` (`568ac652`), `array.init_data`
-  + `array.init_elem` (`a11b1699`, +28 this cycle, recipe = jitGcArrayFill 6-arg-CALL template). The
-  cleanly-ELIGIBLE single-result gap-ops are now exhausted. **NEXT = pick ONE of two larger levers** (both
-  flagged high-risk; neither is an established-pattern emit chunk → fresh-context turn, likely ADR):
-  (a) `any.convert_extern ×5` — RTT-ENTANGLED: emit is trivial (identity) BUT gates ref_test/ref_cast/
-  br_on_cast which then mis-execute on extern/any RTT; MUST bundle WITH a ref.test/ref.cast-on-extern-RTT
-  fix and verify asserts PASS (prior solo attempt: +50 pass / +39 FAIL → reverted; lesson: unblock ≠ pass).
-  (b) MAJOR multi-value/`buffer_write` ABI (D-094/D-164; compileWasm hardcodes register_write,
-  compile.zig:1058) — flips struct.10 ~20 get_packed + ~19 results=2 skips, HIGH blast radius, ADR-grade;
-  FuncRet_* register structs exist in entry.zig as a Mac/ubuntu-only fallback.
+- **Cycles-remaining**: ~2 — array.init DONE (`a11b1699`, +28); convert+RTT now the active multi-cycle sub-target.
+- **Eligible single-result gap-ops SPENT**: `struct.get_s/u` (`568ac652`), `array.init_data/elem` (`a11b1699`).
+- **ACTIVE sub-target = convert+RTT** (lever a): THIS cycle implemented `any.convert_extern`/`extern.convert_any`
+  emit (transparent `0→0` liveness + no-op switch arms both arches — the CORRECT model; null round-trip test
+  green) + MEASURED the JIT corpus: assert_return **605→685 (+80 pass) but fail 2→61 (+59)**, all +60 fails in
+  gc. CONFIRMED the handover prediction: convert unblocks ~5 modrej gc modules but their ref.test/cast/br_on_cast
+  then execute WRONG on extern/any-origin refs. **Transparent modelling is necessary but NOT sufficient** (the
+  "+39 was just liveness desync" hypothesis is DISPROVEN). REVERTED (net +59 regression must not land); the
+  correct convert emit is saved at `private/spikes/convert-extern-rtt/` (`convert-emit.diff` + README w/ H1-H4
+  hypotheses). **NEXT-CYCLE ORDER**: (1) FIX the JIT fail-detail diagnostic gap FIRST — `--fail-detail` printed
+  0 JITval/JITfail for the 60 gc fails despite L298/L881 prints + L1248 flush (can't diagnose blind); (2)
+  re-apply the diff, classify H1-H4 (likely H1/H3: extern host-value reaches jitGcRefTest as an in-bounds index
+  → readObjKindHeap reads garbage instead of null); (3) land convert+RTT together, verify net fail unchanged.
+- **PIVOT option** = lever (b) MAJOR multi-value/`buffer_write` ABI (D-094/D-164; compile.zig:1058 hardcodes
+  register_write; ~39 skips; ADR-grade, HIGH blast radius) — if convert+RTT proves too deep.
 - **Continuity-memo**: §1 JIT-EXECUTED assert_return fails = 2 (type-subtyping user-gated ADR-0127 PHASE C;
-  try_table EH-on-JIT). Remaining §10 exit bulk = **skip=688**. The 2 pre-existing array_init trap_fails
-  (verified present in baseline) share the assert_trap follow-on surface (invokeInstanceTrap, runner L988) —
-  not root-caused; low ROI vs the (a)/(b) levers above.
-- **Exit-condition**: ≥1 UnsupportedOp module flips modrej→compiles AND its asserts PASS (net fail
-  unchanged) — **MET this cycle** (array_init_data/elem, +28 assert_return, fail flat). Bundle CLOSE-eligible;
-  remaining (a)/(b) levers warrant a fresh bundle each (RTT-entangled / ADR-grade).
+  try_table EH-on-JIT). Remaining §10 exit bulk = **skip=688** (baseline, post-revert). 2 pre-existing
+  array_init trap_fails (baseline-verified) = separate assert_trap follow-on, low ROI.
+- **Exit-condition**: convert+RTT lands ≥1 gc module flipping modrej→compiles AND its ref.test/cast asserts
+  PASS (net assert_return fail unchanged at 2).
 
 ## §10 remaining — the six `[ ]` rows
 
@@ -78,10 +79,10 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 ## Step 0.7 (next resume)
 
-THIS turn = array.init_data/elem JIT emit (`a11b1699`); ubuntu kick fired against it (x86_64 emit + R15
-whitelist exercised). Next resume Step 0.7: `tail -3 /tmp/ubuntu.log` — expect `OK (HEAD=a11b1699)`. On FAIL
-revert the commit. Then pick lever (a) any.convert_extern+RTT bundle OR (b) multi-value ABI (see Active
-bundle). Mac aarch64; ubuntu = x86_64.
+THIS turn = convert+RTT INVESTIGATION (no src commit; convert emit measured +80/+59 → reverted to spike;
+docs-only commit). HEAD code-equivalent to `95f618e3` which is ubuntu-GREEN (`OK (HEAD=95f618e3)` verified
+this turn's Step 0.7). No ubuntu kick (no code change). Next resume: go straight to Active-bundle convert+RTT
+NEXT-CYCLE ORDER (fix fail-detail → re-apply diff → classify H1-H4). Mac aarch64; ubuntu = x86_64.
 
 **Gate hygiene (NEW, `2134116b`)**: use `bash scripts/mac_gate.sh` for the Step-5 Mac gate —
 never `zig build test-all > log; grep -c … log` (trailing `grep -c` exits 1 on zero matches →
