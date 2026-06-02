@@ -50,16 +50,22 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
   `grep -iE "liveness|unsupported op"`)**: remaining modrej gap ops = `any.convert_extern ×5` (gates
   ref_test/ref_cast/br_on_cast/extern — RTT-ENTANGLED, defer; bundle WITH ref.test/ref.cast-on-extern-RTT,
   verify 32+7 pass), `array.init_elem ×1` (array_init_elem.3), `array.init_data ×1` (array_init_data.2).
-  **`struct.get_s/u` DONE** (`568ac652`, struct.10 compiles). **NEXT** — TWO options, pick by checking
-  assert-eligibility FIRST (emit-alone gives 0 corpus delta if asserts are multi-value-skipped, as struct.10
-  showed): (A) **array.init_data/elem emit** — IN-PLACE array init from a passive segment; needs trampolines
-  (cf. jitGcArrayNewData/Elem which ALLOC — these write into an existing array: pop array ref + offsets,
-  copy seg→array, no push). Foundational but may compile-but-skip. (B) **multi-value / buffer_write ABI**
-  (MAJOR, D-094/D-164): the highest-leverage unlock — flips struct.10's ~20 get_packed + ~19 other
-  results=2 skips → pass. compileWasm hardcodes `.register_write` (compile.zig:1058); entry_buffer_write.zig
-  has the invoke API (`invokeMultiResultNoArgs`). Switch the spec-runner JitInstance compile to buffer_write
-  + rewrite invoke to the uniform results-buffer path + widen jitReturnEligible to results 2..4. Corpus is
-  the regression net (re-measure the 577 hold). RECOMMEND (B) — its payoff now dwarfs per-op emit.
+  **`struct.get_s/u` DONE** (`568ac652`, struct.10 compiles). **NEXT = array.init_data/elem emit (CORPUS-
+  MOVING — verified this cycle)**: unlike struct.get_s (whose get_packed asserts are multi-value-skipped),
+  array_init_data.2 + array_init_elem.3 asserts are SINGLE-result (void `-> ()` + `array_get_nth i32:N
+  -> i32:M`, ≤3 args) = ELIGIBLE → emitting these 2 ops FLIPS ~15-20 asserts (each module has ~3
+  assert_return-void + ~6 assert_trap + several get_nth). These are IN-PLACE init from a passive data/elem
+  segment (pop array ref + dest + src + len = 4 operands, copy seg→array, bounds-trap, push nothing →
+  stack-effect 4→0). RECIPE (mirror `array.fill`=jitGcArrayFill, a proven multi-pop→6-arg-CALL emit
+  template): (1) NEW trampolines jitGcArrayInitData/Elem in jit_abi.zig — derive element-size from the
+  ref's ObjectHeader.typeidx (→ array_infos) so the sig fits 6 C-ABI args (rt, segidx, ref, dest, src, n),
+  bounds-check (ref null / dest+n>array.len / src+n>seg.len → return 0=trap), copy (data: LE-unpack per
+  elem like jitGcArrayNewData:651-659; elem: direct u64 like jitGcArrayNewElem); (2) emit (arm64+x86_64
+  array_init_data.zig + _elem.zig) — pop 4, marshal 6 args, CALL, map 0→trap (mirror array_fill.zig);
+  (3) stack-effect 4→0 (find/add the group in liveness_stack_effect — or special-case like struct.new);
+  (4) register + count tests. VERIFY: array_init_data.2/elem.3 assert_return + assert_trap flip green.
+  DEFER: multi-value/buffer_write ABI (MAJOR D-094/D-164 — flips struct.10 ~20 + ~19 results=2 skips, but
+  HIGH blast radius; FuncRet_* register structs exist in entry.zig as a Mac/ubuntu-only fallback).
 - **Continuity-memo**: §1 JIT-EXECUTED fails = 2 (type-subtyping user-gated ADR-0127 PHASE C; try_table
   EH-on-JIT). Remaining §10 exit bulk = **skip=716**. Prior course-corrections (both reverted, net-zero,
   corpus stays 577/2): multi-value needs the `buffer_write` ABI migration (compileWasm hardcodes
@@ -82,12 +88,11 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 ## Step 0.7 (next resume)
 
-Prior turn ubuntu GREEN (`OK (HEAD=09777262)` — pass=577 remote-verified). THIS turn landed struct.get_s/u
-JIT emit (`568ac652`: 4 codegen files + stack-effect + dispatch + count tests + x86_64 R15 whitelist + unit
-test; Mac gate test+lint OK; struct.10 compiles, corpus 577/2 unchanged) → ubuntu `test-all` kicked at end
-(verifies the x86_64 emit + R15 pinning) → `tail -3 /tmp/ubuntu.log` next resume (Step 0.7). On FAIL revert
-to `09777262`. Next resume: per the GAP-OP MAP, recommend the multi-value/buffer_write ABI lever (option B).
-Mac aarch64; ubuntu = x86_64.
+Prior commit struct.get_s/u (`568ac652`) is ubuntu-GREEN (verified this turn: `OK (HEAD=94aea24d)` —
+x86_64 emit + R15 pinning confirmed). THIS turn = survey only (no src change): confirmed array.init_data/
+elem asserts are eligible → that's the CORPUS-MOVING next lever (memo has the array.fill-templated recipe).
+No ubuntu kick (docs-only; HEAD stays 94aea24d). Next resume: implement array.init_data/elem emit per the
+GAP-OP MAP. Mac aarch64; ubuntu = x86_64.
 
 **Gate hygiene (NEW, `2134116b`)**: use `bash scripts/mac_gate.sh` for the Step-5 Mac gate —
 never `zig build test-all > log; grep -c … log` (trailing `grep -c` exits 1 on zero matches →
