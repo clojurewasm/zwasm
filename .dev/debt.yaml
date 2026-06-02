@@ -3,6 +3,38 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-239"
+    layer: "code"
+    status: "now"
+    description: |-
+      JIT compile-path REJECTS function-references modules (br_on_null / br_on_non_null /
+      ref_as_non_null) — a §10-exit in-phase must-fix (ADR-0133 §4; NOT deferrable). TWO
+      gaps (this turn's ground-truth, 2026-06-03; supersedes the handover's loose "D-198"
+      attribution — D-198 is the INTERP GC rec-group subtyping debt, a different thing):
+      (A) **VALIDATOR StackTypeMismatch** — ROOT CAUSE PINNED: the shared
+      `validate/validator.zig` types `ref.func N` as the PRECISE `(ref func_type_indices[N])`
+      ONLY when its `func_type_indices` map is non-empty (ADR-0123 D4, validator.zig:359/2416-2423);
+      empty → legacy abstract `funcref`. The INTERP path BUILDS this map (func-idx→typeidx,
+      imports-first) at `instantiate.zig:128-143` and passes it (`:386`) → `ref.func $f` :
+      `(ref $t)` → passes. The JIT `compile.zig` validate path does NOT build/pass it → `ref.func`
+      = abstract funcref → not a subtype of a `(ref $t)` param → StackTypeMismatch. Repro:
+      br_on_null.0 func[4] `nonnullable-f` = `(call $nn (ref.func $f))` (no br_on_null even) fails.
+      FIX: in `compile.zig`, build `func_type_indices` (mirror instantiate.zig:128-143:
+      imported funcs' typeidx ++ defined funcs' typeidx) and thread it into the function-validate
+      call (find the `validator`/`rv.validateFunction...` invocation; it currently passes `&.{}`/omits).
+      (B) **EMIT UnsupportedOp** — the arm64/x86_64 op handler FILES exist
+      (`codegen/{arm64,x86_64}/ops/wasm_3_0/{br_on_null,br_on_non_null,ref_as_non_null}.zig`) but are
+      NOT wired into the per-arch emit dispatch (`codegen/arm64/emit.zig` switch has no entry → br_on_null.1
+      hits `arm64/emit: failing op br_on_null`). FIX: add the 3 dispatch cases (verify the handler files
+      are REAL, not inert stubs, per lesson `2026-06-02-instruction-wasm3-stubs-are-inert-metadata-anchors`).
+      Note A is the primary blocker (4 of 5 fr-rejects + downstream); B only matters once A lets modules
+      reach emit. Sibling rejects likely sharing root A: ref_is_null ElemSegmentTypeMismatch +
+      ref_null InvalidGlobalInitExpr (const-expr ref typing) + the gc i31.6 — verify after A.
+      Distinguishing probe done: func_type_indices is the shared-validator knob; interp populates, JIT doesn't.
+    first_raised: "2026-06-03"
+    last_reviewed: "2026-06-03"
+    refs: |-
+      `src/validate/validator.zig:359` (func_type_indices field) / `:2416-2423` (ref.func precise typing) / `:597`; `src/runtime/instance/instantiate.zig:128-143` (interp builds the map) + `:386` (passes it); `src/engine/compile.zig` (JIT validate call — must build+pass); `src/engine/codegen/arm64/emit.zig` (dispatch switch — add 3 cases) + `codegen/arm64/ops/wasm_3_0/{br_on_null,br_on_non_null,ref_as_non_null}.zig`; ADR-0123 D4; ADR-0133 §4 (in-phase must-fix); test/spec/wasm-3.0-assert/function-references/raw/br_on_null.wast
   - id: "D-238"
     layer: "code"
     status: "now"

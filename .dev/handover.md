@@ -20,34 +20,37 @@
   + `eh_registry`) + D3 (`16a921a8`, global `tag_ids` u64 cross-module identity) + Cause A (`50e5ecd3`).
 - **10.E-eh-on-jit bundle = CLOSED** (`4f73d9ee`, exit 34/0/0 verified). x86_64 EH thunk-parity +
   `cross_module_throw_propagation.wat` fixture = **D-238** (ADR-0134 cycle 3; arch-parity, not Mac-§10-gating).
-- **§10-exit audit** (`f507bf33` + subagent, this turn): JIT 0 GENUINE codegen fails (memory64 fails = D-234
-  harness, 6th proof path: fresh JitInstance loads `0xfff8` correctly); skips all on the ADR-0133 allowlist; the
-  only open item = classify 8 module-rejects vs the deferred registry (see Active task). interp 100% MET.
+- **§10-exit audit + determination** (`f507bf33` + subagent; determination this turn, no new code): interp
+  100% MET; JIT 0 GENUINE fails MET (memory64 = D-234 harness, 6 proof paths); skips all on the ADR-0133
+  allowlist. **Determination (ADR-0133 §4): the 17 module-rejects are in-phase MUST-FIX, not deferrable.**
+  First cluster root-cause PINNED → **D-239** (JIT compile.zig doesn't pass the validator's `func_type_indices`
+  → `ref.func` abstract not precise → StackTypeMismatch; + emit-dispatch gap). NEXT = fix D-239.
 - **Prior**: ADR-0132/0133 (`5447cb10`, autonomous re-sequence + Phase-10 exit re-scope). interp wasm-3.0 corpus
   FULLY GREEN. Spec corpus = interp default; JIT opt-in `ZWASM_SPEC_ENGINE=jit`; entry = `runner.zig` `JitInstance`.
   **GATE TRAP**: corpus exe MUST be picked by mtime (`find … -exec ls -t {} + | head -1`); bare `head -1` = STALE.
 - **Watch**: `runner_test.zig` ~1415 / `compile.zig` 1223 / `runner_gc_test.zig` 1476 / `jit_abi.zig` 1350 (WARN, < hard 2000).
 
-## Active task — §10-exit close determination: **verify 8 modrej vs ADR-0133 deferred registry**  **NEXT**
+## Active task — §10-exit: **fix D-239 (JIT function-references validator + emit)**  **NEXT**
 
-§10 exit (ADR-0133) = interp 100% (MET) + JIT 0-real-fail + skip⊆deferred-allowlist. **Audit done this turn**
-(subagent + D-234 cycle-6 isolation test `f507bf33`):
-- **JIT 0 GENUINE codegen fails ✓** — the lone memory64 `i64.load 0xfff8` return-fail + the 51 assert_trap
-  fails are ALL D-234 persistent-`cur_jit` harness artifacts (codegen now proven correct via 6 isolated paths).
-- **Skips on-allowlist ✓** — multi-memory (445 → §14), GC-on-JIT (5 → §11), eligibility-gates (47 scalar-only)
-  are all explicitly on the ADR-0133 deferred-allowlist.
-- **OPEN (the determination)**: **8 module-compile rejects** are not auto-classified — `function-references`
-  br_on_null/br_on_non_null/ref_as_non_null (StackTypeMismatch ×5 = validate gap, D-198) + br_on_null
-  (UnsupportedOp = unemitted-op) + ref_is_null/i31.6 (ElemSegmentTypeMismatch) + ref_null (InvalidGlobalInitExpr)
-  + `tail-call` return_call_indirect (UnsupportedOp, D-210). **NEXT**: read ADR-0133's "Deferred-from-§10
-  registry" + close-invariant I24 + ROADMAP §10 exit/10.P — verify EACH of these 8 is ON the registered
-  deferred list (unemitted-op / validate-gap = explicitly allowed). If all registered → §10.P can CLOSE
-  (interp 100% + JIT-0-real-fail + skip⊆allowlist all MET). If any NOT registered → register it (autonomous
-  ADR-0132 re-scope) or fix it. Then run `scripts/p10_*_status.sh` / the close-invariant script.
+**Determination RESOLVED** (ADR-0133 §4, this turn): the 17 module-compile rejects are §10 **in-phase
+must-fix**, NOT deferrable. The deferred-allowlist is ONLY multi-memory→§14 + GC-on-JIT→§11 (both ✓). So
+§10 exit = interp 100% (MET) + JIT 0 genuine fails (MET — all memory64 fails are D-234 harness, 6 proof
+paths, `f507bf33`) + **clear the 17 rejects**. Concrete fix-list, start with the function-references cluster
+(**D-239**, root cause PINNED this turn):
+1. **D-239 (NEXT)** — JIT `compile.zig` validate doesn't build/pass the validator's `func_type_indices`
+   map → `ref.func N` types as abstract funcref (not precise `(ref func_type_indices[N])`, ADR-0123 D4) →
+   StackTypeMismatch (e.g. br_on_null.0 func[4] `(call $nn (ref.func $f))`). FIX (A): build the map in
+   `compile.zig` (mirror `instantiate.zig:128-143` imports-first func→typeidx) + thread into the
+   function-validate call. FIX (B): wire the 3 emit ops into `arm64/emit.zig` dispatch (handler files exist
+   at `ops/wasm_3_0/{br_on_null,br_on_non_null,ref_as_non_null}.zig` — verify real-not-stub). A is primary.
+   RED test: a minimal fr module (`ref.func $f` → `(ref $t)` param) via `JitInstance.init` compiles (no
+   StackTypeMismatch). Verify corpus: function-references modrej drops. (NOT D-198 — that's interp GC subtyping.)
+2. Then the remaining rejects: tail-call return_call_indirect UnsupportedOp (D-210), ref_is_null
+   ElemSegmentTypeMismatch + ref_null InvalidGlobalInitExpr + gc i31.6 (likely share D-239 root A — verify),
+   UnsupportedEntrySignature ×7 (invoke-path). + **D-234** runner-side harness discharge (so the corpus
+   stops false-reporting the 52 mem64 fails — required for the "0-real-fail" count to read clean).
 
-Other tracks (post-close or parallel): **D-234** runner-side harness discharge (so the corpus stops
-false-reporting the 52 mem64 fails), **D-238** (x86_64 EH parity), **D-198/D-209/D-210** (the modrej op gaps if
-they must be cleared not just registered), realworld GC/EH/TC producers.
+Other tracks: **D-238** (x86_64 EH parity), realworld GC/EH/TC producers.
 
 **§10-scope: RESOLVED** (ADR-0133) — autonomous. Future cross-phase mismatches: re-sequence per ADR-0132 (no stop).
 
