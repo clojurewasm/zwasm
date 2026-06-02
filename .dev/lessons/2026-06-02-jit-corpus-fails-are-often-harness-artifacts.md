@@ -41,3 +41,14 @@ corpus is fully green and the JIT is in much better shape than the raw
 4. The "5 isolated paths all pass" pattern is decisive evidence: stop adding paths
    and conclude harness-artifact; the marginal probe has near-zero yield once the
    shared codegen is exercised through the production constructor.
+
+**CORRECTION (same day, D-235):** the rule cuts BOTH ways — don't over-generalize
+"harness artifact" either. The 4 gc/type-subtyping assert_trap fails were initially
+lumped in as harness, but they are REAL: the JIT `call_indirect` "canonical" is D-111
+`canonicalTypeidx` (`funcTypeEql`, params/results only — FINALITY-BLIND), so
+`(sub (func))` and `(sub final (func))` collapse to one canonical → CMP matches →
+wrongly accepts a should-trap call. The error was assuming "canonical-exact compare"
+preserves type identity without READING `canonicalTypeidx`. **Rule 5: when reasoning
+about a "canonical"/"exact"/"equal" check, read the actual canonicalization/equality
+function and confirm it preserves the distinction you care about (finality, subtyping,
+identity) — a "canonical" id is only as fine-grained as its equality relation.**
