@@ -8,13 +8,17 @@
 - **Phase**: **10 IN-PROGRESS — committed to 100% (ADR-0128)** (Phase 9 = DONE
   2026-05-24). §10 exit requires the official Wasm 3.0 testsuite at pass=fail=skip=0
   on **both backends** (interp + JIT).
-- **HEAD** (`add983e8`): **ADR-0127 PHASE C DONE** — cross-module func-import type-def identity. Predicates
-  `canonicalEqualCross` (`6f1eeb4a`) + `superReachesCross` (`d5183d4e`); integration (`add983e8`) wires them
-  at linker resolve via retained exporter `Types` (Instance arena) + `ExportFuncType.typeidx` +
-  `CrossModuleFuncEntry` threading. **wasm-3.0 assert_unlinkable fail 4→0** (gc/type-subtyping.{36,42,52,54};
-  no regression — 407 multi-mem + 34 EH + .30/M super-chain stay green). Prior: multi-value JIT invoke +18.
-- **wasm-3.0 interp fail tally = 5**: assert_return fail=1 + assert_trap fail=4, all gc/type-subtyping
-  (RTT mechanism). `8d5d67ed` fixed a SEPARATE gc/type-subtyping bug — .12/.14 globals wrongly rejected
+- **HEAD** (`24a17ed7`): **gc/type-subtyping.17 "run" CLOSED** (`80aeee1d` + `24a17ed7` guard test) — two
+  coordinated interp fixes (the cyc180/D-198 rabbit hole): #1 call_indirect/return_call_indirect accept a
+  callee whose declared type is a SUBTYPE of the call type (Wasm §3.3.5.5, gti-gated concreteReaches); #2
+  function-level `br` (depth==label_len) returns via returnFromFunction (Wasm §4.4.8 implicit outermost
+  block) instead of trapping. **interp assert_return now fully green (1233/0)**; no regression (gate green).
+- **⚠ USER-DIRECTED STOP this turn** (no re-arm). User asked: prep the §10-scope question for a fresh deep
+  session → see **`.dev/phase10_scope_reassessment.md`** (the wiring/reference-chain + 4 decision points).
+- **PRIOR**: ADR-0127 PHASE C DONE (cross-module type-def identity; assert_unlinkable 4→0; predicates
+  `canonicalEqualCross` `6f1eeb4a` + `superReachesCross` `d5183d4e` + integration `add983e8`). multi-value +18.
+- **wasm-3.0 interp fails now = 4** (was 5): all gc/type-subtyping **assert_trap** (NOT .17 — other modules;
+  possibly the runner's "assert_trap class discrimination" limitation). `8d5d67ed` fixed a SEPARATE bug — .12/.14 globals wrongly rejected
   (concrete-ref subtype reached supers by index, missed cross-rec-group canonical equality; now
   `gcConcreteReachesCanonical`). The 5 asserts are unmoved — they're RUNTIME (see bundle NEXT). JIT 762/2/531.
 - **Recent fixes (detail in debt.yaml)**: **D-228** (`7bb3699a`) test-all now runs the wasm_3_0 unit tests
@@ -48,32 +52,20 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 - **Bundle-ID**: `10.G-typesubtyping-RTT` (prior `10.G-typesubtyping-PHASE-C` CLOSED — exit met: assert_unlinkable
   fail 4→0, no regression. ADR-0127 PHASE C: predicates `canonicalEqualCross`+`superReachesCross` + linker
   integration `add983e8`. Earlier this bundle-chain: §1 multi-value +18).
-- **Cycles-remaining**: ~1. Cycles 1-3 done — the 5 fails are ONE fixture (`.17` = .wast:229, self-recursive
-  rec-group chain $t0/$t1/$t2). **cyc180 rabbit hole (D-198)**: ≥2 coordinated runtime fixes, non-observable
-  until "run" passes (spike §2). Fix #1 = call_indirect `sigEq`→subtype (recipe: `sigEq OR (callee_rt==rt and
-  ref_test_ops.concreteReaches(rt, fe.raw_typeidx, declared))`, make concreteReaches pub). cyc2 re-probed
-  fix #1 → still return_fail=1 (root cause #2 persists). This bundle's win = .12/.14 global-init fix (`8d5d67ed`).
-- **cyc3 IDENTIFIED root cause #2** (cyc180 couldn't): instrumented `unreachableOp` (fix #1 applied locally)
-  → it fires in a `()->()` func (2 hits, = "run"'s sig; `restoreToLabel` arity-trap did NOT fire). So "run"
-  executes an actual `unreachable` OP — but its source has none → it reaches the DEAD-CODE tail after the
-  final `(br 0)`. Hypothesis: function-level `br 0` (target = the function body label, arity 0, 12 operands
-  stacked) sets `frame.pc = target_pc` (doBranch, mvp.zig:313) which lands on a trailing `unreachable`
-  instead of returning. Probe + instrumentation REVERTED (non-observable).
-- **NEXT (cycle 4, fresh context — the fix)**: confirm via dumping "run"'s lowered ZIR (trailing op after
-  br 0) + read how the function-body label's `target_pc` is set at frame invoke (the `unreachable` may be a
-  lowering artifact for dead code, or br-0 should returnOp not jump-to-end). Fix so function-level `br 0`
-  returns. Then re-apply fix #1 → "run" passes + the fail* asserts → interp gc/type-subtyping fails 5→0
-  (interp corpus fails=0 milestone). If the control-flow fix is deep → debt-row .17 + pivot.
-- **STRATEGIC (§10 100% reality)**: the remaining §10 fails are ALL deep/deferred — `.17` RTT (here) +
-  eh/try_table (EH-on-JIT) + JIT multi-memory **407 skips (Phase-14 deferred)**. Per ADR-0128 §10 exit =
-  pass=fail=skip=0 BOTH backends, so JIT skip=0 is UNREACHABLE in Phase 10 (needs Phase-14 multi-memory JIT).
-  → §10 "100%" as written is gated on a Phase-14 deferral; flag for meta_audit / ADR-0128 amendment (interp-
-  100% + JIT-modulo-deferred may be the honest in-phase target). Not my unilateral ADR — surface to user.
-- **Continuity-memo**: interp fails 5 (all .17). JIT 762/2/531. PHASE C follow-ups (debt-worthy, non-blocking):
-  api/instance.zig:572 + instantiate.zig:1657 `.cross_module` still structural-only; wasm-3.0 runner reports-
-  not-gates on fails.
-- **Exit-condition**: identify root cause #2 (concrete site named) → land .17 (run passes + fail* trap), OR
-  debt-row .17 as a deferred exotic-fixture blocker. Either CLOSES this bundle.
+- **Cycles-remaining**: ~1. DONE this bundle: .12/.14 global-init canonical-subtype (`8d5d67ed`) +
+  **.17 "run" CLOSED** (`80aeee1d` call_indirect-subtype + function-level-br, `24a17ed7` guard test) — the
+  cyc180/D-198 rabbit hole (2 coordinated interp fixes: root cause #2 was function-level `br 0` trapping
+  instead of returning). interp assert_return fully green (1233/0).
+- **REMAINING**: (a) **4 interp assert_trap fails** — other gc/type-subtyping modules (NOT .17); likely the
+  runner's "assert_trap class discrimination" limitation (verify which modules + runner-side vs interp).
+  (b) **§10-scope question** → prepped in **`.dev/phase10_scope_reassessment.md`** (USER asked for a fresh
+  deep session; reference chain + 4 decision points there). (c) JIT eh/try_table (EH-on-JIT, deep) + re-check
+  JIT gc/type-subtyping (the .17 fix is interp-only; the JIT path may still need the same subtype/br fixes).
+- **Continuity-memo**: interp fails 4 (gc/type-subtyping assert_trap). JIT 762/2/531. PHASE C follow-ups
+  (debt-worthy, non-blocking): api/instance.zig:572 + instantiate.zig:1657 `.cross_module` still structural-
+  only; wasm-3.0 runner reports-not-gates on fails.
+- **Exit-condition**: resolve the §10-scope question (ADR-0128 amend or hold) + drive the 4 trap_fails to a
+  measured floor. Then bundle CLOSES.
 
 ## §10 remaining — the six `[ ]` rows
 
@@ -88,12 +80,13 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 ## Step 0.7 (next resume)
 
-THIS turn = RTT cycle 3: instrumented probe IDENTIFIED .17 root cause #2 — `unreachableOp` fires in "run"
-(()->()  func) → it reaches a DEAD-CODE `unreachable` after the final `(br 0)` (function-level br not
-returning). Probe + instrumentation reverted (non-observable). No code commit. HEAD stays `5faad2b9`
-(ubuntu-OK). Next resume Step 0.7: `tail -3 /tmp/ubuntu.log` should still read `OK (HEAD=5faad2b9)`. Then
-cycle 4 per Active-bundle NEXT: confirm + fix the function-level `br 0` control-flow, then fix #1 → .17 closes.
-NOTE the §10-100%-gated-on-Phase-14 finding (surface to user). Mac aarch64; ubuntu = x86_64.
+THIS turn = RTT cycle 4: FIXED .17 "run" (call_indirect-subtype + function-level-br, `80aeee1d` + guard test
+`24a17ed7`) — interp assert_return fully green; fixed a gate regression (concreteReaches must be gti-gated,
+no raw sub==target shortcut). Then per USER directive, prepped the §10-scope question for a fresh deep
+session: **`.dev/phase10_scope_reassessment.md`**. **USER-DIRECTED STOP — loop NOT re-armed this turn.**
+ubuntu kick fired for the interp-core .17 fix (cross-host verify). Next resume Step 0.7: `tail -3
+/tmp/ubuntu.log` — expect `OK (HEAD=<final-SHA>)`; on FAIL revert to add983e8 (the last verified pre-RTT-code
+HEAD). The next session is the §10-scope deep dive (read phase10_scope_reassessment.md first). Mac aarch64; ubuntu = x86_64.
 
 **Gate hygiene (NEW, `2134116b`)**: use `bash scripts/mac_gate.sh` for the Step-5 Mac gate —
 never `zig build test-all > log; grep -c … log` (trailing `grep -c` exits 1 on zero matches →
