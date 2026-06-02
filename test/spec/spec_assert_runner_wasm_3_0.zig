@@ -55,6 +55,56 @@ fn spectestPrintF64F64(_: *zwasm.Caller, _: f64, _: f64) void {
     // no-op (trace print semantics)
 }
 
+// D-225 — read an exported global's value (as a u64 carrier) from a
+// registered exporter instance's live global storage. `mod_name` is the
+// register-`<as>` name (or `$id`); both alias into `name_to_idx`.
+fn resolveExportedGlobal(
+    instances_list: *const std.ArrayList(zwasm.Instance),
+    name_to_idx: *const std.StringHashMap(usize),
+    mod_name: []const u8,
+    field: []const u8,
+) ?u64 {
+    const idx = name_to_idx.get(mod_name) orelse return null;
+    if (idx >= instances_list.items.len) return null;
+    const rt = instances_list.items[idx].handle.runtime orelse return null;
+    for (instances_list.items[idx].handle.exports_storage) |exp| {
+        if (exp.kind == .global and std.mem.eql(u8, exp.name, field)) {
+            if (exp.idx >= rt.globals.len) return null;
+            return rt.globals[exp.idx].bits64;
+        }
+    }
+    return null;
+}
+
+// D-225 — resolve a JIT module's imported-global VALUES in global-import
+// order, so the §1 JIT setup-time const-exprs (`global.get N`,
+// N < num_global_imports) read the real value — e.g. gc/i31.3/4's
+// `(ref.i31 (global.get $env.g))` resolves env.g=42 instead of a null slot.
+// Returns a gpa-owned []u64 (empty if the module has no global imports).
+fn jitResolveImportedGlobals(
+    gpa: std.mem.Allocator,
+    wasm_bytes: []const u8,
+    instances_list: *const std.ArrayList(zwasm.Instance),
+    name_to_idx: *const std.StringHashMap(usize),
+) ![]u64 {
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var module = zwasm.parse.parser.parse(a, wasm_bytes) catch return &.{};
+    const imp_sec = module.find(.import) orelse return &.{};
+    var imports = zwasm.parse.sections.decodeImports(a, imp_sec.body) catch return &.{};
+    defer imports.deinit();
+
+    var vals: std.ArrayList(u64) = .empty;
+    errdefer vals.deinit(gpa);
+    for (imports.items) |it| {
+        if (it.kind != .global) continue;
+        const v = resolveExportedGlobal(instances_list, name_to_idx, it.module, it.name) orelse 0;
+        try vals.append(gpa, v);
+    }
+    return vals.toOwnedSlice(gpa);
+}
+
 pub const std_options: std.Options = .{
     .enable_segfault_handler = false,
 };
@@ -509,10 +559,17 @@ pub fn main(init: std.process.Init) !void {
                         // reject (multi-memory, unemitted op, …) leaves cur_jit
                         // null → asserts against it become enumerated skips.
                         if (jit_mode) {
+                            // D-225 — resolve this module's imported-global
+                            // VALUES (global-import order) from registered
+                            // exporter instances, so setup-time const-exprs
+                            // (gc/i31.3/4 `(ref.i31 (global.get $env.g))`)
+                            // read the real value, not a null import slot.
+                            const gvals = jitResolveImportedGlobals(gpa, cur_module_bytes.?, &instances_list, &name_to_idx) catch &.{};
+                            defer if (gvals.len > 0) gpa.free(gvals);
                             // Capture the module-reject cause (else this skip
                             // class is SILENT — see lesson
                             // 2026-06-02-spec-jit-skips-weight-by-root-cause).
-                            cur_jit = zwasm.engine.runner.JitInstance.init(gpa, cur_module_bytes.?) catch |e| inner: {
+                            cur_jit = zwasm.engine.runner.JitInstance.initLinked(gpa, cur_module_bytes.?, gvals) catch |e| inner: {
                                 if (fail_detail) try stdout.print("  JITmodrej [{s}/{s}] err={s}\n", .{ proposal, d.module_path, @errorName(e) });
                                 break :inner null;
                             };
