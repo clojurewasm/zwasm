@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 # scripts/check_subrow_exit.sh — Chunk-close literal exit gate.
 #
+# DORMANT (2026-06-02): this only fires on a §9.12-X `[x]` flip in HEAD's diff;
+# Phase 9 is DONE so it no longer triggers. It is NOT the live build-option DCE
+# guard — check_9_12_B's one-shot `check_build_dce.sh --gate` ran only at §9.12-B
+# close (when no 3.0 op was yet manually-dispatched in arm64/emit.zig). The
+# Phase-10 EH/TC/funcref work added unguarded 3.0 prongs later with no re-run →
+# the leak (ADR-0130 / D-230). CONTINUOUS DCE enforcement now lives in
+# `gate_merge.sh` (every `main` push). Lesson: 2026-06-02-detection-without-enforcement-dead-gate.
+#
 # When HEAD's diff contains a `[x]` flip for a ROADMAP §9.12-X sub-row,
 # run the registered exit check for that sub-row and FAIL if any literal
 # criterion is unmet.

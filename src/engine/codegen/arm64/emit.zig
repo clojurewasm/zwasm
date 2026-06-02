@@ -61,6 +61,17 @@ const computeLocalLayout = setup.computeLocalLayout;
 const LocalLayout = setup.LocalLayout;
 const jit_abi = @import("../shared/jit_abi.zig");
 const exception_table = @import("../shared/exception_table.zig");
+const build_options = @import("build_options");
+
+/// EH / tail-call / func-references ops (Wasm 3.0) are dispatched manually here
+/// (not via dispatch_collector, which is build-level-DCE'd) because arm64 EmitCtx
+/// lacks the `dead_code: *bool` ctx field. Gating each manual arm behind this
+/// comptime const keeps the 3.0 `*.emit` symbols out of `-Dwasm=v1_0|v2_0`
+/// binaries (ADR-0073 "absent from binary"; ADR-0130 / D-230 leak fix). The arms
+/// are unreachable in sub-3.0 builds anyway (feature_level_check forbids lowering).
+const wasm_v3_plus = @intFromEnum(build_options.wasm_level) >=
+    @intFromEnum(@TypeOf(build_options.wasm_level).v3_0);
+
 const op_throw = @import("ops/wasm_3_0/throw.zig");
 const op_throw_ref = @import("ops/wasm_3_0/throw_ref.zig");
 const op_return_call = @import("ops/wasm_3_0/return_call.zig");
@@ -1176,27 +1187,41 @@ pub fn compile(
             // (mirror of unreachable). Full dispatcher CALL +
             // handler dispatch lands at IT-6.
             .throw => {
-                try op_throw.emit(&ctx, &ins);
-                dead_code = true;
+                if (comptime wasm_v3_plus) {
+                    try op_throw.emit(&ctx, &ins);
+                    dead_code = true;
+                } else return Error.UnsupportedOp;
             },
             .throw_ref => {
-                try op_throw_ref.emit(&ctx, &ins);
-                dead_code = true;
+                if (comptime wasm_v3_plus) {
+                    try op_throw_ref.emit(&ctx, &ins);
+                    dead_code = true;
+                } else return Error.UnsupportedOp;
             },
             .call_indirect => try op_call.emitCallIndirect(&ctx, &ins),
             .call => try op_call.emitCall(&ctx, &ins),
-            .call_ref => try op_call.emitCallRef(&ctx, &ins),
+            .call_ref => {
+                if (comptime wasm_v3_plus) {
+                    try op_call.emitCallRef(&ctx, &ins);
+                } else return Error.UnsupportedOp;
+            },
             .return_call => {
-                try op_return_call.emit(&ctx, &ins);
-                dead_code = true;
+                if (comptime wasm_v3_plus) {
+                    try op_return_call.emit(&ctx, &ins);
+                    dead_code = true;
+                } else return Error.UnsupportedOp;
             },
             .return_call_indirect => {
-                try op_return_call_indirect.emit(&ctx, &ins);
-                dead_code = true;
+                if (comptime wasm_v3_plus) {
+                    try op_return_call_indirect.emit(&ctx, &ins);
+                    dead_code = true;
+                } else return Error.UnsupportedOp;
             },
             .return_call_ref => {
-                try op_return_call_ref.emit(&ctx, &ins);
-                dead_code = true;
+                if (comptime wasm_v3_plus) {
+                    try op_return_call_ref.emit(&ctx, &ins);
+                    dead_code = true;
+                } else return Error.UnsupportedOp;
             },
             .@"memory.size" => {
                 // Wasm memory.size returns current size in 64-KiB pages.

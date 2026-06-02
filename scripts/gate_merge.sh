@@ -40,6 +40,15 @@ bash scripts/gate_commit.sh
 echo "[gate_merge] zig build test-all on Mac native ..."
 zig build test-all
 
+# Build-option DCE / level-separation enforcement (ADR-0073 + ADR-0130 / D-230).
+# `--gate` builds the 6 `-Dwasm × -Dwasi` combos and `nm`-greps that no
+# higher-level feature symbol leaks into a lower-level binary; exits non-zero on
+# any leak. Home here (merge gate, `main`-push only) — 6 ReleaseSafe builds are
+# too slow for per-commit. Was historically wired only into the never-called
+# `check_subrow_exit.sh` (lesson 2026-06-02-detection-without-enforcement-dead-gate).
+echo "[gate_merge] build-option DCE / level-separation check (6 combos) ..."
+bash scripts/check_build_dce.sh --gate
+
 # ---- ubuntunote (native Linux x86_64) via SSH ----
 if ssh -o ConnectTimeout=5 -o BatchMode=yes ubuntunote "echo ok" >/dev/null 2>&1; then
     echo "[gate_merge] zig build test-all on ubuntunote (native x86_64) ..."
