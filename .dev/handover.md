@@ -8,10 +8,11 @@
 - **Phase**: **10 IN-PROGRESS — committed to 100% (ADR-0128)** (Phase 9 = DONE
   2026-05-24). §10 exit requires the official Wasm 3.0 testsuite at pass=fail=skip=0
   on **both backends** (interp + JIT).
-- **HEAD** (`a5f6b238`): §1 spec-corpus JIT mode. Multi-value JIT invoke DONE (+18 total): `invokeMulti`
-  (`fad904c6`+`33b479e7`, +16) reuses ADR-0106's buffer-write ABI via `module.entry_buf` (NO fresh ADR/
-  compileWasm change); arm64 1-param 2-result wrapper thunk (`f1858416`, +2). **762/2/531**. **JIT-EXECUTED
-  fails = 2, UNCHANGED** (gc/type-subtyping = ADR-0127 PHASE C; eh/try_table = EH-on-JIT). Interp UNCHANGED.
+- **HEAD** (`6f1eeb4a`): on **ADR-0127 PHASE C** (cross-module func-import type-identity; closes the 4
+  `gc/type-subtyping.{36,42,52,54}` assert_unlinkable fails, both backends). Cycle 1 DONE:
+  `sections.canonicalEqualCross` (cross-`Types` iso-recursive type-def equality) + 4 unit tests, isolated/
+  unwired. Prior: multi-value JIT invoke +18 → corpus **762/2/531** (DONE). full wasm-3.0 interp fail tally
+  = 9 (1 return + 4 trap + 4 unlinkable); PHASE C closes the 4 unlinkable.
 - **Two gate/portability fixes this stretch**: **D-228** (`7bb3699a`) — `test-all` didn't run the wasm_3_0
   unit tests (only `zig build test` did) → chunk-2's stale `jitReturnEligible` assert false-greened on BOTH
   hosts; now `test_all_step.dependOn` both unit artifacts. **D-229** (`a5f6b238`) — the param-bearing e2e
@@ -47,7 +48,8 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
   arm64 1-param thunk delivered +18 → 762/2/531; the §1 skip tail is now its non-deferred floor: residual
   skip=531 dominated by multi-memory 407 = Phase-14-deferred. Multi-value follow-ons are low-ROI: x86_64
   SysV param-bearing = D-229, 2/3-param/FP-result arm64 = unmeasured-but-marginal).
-- **Cycles-remaining**: ~2-3 (just opened; cycle 1 = survey, 2-3 = implement + corpus-verify).
+- **Cycles-remaining**: ~1-2. Cycle-1 survey DONE; cycle-2 `canonicalEqualCross` predicate DONE (`6f1eeb4a`,
+  4 tests). NEXT = the wiring chunk (thread exporter type-def + run PHASE C #2 at resolve).
 - **PIVOT RATIONALE**: §1 corpus skip-reduction is exhausted; the binding §10 exit constraint is now
   **fail=0 both backends**, currently fail=2. ADR-0127 PHASE C closes ONE real JIT-executed fail
   (gc/type-subtyping). ADR-0127 is **Accepted** (via ADR-0128 100% directive — autonomous, NOT user-gated;
@@ -58,12 +60,17 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
   (separate RTT mechanism, still fail). PHASE A (structural subtyping) + B (finality) landed (cyc236/239).
   PHASE C adds **type-definition identity**: canonical-equal OR declared-supertype-reach across the two
   modules' `Types`. `funcTypeImportCompatible` (validator.zig:3155) does structural-only today.
-- **IMPL PLAN**: (1) new `sections.canonicalEqualCross(types_a, idx_a, types_b, idx_b)` threading BOTH
-  `Types` (the intricate bit — rec-group positional vs inter-group canonical, per-type Types tracking; can't
-  reuse single-Types `canonicalEqual` @ sections.zig:179). (2) thread exporter `source_typeidx` through
-  `CrossModuleFuncEntry` (linker.zig:130) + `ExportFuncType` (instantiate.zig buildExportTypes:613). (3)
-  add the cross check at linker resolve (linker.zig:482) + instantiate checkImportTypeMatches (:1657).
-  **FIRST CHUNK = canonicalEqualCross + unit test (isolated, no linker wiring → zero regression risk).**
+- **IMPL PLAN**: (1) ✅ DONE `6f1eeb4a` — `sections.canonicalEqualCross` predicate + 4 tests. (2) NEXT —
+  thread exporter type-def through `CrossModuleFuncEntry` (linker.zig:130, currently `{source_signature,
+  source_final}`) + `ExportFuncType` (instantiate buildExportTypes:613). PHASE C #2 = canonicalEqualCross
+  OR exporter declares importer's type-def in its supertype chain. **LIFETIME CONCERN**: canonicalEqualCross
+  needs the exporter's FULL `Types` alive at resolve to recurse nested refs; buildExportTypes currently frees
+  the parse-time Types after capturing {sig,final}. The corpus targets (`.36` etc.) are `()->()` with NO
+  nested concrete refs → threading {typeidx, finals, supertypes-as-indices} may suffice WITHOUT keeping the
+  full Types (canonicalEqualCross degenerates to finality+structure for ref-free defs). Decide chunk-2: thin
+  thread (corpus-sufficient) vs full Types retention (general). (3) run #2 at linker resolve (linker.zig:482)
+  + instantiate checkImportTypeMatches (:1657). Start chunk-2 with the smallest red: a 2-module test where
+  importer's open `(sub (func))` vs exporter's distinct def → link REJECTS (currently wrongly accepts).
 - **Continuity-memo**: full wasm-3.0 fail tally (ubuntu interp): assert_return fail=1 + assert_trap fail=4
   + assert_unlinkable fail=4 = 9 (both backends share linking/validation fails). PHASE C closes the 4
   unlinkable. JIT corpus = **762/2/531**. See D-202 (PHASE A/B landed, C scope).
@@ -84,12 +91,11 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 ## Step 0.7 (next resume)
 
-THIS turn = recovered a Step-0.7 ubuntu FAIL: the param-bearing e2e test (`35ed8901`) errored on x86_64
-(SysV thunk lacks params). FIXED forward by gating the test to aarch64 + D-229 debt row (`a5f6b238`),
-Mac-green (`zig build test` exit 0). Pivoted the bundle to ADR-0127 PHASE C. Next resume Step 0.7:
-`tail -3 /tmp/ubuntu.log` — expect `OK (HEAD=a5f6b238)`; on FAIL revert to the last ubuntu-verified HEAD
-(8fb4a4e3 was the last confirmed OK; this turn's a5f6b238 kick verifies the fix). Then start the PIVOT —
-Step-0 survey ADR-0127 PHASE C (see Active bundle). Mac aarch64; ubuntu = x86_64.
+THIS turn = ADR-0127 PHASE C cycle 1: `sections.canonicalEqualCross` predicate + 4 unit tests (`6f1eeb4a`),
+isolated/unwired (zero regression risk). Mac-green (mac_gate test-all + lint). Next resume Step 0.7:
+`tail -3 /tmp/ubuntu.log` — expect `OK (HEAD=6f1eeb4a)`; on FAIL revert to the last ubuntu-verified HEAD
+(a5f6b238 was the prior confirmed OK). Then start the WIRING chunk (thread exporter type-def + run PHASE C
+#2 acceptance at linker resolve / checkImportTypeMatches — see Active bundle IMPL PLAN). Mac aarch64; ubuntu = x86_64.
 
 **Gate hygiene (NEW, `2134116b`)**: use `bash scripts/mac_gate.sh` for the Step-5 Mac gate —
 never `zig build test-all > log; grep -c … log` (trailing `grep -c` exits 1 on zero matches →
