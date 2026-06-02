@@ -280,6 +280,20 @@ pub fn setupRuntimeLinked(
         decoded_globals = try sections.decodeGlobals(ta, s.body);
         globals_count = @intCast(decoded_globals.?.items.len);
     }
+    // D-225 — the emitted-code global layout (`computeGlobalsLayout`) is
+    // import-inclusive: global index space = imports first, then defined.
+    // So `globals_buf` must reserve the import slots; otherwise an emitted
+    // `global.get $defined` (index ≥ num_global_imports) reads OOB past the
+    // defined-only buffer (gc/i31.4: i31ref defined global → null → trap).
+    var num_global_imports: u32 = 0;
+    if (module.find(.import)) |s| {
+        var imps = try sections.decodeImports(ta, s.body);
+        defer imps.deinit();
+        for (imps.items) |it| {
+            if (it.kind == .global) num_global_imports += 1;
+        }
+    }
+    const globals_total: u32 = num_global_imports + globals_count;
     // §9.9 / 9.9-m-2a: parse the table section into per-table
     // descriptors. `table_size` is retained as the table-0 entry
     // count (call_indirect's `funcptrs_buf` + `typeidxs_buf` are
@@ -309,9 +323,14 @@ pub fn setupRuntimeLinked(
     if (globals_count > 4096) return Error.UnsupportedEntrySignature;
     if (table_size > 4096) return Error.UnsupportedEntrySignature;
 
-    const globals_buf = try allocator.alloc(Value, if (globals_count == 0) 1 else globals_count);
+    const globals_buf = try allocator.alloc(Value, if (globals_total == 0) 1 else globals_total);
     errdefer allocator.free(globals_buf);
     @memset(globals_buf, .{ .bits128 = 0 });
+    // Fill the imported-global slots [0..num_global_imports) with the
+    // resolved values (D-225); the defined globals land at the offset below.
+    for (0..num_global_imports) |i| {
+        globals_buf[i] = .{ .bits64 = if (i < imported_global_vals.len) imported_global_vals[i] else 0 };
+    }
 
     // 10.G GC-on-JIT (ADR-0128 §2): materialise the GC heap + type table
     // for modules with a GC type section BEFORE the global-init loop, so
@@ -386,7 +405,9 @@ pub fn setupRuntimeLinked(
     if (decoded_globals) |g| {
         const gti_val: ?gc_type_info.GcTypeInfos = if (gc_type_infos_typed) |t| t.* else null;
         for (g.items, 0..) |gd, i| {
-            globals_buf[i] = instantiate.evalConstExprValue(gd.init_expr) catch |e| blk: {
+            // Defined globals follow the import slots (D-225) to match the
+            // import-inclusive emitted-code layout.
+            globals_buf[num_global_imports + i] = instantiate.evalConstExprValue(gd.init_expr) catch |e| blk: {
                 if (e == error.UnsupportedConstExpr) {
                     break :blk instantiate.evalGlobalInitGc(gd.init_expr, gc_heap_typed, gti_val, func_entities, imp_global_ptrs) catch .{ .bits128 = 0 };
                 }
@@ -766,7 +787,7 @@ pub fn setupRuntimeLinked(
             .typeidx_base = typeidxs_buf.ptr,
             .trap_flag = 0,
             .globals_base = globals_buf.ptr,
-            .globals_count = globals_count,
+            .globals_count = globals_total,
             .host_dispatch_base = dispatch.ptr,
             .host_dispatch_count = compiled.num_imports,
             .func_entities_ptr = @ptrCast(func_entities.ptr),
