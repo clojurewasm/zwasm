@@ -45,24 +45,26 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 - **Bundle-ID**: `10.G-§1-skip-reduction` (prior gc/array bundle CLOSED at `fa596f08`, exit met: array.8
   green, pass=577; JIT-executed fails now 2, both gated/deep).
-- **Cycles-remaining**: ~2 (skip-reduction — multi-value invoke first)
+- **Cycles-remaining**: ~2 (skip-reduction — verify-PASS not just compile)
 - **Continuity-memo**: §1 JIT-EXECUTED fails = 2 (type-subtyping user-gated ADR-0127 PHASE C; try_table
-  EH-on-JIT). The remaining §10 exit bulk is **skip=716**. SKIP TAXONOMY (re-surveyed this cycle):
-  **JITmodrej** = MultipleMemories 51 (Phase-14 deferred, untouchable), UnsupportedOp 10, UnsupportedEntry
-  Signature 7, StackTypeMismatch 6, ElemSegmentTypeMismatch 2, InvalidGlobalInitExpr 1. **Eligibility-gated**
-  (runner won't attempt): args=1/results=1 ×34 (REF-typed arg0 — hard, needs ref synthesis), args=0/results=2
-  ×16 (MULTI-VALUE), args=0/results=1 ×3, args=1/results=2 ×2, args=0/results=4 ×1. **NEXT = multi-value
-  results (≈19: results=2 ×18 + results=4 ×1)** — the cleanest test-side win (no engine risk). FEASIBLE via
-  the results-buffer ABI (`result_abi.zig`: JIT epilogue writes `results[i]` to `[results_ptr+8*i]`,
-  Win64-safe; entry helper sig `fn(*JitRuntime, [*]u64 results, …args) ErrCode`). PLAN: (1) widen
-  `jitReturnEligible` to allow results_len 2..4 when all scalar/ref; (2) add `JitInstance.invokeMulti`
-  (alloc `[N]u64` buf, call via the results-buffer entry helper, return the slice); (3) assert_return JIT
-  arm: when results_len>1, invokeMulti + compare each `results[i]` vs expected (reuse `jitScalarResultMatches`).
-  CHECK FIRST: confirm an entry results-buffer helper exists (entry.zig) or add one; verify which result-ABI
-  mode the JIT emits for multi-result (register vs results_ptr) — `result_abi.zig` ResultAbiMode. Unemitted-op
-  JITmodrej (UnsupportedOp 10: tail-call/return_call_indirect, gc/br_on_cast*, ref_test/ref_cast, struct.10,
-  extern, array_init_*, br_on_null) = per-op emit bundles (later). try_table + type-subtyping unchanged.
-- **Exit-condition**: multi-value asserts flip skip→pass (gc/i31 `get_globals` () -> i32 i32, etc.).
+  EH-on-JIT). Remaining §10 exit bulk = **skip=716**. TAXONOMY: JITmodrej = MultipleMemories 51 (Phase-14,
+  untouchable), UnsupportedOp 10, UnsupportedEntrySignature 7, StackTypeMismatch 6, +3. Eligibility-gated =
+  ref-arg ×34 (hard), multi-value ×19. **TWO COURSE-CORRECTIONS this cycle (both reverted, net-zero code,
+  corpus stays 577/2):** (1) **multi-value NOT clean** — needs `buffer_write` ABI but `compileWasm` hardcodes
+  `.register_write` (compile.zig:1058) + register dispatch helpers depend on it → full D-094/D-164 migration,
+  MAJOR, defer. (2) **`any.convert_extern`/`extern.convert_any` emit is trivial** (identity passthrough:
+  codegen no-op pop+push + stack-effect 1→1 in liveness_stack_effect.zig + register in dispatch_collector_ops
+  + counts arm64 378→380 / ctx_ops 427→429) — BUT it's used across MANY gc modules; enabling it unblocked ~89
+  asserts = +50 pass BUT **+39 FAIL** (32 gc/ref_test JITval mismatches + 7 gc/ref_cast traps): `ref.test`/
+  `ref.cast` on a convert-wrapped extern/any ref mis-executes (nontrivial RTT semantics). **LESSON: unblocking
+  a modrej module ≠ passing it** — a skip→fail trade worsens the metric. So convert must bundle WITH the
+  ref.test/ref.cast-on-extern RTT fix (verify the 32+7 PASS), not ship alone. **NEXT (pick a CLEAN lever)**:
+  for any UnsupportedOp module, first check its asserts would PASS once it compiles (disasm + reason about the
+  ops' runtime semantics) — prefer modules whose remaining ops are value-simple (e.g. tail-call/
+  return_call_indirect.0, function-references/br_on_null.1) over GC-RTT-entangled ones (ref_test/ref_cast/
+  br_on_cast/extern). Method: disasm via the python `fb`-opcode scan; the convert emit recipe above is proven
+  (re-apply when doing the convert+RTT bundle). try_table + type-subtyping unchanged.
+- **Exit-condition**: ≥1 UnsupportedOp module flips modrej→compiles AND its asserts PASS (net fail unchanged).
 
 ## §10 remaining — the six `[ ]` rows
 
@@ -77,10 +79,11 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 ## Step 0.7 (next resume)
 
-Prior turn ubuntu GREEN (`OK (HEAD=09777262)` — gc/array +6 / pass=577 remote-verified). THIS turn = §1
-skip-taxonomy re-survey only (no src change; memo now has the full skip breakdown + the multi-value-invoke
-plan). No ubuntu kick (docs-only). Next resume: implement multi-value invoke per the memo. Mac aarch64;
-ubuntu = x86_64.
+Prior turn ubuntu GREEN (`OK (HEAD=09777262)` — pass=577 remote-verified). THIS turn = skip-reduction
+investigation: tried convert-op emit + multi-value, both REVERTED (net-zero code; corpus stays 577/2) —
+convert-alone caused +39 fail (skip→fail), multi-value needs the buffer_write ABI migration. Memo updated
+with both course-corrections + the "verify-PASS-not-compile" lesson. No ubuntu kick (docs-only, HEAD
+unchanged = 09777262). Next resume: pick a CLEAN UnsupportedOp lever per the memo. Mac aarch64; ubuntu = x86_64.
 
 **Gate hygiene (NEW, `2134116b`)**: use `bash scripts/mac_gate.sh` for the Step-5 Mac gate —
 never `zig build test-all > log; grep -c … log` (trailing `grep -c` exits 1 on zero matches →
