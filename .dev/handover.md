@@ -8,11 +8,11 @@
 - **Phase**: **10 IN-PROGRESS — committed to 100% (ADR-0128)** (Phase 9 = DONE
   2026-05-24). §10 exit requires the official Wasm 3.0 testsuite at pass=fail=skip=0
   on **both backends** (interp + JIT).
-- **HEAD** (`36904b47`): §1 spec-corpus JIT mode. Session +69: D-223 (+43), D-212 (+6), D-218 (+8),
-  D-224 table.grow (+11), D-225 ref.func-global (+1). D-225 bundle in progress: ref.func-global
-  (`181f2f2b`) + table explicit-init-expr eval (`36904b47`, unit-test observable, corpus-neutral)
-  landed; remaining = cross-module import RESOLUTION (runner↔JitInstance). Opt-in `ZWASM_SPEC_ENGINE=
-  jit`. Mac aarch64: **pass=564 fail=15 skip=716** (memory64 100% GREEN; interp test-all UNCHANGED).
+- **HEAD** (`e03c2aee`): §1 spec-corpus JIT mode. Session +69: D-223 (+43), D-212 (+6), D-218 (+8),
+  D-224 (+11), D-225 ref.func-global (+1). D-225 bundle: ref.func-global (`181f2f2b`) + table init-expr
+  eval (`36904b47`) + **JIT imported-global resolution** (`e03c2aee`, `*Linked` variants, unit-test
+  observable) landed; **NEXT = runner wiring to `initLinked`** (flips i31.3/4). Opt-in
+  `ZWASM_SPEC_ENGINE=jit`. Mac aarch64: **pass=564 fail=15 skip=716** (memory64 GREEN; interp UNCHANGED).
   **fail taxonomy (15, deep tail)**: gc/array ×6 (corpus-context-dependent traps), ref_func call-f/
   call-v ×3 (cross-module CALL, D-225), gc/i31 ×4 (i31.3/4 cross-module imported-global, D-225),
   gc/type-subtyping ×1 (ADR-0127 PHASE C), try_table ×1 (EH).
@@ -51,14 +51,14 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
   runner keeps registered JIT exporter instances alive; (2) `JitInstance.init`/`setupRuntime` accept
   exporter context → populate `dispatch[N]` (func: exporter JIT entry ptr; C-ABI symmetric, no stack
   marshal) + `globals_buf[N]` (imported global value). **DONE this cycle (`36904b47`)**: piece (3)
-  table explicit-init-expr eval at setup (`(table … constexpr)` now fills slots; ref.i31/func/struct/
-  array via evalGlobalInitGc + func_entities). **NEXT**: the imported-global/func RESOLUTION (1)+(2).
-  **GOTCHA (confirmed `4b108aad`-cycle)**: `globals_buf` (setup.zig:281) is sized to DEFINED globals
-  only — imported globals have NO slot. So the global piece needs the JIT global model EXTENDED (import
-  slots + values + index mapping), NOT a naive value write. **Minimal-ripple design**: add `*Linked`
-  variants (`JitInstance.initLinked`/`setupRuntimeLinked` taking an import_ctx); old `init`/`setupRuntime`
-  delegate empty (avoids the ~30-test JitInstance.init caller churn). Full design + gotcha in
-  `private/notes/d225-cross-module-jit-survey.md`. This is a multi-piece fresh-context architectural bundle.
+  table explicit-init-expr eval (`36904b47`) + (4) **JIT imported-global resolution into setup-time
+  const-exprs** (`e03c2aee`: `*Linked` variants thread imported-global VALUES → `(ref.i31 (global.get
+  $env.g))` in a table/global init resolves; green test). **NEXT (flips i31.3/4 corpus)**: RUNNER WIRING
+  — make `spec_assert_runner_wasm_3_0.zig` call `JitInstance.initLinked` with the importing module's
+  global-import values resolved from registered exporter modules (read env.g=42 from `cur_linker`/the
+  registered interp instance). Then i31.3/4 `get`→42. **STILL ARCHITECTURAL (later)**: cross-module FUNC
+  dispatch (ref_func call-f/call-v; `dispatch[N]`=exporter entry) + emitted-code global.get-of-import
+  (globals_buf excludes imports — survey gotcha). Full design: `private/notes/d225-cross-module-jit-survey.md`.
 - **Exit-condition**: a cross-module fail flips green — ref_func `call-f` OR gc/i31.3 `get`→42.
 - **NEXT chunk** = **D-225 cross-module JIT CALL/import** (the ref.func-global piece landed `181f2f2b`,
   +1; the remaining cross-module piece is the architectural lever). The §1 JIT path is per-module
@@ -88,10 +88,10 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 ## Step 0.7 (next resume)
 
-Prior turn (`4b108aad`, D-225 table-init-expr) ubuntu `test-all` = GREEN (verified HEAD=4b108aad;
-x86_64 OK). THIS turn = SCOPING (confirmed the D-225 global piece needs the JIT global model extended
-[globals_buf excludes imports] + recorded the `*Linked` minimal-ripple design; survey note updated.
-debt+handover only → code == green `4b108aad`). SKIP Step 0.7 ubuntu next resume. Mac aarch64; ubuntu = x86_64.
+Prior turn (`970474b5`, D-225 scoping) ubuntu = n/a (docs only). THIS turn landed the JIT imported-
+global resolution (`e03c2aee`: setupRuntimeLinked/initLinked + threading; green test) → ubuntu
+`test-all` kicked at end → `tail -3 /tmp/ubuntu.log` next resume (Step 0.7). On FAIL revert to
+`970474b5`. Mac aarch64; ubuntu = x86_64.
 
 **Gate hygiene (NEW, `2134116b`)**: use `bash scripts/mac_gate.sh` for the Step-5 Mac gate —
 never `zig build test-all > log; grep -c … log` (trailing `grep -c` exits 1 on zero matches →
