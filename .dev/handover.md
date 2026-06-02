@@ -62,12 +62,13 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
   open item; user-gated.** (c) **JIT corpus: D-233 CLOSED (`1d7f25ea`) — jit-mode assert_trap now routes
   through `cur_jit` (was the stale interp instance), so it ACTUALLY tests JIT traps.** ref_cast_null ×4 now
   trap correctly; assert_trap 554/8 (meaningless) → **202 pass / 55 fail / 305 skip (real)**. The 55 are REAL
-  JIT trap gaps newly EXPOSED → **D-234**: 51 memory64/memory_trap64 OOB + 4 gc/type-subtyping. **NARROWED
-  (b8800d04, +2 tests):** mem64 OOB i32.load TRAPS correctly on the JIT via const + i64-PARAM fresh-setup
-  (`runI32Export`/`runScalar1Export`) → JIT codegen bounds-check is FINE. The 51 corpus fails differ ONLY in
-  using the PERSISTENT `cur_jit` (`JitInstance.invoke`) vs fresh `setupRuntime` → likely a cur_jit SETUP issue
-  (mem_limit/memory for mem64), **probably another HARNESS artifact like D-233, NOT codegen.** Next: a
-  `JitInstance.invoke` repro → fix is likely runner/setup-side. assert_RETURN: 762/2/531;
+  JIT trap gaps EXPOSED → **D-234 RECLASSIFIED (`4a5b496e`): the 51 memory64 fails are a CORPUS-RUNNER
+  ARTIFACT, NOT codegen.** mem64 OOB i32.load TRAPS correctly via FIVE isolated paths — const (`runI32Export`),
+  i64-param (`runScalar1Export`), and the exact `JitInstance.init`+invoke (single, 3× sequential, in-bounds-
+  then-OOB). Not reproducible outside the full corpus run → a `cur_jit`-reuse/baked-manifest artifact, same
+  meta-pattern as D-233. So the JIT is MORE correct than the 55-fail number; true real-gap count ≪ 55 (maybe
+  just the 4 gc, or 0). +3 regression tests kept. NEXT: corpus-side probe (fresh-JitInstance vs cur_jit
+  re-invoke in the assert_trap branch) to pin the runner reuse bug → runner-side fix. assert_RETURN: 762/2/531;
   2 return fails = gc/type-subtyping "run" (call_indirect subtype, D-198) + eh/try_table (EH-on-JIT). Tracked D-211/D-212/D-198/D-234.
 - **Continuity-memo**: interp wasm-3.0 = 0 fails (fully green). JIT 762/2/531. PHASE C follow-ups (debt-worthy):
   api/instance.zig:572 + instantiate.zig:1657 `.cross_module` structural-only. This session CLOSED: D-230 (level-
