@@ -1046,6 +1046,44 @@ test "runI32Export: 2nd ref.cast_null on a re-read NULLABLE local still traps (D
     try testing.expectError(entry.Error.Trap, runI32Export(testing.allocator, &bytes, "f"));
 }
 
+test "runI32Export: mem64 OOB i32.load traps on JIT (D-234)" {
+    // (module (memory i64 1) (func (export "f") (result i32)
+    //   (i32.load (i64.const 0x10000))))   ;; addr 0x10000 = just past a 1-page
+    //   (64KiB) mem64 → must trap "out of bounds memory access".
+    // D-234: the JIT runs this and RETURNS instead of trapping (exposed once
+    // jit-mode assert_trap routed through cur_jit, D-233). Expect Trap.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, // type ()->i32
+        0x03, 0x02, 0x01, 0x00, // func: 1 func, type 0
+        0x05, 0x03, 0x01, 0x04, 0x01, // memory: (memory i64 1) — flags 0x04 = i64, min 1
+        0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00, // export "f" func 0
+        // code: i64.const 0x10000 (42 80 80 04); i32.load (28 02 00); end (0b)
+        0x0a, 0x0b, 0x01, 0x09, 0x00, 0x42, 0x80,
+        0x80, 0x04, 0x28, 0x02, 0x00, 0x0b,
+    };
+    try testing.expectError(entry.Error.Trap, runI32Export(testing.allocator, &bytes, "f"));
+}
+
+test "runScalar1Export: mem64 OOB i32.load via i64 PARAM traps on JIT (D-234)" {
+    // (module (memory i64 1) (func (export "f") (param $a i64) (result i32)
+    //   (i32.load (local.get $a))))  — invoked with $a = 0x10000 (OOB) → must trap.
+    // Mirrors the corpus memory_trap64 i32.load (param i64). The const-address
+    // sibling traps fine; this isolates whether the i64 PARAM path mishandles
+    // the OOB address (D-234). Expect Trap.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x06, 0x01, 0x60, 0x01, 0x7e, 0x01, 0x7f, // type (i64)->i32
+        0x03, 0x02, 0x01, 0x00, // func
+        0x05, 0x03, 0x01, 0x04, 0x01, // memory i64 1
+        0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00, // export "f"
+        // code: local.get 0; i32.load (28 02 00); end
+        0x0a, 0x09, 0x01, 0x07, 0x00, 0x20, 0x00,
+        0x28, 0x02, 0x00, 0x0b,
+    };
+    try testing.expectError(entry.Error.Trap, runner.runScalar1Export(testing.allocator, &bytes, "f", 0x10000));
+}
+
 // ── ADR-0128 §1 / D-220: gc ref.i31 global init-expr (JIT compile gate) ──
 
 test "JitInstance: ref.i31 global init compiles + get returns the i31 value" {
