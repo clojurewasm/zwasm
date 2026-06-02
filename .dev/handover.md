@@ -59,17 +59,14 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 - **REMAINING**: (a) **4 interp assert_trap fails — FIXED ✓** (D-232 / ADR-0131, `d041e425`): gti materialised
   for func-subtyping + concreteReaches authoritative. interp corpus FULLY GREEN. (b) **§10-scope question** →
   `.dev/phase10_scope_reassessment.md` (USER-flagged; ADR-0128-amendment = user-flip case) — **the bundle's LAST
-  open item; user-gated.** (c) **JIT corpus: D-233 CLOSED (`1d7f25ea`) — jit-mode assert_trap now routes
-  through `cur_jit` (was the stale interp instance), so it ACTUALLY tests JIT traps.** ref_cast_null ×4 now
-  trap correctly; assert_trap 554/8 (meaningless) → **202 pass / 55 fail / 305 skip (real)**. The 55 are REAL
-  JIT trap gaps EXPOSED → **D-234 RECLASSIFIED (`4a5b496e`): the 51 memory64 fails are a CORPUS-RUNNER
-  ARTIFACT, NOT codegen.** mem64 OOB i32.load TRAPS correctly via FIVE isolated paths — const (`runI32Export`),
-  i64-param (`runScalar1Export`), and the exact `JitInstance.init`+invoke (single, 3× sequential, in-bounds-
-  then-OOB). Not reproducible outside the full corpus run → a `cur_jit`-reuse/baked-manifest artifact, same
-  meta-pattern as D-233. So the JIT is MORE correct than the 55-fail number; true real-gap count ≪ 55 (maybe
-  just the 4 gc, or 0). +3 regression tests kept. NEXT: corpus-side probe (fresh-JitInstance vs cur_jit
-  re-invoke in the assert_trap branch) to pin the runner reuse bug → runner-side fix. assert_RETURN: 762/2/531;
-  2 return fails = gc/type-subtyping "run" (call_indirect subtype, D-198) + eh/try_table (EH-on-JIT). Tracked D-211/D-212/D-198/D-234.
+  open item; user-gated.** (c) **JIT corpus AUDIT COMPLETE this session.** jit-mode assert_trap now tests the
+  JIT (D-233 `1d7f25ea`). **ALL 55 assert_trap "fails" are CORPUS-RUNNER HARNESS ARTIFACTS, not codegen**
+  (D-234 `4a5b496e`+`e72b2eb1`): mem64 OOB proven correct via 5 isolated paths; the 4 gc fails too — the JIT
+  call_indirect canonical-EXACT compare (op_call.zig:222-242) CORRECTLY traps `fail1`/`fail2`. **TRUE remaining
+  JIT gaps = the 2 RETURN fails**: (a) gc/type-subtyping `"run"` — the same exact-compare WRONGLY traps a LEGIT
+  subtype → JIT call_indirect needs SUBTYPE acceptance (the D-198/.17/D-232 JIT analog, hot-path); (b)
+  eh/try_table (EH-on-JIT). assert_RETURN 762/2/531. Lessons: `jit-corpus-fails-are-often-harness-artifacts`,
+  `jit-mode-assert-trap-evaluates-on-interp-instance`. **NEXT product target = the `"run"` JIT call_indirect-subtype.**
 - **Continuity-memo**: interp wasm-3.0 = 0 fails (fully green). JIT 762/2/531. PHASE C follow-ups (debt-worthy):
   api/instance.zig:572 + instantiate.zig:1657 `.cross_module` structural-only. This session CLOSED: D-230 (level-
   sep leak + DCE gate revive, ADR-0130) + D-232 (gti func-subtyping, ADR-0131). D-231 = x86_64 DCE-gate follow-on.
