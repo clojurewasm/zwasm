@@ -8,13 +8,13 @@
 - **Phase**: **10 IN-PROGRESS — committed to 100% (ADR-0128)** (Phase 9 = DONE
   2026-05-24). §10 exit requires the official Wasm 3.0 testsuite at pass=fail=skip=0
   on **both backends** (interp + JIT).
-- **HEAD** (`64709a95`): §1 spec-corpus JIT mode. D-223 globals + D-212 FP-class (+6) + **D-218 i31
-  elem-segment 3-guard** (`64709a95`: i31/eq/any elem items are i31-ENCODED not funcidxs; guarded
-  compile funcidx-check + 2 setup elem sites; +8). Opt-in `ZWASM_SPEC_ENGINE=jit`. Mac aarch64:
-  **pass=552 fail=27 skip=716** (memory64 100% GREEN; interp test-all UNCHANGED). **fail taxonomy (27,
-  +11 newly-visible skip→fail from now-compiling i31 modules — no pass→fail regression)**: i31 table.
-  grow/fill/copy/init (i31-encoded refs in table-mutation ops) + i31.3/4 global-init `err=Trap`; gc/
-  array ×6; ref_func ×3 (D-198); gc/type-subtyping ×1 (ADR-0127 PHASE C); try_table ×1 (EH).
+- **HEAD** (`cf89c88f`): §1 spec-corpus JIT mode. Session +68: D-223 globals (+43), D-212 FP-class
+  (+6), D-218 i31-elem 3-guard (+8), **D-224 table.grow** (`cf89c88f`: pre-size non-funcref tables to
+  max + fill-on-grow + descriptor-in-place; +11). Opt-in `ZWASM_SPEC_ENGINE=jit`. Mac aarch64:
+  **pass=563 fail=16 skip=716** (memory64 100% GREEN; interp test-all UNCHANGED). **fail taxonomy (16,
+  the deep tail)**: gc/array ×6 (corpus-context-dependent traps), ref_func ×4 (D-198), gc/i31 ×4
+  (i31.3/4 cross-module imported-global table-init-expr), gc/type-subtyping ×1 (ADR-0127 PHASE C),
+  try_table ×1 (EH).
 - **PER-MODULE blocker-STACK reality** (lesson `2026-06-02-jit-corpus-late-phase-is-per-module-
   blocker-stacks`): since memory64 (+208, last big mover), every gc/funcref fix has been correct
   but ~0 corpus — each remaining module has 3-6 DISTINCT blockers; JIT rejects at the FIRST
@@ -61,20 +61,18 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 - **Exit-condition**: ≥1 `assert_return` executes THROUGH the JIT + compares. ✓ **MET** long ago.
   Infra COMPLETE; backbone operational (pass=484). Bundle stays open as the diagnostic-driven
   gap-fixing vehicle (`JITmodrej` tally → fix biggest tractable lever).
-- **NEXT chunk** = **D-224 implement JIT `table.grow`** (root-caused this turn): `table_grow_fn` is
-  unconditionally `defaultTableGrowReject` (returns -1) — never installed. Fixes i31 grow + funcref
-  grow generally. Contained runtime feature (mirror memory.grow / D-215): install a real fn in setup
-  that allocs a fresh per-table refs(+funcptrs) buffer of len+delta, copies+fills, updates the
-  `TableSlice` descriptor in place (table.get reads it fresh — no JIT reload), tracks grown buffers in
-  a grow-ctx for deinit. Plumbing: rt needs a table-grow-ctx (host_state is taken by MemGrowCtx — add
-  a field or combine). Check table.fill/copy/init too. Full design in D-224 row. Verify: i31.1 grow +
-  a funcref table.grow unit test.
-- **TRIAGE of the other 26 fails (this turn)** — all deep, lower-throughput per the per-module-blocker
-  lesson; big levers SPENT: i31.3/4 `get err=Trap` = table-with-init-expr + IMPORTED-global const-expr
-  (cross-module, `(table 3 3 (ref i31) (ref.i31 (global.get $env.g)))`); gc/array `new`/`get` traps =
-  CORPUS-CONTEXT-DEPENDENT (array.5 `new` works standalone via JitInstance — not reproducible alone;
-  `get` takes a ref arg); ref_func ×3 (D-198); gc/type-subtyping ×1 (ADR-0127 PHASE C); try_table ×1
-  (EH). Skip multi-memory 51 (Phase-14). D-209 (memory64 >4GiB offset) = deferred, no observable.
+- **NEXT chunk** = pick from the deep tail (16; big levers SPENT per the per-module-blocker lesson —
+  expect lower per-turn throughput, each is a focused investigation):
+  1. **ref_func ×4 (D-198)** — named funcref residual; call-v/call-f/is_null-v. Likely the most
+     self-contained (a known op gap, not corpus-state-dependent). Try first.
+  2. **gc/array ×6** — `new`/`get`/`set_get`/`len` traps; CORPUS-CONTEXT-DEPENDENT (array.5 `new`
+     works standalone via JitInstance; `get` takes a ref arg) → repro needs the corpus invoke
+     sequence, like the D-212 saga. Use the fnv-fingerprint + non-zero-expected probes from lesson
+     `jit-result-bug-stale-register-confound`.
+  3. **gc/i31 ×4** — i31.3/4 = table-with-init-expr + IMPORTED-global const-expr (cross-module,
+     `(table 3 3 (ref i31) (ref.i31 (global.get $env.g)))`); needs JIT cross-module import resolution
+     — deepest. 4. gc/type-subtyping ×1 (ADR-0127 PHASE C cross-`Types` canonicalEqual). 5. try_table
+     ×1 (EH). Skip multi-memory 51 (Phase-14). Prefer direct FAIL→pass flips on compiling modules.
 
 ## §10 remaining — the six `[ ]` rows
 
@@ -89,10 +87,9 @@ Six workstreams (ADR-0128), value-prioritized (NOT §10 table-first):
 
 ## Step 0.7 (next resume)
 
-Prior turn (`5fbb85ae`, D-218 i31-elem fix) ubuntu `test-all` = GREEN (verified HEAD=5fbb85ae; x86_64
-OK). THIS turn = TRIAGE (root-caused table.grow=default-reject → D-224; characterized the other 26
-fails as deep; debt+handover only → code == green `5fbb85ae`). SKIP Step 0.7 ubuntu next resume (no
-code delta). Mac aarch64; ubuntu = x86_64.
+Prior turn (`41e94edb`, D-224 triage) ubuntu = n/a (docs only). THIS turn landed D-224 table.grow
+(`cf89c88f`: setup.zig pre-size + jitTableGrow, +11 corpus) → ubuntu `test-all` kicked at end →
+`tail -3 /tmp/ubuntu.log` next resume (Step 0.7). On FAIL revert to `41e94edb`. Mac aarch64; ubuntu = x86_64.
 
 **Gate hygiene (NEW, `2134116b`)**: use `bash scripts/mac_gate.sh` for the Step-5 Mac gate —
 never `zig build test-all > log; grep -c … log` (trailing `grep -c` exits 1 on zero matches →
