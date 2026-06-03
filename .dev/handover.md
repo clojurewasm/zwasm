@@ -5,40 +5,47 @@
 
 ## Current state
 
-- **Phase**: **12 IN-PROGRESS — AOT compilation mode**. §12.0 / §12.1 / §12.2 / §12.3 all `[x]`; next `[ ]` =
-  §12.4 (cold-start bench-delta ≥30%). Phase 11 DONE (`bbc4900b`, 3-host `test-all` reconcile GREEN; WASI 0.1 +
-  bench Mac+Linux per ADR-0137 + SIMD gap profile; §11.4 → Phase 15 per ADR-0135).
-- **§12.3 cross-compile `[x]`** (`617a4ae4`): `scripts/check_aot_cross_compile.sh` (x86_64-linux + aarch64-linux
-  + x86_64-windows-gnu, exe compile-only, all green) wired into `gate_merge`. Cross-ARCH *emission* stays
-  deferred (ADR-0039 Alt D — emit backend comptime host-pinned); the cross-compiled toolchain produces+runs a
-  native `.cwasm` on its host (per-host `runCwasm` round-trip: Mac arm64 + ubuntu x86_64; windowsmini exec @ 12.P).
-- **§12.1 `.cwasm` loader + runner — CLOSED end-to-end** (smoke-verified: `zwasm compile f.wasm -o f.cwasm` then
-  `zwasm run --invoke f f.cwasm` → exit 42). Pipeline: loader CORE (`ca69fc68`,`50b4bd1a`) → entry-point design
-  **ADR-0138** (`.cwasm` v0.2 exports section; header 60→68 B w/ `exports_offset`+`exports_size`; section =
-  `[n_exports][name_len,name,func_idx]…`, func-kind only) → v0.2 format-layer (`926bed9f`) → producer exports
-  wiring (`e090562d`: `CompiledWasm.exports` arena-owned via `collectFuncExports`, forwarded by
-  `produceFromCompiledWasm`) → standalone runner `aot/run.zig` (`c7246e3c`: minimal stateless `JitRuntime` —
-  zero counts, base ptrs alias a zero pad, never dereferenced; `runEntry` dispatches void/i32 by the loader's
-  parsed result kind) → `cli/run.zig` `runCwasm` + main.zig `CWAS`-magic branch (`cf983dff`).
-- **§12.2 differential `[x]`** (`bd138990`,`d0c1281e`): JIT vs AOT equal across i32/i64 const + internal-call
-  reloc through the real `compileWasm`→produce→`load` pipeline.
-- **Scope limit (D-250)**: the standalone runner handles the STATELESS subset (void / i32-result, no
-  memory/globals/imports) — the v0.2 `.cwasm` carries no memory/global/data/table/import sections, so a stateful
-  runtime can't be rebuilt from the artefact yet. Non-void/i32 results also deferred (`UnsupportedEntrySignature`).
+- **Phase**: **12 IN-PROGRESS — AOT compilation mode**. §12.0/§12.1/§12.2/§12.3 `[x]`. **Re-sequenced per
+  ADR-0139**: both remaining feature rows are blocked on larger work — §12.4 (cold-start bench) on §12.3b
+  (real v1-class fixtures use memory → trap on the stateless AOT path, empirically verified gimli/fib2), §12.5
+  (stack-map) on Phase-15 (`zir.GcRootMap` is an empty placeholder, no shape to serialise). **The one
+  substantive do-now row = §12.3b (stateful `.cwasm`)** — promoted from D-250 to an explicit row. Phase 11 DONE.
+- **§12.1/§12.2/§12.3 done** (see ROADMAP + ADR-0138/0139): `.cwasm` v0.2 (exports section) loader+runner runs
+  STATELESS void/i32 entries end-to-end (`zwasm compile`→`run`, smoke exit 42); JIT↔AOT differential; toolchain
+  cross-compile gate (`check_aot_cross_compile.sh`). The standalone runner (`aot/run.zig`) builds a minimal
+  zero-state `JitRuntime` → real (memory/globals-using) modules trap, which §12.3b fixes.
+
+## Active bundle
+
+- **Bundle-ID**: 12.3b-stateful-cwasm
+- **Cycles-remaining**: ~3 (cycle-1 memory+globals; cycle-2 tables/elem + WASI imports; cycle-2+ GC +
+  cross-module imports)
+- **Continuity-memo**: §12.3b serialises module STATE into `.cwasm` v0.3 + reconstructs a real runtime from the
+  artefact alone (AOT analogue of `setup.setupRuntimeLinked`, src/engine/setup.zig:229 — today it builds from
+  `CompiledWasm`+`.wasm`). Survey (this cycle): JitRuntime state built at setup.zig — memory (`vm_base`/`mem_limit`
+  @975-988: alloc min_pages×64KB, memcpy active data segments), globals (`globals_base` @985, `globals_buf` @477,
+  per-global const-expr eval @575-580), tables/elem (@620-951), host_dispatch (@284, WASI). **Cycle-1 = memory +
+  globals only** (no tables/imports/GC): v0.3 header adds `memory_{min,max}_pages` + `memory_init_{offset,size}`
+  (data bytes) + `globals_{offset,size}` (n_globals + pre-evaluated u64 values, serialise the FINAL values not
+  init-exprs — simple i32/i64/f/v128.const + ref.null/i31; NO global.get-import/struct.new in cycle-1).
+  Reconstruction in `aot/run.zig`: alloc+init memory, build globals_buf from serialised values, set
+  `vm_base`/`globals_base` (drop the zero-pad for those). Format mirrors the exports-section pattern (ADR-0138:
+  header offset/size pair + `[count][entries]`). Producer side: `CompiledWasm` already carries globals
+  (`globals_offsets`/`globals_valtypes`) + the module; thread memory+global-init into `serialise.Input`.
+- **Exit-condition**: a memory+globals-using `()→i32` fixture (e.g. reads a global / writes+reads memory)
+  produced to `.cwasm` then `zwasm run` → correct result (currently TRAPS). §12.3b cycle-1 `[x]` on that.
 
 ## Next task (autonomous)
 
-§12.4 — cold-start bench-delta: AOT load + first-call vs JIT first-invocation **≥30%** improvement on ≥3
-v1-class hyperfine fixtures (the ADR-0040-deferred §9.8b/8b.3 bench obligation; concrete threshold from
-`private/notes/p8-8b3-aot-survey.md`'s 30-50% cold-start estimate). Step 0 survey: the bench harness
-(`scripts/run_bench.sh`, `bench/`), how JIT first-invocation is timed today, and whether `zwasm compile` + `zwasm
-run *.cwasm` give a clean cold-start measurement point (load+reloc+first-call vs compile+first-call). Bench is
-2-host (Mac+Linux) per ADR-0137. Then §12.5 (stack-map section, gated `needs_gc_heap`, per ADR-0117 I4).
+§12.3b cycle-1 — stateful `.cwasm` (memory + globals). Smallest red test: a `()→i32` fixture that reads a
+declared global (or writes+reads linear memory) → produce `.cwasm` → `runCwasm` (currently TRAPS, the red). Green
+= v0.3 format (memory_{min,max}_pages + memory_init + globals sections per the bundle continuity-memo) + producer
+serialise (thread memory+global-init from `CompiledWasm`/Module into `serialise.Input`) + `aot/run.zig`
+reconstruction (alloc+init memory, build globals_buf, set `vm_base`/`globals_base`). Cycle-1 scope = NO
+tables/elem/imports/GC (simple const-expr global inits only). Bundle continuity-memo has the setup.zig anchors.
 
 ## Deferred / open debt (none a Phase-12 blocker)
 
-- **D-250** stateful `.cwasm` runtime reconstruction (memory/globals/imports) + non-void/i32 results — the v0.2
-  container lacks the module-state sections; standalone runner is stateless-only. Later §12 / §12+.
 - **D-249** Windows bench timing (hyperfine on windowsmini) — perf-completeness only, ADR-0137.
 - **D-245** host→JIT callee-saved: arm64 + x86_64-SysV no-arg-void fixed; win64 + arg'd variants = remainder.
 - **D-246** §11.3 arm64 dot/extmul JIT-emit hole → Phase 15. **D-211** GC-on-JIT precise rooting → Phase 15.
@@ -47,12 +54,10 @@ run *.cwasm` give a clean cold-start measurement point (load+reloc+first-call vs
 
 ## Step 0.7 (next resume)
 
-This turn landed §12.3 cross-compile gate (`617a4ae4`): `check_aot_cross_compile.sh` green for all 3 targets +
-wired into `gate_merge`. No new code-exec tests (cross-compile is build-only; per-host run already covered by
-`runCwasm`). Prior ubuntu verified `8235e6a9` OK (§12.1 close). This turn = build-graph + scripts only, no `src/`
-behavior change, so NO ubuntu kick needed (the cross-compile ran locally on Mac; gate_merge runs it 3-host at
-merge). Next resume: no ubuntu verification pending. Phase-12 exec tests skip Win64 via `skip.phaseEnd` (D-250);
-windowsmini = phase-boundary.
+This turn = planning only (ADR-0139 re-sequence + §12.3b/§12.5 surveys + bundle setup); no `src/` behavior
+change beyond D-250→§12.3b comment syncs, so NO ubuntu kick owed. Prior ubuntu verified `8235e6a9` OK; last code
+HEAD unchanged. Next resume: no ubuntu verification pending; start §12.3b cycle-1. Phase-12 exec tests skip Win64
+via `skip.phaseEnd` (§12.3b/ADR-0139); windowsmini = phase-boundary.
 
 **Gate hygiene**: Step-5 Mac = `bash scripts/mac_gate.sh`. Win64 cross-compile: `zig build test
 -Dtarget=x86_64-windows-gnu` (compile-only). 3-host reconcile = phase boundary.
@@ -60,6 +65,6 @@ windowsmini = phase-boundary.
 ## Key refs
 
 - ROADMAP §12 (AOT — Goal + exit criteria ~line 1432; §12.3/12.4/12.5 task rows); Phase Status widget.
-- ADR-0138 (`.cwasm` v0.2 exports section); ADR-0040/0039 (AOT substrate); ADR-0117 (GC stack-map for §12.5);
-  ADR-0067 (3-host); ADR-0136 (`--engine=jit`).
-- D-250 (stateful `.cwasm` scope). Survey: `private/notes/p12-12.1-aot-loader-survey.md`.
+- ADR-0139 (Phase-12 re-sequence: §12.3b stateful `.cwasm` before §12.4; §12.5 Phase-15-coupled); ADR-0138
+  (v0.2 exports); ADR-0040/0039 (AOT substrate); ADR-0117 (GC stack-map §12.5); ADR-0067 (3-host); ADR-0136.
+- `setup.setupRuntimeLinked` (setup.zig:229) = the reconstruction template. Survey: `p12-12.1-aot-loader-survey.md`.

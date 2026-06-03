@@ -65,4 +65,19 @@ numeric label — §12.5 sits before §12.4 in the work order.)
 - §12.5 is the immediate next chunk (unblocked).
 - No code change in this ADR (ROADMAP + debt only).
 
+## Update (same-day; §12.5 survey correction)
+
+A follow-up §12.5 survey found the premise "§12.5 is unblocked" was wrong: the JIT side has **no stack-map data
+yet** — `zir.GcRootMap = struct {}` is a zero-field placeholder (`src/ir/zir.zig:468`), and per-callsite
+root-slot population is Phase 15 (ADR-0135/ADR-0128 §2 "rooting becomes load-bearing only when reclamation
+lands"; D-211). ADR-0117 I4 asks the `.cwasm` to carry entries "in the **same shape as JIT-mode populates
+them**" — but JIT-mode populates nothing, so defining the entry shape now would be speculative (guessing a
+shape before its producer exists — a no-premature-design violation). So **§12.5 is Phase-15-coupled** (its entry
+shape co-defines with `GcRootMap`), not the unblocked next step.
+
+Net: BOTH remaining §12 feature rows are blocked on larger work — §12.4 on §12.3b, §12.5 on Phase-15. The single
+substantive do-now row is **§12.3b (stateful `.cwasm`)**, which is the actual next work (a multi-cycle bundle).
+§12.5 stays `[ ]` with a Phase-15-coupling note; a reserved-empty header slot is deferred to land WITH the
+real entry shape (one format bump, not two).
+
 > **Doc-state**: ACTIVE
