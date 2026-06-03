@@ -24,9 +24,10 @@
   `trap_origin`→null, `trap_trace`→empty (zwasm Trap is single-flag, no stack capture; ADR-0022/D-022).
 - **§13.3 partial** `47298cd1`: `wasm_config` `set_args`/`set_envs`/`inherit_stdio` C builders (`api/wasi.zig`)
   over existing `Host` methods (set_* dupe; inherit_stdio no-op — `Host.init` wires fd 0/1/2). Void ABI OOM-degrades.
-- **§13.2 extern conversions COMPLETE** (closes gap doc's "5 missing"): `wasm_extern_as_*_const` (4, trivial casts,
-  `instance.zig`) + `wasm_extern_type` (`module_introspect.zig`: global/table read cached handle fields; func/memory
-  decode the instance module's per-kind index space via new `moduleOf`/`funcExternTypeAt`/`memoryExternTypeAt`).
+- **§13.2 extern conversions COMPLETE**: `wasm_extern_as_*_const` + `wasm_extern_type` (`63dab69d`); `wasm_{func,
+  global,table,memory}_as_extern[_const]` (`0fc0aac5`, new `api/extern_new.zig`) — entity→Extern WRAP (separate
+  structs) caching a borrowed-view Extern on the entity (`extern_view`); `Extern.borrowed` makes `extern_delete`
+  a no-op so no double-free. Extracted per ADR-0099 §D2 (instance.zig hit its 3200 exempt cap → 3116 now).
 
 ## Next task (autonomous)
 
@@ -38,12 +39,13 @@ Two open tracks, both within Phase 13's surface (pick either; runtime-entity is 
    `main`, cli/main.zig:43/58) — a C-library context (`libzwasm.so`, Zig startup never runs) can't reach it, so
    inherit needs platform C APIs (`_NSGetArgv` / `/proc/self/cmdline` / `GetCommandLineW`) or the C `environ`
    global = new libc sites (§14 "unconscious libc fanout"). Do the ADR-0070 amend as Step 1 of that chunk.
-2. **§13.2 runtime-entity layer** (survey a64aa6a0; the biggest remaining piece) — `wasm_{func,global,table,
-   memory}_as_extern[_const]` is a WRAP not a cast (Func≠Extern in `instance.zig`; separate structs) with an
-   ownership subtlety (borrowed-view Extern must not double-free the entity — needs an owns-inner flag or a cached
-   view); global/table/memory `_new` need an optional-backing accessor change (accessors hard-deref `inst.runtime`).
-   `wasm_func_new` host-callback = **D-252** (no standalone host-func dispatch). Then **foreign** (`WASM_DECLARE_REF`
-   shared ref machinery). New `api/extern_new.zig` per the module_introspect precedent.
+2. **§13.2 runtime-entity `_new`** (lands in `api/extern_new.zig`, next to as_extern) — `wasm_{global,table,memory}_new`
+   create host-owned standalone entities. The blocker: current Global/Table/Memory accessors hard-deref
+   `inst.runtime` (e.g. `wasm_global_get` reads `rt.globals[idx]`), but a standalone entity has no instance. Needs an
+   **optional-backing** change: a tagged/optional own-cell on the entity (Global already caches valtype+mutable, so
+   standalone Global = `{instance=null, own_value:*Value, valtype, mutable}`); accessors branch `if (instance) |i|
+   {rt path} else {own-cell path}` (split per axis — no single-slot dual-meaning). `wasm_func_new` host-callback =
+   **D-252** (no standalone host-func dispatch). Then **foreign** (`WASM_DECLARE_REF` shared ref machinery).
 
 gap: `.dev/phase13_capi_gap.md`.
 
@@ -64,9 +66,9 @@ prose. Standing `soon` (not Phase-12): 10 ADR + 10 lesson `<backfill>` markers; 
 
 ## Step 0.7 (next resume)
 
-This turn landed §13.2 extern conversions (extern_as_*_const + wasm_extern_type): Mac test+lint green. An ubuntu
-`test` is kicked against this turn's HEAD → next resume `tail /tmp/ubuntu.log` for OK (pure decode + c_allocator,
-host-portable). Prior ubuntu §13.3-partial `47298cd1` OK; windowsmini `0810b339` reconcile GREEN.
+This turn landed §13.2 `*_as_extern[_const]` (new `extern_new.zig`): Mac test+lint+zone green, instance.zig 3116<cap.
+An ubuntu `test` is kicked against this turn's HEAD → next resume `tail /tmp/ubuntu.log` for OK (c_allocator wrap +
+borrowed-view, host-portable). Prior ubuntu §13.2-extern-type `63dab69d` OK; windowsmini `0810b339` reconcile GREEN.
 
 **Gate hygiene**: Step-5 Mac = `bash scripts/mac_gate.sh`. Win64 cross-compile: `zig build test
 -Dtarget=x86_64-windows-gnu` (compile-only). 3-host reconcile = phase boundary.
