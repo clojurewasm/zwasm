@@ -18,8 +18,8 @@
 ## Active bundle
 
 - **Bundle-ID**: 12.3b-stateful-cwasm
-- **Cycles-remaining**: ~2 (cycle-1 memory+globals DONE; cycle-2 tables/elem + WASI imports NEXT; cycle-2+ GC +
-  cross-module imports)
+- **Cycles-remaining**: ~1-2 (cycle-1 memory+globals + cycle-2a tables/elem DONE; cycle-2b WASI imports NEXT;
+  cycle-2+ GC + cross-module imports)
 - **Continuity-memo**: §12.3b serialises module STATE into `.cwasm` v0.3 + reconstructs a real runtime from the
   artefact alone (AOT analogue of `setup.setupRuntimeLinked`, setup.zig:229). **CYCLE-1 DONE — globals
   (`797a7ef0`) + memory (`58e97a09`)**, both CLI-smoke-verified (`zwasm run` → 42). `.cwasm` v0.3 header now 92 B:
@@ -33,27 +33,28 @@
   **PITFALL hit + fixed**: `i32.const` is SIGNED LEB128 — `0x63` (99) decodes as -29 (bit-6 set); use values <64
   or multi-byte SLEB in hand-rolled fixtures. **EMPIRICAL (this turn)**: shootout fixtures (gimli/fib2/sieve)
   still TRAP after cycle-1 — gimli imports `proc_exit` + has a table+elem, so v1-class fixtures need cycle-2
-  (imports AND tables), not just memory+globals. **CYCLE-2a TABLES/ELEM (NEXT, survey done)**: 3 new v0.3
-  sections — `tables_meta` (`[n][min:u32][max:u32]`), `elem_data` (`[n_seg][table_idx:u32][offset:u32][n:u32]
-  [funcidx...]`), `func_types` (`[n_funcs][raw_typeidx:u32]`, needed for canonical typeidx). Loader computes (not
-  serialises): `funcptr_base[slot] = block.bytes.ptr + func_offsets[F-n_imports]`, `typeidx_base[slot] =
-  canonical_type.canonicalTypeidx(types_section, func_types[F])` (matches setup.zig:816 non-subtyping). runEntry
-  sets `funcptr_base`/`table_size`/`typeidx_base` (table-0 fast path = scalars only, no `tables_ptr` needed;
-  call_indirect emit reads X24/X25/X26 = typeidx_base/table_size/funcptr_base, op_call.zig:299). Fixture exists:
-  `test/edge_cases/p7/call_indirect/funcref_roundtrip.wat`. **MVP = non-subtyping, single table-0**; subtyping
-  (raw typeidx, setup.zig:814) → cycle-2+ (ADR if tackled). Then CYCLE-2b WASI imports (`populateDispatch`@284,
-  `wasi/jit_dispatch.zig`; serialise import module+name+kind). setup.zig anchors: tables @584-950, elem @733-831.
-- **Exit-condition**: cycle-2a — `funcref_roundtrip` `.cwasm` runs via `runEntry` → 42 (currently traps,
-  table_size 0). Bundle closes when a real v1-class fixture (tinygo guest, needs 2b WASI) runs AOT → unblocks §12.4.
+  (imports AND tables), not just memory+globals. **CYCLE-2a TABLES/ELEM DONE (`9b416428`, CLI-smoke exit 7)**: v0.3
+  header +`table0_size`+`elem_{offset,size}` (flag bit `flag_has_table`), `CwasmFuncMeta` +`canon_typeidx`
+  (12→16B), elem_data section `[n_seg][table_offset:u32][n_funcs:u32][funcidx...]`. produce `collectTables`
+  (decodeTables/decodeElement + `canonical_type.canonicalTypeidx` per defined func). `load.buildTable` computes
+  `funcptr_base[slot]=@intFromPtr(block.ptr+func_offsets[F-n_imports])` + `typeidx_base[slot]=canon` (maxInt
+  sentinel for empty); runEntry aliases them (table-0 fast path = scalars). MVP non-subtyping single-table-0.
+  **CYCLE-2b WASI IMPORTS (NEXT)**: serialise import metadata (module+name+kind) + reconstruct
+  `host_dispatch_base` via the WASI registry. setup.zig `populateDispatch`@284; `wasi/jit_dispatch.zig` has the
+  d-2 handlers (fd_write/clock/random/args/environ). Then a real tinygo guest (`bench/runners/wasm/tinygo/*`)
+  runs AOT → bundle closes + unblocks §12.4. NOTE: shootout `_start` calls `proc_exit` → that import must wire.
+- **Exit-condition**: cycle-2b — a WASI-importing `.cwasm` (fd_write / proc_exit) runs via `zwasm run`. Bundle
+  closes when a real v1-class fixture (tinygo guest) runs AOT → unblocks §12.4 bench.
 
 ## Next task (autonomous)
 
-§12.3b cycle-2a — tables/elem. Smallest red test: `test/edge_cases/p7/call_indirect/funcref_roundtrip.wat`
-(table 1 funcref + elem[0]=$callee returning 42 + exported `call_indirect`) → produce → `aot_run.runEntry`
-(currently traps: table_size 0). Green = v0.3 `tables_meta`+`elem_data`+`func_types` sections + producer
-(decodeTables/decodeElement + serialise raw typeidx) + loader computes `funcptr_base`/`typeidx_base` from
-func_offsets + `canonicalTypeidx(types, func_types[F])` + runEntry sets the table-0 scalars. MVP non-subtyping
-single-table-0; subtyping → cycle-2+. Bundle continuity-memo has the full survey + setup.zig anchors.
+§12.3b cycle-2b — WASI imports. Smallest red test: the `proc_exit_42` fixture (cli/run.zig:280) — a func import
+`wasi_snapshot_preview1.proc_exit` + `_start`/`main` calling it → produce `.cwasm` → `runCwasm` (currently the
+import call traps: host_dispatch_base is the zero-pad / default trap). Green = serialise import metadata
+(module+name+kind, n_imports already in header) + a v0.3 imports section + `aot/run.zig` reconstructs
+`host_dispatch_base` from the WASI registry (`wasi/jit_dispatch.zig` d-2 handlers: fd_write/clock/random/args/
+environ + proc_exit). Survey the host-dispatch wiring (`setup.populateDispatch`@284) first. Then a tinygo guest
+runs AOT → bundle closes + §12.4 unblocks.
 
 ## Deferred / open debt (none a Phase-12 blocker)
 
@@ -65,10 +66,10 @@ single-table-0; subtyping → cycle-2+. Bundle continuity-memo has the full surv
 
 ## Step 0.7 (next resume)
 
-This turn = §12.3b cycle-2a SURVEY + empirical scoping (no code commit beyond this handover chore): verified
-shootout fixtures trap after cycle-1 (need cycle-2 imports+tables), surveyed tables/elem reconstruction. Prior
-ubuntu verified `f74a258c` OK (memory cycle-1b) — last code HEAD; no ubuntu kick owed this turn (handover-only).
-Next resume: start cycle-2a tables/elem (no ubuntu pending). Phase-12 exec tests skip Win64 via `skip.phaseEnd`;
+This turn landed §12.3b cycle-2a tables/elem (`9b416428`): v0.3 table0+elem+canon_typeidx, Mac test+lint+zone
+green, CLI smoke (`zwasm run --invoke g ci.cwasm` → exit 7, call_indirect). An ubuntu `test` is kicked against
+this turn's final HEAD → next resume `tail /tmp/ubuntu.log` for OK (verifies x86_64-SysV funcptr/typeidx_base +
+call_indirect). Prior ubuntu verified `f74a258c` OK (memory). Phase-12 exec tests skip Win64 via `skip.phaseEnd`;
 windowsmini = phase-boundary.
 
 **Gate hygiene**: Step-5 Mac = `bash scripts/mac_gate.sh`. Win64 cross-compile: `zig build test
