@@ -3,36 +3,6 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
-  - id: "D-243"
-    layer: "code"
-    status: "note"
-    description: |-
-      blocked-by: no preopen-sandbox wiring for file-I/O realworld fixtures. After
-      fd_filestat_get + path_unlink_file landed (b6224bbb), rust_file_io resolves all
-      WASI imports + instantiates (facade-runner 55 PASS) but cannot RUN to success:
-      it `path_open`s a file relative to a preopen dir, but the runners (run_runner /
-      diff_runner / CLI) configure ZERO preopens (`host.preopens` empty), so the guest
-      gets badf and fails (wasmtime itself panics `NotFound` without `--dir`). The
-      file-I/O fd-handler happy paths (fdRead/Write over file fds, path_open, the new
-      filestat/unlink) are implemented but unexercised end-to-end. Discharge: add a CLI
-      `--dir <host>[:<guest>]` flag + a host `addPreopen` call (the c_api/CLI path already
-      uses lookupWasiThunk + sets cfg.io, run.zig:83), and have the realworld runners pass
-      a temp sandbox dir; then rust_file_io (+ future file fixtures) run to completion.
-      (2026-06-03: the earlier "facade instantiates but CLI doesn't" divergence was a STALE
-      `zig-out/bin/zwasm` — `zig build test` doesn't rebuild the CLI binary; a fresh build
-      instantiates + runs rust_file_io to `trap unreachable` = the Rust panic on file-open
-      failure, matching wasmtime's NotFound. No divergence; only the preopen is missing.)
-      CYCLE 1 DONE (`0b4706b3`): --dir preopen + path_open O_CREAT (file created). CYCLE 2 DONE
-      (`bca625f2`): fd_write/fd_read to file fds → `zwasm run --dir <tmp>:. rust_file_io.wasm`
-      runs create+write+read+unlink and EXITS 0 (verified; fd-roundtrip regression test). The
-      file-I/O CAPABILITY is complete. REMAINDER (this row, now): wire the realworld run/diff
-      runners to pass a temp `--dir` so rust_file_io flips SKIP-V2-TRAP → gate PASS (diff_runner
-      must give wasmtime the same --dir + matching guest path). Optional gate-visibility; the
-      behaviour is proven. Phase 11 §11.1.
-    first_raised: "2026-06-03"
-    last_reviewed: "2026-06-03"
-    refs: |-
-      src/wasi/fd.zig (pathOpen/pathUnlinkFile preopen resolution) / src/wasi/host.zig (addPreopen) / src/cli/run.zig / test/realworld/*_runner.zig / ROADMAP §11.1
   - id: "D-239"
     layer: "code"
     status: "partial"
