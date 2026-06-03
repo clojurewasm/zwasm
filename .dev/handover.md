@@ -11,19 +11,21 @@
   6/6 SIMD fixtures 33-37% AOT-faster). **Deferred to Phase 15**: §12.5 stack-map (co-defines with the GC
   `GcRootMap` shape, ADR-0141, with §11.4 rooting). **Deferred D-251**: WASI/host imports in AOT (parity with
   JIT compute-only, ADR-0140 — lands with JIT-WASI d-3 / D-244).
-- **Phase 13 opened**; §13.0 [x] (widget) + **§13.1 [x]** — `wasm.h` surface audit DONE
-  (`.dev/phase13_capi_gap.md`: 54/135 impl, gap list by category). 🔒 = END-of-phase conformance gate, not entry.
+- **Phase 13 opened**; §13.0 [x], §13.1 [x] (gap audit `.dev/phase13_capi_gap.md`). **§13.2 in progress** —
+  type-constructor group DONE (`7ac09d80`, `src/api/types.zig`): valtype/functype/globaltype/tabletype/
+  memorytype `_new/_delete/_copy` + queries + `valtype_vec` (pointer-vec, element-cascade delete, deep-copy);
+  re-exported via `api/wasm.zig`, barrel in `zwasm.zig`. Mirrors upstream ownership (functype_new consumes the
+  vecs; queries return borrowed). 🔒 = END-of-phase conformance gate, not entry.
 
 ## Next task (autonomous)
 
-§13.2 — implement missing `wasm.h` surface, category-by-category (gap list: `.dev/phase13_capi_gap.md`; 54/135
-impl). **First chunk = type constructors + queries** (load-bearing — `func_new`/`global_new`/`table_new`/
-`memory_new` consume `*type` objects): `wasm_{valtype,functype,globaltype,tabletype,memorytype}_new/_delete/
-_copy` + query accessors (valtype_kind, functype_params/results, globaltype_content/mutability, tabletype_
-element/limits, memorytype_limits) + their vecs. Impls go in a new `src/api/types.zig` (or extend `instance.zig`)
-+ re-export via `api/wasm.zig`; mirror the upstream wasm-c-api shapes (`include/wasm.h`). Red test: a Zig test
-constructing a functype + reading params/results back. Then externtype/import-export types, the `_new`
-constructors, frames/foreign, module_imports/exports. Step 0 mostly done (gap doc); per-category survey as needed.
+§13.2 next category — **externtype + import/export types** (build on the type constructors `7ac09d80`; module_
+imports/exports return these). In `api/types.zig`: `wasm_externtype_t` (a tagged union over func/global/table/
+memory type) + `wasm_externtype_kind` + `wasm_externtype_as_{func,global,table,memory}type[_const]` (both
+directions: `wasm_{func,global,table,memory}type_as_externtype`); then `wasm_importtype_t` (module+name+
+externtype) / `wasm_exporttype_t` (name+externtype) `_new/_delete/_copy` + queries + their vecs. See
+`include/wasm.h` lines ~250-330 + `.dev/phase13_capi_gap.md`. Then (later chunks): func/global/table/memory
+`_new` constructors (Store-coupled → may extend `instance.zig`), frames/foreign, module_imports/exports.
 
 ## Phase-12 close note
 
@@ -42,10 +44,10 @@ prose. Standing `soon` (not Phase-12): 10 ADR + 10 lesson `<backfill>` markers; 
 
 ## Step 0.7 (next resume)
 
-This turn = §13.1 gap audit (`.dev/phase13_capi_gap.md`) + §13.1 [x] + windowsmini reconcile verified GREEN
-(above). No new `src/` this turn (gap doc + ROADMAP/handover only) → no ubuntu kick owed. Last code HEAD
-verified ubuntu = `cf32e57a` (Mac+ubuntu); windowsmini = `0810b339` reconcile GREEN. Next resume: start §13.2
-type constructors (no host verification pending).
+This turn landed §13.2 type constructors (`7ac09d80`, `src/api/types.zig`): Mac test+build(C-API lib)+lint+zone
+green. An ubuntu `test` is kicked against this turn's HEAD → next resume `tail /tmp/ubuntu.log` for OK (the
+type constructors are pure-data + c_allocator, host-portable; ubuntu verifies x86_64 link + the test block).
+Prior ubuntu `cf32e57a` OK; windowsmini `0810b339` reconcile GREEN.
 
 **Gate hygiene**: Step-5 Mac = `bash scripts/mac_gate.sh`. Win64 cross-compile: `zig build test
 -Dtarget=x86_64-windows-gnu` (compile-only). 3-host reconcile = phase boundary.
