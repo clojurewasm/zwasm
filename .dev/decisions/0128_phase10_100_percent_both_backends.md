@@ -199,4 +199,4 @@ D-209 check lifted, and the realworld GC/EH/TC producers green. Status →
 
 | Date | Commit | Summary |
 |------|--------|---------|
-| 2026-05-31 | `<backfill>` | Initial — Phase 10 100% both-backends plan; accepts ADR-0127; dissolves D-209; corrects D-211 difficulty (non-moving ⇒ op-emit, deferred rooting); provisions realworld toolchains. |
+| 2026-05-31 | `801037b3` | Initial — Phase 10 100% both-backends plan; accepts ADR-0127; dissolves D-209; corrects D-211 difficulty (non-moving ⇒ op-emit, deferred rooting); provisions realworld toolchains. |

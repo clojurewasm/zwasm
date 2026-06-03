@@ -205,5 +205,5 @@ No second refactor needed — 10.R + 10.G + 10.E share the same
 
 | Date | Commit | Notes |
 |------|--------|-------|
-| 2026-05-28 | `<backfill>` | Initial Proposed (10.R cycle 48, Step-0 survey outcome). D1: side-band sig-index; D2: defer narrowing to 10.G. |
-| 2026-05-28 | `<backfill>` | Accepted + revised under "完成形がきれい" lens (cycle 90). D1 pivots from side-band to full ValType widening (wasmtime-style tagged union); D2 reverses to "narrow from day 1"; D5 added (10.G GC heap-types extend cleanly). Industry survey (wasmtime / wasm-tools / WAMR / wazero) confirmed the original D1 was structurally a workaround that couldn't represent `(local (ref $t))` at all. Bundle `10.R-valtype-widen` opens with the cycle 1-5 sequence in Consequences §5. |
+| 2026-05-28 | `c786a2d8` | Initial Proposed (10.R cycle 48, Step-0 survey outcome). D1: side-band sig-index; D2: defer narrowing to 10.G. |
+| 2026-05-28 | `d6b187f8` | Accepted + revised under "完成形がきれい" lens (cycle 90). D1 pivots from side-band to full ValType widening (wasmtime-style tagged union); D2 reverses to "narrow from day 1"; D5 added (10.G GC heap-types extend cleanly). Industry survey (wasmtime / wasm-tools / WAMR / wazero) confirmed the original D1 was structurally a workaround that couldn't represent `(local (ref $t))` at all. Bundle `10.R-valtype-widen` opens with the cycle 1-5 sequence in Consequences §5. |

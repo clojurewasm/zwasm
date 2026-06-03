@@ -272,5 +272,5 @@ found three considerations the v2 design should integrate:
 
 | Date | Commit | Notes |
 |------|--------|-------|
-| 2026-05-28 | `<backfill>` | Initial Proposed (D1-D4 fixed [16]u64). |
-| 2026-05-28 | `<backfill>` | Accepted + D5 (v128 slot accounting) + D6 (exnref reification) added per cycle-90 industry survey. Decision body revised from `[16]u64` magic-cap to `[]u64` pre-sized at instantiate; "完成形がきれい" lens applied — no arbitrary cap, v128 admissible from v0.1, exnref reification lazy on _ref path only. |
+| 2026-05-28 | `73845cf0` | Initial Proposed (D1-D4 fixed [16]u64). |
+| 2026-05-28 | `510eca36` | Accepted + D5 (v128 slot accounting) + D6 (exnref reification) added per cycle-90 industry survey. Decision body revised from `[16]u64` magic-cap to `[]u64` pre-sized at instantiate; "完成形がきれい" lens applied — no arbitrary cap, v128 admissible from v0.1, exnref reification lazy on _ref path only. |

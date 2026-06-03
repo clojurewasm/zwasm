@@ -157,4 +157,4 @@ Runtime / exec:
 
 | Date | SHA | Note |
 |---|---|---|
-| 2026-05-29 | `<backfill>` | Accepted. Refines ADR-0121 D3 (packed via `StorageType` union, not `ValType` extension). Impl queued as a `/continue` bundle. |
+| 2026-05-29 | `31bca2ad` | Accepted. Refines ADR-0121 D3 (packed via `StorageType` union, not `ValType` extension). Impl queued as a `/continue` bundle. |

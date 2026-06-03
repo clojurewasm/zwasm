@@ -265,4 +265,4 @@ exactly the wall-clock penalty of this block.
 |------------|--------------|-------------------------------------------------------------------------------------------------------|
 | 2026-05-19 | `3063dd0d`   | Initial accepted version (D1 + D2 + D3).                                                              |
 | 2026-05-20 | `c1e16f7d` | D4 amend — pre-commit / pre-push hook slim-down (`gate_commit.sh --fast`; pre-push drops gate re-run).|
-| 2026-05-30 | `<backfill>` | D5 amend — in-turn chunk chaining + per-turn ubuntu batch (widens D3 one-chunk→one-turn) + gate-once + bigger-chunk default (user throughput directive). |
+| 2026-05-30 | `b39689e1` | D5 amend — in-turn chunk chaining + per-turn ubuntu batch (widens D3 one-chunk→one-turn) + gate-once + bigger-chunk default (user throughput directive). |

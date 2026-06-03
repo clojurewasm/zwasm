@@ -203,4 +203,4 @@ A-3".
 | Date       | SHA          | Note                                    |
 |------------|--------------|-----------------------------------------|
 | 2026-05-14 | `5ccae2cd` | Initial accepted version (d-16).        |
-| 2026-05-31 | `<backfill>` | Amendment — alloc-op operand force-spill (10.G GC-on-JIT). Inclusive upper-bound `cp <= last_use_pc` for `struct.new` (post-CALL operand reads); `struct.new_default` stays strict. |
+| 2026-05-31 | `fb73a87b` | Amendment — alloc-op operand force-spill (10.G GC-on-JIT). Inclusive upper-bound `cp <= last_use_pc` for `struct.new` (post-CALL operand reads); `struct.new_default` stays strict. |
