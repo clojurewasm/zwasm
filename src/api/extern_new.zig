@@ -321,6 +321,36 @@ pub export fn wasm_func_new_with_env(
     return funcNewImpl(store, ft, null, callback, env, finalizer);
 }
 
+// ----------------------------------------------------------------
+// Base `wasm_ref_t` ops (WASM_DECLARE_REF_BASE for `ref`). The funcref
+// cross-casts (`wasm_func_as_ref` / `wasm_ref_as_func`), `wasm_foreign`,
+// and per-handle host_info are tracked in D-253 (driven by §13.4).
+// ----------------------------------------------------------------
+
+/// `wasm_ref_copy(ref) -> own wasm_ref_t*` — duplicate a ref handle
+/// (same referent payload, fresh owned handle the caller deletes).
+/// Null on a standalone (instance-less) ref until D-253 adds the
+/// foreign/externref store path.
+pub export fn wasm_ref_copy(r: ?*const instance.Ref) callconv(.c) ?*instance.Ref {
+    const handle = r orelse return null;
+    const inst = handle.instance orelse return null;
+    const store = inst.store orelse return null;
+    const alloc = instance.storeAllocator(store) orelse return null;
+    const c = alloc.create(instance.Ref) catch return null;
+    c.* = .{ .instance = handle.instance, .ref = handle.ref };
+    return c;
+}
+
+/// `wasm_ref_same(a, b) -> bool` — whether two refs denote the same
+/// referent. funcref/externref identity IS the payload (`*FuncEntity`
+/// ptr / externref ptr), so payload equality is referent equality.
+/// Two nulls are the same; one null is not.
+pub export fn wasm_ref_same(a: ?*const instance.Ref, b: ?*const instance.Ref) callconv(.c) bool {
+    const ra = a orelse return b == null;
+    const rb = b orelse return false;
+    return ra.ref == rb.ref;
+}
+
 // =====================================================================
 // Tests
 // =====================================================================
@@ -652,4 +682,37 @@ test "wasm_func_new: host callback imported — guest call invokes it (i32 -> i3
     var results: vec.ValVec = .{ .size = 1, .data = &results_data };
     try testing.expect(instance.wasm_func_call(ff, &args, &results) == null);
     try testing.expectEqual(@as(i32, 42), results_data[0].of.i32); // guest call → host cb 41+1
+}
+
+// (module (table (export "t") 1 funcref))
+const defined_table_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x04, 0x04, 0x01, 0x70, 0x00, 0x01, // table funcref min 1
+    0x07, 0x05, 0x01, 0x01, 0x74, 0x01, 0x00, // export "t" → table 0
+};
+
+test "wasm_ref_copy/same: dup an instance-backed table ref + identity compare" {
+    const e = instance.wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer instance.wasm_engine_delete(e);
+    const s = instance.wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer instance.wasm_store_delete(s);
+    var bytes = defined_table_wasm;
+    const bv: vec.ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = instance.wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer instance.wasm_module_delete(m);
+    const inst = instance.wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    defer instance.wasm_instance_delete(inst);
+
+    var exports: vec.ExternVec = .{ .size = 0, .data = null };
+    instance.wasm_instance_exports(inst, &exports);
+    defer instance.wasm_extern_vec_delete(&exports);
+    const tbl = instance.wasm_extern_as_table(exports.data.?[0]) orelse return error.NotTable;
+    const r0 = instance.wasm_table_get(tbl, 0) orelse return error.NoRef;
+    defer instance.wasm_ref_delete(r0);
+
+    const c0 = wasm_ref_copy(r0) orelse return error.RefCopyFailed;
+    defer instance.wasm_ref_delete(c0);
+    try testing.expect(wasm_ref_same(r0, c0)); // copy denotes the same referent
+    try testing.expect(!wasm_ref_same(r0, null));
+    try testing.expect(wasm_ref_same(null, null));
 }
