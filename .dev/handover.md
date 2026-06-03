@@ -31,9 +31,12 @@
 
 Two open tracks, both within Phase 13's surface (pick either; runtime-entity is higher-value but needs design):
 
-1. **§13.3 remainder** — `inherit_argv`/`inherit_env` (read process args/env via `std.process`, then `setArgs`/
-   `setEnvs`; mind Windows environ) + `preopen_dir` (posix-open the host dir → `Host.addPreopen`; returns bool;
-   `std.posix.fd_t` differs on Windows — 3-host gate). Self-contained, no interp work.
+1. **§13.3 remainder** — `preopen_dir` (posix-open host dir → `Host.addPreopen`; bool; `std.posix.fd_t` differs
+   on Windows) is the self-contained one. **`inherit_argv`/`inherit_env` need an ADR-0070 (libc boundary)
+   amendment FIRST**: Zig 0.16's process API is capability-based (argv/env arrive via the `Init` token to
+   `main`, cli/main.zig:43/58) — a C-library context (`libzwasm.so`, Zig startup never runs) can't reach it, so
+   inherit needs platform C APIs (`_NSGetArgv` / `/proc/self/cmdline` / `GetCommandLineW`) or the C `environ`
+   global = new libc sites (§14 "unconscious libc fanout"). Do the ADR-0070 amend as Step 1 of that chunk.
 2. **§13.2 runtime-entity layer** (survey done a64aa6a0) — `*_as_extern[_const]` is a WRAP not a cast (Func≠Extern
    in `instance.zig`; both separate structs) with an ownership subtlety (borrowed-view Extern must not double-free
    the entity); global/table/memory `_new` need an optional-backing accessor change (current accessors hard-deref
