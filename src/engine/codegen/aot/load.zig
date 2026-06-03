@@ -214,3 +214,57 @@ test "load: rejects a truncated buffer (no header)" {
     var buf: [format.header_size - 1]u8 = undefined;
     try testing.expectError(format.Error.TruncatedHeader, load(testing.allocator, &buf));
 }
+
+test "load: 2-func direct-call reloc resolves; cross-call returns 7" {
+    // Exercises applyRelocs end-to-end: func0 calls func1 (returns 7) and
+    // propagates the result; the BL/CALL placeholder must be patched to
+    // target func1's loaded address. Executes native code → Win64-deferred.
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+
+    const arch_tag: u32 = switch (builtin.cpu.arch) {
+        .aarch64 => format.arch_arm64,
+        .x86_64 => format.arch_x86_64,
+        else => @compileError("unsupported arch for AOT reloc exec test"),
+    };
+    // func0 (calls func1, propagates its i32 return):
+    //   arm64: STP X29,X30,[SP,#-16]! ; BL <placeholder> ; LDP X29,X30,[SP],#16 ; RET
+    //          (frame save/restore so the BL-clobbered LR is restored before RET)
+    //   x86_64: CALL rel32 <placeholder> ; RET  (return addr is stack-based, no save needed)
+    const func0: []const u8 = switch (builtin.cpu.arch) {
+        .aarch64 => &[_]u8{ 0xFD, 0x7B, 0xBF, 0xA9, 0x00, 0x00, 0x00, 0x94, 0xFD, 0x7B, 0xC1, 0xA8, 0xC0, 0x03, 0x5F, 0xD6 },
+        .x86_64 => &[_]u8{ 0xE8, 0x00, 0x00, 0x00, 0x00, 0xC3 },
+        else => unreachable,
+    };
+    // func1: () -> i32 returning 7.
+    const func1: []const u8 = switch (builtin.cpu.arch) {
+        .aarch64 => &[_]u8{ 0xE0, 0x00, 0x80, 0xD2, 0xC0, 0x03, 0x5F, 0xD6 },
+        .x86_64 => &[_]u8{ 0xB8, 0x07, 0x00, 0x00, 0x00, 0xC3 },
+        else => unreachable,
+    };
+    // Per-func-relative offset of the call placeholder within func0
+    // (arm64: after the 4-byte STP; x86_64: at the start).
+    const reloc_off: u32 = switch (builtin.cpu.arch) {
+        .aarch64 => 4,
+        .x86_64 => 0,
+        else => unreachable,
+    };
+
+    const cwasm = try serialise.produceCwasm(testing.allocator, .{
+        .arch = arch_tag,
+        .bytes_per_func = &.{ func0, func1 },
+        .n_slots_per_func = &.{ 2, 1 },
+        .sig_idx_per_func = &.{ 0, 0 },
+        .relocs = &.{.{ .code_offset = reloc_off, .target_func_idx = 1, .kind = format.reloc_kind_direct_call }},
+        .func_idx_for_reloc = &.{0},
+        .types_serialised = &.{},
+        .n_imports = 0,
+        .n_types = 1,
+    });
+    defer testing.allocator.free(cwasm);
+
+    var mod = try load(testing.allocator, cwasm);
+    defer mod.deinit();
+
+    const f = mod.entry(0, *const fn () callconv(.c) i32);
+    try testing.expectEqual(@as(i32, 7), f());
+}
