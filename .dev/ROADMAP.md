@@ -1467,6 +1467,18 @@ produce}.zig` + `src/cli/compile.zig`) are the loader's contract.
 
 **🔒 gate**: no.
 
+#### §12 task table
+
+| Row     | Task                                                                                                                                                                                                                       | Status |
+|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------|
+| 12.0    | Open §12 inline + flip Phase Status widget (Phase 11 → DONE; Phase 12 → IN-PROGRESS).                                                                                                                                     | [x] `12dad700` |
+| 12.1    | `.cwasm` loader — `zwasm run *.cwasm` reads a §9.8b-produced artefact against `format.zig`'s 60-byte `CwasmHeader` + 12-byte `CwasmFuncMeta` + 9-byte `CwasmReloc` (ADR-0039 Rev 2); load + relocate + execute.            | [ ]  |
+| 12.2    | AOT ↔ JIT differential-test equivalence (same fixtures, identical observable results both paths).                                                                                                                          | [ ]  |
+| 12.3    | Cross-compile (`zig build -Dtarget=x86_64-linux`) + cross-produced `.cwasm` runs on the target host (3-host per ADR-0067).                                                                                                  | [ ]  |
+| 12.4    | Cold-start bench-delta: load + first-call vs JIT first-invocation **≥30%** improvement on ≥3 v1-class hyperfine fixtures (the ADR-0040-deferred §9.8b/8b.3 bench obligation; concrete threshold from `private/notes/p8-8b3-aot-survey.md`). | [ ]  |
+| 12.5    | `.cwasm` stack-map section: per-callsite entries serialised in the JIT-mode shape, gated `Module.needs_gc_heap` (empty/zero-overhead for Wasm 1.0/2.0) per ADR-0117 I4. **Walker-side GC rooting is Phase 15 (ADR-0135)** — this row is format/emission only.   | [ ]  |
+| 12.P    | Phase 12 close — exit criteria met (loader + differential equiv + cross-compile + cold-start ≥30% + stack-map section) + 3-host reconcile + widget 12 → DONE + Phase 13 inline expand.                                      | [ ]  |
+
 ### Phase 13 — C API full (wasm-c-api conformance) 🔒
 
 **Goal**: wasm-c-api conformance test passes.

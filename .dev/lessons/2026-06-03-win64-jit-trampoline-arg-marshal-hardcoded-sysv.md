@@ -31,7 +31,8 @@ exercise (the same structural blind spot as the OS-only compile drift in
 - **Win64 has only 4 GPR arg slots (RCX/RDX/R8/R9).** A helper with **≥5 integer args**
   (array_copy/fill/init_* etc.) cannot be fixed by an index swap — `arg_gprs[4]` is
   out-of-bounds on Win64; args 5/6 must spill to the stack above the 32-byte shadow
-  space. That is a holistic per-op rework, not a literal swap (tracked: D-248).
+  space. That was a holistic per-op rework, not a literal swap — done via `gc_marshal.routeArg`
+  + a Win64 `computeOutgoingMaxBytes` reservation, verified green (ex-D-248, discharged).
 - **A test wrapper that hand-marshals into a naked trampoline is ALSO an ABI surface.**
   `invokeTrampolineWith` was SysV-only (tag→RDI); the *production* `.windows` trampoline
   reads the incoming tag from RCX, so the wrapper needed its own `.windows` arm.
