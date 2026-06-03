@@ -31,18 +31,19 @@
 §10 exit (ADR-0133 §4): interp 100% (MET) + JIT 0 genuine fails (MET — memory64 = D-234 harness) + clear the
 module-rejects (in-phase must-fix, NOT deferrable). Progress this session: function-references 8/0/31 → **23/0/16**;
 global JIT 796/1 → **811/1**; 7 of 8 fr rejects cleared (D-239 ref.func + emit dispatch, ref_null.0, br_on_null.1).
-**Remaining rejects** (NOT quick validation fixes — loosening validation alone exposes deeper runtime/emit gaps):
+**UnsupportedEntrySignature ×7 CLASSIFIED** (this turn, read-only): all 7 are in **multi-memory** (linking1.2/.3,
+data0.3-.6, imports2.2) → on the ADR-0133 deferred-allowlist (multi-memory→§14 + eligibility-gate), **NOT §10
+blockers**. So the must-fix reject set is much smaller than the "17":
 1. **`ref_is_null.0` + gc `i31.6`** (ElemSegmentTypeMismatch) → **D-240** (blocked-by): needs JIT typed/abstract-ref
    TABLE runtime (table.init from a reftype elem + table.get/set of typed refs) THEN the compile.zig:257
    eql→`valTypeIsSubtype` flip (loosening alone SEGV'd — proven this session). Probe via `debug_jit_auto`. Bigger.
 2. **tail-call** `return_call_indirect.0` UnsupportedOp (D-210) — known multi-cycle TC emit gap.
-3. **UnsupportedEntrySignature ×7** — invoke-path; verify whether real rejects or the audit's eligibility-gate skips
-   (a read/classification, low-risk; could SHRINK the must-fix set if they're on-allowlist).
-4. **D-234** runner-side harness discharge (corpus stops false-reporting the 52 mem64 fails; codegen proven correct).
+3. **D-234** runner-side harness discharge (corpus stops false-reporting the 52 mem64 fails; codegen proven correct).
+4. Verify the 1 `gc/type-subtyping run` UnsupportedEntrySignature SKIP (GC-on-JIT allowlist or a real gc gap?).
 
-Recommended next: **D-234** (runner-side, unblocks the clean "0-real-fail" count) OR the **UnsupportedEntrySignature
-classification** (low-risk, may shrink the set). D-240 + D-210 are bigger (runtime feature / multi-cycle TC). Run
-`scripts/check_phase10_close_invariants.sh` when the reject count hits 0.
+Recommended next: **D-234** (runner-side, unblocks the clean "0-real-fail" count — most §10-critical) OR **D-210**
+(TC emit). D-240 is the biggest (typed-ref table runtime feature). Run `scripts/check_phase10_close_invariants.sh`
+when the reject count hits 0.
 
 Other tracks: **D-238** (x86_64 EH parity), realworld GC/EH/TC producers.
 
@@ -60,13 +61,11 @@ Other tracks: **D-238** (x86_64 EH parity), realworld GC/EH/TC producers.
 
 ## Step 0.7 (next resume)
 
-THIS turn = arm64 br_on_null function-return emit (`be5a1a32`) + a fix-forward (`24b4b6e5`): the prior
-`fffc60c3` went RED on ubuntu (x86_64) because the br_on_null function-return regression test runs on the host
-arch and x86_64 br_on_null emit is still first-cut → UnsupportedOp. The arm64 FIX is correct (Mac-green); only
-the TEST was arch-divergent → comptime arch-pinned it to aarch64 (SIBLING-AT the x86_64 handler gap). Re-kicked
-ubuntu against `24b4b6e5` — Step 0.7 next resume: `tail -3 /tmp/ubuntu.log` (expect OK now). LESSON: a
-JitInstance.init regression test for an ARM64-ONLY emit fix WILL fail on x86_64 (init compiles eagerly for the
-host arch) — arch-pin such tests. Then → D-234 runner discharge OR UnsupportedEntrySignature classification.
+THIS turn = verified the br_on_null fix-forward is 2-host green (ubuntu `OK (HEAD=2ce27d5b)`) + classified the
+7 UnsupportedEntrySignature as multi-memory/allowlisted (read-only). Code state is `2ce27d5b`, ubuntu-verified
+OK. The arm64 br_on_null function-return fix (`be5a1a32`) + the arch-pin guard (`24b4b6e5`) held; lesson
+`2026-06-03-jitinstance-test-compiles-for-host-arch` filed. NO ubuntu kick needed this turn (handover-only;
+code unchanged since the verified 2ce27d5b). Next → D-234 runner discharge (most §10-critical) OR D-210 TC emit.
 
 **Gate hygiene**: Step-5 Mac gate = `bash scripts/mac_gate.sh`. JIT corpus: `zig build test-spec-wasm-3.0-assert`
 (NO bogus `-Dno-run`); **pick the exe by mtime** — `/usr/bin/find .zig-cache/o -name zwasm-spec-wasm-3-0-assert
