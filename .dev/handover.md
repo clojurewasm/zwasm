@@ -36,11 +36,14 @@ history.yaml UTF-8). The 1st windowsmini test-all (first since §11.1) PASSED th
 c_qsort/regex/sha256/string_processing) but FAILED the unit-test BUILD: `fd.zig:844` passed bare `99` to
 `addPreopen(host_fd: std.posix.fd_t)` — `fd_t` is i32 on POSIX, `*anyopaque` on Windows → comptime_int won't
 coerce. FIXED (`b6425afc`, typed `fake_fd`); verified Mac test green + x86_64-windows test exe now COMPILES.
-REMAINING for §11.P: (1) **re-kick `run_remote_windows.sh test-all`** (poll `/tmp/windows.log` → `[run_remote_windows]
-OK`); watch for further Windows-only drift (this was the first run in a while). (2) Windows bench baseline (3rd
-host) — windows runner only maps `zig build <step>`; the bench recorder needs a one-off ssh or a runner `bench`
-step like run_remote_ubuntu's. (3) flip §11.1/§11.2/§11.3 + §11.P [x]; `audit_scaffolding` (MANDATORY); open Phase
-12. Minor: D-245 remainder (win64 + arg'd variants).
+REMAINING for §11.P (windows test-all re-kicked, IN FLIGHT against `173ca8af` — poll `/tmp/windows.log` →
+`[run_remote_windows] OK`; watch for further first-run Windows-only drift): (1) Windows bench baseline (3rd host)
+— **likely BLOCKED: windowsmini uses native `zig.exe`, NOT the nix shell that pins `hyperfine`, so `run_bench.sh`
+(needs hyperfine) probably can't run there.** When windowsmini frees, FIRST probe `ssh windowsmini "where hyperfine"`;
+if absent → either install it or scope §11.P "bench 3-host" to Mac+Linux + a note that Windows bench awaits
+hyperfine-on-windowsmini (the Windows REALWORLD subset, the primary criterion, already passes). (2) flip
+§11.1/§11.2/§11.3 + §11.P [x]; `audit_scaffolding` (MANDATORY); open Phase 12. Minor: D-245 remainder (win64 +
+arg'd variants).
 
 ## Deferred / open debt (none a Phase-11 blocker)
 
