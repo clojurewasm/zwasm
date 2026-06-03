@@ -43,14 +43,17 @@
   bash -c 'run_bench.sh --quick --bench=tinygo/arith --compare=all'` records 4 runtime rows, exit 0.
   **DONE**: --engine=jit path (`8011293a`, ADR-0136); SIMD corpus ch3 (`728a43cb`, 12 fixtures + gen script);
   run_bench `--simd` ch4a (`82f20fe4`); wasmer Mac-only gate fix (`26d29e33`); gap-analysis SCRIPT ch4b
-  (`bb01be43`, `scripts/simd_gap_analysis.sh` — correct, comparator columns verified). **BLOCKED — D-245**: the
-  gap DATA can't be collected because `zwasm run --engine=jit` SEGFAULTS in **ReleaseSafe** (works in Debug;
-  crash in `owned.deinit` / `rawFree` at 0x18, runner.zig:366) on every compute-only module → `run_bench.sh`
-  (which builds ReleaseSafe) records `null` for every zwasm SIMD row. The --engine=jit feature is release-broken
-  (its regression test is Debug-only). **NEXT chunk = FIX D-245** (root-cause the bad free — bisect the
-  unconditional frees in RuntimeOwned.deinit + check compiled.deinit; add a ReleaseSafe runWasmJit test). THEN
-  re-run `nix develop --command bash scripts/run_bench.sh --simd --quick --compare=all` + `simd_gap_analysis.sh`
-  → file Phase-15 debt (incl. dot/extmul arm64-`NotImplemented`) → close bundle + flip §11.3.
+  (`bb01be43`, `scripts/simd_gap_analysis.sh` — correct, comparator columns verified). **BLOCKED — D-245
+  (ROOT-CAUSED `2fc12ba8`)**: `--engine=jit` SEGVs in ReleaseSafe (works Debug) on ANY module incl. empty
+  `_start` → `run_bench.sh` (ReleaseSafe) records `null` for zwasm. Cause: host→JIT call doesn't preserve
+  callee-saved regs — the arm64 prologue MOV-installs the cohort (X19/X24/X28) from rt w/o saving the caller's
+  (ADR-0017/D-210), but `entry.invokeAndCheckVoid` calls via plain `@call` (callconv c); ReleaseSafe keeps host
+  values live in X19-X28 → clobbered → host frees garbage. LATENT PROJECT-WIDE (all host→JIT ReleaseSafe-unsafe;
+  masked by Debug-only runs). **NEXT chunk = FIX D-245**: a callee-saved-preserving asm trampoline at the
+  `invokeAndCheck*` seam (save/restore arm64 X19-X28+FP/LR, x86_64 RBX/RBP/R12-R15 around the `blr`/`call`);
+  survey if a register-preserving entry already exists to route through; ADD a **ReleaseSafe** runWasmJit test.
+  THEN re-run `run_bench.sh --simd --compare=all` + `simd_gap_analysis.sh` → file Phase-15 debt (incl.
+  dot/extmul arm64-NotImplemented) → close bundle + flip §11.3.
 - **Exit-condition**: (after D-245) a `--simd --compare=all` run emits a per-op zwasm/median ratio table +
   Phase-15 debt for every op > 3× (and the dot/extmul gap).
 
