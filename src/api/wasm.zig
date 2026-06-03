@@ -33,6 +33,7 @@ const trap_surface = @import("trap_surface.zig");
 const vec = @import("vec.zig");
 const types = @import("types.zig");
 const instance = @import("instance.zig");
+const module_introspect = @import("module_introspect.zig");
 
 const testing = std.testing;
 
@@ -191,6 +192,7 @@ pub const zwasm_store_set_wasi = instance.zwasm_store_set_wasi;
 pub const wasm_module_new = instance.wasm_module_new;
 pub const wasm_module_validate = instance.wasm_module_validate;
 pub const wasm_module_delete = instance.wasm_module_delete;
+pub const wasm_module_imports = module_introspect.wasm_module_imports;
 pub const wasm_instance_new = instance.wasm_instance_new;
 pub const wasm_instance_delete = instance.wasm_instance_delete;
 pub const zwasm_instance_get_func = instance.zwasm_instance_get_func;

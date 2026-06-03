@@ -94,6 +94,7 @@ comptime {
     _ = @import("api/vec.zig");
     _ = @import("api/types.zig");
     _ = @import("api/instance.zig");
+    _ = @import("api/module_introspect.zig");
     _ = @import("api/cross_module.zig");
 }
 
@@ -229,6 +230,7 @@ pub const api = struct {
     pub const types = @import("api/types.zig");
     pub const cross_module = @import("api/cross_module.zig");
     pub const instance = @import("api/instance.zig");
+    pub const module_introspect = @import("api/module_introspect.zig");
 };
 pub const cli = struct {
     pub const run = @import("cli/run.zig");

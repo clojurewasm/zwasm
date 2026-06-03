@@ -492,6 +492,10 @@ pub export fn wasm_module_delete(m: ?*Module) callconv(.c) void {
     alloc.destroy(handle);
 }
 
+// `wasm_module_imports` / `_exports` (§13.2 introspection) live in the
+// separable `api/module_introspect.zig` (D-171 / ADR-0099 §D2 P3 — a
+// genuine subsystem, keeping instance.zig under its exempt cap).
+
 // ============================================================
 // Instance constructors / destructors (§9.3 / 3.5 + 3.6)
 // ============================================================
