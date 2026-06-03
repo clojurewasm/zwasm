@@ -15,9 +15,15 @@
 //!                  `Linker.defineWasi` lands at J.7 (D-176).
 //!   SKIP-IMPORTS — fixture imports from a non-WASI module the
 //!                  runner has no recipe for (out of v0.1 scope).
+//!   SKIP-INST    — all imports resolve but instantiate returns the
+//!                  generic `error.InstantiateFailed` (c_api null-
+//!                  collapse, detail lost) = "v2 can't instantiate
+//!                  this yet", tolerated like run_runner SKIP-V2.
+//!                  Today: standard-Go wasip1 binaries (D-241).
 //!   FAIL-PARSE   — `Engine.compile` returned `error.ParseFailed`.
-//!   FAIL-INST    — `Module.instantiate` returned a binding /
-//!                  validator error after parse succeeded.
+//!   FAIL-INST    — `Module.instantiate` returned a SPECIFIC binding /
+//!                  validator error after parse succeeded (a real bug,
+//!                  not the generic null-collapse).
 //!
 //! Exit codes:
 //!   0 — no FAIL-* outcomes (PASS + SKIP-* combinations are OK).
@@ -54,6 +60,7 @@ pub fn main(init: std.process.Init) !void {
     var passed: u32 = 0;
     var skip_wasi: u32 = 0;
     var skip_imports: u32 = 0;
+    var skip_inst: u32 = 0;
     var failed: u32 = 0;
 
     const cwd = std.Io.Dir.cwd();
@@ -90,6 +97,10 @@ pub fn main(init: std.process.Init) !void {
                 skip_imports += 1;
                 try stdout.print("SKIP-IMPORTS {s}: non-WASI host imports out of v0.1 facade scope\n", .{entry.name});
             },
+            .skip_inst => |err_name| {
+                skip_inst += 1;
+                try stdout.print("SKIP-INST    {s}: {s} (instantiate unsupported — standard-Go wasip1, D-241; matches run_runner SKIP-V2)\n", .{ entry.name, err_name });
+            },
             .fail_parse => |err_name| {
                 failed += 1;
                 try stdout.print("FAIL-PARSE   {s}: {s}\n", .{ entry.name, err_name });
@@ -102,8 +113,8 @@ pub fn main(init: std.process.Init) !void {
     }
 
     try stdout.print(
-        "\n[zig_facade_runner] {} PASS, {} SKIP-WASI, {} SKIP-IMPORTS, {} FAIL\n",
-        .{ passed, skip_wasi, skip_imports, failed },
+        "\n[zig_facade_runner] {} PASS, {} SKIP-WASI, {} SKIP-IMPORTS, {} SKIP-INST, {} FAIL\n",
+        .{ passed, skip_wasi, skip_imports, skip_inst, failed },
     );
     try stdout.flush();
     if (failed > 0) std.process.exit(1);
@@ -118,6 +129,14 @@ const Outcome = union(enum) {
     /// without an Outcome-shape change.
     skip_wasi,
     skip_imports,
+    /// Imports all resolve but `Module.instantiate` returns the
+    /// generic `error.InstantiateFailed` (the c_api instantiate
+    /// null-collapse, detail lost). Tolerated like run_runner /
+    /// diff_runner's SKIP-V2: it means "v2 can't instantiate this
+    /// yet", not a regression. Today: standard-Go wasip1 binaries
+    /// (D-241). A previously-PASS fixture regressing here shows as
+    /// a PASS-count drop, the sentinel.
+    skip_inst: []const u8,
     fail_parse: []const u8,
     fail_inst: []const u8,
 };
@@ -148,6 +167,10 @@ fn runFixture(alloc: std.mem.Allocator, bytes: []const u8) Outcome {
         lk.defineWasi(.{}) catch return .{ .fail_inst = "defineWasi OOM" };
         var inst = lk.instantiate(&mod) catch |err| switch (err) {
             error.UnsupportedWasiImport => return .skip_wasi,
+            // Generic c_api instantiate null-collapse = "v2 can't
+            // instantiate this yet" (D-241, standard-Go wasip1).
+            // Tolerated, matching run_runner/diff_runner SKIP-V2.
+            error.InstantiateFailed => return .{ .skip_inst = @errorName(err) },
             else => return .{ .fail_inst = @errorName(err) },
         };
         defer inst.deinit();

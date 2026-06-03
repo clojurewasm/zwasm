@@ -365,6 +365,45 @@ pub fn pathOpen(
     return writeU32LE(mem, opened_fd_ptr, new_fd);
 }
 
+/// Guest-path of the preopen backing a `.dir` slot, matched by the
+/// slot's host handle (preopens are the only `.dir` fds with a host
+/// handle registered in `host.preopens`). Null when the slot is not
+/// a registered preopen.
+fn preopenName(host: *Host, slot: *const host_mod.OpenFd) ?[]const u8 {
+    const h = slot.host_handle orelse return null;
+    for (host.preopens) |p| {
+        if (p.host_fd == h) return p.guest_path;
+    }
+    return null;
+}
+
+/// Wasm WASI snapshot-1 `fd_prestat_get` — for a preopen `.dir` fd,
+/// write its `Prestat` (tag + guest-path length). A non-preopen or
+/// out-of-range fd returns `badf`; the guest's preopen-discovery loop
+/// (call fd 3, 4, … until badf) relies on that to terminate.
+pub fn fdPrestatGet(host: *Host, mem: []u8, fd: p1.Fd, prestat_ptr: u32) p1.Errno {
+    const slot = host.translateFd(fd) orelse return .badf;
+    if (slot.kind != .dir) return .badf;
+    const name = preopenName(host, slot) orelse return .badf;
+    const dst = sliceMem(mem, prestat_ptr, @sizeOf(p1.Prestat)) orelse return .fault;
+    const ps: p1.Prestat = .{ .pr_type = .dir, .pr_name_len = @intCast(name.len) };
+    @memcpy(dst, std.mem.asBytes(&ps));
+    return .success;
+}
+
+/// Wasm WASI snapshot-1 `fd_prestat_dir_name` — copy a preopen's
+/// guest path into the guest buffer (truncated to `path_len`). The
+/// guest sizes the buffer from the `fd_prestat_get` name length.
+pub fn fdPrestatDirName(host: *Host, mem: []u8, fd: p1.Fd, path_ptr: u32, path_len: u32) p1.Errno {
+    const slot = host.translateFd(fd) orelse return .badf;
+    if (slot.kind != .dir) return .badf;
+    const name = preopenName(host, slot) orelse return .badf;
+    const dst = sliceMem(mem, path_ptr, path_len) orelse return .fault;
+    const n = @min(name.len, dst.len);
+    @memcpy(dst[0..n], name[0..n]);
+    return .success;
+}
+
 // ============================================================
 // Tests
 // ============================================================
@@ -612,4 +651,28 @@ test "fdFdstatSetFlags: persists allowed bits + masks unknown ones" {
         @as(u16, p1.FDFLAGS_NONBLOCK | p1.FDFLAGS_APPEND),
         std.mem.readInt(u16, mem[2..4], .little),
     );
+}
+
+test "fdPrestatGet: no preopens → fd 3 is badf (the go_math_big discovery-loop terminator)" {
+    var h = try Host.init(testing.allocator);
+    defer h.deinit();
+    var mem: [32]u8 = @splat(0);
+    // No preopens registered (fd_table = stdin/stdout/stderr only).
+    try testing.expectEqual(p1.Errno.badf, fdPrestatGet(&h, &mem, 3, 0));
+    // stdio fds are not dirs either.
+    try testing.expectEqual(p1.Errno.badf, fdPrestatGet(&h, &mem, 1, 0));
+}
+
+test "fdPrestatGet + fdPrestatDirName: a preopen reports its Prestat + dir name" {
+    var h = try Host.init(testing.allocator);
+    defer h.deinit();
+    const fd = try h.addPreopen(99, "/sandbox"); // host_fd is opaque to these calls
+    var mem: [32]u8 = @splat(0);
+    try testing.expectEqual(p1.Errno.success, fdPrestatGet(&h, &mem, fd, 0));
+    // Prestat: pr_type=.dir (0) @0, pr_name_len @4 = len("/sandbox")=8.
+    try testing.expectEqual(@as(u8, 0), mem[0]);
+    try testing.expectEqual(@as(u32, 8), std.mem.readInt(u32, mem[4..8], .little));
+    // dir name copied into the guest buffer.
+    try testing.expectEqual(p1.Errno.success, fdPrestatDirName(&h, &mem, fd, 8, 8));
+    try testing.expectEqualStrings("/sandbox", mem[8..16]);
 }

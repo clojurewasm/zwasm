@@ -58,6 +58,14 @@ pub fn procExit(host: *Host, rval: u32) p1.Errno {
     return .success;
 }
 
+/// Wasm WASI snapshot-1 `sched_yield` — cooperative scheduler yield.
+/// zwasm runs the guest synchronously on the host thread with no
+/// scheduler, so there is nothing to yield to: a no-op `success`,
+/// matching wasmtime/wasmer single-threaded behaviour.
+pub fn schedYield() p1.Errno {
+    return .success;
+}
+
 // ============================================================
 // args_*
 // ============================================================
@@ -249,4 +257,8 @@ test "args_get: empty args writes nothing" {
     const e = argsGet(&h, &mem, 0, 0);
     try testing.expectEqual(p1.Errno.success, e);
     try testing.expectEqualSlices(u8, &[_]u8{ 0xFF, 0xFF, 0xFF, 0xFF }, &mem);
+}
+
+test "schedYield: no-op success (single-threaded host)" {
+    try testing.expectEqual(p1.Errno.success, schedYield());
 }

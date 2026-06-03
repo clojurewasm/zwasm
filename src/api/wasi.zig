@@ -196,6 +196,24 @@ fn thunkPathOpen(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     return pushErrno(rt, wasi_fd.pathOpen(host, rt.memory, dirfd, dirflags, path_ptr, path_len, oflags, fs_rights_base, fs_rights_inheriting, fdflags, opened_fd_ptr));
 }
 
+fn thunkFdPrestatGet(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
+    const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
+    const prestat_ptr = rt.popOperand().u32;
+    const fd = rt.popOperand().u32;
+    return pushErrno(rt, wasi_fd.fdPrestatGet(host, rt.memory, fd, prestat_ptr));
+}
+fn thunkFdPrestatDirName(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
+    const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
+    const path_len = rt.popOperand().u32;
+    const path_ptr = rt.popOperand().u32;
+    const fd = rt.popOperand().u32;
+    return pushErrno(rt, wasi_fd.fdPrestatDirName(host, rt.memory, fd, path_ptr, path_len));
+}
+fn thunkSchedYield(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
+    _ = ctx;
+    return pushErrno(rt, wasi_proc.schedYield());
+}
+
 /// Map a WASI snapshot-1 import name to its host thunk, or
 /// null if the name is outside the supported set.
 pub fn lookupWasiThunk(name: []const u8) ?HostThunkFn {
@@ -215,6 +233,9 @@ pub fn lookupWasiThunk(name: []const u8) ?HostThunkFn {
     if (std.mem.eql(u8, name, "fd_fdstat_get")) return thunkFdFdstatGet;
     if (std.mem.eql(u8, name, "fd_fdstat_set_flags")) return thunkFdFdstatSetFlags;
     if (std.mem.eql(u8, name, "path_open")) return thunkPathOpen;
+    if (std.mem.eql(u8, name, "fd_prestat_get")) return thunkFdPrestatGet;
+    if (std.mem.eql(u8, name, "fd_prestat_dir_name")) return thunkFdPrestatDirName;
+    if (std.mem.eql(u8, name, "sched_yield")) return thunkSchedYield;
     return null;
 }
 
@@ -241,6 +262,8 @@ test "lookupWasiThunk: every supported WASI 0.1 import resolves" {
         "fd_close",            "fd_seek",
         "fd_tell",             "fd_fdstat_get",
         "fd_fdstat_set_flags", "path_open",
+        "fd_prestat_get",      "fd_prestat_dir_name",
+        "sched_yield",
     };
     inline for (names) |n| {
         try testing.expect(lookupWasiThunk(n) != null);
