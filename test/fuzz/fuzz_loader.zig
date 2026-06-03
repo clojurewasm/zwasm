@@ -59,6 +59,7 @@ pub fn main(init: std.process.Init) !void {
     var processed: u32 = 0;
     var compiled: u32 = 0;
     var rejected: u32 = 0;
+    var instantiated: u32 = 0;
 
     var it = dir.iterate();
     while (try it.next(io)) |entry| {
@@ -90,8 +91,19 @@ pub fn main(init: std.process.Init) !void {
         };
         if (eng.compile(bytes)) |mod| {
             var compiled_mod = mod;
-            compiled_mod.deinit();
             compiled += 1;
+            // Path 3: instantiation (interp) — memory/table/global init +
+            // the start function (the native Instance dispatches through
+            // `interp/`, so no host->JIT / D-245 exposure). Missing imports
+            // or a start-trap are expected rejects; a crash is a finding.
+            if (compiled_mod.instantiate(.{})) |inst| {
+                var instance = inst;
+                instance.deinit();
+                instantiated += 1;
+            } else |_| {
+                // Expected: unsatisfied imports / start trap / resource limit.
+            }
+            compiled_mod.deinit();
         } else |_| {
             rejected += 1;
         }
@@ -100,8 +112,8 @@ pub fn main(init: std.process.Init) !void {
 
     // Reaching here means no input crashed a decode path.
     try stdout.print(
-        "\nfuzz_loader: {d} processed, {d} compiled, {d} rejected, 0 crashes\n",
-        .{ processed, compiled, rejected },
+        "\nfuzz_loader: {d} processed, {d} compiled ({d} instantiated), {d} rejected, 0 crashes\n",
+        .{ processed, compiled, instantiated, rejected },
     );
     try stdout.flush();
 
