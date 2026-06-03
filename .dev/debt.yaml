@@ -3,6 +3,26 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-247"
+    layer: "infra"
+    status: "note"
+    description: |-
+      `bench/results/history.yaml` has a PRE-EXISTING invalid-UTF-8 byte at offset ~5454397
+      (≈5.4 MB into the 7 MB file) that breaks `yq` parsing: `yq '.[-1]...' history.yaml` →
+      "yaml: offset 5454397: invalid trailing UTF-8 octet". Confirmed pre-existing (the same
+      error reproduces on `git show HEAD:bench/results/history.yaml | yq`); NOT introduced by
+      the §11.P baseline appends (those are clean ASCII at EOF ~7 MB). Likely a smart-quote /
+      mojibake in a historical row's `reason:` string. Impact: yq-based tooling on history.yaml
+      fails — `run_bench.sh --diff <ref>` (uses `yq` to select the baseline entry) +
+      `simd_gap_analysis.sh` if ever pointed at history.yaml. Text appends (`>> history.yaml`)
+      are unaffected (the bench recorders don't yq-parse it). Discharge: locate the byte
+      (`iconv -f utf-8 -t utf-8 history.yaml >/dev/null` or `python3 -c 'open(...,"rb")...'`
+      to find the offending line), repair it (re-encode the reason string), verify `yq` parses.
+      Not §11-blocking; a focused tooling cleanup.
+    first_raised: "2026-06-03"
+    last_reviewed: "2026-06-03"
+    refs: |-
+      `bench/results/history.yaml` (offset ~5454397); `scripts/run_bench.sh` (--diff yq path); `scripts/simd_gap_analysis.sh` (yq); discovered during §11.P bench baseline
   - id: "D-246"
     layer: "code"
     status: "blocked-by"

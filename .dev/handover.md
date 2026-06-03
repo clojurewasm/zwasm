@@ -30,16 +30,16 @@
 
 ## Next task (autonomous)
 
-**§11.P reconciliation IN PROGRESS** (windowsmini is SSH-reachable → doing the phase-close batch autonomously).
-Done this turn: Mac aarch64 bench baseline → `history.yaml` (`23b78f22`, windows-subset 5 fixtures). IN FLIGHT:
-`run_remote_windows.sh test-all` kicked in background (REMOTE_GATE_TIMEOUT=5400; historically slow/Defender-scanned
-per D-028) — verifies the Windows realworld subset + spec reconciliation (the §11.P "Windows realworld subset"
-criterion). REMAINING for §11.P: (1) poll `/tmp/windows.log` (windows test-all result; on FAIL diagnose, not a
-revert — it's a phase-boundary reconciliation); (2) **Linux bench baseline** — `run_remote_ubuntu.sh bench
---windows-subset --phase-record` on ubuntunote → extract+`append_bench_to_history.sh` the x86_64-linux row;
-(3) **Windows bench baseline** — `run_remote_windows.sh` windows-subset bench row; (4) flip §11.1/§11.2/§11.3
-remainders + §11.P [x], run `audit_scaffolding` (phase-boundary mandatory), open Phase 12. Minor: D-245 remainder
-(win64 + arg'd `invokeAndCheck*` variants, Debug-only-used).
+**§11.P reconciliation IN PROGRESS** (windowsmini SSH-reachable → autonomous phase-close batch). DONE: Mac aarch64
+bench baseline (`23b78f22`) + Linux x86_64 baseline (`b4ded964`) → `history.yaml` (windows-subset 5 fixtures; 2 of
+3 hosts). IN FLIGHT: `run_remote_windows.sh test-all` (background, 90-min bound) — passing the Windows realworld
+C-tier MATCHes so far (the §11.P "Windows realworld subset" criterion looks GREEN). REMAINING for §11.P: (1) poll
+`/tmp/windows.log` to completion (`[run_remote_windows] OK` = pass; on FAIL diagnose, not revert — phase-boundary
+reconciliation); (2) **Windows bench baseline** — `run_remote_windows.sh` with a windows-subset bench step (note:
+the windows runner only maps `zig build <step>`; the bench recorder isn't a build step — may need a one-off
+ssh `nix/zig + record_merge_bench` or extend the runner like run_remote_ubuntu's `bench`); capture+append the
+x86_64-windows row; (3) flip §11.1/§11.2/§11.3 remainders + §11.P [x]; run `audit_scaffolding` (phase-boundary
+MANDATORY); open Phase 12. Minor: D-245 remainder (win64 + arg'd variants); D-247 (history.yaml bad UTF-8 byte).
 
 ## Deferred / open debt (none a Phase-11 blocker)
 
