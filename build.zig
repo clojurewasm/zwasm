@@ -779,6 +779,24 @@ pub fn build(b: *std.Build) void {
         conformance_step.dependOn(&run_c.step);
     }
 
+    // `zig build run-zig-host` — §13.5. The Zig-native embedding example
+    // (`examples/zig_host/hello.zig`, ADR-0109 API) — counterpart to the
+    // C-ABI `c_host`. Imports the `zwasm` core module, runs, exits 0.
+    const zig_host_mod = createSanitizedModule(b, sanitize_opts, .{
+        .root_source_file = b.path("examples/zig_host/hello.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    zig_host_mod.addImport("zwasm", core);
+    const zig_host_exe = b.addExecutable(.{
+        .name = "zwasm-zig-host-hello",
+        .root_module = zig_host_mod,
+    });
+    const run_zig_host = b.addRunArtifact(zig_host_exe);
+    run_zig_host.expectExitCode(0);
+    const run_zig_host_step = b.step("run-zig-host", "Build + run the native Zig host example");
+    run_zig_host_step.dependOn(&run_zig_host.step);
+
     // `zig build test-all` — aggregate all enabled test layers.
     // Phase 0: only `test`. Phase 1+ adds spec / e2e / realworld /
     // c_api / fuzz steps as they land. Each layer registers itself
@@ -814,6 +832,7 @@ pub fn build(b: *std.Build) void {
     test_all_step.dependOn(&run_wast_runtime_smoke.step);
     test_all_step.dependOn(&run_c_host.step);
     test_all_step.dependOn(conformance_step); // §13.4 C-API conformance
+    test_all_step.dependOn(&run_zig_host.step); // §13.5 zig_host example
     test_all_step.dependOn(&run_wasi_p1.step);
     // §9.7 / 7.8 row close (D-045 chunks 1-14 fully discharged):
     // wire test-spec-assert into test-all on ALL hosts. Three-host
