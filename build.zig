@@ -753,6 +753,9 @@ pub fn build(b: *std.Build) void {
     const conformance_step = b.step("test-c-api-conformance", "Build + run the C-API conformance examples");
     const conformance_cases = [_]struct { src: []const u8, name: []const u8 }{
         .{ .src = "test/c_api_conformance/callback.c", .name = "callback" },
+        .{ .src = "test/c_api_conformance/global_import.c", .name = "global_import" },
+        .{ .src = "test/c_api_conformance/memory_import.c", .name = "memory_import" },
+        .{ .src = "test/c_api_conformance/table_import.c", .name = "table_import" },
     };
     for (conformance_cases) |c| {
         const cmod = createSanitizedModule(b, sanitize_opts, .{
