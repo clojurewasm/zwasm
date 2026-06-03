@@ -756,6 +756,7 @@ pub fn build(b: *std.Build) void {
         .{ .src = "test/c_api_conformance/global_import.c", .name = "global_import" },
         .{ .src = "test/c_api_conformance/memory_import.c", .name = "memory_import" },
         .{ .src = "test/c_api_conformance/table_import.c", .name = "table_import" },
+        .{ .src = "test/c_api_conformance/trap.c", .name = "trap" },
     };
     for (conformance_cases) |c| {
         const cmod = createSanitizedModule(b, sanitize_opts, .{
