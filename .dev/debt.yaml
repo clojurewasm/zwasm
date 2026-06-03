@@ -3,28 +3,29 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
-  - id: "D-241"
+  - id: "D-242"
     layer: "code"
     status: "blocked-by"
     description: |-
-      blocked-by: standard-Go (not TinyGo) wasip1 instantiate support. After
-      fd_prestat_get / fd_prestat_dir_name / sched_yield landed (the last missing WASI
-      imports for these fixtures), the 9 `go_*` realworld fixtures (go_math_big,
-      go_json_marshal, go_crypto_sha256, …) resolve ALL imports but `Module.instantiate`
-      still fails: `instantiateInternal` (src/zwasm/linker.zig:618) returns null →
-      `error.InstantiateFailed`, with NO further detail (the c_api null-collapse swallows
-      the reason). TinyGo fixtures (tinygo_*) instantiate + PASS; only the standard-Go
-      compiler's wasip1 output fails — a deeper gap than WASI imports (likely a module
-      feature / start-func / memory-layout the c_api instantiate path doesn't handle).
-      The facade-runner now routes this generic InstantiateFailed → SKIP-INST (tolerated,
-      matching run_runner/diff_runner SKIP-V2); the 9 go_* sit there, not gate-failing.
-      Discharge: instrument instantiateInternal to surface the REAL reason for go_math_big
-      (add a diagnostic to the c_api null path — the "no further detail in phase 1" gap),
-      fix the standard-Go instantiate gap, then the facade SKIP-INST → PASS.
+      blocked-by: the interp call stack is a FIXED 256-frame array
+      (`frame_buf: [max_frame_stack]Frame`, max_frame_stack=256, runtime.zig:354)
+      — too shallow for standard-Go's wasip1 runtime init, which exhausts it on
+      `_start` (`Trap.CallStackExhausted`). Surfaced once D-241 (verifier ceiling
+      drift) was fixed so the 9 `go_*` realworld fixtures finally INSTANTIATE: they
+      now run but trap part-way (`zwasm run go_math_big.wasm` → stack_overflow,
+      exit 1). TinyGo fixtures (shallower runtime) PASS fully. Current categorisation
+      (all green, tracked): facade-runner PASS (instantiate-only), run_runner PASS
+      (lenient — defined exit), diff_runner SKIP-V2-TRAP (v2 exit≠0 where wasmtime
+      exit=0 — diff_runner.zig, added this turn). Discharge: make the interp frame
+      stack growable (heap-backed segment / ArrayList) instead of the fixed
+      256-array, OR raise max_frame_stack if the Runtime-struct size cost is
+      acceptable; then go_* run to completion and diff_runner flips SKIP-V2-TRAP →
+      MATCH. Multi-cycle (touches Runtime struct + every frame push/pop + the
+      stack-probe interplay); Phase 11 §11.1.
     first_raised: "2026-06-03"
     last_reviewed: "2026-06-03"
     refs: |-
-      src/zwasm/linker.zig:618 / test/api/zig_facade_runner.zig / test/realworld/wasm/go_*.wasm / ROADMAP §11.1
+      src/runtime/runtime.zig:354,443 / src/runtime/instance/frame.zig (max_frame_stack) / test/realworld/diff_runner.zig / ROADMAP §11.1
   - id: "D-239"
     layer: "code"
     status: "partial"
