@@ -625,6 +625,16 @@ pub fn build(b: *std.Build) void {
     const test_fuzz_step = b.step("test-fuzz", "Run the fuzz smoke over the committed seed corpus (§14.3 / D-256)");
     test_fuzz_step.dependOn(&run_fuzz.step);
 
+    // `zig build fuzz-campaign` — §14.3 nightly. Runs the loader over the
+    // larger gitignored campaign corpus (`gen_fuzz_corpus.sh campaign`,
+    // generated at nightly time on a host with `wasm-tools`). NOT in
+    // test-all (the campaign dir is absent on a normal checkout).
+    const run_fuzz_campaign = b.addRunArtifact(fuzz_loader_exe);
+    run_fuzz_campaign.addArg(b.pathFromRoot("test/fuzz/corpus/campaign"));
+    run_fuzz_campaign.has_side_effects = true;
+    const fuzz_campaign_step = b.step("fuzz-campaign", "Run the fuzz loader over the gitignored campaign corpus (§14.3 nightly)");
+    fuzz_campaign_step.dependOn(&run_fuzz_campaign.step);
+
     // `zig build test-realworld-run` — Phase 6 / §9.6 / 6.1
     // chunk b. Drives each fixture through `cli_run.runWasm`
     // end-to-end (engine → store → WASI → instantiate → entry

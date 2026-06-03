@@ -1,0 +1,91 @@
+# Nightly CI (§14.3) — overnight fuzz campaign + proposal-watch freshness.
+#
+# Trigger: **manual** (`workflow_dispatch`), consistent with the project's
+# CI-second-line convention (auto-triggers disabled 2026-05-25). To run on a
+# real nightly cadence, uncomment the `schedule:` block below.
+#
+#   # schedule:
+#   #   - cron: "0 6 * * *"   # 06:00 UTC daily
+#
+# Run on demand: `gh workflow run nightly.yml --ref zwasm-from-scratch`.
+#
+# Coverage: (1) fuzz-campaign — a fresh large `wasm-tools smith` corpus run
+# through the loader (parse + validate + instantiate; a crash is a finding);
+# (2) proposal-watch — quarterly-cadence freshness gate on
+# `.dev/proposal_watch.md`. The third §14.3 leg, **spec-bump** (detect upstream
+# WebAssembly/{spec,testsuite} drift vs a vendored pin), is NOT yet wired — the
+# spec corpus is regenerated from local OSS clones with no stored pin (D-256).
+
+name: nightly
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  fuzz-campaign:
+    name: fuzz campaign (x86_64-linux)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Cache Zig 0.16.0
+        id: cache-zig
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/zig-0.16.0
+          key: zig-0.16.0-x86_64-linux
+
+      - name: Install Zig 0.16.0
+        if: steps.cache-zig.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.local
+          curl -fsSL "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz" -o /tmp/zig.tar.xz
+          tar -xJf /tmp/zig.tar.xz -C ~/.local
+          mv ~/.local/zig-x86_64-linux-0.16.0 ~/.local/zig-0.16.0
+
+      - name: Add Zig to PATH
+        run: echo "$HOME/.local/zig-0.16.0" >> "$GITHUB_PATH"
+
+      - name: Install wasm-tools 1.247.0
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/bytecodealliance/wasm-tools/releases/download/v1.247.0/wasm-tools-1.247.0-x86_64-linux.tar.gz" -o /tmp/wt.tar.gz
+          tar -xzf /tmp/wt.tar.gz -C /tmp
+          echo "/tmp/wasm-tools-1.247.0-x86_64-linux" >> "$GITHUB_PATH"
+
+      - name: Verify toolchain
+        run: |
+          zig version
+          wasm-tools --version
+          python3 --version
+
+      - name: Generate campaign corpus
+        run: FUZZ_N=2000 bash scripts/gen_fuzz_corpus.sh campaign
+
+      - name: Run fuzz campaign
+        run: zig build fuzz-campaign
+
+  proposal-watch:
+    name: proposal-watch freshness
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Check proposal-watch cadence
+        run: bash scripts/check_proposal_watch.sh --gate
