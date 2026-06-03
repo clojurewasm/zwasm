@@ -18,31 +18,30 @@
 ## Active bundle
 
 - **Bundle-ID**: 12.3b-stateful-cwasm
-- **Cycles-remaining**: ~3 (cycle-1 memory+globals; cycle-2 tables/elem + WASI imports; cycle-2+ GC +
-  cross-module imports)
+- **Cycles-remaining**: ~3 (cycle-1a globals DONE; cycle-1b memory NEXT; cycle-2 tables/elem + WASI imports;
+  cycle-2+ GC + cross-module imports)
 - **Continuity-memo**: §12.3b serialises module STATE into `.cwasm` v0.3 + reconstructs a real runtime from the
-  artefact alone (AOT analogue of `setup.setupRuntimeLinked`, src/engine/setup.zig:229 — today it builds from
-  `CompiledWasm`+`.wasm`). Survey (this cycle): JitRuntime state built at setup.zig — memory (`vm_base`/`mem_limit`
-  @975-988: alloc min_pages×64KB, memcpy active data segments), globals (`globals_base` @985, `globals_buf` @477,
-  per-global const-expr eval @575-580), tables/elem (@620-951), host_dispatch (@284, WASI). **Cycle-1 = memory +
-  globals only** (no tables/imports/GC): v0.3 header adds `memory_{min,max}_pages` + `memory_init_{offset,size}`
-  (data bytes) + `globals_{offset,size}` (n_globals + pre-evaluated u64 values, serialise the FINAL values not
-  init-exprs — simple i32/i64/f/v128.const + ref.null/i31; NO global.get-import/struct.new in cycle-1).
-  Reconstruction in `aot/run.zig`: alloc+init memory, build globals_buf from serialised values, set
-  `vm_base`/`globals_base` (drop the zero-pad for those). Format mirrors the exports-section pattern (ADR-0138:
-  header offset/size pair + `[count][entries]`). Producer side: `CompiledWasm` already carries globals
-  (`globals_offsets`/`globals_valtypes`) + the module; thread memory+global-init into `serialise.Input`.
-- **Exit-condition**: a memory+globals-using `()→i32` fixture (e.g. reads a global / writes+reads memory)
-  produced to `.cwasm` then `zwasm run` → correct result (currently TRAPS). §12.3b cycle-1 `[x]` on that.
+  artefact alone (AOT analogue of `setup.setupRuntimeLinked`, setup.zig:229). **CYCLE-1a GLOBALS DONE
+  (`797a7ef0`, CLI-smoke exit 42)**: `.cwasm` v0.3 (header 68→76 B, `globals_offset`/`globals_size`; section =
+  `[n_globals:u32][n×16B Value.bits128]`). `produceFromCompiledWasm` now takes `wasm_bytes`, re-parses + evals
+  defined-global init-exprs via `instantiate.evalConstExprValue` (`collectGlobalInits`; cycle-1 simple consts —
+  ref.func/global.get/struct.new → `UnsupportedGlobalInit`). `load.parseGlobals` → `LoadedModule.globals:[]u128`;
+  `aot/run.runEntry` sets `globals_base = @ptrCast(globals.ptr)` (u128≡Value, 16B, no copy). **CYCLE-1b MEMORY
+  (NEXT)**: v0.3→add `memory_{min,max}_pages` + `memory_init_{offset,size}` (data segments `[n_seg][mem_off:u32,
+  len:u32, bytes]`, active only, offset-expr evaluated at produce). Reconstruct in `runEntry`: alloc
+  min_pages×64KB, memcpy segments, set `vm_base`/`mem_limit` — **must FREE the memory buffer after the call**
+  (unlike globals which alias `mod.globals`). setup.zig anchors: memory alloc @384-419 (decodeMemory/decodeData),
+  `vm_base`/`mem_limit` @975-988. Producer: `module.find(.memory)`/`.data` + offset-expr via evalConstExprValue.
+- **Exit-condition**: cycle-1b — a memory store+load `()→i32` fixture produced to `.cwasm` then `zwasm run` →
+  correct result (currently TRAPS, mem_limit 0). Bundle continues to cycle-2 (tables/elem/WASI) after.
 
 ## Next task (autonomous)
 
-§12.3b cycle-1 — stateful `.cwasm` (memory + globals). Smallest red test: a `()→i32` fixture that reads a
-declared global (or writes+reads linear memory) → produce `.cwasm` → `runCwasm` (currently TRAPS, the red). Green
-= v0.3 format (memory_{min,max}_pages + memory_init + globals sections per the bundle continuity-memo) + producer
-serialise (thread memory+global-init from `CompiledWasm`/Module into `serialise.Input`) + `aot/run.zig`
-reconstruction (alloc+init memory, build globals_buf, set `vm_base`/`globals_base`). Cycle-1 scope = NO
-tables/elem/imports/GC (simple const-expr global inits only). Bundle continuity-memo has the setup.zig anchors.
+§12.3b cycle-1b — memory. Smallest red test: a `(memory 1)(func (export "m")(result i32) i32.const 0; i32.const
+99; i32.store; i32.const 0; i32.load)` fixture → produce `.cwasm` → `aot_run.runEntry` (currently TRAPS: the
+minimal runtime's mem_limit=0 → store bounds-traps). Green = v0.3 memory header fields + data-segment section +
+`runEntry` allocs min_pages×64KB, memcpys data, sets `vm_base`/`mem_limit`, **frees after the call**. Mirror the
+globals chunk (`797a7ef0`). Bundle continuity-memo has the setup.zig anchors + the FREE-lifetime caveat.
 
 ## Deferred / open debt (none a Phase-12 blocker)
 
@@ -54,10 +53,11 @@ tables/elem/imports/GC (simple const-expr global inits only). Bundle continuity-
 
 ## Step 0.7 (next resume)
 
-This turn = planning only (ADR-0139 re-sequence + §12.3b/§12.5 surveys + bundle setup); no `src/` behavior
-change beyond D-250→§12.3b comment syncs, so NO ubuntu kick owed. Prior ubuntu verified `8235e6a9` OK; last code
-HEAD unchanged. Next resume: no ubuntu verification pending; start §12.3b cycle-1. Phase-12 exec tests skip Win64
-via `skip.phaseEnd` (§12.3b/ADR-0139); windowsmini = phase-boundary.
+This turn landed §12.3b cycle-1a globals (`797a7ef0`): `.cwasm` v0.3 + globals reconstruction, Mac test+lint+zone
+green, CLI smoke (`zwasm compile glob.wasm; zwasm run --invoke g` → exit 42). An ubuntu `test` is kicked against
+this turn's final HEAD → next resume `tail /tmp/ubuntu.log` for OK (verifies x86_64-SysV globals_base
+reconstruction). Prior ubuntu verified `8235e6a9` OK. Phase-12 exec tests skip Win64 via `skip.phaseEnd`;
+windowsmini = phase-boundary.
 
 **Gate hygiene**: Step-5 Mac = `bash scripts/mac_gate.sh`. Win64 cross-compile: `zig build test
 -Dtarget=x86_64-windows-gnu` (compile-only). 3-host reconcile = phase boundary.
