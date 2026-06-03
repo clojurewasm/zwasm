@@ -3,6 +3,29 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-243"
+    layer: "code"
+    status: "blocked-by"
+    description: |-
+      blocked-by: no preopen-sandbox wiring for file-I/O realworld fixtures. After
+      fd_filestat_get + path_unlink_file landed (b6224bbb), rust_file_io resolves all
+      WASI imports + instantiates (facade-runner 55 PASS) but cannot RUN to success:
+      it `path_open`s a file relative to a preopen dir, but the runners (run_runner /
+      diff_runner / CLI) configure ZERO preopens (`host.preopens` empty), so the guest
+      gets badf and fails (wasmtime itself panics `NotFound` without `--dir`). The
+      file-I/O fd-handler happy paths (fdRead/Write over file fds, path_open, the new
+      filestat/unlink) are implemented but unexercised end-to-end. Discharge: add a CLI
+      `--dir <host>:<guest>` / `--mapdir` flag + a host `addPreopen` call, and have the
+      realworld runners pass a temp sandbox dir; then rust_file_io (+ future file
+      fixtures) run to completion. SUB-OBSERVATION: the facade path (`lk.instantiate`)
+      SUCCEEDS instantiating rust_file_io while the CLI c_api path (`instantiateInternal`
+      / runWasmCaptured) returns the generic null-collapse "instantiation failed" — a
+      two-instantiate-path divergence worth a probe (may be a WASI-binding-setup diff).
+      Phase 11 §11.1.
+    first_raised: "2026-06-03"
+    last_reviewed: "2026-06-03"
+    refs: |-
+      src/wasi/fd.zig (pathOpen/pathUnlinkFile preopen resolution) / src/wasi/host.zig (addPreopen) / src/cli/run.zig / test/realworld/*_runner.zig / ROADMAP §11.1
   - id: "D-242"
     layer: "code"
     status: "blocked-by"
