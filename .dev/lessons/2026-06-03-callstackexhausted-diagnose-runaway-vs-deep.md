@@ -44,5 +44,9 @@ in Frame — [1024] makes Frame ~20KB → Runtime ~5MB + 8x per-call copy + a st
 allocated test segfaults. The fix is a lazy per-frame overflow (small inline + heap
 spill), not a naive inline bump. Measuring the cost stopped a bad "ship the raise".
 
+Landed (`7806936f`): `label_buf [128]` inline + lazy `label_overflow []Label` (cap =
+`zir.max_control_stack`, freed at popFrame); `max_label_stack` sourced from the shared
+constant. All 9 `go_*` realworld fixtures now exit 0 (realworld-run 55/55, 0 SKIP-WASI).
+
 Related: D-242 (this); D-241 ([[2026-06-03-sanity-check-must-share-the-real-gates-constant]]);
 [[2026-06-03-reprobe-blocked-by-barriers-before-scoping]] (verify the failure mode first).
