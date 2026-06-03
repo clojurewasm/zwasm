@@ -22,10 +22,11 @@
   resolved via per-kind index space. Shared externtype builders + `valKindOf`. Tags skipped (no tagtype).
 - §13.2 (e) **frames + trap_origin/trace** `d3819d32` — `api/trap_surface.zig`: `wasm_frame_*` + frame_vec;
   `trap_origin`→null, `trap_trace`→empty (zwasm Trap is single-flag, no stack capture; ADR-0022/D-022).
-- **§13.3 partial** (tractable builders pulled forward; runtime-entity layer needs a careful design — see below):
-  `wasm_config` `set_args`/`set_envs`/`inherit_stdio` C builders in `api/wasi.zig` over the existing `Host`
-  methods (set_* dupe; inherit_stdio is a documented no-op — `Host.init` already wires fd 0/1/2). Void C ABI
-  degrades on OOM. **§13.2 runtime-entity layer deferred** to a careful chunk; `wasm_func_new` deferred D-252.
+- **§13.3 partial** `47298cd1`: `wasm_config` `set_args`/`set_envs`/`inherit_stdio` C builders (`api/wasi.zig`)
+  over existing `Host` methods (set_* dupe; inherit_stdio no-op — `Host.init` wires fd 0/1/2). Void ABI OOM-degrades.
+- **§13.2 extern conversions COMPLETE** (closes gap doc's "5 missing"): `wasm_extern_as_*_const` (4, trivial casts,
+  `instance.zig`) + `wasm_extern_type` (`module_introspect.zig`: global/table read cached handle fields; func/memory
+  decode the instance module's per-kind index space via new `moduleOf`/`funcExternTypeAt`/`memoryExternTypeAt`).
 
 ## Next task (autonomous)
 
@@ -37,11 +38,12 @@ Two open tracks, both within Phase 13's surface (pick either; runtime-entity is 
    `main`, cli/main.zig:43/58) — a C-library context (`libzwasm.so`, Zig startup never runs) can't reach it, so
    inherit needs platform C APIs (`_NSGetArgv` / `/proc/self/cmdline` / `GetCommandLineW`) or the C `environ`
    global = new libc sites (§14 "unconscious libc fanout"). Do the ADR-0070 amend as Step 1 of that chunk.
-2. **§13.2 runtime-entity layer** (survey done a64aa6a0) — `*_as_extern[_const]` is a WRAP not a cast (Func≠Extern
-   in `instance.zig`; both separate structs) with an ownership subtlety (borrowed-view Extern must not double-free
-   the entity); global/table/memory `_new` need an optional-backing accessor change (current accessors hard-deref
-   `inst.runtime`). `wasm_func_new` host-callback = **D-252** (no standalone host-func dispatch). Then **foreign**
-   (`WASM_DECLARE_REF` shared ref machinery). New `api/extern_new.zig` per the module_introspect precedent.
+2. **§13.2 runtime-entity layer** (survey a64aa6a0; the biggest remaining piece) — `wasm_{func,global,table,
+   memory}_as_extern[_const]` is a WRAP not a cast (Func≠Extern in `instance.zig`; separate structs) with an
+   ownership subtlety (borrowed-view Extern must not double-free the entity — needs an owns-inner flag or a cached
+   view); global/table/memory `_new` need an optional-backing accessor change (accessors hard-deref `inst.runtime`).
+   `wasm_func_new` host-callback = **D-252** (no standalone host-func dispatch). Then **foreign** (`WASM_DECLARE_REF`
+   shared ref machinery). New `api/extern_new.zig` per the module_introspect precedent.
 
 gap: `.dev/phase13_capi_gap.md`.
 
@@ -62,9 +64,9 @@ prose. Standing `soon` (not Phase-12): 10 ADR + 10 lesson `<backfill>` markers; 
 
 ## Step 0.7 (next resume)
 
-This turn landed §13.3 partial (wasi config set_args/set_envs/inherit_stdio, `api/wasi.zig`): Mac test+lint green.
-An ubuntu `test` is kicked against this turn's HEAD → next resume `tail /tmp/ubuntu.log` for OK (pure C-string→
-slice + c_allocator, host-portable). Prior ubuntu §13.2-frames `02d23629` OK; windowsmini `0810b339` reconcile GREEN.
+This turn landed §13.2 extern conversions (extern_as_*_const + wasm_extern_type): Mac test+lint green. An ubuntu
+`test` is kicked against this turn's HEAD → next resume `tail /tmp/ubuntu.log` for OK (pure decode + c_allocator,
+host-portable). Prior ubuntu §13.3-partial `47298cd1` OK; windowsmini `0810b339` reconcile GREEN.
 
 **Gate hygiene**: Step-5 Mac = `bash scripts/mac_gate.sh`. Win64 cross-compile: `zig build test
 -Dtarget=x86_64-windows-gnu` (compile-only). 3-host reconcile = phase boundary.
