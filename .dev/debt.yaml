@@ -869,6 +869,22 @@ entries:
       src/engine/codegen/shared/jit_abi.zig (jitGcAlloc/jitGcAllocArray @1109-1143);
       src/feature/gc/root_scope.zig (maybeCollect); src/instruction/wasm_3_0/struct_ops.zig
       (allocateStruct); src/instruction/wasm_3_0/array_ops.zig (allocateArray); ADR-0146
+  - id: "D-259"
+    layer: "code"
+    status: "note"
+    description: |-
+      §15.3 fold (ADR-0150) surfaced: `spillBytes()` over-allocates the spill stack frame
+      by counting FP regs past the GPR boundary as spillable (the allocator is class-blind
+      for slot-id space even though resolution is class-aware, D-036). FOOTPRINT-only — a
+      smaller stack frame, ZERO runtime instructions saved (FP doesn't spill on current
+      fixtures, measured 0% — ADR-0150). Opportunistic §15.P cleanup, NOT a perf chunk.
+      CAUTION: frame-size changes are ABI-offset-adjacent (W54 class) — test Mac aarch64
+      first + differential suite. Low priority; skip unless §15.P has slack.
+    first_raised: "2026-06-04"
+    last_reviewed: "2026-06-04"
+    refs: |-
+      src/engine/codegen/shared/regalloc.zig (spillBytes, class-blind slot space @127-137);
+      regalloc_vreg_class.zig (vregClassOfOp); ADR-0150; ADR-0038/0040
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.

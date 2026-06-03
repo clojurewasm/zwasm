@@ -18,33 +18,33 @@
     AOT GC-root serialization are NOT needed for a non-moving collector (ADR-0128 §2) → deferred to
     **D-211** (barrier: moving collector OR AOT GC-root serialization). JIT-trampoline collection
     trigger (separate `*JitRuntime` root model) = **D-258**.
-- **§15.2 mov-reduction — investigated, empirically unreachable → CLOSED `[x]`** (ADR-0149 + Revision).
-  Slot-alias coalescing = ~0 headroom (gpr helpers already elide reg-resident movs; no vreg-to-vreg movs);
-  re-targeted to spill-reload elim, then MEASURED (throwaway gpr counters via `--engine jit`): spill traffic
-  = 2.7–5.6% of emitted instrs, adjacent-round-trip subset 1.4–2.2% → ≥5% perf unreachable. Residual peephole
-  folded into §15.P. **Caution**: v2's spill traffic is LOW → regalloc-axis perf (§15.3) may also have thin
-  headroom; the bigger wins are likely §15.4 SIMD + algorithmic.
+- **§15.2 + §15.3 (regalloc-axis perf) — both measured ~0 headroom → CLOSED `[x]`/folded** (ADR-0149/0150).
+  §15.2: GPR-spill traffic 2.7–5.6% of instrs → ≥5% unreachable. §15.3: **FP-spill = 0%** (nbody/matrix never
+  overflow the 13 V-regs; resolution already class-aware per D-036) → ≥3% unreachable; dual-pool not built;
+  `spillBytes()` footprint cleanup = **D-259**. **Pattern: v2's deterministic-slot emit is already efficient
+  (low/zero spill) — regalloc-axis optimizations have no headroom. This = v2 likely near v1 parity.** §15.P
+  reframed to parity-vs-v1 (not fixed ≥10%). Remaining perf lever = §15.4 (SIMD/compute axis + D-246 emit hole).
 
 ## Next task (autonomous)
 
-**§15.3 — Class-aware allocator** (first open `[ ]`; §15.2 closed/folded). Dual-pool GPR/FP register slots +
-liveness type-tagging + tighter `spillBytes()` (ADR-0038/0040 scaffolding). Goal: FP-heavy code currently can't
-use the FP register file well → dual-pool fixes it. **Exit: ≥3% FP-heavy** + aggregate ≥10% (with §15.4) at
-§15.P. **⚠️ MEASURE HEADROOM FIRST** (lesson from §15.2): v2's spill traffic is only 2.7–5.6% of instrs — confirm
-FP-heavy fixtures actually spill FP values to the wrong class / have ≥3% headroom BEFORE building the dual-pool
-refactor (cheap probe: instrument FP spill counts on an FP-heavy fixture, like the §15.2 measurement). If headroom
-is thin → re-scope per ADR-0149's caution (perf parity via §15.4 SIMD + §15.P aggregate). Step 0 survey: locate
-the ADR-0038/0040 class-aware scaffolding + the current single-pool allocator (`regalloc.zig`). After §15.3:
-§15.4 SIMD + D-246 → **§15.5 D-245 win64** (hard/remote) → §15.6 ClojureWasm → §15.P. (Not a phase boundary.)
+**§15.4 — SIMD perf ports + D-246** (first open `[ ]`; §15.2 + §15.3 folded). This is the COMPUTE/SIMD axis (a
+DIFFERENT lever from the now-folded regalloc axis — real headroom likely). Two parts: (1) **D-246 = arm64 `dot` /
+`extmul` emit HOLE** — missing SIMD ops (a correctness gap, not just perf; do this FIRST — concrete + verifiable
+via spec/diff). (2) v1 SIMD perf ports W43 (SIMD addr cache) / W44 (reg class) / W45 (SIMD loop persistence) +
+W54-class loop-invariant hoist, as clean additions; + Phase-11 gap candidates (AVX/CPUID, MOVAPS peephole) where
+gap-justified. **Step 0 survey FIRST**: locate D-246's missing emit (arm64 `ops/.../` for dot/extmul) + the v1
+W43/44/45 sources (read-only v1 clone) + the SIMD bench fixtures. **MEASURE before each perf port** (§15.2/15.3
+lesson — confirm headroom). After §15.4: **§15.5 D-245 win64** (hard/remote, deliberate session) → §15.6
+ClojureWasm CI → §15.P parity-vs-v1 close. (Not a phase boundary.)
 
 ## Step 0.7 (next resume)
 
-This turn: **§15.2 measured + CLOSED** — subagent ran throwaway gpr/fp spill counters via `--engine jit` on
-fib_loop/nestedloop/sieve → spill traffic 2.7–5.6% of instrs, adjacent round-trips 1.4–2.2% → ≥5% unreachable →
-ADR-0149 Revision + ROADMAP §15.2 `[x]` folded into §15.P + §15.3 caution added. Instrumentation REVERTED (tree
-clean). **DOCS/scope only — NO src/ change → no ubuntu kick** (code HEAD `45a94348`, ubuntu-verified OK). **NOTE**
-(lesson `gate-tail-vs-exit-code`): benign `failed command: …--listen=-` / `arm64/emit: failing op` next to a
-passing run = error-path test noise — EXIT authoritative.
+This turn: **§15.3 measured + folded** — subagent ran throwaway FP/GPR spill counters via `--engine jit` on
+nbody/matrix → **FP-spill = 0%** (13 V-regs never overflow; resolution already class-aware D-036) → ≥3%
+unreachable → ADR-0150 + ROADMAP §15.3 `[x]` + §15.P reframed to parity-vs-v1 + D-259 (spillBytes cleanup).
+Instrumentation REVERTED (tree clean). **DOCS/scope only — NO src/ change → no ubuntu kick** (code HEAD
+`45a94348`, ubuntu-verified OK). **NOTE** (lesson `gate-tail-vs-exit-code`): benign `failed command:
+…--listen=-` / `arm64/emit: failing op` next to a passing run = error-path test noise — EXIT authoritative.
 
 **Gate hygiene**: Step-5 Mac = `bash scripts/mac_gate.sh`. Win64 cross-compile = `zig build test
 -Dtarget=x86_64-windows-gnu`. windowsmini exec = `run_remote_windows.sh` (phase boundary).
