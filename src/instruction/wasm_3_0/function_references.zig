@@ -173,7 +173,7 @@ test "br_on_null: non-null → fall through (ref preserved)" {
         .operand_base = 0,
         .pc = 100,
     };
-    try frame.pushLabel(.{ .height = 0, .arity = 0, .branch_arity = 0, .target_pc = 999 });
+    try frame.pushLabel(testing.allocator, .{ .height = 0, .arity = 0, .branch_arity = 0, .target_pc = 999 });
     try rt.pushFrame(frame);
     try rt.pushOperand(.{ .ref = 0x1000 });
     try driveOne(&rt, &t, .br_on_null, 0, 0); // depth=0
@@ -194,7 +194,7 @@ test "br_on_null: null → branch (ref consumed; pc jumps to target)" {
         .operand_base = 0,
         .pc = 100,
     };
-    try frame.pushLabel(.{ .height = 0, .arity = 0, .branch_arity = 0, .target_pc = 42 });
+    try frame.pushLabel(testing.allocator, .{ .height = 0, .arity = 0, .branch_arity = 0, .target_pc = 42 });
     try rt.pushFrame(frame);
     try rt.pushOperand(.{ .ref = Value.null_ref });
     try driveOne(&rt, &t, .br_on_null, 0, 0); // depth=0 → target_pc=42
@@ -219,7 +219,7 @@ test "br_on_non_null: null → fall through (ref consumed; pc unchanged)" {
     // Label expects [reftype] (branch_arity=1) on branch, but the
     // null path doesn't take it; we just verify the ref is
     // consumed and pc is unchanged.
-    try frame.pushLabel(.{ .height = 0, .arity = 1, .branch_arity = 1, .target_pc = 999 });
+    try frame.pushLabel(testing.allocator, .{ .height = 0, .arity = 1, .branch_arity = 1, .target_pc = 999 });
     try rt.pushFrame(frame);
     try rt.pushOperand(.{ .ref = Value.null_ref });
     try driveOne(&rt, &t, .br_on_non_null, 0, 0); // depth=0
@@ -242,7 +242,7 @@ test "br_on_non_null: non-null → branch (ref passed at top; pc jumps)" {
     };
     // Label expects [reftype]; branch_arity=1 carries the ref to
     // the branch destination.
-    try frame.pushLabel(.{ .height = 0, .arity = 1, .branch_arity = 1, .target_pc = 42 });
+    try frame.pushLabel(testing.allocator, .{ .height = 0, .arity = 1, .branch_arity = 1, .target_pc = 42 });
     try rt.pushFrame(frame);
     try rt.pushOperand(.{ .ref = 0x2000 });
     try driveOne(&rt, &t, .br_on_non_null, 0, 0); // depth=0 → target_pc=42

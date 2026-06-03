@@ -448,7 +448,16 @@ pub const Runtime = struct {
     pub fn popFrame(self: *Runtime) Frame {
         std.debug.assert(self.frame_len > 0);
         self.frame_len -= 1;
-        return self.frame_buf[self.frame_len];
+        const f = self.frame_buf[self.frame_len];
+        // D-242 — free the frame's lazy label overflow (if any) and clear
+        // the slot's pointer so a re-push can't double-free. The returned
+        // copy's `label_overflow` is then dangling, but callers never read
+        // it post-pop (they consume sig/locals/results only).
+        if (f.label_overflow.len > 0) {
+            self.alloc.free(f.label_overflow);
+            self.frame_buf[self.frame_len].label_overflow = &.{};
+        }
+        return f;
     }
 
     pub fn currentFrame(self: *Runtime) *Frame {
@@ -627,6 +636,35 @@ test "Runtime: frame-stack overflow trips CallStackExhausted" {
         Trap.CallStackExhausted,
         r.pushFrame(.{ .sig = sig, .locals = &.{}, .operand_base = 0, .pc = 0 }),
     );
+}
+
+test "Runtime: per-frame label stack spills past the inline cap and popFrame frees it (D-242)" {
+    // The validator accepts control nesting up to `zir.max_control_stack`
+    // (1024); the runtime label stack MUST hold all of it. Inline capacity
+    // is only `inline_label_stack` (128) — deeper frames lazily spill to a
+    // heap overflow that popFrame must free (testing.allocator flags a leak
+    // if it doesn't).
+    var r = Runtime.init(testing.allocator);
+    defer r.deinit();
+
+    const sig: FuncType = .{ .params = &.{}, .results = &.{} };
+    try r.pushFrame(.{ .sig = sig, .locals = &.{}, .operand_base = 0, .pc = 0 });
+    const frame = r.currentFrame();
+
+    const n: u32 = frame_mod.inline_label_stack + 64; // cross the inline→heap boundary
+    var i: u32 = 0;
+    while (i < n) : (i += 1) {
+        try frame.pushLabel(r.alloc, .{ .height = i, .arity = 0, .branch_arity = 0, .target_pc = i });
+    }
+    try testing.expectEqual(n, frame.label_len);
+    try testing.expect(frame.label_overflow.len > 0); // overflow was allocated
+    try testing.expectEqual(@as(u32, n - 1), frame.labelAt(0).target_pc); // innermost = last pushed
+    try testing.expectEqual(@as(u32, 0), frame.labelAt(n - 1).target_pc); // oldest = first pushed
+    // a label straddling the boundary (first overflow slot) reads back correctly
+    try testing.expectEqual(@as(u32, frame_mod.inline_label_stack), frame.labelAt(n - 1 - frame_mod.inline_label_stack).target_pc);
+
+    _ = r.popFrame(); // frees label_overflow — no leak
+
 }
 
 test "Trap: error set carries the spec-conformant trap conditions" {

@@ -181,7 +181,7 @@ fn blockOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     // branch_arity == arity == results.
     const results: u32 = instr.extra & 0xFF;
     const params: u32 = (instr.extra >> 8) & 0xFF;
-    try frame.pushLabel(.{
+    try frame.pushLabel(rt.alloc, .{
         .height = rt.operand_len - params,
         .arity = results,
         .branch_arity = results,
@@ -196,7 +196,7 @@ fn loopOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const fnz = frame.func orelse return Trap.Unreachable;
     if (instr.payload >= fnz.blocks.items.len) return Trap.Unreachable;
     const blk = fnz.blocks.items[instr.payload];
-    try frame.pushLabel(.{
+    try frame.pushLabel(rt.alloc, .{
         .height = rt.operand_len,
         // `end` of a loop transfers the loop's result arity to the
         // operand stack (Wasm 2.0 multivalue: zero or more results).
@@ -232,7 +232,7 @@ fn ifOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     // otherwise over-set arity + mis-place the restore base.
     const results: u32 = instr.extra & 0xFF;
     const params: u32 = (instr.extra >> 8) & 0xFF;
-    try frame.pushLabel(.{
+    try frame.pushLabel(rt.alloc, .{
         .height = rt.operand_len - params,
         .arity = results,
         .branch_arity = results,

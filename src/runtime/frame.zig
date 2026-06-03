@@ -22,7 +22,16 @@ const Trap = trap_mod.Trap;
 
 pub const max_operand_stack: u32 = 4096;
 pub const max_frame_stack: u32 = 256;
-pub const max_label_stack: u32 = 128;
+/// Inline per-frame label capacity (zero-alloc common case). Frames
+/// nesting control deeper than this spill into `Frame.label_overflow`
+/// (D-242) — keeps the common Frame small so per-call copies stay cheap.
+pub const inline_label_stack: u32 = 128;
+/// Total per-frame control-label depth cap = the validator's
+/// `max_control_stack` (shared `zir.max_control_stack`). The runtime MUST
+/// hold every control depth the validator accepts; a stale literal 128 <
+/// 1024 wrongly tripped StackOverflow on validator-accepted deeply-nested
+/// functions, e.g. standard-Go's wasip1 output (D-242, D-241 drift family).
+pub const max_label_stack: u32 = @intCast(zir.max_control_stack);
 
 /// Control-label record. `block` / `if` push a label whose
 /// `target_pc` points one past the matching `end`; `loop` pushes a
@@ -92,25 +101,42 @@ pub const Frame = struct {
     /// the bound themselves.
     done: bool = false,
 
-    label_buf: [max_label_stack]Label = undefined,
+    label_buf: [inline_label_stack]Label = undefined,
+    /// Heap spill for labels at index >= `inline_label_stack` — lazily
+    /// allocated on first overflow (most frames never touch it), freed at
+    /// `Runtime.popFrame` (D-242). Value-copied with the Frame, but only
+    /// one owner frees it (the popFrame that retires the activation).
+    label_overflow: []Label = &.{},
     label_len: u32 = 0,
 
-    pub fn pushLabel(self: *Frame, l: Label) Trap!void {
+    /// Stable `*Label` for label index `i` — inline buffer for the first
+    /// `inline_label_stack`, else the heap overflow.
+    fn labelSlot(self: *Frame, i: u32) *Label {
+        if (i < inline_label_stack) return &self.label_buf[i];
+        return &self.label_overflow[i - inline_label_stack];
+    }
+
+    pub fn pushLabel(self: *Frame, alloc: std.mem.Allocator, l: Label) Trap!void {
         if (self.label_len == max_label_stack) return Trap.StackOverflow;
-        self.label_buf[self.label_len] = l;
+        // Lazily allocate the overflow the first time labels exceed the
+        // inline capacity — once, at full size (no realloc).
+        if (self.label_len == inline_label_stack and self.label_overflow.len == 0) {
+            self.label_overflow = alloc.alloc(Label, max_label_stack - inline_label_stack) catch return Trap.StackOverflow;
+        }
+        self.labelSlot(self.label_len).* = l;
         self.label_len += 1;
     }
 
     pub fn popLabel(self: *Frame) Label {
         std.debug.assert(self.label_len > 0);
         self.label_len -= 1;
-        return self.label_buf[self.label_len];
+        return self.labelSlot(self.label_len).*;
     }
 
     /// Index 0 = innermost. Caller must ensure depth < label_len.
     pub fn labelAt(self: *Frame, depth: u32) Label {
         std.debug.assert(depth < self.label_len);
-        return self.label_buf[self.label_len - 1 - depth];
+        return self.labelSlot(self.label_len - 1 - depth).*;
     }
 };
 
