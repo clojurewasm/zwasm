@@ -32,7 +32,11 @@ pub const version_v0_3: u32 = 0x0003_0000; // current: + globals section (ADR-01
 pub const arch_arm64: u32 = 1;
 pub const arch_x86_64: u32 = 2;
 
-pub const header_size: u32 = 76; // v0.3: 68 (v0.2) + globals_offset + globals_size (ADR-0139)
+pub const header_size: u32 = 92; // v0.3: 76 + memory{min,max}_pages + memory_init{offset,size} (ADR-0139 §12.3b cycle-1b)
+
+/// `flags` bit 0 — the module declares a linear memory (the
+/// `memory_*` header fields + memory_init data section are meaningful).
+pub const flag_has_memory: u32 = 0x1;
 pub const func_meta_size: u32 = 12;
 pub const reloc_size: u32 = 9; // 4 + 4 + 1 (no padding)
 pub const reloc_kind_direct_call: u8 = 0;
@@ -72,10 +76,27 @@ pub const CwasmHeader = struct {
     // reconstructs `globals_base` without re-evaluating init-exprs.
     globals_offset: u32 = 0,
     globals_size: u32 = 0,
+    // v0.3 cycle-1b: linear-memory state (valid iff flags & flag_has_memory).
+    // `memory_init` section = active data segments (offset pre-evaluated).
+    memory_min_pages: u32 = 0,
+    memory_max_pages: u32 = 0, // 0xFFFF_FFFF = no explicit max (spec ceiling)
+    memory_init_offset: u32 = 0,
+    memory_init_size: u32 = 0,
 };
+
+/// Sentinel `memory_max_pages` value for "no explicit max declared".
+pub const memory_max_none: u32 = 0xFFFF_FFFF;
 
 /// Bytes per serialised global value (one `runtime.Value` = 16 B).
 pub const global_value_size: u32 = 16;
+
+/// One active data segment for the memory_init section: a destination
+/// byte offset (pre-evaluated from the offset-expr at produce time) +
+/// the init bytes. On parse, `bytes` aliases into the source buffer.
+pub const CwasmDataSeg = struct {
+    mem_offset: u32,
+    bytes: []const u8,
+};
 
 /// One entry in the exports section (v0.2). Func-kind exports only —
 /// `zwasm run` invokes functions. On parse, `name` aliases into the
@@ -132,6 +153,10 @@ pub fn writeHeader(buf: []u8, h: CwasmHeader) Error!void {
     std.mem.writeInt(u32, buf[64..68], h.exports_size, .little);
     std.mem.writeInt(u32, buf[68..72], h.globals_offset, .little);
     std.mem.writeInt(u32, buf[72..76], h.globals_size, .little);
+    std.mem.writeInt(u32, buf[76..80], h.memory_min_pages, .little);
+    std.mem.writeInt(u32, buf[80..84], h.memory_max_pages, .little);
+    std.mem.writeInt(u32, buf[84..88], h.memory_init_offset, .little);
+    std.mem.writeInt(u32, buf[88..92], h.memory_init_size, .little);
 }
 
 pub fn parseHeader(buf: []const u8) Error!CwasmHeader {
@@ -159,6 +184,10 @@ pub fn parseHeader(buf: []const u8) Error!CwasmHeader {
         .exports_size = std.mem.readInt(u32, buf[64..68], .little),
         .globals_offset = std.mem.readInt(u32, buf[68..72], .little),
         .globals_size = std.mem.readInt(u32, buf[72..76], .little),
+        .memory_min_pages = std.mem.readInt(u32, buf[76..80], .little),
+        .memory_max_pages = std.mem.readInt(u32, buf[80..84], .little),
+        .memory_init_offset = std.mem.readInt(u32, buf[84..88], .little),
+        .memory_init_size = std.mem.readInt(u32, buf[88..92], .little),
     };
 }
 
@@ -251,7 +280,7 @@ const testing = std.testing;
 test "writeHeader/parseHeader: round-trip preserves all fields" {
     const want: CwasmHeader = .{
         .arch = arch_arm64,
-        .flags = 0,
+        .flags = flag_has_memory,
         .n_funcs = 3,
         .n_types = 2,
         .n_imports = 1,
@@ -267,6 +296,10 @@ test "writeHeader/parseHeader: round-trip preserves all fields" {
         .exports_size = 19,
         .globals_offset = 192,
         .globals_size = 32,
+        .memory_min_pages = 2,
+        .memory_max_pages = memory_max_none,
+        .memory_init_offset = 224,
+        .memory_init_size = 40,
     };
     var buf: [header_size]u8 = undefined;
     try writeHeader(&buf, want);
@@ -369,7 +402,7 @@ test "parseReloc: rejects truncated buffer" {
 }
 
 test "header_size + func_meta_size + reloc_size constants are stable" {
-    try testing.expectEqual(@as(u32, 76), header_size); // v0.3 (ADR-0139 §12.3b)
+    try testing.expectEqual(@as(u32, 92), header_size); // v0.3 cycle-1b (ADR-0139 §12.3b)
     try testing.expectEqual(@as(u32, 12), func_meta_size);
     try testing.expectEqual(@as(u32, 9), reloc_size);
 }

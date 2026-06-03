@@ -78,6 +78,13 @@ pub const Input = struct {
     /// runtime memcpys these into `globals_base` — no init-expr eval at
     /// load. Empty for modules with no defined globals.
     globals: []const u128 = &.{},
+    /// Linear memory (v0.3 cycle-1b). `has_memory` gates the memory_*
+    /// header fields + the memory_init data section. `mem_data` is the
+    /// ACTIVE data segments with pre-evaluated destination offsets.
+    has_memory: bool = false,
+    mem_min_pages: u32 = 0,
+    mem_max_pages: u32 = format.memory_max_none,
+    mem_data: []const format.CwasmDataSeg = &.{},
 };
 
 /// Produce a `.cwasm` v0.2 byte stream. Caller owns the
@@ -111,6 +118,11 @@ pub fn produceCwasm(allocator: Allocator, input: Input) Error![]u8 {
     // Globals section: 4-byte count then n_globals × 16-byte values.
     const globals_size: u32 = 4 + @as(u32, @intCast(input.globals.len)) * format.global_value_size;
 
+    // Memory_init section: 4-byte count then per active segment
+    // [mem_offset:u32][byte_len:u32][bytes]. Empty (size 0) when no memory.
+    var memory_init_size: u32 = if (input.has_memory) 4 else 0;
+    for (input.mem_data) |seg| memory_init_size += 8 + @as(u32, @intCast(seg.bytes.len));
+
     // Code section: concatenate per-func bytes with 4-byte
     // alignment between funcs (loader mmap()s with
     // PROT_EXEC; arm64 prefers 4-byte-aligned function
@@ -130,7 +142,8 @@ pub fn produceCwasm(allocator: Allocator, input: Input) Error![]u8 {
     const relocs_offset: u32 = types_offset + types_size;
     const exports_offset: u32 = relocs_offset + relocs_size;
     const globals_offset: u32 = exports_offset + exports_size;
-    const code_offset: u32 = globals_offset + globals_size;
+    const memory_init_offset: u32 = globals_offset + globals_size;
+    const code_offset: u32 = memory_init_offset + memory_init_size;
     const total_size: u32 = code_offset + code_size;
 
     var out = try allocator.alloc(u8, total_size);
@@ -155,6 +168,11 @@ pub fn produceCwasm(allocator: Allocator, input: Input) Error![]u8 {
         .exports_size = exports_size,
         .globals_offset = globals_offset,
         .globals_size = globals_size,
+        .flags = if (input.has_memory) format.flag_has_memory else 0,
+        .memory_min_pages = if (input.has_memory) input.mem_min_pages else 0,
+        .memory_max_pages = if (input.has_memory) input.mem_max_pages else 0,
+        .memory_init_offset = memory_init_offset,
+        .memory_init_size = memory_init_size,
     };
     try format.writeHeader(out[0..format.header_size], header);
 
@@ -205,7 +223,20 @@ pub fn produceCwasm(allocator: Allocator, input: Input) Error![]u8 {
         std.mem.writeInt(u128, out[off..][0..format.global_value_size], v, .little);
     }
 
-    // 7. Code section.
+    // 7. Memory_init section: [n_segs: u32] then per active segment
+    // [mem_offset:u32][byte_len:u32][bytes].
+    if (input.has_memory) {
+        std.mem.writeInt(u32, out[memory_init_offset..][0..4], @intCast(input.mem_data.len), .little);
+        var cursor: u32 = memory_init_offset + 4;
+        for (input.mem_data) |seg| {
+            std.mem.writeInt(u32, out[cursor..][0..4], seg.mem_offset, .little);
+            std.mem.writeInt(u32, out[cursor + 4 ..][0..4], @intCast(seg.bytes.len), .little);
+            @memcpy(out[cursor + 8 ..][0..seg.bytes.len], seg.bytes);
+            cursor += 8 + @as(u32, @intCast(seg.bytes.len));
+        }
+    }
+
+    // 8. Code section.
     for (input.bytes_per_func, 0..) |b, i| {
         const off = code_offset + per_func_offsets[i];
         @memcpy(out[off..][0..b.len], b);

@@ -44,6 +44,14 @@ pub const Export = struct {
     func_idx: u32, // wasm-space (imports included)
 };
 
+/// One active data segment reconstructed from the memory_init section
+/// (v0.3 cycle-1b): destination byte offset + init bytes (allocator-owned
+/// dup, since the source `.cwasm` buffer may be freed after `load`).
+pub const MemDataSeg = struct {
+    mem_offset: u32,
+    bytes: []u8,
+};
+
 /// The (single) result type of a defined function, parsed from the
 /// `.cwasm` types section so a standalone runner can dispatch the entry
 /// call without the original `.wasm`. `unsupported` = 0 results is
@@ -71,6 +79,12 @@ pub const LoadedModule = struct {
     /// memcpys these into `globals_base`. Allocator-owned; empty when the
     /// `.cwasm` has no globals.
     globals: []u128,
+    /// Linear-memory state (v0.3 cycle-1b). `has_memory` gates the rest;
+    /// `mem_min_pages` sizes the allocation; `mem_data` are the active data
+    /// segments to memcpy in. All allocator-owned.
+    has_memory: bool,
+    mem_min_pages: u32,
+    mem_data: []MemDataSeg,
     /// Imported-function count; `entry`/`resolveEntry` index defined
     /// funcs (wasm idx - n_imports).
     n_imports: u32,
@@ -81,6 +95,8 @@ pub const LoadedModule = struct {
         self.allocator.free(self.exports);
         self.allocator.free(self.func_result_kinds);
         self.allocator.free(self.globals);
+        for (self.mem_data) |seg| self.allocator.free(seg.bytes);
+        self.allocator.free(self.mem_data);
         self.allocator.free(self.func_offsets);
         jit_mem.free(self.block);
     }
@@ -149,9 +165,19 @@ pub fn load(allocator: Allocator, bytes: []const u8) Error!LoadedModule {
         allocator.free(exports);
     }
 
+    if (@as(u64, h.memory_init_offset) + h.memory_init_size > bytes.len) return Error.TruncatedImage;
+
     // Globals section (v0.3): copy pre-evaluated init values out of `bytes`.
     const globals = try parseGlobals(allocator, bytes, h);
     errdefer allocator.free(globals);
+
+    // Memory_init section (v0.3 cycle-1b): dup the active data segments.
+    const has_memory = (h.flags & format.flag_has_memory) != 0;
+    const mem_data = try parseMemData(allocator, bytes, h);
+    errdefer {
+        for (mem_data) |seg| allocator.free(seg.bytes);
+        allocator.free(mem_data);
+    }
 
     // Allocate the executable block, copy the code section in (W^X:
     // writable while copying/patching, executable before any entry call).
@@ -183,9 +209,39 @@ pub fn load(allocator: Allocator, bytes: []const u8) Error!LoadedModule {
         .exports = exports,
         .func_result_kinds = func_result_kinds,
         .globals = globals,
+        .has_memory = has_memory,
+        .mem_min_pages = h.memory_min_pages,
+        .mem_data = mem_data,
         .n_imports = h.n_imports,
         .allocator = allocator,
     };
+}
+
+/// Parse the v0.3 memory_init section ([n_segs: u32] then per segment
+/// [mem_offset:u32][byte_len:u32][bytes]), duping each segment's bytes into
+/// allocator-owned memory. Empty (size 0 / no memory) yields zero segments.
+fn parseMemData(allocator: Allocator, bytes: []const u8, h: format.CwasmHeader) Error![]MemDataSeg {
+    if (h.memory_init_size < 4) return allocator.alloc(MemDataSeg, 0);
+    const section = bytes[h.memory_init_offset..][0..h.memory_init_size];
+    const n_segs = std.mem.readInt(u32, section[0..4], .little);
+
+    var list = try allocator.alloc(MemDataSeg, n_segs);
+    errdefer allocator.free(list);
+    var filled: usize = 0;
+    errdefer for (list[0..filled]) |seg| allocator.free(seg.bytes);
+
+    var cursor: usize = 4;
+    for (0..n_segs) |i| {
+        if (cursor + 8 > section.len) return Error.TruncatedImage;
+        const mem_offset = std.mem.readInt(u32, section[cursor..][0..4], .little);
+        const byte_len = std.mem.readInt(u32, section[cursor + 4 ..][0..4], .little);
+        const body = cursor + 8;
+        if (body + byte_len > section.len) return Error.TruncatedImage;
+        list[i] = .{ .mem_offset = mem_offset, .bytes = try allocator.dupe(u8, section[body..][0..byte_len]) };
+        filled = i + 1;
+        cursor = body + byte_len;
+    }
+    return list;
 }
 
 /// Parse the v0.3 globals section ([n_globals: u32] then n_globals ×

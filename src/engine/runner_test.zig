@@ -1775,3 +1775,62 @@ test "stateful .cwasm cycle-1: global.get returns the serialised init value via 
     const idx = mod.resolveEntry("g").?;
     try testing.expectEqual(@as(u64, 42), try aot_run.runEntry(&mod, idx));
 }
+
+test "stateful .cwasm cycle-1b: linear memory store+load round-trips via reconstructed vm_base (§12.3b)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+
+    // (module (memory 1) (func (export "m") (result i32)
+    //   i32.const 0; i32.const 42; i32.store; i32.const 0; i32.load)).
+    // Stores 42 at addr 0 then loads it — exercises reconstructed memory
+    // (a stateless runtime has mem_limit 0 → the store traps). 42 < 64 so
+    // its signed-LEB i32.const is a single byte (`0x2a`).
+    const wasm_bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03,
+        0x02, 0x01, 0x00, 0x05, 0x03, 0x01, 0x00, 0x01,
+        0x07, 0x05, 0x01, 0x01, 0x6d, 0x00, 0x00, 0x0a,
+        0x10, 0x01, 0x0e, 0x00, 0x41, 0x00, 0x41, 0x2a,
+        0x36, 0x02, 0x00, 0x41, 0x00, 0x28, 0x02, 0x00,
+        0x0b,
+    };
+
+    var compiled = try compileWasm(testing.allocator, &wasm_bytes);
+    defer compiled.deinit(testing.allocator);
+    const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &wasm_bytes);
+    defer testing.allocator.free(cwasm);
+    var mod = try aot_load.load(testing.allocator, cwasm);
+    defer mod.deinit();
+
+    try testing.expect(mod.has_memory);
+    try testing.expectEqual(@as(u32, 1), mod.mem_min_pages);
+    const idx = mod.resolveEntry("m").?;
+    try testing.expectEqual(@as(u64, 42), try aot_run.runEntry(&mod, idx));
+}
+
+test "stateful .cwasm cycle-1b: active data segment initialises memory, load reads it back (§12.3b)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+
+    // (module (memory 1) (data (i32.const 4) "\07\00\00\00")
+    //   (func (export "d") (result i32) i32.const 4; i32.load)).
+    // The data segment writes 7 (LE i32) at addr 4; the func loads it → 7.
+    const wasm_bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03,
+        0x02, 0x01, 0x00, 0x05, 0x03, 0x01, 0x00, 0x01,
+        0x07, 0x05, 0x01, 0x01, 0x64, 0x00, 0x00, 0x0a,
+        0x09, 0x01, 0x07, 0x00, 0x41, 0x04, 0x28, 0x02,
+        0x00, 0x0b, 0x0b, 0x0a, 0x01, 0x00, 0x41, 0x04,
+        0x0b, 0x04, 0x07, 0x00, 0x00, 0x00,
+    };
+
+    var compiled = try compileWasm(testing.allocator, &wasm_bytes);
+    defer compiled.deinit(testing.allocator);
+    const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &wasm_bytes);
+    defer testing.allocator.free(cwasm);
+    var mod = try aot_load.load(testing.allocator, cwasm);
+    defer mod.deinit();
+
+    try testing.expectEqual(@as(usize, 1), mod.mem_data.len);
+    const idx = mod.resolveEntry("d").?;
+    try testing.expectEqual(@as(u64, 7), try aot_run.runEntry(&mod, idx));
+}

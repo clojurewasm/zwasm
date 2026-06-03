@@ -28,6 +28,7 @@ const runner = @import("../../runner.zig");
 const parser = @import("../../../parse/parser.zig");
 const sections = @import("../../../parse/sections.zig");
 const instantiate = @import("../../../runtime/instance/instantiate.zig");
+const runner_validate = @import("../../runner_validate.zig");
 
 const Allocator = std.mem.Allocator;
 const FuncType = zir.FuncType;
@@ -40,9 +41,21 @@ pub const Error = serialise.Error || error{
     /// (simple i32/i64/f/v128.const + ref.null). ref.func / global.get-import
     /// / struct.new globals are cycle-2 — surfaced loudly, not zero-filled.
     UnsupportedGlobalInit,
-    /// Re-parsing `wasm_bytes` for the global section failed (should not
-    /// happen — `compileWasm` already parsed+validated the same bytes).
+    /// Re-parsing `wasm_bytes` for the global/memory sections failed (should
+    /// not happen — `compileWasm` already parsed+validated the same bytes).
     GlobalSectionParseFailed,
+    /// A memory/data segment is outside the §12.3b cycle-1b subset (a
+    /// non-const active-data offset, or a memory larger than the loader cap).
+    UnsupportedMemoryState,
+};
+
+/// Linear-memory state collected for the producer (v0.3 cycle-1b).
+pub const MemoryState = struct {
+    has_memory: bool = false,
+    min_pages: u32 = 0,
+    max_pages: u32 = format.memory_max_none,
+    /// Active data segments (offset pre-evaluated); `bytes` alias `wasm_bytes`.
+    data: []format.CwasmDataSeg = &.{},
 };
 
 /// Produce `.cwasm` bytes for the given CompiledWasm. The
@@ -134,6 +147,11 @@ pub fn produceFromCompiledWasm(
     const globals = try collectGlobalInits(allocator, wasm_bytes);
     defer allocator.free(globals);
 
+    // Linear memory (v0.3 cycle-1b): min/max pages + active data segments
+    // (offsets pre-evaluated). `mem.data` bytes alias `wasm_bytes`.
+    const mem = try collectMemory(allocator, wasm_bytes);
+    defer allocator.free(mem.data);
+
     const input: serialise.Input = .{
         .arch = arch,
         .bytes_per_func = bytes_per_func,
@@ -146,6 +164,10 @@ pub fn produceFromCompiledWasm(
         .n_types = @intCast(n_funcs),
         .exports = exports,
         .globals = globals,
+        .has_memory = mem.has_memory,
+        .mem_min_pages = mem.min_pages,
+        .mem_max_pages = mem.max_pages,
+        .mem_data = mem.data,
     };
 
     return serialise.produceCwasm(allocator, input);
@@ -173,6 +195,48 @@ fn collectGlobalInits(allocator: Allocator, wasm_bytes: []const u8) Error![]u128
         out[i] = v.bits128;
     }
     return out;
+}
+
+/// Page-count cap mirroring `setup.zig`'s 256 MiB ceiling (256 MiB / 64 KiB).
+const max_min_pages: u32 = 256 * 1024 * 1024 / 65536;
+
+/// Collect linear-memory state (v0.3 cycle-1b): min/max pages + ACTIVE data
+/// segments with offsets pre-evaluated (`runner_validate.evalConstOffsetU64`,
+/// mirroring `setup.zig`). Passive segments are deferred (memory.init =
+/// cycle-2). `data` bytes alias `wasm_bytes` (borrowed by the parser), so the
+/// returned segs stay valid for the `produceCwasm` copy. Caller frees `.data`.
+fn collectMemory(allocator: Allocator, wasm_bytes: []const u8) Error!MemoryState {
+    var module = parser.parse(allocator, wasm_bytes) catch return Error.GlobalSectionParseFailed;
+    defer module.deinit(allocator);
+
+    var st: MemoryState = .{};
+    if (module.find(.memory)) |s| {
+        var memories = sections.decodeMemory(allocator, s.body) catch return Error.GlobalSectionParseFailed;
+        defer memories.deinit();
+        if (memories.items.len > 0) {
+            const m0 = memories.items[0];
+            if (m0.min > max_min_pages) return Error.UnsupportedMemoryState;
+            st.has_memory = true;
+            st.min_pages = @intCast(m0.min);
+            st.max_pages = if (m0.max) |mx| (if (mx > std.math.maxInt(u32)) format.memory_max_none else @intCast(mx)) else format.memory_max_none;
+        }
+    }
+    if (!st.has_memory) return st;
+
+    if (module.find(.data)) |s| {
+        var datas = sections.decodeData(allocator, s.body) catch return Error.GlobalSectionParseFailed;
+        defer datas.deinit();
+        var list: std.ArrayList(format.CwasmDataSeg) = .empty;
+        errdefer list.deinit(allocator);
+        for (datas.items) |seg| {
+            if (seg.kind != .active) continue; // passive → memory.init (cycle-2)
+            const off = runner_validate.evalConstOffsetU64(seg.offset_expr) catch return Error.UnsupportedMemoryState;
+            if (off > std.math.maxInt(u32)) return Error.UnsupportedMemoryState;
+            try list.append(allocator, .{ .mem_offset = @intCast(off), .bytes = seg.bytes });
+        }
+        st.data = try list.toOwnedSlice(allocator);
+    }
+    return st;
 }
 
 /// Map host arch → `.cwasm` arch tag. Producer-only-on-matching-

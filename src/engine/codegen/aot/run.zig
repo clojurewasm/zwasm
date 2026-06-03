@@ -30,6 +30,11 @@ pub const Error = entry.Error || error{
     /// (void / i32). i64 / f32 / f64 / v128 / multi-result are later
     /// scope; surfaced loudly rather than reading a garbage register.
     UnsupportedEntrySignature,
+    /// A data segment's `[offset, offset+len)` runs past the declared
+    /// linear memory (a malformed `.cwasm`; the producer validates valid
+    /// modules, so this only fires on corruption).
+    MemoryInitOutOfBounds,
+    OutOfMemory,
 };
 
 /// Backing for the minimal runtime's base pointers. A stateless entry
@@ -71,6 +76,23 @@ pub fn runEntry(loaded: *const load.LoadedModule, idx: usize) Error!u64 {
         rt.globals_base = @ptrCast(loaded.globals.ptr);
         rt.globals_count = @intCast(loaded.globals.len);
     }
+
+    // §12.3b cycle-1b: reconstruct linear memory (alloc min_pages×64KB,
+    // memcpy active data segments). Freed after the call — unlike globals
+    // it is not aliased from `loaded`.
+    var memory: []u8 = &.{};
+    defer if (memory.len > 0) loaded.allocator.free(memory);
+    if (loaded.has_memory and loaded.mem_min_pages > 0) {
+        memory = try loaded.allocator.alloc(u8, @as(usize, loaded.mem_min_pages) * 65536);
+        @memset(memory, 0);
+        for (loaded.mem_data) |seg| {
+            if (@as(u64, seg.mem_offset) + seg.bytes.len > memory.len) return Error.MemoryInitOutOfBounds;
+            @memcpy(memory[seg.mem_offset..][0..seg.bytes.len], seg.bytes);
+        }
+        rt.vm_base = memory.ptr;
+        rt.mem_limit = memory.len;
+    }
+
     const VoidFn = *const fn (*const JitRuntime) callconv(.c) void;
     const I32Fn = *const fn (*const JitRuntime) callconv(.c) u32;
     return switch (loaded.resultKind(idx)) {
