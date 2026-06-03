@@ -20,6 +20,7 @@ const abi = @import("../../abi.zig");
 const gpr = @import("../../gpr.zig");
 const inst = @import("../../inst.zig");
 const jit_abi = @import("../../../shared/jit_abi.zig");
+const gc_marshal = @import("gc_marshal.zig");
 const zir = @import("../../../../../ir/zir.zig");
 
 pub const op_tag = meta.op_tag;
@@ -37,20 +38,23 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     const dst_off_vreg = ctx.pushed_vregs.pop().?;
     const ref_vreg = ctx.pushed_vregs.pop().?;
 
-    // Marshal each operand into its arg reg (EDX=ref, ECX=dst_off, R8D=src_off,
-    // R9D=len) — all i32, so the 32-bit (.d) MOV form throughout.
+    // Marshal user args 2..5 = ref, dst_off, src_off, len (arg 1 =
+    // segidx immediate below) — all i32 (.d). SysV: arg_gprs[2..6] =
+    // RDX/RCX/R8/R9 (all regs). Win64: arg_gprs[2..4] = R8/R9 →
+    // src_off (arg 4) + len (arg 5) spill to [RSP+0x20]/[RSP+0x28]
+    // (D-248). stage R10/R11 + arg regs ∉ pool → no source clobbered.
     const xref = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, ref_vreg, 0);
-    if (xref != .rdx) try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.d, .rdx, xref).slice());
+    try gc_marshal.routeArg(ctx, 2, xref, .d);
     const xdst = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, dst_off_vreg, 0);
-    if (xdst != .rcx) try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.d, .rcx, xdst).slice());
+    try gc_marshal.routeArg(ctx, 3, xdst, .d);
     const xsrc = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_off_vreg, 0);
-    if (xsrc != .r8) try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.d, .r8, xsrc).slice());
+    try gc_marshal.routeArg(ctx, 4, xsrc, .d);
     const xlen = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, len_vreg, 0);
-    if (xlen != .r9) try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.d, .r9, xlen).slice());
+    try gc_marshal.routeArg(ctx, 5, xlen, .d);
 
-    // RDI = rt (R15); ESI = segidx.
-    try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.q, .rdi, abi.runtime_ptr_save_gpr).slice());
-    try ctx.buf.appendSlice(ctx.allocator, inst.encMovImm32W(.rsi, segidx).slice());
+    // arg 0 = rt (R15); arg 1 = segidx immediate.
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.q, abi.current.arg_gprs[0], abi.runtime_ptr_save_gpr).slice());
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovImm32W(abi.current.arg_gprs[1], segidx).slice());
     // MOVABS R10 = &jitGcArrayInitElem; CALL R10.
     const addr: u64 = @intFromPtr(&jit_abi.jitGcArrayInitElem);
     try ctx.buf.appendSlice(ctx.allocator, inst.encMovImm64Q(call_scratch, addr).slice());

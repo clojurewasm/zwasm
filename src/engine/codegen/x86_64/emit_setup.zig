@@ -51,6 +51,44 @@ pub fn computeOutgoingMaxBytes(
 ) u32 {
     var max_bytes: u32 = 0;
     for (func.instrs.items) |ins| {
+        // §9.9 / D-248: GC ops issue an INTRA-OP CALL to a
+        // `callconv(.c)` runtime helper (jitGcAlloc & friends) — NOT
+        // a `.call` / `.call_indirect` ZIR op — so they are invisible
+        // to the sig-scan below. On Win64 the callee is entitled to a
+        // 32-byte shadow space, and the ≥5-arg helpers (array.copy /
+        // fill / init_data / init_elem / new_data / new_elem) spill
+        // args 5/6 to `[RSP + 32 + 8*k]` above it. Reserve that region
+        // here so the spill / shadow lands inside the frame, not on
+        // the pushed return address (SEGV otherwise). SysV reserves 0
+        // — it has no shadow space and 6 GPR arg slots fit every GC
+        // helper, so this contributes nothing (byte-identical prologue).
+        if (abi.current_cc == .win64) {
+            const gc_bytes: u32 = switch (ins.op) {
+                // ≥5 integer args → 32 shadow + 2×8 spill, 16-aligned = 48.
+                .@"array.copy",
+                .@"array.fill",
+                .@"array.init_data",
+                .@"array.init_elem",
+                .@"array.new_data",
+                .@"array.new_elem",
+                => 48,
+                // ≤4-arg GC helpers: shadow space only.
+                .@"struct.new",
+                .@"struct.new_default",
+                .@"array.new",
+                .@"array.new_default",
+                .@"array.new_fixed",
+                .@"ref.test",
+                .@"ref.test_null",
+                .@"ref.cast",
+                .@"ref.cast_null",
+                .br_on_cast,
+                .br_on_cast_fail,
+                => abi.current.shadow_space_bytes,
+                else => 0,
+            };
+            if (gc_bytes > max_bytes) max_bytes = gc_bytes;
+        }
         const sig: ?zir.FuncType = switch (ins.op) {
             .call => if (ins.payload < func_sigs.len) func_sigs[ins.payload] else null,
             .call_indirect => if (ins.payload < module_types.len) module_types[ins.payload] else null,
