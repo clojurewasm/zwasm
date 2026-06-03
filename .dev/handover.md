@@ -25,13 +25,14 @@
 - **Bundle-ID**: 12.1-aot-cwasm-loader
 - **Cycles-remaining**: ~2 (cycle-1 = load.zig MVP: parse + alloc + copy + reloc + execute, unit test green;
   cycle-2 = `zwasm run *.cwasm` CLI wiring + AOT↔JIT differential §12.2)
-- **Continuity-memo**: Step 0 survey DONE → `private/notes/p12-12.1-aot-loader-survey.md` (format shapes,
-  section order, reloc-apply REUSE of `linker.zig:291-337`, exec contract, MVP recipe). NEXT = write
-  `src/engine/codegen/aot/load.zig` + its red test: produce a `()→i32` const-7 `.cwasm` via
-  `serialise.produceCwasm` (confirm its exact input API first), `load()`, cast entry(0) to
-  `*const fn(*JitRuntime) callconv(.c) i32`, invoke, assert 7. REUSE the JIT linker's reloc patch (encBL/
-  patchRel32) + `jit_mem.alloc/setExecutable`. Divergence: keep `.cwasm` immutable (eager copy-and-patch into
-  a runtime JitBlock; NOT v1 in-file patching).
+- **Continuity-memo**: Step 0 survey → `private/notes/p12-12.1-aot-loader-survey.md`. **CYCLE-1 DONE
+  (`ca69fc68`; Mac test + zone + lint clean)**: `src/engine/codegen/aot/load.zig` — `load()` (parseHeader →
+  arch-check → `jit_mem.alloc`+setWritable → memcpy code section → parse func metas → `applyRelocs` (no-op for
+  0 relocs) → setExecutable → `LoadedModule.entry(idx, Fn)`); MVP test produces a `()→i32` const-7 `.cwasm` via
+  `serialise.produceCwasm`, loads, executes → returns 7 (+ arch-mismatch + truncated-header reject tests).
+  Registered in `src/zwasm.zig` barrel (pub + test-force-import). zone_check clean. NEXT (cycle-2): `zwasm run
+  *.cwasm` CLI wiring (`main.zig` ~L64 / `run.zig`) + §12.2 AOT↔JIT differential + a 2-func/direct-call test
+  exercising `applyRelocs` (BL/CALL patch already written, untested until a reloc'd fixture exists).
 - **Exit-condition**: `load.zig` loads a `serialise.produceCwasm`-produced `.cwasm` + executes func[0] → the
   asserted i32 (MVP behavior signal); §12.1 `[x]` when `zwasm run *.cwasm` runs a real artefact end-to-end.
 
