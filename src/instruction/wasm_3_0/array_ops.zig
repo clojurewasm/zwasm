@@ -25,6 +25,7 @@ const dispatch = @import("../../ir/dispatch_table.zig");
 const zir = @import("../../ir/zir.zig");
 const runtime = @import("../../runtime/runtime.zig");
 const type_info_mod = @import("../../feature/gc/type_info.zig");
+const root_scope = @import("../../feature/gc/root_scope.zig");
 
 const ZirOp = zir.ZirOp;
 const ZirInstr = zir.ZirInstr;
@@ -73,6 +74,12 @@ fn resolveArrayInfo(inst: *const Instance, typeidx: u32) anyerror!ArrayInfo {
 /// ArrayHeader at offset 0. Returns the 32-bit GcRef.
 fn allocateArray(rt: *Runtime, typeidx: u32, length: u32, element_size: u8) anyerror!u32 {
     const heap = rt.gc_heap orelse return runtime.Trap.NullReference;
+    // §15.1 chunk 1c (ADR-0146): drive a collection under heap pressure
+    // before bump-allocating. Interp path only (JIT trampoline = D-258).
+    if (rt.instance) |inst_opaque| {
+        const inst = @as(*const runtime.Instance, @ptrCast(@alignCast(inst_opaque)));
+        if (inst.gc_type_infos) |*gti| root_scope.maybeCollect(heap, gti, rt);
+    }
     const payload_bytes: u32 = length * @as(u32, element_size);
     const total: u32 = array_header_size + payload_bytes;
     const ref = try heap.allocate(total);

@@ -31,6 +31,7 @@ const zir = @import("../../ir/zir.zig");
 const runtime = @import("../../runtime/runtime.zig");
 const type_info_mod = @import("../../feature/gc/type_info.zig");
 const object_alloc = @import("../../feature/gc/object_alloc.zig");
+const root_scope = @import("../../feature/gc/root_scope.zig");
 
 const ZirOp = zir.ZirOp;
 const ZirInstr = zir.ZirInstr;
@@ -102,6 +103,13 @@ fn resolveStructInfo(inst: *const Instance, typeidx: u32) anyerror!StructInfo {
 /// payload with field values.
 fn allocateStruct(rt: *Runtime, typeidx: u32, payload_size: u32) anyerror!u32 {
     const heap = rt.gc_heap orelse return runtime.Trap.NullReference;
+    // §15.1 chunk 1c (ADR-0146): drive a collection under heap pressure
+    // before bump-allocating. Interp path only — the JIT alloc trampoline
+    // has its own (future) trigger site (D-258).
+    if (rt.instance) |inst_opaque| {
+        const inst = @as(*const Instance, @ptrCast(@alignCast(inst_opaque)));
+        if (inst.gc_type_infos) |*gti| root_scope.maybeCollect(heap, gti, rt);
+    }
     return object_alloc.allocStructObject(heap, typeidx, payload_size, false);
 }
 

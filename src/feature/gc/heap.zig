@@ -52,6 +52,22 @@ pub const Heap = struct {
     /// offset 1 left padding to keep first object 2-byte aligned).
     cursor: u32 = 2,
 
+    /// Heap-pressure collection trigger (§15.1 chunk 1c / ADR-0146).
+    /// A collection is driven (by `object_alloc.maybeCollect`) once
+    /// `cursor` reaches `next_gc_at`. The Heap owns only the SIGNAL —
+    /// it cannot reach the Runtime/roots, so it never drives the
+    /// collection itself.
+    ///
+    /// `pressure_bytes` is the growth budget between collections
+    /// (settable; tests shrink it to trigger without huge allocs).
+    /// `next_gc_at` is the cursor watermark that arms the next
+    /// collection. `gc_cycles` counts collections actually run — the
+    /// production-observable proof the trigger fired (sweep does not
+    /// reclaim until chunk 2, so this counter is the only signal).
+    pressure_bytes: u32 = default_pressure_bytes,
+    next_gc_at: u32 = default_pressure_bytes,
+    gc_cycles: u32 = 0,
+
     /// 4 KB grow granularity per ADR-0115 §5. Page is the slab
     /// grow unit, NOT the OS page (the slab is a sub-region of
     /// the Runtime arena which is itself mmap-backed).
@@ -64,6 +80,11 @@ pub const Heap = struct {
     /// 4 GiB cap (maxInt(u32)) per ADR-0115 §5. Multi-Store
     /// deployment for larger heaps.
     pub const max_size: u32 = std.math.maxInt(u32);
+
+    /// Default growth budget between collections (§15.1 chunk 1c /
+    /// ADR-0146). 1 MiB is a first-cut β policy; a build-option /
+    /// adaptive sizing is a later optimisation, not load-bearing.
+    pub const default_pressure_bytes: u32 = 1 << 20;
 
     pub const Error = error{
         /// Heap exhausted past 4 GiB cap (or parent arena OOM).
@@ -117,6 +138,23 @@ pub const Heap = struct {
         @memset(new_bytes[self.bytes.len..], 0);
         self.bytes = new_bytes;
     }
+
+    /// True once allocation pressure has reached the armed watermark
+    /// (§15.1 chunk 1c / ADR-0146). The interp alloc handlers consult
+    /// this before allocating and drive a collection via
+    /// `object_alloc.maybeCollect` when it fires.
+    pub fn shouldCollect(self: *const Heap) bool {
+        return self.cursor >= self.next_gc_at;
+    }
+
+    /// Record that a collection just ran: re-arm the watermark
+    /// `pressure_bytes` above the current cursor and count the cycle.
+    /// Saturates the watermark at `max_size` so it can never wrap.
+    pub fn noteCollected(self: *Heap) void {
+        const armed = @addWithOverflow(self.cursor, self.pressure_bytes);
+        self.next_gc_at = if (armed[1] != 0) max_size else armed[0];
+        self.gc_cycles +%= 1;
+    }
 };
 
 // ============================================================
@@ -157,6 +195,30 @@ test "Heap.allocate: 2-byte alignment preserves i31 low bit (ADR-0116)" {
     _ = try h.allocate(1);
     const r1 = try h.allocate(4);
     try testing.expectEqual(@as(u32, 0), r1 % Heap.min_align);
+}
+
+test "Heap pressure: shouldCollect arms at next_gc_at; noteCollected re-arms + counts (§15.1 chunk 1c)" {
+    var h = Heap.init(testing.allocator);
+    defer h.deinit();
+    h.pressure_bytes = 64; // shrink so a few small allocs cross it
+    h.next_gc_at = 64;
+
+    // Below the watermark → no collection armed.
+    _ = try h.allocate(16);
+    try testing.expect(!h.shouldCollect());
+    try testing.expectEqual(@as(u32, 0), h.gc_cycles);
+
+    // Cross the watermark → armed.
+    while (h.cursor < 64) _ = try h.allocate(16);
+    try testing.expect(h.shouldCollect());
+
+    // noteCollected re-arms pressure_bytes above the current cursor
+    // and counts the cycle; shouldCollect clears until the next cross.
+    const cursor_at_collect = h.cursor;
+    h.noteCollected();
+    try testing.expectEqual(@as(u32, 1), h.gc_cycles);
+    try testing.expectEqual(cursor_at_collect + 64, h.next_gc_at);
+    try testing.expect(!h.shouldCollect());
 }
 
 test "Heap.allocate: grow in 4 KB pages" {

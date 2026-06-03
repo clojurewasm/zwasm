@@ -80,6 +80,36 @@ pub const RootScope = struct {
     }
 };
 
+/// Drive a GC collection iff the heap has crossed its pressure
+/// watermark (§15.1 chunk 1c / ADR-0146). `MarkSweepCollector` is
+/// stateless (heap + gti + output stats), so it is built transiently
+/// here rather than stored on the Runtime — no persistent collector
+/// field, no import cycle. The conservative native-stack scan is
+/// ENABLED (`scan_native_stack`): a JIT frame may hold the only
+/// reference to an object the interp is mid-constructing, invisible
+/// to the operand-stack walk. No reclamation yet (ADR-0135 interim),
+/// so a mis-fire here cannot UAF — the only effect is `gc_cycles` +
+/// sweep stats advancing. The transient scope's extra-roots list
+/// stays empty on this path (interp roots only), so a zero-size
+/// `FixedBufferAllocator` backs it — it is never actually allocated
+/// from, which keeps the alloc handlers from needing an allocator.
+pub fn maybeCollect(
+    heap: *heap_mod.Heap,
+    gti: *const type_info_mod.GcTypeInfos,
+    rt: *runtime_mod.Runtime,
+) void {
+    if (!heap.shouldCollect()) return;
+    var coll = ms_mod.MarkSweepCollector.init(heap, gti);
+    coll.bindRuntime(rt);
+    coll.scan_native_stack = true;
+    var empty_buf: [0]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&empty_buf);
+    var scope = RootScope.init(fba.allocator(), rt, coll.collector());
+    defer scope.deinit();
+    scope.collect();
+    heap.noteCollected();
+}
+
 /// Mark callback used by walkRoots + extra-root iteration.
 /// The ctx is a *RootScope; we forward to the collector's
 /// markFromRoot via a downcast to MarkSweepCollector (the
@@ -189,4 +219,30 @@ test "RootScope.collect: no roots → all objects dead (10.G op_gc cycle 29)" {
     try testing.expectEqual(@as(u32, 1), ms.last_stats.objects_seen);
     try testing.expectEqual(@as(u32, 0), ms.last_stats.survivors);
     try testing.expectEqual(header_size + 8, ms.last_stats.dead_bytes);
+}
+
+test "maybeCollect: fires a collection only under heap pressure; counts the cycle (§15.1 chunk 1c)" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const body = [_]u8{ 0x01, 0x5F, 0x01, 0x7F, 0x01 };
+    const env = try buildEnv(&arena, &body);
+    env.heap.pressure_bytes = 64; // shrink so a few allocs cross it
+    env.heap.next_gc_at = 64;
+
+    const header_size: u32 = @sizeOf(type_info_mod.ObjectHeader);
+    const ref = try env.heap.allocate(header_size + 8);
+    const hdr: type_info_mod.ObjectHeader = .{ .kind = .struct_, .info = 0 };
+    @memcpy(env.heap.bytes[ref .. ref + header_size], std.mem.asBytes(&hdr)[0..header_size]);
+    try env.rt.pushOperand(.{ .ref = @as(u64, ref) });
+
+    // Below the watermark → no collection driven.
+    maybeCollect(env.heap, &env.gti, env.rt);
+    try testing.expectEqual(@as(u32, 0), env.heap.gc_cycles);
+
+    // Cross the watermark → maybeCollect fires exactly once + re-arms
+    // the watermark above the current cursor.
+    while (env.heap.cursor < 64) _ = try env.heap.allocate(8);
+    maybeCollect(env.heap, &env.gti, env.rt);
+    try testing.expectEqual(@as(u32, 1), env.heap.gc_cycles);
+    try testing.expect(!env.heap.shouldCollect());
 }

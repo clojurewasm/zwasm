@@ -849,6 +849,26 @@ entries:
       (wasm_ref_copy/same); src/api/instance.zig (Ref @189, wasm_ref_delete, Func.host);
       src/runtime/value.zig (fromFuncRef @103, refAsFuncEntity @109); src/runtime/runtime.zig
       (instance back-ptr @152); .dev/phase13_capi_gap.md
+  - id: "D-258"
+    layer: "code"
+    status: "now"
+    description: |-
+      §15.1 chunk 1c (ADR-0146) wired the heap-pressure GC collection trigger into the
+      INTERP alloc helpers only (`struct_ops.allocateStruct` / `array_ops.allocateArray`
+      → `root_scope.maybeCollect`). The JIT GC-alloc trampolines (`jit_abi.zig`
+      jitGcAlloc / jitGcAllocArray) call `object_alloc` DIRECTLY and bypass the trigger,
+      so a long-running JIT-only allocation loop never collects. NOT a correctness bug
+      yet (chunk 1c does not reclaim — ADR-0135 interim; cursor just grows as before),
+      but once chunk 2 free-list reuse lands, the JIT path must drive collection too or
+      it leaks relative to interp. DISCHARGE: add a maybeCollect call site in the JIT
+      alloc trampoline (it has the Store/Runtime + gti reachable) — likely fold the
+      pressure check into a shared spot both paths hit, OR mirror the interp guard.
+    first_raised: "2026-06-04"
+    last_reviewed: "2026-06-04"
+    refs: |-
+      src/engine/codegen/shared/jit_abi.zig (jitGcAlloc/jitGcAllocArray @1109-1143);
+      src/feature/gc/root_scope.zig (maybeCollect); src/instruction/wasm_3_0/struct_ops.zig
+      (allocateStruct); src/instruction/wasm_3_0/array_ops.zig (allocateArray); ADR-0146
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
