@@ -5,57 +5,37 @@
 
 ## Current state
 
-- **Phase**: **12 IN-PROGRESS — AOT compilation mode** (Phase 11 DONE 2026-06-03; widget advanced). Phase 11 =
-  WASI 0.1 full + bench infra + SIMD gap profile, closed at `bbc4900b` with the 3-host `test-all` reconcile GREEN.
-- **§11 close**: §11.1 (WASI, incl. Windows realworld subset) / §11.2 (bench, Mac+Linux) / §11.3 (SIMD gap ✓) /
-  §11.P all `[x]`. §11.4 → Phase 15 (ADR-0135). **Bench re-scoped to 2-host** (Mac+Linux) per **ADR-0137**:
-  hyperfine absent on windowsmini (native zig.exe, no nix shell; not autonomously provisionable) → Windows bench
-  *timing* deferred to **D-249** (correctness reconcile unaffected).
-- **11.P-win64-jit bundle CLOSED** (`bbc4900b`, windowsmini run-2 GREEN — zero crashes across 50131 lines): the
-  §11.P windowsmini reconcile surfaced Phase-10 EH/GC-on-JIT bugs on the Win64 ABI (first Win64 run since §11.1).
-  Fixed + verified: (1) 15 GC/EH emit files hardcoded SysV arg regs → `abi.current.arg_gprs[]` (cycle-1, ≤4-arg);
-  (2) 6 ≥5-arg array ops → `gc_marshal.routeArg` stack-spill + `computeOutgoingMaxBytes` Win64 shadow/stack
-  reservation (cycle-2, ex-D-248); (3) throw_trampoline Win64 test-wrapper RSP 16-byte parity (`subq/addq $8`).
-  All SysV-no-op (Mac+ubuntu green throughout). Lesson:
-  `2026-06-03-win64-jit-trampoline-arg-marshal-hardcoded-sysv`.
-- **3-host invariant RESTORED**: Mac aarch64 + ubuntunote x86_64-SysV + windowsmini x86_64-Win64 all GREEN.
-
-## Active bundle
-
-- **Bundle-ID**: 12.1-aot-cwasm-loader
-- **Cycles-remaining**: ~1 (loader CORE + §12.2 + v0.2 format-layer + producer wiring DONE; remaining = `zwasm
-  run *.cwasm` CLI branch + its standalone-runtime design, then §12.1 `[x]`)
-- **Continuity-memo**: survey → `private/notes/p12-12.1-aot-loader-survey.md`. **DONE**: loader CORE
-  (`ca69fc68`,`50b4bd1a`); §12.2 differential `[x]` (`bd138990`,`d0c1281e`); ADR-0138 entry-point design;
-  v0.2 format-layer `926bed9f` (`.cwasm` v0.2 exports section, header 60→68B, `format`/`serialise`/`load` +
-  `LoadedModule.resolveEntry(invoke_name)` = `_start`→`main`→first-export, returns DEFINED idx); **producer
-  wiring `e090562d`** — `runner.CompiledWasm.exports` (func-kind, arena-owned via `collectFuncExports` in
-  compile.zig, both return sites), `produceFromCompiledWasm` maps → `serialise.Input.exports`; verified by a
-  runner_test that a `compileWasm`→produce→`load` `.cwasm` has `resolveEntry("f")==0` + executes. **NEXT (CLI
-  branch — needs the standalone-runtime sub-design)**: `cli/run.zig` (Zone 3) `.cwasm` branch → `aot_load.load`
-  → `resolveEntry(invoke_name)` → invoke. **The wrinkle**: the loaded entry is `callconv(.c) fn(*JitRuntime)…`
-  but we have no `compiled`/`wasm_bytes` to build the runtime via `setupRuntime`. (a) For the STATELESS subset
-  (no memory/globals/imports — e.g. a `()→i32` compute export) a minimal `JitRuntime` (stack struct, dummy
-  bases, zero counts; prologue only stores `jit_executed_flag` into the struct itself) suffices — put this in a
-  Zone-2 helper (`aot/run.zig`) to keep JIT-ABI knowledge out of Zone 3. (b) Result surfacing needs the entry's
-  result type — loader currently drops sig; either expose `LoadedModule` entry sig (parse types section) or
-  invoke `--invoke <name>` as i32→exit-code. (c) STATEFUL `.cwasm` (memory/globals/imports) reconstruction is
-  genuinely later scope — the format carries no memory/global/data sections → file a D-NNN debt row when the CLI
-  lands. End-to-end test: `zwasm run --invoke f prog.cwasm` → exit code = the i32 result.
-- **Exit-condition**: §12.1 `[x]` when `zwasm run *.cwasm` runs a real (stateless-MVP) artefact end-to-end via
-  the CLI; stateful runtime reconstruction tracked as debt.
+- **Phase**: **12 IN-PROGRESS — AOT compilation mode**. §12.0 / §12.1 / §12.2 all `[x]`; next `[ ]` = §12.3
+  (cross-compile). Phase 11 DONE (`bbc4900b`, 3-host `test-all` reconcile GREEN; WASI 0.1 + bench Mac+Linux per
+  ADR-0137 + SIMD gap profile; §11.4 → Phase 15 per ADR-0135).
+- **§12.1 `.cwasm` loader + runner — CLOSED end-to-end** (smoke-verified: `zwasm compile f.wasm -o f.cwasm` then
+  `zwasm run --invoke f f.cwasm` → exit 42). Pipeline: loader CORE (`ca69fc68`,`50b4bd1a`) → entry-point design
+  **ADR-0138** (`.cwasm` v0.2 exports section; header 60→68 B w/ `exports_offset`+`exports_size`; section =
+  `[n_exports][name_len,name,func_idx]…`, func-kind only) → v0.2 format-layer (`926bed9f`) → producer exports
+  wiring (`e090562d`: `CompiledWasm.exports` arena-owned via `collectFuncExports`, forwarded by
+  `produceFromCompiledWasm`) → standalone runner `aot/run.zig` (`c7246e3c`: minimal stateless `JitRuntime` —
+  zero counts, base ptrs alias a zero pad, never dereferenced; `runEntry` dispatches void/i32 by the loader's
+  parsed result kind) → `cli/run.zig` `runCwasm` + main.zig `CWAS`-magic branch (`cf983dff`).
+- **§12.2 differential `[x]`** (`bd138990`,`d0c1281e`): JIT vs AOT equal across i32/i64 const + internal-call
+  reloc through the real `compileWasm`→produce→`load` pipeline.
+- **Scope limit (D-250)**: the standalone runner handles the STATELESS subset (void / i32-result, no
+  memory/globals/imports) — the v0.2 `.cwasm` carries no memory/global/data/table/import sections, so a stateful
+  runtime can't be rebuilt from the artefact yet. Non-void/i32 results also deferred (`UnsupportedEntrySignature`).
 
 ## Next task (autonomous)
 
-Phase 12 (AOT) IN-PROGRESS. §12.2 `[x]`; v0.2 format-layer (`926bed9f`) + producer exports wiring (`e090562d`)
-landed + green. **NEXT** = `cli/run.zig` `.cwasm` branch: a Zone-2 `aot/run.zig` helper builds a minimal
-stateless `JitRuntime`, invokes the `resolveEntry`-selected loaded entry, surfaces the i32 result as exit code;
-`run.zig` detects the `.cwasm` magic/extension and routes there. File a debt row for stateful (memory/globals/
-imports) `.cwasm` runtime reconstruction. §12.1 `[x]` closes on the end-to-end `zwasm run --invoke f *.cwasm` test.
+§12.3 — cross-compile (`zig build -Dtarget=x86_64-linux`) + a cross-produced `.cwasm` runs on the target host
+(3-host per ADR-0067). The producer already host-arch-tags (`produce.hostArch`); the loader rejects arch
+mismatch. Likely shape: produce a `.cwasm` on Mac for the x86_64 target, ship it to ubuntu, `zwasm run` it there.
+Step 0 survey: how the gate ships artefacts to remote hosts (`scripts/run_remote_ubuntu.sh`), whether the
+producer can target a non-host arch (today `hostArch()` is host-pinned → cross-produce may need a `-Dtarget`
+override path). Then §12.4 (cold-start bench-delta ≥30%) + §12.5 (stack-map section, gated `needs_gc_heap`).
 
 ## Deferred / open debt (none a Phase-12 blocker)
 
-- **D-249** Windows bench timing (hyperfine on windowsmini / native path) — perf-completeness only, ADR-0137.
+- **D-250** stateful `.cwasm` runtime reconstruction (memory/globals/imports) + non-void/i32 results — the v0.2
+  container lacks the module-state sections; standalone runner is stateless-only. Later §12 / §12+.
+- **D-249** Windows bench timing (hyperfine on windowsmini) — perf-completeness only, ADR-0137.
 - **D-245** host→JIT callee-saved: arm64 + x86_64-SysV no-arg-void fixed; win64 + arg'd variants = remainder.
 - **D-246** §11.3 arm64 dot/extmul JIT-emit hole → Phase 15. **D-211** GC-on-JIT precise rooting → Phase 15.
 - **D-238** x86_64-SysV cross-instance EH thunk. **D-244** SIMD interp-free (partial). D-210/D-234/D-237/D-229/
@@ -63,17 +43,18 @@ imports) `.cwasm` runtime reconstruction. §12.1 `[x]` closes on the end-to-end 
 
 ## Step 0.7 (next resume)
 
-This turn landed v0.2 format-layer (`926bed9f`) + producer exports wiring (`e090562d`); Mac test+lint+zone green.
-Prior ubuntu verified `63b2cd24` OK. An ubuntu `test` is kicked against this turn's final HEAD (`e090562d`) →
-next resume `tail /tmp/ubuntu.log` for OK. Phase-12 code is Mac+ubuntu only (exec/differential tests skip Win64
-via `skip.phaseEnd`; the v0.2 `resolveEntry`-precedence test runs on all hosts; windowsmini = phase-boundary).
+This turn landed §12.1 close: standalone runner `aot/run.zig` (`c7246e3c`) + CLI `.cwasm` branch (`cf983dff`)
++ §12.1 `[x]` + bundle `12.1-aot-cwasm-loader` CLOSED (delta = `zwasm run *.cwasm` → exit 42, smoke + runCwasm
+test green). Mac test+lint+zone green; exe builds + real CLI smoke passes. Prior ubuntu verified `22f5be01` OK.
+An ubuntu `test` is kicked against this turn's final HEAD → next resume `tail /tmp/ubuntu.log` for OK. Phase-12
+exec tests skip Win64 via `skip.phaseEnd` (D-250); windowsmini = phase-boundary.
 
 **Gate hygiene**: Step-5 Mac = `bash scripts/mac_gate.sh`. Win64 cross-compile: `zig build test
--Dtarget=x86_64-windows-gnu` (compile-only; run-error = compile passed). 3-host reconcile = phase boundary.
+-Dtarget=x86_64-windows-gnu` (compile-only). 3-host reconcile = phase boundary.
 
 ## Key refs
 
-- ROADMAP §12 (AOT — Goal + exit criteria at line ~1432); Phase Status widget (Phase 11 DONE / 12 IN-PROGRESS).
-- ADR-0137 (Windows bench re-scope); ADR-0040/0039 (AOT substrate from §9.8b); ADR-0117 (GC stack-map for AOT).
-- Lessons: `2026-06-03-win64-jit-trampoline-arg-marshal-hardcoded-sysv`, `2026-06-03-windowsmini-reconciliation-
-  catches-os-only-compile-drift`, `2026-06-03-host-to-jit-must-preserve-callee-saved`.
+- ROADMAP §12 (AOT — Goal + exit criteria ~line 1432; §12.3/12.4/12.5 task rows); Phase Status widget.
+- ADR-0138 (`.cwasm` v0.2 exports section); ADR-0040/0039 (AOT substrate); ADR-0117 (GC stack-map for §12.5);
+  ADR-0067 (3-host); ADR-0136 (`--engine=jit`).
+- D-250 (stateful `.cwasm` scope). Survey: `private/notes/p12-12.1-aot-loader-survey.md`.
