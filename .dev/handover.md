@@ -48,12 +48,14 @@ Two open tracks, both within Phase 13's surface (pick either; runtime-entity is 
    `main`, cli/main.zig:43/58) — a C-library context (`libzwasm.so`, Zig startup never runs) can't reach it, so
    inherit needs platform C APIs (`_NSGetArgv` / `/proc/self/cmdline` / `GetCommandLineW`) or the C `environ`
    global = new libc sites (§14 "unconscious libc fanout"). Do the ADR-0070 amend as Step 1 of that chunk.
-2. **§13.5 — host examples** (`examples/{c_host, zig_host, rust_host}` build+run on 3 OS). c_host = `hello.c`
-   exists. NEXT: add **zig_host** (a Zig program driving the native API per ADR-0109, OR the C ABI via `@cImport`)
-   + a build step (mirror the `c_host`/conformance wiring), then **rust_host** (Rust via the C header; needs rustc,
-   available on Mac via `nix develop`). 3-OS = §13.P boundary (windowsmini). Then §13.P (🔒 close).
-   **§13.3 remainder** (inherit_argv/env, preopen_dir) is BOTH ADR-0070-blocked (C-lib process/io provenance) AND
-   lower-value (explicit set_args/set_envs already cover config) → defer to §13.P review or debt-row; not a blocker. **WATCH: instance.zig 3299/3300 — further growth needs extraction, not a 3rd exempt bump.**
+2. **§13.5 — rust_host** (c_host `hello.c` + zig_host `hello.zig` `6dbecae8` DONE; both in test-all). NEXT:
+   **rust_host** — a Rust program declaring the wasm.h C ABI via `extern "C"` + linking `libzwasm.a`, exercising
+   engine/store/module/instance/func_call (a 3rd independent ABI consumer — Rust's strict FFI is a good ABI
+   cross-check, cf. the C conformance catching the imports-vec bug). Build wiring: `b.addSystemCommand(rustc ... -L
+   <c_api_lib bin dir> -l static=zwasm)`, **Mac-only** (system rustc at `~/.cargo/bin`; NOT in test-all — the test
+   hosts are artifact-runners with no rustc by design, toolchain_provisioning.md). The §13.5 "3-OS rust run" is
+   genuinely blocked on test-host rustc (deliberate design) → document at §13.P / debt-row, not a per-chunk blocker.
+   Then §13.P (🔒 close). **§13.3 remainder** ADR-0070-blocked + low-value (set_args/envs cover config) → §13.P review. **WATCH: instance.zig 3299/3300 — further growth needs extraction, not a 3rd exempt bump.**
 
 gap: `.dev/phase13_capi_gap.md`.
 
@@ -74,9 +76,9 @@ prose. Standing `soon` (not Phase-12): 10 ADR + 10 lesson `<backfill>` markers; 
 
 ## Step 0.7 (next resume)
 
-This turn added the trap conformance example (5th) + marked **§13.4 [x]** (conformance suite fail=0 Mac+ubuntu).
-Test-only + build.zig + ROADMAP (no src change). An ubuntu `test-all` is kicked → next resume `tail /tmp/ubuntu.log`
-for OK. Prior ubuntu `9ef24077` (test-all) OK; windowsmini `0810b339` GREEN.
+This turn added the §13.5 zig_host example (native ADR-0109 API, `run-zig-host` in test-all): builds + runs,
+main()=42. An ubuntu `test-all` is kicked → next resume `tail /tmp/ubuntu.log` for OK. Prior ubuntu `986e6fec`
+(test-all) OK; windowsmini `0810b339` GREEN.
 
 **Gate hygiene**: Step-5 Mac = `bash scripts/mac_gate.sh`. Win64 cross-compile: `zig build test
 -Dtarget=x86_64-windows-gnu` (compile-only). 3-host reconcile = phase boundary.
