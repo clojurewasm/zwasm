@@ -34,16 +34,21 @@
 
 ## Next task (autonomous)
 
-§11.2 recording PATHS are verified (Mac + Linux). The committed 3-host baseline rows are phase-close batch. Next
-autonomous track = **§11.4 GC-on-JIT precise rooting (D-211)** — the substantive remaining §11 feature: conservative
-native-stack scan + stack-map root walker (ADR-0128 §2 / ADR-0115); lands with Phase-11 reclamation, zero codegen
-change (emit already DONE; only rooting deferred). This is a multi-cycle bundle — survey D-211 + ADR-0115/0128 §2,
-set up `## Active bundle`, then TDD. Alternatively **§11.3 SIMD gap** (needs `--compare=wasmtime` bench data, slower
-to gather). Windows realworld subset + windowsmini bench row → phase-boundary batch per the skip policy.
+**§11.4 MOVED to Phase 15** (`732b19c3`, ADR-0135): GC-on-JIT precise rooting is untestable without reclamation
+(β no-reclaim Phase-10 collector; a missed root can't UAF when nothing is freed) and reclamation was unowned →
+re-sequenced to Phase 15 paired with reclamation. Phase 11's only substantive remaining deliverable is now:
+
+Next autonomous track = **§11.3 SIMD per-op gap analysis** — identify SIMD ops where v2 lags >3× the median of
+(wasmtime, wazero, wasmer); file Phase 15 debt entries. This is the D-074 cohort: needs (a) wazero + wasmer added
+to `flake.nix` (only wasmtime present today; `run_bench.sh --compare` rejects non-wasmtime), (b) a per-op SIMD
+micro-bench corpus, (c) a gap-analysis script + `-Dwith-bench-compare` flag. Multi-cycle — survey D-074 +
+ADR-0043 + the §9.10 Track A scope doc, set up a bundle, then build incrementally. §11.1/§11.2 phase-close-batch
+items (Windows realworld subset + windowsmini bench row + committed 3-host bench rows) remain for §11.P.
 
 ## Deferred / open debt (all blocked-by/note; none a Phase-11 blocker)
 
-- **D-211** GC-on-JIT precise rooting → §11.4 (emit DONE; only rooting deferred, safe per non-moving+no-reclaim).
+- **D-211** GC-on-JIT precise rooting → **Phase 15** (ADR-0135; paired with reclamation; emit DONE, rooting safe
+  to defer per non-moving+no-reclaim). Residual: no struct/array/ref_cast JIT op-emit file (interp-only) — noted.
 - **D-210** cross-module frame-consuming TC cohort stack-save (terminating programs correct; not a corpus gap).
 - **D-238** x86_64 cross-instance EH thunk parity (arm64 done; FP-walk MOV + RBP variant).
 - **D-234** memory64 OOB harness false-report (codegen proven correct 6 paths; runner-side fix).
@@ -52,10 +57,10 @@ to gather). Windows realworld subset + windowsmini bench row → phase-boundary 
 
 ## Step 0.7 (next resume)
 
-Last ubuntu-verified CODE HEAD = `fcc9fe03` (D-243, all `fail=0`). Since then only shell-orchestration commits
-(`1c13e9f3` record_merge_bench wrapper, `d303f427` run_remote_ubuntu bench step) — `zig build test-all` does NOT
-invoke them, so NO ubuntu test-all kick (non-code gap). The `d303f427` bench step WAS exercised live on ubuntunote
-this turn (wrote a real x86_64-linux recent.yaml row, exit 0). Next cycle Step 0.7 = nothing to verify.
+Last ubuntu-verified CODE HEAD = `fcc9fe03` (D-243, all `fail=0`). Since then only shell + docs/ADR commits
+(`1c13e9f3` bench wrapper, `d303f427` remote bench step, `732b19c3` ADR-0135 re-sequence) — none touch src/test,
+so NO ubuntu test-all kick (non-code gap). The `d303f427` bench step was exercised live on ubuntunote (real
+x86_64-linux row, exit 0). Next cycle Step 0.7 = nothing to verify.
 
 **Gate hygiene**: Step-5 Mac gate = `bash scripts/mac_gate.sh`. JIT corpus: `zig build test-spec-wasm-3.0-assert`
 (NO bogus `-Dno-run`); pick the exe by mtime (bare `head -1` = STALE). `ZWASM_SPEC_ENGINE=jit <exe>
