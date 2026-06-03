@@ -1426,7 +1426,7 @@ progresses):
 | 11.1    | WASI 0.1 (preview1) full — complete the syscall surface; close the realworld SKIP-WASI gaps (e.g. `go_math_big` instantiate error) on Mac + Linux; Windows realworld subset (25 samples).                | [ ]  |
 | 11.2    | Bench infra — per-merge auto-recording (Mac native + ubuntunote + `windowsmini` SSH per ADR-0067) into `bench/history.yaml`; `scripts/run_bench.sh --quick` local path.                                  | [ ]  |
 | 11.3    | SIMD per-op gap analysis vs (wasmtime, wazero, wasmer) — identify ops lagging > 3× the median; file Phase 15 debt entries (carried from §9.10 Track A).                                                   | [ ]  |
-| 11.4    | GC-on-JIT precise rooting (deferred-from-§10 allowlist; D-211) — conservative native-stack scan + stack-map root walker (ADR-0128 §2 / ADR-0115); lands with Phase-11 reclamation, zero codegen change.  | [ ]  |
+| 11.4    | **Moved to Phase 15 (ADR-0135)**. GC-on-JIT precise rooting (D-211) is untestable without GC reclamation — a missed root can only UAF once objects are freed, and the Phase-10 collector is β no-reclaim (`collector_mark_sweep.zig:214`); ADR-0128 §2 = "rooting becomes load-bearing only when reclamation lands". Reclamation was unowned (not in §11.P exit, nor Phase 12/13/14). Re-sequenced: rooting + reclamation land together in Phase 15 (optimisation tier per P14; non-moving no-reclaim is correctness-safe to defer). Row preserved for citation lineage. | [~] moved to Phase 15 |
 | 11.P    | Phase 11 close — exit criteria met (50 realworld Mac+Linux + Windows subset + bench auto-record 3-host + SIMD gap profile) + widget 11 → DONE + Phase 12 inline expand.                                  | [ ]  |
 
 ### Phase 12 — AOT compilation mode
@@ -1516,6 +1516,17 @@ target is the floor, not the ceiling: exceeding v1's ~43× gap
 to wasmtime (per v1 D122 self-assessment) is in scope where
 Phase 11's gap profile + a feasibility-supported
 debt entry name a candidate.
+
+**GC reclamation + precise rooting** (moved here per ADR-0135; ex-§11.4,
+D-211): the Phase-10 collector is non-moving + β no-reclaim (mark-sweep
+wired, dead bytes leak per `collector_mark_sweep.zig:214`). Phase 15 adds
+actual reclamation (free-list reuse / compaction per ADR-0115 §10) and,
+as the paired prerequisite, GC-on-JIT **precise rooting** — a stack-map
+root walker (`zir.GcRootMap`, currently an empty placeholder) + a
+conservative native-stack scan (ADR-0128 §2). Deferred to here because
+rooting is untestable until something is actually freed (a missed root
+can only UAF post-reclamation); the no-reclaim model is correctness-safe
+in the interim. Zero codegen change (op-emit already landed in §10.G).
 
 **Substrate inherited from §9.8b/8b.1 + 8b.2** (per ADR-0040
 migration):
