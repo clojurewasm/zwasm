@@ -60,6 +60,7 @@ if [ "${1:-}" = "--branch" ]; then
     shift 2
 fi
 STEP="${1:-test-all}"
+shift 2>/dev/null || true   # remaining positionals forward to the `bench` step
 
 die_step() {
     echo "[run_remote_ubuntu] FAIL: $1" >&2
@@ -107,14 +108,18 @@ remote_sha="$(ssh $SSH_OPTS ubuntunote bash -lc "'
 }
 echo "[run_remote_ubuntu] remote HEAD: $remote_sha"
 
-# 3. Build / test. `build` is the implicit (default) step in
-#    build.zig — invoking `zig build build` errors. Map the
-#    human-friendly arg to no step.
-if [ "$STEP" = "build" ]; then
-    REMOTE_CMD="zig build"
-else
-    REMOTE_CMD="zig build $STEP"
-fi
+# 3. Build / test / bench. `build` is the implicit (default) step in
+#    build.zig — invoking `zig build build` errors, so map it to no
+#    step. `bench` is NOT a zig build step: it runs the §12.4 manual
+#    per-merge recorder (record_merge_bench.sh → run_bench.sh hyperfine,
+#    pinned via flake.nix) to produce the x86_64-linux row. Extra args
+#    after `bench` forward, e.g. `… bench --quick --phase-record` or
+#    `… bench --quick --bench=tinygo/arith`; default = full --quick.
+case "$STEP" in
+    build) REMOTE_CMD="zig build" ;;
+    bench) REMOTE_CMD="bash scripts/record_merge_bench.sh ${*:---quick}" ;;
+    *)     REMOTE_CMD="zig build $STEP" ;;
+esac
 
 # `nix develop --command` pins Zig 0.16.0 + project deps via
 # `flake.nix`, guaranteeing bit-identical toolchain with Mac
