@@ -213,6 +213,19 @@ fn thunkSchedYield(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     _ = ctx;
     return pushErrno(rt, wasi_proc.schedYield());
 }
+fn thunkFdFilestatGet(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
+    const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
+    const filestat_ptr = rt.popOperand().u32;
+    const fd = rt.popOperand().u32;
+    return pushErrno(rt, wasi_fd.fdFilestatGet(host, rt.memory, fd, filestat_ptr));
+}
+fn thunkPathUnlinkFile(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
+    const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
+    const path_len = rt.popOperand().u32;
+    const path_ptr = rt.popOperand().u32;
+    const dirfd = rt.popOperand().u32;
+    return pushErrno(rt, wasi_fd.pathUnlinkFile(host, rt.memory, dirfd, path_ptr, path_len));
+}
 
 /// Map a WASI snapshot-1 import name to its host thunk, or
 /// null if the name is outside the supported set.
@@ -236,6 +249,8 @@ pub fn lookupWasiThunk(name: []const u8) ?HostThunkFn {
     if (std.mem.eql(u8, name, "fd_prestat_get")) return thunkFdPrestatGet;
     if (std.mem.eql(u8, name, "fd_prestat_dir_name")) return thunkFdPrestatDirName;
     if (std.mem.eql(u8, name, "sched_yield")) return thunkSchedYield;
+    if (std.mem.eql(u8, name, "fd_filestat_get")) return thunkFdFilestatGet;
+    if (std.mem.eql(u8, name, "path_unlink_file")) return thunkPathUnlinkFile;
     return null;
 }
 
@@ -263,7 +278,8 @@ test "lookupWasiThunk: every supported WASI 0.1 import resolves" {
         "fd_tell",             "fd_fdstat_get",
         "fd_fdstat_set_flags", "path_open",
         "fd_prestat_get",      "fd_prestat_dir_name",
-        "sched_yield",
+        "sched_yield",         "fd_filestat_get",
+        "path_unlink_file",
     };
     inline for (names) |n| {
         try testing.expect(lookupWasiThunk(n) != null);

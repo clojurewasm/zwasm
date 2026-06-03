@@ -365,6 +365,77 @@ pub fn pathOpen(
     return writeU32LE(mem, opened_fd_ptr, new_fd);
 }
 
+/// Map a host `std.Io.File.Kind` to the WASI preview1 `Filetype` tag.
+fn kindToFiletype(kind: std.Io.File.Kind) p1.Filetype {
+    return switch (kind) {
+        .file => .regular_file,
+        .directory => .directory,
+        .sym_link => .symbolic_link,
+        .block_device => .block_device,
+        .character_device => .character_device,
+        .named_pipe, .unix_domain_socket, .whiteout, .door, .event_port, .unknown => .unknown,
+    };
+}
+
+/// Wasm WASI snapshot-1 `fd_filestat_get` — write the `Filestat` of an
+/// open fd. Stdio fds report `character_device` (what wasi-libc expects
+/// for a tty-like stream); a `.file` / `.dir` slot with a host handle is
+/// `stat`-ed via `std.Io.File.stat`. Out-of-range / closed → `badf`.
+pub fn fdFilestatGet(host: *Host, mem: []u8, fd: p1.Fd, filestat_ptr: u32) p1.Errno {
+    const slot = host.translateFd(fd) orelse return .badf;
+    if (slot.kind == .closed) return .badf;
+    const dst = sliceMem(mem, filestat_ptr, @sizeOf(p1.Filestat)) orelse return .fault;
+
+    const fs: p1.Filestat = switch (slot.kind) {
+        .stdin, .stdout, .stderr => .{
+            .dev = 0,
+            .ino = 0,
+            .filetype = .character_device,
+            .nlink = 1,
+            .size = 0,
+            .atim = 0,
+            .mtim = 0,
+            .ctim = 0,
+        },
+        .closed => return .badf,
+        .file, .dir => blk: {
+            const handle = slot.host_handle orelse return .badf;
+            const io = host.io orelse return .nosys;
+            const file: std.Io.File = .{ .handle = handle, .flags = .{ .nonblocking = false } };
+            const st = file.stat(io) catch |err| return mapOpenError(err);
+            const atim_ns: i96 = if (st.atime) |a| a.nanoseconds else st.mtime.nanoseconds;
+            break :blk .{
+                .dev = 0,
+                .ino = @intCast(st.inode),
+                .filetype = kindToFiletype(st.kind),
+                .nlink = @intCast(st.nlink),
+                .size = st.size,
+                .atim = if (atim_ns > 0) @intCast(atim_ns) else 0,
+                .mtim = if (st.mtime.nanoseconds > 0) @intCast(st.mtime.nanoseconds) else 0,
+                .ctim = if (st.ctime.nanoseconds > 0) @intCast(st.ctime.nanoseconds) else 0,
+            };
+        },
+    };
+    @memcpy(dst, std.mem.asBytes(&fs));
+    return .success;
+}
+
+/// Wasm WASI snapshot-1 `path_unlink_file` — delete a file relative to a
+/// preopen `.dir` fd. Mirrors `pathOpen`'s front-half (preopen resolution
+/// + `..`-escape guard) then `std.Io.Dir.deleteFile`. Non-preopen dirfd →
+/// `notdir`; absolute / `..`-escaping path → `notcapable`.
+pub fn pathUnlinkFile(host: *Host, mem: []u8, dirfd: p1.Fd, path_ptr: u32, path_len: u32) p1.Errno {
+    const path = sliceMemConst(mem, path_ptr, path_len) orelse return .fault;
+    if (pathHasParentEscape(path)) return .notcapable;
+    const dir_slot = host.translateFd(dirfd) orelse return .badf;
+    if (dir_slot.kind != .dir) return .notdir;
+    const dir_handle = dir_slot.host_handle orelse return .notdir;
+    const io = host.io orelse return .nosys;
+    const dir: std.Io.Dir = .{ .handle = dir_handle };
+    dir.deleteFile(io, path) catch |err| return mapOpenError(err);
+    return .success;
+}
+
 /// Guest-path of the preopen backing a `.dir` slot, matched by the
 /// slot's host handle (preopens are the only `.dir` fds with a host
 /// handle registered in `host.preopens`). Null when the slot is not
@@ -675,4 +746,27 @@ test "fdPrestatGet + fdPrestatDirName: a preopen reports its Prestat + dir name"
     // dir name copied into the guest buffer.
     try testing.expectEqual(p1.Errno.success, fdPrestatDirName(&h, &mem, fd, 8, 8));
     try testing.expectEqualStrings("/sandbox", mem[8..16]);
+}
+
+test "fdFilestatGet: stdout reports character_device; bad fd is badf" {
+    var h = try Host.init(testing.allocator);
+    defer h.deinit();
+    var mem: [64]u8 = @splat(0xAA);
+    try testing.expectEqual(p1.Errno.success, fdFilestatGet(&h, &mem, 1, 0));
+    // Filestat.filetype is at offset 16 (dev u64 @0, ino u64 @8, filetype @16).
+    try testing.expectEqual(@as(u8, @intFromEnum(p1.Filetype.character_device)), mem[16]);
+    try testing.expectEqual(p1.Errno.badf, fdFilestatGet(&h, &mem, 99, 0));
+}
+
+test "pathUnlinkFile: non-preopen dirfd is notdir; bad fd is badf; .. escape is notcapable" {
+    var h = try Host.init(testing.allocator);
+    defer h.deinit();
+    var mem = [_]u8{ 'a', '.', 't', 'x', 't' } ++ [_]u8{0} ** 16;
+    // fd 1 (stdout) is not a .dir → notdir.
+    try testing.expectEqual(p1.Errno.notdir, pathUnlinkFile(&h, &mem, 1, 0, 5));
+    // out-of-range fd → badf.
+    try testing.expectEqual(p1.Errno.badf, pathUnlinkFile(&h, &mem, 99, 0, 5));
+    // a `..` traversal is rejected before any fd work.
+    @memcpy(mem[0..3], "../");
+    try testing.expectEqual(p1.Errno.notcapable, pathUnlinkFile(&h, &mem, 1, 0, 3));
 }
