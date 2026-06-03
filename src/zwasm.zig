@@ -92,6 +92,7 @@ comptime {
     _ = @import("api/wasi.zig");
     _ = @import("api/trap_surface.zig");
     _ = @import("api/vec.zig");
+    _ = @import("api/types.zig");
     _ = @import("api/instance.zig");
     _ = @import("api/cross_module.zig");
 }
@@ -225,6 +226,7 @@ pub const api = struct {
     pub const wasi_binding = @import("api/wasi.zig");
     pub const trap_surface = @import("api/trap_surface.zig");
     pub const vec = @import("api/vec.zig");
+    pub const types = @import("api/types.zig");
     pub const cross_module = @import("api/cross_module.zig");
     pub const instance = @import("api/instance.zig");
 };

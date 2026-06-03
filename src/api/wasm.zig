@@ -31,6 +31,7 @@ const runtime = @import("../runtime/runtime.zig");
 const wasi = @import("wasi.zig");
 const trap_surface = @import("trap_surface.zig");
 const vec = @import("vec.zig");
+const types = @import("types.zig");
 const instance = @import("instance.zig");
 
 const testing = std.testing;
@@ -72,6 +73,51 @@ pub const wasm_val_vec_delete = vec.wasm_val_vec_delete;
 pub const wasm_extern_vec_new_empty = vec.wasm_extern_vec_new_empty;
 pub const wasm_extern_vec_new_uninitialized = vec.wasm_extern_vec_new_uninitialized;
 pub const wasm_extern_vec_new = vec.wasm_extern_vec_new;
+
+// ============================================================
+// Re-exports — types.zig (§13.2 type constructors)
+// ============================================================
+
+pub const Limits = types.Limits;
+pub const ValType = types.ValType;
+pub const ValTypeVec = types.ValTypeVec;
+pub const FuncType = types.FuncType;
+pub const GlobalType = types.GlobalType;
+pub const TableType = types.TableType;
+pub const MemoryType = types.MemoryType;
+
+pub const wasm_valtype_new = types.wasm_valtype_new;
+pub const wasm_valtype_delete = types.wasm_valtype_delete;
+pub const wasm_valtype_kind = types.wasm_valtype_kind;
+pub const wasm_valtype_copy = types.wasm_valtype_copy;
+pub const wasm_valtype_vec_new_empty = types.wasm_valtype_vec_new_empty;
+pub const wasm_valtype_vec_new_uninitialized = types.wasm_valtype_vec_new_uninitialized;
+pub const wasm_valtype_vec_new = types.wasm_valtype_vec_new;
+pub const wasm_valtype_vec_copy = types.wasm_valtype_vec_copy;
+pub const wasm_valtype_vec_delete = types.wasm_valtype_vec_delete;
+
+pub const wasm_functype_new = types.wasm_functype_new;
+pub const wasm_functype_delete = types.wasm_functype_delete;
+pub const wasm_functype_params = types.wasm_functype_params;
+pub const wasm_functype_results = types.wasm_functype_results;
+pub const wasm_functype_copy = types.wasm_functype_copy;
+
+pub const wasm_globaltype_new = types.wasm_globaltype_new;
+pub const wasm_globaltype_delete = types.wasm_globaltype_delete;
+pub const wasm_globaltype_content = types.wasm_globaltype_content;
+pub const wasm_globaltype_mutability = types.wasm_globaltype_mutability;
+pub const wasm_globaltype_copy = types.wasm_globaltype_copy;
+
+pub const wasm_tabletype_new = types.wasm_tabletype_new;
+pub const wasm_tabletype_delete = types.wasm_tabletype_delete;
+pub const wasm_tabletype_element = types.wasm_tabletype_element;
+pub const wasm_tabletype_limits = types.wasm_tabletype_limits;
+pub const wasm_tabletype_copy = types.wasm_tabletype_copy;
+
+pub const wasm_memorytype_new = types.wasm_memorytype_new;
+pub const wasm_memorytype_delete = types.wasm_memorytype_delete;
+pub const wasm_memorytype_limits = types.wasm_memorytype_limits;
+pub const wasm_memorytype_copy = types.wasm_memorytype_copy;
 
 // ============================================================
 // Re-exports — instance.zig
