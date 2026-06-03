@@ -20,14 +20,15 @@
 
 ## Next task (autonomous — Phase 14)
 
-**§14.1 [x]** `2592f255` (pr.yml 3-OS test-all matrix). **§14.2 [x]** — reconciled to existing `bench.yml`
-(2-host Mac+Linux per-merge bench per **ADR-0137**; windows-timing deferred **D-249**; no separate main.yml).
-**NEXT: §14.3 — `nightly.yml`** (fuzz + spec-bump + proposal-watch). Survey: existing fuzz infra
-(`zig build fuzz`? `scripts/`), the spec-bump check, `.dev/proposal_watch.md` (quarterly cadence). Likely a
-workflow_dispatch (+ maybe `schedule:` cron — but auto-trigger conflicts with the manual-CI convention;
-lean workflow_dispatch + document the cron option). Then §14.4 (bench_baseline workflow_dispatch) → §14.5
-(confirm pre_push works; CI second-line) → §14.P. **CI convention = manual `workflow_dispatch`** (auto-push
-disabled 2026-05-25). All workflows actionlint-clean before commit.
+**§14.1 [x]** `2592f255` (pr.yml). **§14.2 [x]** (bench.yml = 2-host per ADR-0137; win D-249). **§14.5 [x]**
+(pre-push wired+verified; CI second-line). **§14.3 BLOCKED-BY D-256** — fuzz + spec-bump infra does NOT
+exist (no test/fuzz/, no test-fuzz step, no spec-bump checker; §3-scope feature never built). A fuzz-less
+nightly = redundant w/ pr.yml → deferred, NOT a thin workflow.
+**NEXT: §14.4 — `bench_baseline.yml`** (workflow_dispatch, record per-arch bench baselines on demand).
+Survey: `scripts/record_baseline_v1_regression.sh` + run_bench.sh baseline logic (`:444+`); mirror bench.yml's
+job structure (checkout + manual zig-0.16.0 install + cache). actionlint before commit. Then **§14.P close**.
+**⚠ §14.P full-close is BLOCKED on 2 substantial items**: D-256 (fuzz infra, §14.3) + D-245 win64 (windows
+CI green). Either build those OR re-scope §14.P. **CI convention = manual `workflow_dispatch`** (2026-05-25).
 
 ## D-245 win64 — elevated (NOT an active bundle)
 
