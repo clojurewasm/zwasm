@@ -3,6 +3,28 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-246"
+    layer: "code"
+    status: "blocked-by"
+    description: |-
+      blocked-by: Phase 15 (SIMD perf tier). The §11.3 SIMD per-op gap analysis
+      (`bench/results/simd_gap_profile_p11_3.md`, Mac aarch64, `8eca59e3`) found zwasm's
+      JIT SIMD competitive: 0 of 12 ops lag the median of (wasmtime, wazero, wasmer) by
+      >3× (ratios 0.52-1.04×). Two Phase-15 carries: (1) **arm64 JIT does NOT emit
+      `i32x4.dot_i16x8_s` / `i16x8.extmul_*`** (`compileWasm → NotImplemented`); x86_64 HAS
+      them (`x86_64/ops/wasm_2_0/*extmul*`) → an arm64-emit hole; a full SIMD-op JIT-emit
+      coverage sweep (narrow/extend/q15mulr/relaxed/dot/extmul on BOTH arches) belongs in
+      Phase 15. (2) No >3× per-op perf gap means the §9.10 Track A candidates (AVX/CPUID
+      path, MOVAPS peephole, SIMD coalescing) are NOT gap-justified — they stay opportunistic.
+      CAVEAT (Phase-15 refinement): the `--quick` micro-benches are startup/compile-confounded
+      (comparators pay an optimizing-compile cost zwasm's single pass skips) → a steady-state
+      re-profile (≥10× iters, or subtract a no-op-module baseline) must precede acting on any
+      per-op ratio. Discharge: Phase-15 SIMD work consumes the profile + closes the arm64
+      dot/extmul emit hole.
+    first_raised: "2026-06-03"
+    last_reviewed: "2026-06-03"
+    refs: |-
+      `bench/results/simd_gap_profile_p11_3.md`; `bench/runners/wasm/simd/` + `gen_simd_corpus.sh`; `scripts/simd_gap_analysis.sh`; `src/engine/codegen/x86_64/ops/wasm_2_0/*extmul*` (x86_64 has it, arm64 doesn't); ROADMAP §11.3 / §9.10 Track A / Phase 15
   - id: "D-245"
     layer: "code"
     status: "now"
