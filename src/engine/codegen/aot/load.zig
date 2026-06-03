@@ -36,6 +36,14 @@ pub const Error = format.Error || jit_mem.Error || Allocator.Error || error{
     TruncatedImage,
 };
 
+/// A func-kind export resolved from the `.cwasm` exports section.
+/// `name` is allocator-owned (duped from the source buffer, which may
+/// be freed after `load`).
+pub const Export = struct {
+    name: []u8,
+    func_idx: u32, // wasm-space (imports included)
+};
+
 /// A loaded `.cwasm` image: an executable `JitBlock` holding the copied
 /// code section + per-defined-function byte offsets into it.
 pub const LoadedModule = struct {
@@ -43,9 +51,17 @@ pub const LoadedModule = struct {
     /// Byte offset of each defined function within `block.bytes`,
     /// indexed by defined-func order (imports excluded). Allocator-owned.
     func_offsets: []u32,
+    /// Func-kind exports (name → wasm func idx), v0.2 (ADR-0138).
+    /// Allocator-owned; each `name` is independently allocated.
+    exports: []Export,
+    /// Imported-function count; `entry`/`resolveEntry` index defined
+    /// funcs (wasm idx - n_imports).
+    n_imports: u32,
     allocator: Allocator,
 
     pub fn deinit(self: *LoadedModule) void {
+        for (self.exports) |e| self.allocator.free(e.name);
+        self.allocator.free(self.exports);
         self.allocator.free(self.func_offsets);
         jit_mem.free(self.block);
     }
@@ -55,6 +71,28 @@ pub const LoadedModule = struct {
     /// `*JitRuntime` in X0/RDI).
     pub fn entry(self: LoadedModule, idx: usize, comptime Fn: type) Fn {
         return @ptrCast(@alignCast(self.block.bytes.ptr + self.func_offsets[idx]));
+    }
+
+    /// Resolve the entry func's DEFINED-func index (ready for `entry`),
+    /// mirroring `cli/run.zig`'s precedence: explicit `invoke_name`
+    /// override → `_start` → `main` → first func export. Returns null
+    /// when nothing matches OR the match is an imported function (an
+    /// import cannot be an execution entry). Pair with `entry(idx, Fn)`.
+    pub fn resolveEntry(self: LoadedModule, invoke_name: ?[]const u8) ?usize {
+        const wasm_idx: u32 = if (invoke_name) |n|
+            (self.lookup(n) orelse return null)
+        else
+            self.lookup("_start") orelse self.lookup("main") orelse
+                (if (self.exports.len > 0) self.exports[0].func_idx else return null);
+        if (wasm_idx < self.n_imports) return null;
+        return wasm_idx - self.n_imports;
+    }
+
+    fn lookup(self: LoadedModule, name: []const u8) ?u32 {
+        for (self.exports) |e| {
+            if (std.mem.eql(u8, e.name, name)) return e.func_idx;
+        }
+        return null;
     }
 };
 
@@ -75,7 +113,16 @@ pub fn load(allocator: Allocator, bytes: []const u8) Error!LoadedModule {
     if (@as(u64, h.code_offset) + h.code_size > bytes.len) return Error.TruncatedImage;
     if (@as(u64, h.metadata_offset) + h.metadata_size > bytes.len) return Error.TruncatedImage;
     if (@as(u64, h.relocs_offset) + h.relocs_size > bytes.len) return Error.TruncatedImage;
+    if (@as(u64, h.exports_offset) + h.exports_size > bytes.len) return Error.TruncatedImage;
     if (h.code_size == 0) return Error.TruncatedImage; // nothing executable to load
+
+    // Exports section (v0.2): dup names into allocator-owned memory so
+    // they outlive `bytes` (which the caller may free after `load`).
+    const exports = try parseExports(allocator, bytes, h);
+    errdefer {
+        for (exports) |e| allocator.free(e.name);
+        allocator.free(exports);
+    }
 
     // Allocate the executable block, copy the code section in (W^X:
     // writable while copying/patching, executable before any entry call).
@@ -96,7 +143,39 @@ pub fn load(allocator: Allocator, bytes: []const u8) Error!LoadedModule {
     try applyRelocs(block, func_offsets, bytes, h);
 
     try jit_mem.setExecutable(block);
-    return .{ .block = block, .func_offsets = func_offsets, .allocator = allocator };
+    return .{
+        .block = block,
+        .func_offsets = func_offsets,
+        .exports = exports,
+        .n_imports = h.n_imports,
+        .allocator = allocator,
+    };
+}
+
+/// Parse the v0.2 exports section, duplicating each name into
+/// allocator-owned memory. An `exports_size` of 0 (or a v0.1-shaped
+/// image) yields zero exports.
+fn parseExports(allocator: Allocator, bytes: []const u8, h: format.CwasmHeader) Error![]Export {
+    if (h.exports_size < 4) return allocator.alloc(Export, 0);
+    const section = bytes[h.exports_offset..][0..h.exports_size];
+    const n_exports = std.mem.readInt(u32, section[0..4], .little);
+
+    var list = try allocator.alloc(Export, n_exports);
+    errdefer allocator.free(list);
+    var filled: usize = 0;
+    errdefer for (list[0..filled]) |e| allocator.free(e.name);
+
+    var cursor: usize = 4;
+    for (0..n_exports) |i| {
+        const parsed = try format.parseExportEntry(section[cursor..]);
+        list[i] = .{
+            .name = try allocator.dupe(u8, parsed.exp.name),
+            .func_idx = parsed.exp.func_idx,
+        };
+        filled = i + 1;
+        cursor += parsed.consumed;
+    }
+    return list;
 }
 
 /// Apply every load-time relocation by patching the call-site
@@ -267,4 +346,82 @@ test "load: 2-func direct-call reloc resolves; cross-call returns 7" {
 
     const f = mod.entry(0, *const fn () callconv(.c) i32);
     try testing.expectEqual(@as(i32, 7), f());
+}
+
+test "load: exports section resolves entry by name, falls back, then executes (v0.2 / ADR-0138)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+
+    const arch_tag: u32 = switch (builtin.cpu.arch) {
+        .aarch64 => format.arch_arm64,
+        .x86_64 => format.arch_x86_64,
+        else => @compileError("unsupported arch for AOT exports exec test"),
+    };
+    // Self-contained `() -> i32` returning 7 (same bytes as the single-func
+    // test), exported as "f".
+    const fn_bytes: []const u8 = switch (builtin.cpu.arch) {
+        .aarch64 => &[_]u8{ 0xE0, 0x00, 0x80, 0xD2, 0xC0, 0x03, 0x5F, 0xD6 },
+        .x86_64 => &[_]u8{ 0xB8, 0x07, 0x00, 0x00, 0x00, 0xC3 },
+        else => unreachable,
+    };
+
+    const cwasm = try serialise.produceCwasm(testing.allocator, .{
+        .arch = arch_tag,
+        .bytes_per_func = &.{fn_bytes},
+        .n_slots_per_func = &.{1},
+        .sig_idx_per_func = &.{0},
+        .relocs = &.{},
+        .func_idx_for_reloc = &.{},
+        .types_serialised = &.{},
+        .n_imports = 0,
+        .n_types = 0,
+        .exports = &.{.{ .name = "f", .func_idx = 0 }},
+    });
+    defer testing.allocator.free(cwasm);
+
+    var mod = try load(testing.allocator, cwasm);
+    defer mod.deinit();
+
+    // Named lookup hits; an absent name misses. With no _start/main, the
+    // null (default) request falls back to the first func export ("f").
+    try testing.expectEqual(@as(?usize, 0), mod.resolveEntry("f"));
+    try testing.expectEqual(@as(?usize, null), mod.resolveEntry("missing"));
+    try testing.expectEqual(@as(?usize, 0), mod.resolveEntry(null));
+
+    const idx = mod.resolveEntry(null).?;
+    const f = mod.entry(idx, *const fn () callconv(.c) i32);
+    try testing.expectEqual(@as(i32, 7), f());
+}
+
+test "load: _start takes precedence over a non-entry export for the default request" {
+    // No execution — `resolveEntry` precedence is arch-independent, so this
+    // exercises the name-resolution logic on every host (incl. Win64).
+    const arch_tag: u32 = switch (builtin.cpu.arch) {
+        .aarch64 => format.arch_arm64,
+        .x86_64 => format.arch_x86_64,
+        else => return, // resolveEntry logic is identical; skip on exotic hosts
+    };
+    // Two trivial funcs; func0 exported "other", func1 exported "_start".
+    // The default request must pick "_start" (func1 → defined idx 1), not
+    // the first export. Bytes are never executed.
+    const stub: []const u8 = &[_]u8{ 0xC0, 0x03, 0x5F, 0xD6 };
+    const cwasm = try serialise.produceCwasm(testing.allocator, .{
+        .arch = arch_tag,
+        .bytes_per_func = &.{ stub, stub },
+        .n_slots_per_func = &.{ 0, 0 },
+        .sig_idx_per_func = &.{ 0, 0 },
+        .relocs = &.{},
+        .func_idx_for_reloc = &.{},
+        .types_serialised = &.{},
+        .n_imports = 0,
+        .n_types = 0,
+        .exports = &.{ .{ .name = "other", .func_idx = 0 }, .{ .name = "_start", .func_idx = 1 } },
+    });
+    defer testing.allocator.free(cwasm);
+
+    var mod = try load(testing.allocator, cwasm);
+    defer mod.deinit();
+
+    try testing.expectEqual(@as(?usize, 1), mod.resolveEntry(null)); // _start wins
+    try testing.expectEqual(@as(?usize, 0), mod.resolveEntry("other"));
+    try testing.expectEqual(@as(?usize, 1), mod.resolveEntry("_start"));
 }

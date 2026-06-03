@@ -69,16 +69,21 @@ pub const Input = struct {
     n_imports: u32,
     /// Number of distinct FuncTypes in `types_serialised`.
     n_types: u32,
+    /// Func-kind exports (name → wasm func idx), v0.2 per ADR-0138.
+    /// Lets a loaded `.cwasm` resolve `_start`/`main`/`--invoke <name>`
+    /// without re-parsing the original `.wasm`. Empty for none.
+    exports: []const format.CwasmExport = &.{},
 };
 
 /// Produce a `.cwasm` v0.1 byte stream. Caller owns the
 /// returned slice; pair with `allocator.free`.
 ///
-/// Layout (per ADR-0039):
-///   [0..60)            CwasmHeader
-///   [60..)             metadata section (n_funcs × 12 bytes)
+/// Layout (per ADR-0039; v0.2 exports section per ADR-0138):
+///   [0..68)            CwasmHeader
+///   [68..)             metadata section (n_funcs × 12 bytes)
 ///   then               types section (verbatim copy)
 ///   then               relocs section (n_relocs × 9 bytes)
+///   then               exports section ([n_exports][entries…])
 ///   then               code section (concatenated per-func
 ///                      bytes; per-func 4-byte alignment)
 pub fn produceCwasm(allocator: Allocator, input: Input) Error![]u8 {
@@ -91,6 +96,12 @@ pub fn produceCwasm(allocator: Allocator, input: Input) Error![]u8 {
     const metadata_size: u32 = n_funcs * format.func_meta_size;
     const types_size: u32 = @intCast(input.types_serialised.len);
     const relocs_size: u32 = @intCast(input.relocs.len * format.reloc_size);
+
+    // Exports section: 4-byte count then one variable-length entry each.
+    // The count is always written (size >= 4), so the loader has a fixed
+    // place to read n_exports even when there are none.
+    var exports_size: u32 = 4;
+    for (input.exports) |e| exports_size += @intCast(format.exportEntrySize(e.name.len));
 
     // Code section: concatenate per-func bytes with 4-byte
     // alignment between funcs (loader mmap()s with
@@ -109,7 +120,8 @@ pub fn produceCwasm(allocator: Allocator, input: Input) Error![]u8 {
     const metadata_offset: u32 = format.header_size;
     const types_offset: u32 = metadata_offset + metadata_size;
     const relocs_offset: u32 = types_offset + types_size;
-    const code_offset: u32 = relocs_offset + relocs_size;
+    const exports_offset: u32 = relocs_offset + relocs_size;
+    const code_offset: u32 = exports_offset + exports_size;
     const total_size: u32 = code_offset + code_size;
 
     var out = try allocator.alloc(u8, total_size);
@@ -130,6 +142,8 @@ pub fn produceCwasm(allocator: Allocator, input: Input) Error![]u8 {
         .types_size = types_size,
         .relocs_offset = relocs_offset,
         .relocs_size = relocs_size,
+        .exports_offset = exports_offset,
+        .exports_size = exports_size,
     };
     try format.writeHeader(out[0..format.header_size], header);
 
@@ -165,7 +179,15 @@ pub fn produceCwasm(allocator: Allocator, input: Input) Error![]u8 {
         try format.writeReloc(out[slot_off..][0..format.reloc_size], rebased);
     }
 
-    // 5. Code section.
+    // 5. Exports section: [n_exports: u32] then variable-length entries.
+    std.mem.writeInt(u32, out[exports_offset..][0..4], @intCast(input.exports.len), .little);
+    var exp_cursor: u32 = exports_offset + 4;
+    for (input.exports) |e| {
+        const written = try format.writeExportEntry(out[exp_cursor .. exports_offset + exports_size], e);
+        exp_cursor += @intCast(written);
+    }
+
+    // 6. Code section.
     for (input.bytes_per_func, 0..) |b, i| {
         const off = code_offset + per_func_offsets[i];
         @memcpy(out[off..][0..b.len], b);
