@@ -23,13 +23,17 @@
 
 ## Next task (autonomous)
 
-**Next: §13.P — Phase 13 close 🔒.** Assess gate nature FIRST: §13.P is NOT in the continue-skill's registered
-hard-gate list (only §9.7→§9.8, §9.9→Phase 10 are). Check whether §13.P's row references a `.dev/phase*.md` gate
-doc → if yes, hard-stop + surface; if no, drive the phase-close autonomously (audit_scaffolding mandatory +
-3-host windowsmini reconcile + SHA backfill §13 + widget 13→DONE + Phase 14 inline expand). §13.P exit:
-conformance fail=0 (✓ §13.4) + examples green 3-host (c/zig ✓; rust Mac-only per D-254 → reconcile the exit
-wording at close, the deferred ADR-0142 call) + 🔒 gate + 3-host reconcile. **§13.3 is NOT the next task**
-(ADR-0070-blocked). The §13.P close must record the §13.5 rust-3-OS / §13.3 ADR-0070 / D-253 C-E open items.
+**Next: resolve the §13.3 ADR-0070 block — it gates §13.P.** §13.P (Phase-13 close) is NOT a registered
+hard-gate (§13's 🔒 is the end-of-phase conformance gate, explicitly "NOT an entry hard-gate"; §13.P references
+no `.dev/phase*.md` doc → drive it autonomously, not a user-stop). BUT §13.P cannot close while §13.3 (wasi.h
+surface complete) is `[ ]`. So the real next chunk is the §13.3 remainder: **decide, autonomous-with-ADR**,
+whether C-API WASI `inherit_argv`/`inherit_env`/`preopen_dir` is (a) implementable now via the libc `environ`
+global (→ ADR-0070 amendment per `libc_boundary.md`, since a C-library `Host` has no Zig-0.16 `Init`/`std.process`
+token) or (b) genuinely out-of-scope-for-v0.1 → defer with an ADR + re-scope §13.3 exit (explicit `set_args`/
+`set_envs` already cover config). Survey ADR-0070 + `api/wasi.zig` first. Once §13.3 resolves → **§13.P close**:
+audit_scaffolding (mandatory) + windowsmini 3-host reconcile + make the deferred D-254 rust-3-OS call (option (b):
+re-phrase exit to "Mac rust + 2-host conformance") + SHA backfill §13 + widget 13→DONE + Phase 14 inline expand.
+**§13.3 is the gate, NOT a skip.** D-253 C-E stay deferred (cap-blocked / not-modeled).
 
 gap: `.dev/phase13_capi_gap.md`.
 
