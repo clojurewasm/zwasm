@@ -599,6 +599,32 @@ pub fn build(b: *std.Build) void {
     const test_realworld_step = b.step("test-realworld", "Run the realworld parse smoke");
     test_realworld_step.dependOn(&run_realworld.step);
 
+    // `zig build test-fuzz` — §14.3 / D-256 fuzz smoke. Feeds each
+    // committed seed-corpus file's raw bytes through `parser.parse` +
+    // the public `Engine.compile` (parse + validate). A decode-error
+    // return is an EXPECTED reject; a CRASH (panic / SEGV / OOM-loop)
+    // is a finding — it kills the loader process → red gate. Full
+    // overnight campaigns ride the §14.3 nightly over a larger
+    // gitignored `wasm-tools smith` corpus (`gen_fuzz_corpus.sh campaign`).
+    const fuzz_loader_mod = createSanitizedModule(b, sanitize_opts, .{
+        .root_source_file = b.path("test/fuzz/fuzz_loader.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    fuzz_loader_mod.addImport("zwasm", zwasm_lib_mod);
+    const fuzz_loader_exe = b.addExecutable(.{
+        .name = "zwasm-fuzz-loader",
+        .root_module = fuzz_loader_mod,
+    });
+    const run_fuzz = b.addRunArtifact(fuzz_loader_exe);
+    run_fuzz.addArg(b.pathFromRoot("test/fuzz/corpus/seed"));
+    // has_side_effects: the corpus dir is an untracked `addArg` string, so
+    // without this the run is cached on the exe hash + skipped when only the
+    // corpus changes (same gap as run_realworld; see that comment).
+    run_fuzz.has_side_effects = true;
+    const test_fuzz_step = b.step("test-fuzz", "Run the fuzz smoke over the committed seed corpus (§14.3 / D-256)");
+    test_fuzz_step.dependOn(&run_fuzz.step);
+
     // `zig build test-realworld-run` — Phase 6 / §9.6 / 6.1
     // chunk b. Drives each fixture through `cli_run.runWasm`
     // end-to-end (engine → store → WASI → instantiate → entry
@@ -876,6 +902,7 @@ pub fn build(b: *std.Build) void {
     test_all_step.dependOn(&run_c_host.step);
     test_all_step.dependOn(conformance_step); // §13.4 C-API conformance
     test_all_step.dependOn(&run_zig_host.step); // §13.5 zig_host example
+    test_all_step.dependOn(&run_fuzz.step); // §14.3 / D-256 fuzz smoke (seed corpus)
     test_all_step.dependOn(&run_wasi_p1.step);
     // §9.7 / 7.8 row close (D-045 chunks 1-14 fully discharged):
     // wire test-spec-assert into test-all on ALL hosts. Three-host

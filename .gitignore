@@ -30,7 +30,8 @@ private/
 test/spec/json/
 test/e2e/wast/
 test/e2e/json/
-test/fuzz/corpus/
+test/fuzz/corpus/*
+!test/fuzz/corpus/seed/
 
 # Generated headers (fetched by scripts/fetch_wasm_c_api.sh)
 include/wasm.h.upstream
