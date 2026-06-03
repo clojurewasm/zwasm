@@ -7,33 +7,37 @@ entries:
     layer: "code"
     status: "now"
     description: |-
-      `zwasm run` (and every C-API consumer) traps `Unreachable` on ANY SIMD-128 op
-      — the CLI cannot execute wasm-2.0 SIMD modules at all, despite the binary being
-      built `wasm-level: v3_0`. ROOT CAUSE (2026-06-03, §11.3 ch3): the interp reads
-      handlers from the `table.interp[]` array (`src/interp/dispatch.zig:43`:
-      `table.interp[idx] orelse return Trap.Unreachable`), but the C-API dispatch-table
-      builder `src/api/instance.zig:918 dispatchTable()` only calls the per-feature
-      `register()` fns (interp_mvp + ext_sign_ext/sat_trunc/bulk_memory/ref_types/
-      table_ops + the wasm_3_0 ext_*), and NONE of them install SIMD. The SIMD interp
-      handlers DO exist (`src/instruction/wasm_2_0/i32x4_add.zig:20 .interp =
-      interp_i32x4_add`, collector pattern), but the collector→table install
-      `dispatch_collector.populateDispatchTable` (`src/ir/dispatch_collector.zig:233`)
-      is a NO-OP STUB (its own test at :483 says "no-op for current stubs; signature
-      doesn't match InterpFn") — so the SIMD `table.interp[]` slots stay null → trap.
-      The spec SIMD corpus passes via a DIFFERENT path (JIT / its own harness), masking
-      this; no realworld fixture uses SIMD, so it never surfaced until the §11.3 bench.
-      PROVEN: a hand-written `(func (export "_start") (v128.store 0 (i32x4.add ...)))`
-      traps on `zwasm run` (exit 1) but runs clean on wasmtime/wazero/wasmer; an i32-only
-      `_start` runs fine on zwasm. Discharge: wire the collected SIMD-128 interp handlers
-      into `table.interp[]` for the C-API path — either complete `populateDispatchTable`
-      (adapt the collector `handlers.interp` signature to `InterpFn`) or add an explicit
-      SIMD registration step in `dispatchTable()` under the `wasm_2_0_enabled` block.
-      Then a SIMD `_start` runs via `zwasm run`. **Blocks §11.3** (can't bench zwasm SIMD
-      via the CLI) AND is a standalone v0.1.0 product gap (SIMD unrunnable via CLI).
+      `zwasm run` traps `Unreachable` on ANY SIMD-128 op — the CLI cannot execute
+      wasm-2.0 SIMD modules. ROOT CAUSE (2026-06-03, §11.3 ch3, corrected on 2nd dig):
+      **SIMD execution is JIT-ONLY by design; the interp has NO SIMD execution, and
+      `zwasm run` is always the interp.** Evidence: (1) `test/spec/simd_assert_runner.zig:1`
+      = "SIMD spec assertion runner — JIT-execute"; the interp-side runner is
+      `spec_assert_runner_non_simd` (the split is deliberate — §9.12-E exit shows
+      `simd_assert_runner` 13301 pass via JIT vs `spec_assert_runner_non_simd` for scalar).
+      (2) The per-op interp handlers are `NotMigrated` STUBS, not real impls
+      (`i32x4_add.zig:30 interp_i32x4_add() → error.NotMigrated`; signature
+      `fn() DispatchError!void` ≠ `InterpFn`, so `populateDispatchTable` correctly skips
+      them). (3) No `@Vector` SIMD arithmetic exists anywhere under `src/interp/`. (4)
+      `build_options.engine_mode` is DISCARDED at runtime (`main.zig:179 _ =
+      build_options.engine_mode`), so even an `-Dengine=jit` build's `zwasm run` stays on
+      the interp C-API path (`instance.zig:918 dispatchTable()` → `dispatch.zig:43`
+      `table.interp[idx] orelse Trap.Unreachable`). So a SIMD op → null interp slot → trap.
+      P12 (interp==jit) is NOT asserted for SIMD — interp SIMD was intentionally not built.
+      PROVEN: `(func (export "_start") (v128.store 0 (i32x4.add ...)))` traps on `zwasm run`,
+      runs clean on wasmtime/wazero/wasmer; an i32-only `_start` runs fine on zwasm.
+      IMPLICATIONS: (a) **§11.3 SIMD gap analysis cannot bench zwasm via `zwasm run`** — it
+      needs a JIT-EXECUTE bench path (zwasm JIT-compiles + runs the SIMD module + times it,
+      as `simd_assert_runner` does via `engine.runner.CompiledWasm`). There is no CLI/bench
+      JIT-execute entry point today. (b) Standalone v0.1.0 product gap: SIMD modules are
+      unrunnable via the CLI at all (only via the JIT test harness). Discharge options
+      (DESIGN-GRADE — may need an ADR): a `zwasm run --engine=jit` path that honours
+      engine_mode and routes SIMD modules through the JIT executor; OR a dedicated
+      bench-jit runner exe for §11.3 only; OR implement interp SIMD (huge: 207 ops, and
+      contradicts the JIT-only design). The §11.3 prerequisite = the JIT-execute bench path.
     first_raised: "2026-06-03"
     last_reviewed: "2026-06-03"
     refs: |-
-      `src/api/instance.zig:918` (dispatchTable builder — no SIMD register); `src/interp/dispatch.zig:43` (null slot → Trap.Unreachable); `src/ir/dispatch_collector.zig:233` (populateDispatchTable no-op stub) + :483 (its test); `src/instruction/wasm_2_0/i32x4_add.zig:20` (interp handler exists); ROADMAP §11.3 / D-074 / 11.3-simd-gap bundle
+      `test/spec/simd_assert_runner.zig:1` (JIT-execute SIMD runner) + `spec_assert_runner_non_simd` (interp scalar runner); `src/instruction/wasm_2_0/i32x4_add.zig:30` (interp_i32x4_add → NotMigrated stub); `src/interp/dispatch.zig:43` (null slot → Trap.Unreachable); `src/api/instance.zig:918` (interp-only dispatchTable); `src/cli/main.zig:179` (engine_mode discarded); `src/engine/runner.zig` CompiledWasm (the JIT-execute path); ROADMAP §9.12-E / §11.3 / D-074 / 11.3-simd-gap bundle
   - id: "D-239"
     layer: "code"
     status: "partial"

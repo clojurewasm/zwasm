@@ -41,18 +41,18 @@
   `run_bench.sh --compare={wazero,wasmer,all}` (all 4 switch-sites) + `pkgs.git` in flake (macOS /usr/bin/git is
   an xcrun shim that dies under `nix develop`, where the gap run must execute). Verified: `nix develop --command
   bash -c 'run_bench.sh --quick --bench=tinygo/arith --compare=all'` records 4 runtime rows, exit 0.
-  **ch3 BLOCKED — D-244 found**: `zwasm run` traps `Unreachable` on EVERY SIMD op (the CLI/C-API interp can't
-  execute wasm-2.0 SIMD at all). Root cause: `instance.zig:918 dispatchTable()` installs MVP+ext via `register()`
-  but never installs SIMD-128; the collector→table installer `populateDispatchTable` (dispatch_collector.zig:233)
-  is a NO-OP STUB, so `table.interp[]` SIMD slots are null → `dispatch.zig:43` traps. The SIMD interp handlers
-  EXIST (`i32x4_add.zig:20 .interp`), just unwired. Proven: a `(v128.store (i32x4.add …))` `_start` traps on
-  zwasm, runs on wasmtime/wazero/wasmer. Scratch fixture: `private/spikes/simd-bench-corpus/i32x4_add.wat`.
-  **NEXT chunk = fix D-244** (wire collected SIMD interp handlers into the C-API `table.interp[]` — complete
-  `populateDispatchTable` with an InterpFn-signature adapter, OR add explicit SIMD registration in
-  `dispatchTable()` under `wasm_2_0_enabled`). Red test: a SIMD `_start` via the C-API/CLI path traps → green:
-  runs. This is ALSO a standalone v0.1.0 product gap. THEN resume ch3 (author the corpus) → ch4 (gap script).
-- **Exit-condition**: (after D-244) a `--compare=all` gap run over a SIMD corpus emits a per-op zwasm/median
-  ratio table + Phase-15 debt entries for every op > 3×; `run_bench.sh --quick` still works locally.
+  **ch3 BLOCKED — D-244 (corrected, 2nd dig)**: SIMD is **JIT-ONLY by design**; the interp has NO SIMD
+  execution (per-op interp handlers are `NotMigrated` stubs, no `@Vector` in `src/interp/`, `simd_assert_runner`
+  is JIT-execute vs the separate `spec_assert_runner_non_simd` interp runner — §9.12-E). `zwasm run` is ALWAYS
+  the interp (`engine_mode` discarded at `main.zig:179`), so it traps on SIMD. So §11.3 CANNOT bench zwasm via
+  `zwasm run` — it needs a **JIT-execute bench path** (zwasm JIT-compiles + runs the SIMD module + times, like
+  `simd_assert_runner` via `engine.runner.CompiledWasm`); none exists today. This is DESIGN-GRADE (engine/CLI
+  architecture → likely an ADR). **NEXT chunk = design + ADR the JIT-execute path**: cleanest = a `zwasm run
+  --engine=jit` CLI mode that honours `engine_mode` and routes through the JIT executor (also fixes the standalone
+  v0.1.0 product gap — the CLI currently can't run SIMD at all); lighter = a bench-only JIT runner exe. Then ch3
+  (author corpus) → ch4 (gap script). Scratch fixture: `private/spikes/simd-bench-corpus/i32x4_add.wat`.
+- **Exit-condition**: (after the JIT-execute path) a SIMD micro-bench corpus runs on zwasm-JIT + the 3 comparators
+  via `--compare=all`, emitting a per-op zwasm/median ratio table + Phase-15 debt for every op > 3×.
 
 §11.1/§11.2 phase-close-batch items (Windows realworld subset + windowsmini bench row + committed 3-host bench
 rows) remain for §11.P. §11.4 moved to Phase 15 (ADR-0135).
