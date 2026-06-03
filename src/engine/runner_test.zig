@@ -1520,3 +1520,34 @@ test "function-references: br_on_null to function-return target JIT-compiles (D-
     };
     inst.deinit(gpa);
 }
+
+test "function-references: (ref $t) elem into a (ref null $t) table validates (D-240)" {
+    // Regression guard for the JIT elem-vs-table reftype check
+    // (compile.zig). It was an exact `eql` (rejecting subtypes with
+    // ElemSegmentTypeMismatch); Wasm 3.0 §3.3.3 requires a SUBTYPE check —
+    // a `(ref $t)` element type is a subtype of a `(ref null $t)` table.
+    // The typed-ref table runtime already handles the copy (D-218 +
+    // null-safe funcptr-derive), so this unblocks ref_is_null.0 + gc/i31.6
+    // under the JIT. Active elem (flag 6) copies at instantiation via shared
+    // setup, so this runs identically on both arches (no arch-pin).
+    //   (type $t (func (result i32)))                ;; type 0
+    //   (func $f (type 0) (i32.const 7))             ;; func 0, exported "f"
+    //   (table 1 (ref null $t))
+    //   (elem (table 0) (i32.const 0) (ref $t) (ref.func $f))
+    const gpa = testing.allocator;
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, // type $t = (func (result i32))
+        0x03, 0x02, 0x01, 0x00, // func 0 : type 0
+        0x04, 0x05, 0x01, 0x63, 0x00, 0x00, 0x01, // table 1 (ref null $t)
+        0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00, // export "f" func 0
+        0x09, 0x0c, 0x01, 0x06, 0x00, 0x41, 0x00, 0x0b, 0x64, 0x00, 0x01, 0xd2, 0x00, 0x0b, // elem (ref $t) [ref.func 0]
+        0x0a, 0x06, 0x01, 0x04, 0x00, 0x41, 0x07, 0x0b, // code: func 0 → i32.const 7
+    };
+    var inst = JitInstance.init(gpa, &bytes) catch |e| {
+        std.debug.print("(ref $t) elem into (ref null $t) table init failed: {s}\n", .{@errorName(e)});
+        return error.TestUnexpectedResult;
+    };
+    defer inst.deinit(gpa);
+    try testing.expectEqual(@as(?u64, 7), try inst.invoke(gpa, "f", &.{}));
+}

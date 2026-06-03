@@ -254,13 +254,20 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
                             break :blk defined_tables_reftypes[di];
                         }
                     };
-                    // D-240 — should be a SUBTYPE check (Wasm 3.0 §3.3: elem
-                    // type <: table type, e.g. `(ref $t)` into `(ref null $t)`),
-                    // but loosening this validation alone makes the JIT ACCEPT
-                    // typed-ref-table modules (ref_is_null.0) it then SEGVs on at
-                    // runtime (no typed-ref table.init/get/set support yet). Keep
-                    // the exact-eql reject (no SEGV) until the runtime lands.
-                    if (!seg.elem_type.eql(tbl_reftype)) {
+                    // Wasm 3.0 §3.3.3 (elem segment): the segment's element type
+                    // must be a SUBTYPE of the table's element type — e.g.
+                    // `(ref $t)` into `(ref null $t)` (ref_is_null.0) or `(ref
+                    // i31)` into an i31ref/anyref table (gc/i31.6). The typed-ref
+                    // table runtime already supports these (D-218 i31-encoded
+                    // elems + null-safe funcptr-derive in table.init/get/set), so
+                    // the flip from exact-`eql` to subtype no longer SEGVs (the
+                    // D-240 warning predated that runtime). Context-free
+                    // `valTypeIsSubtype` suffices: the corpus only exercises
+                    // nullable-loosening (same concrete index) + the abstract GC
+                    // lattice, neither of which needs the module supertype chain.
+                    // TODO(p11): concrete→concrete elem subtyping via a declared
+                    // supertype chain would need the context-aware `subtypeCtx`.
+                    if (!validator_mod.Validator.valTypeIsSubtype(seg.elem_type, tbl_reftype)) {
                         return Error.ElemSegmentTypeMismatch;
                     }
                 }
