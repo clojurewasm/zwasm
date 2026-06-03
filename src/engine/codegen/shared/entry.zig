@@ -210,6 +210,32 @@ inline fn invokeAndCheckVoid(
             : [callee] "r" (f),
               [rt_arg] "{x0}" (rt),
             : aarch64_blr_clobbers);
+    } else if (comptime builtin.target.cpu.arch == .x86_64 and builtin.target.os.tag != .windows and args.len == 0) {
+        // D-245 (x86_64 SysV): the JIT uses an all-callee-saved regalloc pool
+        // (RBX/R12-R15) and only the prologue's PUSH R15 is saved — R12-R14/RBX
+        // are clobbered without restore, so a plain `@call` lets ReleaseSafe's
+        // host lose its live values there → SEGV. Save/restore them around the
+        // CALL (callee in RAX, rt in RDI). 5 pushes (40B) + sub $8 keep the
+        // pre-CALL RSP 16-aligned (callee sees %16==8 per SysV), assuming the
+        // inlined call site's incoming RSP is 16-aligned (as `@call` would need).
+        asm volatile (
+            \\ pushq %%rbx
+            \\ pushq %%r12
+            \\ pushq %%r13
+            \\ pushq %%r14
+            \\ pushq %%r15
+            \\ subq $8, %%rsp
+            \\ callq *%[callee]
+            \\ addq $8, %%rsp
+            \\ popq %%r15
+            \\ popq %%r14
+            \\ popq %%r13
+            \\ popq %%r12
+            \\ popq %%rbx
+            :
+            : [callee] "{rax}" (f),
+              [rt_arg] "{rdi}" (rt),
+            : x86_64_sysv_call_clobbers);
     } else {
         @call(.auto, f, .{rt} ++ args);
     }
