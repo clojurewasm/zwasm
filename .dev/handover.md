@@ -3,64 +3,68 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
+## Active bundle
+
+- **Bundle-ID**: D-245-win64-host-jit-trampoline
+- **Cycles-remaining**: ~3–5 (Win64 asm + remote-windows verify loop)
+- **Continuity-memo**: win64 host→JIT `@call` seam (`src/engine/codegen/shared/entry.zig`
+  `invokeAndCheck*`) corrupts callee-saved on win64. Fix = asm trampoline saving/restoring the
+  **win64** callee-saved set: RBX/RBP/RDI/RSI/R12–R15 **+ XMM6–XMM15** (the v128/SIMD regs the
+  JIT body clobbers — the proximate corruptor) + 32-byte shadow space + 16-byte align. Template =
+  x86_64-SysV no-arg trampoline `de576a76` (D-245); extend to win64 callee-saved set + the v128 /
+  arg'd `invokeAndCheck*` variants (D-245(b), still `@call`). Cross-check `zig build
+  -Dtarget=x86_64-windows-gnu` on Mac before each push.
+- **Exit-condition**: windowsmini `test-spec-simd` passes with the KNOWN-BAD seed pinned
+  (`zig build test-spec-simd` reproard; the unlucky full-run seed was `0x931361c3`) across ≥3 runs,
+  AND a full windowsmini `test-all` lands green → then finalize §13.P close.
+
 ## Current state
 
-- **Phase**: **13 IN-PROGRESS — C API full (wasm-c-api conformance)**. **Phase 12 (AOT) DONE**.
-- **§13.0–§13.2 [x]** (gap audit `.dev/phase13_capi_gap.md`; full C-API surface — type/extern/import-export/
-  ref/foreign constructors + host-entity construction). Sub-chunk SHAs in ADR-0142 + §13.2 commits. Remaining
-  D-253 (per-entity host_info-bulk, cap-blocked by instance.zig 3299/3300; degenerate instance/extern as_ref,
-  not-modeled) = §13.4-driven, deferred.
-- **§13.4 [x]** — `test/c_api_conformance/` 5 examples via `zig build test-c-api-conformance` (in test-all),
-  fail=0 Mac+ubuntu (windowsmini = §13.P boundary).
-- **§13.5 [x]** — host examples. c_host (`test-c-api`) + zig_host (`run-zig-host`) in test-all = 3-OS-verified
-  at phase boundary. **rust_host** `2323714a` — `examples/rust_host/hello.rs`, an `extern "C"` wasm.h consumer
-  linking `libzwasm.a` (3rd independent ABI consumer), Mac-only `zig build run-rust-host`, NOT in test-all.
-  rust-on-3-OS sub-clause deferred to §13.P (**D-254**; test hosts rustc-free by design) per **ADR-0142** (amended).
-  Build step probes `SDKROOT` to survive this Mac's broken `xcrun --show-sdk-path` (host config, SDK present).
-- **§13.3 [x]** — `wasi.h` surface re-scoped + made honest. v0.1 = `new`/`delete` + `set_args`/`set_envs`/
-  `inherit_stdio` (`47298cd1`) + `set_wasi`. `inherit_argv`/`inherit_env`/`preopen_dir` were **declared-but-
-  undefined** (link-error landmines); all three **deferred post-v0.1 + decls removed** from `include/wasi.h`
-  per **ADR-0143** / **D-255**. One root cause: a C-library context has no Zig-0.16 `Init`/io token (argv: no
-  path; env: cross-platform `std.c.environ` fanout for marginal value; preopen: needs io to open AND at runtime).
-  Re-add with the C-API io infra (D-251 / Phase-14+). **All §13.0–§13.5 now `[x]`; only §13.P remains.**
+- **Phase 13 (C API) IN-PROGRESS — deliverables DONE + 3-host-green; §13.P close BLOCKED on D-245.**
+- **§13.0–§13.5 all `[x]`.** §13.2 full C-API surface; §13.4 conformance (5 examples, in test-all);
+  §13.5 host examples (c_host + zig_host 3-OS; rust_host Mac-only, ADR-0142/D-254); §13.3 wasi.h
+  re-scoped honest (inherit_argv/env/preopen_dir deferred, ADR-0143/D-255). D-253 (host_info/as_ref)
+  deferred. Last close commits `19c7ccb9`+`528d2af3`.
+- **§13.P close attempted this turn**: audit_scaffolding **0 block** (`private/audit-2026-06-04-p13close.md`;
+  standing soon = 20 `<backfill>` markers). ubuntu `528d2af3` test-all OK. **windowsmini test-all RED**:
+  Build Summary 61/63 OK, the ONLY failure = `zwasm-spec-simd` exit 3 (silent crash exec
+  `simd_bit_shift.1.wasm` func0 via v128 host→JIT). **= D-245 win64 remainder** (NOT Phase-13: 0
+  src/engine|src/instruction diff since `0810b339`). **Seed-flaky** (Debug "luck"): isolated
+  `test-spec-simd` re-run PASSED — so windows passes on lucky seeds (Phase-12 close + the re-run),
+  crashes on unlucky (`0x931361c3`). C-API + c_host + zig_host all PASS on win → Phase-13 deliverable
+  is sound; the flaky-red is the unrelated Win64 SIMD-JIT ABI bug. Widget NOT flipped (honest).
 
-## Next task (autonomous)
+## Next task (autonomous — bundle)
 
-**Next: §13.P — Phase 13 close.** NOT a registered hard-gate (§13's 🔒 = end-of-phase conformance gate,
-explicitly "NOT an entry hard-gate"; §13.P references no `.dev/phase*.md` doc; Phase 14 opens autonomously) →
-**drive it autonomously, no user-stop.** Steps: (1) **audit_scaffolding** (mandatory phase-boundary trigger; weight
-§F debt coherence + §G extended-challenge anchors); (2) **windowsmini 3-host reconcile** — `bash scripts/
-run_remote_windows.sh test-all` (or the win runner), verify 0 failed/mismatched (cf. Phase-12 `/tmp/win.log`
-GREEN); (3) make the deferred **D-254** rust-3-OS call (option (b): exit = "Mac rust + 2-host C-ABI conformance");
-(4) SHA-backfill §13 rows; (5) widget 13→DONE + Phase 14 (CI matrix) inline-expand; (6) push + re-arm. **Open
-Phase-13 carries to record at close**: D-253 (host_info/as_ref, cap-blocked), D-254 (rust 3-OS), D-255 (WASI
-inherit/preopen io-infra). Conformance fail=0 ✓ (§13.4); examples green (c/zig 3-OS ✓, rust Mac-only).
-
-gap: `.dev/phase13_capi_gap.md`.
+**Work the D-245-win64 bundle** (above). It is the genuine §13.P 3-host-reconcile blocker and is
+solvable (template `de576a76`). Step 0: read `entry.zig` `invokeAndCheck*` + the existing arm64
+(`8eca59e3`) / x86_64-SysV (`de576a76`) trampolines; identify the win64 seam + the v128 variant.
+Then implement the win64 trampoline (GPR + XMM6–15 + shadow space). Verify: Mac cross-compile
+(`-Dtarget=x86_64-windows-gnu`) then windowsmini `test-spec-simd` (pin/repro the bad seed). On
+green → finalize §13.P (widget 13→DONE, Phase-14 table expand, §13.P [x], D-254 rust call). **Do
+NOT game the seed** (re-rolling until green is dishonest — the flakiness is the real bug to fix).
 
 ## Step 0.7 (next resume)
 
-This turn: §13.3 close (wasi.h re-scope, ADR-0143 + D-255; header decls removed — no src code change). Mac gate
-GREEN (`/tmp/mac_gate_133.log`, exit 0). An ubuntu `test-all` is kicked → next resume `tail /tmp/ubuntu.log` for
-`[run_remote_ubuntu] OK`. **NOTE** (lesson `gate-tail-vs-exit-code`): a stray `failed command:` in the ubuntu log
-next to OK is **benign** zig test-isolation noise (abort/panic/trap child procs) — the **exit code is
-authoritative**, not the tail. Do NOT re-investigate / revert on that alone. Prior ubuntu `14e1fcab` (test-all)
-verified OK (TESTALL_EXIT=0); windowsmini `0810b339` GREEN (reconcile due at §13.P).
+This turn: §13.P close blocked (D-245 win64 surfaced); D-245 updated w/ §13.P repro; debt+handover
+committed. ubuntu `528d2af3` test-all **OK** (verified). windowsmini test-all RED (D-245 flaky) —
+this is the bundle's target, NOT a revert trigger (no Phase-13 code caused it). **NOTE** (lesson
+`gate-tail-vs-exit-code`): `failed command: …test --listen=-` / `…-hello` next to a passing Build
+Summary = benign zig test-isolation noise; trust the Build Summary step count + exit code.
 
-**Gate hygiene**: Step-5 Mac = `bash scripts/mac_gate.sh`. rust_host = Mac-only `zig build run-rust-host`
-(needs rustc; not gated, not in test-all). 3-host reconcile = phase boundary.
+**Gate hygiene**: Step-5 Mac = `bash scripts/mac_gate.sh`. Win64 cross-compile (compile-only) =
+`zig build test -Dtarget=x86_64-windows-gnu`. windowsmini exec verify = `run_remote_windows.sh`.
 
-## Deferred / open debt (none a Phase-13-internal blocker except §13.3 / §13.P)
+## Deferred / open debt
 
-- **D-254** §13.5 rust-on-3-OS blocked on test-host rustc (by design) → §13.P final call (provision vs re-phrase).
-- **D-253** §13.2 host_info-bulk (cap-blocked) + degenerate as_ref (not-modeled) → §13.4-driven, deferred.
-- **§12.5 / §11.4** GC stack-map (AOT) + precise rooting → Phase 15 (ADR-0141 / ADR-0135; D-211).
-- **D-251** WASI/host imports in AOT — with JIT-WASI d-3 (D-244); ADR-0140. **D-249** Win bench timing (D-137).
-- **D-245** host→JIT callee-saved (win64 + arg'd). **D-246** §11.3 arm64 dot/extmul → Phase 15. **D-238** x86_64
-  EH thunk. D-210/D-234/D-237/D-229/D-231/D-204/D-209/D-213 (note).
+- **D-245** win64 host→JIT callee-saved (XMM6–15 + GPR) — **ACTIVE BUNDLE** (was the deferred-to-
+  windowsmini-boundary item; now at its boundary, blocks §13.P).
+- **D-255** C-API WASI inherit_argv/env/preopen_dir (io-infra; ADR-0143). **D-254** rust 3-OS (test-host
+  rustc; ADR-0142). **D-253** §13.2 host_info/as_ref (cap-blocked). **§12.5/§11.4** GC stack-map → P15.
+- **D-251** WASI/host in AOT (D-244). **D-246** arm64 dot/extmul → P15. **D-238** x86_64 EH thunk. D-249/
+  D-210/D-234/D-237/D-229/D-231/D-204/D-209/D-213 (note). Standing: 20 `<backfill>` markers → §14.P sweep.
 
 ## Key refs
 
-- ROADMAP §13 (task table + Goal/exit); Phase Status widget (Phase 12 DONE / 13 IN-PROGRESS).
-- ADR-0142 (§13.2 scope + §13.3/§13.4 seq + §13.5 rust_host Mac-only); ADR-0141 (Phase-12 close); ADR-0070
-  (libc/io boundary, blocks §13.3 remainder). `api/wasm.zig` + `include/wasm.h` = §13 surface; `cli/run.zig` drives it.
+- ROADMAP §13 (all rows [x] except §13.P); Phase Status widget (13 IN-PROGRESS). ADR-0142/0143
+  (§13 scoping). D-245 (the bundle). `entry.zig` + `jit_abi.zig` = the host→JIT seam. ADR-0017 sub-2d-ii.

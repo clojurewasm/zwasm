@@ -116,8 +116,19 @@ entries:
       register-preserving entry already exists (the spec runner's path) to route through. ADD a
       **ReleaseSafe** `runWasmJit` regression test (the Debug-only test is why this shipped).
       NOT a regression to existing behaviour (interp default unaffected; JIT was Debug-only).
+      **§13.P REPRO (2026-06-04): the win64 remainder (a)+(b) is now CONCRETELY surfaced.** The
+      Phase-13 windowsmini `test-all` reconcile crashed `zwasm-spec-simd` (exit code 3, silent —
+      access-violation-class, no Zig panic trace) executing `simd_bit_shift.1.wasm` func0 via the
+      v128 host→JIT `@call` seam. Build Summary: 61/63 steps OK, this the ONLY failure (Phase-13
+      C-API + c_host/zig_host all PASS on win). Seed-dependent in Debug (this run `--seed
+      0x931361c3`; Phase-12 close passed on a lucky seed → flaky-red). **win64 widens the seam vs
+      x86_64-SysV**: the trampoline must save/restore win64 callee-saved = RBX/RBP/RDI/RSI/R12–R15
+      **+ XMM6–XMM15** (the SIMD regs the JIT body clobbers — the proximate v128 corruptor) + the
+      32-byte shadow space + 16-byte align. **This blocks the §13.P 3-host reconcile (the deferred-
+      to-windowsmini-phase-boundary item is now AT its boundary).** Not Phase-13 work (no src/engine
+      or src/instruction change since `0810b339`, verified by diff).
     first_raised: "2026-06-03"
-    last_reviewed: "2026-06-03"
+    last_reviewed: "2026-06-04"
     refs: |-
       `src/engine/codegen/shared/entry.zig` invokeAndCheckVoid (the `@call` seam) + callVoidNoArgs; `src/engine/codegen/shared/jit_abi.zig:9+` (cohort X19/X24/X28 = arm64 callee-saved); ADR-0017 sub-2d-ii (MOV-install cohort, not stack-save) + D-210; `src/cli/run.zig` runWasmJit (Debug-only test); ADR-0136; ROADMAP §11.3 / 11.3-simd-gap bundle
   - id: "D-244"
