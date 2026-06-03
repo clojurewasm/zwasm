@@ -30,16 +30,17 @@
 
 ## Next task (autonomous)
 
-**§11.P reconciliation IN PROGRESS** (windowsmini SSH-reachable → autonomous phase-close batch). DONE: Mac aarch64
-bench baseline (`23b78f22`) + Linux x86_64 baseline (`b4ded964`) → `history.yaml` (windows-subset 5 fixtures; 2 of
-3 hosts). IN FLIGHT: `run_remote_windows.sh test-all` (background, 90-min bound) — passing the Windows realworld
-C-tier MATCHes so far (the §11.P "Windows realworld subset" criterion looks GREEN). REMAINING for §11.P: (1) poll
-`/tmp/windows.log` to completion (`[run_remote_windows] OK` = pass; on FAIL diagnose, not revert — phase-boundary
-reconciliation); (2) **Windows bench baseline** — `run_remote_windows.sh` with a windows-subset bench step (note:
-the windows runner only maps `zig build <step>`; the bench recorder isn't a build step — may need a one-off
-ssh `nix/zig + record_merge_bench` or extend the runner like run_remote_ubuntu's `bench`); capture+append the
-x86_64-windows row; (3) flip §11.1/§11.2/§11.3 remainders + §11.P [x]; run `audit_scaffolding` (phase-boundary
-MANDATORY); open Phase 12. Minor: D-245 remainder (win64 + arg'd variants); D-247 (history.yaml bad UTF-8 byte).
+**§11.P reconciliation IN PROGRESS** (windowsmini SSH-reachable → autonomous phase-close batch). DONE: Mac
+(`23b78f22`) + Linux (`b4ded964`) bench baselines → `history.yaml` (2/3 hosts); D-247 fixed (`44ae1fd9`,
+history.yaml UTF-8). The 1st windowsmini test-all (first since §11.1) PASSED the Windows realworld subset (PASS
+c_qsort/regex/sha256/string_processing) but FAILED the unit-test BUILD: `fd.zig:844` passed bare `99` to
+`addPreopen(host_fd: std.posix.fd_t)` — `fd_t` is i32 on POSIX, `*anyopaque` on Windows → comptime_int won't
+coerce. FIXED (`b6425afc`, typed `fake_fd`); verified Mac test green + x86_64-windows test exe now COMPILES.
+REMAINING for §11.P: (1) **re-kick `run_remote_windows.sh test-all`** (poll `/tmp/windows.log` → `[run_remote_windows]
+OK`); watch for further Windows-only drift (this was the first run in a while). (2) Windows bench baseline (3rd
+host) — windows runner only maps `zig build <step>`; the bench recorder needs a one-off ssh or a runner `bench`
+step like run_remote_ubuntu's. (3) flip §11.1/§11.2/§11.3 + §11.P [x]; `audit_scaffolding` (MANDATORY); open Phase
+12. Minor: D-245 remainder (win64 + arg'd variants).
 
 ## Deferred / open debt (none a Phase-11 blocker)
 
@@ -54,10 +55,11 @@ MANDATORY); open Phase 12. Minor: D-245 remainder (win64 + arg'd variants); D-24
 
 ## Step 0.7 (next resume)
 
-`87888d37` ubuntu test-all = GREEN (Step 0.7 OK). THIS turn = data-only (`23b78f22` bench row) + the windowsmini
-test-all kick — NO ubuntu kick (no code change). Next cycle Step 0.7 = check `/tmp/windows.log` (the §11.P
-windowsmini reconciliation; `[run_remote_windows] OK` = pass) AND `/tmp/ubuntu.log` (still `87888d37` green).
-windowsmini may still be running (90-min bound); if so, keep polling across cycles — do NOT block on it.
+THIS turn landed `44ae1fd9` (history.yaml UTF-8) + `b6425afc` (fd.zig Windows test fix) → ubuntu test-all kick +
+a re-kicked windowsmini test-all both fire against the turn HEAD. Step 0.7 next cycle: `tail /tmp/ubuntu.log`
+(Linux; on FAIL revert to `87888d37`) AND `/tmp/windows.log` (the §11.P windows reconciliation — `[run_remote_windows]
+OK` = the fd.zig fix worked + no further Windows drift; windowsmini is ~90 min so likely still running → keep
+polling). Prior `87888d37` ubuntu = GREEN.
 
 **Gate hygiene**: Step-5 = `bash scripts/mac_gate.sh`. JIT corpus: `zig build test-spec-wasm-3.0-assert` (mtime exe).
 ReleaseSafe `--engine=jit` repro: `zig build -Doptimize=ReleaseSafe && zig-out/bin/zwasm run --engine=jit <fixture>`.
