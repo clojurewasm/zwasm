@@ -32,7 +32,10 @@
   standalone entity (own backing + `store`); importable via the buildBindings host-entity arm — global cell /
   memory bytes / table refs shared with the guest, and a host func callback invoked by the guest's `call` (a
   runtime-arity HostCall thunk marshalling operand-stack ↔ wasm_val_vec ↔ C callback). All tested e2e.
-  instance.zig exempt cap raised 3200→3300 (ADR-0099 amend); now 3287/3300 (tight — foreign should land mostly in extern_new.zig).
+  instance.zig exempt cap raised 3200→3300 (ADR-0099 amend); now 3297/3300 (tight — foreign lands in extern_new.zig).
+- **§13.2 ref ops** (D-253): base `wasm_ref_copy`/`_same` (`9e634743`) + funcref cross-cast `wasm_func_as_ref`/
+  `wasm_ref_as_func[_const]` (`8775e30f`, bidirectional borrowed-view `Func.ref_view`/`Ref.func_view`). Remaining
+  D-253: `wasm_foreign` (next) + host_info-bulk (C) + degenerate instance/extern as_ref (E, §13.4-driven).
 
 ## Next task (autonomous)
 
@@ -44,14 +47,14 @@ Two open tracks, both within Phase 13's surface (pick either; runtime-entity is 
    `main`, cli/main.zig:43/58) — a C-library context (`libzwasm.so`, Zig startup never runs) can't reach it, so
    inherit needs platform C APIs (`_NSGetArgv` / `/proc/self/cmdline` / `GetCommandLineW`) or the C `environ`
    global = new libc sites (§14 "unconscious libc fanout"). Do the ADR-0070 amend as Step 1 of that chunk.
-2. **§13.2 foreign remainder — D-253** (base `wasm_ref_copy`/`_same` landed `3e8754bf`). Next active chunk =
-   **(B) funcref cross-cast** `wasm_func_as_ref[_const]` / `wasm_ref_as_func[_const]`: encode `Value.fromFuncRef(&
-   rt.func_entities[idx])` fwd / `refAsFuncEntity`→`fe.runtime.instance`(`*Instance`, set instance.zig:902)→synth
-   `*Func` rev. Carries a BIDIRECTIONAL borrowed-view ownership web (both non-`own` in wasm.h → cache `ref_view` on
-   Func + `func_view` on Ref, mirror `extern_view`); host funcs (no `func_entities` slot) → null. Lands in
-   extern_new.zig. Then C (host_info bulk) / D (wasm_foreign) / E (degenerate instance/extern as_ref) = D-253,
-   §13.4-driven. After §13.2 → **§13.3** (wasi remainder; ADR-0070 io/process-provenance FIRST), **§13.4**
-   (`test/c_api_conformance/` — also reveals which of C/D/E matter), **§13.5** (examples).
+2. **§13.2 foreign remainder — D-253** (base ref ops `3e8754bf`; funcref cross-cast B `8775e30f` DONE). Next active
+   chunk = **(D) `wasm_foreign`**: a host opaque object (externref-able). New `Foreign` struct in extern_new.zig
+   (`{store, host_info, finalizer}`); `wasm_foreign_new(store)`; externref payload = `@intFromPtr(*Foreign)`;
+   `wasm_foreign_as_ref`→`Ref{instance=null, ref=@intFromPtr(foreign)}` + `wasm_ref_as_foreign`. **Resolve the
+   instance-less-ref store path** (wasm_ref_delete/copy currently early-return/null on `instance==null` — a foreign
+   externref Ref needs a store handle to free; add `store` to Ref or carry it). Keep instance.zig adds MINIMAL
+   (3297/3300 cap — Foreign + fns go in extern_new). Then C (host_info bulk) + E (degenerate instance/extern as_ref)
+   = §13.4-driven. After §13.2 → **§13.3** (wasi; ADR-0070 io/process-provenance FIRST), **§13.4**, **§13.5**.
 
 gap: `.dev/phase13_capi_gap.md`.
 
@@ -72,9 +75,9 @@ prose. Standing `soon` (not Phase-12): 10 ADR + 10 lesson `<backfill>` markers; 
 
 ## Step 0.7 (next resume)
 
-This turn landed §13.2 base ref ops `wasm_ref_copy`/`_same` + filed D-253 (foreign/ref remainder): Mac test+lint+
-zone green. An ubuntu `test` is kicked against this turn's HEAD → next resume `tail /tmp/ubuntu.log` for OK
-(c_allocator dup + payload compare, host-portable). Prior ubuntu `1427b243` OK; windowsmini `0810b339` GREEN.
+This turn landed §13.2 funcref cross-cast `wasm_func_as_ref`/`wasm_ref_as_func` (D-253 B): Mac test+lint+zone green,
+instance.zig 3297/3300. An ubuntu `test` is kicked against this turn's HEAD → next resume `tail /tmp/ubuntu.log` for
+OK (funcref encode + c_allocator, host-portable). Prior ubuntu `9e634743` OK; windowsmini `0810b339` GREEN.
 
 **Gate hygiene**: Step-5 Mac = `bash scripts/mac_gate.sh`. Win64 cross-compile: `zig build test
 -Dtarget=x86_64-windows-gnu` (compile-only). 3-host reconcile = phase boundary.
