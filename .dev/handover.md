@@ -11,21 +11,23 @@
   6/6 SIMD fixtures 33-37% AOT-faster). **Deferred to Phase 15**: §12.5 stack-map (co-defines with the GC
   `GcRootMap` shape, ADR-0141, with §11.4 rooting). **Deferred D-251**: WASI/host imports in AOT (parity with
   JIT compute-only, ADR-0140 — lands with JIT-WASI d-3 / D-244).
-- **Phase 13 opened**; §13.0 [x], §13.1 [x] (gap audit `.dev/phase13_capi_gap.md`). **§13.2 in progress** —
-  type-constructor group DONE (`7ac09d80`, `src/api/types.zig`): valtype/functype/globaltype/tabletype/
-  memorytype `_new/_delete/_copy` + queries + `valtype_vec` (pointer-vec, element-cascade delete, deep-copy);
-  re-exported via `api/wasm.zig`, barrel in `zwasm.zig`. Mirrors upstream ownership (functype_new consumes the
-  vecs; queries return borrowed). 🔒 = END-of-phase conformance gate, not entry.
+- **Phase 13 opened**; §13.0/§13.1 [x] (gap audit `.dev/phase13_capi_gap.md`). **§13.2 in progress** in
+  `src/api/types.zig` (re-exported via `api/wasm.zig`): (a) type constructors `7ac09d80` — valtype/functype/
+  globaltype/tabletype/memorytype `_new/_delete/_copy` + queries + valtype_vec; (b) externtype + import/export
+  `6f721b6b` — externtype is the shared `kind`-header the 4 types embed, so `as_externtype`/`externtype_as_*`
+  are zero-alloc reinterpret casts (`@ptrCast(@alignCast(...))` on downcast); importtype/exporttype + their
+  vecs (consume name byte-vecs + own the externtype). Upstream ownership throughout. 🔒 = END conformance gate.
 
 ## Next task (autonomous)
 
-§13.2 next category — **externtype + import/export types** (build on the type constructors `7ac09d80`; module_
-imports/exports return these). In `api/types.zig`: `wasm_externtype_t` (a tagged union over func/global/table/
-memory type) + `wasm_externtype_kind` + `wasm_externtype_as_{func,global,table,memory}type[_const]` (both
-directions: `wasm_{func,global,table,memory}type_as_externtype`); then `wasm_importtype_t` (module+name+
-externtype) / `wasm_exporttype_t` (name+externtype) `_new/_delete/_copy` + queries + their vecs. See
-`include/wasm.h` lines ~250-330 + `.dev/phase13_capi_gap.md`. Then (later chunks): func/global/table/memory
-`_new` constructors (Store-coupled → may extend `instance.zig`), frames/foreign, module_imports/exports.
+§13.2 next category — **module_imports/exports** (now unblocked: importtype/exporttype exist). `wasm_module_
+imports(module, own importtype_vec* out)` + `wasm_module_exports(...exporttype_vec*)` (wasm.h:419-420): decode
+the module's import/export sections (Module lives in `api/instance.zig`; `sections.decodeImports/decodeExports`
+give module+name+kind+typeidx) → build `wasm_importtype_t`/`exporttype_t` (name byte-vecs + an externtype built
+from the func/global/table/memory type) per entry. Goes in `instance.zig` (Module-coupled) using the
+`api/types.zig` constructors. Then the remaining §13.2: func/global/table/memory `_new` (Store-coupled host
+entities), `*_as_extern[_const]` conversions, frames/foreign + trap_origin/trace, then §13.3 (wasi.h builders).
+Step 0: how `instance.zig` decodes a Module's sections + the funcidx→functype mapping.
 
 ## Phase-12 close note
 
@@ -44,10 +46,10 @@ prose. Standing `soon` (not Phase-12): 10 ADR + 10 lesson `<backfill>` markers; 
 
 ## Step 0.7 (next resume)
 
-This turn landed §13.2 type constructors (`7ac09d80`, `src/api/types.zig`): Mac test+build(C-API lib)+lint+zone
-green. An ubuntu `test` is kicked against this turn's HEAD → next resume `tail /tmp/ubuntu.log` for OK (the
-type constructors are pure-data + c_allocator, host-portable; ubuntu verifies x86_64 link + the test block).
-Prior ubuntu `cf32e57a` OK; windowsmini `0810b339` reconcile GREEN.
+This turn landed §13.2 externtype + import/export (`6f721b6b`, `src/api/types.zig`): Mac test+build(C-API lib)+
+lint+zone green. An ubuntu `test` is kicked against this turn's HEAD → next resume `tail /tmp/ubuntu.log` for OK
+(pure-data + c_allocator, host-portable; verifies the `@alignCast` downcasts + test block on x86_64). Prior
+ubuntu `0c6dd273` OK; windowsmini `0810b339` reconcile GREEN.
 
 **Gate hygiene**: Step-5 Mac = `bash scripts/mac_gate.sh`. Win64 cross-compile: `zig build test
 -Dtarget=x86_64-windows-gnu` (compile-only). 3-host reconcile = phase boundary.
