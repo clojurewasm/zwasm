@@ -729,6 +729,42 @@ entries:
       ADR-0140; ADR-0136 (--engine=jit compute-only); D-244 (JIT-WASI d-3);
       src/engine/codegen/aot/run.zig; src/engine/setup.zig (populateDispatch @284);
       src/wasi/jit_dispatch.zig; ROADMAP §12.3b
+  - id: "D-253"
+    layer: "code"
+    status: "blocked-by"
+    description: |-
+      blocked-by: §13.4 conformance prioritization. §13.2 foreign/ref machinery remainder (base
+      `wasm_ref_copy`/`_same` landed; this row tracks the rest). `WASM_DECLARE_REF` macro-expands
+      across 8 ref types — much of it is mechanical or, for some types, degenerate in zwasm's
+      model; porting a wasm-c-api example (§13.4) reveals the load-bearing subset before grinding
+      the bulk, and the degenerate casts (E) need a model decision §13.4 informs. (B) funcref
+      cross-cast is the concrete next active chunk (implementable now; not truly blocked); C/D/E
+      await the §13.4 signal. Split:
+      (A done) `wasm_ref_copy`/`wasm_ref_same`.
+      (B) funcref cross-casts `wasm_func_as_ref[_const]` / `wasm_ref_as_func[_const]`:
+      encode via `Value.fromFuncRef(&rt.func_entities[func_idx])` (forward) /
+      `Value.refAsFuncEntity` → `fe.runtime.instance` (`*Instance`, set at instance.zig:902)
+      → synth `*Func` (reverse). Carries a BIDIRECTIONAL borrowed-view ownership web (wasm.h
+      returns both non-`own`): cache a `ref_view` on Func + a `func_view` on Ref, mirroring the
+      `extern_view` pattern. Standalone host funcs (`Func.host`, no `func_entities` slot) →
+      `func_as_ref` returns null (documented limitation).
+      (C) per-handle `host_info`/`set_host_info[_with_finalizer]` — a `host_info:?*anyopaque`
+      + finalizer field on Func/Global/Table/Memory/Ref/Trap + finalizer-fire in each `_delete`.
+      (D) `wasm_foreign_new` + Foreign struct (`{store, host_info, finalizer}`; externref payload
+      = `@intFromPtr(*Foreign)`) + `wasm_foreign_as_ref`/`ref_as_foreign`.
+      (E, degenerate → document as not-modeled, NOT silent stubs) `wasm_{instance,extern,
+      global,table,memory}_as_ref` — these are not spec reference VALUES (no `Value` encoding);
+      `wasm_{instance,trap,...}_copy`/`_same` = shallow handle-dup only.
+      Discharge order B→C→D driven by §13.4 conformance (port a wasm-c-api example to reveal the
+      load-bearing subset before grinding the mechanical bulk). Also: `wasm_ref_delete` +
+      `wasm_ref_copy` leak/null on instance-less refs (foreign/externref) until D adds a store path.
+    first_raised: "2026-06-04"
+    last_reviewed: "2026-06-04"
+    refs: |-
+      ROADMAP §13.2; include/wasm.h (WASM_DECLARE_REF @348-365); src/api/extern_new.zig
+      (wasm_ref_copy/same); src/api/instance.zig (Ref @189, wasm_ref_delete, Func.host);
+      src/runtime/value.zig (fromFuncRef @103, refAsFuncEntity @109); src/runtime/runtime.zig
+      (instance back-ptr @152); .dev/phase13_capi_gap.md
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.

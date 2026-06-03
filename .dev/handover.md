@@ -44,12 +44,14 @@ Two open tracks, both within Phase 13's surface (pick either; runtime-entity is 
    `main`, cli/main.zig:43/58) — a C-library context (`libzwasm.so`, Zig startup never runs) can't reach it, so
    inherit needs platform C APIs (`_NSGetArgv` / `/proc/self/cmdline` / `GetCommandLineW`) or the C `environ`
    global = new libc sites (§14 "unconscious libc fanout"). Do the ADR-0070 amend as Step 1 of that chunk.
-2. **§13.2 LAST piece — foreign** (`WASM_DECLARE_REF`): `wasm_ref` copy/same/get-set_host_info[_with_finalizer]/
-   delete + the per-entity `wasm_<entity>_as_ref[_const]` / `wasm_ref_as_<entity>[_const]` cross-casts. Cross-cutting
-   ref-handle machinery — its own survey + chunk; lands mostly in extern_new.zig (instance.zig is tight at 3287/3300).
-   The `Ref` struct (`instance.zig:163`, `{instance, ref:u64}`) exists; host_info needs a finalizer-carrying field.
-   After §13.2 → §13.2 row [x] + close-check. Then **§13.3** (wasi remainder — `inherit_argv/env` + `preopen_dir`
-   need an ADR-0070 C-API io/process-provenance decision FIRST), **§13.4** (`test/c_api_conformance/`), **§13.5** (examples).
+2. **§13.2 foreign remainder — D-253** (base `wasm_ref_copy`/`_same` landed `3e8754bf`). Next active chunk =
+   **(B) funcref cross-cast** `wasm_func_as_ref[_const]` / `wasm_ref_as_func[_const]`: encode `Value.fromFuncRef(&
+   rt.func_entities[idx])` fwd / `refAsFuncEntity`→`fe.runtime.instance`(`*Instance`, set instance.zig:902)→synth
+   `*Func` rev. Carries a BIDIRECTIONAL borrowed-view ownership web (both non-`own` in wasm.h → cache `ref_view` on
+   Func + `func_view` on Ref, mirror `extern_view`); host funcs (no `func_entities` slot) → null. Lands in
+   extern_new.zig. Then C (host_info bulk) / D (wasm_foreign) / E (degenerate instance/extern as_ref) = D-253,
+   §13.4-driven. After §13.2 → **§13.3** (wasi remainder; ADR-0070 io/process-provenance FIRST), **§13.4**
+   (`test/c_api_conformance/` — also reveals which of C/D/E matter), **§13.5** (examples).
 
 gap: `.dev/phase13_capi_gap.md`.
 
@@ -70,9 +72,9 @@ prose. Standing `soon` (not Phase-12): 10 ADR + 10 lesson `<backfill>` markers; 
 
 ## Step 0.7 (next resume)
 
-This turn landed §13.2 `wasm_func_new[_with_env]` (closes D-252; host callback via HostCall thunk): Mac test+lint+
-zone green, instance.zig 3287/3300. An ubuntu `test` is kicked against this turn's HEAD → next resume `tail
-/tmp/ubuntu.log` for OK (operand-marshalling + c_allocator, host-portable). Prior ubuntu `d77e8f99` OK; windowsmini `0810b339` GREEN.
+This turn landed §13.2 base ref ops `wasm_ref_copy`/`_same` + filed D-253 (foreign/ref remainder): Mac test+lint+
+zone green. An ubuntu `test` is kicked against this turn's HEAD → next resume `tail /tmp/ubuntu.log` for OK
+(c_allocator dup + payload compare, host-portable). Prior ubuntu `1427b243` OK; windowsmini `0810b339` GREEN.
 
 **Gate hygiene**: Step-5 Mac = `bash scripts/mac_gate.sh`. Win64 cross-compile: `zig build test
 -Dtarget=x86_64-windows-gnu` (compile-only). 3-host reconcile = phase boundary.
