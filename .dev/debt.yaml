@@ -3,6 +3,28 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-241"
+    layer: "code"
+    status: "blocked-by"
+    description: |-
+      blocked-by: standard-Go (not TinyGo) wasip1 instantiate support. After
+      fd_prestat_get / fd_prestat_dir_name / sched_yield landed (the last missing WASI
+      imports for these fixtures), the 9 `go_*` realworld fixtures (go_math_big,
+      go_json_marshal, go_crypto_sha256, …) resolve ALL imports but `Module.instantiate`
+      still fails: `instantiateInternal` (src/zwasm/linker.zig:618) returns null →
+      `error.InstantiateFailed`, with NO further detail (the c_api null-collapse swallows
+      the reason). TinyGo fixtures (tinygo_*) instantiate + PASS; only the standard-Go
+      compiler's wasip1 output fails — a deeper gap than WASI imports (likely a module
+      feature / start-func / memory-layout the c_api instantiate path doesn't handle).
+      The facade-runner now routes this generic InstantiateFailed → SKIP-INST (tolerated,
+      matching run_runner/diff_runner SKIP-V2); the 9 go_* sit there, not gate-failing.
+      Discharge: instrument instantiateInternal to surface the REAL reason for go_math_big
+      (add a diagnostic to the c_api null path — the "no further detail in phase 1" gap),
+      fix the standard-Go instantiate gap, then the facade SKIP-INST → PASS.
+    first_raised: "2026-06-03"
+    last_reviewed: "2026-06-03"
+    refs: |-
+      src/zwasm/linker.zig:618 / test/api/zig_facade_runner.zig / test/realworld/wasm/go_*.wasm / ROADMAP §11.1
   - id: "D-239"
     layer: "code"
     status: "partial"
