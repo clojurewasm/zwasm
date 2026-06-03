@@ -729,6 +729,31 @@ entries:
       ADR-0140; ADR-0136 (--engine=jit compute-only); D-244 (JIT-WASI d-3);
       src/engine/codegen/aot/run.zig; src/engine/setup.zig (populateDispatch @284);
       src/wasi/jit_dispatch.zig; ROADMAP §12.3b
+  - id: "D-252"
+    layer: "code"
+    status: "blocked-by"
+    description: |-
+      blocked-by: `wasm_func_new[_with_env]` (host-callback Func the guest can call)
+      needs interp-binding plumbing that does not exist for non-import host funcs. The
+      ONLY host-call path is `Runtime.host_calls[idx]` (a `HostCall{fn_ptr, ctx}`), keyed
+      by IMPORT funcidx and populated only at `buildBindings` time for Externs passed to
+      `wasm_instance_new` (instance.zig:541/586); the interp dispatches it in
+      `mvp.callOp`/`call_indirect` (mvp.zig:387/599). A standalone Func from
+      `wasm_func_new` has no instance/runtime, so `wasm_func_call` (derefs `handle.instance`)
+      can't drive it, and `buildBindings` has no arm to wrap a C callback as a `HostCall`.
+      Discharge: (a) a tagged `Func` variant carrying `{callback, env, functype}` (NOT a
+      single slot dual-meaning with `{instance, func_idx}` — split per axis); (b) a
+      `buildBindings` arm marshalling `rt.operand_buf` <-> `wasm_val_vec_t` <-> the C
+      callback (the `cross_module.thunk` pattern, calling out to C); (c) direct
+      `wasm_func_call` on a host func. The 3 `*_as_extern` conversions + global/table/memory
+      `_new` (standalone host-state, needs an optional-backing accessor change) are
+      separable and land first.
+    first_raised: "2026-06-04"
+    last_reviewed: "2026-06-04"
+    refs: |-
+      ROADMAP §13.2; .dev/phase13_capi_gap.md; src/api/instance.zig (Func @109, Extern @231,
+      buildBindings @537); src/interp/mvp.zig (callOp @387, call_indirect @599);
+      src/runtime/runtime.zig (HostCall @92, host_calls @204); src/engine/cross_module.zig (thunk @51)
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
