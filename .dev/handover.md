@@ -31,21 +31,29 @@
   `globals_base=@ptrCast(globals.ptr)` (alias, no copy) + allocs min_pages×64KB, memcpys data, sets
   `vm_base`/`mem_limit`, **FREEs after the call**. Subset guards loud (`UnsupportedGlobalInit`/`MemoryState`).
   **PITFALL hit + fixed**: `i32.const` is SIGNED LEB128 — `0x63` (99) decodes as -29 (bit-6 set); use values <64
-  or multi-byte SLEB in hand-rolled fixtures. **CYCLE-2 (NEXT)**: tables + elem segments + WASI host-import
-  dispatch — `setup.zig` anchors @620-951 (tables/elem) + @284 (`populateDispatch`). Bigger: WASI needs the host
-  registry wired from `.cwasm` import metadata (module+name+kind) — see survey §4. Likely split: tables/elem
-  first (compute), then WASI imports (tinygo fixtures).
-- **Exit-condition**: cycle-2 — a tables/elem-using (then a WASI `fd_write`) `.cwasm` runs via `zwasm run`.
-  Bundle closes when a real v1-class fixture (e.g. a tinygo guest) runs AOT — which also unblocks §12.4 bench.
+  or multi-byte SLEB in hand-rolled fixtures. **EMPIRICAL (this turn)**: shootout fixtures (gimli/fib2/sieve)
+  still TRAP after cycle-1 — gimli imports `proc_exit` + has a table+elem, so v1-class fixtures need cycle-2
+  (imports AND tables), not just memory+globals. **CYCLE-2a TABLES/ELEM (NEXT, survey done)**: 3 new v0.3
+  sections — `tables_meta` (`[n][min:u32][max:u32]`), `elem_data` (`[n_seg][table_idx:u32][offset:u32][n:u32]
+  [funcidx...]`), `func_types` (`[n_funcs][raw_typeidx:u32]`, needed for canonical typeidx). Loader computes (not
+  serialises): `funcptr_base[slot] = block.bytes.ptr + func_offsets[F-n_imports]`, `typeidx_base[slot] =
+  canonical_type.canonicalTypeidx(types_section, func_types[F])` (matches setup.zig:816 non-subtyping). runEntry
+  sets `funcptr_base`/`table_size`/`typeidx_base` (table-0 fast path = scalars only, no `tables_ptr` needed;
+  call_indirect emit reads X24/X25/X26 = typeidx_base/table_size/funcptr_base, op_call.zig:299). Fixture exists:
+  `test/edge_cases/p7/call_indirect/funcref_roundtrip.wat`. **MVP = non-subtyping, single table-0**; subtyping
+  (raw typeidx, setup.zig:814) → cycle-2+ (ADR if tackled). Then CYCLE-2b WASI imports (`populateDispatch`@284,
+  `wasi/jit_dispatch.zig`; serialise import module+name+kind). setup.zig anchors: tables @584-950, elem @733-831.
+- **Exit-condition**: cycle-2a — `funcref_roundtrip` `.cwasm` runs via `runEntry` → 42 (currently traps,
+  table_size 0). Bundle closes when a real v1-class fixture (tinygo guest, needs 2b WASI) runs AOT → unblocks §12.4.
 
 ## Next task (autonomous)
 
-§12.3b cycle-2 — tables/elem + WASI imports. Start with tables/elem (compute, no host): a `call_indirect`
-fixture → produce → `runEntry` (currently traps: table_size 0). v0.3 adds table descriptors + elem segments
-(funcptr arrays computed from func_offsets) — set `funcptr_base`/`table_size`/`typeidx_base`. Then WASI imports
-(tinygo `fd_write`): serialise import metadata (module+name+kind) + reconstruct `host_dispatch_base` via the WASI
-registry (`wasi/jit_dispatch.zig`). Bundle continuity-memo has setup.zig anchors (@620-951 tables/elem, @284
-dispatch). Likely split tables/elem (chunk 1) then WASI (chunk 2).
+§12.3b cycle-2a — tables/elem. Smallest red test: `test/edge_cases/p7/call_indirect/funcref_roundtrip.wat`
+(table 1 funcref + elem[0]=$callee returning 42 + exported `call_indirect`) → produce → `aot_run.runEntry`
+(currently traps: table_size 0). Green = v0.3 `tables_meta`+`elem_data`+`func_types` sections + producer
+(decodeTables/decodeElement + serialise raw typeidx) + loader computes `funcptr_base`/`typeidx_base` from
+func_offsets + `canonicalTypeidx(types, func_types[F])` + runEntry sets the table-0 scalars. MVP non-subtyping
+single-table-0; subtyping → cycle-2+. Bundle continuity-memo has the full survey + setup.zig anchors.
 
 ## Deferred / open debt (none a Phase-12 blocker)
 
@@ -57,11 +65,11 @@ dispatch). Likely split tables/elem (chunk 1) then WASI (chunk 2).
 
 ## Step 0.7 (next resume)
 
-This turn landed §12.3b cycle-1b memory (`58e97a09`): `.cwasm` v0.3 memory + data-segment reconstruction, Mac
-test+lint+zone green, CLI smoke (`zwasm run --invoke m mem.cwasm` → exit 42). An ubuntu `test` is kicked against
-this turn's final HEAD → next resume `tail /tmp/ubuntu.log` for OK (verifies x86_64-SysV vm_base reconstruction).
-Prior ubuntu verified `47d62e15` OK (globals). Phase-12 exec tests skip Win64 via `skip.phaseEnd`; windowsmini =
-phase-boundary.
+This turn = §12.3b cycle-2a SURVEY + empirical scoping (no code commit beyond this handover chore): verified
+shootout fixtures trap after cycle-1 (need cycle-2 imports+tables), surveyed tables/elem reconstruction. Prior
+ubuntu verified `f74a258c` OK (memory cycle-1b) — last code HEAD; no ubuntu kick owed this turn (handover-only).
+Next resume: start cycle-2a tables/elem (no ubuntu pending). Phase-12 exec tests skip Win64 via `skip.phaseEnd`;
+windowsmini = phase-boundary.
 
 **Gate hygiene**: Step-5 Mac = `bash scripts/mac_gate.sh`. Win64 cross-compile: `zig build test
 -Dtarget=x86_64-windows-gnu` (compile-only). 3-host reconcile = phase boundary.
