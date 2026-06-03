@@ -22,11 +22,13 @@ entries:
       `zig-out/bin/zwasm` — `zig build test` doesn't rebuild the CLI binary; a fresh build
       instantiates + runs rust_file_io to `trap unreachable` = the Rust panic on file-open
       failure, matching wasmtime's NotFound. No divergence; only the preopen is missing.)
-      CYCLE 1 DONE (`0b4706b3`): CLI --dir preopen wiring + path_open O_CREAT — the file is now
-      CREATED in the sandbox (verified unit + CLI). CYCLE 2 (remaining): fd_write / fd_read to
-      FILE fds (currently `.notsup` in fd.zig) so create+write+read+unlink works end-to-end →
-      rust_file_io exits 0; then optionally wire the realworld runners to pass a temp --dir.
-      Phase 11 §11.1.
+      CYCLE 1 DONE (`0b4706b3`): --dir preopen + path_open O_CREAT (file created). CYCLE 2 DONE
+      (`bca625f2`): fd_write/fd_read to file fds → `zwasm run --dir <tmp>:. rust_file_io.wasm`
+      runs create+write+read+unlink and EXITS 0 (verified; fd-roundtrip regression test). The
+      file-I/O CAPABILITY is complete. REMAINDER (this row, now): wire the realworld run/diff
+      runners to pass a temp `--dir` so rust_file_io flips SKIP-V2-TRAP → gate PASS (diff_runner
+      must give wasmtime the same --dir + matching guest path). Optional gate-visibility; the
+      behaviour is proven. Phase 11 §11.1.
     first_raised: "2026-06-03"
     last_reviewed: "2026-06-03"
     refs: |-

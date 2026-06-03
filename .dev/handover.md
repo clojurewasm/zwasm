@@ -8,12 +8,12 @@
 - **Phase**: **11 IN-PROGRESS — WASI 0.1 full + bench infra** (Phase 10 = DONE 2026-06-03, `5ab7b981`; Wasm 3.0
   complete on both backends per ADR-0133). §11 task table open (11.0✓ / 11.1 WASI / 11.2 bench / 11.3 SIMD-gap /
   11.4 GC-rooting / 11.P).
-- **LAST code HEAD** (`0b4706b3`): §11.1 file-I/O bundle **cycle 1** — CLI `--dir <host>[:<guest>]` preopen wiring
-  (runWasmCapturedOpts → host.addPreopen) + path_open now honors `oflags` (OFLAGS_CREAT → std.Io.Dir.createFile;
-  was `_ = oflags`). Observable: `zwasm run --dir /tmp:. rust_file_io.wasm` now CREATES the file (was nothing) +
-  unit test (pathOpen O_CREAT in a real tmpDir). rust_file_io still traps on the WRITE (fd_write/read to file fds
-  = .notsup → bundle cycle 2). mac_gate + 2-arch xc green. Prior: fd_filestat_get/path_unlink_file (`b6224bbb`,
-  preview1 16→18, facade 55 PASS), D-241 verifier-drift fix (`142f0a53`), fd_prestat/sched_yield (`237f0313`).
+- **LAST code HEAD** (`bca625f2`): §11.1 file-I/O bundle **CLOSED** — fd_write/fd_read to file fds
+  (std.Io.File.writeStreamingAll / readStreaming; EOF = error.EndOfStream → nread=0). **`zwasm run --dir <tmp>:.
+  rust_file_io.wasm` now runs the full create+write+read+unlink flow and exits 0** (was trap). Bundle = cycle 1
+  (--dir preopen + path_open O_CREAT, `0b4706b3`) + cycle 2 (file read/write, `bca625f2`); fd-roundtrip regression
+  test. rust_file_io is a CAPABILITY pass; gate-visible PASS needs runner --dir wiring (D-243 remainder). Prior:
+  fd_filestat_get/path_unlink_file (`b6224bbb`), D-241 verifier-drift fix (`142f0a53`), fd_prestat (`237f0313`).
 - **JIT corpus final** (`dbcfff1b`, ubuntu-verified `eba86890`): memory64 336/1(D-234 harness)/0, tail-call
   71/0/0, EH 34/0/0, gc 402/0/5, function-references 36/0/3, multi-memory 0/0/407(→§14). All skips = eligibility-
   gate; all 59 modrej = multi-memory. Spec corpus = interp default; JIT opt-in `ZWASM_SPEC_ENGINE=jit`.
@@ -21,20 +21,17 @@
   `head -1` = STALE binary → masks the delta.
 - **Watch**: `runner_test.zig` ~1490 / `runner_gc_test.zig` 1476 / `jit_abi.zig` 1350 / `validator.zig` 3204 (cap 3300, D-204) — all < hard 2000/3300.
 
-## Active bundle
+## Active task — §11.1 / §11 continuation  **NEXT**
 
-- **Bundle-ID**: 11.1-file-io (D-243)
-- **Cycles-remaining**: ~1-2
-- **Continuity-memo**: cycle 1 DONE (`0b4706b3`) = --dir preopen + path_open O_CREAT (file now CREATED). Cycle 2 =
-  **fd_write / fd_read to FILE fds** — both currently `.notsup` (fd.zig: `.file, .dir => return .notsup`). Wire them
-  via `std.Io.File{.handle=slot.host_handle}.writeAll/read` over the ciovec/iovec gather-scatter (mirror the stdio
-  branch). Maybe also fd_seek for files. Then rust_file_io create+write+read+unlink works end-to-end.
-- **Exit-condition**: `zwasm run --dir <tmp>:. rust_file_io.wasm` exits 0 (file written + read back + unlinked); add
-  an end-to-end test (tmpDir preopen + runWasmCapturedOpts on rust_file_io → exit 0). Then the realworld runners can
-  pass a temp --dir to flip rust_file_io SKIP-V2-TRAP → PASS (optional follow-up).
+File-I/O bundle CLOSED (`bca625f2`, exit-condition met: rust_file_io exits 0). Next §11 chunks (pick by value):
+- **D-243 remainder (gate-visibility)**: wire the realworld run/diff runners to pass a temp `--dir` so rust_file_io
+  flips SKIP-V2-TRAP → gate PASS (diff_runner must give wasmtime the same --dir + matching guest path). Medium;
+  makes the §11.1 "close realworld SKIP-WASI gaps" concrete in CI.
+- **D-242 growable interp frame stack** → 9 go_* fixtures to full PASS. Multi-cycle bundle (Runtime struct refactor).
+- **11.2 bench infra** (`run_bench.sh --quick` + per-merge auto-record) / **11.4 GC-on-JIT rooting** (D-211).
+- More preview1 syscalls as fixtures demand (fd_readdir, path_create_directory, path_rename, fd_seek-for-files…).
 
-§10 close-hygiene RESOLVED (SHA backfill = traceability via `5ab7b981` + phase_log, no fabrication; windowsmini
-DEFERRED per policy). Other §11 tracks when the file-io bundle closes: D-242 (frame stack, go_*), 11.2 bench, 11.4 GC-rooting.
+§10 close-hygiene RESOLVED (SHA traceability via `5ab7b981` + phase_log; windowsmini DEFERRED per policy).
 
 ## Deferred / open debt (all blocked-by/note; none a Phase-11 blocker yet)
 
@@ -49,11 +46,11 @@ DEFERRED per policy). Other §11 tracks when the file-io bundle closes: D-242 (f
 
 ## Step 0.7 (next resume)
 
-THIS turn = §11.1 file-io bundle cycle 1 (`0b4706b3`, CODE): CLI --dir preopen + path_open O_CREAT (file now
-created; unit + CLI observable). Also disproved the D-243 "facade↔CLI instantiate divergence" — it was a STALE
-`zig-out/bin/zwasm` (`zig build test` doesn't rebuild the CLI binary; fresh build agrees). mac_gate (test-all+lint)
-green, 2-arch xc clean. **ubuntu kick SENT** against `0b4706b3` — Step 0.7 next cycle MUST `tail -3 /tmp/ubuntu.log`;
-RED → revert to `03a70d49` (last ubuntu-verified). Next → file-io bundle cycle 2 (fd_write/read to file fds).
+THIS turn = §11.1 file-io bundle cycle 2 + CLOSE (`bca625f2`, CODE): fd_write/fd_read to file fds (EOF =
+error.EndOfStream → nread=0, found via probe) → rust_file_io exits 0 end-to-end (--dir). fd-roundtrip regression
+test. Bundle closed (exit-condition met). mac_gate (test-all+lint) green, 2-arch xc clean. **ubuntu kick SENT**
+against `bca625f2` — Step 0.7 next cycle MUST `tail -3 /tmp/ubuntu.log`; RED → revert to `b8293780` (last
+ubuntu-verified). Next → D-243 runner --dir wiring (gate-visible rust_file_io PASS) or D-242 / 11.2 / 11.4.
 
 **Gate hygiene**: Step-5 Mac gate = `bash scripts/mac_gate.sh`. JIT corpus: `zig build test-spec-wasm-3.0-assert`
 (NO bogus `-Dno-run`); pick the exe by mtime (bare `head -1` = STALE). `ZWASM_SPEC_ENGINE=jit <exe>
