@@ -123,6 +123,10 @@ pub const Func = struct {
     host: ?*HostFuncPayload = null,
     /// Store handle for the standalone alloc/free path (no instance).
     store: ?*Store = null,
+    /// Cached borrowed funcref `wasm_ref_t` view (`wasm_func_as_ref`;
+    /// owned by this Func, freed in `wasm_func_delete`). Borrowed-view
+    /// discipline like `extern_view`.
+    ref_view: ?*Ref = null,
 };
 
 /// C callback ABI for `wasm_func_new` / `wasm_func_new_with_env`
@@ -189,6 +193,10 @@ pub const Global = struct {
 pub const Ref = struct {
     instance: ?*Instance,
     ref: u64,
+    /// Cached borrowed `wasm_func_t` view (`wasm_ref_as_func`; owned by
+    /// this Ref, freed in `wasm_ref_delete`) — the Func a funcref ref
+    /// denotes. Borrowed-view discipline like `Func.ref_view` (reverse).
+    func_view: ?*Func = null,
 };
 
 /// `wasm_table_t` — opaque-from-C handle for a table export.
@@ -1084,6 +1092,7 @@ pub export fn wasm_func_delete(f: ?*Func) callconv(.c) void {
     const store = if (handle.instance) |inst| (inst.store orelse return) else (handle.store orelse return);
     const alloc = storeAllocator(store) orelse return;
     if (handle.extern_view) |v| alloc.destroy(v);
+    if (handle.ref_view) |rv| alloc.destroy(rv);
     if (handle.host) |p| { // standalone host func: run finalizer, free payload + arity
         if (p.finalizer) |fin| fin(p.env);
         alloc.free(p.params);
@@ -1417,6 +1426,7 @@ pub export fn wasm_ref_delete(r: ?*Ref) callconv(.c) void {
     const inst = handle.instance orelse return;
     const store = inst.store orelse return;
     const alloc = storeAllocator(store) orelse return;
+    if (handle.func_view) |fv| alloc.destroy(fv);
     alloc.destroy(handle);
 }
 

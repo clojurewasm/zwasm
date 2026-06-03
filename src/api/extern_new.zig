@@ -351,6 +351,52 @@ pub export fn wasm_ref_same(a: ?*const instance.Ref, b: ?*const instance.Ref) ca
     return ra.ref == rb.ref;
 }
 
+/// `wasm_func_as_ref(func) -> wasm_ref_t*` (borrowed) — a funcref `Ref`
+/// denoting `func`. Payload = `@intFromPtr(&rt.func_entities[func_idx])`
+/// (the funcref encoding). Cached as `func.ref_view` (freed in
+/// `wasm_func_delete`). Null for a standalone host func (no
+/// `func_entities` slot — D-253) or null arg.
+pub export fn wasm_func_as_ref(f: ?*Func) callconv(.c) ?*instance.Ref {
+    const handle = f orelse return null;
+    if (handle.ref_view) |rv| return rv;
+    const inst = handle.instance orelse return null;
+    const rt = inst.runtime orelse return null;
+    if (handle.func_idx >= rt.func_entities.len) return null;
+    const store = inst.store orelse return null;
+    const alloc = instance.storeAllocator(store) orelse return null;
+    const rv = alloc.create(instance.Ref) catch return null;
+    rv.* = .{ .instance = handle.instance, .ref = runtime.Value.fromFuncRef(&rt.func_entities[handle.func_idx]).ref };
+    handle.ref_view = rv;
+    return rv;
+}
+
+/// `wasm_ref_as_func(ref) -> wasm_func_t*` (borrowed) — the Func a
+/// funcref `ref` denotes, decoded via `*FuncEntity` →
+/// `fe.runtime.instance` → a synthesized `{instance, func_idx}` Func
+/// (cached as `ref.func_view`, freed in `wasm_ref_delete`). Null if the
+/// ref is null/not a funcref, or the source instance is gone.
+pub export fn wasm_ref_as_func(r: ?*instance.Ref) callconv(.c) ?*Func {
+    const handle = r orelse return null;
+    if (handle.func_view) |fv| return fv;
+    const fe = runtime.Value.refAsFuncEntity(.{ .ref = handle.ref }) orelse return null;
+    const inst_opaque = fe.runtime.instance orelse return null;
+    const inst: *instance.Instance = @ptrCast(@alignCast(inst_opaque));
+    const store = inst.store orelse return null;
+    const alloc = instance.storeAllocator(store) orelse return null;
+    const fv = alloc.create(Func) catch return null;
+    fv.* = .{ .instance = inst, .func_idx = fe.func_idx };
+    handle.func_view = fv;
+    return fv;
+}
+
+pub export fn wasm_func_as_ref_const(f: ?*const Func) callconv(.c) ?*const instance.Ref {
+    return wasm_func_as_ref(@constCast(f));
+}
+
+pub export fn wasm_ref_as_func_const(r: ?*const instance.Ref) callconv(.c) ?*const Func {
+    return wasm_ref_as_func(@constCast(r));
+}
+
 // =====================================================================
 // Tests
 // =====================================================================
@@ -715,4 +761,46 @@ test "wasm_ref_copy/same: dup an instance-backed table ref + identity compare" {
     try testing.expect(wasm_ref_same(r0, c0)); // copy denotes the same referent
     try testing.expect(!wasm_ref_same(r0, null));
     try testing.expect(wasm_ref_same(null, null));
+}
+
+// (module (func (export "f") (result i32) (i32.const 42)))
+const func_export_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, // type () -> i32
+    0x03, 0x02, 0x01, 0x00, // func[0]: type 0
+    0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00, // export "f" → func 0
+    0x0a, 0x06, 0x01, 0x04, 0x00, 0x41, 0x2a, 0x0b, // code: i32.const 42
+};
+
+test "wasm_func_as_ref / wasm_ref_as_func: funcref round-trip recovers a callable func" {
+    const e = instance.wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer instance.wasm_engine_delete(e);
+    const s = instance.wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer instance.wasm_store_delete(s);
+    var bytes = func_export_wasm;
+    const bv: vec.ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = instance.wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer instance.wasm_module_delete(m);
+    const inst = instance.wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    defer instance.wasm_instance_delete(inst);
+
+    var exports: vec.ExternVec = .{ .size = 0, .data = null };
+    instance.wasm_instance_exports(inst, &exports);
+    defer instance.wasm_extern_vec_delete(&exports);
+    const func0 = instance.wasm_extern_as_func(exports.data.?[0]) orelse return error.NotFunc;
+
+    const ref = wasm_func_as_ref(func0) orelse return error.AsRefFailed;
+    try testing.expectEqual(ref, wasm_func_as_ref(func0).?); // cached
+    const func1 = wasm_ref_as_func(ref) orelse return error.RefAsFuncFailed;
+    try testing.expectEqual(func1, wasm_ref_as_func(ref).?); // cached
+
+    // The recovered func calls to the same body (returns 42).
+    const args: vec.ValVec = .{ .size = 0, .data = null };
+    var results_data: [1]instance.Val = undefined;
+    var results: vec.ValVec = .{ .size = 1, .data = &results_data };
+    try testing.expect(instance.wasm_func_call(func1, &args, &results) == null);
+    try testing.expectEqual(@as(i32, 42), results_data[0].of.i32);
+
+    try testing.expect(wasm_ref_as_func(null) == null);
+    try testing.expect(wasm_func_as_ref(null) == null);
 }
