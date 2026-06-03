@@ -20,18 +20,16 @@ AOT stack-map, ADR-0141). The Phase-10 collector is non-moving + β-no-reclaim (
 `collector_mark_sweep.zig:214`). Add: free-list reuse / compaction (ADR-0115 §10) + a `GcRootMap` stack-map root
 walker (currently empty placeholder) + conservative native-stack scan (ADR-0128 §2). Mac-local-verifiable. Step
 0: survey the collector + `GcRootMap` placeholder + ADR-0115/0128/0135. **Then** §15.2 coalescer → §15.3 class-aware
-allocator → §15.4 SIMD ports → **§15.5 D-245 win64** (the recurring windows blocker; hard/remote — a deliberate
-session, or user-prioritized) → §15.6 ClojureWasm CI. **OPEN NOW (D-257)**: the 20-marker `<backfill>` cohort
-(10 ADR SHA + 10 lesson Citing) is overdue (3 boundaries) — discharge it FIRST this resume (quick chore).
+allocator → §15.4 SIMD ports → **§15.5 D-245 win64** (recurring windows blocker; hard/remote — a deliberate
+session, or user-prioritized) → §15.6 ClojureWasm CI. (D-257 ADR-backfill half done `2893ab5e`; lesson-Citing
+half now `soon`, not blocking — cycle-refs aren't SHA-recoverable.)
 
 ## Step 0.7 (next resume)
 
-This turn: Phase-14 close (ADR-0145 + ROADMAP widget/§14.P/§15-table) — docs/ADR only, no code → no ubuntu
-kick (HEAD code `011dca7e` ubuntu-verified). **windowsmini reconcile** was kicked + ran detached (slow) →
-**verify `/tmp/win.log`**: expect `[run_remote_windows] OK` (lucky seed) OR a sole `zwasm-spec-simd` failure
-(the D-245 carry, EXPECTED, not a revert trigger — test-fuzz confirmed `0 crashes` on win; Phase 14 added 0
-src/engine|src/instruction). Any OTHER failure = investigate. **NOTE** (lesson `gate-tail-vs-exit-code`): benign
-`failed command: …--listen=-` next to a passing Build Summary is not a failure.
+This turn: D-257 ADR SHA-backfill (9 rows, `2893ab5e`) + D-257 → soon — DOCS only, no code → no ubuntu kick
+(HEAD code `011dca7e` ubuntu-verified). **windowsmini reconcile (Phase-14 close) = `[run_remote_windows] OK`
+GREEN** (seed `0x75fe1ff4` dodged D-245; the only `failed command: …--listen=-` lines are benign unit-test-
+isolation noise, lesson `gate-tail-vs-exit-code`). §14 close fully verified 3-host. Next code change → ubuntu kick.
 
 **Gate hygiene**: Step-5 Mac = `bash scripts/mac_gate.sh`. Win64 cross-compile = `zig build test
 -Dtarget=x86_64-windows-gnu`. windowsmini exec = `run_remote_windows.sh` (phase boundary).

@@ -5,19 +5,18 @@
 entries:
   - id: "D-257"
     layer: "doc"
-    status: "now"
+    status: "partial"
     description: |-
-      **NOW — discharge next cycle.** 20 `<backfill>` provenance markers overdue: 10 ADR
-      Revision-history SHA placeholders (`bash scripts/check_adr_history.sh` → "backfill
-      pending" ×10) + 10 lesson `**Citing**` markers (`bash scripts/check_lesson_citing.sh`).
-      Standing since the Phase-12 close; flagged at §13.P ("sweep before §14.P"); now spans 3
-      phase-close boundaries → past the F.3a >2-boundary block threshold. NOT done in the
-      Phase-14-close turn (a careful per-marker chore — lesson Citings need semantic SHA-
-      matching, hasty lookups risk wrong SHAs). DISCHARGE: per ADR `git log --oneline
-      --follow <adr-file>` → match each Revision-history row to its commit SHA; per lesson,
-      find the commit the observation derives from (the `**Citing**` SHA). One commit each
-      (`chore(adr): SHA backfill cohort` + `chore(lessons): Citing backfill cohort`), then
-      `check_adr_history.sh --gate` + `check_lesson_citing.sh` clean.
+      **ADR HALF DONE `2893ab5e`** — 9 Revision-history `<backfill>` SHAs filled (0016/0060/0076/
+      0120×2/0123×2/0125/0128); `check_adr_history.sh --gate` now 0 unknown-SHA (the lone "pending"
+      is the 0104 PROSE mention, not a fillable row). **REMAINING (soon): 10 lesson `**Citing**`
+      markers.** These are NOT cleanly SHA-backfillable — they cite vague cycle numbers ("cycle 95
+      handover commit", "cycle 109 chore commit", …) with no recoverable cycle→SHA map; guess-filling
+      risks WRONG provenance (worse than a marker). DISCHARGE OPTIONS: (a) the determinable ones
+      (cite an ADR/amendment, e.g. 2026-05-30-cross-module-tail-call → ADR-0112 2026-05-30) get the
+      ADR commit SHA; (b) the cycle-only ones — replace the `\`<backfill>\`` placeholder with the
+      plain cycle reference (the cycle IS the provenance; de-flags `check_lesson_citing.sh` honestly)
+      OR archaeology the cycle→commit. NOT worth dominating a close/feature turn; a focused doc pass.
     first_raised: "2026-06-04"
     last_reviewed: "2026-06-04"
     refs: |-
