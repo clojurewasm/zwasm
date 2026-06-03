@@ -11,23 +11,26 @@
   6/6 SIMD fixtures 33-37% AOT-faster). **Deferred to Phase 15**: §12.5 stack-map (co-defines with the GC
   `GcRootMap` shape, ADR-0141, with §11.4 rooting). **Deferred D-251**: WASI/host imports in AOT (parity with
   JIT compute-only, ADR-0140 — lands with JIT-WASI d-3 / D-244).
-- **Phase 13 opened** (widget DONE/IN-PROGRESS flipped; §13 task table expanded). 🔒 is the END-of-phase
-  wasm-c-api conformance gate, NOT an entry hard-gate — opened autonomously per the §12.P close.
+- **Phase 13 opened**; §13.0 [x] (widget) + **§13.1 [x]** — `wasm.h` surface audit DONE
+  (`.dev/phase13_capi_gap.md`: 54/135 impl, gap list by category). 🔒 = END-of-phase conformance gate, not entry.
 
 ## Next task (autonomous)
 
-§13.1 — `wasm.h` surface audit (Step 0). Inventory the ~130 `wasm.h` functions; the C API already has a
-working subset (`api/wasm.zig` + `cli/run.zig` drive engine/store/module/instance/func/extern/trap end-to-end).
-Dispatch an Explore subagent: enumerate `wasm.h` (in `include/`) vs what `api/wasm.zig` implements; produce the
-gap list grouped by category (valtype/functype/globaltype/tabletype/memorytype/ref/global/table/memory/extern/
-trap/frame/foreign). That gap list drives §13.2 (implement missing, category-by-category, red→green). Then §13.3
-(wasi.h + zwasm.h), §13.4 (`test/c_api_conformance/` fail=0), §13.5 (examples 3-OS), §13.P (🔒 conformance gate).
+§13.2 — implement missing `wasm.h` surface, category-by-category (gap list: `.dev/phase13_capi_gap.md`; 54/135
+impl). **First chunk = type constructors + queries** (load-bearing — `func_new`/`global_new`/`table_new`/
+`memory_new` consume `*type` objects): `wasm_{valtype,functype,globaltype,tabletype,memorytype}_new/_delete/
+_copy` + query accessors (valtype_kind, functype_params/results, globaltype_content/mutability, tabletype_
+element/limits, memorytype_limits) + their vecs. Impls go in a new `src/api/types.zig` (or extend `instance.zig`)
++ re-export via `api/wasm.zig`; mirror the upstream wasm-c-api shapes (`include/wasm.h`). Red test: a Zig test
+constructing a functype + reading params/results back. Then externtype/import-export types, the `_new`
+constructors, frames/foreign, module_imports/exports. Step 0 mostly done (gap doc); per-category survey as needed.
 
-## Phase-12 close note (this turn)
+## Phase-12 close note
 
-§12.5 → Phase 15 + §12.P [x] + widget (ADR-0141). §12 row SHAs live inline in the row prose (richer than the
-status-cell convention; grep-backfill was noisy). **audit_scaffolding** (mandatory phase-boundary) + the
-**windowsmini 3-host reconcile** are this turn's close steps — see Step 0.7.
+Phase 12 closed `0810b339` (ADR-0141). audit_scaffolding ran (0 block; `private/audit-2026-06-03-p12close.md`).
+**windowsmini 3-host reconcile GREEN** — `/tmp/win.log` 1748 lines, 0 failed/mismatched across edge-case/spec/
+spec_assert/diff_runner + realworld (no Win64 drift; Phase 12 added no Win64-exec paths). §12 SHAs inline in row
+prose. Standing `soon` (not Phase-12): 10 ADR + 10 lesson `<backfill>` markers; 8 files over soft cap.
 
 ## Deferred / open debt (none a Phase-13 blocker)
 
@@ -39,12 +42,10 @@ status-cell convention; grep-backfill was noisy). **audit_scaffolding** (mandato
 
 ## Step 0.7 (next resume)
 
-This turn = Phase-12 close (ADR-0141 + ROADMAP widget/§12.5/§12.P/§13-expand + handover). A **windowsmini
-test-all 3-host reconcile** was kicked (§12.P phase-boundary discipline) → next resume `tail /tmp/win.log` for
-OK (Phase-12 AOT exec skips Win64 via `skip.phaseEnd`; the reconcile + cross-compile gate cover the Win64
-surface — no new Win64-exec paths). Last code HEAD verified ubuntu = `cf32e57a`; no new `src/` this turn (docs
-only) → no ubuntu kick. **audit_scaffolding** ran this turn (phase-boundary mandatory) — findings in the close
-commit / debt if any.
+This turn = §13.1 gap audit (`.dev/phase13_capi_gap.md`) + §13.1 [x] + windowsmini reconcile verified GREEN
+(above). No new `src/` this turn (gap doc + ROADMAP/handover only) → no ubuntu kick owed. Last code HEAD
+verified ubuntu = `cf32e57a` (Mac+ubuntu); windowsmini = `0810b339` reconcile GREEN. Next resume: start §13.2
+type constructors (no host verification pending).
 
 **Gate hygiene**: Step-5 Mac = `bash scripts/mac_gate.sh`. Win64 cross-compile: `zig build test
 -Dtarget=x86_64-windows-gnu` (compile-only). 3-host reconcile = phase boundary.
