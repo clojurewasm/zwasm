@@ -22,12 +22,15 @@
 
 ## Next task (autonomous)
 
-**NEXT** = Phase-12 boundary work IN PROGRESS this turn: (1) `audit_scaffolding` (MANDATORY phase-boundary) — run
-+ fix any `block` locally; (2) backfill §11 SHA pointers; (3) **open Phase 12** — expand the §12 task table
-(AOT: `.cwasm` loader vs `format.zig` CwasmHeader/FuncMeta/Reloc shapes; AOT/JIT differential equivalence;
-cross-compile `.cwasm`; cold-start bench-delta ≥30% — the ADR-0040 deferred obligation; GC stack-map section
-gated on `needs_gc_heap`, the GC-root part itself Phase-15 per ADR-0135). Substrate inherited from §9.8b/8b.3
-(`src/engine/codegen/aot/{format,serialise,produce}.zig` + `src/cli/compile.zig`). Then §12.1 Step 0 survey.
+Phase-11 close DONE this session (`316f5fb0`): audit_scaffolding GREEN (0 block; report
+`private/audit-2026-06-03-p11-close.md`); §12 table opened. §11 SHA backfill skipped — rows are multi-commit
+(bare `[x]` acceptable per the convention); the close is captured in commit history.
+
+**NEXT** = **§12.1 Step 0 survey** (AOT `.cwasm` loader). Survey the §9.8b/8b.3 substrate
+(`src/engine/codegen/aot/{format,serialise,produce}.zig` + `src/cli/compile.zig`) + the `format.zig` shapes
+(60-byte `CwasmHeader` / 12-byte `CwasmFuncMeta` / 9-byte `CwasmReloc`, ADR-0039 Rev 2) — the loader reads
+against these. Smallest red test: `zwasm run` loads a §9.8b-produced `.cwasm` (header parse + 1 function
+relocate + execute → expected i32). Then chain §12.2 (AOT↔JIT differential) etc. per the §12 table.
 
 ## Deferred / open debt (none a Phase-12 blocker)
 
