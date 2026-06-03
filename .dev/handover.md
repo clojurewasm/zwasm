@@ -20,14 +20,14 @@
 
 ## Next task (autonomous — Phase 14)
 
-**§14.1 [x]** `2592f255` — `pr.yml` 3-OS test-all matrix (workflow_dispatch; actionlint-clean; 3 zig URLs
-verified 200; reuses bench.yml install pattern). **NEXT: §14.2 — per-merge bench, 3-OS.** `bench.yml`
-ALREADY exists (workflow_dispatch, mac+linux per-merge bench → `bench/results/history.yaml`). §14.2 =
-either extend bench.yml to add the windows-2022 leg OR keep 2-OS + document why (windows bench is
-D-245-flaky + D-249 hyperfine-timing-open). Survey bench.yml's aggregate job + D-249/D-249. Then §14.3
-(nightly: fuzz + spec-bump + proposal-watch) → §14.4 (bench_baseline workflow_dispatch) → §14.5 (confirm
-pre_push still works; CI second-line) → §14.P. **CI convention = manual `workflow_dispatch`** (auto-push
-disabled 2026-05-25; Phase-14 §14.5 = CI-second-line). All workflows actionlint-clean before commit.
+**§14.1 [x]** `2592f255` (pr.yml 3-OS test-all matrix). **§14.2 [x]** — reconciled to existing `bench.yml`
+(2-host Mac+Linux per-merge bench per **ADR-0137**; windows-timing deferred **D-249**; no separate main.yml).
+**NEXT: §14.3 — `nightly.yml`** (fuzz + spec-bump + proposal-watch). Survey: existing fuzz infra
+(`zig build fuzz`? `scripts/`), the spec-bump check, `.dev/proposal_watch.md` (quarterly cadence). Likely a
+workflow_dispatch (+ maybe `schedule:` cron — but auto-trigger conflicts with the manual-CI convention;
+lean workflow_dispatch + document the cron option). Then §14.4 (bench_baseline workflow_dispatch) → §14.5
+(confirm pre_push works; CI second-line) → §14.P. **CI convention = manual `workflow_dispatch`** (auto-push
+disabled 2026-05-25). All workflows actionlint-clean before commit.
 
 ## D-245 win64 — elevated (NOT an active bundle)
 
