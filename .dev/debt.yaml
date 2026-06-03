@@ -36,9 +36,10 @@ entries:
       runVoidExport, the CLI path) now works in ReleaseSafe on both arches.** REMAINDER (status
       partial): (a) win64 host→JIT entry still `@call` (windowsmini phase-boundary); (b) the
       arg'd / i32 / v128 `invokeAndCheck*` variants still `@call` — ReleaseSafe-unsafe but
-      Debug-only-used (spec runner / test harness run Debug); same asm-save fix applies; (c) NO
-      ReleaseSafe regression test yet (the Debug-only `runWasmJit` test is why this shipped — add
-      a `zig build`-driven ReleaseSafe `--engine=jit` smoke gate). (Historical root cause below.)
+      Debug-only-used (spec runner / test harness run Debug); same asm-save fix applies. (c) DONE
+      (`0c42e913`): ReleaseSafe regression gate `scripts/check_jit_releasesafe.sh` (build
+      ReleaseSafe + run a SIMD `_start` via `--engine=jit`) wired into `gate_merge.sh`; also
+      silenced the leftover `[stack_probe]` stderr diagnostic in release builds. (Historical root cause below.)
       Host→JIT calls do NOT preserve the host's callee-saved registers → ANY JIT
       execution from the Zig host SEGV-corrupts the heap in **ReleaseSafe** (works in
       Debug). Surfaced via `zwasm run --engine=jit` (ADR-0136, `8011293a`): exit 134 on
