@@ -60,6 +60,21 @@ would catch this class of bug at gate time. Filed as future-cycle
 infra (no debt row yet — small enough to land in a single
 infrastructure cycle when surface area justifies).
 
+## Update 2026-06-04 — `failed command:` next to OK is benign
+
+`run_remote_ubuntu.sh` logs can show `failed command: …/test …
+--seed=0x… --listen=-` (or, transiently under parallel build, a
+`run exe …-hello`) right above `[run_remote_ubuntu] OK`. This is NOT a
+gate hole: the script keys OK/FAIL off `ssh … || die_step` (the real
+`zig build test-all` exit code), verified `TESTALL_EXIT=0` on ubuntu.
+The `--listen=-` lines are zig's test-server noise — unit tests that
+exercise abort/panic/trap spawn child test processes which exit
+non-zero *by design*; the server restarts and the step nets exit 0.
+Corollary to rule #1: the **exit code is authoritative**; a stray
+`failed command:` in the human-readable tail is not a red turn. (Cost
+a full Step-0.7 re-investigation on the §13.5 zig_host resume — direct
+`./zwasm-zig-host-hello; echo $?` = 0 settled it.)
+
 ## Related
 
 - ADR-0076 D3 (3-host gate via ubuntu kick) — the kick was the
