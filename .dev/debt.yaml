@@ -5,7 +5,7 @@
 entries:
   - id: "D-243"
     layer: "code"
-    status: "blocked-by"
+    status: "note"
     description: |-
       blocked-by: no preopen-sandbox wiring for file-I/O realworld fixtures. After
       fd_filestat_get + path_unlink_file landed (b6224bbb), rust_file_io resolves all
@@ -37,25 +37,29 @@ entries:
     layer: "code"
     status: "blocked-by"
     description: |-
-      blocked-by: the interp call stack is a FIXED 256-frame array
-      (`frame_buf: [max_frame_stack]Frame`, max_frame_stack=256, runtime.zig:354)
-      — too shallow for standard-Go's wasip1 runtime init, which exhausts it on
-      `_start` (`Trap.CallStackExhausted`). Surfaced once D-241 (verifier ceiling
-      drift) was fixed so the 9 `go_*` realworld fixtures finally INSTANTIATE: they
-      now run but trap part-way (`zwasm run go_math_big.wasm` → stack_overflow,
-      exit 1). TinyGo fixtures (shallower runtime) PASS fully. Current categorisation
-      (all green, tracked): facade-runner PASS (instantiate-only), run_runner PASS
-      (lenient — defined exit), diff_runner SKIP-V2-TRAP (v2 exit≠0 where wasmtime
-      exit=0 — diff_runner.zig, added this turn). Discharge: make the interp frame
-      stack growable (heap-backed segment / ArrayList) instead of the fixed
-      256-array, OR raise max_frame_stack if the Runtime-struct size cost is
-      acceptable; then go_* run to completion and diff_runner flips SKIP-V2-TRAP →
-      MATCH. Multi-cycle (touches Runtime struct + every frame push/pop + the
-      stack-probe interplay); Phase 11 §11.1.
+      blocked-by: standard-Go `go_*` wasip1 fixtures `Trap.CallStackExhausted` on
+      `_start`. **RE-DIAGNOSED 2026-06-03 — it is RUNAWAY frame growth, NOT a
+      too-shallow stack.** Proof: a throwaway bump of max_frame_stack 256 → 8192 →
+      131072 (with a lazy heap overflow segment so the Runtime struct stays small)
+      STILL overflows go_math_big — math/big cannot legitimately nest >131072 calls,
+      so the interp is pushing frames unboundedly. Ruled OUT: (a) too-shallow cap
+      (raising it doesn't help); (b) tail-call-as-frame-growth — the interp tail-call
+      correctly pops THEN pushes (dispatch.zig:119/140 = frame-replace, constant
+      depth). Mechanism: a regular `call` → `mvp.invoke` (mvp.zig:654) pushFrame +
+      RE-ENTER `dispatch.run` on the host stack + popFrame (balanced for normal
+      call/return). So the runaway = an unbounded NESTED call chain that never
+      returns — most likely (a) an interp miscompile making go_math_big infinitely
+      recurse, or (b) Go's wasm runtime re-entry / morestack model that v2
+      mishandles. DISCHARGE (a debug bundle, NOT a stack-size change): instrument
+      frame_len growth + capture the repeating call site (which `call`/op pushes the
+      runaway frame); find the call that never returns; fix the interp semantics. Do
+      NOT just grow the stack (proven futile). TinyGo fixtures (shallower, different
+      runtime) PASS. go_* currently green-tracked (facade PASS instantiate-only,
+      run_runner lenient PASS, diff_runner SKIP-V2-TRAP). Phase 11 §11.1.
     first_raised: "2026-06-03"
     last_reviewed: "2026-06-03"
     refs: |-
-      src/runtime/runtime.zig:354,443 / src/runtime/instance/frame.zig (max_frame_stack) / test/realworld/diff_runner.zig / ROADMAP §11.1
+      src/interp/mvp.zig:654 (invoke pushFrame+run+popFrame) / src/interp/dispatch.zig:119,140 (tail-call frame-replace) / src/runtime/runtime.zig:446 (pushFrame cap) / test/realworld/wasm/go_*.wasm / ROADMAP §11.1
   - id: "D-239"
     layer: "code"
     status: "partial"

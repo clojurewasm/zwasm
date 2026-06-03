@@ -23,13 +23,18 @@
 
 ## Active task — §11.1 / §11 continuation  **NEXT**
 
-File-I/O bundle CLOSED (`bca625f2`, exit-condition met: rust_file_io exits 0). Next §11 chunks (pick by value):
-- **D-243 remainder (gate-visibility)**: wire the realworld run/diff runners to pass a temp `--dir` so rust_file_io
-  flips SKIP-V2-TRAP → gate PASS (diff_runner must give wasmtime the same --dir + matching guest path). Medium;
-  makes the §11.1 "close realworld SKIP-WASI gaps" concrete in CI.
-- **D-242 growable interp frame stack** → 9 go_* fixtures to full PASS. Multi-cycle bundle (Runtime struct refactor).
-- **11.2 bench infra** (`run_bench.sh --quick` + per-merge auto-record) / **11.4 GC-on-JIT rooting** (D-211).
-- More preview1 syscalls as fixtures demand (fd_readdir, path_create_directory, path_rename, fd_seek-for-files…).
+File-I/O bundle CLOSED (`bca625f2`, rust_file_io exits 0); D-243 reduced to a `note` (capability proven; runner
+--dir wiring is cosmetic — rust_file_io is already lenient-PASS/SKIP-EMPTY, not gate-failing). **D-242 RE-DIAGNOSED
+this turn** (no code — a throwaway max_frame_stack bump 256→131072 STILL overflowed go_math_big → RUNAWAY frame
+growth, NOT a too-shallow stack; tail-call ruled out by code, dispatch.zig pops-then-pushes). D-242 is now a
+DEBUG bundle (find the unbounded `call` that never returns via mvp.invoke→dispatch.run re-entry), NOT a
+stack-grow. Lesson filed. Next §11 chunks (pick by value):
+- **D-242 debug bundle**: instrument frame_len growth on go_math_big, capture the repeating call site, fix the
+  interp semantics (interp miscompile / Go re-entry model). The real go_* lever.
+- **11.2 bench infra** (already substantially built: run_bench.sh --quick, history.yaml, record scripts — assess
+  what's left) / **11.4 GC-on-JIT rooting** (D-211).
+- More preview1 syscalls (fd_readdir, path_create_directory, path_rename, fd_seek-for-files) — completeness; no
+  fixture currently needs them (all realworld imports resolve, 0 SKIP-WASI).
 
 §10 close-hygiene RESOLVED (SHA traceability via `5ab7b981` + phase_log; windowsmini DEFERRED per policy).
 
@@ -46,11 +51,11 @@ File-I/O bundle CLOSED (`bca625f2`, exit-condition met: rust_file_io exits 0). N
 
 ## Step 0.7 (next resume)
 
-THIS turn = §11.1 file-io bundle cycle 2 + CLOSE (`bca625f2`, CODE): fd_write/fd_read to file fds (EOF =
-error.EndOfStream → nread=0, found via probe) → rust_file_io exits 0 end-to-end (--dir). fd-roundtrip regression
-test. Bundle closed (exit-condition met). mac_gate (test-all+lint) green, 2-arch xc clean. **ubuntu kick SENT**
-against `bca625f2` — Step 0.7 next cycle MUST `tail -3 /tmp/ubuntu.log`; RED → revert to `b8293780` (last
-ubuntu-verified). Next → D-243 runner --dir wiring (gate-visible rust_file_io PASS) or D-242 / 11.2 / 11.4.
+THIS turn = D-242 RE-DIAGNOSIS (DOCS-ONLY, no code): the go_* CallStackExhausted is RUNAWAY frame growth, not a
+too-shallow stack — proven by a throwaway max_frame_stack 256→131072 bump that STILL overflowed go_math_big
+(reverted). Re-scoped D-242 to a debug bundle + filed the runaway-vs-deep lesson; reduced D-243 to note. NO code
+change → NO ubuntu kick (prior `bca625f2` already ubuntu-OK at `95b8efe6`; Step 0.7 next cycle = nothing to
+verify). Next → the D-242 debug bundle (instrument the runaway call site) or 11.2 bench.
 
 **Gate hygiene**: Step-5 Mac gate = `bash scripts/mac_gate.sh`. JIT corpus: `zig build test-spec-wasm-3.0-assert`
 (NO bogus `-Dno-run`); pick the exe by mtime (bare `head -1` = STALE). `ZWASM_SPEC_ENGINE=jit <exe>
