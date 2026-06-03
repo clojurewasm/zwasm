@@ -30,6 +30,25 @@ pub fn runWasm(
     return runWasmCaptured(alloc, io, bytes, argv, null, null);
 }
 
+/// `zwasm run --engine=jit` (ADR-0136): JIT-compile `bytes` and run the
+/// entry export (`invoke_name`, else `_start`) to completion. COMPUTE-ONLY
+/// — no WASI I/O or `proc_exit` exit-code plumbing yet (that is the d-3
+/// JIT-WASI follow-up, D-244): a guest that does I/O computes but produces
+/// no stdout. Intended for compute / SIMD modules (e.g. the §11.3 bench
+/// corpus) that the interpreter cannot run because SIMD is JIT-only. No
+/// `io` arg — there is no host I/O on this path. Returns 0 on success;
+/// JIT/validate/trap errors propagate (the caller maps them to exit 1).
+pub fn runWasmJit(
+    alloc: std.mem.Allocator,
+    bytes: []const u8,
+    invoke_name: ?[]const u8,
+) !u8 {
+    const runner = @import("../engine/runner.zig");
+    const entry_name = invoke_name orelse "_start";
+    _ = try runner.runVoidExport(alloc, bytes, entry_name);
+    return 0;
+}
+
 /// Like `runWasm` but routes guest stdout writes (`fd_write`
 /// to fd 1) into the caller-supplied `stdout_capture`. When
 /// non-null, the runner wires `host.stdout_buffer` to it; the
@@ -318,4 +337,35 @@ test "runWasm: clearDiag is invoked on entry — fresh call clears prior state" 
     _ = try runWasm(testing.allocator, testing.io, &proc_exit_42_wasm, &.{});
     // After a successful run, no diagnostic should be set.
     try testing.expect(diagnostic.lastDiagnostic() == null);
+}
+
+// `(module (memory (export "memory") 1) (func (export "_start")
+//   (local $i i32) (local $acc v128) ... loop { acc = i32x4.add acc k; i-- }
+//   (v128.store 0 acc)))` — a compute-only SIMD `_start`. The interpreter
+// has NO SIMD execution (SIMD is JIT-only by design, D-244), so the default
+// path traps `Unreachable`; `--engine=jit` (ADR-0136) JIT-compiles + runs it.
+const simd_start_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x04, 0x01, 0x60,
+    0x00, 0x00, 0x03, 0x02, 0x01, 0x00, 0x05, 0x03, 0x01, 0x00, 0x01, 0x07,
+    0x13, 0x02, 0x06, 0x6d, 0x65, 0x6d, 0x6f, 0x72, 0x79, 0x02, 0x00, 0x06,
+    0x5f, 0x73, 0x74, 0x61, 0x72, 0x74, 0x00, 0x00, 0x0a, 0x55, 0x01, 0x53,
+    0x02, 0x01, 0x7f, 0x01, 0x7b, 0x41, 0x80, 0xda, 0xc4, 0x09, 0x21, 0x00,
+    0xfd, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x21, 0x01, 0x02, 0x40, 0x03, 0x40,
+    0x20, 0x01, 0xfd, 0x0c, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
+    0x03, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0xfd, 0xae, 0x01, 0x21,
+    0x01, 0x20, 0x00, 0x41, 0x01, 0x6b, 0x21, 0x00, 0x20, 0x00, 0x0d, 0x00,
+    0x0b, 0x0b, 0x41, 0x00, 0x20, 0x01, 0xfd, 0x0b, 0x04, 0x00, 0x0b,
+};
+
+test "runWasmJit: SIMD _start runs via the JIT where the interp traps (ADR-0136 / D-244)" {
+    // Interpreter path: no SIMD execution → the `i32x4.add` dispatch slot is
+    // null → Trap.Unreachable, which the run path maps to a non-zero exit
+    // code (a trap is exit≠0, not a Zig error).
+    const interp_code = try runWasm(testing.allocator, testing.io, &simd_start_wasm, &.{});
+    try testing.expect(interp_code != 0);
+
+    // JIT path: compiles + runs the SIMD `_start` to completion → 0.
+    const jit_code = try runWasmJit(testing.allocator, &simd_start_wasm, null);
+    try testing.expectEqual(@as(u8, 0), jit_code);
 }

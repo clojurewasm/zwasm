@@ -16,6 +16,9 @@
 //!                             export; exit with the guest's
 //!                             `proc_exit` code.
 //!   run --invoke <name>       Invoke the named func export (zero-args)
+//!   run --engine <interp|jit> Engine: interp (default, full WASI) or jit
+//!                             (ADR-0136; compute-only — SIMD/compute, no
+//!                             WASI I/O yet). `--engine=jit` also accepted.
 //!     <path.wasm>             instead of the default `_start` / `main`
 //!                             selection. Phase 11 bench prerequisite
 //!                             per §9.12-G; arg marshalling + result
@@ -63,6 +66,9 @@ pub fn main(init: std.process.Init) !void {
             // flag must precede the path so the trailing argv (= WASI
             // guest argv) is unambiguous.
             var invoke_name: ?[]const u8 = null;
+            // ADR-0136 — `--engine=jit` routes the run through the JIT
+            // executor (compute-only). Default = interp (the C-API path).
+            var engine_jit = false;
             var preopen_list: std.ArrayList(cli_run.PreopenDir) = .empty;
             defer preopen_list.deinit(gpa);
             var next_arg = arg_it.next();
@@ -72,6 +78,25 @@ pub fn main(init: std.process.Init) !void {
                         try printlnErr(io, "usage: zwasm run --invoke <name> <path.wasm> [args...]");
                         std.process.exit(2);
                     };
+                    next_arg = arg_it.next();
+                } else if (std.mem.eql(u8, a, "--engine") or std.mem.startsWith(u8, a, "--engine=")) {
+                    // Accept both `--engine jit` and `--engine=jit`.
+                    const eq = "--engine=";
+                    const mode = if (std.mem.startsWith(u8, a, eq))
+                        a[eq.len..]
+                    else
+                        arg_it.next() orelse {
+                            try printlnErr(io, "usage: zwasm run --engine <interp|jit> <path.wasm> [args...]");
+                            std.process.exit(2);
+                        };
+                    if (std.mem.eql(u8, mode, "jit")) {
+                        engine_jit = true;
+                    } else if (std.mem.eql(u8, mode, "interp")) {
+                        engine_jit = false;
+                    } else {
+                        try printlnErr(io, "zwasm run: --engine must be 'interp' or 'jit'");
+                        std.process.exit(2);
+                    }
                     next_arg = arg_it.next();
                 } else if (std.mem.eql(u8, a, "--dir")) {
                     // `--dir <host>[:<guest>]` — preopen a host dir for the
@@ -88,7 +113,7 @@ pub fn main(init: std.process.Init) !void {
                 } else break;
             }
             const path_arg = next_arg orelse {
-                try printlnErr(io, "usage: zwasm run [--invoke <name>] [--dir <host>[:<guest>]] <path.wasm> [args...]");
+                try printlnErr(io, "usage: zwasm run [--invoke <name>] [--engine <interp|jit>] [--dir <host>[:<guest>]] <path.wasm> [args...]");
                 std.process.exit(2);
             };
             const path = try gpa.dupe(u8, path_arg);
@@ -112,7 +137,17 @@ pub fn main(init: std.process.Init) !void {
             try argv_list.append(gpa, path);
             while (arg_it.next()) |a| try argv_list.append(gpa, a);
 
-            const code = cli_run.runWasmCapturedOpts(gpa, io, bytes, argv_list.items, null, invoke_name, preopen_list.items) catch |err| {
+            // ADR-0136 — `--engine=jit` is compute-only (no WASI under the
+            // JIT yet), so reject `--dir` on that path rather than silently
+            // ignoring the preopen.
+            if (engine_jit and preopen_list.items.len > 0) {
+                try printlnErr(io, "zwasm run: --engine=jit does not support --dir (no WASI under the JIT yet)");
+                std.process.exit(2);
+            }
+            const code = (if (engine_jit)
+                cli_run.runWasmJit(gpa, bytes, invoke_name)
+            else
+                cli_run.runWasmCapturedOpts(gpa, io, bytes, argv_list.items, null, invoke_name, preopen_list.items)) catch |err| {
                 // Per ADR-0016 phase 1: prefer the structured
                 // diagnostic when one was set; fall back to the
                 // legacy `@errorName` form for unwired sites.
