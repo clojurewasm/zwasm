@@ -1048,6 +1048,34 @@ pub export fn wasm_extern_as_func(e: ?*Extern) callconv(.c) ?*Func {
     return handle.func;
 }
 
+/// `wasm_extern_as_{func,global,table,memory}_const(*const Extern)`
+/// — const-qualified borrows mirroring the mutable family (C
+/// const-correctness; same kind check + borrowed return, ownership
+/// stays with the Extern). Null on kind mismatch or null arg.
+pub export fn wasm_extern_as_func_const(e: ?*const Extern) callconv(.c) ?*const Func {
+    const handle = e orelse return null;
+    if (handle.kind != .func) return null;
+    return handle.func;
+}
+
+pub export fn wasm_extern_as_global_const(e: ?*const Extern) callconv(.c) ?*const Global {
+    const handle = e orelse return null;
+    if (handle.kind != .global) return null;
+    return handle.global;
+}
+
+pub export fn wasm_extern_as_table_const(e: ?*const Extern) callconv(.c) ?*const Table {
+    const handle = e orelse return null;
+    if (handle.kind != .table) return null;
+    return handle.table;
+}
+
+pub export fn wasm_extern_as_memory_const(e: ?*const Extern) callconv(.c) ?*const Memory {
+    const handle = e orelse return null;
+    if (handle.kind != .memory) return null;
+    return handle.memory;
+}
+
 /// `wasm_extern_as_global(*Extern)` — borrow the Global contained
 /// in an Extern. Returns null if the Extern is not of kind global.
 /// **Ownership stays with the Extern**; callers must NOT call
@@ -2203,6 +2231,16 @@ test "wasm 2.0 mixed-exports c_api walk: func+memory+table+global surface via wa
     try testing.expect(wasm_extern_as_func(data[1]) == null);
     try testing.expect(wasm_extern_as_func(data[2]) == null);
     try testing.expect(wasm_extern_as_func(data[3]) == null);
+
+    // const-qualified family: same kind discipline, borrowed return.
+    try testing.expect(wasm_extern_as_func_const(data[0]) != null);
+    try testing.expect(wasm_extern_as_memory_const(data[0]) == null);
+    try testing.expect(wasm_extern_as_memory_const(data[1]) != null);
+    try testing.expect(wasm_extern_as_table_const(data[2]) != null);
+    try testing.expect(wasm_extern_as_global_const(data[3]) != null);
+    try testing.expect(wasm_extern_as_global_const(data[0]) == null);
+    // null-arg discipline.
+    try testing.expect(wasm_extern_as_func_const(null) == null);
 }
 
 test "wasm 2.0 c_api scalar global accessors: read and write mutable i32 via wasm_extern_as_global + wasm_global_get/set (D-171)" {
