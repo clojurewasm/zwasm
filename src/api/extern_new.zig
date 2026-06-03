@@ -1,7 +1,7 @@
 //! Runtime-entity construction layer of the C ABI (§13.2): the
 //! `wasm_{func,global,table,memory}_as_extern[_const]` conversions
-//! (entity → Extern), and the home for the forthcoming host-side
-//! `wasm_{global,table,memory}_new` constructors.
+//! (entity → Extern) + the host-side `wasm_{global,table,memory}_new`
+//! and `wasm_func_new[_with_env]` constructors.
 //!
 //! Extracted from `instance.zig` per ADR-0099 §D2 (the `module_introspect.zig`
 //! precedent): instance.zig sits at its 3200 FILE-SIZE-EXEMPT cap, and the
@@ -26,6 +26,7 @@ const vec = @import("vec.zig");
 const types = @import("types.zig");
 const runtime = @import("../runtime/runtime.zig");
 const zir = @import("../ir/zir.zig");
+const trap_surface = @import("trap_surface.zig");
 
 const Extern = instance.Extern;
 const Func = instance.Func;
@@ -36,11 +37,11 @@ const Memory = instance.Memory;
 pub export fn wasm_func_as_extern(f: ?*Func) callconv(.c) ?*Extern {
     const handle = f orelse return null;
     if (handle.extern_view) |v| return v;
-    const inst = handle.instance orelse return null;
-    const store = inst.store orelse return null;
+    // instance (export-derived) OR Store (standalone host func).
+    const store = if (handle.instance) |i| (i.store orelse return null) else (handle.store orelse return null);
     const alloc = instance.storeAllocator(store) orelse return null;
     const v = alloc.create(Extern) catch return null;
-    v.* = .{ .kind = .func, .instance = inst, .func = handle, .borrowed = true };
+    v.* = .{ .kind = .func, .instance = handle.instance, .func = handle, .borrowed = true };
     handle.extern_view = v;
     return v;
 }
@@ -102,9 +103,9 @@ pub export fn wasm_memory_as_extern_const(m: ?*const Memory) callconv(.c) ?*cons
 }
 
 // ----------------------------------------------------------------
-// Host-created standalone entities (`wasm_{global,table,memory}_new`).
-// `wasm_func_new` (host callback) needs interp host-call plumbing —
-// deferred D-252.
+// Host-created standalone entities: `wasm_{global,table,memory}_new`
+// (own backing aliased into an importing instance) + `wasm_func_new
+// [_with_env]` (host callback dispatched via a HostCall thunk, below).
 // ----------------------------------------------------------------
 
 /// Map a `wasm_valkind_t` byte to the internal scalar valtype. v128
@@ -226,6 +227,98 @@ pub export fn wasm_table_new(store: ?*instance.Store, tt: ?*const types.TableTyp
     };
     tbl.* = .{ .instance = null, .table_idx = 0, .elem_type = et, .min = lim.min, .max = max, .tinst = ti, .store = s };
     return tbl;
+}
+
+/// Map a `wasm_valkind_t` byte to the internal valtype for a func
+/// signature (scalars + funcref/externref). v128 has no `wasm_val_t`
+/// slot → null (rejects the whole `wasm_func_new`).
+fn cValKindToZir(kind: u8) ?zir.ValType {
+    return switch (kind) {
+        0 => .i32,
+        1 => .i64,
+        2 => .f32,
+        3 => .f64,
+        128 => zir.ValType.externref,
+        129 => zir.ValType.funcref,
+        else => null,
+    };
+}
+
+/// Copy a `wasm_valtype_vec_t` into an owned `[]zir.ValType` (the func's
+/// marshalled arity). Returns null on OOM or an unsupported valtype.
+fn buildArity(alloc: std.mem.Allocator, v: types.ValTypeVec) ?[]zir.ValType {
+    const out = alloc.alloc(zir.ValType, v.size) catch return null;
+    if (v.size > 0) {
+        const data = v.data orelse {
+            alloc.free(out);
+            return null;
+        };
+        for (0..v.size) |i| {
+            const vt = data[i] orelse {
+                alloc.free(out);
+                return null;
+            };
+            out[i] = cValKindToZir(vt.kind) orelse {
+                alloc.free(out);
+                return null;
+            };
+        }
+    }
+    return out;
+}
+
+fn funcNewImpl(
+    store: ?*instance.Store,
+    ft: ?*const types.FuncType,
+    cb: ?instance.WasmFuncCallback,
+    cb_env: ?instance.WasmFuncCallbackEnv,
+    env: ?*anyopaque,
+    finalizer: ?*const fn (?*anyopaque) callconv(.c) void,
+) ?*Func {
+    const s = store orelse return null;
+    const ftype = ft orelse return null;
+    const alloc = instance.storeAllocator(s) orelse return null;
+    const params = buildArity(alloc, ftype.params) orelse return null;
+    const results = buildArity(alloc, ftype.results) orelse {
+        alloc.free(params);
+        return null;
+    };
+    const payload = alloc.create(instance.HostFuncPayload) catch {
+        alloc.free(params);
+        alloc.free(results);
+        return null;
+    };
+    payload.* = .{ .callback = cb, .callback_env = cb_env, .env = env, .finalizer = finalizer, .params = params, .results = results };
+    const fh = alloc.create(Func) catch {
+        alloc.free(params);
+        alloc.free(results);
+        alloc.destroy(payload);
+        return null;
+    };
+    fh.* = .{ .instance = null, .func_idx = 0, .host = payload, .store = s };
+    return fh;
+}
+
+/// `wasm_func_new(store, functype, callback) -> own wasm_func_t*` — a
+/// host function the guest can `call`. The callback is invoked from the
+/// interp via a `HostCall` thunk that marshals operand-stack args ↔
+/// `wasm_val_vec_t`. Usable only as an import (`wasm_func_as_extern` →
+/// `wasm_instance_new`). Caller owns it (`wasm_func_delete`).
+pub export fn wasm_func_new(store: ?*instance.Store, ft: ?*const types.FuncType, callback: instance.WasmFuncCallback) callconv(.c) ?*Func {
+    return funcNewImpl(store, ft, callback, null, null, null);
+}
+
+/// `wasm_func_new_with_env(store, functype, callback, env, finalizer)` —
+/// as `wasm_func_new` but the callback receives `env`; `finalizer(env)`
+/// runs at `wasm_func_delete`.
+pub export fn wasm_func_new_with_env(
+    store: ?*instance.Store,
+    ft: ?*const types.FuncType,
+    callback: instance.WasmFuncCallbackEnv,
+    env: ?*anyopaque,
+    finalizer: ?*const fn (?*anyopaque) callconv(.c) void,
+) callconv(.c) ?*Func {
+    return funcNewImpl(store, ft, null, callback, env, finalizer);
 }
 
 // =====================================================================
@@ -499,4 +592,64 @@ test "wasm_table_new: host table imported — guest table.size sees the host tab
     var results: vec.ValVec = .{ .size = 1, .data = &results_data };
     try testing.expect(instance.wasm_func_call(szf, &args, &results) == null);
     try testing.expectEqual(@as(i32, 3), results_data[0].of.i32);
+}
+
+// (module (type (func (param i32) (result i32)))
+//   (import "env" "h" (func (type 0)))
+//   (func (export "f") (type 0) (local.get 0) (call 0)))
+const import_func_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x06, 0x01, 0x60, 0x01, 0x7f, 0x01, 0x7f, // type (i32)->(i32)
+    0x02, 0x09, 0x01, 0x03, 0x65, 0x6e, 0x76, 0x01, 0x68, 0x00, 0x00, // import env.h func type0
+    0x03, 0x02, 0x01, 0x00, // func[1]: type 0 (defined)
+    0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x01, // export "f" → funcidx 1
+    0x0a, 0x08, 0x01, 0x06, 0x00, 0x20, 0x00, 0x10, 0x00, 0x0b, // code: local.get 0; call 0
+};
+
+fn addOneCallback(args: ?*const vec.ValVec, results: ?*vec.ValVec) callconv(.c) ?*trap_surface.Trap {
+    const a = args orelse return null;
+    const r = results orelse return null;
+    const x = a.data.?[0].of.i32;
+    r.data.?[0] = .{ .kind = .i32, .of = .{ .i32 = x + 1 } };
+    return null;
+}
+
+test "wasm_func_new: host callback imported — guest call invokes it (i32 -> i32, +1)" {
+    const e = instance.wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer instance.wasm_engine_delete(e);
+    const s = instance.wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer instance.wasm_store_delete(s);
+
+    // functype (i32) -> (i32); functype_new consumes the vecs.
+    var p_arr = [_]?*types.ValType{types.wasm_valtype_new(0)};
+    var r_arr = [_]?*types.ValType{types.wasm_valtype_new(0)};
+    var pv: types.ValTypeVec = undefined;
+    var rv: types.ValTypeVec = undefined;
+    types.wasm_valtype_vec_new(&pv, 1, &p_arr);
+    types.wasm_valtype_vec_new(&rv, 1, &r_arr);
+    const ft = types.wasm_functype_new(&pv, &rv) orelse return error.FuncTypeAllocFailed;
+    defer types.wasm_functype_delete(ft);
+    const hf = wasm_func_new(s, ft, addOneCallback) orelse return error.FuncNewFailed;
+    defer instance.wasm_func_delete(hf);
+
+    var bytes = import_func_wasm;
+    const bv: vec.ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = instance.wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer instance.wasm_module_delete(m);
+
+    var imports = [_]?*const Extern{wasm_func_as_extern_const(hf)};
+    const inst = instance.wasm_instance_new(s, m, &imports, null) orelse return error.InstanceAllocFailed;
+    defer instance.wasm_instance_delete(inst);
+
+    var exports: vec.ExternVec = .{ .size = 0, .data = null };
+    instance.wasm_instance_exports(inst, &exports);
+    defer instance.wasm_extern_vec_delete(&exports);
+    const ff = instance.wasm_extern_as_func(exports.data.?[0]) orelse return error.NotFunc;
+
+    var args_data = [_]instance.Val{.{ .kind = .i32, .of = .{ .i32 = 41 } }};
+    const args: vec.ValVec = .{ .size = 1, .data = &args_data };
+    var results_data: [1]instance.Val = undefined;
+    var results: vec.ValVec = .{ .size = 1, .data = &results_data };
+    try testing.expect(instance.wasm_func_call(ff, &args, &results) == null);
+    try testing.expectEqual(@as(i32, 42), results_data[0].of.i32); // guest call → host cb 41+1
 }

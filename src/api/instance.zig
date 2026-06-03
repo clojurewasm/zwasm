@@ -115,6 +115,32 @@ pub const Func = struct {
     /// `wasm_extern_delete` a no-op so a C host can't double-free —
     /// mirrors the borrow discipline of the reverse `wasm_extern_as_func`.
     extern_view: ?*Extern = null,
+    /// Host-created standalone func only (`wasm_func_new[_with_env]`,
+    /// `instance == null`): the C callback + signature arity. The
+    /// buildBindings host-func arm wires `hostFuncThunk` (a `HostCall`)
+    /// to this payload so the guest's `call` invokes the callback.
+    /// Null for an instance-backed func.
+    host: ?*HostFuncPayload = null,
+    /// Store handle for the standalone alloc/free path (no instance).
+    store: ?*Store = null,
+};
+
+/// C callback ABI for `wasm_func_new` / `wasm_func_new_with_env`
+/// (`include/wasm.h`): returns null on success or an owned
+/// `wasm_trap_t*` on trap (ownership transfers to the runtime).
+pub const WasmFuncCallback = *const fn (args: ?*const ValVec, results: ?*ValVec) callconv(.c) ?*Trap;
+pub const WasmFuncCallbackEnv = *const fn (env: ?*anyopaque, args: ?*const ValVec, results: ?*ValVec) callconv(.c) ?*Trap;
+
+/// Backing for a host-created func (`wasm_func_new[_with_env]`).
+/// `callback` XOR `callback_env` is set. `params`/`results` are owned
+/// `zir.ValType` slices (the marshalled arity); freed in `wasm_func_delete`.
+pub const HostFuncPayload = struct {
+    callback: ?WasmFuncCallback = null,
+    callback_env: ?WasmFuncCallbackEnv = null,
+    env: ?*anyopaque = null,
+    finalizer: ?*const fn (?*anyopaque) callconv(.c) void = null,
+    params: []zir.ValType,
+    results: []zir.ValType,
 };
 
 /// `wasm_global_t` — opaque-from-C handle for a global instance.
@@ -636,8 +662,18 @@ fn buildBindings(
                         },
                     };
                 },
-                // Host func is D-252 (needs interp host-call plumbing).
-                .func, .tag => return error.UnsupportedHostImport,
+                .func => {
+                    const hf = ext.func orelse return error.UnknownImportModule;
+                    const payload = hf.host orelse return error.UnknownImportModule;
+                    // Reuse the `.wasi` void source arm — like the native
+                    // `Linker.defineFunc` host binding, this means "host
+                    // callback, invoked by funcidx via host_calls[]".
+                    bindings[idx] = .{ .func = .{
+                        .host_call = .{ .fn_ptr = hostFuncThunk, .ctx = @ptrCast(payload) },
+                        .source = .wasi,
+                    } };
+                },
+                .tag => return error.UnsupportedHostImport,
             }
             continue;
         }
@@ -1045,10 +1081,15 @@ pub export fn zwasm_instance_get_func(i: ?*Instance, idx: u32) callconv(.c) ?*Fu
 /// `zwasm_instance_get_func`. Null-tolerant.
 pub export fn wasm_func_delete(f: ?*Func) callconv(.c) void {
     const handle = f orelse return;
-    const inst = handle.instance orelse return;
-    const store = inst.store orelse return;
+    const store = if (handle.instance) |inst| (inst.store orelse return) else (handle.store orelse return);
     const alloc = storeAllocator(store) orelse return;
     if (handle.extern_view) |v| alloc.destroy(v);
+    if (handle.host) |p| { // standalone host func: run finalizer, free payload + arity
+        if (p.finalizer) |fin| fin(p.env);
+        alloc.free(p.params);
+        alloc.free(p.results);
+        alloc.destroy(p);
+    }
     alloc.destroy(handle);
 }
 
@@ -1062,7 +1103,7 @@ pub fn marshalValIn(v: Val) runtime.Value {
     };
 }
 
-fn marshalValOut(v: runtime.Value, kind: zir.ValType) Val {
+pub fn marshalValOut(v: runtime.Value, kind: zir.ValType) Val {
     // ADR-0123 Cycle 2: ValType pivoted to union(enum). The c_api
     // wasm_val_t shape distinguishes only funcref vs anyref (plus
     // i31/struct/array all bucket through `.anyref` per ADR-0115
@@ -1086,6 +1127,36 @@ fn marshalValOut(v: runtime.Value, kind: zir.ValType) Val {
             break :blk .{ .kind = c_kind, .of = .{ .ref = ref_ptr } };
         },
     };
+}
+
+/// `HostCall` fn_ptr for a `wasm_func_new` host callback (wired by the
+/// buildBindings host-func arm). Marshals the guest's operand-stack args
+/// (top `params.len`, left-to-right) into a `wasm_val_vec_t`, invokes the
+/// C callback, and pushes the marshalled results. A non-null returned
+/// `wasm_trap_t*` becomes a guest trap. Runtime-arity twin of the comptime
+/// `host_func_marshal` native thunk (ADR-0109).
+fn hostFuncThunk(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
+    const p: *HostFuncPayload = @ptrCast(@alignCast(ctx));
+    const np: u32 = @intCast(p.params.len);
+    const nr = p.results.len;
+    if (rt.operand_len < np) return runtime.Trap.StackOverflow;
+    const ca = std.heap.c_allocator;
+    const args_data = ca.alloc(Val, p.params.len) catch return runtime.Trap.Unreachable;
+    defer ca.free(args_data);
+    const res_data = ca.alloc(Val, nr) catch return runtime.Trap.Unreachable;
+    defer ca.free(res_data);
+    const start: usize = rt.operand_len - np;
+    for (0..p.params.len) |i| args_data[i] = marshalValOut(rt.operand_buf[start + i], p.params[i]);
+    rt.operand_len = @intCast(start);
+    @memset(res_data, .{ .kind = .i32, .of = .{ .i32 = 0 } });
+    var args_vec: ValVec = .{ .size = p.params.len, .data = if (p.params.len > 0) args_data.ptr else null };
+    var res_vec: ValVec = .{ .size = nr, .data = if (nr > 0) res_data.ptr else null };
+    const trap: ?*Trap = if (p.callback_env) |cb| cb(p.env, &args_vec, &res_vec) else if (p.callback) |cb| cb(&args_vec, &res_vec) else return runtime.Trap.Unreachable;
+    if (trap) |tr| {
+        trap_surface.wasm_trap_delete(tr); // consume the callback's owned trap
+        return runtime.Trap.Unreachable; // surface as a guest trap
+    }
+    for (0..nr) |i| try rt.pushOperand(marshalValIn(res_data[i]));
 }
 
 // ============================================================
