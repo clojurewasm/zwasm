@@ -229,6 +229,7 @@ pub const wasm_func_as_extern_const = extern_new.wasm_func_as_extern_const;
 pub const wasm_global_as_extern_const = extern_new.wasm_global_as_extern_const;
 pub const wasm_table_as_extern_const = extern_new.wasm_table_as_extern_const;
 pub const wasm_memory_as_extern_const = extern_new.wasm_memory_as_extern_const;
+pub const wasm_global_new = extern_new.wasm_global_new;
 pub const wasm_extern_vec_delete = instance.wasm_extern_vec_delete;
 pub const wasm_instance_exports = instance.wasm_instance_exports;
 pub const wasm_func_call = instance.wasm_func_call;

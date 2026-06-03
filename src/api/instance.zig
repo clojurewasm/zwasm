@@ -142,6 +142,16 @@ pub const Global = struct {
     mutable: bool,
     /// Cached borrowed extern view (see `Func.extern_view`).
     extern_view: ?*Extern = null,
+    /// Host-created standalone global only (`wasm_global_new`,
+    /// `instance == null`): the owned `*Value` backing cell. The
+    /// get/set accessors read/write this when there is no instance;
+    /// it is aliased into an importing instance's `rt.globals[]` (a
+    /// `[]*Value`) so guest + host see one cell. Null for an
+    /// instance-backed global (its cell lives in `rt.globals_storage`).
+    cell: ?*runtime.Value = null,
+    /// Store handle for the standalone alloc/free path (no instance to
+    /// recover the allocator from). Null for an instance-backed global.
+    store: ?*Store = null,
 };
 
 /// `wasm_ref_t` — opaque reference handle per `include/wasm.h:327-365`.
@@ -576,6 +586,26 @@ fn buildBindings(
             .tag => return error.ImportKindMismatch,
         };
         if (ext.kind != want_kind) return error.ImportKindMismatch;
+        // Host-created standalone entity (e.g. `wasm_global_new`): no source
+        // instance — bind directly from the entity's own backing cell. The
+        // GlobalImport binding only needs a `*Value` + type descriptors, so a
+        // host cell aliases into the importer's `rt.globals[]` like any other.
+        if (ext.instance == null) {
+            switch (it.kind) {
+                .global => {
+                    const hg = ext.global orelse return error.UnknownImportModule;
+                    const cell = hg.cell orelse return error.UnknownImportModule;
+                    bindings[idx] = .{ .global = .{
+                        .slot = cell,
+                        .source_valtype = hg.valtype,
+                        .source_mutable = hg.mutable,
+                    } };
+                },
+                // Host table/memory `_new` not yet implemented; host func is D-252.
+                .func, .table, .memory, .tag => return error.UnsupportedHostImport,
+            }
+            continue;
+        }
         const source_inst = ext.instance orelse return error.UnknownImportModule;
         const source_rt = source_inst.runtime orelse return error.UnknownImportModule;
 
@@ -987,7 +1017,7 @@ pub export fn wasm_func_delete(f: ?*Func) callconv(.c) void {
     alloc.destroy(handle);
 }
 
-fn marshalValIn(v: Val) runtime.Value {
+pub fn marshalValIn(v: Val) runtime.Value {
     return switch (v.kind) {
         .i32 => .{ .i32 = v.of.i32 },
         .i64 => .{ .i64 = v.of.i64 },
@@ -1126,10 +1156,10 @@ pub export fn wasm_extern_as_global(e: ?*Extern) callconv(.c) ?*Global {
 /// future `wasm_global_new` (host-side standalone construction).
 pub export fn wasm_global_delete(g: ?*Global) callconv(.c) void {
     const handle = g orelse return;
-    const inst = handle.instance orelse return;
-    const store = inst.store orelse return;
+    const store = if (handle.instance) |inst| (inst.store orelse return) else (handle.store orelse return);
     const alloc = storeAllocator(store) orelse return;
     if (handle.extern_view) |v| alloc.destroy(v);
+    if (handle.cell) |c| alloc.destroy(c); // standalone own-cell (instance-backed: null)
     alloc.destroy(handle);
 }
 
@@ -1145,10 +1175,11 @@ pub export fn wasm_global_get(g: ?*const Global, out: ?*Val) callconv(.c) void {
     const o = out orelse return;
     o.* = .{ .kind = .i32, .of = .{ .i32 = 0 } };
     const handle = g orelse return;
-    const inst = handle.instance orelse return;
-    const rt = inst.runtime orelse return;
-    if (handle.global_idx >= rt.globals.len) return;
-    const slot: *runtime.Value = rt.globals[handle.global_idx];
+    const slot: *runtime.Value = if (handle.instance) |inst| blk: {
+        const rt = inst.runtime orelse return;
+        if (handle.global_idx >= rt.globals.len) return;
+        break :blk rt.globals[handle.global_idx];
+    } else handle.cell orelse return; // standalone host global
     o.* = marshalValOut(slot.*, handle.valtype);
 }
 
@@ -1163,10 +1194,11 @@ pub export fn wasm_global_set(g: ?*Global, v: ?*const Val) callconv(.c) void {
     const val = v orelse return;
     const handle = g orelse return;
     if (!handle.mutable) return;
-    const inst = handle.instance orelse return;
-    const rt = inst.runtime orelse return;
-    if (handle.global_idx >= rt.globals.len) return;
-    const slot: *runtime.Value = rt.globals[handle.global_idx];
+    const slot: *runtime.Value = if (handle.instance) |inst| blk: {
+        const rt = inst.runtime orelse return;
+        if (handle.global_idx >= rt.globals.len) return;
+        break :blk rt.globals[handle.global_idx];
+    } else handle.cell orelse return; // standalone host global
     slot.* = marshalValIn(val.*);
 }
 
