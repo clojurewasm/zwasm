@@ -30,9 +30,13 @@
   arch-check → `jit_mem.alloc`+setWritable → memcpy code section → parse func metas → `applyRelocs` (no-op for
   0 relocs) → setExecutable → `LoadedModule.entry(idx, Fn)`); MVP test produces a `()→i32` const-7 `.cwasm` via
   `serialise.produceCwasm`, loads, executes → returns 7 (+ arch-mismatch + truncated-header reject tests).
-  Registered in `src/zwasm.zig` barrel (pub + test-force-import). zone_check clean. NEXT (cycle-2): `zwasm run
-  *.cwasm` CLI wiring (`main.zig` ~L64 / `run.zig`) + §12.2 AOT↔JIT differential + a 2-func/direct-call test
-  exercising `applyRelocs` (BL/CALL patch already written, untested until a reloc'd fixture exists).
+  Registered in `src/zwasm.zig` barrel. **CYCLE-2a DONE (`50b4bd1a`)**: 2-func direct-call reloc test —
+  `applyRelocs` validated end-to-end (func0 BL/CALLs func1→7, propagates; arm64 STP/LDP frame, x86_64 stack
+  CALL). The blind-written BL imm26 / CALL rel32 patch math is correct (Mac green; ubuntu verifies x86_64).
+  **NEXT (cycle-2b)**: `zwasm run *.cwasm` CLI wiring — BUT first resolve the ENTRY-POINT gap: v0.1 `.cwasm`
+  has NO export/name section (header has n_funcs but no export table), so `zwasm run` can't map `_start`→func
+  idx. Decide a convention (func[0] = entry? OR a v0.2 export section?) — likely a small §12 scope note / ADR
+  before wiring. Then §12.2 AOT↔JIT differential.
 - **Exit-condition**: `load.zig` loads a `serialise.produceCwasm`-produced `.cwasm` + executes func[0] → the
   asserted i32 (MVP behavior signal); §12.1 `[x]` when `zwasm run *.cwasm` runs a real artefact end-to-end.
 
