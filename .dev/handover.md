@@ -46,9 +46,13 @@
 
 ## Next task (autonomous)
 
-Phase-11 CLOSED (`c4cc74cc`); Phase 12 (AOT) open. §12.1 Step 0 survey DONE (note above). **NEXT** = §12.1 Step 2
-red test → Step 3 `load.zig` MVP, per the Active bundle. Producer substrate at
-`src/engine/codegen/aot/{format,serialise,produce}.zig`; reloc-apply reused from `linker.zig`.
+Phase 12 (AOT) IN-PROGRESS. AOT loader (`load.zig`) DONE + 2-host green: single-func load+execute (`ca69fc68`),
+multi-func direct-call relocs (`50b4bd1a`), §12.2 AOT↔JIT differential (`bd138990`). **LOOP STOPPED at user
+request at this clean breakpoint** (2026-06-03, after §12.2). **NEXT on resume** = (a) broaden §12.2 fixtures
+(params / i64 / multi-func-with-call differential); (b) `zwasm run *.cwasm` CLI — first a small ADR for the
+`.cwasm` entry-point (header `entry_idx`/exports-section v0.2 vs `func[0]` convention; run.zig:173 maps
+`_start`/named via the export table the producer currently discards). Active bundle continuity-memo has the full
+detail. The §12.1 row `[x]` waits on the CLI wiring; the loader CORE is complete.
 
 ## Deferred / open debt (none a Phase-12 blocker)
 
@@ -60,9 +64,11 @@ red test → Step 3 `load.zig` MVP, per the Active bundle. Producer substrate at
 
 ## Step 0.7 (next resume)
 
-This turn closes Phase 11 (docs-only flips + ADR-0137 + D-249 + lesson) → no new code, so no gate kick needed for
-the close commits (ubuntu+windowsmini already GREEN on the code at `bbc4900b`). If Phase-12 code lands later this
-turn, kick ubuntu vs the final HEAD. Prior verified: ubuntu `bbc4900b` OK + windowsmini run-2 `bbc4900b` OK.
+Loop STOPPED at user request after §12.2 (`bd138990`). An ubuntu `test` was kicked against the final HEAD
+(`3ce4f567`) for the §12.1/§12.2 loader-test verification → on resume, `tail /tmp/ubuntu.log` for
+`[run_remote_windows]`-style OK (expect green; the loader differential ran green on Mac). Prior verified: ubuntu
+`a091d0a7` OK (cycle-2a reloc). Phase-12 code so far is Mac+ubuntu only (loader exec tests skip Win64 via
+`skip.phaseEnd`, mirroring jit_mem; windowsmini = phase-boundary). No re-arm (user stop).
 
 **Gate hygiene**: Step-5 Mac = `bash scripts/mac_gate.sh`. Win64 cross-compile: `zig build test
 -Dtarget=x86_64-windows-gnu` (compile-only; run-error = compile passed). 3-host reconcile = phase boundary.
