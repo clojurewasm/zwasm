@@ -20,17 +20,26 @@
   `2026-06-03-win64-jit-trampoline-arg-marshal-hardcoded-sysv`.
 - **3-host invariant RESTORED**: Mac aarch64 + ubuntunote x86_64-SysV + windowsmini x86_64-Win64 all GREEN.
 
+## Active bundle
+
+- **Bundle-ID**: 12.1-aot-cwasm-loader
+- **Cycles-remaining**: ~2 (cycle-1 = load.zig MVP: parse + alloc + copy + reloc + execute, unit test green;
+  cycle-2 = `zwasm run *.cwasm` CLI wiring + AOT↔JIT differential §12.2)
+- **Continuity-memo**: Step 0 survey DONE → `private/notes/p12-12.1-aot-loader-survey.md` (format shapes,
+  section order, reloc-apply REUSE of `linker.zig:291-337`, exec contract, MVP recipe). NEXT = write
+  `src/engine/codegen/aot/load.zig` + its red test: produce a `()→i32` const-7 `.cwasm` via
+  `serialise.produceCwasm` (confirm its exact input API first), `load()`, cast entry(0) to
+  `*const fn(*JitRuntime) callconv(.c) i32`, invoke, assert 7. REUSE the JIT linker's reloc patch (encBL/
+  patchRel32) + `jit_mem.alloc/setExecutable`. Divergence: keep `.cwasm` immutable (eager copy-and-patch into
+  a runtime JitBlock; NOT v1 in-file patching).
+- **Exit-condition**: `load.zig` loads a `serialise.produceCwasm`-produced `.cwasm` + executes func[0] → the
+  asserted i32 (MVP behavior signal); §12.1 `[x]` when `zwasm run *.cwasm` runs a real artefact end-to-end.
+
 ## Next task (autonomous)
 
-Phase-11 close DONE this session (`316f5fb0`): audit_scaffolding GREEN (0 block; report
-`private/audit-2026-06-03-p11-close.md`); §12 table opened. §11 SHA backfill skipped — rows are multi-commit
-(bare `[x]` acceptable per the convention); the close is captured in commit history.
-
-**NEXT** = **§12.1 Step 0 survey** (AOT `.cwasm` loader). Survey the §9.8b/8b.3 substrate
-(`src/engine/codegen/aot/{format,serialise,produce}.zig` + `src/cli/compile.zig`) + the `format.zig` shapes
-(60-byte `CwasmHeader` / 12-byte `CwasmFuncMeta` / 9-byte `CwasmReloc`, ADR-0039 Rev 2) — the loader reads
-against these. Smallest red test: `zwasm run` loads a §9.8b-produced `.cwasm` (header parse + 1 function
-relocate + execute → expected i32). Then chain §12.2 (AOT↔JIT differential) etc. per the §12 table.
+Phase-11 CLOSED (`c4cc74cc`); Phase 12 (AOT) open. §12.1 Step 0 survey DONE (note above). **NEXT** = §12.1 Step 2
+red test → Step 3 `load.zig` MVP, per the Active bundle. Producer substrate at
+`src/engine/codegen/aot/{format,serialise,produce}.zig`; reloc-apply reused from `linker.zig`.
 
 ## Deferred / open debt (none a Phase-12 blocker)
 
