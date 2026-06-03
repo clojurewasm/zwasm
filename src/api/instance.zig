@@ -109,6 +109,12 @@ pub const ExportType = runtime_instance.ExportType;
 pub const Func = struct {
     instance: ?*Instance,
     func_idx: u32,
+    /// Cached borrowed `wasm_extern_t` view (lazily built by
+    /// `wasm_func_as_extern`; owned by this Func, freed in
+    /// `wasm_func_delete`). The view's `Extern.borrowed` flag makes
+    /// `wasm_extern_delete` a no-op so a C host can't double-free —
+    /// mirrors the borrow discipline of the reverse `wasm_extern_as_func`.
+    extern_view: ?*Extern = null,
 };
 
 /// `wasm_global_t` — opaque-from-C handle for a global instance.
@@ -134,6 +140,8 @@ pub const Global = struct {
     global_idx: u32,
     valtype: zir.ValType,
     mutable: bool,
+    /// Cached borrowed extern view (see `Func.extern_view`).
+    extern_view: ?*Extern = null,
 };
 
 /// `wasm_ref_t` — opaque reference handle per `include/wasm.h:327-365`.
@@ -160,6 +168,8 @@ pub const Table = struct {
     elem_type: zir.ValType,
     min: u32,
     max: ?u32,
+    /// Cached borrowed extern view (see `Func.extern_view`).
+    extern_view: ?*Extern = null,
 };
 
 /// `wasm_memory_t` — opaque-from-C handle for a memory export.
@@ -174,6 +184,8 @@ pub const Table = struct {
 pub const Memory = struct {
     instance: ?*Instance,
     memory_idx: u32 = 0,
+    /// Cached borrowed extern view (see `Func.extern_view`).
+    extern_view: ?*Extern = null,
 };
 
 // `Trap` and `TrapKind` live in `src/api/trap_surface.zig`
@@ -260,6 +272,12 @@ pub const Extern = struct {
     /// Same borrow / ownership discipline as `func` / `global` /
     /// `memory`.
     table: ?*Table = null,
+    /// True when this Extern is a *borrowed view* produced by
+    /// `wasm_{func,global,table,memory}_as_extern` — it is owned by
+    /// the source entity (which caches it in `extern_view` and frees
+    /// it on the entity's delete), NOT by the C host. `wasm_extern_delete`
+    /// is a no-op on a borrowed view so the entity stays the sole owner.
+    borrowed: bool = false,
 };
 
 // `ExternVec` lives in `src/api/vec.zig` after the §9.5 / 5.0
@@ -965,6 +983,7 @@ pub export fn wasm_func_delete(f: ?*Func) callconv(.c) void {
     const inst = handle.instance orelse return;
     const store = inst.store orelse return;
     const alloc = storeAllocator(store) orelse return;
+    if (handle.extern_view) |v| alloc.destroy(v);
     alloc.destroy(handle);
 }
 
@@ -1027,6 +1046,10 @@ pub export fn wasm_extern_kind(e: ?*const Extern) callconv(.c) u8 {
 /// the contained Func / Global (if any). Null-tolerant.
 pub export fn wasm_extern_delete(e: ?*Extern) callconv(.c) void {
     const handle = e orelse return;
+    // A borrowed view (from `*_as_extern`) is owned by its source
+    // entity, which frees it on its own delete — deleting it here
+    // would double-free, so this is a no-op.
+    if (handle.borrowed) return;
     if (handle.func) |fh| wasm_func_delete(fh);
     if (handle.global) |gh| wasm_global_delete(gh);
     if (handle.memory) |mh| wasm_memory_delete(mh);
@@ -1076,6 +1099,13 @@ pub export fn wasm_extern_as_memory_const(e: ?*const Extern) callconv(.c) ?*cons
     return handle.memory;
 }
 
+// Entity → Extern conversions (`wasm_{func,global,table,memory}_as_extern
+// [_const]`) live in `extern_new.zig` (the runtime-entity construction
+// layer, extracted per ADR-0099 §D2 / the module_introspect precedent).
+// They cache a borrowed-view Extern on the entity's `extern_view` field;
+// `wasm_extern_delete` no-ops on a view (`Extern.borrowed`), and each
+// entity's delete frees its cached view.
+
 /// `wasm_extern_as_global(*Extern)` — borrow the Global contained
 /// in an Extern. Returns null if the Extern is not of kind global.
 /// **Ownership stays with the Extern**; callers must NOT call
@@ -1099,6 +1129,7 @@ pub export fn wasm_global_delete(g: ?*Global) callconv(.c) void {
     const inst = handle.instance orelse return;
     const store = inst.store orelse return;
     const alloc = storeAllocator(store) orelse return;
+    if (handle.extern_view) |v| alloc.destroy(v);
     alloc.destroy(handle);
 }
 
@@ -1163,6 +1194,7 @@ pub export fn wasm_memory_delete(m: ?*Memory) callconv(.c) void {
     const inst = handle.instance orelse return;
     const store = inst.store orelse return;
     const alloc = storeAllocator(store) orelse return;
+    if (handle.extern_view) |v| alloc.destroy(v);
     alloc.destroy(handle);
 }
 
@@ -1248,6 +1280,7 @@ pub export fn wasm_table_delete(t: ?*Table) callconv(.c) void {
     const inst = handle.instance orelse return;
     const store = inst.store orelse return;
     const alloc = storeAllocator(store) orelse return;
+    if (handle.extern_view) |v| alloc.destroy(v);
     alloc.destroy(handle);
 }
 
@@ -2179,8 +2212,9 @@ test "wasm 2.0 bulk-traps via c_api: memory.copy OOB returns wasm_trap_t with me
 //   (export "g" (global 0)))
 // Four exports across all four wasm_extern_kind values — the
 // c_api walk via wasm_instance_exports must surface each kind
-// with the right tag.
-const mixed_exports_wasm = [_]u8{
+// with the right tag. `pub` so the sibling `extern_new.zig` test
+// reuses this shared 4-kind fixture instead of duplicating it.
+pub const mixed_exports_wasm = [_]u8{
     0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
     0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, // type: () -> (i32)
     0x03, 0x02, 0x01, 0x00, // function: typeidx=0

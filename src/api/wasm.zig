@@ -34,6 +34,7 @@ const vec = @import("vec.zig");
 const types = @import("types.zig");
 const instance = @import("instance.zig");
 const module_introspect = @import("module_introspect.zig");
+const extern_new = @import("extern_new.zig");
 
 const testing = std.testing;
 
@@ -220,6 +221,14 @@ pub const wasm_extern_as_func_const = instance.wasm_extern_as_func_const;
 pub const wasm_extern_as_global_const = instance.wasm_extern_as_global_const;
 pub const wasm_extern_as_table_const = instance.wasm_extern_as_table_const;
 pub const wasm_extern_as_memory_const = instance.wasm_extern_as_memory_const;
+pub const wasm_func_as_extern = extern_new.wasm_func_as_extern;
+pub const wasm_global_as_extern = extern_new.wasm_global_as_extern;
+pub const wasm_table_as_extern = extern_new.wasm_table_as_extern;
+pub const wasm_memory_as_extern = extern_new.wasm_memory_as_extern;
+pub const wasm_func_as_extern_const = extern_new.wasm_func_as_extern_const;
+pub const wasm_global_as_extern_const = extern_new.wasm_global_as_extern_const;
+pub const wasm_table_as_extern_const = extern_new.wasm_table_as_extern_const;
+pub const wasm_memory_as_extern_const = extern_new.wasm_memory_as_extern_const;
 pub const wasm_extern_vec_delete = instance.wasm_extern_vec_delete;
 pub const wasm_instance_exports = instance.wasm_instance_exports;
 pub const wasm_func_call = instance.wasm_func_call;
