@@ -5,71 +5,67 @@
 
 ## Current state
 
-- **Phase**: **11 IN-PROGRESS — WASI 0.1 full + bench infra** (Phase 10 DONE 2026-06-03 `5ab7b981`; Wasm 3.0 both
-  backends per ADR-0133). §11 table: 11.0✓ / 11.1 WASI / 11.2 bench / **11.3 SIMD-gap ✓** / 11.4→Phase 15 / 11.P.
-- **LAST code HEAD** (`0c42e913`): **D-245 FIXED both gate arches + regression-gated** — `zwasm run --engine=jit`
-  SEGV'd in ReleaseSafe (host→JIT call didn't preserve the callee-saved regs the JIT clobbers per ADR-0017/D-210).
-  `invokeAndCheckVoid`'s no-arg path now calls via asm save/restoring the host callee-saved: arm64 stp/ldp
-  X19-X28 (`8eca59e3`); x86_64 push/pop RBX/R12-R15+align (`de576a76`, ubuntu-ReleaseSafe-verified). Locked by
-  `scripts/check_jit_releasesafe.sh` (build ReleaseSafe + run SIMD `_start` via `--engine=jit`) wired into
-  gate_merge (`0c42e913`); also silenced the leftover `[stack_probe]` stderr in release builds. REMAINDER (D-245
-  partial, minor): win64 + arg'd `invokeAndCheck*` variants still `@call` (Debug-only-used / windowsmini).
-- **§11.3 SIMD gap = DONE** (`dbaa1a03`): profile `bench/results/simd_gap_profile_p11_3.md` — zwasm JIT competitive,
-  **0/12 ops > 3× the median** of (wasmtime,wazero,wasmer). §9.10 Track A opts NOT gap-justified (stay
-  opportunistic). Categorical gap = arm64 JIT lacks dot/extmul emit (x86_64 has it) → **D-246** (Phase 15).
-  Infra: `--engine=jit` (ADR-0136, `8011293a`); SIMD corpus + `gen_simd_corpus.sh` (`728a43cb`); `run_bench.sh
-  --simd`/`--compare={wazero,wasmer,all}` (`82f20fe4`,`843cc7de`); `simd_gap_analysis.sh` (`bb01be43`); wazero/wasmer
-  Mac-only in flake (`26d29e33` — wasmer won't build on x86_64-linux).
-- **§11.1 WASI** = Mac-side DONE (0 SKIP-WASI; go_* exit 0 via D-242 fix; rust_file_io MATCH via D-243); Windows
-  realworld subset (25 samples, windowsmini) = phase-close batch.
-- **§11.2 bench** = recording paths verified Mac + Linux (`record_merge_bench.sh`→`run_bench.sh`;
-  `run_remote_ubuntu.sh bench`); committed 3-host `--phase-record` history.yaml rows = phase-close batch
-  (auto-CI `bench.yml` push-trigger stays DISABLED per user 2026-05-25 — do NOT re-enable / wire gate_merge).
-- **GATE TRAP**: JIT corpus exe MUST be mtime-picked (`find … -exec ls -t {} + | head -1`); bare `head -1` = STALE.
-- **Watch**: `entry.zig` 2864 (cap 3000) / `validator.zig` 3267 (cap 3300) / runner_test ~1490 — all < hard.
+- **Phase**: **11 IN-PROGRESS — WASI 0.1 full + bench infra** (Phase 10 DONE; §11 table: 11.0✓ / 11.1 WASI / 11.2
+  bench / 11.3 SIMD-gap ✓ / 11.4→Phase 15 / 11.P). §11.P windowsmini reconcile surfaced a **systemic Win64 JIT
+  bug** → bundle (below).
+- **§11.P windowsmini test-all** (first since §11.1, against `00cd6d1f`): fd.zig compile fix WORKED (Windows test
+  build compiles + runs); spec suite + WASI all PASS. But the unit-test layer FAILED: `run test 2213 pass, 12 fail,
+  19 crash`. Two named aborts, both **Phase-10 JIT features on the Win64 ABI for the first time** (windowsmini is
+  phase-boundary-only, so Win64 JIT EH/GC was NEVER exercised before): (1) `throw_trampoline` test SEGV; (2)
+  `runner_gc_test … struct.new_default + ref.is_null → 0` returns 1 (wrong).
+- **ROOT CAUSE (subagent-confirmed, unifying)**: x86_64 code calling a `callconv(.c)` helper **hardcodes SysV arg
+  regs (RDI/RSI/RDX/RCX)** instead of the Cc-aware `abi.current.arg_gprs[]`. On Win64 the helper reads args from
+  RCX/RDX/R8/R9 → garbage → `jitGcAlloc` returns null → `ref.is_null`=1 (BUG 2, production, HIGH conf, **17 GC/EH
+  emit files**). BUG 1 = the `throw_trampoline` TEST wrapper `invokeTrampolineWith` is SysV-only (tag→RDI, no
+  `.windows` arm); the *production* `.windows` trampoline arm is correct (test-only fix, MED conf).
+- **Fix is SysV-no-op-safe**: `abi.current.arg_gprs[0..3]` == `{rdi,rsi,rdx,rcx}` on SysV (abi.zig:60 + test),
+  so swapping literals → `arg_gprs[N]` is byte-identical on Mac+Linux (existing byte tests prove it) and only
+  corrects Win64. Regalloc pool ∩ arg_gprs = ∅ (comptime-enforced) → no shuffle-collision hazard.
+- **Prior gates GREEN**: ubuntu test-all `173ca8af` OK; Mac local green. windowsmini = the only Win64 host
+  (~90min/run, SSH, NO local Win64 execution → cross-compile-check only).
+
+## Active bundle
+
+- **Bundle-ID**: 11.P-win64-jit-arg-marshal
+- **Cycles-remaining**: ~2 (cycle 1 = land the 17-file swap + test-wrapper Win64 arm; cycle 2 = verify windowsmini
+  green, iterate on any residual Win64 alignment in the EH test wrapper)
+- **Continuity-memo**: 17 x86_64 GC/EH emit files (struct_new_default, struct_new, array_{new,new_default,
+  new_fixed,new_data,new_elem,copy,fill,init_data,init_elem}, ref_{test,test_null,cast,cast_null}, br_on_cast,
+  throw) marshal args via hardcoded RDI/RSI/RDX/RCX → replace with `abi.current.arg_gprs[N]` (rdi=0/rsi=1/rdx=2/
+  rcx=3). + throw_trampoline.zig:443 `invokeTrampolineWith` x86_64 arm → add `.windows` case (tag→RCX; production
+  trampoline at :357 already Win64-correct). Win64 arg regs: RCX/RDX/R8/R9; shadow space handled by prologue.
+- **Exit-condition**: windowsmini `test-all` → `[run_remote_windows] OK` (0 fail/crash in run-test for the GC/EH
+  JIT tests). Tracked as **D-NNN** (file at commit).
 
 ## Next task (autonomous)
 
-**§11.P reconciliation IN PROGRESS** (windowsmini SSH-reachable → autonomous phase-close batch). DONE: Mac
-(`23b78f22`) + Linux (`b4ded964`) bench baselines → `history.yaml` (2/3 hosts); D-247 fixed (`44ae1fd9`,
-history.yaml UTF-8). The 1st windowsmini test-all (first since §11.1) PASSED the Windows realworld subset (PASS
-c_qsort/regex/sha256/string_processing) but FAILED the unit-test BUILD: `fd.zig:844` passed bare `99` to
-`addPreopen(host_fd: std.posix.fd_t)` — `fd_t` is i32 on POSIX, `*anyopaque` on Windows → comptime_int won't
-coerce. FIXED (`b6425afc`, typed `fake_fd`); verified Mac test green + x86_64-windows test exe now COMPILES.
-REMAINING for §11.P (windows test-all re-kicked, IN FLIGHT against `173ca8af` — poll `/tmp/windows.log` →
-`[run_remote_windows] OK`; watch for further first-run Windows-only drift): (1) Windows bench baseline (3rd host)
-— **likely BLOCKED: windowsmini uses native `zig.exe`, NOT the nix shell that pins `hyperfine`, so `run_bench.sh`
-(needs hyperfine) probably can't run there.** When windowsmini frees, FIRST probe `ssh windowsmini "where hyperfine"`;
-if absent → either install it or scope §11.P "bench 3-host" to Mac+Linux + a note that Windows bench awaits
-hyperfine-on-windowsmini (the Windows REALWORLD subset, the primary criterion, already passes). (2) flip
-§11.1/§11.2/§11.3 + §11.P [x]; `audit_scaffolding` (MANDATORY); open Phase 12. Minor: D-245 remainder (win64 +
-arg'd variants).
+**NEXT** = cycle 1 of the bundle: apply the 17-file `abi.current.arg_gprs[]` swap + throw_trampoline test-wrapper
+`.windows` arm. Verify (a) `zig build test` Mac green + byte tests unchanged (proves SysV-no-op), (b) `zig build
+test -Dtarget=x86_64-windows-gnu` compiles. Commit pair + push + kick windowsmini `test-all` (NOT ubuntu — Win64 is
+the target) + re-arm. Next cycle: read `/tmp/windows.log` for the two tests' verdicts.
 
-## Deferred / open debt (none a Phase-11 blocker)
+## Deferred / open debt (none a Phase-11 blocker except the bundle)
 
-- **D-245** host→JIT callee-saved: arm64 + x86_64 no-arg-void FIXED (`8eca59e3`,`de576a76`); win64 + arg'd
-  variants + ReleaseSafe regression test = remainder (partial).
-- **D-246** §11.3 → Phase 15: arm64 dot/extmul JIT-emit hole + SIMD-emit coverage sweep; steady-state re-profile.
-- **D-211** GC-on-JIT precise rooting → Phase 15 (ADR-0135; paired with reclamation).
-- **D-244** SIMD interp-free by design (partial; `--engine=jit` now runs compute SIMD via JIT; WASI-under-JIT = d-3).
-- **D-210** cross-module frame-consuming TC; **D-238** x86_64 cross-instance EH thunk; **D-234** memory64 OOB harness.
-- D-237 spec double-free; D-229/D-231 x86_64 follow-ons; D-204/D-209/D-213 (note).
-- realworld GC/EH/TC producers (dart/hoot/wasm_of_ocaml/emscripten_eh — I21).
+- **D-245** host→JIT callee-saved: arm64 + x86_64-SysV no-arg-void FIXED + regression-gated; win64 + arg'd variants
+  = remainder. (Related family to the new Win64-arg-marshal bundle but distinct: D-245 = caller-saved preservation;
+  bundle = arg-reg routing.)
+- **D-246** §11.3 → Phase 15: arm64 dot/extmul JIT-emit hole. **D-211** GC-on-JIT precise rooting → Phase 15.
+- **D-238** x86_64-SysV cross-instance EH thunk. **D-244** SIMD interp-free by design (partial). **D-210** /
+  **D-234** / D-237 / D-229 / D-231 / D-204 / D-209 / D-213 (note).
 
 ## Step 0.7 (next resume)
 
-THIS turn landed `44ae1fd9` (history.yaml UTF-8) + `b6425afc` (fd.zig Windows test fix) → ubuntu test-all kick +
-a re-kicked windowsmini test-all both fire against the turn HEAD. Step 0.7 next cycle: `tail /tmp/ubuntu.log`
-(Linux; on FAIL revert to `87888d37`) AND `/tmp/windows.log` (the §11.P windows reconciliation — `[run_remote_windows]
-OK` = the fd.zig fix worked + no further Windows drift; windowsmini is ~90 min so likely still running → keep
-polling). Prior `87888d37` ubuntu = GREEN.
+This turn lands the bundle cycle-1 commits → windowsmini `test-all` kick fires against the turn HEAD. Step 0.7
+next cycle: read `/tmp/windows.log` → did `throw_trampoline` + `runner_gc_test` GC tests go green? (ubuntu/Mac were
+already verified; this is a Win64-targeted turn so the kick is windowsmini.) Prior ubuntu `173ca8af` = GREEN.
 
-**Gate hygiene**: Step-5 = `bash scripts/mac_gate.sh`. JIT corpus: `zig build test-spec-wasm-3.0-assert` (mtime exe).
-ReleaseSafe `--engine=jit` repro: `zig build -Doptimize=ReleaseSafe && zig-out/bin/zwasm run --engine=jit <fixture>`.
+**Gate hygiene**: Step-5 Mac = `bash scripts/mac_gate.sh`. Win64 cross-compile-check: `zig build test
+-Dtarget=x86_64-windows-gnu` (compile-only; "unable to execute" run-error = compile PASSED). ReleaseSafe
+`--engine=jit` repro: `zig build -Doptimize=ReleaseSafe && zig-out/bin/zwasm run --engine=jit <fixture>`.
 
 ## Key refs
 
-- ROADMAP §11 (WASI + bench + SIMD gap). ADR-0136 (`--engine=jit`); ADR-0135 (§11.4→P15); ADR-0017/D-210 (cohort).
-- Lessons (this session): `2026-06-03-host-to-jit-must-preserve-callee-saved` (D-245),
-  `2026-06-03-callstackexhausted-diagnose-runaway-vs-deep` (D-242).
-- `bench/results/simd_gap_profile_p11_3.md` (§11.3 profile). `debug_jit_auto` skill for JIT crashes.
+- ROADMAP line 83 (4-platform JIT incl. x86_64-windows = IN SCOPE). `src/engine/codegen/x86_64/abi.zig` (current/
+  sysv/win64 namespaces; arg_gprs). `src/engine/codegen/shared/throw_trampoline.zig`.
+- Lessons: `2026-06-03-windowsmini-reconciliation-catches-os-only-compile-drift` (the phase-boundary-drift rule
+  that predicted this); + a new Win64-arg-marshal lesson (file at commit).

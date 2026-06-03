@@ -693,6 +693,34 @@ entries:
     first_raised: "2026-05-28"
     last_reviewed: ""
     refs: ""
+  - id: "D-248"
+    layer: "code"
+    status: "now"
+    description: |-
+      Win64 JIT trampoline-call arg marshalling for **≥5-integer-arg GC helpers** is
+      UNFIXED. The §11.P windowsmini reconcile (first Win64 run of Phase-10 EH/GC-on-JIT)
+      found x86_64 emit hardcoded SysV arg regs (.rdi/.rsi/.rdx/.rcx) for `callconv(.c)`
+      helper calls → garbage args on Win64 (RCX/RDX/R8/R9). Cycle-1 fix (this bundle)
+      converted the **9 ≤4-arg ops** (struct_new{,_default}, array_new{,_default,_fixed},
+      ref_{test,cast,cast_null}, br_on_cast) + ref_test_null (re-export) to
+      `abi.current.arg_gprs[N]` (provable SysV no-op; Win64-correct) + the throw_trampoline
+      test wrapper `.windows` arm. REMAINDER: **6 helpers take 5-6 integer args** —
+      array_copy, array_fill, array_init_data, array_init_elem, array_new_data,
+      array_new_elem — marshalling into SysV rsi/rdx/rcx/r8/r9 (args 1-5/6). Win64 has only
+      4 GPR arg slots (RCX/RDX/R8/R9); `arg_gprs[4]` is out-of-bounds on Win64, so these
+      need a holistic rework: args 0-3 → RCX/RDX/R8/R9, args 5/6 → stack above the 32-byte
+      shadow space (`[RSP+0x20]`, `[RSP+0x28]`), with the prologue's `outgoing_max_bytes`
+      reserving the slots. Until then those 6 array ops produce wrong results / crash on
+      Win64 (the named `struct.new_default` GC test is in the FIXED set; the array-op tests
+      are the residual Win64 fails). Discharge: rework the 6 files + windowsmini `test-all`
+      green for all GC/EH JIT tests (the 11.P-win64-jit-arg-marshal bundle exit-condition).
+    first_raised: "2026-06-03"
+    last_reviewed: "2026-06-03"
+    refs: |-
+      src/engine/codegen/x86_64/ops/wasm_3_0/{array_copy,array_fill,array_init_data,
+      array_init_elem,array_new_data,array_new_elem}.zig; abi.zig (current/win64 arg_gprs,
+      shadow_space_bytes); emit.zig (outgoing_max_bytes prologue reservation); lesson
+      2026-06-03-win64-jit-trampoline-arg-marshal-hardcoded-sysv; related D-245
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
