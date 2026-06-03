@@ -64,8 +64,11 @@ entries:
       ElemSegmentTypeMismatch — NOT a ref.func issue; an elem-segment reftype validation gap on the JIT compile
       path. (3) ✅ `ref_null.0` DONE (`195856a1`): `rv.validateGlobalInitExpr` 0xD0 arm now reads the heaptype
       as s33 (non-negative = concrete typeidx → concrete ref); function-references 20/0/19 → 23/0/16, global
-      808/1 → 811/1. Residual 2 left (br_on_null.1 loop-target emit, ref_is_null.0 elem). Each a separate small
-      fix; interleave with the other §10 rejects (tail-call return_call_indirect, UnsupportedEntrySignature ×7).
+      808/1 → 811/1. ✅ `br_on_null.1` DONE (`be5a1a32`): arm64 br_on_null rerouted through the shared
+      `op_control.branchOnReg` (function-return/loop/block; null-flag in a reserved scratch). Residual 1 left
+      (`ref_is_null.0` = typed-ref table runtime → **D-240**, blocked). x86_64 br_on_null function-return parity
+      still first-cut (arch-parity, D-238 bucket). Other §10 rejects: tail-call return_call_indirect (D-210),
+      gc i31.6 (D-240 class), UnsupportedEntrySignature ×7.
     first_raised: "2026-06-03"
     last_reviewed: "2026-06-03"
     refs: |-

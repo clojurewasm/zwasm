@@ -9,12 +9,13 @@
   **interp pass=fail=skip=0 (MET) + JIT 0-real-fail + every JIT skip on the forward-ref'd
   deferred-allowlist** (multi-memory-on-JIT→§14, GC-on-JIT-rooting→§11). Raw "JIT skip=0" (ADR-0128)
   was unreachable in-phase; re-scoped autonomously per ADR-0132.
-- **LAST code HEAD** (`195856a1`): JIT global-init accepts CONCRETE `(ref.null $t)` (the const-expr 0xD0 arm
-  only mapped abstract heaptype bytes → InvalidGlobalInitExpr; now reads the heaptype as s33, non-negative =
-  concrete typeidx). function-references 20/0/19 → 23/0/16; global JIT **808/1 → 811/1**; no regression. D-239
-  residual #3 (ref_null.0) done. Built on **D-239** (`faf23f0a`): JIT `compile.zig` passes the validator's
-  `func_type_indices` (ADR-0123 D4 precise `ref.func`, was abstract → StackTypeMismatch) + wired
-  br_on_null/br_on_non_null/ref_as_non_null into both-arch emit dispatch (handler files existed, never routed).
+- **LAST code HEAD** (`be5a1a32`): arm64 br_on_null now handles function-return/loop targets (was forward-block
+  only → UnsupportedOp on br_on_null.1). Routed through the shared `op_control.branchOnReg` (pop ref → 0/1
+  null-flag in a RESERVED scratch W16 — NOT the ref's reg, that clobber was a mid-fix block regression → push
+  ref back). br_on_null.1 modrej cleared; function-references 23/0/16 / global 811/1 unchanged (no asserts in
+  that module); no regression. **§10 JIT module-rejects cleared this session**: D-239 (precise ref.func +
+  null-ref emit dispatch, `faf23f0a`) + ref_null.0 concrete ref.null const-expr (`195856a1`) + br_on_null.1.
+  Built on cross-instance EH (`4f73d9ee`, ADR-0134). x86_64 br_on_null function-return parity = D-238 bucket.
 - **Cross-instance EH on JIT DONE** (`4f73d9ee`, 10.E-eh-on-jit bundle CLOSED, EH dir 34/0/0; ADR-0134). x86_64
   EH thunk-parity = D-238. Built on D2 (`cb55013e`) + D3 (`16a921a8`) + Cause A (`50e5ecd3`).
 - **§10-exit determination** (ADR-0133 §4): interp 100% MET + JIT 0 GENUINE fails MET (memory64 = D-234 harness,
@@ -28,22 +29,20 @@
 ## Active task — §10-exit: **clear the remaining JIT module-rejects**  **NEXT**
 
 §10 exit (ADR-0133 §4): interp 100% (MET) + JIT 0 genuine fails (MET — memory64 = D-234 harness) + clear the
-module-rejects (in-phase must-fix, NOT deferrable). Progress: function-references 8/0/31 → **23/0/16** (D-239 +
-ref_null, 6 of 8 fr rejects cleared); global JIT 796/1 → **811/1**. **Remaining rejects (NEXT, pick highest-leverage)**:
-**NOTE: the remaining rejects are NOT quick validation fixes** — loosening validation alone exposes deeper
-runtime/emit gaps (this turn: making compile.zig:257 a subtype check accepted `ref_is_null.0` → JIT **SEGV at
-runtime**, no typed-ref table support → reverted + filed **D-240**). The remaining:
+module-rejects (in-phase must-fix, NOT deferrable). Progress this session: function-references 8/0/31 → **23/0/16**;
+global JIT 796/1 → **811/1**; 7 of 8 fr rejects cleared (D-239 ref.func + emit dispatch, ref_null.0, br_on_null.1).
+**Remaining rejects** (NOT quick validation fixes — loosening validation alone exposes deeper runtime/emit gaps):
 1. **`ref_is_null.0` + gc `i31.6`** (ElemSegmentTypeMismatch) → **D-240** (blocked-by): needs JIT typed/abstract-ref
    TABLE runtime (table.init from a reftype elem + table.get/set of typed refs) THEN the compile.zig:257
-   eql→`valTypeIsSubtype` flip. Probe the SEGV via `debug_jit_auto` on ref_is_null.0. Bigger (runtime feature).
-2. **`br_on_null.1`** UnsupportedOp — the emit handler is first-cut "forward-block targets only; loop/return-target
-   → UnsupportedOp" (br_on_null.zig docstring); needs the loop/return-target emit path. Bounded emit change.
-3. **tail-call** `return_call_indirect.0` UnsupportedOp (D-210) — known multi-cycle TC emit gap.
-4. **UnsupportedEntrySignature ×7** — invoke-path; verify whether real rejects or the audit's eligibility-gate skips.
-5. **D-234** runner-side harness discharge (corpus stops false-reporting the 52 mem64 fails; codegen proven correct).
+   eql→`valTypeIsSubtype` flip (loosening alone SEGV'd — proven this session). Probe via `debug_jit_auto`. Bigger.
+2. **tail-call** `return_call_indirect.0` UnsupportedOp (D-210) — known multi-cycle TC emit gap.
+3. **UnsupportedEntrySignature ×7** — invoke-path; verify whether real rejects or the audit's eligibility-gate skips
+   (a read/classification, low-risk; could SHRINK the must-fix set if they're on-allowlist).
+4. **D-234** runner-side harness discharge (corpus stops false-reporting the 52 mem64 fails; codegen proven correct).
 
-Recommended next: **br_on_null.1** (bounded emit extension, fr momentum) or **D-234** (runner-side, unblocks the
-clean "0-real-fail" count). Run `scripts/check_phase10_close_invariants.sh` when the reject count hits 0.
+Recommended next: **D-234** (runner-side, unblocks the clean "0-real-fail" count) OR the **UnsupportedEntrySignature
+classification** (low-risk, may shrink the set). D-240 + D-210 are bigger (runtime feature / multi-cycle TC). Run
+`scripts/check_phase10_close_invariants.sh` when the reject count hits 0.
 
 Other tracks: **D-238** (x86_64 EH parity), realworld GC/EH/TC producers.
 
@@ -61,11 +60,11 @@ Other tracks: **D-238** (x86_64 EH parity), realworld GC/EH/TC producers.
 
 ## Step 0.7 (next resume)
 
-THIS turn = ref_is_null.0 INVESTIGATION → filed D-240 (no net code; the elem-subtype loosening SEGV'd, reverted
-+ documented). Prior turn's ref_null.0 (`195856a1`) is ubuntu-verified OK (`OK (HEAD=1bc29837)` this turn). JIT
-corpus state: function-references 23/0/16, global 811/1 (unchanged by the reverted attempt). No ubuntu kick
-needed this turn (comment+docs only; code behavior unchanged since the verified 1bc29837). Then → br_on_null.1
-emit OR D-234 runner discharge (the remaining rejects are deeper — see Active task).
+THIS turn = arm64 br_on_null function-return emit (`be5a1a32`, code). Mac `test-all` + lint GREEN; JIT corpus
+function-references 23/0/16, global 811/1, no regression (br_on_null.1 modrej cleared). ubuntu `test-all` kicked
+against the turn HEAD — Step 0.7 next resume: `tail -3 /tmp/ubuntu.log`, revert the commit pair on FAIL. (Prior
+D-240 `0c3c4a2c` was comment+docs only; code unchanged since the ubuntu-verified 1bc29837.) Then → D-234 runner
+discharge OR UnsupportedEntrySignature classification (the remaining rejects D-240/D-210 are deeper).
 
 **Gate hygiene**: Step-5 Mac gate = `bash scripts/mac_gate.sh`. JIT corpus: `zig build test-spec-wasm-3.0-assert`
 (NO bogus `-Dno-run`); **pick the exe by mtime** — `/usr/bin/find .zig-cache/o -name zwasm-spec-wasm-3-0-assert
