@@ -20,13 +20,14 @@
 
 ## Next task (autonomous — Phase 14)
 
-**§14.1 — `.github/workflows/pr.yml`**: a GitHub Actions matrix running `zig build test-all` on
-`macos-15` + `ubuntu-22.04` + `windows-2022` (mirrors the local 3-host gate; pin Zig 0.16.0 via the
-flake or a setup-zig action). Step 0 survey: check for any existing `.github/workflows/`, how the local
-gate invokes test-all, and the flake/zig pin. **NOTE**: CI windows will hit the D-245 win64 flaky-SIMD
-crash on unlucky seeds (same as the local reconcile) — design §14.1 aware of this (the workflow exposes
-the flakiness as a real CI signal, which is fine / desirable; do NOT paper it over). Then §14.2 (bench)
-→ §14.3 (nightly) → §14.4 (baseline) → §14.5 (pre_push coexist) → §14.P close.
+**§14.1 [x]** `2592f255` — `pr.yml` 3-OS test-all matrix (workflow_dispatch; actionlint-clean; 3 zig URLs
+verified 200; reuses bench.yml install pattern). **NEXT: §14.2 — per-merge bench, 3-OS.** `bench.yml`
+ALREADY exists (workflow_dispatch, mac+linux per-merge bench → `bench/results/history.yaml`). §14.2 =
+either extend bench.yml to add the windows-2022 leg OR keep 2-OS + document why (windows bench is
+D-245-flaky + D-249 hyperfine-timing-open). Survey bench.yml's aggregate job + D-249/D-249. Then §14.3
+(nightly: fuzz + spec-bump + proposal-watch) → §14.4 (bench_baseline workflow_dispatch) → §14.5 (confirm
+pre_push still works; CI second-line) → §14.P. **CI convention = manual `workflow_dispatch`** (auto-push
+disabled 2026-05-25; Phase-14 §14.5 = CI-second-line). All workflows actionlint-clean before commit.
 
 ## D-245 win64 — elevated (NOT an active bundle)
 
