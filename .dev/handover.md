@@ -27,9 +27,10 @@
 - **§13.2 extern conversions COMPLETE**: `wasm_extern_as_*_const` + `wasm_extern_type` (`63dab69d`); `wasm_{func,
   global,table,memory}_as_extern[_const]` (`0fc0aac5`, new `api/extern_new.zig`) — entity→Extern WRAP caching a
   borrowed-view Extern (`extern_view`); `Extern.borrowed` makes `extern_delete` a no-op (no double-free).
-- **§13.2 `wasm_global_new` DONE** (`5faef5d9`): host-owned standalone global (own `*Value` cell; Global gained
-  `cell`+`store`). get/set branch instance-vs-cell; importable — a host global aliases into an instance via a
-  buildBindings host-entity arm (`instance==null`→bind from host cell), guest+host share one cell (tested e2e).
+- **§13.2 `wasm_global_new` (`5faef5d9`) + `wasm_memory_new` (`a1c9fbfe`) DONE**: host-owned standalone entities.
+  Global = own `*Value` cell; Memory = own `*MemoryInstance` (Global/Memory gained `cell`/`minst` + `store`).
+  Accessors branch instance-vs-own-backing; importable via the buildBindings host-entity arm (`instance==null` →
+  bind host backing) — global cell + memory bytes shared with the guest (both tested e2e: guest reads host writes).
 
 ## Next task (autonomous)
 
@@ -41,13 +42,14 @@ Two open tracks, both within Phase 13's surface (pick either; runtime-entity is 
    `main`, cli/main.zig:43/58) — a C-library context (`libzwasm.so`, Zig startup never runs) can't reach it, so
    inherit needs platform C APIs (`_NSGetArgv` / `/proc/self/cmdline` / `GetCommandLineW`) or the C `environ`
    global = new libc sites (§14 "unconscious libc fanout"). Do the ADR-0070 amend as Step 1 of that chunk.
-2. **§13.2 `wasm_table_new` + `wasm_memory_new`** (extern_new.zig, same host-entity shape as global_new). Bigger
-   than global: a standalone table/memory needs its OWN backing runtime structure — survey how `*TableInstance`
-   (`rt.tables[i]`, a refs slice) + `*MemoryInstance` (`rt.memories[0]`, bytes/pages) are constructed and whether
-   they can be built without a source instance, then add `cell`-analog fields + accessor branches (wasm_table_get/
-   set/size/grow, wasm_memory_data/size/grow) + the buildBindings table/memory host arms (the `.func,.table,.memory`
-   else-arm currently returns `error.UnsupportedHostImport`). Then `wasm_func_new` = **D-252**; then **foreign**
-   (`WASM_DECLARE_REF`). Established pattern from global_new: own-backing + accessor branch + buildBindings arm.
+2. **§13.2 `wasm_table_new`** (last entity `_new`; survey a3f30dbd done). Standalone `TableInstance` =
+   `alloc(Value, min)` filled from an init funcref; `rt.tables` is `[]TableInstance` (VALUE) so the host binding
+   value-copies a `TableInstance` (refs slice aliased). Table gains `tinst:?*TableInstance`+`store`; branch
+   wasm_table_get/set/size/grow/delete (5, get/grow need `store` for the Ref alloc/realloc); buildBindings `.table`
+   host arm (currently `.func,.table,.tag → error.UnsupportedHostImport`). Ref marshalling = plain u64 (`Value.ref`).
+   **FIRST sub-step: relieve instance.zig (3181/3200 cap — table's ~40 accessor-branch lines won't fit). Recommend
+   an ADR-0099 amendment 3200→3300** (runtime-entity host-creation surface = core, not bloat; cyc174 precedent).
+   Then `wasm_func_new` = **D-252**; then **foreign** (`WASM_DECLARE_REF`).
 
 gap: `.dev/phase13_capi_gap.md`.
 
@@ -68,9 +70,9 @@ prose. Standing `soon` (not Phase-12): 10 ADR + 10 lesson `<backfill>` markers; 
 
 ## Step 0.7 (next resume)
 
-This turn landed §13.2 `wasm_global_new` (importable, buildBindings host arm): Mac test+lint+zone green, instance.zig
-3148<cap. An ubuntu `test` is kicked against this turn's HEAD → next resume `tail /tmp/ubuntu.log` for OK (c_allocator
-cell + alias, host-portable). Prior ubuntu §13.2-as_extern `1fd7cfda` OK; windowsmini `0810b339` reconcile GREEN.
+This turn landed §13.2 `wasm_memory_new` (importable, shared *MemoryInstance): Mac test+lint+zone green, instance.zig
+3181/3200 cap (table_new needs cap relief first). An ubuntu `test` is kicked against this turn's HEAD → next resume
+`tail /tmp/ubuntu.log` for OK (c_allocator bytes + alias, host-portable). Prior ubuntu `29b4b080` OK; windowsmini `0810b339` GREEN.
 
 **Gate hygiene**: Step-5 Mac = `bash scripts/mac_gate.sh`. Win64 cross-compile: `zig build test
 -Dtarget=x86_64-windows-gnu` (compile-only). 3-host reconcile = phase boundary.
