@@ -1,0 +1,94 @@
+# PR CI — runs `zig build test-all` on the 3 gate OSes (mirrors the
+# local 3-host gate: Mac aarch64 + Linux x86_64 + Win64 x86_64).
+#
+# Trigger: **manual only** (`workflow_dispatch`), matching bench.yml.
+# Auto-trigger on push was disabled project-wide 2026-05-25 per user
+# direction — local development is the primary path and CI is a second
+# line, run on demand (`gh workflow run pr.yml --ref zwasm-from-scratch`
+# or the Actions UI). To add PR-gating later, re-add an `on: pull_request`
+# block targeting `main`.
+#
+# NOTE: the `windows-2022` job currently flaky-fails on D-245 (win64
+# host→JIT v128 callee-saved corruption in the spec-simd runner, seed-
+# dependent in Debug) — that is a REAL signal, not a workflow bug.
+# `fail-fast: false` keeps the Mac/Linux legs reporting independently.
+
+name: pr
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  test-all:
+    name: test-all (${{ matrix.name }})
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: aarch64-macos
+            runs-on: macos-15
+          - name: x86_64-linux
+            runs-on: ubuntu-22.04
+          - name: x86_64-windows
+            runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Cache Zig 0.16.0
+        id: cache-zig
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/zig-0.16.0
+          key: zig-0.16.0-${{ matrix.name }}
+
+      - name: Install Zig 0.16.0 (Unix)
+        if: runner.os != 'Windows' && steps.cache-zig.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.local
+          case "${{ matrix.name }}" in
+            aarch64-macos) dir=zig-aarch64-macos-0.16.0 ;;
+            x86_64-linux)  dir=zig-x86_64-linux-0.16.0 ;;
+            *) echo "unexpected matrix name ${{ matrix.name }}" >&2; exit 1 ;;
+          esac
+          curl -fsSL "https://ziglang.org/download/0.16.0/${dir}.tar.xz" -o /tmp/zig.tar.xz
+          tar -xJf /tmp/zig.tar.xz -C ~/.local
+          mv "$HOME/.local/${dir}" "$HOME/.local/zig-0.16.0"
+
+      - name: Install Zig 0.16.0 (Windows)
+        if: runner.os == 'Windows' && steps.cache-zig.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "$HOME\.local" | Out-Null
+          Invoke-WebRequest -Uri "https://ziglang.org/download/0.16.0/zig-x86_64-windows-0.16.0.zip" -OutFile "$env:TEMP\zig.zip"
+          Expand-Archive -Path "$env:TEMP\zig.zip" -DestinationPath "$HOME\.local" -Force
+          Move-Item -Path "$HOME\.local\zig-x86_64-windows-0.16.0" -Destination "$HOME\.local\zig-0.16.0"
+
+      - name: Add Zig to PATH (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: echo "$HOME/.local/zig-0.16.0" >> "$GITHUB_PATH"
+
+      - name: Add Zig to PATH (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Add-Content -Path $env:GITHUB_PATH -Value "$HOME\.local\zig-0.16.0"
+
+      - name: Verify toolchain
+        run: zig version
+
+      - name: zig build test-all
+        run: zig build test-all
