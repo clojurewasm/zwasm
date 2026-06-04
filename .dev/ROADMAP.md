@@ -1194,8 +1194,8 @@ of each phase advances it.
 | 12    | DONE        | AOT compilation mode — `.cwasm` compile/run, JIT↔AOT differential, cross-compile, stateful-compute exec, cold-start ≥30% (stack-map §12.5 → P15 / ADR-0141; WASI imports → D-251) |
 | 13    | DONE        | C API full (wasm-c-api conformance) — deliverables 3-host-green; §13.P re-scoped past D-245 win64 (ADR-0144) |
 | 14    | DONE        | CI matrix infrastructure — workflows + fuzz infra; §14.P re-scoped past D-245 win64 (ADR-0145) |
-| 15    | IN-PROGRESS | Performance parity with v1 + ClojureWasm migration                                          |
-| 16    | PENDING     | Public release v0.1.0 🔒                                                                     |
+| 15    | DONE        | Performance parity with v1 (§15.P parity measured + D-265 register-homing rework closed; §15.6 ClojureWasm DEFERRED → D-264) |
+| 16    | IN-PROGRESS | Public release v0.1.0 🔒 (final gate — release tag/publish is user-gated)                    |
 
 State values: `IN-PROGRESS` (one phase at a time), `PENDING`,
 `DONE`. Update this table whenever §9.<N>.7 closes a phase or when
@@ -1629,7 +1629,7 @@ migration):
 | 15.4 | **SIMD: coverage (D-246 DONE) + perf ports (measure-first)**. ✅ **D-246 RESOLVED** (`078ffde5`→`1029e5b4`): arm64 JIT SIMD emit now at full coverage parity with x86_64 — 26 ops closed (dot + 12 extmul + 8 sat-arith + q15mulr + 4 extadd_pairwise), all clang-verified encoders + the missing lowering arms + JIT execution fixtures. Perf ports v1 W43/W44/W45 **MEASURED → folded to §15.P** (ADR-0151): W43 addr-cache + W45 loop-persistence redundancies are real but v2 already 0.5–0.8× the comparator median (0/12 ops lag >3×); W44 reg-class already done (D-036). W45 (v1's 78x→10x lever, a large allocator change) gets a §15.P loop-isolated measurement before any reconsideration. | [x]  |
 | 15.5 | **D-245 win64 host→JIT trampoline** — the cross-phase windows-CI/bench-green blocker (re-scoped past at §13.P/§14.P, ADR-0144/0145). Asm trampoline preserving the win64 callee-saved set (RBX/RBP/RDI/RSI/R12–R15 + XMM6–15) around the `entry.zig invokeAndCheck*` seam (return-value + arg'd + win64 variants); template = arm64 `8eca59e3` / x86_64-SysV `de576a76`. Verify windowsmini `test-all` deterministic-green. **Hard/remote — best as a deliberate session.** ✅ Closed: clobber-trampoline `510ffce9` (arch-uniform cohort save via non-inline `@call`); D-260 x86_64 SIMD bugs (q15mulr/extadd) surfaced by the win64 run + fixed `3a778080`; **test-all 3-host green** (Mac + ubuntu x86_64 + windowsmini win64). Root fix D-210 NOT taken (per-seam patch). | [x]  |
 | 15.6 | **ClojureWasm CI green** with its `zwasm` dep pointing at a local `build.zig.zon` `path = …` to `zwasm_from_scratch/` (no ClojureWasm-side commits needed for v2-experimental validation). **⏸ DEFERRED (ADR-0152 → D-264)**: `ClojureWasmFromScratch` is itself a from-scratch v1 redesign IN PROGRESS (branch `cw-from-scratch`, v0.0.0, deps=zlinter only, no `zwasm` dep, no CI); the stable cw is v0.5.0 on `main`. Its zwasm-v2 wasm-FFI consumer is cw's OWN future internal phase → nothing to validate today. Barrier dissolves when cw-v1 lands committed `@import("zwasm")` source. v2 package-consumability already proven by `examples/zig_host/` (ADR-0109). | [ ]⏸ |
-| 15.P | Phase 15 close — **parity-vs-v1 validation** (fixed combined-≥10% replaced per ADR-0149/0150: regalloc-axis §15.2+§15.3 measured ~0 headroom, v2 emit already efficient). **HARD gate (D-263, not optional)**: (1) an actual **v2-vs-v1 steady-state bench** on ≥3 loop-heavy + ≥1 SIMD-loop fixture (v1 from its clone / existing baseline) — no unexplained regression vs v1; (2) the **W45 loop-isolated measurement** (≥50M-iter v128-local-carrying loop / no-op-module baseline subtraction, per ADR-0151 — if v2's per-iteration v128-reload dominates a long loop, **re-open W45** with the data) + record the already-efficient finding (§15.2/15.3/15.4 all measured) + opportunistic D-259 spillBytes cleanup if a net win. 3-host reconcile = **DONE** (D-245 landed `510ffce9`, test-all 3-host green). **§15.6 DEFERRED (ADR-0152 → D-264)** — Phase 15 closes WITHOUT it. + widget 15 → DONE + Phase 16 inline expand. | [ ]  |
+| 15.P | Phase 15 close — **parity-vs-v1 validation** (fixed combined-≥10% replaced per ADR-0149/0150: regalloc-axis §15.2+§15.3 measured ~0 headroom, v2 emit already efficient). **HARD gate (D-263, not optional)**: (1) an actual **v2-vs-v1 steady-state bench** on ≥3 loop-heavy + ≥1 SIMD-loop fixture (v1 from its clone / existing baseline) — no unexplained regression vs v1; (2) the **W45 loop-isolated measurement** (≥50M-iter v128-local-carrying loop / no-op-module baseline subtraction, per ADR-0151 — if v2's per-iteration v128-reload dominates a long loop, **re-open W45** with the data) + record the already-efficient finding (§15.2/15.3/15.4 all measured) + opportunistic D-259 spillBytes cleanup if a net win. 3-host reconcile = **DONE** (D-245 landed `510ffce9`, test-all 3-host green). **§15.6 DEFERRED (ADR-0152 → D-264)** — Phase 15 closes WITHOUT it. + widget 15 → DONE + Phase 16 inline expand. **✅ DONE**: (1) v2-vs-v1 bench done (`bench/results/s15p_parity_vs_v1.md`) — found a real 2.30× regression on loops reading a loop-carried local (D-265), NOT hand-waved; (2) W45 loop-isolated measurement done → v128-local loop 0.49× (v2 2× faster) → W45 stays folded (ADR-0151 re-open trigger NOT met). The D-265 regression was resolved by the **register-homing rework campaign** (ADR-0153, phases I–V; arm64 `a64c72a1`/`5d1dd221` + x86_64 `e8b7ad10`): loop-local reload penalty ELIMINATED on both backends (arm64 2.30×→0.97×; x86_64 reads-i/control differential 2.4×→1.0×; 3-host green incl. ubuntu test-all). ADR-0149/0150 Revision landed (the "~0 headroom" fold measured the wrong proxy). D-259 spillBytes = footprint-only, left open (no perf); native-x86_64 absolute ROI = D-266 note (confirmation-only). | [x]  |
 
 ### Phase 16 — Public release v0.1.0 🔒
 
@@ -1644,6 +1644,22 @@ migration):
 - `bench/history.yaml` v0.1.0 baseline rows recorded on all 3 OS.
 
 **🔒 gate**: yes — final gate.
+
+#### §16 task table (opened 2026-06-04 at Phase-15 close)
+
+The documentation tasks (§16.1–§16.5) are autonomous engineering work. The
+**release tag + binary publish (§16.P) is the 🔒 user-gated step** — outward-facing
+and irreversible; the loop prepares everything up to it and stops there for the user.
+
+| #    | Task                                                                                                                                                                          | Status |
+|------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------|
+| 16.0 | Open §16 inline + flip Phase Status widget (Phase 15 → DONE; Phase 16 → IN-PROGRESS).                                                                                         | [x]    |
+| 16.1 | `docs/migration_v1_to_v2.md` — v1→v2 migration guide (ADR-0025 §D ships the Zig-surface section; v1-ABI dropped per §1.1/§3.2; CLI/C-API/WASI deltas). Ships at v0.1.0 (§1.1). | [ ]    |
+| 16.2 | `CHANGELOG.md` — v0.1.0 entry from the Phase 0–15 ADR/commit history (features shipped, v1-parity line per §1.2, known deferrals D-211/D-258/D-264/D-266 + §15.6).            | [ ]    |
+| 16.3 | `README.md` — install, 3-line happy paths (Zig embed §10.A / CLI §10.B / C-API §10.C), supported Wasm proposals + tier table (§11), build/test, 3-OS support matrix.         | [ ]    |
+| 16.4 | `docs/reference/` — public API reference for the stable surface (ADR-0025 D-7: Runtime/Module/Instance/Trap/Value/WasiConfig/ImportEntry/TypedFunc/ParseError/InstantiateError) + CLI subcommands + C header. | [ ]    |
+| 16.5 | `docs/tutorial/` — getting-started walkthrough (embed a `.wasm`, run via CLI, compile `.cwasm`, host a C-API consumer).                                                       | [ ]    |
+| 16.P | **🔒 RELEASE GATE (user-gated)** — all Phase 0–15 exits still hold + §16.1–5 complete; cut GitHub tag `v0.1.0`; publish binaries for all 3 OS; record `bench/history.yaml` v0.1.0 baseline rows on all 3 OS. Loop STOPS and surfaces to the user before tagging/publishing. | [ ]    |
 
 ### Post-v0.1.0 (v0.2.0 line)
 

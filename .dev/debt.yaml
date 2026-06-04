@@ -917,26 +917,6 @@ entries:
     refs: |-
       D-260; lesson 2026-06-04-cross-compile-is-not-cross-run; ADR-0076 (gate topology D1 scope-classify);
       .claude/skills/continue/GATE.md; scripts/classify_chunk_scope.sh; scripts/run_remote_ubuntu.sh
-  - id: "D-263"
-    layer: "process"
-    status: "now"
-    description: |-
-      **The "v2 ≈ v1 parity" claim is an INFERENCE, never measured against v1.** This session folded §15.2 +
-      §15.3 + §15.4 perf ports (ADR-0149/0150/0151) on the basis that v2's emit is spill-efficient + per-op
-      competitive vs wasmtime/wazero/wasmer (§11.3 profile). But NO actual v2-vs-v1 benchmark has been run; the
-      §11.3 comparison was vs other runtimes, not v1, and per-op, not loop-level. §15.P's exit ("parity-vs-v1 +
-      the W45 loop-isolated measurement") is the load-bearing UN-DONE work and is easy to hand-wave at close.
-      RISK: Phase 15 closes claiming parity without ever measuring v1, and W45 (v1's 78x→10x SIMD-loop lever,
-      genuinely absent in v2) is dismissed unmeasured. DISCHARGE: make the §15.P close gate REQUIRE (not
-      optional) (1) an actual v2-vs-v1 steady-state bench on ≥3 loop-heavy + ≥1 SIMD-loop fixture (build v1 from
-      its clone or an existing baseline), AND (2) the W45 loop-isolated measurement (≥50M-iter v128-local loop /
-      no-op-baseline subtraction); if v2 lags v1 on the SIMD-loop, RE-OPEN W45 with the data. Surfaced:
-      2026-06-04 retrospective ([[2026-06-04-session-retrospective-structural-risks]]).
-    first_raised: "2026-06-04"
-    last_reviewed: "2026-06-04"
-    refs: |-
-      ADR-0149/0150/0151 (perf folds); ROADMAP §15.P (parity-vs-v1 row); bench/results/simd_gap_profile_p11_3.md;
-      scripts/run_bench.sh; ~/Documents/MyProducts/zwasm (v1 clone); lesson 2026-06-04-session-retrospective-structural-risks
   - id: "D-264"
     layer: "process"
     status: "blocked-by"
@@ -959,42 +939,27 @@ entries:
       ADR-0152 (§15.6 defer); ADR-0132 (autonomous re-scope carve-out); ADR-0109 (native Zig embedding API);
       ROADMAP §15.6 + §15.P; ~/Documents/MyProducts/ClojureWasmFromScratch (cw-from-scratch branch, read-only);
       examples/zig_host/hello.zig; test/api/zig_facade_runner.zig
-  - id: "D-265"
-    layer: "code"
-    status: "now"
+  - id: "D-266"
+    layer: "perf"
+    status: "note"
     description: |-
-      **v2-jit generates ~2.3× SLOWER code for loops whose body READS a loop-carried local** (MEASURED + A/B
-      BISECTED at §15.P, 2026-06-04, ReleaseFast, Mac aarch64). NOT memory-access, NOT ALU-op-specific (the
-      initial "memory-access 2.2×" framing was confounded — heapsort/memmove/mem_loop all index via the loop
-      counter). Decisive A/B (identical loop, only the body differs): `a=a+CONST` (body does NOT read i) →
-      v2/v1=0.96× PARITY; `a=a+i` (body READS i) → v2/v1=2.30×. Same i32.add both. Confirmed across mul/and/shl/
-      or (2.1–2.9×) and load/store (2.2–2.4×) — all share "body reads the mutated loop counter". v2 is FASTER on
-      compute that does NOT re-read a hot loop local: all 12 SIMD ops (0.52–0.96×), keccak 20×, gimli, the 50M
-      v128 loop (0.49×, accumulator-only). Full data: bench/results/s15p_parity_vs_v1.md; repro
-      private/spikes/s15p-parity/w45_addi.wat vs w45_addc.wat.
-      Mechanism CONFIRMED from source (2026-06-04): v2 stores wasm locals in FIXED STACK SLOTS, not registers;
-      `arm64/emit.zig:910-968` shows every `local.get` creates a NEW vreg (`next_vreg++`) + emits `LDR W,[SP,
-      #local_off]` — there is NO value-residency cache (EmitCtx `ctx.zig` has `pushed_vregs`+`next_vreg` but no
-      `local_last_vreg` map). So two `local.get $i` in a hot loop body each hit memory; v1 keeps the local
-      register-pinned. ROI ceiling is KNOWN (v1 proves full parity is achievable → up to the 2.3×). **CONTRADICTS
-      the §15.2/15.3 "~0 regalloc headroom" folds (ADR-0149/0150)** — those measured spill-traffic as % of TOTAL
-      instructions (wrong proxy: a reload in a 3-instr hot loop is ~0% of program but ~2× of that loop's
-      wall-clock). FIX SCOPE (subagent-scoped): option (i) emit-phase local-residency cache (~40-80 LOC: add
-      `local_last_vreg` to EmitCtx, reuse the vreg on repeat `local.get` if still live+unclobbered, invalidate on
-      `local.set`/block boundary) — BUT regalloc already ran computing per-vreg live ranges, so reusing a vreg
-      means its precomputed liveness must cover the 2nd use → likely pushes option (i) toward MEDIUM (ii, ~200-300
-      LOC, couples to liveness.zig). DISCHARGE: attempt option (i)/(ii) via TDD + FULL gate + ubuntu test-all
-      (correctness-critical: a stale cached local = miscompile, cf. D-260/D-245); commit/revert per measure-first;
-      land if it recovers the loop-index gap cleanly + stays green, else document the architectural cost + defer.
-      Plus an ADR-0149/0150 Revision note (the headroom is reachable on this pattern). NOTE: v2-jit is compute-only
-      (ADR-0136, no WASI) → matters for the compute/embedding JIT path, not WASI programs (interp default).
+      **note: native-x86_64 ABSOLUTE ROI vs v1 on the loop-local pattern is unmeasured** (low priority).
+      The D-265 register-homing rework (ADR-0153, closed 2026-06-04) is proven correct on x86_64-linux
+      (ubuntu test-all green for e8b7ad10) and proven to ELIMINATE the loop-carried-local reload penalty
+      on x86_64 via a differential A/B on Rosetta x86_64-macos (`w45_addi` reads-i 1.17× == `w45_addc`
+      control 1.19× → the ~2.4× reads-i/control differential that defined D-265 is gone). The residual
+      flat ~1.18× on Rosetta is uniform binary-translation/baseline overhead (present in the control too),
+      NOT the D-265 mechanism — native arm64 confirms parity at 0.97×. What is NOT measured: the ABSOLUTE
+      v2/v1 ratio on NATIVE x86_64-linux (Rosetta is x86_64-macos translation, not native), which needs v1
+      built on ubuntu (`cd ~/Documents/MyProducts/zwasm && zig build -Doptimize=ReleaseFast` ON ubuntu +
+      ship the `private/spikes/s15p-parity/` fixtures there). DISCHARGE: optional ubuntu-native v1-vs-v2
+      `w45_addi`/`w45_addc` hyperfine if a native-x86_64 perf question arises; the mechanism-fixed +
+      correctness-green evidence already closes D-265, so this is confirmation-only, not a blocker.
     first_raised: "2026-06-04"
     last_reviewed: "2026-06-04"
     refs: |-
-      bench/results/s15p_parity_vs_v1.md; private/spikes/s15p-parity/ (w45_addi vs w45_addc decisive A/B);
-      ADR-0149 (§15.2 slot-alias fold) + ADR-0150 (§15.3 fold) — CONTRADICTED by this pattern; ROADMAP §15.P;
-      D-263 (parity now measured); src/engine/codegen/arm64/emit.zig + gpr regalloc; ~/Documents/MyProducts/zwasm
-      (v1 JIT comparator, keeps loop locals register-pinned)
+      bench/results/s15p_parity_vs_v1.md (D-265 post-rework verification table); ADR-0153 (rework campaign);
+      private/spikes/s15p-parity/ (w45_addi/w45_addc); scripts/run_remote_ubuntu.sh; ~/Documents/MyProducts/zwasm
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
