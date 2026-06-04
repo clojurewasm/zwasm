@@ -27,24 +27,33 @@
 
 ## Next task (autonomous)
 
-**§15.4 — SIMD perf ports + D-246** (first open `[ ]`; §15.2 + §15.3 folded). This is the COMPUTE/SIMD axis (a
-DIFFERENT lever from the now-folded regalloc axis — real headroom likely). Two parts: (1) **D-246 = arm64 `dot` /
-`extmul` emit HOLE** — missing SIMD ops (a correctness gap, not just perf; do this FIRST — concrete + verifiable
-via spec/diff). (2) v1 SIMD perf ports W43 (SIMD addr cache) / W44 (reg class) / W45 (SIMD loop persistence) +
-W54-class loop-invariant hoist, as clean additions; + Phase-11 gap candidates (AVX/CPUID, MOVAPS peephole) where
-gap-justified. **Step 0 survey FIRST**: locate D-246's missing emit (arm64 `ops/.../` for dot/extmul) + the v1
-W43/44/45 sources (read-only v1 clone) + the SIMD bench fixtures. **MEASURE before each perf port** (§15.2/15.3
-lesson — confirm headroom). After §15.4: **§15.5 D-245 win64** (hard/remote, deliberate session) → §15.6
-ClojureWasm CI → §15.P parity-vs-v1 close. (Not a phase boundary.)
+**§15.4 — D-246 arm64 dot/extmul emit hole** (first open `[ ]`; §15.2+§15.3 folded; user picked ROADMAP-order
+continue). CORRECTNESS gap (NOT bench-gated — build regardless). Survey DONE — full recipe:
+- **13 missing ops** (arm64 → `UnsupportedOp` at `emit.zig:1771-1783`; x86_64 HAS them): `i32x4.dot_i16x8_s` +
+  `{i16x8,i32x4,i64x2}.extmul_{low,high}_*_{s,u}` (12).
+- **Emit infra**: `op_simd.emitV128Binop(ctx, encoder)` (pops 2 vregs→Q, calls `encoder(rd,rn,rm)`, stores) —
+  use for the 12 extmul (each 1 instr). `dot` needs a custom emit (3 instrs into 1 result w/ 2 scratch Q regs).
+  Pattern: new per-op files `arm64/ops/wasm_2_0/<op>.zig` (mirror an existing one) delegating to a helper in
+  `op_simd_int_arith.zig`; dispatch auto-registers once `pub fn emit` exists.
+- **NEON encoders to ADD** to `inst_neon_arith.zig` (mirror `encMul8H`=`0x4E609C00|rm<<16|rn<<5|rd`). DERIVED
+  (VERIFY via spec test — encoding error=miscompile): three-different SMULL/UMULL base `0x0E20C000`; +U(unsigned)
+  `|0x20000000`; +Q(high=SMULL2/UMULL2) `|0x40000000`; size `<<22` (00=.8H from 8b, 01=.4S from 16b, 10=.2D from
+  32b); `|rm<<16|rn<<5|rd`. ADDP.4S = `0x4EA0BC00|rm<<16|rn<<5|rd`.
+- **dot recipe**: SMULL(.4S=.4H*.4H low)→t1, SMULL2(.4S high)→t2, ADDP.4S(rd,t1,t2). **extmul**: low=SMULL/UMULL,
+  high=SMULL2/UMULL2, size per result width (i16x8←8b sz00, i32x4←16b sz01, i64x2←32b sz10).
+- **Verify**: no spec `.wast` fixture found → CREATE a wat fixture (known in/out per op) + run JIT (currently
+  `UnsupportedOp`) → green; cross-check ≥1 encoding vs a reference if possible. Cross-compile x86_64 (unaffected).
+  **Chunk plan**: (A) encoders+tests, (B) extmul family (12, same recipe), (C) dot. After §15.4: **§15.5 D-245
+  win64** (hard/remote) → §15.6 ClojureWasm → §15.P parity. (Not a phase boundary.) Perf ports W43/44/45 =
+  measure-first per [[perf-roi]] lesson, after D-246.
 
 ## Step 0.7 (next resume)
 
-This turn: **§15.3 measured + folded** — subagent ran throwaway FP/GPR spill counters via `--engine jit` on
-nbody/matrix → **FP-spill = 0%** (13 V-regs never overflow; resolution already class-aware D-036) → ≥3%
-unreachable → ADR-0150 + ROADMAP §15.3 `[x]` + §15.P reframed to parity-vs-v1 + D-259 (spillBytes cleanup).
-Instrumentation REVERTED (tree clean). **DOCS/scope only — NO src/ change → no ubuntu kick** (code HEAD
-`45a94348`, ubuntu-verified OK). **NOTE** (lesson `gate-tail-vs-exit-code`): benign `failed command:
-…--listen=-` / `arm64/emit: failing op` next to a passing run = error-path test noise — EXIT authoritative.
+This turn: user check-in → chose **ROADMAP-order continue**; recorded perf-measure-first lesson (`43ecd845`) +
+memory (user guidance: perf ROI needs measurement, commit/revert liberally). §15.4 D-246 survey DONE (recipe +
+derived NEON encodings captured in Next-task above — NEXT turn implements). **DOCS only — NO src/ change → no
+ubuntu kick** (code HEAD `45a94348`, ubuntu-verified OK). **NOTE** (lesson `gate-tail-vs-exit-code`): benign
+`failed command: …--listen=-` / `arm64/emit: failing op` next to a passing run = error-path noise — EXIT auth.
 
 **Gate hygiene**: Step-5 Mac = `bash scripts/mac_gate.sh`. Win64 cross-compile = `zig build test
 -Dtarget=x86_64-windows-gnu`. windowsmini exec = `run_remote_windows.sh` (phase boundary).
