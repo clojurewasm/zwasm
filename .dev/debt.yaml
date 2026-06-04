@@ -1053,6 +1053,27 @@ entries:
     refs: |-
       src/cli/run.zig (runWasmJit=runVoidExport zero-arg; runCwasm result→exit code); src/cli/main.zig
       (--invoke/--engine/--dir parsing); ROADMAP §10.3; ADR-0159 (§16.4 surface); §16.5 dogfooding
+  - id: "D-274"
+    layer: "build"
+    status: "note"
+    description: |-
+      **note (§16.5 dogfooding consumability wart): consuming zwasm as a Zig dependency transitively fetches the
+      zlinter LINT TOOL.** `build.zig:6` has a top-level comptime `const zlinter = @import("zlinter")`, and
+      `build.zig.zon` declares zlinter as an EAGER dep (no `.lazy = true`). When an external `build.zig.zon`
+      path-dep pulls zwasm (verified working at `3bfa460a` via `examples/zig_dep/`), Zig runs zwasm's `build.zig`
+      → the comptime import forces zlinter resolution/fetch even though a runtime-library consumer never lints.
+      Not a blocker (consumer builds + runs; zlinter is a one-time transitive fetch), but a runtime lib should not
+      drag dev tooling into its dependents. DISCHARGE: make zlinter lazy — `.lazy = true` in build.zig.zon + move
+      the `@import("zlinter")` usage behind `b.lazyDependency("zlinter", …)` inside the `lint` step only (returns
+      `?*Dependency`; null when unfetched). Non-trivial: zlinter's API is consumed as a comptime module
+      (`zlinter.builder(b, …)` + rule structs at build.zig:1057), so the lazy form needs verifying against
+      zlinter's 0.16.x surface. Evaluate feasibility under §16.5; if zlinter cannot be used lazily, document the
+      eager fetch as accepted.
+    first_raised: "2026-06-05"
+    last_reviewed: "2026-06-05"
+    refs: |-
+      build.zig:6 (top-level @import("zlinter")); build.zig.zon (.dependencies.zlinter, eager); build.zig:1049-1057
+      (lint step); examples/zig_dep/ (external consumer, 3bfa460a); scripts/check_zig_consumer.sh; ADR-0009 (zlinter)
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
