@@ -47,48 +47,72 @@ fn buildValTypeVec(vts: []const zir.ValType) types.ValTypeVec {
     return out;
 }
 
-// Shared externtype builders (used by both import + export resolution).
+// Shared per-kind type builders. The `*Of` variants return the owned per-kind
+// type (`wasm_functype_t` etc.) used by both the per-object accessors
+// (`wasm_func_type` …) and the `*Extern` wrappers that wasm_extern_type +
+// import/export resolution use.
 
-/// functype externtype from a typeidx into the (decoded) type section.
-fn functypeExtern(typeidx: u32, func_types: ?sections.Types) ?*types.ExternType {
-    const ts = func_types orelse return null;
-    if (typeidx >= ts.items.len) return null;
-    const ft = ts.items[typeidx];
-    var pv = buildValTypeVec(ft.params);
-    var rv = buildValTypeVec(ft.results);
-    const ftype = types.wasm_functype_new(&pv, &rv) orelse {
+/// Owned `wasm_functype_t` from internal param/result valtypes.
+fn functypeFromValTypes(params: []const zir.ValType, results: []const zir.ValType) ?*types.FuncType {
+    var pv = buildValTypeVec(params);
+    var rv = buildValTypeVec(results);
+    return types.wasm_functype_new(&pv, &rv) orelse {
         types.wasm_valtype_vec_delete(&pv);
         types.wasm_valtype_vec_delete(&rv);
         return null;
     };
+}
+
+/// functype from a typeidx into the (decoded) type section.
+fn functypeOf(typeidx: u32, func_types: ?sections.Types) ?*types.FuncType {
+    const ts = func_types orelse return null;
+    if (typeidx >= ts.items.len) return null;
+    const ft = ts.items[typeidx];
+    return functypeFromValTypes(ft.params, ft.results);
+}
+
+fn functypeExtern(typeidx: u32, func_types: ?sections.Types) ?*types.ExternType {
+    const ftype = functypeOf(typeidx, func_types) orelse return null;
     return types.wasm_functype_as_externtype(ftype);
 }
 
-fn globaltypeExtern(valtype: zir.ValType, mutable: bool) ?*types.ExternType {
+fn globaltypeOf(valtype: zir.ValType, mutable: bool) ?*types.GlobalType {
     const vt = types.wasm_valtype_new(valKindOf(valtype)) orelse return null;
-    const gt = types.wasm_globaltype_new(vt, if (mutable) 1 else 0) orelse {
+    return types.wasm_globaltype_new(vt, if (mutable) 1 else 0) orelse {
         types.wasm_valtype_delete(vt);
         return null;
     };
+}
+
+fn globaltypeExtern(valtype: zir.ValType, mutable: bool) ?*types.ExternType {
+    const gt = globaltypeOf(valtype, mutable) orelse return null;
     return types.wasm_globaltype_as_externtype(gt);
 }
 
-fn tabletypeExtern(elem_type: zir.ValType, min: u32, max: ?u32) ?*types.ExternType {
+fn tabletypeOf(elem_type: zir.ValType, min: u32, max: ?u32) ?*types.TableType {
     const vt = types.wasm_valtype_new(valKindOf(elem_type)) orelse return null;
     var lim: types.Limits = .{ .min = min, .max = max orelse 0xffff_ffff };
-    const tt = types.wasm_tabletype_new(vt, &lim) orelse {
+    return types.wasm_tabletype_new(vt, &lim) orelse {
         types.wasm_valtype_delete(vt);
         return null;
     };
+}
+
+fn tabletypeExtern(elem_type: zir.ValType, min: u32, max: ?u32) ?*types.ExternType {
+    const tt = tabletypeOf(elem_type, min, max) orelse return null;
     return types.wasm_tabletype_as_externtype(tt);
 }
 
-fn memorytypeExtern(min: u64, max: ?u64) ?*types.ExternType {
+fn memorytypeOf(min: u64, max: ?u64) ?*types.MemoryType {
     var lim: types.Limits = .{
         .min = std.math.cast(u32, min) orelse return null,
         .max = if (max) |mx| (std.math.cast(u32, mx) orelse 0xffff_ffff) else 0xffff_ffff,
     };
-    const mt = types.wasm_memorytype_new(&lim) orelse return null;
+    return types.wasm_memorytype_new(&lim);
+}
+
+fn memorytypeExtern(min: u64, max: ?u64) ?*types.ExternType {
+    const mt = memorytypeOf(min, max) orelse return null;
     return types.wasm_memorytype_as_externtype(mt);
 }
 
@@ -254,10 +278,10 @@ fn moduleOf(inst: ?*instance.Instance) ?*const Module {
     return @ptrCast(@alignCast(mp));
 }
 
-/// functype externtype for the func at absolute funcidx `abs_idx`
-/// (imports first, then defined) in the instance's module — mirrors
-/// the `wasm_module_exports` func index-space build.
-fn funcExternTypeAt(inst: ?*instance.Instance, abs_idx: u32) ?*types.ExternType {
+/// functype for the func at absolute funcidx `abs_idx` (imports first,
+/// then defined) in the instance's module — mirrors the
+/// `wasm_module_exports` func index-space build.
+fn funcTypeAt(inst: ?*instance.Instance, abs_idx: u32) ?*types.FuncType {
     const mod = moduleOf(inst) orelse return null;
     const bp = mod.bytes_ptr orelse return null;
     var arena = std.heap.ArenaAllocator.init(ca);
@@ -282,12 +306,17 @@ fn funcExternTypeAt(inst: ?*instance.Instance, abs_idx: u32) ?*types.ExternType 
         for (tis) |ti| func_tis.append(a, ti) catch return null;
     }
     if (abs_idx >= func_tis.items.len) return null;
-    return functypeExtern(func_tis.items[abs_idx], func_types);
+    return functypeOf(func_tis.items[abs_idx], func_types);
 }
 
-/// memorytype externtype for the memory at index `idx` (imports first,
-/// then defined) in the instance's module.
-fn memoryExternTypeAt(inst: ?*instance.Instance, idx: u32) ?*types.ExternType {
+fn funcExternTypeAt(inst: ?*instance.Instance, abs_idx: u32) ?*types.ExternType {
+    const ft = funcTypeAt(inst, abs_idx) orelse return null;
+    return types.wasm_functype_as_externtype(ft);
+}
+
+/// memorytype for the memory at index `idx` (imports first, then
+/// defined) in the instance's module.
+fn memoryTypeAt(inst: ?*instance.Instance, idx: u32) ?*types.MemoryType {
     const mod = moduleOf(inst) orelse return null;
     const bp = mod.bytes_ptr orelse return null;
     var arena = std.heap.ArenaAllocator.init(ca);
@@ -310,7 +339,12 @@ fn memoryExternTypeAt(inst: ?*instance.Instance, idx: u32) ?*types.ExternType {
         for (md.items) |mem| mems.append(a, mem) catch return null;
     }
     if (idx >= mems.items.len) return null;
-    return memorytypeExtern(mems.items[idx].min, mems.items[idx].max);
+    return memorytypeOf(mems.items[idx].min, mems.items[idx].max);
+}
+
+fn memoryExternTypeAt(inst: ?*instance.Instance, idx: u32) ?*types.ExternType {
+    const mt = memoryTypeAt(inst, idx) orelse return null;
+    return types.wasm_memorytype_as_externtype(mt);
 }
 
 /// `wasm_extern_type(*const Extern) -> own wasm_externtype_t*` — the
@@ -325,6 +359,58 @@ pub export fn wasm_extern_type(e: ?*const instance.Extern) callconv(.c) ?*types.
         .func => if (h.func) |f| funcExternTypeAt(h.instance, f.func_idx) else null,
         .memory => if (h.memory) |mem| memoryExternTypeAt(h.instance, mem.memory_idx) else null,
     };
+}
+
+// =====================================================================
+// Per-object type accessors (wasm.h:441-490). Each returns an owned
+// per-kind type the caller frees with the matching `wasm_*type_delete`.
+// Host-created funcs (instance == null) read the cached host payload;
+// everything else resolves through the cached handle fields or the
+// instance module's index space (same path as wasm_extern_type).
+// =====================================================================
+
+/// `wasm_func_type(const wasm_func_t*) -> own wasm_functype_t*` (wasm.h:441).
+pub export fn wasm_func_type(f: ?*const instance.Func) callconv(.c) ?*types.FuncType {
+    const h = f orelse return null;
+    if (h.host) |hp| return functypeFromValTypes(hp.params, hp.results);
+    return funcTypeAt(h.instance, h.func_idx);
+}
+
+/// `wasm_func_param_arity(const wasm_func_t*) -> size_t` (wasm.h:442).
+pub export fn wasm_func_param_arity(f: ?*const instance.Func) callconv(.c) usize {
+    const h = f orelse return 0;
+    if (h.host) |hp| return hp.params.len;
+    const ft = funcTypeAt(h.instance, h.func_idx) orelse return 0;
+    defer types.wasm_functype_delete(ft);
+    return ft.params.size;
+}
+
+/// `wasm_func_result_arity(const wasm_func_t*) -> size_t` (wasm.h:443).
+pub export fn wasm_func_result_arity(f: ?*const instance.Func) callconv(.c) usize {
+    const h = f orelse return 0;
+    if (h.host) |hp| return hp.results.len;
+    const ft = funcTypeAt(h.instance, h.func_idx) orelse return 0;
+    defer types.wasm_functype_delete(ft);
+    return ft.results.size;
+}
+
+/// `wasm_global_type(const wasm_global_t*) -> own wasm_globaltype_t*` (wasm.h:456).
+pub export fn wasm_global_type(g: ?*const instance.Global) callconv(.c) ?*types.GlobalType {
+    const h = g orelse return null;
+    return globaltypeOf(h.valtype, h.mutable);
+}
+
+/// `wasm_table_type(const wasm_table_t*) -> own wasm_tabletype_t*` (wasm.h:471).
+pub export fn wasm_table_type(t: ?*const instance.Table) callconv(.c) ?*types.TableType {
+    const h = t orelse return null;
+    return tabletypeOf(h.elem_type, h.min, h.max);
+}
+
+/// `wasm_memory_type(const wasm_memory_t*) -> own wasm_memorytype_t*` (wasm.h:490).
+pub export fn wasm_memory_type(m: ?*const instance.Memory) callconv(.c) ?*types.MemoryType {
+    const h = m orelse return null;
+    if (h.minst) |mi| return memorytypeOf(mi.pages_min, mi.pages_max);
+    return memoryTypeAt(h.instance, h.memory_idx);
 }
 
 // =====================================================================
@@ -478,4 +564,74 @@ test "wasm_extern_type: table + global externs resolve from the cached handle fi
     const gt = wasm_extern_type(data[1]) orelse return error.NoGlobalType;
     defer types.wasm_externtype_delete(gt);
     try testing.expectEqual(types.extern_global, types.wasm_externtype_kind(gt));
+}
+
+test "wasm_func_type / arity + wasm_memory_type: from instance exports (() -> i32, mem min 1)" {
+    const e = instance.wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer instance.wasm_engine_delete(e);
+    const s = instance.wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer instance.wasm_store_delete(s);
+    var bytes = export_wasm;
+    const bv: vec.ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = instance.wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer instance.wasm_module_delete(m);
+    const inst = instance.wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    defer instance.wasm_instance_delete(inst);
+
+    var exports: vec.ExternVec = .{ .size = 0, .data = null };
+    instance.wasm_instance_exports(inst, &exports);
+    defer instance.wasm_extern_vec_delete(&exports);
+    const data = exports.data.?;
+
+    const func = instance.wasm_extern_as_func_const(data[0]) orelse return error.NotFunc;
+    const ft = wasm_func_type(func) orelse return error.NoFuncType;
+    defer types.wasm_functype_delete(ft);
+    try testing.expectEqual(@as(usize, 0), ft.params.size);
+    try testing.expectEqual(@as(usize, 1), ft.results.size);
+    try testing.expectEqual(@as(u8, 0), types.wasm_valtype_kind(ft.results.data.?[0].?)); // i32
+    try testing.expectEqual(@as(usize, 0), wasm_func_param_arity(func));
+    try testing.expectEqual(@as(usize, 1), wasm_func_result_arity(func));
+
+    const mem = instance.wasm_extern_as_memory_const(data[1]) orelse return error.NotMemory;
+    const mt = wasm_memory_type(mem) orelse return error.NoMemType;
+    defer types.wasm_memorytype_delete(mt);
+    try testing.expectEqual(@as(u32, 1), types.wasm_memorytype_limits(mt).?.min);
+
+    try testing.expect(wasm_func_type(null) == null);
+    try testing.expectEqual(@as(usize, 0), wasm_func_param_arity(null));
+    try testing.expectEqual(@as(usize, 0), wasm_func_result_arity(null));
+    try testing.expect(wasm_memory_type(null) == null);
+}
+
+test "wasm_table_type + wasm_global_type: from instance exports (funcref min 1, mut i32)" {
+    const e = instance.wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer instance.wasm_engine_delete(e);
+    const s = instance.wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer instance.wasm_store_delete(s);
+    var bytes = global_table_wasm;
+    const bv: vec.ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = instance.wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer instance.wasm_module_delete(m);
+    const inst = instance.wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    defer instance.wasm_instance_delete(inst);
+
+    var exports: vec.ExternVec = .{ .size = 0, .data = null };
+    instance.wasm_instance_exports(inst, &exports);
+    defer instance.wasm_extern_vec_delete(&exports);
+    const data = exports.data.?;
+
+    const tbl = instance.wasm_extern_as_table_const(data[0]) orelse return error.NotTable;
+    const tt = wasm_table_type(tbl) orelse return error.NoTableType;
+    defer types.wasm_tabletype_delete(tt);
+    try testing.expectEqual(@as(u8, 129), types.wasm_valtype_kind(types.wasm_tabletype_element(tt).?)); // funcref
+    try testing.expectEqual(@as(u32, 1), types.wasm_tabletype_limits(tt).?.min);
+
+    const glb = instance.wasm_extern_as_global_const(data[1]) orelse return error.NotGlobal;
+    const gt = wasm_global_type(glb) orelse return error.NoGlobalType;
+    defer types.wasm_globaltype_delete(gt);
+    try testing.expectEqual(@as(u8, 0), types.wasm_valtype_kind(types.wasm_globaltype_content(gt).?)); // i32
+    try testing.expectEqual(@as(u8, 1), types.wasm_globaltype_mutability(gt)); // WASM_VAR
+
+    try testing.expect(wasm_table_type(null) == null);
+    try testing.expect(wasm_global_type(null) == null);
 }
