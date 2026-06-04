@@ -838,6 +838,15 @@ entries:
     layer: "process"
     status: "now"
     description: |-
+      **PROGRESS 2026-06-05 (5471e5fb): (b) PROCESS FIX LANDED — ADR-0076 D6.** The background ubuntu gate is now
+      unconditionally `test-all` (classifier drives the foreground Mac gate ONLY; the eyeballed per-turn ubuntu
+      scope — the D-260 foot-gun — is removed). GATE.md/SKILL.md Step7/LOOP.md/classifier+runner headers synced.
+      (a) AUDIT is now subsumed: every D6 kick is a full x86_64-RUN of ALL committed emit (test-all runs the whole
+      spec/edge corpus against the full tree, not just the chunk diff). The FIRST D6 kick is in-flight this turn
+      against HEAD; **discharge when next-cycle Step 0.7 confirms it GREEN** (a red there = a real latent x86_64
+      emit bug surfacing — a NEW finding, not this topology gap). win64-RUN stays phase-boundary (by design,
+      ADR-0049/0067; explicitly accepted in D6 — NOT a D-262 residual).
+      ---
       **x86_64/win64 EMIT correctness is structurally under-verified by the gate topology.** D-260 (x86_64 SIMD
       bugs) shipped "RESOLVED" + was caught only at a phase-boundary windowsmini run, because: the per-chunk gate
       is 2-host (Mac arm64 + ubuntu), ubuntu is often kicked at NARROW `test` scope (skips the spec/edge SIMD
@@ -851,7 +860,7 @@ entries:
       D1 (the scope-classify map) so emit chunks map to test-all not test. DISCHARGE: process change landed +
       a one-time emit audit run. Surfaced: 2026-06-04 retrospective ([[2026-06-04-session-retrospective-structural-risks]]).
     first_raised: "2026-06-04"
-    last_reviewed: "2026-06-04"
+    last_reviewed: "2026-06-05"
     refs: |-
       D-260; lesson 2026-06-04-cross-compile-is-not-cross-run; ADR-0076 (gate topology D1 scope-classify);
       .claude/skills/continue/GATE.md; scripts/classify_chunk_scope.sh; scripts/run_remote_ubuntu.sh
