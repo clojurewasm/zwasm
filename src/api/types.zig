@@ -50,6 +50,7 @@ pub const extern_func: u8 = 0;
 pub const extern_global: u8 = 1;
 pub const extern_table: u8 = 2;
 pub const extern_memory: u8 = 3;
+pub const extern_tag: u8 = 4; // wasm.h WASM_EXTERN_TAG (exception-handling tag type)
 
 /// `wasm_externtype_t` — the shared header (a `kind` discriminant) the four
 /// concrete extern types embed as their FIRST field, so `*_as_externtype` /
@@ -84,6 +85,14 @@ pub const TableType = extern struct {
 pub const MemoryType = extern struct {
     kind: u8 = extern_memory,
     limits: Limits,
+};
+
+/// Opaque `wasm_tagtype_t` — an exception-handling tag type; wraps (owns) the
+/// functype that is the tag's parameter signature (wasm.h:252). `kind`-first
+/// layout matches the other externtypes so `_as_externtype` is a zero-alloc cast.
+pub const TagType = extern struct {
+    kind: u8 = extern_tag,
+    functype: ?*FuncType,
 };
 
 // =====================================================================
@@ -337,6 +346,101 @@ pub export fn wasm_memorytype_copy(mt: ?*const MemoryType) callconv(.c) ?*Memory
 }
 
 // =====================================================================
+// tagtype (exception-handling tag type; wraps an owned functype)
+// =====================================================================
+
+/// `wasm_tagtype_new(own functype)` — takes ownership of `ft`.
+pub export fn wasm_tagtype_new(ft: ?*FuncType) callconv(.c) ?*TagType {
+    const f = ft orelse return null;
+    const tt = ca.create(TagType) catch return null;
+    tt.* = .{ .functype = f };
+    return tt;
+}
+pub export fn wasm_tagtype_delete(tt: ?*TagType) callconv(.c) void {
+    const t = tt orelse return;
+    if (t.functype) |f| wasm_functype_delete(f);
+    ca.destroy(t);
+}
+pub export fn wasm_tagtype_functype(tt: ?*const TagType) callconv(.c) ?*const FuncType {
+    return (tt orelse return null).functype;
+}
+pub export fn wasm_tagtype_copy(tt: ?*const TagType) callconv(.c) ?*TagType {
+    const src = tt orelse return null;
+    const fcopy = if (src.functype) |f| wasm_functype_copy(f) else null;
+    const c = ca.create(TagType) catch {
+        if (fcopy) |f| wasm_functype_delete(f);
+        return null;
+    };
+    c.* = .{ .functype = fcopy };
+    return c;
+}
+
+// tagtype ↔ externtype (zero-alloc cast / checked downcast; kind = extern_tag).
+pub export fn wasm_tagtype_as_externtype(tt: ?*TagType) callconv(.c) ?*ExternType {
+    return @ptrCast(tt);
+}
+pub export fn wasm_tagtype_as_externtype_const(tt: ?*const TagType) callconv(.c) ?*const ExternType {
+    return @ptrCast(tt);
+}
+pub export fn wasm_externtype_as_tagtype(et: ?*ExternType) callconv(.c) ?*TagType {
+    const e = et orelse return null;
+    return if (e.kind == extern_tag) @ptrCast(@alignCast(e)) else null;
+}
+pub export fn wasm_externtype_as_tagtype_const(et: ?*const ExternType) callconv(.c) ?*const TagType {
+    const e = et orelse return null;
+    return if (e.kind == extern_tag) @ptrCast(@alignCast(e)) else null;
+}
+
+pub const TagTypeVec = extern struct { size: usize, data: ?[*]?*TagType };
+const TagTypeVecOps = PtrVecOps(TagType, TagTypeVec, wasm_tagtype_copy, wasm_tagtype_delete);
+pub export fn wasm_tagtype_vec_new_empty(out: ?*TagTypeVec) callconv(.c) void {
+    TagTypeVecOps.newEmpty(out);
+}
+pub export fn wasm_tagtype_vec_new_uninitialized(out: ?*TagTypeVec, size: usize) callconv(.c) void {
+    TagTypeVecOps.newUninit(out, size);
+}
+pub export fn wasm_tagtype_vec_new(out: ?*TagTypeVec, size: usize, src: ?[*]const ?*TagType) callconv(.c) void {
+    TagTypeVecOps.new(out, size, src);
+}
+pub export fn wasm_tagtype_vec_copy(out: ?*TagTypeVec, src: ?*const TagTypeVec) callconv(.c) void {
+    TagTypeVecOps.copy(out, src);
+}
+pub export fn wasm_tagtype_vec_delete(v: ?*TagTypeVec) callconv(.c) void {
+    TagTypeVecOps.delete(v);
+}
+
+test "tagtype: new (consumes functype) / functype / copy / as_externtype round-trip / vec" {
+    var pv: ValTypeVec = undefined;
+    var rv: ValTypeVec = undefined;
+    var params = [_]?*ValType{wasm_valtype_new(0)}; // (i32) -> ()
+    wasm_valtype_vec_new(&pv, params.len, &params);
+    wasm_valtype_vec_new(&rv, 0, null);
+    const ft = wasm_functype_new(&pv, &rv).?;
+    const tag = wasm_tagtype_new(ft).?; // takes ownership of ft
+    defer wasm_tagtype_delete(tag);
+    try testing.expectEqual(@as(usize, 1), wasm_tagtype_functype(tag).?.params.size);
+
+    // as_externtype round-trip (kind = extern_tag = 4).
+    const et = wasm_tagtype_as_externtype(tag).?;
+    try testing.expectEqual(extern_tag, wasm_externtype_kind(et));
+    try testing.expectEqual(tag, wasm_externtype_as_tagtype(et).?);
+    try testing.expect(wasm_externtype_as_functype(et) == null); // wrong-kind → null
+
+    // copy (deep — independent functype).
+    const c = wasm_tagtype_copy(tag).?;
+    defer wasm_tagtype_delete(c);
+    try testing.expect(c != tag);
+    try testing.expectEqual(@as(usize, 1), wasm_tagtype_functype(c).?.params.size);
+
+    // vec.
+    var elems = [_]?*TagType{wasm_tagtype_copy(tag)};
+    var vecz: TagTypeVec = undefined;
+    wasm_tagtype_vec_new(&vecz, elems.len, &elems);
+    try testing.expectEqual(@as(usize, 1), vecz.size);
+    wasm_tagtype_vec_delete(&vecz); // frees the copied tag
+}
+
+// =====================================================================
 // externtype — reinterpret-cast views over the 4 concrete types
 // =====================================================================
 
@@ -412,6 +516,7 @@ pub export fn wasm_externtype_delete(et: ?*ExternType) callconv(.c) void {
         extern_global => wasm_globaltype_delete(@ptrCast(@alignCast(e))),
         extern_table => wasm_tabletype_delete(@ptrCast(@alignCast(e))),
         extern_memory => wasm_memorytype_delete(@ptrCast(@alignCast(e))),
+        extern_tag => wasm_tagtype_delete(@ptrCast(@alignCast(e))),
         else => {},
     }
 }
@@ -422,6 +527,7 @@ pub export fn wasm_externtype_copy(et: ?*const ExternType) callconv(.c) ?*Extern
         extern_global => wasm_globaltype_as_externtype(wasm_globaltype_copy(@ptrCast(@alignCast(e)))),
         extern_table => wasm_tabletype_as_externtype(wasm_tabletype_copy(@ptrCast(@alignCast(e)))),
         extern_memory => wasm_memorytype_as_externtype(wasm_memorytype_copy(@ptrCast(@alignCast(e)))),
+        extern_tag => wasm_tagtype_as_externtype(wasm_tagtype_copy(@ptrCast(@alignCast(e)))),
         else => null,
     };
 }
