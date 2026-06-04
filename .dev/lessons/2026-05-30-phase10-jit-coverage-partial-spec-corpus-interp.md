@@ -1,7 +1,7 @@
 # Phase 10 JIT coverage is PARTIAL — the spec corpus runs via interp, the JIT does not cover GC
 
 **Date**: 2026-05-30 (cyc243 audit, user-requested)
-**Citing**: `<backfill>`; ROADMAP §10 (10.G/10.E/10.P `[ ]`); invariant I16
+**Citing**: `1f35d08d`; ROADMAP §10 (10.G/10.E/10.P `[ ]`); invariant I16
 **Keywords**: Phase 10, JIT, interp, wasm-3.0, GC, op_gc, spec corpus, instance.invoke,
 _dispatch.run, runI32Export, check_phase10_close_invariants, SKIP-vs-FAIL, close-eligible,
 10.P, over-optimism, scope verification

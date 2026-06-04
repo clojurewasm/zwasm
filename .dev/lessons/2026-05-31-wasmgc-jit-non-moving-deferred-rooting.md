@@ -1,7 +1,7 @@
 # JIT-ing WasmGC on a non-moving collector = op-emit, with rooting safely deferred
 
 **Date**: 2026-05-31 (web research for ADR-0128; user "100%" directive)
-**Citing**: `<backfill>` (ADR-0128); D-211
+**Citing**: `801037b3` (ADR-0128); D-211
 **Keywords**: WasmGC, JIT, GC codegen, non-moving, mark-sweep, deferred rooting,
 conservative stack scan, Riptide, precise stack maps, safepoint, Cohen display,
 supertype vector, ref.cast, CVE-2024-4761, i31 tag, struct.new, array, spec-corpus JIT,

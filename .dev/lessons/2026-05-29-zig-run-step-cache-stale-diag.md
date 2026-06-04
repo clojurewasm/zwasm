@@ -2,7 +2,7 @@
 
 **Date**: 2026-05-29
 **Cycle**: 10.E-xmodule-tags cycle 111
-**Citing**: `<backfill>` (cycle 111 chore commit)
+**Citing**: `f5884d31` (cycle 111 chore commit)
 
 ## What happened
 

@@ -1,7 +1,7 @@
 # Cross-module tail-call: the pinned-cohort save discipline is per-arch asymmetric
 
 **Date**: 2026-05-30
-**Citing**: ADR-0112 Amendment 2026-05-30 (`<backfill>`); D-206 step 2; D-210
+**Citing**: ADR-0112 Amendment 2026-05-30 (`7131d711`); D-206 step 2; D-210
 **Keywords**: return_call, cross-module, tail-call, pinned cohort, X19, X24-X28,
 R15, frame_teardown, bridge thunk, ADR-0066, ADR-0017, ADR-0026, grand-caller,
 cohort corruption, call-and-return, frame-consuming, D-142

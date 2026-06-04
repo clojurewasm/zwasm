@@ -2,7 +2,7 @@
 
 **Date**: 2026-05-29
 **Cycle**: 10.G-wasmgc cycle 121 (survey)
-**Citing**: `<backfill>` (cycle 121 chore commit)
+**Citing**: `664acf7e` (cycle 121 chore commit)
 
 ## Corpus state (direct-binary run)
 

@@ -1,7 +1,7 @@
 # Stale "blocked-by ADR-flip" debt rows mis-route the autonomous loop
 
 **Date**: 2026-05-30
-**Citing**: cyc234-235 session (D-195 / D-198 / D-202 navigation); `<backfill>`
+**Citing**: cyc234-235 session (D-195 / D-198 / D-202 navigation); `05266c03`
 **Keywords**: debt sweep, stale debt, barrier-dissolution, ADR Status, blocked-by,
 Proposed vs Accepted, narrative-claim-vs-landed-state, D-195, D-198, ADR-0123,
 ADR-0126, function-references corpus, bucket-3 false alarm, Step 0.5

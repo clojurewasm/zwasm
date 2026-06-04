@@ -2,7 +2,7 @@
 
 **Date**: 2026-05-28
 **Cycle**: 10.R-funcrefs-tail bundle Cycle 1 (95) — pure probe
-**Citing**: `<backfill>` (cycle 95 handover commit)
+**Citing**: `7fbb833c` (cycle 95 handover commit)
 
 ## What was tried
 

@@ -2,7 +2,7 @@
 
 **Date**: 2026-05-29
 **Cycle**: 10.G-wasmgc cycle 126
-**Citing**: `<backfill>` (cycle 126 feat commit)
+**Citing**: `7c201f97` (cycle 126 feat commit)
 
 ## What happened
 

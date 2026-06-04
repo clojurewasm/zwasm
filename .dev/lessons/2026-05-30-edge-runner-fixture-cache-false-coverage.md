@@ -1,6 +1,6 @@
 # Edge-runner fixtures were cached → false coverage (cyc216)
 
-**Date**: 2026-05-30 · **Citing**: `<backfill>` · Phase 10 (10.P I3 cross fixtures)
+**Date**: 2026-05-30 · **Citing**: `0b8d2a0b` · Phase 10 (10.P I3 cross fixtures)
 
 The `test/edge_cases` + `test/realworld` fixture runners are wired in
 `build.zig` as `addRunArtifact(edge_runner_exe)` with the corpus dir passed
