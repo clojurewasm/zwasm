@@ -18,9 +18,24 @@ echo "[check_jit_releasesafe] zig build -Doptimize=ReleaseSafe ..."
 zig build -Doptimize=ReleaseSafe >/dev/null
 echo "[check_jit_releasesafe] zwasm run --engine=jit $FIXTURE ..."
 if zig-out/bin/zwasm run --engine=jit "$FIXTURE" >/dev/null 2>&1; then
-    echo "[check_jit_releasesafe] OK — --engine=jit runs in ReleaseSafe (D-245 fixed)."
+    echo "[check_jit_releasesafe] OK — --engine=jit runs in ReleaseSafe (D-245 void path fixed)."
 else
     rc=$?
     echo "[check_jit_releasesafe] FAIL (exit $rc) — --engine=jit crashed in ReleaseSafe; D-245 callee-saved-preservation regressed (see src/engine/codegen/shared/entry.zig invokeAndCheckVoid)." >&2
+    exit 1
+fi
+
+# §15.5 chunk 1: the no-arg VOID path above does NOT cover the i32 RESULT path
+# (`runner.runI32Export` → `entry.invokeAndCheck` → `jitTrampoline`). The probe
+# step compiles a fresh `core` PINNED to ReleaseSafe + a host that holds live
+# callee-saved values across the JIT call, asserting the result (==42) and that
+# no live host slice was corrupted by the cohort clobber. Non-zero exit = the
+# RESULT-path trampoline regressed.
+echo "[check_jit_releasesafe] zig build jit-result-probe-releasesafe (RESULT path) ..."
+if zig build jit-result-probe-releasesafe >/dev/null 2>&1; then
+    echo "[check_jit_releasesafe] OK — runI32Export preserves the host cohort in ReleaseSafe (D-245 result path fixed)."
+else
+    rc=$?
+    echo "[check_jit_releasesafe] FAIL (exit $rc) — runI32Export crashed/mismatched in ReleaseSafe; D-245 RESULT-path preservation regressed (see src/engine/codegen/shared/entry.zig jitTrampoline / invokeAndCheck)." >&2
     exit 1
 fi

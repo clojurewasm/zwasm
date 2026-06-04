@@ -682,6 +682,39 @@ pub fn build(b: *std.Build) void {
     const test_realworld_run_jit_step = b.step("test-realworld-run-jit", "JIT-compile each realworld fixture (§9.7 / 7.9 baseline)");
     test_realworld_run_jit_step.dependOn(&run_realworld_run_jit.step);
 
+    // `zig build jit-result-probe-releasesafe` — D-245 RESULT-path gate
+    // (§15.5 / chunk 1). `check_jit_releasesafe.sh` only exercises the no-arg
+    // VOID path; the i32 RESULT path (`runner.runI32Export` →
+    // `entry.invokeAndCheck`) has its own host→JIT callee-saved-clobber seam.
+    // The bug ONLY manifests in ReleaseSafe, and an exe's optimize does NOT
+    // propagate to a pre-built `core` module — so this step compiles a FRESH
+    // `core` PINNED to ReleaseSafe (regardless of the ambient `-Doptimize`)
+    // plus the probe, then runs it. A non-zero exit = the clobber regressed.
+    const core_releasesafe = createSanitizedModule(b, sanitize_opts, .{
+        .root_source_file = b.path("src/zwasm.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+        .link_libc = true,
+    });
+    core_releasesafe.addImport("build_options", build_options_mod);
+    core_releasesafe.addIncludePath(b.path("include"));
+    core_releasesafe.addImport("zwasm", core_releasesafe);
+    const jit_result_probe_mod = createSanitizedModule(b, sanitize_opts, .{
+        .root_source_file = b.path("test/jit/releasesafe_result_probe.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+        .link_libc = true,
+    });
+    jit_result_probe_mod.addImport("zwasm", core_releasesafe);
+    const jit_result_probe_exe = b.addExecutable(.{
+        .name = "zwasm-jit-result-probe",
+        .root_module = jit_result_probe_mod,
+    });
+    const run_jit_result_probe = b.addRunArtifact(jit_result_probe_exe);
+    run_jit_result_probe.has_side_effects = true; // must run even when nothing else changed
+    const jit_result_probe_step = b.step("jit-result-probe-releasesafe", "D-245 RESULT-path ReleaseSafe regression probe (runI32Export callee-saved preservation)");
+    jit_result_probe_step.dependOn(&run_jit_result_probe.step);
+
     // `zig build test-realworld-diff` — Phase 6 / §9.6 / 6.F.
     // Spawns `wasmtime run <fixture>` per fixture, captures
     // stdout, compares byte-for-byte against

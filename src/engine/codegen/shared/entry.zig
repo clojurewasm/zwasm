@@ -136,6 +136,58 @@ const x86_64_win64_call_clobbers: if (builtin.target.cpu.arch == .x86_64 and bui
         // non-Win64 hosts: const value collapses to void.
     };
 
+/// D-245 (§15.5 chunk 1) — the callee-saved GPRs the JIT prologue clobbers.
+/// The prologue MOV-installs the pinned cohort (arm64 X19/X24-X28; x86_64
+/// RBX/R12-R15) from `rt` WITHOUT stack-saving the caller's values, so a plain
+/// host→JIT `@call` lets ReleaseSafe's optimized host lose any live value it
+/// kept there → heap-corruption SEGV. `jitTrampoline` clobber-lists this set
+/// so ITS prologue/epilogue saves & restores the cohort around the call,
+/// masking the JIT's clobber. XMM/FP is omitted — the JIT already preserves
+/// win64 XMM6-15, and the SysV/AAPCS64 FP cohort is caller-saved. The x86_64
+/// arm is identical for SysV and Windows (same JIT regalloc pool).
+const jit_cohort_clobbers: if (builtin.target.cpu.arch == .aarch64 or builtin.target.cpu.arch == .x86_64) std.builtin.assembly.Clobbers else void =
+    if (builtin.target.cpu.arch == .aarch64) .{
+        .x19 = true,
+        .x20 = true,
+        .x21 = true,
+        .x22 = true,
+        .x23 = true,
+        .x24 = true,
+        .x25 = true,
+        .x26 = true,
+        .x27 = true,
+        .x28 = true,
+        .memory = true,
+    } else if (builtin.target.cpu.arch == .x86_64) .{
+        .rbx = true,
+        .r12 = true,
+        .r13 = true,
+        .r14 = true,
+        .r15 = true,
+        .memory = true,
+    } else {
+        // other arches: no JIT cohort clobber; the const collapses to void.
+    };
+
+/// D-245 RESULT-path trampoline (§15.5 chunk 1). Non-inline by construction
+/// (called via `@call(.never_inline, …)`), so it has a real prologue/epilogue.
+/// The `asm volatile ("" ::: jit_cohort_clobbers)` after the JIT call forces
+/// THIS frame to save & restore the cohort the JIT clobbers, transparently
+/// preserving the host caller's callee-saved registers. No per-arg asm
+/// marshaling and no XMM handling — the default Zig calling convention passes
+/// `.{rt} ++ args` correctly and still preserves callee-saved registers.
+fn jitTrampoline(comptime R: type, f: anytype, rt: *JitRuntime, args: anytype) R {
+    const r = @call(.auto, f, .{rt} ++ args);
+    asm volatile ("" ::: jit_cohort_clobbers);
+    return r;
+}
+
+/// Void sibling of `jitTrampoline` for the arg'd void path.
+fn jitTrampolineVoid(f: anytype, rt: *JitRuntime, args: anytype) void {
+    @call(.auto, f, .{rt} ++ args);
+    asm volatile ("" ::: jit_cohort_clobbers);
+}
+
 pub const JitRuntime = jit_abi.JitRuntime;
 pub const SegmentSlice = jit_abi.SegmentSlice;
 pub const TableSlice = jit_abi.TableSlice;
@@ -169,7 +221,10 @@ inline fn invokeAndCheck(
     rt.stack_limit = stack_limit_mod.computeStackLimit(stack_limit_mod.STACK_GUARD_HEADROOM);
     rt.trap_flag = 0;
     stack_limit_mod.diagOnceWithRt(rt, jit_abi.stack_limit_off, rt.stack_limit);
-    const result = @call(.auto, f, .{rt} ++ args);
+    // D-245 (§15.5 chunk 1): route through the non-inline clobber-trampoline
+    // so the host's callee-saved cohort is preserved across the JIT call.
+    // `.never_inline` guarantees a real prologue/epilogue on `jitTrampoline`.
+    const result = @call(.never_inline, jitTrampoline, .{ R, f, rt, args });
     if (rt.trap_flag == 0) return result;
     if (rt.trap_kind == 4) std.debug.print("[d-165] kind=4 cumulative_trap_stub_entry_count={d}\n", .{rt.trap_stub_entry_count});
     return Error.Trap;
@@ -237,7 +292,10 @@ inline fn invokeAndCheckVoid(
               [rt_arg] "{rdi}" (rt),
             : x86_64_sysv_call_clobbers);
     } else {
-        @call(.auto, f, .{rt} ++ args);
+        // D-245 (§15.5 chunk 1): arg'd void path — preserve the host cohort
+        // via the non-inline clobber-trampoline. The no-arg arm64/x86_64
+        // branches above keep their dedicated manual-asm save/restore.
+        @call(.never_inline, jitTrampolineVoid, .{ f, rt, args });
     }
     if (rt.trap_flag != 0) return Error.Trap;
 }
