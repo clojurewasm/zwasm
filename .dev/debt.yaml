@@ -1017,26 +1017,6 @@ entries:
     last_reviewed: "2026-06-05"
     refs: |-
       src/api/module_serialize.zig; include/wasm.h:422-423 (serialize/deserialize); ROADMAP §16.2 G; D-269
-  - id: "D-272"
-    layer: "code"
-    status: "partial"
-    description: |-
-      **partial (§16.5 dogfooding, 完成形 Zig surface): Zig-level exported-Global / -Table accessors.** The §16.3
-      review found the facade had `Instance.memory()` + `typedFunc`/`invoke` but no Global/Table access (only the
-      C-API had `wasm_global_*`/`wasm_table_*`), forcing hosts to the C ABI. **GLOBAL HALF DONE (`27b3274a`, c4)**:
-      `Instance.global(name) → Global{get() Value, set(Value) !error.Immutable}` reads/writes the live
-      `rt.globals[idx]` cell + honours mutability (Wasm §4.5.5/6); T1.14 test + exercised from `examples/zig_dep/`;
-      runtime⇄facade Value conversion extracted to `src/zwasm/value_conv.zig`. **TABLE HALF REMAINING (c5)**:
-      `Instance.table(name) → Table{get/set(idx, Value), size(), grow(delta, init)}`. Design points for c5: reuse
-      the runtime table-grow path (not a hand-rolled realloc — see C-API `wasm_table_grow` at
-      `src/api/instance.zig:1315`); get/set marshal via `value_conv` against the table's `elem_type` (funcref slots
-      surface as opaque `?u64` inside `.funcref` Value — same D-269 limitation, not callable yet). DISCHARGE: land
-      the Table half; then accept (funcref-callable-from-table-slot is a deeper, separate enhancement).
-    first_raised: "2026-06-05"
-    last_reviewed: "2026-06-05"
-    refs: |-
-      src/zwasm/{global,value_conv,instance}.zig (Global half, 27b3274a); src/zwasm.zig (T1.14 + Global re-export);
-      ADR-0109; ROADMAP §16.5; src/api/instance.zig:1269-1338 (C-API table get/set/grow to mirror for c5)
   - id: "D-273"
     layer: "code"
     status: "note"
