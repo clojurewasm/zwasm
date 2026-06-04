@@ -1019,8 +1019,10 @@ entries:
       G module serialize/share (5, heaviest — own ADR). ✅A `c3a979fa` ✅B `2116a18b` ✅C+D `d77aa704`
       ✅instance.zig-split `092196b6` (ADR-0157) ✅E1 host_info trio `031e1c40` (func/global/table/memory/ref/
       extern, 18) ✅E2 host_info module+trap `faa03492` (6) ✅E3a host_info instance `fbbcd4bf` (3) — **host_info
-      COMPLETE (9 types).** **gap 129→67.** Remaining: E3b ref-cast/same/copy (~44, ref-model ADR); F tagtype/EH
-      (12); G serialize/share (5). DISCHARGE = gap count → 0 (run the script). Bundle `16.2-capi-completion`.
+      COMPLETE (9 types).** **gap 129→67.** Remaining: E3b ref-cast/same/copy (~44) — **model decided ADR-0158**
+      (foreign/func ref-view pattern; same=entity-identity; copy=instance-backed-shallow / standalone-null per
+      D-253-D); implement E3b-1 same → E3b-2 as_ref/ref_as → E3b-3 copy. Then F tagtype/EH (12); G serialize/share
+      (5). DISCHARGE = gap count → 0 (run the script). Bundle `16.2-capi-completion`.
       **E reconcile note (val ref representation)**: zwasm's `wasm_val_t.of.ref` holds the RAW GcRef payload
       (`@ptrFromInt(v.ref)`, see fromRuntimeValue), NOT an owned `wasm_ref_t*` — so val_copy is POD + val_delete
       no-op (consistent w/ val_vec_copy's shallow copy), but this DIVERGES from upstream's owned-handle contract:

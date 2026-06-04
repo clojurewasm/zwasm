@@ -42,15 +42,16 @@
   E3a `fbbcd4bf` instance). 27 fns, generic accessors in `host_info.zig`, finalizer fired in each `wasm_X_delete`.
   Instance field sits on `runtime.Instance` (zone-legal, import-free; chose field over side-table — simple +
   industry-std). Owned externs only fire the finalizer (borrowed cache-views don't — ref-model reconcile). Gap 67.
-- **§16.2 chunk E3b (ref-cast/same/copy; ~44) — NEXT**: the design-gated bulk. `_as_ref`/`ref_as_X`
-  (+`_const`) + `_same` + `_copy` for func/global/table/memory/extern/instance/module/trap/foreign (func_as_ref/
-  ref_as_func + foreign_as_ref/ref_as_foreign already done — D-253 B). **Needs the uniform `wasm_ref_t` model
-  decision (ADR)**: zwasm's `Ref` (handles.zig) is a funcref/externref PAYLOAD holder, NOT a generic base-class,
-  so `wasm_memory_as_ref` etc. (C-type-hierarchy upcast for non-reference objects) are "degenerate in zwasm's
-  model" (D-253). Option: ref payload = `@intFromPtr(obj)` like foreign (mechanical, conflates payload), vs a
-  tagged generic base Ref (bigger). Decide in an ADR; reconcile the val `of.ref`=raw-payload divergence (D-269)
-  here too. Step 0: read `extern_new.zig` (foreign as_ref/ref_as_foreign + ref copy/same) + `handles.zig` Ref.
-  Then F (tagtype/EH — needs `TagType`), G (serialize — own ADR).
+- **✅ E3b model decided — ADR-0158** (survey-grounded): extend the foreign/func ref-view pattern — `as_ref`
+  caches a borrowed `ref_view` Ref with payload `@intFromPtr(handle)`, `ref_as_X` = `@ptrFromInt` (caller-
+  guarantees-type, polymorphic payload); `same` = entity identity `(instance, idx)` not pointer (exports return
+  fresh handles); `copy` = instance-backed shallow clone, standalone-owner → null + D-253-D (registry needed).
+- **§16.2 chunk E3b implementation — NEXT** (guided by ADR-0158, TDD, ~44 fns): **E3b-1 `wasm_X_same`** (9 —
+  entity-identity helper over (instance,idx) for func/global/table/memory + pointer for instance/module/trap/
+  foreign + compound for extern; self-contained, do first) → **E3b-2 `wasm_X_as_ref`/`wasm_ref_as_X`(+const)**
+  (add `ref_view` fields to global/table/memory/extern/instance/module/trap structs; round-trip tests) →
+  **E3b-3 `wasm_X_copy`** (instance-backed clone / standalone-null). Then F (tagtype/EH — needs `TagType`),
+  G (serialize — own ADR).
 - After §16.2: §16.3 Zig-API review (reconcile D-267, ADR-0025 Revision), §16.4 CLI あるべき論 review,
   §16.5 dogfooding, §16.6 memory-safety (D-258→D-261), §16.7 docs LAST. Chain; pay debt en route.
 
