@@ -34,6 +34,13 @@ const host_add_wasm = [_]u8{
     0x00, 0x20, 0x01, 0x10, 0x00, 0x0b,
 };
 
+// (module (memory (export "mem") 1))
+const mem_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x05, 0x03, 0x01, 0x00, 0x01, 0x07, 0x07, 0x01,
+    0x03, 0x6d, 0x65, 0x6d, 0x02, 0x00,
+};
+
 fn hostAdd(_: *Caller, a: i32, b: i32) i32 {
     return a +% b;
 }
@@ -74,5 +81,19 @@ pub fn main() !void {
         const r = try go.call(.{ 4, 7 });
         std.debug.print("zwasm zig_dep: go(4, 7) via host env.add = {d}\n", .{r});
         if (r != 11) std.process.exit(3);
+    }
+
+    // (3) Linear-memory access from the host via the Memory facade.
+    {
+        var mod = try eng.compile(&mem_wasm);
+        defer mod.deinit();
+        var inst = try mod.instantiate(.{});
+        defer inst.deinit();
+
+        const mem = inst.memory() orelse std.process.exit(4);
+        try mem.write(0x100, @as(i32, 1234));
+        const got = try mem.read(i32, 0x100);
+        std.debug.print("zwasm zig_dep: memory[0x100] = {d} ({d} page(s))\n", .{ got, mem.size() });
+        if (got != 1234) std.process.exit(5);
     }
 }
