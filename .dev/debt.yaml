@@ -1002,6 +1002,28 @@ entries:
     refs: |-
       src/ir/analysis/local_homing.zig:60,87 (max_homed @min(6, arch)); ADR-0155 (register-homed locals);
       ADR-0153 (D-265 campaign); bench/results/s15p_parity_vs_v1.md; ROADMAP §16 (完成形 surface/perf bar)
+  - id: "D-269"
+    layer: "code"
+    status: "now"
+    description: |-
+      **C-API completeness gap (§16.2 audit): 129 of 293 standard wasm-c-api extern functions are
+      declared-but-unimplemented.** `include/wasm.h` is byte-identical to upstream latest (we ship the
+      verbatim standard — correct; wasmtime vendors a copy, wasmer symlinks it), but a C consumer calling
+      e.g. `wasm_func_type()` link-errors. wasmtime + wasmer implement 100% of standard wasm.h; wazero
+      ships no C-API (pure-Go); decision = implement the full standard surface, NOT wasmtime's 60+ ext
+      headers (ADR-0156 lightweight-yet-fast bar). Live count: `bash scripts/capi_surface_gap.sh`.
+      Categories (full breakdown + sequencing: `.dev/c_api_surface_audit_2026-06-04.md`):
+      A type accessors (6, no design) · B per-type vec ops (~30, vec.zig generic) · C config (3) ·
+      D val_copy/val_delete (2) · E ref-cast/same/copy/host_info (~71 — D-253 territory: uniform ref model
+      + per-object host_info; foreign+host_info + funcref cross-cast already done) · F tagtype/EH (12) ·
+      G module serialize/share (5, heaviest — own ADR). DISCHARGE = gap count → 0 (run the script); close
+      A–D first (low design), then E via D-253, then F, then G. Bundle `16.2-capi-completion`.
+    first_raised: "2026-06-04"
+    last_reviewed: "2026-06-04"
+    refs: |-
+      include/wasm.h (verbatim upstream); src/api/{module_introspect,types,vec,instance,extern_new}.zig;
+      scripts/capi_surface_gap.sh (live checker); .dev/c_api_surface_audit_2026-06-04.md (full audit);
+      D-253 (E subset); ADR-0004 (wasm-c-api pin); ADR-0156 (完成形 surfaces); ROADMAP §16.2
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
