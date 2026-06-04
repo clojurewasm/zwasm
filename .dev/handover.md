@@ -5,56 +5,54 @@
 
 ## Current state
 
-- **Phase 16 (Public release v0.1.0 🔒) IN-PROGRESS.** Phases 0–15 DONE. **§16.1 migration guide DONE**
-  (`58a483e8`, `docs/migration_v1_to_v2.md`, grounded in the shipped `src/zwasm.zig` facade API).
-  **D-267 surfaced**: ROADMAP §10.A/ADR-0025 D-7 name `Runtime`/`Module.parse` but the SHIPPED+tested API is
-  `Engine`/`eng.compile`/`inst.typedFunc` (code correct, spec stale) → all public docs use shipped names;
-  reconcile §10.A/ADR-0025 when writing §16.4 API ref.
-- **Phase 15 CLOSED** (§15.P parity-vs-v1 measured + the D-265 register-homing rework campaign closed).
-  §15.1 GC reclamation DONE (`be4357be`). §15.2/15.3 regalloc-axis perf folded — **ADR-0149/0150 Revision
-  landed** (the "~0 headroom" claim measured the wrong proxy; real headroom existed on the loop-local
-  hot path, recovered by D-265). §15.4 SIMD DONE (`1029e5b4`). §15.5 win64 trampoline DONE (`510ffce9`).
-  §15.6 ClojureWasm CI ⏸ DEFERRED (ADR-0152 → D-264). §15.P close `[x]` this cycle.
-- **D-265 rework campaign (ADR-0153) DONE — all 5 phases.** Register-homed i32/i64 locals on BOTH backends
-  (arm64 `a64c72a1`/`5d1dd221`, x86_64 `e8b7ad10`). **ROI met**: arm64 `w45_addi` 2.30×→**0.97×**; x86_64
-  (Rosetta) reads-i/control differential 2.4×→**1.0×** (loop-local reload penalty eliminated). **Verified
-  3-host**: Mac arm64 + Rosetta x86_64-macos + **ubuntu x86_64-linux test-all GREEN** (`33fe020a`, spec
-  25437/0, fac-i64/recursive correct = the cases the first try `f31affa1` miscompiled). Findings +
-  post-rework table: `bench/results/s15p_parity_vs_v1.md` (doc-state RESOLVED).
+- **Phase 16 = Completion finalization (完成形) IN-PROGRESS — NOT a release march (ADR-0156).** Phases 0–15
+  DONE. **The loop never tags/publishes/cuts over; release is manual user-only; no release gate exists.**
+  Goal = clean design + lightweight-fast + full-featured + 100% spec across the runtime AND the surfaces
+  (C/Zig/CLI), to あるべき論 + industry standards, **breaking v1 allowed, v1 full-parity NOT a goal**.
+- **ADR-0156 (this session, user-directed)**: redirected the endgame after the loop mis-marched toward a
+  "v0.1.0 release." Reworked the steering: ROADMAP §1.1/§1.2 + Phase 16 + Phase Status widget + continue
+  SKILL frozen-invariant + CLAUDE.md. Debt repaid aggressively; industry research (web search / reference
+  runtimes) is part of the work.
+- **Phase 15 CLOSED**: §15.P parity measured + the D-265 register-homing rework campaign (ADR-0153) DONE
+  (register-homed locals both backends; arm64 `w45_addi` 2.30×→0.97×; x86_64 reload penalty eliminated;
+  ubuntu x86_64-linux test-all GREEN). ADR-0149/0150 Revision landed. §15.6 ClojureWasm ⏸ DEFERRED (D-264).
+- **§16.1 migration guide DONE** (`58a483e8`, grounded in the shipped `src/zwasm.zig` facade). Surfaced
+  **D-267** (ROADMAP §10.A/ADR-0025 name `Runtime`/`Module.parse`; ships `Engine`/`eng.compile`/`typedFunc`
+  — code correct, spec stale). Will be revised as the §16.2–4 surface audits settle.
 
-## NEXT (autonomous)
+## NEXT (autonomous — surfaces first, docs last; ADR-0156)
 
-- **§16.2 — write `CHANGELOG.md`** (v0.1.0 entry from Phase 0–15 ADR/commit history: features shipped, the
-  v1-parity line §1.2, known deferrals D-211/D-258/D-264/D-266 + §15.6). Then §16.3 README, §16.4
-  `docs/reference/` API (reconcile D-267 §10.A/ADR-0025 naming here), §16.5 `docs/tutorial/`. Autonomous
-  docs work — chain them. Use the shipped `Engine`/`compile`/`typedFunc` names (D-267) in all examples.
-- **§16.P is the 🔒 RELEASE GATE — user-gated.** Cutting the `v0.1.0` GitHub tag + publishing binaries is
-  outward-facing/irreversible: the loop prepares §16.1–5, then STOPS and surfaces to the user before
-  tagging. Do NOT self-tag/publish.
+- **§16.2 — C-API surface audit vs wasm-c-api.** Audit `include/wasm.h` + `src/api/` against the upstream
+  wasm-c-api standard (the interface wasmtime/wasmer follow; cf. ADR-0004 pin). Read the upstream header +
+  a reference runtime's binding; list divergences (missing funcs, wrong shapes); fix code AND the tests if
+  they encoded a wrong shape. Industry-standard is the bar. (Step 0 survey: subagent — upstream wasm-c-api
+  + src/api/.) Then §16.3 Zig-API review (reconcile D-267, ADR-0025 Revision), §16.4 CLI あるべき論 review,
+  §16.5 minimal-wrapper dogfooding (local build.zig.zon consumer; API/CLI-gap hunt; reuse test corpus),
+  §16.6 memory-safety (D-258→D-261), §16.7 docs LAST (after surfaces settle). Chain; pay debt en route.
 
 ## Step 0.7 (next resume)
 
 **No pending ubuntu verification** — the D-265 campaign's last emit commit `e8b7ad10` is ubuntu-test-all
-GREEN (`/tmp/ubuntu.log`, HEAD=33fe020a). Phase 16 is docs-only → no per-arch emit, no ubuntu kick needed.
-**D-262 process rule still stands**: any NEW per-arch emit chunk (should one arise) → `run_remote_ubuntu
-test-all` (NOT narrow `test`) before discharge (cross-compile ≠ cross-run; lesson `cross-compile-is-not-cross-run`).
-**Gate hygiene**: Step-5 Mac = `bash scripts/mac_gate.sh`. windowsmini exec = phase boundary.
+GREEN (`/tmp/ubuntu.log`, HEAD=33fe020a). The §16 surface-audit / docs work is mostly non-emit; if a chunk
+touches per-arch emit, **D-262 rule**: `run_remote_ubuntu test-all` (NOT narrow `test`) before discharge
+(cross-compile ≠ cross-run; lesson `cross-compile-is-not-cross-run`). **Gate hygiene**: Step-5 Mac =
+`bash scripts/mac_gate.sh`. windowsmini exec = phase boundary.
 
 ## Deferred / open debt
 
-- **STRUCTURAL RISKS (hub: lesson `session-retrospective-structural-risks`)** — **D-261** (NOW, top stakes)
-  GC-on-JIT conservative rooting has NO adversarial test → latent UAF (+ D-258 JIT GC trigger). **D-210**
-  (blocked-by) cohort root fix recurring at 4 seams (D-142/206/210/245) — decide root-vs-patch. (D-262/D-263
-  discharged: D-262 process rule internalized; D-263 parity now MEASURED + the regression FIXED via D-265.)
-- **D-266** (note) native-x86_64 absolute ROI vs v1 unmeasured (confirmation-only; mechanism proven fixed +
-  ubuntu green). **D-258** (NOW) JIT-trampoline GC collect trigger. **D-211** (blocked-by) precise GcRootMap.
-  **D-259** (note) spillBytes footprint. **D-257** 10 lesson `Citing` backfill. **D-255** C-API WASI io.
-  **D-254** rust 3-OS. **D-253** §13.2 host_info. **D-251** WASI in AOT. **D-249** win bench. **D-238** x86_64
-  EH thunk. D-234/237/229/231/204/209/213.
+- **Memory-safety (highest stakes; §16.6 target)** — **D-261** GC-on-JIT conservative rooting has NO
+  adversarial test → latent UAF, **blocked on D-258** (JIT-trampoline GC collect trigger not wired). Close
+  D-258 then D-261 before calling GC-on-JIT 完成形. Hub: lesson `session-retrospective-structural-risks`.
+- **Surface-correctness** — **D-267** (Zig API `Runtime`/`Engine` doc-vs-code drift; §16.3). **D-262** rule
+  (x86_64/win64 emit cross-run verification). **D-268** (note) x86_64 homing ≤2 locals — narrower
+  parity than arm64=6 (from the compiler-bug-lens review this session).
+- **D-210** (blocked-by) cohort root fix recurring at 4 seams (D-142/206/210/245) — root-vs-patch. **D-211**
+  precise GcRootMap. **D-266/D-259** notes. **D-257** 10 lesson `Citing` backfill. **D-255** C-API WASI io.
+  **D-254** rust 3-OS. **D-253** host_info. **D-251** WASI in AOT. **D-249** win bench. **D-238** x86_64 EH thunk.
 
 ## Key refs
 
-- ROADMAP §16 task table (16.1 migration → 16.2 CHANGELOG → 16.3 README → 16.4 API ref → 16.5 tutorial →
-  16.P 🔒 release gate). Phase Status widget (15 DONE / 16 IN-PROGRESS). ADR-0025 (stable Zig surface +
-  §D migration-guide chain); ADR-0153 (D-265 rework campaign); ADR-0149/0150 (perf folds + 2026-06-04
-  Revision); ADR-0151 (W45 folded). §1.1/§1.2/§3.2 (v0.1.0 parity line + v1-ABI drop).
+- ROADMAP §16 (completion-finalization table: 16.2 C-API audit → 16.3 Zig-API → 16.4 CLI → 16.5 dogfooding
+  → 16.6 memory-safety → 16.7 docs; NO release gate). §1.2 (完成形 line, industry-standard surfaces). Phase
+  Status widget (15 DONE / 16 IN-PROGRESS). ADR-0156 (endgame redirection); ADR-0025 (Zig surface, D-267
+  reconcile target); ADR-0004 (wasm-c-api pin); ADR-0153 (design priority / D-265 campaign).

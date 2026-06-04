@@ -374,6 +374,20 @@ Detection at Resume Step 2 + Step 7 re-target: row body contains 🔒 +
 one-sentence handoff. Hard gate is NOT bucket-2; it's "this needs the
 user; don't proceed silently".
 
+### Frozen invariant — the loop NEVER releases (ADR-0156)
+
+Tagging a release, publishing binaries, or any `main` cutover is a
+**manual, user-only act**. The loop has **no autonomous path to a
+release** and **no release gate exists** as a loop construct — it does
+NOT prepare-then-tag, surface "ready to release," or treat any phase as
+a march toward a version. Phase 16 is **completion finalization (完成形)**
+— surface audits (C/Zig/CLI, あるべき論 + industry-standard,
+breaking-allowed; NOT v1 parity) + dogfooding + memory-safety + debt
+repayment — pursued indefinitely. The loop keeps improving toward the
+完成形 bar; when it is hit, the loop keeps refining / paying debt, never
+"shall I release?". Version / tag / cutover come only from an explicit
+user message.
+
 ## Reference tables — see `LOOP.md`
 
 - **Chunk types** — `emit` / `architectural` / `survey` / `test-only`

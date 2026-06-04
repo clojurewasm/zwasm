@@ -67,32 +67,48 @@ ecosystem compatibility, and a dual-backend (interpreter + JIT-arm64
 - **Differential-tested**: interpreter ↔ JIT-arm64 ↔ JIT-x86
   three-way equivalence is the primary correctness gate.
 - **No backwards compatibility with v1**: breaking the v1 ABI is
-  intentional. Migration guide ships at v0.1.0.
+  intentional, and **breaking changes to the surfaces (C API / Zig API /
+  CLI) are allowed in service of the right design** (ADR-0156). A v1→v2
+  migration guide exists (`docs/migration_v1_to_v2.md`); **there is no
+  release the loop controls** — see §1.2 + Phase 16.
 
-### 1.2 v0.1.0 feature line — parity with zwasm v1
+### 1.2 Completion line — industry-standard surfaces, breaking-allowed (ADR-0156)
 
-**v0.1.0 release = match what zwasm v1 main currently ships, plus
-wasm-c-api standardisation:**
+**The endgame is 完成形, not a version.** The bar is clean final design +
+good design + lightweight-yet-fast + full-featured + 100% spec — across the
+runtime **and all consumer surfaces (C API / Zig API / CLI)** — measured
+against **あるべき論 + industry standards** (wasm-c-api,
+wasmtime/wasmer/wazero, the Wasm/WASI specs), **not v1 feature-by-feature
+parity**. Breaking v1 is allowed; v1's full surface (esp. its CLI subcommand
+/ flag sprawl) is **explicitly not a requirement**.
 
-| Surface                    | zwasm v1 status (2026-04-30)                                   | zwasm v2 v0.1.0 commitment                       |
-|----------------------------|----------------------------------------------------------------|--------------------------------------------------|
-| Wasm 3.0 (9 proposals)     | Complete                                                       | Complete                                         |
-| Wide arithmetic            | Complete                                                       | Complete                                         |
-| Custom page sizes          | Complete                                                       | Complete                                         |
-| WASI 0.1                   | Complete                                                       | Complete                                         |
-| 4-platform JIT             | aarch64-darwin / aarch64-linux / x86_64-linux / x86_64-windows | Same                                             |
-| Spec testsuite             | 62,263 / 62,263 (100 %, 0 skip)                                | Same                                             |
-| Real-world samples         | 50/50 (Mac+Linux), 25/25 (Windows subset)                      | Same                                             |
-| Binary footprint           | 1.20–1.60 MB stripped                                         | comparable (no fixed numeric target — see §12) |
-| **wasm-c-api conformance** | **Custom ABI only**                                            | **Standard `wasm.h` + `zwasm.h` extensions**     |
+The **correctness floor** below is the industry-standard bar (it happens to
+match what v1 also shipped — but it is required because it is the spec/
+ecosystem bar, not because v1 had it):
 
-> **Parity is the line (ADR-0153).** A *measured* v0.1.0 parity miss vs
-> v1 rooted in a deliberate v2 simplification (e.g. D-265: the
-> single-pass deterministic-slot regalloc is ~2.3× slower than v1 on
-> loop-locals) is **scheduled as a correctness-first rework campaign**
-> (`.claude/skills/continue/REWORK.md`), not deferred past v0.1.0 — v0.1.0
-> is not urgent; parity + design quality gate it. The rework improves the
-> **single-pass baseline** within P3/P6 (no optimising tier, §1.3/§3.2).
+| Surface (correctness floor) | Requirement                                               |
+|-----------------------------|-----------------------------------------------------------|
+| Wasm 3.0 (9 proposals)      | Complete                                                  |
+| Wide arithmetic             | Complete                                                  |
+| Custom page sizes           | Complete                                                  |
+| WASI 0.1                    | Complete                                                  |
+| 4-platform JIT              | aarch64-darwin / aarch64-linux / x86_64-linux / x86_64-windows |
+| Spec testsuite              | 100 %, 0 skip                                            |
+| **wasm-c-api conformance**  | **Standard `wasm.h`** (the interface wasmtime/wasmer follow) + minimal `wasi.h` / `zwasm.h` extensions |
+
+The **surfaces (C / Zig / CLI)** are designed to the あるべき論 minimal,
+industry-standard shape — breaking v1 freely. The CLI does NOT owe v1 its
+`validate`/`inspect`/`features`/`wat`/`wasm` subcommands or its capability-flag
+set; it ships the truly-necessary, simple form.
+
+> **完成形 is the line, never a release date (ADR-0153 + ADR-0156).** A
+> *measured* design/completeness/performance deficiency (e.g. D-265: the
+> single-pass deterministic-slot regalloc was ~2.3× slower than v1 on
+> loop-locals — closed by the register-homing campaign) is **scheduled as a
+> correctness-first rework**, never deferred to "after a release." There is
+> **no autonomous release**: the loop improves toward 完成形 indefinitely;
+> tagging / publishing / any main cutover is a **manual, user-only act** and
+> does not exist as a loop construct (§Phase 16).
 
 ### 1.3 v0.2.0 line and beyond (post-v0.1.0)
 
@@ -1195,7 +1211,7 @@ of each phase advances it.
 | 13    | DONE        | C API full (wasm-c-api conformance) — deliverables 3-host-green; §13.P re-scoped past D-245 win64 (ADR-0144) |
 | 14    | DONE        | CI matrix infrastructure — workflows + fuzz infra; §14.P re-scoped past D-245 win64 (ADR-0145) |
 | 15    | DONE        | Performance parity with v1 (§15.P parity measured + D-265 register-homing rework closed; §15.6 ClojureWasm DEFERRED → D-264) |
-| 16    | IN-PROGRESS | Public release v0.1.0 🔒 (final gate — release tag/publish is user-gated)                    |
+| 16    | IN-PROGRESS | Completion finalization (完成形) — surface audits (C/Zig/CLI) + dogfooding + memory-safety + docs; **release is user-only, no autonomous gate** (ADR-0156) |
 
 State values: `IN-PROGRESS` (one phase at a time), `PENDING`,
 `DONE`. Update this table whenever §9.<N>.7 closes a phase or when
@@ -1631,37 +1647,52 @@ migration):
 | 15.6 | **ClojureWasm CI green** with its `zwasm` dep pointing at a local `build.zig.zon` `path = …` to `zwasm_from_scratch/` (no ClojureWasm-side commits needed for v2-experimental validation). **⏸ DEFERRED (ADR-0152 → D-264)**: `ClojureWasmFromScratch` is itself a from-scratch v1 redesign IN PROGRESS (branch `cw-from-scratch`, v0.0.0, deps=zlinter only, no `zwasm` dep, no CI); the stable cw is v0.5.0 on `main`. Its zwasm-v2 wasm-FFI consumer is cw's OWN future internal phase → nothing to validate today. Barrier dissolves when cw-v1 lands committed `@import("zwasm")` source. v2 package-consumability already proven by `examples/zig_host/` (ADR-0109). | [ ]⏸ |
 | 15.P | Phase 15 close — **parity-vs-v1 validation** (fixed combined-≥10% replaced per ADR-0149/0150: regalloc-axis §15.2+§15.3 measured ~0 headroom, v2 emit already efficient). **HARD gate (D-263, not optional)**: (1) an actual **v2-vs-v1 steady-state bench** on ≥3 loop-heavy + ≥1 SIMD-loop fixture (v1 from its clone / existing baseline) — no unexplained regression vs v1; (2) the **W45 loop-isolated measurement** (≥50M-iter v128-local-carrying loop / no-op-module baseline subtraction, per ADR-0151 — if v2's per-iteration v128-reload dominates a long loop, **re-open W45** with the data) + record the already-efficient finding (§15.2/15.3/15.4 all measured) + opportunistic D-259 spillBytes cleanup if a net win. 3-host reconcile = **DONE** (D-245 landed `510ffce9`, test-all 3-host green). **§15.6 DEFERRED (ADR-0152 → D-264)** — Phase 15 closes WITHOUT it. + widget 15 → DONE + Phase 16 inline expand. **✅ DONE**: (1) v2-vs-v1 bench done (`bench/results/s15p_parity_vs_v1.md`) — found a real 2.30× regression on loops reading a loop-carried local (D-265), NOT hand-waved; (2) W45 loop-isolated measurement done → v128-local loop 0.49× (v2 2× faster) → W45 stays folded (ADR-0151 re-open trigger NOT met). The D-265 regression was resolved by the **register-homing rework campaign** (ADR-0153, phases I–V; arm64 `a64c72a1`/`5d1dd221` + x86_64 `e8b7ad10`): loop-local reload penalty ELIMINATED on both backends (arm64 2.30×→0.97×; x86_64 reads-i/control differential 2.4×→1.0×; 3-host green incl. ubuntu test-all). ADR-0149/0150 Revision landed (the "~0 headroom" fold measured the wrong proxy). D-259 spillBytes = footprint-only, left open (no perf); native-x86_64 absolute ROI = D-266 note (confirmation-only). | [x]  |
 
-### Phase 16 — Public release v0.1.0 🔒
+### Phase 16 — Completion finalization (完成形); release is user-only (ADR-0156)
 
-**Goal**: zwasm v2 replaces v1 as the recommended runtime.
+**Goal**: bring zwasm v2 to the 完成形 bar — clean final design + good design +
+lightweight-yet-fast + full-featured + 100% spec — **across the runtime AND all
+consumer surfaces (C API / Zig API / CLI)**, designed to あるべき論 + industry
+standards (breaking v1 freely; v1 full-parity is NOT the goal — §1.2).
 
-**Exit criterion**:
+**There is NO release in this phase.** Tagging / publishing / any main cutover is
+a **manual, user-only act** (ADR-0156); the loop has no autonomous path to a
+release and **no release gate exists** as a loop construct. The loop works the
+items below toward 完成形 indefinitely and pays debt down aggressively;
+version / tag / cutover are a separate, explicit future user decision.
 
-- All Phase 0-15 exit criteria still hold.
-- `CHANGELOG.md`, `docs/migration_v1_to_v2.md`, `README.md` complete.
-- `docs/reference/` (API), `docs/tutorial/` complete.
-- GitHub release tag `v0.1.0` cut; binaries published for all 3 OS.
-- `bench/history.yaml` v0.1.0 baseline rows recorded on all 3 OS.
+**Completion bar** (what "done" means — not a release trigger):
 
-**🔒 gate**: yes — final gate.
+- All Phase 0–15 correctness floors hold (§1.2): Wasm 3.0 + WASI 0.1 + 4-platform
+  JIT + spec testsuite 100%/0-skip + wasm-c-api conformance.
+- The surfaces (C / Zig / CLI) are at their あるべき論 minimal industry-standard
+  shape, audited and dogfooded; no "usable from CLI but unreachable from the API"
+  gaps; the public docs match the settled surface.
+- Memory-safety verified (the D-258 → D-261 GC-on-JIT rooting chain), debt ledger low.
 
-#### §16 task table (opened 2026-06-04 at Phase-15 close)
+#### §16 task table (reframed 2026-06-04 per ADR-0156)
 
-The documentation tasks (§16.1–§16.5) are autonomous engineering work. The
-**release tag + binary publish (§16.P) is the 🔒 user-gated step** — outward-facing
-and irreversible; the loop prepares everything up to it and stops there for the user.
+Order: settle the **surfaces** (audit + dogfood) and the **safety** debt FIRST;
+**docs come last** (no point finalising docs for a surface that is still being
+designed). The §16.1 migration guide already exists and will be revised as the
+surface audits land. Debt repayment + industry research (web search / reference
+runtimes) are cross-cutting, not a single row.
 
 | #    | Task                                                                                                                                                                          | Status |
 |------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------|
-| 16.0 | Open §16 inline + flip Phase Status widget (Phase 15 → DONE; Phase 16 → IN-PROGRESS).                                                                                         | [x]    |
-| 16.1 | `docs/migration_v1_to_v2.md` — v1→v2 migration guide (ADR-0025 §D ships the Zig-surface section; v1-ABI dropped per §1.1/§3.2; CLI/C-API/WASI deltas). Ships at v0.1.0 (§1.1). Grounded in the shipped+tested API (`src/zwasm.zig` facade); surfaced D-267 (§10.A/ADR-0025 name `Runtime`, ships `Engine` — reconcile at §16.4). | [x] `58a483e8` |
-| 16.2 | `CHANGELOG.md` — v0.1.0 entry from the Phase 0–15 ADR/commit history (features shipped, v1-parity line per §1.2, known deferrals D-211/D-258/D-264/D-266 + §15.6).            | [ ]    |
-| 16.3 | `README.md` — install, 3-line happy paths (Zig embed §10.A / CLI §10.B / C-API §10.C), supported Wasm proposals + tier table (§11), build/test, 3-OS support matrix.         | [ ]    |
-| 16.4 | `docs/reference/` — public API reference for the stable surface (ADR-0025 D-7: Runtime/Module/Instance/Trap/Value/WasiConfig/ImportEntry/TypedFunc/ParseError/InstantiateError) + CLI subcommands + C header. | [ ]    |
-| 16.5 | `docs/tutorial/` — getting-started walkthrough (embed a `.wasm`, run via CLI, compile `.cwasm`, host a C-API consumer).                                                       | [ ]    |
-| 16.P | **🔒 RELEASE GATE (user-gated)** — all Phase 0–15 exits still hold + §16.1–5 complete; cut GitHub tag `v0.1.0`; publish binaries for all 3 OS; record `bench/history.yaml` v0.1.0 baseline rows on all 3 OS. Loop STOPS and surfaces to the user before tagging/publishing. | [ ]    |
+| 16.0 | Open §16 inline + flip Phase Status widget (Phase 15 → DONE; Phase 16 → IN-PROGRESS). Reframed to completion-finalization per ADR-0156.                                       | [x]    |
+| 16.1 | `docs/migration_v1_to_v2.md` — v1→v2 migration guide, grounded in the shipped+tested API (`src/zwasm.zig` facade). Surfaced D-267 (§10.A/ADR-0025 name `Runtime`, ships `Engine`). **Will be revised** as the §16.2–4 surface audits settle. | [x] `58a483e8` |
+| 16.2 | **C-API surface audit vs wasm-c-api** — audit `include/wasm.h` + `src/api/` against the upstream wasm-c-api standard wasmtime/wasmer follow; close any divergence; **fix the tests too** if they encoded a wrong shape. Industry-standard is the bar. | [ ]    |
+| 16.3 | **Zig-API surface review (あるべき論)** — confirm the `Engine`/`Module`/`Instance`/`Trap`/`Value`/`TypedFunc`/`Linker`/`Caller`/`Memory` surface is the minimal, clean, idiomatic shape; **reconcile D-267** (`Runtime`/`Module.parse` spec wording → shipped `Engine`/`compile`, or alias) — Revision on ADR-0025. Breaking-allowed. | [ ]    |
+| 16.4 | **CLI surface review (あるべき論, breaking-allowed)** — design the truly-necessary, simple, industry-standard CLI; v1's `validate`/`inspect`/`features`/`wat`/`wasm` + capability-flag sprawl is NOT owed. Decide + implement the kept surface; close "CLI-only vs API-only" capability gaps surfaced by §16.5. | [ ]    |
+| 16.5 | **Minimal-wrapper dogfooding** — a local `build.zig.zon` path-dep consumer that uses zwasm v2 as a Zig library; verify it stands up cleanly, hunt ergonomic gaps + "usable from CLI but unreachable from the API" mismatches; reuse the existing test corpus where adaptation makes it serve double duty. (cw-v1 dogfooding stays deferred — D-264.) | [ ]    |
+| 16.6 | **Memory-safety completion** — D-258 (wire the JIT-trampoline GC collection trigger) → D-261 (the GC-on-JIT conservative-rooting **adversarial** test that D-258 unblocks). Close the latent-UAF gap before calling the GC-on-JIT path 完成形. | [ ]    |
+| 16.7 | **Docs finalization (AFTER §16.2–6 settle)** — `README.md` (install, 3-line happy paths, Wasm proposal/tier table §11, 3-OS matrix), `docs/reference/` (API ref for the settled surface), `docs/tutorial/`, `CHANGELOG.md`. Match the finalised surface, not a moving target. | [ ]    |
 
-### Post-v0.1.0 (v0.2.0 line)
+> **No 🔒 release gate row.** Per ADR-0156 the release is user-only and outside
+> the loop; the loop never prepares-then-tags. When every item above hits 完成形,
+> the loop keeps refining / paying debt — it does not surface "ready to release."
+
+### Post-completion (v0.2.0 line)
 
 - Component Model + WASI 0.2.
 - Threads + atomics.

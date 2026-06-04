@@ -981,6 +981,27 @@ entries:
     refs: |-
       src/zwasm.zig (Engine/Module/Instance/TypedFunc/Linker/Caller/Memory exports + 13 facade tests);
       ROADMAP §10.A; ADR-0025 (D-7 stable surface); docs/migration_v1_to_v2.md (§16.1); ROADMAP §16.4 (API ref)
+  - id: "D-268"
+    layer: "perf"
+    status: "note"
+    description: |-
+      **note: x86_64 register-homing caps at max_homed=2 (arm64=6) → narrower loop-local parity on x86_64.**
+      `src/ir/analysis/local_homing.zig:60,87` — `max_homed = @min(6, arch)`: arm64 (8 allocatable GPRs) → 6,
+      x86_64 (4 allocatable, both SysV/Win64, all callee-saved RBX/R12-R14 + spill-around-call cost) → 2. The
+      D-265 campaign's measured fixture `w45_addi` carries exactly 2 hot locals (`a` accumulator + `i` counter)
+      so x86_64 hit parity there; but loops with **3+ hot locals retain partial spill on x86_64** while arm64
+      homes up to 6. Surfaced 2026-06-04 during the user's compiler-bug-lens review (the campaign-close wording
+      "x86_64 differential eliminated" is true for ≤2 hot-local loops, narrower than arm64). This is a
+      single-pass register-budget choice (NOT a principle violation), but for the §16 完成形 bar
+      (lightweight-yet-fast, full-featured) it is a real bounded gap. DISCHARGE: assess whether x86_64 can home
+      more (e.g. reclaim a scratch GPR, or a spill-cheaper home strategy) within single-pass P3/P6; if a clean
+      win exists, raise max_homed; else document the x86_64 budget as the deliberate ceiling. Measure-first
+      (commit/revert) before building.
+    first_raised: "2026-06-04"
+    last_reviewed: "2026-06-04"
+    refs: |-
+      src/ir/analysis/local_homing.zig:60,87 (max_homed @min(6, arch)); ADR-0155 (register-homed locals);
+      ADR-0153 (D-265 campaign); bench/results/s15p_parity_vs_v1.md; ROADMAP §16 (完成形 surface/perf bar)
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.

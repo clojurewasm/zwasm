@@ -19,8 +19,10 @@ This branch is a ground-up redesign of zwasm on top of v1 git history
 - Branch: `zwasm-from-scratch`. **Never push to `main`**; push to
   `zwasm-from-scratch` only with explicit user approval (or autonomously
   inside `/continue`). `--force` always forbidden.
-- v1 ABI compatibility is out of scope; `docs/migration_v1_to_v2.md`
-  ships at v0.1.0 release.
+- v1 ABI compatibility is out of scope; breaking the surfaces (C/Zig/CLI)
+  for the right design is allowed (ADR-0156). `docs/migration_v1_to_v2.md`
+  exists; **the loop never cuts a release** — tag/publish/cutover are
+  manual, user-only (ADR-0156).
 
 Read-only reference clones: `~/Documents/OSS/` + `zwasm/` (v1) +
 `ClojureWasmFromScratch/`. Full list at
@@ -43,6 +45,13 @@ text or code identifiers.
 
 ## Frozen loop invariants (read once per session)
 
+- **No autonomous release (ADR-0156)**: the loop NEVER tags, publishes,
+  or cuts over to `main`, and **no release gate exists** as a loop
+  construct. Phase 16 = completion finalization (完成形): surface audits
+  (C/Zig/CLI — あるべき論 + industry-standard, breaking-allowed, NOT v1
+  parity) + dogfooding + memory-safety + debt repayment, pursued
+  indefinitely. Tag/publish/cutover/version come only from an explicit
+  user message. Don't march toward "ready to release."
 - **`/continue` re-arm = `ScheduleWakeup(delaySeconds=60,
   prompt="/continue")`** — literal `60` is harness runtime floor
   (clamp `[60, 3600]`). The tool description's "default 1200-1800s"
