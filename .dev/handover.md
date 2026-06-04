@@ -31,9 +31,9 @@
   Sequence: ✅A type accessors (6, `c3a979fa`) → ✅B per-type vec ops (24, `2116a18b`, PtrVecOps unify) →
   ✅C config (3) + ✅D val_copy/delete (2, POD) → ✅instance.zig split (`092196b6`, ADR-0157 → handles.zig) →
   ✅E1+E2+E3a host_info COMPLETE (27) → E3b ref-cast/same/copy: ✅ADR-0158 + ✅E3b-1 same (9, `7236237c`) +
-  ✅E3b-2 as_ref global/table/memory (12, `2474f1c2`) + ✅E3b-2b as_ref extern/module + foreign_const (10) →
-  **E3b-2c as_ref trap/instance (8, ?*anyopaque ref_view) → E3b-3 copy (9)** → F tagtype/EH (12) → G
-  serialize/share (5). Gap 67→36. (extern_vec_copy + tagtype_vec also deferred: need wasm_extern_copy / TagType.)
+  ✅E3b-2/2b/2c as_ref/ref_as(+const) COMPLETE — all 9 ref types (`2474f1c2`/`ae060138`/this) → **E3b-3 copy
+  (9)** → F tagtype/EH (12) → G serialize/share (5). Gap 67→28. (extern_vec_copy + tagtype_vec also deferred:
+  need wasm_extern_copy / TagType — wasm_extern_copy lands in E3b-3.)
 - **Exit-condition**: `capi_surface_gap.sh` gap → 0 (or each residual category has an ADR/debt justifying
   deferral); then close §16.2 [x].
 
@@ -49,16 +49,17 @@
 - **✅ E3b-2** (global/table/memory `as_ref`/`ref_as`+const, `2474f1c2`): the `objAsRef` helper in `ref_base.zig`
   (cached `ref_view`, payload `@intFromPtr`), `ref_view` fields on the 3 structs, freed in their `_delete`;
   round-trip + lifetime test green. Gap 58→46.
-- **✅ E3b-2b** (extern + module `as_ref`/`ref_as`+const via `objAsRef`; `wasm_foreign_as_ref_const`/
-  `wasm_ref_as_foreign_const`): ref_view fields on Extern (handles.zig) + Module (instance.zig), freed in their
-  `_delete`; round-trip test via empty-module + memory-export-module. Gap 46→36.
-- **§16.2 chunk E3b-2c — NEXT**: `as_ref`/`ref_as`(+const) for **trap** + **instance** (8 fns). Both use an
-  **`?*anyopaque` ref_view** (trap: avoids a handles import into trap_surface = pointer-only cycle risk; instance:
-  `runtime.Instance` Zone-1 can't hold `?*Ref`). Add an `objAsRefOpaque(store, obj, slot: *?*anyopaque)` helper
-  variant in ref_base.zig (cast result to `*handles.Ref`); `ref_as_X` = `@ptrFromInt`; free the ref_view (cast
-  back) in `wasm_trap_delete` / `wasm_instance_delete`. trap.store / instance.store give the allocator. Then
-  **E3b-3 `wasm_X_copy`** (9; instance-backed shallow clone / standalone-owner → null + D-253-D). Then F
-  (tagtype/EH — `TagType`), G (serialize — own ADR).
+- **✅ E3b-2c** (trap + instance `as_ref`/`ref_as`+const): trap uses `?*handles.Ref` (imported handles into
+  trap_surface — pointer-only cycle), instance uses `?*anyopaque` ref_view on the Zone-1 `runtime.Instance`
+  (`objAsRefOpaque` helper; freed cast-to-`*Ref` in `wasm_instance_delete`). Round-trip + cache + lifetime test.
+  **as_ref/ref_as now COMPLETE for all 9 ref types.** Gap 36→28.
+- **§16.2 chunk E3b-3 `wasm_X_copy` — NEXT** (9 fns, ADR-0158): per type — instance-backed func/global/table/
+  memory/extern → fresh handle alloc copying `(instance, idx)` with cached views (extern_view/ref_view) NULLED
+  (the copy gets its own lazy views; no shared ownership → no double-free); **standalone owners** (Func.host /
+  Global.cell / Table.tinst / Memory.minst non-null) → **return null** (full clone needs the per-store registry,
+  D-253-D — documented limit, not papered over). module/instance/trap/foreign → fresh handle copy (module: dup
+  bytes? no — just the handle fields + null views; trap: dup message; foreign: new Foreign same store). Put in
+  `ref_base.zig` (or extern_new for foreign). TDD per type. Then F (tagtype/EH — `TagType`), G (serialize — own ADR).
 - After §16.2: §16.3 Zig-API review (reconcile D-267, ADR-0025 Revision), §16.4 CLI あるべき論 review,
   §16.5 dogfooding, §16.6 memory-safety (D-258→D-261), §16.7 docs LAST. Chain; pay debt en route.
 
