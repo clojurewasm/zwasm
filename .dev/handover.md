@@ -21,24 +21,22 @@
 ## NEXT (autonomous — §16 task-list done; phase-boundary audit DONE; backlog; ADR-0156)
 
 - **Post-§16 backlog (no release; 完成形 = keep improving, ADR-0156).** DONE this session: phase-boundary
-  `audit_scaffolding` (`1fa6c951`, healthy; D-258/261 discharged); **D-257** lesson-Citing backfill (`841da6d1`);
-  **examples/ fmt-gate** (`73ff44f7`); **D-277** §10.4/§3.1 zwasm.h reconcile (`fd5729a1`); **D-275 re-scoped**
-  (`4798ffec` — investigated: NOT a facade tweak). The clean quick wins are now exhausted; remaining items are
-  involved (ADR + multi-layer + tests) → each is a focused FRESH-CONTEXT chunk, not a cram. Pick one per cycle:
-  - **D-275** wire `wasm_instance_new`'s stubbed `trap_out` — capture the start-trap discarded at
-    `instance.zig:758` → build a `wasm_trap_t` → write `trap_out`; then C hosts + `Module.instantiate` map it to a
-    typed error (`InstantiateError = {InstantiateFailed} || Trap`). Benefits C-API too; likely a small ADR
-    (trap_out is a surface decision). Template: `src/zwasm/instance.zig` `mapDispatchErr`. **Top.**
-  - **D-273** CLI `--invoke` args + typed-result printing (arg-marshal by param type). **D-274** zlinter lazy dep
-    (comptime `@import` blocker — verify lazy pattern). **D-269** callable funcref. **D-276** register-resident GC test.
-  - **J.3** 32 active debt rows > 15; old `blocked-by` (D-007/010/020-028/074) → `suggest meta_audit` (user-gated).
+  `audit_scaffolding` (healthy; D-258/261 discharged); **D-257** lesson-Citing backfill; **examples/ fmt-gate**;
+  **D-277** §10.4/§3.1 zwasm.h reconcile; **D-275** wired `wasm_instance_new` `trap_out` → `Module.instantiate`
+  returns `StartTrapped` (+ C hosts now get the start-trap via `trap_out`/`wasm_trap_message` — a C-API conformance
+  fix), `d7190346`. Remaining items are involved → each a focused FRESH-CONTEXT chunk, pick one per cycle:
+  - **D-273** CLI `--invoke` NAME=ARGS arg-marshalling + typed-result printing (parse CLI strings → wasm Values by
+    param type; format results). Touches `src/cli/` + needs an arg'd-invoke runner path (`runWasmJit` is zero-arg).
+  - **D-269** callable funcref from host (deeper, ref model). **D-276** force register-resident GC-rooting worst
+    case (hard to force the regalloc shape). **D-274** zlinter lazy dep (comptime `@import` blocker).
+  - **J.3** 31 active debt rows > 15; old `blocked-by` (D-007/010/020-028/074) → `suggest meta_audit` (user-gated).
 
 ## Step 0.7 (next resume)
 
-**No ubuntu kick pending** — §16.6 was verified GREEN at `cf21b11c`; everything since (§16.7 docs + §16.7-close +
-the phase-boundary audit + the D-258/261 discharge `1fa6c951`) is **doc/debt-only** (no `src/` change → ubuntu
-unaffected). Next backlog item determines the next kick (D-274 = build.zig, no test impact; D-257 = lessons,
-doc-only). **Gate**: Step-5 Mac = `bash scripts/mac_gate.sh`. windowsmini = manual-only (ADR-0156: no loop tag).
+**Verify ubuntu** — D-275 (`d7190346`) touched the c_api instantiate path (`instance.zig` `instantiateInternal`
+trap_out) + the facade; this turn kicked `run_remote_ubuntu test`. Tail `/tmp/ubuntu.log` for `OK (HEAD=…)`.
+Portable Zig (no per-arch emit) → `test` scope. (Everything before D-275 this session was doc/debt-only.)
+**Gate**: Step-5 Mac = `bash scripts/mac_gate.sh`. windowsmini = manual-only (ADR-0156: no loop tag).
 
 ## Deferred / open debt
 
