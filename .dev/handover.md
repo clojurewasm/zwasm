@@ -36,32 +36,33 @@
 
 ## NEXT (autonomous — §16.7 docs is the LAST Phase-16 item; ADR-0156)
 
-- **§16.7 docs finalization — NEXT.** Match the now-SETTLED surface, not a moving target: `README.md` (install,
-  3-line run/compile happy paths, Wasm proposal/tier table §11, 3-OS matrix), `docs/reference/` (API ref for the
-  settled C/Zig/CLI surface), `docs/tutorial/`, `CHANGELOG.md`. Surface to document: C-API gap=0 (§16.2); Zig
-  facade Engine/Module/Instance/Linker/Caller/Memory/Global/Table (§16.3-5, ADR-0109); CLI = run+compile +
-  `--version`/`--help` (§16.4, ADR-0159); GC-on-JIT memory-safe (§16.6). **Step 0**: survey existing
-  `README.md`/`docs/` state + an industry README (wasmtime/wazero) for shape. Doc chunks; **NOT a release**
-  (ADR-0156 — docs ≠ tag/publish; the loop never cuts over). When §16.7 lands, Phase 16's surface/safety/docs are
-  all 完成形 — the loop keeps refining + paying debt (D-269/273-276), never "ready to release?".
+- **§16.7 docs finalization — IN-PROGRESS.** **DONE this turn** (`12390815`): rewrote `README.md` (was stale at
+  Phase-9) to the settled state — Wasm 1.0/2.0/3.0 100%, WASI p1, interp+JIT(arm64/x86_64/win64)+AOT, GC-on-JIT
+  memory-safe, Embedding section (Zig facade + C wasm-c-api happy-paths → examples/), CLI run+compile+--version/
+  --help; + new `CHANGELOG.md` (Keep-a-Changelog [Unreleased]; no tag per ADR-0156). **NEXT**: `docs/reference/`
+  (a CURATED navigable API ref — C surface → wasm.h/zwasm.h/wasi.h + gap=0; Zig facade types+methods → src/zwasm.zig
+  + examples; CLI — DON'T re-document every symbol, link+organize) + `docs/tutorial/` (getting-started walkthrough:
+  install → CLI run → embed Zig → embed C, pointing at examples/). Avoid duplicating docs/zig_api_design.md +
+  migration guide + examples/. Then **§16.7 [x] → Phase 16 task-list complete** → **phase-boundary `audit_scaffolding`
+  (mandatory)** → loop CONTINUES on backlog debt (NOT a release; ADR-0156 — 完成形 reached = keep refining).
 - Backlog notes (not blockers): **D-269** funcref opaque `?u64`; **D-273** CLI flag parity; **D-274** zlinter
   eager fetch; **D-275** `Module.instantiate` coarse error; **D-276** D-261 register-resident strengthening;
   `examples/` not fmt-gated by `gate_commit.sh`.
 
 ## Step 0.7 (next resume)
 
-**§16.6 ubuntu `test-all` verified GREEN** at `cf21b11c` (last cycle) — conservative GC-on-JIT rooting holds on
-Linux x86_64 too; bundle closed, §16.6 [x]. **This cycle's commit (the §16.6 close) is doc-only** (ROADMAP [x] +
-handover bundle-removal) → no new ubuntu kick. §16.7 is doc-only too. **Gate**: Step-5 Mac =
-`bash scripts/mac_gate.sh`. windowsmini = Phase 16 completion boundary (3-host reconcile when Phase 16 closes).
+**No ubuntu kick pending** — §16.6 was verified GREEN at `cf21b11c`; everything since (§16.6 close, §16.7
+README+CHANGELOG `12390815`) is **doc-only** (no `src/` change → ubuntu unaffected). §16.7 reference/tutorial are
+doc-only too. **Gate**: Step-5 Mac = `bash scripts/mac_gate.sh`. windowsmini = Phase 16 completion boundary
+(3-host reconcile when Phase 16 fully closes — but per ADR-0156 there is no release/tag from the loop).
 
 ## Deferred / open debt
 
-- **Memory-safety (§16.6)** — **D-258 + D-261 DONE on Mac** (collect trigger wired + adversarial survival test
-  green); awaiting ubuntu `test-all`. Residual **D-276** (callee-saved-register-resident worst case not forced).
-- **Surface residuals** — **D-274** consuming zwasm transitively fetches zlinter (make lazy; §16.5). **D-273**
-  CLI flag gap vs wasmtime (`--invoke` args/result-print, `--env`/`--fuel`/`--timeout`) — §16.5. **D-272** Zig
-  Global/Table accessors (§16.5). **D-269** val `of.ref`=raw. **D-253** ref machinery (incl. D-253-D
+- **Memory-safety (§16.6 DONE, verified 2-host)** — residual **D-276** (callee-saved-register-resident worst
+  case not independently forced; common case safe).
+- **Surface residuals** — **D-269** funcref opaque `?u64` (not callable from a table slot). **D-273** CLI flag
+  gap vs wasmtime (`--invoke` args/result-print, `--env`/`--fuel`/`--timeout`). **D-274** consuming zwasm fetches
+  zlinter (make lazy). **D-275** `Module.instantiate` coarse error. **D-253** ref machinery (incl. D-253-D
   standalone-copy). **D-271** serialize=source-bytes (no AOT cache). **D-255** C-API WASI io. **D-251** WASI in AOT.
 - **D-210** cohort root fix (D-142/206/210/245). **D-211** GcRootMap. **D-257** 10 lesson `Citing` backfill.
   **D-254** rust 3-OS. **D-249** win bench. **D-238** x86_64 EH thunk. **D-266/D-259** notes.
