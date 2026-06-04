@@ -102,6 +102,11 @@ pub const Instance = struct {
     /// stays import-free — no Zone-1→Zone-3 dependency.
     host_info: ?*anyopaque = null,
     host_info_finalizer: ?*const fn (?*anyopaque) callconv(.c) void = null,
+    /// C-API `wasm_instance_as_ref` cached view (ADR-0158). Typed `?*anyopaque`
+    /// (not `?*Ref`) because `Ref` is a Zone-3 type — a `?*Ref` field here would
+    /// be a Zone-1→Zone-3 upward import. The Zone-3 binding casts it; freed
+    /// (cast to `*Ref`) in `wasm_instance_delete`.
+    ref_view: ?*anyopaque = null,
 };
 
 /// Structural type of an exported entity. Mirrors the four

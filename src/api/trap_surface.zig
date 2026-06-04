@@ -19,6 +19,7 @@
 
 const std = @import("std");
 const wasm_c_api = @import("wasm.zig");
+const handles = @import("handles.zig"); // for `Ref` (wasm_trap_as_ref view); pointer-only cycle
 
 const testing = std.testing;
 
@@ -58,6 +59,9 @@ pub const Trap = extern struct {
     /// `host_info.zig`, finalizer fired in `wasm_trap_delete`.
     host_info: ?*anyopaque = null,
     host_info_finalizer: ?*const fn (?*anyopaque) callconv(.c) void = null,
+    /// Cached borrowed `wasm_ref_t` view (`wasm_trap_as_ref`, ADR-0158;
+    /// payload = `@intFromPtr(self)`; freed in `wasm_trap_delete`).
+    ref_view: ?*handles.Ref = null,
 };
 
 // ============================================================
@@ -149,6 +153,7 @@ pub export fn wasm_trap_delete(t: ?*Trap) callconv(.c) void {
     if (handle.host_info_finalizer) |fin| fin(handle.host_info);
     const store = handle.store orelse return;
     const alloc = wasm_c_api.storeAllocator(store) orelse return;
+    if (handle.ref_view) |rv| alloc.destroy(rv); // object-identity as_ref view (ADR-0158)
     if (handle.message_ptr) |p| alloc.free(p[0..handle.message_len]);
     alloc.destroy(handle);
 }

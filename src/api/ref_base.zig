@@ -190,6 +190,51 @@ pub export fn wasm_ref_as_module_const(r: ?*const handles.Ref) callconv(.c) ?*co
     return wasm_ref_as_module(@constCast(r));
 }
 
+pub export fn wasm_trap_as_ref(t: ?*trap_surface.Trap) callconv(.c) ?*handles.Ref {
+    const h = t orelse return null;
+    return objAsRef(h.store, h, &h.ref_view);
+}
+pub export fn wasm_ref_as_trap(r: ?*handles.Ref) callconv(.c) ?*trap_surface.Trap {
+    const h = r orelse return null;
+    if (h.ref == 0) return null;
+    return @ptrFromInt(h.ref);
+}
+pub export fn wasm_trap_as_ref_const(t: ?*const trap_surface.Trap) callconv(.c) ?*const handles.Ref {
+    return wasm_trap_as_ref(@constCast(t));
+}
+pub export fn wasm_ref_as_trap_const(r: ?*const handles.Ref) callconv(.c) ?*const trap_surface.Trap {
+    return wasm_ref_as_trap(@constCast(r));
+}
+
+/// `objAsRef` variant for a handle whose `ref_view` slot is `?*anyopaque`
+/// (instance — a `?*Ref` field on the Zone-1 `runtime.Instance` would be an
+/// upward import). The Zone-3 binding casts the slot to/from `*Ref`.
+fn objAsRefOpaque(store: ?*instance.Store, obj: *const anyopaque, slot: *?*anyopaque) ?*handles.Ref {
+    if (slot.*) |rv| return @ptrCast(@alignCast(rv));
+    const s = store orelse return null;
+    const alloc = instance.storeAllocator(s) orelse return null;
+    const rv = alloc.create(handles.Ref) catch return null;
+    rv.* = .{ .instance = null, .ref = @intFromPtr(obj), .store = s };
+    slot.* = @ptrCast(rv);
+    return rv;
+}
+
+pub export fn wasm_instance_as_ref(inst: ?*instance.Instance) callconv(.c) ?*handles.Ref {
+    const h = inst orelse return null;
+    return objAsRefOpaque(h.store, h, &h.ref_view);
+}
+pub export fn wasm_ref_as_instance(r: ?*handles.Ref) callconv(.c) ?*instance.Instance {
+    const h = r orelse return null;
+    if (h.ref == 0) return null;
+    return @ptrFromInt(h.ref);
+}
+pub export fn wasm_instance_as_ref_const(inst: ?*const instance.Instance) callconv(.c) ?*const handles.Ref {
+    return wasm_instance_as_ref(@constCast(inst));
+}
+pub export fn wasm_ref_as_instance_const(r: ?*const handles.Ref) callconv(.c) ?*const instance.Instance {
+    return wasm_ref_as_instance(@constCast(r));
+}
+
 test "wasm_X_same: entity-identity (func/global/table/memory) + pointer (instance/module/trap/foreign)" {
     const inst_a: *instance.Instance = @ptrFromInt(0x1000); // fake, never deref'd by `same`
     var f1: handles.Func = .{ .instance = inst_a, .func_idx = 3 };
@@ -300,4 +345,34 @@ test "as_ref / ref_as round-trip (extern + module) — object identity" {
 
     try testing.expect(wasm_extern_as_ref(null) == null);
     try testing.expect(wasm_module_as_ref(null) == null);
+}
+
+test "as_ref / ref_as round-trip (trap + instance) — object identity, ?*anyopaque ref_view" {
+    const e = instance.wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer instance.wasm_engine_delete(e);
+    const s = instance.wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer instance.wasm_store_delete(s);
+
+    // trap (?*Ref ref_view).
+    var msg = [_]u8{ 'o', 'o', 'p', 's', 0 };
+    const mv: vec.ByteVec = .{ .size = msg.len, .data = &msg };
+    const tr = trap_surface.wasm_trap_new(s, &mv) orelse return error.TrapAllocFailed;
+    const tref = wasm_trap_as_ref(tr) orelse return error.NoRef;
+    try testing.expectEqual(tr, wasm_ref_as_trap(tref).?);
+    try testing.expectEqual(tref, wasm_trap_as_ref(tr).?); // cached
+    trap_surface.wasm_trap_delete(tr); // frees ref_view
+
+    // instance (?*anyopaque ref_view on the Zone-1 runtime Instance).
+    var ibytes = [_]u8{ 0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00 };
+    const ibv: vec.ByteVec = .{ .size = ibytes.len, .data = &ibytes };
+    const m = instance.wasm_module_new(s, &ibv) orelse return error.ModuleAllocFailed;
+    defer instance.wasm_module_delete(m);
+    const inst = instance.wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    const iref = wasm_instance_as_ref(inst) orelse return error.NoRef;
+    try testing.expectEqual(inst, wasm_ref_as_instance(iref).?);
+    try testing.expectEqual(iref, wasm_instance_as_ref(inst).?); // cached
+    instance.wasm_instance_delete(inst); // frees ref_view (anyopaque cast)
+
+    try testing.expect(wasm_trap_as_ref(null) == null);
+    try testing.expect(wasm_instance_as_ref(null) == null);
 }

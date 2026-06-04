@@ -798,6 +798,7 @@ pub export fn wasm_instance_delete(i: ?*Instance) callconv(.c) void {
     if (handle.host_info_finalizer) |fin| fin(handle.host_info);
     const store = handle.store orelse return;
     const alloc = storeAllocator(store) orelse return;
+    if (handle.ref_view) |rv| alloc.destroy(@as(*handles.Ref, @ptrCast(@alignCast(rv)))); // as_ref view (ADR-0158)
     // D-174: drop the live-instance registry entry before parking +
     // free so wasm_store_delete doesn't try to cascade-cleanup an
     // already-freed handle.
