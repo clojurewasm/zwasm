@@ -1004,39 +1004,40 @@ entries:
       ADR-0153 (D-265 campaign); bench/results/s15p_parity_vs_v1.md; ROADMAP §16 (完成形 surface/perf bar)
   - id: "D-269"
     layer: "code"
-    status: "now"
+    status: "note"
     description: |-
-      **C-API completeness gap (§16.2 audit): 129 of 293 standard wasm-c-api extern functions are
-      declared-but-unimplemented.** `include/wasm.h` is byte-identical to upstream latest (we ship the
-      verbatim standard — correct; wasmtime vendors a copy, wasmer symlinks it), but a C consumer calling
-      e.g. `wasm_func_type()` link-errors. wasmtime + wasmer implement 100% of standard wasm.h; wazero
-      ships no C-API (pure-Go); decision = implement the full standard surface, NOT wasmtime's 60+ ext
-      headers (ADR-0156 lightweight-yet-fast bar). Live count: `bash scripts/capi_surface_gap.sh`.
-      Categories (full breakdown + sequencing: `.dev/c_api_surface_audit_2026-06-04.md`):
-      A type accessors (6, no design) · B per-type vec ops (~30, vec.zig generic) · C config (3) ·
-      D val_copy/val_delete (2) · E ref-cast/same/copy/host_info (~71 — D-253 territory: uniform ref model
-      + per-object host_info; foreign+host_info + funcref cross-cast already done) · F tagtype/EH (12) ·
-      G module serialize/share (5, heaviest — own ADR). ✅A `c3a979fa` ✅B `2116a18b` ✅C+D `d77aa704`
-      ✅instance.zig-split `092196b6` (ADR-0157) ✅E1 host_info trio `031e1c40` (func/global/table/memory/ref/
-      extern, 18) ✅E2 host_info module+trap `faa03492` (6) ✅E3a host_info instance `fbbcd4bf` (3) — **host_info
-      COMPLETE (9 types).** ADR-0158 (ref-model) + ✅E3b-1 same `7236237c` (9, ref_base.zig). **gap 129→58.**
-      ✅**E3b ref-cast COMPLETE** — same(9) + as_ref/ref_as all 9 types(28) + copy all 9 + extern_vec_copy
-      (ADR-0158; copy = instance-backed-shallow / standalone-owner-null per D-253-D). ✅F tagtype/EH (13,
-      TagType wraps functype). **gap 129→5.** Remaining: **G** module serialize/deserialize/share/obtain/
-      shared_module_delete (5) — byte-model (Module is a byte-holder; serialize=copy bytes, deserialize=parse;
-      note no compiled-artifact cache QoI caveat). DISCHARGE = gap count → 0 → §16.2 closes. Bundle `16.2-capi-completion`.
-      **E reconcile note (val ref representation)**: zwasm's `wasm_val_t.of.ref` holds the RAW GcRef payload
-      (`@ptrFromInt(v.ref)`, see fromRuntimeValue), NOT an owned `wasm_ref_t*` — so val_copy is POD + val_delete
-      no-op (consistent w/ val_vec_copy's shallow copy), but this DIVERGES from upstream's owned-handle contract:
-      a standard consumer reading `results[0].of.ref` as a `wasm_ref_t*` (e.g. ref-typed func results) gets a
-      raw payload, not a deref-able handle. Reconcile when E lands the uniform ref model (likely surfaced again
-      by §16.5 dogfooding).
+      **note (§16.2 DONE — C-API surface 100% implemented: gap 0 / 293-of-293 via `scripts/capi_surface_gap.sh`,
+      `e9367bb2`).** Audit found `include/wasm.h` byte-identical to upstream but 129/293 extern fns unimplemented
+      (link errors); all now implemented (A type-accessors → B vec-ops → C config → D val → instance.zig split
+      ADR-0157 → host_info 27 → ref-cast same/as_ref/copy all 9 types ADR-0158 → tagtype/EH → module
+      serialize/share). This row now tracks the residual SEMANTIC divergence from a perfect wasm-c-api impl (all
+      functions exist + are honest): **val `of.ref` = raw GcRef payload, NOT an owned `wasm_ref_t*`**
+      (`fromRuntimeValue` marshalling) → `wasm_val_copy`/`_delete` are POD (consistent w/ `wasm_val_vec_copy`),
+      but a standard consumer reading a ref-typed func result's `of.ref` as a deref-able `wasm_ref_t*` gets a
+      payload. Reconcile when the uniform-ref-model work lands a real owned-handle representation (D-253); likely
+      re-surfaced by §16.5 dogfooding. Other §16.2 residuals: standalone/instance/foreign `_copy`→null (D-253-D);
+      serialize=source-bytes (D-271). Full audit: `.dev/c_api_surface_audit_2026-06-04.md`.
     first_raised: "2026-06-04"
-    last_reviewed: "2026-06-04"
+    last_reviewed: "2026-06-05"
     refs: |-
       include/wasm.h (verbatim upstream); src/api/{module_introspect,types,vec,instance,extern_new}.zig;
       scripts/capi_surface_gap.sh (live checker); .dev/c_api_surface_audit_2026-06-04.md (full audit);
       D-253 (E subset); ADR-0004 (wasm-c-api pin); ADR-0156 (完成形 surfaces); ROADMAP §16.2
+  - id: "D-271"
+    layer: "perf"
+    status: "note"
+    description: |-
+      **note: `wasm_module_serialize` = source-bytes, no compiled-artifact cache (QoI vs wasmtime).** zwasm's
+      `Module` is a byte-holder that re-compiles per instance, so the wasm-c-api serialized blob IS the wasm
+      bytes: serialize = copy `module.bytes`, deserialize = `wasm_module_new` (re-parse). Round-trips correctly
+      (§16.2 G, `src/api/module_serialize.zig`), but unlike wasmtime there is NO persisted compiled artifact, so
+      deserialize re-parses + each instance re-compiles — functionally correct, not the startup-perf shortcut the
+      API implies. ENHANCEMENT (not a bug): if an AOT/compiled-artifact cache lands (cf. §14 AOT work), serialize
+      could emit it for faster deserialize. Until then the byte-model is the honest, correct impl.
+    first_raised: "2026-06-05"
+    last_reviewed: "2026-06-05"
+    refs: |-
+      src/api/module_serialize.zig; include/wasm.h:422-423 (serialize/deserialize); ROADMAP §16.2 G; D-269
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
