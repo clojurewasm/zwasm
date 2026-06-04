@@ -27,25 +27,24 @@
 
 ## Next task (autonomous)
 
-**§15.4 — SIMD-op JIT coverage sweep (D-246, partial)** (first open `[ ]`; §15.2+§15.3 folded). CORRECTNESS gap
-(NOT bench-gated — build regardless). **DONE this turn**: arm64 `dot`/`extmul` hole CLOSED — 13 ops
-(`078ffde5` encoders + `ef9876b0` 12 extmul + `5ddfdc5c` dot), both layers (found `lower_simd` lacked the arms
-→ dead on both arches), JIT-execution-verified, x86_64 OK.
-**NEXT = the residual 13 arm64-missing SIMD ops** (x86_64 has op files, arm64 lacks emit+mostly lowering →
-interp-only on JIT): `i{8x16,16x8}.{add,sub}_sat_{s,u}` (8 → SQADD/UQADD/SQSUB/UQSUB), `i{16x8,32x4}.extadd_pairwise_*_{s,u}`
-(4 → SADDLP/UADDLP), `i16x8.q15mulr_sat_s` (1 → SQRDMULH). **SAME RECIPE** as dot/extmul: add NEON encoders to
-`inst_neon_arith.zig` (clang-verify each via `clang -c`+`otool -tvVj`), add lowering arms to `lower_simd.zig`
-(check each — extmul/dot were un-lowered), op files + `op_simd_int_arith` helpers (`emitV128Binop` for the
-binops; extadd_pairwise is a 1-src op so a different helper), manifest imports/tuple + count bump, edge_cases JIT
-fixtures. Then D-246 fully resolved. After §15.4: perf ports W43/44/45 = **measure-first** (perf-roi lesson) →
-**§15.5 D-245 win64** (hard/remote) → §15.6 ClojureWasm → §15.P parity.
+**§15.4 — SIMD perf ports (measure-first); D-246 coverage DONE** (first open `[ ]`; §15.2+§15.3 folded).
+✅ **D-246 RESOLVED** (`078ffde5`→`1029e5b4`): arm64 JIT SIMD emit now at full coverage parity with x86_64 — 26
+ops closed (dot + 12 extmul + 8 sat-arith + q15mulr + 4 extadd_pairwise), all clang-verified NEON encoders + the
+missing `lower_simd` arms (the ops were dead on BOTH arches) + JIT execution fixtures. Debt discharged.
+**NEXT = SIMD perf ports** (v1 W43 SIMD-addr-cache / W44 reg-class / W45 SIMD-loop-persistence + W54-class hoist;
+Phase-11 gap candidates AVX/CPUID + MOVAPS peephole). **MEASURE-FIRST** (perf-roi lesson + §15.2/§15.3 pattern):
+the §11.3 profile (`bench/results/simd_gap_profile_p11_3.md`) already found SIMD competitive (0/12 ops lag >3×) →
+headroom likely THIN; probe each port's headroom before building, fold to §15.P aggregate if <gap. Step 0: read
+the v1 W43/44/45 sources (read-only v1 clone) + re-profile SIMD bench (steady-state, ≥10× iters — the `--quick`
+micro-benches are startup-confounded). After §15.4: **§15.5 D-245 win64** (hard/remote) → §15.6 ClojureWasm →
+§15.P parity.
 
 ## Step 0.7 (next resume)
 
-This turn: **§15.4/D-246 dot+extmul CLOSED** — 3 commits (`078ffde5` encoders, `ef9876b0` 12 extmul + lowering,
-`5ddfdc5c` dot), 13 ops both layers, JIT fixtures green, x86_64 cross-compile OK; D-246 → partial (residual = 13
-sat-arith/extadd/q15mulr ops). Also recorded perf-measure-first lesson (`43ecd845`). **CODE changed → ubuntu kick
-QUEUED** (scope `test`); Step 0.7 next resume verifies (`tail -3 /tmp/ubuntu.log`) — red → revert to `45a94348`.
+This turn: **§15.4/D-246 RESIDUAL DONE → D-246 RESOLVED** — `d4ef48df` 13 encoders + `1029e5b4` 13 ops
+(sat-arith/q15mulr/extadd_pairwise; lowering arms + helpers + fixtures); D-246 debt discharged. `zig build
+test`/lint/zone green, edge-cases 75/0, x86_64 cross-compile OK. **CODE changed → ubuntu kick
+QUEUED** (scope `test`); Step 0.7 next resume verifies (`tail -3 /tmp/ubuntu.log`) — red → revert to `036fc791`.
 **NOTE** (lesson `gate-tail-vs-exit-code`): benign `failed command: …--listen=-` / SlotOverflow / `arm64/emit:
 failing op` next to a passing run = error-path test noise — EXIT code authoritative.
 
@@ -56,8 +55,8 @@ failing op` next to a passing run = error-path test noise — EXIT code authorit
 
 - **D-258** (NOW) JIT-trampoline GC collect trigger (interp reclaims; JIT alloc path doesn't trigger
   yet — separate `*JitRuntime` root model). **D-211** (blocked-by) precise GcRootMap walker (moving/AOT).
-  **D-257** (partial) 10 lesson `Citing` markers. **D-245** win64 host→JIT = §15.5. **D-246** (partial)
-  dot/extmul DONE; residual 13 sat-arith/extadd/q15mulr ops = §15.4 next. **D-259** (note) spillBytes footprint. **D-255** C-API WASI io (ADR-0143). **D-254** rust 3-OS. **D-253** §13.2 host_info.
+  **D-257** (partial) 10 lesson `Citing` markers. **D-245** win64 host→JIT = §15.5. **D-259** (note)
+  spillBytes footprint. **D-255** C-API WASI io (ADR-0143). **D-254** rust 3-OS. **D-253** §13.2 host_info.
   **D-251** WASI in AOT. **D-249** win bench timing. **D-238** x86_64 EH thunk. D-210/234/237/229/231/204/209/213.
 
 ## Key refs
