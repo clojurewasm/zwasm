@@ -70,6 +70,7 @@ const op_simd_int_cmp_lane = @import("op_simd_int_cmp_lane.zig");
 const op_simd_float = @import("op_simd_float.zig");
 const rbp_disp = @import("rbp_disp.zig");
 const gpr = @import("gpr.zig");
+const local_homing = @import("../../../ir/analysis/local_homing.zig");
 
 // rbp/rsp form-selectors live in rbp_disp.zig per D-052
 // progression (extract when emit.zig approached the 2000-LOC
@@ -232,12 +233,39 @@ pub fn compile(
     // the rt_src_gpr selection in the prologue capture below.
     const buffer_write: bool = alloc.result_abi == .buffer_write;
     const indirect_result_slot_bytes: u32 = if (return_is_memory_class or buffer_write) 8 else 0;
+    // ADR-0155 stage 4 (D-265 Phase IV) — register-homed-local callee-saved
+    // save area. The x86_64 regalloc pool (`abi.allocatable_gprs`) is ALL
+    // callee-saved (RBX/R12/R13/R14) — unlike arm64, whose first homed slots are
+    // caller-saved scratch (X9..X13). A homed local therefore lives in a
+    // callee-saved GPR the SysV/Win64 ABI requires this function to preserve for
+    // its CALLER (the entry trampoline + any same-module caller, neither of which
+    // lists RBX/R12-R14 as call-clobbered). The prologue MUST snapshot each used
+    // home reg's incoming value before seeding it, and every return path MUST
+    // restore it — else a call-free homed function corrupts the host's RBX (the
+    // fac entry-trampoline miscompile) and a recursive homed call corrupts the
+    // caller's home (the rust_fib `55 → 511` miscompile). One 8-byte slot per
+    // homed local (homing.count is the upper bound; each homes a distinct reg).
+    const homing_plan_pre = local_homing.plan(func);
+    const home_save_count: u32 = if (alloc.slots.len >= homing_plan_pre.count) homing_plan_pre.count else 0;
+    const home_save_bytes: u32 = home_save_count * 8;
     const spill_base_off: u32 = locals_bytes + r15_save_bytes + 8;
     // Buffer-ptr capture slot lives BELOW the spill region (deeper
     // into the frame, larger RBP-negative offset). Slot anchored at
     // `[RBP - (spill_base_off + spill_bytes)]`; the +8 below
     // gives the slot its own 8-byte cell.
     const indirect_result_slot_neg_off: u32 = spill_base_off + spill_bytes;
+    // Home-save area occupies the DEEPEST `home_save_bytes` of the frame (below
+    // locals + spill + indirect-result + r15-save), so rank j's slot is at
+    // `[RBP - (locals + spill + indirect + r15 + (j+1)*8)]`. This base is the sum
+    // of every non-outgoing, non-home frame component + 8 (the first cell); the
+    // deepest slot (j = count-1) lands exactly at the bottom of the non-outgoing
+    // region, which `frame_unaligned` covers via its `home_save_bytes` term. The
+    // earlier anchor (off `indirect_result_slot_neg_off`, which carries
+    // `spill_base_off`'s extra +8 reserved cell) over-reached the frame by 8 when
+    // outgoing==0, putting the deepest save slot below RSP where the recursive
+    // CALL's return-address push clobbered it.
+    const home_save_base_neg_off: u32 = locals_bytes + spill_bytes + indirect_result_slot_bytes + r15_save_bytes + 8;
+    const home_save_base_disp: i32 = -@as(i32, @intCast(home_save_base_neg_off));
     // §9.7 / 7.10-f: outgoing-args region pre-allocated at the
     // BOTTOM of the frame (`[RSP, #0]` upward). For SysV this is
     // pure overflow bytes; for Win64 it includes the 32-byte
@@ -255,7 +283,7 @@ pub fn compile(
     // pushed return address lands on local 0 at [RBP-16]. Win64's
     // 32-byte shadow_space inflates the frame enough that it hid
     // this bug until OrbStack runs (= Linux x86_64 SysV).
-    const frame_unaligned: u32 = outgoing_max_bytes + locals_bytes + spill_bytes + indirect_result_slot_bytes + r15_save_bytes;
+    const frame_unaligned: u32 = outgoing_max_bytes + locals_bytes + spill_bytes + indirect_result_slot_bytes + r15_save_bytes + home_save_bytes;
     const frame_bytes: u32 = if (uses_runtime_ptr)
         ((frame_unaligned + 7) & ~@as(u32, 15)) + 8
     else
@@ -581,6 +609,59 @@ pub fn compile(
         }
     }
 
+    // ADR-0155 stage 4 (D-265 Phase IV) — register-homed locals (x86_64 port).
+    // liveness APPENDED `homing.count` function-spanning pseudo-vregs (the last
+    // K vregs); their home pseudo-vreg id is `n_temp + rank` where `n_temp` =
+    // temporary-vreg count = `slots.len - count`. A homed `local.get` reads the
+    // home register into a fresh temporary (MOV, not LOAD-from-slot); a homed
+    // `local.set`/`tee` MOVs a temporary into the home register. The value
+    // crosses the loop back-edge in-register (the D-265 win). The mapping is the
+    // SSOT plan re-derived identically by liveness / regalloc / emit.
+    // Hand-built test allocations (emit_test_*.zig) construct `liveness` /
+    // `alloc` directly and do NOT include the K function-spanning homing pseudo-
+    // vregs that `liveness.compute` appends on the real path. Detect that
+    // (slots.len < homing.count → the appended pseudo-vreg slots are absent) and
+    // run un-homed for that compile; the real regalloc path always sizes
+    // `slots.len == ranges.len ≥ count`, so homing stays on there.
+    const planned = local_homing.plan(func);
+    const homing = if (alloc.slots.len >= planned.count) planned else local_homing.Plan{};
+    const n_temp: u32 = @intCast(alloc.slots.len - homing.count);
+
+    // ADR-0155 stage 4 — prologue-load each register-homed local's initial value
+    // from its stack slot into its pinned home register. The slot already holds
+    // the correct initial value (param marshalled above, or zero-inited for
+    // declared locals), so a single MOV seeds the register; from here the slot
+    // is dormant. Width: i32 → 32-bit MOV (zero-extends), i64 → 64-bit MOV.
+    // Mirrors arm64/emit.zig's homing seed.
+    if (homing.count > 0) {
+        var hr: u32 = 0;
+        while (hr < homing.count) : (hr += 1) {
+            const lidx = homing.local_idx[hr];
+            const home_vreg = n_temp + hr;
+            // Snapshot the home reg's CALLER value into its frame save slot
+            // BEFORE the seed overwrites it (callee-saved ABI contract — see the
+            // home_save_bytes comment). Only a register-resident home actually
+            // holds a callee-saved reg; a spilled home lives in its own frame
+            // slot and clobbers nothing. Every return path restores from here.
+            switch (alloc.slot(home_vreg, .gpr)) {
+                .reg => |id| {
+                    const home_phys = abi.slotToReg(id) orelse return Error.SlotOverflow;
+                    try buf.appendSlice(allocator, rbpStoreR64(home_save_base_disp - @as(i32, @intCast(hr)) * 8, home_phys).slice());
+                },
+                .spill => {},
+            }
+            const home_reg = try gpr.gprDefSpilled(alloc, home_vreg, 0);
+            const loc_disp = layout.disps[lidx];
+            switch (func.localValType(lidx)) {
+                .i32 => try buf.appendSlice(allocator, rbpLoadR32(home_reg, loc_disp).slice()),
+                .i64 => try buf.appendSlice(allocator, rbpLoadR64(home_reg, loc_disp).slice()),
+                // local_homing.isHomeableType only returns true for i32/i64.
+                .f32, .f64, .v128, .ref => unreachable,
+            }
+            try gpr.gprStoreSpilled(allocator, &buf, alloc, spill_base_off, home_vreg, 0);
+        }
+    }
+
     // ============================================================
     // Body: walk instrs, dispatch per op.
     //
@@ -708,6 +789,11 @@ pub fn compile(
         .landing_pad_fixups = if (has_try_table) &landing_pad_fixups else null,
         .tag_param_counts = tag_param_counts,
         .uses_type_subtyping = uses_type_subtyping,
+        // ADR-0155 stage 4 — register-homed-local emit + (no-op) call-site spill.
+        .homing = homing,
+        .n_temp = n_temp,
+        .local_offsets = layout.disps,
+        .home_save_base_disp = home_save_base_disp,
     });
 
     for (func.instrs.items) |ins| {

@@ -40,6 +40,14 @@ const page_size: usize = if (builtin.os.tag == .macos and builtin.cpu.arch == .a
 else
     4 * 1024;
 
+/// macOS uses MAP_JIT + per-thread W^X (`pthread_jit_write_protect_np`) on
+/// BOTH aarch64 (Apple Silicon) and x86_64 (Intel, under hardened runtime).
+/// x86_64-macos is not a 3-host gate target; this branch exists so the JIT can
+/// run under Rosetta on an Apple-Silicon Mac (`x86_64-macos` build → Rosetta
+/// exec), giving the x86_64 codegen a local correctness loop (D-265 Phase IV).
+const macos_jit: bool = builtin.os.tag == .macos and
+    (builtin.cpu.arch == .aarch64 or builtin.cpu.arch == .x86_64);
+
 /// A page-aligned RWX region holding JIT-emitted bytes. Lifetime
 /// owned by the caller; pair `alloc` with `free`.
 pub const JitBlock = struct {
@@ -60,7 +68,7 @@ pub fn alloc(size: usize) Error!JitBlock {
     if (size == 0) return Error.AllocationFailed;
     const rounded = (size + page_size - 1) & ~(page_size - 1);
 
-    if (builtin.os.tag == .macos and builtin.cpu.arch == .aarch64) {
+    if (macos_jit) {
         const prot: std.c.vm_prot_t = .{ .READ = true, .WRITE = true, .EXEC = true };
         const flags: std.c.MAP = .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .JIT = true };
         const ptr = std.c.mmap(null, rounded, prot, flags, -1, 0);
@@ -119,7 +127,7 @@ pub fn alloc(size: usize) Error!JitBlock {
 /// used `std.c.munmap` to discard the return out of caution).
 pub fn free(block: JitBlock) void {
     if (block.bytes.len == 0) return;
-    if (builtin.os.tag == .macos and builtin.cpu.arch == .aarch64) {
+    if (macos_jit) {
         std.posix.munmap(block.bytes);
         return;
     }
@@ -149,8 +157,11 @@ extern "c" fn sys_icache_invalidate(start: ?*anyopaque, len: usize) void;
 /// thread + invalidate the I-cache so freshly-written bytes are
 /// visible to the CPU's instruction fetch.
 pub fn setExecutable(block: JitBlock) Error!void {
-    if (builtin.os.tag == .macos and builtin.cpu.arch == .aarch64) {
+    if (macos_jit) {
         pthread_jit_write_protect_np(1); // 1 = re-enable W^X (RX)
+        // I-cache invalidation is a no-op on x86_64 (Intel SDM Vol 3 §11.6:
+        // self-modifying-code coherency is automatic) but the call is cheap and
+        // keeps the macos branch uniform.
         sys_icache_invalidate(@ptrCast(block.bytes.ptr), block.bytes.len);
         return;
     }
@@ -174,7 +185,7 @@ pub fn setExecutable(block: JitBlock) Error!void {
 pub fn setWritable(block: JitBlock) Error!void {
     _ = block; // Mac uses pthread_jit_write_protect_np (no block);
     // Linux + Windows are no-ops (page is RWX).
-    if (builtin.os.tag == .macos and builtin.cpu.arch == .aarch64) {
+    if (macos_jit) {
         pthread_jit_write_protect_np(0); // 0 = disable W^X (RW)
         return;
     }

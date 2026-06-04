@@ -34,6 +34,7 @@ const ctx_mod = @import("ctx.zig");
 const inst = @import("inst.zig");
 const abi = @import("abi.zig");
 const gpr = @import("gpr.zig");
+const rbp_disp = @import("rbp_disp.zig");
 const jit_abi = @import("../shared/jit_abi.zig");
 const types = @import("types.zig");
 const canonical_type = @import("../shared/canonical_type.zig");
@@ -66,13 +67,72 @@ const Allocator = std.mem.Allocator;
 const Error = types.Error;
 const CallFixup = types.CallFixup;
 
+const SpillDir = enum { spill, reload };
+
+/// ADR-0155 stage 4 (D-265 Phase IV) — spill / reload every register-resident
+/// homed local around a CALL/CALL-indirect/CALL-ref. Mirror of
+/// `arm64/op_call.zig:homedCallerSavedSpillReload`, BUT the x86_64 pool has NO
+/// callee-saved-survives-a-call exemption: although `abi.allocatable_gprs`
+/// (RBX/R12-R14) ARE C-ABI callee-saved, a JIT *callee* (itself a JIT function)
+/// does NOT push/restore the callee-saved GPRs it clobbers as temporaries — the
+/// un-homed model keeps every cross-call-live value in a STACK SLOT, never a
+/// register, so the JIT prologue only saves RBP/R15. A homed local is the first
+/// value the JIT ever leaves in RBX/R12-R14 across a call; the recursive callee
+/// reuses the SAME registers for ITS temporaries (and homes) and clobbers them
+/// (the `rust_fib` `55 → 511` / recursive-loop hang). So EVERY register-resident
+/// home is spilled to its frame slot before the CALL and reloaded after — the
+/// register is the live value at the call site (`local.set` writes the home reg
+/// directly). A spilled home (slot ≥ pool) already lives in its slot; skipped.
+/// Width matches the prologue seed + get/set contract: i32 → 32-bit MOV (the
+/// home is zero-extended), i64 → 64-bit MOV. `local_offsets[lidx]` is the local
+/// slot's RBP-relative disp (already negative). No-op when `homing.count == 0`.
+fn homedSpillReload(ctx: *ctx_mod.EmitCtx, dir: SpillDir) Error!void {
+    const homing = ctx.homing;
+    if (homing.count == 0) return;
+    var r: u32 = 0;
+    while (r < homing.count) : (r += 1) {
+        const home_vreg: u32 = ctx.n_temp + r;
+        const home_reg: abi.Gpr = switch (ctx.alloc.slot(home_vreg, .gpr)) {
+            .reg => |id| abi.slotToReg(id) orelse return Error.SlotOverflow,
+            // A spilled home already lives in its own frame slot across the call.
+            .spill => continue,
+        };
+        const lidx: u32 = homing.local_idx[r];
+        const disp: i32 = ctx.local_offsets[lidx];
+        switch (ctx.func.localValType(lidx)) {
+            .i32 => switch (dir) {
+                .spill => try ctx.buf.appendSlice(ctx.allocator, rbp_disp.rbpStoreR32(disp, home_reg).slice()),
+                .reload => try ctx.buf.appendSlice(ctx.allocator, rbp_disp.rbpLoadR32(home_reg, disp).slice()),
+            },
+            .i64 => switch (dir) {
+                .spill => try ctx.buf.appendSlice(ctx.allocator, rbp_disp.rbpStoreR64(disp, home_reg).slice()),
+                .reload => try ctx.buf.appendSlice(ctx.allocator, rbp_disp.rbpLoadR64(home_reg, disp).slice()),
+            },
+            // local_homing.isHomeableType only homes i32/i64.
+            .f32, .f64, .v128, .ref => unreachable,
+        }
+    }
+}
+
+fn spillHomedCallerSaved(ctx: *ctx_mod.EmitCtx) Error!void {
+    try homedSpillReload(ctx, .spill);
+}
+
+fn reloadHomedCallerSaved(ctx: *ctx_mod.EmitCtx) Error!void {
+    try homedSpillReload(ctx, .reload);
+}
+
 /// §9.12-B / B64 (ADR-0075) — `(ctx, ins)` adapters for the call
 /// cohort (`call`, `call_indirect`). Two distinct adapters
 /// (heterogeneous — call uses func_sigs+num_imports;
 /// call_indirect uses module_types+bounds_fixups+ins.extra).
 /// Decomposes per-op at the B6x+1 cutover.
 pub fn emitCallCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
-    return emitCall(
+    // ADR-0155 stage 4 — spill register-resident homes before the CALL (the
+    // callee clobbers RBX/R12-R14), reload after (the result is already
+    // captured into a non-home vreg by `emitCall`).
+    try spillHomedCallerSaved(ctx);
+    try emitCall(
         ctx.allocator,
         ctx.buf,
         ctx.alloc,
@@ -85,10 +145,12 @@ pub fn emitCallCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
         ctx.num_imports,
         @as(u32, @intCast(ins.payload)),
     );
+    try reloadHomedCallerSaved(ctx);
 }
 
 pub fn emitCallIndirectCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
-    return emitCallIndirect(
+    try spillHomedCallerSaved(ctx);
+    try emitCallIndirect(
         ctx.allocator,
         ctx.buf,
         ctx.alloc,
@@ -102,6 +164,7 @@ pub fn emitCallIndirectCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Erro
         ins.extra,
         ctx.uses_type_subtyping,
     );
+    try reloadHomedCallerSaved(ctx);
 }
 
 /// Wasm spec §3.4.7 (call N) — direct call. Mirrors
@@ -593,7 +656,8 @@ pub fn emitCallIndirect(
 ///   (5) MEMORY-class buffer LEA + restore runtime_ptr + shadow,
 ///   (6) CALL RAX, captureCallResult.
 pub fn emitCallRefCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
-    return emitCallRef(
+    try spillHomedCallerSaved(ctx);
+    try emitCallRef(
         ctx.allocator,
         ctx.buf,
         ctx.alloc,
@@ -605,6 +669,7 @@ pub fn emitCallRefCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!voi
         ctx.module_types,
         @as(u32, @intCast(ins.payload)),
     );
+    try reloadHomedCallerSaved(ctx);
 }
 
 pub fn emitCallRef(

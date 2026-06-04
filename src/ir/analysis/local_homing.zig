@@ -25,7 +25,9 @@
 //!
 //! ## Stage gates (conservative; widened in later ADR-0155 stages)
 //!
-//! - **aarch64 only** — K=0 on every other arch (x86_64 parity is stage 4).
+//! - **aarch64 + x86_64** (stage 4 added x86_64) — K=0 on every other arch.
+//!   The per-arch `max_homed` keeps `temp_reserve` GPRs for temporaries (x86_64
+//!   has only 4 allocatable GPRs vs arm64's 8 → cap 2 vs 6).
 //! - **no GC/memory TRAMPOLINE op** (stage 2b) — `memory.grow`, `struct.new*`,
 //!   `array.*`, `ref.test*`, `ref.cast*`, `br_on_cast*` route through a Zig
 //!   trampoline whose caller-saved clobber the call-site spill/reload does not
@@ -53,10 +55,40 @@ const ZirFunc = zir.ZirFunc;
 const ZirOp = zir.ZirOp;
 const ValType = zir.ValType;
 
-/// Hard cap on homed locals (stage 1). Bounded by the low GPR register slots we
-/// are willing to pin function-wide; leaves the remaining slots for temporaries
-/// (v1 has the same trade — the first locals win registers, the rest overflow).
-pub const max_homed: u32 = 6;
+/// Global ceiling on homed locals across all arches (ADR-0155). The per-arch
+/// `max_homed` never exceeds this regardless of how many GPRs the arch has.
+const max_homed_global: u32 = 6;
+
+/// Temporaries always need *some* registers; reserve at least this many GPRs for
+/// them so homing a function's locals never starves the greedy temporary scan
+/// (the x86_64 SysV failure mode: 4 allocatable GPRs, all 4 reserved for homes →
+/// every temporary spills → PERF REGRESSION). ADR-0155 stage 4.
+const temp_reserve: u32 = 2;
+
+/// Count of GPR slots the shared regalloc may actually assign on this build's
+/// target. MUST mirror the per-arch `abi.slotToReg` pool (Zone 2) — but Zone 1
+/// (`src/ir/`) cannot import the Zone-2 abi tables (upward import, §A1), so the
+/// pool sizes are re-derived from `builtin.target` here. Cross-checked against
+/// `arm64/abi.zig` (X9..X13 + X20..X22 = 8) and `x86_64/abi.zig`'s top-level
+/// `allocatable_gprs` (RBX/R12/R13/R14 = 4). Note: x86_64 `slotToReg` consumes
+/// the SysV-sized 4-reg pool even on Win64 builds (the Win64 6-reg pool is
+/// defined but not yet wired into `slotToReg`), so x86_64 is 4 for BOTH ABIs —
+/// the min-of-both safe choice, and the actual cap.
+const n_allocatable_gpr: u32 = switch (builtin.target.cpu.arch) {
+    .aarch64 => 8,
+    .x86_64 => 4,
+    else => 0,
+};
+
+/// Per-arch cap on homed locals (stage 1 + stage 4). Bounded by the low GPR
+/// register slots we are willing to pin function-wide, keeping at least
+/// `temp_reserve` registers for temporaries (v1 has the same trade — the first
+/// locals win registers, the rest + temporaries overflow). Resolved values:
+/// arm64 (8 GPRs) → 6, x86_64 (4 GPRs, both ABIs) → 2.
+pub const max_homed: u32 = @min(
+    max_homed_global,
+    n_allocatable_gpr -| temp_reserve,
+);
 
 /// A resolved homing plan for one function. `count` pseudo-vregs are homed; the
 /// homed local's absolute wasm local index is `local_idx[r]` for rank
@@ -143,8 +175,9 @@ pub fn plan(func: *const ZirFunc) Plan {
     var li: u32 = 0;
     while (li < p.n_locals) : (li += 1) p.rank_buf[li] = -1;
 
-    // Gate: aarch64 only (stage 4 = x86_64 parity).
-    if (builtin.target.cpu.arch != .aarch64) return p;
+    // Gate: aarch64 + x86_64 (ADR-0155 stage 4 added x86_64 parity). Every
+    // other arch homes nothing (no register-resident emit path).
+    if (builtin.target.cpu.arch != .aarch64 and builtin.target.cpu.arch != .x86_64) return p;
 
     // Gate: no GC/memory trampoline op in the body (stage 2b). Plain calls are
     // allowed from stage 2 (op_call spills caller-saved homed locals at the
@@ -172,24 +205,34 @@ pub fn plan(func: *const ZirFunc) Plan {
 
 const testing = std.testing;
 
+/// True on the arches that have a register-resident emit path (aarch64 +
+/// x86_64). Drives the arch-conditional test expectations: where homing is
+/// active the asserted counts are capped by `max_homed` (6 / 4 / 2 per arch).
+const homing_active: bool =
+    builtin.target.cpu.arch == .aarch64 or builtin.target.cpu.arch == .x86_64;
+
 fn freshFunc(locals: []const ValType) ZirFunc {
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
     return ZirFunc.init(0, sig, locals);
 }
 
-test "plan: homes scalar GPR locals on aarch64, gated off elsewhere" {
+test "plan: homes scalar GPR locals where active, gated off elsewhere" {
     var f = freshFunc(&.{ .i32, .i32, .i32 });
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
     try f.instrs.append(testing.allocator, .{ .op = .end });
     const p = plan(&f);
-    if (builtin.target.cpu.arch == .aarch64) {
-        try testing.expectEqual(@as(u32, 3), p.count);
+    if (homing_active) {
+        // 3 i32 locals, all homeable — capped by max_homed (x86_64 = 2).
+        const want: u32 = @min(@as(u32, 3), max_homed);
+        try testing.expectEqual(want, p.count);
         try testing.expectEqual(@as(?u32, 0), p.rankOf(0));
-        try testing.expectEqual(@as(?u32, 2), p.rankOf(2));
         // pseudo-vreg id = n_temp + rank.
         try testing.expectEqual(@as(?u32, 10), p.pseudoVreg(0, 10));
-        try testing.expectEqual(@as(?u32, 12), p.pseudoVreg(2, 10));
+        if (max_homed >= 3) {
+            try testing.expectEqual(@as(?u32, 2), p.rankOf(2));
+            try testing.expectEqual(@as(?u32, 12), p.pseudoVreg(2, 10));
+        }
     } else {
         try testing.expectEqual(@as(u32, 0), p.count);
         try testing.expectEqual(@as(?u32, null), p.rankOf(0));
@@ -216,7 +259,8 @@ test "plan: a plain call does NOT gate homing off (stage 2)" {
     try f.instrs.append(testing.allocator, .{ .op = .call, .payload = 0 });
     try f.instrs.append(testing.allocator, .{ .op = .end });
     const p = plan(&f);
-    if (builtin.target.cpu.arch == .aarch64) {
+    if (homing_active) {
+        // 2 i32 locals, both homeable — within every arch's max_homed (≥ 2).
         try testing.expectEqual(@as(u32, 2), p.count);
     } else {
         try testing.expectEqual(@as(u32, 0), p.count);
@@ -229,8 +273,9 @@ test "plan: f32/f64/v128/ref locals stay slot-homed (skipped)" {
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
     try f.instrs.append(testing.allocator, .{ .op = .end });
     const p = plan(&f);
-    if (builtin.target.cpu.arch == .aarch64) {
-        // Only local 1 (i32) and local 3 (i64) are homeable.
+    if (homing_active) {
+        // Only local 1 (i32) and local 3 (i64) are homeable; both fit (≤ 2 ≤
+        // every arch's max_homed). f32/v128/ref are skipped (not homeable).
         try testing.expectEqual(@as(u32, 2), p.count);
         try testing.expectEqual(@as(?u32, null), p.rankOf(0));
         try testing.expectEqual(@as(?u32, 0), p.rankOf(1));
@@ -246,7 +291,7 @@ test "plan: caps at max_homed" {
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 0 });
     try f.instrs.append(testing.allocator, .{ .op = .end });
     const p = plan(&f);
-    if (builtin.target.cpu.arch == .aarch64) {
+    if (homing_active) {
         try testing.expectEqual(max_homed, p.count);
         try testing.expectEqual(@as(?u32, null), p.rankOf(max_homed)); // beyond cap
     }

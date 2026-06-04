@@ -36,10 +36,54 @@ const jit_abi = @import("../shared/jit_abi.zig");
 const types = @import("types.zig");
 const label_mod = @import("label.zig");
 
+const local_homing = @import("../../../ir/analysis/local_homing.zig");
+
 const Allocator = std.mem.Allocator;
 const Error = types.Error;
 const Label = label_mod.Label;
 const ZirFunc = zir.ZirFunc;
+
+/// ADR-0155 stage 4 (D-265 Phase IV) — restore the callee-saved register-homed
+/// locals' incoming (caller) values from their frame save slots, immediately
+/// before the function's `POP R15? ; POP RBP ; RET` epilogue. The x86_64
+/// regalloc pool is ALL callee-saved (RBX/R12-R14), so a homed local occupies a
+/// register the ABI requires this function to preserve for its caller; the
+/// prologue snapshotted each home's incoming value and this restores it on every
+/// return path (normal returns AND trap-stub returns — the host's RBX/R12-R14
+/// must survive a trap exit too). Rank j's save slot is at
+/// `[RBP - (home_save_base_disp's magnitude + j*8)]` i.e. `home_save_base_disp
+/// - j*8`. Only register-resident homes were saved, so only they are restored.
+/// No-op when `homing.count == 0` (the non-homing fast path is byte-identical).
+/// `base_disp` is `home_save_base_disp` from `emit.compile` (rank-0 save slot's
+/// RBP-relative disp; `0` when homing is off — also the un-homed default, so a
+/// `0` base with `count == 0` is a clean no-op). `homing` + `n_temp` are
+/// re-derived from `func` + `alloc` exactly as `emit.compile` does (the SSOT
+/// plan, guarded by `alloc.slots.len >= count` for hand-built test allocations).
+fn restoreCalleeSavedHomes(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    alloc: regalloc.Allocation,
+    func: *const ZirFunc,
+    base_disp: i32,
+) Error!void {
+    const planned = local_homing.plan(func);
+    const homing = if (alloc.slots.len >= planned.count) planned else local_homing.Plan{};
+    if (homing.count == 0) return;
+    const n_temp: u32 = @intCast(alloc.slots.len - homing.count);
+    var r: u32 = 0;
+    while (r < homing.count) : (r += 1) {
+        const home_vreg: u32 = n_temp + r;
+        switch (alloc.slot(home_vreg, .gpr)) {
+            .reg => |id| {
+                const home_phys = abi.slotToReg(id) orelse return Error.SlotOverflow;
+                try buf.appendSlice(allocator, rbp_disp.rbpLoadR64(home_phys, base_disp - @as(i32, @intCast(r)) * 8).slice());
+            },
+            // A spilled home never clobbered a callee-saved reg — nothing to
+            // restore (its value lives in its own spill slot).
+            .spill => {},
+        }
+    }
+}
 
 /// §9.12-B / B65 (ADR-0075) — `(ctx, ins)` adapters for the
 /// control-structure cohort (`block`, `loop`). Two distinct
@@ -386,10 +430,11 @@ pub fn emitBr(
     uses_runtime_ptr: bool,
     return_is_memory_class: bool,
     indirect_result_slot_neg_off: u32,
+    home_save_base_disp: i32,
     depth: u32,
 ) Error!void {
     if (depth == labels.items.len) {
-        try emitFunctionReturn(allocator, buf, alloc, pushed_vregs, spill_base_off, func, frame_bytes, uses_runtime_ptr, return_is_memory_class, indirect_result_slot_neg_off);
+        try emitFunctionReturn(allocator, buf, alloc, pushed_vregs, spill_base_off, func, frame_bytes, uses_runtime_ptr, return_is_memory_class, indirect_result_slot_neg_off, home_save_base_disp);
         return;
     }
     if (depth > labels.items.len) return types.rejectUnsupported("src/engine/codegen/x86_64/op_control.zig:78", 0);
@@ -609,6 +654,7 @@ pub fn emitFunctionReturn(
     uses_runtime_ptr: bool,
     return_is_memory_class: bool,
     indirect_result_slot_neg_off: u32,
+    home_save_base_disp: i32,
 ) Error!void {
     try marshalReturnRegs(allocator, buf, alloc, pushed_vregs, spill_base_off, func, return_is_memory_class, indirect_result_slot_neg_off);
     if (frame_bytes > 0) {
@@ -621,6 +667,9 @@ pub fn emitFunctionReturn(
             try buf.appendSlice(allocator, inst.encAddRSpImm32(@intCast(frame_bytes)).slice());
         }
     }
+    // ADR-0155 stage 4 — restore callee-saved homed registers before the ABI
+    // epilogue (RBP-relative, so valid until POP RBP).
+    try restoreCalleeSavedHomes(allocator, buf, alloc, func, home_save_base_disp);
     if (uses_runtime_ptr) {
         try buf.appendSlice(allocator, inst.encPopR(.r15).slice());
     }
@@ -644,6 +693,7 @@ fn emitBrTableJmp(
     uses_runtime_ptr: bool,
     return_is_memory_class: bool,
     indirect_result_slot_neg_off: u32,
+    home_save_base_disp: i32,
     depth: u32,
 ) Error!void {
     // d-23 (D-107 discharge): `br_table 0` at function scope (= no
@@ -653,7 +703,7 @@ fn emitBrTableJmp(
     // pre-d-23 rejected it. unwind.wast's `func-unwind-by-br_table`
     // shape is the surfacing fixture.
     if (depth == labels.items.len) {
-        try emitFunctionReturn(allocator, buf, alloc, pushed_vregs, spill_base_off, func, frame_bytes, uses_runtime_ptr, return_is_memory_class, indirect_result_slot_neg_off);
+        try emitFunctionReturn(allocator, buf, alloc, pushed_vregs, spill_base_off, func, frame_bytes, uses_runtime_ptr, return_is_memory_class, indirect_result_slot_neg_off, home_save_base_disp);
         return;
     }
     if (depth > labels.items.len) return types.rejectUnsupported("src/engine/codegen/x86_64/op_control.zig:104", 0);
@@ -718,6 +768,7 @@ pub fn emitBrTable(
     uses_runtime_ptr: bool,
     return_is_memory_class: bool,
     indirect_result_slot_neg_off: u32,
+    home_save_base_disp: i32,
     count: u32,
     start: u32,
 ) Error!void {
@@ -752,7 +803,7 @@ pub fn emitBrTable(
         } else {
             try buf.appendSlice(allocator, inst.encJccRel32(.ne, 0).slice());
         }
-        try emitBrTableJmp(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, func, frame_bytes, uses_runtime_ptr, return_is_memory_class, indirect_result_slot_neg_off, targets[start + i]);
+        try emitBrTableJmp(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, func, frame_bytes, uses_runtime_ptr, return_is_memory_class, indirect_result_slot_neg_off, home_save_base_disp, targets[start + i]);
         const after: usize = buf.items.len;
         const disp: usize = after - (jne_at + jne_size);
         if (i <= 127) {
@@ -764,7 +815,7 @@ pub fn emitBrTable(
             std.mem.writeInt(u32, buf.items[jne_at + 2 ..][0..4], disp32, .little);
         }
     }
-    try emitBrTableJmp(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, func, frame_bytes, uses_runtime_ptr, return_is_memory_class, indirect_result_slot_neg_off, targets[start + count]);
+    try emitBrTableJmp(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, func, frame_bytes, uses_runtime_ptr, return_is_memory_class, indirect_result_slot_neg_off, home_save_base_disp, targets[start + count]);
 }
 
 /// Wasm spec §3.4.5 (br_if N) — pop cond, branch to label at
@@ -788,12 +839,13 @@ pub fn emitBrIf(
     uses_runtime_ptr: bool,
     return_is_memory_class: bool,
     indirect_result_slot_neg_off: u32,
+    home_save_base_disp: i32,
     depth: u32,
 ) Error!void {
     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const cond_v = pushed_vregs.pop().?;
     const cond_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, cond_v, 0);
-    try branchOnReg(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, func, frame_bytes, uses_runtime_ptr, return_is_memory_class, indirect_result_slot_neg_off, depth, cond_r);
+    try branchOnReg(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, func, frame_bytes, uses_runtime_ptr, return_is_memory_class, indirect_result_slot_neg_off, home_save_base_disp, depth, cond_r);
 }
 
 /// Conditional-branch-to-label body shared by `br_if` and `br_on_cast`
@@ -813,6 +865,7 @@ pub fn branchOnReg(
     uses_runtime_ptr: bool,
     return_is_memory_class: bool,
     indirect_result_slot_neg_off: u32,
+    home_save_base_disp: i32,
     depth: u32,
     cond_r: abi.Gpr,
 ) Error!void {
@@ -825,7 +878,7 @@ pub fn branchOnReg(
         try buf.appendSlice(allocator, inst.encTestRR(.d, cond_r, cond_r).slice());
         const je_at: u32 = @intCast(buf.items.len);
         try buf.appendSlice(allocator, inst.encJccRel32(.e, 0).slice());
-        try emitFunctionReturn(allocator, buf, alloc, pushed_vregs, spill_base_off, func, frame_bytes, uses_runtime_ptr, return_is_memory_class, indirect_result_slot_neg_off);
+        try emitFunctionReturn(allocator, buf, alloc, pushed_vregs, spill_base_off, func, frame_bytes, uses_runtime_ptr, return_is_memory_class, indirect_result_slot_neg_off, home_save_base_disp);
         // Patch the JE rel32 to land on the byte AFTER the
         // emitFunctionReturn block.
         const skip_byte: u32 = @intCast(buf.items.len);
@@ -1337,6 +1390,8 @@ fn emitEndInter(ctx: *ctx_mod.EmitCtx) Error!void {
     if (ctx.frame_bytes > 0) {
         try ctx.buf.appendSlice(ctx.allocator, rbp_disp.rspAdd(ctx.frame_bytes).slice());
     }
+    // ADR-0155 stage 4 — restore callee-saved homed registers (function-end).
+    try restoreCalleeSavedHomes(ctx.allocator, ctx.buf, ctx.alloc, ctx.func, ctx.home_save_base_disp);
     if (ctx.uses_runtime_ptr) {
         try ctx.buf.appendSlice(ctx.allocator, inst.encPopR(.r15).slice());
     }
@@ -1350,6 +1405,10 @@ fn emitEndInter(ctx: *ctx_mod.EmitCtx) Error!void {
         if (ctx.frame_bytes > 0) {
             try ctx.buf.appendSlice(ctx.allocator, rbp_disp.rspAdd(ctx.frame_bytes).slice());
         }
+        // ADR-0155 stage 4 — bounds/unreachable trap stub fires mid-body (homes
+        // already mutated); restore them so the host's callee-saved regs survive
+        // the trap exit.
+        try restoreCalleeSavedHomes(ctx.allocator, ctx.buf, ctx.alloc, ctx.func, ctx.home_save_base_disp);
         if (ctx.uses_runtime_ptr) {
             try ctx.buf.appendSlice(ctx.allocator, inst.encPopR(.r15).slice());
         }
@@ -1393,7 +1452,10 @@ fn emitEndInter(ctx: *ctx_mod.EmitCtx) Error!void {
         try ctx.buf.appendSlice(ctx.allocator, inst.encStoreImm32MemDisp32(abi.runtime_ptr_save_gpr, jit_abi.trap_flag_off, 1).slice());
         try ctx.buf.appendSlice(ctx.allocator, inst.encStoreImm32MemDisp32(abi.runtime_ptr_save_gpr, jit_abi.trap_kind_off, 4).slice());
         try ctx.buf.appendSlice(ctx.allocator, inst.encXorRR(.d, .rax, .rax).slice());
-        // No `ADD RSP, frame_bytes` — probe fires before frame alloc.
+        // No `ADD RSP, frame_bytes` — probe fires before frame alloc. No
+        // callee-saved-home restore either (ADR-0155 stage 4): the probe is in
+        // the prologue BEFORE the home-seed, so the home registers still hold
+        // their incoming caller values here — already correct.
         try ctx.buf.appendSlice(ctx.allocator, inst.encPopR(.r15).slice());
         try ctx.buf.appendSlice(ctx.allocator, inst.encPopR(.rbp).slice());
         try ctx.buf.appendSlice(ctx.allocator, inst.encRet().slice());
@@ -1438,6 +1500,7 @@ pub fn emitBrCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
         ctx.uses_runtime_ptr,
         ctx.return_is_memory_class,
         ctx.indirect_result_slot_neg_off,
+        ctx.home_save_base_disp,
         @as(u32, @intCast(ins.payload)),
     );
     ctx.dead_code.* = true;
@@ -1456,6 +1519,7 @@ pub fn emitBrIfCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
         ctx.uses_runtime_ptr,
         ctx.return_is_memory_class,
         ctx.indirect_result_slot_neg_off,
+        ctx.home_save_base_disp,
         @as(u32, @intCast(ins.payload)),
     );
 }
@@ -1478,6 +1542,7 @@ pub fn branchOnRegCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr, cond_r: a
         ctx.uses_runtime_ptr,
         ctx.return_is_memory_class,
         ctx.indirect_result_slot_neg_off,
+        ctx.home_save_base_disp,
         @as(u32, @intCast(ins.payload)),
         cond_r,
     );
@@ -1496,6 +1561,7 @@ pub fn emitBrTableCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!voi
         ctx.uses_runtime_ptr,
         ctx.return_is_memory_class,
         ctx.indirect_result_slot_neg_off,
+        ctx.home_save_base_disp,
         @as(u32, @intCast(ins.payload)),
         ins.extra,
     );
@@ -1524,6 +1590,8 @@ pub fn emitReturnCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void
     if (ctx.frame_bytes > 0) {
         try ctx.buf.appendSlice(ctx.allocator, rbp_disp.rspAdd(ctx.frame_bytes).slice());
     }
+    // ADR-0155 stage 4 — restore callee-saved homed registers (explicit return).
+    try restoreCalleeSavedHomes(ctx.allocator, ctx.buf, ctx.alloc, ctx.func, ctx.home_save_base_disp);
     if (ctx.uses_runtime_ptr) {
         try ctx.buf.appendSlice(ctx.allocator, inst.encPopR(.r15).slice());
     }

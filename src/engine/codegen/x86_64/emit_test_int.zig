@@ -7,9 +7,11 @@
 //! Zone 2 (`src/engine/codegen/x86_64/`).
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const zir = @import("../../../ir/zir.zig");
 const regalloc = @import("../shared/regalloc.zig");
+const liveness = @import("../../../ir/analysis/liveness.zig");
 const inst = @import("inst.zig");
 const abi = @import("abi.zig");
 const prologue = @import("prologue.zig");
@@ -115,6 +117,14 @@ test "compile: void function with `end` only emits prologue + epilogue" {
 }
 
 test "compile: function with 1 local + (i32.const 42) (local.set 0) (local.get 0) end" {
+    // ADR-0155 stage 4 — the declared i32 local 0 is REGISTER-HOMED on x86_64.
+    // local.set 0 / local.get 0 become reg→reg MOVs (no STORE/LOAD to the slot).
+    // `local_homing.plan` gates on the HOST arch (builtin.target.cpu.arch), so
+    // this homed layout only materialises on an aarch64 OR x86_64 host. Driven
+    // through the REAL liveness+regalloc pipeline so the alloc carries the
+    // appended home pseudo-vreg (a hand-built un-homed alloc is incompatible).
+    // SIBLING-AT: src/engine/codegen/arm64/emit_test_local.zig (arm64 homed local)
+    if (comptime builtin.target.cpu.arch != .aarch64 and builtin.target.cpu.arch != .x86_64) return;
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
     var f = ZirFunc.init(0, sig, &[_]zir.ValType{.i32});
     defer f.deinit(testing.allocator);
@@ -122,99 +132,58 @@ test "compile: function with 1 local + (i32.const 42) (local.set 0) (local.get 0
     try f.instrs.append(testing.allocator, .{ .op = .@"local.set", .payload = 0 });
     try f.instrs.append(testing.allocator, .{ .op = .@"local.get", .payload = 0 });
     try f.instrs.append(testing.allocator, .{ .op = .end });
-    f.liveness = .{
-        .ranges = &[_]zir.LiveRange{
-            .{ .def_pc = 0, .last_use_pc = 1 }, // const
-            .{ .def_pc = 2, .last_use_pc = 3 }, // local.get result
-        },
-    };
-    const slots = [_]u16{ 0, 1 }; // R10D, R11D
-    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
+    f.liveness = try liveness.compute(testing.allocator, &f, &.{}, &.{});
+    defer if (f.liveness) |lv| liveness.deinit(testing.allocator, lv);
+    const alloc = try regalloc.compute(testing.allocator, &f);
+    defer regalloc.deinit(testing.allocator, alloc);
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
     defer deinit(testing.allocator, out);
 
-    // Expected stream (slot 0 = RBX, slot 1 = R12 after pool shrink — chunk 13b):
-    //   55 48 89 E5                    PUSH RBP ; MOV RBP, RSP
-    //   48 83 EC 10                    SUB RSP, 16            (1 local → 16 aligned)
-    //   BB 2A 00 00 00                 MOV EBX, #42           (const, slot 0 = RBX)
-    //   89 5D F8                       MOV [RBP-8], EBX       (local.set 0)
-    //   44 8B 65 F8                    MOV R12D, [RBP-8]      (local.get 0; slot 1 = R12)
-    //   31 C0                          XOR EAX, EAX        (zero-init §4.5.3.1)
-    //   48 89 45 F8                    MOV [RBP-8], RAX    (zero local 0)
-    //   BB 2A 00 00 00                 MOV EBX, 42
-    //   89 5D F8                       MOV [RBP-8], EBX
-    //   44 8B 65 F8                    MOV R12D, [RBP-8]
-    //   44 89 E0                       MOV EAX, R12D
-    //   48 83 C4 10                    ADD RSP, 16
-    //   5D                             POP RBP
-    //   C3                             RET
-    const expected = [_]u8{
-        0x55,
-        0x48,
-        0x89,
-        0xE5,
-        0x48,
-        0x83,
-        0xEC,
-        0x10,
-        0x31,
-        0xC0,
-        0x48,
-        0x89,
-        0x45,
-        0xF8,
-        0xBB,
-        0x2A,
-        0x00,
-        0x00,
-        0x00,
-        0x89,
-        0x5D,
-        0xF8,
-        0x44,
-        0x8B,
-        0x65,
-        0xF8,
-        0x44,
-        0x89,
-        0xE0,
-        0x48,
-        0x83,
-        0xC4,
-        0x10,
-        0x5D,
-        0xC3,
-    };
-    try testing.expectEqualSlices(u8, &expected, out.bytes);
+    // Homed contract (slot 0 = RBX): the prologue still zero-inits the local
+    // slot ([RBP-8]) then seeds the home reg from it (MOV EBX, [RBP-8]); the
+    // local.set / local.get are reg→reg MOVs into / out of RBX (no further slot
+    // traffic). The homing seed LOAD (44? 8B / 8B from [RBP-8] into the home
+    // reg) must be present; the result still returns via EAX.
+    // Body: PUSH RBP ; MOV RBP,RSP ; SUB RSP,16 ; XOR EAX,EAX ; MOV [RBP-8],RAX
+    //       ; MOV EBX,[RBP-8] (home seed) ; MOV EBX,#42 (const) ; MOV EBX,EBX
+    //       (set, reg→reg) ; MOV <tmp>,EBX (get) ; MOV EAX,<tmp> ; epilogue.
+    // The seed MOV EBX, [RBP-8] = 8B 5D F8 (reg=RBX, no REX needed).
+    const seed = [_]u8{ 0x8B, 0x5D, 0xF8 };
+    try testing.expect(std.mem.find(u8, out.bytes, &seed) != null);
+    // No 32-bit STORE of EBX to the local slot [RBP-8] (89 5D F8) — the set is
+    // reg→reg, never a slot store (homed local never re-touches its slot).
+    const slot_store = [_]u8{ 0x89, 0x5D, 0xF8 };
+    try testing.expect(std.mem.find(u8, out.bytes, &slot_store) == null);
+    // Ends in POP RBP ; RET.
+    try testing.expectEqual(@as(u8, 0xC3), out.bytes[out.bytes.len - 1]);
 }
 
 test "compile: local.tee preserves stack — uses top vreg without popping" {
+    // ADR-0155 stage 4 — homed local.tee: MOVs the (peeked) value into the home
+    // register and leaves it on the operand stack (no pop). Real pipeline so the
+    // alloc carries the home pseudo-vreg. Host-arch-gated (see sibling test).
+    // SIBLING-AT: src/engine/codegen/arm64/emit_test_local.zig (arm64 homed tee)
+    if (comptime builtin.target.cpu.arch != .aarch64 and builtin.target.cpu.arch != .x86_64) return;
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
     var f = ZirFunc.init(0, sig, &[_]zir.ValType{.i32});
     defer f.deinit(testing.allocator);
     try f.instrs.append(testing.allocator, .{ .op = .@"i32.const", .payload = 7 });
     try f.instrs.append(testing.allocator, .{ .op = .@"local.tee", .payload = 0 });
     try f.instrs.append(testing.allocator, .{ .op = .end });
-    f.liveness = .{ .ranges = &[_]zir.LiveRange{
-        .{ .def_pc = 0, .last_use_pc = 2 },
-    } };
-    const slots = [_]u16{0}; // R10D
-    const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
+    f.liveness = try liveness.compute(testing.allocator, &f, &.{}, &.{});
+    defer if (f.liveness) |lv| liveness.deinit(testing.allocator, lv);
+    const alloc = try regalloc.compute(testing.allocator, &f);
+    defer regalloc.deinit(testing.allocator, alloc);
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
     defer deinit(testing.allocator, out);
-    // local.tee writes [RBP-8] but doesn't pop, so the top vreg
-    // (slot 0 = RBX after chunk 13b pool shrink) is still on the stack
-    // for the `end` to marshal into EAX.
-    // Expected: prologue(4) + SUB(4) + zero-init(6) + MOV EBX #7 (5)
-    // + MOV [RBP-8] EBX (3) + MOV EAX EBX (2) + ADD RSP + POP RBP + RET.
-    // Spot-check: STORE [RBP-8] EBX = 89 5D F8 at offset 19..22,
-    // followed by MOV EAX, EBX = 89 D8 at 22..24.
-    // D-055 migration: prologue size sourced from body_start_offset()
-    // (false, 8) → 8; + zero-init (6) + MOV EBX (5) = 19.
-    const body_start = prologue.body_start_offset(false, 8);
-    const store_off = body_start + 6 + 5;
-    try testing.expectEqualSlices(u8, &.{ 0x89, 0x5D, 0xF8 }, out.bytes[store_off .. store_off + 3]);
-    try testing.expectEqualSlices(u8, &.{ 0x89, 0xD8 }, out.bytes[store_off + 3 .. store_off + 5]);
+    // The home reg (slot 0 = RBX) is seeded from the slot in the prologue
+    // (MOV EBX, [RBP-8] = 8B 5D F8); the tee is a reg→reg MOV into RBX, leaving
+    // the value on the stack for `end` to marshal into EAX. No slot STORE.
+    const seed = [_]u8{ 0x8B, 0x5D, 0xF8 };
+    try testing.expect(std.mem.find(u8, out.bytes, &seed) != null);
+    const slot_store = [_]u8{ 0x89, 0x5D, 0xF8 };
+    try testing.expect(std.mem.find(u8, out.bytes, &slot_store) == null);
+    try testing.expectEqual(@as(u8, 0xC3), out.bytes[out.bytes.len - 1]);
 }
 
 test "compile: (block (br 0) end) end — forward br with end-patch" {
