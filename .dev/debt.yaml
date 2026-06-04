@@ -1038,25 +1038,6 @@ entries:
     refs: |-
       src/engine/runner_gc_test.zig (D-261 test, b332081a); src/feature/gc/root_scope.zig (maybeCollectJit);
       src/feature/gc/collector_mark_sweep.zig (scanNativeStackRoots); ADR-0160; ADR-0128 §2; ROADMAP §16.6
-  - id: "D-277"
-    layer: "code"
-    status: "note"
-    description: |-
-      **note (§16.7 docs surfaced a §10.4-vs-code drift): `include/zwasm.h` is an empty placeholder.** The C-API
-      ships `wasm.h` (upstream standard, gap=0, 293/293) + `wasi.h` (hand-authored WASI host-setup,
-      `zwasm_wasi_config_*` — real, ADR-0005). But `zwasm.h` is a bare comment placeholder — the extensions ROADMAP
-      §10.4 lists for it (allocator injection, fuel metering, wall-clock timeout, cancellation, the kind-less
-      `zwasm_func_call_fast` hot path) were **never implemented**. Not a bug: these are perf/control niceties
-      consistent with "evaluate on demand" for a lightweight runtime (cf. D-273, the CLI's parallel
-      `--fuel`/`--timeout` gap). DISCHARGE: either implement the wanted subset (likely just `zwasm_func_call_fast`
-      + allocator injection if a consumer needs them) OR reconcile ROADMAP §10.4 to code-as-truth (zwasm.h =
-      reserved; extensions post-v0.1.0). Docs (`docs/reference/c_api.md`) already describe zwasm.h honestly as a
-      reserved placeholder.
-    first_raised: "2026-06-05"
-    last_reviewed: "2026-06-05"
-    refs: |-
-      include/zwasm.h (placeholder); include/wasi.h (real WASI ext); include/wasm.h (gap=0); ROADMAP §10.4
-      (overclaims zwasm.h extensions); docs/reference/c_api.md; D-273 (parallel CLI fuel/timeout gap)
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
