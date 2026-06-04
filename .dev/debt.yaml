@@ -898,45 +898,6 @@ entries:
     refs: |-
       src/ir/analysis/local_homing.zig:60,87 (max_homed @min(6, arch)); ADR-0155 (register-homed locals);
       ADR-0153 (D-265 campaign); bench/results/s15p_parity_vs_v1.md; ROADMAP §16 (完成形 surface/perf bar)
-  - id: "D-269"
-    layer: "code"
-    status: "now"
-    description: |-
-      **now — C-API funcref-from-C: path A VERIFIED, path B is the real gap (survey
-      [[2026-06-05-capi-survey-funcref-from-table]]; conformance test `test/c_api_conformance/funcref_table_call.c`
-      `61b606aa`).** Calling a funcref from C is STANDARD wasm-c-api (`wasm_table_get → wasm_ref_as_func →
-      wasm_func_call`, upstream `wasm.h:473/363/445`), not a richer-API extra — so a broken path is a *behavioral*
-      conformance gap (symbols exist, gap=0). Two paths, tested empirically:
-      • **PATH A — funcref from a table slot: GREEN/CONFORMANT.** Elem-segment-populated table → `wasm_table_get`
-        (`instance.zig:1282`, allocates a real `*Ref`) → `wasm_ref_as_func` (`extern_new.zig:378`, decodes via
-        `refAsFuncEntity`) → callable → 42. Now guarded by the conformance test.
-      • **PATH B — funcref RETURNED FROM A CALL, read via `results[i].of.ref`: RED/NON-CONFORMANT (the fix).**
-        `marshalValOut` (`instance.zig:926`) sets `of.ref = @ptrFromInt(v.ref)` = the **raw `*FuncEntity` payload**,
-        but `of.ref` is typed `wasm_ref_t*` (= `*instance.Ref`); a standard consumer's `wasm_ref_as_func(of.ref)`
-        type-confuses the raw `*FuncEntity` for a `*Ref` → recovers a wrong/garbage func (verified: returns ≠ 42).
-      DISCHARGE (next chunk = owned-handle ref model, shared with D-253): make `marshalValOut` allocate an owned
-      `*Ref` for ref-kind results (needs an allocator threaded in), make `wasm_val_delete`/`wasm_val_copy`
-      (`vec.zig:177/182`, currently POD no-op) free/clone ref-kind `of.ref`, and flip `marshalValIn` (`:910`) to
-      read `ref.ref` not `@intFromPtr`. RED repro for that chunk: module
-      `(func(result i32)(i32.const 42))(func(export "get")(result funcref)(ref.func 0))...` → call get →
-      `wasm_ref_as_func(results[0].of.ref)` → call → MUST be 42 (currently not). D-273/surface-philosophy defers
-      VALIDATED as fair (ADR-0159 holds).
-      ---
-      **note (§16.2 DONE — C-API surface 100% implemented: gap 0 / 293-of-293 via `scripts/capi_surface_gap.sh`,
-      `e9367bb2`).** Audit found `include/wasm.h` byte-identical to upstream but 129/293 extern fns unimplemented
-      (link errors); all now implemented (A type-accessors → B vec-ops → C config → D val → instance.zig split
-      ADR-0157 → host_info 27 → ref-cast same/as_ref/copy all 9 types ADR-0158 → tagtype/EH → module
-      serialize/share). This row now tracks the residual SEMANTIC divergence from a perfect wasm-c-api impl (all
-      functions exist + are honest): **val `of.ref` = raw GcRef payload, NOT an owned `wasm_ref_t*`**
-      (`fromRuntimeValue` marshalling) → `wasm_val_copy`/`_delete` are POD (consistent w/ `wasm_val_vec_copy`),
-      but a standard consumer reading a ref-typed func result's `of.ref` as a deref-able `wasm_ref_t*` gets a
-      payload. Reconcile when the uniform-ref-model work lands a real owned-handle representation (D-253); likely
-      re-surfaced by §16.5 dogfooding. Other §16.2 residuals: standalone/instance/foreign `_copy`→null (D-253-D);
-      serialize=source-bytes (D-271). Full audit: `.dev/c_api_surface_audit_2026-06-04.md`.
-    first_raised: "2026-06-04"
-    last_reviewed: "2026-06-05"
-    refs: |-
-      include/wasm.h (verbatim upstream); src/api/{instance,extern_new}.zig (wasm_table_get:1282 / wasm_ref_as_func:378 / refAsFuncEntity); test/c_api_conformance/ (add table-funcref-call); lesson 2026-06-05-capi-survey-funcref-from-table; D-253 (owned-handle of.ref); ADR-0158 (ref model); ADR-0159 (CLI defer validated); ROADMAP §16.2
   - id: "D-271"
     layer: "perf"
     status: "note"

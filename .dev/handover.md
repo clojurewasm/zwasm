@@ -18,27 +18,6 @@
   Mac+x86_64 (ADR-0160); **§16.7** docs — README/CHANGELOG/`docs/reference/`/`docs/tutorial.md` to the settled
   surface (`12390815`, `3a5e8ba0`).
 
-## Active bundle
-
-- **Bundle-ID**: D-269B-owned-handle-ref (C-API `of.ref` = owned `wasm_ref_t*`, not raw payload)
-- **Cycles-remaining**: ~2 (Phase II adversarial tests + III/IV impl; correctness-first per ADR-0153)
-- **Continuity-memo**: (Phase I blast radius, this turn) `of.ref`'s encoding is GLOBAL — all 7 sites must agree, so
-  it's all-or-nothing raw-payload→owned-`*Ref`. Sites: `marshalValOut` (3: host-cb args `instance.zig:957`,
-  `wasm_global_get :1101`, `wasm_func_call` results `:1549`) gains `(alloc, inst)` + allocates a `*Ref`
-  (mirror `wasm_table_get :1293`); `marshalValIn` (`:910`, callers :967/:1120/:1521 + `extern_new.zig:143`) reads
-  `(*Ref).ref` not `@intFromPtr`. **Clean reuse**: `wasm_val_delete`/`wasm_val_copy` (`vec.zig:182/177`, today POD)
-  → delegate to `wasm_ref_delete`(`instance.zig:1229`, recovers alloc from `Ref.instance.store`)/`wasm_ref_copy`
-  (`extern_new.zig:334`); `wasm_val_vec_copy/_delete` cascade per-element for ref kinds. **OWNERSHIP MATRIX (the
-  leak/double-free risk — design + adversarial-test first)**: results (call/global_get) = zwasm allocates, CALLER
-  frees via val_delete; call args (marshalValIn) = BORROWED, don't free; host-cb path gains 2 NEW cleanups — free
-  zwasm-marshalled arg refs AFTER the callback (:957), free the callback's result refs after marshalValIn reads
-  (:967). Guest-internal funcref roundtrip already PASSES (spec `funcref_roundtrip.wasm=42`) — runtime fine, only
-  C-API `of.ref` marshalling is the gap.
-- **Exit-condition**: a path-B conformance test (`get`-returns-funcref → `wasm_ref_as_func(results[0].of.ref)` →
-  call → 42) GREEN + `wasm_val_copy`/`_delete` deep for ref kinds + NO leak/double-free under ReleaseSafe
-  (adversarial test: alloc/free a ref-result in a loop; double-delete guard) + 3-host test-all green. RED repro in
-  [[D-269]].
-
 ## NEXT (autonomous — §16 task-list done; phase-boundary audit DONE; backlog; ADR-0156)
 
 - **Post-§16 backlog — loop in refinement/maintenance mode; no release (ADR-0156).** Cleared this session
@@ -50,17 +29,22 @@
   all MATCH, `OK (HEAD=4ec849c8)`). The D6 process fix (`5471e5fb`) + the green audit close both predicates — gate
   topology hardened, no latent x86_64 emit bug. **ZERO `now` debt rows remain.**
 
-  **C-API funcref-from-C (D-269)**: survey (`295bf14b`) reframed it to a standard-wasm-c-api behavioral gap; the
-  conformance test (`61b606aa`) proved PATH A (table-slot funcref) GREEN+guarded and isolated PATH B (call-result
-  `of.ref`) as RED → now the **`## Active bundle` (D-269B)** above; Phase I (blast radius) done this turn.
-  - **Other backlog (gated/external)**: **D-273** CLI flags (validated-defer, ADR-0159). **J.3** ~30 `blocked-by`
-    → `suggest meta_audit` (user-gated). **15.6** (only open ROADMAP `[ ]`) blocked on cw-v1 (D-264).
+  **C-API funcref-from-C (D-269 DISCHARGED; bundle D-269B CLOSED).** Survey (`295bf14b`) reframed it to a
+  standard-wasm-c-api behavioral gap; path A (table-slot funcref) landed (`61b606aa`); path B (call-result
+  `of.ref`) fixed via the **owned-handle ref model** (`01c1d0cb`): `of.ref` is now an owned `wasm_ref_t*`
+  (`marshalValOut` allocates, `marshalValIn` reads `(*Ref).ref`, `wasm_val_copy/_delete`+vec deep-clone/free,
+  host-cb arg refs lent+freed). Delta: `funcref_result_call.c` RED→GREEN incl. `-Dsanitize=address` (no
+  leak/UAF), double-free-safe by null-after-free. **ZERO `now` debt rows remain again.**
+  - **Backlog (gated/don't-pre-build)**: **D-273** CLI flags (validated-defer, ADR-0159). **J.3** ~30 `blocked-by`
+    → `suggest meta_audit` (user-gated). **15.6** (only open ROADMAP `[ ]`) blocked on cw-v1 (D-264). Next cycle:
+    no clean `now` chunk — re-assess bucket-3 (the autonomous-prep-path C-API survey lever is now spent).
 
-## Step 0.7 (next resume) — kick verified GREEN this resume
+## Step 0.7 (next resume) — VERIFY this turn's test-all kick
 
-The `61b606aa` test-all kick returned `OK (HEAD=7fcf6d4c)` (path-A conformance green on x86_64; guest
-`funcref_roundtrip.wasm=42` also passes — gap is C-API-`of.ref`-only). No kick pending unless this turn touched
-`src/` (it did not — bundle setup is doc-only). The bundle's impl cycle kicks the D6 `test-all` when it lands code.
+The D-269B owned-handle fix (`01c1d0cb`, `src/api/{instance,vec,wasm}.zig`) → kicked the D6 `test-all`. Mac was
+green pre-push (unit + conformance + `-Dsanitize=address` + lint). Next cycle: `tail -3 /tmp/ubuntu.log` → GREEN
+`OK (HEAD=<sha>)` = the owned-handle ref marshalling passes on x86_64, proceed; FAIL = revert the turn's commits
+to the last verified HEAD (`7fcf6d4c`).
 **Gate**: Step-5 Mac = `bash scripts/mac_gate.sh`. windowsmini = manual-only (ADR-0156: no loop tag).
 
 ## Deferred / open debt (D-274/275/276/257 discharged this session — removed)
