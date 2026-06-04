@@ -38,6 +38,7 @@ const extern_new = @import("extern_new.zig");
 const config = @import("config.zig");
 const host_info = @import("host_info.zig");
 const ref_base = @import("ref_base.zig");
+const module_serialize = @import("module_serialize.zig");
 
 const testing = std.testing;
 
@@ -257,6 +258,12 @@ pub const zwasm_store_set_wasi = instance.zwasm_store_set_wasi;
 pub const wasm_module_new = instance.wasm_module_new;
 pub const wasm_module_validate = instance.wasm_module_validate;
 pub const wasm_module_delete = instance.wasm_module_delete;
+pub const SharedModule = module_serialize.SharedModule;
+pub const wasm_module_serialize = module_serialize.wasm_module_serialize;
+pub const wasm_module_deserialize = module_serialize.wasm_module_deserialize;
+pub const wasm_module_share = module_serialize.wasm_module_share;
+pub const wasm_module_obtain = module_serialize.wasm_module_obtain;
+pub const wasm_shared_module_delete = module_serialize.wasm_shared_module_delete;
 pub const wasm_module_imports = module_introspect.wasm_module_imports;
 pub const wasm_module_exports = module_introspect.wasm_module_exports;
 pub const wasm_extern_type = module_introspect.wasm_extern_type;
