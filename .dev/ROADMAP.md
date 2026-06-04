@@ -173,7 +173,7 @@ These do not change between phases. Changing one requires an ADR.
 | A5  | Differential test gates every wasm-execution test (Phase 7+)                                                                                             | `zig build test-all`                                |
 | A6  | ADR is required for: layer/contract change, ZIR shape change, C ABI surface change, phase order change, regression allowance, tier promotion             | Reviewer checklist; pre-merge audit                 |
 | A7  | Mac native + `ubuntunote` SSH (Linux x86_64 native) = local pre-push gate per ADR-0049 + ADR-0067                                                       | `.githooks/pre_push`                                |
-| A8  | Windows x86_64 native verified via SSH (`windowsmini`) before any v0.1.0 release                                                                         | `scripts/run_remote_windows.sh` (Phase 15+)         |
+| A8  | Windows x86_64 native verified via SSH (`windowsmini`) before any release (release is user-only, ADR-0156) — a completion/3-host correctness gate, not a loop-triggered one | `scripts/run_remote_windows.sh` (Phase 15+)         |
 | A9  | Bench history is append-only                                                                                                                             | `bench/history.yaml` reviewed at every merge        |
 | A10 | Spec test fail=0 / skip=0 is a merge gate (Phase 2+)                                                                                                     | `zig build test-spec`                               |
 | A11 | All paths are `snake_case`; no hyphens in file or directory names                                                                                        | Reviewer; convention                                |
@@ -207,7 +207,8 @@ These do not change between phases. Changing one requires an ADR.
 ### 3.2 Out of scope permanently
 
 - **Backwards compatibility with zwasm v1's `zwasm_module_t` API.**
-  The v1 ABI is dropped; migration guide ships at v0.1.0.
+  The v1 ABI is dropped; `docs/migration_v1_to_v2.md` exists (the release
+  itself is user-only, ADR-0156).
 - **Multi-tier optimising JIT** (V8 Liftoff + TurboFan style).
   Single-pass is the design. Future optimising tier is a post-v0.1.0
   ADR decision.
@@ -1677,6 +1678,15 @@ designed). The §16.1 migration guide already exists and will be revised as the
 surface audits land. Debt repayment + industry research (web search / reference
 runtimes) are cross-cutting, not a single row.
 
+**Root-cause discipline (user directive 2026-06-04):** the surface audits +
+dogfooding WILL surface bugs, unimplemented paths, and test gaps/insufficiencies.
+Each gets **root-cause investigation + a fundamental fix**, never a temporary
+patch — per [`no_workaround.md`](../.claude/rules/no_workaround.md) +
+[`investigation_discipline.md`](../.claude/rules/investigation_discipline.md) +
+[`extended_challenge.md`](../.claude/rules/extended_challenge.md). A gap that
+cannot be root-fixed in-cycle becomes a named `D-NNN` debt row with a clear
+discharge predicate, not a silent workaround.
+
 | #    | Task                                                                                                                                                                          | Status |
 |------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------|
 | 16.0 | Open §16 inline + flip Phase Status widget (Phase 15 → DONE; Phase 16 → IN-PROGRESS). Reframed to completion-finalization per ADR-0156.                                       | [x]    |
@@ -1897,8 +1907,8 @@ Instead:
   block.
 - Comparison against reference runtimes (wasm3, wasmtime baseline,
   wasmtime cranelift, wasmer singlepass) is recorded but not gated.
-- v0.1.0 release simply requires "no unexplained regression vs v1
-  baseline."
+- completion requires "no unexplained regression vs v1 baseline" (the
+  eventual release is user-only, ADR-0156).
 
 ### 12.2 σ stability
 
@@ -1934,8 +1944,8 @@ Instead:
 
 ### 12.5 Binary size
 
-No fixed numeric target either. v0.1.0 release records the actual
-size; v1's range (1.20–1.60 MB stripped) is the informal sanity
+No fixed numeric target either. The eventual release (user-only, ADR-0156)
+records the actual size; v1's range (1.20–1.60 MB stripped) is the informal sanity
 check — if v2 is much larger, that's an investigation trigger, not
 a build-time error.
 
@@ -2054,9 +2064,10 @@ that's fine, but the act of typing it is the act of re-deciding.
 - **End of Phase 10** — is the Wasm 3.0 feature-complete claim
   defensible? If the spec test corpus has unimplemented opcodes,
   Phase 11+ does not open.
-- **End of Phase 15** — does ClojureWasm work on zwasm v2 with no
-  measurable user-visible regression? If not, Phase 16 release is
-  blocked.
+- **End of Phase 15** — ClojureWasm dogfooding is DEFERRED (§15.6 →
+  D-264: cw-v1 has no v2 consumer yet). When it lands, "works with no
+  measurable user-visible regression" is a 完成形 quality bar — there is
+  no release to "block" (release is user-only, ADR-0156).
 - **Post-v0.1.0** — does the ecosystem (other hosts adopting
   wasm-c-api against zwasm) materialise to justify v0.2.0 work
   (Component Model + WASI 0.2)? If only ClojureWasm consumes zwasm,
