@@ -10,13 +10,13 @@ Read [`REWORK.md`](../.claude/skills/continue/REWORK.md). Bundle mode nests insi
 
 - **Campaign-ID**: regalloc-resident-locals (D-265) — the single-pass baseline 完成形 (keep hot locals
   register-resident, as v1 does; within P3/P6, NOT an optimising tier). This IS the §15.P parity-achievement work.
-- **Phase**: **III — design DONE → spike next** (of I→V). I DONE (`s15p_parity_vs_v1.md`). II DONE: 3
-  loop-carried-local fixtures (`p9/regalloc/`: 55/30/84) 3-host green = the regression net. III: ADR-0154
-  (Option A value-reuse cache) superseded by analysis (~17%, in-body only); **ADR-0155 (Option B) Proposed** —
-  **register-homed locals, v1-style single-pass** (locals = mutable register-resident values, loaded once at
-  prologue, resident across the back-edge, spilled only at calls/overflow/exit). The D-265 2.3× IS the per-iter
-  loop-top reload (locals slot-homed, value crosses back-edge via memory). GcRef locals stay slot-homed for now
-  (D-261/D-258; no regression). Re-opens W45 (ADR-0151 folded for v128; bites scalars).
+- **Phase**: **IV — implementation, stage-1 SPIKE done: ROI VALIDATED, 1 bug to fix before landing**. I/II/III
+  DONE (II = 3 `p9/regalloc/` fixtures 55/30/84; III = **ADR-0155** register-homed locals, pseudo-vreg-per-local).
+  **Spike result (tree reverted clean)**: w45_addi **v2/v1 = 0.57× — v2-jit 1.76× FASTER than v1** (was 2.30×) →
+  approach SOUND, model proven. **BUG**: 2 call-free i32-local fns miscompile (`clang_O0_arr_sum` got 133642/want
+  39; `clang_O0_fp_sum` got 10/want 77) — a liveness↔emit numbering divergence on the clang-`-O0` shape (homed
+  local as memory base + `and/eqz/br_if` loop cond); the 3 Phase-II fixtures DON'T catch it. Call-crossing homed
+  locals also break → stage 1 gates homing OFF for fns with calls (correct). Detail: ADR-0155 §"Spike result".
 - **Phase I result**: D-265 = v2-jit ~2.3× slower than v1 when a loop body reads a loop-carried local (A/B:
   `a=a+i` 2.30× vs `a=a+CONST` 0.96×; not memory/ALU — confounded earlier). MECHANISM (`emit.zig:910-968`): every
   `local.get` = `next_vreg++` + `LDR [SP,#local_off]`; no residency cache. ROI ceiling = v1 parity (known
@@ -30,20 +30,16 @@ Read [`REWORK.md`](../.claude/skills/continue/REWORK.md). Bundle mode nests insi
   adversarial test is **D-258-blocked**; it converts to a **Phase III DESIGN CONSTRAINT** (rework MUST keep
   GcRefs slot-resident across any potential collection point — register-residency for non-ref locals, ref-locals
   spill at collection sites), with the JIT adversarial test deferred to when D-258 lands.
-- **NEXT — Phase IV stage 1 (the first surgery; spike on working tree, commit-if-green-else-revert)**. DESIGN
-  RESOLVED (ADR-0155): **one pseudo-vreg per local, function-spanning live range** → regalloc pins it to a
-  register (slot<8) the whole function → `local.get`/`set` reuse that pseudo-vreg via the EXISTING
-  `gprLoadSpilled`/`gprStoreSpilled` (which already elide LDR/STR for register-resident vregs, ADR-0149) = no new
-  emit machinery; overflow locals (slot≥8) keep today's LDR/STR. Concrete edits: (1) `ir/analysis/liveness.zig` —
-  mint K local pseudo-vregs with range [0, end] BEFORE the per-op temporary vregs (so locals get the low slot
-  ids); (2) `shared/regalloc_compute.zig` — naturally pins them (range never ends); (3) `arm64/emit.zig`
-  `local.get`(935-939)/`local.set`(990-993) — reference the local's pseudo-vreg instead of `LDR/STR
-  [local_base_off]`; the per-get fresh-vreg minting is REMOVED (local.get pushes the pseudo-vreg); (4) prologue —
-  load each register-homed local's init (param/zero) into its pinned reg once. KEEP liveness↔emit vreg numbering
-  in lockstep. GcRef locals: stay slot-homed for now (skip the pseudo-vreg, D-261/D-258). Gate: 3 Phase-II
-  fixtures green (correctness) + w45_addi ≤1.1× (ROI) + full `zig build test`. Green → commit (Phase IV ch1) →
-  stages 2 calls / 3 FP-v128 / 4 x86_64. Broken/thin → revert + record. **START FRESH** (big intricate surgery —
-  this turn deliberately flushed here, design complete, to give Phase IV a clean context budget). All autonomous.
+- **NEXT — back to Phase II (close the net gap), then re-spike + land stage 1**. The spike proved the ROI but
+  found a miscompile the Phase-II net misses → correctness-first says STRENGTHEN THE NET FIRST: (1) **add a
+  clang-`-O0`-shaped Phase-II fixture** under `test/edge_cases/p9/regalloc/` (a homed local used as a memory base,
+  read repeatedly, in a loop whose condition is `load; const; i32.lt_s; const; i32.and; i32.eqz; br_if` — repro
+  arr_sum/fp_sum) — derive its `.expect` from current (correct) interp/JIT, confirm it's a RED test under the
+  spike's homing. (2) **root-cause** the liveness↔emit operand-stack numbering divergence on that shape (continue
+  the spike subagent `a89f7df7f111795ec` — it has the impl context — via SendMessage, OR re-implement from
+  ADR-0155 + the spike findings). (3) **fix** + re-run: the new fixture + the 3 existing + w45_addi (≤1.1×) +
+  `zig build test` all green. (4) **land stage 1 on-branch** (commit) → ubuntu test-all (D-262). Then stages 2
+  calls / 3 FP-v128 / 4 x86_64. Approach is GO (ADR-0155 §"Spike result"). All autonomous.
 
 ## Current state
 

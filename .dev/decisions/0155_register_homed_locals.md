@@ -100,6 +100,31 @@ throwaway branch/copy; run the 3 Phase-II fixtures (MUST stay green = correctnes
 ROI ≤1.1×). Resolves the open design choice (local-register pre-reservation vs multi-def vreg). Green + ROI → land
 stage 1 on-branch per the migration. Broken/thin → revise here before any on-branch code.
 
+## Spike result (2026-06-04) — ROI VALIDATED; one correctness bug to fix before landing
+
+Ran the working-tree spike (reverted clean after). Files touched: new `src/ir/analysis/local_homing.zig` (~120
+LOC, the local-idx→pseudo-vreg map, arch-gated aarch64) + `liveness.zig` (+~35: mint K function-spanning pseudo-
+vregs) + `arm64/emit.zig` (+~55: `next_vreg` starts at K, prologue-load, local.get pushes the pseudo-vreg,
+local.set/tee reg→reg MOV into home) + `regalloc_shape_tags.zig` (+~10: mirror the K-start).
+
+- **ROI: w45_addi v2/v1 = 0.57× — v2-jit is 1.76× FASTER than v1** (7.0ms vs 12.4ms; was 2.30× SLOWER). Decisively
+  past the ≤1.1× target. **The approach + the mutable-register-home model are SOUND** (loop back-edge needs no
+  reload — proven). The 3 Phase-II fixtures pass.
+- **Validated design facts**: (1) liveness↔emit↔`regalloc_shape_tags` numbering must be mirrored in all 3 passes
+  (lockstep). (2) Call-crossing homed locals break (param register clobbered across a call → `rust_fib` hung) →
+  stage 1 correctly gates homing OFF for any function containing a call/trampoline op (matches the staging). (3)
+  x86_64 unchanged → gate K=0 on non-aarch64 (cross-compile green). (4) O(n²) per-op recompute → precomputed map.
+- **BUG (must fix before landing)**: two CALL-FREE i32-local functions miscompile — `clang_O0_arr_sum`
+  (got 133642, want 39) + `clang_O0_fp_sum` (got 10, want 77). A latent liveness↔emit operand-stack numbering
+  divergence on the clang-`-O0` shape (a homed local used as a memory base, read repeatedly, in a loop whose
+  condition is `load; const; lt_s; const; and; eqz; br_if`). The 3 Phase-II fixtures do NOT exercise this → the
+  net is insufficient. Not root-caused in the spike budget.
+
+**Decision: the approach is GO** (ROI proven, model sound). Before landing stage 1: (a) Phase II — ADD a
+clang-`-O0`-shaped fixture (homed local as memory base + multi-step `and/eqz/br_if` loop condition) as the new RED
+test reproducing arr_sum/fp_sum; (b) root-cause the numbering divergence there; (c) fix; (d) re-run the spike →
+green → land. The implementation subagent (id `a89f7df7f111795ec`) retains the full context to continue.
+
 ## Rejected alternatives
 
 - **ADR-0154 Option A (value-reuse cache)** — recovers only ~17% (in-body redundant reads); the loop-top reload
