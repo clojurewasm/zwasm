@@ -11,6 +11,7 @@
 //! identical to the pre-split `emit_test.zig`.
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const zir = @import("../../../ir/zir.zig");
 const inst = @import("inst.zig");
@@ -123,6 +124,12 @@ test "compile: unsupported op surfaces UnsupportedOp" {
 }
 
 test "compile: 1 local — prologue includes SUB SP,SP,#16; epilogue ADD SP,SP,#16" {
+    // ADR-0155 stage-1 register-homing gates on the HOST arch (local_homing.plan
+    // checks builtin.target.cpu.arch); this test asserts the HOMED layout, which
+    // only occurs on an aarch64 host. On x86_64 the arm64 emitter runs un-homed
+    // (K=0) → skip (the x86_64 emitter has its own tests; homing is stage 4 there).
+    // SIBLING-AT: src/engine/codegen/x86_64/op_locals.zig (x86_64 local emit — un-homed; homing is ADR-0155 stage 4)
+    if (comptime builtin.cpu.arch != .aarch64) return;
     // ADR-0155 stage 1: the declared i32 local is REGISTER-HOMED. The prologue
     // still zero-inits its stack slot (STR XZR) + seeds the home register from
     // it (LDR W); `local.set`/`local.get` become reg→reg MOVs (no STR/LDR to the
@@ -156,6 +163,10 @@ test "compile: 1 local — prologue includes SUB SP,SP,#16; epilogue ADD SP,SP,#
 }
 
 test "compile: 3 locals — frame rounds up to 32 bytes (3*8=24 → align to 32)" {
+    // ADR-0155 stage-1 homing is host-aarch64-gated; this asserts the homed layout
+    // → skip on non-aarch64 host (the arm64 emitter runs un-homed there).
+    // SIBLING-AT: src/engine/codegen/x86_64/op_locals.zig (x86_64 local emit — un-homed; homing is ADR-0155 stage 4)
+    if (comptime builtin.cpu.arch != .aarch64) return;
     // ADR-0155 stage 1: the 3 declared i32 locals are register-homed, but their
     // stack slots still exist + are zero-inited in the prologue (the frame size
     // is unchanged). Driven through the real pipeline. local.set 2 / local.get 2
@@ -190,6 +201,10 @@ test "compile: 3 locals — frame rounds up to 32 bytes (3*8=24 → align to 32)
 }
 
 test "compile: local.tee writes to local but keeps value pushed" {
+    // ADR-0155 stage-1 homing is host-aarch64-gated; this asserts the homed layout
+    // → skip on non-aarch64 host (the arm64 emitter runs un-homed there).
+    // SIBLING-AT: src/engine/codegen/x86_64/op_locals.zig (x86_64 local emit — un-homed; homing is ADR-0155 stage 4)
+    if (comptime builtin.cpu.arch != .aarch64) return;
     // ADR-0155 stage 1: the declared i32 local is register-homed. `local.tee 0`
     // MOVs the (peeked) value into the home register and leaves it on the
     // operand stack — the slot is no longer written. Driven through the real
