@@ -107,6 +107,19 @@ const arm64_i32x4_extmul_high_i16x8_s = @import("arm64/ops/wasm_2_0/i32x4_extmul
 const arm64_i32x4_extmul_low_i16x8_u = @import("arm64/ops/wasm_2_0/i32x4_extmul_low_i16x8_u.zig");
 const arm64_i32x4_extmul_high_i16x8_u = @import("arm64/ops/wasm_2_0/i32x4_extmul_high_i16x8_u.zig");
 const arm64_i32x4_dot_i16x8_s = @import("arm64/ops/wasm_2_0/i32x4_dot_i16x8_s.zig");
+const arm64_i8x16_add_sat_s = @import("arm64/ops/wasm_2_0/i8x16_add_sat_s.zig");
+const arm64_i8x16_add_sat_u = @import("arm64/ops/wasm_2_0/i8x16_add_sat_u.zig");
+const arm64_i8x16_sub_sat_s = @import("arm64/ops/wasm_2_0/i8x16_sub_sat_s.zig");
+const arm64_i8x16_sub_sat_u = @import("arm64/ops/wasm_2_0/i8x16_sub_sat_u.zig");
+const arm64_i16x8_add_sat_s = @import("arm64/ops/wasm_2_0/i16x8_add_sat_s.zig");
+const arm64_i16x8_add_sat_u = @import("arm64/ops/wasm_2_0/i16x8_add_sat_u.zig");
+const arm64_i16x8_sub_sat_s = @import("arm64/ops/wasm_2_0/i16x8_sub_sat_s.zig");
+const arm64_i16x8_sub_sat_u = @import("arm64/ops/wasm_2_0/i16x8_sub_sat_u.zig");
+const arm64_i16x8_q15mulr_sat_s = @import("arm64/ops/wasm_2_0/i16x8_q15mulr_sat_s.zig");
+const arm64_i16x8_extadd_pairwise_i8x16_s = @import("arm64/ops/wasm_2_0/i16x8_extadd_pairwise_i8x16_s.zig");
+const arm64_i16x8_extadd_pairwise_i8x16_u = @import("arm64/ops/wasm_2_0/i16x8_extadd_pairwise_i8x16_u.zig");
+const arm64_i32x4_extadd_pairwise_i16x8_s = @import("arm64/ops/wasm_2_0/i32x4_extadd_pairwise_i16x8_s.zig");
+const arm64_i32x4_extadd_pairwise_i16x8_u = @import("arm64/ops/wasm_2_0/i32x4_extadd_pairwise_i16x8_u.zig");
 const arm64_i64x2_extmul_low_i32x4_s = @import("arm64/ops/wasm_2_0/i64x2_extmul_low_i32x4_s.zig");
 const arm64_i64x2_extmul_high_i32x4_s = @import("arm64/ops/wasm_2_0/i64x2_extmul_high_i32x4_s.zig");
 const arm64_i64x2_extmul_low_i32x4_u = @import("arm64/ops/wasm_2_0/i64x2_extmul_low_i32x4_u.zig");
@@ -1097,6 +1110,19 @@ pub const collected_arm64_ops = .{
     arm64_i32x4_extmul_low_i16x8_u,
     arm64_i32x4_extmul_high_i16x8_u,
     arm64_i32x4_dot_i16x8_s,
+    arm64_i8x16_add_sat_s,
+    arm64_i8x16_add_sat_u,
+    arm64_i8x16_sub_sat_s,
+    arm64_i8x16_sub_sat_u,
+    arm64_i16x8_add_sat_s,
+    arm64_i16x8_add_sat_u,
+    arm64_i16x8_sub_sat_s,
+    arm64_i16x8_sub_sat_u,
+    arm64_i16x8_q15mulr_sat_s,
+    arm64_i16x8_extadd_pairwise_i8x16_s,
+    arm64_i16x8_extadd_pairwise_i8x16_u,
+    arm64_i32x4_extadd_pairwise_i16x8_s,
+    arm64_i32x4_extadd_pairwise_i16x8_u,
     arm64_i64x2_extmul_low_i32x4_s,
     arm64_i64x2_extmul_high_i32x4_s,
     arm64_i64x2_extmul_low_i32x4_u,

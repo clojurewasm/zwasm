@@ -233,7 +233,8 @@ test "migratedArchOpCount tracks collected per-arch tuples (B59: arm64=348, x86_
     // 10.G added arm64 array.init_data + array.init_elem (+2 = 382; A-11 in-place segment init).
     // §15.4/D-246 chunk B added arm64 i{16x8,32x4,64x2}.extmul_{low,high}_*_{s,u} (+12 = 394).
     // §15.4/D-246 chunk C added arm64 i32x4.dot_i16x8_s (+1 = 395; last SIMD emit-hole op).
-    try std.testing.expectEqual(@as(usize, 395), migratedArchOpCount(.arm64));
+    // §15.4/D-246 residual chunk B added arm64 sat-arith/q15mulr/extadd_pairwise (+13 = 408).
+    try std.testing.expectEqual(@as(usize, 408), migratedArchOpCount(.arm64));
     // B79..B106 walked cohorts; B107 SIMD residual (21 ops) — legacy tuple empty.
     try std.testing.expectEqual(@as(usize, 0), migratedArchOpCount(.x86_64));
 }

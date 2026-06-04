@@ -93,6 +93,57 @@ pub fn emitI32x4Mul(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
+// §15.4 / D-246 — saturating add/sub + Q15 mulr + extadd_pairwise (13 ops)
+// ============================================================
+//
+// Wasm SIMD spec — `i8x16/i16x8.{add,sub}_sat_{s,u}`: lane-wise add/sub
+// with signed/unsigned saturation. A64 SQADD/UQADD/SQSUB/UQSUB (.16B / .8H)
+// map exactly. `i16x8.q15mulr_sat_s` = NEON SQRDMULH.8H (signed rounding
+// doubling multiply, returning the high half — the Q15 fixed-point form).
+// `i{16x8,32x4}.extadd_pairwise_*` = SADDLP/UADDLP (add-long-pairwise,
+// .8H←.16B / .4S←.8H), a 1-source two-reg-misc op → emitV128Unop.
+
+pub fn emitI8x16AddSatS(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Binop(ctx, inst_neon_arith.encSqadd16B);
+}
+pub fn emitI8x16AddSatU(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Binop(ctx, inst_neon_arith.encUqadd16B);
+}
+pub fn emitI8x16SubSatS(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Binop(ctx, inst_neon_arith.encSqsub16B);
+}
+pub fn emitI8x16SubSatU(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Binop(ctx, inst_neon_arith.encUqsub16B);
+}
+pub fn emitI16x8AddSatS(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Binop(ctx, inst_neon_arith.encSqadd8H);
+}
+pub fn emitI16x8AddSatU(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Binop(ctx, inst_neon_arith.encUqadd8H);
+}
+pub fn emitI16x8SubSatS(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Binop(ctx, inst_neon_arith.encSqsub8H);
+}
+pub fn emitI16x8SubSatU(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Binop(ctx, inst_neon_arith.encUqsub8H);
+}
+pub fn emitI16x8Q15mulrSatS(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Binop(ctx, inst_neon_arith.encSqrdmulh8H);
+}
+pub fn emitI16x8ExtaddPairwiseI8x16S(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Unop(ctx, inst_neon_arith.encSaddlp8H);
+}
+pub fn emitI16x8ExtaddPairwiseI8x16U(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Unop(ctx, inst_neon_arith.encUaddlp8H);
+}
+pub fn emitI32x4ExtaddPairwiseI16x8S(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Unop(ctx, inst_neon_arith.encSaddlp4S);
+}
+pub fn emitI32x4ExtaddPairwiseI16x8U(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Unop(ctx, inst_neon_arith.encUaddlp4S);
+}
+
+// ============================================================
 // §15.4 / D-246 — extended (widening) multiply (12 ops)
 // ============================================================
 //
