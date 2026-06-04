@@ -51,11 +51,9 @@ Read [`REWORK.md`](../.claude/skills/continue/REWORK.md). Bundle mode nests insi
 
 ## Step 0.7 (next resume)
 
-D-265 STAGE 1 LANDED (`a64c72a1`) + **Step-0.7 x86_64 fix** (`7152021c`): ubuntu caught 3 host-fragile emit
-unit-tests (asserted the homed layout but ran un-homed on the x86_64 host — homing gates on host arch; the
-x86_64 CODEGEN was correct/unchanged) → comptime-arch-gated them (NOT a codegen revert; ROI win stands). **ubuntu
-test-all RE-KICKED against `7152021c`** → Step 0.7 next resume verifies green (the 3 tests now skip on x86_64).
-Next = stage 2 (call-site spill). (`510ffce9`/`3a778080` validated; do NOT revert.) **NOTE** (lesson
+D-265 STAGE 1 + x86_64 test-gate fix **2-host VERIFIED GREEN** (`44ca450a`, ubuntu OK). Stage 2 (call-site spill,
+Option A) IN PROGRESS via subagent → its commit will kick ubuntu; Step 0.7 next resume verifies that.
+(`510ffce9`/`3a778080`/`a64c72a1`/`7152021c` validated; do NOT revert.) **NOTE** (lesson
 `gate-tail-vs-exit-code`): benign `failed command: …--listen=-` / SlotOverflow / `arm64/emit: failing op` next to
 a passing run = error-path noise — EXIT authoritative. **D-262 process fix**: any NEW per-arch emit chunk → run
 `run_remote_ubuntu test-all` (NOT narrow `test`) before discharge (cross-compile ≠ cross-run).
