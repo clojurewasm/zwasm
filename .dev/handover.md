@@ -27,26 +27,26 @@
 
 ## Next task (autonomous)
 
-**§15.4 — SIMD perf ports (measure-first); D-246 coverage DONE** (first open `[ ]`; §15.2+§15.3 folded).
-✅ **D-246 RESOLVED** (`078ffde5`→`1029e5b4`): arm64 JIT SIMD emit now at full coverage parity with x86_64 — 26
-ops closed (dot + 12 extmul + 8 sat-arith + q15mulr + 4 extadd_pairwise), all clang-verified NEON encoders + the
-missing `lower_simd` arms (the ops were dead on BOTH arches) + JIT execution fixtures. Debt discharged.
-**NEXT = SIMD perf ports** (v1 W43 SIMD-addr-cache / W44 reg-class / W45 SIMD-loop-persistence + W54-class hoist;
-Phase-11 gap candidates AVX/CPUID + MOVAPS peephole). **MEASURE-FIRST** (perf-roi lesson + §15.2/§15.3 pattern):
-the §11.3 profile (`bench/results/simd_gap_profile_p11_3.md`) already found SIMD competitive (0/12 ops lag >3×) →
-headroom likely THIN; probe each port's headroom before building, fold to §15.P aggregate if <gap. Step 0: read
-the v1 W43/44/45 sources (read-only v1 clone) + re-profile SIMD bench (steady-state, ≥10× iters — the `--quick`
-micro-benches are startup-confounded). After §15.4: **§15.5 D-245 win64** (hard/remote) → §15.6 ClojureWasm →
-§15.P parity.
+**§15.4 DONE** (D-246 coverage `1029e5b4` + perf ports measured→folded `ADR-0151`). The regalloc/SIMD perf axis is
+now fully assessed (§15.2+§15.3+§15.4 all measured → v2 already competitive); W45 loop-persistence (v1's 78x→10x
+lever) carried to §15.P as a loop-isolated measurement.
+**NEXT = §15.5 D-245 win64 host→JIT trampoline** (first open `[ ]`). The cross-phase blocker re-scoped past at
+§13.P/§14.P (ADR-0144/0145). The host→JIT `@call` seam (`entry.zig invokeAndCheck*`) doesn't preserve the win64
+callee-saved set (RBX/RBP/RDI/RSI/R12–R15 + XMM6–15) → `zwasm-spec-simd` exit-3 crash on windows (seed-flaky in
+Debug). Build an asm trampoline saving/restoring that set around the seam (return-value + arg'd + win64 variants);
+template = arm64 `8eca59e3` / x86_64-SysV `de576a76`. **HARD/REMOTE — best as a deliberate session**: needs
+windowsmini (remote Windows SSH) to verify `test-all` deterministic-green; lesson `win64-jit-trampoline-arg-marshal`
++ rule `abi_callee_saved_pinning`. Step 0: survey the seam + the two template commits + D-245 debt. After §15.5:
+§15.6 ClojureWasm CI → §15.P parity-vs-v1 close.
 
 ## Step 0.7 (next resume)
 
-This turn: **§15.4/D-246 RESIDUAL DONE → D-246 RESOLVED** — `d4ef48df` 13 encoders + `1029e5b4` 13 ops
-(sat-arith/q15mulr/extadd_pairwise; lowering arms + helpers + fixtures); D-246 debt discharged. `zig build
-test`/lint/zone green, edge-cases 75/0, x86_64 cross-compile OK. **CODE changed → ubuntu kick
-QUEUED** (scope `test`); Step 0.7 next resume verifies (`tail -3 /tmp/ubuntu.log`) — red → revert to `036fc791`.
-**NOTE** (lesson `gate-tail-vs-exit-code`): benign `failed command: …--listen=-` / SlotOverflow / `arm64/emit:
-failing op` next to a passing run = error-path test noise — EXIT code authoritative.
+This turn: **§15.4 CLOSED** — measured the v1 SIMD perf ports (W43 addr-cache / W44 reg-class / W45 loop-persist)
+→ all fold to §15.P (ADR-0151): v2 already 0.5–0.8× the comparator median per-op; W44 done (D-036); W45 deferred
+to a §15.P loop-isolated measurement. §15.4 `[x]`. Measurement was throwaway/reverted. **DOCS/scope only — NO
+src/ change → no ubuntu kick** (code HEAD `aaa267ee`, ubuntu-verified OK). **NOTE** (lesson
+`gate-tail-vs-exit-code`): benign `failed command: …--listen=-` / SlotOverflow / `arm64/emit: failing op` next to
+a passing run = error-path test noise — EXIT code authoritative.
 
 **Gate hygiene**: Step-5 Mac = `bash scripts/mac_gate.sh`. Win64 cross-compile = `zig build test
 -Dtarget=x86_64-windows-gnu`. windowsmini exec = `run_remote_windows.sh` (phase boundary).
