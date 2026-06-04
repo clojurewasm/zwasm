@@ -10,10 +10,11 @@ Read [`REWORK.md`](../.claude/skills/continue/REWORK.md). Bundle mode nests insi
 
 - **Campaign-ID**: regalloc-resident-locals (D-265) — the single-pass baseline 完成形 (keep hot locals
   register-resident, as v1 does; within P3/P6, NOT an optimising tier). This IS the §15.P parity-achievement work.
-- **Phase**: **II — correctness assurance IN-PROGRESS** (of I→V). **Phase I DONE** (`bench/results/s15p_parity_vs_v1.md`).
-  Phase II so far: 3 loop-carried-local characterization fixtures landed (`test/edge_cases/p9/regalloc/`:
-  loop_carried_local_sum=55, local_set_then_get_in_loop=30, multi_local_loop_pressure=84) — JIT-pinned to
-  oracle values; the rework must keep these green. (interp==jit broadly covered by the spec corpus already.)
+- **Phase**: **III — design DONE → spike next** (of I→V). I DONE (`s15p_parity_vs_v1.md`). II DONE: 3
+  loop-carried-local fixtures (`test/edge_cases/p9/regalloc/`: 55/30/84) 3-host green = the regression net;
+  GcRef-in-register adversarial test deferred to D-258 (→ design constraint instead). III DONE: **ADR-0154
+  Proposed** — value-reuse cache in liveness (`liveness.zig`) + reuse-metadata consumed by both emit backends;
+  regalloc unchanged; invariants = set/tee/merge invalidate + GcRef never cached; exit = w45_addi 2.3×→≤1.1×.
 - **Phase I result**: D-265 = v2-jit ~2.3× slower than v1 when a loop body reads a loop-carried local (A/B:
   `a=a+i` 2.30× vs `a=a+CONST` 0.96×; not memory/ALU — confounded earlier). MECHANISM (`emit.zig:910-968`): every
   `local.get` = `next_vreg++` + `LDR [SP,#local_off]`; no residency cache. ROI ceiling = v1 parity (known
@@ -27,10 +28,12 @@ Read [`REWORK.md`](../.claude/skills/continue/REWORK.md). Bundle mode nests insi
   adversarial test is **D-258-blocked**; it converts to a **Phase III DESIGN CONSTRAINT** (rework MUST keep
   GcRefs slot-resident across any potential collection point — register-residency for non-ref locals, ref-locals
   spill at collection sites), with the JIT adversarial test deferred to when D-258 lands.
-- **NEXT**: finish Phase II — optional `many_locals_spill` pressure fixture; the GcRef-slot constraint above is
-  recorded as the Phase III input. Then **Phase III design ADR** (single-pass register-resident locals; W54 +
-  GcRef-slot anti-regression invariants; incremental migration; exit = w45_addi 2.3×→≤1.1× + net green) → IV
-  (TDD, net green every commit) → V (retrospect; ADR-0149/0150 Revision note). All autonomous per the philosophy.
+- **NEXT — validation spike** (ADR-0154 §"Validation spike"; off-branch `private/spikes/regalloc-local-cache/`,
+  spike_discipline): implement the liveness local-value-reuse cache + arm64 reuse-emit minimally; run the 3
+  Phase-II fixtures (MUST stay green = correctness) + w45_addi (MUST approach v1 = ROI). Green+ROI → Phase IV
+  on-branch migration (liveness plumbing → arm64 consume → x86_64 consume; net green EVERY commit; ubuntu
+  test-all). Thin/broken → revise ADR-0154 before any on-branch code. Then V (ADR-0149/0150 Revision note).
+  All autonomous per the philosophy.
 
 ## Current state
 
@@ -73,10 +76,10 @@ net incl. D-261 GC-rooting). Runs fully autonomously — decide every step per t
 
 ## Step 0.7 (next resume)
 
-D-265 campaign Phase II IN-PROGRESS: 3 loop-carried-local fixtures landed (test-only, JIT-green 55/30/84). **This
-turn kicked ubuntu test-all** to confirm the new fixtures on x86_64 JIT → Step 0.7 next resume: `tail -3
-/tmp/ubuntu.log`, expect green (revert the fixture commit on red). Next = finish Phase II (GcRef-slot constraint
-→ Phase III input) → Phase III design ADR. (`510ffce9`/`3a778080` validated; do NOT revert.) **NOTE** (lesson
+D-265 campaign at **Phase III design DONE (ADR-0154 Proposed)** → next = the off-branch validation spike. Phase-II
+fixtures VERIFIED on x86_64 JIT this prior cycle (`/tmp/ubuntu.log` green, 55/30/84). The spike is off-branch
+(`private/spikes/`) → no on-branch code, no ubuntu kick until Phase IV on-branch migration. (`510ffce9`/`3a778080`
+validated; do NOT revert.) **NOTE** (lesson
 `gate-tail-vs-exit-code`): benign `failed command: …--listen=-` / SlotOverflow / `arm64/emit: failing op` next to
 a passing run = error-path noise — EXIT authoritative. **D-262 process fix**: any NEW per-arch emit chunk → run
 `run_remote_ubuntu test-all` (NOT narrow `test`) before discharge (cross-compile ≠ cross-run).
