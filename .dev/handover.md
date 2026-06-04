@@ -9,13 +9,15 @@
   DONE. **The loop never tags/publishes/cuts over; release is manual user-only; no release gate exists.**
   Goal = clean design + lightweight-fast + full-featured + 100% spec across the runtime AND the surfaces
   (C/Zig/CLI), to あるべき論 + industry standards, **breaking v1 allowed, v1 full-parity NOT a goal**.
-- **🔨 §16.5 dogfooding IN-PROGRESS — chunk 1 DONE (`3bfa460a`).** Stood up a real external `build.zig.zon`
-  path-dep consumer (`examples/zig_dep/`) and it surfaced a genuine gap: `build.zig` created `core` via
-  `b.createModule` (private) with **no `b.addModule` anywhere**, so `dep.module("zwasm")` panicked. `zig_host`
-  only worked by sharing the in-repo private module — true external consumability (ADR-0109's claim) was never
-  exercised. **Fixed**: `core` is now `b.addModule("zwasm", …)` (public); consumer runs `add(2,40)==42` clean;
-  repo build+test green; `scripts/check_zig_consumer.sh` guards it (manual — pulls repo+zlinter, D-274). New wart
-  **D-274**: consuming zwasm transitively fetches the zlinter lint tool (eager dep + top-level `@import`).
+- **🔨 §16.5 dogfooding IN-PROGRESS — full facade now proven externally consumable (c1-c3).** Stood up a real
+  external `build.zig.zon` path-dep consumer (`examples/zig_dep/`). **c1 (`3bfa460a`)** found + fixed a genuine
+  bug: `build.zig` created `core` via `b.createModule` (private) with **no `b.addModule` anywhere**, so
+  `dep.module("zwasm")` panicked — `zig_host` only worked by sharing the in-repo private module, so ADR-0109's
+  external-consumability claim was never actually exercised. Now `b.addModule("zwasm", …)` (public). **c2
+  (`713fe524`)** proved the host-import path (Linker/Caller/`defineFunc` — survey wrongly read it as J.5-pending;
+  it shipped at `b10922d2`). **c3 (`804a7133`)** proved the Memory facade. Consumer runs clean
+  (add=42 / host go=11 / mem=1234); `scripts/check_zig_consumer.sh` guards it (manual — pulls repo+zlinter,
+  **D-274**: consuming zwasm transitively fetches the zlinter lint tool — make lazy).
 - **✅ §16.4 CLI surface review DONE (ADR-0159).** Surface locked at **`run` + `compile`** + `--version`/`--help`/
   `help` + unknown-subcommand error (testable `cli/dispatch.zig`); 5 dead stubs removed; §10.1/§10.2/§10.3
   reconciled to code-as-truth (`--engine` per ADR-0136). Flag-parity gap debt-tracked **D-273**.
@@ -27,25 +29,27 @@
 
 ## NEXT (autonomous — §16.5 dogfood continues → memory-safety → docs; ADR-0156)
 
-- **§16.5 chunk 2 — host-import path — NEXT.** The consumer proves exports (typedFunc) work; next exercise
-  **host imports**: a guest with `(import "env" "add" (func (param i32 i32) (result i32)))` wired via
-  `Linker.defineFunc`. Survey flagged `Linker.defineFunc` as INCOMPLETE — no public
-  `defineFunc(comptime Sig, mod, name, fn)`; deferred to "J.5" per ADR-0109 §3.2 (`src/zwasm/linker.zig:77-110`
-  has the Payload/HostFuncEntry but not the comptime host-fn wrapper). **Step 0: verify the actual state first**
-  (don't assume — may be partial), then for 完成形 full-featured Zig surface decide+implement the ergonomic
-  host-fn API (likely an ADR — architectural API + comptime marshalling). Add a host-import case to
-  `examples/zig_dep/` or a facade test. Then: Memory read/write from a consumer, **D-272** Global/Table
-  accessors, **D-269** of.ref. (cw-v1 dogfooding stays deferred — D-264.)
+- **§16.5 chunk 4 — D-272 Zig Global/Table accessors — NEXT.** The facade is externally proven, but dogfooding
+  confirms a real GAP: the Zig facade exposes `Instance.memory()` + `typedFunc`/`invoke` but NO exported-Global /
+  exported-Table accessors (the C-API HAS `wasm_global_*`/`wasm_table_*`). A consumer wanting to read/write a
+  guest's exported global or table must drop to the C ABI. For a 完成形 full-featured Zig surface, add
+  `Instance.global(name)` / `Instance.table(name)` (read/get/set; grow for table) wrapping the existing C-API
+  accessors. **Step 0**: survey the C-API global/table accessor surface (`src/api/{instance,extern_new}.zig`) +
+  the facade shape (`src/zwasm/instance.zig`); decide the idiomatic Zig shape (likely small ADR — facade API
+  addition). TDD a facade test + exercise it from `examples/zig_dep/`. Then **D-269** of.ref if it surfaces.
+  (cw-v1 dogfooding stays deferred — D-264.)
+- Minor: `examples/` is not fmt-gated by `gate_commit.sh` (only `src/`); fmt slips. Low-priority tooling tweak.
 - After §16.5: **§16.6** memory-safety (D-258 wire JIT-trampoline GC collect → D-261 GC-on-JIT adversarial test;
   highest stakes) → **§16.7** docs LAST (README/reference/tutorial/CHANGELOG, match the settled surface).
 
 ## Step 0.7 (next resume)
 
-**Verify ubuntu** — §16.4 verified green at `6a5dbcdd` (last cycle). This turn pushed §16.5 chunk 1 (`3bfa460a`
-public-module export + `examples/zig_dep/`) and kicked `run_remote_ubuntu test`; tail `/tmp/ubuntu.log` for
-`OK (HEAD=…)`. The change is build-wiring (`b.addModule`) + an example, portable + no per-arch emit, so `test`
-scope suffices. **D-262 rule** still holds: a chunk touching per-arch emit needs `run_remote_ubuntu test-all`
-before discharge. **Gate**: Step-5 Mac = `bash scripts/mac_gate.sh`. windowsmini exec = phase boundary.
+**No ubuntu kick needed this cycle.** Repo testable code is unchanged since `28dacfde` (ubuntu-verified green
+last cycle: §16.5 c1 build-wiring + module export). c2/c3 (`713fe524`/`804a7133`) touch ONLY
+`examples/zig_dep/src/main.zig` — a separate package NOT built by the repo's `zig build test`/`test-all`, so a
+kick would re-run identical repo bytes. (External-consumer verification on Linux is unautomated — the facade is
+platform-agnostic Zig; a future enhancement could run `check_zig_consumer.sh` on ubuntu.) **D-262 rule** holds
+for any future per-arch-emit chunk. **Gate**: Step-5 Mac = `bash scripts/mac_gate.sh`. windowsmini = phase boundary.
 
 ## Deferred / open debt
 
