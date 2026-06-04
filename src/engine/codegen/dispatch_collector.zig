@@ -231,7 +231,8 @@ test "migratedArchOpCount tracks collected per-arch tuples (B59: arm64=348, x86_
     // 10.G GC-on-JIT added arm64 br_on_cast + br_on_cast_fail (+2 = 378; Cycle B).
     // 10.G added arm64 struct.get_s + struct.get_u (+2 = 380; packed-field sign/zero-extend).
     // 10.G added arm64 array.init_data + array.init_elem (+2 = 382; A-11 in-place segment init).
-    try std.testing.expectEqual(@as(usize, 382), migratedArchOpCount(.arm64));
+    // §15.4/D-246 chunk B added arm64 i{16x8,32x4,64x2}.extmul_{low,high}_*_{s,u} (+12 = 394).
+    try std.testing.expectEqual(@as(usize, 394), migratedArchOpCount(.arm64));
     // B79..B106 walked cohorts; B107 SIMD residual (21 ops) — legacy tuple empty.
     try std.testing.expectEqual(@as(usize, 0), migratedArchOpCount(.x86_64));
 }

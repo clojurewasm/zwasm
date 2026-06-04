@@ -323,6 +323,24 @@ pub fn emitPrefixFD(self: *Lowerer) Error!void {
         201 => try self.emit(.@"i64x2.extend_low_i32x4_u", 0, 0),
         202 => try self.emit(.@"i64x2.extend_high_i32x4_u", 0, 0),
 
+        // §15.4 / D-246 — extended (widening) multiply. Per Wasm
+        // SIMD spec (BinarySIMD.md): 0x9C..0x9F / 0xBC..0xBF /
+        // 0xDC..0xDF. Pure v128 binops (pop 2, push 1); arm64 emit
+        // = SMULL/UMULL (low) + SMULL2/UMULL2 (high), x86_64 emit
+        // already wired.
+        156 => try self.emit(.@"i16x8.extmul_low_i8x16_s", 0, 0),
+        157 => try self.emit(.@"i16x8.extmul_high_i8x16_s", 0, 0),
+        158 => try self.emit(.@"i16x8.extmul_low_i8x16_u", 0, 0),
+        159 => try self.emit(.@"i16x8.extmul_high_i8x16_u", 0, 0),
+        188 => try self.emit(.@"i32x4.extmul_low_i16x8_s", 0, 0),
+        189 => try self.emit(.@"i32x4.extmul_high_i16x8_s", 0, 0),
+        190 => try self.emit(.@"i32x4.extmul_low_i16x8_u", 0, 0),
+        191 => try self.emit(.@"i32x4.extmul_high_i16x8_u", 0, 0),
+        220 => try self.emit(.@"i64x2.extmul_low_i32x4_s", 0, 0),
+        221 => try self.emit(.@"i64x2.extmul_high_i32x4_s", 0, 0),
+        222 => try self.emit(.@"i64x2.extmul_low_i32x4_u", 0, 0),
+        223 => try self.emit(.@"i64x2.extmul_high_i32x4_u", 0, 0),
+
         // §9.9 / 9.9-g-7 — int shift family. Per spec 0x6B..6D /
         // 0x8B..8D / 0xAB..AD / 0xCB..CD. ARM64 emit currently
         // only handles shl (4 ops); shr_s / shr_u surface as

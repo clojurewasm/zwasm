@@ -93,6 +93,54 @@ pub fn emitI32x4Mul(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
+// §15.4 / D-246 — extended (widening) multiply (12 ops)
+// ============================================================
+//
+// Wasm SIMD spec — `i{16x8,32x4,64x2}.extmul_{low,high}_*_{s,u}`:
+// multiply corresponding low (or high) halves of two narrower
+// inputs, producing wide products in the destination shape.
+// A64 NEON SMULL/UMULL (low-half) and SMULL2/UMULL2 (high-half)
+// map exactly: source low/high half selection matches Wasm's
+// extmul_low/extmul_high, and signed/unsigned select SMULL/UMULL.
+
+pub fn emitI16x8ExtmulLowI8x16S(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Binop(ctx, inst_neon_arith.encSmull8H);
+}
+pub fn emitI16x8ExtmulHighI8x16S(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Binop(ctx, inst_neon_arith.encSmull2_8H);
+}
+pub fn emitI16x8ExtmulLowI8x16U(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Binop(ctx, inst_neon_arith.encUmull8H);
+}
+pub fn emitI16x8ExtmulHighI8x16U(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Binop(ctx, inst_neon_arith.encUmull2_8H);
+}
+pub fn emitI32x4ExtmulLowI16x8S(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Binop(ctx, inst_neon_arith.encSmull4S);
+}
+pub fn emitI32x4ExtmulHighI16x8S(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Binop(ctx, inst_neon_arith.encSmull2_4S);
+}
+pub fn emitI32x4ExtmulLowI16x8U(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Binop(ctx, inst_neon_arith.encUmull4S);
+}
+pub fn emitI32x4ExtmulHighI16x8U(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Binop(ctx, inst_neon_arith.encUmull2_4S);
+}
+pub fn emitI64x2ExtmulLowI32x4S(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Binop(ctx, inst_neon_arith.encSmull2D);
+}
+pub fn emitI64x2ExtmulHighI32x4S(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Binop(ctx, inst_neon_arith.encSmull2_2D);
+}
+pub fn emitI64x2ExtmulLowI32x4U(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Binop(ctx, inst_neon_arith.encUmull2D);
+}
+pub fn emitI64x2ExtmulHighI32x4U(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128Binop(ctx, inst_neon_arith.encUmull2_2D);
+}
+
+// ============================================================
 // §9.9 / 9.9-g-10 — int min/max + avgr_u (14 ops)
 // ============================================================
 //

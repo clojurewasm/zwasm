@@ -98,6 +98,18 @@ const arm64_i16x8_mul = @import("arm64/ops/wasm_2_0/i16x8_mul.zig");
 const arm64_i32x4_add = @import("arm64/ops/wasm_2_0/i32x4_add.zig");
 const arm64_i32x4_sub = @import("arm64/ops/wasm_2_0/i32x4_sub.zig");
 const arm64_i32x4_mul = @import("arm64/ops/wasm_2_0/i32x4_mul.zig");
+const arm64_i16x8_extmul_low_i8x16_s = @import("arm64/ops/wasm_2_0/i16x8_extmul_low_i8x16_s.zig");
+const arm64_i16x8_extmul_high_i8x16_s = @import("arm64/ops/wasm_2_0/i16x8_extmul_high_i8x16_s.zig");
+const arm64_i16x8_extmul_low_i8x16_u = @import("arm64/ops/wasm_2_0/i16x8_extmul_low_i8x16_u.zig");
+const arm64_i16x8_extmul_high_i8x16_u = @import("arm64/ops/wasm_2_0/i16x8_extmul_high_i8x16_u.zig");
+const arm64_i32x4_extmul_low_i16x8_s = @import("arm64/ops/wasm_2_0/i32x4_extmul_low_i16x8_s.zig");
+const arm64_i32x4_extmul_high_i16x8_s = @import("arm64/ops/wasm_2_0/i32x4_extmul_high_i16x8_s.zig");
+const arm64_i32x4_extmul_low_i16x8_u = @import("arm64/ops/wasm_2_0/i32x4_extmul_low_i16x8_u.zig");
+const arm64_i32x4_extmul_high_i16x8_u = @import("arm64/ops/wasm_2_0/i32x4_extmul_high_i16x8_u.zig");
+const arm64_i64x2_extmul_low_i32x4_s = @import("arm64/ops/wasm_2_0/i64x2_extmul_low_i32x4_s.zig");
+const arm64_i64x2_extmul_high_i32x4_s = @import("arm64/ops/wasm_2_0/i64x2_extmul_high_i32x4_s.zig");
+const arm64_i64x2_extmul_low_i32x4_u = @import("arm64/ops/wasm_2_0/i64x2_extmul_low_i32x4_u.zig");
+const arm64_i64x2_extmul_high_i32x4_u = @import("arm64/ops/wasm_2_0/i64x2_extmul_high_i32x4_u.zig");
 const arm64_i64x2_add = @import("arm64/ops/wasm_2_0/i64x2_add.zig");
 const arm64_i64x2_sub = @import("arm64/ops/wasm_2_0/i64x2_sub.zig");
 const arm64_i8x16_neg = @import("arm64/ops/wasm_2_0/i8x16_neg.zig");
@@ -1075,6 +1087,18 @@ pub const collected_arm64_ops = .{
     arm64_i32x4_add,
     arm64_i32x4_sub,
     arm64_i32x4_mul,
+    arm64_i16x8_extmul_low_i8x16_s,
+    arm64_i16x8_extmul_high_i8x16_s,
+    arm64_i16x8_extmul_low_i8x16_u,
+    arm64_i16x8_extmul_high_i8x16_u,
+    arm64_i32x4_extmul_low_i16x8_s,
+    arm64_i32x4_extmul_high_i16x8_s,
+    arm64_i32x4_extmul_low_i16x8_u,
+    arm64_i32x4_extmul_high_i16x8_u,
+    arm64_i64x2_extmul_low_i32x4_s,
+    arm64_i64x2_extmul_high_i32x4_s,
+    arm64_i64x2_extmul_low_i32x4_u,
+    arm64_i64x2_extmul_high_i32x4_u,
     arm64_i64x2_add,
     arm64_i64x2_sub,
     arm64_i8x16_neg,
