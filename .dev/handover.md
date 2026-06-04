@@ -34,8 +34,13 @@
   `_start`. Build it: a ReleaseSafe `ZWASM_SPEC_ENGINE=jit` spec-runner run OR extend `check_jit_releasesafe.sh`
   with a `--invoke <fn> <args>` arg'd export. RED = that probe crashes on current HEAD (arg'd @call), GREEN =
   trampoline fixes it. Then ubuntu `run_remote_ubuntu test-all` + windowsmini `run_remote_windows test-all` (the
-  win64 EXIT). **NEXT (fresh context)**: build the ReleaseSafe arg'd oracle (RED) → implement the trampoline
-  (GREEN) → 3-host verify.
+  win64 EXIT). **chunk 1 DONE `510ffce9`** — clobber-trampoline landed + Mac-verified. `jit_cohort_clobbers`
+  (X19-X28 / RBX,R12-R15) + `jitTrampoline`/`jitTrampolineVoid`; `invokeAndCheck` + `invokeAndCheckVoid`
+  else-branch route via `@call(.never_inline, …)`. New ReleaseSafe oracle `build.zig jit-result-probe-releasesafe`
+  (calls `runI32Export`): RED pre-fix = SEGV@0x18 in rawFree, GREEN post-fix = OK. Since the trampoline is
+  ARCH-UNIFORM (win64 cohort == SysV cohort; XMM already JIT-preserved) this may be the WHOLE fix. **NEXT = remote
+  verify**: ubuntu (kicked) + **windowsmini `run_remote_windows.sh test-all`** = the win64 EXIT. If windowsmini
+  red → win64 may need RSI/RDI in the clobber set (win64-extra callee-saved) — add + re-verify.
 - **Exit-condition**: all host→JIT invoke variants asm-save the host callee-saved set; ReleaseSafe gate green on
   Mac+ubuntu; windowsmini `test-all` deterministic-green (the win64 `@call` SEGV gone).
 
@@ -77,10 +82,11 @@ windowsmini (remote Windows SSH) to verify `test-all` deterministic-green; lesso
 
 ## Step 0.7 (next resume)
 
-This turn: **§15.5 design REFINED** — found a much simpler unified fix (non-inline clobber-trampoline; win64
-XMM6-15 already JIT-preserved; no per-arg asm marshaling) that de-risks the whole task; captured in the bundle.
-NEXT = build a ReleaseSafe arg'd-JIT oracle (RED) → implement → verify. **DOCS/scope only — NO src/ change → no
-ubuntu kick** (code HEAD `aaa267ee`, ubuntu-verified OK).
+This turn: **§15.5 chunk 1 IMPLEMENTED + Mac-verified** (`510ffce9`) — clobber-trampoline + new ReleaseSafe
+oracle (RED→GREEN proven). **CODE changed → ubuntu kick + windowsmini run QUEUED this turn**; next resume Step
+0.7 verifies BOTH `tail /tmp/ubuntu.log` AND `tail /tmp/windows.log` — red → revert `510ffce9` to `aaa267ee`.
+(windowsmini = the win64 D-245 EXIT.) **NOTE** (lesson `gate-tail-vs-exit-code`): benign
+`failed command: …--listen=-` / SlotOverflow / `arm64/emit: failing op` = error-path noise — EXIT authoritative.
 **NOTE** (lesson `gate-tail-vs-exit-code`): benign `failed command: …--listen=-` / SlotOverflow / `arm64/emit:
 failing op` next to a passing run = error-path test noise — EXIT code authoritative.
 
