@@ -1058,6 +1058,25 @@ entries:
     refs: |-
       build.zig:6 (top-level @import("zlinter")); build.zig.zon (.dependencies.zlinter, eager); build.zig:1049-1057
       (lint step); examples/zig_dep/ (external consumer, 3bfa460a); scripts/check_zig_consumer.sh; ADR-0009 (zlinter)
+  - id: "D-275"
+    layer: "code"
+    status: "note"
+    description: |-
+      **note (§16.5 dogfooding c6 sweep, minor Zig-facade ergonomics): `Module.instantiate` collapses every
+      failure to `error.InstantiateFailed`.** The no-imports convenience path (`src/zwasm/module.zig`) maps
+      `wasm_instance_new` → null to a single `InstantiateError{InstantiateFailed}`, so a trapping `(start)`
+      function or an allocation failure loses detail — the underlying c_api sets a `diagnostic.lastDiagnostic()`
+      that is never surfaced as a typed Zig error. By contrast `Linker.instantiate` (the imports path) already has
+      a rich `LinkError` (UnknownImport / ImportKindMismatch / SignatureMismatch / …). LOW priority: a no-import
+      module rarely fails to instantiate (start-trap or OOM only), and the c_api diagnostic remains queryable.
+      DISCHARGE: enrich `InstantiateError` (e.g. surface a start-function trap as the specific `Trap` variant,
+      distinguish alloc failure) by reading `diagnostic.lastDiagnostic()` in `Module.instantiate`, OR accept the
+      coarse error as the documented v0.1 shape. Not a §16.5 blocker — found by the c6 completeness sweep.
+    first_raised: "2026-06-05"
+    last_reviewed: "2026-06-05"
+    refs: |-
+      src/zwasm/module.zig (instantiate → InstantiateFailed); src/zwasm/instance.zig (InvokeError is the rich
+      template); src/zwasm/linker.zig (LinkError rich errors); ADR-0109 §3.6; ROADMAP §16.5
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
