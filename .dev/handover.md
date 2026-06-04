@@ -17,22 +17,25 @@
   deterministic-green (the §15.5 exit). (b) the **arg'd/i32/v128 `invokeAndCheck*` variants** (`entry.zig:162/172`
   generic + `:240` arg'd void) still `@call` — same asm-save fix, verifiable on Mac(arm64)+ubuntu(x86_64-SysV).
   Lesson `win64-jit-trampoline-arg-marshal` + rule `abi_callee_saved_pinning`.
-- **PROGRESS**: **survey DONE** (subagent digest). **DESIGN DECIDED: continue the seam asm-save** (extend the
-  no-arg `8eca59e3`/`de576a76` template), NOT the D-210 prologue cohort-save — D-210 is ADR-grade + multi-cycle
-  (every prologue/epilogue + all byte-snapshot tests + a perf tradeoff; its real purpose is frame-consuming
-  tail-calls). The no-arg fix already set the seam-asm precedent. KEY SHAPES: the fix template = `invokeAndCheckVoid`
-  no-arg branch (`entry.zig:187-241`): arm64 `stp/ldp x19-x28` (80B frame) / x86_64-SysV `push/pop rbx,r12-r15
-  + sub/add $8`, invoking `f(rt)` with f in `"{rax}"`/`"r"`, rt in `"{rdi}"`/`"{x0}"`. **The HARD part (top risk)**:
-  the remaining `@call` sites (`invokeAndCheck:172` generic, `:240` arg'd void) carry 0-5 mixed GPR/FP args + a
-  result — and there is NO existing in-asm arg-marshaling template (the Class-B thunks at `1246-1413` are all
-  rt-only). So the arg'd fix must marshal args into ABI regs inside asm (per-arg-count/type comptime templates) —
-  precise + ReleaseSafe-ONLY-manifesting (Debug won't catch errors). **SCOPE NUANCE**: the win64 spec-simd crash is
-  the §15.5 EXIT (likely the ARG'D win64 i32/v128 path); (b) SysV+arm64 arg'd is a ReleaseSafe cleanup (Debug-only-
-  used → not test-blocking) but is the cleaner-to-verify FIRST chunk (Mac `check_jit_releasesafe.sh` + ubuntu).
-  win64 adds RBX/RBP/RSI/RDI/R12-R15 + XMM6-15 (10×16B `movaps`, 16-aligned). **VERIFY**: Mac
-  `scripts/check_jit_releasesafe.sh`; ubuntu `run_remote_ubuntu.sh test-all`; windowsmini `run_remote_windows.sh
-  test-all` (REACHABLE; ReleaseSafe makes the bug deterministic — no seed needed). **NEXT (fresh context)**:
-  implement chunk 1 = arg'd SysV+arm64 seam asm-save (the marshaling template), gate-verify, then chunk 2 = win64.
+- **PROGRESS**: survey + **DESIGN REFINED to a much simpler unified fix (this turn)** — drop the per-arg in-asm
+  marshaling; use a **non-inline clobber-trampoline**. Two enabling insights: (1) `entry.zig:116-117` — **the JIT
+  prologue ALREADY preserves win64 XMM6-15** (non-volatile), so NO manual XMM `movaps` is needed; only the GPR
+  cohort the JIT clobbers (arm64 X19-X28; x86_64 RBX/R12-R15, **same for SysV AND win64** since the JIT regalloc
+  pool is GPR-uniform). (2) A `@call(.never_inline, jitTrampoline, .{R,f,rt,args})` to a fn that does
+  `r=@call(.auto,f,.{rt}++args); asm volatile("":::jit_cohort_clobbers); return r;` forces THAT fn's
+  prologue/epilogue to save/restore the cohort (masking the JIT's clobber) — uniform across ALL arg counts/types +
+  both x86_64 ABIs, no marshaling, no `callconv(.c)` (Zig default callconv passes the `args` tuple fine). The
+  inline no-arg manual-asm path's "clobber over-constrains regalloc" objection (`:194`) does NOT apply — the
+  constraint is local to the tiny trampoline, not the host. `invokeAndCheck` (`:162`, the RESULT path) is CURRENTLY
+  FULLY UNFIXED (always plain `@call`) → net-additive, no regression risk. Plan: add `jit_cohort_clobbers` const
+  (X19-X28 / RBX,R12-R15) + `jitTrampoline`/`jitTrampolineVoid`; route `invokeAndCheck` + `invokeAndCheckVoid`
+  else-branch through them (keep the working no-arg manual asm; unify later if robust).
+  **VERIFY (the open infra)**: need a ReleaseSafe ARG'D-JIT oracle — `check_jit_releasesafe.sh` only runs no-arg
+  `_start`. Build it: a ReleaseSafe `ZWASM_SPEC_ENGINE=jit` spec-runner run OR extend `check_jit_releasesafe.sh`
+  with a `--invoke <fn> <args>` arg'd export. RED = that probe crashes on current HEAD (arg'd @call), GREEN =
+  trampoline fixes it. Then ubuntu `run_remote_ubuntu test-all` + windowsmini `run_remote_windows test-all` (the
+  win64 EXIT). **NEXT (fresh context)**: build the ReleaseSafe arg'd oracle (RED) → implement the trampoline
+  (GREEN) → 3-host verify.
 - **Exit-condition**: all host→JIT invoke variants asm-save the host callee-saved set; ReleaseSafe gate green on
   Mac+ubuntu; windowsmini `test-all` deterministic-green (the win64 `@call` SEGV gone).
 
@@ -74,9 +77,10 @@ windowsmini (remote Windows SSH) to verify `test-all` deterministic-green; lesso
 
 ## Step 0.7 (next resume)
 
-This turn: **§15.5 D-245 deep survey + bundle setup** — confirmed windowsmini reachable; resolved the design fork
-(seam asm-save, NOT D-210 prologue); captured the fix template + the arg-marshaling risk + 3-host verify path in
-the bundle. **DOCS/scope only — NO src/ change → no ubuntu kick** (code HEAD `aaa267ee`, ubuntu-verified OK).
+This turn: **§15.5 design REFINED** — found a much simpler unified fix (non-inline clobber-trampoline; win64
+XMM6-15 already JIT-preserved; no per-arg asm marshaling) that de-risks the whole task; captured in the bundle.
+NEXT = build a ReleaseSafe arg'd-JIT oracle (RED) → implement → verify. **DOCS/scope only — NO src/ change → no
+ubuntu kick** (code HEAD `aaa267ee`, ubuntu-verified OK).
 **NOTE** (lesson `gate-tail-vs-exit-code`): benign `failed command: …--listen=-` / SlotOverflow / `arm64/emit:
 failing op` next to a passing run = error-path test noise — EXIT code authoritative.
 
