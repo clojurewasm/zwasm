@@ -20,25 +20,15 @@
 
 ## NEXT (autonomous — §16 task-list done; phase-boundary audit DONE; backlog; ADR-0156)
 
-- **✅ Phase-boundary `audit_scaffolding` DONE** (`1fa6c951`; report `private/audit-2026-06-05.md`): scaffolding
-  healthy — schema/skip-taxonomy/skip-ADRs/zone green, no file-size hard-cap, no dead §16-doc refs, no §14 cross.
-  One block (stale D-258/261 — closed §16.6 but status `now`) FIXED inline (discharged). `soon` queued below.
-- **✅ D-257 DONE** (`841da6d1`): backfilled the 10 lesson `Citing` SHAs via cycle-verified creation commits
-  (creation commit subject matches each marker's "cycle N" hint → correct provenance, not a guess);
-  `check_lesson_citing.sh` clean, recurring gate WARN gone. (Audit F.6 "1 pending ADR `<backfill>`" = the `0104`
-  PROSE mention, NOT a fillable row → no action.)
-- **Backlog debt + refinement** (no release; 完成形 reached = keep improving, ADR-0156). Pick
-  highest-value-per-risk each cycle:
+- **Post-§16 backlog (no release; 完成形 = keep improving, ADR-0156).** DONE this session: phase-boundary
+  `audit_scaffolding` (`1fa6c951`, healthy; stale D-258/261 discharged); **D-257** lesson-Citing backfill
+  (`841da6d1`); **examples/ fmt-gate** (`73ff44f7`); **D-277** §10.4/§3.1 zwasm.h code-as-truth reconcile
+  (`fd5729a1`). Remaining, pick highest-value-per-risk:
   - **D-275** richer `Module.instantiate` error — map `wasm_instance_new`→null via `diagnostic.lastDiagnostic()`
-    to a typed error (start-trap / alloc-fail) instead of the coarse `InstantiateFailed`. Clean, scoped, TDD-able.
-  - **`examples/` fmt-gate** — add `examples/` to `gate_commit.sh`'s `zig fmt --check` (only `src/` checked now;
-    fmt-slipped 3× this session). Tiny, scoped tooling fix.
-  - **D-274** make zlinter a lazy dep — NON-TRIVIAL (build.zig:6 top-level comptime `@import("zlinter")` can't be
-    lazy without restructuring the lint step; verify zlinter's 0.16.x lazy pattern first).
-  - **D-273** CLI `--invoke` args+result-print; **D-277** §10.4↔zwasm.h reconcile; **D-269** callable funcref;
-    **D-276** register-resident GC-rooting.
-  - **J.3** 34→32 active debt rows still > 15; many old `blocked-by` (D-007/010/020-028/074) → `suggest meta_audit`
-    (user-gated; note for the user, not autonomous).
+    to a typed error (start-trap / alloc-fail) vs the coarse `InstantiateFailed`. Clean, scoped, TDD-able. **Top.**
+  - **D-274** zlinter lazy dep — NON-TRIVIAL (build.zig:6 comptime `@import("zlinter")`; verify lazy pattern first).
+  - **D-273** CLI `--invoke` args+result-print; **D-269** callable funcref; **D-276** register-resident GC-rooting.
+  - **J.3** 32 active debt rows > 15; old `blocked-by` (D-007/010/020-028/074) → `suggest meta_audit` (user-gated).
 
 ## Step 0.7 (next resume)
 
