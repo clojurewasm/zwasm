@@ -10,13 +10,13 @@ Read [`REWORK.md`](../.claude/skills/continue/REWORK.md). Bundle mode nests insi
 
 - **Campaign-ID**: regalloc-resident-locals (D-265) — the single-pass baseline 完成形 (keep hot locals
   register-resident, as v1 does; within P3/P6, NOT an optimising tier). This IS the §15.P parity-achievement work.
-- **Phase**: **III — design (iterating)** (of I→V). I DONE (`s15p_parity_vs_v1.md`). II DONE: 3 loop-carried-local
-  fixtures (`p9/regalloc/`: 55/30/84) 3-host green = the regression net; GcRef-in-register test → D-258-deferred
-  design constraint. III: **ADR-0154 (value-reuse cache, Option A) = SUPERSEDED-IN-DESIGN** — pre-spike analysis
-  showed it recovers only ~17% (in-body reads); the D-265 2.3× is the **per-iteration loop-top reload** (local
-  value is slot-homed, crosses the back-edge via memory). Verified: liveness DOES handle loops; v2 reloads scalar
-  AND v128 locals every get (v128 loop fast only because SIMD arith dominates the reload). → **No loop-carried
-  residency exists for any type; D-265 needs Option B (v1-style single-pass local-register pinning).**
+- **Phase**: **III — design DONE → spike next** (of I→V). I DONE (`s15p_parity_vs_v1.md`). II DONE: 3
+  loop-carried-local fixtures (`p9/regalloc/`: 55/30/84) 3-host green = the regression net. III: ADR-0154
+  (Option A value-reuse cache) superseded by analysis (~17%, in-body only); **ADR-0155 (Option B) Proposed** —
+  **register-homed locals, v1-style single-pass** (locals = mutable register-resident values, loaded once at
+  prologue, resident across the back-edge, spilled only at calls/overflow/exit). The D-265 2.3× IS the per-iter
+  loop-top reload (locals slot-homed, value crosses back-edge via memory). GcRef locals stay slot-homed for now
+  (D-261/D-258; no regression). Re-opens W45 (ADR-0151 folded for v128; bites scalars).
 - **Phase I result**: D-265 = v2-jit ~2.3× slower than v1 when a loop body reads a loop-carried local (A/B:
   `a=a+i` 2.30× vs `a=a+CONST` 0.96×; not memory/ALU — confounded earlier). MECHANISM (`emit.zig:910-968`): every
   `local.get` = `next_vreg++` + `LDR [SP,#local_off]`; no residency cache. ROI ceiling = v1 parity (known
@@ -30,61 +30,29 @@ Read [`REWORK.md`](../.claude/skills/continue/REWORK.md). Bundle mode nests insi
   adversarial test is **D-258-blocked**; it converts to a **Phase III DESIGN CONSTRAINT** (rework MUST keep
   GcRefs slot-resident across any potential collection point — register-residency for non-ref locals, ref-locals
   spill at collection sites), with the JIT adversarial test deferred to when D-258 lands.
-- **NEXT — Phase III redo, Option B design**: a successor design ADR for **single-pass local-register
-  residency** (v1-style local→register pinning across the loop back-edge). Survey: v1's `regalloc.zig` local→reg
-  mapping (textbook, read-only `~/Documents/MyProducts/zwasm`) + v2's loop_info (§9.5/5.3 loop header/end records)
-  + how to pin a local to a consistent register across the back-edge in v2's greedy single-pass allocator.
-  Invariants: write-in-register (not set-invalidate); GcRef locals stay slot-homed (D-261/D-258 constraint); W54
-  anti-regression. Exit unchanged: w45_addi 2.3×→≤1.1× + 3-host net green (Phase-II fixtures = the correctness
-  net). Then spike Option B (design arithmetic shows B, not A, hits the target) → Phase IV → V. Note: this
-  re-opens W45/loop-persistence (ADR-0151 folded it for v128, but it bites SCALAR locals). All autonomous.
+- **NEXT — validation spike** (ADR-0155 §"Validation spike"; off-branch `private/spikes/register-homed-locals/`):
+  implement **stage 1** (GPR locals register-homed for the no-call straight-line-loop case: regalloc reserves K
+  GPR registers for the first K locals; prologue loads them; `local.get`/`set` become reg refs; slot-overflow for
+  the rest). Run the 3 Phase-II fixtures (MUST stay green = correctness) + w45_addi (MUST hit ≤1.1× = ROI).
+  Resolves the open design choice (local-register pre-reservation vs multi-def vreg). Green+ROI → land stage 1
+  on-branch (Phase IV) → stages 2 calls / 3 FP-v128 / 4 x86_64, net green every commit, ubuntu test-all. All autonomous.
 
 ## Current state
 
-- **Phase 15 (Performance parity with v1 + ClojureWasm) IN-PROGRESS.** Phase 14 (CI) / 13 (C API) /
-  12 (AOT) DONE.
-- **§15.1 GC reclamation + conservative rooting — DONE** (`be4357be`; ADR-0146/0147/0148). The
-  mark-sweep collector now collects under heap pressure + FREES/REUSES dead memory:
-  - chunk 1a `5de51a69` `stack_limit.nativeStackHigh()`; 1b `b46960db` object-start-validated
-    conservative native-stack scan (`scanNativeStackRoots`, `scan_native_stack` flag); 1c `55503da7`
-    (ADR-0146) heap-pressure collection trigger (`root_scope.maybeCollect`, wired into interp
-    `allocateStruct`/`allocateArray`); 2 `32aaec94` + exit `be4357be` (ADR-0147) external free-list
-    reuse → alloc-loop cursor BOUNDED.
-  - **Re-scoped at close (ADR-0148 carve-out)**: precise `zir.GcRootMap` stack-map walker + §12.5
-    AOT GC-root serialization are NOT needed for a non-moving collector (ADR-0128 §2) → deferred to
-    **D-211** (barrier: moving collector OR AOT GC-root serialization). JIT-trampoline collection
-    trigger (separate `*JitRuntime` root model) = **D-258**.
-- **§15.2 + §15.3 (regalloc-axis perf) — both measured ~0 headroom → CLOSED `[x]`/folded** (ADR-0149/0150).
-  §15.2: GPR-spill traffic 2.7–5.6% of instrs → ≥5% unreachable. §15.3: **FP-spill = 0%** (nbody/matrix never
-  overflow the 13 V-regs; resolution already class-aware per D-036) → ≥3% unreachable; dual-pool not built;
-  `spillBytes()` footprint cleanup = **D-259**. **Pattern: v2's deterministic-slot emit is already efficient
-  (low/zero spill) — regalloc-axis optimizations have no headroom. This = v2 likely near v1 parity.** §15.P
-  reframed to parity-vs-v1 (not fixed ≥10%). Remaining perf lever = §15.4 (SIMD/compute axis + D-246 emit hole).
-- **§15.4 SIMD coverage + perf ports — DONE** (D-246 `1029e5b4` + perf ports measured→folded ADR-0151). 26 ops
-  closed both arches; v2 already 0.5–0.8× the comparator median (0/12 lag >3×). W45 loop-persistence → §15.P.
-- **§15.5 D-245 win64 host→JIT trampoline — DONE** (`510ffce9`, clobber-trampoline). **test-all 3-host GREEN**:
-  Mac + ubuntu x86_64 + windowsmini win64 (rc=0, no SEGV). D-260 x86_64 SIMD bugs (q15mulr/extadd) surfaced by the
-  win64 run + FIXED `3a778080`, also 3-host green. Root fix D-210 NOT taken (per-seam patch; see structural risks).
-
-## Next task (autonomous)
-
-**§15.6 ClojureWasm CI — ⏸ DEFERRED** (ADR-0152 → D-264, user-confirmed). `ClojureWasmFromScratch` is itself a
-from-scratch v1 redesign IN PROGRESS (branch `cw-from-scratch`, v0.0.0, deps=zlinter only, no `zwasm` dep, no CI);
-stable cw = v0.5.0 on `main`. Its zwasm-v2 consumer is cw's OWN future phase → nothing to validate today. v2
-package-consumability already proven by `examples/zig_host/` (ADR-0109). Barrier (D-264) dissolves when cw-v1 lands
-committed `@import("zwasm")` source.
-**See `## Active rework campaign` above** (ADR-0153) — §15.P parity is MEASURED; the remaining §15.P work =
-**achieve** parity via the D-265 regalloc-resident-locals campaign (Phase II next: build the correctness/adversarial
-net incl. D-261 GC-rooting). Runs fully autonomously — decide every step per the philosophy, do NOT stop to ask.
-§15.6 deferred (ADR-0152 → D-264); §15.5 + 3-host reconcile DONE.
+- **Phase 15 (Performance parity with v1) IN-PROGRESS.** Phases 0-14 DONE. **§15.1** GC reclamation DONE
+  (`be4357be`; ADR-0146/0147/0148; carve-outs → D-211/D-258). **§15.2/15.3** regalloc-axis perf — measured-folded
+  (ADR-0149/0150) — but the "~0 headroom" claim is being REVISED (D-265: real headroom on loop-locals). **§15.4**
+  SIMD coverage+ports DONE (D-246 `1029e5b4`; ADR-0151). **§15.5** D-245 win64 trampoline DONE (`510ffce9` +
+  D-260 fix `3a778080`, test-all 3-host green). **§15.6** ClojureWasm CI ⏸ DEFERRED (ADR-0152 → D-264; cw is its
+  own in-progress v1 redesign). **§15.P** parity MEASURED (`s15p_parity_vs_v1.md`) → the remaining work = the
+  **D-265 rework campaign** (`## Active rework campaign` above). Runs fully autonomously per the philosophy.
 
 ## Step 0.7 (next resume)
 
-D-265 campaign **Phase III iterating**: ADR-0154 (Option A value-reuse cache) superseded-in-design by analysis
-(only ~17% recovery; loop-top reload is the real cost) → next = Option B (local-register residency) design ADR +
-survey (v1 textbook + v2 loop_info). All docs-only since the fixtures → no on-branch code, no new ubuntu kick;
-Phase-II fixtures already x86_64-green (`/tmp/ubuntu.log`, 55/30/84). (`510ffce9`/`3a778080` validated; do NOT
-revert.) **NOTE** (lesson
+D-265 campaign **Phase III design DONE (ADR-0155 Option B = register-homed locals)** → next = the off-branch
+validation spike (stage 1: GPR locals register-homed, no-call case; Phase-II fixtures green + w45_addi ≤1.1×).
+All docs-only since the fixtures → no on-branch code, no new ubuntu kick; Phase-II fixtures already x86_64-green
+(`/tmp/ubuntu.log`, 55/30/84). (`510ffce9`/`3a778080` validated; do NOT revert.) **NOTE** (lesson
 `gate-tail-vs-exit-code`): benign `failed command: …--listen=-` / SlotOverflow / `arm64/emit: failing op` next to
 a passing run = error-path noise — EXIT authoritative. **D-262 process fix**: any NEW per-arch emit chunk → run
 `run_remote_ubuntu test-all` (NOT narrow `test`) before discharge (cross-compile ≠ cross-run).
