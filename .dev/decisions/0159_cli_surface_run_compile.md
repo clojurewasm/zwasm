@@ -100,3 +100,9 @@ dogfooding.
   (`compile` → `.cwasm`). ADR-0136 (`run --engine`).
 - Survey sources: `~/Documents/OSS/wasmtime/src/bin/wasmtime.rs`,
   `~/Documents/OSS/wazero/cmd/wazero/wazero.go`.
+- **Validation (2026-06-05 C-API survey, lesson `2026-06-05-capi-survey-funcref-from-table`)**: a fresh
+  wasmtime/wasmer/wazero sweep confirms `--invoke <fn> <args>` (wasmtime `src/commands/run.rs:51`, wasmer
+  `lib/cli/src/commands/run/mod.rs:98`) + resource flags (`--fuel`/`--timeout`/`--epoch`
+  `crates/cli-flags/src/lib.rs:342/345/389`, `--env` `run/wasi.rs:94`) are CLI *convenience over the embedder
+  API*, not core needs — wazero (`cmd/wazero/wazero.go`) ships exactly `compile`+`run` with no `-invoke`. The
+  run+compile scope is reaffirmed; `--invoke` (D-273) stays deferred until a real consumer need.

@@ -900,8 +900,21 @@ entries:
       ADR-0153 (D-265 campaign); bench/results/s15p_parity_vs_v1.md; ROADMAP §16 (完成形 surface/perf bar)
   - id: "D-269"
     layer: "code"
-    status: "note"
+    status: "now"
     description: |-
+      **RECLASSIFIED 2026-06-05 note→now (C-API reference survey [[2026-06-05-capi-survey-funcref-from-table]]).**
+      Surveyed wasmtime/wasmer/wazero C-API engagement (user directive + STOP_BUCKETS prep-path). Finding:
+      **calling a funcref pulled from a table is STANDARD wasm-c-api** (`wasm_table_get → wasm_ref_as_func →
+      wasm_func_call`, plain upstream `wasm.h:473/363/445`; wasmtime `val.h:254` funcref + `func.h` call) — NOT a
+      richer-API extra. So this is a *behavioral* conformance gap (symbols exist, gap=0), not the "wasmtime-parity
+      nicety, don't-pre-build" framing — it's below the standard. NARROWED actionable: `wasm_ref_as_func`
+      (`extern_new.zig:378`) already decodes a raw payload via `refAsFuncEntity` into a callable Func; the open
+      question is whether the **table-slot funcref encoding** (`tab.refs[idx].ref`, `wasm_table_get`
+      `instance.zig:1282`) decodes through it. DISCHARGE: a RED C conformance test (`test/c_api_conformance/`:
+      table.get→ref_as_func→func_call) settles it — green ⇒ downgrade (path already works); red ⇒ fix the table
+      funcref encoding (independent of the broader D-253 owned-handle `of.ref` model below). D-273/surface-philosophy
+      defers VALIDATED as fair (richer-API extras; ADR-0159 holds). Next-cycle chunk.
+      ---
       **note (§16.2 DONE — C-API surface 100% implemented: gap 0 / 293-of-293 via `scripts/capi_surface_gap.sh`,
       `e9367bb2`).** Audit found `include/wasm.h` byte-identical to upstream but 129/293 extern fns unimplemented
       (link errors); all now implemented (A type-accessors → B vec-ops → C config → D val → instance.zig split
@@ -916,9 +929,7 @@ entries:
     first_raised: "2026-06-04"
     last_reviewed: "2026-06-05"
     refs: |-
-      include/wasm.h (verbatim upstream); src/api/{module_introspect,types,vec,instance,extern_new}.zig;
-      scripts/capi_surface_gap.sh (live checker); .dev/c_api_surface_audit_2026-06-04.md (full audit);
-      D-253 (E subset); ADR-0004 (wasm-c-api pin); ADR-0156 (完成形 surfaces); ROADMAP §16.2
+      include/wasm.h (verbatim upstream); src/api/{instance,extern_new}.zig (wasm_table_get:1282 / wasm_ref_as_func:378 / refAsFuncEntity); test/c_api_conformance/ (add table-funcref-call); lesson 2026-06-05-capi-survey-funcref-from-table; D-253 (owned-handle of.ref); ADR-0158 (ref model); ADR-0159 (CLI defer validated); ROADMAP §16.2
   - id: "D-271"
     layer: "perf"
     status: "note"
