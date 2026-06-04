@@ -26,6 +26,7 @@ const regalloc = @import("../shared/regalloc.zig");
 const exception_table = @import("../shared/exception_table.zig");
 const label_mod = @import("label.zig");
 const types = @import("types.zig");
+const local_homing = @import("../../../ir/analysis/local_homing.zig");
 
 const Allocator = std.mem.Allocator;
 const ZirFunc = zir.ZirFunc;
@@ -86,6 +87,12 @@ pub const InitArgs = struct {
     /// D-235 — see the EmitCtx field of the same name. Default `false`
     /// preserves existing InitArgs construction sites.
     uses_type_subtyping: bool = false,
+    /// ADR-0155 stage 4 (D-265 Phase IV) — see the EmitCtx fields of the same
+    /// names. Default-empty (`count == 0`) preserves every non-homing
+    /// construction site (test helpers, linker).
+    homing: local_homing.Plan = .{},
+    n_temp: u32 = 0,
+    local_offsets: []const i32 = &.{},
 };
 
 /// Per-function emit context for x86_64. Threaded as `*EmitCtx`
@@ -242,6 +249,24 @@ pub const EmitCtx = struct {
     /// byte-identical inline path.
     uses_type_subtyping: bool = false,
 
+    /// ADR-0155 stage 4 (D-265 Phase IV) — the register-homing plan for this
+    /// function (the SSOT shared with liveness / regalloc). `op_locals` consults
+    /// it: a homed `local.get` reads the home register (no LOAD), a homed
+    /// `local.set`/`tee` MOVs into the home register (no STORE). Default-empty
+    /// (`count == 0`) keeps every non-homing EmitCtx construction site (test
+    /// helpers, linker) on the un-homed slot path.
+    homing: local_homing.Plan = .{},
+    /// Count of temporary vregs (= `alloc.slots.len - homing.count`). The home
+    /// pseudo-vreg of rank r is `n_temp + r`. Threaded so `op_locals` / `op_call`
+    /// resolve a homed local's physical home register.
+    n_temp: u32 = 0,
+    /// `local_offsets[local_idx]` is the in-frame RBP-relative disp of wasm
+    /// local `local_idx` — i.e. `layout.disps` (already negative on x86_64).
+    /// `op_call` would use it for a homed local's call-site spill slot; on
+    /// x86_64 every allocatable GPR is callee-saved so the spill is a no-op,
+    /// but the field is threaded for symmetry. Empty when no homing.
+    local_offsets: []const i32 = &.{},
+
     pub fn init(args: InitArgs) EmitCtx {
         const simd_consts_base: u32 =
             if (args.func.simd_consts) |sc| @intCast(sc.len) else 0;
@@ -281,6 +306,9 @@ pub const EmitCtx = struct {
             .landing_pad_fixups = args.landing_pad_fixups,
             .tag_param_counts = args.tag_param_counts,
             .uses_type_subtyping = args.uses_type_subtyping,
+            .homing = args.homing,
+            .n_temp = args.n_temp,
+            .local_offsets = args.local_offsets,
         };
     }
 

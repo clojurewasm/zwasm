@@ -70,6 +70,7 @@ const op_simd_int_cmp_lane = @import("op_simd_int_cmp_lane.zig");
 const op_simd_float = @import("op_simd_float.zig");
 const rbp_disp = @import("rbp_disp.zig");
 const gpr = @import("gpr.zig");
+const local_homing = @import("../../../ir/analysis/local_homing.zig");
 
 // rbp/rsp form-selectors live in rbp_disp.zig per D-052
 // progression (extract when emit.zig approached the 2000-LOC
@@ -581,6 +582,47 @@ pub fn compile(
         }
     }
 
+    // ADR-0155 stage 4 (D-265 Phase IV) — register-homed locals (x86_64 port).
+    // liveness APPENDED `homing.count` function-spanning pseudo-vregs (the last
+    // K vregs); their home pseudo-vreg id is `n_temp + rank` where `n_temp` =
+    // temporary-vreg count = `slots.len - count`. A homed `local.get` reads the
+    // home register into a fresh temporary (MOV, not LOAD-from-slot); a homed
+    // `local.set`/`tee` MOVs a temporary into the home register. The value
+    // crosses the loop back-edge in-register (the D-265 win). The mapping is the
+    // SSOT plan re-derived identically by liveness / regalloc / emit.
+    // Hand-built test allocations (emit_test_*.zig) construct `liveness` /
+    // `alloc` directly and do NOT include the K function-spanning homing pseudo-
+    // vregs that `liveness.compute` appends on the real path. Detect that
+    // (slots.len < homing.count → the appended pseudo-vreg slots are absent) and
+    // run un-homed for that compile; the real regalloc path always sizes
+    // `slots.len == ranges.len ≥ count`, so homing stays on there.
+    const planned = local_homing.plan(func);
+    const homing = if (alloc.slots.len >= planned.count) planned else local_homing.Plan{};
+    const n_temp: u32 = @intCast(alloc.slots.len - homing.count);
+
+    // ADR-0155 stage 4 — prologue-load each register-homed local's initial value
+    // from its stack slot into its pinned home register. The slot already holds
+    // the correct initial value (param marshalled above, or zero-inited for
+    // declared locals), so a single MOV seeds the register; from here the slot
+    // is dormant. Width: i32 → 32-bit MOV (zero-extends), i64 → 64-bit MOV.
+    // Mirrors arm64/emit.zig's homing seed.
+    if (homing.count > 0) {
+        var hr: u32 = 0;
+        while (hr < homing.count) : (hr += 1) {
+            const lidx = homing.local_idx[hr];
+            const home_vreg = n_temp + hr;
+            const home_reg = try gpr.gprDefSpilled(alloc, home_vreg, 0);
+            const loc_disp = layout.disps[lidx];
+            switch (func.localValType(lidx)) {
+                .i32 => try buf.appendSlice(allocator, rbpLoadR32(home_reg, loc_disp).slice()),
+                .i64 => try buf.appendSlice(allocator, rbpLoadR64(home_reg, loc_disp).slice()),
+                // local_homing.isHomeableType only returns true for i32/i64.
+                .f32, .f64, .v128, .ref => unreachable,
+            }
+            try gpr.gprStoreSpilled(allocator, &buf, alloc, spill_base_off, home_vreg, 0);
+        }
+    }
+
     // ============================================================
     // Body: walk instrs, dispatch per op.
     //
@@ -708,6 +750,10 @@ pub fn compile(
         .landing_pad_fixups = if (has_try_table) &landing_pad_fixups else null,
         .tag_param_counts = tag_param_counts,
         .uses_type_subtyping = uses_type_subtyping,
+        // ADR-0155 stage 4 — register-homed-local emit + (no-op) call-site spill.
+        .homing = homing,
+        .n_temp = n_temp,
+        .local_offsets = layout.disps,
     });
 
     for (func.instrs.items) |ins| {

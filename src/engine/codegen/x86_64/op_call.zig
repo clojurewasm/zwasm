@@ -66,12 +66,38 @@ const Allocator = std.mem.Allocator;
 const Error = types.Error;
 const CallFixup = types.CallFixup;
 
+/// ADR-0155 stage 4 (D-265 Phase IV) — call-site spill of register-homed
+/// locals. The arm64 mirror spills caller-saved homed locals around the BL/BLR
+/// (`arm64/op_call.zig:homedCallerSavedSpillReload`); on x86_64 it is a
+/// **provable no-op**: every allocatable GPR (`abi.allocatable_gprs` — SysV
+/// RBX/R12/R13/R14, Win64 +RDI/RSI) is CALLEE-SAVED, so a register-resident
+/// homed local SURVIVES a call untouched, and a spilled home already lives in
+/// its frame slot across the call. The comptime block proves the invariant so
+/// the no-op is load-bearing, not an unverified assumption. Threaded through the
+/// call-cohort `*Ctx` adapters for symmetry with arm64.
+fn spillHomedCallerSaved(ctx: *ctx_mod.EmitCtx) Error!void {
+    // No bytes emitted — see the comptime proof below. `ctx` referenced so the
+    // signature mirrors arm64 (a future caller-saved x86_64 home would emit
+    // here); homing-off (`count == 0`) is also a no-op.
+    _ = ctx;
+    comptime {
+        for (abi.allocatable_gprs) |g| {
+            if (!abi.isCalleeSaved(g)) @compileError(
+                "ADR-0155 stage 4: allocatable GPR is caller-saved — the x86_64 " ++
+                    "call-site homed-local spill is no longer a no-op; port the arm64 " ++
+                    "spill/reload (abi.allocatable_gprs must stay callee-saved-only)",
+            );
+        }
+    }
+}
+
 /// §9.12-B / B64 (ADR-0075) — `(ctx, ins)` adapters for the call
 /// cohort (`call`, `call_indirect`). Two distinct adapters
 /// (heterogeneous — call uses func_sigs+num_imports;
 /// call_indirect uses module_types+bounds_fixups+ins.extra).
 /// Decomposes per-op at the B6x+1 cutover.
 pub fn emitCallCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    try spillHomedCallerSaved(ctx); // ADR-0155 stage 4 — no-op on x86_64.
     return emitCall(
         ctx.allocator,
         ctx.buf,

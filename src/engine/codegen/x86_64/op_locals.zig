@@ -16,6 +16,7 @@ const zir = @import("../../../ir/zir.zig");
 const regalloc = @import("../shared/regalloc.zig");
 const ctx_mod = @import("ctx.zig");
 const gpr = @import("gpr.zig");
+const inst = @import("inst.zig");
 const rbp_disp = @import("rbp_disp.zig");
 const types = @import("types.zig");
 
@@ -165,10 +166,53 @@ pub fn emitLocalTee(
     }
 }
 
+/// ADR-0155 stage 4 (D-265 Phase IV) — homed `local.get`: read the home
+/// register into the fresh temporary via reg→reg MOV (no LOAD-from-slot). The
+/// fresh temp insulates this value from a later `local.set $same` (which
+/// rewrites the home register) and keeps `next_vreg` in lockstep with liveness.
+/// i32/i64 share the 64-bit MOV: an i32 home holds a zero-extended value (the
+/// prologue seed + the W-form set MOV below), so the full-width copy is correct.
+/// Mirror of arm64/emit.zig's homed local.get.
+fn emitHomedLocalGet(ctx: *ctx_mod.EmitCtx, home_vreg: u32) Error!void {
+    const vreg = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    if (vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
+    const src_r = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, home_vreg, 0);
+    const dst_r = try gpr.gprDefSpilled(ctx.alloc, vreg, 1);
+    try gpr.writeBytes(ctx.allocator, ctx.buf, inst.encMovRR(.q, dst_r, src_r));
+    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, vreg, 1);
+    try ctx.pushed_vregs.append(ctx.allocator, vreg);
+}
+
+/// ADR-0155 stage 4 — homed `local.set` (`pop` = true) / `local.tee`
+/// (`pop` = false): MOV the source temporary into the home register (reg→reg,
+/// no STORE-to-slot). i32 uses the 32-bit MOV so the home stays zero-extended;
+/// i64 the 64-bit MOV. Mirror of arm64/emit.zig's homed local.set/tee.
+fn emitHomedLocalSetTee(ctx: *ctx_mod.EmitCtx, home_vreg: u32, local_idx: u32, pop: bool) Error!void {
+    if (ctx.pushed_vregs.items.len < 1) return Error.AllocationMissing;
+    const src_v = if (pop) ctx.pushed_vregs.pop().? else ctx.pushed_vregs.items[ctx.pushed_vregs.items.len - 1];
+    const src_r = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_v, 0);
+    const dst_r = try gpr.gprDefSpilled(ctx.alloc, home_vreg, 1);
+    const width: inst.Width = switch (ctx.func.localValType(local_idx)) {
+        .i32 => .d,
+        .i64 => .q,
+        // local_homing.isHomeableType only homes i32/i64.
+        .f32, .f64, .v128, .ref => unreachable,
+    };
+    try gpr.writeBytes(ctx.allocator, ctx.buf, inst.encMovRR(width, dst_r, src_r));
+    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, home_vreg, 1);
+}
+
 /// §9.12-B / B78 (ADR-0075) — `(ctx, ins)` adapter for `local.get`.
 ///
 /// Wasm spec §3.5.3 / §4.4.5.1.
 pub fn emitLocalGetCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    const idx: u32 = @intCast(ins.payload);
+    if (idx >= ctx.total_locals) return Error.UnsupportedOp;
+    // ADR-0155 stage 4 — register-homed local: reg→reg MOV, no slot LOAD.
+    if (ctx.homing.pseudoVreg(idx, ctx.n_temp)) |home_vreg| {
+        return emitHomedLocalGet(ctx, home_vreg);
+    }
     return emitLocalGet(
         ctx.allocator,
         ctx.buf,
@@ -187,6 +231,12 @@ pub fn emitLocalGetCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!vo
 ///
 /// Wasm spec §3.5.3 / §4.4.5.2.
 pub fn emitLocalSetCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    const idx: u32 = @intCast(ins.payload);
+    if (idx >= ctx.total_locals) return Error.UnsupportedOp;
+    // ADR-0155 stage 4 — register-homed local: reg→reg MOV into home, no STORE.
+    if (ctx.homing.pseudoVreg(idx, ctx.n_temp)) |home_vreg| {
+        return emitHomedLocalSetTee(ctx, home_vreg, idx, true);
+    }
     return emitLocalSet(
         ctx.allocator,
         ctx.buf,
@@ -204,6 +254,12 @@ pub fn emitLocalSetCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!vo
 ///
 /// Wasm spec §3.5.3 / §4.4.5.3.
 pub fn emitLocalTeeCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    const idx: u32 = @intCast(ins.payload);
+    if (idx >= ctx.total_locals) return Error.UnsupportedOp;
+    // ADR-0155 stage 4 — register-homed local: MOV the peeked src into home.
+    if (ctx.homing.pseudoVreg(idx, ctx.n_temp)) |home_vreg| {
+        return emitHomedLocalSetTee(ctx, home_vreg, idx, false);
+    }
     return emitLocalTee(
         ctx.allocator,
         ctx.buf,
