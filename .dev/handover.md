@@ -18,26 +18,29 @@
   Mac+x86_64 (ADR-0160); **§16.7** docs — README/CHANGELOG/`docs/reference/`/`docs/tutorial.md` to the settled
   surface (`12390815`, `3a5e8ba0`).
 
-## NEXT (autonomous — §16 task-list done; phase-boundary audit, then backlog; ADR-0156)
+## NEXT (autonomous — §16 task-list done; phase-boundary audit DONE; backlog; ADR-0156)
 
-- **MANDATORY FIRST: phase-boundary `audit_scaffolding`.** §16.7 was the last §16 [ ] → the §16 task-list is
-  complete, so the mandatory phase-boundary audit is owed (deferred from the §16.7-close turn for context length —
-  it deserves fresh context). Invoke `audit_scaffolding` (walk §A–G; weight §F debt-coherence + §G
-  extended-challenge anchor commands). `block` finding → fix locally if local-scope, else ADR + queue here.
-  Optionally SHA-backfill §16 rows after.
-- **Then: backlog debt + refinement** (no release; 完成形 reached = keep improving, ADR-0156). Pick
-  highest-value-per-risk each cycle: **D-274** make zlinter a lazy dep (consumers shouldn't fetch the lint tool —
-  clean, scoped, closes a real consumability wart); **D-273** CLI `--invoke` args + typed-result printing
-  (wasmtime-parity UX); **D-277** reconcile §10.4 ↔ zwasm.h (or ship `zwasm_func_call_fast`); **D-269** callable
-  funcref from host (deeper); **D-276** force the register-resident GC-rooting worst case; **D-275** richer
-  `Module.instantiate` error; `examples/` not fmt-gated by `gate_commit.sh` (tiny tooling fix).
+- **✅ Phase-boundary `audit_scaffolding` DONE** (`1fa6c951`; report `private/audit-2026-06-05.md`): scaffolding
+  healthy — schema/skip-taxonomy/skip-ADRs/zone green, no file-size hard-cap, no dead §16-doc refs, no §14 cross.
+  One block (stale D-258/261 — closed §16.6 but status `now`) FIXED inline (discharged). `soon` queued below.
+- **Backlog debt + refinement** (no release; 完成形 reached = keep improving, ADR-0156). Pick
+  highest-value-per-risk each cycle:
+  - **D-257** lesson-Citing backfill — 10 lessons with unfilled `<backfill>` Citing; `check_lesson_citing.sh` WARN
+    persisting > 2 phase boundaries (F.3a escalating → block). Phase-boundary §3 action: backfill each lesson's
+    citing SHA (per-lesson investigation) OR make D-257 a concrete one-shot. **Top soon.**
+  - **D-274** make zlinter a lazy dep (consumers shouldn't fetch the lint tool — clean, scoped consumability win).
+  - **F.6** 1 ADR pending `<backfill>` revision SHA (`check_adr_history.sh`; cohort backfill).
+  - **J.3** 34 active debt rows > 15 — many old `blocked-by` (D-007/010/020-028/074) due for F.2a re-walk →
+    `suggest meta_audit` (user-gated; note for the user, not autonomous).
+  - Then: **D-273** CLI `--invoke` args+result-print; **D-277** §10.4↔zwasm.h reconcile; **D-269** callable
+    funcref; **D-276** register-resident GC-rooting; **D-275** richer `Module.instantiate` error; `examples/` fmt-gate.
 
 ## Step 0.7 (next resume)
 
-**No ubuntu kick pending** — §16.6 was verified GREEN at `cf21b11c`; everything since (all of §16.7:
-`12390815`/`3a5e8ba0` + the [x] flip) is **doc-only** (no `src/` change → ubuntu unaffected). The next action
-(audit_scaffolding) is read-only. **Gate**: Step-5 Mac = `bash scripts/mac_gate.sh`. windowsmini = a future
-manual-only concern (ADR-0156: no release/tag from the loop).
+**No ubuntu kick pending** — §16.6 was verified GREEN at `cf21b11c`; everything since (§16.7 docs + §16.7-close +
+the phase-boundary audit + the D-258/261 discharge `1fa6c951`) is **doc/debt-only** (no `src/` change → ubuntu
+unaffected). Next backlog item determines the next kick (D-274 = build.zig, no test impact; D-257 = lessons,
+doc-only). **Gate**: Step-5 Mac = `bash scripts/mac_gate.sh`. windowsmini = manual-only (ADR-0156: no loop tag).
 
 ## Deferred / open debt
 
