@@ -23,24 +23,27 @@
 ## Active bundle
 
 - **Bundle-ID**: 16.2-capi-completion
-- **Cycles-remaining**: ~5 (one per gap category B–G; E/G are multi-cycle)
+- **Cycles-remaining**: ~4 (gap categories C/D/E/F/G; E/G are multi-cycle)
 - **Continuity-memo**: §16.2 audit DONE (`.dev/c_api_surface_audit_2026-06-04.md`, D-269) — our `wasm.h` is
   byte-identical to upstream latest, but standard extern fns were unimplemented (link-error for C
   consumers). wasmtime/wasmer ship 100%; wazero ships none. Decision: implement full standard surface (not
-  wasmtime's ext headers). Live count: `bash scripts/capi_surface_gap.sh` (**gap 123**, was 129).
-  Sequence: ✅A type accessors (6, `c3a979fa`) → **B per-type vec ops (~30)** → C config (3) →
-  D val_copy/delete (2) → E ref-cast/host_info (~71, D-253) → F tagtype/EH (12) → G module serialize/share
-  (5, own ADR).
+  wasmtime's ext headers). Live count: `bash scripts/capi_surface_gap.sh` (**gap 99**, was 129).
+  Sequence: ✅A type accessors (6, `c3a979fa`) → ✅B per-type vec ops (24, `2116a18b` — added `PtrVecOps`
+  generic owned-ptr-vec helper in types.zig + migrated valtype/externtype/import/export to it; functype/
+  globaltype/tabletype/memorytype families + the 4 `_vec_copy`) → **C config (3)** → D val_copy/delete (2)
+  → E ref-cast/host_info (~71, D-253) → F tagtype/EH (12) → G module serialize/share (5, own ADR).
+  (extern_vec_copy + tagtype_vec deferred to E/F: need wasm_extern_copy / TagType first.)
 - **Exit-condition**: `capi_surface_gap.sh` gap → 0 (or each residual category has an ADR/debt justifying
   deferral); then close §16.2 [x].
 
 ## NEXT (autonomous — surfaces first, docs last; ADR-0156)
 
-- **§16.2 chunk B (per-type vec ops) — NEXT**: implement the macro-family `_vec_new/_vec_new_empty/
-  _vec_new_uninitialized/_vec_copy/_vec_delete` for functype/globaltype/tabletype/memorytype/tagtype, plus
-  `_vec_copy` for extern/frame/importtype/exporttype. `src/api/vec.zig` has the generic ptr-vec pattern
-  (byte/val/valtype done) — extend it. TDD. Then C (config new/delete + engine_new_with_config),
-  D (val_copy/val_delete) — chain. E (ref/host_info) via D-253; G (serialize) own ADR.
+- **§16.2 chunk C (config) — NEXT**: implement `wasm_config_new` / `wasm_config_delete` /
+  `wasm_engine_new_with_config` (wasm.h:64-66,80). Standard config is an opaque object: `wasm_config_t`
+  is `WASM_DECLARE_OWN`, runtime-specific setters are extensions we don't owe; `engine_new_with_config`
+  consumes (takes ownership of) the config and behaves like `engine_new` for our single-tier engine. Survey
+  `src/api/instance.zig` (wasm_engine_new/delete) for the Engine wrapper. TDD. Then D (val_copy/val_delete)
+  — chain. E (ref/host_info) via D-253; G (serialize) own ADR.
 - After §16.2: §16.3 Zig-API review (reconcile D-267, ADR-0025 Revision), §16.4 CLI あるべき論 review,
   §16.5 dogfooding, §16.6 memory-safety (D-258→D-261), §16.7 docs LAST. Chain; pay debt en route.
 
