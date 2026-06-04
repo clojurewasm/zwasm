@@ -843,6 +843,7 @@ pub fn build(b: *std.Build) void {
         .{ .src = "test/c_api_conformance/memory_import.c", .name = "memory_import" },
         .{ .src = "test/c_api_conformance/table_import.c", .name = "table_import" },
         .{ .src = "test/c_api_conformance/trap.c", .name = "trap" },
+        .{ .src = "test/c_api_conformance/funcref_table_call.c", .name = "funcref_table_call" },
     };
     for (conformance_cases) |c| {
         const cmod = createSanitizedModule(b, sanitize_opts, .{
