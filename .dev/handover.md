@@ -5,8 +5,11 @@
 
 ## Current state
 
-- **Phase 16 (Public release v0.1.0 🔒) IN-PROGRESS.** Phases 0–15 DONE. Last commit: ROADMAP §15.P [x]
-  + widget 15→DONE / 16→IN-PROGRESS + §16 table opened.
+- **Phase 16 (Public release v0.1.0 🔒) IN-PROGRESS.** Phases 0–15 DONE. **§16.1 migration guide DONE**
+  (`58a483e8`, `docs/migration_v1_to_v2.md`, grounded in the shipped `src/zwasm.zig` facade API).
+  **D-267 surfaced**: ROADMAP §10.A/ADR-0025 D-7 name `Runtime`/`Module.parse` but the SHIPPED+tested API is
+  `Engine`/`eng.compile`/`inst.typedFunc` (code correct, spec stale) → all public docs use shipped names;
+  reconcile §10.A/ADR-0025 when writing §16.4 API ref.
 - **Phase 15 CLOSED** (§15.P parity-vs-v1 measured + the D-265 register-homing rework campaign closed).
   §15.1 GC reclamation DONE (`be4357be`). §15.2/15.3 regalloc-axis perf folded — **ADR-0149/0150 Revision
   landed** (the "~0 headroom" claim measured the wrong proxy; real headroom existed on the loop-local
@@ -21,10 +24,10 @@
 
 ## NEXT (autonomous)
 
-- **§16.1 — write `docs/migration_v1_to_v2.md`** (v1→v2 migration guide). v1-ABI dropped (§1.1/§3.2);
-  cover CLI / C-API / WASI / Zig-embed (ADR-0025 §D) deltas + the v1-parity line (§1.2). Then §16.2
-  CHANGELOG, §16.3 README, §16.4 `docs/reference/` API, §16.5 `docs/tutorial/`. These are autonomous
-  docs work — chain them.
+- **§16.2 — write `CHANGELOG.md`** (v0.1.0 entry from Phase 0–15 ADR/commit history: features shipped, the
+  v1-parity line §1.2, known deferrals D-211/D-258/D-264/D-266 + §15.6). Then §16.3 README, §16.4
+  `docs/reference/` API (reconcile D-267 §10.A/ADR-0025 naming here), §16.5 `docs/tutorial/`. Autonomous
+  docs work — chain them. Use the shipped `Engine`/`compile`/`typedFunc` names (D-267) in all examples.
 - **§16.P is the 🔒 RELEASE GATE — user-gated.** Cutting the `v0.1.0` GitHub tag + publishing binaries is
   outward-facing/irreversible: the loop prepares §16.1–5, then STOPS and surfaces to the user before
   tagging. Do NOT self-tag/publish.
