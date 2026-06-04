@@ -270,6 +270,109 @@ pub export fn wasm_memory_copy(m: ?*const handles.Memory) callconv(.c) ?*handles
     return cloneEntity(handles.Memory, m);
 }
 
+/// `wasm_extern_copy` — instance-backed → new Extern + a clone of the contained
+/// handle (the copy owns it), borrowed=false, caches nulled. Borrowed views /
+/// standalone (null instance) → null (D-253-D).
+pub export fn wasm_extern_copy(e: ?*const handles.Extern) callconv(.c) ?*handles.Extern {
+    const src = e orelse return null;
+    if (src.borrowed) return null;
+    const i = src.instance orelse return null;
+    const store = i.store orelse return null;
+    const alloc = instance.storeAllocator(store) orelse return null;
+    const c = alloc.create(handles.Extern) catch return null;
+    c.* = src.*;
+    c.borrowed = false;
+    c.extern_view = null;
+    c.ref_view = null;
+    c.host_info = null;
+    c.host_info_finalizer = null;
+    c.func = null;
+    c.global = null;
+    c.memory = null;
+    c.table = null;
+    switch (src.kind) {
+        .func => c.func = wasm_func_copy(src.func),
+        .global => c.global = wasm_global_copy(src.global),
+        .table => c.table = wasm_table_copy(src.table),
+        .memory => c.memory = wasm_memory_copy(src.memory),
+    }
+    return c;
+}
+
+/// `wasm_module_copy` — fresh independent handle over a DUP of the bytes (so both
+/// delete their own); caches nulled. Standalone module-handle (no instance back-
+/// ref needed — it is a byte holder + store).
+pub export fn wasm_module_copy(m: ?*const instance.Module) callconv(.c) ?*instance.Module {
+    const src = m orelse return null;
+    const store = src.store orelse return null;
+    const alloc = instance.storeAllocator(store) orelse return null;
+    const c = alloc.create(instance.Module) catch return null;
+    c.* = src.*;
+    c.host_info = null;
+    c.host_info_finalizer = null;
+    c.ref_view = null;
+    if (src.bytes_ptr) |p| {
+        const dup = alloc.alloc(u8, src.bytes_len) catch {
+            alloc.destroy(c);
+            return null;
+        };
+        @memcpy(dup, p[0..src.bytes_len]);
+        c.bytes_ptr = dup.ptr;
+    }
+    return c;
+}
+
+/// `wasm_trap_copy` — fresh handle over a DUP of the message; caches nulled.
+pub export fn wasm_trap_copy(t: ?*const trap_surface.Trap) callconv(.c) ?*trap_surface.Trap {
+    const src = t orelse return null;
+    const store = src.store orelse return null;
+    const alloc = instance.storeAllocator(store) orelse return null;
+    const c = alloc.create(trap_surface.Trap) catch return null;
+    c.* = src.*;
+    c.host_info = null;
+    c.host_info_finalizer = null;
+    c.ref_view = null;
+    if (src.message_ptr) |p| {
+        const dup = alloc.alloc(u8, src.message_len) catch {
+            alloc.destroy(c);
+            return null;
+        };
+        @memcpy(dup, p[0..src.message_len]);
+        c.message_ptr = dup.ptr;
+    }
+    return c;
+}
+
+/// `wasm_instance_copy` — null. An Instance owns its arena/runtime/zombie state;
+/// a safe duplicate needs refcounting or a per-store registry (D-253-D). zwasm
+/// does not refcount instances, so this is an honest documented limitation.
+pub export fn wasm_instance_copy(_: ?*const instance.Instance) callconv(.c) ?*instance.Instance {
+    return null;
+}
+
+/// `wasm_extern_vec_copy` — deep-copy each extern via `wasm_extern_copy`
+/// (shallow would double-free on `wasm_extern_vec_delete`). Now unblocked by
+/// `wasm_extern_copy`.
+pub export fn wasm_extern_vec_copy(out: ?*vec.ExternVec, src: ?*const vec.ExternVec) callconv(.c) void {
+    const o = out orelse return;
+    const s = src orelse {
+        o.* = .{ .size = 0, .data = null };
+        return;
+    };
+    if (s.size == 0 or s.data == null) {
+        o.* = .{ .size = 0, .data = null };
+        return;
+    }
+    const buf = std.heap.c_allocator.alloc(?*handles.Extern, s.size) catch {
+        o.* = .{ .size = 0, .data = null };
+        return;
+    };
+    for (s.data.?[0..s.size], 0..) |opt, i| {
+        buf[i] = if (opt) |ext| wasm_extern_copy(ext) else null;
+    }
+    o.* = .{ .size = s.size, .data = buf.ptr };
+}
+
 test "wasm_X_same: entity-identity (func/global/table/memory) + pointer (instance/module/trap/foreign)" {
     const inst_a: *instance.Instance = @ptrFromInt(0x1000); // fake, never deref'd by `same`
     var f1: handles.Func = .{ .instance = inst_a, .func_idx = 3 };
@@ -447,4 +550,62 @@ test "wasm_X_copy: instance-backed clone is same-entity + independently deletabl
     try testing.expect(wasm_memory_copy(sm) == null);
 
     try testing.expect(wasm_func_copy(null) == null);
+}
+
+test "wasm_X_copy (extern/module/trap deep-clone; instance/foreign null) + extern_vec_copy" {
+    const e = instance.wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer instance.wasm_engine_delete(e);
+    const s = instance.wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer instance.wasm_store_delete(s);
+
+    // module copy — dup bytes, independently deletable.
+    var mbytes = [_]u8{ 0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00 };
+    const mbv: vec.ByteVec = .{ .size = mbytes.len, .data = &mbytes };
+    const m = instance.wasm_module_new(s, &mbv) orelse return error.ModuleAllocFailed;
+    defer instance.wasm_module_delete(m);
+    const mc = wasm_module_copy(m) orelse return error.NoCopy;
+    try testing.expect(mc != m);
+    instance.wasm_module_delete(mc); // independent (owns its own bytes dup)
+
+    // trap copy — dup message.
+    var tmsg = [_]u8{ 'x', 0 };
+    const tmv: vec.ByteVec = .{ .size = tmsg.len, .data = &tmsg };
+    const tr = trap_surface.wasm_trap_new(s, &tmv) orelse return error.TrapAllocFailed;
+    defer trap_surface.wasm_trap_delete(tr);
+    const tc = wasm_trap_copy(tr) orelse return error.NoCopy;
+    try testing.expect(tc != tr);
+    trap_surface.wasm_trap_delete(tc);
+
+    // foreign copy → null (D-253-D).
+    const fr = extern_new.wasm_foreign_new(s) orelse return error.ForeignAllocFailed;
+    defer extern_new.wasm_foreign_delete(fr);
+    try testing.expect(extern_new.wasm_foreign_copy(fr) == null);
+
+    // extern copy + extern_vec_copy + instance copy(null) via a memory-export module.
+    var ebytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x05, 0x03, 0x01, 0x00, 0x01, 0x07, 0x05, 0x01,
+        0x01, 0x6d, 0x02, 0x00,
+    };
+    const ebv: vec.ByteVec = .{ .size = ebytes.len, .data = &ebytes };
+    const em = instance.wasm_module_new(s, &ebv) orelse return error.ModuleAllocFailed;
+    defer instance.wasm_module_delete(em);
+    const inst = instance.wasm_instance_new(s, em, null, null) orelse return error.InstanceAllocFailed;
+    defer instance.wasm_instance_delete(inst);
+    try testing.expect(wasm_instance_copy(inst) == null); // D-253-D
+
+    var exports: vec.ExternVec = .{ .size = 0, .data = null };
+    instance.wasm_instance_exports(inst, &exports);
+    defer instance.wasm_extern_vec_delete(&exports);
+    const ext = exports.data.?[0].?;
+    const ec = wasm_extern_copy(ext) orelse return error.NoCopy;
+    try testing.expect(ec != ext);
+    try testing.expect(wasm_extern_same(ext, ec)); // clone denotes same entity
+    instance.wasm_extern_delete(ec); // independent (owns its cloned contained memory)
+
+    var ev2: vec.ExternVec = .{ .size = 0, .data = null };
+    wasm_extern_vec_copy(&ev2, &exports);
+    defer instance.wasm_extern_vec_delete(&ev2);
+    try testing.expectEqual(exports.size, ev2.size);
+    try testing.expect(ev2.data.?[0].? != exports.data.?[0].?); // distinct extern handles
 }

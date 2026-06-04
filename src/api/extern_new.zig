@@ -462,6 +462,13 @@ pub export fn wasm_ref_as_foreign_const(r: ?*const instance.Ref) callconv(.c) ?*
     return wasm_ref_as_foreign(@constCast(r));
 }
 
+/// `wasm_foreign_copy` — null. A Foreign owns its `host_info` (+ finalizer): a
+/// shared copy would double-finalize, a fresh Foreign would lose the externref
+/// identity. Safe duplication needs a per-store registry (D-253-D).
+pub export fn wasm_foreign_copy(_: ?*const Foreign) callconv(.c) ?*Foreign {
+    return null;
+}
+
 pub export fn wasm_foreign_get_host_info(f: ?*const Foreign) callconv(.c) ?*anyopaque {
     return (f orelse return null).host_info;
 }
