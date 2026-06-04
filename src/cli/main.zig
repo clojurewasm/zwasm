@@ -40,6 +40,7 @@ const zwasm = @import("zwasm");
 
 const cli_run = zwasm.cli.run;
 const cli_compile = zwasm.cli.compile;
+const cli_dispatch = zwasm.cli.dispatch;
 const diag_print = zwasm.cli.diag_print;
 const diagnostic = zwasm.diagnostic;
 const dbg = zwasm.support.dbg;
@@ -63,6 +64,30 @@ pub fn main(init: std.process.Init) !void {
     defer arg_it.deinit();
     _ = arg_it.next().?; // executable name
     const subcmd_opt = arg_it.next();
+
+    // Top-level verb routing (ADR-0159). help/version/unknown resolve
+    // here; run/compile/banner fall through to the logic below (each
+    // keeps its own arg parsing). An unrecognised first token is a
+    // typo, not an implicit file-run — the surface is explicit.
+    switch (cli_dispatch.classify(subcmd_opt)) {
+        .help => {
+            try printOut(io, cli_dispatch.usage);
+            std.process.exit(0);
+        },
+        .version => {
+            var buf: [64]u8 = undefined;
+            const line = std.fmt.bufPrint(&buf, "zwasm v{s}\n", .{zwasm.version}) catch "zwasm\n";
+            try printOut(io, line);
+            std.process.exit(0);
+        },
+        .unknown => {
+            var buf: [256]u8 = undefined;
+            const msg = std.fmt.bufPrint(&buf, "zwasm: unknown subcommand '{s}' — run 'zwasm --help' for usage", .{subcmd_opt.?}) catch "zwasm: unknown subcommand";
+            try printlnErr(io, msg);
+            std.process.exit(2);
+        },
+        .banner, .run, .compile => {},
+    }
 
     if (subcmd_opt) |subcmd| {
         if (std.mem.eql(u8, subcmd, "run")) {
@@ -219,6 +244,16 @@ fn printlnErr(io: std.Io, msg: []const u8) !void {
     const stderr = &stderr_writer.interface;
     try stderr.print("{s}\n", .{msg});
     try stderr.flush();
+}
+
+/// Write `msg` to stdout verbatim (no trailing newline added — callers
+/// pass text that already terminates). Used by --help / --version.
+fn printOut(io: std.Io, msg: []const u8) !void {
+    var stdout_buf: [1024]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buf);
+    const stdout = &stdout_writer.interface;
+    try stdout.print("{s}", .{msg});
+    try stdout.flush();
 }
 
 test "version is non-empty" {

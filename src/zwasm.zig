@@ -237,6 +237,7 @@ pub const api = struct {
 pub const cli = struct {
     pub const run = @import("cli/run.zig");
     pub const compile = @import("cli/compile.zig");
+    pub const dispatch = @import("cli/dispatch.zig");
     pub const diag_print = @import("cli/diag_print.zig");
 };
 
@@ -253,6 +254,7 @@ test {
     _ = @import("diagnostic/diagnostic.zig");
     _ = @import("diagnostic/trace.zig");
     _ = @import("cli/diag_print.zig");
+    _ = @import("cli/dispatch.zig");
     _ = @import("ir/zir.zig");
     _ = @import("ir/dispatch_table.zig");
     _ = @import("ir/dispatch_collector.zig");

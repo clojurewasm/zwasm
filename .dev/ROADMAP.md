@@ -1760,11 +1760,14 @@ wasmtime/wazero-aligned あるべき論 shape is `run` + `compile` plus standard
 ```
 zwasm run        <wasm-or-cwasm-file> [args...]
 zwasm compile    <wasm-file> [-o output.cwasm]
-zwasm <wasm-file> [args...]              # shortcut for `zwasm run <wasm-file>`
 zwasm --version | -V
 zwasm --help | -h | help
 zwasm            (no subcommand)         # version + build-options banner
 ```
+
+No bare-file `zwasm <file>` shortcut: the surface is explicit (an
+unrecognised first token is a typo → exit 2), avoiding subcommand/file
+ambiguity. `run` is always spelled.
 
 `zwasm validate`/`inspect`/`features`/`wat`/`wasm` are **deliberately not
 shipped** (ADR-0159): validation is programmatic (C-API
