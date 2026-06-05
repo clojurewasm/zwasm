@@ -145,5 +145,44 @@
             echo "Generated .wasm is COMMITTED; test hosts run it via the edge-runner (no toolchain there)."
           '';
         };
+
+        # Multi-runtime BENCHMARK shell (Mac host only; ADR-0163 workstream B).
+        # Pins every comparator runtime in one hermetic shell so
+        # `scripts/run_bench.sh --compare=all` reproduces against the full set
+        # (wasmtime / wazero / wasmer / wasmedge). The `default` shell carries
+        # only the §11.3 SIMD-gap trio (wasmtime / wazero / wasmer) — this shell
+        # adds the WASI-realworld AOT comparator (wasmedge) on top. Invoked
+        # manually on the Mac bench host via `nix develop .#bench`; never built
+        # by the ubuntu/windows TEST hosts (which build `default` for
+        # `test-all`), so the heavier comparators here can't break their gate.
+        #
+        # wasm3 is deliberately EXCLUDED: nixpkgs marks wasm3-0.5.0 insecure
+        # (8 CVEs incl. CVE-2022-39974; upstream unmaintained since 2021).
+        # Pinning a CVE-laden runtime into a public release flake is wrong, and
+        # v1's comparator set never included it — so no parity is lost.
+        devShells.bench = pkgs.mkShell {
+          packages = [
+            zig                # builds ./zig-out/bin/zwasm for the comparison
+            pkgs.git
+            pkgs.hyperfine     # the timing harness run_bench.sh drives
+            pkgs.yq-go         # results YAML post-processing
+            pkgs.python3       # hyperfine-JSON → ms parsing (run_bench.sh)
+            pkgs.wasmtime      # Cranelift JIT reference
+            pkgs.wazero        # pure-Go interpreter/compiler comparator
+            pkgs.wasmedge      # LLVM AOT comparator (WASI _start)
+          ]
+          # wasmer is a binary-cache hit on aarch64-darwin but builds from
+          # source (Rust/LLVM) elsewhere; the bench host is Mac, so confine it
+          # there — same rationale as `default` (flake.nix §default wasmer note).
+          ++ pkgs.lib.optionals (system == "aarch64-darwin") [ pkgs.wasmer ];
+
+          shellHook = ''
+            echo "zwasm v2 — multi-runtime BENCHMARK shell (Mac host only; ADR-0163)"
+            for rt in wasmtime wazero wasmer wasmedge; do
+              printf '  %-9s %s\n' "$rt:" "$(command -v "$rt" >/dev/null 2>&1 && "$rt" --version 2>/dev/null | head -1 || echo 'NOT FOUND')"
+            done
+            echo "Run: nix develop .#bench --command bash scripts/run_bench.sh --compare=all"
+          '';
+        };
       });
 }
