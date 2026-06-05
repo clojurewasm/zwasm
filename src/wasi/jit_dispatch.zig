@@ -34,6 +34,11 @@ const std = @import("std");
 const builtin = @import("builtin");
 const jit_abi = @import("../engine/codegen/shared/jit_abi.zig");
 const sections = @import("../parse/sections.zig");
+// D-244 (JIT-WASI): when `rt.wasi_host` is set, the thin JIT thunks delegate
+// to the SAME ABI-agnostic handlers the interp uses (`(host, mem, ...args)`),
+// avoiding a second 46-syscall implementation.
+const wasi_host_mod = @import("host.zig");
+const wasi_clocks = @import("clocks.zig");
 
 const JitRuntime = jit_abi.JitRuntime;
 const Errno = enum(i32) {
@@ -159,15 +164,22 @@ pub fn clock_time_get(
     precision: i64,
     time_ptr: i32,
 ) callconv(.c) i32 {
-    _ = precision; // ignored — OS clocks are single-resolution.
+    // D-244: with a host attached (`--engine jit` + WASI), delegate to the
+    // shared interp handler for a REAL clock read; the handler bounds-checks
+    // and writes the nanoseconds itself.
+    if (rt.wasi_host) |hp| {
+        const host: *wasi_host_mod.Host = @ptrCast(@alignCast(hp));
+        const mem = rt.vm_base[0..@intCast(rt.mem_limit)];
+        const e = wasi_clocks.clockTimeGet(host, mem, @bitCast(clock_id), @bitCast(precision), @bitCast(time_ptr));
+        return @intCast(@intFromEnum(e));
+    }
+    // precision is ignored on the fallback path (OS clocks are single-resolution).
     if (time_ptr < 0) return @intFromEnum(Errno.inval);
     const off: u64 = @intCast(time_ptr);
     if (off + 8 > rt.mem_limit) return @intFromEnum(Errno.fault);
     if (clock_id < 0 or clock_id > 3) return @intFromEnum(Errno.inval);
-    // d-2 MVP: write 0 nanos (deterministic + safe against missing
-    // stdlib clock symbols on locked-down hosts). Real wall-clock
-    // / monotonic plumbing lands in d-3 via `init.io` threading
-    // alongside fd_write's stdout routing.
+    // Compute-only fallback (no host): write 0 nanos (deterministic + safe
+    // against missing stdlib clock symbols on locked-down hosts).
     const at: usize = @intCast(off);
     std.mem.writeInt(u64, rt.vm_base[at..][0..8], 0, .little);
     return @intFromEnum(Errno.success);
@@ -344,6 +356,35 @@ test "fd_write: bad fd returns EBADF" {
     const errno = fd_write(&rt, 99, 0, 0, 0);
     try testing.expectEqual(@as(i32, @intFromEnum(Errno.badf)), errno);
     _ = builtin.os.tag; // touch builtin to silence unused-import warning
+}
+
+test "clock_time_get: host-attached → REAL nonzero time; no host → 0 stub (D-244)" {
+    var memory: [16]u8 = @splat(0);
+    var h = try wasi_host_mod.Host.init(testing.allocator);
+    defer h.deinit();
+    h.io = testing.io;
+    var rt: JitRuntime = .{
+        .vm_base = &memory,
+        .mem_limit = memory.len,
+        .funcptr_base = undefined,
+        .table_size = 0,
+        .typeidx_base = undefined,
+        .trap_flag = 0,
+        .globals_base = undefined,
+        .globals_count = 0,
+        .host_dispatch_base = undefined,
+        .host_dispatch_count = 0,
+        .wasi_host = &h,
+    };
+    // realtime clock → the shared interp handler writes real nanoseconds.
+    try testing.expectEqual(@as(i32, @intFromEnum(Errno.success)), clock_time_get(&rt, 0, 0, 0));
+    try testing.expect(std.mem.readInt(u64, memory[0..8], .little) > 0);
+
+    // Compute-only fallback (no host): deterministic 0.
+    rt.wasi_host = null;
+    @memset(&memory, 0xFF);
+    try testing.expectEqual(@as(i32, @intFromEnum(Errno.success)), clock_time_get(&rt, 0, 0, 0));
+    try testing.expectEqual(@as(u64, 0), std.mem.readInt(u64, memory[0..8], .little));
 }
 
 test "lookup: fd_read resolves" {

@@ -457,6 +457,12 @@ pub const JitRuntime = extern struct {
     tag_ids_ptr: ?[*]const u64 = null,
     tag_ids_count: u32 = 0,
     _pad_tc: u32 = 0,
+    /// D-244 (JIT-WASI): opaque `*wasi.host.Host` for real WASI I/O under the
+    /// JIT (`--engine jit`). Null on the compute-only path (handlers fall back
+    /// to their deterministic stubs). Set by the run path; read only by the
+    /// C-ABI WASI thunks in `wasi/jit_dispatch.zig`, never by the JIT body, so
+    /// this trailing field leaves every codegen `@offsetOf` unchanged.
+    wasi_host: ?*anyopaque = null,
 };
 
 /// Default `memory_grow_fn` — unconditionally refuses growth by
@@ -1117,7 +1123,8 @@ test "JitRuntime: total size = 464 bytes (post-10.E tag_ids tail)" {
     // (+16 bytes = 2 × 8 B opaque pointers) → 432 + 16 = 448.
     // 10.E (ADR-0134 D3) appends tag_ids_ptr + count + pad
     // (+16 bytes = 8 B ptr + 2 × 4 B) → 448 + 16 = 464.
-    try testing.expectEqual(@as(u32, 464), head_size);
+    // D-244 (JIT-WASI) appends `wasi_host` (+8 B opaque ptr) → 464 + 8 = 472.
+    try testing.expectEqual(@as(u32, 472), head_size);
 }
 
 test "jitGcAlloc: allocates struct{i32} via the *JitRuntime bridge (10.G A-2a)" {
