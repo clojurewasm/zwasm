@@ -36,15 +36,17 @@ pub fn runWasm(
 /// attaches a WASI host (`io` + `argv`) so the JIT does REAL WASI — clock /
 /// random / fd_write→stdout / fd_read→stdin / args / environ route through the
 /// shared interp handlers (`jit_dispatch.zig`), and `proc_exit(N)` surfaces as
-/// the exit code. A compute-only module simply ignores the host. (`--dir`
-/// preopens for the JIT = follow-up.) Returns 0 on a clean exit; a genuine
-/// trap propagates (the caller maps it to exit 1).
+/// the exit code, `argv` + `--dir` preopens are threaded in, and the full 46
+/// preview1 syscalls resolve (`jit_dispatch.zig`). A compute-only module simply
+/// ignores the host. Returns 0 on a clean exit; a genuine trap propagates (the
+/// caller maps it to exit 1).
 pub fn runWasmJit(
     alloc: std.mem.Allocator,
     io: std.Io,
     bytes: []const u8,
     invoke_name: ?[]const u8,
     argv: []const []const u8,
+    preopens: []const PreopenDir,
 ) !u8 {
     const runner = @import("../engine/runner.zig");
     const entry_name = invoke_name orelse "_start";
@@ -52,6 +54,13 @@ pub fn runWasmJit(
     defer host.deinit();
     host.io = io;
     if (argv.len > 0) try host.setArgs(argv);
+    // D-244: map `--dir` host directories into the guest's preopen table so the
+    // JIT's path_open / fd_readdir / fd_filestat_get resolve against them (the
+    // fds live for the process lifetime, CLI-scoped, like the interp path).
+    for (preopens) |pd| {
+        const dir = try std.Io.Dir.cwd().openDir(io, pd.host_path, .{ .iterate = true });
+        _ = try host.addPreopen(dir.handle, pd.guest_path);
+    }
     // D-244 chunk 2d: `proc_exit(N)` records `host.exit_code` then unwinds via
     // the JIT trap mechanism (returns Error.Trap). Surface the guest's exit
     // code; a trap with NO exit_code is a genuine fault → propagate (exit 1).
@@ -497,7 +506,7 @@ test "runWasmJit: SIMD _start runs via the JIT where the interp traps (ADR-0136 
     try testing.expect(interp_code != 0);
 
     // JIT path: compiles + runs the SIMD `_start` to completion → 0.
-    const jit_code = try runWasmJit(testing.allocator, testing.io, &simd_start_wasm, null, &.{});
+    const jit_code = try runWasmJit(testing.allocator, testing.io, &simd_start_wasm, null, &.{}, &.{});
     try testing.expectEqual(@as(u8, 0), jit_code);
 }
 
@@ -519,7 +528,7 @@ test "runWasmJit: --engine jit attaches a WASI host → real clock, no trap (D-2
     const builtin = @import("builtin");
     if (builtin.os.tag == .windows) return @import("../test_support/skip.zig").phaseEnd(.win64);
     // Host attached → real (nonzero) clock → the trap-if-zero guard passes → 0.
-    const code = try runWasmJit(testing.allocator, testing.io, &clock_start_wasm, null, &.{});
+    const code = try runWasmJit(testing.allocator, testing.io, &clock_start_wasm, null, &.{}, &.{});
     try testing.expectEqual(@as(u8, 0), code);
 }
 
@@ -536,7 +545,7 @@ const proc_exit_42_jit = [_]u8{
 test "runWasmJit: --engine jit surfaces the guest proc_exit code (D-244 2d)" {
     const builtin = @import("builtin");
     if (builtin.os.tag == .windows) return @import("../test_support/skip.zig").phaseEnd(.win64);
-    const code = try runWasmJit(testing.allocator, testing.io, &proc_exit_42_jit, null, &.{});
+    const code = try runWasmJit(testing.allocator, testing.io, &proc_exit_42_jit, null, &.{}, &.{});
     try testing.expectEqual(@as(u8, 42), code);
 }
 
@@ -557,6 +566,32 @@ test "runWasmJit: --engine jit threads argv → guest args_sizes_get sees argc (
     const builtin = @import("builtin");
     if (builtin.os.tag == .windows) return @import("../test_support/skip.zig").phaseEnd(.win64);
     // argv = {prog, a, b} → argc 3 → the guest proc_exits with it.
-    const code = try runWasmJit(testing.allocator, testing.io, &argc_exit_jit, null, &.{ "prog", "a", "b" });
+    const code = try runWasmJit(testing.allocator, testing.io, &argc_exit_jit, null, &.{ "prog", "a", "b" }, &.{});
     try testing.expectEqual(@as(u8, 3), code);
+}
+
+// D-244: `_start` proc_exits with `fd_prestat_get(3, &prestat)`'s errno —
+// success(0) when fd 3 is a preopen dir, badf(8) when there is none.
+const prestat_jit = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x0e, 0x03, 0x60, 0x02, 0x7f, 0x7f, 0x01,
+    0x7f, 0x60, 0x01, 0x7f, 0x00, 0x60, 0x00, 0x00, 0x02, 0x4c, 0x02, 0x16, 0x77, 0x61, 0x73, 0x69,
+    0x5f, 0x73, 0x6e, 0x61, 0x70, 0x73, 0x68, 0x6f, 0x74, 0x5f, 0x70, 0x72, 0x65, 0x76, 0x69, 0x65,
+    0x77, 0x31, 0x0e, 0x66, 0x64, 0x5f, 0x70, 0x72, 0x65, 0x73, 0x74, 0x61, 0x74, 0x5f, 0x67, 0x65,
+    0x74, 0x00, 0x00, 0x16, 0x77, 0x61, 0x73, 0x69, 0x5f, 0x73, 0x6e, 0x61, 0x70, 0x73, 0x68, 0x6f,
+    0x74, 0x5f, 0x70, 0x72, 0x65, 0x76, 0x69, 0x65, 0x77, 0x31, 0x09, 0x70, 0x72, 0x6f, 0x63, 0x5f,
+    0x65, 0x78, 0x69, 0x74, 0x00, 0x01, 0x03, 0x02, 0x01, 0x02, 0x05, 0x03, 0x01, 0x00, 0x01, 0x07,
+    0x0a, 0x01, 0x06, 0x5f, 0x73, 0x74, 0x61, 0x72, 0x74, 0x00, 0x02, 0x0a, 0x0c, 0x01, 0x0a, 0x00,
+    0x41, 0x03, 0x41, 0x00, 0x10, 0x00, 0x10, 0x01, 0x0b,
+};
+
+test "runWasmJit: --dir preopen makes the JIT's fd_prestat_get(3) succeed (D-244)" {
+    const builtin = @import("builtin");
+    if (builtin.os.tag == .windows) return @import("../test_support/skip.zig").phaseEnd(.win64);
+    // Preopen the cwd (".") → guest fd 3 is a valid preopen dir → prestat_get
+    // returns success (0).
+    const code = try runWasmJit(testing.allocator, testing.io, &prestat_jit, null, &.{}, &.{.{ .host_path = ".", .guest_path = "/sandbox" }});
+    try testing.expectEqual(@as(u8, 0), code);
+    // No preopen → fd 3 is badf (8).
+    const code2 = try runWasmJit(testing.allocator, testing.io, &prestat_jit, null, &.{}, &.{});
+    try testing.expectEqual(@as(u8, 8), code2);
 }

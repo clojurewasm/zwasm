@@ -198,15 +198,9 @@ pub fn main(init: std.process.Init) !void {
             try argv_list.append(gpa, path);
             while (arg_it.next()) |a| try argv_list.append(gpa, a);
 
-            // ADR-0136 — `--engine=jit` is compute-only (no WASI under the
-            // JIT yet), so reject `--dir` on that path rather than silently
-            // ignoring the preopen.
-            if (engine_jit and preopen_list.items.len > 0) {
-                try printlnErr(io, "zwasm run: --engine=jit does not support --dir (no WASI under the JIT yet)");
-                std.process.exit(2);
-            }
+            // D-244 — `--engine=jit` now does real WASI (incl. `--dir` preopens).
             const code = (if (engine_jit)
-                cli_run.runWasmJit(gpa, io, bytes, invoke_name, argv_list.items)
+                cli_run.runWasmJit(gpa, io, bytes, invoke_name, argv_list.items, preopen_list.items)
             else
                 cli_run.runWasmCapturedOpts(gpa, io, bytes, argv_list.items, null, invoke_name, preopen_list.items, invoke_args)) catch |err| {
                 // Per ADR-0016 phase 1: prefer the structured
