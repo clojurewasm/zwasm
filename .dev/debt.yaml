@@ -969,7 +969,7 @@ entries:
     status: "now"
     description: |-
       now (ACTIVE BUNDLE wasi-p1-completion; unblocked `34dbebbc`): WASI preview1 21→46 completion (interp).
-      **PROGRESS 2026-06-05: 21→39 wired** (fd file-meta + full path_* ×8 batch in src/wasi/path.zig; remaining ~7 = fd_readdir + proc_raise + sockets) (all `std.Io.File`-based, Win64 cross-compile-clean). DONE: clock_res_get
+      **PROGRESS 2026-06-05: 21→41 wired** (+ fd_readdir, proc_raise=notsup; Win64 fix `97d01bf7` POSIX-guards path mutation tests). Remaining 5: fd_renumber (missed; easy) + sockets ×4 (accept/recv/send/shutdown — NOT 9) (fd file-meta + full path_* ×8 batch in src/wasi/path.zig; remaining ~7 = fd_readdir + proc_raise + sockets) (all `std.Io.File`-based, Win64 cross-compile-clean). DONE: clock_res_get
       (`bf0b8a56`), fd_sync/datasync/advise (`fe02e638`), fd_pread/pwrite (`4e1e31c6`), fd_filestat_set_times
       (`1cf93b1a`), fd_filestat_set_size + fd_allocate (`32c078f7`, via setLength guarded-grow), fd_fdstat_set_rights
       (`c750fa9a`, narrow-only). **Win64 NOTE: `std.posix.<fd_call>` (fdatasync etc.) is BANNED — Windows fd_t is a
