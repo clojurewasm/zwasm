@@ -3,31 +3,25 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## ACTIVE (2026-06-05, user-interactive) — D-285 DONE; remaining: re-measure, breadth, fill/init, no-_start
+## ACTIVE (2026-06-05, user→autonomous) — ADR-0163 bench program done; arm64 JIT completeness gaps queued
 
-User stopped the loop with 4 directives. Progress:
-- **(1) D-285 memory.copy byte-loop — FIXED BOTH BACKENDS.** arm64 `4e6d17fc` + x86_64 `838de5a1`: word-wise
-  (8-byte LDR/STR + ≤7-byte tail, fwd+bwd). memmove zwasm-jit **254→38ms (6.6x)**, now beats interp, 2.3x
-  wasmtime. Validated: 5 adversarial overlap/tail/word fixtures (`test/edge_cases/p7/bulk_memory/copy_*`) + 82
-  edge + spec memory_copy.wast under jit + `zig build test`, green arm64-native AND x86_64-Rosetta; clean
-  x86_64-linux cross-compile. **base64 RE-ATTRIBUTED** (copy fix left it unchanged → genuine optimizer gap, not
-  a bug). Findings: `.dev/findings/d285_jit_bulk_memory_byteloop.md`.
-- **(2) Bench methodology — FIXED** (`b8fe1f74`): ReleaseFast not ReleaseSafe (was unfair); `--safe` opts back.
-  **Definitive non-quick ReleaseFast re-measure RUNNING in bg** → on completion, refresh the table numbers in
-  `bench/results/all_engine_matrix.md` + `docs/benchmarks.md` (currently bannered as prelim/superseded).
-- **(3) Bench docs refreshed** with definitive ReleaseFast/non-quick 3-host numbers (`bd0581e6`/`7d9dfbe0`).
-- **(4) Bench breadth — DONE** (`<this turn>`): vendored 10 sightglass shootout sources (`bench/shootout-src/`
-  + build.sh + PROVENANCE); added 6 to the matrix (ctype/random/ratelimit/minicsv/xblabla20/xchacha20 = crypto/
-  parse/PRNG/dispatch, all green interp+jit+aot). The other 4 each EXPOSED A REAL ZWASM GAP (repro fixtures
-  kept): **D-289** (JIT `local.set` emit fails in ed25519's large func — completeness gap vs D-244 all-engine
-  claim), **D-288** (call stack traps at ackermann's 1021-deep recursion that wasmtime runs), **D-287**
-  (validator control-stack cap 1024 rejects switch.wasm's valid deep nesting; needs ADR to raise), seqhash
-  (interp too slow).
-- **NEXT** (re-prioritized — completeness/robustness now outrank the leftovers): **D-289** (JIT large-func
-  completeness — disasm ed25519 func[9] pc=4337, find the emit precondition) → **D-284** (small: reconcile
-  interp/jit no-`_start`) → **D-288**/**D-287** (stack-depth limits; D-287 likely needs an ADR) → **D-286**
-  (fill/init, deferred per measure-first — no signal). This turn touched only bench/scripts/docs/.dev (no `src/`
-  delta) → no remote re-kick; 3-host green stays at the D-285 commits.
+User-directed bench program (directives 1-4) all DONE: **D-285** memory.copy byte-loop FIXED both backends
+(`4e6d17fc`/`838de5a1`; memmove jit 254→39ms, 3-host green, findings `.dev/findings/d285_*`); **ReleaseFast**
+methodology fix (`b8fe1f74`); **docs refreshed** with definitive 3-host numbers (`bd0581e6`/`7d9dfbe0`); **bench
+breadth** +6 shootout fixtures (`f8a0f43f`, crypto/parse/PRNG/dispatch). base64 re-attributed (optimizer gap,
+not a bug). Breadth EXPOSED 4 real zwasm gaps — now the active queue, each mechanism CONFIRMED this turn with a
+ready fix plan in its debt row:
+- **D-289 (NEXT — ready bundle)**: arm64 JIT can't compile LARGE functions (ed25519). ROOT = pervasive
+  frame-offset imm12 cap (16380/32760/65520) at ~12 emit.zig sites + gpr.zig spills; x86_64-clean (disp32).
+  FIX: centralized `frameAddrLarge` (two-ADD idiom, **X16/IP0 scratch**) across all sites; ed25519 jit
+  compiles+matches wasmtime = integration test; arm64 native-testable. A partial gpr-only attempt was reverted
+  (failing site is local.set in emit.zig). Full plan in D-289 debt body.
+- **D-284**: 3 engines differ on entry resolution (JIT `_start`-only errors; interp/AOT chain to first-export).
+  Unify runWasmJit to wasmtime-aligned exit-0 (instantiate-then-optional-_start). Plan in D-284 body.
+- **D-288** (call-stack depth: ackermann 1021-deep traps), **D-287** (control-stack cap 1024 rejects switch;
+  needs ADR to raise), **D-286** (fill/init byte-loop, deferred per measure-first — no signal).
+- This turn = bench/docs/debt only (no `src/` delta; the gpr.zig attempt was reverted) → no remote re-kick;
+  3-host green stays at the D-285 commits (`838de5a1`).
 
 ## Current state
 
