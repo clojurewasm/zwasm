@@ -230,11 +230,24 @@ pub fn pathFilestatSetTimes(host: *Host, mem: []const u8, dirfd: p1.Fd, lookupfl
     const e = resolve(host, mem, dirfd, path_ptr, path_len, &r);
     if (e != .success) return e;
     const io = host.io orelse return .nosys;
-    r.dir.setTimestamps(io, r.sub, .{
-        .follow_symlinks = lookupflags & p1.LOOKUPFLAGS_SYMLINK_FOLLOW != 0,
-        .access_timestamp = setTimestampOf(fst_flags, p1.FSTFLAGS_ATIM_NOW, p1.FSTFLAGS_ATIM, atim),
-        .modify_timestamp = setTimestampOf(fst_flags, p1.FSTFLAGS_MTIM_NOW, p1.FSTFLAGS_MTIM, mtim),
-    }) catch |err| return mapDirErr(err);
+    const atime = setTimestampOf(fst_flags, p1.FSTFLAGS_ATIM_NOW, p1.FSTFLAGS_ATIM, atim);
+    const mtime = setTimestampOf(fst_flags, p1.FSTFLAGS_MTIM_NOW, p1.FSTFLAGS_MTIM, mtim);
+    if (comptime builtin.os.tag == .windows) {
+        // Zig 0.16 std has NO `dirSetTimestamps` on Windows (`@panic("TODO")`)
+        // — it would crash the runtime. Open the file and use the
+        // cross-platform `File.setTimestamps` (verified on Win64 via
+        // `fd_filestat_set_times`); the symlink-follow nuance is lost on this
+        // path (openFile follows by default).
+        var file = r.dir.openFile(io, r.sub, .{ .mode = .read_write }) catch |err| return mapDirErr(err);
+        defer file.close(io);
+        file.setTimestamps(io, .{ .access_timestamp = atime, .modify_timestamp = mtime }) catch |err| return mapDirErr(err);
+    } else {
+        r.dir.setTimestamps(io, r.sub, .{
+            .follow_symlinks = lookupflags & p1.LOOKUPFLAGS_SYMLINK_FOLLOW != 0,
+            .access_timestamp = atime,
+            .modify_timestamp = mtime,
+        }) catch |err| return mapDirErr(err);
+    }
     return .success;
 }
 
