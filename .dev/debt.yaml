@@ -777,30 +777,6 @@ entries:
     refs: |-
       ADR-0137; scripts/run_remote_windows.sh (no bench step); scripts/run_bench.sh (hyperfine);
       bench/results/history.yaml; ROADMAP §11.2 / §11.P
-  - id: "D-251"
-    layer: "code"
-    status: "now"
-    description: |-
-      **USER WANT 2026-06-05: this is DESIRED (not just deferred).** Pursue WASI-in-AOT TOGETHER with JIT-WASI
-      (D-244 d-3) as a single "both compute-engines gain WASI" effort — that is the right unit, not AOT-alone
-      (ADR-0140 parity). Elevated from speculative-defer to scheduled-want; sequence after the `--invoke` (1)
-      chunk unless a fuller WASI surface (Phase 11) is opened first (the two compose).
-      ---
-      blocked-by: WASI/host imports in the AOT standalone runtime (`aot/run.zig`) are
-      deferred to land WITH the JIT-WASI work (D-244 d-3) — `--engine=jit` is itself
-      compute-only (no WASI host wired; `proc_exit` just sets trap_flag), so wiring WASI
-      into AOT first would diverge from JIT parity (ADR-0140). A WASI-importing `.cwasm`
-      (shootout fixtures calling `proc_exit`, tinygo guests doing `fd_write`) runs on
-      NEITHER path today. Discharge: serialise import metadata (module+name+kind) into
-      `.cwasm` v0.3 + reconstruct `host_dispatch_base` (reuse `setup.populateDispatch` /
-      `wasi/jit_dispatch.zig`) + a WASI Host in `runEntry` + set `host_state` — done
-      together with the JIT-WASI d-3 follow-up so both invoke paths gain WASI at once.
-    first_raised: "2026-06-03"
-    last_reviewed: "2026-06-05"
-    refs: |-
-      ADR-0140; ADR-0136 (--engine=jit compute-only); D-244 (JIT-WASI d-3);
-      src/engine/codegen/aot/run.zig; src/engine/setup.zig (populateDispatch @284);
-      src/wasi/jit_dispatch.zig; ROADMAP §12.3b
   - id: "D-253"
     layer: "code"
     status: "blocked-by"
