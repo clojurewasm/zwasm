@@ -115,6 +115,7 @@ pub fn runCwasmWasi(
     invoke_name: ?[]const u8,
     argv: []const []const u8,
     preopens: []const PreopenDir,
+    stdout_capture: ?*std.ArrayList(u8),
 ) !u8 {
     const aot_load = @import("../engine/codegen/aot/load.zig");
     const aot_run = @import("../engine/codegen/aot/run.zig");
@@ -131,6 +132,9 @@ pub fn runCwasmWasi(
     var host = try wasi_host.Host.init(alloc);
     defer host.deinit();
     host.io = io;
+    // Route guest fd 1 (stdout) into the caller's buffer when one is wired
+    // (the realworld differential byte-compares AOT stdout vs wasmtime).
+    if (stdout_capture) |buf| host.stdout_buffer = buf;
     if (argv.len > 0) try host.setArgs(argv);
     for (preopens) |pd| {
         const dir = try std.Io.Dir.cwd().openDir(io, pd.host_path, .{ .iterate = true });
@@ -562,7 +566,7 @@ test "runCwasmWasi: a WASI proc_exit(42) .cwasm surfaces exit code 42 end-to-end
     defer testing.allocator.free(cwasm);
 
     // main calls proc_exit(42) → host records exit_code → JIT trap → 42 surfaces.
-    const code = try runCwasmWasi(testing.allocator, testing.io, cwasm, null, &.{}, &.{});
+    const code = try runCwasmWasi(testing.allocator, testing.io, cwasm, null, &.{}, &.{}, null);
     try testing.expectEqual(@as(u8, 42), code);
 }
 

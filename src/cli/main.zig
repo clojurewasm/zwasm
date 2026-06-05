@@ -191,7 +191,7 @@ pub fn main(init: std.process.Init) !void {
             // `--dir` preopens are threaded into a host, so a WASI-importing
             // `.cwasm` prints / exits / sees args like the `.wasm` path.
             if (bytes.len >= 4 and std.mem.eql(u8, bytes[0..4], "CWAS")) {
-                const code = cli_run.runCwasmWasi(gpa, io, bytes, invoke_name, argv_list.items, preopen_list.items) catch |err| {
+                const code = cli_run.runCwasmWasi(gpa, io, bytes, invoke_name, argv_list.items, preopen_list.items, null) catch |err| {
                     var buf: [256]u8 = undefined;
                     const msg = std.fmt.bufPrint(&buf, "zwasm run: cannot run '{s}': {s}", .{ path, @errorName(err) }) catch "zwasm run: .cwasm run failed";
                     try printlnErr(io, msg);

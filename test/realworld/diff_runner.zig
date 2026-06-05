@@ -69,6 +69,13 @@ pub fn main(init: std.process.Init) !void {
     const corpus_dir = try gpa.dupe(u8, corpus_dir_arg);
     defer gpa.free(corpus_dir);
 
+    // Optional `--aot` 2nd arg opts into the AOT lane (D-283 widen / D-251
+    // validate). OFF by default: the AOT lane JIT-compiles every fixture
+    // (slow on large guests) + runs native AOT code in-process, so it is a
+    // dedicated diagnostic target (`test-realworld-diff-aot`), NOT part of the
+    // always-run interp differential gate (`test-realworld-diff`).
+    const aot_lane = if (arg_it.next()) |a| std.mem.eql(u8, a, "--aot") else false;
+
     const wasmtime_path_opt = try resolveWasmtime(gpa, io);
     defer if (wasmtime_path_opt) |p| gpa.free(p);
 
@@ -98,6 +105,15 @@ pub fn main(init: std.process.Init) !void {
     var skipped_wasmtime_fail: u32 = 0;
     var skipped_v2: u32 = 0;
     var total: u32 = 0;
+
+    // AOT lane (D-283 widen / D-251 validate): run the SAME fixture through
+    // standalone AOT-WASI (`.cwasm` produce → run) and byte-compare vs
+    // wasmtime, independent of the interp outcome. REPORT-ONLY this chunk
+    // (loud per-fixture logging, no gate-fail) — first triage of how much of
+    // the corpus the AOT path covers; a follow-up chunk gates once clean.
+    var aot_matched: u32 = 0;
+    var aot_mismatched: u32 = 0;
+    var aot_skipped: u32 = 0;
 
     var it = dir.iterate();
     while (try it.next(io)) |entry| {
@@ -180,6 +196,22 @@ pub fn main(init: std.process.Init) !void {
             .exited => |c| c,
             else => 1,
         };
+
+        // AOT lane (opt-in) — independent of the interp outcome (so SIMD
+        // fixtures the interp can't run still get an AOT vs wasmtime compare).
+        // Flush per fixture: the JIT-compile per fixture is slow on large
+        // guests, so incremental output shows progress + pinpoints any fixture
+        // that hangs the in-process run.
+        if (aot_lane) {
+            switch (try aotCompare(gpa, io, bytes, entry.name, &v2_argv, needs_preopen, wt_stdout, wt_exit, stdout)) {
+                .match => aot_matched += 1,
+                .mismatch => aot_mismatched += 1,
+                .skip => aot_skipped += 1,
+            }
+            try stdout.print("  [aot-done] {s}\n", .{entry.name});
+            try stdout.flush();
+        }
+
         if (v2_exit != 0 and wt_exit == 0) {
             try stdout.print("SKIP-V2-TRAP  {s} (v2 exit={d}, wasmtime exit=0 — v2 could not complete)\n", .{ entry.name, v2_exit });
             skipped_v2 += 1;
@@ -209,7 +241,14 @@ pub fn main(init: std.process.Init) !void {
             "{d} skipped-wasmtime-fail, {d} skipped-v2\n",
         .{ matched, total, mismatched, skipped_empty, skipped_wasmtime_fail, skipped_v2 },
     );
-    try stdout.flush();
+    // AOT lane summary (opt-in, report-only; D-283 widen / D-251 validate).
+    if (aot_lane) {
+        try stdout.print(
+            "diff_runner [aot]: {d}/{d} matched, {d} mismatched, {d} skipped (AOT-unsupported / trap) — REPORT-ONLY\n",
+            .{ aot_matched, total, aot_mismatched, aot_skipped },
+        );
+        try stdout.flush();
+    }
 
     if (mismatched != 0) std.process.exit(1);
     // wasmtime resolved via `which` but every spawn failed (e.g. on
@@ -231,6 +270,63 @@ pub fn main(init: std.process.Init) !void {
         try stdout.flush();
         std.process.exit(1);
     }
+}
+
+/// Outcome of the AOT lane for one fixture. `skip` collapses every
+/// AOT-unsupported reason (compile/produce error = §12.3b cycle-1 limits
+/// like passive data / non-const globals; run error = unsupported entry
+/// signature; trap = AOT couldn't complete where wasmtime did) — each is
+/// logged with its specific reason for triage, none is silent.
+const AotOutcome = enum { match, mismatch, skip };
+
+/// Run `bytes` through standalone AOT-WASI (compile → `.cwasm` produce →
+/// `runCwasmWasi` with stdout capture) and byte-compare vs `wt_stdout`.
+/// Mirrors the interp lane's skip semantics: an AOT non-zero exit where
+/// wasmtime exited 0 = AOT could not complete (skip, not a regression).
+fn aotCompare(
+    gpa: std.mem.Allocator,
+    io: std.Io,
+    bytes: []const u8,
+    name: []const u8,
+    argv: []const []const u8,
+    needs_preopen: bool,
+    wt_stdout: []const u8,
+    wt_exit: u8,
+    out: anytype,
+) !AotOutcome {
+    const zrunner = zwasm.engine.runner;
+    const zproduce = zwasm.engine.codegen.aot.produce;
+
+    var compiled = zrunner.compileWasm(gpa, bytes) catch |err| {
+        try out.print("  SKIP-AOT-COMPILE  {s}: {s}\n", .{ name, @errorName(err) });
+        return .skip;
+    };
+    defer compiled.deinit(gpa);
+
+    const cwasm = zproduce.produceFromCompiledWasm(gpa, &compiled, bytes) catch |err| {
+        try out.print("  SKIP-AOT-PRODUCE  {s}: {s}\n", .{ name, @errorName(err) });
+        return .skip;
+    };
+    defer gpa.free(cwasm);
+
+    var aot_stdout: std.ArrayList(u8) = .empty;
+    defer aot_stdout.deinit(gpa);
+
+    const preopens: []const cli_run.PreopenDir = if (needs_preopen)
+        &.{.{ .host_path = preopen_scratch, .guest_path = "." }}
+    else
+        &.{};
+    const aot_exit: u8 = cli_run.runCwasmWasi(gpa, io, cwasm, null, argv, preopens, &aot_stdout) catch |err| {
+        try out.print("  SKIP-AOT-RUN  {s}: {s}\n", .{ name, @errorName(err) });
+        return .skip;
+    };
+    if (aot_exit != 0 and wt_exit == 0) {
+        try out.print("  SKIP-AOT-TRAP  {s} (aot exit={d}, wasmtime exit=0 — AOT could not complete)\n", .{ name, aot_exit });
+        return .skip;
+    }
+    if (std.mem.eql(u8, wt_stdout, aot_stdout.items)) return .match;
+    try out.print("  MISMATCH-AOT  {s} (wasmtime={d} bytes, aot={d} bytes)\n", .{ name, wt_stdout.len, aot_stdout.items.len });
+    return .mismatch;
 }
 
 /// Test whether `wasmtime` is reachable on PATH. Returns the

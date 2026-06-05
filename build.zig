@@ -755,6 +755,18 @@ pub fn build(b: *std.Build) void {
     const test_realworld_diff_step = b.step("test-realworld-diff", "Diff realworld fixtures' stdout against wasmtime");
     test_realworld_diff_step.dependOn(&run_realworld_diff.step);
 
+    // `zig build test-realworld-diff-aot` — D-283 widen / D-251 validate.
+    // Same differential PLUS an opt-in AOT lane (compile→`.cwasm`→`runCwasmWasi`
+    // per fixture, vs wasmtime). NOT in the default `test-all`: it JIT-compiles
+    // every fixture (slow) + runs native AOT code in-process. Report-only for
+    // now (triages AOT-WASI corpus coverage); a follow-up gates it once clean.
+    const run_realworld_diff_aot = b.addRunArtifact(realworld_diff_runner_exe);
+    run_realworld_diff_aot.addArg(b.pathFromRoot("test/realworld/wasm"));
+    run_realworld_diff_aot.addArg("--aot");
+    run_realworld_diff_aot.has_side_effects = true;
+    const test_realworld_diff_aot_step = b.step("test-realworld-diff-aot", "Realworld differential incl. the opt-in AOT lane (D-283)");
+    test_realworld_diff_aot_step.dependOn(&run_realworld_diff_aot.step);
+
     // `zig build test-api-zig-facade` — Phase 10 / §10.J / J.6.
     // Walks the realworld corpus driving each fixture through the
     // native Zig facade (`Engine.compile` → `Module.instantiate`).
