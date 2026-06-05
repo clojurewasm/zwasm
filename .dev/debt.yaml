@@ -779,7 +779,7 @@ entries:
       bench/results/history.yaml; ROADMAP §11.2 / §11.P
   - id: "D-251"
     layer: "code"
-    status: "blocked-by"
+    status: "now"
     description: |-
       **USER WANT 2026-06-05: this is DESIRED (not just deferred).** Pursue WASI-in-AOT TOGETHER with JIT-WASI
       (D-244 d-3) as a single "both compute-engines gain WASI" effort — that is the right unit, not AOT-alone
