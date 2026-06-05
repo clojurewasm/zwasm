@@ -376,6 +376,19 @@ pub fn runVoidExport(
     wasm_bytes: []const u8,
     export_name: []const u8,
 ) Error!u32 {
+    return runVoidExportWasi(allocator, wasm_bytes, export_name, null);
+}
+
+/// Like `runVoidExport` but attaches a WASI host (a `*wasi.host.Host`, passed
+/// opaquely) to the JIT runtime so imported WASI calls do REAL I/O instead of
+/// the compute-only stubs (D-244). The CLI `--engine jit` run path (chunk 2c)
+/// will own a Host and call through here. `wasi_host == null` → the stub path.
+pub fn runVoidExportWasi(
+    allocator: Allocator,
+    wasm_bytes: []const u8,
+    export_name: []const u8,
+    wasi_host: ?*anyopaque,
+) Error!u32 {
     const func_idx = try findExportFunc(allocator, wasm_bytes, export_name);
 
     var compiled = try compileWasm(allocator, wasm_bytes);
@@ -390,6 +403,7 @@ pub fn runVoidExport(
 
     var owned = try setupRuntime(allocator, &compiled, wasm_bytes);
     defer owned.deinit(allocator);
+    owned.rt.wasi_host = wasi_host;
     try entry.callVoidNoArgs(compiled.module, func_idx, &owned.rt);
     return owned.rt.jit_executed_flag;
 }
