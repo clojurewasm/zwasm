@@ -56,7 +56,7 @@ on long-running compute is the priority.
 
 1. **Startup confound.** Sub-10 ms fixtures are dominated by *startup*, not
    execution — so "fastest on tinygo/fib" is a startup-latency result, not a
-   throughput claim. The shootout fixtures (100 ms – 60 s) amortize startup and
+   throughput claim. The shootout fixtures (100 ms – 40 s) amortize startup and
    reflect execution speed. We label which is which.
 2. **WasmEdge runs its interpreter** here (its AOT needs a separate compile
    step); it belongs next to zwasm-interp.
@@ -116,7 +116,7 @@ buffers).
 | engine             | how                                                         | best for                                                            |
 |--------------------|-------------------------------------------------------------|---------------------------------------------------------------------|
 | `interp` (default) | `zwasm run <m>`                                             | smallest footprint, instant start, full WASI; slow on heavy compute |
-| `jit`              | `zwasm run --engine jit <m>`                                | 10–90× faster than interp on compute; adds SIMD execution         |
+| `jit`              | `zwasm run --engine jit <m>`                                | ~10–40× faster than interp on compute; adds SIMD execution        |
 | `aot`              | `zwasm compile <m> -o <m>.cwasm` then `zwasm run <m>.cwasm` | same steady-state as jit, but lowest cold-start + leanest RSS       |
 
 ## Reproducing
