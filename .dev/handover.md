@@ -20,12 +20,17 @@ ready fix plan in its debt row:
   margin was ~16 MB (SP far above limit) → **NOT stack exhaustion** (mis-said D-288 last turn). Genuine memory
   fault; needs `debug_jit_auto` (lldb at faulting PC) — D-289-path miscompile in an untested combo, OR a
   pre-existing JIT bug newly exposed (ed25519 never JIT-ran before). wasmtime runs it clean; not gated.
-- **NEXT** (fresh-context candidates): **D-291** (ed25519 SIGSEGV via debug_jit_auto) OR **D-288** (ackermann
-  1021-deep recursion limit — separate, purely interp/jit stack sizing) OR D-289 FP/param/stack arms.
-- **D-284** (entry-resolution unify), **D-287** (control-stack cap ADR), **D-286** (fill/init, no signal),
-  **D-290** (wabt→wasm-tools, user-directed hygiene).
-- This turn: D-289 attribution correction (debt only). 3-host: ubuntu green @701cbe60; **windows gate was
-  running — verify `/tmp/win.log` at next Step 0.7** (cadence had fired). Prior full green = D-285 `838de5a1`.
+- **D-288 mechanism CONFIRMED (`3b128e97`)**: interp recursion cap = `frame.zig max_frame_stack=256` (fixed
+  inline `frame_buf:[256]Frame`, pushFrame traps at 256). NOT a trivial bump — Frame embeds `label_buf[128]`
+  so frame_buf is already large; fix = frame-stack inline+heap-overflow redesign (mirror label_buf+
+  label_overflow) OR move label_buf off-Frame, likely an ADR. JIT side separate (native stack).
+- **NEXT** (fresh-context candidates, all ready-scoped in debt): **D-288** (frame-stack redesign — real fix,
+  ADR-likely) · **D-291** (ed25519 JIT SIGSEGV via debug_jit_auto) · **D-284** (entry-resolution unify) ·
+  **D-289 FP/param/stack arms** (low signal) · **D-287** (control-stack cap ADR) · **D-286** (fill/init) ·
+  **D-290** (wabt→wasm-tools hygiene). The deep/design ones (D-288/D-291/D-287) want fresh context.
+- 3-host: ubuntu green @701cbe60; **windows gate (D-289 turn) — verify `/tmp/win.log` at Step 0.7**; the tail
+  showed `zwasm-zig-host-hello.exe` mid-run/`failed command` — confirm OK vs a real Win64 issue (D-289 is
+  arm64-only so unlikely from it). Prior full 3-host green = D-285 `838de5a1`. This turn = debt only (no src).
 
 ## Current state
 
