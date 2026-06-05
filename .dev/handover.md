@@ -27,18 +27,19 @@
 - **Bundle-ID**: jit-wasi (D-244)
 - **Cycles-remaining**: ~3
 - **Continuity-memo**: goal — route the full WASI surface through the JIT (`--engine jit`), was 9-stub.
-  **DONE**: STEP 1 `JitRuntime.wasi_host` field (`dec5e84f`); STEP 2a `runI64ExportWasi` proves JIT WASI does REAL
-  I/O **end-to-end** (`d761637f`: JIT-compiles a module importing clock_time_get, calls it, returns real time —
-  proven through actual JIT exec); clock_time_get + random_get now delegate to the SHARED interp handlers when
-  `rt.wasi_host` set, else stub (`dec5e84f`/`8d1b7612`, unit-tested). **KEY DESIGN holds: interp handlers
-  `(host, mem, ...args)` are reused — no 46-syscall re-impl.** **NEXT — STEP 2b (CLI run-path wiring)**: `cli/run.zig
-  runWasmJit` is Host-free/compute-only + takes no io; make it CREATE+own a WASI Host (io + args + preopens) + add
-  `runVoidExportWasi` (void analog of runI64ExportWasi, sets `owned.rt.wasi_host`) + thread io from `main.zig`, so
-  `--engine jit hello.wasm` does real WASI. Handle JIT proc_exit exit-code (currently sets trap_flag, no code) +
-  fd_write→real stdout via host. **STEP 3**: convert the rest of the 9 stubs (args/environ/fd_read) + register the
-  other ~37 syscalls in `jit_dispatch.zig:lookup` (only 9 names there). Mechanism: `host_dispatch_base` +
-  `populateDispatch` (`setup.zig:284`). Win64 JIT-exec tests gate `skip.phaseEnd(.win64)`. Risk: interp(stack) vs
-  JIT(GPR) thunk ABIs hand-synced. **D-251 AOT-WASI** (separate, later) needs `.cwasm`
+  **DONE**: `JitRuntime.wasi_host` field (`dec5e84f`) + `runI64ExportWasi`/`runVoidExportWasi` runner primitives
+  (`d761637f`/`088c3b23`, set `owned.rt.wasi_host`) proven END-TO-END through actual JIT exec (a module importing
+  clock_time_get gets a real time / a `_start` traps only without a host). **The core I/O quartet now delegates to
+  the SHARED interp handlers when `rt.wasi_host` set, else stub**: clock_time_get + random_get (`dec5e84f`/
+  `8d1b7612`) + fd_write→real stdout/capture (`81b3e1d3`) + fd_read→real stdin (`20392074`), all unit-tested. **KEY
+  DESIGN holds — interp handlers `(host, mem, ...args)` reused, no 46-syscall re-impl.** **NEXT — chunk 2c (CLI
+  run-path wiring)**: `cli/run.zig runWasmJit` is Host-free + takes no io; make it CREATE+own a WASI Host (Host.init
+  + `host.io = io`; args/preopens later) + call `runner.runVoidExportWasi(..., &host)` + thread io from `main.zig`
+  (the existing SIMD `runWasmJit` test → pass testing.io). Then `--engine jit hello.wasm` prints for real. Also
+  handle JIT proc_exit exit-code (sets trap_flag, no code). **chunk 2d**: args_sizes_get/args_get/environ_* (need
+  Host args/env) + register the other ~37 syscalls in `jit_dispatch.zig:lookup` (only 9 names there now); mechanism
+  `host_dispatch_base` + `populateDispatch` (`setup.zig:284`). Win64 JIT-exec tests gate `skip.phaseEnd(.win64)`.
+  Risk: interp(stack) vs JIT(GPR) thunk ABIs hand-synced. **D-251 AOT-WASI** (separate, later) needs `.cwasm`
   v0.3 import-metadata serialization (`aot/format.zig`) first. **DISCIPLINE: cross-compile windows-gnu; trust ubuntu
   for Linux-runtime divergence; read win crash lines (std Win64 TODOs only show at runtime).**
 - **Exit-condition**: a JIT-run WASI module does REAL I/O (e.g. `clock_time_get` nonzero + `fd_write` to real stdout
@@ -64,13 +65,13 @@ no auto-revert. Step 6+7: `should_gate_windows.sh` exit 0 → kick `run_remote_w
 
 ## Step 0.7 (next resume) — verify per-cadence remote logs
 
-ubuntu GREEN at `25f3d79e` (D-244 chunk 1 + the `path_filestat_set_times` Win64 fix `20b9f860`). This turn pushed
-D-244 chunk 2a (`d761637f` runI64ExportWasi end-to-end) + `random_get` real (`8d1b7612`); re-kicked both. **Step 0.7
-next resume: `tail /tmp/ubuntu.log` (must be OK, auto-revert on FAIL) + `tail /tmp/win.log` — distinguish the D-282
-env-flake (ALL runners 0-failed + only `configure phase FileNotFound`) from a REAL crash (`' exited with code N`
-/ `panic`/`TODO implement ... windows` + a named test). A std Win64 `TODO`-panic in an op I use → reroute it like
-`20b9f860`.** **DISCIPLINE: cross-compile windows-gnu (catches compile gaps); Win64 runtime panics (std TODOs)
-only surface on the actual windows run — read the crash line.** **Gate**: Mac = `mac_gate.sh`; ubuntu = always (D6); windows = cadence (D7).
+ubuntu GREEN at `70d9703f` (chunk 2a + random_get). This turn pushed D-244 chunk 2b (`088c3b23` runVoidExportWasi)
++ JIT fd_write (`81b3e1d3`) + fd_read (`20392074`) → shared handlers; re-kicked both. **Step 0.7 next resume:
+`tail /tmp/ubuntu.log` (must be OK, auto-revert on FAIL) + `tail /tmp/win.log` — distinguish the D-282 env-flake
+(ALL runners 0-failed + only `configure phase FileNotFound`) from a REAL crash (`' exited with code N`/`panic`/
+`TODO implement ... windows` + a named test). A std Win64 `TODO`-panic in an op I use → reroute like `20b9f860`.**
+**DISCIPLINE: cross-compile windows-gnu (catches compile gaps); Win64 runtime panics (std TODOs) only surface on
+the actual windows run — read the crash line.** **Gate**: Mac = `mac_gate.sh`; ubuntu = always (D6); windows = cadence (D7).
 
 ## Deferred / open debt (D-274/275/276/257 discharged this session — removed)
 
