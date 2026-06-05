@@ -447,6 +447,20 @@ pub fn fdFdstatSetFlags(host: *Host, fd: p1.Fd, flags: p1.Fdflags) p1.Errno {
     return .success;
 }
 
+/// `fd_fdstat_set_rights(fd, fs_rights_base, fs_rights_inheriting) → errno` —
+/// restrict (never widen) the capability set on an fd. WASI rights are
+/// monotonically droppable: a request for any bit the slot does not already
+/// hold is `notcapable`; otherwise the narrowed sets are stored.
+pub fn fdFdstatSetRights(host: *Host, fd: p1.Fd, rights_base: p1.Rights, rights_inheriting: p1.Rights) p1.Errno {
+    const slot = host.translateFd(fd) orelse return .badf;
+    if (slot.kind == .closed) return .badf;
+    if (rights_base & ~slot.rights_base != 0) return .notcapable;
+    if (rights_inheriting & ~slot.rights_inheriting != 0) return .notcapable;
+    slot.rights_base = rights_base;
+    slot.rights_inheriting = rights_inheriting;
+    return .success;
+}
+
 // ============================================================
 // path_open  (§9.4 / 4.5 chunk b)
 // ============================================================
@@ -959,6 +973,33 @@ test "fdPwrite / fdPread: positional round-trip at an offset (no cursor move)" {
     try testing.expectEqual(p1.Errno.success, fdPread(&h, &mem, fd, 40, 1, 3, 68));
     try testing.expectEqual(@as(u32, 5), std.mem.readInt(u32, mem[68..72], .little));
     try testing.expectEqualStrings("WORLD", mem[48..53]);
+
+    const slot = h.translateFd(fd).?;
+    const file: std.Io.File = .{ .handle = slot.host_handle.?, .flags = .{ .nonblocking = false } };
+    file.close(testing.io);
+    slot.kind = .closed;
+}
+
+test "fdFdstatSetRights: narrows rights; re-widening is notcapable" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var h = try Host.init(testing.allocator);
+    defer h.deinit();
+    h.io = testing.io;
+    const dirfd = try h.addPreopen(tmp.dir.handle, "/sandbox");
+    var mem: [128]u8 = @splat(0);
+    @memcpy(mem[0..8], "rt.txt\x00\x00"[0..8]);
+    const oe = pathOpen(&h, &mem, dirfd, 0, 0, 6, p1.OFLAGS_CREAT, p1.RIGHTS_FD_READ | p1.RIGHTS_FD_WRITE, 0, 0, 96);
+    try testing.expectEqual(p1.Errno.success, oe);
+    const fd = std.mem.readInt(u32, mem[96..100], .little);
+    try testing.expect(h.translateFd(fd).?.rights_base & p1.RIGHTS_FD_WRITE != 0);
+
+    // Drop WRITE → success; the slot now holds only READ.
+    try testing.expectEqual(p1.Errno.success, fdFdstatSetRights(&h, fd, p1.RIGHTS_FD_READ, 0));
+    try testing.expectEqual(@as(p1.Rights, p1.RIGHTS_FD_READ), h.translateFd(fd).?.rights_base);
+    // Re-request the now-absent WRITE bit → notcapable (rights only narrow).
+    try testing.expectEqual(p1.Errno.notcapable, fdFdstatSetRights(&h, fd, p1.RIGHTS_FD_READ | p1.RIGHTS_FD_WRITE, 0));
+    try testing.expectEqual(p1.Errno.badf, fdFdstatSetRights(&h, 999, 0, 0));
 
     const slot = h.translateFd(fd).?;
     const file: std.Io.File = .{ .handle = slot.host_handle.?, .flags = .{ .nonblocking = false } };
