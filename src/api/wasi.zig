@@ -215,6 +215,24 @@ fn thunkFdClose(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     const fd = rt.popOperand().u32;
     return pushErrno(rt, wasi_fd.fdClose(host, fd));
 }
+fn thunkFdSync(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
+    const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
+    const fd = rt.popOperand().u32;
+    return pushErrno(rt, wasi_fd.fdSync(host, fd));
+}
+fn thunkFdDatasync(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
+    const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
+    const fd = rt.popOperand().u32;
+    return pushErrno(rt, wasi_fd.fdDatasync(host, fd));
+}
+fn thunkFdAdvise(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
+    const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
+    const advice: u8 = @intCast(rt.popOperand().u32 & 0xFF);
+    const len = rt.popOperand().u64;
+    const offset = rt.popOperand().u64;
+    const fd = rt.popOperand().u32;
+    return pushErrno(rt, wasi_fd.fdAdvise(host, fd, offset, len, advice));
+}
 fn thunkFdSeek(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
     const new_pos_ptr = rt.popOperand().u32;
@@ -301,6 +319,9 @@ pub fn lookupWasiThunk(name: []const u8) ?HostThunkFn {
     if (std.mem.eql(u8, name, "poll_oneoff")) return thunkPollOneoff;
     if (std.mem.eql(u8, name, "fd_read")) return thunkFdRead;
     if (std.mem.eql(u8, name, "fd_close")) return thunkFdClose;
+    if (std.mem.eql(u8, name, "fd_sync")) return thunkFdSync;
+    if (std.mem.eql(u8, name, "fd_datasync")) return thunkFdDatasync;
+    if (std.mem.eql(u8, name, "fd_advise")) return thunkFdAdvise;
     if (std.mem.eql(u8, name, "fd_seek")) return thunkFdSeek;
     if (std.mem.eql(u8, name, "fd_tell")) return thunkFdTell;
     if (std.mem.eql(u8, name, "fd_fdstat_get")) return thunkFdFdstatGet;
@@ -375,11 +396,13 @@ test "lookupWasiThunk: every supported WASI 0.1 import resolves" {
         "clock_time_get",      "clock_res_get",
         "random_get",          "poll_oneoff",
         "fd_read",             "fd_close",
-        "fd_seek",             "fd_tell",
-        "fd_fdstat_get",       "fd_fdstat_set_flags",
-        "path_open",           "fd_prestat_get",
-        "fd_prestat_dir_name", "sched_yield",
-        "fd_filestat_get",     "path_unlink_file",
+        "fd_sync",             "fd_datasync",
+        "fd_advise",           "fd_seek",
+        "fd_tell",             "fd_fdstat_get",
+        "fd_fdstat_set_flags", "path_open",
+        "fd_prestat_get",      "fd_prestat_dir_name",
+        "sched_yield",         "fd_filestat_get",
+        "path_unlink_file",
     };
     inline for (names) |n| {
         try testing.expect(lookupWasiThunk(n) != null);

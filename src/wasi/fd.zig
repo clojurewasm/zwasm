@@ -249,6 +249,61 @@ pub fn fdTell(host: *Host, mem: []u8, fd: p1.Fd, pos_ptr: u32) p1.Errno {
 }
 
 // ============================================================
+// fd_sync / fd_datasync / fd_advise  (D-278)
+// ============================================================
+
+/// `fd_sync(fd) → errno` — flush a file fd's data + metadata to disk
+/// via `std.Io.File.sync`. Stdio fds have nothing host-buffered at
+/// this layer → `success` noop; closed → `badf`.
+pub fn fdSync(host: *Host, fd: p1.Fd) p1.Errno {
+    const slot = host.translateFd(fd) orelse return .badf;
+    switch (slot.kind) {
+        .stdin, .stdout, .stderr => return .success,
+        .closed => return .badf,
+        .file, .dir => {
+            const io = host.io orelse return .nosys;
+            const handle = slot.host_handle orelse return .badf;
+            const file: std.Io.File = .{ .handle = handle, .flags = .{ .nonblocking = false } };
+            file.sync(io) catch return .io;
+            return .success;
+        },
+    }
+}
+
+/// `fd_datasync(fd) → errno` — flush a file fd's data (not necessarily
+/// metadata) via `std.posix.fdatasync`. Same fd-kind handling as
+/// `fd_sync`.
+pub fn fdDatasync(host: *Host, fd: p1.Fd) p1.Errno {
+    const slot = host.translateFd(fd) orelse return .badf;
+    switch (slot.kind) {
+        .stdin, .stdout, .stderr => return .success,
+        .closed => return .badf,
+        .file, .dir => {
+            const handle = slot.host_handle orelse return .badf;
+            std.posix.fdatasync(handle) catch return .io;
+            return .success;
+        },
+    }
+}
+
+/// `fd_advise(fd, offset, len, advice) → errno` — declare an access
+/// pattern. The advice is purely a hint (the WASI/POSIX contract lets
+/// a host ignore it), so we validate the fd + advice tag and return
+/// `success` without forcing a non-portable `posix_fadvise` (absent on
+/// macOS). Invalid advice (> 5) → `inval`; non-file fd → `spipe`.
+pub fn fdAdvise(host: *Host, fd: p1.Fd, offset: u64, len: u64, advice: u8) p1.Errno {
+    _ = offset;
+    _ = len;
+    if (advice > 5) return .inval; // normal/sequential/random/willneed/dontneed/noreuse
+    const slot = host.translateFd(fd) orelse return .badf;
+    return switch (slot.kind) {
+        .stdin, .stdout, .stderr => .spipe,
+        .closed => .badf,
+        .file, .dir => .success,
+    };
+}
+
+// ============================================================
 // fd_fdstat_get / fd_fdstat_set_flags  (§9.4 / 4.5 chunk a)
 // ============================================================
 
@@ -679,6 +734,44 @@ test "fdFdstatGet: out-of-range fd returns badf; out-of-bounds ptr returns fault
     var mem: [32]u8 = @splat(0);
     try testing.expectEqual(p1.Errno.badf, fdFdstatGet(&h, &mem, 99, 0));
     try testing.expectEqual(p1.Errno.fault, fdFdstatGet(&h, &mem, 1, 100));
+}
+
+test "fdSync / fdDatasync: real file fd succeeds; stdio noop; closed badf" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var h = try Host.init(testing.allocator);
+    defer h.deinit();
+    h.io = testing.io;
+    const dirfd = try h.addPreopen(tmp.dir.handle, "/sandbox");
+
+    var mem: [64]u8 = @splat(0);
+    @memcpy(mem[16..28], "synced.txt\x00\x00"[0..12]);
+    const oe = pathOpen(&h, &mem, dirfd, 0, 16, 10, p1.OFLAGS_CREAT, p1.RIGHTS_FD_WRITE, 0, 0, 32);
+    try testing.expectEqual(p1.Errno.success, oe);
+    const fd = std.mem.readInt(u32, mem[32..36], .little);
+
+    try testing.expectEqual(p1.Errno.success, fdSync(&h, fd));
+    try testing.expectEqual(p1.Errno.success, fdDatasync(&h, fd));
+    // stdout = success noop; out-of-range / closed = badf.
+    try testing.expectEqual(p1.Errno.success, fdSync(&h, 1));
+    try testing.expectEqual(p1.Errno.badf, fdSync(&h, 999));
+
+    const slot = h.translateFd(fd).?;
+    const file: std.Io.File = .{ .handle = slot.host_handle.?, .flags = .{ .nonblocking = false } };
+    file.close(testing.io);
+    slot.kind = .closed;
+    try testing.expectEqual(p1.Errno.badf, fdSync(&h, fd));
+    try testing.expectEqual(p1.Errno.badf, fdDatasync(&h, fd));
+}
+
+test "fdAdvise: valid advice on a stdio fd is spipe; invalid advice is inval; bad fd is badf" {
+    var h = try Host.init(testing.allocator);
+    defer h.deinit();
+    // advice tag is validated before the fd, so an out-of-range advice wins.
+    try testing.expectEqual(p1.Errno.inval, fdAdvise(&h, 1, 0, 0, 6));
+    // valid advice on stdout → spipe (not a seekable file).
+    try testing.expectEqual(p1.Errno.spipe, fdAdvise(&h, 1, 0, 0, 0));
+    try testing.expectEqual(p1.Errno.badf, fdAdvise(&h, 999, 0, 0, 3));
 }
 
 test "pathOpen: rejects parent-escape and absolute paths with notcapable" {
