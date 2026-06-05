@@ -294,6 +294,38 @@ fn thunkFdPwrite(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     const fd = rt.popOperand().u32;
     return pushErrno(rt, wasi_fd.fdPwrite(host, rt.memory, fd, ciovec_ptr, ciovec_count, offset, nwritten_ptr));
 }
+fn thunkSockAccept(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
+    const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
+    _ = rt.popOperand().u32; // new_fd_ptr
+    _ = rt.popOperand().u32; // fdflags
+    const fd = rt.popOperand().u32;
+    return pushErrno(rt, wasi_fd.sockAccept(host, fd));
+}
+fn thunkSockRecv(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
+    const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
+    _ = rt.popOperand().u32; // ro_flags_ptr
+    _ = rt.popOperand().u32; // ro_datalen_ptr
+    _ = rt.popOperand().u32; // ri_flags
+    _ = rt.popOperand().u32; // ri_data_len
+    _ = rt.popOperand().u32; // ri_data_ptr
+    const fd = rt.popOperand().u32;
+    return pushErrno(rt, wasi_fd.sockRecv(host, fd));
+}
+fn thunkSockSend(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
+    const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
+    _ = rt.popOperand().u32; // so_datalen_ptr
+    _ = rt.popOperand().u32; // si_flags
+    _ = rt.popOperand().u32; // si_data_len
+    _ = rt.popOperand().u32; // si_data_ptr
+    const fd = rt.popOperand().u32;
+    return pushErrno(rt, wasi_fd.sockSend(host, fd));
+}
+fn thunkSockShutdown(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
+    const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
+    _ = rt.popOperand().u32; // how
+    const fd = rt.popOperand().u32;
+    return pushErrno(rt, wasi_fd.sockShutdown(host, fd));
+}
 fn thunkFdRenumber(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
     const to = rt.popOperand().u32;
@@ -477,6 +509,10 @@ pub fn lookupWasiThunk(name: []const u8) ?HostThunkFn {
     if (std.mem.eql(u8, name, "fd_prestat_dir_name")) return thunkFdPrestatDirName;
     if (std.mem.eql(u8, name, "sched_yield")) return thunkSchedYield;
     if (std.mem.eql(u8, name, "proc_raise")) return thunkProcRaise;
+    if (std.mem.eql(u8, name, "sock_accept")) return thunkSockAccept;
+    if (std.mem.eql(u8, name, "sock_recv")) return thunkSockRecv;
+    if (std.mem.eql(u8, name, "sock_send")) return thunkSockSend;
+    if (std.mem.eql(u8, name, "sock_shutdown")) return thunkSockShutdown;
     if (std.mem.eql(u8, name, "fd_filestat_get")) return thunkFdFilestatGet;
     if (std.mem.eql(u8, name, "fd_filestat_set_size")) return thunkFdFilestatSetSize;
     if (std.mem.eql(u8, name, "fd_filestat_set_times")) return thunkFdFilestatSetTimes;
@@ -562,7 +598,9 @@ test "lookupWasiThunk: every supported WASI 0.1 import resolves" {
         "fd_fdstat_set_rights",  "fd_readdir",
         "path_open",             "fd_prestat_get",
         "fd_prestat_dir_name",   "sched_yield",
-        "proc_raise",            "fd_filestat_get",
+        "proc_raise",            "sock_accept",
+        "sock_recv",             "sock_send",
+        "sock_shutdown",         "fd_filestat_get",
         "fd_filestat_set_size",  "fd_filestat_set_times",
         "fd_allocate",           "path_unlink_file",
         "path_create_directory", "path_remove_directory",

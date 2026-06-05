@@ -584,6 +584,42 @@ pub fn fdAllocate(host: *Host, fd: p1.Fd, offset: u64, len: u64) p1.Errno {
 }
 
 // ============================================================
+// sock_* (D-278) — WASI socket surface
+// ============================================================
+//
+// This runtime's fd table holds NO socket fds: preview1 has no socket-creation
+// syscalls (connect/bind/listen are wasi-sockets extensions, not preview1), so
+// a socket can only reach the guest via a host preopen-socket mechanism
+// (wasmtime's `--listen`), which zwasm does not expose (tracked D-281). So
+// every sock_* validates the fd and returns `notsock` for a non-socket fd
+// (`badf` for an invalid/closed one) — the spec-correct errno for these fds,
+// NOT a stub. A future `.socket` FdKind + host socket-preopen would extend
+// these to real I/O.
+
+fn sockFdCheck(host: *Host, fd: p1.Fd) p1.Errno {
+    const slot = host.translateFd(fd) orelse return .badf;
+    if (slot.kind == .closed) return .badf;
+    return .notsock;
+}
+
+/// `sock_accept(fd, fdflags, *new_fd) → errno`.
+pub fn sockAccept(host: *Host, fd: p1.Fd) p1.Errno {
+    return sockFdCheck(host, fd);
+}
+/// `sock_recv(fd, ri_data, ri_data_len, ri_flags, *ro_datalen, *ro_flags) → errno`.
+pub fn sockRecv(host: *Host, fd: p1.Fd) p1.Errno {
+    return sockFdCheck(host, fd);
+}
+/// `sock_send(fd, si_data, si_data_len, si_flags, *so_datalen) → errno`.
+pub fn sockSend(host: *Host, fd: p1.Fd) p1.Errno {
+    return sockFdCheck(host, fd);
+}
+/// `sock_shutdown(fd, how) → errno`.
+pub fn sockShutdown(host: *Host, fd: p1.Fd) p1.Errno {
+    return sockFdCheck(host, fd);
+}
+
+// ============================================================
 // fd_readdir  (D-278)
 // ============================================================
 
@@ -1061,6 +1097,19 @@ test "fdPwrite / fdPread: positional round-trip at an offset (no cursor move)" {
     const file: std.Io.File = .{ .handle = slot.host_handle.?, .flags = .{ .nonblocking = false } };
     file.close(testing.io);
     slot.kind = .closed;
+}
+
+test "sock_*: notsock on a non-socket fd, badf on an invalid fd" {
+    var h = try Host.init(testing.allocator);
+    defer h.deinit();
+    // stdin (fd 0) is a valid fd but not a socket → notsock.
+    try testing.expectEqual(p1.Errno.notsock, sockAccept(&h, 0));
+    try testing.expectEqual(p1.Errno.notsock, sockRecv(&h, 1));
+    try testing.expectEqual(p1.Errno.notsock, sockSend(&h, 2));
+    try testing.expectEqual(p1.Errno.notsock, sockShutdown(&h, 0));
+    // Out-of-range fd → badf.
+    try testing.expectEqual(p1.Errno.badf, sockRecv(&h, 999));
+    try testing.expectEqual(p1.Errno.badf, sockShutdown(&h, 999));
 }
 
 test "fdRenumber: moves an fd onto another; source becomes badf" {
