@@ -355,5 +355,5 @@ exactly the wall-clock penalty of this block.
 | 2026-05-19 | `3063dd0d`   | Initial accepted version (D1 + D2 + D3).                                                              |
 | 2026-05-20 | `c1e16f7d` | D4 amend — pre-commit / pre-push hook slim-down (`gate_commit.sh --fast`; pre-push drops gate re-run).|
 | 2026-05-30 | `b39689e1` | D5 amend — in-turn chunk chaining + per-turn ubuntu batch (widens D3 one-chunk→one-turn) + gate-once + bigger-chunk default (user throughput directive). |
-| 2026-06-05 | `<backfill>` | D6 amend — background ubuntu gate unconditionally `test-all` (classifier drives Mac foreground only); closes D-262 x86_64-RUN coverage gap (justification removed by D5-b's no-wait ubuntu). |
-| 2026-06-05 | `<backfill>` | D7 amend — loop HONORS `should_gate_windows.sh` cadence (windows runs たまに: ABI-risk diff OR ≥4 commits, NOT per-turn — windows too slow; NOT phase-boundary — too rare), heisenbug-aware (no auto-revert); closes the win64 accumulation gap, user-directed. |
+| 2026-06-05 | `5471e5fb` | D6 amend — background ubuntu gate unconditionally `test-all` (classifier drives Mac foreground only); closes D-262 x86_64-RUN coverage gap (justification removed by D5-b's no-wait ubuntu). |
+| 2026-06-05 | `72c4aaf8` | D7 amend — loop HONORS `should_gate_windows.sh` cadence (windows runs たまに: ABI-risk diff OR ≥4 commits, NOT per-turn — windows too slow; NOT phase-boundary — too rare), heisenbug-aware (no auto-revert); closes the win64 accumulation gap, user-directed. |

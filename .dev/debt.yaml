@@ -204,9 +204,9 @@ entries:
     description: |-
       blocked-by: emcc env-stub host-func wiring (emscripten-shim flavor; distinct from Wasm 1.0 spectest host imports per ADR-0065 Cat III) + externref reftype | `embenchen_*1.wasm` (4 fixtures) + `externref-segment.0.wasm` (1) — newly visible after D-006's import-type validation closed (auto-register lifted them past manifest discovery; validator passes their imports as type-equivalent against the env stub; runtime wiring of the env stub's func bodies is what now blocks them). The validator gap that D-006 documented is gone; what remains is implementation-side host-function dispatch for emcc-style env stubs. **2026-05-17 re-eval**: emcc env-stubs are runtime-shim (memset/memcpy/getTotalMemory emulation, Phase 11 embenchen-cohort scope per D-082(a)), NOT the basic spectest::print_i32-family host imports that ADR-0065 Cat III absorbs into Phase 9 §9.9-III. Barrier holds; the (cohort) discharge stays Phase 11 unless emcc shim is opportunistically picked up during Cat III work. Reuses `skip_embenchen_emcc_env_imports.md`'s "What v2 needs" § text.
     first_raised: "2026-05-04"
-    last_reviewed: "2026-05-28"
+    last_reviewed: "2026-06-05"
     refs: |-
-      `src/c_api/instance.zig` cross-module func dispatch; `skip_embenchen_emcc_env_imports.md`; `skip_externref_segment.md`; D-082(a) (sibling embenchen-shim row); ADR-0065 (Cat III boundary clarification)
+      `src/api/instance.zig` cross-module func dispatch; `skip_embenchen_emcc_env_imports.md`; `skip_externref_segment.md`; D-082(a) (sibling embenchen-shim row); ADR-0065 (Cat III boundary clarification)
   - id: "D-007"
     layer: "code"
     status: "blocked-by"
@@ -228,11 +228,11 @@ entries:
     layer: "code"
     status: "blocked-by"
     description: |-
-      blocked-by: upstream Zig stdlib `Allocator.free @memset(undefined)` semantics change OR third-site appearance (zwasm Phase 11+ scope; refactor when triggered) | `Runtime.deinit` uses `rawFreeOwned` to skip the wrapper's poisoning — needed for cross-instance shared slices via the zombie-instance contract. Currently lives inside `interp/mod.zig`; promote to `src/util/` or `src/platform/` once the wrapper changes or once the same idiom appears in a third site.
+      blocked-by: upstream Zig stdlib `Allocator.free @memset(undefined)` semantics change OR third-site appearance (zwasm Phase 11+ scope; refactor when triggered) | `Runtime.deinit` uses `rawFreeOwned` to skip the wrapper's poisoning — needed for cross-instance shared slices via the zombie-instance contract. Currently lives inside `src/runtime/runtime.zig`; promote to `src/util/` or `src/platform/` once the wrapper changes or once the same idiom appears in a third site.
     first_raised: "2026-05-04"
-    last_reviewed: "2026-05-28"
+    last_reviewed: "2026-06-05"
     refs: |-
-      `src/interp/mod.zig`, ADR-0014 §6.K.2 sub-change 4
+      `src/runtime/runtime.zig`, ADR-0014 §6.K.2 sub-change 4
   - id: "D-020"
     layer: "infra"
     status: "blocked-by"
@@ -248,9 +248,9 @@ entries:
     description: |-
       blocked-by: Phase 14 concurrency phase | `Diagnostic` is `threadlocal var` per ADR-0016 phase 1. Concurrent guest threads (Phase 14+) require a thread-mapping decision.
     first_raised: "2026-05-04"
-    last_reviewed: "2026-05-28"
+    last_reviewed: "2026-06-05"
     refs: |-
-      `src/runtime/diagnostic.zig`
+      `src/diagnostic/diagnostic.zig`
   - id: "D-022"
     layer: "code"
     status: "blocked-by"
