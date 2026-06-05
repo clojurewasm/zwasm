@@ -23,15 +23,17 @@ ordinary Phase-16 work (survey-first; bundle multi-cycle pieces). Order **B→A�
   0.5.0 insecure — 8 CVEs, unmaintained; not in v1's set → no parity lost). End-to-end verified: `--bench=tinygo/fib
   --compare=all --quick` → all 5 runtimes (zwasm 5.31 / wasmtime 6.87 / wazero 5.92 / wasmer 11.48 / wasmedge 13.47
   ms — startup-dominated tiny workload). node/bun still deferred (need JS WASI wrapper → A).
-- **A — Benchmark suite expansion (v1-level + more). ← IN PROGRESS.** Done so far: **all-engine matrix**
-  (`3195fda3`) — `run_bench.sh --engines=interp,jit,aot` benches zwasm across its 3 engines (one runtime row each;
-  aot precompiles a temp .cwasm, net-zero cleanup; combinable with `--compare=all`). Verified on tinygo/fib
-  (interp 2.11 / jit 2.44 / aot 2.00 ms). **NEXT A chunks**: (1) **full-inventory re-profile** — run the engine
-  matrix × `--compare=all` over the whole `BENCHES` inventory + capture RSS, record a fresh result; this is a heavy
-  multi-min run (do foreground or timeout-bounded bg). (2) **Refresh the stale `bench/results/s15p_parity_vs_v1.md`**
-  from that data (it falsely says "jit compute-only/no WASI" — D-244 fixed it; JIT+AOT run the tinygo/cljw WASI
-  fixtures). (3) optional node/bun V8 comparator (build a JS WASI wrapper, v1's `run_wasm.mjs`). v1 breadth
-  baseline: `~/Documents/MyProducts/zwasm/bench/`.
+- **A — Benchmark suite expansion. ✅ core DONE.** `--engines=interp,jit,aot` matrix (`3195fda3`) +
+  **full-inventory all-engine × all-comparator re-profile with RSS** (`81d99b1a`) → honest result doc
+  `bench/results/all_engine_matrix.md`; corrected `s15p_parity_vs_v1.md`'s false "jit compute-only" claim (D-244).
+  **Honest findings (no spin)**: zwasm wins memory footprint (2–5MB vs 8–28MB = 4–12×) + startup; optimizing JITs
+  (wasmtime/wasmer Cranelift, wazero) lead on sustained compute 1.5–3.9× = the designed single-pass no-optimizer
+  trade (§1.3). **Surfaced 2 real perf bugs → debt**: **D-285** (memmove zwasm-jit 254ms SLOWER than interp 138ms
+  & ~15× wasmtime; base64 ~13× — byte-loop/bulk-`memory.copy` fast-path gap; ADR-0153 rework candidate) + **D-284**
+  (nbody no-`_start` harness gap). *Optional A leftover (low priority)*: node/bun V8 comparator (JS WASI wrapper).
+- **C — Official benchmark docs. ← NEXT.** Build `docs/benchmarks.md` (public-quality) FROM
+  `bench/results/all_engine_matrix.md`: methodology, host matrix, the honest findings (footprint win / startup /
+  single-pass-throughput-trade), reproduction, the startup-confound + `--quick` caveats. Link from README (D).
 - **C — Official benchmark docs.** Public-quality `docs/benchmarks.md` (or `docs/reference/benchmarks.md`):
   methodology, host matrix, results vs other runtimes + vs v1, reproduction, caveats (startup-confound). Link from
   README.
@@ -41,21 +43,21 @@ ordinary Phase-16 work (survey-first; bundle multi-cycle pieces). Order **B→A�
 - **E — User + migration guide final fix.** `docs/tutorial.md` + `docs/migration_v1_to_v2.md` to release quality
   (complete, accurate, examples verified-to-run). Migration compute-only claims already corrected (`046c6b9e`).
 
-**Known stale to fix during A**: `bench/results/s15p_parity_vs_v1.md` says "v2 jit is compute-only (no WASI)" —
-FALSE since D-244; re-profile WITH realworld WASI workloads (JIT+AOT now run them).
-
 ## Step 0.7 (next resume) — verify remote logs
 
-Last 3-host green = `8b19faad`. All B + A commits so far (`20de319d`, `310314bb`, `3195fda3`) touch only
-`flake.nix` (NEW `devShells.bench` — `default` untouched) + `scripts/run_bench.sh` (a Mac-host bench script, not
-run by `test-all`) → **no `src/` delta since `8b19faad`**, so no remote re-kick. A fresh `/continue` resumes on
-**workstream A chunk (1)**: the full-inventory engine-matrix re-profile, not a remote-verify.
+Last 3-host green = `8b19faad`. All B + A commits (`20de319d`, `310314bb`, `3195fda3`, `81d99b1a`) touch only
+`flake.nix` (NEW `devShells.bench` — `default` untouched), `scripts/run_bench.sh` (Mac-host bench script, not run
+by `test-all`), and `bench/`+`.dev/` docs/debt → **no `src/` delta since `8b19faad`**, so no remote re-kick. A
+fresh `/continue` resumes on **workstream C** (docs/benchmarks.md), not a remote-verify.
 
-## Deferred / open (unchanged by this program)
+## Deferred / open
 
+- **D-285 (NEW, ADR-0153 rework candidate)** — JIT byte-loop/bulk-memory codegen deficiency (memmove jit slower
+  than interp). Scheduled as a rework campaign **AFTER** the user's C/D/E doc program (don't abandon the explicit
+  program to chase it; it's captured + the perf is a designed-trade-adjacent codegen gap, not a correctness bug).
 - **v0.2.0 / Component Model + WASI 0.2** — ROADMAP-deferred (ADR-0161 §3); needs a user scope decision (NOT this
-  program). **D-281** sockets (on-demand; v1 also stubs — not a parity miss). **D-255** C-API io (ADR-0143).
-  **D-211** precise GcRootMap (deferred; ADR-0148/0060). Debt ledger = 59 rows, 0 `now`.
+  program). **D-281** sockets (v1 also stubs — not a parity miss). **D-255** C-API io (ADR-0143). **D-211** precise
+  GcRootMap (ADR-0148/0060). **D-284** nbody bench harness gap. Debt ledger = 61 rows, 0 `now`.
 
 ## Key refs
 
