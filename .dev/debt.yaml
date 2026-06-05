@@ -50,8 +50,14 @@ entries:
       SLICE-1 DONE (`15a54fdf`): oob_table (code 2) now precise + UNIFIED across arm64+x86_64 for table-access
       (get/set/fill/copy/init) + call_indirect bounds (x86_64 oobtable_fixups channel built; arm64 op_table
       re-routed to cind_bounds_fixups; sig/null sites correctly left generic). Test: table.get OOB → code 2.
+      SLICE-2 DONE (`24a405eb`): indirect_call_mismatch (code 3) now precise + UNIFIED — x86_64 demuxed its
+      inline-sig JNE (op_call.zig table-0 548 + multi-table 599; op_tail_call both) out of generic
+      bounds_fixups into a new cind_sig_fixups channel → emitTrapExitStub code 3, matching arm64 (already
+      code-3). Subtyping-trampoline null (497) + call_ref null (708) correctly left generic. Test: ()->()
+      funcref called as (i32)->() → code 3 (JIT+interp parity, CLI-confirmed).
       REMAINING D-293 kinds (still generic): invalid_conversion + trunc int_overflow (op_convert / arm64
-      bounds_check.zig), null_reference (ref.as_non_null / struct/array null / call_ref null = op_call.zig:706),
+      bounds_check.zig), null_reference (ref.as_non_null / struct/array null / call_ref null = op_call.zig:708
+      — NOTE TrapKind has no null_reference variant yet; verify the existing mapping before assigning a code),
       cast_failure (ref.cast / i31.get), array_oob (array.* GC ops) — each a follow-on slice via the same
       per-kind-channel pattern. (Below: the original slice-1 survey, kept as the method template.)
       SLICE-1 PLAN — oob_table (code 2), surveyed 2026-06-06 (DO BOTH ARCHES TOGETHER; a runVoidExportWasi test
