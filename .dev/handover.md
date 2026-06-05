@@ -24,27 +24,28 @@ The prior finalization items are DONE (C-API funcref D-269 = owned-handle `of.re
 closed; verified x86_64 `OK HEAD=2ea7c187`). A new **user-directed program** (chat 2026-06-05) is now the active
 work — **ADR-0161** (WASI completion) + **ADR-0162** (toolchain carve-out). Ordered:
 
-- **A — 整備 (mostly DONE this session)**: rust installed (win rustc 1.96.0 / ubuntu flake `.#rust-host` `a5cf80fb`);
-  ADR-0161+0162; ROADMAP §11.1 overclaim corrected (**WASI = 21/46, NOT full**); D-278 scheduled. **Remaining 整備**:
-  A5 Component-Model 馴染みサーベイ (de-risk — read v1 CM + wasmtime + `wasm-tools` → findings doc, NO impl);
-  A1-wire (`build.zig run-rust-host` 3-host + resolve win MSVC/GNU); `toolchain_provisioning.md` update (per ADR-0162).
-- **1. D-273(1) `--invoke` args + typed result** (the only `now` row) — type-driven parse (export param types) →
-  result to stdout, exit-code = success only. Ref v1 CLI. **FIRST** (small/independent).
+- **A — 整備 DONE this session**: rust on test hosts (win rustc / ubuntu flake `.#rust-host`); ADR-0161 (WASI)
+  +0162 (toolchain) +**0076 D7** (windows cadence gate, below); §11.1 overclaim corrected (**WASI=21/46**); D-278
+  scheduled. **A5 CM survey DONE** (`component_model_survey.md`: pivot risk **LOW-MED**, CM = new `src/feature/
+  component/` layer ≈v1's 5,600 LOC, no core rewrite). **A1-wire DONE — 3-OS rust run COMPLETE**: rust_host green
+  on Mac + ubuntu (`.#rust-host`) + **windows (GNU toolchain + `.exe` fix)**; D-254 resolved (a). 3-host test-all
+  re-checked: Mac+ubuntu GREEN; windows flaked once → **D-279 Win64 SIMD heisenbug** (re-run `simd_assert_runner:
+  13351 passed/0 failed` — intermittent, not a miscompile; now monitored by D7).
+- **1. D-273(1) `--invoke` args + typed result** (the only `now` row) — type-driven parse → stdout. Ref v1 CLI. FIRST.
 - **2. D-278 WASI preview1 21→46** (interp) — sockets ×9 / fd_readdir / path_* ×7 / pread/pwrite/sync/... TDD each.
-- **3. All-engine WASI** (D-251 AOT + D-244 d-3 JIT) — WASI host on all 3 engines (today interp-only).
-- **4. Precise GC root + AOT-GC** (D-211) — first verify WHERE precise rooting is truly load-bearing; build only there.
-- **5. D-254 3-OS rust run** — after A1-wire.
-- **Post-v0.1.0**: Component Model / WASI P2 (v1-parity; A5 survey informs). WASI 0.3/async (open horizon;
-  ClojureWasmFromScratch `runtime/agent.zig` async-Zig ref).
+- **3. All-engine WASI** (D-251 AOT + D-244 d-3 JIT). **4. Precise GC root + AOT-GC** (D-211; verify load-bearing first).
+- **Post-v0.1.0**: Component Model / WASI P2 (A5 survey informs). WASI 0.3/async (ClojureWasmFromScratch agent ref).
 
-**Local commits to push (next /continue Step 3)**: `fdb41880` (debt directives) · `a5cf80fb` (flake rust-host) ·
-`6b54fd3e` (ADR-0161) · `0182ed00` (§11.1+D-278) · `9b276ace` (ADR-0162).
+**ADR-0076 D7 (windows cadence gate)**: the loop now HONORS `should_gate_windows.sh` (run windows たまに — ABI-risk
+diff OR ≥4 commits, NOT per-turn/too-slow, NOT phase-boundary/too-rare). Win64 red = heisenbug-classify (re-run),
+no auto-revert. Step 6+7: `should_gate_windows.sh` exit 0 → kick `run_remote_windows.sh test-all` + `--record`.
 
-## Step 0.7 (next resume) — no kick pending
+## Step 0.7 (next resume) — verify per-cadence remote logs
 
-D-269B kick already verified GREEN (`OK HEAD=2ea7c187`). This session's commits since are doc/flake/ADR/debt only
-(no `src/`) → no kick. The first code chunk (D-273(1) `--invoke`) kicks the D6 `test-all` when it lands.
-**Gate**: Step-5 Mac = `bash scripts/mac_gate.sh`. windowsmini = manual-only (ADR-0156: no loop tag).
+Mac+ubuntu test-all GREEN this session; ubuntu rust_host GREEN. Origin = `72c4aaf8` (after push). Next code chunk
+(D-273(1)) kicks ubuntu (always) + windows (if `should_gate_windows.sh` exit 0 — likely, build.zig touched). Step
+0.7: `tail /tmp/ubuntu.log` (auto-revert on FAIL) + `tail /tmp/win.log` if windows fired (D7 heisenbug-classify).
+**Gate**: Mac = `bash scripts/mac_gate.sh`; ubuntu = always test-all (D6); windows = cadence (D7).
 
 ## Deferred / open debt (D-274/275/276/257 discharged this session — removed)
 
