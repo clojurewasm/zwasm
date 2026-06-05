@@ -3,21 +3,22 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## ACTIVE (2026-06-05, user-interactive) — D-285 JIT bulk-memory fix + bench fairness
+## ACTIVE (2026-06-05, user-interactive) — D-285 DONE; remaining: re-measure, breadth, fill/init, no-_start
 
-User stopped the loop to direct: (1) **D-285 investigate properly — DONE** (`07e6d9be`): JIT lowers
-`memory.copy` byte-at-a-time on BOTH backends (arm64 `op_memory.zig:670-680`, x86_64 `:724-734`); interp
-uses vectorizable `copyForwards` → jit(254ms) > interp(138ms) paradox. Findings:
-`.dev/findings/d285_jit_bulk_memory_byteloop.md`. Fix = word-wise loop + byte tail (both backends; phase-II
-net = spec memory_copy.wast under `ZWASM_SPEC_ENGINE=jit` + add word-boundary-overlap edge fixture). (2)
-**Bench methodology — FIXED** (`b8fe1f74`): run_bench built ReleaseSafe (unfair vs optimized comparators) →
-now ReleaseFast; `--safe` opts back; build recorded in YAML. Re-measure (ReleaseFast+non-quick) supersedes the
-prelim `--quick`/ReleaseSafe matrix. (3) **no-`_start`**: industry split — wasmtime/wazero exit 0 (=zwasm
-interp), wasmer errors (=zwasm jit); the two zwasm engines disagreeing is the bug (D-284 reconcile). (4)
-**Bench breadth < v1**: v2 missing crypto(ed25519/xchacha20/xblabla20)/GC(gc_alloc/gc_tree)/dispatch(switch/
-ratelimit)/string(minicsv) — 13 fewer active shootout fixtures; v2 wins SIMD12/sightglass5/cljw5/RSS.
-**NEXT**: implement D-285 word-wise fix (arm64 native-testable first, then x86_64+remote) → re-measure affected
-fixtures → refresh docs. Then breadth expansion (compile missing shootout via .#gen) + D-284 reconcile.
+User stopped the loop with 4 directives. Progress:
+- **(1) D-285 memory.copy byte-loop — FIXED BOTH BACKENDS.** arm64 `4e6d17fc` + x86_64 `838de5a1`: word-wise
+  (8-byte LDR/STR + ≤7-byte tail, fwd+bwd). memmove zwasm-jit **254→38ms (6.6x)**, now beats interp, 2.3x
+  wasmtime. Validated: 5 adversarial overlap/tail/word fixtures (`test/edge_cases/p7/bulk_memory/copy_*`) + 82
+  edge + spec memory_copy.wast under jit + `zig build test`, green arm64-native AND x86_64-Rosetta; clean
+  x86_64-linux cross-compile. **base64 RE-ATTRIBUTED** (copy fix left it unchanged → genuine optimizer gap, not
+  a bug). Findings: `.dev/findings/d285_jit_bulk_memory_byteloop.md`.
+- **(2) Bench methodology — FIXED** (`b8fe1f74`): ReleaseFast not ReleaseSafe (was unfair); `--safe` opts back.
+  **Definitive non-quick ReleaseFast re-measure RUNNING in bg** → on completion, refresh the table numbers in
+  `bench/results/all_engine_matrix.md` + `docs/benchmarks.md` (currently bannered as prelim/superseded).
+- **NEXT** (priority order): refresh doc numbers from the re-measure → **D-286** (fill/init same byte-loop, both
+  backends; init mirrors copy, fill needs byte→word splat) → **bench breadth** (compile missing v1 shootout
+  crypto/GC/dispatch/string via `.#gen`) → **D-284** (reconcile interp/jit no-`_start`: industry split, the two
+  zwasm engines disagreeing is the bug).
 
 ## Current state
 
