@@ -968,17 +968,19 @@ entries:
     layer: "code"
     status: "now"
     description: |-
-      now (unblocked 2026-06-05 `34dbebbc`): the user-ordered --invoke-first prerequisite (D-273(1)) landed;
-      this is the next active chunk per ADR-0161 WASI program order. | **WASI preview1
-      21→46 completion (interp path).** Audit (`src/api/wasi.zig:285 lookupWasiThunk`) = 21/46 wired; §11.1's
-      "preview1 full" was an overclaim (ADR-0161, ROADMAP corrected). Implement the missing 25 on the interp host:
-      **sockets ×9** (sock_accept/recv/recv_from/send/send_to/connect/bind/listen/shutdown), **fd_readdir** (dir
-      enumeration), **path_* ×7** (create_directory/remove_directory/rename/link/symlink/readlink/filestat_get +
-      filestat_set_times), **fd_pread/pwrite/sync/datasync/advise/allocate**, **fd_fdstat_set_rights**,
-      **fd_filestat_set_size/set_times**, **clock_res_get**, **proc_raise**. Add each to the
-      `wasi.zig:286-306` dispatch + a handler in `src/wasi/{fd,path,clocks,proc}.zig` + a WASI-testsuite or
-      self-authored fixture per syscall (TDD). DISCHARGE: 46/46 wired + green Mac+Linux. Then all-engine WASI
-      (D-251 / D-244 d-3) + CM survey (ADR-0161 §3) follow.
+      now (ACTIVE BUNDLE wasi-p1-completion; unblocked `34dbebbc`): WASI preview1 21→46 completion (interp).
+      **PROGRESS 2026-06-05: 21→27 wired.** DONE: **clock_res_get** (`bf0b8a56`), **fd_sync/fd_datasync/fd_advise**
+      (`fe02e638`), **fd_pread/fd_pwrite** (`4e1e31c6`) — all TDD-green Mac. REMAINING (19): **fd_filestat_set_size**
+      (needs ftruncate — no std.Io.File.setSize; use std.posix or investigate) + **fd_allocate** (same),
+      **fd_filestat_set_times** (std.Io.File.setTimestamps, easy) + **path_* ×8** (create_directory/remove_directory/
+      rename/link/symlink/readlink/filestat_get/filestat_set_times — new `src/wasi/path.zig`; std.Io.Dir ops),
+      **fd_readdir** (std.Io.Dir.iterate + Dircookie cursor + dirent marshal), **fd_fdstat_set_rights** (rights bits
+      on the slot), **proc_raise** (sandbox-signal design — likely notsup/abort, NOT a real host raise; small ADR/
+      note), **sockets ×9** (std.Io has NO sockets — std.net removed 0.14; via std.posix.socket + manual sockaddr,
+      structural ~500 LOC, LAST batch; ADR-0070 = std.posix OK, not raw libc). Note: `src/wasi/fd.zig` now 1103 LOC
+      (WARN) — split candidate (fd_io / fd_meta) once the batch settles. Per-syscall TDD; thunk in `wasi.zig` +
+      handler + `lookupWasiThunk` name + resolve-all test name. DISCHARGE: 46/46 wired + green Mac+Linux. Then
+      all-engine WASI (D-251 / D-244 d-3) + CM survey (ADR-0161 §3).
     first_raised: "2026-06-05"
     last_reviewed: "2026-06-05"
     refs: |-
