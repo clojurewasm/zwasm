@@ -364,6 +364,27 @@ fn thunkPathRemoveDirectory(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void
     const dirfd = rt.popOperand().u32;
     return pushErrno(rt, wasi_path.pathRemoveDirectory(host, rt.memory, dirfd, path_ptr, path_len));
 }
+fn thunkPathRename(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
+    const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
+    const new_len = rt.popOperand().u32;
+    const new_ptr = rt.popOperand().u32;
+    const new_dirfd = rt.popOperand().u32;
+    const old_len = rt.popOperand().u32;
+    const old_ptr = rt.popOperand().u32;
+    const old_dirfd = rt.popOperand().u32;
+    return pushErrno(rt, wasi_path.pathRename(host, rt.memory, old_dirfd, old_ptr, old_len, new_dirfd, new_ptr, new_len));
+}
+fn thunkPathLink(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
+    const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
+    const new_len = rt.popOperand().u32;
+    const new_ptr = rt.popOperand().u32;
+    const new_dirfd = rt.popOperand().u32;
+    const old_len = rt.popOperand().u32;
+    const old_ptr = rt.popOperand().u32;
+    const old_flags = rt.popOperand().u32;
+    const old_dirfd = rt.popOperand().u32;
+    return pushErrno(rt, wasi_path.pathLink(host, rt.memory, old_dirfd, old_flags, old_ptr, old_len, new_dirfd, new_ptr, new_len));
+}
 fn thunkPathSymlink(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
     const path_len = rt.popOperand().u32;
@@ -444,6 +465,8 @@ pub fn lookupWasiThunk(name: []const u8) ?HostThunkFn {
     if (std.mem.eql(u8, name, "path_filestat_set_times")) return thunkPathFilestatSetTimes;
     if (std.mem.eql(u8, name, "path_symlink")) return thunkPathSymlink;
     if (std.mem.eql(u8, name, "path_readlink")) return thunkPathReadlink;
+    if (std.mem.eql(u8, name, "path_rename")) return thunkPathRename;
+    if (std.mem.eql(u8, name, "path_link")) return thunkPathLink;
     return null;
 }
 
@@ -520,7 +543,8 @@ test "lookupWasiThunk: every supported WASI 0.1 import resolves" {
         "path_unlink_file",        "path_create_directory",
         "path_remove_directory",   "path_filestat_get",
         "path_filestat_set_times", "path_symlink",
-        "path_readlink",
+        "path_readlink",           "path_rename",
+        "path_link",
     };
     inline for (names) |n| {
         try testing.expect(lookupWasiThunk(n) != null);

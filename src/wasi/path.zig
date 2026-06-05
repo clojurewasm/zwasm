@@ -97,6 +97,42 @@ pub fn pathRemoveDirectory(host: *Host, mem: []const u8, dirfd: p1.Fd, path_ptr:
 }
 
 // ============================================================
+// path_rename / path_link
+// ============================================================
+
+/// `path_rename(old_dirfd, old_path, new_dirfd, new_path) → errno` — rename
+/// (move) a path across two preopen dirfds (`std.Io.Dir.rename`). Both ends are
+/// resolved + escape-guarded.
+pub fn pathRename(host: *Host, mem: []const u8, old_dirfd: p1.Fd, old_ptr: u32, old_len: u32, new_dirfd: p1.Fd, new_ptr: u32, new_len: u32) p1.Errno {
+    var ro: Resolved = undefined;
+    const e1 = resolve(host, mem, old_dirfd, old_ptr, old_len, &ro);
+    if (e1 != .success) return e1;
+    var rn: Resolved = undefined;
+    const e2 = resolve(host, mem, new_dirfd, new_ptr, new_len, &rn);
+    if (e2 != .success) return e2;
+    const io = host.io orelse return .nosys;
+    ro.dir.rename(ro.sub, rn.dir, rn.sub, io) catch |err| return mapDirErr(err);
+    return .success;
+}
+
+/// `path_link(old_dirfd, old_flags, old_path, new_dirfd, new_path) → errno` —
+/// create a hard link at `new_path` to the existing `old_path`
+/// (`std.Io.Dir.hardLink`). `old_flags` bit 0 = follow-symlinks.
+pub fn pathLink(host: *Host, mem: []const u8, old_dirfd: p1.Fd, old_flags: u32, old_ptr: u32, old_len: u32, new_dirfd: p1.Fd, new_ptr: u32, new_len: u32) p1.Errno {
+    var ro: Resolved = undefined;
+    const e1 = resolve(host, mem, old_dirfd, old_ptr, old_len, &ro);
+    if (e1 != .success) return e1;
+    var rn: Resolved = undefined;
+    const e2 = resolve(host, mem, new_dirfd, new_ptr, new_len, &rn);
+    if (e2 != .success) return e2;
+    const io = host.io orelse return .nosys;
+    ro.dir.hardLink(ro.sub, rn.dir, rn.sub, io, .{
+        .follow_symlinks = old_flags & p1.LOOKUPFLAGS_SYMLINK_FOLLOW != 0,
+    }) catch |err| return mapDirErr(err);
+    return .success;
+}
+
+// ============================================================
 // path_symlink / path_readlink
 // ============================================================
 
@@ -285,6 +321,35 @@ test "pathSymlink / pathReadlink: create a symlink and read its target back" {
     try tmp.dir.writeFile(testing.io, .{ .sub_path = "plain", .data = "x" });
     writeGuestPath(&mem, 96, "plain");
     try testing.expectEqual(p1.Errno.inval, pathReadlink(&h, &mem, dirfd, 96, 5, 32, 32, 64));
+}
+
+test "pathRename / pathLink: move a file and hard-link it" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "a.txt", .data = "data" });
+    var h = try Host.init(testing.allocator);
+    defer h.deinit();
+    h.io = testing.io;
+    const dirfd = try h.addPreopen(tmp.dir.handle, "/sandbox");
+
+    var mem: [128]u8 = @splat(0);
+    writeGuestPath(&mem, 0, "a.txt"); // @0 len 5
+    writeGuestPath(&mem, 16, "b.txt"); // @16 len 5
+    try testing.expectEqual(p1.Errno.success, pathRename(&h, &mem, dirfd, 0, 5, dirfd, 16, 5));
+    try testing.expectError(error.FileNotFound, tmp.dir.statFile(testing.io, "a.txt", .{}));
+    _ = tmp.dir.statFile(testing.io, "b.txt", .{}) catch return error.RenameTargetMissing;
+
+    // hard-link b.txt → c.txt; both resolve to the same inode (size matches).
+    writeGuestPath(&mem, 32, "c.txt"); // @32 len 5
+    const link_e = pathLink(&h, &mem, dirfd, 0, 16, 5, dirfd, 32, 5);
+    if (link_e == .acces) return; // platform without unprivileged hardlink support
+    try testing.expectEqual(p1.Errno.success, link_e);
+    const st = tmp.dir.statFile(testing.io, "c.txt", .{}) catch return error.LinkMissing;
+    try testing.expectEqual(@as(u64, 4), st.size);
+
+    // Renaming a missing source → noent.
+    writeGuestPath(&mem, 48, "ghost");
+    try testing.expectEqual(p1.Errno.noent, pathRename(&h, &mem, dirfd, 48, 5, dirfd, 0, 5));
 }
 
 test "path_* resolution: escape / non-dir / out-of-bounds rejections" {
