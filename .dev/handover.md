@@ -14,25 +14,26 @@
 ## Active bundle
 
 - **Bundle-ID**: D-251-aot-wasi (`.cwasm` v0.4 imports-metadata → standalone WASI run)
-- **Cycles-remaining**: ~2
-- **Continuity-memo**: `.cwasm` was compute-only (no import metadata). Plan: format v0.4 imports section ✅ →
-  produce+load ✅ → **run-wire (host_dispatch_base + rt.wasi_host)** → CLI route `run <.cwasm>` + WASI. The
-  run-wire mirrors `cli/run.zig:runWasmJit` (build `wasi_host.Host`, set io/argv/preopens) + `setup.zig`'s
-  dispatch construction (alloc `[]usize` sized to func-import count, pre-fill default trap, `jit_dispatch.populateDispatch`
-  from `mod.imports`, set `rt.host_dispatch_base`/`_count` + `rt.wasi_host`). proc_exit unwinds via JIT trap →
-  catch Error.Trap, read `host.exit_code` (see runWasmJit). populateDispatch wants `[]sections.Import` but reads
-  only module/name/kind → reconstruct from `mod.imports` with placeholder payload.
-- **Exit-condition**: a CLI-level test where `zwasm run <hello.cwasm>` does REAL WASI (fd_write→captured stdout
-  bytes match, or proc_exit code surfaces) end-to-end, 2-host green.
-- **Progress**: chunk 1 format v0.4 (`0f693b98`) ✅ · chunk 2 produce+load imports (`9f13e8e4`) ✅ ·
-  **NEXT = chunk 3 run-wire** in `src/engine/codegen/aot/run.zig` (`runEntryWasi`).
+- **Cycles-remaining**: ~1 (CLOSE next cycle after ubuntu verify)
+- **Continuity-memo**: `.cwasm` was compute-only (no import metadata). DONE: format v0.4 imports ✅ → produce+load
+  ✅ → run-wire (`runEntryWasi`: rebuild `host_dispatch_base` via `jit_dispatch.lookup` + set `rt.wasi_host`) ✅ →
+  CLI `runCwasmWasi` (mirrors `runWasmJit`) + main.zig route ✅. **Exit-condition MET on Mac**: a WASI
+  `proc_exit(42)` `.cwasm` surfaces exit 42 end-to-end (`cli/run.zig` test). Lint + win-gnu/linux-gnu
+  cross-compile green. **CLOSE pending ubuntu (x86_64) verify** of the new exec test (Win64-deferred).
+- **Exit-condition**: `zwasm run <wasi.cwasm>` does REAL WASI (proc_exit code surfaces) end-to-end, 2-host green
+  (Mac ✅ + ubuntu pending). On close: discharge D-251 + update ROADMAP §11.1/§12.3b notes (AOT-WASI now DONE).
+- **Progress**: c1 format v0.4 (`0f693b98`) ✅ · c2 produce+load (`9f13e8e4`) ✅ · c3 produce-pipeline imports
+  (`010692d8`) ✅ · c4 run-wire + CLI (`9750b064`) ✅ · **NEXT = ubuntu-verify → bundle CLOSE**.
 
 ## Step 0.7 (next resume) — verify remote logs
 
-D-244 was 3-host GREEN at `71cd3c85`; no remote pending at bundle start. After the turn's push, `tail -3
-/tmp/ubuntu.log` (always) + `/tmp/win.log` (cadence). **DISCIPLINE**: cross-compile windows-gnu (catches compile
-gaps); Win64 std `TODO implement … windows` panics only surface on the actual windows run — reroute the op like
-`20b9f860`/`f320db6f`. The AOT exec tests are Win64-deferred (`skip.phaseEnd(.win64)`, mirrors aot/load.zig).
+`tail -3 /tmp/ubuntu.log` — expect `OK`. ubuntu x86_64 RUNS the new AOT-WASI exec test (not Win64-deferred), so it
+is the meaningful 2nd-host verify of the proc_exit(42) `.cwasm` path. Green → CLOSE the D-251-aot-wasi bundle
+(`check_bundle_active.sh --close`), discharge D-251, update ROADMAP §11.1/§12.3b notes, retarget at **D-211**
+(precise GC root + AOT-GC; verify load-bearing first) or Component Model survey follow-up. windows = cadence
+(`should_gate_windows.sh`); AOT exec is Win64-deferred so a windows run won't exercise it. **DISCIPLINE**: Win64
+std `TODO implement … windows` panics only surface on the actual windows run — reroute the op like
+`20b9f860`/`f320db6f`.
 
 ## Key files (D-251)
 
