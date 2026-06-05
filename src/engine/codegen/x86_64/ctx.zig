@@ -54,6 +54,7 @@ pub const InitArgs = struct {
     divzero_fixups: *std.ArrayList(u32),
     overflow_fixups: *std.ArrayList(u32),
     oob_fixups: *std.ArrayList(u32),
+    oobtable_fixups: *std.ArrayList(u32),
     call_fixups: *std.ArrayList(CallFixup),
     simd_const_fixups: *std.ArrayList(SimdConstFixup),
     extra_consts: *std.ArrayList([16]u8),
@@ -144,8 +145,12 @@ pub const EmitCtx = struct {
     /// ADR-0164 A3 / D-292 — memory load/store/bulk-memory out-of-bounds
     /// (`JA rel32`, 6-byte) fixups, demuxed out of `bounds_fixups` so oob_memory
     /// reaches a dedicated trap stub recording code 6. Other `bounds_fixups`
-    /// kinds (oob_table / conversion / ref-null / cast / array-oob) stay generic (D-293).
+    /// kinds (conversion / ref-null / cast / array-oob) stay generic (D-293).
     oob_fixups: *std.ArrayList(u32),
+    /// D-293 — table-access + call_indirect-bounds out-of-bounds (oob_table, code 2)
+    /// fixups (`JAE rel32`, 6-byte), demuxed from `bounds_fixups` to a dedicated
+    /// stub. Unifies x86_64 with arm64 (which already produces code 2 for cind).
+    oobtable_fixups: *std.ArrayList(u32),
     /// `CALL rel32` fixups exposed via `EmitOutput` for the
     /// post-emit linker.
     call_fixups: *std.ArrayList(CallFixup),
@@ -304,6 +309,7 @@ pub const EmitCtx = struct {
             .divzero_fixups = args.divzero_fixups,
             .overflow_fixups = args.overflow_fixups,
             .oob_fixups = args.oob_fixups,
+            .oobtable_fixups = args.oobtable_fixups,
             .call_fixups = args.call_fixups,
             .simd_const_fixups = args.simd_const_fixups,
             .extra_consts = args.extra_consts,

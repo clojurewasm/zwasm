@@ -1472,6 +1472,15 @@ fn emitEndInter(ctx: *ctx_mod.EmitCtx) Error!void {
             inst.patchRel32(ctx.buf.items, fx_byte, 6, disp);
         }
     }
+    // D-293 — table-access + call_indirect-bounds oob_table (code 2) stub; `JAE rel32` (6-byte).
+    if (ctx.oobtable_fixups.items.len > 0) {
+        const trap_byte = try emitTrapExitStub(ctx, 2);
+        for (ctx.oobtable_fixups.items) |fx_byte| {
+            const disp: i32 = @as(i32, @intCast(trap_byte)) -
+                @as(i32, @intCast(fx_byte)) - 6;
+            inst.patchRel32(ctx.buf.items, fx_byte, 6, disp);
+        }
+    }
 
     // ADR-0105 D3 — stack-overflow trap stub. Probe at prologue fired
     // BEFORE the `SUB RSP, frame_bytes`, so the stub MUST NOT add

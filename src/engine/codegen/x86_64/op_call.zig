@@ -157,6 +157,7 @@ pub fn emitCallIndirectCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Erro
         ctx.pushed_vregs,
         ctx.next_vreg,
         ctx.bounds_fixups,
+        ctx.oobtable_fixups,
         ctx.spill_base_off,
         ctx.outgoing_max_bytes,
         ctx.module_types,
@@ -447,6 +448,7 @@ pub fn emitCallIndirect(
     pushed_vregs: *std.ArrayList(u32),
     next_vreg: *u32,
     bounds_fixups: *std.ArrayList(u32),
+    oobtable_fixups: *std.ArrayList(u32),
     spill_base_off: u32,
     outgoing_max_bytes: u32,
     module_types: []const zir.FuncType,
@@ -526,7 +528,7 @@ pub fn emitCallIndirect(
             {
                 const fixup_at: u32 = @intCast(buf.items.len);
                 try buf.appendSlice(allocator, inst.encJccRel32(.ae, 0).slice());
-                try bounds_fixups.append(allocator, fixup_at);
+                try oobtable_fixups.append(allocator, fixup_at); // D-293 oob_table (code 2)
             }
 
             // Sig: MOV RAX, [R15 + typeidx_base_off] (load u32* table)
@@ -580,7 +582,7 @@ pub fn emitCallIndirect(
             {
                 const fixup_at: u32 = @intCast(buf.items.len);
                 try buf.appendSlice(allocator, inst.encJccRel32(.ae, 0).slice());
-                try bounds_fixups.append(allocator, fixup_at);
+                try oobtable_fixups.append(allocator, fixup_at); // D-293 oob_table (code 2)
             }
 
             // Sig: MOV RAX, [R15 + tables_jit_ci_ptr_off]

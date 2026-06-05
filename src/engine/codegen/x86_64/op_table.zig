@@ -15,7 +15,7 @@
 //!     MOV  R10d, [RAX + (tableidx*16)+8]          ; len (zero-ext to 64)
 //!     MOV  EDX, W_idx                              ; stage idx in EDX
 //!     CMP  EDX, R10d
-//!     JAE  trap_stub                               ; bounds_fixups
+//!     JAE  trap_stub                               ; oobtable_fixups
 //!     MOV  Rdst, [R11 + RDX*8]                     ; refs[idx]
 //!     (store back to spill slot if needed)
 //!
@@ -62,7 +62,7 @@ pub fn emitTableGetCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!vo
         ctx.alloc,
         ctx.pushed_vregs,
         ctx.next_vreg,
-        ctx.bounds_fixups,
+        ctx.oobtable_fixups,
         ctx.spill_base_off,
         ctx.func_idx,
         @as(u32, @intCast(ins.payload)),
@@ -75,7 +75,7 @@ pub fn emitTableSetCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!vo
         ctx.buf,
         ctx.alloc,
         ctx.pushed_vregs,
-        ctx.bounds_fixups,
+        ctx.oobtable_fixups,
         ctx.spill_base_off,
         ctx.func_idx,
         @as(u32, @intCast(ins.payload)),
@@ -113,7 +113,7 @@ pub fn emitTableFillCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!v
         ctx.buf,
         ctx.alloc,
         ctx.pushed_vregs,
-        ctx.bounds_fixups,
+        ctx.oobtable_fixups,
         ctx.spill_base_off,
         ctx.func_idx,
         @as(u32, @intCast(ins.payload)),
@@ -126,7 +126,7 @@ pub fn emitTableCopyCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!v
         ctx.buf,
         ctx.alloc,
         ctx.pushed_vregs,
-        ctx.bounds_fixups,
+        ctx.oobtable_fixups,
         ctx.spill_base_off,
         ctx.func_idx,
         @as(u32, @intCast(ins.payload)),
@@ -140,7 +140,7 @@ pub fn emitTableInitCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!v
         ctx.buf,
         ctx.alloc,
         ctx.pushed_vregs,
-        ctx.bounds_fixups,
+        ctx.oobtable_fixups,
         ctx.spill_base_off,
         ctx.func_idx,
         @as(u32, @intCast(ins.payload)),
@@ -218,14 +218,14 @@ fn emitDeriveTypeidxFromFuncref(
 
 /// Wasm spec §4.4.10 (table.get) — pop i32 idx, push tables[x][idx]
 /// as a reference Value (8-byte). Traps `OutOfBoundsTableAccess` on
-/// idx >= table.len via the shared `bounds_fixups` channel.
+/// idx >= table.len via the shared `oobtable_fixups` channel.
 pub fn emitTableGet(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
     alloc: regalloc.Allocation,
     pushed_vregs: *std.ArrayList(u32),
     next_vreg: *u32,
-    bounds_fixups: *std.ArrayList(u32),
+    oobtable_fixups: *std.ArrayList(u32),
     spill_base_off: u32,
     func_idx: u32,
     tableidx: u32,
@@ -254,7 +254,7 @@ pub fn emitTableGet(
     {
         const fixup_at: u32 = @intCast(buf.items.len);
         try buf.appendSlice(allocator, inst.encJccRel32(.ae, 0).slice());
-        try bounds_fixups.append(allocator, fixup_at);
+        try oobtable_fixups.append(allocator, fixup_at);
         trace.writeBounds(func_idx, fixup_at);
     }
 
@@ -277,7 +277,7 @@ pub fn emitTableSet(
     buf: *std.ArrayList(u8),
     alloc: regalloc.Allocation,
     pushed_vregs: *std.ArrayList(u32),
-    bounds_fixups: *std.ArrayList(u32),
+    oobtable_fixups: *std.ArrayList(u32),
     spill_base_off: u32,
     func_idx: u32,
     tableidx: u32,
@@ -303,7 +303,7 @@ pub fn emitTableSet(
     {
         const fixup_at: u32 = @intCast(buf.items.len);
         try buf.appendSlice(allocator, inst.encJccRel32(.ae, 0).slice());
-        try bounds_fixups.append(allocator, fixup_at);
+        try oobtable_fixups.append(allocator, fixup_at);
         trace.writeBounds(func_idx, fixup_at);
     }
 
@@ -440,7 +440,7 @@ pub fn emitTableFill(
     buf: *std.ArrayList(u8),
     alloc: regalloc.Allocation,
     pushed_vregs: *std.ArrayList(u32),
-    bounds_fixups: *std.ArrayList(u32),
+    oobtable_fixups: *std.ArrayList(u32),
     spill_base_off: u32,
     func_idx: u32,
     tableidx: u32,
@@ -482,7 +482,7 @@ pub fn emitTableFill(
     {
         const fixup_at: u32 = @intCast(buf.items.len);
         try buf.appendSlice(allocator, inst.encJccRel32(.a, 0).slice());
-        try bounds_fixups.append(allocator, fixup_at);
+        try oobtable_fixups.append(allocator, fixup_at);
         trace.writeBounds(func_idx, fixup_at);
     }
 
@@ -559,7 +559,7 @@ pub fn emitTableCopy(
     buf: *std.ArrayList(u8),
     alloc: regalloc.Allocation,
     pushed_vregs: *std.ArrayList(u32),
-    bounds_fixups: *std.ArrayList(u32),
+    oobtable_fixups: *std.ArrayList(u32),
     spill_base_off: u32,
     func_idx: u32,
     dst_tbl: u32,
@@ -597,7 +597,7 @@ pub fn emitTableCopy(
     {
         const fixup_at: u32 = @intCast(buf.items.len);
         try buf.appendSlice(allocator, inst.encJccRel32(.a, 0).slice());
-        try bounds_fixups.append(allocator, fixup_at);
+        try oobtable_fixups.append(allocator, fixup_at);
         trace.writeBounds(func_idx, fixup_at);
     }
 
@@ -611,7 +611,7 @@ pub fn emitTableCopy(
     {
         const fixup_at: u32 = @intCast(buf.items.len);
         try buf.appendSlice(allocator, inst.encJccRel32(.a, 0).slice());
-        try bounds_fixups.append(allocator, fixup_at);
+        try oobtable_fixups.append(allocator, fixup_at);
         trace.writeBounds(func_idx, fixup_at);
     }
 
@@ -766,7 +766,7 @@ pub fn emitTableInit(
     buf: *std.ArrayList(u8),
     alloc: regalloc.Allocation,
     pushed_vregs: *std.ArrayList(u32),
-    bounds_fixups: *std.ArrayList(u32),
+    oobtable_fixups: *std.ArrayList(u32),
     spill_base_off: u32,
     func_idx: u32,
     elemidx: u32,
@@ -822,7 +822,7 @@ pub fn emitTableInit(
     {
         const fixup_at: u32 = @intCast(buf.items.len);
         try buf.appendSlice(allocator, inst.encJccRel32(.a, 0).slice());
-        try bounds_fixups.append(allocator, fixup_at);
+        try oobtable_fixups.append(allocator, fixup_at);
         trace.writeBounds(func_idx, fixup_at);
     }
 
@@ -833,7 +833,7 @@ pub fn emitTableInit(
     {
         const fixup_at: u32 = @intCast(buf.items.len);
         try buf.appendSlice(allocator, inst.encJccRel32(.a, 0).slice());
-        try bounds_fixups.append(allocator, fixup_at);
+        try oobtable_fixups.append(allocator, fixup_at);
         trace.writeBounds(func_idx, fixup_at);
     }
 

@@ -91,3 +91,23 @@ test "runVoidExportWasi: JIT out-of-bounds load → precise oob_memory code 6 (A
     try testing.expectEqual(@as(u32, 6), oob);
     try testing.expectEqual(trap_surface.TrapKind.oob_memory, trap_surface.jitTrapCode(oob).?);
 }
+
+// `(module (table 1 funcref) (func (export "_start") i32.const 5 table.get 0 drop))` —
+// table.get index 5 on a 1-element table is out of bounds (D-293: oob_table, code 2,
+// now unified across arm64+x86_64 — x86_64 previously reported the generic bucket).
+const table_get_oob_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x04, 0x01, 0x60, 0x00, 0x00, 0x03, 0x02,
+    0x01, 0x00, 0x04, 0x04, 0x01, 0x70, 0x00, 0x01,
+    0x07, 0x0a, 0x01, 0x06, 0x5f, 0x73, 0x74, 0x61,
+    0x72, 0x74, 0x00, 0x00, 0x0a, 0x09, 0x01, 0x07,
+    0x00, 0x41, 0x05, 0x25, 0x00, 0x1a, 0x0b,
+};
+
+test "runVoidExportWasi: JIT table.get out-of-bounds → precise oob_table code 2 (D-293)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    var oob: u32 = 99;
+    try testing.expectError(entry.Error.Trap, runner.runVoidExportWasi(testing.allocator, &table_get_oob_wasm, "_start", null, &oob));
+    try testing.expectEqual(@as(u32, 2), oob);
+    try testing.expectEqual(trap_surface.TrapKind.oob_table, trap_surface.jitTrapCode(oob).?);
+}

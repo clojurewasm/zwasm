@@ -708,6 +708,9 @@ pub fn compile(
     // ADR-0164 A3 / D-292 — memory oob (code 6) demuxed from bounds_fixups.
     var oob_fixups: std.ArrayList(u32) = .empty;
     defer oob_fixups.deinit(allocator);
+    // D-293 — table/cind oob_table (code 2) demuxed from bounds_fixups.
+    var oobtable_fixups: std.ArrayList(u32) = .empty;
+    defer oobtable_fixups.deinit(allocator);
 
     // Direct-call placeholders awaiting linker patch.
     var call_fixups: std.ArrayList(CallFixup) = .empty;
@@ -779,6 +782,7 @@ pub fn compile(
         .divzero_fixups = &divzero_fixups,
         .overflow_fixups = &overflow_fixups,
         .oob_fixups = &oob_fixups,
+        .oobtable_fixups = &oobtable_fixups,
         .call_fixups = &call_fixups,
         .simd_const_fixups = &simd_const_fixups,
         .extra_consts = &extra_consts,

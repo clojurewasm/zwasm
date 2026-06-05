@@ -179,7 +179,7 @@ pub fn emitTableGet(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     {
         const fixup_at: u32 = @intCast(ctx.buf.items.len);
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hs, 0));
-        try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+        try ctx.cind_bounds_fixups.append(ctx.allocator, fixup_at); // D-293 oob_table (code 2)
         trace.writeBounds(ctx.func.func_idx, fixup_at);
     }
 
@@ -230,7 +230,7 @@ pub fn emitTableSet(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     {
         const fixup_at: u32 = @intCast(ctx.buf.items.len);
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hs, 0));
-        try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+        try ctx.cind_bounds_fixups.append(ctx.allocator, fixup_at); // D-293 oob_table (code 2)
         trace.writeBounds(ctx.func.func_idx, fixup_at);
     }
 
@@ -390,7 +390,7 @@ pub fn emitTableFill(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     {
         const fixup_at: u32 = @intCast(ctx.buf.items.len);
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hi, 0));
-        try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+        try ctx.cind_bounds_fixups.append(ctx.allocator, fixup_at); // D-293 oob_table (code 2)
         trace.writeBounds(ctx.func.func_idx, fixup_at);
     }
 
@@ -500,7 +500,7 @@ pub fn emitTableCopy(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     {
         const fixup_at: u32 = @intCast(ctx.buf.items.len);
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hi, 0));
-        try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+        try ctx.cind_bounds_fixups.append(ctx.allocator, fixup_at); // D-293 oob_table (code 2)
         trace.writeBounds(ctx.func.func_idx, fixup_at);
     }
 
@@ -512,7 +512,7 @@ pub fn emitTableCopy(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     {
         const fixup_at: u32 = @intCast(ctx.buf.items.len);
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hi, 0));
-        try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+        try ctx.cind_bounds_fixups.append(ctx.allocator, fixup_at); // D-293 oob_table (code 2)
         trace.writeBounds(ctx.func.func_idx, fixup_at);
     }
 
@@ -723,7 +723,7 @@ pub fn emitTableInit(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     {
         const fixup_at: u32 = @intCast(ctx.buf.items.len);
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hi, 0));
-        try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+        try ctx.cind_bounds_fixups.append(ctx.allocator, fixup_at); // D-293 oob_table (code 2)
         trace.writeBounds(ctx.func.func_idx, fixup_at);
     }
 
@@ -733,7 +733,7 @@ pub fn emitTableInit(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     {
         const fixup_at: u32 = @intCast(ctx.buf.items.len);
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hi, 0));
-        try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+        try ctx.cind_bounds_fixups.append(ctx.allocator, fixup_at); // D-293 oob_table (code 2)
         trace.writeBounds(ctx.func.func_idx, fixup_at);
     }
 
