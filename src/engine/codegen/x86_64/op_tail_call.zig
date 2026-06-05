@@ -228,12 +228,11 @@ fn emitCrossModuleReturnCall(
 ///   (7) frame_teardown.emit (ADD RSP + POP R15? + POP RBP, no RET),
 ///   (8) JMP R11 (emitTailJump).
 ///
-/// Note (x86_64 vs arm64 fixup-list shape): x86_64 emit puts both
-/// cind bounds AND cind sig fixups into the SHARED `bounds_fixups`
-/// list (op_call.emitCallIndirect convention) — the trap stub at
-/// function tail handles both via the same epilogue+RET shape. arm64
-/// uses separate cind_bounds_fixups + cind_sig_fixups lists routed
-/// through dedicated EmitCindStub variants.
+/// Note (x86_64 fixup-list shape, D-293): cind bounds route to
+/// `oobtable_fixups` (oob_table, code 2) and cind sig to
+/// `cind_sig_fixups` (indirect_call_mismatch, code 3), each demuxed to
+/// a dedicated per-kind trap stub at function tail. Mirrors arm64's
+/// `cind_bounds_fixups` + `cind_sig_fixups` split (both now per-kind).
 pub fn emitIndirectReturnCall(
     ctx: *ctx_mod.EmitCtx,
     ins: *const zir.ZirInstr,
@@ -282,7 +281,7 @@ pub fn emitIndirectReturnCall(
         {
             const fixup_at: u32 = @intCast(ctx.buf.items.len);
             try ctx.buf.appendSlice(ctx.allocator, inst.encJccRel32(.ne, 0).slice());
-            try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+            try ctx.cind_sig_fixups.append(ctx.allocator, fixup_at); // D-293 slice-2 indirect_call_mismatch (code 3)
         }
 
         // Funcptr: MOV RAX, [R15+funcptr_base_off] ; MOV R11, [RAX + idx_r*8].
@@ -321,7 +320,7 @@ pub fn emitIndirectReturnCall(
         {
             const fixup_at: u32 = @intCast(ctx.buf.items.len);
             try ctx.buf.appendSlice(ctx.allocator, inst.encJccRel32(.ne, 0).slice());
-            try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+            try ctx.cind_sig_fixups.append(ctx.allocator, fixup_at); // D-293 slice-2 indirect_call_mismatch (code 3)
         }
 
         // Funcptr: MOV RAX, [R15+tables_jit_ci_ptr_off] ; MOV RAX, [RAX+ci_funcptr_disp]

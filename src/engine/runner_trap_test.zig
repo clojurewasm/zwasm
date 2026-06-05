@@ -111,3 +111,31 @@ test "runVoidExportWasi: JIT table.get out-of-bounds → precise oob_table code 
     try testing.expectEqual(@as(u32, 2), oob);
     try testing.expectEqual(trap_surface.TrapKind.oob_table, trap_surface.jitTrapCode(oob).?);
 }
+
+// `(module (type $t0 (func)) (type $t1 (func (param i32))) (table 1 funcref)
+//  (func $f (type $t0)) (elem (i32.const 0) $f)
+//  (func (export "_start") i32.const 0 i32.const 0 call_indirect (type $t1)))` —
+// table[0] holds $f : ()->() but call_indirect expects $t1 : (i32)->(), a
+// SIGNATURE mismatch (index 0 is IN bounds). D-293 slice-2: indirect_call_mismatch
+// code 3, now UNIFIED across arm64+x86_64 (x86_64 previously reported the generic
+// bucket — its inline sig `JNE` appended to `bounds_fixups`). Bytes generated via
+// `wasm-tools parse` (name section stripped to the 66-byte module proper).
+const cind_sig_mismatch_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x08, 0x02, 0x60, 0x00, 0x00, 0x60, 0x01,
+    0x7f, 0x00, 0x03, 0x03, 0x02, 0x00, 0x00, 0x04,
+    0x04, 0x01, 0x70, 0x00, 0x01, 0x07, 0x0a, 0x01,
+    0x06, 0x5f, 0x73, 0x74, 0x61, 0x72, 0x74, 0x00,
+    0x01, 0x09, 0x07, 0x01, 0x00, 0x41, 0x00, 0x0b,
+    0x01, 0x00, 0x0a, 0x0e, 0x02, 0x02, 0x00, 0x0b,
+    0x09, 0x00, 0x41, 0x00, 0x41, 0x00, 0x11, 0x01,
+    0x00, 0x0b,
+};
+
+test "runVoidExportWasi: JIT call_indirect signature mismatch → precise indirect_call_mismatch code 3 (D-293 slice-2)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    var sig: u32 = 99;
+    try testing.expectError(entry.Error.Trap, runner.runVoidExportWasi(testing.allocator, &cind_sig_mismatch_wasm, "_start", null, &sig));
+    try testing.expectEqual(@as(u32, 3), sig);
+    try testing.expectEqual(trap_surface.TrapKind.indirect_call_mismatch, trap_surface.jitTrapCode(sig).?);
+}

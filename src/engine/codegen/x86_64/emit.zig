@@ -711,6 +711,9 @@ pub fn compile(
     // D-293 — table/cind oob_table (code 2) demuxed from bounds_fixups.
     var oobtable_fixups: std.ArrayList(u32) = .empty;
     defer oobtable_fixups.deinit(allocator);
+    // D-293 slice-2 — cind signature-mismatch (code 3) demuxed from bounds_fixups.
+    var cind_sig_fixups: std.ArrayList(u32) = .empty;
+    defer cind_sig_fixups.deinit(allocator);
 
     // Direct-call placeholders awaiting linker patch.
     var call_fixups: std.ArrayList(CallFixup) = .empty;
@@ -783,6 +786,7 @@ pub fn compile(
         .overflow_fixups = &overflow_fixups,
         .oob_fixups = &oob_fixups,
         .oobtable_fixups = &oobtable_fixups,
+        .cind_sig_fixups = &cind_sig_fixups,
         .call_fixups = &call_fixups,
         .simd_const_fixups = &simd_const_fixups,
         .extra_consts = &extra_consts,

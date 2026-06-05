@@ -158,6 +158,7 @@ pub fn emitCallIndirectCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Erro
         ctx.next_vreg,
         ctx.bounds_fixups,
         ctx.oobtable_fixups,
+        ctx.cind_sig_fixups,
         ctx.spill_base_off,
         ctx.outgoing_max_bytes,
         ctx.module_types,
@@ -449,6 +450,7 @@ pub fn emitCallIndirect(
     next_vreg: *u32,
     bounds_fixups: *std.ArrayList(u32),
     oobtable_fixups: *std.ArrayList(u32),
+    cind_sig_fixups: *std.ArrayList(u32),
     spill_base_off: u32,
     outgoing_max_bytes: u32,
     module_types: []const zir.FuncType,
@@ -545,7 +547,7 @@ pub fn emitCallIndirect(
             {
                 const fixup_at: u32 = @intCast(buf.items.len);
                 try buf.appendSlice(allocator, inst.encJccRel32(.ne, 0).slice());
-                try bounds_fixups.append(allocator, fixup_at);
+                try cind_sig_fixups.append(allocator, fixup_at); // D-293 slice-2 indirect_call_mismatch (code 3)
             }
         }
 
@@ -596,7 +598,7 @@ pub fn emitCallIndirect(
             {
                 const fixup_at: u32 = @intCast(buf.items.len);
                 try buf.appendSlice(allocator, inst.encJccRel32(.ne, 0).slice());
-                try bounds_fixups.append(allocator, fixup_at);
+                try cind_sig_fixups.append(allocator, fixup_at); // D-293 slice-2 indirect_call_mismatch (code 3)
             }
         }
 
