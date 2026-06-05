@@ -6,15 +6,19 @@
 ## Active bundle
 
 - **Bundle-ID**: D-291-ed25519-cind-miscompile
-- **Cycles-remaining**: ~2 (focused debug_jit_auto investigation)
-- **Continuity-memo**: ed25519 JIT traps `oob_table` = a **call_indirect** (code 2) given index ≥2 into a
-  2-slot table. All 3 cind sites: index = `i32.load offset=16777416` which the data seg inits to **1**.
-  Minimal repro (memory 257 + that data seg + the load) returns 1 correct on JIT+interp → it's an
-  INTERACTION (spill × call_indirect, or a store clobbering 0x1000028), NOT a load/data bug. NEXT: capture
-  the actual cind index at the trap (permanent diag in the cind-bounds trap path printing index+table_size,
-  arm64 `EmitCindStub` / `src/engine/codegen/shared/entry.zig`, OR lldb) → quantify; bisect the interaction.
-- **Exit-condition**: culprit op/interaction identified + a minimal `.wat` fixture reproduces the oob_table
-  trap on JIT (passes interp); fix lands; ed25519 `--engine jit` matches wasmtime (exit 0). Full lead: D-291.
+- **Cycles-remaining**: ~2 (needs a gated codegen diagnostic, then bisection)
+- **Continuity-memo**: ed25519 JIT traps `oob_table` = inline **call_indirect** bounds (code 2), index ≥2 into
+  a 2-slot table. All 3 cind sites: index = `i32.const 0; i32.load offset=16777416` (data seg inits that addr
+  to **1**). **6 minimal repros ALL pass (JIT==interp)** — ruled OUT: large-offset load, single/same-addr/exact
+  overlapping data segs, no-store-targets-0x1000028, the cind-index-from-load pattern. ⇒ a CONTEXT-DEPENDENT
+  regalloc/spill miscompile (load-base `i32.const 0` or the index corrupted at ed25519's scale), NOT memory/
+  data/cind-lowering. Structural minimal repros EXHAUSTED. NEXT (fresh-context): add a gated (`-Dtrace-stackprobe`,
+  arm64-ok) diag to the INLINE cind path — `op_call.zig` cind_bounds_fixups ~L398: store the index reg → a new
+  `JitRuntime.trap_aux` (jit_abi.zig, add at struct END to keep offsets) before the B.HS; print in entry.zig
+  when trap_kind==2 → capture the ACTUAL bad index + which of the 3 cind sites; then trim ed25519's call graph.
+  Repros: regen `/tmp/d291*.wat` from the D-291 row. Full lead: D-291.
+- **Exit-condition**: culprit interaction identified + a minimal `.wat` fixture reproduces the oob_table trap on
+  JIT (passes interp); fix lands; ed25519 `--engine jit` matches wasmtime (exit 0).
 
 ## Active program — ADR-0164: trap / crash / exception diagnostics & UX (D-292)
 

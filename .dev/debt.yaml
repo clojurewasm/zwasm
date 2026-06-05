@@ -77,14 +77,24 @@ entries:
       ≈16.06MB, in-bounds). RULED OUT (minimal repro: memory 257 + that data seg + `i32.load offset=16777416`
       == 1, JIT+interp BOTH exit 0): large-offset data-segment init + large-offset scalar load are CORRECT in
       isolation (arm64 op_memory.zig guards offset>0xFFFFFF via MOVZ/MOVK, line 177/187). So the bug is an
-      INTERACTION — the index value 1 is corrupted to ≥2 in ed25519's full run (regalloc-spill × call_indirect,
-      or a store clobbering 0x1000028 before the cind). NEXT (focused session): capture the ACTUAL cind index at
-      the oob_table trap (add a permanent diag to the cind-bounds trap path printing index+table_size, OR lldb
-      the trapping run) → quantify how-wrong; then bisect the spill/call interaction or which of the 3 cind
-      sites fires first. Not gated (ed25519 excluded from suite + bench). DISCHARGE: culprit op/interaction
-      identified with a minimal fixture, fixed; ed25519 jit matches wasmtime.
+      INTERACTION. ELIMINATION (2026-06-06, 6 minimal repros, ALL JIT==interp==correct): (1) large-offset
+      data-init+load; (2) single data seg; (3) two same-address data segs (order); (4) ed25519's EXACT two
+      segments — seg0 275B @0x1000000 overlaps 0x1000028 with byte **8** at +200, seg1 writes 1 @0x1000028 →
+      v2 correctly applies seg1-last == 1 (so data-seg overlap is NOT it; 8 was the suspicious lead, refuted);
+      (5) grep: 16777416 appears ONLY in the 3 loads + the data seg — NO runtime store targets 0x1000028;
+      (6) the exact cind pattern `i32.const arg; i32.const 0; i32.load offset=16777416; call_indirect (type
+      (param i32))` through a 2-slot table (elem func@1) runs CLEAN on JIT. ⇒ instantiation puts 1 @0x1000028
+      and nothing structurally reproduces the corruption → it is a **context-dependent regalloc/spill miscompile**
+      that corrupts the load-base (`i32.const 0`) or the index in ed25519's full execution scale, NOT a memory/
+      data/cind-lowering bug. NEXT (fresh-context session — structural minimal repros EXHAUSTED): add a gated
+      (`-Dtrace-stackprobe`, arm64-only ok) diag to the INLINE cind-bounds path (op_call.zig cind_bounds_fixups
+      ~L398; store the index reg → a new `JitRuntime.trap_aux` before the B.HS; print in entry.zig when
+      trap_kind==2) → capture the ACTUAL bad index + which of the 3 cind sites fires; then bisect by trimming
+      ed25519's real call graph. Not gated (ed25519 excluded from suite + bench). Repros saved in
+      `/tmp/d291*.wat` (regen from this row). DISCHARGE: culprit interaction + minimal fixture, fixed; ed25519
+      jit matches wasmtime.
     first_raised: "2026-06-05"
-    last_reviewed: "2026-06-05"
+    last_reviewed: "2026-06-06"
     refs: |-
       `bench/runners/wasm/shootout/ed25519.wasm` (repro); `.claude/skills/debug_jit_auto/SKILL.md`; `src/engine/codegen/shared/entry.zig` (`[d-165]` trap-kind print) + `src/engine/codegen/arm64/emit.zig` (trap-code write to trap_code slot); `src/platform/stack_limit.zig` (margin diag = trap-stub context, ruled out stack); D-289 (paths verified, not the cause)
   - id: "D-290"
