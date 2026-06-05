@@ -25,26 +25,23 @@
 ## Active bundle
 
 - **Bundle-ID**: jit-wasi (D-244)
-- **Cycles-remaining**: ~2
-- **Continuity-memo**: 🎯 **`zwasm run --engine jit <prog>` does REAL WASI end-to-end** — prints (smoke: jithello +
-  c_hello_wasi), exits with the guest code (`proc_exit(42)`→42), and sees argv (`argc.wasm a b`→3). **The whole
-  common WASI startup surface is JIT-wired by reusing the interp handlers (no re-impl)**: `JitRuntime.wasi_host`
-  field (`dec5e84f`) + `runI64/VoidExportWasi` primitives (`d761637f`/`088c3b23`) + clock/random (`dec5e84f`/
-  `8d1b7612`) + fd_write/fd_read (`81b3e1d3`/`20392074`) + runWasmJit owns a Host w/ io+argv (`0c3e4cef`/`cd10a3b6`,
-  main.zig threads both) + proc_exit exit-code (`1b01061f`) + args/environ (`cd10a3b6`). **Plus a PRE-EXISTING CLI
-  bug fixed (`f320db6f`): shared fd_write only wrote to a capture buffer → `zwasm run` (interp AND jit) silently
-  DROPPED stdout; now routes to real std.Io.File.stdout()/stderr() when no buffer + io.** **NEXT (bundle's last
-  push): (1) register the other ~37 WASI syscalls in `jit_dispatch.zig:lookup`** (only ~13 names there now → file
-  ops like path_open/fd_seek/fd_filestat_get TRAP on JIT). Each = a thin JIT thunk (GPR args → shared handler, the
-  proven pattern) + a `lookup` entry. The shared handlers already exist; this is mechanical (~37, batch in chunks).
-  **(2) `--dir` preopens for JIT** (runWasmJit takes no preopens; thread them + open dirs onto the Host fd_table like
-  runWasmCapturedOpts). Then a JIT file-op program works. Win64 JIT-exec tests gate `skip.phaseEnd(.win64)`;
-  real-stream test uses fd 2 (fd 1 corrupts zig-test protocol).
-  **D-251 AOT-WASI** (separate, later) needs `.cwasm`
-  v0.3 import-metadata serialization (`aot/format.zig`) first. **DISCIPLINE: cross-compile windows-gnu; trust ubuntu
-  for Linux-runtime divergence; read win crash lines (std Win64 TODOs only show at runtime).**
-- **Exit-condition**: a JIT-run WASI module does REAL I/O (e.g. `clock_time_get` nonzero + `fd_write` to real stdout
-  + file ops via preopen) — JIT WASI handler count grows 9 → meaningful subset, green Mac + ubuntu.
+- **Cycles-remaining**: ~1 (CLOSE next cycle after remote-green of the 37-syscall chunk)
+- **Continuity-memo**: ✅ **EXIT-CONDITION MET — `zwasm run --engine jit <prog>` does REAL WASI end-to-end** incl.
+  file ops. Prints (jithello/c_hello_wasi), exits w/ guest code (proc_exit(42)→42), sees argv (argc.wasm a b→3),
+  AND `--dir` preopens work (smoke: `--engine jit --dir . prestat.wasm`→0; fd_prestat_get(3) success). **The FULL
+  46-syscall WASI surface is JIT-wired by reusing the interp handlers (zero re-impl)**: `JitRuntime.wasi_host`
+  (`dec5e84f`) + runI64/VoidExportWasi (`d761637f`/`088c3b23`) + core I/O (`dec5e84f`/`8d1b7612`/`81b3e1d3`/
+  `20392074`) + runWasmJit owns Host w/ io+argv+preopens (`0c3e4cef`/`cd10a3b6`/`dfa614cd`) + proc_exit (`1b01061f`)
+  + args/environ (`cd10a3b6`) + **the other 37 syscalls registered (`487a38ed`, lookup now 46)** + preopens
+  (`dfa614cd`). Also fixed a pre-existing CLI bug (`f320db6f`): shared fd_write silently dropped `zwasm run` stdout.
+  **NEXT: verify the big 37-syscall chunk (`487a38ed`, subagent-generated, +422 LOC) on ubuntu+windows, then CLOSE +
+  V-retrospective.** Possible follow-up debt: enable the realworld WASI corpus under `--engine jit`
+  (`test/realworld/run_runner_jit.zig` run-stage is disabled) for end-to-end JIT-WASI differential coverage.
+  **D-251 AOT-WASI** (separate, the next program item) needs `.cwasm` v0.3 import-metadata serialization
+  (`aot/format.zig`). **DISCIPLINE: cross-compile windows-gnu; trust ubuntu for Linux-runtime divergence; Win64
+  JIT-exec tests gate `skip.phaseEnd(.win64)`; jit_dispatch unit tests run all-platform.**
+- **Exit-condition**: ✅ MET — a JIT-run WASI module does REAL I/O (clock nonzero + fd_write→real stdout + file ops
+  via preopen); lookup resolves 46/46. Pending: ubuntu+windows green at `dfa614cd` → then close.
 
 ## NEXT — USER-DIRECTED PROGRAM 2026-06-05 (supersedes the bucket-3 plateau): complete WASI + all-engine + CM
 
@@ -66,8 +63,9 @@ no auto-revert. Step 6+7: `should_gate_windows.sh` exit 0 → kick `run_remote_w
 
 ## Step 0.7 (next resume) — verify per-cadence remote logs
 
-ubuntu GREEN at `a15b9926` (proc_exit). This turn pushed D-244 args/environ + argv threading (`cd10a3b6`);
-re-kicked both. **Step 0.7 next resume:
+ubuntu GREEN at `c3745a65` + windows GREEN at `cd10a3b6` (args/environ + the fd_write→stdout verified on Win64).
+This turn pushed the FULL 46-syscall JIT registration (`487a38ed`, +422 LOC subagent-generated, Mac+x-compile
+verified) + JIT preopens (`dfa614cd`); re-kicked both. **Step 0.7 next resume:
 `tail /tmp/ubuntu.log` (must be OK, auto-revert on FAIL) + `tail /tmp/win.log` — distinguish the D-282 env-flake
 (ALL runners 0-failed + only `configure phase FileNotFound`) from a REAL crash (`' exited with code N`/`panic`/
 `TODO implement ... windows` + a named test). A std Win64 `TODO`-panic in an op I use → reroute like `20b9f860`.**
