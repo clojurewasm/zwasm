@@ -61,11 +61,13 @@ audit-gap list closed-or-deferred.
 
 ## Step 0.7 (next resume) — verify remote logs
 
-`b6da8604` touches `src/` (JIT/AOT run-path signatures + CLI) → **both ubuntu AND windows kicked this turn**
-(background; cadence said "6 commits since last windowsmini run"). Read `tail -3 /tmp/ubuntu.log` AND
-`tail -3 /tmp/win.log`. ubuntu RED → revert the `b6da8604` pair (D3). windows RED → re-run once: reproduces =
-real Win64 bug (debt+fix), flake = `track_heisenbug.sh`. windows GREEN → `should_gate_windows.sh --record`.
-Both GREEN → proceed to the LEAD above.
+- **ubuntu: ✅ GREEN at `99b56f1c`** (verified this turn; `0e6a555d` on top is docs-only = no src delta).
+  The first kick caught a real arch bug (x86_64 `unreachable` → trap_kind 0, not arm64's 1) → test made
+  arch-robust at `99b56f1c`, re-kick GREEN.
+- **windows: ⏳ kicked this turn (6-commit cadence), RUNNING at last check.** Verify `tail -3 /tmp/win.log`
+  at next resume: `[run_remote_windows] OK` → `bash scripts/should_gate_windows.sh --record`. The arch-robust
+  test is win64-skipped, so the win run at `4d58b315` is representative of `99b56f1c`. windows RED → re-run
+  once: reproduces = real Win64 bug (debt+fix), flake = `track_heisenbug.sh`. Then proceed to the LEAD above.
 
 ## Key refs
 
