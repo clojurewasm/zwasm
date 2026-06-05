@@ -28,9 +28,9 @@ ready fix plan in its debt row:
   ADR-likely) · **D-291** (ed25519 JIT SIGSEGV via debug_jit_auto) · **D-284** (entry-resolution unify) ·
   **D-289 FP/param/stack arms** (low signal) · **D-287** (control-stack cap ADR) · **D-286** (fill/init) ·
   **D-290** (wabt→wasm-tools hygiene). The deep/design ones (D-288/D-291/D-287) want fresh context.
-- 3-host: ubuntu green @701cbe60; **windows gate (D-289 turn) — verify `/tmp/win.log` at Step 0.7**; the tail
-  showed `zwasm-zig-host-hello.exe` mid-run/`failed command` — confirm OK vs a real Win64 issue (D-289 is
-  arm64-only so unlikely from it). Prior full 3-host green = D-285 `838de5a1`. This turn = debt only (no src).
+- 3-host: **D-289 GPR fix now FULLY GREEN on all 3 hosts** — Mac native + ubuntu `OK 701cbe60` + windows
+  `OK` (cadence recorded @635bd734). The earlier `zwasm-zig-host-hello` line was mid-stream verbose, not a
+  failure. So the new full-3-host-green baseline = `635bd734` (supersedes D-285 `838de5a1`). Last 2 turns = debt only.
 
 ## Current state
 
