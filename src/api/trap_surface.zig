@@ -44,6 +44,13 @@ pub const TrapKind = enum(u32) {
     indirect_call_mismatch = 8,
     stack_overflow = 9,
     out_of_memory = 10,
+    // D-293 slice-4a — Wasm 3.0 GC/typed-ref/EH trap kinds. These already
+    // exist in `runtime.Trap` (NullReference / CastFailure / UncaughtException)
+    // but were missing from the surface enum, so the interp mis-reported them as
+    // `binding_error` ("host invocation error"). Appended (stable C-ABI values).
+    null_reference = 11,
+    cast_failure = 12,
+    uncaught_exception = 13,
 };
 
 /// `wasm_trap_t` — runtime trap surface. Carries the trap kind +
@@ -81,6 +88,10 @@ pub fn trapMessageFor(kind: TrapKind) []const u8 {
         .indirect_call_mismatch => "indirect call type mismatch",
         .stack_overflow => "call stack exhausted",
         .out_of_memory => "out of memory",
+        // D-293 slice-4a — spec reason strings (Wasm 3.0 typed-ref / GC / EH).
+        .null_reference => "null reference",
+        .cast_failure => "cast failure",
+        .uncaught_exception => "uncaught exception",
     };
 }
 
@@ -118,6 +129,10 @@ pub fn mapInterpTrap(err: anyerror) TrapKind {
         error.IndirectCallTypeMismatch => .indirect_call_mismatch,
         error.StackOverflow, error.CallStackExhausted => .stack_overflow,
         error.OutOfMemory => .out_of_memory,
+        // D-293 slice-4a — Wasm 3.0 GC/typed-ref/EH traps (were mis-mapped to binding_error).
+        error.NullReference => .null_reference,
+        error.CastFailure => .cast_failure,
+        error.UncaughtException => .uncaught_exception,
         else => .binding_error,
     };
 }
@@ -391,13 +406,27 @@ test "jitTrapCode: precise codes map to interp-parity kinds; generic bucket is n
     try testing.expectEqual(TrapKind.div_by_zero, jitTrapCode(7).?);
     try testing.expectEqual(TrapKind.int_overflow, jitTrapCode(8).?);
     try testing.expectEqual(TrapKind.oob_memory, jitTrapCode(6).?);
+    // D-293 slice-3 — trapping-trunc NaN gets a precise code 9 (invalid_conversion).
+    try testing.expectEqual(TrapKind.invalid_conversion, jitTrapCode(9).?);
     // 0 (unmarked) + 1 (generic) remain the legacy bucket — the still-shared
-    // bounds_fixups kinds (oob_table / invalid_conversion / trunc int_overflow /
-    // null_reference / cast_failure / array_oob; see D-293).
+    // bounds_fixups kinds (null_reference / cast_failure / array_oob; see D-293).
     try testing.expect(jitTrapCode(0) == null);
     try testing.expect(jitTrapCode(1) == null);
     // Precise codes reuse the interp message table — true parity.
     try testing.expectEqualStrings("indirect call type mismatch", trapMessageFor(jitTrapCode(3).?));
+}
+
+test "mapInterpTrap: Wasm 3.0 GC/typed-ref/EH traps surface their precise kind (D-293 slice-4a)" {
+    // Were mis-mapped to binding_error ("host invocation error") before slice-4a —
+    // the interp itself gave the wrong message for a genuine wasm null-reference trap.
+    try testing.expectEqual(TrapKind.null_reference, mapInterpTrap(error.NullReference));
+    try testing.expectEqual(TrapKind.cast_failure, mapInterpTrap(error.CastFailure));
+    try testing.expectEqual(TrapKind.uncaught_exception, mapInterpTrap(error.UncaughtException));
+    try testing.expectEqualStrings("null reference", trapMessageFor(.null_reference));
+    try testing.expectEqualStrings("cast failure", trapMessageFor(.cast_failure));
+    try testing.expectEqualStrings("uncaught exception", trapMessageFor(.uncaught_exception));
+    // Unmapped host errors still fall back to binding_error.
+    try testing.expectEqual(TrapKind.binding_error, mapInterpTrap(error.SomeHostThing));
 }
 
 test "wasm_trap_*: null-arg discipline" {
