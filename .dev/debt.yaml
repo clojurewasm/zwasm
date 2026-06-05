@@ -3,6 +3,27 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-290"
+    layer: "infra"
+    status: "note"
+    description: |-
+      note (user-directed 2026-06-05): COMPLETE the wabt → wasm-tools toolchain migration so the repo uses
+      ONE modern wasm CLI (wasm-tools, broader/current proposal coverage; wat2wasm verified byte-identical to
+      `wasm-tools parse` for basic fixtures). PARTIALLY DONE: `regen_spec_3_0_assert.sh` already switched
+      wast2json → `wasm-tools json-from-wast` (D-179) — its header documents the gotchas to reuse: wasm-tools
+      has no `--enable-all` (proposals on by default), prefixes module ids with `$`, emits i32/i64 JSON
+      values differently (needs the normalization baker), rejects some `(module definition ...)` forms.
+      REMAINING wabt sites to migrate: (1) `scripts/regen_spec_2_0_assert.sh` (wast2json → json-from-wast),
+      (2) `scripts/regen_test_data.sh` (wast2json), (3) `build.zig` spectest.wat→spectest.wasm pipeline +
+      `flake.nix` wabt pin (wat2wasm → `wasm-tools parse`), (4) any ad-hoc `.wat` fixture gen. DISCHARGE:
+      `rg -n 'wat2wasm|wast2json|wabt' scripts/ build.zig flake.nix` returns nothing (or only historical
+      comments); wabt dropped from flake.nix; all spec-regen + fixture builds use wasm-tools; 3-host
+      test-all + test-spec green after the swap. Low urgency (current tooling works); do as deliberate
+      hygiene, mind the D-179 JSON-normalization gotchas to avoid spec-runner drift.
+    first_raised: "2026-06-05"
+    last_reviewed: "2026-06-05"
+    refs: |-
+      `scripts/regen_spec_3_0_assert.sh` (D-179 precedent + gotchas); `scripts/regen_spec_2_0_assert.sh`; `scripts/regen_test_data.sh`; `build.zig` (spectest pipeline); `flake.nix` (wabt pin); D-179
   - id: "D-289"
     layer: "code"
     status: "note"
