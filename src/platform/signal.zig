@@ -86,9 +86,13 @@ const win_impl = if (builtin.os.tag == .windows) struct {
 
     fn install() void {
         if (veh_handle != null) return;
-        // First = 0 → back of the VEH chain (any host/recovery handler runs first;
-        // only a truly-unhandled fault reaches this last-resort exit).
-        veh_handle = win.ntdll.RtlAddVectoredExceptionHandler(0, &handler);
+        // First = 1 → FRONT of the VEH chain. Registered in main() AFTER Zig's
+        // runtime attaches its own (Debug-mode) segfault VEH, so the most-recently-
+        // registered First=1 handler — ours — is called first. Without this, Zig's
+        // default handler intercepts the fault (prints a trace + exits 3) and ours
+        // never runs (it caught exit 3, not our 70, on the test-internal-fault gate).
+        // Production-only install → never shadows the (never-armed) JIT-recovery VEH.
+        veh_handle = win.ntdll.RtlAddVectoredExceptionHandler(1, &handler);
     }
 } else struct {};
 
