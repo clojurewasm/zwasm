@@ -20,24 +20,25 @@
   trap under `--engine jit` anyway). D-283 stays open for a subprocess-based full-corpus differential (the
   in-process lane can't per-fixture-timeout the slow JIT-compiles).
 
-## NEXT — pick a remaining Phase-16 item (program fulfilled; scaffolding audited clean)
+## NEXT — completion plateau: marginal refinements only; big-ticket = v0.2.0 (user-scoped)
 
-The user-directed program (complete WASI + all-engine + CM) is **fulfilled except CM (post-v0.1.0)**: WASI 46/46
-(interp+JIT+AOT), all-engine validated on the realworld corpus. Scaffolding audit done this cycle (`6a9d4b56`):
-0 block, healthy — fixed 3 stale debt refs + 3 ADR revision SHAs; deleted 2 stale rows (D-244 done; D-239 was a
-FALSE LEAD — already fixed `faf23f0a` + 3 regression tests, my prior flip misread `func_type_indices` vs
-compile.zig's `func_typeidxs`). **Lesson**: reconcile a debt row against the code + its regression test, not a
-single-name grep, before flipping `now`. Ledger 75→59.
+**The v0.1.0-scope program is COMPLETE + validated + hardened.** WASI 46/46 (interp+JIT+AOT), all-engine
+validated on the realworld corpus (D-283, 7/7 byte-match), scaffolding audited clean (`6a9d4b56`, 0 block), debt
+clean (0 `now`, ledger 59), all 完成形 dimensions met (D-265 perf rework CLOSED 2026-06-04 — no measured
+deficiency). AOT-WASI hardened this cycle: **fd_write→stdout-capture** (`9d0c60e8`) + **`--dir` preopen
+fd_prestat_get** (`3383bf7d`) unit tests in `zig build test` (beyond the proc_exit dispatch test).
 
-Pick by concreteness (investigation-first):
-- **(a) D-281** real socket I/O — sockets=notsock today (`sock_accept`/`recv`/`send`/`shutdown` stub ENOTSOCK).
-  The most WASI-aligned remaining feature; survey the preopen-socket model first (niche; preview1 sockets are
-  preopened-fd only).
-- **(b) D-255** C-API WASI io — blocked-by: a C-library context has no Zig-0.16 `Init`/io token. Structural; needs
-  the C-API io infra. Completes the §16.5 C-API surface.
-- **(c) Component Model** scoping ADR (A5 survey done; post-v0.1.0 — scoping is autonomous prep).
-- **Standing**: 32-row debt backlog → `suggest meta_audit` (user-gated, not autonomous). D-211 confirmed deferred
-  (ADR-0148/0060). D-245 partial-latent (no active caller — leave).
+**Honest state**: the substantive remaining work is **v0.2.0-scope, ROADMAP-deferred** (§3 lines 117/223/224:
+"Component Model + WASI 0.2 — large surface, deferred to v0.2.0"; "CM = v0.2.0 entry point") — pulling it into
+scope is a scope-expansion decision that **needs user direction**, not autonomous work. The other "remaining"
+items are NOT clean `now` work: **D-281** sockets = on-demand (notsock is spec-conformant; building ahead of
+demand = over-engineering); **D-255** C-API io = deliberate ADR-0143 v0.1 scope deferral (blocked-by a C-API io
+construct); **D-266** = optional confirmation (D-265 already closed). D-211 = confirmed deferred (ADR-0148/0060).
+
+**So next cycle**: keep finding *marginal* in-scope refinements (more AOT-WASI syscall hardening tests; doc polish;
+`note`-debt-row staleness reconciliation) and re-arm — per ADR-0156 the loop refines indefinitely. Do NOT chase
+D-281/D-255/CM as if `now` work; surface to the user only if a genuine bucket-3 (all marginal work exhausted).
+The big lever (v0.2.0 / CM / WASI-0.2) awaits a user scope decision.
 
 ## Step 0.7 (next resume) — verify remote logs
 
