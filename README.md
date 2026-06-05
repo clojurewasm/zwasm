@@ -169,6 +169,7 @@ private/     gitignored agent scratch
 - [`docs/tutorial.md`](docs/tutorial.md) — getting started (build, run, embed)
 - [`docs/reference/`](docs/reference/) — API reference:
   [Zig](docs/reference/zig_api.md) · [C](docs/reference/c_api.md) · [CLI](docs/reference/cli.md)
+- [`docs/benchmarks.md`](docs/benchmarks.md) — performance vs other runtimes + across engines
 - [`docs/migration_v1_to_v2.md`](docs/migration_v1_to_v2.md) — v1 → v2 migration
 - [`CHANGELOG.md`](CHANGELOG.md) — release notes
 
