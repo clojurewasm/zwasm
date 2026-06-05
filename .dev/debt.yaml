@@ -34,7 +34,7 @@ entries:
       `.dev/decisions/0164_trap_crash_exception_diagnostics_ux.md`; `src/runtime/trap.zig` (Trap set); `src/cli/run.zig` (surfaceTrap + runWasmJit generic Trap); `src/cli/diag_print.zig`; `src/platform/stack_limit.zig`; `~/Documents/MyProducts/zwasm/src/cli.zig` (v1 per-kind msgs); D-291 (motivating case); D-165 (JIT trap-code infra)
   - id: "D-293"
     layer: "code"
-    status: "note"
+    status: "partial"
     description: |-
       note (2026-06-06; spun out of D-292 A3): the JIT `bounds_fixups` channel is a generic catch-all that
       multiplexes MANY trap kinds, not just oob_memory. D-292 A1–A3 demuxed the common 4 (unreachable / div /
@@ -74,11 +74,17 @@ entries:
       null_reference; array index OOB → code 6 oob_memory (the interp raises OutOfBoundsLoad/Store for array
       bounds → shares the memory-oob kind, NO new TrapKind needed). Both arches, 12 sites, existing channels.
       Tests: struct.get null → 10, array.get OOB → 6. Survey (subagent) classified all ~29 GC trap sites/arch.
-      REMAINING D-293 (JIT codegen still generic, all LOWEST-freq GC-on-JIT; interp ALREADY precise for all):
-      cast_failure (ref.cast/ref.cast_null → new code 11; TrapKind.cast_failure exists, 2 sites/arch = slice-4d,
-      CLEAN); then array.len/fill/copy/init/new trampolines (TEST RAX on runtime-result, AMBIGUOUS failure
-      semantics — needs per-site investigation, not mechanical) + i31 non-i31 check. next free JIT code = 11.
-      After slice-4d, weigh PIVOT to D-292 B-core over the remaining low-value trampolines. (Below: slice-1 survey.)
+      SLICE-4d DONE (`0d13e635`): ref.cast / ref.cast_null subtype-mismatch → new code 11 = cast_failure, both
+      arches (new cast_fail_fixups channel; the jitGcRefCast 0-return TEST/CMP+JE/B.EQ — for ref.cast a null
+      operand is itself a cast failure per spec §4.4.5, so the single 0-return maps cleanly; ref.cast_null's
+      null-passthrough is a local control-flow branch, untouched). TrapKind.cast_failure + wast_runner arm
+      already exist (slice-4a). Test: ref.cast mismatch → 11.
+      STATUS: D-293 JIT trap precision SUBSTANTIALLY COMPLETE (all common + GC null/bounds/cast precise both
+      arches; interp surface complete). REMAINING (low-priority partial, interp ALREADY precise so no user-facing
+      gap on the default engine): array.len/fill/copy/init/new trampolines (TEST RAX on a runtime-result with
+      AMBIGUOUS failure semantics — needs per-site investigation of jitGcArray* return contracts, NOT mechanical
+      routing) + i31 non-i31 check. next free JIT code = 12. Reopen if a GC-on-JIT program needs it; else leave.
+      (Below: the original slice-1 survey, kept as the method template.)
       SLICE-1 PLAN — oob_table (code 2), surveyed 2026-06-06 (DO BOTH ARCHES TOGETHER; a runVoidExportWasi test
       asserting code 2 FAILS the x86_64/ubuntu gate if x86_64 stays generic → the test enforces parity).
       DISCOVERY: x86_64 has NO oob_table precision at all — its call_indirect bounds AND table bounds all append
