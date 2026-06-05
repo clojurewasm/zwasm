@@ -32,21 +32,24 @@ pub fn runWasm(
 }
 
 /// `zwasm run --engine=jit` (ADR-0136): JIT-compile `bytes` and run the
-/// entry export (`invoke_name`, else `_start`) to completion. COMPUTE-ONLY
-/// — no WASI I/O or `proc_exit` exit-code plumbing yet (that is the d-3
-/// JIT-WASI follow-up, D-244): a guest that does I/O computes but produces
-/// no stdout. Intended for compute / SIMD modules (e.g. the §11.3 bench
-/// corpus) that the interpreter cannot run because SIMD is JIT-only. No
-/// `io` arg — there is no host I/O on this path. Returns 0 on success;
-/// JIT/validate/trap errors propagate (the caller maps them to exit 1).
+/// entry export (`invoke_name`, else `_start`) to completion. **D-244 chunk
+/// 2c**: now attaches a WASI host (`io`) so the JIT does REAL WASI — clock /
+/// random / fd_write→stdout / fd_read→stdin route through the shared interp
+/// handlers (`jit_dispatch.zig`). A compute-only module simply ignores the
+/// host. (args/preopens + proc_exit exit-code = follow-up chunks.) Returns 0
+/// on success; JIT/validate/trap errors propagate (the caller maps to exit 1).
 pub fn runWasmJit(
     alloc: std.mem.Allocator,
+    io: std.Io,
     bytes: []const u8,
     invoke_name: ?[]const u8,
 ) !u8 {
     const runner = @import("../engine/runner.zig");
     const entry_name = invoke_name orelse "_start";
-    _ = try runner.runVoidExport(alloc, bytes, entry_name);
+    var host = try wasi_host.Host.init(alloc);
+    defer host.deinit();
+    host.io = io;
+    _ = try runner.runVoidExportWasi(alloc, bytes, entry_name, &host);
     return 0;
 }
 
@@ -484,6 +487,28 @@ test "runWasmJit: SIMD _start runs via the JIT where the interp traps (ADR-0136 
     try testing.expect(interp_code != 0);
 
     // JIT path: compiles + runs the SIMD `_start` to completion → 0.
-    const jit_code = try runWasmJit(testing.allocator, &simd_start_wasm, null);
+    const jit_code = try runWasmJit(testing.allocator, testing.io, &simd_start_wasm, null);
     try testing.expectEqual(@as(u8, 0), jit_code);
+}
+
+// D-244 chunk 2c: a `_start` that calls clock_time_get and traps (unreachable)
+// when the loaded time is 0. `runWasmJit` now attaches a WASI host, so the JIT
+// clock is REAL (nonzero) → no trap → exit 0. Without the host attachment this
+// would trap. Proves `--engine jit` does real WASI end-to-end.
+const clock_start_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x0b, 0x02, 0x60, 0x03, 0x7f, 0x7e, 0x7f,
+    0x01, 0x7f, 0x60, 0x00, 0x00, 0x02, 0x29, 0x01, 0x16, 0x77, 0x61, 0x73, 0x69, 0x5f, 0x73, 0x6e,
+    0x61, 0x70, 0x73, 0x68, 0x6f, 0x74, 0x5f, 0x70, 0x72, 0x65, 0x76, 0x69, 0x65, 0x77, 0x31, 0x0e,
+    0x63, 0x6c, 0x6f, 0x63, 0x6b, 0x5f, 0x74, 0x69, 0x6d, 0x65, 0x5f, 0x67, 0x65, 0x74, 0x00, 0x00,
+    0x03, 0x02, 0x01, 0x01, 0x05, 0x03, 0x01, 0x00, 0x01, 0x07, 0x0a, 0x01, 0x06, 0x5f, 0x73, 0x74,
+    0x61, 0x72, 0x74, 0x00, 0x01, 0x0a, 0x17, 0x01, 0x15, 0x00, 0x41, 0x00, 0x42, 0x00, 0x41, 0x00,
+    0x10, 0x00, 0x1a, 0x41, 0x00, 0x29, 0x03, 0x00, 0x50, 0x04, 0x40, 0x00, 0x0b, 0x0b,
+};
+
+test "runWasmJit: --engine jit attaches a WASI host → real clock, no trap (D-244 2c)" {
+    const builtin = @import("builtin");
+    if (builtin.os.tag == .windows) return @import("../test_support/skip.zig").phaseEnd(.win64);
+    // Host attached → real (nonzero) clock → the trap-if-zero guard passes → 0.
+    const code = try runWasmJit(testing.allocator, testing.io, &clock_start_wasm, null);
+    try testing.expectEqual(@as(u8, 0), code);
 }

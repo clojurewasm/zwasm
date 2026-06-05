@@ -206,7 +206,7 @@ pub fn main(init: std.process.Init) !void {
                 std.process.exit(2);
             }
             const code = (if (engine_jit)
-                cli_run.runWasmJit(gpa, bytes, invoke_name)
+                cli_run.runWasmJit(gpa, io, bytes, invoke_name)
             else
                 cli_run.runWasmCapturedOpts(gpa, io, bytes, argv_list.items, null, invoke_name, preopen_list.items, invoke_args)) catch |err| {
                 // Per ADR-0016 phase 1: prefer the structured
