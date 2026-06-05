@@ -53,20 +53,26 @@ audit-gap list closed-or-deferred.
   label stack is hybrid-lazy. Tests: 2000-deep validates, 9000-deep overflows. Forward-ref: heap the validator
   control_buf to remove the cap entirely (full spec-completeness).
 
-## ← LEAD: D-288 — interp call-depth cap
+- **D-288 investigated, naive fix REVERTED** (no commit): the interp **recurses NATIVELY** (mvp.zig:654
+  `invoke` ← `callOp:413`), ~8KB/native-frame → 8MB Mac stack ÷ ~1021. So `frame_buf[256]` is a SEGV GUARD
+  (clean-traps before the host stack overflows); raising it (tested cap=4096) made ackermann SEGV at ~1021.
+  Real fix = a flat/trampolined interp (no native recursion) OR a native-stack-limit check in `invoke` — an
+  interp-architecture change (ADR). Substantial → moved to the queue. (Latent: Win 1MB native limit ~128 < 256.)
 
-The interp traps deeply-recursive programs at a frame-stack cap (ackermann ~1021-deep traps at a 256 cap;
-analogous to D-287 but for CALL depth, not control nesting). Likely a raise + ADR (or an inline+overflow
-redesign mirroring frame.zig's hybrid label stack). NEXT: Step 0 — find the interp frame/call-depth cap +
-its memory model (fixed vs hybrid) + a repro (ackermann), then ADR + raise/redesign + test.
+## ← LEAD: D-293 — remaining JIT trap-kind precision (incremental, leverages workstream-A context)
+
+`bounds_fixups` still multiplexes generic kinds (oob_table / invalid_conversion / trunc int_overflow /
+null_reference / cast_failure / array_oob) → JIT prints "kind not yet distinguished". Do it INCREMENTALLY
+like A1/A2/A3 (per-kind channel/stub + `jitTrapCode` + execution test), starting with **oob_table** (op_table
+table.get/set/copy/init bounds). NEXT: Step 0 — the A3 survey's per-site classification table is the map;
+demux the op_table oob_table sites to a precise code (both arches), mirror the A3 oob_memory pattern.
 
 ## Queue (time-consuming first, per user directive)
 
-4. **D-293** (kinded-fixup refactor — remaining JIT trap kinds oob_table/conversion/null/cast/array; ~50 sites).
-5. **D-291** (paused; see above) · **D-292 B-core** (SIGSEGV→internal-error, needs ADR-0070 amend) · C · D.
-5. Moderate: **D-284** (interp/jit/aot entry-resolution unify) · **D-290** (wabt→wasm-tools, user-directed hygiene).
-6. Defer (low-signal / measure-first): **D-289 FP/param/stack large arms** · **D-286** (fill/init byte-loop).
-   **D-285** (JIT byte-loop/bulk-memory codegen, ADR-0153 rework candidate — scheduled after this program).
+- **D-288** (interp flat/trampolined recursion OR native-stack-limit check; ADR — interp-architecture redesign).
+- **D-291** (paused; see top) · **D-292 B-core** (SIGSEGV→internal-error, needs ADR-0070 amend) · C · D.
+- Moderate: **D-284** (interp/jit/aot entry-resolution unify) · **D-290** (wabt→wasm-tools hygiene).
+- Defer: **D-289** FP/param/stack large arms · **D-286** (fill/init byte-loop) · **D-285** (JIT bulk-memory, ADR-0153).
 
 ## Current state
 

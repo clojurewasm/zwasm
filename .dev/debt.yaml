@@ -181,12 +181,21 @@ entries:
       it). NOT a trivial bump: each `Frame` embeds an inline `label_buf:[128]Label` (frame.zig:104), so
       `frame_buf` is already large — raising 256 bloats the Runtime struct ~linearly (risk: if Runtime is
       stack-allocated, a multi-MB struct self-overflows). The JIT side is SEPARATE (native stack + the
-      stack_limit probe, ~8 MB; ed25519's JIT fault is D-291, a memory SIGSEGV not depth). FIX (interp):
-      give the frame stack an inline + heap-overflow design mirroring the EXISTING label stack
-      (`label_buf[128]` + `label_overflow = alloc.alloc(...)`, frame.zig:104-116) — inline [256] + lazy heap
-      spill for deeper; OR move `label_buf` off-Frame (always-heap) so frame_buf can grow cheaply. This is a
-      call-stack memory-model change → likely an ADR (touches a runtime limit). DISCHARGE: ackermann(3,7)
-      runs on interp (+ a deep-recursion fixture) OR an ADR documents the cap + rationale.
+      stack_limit probe, ~8 MB; ed25519's JIT fault is D-291, a memory SIGSEGV not depth).
+      ROOT MECHANISM CORRECTED (2026-06-06, the naive fix FAILED + was reverted): the interp **recurses
+      NATIVELY on the host stack** — `mvp.zig:654 invoke` → `callOp:413 try invoke(...)` per wasm call, ~8KB
+      per native frame (8MB Mac stack ÷ ~1021 SEGV depth). So `frame_buf[256]` is a SAFETY GUARD that traps
+      `CallStackExhausted` CLEANLY *before* the host stack SEGVs. The inline+overflow / cap-raise fix is WRONG:
+      it removes the guard → tested cap=4096 made ackermann SEGV at ~1021 (mvp.zig:654) instead of clean-trap.
+      (Sub-concern: on Windows' 1MB stack the native limit is ~128 < the 256 cap, so 128–256-deep recursion may
+      already SEGV on Win — a latent pre-existing risk; windows test programs evidently don't hit it.) REAL FIX
+      OPTIONS: (a) **flat/trampolined interp** — the dispatch loop processes frames WITHOUT native recursion per
+      call (runs any depth, bounded by a heap frame stack) — the 完成形 answer, a substantial interp redesign;
+      (b) add a native-stack-limit CHECK in `invoke` (mirror the JIT stack_limit probe) → clean trap at the
+      REAL per-OS host limit instead of SEGV (adaptive robustness, fixes the Win risk, but still won't RUN
+      ackermann); (c) run interp on a large stack (thread/fiber) or shrink the ~8KB native invoke frame. ADR
+      required (interp-architecture). DISCHARGE: ackermann(3,7) runs on interp (flat interp) + a deep-recursion
+      fixture, OR an ADR documents the native-recursion cap + adds the stack-limit check (no-SEGV guarantee).
     first_raised: "2026-06-05"
     last_reviewed: "2026-06-05"
     refs: |-
