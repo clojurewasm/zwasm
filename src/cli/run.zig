@@ -49,7 +49,14 @@ pub fn runWasmJit(
     var host = try wasi_host.Host.init(alloc);
     defer host.deinit();
     host.io = io;
-    _ = try runner.runVoidExportWasi(alloc, bytes, entry_name, &host);
+    // D-244 chunk 2d: `proc_exit(N)` records `host.exit_code` then unwinds via
+    // the JIT trap mechanism (returns Error.Trap). Surface the guest's exit
+    // code; a trap with NO exit_code is a genuine fault → propagate (exit 1).
+    _ = runner.runVoidExportWasi(alloc, bytes, entry_name, &host) catch |err| {
+        if (host.exit_code) |code| return @intCast(@min(code, std.math.maxInt(u8)));
+        return err;
+    };
+    if (host.exit_code) |code| return @intCast(@min(code, std.math.maxInt(u8)));
     return 0;
 }
 
@@ -511,4 +518,21 @@ test "runWasmJit: --engine jit attaches a WASI host → real clock, no trap (D-2
     // Host attached → real (nonzero) clock → the trap-if-zero guard passes → 0.
     const code = try runWasmJit(testing.allocator, testing.io, &clock_start_wasm, null);
     try testing.expectEqual(@as(u8, 0), code);
+}
+
+// D-244 chunk 2d: `_start` calls proc_exit(42).
+const proc_exit_42_jit = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x60, 0x01, 0x7f, 0x00, 0x60,
+    0x00, 0x00, 0x02, 0x24, 0x01, 0x16, 0x77, 0x61, 0x73, 0x69, 0x5f, 0x73, 0x6e, 0x61, 0x70, 0x73,
+    0x68, 0x6f, 0x74, 0x5f, 0x70, 0x72, 0x65, 0x76, 0x69, 0x65, 0x77, 0x31, 0x09, 0x70, 0x72, 0x6f,
+    0x63, 0x5f, 0x65, 0x78, 0x69, 0x74, 0x00, 0x00, 0x03, 0x02, 0x01, 0x01, 0x07, 0x0a, 0x01, 0x06,
+    0x5f, 0x73, 0x74, 0x61, 0x72, 0x74, 0x00, 0x01, 0x0a, 0x08, 0x01, 0x06, 0x00, 0x41, 0x2a, 0x10,
+    0x00, 0x0b,
+};
+
+test "runWasmJit: --engine jit surfaces the guest proc_exit code (D-244 2d)" {
+    const builtin = @import("builtin");
+    if (builtin.os.tag == .windows) return @import("../test_support/skip.zig").phaseEnd(.win64);
+    const code = try runWasmJit(testing.allocator, testing.io, &proc_exit_42_jit, null);
+    try testing.expectEqual(@as(u8, 42), code);
 }

@@ -40,6 +40,7 @@ const sections = @import("../parse/sections.zig");
 const wasi_host_mod = @import("host.zig");
 const wasi_clocks = @import("clocks.zig");
 const wasi_fd = @import("fd.zig");
+const wasi_proc = @import("proc.zig");
 
 const JitRuntime = jit_abi.JitRuntime;
 const Errno = enum(i32) {
@@ -289,7 +290,13 @@ pub fn environ_get(rt: *JitRuntime, envv_ptrs: i32, envv_buf: i32) callconv(.c) 
 /// needs to surface program exit codes for differential
 /// comparison with wasmtime).
 pub fn proc_exit(rt: *JitRuntime, rval: i32) callconv(.c) void {
-    _ = rval;
+    // D-244: record the requested exit code on the host (mirroring the interp
+    // `procExit`) so `runWasmJit` can surface it; then raise trap_flag to
+    // unwind the JIT body to its epilogue (the JIT's proc_exit mechanism).
+    if (rt.wasi_host) |hp| {
+        const host: *wasi_host_mod.Host = @ptrCast(@alignCast(hp));
+        _ = wasi_proc.procExit(host, @bitCast(rval));
+    }
     rt.trap_flag = 1;
 }
 
