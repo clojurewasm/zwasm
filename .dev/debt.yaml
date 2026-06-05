@@ -7,22 +7,25 @@ entries:
     layer: "code"
     status: "note"
     description: |-
-      note (ADR-0163 A; surfaced by D-289 2026-06-05): `shootout/ed25519.wasm` now JIT-COMPILES (D-289
-      lifted the frame-offset cap) but **SIGSEGVs at runtime** under `--engine jit` (wasmtime runs it clean,
-      exit 0; interp times out at 280s = just slow, no trap observed). The arm64 `[stack_probe]` diag printed
-      margin ~16 MB (SP far above the stack limit) → NOT stack exhaustion; a genuine memory fault. Cause
-      UNCONFIRMED — two hypotheses: (a) a D-289 large-frame addressing path miscompiles in a combination the
-      `many_locals`/`many_locals_spill` fixtures don't cover (they're verified correct, so this would be a
-      narrower case); (b) a PRE-EXISTING JIT miscompile in some op ed25519 uses, newly EXPOSED because
-      ed25519 never JIT-ran before (the UnsupportedOp masked it). ed25519 is a large crypto fn (i32/i64,
-      i64.mul-heavy, memory ops). INVESTIGATE with debug_jit_auto: lldb on the JIT code at the faulting PC,
-      identify the op + whether a frame address or a computed value is wrong; bisect by shrinking a repro.
-      Not stack/D-288. Not gated (ed25519 excluded from suite + bench). DISCHARGE: ed25519 jit runs + matches
-      wasmtime, OR root-caused to a specific op with a minimal fixture + fix.
+      note (ADR-0163 A; surfaced by D-289; CHARACTERIZED 2026-06-05): `shootout/ed25519.wasm` now JIT-COMPILES
+      (D-289 lifted the frame-offset cap) but TRAPS at runtime under `--engine jit` (wasmtime exit 0; interp
+      280s timeout = just slow). CHARACTERIZED via lldb: it is a **controlled JIT trap, NOT a SIGSEGV** — lldb
+      caught NO signal; the process printed `Trap` + exited 1 cleanly. The `[stack_probe]` diag (margin ~16 MB,
+      SP far above limit) is just context the SHARED trap stub prints → **NOT stack** either. So the JIT wrote
+      a trap-code + jumped to the trap stub = a clean wasm trap (bounds / call_indirect-sig / unreachable /
+      etc.; codes 0/1/2/3.. per D-165, written to the trap_code runtime slot). RULED OUT: stack exhaustion;
+      SIGSEGV/wild-pointer; basic-op miscompile (test-spec is green under jit, covering i64.mul etc.); the
+      D-289 GPR frame paths (many_locals + many_locals_spill verify correct values). LEFT: a PRE-EXISTING
+      miscompile in some op/INTERACTION at ed25519's scale (regalloc-spill × call, a specific control/memory
+      pattern) producing a wrong value → a clean trap, newly exposed (ed25519 never JIT-ran before). NEXT
+      (focused fresh-context session): read the trap-code (D-165 infra writes it; `[d-165]` print in
+      shared/entry.zig) to get the trap KIND, then debug_jit_auto to map the trap PC → op; shrink ed25519 to a
+      minimal repro. Not gated (ed25519 excluded from suite + bench). DISCHARGE: trap KIND + culprit op
+      identified with a minimal fixture, fixed; ed25519 jit matches wasmtime.
     first_raised: "2026-06-05"
     last_reviewed: "2026-06-05"
     refs: |-
-      `bench/runners/wasm/shootout/ed25519.wasm` (repro); `.claude/skills/debug_jit_auto/SKILL.md`; `src/platform/stack_limit.zig` (margin diag ruled out stack); D-289 (compile fix that exposed it)
+      `bench/runners/wasm/shootout/ed25519.wasm` (repro); `.claude/skills/debug_jit_auto/SKILL.md`; `src/engine/codegen/shared/entry.zig` (`[d-165]` trap-kind print) + `src/engine/codegen/arm64/emit.zig` (trap-code write to trap_code slot); `src/platform/stack_limit.zig` (margin diag = trap-stub context, ruled out stack); D-289 (paths verified, not the cause)
   - id: "D-290"
     layer: "infra"
     status: "note"
