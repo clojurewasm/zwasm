@@ -64,10 +64,18 @@ audit-gap list closed-or-deferred.
 - **ubuntu: ✅ GREEN at `99b56f1c`** (verified this turn; `0e6a555d` on top is docs-only = no src delta).
   The first kick caught a real arch bug (x86_64 `unreachable` → trap_kind 0, not arm64's 1) → test made
   arch-robust at `99b56f1c`, re-kick GREEN.
-- **windows: ⏳ kicked this turn (6-commit cadence), RUNNING at last check.** Verify `tail -3 /tmp/win.log`
-  at next resume: `[run_remote_windows] OK` → `bash scripts/should_gate_windows.sh --record`. The arch-robust
-  test is win64-skipped, so the win run at `4d58b315` is representative of `99b56f1c`. windows RED → re-run
-  once: reproduces = real Win64 bug (debt+fix), flake = `track_heisenbug.sh`. Then proceed to the LEAD above.
+- **windows: ⚠️ RED on first kick (`/tmp/win.log`), RE-RUN IN FLIGHT (`/tmp/win2.log`).** test-all reported
+  1 failed step + several `failed command` (unit `test.exe`, `spec-wasm-2-0-assert`, `zig-host-hello`) and a
+  sha256 shootout differential. **Strong heisenbug signal**: the SAME `sha256("Hello, SHA-256!")` PASSED in one
+  runner (win.log:1598) yet FAILED in another (win.log:1665) within the ONE run — non-deterministic, not a
+  fixed miscompile. Caveat: the only `src/` delta since the last windows-OK (`635bd734`) is the two ADR-0164
+  trap commits (`b6da8604`+`99b56f1c`) — but those are arch-neutral CLI plumbing whose trap catch-path is inert
+  on a successful (non-trapping) run, and **ubuntu test-all is GREEN on the same code**, so a Win64 heisenbug
+  (D7's named pattern) is far likelier than a real regression from the trap work. **Next resume: read
+  `tail -3 /tmp/win2.log`.** GREEN → first kick was a flake → `track_heisenbug.sh win64-testall segv` +
+  `should_gate_windows.sh --record`, keep the trap commits, proceed to LEAD. RED again with the SAME failures
+  → real Win64 bug → file debt + investigate (consider whether the `aot/run.zig` `runDispatch` extraction
+  perturbs Win64 stack/ABI); only then weigh reverting the trap pair. Do NOT auto-revert (D7).
 
 ## Key refs
 
