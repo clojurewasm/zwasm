@@ -22,6 +22,11 @@ const std = @import("std");
 const load = @import("load.zig");
 const entry = @import("../shared/entry.zig");
 const jit_abi = @import("../shared/jit_abi.zig");
+const sections = @import("../../../parse/sections.zig");
+// D-251 (AOT-WASI): reuse the JIT's WASI name→handler manifest (`lookup`) so
+// the standalone AOT runner shares ONE syscall implementation with the JIT
+// path (`jit_dispatch.zig`), no second 46-syscall table.
+const jit_dispatch = @import("../../../wasi/jit_dispatch.zig");
 
 const JitRuntime = jit_abi.JitRuntime;
 
@@ -63,10 +68,70 @@ fn minimalRuntime() JitRuntime {
     };
 }
 
+/// Default host-import trap trampoline (D-251 AOT-WASI, mirrors
+/// `setup.hostDispatchTrap`). Planted in every `host_dispatch_base[i]`
+/// slot a WASI handler did not claim; sets `rt.trap_flag = 1` and returns
+/// the 0 sentinel. The entry shim's post-return `trap_flag` read
+/// distinguishes this from a genuine 0 result. C-ABI; reads only arg0
+/// (`rt`) — extra Wasm args passed by the caller are ignored, which is
+/// safe on AAPCS64 / SysV / Win64.
+fn hostDispatchTrap(rt: *JitRuntime) callconv(.c) u64 {
+    rt.trap_flag = 1;
+    return 0;
+}
+
+/// WASI wiring for `runEntryWasi`: the opaque `*wasi.host.Host` plus the
+/// populated func-import-indexed host-dispatch table (WASI syscall
+/// fn-ptrs). `runEntryInner` installs both onto the JitRuntime.
+const WasiWiring = struct {
+    host: *anyopaque,
+    dispatch: []const usize,
+};
+
 /// Run defined function `idx` of a loaded `.cwasm` with a minimal
 /// stateless runtime; returns the result widened to u64 (0 for a void
 /// entry). Propagates `Error.Trap`; rejects out-of-subset result types.
+/// COMPUTE-ONLY — a `.cwasm` that imports WASI traps on the first import
+/// call (use `runEntryWasi` to attach a host).
 pub fn runEntry(loaded: *const load.LoadedModule, idx: usize) Error!u64 {
+    return runEntryInner(loaded, idx, null);
+}
+
+/// Like `runEntry` but attaches a WASI host (`host` = `*wasi.host.Host`)
+/// so a `.cwasm` importing `wasi_snapshot_preview1` does REAL I/O —
+/// `fd_write`→stdout, clock / random / args / preopen file ops, and
+/// `proc_exit(N)` recording the exit code — by rebuilding
+/// `host_dispatch_base` from the v0.4 imports section and pointing
+/// `rt.wasi_host` at `host`. The dispatch handlers are the JIT path's
+/// (`jit_dispatch.zig`), so AOT + JIT share one WASI implementation. A
+/// `proc_exit` surfaces as `Error.Trap` with the code on the host (the
+/// caller reads `host.exit_code`).
+pub fn runEntryWasi(loaded: *const load.LoadedModule, idx: usize, host: *anyopaque) Error!u64 {
+    // Size the dispatch table to the FUNCTION-import count (the wasm
+    // function-index space — table/memory/global/tag imports occupy no
+    // dispatch slot). populateDispatch / the JIT body index it by func idx.
+    var n_func_imports: usize = 0;
+    for (loaded.imports) |imp| {
+        if (imp.kind == @intFromEnum(sections.ImportKind.func)) n_func_imports += 1;
+    }
+    const dispatch = try loaded.allocator.alloc(usize, n_func_imports);
+    defer loaded.allocator.free(dispatch);
+    for (dispatch) |*slot| slot.* = @intFromPtr(&hostDispatchTrap);
+
+    // Resolve each WASI func import to its handler via the shared manifest;
+    // non-WASI / unknown imports keep the trap trampoline. The func-import
+    // index increments only on func imports (mirrors jit_dispatch.populateDispatch).
+    var fi: usize = 0;
+    for (loaded.imports) |imp| {
+        if (imp.kind != @intFromEnum(sections.ImportKind.func)) continue;
+        if (jit_dispatch.lookup(imp.module, imp.name)) |ptr| dispatch[fi] = ptr;
+        fi += 1;
+    }
+
+    return runEntryInner(loaded, idx, .{ .host = host, .dispatch = dispatch });
+}
+
+fn runEntryInner(loaded: *const load.LoadedModule, idx: usize, wasi: ?WasiWiring) Error!u64 {
     var rt = minimalRuntime();
     // §12.3b: wire the reconstructed globals. `LoadedModule.globals` is
     // `[]u128` = the runtime's `[]Value` (extern union, 16 B, 16-align) bit
@@ -99,6 +164,15 @@ pub fn runEntry(loaded: *const load.LoadedModule, idx: usize) Error!u64 {
         rt.funcptr_base = loaded.funcptr_base.ptr;
         rt.table_size = loaded.table_size;
         rt.typeidx_base = loaded.typeidx_base.ptr;
+    }
+
+    // D-251: install the WASI host + dispatch table so import calls in the
+    // JIT body route through the real handlers (else the compute-only path's
+    // trap trampoline fires on the first import call).
+    if (wasi) |w| {
+        rt.host_dispatch_base = w.dispatch.ptr;
+        rt.host_dispatch_count = @intCast(w.dispatch.len);
+        rt.wasi_host = w.host;
     }
 
     const VoidFn = *const fn (*const JitRuntime) callconv(.c) void;

@@ -100,6 +100,54 @@ pub fn runCwasm(
     return @intCast(@min(result, std.math.maxInt(u8)));
 }
 
+/// `zwasm run <file.cwasm>` WITH a WASI host (D-251 AOT-WASI). Like
+/// `runCwasm` but attaches a `wasi_host.Host` (io + argv + `--dir`
+/// preopens) so a `.cwasm` importing `wasi_snapshot_preview1` does REAL
+/// WASI end-to-end — `fd_write`→stdout, clock / random / args / file ops,
+/// and `proc_exit(N)` surfacing as the exit code — reusing the JIT path's
+/// handlers via `aot_run.runEntryWasi`. A compute-only `.cwasm` simply
+/// ignores the host. `proc_exit` unwinds via a JIT trap (Error.Trap) with
+/// the code recorded on the host; we surface it. Mirrors `runWasmJit`.
+pub fn runCwasmWasi(
+    alloc: std.mem.Allocator,
+    io: std.Io,
+    cwasm_bytes: []const u8,
+    invoke_name: ?[]const u8,
+    argv: []const []const u8,
+    preopens: []const PreopenDir,
+) !u8 {
+    const aot_load = @import("../engine/codegen/aot/load.zig");
+    const aot_run = @import("../engine/codegen/aot/run.zig");
+    diagnostic.clearDiag();
+
+    var mod = try aot_load.load(alloc, cwasm_bytes);
+    defer mod.deinit();
+
+    const idx = mod.resolveEntry(invoke_name) orelse {
+        diagnostic.setDiag(.instantiate, .no_func_export, .unknown, "no runnable entry in .cwasm (looked for invoke/_start/main, then first func export)", .{});
+        return error.NoFuncExport;
+    };
+
+    var host = try wasi_host.Host.init(alloc);
+    defer host.deinit();
+    host.io = io;
+    if (argv.len > 0) try host.setArgs(argv);
+    for (preopens) |pd| {
+        const dir = try std.Io.Dir.cwd().openDir(io, pd.host_path, .{ .iterate = true });
+        _ = try host.addPreopen(dir.handle, pd.guest_path);
+    }
+
+    // proc_exit(N) records host.exit_code then unwinds via the JIT trap
+    // mechanism (Error.Trap). Surface the guest's exit code; a trap with NO
+    // exit_code is a genuine fault → propagate (the caller maps it to 1).
+    const result = aot_run.runEntryWasi(&mod, idx, &host) catch |err| {
+        if (host.exit_code) |code| return @intCast(@min(code, std.math.maxInt(u8)));
+        return err;
+    };
+    if (host.exit_code) |code| return @intCast(@min(code, std.math.maxInt(u8)));
+    return @intCast(@min(result, std.math.maxInt(u8)));
+}
+
 /// Like `runWasm` but routes guest stdout writes (`fd_write`
 /// to fd 1) into the caller-supplied `stdout_capture`. When
 /// non-null, the runner wires `host.stdout_buffer` to it; the
@@ -496,6 +544,26 @@ test "runCwasm: compile → produce → load+run a .cwasm, i32 result surfaces a
     try testing.expectEqual(@as(u8, 42), try runCwasm(testing.allocator, cwasm, "f"));
     // A missing name is a loud NoFuncExport, not a silent fallback.
     try testing.expectError(error.NoFuncExport, runCwasm(testing.allocator, cwasm, "nope"));
+}
+
+test "runCwasmWasi: a WASI proc_exit(42) .cwasm surfaces exit code 42 end-to-end (D-251)" {
+    // The exit-condition observable for the D-251-aot-wasi bundle: a
+    // WASI-importing `.cwasm` does REAL WASI under standalone AOT run. Executes
+    // native AOT machine code → Win64-deferred (mirrors aot/load.zig exec tests).
+    const builtin = @import("builtin");
+    if (builtin.os.tag == .windows) return @import("../test_support/skip.zig").phaseEnd(.win64);
+
+    const runner = @import("../engine/runner.zig");
+    const aot_produce = @import("../engine/codegen/aot/produce.zig");
+
+    var compiled = try runner.compileWasm(testing.allocator, &proc_exit_42_wasm);
+    defer compiled.deinit(testing.allocator);
+    const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &proc_exit_42_wasm);
+    defer testing.allocator.free(cwasm);
+
+    // main calls proc_exit(42) → host records exit_code → JIT trap → 42 surfaces.
+    const code = try runCwasmWasi(testing.allocator, testing.io, cwasm, null, &.{}, &.{});
+    try testing.expectEqual(@as(u8, 42), code);
 }
 
 test "runWasmJit: SIMD _start runs via the JIT where the interp traps (ADR-0136 / D-244)" {

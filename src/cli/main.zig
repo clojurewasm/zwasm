@@ -168,19 +168,30 @@ pub fn main(init: std.process.Init) !void {
             };
             defer gpa.free(bytes);
 
-            // §12.1 — a pre-compiled AOT artefact (CWAS magic) loads +
-            // runs directly, no parse/compile. Compute-only (no WASI /
-            // --dir); the entry resolves via the serialised export table.
             // D-273(1) — typed arg-passing + result printing is wired on the
             // interp path only; the JIT/AOT entry runners are zero-arg
-            // compute-only. Reject `=ARGS` there rather than silently dropping.
+            // (WASI argv arrives via the host args_get, not the entry's
+            // params). Reject `=ARGS` there rather than silently dropping.
             if (invoke_args != null and (engine_jit or (bytes.len >= 4 and std.mem.eql(u8, bytes[0..4], "CWAS")))) {
                 try printlnErr(io, "zwasm run: --invoke NAME=ARGS arg-passing requires the interp engine (JIT/.cwasm entry is zero-arg compute-only)");
                 std.process.exit(2);
             }
 
+            // Build argv for the WASI guest. Wasmtime's default is
+            // argv[0] = wasm filename + any trailing args; mirror
+            // that here so guests that print argv produce parity
+            // bytes. Both the `.cwasm` and `.wasm` paths consume it.
+            var argv_list: std.ArrayList([]const u8) = .empty;
+            defer argv_list.deinit(gpa);
+            try argv_list.append(gpa, path);
+            while (arg_it.next()) |a| try argv_list.append(gpa, a);
+
+            // §12.1 / D-251 — a pre-compiled AOT artefact (CWAS magic) loads +
+            // runs directly (no parse/compile) and now does REAL WASI: argv +
+            // `--dir` preopens are threaded into a host, so a WASI-importing
+            // `.cwasm` prints / exits / sees args like the `.wasm` path.
             if (bytes.len >= 4 and std.mem.eql(u8, bytes[0..4], "CWAS")) {
-                const code = cli_run.runCwasm(gpa, bytes, invoke_name) catch |err| {
+                const code = cli_run.runCwasmWasi(gpa, io, bytes, invoke_name, argv_list.items, preopen_list.items) catch |err| {
                     var buf: [256]u8 = undefined;
                     const msg = std.fmt.bufPrint(&buf, "zwasm run: cannot run '{s}': {s}", .{ path, @errorName(err) }) catch "zwasm run: .cwasm run failed";
                     try printlnErr(io, msg);
@@ -188,15 +199,6 @@ pub fn main(init: std.process.Init) !void {
                 };
                 std.process.exit(code);
             }
-
-            // Build argv for the WASI guest. Wasmtime's default is
-            // argv[0] = wasm filename + any trailing args; mirror
-            // that here so guests that print argv produce parity
-            // bytes.
-            var argv_list: std.ArrayList([]const u8) = .empty;
-            defer argv_list.deinit(gpa);
-            try argv_list.append(gpa, path);
-            while (arg_it.next()) |a| try argv_list.append(gpa, a);
 
             // D-244 — `--engine=jit` now does real WASI (incl. `--dir` preopens).
             const code = (if (engine_jit)
