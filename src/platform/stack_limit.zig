@@ -35,6 +35,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const build_options = @import("build_options");
 
 /// Headroom kept above the actual stack low-end for trap-stub
 /// epilogue, signal-handler frame, and recovery state. Per
@@ -204,14 +205,12 @@ pub fn diagOnceWithRt(rt_ptr: *const anyopaque, stack_limit_off: usize, stack_li
 }
 
 fn diagOnceRaw(stack_limit_value: usize, rt_ptr: ?*const anyopaque, stack_limit_off: usize) void {
-    // Debug-only diagnostic. This is a leftover Win64 stack-probe
-    // investigation print; in release builds it flooded stderr with
-    // `[stack_probe] …` on the first JIT call of every process — including
-    // production `zwasm run --engine=jit` (D-245 cleanup). Gate to Debug so
-    // release output is clean (and `test-jit-releasesafe`'s RunStep, which
-    // checks for empty stderr, isn't tripped). Win64 investigations use a
-    // Debug build, where it still emits.
-    if (comptime builtin.mode != .Debug) return;
+    // Leftover Win64 stack-probe investigation print (D-245). Gated behind the
+    // `-Dtrace-stackprobe` build option (default false; ADR-0164 B / D-292) so
+    // even Debug `zig build test` stderr is clean — it fired once per process on
+    // the first JIT call, polluting every test's output. D-279 Win64 work
+    // re-enables via `-Dtrace-stackprobe=true`.
+    if (comptime !build_options.trace_stackprobe) return;
     // Once per thread on all hosts. Cycle 3's "per call on Win64"
     // override was retired after R3 cycle 6 root-cause (Windows
     // commit-pattern early-overflow) — no longer need to flood

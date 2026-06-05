@@ -18,6 +18,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const build_options = @import("build_options");
 
 const linker = @import("linker.zig");
 const jit_abi = @import("jit_abi.zig");
@@ -226,7 +227,11 @@ inline fn invokeAndCheck(
     // `.never_inline` guarantees a real prologue/epilogue on `jitTrampoline`.
     const result = @call(.never_inline, jitTrampoline, .{ R, f, rt, args });
     if (rt.trap_flag == 0) return result;
-    if (rt.trap_kind == 4) std.debug.print("[d-165] kind=4 cumulative_trap_stub_entry_count={d}\n", .{rt.trap_stub_entry_count});
+    // D-165 trap-stub entry-count diagnostic, gated behind -Dtrace-stackprobe
+    // (default false; ADR-0164 B / D-292) — a D-279 Win64 investigation primitive.
+    if (comptime build_options.trace_stackprobe) {
+        if (rt.trap_kind == 4) std.debug.print("[d-165] kind=4 cumulative_trap_stub_entry_count={d}\n", .{rt.trap_stub_entry_count});
+    }
     return Error.Trap;
 }
 

@@ -68,6 +68,14 @@ pub fn build(b: *std.Build) void {
     // `-Dtrace-ringbuffer=true`.
     const trace_ringbuffer = b.option(bool, "trace-ringbuffer", "Compile in Diagnostic M3-a trace ringbuffer (default: false)") orelse false;
 
+    // ADR-0164 B / D-292: stack-probe + trap-stub diagnostic prints
+    // (`[stack_probe] …` setup probe + `[d-165] kind=4 …` trap-stub entry count).
+    // These are D-245/D-165/D-279 Win64 investigation primitives; default false
+    // so even Debug `zig build test` stderr is clean (the prints fired once per
+    // process on the first JIT call). Win64 heisenbug (D-279) work re-enables via
+    // `-Dtrace-stackprobe=true`.
+    const trace_stackprobe = b.option(bool, "trace-stackprobe", "Compile in the [stack_probe]/[d-165] JIT diagnostic prints (default: false)") orelse false;
+
     // ADR-0115 §3 — `-Dgc=true|false` zero-overhead compile-time
     // gate. `false` (default for Phase 10 v0.1 since WasmGC ops
     // aren't dispatched yet) means GC heap allocator + collector
@@ -87,6 +95,7 @@ pub fn build(b: *std.Build) void {
     options.addOption(WasiLevel, "wasi_level", wasi_level);
     options.addOption(EngineMode, "engine_mode", engine_mode);
     options.addOption(bool, "trace_ringbuffer", trace_ringbuffer);
+    options.addOption(bool, "trace_stackprobe", trace_stackprobe);
     options.addOption(bool, "enable_gc", enable_gc);
 
     // Build_options as a single shared module so both `core` and
