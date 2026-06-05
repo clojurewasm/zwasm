@@ -66,10 +66,15 @@ entries:
       bug, not just a JIT gap. Added the 3 variants (C-ABI 11/12/13) + spec messages ("null reference" / "cast
       failure" / "uncaught exception") + mapInterpTrap arms. Observable: interp ref.as_non_null/null → kind=
       null_reference. JIT codegen codes for these = slice-4b+.
-      REMAINING D-293 (JIT codegen still generic; surface now complete): null_reference JIT code (call_ref null
-      op_call.zig:708 / ref.as_non_null / struct+array null deref — broad GC sweep ~15 op files/arch), cast_failure
-      JIT (ref.cast / i31.get), array_oob JIT (array.* bounds). Per-kind-channel pattern, next free JIT code = 10.
-      (Below: the original slice-1 survey, kept as the method template.)
+      SLICE-4b DONE (`2b1fa81f`): JIT null_reference (code 10) for call_ref-null + ref.as_non_null, both arches
+      (new null_ref_fixups channel). ALSO fixed a latent arm64 mis-classification — call_ref null reused
+      cind_bounds_fixups → reported oob_table (code 2); now code 10. Tests: call_ref null → 10 (was 2 arm64),
+      ref.as_non_null → 10.
+      REMAINING D-293 (JIT codegen still generic): null_reference for struct_get/set + array null-deref (the GC
+      struct/array sweep, channel EXISTS = null_ref_fixups), cast_failure JIT (ref.cast/ref.cast_null → new code
+      11; TrapKind.cast_failure exists), array_oob JIT (array.get/set/fill/copy/init index bounds → needs its own
+      kind, verify runtime Trap mapping). next free JIT code = 11. ⚠️ widening TrapKind → update
+      wast_runtime_runner trapKindName (lesson 2026-06-06). (Below: the original slice-1 survey, method template.)
       SLICE-1 PLAN — oob_table (code 2), surveyed 2026-06-06 (DO BOTH ARCHES TOGETHER; a runVoidExportWasi test
       asserting code 2 FAILS the x86_64/ubuntu gate if x86_64 stays generic → the test enforces parity).
       DISCOVERY: x86_64 has NO oob_table precision at all — its call_indirect bounds AND table bounds all append
