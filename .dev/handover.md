@@ -26,21 +26,20 @@
 
 - **Bundle-ID**: jit-wasi (D-244)
 - **Cycles-remaining**: ~2
-- **Continuity-memo**: 🎯 **HEADLINE DONE — `zwasm run --engine jit hello.wasm` PRINTS real output** (smoke-verified:
-  jithello + c_hello_wasi). Path: `JitRuntime.wasi_host` field (`dec5e84f`) + `runI64/VoidExportWasi` primitives
-  (`d761637f`/`088c3b23`) + core I/O quartet → shared interp handlers (clock/random `dec5e84f`/`8d1b7612`, fd_write
-  `81b3e1d3`, fd_read `20392074`) + `runWasmJit` creates+owns a Host with io (`0c3e4cef`, chunk 2c, main.zig threads
-  io). **Plus a PRE-EXISTING CLI bug fixed (`f320db6f`): the shared fd_write only wrote to a capture buffer, so
-  `zwasm run` (interp AND jit) silently DROPPED guest stdout — now routes to real std.Io.File.stdout()/stderr() when
-  no buffer + io set.** Plus **proc_exit exit-code DONE (`1b01061f`)**: JIT proc_exit records `host.exit_code` (via
-  shared procExit) + unwinds; `runWasmJit` surfaces it (smoke: `--engine jit proc_exit(42)` → exit 42). KEY DESIGN
-  held — interp handlers reused, no 46-syscall re-impl. **NEXT — chunk 2d-rest**: (1) **args/environ** —
-  args_sizes_get/args_get/environ_* JIT stubs return 0; reroute to shared handlers (same pattern) + thread argv into
-  `runWasmJit` (main.zig has `argv_list.items` at the engine_jit branch) → `host.setArgs`. (2) `--dir` preopens for
-  JIT (runWasmJit rejects them; thread `preopens` + `cfg.addPreopen`-equiv on the Host). (3) register the other ~37
-  syscalls in `jit_dispatch.zig:lookup` (only 9 names there → most WASI imports trap on JIT). Recipe for each: `if
-  (rt.wasi_host) |hp| return @intCast(@intFromEnum(shared_handler(host, mem, @bitCast(args))))`. Win64 JIT-exec
-  tests gate `skip.phaseEnd(.win64)`; real-stream test uses fd 2 (fd 1 corrupts zig-test protocol).
+- **Continuity-memo**: 🎯 **`zwasm run --engine jit <prog>` does REAL WASI end-to-end** — prints (smoke: jithello +
+  c_hello_wasi), exits with the guest code (`proc_exit(42)`→42), and sees argv (`argc.wasm a b`→3). **The whole
+  common WASI startup surface is JIT-wired by reusing the interp handlers (no re-impl)**: `JitRuntime.wasi_host`
+  field (`dec5e84f`) + `runI64/VoidExportWasi` primitives (`d761637f`/`088c3b23`) + clock/random (`dec5e84f`/
+  `8d1b7612`) + fd_write/fd_read (`81b3e1d3`/`20392074`) + runWasmJit owns a Host w/ io+argv (`0c3e4cef`/`cd10a3b6`,
+  main.zig threads both) + proc_exit exit-code (`1b01061f`) + args/environ (`cd10a3b6`). **Plus a PRE-EXISTING CLI
+  bug fixed (`f320db6f`): shared fd_write only wrote to a capture buffer → `zwasm run` (interp AND jit) silently
+  DROPPED stdout; now routes to real std.Io.File.stdout()/stderr() when no buffer + io.** **NEXT (bundle's last
+  push): (1) register the other ~37 WASI syscalls in `jit_dispatch.zig:lookup`** (only ~13 names there now → file
+  ops like path_open/fd_seek/fd_filestat_get TRAP on JIT). Each = a thin JIT thunk (GPR args → shared handler, the
+  proven pattern) + a `lookup` entry. The shared handlers already exist; this is mechanical (~37, batch in chunks).
+  **(2) `--dir` preopens for JIT** (runWasmJit takes no preopens; thread them + open dirs onto the Host fd_table like
+  runWasmCapturedOpts). Then a JIT file-op program works. Win64 JIT-exec tests gate `skip.phaseEnd(.win64)`;
+  real-stream test uses fd 2 (fd 1 corrupts zig-test protocol).
   **D-251 AOT-WASI** (separate, later) needs `.cwasm`
   v0.3 import-metadata serialization (`aot/format.zig`) first. **DISCIPLINE: cross-compile windows-gnu; trust ubuntu
   for Linux-runtime divergence; read win crash lines (std Win64 TODOs only show at runtime).**
@@ -67,7 +66,7 @@ no auto-revert. Step 6+7: `should_gate_windows.sh` exit 0 → kick `run_remote_w
 
 ## Step 0.7 (next resume) — verify per-cadence remote logs
 
-ubuntu GREEN at `9ac9aa5b` (chunk 2c + fd_write fix). This turn pushed D-244 proc_exit exit-code (`1b01061f`);
+ubuntu GREEN at `a15b9926` (proc_exit). This turn pushed D-244 args/environ + argv threading (`cd10a3b6`);
 re-kicked both. **Step 0.7 next resume:
 `tail /tmp/ubuntu.log` (must be OK, auto-revert on FAIL) + `tail /tmp/win.log` — distinguish the D-282 env-flake
 (ALL runners 0-failed + only `configure phase FileNotFound`) from a REAL crash (`' exited with code N`/`panic`/
