@@ -270,17 +270,21 @@ pub fn fdSync(host: *Host, fd: p1.Fd) p1.Errno {
     }
 }
 
-/// `fd_datasync(fd) → errno` — flush a file fd's data (not necessarily
-/// metadata) via `std.posix.fdatasync`. Same fd-kind handling as
-/// `fd_sync`.
+/// `fd_datasync(fd) → errno` — flush a file fd's data. Routed through the
+/// same cross-platform `std.Io.File.sync` as `fd_sync`: datasync's contract
+/// only *permits* skipping a metadata flush (an optimisation), so a full
+/// sync satisfies it. `std.posix.fdatasync` is NOT usable here — on Windows
+/// `fd_t` is a HANDLE (`*anyopaque`), which that POSIX signature rejects.
 pub fn fdDatasync(host: *Host, fd: p1.Fd) p1.Errno {
     const slot = host.translateFd(fd) orelse return .badf;
     switch (slot.kind) {
         .stdin, .stdout, .stderr => return .success,
         .closed => return .badf,
         .file, .dir => {
+            const io = host.io orelse return .nosys;
             const handle = slot.host_handle orelse return .badf;
-            std.posix.fdatasync(handle) catch return .io;
+            const file: std.Io.File = .{ .handle = handle, .flags = .{ .nonblocking = false } };
+            file.sync(io) catch return .io;
             return .success;
         },
     }
