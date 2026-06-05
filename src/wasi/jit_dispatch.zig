@@ -189,6 +189,13 @@ pub fn clock_time_get(
 /// — fill `vm_base + buf_ptr` with `buf_len` random bytes via
 /// std.posix.getrandom (unix) / std.crypto.random (fallback).
 pub fn random_get(rt: *JitRuntime, buf_ptr: i32, buf_len: i32) callconv(.c) i32 {
+    // D-244: with a host, delegate to the shared interp handler for REAL
+    // cryptographic entropy (it bounds-checks + fills from host.io).
+    if (rt.wasi_host) |hp| {
+        const host: *wasi_host_mod.Host = @ptrCast(@alignCast(hp));
+        const mem = rt.vm_base[0..@intCast(rt.mem_limit)];
+        return @intCast(@intFromEnum(wasi_clocks.randomGet(host, mem, @bitCast(buf_ptr), @bitCast(buf_len))));
+    }
     if (buf_ptr < 0 or buf_len < 0) return @intFromEnum(Errno.inval);
     const off: u64 = @intCast(buf_ptr);
     const len: u64 = @intCast(buf_len);
@@ -196,11 +203,9 @@ pub fn random_get(rt: *JitRuntime, buf_ptr: i32, buf_len: i32) callconv(.c) i32 
     if (len == 0) return @intFromEnum(Errno.success);
     const at: usize = @intCast(off);
     const slice = rt.vm_base[at..][0..@intCast(len)];
-    // d-2 MVP: zero-fill (deterministic + safe). Real entropy
-    // via std.posix.getrandom lands in d-3 alongside the host
-    // I/O wiring; for the realworld JIT corpus the determinism
-    // is preferable for differential-test reproducibility
-    // anyway (interp == arm64 == x86_64 §9.7 / 7.11 gate).
+    // Compute-only fallback (no host): zero-fill — deterministic + safe,
+    // and preferable for the realworld JIT differential corpus (interp ==
+    // arm64 == x86_64 §9.7 / 7.11 gate).
     @memset(slice, 0);
     return @intFromEnum(Errno.success);
 }
@@ -385,6 +390,38 @@ test "clock_time_get: host-attached → REAL nonzero time; no host → 0 stub (D
     @memset(&memory, 0xFF);
     try testing.expectEqual(@as(i32, @intFromEnum(Errno.success)), clock_time_get(&rt, 0, 0, 0));
     try testing.expectEqual(@as(u64, 0), std.mem.readInt(u64, memory[0..8], .little));
+}
+
+test "random_get: host-attached → real entropy; no host → zero-fill (D-244)" {
+    var memory: [32]u8 = @splat(0);
+    var h = try wasi_host_mod.Host.init(testing.allocator);
+    defer h.deinit();
+    h.io = testing.io;
+    var rt: JitRuntime = .{
+        .vm_base = &memory,
+        .mem_limit = memory.len,
+        .funcptr_base = undefined,
+        .table_size = 0,
+        .typeidx_base = undefined,
+        .trap_flag = 0,
+        .globals_base = undefined,
+        .globals_count = 0,
+        .host_dispatch_base = undefined,
+        .host_dispatch_count = 0,
+        .wasi_host = &h,
+    };
+    try testing.expectEqual(@as(i32, @intFromEnum(Errno.success)), random_get(&rt, 0, 32));
+    var any_nonzero = false;
+    for (memory) |b| {
+        if (b != 0) any_nonzero = true;
+    }
+    try testing.expect(any_nonzero);
+
+    // No host → deterministic zero-fill.
+    rt.wasi_host = null;
+    @memset(&memory, 0xAB);
+    try testing.expectEqual(@as(i32, @intFromEnum(Errno.success)), random_get(&rt, 0, 32));
+    for (memory) |b| try testing.expectEqual(@as(u8, 0), b);
 }
 
 test "lookup: fd_read resolves" {
