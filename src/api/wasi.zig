@@ -17,6 +17,7 @@ const wasi_host = @import("../wasi/host.zig");
 const wasi_fd = @import("../wasi/fd.zig");
 const wasi_proc = @import("../wasi/proc.zig");
 const wasi_clocks = @import("../wasi/clocks.zig");
+const wasi_path = @import("../wasi/path.zig");
 const Errno = @import("../wasi/preview1.zig").Errno;
 
 const testing = std.testing;
@@ -349,6 +350,20 @@ fn thunkPathUnlinkFile(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
     const dirfd = rt.popOperand().u32;
     return pushErrno(rt, wasi_fd.pathUnlinkFile(host, rt.memory, dirfd, path_ptr, path_len));
 }
+fn thunkPathCreateDirectory(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
+    const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
+    const path_len = rt.popOperand().u32;
+    const path_ptr = rt.popOperand().u32;
+    const dirfd = rt.popOperand().u32;
+    return pushErrno(rt, wasi_path.pathCreateDirectory(host, rt.memory, dirfd, path_ptr, path_len));
+}
+fn thunkPathRemoveDirectory(rt: *runtime.Runtime, ctx: *anyopaque) anyerror!void {
+    const host: *wasi_host.Host = @ptrCast(@alignCast(ctx));
+    const path_len = rt.popOperand().u32;
+    const path_ptr = rt.popOperand().u32;
+    const dirfd = rt.popOperand().u32;
+    return pushErrno(rt, wasi_path.pathRemoveDirectory(host, rt.memory, dirfd, path_ptr, path_len));
+}
 
 /// Map a WASI snapshot-1 import name to its host thunk, or
 /// null if the name is outside the supported set.
@@ -384,6 +399,8 @@ pub fn lookupWasiThunk(name: []const u8) ?HostThunkFn {
     if (std.mem.eql(u8, name, "fd_filestat_set_times")) return thunkFdFilestatSetTimes;
     if (std.mem.eql(u8, name, "fd_allocate")) return thunkFdAllocate;
     if (std.mem.eql(u8, name, "path_unlink_file")) return thunkPathUnlinkFile;
+    if (std.mem.eql(u8, name, "path_create_directory")) return thunkPathCreateDirectory;
+    if (std.mem.eql(u8, name, "path_remove_directory")) return thunkPathRemoveDirectory;
     return null;
 }
 
@@ -457,7 +474,8 @@ test "lookupWasiThunk: every supported WASI 0.1 import resolves" {
         "fd_prestat_dir_name",   "sched_yield",
         "fd_filestat_get",       "fd_filestat_set_size",
         "fd_filestat_set_times", "fd_allocate",
-        "path_unlink_file",
+        "path_unlink_file",      "path_create_directory",
+        "path_remove_directory",
     };
     inline for (names) |n| {
         try testing.expect(lookupWasiThunk(n) != null);

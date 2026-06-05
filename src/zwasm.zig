@@ -219,6 +219,7 @@ pub const wasi = struct {
     pub const preview1 = @import("wasi/preview1.zig");
     pub const host = @import("wasi/host.zig");
     pub const fd = @import("wasi/fd.zig");
+    pub const path = @import("wasi/path.zig");
     pub const clocks = @import("wasi/clocks.zig");
     pub const proc = @import("wasi/proc.zig");
     pub const jit_dispatch = @import("wasi/jit_dispatch.zig");
@@ -352,6 +353,7 @@ test {
     _ = @import("wasi/host.zig");
     _ = @import("wasi/proc.zig");
     _ = @import("wasi/fd.zig");
+    _ = @import("wasi/path.zig");
     _ = @import("wasi/clocks.zig");
     _ = @import("wasi/jit_dispatch.zig");
     _ = @import("cli/run.zig");
