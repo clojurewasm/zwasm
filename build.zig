@@ -888,34 +888,34 @@ pub fn build(b: *std.Build) void {
     // `zig build run-rust-host` — §13.5. A third, independent embedding-
     // ABI consumer: `examples/rust_host/hello.rs` declares the wasm-c-api
     // surface via `extern "C"` and links the same `libzwasm.a` the C host
-    // uses. Mac-only manual step (system rustc at `~/.cargo/bin`); NOT in
-    // test-all — the Linux/Windows runners are artifact-runners with no
-    // rustc by design (`.dev/toolchain_provisioning.md`). The §13.5
-    // "3-OS rust run" is genuinely blocked on test-host rustc (debt-rowed),
-    // not a per-chunk gate item.
-    // rustc links via the system toolchain, which finds the macOS SDK
-    // through `xcrun`. On hosts where `xcrun --show-sdk-path` is broken
-    // (stale SDK registration despite the SDK being present — observed on
-    // this dev Mac after an Xcode update), rustc's link step fails. Set
-    // `SDKROOT` (rustc's documented xcrun bypass): use xcrun when healthy,
-    // else probe the two standard SDK locations (Xcode.app / CLT). All
-    // deferred to step-run time so non-Mac builds never touch it.
-    const rustc_cmd = b.addSystemCommand(&.{
-        "/bin/sh", "-c",
-        \\SDKROOT="$(xcrun --show-sdk-path 2>/dev/null)"
-        \\# Broken xcrun prints "error: unable to find sdk" to STDOUT, so a
-        \\# non-empty $SDKROOT is not proof; validate it is a real directory.
-        \\if [ ! -d "$SDKROOT" ]; then
-        \\  dev="$(xcode-select -p 2>/dev/null)"
-        \\  for c in "$dev/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk" "$dev/SDKs/MacOSX.sdk"; do
-        \\    [ -d "$c" ] && SDKROOT="$c" && break
-        \\  done
-        \\fi
-        \\export SDKROOT
-        \\exec rustc --edition 2021 "$@"
-        ,
-        "sh",
-    });
+    // uses. **3-host (ADR-0162)**: native rust now lives on the test hosts
+    // (ubuntunote `nix develop .#rust-host`; windowsmini winget rust). Still
+    // NOT in `test-all` (it needs the rust shell / native rust, not the lean
+    // `default` shell) — invoked as its own step per host.
+    //
+    // macOS: rustc links via the xcrun-found SDK; wrap in `/bin/sh` to set
+    // `SDKROOT` (xcrun's `--show-sdk-path` is broken on this dev Mac post-
+    // Xcode-update — it prints "unable to find sdk" to STDOUT, rc=255). The
+    // sh-wrapper probes the two standard SDK dirs when xcrun is unhealthy.
+    // Linux/Windows: call rustc directly — no macOS SDK, and `/bin/sh` is
+    // not natively spawnable by a Windows `zig build` process.
+    const rustc_cmd = if (target.result.os.tag == .macos)
+        b.addSystemCommand(&.{
+            "/bin/sh", "-c",
+            \\SDKROOT="$(xcrun --show-sdk-path 2>/dev/null)"
+            \\if [ ! -d "$SDKROOT" ]; then
+            \\  dev="$(xcode-select -p 2>/dev/null)"
+            \\  for c in "$dev/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk" "$dev/SDKs/MacOSX.sdk"; do
+            \\    [ -d "$c" ] && SDKROOT="$c" && break
+            \\  done
+            \\fi
+            \\export SDKROOT
+            \\exec rustc --edition 2021 "$@"
+            ,
+            "sh",
+        })
+    else
+        b.addSystemCommand(&.{ "rustc", "--edition", "2021" });
     rustc_cmd.addFileArg(b.path("examples/rust_host/hello.rs"));
     rustc_cmd.addPrefixedDirectoryArg("-Lnative=", c_api_lib.getEmittedBinDirectory());
     rustc_cmd.addArg("-lstatic=zwasm");
@@ -925,7 +925,7 @@ pub fn build(b: *std.Build) void {
     const run_rust_host = std.Build.Step.Run.create(b, "run zwasm-rust-host-hello");
     run_rust_host.addFileArg(rust_host_bin);
     run_rust_host.expectExitCode(0);
-    const run_rust_host_step = b.step("run-rust-host", "Build + run the Rust host example (Mac-only; needs rustc)");
+    const run_rust_host_step = b.step("run-rust-host", "Build + run the Rust host example (3-host per ADR-0162; needs native rust)");
     run_rust_host_step.dependOn(&run_rust_host.step);
 
     // `zig build test-all` — aggregate all enabled test layers.
