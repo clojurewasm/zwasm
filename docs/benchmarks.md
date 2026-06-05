@@ -22,7 +22,7 @@ that deliberate trade:
   ~27 MB, WasmEdge ~24 MB — a **4–12× advantage**. AOT (`.cwasm`) is leanest.
 - **Startup latency — zwasm is fast.** For short-lived / cold-start workloads
   (CLI tools, serverless, scripting) zwasm's low instantiate cost (~2 ms) beats
-  the optimizing JITs (~5–14 ms), which pay compile cost up front.
+  the optimizing JITs (~6–16 ms), which pay compile cost up front.
 - **Sustained compute throughput — the optimizing JITs lead, by design.** Once a
   workload runs long enough to amortize startup, wasmtime/wasmer (Cranelift) and
   wazero pull ahead of zwasm's JIT/AOT by ~1.5–3.9× on typical compute. zwasm
@@ -60,42 +60,41 @@ on long-running compute is the priority.
    reflect execution speed. We label which is which.
 2. **WasmEdge runs its interpreter** here (its AOT needs a separate compile
    step); it belongs next to zwasm-interp.
-3. The snapshot below was taken with `--quick` (3 runs + 1 warmup) — comparative,
-   not tight-CI. Re-run without `--quick` for publication-grade stability.
+3. Numbers below are 5 runs + 3 warmup with zwasm built **ReleaseFast** (the fair
+   basis vs the release-optimized comparators). Single host (Mac aarch64).
 
 ## Sustained compute (startup amortized) — mean ms, lower is faster
 
-| fixture             | zwasm-jit | zwasm-aot | wasmtime | wazero | wasmer | zwasm-interp | WasmEdge |
-|---------------------|----------:|----------:|---------:|-------:|-------:|-------------:|---------:|
-| shootout/fib2       |      1062 |      1053 |  **704** |    776 |    717 |        64727 |    42793 |
-| shootout/sieve      |       336 |       336 |  **204** |    493 |    205 |        14192 |    20560 |
-| shootout/matrix     |       342 |       341 |   **88** |    198 |     91 |         5999 |    11011 |
-| shootout/heapsort   |      1576 |      1574 |  **636** |    919 |    640 |        17149 |    23785 |
-| shootout/keccak     |        32 |        32 |        9 |  **8** |     15 |          266 |      379 |
-| shootout/gimli      |         9 |         9 |        9 |  **5** |     12 |          105 |      157 |
-| shootout/base64 †  |       770 |       768 |   **58** |     78 |     61 |         7349 |    10989 |
-| shootout/memmove † |       254 |       253 |   **17** |     14 |     21 |          138 |       41 |
+| fixture            | zwasm-jit | zwasm-aot | wasmtime | wazero | wasmer | zwasm-interp | WasmEdge |
+|--------------------|----------:|----------:|---------:|-------:|-------:|-------------:|---------:|
+| shootout/fib2      |      1077 |      1083 |  **700** |    781 |    713 |        39747 |    42865 |
+| shootout/sieve     |       320 |       318 |  **203** |    490 |    206 |        13601 |    20637 |
+| shootout/matrix    |       343 |       342 |   **88** |    198 |     93 |         5399 |    11038 |
+| shootout/heapsort  |      1574 |      1573 |  **642** |    926 |    647 |        15666 |    24078 |
+| shootout/keccak    |        34 |        34 |        9 |  **9** |     16 |          289 |      382 |
+| shootout/gimli     |        10 |        10 |        8 |  **6** |     14 |          103 |      160 |
+| shootout/memmove   |        39 |        38 |       19 | **15** |     22 |          141 |       40 |
+| shootout/base64 † |       781 |       780 |   **57** |     79 |     62 |         7028 |    11155 |
 
 The optimizing JITs (wasmtime/wasmer/wazero) lead zwasm-jit/aot by ~1.5–3.9× on
 fib2/sieve/matrix/heapsort/keccak — the expected single-pass-vs-optimizer gap.
 zwasm-jit ≈ zwasm-aot everywhere (shared codegen; AOT's payoff is cold-start).
 
-> † `memmove` was an outlier (jit slower than zwasm's own interpreter) — a
-> byte-at-a-time `memory.copy` codegen defect, now **FIXED** (word-wise lowering,
-> both backends): memmove zwasm-jit dropped from 254→38 ms (faster than interp,
-> 2.3× wasmtime). `base64` (~13×) is a separate case — its hot loop is
-> table-lookup byte processing, so it reflects the normal single-pass-vs-optimizer
-> gap amplified for byte-shuffling, not a bug. (Numbers above predate the memmove
-> fix + the ReleaseFast switch; a refreshed table follows the re-measure.)
+> † `base64` (~13.7×) is the hardest case for a single-pass backend: its hot loop
+> is 6-bit-group + table-lookup byte processing, which optimizing compilers
+> vectorise and zwasm's non-optimizing JIT does not — the §1.3 trade amplified for
+> byte shuffling, not a bug. (`memmove` was formerly an outlier where the JIT was
+> *slower than the interpreter* — a real `memory.copy` byte-loop defect, now
+> **fixed**: zwasm-jit 254→39 ms via word-wise lowering on both backends.)
 
 ## Startup-bound short workloads — mean ms (measures cold start, not throughput)
 
-| fixture        | zwasm-aot | zwasm-interp | zwasm-jit | wazero | wasmtime | wasmer | WasmEdge |
-|----------------|----------:|-------------:|----------:|-------:|---------:|-------:|---------:|
-| tinygo/fib     |   **1.7** |          2.1 |       2.3 |    5.3 |      6.5 |   11.4 |     13.5 |
-| tinygo/sieve   |   **2.0** |          2.6 |       2.6 |    6.1 |      6.1 |   11.7 |     14.3 |
-| tinygo/nqueens |       2.4 |      **2.3** |       2.4 |    6.7 |      5.7 |    9.9 |     13.4 |
-| cljw/tak       |       2.1 |          2.1 |       2.4 |    5.7 |      5.2 |   10.9 |     14.0 |
+| fixture        | zwasm-aot | zwasm-interp | zwasm-jit | wasmtime | wazero | wasmer | WasmEdge |
+|----------------|----------:|-------------:|----------:|---------:|-------:|-------:|---------:|
+| tinygo/fib     |   **2.0** |          2.3 |       2.8 |      7.2 |    7.1 |   12.0 |     16.5 |
+| tinygo/sieve   |   **2.3** |          2.6 |       2.9 |      6.3 |    7.0 |   11.9 |     16.2 |
+| tinygo/nqueens |   **2.1** |          2.4 |       2.8 |      6.4 |    6.7 |   12.5 |     16.5 |
+| cljw/tak       |   **2.2** |          2.5 |       2.6 |      6.4 |    6.6 |   12.1 |     16.1 |
 
 zwasm's low instantiate cost makes it fastest end-to-end on these — useful for
 CLI / serverless / scripting where each invocation is short.
@@ -104,9 +103,9 @@ CLI / serverless / scripting where each invocation is short.
 
 | fixture      | zwasm-aot | zwasm-jit | zwasm-interp | wazero | wasmtime | WasmEdge | wasmer |
 |--------------|----------:|----------:|-------------:|-------:|---------:|---------:|-------:|
-| tinygo/fib   |   **2.2** |       3.3 |          3.5 |    8.4 |     13.2 |     23.7 |   27.6 |
-| tinygo/sieve |   **4.0** |       5.2 |          5.4 |    9.0 |     13.2 |     23.8 |   27.5 |
-| cljw/tak     |   **2.1** |       3.2 |          3.4 |    8.5 |     13.2 |     23.6 |   27.4 |
+| tinygo/fib   |   **2.1** |       3.2 |          2.7 |    8.7 |     13.3 |     23.7 |   27.5 |
+| tinygo/sieve |   **4.0** |       5.1 |          4.6 |    9.5 |     13.2 |     23.6 |   27.5 |
+| cljw/tak     |   **2.1** |       3.1 |          2.6 |    8.6 |     13.2 |     23.6 |   27.5 |
 
 The footprint advantage is uniform across the WASI guests: zwasm uses **4–12×
 less** resident memory than the comparators, with AOT the leanest (no JIT code

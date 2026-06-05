@@ -2,14 +2,6 @@
 
 > **Doc-state**: ACTIVE — point-in-time, machine-specific snapshot. Regenerate
 > with the reproduction command below; numbers drift with host + toolchain.
->
-> **⚠ Numbers below are the PRELIMINARY `--quick` + ReleaseSafe run and are being
-> superseded.** Two corrections landed 2026-06-05: (1) the bench now builds
-> **ReleaseFast** (was ReleaseSafe — an unfair handicap vs the optimized
-> comparators); (2) **memmove's JIT byte-loop is FIXED** (D-285, word-wise copy)
-> — memmove zwasm-jit 254→38 ms, now faster than interp. A non-quick ReleaseFast
-> re-measure refreshes the tables. The `memmove` / `base64` rows below predate
-> both fixes; see §Findings 5 for the corrected reading.
 
 The first profile of zwasm across **all three of its engines** (interp / JIT /
 AOT) against four external runtimes, on the **same** fixture inventory. This
@@ -18,29 +10,32 @@ supersedes the methodology constraint of [`s15p_parity_vs_v1.md`](s15p_parity_vs
 which **D-244 made false**: JIT and AOT now run the full WASI command set, so the
 TinyGo / cljw WASI fixtures are benched under every engine here.
 
+This is the **definitive** run: zwasm built **ReleaseFast** (fair vs the
+optimized comparators) at **5 runs + 3 warmup**, after the D-285 `memory.copy`
+fix. (An earlier `--quick`/ReleaseSafe pass had memmove ~254 ms and interp ~40 %
+slower — both superseded here.)
+
 ## Methodology
 
 - **Host**: `Darwin aarch64` (Mac, native). Single machine — cross-host numbers
   (ubuntu x86_64) are not folded in; these are one host's figures.
+- **Build**: zwasm `-Doptimize=ReleaseFast` (the comparators ship optimized;
+  ReleaseSafe would be an unfair handicap). `hyperfine`, 5 runs + 3 warmup.
 - **zwasm engines**: `interp` (`run --engine interp`, default), `jit`
   (`run --engine jit`), `aot` (`compile`→`.cwasm`, then `run` the artifact —
   timed cmd excludes the one-off compile; cold-start is
   [`aot_coldstart.md`](aot_coldstart.md)).
 - **Comparators**: wasmtime 43.0.1 (Cranelift JIT), wazero 1.11.0 (Go compiler),
-  wasmer 5.0.4 (Cranelift), wasmedge 0.16.1 (interpreter by default). All pinned
-  in `flake.nix devShells.bench`.
-- **Harness**: `hyperfine`, **`--quick` (3 runs + 1 warmup)** — comparative, not
-  publication-grade stability; re-run without `--quick` (5+3) for tighter CIs.
-- Each runtime executes the module's WASI `_start` (`zwasm run`, `wasmtime run`,
-  `wazero run`, `wasmer run`, `wasmedge <wasm>`). RSS via `/usr/bin/time -l`.
+  wasmer 5.0.4 (Cranelift), wasmedge 0.16.1 (interpreter by default). Pinned in
+  `flake.nix devShells.bench`.
+- Each runtime executes the module's WASI `_start`. RSS via `/usr/bin/time -l`.
 
 ### Caveats (load-bearing — read before the tables)
 
 1. **Startup confound.** The TinyGo + cljw fixtures run in single-digit ms; at
    that scale **process+instantiate startup dominates**, so the ranking there
    measures *startup latency*, not steady-state throughput. The shootout
-   fixtures (100 ms–60 s) amortise startup and reflect execution speed. Do not
-   read "zwasm fastest on tinygo/fib" as a throughput claim.
+   fixtures (100 ms–40 s) amortise startup and reflect execution speed.
 2. **`wasmedge` runs its interpreter** by default (AOT needs a separate
    `wasmedge compile`); compare it to `zwasm-interp`, not to the JITs.
 3. **`handwritten/nbody`** exports `init`/`run`/`advance` with **no `_start`**;
@@ -52,32 +47,32 @@ TinyGo / cljw WASI fixtures are benched under every engine here.
 
 | fixture              | zwasm-interp | zwasm-jit | zwasm-aot | wasmtime | wazero | wasmer | wasmedge |
 |----------------------|-------------:|----------:|----------:|---------:|-------:|-------:|---------:|
-| shootout/fib2        |     64727.02 |   1062.65 |   1052.92 |   703.85 | 776.31 | 716.94 | 42793.40 |
-| shootout/sieve       |     14191.71 |    335.56 |    335.71 |   204.24 | 492.87 | 204.81 | 20559.96 |
-| shootout/nestedloop  |         3.06 |      5.36 |      3.15 |     8.98 |  11.50 |  12.92 |    15.10 |
-| shootout/matrix      |      5999.08 |    341.56 |    340.99 |    88.15 | 197.50 |  91.37 | 11011.40 |
-| shootout/heapsort    |     17148.60 |   1575.58 |   1573.69 |   635.91 | 918.91 | 639.50 | 23785.19 |
-| shootout/base64      |      7349.26 |    770.46 |    768.13 |    58.33 |  78.06 |  60.71 | 10988.84 |
-| shootout/gimli       |       105.41 |      9.24 |      8.99 |     9.00 |   5.29 |  11.74 |   156.87 |
-| shootout/memmove     |       138.38 |    254.23 |    252.84 |    17.13 |  14.37 |  20.85 |    40.78 |
-| shootout/keccak      |       265.52 |     32.39 |     32.08 |     8.57 |   7.75 |  14.75 |   378.94 |
-| tinygo/arith         |         1.96 |      2.46 |      1.86 |     5.00 |   5.58 |   9.48 |    13.56 |
-| tinygo/fib           |         2.08 |      2.26 |      1.65 |     6.48 |   5.31 |  11.38 |    13.52 |
-| tinygo/fib_loop      |         1.99 |      2.30 |      1.97 |     6.89 |   6.15 |  10.61 |    13.77 |
-| tinygo/gcd           |         1.92 |      2.17 |      2.06 |     6.08 |   5.86 |  10.00 |    13.30 |
-| tinygo/list_build    |         2.10 |      2.44 |      1.84 |     5.82 |   5.70 |  10.67 |    13.00 |
-| tinygo/mfr           |         2.19 |      2.45 |      1.84 |     6.05 |   5.73 |   9.85 |    13.87 |
-| tinygo/nqueens       |         2.28 |      2.44 |      2.42 |     5.72 |   6.67 |   9.91 |    13.35 |
-| tinygo/real_work     |         3.89 |      4.98 |      3.52 |     6.07 |   6.48 |  10.76 |    13.02 |
-| tinygo/sieve         |         2.62 |      2.58 |      1.98 |     6.13 |   6.13 |  11.66 |    14.31 |
-| tinygo/string_ops    |         2.18 |      2.44 |      1.92 |     5.83 |   5.77 |  10.63 |    12.98 |
-| tinygo/tak           |         2.17 |      2.46 |      2.10 |     5.65 |   5.84 |  10.41 |    14.72 |
-| handwritten/nbody † |         2.01 |        — |      1.98 |     6.04 |   3.61 |     — |       — |
-| cljw/fib             |         2.15 |      2.54 |      2.03 |     5.65 |   6.35 |  10.38 |    14.74 |
-| cljw/gcd             |         2.20 |      2.43 |      1.86 |     5.12 |   5.73 |  10.78 |    13.62 |
-| cljw/arith           |         2.17 |      2.37 |      1.86 |     5.07 |   5.47 |  10.57 |    12.61 |
-| cljw/sieve           |         2.17 |      2.34 |      2.06 |     4.96 |   5.69 |  10.43 |    15.28 |
-| cljw/tak             |         2.13 |      2.37 |      2.05 |     5.21 |   5.67 |  10.91 |    13.95 |
+| shootout/fib2        |        39747 |      1077 |      1083 |      700 |    781 |    713 |    42865 |
+| shootout/sieve       |        13601 |       320 |       318 |      203 |    490 |    206 |    20637 |
+| shootout/nestedloop  |         3.27 |      4.55 |      3.17 |     6.57 |  12.56 |  13.10 |    16.42 |
+| shootout/matrix      |         5399 |       343 |       342 |    87.74 |    198 |  93.24 |    11038 |
+| shootout/heapsort    |        15666 |      1574 |      1573 |      642 |    926 |    647 |    24078 |
+| shootout/base64      |         7028 |       781 |       780 |    57.23 |  79.40 |  61.65 |    11155 |
+| shootout/gimli       |          103 |      9.78 |      9.65 |     7.97 |   6.28 |  14.27 |      160 |
+| shootout/memmove     |          141 |     38.60 |     38.34 |    18.78 |  15.21 |  22.37 |    40.20 |
+| shootout/keccak      |          289 |     34.02 |     33.52 |     9.30 |   8.71 |  15.82 |      382 |
+| tinygo/arith         |         2.18 |      2.80 |      2.09 |     6.41 |   7.32 |  12.09 |    15.70 |
+| tinygo/fib           |         2.25 |      2.77 |      2.02 |     7.19 |   7.05 |  12.04 |    16.47 |
+| tinygo/fib_loop      |         2.30 |      2.70 |      2.01 |     6.59 |   6.75 |  12.57 |    16.57 |
+| tinygo/gcd           |         2.34 |      2.63 |      2.31 |     6.46 |   6.69 |  11.85 |    16.87 |
+| tinygo/list_build    |         2.34 |      2.92 |      2.17 |     6.30 |   6.67 |  11.93 |    16.15 |
+| tinygo/mfr           |         2.33 |      2.75 |      2.08 |     6.13 |   6.64 |  11.87 |    15.01 |
+| tinygo/nqueens       |         2.37 |      2.78 |      2.05 |     6.44 |   6.72 |  12.46 |    16.50 |
+| tinygo/real_work     |         4.17 |      4.61 |      3.91 |     6.39 |   6.91 |  12.27 |    15.94 |
+| tinygo/sieve         |         2.63 |      2.89 |      2.30 |     6.27 |   7.00 |  11.88 |    16.17 |
+| tinygo/string_ops    |         2.31 |      2.89 |      2.09 |     6.09 |   6.68 |  11.75 |    15.58 |
+| tinygo/tak           |         2.57 |      2.52 |      2.04 |     6.15 |   6.61 |  11.84 |    16.18 |
+| handwritten/nbody † |         2.12 |        — |      2.10 |     6.37 |   3.98 |     — |       — |
+| cljw/fib             |         2.30 |      2.64 |      2.09 |     6.44 |   6.22 |  11.93 |    14.86 |
+| cljw/gcd             |         2.47 |      2.68 |      2.07 |     6.47 |   6.17 |  11.82 |    15.55 |
+| cljw/arith           |         2.33 |      2.63 |      2.15 |     6.14 |   6.45 |  12.01 |    15.95 |
+| cljw/sieve           |         2.23 |      2.85 |      2.05 |     6.60 |   6.41 |  11.75 |    14.88 |
+| cljw/tak             |         2.45 |      2.60 |      2.17 |     6.39 |   6.59 |  12.06 |    16.07 |
 
 † `nbody` has no `_start` — see Caveat 3. Not a valid comparison row.
 
@@ -85,54 +80,49 @@ TinyGo / cljw WASI fixtures are benched under every engine here.
 
 | fixture           | zwasm-interp | zwasm-jit | zwasm-aot | wasmtime | wazero | wasmer | wasmedge |
 |-------------------|-------------:|----------:|----------:|---------:|-------:|-------:|---------:|
-| shootout/heapsort |         35.5 |      19.1 |      18.0 |     13.0 |   45.0 |   27.0 |     23.4 |
-| shootout/keccak   |         19.6 |      19.5 |      18.2 |     13.2 |   11.7 |   27.1 |     24.0 |
-| tinygo/fib        |          3.5 |       3.3 |       2.2 |     13.2 |    8.4 |   27.6 |     23.7 |
-| tinygo/real_work  |         35.4 |      35.2 |      34.1 |     13.3 |    9.6 |   27.5 |     23.7 |
-| tinygo/sieve      |          5.4 |       5.2 |       4.0 |     13.2 |    9.0 |   27.5 |     23.8 |
-| cljw/tak          |          3.4 |       3.2 |       2.1 |     13.2 |    8.5 |   27.4 |     23.6 |
+| shootout/fib2     |         19.1 |      19.8 |      18.2 |     14.1 |   17.0 |   27.4 |     24.1 |
+| shootout/heapsort |         34.8 |      19.0 |      18.0 |     13.1 |   45.0 |   27.0 |     23.4 |
+| shootout/memmove  |         18.5 |      18.8 |      18.0 |     13.0 |    8.3 |   26.9 |     23.4 |
+| shootout/keccak   |         18.8 |      19.3 |      18.2 |     13.2 |   11.3 |   27.1 |     24.0 |
+| tinygo/fib        |          2.7 |       3.2 |       2.1 |     13.3 |    8.7 |   27.5 |     23.7 |
+| tinygo/real_work  |         34.6 |      35.1 |      34.0 |     13.2 |    9.8 |   27.6 |     23.7 |
+| tinygo/sieve      |          4.6 |       5.1 |       4.0 |     13.2 |    9.5 |   27.5 |     23.6 |
+| cljw/tak          |          2.6 |       3.1 |       2.1 |     13.2 |    8.6 |   27.5 |     23.6 |
 
-(Representative rows; the full per-fixture RSS matrix regenerates with
-`--capture-rss`. The tinygo/cljw pattern — zwasm ~2–5 MB vs 8–28 MB — is uniform.)
+(Representative rows; the small WASI guests are uniformly zwasm ~2–5 MB vs 8–28 MB.
+Full per-fixture RSS regenerates with `--capture-rss`.)
 
 ## Findings (honest)
 
 1. **Memory footprint is zwasm's clear, consistent win.** On the small WASI
    guests zwasm holds **~2–5 MB** RSS where wasmtime sits at ~13 MB, wazero
    ~8–9 MB, wasmer ~27 MB, wasmedge ~24 MB — a **4–12× advantage**. AOT is the
-   leanest engine (no JIT buffers). This is the "lightweight" half of
-   "lightweight-yet-fast" showing up in the numbers.
+   leanest engine (no JIT buffers). The "lightweight" half of "lightweight-yet-fast".
 2. **Startup latency favours zwasm** (Caveat 1). On sub-10 ms fixtures
-   zwasm-aot/interp (~2 ms) beat wasmtime (~5–6 ms) and wasmer/wasmedge
-   (~10–14 ms). Real, but it measures cold start, not throughput.
+   zwasm-aot/interp (~2 ms) beat wasmtime (~6–7 ms) and wasmer/wasmedge
+   (~12–16 ms). Real, but it measures cold start, not throughput.
 3. **On sustained compute, the optimizing JITs lead — as expected.** Once
    startup amortises (shootout), wasmtime/wasmer (Cranelift) and wazero pull
    ahead of zwasm-jit/aot: fib2 ~1.5×, sieve ~1.6×, heapsort ~2.5×, keccak
-   ~3.8×, matrix ~3.9×. This is the **designed** trade of a single-pass,
-   no-optimizing-tier backend (§1.3/§3.2) against multi-pass optimizers — not a
-   regression. zwasm-jit ≈ zwasm-aot throughout (shared lowering; AOT's win is
-   cold-start, not steady-state).
-4. **zwasm-jit/aot vs zwasm-interp**: 10–90× faster on heavy compute (fib2
-   64.7 s → 1.06 s), near-parity on startup-bound fixtures. zwasm-interp and
-   wasmedge-interp are the same class (both tree-walking-ish interpreters);
-   zwasm-interp trails wasmedge ~1.5× on the heaviest loops.
-5. **One real codegen defect (now FIXED) + one re-attributed:**
-   - **`memmove`** — was a genuine codegen defect: zwasm-jit (254 ms) slower than
-     its own interpreter (138 ms), a byte-at-a-time `memory.copy` loop. **FIXED**
-     (D-285, `4e6d17fc`/`838de5a1`): word-wise lowering on both backends →
-     zwasm-jit **38 ms**, now faster than interp and 2.3× wasmtime.
-   - **`base64`** — initially flagged with memmove, but the copy fix left it
-     unchanged (770→782 ms): base64's hot loop is 6-bit-group + table-lookup byte
-     processing, **not** `memory.copy`. Its ~13× is the **genuine single-pass-vs-
-     optimizer gap** (the §1.3 designed trade, amplified for byte-shuffling) —
-     **not** a bug.
-   - `memory.fill`/`memory.init` share the old byte-loop pattern → **D-286**
-     (same-class follow-on). **D-284** = the nbody no-`_start` harness gap.
+   ~3.7×, matrix ~3.9×. This is the **designed** trade of a single-pass,
+   no-optimizing-tier backend (§1.3/§3.2) — not a regression. zwasm-jit ≈
+   zwasm-aot throughout (shared lowering; AOT's win is cold-start).
+4. **`base64` (~13.7×) is the same trade amplified**, not a bug: its hot loop is
+   6-bit-group + table-lookup byte processing, which optimizers vectorise and a
+   single-pass backend cannot. (It was briefly mis-flagged with memmove; the
+   D-285 copy fix left it unchanged, confirming it's the optimizer gap.)
+5. **`memmove` was a real codegen defect — now FIXED (D-285).** It was a
+   byte-at-a-time `memory.copy` loop (zwasm-jit slower than its own interpreter);
+   word-wise lowering on both backends brought zwasm-jit to **38.6 ms** (from
+   ~254 ms), now faster than interp (141 ms) and 2.05× wasmtime. `memory.fill`/
+   `memory.init` carry the same old pattern → **D-286** (lower impact).
+6. **interp**: 10–60× slower than jit/aot on heavy compute (fib2 39.7 s → 1.08 s),
+   near-parity on startup-bound fixtures; same class as wasmedge-interp.
 
 ## Reproduction
 
 ```sh
 nix develop .#bench --command \
   bash scripts/run_bench.sh --engines=interp,jit,aot --compare=all --capture-rss
-# (--quick for the 3-run snapshot above; omit for 5+3 publication runs)
+# (the above = 5+3 runs, ReleaseFast — the published basis; add --quick for a fast pass)
 ```
