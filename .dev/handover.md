@@ -29,10 +29,19 @@
   test-all green at `1d2cb8df`, then CLOSE bundle + DISCHARGE D-278.** Win64 note: windows test-all ran ALL runners
   0-failed (25437+ tests) but the gate exits non-zero on a **build-env flake** (`configure phase ... FileNotFound`,
   D-028 Defender/.zig-cache race) — **D-282**: red-with-all-runners-0-failed = env flake, Win64 is green-for-
-  correctness, do NOT auto-classify as a regression. FS-mutation path tests POSIX-guarded (`97d01bf7`). After close:
-  all-engine WASI (D-251 AOT + D-244 JIT) is the next program item. `src/wasi/fd.zig`=1349 LOC (WARN) — split candidate.
-- **Exit-condition**: lookupWasiThunk resolves all 46 preview1 names (MET) + green test Mac (MET) + Linux (ubuntu
-  verify pending at `1d2cb8df`).
+  correctness, do NOT auto-classify as a regression. FS-mutation path tests POSIX-guarded (`97d01bf7`).
+  `src/wasi/fd.zig`=1349 LOC (WARN) — split candidate.
+- **Exit-condition**: 46 names resolve (MET) + green test Mac (MET) + **ubuntu green at `5a78305c`** (pending — was
+  RED on the fdReaddir-test `.iterate` bug, fixed `5a78305c`; verify next cycle → then CLOSE + DISCHARGE D-278).
+- **NEXT BUNDLE (after close) — D-244 JIT-WASI** (survey done this cycle): the JIT host-dispatch mechanism ALREADY
+  exists — `JitRuntime.host_dispatch_base` (`engine/codegen/shared/entry.zig`), populated at setup by
+  `wasi/jit_dispatch.zig:populateDispatch` (`setup.zig:284`); JIT `op_call.zig emitImportDispatch` loads
+  `dispatch[idx]` + calls it (runtime_ptr X19/R15 arg0 + GPR args). **GAP: `jit_dispatch.zig` has only 9 handlers,
+  several STUBBED (clock=0, random=zerofill, args/environ empty, fd_read=EOF).** KEY DESIGN (avoid re-implementing
+  46): interp handlers in `src/wasi/{fd,path,clocks,proc}.zig` are ABI-agnostic `(host, mem, ...args)` — JIT thunks
+  can call the SAME handlers if `JitRuntime` carries a `*Host` + reconstructs `mem = vm_base[0..mem_size]`. So D-244
+  = attach Host to JitRuntime + thin GPR-thunks → shared handlers. **D-251 AOT-WASI** needs `.cwasm` v0.3
+  import-metadata serialization (`aot/format.zig`) first. Risk: interp(stack) vs JIT(GPR) thunk ABIs need manual sync.
 
 ## NEXT — USER-DIRECTED PROGRAM 2026-06-05 (supersedes the bucket-3 plateau): complete WASI + all-engine + CM
 
@@ -58,13 +67,13 @@ no auto-revert. Step 6+7: `should_gate_windows.sh` exit 0 → kick `run_remote_w
 
 ## Step 0.7 (next resume) — verify per-cadence remote logs
 
-This turn pushed 46/46 completion (`fe7b24bb` fd_renumber + `1d2cb8df` sockets + this bookkeeping). Path-test guard
-(`97d01bf7`) CONFIRMED working: windows at `416e8a51` ran ALL runners 0-failed (25437+ tests) — no pathRename
-failure. **The windows gate still exits non-zero on a build-env flake (`configure phase ... FileNotFound`, D-282 /
-D-028 Defender race) — NOT a code bug.** Step 0.7 next resume: `tail /tmp/ubuntu.log` (must be `OK (HEAD=1d2cb8df)`,
-auto-revert on FAIL) + `tail /tmp/win.log` — **if all runners 0-failed + only configure-phase error → D-282 env
-flake, Win64 green-for-correctness; CLOSE the wasi bundle + DISCHARGE D-278.** **DISCIPLINE: cross-compile
-windows-gnu before every `src/wasi/` push; FS-mutation tests POSIX-gated.** **Gate**: Mac = `mac_gate.sh`; ubuntu = always (D6); windows = cadence (D7).
+**ubuntu RED at the 46/46 push** — `fdReaddir` TEST panicked on Linux (`getdents` BADF: the test's `tmpDir` handle
+wasn't `.iterate=true`; macOS lenient). Production is fine (preopens open iterably, path_open'd entries are `.file`
+→ notdir before iterate) → test-only fix-forward `5a78305c` (D3 non-code-gap, not auto-revert). Re-kicked ubuntu +
+windows. **Step 0.7 next resume: `tail /tmp/ubuntu.log` MUST be `OK (HEAD=5a78305c)` (auto-revert on FAIL) +
+`tail /tmp/win.log` (D-282: all-runners-0-failed + only configure-phase error = env flake, green-for-correctness).
+If ubuntu green → CLOSE the wasi-p1-completion bundle + DISCHARGE D-278 + start D-244 (JIT-WASI).** **DISCIPLINE:
+cross-compile (Linux runtime panics aren't caught by `-Dtarget` build — verify the actual run).** **Gate**: Mac = `mac_gate.sh`; ubuntu = always (D6); windows = cadence (D7).
 
 ## Deferred / open debt (D-274/275/276/257 discharged this session — removed)
 
