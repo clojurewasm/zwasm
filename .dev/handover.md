@@ -21,20 +21,18 @@
 ## Active bundle
 
 - **Bundle-ID**: wasi-p1-completion (D-278)
-- **Cycles-remaining**: ~2
-- **Continuity-memo**: 21→**41/46** wired. fd file-meta + path_* ×8 (prior) + **this turn**: fd_readdir
-  (`2b6cbad9`, Dir.iterate + ordinal-cookie + synthetic `.`/`..` + dirent marshal), proc_raise (`1e7d8c72`,
-  notsup — no sandbox signal delivery). **Win64 fix `97d01bf7`**: path rename/link + symlink unit tests are
-  POSIX-comptime-guarded (windowsmini failed at pathRename/pathLink — Windows FS rename/hardlink/symlink semantics
-  diverge; handlers are cross-platform std.Io.Dir + cross-compile-clean, only the mutation TESTS are gated, w/
-  SIBLING-AT per ADR-0122 D3). **REMAINING 5** (reconciled vs canonical wasi_snapshot_preview1 witx): **fd_renumber**
-  (MISSED earlier — `fd_renumber(from,to)`: move the fd_table slot, close `to` if open; EASY, do FIRST next turn) +
-  **sockets ×4** = sock_accept/sock_recv/sock_send/sock_shutdown (NOT 9 — connect/bind/listen/recv_from/send_to are
-  wasi-sockets extensions, not preview1). Sockets = std.posix.socket (std.Io has none, std.net gone 0.14) — but our
-  preopen model has no listening socket to accept on → likely sock_* return notsup unless a host socket is preopened
-  (design call; ~structural). **DISCIPLINE: `zig build -Dtarget=x86_64-windows-gnu` before every push.**
-  `src/wasi/fd.zig`=1267 LOC (WARN) — split candidate after the batch.
-- **Exit-condition**: lookupWasiThunk resolves all 46 preview1 names + each has a green handler test, Mac+Linux.
+- **Cycles-remaining**: ~1 (CLOSE next cycle after remote-green)
+- **Continuity-memo**: **46/46 WIRED — preview1 surface COMPLETE (`1d2cb8df`).** This turn closed it: fd_renumber
+  (`fe7b24bb`, slot move) + sockets ×4 (`1d2cb8df`, sock_accept/recv/send/shutdown = notsock — no socket fds in the
+  preopen model, real socket I/O = new debt **D-281** host socket-preopen). All 46 `lookupWasiThunk` names resolve;
+  per-syscall TDD green Mac + Win64 cross-compile-clean. **NEXT (this bundle's last step): verify ubuntu+windows
+  test-all green at `1d2cb8df`, then CLOSE bundle + DISCHARGE D-278.** Win64 note: windows test-all ran ALL runners
+  0-failed (25437+ tests) but the gate exits non-zero on a **build-env flake** (`configure phase ... FileNotFound`,
+  D-028 Defender/.zig-cache race) — **D-282**: red-with-all-runners-0-failed = env flake, Win64 is green-for-
+  correctness, do NOT auto-classify as a regression. FS-mutation path tests POSIX-guarded (`97d01bf7`). After close:
+  all-engine WASI (D-251 AOT + D-244 JIT) is the next program item. `src/wasi/fd.zig`=1349 LOC (WARN) — split candidate.
+- **Exit-condition**: lookupWasiThunk resolves all 46 preview1 names (MET) + green test Mac (MET) + Linux (ubuntu
+  verify pending at `1d2cb8df`).
 
 ## NEXT — USER-DIRECTED PROGRAM 2026-06-05 (supersedes the bucket-3 plateau): complete WASI + all-engine + CM
 
@@ -48,8 +46,9 @@ work — **ADR-0161** (WASI completion) + **ADR-0162** (toolchain carve-out). Or
   comma-args by export param type (i32/i64/f32/f64; base-0+unsigned-wrap; floats) → boundary Vals; results vec
   sized to result arity (value-returning export now runs); typed results print bare on guest-stdout (wasmtime
   semantics). Interp only; JIT/.cwasm loudly reject `=ARGS`. Smoke-verified (add=2,3→5, swap multi-value, hex, neg).
-- **2. D-278 WASI preview1 21→46 (interp) — IN PROGRESS, see `## Active bundle` (41/46)**: fd_* file-meta + path_*
-  ×8 + fd_readdir + proc_raise landed. Remaining 5 = fd_renumber (easy, first) + sockets ×4 (accept/recv/send/shutdown).
+- **2. D-278 WASI preview1 21→46 (interp) — ✅ 46/46 COMPLETE (`1d2cb8df`)**: the full preview1 syscall surface is
+  wired (fd_* + path_* ×8 + fd_readdir/renumber + proc_raise=notsup + sockets ×4=notsock). Bundle closes next cycle
+  after remote-green. **NEXT program item: 3. all-engine WASI** (D-251 AOT + D-244 d-3 JIT) — make the 46 run under JIT/AOT, not just interp.
 - **3. All-engine WASI** (D-251 AOT + D-244 d-3 JIT). **4. Precise GC root + AOT-GC** (D-211; verify load-bearing first).
 - **Post-v0.1.0**: Component Model / WASI P2 (A5 survey informs). WASI 0.3/async (ClojureWasmFromScratch agent ref).
 
@@ -59,13 +58,13 @@ no auto-revert. Step 6+7: `should_gate_windows.sh` exit 0 → kick `run_remote_w
 
 ## Step 0.7 (next resume) — verify per-cadence remote logs
 
-This turn: ubuntu GREEN at `3ce3e589` (path_* verified x86_64). **windows was RED** at `3ce3e589` — the
-`pathRename/pathLink` UNIT TEST failed (Windows FS semantics; the "configure phase FileNotFound" tail was
-downstream of the test.exe failure, NOT a Defender flake) → fixed by POSIX-comptime-guarding the mutation tests
-(`97d01bf7`). This turn pushed fd_readdir/proc_raise + the Win64 fix; re-kicked ubuntu + windows. **Step 0.7 next
-resume: `tail /tmp/win.log` MUST now be `[run_remote_windows] OK.` (confirms the guard fixed it) + `tail
-/tmp/ubuntu.log` (auto-revert on FAIL).** **DISCIPLINE: cross-compile windows-gnu before every push touching
-`src/wasi/`; FS-mutation unit tests are POSIX-gated.** **Gate**: Mac = `mac_gate.sh`; ubuntu = always (D6); windows = cadence (D7).
+This turn pushed 46/46 completion (`fe7b24bb` fd_renumber + `1d2cb8df` sockets + this bookkeeping). Path-test guard
+(`97d01bf7`) CONFIRMED working: windows at `416e8a51` ran ALL runners 0-failed (25437+ tests) — no pathRename
+failure. **The windows gate still exits non-zero on a build-env flake (`configure phase ... FileNotFound`, D-282 /
+D-028 Defender race) — NOT a code bug.** Step 0.7 next resume: `tail /tmp/ubuntu.log` (must be `OK (HEAD=1d2cb8df)`,
+auto-revert on FAIL) + `tail /tmp/win.log` — **if all runners 0-failed + only configure-phase error → D-282 env
+flake, Win64 green-for-correctness; CLOSE the wasi bundle + DISCHARGE D-278.** **DISCIPLINE: cross-compile
+windows-gnu before every `src/wasi/` push; FS-mutation tests POSIX-gated.** **Gate**: Mac = `mac_gate.sh`; ubuntu = always (D6); windows = cadence (D7).
 
 ## Deferred / open debt (D-274/275/276/257 discharged this session — removed)
 

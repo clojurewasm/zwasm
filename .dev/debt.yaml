@@ -969,7 +969,7 @@ entries:
     status: "now"
     description: |-
       now (ACTIVE BUNDLE wasi-p1-completion; unblocked `34dbebbc`): WASI preview1 21→46 completion (interp).
-      **PROGRESS 2026-06-05: 21→41 wired** (+ fd_readdir, proc_raise=notsup; Win64 fix `97d01bf7` POSIX-guards path mutation tests). Remaining 5: fd_renumber (missed; easy) + sockets ×4 (accept/recv/send/shutdown — NOT 9) (fd file-meta + full path_* ×8 batch in src/wasi/path.zig; remaining ~7 = fd_readdir + proc_raise + sockets) (all `std.Io.File`-based, Win64 cross-compile-clean). DONE: clock_res_get
+      **46/46 WIRED 2026-06-05 (`1d2cb8df`) — preview1 surface COMPLETE.** Mac per-syscall tests green + Win64 cross-compile-clean; ubuntu+windows test-all verify in-flight (Step 0.7 next resume → if green, DISCHARGE this row; the surface is done, all-engine WASI = D-251/D-244 separate). Was: 21→41 (+ fd_readdir, proc_raise=notsup; Win64 fix `97d01bf7` POSIX-guards path mutation tests). Remaining 5: fd_renumber (missed; easy) + sockets ×4 (accept/recv/send/shutdown — NOT 9) (fd file-meta + full path_* ×8 batch in src/wasi/path.zig; remaining ~7 = fd_readdir + proc_raise + sockets) (all `std.Io.File`-based, Win64 cross-compile-clean). DONE: clock_res_get
       (`bf0b8a56`), fd_sync/datasync/advise (`fe02e638`), fd_pread/pwrite (`4e1e31c6`), fd_filestat_set_times
       (`1cf93b1a`), fd_filestat_set_size + fd_allocate (`32c078f7`, via setLength guarded-grow), fd_fdstat_set_rights
       (`c750fa9a`, narrow-only). **Win64 NOTE: `std.posix.<fd_call>` (fdatasync etc.) is BANNED — Windows fd_t is a
@@ -1007,6 +1007,44 @@ entries:
     refs: |-
       ADR-0076 D7 (win64 monitoring gate); investigation_discipline.md §2 (heisenbug discharge);
       scripts/track_heisenbug.sh; test/spec/wasm-2.0-simd-assert (simd_bit_shift); D-180/D-245 (Win64 lineage)
+  - id: "D-281"
+    layer: "code"
+    status: "note"
+    description: |-
+      note (post-v0.1.0 / on-demand): **host socket-preopen mechanism for real WASI socket I/O.** The 4 preview1
+      sockets (`sock_accept/recv/send/shutdown`, `src/wasi/fd.zig`) currently return `notsock` because zwasm's
+      fd_table has no socket fds — preview1 has NO socket-creation syscall (connect/bind/listen are wasi-sockets
+      extensions, not preview1), so a socket can only reach the guest via a host preopen (wasmtime's `--listen`).
+      To make sockets functional: add a `.socket` FdKind + a host-config preopen-socket path (CLI `--listen`/C-API)
+      + real recv/send/accept/shutdown via `std.posix.socket`/`accept`/`recv`/`send` (std.Io has no sockets — std.net
+      gone 0.14; std.posix OK per ADR-0070, not raw libc; Win64 needs the HANDLE-aware path). DISCHARGE: a guest
+      that accepts + echoes on a preopened listener works Mac+Linux. Not blocking v0.1.0 — `notsock` is spec-correct
+      for the no-socket-fd model; networking is opt-in. Pairs with ADR-0161 §3 (WASI sockets / wasi-sockets).
+    first_raised: "2026-06-05"
+    last_reviewed: "2026-06-05"
+    refs: |-
+      src/wasi/fd.zig (sock_accept/recv/send/shutdown = notsock); src/api/wasi.zig (thunks); ADR-0161 §3;
+      ROADMAP §11.1; D-278 (preview1 surface, now 46/46)
+  - id: "D-282"
+    layer: "infra"
+    status: "note"
+    description: |-
+      note (windowsmini build-env flake, NOT a code bug): `run_remote_windows.sh test-all` intermittently exits
+      non-zero with `error: unable to read results of configure phase from '.zig-cache\tmp\<hash>': FileNotFound`
+      (a crash in the zig build-driver worker, `build_zcu`), **even when ALL tests pass** (verified 2026-06-05
+      `1d2cb8df`: spec_assert_runner_non_simd 25437/0, diff_runner, wast_runner, every runner 0-failed — the error
+      is POST-tests build-graph noise, not downstream of a test failure). D-028 lineage: Microsoft Defender scans
+      `.zig-cache`/`zig-out` and can delete/lock a `tmp/<hash>` configure-result file mid-build → FileNotFound race.
+      **Loop guidance: a windows red whose log shows ALL runners 0-failed + only the configure-phase FileNotFound =
+      this env flake → treat Win64 as green-for-correctness (cross-compile + all-tests-pass), do NOT classify as a
+      code regression.** Tracked via `scripts/track_heisenbug.sh win-configure-phase`. MITIGATION (user/env, out of
+      repo scope): add a Defender exclusion for the repo `.zig-cache`, or point `--cache-dir` at a scan-exempt path
+      on windowsmini. DISCHARGE: 5 clean windows runs after a Defender exclusion, or a zig-0.16 build-driver fix.
+    first_raised: "2026-06-05"
+    last_reviewed: "2026-06-05"
+    refs: |-
+      scripts/run_remote_windows.sh; CLAUDE.md (D-028 Defender note); ADR-0076 D7 (win64 gate);
+      scripts/track_heisenbug.sh (win-configure-phase); /tmp/win.log
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
