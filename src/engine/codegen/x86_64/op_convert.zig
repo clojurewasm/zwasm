@@ -619,7 +619,8 @@ pub fn emitFpTruncTrapSigned(
     alloc: regalloc.Allocation,
     pushed_vregs: *std.ArrayList(u32),
     next_vreg: *u32,
-    bounds_fixups: *std.ArrayList(u32),
+    invalid_conv_fixups: *std.ArrayList(u32),
+    overflow_fixups: *std.ArrayList(u32),
     spill_base_off: u32,
     op: zir.ZirOp,
 ) Error!void {
@@ -678,7 +679,7 @@ pub fn emitFpTruncTrapSigned(
     {
         const fixup_at: u32 = @intCast(buf.items.len);
         try buf.appendSlice(allocator, inst.encJccRel32(.p, 0).slice());
-        try bounds_fixups.append(allocator, fixup_at);
+        try invalid_conv_fixups.append(allocator, fixup_at); // D-293 slice-3 NaN → invalid_conversion (code 9)
     }
 
     // 2. Upper bound: load (INT_MAX+1) into xmm7, UCOMI, JAE trap.
@@ -691,7 +692,7 @@ pub fn emitFpTruncTrapSigned(
     {
         const fixup_at: u32 = @intCast(buf.items.len);
         try buf.appendSlice(allocator, inst.encJccRel32(.ae, 0).slice());
-        try bounds_fixups.append(allocator, fixup_at);
+        try overflow_fixups.append(allocator, fixup_at); // D-293 slice-3 trunc range → int_overflow (code 8)
     }
 
     // 3. Lower bound: load INT_MIN (or -(INT_MIN+1) for i32_s f64,
@@ -708,7 +709,7 @@ pub fn emitFpTruncTrapSigned(
         const fixup_at: u32 = @intCast(buf.items.len);
         const lower_cc: inst.Cond = if (i32_s_f64) .be else .b;
         try buf.appendSlice(allocator, inst.encJccRel32(lower_cc, 0).slice());
-        try bounds_fixups.append(allocator, fixup_at);
+        try overflow_fixups.append(allocator, fixup_at); // D-293 slice-3 trunc range → int_overflow (code 8)
     }
 
     // 4. In-range: CVTTSS2SI/SD dst, src.
@@ -738,7 +739,8 @@ pub fn emitFpTruncTrapUnsigned(
     alloc: regalloc.Allocation,
     pushed_vregs: *std.ArrayList(u32),
     next_vreg: *u32,
-    bounds_fixups: *std.ArrayList(u32),
+    invalid_conv_fixups: *std.ArrayList(u32),
+    overflow_fixups: *std.ArrayList(u32),
     spill_base_off: u32,
     op: zir.ZirOp,
 ) Error!void {
@@ -775,7 +777,7 @@ pub fn emitFpTruncTrapUnsigned(
     {
         const fixup_at: u32 = @intCast(buf.items.len);
         try buf.appendSlice(allocator, inst.encJccRel32(.p, 0).slice());
-        try bounds_fixups.append(allocator, fixup_at);
+        try invalid_conv_fixups.append(allocator, fixup_at); // D-293 slice-3 NaN → invalid_conversion (code 9)
     }
 
     // 2. Lower bound: trap if src ≤ -1. Materialise -1.0, JBE trap.
@@ -788,7 +790,7 @@ pub fn emitFpTruncTrapUnsigned(
     {
         const fixup_at: u32 = @intCast(buf.items.len);
         try buf.appendSlice(allocator, inst.encJccRel32(.be, 0).slice());
-        try bounds_fixups.append(allocator, fixup_at);
+        try overflow_fixups.append(allocator, fixup_at); // D-293 slice-3 trunc range → int_overflow (code 8)
     }
 
     // 3. Upper bound: trap if src ≥ 2^N.
@@ -801,7 +803,7 @@ pub fn emitFpTruncTrapUnsigned(
     {
         const fixup_at: u32 = @intCast(buf.items.len);
         try buf.appendSlice(allocator, inst.encJccRel32(.ae, 0).slice());
-        try bounds_fixups.append(allocator, fixup_at);
+        try overflow_fixups.append(allocator, fixup_at); // D-293 slice-3 trunc range → int_overflow (code 8)
     }
 
     // 4. In-range convert.
@@ -859,7 +861,8 @@ pub fn emitI32TruncF32S(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!v
         ctx.alloc,
         ctx.pushed_vregs,
         ctx.next_vreg,
-        ctx.bounds_fixups,
+        ctx.invalid_conv_fixups,
+        ctx.overflow_fixups,
         ctx.spill_base_off,
         ins.op,
     );
@@ -875,7 +878,8 @@ pub fn emitI32TruncF32U(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!v
         ctx.alloc,
         ctx.pushed_vregs,
         ctx.next_vreg,
-        ctx.bounds_fixups,
+        ctx.invalid_conv_fixups,
+        ctx.overflow_fixups,
         ctx.spill_base_off,
         ins.op,
     );

@@ -139,3 +139,40 @@ test "runVoidExportWasi: JIT call_indirect signature mismatch → precise indire
     try testing.expectEqual(@as(u32, 3), sig);
     try testing.expectEqual(trap_surface.TrapKind.indirect_call_mismatch, trap_surface.jitTrapCode(sig).?);
 }
+
+// `(module (func (export "_start") f32.const nan i32.trunc_f32_s drop))` — the Wasm
+// 1.0 trapping `i32.trunc_f32_s` traps on NaN (the FP self-compare sets PF/V). D-293
+// slice-3: invalid_conversion code 9, UNIFIED across arm64+x86_64 (previously the
+// generic bucket — x86_64 `JP`/arm64 `B.VS` appended to bounds_fixups). `0x7fc00000` = qNaN.
+const trunc_nan_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x04, 0x01, 0x60, 0x00, 0x00, 0x03, 0x02,
+    0x01, 0x00, 0x07, 0x0a, 0x01, 0x06, 0x5f, 0x73,
+    0x74, 0x61, 0x72, 0x74, 0x00, 0x00, 0x0a, 0x0b,
+    0x01, 0x09, 0x00, 0x43, 0x00, 0x00, 0xc0, 0x7f,
+    0xa8, 0x1a, 0x0b,
+};
+
+// `(module (func (export "_start") f32.const 1e30 i32.trunc_f32_s drop))` — 1e30 ≥ 2^31,
+// so the trapping `i32.trunc_f32_s` range-check traps. D-293 slice-3: trunc out-of-range
+// reuses int_overflow code 8 (the div_s overflow channel), UNIFIED across both arches.
+const trunc_overflow_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x04, 0x01, 0x60, 0x00, 0x00, 0x03, 0x02,
+    0x01, 0x00, 0x07, 0x0a, 0x01, 0x06, 0x5f, 0x73,
+    0x74, 0x61, 0x72, 0x74, 0x00, 0x00, 0x0a, 0x0b,
+    0x01, 0x09, 0x00, 0x43, 0xca, 0xf2, 0x49, 0x71,
+    0xa8, 0x1a, 0x0b,
+};
+
+test "runVoidExportWasi: JIT trapping-trunc NaN → precise invalid_conversion code 9; out-of-range → int_overflow code 8 (D-293 slice-3)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    var nan_code: u32 = 99;
+    try testing.expectError(entry.Error.Trap, runner.runVoidExportWasi(testing.allocator, &trunc_nan_wasm, "_start", null, &nan_code));
+    try testing.expectEqual(@as(u32, 9), nan_code);
+    try testing.expectEqual(trap_surface.TrapKind.invalid_conversion, trap_surface.jitTrapCode(nan_code).?);
+    var ovf_code: u32 = 99;
+    try testing.expectError(entry.Error.Trap, runner.runVoidExportWasi(testing.allocator, &trunc_overflow_wasm, "_start", null, &ovf_code));
+    try testing.expectEqual(@as(u32, 8), ovf_code);
+    try testing.expectEqual(trap_surface.TrapKind.int_overflow, trap_surface.jitTrapCode(ovf_code).?);
+}

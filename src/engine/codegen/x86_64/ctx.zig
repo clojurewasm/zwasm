@@ -53,6 +53,7 @@ pub const InitArgs = struct {
     unreach_fixups: *std.ArrayList(u32),
     divzero_fixups: *std.ArrayList(u32),
     overflow_fixups: *std.ArrayList(u32),
+    invalid_conv_fixups: *std.ArrayList(u32),
     oob_fixups: *std.ArrayList(u32),
     oobtable_fixups: *std.ArrayList(u32),
     cind_sig_fixups: *std.ArrayList(u32),
@@ -143,10 +144,14 @@ pub const EmitCtx = struct {
     /// `JE rel32` (6-byte) placeholders.
     divzero_fixups: *std.ArrayList(u32),
     overflow_fixups: *std.ArrayList(u32),
+    /// D-293 slice-3 — trapping-trunc NaN (`JP rel32`, 6-byte) fixups, demuxed
+    /// out of `bounds_fixups` → code 9 = invalid_conversion. The trunc range
+    /// checks reuse `overflow_fixups` (code 8).
+    invalid_conv_fixups: *std.ArrayList(u32),
     /// ADR-0164 A3 / D-292 — memory load/store/bulk-memory out-of-bounds
     /// (`JA rel32`, 6-byte) fixups, demuxed out of `bounds_fixups` so oob_memory
     /// reaches a dedicated trap stub recording code 6. Other `bounds_fixups`
-    /// kinds (conversion / ref-null / cast / array-oob) stay generic (D-293).
+    /// kinds (ref-null / cast / array-oob) stay generic (D-293).
     oob_fixups: *std.ArrayList(u32),
     /// D-293 — table-access + call_indirect-bounds out-of-bounds (oob_table, code 2)
     /// fixups (`JAE rel32`, 6-byte), demuxed from `bounds_fixups` to a dedicated
@@ -314,6 +319,7 @@ pub const EmitCtx = struct {
             .unreach_fixups = args.unreach_fixups,
             .divzero_fixups = args.divzero_fixups,
             .overflow_fixups = args.overflow_fixups,
+            .invalid_conv_fixups = args.invalid_conv_fixups,
             .oob_fixups = args.oob_fixups,
             .oobtable_fixups = args.oobtable_fixups,
             .cind_sig_fixups = args.cind_sig_fixups,

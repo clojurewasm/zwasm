@@ -1463,6 +1463,15 @@ fn emitEndInter(ctx: *ctx_mod.EmitCtx) Error!void {
             inst.patchRel32(ctx.buf.items, fx_byte, 6, disp);
         }
     }
+    // D-293 slice-3 — trapping-trunc NaN (invalid_conversion, code 9) stub; `JP rel32` (6-byte).
+    if (ctx.invalid_conv_fixups.items.len > 0) {
+        const trap_byte = try emitTrapExitStub(ctx, 9);
+        for (ctx.invalid_conv_fixups.items) |fx_byte| {
+            const disp: i32 = @as(i32, @intCast(trap_byte)) -
+                @as(i32, @intCast(fx_byte)) - 6;
+            inst.patchRel32(ctx.buf.items, fx_byte, 6, disp);
+        }
+    }
     // ADR-0164 A3 / D-292 — memory out-of-bounds (code 6) stub; `JA rel32` (6-byte).
     if (ctx.oob_fixups.items.len > 0) {
         const trap_byte = try emitTrapExitStub(ctx, 6);

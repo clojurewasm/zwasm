@@ -58,7 +58,7 @@ fn emitTrunc32BoundsCheck(
     {
         const fixup_at: u32 = @intCast(ctx.buf.items.len);
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.vs, 0));
-        try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+        try ctx.invalid_conv_fixups.append(ctx.allocator, fixup_at); // D-293 slice-3 NaN → invalid_conversion (code 9)
     }
     // Lower bound: materialise into S31 via W16, then FCMP + trap.
     try op_const.emitConstU32(ctx.allocator, ctx.buf, 16, lower_bits);
@@ -67,7 +67,7 @@ fn emitTrunc32BoundsCheck(
     {
         const fixup_at: u32 = @intCast(ctx.buf.items.len);
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(lower_cmp, 0));
-        try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+        try ctx.overflow_fixups.append(ctx.allocator, fixup_at); // D-293 slice-3 trunc range → int_overflow (code 8)
     }
     // Upper bound: materialise + FCMP + B.GE trap.
     try op_const.emitConstU32(ctx.allocator, ctx.buf, 16, upper_bits);
@@ -76,7 +76,7 @@ fn emitTrunc32BoundsCheck(
     {
         const fixup_at: u32 = @intCast(ctx.buf.items.len);
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.ge, 0));
-        try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+        try ctx.overflow_fixups.append(ctx.allocator, fixup_at); // D-293 slice-3 trunc range → int_overflow (code 8)
     }
 }
 
@@ -95,7 +95,7 @@ fn emitTrunc64BoundsCheck(
     {
         const fixup_at: u32 = @intCast(ctx.buf.items.len);
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.vs, 0));
-        try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+        try ctx.invalid_conv_fixups.append(ctx.allocator, fixup_at); // D-293 slice-3 NaN → invalid_conversion (code 9)
     }
     try op_const.emitConstU64(ctx.allocator, ctx.buf, 16, lower_bits);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst_fp.encFmovDtoFromX(31, 16));
@@ -103,7 +103,7 @@ fn emitTrunc64BoundsCheck(
     {
         const fixup_at: u32 = @intCast(ctx.buf.items.len);
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(lower_cmp, 0));
-        try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+        try ctx.overflow_fixups.append(ctx.allocator, fixup_at); // D-293 slice-3 trunc range → int_overflow (code 8)
     }
     try op_const.emitConstU64(ctx.allocator, ctx.buf, 16, upper_bits);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst_fp.encFmovDtoFromX(31, 16));
@@ -111,7 +111,7 @@ fn emitTrunc64BoundsCheck(
     {
         const fixup_at: u32 = @intCast(ctx.buf.items.len);
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.ge, 0));
-        try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+        try ctx.overflow_fixups.append(ctx.allocator, fixup_at); // D-293 slice-3 trunc range → int_overflow (code 8)
     }
 }
 

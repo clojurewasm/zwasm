@@ -100,7 +100,8 @@ pub fn jitTrapCode(code: u32) ?TrapKind {
         5 => .unreachable_, // D-292 A1 — dedicated `unreachable` stub (both arches)
         6 => .oob_memory, // D-292 A3 — memory load/store/bulk-memory oob stub
         7 => .div_by_zero, // D-292 A2 — div-by-zero stub
-        8 => .int_overflow, // D-292 A2 — div_s INT_MIN/-1 signed-overflow stub
+        8 => .int_overflow, // D-292 A2 — div_s INT_MIN/-1 signed-overflow stub; D-293 slice-3 — trunc range
+        9 => .invalid_conversion, // D-293 slice-3 — trapping-trunc NaN (UCOMI/FCMP self → JP/B.VS)
         else => null, // 0 unmarked / 1 generic — still-shared bounds kinds (D-293)
     };
 }
