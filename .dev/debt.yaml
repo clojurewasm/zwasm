@@ -3,6 +3,54 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-289"
+    layer: "code"
+    status: "note"
+    description: |-
+      note (ADR-0163 A breadth, 2026-06-05): the JIT FAILS to compile a valid module the interpreter
+      runs — `shootout/ed25519.wasm` func[9] (params=0 results=1, large): `arm64/emit: failing op
+      \`local.set\` at func[9] pc=4337 → UnsupportedOp` (x86_64 likely same). local.set is supported
+      everywhere else, so this is a SIZE/pressure limit in a large function (local-index or spill-slot
+      bound, or a regalloc cap), not a missing opcode. This is a COMPLETENESS gap vs the D-244 "all-engine
+      WASI" claim: the JIT should compile any validator-accepted module. interp runs ed25519 (just slow).
+      INVESTIGATE: disasm func[9] near pc=4337, find the exact emit precondition that fails (local count?
+      spill exhaustion? const-pool?). DISCHARGE: JIT compiles ed25519 (+ a large-func/many-locals edge
+      fixture) on both backends.
+    first_raised: "2026-06-05"
+    last_reviewed: "2026-06-05"
+    refs: |-
+      `bench/runners/wasm/shootout/ed25519.wasm` (repro); `src/engine/codegen/arm64/` (emit local.set path); ADR-0163 A; D-244 (all-engine WASI completeness claim)
+  - id: "D-288"
+    layer: "code"
+    status: "note"
+    description: |-
+      note (ADR-0163 A breadth, 2026-06-05): zwasm's wasm call stack traps too shallow. `shootout/
+      ackermann.wasm` (M=3,N=7 → ackermann(3,7)=1021-deep recursion) traps `stack_overflow / call stack
+      exhausted` on zwasm; the source comment asserts "1021 fits in wasm call stack" and wasmtime runs it.
+      So zwasm's recursion/operand-stack ceiling is below a normal runtime's — a robustness gap for deeply
+      recursive (but valid, terminating) programs. INVESTIGATE: find zwasm's call/value-stack size + whether
+      it's a fixed cap or host-stack-bound; compare to wasmtime's default. DISCHARGE: ackermann(3,7) runs on
+      zwasm (interp + jit) OR an ADR documents the cap + rationale.
+    first_raised: "2026-06-05"
+    last_reviewed: "2026-06-05"
+    refs: |-
+      `bench/runners/wasm/shootout/ackermann.wasm` (repro); `src/runtime/` (call/value stack sizing); ADR-0163 A
+  - id: "D-287"
+    layer: "code"
+    status: "note"
+    description: |-
+      note (ADR-0163 A breadth, 2026-06-05): the validator rejects valid deeply-nested modules at the
+      control-stack cap. `shootout/switch.wasm` (LLVM-lowered large C switch) → `ControlStackOverflow at
+      op 0x2 (block)`; zwasm's cap is `zir.max_control_stack = 1024` (src/ir/zir.zig:29, mirrored by the
+      runtime `frame.zig:34 max_label_stack`). wasmtime accepts the deeper nesting. Raising the cap is a
+      per-frame-memory tradeoff (the runtime must hold every depth the validator accepts), so it is a
+      DESIGN decision, not a reflexive bump — likely needs an ADR (touches a §-level limit). DISCHARGE:
+      raise + ADR (memory rationale) so switch.wasm validates, OR ADR documents 1024 as intentional + the
+      class of programs it rejects.
+    first_raised: "2026-06-05"
+    last_reviewed: "2026-06-05"
+    refs: |-
+      `bench/runners/wasm/shootout/switch.wasm` (repro); `src/ir/zir.zig:29` (max_control_stack=1024); `src/runtime/frame.zig:34`; ADR-0163 A
   - id: "D-286"
     layer: "code"
     status: "note"

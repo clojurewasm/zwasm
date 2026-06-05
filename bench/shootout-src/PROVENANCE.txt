@@ -1,0 +1,31 @@
+Source: Bytecode Alliance sightglass — benchmarks/shootout/src/
+  Upstream: https://github.com/bytecodealliance/sightglass
+  License: Apache-2.0 (see upstream LICENSE.md)
+  Mirror used: v1 zwasm bench/shootout-src/ (already curated from upstream)
+Vendored: 2026-06-05 (ADR-0163 A — benchmark breadth expansion)
+
+Curation (matches upstream sightglass + v1):
+  - sightglass.h: bench_start()/bench_end() are no-op inlines (upstream
+    uses wasm imports from a "bench" module for profiling; the no-op
+    form lets the .wasm run on any WASI runtime without stubs).
+  - ackermann.c: inputs hardcoded M=3, N=7 (upstream reads from files).
+
+These are externally-authored upstream artifacts that v1 also consumed
+verbatim — exempt from the no-copy-from-v1 rule (cf. the Wasm spec
+testsuite), per .claude/rules/no_copy_from_v1.md.
+
+Vendored sources (10) — the 9 originally added at §9.6
+(base64/fib2/gimli/heapsort/keccak/matrix/memmove/nestedloop/sieve) were
+pre-built .wasm without colocated source and are left as-is:
+  ackermann ctype ed25519 minicsv random ratelimit seqhash switch
+  xblabla20 xchacha20
+
+Build: `bash build.sh` (Mac host; zig cc -target wasm32-wasi -O2).
+Emits to ../runners/wasm/shootout/. The committed .wasm run on every
+test host via the edge-runner (no toolchain there).
+
+In the bench matrix (scripts/run_bench.sh BENCHES): ctype, random,
+ratelimit, minicsv, xblabla20, xchacha20. Excluded (each surfaced a real
+zwasm limit, kept as repro fixtures): switch (D-287 control-stack cap),
+ackermann (D-288 call-stack depth), ed25519 (D-289 JIT large-func emit),
+seqhash (interp too slow; jit-only).

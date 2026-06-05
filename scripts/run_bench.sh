@@ -228,6 +228,19 @@ BENCHES=(
     "shootout/gimli:bench/runners/wasm/shootout/gimli.wasm"
     "shootout/memmove:bench/runners/wasm/shootout/memmove.wasm"
     "shootout/keccak:bench/runners/wasm/shootout/keccak.wasm"
+    # ADR-0163 A breadth (vendored bench/shootout-src/, built by its build.sh):
+    # crypto / parsing / PRNG / dispatch categories absent in the original 9.
+    "shootout/ctype:bench/runners/wasm/shootout/ctype.wasm"
+    "shootout/random:bench/runners/wasm/shootout/random.wasm"
+    "shootout/ratelimit:bench/runners/wasm/shootout/ratelimit.wasm"
+    "shootout/minicsv:bench/runners/wasm/shootout/minicsv.wasm"
+    "shootout/xblabla20:bench/runners/wasm/shootout/xblabla20.wasm"
+    "shootout/xchacha20:bench/runners/wasm/shootout/xchacha20.wasm"
+    # NOT in the matrix — each surfaced a real zwasm limit (sources + .wasm still
+    # vendored as repro fixtures): switch → D-287 (control-stack cap 1024),
+    # ackermann → D-288 (call-stack too small for 1021-deep recursion),
+    # ed25519 → D-289 (JIT local.set emit fails in large func), seqhash → too
+    # slow under interp for the all-engine matrix (works under jit).
     # TinyGo WASI guests
     "tinygo/arith:bench/runners/wasm/tinygo/arith.wasm"
     "tinygo/fib:bench/runners/wasm/tinygo/fib.wasm"
