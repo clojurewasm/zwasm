@@ -20,20 +20,24 @@
   trap under `--engine jit` anyway). D-283 stays open for a subprocess-based full-corpus differential (the
   in-process lane can't per-fixture-timeout the slow JIT-compiles).
 
-## NEXT — Phase-16 completion: coherence audit + pick a remaining item
+## NEXT — pick a remaining Phase-16 item (program fulfilled; scaffolding audited clean)
 
 The user-directed program (complete WASI + all-engine + CM) is **fulfilled except CM (post-v0.1.0)**: WASI 46/46
-(interp+JIT+AOT), all-engine validated on the realworld corpus. **D-239 was a FALSE LEAD** — already fixed
-(`faf23f0a`, 3 regression tests at `runner_test.zig:1447/1478/1500`); my prior flip misread the validator param
-name `func_type_indices` vs compile.zig's `func_typeidxs`. **Lesson**: reconcile a debt row against the actual
-code + its regression test (run it), not a single-name grep, before flipping to `now`.
+(interp+JIT+AOT), all-engine validated on the realworld corpus. Scaffolding audit done this cycle (`6a9d4b56`):
+0 block, healthy — fixed 3 stale debt refs + 3 ADR revision SHAs; deleted 2 stale rows (D-244 done; D-239 was a
+FALSE LEAD — already fixed `faf23f0a` + 3 regression tests, my prior flip misread `func_type_indices` vs
+compile.zig's `func_typeidxs`). **Lesson**: reconcile a debt row against the code + its regression test, not a
+single-name grep, before flipping `now`. Ledger 75→59.
 
-Two stale rows found this cycle (D-244, D-239) ⇒ ledger drift from the WASI cycles. **NEXT = run
-`audit_scaffolding`** (Phase-16 surface-audit; weight §F debt-coherence) to systematically catch stale debt /
-doc drift, then act on findings. **After**: (b) Component Model scoping ADR (A5 survey done; post-v0.1.0 but
-scoping is autonomous prep) · (c) D-281 socket I/O · D-255 C-API WASI io. D-211 = confirmed deferred
-(conservative scan correctness-complete, ADR-0148/0060). D-245 = partial-latent (arg'd `invokeAndCheck` @call is
-ReleaseSafe-unsafe but Debug-only-used; no active caller — leave).
+Pick by concreteness (investigation-first):
+- **(a) D-281** real socket I/O — sockets=notsock today (`sock_accept`/`recv`/`send`/`shutdown` stub ENOTSOCK).
+  The most WASI-aligned remaining feature; survey the preopen-socket model first (niche; preview1 sockets are
+  preopened-fd only).
+- **(b) D-255** C-API WASI io — blocked-by: a C-library context has no Zig-0.16 `Init`/io token. Structural; needs
+  the C-API io infra. Completes the §16.5 C-API surface.
+- **(c) Component Model** scoping ADR (A5 survey done; post-v0.1.0 — scoping is autonomous prep).
+- **Standing**: 32-row debt backlog → `suggest meta_audit` (user-gated, not autonomous). D-211 confirmed deferred
+  (ADR-0148/0060). D-245 partial-latent (no active caller — leave).
 
 ## Step 0.7 (next resume) — verify remote logs
 
