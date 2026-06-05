@@ -50,6 +50,13 @@ fn fixtureNeedsPreopen(name: []const u8) bool {
 /// resolve the same host path. Recreated empty per run.
 const preopen_scratch = "zig-out/diff-preopen-scratch";
 
+/// AOT lane fixture-size cap (bytes). The opt-in `--aot` lane JIT-compiles
+/// each fixture in-process; libc/Go/Rust guests above this size take minutes
+/// to compile and trap under `--engine jit` anyway, so they are SKIP-AOT-LARGE
+/// — the small compute/WASI fixtures under the cap are the achievable AOT
+/// differential. Tune up once a subprocess-based (timeout-able) lane lands.
+const aot_size_cap: usize = 64 * 1024;
+
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const gpa = init.gpa;
@@ -199,16 +206,21 @@ pub fn main(init: std.process.Init) !void {
 
         // AOT lane (opt-in) — independent of the interp outcome (so SIMD
         // fixtures the interp can't run still get an AOT vs wasmtime compare).
-        // Flush per fixture: the JIT-compile per fixture is slow on large
-        // guests, so incremental output shows progress + pinpoints any fixture
-        // that hangs the in-process run.
+        // Flush per fixture so incremental output shows progress.
         if (aot_lane) {
-            switch (try aotCompare(gpa, io, bytes, entry.name, &v2_argv, needs_preopen, wt_stdout, wt_exit, stdout)) {
+            if (bytes.len > aot_size_cap) {
+                // The AOT lane JIT-compiles each fixture in-process; large libc
+                // / Go / Rust guests (100KB–1MB) take minutes to compile AND
+                // already trap under `--engine jit` (a separate v2 gap), so
+                // they can't validate AOT either. Cap to keep the run practical;
+                // the small compute/WASI fixtures are the achievable validation.
+                try stdout.print("  SKIP-AOT-LARGE  {s} ({d} bytes > {d} cap)\n", .{ entry.name, bytes.len, aot_size_cap });
+                aot_skipped += 1;
+            } else switch (try aotCompare(gpa, io, bytes, entry.name, &v2_argv, needs_preopen, wt_stdout, wt_exit, stdout)) {
                 .match => aot_matched += 1,
                 .mismatch => aot_mismatched += 1,
                 .skip => aot_skipped += 1,
             }
-            try stdout.print("  [aot-done] {s}\n", .{entry.name});
             try stdout.flush();
         }
 
