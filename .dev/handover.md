@@ -91,17 +91,17 @@ execution tests. (D-291/D-288/B-core remain substantial-arch.)
 - **Phase 16 (完成形) — open-ended; the loop CONTINUES, no release (ADR-0156).** v0.1.0-scope program is
   thoroughly complete + 3-host green (`deb97903`); ADR-0163 bench+docs program ALL DONE. Tag/publish/cutover are
   manual, user-only — there is no release gate.
-- Debt ledger: 0 `now`. slice-3 `0892ee36`: Mac + **ubuntu GREEN** (`OK 631e52f6`); windows kicked, verdict
-  pending. slice-4a `ebb87e33`: Mac green, api/-only (no codegen → no windows kick). D-291 diag gated.
+- Debt ledger: 0 `now`. slice-4a `ebb87e33` BROKE ubuntu `test-all` (exhaustive `switch (TrapKind)` in the
+  test-all-only `wast_runtime_runner` — Mac `zig build test` doesn't compile it; lesson
+  `2026-06-06-trapkind-variant-breaks-test-all-only-runner-switch`). **Forward-fixed `9aec280c`** (added 3 arms,
+  `zig build test-runtime-runner-smoke` green) — re-kicked this turn. D-291 diag gated.
 
 ## Step 0.7 (next resume) — verify remote logs
 
-- **ubuntu**: ✅ GREEN at slice-3 `631e52f6` (`[run_remote_ubuntu] OK`) — invalid_conversion(9)+overflow(8)
-  channels confirmed on x86_64. slice-4a was api/-only (not kicked separately; folds into next codegen kick).
-- **windows**: ⏳ slice-3 `631e52f6` kicked last turn (ABI-risk op_convert/bounds_check) — **verify
-  `/tmp/win.log` THIS resume**. If `zwasm-spec-wasm-2-0-assert`/`simd` Win64-only fail with ubuntu+Mac green =
-  the **D-279 heisenbug** (record `track_heisenbug win64-testall fail` + keep commits, D7). Re-run-once ONLY if
-  the signature DIFFERS from D-279 (would implicate slice-3 trunc codegen). Cadence recorded at `631e52f6`.
+- **ubuntu**: ✅ GREEN through slice-3 `631e52f6`. slice-4a `45d11f7e` FAILED (build, the TrapKind-switch break);
+  **fixed `9aec280c`, re-kicked this turn — verify `/tmp/ubuntu.log` `OK` next resume** (must build test-all now).
+- **windows**: ⚠️ slice-3 `631e52f6` = **D-279 heisenbug** (`zwasm-spec-simd.exe` exit 3, Win64-only; slice-3
+  touched trunc NOT simd; ubuntu+Mac green) — recorded `track_heisenbug win64-testall fail`. Commits KEPT (D7).
 - **Gate note (retracted alarm)**: `run_remote_windows.sh` correctly has `set -euo pipefail` + aborts before
   printing `OK` on remote failure (the wrapper exited 1 here). "windows OK" IS a real green signal; absence of
   the `OK` line + a `Build Summary: N failed` = RED. Read the Build Summary, not just the wrapper exit.
