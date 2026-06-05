@@ -11,17 +11,19 @@ methodology fix (`b8fe1f74`); **docs refreshed** with definitive 3-host numbers 
 breadth** +6 shootout fixtures (`f8a0f43f`, crypto/parse/PRNG/dispatch). base64 re-attributed (optimizer gap,
 not a bug). Breadth EXPOSED 4 real zwasm gaps — now the active queue, each mechanism CONFIRMED this turn with a
 ready fix plan in its debt row:
-- **D-289 (NEXT — ready bundle)**: arm64 JIT can't compile LARGE functions (ed25519). ROOT = pervasive
-  frame-offset imm12 cap (16380/32760/65520) at ~12 emit.zig sites + gpr.zig spills; x86_64-clean (disp32).
-  FIX: centralized `frameAddrLarge` (two-ADD idiom, **X16/IP0 scratch**) across all sites; ed25519 jit
-  compiles+matches wasmtime = integration test; arm64 native-testable. A partial gpr-only attempt was reverted
-  (failing site is local.set in emit.zig). Full plan in D-289 debt body.
-- **D-284**: 3 engines differ on entry resolution (JIT `_start`-only errors; interp/AOT chain to first-export).
-  Unify runWasmJit to wasmtime-aligned exit-0 (instantiate-then-optional-_start). Plan in D-284 body.
-- **D-288** (call-stack depth: ackermann 1021-deep traps), **D-287** (control-stack cap 1024 rejects switch;
-  needs ADR to raise), **D-286** (fill/init byte-loop, deferred per measure-first — no signal).
-- This turn = bench/docs/debt only (no `src/` delta; the gpr.zig attempt was reverted) → no remote re-kick;
-  3-host green stays at the D-285 commits (`838de5a1`).
+- **D-289 GPR PATHS FIXED + VERIFIED (`340eaf5e`)**: arm64 large frame-offset addressing — `frameAddrLarge`
+  + `frameLdrGpr`/`frameStrGpr` applied to body local.get/set/tee (i32/i64/ref) + prologue scalar/home-seed +
+  gpr.zig spills. 2 new fixtures green (`many_locals` local off~40k→305419896; `many_locals_spill` spill
+  off>32760→210) + 83 edge + full test, no regression. x86_64-clean (disp32). **Remaining D-289**: FP/v128 +
+  param-marshal + stack-args large arms still cap (follow-on, no fixture yet). **ed25519 now COMPILES but
+  SEGVs at a stack address** — huge frames × call depth = likely STACK EXHAUSTION (→ D-288), NOT addressing.
+- **D-288 (NEXT?)**: zwasm call/native-stack too shallow — ackermann(3,7) 1021-deep traps; AND ed25519's
+  huge-frame×depth SEGV likely the same class. Investigate zwasm's stack sizing vs wasmtime.
+- **D-284**: 3 engines differ on entry resolution; unify runWasmJit to wasmtime-aligned exit-0. Plan in body.
+- **D-287** (control-stack cap 1024 rejects switch; needs ADR), **D-286** (fill/init byte-loop, deferred —
+  no signal), **D-290** (wabt→wasm-tools migration, user-directed, low-urgency hygiene).
+- This turn = arm64 `src/` change (gpr.zig + emit.zig, D-289 GPR fix) → ubuntu gate kicked (x86_64 unaffected,
+  low risk); windows on cadence. Prior 3-host green = D-285 (`838de5a1`).
 
 ## Current state
 

@@ -28,28 +28,24 @@ entries:
     layer: "code"
     status: "note"
     description: |-
-      note (ADR-0163 A breadth; mechanism CONFIRMED 2026-06-05): the arm64 JIT cannot compile valid
-      LARGE functions — `shootout/ed25519.wasm` func[9] fails at body `local.set` (emit.zig:1046 `offset_u
-      > cap`). ROOT CAUSE = pervasive arm64 frame-offset imm12 cap: frame-relative LDR/STR use a scaled
-      imm12 (max byte off 16380 W / 32760 X / 65520 Q), and a function whose frame (locals+spills) exceeds
-      that overflows at ~12 emit sites: body local.get/set/tee, prologue local zero-init (emit.zig:555/561),
-      home-seed (:583/587), param marshal (:397-455), stack args (:466-531), AND gpr.zig spill load/store
-      (:94/140). This is x86_64-CLEAN (disp32 ≈ 2GB cap). COMPLETENESS gap vs D-244 (JIT should compile any
-      validator-accepted module). NOT a missing opcode; not perf — a correctness/robustness gap.
-      FIX (READY — bundle next cycle): add a centralized large-offset frame helper in gpr.zig —
-      `frameAddrLarge(buf, addr_gpr, off)` materialising SP+off into a scratch via the prologue's two-ADD
-      idiom (encAddImm12 + encAddImm12Lsl12; off < 16 MiB). Use **X16/IP0 as the scratch** (NOT allocatable,
-      NOT a runtime invariant, free at every frame-access boundary — no call/memory-op mid-flight there).
-      At each of the ~12 sites: `if off > cap { frameAddrLarge(..,16,off); enc{Ldr,Str}…(reg, 16, 0) }
-      else { existing imm12 form }`. Phase-II: a wasm with >4096 i64 locals all kept live forces the
-      overflow; pin behaviour, then ed25519 jit must compile + match wasmtime. Test on arm64 NATIVE (this
-      host); x86_64 unaffected. A partial gpr.zig-only attempt (2026-06-05) was reverted — the failing site
-      is local.set in emit.zig, so the fix must cover all sites at once (ed25519 = the integration test).
-      DISCHARGE: ed25519 jit compiles+runs+matches wasmtime + a large-locals edge fixture green.
+      note (ADR-0163 A; arm64 frame-offset imm12 cap). ROOT = arm64 frame-relative LDR/STR use a scaled
+      imm12 (cap 16380 W / 32760 X / 65520 Q); a function whose frame (locals+spills, spill_base sits ABOVE
+      locals) exceeds it → UnsupportedOp. x86_64-CLEAN (disp32). COMPLETENESS gap vs D-244. **GPR PATHS
+      FIXED + VERIFIED (`340eaf5e`)**: `gpr.frameAddrLarge` (two-ADD SP+off) + `frameLdrGpr`/`frameStrGpr`,
+      applied to body local.get/set/tee (i32/i64/ref), prologue scalar zero-init + home-seed, and gpr.zig
+      spill load/store. Loads self-compute into dst; stores use X16/IP0 (body) or the other spill-stage reg.
+      Tests `test/edge_cases/p9/large_frame/many_locals.{wat} (local off ~40k → 305419896)` +
+      `many_locals_spill (spill off >32760 → 210)` green + 83 edge + full test, no regression.
+      REMAINING (follow-on, no failing fixture yet): FP/v128 local.get/set/tee large arms + param-marshal
+      (:397-455) + stack-args (:466-531) still cap → UnsupportedOp; lift with the same helpers when a fixture
+      needs them. SEPARATE: **ed25519 now COMPILES but SEGVs at a stack address at runtime** — huge per-call
+      frames (~40k) × call-chain depth = likely STACK EXHAUSTION, NOT frame-addressing (see D-288). DISCHARGE
+      (this row): the FP/v128/param/stack large arms lifted + a fixture each. ed25519 end-to-end belongs to
+      the D-288 stack-limit work.
     first_raised: "2026-06-05"
     last_reviewed: "2026-06-05"
     refs: |-
-      `bench/runners/wasm/shootout/ed25519.wasm` (repro); `src/engine/codegen/arm64/emit.zig:1046` (local.set cap) +:555/561/583/587/397-531; `src/engine/codegen/arm64/gpr.zig:94/140`; `src/engine/codegen/arm64/inst.zig` encAddImm12Lsl12; `abi.zig` X16/IP0; D-244
+      `340eaf5e` (GPR fix); `test/edge_cases/p9/large_frame/`; `src/engine/codegen/arm64/gpr.zig` (frameAddrLarge/frameLdrGpr/frameStrGpr); `src/engine/codegen/arm64/emit.zig` (FP/v128 + param :397-455 + stack-args :466-531 remaining); D-244; D-288 (ed25519 runtime stack exhaustion)
   - id: "D-288"
     layer: "code"
     status: "note"
