@@ -3,6 +3,19 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
+## Active bundle
+
+- **Bundle-ID**: D-291-ed25519-cind-miscompile
+- **Cycles-remaining**: ~2 (focused debug_jit_auto investigation)
+- **Continuity-memo**: ed25519 JIT traps `oob_table` = a **call_indirect** (code 2) given index ≥2 into a
+  2-slot table. All 3 cind sites: index = `i32.load offset=16777416` which the data seg inits to **1**.
+  Minimal repro (memory 257 + that data seg + the load) returns 1 correct on JIT+interp → it's an
+  INTERACTION (spill × call_indirect, or a store clobbering 0x1000028), NOT a load/data bug. NEXT: capture
+  the actual cind index at the trap (permanent diag in the cind-bounds trap path printing index+table_size,
+  arm64 `EmitCindStub` / `src/engine/codegen/shared/entry.zig`, OR lldb) → quantify; bisect the interaction.
+- **Exit-condition**: culprit op/interaction identified + a minimal `.wat` fixture reproduces the oob_table
+  trap on JIT (passes interp); fix lands; ed25519 `--engine jit` matches wasmtime (exit 0). Full lead: D-291.
+
 ## Active program — ADR-0164: trap / crash / exception diagnostics & UX (D-292)
 
 JIT/AOT printed a bare `Trap` (no kind) where v1 + v2-interp give per-kind messages — a v1-parity
@@ -22,17 +35,15 @@ regression (surfaced by D-291). Audit-first, spans engines; four workstreams **A
   - ✅ diag hygiene (`80cba28a`): `[stack_probe]` + `[d-165] kind=4` prints gated behind `-Dtrace-stackprobe`
     (default false) → clean Debug test stderr; D-279/D-165 primitives preserved (opt-in). Step-0 CORRECTED the
     handover's premise — these are setup-time once-per-process Debug prints, NOT per-trap stub context.
-  - **← LEAD (B core): internal SIGSEGV/@panic → graceful INTERNAL ERROR (zero host-crash).** Step-0 finding:
-    there is NO signal handling anywhere (`grep` cli/+entry = empty) — a JIT/interp internal fault hits the OS
-    as raw signal 11 (exit 139), undistinguished from a clean wasm `Trap`. The fix is a `sigaction` SIGSEGV/
-    SIGBUS handler that (a) classifies wasm-guard-page faults vs genuine internal bugs, (b) surfaces a distinct
-    "internal error" message + exit code, not a wasm trap. NEEDS an **ADR-0070 (libc boundary) amendment** for
-    `sigaction`/`sigaltstack` + a design ADR; multi-cycle → run as a bundle. Step 0: how do wasmtime/wasmer
-    install their fault handlers (trap-handler.rs) + what does v1 do; survey `src/platform/` for an install hook.
-- **C — exception(EH)-vs-trap distinction.**
-- **D — audit vs wasmtime / wasmer / WasmEdge / v1** (messages, backtrace, exit codes) → gap list.
-- **then D-291** (ed25519 JIT trap) — once A's widening surfaces the KIND, debug_jit_auto PC→op + shrink to a
-  minimal repro. The trap is a clean controlled wasm trap (characterized `256433`/`cf63377b`), not a SIGSEGV.
+  - **B core (deferred behind D-291): internal SIGSEGV/@panic → graceful INTERNAL ERROR.** Step-0 finding:
+    NO signal handling anywhere (`grep` cli/+entry = empty) — an internal fault hits the OS as raw signal 11
+    (exit 139), undistinguished from a clean wasm `Trap`. Fix = a `sigaction`/vectored-exception handler (any
+    such signal in v2 = internal bug, since v2 uses NO signal-based wasm semantics — all traps are explicit
+    checks) surfacing a distinct "internal error". NEEDS an **ADR-0070 (libc) amendment** + design ADR; bundle.
+- **C — exception(EH)-vs-trap distinction.** · **D — audit vs wasmtime/wasmer/WasmEdge/v1 → gap list.**
+- **← LEAD (D-291, A-unblocked): ed25519 JIT `oob_table` miscompile** — the program's MOTIVATING case, now a
+  concrete narrowed bug (see Active bundle above + D-291 row). Prioritised ahead of B-core/C/D (a real
+  correctness bug > polish/audit). The trap is a clean wasm trap (call_indirect bad index), not a SIGSEGV.
 
 DISCHARGE (D-292): all engines emit clear per-kind trap messages + crash/trap/exception cleanly distinguished +
 audit-gap list closed-or-deferred.
@@ -51,8 +62,8 @@ audit-gap list closed-or-deferred.
   thoroughly complete + 3-host green (`deb97903`); ADR-0163 bench+docs program ALL DONE. Tag/publish/cutover are
   manual, user-only — there is no release gate.
 - Debt ledger: 0 `now`. Last full 3-host green = `635bd734` (Mac + ubuntu `701cbe60` + windows `OK`).
-  Mac green through B-diag `80cba28a`. **A1+A2 3-host GREEN** (dca1b7a1); **A3 ubuntu GREEN** (`OK 85157236`),
-  A3 windows kick was in-flight at last check. This turn's push kicks remotes for `80cba28a`.
+  Mac+ubuntu green through B-diag `a2ac1b89`; windows = D-279 heisenbug (non-blocking, A1-A3 exonerated).
+  This turn = D-291 investigation advance (characterized + narrowed; debt+handover, no src change).
 
 ## Step 0.7 (next resume) — verify remote logs
 

@@ -67,10 +67,21 @@ entries:
       SIGSEGV/wild-pointer; basic-op miscompile (test-spec is green under jit, covering i64.mul etc.); the
       D-289 GPR frame paths (many_locals + many_locals_spill verify correct values). LEFT: a PRE-EXISTING
       miscompile in some op/INTERACTION at ed25519's scale (regalloc-spill × call, a specific control/memory
-      pattern) producing a wrong value → a clean trap, newly exposed (ed25519 never JIT-ran before). NEXT
-      (focused fresh-context session): read the trap-code (D-165 infra writes it; `[d-165]` print in
-      shared/entry.zig) to get the trap KIND, then debug_jit_auto to map the trap PC → op; shrink ed25519 to a
-      minimal repro. Not gated (ed25519 excluded from suite + bench). DISCHARGE: trap KIND + culprit op
+      pattern) producing a wrong value → a clean trap, newly exposed (ed25519 never JIT-ran before).
+      ADVANCE (2026-06-06, A-unblocked): the now-precise CLI prints `trap kind=oob_table` = JIT code 2 = the
+      **call_indirect bounds check** (cind_bounds_fixups; op_table get/set OOB use the generic bucket, so this
+      IS a call_indirect). ed25519 has exactly **3 call_indirect** sites, ALL with the identical index recipe
+      `i32.const 0; i32.load offset=16777416; call_indirect (type 0)`. `table 0 = (table 2 2 funcref)` (2 slots;
+      elem puts func 15 at index 1) so a valid index is 0/1; the trap means the loaded index is ≥2.
+      `(data (;1;) (i32.const 16777416) "\\01\\00\\00\\00")` initialises that addr to **1** (mem=257 pages
+      ≈16.06MB, in-bounds). RULED OUT (minimal repro: memory 257 + that data seg + `i32.load offset=16777416`
+      == 1, JIT+interp BOTH exit 0): large-offset data-segment init + large-offset scalar load are CORRECT in
+      isolation (arm64 op_memory.zig guards offset>0xFFFFFF via MOVZ/MOVK, line 177/187). So the bug is an
+      INTERACTION — the index value 1 is corrupted to ≥2 in ed25519's full run (regalloc-spill × call_indirect,
+      or a store clobbering 0x1000028 before the cind). NEXT (focused session): capture the ACTUAL cind index at
+      the oob_table trap (add a permanent diag to the cind-bounds trap path printing index+table_size, OR lldb
+      the trapping run) → quantify how-wrong; then bisect the spill/call interaction or which of the 3 cind
+      sites fires first. Not gated (ed25519 excluded from suite + bench). DISCHARGE: culprit op/interaction
       identified with a minimal fixture, fixed; ed25519 jit matches wasmtime.
     first_raised: "2026-06-05"
     last_reviewed: "2026-06-05"
