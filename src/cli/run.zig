@@ -570,6 +570,43 @@ test "runCwasmWasi: a WASI proc_exit(42) .cwasm surfaces exit code 42 end-to-end
     try testing.expectEqual(@as(u8, 42), code);
 }
 
+// `_start` builds an iovec {buf=8,len=3} for the active-data string "hi\n" and
+// calls fd_write(fd=1, ...). Exercises the fd_write WASI handler (a returning
+// syscall that writes guest memory + routes to the host stdout buffer) under
+// standalone AOT — a different handler path than the trapping proc_exit test,
+// and the only `zig build test` (host-portable) caller of runCwasmWasi's
+// stdout_capture param (the realworld --aot lane is Mac+wasmtime-gated). D-251.
+const fd_write_hi_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x0c, 0x02, 0x60, 0x04, 0x7f, 0x7f, 0x7f,
+    0x7f, 0x01, 0x7f, 0x60, 0x00, 0x00, 0x02, 0x23, 0x01, 0x16, 0x77, 0x61, 0x73, 0x69, 0x5f, 0x73,
+    0x6e, 0x61, 0x70, 0x73, 0x68, 0x6f, 0x74, 0x5f, 0x70, 0x72, 0x65, 0x76, 0x69, 0x65, 0x77, 0x31,
+    0x08, 0x66, 0x64, 0x5f, 0x77, 0x72, 0x69, 0x74, 0x65, 0x00, 0x00, 0x03, 0x02, 0x01, 0x01, 0x05,
+    0x03, 0x01, 0x00, 0x01, 0x07, 0x13, 0x02, 0x06, 0x6d, 0x65, 0x6d, 0x6f, 0x72, 0x79, 0x02, 0x00,
+    0x06, 0x5f, 0x73, 0x74, 0x61, 0x72, 0x74, 0x00, 0x01, 0x0a, 0x1d, 0x01, 0x1b, 0x00, 0x41, 0x00,
+    0x41, 0x08, 0x36, 0x02, 0x00, 0x41, 0x04, 0x41, 0x03, 0x36, 0x02, 0x00, 0x41, 0x01, 0x41, 0x00,
+    0x41, 0x01, 0x41, 0x14, 0x10, 0x00, 0x1a, 0x0b, 0x0b, 0x09, 0x01, 0x00, 0x41, 0x08, 0x0b, 0x03,
+    0x68, 0x69, 0x0a,
+};
+
+test "runCwasmWasi: a WASI fd_write .cwasm writes 'hi\\n' to the captured stdout (D-251)" {
+    const builtin = @import("builtin");
+    if (builtin.os.tag == .windows) return @import("../test_support/skip.zig").phaseEnd(.win64);
+
+    const runner = @import("../engine/runner.zig");
+    const aot_produce = @import("../engine/codegen/aot/produce.zig");
+
+    var compiled = try runner.compileWasm(testing.allocator, &fd_write_hi_wasm);
+    defer compiled.deinit(testing.allocator);
+    const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &fd_write_hi_wasm);
+    defer testing.allocator.free(cwasm);
+
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(testing.allocator);
+    const code = try runCwasmWasi(testing.allocator, testing.io, cwasm, null, &.{}, &.{}, &capture);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expectEqualStrings("hi\n", capture.items);
+}
+
 test "runWasmJit: SIMD _start runs via the JIT where the interp traps (ADR-0136 / D-244)" {
     // Interpreter path: no SIMD execution → the `i32x4.add` dispatch slot is
     // null → Trap.Unreachable, which the run path maps to a non-zero exit
