@@ -279,6 +279,18 @@ pub fn runI64Export(
     wasm_bytes: []const u8,
     export_name: []const u8,
 ) Error!u64 {
+    return runI64ExportWasi(allocator, wasm_bytes, export_name, null);
+}
+
+/// Like `runI64Export` but attaches a WASI host (a `*wasi.host.Host`, passed
+/// opaquely) to the JIT runtime so imported WASI calls do REAL I/O instead of
+/// the compute-only stubs (D-244). `wasi_host == null` → the stub path.
+pub fn runI64ExportWasi(
+    allocator: Allocator,
+    wasm_bytes: []const u8,
+    export_name: []const u8,
+    wasi_host: ?*anyopaque,
+) Error!u64 {
     const func_idx = try findExportFunc(allocator, wasm_bytes, export_name);
 
     var compiled = try compileWasm(allocator, wasm_bytes);
@@ -293,6 +305,7 @@ pub fn runI64Export(
 
     var owned = try setupRuntime(allocator, &compiled, wasm_bytes);
     defer owned.deinit(allocator);
+    owned.rt.wasi_host = wasi_host;
     return entry.callI64NoArgs(compiled.module, func_idx, &owned.rt);
 }
 
