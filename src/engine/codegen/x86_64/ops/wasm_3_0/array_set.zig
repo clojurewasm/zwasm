@@ -40,7 +40,7 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     try ctx.buf.appendSlice(ctx.allocator, inst.encTestRR(.q, xref, xref).slice());
     var fixup: u32 = @intCast(ctx.buf.items.len);
     try ctx.buf.appendSlice(ctx.allocator, inst.encJccRel32(.e, 0).slice());
-    try ctx.bounds_fixups.append(ctx.allocator, fixup);
+    try ctx.null_ref_fixups.append(ctx.allocator, fixup); // D-293 slice-4c null_reference (code 10)
 
     // base = slab + ref; length [base+8] → R10 (ref dead); OOB check.
     try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromMemDisp32(base, abi.runtime_ptr_save_gpr, jit_abi.gc_heap_off).slice());
@@ -50,7 +50,7 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     try ctx.buf.appendSlice(ctx.allocator, inst.encCmpRR(.d, xidx, scratch0).slice());
     fixup = @intCast(ctx.buf.items.len);
     try ctx.buf.appendSlice(ctx.allocator, inst.encJccRel32(.ae, 0).slice());
-    try ctx.bounds_fixups.append(ctx.allocator, fixup);
+    try ctx.oob_fixups.append(ctx.allocator, fixup); // D-293 slice-4c array index OOB → oob_memory (code 6)
 
     // base += header → element[0]; load value (R10 reuse) + store.
     // D-212: an f32/f64 value operand is XMM-class — read it from the XMM

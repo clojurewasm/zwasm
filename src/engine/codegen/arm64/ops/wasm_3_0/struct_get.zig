@@ -45,7 +45,7 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmX(xref, 0));
     const fixup_at: u32 = @intCast(ctx.buf.items.len);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.eq, 0));
-    try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+    try ctx.null_ref_fixups.append(ctx.allocator, fixup_at); // D-293 slice-4c null_reference (code 10)
 
     // slab = [X19, #gc_heap_off] (*Heap), then [slab, #offsetOf(Heap,bytes)]
     // (the slice `.ptr`). Both offsets are 8-aligned.

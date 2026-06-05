@@ -212,3 +212,41 @@ test "runVoidExportWasi: JIT call_ref null + ref.as_non_null null → precise nu
     try testing.expectEqual(@as(u32, 10), an);
     try testing.expectEqual(trap_surface.TrapKind.null_reference, trap_surface.jitTrapCode(an).?);
 }
+
+// `(module (type $s (struct (field i32))) (func (export "_start")
+//  ref.null $s struct.get $s 0 drop))` — struct.get on a null structref is
+// null_reference (Wasm 3.0 GC §4.4.5). D-293 slice-4c: code 10 (was generic).
+const structget_null_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x08, 0x02, 0x5f, 0x01, 0x7f, 0x00, 0x60,
+    0x00, 0x00, 0x03, 0x02, 0x01, 0x01, 0x07, 0x0a,
+    0x01, 0x06, 0x5f, 0x73, 0x74, 0x61, 0x72, 0x74,
+    0x00, 0x00, 0x0a, 0x0b, 0x01, 0x09, 0x00, 0xd0,
+    0x00, 0xfb, 0x02, 0x00, 0x00, 0x1a, 0x0b,
+};
+
+// `(module (type $a (array i32)) (func (export "_start")
+//  i32.const 0 array.new_default $a i32.const 0 array.get $a drop))` — array.get
+// index 0 on a length-0 array is OOB. D-293 slice-4c: array index OOB raises the
+// interp's OutOfBoundsLoad → reuses oob_memory code 6 (no new TrapKind).
+const arrayget_oob_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x07, 0x02, 0x5e, 0x7f, 0x00, 0x60, 0x00,
+    0x00, 0x03, 0x02, 0x01, 0x01, 0x07, 0x0a, 0x01,
+    0x06, 0x5f, 0x73, 0x74, 0x61, 0x72, 0x74, 0x00,
+    0x00, 0x0a, 0x0f, 0x01, 0x0d, 0x00, 0x41, 0x00,
+    0xfb, 0x07, 0x00, 0x41, 0x00, 0xfb, 0x0b, 0x00,
+    0x1a, 0x0b,
+};
+
+test "runVoidExportWasi: JIT struct.get null → null_reference code 10; array.get OOB → oob_memory code 6 (D-293 slice-4c)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    var sg: u32 = 99;
+    try testing.expectError(entry.Error.Trap, runner.runVoidExportWasi(testing.allocator, &structget_null_wasm, "_start", null, &sg));
+    try testing.expectEqual(@as(u32, 10), sg);
+    try testing.expectEqual(trap_surface.TrapKind.null_reference, trap_surface.jitTrapCode(sg).?);
+    var ag: u32 = 99;
+    try testing.expectError(entry.Error.Trap, runner.runVoidExportWasi(testing.allocator, &arrayget_oob_wasm, "_start", null, &ag));
+    try testing.expectEqual(@as(u32, 6), ag);
+    try testing.expectEqual(trap_surface.TrapKind.oob_memory, trap_surface.jitTrapCode(ag).?);
+}
