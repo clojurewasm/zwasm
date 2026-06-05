@@ -14,39 +14,33 @@
   **2-host green (Mac + ubuntu `OK` at `4adc4d5b`)**. Remaining program: **CM (post-v0.1.0)** + the validation
   + GC items below.
 
-## NEXT — validate all-engine WASI on the realworld corpus (extends D-283); investigation-first
+## Active bundle
 
-The synthetic `proc_exit(42)` proves the AOT-WASI wiring; the dogfooding/completeness step is to run the
-**realworld WASI fixture corpus under `--engine aot`** (compile each `.wasm`→`.cwasm`, run, differential vs
-interp/wasmtime). **Survey done (this cycle)** — concrete anchors:
-- Harness `test/realworld/diff_runner.zig:102-105` enumerates **55** `.wasm` in `test/realworld/wasm/`; interp lane
-  = `cli_run.runWasmCaptured`, jit lane = `runWasmCapturedOpts` (both take `stdout_capture: ?*ArrayList(u8)`);
-  byte-compares both vs the `wasmtime` reference (l.195).
-- **Chunk 1 (small, do first)**: add a `stdout_capture: ?*std.ArrayList(u8)` param to `cli/run.zig:runCwasmWasi`
-  (wire `if (stdout_capture) |b| host.stdout_buffer = b;` after `Host.init`, mirroring `runWasmCapturedOpts` l.237)
-  + an fd_write→capture AOT test (hardens AOT-WASI beyond proc_exit). Fixture: `test/wasi/hello.wat` or an inline
-  fd_write hello (see `runner_test.zig` for an existing inline byte array).
-- **Chunk 2**: add the AOT lane to `diff_runner.zig` (`runner.compileWasm` → `aot/produce.produceFromCompiledWasm`
-  → `runCwasmWasi` w/ capture) → run → triage pass/fail. **Known AOT limits (expect failures, classify NOT skip)**:
-  entry result void/i32 only (`aot/run.zig` `Error.UnsupportedEntrySignature` rejects i64/f32/f64/multi); ACTIVE
-  data only (`produce.zig` `UnsupportedMemoryState` on passive/`memory.init`); const globals only
-  (`UnsupportedGlobalInit`). Each gap = TDD chunk or debt row, NOT a silent skip. Bundle when it spans cycles.
+- **Bundle-ID**: D-283-aot-realworld (AOT-WASI realworld differential validation)
+- **Cycles-remaining**: ~1
+- **Continuity-memo**: Chunk 1 DONE (`a81a388e`) — opt-in `--aot` lane in `diff_runner.zig` (compile→`.cwasm`→
+  `runCwasmWasi` w/ new `stdout_capture` param) behind a separate `test-realworld-diff-aot` target (NOT default —
+  JIT-compiles every fixture, slow + in-process exec). Report-only. **Investigation finding**: `c_hello_wasi`
+  traps under AOT — BUT it ALSO traps under `--engine jit` (exit 1, argv-over-read stress fixture; a pre-existing
+  v2-vs-wasmtime gap, NOT AOT-specific); `c_bitwise_ops` AOT-MATCHed. So AOT mirrors JIT correctly. **NEXT**: run
+  the full `zig build test-realworld-diff-aot` (slow, launched in bg → `/tmp/d283_aot_full.log`), confirm NO genuine
+  `MISMATCH-AOT` (a fixture that AOT ran clean but bytes differ from wasmtime = real bug), tally AOT coverage vs the
+  interp lane. Then either gate the AOT lane (if clean) or debt-row the residual AOT-unsupported set.
+- **Exit-condition**: full corpus AOT-lane run completes; 0 genuine `MISMATCH-AOT`; AOT match-count documented vs
+  interp; decision (gate vs debt-row) recorded.
 
-**Alternatives if AOT-realworld is quickly green or blocked**: (a) **D-211** precise GcRootMap + AOT-GC —
-**verify load-bearing FIRST** (conservative native-stack scan is proven sufficient per ADR-0060; only schedule if
-a real false-retention bug/bloat is measured). (b) **Component Model** survey follow-up (A5 survey done; CM is
-post-v0.1.0). (c) **D-281** real socket I/O. Pick by concreteness; investigation-first for D-211.
+**After the bundle (next program items)**: (a) **D-211** precise GcRootMap + AOT-GC — **verify load-bearing FIRST**
+(conservative native-stack scan proven sufficient per ADR-0060; only schedule if a real false-retention bug/bloat
+is measured). (b) **Component Model** survey follow-up (A5 done; CM post-v0.1.0). (c) **D-281** real socket I/O.
 
 ## Step 0.7 (next resume) — verify remote logs
 
-`tail -3 /tmp/ubuntu.log` — was `OK (HEAD=4adc4d5b)`, code green. **Windows: D-028 flake hit + re-run in flight.**
-First windows run (HEAD 4adc4d5b) FAILED with the exact **D-028** signature — `error: test runner failed to respond
-for 1m…` in the spec_assert_runner (unreachable-trap area), 2404/2513 passed / 0-failed (a hang, not an assertion;
-~6% flake, Defender-at-spawn, "retry succeeds"). NOT from AOT-WASI (same code green on Mac+ubuntu; AOT exec is
-Win64-deferred). Recorded `track_heisenbug.sh d028 fail`; **re-kicked windows** (D-028 retry-once + D7 classify) →
-`tail -3 /tmp/win.log`: green = flake confirmed (proceed; `should_gate_windows.sh --record`); same hang again =
-still D-028 (proceed, no revert — Mac+ubuntu authoritative). **DISCIPLINE**: Win64 std `TODO implement … windows`
-panics only surface on the actual windows run — reroute the op like `20b9f860`/`f320db6f`.
+`tail -3 /tmp/ubuntu.log` — chunk 1 (D-283) changed `runCwasmWasi` sig + diff_runner + build.zig → ubuntu re-kicked
+this turn; expect `OK`. **Windows D-028 was RESOLVED**: HEAD 4adc4d5b first run hit the D-028 hang (`test runner
+failed to respond`, spec-trap runner, ~6% Defender flake), re-run came back `[run_remote_windows] OK` (55/55
+realworld passed) — flake confirmed, `track_heisenbug d028 silent` (streak 1), cadence recorded at `8d081c77`.
+D-251 AOT-WASI is **3-host green**. windows now on cadence (`should_gate_windows.sh`). **DISCIPLINE**: Win64 std
+`TODO implement … windows` panics only surface on the actual windows run — reroute the op like `20b9f860`.
 
 ## Key files (AOT-WASI, just landed)
 
