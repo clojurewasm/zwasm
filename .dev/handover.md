@@ -6,14 +6,16 @@
 ## Active bundle
 
 - **Bundle-ID**: D-292-A-codegen-widening (A1..A3)
-- **Cycles-remaining**: ~2 (A2 div/overflow, A3 oob_memory)
-- **Continuity-memo**: per-kind JIT trap codes — 5=unreachable (DONE A1), 6=oob_memory, 7=div_by_zero,
-  8=int_overflow. Mechanism proven in A1: dedicated per-kind trap stub writing a distinct `trap_kind`,
-  fed by a per-kind fixup channel. arm64 = `EmitCindStub` (now opcode-aware: patches B or B.cond);
-  x86_64 = `emitTrapExitStub(ctx, kind)` helper. A2/A3 must DEMUX the shared `bounds_fixups` channel
-  (currently mixes oob+div+overflow on both arches) into per-kind channels. Extend `jitTrapCode`.
-- **Exit-condition**: `jitTrapCode(6/7/8)` map to oob_memory/div_by_zero/int_overflow + execution tests
-  assert each precise code on the real JIT path (mirror the A1 `runVoidExportWasi` test), both arches green.
+- **Cycles-remaining**: ~1 (A3 oob_memory)
+- **Continuity-memo**: per-kind JIT trap codes — 5=unreachable (A1 ✅), 7=div_by_zero + 8=int_overflow
+  (A2 ✅), 6=oob_memory (A3 ←). Mechanism: dedicated per-kind trap stub writing a distinct `trap_kind`,
+  fed by a per-kind fixup channel. arm64 = `EmitCindStub` (opcode-aware: patches B or B.cond) called per
+  channel in emit.zig; x86_64 = `emitTrapExitStub(ctx, kind)` helper + a per-channel block in `emitEndInter`.
+  A3 must DEMUX `bounds_fixups` (now oob-only on x86_64; oob+throw on arm64) — every scalar+SIMD load/store
+  appends it (`op_mem*`, all `op_simd*` load/store). Give oob its own channel → stub code 6; LEAVE arm64
+  `throw` in the generic bounds stub (it's an EH concept, workstream C, not a memory trap). Extend `jitTrapCode(6)`.
+- **Exit-condition**: `jitTrapCode(6)` → oob_memory + an execution test asserts an oob load/store records
+  code 6 on the real JIT path (mirror the A1/A2 `runVoidExportWasi` tests), both arches green.
 
 ## Active program — ADR-0164: trap / crash / exception diagnostics & UX (D-292)
 
@@ -29,14 +31,14 @@ regression (surfaced by D-291). Audit-first, spans engines; four workstreams **A
     matching interp — previously it surfaced the kind AND re-raised, so `main.zig`'s `renderFallback` printed a
     SECOND `Trap` line. `renderFallback` is now reserved for non-trap errors (compile/validate/load). Verified:
     `zwasm run --engine jit|interp` + AOT `.cwasm` each print exactly ONE `zwasm:` line, exit 1.
-  - ✅ **A1 DONE (`6fcbabbd`): `unreachable` → precise code 5** on BOTH arches (was arch-divergent generic
-    1/0). Dedicated per-kind stub + fixup channel; CLI now prints `kind=unreachable_ msg=unreachable`.
-  - **← LEAD (A2): `div_by_zero`(7) + `int_overflow`(8).** These ride the SHARED `bounds_fixups` channel
-    (div sites: `x86_64/op_alu_int.zig` TEST;JE + CMP;JE for div_s overflow — NB int_overflow currently
-    routes through the div-by-zero channel, so it'd misreport; arm64 div in `arm64/emit.zig`/gpr div path).
-    Demux into per-kind channels → per-kind stubs writing 7/8. Then **A3: `oob_memory`(6)** — the largest
-    demux (every scalar+SIMD load/store appends `bounds_fixups`). Extend `jitTrapCode`. Step 0 survey the
-    div + load/store bounds-check sites on both arches first.
+  - ✅ **A1 DONE (`6fcbabbd`): `unreachable` → code 5** on BOTH arches (was arch-divergent generic 1/0).
+  - ✅ **A2 DONE (`687d1a73`): div-by-zero → 7, div_s overflow → 8.** Demuxed `bounds_fixups` → divzero/
+    overflow channels (both arches). Also fixed a latent x86_64 misreport (div_s overflow had ridden the
+    div-by-zero channel → would have surfaced div_by_zero; now int_overflow). CLI prints precise kinds.
+  - **← LEAD (A3): `oob_memory`(6).** The last common kind. Demux the load/store bounds-check sites out of
+    `bounds_fixups` into an oob channel → stub code 6. Sites: `x86_64/op_mem*` + all `op_simd*` load/store
+    (many — they pass `&bounds_fixups` positionally) and arm64 equivalents; keep arm64 `throw` generic.
+    Step 0 survey the load/store bounds-check append sites on both arches first.
 - **B — crash-vs-trap distinction.** Internal SIGSEGV/@panic = INTERNAL ERROR, not `Trap`; ideal zero
   host-crash; **restrict the `[stack_probe]` diag to genuine stack-overflow** (it currently prints on EVERY
   JIT trap as stub context — the noise seen on `unreachable`).
@@ -62,7 +64,7 @@ audit-gap list closed-or-deferred.
   thoroughly complete + 3-host green (`deb97903`); ADR-0163 bench+docs program ALL DONE. Tag/publish/cutover are
   manual, user-only — there is no release gate.
 - Debt ledger: 0 `now`. Last full 3-host green = `635bd734` (Mac + ubuntu `701cbe60` + windows `OK`).
-  Mac green through A1 `6fcbabbd` (this turn). ubuntu/windows kicks fire at turn-end push (A1 + any A2).
+  Mac green through A2 `687d1a73` (this turn: A1+A2). ubuntu/windows kicks fire at turn-end push.
 
 ## Step 0.7 (next resume) — verify remote logs
 
