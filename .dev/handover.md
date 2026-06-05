@@ -64,18 +64,17 @@ audit-gap list closed-or-deferred.
 - **ubuntu: ✅ GREEN at `99b56f1c`** (verified this turn; `0e6a555d` on top is docs-only = no src delta).
   The first kick caught a real arch bug (x86_64 `unreachable` → trap_kind 0, not arm64's 1) → test made
   arch-robust at `99b56f1c`, re-kick GREEN.
-- **windows: ⚠️ RED on first kick (`/tmp/win.log`), RE-RUN IN FLIGHT (`/tmp/win2.log`).** test-all reported
-  1 failed step + several `failed command` (unit `test.exe`, `spec-wasm-2-0-assert`, `zig-host-hello`) and a
-  sha256 shootout differential. **Strong heisenbug signal**: the SAME `sha256("Hello, SHA-256!")` PASSED in one
-  runner (win.log:1598) yet FAILED in another (win.log:1665) within the ONE run — non-deterministic, not a
-  fixed miscompile. Caveat: the only `src/` delta since the last windows-OK (`635bd734`) is the two ADR-0164
-  trap commits (`b6da8604`+`99b56f1c`) — but those are arch-neutral CLI plumbing whose trap catch-path is inert
-  on a successful (non-trapping) run, and **ubuntu test-all is GREEN on the same code**, so a Win64 heisenbug
-  (D7's named pattern) is far likelier than a real regression from the trap work. **Next resume: read
-  `tail -3 /tmp/win2.log`.** GREEN → first kick was a flake → `track_heisenbug.sh win64-testall segv` +
-  `should_gate_windows.sh --record`, keep the trap commits, proceed to LEAD. RED again with the SAME failures
-  → real Win64 bug → file debt + investigate (consider whether the `aot/run.zig` `runDispatch` extraction
-  perturbs Win64 stack/ABI); only then weigh reverting the trap pair. Do NOT auto-revert (D7).
+- **windows: ⚠️ RED — classified as the pre-existing D-279 Win64 heisenbug (NOT the trap work).** Both kicks
+  (`/tmp/win.log` + `/tmp/win2.log`) RED with the SAME signature: sha256 shootout wrong hash (d0e8b8f…),
+  `spec-wasm-2-0-assert`, `zig-host-hello`, a unit `test.exe`. **Heisenbug-confirmed**: the SAME
+  `sha256("Hello, SHA-256!")` PASSED in one runner yet FAILED in another within the ONE run (non-deterministic,
+  not a fixed miscompile) — the D-180/D-245/D-279 FP-walk/RSP-parity lineage. Exonerated of the trap commits:
+  the only src delta since the last windows-OK (`635bd734`) was `b6da8604`+`99b56f1c`, but those touch no
+  codegen/ABI/trampoline (catch-path inert on a successful run) and **ubuntu test-all is GREEN on the identical
+  source**. Recorded `track_heisenbug.sh win64-testall segv` (streak 0); **trap commits KEPT, NOT reverted (D7)**;
+  D-279 updated with this broader manifestation. Next resume: this is non-blocking — proceed to the LEAD; D-279
+  is the standing Win64 investigation (discharge = investigation_discipline §2). If ever in doubt, isolate with
+  `run_remote_windows.sh --branch <pre-trap-ref>`.
 
 ## Key refs
 

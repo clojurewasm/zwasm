@@ -925,11 +925,21 @@ entries:
       D7** (windowsmini cadence-driven background monitoring gate via `should_gate_windows.sh`). TRACK via
       `track_heisenbug.sh win64-spec-simd segv` as D7 exercises windows on its cadence; discharge = `investigation_discipline.md` §2 (≥5 silent over ≥3 SHAs OR
       named root cause). Do NOT auto-revert turns on this flake (D7). Lead: the `[d-163-jit]` dump + per-func bytes.
+      2026-06-06 UPDATE (cadence @ 99b56f1c, tracked `win64-testall segv`): the class is NOT limited to
+      `simd_bit_shift` — windows test-all RED across `sha256` shootout (wrong hash d0e8b8f…), `spec-wasm-2-0-assert`,
+      `zig-host-hello`, + a unit `test.exe`. REPRODUCED on a 2nd kick, yet still non-deterministic WITHIN a run
+      (same `sha256("Hello, SHA-256!")` PASSED in one runner, FAILED in another, identical wrong hash both kicks) —
+      the heisenbug hallmark, same FP-walk/RSP-parity/X29 lineage (D-180/D-245). The only src delta since the last
+      windows-OK (635bd734) was the ADR-0164 trap commits b6da8604+99b56f1c, but those are arch-neutral CLI plumbing
+      (no codegen/ABI/trampoline touched; trap catch-path inert on a successful run) and ubuntu test-all is GREEN on
+      the identical source → exonerated; this is the pre-existing Win64 heisenbug surfacing, not a trap regression.
+      ISOLATION (if ever in doubt): `run_remote_windows.sh --branch <ref>` at a pre-trap commit. Trap commits KEPT.
     first_raised: "2026-06-05"
-    last_reviewed: "2026-06-05"
+    last_reviewed: "2026-06-06"
     refs: |-
       ADR-0076 D7 (win64 monitoring gate); investigation_discipline.md §2 (heisenbug discharge);
-      scripts/track_heisenbug.sh; test/spec/wasm-2.0-simd-assert (simd_bit_shift); D-180/D-245 (Win64 lineage)
+      scripts/track_heisenbug.sh (win64-spec-simd + win64-testall); test/spec/wasm-2.0-simd-assert (simd_bit_shift);
+      bench/runners/wasm/shootout (sha256); D-180/D-245 (Win64 lineage)
   - id: "D-281"
     layer: "code"
     status: "note"
