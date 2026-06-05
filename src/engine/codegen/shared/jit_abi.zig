@@ -366,7 +366,12 @@ pub const JitRuntime = extern struct {
     /// "probe never fired" (count=0) from "probe fired but unwind
     /// stalled" (count>0 with trap_flag possibly 1).
     trap_stub_entry_count: u32 = 0,
-    _pad12: u32 = 0,
+    /// ADR-0164 B / D-291 — gated diagnostic scratch. When `-Dtrace-stackprobe`
+    /// is set, the arm64 call_indirect bounds-check trap stub (kind=2) stores the
+    /// offending table INDEX here before clobbering W17; `entry.zig` prints it.
+    /// Default builds emit no write (comptime-gated) → this stays the former
+    /// `_pad12` zero slot; offset 236 unchanged.
+    trap_aux: u32 = 0,
     /// Phase 10.E IT-6 cycle 3c (ADR-0114 D5 + ADR-0119) —
     /// per-Instance JIT exception table view consumed by
     /// `shared/zwasm_throw.dispatchThrow` after the per-arch
@@ -939,6 +944,8 @@ pub const stack_limit_off: u12 = @offsetOf(JitRuntime, "stack_limit");
 /// x86_64 trap stub emits `INC DWORD PTR [R15 + this]` as its
 /// first instruction; arm64 unchanged.
 pub const trap_stub_entry_count_off: u12 = @offsetOf(JitRuntime, "trap_stub_entry_count");
+/// ADR-0164 B / D-291 — gated cind-index diagnostic scratch (see `trap_aux`).
+pub const trap_aux_off: u12 = @offsetOf(JitRuntime, "trap_aux");
 /// Phase 10.E IT-6 cycle 3c — EH dispatcher integration. Trampoline
 /// reads ptr+count via `[X19/R15 + off]` to materialize
 /// `ExceptionTable` + `CodeMap` slices for `dispatchThrow`.

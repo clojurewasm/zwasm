@@ -1718,6 +1718,14 @@ pub fn compile(
                     ) !void {
                         if (fixups.len == 0) return;
                         const stub_byte: u32 = @intCast(b.items.len);
+                        // ADR-0164 B / D-291 — gated diagnostic: for the cind
+                        // BOUNDS stub (kind=2), W17 still holds the offending
+                        // table index here (preserved from `CMP W17, Wsize`).
+                        // Capture it to JitRuntime.trap_aux BEFORE the MOVZ below
+                        // clobbers W17. comptime-gated → zero bytes by default.
+                        if (comptime build_options.trace_stackprobe) {
+                            if (kind == 2) try gpr.writeU32(a, b, inst.encStrImmW(17, abi.runtime_ptr_save_gpr, jit_abi.trap_aux_off));
+                        }
                         try gpr.writeU32(a, b, inst.encMovzImm16(17, 1));
                         try gpr.writeU32(a, b, inst.encStrImmW(17, abi.runtime_ptr_save_gpr, jit_abi.trap_flag_off));
                         try gpr.writeU32(a, b, inst.encMovzImm16(17, kind));

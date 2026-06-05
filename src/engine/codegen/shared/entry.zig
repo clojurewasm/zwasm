@@ -231,6 +231,9 @@ inline fn invokeAndCheck(
     // (default false; ADR-0164 B / D-292) — a D-279 Win64 investigation primitive.
     if (comptime build_options.trace_stackprobe) {
         if (rt.trap_kind == 4) std.debug.print("[d-165] kind=4 cumulative_trap_stub_entry_count={d}\n", .{rt.trap_stub_entry_count});
+        // D-291 — call_indirect bounds trap: the offending table index captured
+        // by the cind-bounds stub (table_size is module-static, e.g. ed25519 = 2).
+        if (rt.trap_kind == 2) std.debug.print("[d-291] kind=2 oob_table cind_index={d}\n", .{rt.trap_aux});
     }
     return Error.Trap;
 }
@@ -302,7 +305,13 @@ inline fn invokeAndCheckVoid(
         // branches above keep their dedicated manual-asm save/restore.
         @call(.never_inline, jitTrampolineVoid, .{ f, rt, args });
     }
-    if (rt.trap_flag != 0) return Error.Trap;
+    if (rt.trap_flag != 0) {
+        if (comptime build_options.trace_stackprobe) {
+            // D-291 — capture the offending call_indirect table index (kind=2).
+            if (rt.trap_kind == 2) std.debug.print("[d-291] kind=2 oob_table cind_index={d}\n", .{rt.trap_aux});
+        }
+        return Error.Trap;
+    }
 }
 
 /// Call a no-argument JIT function returning i32.
