@@ -25,21 +25,20 @@
 ## Active bundle
 
 - **Bundle-ID**: jit-wasi (D-244)
-- **Cycles-remaining**: ~3
-- **Continuity-memo**: goal — route the full WASI surface through the JIT (`--engine jit`), was 9-stub.
-  **DONE**: `JitRuntime.wasi_host` field (`dec5e84f`) + `runI64ExportWasi`/`runVoidExportWasi` runner primitives
-  (`d761637f`/`088c3b23`, set `owned.rt.wasi_host`) proven END-TO-END through actual JIT exec (a module importing
-  clock_time_get gets a real time / a `_start` traps only without a host). **The core I/O quartet now delegates to
-  the SHARED interp handlers when `rt.wasi_host` set, else stub**: clock_time_get + random_get (`dec5e84f`/
-  `8d1b7612`) + fd_write→real stdout/capture (`81b3e1d3`) + fd_read→real stdin (`20392074`), all unit-tested. **KEY
-  DESIGN holds — interp handlers `(host, mem, ...args)` reused, no 46-syscall re-impl.** **NEXT — chunk 2c (CLI
-  run-path wiring)**: `cli/run.zig runWasmJit` is Host-free + takes no io; make it CREATE+own a WASI Host (Host.init
-  + `host.io = io`; args/preopens later) + call `runner.runVoidExportWasi(..., &host)` + thread io from `main.zig`
-  (the existing SIMD `runWasmJit` test → pass testing.io). Then `--engine jit hello.wasm` prints for real. Also
-  handle JIT proc_exit exit-code (sets trap_flag, no code). **chunk 2d**: args_sizes_get/args_get/environ_* (need
-  Host args/env) + register the other ~37 syscalls in `jit_dispatch.zig:lookup` (only 9 names there now); mechanism
-  `host_dispatch_base` + `populateDispatch` (`setup.zig:284`). Win64 JIT-exec tests gate `skip.phaseEnd(.win64)`.
-  Risk: interp(stack) vs JIT(GPR) thunk ABIs hand-synced. **D-251 AOT-WASI** (separate, later) needs `.cwasm`
+- **Cycles-remaining**: ~2
+- **Continuity-memo**: 🎯 **HEADLINE DONE — `zwasm run --engine jit hello.wasm` PRINTS real output** (smoke-verified:
+  jithello + c_hello_wasi). Path: `JitRuntime.wasi_host` field (`dec5e84f`) + `runI64/VoidExportWasi` primitives
+  (`d761637f`/`088c3b23`) + core I/O quartet → shared interp handlers (clock/random `dec5e84f`/`8d1b7612`, fd_write
+  `81b3e1d3`, fd_read `20392074`) + `runWasmJit` creates+owns a Host with io (`0c3e4cef`, chunk 2c, main.zig threads
+  io). **Plus a PRE-EXISTING CLI bug fixed (`f320db6f`): the shared fd_write only wrote to a capture buffer, so
+  `zwasm run` (interp AND jit) silently DROPPED guest stdout — now routes to real std.Io.File.stdout()/stderr() when
+  no buffer + io set.** KEY DESIGN held — interp handlers reused, no 46-syscall re-impl. **NEXT — chunk 2d (refine
+  + complete)**: (1) JIT **proc_exit exit-code** — sets trap_flag, doesn't carry the code; thread it so `--engine jit`
+  exits with the guest's code. (2) **args/environ** — args_sizes_get/args_get/environ_* are still stubs (return 0);
+  reroute to shared handlers + have `runWasmJit` set `host.setArgs`/`setEnvs`. (3) `--dir` preopens for JIT (runWasmJit
+  rejects them currently). (4) register the other ~37 syscalls in `jit_dispatch.zig:lookup` (only 9 names there).
+  Win64 JIT-exec tests gate `skip.phaseEnd(.win64)`; real-stream test uses fd 2 (fd 1 corrupts zig-test protocol).
+  **D-251 AOT-WASI** (separate, later) needs `.cwasm`
   v0.3 import-metadata serialization (`aot/format.zig`) first. **DISCIPLINE: cross-compile windows-gnu; trust ubuntu
   for Linux-runtime divergence; read win crash lines (std Win64 TODOs only show at runtime).**
 - **Exit-condition**: a JIT-run WASI module does REAL I/O (e.g. `clock_time_get` nonzero + `fd_write` to real stdout
@@ -65,8 +64,9 @@ no auto-revert. Step 6+7: `should_gate_windows.sh` exit 0 → kick `run_remote_w
 
 ## Step 0.7 (next resume) — verify per-cadence remote logs
 
-ubuntu GREEN at `70d9703f` (chunk 2a + random_get). This turn pushed D-244 chunk 2b (`088c3b23` runVoidExportWasi)
-+ JIT fd_write (`81b3e1d3`) + fd_read (`20392074`) → shared handlers; re-kicked both. **Step 0.7 next resume:
+ubuntu GREEN at `c042b5ca` (quartet). This turn pushed D-244 chunk 2c (`0c3e4cef` runWasmJit Host) + the CLI
+fd_write→real-stdout fix (`f320db6f`); re-kicked both. The fd.zig fd_write change affects interp too (now prints) —
+diff_runner still 50/55 matched (capture path unchanged). **Step 0.7 next resume:
 `tail /tmp/ubuntu.log` (must be OK, auto-revert on FAIL) + `tail /tmp/win.log` — distinguish the D-282 env-flake
 (ALL runners 0-failed + only `configure phase FileNotFound`) from a REAL crash (`' exited with code N`/`panic`/
 `TODO implement ... windows` + a named test). A std Win64 `TODO`-panic in an op I use → reroute like `20b9f860`.**
