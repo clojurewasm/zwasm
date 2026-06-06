@@ -391,6 +391,20 @@ entries:
       runner change (runVoidExportWasi errors on missing entry before side effects; add an instantiate-
       then-optional-entry path). DISCHARGE: nbody (+ a no-_start fixture) gives the SAME exit code on
       interp/jit/aot; pick the wasmtime-aligned exit-0 semantics (zwasm's differential reference).
+      SURVEY 2026-06-06 (scoped, NOT yet bounded — moderate cross-engine CLI change): the interp
+      (runWasmCaptured, C-API path) + AOT (runCwasm via mod.resolveEntry) both run the lenient chain
+      `_start→main→first-func-export` and CAPTURE the result of an arbitrary-sig entry (interp via
+      `invokeFormatted`, AOT via `aot_run.runEntry` i32→exit). The JIT CLI path (runWasmJit) is a SEPARATE
+      `runVoidExportWasi`-based path — and runner.zig has NO arbitrary-sig JIT runner (only
+      runVoidExportWasi + runI32/I64/F32/F64Export, all no-arg). So unifying needs EITHER (A) add chain
+      resolution + per-sig dispatch (void→runVoidExportWasi, ()→scalar→runI32/etc., none→instantiate-only)
+      to runWasmJit, OR (B) route the JIT through the C-API lenient path (bigger refactor; verify the C-API
+      supports a JIT mode). Recommend A (zero breaking changes — every existing fixture has _start/main/
+      explicit --invoke; verified no test exercises a no-_start-no-main default). TODO: add a no-_start
+      fixture (void first-export) + a differential test asserting jit==interp==aot exit code; mind that a
+      non-void first-export under JIT instantiate-only would still diverge from interp's result-capture
+      (rarer; note as a documented edge if not handled). Regression risk: runWasmJit is the `zwasm run`
+      hot path — TDD carefully. This is a focused next chunk, fully scoped.
     first_raised: "2026-06-05"
     last_reviewed: "2026-06-05"
     refs: |-
