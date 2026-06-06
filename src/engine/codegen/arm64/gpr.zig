@@ -89,6 +89,59 @@ pub fn frameStrGpr(allocator: Allocator, buf: *std.ArrayList(u8), src: inst.Xn, 
     }
 }
 
+/// D-289: FP/v128 frame-access width — S (f32, imm12×4 cap 16380), D (f64,
+/// imm12×8 cap 32760), Q (v128, imm12×16 cap 65520).
+pub const FpFrameW = enum { s, d, q };
+
+fn fpFrameCap(w: FpFrameW) u32 {
+    return switch (w) {
+        .s => 16380,
+        .d => 32760,
+        .q => 65520,
+    };
+}
+
+/// D-289: emit a frame load into V-register `vd` (LDR S/D/Q), large-off-safe.
+/// Unlike `frameLdrGpr`, the V-reg destination cannot hold the computed address,
+/// so the large path materialises SP+off into the GPR `scratch` (caller passes a
+/// reg dead here — X16/IP0 at body sites), then `LDR vd, [scratch, #0]`.
+pub fn frameLdrFp(allocator: Allocator, buf: *std.ArrayList(u8), vd: inst.Vn, off: u32, w: FpFrameW, scratch: inst.Xn) Error!void {
+    if (off <= fpFrameCap(w)) {
+        try writeU32(allocator, buf, switch (w) {
+            .s => inst.encLdrSImm(vd, 31, @intCast(off)),
+            .d => inst.encLdrDImm(vd, 31, @intCast(off)),
+            .q => inst_neon.encLdrQImm(vd, 31, @intCast(off)),
+        });
+    } else {
+        try frameAddrLarge(allocator, buf, scratch, off);
+        try writeU32(allocator, buf, switch (w) {
+            .s => inst.encLdrSImm(vd, scratch, 0),
+            .d => inst.encLdrDImm(vd, scratch, 0),
+            .q => inst_neon.encLdrQImm(vd, scratch, 0),
+        });
+    }
+}
+
+/// D-289: emit a frame store from V-register `vs` (STR S/D/Q), large-off-safe.
+/// The store value occupies `vs`, so the large path materialises SP+off into the
+/// GPR `scratch` (dead here — X16/IP0 at body sites), then `STR vs, [scratch, #0]`.
+pub fn frameStrFp(allocator: Allocator, buf: *std.ArrayList(u8), vs: inst.Vn, off: u32, w: FpFrameW, scratch: inst.Xn) Error!void {
+    if (off <= fpFrameCap(w)) {
+        try writeU32(allocator, buf, switch (w) {
+            .s => inst.encStrSImm(vs, 31, @intCast(off)),
+            .d => inst.encStrDImm(vs, 31, @intCast(off)),
+            .q => inst_neon.encStrQImm(vs, 31, @intCast(off)),
+        });
+    } else {
+        try frameAddrLarge(allocator, buf, scratch, off);
+        try writeU32(allocator, buf, switch (w) {
+            .s => inst.encStrSImm(vs, scratch, 0),
+            .d => inst.encStrDImm(vs, scratch, 0),
+            .q => inst_neon.encStrQImm(vs, scratch, 0),
+        });
+    }
+}
+
 /// Resolve a vreg's home register (GPR class). Returns the
 /// allocated reg or `Error.UnsupportedOp` for spilled vregs
 /// (handlers that haven't been migrated to spill-aware emission).

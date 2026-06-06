@@ -997,19 +997,9 @@ pub fn compile(
                 if (local_idx >= total_locals) return Error.UnsupportedOp;
                 const ty = localValType(func, num_params, local_idx);
                 const offset_u: u32 = local_base_off + layout.offsets[local_idx];
-                // D-289: i32/i64/ref use the large-off-safe frame helpers below;
-                // FP/v128 still cap (follow-on). Cast the FP/v128 offsets only on
-                // the small path so a large offset can't panic the @intCast.
-                const fp_cap: u32 = switch (ty) {
-                    .f32 => 16380,
-                    .f64 => 32760,
-                    .v128 => 65520,
-                    else => 0,
-                };
-                if ((ty == .f32 or ty == .f64 or ty == .v128) and offset_u > fp_cap) return Error.UnsupportedOp;
-                const offset_w: u14 = if (ty == .f32) @intCast(offset_u) else 0;
-                const offset_x: u15 = if (ty == .f64) @intCast(offset_u) else 0;
-                const offset_q: u16 = if (ty == .v128) @intCast(offset_u) else 0;
+                // D-289: all widths (GPR + FP/v128) use the large-off-safe frame
+                // helpers below — no imm12 cap. FP/v128 loads pass X16/IP0 as the
+                // address scratch (the V-reg dst can't self-compute the address).
                 const vreg = next_vreg;
                 next_vreg += 1;
                 if (vreg >= alloc.slots.len) {
@@ -1048,12 +1038,12 @@ pub fn compile(
                     },
                     .f32 => {
                         const vd = try gpr.fpDefSpilled(alloc, vreg, 0);
-                        try gpr.writeU32(allocator, &buf, inst.encLdrSImm(vd, 31, offset_w));
+                        try gpr.frameLdrFp(allocator, &buf, vd, offset_u, .s, 16);
                         try gpr.fpStoreSpilled(allocator, &buf, alloc, spill_base_off, vreg, 0);
                     },
                     .f64 => {
                         const vd = try gpr.fpDefSpilled(alloc, vreg, 0);
-                        try gpr.writeU32(allocator, &buf, inst.encLdrDImm(vd, 31, offset_x));
+                        try gpr.frameLdrFp(allocator, &buf, vd, offset_u, .d, 16);
                         try gpr.fpStoreSpilled(allocator, &buf, alloc, spill_base_off, vreg, 0);
                     },
                     .v128 => {
@@ -1063,7 +1053,7 @@ pub fn compile(
                         // lane group; q* spill helpers handle V-reg
                         // vs. spill-frame placement.
                         const vd = try gpr.qDefSpilled(alloc, vreg, 0);
-                        try gpr.writeU32(allocator, &buf, inst_neon.encLdrQImm(vd, 31, offset_q));
+                        try gpr.frameLdrFp(allocator, &buf, vd, offset_u, .q, 16);
                         try gpr.qStoreSpilled(allocator, &buf, alloc, spill_base_off, vreg, 0);
                     },
                 }
@@ -1078,15 +1068,7 @@ pub fn compile(
                 if (local_idx >= total_locals) return Error.UnsupportedOp;
                 const ty = localValType(func, num_params, local_idx);
                 const offset_u: u32 = local_base_off + layout.offsets[local_idx];
-                // D-289: i32/i64/ref use frameStrGpr (large-off-safe); FP/v128 cap (follow-on).
-                if ((ty == .f32 or ty == .f64 or ty == .v128) and offset_u > (switch (ty) {
-                    .f32 => @as(u32, 16380),
-                    .f64 => 32760,
-                    else => 65520,
-                })) return Error.UnsupportedOp;
-                const offset_w: u14 = if (ty == .f32) @intCast(offset_u) else 0;
-                const offset_x: u15 = if (ty == .f64) @intCast(offset_u) else 0;
-                const offset_q: u16 = if (ty == .v128) @intCast(offset_u) else 0;
+                // D-289: all widths use the large-off-safe frame helpers — no cap.
                 const src = pushed_vregs.pop().?;
                 // ADR-0155 stage 1 — register-homed local: MOV the popped src
                 // into the home register (reg→reg, no STR-to-slot). i32 uses the
@@ -1113,17 +1095,17 @@ pub fn compile(
                     },
                     .f32 => {
                         const vs = try gpr.fpLoadSpilled(allocator, &buf, alloc, spill_base_off, src, 0);
-                        try gpr.writeU32(allocator, &buf, inst.encStrSImm(vs, 31, offset_w));
+                        try gpr.frameStrFp(allocator, &buf, vs, offset_u, .s, 16);
                     },
                     .f64 => {
                         const vs = try gpr.fpLoadSpilled(allocator, &buf, alloc, spill_base_off, src, 0);
-                        try gpr.writeU32(allocator, &buf, inst.encStrDImm(vs, 31, offset_x));
+                        try gpr.frameStrFp(allocator, &buf, vs, offset_u, .d, 16);
                     },
                     .v128 => {
                         // Wasm spec §4.4.5.2 — local.set writes 16
                         // bytes for v128. STR Q via the q* helpers.
                         const vs = try gpr.qLoadSpilled(allocator, &buf, alloc, spill_base_off, src, 0);
-                        try gpr.writeU32(allocator, &buf, inst_neon.encStrQImm(vs, 31, offset_q));
+                        try gpr.frameStrFp(allocator, &buf, vs, offset_u, .q, 16);
                     },
                 }
             },
@@ -1135,15 +1117,7 @@ pub fn compile(
                 if (local_idx >= total_locals) return Error.UnsupportedOp;
                 const ty = localValType(func, num_params, local_idx);
                 const offset_u: u32 = local_base_off + layout.offsets[local_idx];
-                // D-289: i32/i64/ref use frameStrGpr (large-off-safe); FP/v128 cap (follow-on).
-                if ((ty == .f32 or ty == .f64 or ty == .v128) and offset_u > (switch (ty) {
-                    .f32 => @as(u32, 16380),
-                    .f64 => 32760,
-                    else => 65520,
-                })) return Error.UnsupportedOp;
-                const offset_w: u14 = if (ty == .f32) @intCast(offset_u) else 0;
-                const offset_x: u15 = if (ty == .f64) @intCast(offset_u) else 0;
-                const offset_q: u16 = if (ty == .v128) @intCast(offset_u) else 0;
+                // D-289: all widths use the large-off-safe frame helpers — no cap.
                 const src = pushed_vregs.items[pushed_vregs.items.len - 1];
                 // ADR-0155 stage 1 — register-homed local: MOV the (peeked) src
                 // into the home register; the value stays on the operand stack.
@@ -1169,17 +1143,17 @@ pub fn compile(
                     },
                     .f32 => {
                         const vs = try gpr.fpLoadSpilled(allocator, &buf, alloc, spill_base_off, src, 0);
-                        try gpr.writeU32(allocator, &buf, inst.encStrSImm(vs, 31, offset_w));
+                        try gpr.frameStrFp(allocator, &buf, vs, offset_u, .s, 16);
                     },
                     .f64 => {
                         const vs = try gpr.fpLoadSpilled(allocator, &buf, alloc, spill_base_off, src, 0);
-                        try gpr.writeU32(allocator, &buf, inst.encStrDImm(vs, 31, offset_x));
+                        try gpr.frameStrFp(allocator, &buf, vs, offset_u, .d, 16);
                     },
                     .v128 => {
                         // Wasm spec §4.4.5.3 — local.tee mirrors
                         // local.set's 16-byte write.
                         const vs = try gpr.qLoadSpilled(allocator, &buf, alloc, spill_base_off, src, 0);
-                        try gpr.writeU32(allocator, &buf, inst_neon.encStrQImm(vs, 31, offset_q));
+                        try gpr.frameStrFp(allocator, &buf, vs, offset_u, .q, 16);
                     },
                 }
             },
