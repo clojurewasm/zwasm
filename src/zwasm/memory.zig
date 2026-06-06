@@ -57,6 +57,17 @@ pub const Memory = struct {
         }
     }
 
+    /// Wasm spec §4.2.8 — bounds-checked sub-slice `[offset, offset+len)`
+    /// onto linear memory (a mutable view; writes through it persist).
+    /// `OutOfBoundsLoad` when the window exceeds the current memory size.
+    /// Use over `slice()` when an embedder wants a checked window rather
+    /// than the whole backing store.
+    pub fn sliceAt(self: Memory, offset: u32, len: u32) Error![]u8 {
+        const mem = self.rt.memory;
+        if (@as(u64, offset) + len > mem.len) return error.OutOfBoundsLoad;
+        return mem[offset..][0..len];
+    }
+
     /// Wasm spec §4.4.7 (memory.grow) — grow memory0 by `delta` pages
     /// (64 KiB each), zero-filling the new region. Returns the PREVIOUS
     /// page count on success, or `null` when the growth is refused (the
@@ -94,4 +105,27 @@ test "Memory.grow: success returns prev pages + expands; cap refusal → null" {
     // grow past declared max (2) → refused, memory unchanged.
     try testing.expectEqual(@as(?u32, null), mem.grow(1));
     try testing.expectEqual(@as(u32, 2), mem.size());
+}
+
+test "Memory.sliceAt: in-bounds window is a mutable view; OOB → error" {
+    // (module (memory 1) (export "mem" (memory 0)))
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // magic + version
+        0x05, 0x03, 0x01, 0x00, 0x01, // memory: min 1
+        0x07, 0x07, 0x01, 0x03, 'm', 'e', 'm', 0x02, 0x00, // export "mem" = memory 0
+    };
+    var eng = try _zwasm.Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var mod = try eng.compile(&bytes);
+    defer mod.deinit();
+    var inst = try mod.instantiate(.{});
+    defer inst.deinit();
+
+    const mem = inst.memory().?;
+    const win = try mem.sliceAt(8, 4);
+    try testing.expectEqual(@as(usize, 4), win.len);
+    win[0] = 0xAB; // mutate through the view…
+    try testing.expectEqual(@as(u8, 0xAB), try mem.read(u8, 8)); // …visible via read
+    // window crossing the 1-page (65536) boundary → OOB.
+    try testing.expectError(error.OutOfBoundsLoad, mem.sliceAt(65530, 16));
 }
