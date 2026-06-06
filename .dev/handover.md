@@ -70,13 +70,15 @@ audit-gap list closed-or-deferred.
 missed the real buffer 0x10000c0; only buffer+8 hits the funcptr global). Robust `>=16MB` gate on `call 17`
 arg0 → **func 7** passes func 17 a DATA-region buffer 0x10000c0 (= __stack_pointer_init + 0xC0); func 17
 faithfully stores hi word to 0x10000c8 = the funcptr global → clobber (func 17 INNOCENT — minimal /tmp/m3b.wat
-repro clean). func 7 reads __stack_pointer ALREADY >16MB. First-wins sp-overset watchpoint (op_globals.zig
-`global.set 0` value >0x1000000, trap_aux7) → **sp_overset_func=11** = the ROOT. func 11 epilogue `local.get 2;
-i32.const 480; i32.add; global.set 0` (restore sp=local2+480) OVER-sets sp >16MB. CHAIN: func 11 over-restores
-sp → func 7 reads corrupt sp → data-region buffers → func 17 clobbers funcptr global → cind trap. NEXT: capture
-func 11 epilogue local2 vs restored-sp (trap_aux8/9) → distinguish local2-corrupted-across-calls vs the
-`local2+480` add miscompiled (D-289 large-base lineage); then a minimal func-11-frame-restore repro. Full chain
-+ exact values in the D-291 debt row. Build `-Dtrace-stackprobe=true`; grep `[d-291]`.
+repro clean). func 7 reads __stack_pointer ALREADY >16MB. **MECHANISM CONFIRMED** (`6d0f478b`, trap_aux8/9): func 11 reads a VALID sp_entry=0xffd830 but its epilogue
+`local.get 2; i32.const 480; i32.add; global.set 0` sets sp=**0xffffffb0 (=-80, GARBAGE)** = local2+480 ⇒
+**local2 (func 11's saved-SP local) = -560 garbage at the epilogue** (should be sp_entry-480≈0xffd650). So
+local2 — the frame base held across func 11's `call 14`+`call 17` — is CLOBBERED ⇒ epilogue over-restores sp →
+func 7 reads corrupt sp → data-region buffer → func 17 clobbers funcptr global → trap. func 11 = 21 i64 locals
++ calls (high reg/spill pressure): the canonical long-lived-local-corrupted-across-a-call bug — likely the
+ADR-0155 homed-caller-saved spill/reload (op_call.zig `homedCallerSavedSpillReload`) or a spill-slot collision
+(regalloc_compute.zig). NEXT: gated capture of local2 before/after each func-11 call → which call corrupts it;
+inspect func 11's regalloc for local2. Build `-Dtrace-stackprobe=true`; grep `[d-291]`. Full chain in D-291 row.
 
 **Other status**: ADR-0164 COMPLETE. **D-294 3-HOST GREEN** (`partial`, residuals polish). **D-279 sha256 lead
 FALSE** (corrected — zwasm hashes correctly; fixture has a wrong baked-in constant, golden-matched, never gates;
