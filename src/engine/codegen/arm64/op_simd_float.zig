@@ -296,6 +296,21 @@ pub fn emitF64x2Max(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try op_simd.emitV128Binop(ctx, inst_neon_arith.encFMax2D);
 }
 
+// §17.4 relaxed-SIMD madd/nmadd — fused FMLA/FMLS (ADR-0169: uniform fused
+// on arm64). madd = a*b+c (FMLA); nmadd = -(a*b)+c (FMLS). 3-operand ternop.
+pub fn emitF32x4RelaxedMadd(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128FpFma(ctx, inst_neon_arith.encFmla4S);
+}
+pub fn emitF32x4RelaxedNmadd(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128FpFma(ctx, inst_neon_arith.encFmls4S);
+}
+pub fn emitF64x2RelaxedMadd(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128FpFma(ctx, inst_neon_arith.encFmla2D);
+}
+pub fn emitF64x2RelaxedNmadd(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    try op_simd.emitV128FpFma(ctx, inst_neon_arith.encFmls2D);
+}
+
 // ============================================================
 // §9.6 / 9.6-c-ii — f32x4/f64x2 pmin/pmax synthesis
 // ============================================================

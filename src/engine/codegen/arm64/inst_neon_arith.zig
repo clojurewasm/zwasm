@@ -610,6 +610,37 @@ pub fn encFMin4S(rd: Vn, rn: Vn, rm: Vn) u32 {
 pub fn encFMin2D(rd: Vn, rn: Vn, rm: Vn) u32 {
     return 0x4EE0F400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
 }
+
+// ---------------------------------------------------------------------
+// §17.4 — FMLA / FMLS (vector, fused multiply-add/-subtract)
+// ---------------------------------------------------------------------
+// relaxed-SIMD `f{32,64}x4.relaxed_{madd,nmadd}` (ADR-0169: uniform
+// fused on arm64). NEON FMLA Vd, Vn, Vm: `Vd = Vd + (Vn * Vm)` (single
+// rounding); FMLS: `Vd = Vd - (Vn * Vm)`. The accumulator IS the dest,
+// so the emit pre-loads `c` into Vd then FMLA/FMLS Vd, a, b.
+//   madd  (a*b+c)    → Vd=c; FMLA Vd, a, b
+//   nmadd (-(a*b)+c) → Vd=c; FMLS Vd, a, b
+// Encoding `0 Q 0 01110 U sz 1 Rm 11001 1 Rn Rd` (opcode 11001, bit10=1);
+// FMLS sets bit 23. Per Arm IHI 0055 §C7.2.131 (FMLA) / §C7.2.133 (FMLS).
+pub fn encFmla4S(rd: Vn, rn: Vn, rm: Vn) u32 {
+    return 0x4E20CC00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encFmla2D(rd: Vn, rn: Vn, rm: Vn) u32 {
+    return 0x4E60CC00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encFmls4S(rd: Vn, rn: Vn, rm: Vn) u32 {
+    return 0x4EA0CC00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+pub fn encFmls2D(rd: Vn, rn: Vn, rm: Vn) u32 {
+    return 0x4EE0CC00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+test "encFmla4S: V0,V1,V2 + FMLS bit23 + 2D sz bit22" {
+    try testing.expectEqual(@as(u32, 0x4E22CC20), encFmla4S(0, 1, 2));
+    try testing.expectEqual(@as(u32, 0x800000), encFmls4S(0, 1, 2) ^ encFmla4S(0, 1, 2));
+    try testing.expectEqual(@as(u32, 0x400000), encFmla2D(0, 1, 2) ^ encFmla4S(0, 1, 2));
+    try testing.expectEqual(@as(u32, 0x4EFFCFFF), encFmls2D(31, 31, 31));
+}
 // ---------------------------------------------------------------------
 // §9.6 / 9.6-f-i — TBL (1-register table form)
 // ---------------------------------------------------------------------

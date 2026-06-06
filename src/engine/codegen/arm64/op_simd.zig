@@ -707,6 +707,45 @@ pub fn emitV128Bitselect(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
 }
 
+/// §17.4 relaxed-SIMD fused multiply-add/-subtract (madd / nmadd).
+/// 3-operand: pop c (accumulator, top), b, a; result = a*b±c via FMLA/FMLS
+/// with the dest AS the accumulator (Vd = c; `enc` Vd, a, b). Mirrors
+/// emitV128Bitselect's 3-V-reg spill + D-070 slot-reuse-alias handling
+/// (dst may alias a or b → stash via V31 before MOV dst, c).
+pub fn emitV128FpFma(ctx: *EmitCtx, enc: *const fn (rd: u5, rn: u5, rm: u5) u32) Error!void {
+    const c_vreg = ctx.pushed_vregs.pop().?;
+    const b_vreg = ctx.pushed_vregs.pop().?;
+    const a_vreg = ctx.pushed_vregs.pop().?;
+    const result_vreg = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    if (result_vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
+
+    const dst_v = try gpr.qDefSpilled(ctx.alloc, result_vreg, 0);
+    const c_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, c_vreg, 1);
+    const a_x = try gpr.resolveFp(ctx.alloc, a_vreg);
+    const b_x = try gpr.resolveFp(ctx.alloc, b_vreg);
+
+    // dst (result) may LIFO-reuse a's or b's slot; MOV dst, c would clobber
+    // the multiplicand before the FMLA reads it. Stash via V31 (popcnt
+    // scratch, unused here). At most one of a/b aliases dst unless a==b
+    // (identical vreg → V31 holds the shared value, read twice = fine).
+    const a_for_op: u5 = if (dst_v != c_v and dst_v == a_x) blk: {
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encMovV16B(31, a_x));
+        break :blk 31;
+    } else a_x;
+    const b_for_op: u5 = if (dst_v != c_v and dst_v == b_x) blk: {
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encMovV16B(31, b_x));
+        break :blk 31;
+    } else b_x;
+
+    if (dst_v != c_v) {
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encMovV16B(dst_v, c_v));
+    }
+    try gpr.writeU32(ctx.allocator, ctx.buf, enc(dst_v, a_for_op, b_for_op));
+    try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 0);
+    try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
+}
+
 // ============================================================
 // §9.9 / 9.9-g-3 — v128.any_true reduction
 // ============================================================

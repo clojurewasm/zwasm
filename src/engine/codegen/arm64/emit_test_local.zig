@@ -111,14 +111,14 @@ test "compile: i32.const 0x12345678 emits MOVZ + MOVK (full 32-bit)" {
 
 test "compile: unsupported op surfaces UnsupportedOp" {
     // The probe needs a ZirOp the enum reserves but no codegen path
-    // implements (hits the emit switch `else => UnsupportedOp`). ALL of
-    // Phase 17.1 atomics (fence/load/store/rmw/cmpxchg/notify/wait) are
-    // now wired, so the probe uses a relaxed-SIMD op (v0.3 proposal,
-    // reserved in the ZIR enum, no emit arm yet — stable for a while).
+    // implements (hits the emit switch `else => UnsupportedOp`). Relaxed-SIMD
+    // is now being wired (17.4), so the probe uses `memory.discard` — the
+    // Memory Control proposal op, reserved in the ZIR enum with NO
+    // validate/lower/liveness/emit path, deferred well past 17.4 (stable).
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
-    try f.instrs.append(testing.allocator, .{ .op = .@"f32x4.relaxed_madd" });
+    try f.instrs.append(testing.allocator, .{ .op = .@"memory.discard" });
     f.liveness = .{ .ranges = &.{} };
     const empty: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
     try testing.expectError(Error.UnsupportedOp, compile(testing.allocator, &f, empty, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{}, false));

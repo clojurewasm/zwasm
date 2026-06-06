@@ -2001,6 +2001,11 @@ pub fn compile(
             .@"f32x4.relaxed_max" => try op_simd_float.emitF32x4Max(&ctx, &ins),
             .@"f64x2.relaxed_min" => try op_simd_float.emitF64x2Min(&ctx, &ins),
             .@"f64x2.relaxed_max" => try op_simd_float.emitF64x2Max(&ctx, &ins),
+            // §17.4 relaxed-SIMD madd/nmadd — fused FMLA/FMLS (3-operand).
+            .@"f32x4.relaxed_madd" => try op_simd_float.emitF32x4RelaxedMadd(&ctx, &ins),
+            .@"f32x4.relaxed_nmadd" => try op_simd_float.emitF32x4RelaxedNmadd(&ctx, &ins),
+            .@"f64x2.relaxed_madd" => try op_simd_float.emitF64x2RelaxedMadd(&ctx, &ins),
+            .@"f64x2.relaxed_nmadd" => try op_simd_float.emitF64x2RelaxedNmadd(&ctx, &ins),
             // §9.6/9.6-f-ii — v128.const + i8x16.shuffle (per ADR-0042
             // const-pool with PC-relative LDR-Q-literal + fixup pass).
             .@"v128.const" => try op_simd.emitV128Const(&ctx, &ins),

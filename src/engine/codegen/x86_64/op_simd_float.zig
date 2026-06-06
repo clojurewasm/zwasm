@@ -643,6 +643,84 @@ pub fn emitF64x2RelaxedMax(allocator: Allocator, buf: *std.ArrayList(u8), alloc:
     return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encMaxpd);
 }
 
+// §17.4 relaxed-SIMD madd/nmadd — x86 has no FMA in the SSE2/SSE4 baseline,
+// so emit UNFUSED MULPS+ADDPS (madd) / MULPS+SUBPS (nmadd). Per ADR-0169 the
+// 2-rounding result is a valid relaxed_madd (impl-defined vs arm64's fused
+// FMLA); edge fixtures use exact-representable inputs so both agree.
+// 3-operand: pop c (acc, top), b, a → a*b+c (madd) / c-a*b (nmadd). b,c are
+// force-copied into the stage XMMs (XMM14=c, XMM15=b) so they are alias-safe
+// against dst (dst = result home reg, or XMM7 when spilled).
+fn emitV128FpFmaX86(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32, is_sub: bool, is_f64: bool) Error!void {
+    if (pushed_vregs.items.len < 3) return Error.AllocationMissing;
+    const c_v = pushed_vregs.pop().?;
+    const b_v = pushed_vregs.pop().?;
+    const a_v = pushed_vregs.pop().?;
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+
+    const FpBinEnc = *const fn (inst.Xmm, inst.Xmm) inst.EncodedInsn;
+    const mul: FpBinEnc = if (is_f64) inst.encMulpd else inst.encMulps;
+    const add: FpBinEnc = if (is_f64) inst.encAddpd else inst.encAddps;
+    const sub: FpBinEnc = if (is_f64) inst.encSubpd else inst.encSubps;
+    const xmm14 = abi.fp_spill_stage_xmms[0];
+    const xmm15 = abi.fp_spill_stage_xmms[1];
+
+    // Force b → XMM15, c → XMM14 (in-reg operands are copied, spilled ones
+    // already land in their stage reg). Both then survive any dst write.
+    const c_home = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, c_v, 0);
+    if (c_home != xmm14) try buf.appendSlice(allocator, inst.encMovapsXmmXmm(xmm14, c_home).slice());
+    const b_home = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, b_v, 1);
+    if (b_home != xmm15) try buf.appendSlice(allocator, inst.encMovapsXmmXmm(xmm15, b_home).slice());
+
+    const result_slot = alloc.slot(result_v, .fpr);
+    const dst: inst.Xmm = switch (result_slot) {
+        .reg => |id| abi.fpSlotToReg(id) orelse return Error.SlotOverflow,
+        .spill => .xmm7,
+    };
+    // Load a into dst (no-op when dst already is a's home reg).
+    switch (alloc.slot(a_v, .fpr)) {
+        .reg => |id| {
+            const a_home = abi.fpSlotToReg(id) orelse return Error.SlotOverflow;
+            if (dst != a_home) try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst, a_home).slice());
+        },
+        .spill => |off| {
+            const abs_off = spill_base_off + off;
+            if (abs_off > 0x7FFF_FFFF) return Error.SlotOverflow;
+            try buf.appendSlice(allocator, inst.encLoadXmmV128MemRBPDisp32(dst, -@as(i32, @intCast(abs_off))).slice());
+        },
+    }
+
+    try buf.appendSlice(allocator, mul(dst, xmm15).slice()); // dst = a*b
+    if (is_sub) {
+        // nmadd: c - a*b → compute in XMM14, copy back.
+        try buf.appendSlice(allocator, sub(xmm14, dst).slice()); // xmm14 = c - a*b
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst, xmm14).slice());
+    } else {
+        try buf.appendSlice(allocator, add(dst, xmm14).slice()); // dst = a*b + c
+    }
+
+    if (result_slot == .spill) {
+        const abs_off = spill_base_off + result_slot.spill;
+        if (abs_off > 0x7FFF_FFFF) return Error.SlotOverflow;
+        try buf.appendSlice(allocator, inst.encStoreXmmV128MemRBPDisp32(-@as(i32, @intCast(abs_off)), .xmm7).slice());
+    }
+    try pushed_vregs.append(allocator, result_v);
+}
+
+pub fn emitF32x4RelaxedMadd(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpFmaX86(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, false, false);
+}
+pub fn emitF32x4RelaxedNmadd(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpFmaX86(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, true, false);
+}
+pub fn emitF64x2RelaxedMadd(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpFmaX86(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, false, true);
+}
+pub fn emitF64x2RelaxedNmadd(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpFmaX86(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, true, true);
+}
+
 /// Wasm spec §4.4.4 (i8x16.shr_s) — pop count (i32), pop vec
 /// (v128), push v128 with each byte signed-shifted right by
 /// `c & 7`. SSE has no native byte arithmetic shift and no
