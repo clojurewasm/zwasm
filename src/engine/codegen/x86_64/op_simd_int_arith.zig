@@ -1093,18 +1093,44 @@ pub fn emitI32x4DotI16x8S(allocator: Allocator, buf: *std.ArrayList(u8), alloc: 
     return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPmaddwd);
 }
 
-/// §17.4 `i16x8.relaxed_dot_i8x16_i7x16_s` — single PMADDUBSW(a, b): a treated
-/// unsigned, b signed (ADR-0169 latitude), products summed in pairs → i16x8
-/// (saturating). arm64 does signed×signed (SMULL chain) — differs only on
-/// a's-high-bit inputs, which the relaxed `(either)` spec permits.
+/// §17.4 `i16x8.relaxed_dot_i8x16_i7x16_s` — single PMADDUBSW with SWAPPED
+/// operands: PMADDUBSW(dst, src) = unsigned_dst × signed_src, but relaxed_dot
+/// needs **signed a** × b. So dst = b (the i7 operand, treated unsigned — that
+/// is the spec's b-latitude, `(either)`-covered) and src = a (signed). Passing
+/// a as the unsigned dst is WRONG for a<0 (caught by the official corpus on
+/// x86: a=0x80 gave +32512 vs signed −32512). arm64 SMULL is signed×signed.
+/// Mirrors emitV128IntBinop but with dst←rhs(b), op-src←lhs(a).
 pub fn emitI16x8RelaxedDot(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
-    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPmaddubsw);
+    if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const b_v = pushed_vregs.pop().?; // rhs (top) = b (i7 operand → unsigned dst)
+    const a_v = pushed_vregs.pop().?; // lhs = a (signed src)
+    const result_v = next_vreg.*;
+    next_vreg.* += 1;
+    if (result_v >= alloc.slots.len) return Error.SlotOverflow;
+    const a_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, a_v, 0);
+    const b_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, b_v, 1);
+    const dst_x = try gpr.xmmDefSpilledV128(alloc, result_v, 1);
+    // dst = b; PMADDUBSW(dst, a). Stash a via XMM7 if dst aliases a (D-066 mirror).
+    var a_for_op = a_x;
+    if (dst_x != b_x and dst_x == a_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(.xmm7, a_x).slice());
+        a_for_op = .xmm7;
+    }
+    if (dst_x != b_x) {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, b_x).slice());
+    }
+    try buf.appendSlice(allocator, inst.encPmaddubsw(dst_x, a_for_op).slice());
+    try gpr.xmmStoreSpilledV128(allocator, buf, alloc, spill_base_off, result_v, 1);
+    try pushed_vregs.append(allocator, result_v);
 }
 
 /// §17.4 `i32x4.relaxed_dot_i8x16_i7x16_add_s` (3-pop a,b,c) — 4-way i8 dot +
-/// accumulate: PMADDUBSW(a,b)→i16x8; PMADDWD(·, ones_i16)→i32x4 pairwise sum;
-/// PADDD(·, c). ones_i16 is materialised const-free via PCMPEQW+PSRLW#15. Same
-/// 3-operand staging as emitV128FpFmaX86 (force b→XMM15, c→XMM14, a→dst).
+/// accumulate: PMADDUBSW→i16x8; PMADDWD(·, ones_i16)→i32x4 pairwise sum;
+/// PADDD(·, c). ones_i16 const-free via PCMPEQW+PSRLW#15. PMADDUBSW(dst,src) =
+/// unsigned_dst × signed_src → dst MUST hold **b** (i7 operand, unsigned per
+/// the spec b-latitude, `(either)`-covered) and src **a** (signed) — passing a
+/// as unsigned dst is wrong for a<0 (official-corpus bug). Staging: force a→XMM15,
+/// c→XMM14, b→dst; PMADDUBSW(dst=b, XMM15=a).
 pub fn emitI32x4RelaxedDotAdd(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
     if (pushed_vregs.items.len < 3) return Error.AllocationMissing;
     const c_v = pushed_vregs.pop().?;
@@ -1117,22 +1143,22 @@ pub fn emitI32x4RelaxedDotAdd(allocator: Allocator, buf: *std.ArrayList(u8), all
     const xmm14 = abi.fp_spill_stage_xmms[0];
     const xmm15 = abi.fp_spill_stage_xmms[1];
 
-    // Force b → XMM15, c → XMM14 (alias-safe vs dst).
+    // Force a → XMM15 (signed src), c → XMM14 (alias-safe vs dst).
     const c_home = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, c_v, 0);
     if (c_home != xmm14) try buf.appendSlice(allocator, inst.encMovapsXmmXmm(xmm14, c_home).slice());
-    const b_home = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, b_v, 1);
-    if (b_home != xmm15) try buf.appendSlice(allocator, inst.encMovapsXmmXmm(xmm15, b_home).slice());
+    const a_home = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, a_v, 1);
+    if (a_home != xmm15) try buf.appendSlice(allocator, inst.encMovapsXmmXmm(xmm15, a_home).slice());
 
     const result_slot = alloc.slot(result_v, .fpr);
     const dst: inst.Xmm = switch (result_slot) {
         .reg => |id| abi.fpSlotToReg(id) orelse return Error.SlotOverflow,
         .spill => .xmm7,
     };
-    // Load a into dst.
-    switch (alloc.slot(a_v, .fpr)) {
+    // Load b into dst (the unsigned PMADDUBSW operand).
+    switch (alloc.slot(b_v, .fpr)) {
         .reg => |id| {
-            const a_home = abi.fpSlotToReg(id) orelse return Error.SlotOverflow;
-            if (dst != a_home) try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst, a_home).slice());
+            const b_home = abi.fpSlotToReg(id) orelse return Error.SlotOverflow;
+            if (dst != b_home) try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst, b_home).slice());
         },
         .spill => |off| {
             const abs_off = spill_base_off + off;
@@ -1141,7 +1167,7 @@ pub fn emitI32x4RelaxedDotAdd(allocator: Allocator, buf: *std.ArrayList(u8), all
         },
     }
 
-    try buf.appendSlice(allocator, inst.encPmaddubsw(dst, xmm15).slice()); // dst = i16x8 dot (b consumed)
+    try buf.appendSlice(allocator, inst.encPmaddubsw(dst, xmm15).slice()); // dst = i16x8 dot (b unsigned × a signed)
     // ones_i16 → XMM15 (reuse, b dead): PCMPEQW gives -1, PSRLW#15 → 1 per lane.
     try buf.appendSlice(allocator, inst.encPcmpeqW(xmm15, xmm15).slice());
     try buf.appendSlice(allocator, inst.encPsrlwImm(xmm15, 15).slice());
