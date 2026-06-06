@@ -1380,13 +1380,13 @@ test "JitInstance.invokeMulti: 2-result (i32 i32) returns both values via entry_
     try testing.expectEqual(@as(u32, 9), results[1].i32);
 }
 
-test "JitInstance.invokeMulti: 1-param 2-result returns (arg, 42) — arm64 param-bearing wrapper thunk" {
-    // arm64-only: the param-bearing multi-value wrapper thunk is emitted by
-    // `emitAarch64` (AAPCS). The x86_64 SysV path still rejects params (NO_THUNK
-    // → invokeMulti skips), so this shape is unsupported there (D-229). Mirrors
-    // the existing per-arch byte tests' gating.
-    // SIBLING-AT: src/engine/codegen/shared/wrapper_thunk.zig (x86_64 SysV param-bearing thunk: D-229)
-    if (comptime builtin.cpu.arch != .aarch64) return;
+test "JitInstance.invokeMulti: 1-param 2-result returns (arg, 42) — param-bearing wrapper thunk (arm64 + x86_64 SysV, D-229)" {
+    // arm64 (AAPCS, emitAarch64) AND x86_64 SysV (D-229 RESOLVED) both emit the
+    // param-bearing 1-param 2-GPR-result wrapper thunk: param0 marshaled from the
+    // args buffer into the body's param slot (arm64 X1 via LDR; SysV RSI via
+    // MOV RSI,[RDX]); results in (RAX/RDX | X0/X1). Win64 RUN stays phase-end-
+    // gated (emitX8664Win64 supports params, but the e2e RUN is verified on
+    // Mac arm64 + ubuntu SysV here).
     if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
     // (module (func (export "swap") (param i32) (result i32 i32)
     //   (local.get 0) (i32.const 42)))

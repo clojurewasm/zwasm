@@ -170,7 +170,22 @@ pub fn emit(
     if (builtin.os.tag == .windows) {
         return emitX8664Win64(allocator, params);
     }
-    if (params.sig.params.len != 0) return Error.UnsupportedOp;
+    return emitX8664SysV(allocator, params);
+}
+
+/// x86_64 SysV wrapper emit. Public so byte-sequence unit tests exercise
+/// it on Mac/Linux hosts (the bytes are host-independent; runtime execution
+/// requires a SysV x86_64 host) — parity with the public `emitX8664Win64`.
+/// D-229: supports the 1-param 2-GPR-result shape (arm64/Win64 parity) —
+/// param0 is marshaled from args[0] (RDX) → the body's SysV slot (RSI).
+pub fn emitX8664SysV(
+    allocator: std.mem.Allocator,
+    params: EmitParams,
+) Error!EmitOutput {
+    // D-229: SysV supports 0 or 1 param (matches arm64's 1-param thunk);
+    // param0 is marshaled from args[0] (RDX) → the body's SysV param slot (RSI).
+    if (params.sig.params.len > 1) return Error.UnsupportedOp;
+    const has_param = params.sig.params.len == 1;
 
     var bytes: std.ArrayList(u8) = .empty;
     errdefer bytes.deinit(allocator);
@@ -181,6 +196,8 @@ pub fn emit(
     if (n_results == 3 and all_gpr_class(params.sig.results)) {
         // 3-int MEMORY-class: body expects RDI=&buf, RSI=rt.
         // Wrapper: XCHG RDI, RSI ; CALL body ; XOR EAX, EAX ; RET.
+        // 3-int MEMORY + a param is out of scope (matches arm64).
+        if (has_param) return Error.UnsupportedOp;
         try bytes.appendSlice(allocator, &.{ 0x48, 0x87, 0xFE });
         try emitCallRel32(allocator, &bytes, params, 3);
         try bytes.appendSlice(allocator, &.{ 0x31, 0xC0, 0xC3 });
@@ -212,7 +229,14 @@ pub fn emit(
         // 16) ✓ per SysV.
         try bytes.appendSlice(allocator, &.{ 0x48, 0x83, 0xEC, 0x08 }); // SUB RSP, 8
         try bytes.appendSlice(allocator, &.{ 0x48, 0x89, 0x34, 0x24 }); // MOV [RSP], RSI
-        try emitCallRel32(allocator, &bytes, params, 4 + 4);
+        var pre_len: u32 = 4 + 4;
+        if (has_param) {
+            // D-229: param0 = args[0] (RDX) → body's SysV param slot (RSI).
+            // RDI=rt passes through untouched; body sees RDI=rt, RSI=param0.
+            try bytes.appendSlice(allocator, &.{ 0x48, 0x8B, 0x32 }); // MOV RSI, [RDX]
+            pre_len += 3;
+        }
+        try emitCallRel32(allocator, &bytes, params, pre_len);
         try bytes.appendSlice(allocator, &.{ 0x48, 0x8B, 0x34, 0x24 }); // MOV RSI, [RSP]
         try bytes.appendSlice(allocator, &.{ 0x48, 0x83, 0xC4, 0x08 }); // ADD RSP, 8
         try bytes.appendSlice(allocator, &.{ 0x48, 0x89, 0x06 }); // MOV [RSI], RAX
@@ -724,6 +748,36 @@ test "wrapper_thunk: emitX8664Win64 1-arg 2-int register-class (i32) -> (i32, i3
     try testing.expectEqualSlices(u8, &.{ 0x48, 0x83, 0xC4, 0x28 }, out.bytes[29..33]);
     // XOR EAX, EAX ; RET
     try testing.expectEqualSlices(u8, &.{ 0x31, 0xC0, 0xC3 }, out.bytes[33..36]);
+}
+
+test "wrapper_thunk: emitX8664SysV 1-param 2-int register-class (i32) -> (i32, i32) (34 bytes, D-229)" {
+    // D-229 — x86_64 SysV param-bearing wrapper thunk. Host-independent byte
+    // test (emitX8664SysV is public, like emitX8664Win64). Body convention:
+    // RDI=rt, RSI=param0; body writes RAX=result0, RDX=result1. Wrapper saves
+    // results-ptr (RSI) to stack, marshals param0 = args[0] ([RDX]) into RSI,
+    // CALLs body, restores RSI, writes RAX/RDX out.
+    const ValType = @import("../../../ir/zir.zig").ValType;
+    const params_arr = [_]ValType{.i32};
+    const results = [_]ValType{ .i32, .i32 };
+    const params: EmitParams = .{
+        .sig = .{ .params = &params_arr, .results = &results },
+        .body_offset = 200,
+        .thunk_offset = 0,
+    };
+    const out = try emitX8664SysV(testing.allocator, params);
+    defer testing.allocator.free(out.bytes);
+    try testing.expectEqual(@as(usize, 34), out.bytes.len);
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x83, 0xEC, 0x08 }, out.bytes[0..4]); // SUB RSP, 8
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x89, 0x34, 0x24 }, out.bytes[4..8]); // MOV [RSP], RSI
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x8B, 0x32 }, out.bytes[8..11]); // MOV RSI, [RDX] (param0)
+    try testing.expectEqual(@as(u8, 0xE8), out.bytes[11]); // CALL rel32
+    const disp = std.mem.readInt(i32, out.bytes[12..16], .little);
+    try testing.expectEqual(@as(i32, 184), disp); // body(200) - (0 + 11 + 5)
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x8B, 0x34, 0x24 }, out.bytes[16..20]); // MOV RSI, [RSP]
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x83, 0xC4, 0x08 }, out.bytes[20..24]); // ADD RSP, 8
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x89, 0x06 }, out.bytes[24..27]); // MOV [RSI], RAX
+    try testing.expectEqualSlices(u8, &.{ 0x48, 0x89, 0x56, 0x08 }, out.bytes[27..31]); // MOV [RSI+8], RDX
+    try testing.expectEqualSlices(u8, &.{ 0x31, 0xC0, 0xC3 }, out.bytes[31..34]); // XOR EAX,EAX ; RET
 }
 
 test "wrapper_thunk: emitX8664Win64 3-arg 2-int register-class (i64, i64, i32) -> (i64, i32) (44 bytes)" {
