@@ -435,15 +435,6 @@ entries:
     last_reviewed: "2026-06-03"
     refs: |-
       `scripts/check_build_dce.sh` (host-native build); `scripts/gate_merge.sh` (Mac-only --gate); `scripts/run_remote_ubuntu.sh`; `src/engine/codegen/x86_64/emit.zig` (collector-routed, DCE-clean); ADR-0130; D-230
-  - id: "D-213"
-    layer: "docs"
-    status: "note"
-    description: |-
-      now (low-harm doc-rot; PRE-EXISTING from ADR-0118 D3, NOT from the 2026-05-31 stub refactor): ~127 citations across `.dev/` (ROADMAP ~13, optimisation_log ~9, archived phase plans, ADRs) point to rule files that ADR-0118 D3 CONSOLIDATED + removed. Name map: `architectural_spike.md`+`spike_lifecycle.md`→`spike_discipline.md`; `edge_case_testing.md`+`bug_fix_survey.md`→`test_discipline.md` (bug_fix_survey partly→`investigation_discipline.md`); `no_fallback_on_failure.md`→`no_workaround.md`; `hypothesis_enumeration.md`+`heisenbug_discharge.md`→`investigation_discipline.md`; `handover_framing.md`+`no_handover_predictions.md`→`handover_doc_discipline.md`. Current rules' `description:` frontmatter documents the absorption (readers can find the new home). NOT context-affecting (citations aren't auto-loaded). The 2026-05-31 stub refactor kept all CURRENT rule filenames stable → introduced ZERO new broken citations. | Discharge: batch-update ACTIVE docs (ROADMAP, CLAUDE.md) via the name map; leave archived phase-plans/ADRs as historical snapshots.
-    first_raised: "2026-05-31"
-    last_reviewed: "2026-06-03"
-    refs: |-
-      ADR-0118 D3; `.claude/references/context_budget.md`; stub-refactor commits `5353b84e`/phase-2
   - id: "D-026"
     layer: "code"
     status: "blocked-by"
@@ -555,7 +546,14 @@ entries:
     layer: "code"
     status: "note"
     description: |-
-      now (ADR-0128 §4 — STALE blocker dissolved): `ZirInstr.payload` is already **u64** (10.Z), so the "payload u32" framing below is obsolete. **Realworld memory64 memarg-offset gap — common case FIXED cyc214**: clang `--target=wasm64` / lld emit the memarg `offset` as a width-padded (9-byte) LEB128, valid for a u64 (memory64) offset (≤ 10 bytes) but the validator (`skipMemarg`/`readMemargCheckAlign`) + lowerer (`emitMemarg`/`emitMemargLane`) decoded it at u32 width → `Error.Overlong`. The spec corpus only emits minimal-LEB offsets so this was invisible until the `clang_wasm64/wasm64_load_store` realworld fixture ran. Fix: validator decodes the offset at u64 width for memory64 (`skipMemargOffset`, keyed on `memory0_idx_type`); lowerer decodes at u64 then range-checks ≤ u32 for the payload slot (`readMemargOffset`). **Residual (the blocked-by)**: a genuine memory64 offset > 4 GiB (> u32 max) is rejected with `Error.BadMemarg` because `payload` is u32 — spec-valid but unsupported. Real code never uses > 4 GiB *static* offsets (large memory ≠ large offset), and the spec corpus doesn't exercise it, so deferred. Discharge (ADR-0128 §4 — web-verified): the official memory64 corpus's max EXECUTED offset is `2^32−1` (`address64.wast offset=4294967295`); offsets ≥ 2^32 appear only in assert_malformed/assert_invalid (validator path, never reach the lowerer), so spec-100% does NOT need the lowerer to accept `> 4 GiB`. The only residual is a leftover `> maxInt(u32)` reject in `readMemargOffset` (`lower.zig:864-867`) + `lower_simd.zig:372` — return u64 + drop the reject + ensure 64-bit `base+offset` math with wrap-trap + add an edge-case fixture for offset `> 2^32−1`. NO ZirInstr layout change / side-table (that plan is obsolete). | **STALE blocker (payload now u64); minimal fix = lift the leftover u32 check; spec corpus max offset = 2^32−1 so this never blocked spec-100%.**
+      note — DEFERRED low-ROI (reassessed 2026-06-06 §0.5 sweep; prior "now" prose was stale, status always note):
+      spec-100% is ALREADY met — `readMemargOffset` (lower.zig:913) decodes at u64 then rejects `> maxInt(u32)`
+      with `BadMemarg`, which is spec-CONFORMANT because the official memory64 corpus carries offsets `≥ 2^32`
+      ONLY in assert_malformed/assert_invalid (validator-rejected, never executed; see discharge analysis below).
+      Lifting the reject only accepts an exotic spec-GRAMMAR `> 4 GiB` *static* offset no real code + no
+      conformance test uses, and would need multi-arch 64-bit base+offset codegen for zero measured benefit. The
+      "blocker dissolved (payload now u64)" makes it POSSIBLE, not worthwhile — keep deferred until a real
+      consumer needs it. `ZirInstr.payload` is already **u64** (10.Z), so the "payload u32" framing below is obsolete. **Realworld memory64 memarg-offset gap — common case FIXED cyc214**: clang `--target=wasm64` / lld emit the memarg `offset` as a width-padded (9-byte) LEB128, valid for a u64 (memory64) offset (≤ 10 bytes) but the validator (`skipMemarg`/`readMemargCheckAlign`) + lowerer (`emitMemarg`/`emitMemargLane`) decoded it at u32 width → `Error.Overlong`. The spec corpus only emits minimal-LEB offsets so this was invisible until the `clang_wasm64/wasm64_load_store` realworld fixture ran. Fix: validator decodes the offset at u64 width for memory64 (`skipMemargOffset`, keyed on `memory0_idx_type`); lowerer decodes at u64 then range-checks ≤ u32 for the payload slot (`readMemargOffset`). **Residual (the blocked-by)**: a genuine memory64 offset > 4 GiB (> u32 max) is rejected with `Error.BadMemarg` because `payload` is u32 — spec-valid but unsupported. Real code never uses > 4 GiB *static* offsets (large memory ≠ large offset), and the spec corpus doesn't exercise it, so deferred. Discharge (ADR-0128 §4 — web-verified): the official memory64 corpus's max EXECUTED offset is `2^32−1` (`address64.wast offset=4294967295`); offsets ≥ 2^32 appear only in assert_malformed/assert_invalid (validator path, never reach the lowerer), so spec-100% does NOT need the lowerer to accept `> 4 GiB`. The only residual is a leftover `> maxInt(u32)` reject in `readMemargOffset` (`lower.zig:864-867`) + `lower_simd.zig:372` — return u64 + drop the reject + ensure 64-bit `base+offset` math with wrap-trap + add an edge-case fixture for offset `> 2^32−1`. NO ZirInstr layout change / side-table (that plan is obsolete). | **STALE blocker (payload now u64); minimal fix = lift the leftover u32 check; spec corpus max offset = 2^32−1 so this never blocked spec-100%.**
     first_raised: "2026-05-30"
     last_reviewed: "2026-06-03"
     refs: |-
