@@ -37,11 +37,13 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
   validator (`dispatchPrefixFE`) + lower (`emitPrefixFE`); interp shares `nopOp`; arm64+x86_64 emit transparent
   0→0 no-op; liveness stackEffect 0→0; `test/edge_cases/p17/atomics/fence` green (=42); build.zig wires p17 edge
   dir; emit_test_local unsupported-probe retargeted fence→rmw.cmpxchg.
-- **NEXT (current chunk)**: `i32.atomic.load` (0xFE 0x10, memarg align==2). FIRST memory atomic — needs: (a)
-  shared-mem gate open in `parse/sections.zig:903` + `MemoryInstance.is_shared`; (b) EXACT natural-alignment
-  check (align==size, stricter than `readMemargCheckAlign`'s ≤); (c) validator pop addr→push i32 + lower memarg
-  payload + interp/JIT seq-cst aligned load. THEN store → rmw add/sub/and/or/xor/xchg → cmpxchg → i64 variants →
-  notify/wait (established per-op chunk pattern, bundle several/turn).
+- **NEXT (current chunk)**: `i32.atomic.load` (0xFE 0x10, natural align=2). FIRST memory atomic. **裏取り
+  (wasm-tools `check_shared_memarg`): atomics do NOT need shared memory** — only `align == max_align` (EXACT
+  static align) + a memory present. So load/store/rmw need NO shared-mem gate (defer to wait/notify + spec shared
+  fixture). TWO alignment concepts: (1) STATIC immediate align==natural → `InvalidAlignment` at validate (add
+  `readMemargCheckAlignExact`, mirror `opLoad`@validator:2816 but `==` not `≤`); (2) RUNTIME effective-addr must
+  be naturally aligned else **trap** (new per-arch emit AND+test+cond-trap before the load + interp align-check).
+  Pop addr→push i32; lower memarg like `emitMemarg`@lower:906. THEN store → rmw set → cmpxchg → i64 → notify/wait.
 - **Exit-condition**: a `test/edge_cases/p17/atomics/*` (or spec atomics manifest) green 3-host with the full
   load/store/rmw/cmpxchg set + fence; wait/notify minimal-single-thread; shared-mem parse+validate.
 - **Cycles-remaining**: ~many (large feature). No tag (ADR-0156).
