@@ -408,6 +408,34 @@ pub const Linker = struct {
         });
     }
 
+    /// Register EVERY export of an already-instantiated `source_inst`
+    /// under the namespace `module`, in one call (wasmtime's
+    /// `Linker::define_instance`). Each export is aliased — funcs via
+    /// the cross-module dispatch thunk, globals/memories/tables via the
+    /// shared `*Value` / `*MemoryInstance` / `TableInstance` (D-199 /
+    /// D-201b) — so the importer sees the source's live state, including
+    /// later mutation/growth. A sugar wrapper over the point-wise
+    /// `defineCrossModuleFunc` / `defineGlobal` / `defineMemoryInstance`
+    /// / `defineTable`; `source_inst` must outlive every Instance
+    /// instantiated through this Linker.
+    pub fn defineInstance(self: *Linker, module: []const u8, source_inst: *_zwasm.Instance) !void {
+        const source_rt = source_inst.handle.runtime orelse return error.SignatureMismatch;
+        for (source_inst.handle.exports_storage) |exp| {
+            switch (exp.kind) {
+                .func => try self.defineCrossModuleFunc(module, exp.name, source_inst, exp.name),
+                .global => try self.defineGlobal(module, exp.name, source_inst, exp.name),
+                .memory => {
+                    if (exp.idx >= source_rt.memories.len) return error.UnknownImport;
+                    try self.defineMemoryInstance(module, exp.name, source_rt.memories[exp.idx]);
+                },
+                .table => {
+                    if (exp.idx >= source_rt.tables.len) return error.UnknownImport;
+                    try self.defineTable(module, exp.name, source_rt.tables[exp.idx]);
+                },
+            }
+        }
+    }
+
     /// Instantiate `mod` against the registered imports, returning
     /// a native `Instance`. Per ADR-0109 §3.2 the signature
     /// type-check happens here against each `(import ...)`
@@ -634,4 +662,40 @@ fn sigEqual(a: []const _zir.ValType, b: []const _zir.ValType) bool {
     if (a.len != b.len) return false;
     for (a, b) |x, y| if (!x.eql(y)) return false;
     return true;
+}
+
+const testing = std.testing;
+
+test "Linker.defineInstance: registers every export (func/table/memory/global) under one namespace" {
+    // Module A exports a func, a table, a memory, and a global.
+    const a_bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // magic + version
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, // type: ()->(i32)
+        0x03, 0x02, 0x01, 0x00, // func: 1× type 0
+        0x04, 0x04, 0x01, 0x70, 0x00, 0x01, // table: funcref, min 1
+        0x05, 0x03, 0x01, 0x00, 0x01, // memory: min 1
+        0x06, 0x06, 0x01, 0x7f, 0x00, 0x41, 0x00, 0x0b, // global: i32, init i32.const 0
+        // export: "f"=func0, "mem"=memory0, "g"=global0, "t"=table0
+        0x07, 0x13, 0x04, 0x01, 'f',  0x00, 0x00, 0x03,
+        'm',  'e',  'm',  0x02, 0x00, 0x01, 'g',  0x03,
+        0x00, 0x01, 't',  0x01, 0x00,
+        0x0a, 0x06, 0x01, 0x04, 0x00, 0x41, 0x2a, 0x0b, // code: func returns i32.const 42
+    };
+    var eng = try _zwasm.Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var mod_a = try eng.compile(&a_bytes);
+    defer mod_a.deinit();
+    var inst_a = try mod_a.instantiate(.{});
+    defer inst_a.deinit();
+
+    var lk = eng.linker();
+    defer lk.deinit();
+    try lk.defineInstance("a", &inst_a);
+
+    // One linker entry per export, all under module "a".
+    try testing.expectEqual(@as(usize, 4), lk.entries.items.len);
+    try testing.expect(lk.findEntry("a", "f") != null);
+    try testing.expect(lk.findEntry("a", "mem") != null);
+    try testing.expect(lk.findEntry("a", "g") != null);
+    try testing.expect(lk.findEntry("a", "t") != null);
 }
