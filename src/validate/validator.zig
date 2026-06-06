@@ -1587,6 +1587,13 @@ pub const Validator = struct {
             0x14 => try self.opAtomicLoad(.i64, 0), // i64.atomic.load8_u
             0x15 => try self.opAtomicLoad(.i64, 1), // i64.atomic.load16_u
             0x16 => try self.opAtomicLoad(.i64, 2), // i64.atomic.load32_u
+            0x17 => try self.opAtomicStore(.i32, 2), // i32.atomic.store
+            0x18 => try self.opAtomicStore(.i64, 3), // i64.atomic.store
+            0x19 => try self.opAtomicStore(.i32, 0), // i32.atomic.store8
+            0x1A => try self.opAtomicStore(.i32, 1), // i32.atomic.store16
+            0x1B => try self.opAtomicStore(.i64, 0), // i64.atomic.store8
+            0x1C => try self.opAtomicStore(.i64, 1), // i64.atomic.store16
+            0x1D => try self.opAtomicStore(.i64, 2), // i64.atomic.store32
             else => return Error.NotImplemented,
         }
     }
@@ -2852,6 +2859,15 @@ pub const Validator = struct {
         try self.readMemargCheckAlignExact(natural_align_log2);
         try self.popExpect(self.memAddrType()); // address (i32 or i64)
         try self.pushType(t);
+    }
+
+    /// Wasm threads §valid — `tNN.atomic.store*`: EXACT natural alignment +
+    /// a memory present; pop value (type t) then addr. No result (ADR-0168).
+    fn opAtomicStore(self: *Validator, t: ValType, natural_align_log2: u32) Error!void {
+        if (self.memory_count == 0) return Error.UnknownMemory;
+        try self.readMemargCheckAlignExact(natural_align_log2);
+        try self.popExpect(t); // value
+        try self.popExpect(self.memAddrType()); // address (i32 or i64)
     }
 
     fn opStore(self: *Validator, t: ValType, max_align_log2: u32) Error!void {

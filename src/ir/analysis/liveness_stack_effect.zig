@@ -290,6 +290,13 @@ pub fn stackEffect(op: ZirOp) ?StackEffect {
         .@"i64.store32",
         .@"f32.store",
         .@"f64.store",
+        .@"i32.atomic.store", // threads (ADR-0168) — same 2→0 shape as the plain stores
+        .@"i64.atomic.store",
+        .@"i32.atomic.store8",
+        .@"i32.atomic.store16",
+        .@"i64.atomic.store8",
+        .@"i64.atomic.store16",
+        .@"i64.atomic.store32",
         => .{ .pops = 2, .pushes = 0 },
         // memory.size (0 → 1) / memory.grow (1 → 1)
         .@"memory.size" => .{ .pops = 0, .pushes = 1 },

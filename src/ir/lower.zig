@@ -890,6 +890,13 @@ pub const Lowerer = struct {
             0x14 => try self.emitMemarg(.@"i64.atomic.load8_u"),
             0x15 => try self.emitMemarg(.@"i64.atomic.load16_u"),
             0x16 => try self.emitMemarg(.@"i64.atomic.load32_u"),
+            0x17 => try self.emitMemarg(.@"i32.atomic.store"),
+            0x18 => try self.emitMemarg(.@"i64.atomic.store"),
+            0x19 => try self.emitMemarg(.@"i32.atomic.store8"),
+            0x1A => try self.emitMemarg(.@"i32.atomic.store16"),
+            0x1B => try self.emitMemarg(.@"i64.atomic.store8"),
+            0x1C => try self.emitMemarg(.@"i64.atomic.store16"),
+            0x1D => try self.emitMemarg(.@"i64.atomic.store32"),
             else => return Error.NotImplemented,
         }
     }

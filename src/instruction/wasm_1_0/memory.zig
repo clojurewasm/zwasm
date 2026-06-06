@@ -58,6 +58,13 @@ pub fn register(table: *DispatchTable) void {
     table.interp[op(.@"i64.atomic.load8_u")] = i64AtomicLoad8U;
     table.interp[op(.@"i64.atomic.load16_u")] = i64AtomicLoad16U;
     table.interp[op(.@"i64.atomic.load32_u")] = i64AtomicLoad32U;
+    table.interp[op(.@"i32.atomic.store")] = i32AtomicStore;
+    table.interp[op(.@"i64.atomic.store")] = i64AtomicStore;
+    table.interp[op(.@"i32.atomic.store8")] = i32AtomicStore8;
+    table.interp[op(.@"i32.atomic.store16")] = i32AtomicStore16;
+    table.interp[op(.@"i64.atomic.store8")] = i64AtomicStore8;
+    table.interp[op(.@"i64.atomic.store16")] = i64AtomicStore16;
+    table.interp[op(.@"i64.atomic.store32")] = i64AtomicStore32;
     table.interp[op(.@"i64.load")] = i64Load;
     table.interp[op(.@"f32.load")] = f32Load;
     table.interp[op(.@"f64.load")] = f64Load;
@@ -353,6 +360,59 @@ fn i64Store32(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     std.mem.writeInt(u32, mem[ea..][0..4], v, .little);
 }
 
+/// Wasm threads §exec — atomic store effective-address + traps (ADR-0168):
+/// alignment trap (`ea mod width ≠ 0`) BEFORE the bounds test (spec step
+/// 8 < 14a). 1-byte stores are always aligned. Single-threaded substrate
+/// → a plain little-endian store after the checks.
+fn atomicStoreEa(mem: []u8, popped_addr: u32, offset: u64, width: usize) Trap!usize {
+    const ea: u64 = @as(u64, popped_addr) + offset;
+    if (ea & (width - 1) != 0) return Trap.UnalignedAtomic;
+    if (ea + width > mem.len) return Trap.OutOfBoundsStore;
+    return @intCast(ea);
+}
+fn i32AtomicStore(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const v = rt.popOperand().u32;
+    const ea = try atomicStoreEa(memorySlice(rt, instr.extra), rt.popOperand().u32, instr.payload, 4);
+    std.mem.writeInt(u32, memorySlice(rt, instr.extra)[ea..][0..4], v, .little);
+}
+fn i64AtomicStore(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const v = rt.popOperand().u64;
+    const ea = try atomicStoreEa(memorySlice(rt, instr.extra), rt.popOperand().u32, instr.payload, 8);
+    std.mem.writeInt(u64, memorySlice(rt, instr.extra)[ea..][0..8], v, .little);
+}
+fn i32AtomicStore8(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const v: u8 = @truncate(rt.popOperand().u32);
+    const ea = try atomicStoreEa(memorySlice(rt, instr.extra), rt.popOperand().u32, instr.payload, 1);
+    memorySlice(rt, instr.extra)[ea] = v;
+}
+fn i32AtomicStore16(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const v: u16 = @truncate(rt.popOperand().u32);
+    const ea = try atomicStoreEa(memorySlice(rt, instr.extra), rt.popOperand().u32, instr.payload, 2);
+    std.mem.writeInt(u16, memorySlice(rt, instr.extra)[ea..][0..2], v, .little);
+}
+fn i64AtomicStore8(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const v: u8 = @truncate(rt.popOperand().u64);
+    const ea = try atomicStoreEa(memorySlice(rt, instr.extra), rt.popOperand().u32, instr.payload, 1);
+    memorySlice(rt, instr.extra)[ea] = v;
+}
+fn i64AtomicStore16(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const v: u16 = @truncate(rt.popOperand().u64);
+    const ea = try atomicStoreEa(memorySlice(rt, instr.extra), rt.popOperand().u32, instr.payload, 2);
+    std.mem.writeInt(u16, memorySlice(rt, instr.extra)[ea..][0..2], v, .little);
+}
+fn i64AtomicStore32(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const v: u32 = @truncate(rt.popOperand().u64);
+    const ea = try atomicStoreEa(memorySlice(rt, instr.extra), rt.popOperand().u32, instr.payload, 4);
+    std.mem.writeInt(u32, memorySlice(rt, instr.extra)[ea..][0..4], v, .little);
+}
+
 // --- memory.size / memory.grow ---
 
 /// True when the memory at `memidx` is declared with `(memory i64 …)`
@@ -522,6 +582,34 @@ test "narrow atomic loads zero-extend + trap unaligned" {
     // i32.atomic.load16_u @1 (odd) → UnalignedAtomic.
     try rt.pushOperand(.{ .u32 = 1 });
     try testing.expectError(Trap.UnalignedAtomic, driveOne(&rt, &t, .@"i32.atomic.load16_u", 0, 0));
+}
+
+test "atomic stores write + trap unaligned" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    rt.memory = try testing.allocator.alloc(u8, 64);
+    @memset(rt.memory, 0);
+
+    // i32.atomic.store @8 = 0xCAFEBABE, read back via i32.atomic.load.
+    try rt.pushOperand(.{ .u32 = 8 });
+    try rt.pushOperand(.{ .u32 = 0xCAFEBABE });
+    try driveOne(&rt, &t, .@"i32.atomic.store", 0, 0);
+    try rt.pushOperand(.{ .u32 = 8 });
+    try driveOne(&rt, &t, .@"i32.atomic.load", 0, 0);
+    try testing.expectEqual(@as(u32, 0xCAFEBABE), rt.popOperand().u32);
+
+    // i64.atomic.store8 @3 = 0xFF (byte, always aligned).
+    try rt.pushOperand(.{ .u32 = 3 });
+    try rt.pushOperand(.{ .u64 = 0x1FF });
+    try driveOne(&rt, &t, .@"i64.atomic.store8", 0, 0);
+    try testing.expectEqual(@as(u8, 0xFF), rt.memory[3]);
+
+    // i32.atomic.store16 @1 (odd) → UnalignedAtomic (operands popped first).
+    try rt.pushOperand(.{ .u32 = 1 });
+    try rt.pushOperand(.{ .u32 = 0 });
+    try testing.expectError(Trap.UnalignedAtomic, driveOne(&rt, &t, .@"i32.atomic.store16", 0, 0));
 }
 
 test "i32.load8_s sign-extends" {
