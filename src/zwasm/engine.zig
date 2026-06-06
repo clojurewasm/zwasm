@@ -88,4 +88,22 @@ pub const Engine = struct {
             .native = native,
         };
     }
+
+    /// Convenience factory for a `Linker` bound to this engine —
+    /// `eng.linker()` reads cleaner than `Linker.init(&eng)` and matches
+    /// the embedding examples in `docs/zig_api_design.md`. The caller owns
+    /// the returned `Linker` (call `.deinit()`).
+    pub fn linker(self: *Engine) @import("linker.zig").Linker {
+        return @import("linker.zig").Linker.init(self);
+    }
 };
+
+const testing = std.testing;
+
+test "Engine.linker(): factory binds a Linker to this engine" {
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var lk = eng.linker();
+    defer lk.deinit();
+    try testing.expectEqual(&eng, lk.engine);
+}
