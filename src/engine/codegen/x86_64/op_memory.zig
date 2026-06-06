@@ -1068,3 +1068,66 @@ pub fn emitAtomicCmpxchg(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!
     try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_v, 0);
     try ctx.pushed_vregs.append(ctx.allocator, result_v);
 }
+
+/// Capture EAX (i32 callout result) → `result` vreg (zero-extended).
+fn captureEaxI32(ctx: *ctx_mod.EmitCtx) Error!void {
+    const result_v = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    if (result_v >= ctx.alloc.slots.len) return Error.SlotOverflow;
+    const dst_r = try gpr.gprDefSpilled(ctx.alloc, result_v, 0);
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.d, dst_r, abi.return_gpr).slice());
+    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_v, 0);
+    try ctx.pushed_vregs.append(ctx.allocator, result_v);
+}
+
+/// `ea = addr (32-bit MOV zero-extends) + ins.payload` → `arg1`. R11
+/// (caller-saved, non-arg) stages a >0 offset.
+fn eaIntoArg1(ctx: *ctx_mod.EmitCtx, addr_v: u32, stage: u2, arg1: inst.Gpr, offset_imm: u64) Error!void {
+    const addr_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, addr_v, stage);
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.d, arg1, addr_src).slice());
+    if (offset_imm != 0) {
+        try ctx.buf.appendSlice(ctx.allocator, inst.encMovImm64Q(.r11, @as(u64, offset_imm)).slice());
+        try ctx.buf.appendSlice(ctx.allocator, inst.encAddRR(.q, arg1, .r11).slice());
+    }
+}
+
+/// Wasm threads (ADR-0168) `memory.atomic.notify` — callout through
+/// `JitRuntime.atomic_notify_fn`. arg0 = rt, arg1 = ea (count popped +
+/// dropped). Returns 0 in EAX; helper sets trap_flag on unaligned/oob.
+pub fn emitAtomicNotify(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    if (ctx.pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    _ = ctx.pushed_vregs.pop().?; // count (unused)
+    const addr_v = ctx.pushed_vregs.pop().?;
+    const arg1 = abi.current.arg_gprs[1];
+    try eaIntoArg1(ctx, addr_v, 0, arg1, ins.payload);
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.q, abi.current.entry_arg0_gpr, abi.runtime_ptr_save_gpr).slice());
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.atomic_notify_fn_off).slice());
+    try op_call.emitShadowAlloc(ctx.allocator, ctx.buf, ctx.outgoing_max_bytes);
+    try ctx.buf.appendSlice(ctx.allocator, inst.encCallReg(.rax).slice());
+    try op_call.emitShadowFree(ctx.allocator, ctx.buf, ctx.outgoing_max_bytes);
+    try captureEaxI32(ctx);
+}
+
+/// Wasm threads (ADR-0168) `memory.atomic.wait{32,64}` — callout through
+/// `JitRuntime.atomic_wait_fns[idx]`. arg0 = rt, arg1 = ea, arg2 =
+/// expected (timeout popped + dropped). Returns status in EAX; helper
+/// sets trap_flag on unaligned/oob/non-shared.
+pub fn emitAtomicWait(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    if (ctx.pushed_vregs.items.len < 3) return Error.AllocationMissing;
+    _ = ctx.pushed_vregs.pop().?; // timeout (unused)
+    const exp_v = ctx.pushed_vregs.pop().?;
+    const addr_v = ctx.pushed_vregs.pop().?;
+    const arg1 = abi.current.arg_gprs[1];
+    const arg2 = abi.current.arg_gprs[2];
+    // arg2 = expected (full 64-bit; helper truncates). Stage 0.
+    const r_exp = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, exp_v, 0);
+    if (r_exp != arg2) try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.q, arg2, r_exp).slice());
+    try eaIntoArg1(ctx, addr_v, 1, arg1, ins.payload);
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.q, abi.current.entry_arg0_gpr, abi.runtime_ptr_save_gpr).slice());
+    const fn_off: i32 = @intCast(jit_abi.atomic_wait_fns_off + jit_abi.waitIdxOf(ins.op) * 8);
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, fn_off).slice());
+    try op_call.emitShadowAlloc(ctx.allocator, ctx.buf, ctx.outgoing_max_bytes);
+    try ctx.buf.appendSlice(ctx.allocator, inst.encCallReg(.rax).slice());
+    try op_call.emitShadowFree(ctx.allocator, ctx.buf, ctx.outgoing_max_bytes);
+    try captureEaxI32(ctx);
+}

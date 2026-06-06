@@ -246,6 +246,9 @@ pub fn setupRuntimeLinked(
     // D-215 — memory.grow upper bound (pages). Declared max if present,
     // else the spec address-space limit per idx_type. 0 = no memory section.
     var mem_max_pages: u64 = 0;
+    // ADR-0168 — memory0 shared flag, surfaced to the JIT rt so the
+    // `memory.atomic.wait*` callout can trap on a non-shared memory.
+    var mem_shared: bool = false;
 
     var temp_arena = std.heap.ArenaAllocator.init(allocator);
     defer temp_arena.deinit();
@@ -400,6 +403,7 @@ pub fn setupRuntimeLinked(
                 (@as(u64, 1) << 48)
             else
                 65536;
+            mem_shared = mem0.shared;
         }
     }
 
@@ -976,6 +980,7 @@ pub fn setupRuntimeLinked(
         .rt = .{
             .vm_base = if (memory.len > 0) memory.ptr else @ptrFromInt(@as(usize, 0x1000)),
             .mem_limit = memory.len,
+            .mem0_shared = if (mem_shared) 1 else 0,
             .host_state = mem_ctx,
             .memory_grow_fn = jitMemoryGrow,
             .funcptr_base = funcptrs_buf.ptr,

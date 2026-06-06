@@ -1031,3 +1031,86 @@ pub fn emitAtomicCmpxchg(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     }
     try ctx.pushed_vregs.append(ctx.allocator, result);
 }
+
+/// Capture W0 (i32 callout result) into `result` vreg (zero-extended).
+/// Shared by emitAtomicNotify / emitAtomicWait.
+fn captureW0I32(ctx: *EmitCtx) Error!void {
+    const result = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    if (result >= ctx.alloc.slots.len) return Error.SlotOverflow;
+    switch (ctx.alloc.slot(result, .gpr)) {
+        .reg => |id| {
+            const wd = abi.slotToReg(id) orelse return Error.SlotOverflow;
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(wd, 31, 0));
+        },
+        .spill => |off| {
+            const abs_off: u32 = ctx.spill_base_off + off;
+            if (abs_off > 16380) return Error.SlotOverflow;
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImmW(0, 31, @intCast(abs_off)));
+        },
+    }
+    try ctx.pushed_vregs.append(ctx.allocator, result);
+}
+
+/// Compute `ea = addr (zero-ext u32) + ins.payload` into ip0 from the
+/// addr vreg (loaded at `stage`). Shared ea-materialise for the
+/// notify/wait callouts (mirror emitAtomicRmw's inline block).
+fn eaIntoIp0(ctx: *EmitCtx, addr_v: u32, stage: u2, offset_imm: u64) Error!void {
+    const ip0 = abi.ip_gprs[0];
+    const ip1 = abi.ip_gprs[1];
+    const w_addr = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, addr_v, stage);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(ip0, 31, w_addr));
+    if (offset_imm != 0) {
+        if (offset_imm <= 0xFFFFFF) {
+            const off_high: u12 = @intCast((offset_imm >> 12) & 0xFFF);
+            const off_low: u12 = @intCast(offset_imm & 0xFFF);
+            if (off_high != 0) try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12Lsl12(ip0, ip0, off_high));
+            if (off_low != 0) try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(ip0, ip0, off_low));
+        } else {
+            const lane0: u16 = @truncate(offset_imm & 0xFFFF);
+            const lane1: u16 = @truncate((offset_imm >> 16) & 0xFFFF);
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(ip1, lane0));
+            if (lane1 != 0) try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(ip1, lane1, 1));
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(ip0, ip0, ip1));
+        }
+    }
+}
+
+/// Wasm threads (ADR-0168) `memory.atomic.notify` — callout through
+/// `JitRuntime.atomic_notify_fn`. Pops count (unused single-thread) +
+/// addr. AAPCS64: X0 = rt, X1 = ea. Returns 0 in W0; helper sets
+/// trap_flag on unaligned/oob.
+pub fn emitAtomicNotify(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
+    if (ctx.pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    _ = ctx.pushed_vregs.pop().?; // count (unused)
+    const addr_v = ctx.pushed_vregs.pop().?;
+    const ip0 = abi.ip_gprs[0];
+    try eaIntoIp0(ctx, addr_v, 0, ins.payload);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(1, 31, ip0)); // X1 = ea
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr)); // X0 = rt
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, abi.runtime_ptr_save_gpr, jit_abi.atomic_notify_fn_off));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBLR(16));
+    try captureW0I32(ctx);
+}
+
+/// Wasm threads (ADR-0168) `memory.atomic.wait{32,64}` — callout through
+/// `JitRuntime.atomic_wait_fns[idx]`. Pops timeout (unused) + expected +
+/// addr. AAPCS64: X0 = rt, X1 = ea, X2 = expected. Returns status in W0;
+/// helper sets trap_flag on unaligned/oob/non-shared.
+pub fn emitAtomicWait(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
+    if (ctx.pushed_vregs.items.len < 3) return Error.AllocationMissing;
+    _ = ctx.pushed_vregs.pop().?; // timeout (unused)
+    const exp_v = ctx.pushed_vregs.pop().?;
+    const addr_v = ctx.pushed_vregs.pop().?;
+    const ip0 = abi.ip_gprs[0];
+    // X2 = expected (full 64-bit; helper truncates to width). Stage 0.
+    const r_exp = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, exp_v, 0);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(2, 31, r_exp));
+    try eaIntoIp0(ctx, addr_v, 1, ins.payload);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(1, 31, ip0)); // X1 = ea
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr)); // X0 = rt
+    const fn_off: u15 = @intCast(jit_abi.atomic_wait_fns_off + jit_abi.waitIdxOf(ins.op) * 8);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, abi.runtime_ptr_save_gpr, fn_off));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBLR(16));
+    try captureW0I32(ctx);
+}

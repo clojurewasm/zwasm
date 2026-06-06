@@ -1516,6 +1516,12 @@ pub fn compile(
             .@"i64.atomic.rmw16.cmpxchg_u",
             .@"i64.atomic.rmw32.cmpxchg_u",
             => try op_memory.emitAtomicCmpxchg(&ctx, &ins),
+            // memory.atomic.notify / wait{32,64} (threads, ADR-0168):
+            // callout through atomic_notify_fn / atomic_wait_fns[idx].
+            .@"memory.atomic.notify" => try op_memory.emitAtomicNotify(&ctx, &ins),
+            .@"memory.atomic.wait32",
+            .@"memory.atomic.wait64",
+            => try op_memory.emitAtomicWait(&ctx, &ins),
             // §9.9 / 9.9-m-3a: data.drop / elem.drop — write 1 to
             // the dropped-flag byte at `[r15+ptr_off]+idx`. No
             // operands consumed; no result pushed. validator already

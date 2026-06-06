@@ -484,6 +484,19 @@ pub const JitRuntime = extern struct {
     /// pointers (not an opcode arg) keep the callout at 4 args on every
     /// ABI. TRAILING field — keeps every codegen `@offsetOf` unchanged.
     atomic_cmpxchg_fns: [4]*const fn (rt: *JitRuntime, ea: u64, expected: u64, replacement: u64) callconv(.c) u64 = default_atomic_cmpxchg_fns,
+    /// Wasm threads/atomics (ADR-0168) — `memory.atomic.notify` callout.
+    /// Args `(rt, ea)`; returns waiters woken (always 0 single-thread).
+    /// Sets trap_flag on unaligned/oob. TRAILING (keeps @offsetOf stable).
+    atomic_notify_fn: *const fn (rt: *JitRuntime, ea: u64) callconv(.c) u32 = defaultAtomicNotify,
+    /// Wasm threads/atomics (ADR-0168) — `memory.atomic.wait{32,64}`
+    /// callout, indexed by width_log2-2 (0=wait32/4B, 1=wait64/8B). Args
+    /// `(rt, ea, expected)`; returns 1 (≠) / 2 (timed-out). Sets
+    /// trap_flag on unaligned/oob/non-shared. TRAILING.
+    atomic_wait_fns: [2]*const fn (rt: *JitRuntime, ea: u64, expected: u64) callconv(.c) u32 = default_atomic_wait_fns,
+    /// Wasm threads/atomics (ADR-0168) — memory0's shared flag (1=shared),
+    /// surfaced from the MemoryInstance so the wait callout can trap on a
+    /// non-shared memory (the JIT rt has no MemoryInstance). TRAILING.
+    mem0_shared: u32 = 0,
 };
 
 /// Default `memory_grow_fn` — unconditionally refuses growth by
@@ -679,6 +692,71 @@ pub fn cmpxchgMapOf(op: zir.ZirOp) ?CmpxchgMap {
 
 pub fn isAtomicCmpxchg(op: zir.ZirOp) bool {
     return cmpxchgMapOf(op) != null;
+}
+
+/// Production `atomic_notify_fn` (ADR-0168). Align(4)+bounds trap, then
+/// return 0 (the single-threaded substrate never has waiters). Valid on
+/// a non-shared memory. Args: count was already dropped by the emit.
+pub fn defaultAtomicNotify(rt: *JitRuntime, ea: u64) callconv(.c) u32 {
+    if (ea & 3 != 0) {
+        rt.trap_flag = 1;
+        rt.trap_kind = 14; // unaligned_atomic
+        return 0;
+    }
+    if (ea + 4 > rt.mem_limit) {
+        rt.trap_flag = 1;
+        rt.trap_kind = 6; // oob_memory
+        return 0;
+    }
+    return 0;
+}
+
+/// Production `atomic_wait_fns[k]` (ADR-0168), per-width `W`. Align+
+/// bounds trap, then trap if memory0 is non-shared, else compare the
+/// in-memory value to `expected`: ≠ → 1 ("not equal"); == → 2 ("timed
+/// out" — single-thread can't block, no notifier can ever arrive).
+fn waitFn(comptime W: type) *const fn (rt: *JitRuntime, ea: u64, expected: u64) callconv(.c) u32 {
+    return &struct {
+        fn f(rt: *JitRuntime, ea: u64, expected: u64) callconv(.c) u32 {
+            const width = @sizeOf(W);
+            if (ea & (width - 1) != 0) {
+                rt.trap_flag = 1;
+                rt.trap_kind = 14; // unaligned_atomic
+                return 0;
+            }
+            if (ea + width > rt.mem_limit) {
+                rt.trap_flag = 1;
+                rt.trap_kind = 6; // oob_memory
+                return 0;
+            }
+            if (rt.mem0_shared == 0) {
+                rt.trap_flag = 1;
+                rt.trap_kind = 15; // expected_shared_memory
+                return 0;
+            }
+            const cur = std.mem.readInt(W, (rt.vm_base + ea)[0..@sizeOf(W)], .little);
+            return if (cur != @as(W, @truncate(expected))) 1 else 2;
+        }
+    }.f;
+}
+
+/// Default `atomic_wait_fns` — [0]=wait32 (4B), [1]=wait64 (8B).
+pub const default_atomic_wait_fns = [2]*const fn (rt: *JitRuntime, ea: u64, expected: u64) callconv(.c) u32{
+    waitFn(u32),
+    waitFn(u64),
+};
+
+pub fn isAtomicNotify(op: zir.ZirOp) bool {
+    return op == .@"memory.atomic.notify";
+}
+
+pub fn isAtomicWait(op: zir.ZirOp) bool {
+    return op == .@"memory.atomic.wait32" or op == .@"memory.atomic.wait64";
+}
+
+/// `atomic_wait_fns` index for a wait op: wait32 → 0, wait64 → 1.
+pub fn waitIdxOf(op: zir.ZirOp) u32 {
+    return if (op == .@"memory.atomic.wait64") 1 else 0;
 }
 
 /// 10.G GC-on-JIT struct allocation trampoline (ADR-0128 §2). The
@@ -1129,6 +1207,11 @@ pub const atomic_rmw_fn_off: u12 = @offsetOf(JitRuntime, "atomic_rmw_fn");
 /// ADR-0168 — base of the `atomic_cmpxchg_fns[4]` array; entry k at
 /// `atomic_cmpxchg_fns_off + k*8` (k = width_log2). X-form pointers.
 pub const atomic_cmpxchg_fns_off: u12 = @offsetOf(JitRuntime, "atomic_cmpxchg_fns");
+/// ADR-0168 — `atomic_notify_fn` slot; X-form (8-byte fn pointer).
+pub const atomic_notify_fn_off: u12 = @offsetOf(JitRuntime, "atomic_notify_fn");
+/// ADR-0168 — base of `atomic_wait_fns[2]`; entry k at
+/// `atomic_wait_fns_off + k*8` (k = width_log2 - 2). X-form pointers.
+pub const atomic_wait_fns_off: u12 = @offsetOf(JitRuntime, "atomic_wait_fns");
 /// ADR-0105 D1 / D2 — stack-probe threshold field offset. X-form
 /// (8-byte usize); prologue emits `LDR Xn, [vmctx, #stack_limit_off]`.
 pub const stack_limit_off: u12 = @offsetOf(JitRuntime, "stack_limit");
@@ -1275,6 +1358,11 @@ comptime {
     // ADR-0168: atomic_cmpxchg_fns base + last entry (k=3 → +24) X-form.
     if ((atomic_cmpxchg_fns_off & 7) != 0) @compileError("atomic_cmpxchg_fns_off not 8-aligned");
     if (atomic_cmpxchg_fns_off + 24 > 32760) @compileError("atomic_cmpxchg_fns_off exceeds X-form imm12 budget");
+    // ADR-0168: atomic_notify_fn + atomic_wait_fns[2] (last entry +8) X-form.
+    if ((atomic_notify_fn_off & 7) != 0) @compileError("atomic_notify_fn_off not 8-aligned");
+    if (atomic_notify_fn_off > 32760) @compileError("atomic_notify_fn_off exceeds X-form imm12 budget");
+    if ((atomic_wait_fns_off & 7) != 0) @compileError("atomic_wait_fns_off not 8-aligned");
+    if (atomic_wait_fns_off + 8 > 32760) @compileError("atomic_wait_fns_off exceeds X-form imm12 budget");
     // ADR-0105 D1: stack_limit is X-form (usize); imm12 scales by 8.
     if ((stack_limit_off & 7) != 0) @compileError("stack_limit_off not 8-aligned");
     if (stack_limit_off > 32760) @compileError("stack_limit_off exceeds X-form imm12 budget");
@@ -1329,7 +1417,9 @@ test "JitRuntime: total size = 464 bytes (post-10.E tag_ids tail)" {
     // D-244 (JIT-WASI) appends `wasi_host` (+8 B opaque ptr) → 464 + 8 = 472.
     // ADR-0168 appends `atomic_rmw_fn` (+8 B fn ptr, trailing) → 472 + 8 = 480.
     // ADR-0168 appends `atomic_cmpxchg_fns[4]` (+32 B, trailing) → 480 + 32 = 512.
-    try testing.expectEqual(@as(u32, 512), head_size);
+    // ADR-0168 appends atomic_notify_fn (+8) + atomic_wait_fns[2] (+16) +
+    // mem0_shared (u32 +4, pad +4) → 512 + 32 = 544.
+    try testing.expectEqual(@as(u32, 544), head_size);
 }
 
 test "jitGcAlloc: allocates struct{i32} via the *JitRuntime bridge (10.G A-2a)" {

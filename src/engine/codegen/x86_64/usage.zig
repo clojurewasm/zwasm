@@ -56,10 +56,11 @@ const ZirFunc = zir.ZirFunc;
 /// looks fine until the runtime trap path executes).
 pub fn usesRuntimePtr(func: *const ZirFunc) bool {
     for (func.instrs.items) |ins| {
-        // Atomic rmw / cmpxchg (ADR-0168): callout through
-        // `[R15+atomic_*_fn(s)_off]` + passes rt in arg0 → needs R15.
-        // D-180 class.
-        if (jit_abi.isAtomicRmw(ins.op) or jit_abi.isAtomicCmpxchg(ins.op)) return true;
+        // Atomic rmw / cmpxchg / notify / wait (ADR-0168): callout
+        // through `[R15+atomic_*_fn(s)_off]` + passes rt in arg0 →
+        // needs R15. D-180 class.
+        if (jit_abi.isAtomicRmw(ins.op) or jit_abi.isAtomicCmpxchg(ins.op) or
+            jit_abi.isAtomicNotify(ins.op) or jit_abi.isAtomicWait(ins.op)) return true;
         switch (ins.op) {
             // Memory family (scalar + v128).
             .@"i32.load",

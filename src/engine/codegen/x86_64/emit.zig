@@ -1159,6 +1159,11 @@ pub fn compile(
             .@"i64.atomic.rmw16.cmpxchg_u",
             .@"i64.atomic.rmw32.cmpxchg_u",
             => try op_memory.emitAtomicCmpxchg(&ctx, &ins),
+            // memory.atomic.notify / wait{32,64} (threads, ADR-0168).
+            .@"memory.atomic.notify" => try op_memory.emitAtomicNotify(&ctx, &ins),
+            .@"memory.atomic.wait32",
+            .@"memory.atomic.wait64",
+            => try op_memory.emitAtomicWait(&ctx, &ins),
             .@"i32.load8_s" => try op_memory.emitI32Load8S(&ctx, &ins),
             .@"i32.load8_u" => try op_memory.emitI32Load8U(&ctx, &ins),
             .@"i32.load16_s" => try op_memory.emitI32Load16S(&ctx, &ins),

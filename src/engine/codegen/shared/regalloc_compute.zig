@@ -131,7 +131,9 @@ pub fn computeWith(
         // operands consumed into arg regs BEFORE the CALL (strict
         // crossing, like array.fill), but vregs spanning it must
         // force-spill (BLR/CALL clobbers caller-saved). Mirror memory.grow.
-        if (jit_abi.isAtomicRmw(ins.op) or jit_abi.isAtomicCmpxchg(ins.op)) {
+        if (jit_abi.isAtomicRmw(ins.op) or jit_abi.isAtomicCmpxchg(ins.op) or
+            jit_abi.isAtomicNotify(ins.op) or jit_abi.isAtomicWait(ins.op))
+        {
             if (call_pc_len < call_pc_buf.len) {
                 call_pc_buf[call_pc_len] = .{ .pc = @intCast(pc), .inclusive = false };
                 call_pc_len += 1;
