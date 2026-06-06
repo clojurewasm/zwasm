@@ -104,11 +104,10 @@ wabt stays). **D-264** ClojureWasm dogfooding gated. `.dev/proposal_watch.md` = 
 
 - **ubuntu**: re-kicked each turn (D6 always). Verify `[run_remote_ubuntu] OK` in `/tmp/ubuntu.log`. Last GREEN
   @`660bb771`. Red → auto-revert (D3).
-- **windows**: prior hunt @`9d4523b8` finished green (simd 13351/0, no veh, no exit-3 → silent, streak **2**).
-  Batch fired this turn (12 commits ≥ thr 6, build.zig ABI-touch) → **RE-KICKED @`487e4bbd`** (`/tmp/win.log`,
-  D-279 hunt + atomics verify). Step 0.7: `grep -aE '\[run_remote_windows\] (OK|FAILED)|d-279-veh' /tmp/win.log`
-  — OK/green → `track_heisenbug.sh win64-testall silent` + **`should_gate_windows.sh --record`**; `[d-279-veh]
-  STACK-OVERFLOW` = H3 CONFIRMED; SIMD exit-3 w/o it = segv (re-open). NOT auto-revert (D7). Don't poll-wait.
+- **windows**: @`487e4bbd` run finished **clean GREEN** (`OK.` present, simd 13351/0, no veh, no exit-3) →
+  D-279 silent **streak 3** (toward discharge-5); batch recorded @`92c8fb3b`. No kick pending — re-kicks when the
+  next batch fires (≥6 ABI-touch / ≥12 else since 92c8fb3b). Future crash self-IDs via `[d-279-veh]
+  STACK-OVERFLOW` (H3 CONFIRMED) vs SIMD exit-3 w/o it (segv, re-open). NOT auto-revert (D7). Don't poll-wait.
 - **Gate note**: `OK` = green; `Build Summary: N failed` (no OK) = RED. EXPECTED non-failures: `zig-host-hello`
   exit-42, `--__selftest-crash` exit-70, sha256 `verify: FAIL` (fixture-wrong-constant FALSE lead).
 
