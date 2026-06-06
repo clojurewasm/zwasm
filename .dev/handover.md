@@ -67,10 +67,14 @@ v128 spills use MOVUPS (unaligned-safe, inst_sse.zig:157-198), call-arg writes M
 aligned-move-on-misaligned-addr path in SIMD codegen. REFINED LEAD: exit-3 is `abort()`-class (not `0xC0000005`
 #GP), so likely the **FP-walk/stack-walk corruption** lineage (D-180/D-245 — corrupted RBP chain in a deep SIMD
 call stack → trap-handler/`@errorReturnTrace` walk aborts), NOT codegen-alignment. Recorded in D-279 (H1 struck).
-**Windows re-run (D7 confirm-flake) IN FLIGHT** — verify next Step 0.7; expect green per D-279 intermittency.
-**NEXT track**: examine Win64 trap-handler + error-return-trace stack-walk (signal.zig / windows_traphandler.zig)
-for an RBP-chain/reentrancy assumption a deep JIT SIMD frame violates. OR accept D-279 as tracked-rare-flake +
-pivot to another memory-safety area / blocked-by sweep. High-value autonomous surface work is largely done.
+**D-279 DIAGNOSTIC LANDED** (`22310693`): `windows_traphandler.zig::diagUnrecovered` emits `[d-279-veh]
+UNRECOVERED (unfiltered-code | rip-outside-jit): code/rip/jit-range` on the two armed-but-escaping VEH paths
+(previously SILENT before exit-3). Next Win64 crash self-identifies its mechanism → picks the surviving
+hypothesis. Cross-compiled x86_64-windows-gnu green; Mac test+lint green.
+**Windows re-run (D7 confirm-flake) STILL IN FLIGHT** (2 turns) — verify next Step 0.7; --record cadence if green.
+**NEXT track**: wait for a `[d-279-veh]` line on the next Win64 RED to pick the hypothesis, OR (D-279 is now
+instrumented + a tracked rare-flake) pivot to another memory-safety area / blocked-by barrier-dissolution sweep.
+High-value autonomous surface work is largely done; D-279 is appropriately instrumented now.
 **CADENCE (ADR-0076 D8)**: windows BATCHED (≥6 ABI-risk / ≥12 else); chain MANY chunks/turn, never poll-wait
 on windows.
 

@@ -1018,6 +1018,13 @@ entries:
       safety-check OR an abort from a corrupted-stack handler rather than a raw hardware fault. NEXT cycle:
       examine the Win64 trap-handler + error-return-trace stack-walk (signal.zig / windows_traphandler.zig) for a
       reentrancy / RBP-chain assumption that a deep JIT SIMD frame violates; the `[d-163-jit]` dump stays the lead.
+      DIAGNOSTIC LANDED @`22310693`: `windows_traphandler.zig::diagUnrecovered` now emits `[d-279-veh]
+      UNRECOVERED (<reason>): code=… rip=… jit=[…)` on the two armed-but-escaping VEH paths (unfiltered exception
+      code / RIP outside the JIT window) — previously SILENT before the exit-3 crash. The next D-279 occurrence
+      self-identifies its mechanism: `unfiltered-code` (a JIT SIMD op faulted with an unexpected exception code)
+      vs `rip-outside-jit` (the FP-walk/stack-walk lineage — fault in non-JIT code reached from JIT). Cross-
+      compiled x86_64-windows-gnu green. NEXT: read the `[d-279-veh]` line at the next Win64 crash to pick the
+      surviving hypothesis, then fix or add the next narrower primitive.
       Prior streak note (2026-06-06, now superseded): reached 5/5 then 6 `silent` over distinct SHAs
       (7e46c054 → e707fd31, D-288 + D-289 body) before this resurfacing. Original report below.
       Surfaced 2026-06-05
