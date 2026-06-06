@@ -3,6 +3,24 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-298"
+    layer: "code"
+    status: "note"
+    description: |-
+      note (memory64 + atomics alignment-trap gap, 2026-06-07 — Phase 17.1 atomics bundle, ADR-0168).
+      The atomic runtime natural-alignment trap (UnalignedAtomic) is emitted in the i32-memory JIT path
+      (`op_memory.emitMemOp`, both arches) but NOT in the memory64 path (`emitMemOpI64`). A `(memory i64 ...)`
+      module using an atomic op (e.g. i32.atomic.load) on a misaligned address therefore LOADS silently in the
+      JIT instead of trapping, while the interp traps correctly → JIT/interp divergence, memory64-only. The
+      interp path is correct (alignment check is address-type-agnostic). LOW priority: memory64 + atomics is an
+      exotic combination; the spec atomic.wast + threads testsuite use i32 (and shared) memory. Discharge: add
+      the `is_atomic` TST/TEST + cond-branch → unaligned_fixups to `emitMemOpI64` on both arches (mirror the
+      emitMemOp B2 work), or fold the two mem emitters' alignment-trap prologue into a shared helper.
+    first_raised: "2026-06-07"
+    last_reviewed: "2026-06-07"
+    refs: |-
+      src/engine/codegen/arm64/op_memory.zig (emitMemOp has is_atomic trap; emitMemOpI64 does not)
+      src/engine/codegen/x86_64/op_memory.zig (same)
   - id: "D-294"
     layer: "code"
     status: "partial"

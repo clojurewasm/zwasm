@@ -33,18 +33,16 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
   green. `i32.atomic.load` **Chunk A** @219e7d58 — validate `opAtomicLoad`/`readMemargCheckAlignExact` (==natural
   align, not ≤; atomics need NO shared mem per wasm-tools `check_shared_memarg`) + lower + interp (alignment-trap
   BEFORE bounds, spec exec 8<14a) + `Trap.UnalignedAtomic`/`TrapKind.unaligned_atomic`=14 + stackEffect 1→1.
-- **Chunk B1 DONE @38d25379**: `i32.atomic.load` JIT happy-path load BOTH arches via the **legacy-switch** path
-  (fork resolved: legacy like atomic.fence, NOT dispatch_collector — threads has no WasmLevel/Feature; reuse the
-  op-family's route). arm64 emit.zig→`emitMemOp`; x86_64 emit.zig→`emitI32AtomicLoad`(=emitI32Load alias);
-  access_size=4 + load-enc arms in emitMemOp+emitMemOpI64 both arches. edge `i32_atomic_load`=0x12345678 green
-  arm64 + x86_64 cross-compiles.
-- **NEXT = Chunk B2 (RUNTIME align-trap)** — ⚠️ **GAP: JIT silently loads on misaligned atomic addr; interp
-  TRAPS (UnalignedAtomic). JIT/interp DIVERGE until B2.** In `op_memory.zig:emitMemOp` (guard `is_atomic`), after
-  ea in ip0: emit `TST ip0,#(size-1)` + `B.NE` placeholder → append to a NEW `ctx.unaligned_fixups`; function-
-  final `EmitCindStub.emit(...,unaligned_fixups,14,frame_bytes)` (code 14=unaligned_atomic, already in
-  trap_surface jitTrapCode? NO — add it). ENCODER GAP: arm64 `encTstImm1W` only tests bit0 (mask=1); need a
-  TST/ANDS bitmask-imm for mask 3/7 (contiguous-low-bits logical-imm). x86_64: TEST+JNZ + same fixup plumbing.
-  edge: misaligned `expect trap`. PRE-PUSH `zig build test-runtime-runner-smoke`. THEN store→rmw→cmpxchg→i64.
+- **`i32.atomic.load` FULLY DONE** (B1 @38d25379 load + B2 @fff9daae runtime align-trap, both arches). The 0xFE
+  infra is now ALL in place: prefix dispatch (validate+lower), memarg, exact-static-align validate, interp+JIT
+  load, runtime alignment-trap stub (arm64 `encTstLowBitsW`+EmitCindStub code 14 / x86_64 `encTestDlImm8`+JNE→
+  emitTrapExitStub 14), `Trap.UnalignedAtomic`. memory64-path align-trap deferred = **D-298** (exotic).
+- **NEXT = atomic load/store VARIANTS batch** (now established-pattern — reuse emitMemOp + is_atomic + the
+  align-trap): `i32.atomic.store` (0x17), `i64.atomic.load` (0x11), `i32/i64.atomic.load8_u/16_u/32_u`,
+  `i32/i64.atomic.store8/16/32`. Per op: add to validate dispatchPrefixFE (opAtomicLoad/Store + natural align
+  per width), lower emitPrefixFE memarg, interp handler (mirror i32AtomicLoad/Store + align-trap), JIT — add the
+  tag to `is_atomic` + access_size + load/store-enc switches (both arches) + legacy-switch dispatch + edge
+  fixtures. Bundle several/turn. PRE-PUSH `zig build test-runtime-runner-smoke`. THEN rmw set → cmpxchg → notify/wait.
 - **Exit-condition**: a `test/edge_cases/p17/atomics/*` (or spec atomics manifest) green 3-host with the full
   load/store/rmw/cmpxchg set + fence; wait/notify minimal-single-thread; shared-mem parse+validate.
 - **Cycles-remaining**: ~many (large feature). No tag (ADR-0156).
@@ -52,7 +50,7 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
 ## Current state
 
 - **Phase 17 (v0.2 feature line) IN-PROGRESS** (ADR-0168, user-unblocked); 17.1-atomics bundle ACTIVE: fence +
-  i32.atomic.load (validate/lower/interp + JIT happy-path) DONE @38d25379; NEXT = B2 runtime align-trap. Phase 16 (完成形) DONE; v0.1 surface audited+documented+exampled, memory-safety swept
+  i32.atomic.load FULLY DONE @fff9daae (all layers + runtime align-trap); NEXT = atomic load/store variants batch. Phase 16 (完成形) DONE; v0.1 surface audited+documented+exampled, memory-safety swept
   SOUND, dogfooding DONE (cw v1). No release/tag ever (ADR-0156).
 - Debt ledger: **65 entries, 0 `now`** (D-264 dogfooding discharged). Remaining = `.dev/remaining_sweep.md`
   (Bucket A prune / B actionable-low / C deferred / D externally-blocked) — sweep between features, never idle.
