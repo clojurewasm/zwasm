@@ -885,6 +885,11 @@ pub const Lowerer = struct {
             // i32.atomic.load — memarg payload identical to i32.load.
             0x10 => try self.emitMemarg(.@"i32.atomic.load"),
             0x11 => try self.emitMemarg(.@"i64.atomic.load"),
+            0x12 => try self.emitMemarg(.@"i32.atomic.load8_u"),
+            0x13 => try self.emitMemarg(.@"i32.atomic.load16_u"),
+            0x14 => try self.emitMemarg(.@"i64.atomic.load8_u"),
+            0x15 => try self.emitMemarg(.@"i64.atomic.load16_u"),
+            0x16 => try self.emitMemarg(.@"i64.atomic.load32_u"),
             else => return Error.NotImplemented,
         }
     }

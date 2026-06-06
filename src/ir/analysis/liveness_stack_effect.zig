@@ -261,6 +261,11 @@ pub fn stackEffect(op: ZirOp) ?StackEffect {
         .@"i32.load",
         .@"i32.atomic.load", // threads (ADR-0168) — same shape as i32.load
         .@"i64.atomic.load",
+        .@"i32.atomic.load8_u",
+        .@"i32.atomic.load16_u",
+        .@"i64.atomic.load8_u",
+        .@"i64.atomic.load16_u",
+        .@"i64.atomic.load32_u",
         .@"i32.load8_s",
         .@"i32.load8_u",
         .@"i32.load16_s",

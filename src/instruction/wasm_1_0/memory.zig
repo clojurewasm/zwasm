@@ -53,6 +53,11 @@ pub fn register(table: *DispatchTable) void {
     table.interp[op(.@"i32.load")] = i32Load;
     table.interp[op(.@"i32.atomic.load")] = i32AtomicLoad;
     table.interp[op(.@"i64.atomic.load")] = i64AtomicLoad;
+    table.interp[op(.@"i32.atomic.load8_u")] = i32AtomicLoad8U;
+    table.interp[op(.@"i32.atomic.load16_u")] = i32AtomicLoad16U;
+    table.interp[op(.@"i64.atomic.load8_u")] = i64AtomicLoad8U;
+    table.interp[op(.@"i64.atomic.load16_u")] = i64AtomicLoad16U;
+    table.interp[op(.@"i64.atomic.load32_u")] = i64AtomicLoad32U;
     table.interp[op(.@"i64.load")] = i64Load;
     table.interp[op(.@"f32.load")] = f32Load;
     table.interp[op(.@"f64.load")] = f64Load;
@@ -131,6 +136,43 @@ fn i64AtomicLoad(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     if (ea & 7 != 0) return Trap.UnalignedAtomic;
     if (ea + 8 > mem.len) return Trap.OutOfBoundsLoad;
     const v = std.mem.readInt(u64, mem[@intCast(ea)..][0..8], .little);
+    try rt.pushOperand(.{ .u64 = v });
+}
+
+/// Wasm threads §exec — narrow atomic loads (`*.atomic.load{8,16,32}_u`,
+/// ADR-0168): naturally aligned zero-extending load. Alignment trap
+/// (`ea mod width ≠ 0`) BEFORE bounds (spec step 8 < 14a); 1-byte loads
+/// are always aligned. All atomic narrow loads are UNSIGNED (no _s).
+fn atomicLoadU(mem: []const u8, popped_addr: u32, comptime W: type, offset: u64) Trap!u64 {
+    const width = @sizeOf(W);
+    const ea: u64 = @as(u64, popped_addr) + offset;
+    if (ea & (width - 1) != 0) return Trap.UnalignedAtomic;
+    if (ea + width > mem.len) return Trap.OutOfBoundsLoad;
+    return @as(u64, std.mem.readInt(W, mem[@intCast(ea)..][0..width], .little));
+}
+fn i32AtomicLoad8U(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const v = try atomicLoadU(memorySlice(rt, instr.extra), rt.popOperand().u32, u8, instr.payload);
+    try rt.pushOperand(.{ .u32 = @intCast(v) });
+}
+fn i32AtomicLoad16U(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const v = try atomicLoadU(memorySlice(rt, instr.extra), rt.popOperand().u32, u16, instr.payload);
+    try rt.pushOperand(.{ .u32 = @intCast(v) });
+}
+fn i64AtomicLoad8U(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const v = try atomicLoadU(memorySlice(rt, instr.extra), rt.popOperand().u32, u8, instr.payload);
+    try rt.pushOperand(.{ .u64 = v });
+}
+fn i64AtomicLoad16U(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const v = try atomicLoadU(memorySlice(rt, instr.extra), rt.popOperand().u32, u16, instr.payload);
+    try rt.pushOperand(.{ .u64 = v });
+}
+fn i64AtomicLoad32U(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const v = try atomicLoadU(memorySlice(rt, instr.extra), rt.popOperand().u32, u32, instr.payload);
     try rt.pushOperand(.{ .u64 = v });
 }
 
@@ -457,6 +499,29 @@ test "i64.atomic.load reads an aligned doubleword + traps unaligned (4 not 8-ali
     // addr=4 is 4-aligned but NOT 8-aligned → UnalignedAtomic.
     try rt.pushOperand(.{ .u32 = 4 });
     try testing.expectError(Trap.UnalignedAtomic, driveOne(&rt, &t, .@"i64.atomic.load", 0, 0));
+}
+
+test "narrow atomic loads zero-extend + trap unaligned" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    rt.memory = try testing.allocator.alloc(u8, 64);
+    @memset(rt.memory, 0);
+    rt.memory[5] = 0xAB; // byte at 5
+    std.mem.writeInt(u32, rt.memory[8..][0..4], 0xDEADBEEF, .little); // word at 8
+
+    // i32.atomic.load8_u @5 → 0xAB (byte access always aligned).
+    try rt.pushOperand(.{ .u32 = 5 });
+    try driveOne(&rt, &t, .@"i32.atomic.load8_u", 0, 0);
+    try testing.expectEqual(@as(u32, 0xAB), rt.popOperand().u32);
+    // i64.atomic.load32_u @8 → 0xDEADBEEF zero-extended to u64.
+    try rt.pushOperand(.{ .u32 = 8 });
+    try driveOne(&rt, &t, .@"i64.atomic.load32_u", 0, 0);
+    try testing.expectEqual(@as(u64, 0xDEADBEEF), rt.popOperand().u64);
+    // i32.atomic.load16_u @1 (odd) → UnalignedAtomic.
+    try rt.pushOperand(.{ .u32 = 1 });
+    try testing.expectError(Trap.UnalignedAtomic, driveOne(&rt, &t, .@"i32.atomic.load16_u", 0, 0));
 }
 
 test "i32.load8_s sign-extends" {

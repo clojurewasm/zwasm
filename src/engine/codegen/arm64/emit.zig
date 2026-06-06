@@ -1445,7 +1445,14 @@ pub fn compile(
             // substrate → plain aligned load (runtime align-trap = B2).
             // Legacy-switch path (not dispatch_collector) per the bundle
             // decision — same as atomic.fence.
-            .@"i32.atomic.load", .@"i64.atomic.load" => try op_memory.emitMemOp(&ctx, &ins),
+            .@"i32.atomic.load",
+            .@"i64.atomic.load",
+            .@"i32.atomic.load8_u",
+            .@"i32.atomic.load16_u",
+            .@"i64.atomic.load8_u",
+            .@"i64.atomic.load16_u",
+            .@"i64.atomic.load32_u",
+            => try op_memory.emitMemOp(&ctx, &ins),
             // §9.9 / 9.9-m-3a: data.drop / elem.drop — write 1 to
             // the dropped-flag byte at `[r15+ptr_off]+idx`. No
             // operands consumed; no result pushed. validator already
