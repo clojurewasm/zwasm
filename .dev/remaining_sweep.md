@@ -33,21 +33,10 @@ discharge; git retains via the original commit**. Sweep = verify each is *not* a
 retained regression-marker (some say "retained as regression marker" — KEEP those), then
 `yq -i 'del(...)'` the rest in one `chore(debt): prune N discharged-historical rows` commit.
 
-- [ ] D-058 `check_rule_paths.sh` authored (done) — prune
-- [ ] D-059 `check_skill_descriptions.sh` authored (done) — prune
-- [ ] D-181 x86_64 `emitMemOpI64` ungate (done `e4802ea9`) — prune
-- [ ] D-182 EH catch-landing-pad both arches (done) — prune
-- [ ] D-183 cross-frame EH dispatch fix (done) — prune
-- [ ] D-184 x86_64 SysV unwinder loadFrameSniffed (done) — prune
-- [ ] D-187 10.TC interp trampoline (done `8f8a01ec`) — prune
-- [ ] D-188 ref/try_table assert_invalid (done; **"retained as regression marker"** → VERIFY before prune)
-- [ ] D-189 memarg natural-alignment cap (done `49e6a44a`) — prune
-- [ ] D-190 spec-runner shared Instance (done `1e5ceb71`) — prune
-- [ ] D-191 wast baker action directive (done `755d33d2`) — prune
-- [ ] D-193 Mac-aarch64-only gate sweep (**"Fully discharged"**) — prune
-- [ ] D-194 x86_64 br_on_null/non_null path B (done `9a134d8`) — prune
-- [ ] D-204 GC valtype-subtype extraction (cap-pressure RELIEVED `09fd0175`) — prune
-- [ ] D-273 `--invoke NAME=ARGS` (1) DONE `34dbebbc` (re-read: any open sub-item? else prune)
+- [x] **SWEPT 2026-06-07** — all 15 rows (D-058/059/181/182/183/184/187/188/189/190/191/193/194/204/273)
+  pruned in one `yq -i del(...)` (debt.yaml 66→51 entries). Each verified `status: note` + discharge-SHA in
+  body; D-188's "regression marker" is the TEST (bisect `accepted_count==0`), not the row → safe to prune.
+  Bucket A is now empty.
 Refs: each row body has its discharge SHA; `.claude/rules/yaml_ssot_yq.md` (delete-on-discharge).
 
 ## Bucket B — Actionable low-value (sweep-able now; small, mostly local)
