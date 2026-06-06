@@ -889,28 +889,6 @@ entries:
     refs: |-
       src/engine/codegen/shared/regalloc.zig (spillBytes, class-blind slot space @127-137);
       regalloc_vreg_class.zig (vregClassOfOp); ADR-0150; ADR-0038/0040
-  - id: "D-264"
-    layer: "process"
-    status: "blocked-by"
-    description: |-
-      **blocked-by: ClojureWasmFromScratch v1 has no zwasm-v2 consumer yet.** §15.6 ("ClojureWasm CI green with
-      its `zwasm` dep pointing at a local `build.zig.zon` path to zwasm_from_scratch/") was DEFERRED (ADR-0152):
-      `ClojureWasmFromScratch` (branch `cw-from-scratch`, version 0.0.0) is itself a from-scratch v1 redesign
-      IN PROGRESS — its `build.zig.zon` declares only `zlinter` (no `zwasm` dep, any form), it has no
-      `.github/workflows/`, and its zwasm-v2 wasm-FFI consumer is its OWN future internal phase (cw
-      `project_facts.md` "Phase 16"). The stable ClojureWasm is v0.5.0 on `main`. There is nothing on the
-      consumer side to validate today. BARRIER DISSOLVES when cw-v1 lands committed source that imports
-      `@import("zwasm")` (Engine/Module/Instance, ADR-0109 native API) + a build/test command that exercises it.
-      DISCHARGE: re-open §15.6 (point cw's build.zig.zon at a local `path = …` dep, run its `zig build test`
-      green) OR fold §15.6 into a post-v0.1.0 integration phase, decided with the real consumer in hand. NOTE:
-      v2 package-consumability itself is NOT in doubt — `examples/zig_host/` (ADR-0109) + `test/api/
-      zig_facade_runner.zig` already prove `@import("zwasm")` embedding works; only the cw-specific CI waits.
-    first_raised: "2026-06-04"
-    last_reviewed: "2026-06-04"
-    refs: |-
-      ADR-0152 (§15.6 defer); ADR-0132 (autonomous re-scope carve-out); ADR-0109 (native Zig embedding API);
-      ROADMAP §15.6 + §15.P; ~/Documents/MyProducts/ClojureWasmFromScratch (cw-from-scratch branch, read-only);
-      examples/zig_host/hello.zig; test/api/zig_facade_runner.zig
   - id: "D-266"
     layer: "perf"
     status: "note"

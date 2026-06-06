@@ -3,16 +3,19 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## STEADY-STATE PROTOCOL (read first — Phase-16 high-value autonomous work is COMPLETE)
+## NEVER-IDLE PROTOCOL (read first — user-directed 2026-06-06)
 
-This session drove the 完成形 surface to completion (see LEAD below). When a resume finds **gates green + git
-clean + no new external signal (no fresh Win64 RED / no user directive) + no genuine high-value chunk available**,
-run a **MINIMAL turn**: Step 0.7 verify → one-line status → re-arm. Do **NOT** (a) re-deliberate bucket-3 vs
-continue (settled: stay armed per the invariant; the windows/Win64 signal + user direction are the unblockers),
-(b) manufacture padding (exotic D-209, a 4th speculative audit), or (c) re-run the Mac-side D-279 investigation
-(walled — needs the Win64 signal; the `[d-279-veh] STACK-OVERFLOW` diagnostic is deployed). **Genuine** work that
-DOES warrant a full turn: a fresh Win64 RED to triage (esp. the H3 signal), a user directive on v0.2 / dogfooding,
-a barrier-dissolution, or a real defect spotted. Otherwise minimal + honest.
+The loop **NEVER idles in "minimal turns."** The 完成形 v0.1 surface is done, but the user **UNBLOCKED v0.2 AND
+v0.3 feature work** (2026-06-06) — "AIが思いのほか早いのでどんどんやろう." **Work priority each resume:**
+1. **v0.2 / v0.3 features** — the primary forward track now (ROADMAP §17 / `.dev/proposal_watch.md`: threads,
+   wide-arith, relaxed-SIMD, custom-page-sizes, component-model, …). Survey → sequence → TDD-implement. **No
+   release/tag ever** (ADR-0156 stands — user reconfirmed "タグは切らない").
+2. When between features OR a feature is gated → **sweep `.dev/remaining_sweep.md`** (Bucket A ledger-prune → B
+   actionable-low-value → C deferred) — never idle, sweep the leftover systematically.
+3. **D-279 + similar are NEVER "left alone"** (user: "放置せず常にシステムは動作するように") — keep it actively
+   progressing: the H3 diagnostic is deployed; re-kick windows when work lands so a reproduction is always being
+   hunted; verify the signal at every Step 0.7.
+Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE** (cw v1 side succeeded).
 
 ## Current state
 
