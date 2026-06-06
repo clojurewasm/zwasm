@@ -41,10 +41,12 @@ audit detail in **D-296** (note). Residual Zig-API gaps = v0.2/deferred, cross-r
 **Remaining (post-audit)**: (a) blocked-by 31 (external/future); (b) v0.2.0 features (proposal_watch + the
 D-296 Zig-API residuals: Memory.grow/sliceAt, Linker.defineInstance, funcref-call, full WASI config); (d)
 dogfooding (D-264 gated). No actionable HIGH-value 完成形 surface gap remains.
-**NEXT concrete chunk** (MED, fresh TDD cycle) = `Memory.grow(delta)→prev_pages` facade (D-296 residual):
-plumb through `rt.memories[0]` (`*MemoryInstance.grow`), re-sync the `rt.memory` byte-alias after realloc
-(D-199), honor max-pages cap (return error/sentinel, NOT trap), + a max-cap boundary fixture. Alt tracks if
-deprioritized: other D-296 residuals (Memory.sliceAt, Linker.defineInstance) or a memory-safety/debt sweep.
+**This turn closed** (D-296 Zig-API residuals): `Memory.grow(delta)→?prev_pages` (`f163e882`, extracted shared
+`Runtime.growMemory`, interp handler delegates, test-spec 9/0) + `Memory.sliceAt(offset,len)` bounds-checked
+window (`e5f34ff8`). Both green Mac test+spec+lint.
+**NEXT candidate chunks** (all MED/LOW, pick any): `engine.linker()` shorthand (LOW, trivial); `Linker.
+defineInstance()` (MED, doc'd-not-coded); or pivot to a memory-safety / debt sweep. Cross-ref residuals
+(funcref-call D-269, WASI-config D-177, standalone Global/Memory D-178) stay on their own rows.
 **CADENCE (ADR-0076 D8)**: windows BATCHED (≥6 ABI-risk / ≥12 else); chain MANY chunks/turn, never poll-wait
 on windows.
 
