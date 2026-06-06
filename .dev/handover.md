@@ -64,17 +64,17 @@ audit-gap list closed-or-deferred.
     →unreachable(5) mis-report. **D** (`4bdaec59`): trap-UX audit vs wasmtime/wasmer/v1 — clean, ADR-0159-aligned;
     one bug found → **D-294** (JIT call_indirect null-elem → mislabels indirect_call_mismatch; fix = code 13).
 
-## ← LEAD: D-291 FULLY CLOSED (`23874eda` fix + `713633d6` diag removed) — next: D-295 guard, queue
+## ← LEAD: D-291 + D-295 DONE (0 `now` debts) — next: the queue
 
-**D-291 DONE**: ed25519 `--engine jit` exits 0 (was oob_table trap); 3-host green (Mac test-all + ubuntu @ca758ace
-+ windows @7e46c054); gated diag scaffolding removed (−177 lines, clean codegen; D-165 trap-probe diag kept).
-ROOT CAUSE: arm64 `homedCallerSavedSpillReload` SKIPPED callee-saved-bank homes (X20-X22) across JIT calls —
-but per ADR-0060 the JIT prologue installs invariants into X19-X28 WITHOUT stack-saving, so a callee homing a
-local in X20-X22 clobbers it. FIX = spill ALL register-homed locals across calls, matching x86_64's correct path.
-Lesson filed. **NEXT**: (1) **D-295** (`now`): regression guard — JIT-exec ed25519 in CI (the bug needs
-realworld-scale register pressure, not minimally reproducible; cleanest = a test running ed25519 via
-`runner.runVoidExportWasi` asserting no trap). Then queue: **D-288** (interp recursion redesign, ADR), **D-284**
-(entry-resolution unify), **D-290** (wabt→wasm-tools hygiene), **D-279** (Win64 spec-simd heisenbug, streak 1/5).
+**D-291 fully closed**: ed25519 `--engine jit` exits 0 (was oob_table trap), 3-host green; the arm64
+`homedCallerSavedSpillReload` callee-saved-home-skip fix (`23874eda`), gated diag removed (`713633d6`), and a
+**validated regression guard** (`9ab34d18` — runner_trap_test JIT-runs ed25519 via runVoidExportWasi asserting
+no trap; revert-test confirmed it catches the bug; ed25519.wasm copied to src/engine/testdata/). Lesson filed.
+**NEXT — pick from the queue** (Step 0 survey each before starting): **D-288** (interp recurses NATIVELY,
+frame_buf[256] is a SEGV guard; real fix = flat/trampolined interp OR native-stack-limit check — ADR-grade
+interp-architecture redesign, the largest); **D-284** (interp/jit/aot entry-resolution unify, moderate); **D-290**
+(wabt→wasm-tools toolchain hygiene, tooling); **D-279** (Win64 spec-simd CRASH heisenbug, non-deterministic,
+streak 1/5 — needs windows host + is hard). Suggested order: D-284 or D-290 (bounded) before D-288 (big).
 
 **Other status**: ADR-0164 COMPLETE. **D-294 3-HOST GREEN** (`partial`, residuals polish). **D-279 sha256 lead
 FALSE** (corrected — zwasm hashes correctly; fixture has a wrong baked-in constant, golden-matched, never gates;
