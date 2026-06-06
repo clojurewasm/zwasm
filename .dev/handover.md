@@ -37,14 +37,17 @@ excludes EXCEPTION_STACK_OVERFLOW per ADR-0105 D4). Fits ALL evidence + the deep
 next-diagnostic (re-add EXCEPTION_STACK_OVERFLOW to the VEH filter with a `[d-279-veh] stack-overflow` log) in
 D-279. NOT auto-reverted (D7; ubuntu 8 MB green every time, facade exonerated).
 
-**D-279 H3 diagnostic LANDED** (`b86ac7fc`): `EXCEPTION_STACK_OVERFLOW` VEH arm → minimal fixed-string
-`[d-279-veh] STACK-OVERFLOW` WriteFile (survives exhausted stack; diagnostic-only, ADR-0105 D4 stands; cross-
-compile + libc-boundary green). The next Win64 RED now confirms/refutes H3: if it prints → extend the
-stack-limit guard to the overflowing path; if exit-3 recurs WITHOUT it → H3 refuted, re-open enumeration.
-**NEXT track**: D-279 is now maximally-instrumented from Mac (awaits the next Win64 crash signal — an external
-input). High-value autonomous surface work is otherwise done. Remaining: blocked-by barrier-dissolution
-re-checks, or low-ROI items (exotic D-209), or await a Win64 crash signal / user direction. Approaching the
-honest limit of high-value autonomous work absent new external signal.
+**D-279 H3 diagnostic LANDED + Win64-VALIDATED** (`b86ac7fc`): `EXCEPTION_STACK_OVERFLOW` VEH arm → minimal
+`[d-279-veh] STACK-OVERFLOW` WriteFile (diagnostic-only, ADR-0105 D4 stands). Windows run @`660bb771` was GREEN
+(D-279 did NOT reproduce — intermittent; streak silent 1) so the H3 diag is build-validated + deployed but
+UNFIRED. A FUTURE Win64 D-279 crash now self-identifies: prints `[d-279-veh] STACK-OVERFLOW` → H3 CONFIRMED
+(extend the stack-limit guard to the overflowing path); exit-3 recurs WITHOUT it → H3 refuted (re-open
+enumeration). This is the pending external signal.
+**HIGH-VALUE AUTONOMOUS WORK IS COMPLETE.** Surface (C/Zig/CLI) audited+documented+exampled; memory-safety all
+areas swept SOUND; D-279 maximally instrumented; debt swept; proposal_watch current (2026-04-30); audit-overstatement
+lesson captured (`fd0a1914`). Remaining is genuinely user-gated (v0.2 features, dogfooding) or external-signal-gated
+(D-279 next-crash). NOT padding low-ROI items (exotic D-209, 4th audit). The loop now mostly verifies gates + awaits
+a Win64 crash signal or user direction on v0.2 priorities.
 
 **Blocked / parked**: 31 blocked-by (call_ref §10.R / Phase-11 D-177 WASI-config / D-178 standalone Global-Memory /
 future proposals). **D-290** = 3 proposal-laden distillers, direction-gated (wasm-tools↔wabt output divergence;
@@ -53,11 +56,11 @@ wabt stays). **D-264** ClojureWasm dogfooding gated. `.dev/proposal_watch.md` = 
 ## Step 0.7 (next resume) — verify remote logs
 
 - **ubuntu**: re-kicked each turn (D6 always). Verify `[run_remote_ubuntu] OK` in `/tmp/ubuntu.log`. Last GREEN
-  @`2d896c33`. Red → auto-revert (D3).
-- **windows**: BATCHED (D8). A run validating the VEH diagnostic (`22310693`) was IN FLIGHT at session pause —
-  verify `[run_remote_windows] OK` in `/tmp/win.log`; if green + the batch fired, run `should_gate_windows.sh
-  --record`. Red → NOT auto-revert; if it's a `[d-279-veh]`/exit-3 SIMD crash = D-279 flake (`track_heisenbug.sh
-  win64-testall segv` + proceed); else investigate. Don't poll-wait.
+  @`660bb771`. Red → auto-revert (D3).
+- **windows**: BATCHED (D8). Last GREEN @`660bb771` (`--record`ed; H3 diag validated, D-279 did not reproduce).
+  Red → NOT auto-revert; **first grep `[d-279-veh] STACK-OVERFLOW`** — if present = H3 CONFIRMED (extend stack
+  guard); if a SIMD exit-3 crash WITHOUT it = D-279 (`track_heisenbug.sh win64-testall segv` + proceed, re-open
+  H-enumeration). Don't poll-wait.
 - **Gate note**: `[run_remote_windows] OK` = real green; `Build Summary: N failed` (no OK) = RED. EXPECTED
   non-failures: `zig-host-hello` exit-42 + `--__selftest-crash` exit-70 "failed command"; the sha256 `verify:
   FAIL` line is the known fixture-wrong-constant FALSE lead (zwasm hashes correctly).
