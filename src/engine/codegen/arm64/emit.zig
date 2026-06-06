@@ -884,6 +884,11 @@ pub fn compile(
             // Value.ref slot; the distinction is validator-only). No machine
             // code, no vreg change; liveness models them transparent 0→0.
             .@"any.convert_extern", .@"extern.convert_any" => {},
+            // atomic.fence (threads, ADR-0168): on the single-threaded
+            // substrate every atomic op is trivially seq-cst and the
+            // JIT emits memory ops in program order, so the fence needs
+            // no machine code (0→0 transparent, like the convert pair).
+            .@"atomic.fence" => {},
             .@"i32.const" => try op_const.emitI32Const(&ctx, &ins),
             .@"i64.const" => try op_const.emitI64Const(&ctx, &ins),
             // §9.9 / 9.9-m-1a (per ADR-0056): Wasm 2.0 reference-types

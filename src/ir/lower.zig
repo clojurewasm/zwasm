@@ -600,6 +600,11 @@ pub const Lowerer = struct {
             // from §9.9/9.3.
             0xFD => try self.emitPrefixFD(),
 
+            // Wasm threads/atomics prefix (0xFE, ADR-0168). Sub-op
+            // is uleb32; emit lands the reserved-atomics ZirOp. The
+            // validator already rejected malformed encodings.
+            0xFE => try self.emitPrefixFE(),
+
             else => return Error.NotImplemented,
         }
     }
@@ -863,6 +868,22 @@ pub const Lowerer = struct {
 
     fn emitPrefixFD(self: *Lowerer) Error!void {
         return @import("lower_simd.zig").emitPrefixFD(self);
+    }
+
+    /// Wasm threads/atomics prefix-0xFE opcode group (ADR-0168).
+    /// Sub-op 0x03 = atomic.fence: consume the reserved memory-order
+    /// byte (already validated == 0x00) and emit the no-op fence.
+    /// 0x00..0x02 / 0x10+ (notify/wait/load/store/rmw/cmpxchg) land
+    /// in later chunks.
+    fn emitPrefixFE(self: *Lowerer) Error!void {
+        const sub = try leb128.readUleb128(u32, self.body, &self.pos);
+        switch (sub) {
+            0x03 => {
+                self.pos += 1; // reserved memory-order byte
+                try self.emit(.@"atomic.fence", 0, 0);
+            },
+            else => return Error.NotImplemented,
+        }
     }
 
     fn emitLocalIndexed(self: *Lowerer, op: ZirOp) Error!void {

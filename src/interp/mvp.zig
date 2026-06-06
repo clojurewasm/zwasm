@@ -73,6 +73,9 @@ pub fn register(table: *DispatchTable) void {
     // Trap-only / no-op control
     table.interp[op(.@"unreachable")] = unreachableOp;
     table.interp[op(.nop)] = nopOp;
+    // atomic.fence (threads, ADR-0168): no-op on the single-threaded
+    // substrate (every atomic op is trivially seq-cst). Shares nopOp.
+    table.interp[op(.@"atomic.fence")] = nopOp;
     table.interp[op(.select)] = selectOp;
     table.interp[op(.select_typed)] = selectOp;
 

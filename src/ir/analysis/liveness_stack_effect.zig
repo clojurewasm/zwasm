@@ -62,6 +62,8 @@ pub fn stackEffect(op: ZirOp) ?StackEffect {
         // (the reverted +39-fail attempt). See lesson
         // jit-liveness-must-mirror-emit-pushed-vregs.
         .@"any.convert_extern", .@"extern.convert_any" => .{ .pops = 0, .pushes = 0 },
+        // atomic.fence (threads, ADR-0168): 0 → 0, no operands.
+        .@"atomic.fence" => .{ .pops = 0, .pushes = 0 },
         // 1 → 1 testop / unop (i32 / i64 / f32 / f64)
         .@"i32.eqz",
         .@"i32.clz",

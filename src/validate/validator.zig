@@ -1134,6 +1134,12 @@ pub const Validator = struct {
             // today; that's a Phase 14+ structural refactor.
             0xFD => try validator_simd.dispatchPrefixFD(self),
 
+            // Wasm threads/atomics prefix (0xFE, ADR-0168). Sub-opcode
+            // is uleb32; single-threaded substrate validates the ops
+            // like their plain memory counterparts (alignment lands
+            // per-op in later chunks).
+            0xFE => try self.dispatchPrefixFE(),
+
             else => return Error.NotImplemented,
         }
     }
@@ -1551,6 +1557,28 @@ pub const Validator = struct {
             27 => try self.opConvertRef(.anyref, .externref),
             28 => try self.opRefI31(),
             29, 30 => try self.opI31Get(), // .get_s / .get_u share validator shape
+            else => return Error.NotImplemented,
+        }
+    }
+
+    /// Dispatch the Wasm threads/atomics prefix-0xFE opcode group
+    /// (ADR-0168). Encoding: 0xFE <uleb32 sub-opcode>. Sub-op 0x03 =
+    /// atomic.fence (single reserved 0x00 byte, no stack effect);
+    /// 0x00..0x02 = notify/wait, 0x10+ = load/store/rmw/cmpxchg —
+    /// those land per-op in later chunks.
+    fn dispatchPrefixFE(self: *Validator) Error!void {
+        const sub = try leb128.readUleb128(u32, self.body, &self.pos);
+        switch (sub) {
+            // atomic.fence: read the reserved memory-order byte (MUST
+            // be 0x00 per threads spec §binary; "nonzero byte after
+            // atomic.fence" is malformed). No operand stack effect,
+            // no memory required ("no memory is ok").
+            0x03 => {
+                if (self.pos >= self.body.len) return Error.UnexpectedEnd;
+                const reserved = self.body[self.pos];
+                self.pos += 1;
+                if (reserved != 0x00) return Error.InvalidOpcode;
+            },
             else => return Error.NotImplemented,
         }
     }

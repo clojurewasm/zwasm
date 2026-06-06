@@ -323,6 +323,9 @@ pub fn build(b: *std.Build) void {
     const run_edge_p10 = b.addRunArtifact(edge_runner_exe);
     run_edge_p10.addArg(b.pathFromRoot("test/edge_cases/p10"));
     run_edge_p10.has_side_effects = true;
+    const run_edge_p17 = b.addRunArtifact(edge_runner_exe);
+    run_edge_p17.addArg(b.pathFromRoot("test/edge_cases/p17"));
+    run_edge_p17.has_side_effects = true;
     // Realworld p10 result-check (10.TC-JIT IT-5): the same JIT
     // edge-runner walks `test/realworld/p10/**`, result-checking any
     // toolchain-compiled `.wasm` with a sibling `.expect`
@@ -334,6 +337,7 @@ pub fn build(b: *std.Build) void {
     test_edge_step.dependOn(&run_edge_p7.step);
     test_edge_step.dependOn(&run_edge_p9.step);
     test_edge_step.dependOn(&run_edge_p10.step);
+    test_edge_step.dependOn(&run_edge_p17.step);
     test_edge_step.dependOn(&run_edge_realworld_p10.step);
 
     // `zig build test-spec-jit-compile` — §9.7 / 7.5 first
@@ -1065,6 +1069,7 @@ pub fn build(b: *std.Build) void {
     test_all_step.dependOn(&run_edge_p7.step);
     test_all_step.dependOn(&run_edge_p9.step);
     test_all_step.dependOn(&run_edge_p10.step);
+    test_all_step.dependOn(&run_edge_p17.step);
     test_all_step.dependOn(&run_edge_realworld_p10.step);
     test_all_step.dependOn(&run_realworld_run_jit.step);
     test_all_step.dependOn(&run_wasmtime_misc_runtime.step);
