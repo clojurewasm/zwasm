@@ -33,21 +33,18 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
   green. `i32.atomic.load` **Chunk A** @219e7d58 — validate `opAtomicLoad`/`readMemargCheckAlignExact` (==natural
   align, not ≤; atomics need NO shared mem per wasm-tools `check_shared_memarg`) + lower + interp (alignment-trap
   BEFORE bounds, spec exec 8<14a) + `Trap.UnalignedAtomic`/`TrapKind.unaligned_atomic`=14 + stackEffect 1→1.
-- **`i32.atomic.load` LOAD done** (B1 @38d25379, both arches: validate/lower/interp/JIT). Interp ALSO traps
-  misaligned (Chunk A `Trap.UnalignedAtomic`). **B2 (JIT runtime align-trap) REVERTED @fc37ca49** — arm64 worked
-  but x86_64 didn't trap (ubuntu RED). → **D-299** (now): bytes proven correct end-of-compile yet runtime
-  trap_flag=0 on native+Rosetta x86_64. **Rosetta reproduces locally** (`zig build test-edge-cases
-  -Dtarget=x86_64-macos`) — no ubuntu round-trip needed.
-- **D-299 update (emit CONFIRMED correct)**: x86_64 ALIGNED-entry ndisasm shows `test dl,3; jnz → stub` with the
-  stub byte-identical to working oob/oob_table stubs (trap_flag[r15+0x28]=1, kind[r15+0x2c]=0xE). So the runtime
-  non-trap is NOT a disasm-visible emit bug. Rapid-disasm was confounded by tooling (`ls -t` picks the arm64
-  runner; byte-sig collisions) — the misaligned entry was never cleanly isolated.
-- **NEXT (pick one, time-box D-299 to ~1 cycle)**: **(a)** crack D-299 via SCRIPTED lldb (`lldb -b -o 'b ...'
-  -o run …`) on the x86_64-macos runner over an ISO dir (only the misaligned fixture) — single-step `test dl,3;
-  jnz`, watch ZF/branch/r15+0x28; if cracked → re-land B2 (arm64 half worked) + fix x86_64. **(b)** if still
-  stuck → PIVOT to forward progress: land atomic store/rmw/cmpxchg/i64-variants as PLAIN aligned mem ops (NO JIT
-  align-trap; interp traps; the central emitMemOp `is_atomic` trap is D-299, auto-covers all once fixed) — keeps
-  the bundle moving on an error-path-only gap. PRE-PUSH `zig build test-runtime-runner-smoke` for any new trap.
+- **Loads DONE**: `i32.atomic.load` @38d25379 + `i64.atomic.load` @3f36a5e6 (validate/lower/interp-with-align-trap/
+  JIT-plain-load, both arches; interp unit + arm64 edge fixtures green, x86_64 cross-compiles).
+- **D-299 (JIT misaligned-trap) = DEFERRED, ENV-CONSTRAINED**: B2's x86_64 runtime align-trap didn't fire (native
+  ubuntu, reliable). My Mac/Rosetta investigation harness is UNRELIABLE (got-i32:0 vs NotImplemented for the same
+  fixture across runs; load-only-atomic works fine on arm64 — so the iso NotImplemented was a harness artifact).
+  Needs a reliable native-x86_64 + lldb env to crack (Mac/Rosetta can't). Error-path-only (well-formed programs
+  never unalign atomics; threads spec-suite not yet wired → gate green). Interp traps correctly; the central
+  `emitMemOp` JIT align-trap is the single D-299 fix that covers ALL atomic ops once cracked.
+- **NEXT = keep landing atomic ops** (PLAIN aligned mem ops via emitMemOp; interp align-trap; JIT-trap = D-299):
+  narrow loads `i32/i64.atomic.load8_u/16_u/32_u` (0x12-0x16, natural align per width, zero-extend) → then stores
+  `i32/i64.atomic.store*` (0x17-0x1e, pop val+addr) → rmw → cmpxchg. Established-pattern, mirror i64.atomic.load;
+  bundle several/turn. `.expect` for >i32-max values = SIGNED i32 (runner @intCasts to i32 — D-299-turn gotcha).
 - **Exit-condition**: a `test/edge_cases/p17/atomics/*` (or spec atomics manifest) green 3-host with the full
   load/store/rmw/cmpxchg set + fence; wait/notify minimal-single-thread; shared-mem parse+validate.
 - **Cycles-remaining**: ~many (large feature). No tag (ADR-0156).
@@ -55,8 +52,8 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
 ## Current state
 
 - **Phase 17 (v0.2 feature line) IN-PROGRESS** (ADR-0168, user-unblocked); 17.1-atomics bundle ACTIVE: fence +
-  i32.atomic.load LOAD done @38d25379; JIT align-trap B2 REVERTED @fc37ca49 (x86_64 = D-299, emit-confirmed-OK,
-  runtime mystery → scripted-lldb OR pivot to ops-without-trap). Tree green @4d07f907. Phase 16 (完成形) DONE; v0.1 surface audited+documented+exampled, memory-safety swept
+  i32+i64.atomic.load DONE @3f36a5e6 (JIT plain load; interp traps; JIT misaligned-trap = D-299 deferred/env-
+  constrained). NEXT = narrow loads → stores → rmw. Tree green. Phase 16 (完成形) DONE; v0.1 surface audited+documented+exampled, memory-safety swept
   SOUND, dogfooding DONE (cw v1). No release/tag ever (ADR-0156).
 - Debt ledger: **65 entries, 0 `now`** (D-264 dogfooding discharged). Remaining = `.dev/remaining_sweep.md`
   (Bucket A prune / B actionable-low / C deferred / D externally-blocked) — sweep between features, never idle.
