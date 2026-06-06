@@ -29,7 +29,18 @@ entries:
       traps survive the same wrapping, so the differentiator is still unknown. NEXT: lldb breakpoint on the INVOKED
       entry (not the body page), single-step to the `TEST DL,#3` + `JNE`, observe ZF + the actual JNE target vs the
       stub. Then re-land B2 (cherry-pick arm64 which worked + fix x86_64). Discharge: misaligned `i32.atomic.load`
-      traps UnalignedAtomic on all 3 hosts.
+      traps UnalignedAtomic on all 3 hosts. **2026-06-07 verified-emit finding** (ndisasm of the x86_64 ALIGNED
+      entry, captured via an `entry.invokeAndCheck` page-dump probe under Rosetta): the alignment check + stub ARE
+      byte-correct in the executed page — `test dl,0x3; jnz <stub>`; the stub sets `[r15+0x28]=1` (trap_flag) +
+      `[r15+0x2c]=0xE` (trap_kind=14), byte-identical to the working oob (code 6) / oob_table (code 2) stubs which
+      DO trap. So the EMIT is correct on x86_64; the runtime non-trap is NOT an emit bug visible to disasm.
+      CAVEAT: rapid-disasm attempts were confounded by tooling (`/bin/ls -t .zig-cache/o/*/zwasm-edge-runner` can
+      pick the native-arm64 runner; byte signatures like `MOV EBX,2` collide across fixtures) — so the misaligned
+      entry itself was never cleanly isolated. PROPER next step = lldb: build the x86_64-macos edge-runner, `lldb
+      -- <exe> <iso-dir-with-only-the-misaligned-fixture>`, breakpoint at the entry fn ptr, single-step through
+      `test dl,3; jnz`, watch RFLAGS.ZF + whether the branch is taken + r15+0x28 after. Error-path-only gap (well-
+      formed programs never do unaligned atomics; threads spec-suite not yet wired) so the ops bundle can proceed
+      meanwhile (load/store/rmw work for aligned; this central emitMemOp trap fix covers all once cracked).
     first_raised: "2026-06-07"
     last_reviewed: "2026-06-07"
     refs: |-

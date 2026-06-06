@@ -38,12 +38,16 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
   but x86_64 didn't trap (ubuntu RED). → **D-299** (now): bytes proven correct end-of-compile yet runtime
   trap_flag=0 on native+Rosetta x86_64. **Rosetta reproduces locally** (`zig build test-edge-cases
   -Dtarget=x86_64-macos`) — no ubuntu round-trip needed.
-- **NEXT = D-299 investigation FIRST**: lldb on the Rosetta x86_64 binary — disasm the EXECUTED JIT page +
-  single-step the JNE (TEST DL,#3 @ byte18 → JNE@21 → stub@77) to find why it's not taken despite correct `buf`
-  bytes (suspect: page≠buf / W^X stale-page, or trap-stub-from-mid-body x86_64 quirk). Then re-land B2 (cherry-
-  pick the arm64 half that worked + fix x86_64). THEN atomic load/store variants batch (store 0x17, i64.load
-  0x11, load8/16/32_u, store8/16/32 — established-pattern via emitMemOp+is_atomic once the trap is sound).
-  PRE-PUSH `zig build test-runtime-runner-smoke`.
+- **D-299 update (emit CONFIRMED correct)**: x86_64 ALIGNED-entry ndisasm shows `test dl,3; jnz → stub` with the
+  stub byte-identical to working oob/oob_table stubs (trap_flag[r15+0x28]=1, kind[r15+0x2c]=0xE). So the runtime
+  non-trap is NOT a disasm-visible emit bug. Rapid-disasm was confounded by tooling (`ls -t` picks the arm64
+  runner; byte-sig collisions) — the misaligned entry was never cleanly isolated.
+- **NEXT (pick one, time-box D-299 to ~1 cycle)**: **(a)** crack D-299 via SCRIPTED lldb (`lldb -b -o 'b ...'
+  -o run …`) on the x86_64-macos runner over an ISO dir (only the misaligned fixture) — single-step `test dl,3;
+  jnz`, watch ZF/branch/r15+0x28; if cracked → re-land B2 (arm64 half worked) + fix x86_64. **(b)** if still
+  stuck → PIVOT to forward progress: land atomic store/rmw/cmpxchg/i64-variants as PLAIN aligned mem ops (NO JIT
+  align-trap; interp traps; the central emitMemOp `is_atomic` trap is D-299, auto-covers all once fixed) — keeps
+  the bundle moving on an error-path-only gap. PRE-PUSH `zig build test-runtime-runner-smoke` for any new trap.
 - **Exit-condition**: a `test/edge_cases/p17/atomics/*` (or spec atomics manifest) green 3-host with the full
   load/store/rmw/cmpxchg set + fence; wait/notify minimal-single-thread; shared-mem parse+validate.
 - **Cycles-remaining**: ~many (large feature). No tag (ADR-0156).
@@ -51,7 +55,8 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
 ## Current state
 
 - **Phase 17 (v0.2 feature line) IN-PROGRESS** (ADR-0168, user-unblocked); 17.1-atomics bundle ACTIVE: fence +
-  i32.atomic.load LOAD done @38d25379; JIT align-trap B2 REVERTED @fc37ca49 (x86_64 bug = D-299); NEXT = D-299 fix. Phase 16 (完成形) DONE; v0.1 surface audited+documented+exampled, memory-safety swept
+  i32.atomic.load LOAD done @38d25379; JIT align-trap B2 REVERTED @fc37ca49 (x86_64 = D-299, emit-confirmed-OK,
+  runtime mystery → scripted-lldb OR pivot to ops-without-trap). Tree green @4d07f907. Phase 16 (完成形) DONE; v0.1 surface audited+documented+exampled, memory-safety swept
   SOUND, dogfooding DONE (cw v1). No release/tag ever (ADR-0156).
 - Debt ledger: **65 entries, 0 `now`** (D-264 dogfooding discharged). Remaining = `.dev/remaining_sweep.md`
   (Bucket A prune / B actionable-low / C deferred / D externally-blocked) — sweep between features, never idle.
