@@ -30,11 +30,16 @@ cadence (user-directed). D-291/284/287 prior.
   bench) · **D-289** param/stack arms (degenerate-only) — all correctly deferred, no measured need.
 - **D-283** (realworld WASI JIT e2e) would SURFACE failures (46/55 compile) = creates debt, counterproductive.
 
-**Remaining work is**: (a) **blocked-by** (31 rows — external/future); (b) **v0.2.0 features** (threads /
-wide-arith / custom page sizes / stack-switching / component model — `proposal_watch.md`); (c) **完成形 surface
-audits** (C/Zig/CLI あるべき論 vs industry-standard — open-ended); (d) **dogfooding** (D-264 blocked on
-ClojureWasm v2 consumer). (a)/(d) are gated; (b)/(c) are big + benefit from a user steer. Next autonomous
-default if unsteered: a bounded CLI/C-API 完成形 surface-audit slice.
+**DIRECTION (user-steered 2026-06-06): 完成形 surface audits.** CLI surface AUDIT DONE → **D-295** (subagent vs
+wasmtime/wasmer): CLI is ~85% complete + intentionally lean (validate/inspect/wat declined per ADR-0159 = not
+gaps). Genuine gaps prioritized: **P0 `--env KEY=VAL`** (WASI environ — host `setEnvs` infra EXISTS, unwired at
+CLI; mirror `--dir`: accumulate in main.zig + thread `envs` into runWasmJit/runCwasmWasi/runWasmCapturedOpts +
+`host.setEnvs` after setArgs — all 3 call sites @main.zig:212/223/225) · **P1 `--verbose`** (LOW effort) ·
+**P2 WAT input** (needs a parser; maybe v0.2). **NEXT: implement P0 `--env`** (atomic — CLI + 3 runners + a
+test; needs an env-reading fixture or CLI integration test — deferred from this session's tail to fresh
+context, full plan in D-295). Then P1 `--verbose`, then the C-API + Zig-API surface audits (reuse the method).
+**Remaining (non-audit)**: (a) blocked-by 31 (external/future); (b) v0.2.0 features (proposal_watch); (d)
+dogfooding (D-264 gated).
 **CADENCE (ADR-0076 D8)**: windows BATCHED (≥6 ABI-risk / ≥12 else); chain MANY chunks/turn, never poll-wait
 on windows.
 
