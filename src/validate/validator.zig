@@ -1594,6 +1594,48 @@ pub const Validator = struct {
             0x1B => try self.opAtomicStore(.i64, 0), // i64.atomic.store8
             0x1C => try self.opAtomicStore(.i64, 1), // i64.atomic.store16
             0x1D => try self.opAtomicStore(.i64, 2), // i64.atomic.store32
+            0x1E => try self.opAtomicRmw(.i32, 2), // i32.atomic.rmw.add
+            0x1F => try self.opAtomicRmw(.i64, 3), // i64.atomic.rmw.add
+            0x20 => try self.opAtomicRmw(.i32, 0), // i32.atomic.rmw8.add_u
+            0x21 => try self.opAtomicRmw(.i32, 1), // i32.atomic.rmw16.add_u
+            0x22 => try self.opAtomicRmw(.i64, 0), // i64.atomic.rmw8.add_u
+            0x23 => try self.opAtomicRmw(.i64, 1), // i64.atomic.rmw16.add_u
+            0x24 => try self.opAtomicRmw(.i64, 2), // i64.atomic.rmw32.add_u
+            0x25 => try self.opAtomicRmw(.i32, 2), // i32.atomic.rmw.sub
+            0x26 => try self.opAtomicRmw(.i64, 3), // i64.atomic.rmw.sub
+            0x27 => try self.opAtomicRmw(.i32, 0), // i32.atomic.rmw8.sub_u
+            0x28 => try self.opAtomicRmw(.i32, 1), // i32.atomic.rmw16.sub_u
+            0x29 => try self.opAtomicRmw(.i64, 0), // i64.atomic.rmw8.sub_u
+            0x2A => try self.opAtomicRmw(.i64, 1), // i64.atomic.rmw16.sub_u
+            0x2B => try self.opAtomicRmw(.i64, 2), // i64.atomic.rmw32.sub_u
+            0x2C => try self.opAtomicRmw(.i32, 2), // i32.atomic.rmw.and
+            0x2D => try self.opAtomicRmw(.i64, 3), // i64.atomic.rmw.and
+            0x2E => try self.opAtomicRmw(.i32, 0), // i32.atomic.rmw8.and_u
+            0x2F => try self.opAtomicRmw(.i32, 1), // i32.atomic.rmw16.and_u
+            0x30 => try self.opAtomicRmw(.i64, 0), // i64.atomic.rmw8.and_u
+            0x31 => try self.opAtomicRmw(.i64, 1), // i64.atomic.rmw16.and_u
+            0x32 => try self.opAtomicRmw(.i64, 2), // i64.atomic.rmw32.and_u
+            0x33 => try self.opAtomicRmw(.i32, 2), // i32.atomic.rmw.or
+            0x34 => try self.opAtomicRmw(.i64, 3), // i64.atomic.rmw.or
+            0x35 => try self.opAtomicRmw(.i32, 0), // i32.atomic.rmw8.or_u
+            0x36 => try self.opAtomicRmw(.i32, 1), // i32.atomic.rmw16.or_u
+            0x37 => try self.opAtomicRmw(.i64, 0), // i64.atomic.rmw8.or_u
+            0x38 => try self.opAtomicRmw(.i64, 1), // i64.atomic.rmw16.or_u
+            0x39 => try self.opAtomicRmw(.i64, 2), // i64.atomic.rmw32.or_u
+            0x3A => try self.opAtomicRmw(.i32, 2), // i32.atomic.rmw.xor
+            0x3B => try self.opAtomicRmw(.i64, 3), // i64.atomic.rmw.xor
+            0x3C => try self.opAtomicRmw(.i32, 0), // i32.atomic.rmw8.xor_u
+            0x3D => try self.opAtomicRmw(.i32, 1), // i32.atomic.rmw16.xor_u
+            0x3E => try self.opAtomicRmw(.i64, 0), // i64.atomic.rmw8.xor_u
+            0x3F => try self.opAtomicRmw(.i64, 1), // i64.atomic.rmw16.xor_u
+            0x40 => try self.opAtomicRmw(.i64, 2), // i64.atomic.rmw32.xor_u
+            0x41 => try self.opAtomicRmw(.i32, 2), // i32.atomic.rmw.xchg
+            0x42 => try self.opAtomicRmw(.i64, 3), // i64.atomic.rmw.xchg
+            0x43 => try self.opAtomicRmw(.i32, 0), // i32.atomic.rmw8.xchg_u
+            0x44 => try self.opAtomicRmw(.i32, 1), // i32.atomic.rmw16.xchg_u
+            0x45 => try self.opAtomicRmw(.i64, 0), // i64.atomic.rmw8.xchg_u
+            0x46 => try self.opAtomicRmw(.i64, 1), // i64.atomic.rmw16.xchg_u
+            0x47 => try self.opAtomicRmw(.i64, 2), // i64.atomic.rmw32.xchg_u
             else => return Error.NotImplemented,
         }
     }
@@ -2868,6 +2910,16 @@ pub const Validator = struct {
         try self.readMemargCheckAlignExact(natural_align_log2);
         try self.popExpect(t); // value
         try self.popExpect(self.memAddrType()); // address (i32 or i64)
+    }
+
+    /// Wasm threads §valid — `tNN.atomic.rmw*.<op>` (non-cmpxchg): EXACT
+    /// natural align + a memory; pop value (t) + addr, push old (t).
+    fn opAtomicRmw(self: *Validator, t: ValType, natural_align_log2: u32) Error!void {
+        if (self.memory_count == 0) return Error.UnknownMemory;
+        try self.readMemargCheckAlignExact(natural_align_log2);
+        try self.popExpect(t); // value
+        try self.popExpect(self.memAddrType()); // address
+        try self.pushType(t); // old
     }
 
     fn opStore(self: *Validator, t: ValType, max_align_log2: u32) Error!void {

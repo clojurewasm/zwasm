@@ -65,6 +65,49 @@ pub fn register(table: *DispatchTable) void {
     table.interp[op(.@"i64.atomic.store8")] = i64AtomicStore8;
     table.interp[op(.@"i64.atomic.store16")] = i64AtomicStore16;
     table.interp[op(.@"i64.atomic.store32")] = i64AtomicStore32;
+    // atomic rmw binops (threads, ADR-0168) — generic rmwHandler factory.
+    table.interp[op(.@"i32.atomic.rmw.add")] = rmwHandler(u32, false, .add);
+    table.interp[op(.@"i64.atomic.rmw.add")] = rmwHandler(u64, true, .add);
+    table.interp[op(.@"i32.atomic.rmw8.add_u")] = rmwHandler(u8, false, .add);
+    table.interp[op(.@"i32.atomic.rmw16.add_u")] = rmwHandler(u16, false, .add);
+    table.interp[op(.@"i64.atomic.rmw8.add_u")] = rmwHandler(u8, true, .add);
+    table.interp[op(.@"i64.atomic.rmw16.add_u")] = rmwHandler(u16, true, .add);
+    table.interp[op(.@"i64.atomic.rmw32.add_u")] = rmwHandler(u32, true, .add);
+    table.interp[op(.@"i32.atomic.rmw.sub")] = rmwHandler(u32, false, .sub);
+    table.interp[op(.@"i64.atomic.rmw.sub")] = rmwHandler(u64, true, .sub);
+    table.interp[op(.@"i32.atomic.rmw8.sub_u")] = rmwHandler(u8, false, .sub);
+    table.interp[op(.@"i32.atomic.rmw16.sub_u")] = rmwHandler(u16, false, .sub);
+    table.interp[op(.@"i64.atomic.rmw8.sub_u")] = rmwHandler(u8, true, .sub);
+    table.interp[op(.@"i64.atomic.rmw16.sub_u")] = rmwHandler(u16, true, .sub);
+    table.interp[op(.@"i64.atomic.rmw32.sub_u")] = rmwHandler(u32, true, .sub);
+    table.interp[op(.@"i32.atomic.rmw.and")] = rmwHandler(u32, false, .@"and");
+    table.interp[op(.@"i64.atomic.rmw.and")] = rmwHandler(u64, true, .@"and");
+    table.interp[op(.@"i32.atomic.rmw8.and_u")] = rmwHandler(u8, false, .@"and");
+    table.interp[op(.@"i32.atomic.rmw16.and_u")] = rmwHandler(u16, false, .@"and");
+    table.interp[op(.@"i64.atomic.rmw8.and_u")] = rmwHandler(u8, true, .@"and");
+    table.interp[op(.@"i64.atomic.rmw16.and_u")] = rmwHandler(u16, true, .@"and");
+    table.interp[op(.@"i64.atomic.rmw32.and_u")] = rmwHandler(u32, true, .@"and");
+    table.interp[op(.@"i32.atomic.rmw.or")] = rmwHandler(u32, false, .@"or");
+    table.interp[op(.@"i64.atomic.rmw.or")] = rmwHandler(u64, true, .@"or");
+    table.interp[op(.@"i32.atomic.rmw8.or_u")] = rmwHandler(u8, false, .@"or");
+    table.interp[op(.@"i32.atomic.rmw16.or_u")] = rmwHandler(u16, false, .@"or");
+    table.interp[op(.@"i64.atomic.rmw8.or_u")] = rmwHandler(u8, true, .@"or");
+    table.interp[op(.@"i64.atomic.rmw16.or_u")] = rmwHandler(u16, true, .@"or");
+    table.interp[op(.@"i64.atomic.rmw32.or_u")] = rmwHandler(u32, true, .@"or");
+    table.interp[op(.@"i32.atomic.rmw.xor")] = rmwHandler(u32, false, .xor);
+    table.interp[op(.@"i64.atomic.rmw.xor")] = rmwHandler(u64, true, .xor);
+    table.interp[op(.@"i32.atomic.rmw8.xor_u")] = rmwHandler(u8, false, .xor);
+    table.interp[op(.@"i32.atomic.rmw16.xor_u")] = rmwHandler(u16, false, .xor);
+    table.interp[op(.@"i64.atomic.rmw8.xor_u")] = rmwHandler(u8, true, .xor);
+    table.interp[op(.@"i64.atomic.rmw16.xor_u")] = rmwHandler(u16, true, .xor);
+    table.interp[op(.@"i64.atomic.rmw32.xor_u")] = rmwHandler(u32, true, .xor);
+    table.interp[op(.@"i32.atomic.rmw.xchg")] = rmwHandler(u32, false, .xchg);
+    table.interp[op(.@"i64.atomic.rmw.xchg")] = rmwHandler(u64, true, .xchg);
+    table.interp[op(.@"i32.atomic.rmw8.xchg_u")] = rmwHandler(u8, false, .xchg);
+    table.interp[op(.@"i32.atomic.rmw16.xchg_u")] = rmwHandler(u16, false, .xchg);
+    table.interp[op(.@"i64.atomic.rmw8.xchg_u")] = rmwHandler(u8, true, .xchg);
+    table.interp[op(.@"i64.atomic.rmw16.xchg_u")] = rmwHandler(u16, true, .xchg);
+    table.interp[op(.@"i64.atomic.rmw32.xchg_u")] = rmwHandler(u32, true, .xchg);
     table.interp[op(.@"i64.load")] = i64Load;
     table.interp[op(.@"f32.load")] = f32Load;
     table.interp[op(.@"f64.load")] = f64Load;
@@ -413,6 +456,45 @@ fn i64AtomicStore32(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     std.mem.writeInt(u32, memorySlice(rt, instr.extra)[ea..][0..4], v, .little);
 }
 
+// --- Atomic read-modify-write (threads, ADR-0168) ---
+//
+// rmw pops [addr, value], loads `old` (width W) with the alignment
+// trap (ea mod W) BEFORE bounds (spec exec), computes `op(old, val)`,
+// stores it back, and pushes `old` zero-extended to the result type.
+// Single-threaded substrate → a plain non-atomic load-modify-store.
+
+const RmwKind = enum { add, sub, @"and", @"or", xor, xchg };
+
+/// Factory: returns the interp handler for a given narrow width `W`,
+/// result width (`res64` → i64 result else i32), and rmw `kind`.
+fn rmwHandler(comptime W: type, comptime res64: bool, comptime kind: RmwKind) dispatch.InterpFn {
+    const width = @sizeOf(W);
+    return struct {
+        fn h(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+            const rt = Runtime.fromOpaque(c);
+            const raw_val = if (res64) rt.popOperand().u64 else @as(u64, rt.popOperand().u32);
+            const addr = rt.popOperand().u32;
+            const mem = memorySlice(rt, instr.extra);
+            const ea: u64 = @as(u64, addr) + @as(u64, instr.payload);
+            if (ea & (width - 1) != 0) return Trap.UnalignedAtomic;
+            if (ea + width > mem.len) return Trap.OutOfBoundsLoad;
+            const slot = mem[@intCast(ea)..][0..width];
+            const old = std.mem.readInt(W, slot, .little);
+            const val: W = @truncate(raw_val);
+            const new: W = switch (kind) {
+                .add => old +% val,
+                .sub => old -% val,
+                .@"and" => old & val,
+                .@"or" => old | val,
+                .xor => old ^ val,
+                .xchg => val,
+            };
+            std.mem.writeInt(W, slot, new, .little);
+            if (res64) try rt.pushOperand(.{ .u64 = @as(u64, old) }) else try rt.pushOperand(.{ .u32 = @as(u32, old) });
+        }
+    }.h;
+}
+
 // --- memory.size / memory.grow ---
 
 /// True when the memory at `memidx` is declared with `(memory i64 …)`
@@ -610,6 +692,43 @@ test "atomic stores write + trap unaligned" {
     try rt.pushOperand(.{ .u32 = 1 });
     try rt.pushOperand(.{ .u32 = 0 });
     try testing.expectError(Trap.UnalignedAtomic, driveOne(&rt, &t, .@"i32.atomic.store16", 0, 0));
+}
+
+test "atomic rmw binops: add/xchg/and + narrow + unaligned trap" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    rt.memory = try testing.allocator.alloc(u8, 64);
+    @memset(rt.memory, 0);
+    std.mem.writeInt(u32, rt.memory[8..][0..4], 100, .little);
+
+    // i32.atomic.rmw.add @8 += 23 → pushes OLD (100); mem becomes 123.
+    try rt.pushOperand(.{ .u32 = 8 });
+    try rt.pushOperand(.{ .u32 = 23 });
+    try driveOne(&rt, &t, .@"i32.atomic.rmw.add", 0, 0);
+    try testing.expectEqual(@as(u32, 100), rt.popOperand().u32);
+    try testing.expectEqual(@as(u32, 123), std.mem.readInt(u32, rt.memory[8..][0..4], .little));
+
+    // i32.atomic.rmw.xchg @8 = 7 → pushes OLD (123); mem becomes 7.
+    try rt.pushOperand(.{ .u32 = 8 });
+    try rt.pushOperand(.{ .u32 = 7 });
+    try driveOne(&rt, &t, .@"i32.atomic.rmw.xchg", 0, 0);
+    try testing.expectEqual(@as(u32, 123), rt.popOperand().u32);
+    try testing.expectEqual(@as(u32, 7), std.mem.readInt(u32, rt.memory[8..][0..4], .little));
+
+    // i64.atomic.rmw8.and_u @3: mem[3]=0xF0, &= 0x3C → old 0xF0, mem 0x30.
+    rt.memory[3] = 0xF0;
+    try rt.pushOperand(.{ .u32 = 3 });
+    try rt.pushOperand(.{ .u64 = 0x3C });
+    try driveOne(&rt, &t, .@"i64.atomic.rmw8.and_u", 0, 0);
+    try testing.expectEqual(@as(u64, 0xF0), rt.popOperand().u64);
+    try testing.expectEqual(@as(u8, 0x30), rt.memory[3]);
+
+    // unaligned: i32.atomic.rmw.add @2 → UnalignedAtomic.
+    try rt.pushOperand(.{ .u32 = 2 });
+    try rt.pushOperand(.{ .u32 = 1 });
+    try testing.expectError(Trap.UnalignedAtomic, driveOne(&rt, &t, .@"i32.atomic.rmw.add", 0, 0));
 }
 
 test "i32.load8_s sign-extends" {
