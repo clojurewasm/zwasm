@@ -45,9 +45,15 @@ dogfooding (D-264 gated). No actionable HIGH-value 完成形 surface gap remains
 (`f163e882`, test-spec 9/0) + `Memory.sliceAt` (`e5f34ff8`) + `Engine.linker()` (`994a5aef`) +
 `Linker.defineInstance()` (`dba99bb8`, all 4 export kinds — the prior "deferred sugar" call was over-cautious;
 all 4 cross-module alias paths already existed → clean compose). **ALL implementable Zig-API residuals CLOSED.**
-**NEXT track** = pivot OFF the Zig-API surface (it's complete). Remaining D-296 residuals are separate tracked
-rows: funcref-call handle (D-269), full WASI config (D-177), standalone Global/Memory (D-178). Open options:
-a memory-safety sweep, a debt-row pickup, or revisit one of those cross-ref'd rows. No Zig-API gap remains.
+**Zig-API surface is COMPLETE + reviewed + doc-synced.** Memory-safety review of the session's facade additions
+(subagent, `a9c850be^..HEAD`): CLEAN — no HIGH/MED issues (arena error-paths covered, realloc aliasing safe,
+growMemory behavior preserved line-for-line, sliceAt overflow-safe, defineInstance lifetime contract consistent;
+one LOW fail-loud-exhaustive note, no action). `docs/zig_api_design.md` synced (`e120cc15` — killed the stale
+2026-05-25 "thin veneer, ships in 6-8 cycles" status block; fixed introspection/grow signatures).
+**NEXT track** (no Zig-API gap remains; the implementable funcref/WASI/standalone residuals are blocked-by
+future phases — call_ref §10.R, Phase-11 D-177, D-178): a BROADER memory-safety sweep of older/higher-risk code
+(JIT codegen mem-mgmt, WASI fd, cross-module alias lifetimes) via subagent fan-out, OR a barrier-dissolution
+check on blocked-by rows. Approaching the point where high-value autonomous surface work is exhausted.
 **CADENCE (ADR-0076 D8)**: windows BATCHED (≥6 ABI-risk / ≥12 else); chain MANY chunks/turn, never poll-wait
 on windows.
 
