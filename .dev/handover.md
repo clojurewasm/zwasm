@@ -109,9 +109,8 @@ wabt stays). **D-264** ClojureWasm dogfooding gated. `.dev/proposal_watch.md` = 
   D-279 hunt + atomics verify). Step 0.7: `grep -aE '\[run_remote_windows\] (OK|FAILED)|d-279-veh' /tmp/win.log`
   — OK/green → `track_heisenbug.sh win64-testall silent` + **`should_gate_windows.sh --record`**; `[d-279-veh]
   STACK-OVERFLOW` = H3 CONFIRMED; SIMD exit-3 w/o it = segv (re-open). NOT auto-revert (D7). Don't poll-wait.
-- **Gate note**: `[run_remote_windows] OK` = real green; `Build Summary: N failed` (no OK) = RED. EXPECTED
-  non-failures: `zig-host-hello` exit-42 + `--__selftest-crash` exit-70 "failed command"; the sha256 `verify:
-  FAIL` line is the known fixture-wrong-constant FALSE lead (zwasm hashes correctly).
+- **Gate note**: `OK` = green; `Build Summary: N failed` (no OK) = RED. EXPECTED non-failures: `zig-host-hello`
+  exit-42, `--__selftest-crash` exit-70, sha256 `verify: FAIL` (fixture-wrong-constant FALSE lead).
 
 ## Key refs
 
