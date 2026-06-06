@@ -95,19 +95,18 @@ c_sha256_hash fixture → D-290). Queued: D-288, D-284, D-290.
 - **Phase 16 (完成形) — open-ended; the loop CONTINUES, no release (ADR-0156).** v0.1.0-scope program is
   thoroughly complete + 3-host green (`deb97903`); ADR-0163 bench+docs program ALL DONE. Tag/publish/cutover are
   manual, user-only — there is no release gate.
-- Debt ledger: **0 `now`** (D-294 → `partial`, 3-host green @`4fa16b29`/`ba111ee5`, residuals polish). **ADR-0164
-  trap-crash-exception-diagnostics COMPLETE** (D-293 + D-292 A/B-core/C/D all done). Next: D-279 observability
-  fix → D-291. Phase 16.
+- Debt ledger: **1 `now`** (**D-295** — D-291 regression guard, not minimally reproducible). **D-291 RESOLVED**
+  (`23874eda`, local test-all GREEN). D-294 → `partial` (3-host green, residuals polish). ADR-0164 COMPLETE. Phase 16.
 
 ## Step 0.7 (next resume) — verify remote logs
 
-- **ubuntu**: ✅ **GREEN @`ba111ee5`** (`[run_remote_ubuntu] OK`) — spec_assert 25437/0, simd 13351/0, realworld
-  55/0; D-294 code-13 null check confirmed on x86_64 Linux. No action.
-- **windows**: ✅ genuinely **GREEN @`ba111ee5`** (`[run_remote_windows] OK`, realworld_run_runner 55/55) — D-294
-  3-host green, D-279 did NOT fire. The `verify: FAIL` sha256 line is a FALSE lead (fixture has a wrong expected
-  constant; zwasm's d0e8b8f… is correct — Mac-verified). Tracker = `silent` (streak 3/5). cadence `--record`ed.
-- **Gate note**: `run_remote_windows.sh` `OK` line = real green; `Build Summary: N failed` (no `OK`) = RED. The
-  `zig-host-hello` exit-42 + `--__selftest-crash` exit-70 "failed command" lines are EXPECTED, not crashes.
+- **ubuntu**: kicked @`ca758ace` (D-291 fix is arm64-only → x86_64 unaffected, this just re-confirms the build +
+  broad x86_64 suite). Next resume: verify `/tmp/ubuntu.log` `OK`. Prior `ba111ee5`/`82630c95` were GREEN.
+- **windows**: ✅ GREEN @`7e46c054` (`[run_remote_windows] OK`); D-279 did NOT fire (tracker `silent`, streak 1).
+  Cadence DEFERRED for the D-291 fix (arm64-only, no x86_64/Win64 ABI change). The `verify: FAIL` sha256 line is
+  the known FALSE lead (fixture's wrong constant; zwasm's d0e8b8f… is correct). 
+- **Gate note**: `run_remote_windows.sh` `OK` line = real green; `Build Summary: N failed` (no `OK`) = RED.
+  `zig-host-hello` exit-42 + `--__selftest-crash` exit-70 "failed command" = EXPECTED, not crashes.
 
 ## Key refs
 
