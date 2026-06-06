@@ -50,10 +50,15 @@ all 4 cross-module alias paths already existed → clean compose). **ALL impleme
 growMemory behavior preserved line-for-line, sliceAt overflow-safe, defineInstance lifetime contract consistent;
 one LOW fail-loud-exhaustive note, no action). `docs/zig_api_design.md` synced (`e120cc15` — killed the stale
 2026-05-25 "thin veneer, ships in 6-8 cycles" status block; fixed introspection/grow signatures).
-**NEXT track** (no Zig-API gap remains; the implementable funcref/WASI/standalone residuals are blocked-by
-future phases — call_ref §10.R, Phase-11 D-177, D-178): a BROADER memory-safety sweep of older/higher-risk code
-(JIT codegen mem-mgmt, WASI fd, cross-module alias lifetimes) via subagent fan-out, OR a barrier-dissolution
-check on blocked-by rows. Approaching the point where high-value autonomous surface work is exhausted.
+**Memory-safety: cross-module aliasing audited** (D-297) — model SOUND (zombie-parking keeps aliased storage
+alive past instance deletes; DISPROVED a claimed table-UAF). One real gap FIXED (`477a9004`, docs): the
+**Linker must outlive Instances it creates** (importer runtime holds a raw ptr into Linker-owned CallCtx →
+post-deinit cross-module call = UAF) — now documented on header + deinit. Optional debug-assert guard deferred
+(D-297, contract-based OK for v0.1 à la wasmtime). Verify finding: ALWAYS adversarially check audit "CRITICAL"
+labels — this audit flip-flopped + missed the zombie-parking model; 1 of 2 "criticals" was a false positive.
+**NEXT track**: another high-risk memory-safety area (JIT codegen mmap/code-buffer mgmt, or WASI fd table) via
+a similarly-scoped HIGH-confidence-only subagent + adversarial verify, OR a blocked-by barrier-dissolution
+sweep. High-value autonomous surface work is largely done; memory-safety sweeps are the remaining 完成形 track.
 **CADENCE (ADR-0076 D8)**: windows BATCHED (≥6 ABI-risk / ≥12 else); chain MANY chunks/turn, never poll-wait
 on windows.
 

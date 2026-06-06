@@ -1216,6 +1216,31 @@ entries:
     refs: |-
       src/zwasm/module.zig (imports/exports@~95+); src/zwasm.zig (ExternKind/ImportItem/ExportItem re-exports);
       ADR-0109 (line 378 carve-out); scripts/capi_surface_gap.sh; include/wasm.h; D-269 / D-177 / D-178 / D-271.
+  - id: "D-297"
+    layer: "api"
+    status: "note"
+    description: |-
+      note (cross-module aliasing memory-safety audit, 2026-06-06 — Phase-16 完成形 memory-safety dimension).
+      Audited the Zig facade's cross-module aliasing lifetime model (Linker aliases a source Instance's live
+      funcs/memories/globals/tables into an importer). RESULT: model is SOUND. The c_api zombie-parking
+      architecture (`wasm_instance_delete` parks runtime+arena on the store's zombie list, reaped only at
+      `wasm_store_delete` — instance.zig:263) keeps aliased storage alive past individual instance deletes, so
+      memory/global/table/func aliases cannot dangle early (DISPROVED an audit's claimed table-refs-UAF). ONE
+      real gap found + FIXED (`477a9004`, docs): the **Linker must outlive every Instance it instantiates that
+      imports a host/cross-module func** — the importer runtime holds a raw ptr into the Linker-owned CallCtx
+      (ctx_storage, linker.zig:548), so a cross-module call after `Linker.deinit` is UAF. Was real + necessary
+      but lived only in an internal union comment; now on the file header + deinit docstring.
+      OPTIONAL FUTURE HARDENING (low priority, deferred): a debug-mode fail-loud guard — Linker tracks a
+      live-importer count (Instance back-ref decremented on its deinit) + `std.debug.assert(count==0)` in
+      `Linker.deinit`. Turns the silent-UAF footgun into a loud panic in Debug/ReleaseSafe. Contract-based (no
+      guard) is acceptable for a v0.1 systems embedding API (mirrors wasmtime's Store-ownership model; Zig has
+      no borrow checker), so this is a nice-to-have, not a correctness gap. DISCHARGE: implement the assert-guard
+      OR consciously decide the documented contract suffices for v1.0.
+    first_raised: "2026-06-06"
+    last_reviewed: "2026-06-06"
+    refs: |-
+      src/zwasm/linker.zig (header lifetime contract; deinit@~176; ctx_storage@58; cmf.ctx_ptr wiring@548);
+      src/api/instance.zig (zombie parking@206-269); ADR-0014 §2.1/6.K.2 (zombie list); D-199 / D-201b (aliasing).
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
