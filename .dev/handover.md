@@ -33,25 +33,26 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
   green. `i32.atomic.load` **Chunk A** @219e7d58 — validate `opAtomicLoad`/`readMemargCheckAlignExact` (==natural
   align, not ≤; atomics need NO shared mem per wasm-tools `check_shared_memarg`) + lower + interp (alignment-trap
   BEFORE bounds, spec exec 8<14a) + `Trap.UnalignedAtomic`/`TrapKind.unaligned_atomic`=14 + stackEffect 1→1.
-- **NEXT (current chunk)**: `i32.atomic.load` **Chunk B = JIT emit**. **DESIGN FORK (decide first)**: `i32.load`
-  uses dispatch_collector (meta+per-op files) BUT that path needs a threads classification — `WasmLevel = enum
-  {v1_0,v2_0,v3_0}` has NO threads + `Feature = enum {none}` (threads not a value yet) → would need an ADR +
-  裏取り (is atomics ∈ Wasm 3.0? if so wasm_level=.v3_0 + add to feature_level_check.v3_op_tags). **VS** the
-  legacy-switch path `atomic.fence` already used — add `.@"i32.atomic.load" => op_memory.emitMemOp` to BOTH
-  emit.zig legacy switches (sidesteps classification entirely; recommend THIS for the bundle unless atomics
-  cleanly == v3_0). Either way: add `.@"i32.atomic.load"` arm (access_size=4, LDR/MOV) to BOTH
-  `op_memory.zig:emitMemOp` (arm64@77, x86_64@69). **Chunk B2** =
-  RUNTIME align-trap: AND ea,#3 + cond-branch to NEW trap stub (`jitTrapCode`=14, mirror oob_fixups/bounds_check
-  both arches). edge fixtures: aligned (=val) + misaligned `expect trap`. **PRE-PUSH: `zig build
-  test-runtime-runner-smoke`** (lesson trapkind-variant). THEN store → rmw set → cmpxchg → i64 → notify/wait.
+- **Chunk B1 DONE @38d25379**: `i32.atomic.load` JIT happy-path load BOTH arches via the **legacy-switch** path
+  (fork resolved: legacy like atomic.fence, NOT dispatch_collector — threads has no WasmLevel/Feature; reuse the
+  op-family's route). arm64 emit.zig→`emitMemOp`; x86_64 emit.zig→`emitI32AtomicLoad`(=emitI32Load alias);
+  access_size=4 + load-enc arms in emitMemOp+emitMemOpI64 both arches. edge `i32_atomic_load`=0x12345678 green
+  arm64 + x86_64 cross-compiles.
+- **NEXT = Chunk B2 (RUNTIME align-trap)** — ⚠️ **GAP: JIT silently loads on misaligned atomic addr; interp
+  TRAPS (UnalignedAtomic). JIT/interp DIVERGE until B2.** In `op_memory.zig:emitMemOp` (guard `is_atomic`), after
+  ea in ip0: emit `TST ip0,#(size-1)` + `B.NE` placeholder → append to a NEW `ctx.unaligned_fixups`; function-
+  final `EmitCindStub.emit(...,unaligned_fixups,14,frame_bytes)` (code 14=unaligned_atomic, already in
+  trap_surface jitTrapCode? NO — add it). ENCODER GAP: arm64 `encTstImm1W` only tests bit0 (mask=1); need a
+  TST/ANDS bitmask-imm for mask 3/7 (contiguous-low-bits logical-imm). x86_64: TEST+JNZ + same fixup plumbing.
+  edge: misaligned `expect trap`. PRE-PUSH `zig build test-runtime-runner-smoke`. THEN store→rmw→cmpxchg→i64.
 - **Exit-condition**: a `test/edge_cases/p17/atomics/*` (or spec atomics manifest) green 3-host with the full
   load/store/rmw/cmpxchg set + fence; wait/notify minimal-single-thread; shared-mem parse+validate.
 - **Cycles-remaining**: ~many (large feature). No tag (ADR-0156).
 
 ## Current state
 
-- **Phase 17 (v0.2 feature line) IN-PROGRESS** (ADR-0168, user-unblocked); 17.1-atomics bundle ACTIVE, fence
-  milestone DONE @9971b708. Phase 16 (完成形) DONE; v0.1 surface audited+documented+exampled, memory-safety swept
+- **Phase 17 (v0.2 feature line) IN-PROGRESS** (ADR-0168, user-unblocked); 17.1-atomics bundle ACTIVE: fence +
+  i32.atomic.load (validate/lower/interp + JIT happy-path) DONE @38d25379; NEXT = B2 runtime align-trap. Phase 16 (完成形) DONE; v0.1 surface audited+documented+exampled, memory-safety swept
   SOUND, dogfooding DONE (cw v1). No release/tag ever (ADR-0156).
 - Debt ledger: **65 entries, 0 `now`** (D-264 dogfooding discharged). Remaining = `.dev/remaining_sweep.md`
   (Bucket A prune / B actionable-low / C deferred / D externally-blocked) — sweep between features, never idle.
@@ -76,18 +77,11 @@ fds; the CLI preopen fds are an intentional documented process-lifetime choice r
 audit's "fd-leak REAL BUG" was the **3rd overstated finding this session** to dissolve under verification.
 **Discipline: always adversarially verify audit "CRITICAL" labels** (table-UAF, fd-leak, Linker-#6 all overstated).
 
-**D-279 (Win64 SIMD-JIT heisenbug — the one open RED-class issue)**: RESURFACED @d0c5b737 (3 SIMD crashes:
-test.exe + spec-simd + wasm-2-0-assert, all exit-3; segv recorded streak→0). MAJOR NARROWING: the `[d-279-veh]`
-diagnostic did NOT fire + NO panic message + NO 0xC0000005 in the log → **NOT a VEH hardware fault, NOT a
-standard panic**. New **leading hypothesis H3 = Win64 1 MB stack overflow** (vs Mac/Linux 8 MB): a deep SIMD test
-path fitting 8 MB but overflowing 1 MB → Win64-only + intermittent-by-depth + no-message + not-VEH-caught (filter
-excludes EXCEPTION_STACK_OVERFLOW per ADR-0105 D4). Fits ALL evidence + the deep-stack lineage. Full analysis +
-next-diagnostic (re-add EXCEPTION_STACK_OVERFLOW to the VEH filter with a `[d-279-veh] stack-overflow` log) in
-D-279. NOT auto-reverted (D7; ubuntu 8 MB green every time, facade exonerated).
-
-**D-279 H3 diagnostic LANDED + Win64-VALIDATED** (`b86ac7fc`): `EXCEPTION_STACK_OVERFLOW` VEH arm → minimal
-`[d-279-veh] STACK-OVERFLOW` WriteFile (diagnostic-only, ADR-0105 D4 stands), build-validated + deployed but
-UNFIRED (streak silent 2). A FUTURE Win64 D-279 crash self-identifies: `[d-279-veh] STACK-OVERFLOW` → H3
+**D-279 (Win64 SIMD-JIT heisenbug — one open RED-class issue)**: leading hypo **H3 = Win64 1 MB stack overflow**
+(vs Mac/Linux 8 MB; deep SIMD path fits 8 MB, overflows 1 MB → Win64-only, intermittent, no-message, not-VEH —
+the `[d-279-veh]` diag never fired + no 0xC0000005). H3 diagnostic LANDED+validated @`b86ac7fc`
+(`EXCEPTION_STACK_OVERFLOW` VEH arm → `[d-279-veh] STACK-OVERFLOW` WriteFile, diagnostic-only, ADR-0105 D4
+stands) but UNFIRED (silent streak 3). A FUTURE crash self-identifies: `[d-279-veh] STACK-OVERFLOW` → H3
 CONFIRMED (extend the stack-limit guard to the overflowing path); exit-3 WITHOUT it → H3 refuted (re-open
 enumeration). Pending external signal — the loop keeps re-kicking windows per batch so a repro is always hunted.
 
