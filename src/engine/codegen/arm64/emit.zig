@@ -1989,6 +1989,12 @@ pub fn compile(
             // §9.6/9.6-g-v — trunc_sat (FCVTZS/U + SQXTN/UQXTN family).
             .@"i32x4.trunc_sat_f64x2_s_zero" => try op_simd_float.emitI32x4TruncSatF64x2SZero(&ctx, &ins),
             .@"i32x4.trunc_sat_f64x2_u_zero" => try op_simd_float.emitI32x4TruncSatF64x2UZero(&ctx, &ins),
+            // §17.4 relaxed-SIMD trunc — NaN/OOB → saturating clamp (v2 choice),
+            // behaviourally identical to trunc_sat; reuse those emits.
+            .@"i32x4.relaxed_trunc_f32x4_s" => try op_simd_float.emitI32x4TruncSatF32x4S(&ctx, &ins),
+            .@"i32x4.relaxed_trunc_f32x4_u" => try op_simd_float.emitI32x4TruncSatF32x4U(&ctx, &ins),
+            .@"i32x4.relaxed_trunc_f64x2_s_zero" => try op_simd_float.emitI32x4TruncSatF64x2SZero(&ctx, &ins),
+            .@"i32x4.relaxed_trunc_f64x2_u_zero" => try op_simd_float.emitI32x4TruncSatF64x2UZero(&ctx, &ins),
             // §9.6/9.6-f-ii — v128.const + i8x16.shuffle (per ADR-0042
             // const-pool with PC-relative LDR-Q-literal + fixup pass).
             .@"v128.const" => try op_simd.emitV128Const(&ctx, &ins),
