@@ -5,18 +5,18 @@
 10.J carries the implementation cycles.
 **Audience**: Zig consumers embedding zwasm v2 as a Wasm runtime
 library (ClojureWasm v1 dogfooding, and any other Zig project).
-**Implementation status (2026-05-25 amend)**: Today's
-`src/zwasm.zig` (507 lines, ADR-0025 minimum subset) is a thin
-veneer over the wasm-c-api binding — `Runtime` ignores the
-caller allocator (`c_allocator` hard-coded internally),
-`InstantiateOpts` is empty (no host imports), `InvokeError`
-collapses 12 trap variants into one `error.Trap`, no
-`TypedFunc` / `Linker` / `Memory` surface. The rewrite to the
-shape below ships as ROADMAP §10 / 10.J in 6-8 cycles. **No J.*
-impl chunk lands until the pre-impl investigation + execution
-plan + test strategy (the next chunk after amend round) is
-user-reviewed.** During the impl train, ADR-0109 Revision
-history tracks per-section landing.
+**Implementation status (2026-06-06 amend)**: SHIPPED. The §10 /
+10.J rewrite is complete — the native facade (`Engine` / `Module` /
+`Linker` / `Instance` / `TypedFunc` / `Memory` / `Global` / `Table` /
+`Caller` + full 12-variant `Trap` + allocator strict-pass) lives in
+`src/zwasm/*.zig` and is the primary surface. Phase-16 (完成形)
+follow-ups added module introspection (`Module.imports`/`.exports`),
+`Memory.grow`/`.sliceAt`, `Engine.linker()`, and
+`Linker.defineInstance`. The signatures below are the original
+**target sketch**; where a shipped signature diverges (notably the
+introspection methods take an allocator + are fallible, since the
+import/export sections are decoded on demand), the **source is
+authoritative** — read `src/zwasm/<type>.zig`.
 
 This doc is self-contained: read top-to-bottom to understand
 the consumer-facing contract without needing to read the
@@ -63,8 +63,13 @@ pub const Engine = struct {
 // Module: compile-once, instantiate-many
 pub const Module = struct {
     pub fn deinit(self: *Module) void;
-    pub fn exports(self: *const Module) []const ExportInfo;  // metadata
-    pub fn imports(self: *const Module) []const ImportInfo;  // metadata
+    // Introspection (shipped): allocator-taking + fallible (the import/
+    // export sections are decoded on demand). Result owns its strings;
+    // call `.deinit()`. `ModuleImports.items: []const ImportItem`
+    // (module+name+kind); `ModuleExports.items: []const ExportItem`
+    // (name+kind). `ExternKind = { func, table, memory, global, tag }`.
+    pub fn imports(self: *const Module, gpa: Allocator) IntrospectError!ModuleImports;
+    pub fn exports(self: *const Module, gpa: Allocator) IntrospectError!ModuleExports;
 };
 
 // Linker: builder for imports
@@ -101,6 +106,7 @@ pub const Memory = struct {
     pub fn writeBytes(self: *Memory, offset: u32, data: []const u8) !void;
     pub fn read(self: *Memory, comptime T: type, offset: u32) !T;
     pub fn write(self: *Memory, offset: u32, value: anytype) !void;
+    pub fn grow(self: Memory, delta: u32) ?u32;  // → prev pages, null = refused (no trap)
     pub fn size(self: *Memory) u32;     // in pages (64 KiB)
     pub fn grow(self: *Memory, delta_pages: u32) !u32;
 };
