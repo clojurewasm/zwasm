@@ -14,13 +14,18 @@
   spec_assert 212/0, wast 1158/0, realworld 55/55, simd 13351/0). Closes the latent Win64 deep-recursion SEGV.
 - D-291 (`23874eda`), D-287 (`cf605260`, ADR-0165), D-284 (`fbc60815`). All 3-host green.
 
-## ← LEAD: D-288 closed → work the B-group code debts (next: D-294)
+## ← LEAD: D-288 closed → B-group; D-294 reassessed (residuals are D-293-class) → next: D-286
 
-**Next actionable (from the 2026-06-06 full debt sweep)**, top-down: **D-294** (partial — JIT call_indirect
-null-elem trap mislabel, code-13 residual polish) · **D-286** (memory.fill/init byte-loop → word-wise, D-285
-follow-on) · **D-289** (arm64 frame-offset imm12 cap, FP/param/stack large-arm residual; GPR done) · **D-229**
-(x86_64 SysV param-bearing multi-value wrapper thunk) · **D-283** (realworld WASI corpus not JIT-run e2e) ·
-**D-293** (JIT bounds_fixups kinded-fixup refactor) · **D-204** (validator.zig at cap=3300, split review).
+**D-294 reassessed** (debt row): the load-bearing inline null-elem mislabel is FIXED (`4fa16b29`); both
+residuals are D-293-class (R2 "undefined element" needs splitting the SHARED oob_table/code-2 channel —
+op_table routes call_indirect+table.get/set/copy/fill all to code 2 — AND is conformance-neutral cosmetic; R1
+needs the subtyping-trampoline null sentinel). NOT cheap standalone fixes → fold into D-293.
+
+**Next actionable** (full debt sweep 2026-06-06): **D-286** (memory.fill/init byte-loop → word-wise, follows
+the proven D-285 memory.copy pattern — real perf-completeness value) · **D-289** (arm64 frame-offset imm12
+cap, FP/param/stack large-arm residual; GPR done) · **D-229** (x86_64 SysV param-bearing multi-value wrapper
+thunk) · **D-283** (realworld WASI corpus not JIT-run e2e) · **D-293** (kinded-fixup refactor, subsumes D-294
+residuals) · **D-204** (validator.zig at cap=3300, split review).
 
 **Blocked / parked**: **D-290** remainder = 3 proposal-laden distillers (wasmtime_misc / spec_2_0_assert /
 spec_simd) direction-gated — wasm-tools vs wabt TOOL-OUTPUT divergence breaks curated gates (NOT drift; debt

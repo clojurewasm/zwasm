@@ -23,8 +23,16 @@ entries:
       reports code 3. Fixing it needs the trampoline to RETURN a distinct null sentinel (not funcptr=0) so the
       caller can branch to code 13 — a different (non-inline) mechanism. Low priority (subtyping + null elem is rare).
       RESIDUAL 2 (cosmetic): call_indirect OOB-INDEX prints `out of bounds table access` (oob_table) but spec
-      canonical is "undefined element" (wasmtime/wasmer prefix it); table.get OOB stays "out of bounds table
-      access". A distinct message constant — cheap, one-off, still traps correctly. Both residuals = polish.
+      canonical is "undefined element"; table.get OOB stays "out of bounds table access".
+      REASSESSED 2026-06-06 (NOT cheap — folds into D-293): JIT trap-code 2 (oob_table) is SHARED by
+      call_indirect bounds AND table.get/set/copy/fill OOB (op_table.zig routes all to cind_bounds_fixups →
+      code 2). Giving call_indirect OOB a distinct "undefined element" needs SPLITTING the shared code-2
+      channel into call_indirect-bounds vs table-access-bounds — precisely the D-293 kinded-fixup refactor, not
+      a standalone constant. AND it is conformance-neutral: the spec runner matches by trap-KIND
+      (wast_runtime_runner.zig:959) and the corpus baker maps `undefined element → OutOfBoundsTableAccess`
+      (regen_wasmtime_misc tag_map), so the suite passes today; RESIDUAL 2 = bare-CLI-message polish only.
+      → Both residuals (R1 subtyping-trampoline sentinel, R2 code-2 channel split) are D-293-class; the
+      load-bearing D-294 bug (inline null-elem mislabel) is FIXED (4fa16b29). Residuals fold into D-293.
     first_raised: "2026-06-06"
     last_reviewed: "2026-06-06"
     refs: |-
