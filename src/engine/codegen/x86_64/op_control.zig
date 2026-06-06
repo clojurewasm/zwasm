@@ -1528,6 +1528,17 @@ fn emitEndInter(ctx: *ctx_mod.EmitCtx) Error!void {
             inst.patchRel32(ctx.buf.items, fx_byte, 6, disp);
         }
     }
+    // D-294 — call_indirect null-element (uninitialized_elem, code 13) stub;
+    // `JE rel32` (6-byte) from the `CMP typeidx, 0xFFFFFFFF` that precedes the
+    // sig CMP. A null slot's typeidx is the maxInt no-func sentinel.
+    if (ctx.uninit_elem_fixups.items.len > 0) {
+        const trap_byte = try emitTrapExitStub(ctx, 13);
+        for (ctx.uninit_elem_fixups.items) |fx_byte| {
+            const disp: i32 = @as(i32, @intCast(trap_byte)) -
+                @as(i32, @intCast(fx_byte)) - 6;
+            inst.patchRel32(ctx.buf.items, fx_byte, 6, disp);
+        }
+    }
 
     // ADR-0105 D3 — stack-overflow trap stub. Probe at prologue fired
     // BEFORE the `SUB RSP, frame_bytes`, so the stub MUST NOT add

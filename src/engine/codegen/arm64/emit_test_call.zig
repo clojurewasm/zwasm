@@ -316,34 +316,38 @@ test "compile: call_indirect — bounds (CMP/B.HS) + sig (LDR/CMP/B.NE) + funcpt
     const out = try compile(testing.allocator, &f, alloc, &.{}, &types, 0, &.{}, &.{}, .i32, &.{}, false);
     defer deinit(testing.allocator, out);
 
-    // Layout (post-sub-2d-ii prologue=32):
+    // Layout (post-sub-2d-ii prologue=32; D-294 inserted CMN+B.EQ null-check
+    // between the sig load and the sig CMP):
     //   [32..36] MOVZ W9, #5                   ; idx const
     //   [36..40] ORR W17, WZR, W9              ; zero-extend idx
     //   [40..44] CMP W17, W25                  ; bounds
     //   [44..48] B.HS trap_stub                ; placeholder
     //   [48..52] LDR W16, [X24, X17, LSL #2]   ; sig load
-    //   [52..56] CMP W16, #3                   ; sig compare
-    //   [56..60] B.NE trap_stub                ; placeholder
-    //   [60..64] LDR X17, [X26, X17, LSL #3]   ; funcptr
-    //   [64..68] ORR X0, XZR, X19              ; restore runtime_ptr
-    //   [68..72] BLR X17
-    //   [72..76] ORR W9, WZR, W0               ; capture
+    //   [52..56] CMN W16, #1                   ; D-294 null check (W16 == maxInt?)
+    //   [56..60] B.EQ trap_stub                ; D-294 placeholder (code 13)
+    //   [60..64] CMP W16, #3                   ; sig compare
+    //   [64..68] B.NE trap_stub                ; placeholder
+    //   [68..72] LDR X17, [X26, X17, LSL #3]   ; funcptr
+    //   [72..76] ORR X0, XZR, X19              ; restore runtime_ptr
+    //   [76..80] BLR X17
+    //   [80..84] ORR W9, WZR, W0               ; capture
     const body0 = prologue.body_start_offset(false);
-    // After MOVZ W9 #5 (body+0):
-    //   ORR W17 / CMP W17,W25 / B.HS / LDR W16 / CMP W16,#3 / B.NE
-    //   / LDR X17 / ORR X0,X19 / BLR X17 / ORR W9,W0
     try testing.expectEqual(@as(u32, inst.encOrrRegW(17, 31, 9)), std.mem.readInt(u32, out.bytes[body0 + 4 ..][0..4], .little));
     try testing.expectEqual(@as(u32, inst.encCmpRegW(17, 25)), std.mem.readInt(u32, out.bytes[body0 + 8 ..][0..4], .little));
     const bhs = std.mem.readInt(u32, out.bytes[body0 + 12 ..][0..4], .little);
     try testing.expectEqual(@as(u32, 0x2), bhs & 0xF); // cond=.hs
     try testing.expectEqual(@as(u32, inst.encLdrWRegLsl2(16, 24, 17)), std.mem.readInt(u32, out.bytes[body0 + 16 ..][0..4], .little));
-    try testing.expectEqual(@as(u32, inst.encCmpImmW(16, 3)), std.mem.readInt(u32, out.bytes[body0 + 20 ..][0..4], .little));
-    const bne = std.mem.readInt(u32, out.bytes[body0 + 24 ..][0..4], .little);
+    // D-294 null-element check (CMN W16,#1 ; B.EQ → uninitialized_elem code 13).
+    try testing.expectEqual(@as(u32, inst.encCmnImmW(16, 1)), std.mem.readInt(u32, out.bytes[body0 + 20 ..][0..4], .little));
+    const beq = std.mem.readInt(u32, out.bytes[body0 + 24 ..][0..4], .little);
+    try testing.expectEqual(@as(u32, 0x0), beq & 0xF); // cond=.eq
+    try testing.expectEqual(@as(u32, inst.encCmpImmW(16, 3)), std.mem.readInt(u32, out.bytes[body0 + 28 ..][0..4], .little));
+    const bne = std.mem.readInt(u32, out.bytes[body0 + 32 ..][0..4], .little);
     try testing.expectEqual(@as(u32, 0x1), bne & 0xF); // cond=.ne
-    try testing.expectEqual(@as(u32, inst.encLdrXRegLsl3(17, 26, 17)), std.mem.readInt(u32, out.bytes[body0 + 28 ..][0..4], .little));
-    try testing.expectEqual(@as(u32, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr)), std.mem.readInt(u32, out.bytes[body0 + 32 ..][0..4], .little));
-    try testing.expectEqual(@as(u32, inst.encBLR(17)), std.mem.readInt(u32, out.bytes[body0 + 36 ..][0..4], .little));
-    try testing.expectEqual(@as(u32, inst.encOrrRegW(9, 31, 0)), std.mem.readInt(u32, out.bytes[body0 + 40 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encLdrXRegLsl3(17, 26, 17)), std.mem.readInt(u32, out.bytes[body0 + 36 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr)), std.mem.readInt(u32, out.bytes[body0 + 40 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encBLR(17)), std.mem.readInt(u32, out.bytes[body0 + 44 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encOrrRegW(9, 31, 0)), std.mem.readInt(u32, out.bytes[body0 + 48 ..][0..4], .little));
 }
 
 test "compile: bundled Class C MEMORY-class — caller LEA X8 + callee STR X8 + buffer capture (ADR-0069 §Phase 2 chunks (b)-e-1 + (b)-e-2)" {
@@ -478,26 +482,32 @@ test "compile: return_call_indirect — bounds + sig + funcptr-to-X16 + frame_te
     //   [+8]  CMP W17, W25                   ; bounds
     //   [+12] B.HS trap_stub                 ; placeholder
     //   [+16] LDR W16, [X24, X17, LSL #2]    ; sig load
-    //   [+20] CMP W16, #3                    ; sig compare
-    //   [+24] B.NE trap_stub                 ; placeholder
-    //   [+28] LDR X16, [X26, X17, LSL #3]    ; funcptr → X16 (tail target)
-    //   [+32] ORR X0, XZR, X19               ; restore runtime_ptr
-    //   [+36] LDP X29, X30, [SP], #16        ; frame_teardown (frame_bytes=0)
-    //   [+40] BR X16                         ; tail-jump
+    //   [+20] CMN W16, #1                    ; D-294 null check (W16 == maxInt?)
+    //   [+24] B.EQ trap_stub                 ; D-294 placeholder (code 13)
+    //   [+28] CMP W16, #3                    ; sig compare
+    //   [+32] B.NE trap_stub                 ; placeholder
+    //   [+36] LDR X16, [X26, X17, LSL #3]    ; funcptr → X16 (tail target)
+    //   [+40] ORR X0, XZR, X19               ; restore runtime_ptr
+    //   [+44] LDP X29, X30, [SP], #16        ; frame_teardown (frame_bytes=0)
+    //   [+48] BR X16                         ; tail-jump
     try testing.expectEqual(@as(u32, inst.encOrrRegW(17, 31, 9)), std.mem.readInt(u32, out.bytes[body0 + 4 ..][0..4], .little));
     try testing.expectEqual(@as(u32, inst.encCmpRegW(17, 25)), std.mem.readInt(u32, out.bytes[body0 + 8 ..][0..4], .little));
     const bhs = std.mem.readInt(u32, out.bytes[body0 + 12 ..][0..4], .little);
     try testing.expectEqual(@as(u32, 0x2), bhs & 0xF); // cond=.hs
     try testing.expectEqual(@as(u32, inst.encLdrWRegLsl2(16, 24, 17)), std.mem.readInt(u32, out.bytes[body0 + 16 ..][0..4], .little));
-    try testing.expectEqual(@as(u32, inst.encCmpImmW(16, 3)), std.mem.readInt(u32, out.bytes[body0 + 20 ..][0..4], .little));
-    const bne = std.mem.readInt(u32, out.bytes[body0 + 24 ..][0..4], .little);
+    // D-294 null-element check (CMN W16,#1 ; B.EQ → uninitialized_elem code 13).
+    try testing.expectEqual(@as(u32, inst.encCmnImmW(16, 1)), std.mem.readInt(u32, out.bytes[body0 + 20 ..][0..4], .little));
+    const beq = std.mem.readInt(u32, out.bytes[body0 + 24 ..][0..4], .little);
+    try testing.expectEqual(@as(u32, 0x0), beq & 0xF); // cond=.eq
+    try testing.expectEqual(@as(u32, inst.encCmpImmW(16, 3)), std.mem.readInt(u32, out.bytes[body0 + 28 ..][0..4], .little));
+    const bne = std.mem.readInt(u32, out.bytes[body0 + 32 ..][0..4], .little);
     try testing.expectEqual(@as(u32, 0x1), bne & 0xF); // cond=.ne
-    try testing.expectEqual(@as(u32, inst.encLdrXRegLsl3(16, 26, 17)), std.mem.readInt(u32, out.bytes[body0 + 28 ..][0..4], .little));
-    try testing.expectEqual(@as(u32, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr)), std.mem.readInt(u32, out.bytes[body0 + 32 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encLdrXRegLsl3(16, 26, 17)), std.mem.readInt(u32, out.bytes[body0 + 36 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr)), std.mem.readInt(u32, out.bytes[body0 + 40 ..][0..4], .little));
     // LDP X29, X30, [SP], #16 (frame_teardown for frame_bytes=0)
-    try testing.expectEqual(@as(u32, 0xA8C17BFD), std.mem.readInt(u32, out.bytes[body0 + 36 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, 0xA8C17BFD), std.mem.readInt(u32, out.bytes[body0 + 44 ..][0..4], .little));
     // BR X16 = 0xD61F0200
-    try testing.expectEqual(@as(u32, 0xD61F0200), std.mem.readInt(u32, out.bytes[body0 + 40 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, 0xD61F0200), std.mem.readInt(u32, out.bytes[body0 + 48 ..][0..4], .little));
 }
 
 test "compile: return_call_indirect — multi-table (table_idx > 0) loads size+bases from JitRuntime (D-210)" {

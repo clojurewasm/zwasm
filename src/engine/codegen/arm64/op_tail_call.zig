@@ -262,6 +262,13 @@ pub fn emitIndirectReturnCall(
         }
         // Sig: LDR W16, [X24, X17, LSL #2] ; CMP W16, #expected ; B.NE trap.
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrWRegLsl2(16, 24, 17));
+        // D-294: null slot's typeidx is the maxInt(u32) sentinel — CMN W16,#1 + B.EQ before sig.
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmnImmW(16, 1));
+        {
+            const fixup_at: u32 = @intCast(ctx.buf.items.len);
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.eq, 0));
+            try ctx.uninit_elem_fixups.append(ctx.allocator, fixup_at); // D-294 uninitialized_elem (code 13)
+        }
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmW(16, @intCast(expected_typeidx)));
         {
             const fixup_at: u32 = @intCast(ctx.buf.items.len);
@@ -297,6 +304,13 @@ pub fn emitIndirectReturnCall(
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, rt_reg, jit_abi.tables_jit_ci_ptr_off));
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, 16, @intCast(ci_typeidx_byte_off)));
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrWRegLsl2(16, 16, 17));
+        // D-294: null slot's typeidx is the maxInt(u32) sentinel — CMN W16,#1 + B.EQ before sig.
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmnImmW(16, 1));
+        {
+            const fixup_at: u32 = @intCast(ctx.buf.items.len);
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.eq, 0));
+            try ctx.uninit_elem_fixups.append(ctx.allocator, fixup_at); // D-294 uninitialized_elem (code 13)
+        }
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmW(16, @intCast(expected_typeidx)));
         {
             const fixup_at: u32 = @intCast(ctx.buf.items.len);

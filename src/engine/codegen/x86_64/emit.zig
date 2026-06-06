@@ -726,6 +726,10 @@ pub fn compile(
     // D-293 slice-2 — cind signature-mismatch (code 3) demuxed from bounds_fixups.
     var cind_sig_fixups: std.ArrayList(u32) = .empty;
     defer cind_sig_fixups.deinit(allocator);
+    // D-294 — call_indirect null-element (uninitialized_elem, code 13); checked
+    // before the sig CMP so a null slot reports code 13, not the sig code 3.
+    var uninit_elem_fixups: std.ArrayList(u32) = .empty;
+    defer uninit_elem_fixups.deinit(allocator);
 
     // Direct-call placeholders awaiting linker patch.
     var call_fixups: std.ArrayList(CallFixup) = .empty;
@@ -803,6 +807,7 @@ pub fn compile(
         .oob_fixups = &oob_fixups,
         .oobtable_fixups = &oobtable_fixups,
         .cind_sig_fixups = &cind_sig_fixups,
+        .uninit_elem_fixups = &uninit_elem_fixups,
         .call_fixups = &call_fixups,
         .simd_const_fixups = &simd_const_fixups,
         .extra_consts = &extra_consts,

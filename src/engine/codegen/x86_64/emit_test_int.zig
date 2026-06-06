@@ -1603,34 +1603,42 @@ test "compile: call_indirect — bounds + sig (JAE+JNE → trap stub) + CALL RAX
     //   [27..33]  JAE rel32 placeholder   (bounds fixup, 6 bytes)
     //   [33..40]  MOV RAX, [R15 + 32]     (load typeidx_base, 7 bytes)
     //   [40..43]  MOV EAX, [RAX + RBX*4]  (load expected typeidx, 3 bytes)
-    //   [43..49]  CMP EAX, 0              (sig compare to type_idx=0, 6 bytes)
-    //   [49..55]  JNE rel32 placeholder   (sig fixup, 6 bytes)
-    //   [55..62]  MOV RAX, [R15 + 16]     (load funcptr_base, 7 bytes)
-    //   [62..66]  MOV RAX, [RAX + RBX*8]  (load funcptr, 4 bytes)
-    //   [66..69]  MOV RDI, R15            (restore runtime_ptr, 3 bytes)
-    //   [69..71]  CALL RAX                (indirect)
+    //   [43..49]  CMP EAX, 0xFFFFFFFF     (D-294 null check, 6 bytes)
+    //   [49..55]  JE rel32 placeholder    (D-294 fixup → code 13, 6 bytes)
+    //   [55..61]  CMP EAX, 0              (sig compare to type_idx=0, 6 bytes)
+    //   [61..67]  JNE rel32 placeholder   (sig fixup, 6 bytes)
+    //   [67..74]  MOV RAX, [R15 + 16]     (load funcptr_base, 7 bytes)
+    //   [74..78]  MOV RAX, [RAX + RBX*8]  (load funcptr, 4 bytes)
+    //   [78..81]  MOV RDI, R15            (restore runtime_ptr, 3 bytes)
+    //   [81..83]  CALL RAX                (indirect)
     // D-055 migration: all assertions use body_start_offset() so they survive
     // future +7 prologue shift from JIT-execution sentinel injection.
     const body_start = prologue.body_start_offset(true, 8);
     const expected_table_size_load = inst.encMovR32FromMemDisp32(.rax, .r15, 24);
     const table_size_off = body_start + 5;
     try testing.expectEqualSlices(u8, expected_table_size_load.slice(), out.bytes[table_size_off .. table_size_off + expected_table_size_load.len]);
-    // JAE/JNE rel32 disp32 is patched at function-tail to point at the
-    // trap stub; assert only the opcode bytes (0F 83 / 0F 85).
+    // JAE/JE/JNE rel32 disp32 is patched at function-tail to point at the
+    // trap stub; assert only the opcode bytes (0F 83 / 0F 84 / 0F 85).
     try testing.expectEqual(@as(u8, 0x0F), out.bytes[body_start + 14]);
     try testing.expectEqual(@as(u8, 0x83), out.bytes[body_start + 15]);
     const expected_typeidx_load = inst.encMovR32FromBaseIdxLsl2(.rax, .rax, .rbx);
     const typeidx_off = body_start + 27;
     try testing.expectEqualSlices(u8, expected_typeidx_load.slice(), out.bytes[typeidx_off .. typeidx_off + expected_typeidx_load.len]);
+    // D-294 null-element check: CMP EAX, 0xFFFFFFFF (maxInt sentinel) ; JE → code 13.
+    const expected_null_cmp = inst.encCmpRImm32(.rax, 0xFFFFFFFF);
+    const null_cmp_off = body_start + 30;
+    try testing.expectEqualSlices(u8, expected_null_cmp.slice(), out.bytes[null_cmp_off .. null_cmp_off + expected_null_cmp.len]);
     try testing.expectEqual(@as(u8, 0x0F), out.bytes[body_start + 36]);
-    try testing.expectEqual(@as(u8, 0x85), out.bytes[body_start + 37]);
+    try testing.expectEqual(@as(u8, 0x84), out.bytes[body_start + 37]);
+    try testing.expectEqual(@as(u8, 0x0F), out.bytes[body_start + 48]);
+    try testing.expectEqual(@as(u8, 0x85), out.bytes[body_start + 49]);
     const expected_funcptr_load = inst.encMovR64FromBaseIdxLsl3(.rax, .rax, .rbx);
-    const funcptr_off = body_start + 49;
+    const funcptr_off = body_start + 61;
     try testing.expectEqualSlices(u8, expected_funcptr_load.slice(), out.bytes[funcptr_off .. funcptr_off + expected_funcptr_load.len]);
     // §9.7 / 7.10-f: per-call SUB RSP, 32 on Win64 is gone — the
     // shadow lives in the prologue's outgoing region. CALL RAX
     // offset is the same on both Cc.
-    const call_off: u32 = body_start + 56;
+    const call_off: u32 = body_start + 68;
     const expected_call = inst.encCallReg(.rax);
     try testing.expectEqualSlices(u8, expected_call.slice(), out.bytes[call_off .. call_off + expected_call.len]);
 }

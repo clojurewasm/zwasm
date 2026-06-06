@@ -109,6 +109,11 @@ pub const EmitCtx = struct {
     /// (B.NE) fixups. Patched to a dedicated trap stub that
     /// writes `trap_kind = 3`. See `cind_bounds_fixups`.
     cind_sig_fixups: *std.ArrayList(u32),
+    /// D-294 — call_indirect on a NULL (uninitialized) in-bounds table element
+    /// (uninitialized_elem, code 13) fixups. A null slot's typeidx is
+    /// `maxInt(u32)` (the no-func sentinel); `CMN W16, #1` (= W16 == 0xFFFFFFFF)
+    /// + B.EQ PRECEDES the sig CMP so null reports code 13, not sig code 3.
+    uninit_elem_fixups: *std.ArrayList(u32),
     /// ADR-0164 A2 / D-292 — div-by-zero (B.EQ → code 7) + div_s signed-overflow
     /// (B.VS → code 8) fixups, demuxed out of `bounds_fixups` so each reaches a
     /// dedicated trap stub recording its precise `trap_kind`.

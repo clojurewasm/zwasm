@@ -60,6 +60,7 @@ pub const InitArgs = struct {
     oob_fixups: *std.ArrayList(u32),
     oobtable_fixups: *std.ArrayList(u32),
     cind_sig_fixups: *std.ArrayList(u32),
+    uninit_elem_fixups: *std.ArrayList(u32),
     call_fixups: *std.ArrayList(CallFixup),
     simd_const_fixups: *std.ArrayList(SimdConstFixup),
     extra_consts: *std.ArrayList([16]u8),
@@ -175,6 +176,12 @@ pub const EmitCtx = struct {
     /// dedicated stub. Unifies x86_64 with arm64 (which already produces code 3
     /// for cind sig via `cind_sig_fixups`). Bounds (code 2) stay in `oobtable_fixups`.
     cind_sig_fixups: *std.ArrayList(u32),
+    /// D-294 — call_indirect on a NULL (uninitialized) in-bounds table element
+    /// (uninitialized_elem, code 13) fixups (`JE rel32`, 6-byte). A null slot's
+    /// typeidx is `maxInt(u32)` (the no-func sentinel); the `CMP typeidx,
+    /// 0xFFFFFFFF; JE` PRECEDES the sig CMP so null reports code 13, not the
+    /// sig-mismatch code 3. Spec order: bounds → null → sig.
+    uninit_elem_fixups: *std.ArrayList(u32),
     /// `CALL rel32` fixups exposed via `EmitOutput` for the
     /// post-emit linker.
     call_fixups: *std.ArrayList(CallFixup),
@@ -339,6 +346,7 @@ pub const EmitCtx = struct {
             .oob_fixups = args.oob_fixups,
             .oobtable_fixups = args.oobtable_fixups,
             .cind_sig_fixups = args.cind_sig_fixups,
+            .uninit_elem_fixups = args.uninit_elem_fixups,
             .call_fixups = args.call_fixups,
             .simd_const_fixups = args.simd_const_fixups,
             .extra_consts = args.extra_consts,

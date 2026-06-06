@@ -405,6 +405,15 @@ pub fn emitCallIndirect(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         // `module_types[ins.payload]`; `applyTableInit` writes the
         // same canonicalization on the funcref's stored typeidx. D-111.
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrWRegLsl2(16, 24, 17));
+        // D-294: null slot's typeidx is maxInt(u32) (no-func sentinel). CMN W16,#1
+        // sets Z iff W16 == 0xFFFFFFFF; check BEFORE the sig CMP so a null elem
+        // reports uninitialized_elem (code 13). CMN leaves W16 intact for the CMP.
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmnImmW(16, 1));
+        {
+            const fixup_at: u32 = @intCast(ctx.buf.items.len);
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.eq, 0));
+            try ctx.uninit_elem_fixups.append(ctx.allocator, fixup_at); // D-294 uninitialized_elem (code 13)
+        }
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmW(16, @intCast(expected_typeidx)));
         {
             const fixup_at: u32 = @intCast(ctx.buf.items.len);
@@ -454,6 +463,13 @@ pub fn emitCallIndirect(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, 16, @intCast(ci_typeidx_byte_off)));
         // LDR W16, [X16, W17, LSL #2]  — typeidx_base[idx]
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrWRegLsl2(16, 16, 17));
+        // D-294: null slot's typeidx is the maxInt(u32) sentinel — CMN W16,#1 + B.EQ before sig.
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmnImmW(16, 1));
+        {
+            const fixup_at: u32 = @intCast(ctx.buf.items.len);
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.eq, 0));
+            try ctx.uninit_elem_fixups.append(ctx.allocator, fixup_at); // D-294 uninitialized_elem (code 13)
+        }
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmW(16, @intCast(expected_typeidx)));
         {
             const fixup_at: u32 = @intCast(ctx.buf.items.len);

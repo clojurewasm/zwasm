@@ -654,6 +654,10 @@ pub fn compile(
     defer cind_bounds_fixups.deinit(allocator);
     var cind_sig_fixups: std.ArrayList(u32) = .empty;
     defer cind_sig_fixups.deinit(allocator);
+    // D-294 — call_indirect null-element (uninitialized_elem, code 13); checked
+    // before the sig CMP so a null slot reports code 13, not the sig code 3.
+    var uninit_elem_fixups: std.ArrayList(u32) = .empty;
+    defer uninit_elem_fixups.deinit(allocator);
 
     // ADR-0164 A / D-292 — dedicated fixup list for `unreachable`
     // (unconditional-B placeholder). Routed to its own trap stub
@@ -774,6 +778,7 @@ pub fn compile(
         .bounds_fixups = &bounds_fixups,
         .cind_bounds_fixups = &cind_bounds_fixups,
         .cind_sig_fixups = &cind_sig_fixups,
+        .uninit_elem_fixups = &uninit_elem_fixups,
         .divzero_fixups = &divzero_fixups,
         .overflow_fixups = &overflow_fixups,
         .invalid_conv_fixups = &invalid_conv_fixups,
@@ -1776,6 +1781,8 @@ pub fn compile(
                 };
                 try EmitCindStub.emit(allocator, &buf, cind_bounds_fixups.items, 2, frame_bytes);
                 try EmitCindStub.emit(allocator, &buf, cind_sig_fixups.items, 3, frame_bytes);
+                // D-294 — call_indirect null-element (uninitialized_elem, code 13).
+                try EmitCindStub.emit(allocator, &buf, uninit_elem_fixups.items, 13, frame_bytes);
                 // ADR-0164 A / D-292 — `unreachable` (5) + div-by-zero (7) +
                 // div_s signed-overflow (8) stubs (interp-parity per-kind codes).
                 try EmitCindStub.emit(allocator, &buf, unreach_fixups.items, 5, frame_bytes);

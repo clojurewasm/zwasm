@@ -277,6 +277,13 @@ pub fn emitIndirectReturnCall(
         //      CMP EAX, canonical ; JNE trap.
         try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.typeidx_base_off).slice());
         try ctx.buf.appendSlice(ctx.allocator, inst.encMovR32FromBaseIdxLsl2(.rax, .rax, idx_r).slice());
+        // D-294: null slot's typeidx is the maxInt(u32) sentinel — check before sig.
+        try ctx.buf.appendSlice(ctx.allocator, inst.encCmpRImm32(.rax, 0xFFFFFFFF).slice());
+        {
+            const fixup_at: u32 = @intCast(ctx.buf.items.len);
+            try ctx.buf.appendSlice(ctx.allocator, inst.encJccRel32(.e, 0).slice());
+            try ctx.uninit_elem_fixups.append(ctx.allocator, fixup_at); // D-294 uninitialized_elem (code 13)
+        }
         try ctx.buf.appendSlice(ctx.allocator, inst.encCmpRImm32(.rax, expected_typeidx).slice());
         {
             const fixup_at: u32 = @intCast(ctx.buf.items.len);
@@ -316,6 +323,13 @@ pub fn emitIndirectReturnCall(
         try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_jit_ci_ptr_off).slice());
         try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromMemDisp32(.rax, .rax, ci_typeidx_disp).slice());
         try ctx.buf.appendSlice(ctx.allocator, inst.encMovR32FromBaseIdxLsl2(.rax, .rax, idx_r).slice());
+        // D-294: null slot's typeidx is the maxInt(u32) sentinel — check before sig.
+        try ctx.buf.appendSlice(ctx.allocator, inst.encCmpRImm32(.rax, 0xFFFFFFFF).slice());
+        {
+            const fixup_at: u32 = @intCast(ctx.buf.items.len);
+            try ctx.buf.appendSlice(ctx.allocator, inst.encJccRel32(.e, 0).slice());
+            try ctx.uninit_elem_fixups.append(ctx.allocator, fixup_at); // D-294 uninitialized_elem (code 13)
+        }
         try ctx.buf.appendSlice(ctx.allocator, inst.encCmpRImm32(.rax, expected_typeidx).slice());
         {
             const fixup_at: u32 = @intCast(ctx.buf.items.len);

@@ -159,6 +159,7 @@ pub fn emitCallIndirectCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Erro
         ctx.bounds_fixups,
         ctx.oobtable_fixups,
         ctx.cind_sig_fixups,
+        ctx.uninit_elem_fixups,
         ctx.spill_base_off,
         ctx.outgoing_max_bytes,
         ctx.module_types,
@@ -451,6 +452,7 @@ pub fn emitCallIndirect(
     bounds_fixups: *std.ArrayList(u32),
     oobtable_fixups: *std.ArrayList(u32),
     cind_sig_fixups: *std.ArrayList(u32),
+    uninit_elem_fixups: *std.ArrayList(u32),
     spill_base_off: u32,
     outgoing_max_bytes: u32,
     module_types: []const zir.FuncType,
@@ -543,6 +545,15 @@ pub fn emitCallIndirect(
             // funcref's stored typeidx. D-111.
             try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.typeidx_base_off).slice());
             try buf.appendSlice(allocator, inst.encMovR32FromBaseIdxLsl2(.rax, .rax, idx_r).slice());
+            // D-294: null slot's typeidx is maxInt(u32) (no-func sentinel). Check it
+            // BEFORE the sig CMP so a null elem reports uninitialized_elem (code 13),
+            // not indirect_call_mismatch. CMP leaves EAX intact for the sig CMP below.
+            try buf.appendSlice(allocator, inst.encCmpRImm32(.rax, 0xFFFFFFFF).slice());
+            {
+                const fixup_at: u32 = @intCast(buf.items.len);
+                try buf.appendSlice(allocator, inst.encJccRel32(.e, 0).slice());
+                try uninit_elem_fixups.append(allocator, fixup_at); // D-294 uninitialized_elem (code 13)
+            }
             try buf.appendSlice(allocator, inst.encCmpRImm32(.rax, expected_typeidx).slice());
             {
                 const fixup_at: u32 = @intCast(buf.items.len);
@@ -594,6 +605,13 @@ pub fn emitCallIndirect(
             try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_jit_ci_ptr_off).slice());
             try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, .rax, ci_typeidx_disp).slice());
             try buf.appendSlice(allocator, inst.encMovR32FromBaseIdxLsl2(.rax, .rax, idx_r).slice());
+            // D-294: null slot's typeidx is the maxInt(u32) sentinel — check before sig.
+            try buf.appendSlice(allocator, inst.encCmpRImm32(.rax, 0xFFFFFFFF).slice());
+            {
+                const fixup_at: u32 = @intCast(buf.items.len);
+                try buf.appendSlice(allocator, inst.encJccRel32(.e, 0).slice());
+                try uninit_elem_fixups.append(allocator, fixup_at); // D-294 uninitialized_elem (code 13)
+            }
             try buf.appendSlice(allocator, inst.encCmpRImm32(.rax, expected_typeidx).slice());
             {
                 const fixup_at: u32 = @intCast(buf.items.len);

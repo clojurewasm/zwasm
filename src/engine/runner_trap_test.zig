@@ -140,6 +140,29 @@ test "runVoidExportWasi: JIT call_indirect signature mismatch → precise indire
     try testing.expectEqual(trap_surface.TrapKind.indirect_call_mismatch, trap_surface.jitTrapCode(sig).?);
 }
 
+// `(module (type $t (func)) (table 1 funcref)
+//  (func (export "_start") i32.const 0 call_indirect (type $t)))` —
+// table[0] is NULL (no elem segment) and index 0 is IN bounds. The null slot's
+// stored typeidx is the maxInt(u32) no-func sentinel, so the pre-sig
+// `CMP/CMN typeidx, sentinel` fires FIRST → uninitialized_elem code 13, NOT the
+// sig-mismatch code 3 it was mislabelled as before D-294. Bytes from `wat2wasm`.
+const cind_null_elem_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x04, 0x01, 0x60,
+    0x00, 0x00, 0x03, 0x02, 0x01, 0x00, 0x04, 0x04, 0x01, 0x70, 0x00, 0x01,
+    0x07, 0x0a, 0x01, 0x06, 0x5f, 0x73, 0x74, 0x61, 0x72, 0x74, 0x00, 0x00,
+    0x0a, 0x09, 0x01, 0x07, 0x00, 0x41, 0x00, 0x11, 0x00, 0x00, 0x0b,
+};
+
+test "runVoidExportWasi: JIT call_indirect on a null table element → precise uninitialized_elem code 13 (D-294)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    var ue: u32 = 99;
+    try testing.expectError(entry.Error.Trap, runner.runVoidExportWasi(testing.allocator, &cind_null_elem_wasm, "_start", null, &ue));
+    // D-294: was 3 (indirect_call_mismatch) — the null check now PRECEDES the sig
+    // CMP so the JIT matches the interp + all reference engines (uninitialized element).
+    try testing.expectEqual(@as(u32, 13), ue);
+    try testing.expectEqual(trap_surface.TrapKind.uninitialized_elem, trap_surface.jitTrapCode(ue).?);
+}
+
 // `(module (func (export "_start") f32.const nan i32.trunc_f32_s drop))` — the Wasm
 // 1.0 trapping `i32.trunc_f32_s` traps on NaN (the FP self-compare sets PF/V). D-293
 // slice-3: invalid_conversion code 9, UNIFIED across arm64+x86_64 (previously the
