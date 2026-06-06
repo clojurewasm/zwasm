@@ -315,6 +315,15 @@ pub fn stackEffect(op: ZirOp) ?StackEffect {
         .@"memory.atomic.wait32",
         .@"memory.atomic.wait64",
         => .{ .pops = 3, .pushes = 1 },
+        // wide-arithmetic (ADR-0168 v0.2) — the first MULTI-RESULT ops.
+        // add128/sub128: 4→2 (two 128-bit lo,hi operands → lo,hi result);
+        // mul_wide_s/u: 2→2 (a,b → full 128-bit lo,hi product).
+        .@"i64.add128",
+        .@"i64.sub128",
+        => .{ .pops = 4, .pushes = 2 },
+        .@"i64.mul_wide_s",
+        .@"i64.mul_wide_u",
+        => .{ .pops = 2, .pushes = 2 },
         // memory loads (1 → 1; pop addr, push value)
         .@"i32.load",
         .@"i32.atomic.load", // threads (ADR-0168) — same shape as i32.load

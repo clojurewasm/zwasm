@@ -862,6 +862,11 @@ pub const Lowerer = struct {
                 const memidx = try leb128.readUleb128(u32, self.body, &self.pos);
                 try self.emit(.@"memory.fill", memidx, 0);
             },
+            // Wasm wide-arithmetic (ADR-0168 v0.2) — no immediates.
+            19 => try self.emit(.@"i64.add128", 0, 0),
+            20 => try self.emit(.@"i64.sub128", 0, 0),
+            21 => try self.emit(.@"i64.mul_wide_s", 0, 0),
+            22 => try self.emit(.@"i64.mul_wide_u", 0, 0),
             else => return Error.NotImplemented,
         }
     }

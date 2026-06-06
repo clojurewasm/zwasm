@@ -82,6 +82,11 @@ pub fn register(table: *DispatchTable) void {
     table.interp[op(.@"i64.add")] = i64Add;
     table.interp[op(.@"i64.sub")] = i64Sub;
     table.interp[op(.@"i64.mul")] = i64Mul;
+    // wide arithmetic (ADR-0168 v0.2) — 128-bit multi-result.
+    table.interp[op(.@"i64.add128")] = i64Add128;
+    table.interp[op(.@"i64.sub128")] = i64Sub128;
+    table.interp[op(.@"i64.mul_wide_s")] = i64MulWideS;
+    table.interp[op(.@"i64.mul_wide_u")] = i64MulWideU;
     table.interp[op(.@"i64.div_s")] = i64DivS;
     table.interp[op(.@"i64.div_u")] = i64DivU;
     table.interp[op(.@"i64.rem_s")] = i64RemS;
@@ -391,6 +396,62 @@ fn i64Mul(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
     const p = popI64Pair(rt);
     try rt.pushOperand(.{ .i64 = p.a *% p.b });
+}
+
+// --- wide arithmetic (ADR-0168 v0.2) — 128-bit math, multi-result ---
+// Operand order per spec: a 128-bit value is (lo, hi) with lo pushed
+// first (deeper). add128/sub128 take two such pairs; mul_wide takes two
+// scalars. All push (lo, hi) — lo first, hi on top. Zig native u128/i128
+// does the assembly/split.
+
+/// `i64.add128` — pop [a_lo, a_hi, b_lo, b_hi], push [r_lo, r_hi] (wrapping).
+fn i64Add128(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const b_hi = rt.popOperand().u64;
+    const b_lo = rt.popOperand().u64;
+    const a_hi = rt.popOperand().u64;
+    const a_lo = rt.popOperand().u64;
+    const a: u128 = (@as(u128, a_hi) << 64) | a_lo;
+    const b: u128 = (@as(u128, b_hi) << 64) | b_lo;
+    const r = a +% b;
+    try rt.pushOperand(.{ .u64 = @truncate(r) });
+    try rt.pushOperand(.{ .u64 = @truncate(r >> 64) });
+}
+
+/// `i64.sub128` — pop [a_lo, a_hi, b_lo, b_hi], push [r_lo, r_hi] (wrapping).
+fn i64Sub128(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const b_hi = rt.popOperand().u64;
+    const b_lo = rt.popOperand().u64;
+    const a_hi = rt.popOperand().u64;
+    const a_lo = rt.popOperand().u64;
+    const a: u128 = (@as(u128, a_hi) << 64) | a_lo;
+    const b: u128 = (@as(u128, b_hi) << 64) | b_lo;
+    const r = a -% b;
+    try rt.pushOperand(.{ .u64 = @truncate(r) });
+    try rt.pushOperand(.{ .u64 = @truncate(r >> 64) });
+}
+
+/// `i64.mul_wide_u` — pop a, b, push the full 128-bit unsigned product [lo, hi].
+fn i64MulWideU(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const b = rt.popOperand().u64;
+    const a = rt.popOperand().u64;
+    const r: u128 = @as(u128, a) * @as(u128, b);
+    try rt.pushOperand(.{ .u64 = @truncate(r) });
+    try rt.pushOperand(.{ .u64 = @truncate(r >> 64) });
+}
+
+/// `i64.mul_wide_s` — pop a, b, push the full 128-bit signed product [lo, hi].
+fn i64MulWideS(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const b = rt.popOperand().u64;
+    const a = rt.popOperand().u64;
+    const sa: i128 = @as(i64, @bitCast(a));
+    const sb: i128 = @as(i64, @bitCast(b));
+    const r: u128 = @bitCast(sa * sb);
+    try rt.pushOperand(.{ .u64 = @truncate(r) });
+    try rt.pushOperand(.{ .u64 = @truncate(r >> 64) });
 }
 
 fn i64DivS(c: *InterpCtx, _: *const ZirInstr) anyerror!void {
@@ -721,4 +782,66 @@ test "i64.lt_u: high bits respected" {
     try driveOne(&rt, &t, .@"i64.const", 2, 0);
     try driveOne(&rt, &t, .@"i64.lt_u", 0, 0);
     try testing.expectEqual(@as(i32, 0), rt.popOperand().i32);
+}
+
+test "i64.add128: carry propagates lo→hi" {
+    var t = DispatchTable.init();
+    mvp.register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    // a = (lo=max, hi=0) = 2^64-1 ; b = (lo=1, hi=0) = 1 → r = 2^64 = (lo=0, hi=1).
+    try rt.pushOperand(.{ .u64 = 0xFFFFFFFFFFFFFFFF }); // a_lo
+    try rt.pushOperand(.{ .u64 = 0 }); // a_hi
+    try rt.pushOperand(.{ .u64 = 1 }); // b_lo
+    try rt.pushOperand(.{ .u64 = 0 }); // b_hi
+    try driveOne(&rt, &t, .@"i64.add128", 0, 0);
+    try testing.expectEqual(@as(u64, 1), rt.popOperand().u64); // r_hi (top)
+    try testing.expectEqual(@as(u64, 0), rt.popOperand().u64); // r_lo
+}
+
+test "i64.sub128: borrow propagates lo→hi" {
+    var t = DispatchTable.init();
+    mvp.register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    // a = (lo=0, hi=1) = 2^64 ; b = (lo=1, hi=0) = 1 → r = 2^64-1 = (lo=max, hi=0).
+    try rt.pushOperand(.{ .u64 = 0 }); // a_lo
+    try rt.pushOperand(.{ .u64 = 1 }); // a_hi
+    try rt.pushOperand(.{ .u64 = 1 }); // b_lo
+    try rt.pushOperand(.{ .u64 = 0 }); // b_hi
+    try driveOne(&rt, &t, .@"i64.sub128", 0, 0);
+    try testing.expectEqual(@as(u64, 0), rt.popOperand().u64); // r_hi
+    try testing.expectEqual(@as(u64, 0xFFFFFFFFFFFFFFFF), rt.popOperand().u64); // r_lo
+}
+
+test "i64.mul_wide_u: full unsigned 128-bit product" {
+    var t = DispatchTable.init();
+    mvp.register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    // 0xFFFFFFFFFFFFFFFF * 2 = 0x1_FFFFFFFFFFFFFFFE → lo=0xFFFFFFFFFFFFFFFE, hi=1.
+    try rt.pushOperand(.{ .u64 = 0xFFFFFFFFFFFFFFFF }); // a
+    try rt.pushOperand(.{ .u64 = 2 }); // b
+    try driveOne(&rt, &t, .@"i64.mul_wide_u", 0, 0);
+    try testing.expectEqual(@as(u64, 1), rt.popOperand().u64); // hi
+    try testing.expectEqual(@as(u64, 0xFFFFFFFFFFFFFFFE), rt.popOperand().u64); // lo
+}
+
+test "i64.mul_wide_s: signed product sign-extends the high word" {
+    var t = DispatchTable.init();
+    mvp.register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    // (-1) * (-1) = 1 → lo=1, hi=0.
+    try rt.pushOperand(.{ .u64 = 0xFFFFFFFFFFFFFFFF }); // a = -1
+    try rt.pushOperand(.{ .u64 = 0xFFFFFFFFFFFFFFFF }); // b = -1
+    try driveOne(&rt, &t, .@"i64.mul_wide_s", 0, 0);
+    try testing.expectEqual(@as(u64, 0), rt.popOperand().u64); // hi
+    try testing.expectEqual(@as(u64, 1), rt.popOperand().u64); // lo
+    // (-1) * 2 = -2 → lo=0xFFFFFFFFFFFFFFFE, hi=0xFFFFFFFFFFFFFFFF (sign-extended).
+    try rt.pushOperand(.{ .u64 = 0xFFFFFFFFFFFFFFFF }); // a = -1
+    try rt.pushOperand(.{ .u64 = 2 }); // b = 2
+    try driveOne(&rt, &t, .@"i64.mul_wide_s", 0, 0);
+    try testing.expectEqual(@as(u64, 0xFFFFFFFFFFFFFFFF), rt.popOperand().u64); // hi
+    try testing.expectEqual(@as(u64, 0xFFFFFFFFFFFFFFFE), rt.popOperand().u64); // lo
 }

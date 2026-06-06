@@ -2143,8 +2143,34 @@ pub const Validator = struct {
             15 => try self.opTableGrow(),
             16 => try self.opTableSize(),
             17 => try self.opTableFill(),
+            // Wasm wide-arithmetic (ADR-0168 v0.2): i64.add128 (19) /
+            // sub128 (20) = 4 i64 → 2 i64 (128-bit lo,hi pairs);
+            // mul_wide_s (21) / mul_wide_u (22) = 2 i64 → 2 i64.
+            19, 20 => try self.opWideAddSub128(),
+            21, 22 => try self.opWideMul(),
             else => return Error.NotImplemented,
         }
+    }
+
+    /// Wasm wide-arith §valid — `i64.add128` / `i64.sub128`: pop two
+    /// 128-bit operands (each lo:i64, hi:i64 = 4 i64) → push the 128-bit
+    /// result (lo:i64, hi:i64 = 2 i64).
+    fn opWideAddSub128(self: *Validator) Error!void {
+        try self.popExpect(.i64);
+        try self.popExpect(.i64);
+        try self.popExpect(.i64);
+        try self.popExpect(.i64);
+        try self.pushType(.i64);
+        try self.pushType(.i64);
+    }
+
+    /// Wasm wide-arith §valid — `i64.mul_wide_s` / `i64.mul_wide_u`:
+    /// pop a:i64, b:i64 → push the full 128-bit product (lo:i64, hi:i64).
+    fn opWideMul(self: *Validator) Error!void {
+        try self.popExpect(.i64);
+        try self.popExpect(.i64);
+        try self.pushType(.i64);
+        try self.pushType(.i64);
     }
 
     /// memory.copy: 0xFC 10 0x00 0x00 (two reserved memidx bytes).
