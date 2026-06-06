@@ -14,10 +14,12 @@
 # OrbStack retired from gate per D-134 Rosetta closure. This
 # heuristic's logic is unchanged.
 #
-# This script's heuristic: run windowsmini when the diff plausibly
-# triggers Win64-specific code paths (ABI / calling convention /
-# frame layout), OR after 4+ commits without a windowsmini run.
-# Otherwise defer.
+# This script's heuristic (ADR-0076 D8, user-directed 2026-06-06 —
+# BATCHED cadence for faster iteration): run windowsmini once per
+# BATCH — after 6 commits if the batch touched ABI/calling-convention/
+# frame-layout paths, else after 12 commits. ABI-risk is no longer an
+# immediate per-commit trigger (it just lowers the batch size). Keep
+# chaining chunks on Mac+ubuntu meanwhile; never poll-wait on windows.
 #
 # Exit codes:
 #   0 — gate required (run windowsmini this chunk)
@@ -81,32 +83,53 @@ rm -f "$gitrev_err"
 
 DIFF_FILES=$(git diff --name-only "${LAST}..HEAD" 2>/dev/null || echo '')
 
-# Trigger 1: ABI-touching path.
+# Cadence model (ADR-0076 D8, user-directed 2026-06-06): windows runs
+# are BATCHED to keep iteration fast on Mac+ubuntu. Windows is the slow
+# host; the loop chains MANY chunks per turn and runs windowsmini once
+# per BATCH — NOT immediately per ABI-risk turn (the pre-D8 behavior,
+# which made the loop poll-wait on windows too often). ABI-risk in the
+# batch lowers the threshold (more responsive to Win64-divergence-prone
+# diffs) but is no longer an immediate trigger. Heisenbug-awareness +
+# Step 0.7 verdict verification unchanged. Thresholds:
+#   - ABI-risk present in batch → 6 commits
+#   - pure non-ABI batch        → 12 commits
+ABI_THRESHOLD=6
+NONABI_THRESHOLD=12
+
+abi_risk=0
+abi_reason=''
 for path in "${ABI_PATHS[@]}"; do
     if echo "$DIFF_FILES" | grep -qF "$path"; then
-        echo "gate-required: ABI-touching path '$path' modified since $LAST"
-        exit 0
+        abi_risk=1
+        abi_reason="ABI-touching path '$path'"
+        break
     fi
 done
 
-# Trigger 2: emit.zig param/return marshal area (lines 1-300
-# carry the param-decode + uses_runtime_ptr prescan + frame
-# sizing; lines 1450-1550 carry the return marshal). These are
-# Win64-vs-SysV divergence surfaces.
-if echo "$DIFF_FILES" | grep -qF 'src/engine/codegen/x86_64/emit.zig'; then
+# emit.zig param/return marshal area (lines 1-300: param-decode +
+# uses_runtime_ptr prescan + frame sizing; 1450-1550: return marshal) —
+# Win64-vs-SysV divergence surfaces; counts as ABI-risk for the threshold.
+if [ "$abi_risk" -eq 0 ] && echo "$DIFF_FILES" | grep -qF 'src/engine/codegen/x86_64/emit.zig'; then
     if git diff -U0 "${LAST}..HEAD" -- src/engine/codegen/x86_64/emit.zig 2>/dev/null | grep -qE '^@@ .*\+([1-9][0-9]?|[12][0-9]{2}|300|14[5-9][0-9]|15[0-5][0-9]),'; then
-        echo "gate-required: emit.zig param/return marshal area touched"
-        exit 0
+        abi_risk=1
+        abi_reason="emit.zig param/return marshal area"
     fi
 fi
 
-# Trigger 3: 4+ commits since last windowsmini run. Caps the
-# unbounded drift risk for chunk-shape changes that don't hit
-# the explicit ABI paths.
-if [ "$COMMIT_COUNT" -ge 4 ]; then
-    echo "gate-required: $COMMIT_COUNT commits since last windowsmini run"
+if [ "$abi_risk" -eq 1 ]; then
+    THRESHOLD="$ABI_THRESHOLD"
+else
+    THRESHOLD="$NONABI_THRESHOLD"
+fi
+
+if [ "$COMMIT_COUNT" -ge "$THRESHOLD" ]; then
+    if [ "$abi_risk" -eq 1 ]; then
+        echo "gate-required: $COMMIT_COUNT commits ≥ ABI-risk batch threshold $THRESHOLD ($abi_reason) since $LAST"
+    else
+        echo "gate-required: $COMMIT_COUNT commits ≥ non-ABI batch threshold $THRESHOLD since $LAST"
+    fi
     exit 0
 fi
 
-echo "gate-deferred: $COMMIT_COUNT commit(s) since $LAST, no ABI-touching paths in diff"
+echo "gate-deferred: $COMMIT_COUNT/$THRESHOLD commits since $LAST (abi_risk=$abi_risk) — keep batching on Mac+ubuntu"
 exit 1

@@ -50,11 +50,13 @@ verify; predates this rule, unaffected).
    (ADR-0076 D3).
 3. **windowsmini is a CADENCE-driven BACKGROUND monitoring gate (ADR-0076 D7)** —
    Step 6+7 runs `should_gate_windows.sh`; exit 0 → kick `run_remote_windows.sh
-   test-all` (background), then `--record` after the green verify. The cadence
-   (ABI-risk-path diff OR ≥4 commits since last windows run) runs windows たまに —
-   NOT per-turn (too slow), NOT phase-boundary-only (too rare → accumulation). **Win64
-   red is NOT auto-reverted** (heisenbug-prone): re-run once → reproduces = real bug;
-   flake = `track_heisenbug.sh` + proceed. (Supersedes the old ADR-0049 stance that
+   test-all` (background), then `--record` after the green verify. The **BATCHED**
+   cadence (ADR-0076 **D8**: ≥6 commits if the batch touched ABI/calling-convention/
+   frame-layout paths, else ≥12; ABI-risk no longer immediate) runs windows once per
+   BATCH — keep iteration fast on Mac+ubuntu; **NEVER poll-wait on windows** (kick it
+   bg, keep chaining, verify at next Step 0.7). **Win64 red is NOT auto-reverted**
+   (heisenbug-prone): re-run once → reproduces = real bug; flake =
+   `track_heisenbug.sh` + proceed. (Supersedes the old ADR-0049 stance that
    IGNORED should_gate_windows.sh; the phase-boundary reconcile remains the *strict*
    A13-merge gate.) **OrbStack retired** from
    per-chunk gate per ADR-0067 (D-134 Rosetta race; ubuntunote

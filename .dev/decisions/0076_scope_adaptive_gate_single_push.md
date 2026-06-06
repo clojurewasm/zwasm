@@ -338,6 +338,38 @@ exactly the wall-clock penalty of this block.
 | `.githooks/pre-push` (D4)                                     | Drop `gate_commit.sh`; keep only `check_subrow_exit` + `check_skip_impl_ratchet`            |
 | `.git/config` `commit.gpgsign=false` (D4)                     | Per-clone override of global SSH-sign; cost not carrying weight at autonomous-loop cadence  |
 
+### D8 — Windows gate BATCHED (bigger threshold); chain many chunks, never poll-wait on windows (2026-06-06 amend; user-directed)
+
+**Problem.** Under D7 the loop ran windowsmini on every ABI-risk turn OR
+≥4 commits. In practice that made the loop **poll-wait on windows too
+often** — each windows run is the slow host (~minutes), and the loop kept
+ending turns / re-arming to check its verdict instead of pressing ahead
+on Mac+ubuntu. The user-felt pain was iteration latency, not coverage.
+
+**Decision.** Windows verification is **batched**, decoupling iteration
+speed from the slow host:
+
+1. **Bigger cadence threshold** (`should_gate_windows.sh`): run
+   windowsmini once per BATCH — **≥6 commits if the batch touched
+   ABI/calling-convention/frame-layout paths, else ≥12 commits**. ABI-risk
+   is **no longer an immediate per-commit trigger**; it only lowers the
+   batch size. (Was: immediate on any ABI-risk diff OR ≥4.)
+2. **Chain MANY chunks per turn, larger granularity.** Mac (foreground)
+   + ubuntu (background, every turn) are the fast iteration loop; do
+   several chunks' worth of work per turn, push once. **Never poll-wait
+   on windows** — kick it in the background when the batch threshold
+   fires, keep chaining, and verify its verdict opportunistically at the
+   next Step 0.7 whenever it lands.
+3. **Unchanged**: ubuntu = always per turn (D6); heisenbug-awareness +
+   no-auto-revert on windows (D7); Step 0.7 verdict verification; the
+   A13-merge strict 3-host gate; phase-boundary windowsmini reconcile.
+
+**Trade-off (accepted, user-directed).** A Win64-specific bug now
+surfaces after up to ~12 commits (vs ~4), so bisection spans a bigger
+batch. The heisenbug streak + Step 0.7 + the strict A13/phase-boundary
+gates remain the safety net; the iteration-speed win dominates for the
+Phase 16 完成形 debt-repayment cadence (mostly Mac/x86_64-verifiable work).
+
 ## References
 
 - `.claude/skills/continue/LOOP.md` §"Parallel test gate" — rewritten
@@ -357,3 +389,4 @@ exactly the wall-clock penalty of this block.
 | 2026-05-30 | `b39689e1` | D5 amend — in-turn chunk chaining + per-turn ubuntu batch (widens D3 one-chunk→one-turn) + gate-once + bigger-chunk default (user throughput directive). |
 | 2026-06-05 | `5471e5fb` | D6 amend — background ubuntu gate unconditionally `test-all` (classifier drives Mac foreground only); closes D-262 x86_64-RUN coverage gap (justification removed by D5-b's no-wait ubuntu). |
 | 2026-06-05 | `72c4aaf8` | D7 amend — loop HONORS `should_gate_windows.sh` cadence (windows runs たまに: ABI-risk diff OR ≥4 commits, NOT per-turn — windows too slow; NOT phase-boundary — too rare), heisenbug-aware (no auto-revert); closes the win64 accumulation gap, user-directed. |
+| 2026-06-06 | _(this)_   | D8 amend — windows BATCHED (≥6 commits if ABI-risk in batch, else ≥12; ABI-risk no longer immediate); chain many chunks/turn, never poll-wait on windows. Iteration-speed directive, user-directed. |

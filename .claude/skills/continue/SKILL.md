@@ -292,26 +292,33 @@ commit pair per chunk.
 4. **Append `.dev/debt.yaml` + lessons** as needed.
 5. **Handover commit**. `git commit -m "chore(p<N>): mark §9.<N> / N.M [x]; retarget handover at N.M+1"`.
 
-→ **Then CHAIN (D5-a)**: go straight to the next chunk's Step 0 in
-the **same turn**, keeping working context. Do NOT push/kick/re-arm
-between chunks. End the turn only at a natural pause: immediately-
-actionable work exhausted, approaching context-fill / auto-compact,
-hard-gate / bucket-3 / user touchpoint, or a deliberate flush.
+→ **Then CHAIN (D5-a; D8 reinforces — chain BIG)**: go straight to the
+next chunk's Step 0 in the **same turn**, keeping working context. Do NOT
+push/kick/re-arm between chunks. **Default to MANY chunks per turn (larger
+granularity)** — Mac+ubuntu are the fast loop; pack several debt-items /
+slices into one turn before flushing. End the turn only at a natural
+pause: immediately-actionable work exhausted, approaching context-fill /
+auto-compact, hard-gate / bucket-3 / user touchpoint, or a deliberate
+flush. **Do NOT end a turn just to poll the windows gate** (D8) — it runs
+batched in the background; verify its verdict at the next Step 0.7.
 
 **Per turn** (once, at the pause that ends the turn):
 
 6. **Single push (ADR-0076 D2)**. `git pull --rebase --autostash origin zwasm-from-scratch && git push origin zwasm-from-scratch`.
    One push lands ALL the turn's commit pairs (rebase integrates the
    bench-CI bot commits once).
-7. **Remote kicks (background; ADR-0076 D3+D5-b+D6+D7)**. `run_in_background: true`,
+7. **Remote kicks (background; ADR-0076 D3+D5-b+D6+D8)**. `run_in_background: true`,
    do NOT wait. **ubuntu = always** (D6): `bash scripts/run_remote_ubuntu.sh test-all
-   > /tmp/ubuntu.log 2>&1` (x86_64, every turn). **windows = on cadence** (D7 — windows
-   is too slow for per-turn): run `bash scripts/should_gate_windows.sh`; **exit 0 →**
+   > /tmp/ubuntu.log 2>&1` (x86_64, every turn). **windows = BATCHED** (D8 — windows
+   is the slow host; batch it, NEVER poll-wait on it): run
+   `bash scripts/should_gate_windows.sh`; **exit 0 →**
    `bash scripts/run_remote_windows.sh test-all > /tmp/win.log 2>&1` (Win64), then
    after the next-cycle green verify `scripts/should_gate_windows.sh --record`. The
-   cadence (ABI-risk-path diff OR ≥4 commits since last windows run) catches Win64
-   bugs every few commits — far more than phase-boundary (which let them accumulate,
-   the D-260/D-262 analog), far cheaper than per-turn. Step 0.7 verifies both. ubuntu
+   batched cadence (≥6 commits if the batch touched ABI/calling-convention/frame-layout
+   paths, else ≥12; ABI-risk no longer immediate) keeps iteration fast on Mac+ubuntu
+   while still catching Win64 drift per batch. **Do NOT end a turn or re-arm merely to
+   poll windows** — kick it in the background when the batch fires, keep chaining the
+   next chunks, and verify its verdict at the next Step 0.7 whenever it lands. ubuntu
    red → auto-revert (D3). **windows red → NOT auto-revert** (heisenbug-prone): re-run
    once → reproduces = real bug (debt+fix); flake = `track_heisenbug.sh` + proceed.
 8. **Re-arm**: `ScheduleWakeup(delaySeconds=60, prompt="/continue")`.

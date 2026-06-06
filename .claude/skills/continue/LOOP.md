@@ -19,12 +19,15 @@ substrate→`zig build test`, logic/cohort→`zig build test-all`);
 the **background ubuntu** gate is unconditionally `zig build
 test-all` (ADR-0076 **D6** — no-wait async gate, so narrow scope
 saved no loop time but skipped the x86_64-RUN runners; D-260/D-262).
-The **windowsmini** (Win64) gate is now a **cadence-driven background
-monitoring gate** (ADR-0076 **D7**, 2026-06-05) — the loop HONORS
-`should_gate_windows.sh` (run windows たまに: ABI-risk-path diff OR ≥4
-commits since the last windows run, NOT per-turn — windows is too slow,
-NOT phase-boundary-only — too rare). A windows red is heisenbug-classified
-(re-run once), NOT auto-reverted. (Supersedes the old ADR-0049 stance that
+The **windowsmini** (Win64) gate is a **BATCHED background monitoring
+gate** (ADR-0076 **D8**, 2026-06-06, user-directed iteration-speed amend
+of D7) — the loop HONORS `should_gate_windows.sh` (run windows once per
+BATCH: **≥6 commits if the batch touched ABI/calling-convention/frame-
+layout paths, else ≥12**; ABI-risk no longer an immediate trigger).
+**Chain MANY chunks per turn on Mac+ubuntu and NEVER poll-wait on
+windows** — kick it in the background when the batch fires, keep going,
+verify its verdict at the next Step 0.7. A windows red is heisenbug-
+classified (re-run once), NOT auto-reverted. (Supersedes the old ADR-0049 stance that
 IGNORED should_gate_windows.sh, letting Win64 bugs accumulate — the
 D-260/D-262 analog. The phase-boundary reconcile remains the strict A13 gate.)
 
