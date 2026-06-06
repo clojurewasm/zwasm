@@ -41,7 +41,7 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
   `emitMemOp` JIT align-trap is the single D-299 fix that covers ALL atomic ops once cracked.
 - **ALL atomics INTERP DONE** (0x10-0x4e): loads+stores+rmw(@96231c18)+cmpxchg(@78aa7dd2). **Shared-memory parse
   gate OPEN @b54059fc** (limits 0x02; shared needs max; MemoryEntry/MemoryInstance.shared threaded; edge
-  shared_mem=42). loads+stores have JIT; rmw/cmpxchg do NOT yet.
+  shared_mem=42). loads+stores+**rmw** have JIT; cmpxchg does NOT yet.
 - **load/store JIT x86_64 now CORRECT @fbdefda9** (Win64 gate caught 2 x86_64-only bugs; cracked via Rosetta
   hexdump-diff): (1) `emitMemOp` is_store/access_size/is_fp store-groups were missing the 7 atomic-store tags
   (store-JIT partial-apply gap) → `i32.atomic.store` hit `access_size else=>unreachable` compile-panic; (2)
@@ -50,23 +50,28 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
   `i32_atomic_store.wasm` (atomic store+load, no plain memop) is the regression fixture. Add rmw/cmpxchg to
   usesRuntimePtr when their JIT lands. `check_uses_runtime_ptr.sh` did NOT catch the memop gap (only trap-stub
   drift) — detection-script gap noted, not blocking.
-- **NEXT = rmw + cmpxchg JIT emit** (the remaining JIT). **DECISION: use the CALLOUT approach** (not inline) —
-  add `atomic_rmw_fn`/`atomic_cmpxchg_fn` fn-ptr slots to JitRuntime (mirror `memory_grow_fn` @jit_abi.zig:323 +
-  its arm64 emit @emit.zig:1376 = `LDR X16,[X19,#off]; BLR X16`), with Zig helpers doing the load-modify-store /
-  compare-exchange (correct-by-construction, reuses interp logic, even gets the alignment trap RIGHT — sidesteps
-  D-299 for rmw). Post-BLR: check `trap_flag` → branch to trap stub for immediate abort (helper sets it on
-  oob/unaligned). Rationale: lower x86_64-miscompile risk than inline register-juggling (can't RUN-verify x86_64
-  locally per D-299) + matches established callout pattern; perf-inline-later is a measured debt (perf-measure-
-  first). THEN notify/wait (0x00-0x02 — now unblocked by the shared-mem gate; wait→trap-on-non-shared, notify→0).
-  3-host gate RUN-verifies x86_64 (revert-on-red like B2).
+- **rmw JIT DONE @5b38c895** (callout, both arches): 42 `tNN.atomic.rmw*` → C-ABI callout through new TRAILING
+  `JitRuntime.atomic_rmw_fn` slot (keeps @offsetOf stable). `defaultAtomicRmw` IS the prod impl (no host state).
+  4-arg marshal (rt, ea, operand, opcode) mirrors table.grow; conflict-free (arg regs not allocatable, compile-
+  asserted); offset folded into ea. Helper sets trap_flag on unaligned/oob → epilogue raises (no post-call check,
+  like memory.grow); Zig-side align-check → **rmw sidesteps the inline D-299 gap** (jitTrapCode 14). usesRuntimePtr
+  + regalloc_compute (force-spill) classify it; `rmwMapOf`/`isAtomicRmw` in jit_abi = single ABI source. 8 fixtures
+  green 3-arch incl. **crossing-clobber (459008)** + i64 res64.
+- **NEXT = cmpxchg JIT** (7 ops `tNN.atomic.rmw*.cmpxchg*`): mirror rmw, but 5 args (rt, ea, expected,
+  replacement, opcode) → on Win64 the 5th is a STACK arg (only 4 GPR arg slots; SysV/arm64 fit in regs). Decide:
+  pass opcode on the Win64 stack (use emitShadowAlloc + an outgoing slot) OR fold (e.g. width into a spare). Add a
+  `atomic_cmpxchg_fn` slot (TRAILING) + `cmpxchgMapOf`/`isAtomicCmpxchg` in jit_abi + add cmpxchg ops to
+  usesRuntimePtr+regalloc_compute (the isAtomic* predicates). THEN notify/wait (0x00-0x02 — wait→trap-on-non-
+  shared, notify→0). 3-host RUN-verifies x86_64 (Rosetta proven reliable this session; revert-on-red like B2).
 - **Exit-condition**: a `test/edge_cases/p17/atomics/*` (or spec atomics manifest) green 3-host with the full
   load/store/rmw/cmpxchg set + fence; wait/notify minimal-single-thread; shared-mem parse+validate.
 - **Cycles-remaining**: ~many (large feature). No tag (ADR-0156).
 
 ## Current state
 
-- **Phase 17 (v0.2) IN-PROGRESS** (ADR-0168); 17.1-atomics ACTIVE: fence+loads+stores full; ALL rmw+cmpxchg
-  INTERP done @78aa7dd2; NEXT = rmw+cmpxchg JIT emit. JIT misaligned-trap = D-299 (deferred/env-constrained).
+- **Phase 17 (v0.2) IN-PROGRESS** (ADR-0168); 17.1-atomics ACTIVE: fence+loads+stores+**rmw** full JIT; ALL
+  INTERP done @78aa7dd2; NEXT = **cmpxchg JIT** then notify/wait. rmw callout cracks its own align-trap (D-299
+  remains only for inline load/store).
   Phase 16 (完成形) DONE. No release/tag ever (ADR-0156).
 - Debt ledger: **65 entries, 0 `now`** (D-264 dogfooding discharged). Remaining = `.dev/remaining_sweep.md`
   (Bucket A prune / B actionable-low / C deferred / D externally-blocked) — sweep between features, never idle.
