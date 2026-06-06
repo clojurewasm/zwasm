@@ -1209,7 +1209,8 @@ of each phase advances it.
 | 13    | DONE        | C API full (wasm-c-api conformance) — deliverables 3-host-green; §13.P re-scoped past D-245 win64 (ADR-0144)                                                                                                                                  |
 | 14    | DONE        | CI matrix infrastructure — workflows + fuzz infra; §14.P re-scoped past D-245 win64 (ADR-0145)                                                                                                                                                |
 | 15    | DONE        | Performance parity with v1 (§15.P parity measured + D-265 register-homing rework closed; §15.6 ClojureWasm DEFERRED → D-264)                                                                                                                 |
-| 16    | IN-PROGRESS | Completion finalization (完成形) — surface audits (C/Zig/CLI) + dogfooding + memory-safety + docs; **release is user-only, no autonomous gate** (ADR-0156)                                                                                     |
+| 16    | DONE        | Completion finalization (完成形) — surface audits (C/Zig/CLI) + memory-safety + docs + debt; dogfooding DONE (cw v1 succeeded, ADR-0168); **no autonomous release/tag** (ADR-0156, reconfirmed)                                                  |
+| 17    | IN-PROGRESS | **v0.2.0 feature line** (user-unblocked 2026-06-06, ADR-0168) — Threads/atomics first, then wide-arith / custom-page-sizes / relaxed-residuals / Component Model / WASI 0.2 (→v0.3). Capability work, NOT a version march; **no tag** (ADR-0156) |
 
 State values: `IN-PROGRESS` (one phase at a time), `PENDING`,
 `DONE`. Update this table whenever §9.<N>.7 closes a phase or when
