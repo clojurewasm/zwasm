@@ -212,7 +212,10 @@ pub fn build(b: *std.Build) void {
     // Differential rebuild: Zig tracks the .wat input file's
     // hash; unchanged .wat → cached .wasm reused. CI-grade
     // reproducibility per user request 2026-05-21.
-    const spectest_wat2wasm = b.addSystemCommand(&.{"wat2wasm"});
+    // D-290: wabt → wasm-tools migration. `wasm-tools parse <wat> -o <wasm>` is
+    // the wat→wasm equivalent of `wat2wasm` (byte-identical for basic modules;
+    // spectest.wat is a plain support module). Drops one wabt site from the build.
+    const spectest_wat2wasm = b.addSystemCommand(&.{ "wasm-tools", "parse" });
     spectest_wat2wasm.addFileArg(b.path("test/spec/spectest.wat"));
     spectest_wat2wasm.addArg("-o");
     const spectest_wasm_path = spectest_wat2wasm.addOutputFileArg("spectest.wasm");
