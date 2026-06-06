@@ -259,6 +259,7 @@ pub fn stackEffect(op: ZirOp) ?StackEffect {
         .select, .select_typed => .{ .pops = 3, .pushes = 1 },
         // memory loads (1 → 1; pop addr, push value)
         .@"i32.load",
+        .@"i32.atomic.load", // threads (ADR-0168) — same shape as i32.load
         .@"i32.load8_s",
         .@"i32.load8_u",
         .@"i32.load16_s",

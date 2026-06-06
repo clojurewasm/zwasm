@@ -882,6 +882,8 @@ pub const Lowerer = struct {
                 self.pos += 1; // reserved memory-order byte
                 try self.emit(.@"atomic.fence", 0, 0);
             },
+            // i32.atomic.load — memarg payload identical to i32.load.
+            0x10 => try self.emitMemarg(.@"i32.atomic.load"),
             else => return Error.NotImplemented,
         }
     }

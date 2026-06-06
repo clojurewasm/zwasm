@@ -51,6 +51,9 @@ pub const TrapKind = enum(u32) {
     null_reference = 11,
     cast_failure = 12,
     uncaught_exception = 13,
+    // Wasm threads/atomics (ADR-0168): unaligned atomic effective address.
+    // Spec reason "unaligned atomic"; distinct C-ABI value (appended).
+    unaligned_atomic = 14,
 };
 
 /// `wasm_trap_t` — runtime trap surface. Carries the trap kind +
@@ -92,6 +95,7 @@ pub fn trapMessageFor(kind: TrapKind) []const u8 {
         .null_reference => "null reference",
         .cast_failure => "cast failure",
         .uncaught_exception => "uncaught exception",
+        .unaligned_atomic => "unaligned atomic",
     };
 }
 
@@ -137,6 +141,7 @@ pub fn mapInterpTrap(err: anyerror) TrapKind {
         error.NullReference => .null_reference,
         error.CastFailure => .cast_failure,
         error.UncaughtException => .uncaught_exception,
+        error.UnalignedAtomic => .unaligned_atomic,
         else => .binding_error,
     };
 }

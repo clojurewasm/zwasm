@@ -44,6 +44,12 @@ pub const Trap = error{
     /// operand for the non-null `ref.cast` variant). Spec reason: "cast
     /// failure". (10.G cycle 152.)
     CastFailure,
+    /// Wasm threads/atomics proposal (§exec, ADR-0168): an atomic
+    /// memory access (`*.atomic.load` / `.store` / `.rmw*` / `notify`
+    /// / `wait*`) whose effective address is not naturally aligned
+    /// (ea mod N/8 ≠ 0). Distinct from out-of-bounds; spec reason:
+    /// "unaligned atomic". Checked before the bounds test.
+    UnalignedAtomic,
 };
 
 /// Per-instruction trace event (Phase 6 / §9.6 / 6.A per ADR-0013).

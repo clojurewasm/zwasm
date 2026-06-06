@@ -51,6 +51,7 @@ inline fn memorySlice(rt: *Runtime, extra: u32) []u8 {
 
 pub fn register(table: *DispatchTable) void {
     table.interp[op(.@"i32.load")] = i32Load;
+    table.interp[op(.@"i32.atomic.load")] = i32AtomicLoad;
     table.interp[op(.@"i64.load")] = i64Load;
     table.interp[op(.@"f32.load")] = f32Load;
     table.interp[op(.@"f64.load")] = f64Load;
@@ -97,6 +98,22 @@ fn i32Load(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
     const mem = memorySlice(rt, instr.extra);
     const ea: u64 = @as(u64, rt.popOperand().u32) + @as(u64, instr.payload);
+    if (ea + 4 > mem.len) return Trap.OutOfBoundsLoad;
+    const v = std.mem.readInt(u32, mem[@intCast(ea)..][0..4], .little);
+    try rt.pushOperand(.{ .u32 = v });
+}
+
+/// Wasm threads §exec — `i32.atomic.load` (ADR-0168): naturally
+/// aligned 4-byte load. On the single-threaded substrate every atomic
+/// access is trivially seq-cst, so this is a plain little-endian load.
+/// Per spec step 8 the alignment trap (`ea mod 4 ≠ 0`) is checked
+/// BEFORE the bounds test (step 14a). Validation already pinned the
+/// static memarg align to exactly 2 (natural).
+fn i32AtomicLoad(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    const mem = memorySlice(rt, instr.extra);
+    const ea: u64 = @as(u64, rt.popOperand().u32) + @as(u64, instr.payload);
+    if (ea & 3 != 0) return Trap.UnalignedAtomic;
     if (ea + 4 > mem.len) return Trap.OutOfBoundsLoad;
     const v = std.mem.readInt(u32, mem[@intCast(ea)..][0..4], .little);
     try rt.pushOperand(.{ .u32 = v });
@@ -375,6 +392,36 @@ test "i32.load OOB traps" {
 
     try rt.pushOperand(.{ .u32 = 5 }); // 5+4 > 8
     try testing.expectError(Trap.OutOfBoundsLoad, driveOne(&rt, &t, .@"i32.load", 0, 0));
+}
+
+test "i32.atomic.load reads an aligned word" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    rt.memory = try testing.allocator.alloc(u8, 64);
+    @memset(rt.memory, 0);
+
+    // Plain store 0xCAFEBABE at aligned addr=8, then atomic-load it.
+    try rt.pushOperand(.{ .u32 = 8 });
+    try rt.pushOperand(.{ .u32 = 0xCAFEBABE });
+    try driveOne(&rt, &t, .@"i32.store", 0, 0);
+
+    try rt.pushOperand(.{ .u32 = 8 });
+    try driveOne(&rt, &t, .@"i32.atomic.load", 0, 0);
+    try testing.expectEqual(@as(u32, 0xCAFEBABE), rt.popOperand().u32);
+}
+
+test "i32.atomic.load unaligned address traps UnalignedAtomic (before bounds)" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    rt.memory = try testing.allocator.alloc(u8, 64);
+
+    // addr=2 is in-bounds but not 4-aligned → alignment trap, not OOB.
+    try rt.pushOperand(.{ .u32 = 2 });
+    try testing.expectError(Trap.UnalignedAtomic, driveOne(&rt, &t, .@"i32.atomic.load", 0, 0));
 }
 
 test "i32.load8_s sign-extends" {

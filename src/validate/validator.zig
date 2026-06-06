@@ -1579,6 +1579,8 @@ pub const Validator = struct {
                 self.pos += 1;
                 if (reserved != 0x00) return Error.InvalidOpcode;
             },
+            // i32.atomic.load (natural align = 2): pop addr → push i32.
+            0x10 => try self.opAtomicLoad(.i32, 2),
             else => return Error.NotImplemented,
         }
     }
@@ -2816,6 +2818,32 @@ pub const Validator = struct {
     fn opLoad(self: *Validator, t: ValType, max_align_log2: u32) Error!void {
         if (self.memory_count == 0) return Error.UnknownMemory;
         try self.readMemargCheckAlign(max_align_log2);
+        try self.popExpect(self.memAddrType()); // address (i32 or i64)
+        try self.pushType(t);
+    }
+
+    /// Read a memarg whose alignment exponent MUST equal the op's
+    /// natural alignment (Wasm threads §valid: "atomic instructions
+    /// must always specify maximum alignment") — stricter than
+    /// `readMemargCheckAlign`'s `≤`. Out-of-range → `InvalidAlignment`.
+    fn readMemargCheckAlignExact(self: *Validator, natural_align_log2: u32) Error!void {
+        const raw_align = try leb128.readUleb128(u32, self.body, &self.pos);
+        const align_log2 = raw_align & ~@as(u32, 0x40);
+        if (align_log2 != natural_align_log2) return Error.InvalidAlignment;
+        if ((raw_align & 0x40) != 0) {
+            _ = try leb128.readUleb128(u32, self.body, &self.pos); // memidx
+        }
+        try self.skipMemargOffset();
+    }
+
+    /// Wasm threads §valid — `tNN.atomic.load*`: EXACT natural
+    /// alignment + a memory present; pop addr → push the result type.
+    /// Atomics do NOT require a shared memory (wasm-tools
+    /// `check_shared_memarg`; ADR-0168). Runtime alignment trap is
+    /// enforced by the handler/JIT, not the validator.
+    fn opAtomicLoad(self: *Validator, t: ValType, natural_align_log2: u32) Error!void {
+        if (self.memory_count == 0) return Error.UnknownMemory;
+        try self.readMemargCheckAlignExact(natural_align_log2);
         try self.popExpect(self.memAddrType()); // address (i32 or i64)
         try self.pushType(t);
     }

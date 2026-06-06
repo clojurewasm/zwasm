@@ -602,6 +602,25 @@ test "validate: memory.copy memidx out of range → UnknownMemory (10.M cycle 67
     try testing.expectError(Error.UnknownMemory, r);
 }
 
+test "validate: i32.atomic.load (0xFE 0x10) exact align=2 — pops addr, pushes i32" {
+    // i32.const 0 ; i32.atomic.load align=2 offset=0 ; end  on () -> i32
+    const body = [_]u8{ 0x41, 0x00, 0xFE, 0x10, 0x02, 0x00, 0x0B };
+    try validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
+}
+
+test "validate: i32.atomic.load under-aligned (align=1) → InvalidAlignment" {
+    // Atomics require EXACT natural alignment (==2), unlike plain loads (≤).
+    const body = [_]u8{ 0x41, 0x00, 0xFE, 0x10, 0x01, 0x00, 0x0B };
+    const r = validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
+    try testing.expectError(Error.InvalidAlignment, r);
+}
+
+test "validate: i32.atomic.load over-aligned (align=3) → InvalidAlignment" {
+    const body = [_]u8{ 0x41, 0x00, 0xFE, 0x10, 0x03, 0x00, 0x0B };
+    const r = validateFunction(i32_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
+    try testing.expectError(Error.InvalidAlignment, r);
+}
+
 test "validate: memory.init (0xFC 8) with valid dataidx" {
     // i32.const 0 ; i32.const 0 ; i32.const 0 ; memory.init 0 ; end
     const body = [_]u8{
