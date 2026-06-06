@@ -56,4 +56,42 @@ pub const Memory = struct {
             else => std.mem.writeInt(T, bytes, val, .little),
         }
     }
+
+    /// Wasm spec §4.4.7 (memory.grow) — grow memory0 by `delta` pages
+    /// (64 KiB each), zero-filling the new region. Returns the PREVIOUS
+    /// page count on success, or `null` when the growth is refused (the
+    /// module's declared max would be exceeded, an arithmetic overflow,
+    /// or the host allocator failed). Mirrors wasmtime's `Memory::grow`
+    /// (no trap — grow failure is a recoverable, expected outcome).
+    pub fn grow(self: Memory, delta: u32) ?u32 {
+        const old_pages = self.rt.growMemory(0, delta) orelse return null;
+        return @intCast(old_pages);
+    }
 };
+
+const _zwasm = @import("../zwasm.zig");
+const testing = std.testing;
+
+test "Memory.grow: success returns prev pages + expands; cap refusal → null" {
+    // (module (memory 1 2) (export "mem" (memory 0)))
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // magic + version
+        0x05, 0x04, 0x01, 0x01, 0x01, 0x02, // memory: min 1, max 2
+        0x07, 0x07, 0x01, 0x03, 'm', 'e', 'm', 0x02, 0x00, // export "mem" = memory 0
+    };
+    var eng = try _zwasm.Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var mod = try eng.compile(&bytes);
+    defer mod.deinit();
+    var inst = try mod.instantiate(.{});
+    defer inst.deinit();
+
+    var mem = inst.memory().?;
+    try testing.expectEqual(@as(u32, 1), mem.size());
+    // grow 1 → 2 pages: returns prev (1), size reflects the alias re-sync.
+    try testing.expectEqual(@as(?u32, 1), mem.grow(1));
+    try testing.expectEqual(@as(u32, 2), mem.size());
+    // grow past declared max (2) → refused, memory unchanged.
+    try testing.expectEqual(@as(?u32, null), mem.grow(1));
+    try testing.expectEqual(@as(u32, 2), mem.size());
+}

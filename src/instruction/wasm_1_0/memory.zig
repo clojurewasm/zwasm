@@ -319,55 +319,15 @@ fn memoryGrow(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     // for memory64 modules; reading .u32 there would mask off the
     // high half and silently miscompute.
     const delta: u64 = if (is_i64) @bitCast(rt.popOperand().i64) else rt.popOperand().u32;
-    // Pick the target memory's bytes + pages_max. memidx=0 with
-    // empty rt.memories uses rt.memory (legacy unit-test path).
-    const target_bytes: []u8 = if (memidx < rt.memories.len)
-        rt.memories[memidx].bytes
-    else if (memidx == 0)
-        rt.memory
-    else {
+    // Core grow (cap + realloc + zero-fill + memory0 alias) lives on
+    // `Runtime.growMemory` so the interp handler + the Zig facade
+    // `Memory.grow` share one implementation. `null` = grow refused
+    // (cap exceeded / overflow / OOM) → push the -1 sentinel; the
+    // result width follows the memory's idx-type.
+    const old_pages = rt.growMemory(memidx, delta) orelse {
         if (is_i64) try rt.pushOperand(.{ .i64 = -1 }) else try rt.pushOperand(.{ .i32 = -1 });
         return;
     };
-    const declared_pages_max: ?u64 = if (memidx < rt.memories.len)
-        rt.memories[memidx].pages_max
-    else
-        null;
-    const old_pages: u64 = target_bytes.len / wasm_page_size;
-    // Wasm 1.0 max: 2^16 pages = 4 GiB. Wasm 3.0 memory64 max:
-    // 2^48 pages = 16 EiB (per memory64 spec). The interp's realloc
-    // path can't service 2^48 pages anyway — cap at host usize.
-    // Per-module `pages_max` (the limits-section `max`) tightens
-    // this further when declared (Wasm spec §3.4.4); without it
-    // the grow can succeed past the module's stated max.
-    const spec_cap: u64 = if (is_i64) std.math.maxInt(u48) else std.math.maxInt(u16) + 1;
-    const declared_max: u64 = declared_pages_max orelse spec_cap;
-    const page_cap: u64 = @min(spec_cap, declared_max);
-    const new_pages_widened = @addWithOverflow(old_pages, delta);
-    if (new_pages_widened[1] != 0 or new_pages_widened[0] > page_cap) {
-        if (is_i64) try rt.pushOperand(.{ .i64 = -1 }) else try rt.pushOperand(.{ .i32 = -1 });
-        return;
-    }
-    const new_pages = new_pages_widened[0];
-    const new_bytes_widened = @mulWithOverflow(new_pages, @as(u64, wasm_page_size));
-    if (new_bytes_widened[1] != 0 or new_bytes_widened[0] > std.math.maxInt(usize)) {
-        if (is_i64) try rt.pushOperand(.{ .i64 = -1 }) else try rt.pushOperand(.{ .i32 = -1 });
-        return;
-    }
-    const new_bytes: usize = @intCast(new_bytes_widened[0]);
-    const new_mem = rt.alloc.realloc(target_bytes, new_bytes) catch {
-        if (is_i64) try rt.pushOperand(.{ .i64 = -1 }) else try rt.pushOperand(.{ .i32 = -1 });
-        return;
-    };
-    @memset(new_mem[target_bytes.len..], 0);
-    // For memidx=0, preserve the rt.memory ↔ rt.memories[0].bytes
-    // alias via setMemory0Bytes. For memidx > 0, store the new
-    // slice directly on the per-memory MemoryInstance entry.
-    if (memidx == 0) {
-        rt.setMemory0Bytes(new_mem);
-    } else {
-        rt.memories[memidx].bytes = new_mem;
-    }
     if (is_i64) {
         try rt.pushOperand(.{ .i64 = @bitCast(old_pages) });
     } else {

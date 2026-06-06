@@ -387,6 +387,48 @@ pub const Runtime = struct {
         }
     }
 
+    /// Wasm spec §4.4.7 (memory.grow) — grow the memory at `memidx` by
+    /// `delta` pages (64 KiB each), zero-filling the new region and
+    /// preserving the `memory ↔ memories[0].bytes` alias (D-199).
+    /// Returns the previous page count on success, or `null` when the
+    /// growth is refused: the declared/spec page cap is exceeded, an
+    /// arithmetic overflow occurs, or the host allocator fails. The
+    /// interp `memory.grow` handler and the Zig facade `Memory.grow`
+    /// both route here so the cap + realloc + alias logic has a single
+    /// home (mirrors the introspection-reuses-decoder pattern).
+    pub fn growMemory(self: *Runtime, memidx: usize, delta: u64) ?u64 {
+        const page_size: u64 = 65536;
+        const target_bytes: []u8 = if (memidx < self.memories.len)
+            self.memories[memidx].bytes
+        else if (memidx == 0)
+            self.memory
+        else
+            return null;
+        const is_i64 = memidx < self.memories.len and self.memories[memidx].idx_type == .i64;
+        const declared_pages_max: ?u64 = if (memidx < self.memories.len)
+            self.memories[memidx].pages_max
+        else
+            null;
+        const old_pages: u64 = target_bytes.len / page_size;
+        // Wasm 1.0 cap = 2^16 pages (4 GiB); memory64 = 2^48 pages.
+        // The module's declared `max` (limits section) tightens this.
+        const spec_cap: u64 = if (is_i64) std.math.maxInt(u48) else std.math.maxInt(u16) + 1;
+        const page_cap: u64 = @min(spec_cap, declared_pages_max orelse spec_cap);
+        const new_pages_ov = @addWithOverflow(old_pages, delta);
+        if (new_pages_ov[1] != 0 or new_pages_ov[0] > page_cap) return null;
+        const new_pages = new_pages_ov[0];
+        const new_bytes_ov = @mulWithOverflow(new_pages, page_size);
+        if (new_bytes_ov[1] != 0 or new_bytes_ov[0] > std.math.maxInt(usize)) return null;
+        const new_mem = self.alloc.realloc(target_bytes, @intCast(new_bytes_ov[0])) catch return null;
+        @memset(new_mem[target_bytes.len..], 0);
+        if (memidx == 0) {
+            self.setMemory0Bytes(new_mem);
+        } else {
+            self.memories[memidx].bytes = new_mem;
+        }
+        return old_pages;
+    }
+
     pub fn deinit(self: *Runtime) void {
         // Per ADR-0014 §2.2 / 6.K.2: all resources are arena-owned
         // in the c_api path; tests pass `testing.allocator` directly.
