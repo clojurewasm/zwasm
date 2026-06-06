@@ -37,24 +37,26 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
   fire (native ubuntu). Needs native-x86_64+lldb (Mac/Rosetta unreliable for it). Error-path-only (well-formed
   programs never unalign; spec threads-suite not wired → gate green); interp traps correctly. rmw/cmpxchg/wait
   callouts already get it RIGHT (Zig-side check) — D-299 is now ONLY the inline load/store path.
-- **notify/wait INTERP DONE @100e4644** (validate+lower+interp+liveness+4 unit tests): notify→0 (align+bounds
-  trap; non-shared OK); wait→**trap ExpectedSharedMemory on non-shared** (new Trap kind=15), else 1(≠exp)/2(timed-
-  out). Also wired jitTrapCode 14→unaligned_atomic (was MISSING — latent rmw/cmpxchg JIT align-trap fix) + 15;
-  trapKindName updated (test-all-only runner, D-228 lesson).
-- **NEXT = notify/wait JIT** (callout, mirror rmw/cmpxchg): add `atomic_notify_fn(rt,ea)` + `atomic_wait_fns[2]`
-  (per-width) TRAILING slots + a **`mem0_shared` flag on JitRuntime** (set at setup from memories[0].shared — JIT
-  rt has no MemoryInstance; wait helper needs it). notify emit pops count+addr (count unused); wait pops
-  timeout+expected+addr (timeout unused). Add to usesRuntimePtr+regalloc_compute. Then edge fixtures → **bundle
-  exit-condition MET**. 3-host RUN-verifies x86_64 (revert-on-red).
+- **notify/wait INTERP @100e4644 + JIT @9eb84833 DONE** — the FULL atomics op set is now implemented (both
+  arches). Interp: notify→0; wait→trap ExpectedSharedMemory on non-shared (new Trap kind=15), else 1(≠)/2(timed-
+  out); jitTrapCode 14+15 wired (14 was MISSING — latent rmw/cmpxchg align-trap fix). JIT: callout via TRAILING
+  `atomic_notify_fn` + `atomic_wait_fns[2]` (per-width) + `mem0_shared` u32 (wired from memories[0].shared at
+  setup; JIT rt has no MemoryInstance). 4 edge fixtures green Mac arm64 + x86_64-macos + 4-target cross. probe
+  repointed to `f32x4.relaxed_madd`. size→544.
+- **NEXT = CLOSE bundle** once ubuntu+windows confirm `9eb84833` (kicked this turn — verifies notify/wait JIT on
+  the other 2 hosts; the windows batch @29e39504 already GREEN for rmw/cmpxchg/interp/trap-kind, D-279 silent
+  streak 2). Bundle exit (full op set green 3-host) MET on Mac; pending remote confirm. Then open the next v0.2
+  feature track (proposal_watch §v0.2: wide-arith → custom-page-sizes → …); remaining_sweep between features. No
+  tag (ADR-0156).
 - **Exit-condition**: a `test/edge_cases/p17/atomics/*` (or spec atomics manifest) green 3-host with the full
   load/store/rmw/cmpxchg set + fence; wait/notify minimal-single-thread; shared-mem parse+validate.
 - **Cycles-remaining**: ~many (large feature). No tag (ADR-0156).
 
 ## Current state
 
-- **Phase 17 (v0.2) IN-PROGRESS** (ADR-0168); 17.1-atomics ACTIVE: fence+load/store/rmw/cmpxchg full JIT;
-  **notify/wait INTERP done @100e4644**; NEXT = notify/wait JIT (last piece → bundle exit). rmw/cmpxchg callouts
-  crack their own align-trap (D-299 remains only for inline load/store).
+- **Phase 17 (v0.2) IN-PROGRESS** (ADR-0168); 17.1-atomics: **FULL op set DONE both arches** (fence+load/store/
+  rmw/cmpxchg+notify/wait, interp+JIT @9eb84833). NEXT = close bundle on remote confirm, then next v0.2 feature.
+  rmw/cmpxchg/wait callouts crack their own align-trap (D-299 remains only for inline load/store).
   Phase 16 (完成形) DONE. No release/tag ever (ADR-0156).
 - Debt ledger: **65 entries, 0 `now`** (D-264 dogfooding discharged). Remaining = `.dev/remaining_sweep.md`
   (Bucket A prune / B actionable-low / C deferred / D externally-blocked) — sweep between features, never idle.
