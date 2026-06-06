@@ -76,9 +76,7 @@ gated capture of func 17's RECEIVED X1 at its prologue → distinguish P1 (func-
 X1 clobber). Build `-Dtrace-stackprobe=true`; run `zwasm run --engine jit bench/runners/wasm/shootout/ed25519.wasm`;
 grep `[d-291]`. Full hypothesis chain in the D-291 debt row.
 
-### (prior context) D-291 — Mac-repro JIT miscompile, the genuine root-cause hunt
-
-ADR-0164 trap-diagnostics COMPLETE. **D-294 3-HOST GREEN** (`4fa16b29`/`ba111ee5`, `partial`, residuals polish).
+**Other status**: ADR-0164 trap-diagnostics COMPLETE. **D-294 3-HOST GREEN** (`4fa16b29`/`ba111ee5`, `partial`, residuals polish).
 **D-279 sha256 lead was FALSE** (corrected): zwasm computes the correct hash (interp==jit, all hosts); the
 `c_sha256_hash.wasm` fixture has a wrong baked-in constant → golden-matched, never gates. ba111ee5 genuinely
 SILENT (tracker fail→silent, **streak 3/5**); genuine D-279 = the `simd_bit_shift` CRASH only, H3 WITHDRAWN.
