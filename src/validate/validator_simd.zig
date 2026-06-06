@@ -303,6 +303,22 @@ pub fn dispatchPrefixFD(self: *Validator) Error!void {
         224, 225, 227, 236, 237, 239 => try opSimdUnop(self),
         226, 228...235, 238, 240...255 => try opSimdBinop(self),
 
+        // §17.4 — relaxed-SIMD (proposal Phase-5/W3C-Rec). Sub 0x100..0x113
+        // (256..275). Validator only checks the operand-stack shape; the
+        // implementation-defined latitude is resolved deterministically at
+        // emit (uniform interp-less/JIT-both-arches choice — see 17.4 bundle).
+        //   256       i8x16.relaxed_swizzle               2-pop
+        //   257..260  i32x4.relaxed_trunc_*               1-pop
+        //   261..264  f{32,64}x4.relaxed_{madd,nmadd}     3-pop
+        //   265..268  *.relaxed_laneselect                3-pop
+        //   269..272  f{32,64}x4.relaxed_{min,max}        2-pop
+        //   273       i16x8.relaxed_q15mulr_s             2-pop
+        //   274       i16x8.relaxed_dot_i8x16_i7x16_s     2-pop
+        //   275       i32x4.relaxed_dot_i8x16_i7x16_add_s 3-pop
+        256, 269, 270, 271, 272, 273, 274 => try opSimdBinop(self),
+        257, 258, 259, 260 => try opSimdUnop(self),
+        261, 262, 263, 264, 265, 266, 267, 268, 275 => try opSimdBitselect(self),
+
         else => return Error.NotImplemented,
     }
 }

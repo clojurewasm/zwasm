@@ -382,6 +382,28 @@ pub fn emitPrefixFD(self: *Lowerer) Error!void {
         204 => try self.emit(.@"i64x2.shr_s", 0, 0),
         205 => try self.emit(.@"i64x2.shr_u", 0, 0),
 
+        // §17.4 — relaxed-SIMD (sub 0x100..0x113 / 256..275).
+        256 => try self.emit(.@"i8x16.relaxed_swizzle", 0, 0),
+        257 => try self.emit(.@"i32x4.relaxed_trunc_f32x4_s", 0, 0),
+        258 => try self.emit(.@"i32x4.relaxed_trunc_f32x4_u", 0, 0),
+        259 => try self.emit(.@"i32x4.relaxed_trunc_f64x2_s_zero", 0, 0),
+        260 => try self.emit(.@"i32x4.relaxed_trunc_f64x2_u_zero", 0, 0),
+        261 => try self.emit(.@"f32x4.relaxed_madd", 0, 0),
+        262 => try self.emit(.@"f32x4.relaxed_nmadd", 0, 0),
+        263 => try self.emit(.@"f64x2.relaxed_madd", 0, 0),
+        264 => try self.emit(.@"f64x2.relaxed_nmadd", 0, 0),
+        265 => try self.emit(.@"i8x16.relaxed_laneselect", 0, 0),
+        266 => try self.emit(.@"i16x8.relaxed_laneselect", 0, 0),
+        267 => try self.emit(.@"i32x4.relaxed_laneselect", 0, 0),
+        268 => try self.emit(.@"i64x2.relaxed_laneselect", 0, 0),
+        269 => try self.emit(.@"f32x4.relaxed_min", 0, 0),
+        270 => try self.emit(.@"f32x4.relaxed_max", 0, 0),
+        271 => try self.emit(.@"f64x2.relaxed_min", 0, 0),
+        272 => try self.emit(.@"f64x2.relaxed_max", 0, 0),
+        273 => try self.emit(.@"i16x8.relaxed_q15mulr_s", 0, 0),
+        274 => try self.emit(.@"i16x8.relaxed_dot_i8x16_i7x16_s", 0, 0),
+        275 => try self.emit(.@"i32x4.relaxed_dot_i8x16_i7x16_add_s", 0, 0),
+
         else => return Error.NotImplemented,
     }
 }

@@ -35,8 +35,40 @@ const i64_result_sig: FuncType = .{ .params = &.{}, .results = &i64_arr };
 const exnref_arr = [_]ValType{ValType.exnref};
 const exnref_result_sig: FuncType = .{ .params = &.{}, .results = &exnref_arr };
 
+const v128x1_rs = [_]ValType{.v128};
+const v128x2_rs = [_]ValType{ .v128, .v128 };
+const v128x3_rs = [_]ValType{ .v128, .v128, .v128 };
+const v128_from_v128: FuncType = .{ .params = &v128x1_rs, .results = &v128x1_rs };
+const v128_from_v128x2: FuncType = .{ .params = &v128x2_rs, .results = &v128x1_rs };
+const v128_from_v128x3: FuncType = .{ .params = &v128x3_rs, .results = &v128x1_rs };
+
 test "validate: empty function (() -> ()) with bare `end`" {
     try validateFunction(empty_sig, &.{}, &[_]u8{0x0B}, &.{}, &.{}, &.{}, 0, &.{}, 0);
+}
+
+// Relaxed-SIMD (0xFD prefix, sub 0x100..0x113 → LEB `0x8N 0x02`). Type shapes
+// span 1-pop (trunc), 2-pop (swizzle/min/max/q15/dot_s), 3-pop (madd/laneselect/
+// dot_add) — all → v128. (17.4 front-end wiring; before this they were NotImplemented.)
+test "validate: i8x16.relaxed_swizzle (0x100, 2-pop → v128)" {
+    // local.get 0; local.get 1; 0xFD 0x80 0x02; end
+    try validateFunction(v128_from_v128x2, &.{}, &[_]u8{ 0x20, 0x00, 0x20, 0x01, 0xFD, 0x80, 0x02, 0x0B }, &.{}, &.{}, &.{}, 0, &.{}, 0);
+}
+test "validate: i32x4.relaxed_trunc_f32x4_s (0x101, 1-pop → v128)" {
+    // local.get 0; 0xFD 0x81 0x02; end
+    try validateFunction(v128_from_v128, &.{}, &[_]u8{ 0x20, 0x00, 0xFD, 0x81, 0x02, 0x0B }, &.{}, &.{}, &.{}, 0, &.{}, 0);
+}
+test "validate: f32x4.relaxed_madd (0x105, 3-pop → v128)" {
+    // local.get 0; local.get 1; local.get 2; 0xFD 0x85 0x02; end
+    try validateFunction(v128_from_v128x3, &.{}, &[_]u8{ 0x20, 0x00, 0x20, 0x01, 0x20, 0x02, 0xFD, 0x85, 0x02, 0x0B }, &.{}, &.{}, &.{}, 0, &.{}, 0);
+}
+test "validate: i8x16.relaxed_laneselect (0x109, 3-pop → v128)" {
+    try validateFunction(v128_from_v128x3, &.{}, &[_]u8{ 0x20, 0x00, 0x20, 0x01, 0x20, 0x02, 0xFD, 0x89, 0x02, 0x0B }, &.{}, &.{}, &.{}, 0, &.{}, 0);
+}
+test "validate: f32x4.relaxed_min (0x10D, 2-pop → v128)" {
+    try validateFunction(v128_from_v128x2, &.{}, &[_]u8{ 0x20, 0x00, 0x20, 0x01, 0xFD, 0x8D, 0x02, 0x0B }, &.{}, &.{}, &.{}, 0, &.{}, 0);
+}
+test "validate: i32x4.relaxed_dot_i8x16_i7x16_add_s (0x113, 3-pop → v128)" {
+    try validateFunction(v128_from_v128x3, &.{}, &[_]u8{ 0x20, 0x00, 0x20, 0x01, 0x20, 0x02, 0xFD, 0x93, 0x02, 0x0B }, &.{}, &.{}, &.{}, 0, &.{}, 0);
 }
 
 test "validate: i32.const 0 + drop + end on () -> ()" {

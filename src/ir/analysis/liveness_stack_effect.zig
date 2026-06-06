@@ -490,6 +490,11 @@ pub fn stackEffect(op: ZirOp) ?StackEffect {
         .@"f64x2.floor",
         .@"f64x2.trunc",
         .@"f64x2.nearest",
+        // 1 → 1: relaxed-SIMD trunc (17.4).
+        .@"i32x4.relaxed_trunc_f32x4_s",
+        .@"i32x4.relaxed_trunc_f32x4_u",
+        .@"i32x4.relaxed_trunc_f64x2_s_zero",
+        .@"i32x4.relaxed_trunc_f64x2_u_zero",
         // 1 → 1: extend low/high.
         .@"i16x8.extend_low_i8x16_s",
         .@"i16x8.extend_high_i8x16_s",
@@ -681,9 +686,28 @@ pub fn stackEffect(op: ZirOp) ?StackEffect {
         .@"i64x2.extmul_high_i32x4_s",
         .@"i64x2.extmul_low_i32x4_u",
         .@"i64x2.extmul_high_i32x4_u",
+        // 2 → 1: relaxed-SIMD binops (17.4) — swizzle / min / max / q15mulr / dot_s.
+        .@"i8x16.relaxed_swizzle",
+        .@"f32x4.relaxed_min",
+        .@"f32x4.relaxed_max",
+        .@"f64x2.relaxed_min",
+        .@"f64x2.relaxed_max",
+        .@"i16x8.relaxed_q15mulr_s",
+        .@"i16x8.relaxed_dot_i8x16_i7x16_s",
         => .{ .pops = 2, .pushes = 1 },
-        // 3 → 1: bitselect (a, b, mask).
-        .@"v128.bitselect" => .{ .pops = 3, .pushes = 1 },
+        // 3 → 1: bitselect (a, b, mask) + relaxed-SIMD ternops (17.4) —
+        // madd/nmadd (a*b+c), laneselect (a, b, mask), dot_add (a, b, acc).
+        .@"v128.bitselect",
+        .@"f32x4.relaxed_madd",
+        .@"f32x4.relaxed_nmadd",
+        .@"f64x2.relaxed_madd",
+        .@"f64x2.relaxed_nmadd",
+        .@"i8x16.relaxed_laneselect",
+        .@"i16x8.relaxed_laneselect",
+        .@"i32x4.relaxed_laneselect",
+        .@"i64x2.relaxed_laneselect",
+        .@"i32x4.relaxed_dot_i8x16_i7x16_add_s",
+        => .{ .pops = 3, .pushes = 1 },
         else => null,
     };
 }
