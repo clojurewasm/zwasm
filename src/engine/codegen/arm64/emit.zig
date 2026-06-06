@@ -87,6 +87,7 @@ const ctx_mod = @import("ctx.zig");
 const gpr = @import("gpr.zig");
 const op_const = @import("op_const.zig");
 const op_memory = @import("op_memory.zig");
+const op_alu_int = @import("op_alu_int.zig");
 const op_control = @import("op_control.zig");
 const op_call = @import("op_call.zig");
 const op_simd = @import("op_simd.zig");
@@ -1522,6 +1523,13 @@ pub fn compile(
             .@"memory.atomic.wait32",
             .@"memory.atomic.wait64",
             => try op_memory.emitAtomicWait(&ctx, &ins),
+            // Wasm wide-arithmetic (ADR-0168 v0.2) — 128-bit multi-result.
+            .@"i64.add128",
+            .@"i64.sub128",
+            => try op_alu_int.emitWideAddSub128(&ctx, &ins),
+            .@"i64.mul_wide_s",
+            .@"i64.mul_wide_u",
+            => try op_alu_int.emitWideMul(&ctx, &ins),
             // §9.9 / 9.9-m-3a: data.drop / elem.drop — write 1 to
             // the dropped-flag byte at `[r15+ptr_off]+idx`. No
             // operands consumed; no result pushed. validator already

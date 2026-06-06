@@ -1147,3 +1147,63 @@ pub fn emitRefFunc(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, vreg, 0);
     try ctx.pushed_vregs.append(ctx.allocator, vreg);
 }
+
+// Wasm wide-arithmetic (ADR-0168 v0.2) — the first 2-result ops.
+// RAX/RDX are reserved (non-allocatable; mul/div-implicit), so they
+// serve as the carry-chain / product accumulators without colliding
+// with the R10/R11 spill-stage regs that gprLoadSpilled uses. MOV and
+// memory-load do NOT clobber CF, so the carry survives ADD→ADC. Results
+// captured into 2 vregs (next_vreg++ ×2, mirror captureCallResult).
+
+/// MOV/store accumulator `src` (RAX or RDX) into result vreg `vreg`.
+fn captureWideX86(ctx: *ctx_mod.EmitCtx, vreg: u32, src: inst.Gpr) Error!void {
+    if (vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
+    const dst = try gpr.gprDefSpilled(ctx.alloc, vreg, 0);
+    if (dst != src) try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.q, dst, src).slice());
+    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, vreg, 0);
+    try ctx.pushed_vregs.append(ctx.allocator, vreg);
+}
+
+/// `i64.add128` / `i64.sub128` — pop [a_lo, a_hi, b_lo, b_hi], push
+/// [r_lo, r_hi]. RAX = a_lo (±) b_lo (CF); RDX = a_hi (±) b_hi (±CF).
+pub fn emitWideAddSub128(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    if (ctx.pushed_vregs.items.len < 4) return Error.AllocationMissing;
+    const b_hi_v = ctx.pushed_vregs.pop().?;
+    const b_lo_v = ctx.pushed_vregs.pop().?;
+    const a_hi_v = ctx.pushed_vregs.pop().?;
+    const a_lo_v = ctx.pushed_vregs.pop().?;
+    const is_sub = ins.op == .@"i64.sub128";
+    const a_lo = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, a_lo_v, 0);
+    if (a_lo != .rax) try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.q, .rax, a_lo).slice());
+    const b_lo = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, b_lo_v, 1);
+    try ctx.buf.appendSlice(ctx.allocator, if (is_sub) inst.encSubRR(.q, .rax, b_lo).slice() else inst.encAddRR(.q, .rax, b_lo).slice());
+    const a_hi = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, a_hi_v, 0);
+    if (a_hi != .rdx) try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.q, .rdx, a_hi).slice());
+    const b_hi = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, b_hi_v, 1);
+    try ctx.buf.appendSlice(ctx.allocator, if (is_sub) inst.encSbbRR(.q, .rdx, b_hi).slice() else inst.encAdcRR(.q, .rdx, b_hi).slice());
+    const r_lo = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    try captureWideX86(ctx, r_lo, .rax);
+    const r_hi = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    try captureWideX86(ctx, r_hi, .rdx);
+}
+
+/// `i64.mul_wide_s` / `i64.mul_wide_u` — pop [a, b], push [lo, hi].
+/// RAX = a; (I)MUL b → RDX:RAX (RAX = lo, RDX = hi).
+pub fn emitWideMul(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
+    if (ctx.pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const b_v = ctx.pushed_vregs.pop().?;
+    const a_v = ctx.pushed_vregs.pop().?;
+    const a = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, a_v, 0);
+    if (a != .rax) try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.q, .rax, a).slice());
+    const b = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, b_v, 1);
+    const signed = ins.op == .@"i64.mul_wide_s";
+    try ctx.buf.appendSlice(ctx.allocator, if (signed) inst.encImul1(.q, b).slice() else inst.encMul1(.q, b).slice());
+    const r_lo = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    try captureWideX86(ctx, r_lo, .rax);
+    const r_hi = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    try captureWideX86(ctx, r_hi, .rdx);
+}

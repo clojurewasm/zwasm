@@ -656,6 +656,42 @@ pub fn encMulReg(rd: Xn, rn: Xn, rm: Xn) u32 {
     return 0x9B007C00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
 }
 
+// Wasm wide-arithmetic (ADR-0168 v0.2) — 128-bit add/sub carry chain +
+// 128-bit multiply high half. `ADDS`/`SUBS` set NZCV (carry/borrow);
+// `ADC`/`SBC` consume it. `UMULH`/`SMULH` give the high 64 bits of the
+// 128-bit product (`MUL` gives the low 64, encMulReg above). All
+// 64-bit shifted-/3-source-register forms, shift=0.
+
+/// `ADDS Xd, Xn, Xm` — add, set flags (carry into NZCV.C).
+pub fn encAddsReg(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0xAB000000 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `ADC Xd, Xn, Xm` — add with carry (Xd = Xn + Xm + C).
+pub fn encAdcReg(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x9A000000 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `SUBS Xd, Xn, Xm` — subtract, set flags (borrow → NZCV.C cleared).
+pub fn encSubsReg(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0xEB000000 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `SBC Xd, Xn, Xm` — subtract with carry (Xd = Xn - Xm - !C).
+pub fn encSbcReg(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0xDA000000 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `UMULH Xd, Xn, Xm` — high 64 bits of the unsigned 128-bit product.
+pub fn encUmulh(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x9BC07C00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+/// `SMULH Xd, Xn, Xm` — high 64 bits of the signed 128-bit product.
+pub fn encSmulh(rd: Xn, rn: Xn, rm: Xn) u32 {
+    return 0x9B407C00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
 /// `AND Xd, Xn, Xm` (no shift). 64-bit AND shifted-reg, shift=0:
 /// `1 00 01010 00 0 [Rm:5] 000000 [Rn:5] [Rd:5]` = `0x8A000000` | …
 pub fn encAndReg(rd: Xn, rn: Xn, rm: Xn) u32 {

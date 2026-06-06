@@ -186,6 +186,48 @@ pub fn encImulRR(size: Width, dst: Gpr, src: Gpr) EncodedInsn {
     return enc;
 }
 
+// Wasm wide-arithmetic (ADR-0168 v0.2) — 128-bit carry chain + full
+// 128-bit product. ADC/SBB consume the CF set by ADD/SUB; MUL/IMUL
+// (one-operand, F7 /4 // /5) compute RDX:RAX = RAX × src.
+
+/// `ADC r/m, r` (opcode 0x11 /r) — `dst = dst + src + CF`.
+pub fn encAdcRR(size: Width, dst: Gpr, src: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (rexForRR(size, src, dst)) |rex| enc.push(rex);
+    enc.push(0x11);
+    enc.push(encodeModrm(0b11, src.low3(), dst.low3()));
+    return enc;
+}
+
+/// `SBB r/m, r` (opcode 0x19 /r) — `dst = dst - src - CF` (borrow).
+pub fn encSbbRR(size: Width, dst: Gpr, src: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (rexForRR(size, src, dst)) |rex| enc.push(rex);
+    enc.push(0x19);
+    enc.push(encodeModrm(0b11, src.low3(), dst.low3()));
+    return enc;
+}
+
+/// `MUL r/m` (opcode 0xF7 /4) — unsigned RDX:RAX = RAX × src. The
+/// reg field is the /4 opcode extension (REX.R = 0); REX.B covers an
+/// extended `src` (mirror encTestRImm32's F7 REX pattern).
+pub fn encMul1(size: Width, src: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (rexForRR(size, .rax, src)) |rex| enc.push(rex);
+    enc.push(0xF7);
+    enc.push(encodeModrm(0b11, 4, src.low3()));
+    return enc;
+}
+
+/// `IMUL r/m` (opcode 0xF7 /5) — signed RDX:RAX = RAX × src.
+pub fn encImul1(size: Width, src: Gpr) EncodedInsn {
+    var enc: EncodedInsn = .{};
+    if (rexForRR(size, .rax, src)) |rex| enc.push(rex);
+    enc.push(0xF7);
+    enc.push(encodeModrm(0b11, 5, src.low3()));
+    return enc;
+}
+
 /// `ADD r/m64, imm32` (opcode 0x81 /0 with REX.W). 4-byte
 /// little-endian immediate. Used to fold the Wasm static offset
 /// into the effective address before bounds check.

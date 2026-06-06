@@ -1164,6 +1164,13 @@ pub fn compile(
             .@"memory.atomic.wait32",
             .@"memory.atomic.wait64",
             => try op_memory.emitAtomicWait(&ctx, &ins),
+            // Wasm wide-arithmetic (ADR-0168 v0.2) — 128-bit multi-result.
+            .@"i64.add128",
+            .@"i64.sub128",
+            => try op_alu_int.emitWideAddSub128(&ctx, &ins),
+            .@"i64.mul_wide_s",
+            .@"i64.mul_wide_u",
+            => try op_alu_int.emitWideMul(&ctx, &ins),
             .@"i32.load8_s" => try op_memory.emitI32Load8S(&ctx, &ins),
             .@"i32.load8_u" => try op_memory.emitI32Load8U(&ctx, &ins),
             .@"i32.load16_s" => try op_memory.emitI32Load16S(&ctx, &ins),

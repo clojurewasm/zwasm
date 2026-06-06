@@ -34,6 +34,7 @@ const inst = @import("inst.zig");
 const inst_fp = @import("inst_fp.zig");
 const ctx_mod = @import("ctx.zig");
 const gpr = @import("gpr.zig");
+const abi = @import("abi.zig");
 
 const ZirInstr = zir.ZirInstr;
 const EmitCtx = ctx_mod.EmitCtx;
@@ -543,4 +544,75 @@ pub fn emitI64DivRem(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     }
     try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.result, 0);
     try ctx.pushed_vregs.append(ctx.allocator, args.result);
+}
+
+// Wasm wide-arithmetic (ADR-0168 v0.2) — the first 2-result ops.
+// Computed into ip0/ip1 (non-allocatable scratch) to avoid clobbering
+// a still-needed operand mid-carry-chain, then captured into the two
+// result vregs (mirror op_call captureCallResult: next_vreg++ ×2).
+
+/// Store scratch reg `src` into result vreg `vreg`'s slot. Mirrors
+/// gprStoreSpilled's slot dispatch for a value already in a fixed reg.
+fn captureWideResult(ctx: *EmitCtx, vreg: u32, src: Xn) Error!void {
+    if (vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
+    switch (ctx.alloc.slot(vreg, .gpr)) {
+        .reg => |id| {
+            const xd = abi.slotToReg(id) orelse return Error.SlotOverflow;
+            if (xd != src) try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(xd, 31, src));
+        },
+        .spill => |off| {
+            const abs_off: u32 = ctx.spill_base_off + off;
+            if (abs_off > 32760) return Error.SlotOverflow;
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImm(src, 31, @intCast(abs_off)));
+        },
+    }
+    try ctx.pushed_vregs.append(ctx.allocator, vreg);
+}
+
+/// `i64.add128` / `i64.sub128` — pop [a_lo, a_hi, b_lo, b_hi], push
+/// [r_lo, r_hi]. ADDS/SUBS sets carry; ADC/SBC consumes it. The operand
+/// loads between the two are LDR/MOV (no NZCV clobber) so the carry
+/// survives. r_lo→ip0, r_hi→ip1.
+pub fn emitWideAddSub128(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
+    if (ctx.pushed_vregs.items.len < 4) return Error.AllocationMissing;
+    const b_hi_v = ctx.pushed_vregs.pop().?;
+    const b_lo_v = ctx.pushed_vregs.pop().?;
+    const a_hi_v = ctx.pushed_vregs.pop().?;
+    const a_lo_v = ctx.pushed_vregs.pop().?;
+    const ip0 = abi.ip_gprs[0];
+    const ip1 = abi.ip_gprs[1];
+    const is_sub = ins.op == .@"i64.sub128";
+    const b_lo = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, b_lo_v, 0);
+    const a_lo = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, a_lo_v, 1);
+    try gpr.writeU32(ctx.allocator, ctx.buf, if (is_sub) inst.encSubsReg(ip0, a_lo, b_lo) else inst.encAddsReg(ip0, a_lo, b_lo));
+    const b_hi = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, b_hi_v, 0);
+    const a_hi = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, a_hi_v, 1);
+    try gpr.writeU32(ctx.allocator, ctx.buf, if (is_sub) inst.encSbcReg(ip1, a_hi, b_hi) else inst.encAdcReg(ip1, a_hi, b_hi));
+    const r_lo = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    try captureWideResult(ctx, r_lo, ip0);
+    const r_hi = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    try captureWideResult(ctx, r_hi, ip1);
+}
+
+/// `i64.mul_wide_s` / `i64.mul_wide_u` — pop [a, b], push [lo, hi] of
+/// the full 128-bit product. MUL→lo (ip0), UMULH/SMULH→hi (ip1).
+pub fn emitWideMul(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
+    if (ctx.pushed_vregs.items.len < 2) return Error.AllocationMissing;
+    const b_v = ctx.pushed_vregs.pop().?;
+    const a_v = ctx.pushed_vregs.pop().?;
+    const ip0 = abi.ip_gprs[0];
+    const ip1 = abi.ip_gprs[1];
+    const a = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, a_v, 0);
+    const b = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, b_v, 1);
+    const signed = ins.op == .@"i64.mul_wide_s";
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMulReg(ip0, a, b)); // low 64
+    try gpr.writeU32(ctx.allocator, ctx.buf, if (signed) inst.encSmulh(ip1, a, b) else inst.encUmulh(ip1, a, b)); // high 64
+    const r_lo = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    try captureWideResult(ctx, r_lo, ip0);
+    const r_hi = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    try captureWideResult(ctx, r_hi, ip1);
 }

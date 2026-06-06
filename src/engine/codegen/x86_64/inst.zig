@@ -190,6 +190,11 @@ pub const SsePackedKind = enum(u8) {
 pub const encMovRR = inst_alu.encMovRR;
 pub const encAddRR = inst_alu.encAddRR;
 pub const encSubRR = inst_alu.encSubRR;
+// Wasm wide-arithmetic (ADR-0168 v0.2).
+pub const encAdcRR = inst_alu.encAdcRR;
+pub const encSbbRR = inst_alu.encSbbRR;
+pub const encMul1 = inst_alu.encMul1;
+pub const encImul1 = inst_alu.encImul1;
 pub const encAndRR = inst_alu.encAndRR;
 pub const encOrRR = inst_alu.encOrRR;
 pub const encXorRR = inst_alu.encXorRR;
