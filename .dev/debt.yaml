@@ -219,11 +219,15 @@ entries:
       spill load/store. Loads self-compute into dst; stores use X16/IP0 (body) or the other spill-stage reg.
       Tests `test/edge_cases/p9/large_frame/many_locals.{wat} (local off ~40k → 305419896)` +
       `many_locals_spill (spill off >32760 → 210)` green + 83 edge + full test, no regression.
-      REMAINING (follow-on, no failing fixture yet): FP/v128 local.get/set/tee large arms + param-marshal
-      (:397-455) + stack-args (:466-531) still cap → UnsupportedOp; lift with the same helpers when a fixture
-      needs them. SEPARATE (→ D-291): ed25519 now COMPILES but SIGSEGVs at runtime — the [stack_probe] diag
-      showed margin ~16 MB (SP far above the limit), so it is NOT stack exhaustion; a genuine memory fault.
-      DISCHARGE (this row): the FP/v128/param/stack large arms lifted + a fixture each.
+      FP/v128 LOCAL ARMS FIXED + VERIFIED (`7dfc5992`, 2026-06-06): `gpr.frameLdrFp`/`frameStrFp` (S/D/Q,
+      large path materialises SP+off into X16/IP0 since the V-reg dst can't self-compute) applied to
+      local.get/set/tee f32/f64/v128 in emit.zig (caps + truncating offset_w/x/q casts removed). New fixture
+      `test/edge_cases/p9/large_frame/d289_fp_large_frame.wat` (5000 f64 locals → local[4999] off ~40000 > the
+      32760 D-form cap; round-trips 1234.5, returns 1) green + many_locals/spill no regression (85/0) + full
+      test + lint clean. REMAINING (follow-on, no failing fixture yet): param-marshal (:397-455) + stack-args
+      (:466-531) FP/GPR large arms still cap → UnsupportedOp; lift with the same helpers when a fixture needs
+      them. SEPARATE (→ D-291, now CLOSED): ed25519 SIGSEGV was the arm64 callee-saved-home spill bug.
+      DISCHARGE (this row): the param-marshal + stack-args large arms lifted + a fixture each.
     first_raised: "2026-06-05"
     last_reviewed: "2026-06-05"
     refs: |-
