@@ -1377,7 +1377,10 @@ pub fn instantiateRuntime(
         if (defined_memories) |memories| {
             for (memories.items, 0..) |entry, di| {
                 const pages = entry.min;
-                const bytes_total: usize = @as(usize, pages) * 65536;
+                // Custom-page-sizes (ADR-0168 v0.2): initial bytes = min ×
+                // (1 << page_size_log2). Default 64 KiB.
+                const page_size: usize = @as(usize, 1) << @intCast(entry.page_size_log2);
+                const bytes_total: usize = @as(usize, pages) * page_size;
                 const mem = try a.alloc(u8, bytes_total);
                 @memset(mem, 0);
                 def_storage[di] = .{
@@ -1714,7 +1717,9 @@ fn checkImportTypeMatches(
             // declared min — imports4 imports a memory grown to 2 while
             // declaring min 2.
             const m = binding.memory.inst;
-            const src_pages: u64 = m.bytes.len / 65536;
+            // Custom-page-sizes (ADR-0168 v0.2): page count in the source's
+            // own page-size units (1 << page_size_log2; default 64 KiB).
+            const src_pages: u64 = m.bytes.len / (@as(u64, 1) << @intCast(m.page_size_log2));
             if (src_pages < want.min) return error.ImportTypeMismatch;
             if (want.max) |wm| {
                 const max_s = m.pages_max orelse return error.ImportTypeMismatch;

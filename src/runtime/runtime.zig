@@ -397,7 +397,14 @@ pub const Runtime = struct {
     /// both route here so the cap + realloc + alias logic has a single
     /// home (mirrors the introspection-reuses-decoder pattern).
     pub fn growMemory(self: *Runtime, memidx: usize, delta: u64) ?u64 {
-        const page_size: u64 = 65536;
+        // Custom-page-sizes (ADR-0168 v0.2): page size = 1 << page_size_log2
+        // (default 64 KiB). memory.size/grow + the page cap are in units of
+        // this. The scaffold fallback (memidx 0 via `self.memory`, no
+        // `memories` entry) keeps the 64 KiB default.
+        const page_size: u64 = if (memidx < self.memories.len)
+            @as(u64, 1) << @intCast(self.memories[memidx].page_size_log2)
+        else
+            65536;
         const target_bytes: []u8 = if (memidx < self.memories.len)
             self.memories[memidx].bytes
         else if (memidx == 0)
@@ -410,9 +417,11 @@ pub const Runtime = struct {
         else
             null;
         const old_pages: u64 = target_bytes.len / page_size;
-        // Wasm 1.0 cap = 2^16 pages (4 GiB); memory64 = 2^48 pages.
-        // The module's declared `max` (limits section) tightens this.
-        const spec_cap: u64 = if (is_i64) std.math.maxInt(u48) else std.math.maxInt(u16) + 1;
+        // Spec page cap = byte_cap / page_size (i32 byte_cap = 2^32; i64 =
+        // 2^64). With the 64 KiB default this is 2^16 // 2^48 pages; a 1-byte
+        // page scales it up. u128 byte_cap avoids the i64 2^64 overflow.
+        const byte_cap: u128 = if (is_i64) (@as(u128, 1) << 64) else (@as(u128, 1) << 32);
+        const spec_cap: u64 = @intCast(@min(byte_cap / page_size, @as(u128, std.math.maxInt(u64))));
         const page_cap: u64 = @min(spec_cap, declared_pages_max orelse spec_cap);
         const new_pages_ov = @addWithOverflow(old_pages, delta);
         if (new_pages_ov[1] != 0 or new_pages_ov[0] > page_cap) return null;

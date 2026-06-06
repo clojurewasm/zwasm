@@ -59,6 +59,14 @@ inline fn memShared(rt: *Runtime, extra: u32) bool {
     return rt.memories[memidx].shared;
 }
 
+/// Custom-page-sizes (ADR-0168 v0.2) — the memory's page size in bytes
+/// (`1 << page_size_log2`; default 64 KiB). `memory.size`/`grow` report/
+/// operate in these units. Fallback (no `memories` entry) = 64 KiB.
+inline fn memPageSizeAt(rt: *Runtime, memidx: usize) u64 {
+    if (memidx < rt.memories.len) return @as(u64, 1) << @intCast(rt.memories[memidx].page_size_log2);
+    return wasm_page_size;
+}
+
 pub fn register(table: *DispatchTable) void {
     table.interp[op(.@"i32.load")] = i32Load;
     table.interp[op(.@"i32.atomic.load")] = i32AtomicLoad;
@@ -609,7 +617,7 @@ fn memorySize(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
         rt.memory
     else
         return Trap.OutOfBoundsLoad;
-    const pages: u64 = mem.len / wasm_page_size;
+    const pages: u64 = mem.len / memPageSizeAt(rt, memidx);
     // Wasm spec §4.4.7 — result type matches the memory's idx_type.
     if (memoryIsI64(rt, memidx)) {
         try rt.pushOperand(.{ .i64 = @bitCast(pages) });
@@ -1007,4 +1015,30 @@ test "memory.grow on memory64 pops i64 delta, pushes i64 old_size (ADR-0111 D2 r
     try driveOne(&rt, &t, .@"memory.grow", 0, 0);
     try testing.expectEqual(@as(i64, 0), rt.popOperand().i64); // old size = 0
     try testing.expectEqual(@as(usize, 65536), rt.memory.len);
+}
+
+test "memory.size/grow on a 1-byte-page memory operate in byte units (custom-page-sizes, ADR-0168 v0.2)" {
+    const memory_instance = @import("../../runtime/instance/memory_instance.zig");
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    var mi_val: memory_instance.MemoryInstance = .{
+        .bytes = &.{},
+        .pages_min = 0,
+        .page_size_log2 = 0, // 1-byte page
+    };
+    var mi = [_]*memory_instance.MemoryInstance{&mi_val};
+    rt.memories = mi[0..];
+    defer rt.memories = &.{};
+
+    // grow by 5 (1-byte) pages → old size 0; mem becomes 5 bytes.
+    try rt.pushOperand(.{ .u32 = 5 });
+    try driveOne(&rt, &t, .@"memory.grow", 0, 0);
+    try testing.expectEqual(@as(u32, 0), rt.popOperand().u32);
+    try testing.expectEqual(@as(usize, 5), rt.memory.len);
+
+    // memory.size = 5 (byte count), NOT 5/65536 = 0.
+    try driveOne(&rt, &t, .@"memory.size", 0, 0);
+    try testing.expectEqual(@as(u32, 5), rt.popOperand().u32);
 }

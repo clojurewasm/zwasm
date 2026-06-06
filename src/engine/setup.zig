@@ -388,8 +388,11 @@ pub fn setupRuntimeLinked(
         var memories = try sections.decodeMemory(ta, s.body);
         defer memories.deinit();
         if (memories.items.len > 0) {
-            const page_size: u64 = 65536;
             const mem0 = memories.items[0];
+            // Custom-page-sizes (ADR-0168 v0.2): initial bytes = min ×
+            // (1 << page_size_log2). Default 64 KiB; a 1-byte page makes
+            // min a byte count. The 256 MiB cap stays in BYTES (host guard).
+            const page_size: u64 = @as(u64, 1) << @intCast(mem0.page_size_log2);
             const min_pages: u64 = mem0.min;
             const total_bytes: u64 = min_pages * page_size;
             if (total_bytes > 256 * 1024 * 1024) {
