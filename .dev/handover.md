@@ -32,11 +32,13 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
   `api/instance.zig`, `aot/*`. Validate page_size_log2 ∈ {0,16}; limits cap scales by idx_type (2^32 i32 / 2^48
   i64), NOT the 256MiB host cap.
 - **Plan**: ~~chunk 1 parse @27b1b4d7~~ + ~~chunk 2 interp/setup @2af71186~~ + ~~chunk 3 JIT @9e80c94b~~ DONE.
-  Engine feature COMPLETE (parse+validate+interp+JIT). chunk 3: `rt.mem0_page_size_log2` field (variable-shift in
-  the memory.size emit, both arches) + jitMemoryGrow + mem_max_pages cap; 3 edge fixtures (size=1/grow→11/byte
-  load-store) green Mac arm64 + x86_64-macos + 3 cross. **NEXT chunk 4 = C-API** (`api/instance.zig:1241/1256/
-  1257/1268` wasm_memory_size/grow hardcode /65536 → /page_size from the memory's page_size_log2) + close bundle.
-  (`setup.zig:617` grow_cap audit too.) Then bundle exit fully met (engine done; C-API is the embedder surface).
+  Engine feature COMPLETE. chunk 3 @9e80c94b: `rt.mem0_page_size_log2` field + variable-shift memory.size emit
+  both arches + jitMemoryGrow + cap; 3 edge fixtures 3-arch. **chunk 4 @cd0de2dd: C-API** wasm_memory_size/grow
+  in page units (instance via rt.memories[0].page_size_log2, standalone via mi.page_size_log2; default unchanged).
+  **17.3-custom-page-sizes COMPLETE — all surfaces (parse+validate+interp+JIT+C-API).** NEXT = verify windows
+  confirms the wide-arith+custom-page JIT batch @5a2cb51c (Step 0.7; Mac+ubuntu green) → close 17.3 bundle → open
+  next v0.2 feature (proposal_watch: relaxed-SIMD / compact-import / stack-switching / component-model are the
+  remaining; relaxed-SIMD is the next W3C-Rec item).
 - **17.1-atomics DONE 3-host @9eb84833** (fence+load/store/rmw/cmpxchg+notify/wait, interp+JIT; D-028 win flake
   noted). **17.2-wide-arith DONE @231d4536** (add128/sub128/mul_wide_s/u, interp+JIT both arches; Mac+ubuntu green
   @aa95e204, windows batched 5/12). **D-299** (inline load/store JIT misaligned-trap) still DEFERRED.
@@ -49,8 +51,8 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
 - **Phase 17 (v0.2) IN-PROGRESS** (ADR-0168); **17.1-atomics DONE+3-host-confirmed @9eb84833** (full op set,
   interp+JIT both arches; win lone fail = D-028 known flake). **17.2-wide-arith DONE @231d4536** (4 ops,
   interp+JIT both arches; Mac+ubuntu green @aa95e204, windows batched). Now **17.3-custom-page-sizes ACTIVE**
-  (chunk-1 parse + chunk-2 interp/setup + **chunk-3 JIT @9e80c94b** DONE — engine feature complete, 3 edge fixtures
-  3-arch); NEXT = chunk-4 C-API + close bundle. D-299 deferred.
+  **COMPLETE @cd0de2dd** — all surfaces (parse+validate+interp+JIT+C-API); engine 3 edge fixtures 3-arch.
+  NEXT = windows-confirm batch → close 17.3 bundle → open next v0.2 feature (relaxed-SIMD). D-299 deferred.
   Phase 16 (完成形) DONE. No release/tag ever (ADR-0156).
 - Debt ledger: **65 entries, 0 `now`** (D-264 dogfooding discharged). Remaining = `.dev/remaining_sweep.md`
   (Bucket A prune / B actionable-low / C deferred / D externally-blocked) — sweep between features, never idle.
