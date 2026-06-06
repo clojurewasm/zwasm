@@ -299,9 +299,12 @@ entries:
       v2's curated-green gates. PROVEN on regen_wasmtime_misc.sh: upstream wasmtime is STABLE (old-wabt script
       reproduces the committed corpus EXACTLY: basic 72/0, runtime 266/0), yet the wasm-tools swap yields basic
       72/1 + runtime 327/35 — i.e. NOT drift but a genuine tool-output divergence. Concrete failure:
-      `memory-copy.1.wasm` is `valid` under wabt but v2's validator REJECTS the wasm-tools encoding (memory.copy
-      / multi-memory index encoding differs); plus wasm-tools emits ~91 more runtime directives than wabt on the
-      proposal-heavy fixtures, surfacing 35 v2 gaps. So these are NOT tool-only swaps — they'd need per-fixture
+      `memory-copy.1.wasm` is `valid` under wabt but FAILS in the wasm-tools run; plus wasm-tools emits ~91 more
+      runtime directives than wabt on the proposal-heavy fixtures, surfacing 35 v2 gaps. PROBE 2026-06-06
+      (memory-copy): NOT a v2 validator gap — wasm-tools' memory-copy.1.wasm is wabt's exact 219-byte module +
+      a 38-byte `name` section (strip --all recovers parity), and the module is multi-memory (`memory.copy 1
+      0`). The failure is tool-migration encoding/strip/indexing entanglement on proposal-laden fixtures, not a
+      v2 correctness bug — so no separate v2-validator debt; the blocker is purely the distiller tool-swap. So these are NOT tool-only swaps — they'd need per-fixture
       re-curation (drop the now-failing fixtures from the BATCH/NAMES lists) OR a v2 encoding-acceptance fix,
       both beyond D-290's tool-hygiene scope. STATUS: the 3 proposal-laden distillers
       (`regen_wasmtime_misc.sh`, `regen_spec_2_0_assert.sh` 912 LOC, `regen_spec_simd_assert.sh` v128) +
@@ -364,8 +367,16 @@ entries:
       (b) add a native-stack-limit CHECK in `invoke` (mirror the JIT stack_limit probe) → clean trap at the
       REAL per-OS host limit instead of SEGV (adaptive robustness, fixes the Win risk, but still won't RUN
       ackermann); (c) run interp on a large stack (thread/fiber) or shrink the ~8KB native invoke frame. ADR
-      required (interp-architecture). DISCHARGE: ackermann(3,7) runs on interp (flat interp) + a deep-recursion
-      fixture, OR an ADR documents the native-recursion cap + adds the stack-limit check (no-SEGV guarantee).
+      required (interp-architecture). DECISION 2026-06-06 (ADR-0167, option b): add a native-stack-limit CHECK
+      to interp `invoke()` mirroring the JIT prologue probe (ADR-0105) — trap CallStackExhausted at the real
+      per-OS native limit (no SEGV, all platforms; closes the latent Win64 128<256 hole). Option (a) flat interp
+      REJECTED: it'd let the slow interp out-recurse the JIT (which also recurses natively) — an engine
+      asymmetry; spec mandates no min depth, so deeper recursion is non-spec capability, not a completeness gap.
+      Investigation (Phase I, subagent 2026-06-06): native recursion routes through the single `invoke()`
+      (mvp.zig:654) entry — gate ONCE; `stack_limit.computeStackLimit(headroom)` (JIT-only today, ADR-0105) is
+      reusable. NEXT (Phase II→IV): char-test pinning clean-trap on deep-but-bounded recursion + a Win-ceiling
+      fixture → add `checkNativeStackLimit()` (reads `@frameAddress()`) at invoke() top → 3-host green (Win64
+      no-SEGV). DISCHARGE: deep-recursion fixture traps cleanly 3-host + ADR-0167 documents the ceiling.
     first_raised: "2026-06-05"
     last_reviewed: "2026-06-05"
     refs: |-

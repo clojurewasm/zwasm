@@ -67,10 +67,21 @@ worth its own probe), + wasm-tools emits ~91 more runtime directives → 35 v2 g
 BLOCKED on a direction call: re-curate (drops good coverage — bad) vs keep-wabt (re-scope "one CLI") vs
 fix-v2-to-accept-wasm-tools-encoding. wabt STAYS for now. Methodology + recipe preserved in debt row.
 
-**NEXT — pivot to other queue** (D-290 remainder is direction-gated): **D-288** (interp native-recursion →
-flat/trampolined redesign, ADR-grade, biggest) OR **D-279** (Win64 spec-simd heisenbug, streak 3/5). Possible
-side-probe: is `memory-copy.1.wasm` a real v2 validator gap (wasm-tools emits spec-valid wasm v2 rejects)?
-**Prior landed**: D-291 (`23874eda`), D-284 (`fbc60815`). 0 `now` debts. All 3 hosts green @ee940144.
+**D-290 memory-copy probe CLOSED** (not a v2 gap — wasm-tools' memory-copy.1.wasm = wabt's 219 bytes + a 38B
+name section, multi-memory; the failure is distiller tool-swap entanglement, no v2 bug; debt updated).
+
+**D-288 STARTED** (the biggest substantive item): Phase I investigation done (subagent) + DECISION made
+(ADR-0167): **option (b) native-stack-limit check in interp `invoke()`** (mirror JIT ADR-0105 probe), NOT the
+flat-interp rewrite — option (a) rejected (would let slow interp out-recurse the native-recursing JIT = engine
+asymmetry; spec mandates no min depth). Fixes the latent Win64 SEGV (1MB stack → ~128 real limit < the 256
+guard). **NEXT (D-288 Phase II→IV)**: (1) char-test pinning clean CallStackExhausted trap on deep-but-bounded
+recursion (Mac) + a Win-ceiling fixture; (2) add `checkNativeStackLimit()` (reads `@frameAddress()`, compares
+`stack_limit.computeStackLimit(headroom)`) at `invoke()` top (mvp.zig:654); (3) 3-host green, esp. Win64
+no-SEGV. Mechanism+anchors in debt row D-288 + ADR-0167.
+
+**Other queue**: D-290 remainder (3 proposal-laden distillers) direction-gated; D-279 (Win64 heisenbug, streak
+3/5, needs win runs). **Prior landed**: D-291 (`23874eda`), D-284 (`fbc60815`). 0 `now` debts. 3 hosts green
+@ee940144.
 
 **Other status**: ADR-0164 COMPLETE. **D-294 3-HOST GREEN** (`partial`, residuals polish). **D-279 sha256 lead
 FALSE** (corrected — zwasm hashes correctly; fixture has a wrong baked-in constant, golden-matched, never gates;
