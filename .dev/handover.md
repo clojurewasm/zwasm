@@ -57,27 +57,26 @@ audit-gap list closed-or-deferred.
   (null/cast/uncaught were mis-reported `binding_error`) + a latent arm64 call_ref→oob_table mis-report. Each
   has a runner_trap_test (JIT+interp parity). Remaining GC trampolines/i31 debt-rowed (lowest-freq, interp ok).
 
-## Active bundle
+- ✅ **D-292 B-core DONE (ADR-0166; bundle CLOSED)** — production internal-fault handler: an internal
+  SIGSEGV/crash now surfaces `zwasm: internal error … this is a bug …` + **exit 70** instead of a silent
+  signal-death (distinct from a clean wasm trap = exit 1). cycle I `c395cf64` POSIX sigaction (SEGV/BUS/ILL/FPE
+  → raw write + `_exit(70)`, no recovery, installed first in main.zig); cycle II `8c076db2` Windows VEH
+  (`RtlAddVectoredExceptionHandler`, kernel32 per-MSDN) + a `test-internal-fault` build step
+  (`zwasm --__selftest-crash`, `expectExitCode(70)`) in test-all; the gate caught a Windows bug (lost to Zig's
+  own First=0 segfault VEH) → **fixed `400c7006`** (`First=1`, beats Zig's). **Exit-condition MET**:
+  `test-internal-fault` exits 70 on ALL 3 hosts — windows confirmed GREEN at the `400c7006` kick
+  (`[run_remote_windows] OK`, "internal error" printed + exit 70). Lesson:
+  `2026-06-06-windows-custom-fault-veh-must-be-first`.
 
-- **Bundle-ID**: D-292-B-core-internal-fault-handler (ADR-0166)
-- **Cycles-remaining**: ~1 (just 3-host verify left)
-- **Continuity-memo**: ✅ **cycle I** (`c395cf64`) POSIX sigaction handler (SEGV/BUS/ILL/FPE → raw write +
-  `_exit(70)`, NO recovery), production-installed from `main.zig`; fork unit test green Mac+**ubuntu**. ✅ **cycle
-  II** (`8c076db2`) Windows VEH (`RtlAddVectoredExceptionHandler`, kernel32 GetStdHandle/WriteFile/ExitProcess
-  per MSDN — not libc) → same msg + `ExitProcess(70)`; + a hidden `--__selftest-crash` flag (main.zig) + a
-  `test-internal-fault` build step (`zwasm --__selftest-crash`, `expectExitCode(70)`) wired into **test-all** →
-  the only behavioural test of the Windows VEH. Mac exit-70 confirmed; Win+Linux cross-compile clean; libc OK.
-- **cycle-II gate finding (`7d77c8f0`)**: `test-internal-fault` PASSED Mac+ubuntu but **FAILED on Windows** (got
-  exit 3, expected 70) — Zig's own segfault VEH (`First=0`, attached pre-main in safety builds) ran first +
-  exited 3, ours never fired. **FIXED `400c7006`**: register `First=1` (front) so ours — registered later in
-  main — beats Zig's; verified vs Zig std source (`attachSegfaultHandler` uses First=0). Mac still 70; Win/Linux
-  cross-compile clean. (windows D-279 `wasm-2-0-assert` also failed — heisenbug, recorded `fail @400c7006`.)
-- **Exit-condition**: `test-internal-fault` exits 70 on all 3 hosts (esp. the Windows VEH).
-- **Next step (cycle III = close)**: the First=1 fix is kicked this turn — **verify `test-internal-fault` exit-70
-  GREEN on windows** (Step 0.7, grep `run exe zwasm` past the D-279 noise). If green → `check_bundle_active.sh
-  --close` + retrospective + retarget LEAD (→ D-279 formal investigation per its new §1 hypotheses).
+## ← LEAD: pick next — D-292 C/D (bounded, local) OR a fresh-context correctness session (D-291/D-279)
 
-## ← LEAD: D-292 B-core cycle III — 3-host verify the test-internal-fault step, then close (see bundle)
+D-293 + D-292-A/B are done. Remaining ADR-0164 program: **C** (exception/EH-vs-trap distinction) + **D** (audit
+zwasm trap UX vs wasmtime/wasmer/v1 → gap list) — both bounded + mostly local. Higher-value but DEEPER + needing
+FRESH context (do NOT start at extreme session depth): **D-291** (ed25519 JIT large-frame address miscompile,
+paused — diag infra in place; its row says "needs fresh-context session") and **D-279** (Win64 heisenbug,
+non-deterministic — confirmed: it did NOT fire the `400c7006` run; §1 hypotheses incl. **H3: possible shared
+root with D-291** = wide-address arith, partly Mac-testable). Correctness-first → D-291/D-279 are the priority
+when fresh; D-292 C/D are the bounded fill otherwise.
 
 ## Queue (time-consuming first, per user directive)
 
@@ -91,19 +90,20 @@ audit-gap list closed-or-deferred.
 - **Phase 16 (完成形) — open-ended; the loop CONTINUES, no release (ADR-0156).** v0.1.0-scope program is
   thoroughly complete + 3-host green (`deb97903`); ADR-0163 bench+docs program ALL DONE. Tag/publish/cutover are
   manual, user-only — there is no release gate.
-- Debt ledger: 0 `now`. **D-293 substantially complete** (partial). **D-292 B-core**: POSIX (`c395cf64`) +
-  Windows VEH (`8c076db2`) + **Windows First=1 fix (`400c7006`)** — the gate's `test-internal-fault` step caught
-  the Windows handler losing to Zig's default. Mac+ubuntu green (exit 70); windows re-kicked this turn to verify
-  the fix. D-279 added a §1 hypothesis list (`7eeb4a32`, incl. possible D-291 shared root). D-291 diag gated.
+- Debt ledger: 0 `now`. **D-293 substantially complete** (partial) + **D-292 B-core DONE** (bundle closed —
+  internal-fault handler, 3-host green incl. windows `OK @400c7006`). Last full 3-host green = `400c7006`
+  (windows clean, D-279 did NOT fire). Next: D-292 C/D (bounded) or D-291/D-279 (deep, fresh-context). Phase 16
+  continues, no release (ADR-0156).
 
 ## Step 0.7 (next resume) — verify remote logs
 
-- **ubuntu**: ✅ cycle I GREEN at `b1c83e5c` (`OK`) — POSIX fork test passes on x86_64 Linux. cycle II `8c076db2`
-  kicked this turn — verify `/tmp/ubuntu.log` `OK` (incl. the new `test-internal-fault` step → exit 70).
-- **windows**: ⚠️ D-279 now **5 CONSECUTIVE runs** + **ESCALATED to 3 failed steps** (was 1; spec-simd/
-  wasm-2-0-assert, none touched simd; ubuntu+Mac green) — reproducible NOT flaky; **real D-279 investigation
-  warranted** (re-run SAME win commit twice for determinism). cycle II `8c076db2` kicked — grep `test-internal-
-  fault`/exit-70 SPECIFICALLY (the Windows VEH's only behavioural check), past the D-279 noise.
+- **ubuntu**: ✅ GREEN through `6beb2630` (B-core handler + `test-internal-fault` exit-70). Whatever's kicked
+  next turn — verify `/tmp/ubuntu.log` `OK`.
+- **windows**: ✅ **GREEN at `400c7006`** (`[run_remote_windows] OK`) — full test-all clean (D-279 did NOT fire
+  this run) + `test-internal-fault` exit-70 (First=1 VEH confirmed). D-279 update: it's **NON-deterministic**
+  (silent this run; streak reset toward the §2 ≥5-silent discharge gate, now 1). My earlier "escalating
+  reproducible" read was wrong — it's the classic heisenbug. Formal D-279 investigation = H3 (D-291 link, partly
+  Mac-testable) when fresh.
 - **Gate note**: `run_remote_windows.sh` `OK` line = real green; `Build Summary: N failed` (no `OK`) = RED.
 
 ## Key refs

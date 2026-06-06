@@ -13,10 +13,13 @@ entries:
       FRONT of the clean session): A) surface the specific trap KIND + message on ALL engines (wire the JIT
       trap-code → `Trap` kind → interp-parity `surfaceTrap`); B) crash-vs-trap distinction (internal SIGSEGV/
       @panic = INTERNAL ERROR not `Trap`; ideal zero host-crash; restrict the `[stack_probe]` diag to genuine
-      stack-overflow). **B-core: ADR-0166 FILED (e7eacf37) + impl bundle ACTIVE — corrected the stale "no
-      signal handling" premise (production installs ZERO handlers; the VEH/test-runner handlers are
-      JIT-recovery/test-only); design = diagnostic-only sigaction handler → print + _exit(70). See handover
-      Active bundle.** C) exception(EH)-vs-trap distinction; D) audit vs wasmtime/wasmer/WasmEdge/v1 (messages,
+      stack-overflow). **B-core: ✅ DONE (ADR-0166; bundle closed). Investigation corrected the stale "no signal
+      handling" premise (production installs ZERO handlers; the VEH/test-runner ones are JIT-recovery/test-only).
+      Impl: POSIX sigaction (c395cf64) + Windows VEH (8c076db2) + First=1 fix (400c7006, the gate caught it
+      losing to Zig's own First=0 segfault VEH) → internal SIGSEGV now prints "internal error" + exit 70 (vs
+      clean trap exit 1 / silent signal). `test-internal-fault` build step in test-all, 3-host GREEN incl.
+      windows OK @400c7006. Lesson 2026-06-06-windows-custom-fault-veh-must-be-first.** C) exception(EH)-vs-trap
+      distinction; D) audit vs wasmtime/wasmer/WasmEdge/v1 (messages,
       backtrace, exit codes) → gap list. **Synergy: workstream A first directly UNBLOCKS D-291** (ed25519's
       trap kind becomes one command away). INVESTIGATION/AUDIT FIRST (spans engines), then fix.
       PROGRESS (b6da8604, 2026-06-06): workstream A CLI surface done — JIT/AOT run paths thread trap_kind →
