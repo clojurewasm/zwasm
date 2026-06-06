@@ -43,13 +43,16 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
   Needs a reliable native-x86_64 + lldb env to crack (Mac/Rosetta can't). Error-path-only (well-formed programs
   never unalign atomics; threads spec-suite not yet wired → gate green). Interp traps correctly; the central
   `emitMemOp` JIT align-trap is the single D-299 fix that covers ALL atomic ops once cracked.
-- **NEXT = atomic RMW** `i32/i64.atomic.rmw[8_u/16_u/32_u].{add,sub,and,or,xor,xchg}` (0x1e-0x42) — NEW shape:
-  pop addr+val, load old (align-trap), op(old,val), store back, push OLD. Single-threaded → non-atomic
-  read-modify-write. Likely NOT pure emitMemOp (it's load+alu+store+push) → new interp handlers + new JIT emit
-  (NOT the legacy is_store path; needs a dedicated op_atomic emit or a load+op+store sequence). Then cmpxchg
-  (0x48-0x4e: pop addr+expected+replacement, load, cmp, conditional store, push old). Then notify/wait (0x00-02
-  + shared-mem gate parse/sections.zig:903). `.expect` >i32-max = SIGNED i32. Reuse `Trap.UnalignedAtomic`
-  (no new trap variant → no runtime-runner-smoke needed). D-299 JIT-align-trap stays central/deferred.
+- **RMW binops interp DONE @96231c18**: 42 ops (add/sub/and/or/xor/xchg × 7 widths, 0x1e-0x47) — interp
+  `rmwHandler(W,res64,kind)` factory + validate `opAtomicRmw` + lower + liveness 2→1 + interp test. UNSIGNED
+  narrow (zero-extend old). NO JIT yet.
+- **NEXT = RMW binops JIT emit** — NEW shape (load+alu+store+push old), NOT the plain load/store path. Needs a
+  dedicated emit sequence per arch: compute ea (reuse emitMemOp's ea+bounds prologue idea) → load old (LDR/MOV)
+  → ALU(old,val) → store new (STR/MOV) → push old. Decide: new `op_atomic.zig` emit fn vs inline in emit.zig.
+  Single-threaded → non-atomic sequence (no LOCK/LDAXR needed for v0.2 substrate per ADR-0168). THEN cmpxchg
+  (0x48-0x4e: pop addr+expected+replacement, load, cmp, cond-store, push old — validate `opAtomicCmpxchg` 3→1).
+  THEN notify/wait (0x00-02 + shared-mem gate parse/sections.zig:903). Reuse `Trap.UnalignedAtomic`. D-299
+  JIT-align-trap stays central/deferred. `.expect` >i32-max = SIGNED i32.
 - **Exit-condition**: a `test/edge_cases/p17/atomics/*` (or spec atomics manifest) green 3-host with the full
   load/store/rmw/cmpxchg set + fence; wait/notify minimal-single-thread; shared-mem parse+validate.
 - **Cycles-remaining**: ~many (large feature). No tag (ADR-0156).
@@ -58,7 +61,7 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
 
 - **Phase 17 (v0.2 feature line) IN-PROGRESS** (ADR-0168, user-unblocked); 17.1-atomics bundle ACTIVE: fence +
   ALL atomic loads+stores DONE @85b8f150 (0x10-0x1d; JIT plain, interp traps; JIT misaligned-trap = D-299
-  deferred/env-constrained). NEXT = atomic rmw (0x1e-0x42). Tree green. Phase 16 (完成形) DONE; v0.1 surface audited+documented+exampled, memory-safety swept
+  deferred/env-constrained). NEXT = rmw JIT emit (0x1e-0x47) + cmpxchg. Tree green. Phase 16 (完成形) DONE; v0.1 surface audited+documented+exampled, memory-safety swept
   SOUND, dogfooding DONE (cw v1). No release/tag ever (ADR-0156).
 - Debt ledger: **65 entries, 0 `now`** (D-264 dogfooding discharged). Remaining = `.dev/remaining_sweep.md`
   (Bucket A prune / B actionable-low / C deferred / D externally-blocked) — sweep between features, never idle.
