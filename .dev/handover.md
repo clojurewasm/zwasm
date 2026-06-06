@@ -64,20 +64,19 @@ audit-gap list closed-or-deferred.
     →unreachable(5) mis-report. **D** (`4bdaec59`): trap-UX audit vs wasmtime/wasmer/v1 — clean, ADR-0159-aligned;
     one bug found → **D-294** (JIT call_indirect null-elem → mislabels indirect_call_mismatch; fix = code 13).
 
-## ← LEAD: D-279 observability fix (Mac-doable) → then D-291/D-279 shared-root probe
+## ← LEAD: D-291 (Mac-repro JIT miscompile) — the genuine root-cause hunt
 
-ADR-0164 trap-diagnostics COMPLETE. **D-294 is 3-HOST GREEN** (`4fa16b29`: Mac local + ubuntu test-all OK +
-windows test-all `[run_remote_windows] OK`) — JIT call_indirect/return_call_indirect null elem now reports
-uninitialized_elem (code 13). D-294 → `partial`; residuals are POLISH (subtyping-trampoline null; OOB-index msg).
-**NEXT (Mac-doable, high value): D-279 OBSERVABILITY FIX.** The ba111ee5 windows gate was OK *yet the sha256
-heisenbug fired* — a JIT exec-runner ran a self-verifying fixture that printed `verify: FAIL` (sha256 miscompute)
-but exited 0, so the exit-code-only runner passed it; the interp realworld_runner stdout-matches + is correct.
-⇒ gate-green ≠ D-279-absent; the §2 silent-streak discharge is UNSOUND for D-279 until the JIT exec path
-stdout-gates. FIX = make the JIT realworld/wasi exec-runner compare stdout vs the SAME goldens interp already
-passes (or sha256 fixture exit non-zero) → D-279 sha256 miscompute reliably flips RED. See the D-279 debt row
-"OBSERVABILITY GAP" note. THEN the deep root-cause: **D-291** (ed25519 large-frame addr miscompile, Mac-repro
-via `-Dtrace-stackprobe` diag) — H3 says D-279 ⊇ D-291 (sha256's heavy 32-bit arith ↔ wide-i32 miscompile);
-one fix may close both. Queued: D-288, D-284, D-290.
+ADR-0164 trap-diagnostics COMPLETE. **D-294 is 3-HOST GREEN** (`4fa16b29`/`ba111ee5`) — JIT call_indirect/
+return_call_indirect null elem reports uninitialized_elem (code 13). D-294 → `partial`; residuals POLISH.
+**D-279 sha256 lead was FALSE** (corrected this session): `printf 'Hello, SHA-256!'|shasum -a256` = d0e8b8f…
+= exactly what zwasm computes (interp==jit, all hosts, Mac-verified). The `c_sha256_hash.wasm` fixture has a
+WRONG hardcoded expected constant → self-prints `verify: FAIL` but is golden-matched + never gates. ba111ee5
+was genuinely SILENT (tracker corrected fail→silent, **streak 3/5**). Genuine D-279 = the intermittent
+`simd_bit_shift` CRASH (exit 3) only; H3 (sha256⊇D-291 wide-i32) WITHDRAWN — D-279 is a crash, not a miscompute,
+so it points to H1 (RSP/shadow-space) / H2 (FP-walk), not D-291. **NEXT: D-291** (ed25519 large-frame ADDRESS
+miscompile — the one CONFIRMED wrong-RESULT bug, Mac-reproducible via `-Dtrace-stackprobe`; debt row has the
+full hypothesis list + func-17-caller capture next-step). Minor: regenerate c_sha256_hash fixture w/ correct
+constant (fold into D-290). Queued: D-288, D-284, D-290.
 
 ## Queue (time-consuming first, per user directive)
 
@@ -99,13 +98,11 @@ one fix may close both. Queued: D-288, D-284, D-290.
 
 - **ubuntu**: ✅ **GREEN @`ba111ee5`** (`[run_remote_ubuntu] OK`) — spec_assert 25437/0, simd 13351/0, realworld
   55/0; D-294 code-13 null check confirmed on x86_64 Linux. No action.
-- **windows**: ✅ gate **GREEN @`ba111ee5`** (`[run_remote_windows] OK`, realworld_run_runner 55/55) — D-294
-  3-host green. **BUT D-279 FIRED hidden**: a JIT exec-runner's sha256 self-verify printed `verify: FAIL`
-  (miscompute d0e8b8f…, same input PASSED elsewhere) yet exited 0 → exit-code-only runner missed it. Recorded
-  `track_heisenbug win64-testall fail` (streak reset 2→0; gate-green ≠ D-279-absent — see LEAD + D-279 row
-  "OBSERVABILITY GAP"). cadence `--record`ed @ba111ee5.
-- **Gate note**: `run_remote_windows.sh` `OK` line = real green; `Build Summary: N failed` (no `OK`) = RED. But
-  for D-279, grep the win log for `verify: FAIL` — the gate's OK can HIDE a JIT sha256 miscompute.
+- **windows**: ✅ genuinely **GREEN @`ba111ee5`** (`[run_remote_windows] OK`, realworld_run_runner 55/55) — D-294
+  3-host green, D-279 did NOT fire. The `verify: FAIL` sha256 line is a FALSE lead (fixture has a wrong expected
+  constant; zwasm's d0e8b8f… is correct — Mac-verified). Tracker = `silent` (streak 3/5). cadence `--record`ed.
+- **Gate note**: `run_remote_windows.sh` `OK` line = real green; `Build Summary: N failed` (no `OK`) = RED. The
+  `zig-host-hello` exit-42 + `--__selftest-crash` exit-70 "failed command" lines are EXPECTED, not crashes.
 
 ## Key refs
 

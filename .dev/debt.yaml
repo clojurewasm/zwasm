@@ -1082,11 +1082,12 @@ entries:
       D7** (windowsmini cadence-driven background monitoring gate via `should_gate_windows.sh`). TRACK via
       `track_heisenbug.sh win64-spec-simd segv` as D7 exercises windows on its cadence; discharge = `investigation_discipline.md` §2 (≥5 silent over ≥3 SHAs OR
       named root cause). Do NOT auto-revert turns on this flake (D7). Lead: the `[d-163-jit]` dump + per-func bytes.
-      2026-06-06 UPDATE (cadence @ 99b56f1c, tracked `win64-testall segv`): the class is NOT limited to
-      `simd_bit_shift` — windows test-all RED across `sha256` shootout (wrong hash d0e8b8f…), `spec-wasm-2-0-assert`,
-      `zig-host-hello`, + a unit `test.exe`. REPRODUCED on a 2nd kick, yet still non-deterministic WITHIN a run
-      (same `sha256("Hello, SHA-256!")` PASSED in one runner, FAILED in another, identical wrong hash both kicks) —
-      the heisenbug hallmark, same FP-walk/RSP-parity/X29 lineage (D-180/D-245). The only src delta since the last
+      2026-06-06 UPDATE (cadence @ 99b56f1c): the crash class is NOT limited to `simd_bit_shift` — windows
+      test-all RED also at `spec-wasm-2-0-assert`. (~~`sha256` shootout "wrong hash" + the "PASSED-one-runner-
+      FAILED-another" non-determinism~~ STRUCK 2026-06-06 — see the SHA256 LEAD IS FALSE note below; that was a
+      fixture-constant bug, not D-279. ~~`zig-host-hello`/unit `test.exe` "failed command"~~ are expected
+      exit-42/protocol noise, not crashes.) Genuine signal = the intermittent simd CRASH (exit 3), FP-walk/
+      RSP-parity/X29 lineage (D-180/D-245). The only src delta since the last
       windows-OK (635bd734) was the ADR-0164 trap commits b6da8604+99b56f1c, but those are arch-neutral CLI plumbing
       (no codegen/ABI/trampoline touched; trap catch-path inert on a successful run) and ubuntu test-all is GREEN on
       the identical source → exonerated; this is the pre-existing Win64 heisenbug surfacing, not a trap regression.
@@ -1098,19 +1099,20 @@ entries:
       investigation_discipline §2 discharge gate (≥5 SILENT) is moving AWAY, not toward — this needs a real fix,
       not flake-tracking. NEXT formal investigation (needs the windows host free): re-run the SAME win commit ≥2×
       to quantify the per-run failure rate, then probe the hypotheses below.
-      2026-06-06 OBSERVABILITY GAP (D-294 windows kick @ba111ee5): the gate reported `[run_remote_windows] OK`
-      (realworld_run_runner 55/55, all gating runners passed) YET the sha256 heisenbug STILL fired — a JIT
-      exec-runner ran a self-verifying fixture that printed `verify: FAIL (expected 3d61375c…, got d0e8b8f…)`
-      for "Hello, SHA-256!" while the SAME input PASSED in another runner (`4/4 passed`). It slipped past as
-      green because that exec-runner is EXIT-CODE-ONLY (the C fixture prints verify:FAIL but exits 0); the
-      INTERP realworld_runner stdout-matches its golden and is correct (interp computes sha256 right). ⇒ KEY:
-      "silent"/green tracker entries are UNRELIABLE for D-279 — a gate-green run can hide a JIT sha256 miscompute
-      nobody read the log for, so the §2 silent-streak discharge is unsound here until the JIT exec path
-      stdout-gates. CONCRETE OBSERVABILITY FIX (Mac-doable, high value, NOT on a heisenbug path): make the JIT
-      realworld/wasi exec-runner compare stdout against the SAME goldens the interp realworld_runner already
-      passes (or make the sha256 fixture exit non-zero on verify-fail) so a JIT sha256 miscompute reliably flips
-      RED. This converts D-279 from "hidden, hard to quantify" to "reliably caught" — prerequisite to rate-
-      quantification + the H1/H2/H3 probes. (This run recorded `fail` not `silent`: the bug demonstrably fired.)
+      2026-06-06 ⚠️ SHA256 LEAD IS FALSE — STRUCK (Mac-proven @ba111ee5 investigation): the "non-deterministic
+      sha256 wrong hash d0e8b8f…" was a MISREAD. `printf 'Hello, SHA-256!' | shasum -a 256` = d0e8b8f11c98f369…
+      — d0e8b8f… is the CORRECT hash, and zwasm computes it RIGHT on BOTH interp AND JIT, all 3 hosts (Mac arm64
+      reproduced deterministically: interp==jit==d0e8b8f…). The realworld `c_sha256_hash.wasm` fixture has a
+      WRONG hardcoded expected constant (3d61375c…, matches no variant of the input) → it self-prints
+      `verify: FAIL` every run, but exits 0 and its golden (captured from zwasm) matches, so realworld_runner
+      passes it 55/55 everywhere. The win.log "PASSED in one runner / FAILED in another" = interp-correct vs the
+      fixture's self-verify-against-its-own-bad-constant, NOT one engine varying. ⇒ sha256 NEVER gated RED, was
+      NEVER a zwasm bug; ba111ee5 windows was genuinely SILENT (gate OK, no real crash — the `zig-host-hello`
+      exit-42 + `--__selftest-crash` exit-70 "failed command" lines are EXPECTED-by-design, `[d-163-jit]` dumps
+      are diagnostics). Tracker corrected fail→silent (streak now 3). FALLOUT: the genuine D-279 signal is ONLY
+      the intermittent `simd_bit_shift`/spec-simd CRASH (exit 3); H3's "sha256 wrong-result ⊇ wide-i32" evidence
+      is WITHDRAWN (sha256 is correct). The c_sha256_hash fixture's bad constant is cosmetic noise → regenerate
+      with the correct expected (minor fixture-hygiene, fold into D-290) so it stops polluting the win log.
       HYPOTHESES (investigation_discipline §1; each: predicted signature | distinguishing probe):
       H1 Win64 RSP-16/shadow-space misalignment — the JIT call/prologue emit maintains SysV alignment but not
          Win64's 16-byte RSP + 32-byte shadow space at helper call sites; a helper's aligned SSE (MOVAPS)
@@ -1121,14 +1123,14 @@ entries:
          JIT frame's saved RBP isn't a valid `{0,0}` sentinel under Win64 unwind. | SIG: crashes on error/trace
          paths. PROBE: verify test_discipline §3 sentinel is installed on the Win64 JIT entry path (prod, not
          just test wrappers).
-      H3 ⚠️ SAME ROOT as D-291? — D-291 is a non-deterministic large-frame/wide-i32 ADDRESS miscompile (a caller
-         computes a result-buffer ptr ~16MB too high; ASLR-dependent → non-deterministic). D-279's "identical
-         wrong result, sometimes" + non-determinism fits an absolute-address-dependent miscompile that Win64's
-         different address layout triggers more often. | SIG: D-279 wrong-results trace to wide-address arith,
-         same as D-291. PROBE: run the D-291 gated `-Dtrace-stackprobe` diag on a Win64 failing case; if the
-         func-17-caller large-frame address pattern appears, D-279 ⊇ D-291 (one fix closes both — high value).
-         D-291 is Mac-reproducible via the existing diag infra, so this hypothesis is partly testable WITHOUT
-         the windows host.
+      H3 ~~SAME ROOT as D-291 (wide-i32/large-frame ADDRESS miscompile)~~ — WEAKENED 2026-06-06: the main
+         evidence (sha256 "wrong result") is STRUCK (sha256 is computed correctly). D-279 is now characterized as
+         a pure CRASH class (exit 3, no confirmed wrong-RESULT miscompute), so the "wrong-address arith ⊇ D-291"
+         link has no live evidence. KEEP as a low-prior maybe (both are non-deterministic Win64-amplified), but
+         the genuine D-279 signature is a CRASH, pointing to H1 (RSP/shadow-space) or H2 (FP-walk/RBP) — a
+         control-flow/stack fault, not an arithmetic miscompute. PROBE (if revisited): the D-291 gated
+         `-Dtrace-stackprobe` diag is Mac-reproducible, but only run it against a D-279 case that shows a
+         wrong-RESULT (none confirmed yet) — a crash-only signature does not match D-291's address-miscompute.
     first_raised: "2026-06-05"
     last_reviewed: "2026-06-06"
     refs: |-
