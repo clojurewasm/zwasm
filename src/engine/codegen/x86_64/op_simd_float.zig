@@ -625,6 +625,24 @@ pub fn emitF64x2Max(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regall
     return emitV128FpMax(allocator, buf, alloc, pushed_vregs, next_vreg, encs);
 }
 
+// §17.4 relaxed-SIMD min/max — RAW hardware MINPS/MAXPS/MINPD/MAXPD (single
+// instr), NOT the strict NaN/±0-propagating fixup recipe above (ADR-0169:
+// relaxed ops take per-arch hardware semantics; NaN/±0 are impl-defined and
+// MINPS returns the 2nd operand there). arm64 reuses its strict FMIN/FMAX
+// (already raw NaN-propagating NEON). Plain 2-op→1 xmm binop.
+pub fn emitF32x4RelaxedMin(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encMinps);
+}
+pub fn emitF32x4RelaxedMax(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encMaxps);
+}
+pub fn emitF64x2RelaxedMin(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encMinpd);
+}
+pub fn emitF64x2RelaxedMax(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encMaxpd);
+}
+
 /// Wasm spec §4.4.4 (i8x16.shr_s) — pop count (i32), pop vec
 /// (v128), push v128 with each byte signed-shifted right by
 /// `c & 7`. SSE has no native byte arithmetic shift and no
