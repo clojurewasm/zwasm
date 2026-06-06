@@ -23,27 +23,28 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
 - **Goal**: implement the WebAssembly threads/atomics `0xFE`-prefix op set (ZirOps already reserved
   `zir_ops.zig:596+`). Single-threaded substrate (ADR-0168): atomic load/store/rmw/cmpxchg = aligned seq-cst
   memory ops; `atomic.fence` = no-op; wait→trap-on-non-shared / notify→0.
-- **Layer state (survey @1d75be1b — ALL absent except ZirOps)**: parse `0xFE` dispatch ABSENT
-  (`parse/sections_codes.zig`; mirror the `0xFD`/`0xFC` prefix) ← **biggest blocker, wire FIRST**; validate
-  ABSENT (`validator.zig:~1125`); lower ABSENT (`lower.zig:~590`); interp/JIT ABSENT; **shared-mem flag
-  HARD-REJECTED** (`parse/sections.zig:903` `is_shared→BadValType`) — gate it open + add
-  `MemoryInstance.is_shared`; atomics need **EXACT** natural-alignment (align==size, else trap), stricter than
-  `readMemargCheckAlign`'s `≤` check.
-- **Continuity-memo**: 0xFE prefix dispatch must be added in BOTH `lower.zig` (`emitPrefixFE`, mirror
-  `emitPrefixFD` @lower.zig:601) AND the validator's prefix switch (`validator.zig:~1125`); watch that the
-  ZirOp count / per-op file registration stays consistent; the EXACT-alignment check + shared-mem gate are the
-  two subtle correctness points. First proof = `atomic.fence` runs end-to-end.
+- **Continuity-memo**: 0xFE prefix dispatch now LIVE in `lower.zig:emitPrefixFE` + `validator.zig
+  :dispatchPrefixFE` (mirrors 0xFD). Remaining-absent: shared-mem flag still HARD-REJECTED
+  (`parse/sections.zig:903` `is_shared→BadValType`) — only needed for wait/notify + spec shared fixture, NOT
+  load/store/rmw (atomics need a memory but not a shared one). EXACT natural-align + runtime align-trap are the
+  subtle correctness points (validator + per-arch JIT). ZirOp/per-op-file count consistency watch.
 - **DONE @9971b708**: `atomic.fence` (0xFE 0x03) END-TO-END — the 0xFE prefix pipeline is now live in BOTH
   validator (`dispatchPrefixFE`) + lower (`emitPrefixFE`); interp shares `nopOp`; arm64+x86_64 emit transparent
   0→0 no-op; liveness stackEffect 0→0; `test/edge_cases/p17/atomics/fence` green (=42); build.zig wires p17 edge
   dir; emit_test_local unsupported-probe retargeted fence→rmw.cmpxchg.
-- **NEXT (current chunk)**: `i32.atomic.load` (0xFE 0x10, natural align=2). FIRST memory atomic. **裏取り
-  (wasm-tools `check_shared_memarg`): atomics do NOT need shared memory** — only `align == max_align` (EXACT
-  static align) + a memory present. So load/store/rmw need NO shared-mem gate (defer to wait/notify + spec shared
-  fixture). TWO alignment concepts: (1) STATIC immediate align==natural → `InvalidAlignment` at validate (add
-  `readMemargCheckAlignExact`, mirror `opLoad`@validator:2816 but `==` not `≤`); (2) RUNTIME effective-addr must
-  be naturally aligned else **trap** (new per-arch emit AND+test+cond-trap before the load + interp align-check).
-  Pop addr→push i32; lower memarg like `emitMemarg`@lower:906. THEN store → rmw set → cmpxchg → i64 → notify/wait.
+- **i32.atomic.load Chunk A DONE @219e7d58** (validate/lower/interp + `Trap.UnalignedAtomic` + `TrapKind
+  .unaligned_atomic`=14): 裏取り'd atomics need NO shared memory (wasm-tools `check_shared_memarg` — only EXACT
+  static align + a memory). validator `opAtomicLoad`/`readMemargCheckAlignExact` (==natural, not ≤); interp
+  alignment-trap BEFORE bounds (spec exec 8<14a); stackEffect 1→1.
+- **NEXT (current chunk)**: `i32.atomic.load` **Chunk B = JIT emit** — mirror `i32.load`, which uses the
+  dispatch_collector (NOT a switch arm): (1) meta `src/instruction/<level>/i32_atomic_load.zig` (op_tag +
+  `wasm_level` — pick/confirm the threads WasmLevel; cf. `instruction/wasm_1_0/i32_load.zig`); (2) arm64+x86_64
+  per-op files `ops/<level>/i32_atomic_load.zig` → call `op_memory.emitMemOp`; (3) APPEND to `collected_ops`
+  registry; (4) add `.@"i32.atomic.load"` arm (access_size=4, LDR/MOV) to BOTH `op_memory.zig:emitMemOp`
+  (arm64@77, x86_64@69). **Chunk B2** = RUNTIME align-trap: AND ea,#3 + cond-branch to a NEW trap stub
+  (`jitTrapCode`=14 `unaligned_atomic`, mirror oob_fixups/bounds_check both arches). Heed
+  `dispatch_consistency_audit` (ZirOp=per-op-file=handler count). edge fixtures: aligned (=val) + misaligned
+  `expect trap`. THEN store → rmw set → cmpxchg → i64 → shared-mem gate → notify/wait.
 - **Exit-condition**: a `test/edge_cases/p17/atomics/*` (or spec atomics manifest) green 3-host with the full
   load/store/rmw/cmpxchg set + fence; wait/notify minimal-single-thread; shared-mem parse+validate.
 - **Cycles-remaining**: ~many (large feature). No tag (ADR-0156).
