@@ -64,20 +64,19 @@ audit-gap list closed-or-deferred.
     →unreachable(5) mis-report. **D** (`4bdaec59`): trap-UX audit vs wasmtime/wasmer/v1 — clean, ADR-0159-aligned;
     one bug found → **D-294** (JIT call_indirect null-elem → mislabels indirect_call_mismatch; fix = code 13).
 
-## ← LEAD: D-291 — RE-LOCALIZED to func 17 (__multi3) internal spill miscompile
+## ← LEAD: D-291 — ROOT-CAUSED to func-11 __stack_pointer over-restore (`716cb111`)
 
-**D-291 advanced this session (`136d20a5`)**: added gated caller-capture (trap_aux5/6). The "733-caller
-passes a wrong result-buffer" framing is REFUTED — the gated `call 17` arg0==16777416 check NEVER fired (two
-positions); last `call 17` = caller func 8, arg0=0xffc3b0 (valid stack addr). So func 17 RECEIVES a correct
-result-buffer yet stores to 16777416 ⇒ corruption is INSIDE func 17. func 17 = __multi3: pushes `local.get 0`
-(result ptr) at the START, runs ~40 i64 ops (spill-heavy 128-bit mul), then stores via that early-held ptr —
-corrupted to __stack_pointer_init+0xC8=16777416 = a regalloc/spill miscompile of the long-lived operand.
-**P1 CONFIRMED** (code-read: spillHomedCallerSaved never writes X1; call tail preserves it → func 17 receives a
-CORRECT arg0, corrupts internally). **Minimal repro built** (/tmp/m3b.wat = func 17 body + small-vs-large buffer
-self-check) but JIT is CLEAN for both small AND large (0xffc3b0) param0 + arbitrary operands ⇒ trigger is
-OPERAND-DEPENDENT or needs the clobbering call's exact param0+operands. NEXT: extend the store-watchpoint
-(op_memory.zig addr==16777416) to also capture func 17's operands p1..p4 + received param0 → plug EXACT values
-into /tmp/m3b.wat for a self-contained repro, then bisect which mul/shr/and step diverges. Full chain in D-291 row.
+**D-291 root-cause chain found this session** (func-17-internal REFUTED — the earlier exact-==16777416 gate
+missed the real buffer 0x10000c0; only buffer+8 hits the funcptr global). Robust `>=16MB` gate on `call 17`
+arg0 → **func 7** passes func 17 a DATA-region buffer 0x10000c0 (= __stack_pointer_init + 0xC0); func 17
+faithfully stores hi word to 0x10000c8 = the funcptr global → clobber (func 17 INNOCENT — minimal /tmp/m3b.wat
+repro clean). func 7 reads __stack_pointer ALREADY >16MB. First-wins sp-overset watchpoint (op_globals.zig
+`global.set 0` value >0x1000000, trap_aux7) → **sp_overset_func=11** = the ROOT. func 11 epilogue `local.get 2;
+i32.const 480; i32.add; global.set 0` (restore sp=local2+480) OVER-sets sp >16MB. CHAIN: func 11 over-restores
+sp → func 7 reads corrupt sp → data-region buffers → func 17 clobbers funcptr global → cind trap. NEXT: capture
+func 11 epilogue local2 vs restored-sp (trap_aux8/9) → distinguish local2-corrupted-across-calls vs the
+`local2+480` add miscompiled (D-289 large-base lineage); then a minimal func-11-frame-restore repro. Full chain
++ exact values in the D-291 debt row. Build `-Dtrace-stackprobe=true`; grep `[d-291]`.
 
 **Other status**: ADR-0164 COMPLETE. **D-294 3-HOST GREEN** (`partial`, residuals polish). **D-279 sha256 lead
 FALSE** (corrected — zwasm hashes correctly; fixture has a wrong baked-in constant, golden-matched, never gates;
