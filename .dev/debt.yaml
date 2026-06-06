@@ -377,6 +377,13 @@ entries:
       reusable. NEXT (Phase II→IV): char-test pinning clean-trap on deep-but-bounded recursion + a Win-ceiling
       fixture → add `checkNativeStackLimit()` (reads `@frameAddress()`) at invoke() top → 3-host green (Win64
       no-SEGV). DISCHARGE: deep-recursion fixture traps cleanly 3-host + ADR-0167 documents the ceiling.
+      IMPLEMENTED 2026-06-06 (`5be983bc`): `Runtime.checkNativeStackLimit(sp)` (lazy per-thread limit via
+      `computeStackLimit(INTERP_STACK_HEADROOM=128KB)`, traps CallStackExhausted when `@frameAddress() <=
+      limit`) called at `mvp.invoke()` top; new 128KB interp headroom (NOT the JIT 1MB SEH reserve — explicit
+      compare needs only inter-check margin); deterministic unit test. Mac test+zone+lint green; Mac/Linux
+      behavior unchanged (frame_buf[256] @2MB fires before the 8MB native limit). PENDING win64 gate: must
+      confirm (1) deep recursion traps not SEGV, (2) no false-trap on normal programs. If win false-traps →
+      128KB too big for the Win interp stack → lower headroom. Close on win-green.
     first_raised: "2026-06-05"
     last_reviewed: "2026-06-05"
     refs: |-
