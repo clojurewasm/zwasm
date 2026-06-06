@@ -270,28 +270,35 @@ entries:
     status: "note"
     description: |-
       note (user-directed 2026-06-05): COMPLETE the wabt → wasm-tools toolchain migration so the repo uses
-      ONE modern wasm CLI (wasm-tools, broader/current proposal coverage; wat2wasm verified byte-identical to
-      `wasm-tools parse` for basic fixtures). PARTIALLY DONE: `regen_spec_3_0_assert.sh` already switched
-      wast2json → `wasm-tools json-from-wast` (D-179) — its header documents the gotchas to reuse: wasm-tools
-      has no `--enable-all` (proposals on by default), prefixes module ids with `$`, emits i32/i64 JSON
-      values differently (needs the normalization baker), rejects some `(module definition ...)` forms.
-      ALSO DONE (`b0bb147a`): `build.zig` spectest.wat→spectest.wasm now uses `wasm-tools parse` (build-time
-      gen, no committed-data drift; test-spec green; flake.nix:56 provides wasm-tools to the remote nix shell
-      so 3-host build unaffected). REMAINING wabt sites — all REGEN COMMITTED FIXTURES, so each is a
-      regenerate-and-reverify cycle (bytes/format may drift, needs full spec-suite + 3-host green, NOT a quick
-      swap): (1) `scripts/regen_spec_2_0_assert.sh` (912 LOC, bespoke wast2json-output parsing + own
-      normalization — port the D-179 baker), (2) `scripts/regen_test_data.sh` (43 LOC, copies `$n.0.wasm`
-      binaries — wasm-tools may emit different-but-valid encoding → fixture bytes change), (3)
-      `scripts/regen_v1_carry_over.sh` (parses wast2json JSON commands → manifest + .wasm), (4) drop the
-      `flake.nix` wabt pin once all consumers migrated. DISCHARGE:
-      `rg -n 'wat2wasm|wast2json|wabt' scripts/ build.zig flake.nix` returns nothing (or only historical
-      comments); wabt dropped from flake.nix; all spec-regen + fixture builds use wasm-tools; 3-host
-      test-all + test-spec green after the swap. Low urgency (current tooling works); do as deliberate
-      hygiene, mind the D-179 JSON-normalization gotchas to avoid spec-runner drift.
+      ONE modern wasm CLI (wasm-tools, broader/current proposal coverage). SURVEY 2026-06-06 found the
+      inventory is LARGER than first rowed; full live wast2json site list below. METHODOLOGY established this
+      session (reuse for every remaining script): wabt's wast2json emits MINIMAL name-free modules; wasm-tools
+      `json-from-wast` adds a `name` custom section (+ uses extended element-segment encoding, +2B per active
+      elem-seg) → pipe each emitted `.wasm` through `wasm-tools strip --all` to recover near-byte-parity. D-179
+      gotchas reconfirmed: no `--enable-all` (proposals on by default, so the four `--enable-*` flags drop);
+      and the KEY distiller gotcha — wasm-tools emits some quote/text modules as `.wat` where wabt compiled
+      `.wasm` (proven: comments.wast module[4] → `.wat`), so any JSON-distiller script that copies only `.wasm`
+      must add a `wasm-tools parse <wat> -o <wasm>` conversion for `.wat`-typed `filename`s.
+      DONE THIS SESSION: `build.zig` spectest → `wasm-tools parse` (`b0bb147a`, build-time gen, zero churn,
+      ubuntu-green @a6b3f86f); `regen_test_data.sh` → json-from-wast + strip --all (`c43aba23`, 7/9
+      byte-identical, nop/unreachable +2B elem-encoding, test+test-spec green); DELETED orphaned
+      `regen_v1_carry_over.sh` (`615b9c10`, regenerated dissolved `test/v1_carry_over/`, superseded by
+      regen_wasmtime_misc.sh in 6.B). REMAINING (all DISTILLER-class = parse JSON commands → manifest + multi
+      `.wasm`; each needs the .wat-conversion + strip --all + both-ways drift audit BEFORE committing the
+      regenerated corpus, then the matching `test-spec*` target green): (1) `regen_test_data_2_0.sh` (50 names
+      → test/spec/wasm-2.0/; measured drift: 1/50 manifest [comments .wat], 22/1151 wasm +2B), (2)
+      `regen_spec_1_0_assert.sh`, (3) `regen_spec_2_0_assert.sh` (912 LOC), (4) `regen_wasmtime_misc.sh`,
+      (5) `regen_spec_simd_assert.sh` (v128 list-of-lane normalization, riskiest — see its header), then
+      (6) drop the `flake.nix` wabt pin + (7) `scripts/windows/install_tools.ps1` wabt provisioning lines.
+      `regen_spec_3_0_assert.sh` already migrated (D-179 precedent). Drift-audit harness pattern (both-ways
+      manifest diff + per-wasm cmp after strip --all) is in this session's transcript — reuse it per script.
+      DISCHARGE: `rg -n 'wat2wasm|wast2json|wabt' scripts/ build.zig flake.nix` returns nothing (or only
+      historical comments); wabt dropped from flake.nix; 3-host test-all + every test-spec* target green.
+      Low urgency (current tooling works); do as deliberate per-script hygiene.
     first_raised: "2026-06-05"
-    last_reviewed: "2026-06-05"
+    last_reviewed: "2026-06-06"
     refs: |-
-      `scripts/regen_spec_3_0_assert.sh` (D-179 precedent + gotchas); `scripts/regen_spec_2_0_assert.sh`; `scripts/regen_test_data.sh`; `build.zig` (spectest pipeline); `flake.nix` (wabt pin); D-179
+      DONE: `build.zig` (b0bb147a); `scripts/regen_test_data.sh` (c43aba23); deleted regen_v1_carry_over.sh (615b9c10). REMAINING: `scripts/regen_test_data_2_0.sh`; `scripts/regen_spec_1_0_assert.sh`; `scripts/regen_spec_2_0_assert.sh`; `scripts/regen_wasmtime_misc.sh`; `scripts/regen_spec_simd_assert.sh`; `flake.nix` (wabt pin); `scripts/windows/install_tools.ps1`. PRECEDENT: `scripts/regen_spec_3_0_assert.sh` (D-179). Method: json-from-wast + `strip --all` + `.wat`→parse conversion.
   - id: "D-289"
     layer: "code"
     status: "note"
