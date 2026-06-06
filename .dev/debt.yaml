@@ -18,8 +18,10 @@ entries:
       Impl: POSIX sigaction (c395cf64) + Windows VEH (8c076db2) + First=1 fix (400c7006, the gate caught it
       losing to Zig's own First=0 segfault VEH) → internal SIGSEGV now prints "internal error" + exit 70 (vs
       clean trap exit 1 / silent signal). `test-internal-fault` build step in test-all, 3-host GREEN incl.
-      windows OK @400c7006. Lesson 2026-06-06-windows-custom-fault-veh-must-be-first.** C) exception(EH)-vs-trap
-      distinction; D) audit vs wasmtime/wasmer/WasmEdge/v1 (messages,
+      windows OK @400c7006. Lesson 2026-06-06-windows-custom-fault-veh-must-be-first.** **C) ✅ DONE
+      (c2650de5): JIT uncaught throw/throw_ref → uncaught_exception (code 12), both arches — fixed a latent
+      x86_64 mis-report (uncaught JMP → unreach_fixups = code 5). interp parity.** D) audit vs
+      wasmtime/wasmer/WasmEdge/v1 (messages,
       backtrace, exit codes) → gap list. **Synergy: workstream A first directly UNBLOCKS D-291** (ed25519's
       trap kind becomes one command away). INVESTIGATION/AUDIT FIRST (spans engines), then fix.
       PROGRESS (b6da8604, 2026-06-06): workstream A CLI surface done — JIT/AOT run paths thread trap_kind →

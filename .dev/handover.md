@@ -68,15 +68,18 @@ audit-gap list closed-or-deferred.
   (`[run_remote_windows] OK`, "internal error" printed + exit 70). Lesson:
   `2026-06-06-windows-custom-fault-veh-must-be-first`.
 
-## ← LEAD: pick next — D-292 C/D (bounded, local) OR a fresh-context correctness session (D-291/D-279)
+- ✅ **D-292 C DONE** (`c2650de5`): JIT uncaught throw/throw_ref → `uncaught_exception` (code 12), both arches
+  (new `uncaught_exc_fixups` channel; routed in the shared `emitTrampolineCallAndTrap`). Fixed a latent x86_64
+  mis-report (uncaught JMP → `unreach_fixups` = code 5 `unreachable`). Test: throw-no-catch → 12 (was 5 x86_64).
 
-D-293 + D-292-A/B are done. Remaining ADR-0164 program: **C** (exception/EH-vs-trap distinction) + **D** (audit
-zwasm trap UX vs wasmtime/wasmer/v1 → gap list) — both bounded + mostly local. Higher-value but DEEPER + needing
-FRESH context (do NOT start at extreme session depth): **D-291** (ed25519 JIT large-frame address miscompile,
-paused — diag infra in place; its row says "needs fresh-context session") and **D-279** (Win64 heisenbug,
-non-deterministic — confirmed: it did NOT fire the `400c7006` run; §1 hypotheses incl. **H3: possible shared
-root with D-291** = wide-address arith, partly Mac-testable). Correctness-first → D-291/D-279 are the priority
-when fresh; D-292 C/D are the bounded fill otherwise.
+## ← LEAD: D-292 D (audit vs wasmtime/wasmer/v1 → gap list) — last ADR-0164 piece; then fresh-context correctness
+
+ADR-0164 trap-diagnostics: A/B/C + D-293 ALL done. Remaining = **D** = audit zwasm's trap UX (messages, exit
+codes, backtrace) vs wasmtime/wasmer/v1 → a gap list (bounded, local; ref clones in `~/Documents/OSS/` +
+`zwasm/`). After D, the ADR-0164 program closes. Higher-value but DEEPER, needing **FRESH context** (NOT extreme
+session depth): **D-291** (ed25519 JIT large-frame address miscompile, paused — its row says "fresh-context
+session") and **D-279** (Win64 heisenbug, non-deterministic — H3: possible shared root with D-291, partly
+Mac-testable). Correctness-first → D-291/D-279 when fresh; D-292 D is the bounded fill.
 
 ## Queue (time-consuming first, per user directive)
 
@@ -90,10 +93,9 @@ when fresh; D-292 C/D are the bounded fill otherwise.
 - **Phase 16 (完成形) — open-ended; the loop CONTINUES, no release (ADR-0156).** v0.1.0-scope program is
   thoroughly complete + 3-host green (`deb97903`); ADR-0163 bench+docs program ALL DONE. Tag/publish/cutover are
   manual, user-only — there is no release gate.
-- Debt ledger: 0 `now`. **D-293 substantially complete** (partial) + **D-292 B-core DONE** (bundle closed —
-  internal-fault handler, 3-host green incl. windows `OK @400c7006`). Last full 3-host green = `400c7006`
-  (windows clean, D-279 did NOT fire). Next: D-292 C/D (bounded) or D-291/D-279 (deep, fresh-context). Phase 16
-  continues, no release (ADR-0156).
+- Debt ledger: 0 `now`. **D-293** + **D-292 A/B/C all DONE** — ADR-0164 trap-diagnostics nearly complete (only
+  D = audit-gap-list remains). B-core 3-host green @`400c7006`; C `c2650de5` Mac-green + x86_64-XC clean (ubuntu
+  verifies the x86_64 uncaught-fix). Then deep correctness (D-291/D-279) on fresh context. Phase 16, no release.
 
 ## Step 0.7 (next resume) — verify remote logs
 
