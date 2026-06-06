@@ -319,3 +319,20 @@ test "runVoidExportWasi: JIT uncaught throw → precise uncaught_exception code 
     try testing.expectEqual(@as(u32, 12), ue); // was 5 (unreachable) on x86_64 pre-D-292-C
     try testing.expectEqual(trap_surface.TrapKind.uncaught_exception, trap_surface.jitTrapCode(ue).?);
 }
+
+// D-295 / D-291 regression guard: `shootout/ed25519.wasm` (53 KB, copied into the src
+// package so @embedFile can reach it) run under JIT. Pre-fix (arm64
+// `homedCallerSavedSpillReload` SKIPPED callee-saved-bank homes X20..X22 across calls),
+// func 11 homed its saved-SP local2 in a callee-saved reg, call-crossing → clobbered by
+// `call 14`/`call 17` → __stack_pointer over-restore → func 7 data-region buffer → func
+// 17 clobbered the funcptr global → call_indirect oob_table TRAP. The bug needs realworld
+// register pressure (not minimally reproducible); ed25519 is the deterministic repro.
+// `_start`'s SUCCESS path is pure arithmetic (only the error path calls proc_exit), so a
+// null-host run returns cleanly WHEN FIXED and traps mid-computation when broken. Fast
+// (<1s) under JIT. (`bench/runners/wasm/shootout/ed25519.wasm` is the source of truth.)
+const d291_ed25519_wasm = @embedFile("testdata/d291_ed25519.wasm");
+
+test "runVoidExportWasi: ed25519 JIT runs without trap (D-291 callee-saved-home regression)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    _ = try runner.runVoidExportWasi(testing.allocator, d291_ed25519_wasm, "_start", null, null);
+}

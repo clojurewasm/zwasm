@@ -1256,31 +1256,6 @@ entries:
       test/realworld/run_runner_jit.zig (run-stage disabled); test/realworld/diff_runner.zig (interp + opt-in
       --aot lane); build.zig (test-realworld-diff-aot); src/wasi/jit_dispatch.zig; src/cli/run.zig (runWasmJit /
       runCwasmWasi); D-244 (JIT-WASI) / D-251 (AOT-WASI), both done
-  - id: "D-295"
-    layer: "test"
-    status: "now"
-    description: |-
-      now: add a regression GUARD for D-291 (arm64 callee-saved-homed local clobbered across a JIT call,
-      fixed 23874eda). The bug is NOT minimally reproducible — it needs func-11-scale register pressure
-      (≥6 homed locals so a long-lived call-crossing local lands in the callee-saved bank X20..X22) + a
-      callee that homes a local there to clobber it. A synthetic .wat (/tmp/d291.wat) and a codegen unit
-      test both FAIL to trigger it (the homing won't place a local in callee-saved without realworld
-      pressure; verified: the synthetic passes WITH and WITHOUT the fix). The only known repro is
-      `shootout/ed25519.wasm` under `--engine jit` (deterministic: trap pre-fix, exit 0 post-fix; fast
-      under JIT, ~seconds). GUARD OPTIONS: (1) a JIT-execution test that runs ed25519 (or another
-      high-pressure shootout binary) via `runner.runVoidExportWasi` + asserts NO trap — the cleanest
-      durable guard (ed25519 is excluded from the perf suite but a single JIT exec is cheap); (2) failing
-      that, a codegen unit test that force-constructs a regalloc.Allocation with a callee-saved-slot home
-      + a call and asserts the spill STR for X20..X22 is emitted (bypasses the homing ranking). Until then,
-      the fix is verified by ed25519 + `zig build test`/`test-spec`/`test-all` green + matching x86_64's
-      already-correct `homedSpillReload`.
-    first_raised: "2026-06-06"
-    last_reviewed: "2026-06-06"
-    refs: |-
-      D-291 fix: src/engine/codegen/arm64/op_call.zig homedCallerSavedSpillReload (23874eda). Repro:
-      bench/runners/wasm/shootout/ed25519.wasm --engine jit. Test infra: src/engine/runner_trap_test.zig
-      (runVoidExportWasi pattern), test/realworld/run_runner_jit.zig. Lesson:
-      2026-06-06-arm64-callee-saved-home-not-spilled-across-jit-call.
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
