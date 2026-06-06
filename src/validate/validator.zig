@@ -1569,6 +1569,14 @@ pub const Validator = struct {
     fn dispatchPrefixFE(self: *Validator) Error!void {
         const sub = try leb128.readUleb128(u32, self.body, &self.pos);
         switch (sub) {
+            // memory.atomic.notify (natural align 2 = 4B) / wait32
+            // (align 2) / wait64 (align 3) — threads §valid: EXACT
+            // natural align + a memory. Shared-ness is a RUNTIME
+            // property (wait traps on non-shared), not a validation
+            // constraint, so these validate on any memory.
+            0x00 => try self.opAtomicNotify(),
+            0x01 => try self.opAtomicWait(.i32, 2),
+            0x02 => try self.opAtomicWait(.i64, 3),
             // atomic.fence: read the reserved memory-order byte (MUST
             // be 0x00 per threads spec §binary; "nonzero byte after
             // atomic.fence" is malformed). No operand stack effect,
@@ -2938,6 +2946,30 @@ pub const Validator = struct {
         try self.popExpect(t); // expected
         try self.popExpect(self.memAddrType()); // address
         try self.pushType(t); // old
+    }
+
+    /// Wasm threads §valid — `memory.atomic.notify`: EXACT natural align
+    /// (2 = 4B) + a memory; pop count(i32) + addr → push i32 (waiters
+    /// woken). Valid on any memory (notify on non-shared returns 0).
+    fn opAtomicNotify(self: *Validator) Error!void {
+        if (self.memory_count == 0) return Error.UnknownMemory;
+        try self.readMemargCheckAlignExact(2);
+        try self.popExpect(.i32); // count
+        try self.popExpect(self.memAddrType()); // address
+        try self.pushType(.i32); // waiters woken
+    }
+
+    /// Wasm threads §valid — `memory.atomic.wait{32,64}`: EXACT natural
+    /// align (2 / 3) + a memory; pop timeout(i64) + expected(t) + addr →
+    /// push i32 (0 ok / 1 not-equal / 2 timed-out). Runtime traps on a
+    /// non-shared memory (not a validation constraint).
+    fn opAtomicWait(self: *Validator, t: ValType, natural_align_log2: u32) Error!void {
+        if (self.memory_count == 0) return Error.UnknownMemory;
+        try self.readMemargCheckAlignExact(natural_align_log2);
+        try self.popExpect(.i64); // timeout
+        try self.popExpect(t); // expected (i32 for wait32, i64 for wait64)
+        try self.popExpect(self.memAddrType()); // address
+        try self.pushType(.i32); // status
     }
 
     fn opStore(self: *Validator, t: ValType, max_align_log2: u32) Error!void {

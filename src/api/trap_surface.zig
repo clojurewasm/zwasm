@@ -54,6 +54,9 @@ pub const TrapKind = enum(u32) {
     // Wasm threads/atomics (ADR-0168): unaligned atomic effective address.
     // Spec reason "unaligned atomic"; distinct C-ABI value (appended).
     unaligned_atomic = 14,
+    // Wasm threads/atomics (ADR-0168): memory.atomic.wait* on a non-shared
+    // memory. Spec reason "expected shared memory"; appended C-ABI value.
+    expected_shared_memory = 15,
 };
 
 /// `wasm_trap_t` — runtime trap surface. Carries the trap kind +
@@ -96,6 +99,7 @@ pub fn trapMessageFor(kind: TrapKind) []const u8 {
         .cast_failure => "cast failure",
         .uncaught_exception => "uncaught exception",
         .unaligned_atomic => "unaligned atomic",
+        .expected_shared_memory => "expected shared memory",
     };
 }
 
@@ -121,6 +125,8 @@ pub fn jitTrapCode(code: u32) ?TrapKind {
         11 => .cast_failure, // D-293 slice-4d — ref.cast / ref.cast_null subtype mismatch (jitGcRefCast → 0)
         12 => .uncaught_exception, // D-292 C — throw / throw_ref escaped all try_table catches (zwasm_throw .uncaught)
         13 => .uninitialized_elem, // D-294 — call_indirect on a null (uninitialized) in-bounds table elem (typeidx == maxInt sentinel → CMP/CMN → JE/B.EQ)
+        14 => .unaligned_atomic, // ADR-0168 rmw/cmpxchg/wait callout helper
+        15 => .expected_shared_memory, // ADR-0168 wait* on non-shared (callout)
         else => null, // 0 unmarked / 1 generic — still-shared bounds kinds (D-293)
     };
 }
@@ -142,6 +148,7 @@ pub fn mapInterpTrap(err: anyerror) TrapKind {
         error.CastFailure => .cast_failure,
         error.UncaughtException => .uncaught_exception,
         error.UnalignedAtomic => .unaligned_atomic,
+        error.ExpectedSharedMemory => .expected_shared_memory,
         else => .binding_error,
     };
 }

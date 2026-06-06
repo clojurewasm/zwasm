@@ -255,6 +255,7 @@ fn mapDispatchErr(err: anyerror) Instance.InvokeError {
         error.UncaughtException => error.UncaughtException,
         error.CastFailure => error.CastFailure, // Wasm 3.0 GC ref.cast (10.G c152)
         error.UnalignedAtomic => error.UnalignedAtomic, // Wasm threads (ADR-0168)
+        error.ExpectedSharedMemory => error.ExpectedSharedMemory, // Wasm threads (ADR-0168)
         error.OutOfMemory => error.OutOfMemory,
         else => @panic("zwasm.Instance.invoke: dispatch returned non-Trap error variant"),
     };

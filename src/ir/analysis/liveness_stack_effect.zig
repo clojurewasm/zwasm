@@ -309,6 +309,12 @@ pub fn stackEffect(op: ZirOp) ?StackEffect {
         .@"i64.atomic.rmw16.cmpxchg_u",
         .@"i64.atomic.rmw32.cmpxchg_u",
         => .{ .pops = 3, .pushes = 1 },
+        // memory.atomic.notify (threads, ADR-0168) — 2→1 (pop count+addr, push woken).
+        .@"memory.atomic.notify" => .{ .pops = 2, .pushes = 1 },
+        // memory.atomic.wait{32,64} (threads, ADR-0168) — 3→1 (pop timeout+expected+addr, push status).
+        .@"memory.atomic.wait32",
+        .@"memory.atomic.wait64",
+        => .{ .pops = 3, .pushes = 1 },
         // memory loads (1 → 1; pop addr, push value)
         .@"i32.load",
         .@"i32.atomic.load", // threads (ADR-0168) — same shape as i32.load

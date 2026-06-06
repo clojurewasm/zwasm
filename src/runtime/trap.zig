@@ -50,6 +50,11 @@ pub const Trap = error{
     /// (ea mod N/8 ≠ 0). Distinct from out-of-bounds; spec reason:
     /// "unaligned atomic". Checked before the bounds test.
     UnalignedAtomic,
+    /// Wasm threads/atomics proposal (§exec, ADR-0168): `memory.atomic.
+    /// wait{32,64}` executed against a memory that is not shared. Spec
+    /// requires the memory be shared; non-shared traps. Spec reason:
+    /// "expected shared memory". (`notify` does NOT require shared.)
+    ExpectedSharedMemory,
 };
 
 /// Per-instruction trace event (Phase 6 / §9.6 / 6.A per ADR-0013).

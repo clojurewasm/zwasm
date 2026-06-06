@@ -49,6 +49,16 @@ inline fn memorySlice(rt: *Runtime, extra: u32) []u8 {
     return rt.memories[memidx].bytes;
 }
 
+/// True when the memory at `extra`'s memidx is declared shared (the
+/// 0x02 limits flag, threaded onto `MemoryInstance.shared`). Used by
+/// `memory.atomic.wait*` to trap on a non-shared memory (ADR-0168).
+/// The MVP test-scaffold fallback (memories empty) reports non-shared.
+inline fn memShared(rt: *Runtime, extra: u32) bool {
+    const memidx: u8 = zir.MemArgExtra.unpack(extra).memidx;
+    if (rt.memories.len == 0 or memidx >= rt.memories.len) return false;
+    return rt.memories[memidx].shared;
+}
+
 pub fn register(table: *DispatchTable) void {
     table.interp[op(.@"i32.load")] = i32Load;
     table.interp[op(.@"i32.atomic.load")] = i32AtomicLoad;
@@ -116,6 +126,10 @@ pub fn register(table: *DispatchTable) void {
     table.interp[op(.@"i64.atomic.rmw8.cmpxchg_u")] = cmpxchgHandler(u8, true);
     table.interp[op(.@"i64.atomic.rmw16.cmpxchg_u")] = cmpxchgHandler(u16, true);
     table.interp[op(.@"i64.atomic.rmw32.cmpxchg_u")] = cmpxchgHandler(u32, true);
+    // atomic notify/wait (threads, ADR-0168) — single-thread substrate.
+    table.interp[op(.@"memory.atomic.notify")] = atomicNotify;
+    table.interp[op(.@"memory.atomic.wait32")] = waitHandler(u32);
+    table.interp[op(.@"memory.atomic.wait64")] = waitHandler(u64);
     table.interp[op(.@"i64.load")] = i64Load;
     table.interp[op(.@"f32.load")] = f32Load;
     table.interp[op(.@"f64.load")] = f64Load;
@@ -530,6 +544,48 @@ fn cmpxchgHandler(comptime W: type, comptime res64: bool) dispatch.InterpFn {
     }.h;
 }
 
+/// `memory.atomic.notify` (threads, ADR-0168) — pop count + addr,
+/// align(4)+bounds trap, push the number of waiters woken. Single-
+/// threaded substrate: no waiters ever exist → always 0 (valid on a
+/// non-shared memory too). Alignment trap BEFORE bounds.
+fn atomicNotify(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+    const rt = Runtime.fromOpaque(c);
+    _ = rt.popOperand().u32; // count (no waiters single-thread)
+    const addr = rt.popOperand().u32;
+    const mem = memorySlice(rt, instr.extra);
+    const ea: u64 = @as(u64, addr) + @as(u64, instr.payload);
+    if (ea & 3 != 0) return Trap.UnalignedAtomic;
+    if (ea + 4 > mem.len) return Trap.OutOfBoundsLoad;
+    try rt.pushOperand(.{ .u32 = 0 });
+}
+
+/// Factory for `memory.atomic.wait{32,64}` (threads, ADR-0168). Pops
+/// [addr, expected, timeout], align(W)+bounds trap, then traps if the
+/// memory is non-shared (spec precondition). On a shared memory the
+/// single-threaded substrate cannot block, so: value ≠ expected → 1
+/// ("not equal"); value == expected → 2 ("timed out" — no notifier can
+/// ever arrive, the timeout elapses immediately regardless of its
+/// value). `W` = u32 (wait32) / u64 (wait64).
+fn waitHandler(comptime W: type) dispatch.InterpFn {
+    const width = @sizeOf(W);
+    return struct {
+        fn h(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
+            const rt = Runtime.fromOpaque(c);
+            _ = rt.popOperand().u64; // timeout (instant-timeout single-thread)
+            const expected = if (W == u64) rt.popOperand().u64 else @as(u64, rt.popOperand().u32);
+            const addr = rt.popOperand().u32;
+            const mem = memorySlice(rt, instr.extra);
+            const ea: u64 = @as(u64, addr) + @as(u64, instr.payload);
+            if (ea & (width - 1) != 0) return Trap.UnalignedAtomic;
+            if (ea + width > mem.len) return Trap.OutOfBoundsLoad;
+            if (!memShared(rt, instr.extra)) return Trap.ExpectedSharedMemory;
+            const cur = std.mem.readInt(W, mem[@intCast(ea)..][0..width], .little);
+            const status: u32 = if (cur != @as(W, @truncate(expected))) 1 else 2;
+            try rt.pushOperand(.{ .u32 = status });
+        }
+    }.h;
+}
+
 // --- memory.size / memory.grow ---
 
 /// True when the memory at `memidx` is declared with `(memory i64 …)`
@@ -799,6 +855,70 @@ test "atomic cmpxchg: match stores, mismatch leaves; pushes old" {
     try driveOne(&rt, &t, .@"i64.atomic.rmw8.cmpxchg_u", 0, 0);
     try testing.expectEqual(@as(u64, 0xAB), rt.popOperand().u64);
     try testing.expectEqual(@as(u8, 0xCD), rt.memory[3]);
+}
+
+test "memory.atomic.notify returns 0 (no waiters) + traps unaligned" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    rt.memory = try testing.allocator.alloc(u8, 64);
+
+    // notify @8 count=3 → 0 (single-thread, no waiters). Stack [addr, count].
+    try rt.pushOperand(.{ .u32 = 8 });
+    try rt.pushOperand(.{ .u32 = 3 });
+    try driveOne(&rt, &t, .@"memory.atomic.notify", 0, 0);
+    try testing.expectEqual(@as(u32, 0), rt.popOperand().u32);
+
+    // notify @2 unaligned → trap (before bounds).
+    try rt.pushOperand(.{ .u32 = 2 });
+    try rt.pushOperand(.{ .u32 = 1 });
+    try testing.expectError(Trap.UnalignedAtomic, driveOne(&rt, &t, .@"memory.atomic.notify", 0, 0));
+}
+
+test "memory.atomic.wait32 on a non-shared memory traps ExpectedSharedMemory" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    rt.memory = try testing.allocator.alloc(u8, 64); // fallback = non-shared
+
+    // wait32 @8 expected=0 timeout=-1. Stack [addr, expected, timeout].
+    try rt.pushOperand(.{ .u32 = 8 });
+    try rt.pushOperand(.{ .u32 = 0 });
+    try rt.pushOperand(.{ .i64 = -1 });
+    try testing.expectError(Trap.ExpectedSharedMemory, driveOne(&rt, &t, .@"memory.atomic.wait32", 0, 0));
+}
+
+test "memory.atomic.wait on shared memory: not-equal→1, equal→2 (single-thread instant timeout)" {
+    const memory_instance = @import("../../runtime/instance/memory_instance.zig");
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    const buf = try testing.allocator.alloc(u8, 64);
+    @memset(buf, 0);
+    std.mem.writeInt(u32, buf[8..][0..4], 42, .little);
+    var mi_val: memory_instance.MemoryInstance = .{ .bytes = buf, .shared = true };
+    var mi = [_]*memory_instance.MemoryInstance{&mi_val};
+    rt.memories = mi[0..];
+    defer rt.memories = &.{};
+
+    // wait32 @8 expected=99 (≠ 42) → 1 (not-equal).
+    try rt.pushOperand(.{ .u32 = 8 });
+    try rt.pushOperand(.{ .u32 = 99 });
+    try rt.pushOperand(.{ .i64 = 0 });
+    try driveOne(&rt, &t, .@"memory.atomic.wait32", 0, 0);
+    try testing.expectEqual(@as(u32, 1), rt.popOperand().u32);
+
+    // wait32 @8 expected=42 (== 42) → 2 (timed-out; no notifier single-thread).
+    try rt.pushOperand(.{ .u32 = 8 });
+    try rt.pushOperand(.{ .u32 = 42 });
+    try rt.pushOperand(.{ .i64 = -1 });
+    try driveOne(&rt, &t, .@"memory.atomic.wait32", 0, 0);
+    try testing.expectEqual(@as(u32, 2), rt.popOperand().u32);
+
+    testing.allocator.free(buf);
 }
 
 test "i32.load8_s sign-extends" {

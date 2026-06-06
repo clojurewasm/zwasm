@@ -878,6 +878,11 @@ pub const Lowerer = struct {
     fn emitPrefixFE(self: *Lowerer) Error!void {
         const sub = try leb128.readUleb128(u32, self.body, &self.pos);
         switch (sub) {
+            // memory.atomic.notify / wait{32,64} — carry a memarg
+            // (offset + align/memidx) identical to the load/store shape.
+            0x00 => try self.emitMemarg(.@"memory.atomic.notify"),
+            0x01 => try self.emitMemarg(.@"memory.atomic.wait32"),
+            0x02 => try self.emitMemarg(.@"memory.atomic.wait64"),
             0x03 => {
                 self.pos += 1; // reserved memory-order byte
                 try self.emit(.@"atomic.fence", 0, 0);
