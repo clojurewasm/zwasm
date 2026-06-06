@@ -64,21 +64,19 @@ audit-gap list closed-or-deferred.
     →unreachable(5) mis-report. **D** (`4bdaec59`): trap-UX audit vs wasmtime/wasmer/v1 — clean, ADR-0159-aligned;
     one bug found → **D-294** (JIT call_indirect null-elem → mislabels indirect_call_mismatch; fix = code 13).
 
-## ← LEAD: D-291 — ROOT-CAUSED to func-11 __stack_pointer over-restore (`716cb111`)
+## ← LEAD: D-291 RESOLVED (`23874eda`) — next: remove diag infra, D-295 guard, queue
 
-**D-291 root-cause chain found this session** (func-17-internal REFUTED — the earlier exact-==16777416 gate
-missed the real buffer 0x10000c0; only buffer+8 hits the funcptr global). Robust `>=16MB` gate on `call 17`
-arg0 → **func 7** passes func 17 a DATA-region buffer 0x10000c0 (= __stack_pointer_init + 0xC0); func 17
-faithfully stores hi word to 0x10000c8 = the funcptr global → clobber (func 17 INNOCENT — minimal /tmp/m3b.wat
-repro clean). func 7 reads __stack_pointer ALREADY >16MB. **MECHANISM CONFIRMED** (`6d0f478b`, trap_aux8/9): func 11 reads a VALID sp_entry=0xffd830 but its epilogue
-`local.get 2; i32.const 480; i32.add; global.set 0` sets sp=**0xffffffb0 (=-80, GARBAGE)** = local2+480 ⇒
-**local2 (func 11's saved-SP local) = -560 garbage at the epilogue** (should be sp_entry-480≈0xffd650). So
-local2 — the frame base held across func 11's `call 14`+`call 17` — is CLOBBERED ⇒ epilogue over-restores sp →
-func 7 reads corrupt sp → data-region buffer → func 17 clobbers funcptr global → trap. func 11 = 21 i64 locals
-+ calls (high reg/spill pressure): the canonical long-lived-local-corrupted-across-a-call bug — likely the
-ADR-0155 homed-caller-saved spill/reload (op_call.zig `homedCallerSavedSpillReload`) or a spill-slot collision
-(regalloc_compute.zig). NEXT: gated capture of local2 before/after each func-11 call → which call corrupts it;
-inspect func 11's regalloc for local2. Build `-Dtrace-stackprobe=true`; grep `[d-291]`. Full chain in D-291 row.
+**D-291 FIXED** — ed25519 `--engine jit` exits 0 (was oob_table trap); `zig build test`/`test-spec` green,
+test-all in flight. ROOT CAUSE (~7-turn hunt): arm64 `homedCallerSavedSpillReload` SKIPPED callee-saved-bank
+homes (X20-X22) across JIT calls, assuming AAPCS64 callee-preservation — but per ADR-0060 the JIT prologue
+installs invariants into X19-X28 WITHOUT stack-saving, so a callee homing a local in X20-X22 clobbers it. func
+11 homed its saved-SP local2 in callee-saved, call-crossing → clobbered → __stack_pointer over-restored to
+garbage → func 7 data-region buffer → func 17 clobbered the funcptr global → cind oob_table. FIX = spill ALL
+register-homed locals across calls (removed the skip), matching x86_64's already-correct `homedSpillReload`.
+ARM64-ONLY. Lesson filed. **NEXT**: (1) **remove the gated D-291 diag infra** (trap_aux5..9 + the `>=16MB`/
+sp-overset captures in op_call/op_globals/entry/jit_abi, `-Dtrace-stackprobe`-gated) now that it's fixed —
+revert to clean codegen; (2) **D-295** (`now`): regression guard (JIT-exec ed25519 in CI — not minimally
+reproducible); (3) 3-host gate confirms (arm64 fix; x86_64/Win64 unaffected). Then queue: D-288, D-284, D-290, D-279.
 
 **Other status**: ADR-0164 COMPLETE. **D-294 3-HOST GREEN** (`partial`, residuals polish). **D-279 sha256 lead
 FALSE** (corrected — zwasm hashes correctly; fixture has a wrong baked-in constant, golden-matched, never gates;
