@@ -47,7 +47,7 @@ Plus v1 parity items at Phase 5:
 |----------------------------------|-----------------------|---------------------------------|
 | ESM Integration                  | JS modules            | **SKIP**                        |
 | Wide arithmetic (i64x2 mul, ADC) | BigInt-relevant       | Phase 9 alongside SIMD (v0.1.0) |
-| Stack switching (continuations)  | Large; gates WASI 0.3 | v0.2.0+                         |
+| Stack switching (continuations)  | Large; gates WASI 0.3 | **DEFER** (D-300; survey 2026-06-07: format unstable + 3 ADRs + ~25-35cyc) |
 | Compact import section           | Size opt              | v0.2.0+                         |
 | Custom page sizes                | memory tuning         | Phase 10 (v0.1.0)               |
 | Custom Descriptors / JS Interop  | JS-only               | **SKIP**                        |

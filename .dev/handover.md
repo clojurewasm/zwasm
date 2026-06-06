@@ -19,16 +19,20 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
 
 ## Current state
 
-- **Phase 17 (v0.2) IN-PROGRESS** (ADR-0168). DONE+3-host: **17.1-atomics @9eb84833** · **17.2-wide-arith
-  @231d4536** · **17.3-custom-page-sizes @cd0de2dd** · **17.4-relaxed-SIMD @08342ec5** (delta 0→**20 ops** JIT
-  both arches: swizzle/trunc×4/madd-nmadd×4/laneselect×4/min-max×4/q15mulr/dot/dot_add; +ADR-0169 per-arch
-  hardware semantics; emit_test probe → `memory.discard`). 20/20 edge fixtures green Mac; **dots 7b/7c (new x86
-  PMADDUBSW/PMADDWD codegen) await ubuntu+windows confirm** at next Step 0.7 (D3/D7). **NEXT = verify dots
-  3-host, then open next v0.2 feature** (proposal_watch: compact-import / stack-switching / component-model →
-  v0.3) OR sweep `.dev/remaining_sweep.md`. No tag (ADR-0156). **D-299** (inline load/store
-  JIT misaligned-trap) still DEFERRED. Phase 16 (完成形) DONE. No release/tag ever (ADR-0156).
-- Debt ledger: **65 entries, 0 `now`** (D-264 dogfooding discharged). Remaining = `.dev/remaining_sweep.md`
-  (Bucket A prune / B actionable-low / C deferred / D externally-blocked) — sweep between features, never idle.
+- **Phase 17 (v0.2) IN-PROGRESS** (ADR-0168). DONE+**3-host-confirmed**: **17.1-atomics @9eb84833** ·
+  **17.2-wide-arith @231d4536** · **17.3-custom-page-sizes @cd0de2dd** · **17.4-relaxed-SIMD @08342ec5**
+  (delta 0→**20 ops** JIT both arches; +ADR-0169 per-arch hardware semantics; emit_test probe → `memory.discard`).
+  17.4 verified Mac + ubuntu @758ff210 + **Win64 @758ff210** (dot_add_s=110/dot_s=3/q15mulr=8192,32767; gate
+  recorded; D-279 silent streak=3; 1-failed=D-028 IPC flake, 0 assertions). **Wasm-3.0 100%-spec is COMPLETE —
+  no lurking reserved-but-unimpl Phase-5 ops** (audited zir_ops enum 2026-06-07; only stack-switching/
+  memory-control stubs remain = Phase-3).
+- **NEXT track = sweep/completeness, NOT new-proposal features.** Stack-switching **DEFERRED @D-300** (survey
+  2026-06-07: Phase-3 unstable format + 3 architecture ADRs + ~25-35cyc — re-survey at Phase 4). compact-import/
+  memory-control also pre-Phase-4. So pick from `.dev/remaining_sweep.md` Bucket B/C (D-231 build-DCE gate,
+  D-209 memory64 >4GiB memarg completeness, D-259 spillBytes measure-first, …) + re-check proposal_watch
+  quarterly. **D-299** (inline atomic misaligned-trap, x86_64 W^X stale-page) still open. No tag (ADR-0156).
+- Debt ledger: **52 entries** (Bucket A 15 pruned @758ff210; +D-300 stack-switching defer). 0 `now` except
+  D-299. Sweep between features, never idle.
 - **D-279** Win64 SIMD heisenbug: H3 stack-overflow diagnostic deployed; re-kick windows as work lands to keep
   hunting the reproduction (user: never leave it idle). Mac-side investigation walled (needs the Win64 signal).
 
@@ -38,8 +42,8 @@ All three surface audits DONE: CLI→**D-295** (~85% + intentionally lean, decli
 **ZERO gaps** (D-296; 293/293). Zig-API→**COMPLETE** (D-296; `Module.imports/exports` + `Memory.grow/sliceAt` +
 `Engine.linker()` + `Linker.defineInstance`; `docs/zig_api_design.md` synced). Memory-safety ALL areas swept
 **SOUND** (D-297 cross-module aliasing; WASI fd lifecycle; 3 audit "CRITICAL" labels dissolved under verification
-→ discipline: always adversarially verify audit criticals; lesson `fd0a1914`). Forward track now = **v0.2
-features** (17.4 relaxed-SIMD ACTIVE) + remaining_sweep between features (NEVER-IDLE above).
+→ discipline: always adversarially verify audit criticals; lesson `fd0a1914`). v0.2 tractable features all DONE
+(atomics/wide-arith/custom-page/relaxed-SIMD); forward track = remaining_sweep + completeness (NEVER-IDLE above).
 
 **D-279 (Win64 SIMD-JIT heisenbug — one open RED-class)**: leading hypo **H3 = Win64 1 MB stack overflow** (vs
 Mac/Linux 8 MB). H3 diagnostic LANDED+validated @`b86ac7fc` (`EXCEPTION_STACK_OVERFLOW` VEH → `[d-279-veh]

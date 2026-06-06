@@ -1163,6 +1163,13 @@ entries:
     refs: |-
       src/zwasm/linker.zig (header lifetime contract; deinit@~176; ctx_storage@58; cmf.ctx_ptr wiring@548);
       src/api/instance.zig (zombie parking@206-269); ADR-0014 §2.1/6.K.2 (zombie list); D-199 / D-201b (aliasing).
+  - id: D-300
+    layer: code
+    status: blocked-by
+    description: 'blocked-by (proposal-format maturity + architecture-ADRs; survey 2026-06-07). **Stack-switching / typed continuations** (6 ZirOp stubs zir_ops.zig:665-671 cont.new/cont.bind/resume/resume_throw/suspend/switch) DEFERRED — NOT autonomously implementable now. Two independent hard blockers: (1) **Binary format unstable** — W3C Phase 3, opcodes 0xe0-0xe6 + handler sub-bytes + the `resume_throw_ref` 0xe5 variant (MISSING from our enum) still churning in the CG; implementing decode now = guaranteed rework (violates spec-fidelity/no-premature-impl). (2) **~25-35 cycle campaign needing 3 architecture ADRs before any code**: (A) continuation representation = fiber/mmap-stack vs copied-stack vs segmented (determines runtime object layout + ctx-switch ABI; interacts with the pinned X19/X24-28 // R15 cohort per abi_callee_saved_pinning); (B) interp policy = JIT-only-with-validator-reject vs rearchitect mvp.zig recursive-invoke into cooperative-yield; (C) GC interaction = mark-sweep traces ContinuationObject vs refcount-pin. New machinery: cont heap type (AbstractHeapType + TypeKind.contdef), GC object kind, per-arch context-switch asm stub (new platform files; likely ucontext → libc_boundary ADR), JIT frame-capture both arches. v1 has ZERO reference. DISCHARGE: re-survey when the proposal reaches Phase 4 (format frozen); then file the 3 ADRs + open a multi-bundle campaign. Near-term v0.2 track is otherwise Phase-3-unstable (compact-import/memory-control also pre-Phase-4) → loop sweeps debt/completeness between, re-checks proposal_watch quarterly.'
+    first_raised: "2026-06-07"
+    last_reviewed: "2026-06-07"
+    refs: src/ir/zir_ops.zig:665-671; src/feature/stack_switching/README.md; .dev/proposal_watch.md (Phase 3); OSS/WebAssembly stack-switching proposal
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
