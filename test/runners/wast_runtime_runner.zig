@@ -980,6 +980,7 @@ fn trapKindName(k: wasm_c_api.TrapKind) []const u8 {
         .null_reference => "NullReference",
         .cast_failure => "CastFailure",
         .uncaught_exception => "UncaughtException",
+        .unaligned_atomic => "UnalignedAtomic", // Wasm threads (ADR-0168)
     };
 }
 
