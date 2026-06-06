@@ -234,7 +234,8 @@ test "migratedArchOpCount tracks collected per-arch tuples (B59: arm64=348, x86_
     // §15.4/D-246 chunk B added arm64 i{16x8,32x4,64x2}.extmul_{low,high}_*_{s,u} (+12 = 394).
     // §15.4/D-246 chunk C added arm64 i32x4.dot_i16x8_s (+1 = 395; last SIMD emit-hole op).
     // §15.4/D-246 residual chunk B added arm64 sat-arith/q15mulr/extadd_pairwise (+13 = 408).
-    try std.testing.expectEqual(@as(usize, 408), migratedArchOpCount(.arm64));
+    // §17.4 relaxed-SIMD chunk2 added arm64 i8x16.relaxed_swizzle (+1 = 409).
+    try std.testing.expectEqual(@as(usize, 409), migratedArchOpCount(.arm64));
     // B79..B106 walked cohorts; B107 SIMD residual (21 ops) — legacy tuple empty.
     try std.testing.expectEqual(@as(usize, 0), migratedArchOpCount(.x86_64));
 }
@@ -348,7 +349,8 @@ test "collected_x86_64_ctx_ops tracks B54+ migrations to `(ctx, ins)` shape" {
     // 10.G GC-on-JIT added x86_64 br_on_cast + br_on_cast_fail (+2 = 427; Cycle B).
     // 10.G: x86_64 struct.get_s + struct.get_u (+2 = 429; packed-field sign/zero-extend).
     // 10.G: x86_64 array.init_data + array.init_elem (+2 = 431; A-11 in-place segment init).
-    try std.testing.expectEqual(@as(usize, 431), collected_x86_64_ctx_ops.len);
+    // §17.4 relaxed-SIMD chunk2 added x86_64 i8x16.relaxed_swizzle (+1 = 432).
+    try std.testing.expectEqual(@as(usize, 432), collected_x86_64_ctx_ops.len);
 }
 
 // Note: a `dispatch(.arm64, tag, args)` test at this layer would

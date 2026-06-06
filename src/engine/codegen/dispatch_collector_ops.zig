@@ -262,6 +262,7 @@ const arm64_table_copy = @import("arm64/ops/wasm_1_0/table_copy.zig");
 const arm64_table_init = @import("arm64/ops/wasm_1_0/table_init.zig");
 
 const arm64_i8x16_swizzle = @import("arm64/ops/wasm_2_0/i8x16_swizzle.zig");
+const arm64_i8x16_relaxed_swizzle = @import("arm64/ops/wasm_3_0/i8x16_relaxed_swizzle.zig");
 const arm64_i8x16_popcnt = @import("arm64/ops/wasm_2_0/i8x16_popcnt.zig");
 const arm64_f32x4_convert_i32x4_s = @import("arm64/ops/wasm_2_0/f32x4_convert_i32x4_s.zig");
 const arm64_f32x4_convert_i32x4_u = @import("arm64/ops/wasm_2_0/f32x4_convert_i32x4_u.zig");
@@ -399,6 +400,7 @@ const x86_64_i64x2_le_s = @import("x86_64/ops/wasm_2_0/i64x2_le_s.zig");
 const x86_64_i64x2_ge_s = @import("x86_64/ops/wasm_2_0/i64x2_ge_s.zig");
 
 const x86_64_i8x16_swizzle = @import("x86_64/ops/wasm_2_0/i8x16_swizzle.zig");
+const x86_64_i8x16_relaxed_swizzle = @import("x86_64/ops/wasm_3_0/i8x16_relaxed_swizzle.zig");
 const x86_64_i32x4_dot_i16x8_s = @import("x86_64/ops/wasm_2_0/i32x4_dot_i16x8_s.zig");
 const x86_64_i16x8_q15mulr_sat_s = @import("x86_64/ops/wasm_2_0/i16x8_q15mulr_sat_s.zig");
 const x86_64_f32x4_convert_i32x4_s = @import("x86_64/ops/wasm_2_0/f32x4_convert_i32x4_s.zig");
@@ -1267,6 +1269,7 @@ pub const collected_arm64_ops = .{
     arm64_i64x2_extend_low_i32x4_u,
     arm64_i64x2_extend_high_i32x4_u,
     arm64_i8x16_swizzle,
+    arm64_i8x16_relaxed_swizzle,
     arm64_i8x16_popcnt,
     arm64_f32x4_convert_i32x4_s,
     arm64_f32x4_convert_i32x4_u,
@@ -1840,6 +1843,7 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_f32x4_splat,
     x86_64_f64x2_splat,
     x86_64_i8x16_swizzle,
+    x86_64_i8x16_relaxed_swizzle,
     x86_64_i16x8_extadd_pairwise_i8x16_s,
     x86_64_i16x8_extadd_pairwise_i8x16_u,
     x86_64_i32x4_extadd_pairwise_i16x8_s,
