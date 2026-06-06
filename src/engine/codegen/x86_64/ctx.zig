@@ -56,6 +56,7 @@ pub const InitArgs = struct {
     invalid_conv_fixups: *std.ArrayList(u32),
     null_ref_fixups: *std.ArrayList(u32),
     cast_fail_fixups: *std.ArrayList(u32),
+    uncaught_exc_fixups: *std.ArrayList(u32),
     oob_fixups: *std.ArrayList(u32),
     oobtable_fixups: *std.ArrayList(u32),
     cind_sig_fixups: *std.ArrayList(u32),
@@ -156,6 +157,10 @@ pub const EmitCtx = struct {
     /// D-293 slice-4d — ref.cast / ref.cast_null subtype-mismatch (`JE rel32`,
     /// 6-byte, on the jitGcRefCast 0-return) fixups → code 11 = cast_failure.
     cast_fail_fixups: *std.ArrayList(u32),
+    /// D-292 C — throw / throw_ref uncaught-exception (`JMP rel32`, 5-byte, after
+    /// the zwasm_throw trampoline returns `.uncaught`) fixups → code 12 =
+    /// uncaught_exception. Was mis-routed to `unreach_fixups` (code 5).
+    uncaught_exc_fixups: *std.ArrayList(u32),
     /// ADR-0164 A3 / D-292 — memory load/store/bulk-memory out-of-bounds
     /// (`JA rel32`, 6-byte) fixups, demuxed out of `bounds_fixups` so oob_memory
     /// reaches a dedicated trap stub recording code 6. Other `bounds_fixups`
@@ -330,6 +335,7 @@ pub const EmitCtx = struct {
             .invalid_conv_fixups = args.invalid_conv_fixups,
             .null_ref_fixups = args.null_ref_fixups,
             .cast_fail_fixups = args.cast_fail_fixups,
+            .uncaught_exc_fixups = args.uncaught_exc_fixups,
             .oob_fixups = args.oob_fixups,
             .oobtable_fixups = args.oobtable_fixups,
             .cind_sig_fixups = args.cind_sig_fixups,

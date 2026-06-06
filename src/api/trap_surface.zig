@@ -115,6 +115,7 @@ pub fn jitTrapCode(code: u32) ?TrapKind {
         9 => .invalid_conversion, // D-293 slice-3 — trapping-trunc NaN (UCOMI/FCMP self → JP/B.VS)
         10 => .null_reference, // D-293 slice-4b — call_ref null + ref.as_non_null (TEST/CMP → JE/B.EQ)
         11 => .cast_failure, // D-293 slice-4d — ref.cast / ref.cast_null subtype mismatch (jitGcRefCast → 0)
+        12 => .uncaught_exception, // D-292 C — throw / throw_ref escaped all try_table catches (zwasm_throw .uncaught)
         else => null, // 0 unmarked / 1 generic — still-shared bounds kinds (D-293)
     };
 }

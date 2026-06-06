@@ -274,3 +274,25 @@ test "runVoidExportWasi: JIT ref.cast subtype mismatch → precise cast_failure 
     try testing.expectEqual(@as(u32, 11), cf);
     try testing.expectEqual(trap_surface.TrapKind.cast_failure, trap_surface.jitTrapCode(cf).?);
 }
+
+// `(module (tag $e) (func (export "_start") (throw $e)))` — `throw` with no
+// enclosing `try_table` catch → the exception escapes the outermost function
+// (Wasm 3.0 EH §4.5). D-292 C: uncaught_exception code 12. NOTE this fixed a
+// latent x86_64 mis-report — the uncaught-throw JMP appended to `unreach_fixups`
+// (code 5 = unreachable); both arches now route to the dedicated code-12 stub.
+const throw_uncaught_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x04, 0x01, 0x60, 0x00, 0x00, 0x03, 0x02,
+    0x01, 0x00, 0x0d, 0x03, 0x01, 0x00, 0x00, 0x07,
+    0x0a, 0x01, 0x06, 0x5f, 0x73, 0x74, 0x61, 0x72,
+    0x74, 0x00, 0x00, 0x0a, 0x06, 0x01, 0x04, 0x00,
+    0x08, 0x00, 0x0b,
+};
+
+test "runVoidExportWasi: JIT uncaught throw → precise uncaught_exception code 12 (D-292 C)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    var ue: u32 = 99;
+    try testing.expectError(entry.Error.Trap, runner.runVoidExportWasi(testing.allocator, &throw_uncaught_wasm, "_start", null, &ue));
+    try testing.expectEqual(@as(u32, 12), ue); // was 5 (unreachable) on x86_64 pre-D-292-C
+    try testing.expectEqual(trap_surface.TrapKind.uncaught_exception, trap_surface.jitTrapCode(ue).?);
+}

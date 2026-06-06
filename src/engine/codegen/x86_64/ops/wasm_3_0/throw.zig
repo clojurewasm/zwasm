@@ -104,10 +104,10 @@ pub fn emitTrampolineCallAndTrap(ctx: *ctx_mod.EmitCtx, trampoline_addr: u64) ct
     try ctx.buf.appendSlice(ctx.allocator, inst.encMovImm64Q(.r10, trampoline_addr).slice());
     // CALL R10 — 3 bytes (REX.B + FF /2).
     try ctx.buf.appendSlice(ctx.allocator, inst.encCallReg(.r10).slice());
-    // JMP rel32 placeholder — 5 bytes; patched at function-end
-    // alongside unreachable's unreach_fixups. The trap stub runs
-    // the standard epilogue + RET to the entry shim.
+    // JMP rel32 placeholder — 5 bytes; patched at function-end. D-292 C: route to
+    // the dedicated uncaught_exception stub (code 12), NOT unreach_fixups (code 5)
+    // — an escaped throw/throw_ref previously mis-reported `kind=unreachable`.
     const fixup_at: u32 = @intCast(ctx.buf.items.len);
     try ctx.buf.appendSlice(ctx.allocator, inst.encJmpRel32(0).slice());
-    try ctx.unreach_fixups.append(ctx.allocator, fixup_at);
+    try ctx.uncaught_exc_fixups.append(ctx.allocator, fixup_at);
 }

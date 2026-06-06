@@ -1445,6 +1445,16 @@ fn emitEndInter(ctx: *ctx_mod.EmitCtx) Error!void {
             inst.patchRel32(ctx.buf.items, fx_byte, 5, disp);
         }
     }
+    // D-292 C — throw / throw_ref uncaught exception (uncaught_exception, code 12);
+    // `JMP rel32` (5-byte), same shape as unreach. Was mis-routed to unreach (code 5).
+    if (ctx.uncaught_exc_fixups.items.len > 0) {
+        const trap_byte = try emitTrapExitStub(ctx, 12);
+        for (ctx.uncaught_exc_fixups.items) |fx_byte| {
+            const disp: i32 = @as(i32, @intCast(trap_byte)) -
+                @as(i32, @intCast(fx_byte)) - 5;
+            inst.patchRel32(ctx.buf.items, fx_byte, 5, disp);
+        }
+    }
     // ADR-0164 A2 / D-292 — div-by-zero (code 7) + div_s signed-overflow
     // (code 8) stubs; both fixups are 6-byte `JE rel32` placeholders.
     if (ctx.divzero_fixups.items.len > 0) {

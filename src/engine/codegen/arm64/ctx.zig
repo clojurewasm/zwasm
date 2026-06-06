@@ -127,6 +127,10 @@ pub const EmitCtx = struct {
     /// jitGcRefCast 0-return → code 11 = cast_failure) fixups, demuxed out of
     /// `bounds_fixups`.
     cast_fail_fixups: *std.ArrayList(u32),
+    /// D-292 C — throw / throw_ref uncaught-exception (the unconditional `B` to
+    /// the trap stub after `zwasm_throw` returns `.uncaught` → code 12 =
+    /// uncaught_exception) fixups, demuxed out of `bounds_fixups`.
+    uncaught_exc_fixups: *std.ArrayList(u32),
     /// ADR-0164 A3 / D-292 — memory load/store/bulk-memory out-of-bounds
     /// (B.HI → code 6) fixups, demuxed out of `bounds_fixups` so oob_memory
     /// reaches a dedicated trap stub. Other `bounds_fixups` kinds (oob_table /

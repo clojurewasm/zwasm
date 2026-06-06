@@ -145,10 +145,10 @@ pub fn emitTrampolineCallAndTrap(ctx: *ctx_mod.EmitCtx, trampoline_addr: u64) ct
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(scratch, w3, 3));
     // BLR X16 — call the trampoline. Returns here with trap_flag=1.
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBLR(scratch));
-    // B <trap_stub> — patched at function-end alongside other
-    // bounds_fixups. The trap stub runs the standard epilogue +
-    // RET to the entry shim, completing the uncaught-throw path.
+    // B <trap_stub> — patched at function-end. D-292 C: route to the dedicated
+    // uncaught_exception stub (code 12), not the generic bounds bucket, so an
+    // escaped throw/throw_ref surfaces `kind=uncaught_exception` (interp parity).
     const fixup_at: u32 = @intCast(ctx.buf.items.len);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encB(0));
-    try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+    try ctx.uncaught_exc_fixups.append(ctx.allocator, fixup_at);
 }
