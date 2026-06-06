@@ -1526,6 +1526,8 @@ pub fn compile(
             // §17.4 relaxed-SIMD q15mulr — overflow → INT16_MAX = strict PMULHRSW
             // saturation (ADR-0169); reuse strict q15mulr_sat_s.
             .@"i16x8.relaxed_q15mulr_s" => try op_simd_int_arith.emitI16x8Q15mulrSatS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            // §17.4 relaxed-SIMD dot (i8×i8 → i16x8 pairwise): single PMADDUBSW.
+            .@"i16x8.relaxed_dot_i8x16_i7x16_s" => try op_simd_int_arith.emitI16x8RelaxedDot(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             // §9.7 / 9.7-ac: i8x16.swizzle (1 op). 10-instr inline
             // recipe synthesises 0x0F broadcast + PCMPGTB-detect of
             // idx>15 + POR-correct + PSHUFB. No const-pool dep.

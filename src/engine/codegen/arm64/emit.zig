@@ -2016,6 +2016,8 @@ pub fn compile(
             // §17.4 relaxed-SIMD q15mulr — overflow (INT16_MIN²) → INT16_MAX =
             // strict SQRDMULH saturation (ADR-0169); reuse strict q15mulr_sat_s.
             .@"i16x8.relaxed_q15mulr_s" => try op_simd_int_arith.emitI16x8Q15mulrSatS(&ctx, &ins),
+            // §17.4 relaxed-SIMD dot (i8×i8 → i16x8 pairwise): SMULL/SMULL2/ADDP.8H.
+            .@"i16x8.relaxed_dot_i8x16_i7x16_s" => try op_simd_int_arith.emitI16x8RelaxedDot(&ctx, &ins),
             // §9.6/9.6-f-ii — v128.const + i8x16.shuffle (per ADR-0042
             // const-pool with PC-relative LDR-Q-literal + fixup pass).
             .@"v128.const" => try op_simd.emitV128Const(&ctx, &ins),

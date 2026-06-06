@@ -179,6 +179,17 @@ pub fn encUmull2_2D(rd: Vn, rn: Vn, rm: Vn) u32 {
 pub fn encAddp4S(rd: Vn, rn: Vn, rm: Vn) u32 {
     return 0x4EA0BC00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
 }
+/// `ADDP V<d>.8H, V<n>.8H, V<m>.8H` — add adjacent i16 pairs (§17.4 relaxed_dot).
+/// Same as encAddp4S but size=01 (bits 23:22): 0x4EA0… → 0x4E60….
+pub fn encAddp8H(rd: Vn, rn: Vn, rm: Vn) u32 {
+    return 0x4E60BC00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
+test "encAddp8H: V0,V1,V2 + size field (10→01) differs from 4S" {
+    try testing.expectEqual(@as(u32, 0x4E62BC20), encAddp8H(0, 1, 2));
+    // size bits 23:22 flip 10(S)→01(H) → XOR = 0xC00000.
+    try testing.expectEqual(@as(u32, 0xC00000), encAddp4S(0, 1, 2) ^ encAddp8H(0, 1, 2));
+}
 
 // =====================================================================
 // Saturating add/sub (SQADD/UQADD/SQSUB/UQSUB) + saturating rounding

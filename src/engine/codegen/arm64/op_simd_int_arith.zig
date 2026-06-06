@@ -226,6 +226,28 @@ pub fn emitI32x4DotI16x8S(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
 }
 
+// §17.4 relaxed-SIMD `i16x8.relaxed_dot_i8x16_i7x16_s` — signed i8×i8 → i16
+// pairwise dot: result[i] = a[2i]*b[2i] + a[2i+1]*b[2i+1]. Mirrors the strict
+// i32x4.dot_i16x8_s recipe one element-size down (SMULL/SMULL2/ADDP at .8H).
+// arm64 does signed×signed; x86 PMADDUBSW does a-unsigned (ADR-0169 latitude).
+pub fn emitI16x8RelaxedDot(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
+    const rhs_vreg = ctx.pushed_vregs.pop().?;
+    const rhs_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, rhs_vreg, 1);
+    const lhs_vreg = ctx.pushed_vregs.pop().?;
+    const lhs_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, lhs_vreg, 0);
+    const result_vreg = ctx.next_vreg.*;
+    ctx.next_vreg.* += 1;
+    if (result_vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
+    const result_v = try gpr.qDefSpilled(ctx.alloc, result_vreg, 0);
+
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon_arith.encSmull8H(op_simd.simd_scratch_v, lhs_v, rhs_v));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon_arith.encSmull2_8H(result_v, lhs_v, rhs_v));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon_arith.encAddp8H(result_v, op_simd.simd_scratch_v, result_v));
+
+    try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 0);
+    try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
+}
+
 // ============================================================
 // §9.9 / 9.9-g-10 — int min/max + avgr_u (14 ops)
 // ============================================================

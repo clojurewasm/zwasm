@@ -1093,6 +1093,14 @@ pub fn emitI32x4DotI16x8S(allocator: Allocator, buf: *std.ArrayList(u8), alloc: 
     return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPmaddwd);
 }
 
+/// §17.4 `i16x8.relaxed_dot_i8x16_i7x16_s` — single PMADDUBSW(a, b): a treated
+/// unsigned, b signed (ADR-0169 latitude), products summed in pairs → i16x8
+/// (saturating). arm64 does signed×signed (SMULL chain) — differs only on
+/// a's-high-bit inputs, which the relaxed `(either)` spec permits.
+pub fn emitI16x8RelaxedDot(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPmaddubsw);
+}
+
 /// 16-byte 0x0F-per-byte mask used by popcnt's nibble-split path.
 const NIBBLE_MASK_BROADCAST: [16]u8 = [_]u8{0x0F} ** 16;
 
