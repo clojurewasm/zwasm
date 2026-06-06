@@ -51,18 +51,11 @@ audit-gap list closed-or-deferred.
   validates). **D-288** (queued): interp recurses NATIVELY, `frame_buf[256]` is a SEGV guard; real fix = flat/
   trampolined interp OR native-stack-limit check (ADR) — see queue.
 
-- ✅ **D-293 slices 1–3 DONE** (3-host green through `631e52f6`): per-kind JIT trap codegen via demuxed
-  fixup-channels, UNIFIED arm64+x86_64 — slice-1 `15a54fdf` oob_table (code 2; table-access + cind bounds),
-  slice-2 `24a405eb` indirect_call_mismatch (code 3; cind/tail sig), slice-3 `0892ee36` trapping-trunc (NaN→9
-  invalid_conversion + range→8 int_overflow). Each has a runner_trap_test asserting the precise code.
-
-- ✅ **D-293 slices 4a–4d DONE** — slice-4a `ebb87e33` completed the trap SURFACE (added `null_reference`/
-  `cast_failure`/`uncaught_exception` to `TrapKind`+`mapInterpTrap`+messages — they were in `runtime.Trap` but
-  the INTERP mis-reported them as `binding_error`; an interp-parity fix); 4b `2b1fa81f` JIT null_reference (10)
-  for call_ref-null + ref.as_non_null (+ fixed a latent arm64 call_ref→oob_table mis-report); 4c `8980bebe`
-  struct/array null→10 + array index OOB→oob_memory(6); 4d `0d13e635` ref.cast mismatch→cast_failure(11). Each
-  has a runner_trap_test (JIT+interp parity). **SUBSTANTIALLY COMPLETE** — remaining GC trampolines/i31 debt-rowed
-  (lowest-freq, interp already precise).
+- ✅ **D-293 DONE (slices 1–4d, substantially complete; details in debt.yaml/commits)**: per-kind JIT trap
+  codegen unified arm64+x86_64 via demuxed fixup-channels — oob_table(2)/cind_sig(3)/invalid_conversion(9)/
+  trunc-overflow(8)/null_reference(10)/array_oob(6)/cast_failure(11); plus slice-4a fixed the INTERP surface
+  (null/cast/uncaught were mis-reported `binding_error`) + a latent arm64 call_ref→oob_table mis-report. Each
+  has a runner_trap_test (JIT+interp parity). Remaining GC trampolines/i31 debt-rowed (lowest-freq, interp ok).
 
 ## Active bundle
 
