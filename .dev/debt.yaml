@@ -1004,8 +1004,20 @@ entries:
       not resolution; the bug is real + unresolved). EXONERATES the session's facade work: ubuntu x86_64 ran the
       SAME wasm-2.0-assert GREEN @23542591, exit-3 is a process CRASH (0 test-assertion failures: 2418 pass + 128
       skip = 2546 total, 0 fail), and the growMemory refactor (interp memory.grow) would fail on ubuntu too +
-      yield WRONG RESULTS not a crash. NOT auto-reverted (D7). Still no root cause — the `[d-163-jit]` dump +
-      FP-walk / X29-sentinel / RSP-parity lineage (D-180/D-245) remain the leads.
+      yield WRONG RESULTS not a crash. NOT auto-reverted (D7).
+      INVESTIGATION 2026-06-06 (@82fb2db0, subagent codegen read) — enumerated hypotheses:
+      ~~H1: v128 SIMD stack spill uses an alignment-REQUIRING move (movaps/movdqa) onto a non-16-aligned Win64
+      slot → #GP.~~ **REFUTED @82fb2db0**: x86_64 v128 stack spills/reloads use **MOVUPS** (`0F 10`/`0F 11`,
+      unaligned-safe) at `inst_sse.zig:157-198`; v128 call-arg writes (op_call.zig) also MOVUPS w/ careful
+      16-align; GPR spills use plain MOV. So NO aligned-move-on-misaligned-addr #GP path exists in the SIMD
+      codegen — the crash is NOT a SIMD-spill alignment bug. (The `0f28c0` in the dump = movaps xmm,xmm reg-reg,
+      cannot fault.) REFINED LEAD: since all moves are unaligned-safe, exit-3 is most likely the **FP-walk /
+      stack-walk corruption** lineage (D-180/D-245 — corrupted RBP/X29 chain during a deep SIMD call stack →
+      the trap-handler / `@errorReturnTrace` walk faults), NOT codegen-alignment. Note: Win64 exit-code 3 is
+      `abort()`-class (a #GP access-violation would surface as `0xC0000005`), consistent with a Zig panic /
+      safety-check OR an abort from a corrupted-stack handler rather than a raw hardware fault. NEXT cycle:
+      examine the Win64 trap-handler + error-return-trace stack-walk (signal.zig / windows_traphandler.zig) for a
+      reentrancy / RBP-chain assumption that a deep JIT SIMD frame violates; the `[d-163-jit]` dump stays the lead.
       Prior streak note (2026-06-06, now superseded): reached 5/5 then 6 `silent` over distinct SHAs
       (7e46c054 → e707fd31, D-288 + D-289 body) before this resurfacing. Original report below.
       Surfaced 2026-06-05

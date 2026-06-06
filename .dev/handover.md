@@ -62,10 +62,15 @@ EXONERATED: ubuntu ran the SAME assert GREEN, exit-3 = process crash (0 test-ass
 changes don't touch SIMD + would fail on ubuntu too. Recorded `track_heisenbug.sh win64-testall segv` (streak
 6→0; NO LONGER discharge candidate — bug is real + unresolved, no root cause). NOT auto-reverted (D7). Windows
 cadence NOT --record'd (RED). Also shipped `Engine.linker()`/`defineInstance`/lifetime-doc/example-introspection.
-**NEXT track**: D-279 is the one open RED — a deep Win64-only non-deterministic SIMD-JIT crash (FP-walk/
-X29-sentinel/RSP-parity lineage D-180/D-245). Optionally re-kick windows once to confirm flake (it passes clean
-on re-run per the row). Else: a memory-safety sweep of another area, or a blocked-by barrier-dissolution sweep.
-High-value autonomous surface work is largely done.
+**D-279 investigation progress** (@82fb2db0): REFUTED hypothesis H1 (SIMD v128-spill aligned-move #GP) — x86_64
+v128 spills use MOVUPS (unaligned-safe, inst_sse.zig:157-198), call-arg writes MOVUPS, GPR spills plain MOV → NO
+aligned-move-on-misaligned-addr path in SIMD codegen. REFINED LEAD: exit-3 is `abort()`-class (not `0xC0000005`
+#GP), so likely the **FP-walk/stack-walk corruption** lineage (D-180/D-245 — corrupted RBP chain in a deep SIMD
+call stack → trap-handler/`@errorReturnTrace` walk aborts), NOT codegen-alignment. Recorded in D-279 (H1 struck).
+**Windows re-run (D7 confirm-flake) IN FLIGHT** — verify next Step 0.7; expect green per D-279 intermittency.
+**NEXT track**: examine Win64 trap-handler + error-return-trace stack-walk (signal.zig / windows_traphandler.zig)
+for an RBP-chain/reentrancy assumption a deep JIT SIMD frame violates. OR accept D-279 as tracked-rare-flake +
+pivot to another memory-safety area / blocked-by sweep. High-value autonomous surface work is largely done.
 **CADENCE (ADR-0076 D8)**: windows BATCHED (≥6 ABI-risk / ≥12 else); chain MANY chunks/turn, never poll-wait
 on windows.
 
