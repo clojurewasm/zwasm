@@ -351,6 +351,38 @@ fn matchLaneF64(got_bits: u64, spec: LaneSpec) bool {
     };
 }
 
+/// §17.4 relaxed-SIMD — does `got` match one `(either)` alternative token?
+/// `tok` is `v128:<hex>` (bit-exact) or `v128_lanes:<shape>:...` (NaN-aware
+/// per-lane). Returns false (not error) on a malformed token so the caller's
+/// any-match loop simply skips it.
+fn v128MatchesToken(got: [16]u8, tok: []const u8) bool {
+    if (std.mem.startsWith(u8, tok, "v128:")) {
+        const expected = parseV128Token(tok[5..]) catch return false;
+        return std.mem.eql(u8, &got, &expected);
+    }
+    if (std.mem.startsWith(u8, tok, "v128_lanes:")) {
+        const parsed = parseV128LanesToken(tok[11..]) catch return false;
+        switch (parsed.shape) {
+            .f32x4 => {
+                var lane: usize = 0;
+                while (lane < 4) : (lane += 1) {
+                    const bits = std.mem.readInt(u32, got[lane * 4 ..][0..4], .little);
+                    if (!matchLaneF32(bits, parsed.lanes[lane])) return false;
+                }
+            },
+            .f64x2 => {
+                var lane: usize = 0;
+                while (lane < 2) : (lane += 1) {
+                    const bits = std.mem.readInt(u64, got[lane * 8 ..][0..8], .little);
+                    if (!matchLaneF64(bits, parsed.lanes[lane])) return false;
+                }
+            },
+        }
+        return true;
+    }
+    return false;
+}
+
 // §9.9 / 9.9-l-1a stage 5 — ArgKind/ArgValue moved to base.
 // Re-aliased so existing call sites keep their local names.
 const ArgKind = base.ArgKind;
@@ -497,6 +529,19 @@ fn runAssertReturn(
     // Single-result decode.
     if (results_s.len < 4) {
         try stdout.print("FAIL  {s}: malformed result '{s}'\n", .{ name, results_s });
+        return false;
+    }
+
+    // §17.4 relaxed-SIMD — `(either A B …)` 2+-outcome assertion (ADR-0169
+    // per-arch hardware latitude). Invoke once; PASS if `got` matches ANY
+    // alternative (each a v128:/v128_lanes: token, `|`-separated).
+    if (std.mem.startsWith(u8, results_s, "either:")) {
+        const got = (try invokeV128(compiled, func_idx, &rt, fn_name, args_s, args[0..n_args], stdout, name)) orelse return false;
+        var it = std.mem.splitScalar(u8, results_s[7..], '|');
+        while (it.next()) |alt| {
+            if (v128MatchesToken(got, alt)) return true;
+        }
+        try stdout.print("FAIL  {s}: {s}({s}) → got v128:{x}, no (either) alt matched: {s}\n", .{ name, fn_name, args_s, got, results_s });
         return false;
     }
 

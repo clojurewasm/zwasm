@@ -112,6 +112,16 @@ NAMES=(
   # + ADDV; expected to fail compile until 9.9-g-N's bitmask chunk
   # lands). Surfaces D-067's exact scope.
   simd_boolean
+  # §17.4 relaxed-SIMD (ADR-0169) — official conformance corpus. These use
+  # `(either A B)` 2-outcome asserts (impl-defined per-arch latitude); the
+  # distiller emits `either:<tokA>|<tokB>` and the runner accepts ANY outcome.
+  i8x16_relaxed_swizzle
+  i32x4_relaxed_trunc
+  relaxed_madd_nmadd
+  relaxed_laneselect
+  relaxed_min_max
+  i16x8_relaxed_q15mulr_s
+  relaxed_dot_product
 )
 
 mkdir -p "$DEST"
@@ -130,6 +140,7 @@ for n in "${NAMES[@]}"; do
       --enable-tail-call \
       --enable-extended-const \
       --enable-multi-memory \
+      --enable-relaxed-simd \
       "$src" -o "$n.json" >/dev/null 2>&1 ); then
     echo "[regen_spec_simd_assert] skip $n (wast2json rejected)" >&2
     rm -rf "$TMP"
@@ -221,10 +232,27 @@ def has_nan_lane(v):
     return any(isinstance(lane, str) and lane.startswith("nan")
                for lane in v.get("value", []))
 
+def result_type(r):
+    """Result element type. `(either A B)` elements (relaxed-SIMD) carry
+    no top-level `type`; all alternatives share one type, so read the
+    first alternative's."""
+    if "either" in r:
+        return r["either"][0]["type"]
+    return r["type"]
+
 def fmt_token(v):
     """Format a single arg / result token for the manifest. Returns
     a string starting with `!` to signal an unsupported case (caller
     converts the directive to a skip)."""
+    # §17.4 relaxed-SIMD `(either A B)` — 2+ permitted outcomes. Emit
+    # `either:<tokA>|<tokB>`; the runner PASSes if `got` matches ANY.
+    # Propagate a `!`-bad sub-token (e.g. nan-in-lane) to skip the row.
+    if "either" in v:
+        alts = [fmt_token(a) for a in v["either"]]
+        for a in alts:
+            if a.startswith("!"):
+                return a
+        return "either:" + "|".join(alts)
     t = v["type"]
     if t in ("i32", "i64", "f32", "f64"):
         return fmt_scalar(v)
@@ -378,8 +406,15 @@ for c in d["commands"]:
             lines.append("skip-impl non-invoke-action")
             continue
         args = a.get("args", [])
-        results = c.get("expected", [])
-        sig = (tuple(x["type"] for x in args), tuple(r["type"] for r in results))
+        # §17.4 relaxed-SIMD: wast2json puts the `(either A B …)` 2+-outcome
+        # expectation in a TOP-LEVEL command key `either`, not in `expected`.
+        # Wrap it into one synthetic result element so result_type + fmt_token's
+        # either-branch handle it (each alt may be a nan-lane v128_lanes form).
+        if "either" in c:
+            results = [{"either": c["either"]}]
+        else:
+            results = c.get("expected", [])
+        sig = (tuple(x["type"] for x in args), tuple(result_type(r) for r in results))
         if sig not in SUPPORTED:
             # Distinguish v128-param from "no entry helper for this
             # shape" so 9.9-e + later widening can grep the manifests
@@ -429,7 +464,7 @@ for c in d["commands"]:
         # the same SUPPORTED gate as assert_return so unsupported
         # arg shapes (e.g. v128 param) are surfaced specifically.
         results = c.get("expected", [])
-        sig = (tuple(x["type"] for x in args), tuple(r["type"] for r in results))
+        sig = (tuple(x["type"] for x in args), tuple(result_type(r) for r in results))
         if sig not in SUPPORTED:
             if any(t == "v128" for t in sig[0]):
                 lines.append(f"skip-impl v128-param-pending {a['field']}")
