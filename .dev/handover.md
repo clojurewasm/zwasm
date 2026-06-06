@@ -34,18 +34,24 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
   madd×4/laneselect×4/dot_add, 2-pop rest — mirror `v128.bitselect` @686) + interp (SIMD currently JIT-only;
   per-op instruction stubs `error.NotMigrated`) + JIT both arches (dispatch_collector preferred per ADR-0086, or
   legacy switch `emit.zig:1909ff`). Stack pop order 3-op = c,b,a.
-- **Plan**: ~~chunk1 front-end @f27eee15~~ ~~chunk2 swizzle @6e044e92~~ ~~chunk3 trunc @3dab4e24~~
-  ~~chunk4 min/max +ADR-0169 @1fd3a614~~ ~~chunk5 madd/nmadd @cb781fd3~~ ~~chunk6 laneselect @4ab9f77a~~ DONE
-  (17/18 ops JIT both arches). **NEXT chunk7 = q15mulr + dot** (LAST: i16x8.relaxed_q15mulr_s overflow→INT16_MAX
-  ≈ SQRDMULH arm64 / PMULHRSW x86; i16x8.relaxed_dot_i8x16_i7x16_s + i32x4.relaxed_dot_i8x16_i7x16_add_s, b=signed
-  i8 — SDOT/PMADDUBSW; the dot_add is 3-pop). Likely NEW encoders. After chunk7 → bundle exit-condition + close.
-  **JIT routes**: chunk2 used dispatch_collector per-op files (meta+arch ops+register+count bump in
-  dispatch_collector.zig); chunks 3-6 used the **legacy switch** in `{arm64,x86_64}/emit.zig` (lighter for
-  reuse/add-emit-fn; no per-op file/count bump). chunk5 added NEW arm64 FMLA/FMLS encoders (inst_neon_arith) +
-  emitV128FpFma helper (op_simd, mirrors bitselect 3-V-reg); x86 unfused via emitV128FpFmaX86 (op_simd_float).
-  **ADR-0169**: relaxed = per-arch hardware (NaN/±0 impl-defined); fixtures use finite/exact inputs → one
-  `.expect` valid 3-host. Fixtures: wat2wasm `--enable-relaxed-simd` + `v128.const f32x4 ...`, `zig build
-  test-edge-cases`. emit_test UnsupportedOp probe now uses `memory.discard` (stable).
+- **Plan** (NOTE: 20 relaxed ops total, not 18 — earlier miscount): chunks 1-6 + 7a DONE.
+  ~~front-end @f27eee15~~ ~~swizzle @6e044e92~~ ~~trunc @3dab4e24~~ ~~min/max+ADR-0169 @1fd3a614~~
+  ~~madd/nmadd @cb781fd3~~ ~~laneselect @4ab9f77a~~ ~~q15mulr @dc7eec0a~~. **18/20 JIT both arches.**
+  **NEXT chunk7b = the 2 dot products (LAST)** then close bundle:
+  - `i16x8.relaxed_dot_i8x16_i7x16_s` (0x112, 2-pop) → i16x8[i]=a[2i]·b[2i]+a[2i+1]·b[2i+1]. **x86**: single
+    PMADDUBSW(a,b) (a unsigned, b signed — the relaxed latitude; need encPmaddubsw, SSSE3 `66 0F 38 04`).
+    **arm64**: SMULL Vt.8H,a.8B,b.8B + SMULL2 (high) → 16 i16 products; ADDP Vd.8H,lo,hi → adjacent pairs summed
+    (need encSmull8H/encSmull2_8H/encAddp8H). No sat for i7-range b (fixtures stay small → cross-arch identical).
+  - `i32x4.relaxed_dot_i8x16_i7x16_add_s` (0x113, **3-pop** a,b,c) → (dot i16x8 then pairwise-widen-add to i32x4)
+    +c. **x86**: PMADDUBSW(a,b)→i16x8; PMADDWD(·, ones_i16)→i32x4 (need encPmaddwd + ones const-pool); PADDD(+c).
+    **arm64**: SMULL+SMULL2+ADDP→i16x8; SADDLP Vd.4S,·.8H→i32x4 (need encSaddlp4S); ADD.4S +c. 3-operand staging
+    (mirror emitV128FpFma / bitselect). After 7b: bundle exit-condition (all 20 run, relaxed_madd FMA observable)
+    + re-point check + `check_bundle_active --close`.
+  **JIT routes**: chunk2 = dispatch_collector per-op files (+count bump dispatch_collector.zig); chunks 3-7a =
+  **legacy switch** in `{arm64,x86_64}/emit.zig` (lighter; no per-op file/count bump). New encoders go in
+  inst_neon_arith (arm64) / inst_sse_packed+inst.zig re-export (x86). **ADR-0169**: per-arch hardware, fixtures
+  finite/exact → one `.expect` 3-host. Fixtures: wat2wasm `--enable-relaxed-simd`, `zig build test-edge-cases`.
+  emit_test UnsupportedOp probe uses `memory.discard` (stable).
 - **Tests**: 7 upstream wast at `~/Documents/OSS/WebAssembly/testsuite/{relaxed_madd_nmadd,relaxed_laneselect,
   relaxed_min_max,i8x16_relaxed_swizzle,i32x4_relaxed_trunc,i16x8_relaxed_q15mulr_s,relaxed_dot_product}.wast`
   — use `(either ...)` 2-outcome asserts (impl-defined latitude); runner `test/spec/simd_assert_runner.zig`,
@@ -60,9 +66,9 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
   @231d4536** · **17.3-custom-page-sizes @cd0de2dd** (all surfaces parse+validate+interp+JIT+C-API). The
   wide-arith+custom-page JIT batch is **windows-confirmed green @b9102acb** (size_1byte=1, grow_bytes=11,
   load_store=1611516670, wide mul/sub all PASS; simd 13351/0, D-279 silent streak=1). Now **17.4-relaxed-SIMD
-  ACTIVE** (front-end @f27eee15 all 18; JIT: swizzle/trunc/min-max/madd-nmadd/laneselect done @4ab9f77a,
-  +ADR-0169; 17/18 ops run both arches, all edge fixtures 3-host incl Win64. NEXT = chunk7 q15mulr+dot = LAST
-  → close bundle). **D-299** (inline load/store
+  ACTIVE** (front-end @f27eee15; JIT swizzle/trunc/min-max/madd-nmadd/laneselect/q15mulr done @dc7eec0a,
+  +ADR-0169; **18/20 ops** run both arches, edge fixtures green Mac+ubuntu(+Win64 for chunks 1-4). NEXT =
+  chunk7b 2 dot products = LAST → close 17.4 bundle). **D-299** (inline load/store
   JIT misaligned-trap) still DEFERRED. Phase 16 (完成形) DONE. No release/tag ever (ADR-0156).
 - Debt ledger: **65 entries, 0 `now`** (D-264 dogfooding discharged). Remaining = `.dev/remaining_sweep.md`
   (Bucket A prune / B actionable-low / C deferred / D externally-blocked) — sweep between features, never idle.
