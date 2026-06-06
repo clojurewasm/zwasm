@@ -64,19 +64,25 @@ audit-gap list closed-or-deferred.
     →unreachable(5) mis-report. **D** (`4bdaec59`): trap-UX audit vs wasmtime/wasmer/v1 — clean, ADR-0159-aligned;
     one bug found → **D-294** (JIT call_indirect null-elem → mislabels indirect_call_mismatch; fix = code 13).
 
-## ← LEAD: D-291 (Mac-repro JIT miscompile) — the genuine root-cause hunt
+## ← LEAD: D-291 — RE-LOCALIZED to func 17 (__multi3) internal spill miscompile
 
-ADR-0164 trap-diagnostics COMPLETE. **D-294 is 3-HOST GREEN** (`4fa16b29`/`ba111ee5`) — JIT call_indirect/
-return_call_indirect null elem reports uninitialized_elem (code 13). D-294 → `partial`; residuals POLISH.
-**D-279 sha256 lead was FALSE** (corrected this session): `printf 'Hello, SHA-256!'|shasum -a256` = d0e8b8f…
-= exactly what zwasm computes (interp==jit, all hosts, Mac-verified). The `c_sha256_hash.wasm` fixture has a
-WRONG hardcoded expected constant → self-prints `verify: FAIL` but is golden-matched + never gates. ba111ee5
-was genuinely SILENT (tracker corrected fail→silent, **streak 3/5**). Genuine D-279 = the intermittent
-`simd_bit_shift` CRASH (exit 3) only; H3 (sha256⊇D-291 wide-i32) WITHDRAWN — D-279 is a crash, not a miscompute,
-so it points to H1 (RSP/shadow-space) / H2 (FP-walk), not D-291. **NEXT: D-291** (ed25519 large-frame ADDRESS
-miscompile — the one CONFIRMED wrong-RESULT bug, Mac-reproducible via `-Dtrace-stackprobe`; debt row has the
-full hypothesis list + func-17-caller capture next-step). Minor: regenerate c_sha256_hash fixture w/ correct
-constant (fold into D-290). Queued: D-288, D-284, D-290.
+**D-291 advanced this session (`136d20a5`)**: added gated caller-capture (trap_aux5/6). The "733-caller
+passes a wrong result-buffer" framing is REFUTED — the gated `call 17` arg0==16777416 check NEVER fired (two
+positions); last `call 17` = caller func 8, arg0=0xffc3b0 (valid stack addr). So func 17 RECEIVES a correct
+result-buffer yet stores to 16777416 ⇒ corruption is INSIDE func 17. func 17 = __multi3: pushes `local.get 0`
+(result ptr) at the START, runs ~40 i64 ops (spill-heavy 128-bit mul), then stores via that early-held ptr —
+corrupted to __stack_pointer_init+0xC8=16777416 = a regalloc/spill miscompile of the long-lived operand. NEXT:
+gated capture of func 17's RECEIVED X1 at its prologue → distinguish P1 (func-17 internal spill) vs P2 (call-tail
+X1 clobber). Build `-Dtrace-stackprobe=true`; run `zwasm run --engine jit bench/runners/wasm/shootout/ed25519.wasm`;
+grep `[d-291]`. Full hypothesis chain in the D-291 debt row.
+
+### (prior context) D-291 — Mac-repro JIT miscompile, the genuine root-cause hunt
+
+ADR-0164 trap-diagnostics COMPLETE. **D-294 3-HOST GREEN** (`4fa16b29`/`ba111ee5`, `partial`, residuals polish).
+**D-279 sha256 lead was FALSE** (corrected): zwasm computes the correct hash (interp==jit, all hosts); the
+`c_sha256_hash.wasm` fixture has a wrong baked-in constant → golden-matched, never gates. ba111ee5 genuinely
+SILENT (tracker fail→silent, **streak 3/5**); genuine D-279 = the `simd_bit_shift` CRASH only, H3 WITHDRAWN.
+Minor: regen c_sha256_hash fixture (fold into D-290). Queued: D-288, D-284, D-290.
 
 ## Queue (time-consuming first, per user directive)
 
