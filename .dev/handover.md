@@ -39,16 +39,18 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
   Needs a reliable native-x86_64 + lldb env to crack (Mac/Rosetta can't). Error-path-only (well-formed programs
   never unalign atomics; threads spec-suite not yet wired → gate green). Interp traps correctly; the central
   `emitMemOp` JIT align-trap is the single D-299 fix that covers ALL atomic ops once cracked.
-- **RMW binops interp DONE @96231c18**: 42 ops (add/sub/and/or/xor/xchg × 7 widths, 0x1e-0x47) — interp
-  `rmwHandler(W,res64,kind)` factory + validate `opAtomicRmw` + lower + liveness 2→1 + interp test. UNSIGNED
-  narrow (zero-extend old). NO JIT yet.
-- **NEXT = RMW binops JIT emit** — NEW shape (load+alu+store+push old), NOT the plain load/store path. Needs a
-  dedicated emit sequence per arch: compute ea (reuse emitMemOp's ea+bounds prologue idea) → load old (LDR/MOV)
-  → ALU(old,val) → store new (STR/MOV) → push old. Decide: new `op_atomic.zig` emit fn vs inline in emit.zig.
-  Single-threaded → non-atomic sequence (no LOCK/LDAXR needed for v0.2 substrate per ADR-0168). THEN cmpxchg
-  (0x48-0x4e: pop addr+expected+replacement, load, cmp, cond-store, push old — validate `opAtomicCmpxchg` 3→1).
-  THEN notify/wait (0x00-02 + shared-mem gate parse/sections.zig:903). Reuse `Trap.UnalignedAtomic`. D-299
-  JIT-align-trap stays central/deferred. `.expect` >i32-max = SIGNED i32.
+- **ALL atomics INTERP DONE**: rmw binops @96231c18 (42 ops, `rmwHandler` factory) + cmpxchg @78aa7dd2 (7 ops,
+  `cmpxchgHandler`, spec wraps exp+rep to N). validate `opAtomicRmw`/`opAtomicCmpxchg` + lower + liveness (2→1 /
+  3→1) + interp tests. The whole 0x10-0x4e set is interp-complete (loads+stores+rmw+cmpxchg). NO JIT for rmw/
+  cmpxchg yet (loads+stores HAVE JIT).
+- **NEXT = rmw + cmpxchg JIT emit** (the remaining JIT). NEW shape: load old + alu/compare + store + push old.
+  Survey recipe captured (Step 0 done): reuse emitMemOp ea+bounds prologue (arm64 ea in ip0/X16, base X28;
+  x86_64 ea in RDX, base RAX); **subtle: ea must survive load→alu→store, so DON'T stage the result/old through
+  ip0/X16** — use a distinct scratch (arm64 X9-X13; x86_64 R10/R11). New `emitAtomicRmw`/`emitAtomicCmpxchg` per
+  arch (op_memory.zig) + legacy-switch dispatch + edge fixtures. ALU encoders: arm64 encAddReg/encSubReg/
+  encAndReg/encOrrReg/encEorReg (3-op); x86_64 encAddRR/encSubRR/encAndRR/encOrRR/encXorRR (2-op, .b/.w/.d/.q).
+  cmpxchg = load+CMP+conditional-store. **x86_64 can't be RUN-verified locally (D-299 harness) → rely on ubuntu
+  3-host gate** (revert-on-red like the B2 cycle). Reuse `Trap.UnalignedAtomic`. D-299 JIT-align-trap deferred.
 - **Exit-condition**: a `test/edge_cases/p17/atomics/*` (or spec atomics manifest) green 3-host with the full
   load/store/rmw/cmpxchg set + fence; wait/notify minimal-single-thread; shared-mem parse+validate.
 - **Cycles-remaining**: ~many (large feature). No tag (ADR-0156).
