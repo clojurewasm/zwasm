@@ -21,18 +21,21 @@ user request. A13 strict-3-host merge gate (`gate_merge.sh`) UNCHANGED. **Now re
 ## Active bundle — E2 real Rust wasip2 component (Phase E2)
 
 - **Bundle-ID**: E2-real-rust-component
-- **Cycles-remaining**: ~3
-- **Continuity-memo**: `rustc --target wasm32-wasip2` emits a real component (flake gen shell has the target
-  @THIS-CYCLE). `private/spikes/e2-rust-component/` has the built `hello.component.wasm` + findings README. The
-  gap is wit-bindgen's **shim / fixup-table indirection**: host funcs needing memory/realloc (output-stream.write,
-  get-environment, get-terminal-*) reach `$main` as `.alias` core funcs into the shim `$imports` table —
-  classifyCoreExport (src/api/component_wasi_p2.zig) returns null on `.alias`. Direct lowers already run.
-- **Work**: (1) shim indirect-lowering (populate `$imports` table post-`$main`-instantiate in runWasiP2Main);
-  (2) classifyCoreExport follows `.alias`→shim-export→underlying `canon lower`; (3) trampolines for
-  wasi:cli/environment (empty env/args, none cwd) + terminal-* (none) + io/error (resource+to-debug-string) +
-  output-stream.check-write (large permit).
-- **Exit-condition**: `zwasm run hello.component.wasm` prints "hello from a real rust wasip2 component" + exit 0;
-  then committed as a realworld fixture. (Go/tinygo = follow-on after Rust proves the path.)
+- **Cycles-remaining**: ~2
+- **Continuity-memo**: next = the general core-instance walk in `runWasiP2Main` per ADR-0175 (instantiate every
+  core instance in order so the `$fixup` `elem` fills the shim table); watch `zwasm run hello.component.wasm`.
+- **Design**: **ADR-0175** (general instance-graph instantiation, not special-cased shim). `rustc --target
+  wasm32-wasip2` emits a real component (flake gen shell has the target). `private/spikes/e2-rust-component/`
+  has `hello.component.wasm` + findings. wit-bindgen uses a **shim/fixup-table**: a `$wit-component-shim` exports
+  `call_indirect` trampolines + a `$imports` table; memory-needing lowers are defined after `$main` and a
+  `$fixup` module's active `elem` wires them into the table.
+- **DONE**: step 4 @0888a3f9 — trampolines for cli/environment (empty env/args, none cwd) + terminal-* (none) +
+  output-stream.check-write (permit). Fixture `wasi_p2_cli_env`. (io/error deferred to the e2e step.)
+- **Remaining (ADR-0175 build order)**: (1-3) **general core-instance walk** in `runWasiP2Main`
+  (`api/component_wasi_p2.zig`) — instantiate every core instance in order via the existing engine (the `$fixup`
+  `elem` fills the shim table); component-level `canon lower`→host trampoline binding `$main`'s memory; (5) io/error
+  resource + to-debug-string; e2e: `zwasm run hello.component.wasm` prints + exit 0, commit as realworld fixture.
+- **Exit-condition**: `zwasm run hello.component.wasm` prints "hello from a real rust wasip2 component" + exit 0.
 
 ## Active campaign — Component Model + WASI Preview 2 (ADR-0170, user-directed 2026-06-07)
 
@@ -59,22 +62,10 @@ philosophy-maintained; proven by Rust+Go sample components). Decision + rational
   real 2-component fixture decodes · **C2-3b-2 a 2-component graph LINKS + RUNS** (`instantiateGraph`: wire A's core
   import to B's `adder` via Linker cross-module; `add-five(10)`=15, a real cross-component call). Bundle CM-C2 CLOSED.
   Name-matched-import shortcut + aggregate cross-component args → **D-305**.
-- **Phase D (WASI Preview 2) IN PROGRESS** (plan doc §Phase D). **D1 CORE DONE — a real WASI-P2 component RUNS via
-  zwasm.** D1-1 @b35a683e (`wasi/adapter.zig` P2→P1 name-map). D1-2 trampolines @2d099ff1 (host-ctx seam `Caller.data`
-  + `Linker.defineFuncCtx`, ADR-0173; `WasiP2Ctx` + p2 output-stream trampolines onto P1 `fd.writeSlice`). D1-2c
-  @27eb59b8 (unified core-func index-space `CoreFuncDef` — `resolveCoreFuncExport` now indexes lowers+resource+aliases,
-  not aliases alone). **D1-2 EXIT @96edb868** — `runWasiP2Main` decode-drives the inner core graph ($libc + $M, wasi
-  imports → trampolines, libc memory cross-instance) and `wasi_p2_hello.wasm` prints "hello\n" to captured stdout.
-- **CLI run path DONE @161236db** — `zwasm run <component.wasm>` routes a component-layer module to `runComponentWasi`
-  → `runWasiP2Main`; `zwasm run test/component/wasi_p2_hello.wasm` prints "hello" + exits 0 (dogfooded). D1 fully done.
-- **Phase D2 DONE — bundle CM-D2-fs CLOSED @85bcb5a5** (plan §Phase D [x]). Resource-modeled P2: classified host
-  wiring (D-306 @dde03160, by COMPONENT interface not core name; proof `wasi_p2_hello_renamed.wasm`) · stderr @1f5474d5
-  · **descriptor resource** (`WasiP2Ctx.resources` keyed by RT id) write/drop @b766c583 · **get-directories @e9d05999**
-  (list return-area built via the guest's `cabi_realloc` called from a trampoline — nested invoke, lesson
-  `2026-06-07-engine-invoke-is-reentrant-stack-disciplined`) · **open-at @a8264fb4** · generic resource-drop @75d79a6c.
-  **EXIT @85bcb5a5**: `wasi_p2_fs.wasm` runs e2e through `runWasiP2Main` (get-directories → open-at "out.txt" → write
-  "DATA42" → drop), file content asserted. Fixture uses minimal WIT flags/enum (zwasm classifies by interface+core-sig,
-  so it runs; full real-WASI-type conformance is the Phase E2 toolchain proof).
+- **Phase D (WASI Preview 2) — D1+D2+D3 DONE** (detail in plan §Phase D). D1 core @96edb868 (`runWasiP2Main`
+  decode-drives the inner core graph; `wasi_p2_hello.wasm` prints "hello") + CLI run path @161236db (`zwasm run`
+  dogfooded) + ADR-0173 (host-ctx seam). D2 @85bcb5a5 — resource-modeled fs (descriptor RT, get-directories list via
+  reentrant cabi_realloc, open-at/write); classified-by-interface wiring D-306.
 - **Phase D3 DONE** (hand-authored-fixture native host; detail in plan §Phase D3). D3-1 exit · D3-2/3 clocks · D3-4
   random · D3-5 stdin · **D3-6 fs descriptor** @43909eba (read/sync/stat/get-type + flush; **D-307 DISCHARGED**
   @beb887c6) · **D3-7 wasi:io/poll** @3a128a01 (pollable + subscribe + ready/block/poll). **D-309 DONE** @ccdee2fa —
@@ -86,7 +77,7 @@ philosophy-maintained; proven by Rust+Go sample components). Decision + rational
 
 - **Phase 17 (v0.2) IN-PROGRESS** (ADR-0168). DONE+3-host: atomics @9eb84833 · wide-arith @231d4536 ·
   custom-page-sizes @cd0de2dd · relaxed-SIMD @08342ec5 (+official corpus @8ef2e752, 13420 pass arm64+x86). Wasm-3.0
-  core 100%-spec COMPLETE. Last SHA **ccdee2fa** (WASI-P2 D3-7 poll + D-309 module extraction; windows gating susp @9d832f1d).
+  core 100%-spec COMPLETE. Last SHA **0888a3f9** (E2 step4: cli/environment+terminal+check-write; ADR-0175; windows susp @9d832f1d).
 - **Atomics fully conformant @e6f3b0c0** — official corpus **294 pass, 0 SKIPPED** (D-301), incl. the JIT
   unaligned-atomic-trap fix D-303 (code-14 `unaligned_atomic_fixups` both arches, @5b0db8e1, 3-host).
 - **ALL bounded debt CLEARED**: ✅ D-301 · ✅ D-303 · ✅ D-231 (cross-x86 DCE gate wired @aac4fe2f) · ✅ D-302
