@@ -26,15 +26,17 @@ anomaly above is a DISTINCT, NEW windows signal, not a D-279 reopen.
 
 ## Active bundle — windowsmini-hardening (ADR-0174 Phase I)
 
-- **Bundle-ID**: win-harden-I (spec-assert pass=0 root-cause)
-- **Cycles-remaining**: ~2 (confirm mechanism → fix → re-verify green)
-- **Continuity-memo**: hosts ARE up (probed @f8bcc040; handover's "powered off" was stale). ubuntu baseline GREEN with
-  real counts (non_simd 25437, simd 13420, 1.0 212, threads 294). Findings + mechanism map + ubuntu SKIP histogram in
-  [`windows_hardening_findings.md`](windows_hardening_findings.md). Prime hypothesis = `callJitOrTrap` VEH
-  false-positive → `SKIP-START-TRAP` whole-module skip (ubuntu skips 0). Missing-corpus mask RULED OUT (corpus present
-  on win). Awaiting empirical win test-all summary (in-flight @f8bcc040, /tmp/win.log) to confirm symptom.
-- **Exit-condition**: windows `test-all` spec-assert summaries show real pass counts matching ubuntu (no `pass=0`, no
-  mass `SKIP-START-TRAP`); THEN ADR-0174 phase 2 (`should_gate_windows.sh --suspend`).
+- **Bundle-ID**: win-harden-I (spec-assert pass=0 root-cause) — Phase I DONE, landing fix
+- **Cycles-remaining**: ~1 (land guard 3-host → re-verify win green → ADR-0174 phase 2 suspend)
+- **Continuity-memo**: **anomaly does NOT reproduce** — fresh win `test-all` @f8bcc040 (45147 lines) shows real pass
+  counts IDENTICAL to ubuntu (simd 13420, non_simd 25437+294, 1.0 212, wast 1158+72), SKIP histogram == ubuntu, 0
+  `SKIP-START-TRAP`. @87635409→@f8bcc040 is doc-only ⇒ the `pass=0` was a TRANSIENT win corpus state (incomplete/
+  unreadable corpus), masked by the silent "0 manifests" exit-0 path. Full result table + root-cause in
+  [`windows_hardening_findings.md`](windows_hardening_findings.md). **Fix landed (Mac green)**: simd/non_simd/wasm_3_0
+  runners `exit(1)` on missing corpus root (was silent `return`); build.zig `test-corpus-presence` (3 neg-runs,
+  expectExitCode 1) wired into test-all → enforced on every host = the v1 "no naive win skip" lesson made a gate.
+- **Exit-condition**: guard green 3-host (win `test-all` still real counts WITH guard active); THEN ADR-0174 phase 2
+  (`should_gate_windows.sh --suspend`).
 
 ## Active campaign — Component Model + WASI Preview 2 (ADR-0170, user-directed 2026-06-07)
 

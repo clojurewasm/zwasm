@@ -52,19 +52,50 @@ spec-assert anomaly that coexists with `OK` must NOT make a runner `exit(1)`:
    corpus arg) conflated into the handover/ADR note, OR the count came from a
    pre-exit partial. Treat the empirical test-all output as the only anchor.
 
-## Pending — empirical windows test-all summary (@f8bcc040, in-flight)
+## RESULT — windows test-all @f8bcc040 (the anchor): anomaly does NOT reproduce
 
-Need the actual `spec_assert_runner*` summary lines + any `SKIP-START-TRAP` /
-`[d-279-veh]` count from /tmp/win.log to confirm which mechanism fires. Until
-then: hypothesis #2, evidence pending.
+Fresh windowsmini `test-all` @f8bcc040 (45147 log lines) shows **real pass
+counts IDENTICAL to ubuntu**, `OK`:
 
-## Fix candidates (apply only after mechanism confirmed)
+| runner | windows | ubuntu |
+|---|---|---|
+| `simd_assert_runner` | 13420 / 0 / 390 | 13420 / 0 / 390 ✓ |
+| `non_simd` (wasm-2.0) | 25437 / 0 / 489 | 25437 / 0 / 489 ✓ |
+| `non_simd` (threads) | 294 / 0 / 0 | 294 / 0 / 0 ✓ |
+| `spec_assert_runner` (1.0) | 212 / 0 / 20 | 212 / 0 / 20 ✓ |
+| `wast_runner` | 1158 + 72 | 1158 + 72 ✓ |
 
-- If #1 (missing-corpus mask): make the 3 runners `exit(1)` on openDir failure
-  (parity with wasm-1.0 runner) — removes the silent-pass even if not the
-  current cause (no_workaround: a runner that finds 0 manifests where the corpus
-  is committed must FAIL, not pass).
-- If #2 (VEH whole-module skip): root-cause `callJitOrTrap` false-positive on
-  windows (JIT-region bounds? VEH ordering? start-init path); make a genuine
-  start-trap distinguishable from a VEH artifact, and never `SKIP-START-TRAP` a
-  module the linux path runs cleanly.
+windows SKIP histogram == ubuntu (validator-gap ×10, parser-gap ×10, empty ×5,
+wasi ×1, imports ×1); **`SKIP-START-TRAP` ×0**. Hypothesis #2 (VEH
+whole-module skip) **RULED OUT** — windows executes every module cleanly.
+
+## Root cause (confirmed by elimination)
+
+`@87635409 → @f8bcc040` is **doc-only** (no code change), yet windows is now
+fully green with real counts. So the @87635409 `pass=0` was a **transient
+windowsmini corpus state** (an incomplete / unreadable spec corpus at that
+moment — interrupted checkout, Defender quarantine mid-run, or a partial sync),
+not a code defect. This run's start-of-job `git fetch + reset --hard` restored
+the full committed corpus → real counts. The `pass=0`-while-`OK` SIGNATURE is
+exactly what the **silent "0 manifests" exit-0** masking path produces (the
+`assert_invalid pass=0/fail=194` in the lead was a SEPARATE/partial observation
+— `fail>0` would `exit(1)` and break `OK`, so it cannot have come from the same
+OK run). The durable defense is to **delete that masking path** so any future
+missing-corpus state is RED, not green-masked.
+
+## Fix LANDED — corpus-presence guard (no silent skip)
+
+`simd` / `non_simd` / `wasm_3_0` runners now `exit(1)` on a missing corpus root
+(parity with the wasm-1.0 runner), replacing the silent `return` (0 manifests,
+exit 0). build.zig `test-corpus-presence` step (3 negative runs, `expectExitCode(1)`)
+wired into `test-all` pins this on EVERY host incl. windowsmini — a runner that
+silently skips its committed corpus now turns the build RED. This is the
+v1-lesson "windows must not naively skip" made enforceable.
+
+## Campaign status
+
+- Investigation (Phase I): **DONE** — anomaly = transient corpus state, masking
+  path identified + removed.
+- windowsmini @f8bcc040 is **verifiably green with real counts == ubuntu**.
+- NEXT: land the guard 3-host (re-verify windows green WITH the guard active),
+  then ADR-0174 phase 2 (`should_gate_windows.sh --suspend`).
