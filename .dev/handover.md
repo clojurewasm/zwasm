@@ -59,9 +59,13 @@ philosophy-maintained; proven by Rust+Go sample components). Decision + rational
   **EXIT @85bcb5a5**: `wasi_p2_fs.wasm` runs e2e through `runWasiP2Main` (get-directories → open-at "out.txt" → write
   "DATA42" → drop), file content asserted. Fixture uses minimal WIT flags/enum (zwasm classifies by interface+core-sig,
   so it runs; full real-WASI-type conformance is the Phase E2 toolchain proof).
-- **NEXT = Phase D3** (plan §Phase D3): clocks/random/exit/stdin free-func trampolines + full fs/poll; sockets last
-  (spike first). P1→P2 error-code result mapping = **D-307**. OR Phase E (conformance corpus + Rust/Go sample proof).
-  Cross-component aggregate args → D-305.
+- **NEXT = Phase D3** (plan §Phase D3). **First chunk** (vertical slice, recipe + wiring map in
+  `private/notes/p17-D3-trampoline-map.md`): extend `P2Op`+`classifyImport` (`wasi/adapter.zig`) + the exhaustive
+  `defineClassifiedFunc` switch (`api/component.zig:590`) for **exit `(i32)->()` + monotonic-clock.now `()->i64` +
+  random.get-random-u64 `()->i64`** (scalar free-funcs → existing P1 `procExit`/`clockTimeGet`/`randomGet`); hand-author
+  a component fixture mirroring `test/component/wasi_p2_fs.wat` (+`_core`), assemble via `nix develop .#gen` wasm-tools,
+  e2e via the runWasiP2Main harness. get-random-bytes/wall-clock(12B)/stdin+input-stream.read (list realloc) + P1→P2
+  error-code (**D-307**) = follow-ups. OR Phase E (conformance corpus + Rust/Go proof). Cross-component aggregate → D-305.
 
 ## Current state
 
