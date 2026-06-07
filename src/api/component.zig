@@ -19,6 +19,11 @@ const ctypes = @import("../feature/component/types.zig");
 const runtime_value = @import("../runtime/value.zig");
 const value_conv = @import("../zwasm/value_conv.zig");
 const zwasm = @import("../zwasm.zig");
+const wasi_host = @import("../wasi/host.zig");
+const wasi_fd = @import("../wasi/fd.zig");
+const wasi_p1 = @import("../wasi/preview1.zig");
+const resource_table = @import("../feature/component/resource_table.zig");
+const Caller = @import("../zwasm/caller.zig").Caller;
 
 const Allocator = std.mem.Allocator;
 const Engine = @import("../zwasm/engine.zig").Engine;
@@ -366,6 +371,78 @@ pub fn instantiate(engine: *Engine, alloc: Allocator, bytes: []const u8) Error!C
     errdefer info.deinit();
 
     return .{ .alloc = alloc, .decoded = decoded, .info = info, .engine = engine, .module = module, .core = core };
+}
+
+// ============================================================
+// WASI Preview 2 host trampolines (CM campaign chunk D1-2)
+// ============================================================
+//
+// A P2 component's canon-lowered core module imports flat core funcs for the
+// WASI interfaces it uses (e.g. `io.get-stdout`, `io.write`, `io.drop-os`).
+// These host trampolines satisfy those imports by name-mapping (per
+// `wasi/adapter.zig`) onto the EXISTING Preview 1 impl (`wasi/fd.zig`),
+// reusing it wholesale. They are registered via `Linker.defineFuncCtx` so the
+// `*Caller` reaches both the guest memory and this per-run host context.
+
+/// Per-run host context for the WASI-P2 → P1 trampolines. `get-stdout` mints
+/// an output-stream handle in `streams` whose `rep` is the P1 fd it is bound to
+/// (1 = stdout); `write` forwards the flat `list<u8>` to `wasi/fd.zig
+/// writeSlice` on that fd; `drop-os` drops the handle. Threaded into each
+/// trampoline via `Caller.data`.
+pub const WasiP2Ctx = struct {
+    host: *wasi_host.Host,
+    streams: resource_table.ResourceTable,
+
+    /// Single resource-type id for output-stream handles (P2 stdio subset).
+    const OUTPUT_STREAM_RT: u32 = 1;
+
+    pub fn init(alloc: Allocator, host: *wasi_host.Host) !WasiP2Ctx {
+        return .{ .host = host, .streams = try resource_table.ResourceTable.init(alloc) };
+    }
+
+    pub fn deinit(self: *WasiP2Ctx) void {
+        self.streams.deinit();
+    }
+};
+
+pub const WasiP2Error = error{ NoMemory, OutOfBounds, WriteFailed } ||
+    resource_table.Error || Memory.Error;
+
+const Memory = @import("../zwasm/memory.zig").Memory;
+
+/// `wasi:cli/stdout` `get-stdout` → mint an output-stream handle bound to fd 1.
+fn p2GetStdout(caller: *Caller) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    return ctx.streams.new(WasiP2Ctx.OUTPUT_STREAM_RT, 1);
+}
+
+/// `wasi:io/streams` `[method]output-stream.blocking-write-and-flush`
+/// (self, ptr, len, retptr): write the flat `list<u8>` at `(ptr, len)` to the
+/// fd bound to `self`, then store the `result<_, stream-error>` ok-discriminant
+/// (0) at `retptr`.
+fn p2OutStreamWrite(caller: *Caller, self_handle: u32, ptr: u32, len: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const fd: wasi_p1.Fd = @intCast(try ctx.streams.rep(WasiP2Ctx.OUTPUT_STREAM_RT, self_handle));
+    const mem = caller.memory() orelse return WasiP2Error.NoMemory;
+    const bytes = mem.sliceAt(ptr, len) catch return WasiP2Error.OutOfBounds;
+    if (wasi_fd.writeSlice(ctx.host, fd, bytes) != .success) return WasiP2Error.WriteFailed;
+    try mem.write(retptr, @as(u8, 0));
+}
+
+/// `wasi:io/streams` `[resource-drop]output-stream` (self): drop the handle.
+fn p2OutStreamDrop(caller: *Caller, self_handle: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    _ = try ctx.streams.drop(WasiP2Ctx.OUTPUT_STREAM_RT, self_handle);
+}
+
+/// Register the WASI-P2 output-stream trampolines on `lk` under namespace
+/// `module` (the core module's import namespace for the lowered io funcs). The
+/// canon-lowered core import names are conventionally `get-stdout` / `write` /
+/// `drop-os` (cf. `test/component/wasi_p2_hello.wat`).
+fn defineWasiP2Io(lk: *Linker, module: []const u8, ctx: *WasiP2Ctx) !void {
+    try lk.defineFuncCtx(module, "get-stdout", ctx, fn (*Caller) WasiP2Error!u32, p2GetStdout);
+    try lk.defineFuncCtx(module, "write", ctx, fn (*Caller, u32, u32, u32, u32) WasiP2Error!void, p2OutStreamWrite);
+    try lk.defineFuncCtx(module, "drop-os", ctx, fn (*Caller, u32) WasiP2Error!void, p2OutStreamDrop);
 }
 
 // ============================================================
@@ -728,6 +805,56 @@ test "C2-2 (D-304): resolve the component export → core funcs (no hard-coded n
     const result = try ci.invokeStringExport("greet", "zwasm", testing.allocator);
     defer testing.allocator.free(result);
     try testing.expectEqualStrings("Hello, zwasm!", result);
+}
+
+/// A `$M`-shaped core module (the print core of `wasi_p2_hello.wat`): imports
+/// `io.{get-stdout,write,drop-os}` + owns a 1-page memory with `"hello\n"` at
+/// offset 16, and exports `run` which calls get-stdout, writes 6 bytes via
+/// write(self, 16, 6, 128), drops the stream, returns 0. (In the real fixture
+/// memory is imported from `$libc`; here it is module-owned to isolate the
+/// trampoline wiring from the cross-instance-memory wiring — that is the next
+/// chunk.) Assembled via wasm-tools (name section stripped).
+const p2_print_core = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x10, 0x03, 0x60,
+    0x00, 0x01, 0x7f, 0x60, 0x04, 0x7f, 0x7f, 0x7f, 0x7f, 0x00, 0x60, 0x01,
+    0x7f, 0x00, 0x02, 0x29, 0x03, 0x02, 0x69, 0x6f, 0x0a, 0x67, 0x65, 0x74,
+    0x2d, 0x73, 0x74, 0x64, 0x6f, 0x75, 0x74, 0x00, 0x00, 0x02, 0x69, 0x6f,
+    0x05, 0x77, 0x72, 0x69, 0x74, 0x65, 0x00, 0x01, 0x02, 0x69, 0x6f, 0x07,
+    0x64, 0x72, 0x6f, 0x70, 0x2d, 0x6f, 0x73, 0x00, 0x02, 0x03, 0x02, 0x01,
+    0x00, 0x05, 0x03, 0x01, 0x00, 0x01, 0x07, 0x10, 0x02, 0x06, 0x6d, 0x65,
+    0x6d, 0x6f, 0x72, 0x79, 0x02, 0x00, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x03,
+    0x0a, 0x1b, 0x01, 0x19, 0x01, 0x01, 0x7f, 0x10, 0x00, 0x21, 0x00, 0x20,
+    0x00, 0x41, 0x10, 0x41, 0x06, 0x41, 0x80, 0x01, 0x10, 0x01, 0x20, 0x00,
+    0x10, 0x02, 0x41, 0x00, 0x0b, 0x0b, 0x0c, 0x01, 0x00, 0x41, 0x10, 0x0b,
+    0x06, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x0a,
+};
+
+test "D1-2 trampolines: WASI-P2 output-stream funcs print to a captured fd" {
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var mod = try eng.compile(&p2_print_core);
+    defer mod.deinit();
+
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(testing.allocator);
+    host.stdout_buffer = &capture;
+
+    var ctx = try WasiP2Ctx.init(testing.allocator, &host);
+    defer ctx.deinit();
+
+    var lk = eng.linker();
+    defer lk.deinit();
+    try defineWasiP2Io(&lk, "io", &ctx);
+
+    var inst = try lk.instantiate(&mod);
+    defer inst.deinit();
+
+    var results = [_]Value{.{ .i32 = 1 }};
+    try inst.invoke("run", &.{}, &results);
+    try testing.expectEqual(@as(i32, 0), results[0].i32); // run returns ok (0)
+    try testing.expectEqualStrings("hello\n", capture.items); // trampoline wrote via fd 1
 }
 
 test "IT-1: a core module (not a component) is rejected as NotAComponent" {

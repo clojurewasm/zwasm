@@ -13,6 +13,10 @@ const _memory = @import("memory.zig");
 
 pub const Caller = struct {
     rt: *_runtime.Runtime,
+    /// Host context registered with the import via `Linker.defineFuncCtx`
+    /// (wasmtime's `Caller::data`). Null for `defineFunc`-registered host fns
+    /// that need no external state. Recover the typed pointer via `data`.
+    host_data: ?*anyopaque = null,
 
     pub fn memory(self: Caller) ?_memory.Memory {
         if (self.rt.memory.len == 0) return null;
@@ -21,5 +25,12 @@ pub const Caller = struct {
 
     pub fn allocator(self: Caller) std.mem.Allocator {
         return self.rt.alloc;
+    }
+
+    /// Recover the typed host context registered via `Linker.defineFuncCtx`.
+    /// Asserts a ctx was registered (calling this from a `defineFunc` host fn,
+    /// which registers none, is a programmer error).
+    pub fn data(self: Caller, comptime T: type) *T {
+        return @ptrCast(@alignCast(self.host_data.?));
     }
 };

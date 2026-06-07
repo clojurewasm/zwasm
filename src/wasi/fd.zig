@@ -80,6 +80,31 @@ pub fn fdWrite(
     ciovec_count: u32,
     nwritten_ptr: u32,
 ) p1.Errno {
+    // Validate the fd is writable up front (an empty write is a no-op for
+    // every sink) so an empty gather (count 0) still reports badf / notsup /
+    // isdir as before; the per-slice `writeSlice` re-validates per ciovec.
+    const guard = writeSlice(host, fd, &.{});
+    if (guard != .success) return guard;
+
+    var total: u32 = 0;
+    var i: u32 = 0;
+    while (i < ciovec_count) : (i += 1) {
+        const entry_off = ciovec_ptr + i * 8;
+        const buf = readU32LE(mem, entry_off) orelse return .fault;
+        const buf_len = readU32LE(mem, entry_off + 4) orelse return .fault;
+        const slice = sliceMemConst(mem, buf, buf_len) orelse return .fault;
+        const e = writeSlice(host, fd, slice);
+        if (e != .success) return e;
+        total += buf_len;
+    }
+    return writeU32LE(mem, nwritten_ptr, total);
+}
+
+/// Write one contiguous byte range to `fd`, applying the same stdout/stderr
+/// capture-buffer / file-cursor / real-process-stream routing as `fdWrite`.
+/// Used by `fdWrite`'s ciovec loop and by the WASI-P2 output-stream
+/// trampoline, where `list<u8>` is a flat `(ptr, len)` rather than a ciovec.
+pub fn writeSlice(host: *Host, fd: p1.Fd, bytes: []const u8) p1.Errno {
     const slot = host.translateFd(fd) orelse return .badf;
     if (slot.kind == .closed) return .badf;
 
@@ -113,19 +138,10 @@ pub fn fdWrite(
     else
         null;
 
-    var total: u32 = 0;
-    var i: u32 = 0;
-    while (i < ciovec_count) : (i += 1) {
-        const entry_off = ciovec_ptr + i * 8;
-        const buf = readU32LE(mem, entry_off) orelse return .fault;
-        const buf_len = readU32LE(mem, entry_off + 4) orelse return .fault;
-        const slice = sliceMemConst(mem, buf, buf_len) orelse return .fault;
-        if (buffer) |b| b.appendSlice(host.alloc, slice) catch return .nomem;
-        if (file_opt) |f| f.writeStreamingAll(io_opt.?, slice) catch return .io;
-        if (std_stream) |s| s.writeStreamingAll(io_opt.?, slice) catch return .io;
-        total += buf_len;
-    }
-    return writeU32LE(mem, nwritten_ptr, total);
+    if (buffer) |b| b.appendSlice(host.alloc, bytes) catch return .nomem;
+    if (file_opt) |f| f.writeStreamingAll(io_opt.?, bytes) catch return .io;
+    if (std_stream) |s| s.writeStreamingAll(io_opt.?, bytes) catch return .io;
+    return .success;
 }
 
 // ============================================================

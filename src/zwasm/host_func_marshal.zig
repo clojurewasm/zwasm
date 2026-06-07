@@ -33,6 +33,9 @@ pub const Error = error{
 pub fn HostFnCtx(comptime Sig: type) type {
     return struct {
         user_fn: *const Sig,
+        /// Opaque host context surfaced to the user fn via `Caller.data`
+        /// (set by `Linker.defineFuncCtx`; null for `defineFunc`).
+        host_data: ?*anyopaque = null,
     };
 }
 
@@ -60,7 +63,7 @@ pub fn thunkFor(comptime Sig: type) *const fn (*_runtime.Runtime, *anyopaque) an
                 const v = rt.popOperand();
                 args[i] = runtimeToZig(PT, v);
             }
-            var caller: Caller = .{ .rt = rt };
+            var caller: Caller = .{ .rt = rt, .host_data = wrapper.host_data };
             args[0] = &caller;
 
             const ret = @call(.auto, wrapper.user_fn, args);

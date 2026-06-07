@@ -226,6 +226,34 @@ pub const Linker = struct {
         comptime Sig: type,
         user_fn: *const Sig,
     ) !void {
+        return self.defineFuncImpl(module, name, null, Sig, user_fn);
+    }
+
+    /// Like `defineFunc`, but threads an opaque host context that the host
+    /// fn recovers via `Caller.data(T)` (wasmtime's `Caller::data`). Used
+    /// when a trampoline needs host-side state beyond the guest runtime —
+    /// e.g. the WASI-P2 output-stream trampolines need the `wasi.Host` +
+    /// resource table. `host_data` must outlive every Instance instantiated
+    /// through this Linker (same contract as the file-header lifetime note).
+    pub fn defineFuncCtx(
+        self: *Linker,
+        module: []const u8,
+        name: []const u8,
+        host_data: *anyopaque,
+        comptime Sig: type,
+        user_fn: *const Sig,
+    ) !void {
+        return self.defineFuncImpl(module, name, host_data, Sig, user_fn);
+    }
+
+    fn defineFuncImpl(
+        self: *Linker,
+        module: []const u8,
+        name: []const u8,
+        host_data: ?*anyopaque,
+        comptime Sig: type,
+        user_fn: *const Sig,
+    ) !void {
         const fn_info = @typeInfo(Sig).@"fn";
         if (fn_info.params.len == 0 or (fn_info.params[0].type orelse return error.SignatureMismatch) != *Caller) {
             @compileError("Linker.defineFunc: host fn must take *Caller as first param");
@@ -233,7 +261,7 @@ pub const Linker = struct {
         const Ctx = _marshal.HostFnCtx(Sig);
         const ctx_ptr = try self.engine.alloc.create(Ctx);
         errdefer self.engine.alloc.destroy(ctx_ptr);
-        ctx_ptr.* = .{ .user_fn = user_fn };
+        ctx_ptr.* = .{ .user_fn = user_fn, .host_data = host_data };
         try self.ctx_storage.append(self.engine.alloc, .{
             .ptr = ctx_ptr,
             .destroy_fn = destroyForCtx(Ctx),
