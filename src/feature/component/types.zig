@@ -443,7 +443,7 @@ pub const TypeInfo = struct {
             .import => |name| name,
             .local => return null,
         };
-        const interface = if (std.mem.indexOfScalar(u8, full, '@')) |at| full[0..at] else full;
+        const interface = if (std.mem.findScalar(u8, full, '@')) |at| full[0..at] else full;
         return .{ .interface = interface, .func = ce.name };
     }
 

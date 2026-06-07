@@ -22,6 +22,7 @@ const zwasm = @import("../zwasm.zig");
 const wasi_host = @import("../wasi/host.zig");
 const wasi_fd = @import("../wasi/fd.zig");
 const wasi_p1 = @import("../wasi/preview1.zig");
+const adapter = @import("../wasi/adapter.zig");
 const resource_table = @import("../feature/component/resource_table.zig");
 const Caller = @import("../zwasm/caller.zig").Caller;
 
@@ -435,14 +436,55 @@ fn p2OutStreamDrop(caller: *Caller, self_handle: u32) WasiP2Error!void {
     _ = try ctx.streams.drop(WasiP2Ctx.OUTPUT_STREAM_RT, self_handle);
 }
 
-/// Register the WASI-P2 output-stream trampolines on `lk` under namespace
-/// `module` (the core module's import namespace for the lowered io funcs). The
-/// canon-lowered core import names are conventionally `get-stdout` / `write` /
-/// `drop-os` (cf. `test/component/wasi_p2_hello.wat`).
-fn defineWasiP2Io(lk: *Linker, module: []const u8, ctx: *WasiP2Ctx) !void {
-    try lk.defineFuncCtx(module, "get-stdout", ctx, fn (*Caller) WasiP2Error!u32, p2GetStdout);
-    try lk.defineFuncCtx(module, "write", ctx, fn (*Caller, u32, u32, u32, u32) WasiP2Error!void, p2OutStreamWrite);
-    try lk.defineFuncCtx(module, "drop-os", ctx, fn (*Caller, u32) WasiP2Error!void, p2OutStreamDrop);
+/// Classify a host-wasi core-instance export (a core-func index) by its
+/// COMPONENT interface — resolve a `canon lower` back to its imported interface
+/// + func and run it through `wasi/adapter`, so trampoline selection does NOT
+/// depend on the core module's hand-chosen import names. Returns null when the
+/// export is not a host-classifiable WASI op.
+fn classifyCoreExport(info: *const ctypes.TypeInfo, core_func_idx: u32) ?adapter.P2Op {
+    return switch (info.coreFunc(core_func_idx) orelse return null) {
+        .lower => |component_func| blk: {
+            const ref = info.resolveComponentImport(component_func) orelse break :blk null;
+            break :blk adapter.classifyImport(ref.interface, ref.func);
+        },
+        // A `canon resource.drop` core func: the stdio subset drops the
+        // output-stream resource. Per-resource-type classification (fs
+        // descriptors etc.) generalizes in a later D2 chunk.
+        .resource_drop => .out_stream_drop,
+        else => null,
+    };
+}
+
+/// Bind the trampoline for `op` under the core import `name` in namespace
+/// `module`. The name is whatever the core module imports; the trampoline is
+/// chosen by the classified `op`, not by the name.
+fn defineClassifiedFunc(lk: *Linker, module: []const u8, name: []const u8, op: adapter.P2Op, ctx: *WasiP2Ctx) !void {
+    switch (op) {
+        .cli_get_stdout => try lk.defineFuncCtx(module, name, ctx, fn (*Caller) WasiP2Error!u32, p2GetStdout),
+        .out_stream_write, .out_stream_blocking_write_and_flush => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32, u32) WasiP2Error!void, p2OutStreamWrite),
+        .out_stream_drop => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!void, p2OutStreamDrop),
+        // Classified but not yet trampolined (stderr/stdin/exit/clocks/random +
+        // the fs descriptor subset) — honest hard error, no silent skip. These
+        // land as their own D2 chunks once a fixture exercises each.
+        .cli_get_stderr,
+        .cli_get_stdin,
+        .out_stream_blocking_flush,
+        .in_stream_read,
+        .in_stream_blocking_read,
+        .in_stream_drop,
+        .cli_exit,
+        .clocks_wall_now,
+        .clocks_monotonic_now,
+        .random_get_bytes,
+        .fs_descriptor_read,
+        .fs_descriptor_write,
+        .fs_descriptor_sync,
+        .fs_descriptor_stat,
+        .fs_descriptor_get_type,
+        .fs_descriptor_drop,
+        .fs_get_directories,
+        => return error.UnsupportedWasiP2Op,
+    }
 }
 
 /// The Nth `.core_module` section body in a decoded component.
@@ -546,12 +588,18 @@ pub fn runWasiP2Main(engine: *Engine, alloc: Allocator, bytes: []const u8, host:
         switch (cis[arg.instance]) {
             // Host-wasi namespace: the supplying instance re-exports
             // canon-lowered / resource-builtin core funcs the host implements.
-            .inline_exports => {
+            // Classify each by its COMPONENT interface and bind the matching
+            // trampoline under the core import name (name-independent wiring).
+            .inline_exports => |exps| {
                 const already = for (wired.items) |w| {
                     if (std.mem.eql(u8, w, imp.module)) break true;
                 } else false;
                 if (!already) {
-                    try defineWasiP2Io(lk, imp.module, &ctx);
+                    for (exps) |ex| {
+                        if (ex.sort != .func) continue;
+                        const op = classifyCoreExport(&info, ex.index) orelse return error.UnsupportedWasiImport;
+                        try defineClassifiedFunc(lk, imp.module, ex.name, op, &ctx);
+                    }
                     try wired.append(alloc, imp.module);
                 }
             },
@@ -1000,7 +1048,11 @@ test "D1-2 trampolines: WASI-P2 output-stream funcs print to a captured fd" {
 
     var lk = eng.linker();
     defer lk.deinit();
-    try defineWasiP2Io(&lk, "io", &ctx);
+    // Bind the trampolines directly by name — this test exercises the trampoline
+    // logic in isolation (no component decode → no classifier path).
+    try lk.defineFuncCtx("io", "get-stdout", &ctx, fn (*Caller) WasiP2Error!u32, p2GetStdout);
+    try lk.defineFuncCtx("io", "write", &ctx, fn (*Caller, u32, u32, u32, u32) WasiP2Error!void, p2OutStreamWrite);
+    try lk.defineFuncCtx("io", "drop-os", &ctx, fn (*Caller, u32) WasiP2Error!void, p2OutStreamDrop);
 
     var inst = try lk.instantiate(&mod);
     defer inst.deinit();
@@ -1029,6 +1081,28 @@ test "D1-2 (EXIT): a real WASI-P2 hello-world component runs + prints via the ad
 
     // greet/adder proved component invoke; this proves a real P2 CLI program
     // runs through the canon-lowered wasi imports → the P2 trampolines.
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try testing.expectEqualStrings("hello\n", capture.items);
+}
+
+test "D-306 (EXIT): a component with renamed core imports runs via classified wiring" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    // Core imports are opaque p0/p1/p2 (NOT get-stdout/write/drop-os); only the
+    // COMPONENT interfaces match. Printing "hello" proves the host selected each
+    // trampoline by interface, not by the core import name.
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/wasi_p2_hello_renamed.wasm", testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(testing.allocator);
+    host.stdout_buffer = &capture;
+
     try runWasiP2Main(&eng, testing.allocator, bytes, &host);
     try testing.expectEqualStrings("hello\n", capture.items);
 }
