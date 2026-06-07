@@ -99,7 +99,7 @@ design forks. Update this doc's `[x]` + handover NEXT each chunk.
 - [x] **B2 — canon primitives + flags** (bool/ints/floats/char/enum/flags;
   size/align/discriminant). Boundary fixtures per type. **Red**: each primitive
   round-trips; flag bit-packing matches spec.
-- [ ] **B3 — canon string** (utf8 first; utf16/latin1 next) over linear memory
+- [x] **B3 — canon string** (utf8 first; utf16/latin1 next) over linear memory
   via realloc. **Refs** `CanonicalABI.md` string encoding. **Red**: a string
   round-trips guest↔host.
 - [ ] **B4 — canon list + record** (element/field layout, alignment). **Red**:
