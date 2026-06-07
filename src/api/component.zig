@@ -690,6 +690,19 @@ test "D1-2: WASI-P2 hello-world component decodes structurally (imports wasi:cli
     }
     try testing.expect(has_stdout);
     try testing.expect(info.canons.items.len > 0);
+
+    // The core-func index space interleaves the canon lowers (host-implemented
+    // wasi imports) + the resource.drop builtin + the core-export alias for the
+    // lowered `run`, in definition order — the unified model the host run path
+    // resolves against (an alias-only count would mis-index slot 3).
+    try testing.expectEqual(@as(usize, 4), info.core_funcs.items.len);
+    try testing.expect(info.core_funcs.items[0] == .lower); // get-stdout
+    try testing.expect(info.core_funcs.items[1] == .lower); // blocking-write-and-flush
+    try testing.expect(info.core_funcs.items[2] == .resource_drop); // output-stream drop
+    try testing.expect(info.core_funcs.items[3] == .alias); // $m "run"
+    const run_ref = info.resolveCoreFuncExport(3).?;
+    try testing.expectEqualStrings("run", run_ref.name);
+    try testing.expectEqual(@as(u32, 2), run_ref.instance); // core-instance $m
 }
 
 test "C2-3b-2 (EXIT): a 2-component graph links + runs (A calls B across components)" {

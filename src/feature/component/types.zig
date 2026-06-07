@@ -282,6 +282,23 @@ pub const CoreInstance = union(enum) {
     inline_exports: []const CoreInlineExport,
 };
 
+/// One entry in the component's **core-func index space** (`Binary.md`: core
+/// funcs are minted, in definition order, by `canon lower` / `canon
+/// resource.{new,drop,rep}` and by core-func `alias`es — NOT by `canon lift`,
+/// which mints a component func). Recording them in a single ordered list is
+/// what lets the host map a core-func index to its true definition (a prior
+/// alias-only count mis-indexed any component mixing lowers + aliases).
+pub const CoreFuncDef = union(enum) {
+    /// `canon lower` of component func `func` — host-implemented (the host
+    /// satisfies the lowered import, e.g. a WASI-P2 trampoline).
+    lower: u32,
+    resource_new: u32,
+    resource_drop: u32,
+    resource_rep: u32,
+    /// A core-func `alias` (a core-instance export, or an `outer` alias).
+    alias: AliasTarget,
+};
+
 /// `aliastarget` (`Binary.md` §Alias): the source an alias pulls a definition
 /// from.
 pub const AliasTarget = union(enum) {
@@ -330,6 +347,9 @@ pub const TypeInfo = struct {
     core_instances: std.ArrayList(CoreInstance),
     component_instances: std.ArrayList(ComponentInstanceDef),
     aliases: std.ArrayList(Alias),
+    /// The core-func index space in definition order (`CoreFuncDef`) — the
+    /// authoritative map for resolving a core-func index to its definition.
+    core_funcs: std.ArrayList(CoreFuncDef),
 
     pub fn deinit(self: *TypeInfo) void {
         self.arena.deinit();
@@ -348,27 +368,27 @@ pub const TypeInfo = struct {
         name: []const u8,
     };
 
-    /// Resolve a core-func index → the core-instance export it aliases.
-    ///
-    /// The component's core-func index space is populated, in definition order,
-    /// by core-func aliases (and `canon lower` results — deferred until a
-    /// component needs them). This walks the core-func aliases and returns the
-    /// `core_func_idx`-th one's target. Returns null if the index is out of
-    /// range or the entry is not a direct core-export alias (e.g. an `outer`
-    /// alias — not yet resolved across component boundaries).
+    /// Resolve a core-func index → its definition (`CoreFuncDef`) in the
+    /// component's core-func index space, or null if out of range.
+    pub fn coreFunc(self: *const TypeInfo, core_func_idx: u32) ?CoreFuncDef {
+        if (core_func_idx >= self.core_funcs.items.len) return null;
+        return self.core_funcs.items[core_func_idx];
+    }
+
+    /// Resolve a core-func index → the core-instance export it aliases. Returns
+    /// null if out of range or the entry is not a direct core-export alias
+    /// (e.g. a `canon lower`/resource builtin, or an `outer` alias — those are
+    /// resolved via `coreFunc`). Indexes the full core-func space (lowers +
+    /// resource builtins + aliases interleaved), not aliases alone.
     pub fn resolveCoreFuncExport(self: *const TypeInfo, core_func_idx: u32) ?CoreExportRef {
-        var idx: u32 = 0;
-        for (self.aliases.items) |al| {
-            if (!(al.sort == .core and al.sort.core == .func)) continue;
-            if (idx == core_func_idx) {
-                return switch (al.target) {
-                    .core_export => |ce| .{ .instance = ce.instance, .name = ce.name },
-                    else => null,
-                };
-            }
-            idx += 1;
-        }
-        return null;
+        const def = self.coreFunc(core_func_idx) orelse return null;
+        return switch (def) {
+            .alias => |t| switch (t) {
+                .core_export => |ce| .{ .instance = ce.instance, .name = ce.name },
+                else => null,
+            },
+            else => null,
+        };
     }
 
     /// A component `func` export resolved to the core exports the host must
@@ -1001,8 +1021,15 @@ pub fn decodeTypeInfo(parent: Allocator, component: *const decode.Component) Err
     var core_instances: std.ArrayList(CoreInstance) = .empty;
     var component_instances: std.ArrayList(ComponentInstanceDef) = .empty;
     var aliases: std.ArrayList(Alias) = .empty;
+    var core_funcs: std.ArrayList(CoreFuncDef) = .empty;
 
     for (component.sections.items) |sec| {
+        // Track how many canons/aliases existed before this section so the
+        // newly-decoded ones can be appended to the core-func index space in
+        // binary (section) order — core funcs from a canon section and a later
+        // alias section must interleave by their true definition order.
+        const canons_before = canons.items.len;
+        const aliases_before = aliases.items.len;
         switch (sec.id) {
             .type => try decodeTypeSection(a, &deftypes, sec.body),
             .import => try decodeImportSection(a, &imports, sec.body),
@@ -1012,6 +1039,21 @@ pub fn decodeTypeInfo(parent: Allocator, component: *const decode.Component) Err
             .instance => try decodeInstanceSection(a, &component_instances, sec.body),
             .alias => try decodeAliasSection(a, &aliases, sec.body),
             else => {}, // other sections decoded in later chunks
+        }
+        switch (sec.id) {
+            .canon => for (canons.items[canons_before..]) |c| switch (c) {
+                .lower => |l| try core_funcs.append(a, .{ .lower = l.func }),
+                .resource_new => |t| try core_funcs.append(a, .{ .resource_new = t }),
+                .resource_drop => |t| try core_funcs.append(a, .{ .resource_drop = t }),
+                .resource_rep => |t| try core_funcs.append(a, .{ .resource_rep = t }),
+                .lift => {}, // mints a component func, not a core func
+            },
+            .alias => for (aliases.items[aliases_before..]) |al| {
+                if (al.sort == .core and al.sort.core == .func) {
+                    try core_funcs.append(a, .{ .alias = al.target });
+                }
+            },
+            else => {},
         }
     }
 
@@ -1024,6 +1066,7 @@ pub fn decodeTypeInfo(parent: Allocator, component: *const decode.Component) Err
         .core_instances = core_instances,
         .component_instances = component_instances,
         .aliases = aliases,
+        .core_funcs = core_funcs,
     };
 }
 
