@@ -128,6 +128,11 @@ pub const Instance = struct {
         NotAFunc,
         ArgArityMismatch,
         ResultArityMismatch,
+        /// A WASI host function requested process exit (e.g. `wasi:cli/exit`):
+        /// the host records the exit code out-of-band and returns this to unwind
+        /// the guest (a clean noreturn termination, NOT a wasm trap). The
+        /// component-run caller catches it and reads the recorded code.
+        ProcExit,
     } || Trap;
 
     /// Wasm spec §4.5.3 + §4.4 — invoke an exported function by name.
@@ -257,6 +262,8 @@ fn mapDispatchErr(err: anyerror) Instance.InvokeError {
         error.UnalignedAtomic => error.UnalignedAtomic, // Wasm threads (ADR-0168)
         error.ExpectedSharedMemory => error.ExpectedSharedMemory, // Wasm threads (ADR-0168)
         error.OutOfMemory => error.OutOfMemory,
+        // A host func (e.g. wasi:cli/exit) requested process exit — unwind cleanly.
+        error.ProcExit => error.ProcExit,
         else => @panic("zwasm.Instance.invoke: dispatch returned non-Trap error variant"),
     };
 }

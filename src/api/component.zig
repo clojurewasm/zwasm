@@ -21,6 +21,7 @@ const value_conv = @import("../zwasm/value_conv.zig");
 const zwasm = @import("../zwasm.zig");
 const wasi_host = @import("../wasi/host.zig");
 const wasi_fd = @import("../wasi/fd.zig");
+const wasi_proc = @import("../wasi/proc.zig");
 const wasi_p1 = @import("../wasi/preview1.zig");
 const adapter = @import("../wasi/adapter.zig");
 const resource_table = @import("../feature/component/resource_table.zig");
@@ -427,7 +428,7 @@ pub const WasiP2Ctx = struct {
     }
 };
 
-pub const WasiP2Error = error{ NoMemory, OutOfBounds, WriteFailed, NoRealloc, ReallocFailed } ||
+pub const WasiP2Error = error{ NoMemory, OutOfBounds, WriteFailed, NoRealloc, ReallocFailed, ProcExit } ||
     resource_table.Error || Memory.Error;
 
 const Memory = @import("../zwasm/memory.zig").Memory;
@@ -443,6 +444,17 @@ fn p2GetStdout(caller: *Caller) WasiP2Error!u32 {
 fn p2GetStderr(caller: *Caller) WasiP2Error!u32 {
     const ctx = caller.data(WasiP2Ctx);
     return ctx.resources.new(WasiP2Ctx.OUTPUT_STREAM_RT, 2);
+}
+
+/// `wasi:cli/exit` `exit(status: result)` → P1 `proc_exit`. The bare `result`
+/// status lowers to a single i32 discriminant (0=ok, 1=err); map it straight to
+/// the exit code. `exit` is `noreturn`: after recording the code we return
+/// `ProcExit` to unwind the guest invoke, and `runWasiP2Main` treats a set
+/// `host.exit_code` as a clean termination (not a failure).
+fn p2Exit(caller: *Caller, status: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    _ = wasi_proc.procExit(ctx.host, status);
+    return WasiP2Error.ProcExit;
 }
 
 /// `wasi:io/streams` `[method]output-stream.blocking-write-and-flush`
@@ -599,15 +611,15 @@ fn defineClassifiedFunc(lk: *Linker, module: []const u8, name: []const u8, op: a
         .fs_descriptor_write => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32, u64, u32) WasiP2Error!void, p2DescriptorWrite),
         .fs_get_directories => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!void, p2GetDirectories),
         .fs_descriptor_open_at => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32, u32, u32, u32, u32) WasiP2Error!void, p2DescriptorOpenAt),
-        // Classified but not yet trampolined (stdin/exit/clocks/random + the rest
-        // of the fs descriptor subset) — honest hard error, no silent skip. These
-        // land as their own D2 chunks once a fixture exercises each.
+        .cli_exit => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!void, p2Exit),
+        // Classified but not yet trampolined (stdin/clocks/random + the rest of
+        // the fs descriptor subset) — honest hard error, no silent skip. These
+        // land as their own D3 chunks once a fixture exercises each.
         .cli_get_stdin,
         .out_stream_blocking_flush,
         .in_stream_read,
         .in_stream_blocking_read,
         .in_stream_drop,
-        .cli_exit,
         .clocks_wall_now,
         .clocks_monotonic_now,
         .random_get_bytes,
@@ -769,7 +781,12 @@ pub fn runWasiP2Main(engine: *Engine, alloc: Allocator, bytes: []const u8, host:
     try instances.append(alloc, m);
 
     var results = [_]Value{.{ .i32 = 0 }};
-    try m.invoke(run_ref.name, &.{}, &results);
+    m.invoke(run_ref.name, &.{}, &results) catch |err| {
+        // A guest that called wasi:cli/exit unwinds with ProcExit (noreturn)
+        // after recording host.exit_code — a clean termination, not a failure.
+        if (err == error.ProcExit) return;
+        return err;
+    };
 }
 
 // ============================================================
@@ -1244,6 +1261,26 @@ test "D2: a WASI-P2 component prints to STDERR via get-stderr (fd 2 stream)" {
     try runWasiP2Main(&eng, testing.allocator, bytes, &host);
     try testing.expectEqualStrings("oops\n", cap_err.items); // wrote to fd 2
     try testing.expectEqualStrings("", cap_out.items); // NOT stdout
+}
+
+test "D3: a WASI-P2 component calls wasi:cli/exit(err) → host exit code 1" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/wasi_p2_exit.wasm", testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+    host.io = io;
+
+    // The component's `run` calls wasi:cli/exit.exit(err) — the cli_exit trampoline
+    // records the code via P1 proc_exit and unwinds (noreturn); runWasiP2Main treats
+    // a set exit_code as a clean termination.
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try testing.expectEqual(@as(u32, 1), host.exit_code.?);
 }
 
 test "D2 (EXIT): a WASI-P2 fs component writes a file via get-directories+open-at+write e2e" {
