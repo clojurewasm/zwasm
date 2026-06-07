@@ -239,6 +239,23 @@ else
     zig build test
 fi
 
+# --- gate: edge-case fixture runner (corpus-touching commits only) -------
+#
+# Closes the "a fixture misplaced under test/edge_cases/ breaks the edge-runner,
+# invisible to `zig build test`, caught only one cycle later on the remote
+# test-all" gap (lesson 2026-06-07-fixtures-under-edge-cases-run-by-edge-runner).
+# `zig build test` runs only in-source unit tests; the edge-runner walks the
+# corpus and is normally test-all-only. Run it HERE, in BOTH fast and full modes
+# (the corpus is ~seconds, host-arch JIT, and this is the only LOCAL place it
+# runs — Step 5's `zig build test` excludes it), whenever a commit touches the
+# runner's corpus roots. A misplaced/broken fixture (missing .expect /
+# unsatisfiable host import) fails the commit here, not on x86_64 next cycle.
+# This is enforcement, NOT swallow/skip: the runner still fails loudly.
+if [ -f build.zig ] && echo "$STAGED" | grep -qE '^test/(edge_cases|realworld)/'; then
+    echo "[gate_commit] zig build test-edge-cases (corpus fixtures staged) ..."
+    zig build test-edge-cases
+fi
+
 # --- gate: zig build lint (skipped on docs-only OR --fast) ---------------
 #
 # Lint findings are platform-independent and architecturally orthogonal

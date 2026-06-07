@@ -457,7 +457,7 @@ test "D-310: a guest call_indirects an imported host func through a table" {
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
-    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/edge_cases/p17/host_func_table/call_indirect_host.wasm", testing.allocator, .limited(1 << 16));
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/core_host_func_table.wasm", testing.allocator, .limited(1 << 16));
     defer testing.allocator.free(bytes);
 
     var eng = try Engine.init(testing.allocator, .{});

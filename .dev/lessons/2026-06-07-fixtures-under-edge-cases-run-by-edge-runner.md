@@ -24,3 +24,14 @@ Rules:
    the Mac `zig build test` loop and only the 3-host gate catches it.
 3. Corollary: a green `zig build test` + `lint` is necessary but NOT sufficient
    when the diff adds test corpus — the ubuntu Step-0.7 verdict is the real gate.
+
+**Now mechanically enforced (recurred 2026-06-07, fix in `gate_commit.sh`).** It
+recurred: a host-import-needing core fixture (`call_indirect_host.wasm`, the
+D-310 boundary test) landed under `test/edge_cases/p17/`; the edge-runner ran it
+standalone, found no `.expect`, FAILED — green on Mac, red on the next ubuntu
+Step 0.7. Fix = relocate to `test/component/` (not walked) AND `gate_commit.sh`
+now runs `zig build test-edge-cases` (BOTH fast + full modes) whenever a commit
+touches `test/edge_cases/` or `test/realworld/`. A misplaced / unrunnable fixture
+fails the commit LOCALLY now — loud, not swallow/skip (skipping would be the
+false-coverage trap of `2026-05-30-edge-runner-fixture-cache-false-coverage`).
+Rule #2's "remember the gap" is made structural; rule #1 is gate-checked.
