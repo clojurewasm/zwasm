@@ -94,11 +94,9 @@ All three surface audits DONE: CLI→**D-295** (~85% + intentionally lean, decli
 → discipline: always adversarially verify audit criticals; lesson `fd0a1914`). v0.2 tractable features all DONE
 (atomics/wide-arith/custom-page/relaxed-SIMD); forward track = remaining_sweep + completeness (NEVER-IDLE above).
 
-**D-279 (Win64 SIMD-JIT heisenbug — one open RED-class)**: leading hypo **H3 = Win64 1 MB stack overflow** (vs
-Mac/Linux 8 MB). H3 diagnostic LANDED+validated @`b86ac7fc` (`EXCEPTION_STACK_OVERFLOW` VEH → `[d-279-veh]
-STACK-OVERFLOW` WriteFile, diagnostic-only) but UNFIRED. Future crash self-IDs: `[d-279-veh] STACK-OVERFLOW` → H3
-CONFIRMED (extend stack-limit guard to that path); exit-3 WITHOUT it → H3 refuted (re-open). Loop re-kicks windows
-per batch so a repro is always hunted.
+**D-279 (Win64 SIMD-JIT heisenbug)**: hypo H3=Win64 1MB stack overflow; VEH diagnostic landed @`b86ac7fc`
+(`[d-279-veh] STACK-OVERFLOW` self-ID → H3 confirmed; exit-3 w/o it → refuted). UNFIRED; silent streak=4. Loop
+re-kicks windows per batch to keep hunting. Full detail in the D-279 debt row.
 
 **Blocked / parked**: 31 blocked-by (call_ref §10.R / D-177 WASI-config / D-178 Global-Memory / future proposals).
 **D-290** = 3 distillers direction-gated (wasm-tools↔wabt divergence; wabt stays). **D-264** dogfooding gated.
