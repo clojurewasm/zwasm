@@ -118,7 +118,7 @@ design forks. Update this doc's `[x]` + handover NEXT each chunk.
   `resource.new/drop/rep`, parent/child ownership + tombstones (the live table
   is the hard part). **Refs**: wasmtime `resource_table.rs`; spec resources.
   **Red**: own/borrow lifecycle + double-drop trap.
-- [ ] **C2 — multi-component linking / instance graph + adapters.** **Red**: a
+- [x] **C2 — multi-component linking / instance graph + adapters.** **Red**: a
   2-component graph (one imports the other's interface) links + runs.
 
 ### Phase D — WASI Preview 2 (Tier 1 → 2)

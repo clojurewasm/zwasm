@@ -31,26 +31,16 @@ philosophy-maintained; proven by Rust+Go sample components). Decision + rational
   ADR-0171 (cabi_realloc seam) + ADR-0172 (Zone split). **Bundle CM-B6-IT CLOSED** (exit met @e0e7c9f5).
 - **Discipline**: pure logic Zone 1 (`feature/component/`), orchestration Zone 3 (`api/component.zig`); component-value
   DISTINCT from `runtime.Value`; TDD; no-copy; 3-host gate; **no tag**.
-- **C1 DONE @11043031** (Phase C resources): `resource_table.zig` (Zone 1) — the handles table (dense slots + free list,
-  index 0 sentinel) of `ResourceHandle{rt,rep,own,num_lends}`; new/rep/drop/newBorrow/endLend; double-drop +
-  use-after-drop + type-mismatch + still-lent guards. dtor-invoke + borrow_scope/Task lifetime defer.
-- **C2 IN PROGRESS** (multi-component linking; plan doc §Phase C authoritative). See the Active bundle below.
-
-## Active bundle
-
-- **Bundle-ID**: CM-C2 (multi-component linking + index-space resolution)
-- **Cycles-remaining**: ~2
-- **Continuity-memo**: C2-1 @a105289f · C2-2 @46745b1e (D-304 closed) · C2-3a @0f09a46c (component-instance §5) ·
-  **C2-3b-1 @2dfe3f71** (real 2-component fixture `test/component/adder_graph.wasm` decodes: 2 nested §4 components,
-  2 §5 instances + cross-wiring, recursive child decode). NEXT = **C2-3b-2 (bundle EXIT)** = instantiate+link+RUN the
-  graph: recursively decode each §4 child component → instantiate each child's core module; evaluate the §5 instance
-  graph IN ORDER (instantiate B → B has core "adder"; instantiate A `with "adder"=B's adder`); A's core module IMPORTS
-  `"deps" "adder"` so wire it via the facade **Linker.defineFunc** to forward to B's "adder". KEY CHALLENGE: the host
-  func must capture B's `*Instance` but `Linker.defineFunc(module,name,comptime Sig,fn_ptr)` takes a bare fn pointer —
-  check `src/zwasm/linker.zig` for a context/`Caller`/closure mechanism (the wasi host injection + `Caller.memory()` in
-  zwasm.zig T1.10/T1.12 tests are the precedent). For flat u32 the cross-call is direct (no canon). Red = `add-five(10)`
-  via `api/component.zig` returns 15. Likely 1-2 cycles (Linker wiring is the meat).
-- **Exit-condition**: a 2-component graph (one imports the other's interface) links + runs via `api/component.zig`.
+- **Phase C COMPLETE (Tier-1 done): resources + multi-component linking.** C1 @11043031 (`resource_table.zig`:
+  handles table, own/borrow, new/rep/drop, double-drop/use-after-drop/still-lent traps). **C2 @fc5956dc**: C2-1
+  core-instance/alias decode · C2-2 export resolution (D-304 closed) · C2-3a component-instance §5 decode · C2-3b-1
+  real 2-component fixture decodes · **C2-3b-2 a 2-component graph LINKS + RUNS** (`instantiateGraph`: wire A's core
+  import to B's `adder` via Linker cross-module; `add-five(10)`=15, a real cross-component call). Bundle CM-C2 CLOSED.
+  Name-matched-import shortcut + aggregate cross-component args → **D-305**.
+- **NEXT = Phase D (WASI Preview 2)** — plan doc §Phase D authoritative. **D1**: `wasi_p2_adapter.zig` — name-map
+  `wasi:cli/*`, `wasi:clocks/*`, … onto the EXISTING preview1 impl (reuse wholesale per the survey). Red = a P2
+  `wasi:cli` component prints via the adapter. Exit = a P2 hello-world component runs through the zwasm CLI. Then D2
+  (resource-modeled P2 interfaces) → D3 (broader native host) → E (conformance + Rust/Go proof). `-Dwasi=preview2` gate.
 
 ## Current state
 

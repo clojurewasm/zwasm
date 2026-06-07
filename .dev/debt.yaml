@@ -1233,6 +1233,28 @@ entries:
     first_raised: "2026-06-07"
     last_reviewed: "2026-06-07"
     refs: scripts/regen_spec_threads_assert.sh; test/spec/spec_assert_runner_non_simd.zig; engine/codegen/shared/entry.zig
+  - id: D-305
+    layer: code
+    status: blocked-by
+    description: |-
+      Status: blocked-by: a fully-general component linker needs each child's
+      canon-lower + instance-wiring structure decoded to map a component-level
+      import to its core import — not yet built. CM-C2-3b-2
+      (`api/component.zig` `instantiateGraph`) LINKS + RUNS a 2-component graph
+      (add-five calls across into adder, returns 15) but takes two shortcuts:
+      (1) a child component's core imports are satisfied by NAME-matching a
+      prior instance's func export (works because wasm-tools names the core
+      import after the interface func, e.g. A's "deps"/"adder" ↔ B's "adder");
+      (2) only flat func imports (the canon-lowered flat-u32 cross-component
+      call is a direct core call — no canon lift/lower at the boundary). General
+      multi-component linking needs: resolve each `instance` instantiate's
+      `with` args (name → sortidx) through the child's component import index
+      space → its canon-lower → its core import; and canon lift/lower for
+      aggregate (string/list/record) cross-component args. Lands when a fixture
+      demands aggregate cross-component values.
+    first_raised: "2026-06-07"
+    last_reviewed: "2026-06-07"
+    refs: src/api/component.zig (instantiateGraph); test/component/adder_graph.wasm; .dev/component_model_plan.md (Phase C/D)
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
