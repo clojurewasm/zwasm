@@ -496,6 +496,30 @@ fn preopenWasiFd(host: *wasi_host.Host, host_fd: std.posix.fd_t) ?wasi_p1.Fd {
     return null;
 }
 
+/// `wasi:filesystem/types` `[method]descriptor.open-at` (self, path_flags,
+/// path_ptr, path_len, open_flags, descriptor_flags, retptr): open `path`
+/// relative to the directory descriptor `self`, mint a descriptor resource for
+/// the opened fd, and store `result<own<descriptor>, error-code>` (disc 0 = ok,
+/// handle at +4) at `retptr`. P2 open-flags bits map 1:1 onto P1 oflags
+/// (create/directory/exclusive/truncate = 0x1/2/4/8). Graceful P1→P2
+/// error-code result mapping is deferred (D-307); a P1 error currently traps.
+fn p2DescriptorOpenAt(caller: *Caller, self_handle: u32, path_flags: u32, path_ptr: u32, path_len: u32, open_flags: u32, descriptor_flags: u32, retptr: u32) WasiP2Error!void {
+    _ = path_flags;
+    _ = descriptor_flags;
+    const ctx = caller.data(WasiP2Ctx);
+    const dirfd: wasi_p1.Fd = @intCast(try ctx.resources.rep(WasiP2Ctx.DESCRIPTOR_RT, self_handle));
+    const mem = caller.memory() orelse return WasiP2Error.NoMemory;
+    const oflags: wasi_p1.Oflags = @intCast(open_flags & 0x000F);
+    const rights = wasi_p1.RIGHTS_FD_READ | wasi_p1.RIGHTS_FD_WRITE;
+    // pathOpen writes the opened fd to retptr+4; reuse that slot for the result payload.
+    const errno = wasi_fd.pathOpen(ctx.host, mem.slice(), dirfd, 0, path_ptr, path_len, oflags, rights, rights, 0, retptr + 4);
+    if (errno != .success) return WasiP2Error.WriteFailed; // D-307: map to result.err(error-code)
+    const opened_fd = try mem.read(u32, retptr + 4);
+    const handle = try ctx.resources.new(WasiP2Ctx.DESCRIPTOR_RT, opened_fd);
+    try mem.write(retptr, @as(u8, 0)); // result disc: ok
+    try mem.write(retptr + 4, handle); // own<descriptor>
+}
+
 /// `wasi:filesystem/preopens` `get-directories` (retptr): build a
 /// `list<tuple<own<descriptor>, string>>` of the host's preopened dirs in a
 /// freshly `cabi_realloc`'d backing (each entry mints a descriptor resource
@@ -554,6 +578,7 @@ fn defineClassifiedFunc(lk: *Linker, module: []const u8, name: []const u8, op: a
         .fs_descriptor_write => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32, u64, u32) WasiP2Error!void, p2DescriptorWrite),
         .fs_descriptor_drop => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!void, p2DescriptorDrop),
         .fs_get_directories => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!void, p2GetDirectories),
+        .fs_descriptor_open_at => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32, u32, u32, u32, u32) WasiP2Error!void, p2DescriptorOpenAt),
         // Classified but not yet trampolined (stdin/exit/clocks/random + the rest
         // of the fs descriptor subset) — honest hard error, no silent skip. These
         // land as their own D2 chunks once a fixture exercises each.
@@ -1236,6 +1261,52 @@ test "D2: WASI-P2 get-directories returns a preopen descriptor list (realloc fro
     const str_ptr = try mem.read(u32, list_ptr + 4);
     try testing.expectEqual(dirfd, @as(wasi_p1.Fd, @intCast(try ctx.resources.rep(WasiP2Ctx.DESCRIPTOR_RT, handle))));
     try testing.expectEqualStrings("/sandbox", try mem.sliceAt(str_ptr, 8));
+}
+
+test "D2: WASI-P2 descriptor.open-at creates+writes a file under a dir descriptor" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+    host.io = io;
+    const dirfd = try host.addPreopen(tmp.dir.handle, "/sandbox");
+
+    const core_bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/open_at_write_core.wasm", testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(core_bytes);
+    var mod = try eng.compile(core_bytes);
+    defer mod.deinit();
+
+    var ctx = try WasiP2Ctx.init(testing.allocator, &host);
+    defer ctx.deinit();
+    const dir_handle = try ctx.resources.new(WasiP2Ctx.DESCRIPTOR_RT, dirfd);
+
+    var lk = eng.linker();
+    defer lk.deinit();
+    try lk.defineFuncCtx("fs", "open-at", &ctx, fn (*Caller, u32, u32, u32, u32, u32, u32, u32) WasiP2Error!void, p2DescriptorOpenAt);
+    try lk.defineFuncCtx("fs", "write", &ctx, fn (*Caller, u32, u32, u32, u64, u32) WasiP2Error!void, p2DescriptorWrite);
+    try lk.defineFuncCtx("fs", "drop", &ctx, fn (*Caller, u32) WasiP2Error!void, p2DescriptorDrop);
+
+    var inst = try lk.instantiate(&mod);
+    defer inst.deinit();
+    var res = [_]Value{.{ .i32 = 9 }};
+    try inst.invoke("run", &.{.{ .i32 = @bitCast(dir_handle) }}, &res);
+    try testing.expectEqual(@as(i32, 0), res[0].i32); // open-at ok
+
+    // Re-open "f.txt" (the file descriptor was dropped) and read it back.
+    var pmem: [128]u8 = @splat(0);
+    @memcpy(pmem[0..5], "f.txt");
+    try testing.expectEqual(wasi_p1.Errno.success, wasi_fd.pathOpen(&host, &pmem, dirfd, 0, 0, 5, 0, wasi_p1.RIGHTS_FD_READ, 0, 0, 96));
+    const rfd = std.mem.readInt(u32, pmem[96..100], .little);
+    std.mem.writeInt(u32, pmem[16..20], 32, .little);
+    std.mem.writeInt(u32, pmem[20..24], 6, .little);
+    try testing.expectEqual(wasi_p1.Errno.success, wasi_fd.fdPread(&host, &pmem, rfd, 16, 1, 0, 64));
+    try testing.expectEqualStrings("DATA42", pmem[32..38]);
 }
 
 test "D2: WASI-P2 descriptor.write writes a file via the descriptor resource (fd from handle)" {

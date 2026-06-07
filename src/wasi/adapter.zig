@@ -44,6 +44,7 @@ pub const P2Op = enum {
     // that MINT new stream resources land in a later chunk).
     fs_descriptor_read,
     fs_descriptor_write,
+    fs_descriptor_open_at,
     fs_descriptor_sync,
     fs_descriptor_stat,
     fs_descriptor_get_type,
@@ -74,6 +75,8 @@ pub const P1Target = union(enum) {
     /// call time, so these carry no fixed fd.
     fd_pread,
     fd_pwrite,
+    /// P1 `path_open` relative to a directory descriptor.
+    path_open,
     fd_sync,
     fd_filestat_get,
     fd_fdstat_get,
@@ -96,6 +99,7 @@ pub fn p1Target(op: P2Op) P1Target {
         .random_get_bytes => .random_get,
         .fs_descriptor_read => .fd_pread,
         .fs_descriptor_write => .fd_pwrite,
+        .fs_descriptor_open_at => .path_open,
         .fs_descriptor_sync => .fd_sync,
         .fs_descriptor_stat => .fd_filestat_get,
         .fs_descriptor_get_type => .fd_fdstat_get,
@@ -133,6 +137,7 @@ const table = [_]Entry{
     .{ .iface = "wasi:random/random", .func = "get-random-bytes", .op = .random_get_bytes },
     .{ .iface = "wasi:filesystem/types", .func = "[method]descriptor.read", .op = .fs_descriptor_read },
     .{ .iface = "wasi:filesystem/types", .func = "[method]descriptor.write", .op = .fs_descriptor_write },
+    .{ .iface = "wasi:filesystem/types", .func = "[method]descriptor.open-at", .op = .fs_descriptor_open_at },
     .{ .iface = "wasi:filesystem/types", .func = "[method]descriptor.sync", .op = .fs_descriptor_sync },
     .{ .iface = "wasi:filesystem/types", .func = "[method]descriptor.stat", .op = .fs_descriptor_stat },
     .{ .iface = "wasi:filesystem/types", .func = "[method]descriptor.get-type", .op = .fs_descriptor_get_type },
@@ -180,6 +185,7 @@ test "p1Target: clocks + random" {
 test "classify: filesystem descriptor resource ops (wasi:filesystem/types)" {
     try testing.expectEqual(P2Op.fs_descriptor_read, classifyImport("wasi:filesystem/types", "[method]descriptor.read").?);
     try testing.expectEqual(P2Op.fs_descriptor_write, classifyImport("wasi:filesystem/types", "[method]descriptor.write").?);
+    try testing.expectEqual(P2Op.fs_descriptor_open_at, classifyImport("wasi:filesystem/types", "[method]descriptor.open-at").?);
     try testing.expectEqual(P2Op.fs_descriptor_sync, classifyImport("wasi:filesystem/types", "[method]descriptor.sync").?);
     try testing.expectEqual(P2Op.fs_descriptor_stat, classifyImport("wasi:filesystem/types", "[method]descriptor.stat").?);
     try testing.expectEqual(P2Op.fs_descriptor_get_type, classifyImport("wasi:filesystem/types", "[method]descriptor.get-type").?);
@@ -190,6 +196,7 @@ test "classify: filesystem descriptor resource ops (wasi:filesystem/types)" {
 test "p1Target: descriptor ops map to fd syscalls (fd from the handle rep at call time)" {
     try testing.expectEqual(P1Target.fd_pread, p1Target(.fs_descriptor_read));
     try testing.expectEqual(P1Target.fd_pwrite, p1Target(.fs_descriptor_write));
+    try testing.expectEqual(P1Target.path_open, p1Target(.fs_descriptor_open_at));
     try testing.expectEqual(P1Target.fd_sync, p1Target(.fs_descriptor_sync));
     try testing.expectEqual(P1Target.fd_filestat_get, p1Target(.fs_descriptor_stat));
     try testing.expectEqual(P1Target.fd_fdstat_get, p1Target(.fs_descriptor_get_type));

@@ -1055,31 +1055,21 @@ entries:
     first_raised: "2026-06-07"
     last_reviewed: "2026-06-07"
     refs: src/api/component.zig (instantiateGraph); test/component/adder_graph.wasm; .dev/component_model_plan.md (Phase C/D)
-  - id: "D-306"
+  - id: "D-307"
     layer: "code"
-    status: "blocked-by"
+    status: "note"
     description: |-
-      Status: blocked-by: a fully-general WASI-P2 host wiring needs each
-      canon-lowered core import classified by its COMPONENT interface, not its
-      core import name. CM-D1-2 (`api/component.zig` `runWasiP2Main`) RUNS a real
-      `wasi:cli/run` component (`wasi_p2_hello.wasm` prints "hello") but takes two
-      D1-2 shortcuts: (1) host-wasi namespaces are wired via `defineWasiP2Io`,
-      which registers the fixed core import names `get-stdout`/`write`/`drop-os`
-      (the wasm-tools canon-lowering convention) rather than resolving each
-      `.lower(component_func_idx)` → its component import (`wasi:io/streams
-      [method]output-stream.blocking-write-and-flush`) → `wasi/adapter.zig
-      classifyImport` → the matching trampoline; (2) only output-stream + memory
-      are wired (stderr/stdin/clocks/random/exit + non-memory cross-instance
-      exports are not). General wiring needs: the component-func index space
-      (instance-import alias resolution) to name each lowered import, then
-      adapter-classified trampoline selection, covering the full P2 stdio subset.
-      Lands at plan §Phase D2 (resource-modeled P2 interfaces) / D3 (broader
-      native host). ~~CLI run path~~ DONE @161236db (`zwasm run <component.wasm>`
-      routes to `runComponentWasi` → prints "hello"; the broader interface
-      coverage + adapter classification remain).
+      Status: note: WASI-P2 fs methods returning `result<_, error-code>` trap on
+      a P1 failure instead of writing the spec `result.err(error-code)` to the
+      return area. `descriptor.open-at` (`api/component.zig` `p2DescriptorOpenAt`)
+      returns `WasiP2Error.WriteFailed` on a P1 `path_open` error rather than
+      mapping `Errno` → the `wasi:filesystem/types` `error-code` enum
+      (access/noent/exist/isdir/...). Success paths are complete + tested; the
+      same gap applies to descriptor.write/read/stat/sync as their `result.err`
+      arms are exercised. Needs a P1 `Errno` → P2 `error-code` table.
     first_raised: "2026-06-07"
     last_reviewed: "2026-06-07"
-    refs: src/api/component.zig (runWasiP2Main, defineWasiP2Io); src/wasi/adapter.zig (classifyImport); .dev/component_model_plan.md (Phase D2/D3)
+    refs: src/api/component.zig (p2DescriptorOpenAt); src/wasi/preview1.zig (Errno); .dev/component_model_plan.md (Phase D)
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
