@@ -34,10 +34,10 @@ E2 remainder (Go/tinygo cross-toolchain proof) is opportunistic — toolchain-ga
 ## Active bundle
 
 - **Bundle-ID**: E3-CM-validation (ADR-0176)
-- **Cycles-remaining**: ~4 — **NEXT = rule 2 = SEMANTIC index bounds** (func/component/instance index-space + alias
-  target existence + outer-alias count) — pick a rule whose invalid fixture is LEXICALLY valid (numeric OOB), authorable
-  via `wasm-tools parse`. **Name validation (kebab/extern-name) is LAST**: a bad name is rejected by the WIT *text*
-  parser, so its fixture is NOT authorable via `wasm-tools parse` — needs binary extraction from the official `.wast`.
+- **Cycles-remaining**: ~3 — ✅1 type-index bounds @cfdb07be · ✅2 Canon index bounds @6224a7e7 · **NEXT = rule 3 =
+  alias-target existence + outer-alias count** (AliasTarget.{component_export.instance, core_export.instance,
+  outer.count}) — numeric-OOB fixture, authorable via `wasm-tools parse`. **Name validation (kebab/extern-name) is
+  LAST**: a bad name is rejected by the WIT *text* parser → fixture NOT authorable via `wasm-tools parse` (binary extraction).
 - **Continuity-memo**: `validate.zig` walks the decoded `TypeInfo` (no re-parse) post-`decodeTypeInfo`, pre-instantiate,
   at instantiate/instantiateGraph/runWasiP2Main. KEY: bounds-check against the TRUE index-space size, not a list `.len`
   (rule 1 needed `TypeInfo.type_space_len` = type defs + type aliases + type imports + type exports; `deftypes.len`
@@ -79,7 +79,7 @@ philosophy-maintained; proven by Rust+Go sample components). Decision + rational
   random · D3-5 stdin · **D3-6 fs descriptor** @43909eba (read/sync/stat/get-type + flush; **D-307 DISCHARGED**
   @beb887c6) · **D3-7 wasi:io/poll** @3a128a01 (pollable + subscribe + ready/block/poll). **D-309 DONE** @ccdee2fa —
   WASI-P2 trampolines extracted to `api/component_wasi_p2.zig` (component.zig 1922→1250).
-- **NOW = E3-CM-validation bundle** (component validator; rule 1 type-index bounds @cfdb07be; D-308 edge case @82d63d27). Deferred: D3-8 sockets (spike-first).
+- **NOW = E3-CM-validation bundle** (validator rules ✅1 type-index @cfdb07be ✅2 Canon-index @6224a7e7; next rule 3 alias bounds). Deferred: D3-8 sockets.
   Cross-component aggregate → D-305. **D-308 DISCHARGED @82d63d27** — unknown-wasi-import errors cleanly (no signal);
   ADR-0175 engine's per-instance cleanup is sound; adversarial guard `wasi_p2_unknown_import.wasm` (E3 edge case).
 
@@ -87,7 +87,7 @@ philosophy-maintained; proven by Rust+Go sample components). Decision + rational
 
 - **Phase 17 (v0.2) IN-PROGRESS** (ADR-0168). DONE+3-host: atomics @9eb84833 · wide-arith @231d4536 ·
   custom-page-sizes @cd0de2dd · relaxed-SIMD @08342ec5 (+official corpus @8ef2e752, 13420 pass arm64+x86). Wasm-3.0
-  core 100%-spec COMPLETE. Last SHA **cfdb07be** (E3-CM-validation rule 1: type-index bounds; test-all+lint green; ubuntu OK @1e31317a; windows susp @9d832f1d).
+  core 100%-spec COMPLETE. Last SHA **6224a7e7** (E3-CM-validation rule 2: Canon index bounds; test+lint green; ubuntu OK @99370409; windows susp @9d832f1d).
 - **Atomics fully conformant @e6f3b0c0** — official corpus **294 pass, 0 SKIPPED** (D-301), incl. the JIT
   unaligned-atomic-trap fix D-303 (code-14 `unaligned_atomic_fixups` both arches, @5b0db8e1, 3-host).
 - **ALL bounded debt CLEARED**: ✅ D-301 · ✅ D-303 · ✅ D-231 (cross-x86 DCE gate wired @aac4fe2f) · ✅ D-302
