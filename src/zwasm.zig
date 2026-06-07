@@ -171,6 +171,7 @@ pub const feature = struct {
             pub const wit = struct {
                 pub const lexer = @import("feature/component/wit/lexer.zig");
                 pub const parser = @import("feature/component/wit/parser.zig");
+                pub const resolve = @import("feature/component/wit/resolve.zig");
             };
         }
     else
@@ -385,6 +386,7 @@ test {
     _ = @import("feature/component/types.zig");
     _ = @import("feature/component/wit/lexer.zig");
     _ = @import("feature/component/wit/parser.zig");
+    _ = @import("feature/component/wit/resolve.zig");
 }
 
 // ============================================================
