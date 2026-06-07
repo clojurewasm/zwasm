@@ -61,7 +61,7 @@ design forks. Update this doc's `[x]` + handover NEXT each chunk.
 
 ### Phase A — decode + WIT (Tier 0)
 
-- [ ] **A1 — component binary discriminator + section walk.** `decode.zig`:
+- [x] **A1 — component binary discriminator + section walk.** `decode.zig`:
   distinguish core module (`\0asm` + version `01 00`) vs component (`\0asm` +
   layer `01 00 0d 00`); enumerate component sections (custom/core-module/
   core-instance/core-type/component/instance/alias/type/canon/start/import/

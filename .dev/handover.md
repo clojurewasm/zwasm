@@ -23,9 +23,10 @@ philosophy-maintained; proven by Rust+Go sample components). Decision + rational
 - **Step 0 survey is DONE** — do NOT re-survey. Read `.dev/component_model_survey.md` (architecture, 4 hard pieces,
   module breakdown) + the plan's "Reference chains" (spec `~/Documents/OSS/WebAssembly/component-model/`; v1
   textbook `~/Documents/MyProducts/zwasm/src/{component,wit,wit_parser,canon_abi}.zig`; wasmtime/wasm-tools refs).
-- **NEXT = chunk A1** (component binary discriminator + section walk in a new `src/feature/component/decode.zig`;
-  open the reserved slot + flip the `-Denable=component` build gate). Red test in the plan. Then A2→A3→A4 (Tier 0),
-  B* (canon ABI), C* (resources/linking), D* (WASI-P2), E* (conformance corpus + Rust/Go sample-project proof).
+- **A1 DONE @6c51c89b** — `decode.zig` (layer discriminator + section walk, Binary.md §section_0..12) + `-Dcomponent`
+  build gate flipped (slot opened). 8 decode tests green; lint clean. **NEXT = chunk A2** (component type section +
+  import/export index spaces; red = imported+exported func type round-trips). Then A3→A4 (Tier 0), B* (canon ABI),
+  C* (resources/linking), D* (WASI-P2), E* (corpus + Rust/Go proof).
 - **Discipline**: Zone-2 new layer, NO core-VM change (consume `runtime/instance/*` + memory + `Runtime.invoke` as
   black box); component-value type DISTINCT from `runtime.Value`; TDD + boundary fixtures + spec-citation; no-copy;
   3-host gate; no tag. Full discipline list in the plan doc.
