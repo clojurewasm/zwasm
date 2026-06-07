@@ -17,40 +17,6 @@ v0.3 feature work** (2026-06-06) — "AIが思いのほか早いのでどんど�
    hunted; verify the signal at every Step 0.7.
 Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE** (cw v1 side succeeded).
 
-## Active bundle (ADR-0118 D6) — atomics official spec corpus (conformance for 17.1)
-
-- **Bundle-ID**: atomics-spec-corpus
-- **Goal**: run the official `proposals/threads/atomic.wast` through a spec runner — official conformance for
-  17.1 atomics (complements the p17/atomics edge fixtures). The relaxed-SIMD corpus caught 2 real x86 bugs;
-  atomics (complex rmw/cmpxchg/wait) is the next-most-likely to surface latent bugs. Same value pattern.
-- **Continuity-memo**: SCOUTED this cycle — `wast2json --enable-threads proposals/threads/atomic.wast` → 142
-  assert_return + 45 assert_trap + 48 assert_invalid + 59 standalone `action` (3 modules). All shapes **scalar**
-  (i32.atomic.load: [i32]→[i32]); NO `(either)`. **Runner choice is the open Q**: simd_assert_runner = v128-
-  focused; wasm_3_0 runner EXECUTES but has narrow JIT-eligibility (SKIPS arg-taking asserts — atomic.load takes
-  an i32 arg → would skip); `spec_assert_runner_non_simd` has broad arg-taking scalar exec (25437 assertions) →
-  likely the right host BUT must verify it (a) handles a **shared-memory** module + (b) the 59 `action` commands
-  (store-side; distiller currently `skip-impl directive-action` → loads may read uninit — check if atomic tests
-  are self-contained or need action-execution).
-- **Plan**: ~~chunk1 host-runner identified~~ = **`spec_assert_runner_non_simd`** (broad arg-taking scalar exec,
-  25437 assertions; takes a `corpus_root` arg @non_simd:84-103 + auto-iterates subdirs; linear mem via
-  `base.growable_memory`). wasm_3_0 runner REJECTED (skips arg-taking). **NEXT chunk2** = regen atomic.wast →
-  a new `test/spec/threads-assert/atomic/` corpus + add a build.zig step reusing the non_simd runner binary
-  pointed at it (mirror build.zig:464 test-spec-wasm-2.0-assert). Distiller source = TESTSUITE
-  `proposals/threads/atomic.wast` (NOT spec/test/core). **Action-handling RESOLVED (scout)**: non_simd runner
-  PERSISTS memory across directives (@non_simd:147) + already runs `init`-action invokes (@622) → distiller emits
-  the 59 `action` (store/init) commands as **void-result invokes** (`assert_return <fn> <args> -> ()`), NOT skip.
-  Module = `(memory 1 1 shared)`. **chunk2-3 DONE (spiked @this cycle)**: regen `scripts/regen_spec_threads_assert.sh`
-  written; `spec_assert_runner_non_simd` runs the corpus — **226 asserts PASS, ZERO atomics bugs**. **NOW BLOCKED
-  @D-301 (chunk4 = runner extension, REQUIRED)**: (a) 3-arg-scalar dispatch (cmpxchg/wait take 3 args; runner
-  maxes at 2 AND they're sequence-setup ops → skipping breaks dependent loads) — add entry helpers
-  callI32_i32i32i32 / callI64_i32i64i64 / callI32_i32i32i64 / callI32_i32i64i64 (entry.zig) + non_simd dispatch;
-  (b) assert_trap arg-parse (nonSimdRunAssertTrap can't parse i64/multi-arg the assert_return path handles).
-  Then regen → wire build.zig test-spec-threads-assert step → corpus green 3-host. Regen script committed
-  (untracked corpus NOT committed until green). Atomic JIT edge-covered (p17/atomics) meanwhile.
-- **Exit-condition**: atomic.wast assert_returns execute (not skip) + pass in a runner, 0 fail, 3-host; any
-  surfaced bug fixed.
-- **Cycles-remaining**: ~3-4. No tag (ADR-0156).
-
 ## Current state
 
 - **Phase 17 (v0.2) IN-PROGRESS** (ADR-0168). DONE+**3-host-confirmed**: **17.1-atomics @9eb84833** ·
@@ -65,6 +31,10 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
   verified). The corpus caught a REAL x86 bug (relaxed_dot passed `a` as PMADDUBSW's unsigned operand → wrong for
   a<0; fixed by swapping → b=unsigned/a=signed). ubuntu was RED@5d098216 (3 fail) → forward-fixed (impl bug, not
   revert). dot_s_neg edge fixture guards the sign boundary. ubuntu re-confirm pending @b8c1c31d.
+- **atomics official spec corpus DONE @d13f099a (D-301)** — `proposals/threads/atomic.wast` → `threads-assert/`,
+  run by `spec_assert_runner_non_simd`, wired into test-all. **247 asserts pass, 0 fail, 0 atomics bugs** (extended
+  the runner for 3-arg cmpxchg/wait: 3 entry.zig helpers + dispatch arms). 47 skips = runner-test-harness limits
+  (assert_trap i64/multi-arg argparse; wait needs shared scratch) — NOT zwasm bugs, atomic JIT edge-covered.
 - **D-231 leak FIXED @96fcdf9f** — running check_build_dce's nm-grep on a cross-compiled x86_64 v1_0 binary
   found 3 dead `wasm_3_0` codegen symbols surviving DCE (x86 legacy-switch br_on_null cohort lacked the
   `if (comptime wasm_v3_plus)` guard arm64 had). Fixed; v1_0 x86 wasm_3_0 3→0. REMAINING D-231 = wire the gate
