@@ -482,6 +482,24 @@ fn p2WallNow(caller: *Caller, retptr: u32) WasiP2Error!void {
     try mem.write(retptr + 8, @as(u32, @intCast(ns % std.time.ns_per_s)));
 }
 
+/// `wasi:random/random` `get-random-bytes(len: u64) -> list<u8>`. Allocates
+/// `len` bytes via the guest `cabi_realloc` (nested invoke), fills them with
+/// secure random, and writes `(data_ptr, len)` to the return area at `retptr`.
+/// Mirrors the D2 list-return pattern (p2GetDirectories).
+fn p2RandomGetBytes(caller: *Caller, len: u64, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = caller.memory() orelse return WasiP2Error.NoMemory;
+    const n: u32 = @intCast(@min(len, std.math.maxInt(u32)));
+    const data_ptr: u32 = if (n == 0) 0 else try ctx.reallocGuest(n, 1);
+    if (n != 0) {
+        const dest = mem.sliceAt(data_ptr, n) catch return WasiP2Error.OutOfBounds;
+        if (wasi_clocks.randomFill(ctx.host, dest) != .success)
+            @panic("WASI-P2 get-random-bytes: secure random unavailable (host.io unset)");
+    }
+    try mem.write(retptr, data_ptr); // list data ptr
+    try mem.write(retptr + 4, n); // list length
+}
+
 /// `wasi:io/streams` `[method]output-stream.blocking-write-and-flush`
 /// (self, ptr, len, retptr): write the flat `list<u8>` at `(ptr, len)` to the
 /// fd bound to `self`, then store the `result<_, stream-error>` ok-discriminant
@@ -639,7 +657,8 @@ fn defineClassifiedFunc(lk: *Linker, module: []const u8, name: []const u8, op: a
         .cli_exit => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!void, p2Exit),
         .clocks_monotonic_now => try lk.defineFuncCtx(module, name, ctx, fn (*Caller) WasiP2Error!i64, p2MonotonicNow),
         .clocks_wall_now => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!void, p2WallNow),
-        // Classified but not yet trampolined (stdin/random list + the rest of the
+        .random_get_bytes => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u64, u32) WasiP2Error!void, p2RandomGetBytes),
+        // Classified but not yet trampolined (stdin input-stream + the rest of the
         // fs descriptor subset) — honest hard error, no silent skip. These land as
         // their own D3 chunks once a fixture exercises each.
         .cli_get_stdin,
@@ -647,7 +666,6 @@ fn defineClassifiedFunc(lk: *Linker, module: []const u8, name: []const u8, op: a
         .in_stream_read,
         .in_stream_blocking_read,
         .in_stream_drop,
-        .random_get_bytes,
         .fs_descriptor_read,
         .fs_descriptor_sync,
         .fs_descriptor_stat,
@@ -1343,6 +1361,26 @@ test "D3: a WASI-P2 component reads wall-clock.now() — realtime past 2017 → 
     // run() reads wall-clock.now() into a 12-byte datetime record at retptr and
     // exit(0) iff seconds>1.5e9 (the clocks_wall_now trampoline writes seconds@0,
     // nanoseconds@8 to guest memory; realtime clock id 0).
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try testing.expectEqual(@as(u32, 0), host.exit_code.?);
+}
+
+test "D3: a WASI-P2 component calls random.get-random-bytes(16) — list realloc → exit 0" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/wasi_p2_random.wasm", testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+    host.io = io;
+
+    // run() calls get-random-bytes(16) — the trampoline allocates 16 bytes via the
+    // guest cabi_realloc, fills with secure random, returns (ptr,len); run ORs the
+    // bytes and exit(0) iff len==16 and some byte is nonzero.
     try runWasiP2Main(&eng, testing.allocator, bytes, &host);
     try testing.expectEqual(@as(u32, 0), host.exit_code.?);
 }

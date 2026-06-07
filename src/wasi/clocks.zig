@@ -141,9 +141,16 @@ pub fn randomGet(
 ) p1.Errno {
     const end = @as(usize, buf_ptr) + @as(usize, buf_len);
     if (end > mem.len) return .fault;
-    if (buf_len == 0) return .success;
+    return randomFill(host, mem[buf_ptr..end]);
+}
+
+/// Fill `dest` with cryptographically-secure random bytes. Factored from
+/// `random_get` so the WASI-P2 `get-random-bytes` trampoline — which allocates
+/// its own destination via the guest `cabi_realloc` — reuses the same io path.
+pub fn randomFill(host: *Host, dest: []u8) p1.Errno {
+    if (dest.len == 0) return .success;
     const io = host.io orelse return .nosys;
-    io.randomSecure(mem[buf_ptr..end]) catch return .nosys;
+    io.randomSecure(dest) catch return .nosys;
     return .success;
 }
 
