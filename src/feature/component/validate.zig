@@ -35,6 +35,25 @@ pub fn validate(info: *const TypeInfo) Error!void {
     }
     try checkCanons(info, type_space_len);
     try checkAliases(info);
+    for (info.imports.items) |imp| try checkExternDesc(imp.desc, type_space_len);
+    for (info.exports.items) |ex| if (ex.desc) |d| try checkExternDesc(d, type_space_len);
+}
+
+/// Rule 4: an import/export `externdesc` that ascribes a type must reference an
+/// in-bounds type. `func`/`component`/`instance` are type indices (the ascribed
+/// def-type); `type_bound (eq i)` references type `i`; `value` carries a valtype.
+/// `core_module` (core-module index space) is deferred — the count is not yet
+/// surfaced on `TypeInfo` (a false-negative at worst, never a false-positive).
+fn checkExternDesc(desc: types.ExternDesc, type_space_len: u32) Error!void {
+    switch (desc) {
+        .func, .component, .instance => |idx| if (idx >= type_space_len) return Error.InvalidExternDesc,
+        .type_bound => |tb| switch (tb) {
+            .eq => |idx| if (idx >= type_space_len) return Error.InvalidExternDesc,
+            .sub_resource => {},
+        },
+        .value_bound => |vb| if (vb) |vt| try checkValType(vt, type_space_len),
+        .core_module => {}, // core-module index space count not yet on TypeInfo — deferred
+    }
 }
 
 /// Rule 3: an `alias` of an instance export must name an in-bounds instance.
