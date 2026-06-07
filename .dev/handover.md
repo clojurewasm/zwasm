@@ -17,6 +17,18 @@ v0.3 feature work** (2026-06-06) — "AIが思いのほか早いのでどんど�
    hunted; verify the signal at every Step 0.7.
 Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE** (cw v1 side succeeded).
 
+## Active bundle
+
+- **Bundle-ID**: D-303-jit-unaligned-atomic-trap
+- **Cycles-remaining**: ~2
+- **Continuity-memo**: add `unaligned_atomic_fixups` (trap_kind=14) on BOTH arches mirroring
+  `divzero_fixups` (ctx.zig field + emit.zig create/defer/wire + `EmitCindStub.emit(..,14,..)`); at op_memory
+  atomic load/store (access_size>1) emit `ea & (size-1)` test → branch-if-nonzero to stub, BEFORE bounds check.
+  NEEDS new encoders: arm64 TST/ANDS-bitmask-imm (masks 1/3/7) + B.NE; x86_64 TEST r,imm + JNE. Interp is the
+  reference (memory.zig:202). Full plan in D-303 debt row refs.
+- **Exit-condition**: distiller flips load/store back to real `assert_trap` + threads-assert corpus +10
+  (292 pass, 0 D303-skip) on Mac AND ubuntu AND Win64; edge fixtures under test/edge_cases/p17/atomics per width.
+
 ## Current state
 
 - **Phase 17 (v0.2) IN-PROGRESS** (ADR-0168). DONE+**3-host-confirmed**: **17.1-atomics @9eb84833** ·
@@ -31,10 +43,12 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
   verified). The corpus caught a REAL x86 bug (relaxed_dot passed `a` as PMADDUBSW's unsigned operand → wrong for
   a<0; fixed by swapping → b=unsigned/a=signed). ubuntu was RED@5d098216 (3 fail) → forward-fixed (impl bug, not
   revert). dot_s_neg edge fixture guards the sign boundary. ubuntu re-confirm pending @b8c1c31d.
-- **atomics official spec corpus DONE @d13f099a (D-301)** — `proposals/threads/atomic.wast` → `threads-assert/`,
-  run by `spec_assert_runner_non_simd`, wired into test-all. **247 asserts pass, 0 fail, 0 atomics bugs** (extended
-  the runner for 3-arg cmpxchg/wait: 3 entry.zig helpers + dispatch arms). 47 skips = runner-test-harness limits
-  (assert_trap i64/multi-arg argparse; wait needs shared scratch) — NOT zwasm bugs, atomic JIT edge-covered.
+- **atomics assert_trap un-skipped @aa6e1a76 (D-301) → found D-303** — the distiller blanket-skipped ALL atomic
+  assert_trap with a FALSE reason ("argparse"). Un-skipped: added `(i32,i64,i64)` arm to nonSimdRunAssertTrap +
+  emit real directives. **247 → 282 pass** (+35 RMW/cmpxchg unaligned-traps now live). The un-skip EXPOSED a REAL
+  JIT bug **D-303**: inline `*.atomic.load*`/`*.atomic.store*` codegen does NOT trap on unaligned ea (interp
+  CORRECT @memory.zig:202; RMW/cmpxchg/wait/notify CORRECT via jit_abi trap_kind=14). 10 load/store skipped with
+  truthful `jit-unaligned-trap-gap-D303` until the 2-arch JIT fix (next bundle). 2 wait skips = nonshared-scratch.
 - **D-231 leak FIXED @96fcdf9f** — running check_build_dce's nm-grep on a cross-compiled x86_64 v1_0 binary
   found 3 dead `wasm_3_0` codegen symbols surviving DCE (x86 legacy-switch br_on_null cohort lacked the
   `if (comptime wasm_v3_plus)` guard arm64 had). Fixed; v1_0 x86 wasm_3_0 3→0. REMAINING D-231 = wire the gate
@@ -47,16 +61,15 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
   needs survey+ADRs); (2) **branch-hinting** = D-302 (advisory custom-section, no conformance effect, likely
   already a no-op skip — quick verify); (3) **multi-memory JIT** = §14-deferred allowlist (~458 skips;
   parse/interp done).
-- **NEXT CLEAN-SESSION — clear bounded debt in one go (refs all resolve; ordered)**:
-  1. **D-301** runner ext → un-skip 47 atomics asserts: nonSimdRunAssertTrap i64/multi-arg argparse + mark
-     scratch shared for wait32/64 (`test/spec/spec_assert_runner_non_simd.zig`, `base.growable_memory`).
-  2. **D-231** wire cross-nm x86 DCE gate into `check_build_dce.sh` (mechanism validated; ELF-nm in nix).
-  3. **D-302** verify a `metadata.code.branch_hint` module parses+runs on v2 (custom-section skip path).
+- **NEXT — ordered (correctness-first)**:
+  1. **D-303 (now, real JIT bug — the Active bundle below)** fix JIT unaligned-atomic-load/store trap, 2 arches.
+  2. **D-301 residual** mark scratch shared for wait32/64 (2 nonshared skips) — `base.growable_memory` shared flag.
+  3. **D-231** wire cross-nm x86 DCE gate into `check_build_dce.sh` (mechanism validated; ELF-nm in nix).
+  4. **D-302** verify a `metadata.code.branch_hint` module parses+runs on v2 (custom-section skip path).
   Then the BIG forward track = **Component Model / WASI-P2 survey** (the real v1-parity completion + v0.2 entry).
   **Correctly DEFERRED (do NOT clear)**: D-209 (hot-path/exotic), D-259 (W54-ABI-risk/zero-perf), D-300
   stack-switching (Phase-3 unstable). **D-299** (inline atomic misalign-trap, x86_64 W^X) env-constrained. No tag.
-- Debt ledger: **54 entries** (+D-300 stack-switching, +D-301 atomics-corpus→note, +D-302 branch-hinting). 0
-  `now` except D-299. Never idle.
+- Debt ledger: **55 entries** (+D-303 JIT unaligned-atomic-trap, now). D-303 + D-299 are `now`. Never idle.
 - **D-279 BREAKTHROUGH @92cf7979** — the decisive Win64 RED finally landed (@16fc1bb3, the run the user cut off):
   `zwasm-spec-wasm-2-0-assert` exit-3 with the `[d-279-veh] STACK-OVERFLOW` diagnostic PRESENT but NOT firing →
   **H3 REFUTED**. `[W4 DIR]` raw-beacon pinned crash module = **`address.2.wasm` (NON-SIMD i32/i64 load/store)** in
@@ -86,11 +99,11 @@ diagnostic landed @`92cf7979` to pin the RIP on the next Win64 RED. Full enumera
 
 - **ubuntu**: re-kicked each turn (D6 always). Verify `[run_remote_ubuntu] OK` in `/tmp/ubuntu.log`. Red →
   auto-revert (D3; first-resume + non-code-gap exceptions apply).
-- **windows**: BATCHED (D8). Last RED **segv @16fc1bb3** (D-279, recorded streak→0, NOT auto-reverted per D7 —
-  known heisenbug). Re-kicked @92cf7979 to TEST the new UNARMED-FATAL diagnostic. Verify `/tmp/win.log`: if
-  `[d-279-veh] UNARMED-FATAL code=0x.. rip=0x..` prints → H6 confirmed (faulting RIP pins compile/runtime/interp);
-  if still NO `[d-279-veh]` + exit-3 → H5 (non-exception abort). `[d-279-veh] STACK-OVERFLOW` (H3) is now refuted
-  but the arm stays. NOT auto-revert (D7).
+- **windows**: BATCHED (D8). **GREEN @e0efec97** (H6 diagnostic present, did NOT fire = no crash this run;
+  heisenbug intermittent — `silent` streak=1). Gate recorded @aa6e1a76 (next batch ≥12 / ABI-risk). The H6
+  UNARMED-FATAL diagnostic is ARMED: the NEXT Win64 RED self-IDs — `[d-279-veh] UNARMED-FATAL code=0x.. rip=0x..`
+  → H6 confirmed (RIP pins compile/runtime/interp); still NO `[d-279-veh]` + exit-3 → H5 (non-exception abort).
+  NOT auto-revert (D7).
 - **Gate note**: `OK` = green; `Build Summary: N failed` (no OK) = RED. EXPECTED non-failures: `zig-host-hello`
   exit-42, `--__selftest-crash` exit-70, sha256 `verify: FAIL` (fixture-wrong-constant FALSE lead).
 
