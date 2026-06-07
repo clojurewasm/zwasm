@@ -306,6 +306,62 @@ test "IT-3a: two allocations via the guest allocator don't overlap" {
     try testing.expectEqualStrings("second", try canon.liftString(cx, b.ptr, b.packed_length));
 }
 
+/// Provenance of the REAL string→string component fixture (`greet(name: string)
+/// -> string` ⇒ `"Hello, " ++ name ++ "!"`, built with wasm-tools). Sources at
+/// `test/edge_cases/p17/component/`. Read at runtime (it lives outside the `src/`
+/// package, so `@embedFile` can't reach it); `zig build test` runs from the repo
+/// root so the cwd-relative path resolves.
+const greet_component_path = "test/edge_cases/p17/component/greet_component.wasm";
+
+test "IT-3b-2: a real wasm-tools string→string component decodes through the pipeline" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const greet_component = try std.Io.Dir.cwd().readFileAlloc(io, greet_component_path, testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(greet_component);
+
+    try testing.expectEqual(decode.Kind.component, try decode.classify(greet_component));
+
+    var comp = try decode.decode(testing.allocator, greet_component);
+    defer comp.deinit(testing.allocator);
+
+    var has_core_module = false;
+    var has_canon = false;
+    for (comp.sections.items) |sec| {
+        if (sec.id == .core_module) has_core_module = true;
+        if (sec.id == .canon) has_canon = true;
+    }
+    try testing.expect(has_core_module and has_canon);
+
+    var info = try ctypes.decodeTypeInfo(testing.allocator, &comp);
+    defer info.deinit();
+
+    // The component-level func type: greet(name: string) -> string.
+    const ft = info.deftypes.items[0].func;
+    try testing.expectEqual(PrimValType.string, ft.params[0].ty.primitive);
+    try testing.expectEqual(PrimValType.string, ft.result.?.primitive);
+
+    // The canon section lifts greet with utf8 + memory + realloc + post-return.
+    var found_lift = false;
+    for (info.canons.items) |c| {
+        if (c == .lift) {
+            found_lift = true;
+            try testing.expectEqual(ctypes.StringEncoding.utf8, c.lift.opts.string_encoding);
+            try testing.expect(c.lift.opts.memory != null);
+            try testing.expect(c.lift.opts.realloc != null);
+            try testing.expect(c.lift.opts.post_return != null);
+        }
+    }
+    try testing.expect(found_lift);
+
+    // A top-level export named "greet".
+    var found_export = false;
+    for (info.exports.items) |e| {
+        if (std.mem.eql(u8, e.name, "greet")) found_export = true;
+    }
+    try testing.expect(found_export);
+}
+
 test "IT-1: a core module (not a component) is rejected as NotAComponent" {
     var eng = try Engine.init(testing.allocator, .{});
     defer eng.deinit();
