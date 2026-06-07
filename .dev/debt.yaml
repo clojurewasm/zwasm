@@ -474,9 +474,9 @@ entries:
     layer: "infra"
     status: "note"
     description: |-
-      x86_64-side build-option DCE gate coverage gap (follow-on to D-230 / ADR-0130). `check_build_dce.sh` builds HOST-NATIVE binaries and nm-greps them; a Mac (aarch64) build compiles ONLY arm64 codegen (the Mac v1_0 nm showed zero x86_64 symbols), so the `--gate` call now in `gate_merge.sh` runs Mac-side = catches ONLY arm64 leaks. An x86_64-codegen level-separation leak would surface only in an x86_64-host build → currently unverified by gate. Low risk: x86_64 emit.zig routes 3.0 ops through `dispatch_collector.dispatchX86_64Ctx` → `enabledByBuild()` comptime DCE (correct by construction; that is WHY only arm64 leaked in D-230). FIX: add a `check_build_dce.sh --gate` invocation to the ubuntu leg of `gate_merge.sh` (needs `run_remote_ubuntu.sh` to accept a `dce-gate` step, or run it inline over SSH after the test-all). Verify: deliberately un-gate one x86_64 3.0 prong on a scratch branch → ubuntu --gate must FAIL.
+      note (PROGRESS 2026-06-07): the x86_64 build-DCE coverage gap is REAL + caught a live leak. Running check_build_dce nm-grep against a cross-compiled `-Dtarget=x86_64-linux-gnu -Doptimize=ReleaseSafe -Dwasm=v1_0` binary found `engine.codegen.x86_64.ops.wasm_3_0.{br_on_null,br_on_non_null,ref_as_non_null}.emit` SURVIVING (3 dead wasm_3_0 symbols); arm64 prunes them (0). Root cause: x86 legacy-switch arms called op.emit() directly (no comptime guard); arm64 guards with `if (comptime wasm_v3_plus)`. FIXED @96fcdf9f (added build_options+wasm_v3_plus+guards to x86 emit.zig; v1_0 x86 wasm_3_0 3→0; v3 still green). REMAINING = wire the gate: extend `scripts/check_build_dce.sh` to ALSO cross-compile each combo for x86_64-linux + nm-grep (mechanism validated: nix `nm` = clang-wrapper llvm-nm reads ELF; cross-build works). Then it catches future x86 DCE drift. Refs: scripts/check_build_dce.sh, scripts/gate_merge.sh:50, src/engine/codegen/x86_64/emit.zig.
     first_raised: "2026-06-02"
-    last_reviewed: "2026-06-03"
+    last_reviewed: "2026-06-07"
     refs: |-
       `scripts/check_build_dce.sh` (host-native build); `scripts/gate_merge.sh` (Mac-only --gate); `scripts/run_remote_ubuntu.sh`; `src/engine/codegen/x86_64/emit.zig` (collector-routed, DCE-clean); ADR-0130; D-230
   - id: "D-026"

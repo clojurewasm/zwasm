@@ -31,8 +31,12 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
   verified). The corpus caught a REAL x86 bug (relaxed_dot passed `a` as PMADDUBSW's unsigned operand → wrong for
   a<0; fixed by swapping → b=unsigned/a=signed). ubuntu was RED@5d098216 (3 fail) → forward-fixed (impl bug, not
   revert). dot_s_neg edge fixture guards the sign boundary. ubuntu re-confirm pending @b8c1c31d.
-- **NEXT = sweep/completeness** (`.dev/remaining_sweep.md` Bucket B/C: D-231 build-DCE gate, D-209 memory64
-  >4GiB memarg, D-259 spillBytes measure-first). **NOT new-proposal features** — stack-switching **DEFERRED
+- **D-231 leak FIXED @96fcdf9f** — running check_build_dce's nm-grep on a cross-compiled x86_64 v1_0 binary
+  found 3 dead `wasm_3_0` codegen symbols surviving DCE (x86 legacy-switch br_on_null cohort lacked the
+  `if (comptime wasm_v3_plus)` guard arm64 had). Fixed; v1_0 x86 wasm_3_0 3→0. REMAINING D-231 = wire the gate
+  (cross-nm x86 in check_build_dce; mechanism validated). D-209 memory64 >4GiB = correctly measure-first-deferred
+  (hot-path branch cost, no consumer). D-259 spillBytes = measure-first.
+- **NEXT = wire D-231 x86 DCE gate** OR continue sweep. **NOT new-proposal features** — stack-switching **DEFERRED
   @D-300** (survey 2026-06-07: Phase-3 unstable format + 3 architecture ADRs + ~25-35cyc — re-survey Phase 4). compact-import/
   memory-control also pre-Phase-4. So pick from `.dev/remaining_sweep.md` Bucket B/C (D-231 build-DCE gate,
   D-209 memory64 >4GiB memarg completeness, D-259 spillBytes measure-first, …) + re-check proposal_watch
