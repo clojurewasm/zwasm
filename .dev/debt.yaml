@@ -1223,6 +1223,40 @@ entries:
     first_raised: "2026-06-07"
     last_reviewed: "2026-06-07"
     refs: ~/Documents/MyProducts/zwasm/src/cli.zig:2032; src/parse/sections.zig; .dev/proposal_watch.md
+  - id: D-303
+    layer: code
+    status: now
+    description: |-
+      now (real JIT spec-compliance bug, found 2026-06-07 by D-301 atomics corpus un-skip).
+      **JIT inline `*.atomic.load*` / `*.atomic.store*` codegen does NOT trap on unaligned
+      effective address** — the spec requires every atomic access to trap (`ea mod size ≠ 0`,
+      exec step 8, BEFORE the bounds check). The INTERP is CORRECT (`memory.zig:202`
+      `if (ea & 3 != 0) return Trap.UnalignedAtomic`); the bug is JIT-ONLY and arch-agnostic
+      (both arm64 + x86_64 `op_memory.zig` route atomic load/store through the SAME inline
+      path as plain load/store, which omits the alignment check). RMW / cmpxchg / wait / notify
+      are FINE — they go through the `jit_abi.zig` helper fns that already set `trap_kind = 14`
+      (jit_abi.zig:546/656/711/732). Discovered by un-skipping the official atomics assert_trap
+      corpus (D-301): 35 RMW/cmpxchg trap correctly; 10 load/store "did not trap" → real failure.
+      Those 10 are currently `skip-impl jit-unaligned-trap-gap-D303` in the threads-assert
+      manifest (truthful skip, distiller `regen_spec_threads_assert.sh`), the 35 RMW now run live.
+      FIX (bundle, next cycle): add an `unaligned_atomic_fixups` list (trap_kind=14) mirroring the
+      `divzero_fixups`/`overflow_fixups` demuxed-trap-stub pattern (ctx.zig field + emit.zig
+      create/defer/wire + `EmitCindStub.emit(..., 14, frame_bytes)`), and at the op_memory atomic
+      load/store path (access_size>1) emit, BEFORE the bounds check, an `ea & (access_size-1)`
+      test → branch-if-nonzero to the stub. NEEDS NEW ENCODERS: arm64 TST/ANDS-bitmask-immediate
+      (masks 1/3/7) + B.NE (have encBCond); x86_64 TEST r,imm + JNE. Add edge fixtures under
+      test/edge_cases/p17/atomics for each width × load/store. Then flip the distiller to emit the
+      real assert_trap for load/store too and re-bake → corpus +10. 3-host verify (incl. Win64).
+    first_raised: "2026-06-07"
+    last_reviewed: "2026-06-07"
+    refs: |-
+      src/engine/codegen/arm64/op_memory.zig (atomic load/store inline path, no align check)
+      src/engine/codegen/x86_64/op_memory.zig (same)
+      src/instruction/wasm_1_0/memory.zig:202 (interp CORRECT reference)
+      src/engine/codegen/shared/jit_abi.zig:546 (rmw align-check pattern, trap_kind=14)
+      src/engine/codegen/arm64/ctx.zig:120 (divzero_fixups demux template)
+      scripts/regen_spec_threads_assert.sh (distiller skip + future flip)
+      test/spec/threads-assert/atomic/manifest.txt (10 skip-impl jit-unaligned-trap-gap-D303)
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.

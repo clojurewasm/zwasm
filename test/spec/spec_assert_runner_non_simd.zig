@@ -1643,6 +1643,15 @@ fn nonSimdRunAssertTrap(
                 try entry.callVoid_i32i64i32(self.compiled.module, self.func_idx, self.rt, args_in[0].i32, args_in[1].i64, args_in[2].i32);
                 return;
             }
+            // §17.4 D-301 — `(i32, i64, i64)` shape: i64 atomic cmpxchg
+            // (addr, expected, replacement) on the unaligned-trap path.
+            // Result is immaterial — only Error.Trap is a PASS — so the
+            // i64-result helper is reused and its value discarded.
+            if (self.n_args == 3 and args_in[0] == .i32 and args_in[1] == .i64 and args_in[2] == .i64) {
+                self.shape_matched = true;
+                _ = try entry.callI64_i32i64i64(self.compiled.module, self.func_idx, self.rt, args_in[0].i32, args_in[1].i64, args_in[2].i64);
+                return;
+            }
             // No arm matched — leave shape_matched = false.
         }
     };

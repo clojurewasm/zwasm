@@ -196,51 +196,51 @@ assert_return i64.atomic.load i32:0 -> i64:1229782938247347951
 assert_return init i64:1229782938247303441 -> ()
 assert_return i64.atomic.rmw32.cmpxchg_u i32:0 i64:286331153 i64:14608453322185352933 -> i64:286331153
 assert_return i64.atomic.load i32:0 -> i64:1229782941362267877
-skip-impl runner-assert-trap-argparse i32.atomic.load
-skip-impl runner-assert-trap-argparse i64.atomic.load
-skip-impl runner-assert-trap-argparse i32.atomic.load16_u
-skip-impl runner-assert-trap-argparse i64.atomic.load16_u
-skip-impl runner-assert-trap-argparse i64.atomic.load32_u
-skip-impl runner-assert-trap-argparse i32.atomic.store
-skip-impl runner-assert-trap-argparse i64.atomic.store
-skip-impl runner-assert-trap-argparse i32.atomic.store16
-skip-impl runner-assert-trap-argparse i64.atomic.store16
-skip-impl runner-assert-trap-argparse i64.atomic.store32
-skip-impl runner-assert-trap-argparse i32.atomic.rmw.add
-skip-impl runner-assert-trap-argparse i64.atomic.rmw.add
-skip-impl runner-assert-trap-argparse i32.atomic.rmw16.add_u
-skip-impl runner-assert-trap-argparse i64.atomic.rmw16.add_u
-skip-impl runner-assert-trap-argparse i64.atomic.rmw32.add_u
-skip-impl runner-assert-trap-argparse i32.atomic.rmw.sub
-skip-impl runner-assert-trap-argparse i64.atomic.rmw.sub
-skip-impl runner-assert-trap-argparse i32.atomic.rmw16.sub_u
-skip-impl runner-assert-trap-argparse i64.atomic.rmw16.sub_u
-skip-impl runner-assert-trap-argparse i64.atomic.rmw32.sub_u
-skip-impl runner-assert-trap-argparse i32.atomic.rmw.and
-skip-impl runner-assert-trap-argparse i64.atomic.rmw.and
-skip-impl runner-assert-trap-argparse i32.atomic.rmw16.and_u
-skip-impl runner-assert-trap-argparse i64.atomic.rmw16.and_u
-skip-impl runner-assert-trap-argparse i64.atomic.rmw32.and_u
-skip-impl runner-assert-trap-argparse i32.atomic.rmw.or
-skip-impl runner-assert-trap-argparse i64.atomic.rmw.or
-skip-impl runner-assert-trap-argparse i32.atomic.rmw16.or_u
-skip-impl runner-assert-trap-argparse i64.atomic.rmw16.or_u
-skip-impl runner-assert-trap-argparse i64.atomic.rmw32.or_u
-skip-impl runner-assert-trap-argparse i32.atomic.rmw.xor
-skip-impl runner-assert-trap-argparse i64.atomic.rmw.xor
-skip-impl runner-assert-trap-argparse i32.atomic.rmw16.xor_u
-skip-impl runner-assert-trap-argparse i64.atomic.rmw16.xor_u
-skip-impl runner-assert-trap-argparse i64.atomic.rmw32.xor_u
-skip-impl runner-assert-trap-argparse i32.atomic.rmw.xchg
-skip-impl runner-assert-trap-argparse i64.atomic.rmw.xchg
-skip-impl runner-assert-trap-argparse i32.atomic.rmw16.xchg_u
-skip-impl runner-assert-trap-argparse i64.atomic.rmw16.xchg_u
-skip-impl runner-assert-trap-argparse i64.atomic.rmw32.xchg_u
-skip-impl runner-assert-trap-argparse i32.atomic.rmw.cmpxchg
-skip-impl runner-assert-trap-argparse i64.atomic.rmw.cmpxchg
-skip-impl runner-assert-trap-argparse i32.atomic.rmw16.cmpxchg_u
-skip-impl runner-assert-trap-argparse i64.atomic.rmw16.cmpxchg_u
-skip-impl runner-assert-trap-argparse i64.atomic.rmw32.cmpxchg_u
+skip-impl jit-unaligned-trap-gap-D303 i32.atomic.load
+skip-impl jit-unaligned-trap-gap-D303 i64.atomic.load
+skip-impl jit-unaligned-trap-gap-D303 i32.atomic.load16_u
+skip-impl jit-unaligned-trap-gap-D303 i64.atomic.load16_u
+skip-impl jit-unaligned-trap-gap-D303 i64.atomic.load32_u
+skip-impl jit-unaligned-trap-gap-D303 i32.atomic.store
+skip-impl jit-unaligned-trap-gap-D303 i64.atomic.store
+skip-impl jit-unaligned-trap-gap-D303 i32.atomic.store16
+skip-impl jit-unaligned-trap-gap-D303 i64.atomic.store16
+skip-impl jit-unaligned-trap-gap-D303 i64.atomic.store32
+assert_trap i32.atomic.rmw.add i32:1 i32:0
+assert_trap i64.atomic.rmw.add i32:1 i64:0
+assert_trap i32.atomic.rmw16.add_u i32:1 i32:0
+assert_trap i64.atomic.rmw16.add_u i32:1 i64:0
+assert_trap i64.atomic.rmw32.add_u i32:1 i64:0
+assert_trap i32.atomic.rmw.sub i32:1 i32:0
+assert_trap i64.atomic.rmw.sub i32:1 i64:0
+assert_trap i32.atomic.rmw16.sub_u i32:1 i32:0
+assert_trap i64.atomic.rmw16.sub_u i32:1 i64:0
+assert_trap i64.atomic.rmw32.sub_u i32:1 i64:0
+assert_trap i32.atomic.rmw.and i32:1 i32:0
+assert_trap i64.atomic.rmw.and i32:1 i64:0
+assert_trap i32.atomic.rmw16.and_u i32:1 i32:0
+assert_trap i64.atomic.rmw16.and_u i32:1 i64:0
+assert_trap i64.atomic.rmw32.and_u i32:1 i64:0
+assert_trap i32.atomic.rmw.or i32:1 i32:0
+assert_trap i64.atomic.rmw.or i32:1 i64:0
+assert_trap i32.atomic.rmw16.or_u i32:1 i32:0
+assert_trap i64.atomic.rmw16.or_u i32:1 i64:0
+assert_trap i64.atomic.rmw32.or_u i32:1 i64:0
+assert_trap i32.atomic.rmw.xor i32:1 i32:0
+assert_trap i64.atomic.rmw.xor i32:1 i64:0
+assert_trap i32.atomic.rmw16.xor_u i32:1 i32:0
+assert_trap i64.atomic.rmw16.xor_u i32:1 i64:0
+assert_trap i64.atomic.rmw32.xor_u i32:1 i64:0
+assert_trap i32.atomic.rmw.xchg i32:1 i32:0
+assert_trap i64.atomic.rmw.xchg i32:1 i64:0
+assert_trap i32.atomic.rmw16.xchg_u i32:1 i32:0
+assert_trap i64.atomic.rmw16.xchg_u i32:1 i64:0
+assert_trap i64.atomic.rmw32.xchg_u i32:1 i64:0
+assert_trap i32.atomic.rmw.cmpxchg i32:1 i32:0 i32:0
+assert_trap i64.atomic.rmw.cmpxchg i32:1 i64:0 i64:0
+assert_trap i32.atomic.rmw16.cmpxchg_u i32:1 i32:0 i32:0
+assert_trap i64.atomic.rmw16.cmpxchg_u i32:1 i64:0 i64:0
+assert_trap i64.atomic.rmw32.cmpxchg_u i32:1 i64:0 i64:0
 module atomic.1.wasm
 assert_return init i64:281474976710655 -> ()
 skip-impl runner-nonshared-scratch memory.atomic.wait32

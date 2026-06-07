@@ -93,14 +93,29 @@ for c in d["commands"]:
         fn_tok = f"'{fn}'" if " " in fn else fn
         lines.append(f"assert_return {fn_tok} {args_s} -> {res_s}")
     elif t == "assert_trap":
-        # The non_simd runner's assert_trap path (nonSimdRunAssertTrap →
-        # base.parseAssertReturnArgs) can't parse atomics' i64/multi-arg trap
-        # shapes (the assert_return path handles the same args fine — a runner
-        # arg-parse gap, tracked debt). Atomic misalign/OOB traps are covered
-        # by test/edge_cases/p17/atomics; skip here, don't fail.
+        # Atomic unaligned-access traps. nonSimdRunAssertTrap's dispatch ladder
+        # covers every atomics trap shape (1-arg load, 2-arg store/rmw, 3-arg
+        # i32/i64 cmpxchg) as of §17.4 D-301, so emit the real directive — the
+        # RMW / cmpxchg family traps correctly on the JIT. **EXCEPTION (D-303)**:
+        # JIT inline `*.atomic.load*` / `*.atomic.store*` codegen (op_memory.zig,
+        # both arches) is MISSING the unaligned-atomic alignment check the interp
+        # has (`ea & (size-1) != 0 → Trap.UnalignedAtomic`), so they do NOT trap
+        # → skip with the precise reason until the JIT fix lands. NOT a runner
+        # gap; a real codegen bug tracked as D-303.
         a = c["action"]
+        if a.get("type") != "invoke":
+            lines.append("skip-impl non-invoke-action-trap")
+            continue
         fn = a.get("field", "?")
-        lines.append(f"skip-impl runner-assert-trap-argparse {fn}")
+        args_s, bad = toks(a.get("args", []))
+        if bad:
+            lines.append(f"skip-impl bad-token {fn} {bad}")
+            continue
+        if ".atomic.load" in fn or ".atomic.store" in fn:
+            lines.append(f"skip-impl jit-unaligned-trap-gap-D303 {fn}")
+            continue
+        fn_tok = f"'{fn}'" if " " in fn else fn
+        lines.append(f"assert_trap {fn_tok} {args_s}")
     elif t == "assert_invalid":
         lines.append(f"assert_invalid {c['filename']}")
     elif t == "assert_malformed":
