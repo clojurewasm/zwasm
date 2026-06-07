@@ -46,43 +46,23 @@ philosophy-maintained; proven by Rust+Go sample components). Decision + rational
   imports → trampolines, libc memory cross-instance) and `wasi_p2_hello.wasm` prints "hello\n" to captured stdout.
 - **CLI run path DONE @161236db** — `zwasm run <component.wasm>` routes a component-layer module to `runComponentWasi`
   → `runWasiP2Main`; `zwasm run test/component/wasi_p2_hello.wasm` prints "hello" + exits 0 (dogfooded). D1 fully done.
-- **Phase D2 IN PROGRESS** (plan §Phase D). **D2-1 @e9e12834** — `adapter.zig` classifier extended to the
-  `wasi:filesystem/types` **descriptor** resource (read/write/sync/stat/get-type/drop + preopens → P1 fd ops). **D-306
-  classified host wiring DONE — bundle CM-D2 CLOSED @dde03160**: `types.zig` component-func index space +
-  `instance_origins` + `resolveComponentImport` (lower → func alias → imported instance's interface, version-stripped);
-  `runWasiP2Main` now binds each host-wasi export by its COMPONENT interface (`adapter.classifyImport`), not the core
-  import name. PROOF: `wasi_p2_hello_renamed.wasm` (opaque p0/p1/p2 core names) prints "hello". Unknown import →
-  `error.UnsupportedWasiImport` (no silent skip).
-- **D2 stderr DONE @1f5474d5** — `p2GetStderr` mints an fd-2 output-stream (write/drop shared, fd-from-rep);
-  `wasi_p2_stderr.wasm` prints "oops" to `host.stderr_buffer` via classified dispatch. Remaining D2: clocks/random
-  free-func trampolines (awkward observability — need a "write bytes to stdout" fixture; lower value) + the fs
-  descriptor resource (bundle below — the plan's actual D2 *red*). Cross-component aggregate args → D-305.
-
-## Active bundle
-
-- **Bundle-ID**: CM-D2-fs (resource-modeled WASI-P2 filesystem — the plan §Phase D *red*: "resource-typed P2 fs handle ops")
-- **Cycles-remaining**: ~1
-- **Continuity-memo**: **ALL fs trampolines DONE + unit-tested**: descriptor.write/drop @b766c583,
-  **get-directories @e9d05999** (realloc-from-trampoline via `WasiP2Ctx.realloc_instance`+`reallocGuest`; nested invoke
-  per the re-entrancy lesson), **open-at @a8264fb4** (`p2DescriptorOpenAt` → pathOpen, P2 open-flags map 1:1 to P1
-  oflags; mini-flow open+write+drop tested). Re-entrancy confirmed empirically (get-directories test runs cabi_realloc
-  mid-call). **REMAINING = the bundle EXIT (1 chunk, intricate WAT)**: a real WASI-P2 component fixture importing
-  `wasi:filesystem/{preopens,types}` (descriptor resource type + get-directories/open-at/write/drop method sigs) with a
-  `$libc` core exporting a bump `cabi_realloc` (+ memory), whose `run` does get-directories → open-at "out.txt" → write →
-  drop, lifted to `wasi:cli/run`. Then `runWasiP2Main`: set `ctx.realloc_instance` to the sub-instance exporting
-  `cabi_realloc` (find it in the sub-instance loop, like libc memory) before `m.invoke("run")`; assert file content.
-  GOTCHAS: (a) `classifyCoreExport` maps ALL `resource_drop`→`out_stream_drop` (shortcut) — a descriptor drop in the
-  component would mis-route → resolve resource.drop typeidx → its interface's resource first; (b) the canon-lower opts
-  for get-directories/open-at carry the memory+realloc core-func refs the host must honour. Build the WAT with wasm-tools
-  (validate --features component-model). Stream-via methods + sockets defer (D3); error-code result mapping = D-307.
-- **Exit-condition**: a real WASI-P2 component obtains a descriptor via `get-directories` + writes a file via the
-  descriptor resource e2e through `runWasiP2Main`, asserted on file content.
+- **Phase D2 DONE — bundle CM-D2-fs CLOSED @85bcb5a5** (plan §Phase D [x]). Resource-modeled P2: classified host
+  wiring (D-306 @dde03160, by COMPONENT interface not core name; proof `wasi_p2_hello_renamed.wasm`) · stderr @1f5474d5
+  · **descriptor resource** (`WasiP2Ctx.resources` keyed by RT id) write/drop @b766c583 · **get-directories @e9d05999**
+  (list return-area built via the guest's `cabi_realloc` called from a trampoline — nested invoke, lesson
+  `2026-06-07-engine-invoke-is-reentrant-stack-disciplined`) · **open-at @a8264fb4** · generic resource-drop @75d79a6c.
+  **EXIT @85bcb5a5**: `wasi_p2_fs.wasm` runs e2e through `runWasiP2Main` (get-directories → open-at "out.txt" → write
+  "DATA42" → drop), file content asserted. Fixture uses minimal WIT flags/enum (zwasm classifies by interface+core-sig,
+  so it runs; full real-WASI-type conformance is the Phase E2 toolchain proof).
+- **NEXT = Phase D3** (plan §Phase D3): clocks/random/exit/stdin free-func trampolines + full fs/poll; sockets last
+  (spike first). P1→P2 error-code result mapping = **D-307**. OR Phase E (conformance corpus + Rust/Go sample proof).
+  Cross-component aggregate args → D-305.
 
 ## Current state
 
 - **Phase 17 (v0.2) IN-PROGRESS** (ADR-0168). DONE+3-host: atomics @9eb84833 · wide-arith @231d4536 ·
   custom-page-sizes @cd0de2dd · relaxed-SIMD @08342ec5 (+official corpus @8ef2e752, 13420 pass arm64+x86). Wasm-3.0
-  core 100%-spec COMPLETE. Last SHA **a8264fb4** (WASI-P2 descriptor.open-at — open+write under a dir descriptor).
+  core 100%-spec COMPLETE. Last SHA **85bcb5a5** (WASI-P2 fs component runs e2e — CM-D2-fs bundle EXIT).
 - **Atomics fully conformant @e6f3b0c0** — official corpus **294 pass, 0 SKIPPED** (D-301), incl. the JIT
   unaligned-atomic-trap fix D-303 (code-14 `unaligned_atomic_fixups` both arches, @5b0db8e1, 3-host).
 - **ALL bounded debt CLEARED**: ✅ D-301 · ✅ D-303 · ✅ D-231 (cross-x86 DCE gate wired @aac4fe2f) · ✅ D-302

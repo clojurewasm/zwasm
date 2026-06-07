@@ -130,10 +130,19 @@ design forks. Update this doc's `[x]` + handover NEXT each chunk.
   component dispatch (@161236db). **Exit MET**: `zwasm run
   test/component/wasi_p2_hello.wasm` prints "hello". Broader interface coverage
   (stderr/stdin/clocks/random/exit) + adapter-classified wiring → **D-306**.
-- [ ] **D2 — resource-modeled P2 interfaces** (stdio/clocks/random/filesystem
-  as resources, not just name-map). **Red**: resource-typed P2 fs handle ops.
-- [ ] **D3 — broader native P2 host** (full fs/poll; sockets last, where the
-  corpus demands past the adapter shortcut). Spike sockets first.
+- [x] **D2 — resource-modeled P2 interfaces** (stdio/filesystem as resources,
+  not just name-map). **Red MET**: resource-typed P2 fs handle ops. Bundle
+  CM-D2-fs: D-306 classified host wiring (@dde03160, by COMPONENT interface not
+  core name; proof `wasi_p2_hello_renamed.wasm`) · stderr @1f5474d5 · descriptor
+  resource (`DESCRIPTOR_RT`) write/drop @b766c583 · get-directories @e9d05999
+  (list return-area via guest `cabi_realloc` from a trampoline — nested invoke,
+  lesson `2026-06-07-engine-invoke-is-reentrant…`) · open-at @a8264fb4 · generic
+  resource-drop @75d79a6c · **EXIT @85bcb5a5** `wasi_p2_fs.wasm` runs e2e
+  (get-directories → open-at → write "DATA42" → drop). clocks/random (free funcs,
+  not resources) + exit/stdin + P1→P2 error-code (D-307) → D3.
+- [ ] **D3 — broader native P2 host** (clocks/random/exit/stdin trampolines +
+  full fs/poll; sockets last, where the corpus demands past the adapter
+  shortcut). Spike sockets first. Error-code result mapping = D-307.
 
 ### Phase E — conformance + proof (Tier 2 = wasmtime-equivalent)
 
