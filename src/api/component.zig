@@ -932,6 +932,26 @@ test "D3: a WASI-P2 component calls wasi:cli/exit(err) → host exit code 1" {
     try testing.expectEqual(@as(u32, 1), host.exit_code.?);
 }
 
+test "D-308: a WASI-P2 component importing an unknown wasi interface errors cleanly (no signal)" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/wasi_p2_unknown_import.wasm", testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+    host.io = io;
+
+    // wasi:sockets/tcp is not in the adapter classify table; building the host
+    // synthetic instance must raise a CLEAN error — never a fatal signal from
+    // the deferred instance/linker/module cleanup (the D-308 partial-state path,
+    // forced here by a guest core instance built before the failing host one).
+    try testing.expectError(error.UnsupportedWasiImport, runWasiP2Main(&eng, testing.allocator, bytes, &host));
+}
+
 test "D3: a WASI-P2 component reads monotonic-clock.now() — sane + monotonic → exit 0" {
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();
