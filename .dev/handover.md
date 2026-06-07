@@ -31,13 +31,11 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
   verified). The corpus caught a REAL x86 bug (relaxed_dot passed `a` as PMADDUBSW's unsigned operand → wrong for
   a<0; fixed by swapping → b=unsigned/a=signed). ubuntu was RED@5d098216 (3 fail) → forward-fixed (impl bug, not
   revert). dot_s_neg edge fixture guards the sign boundary. ubuntu re-confirm pending @b8c1c31d.
-- **atomics assert_trap un-skipped @aa6e1a76 (D-301) → found D-303** — the distiller blanket-skipped ALL atomic
-  assert_trap with a FALSE reason ("argparse"). Un-skipped: added `(i32,i64,i64)` arm to nonSimdRunAssertTrap +
-  emit real directives. **247 → 282 pass** (+35 RMW/cmpxchg unaligned-traps now live). The un-skip EXPOSED a REAL
-  JIT bug **D-303 FIXED + DISCHARGED @5b0db8e1**: inline atomic load/store omitted the unaligned-trap check the
-  interp has; added a code-14 `unaligned_atomic_fixups` stub both arches. corpus **292 pass / 0 D303-skip**,
-  3-host confirmed (arm64 Mac + x86_64 Rosetta + **x86_64 ubuntu @fac174b5**); Win64 codegen-confirmed (TEST/JNE
-  bytes in dump, 0 did-not-trap) — its 292 summary blocked only by the unrelated D-279 crash. 2 wait skips remain.
+- **D-301 COMPLETE @e6f3b0c0 — atomics official corpus 294 pass, 0 SKIPPED** (arm64 + x86_64 Rosetta; ubuntu
+  @fac174b5 confirmed pre-wait). Chain: un-skipped assert_trap (+35 RMW @aa6e1a76) → EXPOSED+FIXED real JIT bug
+  **D-303** (inline atomic load/store missing unaligned-trap; code-14 `unaligned_atomic_fixups` stub both arches,
+  discharged @5b0db8e1, 3-host) → un-skipped wait32/64 (`extractMemory0Shared`→`mem0_shared`; wait non-blocking
+  →1). Full atomics conformance, ZERO skips. wasm-2.0-assert unaffected (25437 pass, non-shared mem0_shared=0).
 - **D-231 leak FIXED @96fcdf9f** — running check_build_dce's nm-grep on a cross-compiled x86_64 v1_0 binary
   found 3 dead `wasm_3_0` codegen symbols surviving DCE (x86 legacy-switch br_on_null cohort lacked the
   `if (comptime wasm_v3_plus)` guard arm64 had). Fixed; v1_0 x86 wasm_3_0 3→0. REMAINING D-231 = wire the gate
@@ -54,7 +52,8 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
   1. ✅ **d-163-jit dump env-gated @d9d525a4** (was always-on; D-163 closed) — noise gone, `ZWASM_DUMP_JIT=1`
      re-enables. D-279 H7 probe ARMED: this turn's Win64 kick runs WITHOUT the dump → exit-3 persists = real
      compile/exec fault (chase codegen); exit-3 gone = dump-I/O was the trigger. Verify at next Step 0.7.
-  2. **D-301 residual** mark scratch shared for wait32/64 (2 nonshared skips) — `base.growable_memory` shared flag.
+  2. ✅ **D-301 COMPLETE @e6f3b0c0** — atomics corpus **294 pass, 0 SKIPPED** (arm64 + x86 Rosetta). wait32/64
+     un-skipped via `base.extractMemory0Shared` → `mem0_shared` (wait non-blocking → 1; corpus `init` makes cur≠0).
   3. **D-231** wire cross-nm x86 DCE gate into `check_build_dce.sh` (mechanism validated; ELF-nm in nix).
   4. **D-302** verify a `metadata.code.branch_hint` module parses+runs on v2 (custom-section skip path).
   Then the BIG forward track = **Component Model / WASI-P2 survey** (the real v1-parity completion + v0.2 entry).
@@ -79,11 +78,12 @@ All three surface audits DONE: CLI→**D-295** (~85% + intentionally lean, decli
 → discipline: always adversarially verify audit criticals; lesson `fd0a1914`). v0.2 tractable features all DONE
 (atomics/wide-arith/custom-page/relaxed-SIMD); forward track = remaining_sweep + completeness (NEVER-IDLE above).
 
-**D-279 (Win64 JIT heisenbug — NO LONGER "SIMD")**: H1/H2/H3 REFUTED; NON-SIMD. NEW @fac174b5: crashed BOTH
-threads-assert AND wasm-2-0-assert (exit-3, 0 did-not-trap, NO `[d-279-veh]` despite UNARMED-FATAL armed) →
-**crash is at JIT-COMPILE/d-163-jit-DUMP time, NOT execution** (all VEH diagnostics are execution-path → can't
-see it). H7 = the always-on `[d-163-jit]` `std.debug.print` dump (base.zig:3160 `if(true)`, D-163 closed) is the
-suspect — env-gating it (next) isolates dump-I/O-trigger vs real compile crash. streak→0 (segv). Full row.
+**D-279 ROOT-CAUSED (H7 CONFIRMED @cb90da90)**: the 12-month Win64 heisenbug was **the always-on `[d-163-jit]`
+dump itself** — its per-func `std.debug.print` of the full JIT byte stream floods Win64 stdout → abort (exit-3),
+NOT a zwasm codegen/exec bug (why ZERO VEH diagnostics ever fired — the crash was never in wasm). Decisive A/B:
+dump ON @fac174b5 → threads + wasm-2-0-assert BOTH exit-3; dump env-gated OFF @d9d525a4 → SAME exes GREEN, OK,
+exit-3=0. Mitigation landed (dump off by default). DISCHARGE: accumulate `silent` (streak=1 @e6f3b0c0; close at
+≥5/≥3-SHAs per §2). status `note`. Win64 D-303 also confirmed here (threads-assert 292 pass, wasm-2-0 25437).
 
 **Blocked / parked**: 31 blocked-by (call_ref §10.R / D-177 WASI-config / D-178 Global-Memory / future proposals).
 **D-290** = 3 distillers direction-gated (wasm-tools↔wabt divergence; wabt stays). **D-264** dogfooding gated.
@@ -92,10 +92,10 @@ suspect — env-gating it (next) isolates dump-I/O-trigger vs real compile crash
 
 - **ubuntu**: re-kicked each turn (D6 always). Verify `[run_remote_ubuntu] OK` in `/tmp/ubuntu.log`. Red →
   auto-revert (D3; first-resume + non-code-gap exceptions apply).
-- **windows**: BATCHED (D8). RE-KICKED @d9d525a4 — the H7 probe: test-all now runs WITHOUT the d-163-jit dump.
-  Verify `/tmp/win.log`: **exit-3 GONE + threads-assert 292 pass** → H7 confirmed (dump-I/O was D-279's trigger,
-  never a codegen bug — huge; also = D-303 Win64-summary confirmed) AND discharge-track D-279. **exit-3 PERSISTS**
-  → H7 refuted, real compile/exec fault (`ZWASM_DUMP_JIT=1` re-kick to see the last func). NOT auto-revert (D7).
+- **windows**: BATCHED (D8). GREEN @cb90da90 (dump off → exit-3=0, OK; **H7 confirmed**, D-279 root-caused as the
+  dump I/O; D-303 Win64-confirmed: threads-assert 292 + wasm-2-0 25437 pass). silent streak=1, gate recorded
+  @e6f3b0c0. Next batch (≥12 / ABI-risk) re-kicks; each clean run builds the D-279 discharge streak (≥5/≥3-SHAs).
+  If a Win64 exit-3 EVER recurs without the dump → H7 wrong, D-279 re-opens (not expected). NOT auto-revert (D7).
 - **Gate note**: `OK` = green; `Build Summary: N failed` (no OK) = RED. EXPECTED non-failures: `zig-host-hello`
   exit-42, `--__selftest-crash` exit-70, sha256 `verify: FAIL` (fixture-wrong-constant FALSE lead).
 

@@ -976,6 +976,19 @@ entries:
       the codegen/compile path, NOT execution — all VEH instruments are then proven irrelevant). Either way the
       env-gate removes the noise the dump injects into every test-all log. NOTE: the dump has been "the lead" for
       D-279 — keep it ENV-reachable (not deleted) so it can be re-enabled for investigation.
+      ★ H7 CONFIRMED @cb90da90 (2026-06-07) — the decisive A/B. Same source, dump env-gated OFF (d9d525a4):
+      Win64 `test-all` ran fully GREEN (`[run_remote_windows] OK`, exit-3 count = 0; threads-assert 292 +
+      wasm-2-0-assert 25437 both pass — the SAME two exes that BOTH exit-3'd one commit earlier @fac174b5 WITH
+      the dump on). So **D-279 is the d-163-jit dump itself**: the always-on per-func `std.debug.print` of the
+      full JIT byte stream (`spec_assert_runner_base.zig`, D-163-origin, stale) floods Win64 stdout and aborts
+      (exit-3 = abort-class, not a hardware fault) under volume — NOT a zwasm codegen/execution bug (every
+      H1–H6 hypothesis about codegen/alignment/stack/FP-walk/unarmed-fault was chasing the wrong layer; the
+      crash was never in wasm at all, which is exactly why ZERO VEH diagnostics ever fired). MITIGATION LANDED:
+      the dump is env-gated off by default (@d9d525a4), so normal test-all no longer triggers it. DISCHARGE
+      PATH: dump-off is now the default → future Win64 runs accumulate `silent`; close per investigation_
+      discipline §2 (≥5 silent / ≥3 SHAs) — streak=1 @e6f3b0c0. (If a future Win64 exit-3 recurs WITHOUT the
+      dump, H7 is wrong and the row re-opens; not expected.) The VEH UNARMED-FATAL/diagUnrecovered instruments
+      stay as valid general Win64 fault loggers (orthogonal). status stays `note` until the silent streak fires.
       Prior streak note (2026-06-06, superseded): reached 5/5 then 6 `silent` (7e46c054 → e707fd31) before the
       first resurfacing. Original report below.
       Surfaced 2026-06-05
