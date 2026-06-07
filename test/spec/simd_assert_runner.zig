@@ -76,13 +76,15 @@ pub fn main(init: std.process.Init) !void {
 
     const cwd = std.Io.Dir.cwd();
     var root = cwd.openDir(io, corpus_root, .{ .iterate = true }) catch |err| {
-        // Foundation fall-through: missing corpus dir means no
-        // manifests are wired yet (e.g. fresh checkout pre-regen).
-        // Report 0/0/0 and exit clean — `zig build test-spec-simd`
-        // shouldn't fail on a clean tree where the regen hasn't run.
-        try stdout.print("simd_assert_runner: corpus '{s}' not found ({s}); 0 manifests\n", .{ corpus_root, @errorName(err) });
+        // The wasm-2.0-simd-assert corpus is COMMITTED, so a missing root
+        // is a real error (e.g. a host-specific path-resolution failure) —
+        // NOT a fresh-checkout / pre-regen state. FAIL loud: a silent
+        // "0 manifests" exit-0 would mask the gap behind a green test-all
+        // (the ADR-0174 windowsmini OK-hides-pass=0 anomaly). Mirrors the
+        // wasm-1.0 `spec_assert_runner`.
+        try stdout.print("simd_assert_runner: corpus '{s}' not found ({s}) — FAIL (committed corpus; missing root is a real error, ADR-0174)\n", .{ corpus_root, @errorName(err) });
         try stdout.flush();
-        return;
+        std.process.exit(1);
     };
     defer root.close(io);
 

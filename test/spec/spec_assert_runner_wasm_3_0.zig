@@ -12,11 +12,11 @@
 //!
 //! Until then this runner serves as the **observable wiring** —
 //! `zig build test-spec-wasm-3.0-assert` builds + runs it,
-//! exiting clean against the smoke-baked corpus (10.T-2a). When
-//! the corpus is absent (e.g. fresh checkout before 10.T-1 /
-//! 10.T-2a land), reports `0 manifests` and exits clean — same
-//! shape as the wasm-2.0-assert runner so test-all stays green
-//! regardless of corpus state.
+//! exiting clean against the smoke-baked corpus (10.T-2a). A
+//! missing corpus ROOT `exit(1)`s — the corpus is committed, so a
+//! missing root is a real error, not a fresh-checkout state
+//! (ADR-0174 no-silent-skip), matching the other assert runners.
+//! (Per-proposal subdirs keep their finer "(no subdir)" tolerance.)
 //!
 //! Usage:
 //!   spec_assert_runner_wasm_3_0 <corpus-root>
@@ -393,10 +393,15 @@ pub fn main(init: std.process.Init) !void {
         false;
 
     const cwd = std.Io.Dir.cwd();
-    var dir = cwd.openDir(io, corpus_root, .{}) catch {
-        try stdout.print("[wasm-3.0-assert] corpus root not found: {s} (0 manifests; exit 0)\n", .{corpus_root});
+    var dir = cwd.openDir(io, corpus_root, .{}) catch |err| {
+        // Committed corpus (wasm-3.0-assert) — a missing root is a real
+        // error, not a fresh-checkout / pre-10.T state. FAIL loud so a
+        // silent exit-0 can't mask a host-specific path-resolution gap
+        // behind a green test-all (ADR-0174). Per-proposal subdirs below
+        // keep their own finer-grained "(no subdir)" tolerance.
+        try stdout.print("[wasm-3.0-assert] corpus root not found: {s} ({s}) — FAIL (committed corpus; missing root is a real error, ADR-0174)\n", .{ corpus_root, @errorName(err) });
         try stdout.flush();
-        return;
+        std.process.exit(1);
     };
     defer dir.close(io);
 

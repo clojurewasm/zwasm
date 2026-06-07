@@ -513,6 +513,32 @@ pub fn build(b: *std.Build) void {
     const run_wasm_3_0_assert_unit = b.addRunArtifact(wasm_3_0_assert_unit_tests);
     test_step.dependOn(&run_wasm_3_0_assert_unit.step);
 
+    // Corpus-presence guard (ADR-0174 win-harden-I). All five spec-assert
+    // corpora are COMMITTED (not host-regenerated), so a corpus root that
+    // fails to open is a REAL error — not a fresh-checkout / pre-regen
+    // state. The simd / non-simd / wasm-3.0 runners historically printed
+    // "0 manifests" and exited 0 on a missing root: a silent skip that can
+    // mask a host-specific path-resolution failure behind a green
+    // `test-all` (the windowsmini OK-verdict-hides-pass=0 anomaly this
+    // campaign hunts). Each now `exit(1)`s on a missing root, matching the
+    // wasm-1.0 `spec_assert_runner`. These negative runs pin that on EVERY
+    // host (incl. windowsmini) — a runner that silently skips its corpus
+    // turns this build RED.
+    const absent_corpus = b.pathFromRoot("test/spec/__absent_corpus_negative_test__");
+    const run_simd_absent = b.addRunArtifact(simd_assert_runner_exe);
+    run_simd_absent.addArg(absent_corpus);
+    run_simd_absent.expectExitCode(1);
+    const run_non_simd_absent = b.addRunArtifact(non_simd_assert_runner_exe);
+    run_non_simd_absent.addArg(absent_corpus);
+    run_non_simd_absent.expectExitCode(1);
+    const run_wasm_3_0_absent = b.addRunArtifact(wasm_3_0_assert_runner_exe);
+    run_wasm_3_0_absent.addArg(absent_corpus);
+    run_wasm_3_0_absent.expectExitCode(1);
+    const test_corpus_presence_step = b.step("test-corpus-presence", "Assert spec-assert runners FAIL (exit 1) on a missing corpus root — no silent skip (ADR-0174)");
+    test_corpus_presence_step.dependOn(&run_simd_absent.step);
+    test_corpus_presence_step.dependOn(&run_non_simd_absent.step);
+    test_corpus_presence_step.dependOn(&run_wasm_3_0_absent.step);
+
     // §10 / 10.E spec corpus runner foundation — manifest parser
     // tests. Lands ahead of the dispatcher integration so future
     // cycles can wire parsed Directives through cli_run.runWasmCaptured
@@ -1054,6 +1080,11 @@ pub fn build(b: *std.Build) void {
     // dependOn doesn't break test-all on a clean checkout.
     test_all_step.dependOn(&run_non_simd_assert.step);
     test_all_step.dependOn(&run_threads_assert.step); // §17.4 D-301 atomics corpus
+    // ADR-0174 win-harden-I: assert the resource runners FAIL on a missing
+    // corpus root (no silent "0 manifests" skip) on EVERY host incl. windowsmini.
+    test_all_step.dependOn(&run_simd_absent.step);
+    test_all_step.dependOn(&run_non_simd_absent.step);
+    test_all_step.dependOn(&run_wasm_3_0_absent.step);
     // §9.9 / 9.9-j-2 (per ADR-0056 §9.9 scope extension): wire two
     // runners that were "documented exit criterion measurement
     // points" but never CI-gated.

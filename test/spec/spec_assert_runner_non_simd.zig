@@ -17,10 +17,11 @@
 //!
 //! Usage:
 //!   spec_assert_runner_non_simd <corpus-root>
-//! exits non-zero if any `failed > 0`. A missing corpus directory
-//! reports `0 manifests` and exits clean — matches the SIMD runner
-//! shape so an empty checkout (or the staged l-1b state before
-//! the curated corpus lands) doesn't fail `test-all`.
+//! exits non-zero if any `failed > 0`, OR if the corpus root is
+//! missing — the corpus is committed, so a missing root is a real
+//! error (e.g. a host-specific path-resolution failure), not a
+//! fresh-checkout state (ADR-0174 no-silent-skip; matches the
+//! wasm-1.0 runner).
 
 const std = @import("std");
 
@@ -98,9 +99,14 @@ pub fn main(init: std.process.Init) !void {
 
     const cwd = std.Io.Dir.cwd();
     var root = cwd.openDir(io, corpus_root, .{ .iterate = true }) catch |err| {
-        try stdout.print("spec_assert_runner_non_simd: corpus '{s}' not found ({s}); 0 manifests\n", .{ corpus_root, @errorName(err) });
+        // Committed corpus (wasm-2.0-assert / threads-assert) — a missing
+        // root is a real error, not a fresh-checkout state. FAIL loud so a
+        // silent "0 manifests" exit-0 can't mask a host-specific
+        // path-resolution gap behind a green test-all (ADR-0174). Mirrors
+        // the wasm-1.0 `spec_assert_runner`.
+        try stdout.print("spec_assert_runner_non_simd: corpus '{s}' not found ({s}) — FAIL (committed corpus; missing root is a real error, ADR-0174)\n", .{ corpus_root, @errorName(err) });
         try stdout.flush();
-        return;
+        std.process.exit(1);
     };
     defer root.close(io);
 
@@ -1002,7 +1008,9 @@ fn dispatchMultiResult(
         // call site so the JIT receives the value in the FP class
         // register pool (not the int class).
         const got = entry.callLargesig(
-            compiled.module, func_idx, rt,
+            compiled.module,
+            func_idx,
+            rt,
             args[0].i32,
             args[1].i64,
             @as(f32, @bitCast(args[2].f32)),
