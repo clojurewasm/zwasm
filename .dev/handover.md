@@ -22,8 +22,14 @@ user request. A13 strict-3-host merge gate (`gate_merge.sh`) UNCHANGED. **Now re
 
 - **Bundle-ID**: E2-real-rust-component
 - **Cycles-remaining**: ~2
-- **Continuity-memo**: next = the general core-instance walk in `runWasiP2Main` per ADR-0175 (instantiate every
-  core instance in order so the `$fixup` `elem` fills the shim table); watch `zwasm run hello.component.wasm`.
+- **Continuity-memo**: decode prereq DONE @73df8a7e (TypeInfo.core_tables + resolveCoreTableExport). Next = the
+  general core-instance walk in `runWasiP2Main` (`api/component_wasi_p2.zig`) per ADR-0175: build EVERY core
+  instance in definition order (memoized) — `.instantiate` compiles+wires `with` args via `Linker.defineInstance`/
+  `defineCrossModuleFunc`/`defineTable`/`defineMemoryInstance`; `.inline_exports` = synthetic {name→host-trampoline |
+  guest-export-ref | table-ref(via core_tables)}. The `$fixup` instance MUST be built (its active `elem` fills the
+  shim table — `$main` does not import it). Component-level `canon lower`s (funcs 20-26) → host trampolines bound to
+  `$main`'s memory, surfaced through `$fixup-args`. Guard: existing fixtures (hello/fs/poll/cli_env) must stay green
+  through the general path. Then io/error + e2e. Watch `zwasm run hello.component.wasm`.
 - **Design**: **ADR-0175** (general instance-graph instantiation, not special-cased shim). `rustc --target
   wasm32-wasip2` emits a real component (flake gen shell has the target). `private/spikes/e2-rust-component/`
   has `hello.component.wasm` + findings. wit-bindgen uses a **shim/fixup-table**: a `$wit-component-shim` exports
@@ -77,7 +83,7 @@ philosophy-maintained; proven by Rust+Go sample components). Decision + rational
 
 - **Phase 17 (v0.2) IN-PROGRESS** (ADR-0168). DONE+3-host: atomics @9eb84833 · wide-arith @231d4536 ·
   custom-page-sizes @cd0de2dd · relaxed-SIMD @08342ec5 (+official corpus @8ef2e752, 13420 pass arm64+x86). Wasm-3.0
-  core 100%-spec COMPLETE. Last SHA **0888a3f9** (E2 step4: cli/environment+terminal+check-write; ADR-0175; windows susp @9d832f1d).
+  core 100%-spec COMPLETE. Last SHA **73df8a7e** (E2 core-table decode prereq; ADR-0175; windows susp @9d832f1d).
 - **Atomics fully conformant @e6f3b0c0** — official corpus **294 pass, 0 SKIPPED** (D-301), incl. the JIT
   unaligned-atomic-trap fix D-303 (code-14 `unaligned_atomic_fixups` both arches, @5b0db8e1, 3-host).
 - **ALL bounded debt CLEARED**: ✅ D-301 · ✅ D-303 · ✅ D-231 (cross-x86 DCE gate wired @aac4fe2f) · ✅ D-302
