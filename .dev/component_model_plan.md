@@ -104,7 +104,7 @@ design forks. Update this doc's `[x]` + handover NEXT each chunk.
   round-trips guest↔host.
 - [x] **B4 — canon list + record** (element/field layout, alignment). **Red**:
   `list<u32>` + a record round-trip.
-- [ ] **B5 — canon variant/option/result/tuple** (discriminant + payload align).
+- [x] **B5 — canon variant/option/result/tuple** (discriminant + payload align).
   **Red**: option/result/variant round-trip.
 - [ ] **B6 — single-component instantiate + invoke end-to-end.** Embed core
   module(s) → `instantiate.zig` per module → wire canon trampolines → invoke an

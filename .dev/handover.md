@@ -33,9 +33,13 @@ philosophy-maintained; proven by Rust+Go sample components). Decision + rational
   defer); OOB/invalid-utf8/MAX-len guards, bump-mock tested. **B4 DONE @cb01a10e** (canon list+record): recursive
   `CanonType` (list/record + Field) + `Value` aggregates + recursive `store`/`load` over guest memory (list = realloc
   backing + (ptr,len); record = align_to field offsets; sizeOf/alignmentOf recursive); nested string fields; lower()
-  now errors NotFlatScalar for aggregates. Round-trips list<u32> / record / record+string. **NEXT = chunk B5** (canon
-  variant/option/result/tuple): discriminant + payload layout (max_case_alignment), store/load + lift/lower. Red =
-  option/result/variant round-trip. Then B6 = single-component instantiate+invoke e2e (wires cabi_realloc to the guest).
+  now errors NotFlatScalar for aggregates. Round-trips list<u32> / record / record+string. **B5 DONE @6bb2676d** (variant/option/result/tuple): types.zig
+  now decodes ALL compound defvaltypes (record/list/tuple/variant/option/result; closes B4 decode gap; own/borrow/
+  stream/future → C); canon CanonType.variant + Value.variant + store/load + size/align (disc + max_case_alignment +
+  payload). Tier-1 canon value machinery COMPLETE. **NEXT = chunk B6** (single-component instantiate + invoke e2e) —
+  the "a component runs" milestone: embed core module(s) → instantiate per module → wire canon trampolines + the
+  cabi_realloc callback to the guest export → invoke a string→string export. **B6 = multi-cycle integration; use BUNDLE
+  mode.** Red = a real wasm-tools/cargo-component string→string component runs via zwasm and returns the expected string.
 - **Discipline**: Zone-2 new layer, NO core-VM change (consume `runtime/instance/*` + memory + `Runtime.invoke` as
   black box); component-value type DISTINCT from `runtime.Value`; TDD + boundary fixtures + spec-citation; no-copy;
   3-host gate; no tag. Full discipline list in the plan doc.
