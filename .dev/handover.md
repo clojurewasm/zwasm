@@ -55,9 +55,8 @@ philosophy-maintained; proven by Rust+Go sample components). Decision + rational
 - **DRIVER = [`.dev/component_model_plan.md`](component_model_plan.md)** — its **§Work sequence** is authoritative
   and SUPERSEDES ROADMAP §17 ordering for this campaign (close-plan-override; Resume routes here, not to a §9 row).
   Follow the first unchecked chunk; each chunk recipe = goal · files · refs · red test · exit.
-- **Step 0 survey is DONE** — do NOT re-survey. Read `.dev/component_model_survey.md` (architecture, 4 hard pieces,
-  module breakdown) + the plan's "Reference chains" (spec `~/Documents/OSS/WebAssembly/component-model/`; v1
-  textbook `~/Documents/MyProducts/zwasm/src/{component,wit,wit_parser,canon_abi}.zig`; wasmtime/wasm-tools refs).
+- **Step 0 survey DONE** — do NOT re-survey. Refs: `.dev/component_model_survey.md` + plan "Reference chains" (spec
+  `~/Documents/OSS/WebAssembly/component-model/`; v1 `~/Documents/MyProducts/zwasm/src/`; wasmtime/wasm-tools).
 - **Tier 0 (A1–A4) + Tier-1 (B1–B6) COMPLETE — "COMPONENT MODEL WORKS".** decode/types/wit (A1–A4) · canon value
   machinery (B1–B5: flat-scalar/enum/flags/string/list/record/variant over guest memory) · **B6 single-component
   instantiate+invoke e2e** (IT-1 @20132372 instantiate+invoke · IT-2 @41e50658 flat trampoline + Value bridge · IT-3a
