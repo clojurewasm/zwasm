@@ -27,9 +27,13 @@ funcs funcref-able: per-import placeholder sig + call_indirect→host_calls) + c
 (trampolines use `WasiP2Ctx.mem_instance`, not the memory-less shim caller) · core-table decode @73df8a7e ·
 cli/environment+terminal+check-write @0888a3f9. Fixture `test/component/wasi_p2_hello_rust.wasm` (78 KB) + e2e + dogfood.
 
-**NEXT (Phase E, plan §E)**: (a) **Go (tinygo + wit-bindgen-go) component** = the cross-toolchain proof (E2 remaining);
-OR (b) **E1** official component-model conformance corpus runner; OR (c) **E3** WASI-P2 conformance + edge cases.
-Also: io/error trampoline (not yet exercised — a clean run never errors); D3-8 sockets (spike-first). Pick (a) next.
+**NEXT = E1** (plan §Phase E, the first `[ ]`): official component-model spec corpus runner — distil the
+`WebAssembly/component-model` + wasm-tools component tests into a runner (mirror `test/spec/spec_assert_runner_*`),
+wired into `test-all`, truthful pass/skip (no blanket skips — D-301 lesson). Self-contained, no new toolchain.
+Then **E3** (WASI-P2 conformance + edge cases). E2 remainder (Go/tinygo cross-toolchain proof + io/error trampoline)
+is opportunistic — toolchain-gated (wit-bindgen-go not in the gen shell), do it when convenient, not the blocker.
+**Resume routing**: handover §Active campaign DRIVER → `component_model_plan.md` §Work sequence (close-plan-override);
+ROADMAP §17 row also redirects there. Follow the plan's first `[ ]` (= E1). `/continue` alone resumes correctly.
 
 ## Active campaign — Component Model + WASI Preview 2 (ADR-0170, user-directed 2026-06-07)
 
@@ -71,7 +75,7 @@ philosophy-maintained; proven by Rust+Go sample components). Decision + rational
 
 - **Phase 17 (v0.2) IN-PROGRESS** (ADR-0168). DONE+3-host: atomics @9eb84833 · wide-arith @231d4536 ·
   custom-page-sizes @cd0de2dd · relaxed-SIMD @08342ec5 (+official corpus @8ef2e752, 13420 pass arm64+x86). Wasm-3.0
-  core 100%-spec COMPLETE. Last SHA **96e1ccce** (E2 EXIT MET: real Rust wasip2 component runs; windows susp @9d832f1d).
+  core 100%-spec COMPLETE. Last SHA **3660a85b** (E2 done + edge-fixture gate enforcement; ubuntu OK; windows susp @9d832f1d).
 - **Atomics fully conformant @e6f3b0c0** — official corpus **294 pass, 0 SKIPPED** (D-301), incl. the JIT
   unaligned-atomic-trap fix D-303 (code-14 `unaligned_atomic_fixups` both arches, @5b0db8e1, 3-host).
 - **ALL bounded debt CLEARED**: ✅ D-301 · ✅ D-303 · ✅ D-231 (cross-x86 DCE gate wired @aac4fe2f) · ✅ D-302

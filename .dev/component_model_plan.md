@@ -140,10 +140,10 @@ design forks. Update this doc's `[x]` + handover NEXT each chunk.
   resource-drop @75d79a6c · **EXIT @85bcb5a5** `wasi_p2_fs.wasm` runs e2e
   (get-directories → open-at → write "DATA42" → drop). clocks/random (free funcs,
   not resources) + exit/stdin + P1→P2 error-code (D-307) → D3.
-- [ ] **D3 — broader native P2 host** (free-func + stdin trampolines DONE; fs
-  descriptor completion + poll/sockets remain). The gap is the trampolines at
-  `api/component.zig` `defineClassifiedFunc`; wiring map in
-  `private/notes/p17-D3-trampoline-map.md`. Done:
+- [x] **D3 — broader native P2 host** @3a128a01 (free-func + stdin + fs descriptor
+  completion + poll all DONE; sockets deferred to E3-area, spike-first). The
+  trampolines live at `api/component_wasi_p2.zig` `defineClassifiedFunc`; wiring
+  map in `private/notes/p17-D3-trampoline-map.md`. Done:
   - **D3-1 cli_exit** @9ce02433 — `exit(result)` → P1 procExit; noreturn via new
     `InvokeError.ProcExit` (instance.zig unwind variant, NOT a wasm Trap) caught
     in runWasiP2Main. Fixture `wasi_p2_exit`.
@@ -193,8 +193,11 @@ design forks. Update this doc's `[x]` + handover NEXT each chunk.
   memory-less shim caller) · cli/environment+terminal+check-write trampolines
   (@0888a3f9) · core-table decode (@73df8a7e). Fixture
   `test/component/wasi_p2_hello_rust.wasm` (stripped 78 KB) + e2e test + dogfood.
-  **Remaining**: a Go (tinygo + wit-bindgen-go) component for the cross-toolchain
-  proof; io/error trampoline (not yet exercised — a clean run never errors).
+  **Remaining (OPPORTUNISTIC — not the next chunk; do E1 first)**: a Go (tinygo +
+  wit-bindgen-go) component for the cross-toolchain proof — toolchain-gated
+  (wit-bindgen-go not in the gen shell; needs self-provision per
+  `extended_challenge`); io/error trampoline (not yet exercised — a clean run
+  never errors). **Resume rule: the next `[ ]` chunk is E1, not this `[~]`.**
 - [ ] **E3 — WASI-P2 conformance + edge cases.** P2 test corpus + boundary
   fixtures; close the gap to wasmtime where "beyond is satisfiable" (ADR-0170).
 
