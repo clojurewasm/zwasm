@@ -174,6 +174,8 @@ pub const feature = struct {
                 pub const parser = @import("feature/component/wit/parser.zig");
                 pub const resolve = @import("feature/component/wit/resolve.zig");
             };
+            // Zone-3 host orchestration (ADR-0172): instantiate + invoke.
+            pub const host = @import("api/component.zig");
         }
     else
         struct {};
@@ -389,6 +391,7 @@ test {
     _ = @import("feature/component/wit/parser.zig");
     _ = @import("feature/component/wit/resolve.zig");
     _ = @import("feature/component/canon.zig");
+    _ = @import("api/component.zig");
 }
 
 // ============================================================
