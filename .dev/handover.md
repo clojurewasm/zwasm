@@ -34,18 +34,20 @@ philosophy-maintained; proven by Rust+Go sample components). Decision + rational
 ## Active bundle
 
 - **Bundle-ID**: CM-B6-IT (single-component instantiate + invoke e2e)
-- **Cycles-remaining**: ~2
-- **IT-1 @20132372** (instantiate embedded core module + invoke `run()->i32=42`) · **IT-2 @41e50658** (canon flat
-  trampoline `invokeFlat`: lower canon.Value args → `coreToFacade` bridge → core invoke → `value_conv.zwasmToRuntime`
-  + `canon.lift`; add(u32,u32)/s32 round-trip). The Value bridge (`runtime.Value`↔`zwasm.Value`) is now proven.
-- **Continuity-memo**: NEXT = IT-3a (cabi_realloc-via-guest, HAND-CRAFTABLE) — build a CanonContext whose `realloc_fn`
-  invokes the guest's `cabi_realloc` export (`ci.core.invoke("cabi_realloc",{old,old_sz,align,new_sz})`); fixture = a
-  core module exporting a wasm bump-allocator `cabi_realloc(i32,i32,i32,i32)->i32` + a `memory`. Test: `canon.lowerString`
-  a host string THROUGH the guest allocator, read back via `canon.liftString` over `ci.core.memory().slice()`. This proves
-  ADR-0171's core seam end-to-end WITHOUT the indirect-return complexity. Then IT-3b (the EXIT) = full string→string
-  component export: the core sig is `(ptr,len)->i32` with the string RESULT (2 flat values > MAX_FLAT_RESULTS=1) returned
-  via an INDIRECT return-area pointer (read `CanonicalABI.md` `canon_lift`/`flatten_functype` carefully) — needs a REAL
-  fixture via `nix develop .#gen` wasm-tools/cargo-component (Mac host; verify toolchain first).
+- **Cycles-remaining**: ~3 (IT-3b grew — it needs canon-section decode + full export path + a real fixture)
+- **IT-1 @20132372** (instantiate + invoke `run()->i32=42`) · **IT-2 @41e50658** (canon flat trampoline `invokeFlat`;
+  `runtime.Value`↔`zwasm.Value` bridge proven) · **IT-3a @6e784d5c** (cabi_realloc-via-guest: `canonContext()` +
+  `reallocViaGuest` invokes the guest's `cabi_realloc` export; a host string lowers THROUGH the guest allocator into
+  guest memory + lifts back — ADR-0171's core seam proven e2e with a hand-crafted bump-allocator module).
+- **Continuity-memo**: NEXT = IT-3b, the EXIT, now scoped into sub-steps: **(b-1)** decode the component `canon`
+  section (id 8) — `canon ::= 0x00 0x00 core:funcidx opts typeidx` (canon lift) + `opts` (string-encoding / memory /
+  realloc / post-return) [`Binary.md` §canon]; deferred since A2, add to `decode.zig`/`types.zig`. **(b-2)** the full
+  component-export invoke path: export → its canon-lift → underlying core func + string-encoding opt + the
+  cabi_realloc-via-guest CanonContext; lift host string args → lower into guest → invoke; the string RESULT (2 flat
+  values > MAX_FLAT_RESULTS=1) returns via an INDIRECT return-area pointer (read `CanonicalABI.md` `canon_lift` /
+  `flatten_functype` / `lower_heap`); also handle memory-grow invalidating the captured slice (re-fetch after realloc).
+  **(b-3)** a REAL string→string fixture via `nix develop .#gen` (cargo-component / wasm-tools, Mac host) + the exit
+  assertion. CHECK the gen toolchain availability first (extended_challenge Step 1).
 - **Exit-condition**: a string→string component runs via `api/component.zig` and returns the expected string.
 
 ## Current state
