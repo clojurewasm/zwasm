@@ -445,6 +445,147 @@ fn defineWasiP2Io(lk: *Linker, module: []const u8, ctx: *WasiP2Ctx) !void {
     try lk.defineFuncCtx(module, "drop-os", ctx, fn (*Caller, u32) WasiP2Error!void, p2OutStreamDrop);
 }
 
+/// The Nth `.core_module` section body in a decoded component.
+fn nthCoreModule(decoded: *const decode.Component, n: u32) ?[]const u8 {
+    var i: u32 = 0;
+    for (decoded.sections.items) |sec| {
+        if (sec.id != .core_module) continue;
+        if (i == n) return sec.body;
+        i += 1;
+    }
+    return null;
+}
+
+/// The (first) `canon lift`'s underlying core-instance export — the lowered
+/// `run` the host invokes (resolved through the unified core-func index space).
+fn firstLiftCoreExport(info: *const ctypes.TypeInfo) ?ctypes.TypeInfo.CoreExportRef {
+    for (info.canons.items) |c| {
+        if (c == .lift) return info.resolveCoreFuncExport(c.lift.core_func);
+    }
+    return null;
+}
+
+/// Run a single-component WASI-P2 CLI program end-to-end (the `wasi:cli/run`
+/// stdio print subset). Decodes the component, instantiates its inner core
+/// modules, wires the canon-lowered `wasi:*` imports to the P2 trampolines +
+/// the libc core-instance memory cross-instance, and invokes the lowered `run`.
+/// Captured output lands in `host` (e.g. `host.stdout_buffer`).
+///
+/// SCOPE (D1-2 → D-306): the print subset — host-wasi namespace(s)
+/// (get-stdout/write/drop-os) + libc core-instance memories. The general
+/// N-interface, adapter-classified wiring (resolve each `.lower` → its
+/// component import → `adapter.classifyImport` → the matching trampoline, and
+/// arbitrary cross-instance funcs) is the D2/D3 follow-up.
+pub fn runWasiP2Main(engine: *Engine, alloc: Allocator, bytes: []const u8, host: *wasi_host.Host) anyerror!void {
+    var decoded = try decode.decode(alloc, bytes);
+    defer decoded.deinit(alloc);
+    var info = try ctypes.decodeTypeInfo(alloc, &decoded);
+    defer info.deinit();
+
+    // Main core instance + its `run` export: the canon lift → core-func alias.
+    const run_ref = firstLiftCoreExport(&info) orelse return error.NoRunExport;
+    const cis = info.core_instances.items;
+    if (run_ref.instance >= cis.len) return error.NoRunExport;
+    const m_inst = switch (cis[run_ref.instance]) {
+        .instantiate => |it| it,
+        .inline_exports => return error.NoRunExport,
+    };
+
+    var ctx = try WasiP2Ctx.init(alloc, host);
+    defer ctx.deinit();
+
+    // Heap-stable holders (instances reference each other; a Linker must
+    // outlive its instance — file-header lifetime contract).
+    var modules: std.ArrayList(*Module) = .empty;
+    var instances: std.ArrayList(*Instance) = .empty;
+    var linkers: std.ArrayList(*Linker) = .empty;
+    defer {
+        for (instances.items) |p| {
+            p.deinit();
+            alloc.destroy(p);
+        }
+        for (linkers.items) |p| {
+            p.deinit();
+            alloc.destroy(p);
+        }
+        for (modules.items) |p| {
+            p.deinit();
+            alloc.destroy(p);
+        }
+        instances.deinit(alloc);
+        linkers.deinit(alloc);
+        modules.deinit(alloc);
+    }
+
+    // Compile $M and resolve its imports against the `with` args.
+    const m_bytes = nthCoreModule(&decoded, m_inst.module) orelse return error.NoCoreModule;
+    const m_mod = try alloc.create(Module);
+    m_mod.* = try engine.compile(m_bytes);
+    try modules.append(alloc, m_mod);
+    var m_imports = try m_mod.imports(alloc);
+    defer m_imports.deinit();
+
+    const lk = try alloc.create(Linker);
+    lk.* = engine.linker();
+    try linkers.append(alloc, lk);
+
+    // Cache sub-instances (e.g. $libc) by core-instance index so a namespace
+    // referenced by several imports instantiates once; track host-wasi
+    // namespaces already wired so `defineWasiP2Io` runs once each.
+    var sub_cache: std.ArrayList(struct { idx: u32, inst: *Instance }) = .empty;
+    defer sub_cache.deinit(alloc);
+    var wired: std.ArrayList([]const u8) = .empty;
+    defer wired.deinit(alloc);
+
+    for (m_imports.items) |imp| {
+        const arg = for (m_inst.args) |a| {
+            if (std.mem.eql(u8, a.name, imp.module)) break a;
+        } else return error.ImportUnsatisfied;
+        if (arg.instance >= cis.len) return error.ImportUnsatisfied;
+
+        switch (cis[arg.instance]) {
+            // Host-wasi namespace: the supplying instance re-exports
+            // canon-lowered / resource-builtin core funcs the host implements.
+            .inline_exports => {
+                const already = for (wired.items) |w| {
+                    if (std.mem.eql(u8, w, imp.module)) break true;
+                } else false;
+                if (!already) {
+                    try defineWasiP2Io(lk, imp.module, &ctx);
+                    try wired.append(alloc, imp.module);
+                }
+            },
+            // A real sub-module (e.g. $libc): instantiate once + alias its
+            // export (memory) cross-instance into $M.
+            .instantiate => |sub| {
+                const sub_inst = blk: {
+                    for (sub_cache.items) |e| if (e.idx == arg.instance) break :blk e.inst;
+                    const sb = nthCoreModule(&decoded, sub.module) orelse return error.NoCoreModule;
+                    const sm = try alloc.create(Module);
+                    sm.* = try engine.compile(sb);
+                    try modules.append(alloc, sm);
+                    const si = try alloc.create(Instance);
+                    si.* = try sm.instantiate(.{});
+                    try instances.append(alloc, si);
+                    try sub_cache.append(alloc, .{ .idx = arg.instance, .inst = si });
+                    break :blk si;
+                };
+                if (imp.kind == .memory) {
+                    const rt = sub_inst.handle.runtime orelse return error.ImportUnsatisfied;
+                    try lk.defineMemoryInstance(imp.module, imp.name, rt.memories[0]);
+                }
+            },
+        }
+    }
+
+    const m = try alloc.create(Instance);
+    m.* = try lk.instantiate(m_mod);
+    try instances.append(alloc, m);
+
+    var results = [_]Value{.{ .i32 = 0 }};
+    try m.invoke(run_ref.name, &.{}, &results);
+}
+
 // ============================================================
 // Tests
 // ============================================================
@@ -868,6 +1009,28 @@ test "D1-2 trampolines: WASI-P2 output-stream funcs print to a captured fd" {
     try inst.invoke("run", &.{}, &results);
     try testing.expectEqual(@as(i32, 0), results[0].i32); // run returns ok (0)
     try testing.expectEqualStrings("hello\n", capture.items); // trampoline wrote via fd 1
+}
+
+test "D1-2 (EXIT): a real WASI-P2 hello-world component runs + prints via the adapter" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, wasi_p2_hello_path, testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(testing.allocator);
+    host.stdout_buffer = &capture;
+
+    // greet/adder proved component invoke; this proves a real P2 CLI program
+    // runs through the canon-lowered wasi imports → the P2 trampolines.
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try testing.expectEqualStrings("hello\n", capture.items);
 }
 
 test "IT-1: a core module (not a component) is rejected as NotAComponent" {
