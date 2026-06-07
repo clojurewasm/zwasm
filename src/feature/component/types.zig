@@ -73,11 +73,24 @@ pub const FuncType = struct {
     is_async: bool,
 };
 
-/// One `deftype` in the type index space. A2 models the primitive-`defvaltype`
-/// and `functype` forms; the rest decode in later chunks.
+/// `enum` defvaltype (`Binary.md` 0x6d): an ordered label set, no payloads.
+pub const EnumType = struct {
+    labels: []const []const u8,
+};
+
+/// `flags` defvaltype (`Binary.md` 0x6e): a bit-set of labels (1..=32).
+pub const FlagsType = struct {
+    labels: []const []const u8,
+};
+
+/// One `deftype` in the type index space. A2 modelled the primitive-`defvaltype`
+/// and `functype` forms; B2 adds `enum`/`flags`; record/variant/list etc. land
+/// in their B-chunks.
 pub const DefType = union(enum) {
     value: ValType,
     func: FuncType,
+    enum_: EnumType,
+    flags: FlagsType,
 };
 
 /// Component-level `sort` (`Binary.md`); `core` nests a `core:sort`.
@@ -153,6 +166,10 @@ pub const Error = error{
     InvalidName,
     InvalidExternDesc,
     InvalidSort,
+    /// `enum` with zero labels (spec requires `> 0`).
+    EmptyEnum,
+    /// `flags` label count outside `0 < n <= 32` (spec cap).
+    InvalidFlagsCount,
     /// A spec-defined form not yet decoded (compound defvaltype → B-chunks;
     /// component/instance/resource type → C-chunks). Typed deferral, not a
     /// silent skip (`no_workaround`).
@@ -191,6 +208,18 @@ fn decodeLabel(body: []const u8, pos: *usize) Error![]const u8 {
     const s = body[pos.* .. pos.* + len_usize];
     pos.* += len_usize;
     return s;
+}
+
+/// `vec(label')` — a length-prefixed sequence of length-prefixed labels
+/// (enum/flags label lists). Labels borrow from the input.
+fn decodeLabelVec(arena: Allocator, body: []const u8, pos: *usize) Error![]const []const u8 {
+    const count = try leb128.readUleb128(u32, body, pos);
+    var labels: std.ArrayList([]const u8) = .empty;
+    var i: u32 = 0;
+    while (i < count) : (i += 1) {
+        try labels.append(arena, try decodeLabel(body, pos));
+    }
+    return labels.toOwnedSlice(arena);
 }
 
 /// `importname' ::= (0x00|0x01) len name | 0x02 len name versionsuffix`.
@@ -247,10 +276,20 @@ fn decodeDefType(arena: Allocator, body: []const u8, pos: *usize) Error!DefType 
         0x7f, 0x7e, 0x7d, 0x7c, 0x7b, 0x7a, 0x79, 0x78, 0x77, 0x76, 0x75, 0x74, 0x73, 0x64 => .{ .value = .{ .primitive = @enumFromInt(op) } },
         0x40 => .{ .func = try decodeFuncType(arena, body, pos, false) },
         0x43 => .{ .func = try decodeFuncType(arena, body, pos, true) },
-        // TODO(p17/CM-B*): compound defvaltype (record 0x72 / variant 0x71 /
-        // list 0x70,0x67 / tuple 0x6f / flags 0x6e / enum 0x6d / option 0x6b /
+        0x6d => blk: { // enum: vec(label')
+            const labels = try decodeLabelVec(arena, body, pos);
+            if (labels.len == 0) break :blk Error.EmptyEnum;
+            break :blk .{ .enum_ = .{ .labels = labels } };
+        },
+        0x6e => blk: { // flags: vec(label'), 0 < n <= 32
+            const labels = try decodeLabelVec(arena, body, pos);
+            if (labels.len == 0 or labels.len > 32) break :blk Error.InvalidFlagsCount;
+            break :blk .{ .flags = .{ .labels = labels } };
+        },
+        // TODO(p17/CM-B*): remaining compound defvaltype (record 0x72 /
+        // variant 0x71 / list 0x70,0x67 / tuple 0x6f / option 0x6b /
         // result 0x6a / own 0x69 / borrow 0x68 / stream 0x66 / future 0x65).
-        0x72, 0x71, 0x70, 0x67, 0x6f, 0x6e, 0x6d, 0x6b, 0x6a, 0x69, 0x68, 0x66, 0x65 => Error.UnsupportedTypeForm,
+        0x72, 0x71, 0x70, 0x67, 0x6f, 0x6b, 0x6a, 0x69, 0x68, 0x66, 0x65 => Error.UnsupportedTypeForm,
         // TODO(p17/CM-C*): componenttype 0x41 / instancetype 0x42 /
         // resourcetype 0x3f,0x3e (recurse into the declarator tree).
         0x41, 0x42, 0x3f, 0x3e => Error.UnsupportedTypeForm,
@@ -497,6 +536,32 @@ test "core-module externdesc (0x00 0x11)" {
 test "compound defvaltype defers with UnsupportedTypeForm (record 0x72)" {
     const bytes = comptime buildComponent(&.{.{ 7, &[_]u8{ 0x01, 0x72 } }});
     try testing.expectError(Error.UnsupportedTypeForm, decodeBoth(bytes));
+}
+
+test "enum decode: 0x6d label vec" {
+    // enum { "red", "green" }: 0x6d count=2, "red" "green"
+    const body = [_]u8{ 0x01, 0x6d, 0x02, 0x03, 'r', 'e', 'd', 0x05, 'g', 'r', 'e', 'e', 'n' };
+    const bytes = comptime buildComponent(&.{.{ 7, &body }});
+    var info = try decodeBoth(bytes);
+    defer info.deinit();
+    const e = info.deftypes.items[0].enum_;
+    try testing.expectEqual(@as(usize, 2), e.labels.len);
+    try testing.expectEqualStrings("red", e.labels[0]);
+    try testing.expectEqualStrings("green", e.labels[1]);
+}
+
+test "flags decode: 0x6e label vec" {
+    // flags { "a", "b", "c" }: 0x6e count=3
+    const body = [_]u8{ 0x01, 0x6e, 0x03, 0x01, 'a', 0x01, 'b', 0x01, 'c' };
+    const bytes = comptime buildComponent(&.{.{ 7, &body }});
+    var info = try decodeBoth(bytes);
+    defer info.deinit();
+    try testing.expectEqual(@as(usize, 3), info.deftypes.items[0].flags.labels.len);
+}
+
+test "enum with zero labels is rejected" {
+    const bytes = comptime buildComponent(&.{.{ 7, &[_]u8{ 0x01, 0x6d, 0x00 } }});
+    try testing.expectError(Error.EmptyEnum, decodeBoth(bytes));
 }
 
 test "componenttype defers with UnsupportedTypeForm (0x41)" {
