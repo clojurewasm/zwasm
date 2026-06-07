@@ -77,12 +77,12 @@ for c in d["commands"]:
         if act.get("type") != "invoke":
             lines.append("skip-impl non-invoke-action")
             continue
-        # non_simd runner's scalar assert dispatch maxes at 2 args; 3-arg
-        # atomics (cmpxchg addr/exp/repl, wait addr/exp/timeout) need a runner
-        # 3-arg-scalar extension (tracked debt) — their JIT is already covered
-        # by test/edge_cases/p17/atomics. Skip here, don't fail.
-        if len(act.get("args", [])) > 2:
-            lines.append(f"skip-impl runner-3arg-scalar {act['field']}")
+        # memory.atomic.wait{32,64} require a SHARED memory; the non_simd runner's
+        # scratch (base.growable_memory) is not shared → wait traps kind=15
+        # (ExpectedSharedMemory). That is a runner-setup limit, NOT a zwasm bug —
+        # wait works on real shared memory (test/edge_cases/p17/atomics). Skip.
+        if act["field"].startswith("memory.atomic.wait"):
+            lines.append(f"skip-impl runner-nonshared-scratch {act['field']}")
             continue
         args_s, bad = toks(act.get("args", []))
         res_s, bad2 = toks(c.get("expected", []))

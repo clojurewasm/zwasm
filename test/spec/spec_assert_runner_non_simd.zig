@@ -1309,6 +1309,33 @@ fn dispatchScalarResult(
             return null;
         };
     }
+    // §17.4 D-301 — 3-arg atomics (threads corpus): cmpxchg (addr,exp,repl) +
+    // wait (addr,exp,timeout). cmpxchg/wait are sequence-setup ops, so they
+    // must execute (not skip) for dependent load asserts to read correct state.
+    if (args.len == 3 and args[0] == .i32 and args[1] == .i32 and args[2] == .i32 and result_kind == .i32) {
+        return @as(u64, entry.callI32_i32i32i32(compiled.module, func_idx, rt, args[0].i32, args[1].i32, args[2].i32) catch |err| {
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
+            return null;
+        });
+    }
+    if (args.len == 3 and args[0] == .i32 and args[1] == .i64 and args[2] == .i64 and result_kind == .i64) {
+        return entry.callI64_i32i64i64(compiled.module, func_idx, rt, args[0].i32, args[1].i64, args[2].i64) catch |err| {
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
+            return null;
+        };
+    }
+    if (args.len == 3 and args[0] == .i32 and args[1] == .i32 and args[2] == .i64 and result_kind == .i32) {
+        return @as(u64, entry.callI32_i32i32i64(compiled.module, func_idx, rt, args[0].i32, args[1].i32, args[2].i64) catch |err| {
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
+            return null;
+        });
+    }
+    if (args.len == 3 and args[0] == .i32 and args[1] == .i64 and args[2] == .i64 and result_kind == .i32) {
+        return @as(u64, entry.callI32_i32i64i64(compiled.module, func_idx, rt, args[0].i32, args[1].i64, args[2].i64) catch |err| {
+            try base.printCallTrap(rt, name, fn_name, args_s, err, stdout);
+            return null;
+        });
+    }
     if (args.len == 3 and args[0] == .f32 and args[1] == .f32 and args[2] == .f32 and result_kind == .f32) {
         const a0: f32 = @bitCast(args[0].f32);
         const a1: f32 = @bitCast(args[1].f32);

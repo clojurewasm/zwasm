@@ -1,0 +1,297 @@
+module atomic.0.wasm
+assert_return init i64:506097522914230528 -> ()
+assert_return i32.atomic.load i32:0 -> i32:50462976
+assert_return i32.atomic.load i32:4 -> i32:117835012
+assert_return i64.atomic.load i32:0 -> i64:506097522914230528
+assert_return i32.atomic.load8_u i32:0 -> i32:0
+assert_return i32.atomic.load8_u i32:5 -> i32:5
+assert_return i32.atomic.load16_u i32:0 -> i32:256
+assert_return i32.atomic.load16_u i32:6 -> i32:1798
+assert_return i64.atomic.load8_u i32:0 -> i64:0
+assert_return i64.atomic.load8_u i32:5 -> i64:5
+assert_return i64.atomic.load16_u i32:0 -> i64:256
+assert_return i64.atomic.load16_u i32:6 -> i64:1798
+assert_return i64.atomic.load32_u i32:0 -> i64:50462976
+assert_return i64.atomic.load32_u i32:4 -> i64:117835012
+assert_return init i64:0 -> ()
+assert_return i32.atomic.store i32:0 i32:4293844428 -> ()
+assert_return i64.atomic.load i32:0 -> i64:4293844428
+assert_return i64.atomic.store i32:0 i64:81985529216486895 -> ()
+assert_return i64.atomic.load i32:0 -> i64:81985529216486895
+assert_return i32.atomic.store8 i32:1 i32:66 -> ()
+assert_return i64.atomic.load i32:0 -> i64:81985529216451311
+assert_return i32.atomic.store16 i32:4 i32:34884 -> ()
+assert_return i64.atomic.load i32:0 -> i64:82059046171656943
+assert_return i64.atomic.store8 i32:1 i64:153 -> ()
+assert_return i64.atomic.load i32:0 -> i64:82059046171679215
+assert_return i64.atomic.store16 i32:4 i64:51966 -> ()
+assert_return i64.atomic.load i32:0 -> i64:82132412803029487
+assert_return i64.atomic.store32 i32:4 i64:3735928559 -> ()
+assert_return i64.atomic.load i32:0 -> i64:16045690983407131119
+assert_return init i64:1229782938247303441 -> ()
+assert_return i32.atomic.rmw.add i32:0 i32:305419896 -> i32:286331153
+assert_return i64.atomic.load i32:0 -> i64:1229782938552723337
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw.add i32:0 i64:72340172854919682 -> i64:1229782938247303441
+assert_return i64.atomic.load i32:0 -> i64:1302123111102223123
+assert_return init i64:1229782938247303441 -> ()
+assert_return i32.atomic.rmw8.add_u i32:0 i32:3452816845 -> i32:17
+assert_return i64.atomic.load i32:0 -> i64:1229782938247303646
+assert_return init i64:1229782938247303441 -> ()
+assert_return i32.atomic.rmw16.add_u i32:0 i32:3405695742 -> i32:4369
+assert_return i64.atomic.load i32:0 -> i64:1229782938247355407
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw8.add_u i32:0 i64:4774451407313060418 -> i64:17
+assert_return i64.atomic.load i32:0 -> i64:1229782938247303507
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw16.add_u i32:0 i64:13758425323549998831 -> i64:4369
+assert_return i64.atomic.load i32:0 -> i64:1229782938247352320
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw32.add_u i32:0 i64:14608453322185352933 -> i64:286331153
+assert_return i64.atomic.load i32:0 -> i64:1229782941648599030
+assert_return init i64:1229782938247303441 -> ()
+assert_return i32.atomic.rmw.sub i32:0 i32:305419896 -> i32:286331153
+assert_return i64.atomic.load i32:0 -> i64:1229782942236850841
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw.sub i32:0 i64:72340172854919682 -> i64:1229782938247303441
+assert_return i64.atomic.load i32:0 -> i64:1157442765392383759
+assert_return init i64:1229782938247303441 -> ()
+assert_return i32.atomic.rmw8.sub_u i32:0 i32:3452816845 -> i32:17
+assert_return i64.atomic.load i32:0 -> i64:1229782938247303492
+assert_return init i64:1229782938247303441 -> ()
+assert_return i32.atomic.rmw16.sub_u i32:0 i32:3405695742 -> i32:4369
+assert_return i64.atomic.load i32:0 -> i64:1229782938247317011
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw8.sub_u i32:0 i64:4774451407313060418 -> i64:17
+assert_return i64.atomic.load i32:0 -> i64:1229782938247303631
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw16.sub_u i32:0 i64:13758425323549998831 -> i64:4369
+assert_return i64.atomic.load i32:0 -> i64:1229782938247320098
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw32.sub_u i32:0 i64:14608453322185352933 -> i64:286331153
+assert_return i64.atomic.load i32:0 -> i64:1229782939140975148
+assert_return init i64:1229782938247303441 -> ()
+assert_return i32.atomic.rmw.and i32:0 i32:305419896 -> i32:286331153
+assert_return i64.atomic.load i32:0 -> i64:1229782938230460432
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw.and i32:0 i64:72340172854919682 -> i64:1229782938247303441
+assert_return i64.atomic.load i32:0 -> i64:72340172821233664
+assert_return init i64:1229782938247303441 -> ()
+assert_return i32.atomic.rmw8.and_u i32:0 i32:3452816845 -> i32:17
+assert_return i64.atomic.load i32:0 -> i64:1229782938247303425
+assert_return init i64:1229782938247303441 -> ()
+assert_return i32.atomic.rmw16.and_u i32:0 i32:3405695742 -> i32:4369
+assert_return i64.atomic.load i32:0 -> i64:1229782938247299088
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw8.and_u i32:0 i64:4774451407313060418 -> i64:17
+assert_return i64.atomic.load i32:0 -> i64:1229782938247303424
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw16.and_u i32:0 i64:13758425323549998831 -> i64:4369
+assert_return i64.atomic.load i32:0 -> i64:1229782938247303169
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw32.and_u i32:0 i64:14608453322185352933 -> i64:286331153
+assert_return i64.atomic.load i32:0 -> i64:1229782937962086401
+assert_return init i64:1229782938247303441 -> ()
+assert_return i32.atomic.rmw.or i32:0 i32:305419896 -> i32:286331153
+assert_return i64.atomic.load i32:0 -> i64:1229782938283235193
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw.or i32:0 i64:72340172854919682 -> i64:1229782938247303441
+assert_return i64.atomic.load i32:0 -> i64:1229782938280989459
+assert_return init i64:1229782938247303441 -> ()
+assert_return i32.atomic.rmw8.or_u i32:0 i32:3452816845 -> i32:17
+assert_return i64.atomic.load i32:0 -> i64:1229782938247303645
+assert_return init i64:1229782938247303441 -> ()
+assert_return i32.atomic.rmw16.or_u i32:0 i32:3405695742 -> i32:4369
+assert_return i64.atomic.load i32:0 -> i64:1229782938247355391
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw8.or_u i32:0 i64:4774451407313060418 -> i64:17
+assert_return i64.atomic.load i32:0 -> i64:1229782938247303507
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw16.or_u i32:0 i64:13758425323549998831 -> i64:4369
+assert_return i64.atomic.load i32:0 -> i64:1229782938247348223
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw32.or_u i32:0 i64:14608453322185352933 -> i64:286331153
+assert_return i64.atomic.load i32:0 -> i64:1229782941647484917
+assert_return init i64:1229782938247303441 -> ()
+assert_return i32.atomic.rmw.xor i32:0 i32:305419896 -> i32:286331153
+assert_return i64.atomic.load i32:0 -> i64:1229782938013747049
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw.xor i32:0 i64:72340172854919682 -> i64:1229782938247303441
+assert_return i64.atomic.load i32:0 -> i64:1157442765459755795
+assert_return init i64:1229782938247303441 -> ()
+assert_return i32.atomic.rmw8.xor_u i32:0 i32:3452816845 -> i32:17
+assert_return i64.atomic.load i32:0 -> i64:1229782938247303644
+assert_return init i64:1229782938247303441 -> ()
+assert_return i32.atomic.rmw16.xor_u i32:0 i32:3405695742 -> i32:4369
+assert_return i64.atomic.load i32:0 -> i64:1229782938247355375
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw8.xor_u i32:0 i64:4774451407313060418 -> i64:17
+assert_return i64.atomic.load i32:0 -> i64:1229782938247303507
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw16.xor_u i32:0 i64:13758425323549998831 -> i64:4369
+assert_return i64.atomic.load i32:0 -> i64:1229782938247344126
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw32.xor_u i32:0 i64:14608453322185352933 -> i64:286331153
+assert_return i64.atomic.load i32:0 -> i64:1229782941646370804
+assert_return init i64:1229782938247303441 -> ()
+assert_return i32.atomic.rmw.xchg i32:0 i32:305419896 -> i32:286331153
+assert_return i64.atomic.load i32:0 -> i64:1229782938266392184
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw.xchg i32:0 i64:72340172854919682 -> i64:1229782938247303441
+assert_return i64.atomic.load i32:0 -> i64:72340172854919682
+assert_return init i64:1229782938247303441 -> ()
+assert_return i32.atomic.rmw8.xchg_u i32:0 i32:3452816845 -> i32:17
+assert_return i64.atomic.load i32:0 -> i64:1229782938247303629
+assert_return init i64:1229782938247303441 -> ()
+assert_return i32.atomic.rmw16.xchg_u i32:0 i32:3405695742 -> i32:4369
+assert_return i64.atomic.load i32:0 -> i64:1229782938247351038
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw8.xchg_u i32:0 i64:4774451407313060418 -> i64:17
+assert_return i64.atomic.load i32:0 -> i64:1229782938247303490
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw16.xchg_u i32:0 i64:13758425323549998831 -> i64:4369
+assert_return i64.atomic.load i32:0 -> i64:1229782938247347951
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw32.xchg_u i32:0 i64:14608453322185352933 -> i64:286331153
+assert_return i64.atomic.load i32:0 -> i64:1229782941362267877
+assert_return init i64:1229782938247303441 -> ()
+assert_return i32.atomic.rmw.cmpxchg i32:0 i32:0 i32:305419896 -> i32:286331153
+assert_return i64.atomic.load i32:0 -> i64:1229782938247303441
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw.cmpxchg i32:0 i64:0 i64:72340172854919682 -> i64:1229782938247303441
+assert_return i64.atomic.load i32:0 -> i64:1229782938247303441
+assert_return init i64:1229782938247303441 -> ()
+assert_return i32.atomic.rmw8.cmpxchg_u i32:0 i32:0 i32:3452816845 -> i32:17
+assert_return i64.atomic.load i32:0 -> i64:1229782938247303441
+assert_return init i64:1229782938247303441 -> ()
+assert_return i32.atomic.rmw16.cmpxchg_u i32:0 i32:0 i32:3405695742 -> i32:4369
+assert_return i64.atomic.load i32:0 -> i64:1229782938247303441
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw8.cmpxchg_u i32:0 i64:0 i64:4774451407313060418 -> i64:17
+assert_return i64.atomic.load i32:0 -> i64:1229782938247303441
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw16.cmpxchg_u i32:0 i64:0 i64:13758425323549998831 -> i64:4369
+assert_return i64.atomic.load i32:0 -> i64:1229782938247303441
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw32.cmpxchg_u i32:0 i64:0 i64:14608453322185352933 -> i64:286331153
+assert_return i64.atomic.load i32:0 -> i64:1229782938247303441
+assert_return init i64:1229782938247303441 -> ()
+assert_return i32.atomic.rmw.cmpxchg i32:0 i32:286331153 i32:305419896 -> i32:286331153
+assert_return i64.atomic.load i32:0 -> i64:1229782938266392184
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw.cmpxchg i32:0 i64:1229782938247303441 i64:72340172854919682 -> i64:1229782938247303441
+assert_return i64.atomic.load i32:0 -> i64:72340172854919682
+assert_return init i64:1229782938247303441 -> ()
+assert_return i32.atomic.rmw8.cmpxchg_u i32:0 i32:17 i32:3452816845 -> i32:17
+assert_return i64.atomic.load i32:0 -> i64:1229782938247303629
+assert_return init i64:1229782938247303441 -> ()
+assert_return i32.atomic.rmw16.cmpxchg_u i32:0 i32:4369 i32:3405695742 -> i32:4369
+assert_return i64.atomic.load i32:0 -> i64:1229782938247351038
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw8.cmpxchg_u i32:0 i64:17 i64:4774451407313060418 -> i64:17
+assert_return i64.atomic.load i32:0 -> i64:1229782938247303490
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw16.cmpxchg_u i32:0 i64:4369 i64:13758425323549998831 -> i64:4369
+assert_return i64.atomic.load i32:0 -> i64:1229782938247347951
+assert_return init i64:1229782938247303441 -> ()
+assert_return i64.atomic.rmw32.cmpxchg_u i32:0 i64:286331153 i64:14608453322185352933 -> i64:286331153
+assert_return i64.atomic.load i32:0 -> i64:1229782941362267877
+skip-impl runner-assert-trap-argparse i32.atomic.load
+skip-impl runner-assert-trap-argparse i64.atomic.load
+skip-impl runner-assert-trap-argparse i32.atomic.load16_u
+skip-impl runner-assert-trap-argparse i64.atomic.load16_u
+skip-impl runner-assert-trap-argparse i64.atomic.load32_u
+skip-impl runner-assert-trap-argparse i32.atomic.store
+skip-impl runner-assert-trap-argparse i64.atomic.store
+skip-impl runner-assert-trap-argparse i32.atomic.store16
+skip-impl runner-assert-trap-argparse i64.atomic.store16
+skip-impl runner-assert-trap-argparse i64.atomic.store32
+skip-impl runner-assert-trap-argparse i32.atomic.rmw.add
+skip-impl runner-assert-trap-argparse i64.atomic.rmw.add
+skip-impl runner-assert-trap-argparse i32.atomic.rmw16.add_u
+skip-impl runner-assert-trap-argparse i64.atomic.rmw16.add_u
+skip-impl runner-assert-trap-argparse i64.atomic.rmw32.add_u
+skip-impl runner-assert-trap-argparse i32.atomic.rmw.sub
+skip-impl runner-assert-trap-argparse i64.atomic.rmw.sub
+skip-impl runner-assert-trap-argparse i32.atomic.rmw16.sub_u
+skip-impl runner-assert-trap-argparse i64.atomic.rmw16.sub_u
+skip-impl runner-assert-trap-argparse i64.atomic.rmw32.sub_u
+skip-impl runner-assert-trap-argparse i32.atomic.rmw.and
+skip-impl runner-assert-trap-argparse i64.atomic.rmw.and
+skip-impl runner-assert-trap-argparse i32.atomic.rmw16.and_u
+skip-impl runner-assert-trap-argparse i64.atomic.rmw16.and_u
+skip-impl runner-assert-trap-argparse i64.atomic.rmw32.and_u
+skip-impl runner-assert-trap-argparse i32.atomic.rmw.or
+skip-impl runner-assert-trap-argparse i64.atomic.rmw.or
+skip-impl runner-assert-trap-argparse i32.atomic.rmw16.or_u
+skip-impl runner-assert-trap-argparse i64.atomic.rmw16.or_u
+skip-impl runner-assert-trap-argparse i64.atomic.rmw32.or_u
+skip-impl runner-assert-trap-argparse i32.atomic.rmw.xor
+skip-impl runner-assert-trap-argparse i64.atomic.rmw.xor
+skip-impl runner-assert-trap-argparse i32.atomic.rmw16.xor_u
+skip-impl runner-assert-trap-argparse i64.atomic.rmw16.xor_u
+skip-impl runner-assert-trap-argparse i64.atomic.rmw32.xor_u
+skip-impl runner-assert-trap-argparse i32.atomic.rmw.xchg
+skip-impl runner-assert-trap-argparse i64.atomic.rmw.xchg
+skip-impl runner-assert-trap-argparse i32.atomic.rmw16.xchg_u
+skip-impl runner-assert-trap-argparse i64.atomic.rmw16.xchg_u
+skip-impl runner-assert-trap-argparse i64.atomic.rmw32.xchg_u
+skip-impl runner-assert-trap-argparse i32.atomic.rmw.cmpxchg
+skip-impl runner-assert-trap-argparse i64.atomic.rmw.cmpxchg
+skip-impl runner-assert-trap-argparse i32.atomic.rmw16.cmpxchg_u
+skip-impl runner-assert-trap-argparse i64.atomic.rmw16.cmpxchg_u
+skip-impl runner-assert-trap-argparse i64.atomic.rmw32.cmpxchg_u
+module atomic.1.wasm
+assert_return init i64:281474976710655 -> ()
+skip-impl runner-nonshared-scratch memory.atomic.wait32
+skip-impl runner-nonshared-scratch memory.atomic.wait64
+assert_return memory.atomic.notify i32:0 i32:0 -> i32:0
+module atomic.2.wasm
+assert_invalid atomic.3.wasm
+assert_invalid atomic.4.wasm
+assert_invalid atomic.5.wasm
+assert_invalid atomic.6.wasm
+assert_invalid atomic.7.wasm
+assert_invalid atomic.8.wasm
+assert_invalid atomic.9.wasm
+assert_invalid atomic.10.wasm
+assert_invalid atomic.11.wasm
+assert_invalid atomic.12.wasm
+assert_invalid atomic.13.wasm
+assert_invalid atomic.14.wasm
+assert_invalid atomic.15.wasm
+assert_invalid atomic.16.wasm
+assert_invalid atomic.17.wasm
+assert_invalid atomic.18.wasm
+assert_invalid atomic.19.wasm
+assert_invalid atomic.20.wasm
+assert_invalid atomic.21.wasm
+assert_invalid atomic.22.wasm
+assert_invalid atomic.23.wasm
+assert_invalid atomic.24.wasm
+assert_invalid atomic.25.wasm
+assert_invalid atomic.26.wasm
+assert_invalid atomic.27.wasm
+assert_invalid atomic.28.wasm
+assert_invalid atomic.29.wasm
+assert_invalid atomic.30.wasm
+assert_invalid atomic.31.wasm
+assert_invalid atomic.32.wasm
+assert_invalid atomic.33.wasm
+assert_invalid atomic.34.wasm
+assert_invalid atomic.35.wasm
+assert_invalid atomic.36.wasm
+assert_invalid atomic.37.wasm
+assert_invalid atomic.38.wasm
+assert_invalid atomic.39.wasm
+assert_invalid atomic.40.wasm
+assert_invalid atomic.41.wasm
+assert_invalid atomic.42.wasm
+assert_invalid atomic.43.wasm
+assert_invalid atomic.44.wasm
+assert_invalid atomic.45.wasm
+assert_invalid atomic.46.wasm
+assert_invalid atomic.47.wasm
+assert_invalid atomic.48.wasm
+assert_invalid atomic.49.wasm
+assert_invalid atomic.50.wasm

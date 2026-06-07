@@ -1,4 +1,4 @@
-// FILE-SIZE-EXEMPT: uniform-pattern catalog (114 callXX_yy per-shape entry helpers; monotonic growth with Wasm signature shapes) (cap=3000) (per ADR-0063 + ADR-0099 Revision 2026-05-24)
+// FILE-SIZE-EXEMPT: uniform-pattern catalog (117 callXX_yy per-shape entry helpers; monotonic growth with Wasm signature shapes — +3 for §17.4 D-301 atomic 3-arg cmpxchg/wait) (cap=3100) (per ADR-0063 + ADR-0099 Revision 2026-05-24)
 // Comptime generation is a follow-up; see ADR-0063 Alternative B + debt ledger.
 
 //! JIT entry frame (ADR-0017).
@@ -901,6 +901,44 @@ pub fn callI64_i64i64i32(
 ) Error!u64 {
     const Fn = *const fn (*const JitRuntime, u64, u64, u32) callconv(.c) u64;
     return invokeAndCheck(rt, u64, module.entry(func_idx, Fn), .{ a0, a1, a2 });
+}
+
+// §17.4 D-301 — 3-arg atomic shapes for the threads spec corpus.
+// i64.atomic.rmw.cmpxchg (addr, exp, repl) → i64.
+pub fn callI64_i32i64i64(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: u32,
+    a1: u64,
+    a2: u64,
+) Error!u64 {
+    const Fn = *const fn (*const JitRuntime, u32, u64, u64) callconv(.c) u64;
+    return invokeAndCheck(rt, u64, module.entry(func_idx, Fn), .{ a0, a1, a2 });
+}
+// memory.atomic.wait32 (addr, expected, timeout) → i32.
+pub fn callI32_i32i32i64(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: u32,
+    a1: u32,
+    a2: u64,
+) Error!u32 {
+    const Fn = *const fn (*const JitRuntime, u32, u32, u64) callconv(.c) u32;
+    return invokeAndCheck(rt, u32, module.entry(func_idx, Fn), .{ a0, a1, a2 });
+}
+// memory.atomic.wait64 (addr, expected, timeout) → i32.
+pub fn callI32_i32i64i64(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: u32,
+    a1: u64,
+    a2: u64,
+) Error!u32 {
+    const Fn = *const fn (*const JitRuntime, u32, u64, u64) callconv(.c) u32;
+    return invokeAndCheck(rt, u32, module.entry(func_idx, Fn), .{ a0, a1, a2 });
 }
 
 /// Multi-result return struct for `(i64, i32)` shape. Wasm spec §4.5.3

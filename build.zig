@@ -465,6 +465,13 @@ pub fn build(b: *std.Build) void {
     const test_spec_wasm_2_0_assert_step = b.step("test-spec-wasm-2.0-assert", "Run Wasm 2.0 non-SIMD scalar spec assertion runner (§9.9 / 9.9-l-1b per ADR-0057; corpus lands at k-1)");
     test_spec_wasm_2_0_assert_step.dependOn(&run_non_simd_assert.step);
 
+    // §17.4 D-301 — official atomics (threads proposal) conformance corpus,
+    // run by the same non_simd scalar runner (atomics are pure-int scalar).
+    const run_threads_assert = b.addRunArtifact(non_simd_assert_runner_exe);
+    run_threads_assert.addArg(b.pathFromRoot("test/spec/threads-assert"));
+    const test_spec_threads_assert_step = b.step("test-spec-threads-assert", "Run atomics (threads) official spec assertion corpus via the non-SIMD scalar runner (§17.4 / D-301)");
+    test_spec_threads_assert_step.dependOn(&run_threads_assert.step);
+
     // `zig build test-spec-wasm-3.0-assert` — §10 / 10.T-2b. Wasm 3.0
     // assertion runner skeleton; enumerates the baked manifests under
     // `test/spec/wasm-3.0-assert/<proposal>/<name>/manifest.txt` and
@@ -1037,6 +1044,7 @@ pub fn build(b: *std.Build) void {
     // reports "0 manifests" against the missing directory so this
     // dependOn doesn't break test-all on a clean checkout.
     test_all_step.dependOn(&run_non_simd_assert.step);
+    test_all_step.dependOn(&run_threads_assert.step); // §17.4 D-301 atomics corpus
     // §9.9 / 9.9-j-2 (per ADR-0056 §9.9 scope extension): wire two
     // runners that were "documented exit criterion measurement
     // points" but never CI-gated.
