@@ -35,11 +35,13 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
   25437 assertions; takes a `corpus_root` arg @non_simd:84-103 + auto-iterates subdirs; linear mem via
   `base.growable_memory`). wasm_3_0 runner REJECTED (skips arg-taking). **NEXT chunk2** = regen atomic.wast →
   a new `test/spec/threads-assert/atomic/` corpus + add a build.zig step reusing the non_simd runner binary
-  pointed at it (mirror build.zig:464 test-spec-wasm-2.0-assert). Distiller: clone regen_spec_3_0's python
-  (handles scalar assert_return/trap/invalid; add `--enable-threads`; the 59 `action` commands are currently
-  `skip-impl directive-action` — CHECK if atomic tests are self-contained (most assert_return funcs do
-  store-then-load internally) or need action-as-invoke execution). chunk3 = run, fix any surfaced bug
-  (relaxed-corpus precedent caught the x86 dot sign bug), 3-host. Verify a shared-memory module compiles+runs.
+  pointed at it (mirror build.zig:464 test-spec-wasm-2.0-assert). Distiller source = TESTSUITE
+  `proposals/threads/atomic.wast` (NOT spec/test/core). **Action-handling RESOLVED (scout)**: non_simd runner
+  PERSISTS memory across directives (@non_simd:147) + already runs `init`-action invokes (@622) → distiller emits
+  the 59 `action` (store/init) commands as **void-result invokes** (`assert_return <fn> <args> -> ()`), NOT skip.
+  Module = `(memory 1 1 shared)`; rmw asserts largely self-contained (rmw returns old + mutates). Manifest fmt:
+  `module <f>` + `assert_return <fn> <type>:<v>… -> <type>:<v>|()`. chunk3 = run, fix surfaced bug
+  (relaxed-corpus caught the x86 dot sign bug), 3-host.
 - **Exit-condition**: atomic.wast assert_returns execute (not skip) + pass in a runner, 0 fail, 3-host; any
   surfaced bug fixed.
 - **Cycles-remaining**: ~3-4. No tag (ADR-0156).
