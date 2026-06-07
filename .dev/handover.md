@@ -46,16 +46,31 @@ philosophy-maintained; proven by Rust+Go sample components). Decision + rational
   imports → trampolines, libc memory cross-instance) and `wasi_p2_hello.wasm` prints "hello\n" to captured stdout.
 - **CLI run path DONE @161236db** — `zwasm run <component.wasm>` routes a component-layer module to `runComponentWasi`
   → `runWasiP2Main`; `zwasm run test/component/wasi_p2_hello.wasm` prints "hello" + exits 0 (dogfooded). D1 fully done.
-- **NEXT = Phase D2** (plan §Phase D): resource-modeled P2 interfaces (stdio/clocks/random/filesystem as resources, not
-  just name-map). **D-306** (remaining): generalize the host wiring — adapter-classify each `.lower` by its COMPONENT
-  interface (`adapter.classifyImport`) instead of the fixed `get-stdout`/`write`/`drop-os` core names; cover
-  stderr/stdin/clocks/random/exit. Plus cross-component aggregate args → D-305.
+- **Phase D2 IN PROGRESS** (plan §Phase D, bundle below). **D2-1 @e9e12834** — `adapter.zig` typed classifier extended
+  to the `wasi:filesystem/types` **descriptor** resource (read/write/sync/stat/get-type/[resource-drop] + preopens
+  get-directories → P1 fd ops; spec wasi-filesystem 0.2). The fd-mapping subset; stream-via methods (mint streams)
+  defer. **D-306** (remaining): generalize host wiring — classify each `.lower` by its COMPONENT interface (needs a
+  component-func index space + instance→interface resolver) instead of the fixed `get-stdout`/`write`/`drop-os` core
+  names; cover stderr/stdin/clocks/random/exit. Plus cross-component aggregate args → D-305.
+
+## Active bundle
+
+- **Bundle-ID**: CM-D2 (resource-modeled P2 fs + classified host wiring)
+- **Cycles-remaining**: ~3
+- **Continuity-memo**: D2-1 (adapter fs classifier) DONE @e9e12834. Next: D-306 classified wiring — the BLOCKER for
+  wiring ANY broader interface e2e. Build a component-func index space in `types.zig` (func imports + func aliases +
+  canon lifts in def order) + `resolveComponentFunc(idx)→(interface,func)` (alias→component_export→imported-instance's
+  import name); then `runWasiP2Main` binds each host-wasi inline-export via `adapter.classifyImport` instead of fixed
+  core names. THEN descriptor resource-type in `WasiP2Ctx` + a fs fixture for e2e. (No fs trampolines until a caller
+  exists — atom-rhythm guard.)
+- **Exit-condition**: a non-`get-stdout`-named component (e.g. classified stderr or fs) RUNS e2e via the classified
+  wiring (no hardcoded core-import names in `defineWasiP2Io`'s caller).
 
 ## Current state
 
 - **Phase 17 (v0.2) IN-PROGRESS** (ADR-0168). DONE+3-host: atomics @9eb84833 · wide-arith @231d4536 ·
   custom-page-sizes @cd0de2dd · relaxed-SIMD @08342ec5 (+official corpus @8ef2e752, 13420 pass arm64+x86). Wasm-3.0
-  core 100%-spec COMPLETE. Last SHA **161236db** (zwasm run executes WASI-P2 components from the CLI).
+  core 100%-spec COMPLETE. Last SHA **e9e12834** (adapter classifies wasi:filesystem descriptor resource ops, D2-1).
 - **Atomics fully conformant @e6f3b0c0** — official corpus **294 pass, 0 SKIPPED** (D-301), incl. the JIT
   unaligned-atomic-trap fix D-303 (code-14 `unaligned_atomic_fixups` both arches, @5b0db8e1, 3-host).
 - **ALL bounded debt CLEARED**: ✅ D-301 · ✅ D-303 · ✅ D-231 (cross-x86 DCE gate wired @aac4fe2f) · ✅ D-302
