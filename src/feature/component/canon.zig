@@ -133,17 +133,61 @@ pub const ReallocError = error{ AllocFailed, OutOfBounds };
 /// (ADR-0171). An error result signals OOM / trap.
 pub const ReallocFn = *const fn (ctx: *anyopaque, old_ptr: u32, old_size: u32, alignment: u32, new_size: u32) ReallocError!u32;
 
-/// Per-call canonical-ABI context: the guest linear memory (lift/lower target)
-/// + the injected realloc callback.
+/// Guest string encoding (`canonopt` `string-encoding`). B3 implements utf8;
+/// utf16 / latin1+utf16 land next.
+pub const StringEncoding = enum { utf8, utf16, latin1_utf16 };
+
+/// Per-call canonical-ABI context: the guest linear memory (lift/lower target),
+/// the injected realloc callback, and the string encoding option.
 pub const CanonContext = struct {
     memory: []u8,
     realloc_ctx: *anyopaque,
     realloc_fn: ReallocFn,
+    string_encoding: StringEncoding = .utf8,
 
     pub fn realloc(self: CanonContext, old_ptr: u32, old_size: u32, alignment: u32, new_size: u32) ReallocError!u32 {
         return self.realloc_fn(self.realloc_ctx, old_ptr, old_size, alignment, new_size);
     }
 };
+
+/// `CanonicalABI.md` `MAX_STRING_BYTE_LENGTH` — a string's byte length must fit
+/// 28 bits (leaves the high bit free as the latin1/utf16 tag).
+pub const MAX_STRING_BYTE_LENGTH: u32 = (1 << 28) - 1;
+
+pub const StringError = error{
+    OutOfBounds,
+    InvalidUtf8,
+    StringTooLong,
+    /// utf16 / latin1+utf16 lowering/lifting — implemented in the next chunk.
+    UnsupportedEncoding,
+} || ReallocError;
+
+/// Lower a host UTF-8 string into guest memory (`store_string_into_range`):
+/// allocate `len` bytes via the guest realloc, copy the bytes, and return the
+/// `(ptr, packed_length)` pair the canonical ABI flattens to two i32s. For
+/// utf8 `packed_length == byte_length` (no tag bit).
+pub fn lowerString(cx: CanonContext, s: []const u8) StringError!struct { ptr: u32, packed_length: u32 } {
+    if (cx.string_encoding != .utf8) return StringError.UnsupportedEncoding;
+    if (s.len > MAX_STRING_BYTE_LENGTH) return StringError.StringTooLong;
+    const byte_len: u32 = @intCast(s.len);
+    const ptr = try cx.realloc(0, 0, 1, byte_len);
+    if (@as(usize, ptr) + s.len > cx.memory.len) return StringError.OutOfBounds;
+    @memcpy(cx.memory[ptr..][0..s.len], s);
+    return .{ .ptr = ptr, .packed_length = byte_len };
+}
+
+/// Lift a guest UTF-8 string (`load_string_from_range`): bounds-check + UTF-8
+/// validate the `[ptr, ptr+byte_length)` range. Returns a slice BORROWING
+/// guest memory (valid until the memory is mutated).
+pub fn liftString(cx: CanonContext, ptr: u32, packed_length: u32) StringError![]const u8 {
+    if (cx.string_encoding != .utf8) return StringError.UnsupportedEncoding;
+    const byte_length = packed_length; // utf8: code units == bytes, no tag bit
+    if (byte_length > MAX_STRING_BYTE_LENGTH) return StringError.StringTooLong;
+    if (@as(usize, ptr) + byte_length > cx.memory.len) return StringError.OutOfBounds;
+    const bytes = cx.memory[ptr..][0..byte_length];
+    if (!std.unicode.utf8ValidateSlice(bytes)) return StringError.InvalidUtf8;
+    return bytes;
+}
 
 pub const LiftError = error{
     /// A `char` core value outside the Unicode scalar range (`> 0x10FFFF` or a
@@ -327,6 +371,60 @@ test "lift: flags with bits beyond label count rejected" {
     try testing.expectError(LiftError.InvalidFlags, liftTyped(CoreValue.fromI32(0b1000), .{ .flags = 3 }));
     // 32 labels → all 32 bits valid (no shift-overflow, no rejection).
     _ = try liftTyped(CoreValue.fromI32(@bitCast(@as(u32, 0xFFFF_FFFF))), .{ .flags = 32 });
+}
+
+/// A bump allocator over a `[]u8` standing in for the guest's `cabi_realloc`.
+const Bump = struct {
+    next: u32,
+    fn realloc(ctx: *anyopaque, old_ptr: u32, old_size: u32, alignment: u32, new_size: u32) ReallocError!u32 {
+        _ = old_ptr;
+        _ = old_size;
+        const self: *Bump = @ptrCast(@alignCast(ctx));
+        const aligned = std.mem.alignForward(u32, self.next, @max(alignment, 1));
+        self.next = aligned + new_size;
+        return aligned;
+    }
+};
+
+test "round-trip: utf8 string guest↔host via realloc + memory" {
+    var mem = [_]u8{0} ** 256;
+    var bump = Bump{ .next = 8 };
+    const cx = CanonContext{ .memory = &mem, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
+
+    const lowered = try lowerString(cx, "héllo, 世界"); // multibyte utf8
+    try testing.expect(lowered.ptr >= 8);
+    const back = try liftString(cx, lowered.ptr, lowered.packed_length);
+    try testing.expectEqualStrings("héllo, 世界", back);
+}
+
+test "round-trip: empty string" {
+    var mem = [_]u8{0} ** 16;
+    var bump = Bump{ .next = 0 };
+    const cx = CanonContext{ .memory = &mem, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
+    const lowered = try lowerString(cx, "");
+    try testing.expectEqual(@as(u32, 0), lowered.packed_length);
+    try testing.expectEqualStrings("", try liftString(cx, lowered.ptr, lowered.packed_length));
+}
+
+test "lift: out-of-bounds range rejected" {
+    var mem = [_]u8{0} ** 8;
+    var bump = Bump{ .next = 0 };
+    const cx = CanonContext{ .memory = &mem, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
+    try testing.expectError(StringError.OutOfBounds, liftString(cx, 4, 100));
+}
+
+test "lift: invalid utf8 rejected" {
+    var mem = [_]u8{ 0xFF, 0xFE, 0, 0, 0, 0, 0, 0 }; // 0xFF is never valid utf8
+    var bump = Bump{ .next = 0 };
+    const cx = CanonContext{ .memory = &mem, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
+    try testing.expectError(StringError.InvalidUtf8, liftString(cx, 0, 2));
+}
+
+test "string: non-utf8 encoding deferred" {
+    var mem = [_]u8{0} ** 8;
+    var bump = Bump{ .next = 0 };
+    const cx = CanonContext{ .memory = &mem, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc, .string_encoding = .utf16 };
+    try testing.expectError(StringError.UnsupportedEncoding, lowerString(cx, "x"));
 }
 
 test "CanonContext.realloc delegates to the injected callback" {
