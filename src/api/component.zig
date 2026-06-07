@@ -429,6 +429,26 @@ test "IT-1: a component with no core module is rejected" {
     try testing.expectError(Error.NoCoreModule, instantiate(&eng, testing.allocator, &empty));
 }
 
+test "E2 prereq: core-table index space resolves an alias-core-export table (ADR-0175)" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/core_table_alias.wasm", testing.allocator, .limited(1 << 16));
+    defer testing.allocator.free(bytes);
+
+    var comp = try decode.decode(testing.allocator, bytes);
+    defer comp.deinit(testing.allocator);
+    var info = try ctypes.decodeTypeInfo(testing.allocator, &comp);
+    defer info.deinit();
+
+    // The general instantiation engine resolves a synthetic instance's table
+    // re-export through this space (the shim `$imports` table — ADR-0175).
+    try testing.expectEqual(@as(usize, 1), info.core_tables.items.len);
+    const ref = info.resolveCoreTableExport(0).?;
+    try testing.expectEqual(@as(u32, 0), ref.instance);
+    try testing.expectEqualStrings("tbl", ref.name);
+}
+
 /// `(module (func (export "add") (param i32 i32) (result i32) local.get 0 local.get 1 i32.add))`.
 const core_add = [_]u8{
     0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // \0asm v1

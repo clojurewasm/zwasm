@@ -372,6 +372,13 @@ pub const TypeInfo = struct {
     /// The core-func index space in definition order (`CoreFuncDef`) — the
     /// authoritative map for resolving a core-func index to its definition.
     core_funcs: std.ArrayList(CoreFuncDef),
+    /// The core-**table** index space in definition order. Core tables enter the
+    /// component-level index space only via `alias core export` (a core table is
+    /// never minted by canon), so each entry is the alias target. Needed by the
+    /// general instantiation engine (E2) to resolve a synthetic instance's table
+    /// re-export — e.g. wit-bindgen's `$fixup-args` re-exporting the shim's
+    /// `$imports` table (ADR-0175).
+    core_tables: std.ArrayList(AliasTarget),
     /// The component-func index space in definition order (`ComponentFuncDef`) —
     /// lets a `canon lower`'s `func` operand resolve to its origin interface.
     component_funcs: std.ArrayList(ComponentFuncDef),
@@ -415,6 +422,18 @@ pub const TypeInfo = struct {
                 .core_export => |ce| .{ .instance = ce.instance, .name = ce.name },
                 else => null,
             },
+            else => null,
+        };
+    }
+
+    /// Resolve a core-**table** index → the core-instance export it aliases
+    /// (`{instance, name}`), or null if out of range / not a core-export alias.
+    /// The general instantiation engine uses this to find which built instance
+    /// owns a table a synthetic instance re-exports (the shim `$imports` table).
+    pub fn resolveCoreTableExport(self: *const TypeInfo, core_table_idx: u32) ?CoreExportRef {
+        if (core_table_idx >= self.core_tables.items.len) return null;
+        return switch (self.core_tables.items[core_table_idx]) {
+            .core_export => |ce| .{ .instance = ce.instance, .name = ce.name },
             else => null,
         };
     }
@@ -1078,6 +1097,7 @@ pub fn decodeTypeInfo(parent: Allocator, component: *const decode.Component) Err
     var component_instances: std.ArrayList(ComponentInstanceDef) = .empty;
     var aliases: std.ArrayList(Alias) = .empty;
     var core_funcs: std.ArrayList(CoreFuncDef) = .empty;
+    var core_tables: std.ArrayList(AliasTarget) = .empty;
     var component_funcs: std.ArrayList(ComponentFuncDef) = .empty;
     var instance_origins: std.ArrayList(InstanceOrigin) = .empty;
 
@@ -1115,7 +1135,11 @@ pub fn decodeTypeInfo(parent: Allocator, component: *const decode.Component) Err
                 .lift => try component_funcs.append(a, .{ .lift = @intCast(abs) }),
             },
             .alias => for (aliases.items[aliases_before..]) |al| switch (al.sort) {
-                .core => |cs| if (cs == .func) try core_funcs.append(a, .{ .alias = al.target }),
+                .core => |cs| switch (cs) {
+                    .func => try core_funcs.append(a, .{ .alias = al.target }),
+                    .table => try core_tables.append(a, al.target),
+                    else => {},
+                },
                 .func => try component_funcs.append(a, .{ .alias = al.target }),
                 .instance => try instance_origins.append(a, .local),
                 else => {},
@@ -1135,6 +1159,7 @@ pub fn decodeTypeInfo(parent: Allocator, component: *const decode.Component) Err
         .component_instances = component_instances,
         .aliases = aliases,
         .core_funcs = core_funcs,
+        .core_tables = core_tables,
         .component_funcs = component_funcs,
         .instance_origins = instance_origins,
     };
