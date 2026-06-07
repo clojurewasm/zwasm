@@ -359,10 +359,12 @@ test "IT-3a: two allocations via the guest allocator don't overlap" {
 
 /// Provenance of the REAL string→string component fixture (`greet(name: string)
 /// -> string` ⇒ `"Hello, " ++ name ++ "!"`, built with wasm-tools). Sources at
-/// `test/edge_cases/p17/component/`. Read at runtime (it lives outside the `src/`
+/// `test/component/` (kept OUT of `test/edge_cases/` so the edge-case runner —
+/// which runs every `.wasm` there as a core module — doesn't try to run a
+/// component). Read at runtime (it lives outside the `src/`
 /// package, so `@embedFile` can't reach it); `zig build test` runs from the repo
 /// root so the cwd-relative path resolves.
-const greet_component_path = "test/edge_cases/p17/component/greet_component.wasm";
+const greet_component_path = "test/component/greet_component.wasm";
 
 test "IT-3b-2: a real wasm-tools string→string component decodes through the pipeline" {
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
