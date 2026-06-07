@@ -24,6 +24,18 @@ windowsmini verification load was conflicting with their separate ClojureWasmFro
 (ADR-0156). D-279 stays discharged (lesson `2026-06-07-always-on-debug-dump-was-the-heisenbug`) — but note the pass=0
 anomaly above is a DISTINCT, NEW windows signal, not a D-279 reopen.
 
+## Active bundle — windowsmini-hardening (ADR-0174 Phase I)
+
+- **Bundle-ID**: win-harden-I (spec-assert pass=0 root-cause)
+- **Cycles-remaining**: ~2 (confirm mechanism → fix → re-verify green)
+- **Continuity-memo**: hosts ARE up (probed @f8bcc040; handover's "powered off" was stale). ubuntu baseline GREEN with
+  real counts (non_simd 25437, simd 13420, 1.0 212, threads 294). Findings + mechanism map + ubuntu SKIP histogram in
+  [`windows_hardening_findings.md`](windows_hardening_findings.md). Prime hypothesis = `callJitOrTrap` VEH
+  false-positive → `SKIP-START-TRAP` whole-module skip (ubuntu skips 0). Missing-corpus mask RULED OUT (corpus present
+  on win). Awaiting empirical win test-all summary (in-flight @f8bcc040, /tmp/win.log) to confirm symptom.
+- **Exit-condition**: windows `test-all` spec-assert summaries show real pass counts matching ubuntu (no `pass=0`, no
+  mass `SKIP-START-TRAP`); THEN ADR-0174 phase 2 (`should_gate_windows.sh --suspend`).
+
 ## Active campaign — Component Model + WASI Preview 2 (ADR-0170, user-directed 2026-06-07)
 
 **Goal**: full **wasmtime-equivalent** CM + WASI-P2, the zwasm-v2 way (spec/test-referenced NOT copied;
