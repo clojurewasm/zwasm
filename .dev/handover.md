@@ -46,11 +46,14 @@ philosophy-maintained; proven by Rust+Go sample components). Decision + rational
 
 - **Bundle-ID**: CM-D1-2 (run a WASI-P2 hello-world via the adapter)
 - **Cycles-remaining**: ~3
-- **Continuity-memo**: NEXT sub-steps to RUN `wasi_p2_hello.wasm` (prints 'hello') through zwasm:
-  **(a) INSTANCE-TYPE decode** — the fixture's type section defines `instancetype` (0x42) + `componenttype` (0x41)
-  (the wasi interface types) which `types.zig` `decodeDefType` still defers (`UnsupportedTypeForm`). Decode
-  `instancetype ::= 0x42 vec(instancedecl)` (instancedecl = core:type | type | alias | exportdecl) + `componenttype`
-  (0x41 vec(componentdecl)); without this `decodeTypeInfo` errors on any P2 component. **(b) HOST TRAMPOLINES** — the
+- **Continuity-memo**: D1-2a @f70cc573 DONE (own 0x69 / borrow 0x68 + externdesc type-bound 0x03 / value-bound 0x02 —
+  prerequisites). NEXT sub-steps to RUN `wasi_p2_hello.wasm` (prints 'hello'):
+  **(a) INSTANCE-TYPE decode** — decode `instancetype ::= 0x42 vec(instancedecl)` + `componenttype ::= 0x41
+  vec(componentdecl)` in `decodeDefType` (mutual recursion). `instancedecl = 0x00 core:type | 0x01 type(→decodeDefType)
+  | 0x02 alias(→decodeAlias-shape) | 0x04 exportdecl(name+externdesc)`; `componentdecl = 0x03 importdecl | instancedecl`.
+  Capture exportdecls (interface func names). The 0x00 core:type needs a minimal core:rectype consumer (CHECK if the
+  fixture uses it — likely not; the wasi instance types use 0x01 type / 0x02 alias / 0x04 exportdecl per the .wat). Then
+  `decodeTypeInfo(wasi_p2_hello.wasm)` succeeds (test: it imports 3 wasi instances). **(b) HOST TRAMPOLINES** — the
   core module imports `io/get-stdout`(→i32 handle), `io/write`(self,ptr,len,retptr), `io/drop-os`(self), `libc/memory`.
   Wire via `Linker.defineFunc` (host fn takes `*Caller`): get-stdout mints an output-stream resource (via
   `resource_table.zig`) bound to fd 1; write reads the `list<u8>` at (ptr,len) from `Caller.memory()` and calls
