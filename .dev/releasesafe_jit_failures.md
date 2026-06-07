@@ -48,3 +48,36 @@ f32 active` is a real type-confusion in the multi-result Value path.
 
 Reproduce: `zig build test-all -Doptimize=ReleaseSafe` (Mac). Full log
 captured at investigation time; per-test isolation via the named test.
+
+## Resolution (in progress)
+
+**Root cause #1 (production, FIXED @a0069ce8)**: `invokeBufferWrite`
+(entry_buffer_write.zig) called the JIT `fn_ptr` DIRECTLY, bypassing the
+D-245 cohort-clobber trampoline the register/void paths use
+(`entry.invokeAndCheck` → `jitTrampoline`). The native_emit'd body
+MOV-installs the pinned callee-saved cohort (RBX/R12-R15 · X19-X28) from
+`rt` without stack-saving the caller's values → ReleaseSafe (live values in
+those regs) corrupts. Fix: route through a non-inline `jitTrampolineBuf`
+(reuses exported `entry.jit_cohort_clobbers`). **Resolves 5 of 8** (all the
+buffer-write / `runner.invokeMulti` multi-result failures).
+
+**Remaining 3 (test-harness, NOT production)**: `entry`/`linker` UNIT tests
+that call a raw `module.entry(...)` fn-ptr directly (e.g. `f(&rt, 3.5)`),
+violating the host-boundary contract (host with live callee-saved must go
+through the trampoline). 119 such raw-entry call-sites exist in
+`src/engine/`; only 3 trip on the current seed (seed-dependent). Production
+NEVER calls raw entry (always `invokeAndCheck`/`invokeBufferWrite`).
+
+**Decision (avoids a 119-site sweep)**: the integration RUNNERS
+(spec_assert/realworld/wast/edge — the slow corpus the user cares about)
+invoke ONLY via production trampoline-safe paths and **already pass in
+ReleaseSafe** (verified: spec 212, realworld 55, wast 1158 green in the
+full ReleaseSafe run). So:
+- Build the integration-runner exes **ReleaseSafe** (the iteration-speed win).
+- Keep `core_tests` (unit, the raw-entry calls) **Debug** (user: unit-Debug
+  fine). The 3 raw-entry failures stay Debug-only — acceptable.
+- `gate_merge.sh` unchanged (Debug test-all + ReleaseSafe JIT smoke).
+This is a per-exe `optimize` in build.zig — Zig caches per optimize (no thrash).
+
+NEXT chunk: build.zig per-exe optimize split + flip the gate scripts'
+runner invocations + verify Mac+ubuntu green, then discharge D-311.
