@@ -186,11 +186,37 @@ pub const Export = struct {
 
 /// The decoded type index space + import/export lists. All owned allocations
 /// live in `arena`; `name` slices borrow from the component input.
+/// `string-encoding` canonopt (`Binary.md` `canonopt`).
+pub const StringEncoding = enum { utf8, utf16, latin1_utf16 };
+
+/// Decoded `opts` (`Binary.md` `canonopt` vec): the canonical-ABI options for a
+/// lift/lower. async/callback are deferred (async phase).
+pub const CanonOpts = struct {
+    string_encoding: StringEncoding = .utf8,
+    memory: ?u32 = null, // core:memidx
+    realloc: ?u32 = null, // core:funcidx
+    post_return: ?u32 = null, // core:funcidx
+};
+
+/// One `canon` section definition (`Binary.md` `canon`). B6 models lift/lower +
+/// the resource builtins; the async/stream/future/thread builtins defer.
+pub const Canon = union(enum) {
+    /// `canon lift` (0x00 0x00): a core func exposed as a component func of
+    /// `type_index`, with `opts`.
+    lift: struct { core_func: u32, opts: CanonOpts, type_index: u32 },
+    /// `canon lower` (0x01 0x00): a component func lowered to a core func.
+    lower: struct { func: u32, opts: CanonOpts },
+    resource_new: u32, // 0x02 typeidx
+    resource_drop: u32, // 0x03 typeidx
+    resource_rep: u32, // 0x04 typeidx
+};
+
 pub const TypeInfo = struct {
     arena: std.heap.ArenaAllocator,
     deftypes: std.ArrayList(DefType),
     imports: std.ArrayList(Import),
     exports: std.ArrayList(Export),
+    canons: std.ArrayList(Canon),
 
     pub fn deinit(self: *TypeInfo) void {
         self.arena.deinit();
@@ -212,6 +238,10 @@ pub const Error = error{
     InvalidName,
     InvalidExternDesc,
     InvalidSort,
+    /// A malformed `canon` definition / `canonopt`.
+    InvalidCanon,
+    /// A `canon` builtin not yet decoded (async / stream / future / thread).
+    UnsupportedCanon,
     /// `enum` with zero labels (spec requires `> 0`).
     EmptyEnum,
     /// `flags` label count outside `0 < n <= 32` (spec cap).
@@ -512,9 +542,66 @@ fn decodeExportSection(arena: Allocator, out: *std.ArrayList(Export), body: []co
     if (pos != body.len) return Error.TrailingBytes;
 }
 
-/// Decode the type index space + imports/exports of an already-walked
-/// component (`decode.decode`). The returned `TypeInfo` owns its allocations
-/// (`deinit`) but borrows `name` slices from the component input.
+/// `opts ::= vec(canonopt)` (`Binary.md`). Decodes the canonical-ABI options;
+/// async (0x06) / callback (0x07) defer to the async phase.
+fn decodeCanonOpts(body: []const u8, pos: *usize) Error!CanonOpts {
+    var opts: CanonOpts = .{};
+    const count = try leb128.readUleb128(u32, body, pos);
+    var i: u32 = 0;
+    while (i < count) : (i += 1) {
+        if (pos.* >= body.len) return Error.Truncated;
+        const tag = body[pos.*];
+        pos.* += 1;
+        switch (tag) {
+            0x00 => opts.string_encoding = .utf8,
+            0x01 => opts.string_encoding = .utf16,
+            0x02 => opts.string_encoding = .latin1_utf16,
+            0x03 => opts.memory = try leb128.readUleb128(u32, body, pos),
+            0x04 => opts.realloc = try leb128.readUleb128(u32, body, pos),
+            0x05 => opts.post_return = try leb128.readUleb128(u32, body, pos),
+            0x06, 0x07 => return Error.UnsupportedCanon, // async / callback
+            else => return Error.InvalidCanon,
+        }
+    }
+    return opts;
+}
+
+fn decodeCanonSection(arena: Allocator, out: *std.ArrayList(Canon), body: []const u8) Error!void {
+    var pos: usize = 0;
+    const count = try leb128.readUleb128(u32, body, &pos);
+    var i: u32 = 0;
+    while (i < count) : (i += 1) {
+        if (pos >= body.len) return Error.Truncated;
+        const op = body[pos];
+        pos += 1;
+        const canon: Canon = switch (op) {
+            0x00 => blk: { // canon lift: 0x00 funcidx opts typeidx
+                if (pos >= body.len or body[pos] != 0x00) return Error.InvalidCanon;
+                pos += 1;
+                const core_func = try leb128.readUleb128(u32, body, &pos);
+                const opts = try decodeCanonOpts(body, &pos);
+                break :blk .{ .lift = .{ .core_func = core_func, .opts = opts, .type_index = try leb128.readUleb128(u32, body, &pos) } };
+            },
+            0x01 => blk: { // canon lower: 0x01 funcidx opts
+                if (pos >= body.len or body[pos] != 0x00) return Error.InvalidCanon;
+                pos += 1;
+                const func = try leb128.readUleb128(u32, body, &pos);
+                break :blk .{ .lower = .{ .func = func, .opts = try decodeCanonOpts(body, &pos) } };
+            },
+            0x02 => .{ .resource_new = try leb128.readUleb128(u32, body, &pos) },
+            0x03 => .{ .resource_drop = try leb128.readUleb128(u32, body, &pos) },
+            0x04 => .{ .resource_rep = try leb128.readUleb128(u32, body, &pos) },
+            // async / stream / future / thread builtins (0x05..0x26) defer.
+            else => return Error.UnsupportedCanon,
+        };
+        try out.append(arena, canon);
+    }
+    if (pos != body.len) return Error.TrailingBytes;
+}
+
+/// Decode the type index space + imports/exports + canon defs of an
+/// already-walked component (`decode.decode`). The returned `TypeInfo` owns its
+/// allocations (`deinit`) but borrows `name` slices from the component input.
 pub fn decodeTypeInfo(parent: Allocator, component: *const decode.Component) Error!TypeInfo {
     var arena = std.heap.ArenaAllocator.init(parent);
     errdefer arena.deinit();
@@ -523,17 +610,19 @@ pub fn decodeTypeInfo(parent: Allocator, component: *const decode.Component) Err
     var deftypes: std.ArrayList(DefType) = .empty;
     var imports: std.ArrayList(Import) = .empty;
     var exports: std.ArrayList(Export) = .empty;
+    var canons: std.ArrayList(Canon) = .empty;
 
     for (component.sections.items) |sec| {
         switch (sec.id) {
             .type => try decodeTypeSection(a, &deftypes, sec.body),
             .import => try decodeImportSection(a, &imports, sec.body),
             .@"export" => try decodeExportSection(a, &exports, sec.body),
+            .canon => try decodeCanonSection(a, &canons, sec.body),
             else => {}, // other sections decoded in later chunks
         }
     }
 
-    return .{ .arena = arena, .deftypes = deftypes, .imports = imports, .exports = exports };
+    return .{ .arena = arena, .deftypes = deftypes, .imports = imports, .exports = exports, .canons = canons };
 }
 
 // ============================================================
@@ -719,6 +808,55 @@ test "tuple decode + empty record rejected" {
 test "own/borrow still defer with UnsupportedTypeForm (0x69)" {
     const bytes = comptime buildComponent(&.{.{ 7, &[_]u8{ 0x01, 0x69, 0x00 } }});
     try testing.expectError(Error.UnsupportedTypeForm, decodeBoth(bytes));
+}
+
+test "canon section: canon lift with opts (utf8 + memory 0 + realloc 1)" {
+    // count=1; lift 0x00 0x00 funcidx=0 opts{utf8, memory 0, realloc 1} typeidx=0
+    const body = [_]u8{ 0x01, 0x00, 0x00, 0x00, 0x03, 0x00, 0x03, 0x00, 0x04, 0x01, 0x00 };
+    const bytes = comptime buildComponent(&.{.{ 8, &body }});
+    var info = try decodeBoth(bytes);
+    defer info.deinit();
+    try testing.expectEqual(@as(usize, 1), info.canons.items.len);
+    const lift = info.canons.items[0].lift;
+    try testing.expectEqual(@as(u32, 0), lift.core_func);
+    try testing.expectEqual(@as(u32, 0), lift.type_index);
+    try testing.expectEqual(StringEncoding.utf8, lift.opts.string_encoding);
+    try testing.expectEqual(@as(?u32, 0), lift.opts.memory);
+    try testing.expectEqual(@as(?u32, 1), lift.opts.realloc);
+    try testing.expectEqual(@as(?u32, null), lift.opts.post_return);
+}
+
+test "canon section: canon lower + empty opts + utf16/post-return" {
+    // lower 0x01 0x00 func=2 opts{} ; then a second lower with utf16 + post-return 3
+    const body = [_]u8{
+        0x02,
+        0x01, 0x00, 0x02, 0x00, // lower func 2, no opts
+        0x01, 0x00, 0x07, 0x02, 0x01, 0x05, 0x03, // lower func 7, opts{utf16, post-return 3}
+    };
+    const bytes = comptime buildComponent(&.{.{ 8, &body }});
+    var info = try decodeBoth(bytes);
+    defer info.deinit();
+    try testing.expectEqual(@as(u32, 2), info.canons.items[0].lower.func);
+    try testing.expectEqual(StringEncoding.utf8, info.canons.items[0].lower.opts.string_encoding);
+    try testing.expectEqual(StringEncoding.utf16, info.canons.items[1].lower.opts.string_encoding);
+    try testing.expectEqual(@as(?u32, 3), info.canons.items[1].lower.opts.post_return);
+}
+
+test "canon section: resource builtins decode" {
+    const body = [_]u8{ 0x01, 0x02, 0x05 }; // resource.new typeidx 5
+    const bytes = comptime buildComponent(&.{.{ 8, &body }});
+    var info = try decodeBoth(bytes);
+    defer info.deinit();
+    try testing.expectEqual(@as(u32, 5), info.canons.items[0].resource_new);
+}
+
+test "canon: async opt + async builtin defer UnsupportedCanon" {
+    // lift with opts{async 0x06}
+    const async_opt = [_]u8{ 0x01, 0x00, 0x00, 0x00, 0x01, 0x06, 0x00 };
+    try testing.expectError(Error.UnsupportedCanon, decodeBoth(comptime buildComponent(&.{.{ 8, &async_opt }})));
+    // a stream/future builtin opcode (0x0e)
+    const builtin = [_]u8{ 0x01, 0x0e, 0x00 };
+    try testing.expectError(Error.UnsupportedCanon, decodeBoth(comptime buildComponent(&.{.{ 8, &builtin }})));
 }
 
 test "enum decode: 0x6d label vec" {
