@@ -57,8 +57,14 @@ Idle/minimal turn is now a BUG, not a steady-state. Dogfooding (D-264) is **DONE
   stack-switching (Phase-3 unstable). **D-299** (inline atomic misalign-trap, x86_64 W^X) env-constrained. No tag.
 - Debt ledger: **54 entries** (+D-300 stack-switching, +D-301 atomics-corpus→note, +D-302 branch-hinting). 0
   `now` except D-299. Never idle.
-- **D-279** Win64 SIMD heisenbug: H3 stack-overflow diagnostic deployed; re-kick windows as work lands to keep
-  hunting the reproduction (user: never leave it idle). Mac-side investigation walled (needs the Win64 signal).
+- **D-279 BREAKTHROUGH @92cf7979** — the decisive Win64 RED finally landed (@16fc1bb3, the run the user cut off):
+  `zwasm-spec-wasm-2-0-assert` exit-3 with the `[d-279-veh] STACK-OVERFLOW` diagnostic PRESENT but NOT firing →
+  **H3 REFUTED**. `[W4 DIR]` raw-beacon pinned crash module = **`address.2.wasm` (NON-SIMD i32/i64 load/store)** in
+  the NON-SIMD runner → **H4 CONFIRMED: NOT a SIMD bug** (12-month framing wrong). ZERO `[d-279-veh]` despite all 3
+  armed/overflow diags → crash takes the SILENT **unarmed** branch (H6). Landed UNARMED-FATAL diagnostic
+  (`windows_traphandler.zig:191`, code+RIP for fatal-class, guard-page-filtered). `track_heisenbug win64-testall
+  segv` streak 4→0. Next Win64 batch self-IDs the faulting RIP (compile vs runtime vs interp) or proves H5
+  (non-exception abort). Full enumeration in D-279 debt row.
 
 ## 完成形 v0.1 surface COMPLETE (history — 2026-06-06)
 
@@ -69,9 +75,9 @@ All three surface audits DONE: CLI→**D-295** (~85% + intentionally lean, decli
 → discipline: always adversarially verify audit criticals; lesson `fd0a1914`). v0.2 tractable features all DONE
 (atomics/wide-arith/custom-page/relaxed-SIMD); forward track = remaining_sweep + completeness (NEVER-IDLE above).
 
-**D-279 (Win64 SIMD-JIT heisenbug)**: hypo H3=Win64 1MB stack overflow; VEH diagnostic landed @`b86ac7fc`
-(`[d-279-veh] STACK-OVERFLOW` self-ID → H3 confirmed; exit-3 w/o it → refuted). UNFIRED; silent streak=4. Loop
-re-kicks windows per batch to keep hunting. Full detail in the D-279 debt row.
+**D-279 (Win64 JIT heisenbug — NO LONGER "SIMD")**: H1(align)/H2(FP-walk)/H3(stack-overflow) all REFUTED.
+Confirmed NON-SIMD (crash module `address.2.wasm`). Leading H6 = silent unarmed-fault path; UNARMED-FATAL
+diagnostic landed @`92cf7979` to pin the RIP on the next Win64 RED. Full enumeration in the D-279 debt row.
 
 **Blocked / parked**: 31 blocked-by (call_ref §10.R / D-177 WASI-config / D-178 Global-Memory / future proposals).
 **D-290** = 3 distillers direction-gated (wasm-tools↔wabt divergence; wabt stays). **D-264** dogfooding gated.
@@ -80,9 +86,11 @@ re-kicks windows per batch to keep hunting. Full detail in the D-279 debt row.
 
 - **ubuntu**: re-kicked each turn (D6 always). Verify `[run_remote_ubuntu] OK` in `/tmp/ubuntu.log`. Red →
   auto-revert (D3; first-resume + non-code-gap exceptions apply).
-- **windows**: BATCHED (D8). Last batch **OK @b9102acb** (recorded). Re-kick when the next batch threshold fires
-  (`should_gate_windows.sh`; ≥6 ABI-risk / ≥12 else). D-279 SIMD crash self-IDs via `[d-279-veh] STACK-OVERFLOW`
-  (H3) vs exit-3 w/o it (re-open). NOT auto-revert (D7): reproduces=real bug+fix; flake=`track_heisenbug.sh`+proceed.
+- **windows**: BATCHED (D8). Last RED **segv @16fc1bb3** (D-279, recorded streak→0, NOT auto-reverted per D7 —
+  known heisenbug). Re-kicked @92cf7979 to TEST the new UNARMED-FATAL diagnostic. Verify `/tmp/win.log`: if
+  `[d-279-veh] UNARMED-FATAL code=0x.. rip=0x..` prints → H6 confirmed (faulting RIP pins compile/runtime/interp);
+  if still NO `[d-279-veh]` + exit-3 → H5 (non-exception abort). `[d-279-veh] STACK-OVERFLOW` (H3) is now refuted
+  but the arm stays. NOT auto-revert (D7).
 - **Gate note**: `OK` = green; `Build Summary: N failed` (no OK) = RED. EXPECTED non-failures: `zig-host-hello`
   exit-42, `--__selftest-crash` exit-70, sha256 `verify: FAIL` (fixture-wrong-constant FALSE lead).
 
