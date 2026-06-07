@@ -1,0 +1,2 @@
+# Official corpus rule: "type index out of bounds" (ADR-0176 validator rule 1).
+assert_invalid test/spec/component-model-assert/type_index_oob/oob.wasm

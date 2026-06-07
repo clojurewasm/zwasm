@@ -16,6 +16,7 @@ const std = @import("std");
 const decode = @import("../feature/component/decode.zig");
 const canon = @import("../feature/component/canon.zig");
 const ctypes = @import("../feature/component/types.zig");
+const cvalidate = @import("../feature/component/validate.zig");
 const runtime_value = @import("../runtime/value.zig");
 const value_conv = @import("../zwasm/value_conv.zig");
 const zwasm = @import("../zwasm.zig");
@@ -309,6 +310,7 @@ pub fn instantiateGraph(engine: *Engine, alloc: Allocator, bytes: []const u8) an
     };
     errdefer graph.deinit();
     graph.info = try ctypes.decodeTypeInfo(alloc, &graph.outer);
+    try cvalidate.validate(&graph.info); // ADR-0176: reject invalid components pre-instantiate
 
     for (graph.info.component_instances.items) |ci| {
         const child_idx = switch (ci) {
@@ -368,6 +370,7 @@ pub fn instantiate(engine: *Engine, alloc: Allocator, bytes: []const u8) Error!C
 
     var info = try ctypes.decodeTypeInfo(alloc, &decoded);
     errdefer info.deinit();
+    try cvalidate.validate(&info); // ADR-0176: reject invalid components pre-instantiate
 
     return .{ .alloc = alloc, .decoded = decoded, .info = info, .engine = engine, .module = module, .core = core };
 }

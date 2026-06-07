@@ -32,6 +32,9 @@ const std = @import("std");
 
 const zwasm = @import("zwasm");
 const host = zwasm.feature.component.host;
+const cdecode = zwasm.feature.component.decode;
+const ctypes = zwasm.feature.component.types;
+const cvalidate = zwasm.feature.component.validate;
 const Value = zwasm.Value;
 
 const Current = union(enum) {
@@ -205,9 +208,41 @@ fn runCorpus(
             continue;
         }
 
+        // `assert_invalid <path>` / `assert_malformed <path>`: the component
+        // must be REJECTED by decode / decodeTypeInfo / validate (ADR-0176).
+        // An error at any stage = pass; clean decode-through-validate = fail.
+        if (std.mem.startsWith(u8, line, "assert_invalid ") or std.mem.startsWith(u8, line, "assert_malformed ")) {
+            const sp = std.mem.findScalar(u8, line, ' ').?;
+            const path = std.mem.trim(u8, line[sp + 1 ..], " ");
+            const bytes = cwd.readFileAlloc(io, path, gpa, .limited(8 << 20)) catch |err| {
+                try stdout.print("FAIL  {s}: read '{s}': {s}\n", .{ name, path, @errorName(err) });
+                failed.* += 1;
+                continue;
+            };
+            defer gpa.free(bytes);
+            if (decodeValidate(gpa, bytes)) {
+                try stdout.print("FAIL  {s}: {s} (accepted an invalid component)\n", .{ name, line });
+                failed.* += 1;
+            } else |_| {
+                passed.* += 1;
+                try stdout.print("PASS  {s}: {s}\n", .{ name, line });
+            }
+            continue;
+        }
+
         try stdout.print("FAIL  {s}: unrecognised directive: {s}\n", .{ name, line });
         failed.* += 1;
     }
+}
+
+/// Decode → decodeTypeInfo → validate. Errors when the component is rejected at
+/// any stage (the `assert_invalid` / `assert_malformed` success condition).
+fn decodeValidate(gpa: std.mem.Allocator, bytes: []const u8) !void {
+    var decoded = try cdecode.decode(gpa, bytes);
+    defer decoded.deinit(gpa);
+    var info = try ctypes.decodeTypeInfo(gpa, &decoded);
+    defer info.deinit();
+    try cvalidate.validate(&info);
 }
 
 /// `assert_string <export> <arg> -> <expected>` — `<expected>` may

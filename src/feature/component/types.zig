@@ -363,6 +363,12 @@ pub const ComponentInstanceDef = union(enum) {
 pub const TypeInfo = struct {
     arena: std.heap.ArenaAllocator,
     deftypes: std.ArrayList(DefType),
+    /// The TRUE size of the component **type index space** — minted (in
+    /// definition order) by `type`-section defs PLUS type-sort `alias`es, type
+    /// `import`s, and type `export`s. `deftypes.len` alone counts only the type
+    /// section, so a valid index pointing at an aliased/imported type would look
+    /// out-of-bounds; validation (ADR-0176) bounds-checks against THIS instead.
+    type_space_len: u32,
     imports: std.ArrayList(Import),
     exports: std.ArrayList(Export),
     canons: std.ArrayList(Canon),
@@ -1149,9 +1155,23 @@ pub fn decodeTypeInfo(parent: Allocator, component: *const decode.Component) Err
         }
     }
 
+    // The type-index space = type-section defs + type-sort aliases + type
+    // imports + type exports (the four forms that mint a type index).
+    var type_space_len: u32 = @intCast(deftypes.items.len);
+    for (aliases.items) |al| {
+        if (std.meta.activeTag(al.sort) == .type) type_space_len += 1;
+    }
+    for (imports.items) |imp| {
+        if (std.meta.activeTag(imp.desc) == .type_bound) type_space_len += 1;
+    }
+    for (exports.items) |ex| {
+        if (std.meta.activeTag(ex.sort) == .type) type_space_len += 1;
+    }
+
     return .{
         .arena = arena,
         .deftypes = deftypes,
+        .type_space_len = type_space_len,
         .imports = imports,
         .exports = exports,
         .canons = canons,

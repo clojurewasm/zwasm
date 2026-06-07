@@ -14,6 +14,7 @@ const std = @import("std");
 
 const decode = @import("../feature/component/decode.zig");
 const ctypes = @import("../feature/component/types.zig");
+const cvalidate = @import("../feature/component/validate.zig");
 const wasi_host = @import("../wasi/host.zig");
 const wasi_fd = @import("../wasi/fd.zig");
 const wasi_proc = @import("../wasi/proc.zig");
@@ -728,6 +729,7 @@ pub fn runWasiP2Main(engine: *Engine, alloc: Allocator, bytes: []const u8, host:
     defer decoded.deinit(alloc);
     var info = try ctypes.decodeTypeInfo(alloc, &decoded);
     defer info.deinit();
+    try cvalidate.validate(&info); // ADR-0176: reject invalid components pre-instantiate
 
     const run_ref = firstLiftCoreExport(&info) orelse return error.NoRunExport;
     const cis = info.core_instances.items;

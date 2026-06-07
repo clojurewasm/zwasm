@@ -168,6 +168,7 @@ pub const feature = struct {
         struct {
             pub const decode = @import("feature/component/decode.zig");
             pub const types = @import("feature/component/types.zig");
+            pub const validate = @import("feature/component/validate.zig");
             pub const canon = @import("feature/component/canon.zig");
             pub const resource_table = @import("feature/component/resource_table.zig");
             pub const wit = struct {
@@ -391,6 +392,7 @@ test {
     _ = @import("cli/invoke_args.zig");
     _ = @import("feature/component/decode.zig");
     _ = @import("feature/component/types.zig");
+    _ = @import("feature/component/validate.zig");
     _ = @import("feature/component/wit/lexer.zig");
     _ = @import("feature/component/wit/parser.zig");
     _ = @import("feature/component/wit/resolve.zig");
