@@ -167,6 +167,7 @@ pub const feature = struct {
     pub const component = if (@import("build_options").enable_component)
         struct {
             pub const decode = @import("feature/component/decode.zig");
+            pub const types = @import("feature/component/types.zig");
         }
     else
         struct {};
@@ -377,6 +378,7 @@ test {
     _ = @import("cli/run.zig");
     _ = @import("cli/invoke_args.zig");
     _ = @import("feature/component/decode.zig");
+    _ = @import("feature/component/types.zig");
 }
 
 // ============================================================
