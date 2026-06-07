@@ -39,6 +39,17 @@ pub const P2Op = enum {
     clocks_monotonic_now,
     // wasi:random.
     random_get_bytes,
+    // wasi:filesystem/types — `descriptor` resource methods. A descriptor is a
+    // P1 fd; these forward to the seekable-fd P1 ops (the stream-via methods
+    // that MINT new stream resources land in a later chunk).
+    fs_descriptor_read,
+    fs_descriptor_write,
+    fs_descriptor_sync,
+    fs_descriptor_stat,
+    fs_descriptor_get_type,
+    fs_descriptor_drop,
+    // wasi:filesystem/preopens.
+    fs_get_directories,
 };
 
 /// What P1 facility a `P2Op` ultimately drives (so the D1-2 integration maps
@@ -59,6 +70,16 @@ pub const P1Target = union(enum) {
     clock_time_get: u32,
     /// P1 `random_get`.
     random_get,
+    /// `descriptor` (P1 fd) ops — the fd is resolved from the handle rep at
+    /// call time, so these carry no fixed fd.
+    fd_pread,
+    fd_pwrite,
+    fd_sync,
+    fd_filestat_get,
+    fd_fdstat_get,
+    fd_close,
+    /// P1 preopens enumeration (`fd_prestat_get` / `fd_prestat_dir_name`).
+    preopens_get_directories,
 };
 
 pub fn p1Target(op: P2Op) P1Target {
@@ -73,6 +94,13 @@ pub fn p1Target(op: P2Op) P1Target {
         .clocks_wall_now => .{ .clock_time_get = 0 },
         .clocks_monotonic_now => .{ .clock_time_get = 1 },
         .random_get_bytes => .random_get,
+        .fs_descriptor_read => .fd_pread,
+        .fs_descriptor_write => .fd_pwrite,
+        .fs_descriptor_sync => .fd_sync,
+        .fs_descriptor_stat => .fd_filestat_get,
+        .fs_descriptor_get_type => .fd_fdstat_get,
+        .fs_descriptor_drop => .fd_close,
+        .fs_get_directories => .preopens_get_directories,
     };
 }
 
@@ -103,6 +131,13 @@ const table = [_]Entry{
     .{ .iface = "wasi:clocks/wall-clock", .func = "now", .op = .clocks_wall_now },
     .{ .iface = "wasi:clocks/monotonic-clock", .func = "now", .op = .clocks_monotonic_now },
     .{ .iface = "wasi:random/random", .func = "get-random-bytes", .op = .random_get_bytes },
+    .{ .iface = "wasi:filesystem/types", .func = "[method]descriptor.read", .op = .fs_descriptor_read },
+    .{ .iface = "wasi:filesystem/types", .func = "[method]descriptor.write", .op = .fs_descriptor_write },
+    .{ .iface = "wasi:filesystem/types", .func = "[method]descriptor.sync", .op = .fs_descriptor_sync },
+    .{ .iface = "wasi:filesystem/types", .func = "[method]descriptor.stat", .op = .fs_descriptor_stat },
+    .{ .iface = "wasi:filesystem/types", .func = "[method]descriptor.get-type", .op = .fs_descriptor_get_type },
+    .{ .iface = "wasi:filesystem/types", .func = "[resource-drop]descriptor", .op = .fs_descriptor_drop },
+    .{ .iface = "wasi:filesystem/preopens", .func = "get-directories", .op = .fs_get_directories },
 };
 
 /// Classify a P2 import `(interface, func)` → the `P2Op` it maps to, or null if
@@ -140,6 +175,26 @@ test "p1Target: clocks + random" {
     try testing.expectEqual(@as(u32, 0), p1Target(.clocks_wall_now).clock_time_get);
     try testing.expectEqual(@as(u32, 1), p1Target(.clocks_monotonic_now).clock_time_get);
     try testing.expectEqual(P1Target.random_get, p1Target(.random_get_bytes));
+}
+
+test "classify: filesystem descriptor resource ops (wasi:filesystem/types)" {
+    try testing.expectEqual(P2Op.fs_descriptor_read, classifyImport("wasi:filesystem/types", "[method]descriptor.read").?);
+    try testing.expectEqual(P2Op.fs_descriptor_write, classifyImport("wasi:filesystem/types", "[method]descriptor.write").?);
+    try testing.expectEqual(P2Op.fs_descriptor_sync, classifyImport("wasi:filesystem/types", "[method]descriptor.sync").?);
+    try testing.expectEqual(P2Op.fs_descriptor_stat, classifyImport("wasi:filesystem/types", "[method]descriptor.stat").?);
+    try testing.expectEqual(P2Op.fs_descriptor_get_type, classifyImport("wasi:filesystem/types", "[method]descriptor.get-type").?);
+    try testing.expectEqual(P2Op.fs_descriptor_drop, classifyImport("wasi:filesystem/types", "[resource-drop]descriptor").?);
+    try testing.expectEqual(P2Op.fs_get_directories, classifyImport("wasi:filesystem/preopens", "get-directories").?);
+}
+
+test "p1Target: descriptor ops map to fd syscalls (fd from the handle rep at call time)" {
+    try testing.expectEqual(P1Target.fd_pread, p1Target(.fs_descriptor_read));
+    try testing.expectEqual(P1Target.fd_pwrite, p1Target(.fs_descriptor_write));
+    try testing.expectEqual(P1Target.fd_sync, p1Target(.fs_descriptor_sync));
+    try testing.expectEqual(P1Target.fd_filestat_get, p1Target(.fs_descriptor_stat));
+    try testing.expectEqual(P1Target.fd_fdstat_get, p1Target(.fs_descriptor_get_type));
+    try testing.expectEqual(P1Target.fd_close, p1Target(.fs_descriptor_drop));
+    try testing.expectEqual(P1Target.preopens_get_directories, p1Target(.fs_get_directories));
 }
 
 test "classify: unknown interface/func → null; isWasiP2Interface" {
