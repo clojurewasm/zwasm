@@ -393,6 +393,49 @@ pub fn build(b: *std.Build) void {
     const test_spec_assert_step = b.step("test-spec-assert", "Run JIT spec assertion runner (all hosts; gate-green at §9.7 / 7.8 close)");
     test_spec_assert_step.dependOn(&run_spec_assert.step);
 
+    // E1 (ADR-0170): Component Model spec corpus runner. Unlike the
+    // core-wasm runners it needs the `-Dcomponent` host API, so it is
+    // built against a dedicated component-ENABLED `zwasm` module
+    // (`core_comp`) regardless of the top-level `-Dcomponent` (default
+    // false). `core_comp` is a separate root of `src/zwasm.zig` rooting
+    // its own executable — never co-compiled with `core` in one exe, so
+    // the ADR-0028 dual-`build_options`-root hazard does not apply.
+    const comp_options = b.addOptions();
+    comp_options.addOption(WasmLevel, "wasm_level", wasm_level);
+    comp_options.addOption(WasiLevel, "wasi_level", wasi_level);
+    comp_options.addOption(EngineMode, "engine_mode", engine_mode);
+    comp_options.addOption(bool, "trace_ringbuffer", trace_ringbuffer);
+    comp_options.addOption(bool, "trace_stackprobe", trace_stackprobe);
+    comp_options.addOption(bool, "enable_gc", enable_gc);
+    comp_options.addOption(bool, "enable_component", true);
+    const comp_options_mod = comp_options.createModule();
+    const core_comp = b.createModule(.{
+        .root_source_file = b.path("src/zwasm.zig"),
+        .target = target,
+        .optimize = optimize,
+        .strip = strip_opt,
+        .link_libc = true,
+    });
+    applySanitize(core_comp, sanitize_opts);
+    core_comp.addImport("build_options", comp_options_mod);
+    core_comp.addIncludePath(b.path("include"));
+    core_comp.addImport("zwasm", core_comp);
+
+    const comp_spec_runner_mod = createSanitizedModule(b, sanitize_opts, .{
+        .root_source_file = b.path("test/spec/component_model_assert_runner.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    comp_spec_runner_mod.addImport("zwasm", core_comp);
+    const comp_spec_runner_exe = b.addExecutable(.{
+        .name = "zwasm-component-spec-assert",
+        .root_module = comp_spec_runner_mod,
+    });
+    const run_comp_spec_assert = b.addRunArtifact(comp_spec_runner_exe);
+    run_comp_spec_assert.addArg(b.pathFromRoot("test/spec/component-model-assert"));
+    const test_comp_spec_step = b.step("test-component-spec", "Run the Component Model spec corpus runner (E1; ADR-0170)");
+    test_comp_spec_step.dependOn(&run_comp_spec_assert.step);
+
     // `zig build test-spec-simd` — §9.9 per ADR-0045. SIMD spec
     // assertion runner (parallel to spec_assert_runner). §9.9-a
     // foundation: runner skeleton + build.zig wiring + manifest
@@ -1080,6 +1123,7 @@ pub fn build(b: *std.Build) void {
     // dependOn doesn't break test-all on a clean checkout.
     test_all_step.dependOn(&run_non_simd_assert.step);
     test_all_step.dependOn(&run_threads_assert.step); // §17.4 D-301 atomics corpus
+    test_all_step.dependOn(&run_comp_spec_assert.step); // E1 Component Model spec corpus (ADR-0170)
     // ADR-0174 win-harden-I: assert the resource runners FAIL on a missing
     // corpus root (no silent "0 manifests" skip) on EVERY host incl. windowsmini.
     test_all_step.dependOn(&run_simd_absent.step);

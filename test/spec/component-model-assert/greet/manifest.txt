@@ -1,0 +1,5 @@
+# A real wasm-tools string->string component (greet(name) -> string).
+# Provenance: test/component/README.md. Fixture reused, not duplicated.
+component test/component/greet_component.wasm
+assert_string greet zwasm -> Hello, zwasm!
+assert_string greet 世界 -> Hello, 世界!

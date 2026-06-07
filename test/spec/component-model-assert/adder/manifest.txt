@@ -1,0 +1,5 @@
+# A 2-component graph: A's core import wired to B's `adder` (cross-module link).
+# Provenance: test/component/README_adder_graph.md.
+graph test/component/adder_graph.wasm
+assert_flat_i32 add-five 10 -> 15
+assert_flat_i32 add-five 0 -> 5
