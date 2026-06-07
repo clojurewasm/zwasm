@@ -49,6 +49,14 @@ const regalloc = @import("../shared/regalloc.zig");
 const inst = @import("inst.zig");
 const usage = @import("usage.zig");
 const abi = @import("abi.zig");
+const build_options = @import("build_options");
+// §17.4 D-231 — comptime build-level guard (arm64 parity, emit.zig:73). The
+// D-239 br_on_null cohort below is in the legacy switch (not the
+// dispatch_collector's comptime `enabledByBuild`), so it needs an explicit
+// `if (comptime wasm_v3_plus)` to DCE in `-Dwasm=v1_0` — else the x86_64 v1_0
+// binary retains dead wasm_3_0 codegen (caught by check_build_dce on x86).
+const wasm_v3_plus = @intFromEnum(build_options.wasm_level) >=
+    @intFromEnum(@TypeOf(build_options.wasm_level).v3_0);
 const jit_abi = @import("../shared/jit_abi.zig");
 const exception_table = @import("../shared/exception_table.zig");
 const types = @import("types.zig");
@@ -1575,9 +1583,22 @@ pub fn compile(
                 if (at_function_end) break;
             },
             // D-239 — function-references null-ref branch ops (arm64 parity).
-            .br_on_null => try op_br_on_null.emit(&ctx, &ins),
-            .br_on_non_null => try op_br_on_non_null.emit(&ctx, &ins),
-            .@"ref.as_non_null" => try op_ref_as_non_null.emit(&ctx, &ins),
+            // §17.4 D-231 — comptime-guard so v1_0/v2_0 builds DCE the v3 codegen.
+            .br_on_null => {
+                if (comptime wasm_v3_plus) {
+                    try op_br_on_null.emit(&ctx, &ins);
+                } else return Error.UnsupportedOp;
+            },
+            .br_on_non_null => {
+                if (comptime wasm_v3_plus) {
+                    try op_br_on_non_null.emit(&ctx, &ins);
+                } else return Error.UnsupportedOp;
+            },
+            .@"ref.as_non_null" => {
+                if (comptime wasm_v3_plus) {
+                    try op_ref_as_non_null.emit(&ctx, &ins);
+                } else return Error.UnsupportedOp;
+            },
             else => {
                 std.debug.print("x86_64/emit: UnsupportedOp[body-op-{s}] (func_idx={d})\n", .{ @tagName(ins.op), func.func_idx });
                 return Error.UnsupportedOp;
