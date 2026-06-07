@@ -3,40 +3,20 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## ⚑ NEW DIRECTIVE — windowsmini hardening THEN gate suspension (user-directed 2026-06-07, ADR-0174)
+## ⚑ windowsmini-hardening campaign — DONE; gating SUSPENDED (ADR-0174, 2026-06-07)
 
-**Read first. This supersedes the routine loop priority.** The user is shutting down all 3 hosts after this commit; the
-windowsmini verification load was conflicting with their separate ClojureWasmFromScratch work. **Two-phase plan:**
+**win-harden-I bundle CLOSED @9d832f1d.** The `pass=0` anomaly did NOT reproduce: fresh windows `test-all` @f8bcc040
+showed real pass counts IDENTICAL to ubuntu (simd 13420, non_simd 25437+294, 1.0 212; 0 `SKIP-START-TRAP`). Root cause =
+a **transient windowsmini corpus state** (@87635409→@f8bcc040 is doc-only), masked by a silent "0 manifests" exit-0 in
+the simd/non_simd/wasm_3_0 runners. **Fix (3-host green @9d832f1d)**: those runners now `exit(1)` on a missing corpus
+root; build.zig `test-corpus-presence` (3 neg-runs, expectExitCode 1) wired into test-all = the v1 "no naive windows
+skip" lesson made a gate. Findings: [`windows_hardening_findings.md`](windows_hardening_findings.md); lesson
+`2026-06-07-windows-spec-pass0-was-transient-corpus`.
 
-1. **FIRST — windowsmini-hardening campaign (immediate priority next session).** Run windowsmini intensively
-   (low/zero batch threshold) and get it **fully, verifiably green** — real spec-assert pass counts matching ubuntu,
-   not a MATCH-only `OK`. **First lead** (captured @87635409, /tmp/win.log): windows `[run_remote_windows] OK` but the
-   spec-assert phase shows **`pass=0` across EVERY category** (assert_return pass=0/fail=0; assert_invalid
-   pass=0/fail=194; some trap/malformed fails) while ubuntunote on the SAME commit passes all with real counts ⇒ a
-   **windows-side spec-runner execution/reporting failure masked by the OK verdict** (the verdict keys off realworld
-   MATCH only). Root-cause this FIRST (investigation-discipline hypothesis list); then any remaining real Win64
-   divergence. Open a campaign/bundle for it.
-2. **THEN — suspend windows gating** so Mac+ubuntu iterate FAST: `bash scripts/should_gate_windows.sh --suspend`
-   (writes `.dev/windows_gate_suspended`; the gate then always defers → **2-host gate Mac+ubuntu**). `--resume` before
-   any `main` merge / Win64-risk diff / on user request. A13 strict-3-host merge gate (`gate_merge.sh`) is UNCHANGED.
-
-**Then** resume normal loop: the CM+WASI-P2 campaign below (Phase D3/E). The loop NEVER idles; **No release/tag EVER**
-(ADR-0156). D-279 stays discharged (lesson `2026-06-07-always-on-debug-dump-was-the-heisenbug`) — but note the pass=0
-anomaly above is a DISTINCT, NEW windows signal, not a D-279 reopen.
-
-## Active bundle — windowsmini-hardening (ADR-0174 Phase I)
-
-- **Bundle-ID**: win-harden-I (spec-assert pass=0 root-cause) — Phase I DONE, landing fix
-- **Cycles-remaining**: ~1 (land guard 3-host → re-verify win green → ADR-0174 phase 2 suspend)
-- **Continuity-memo**: **anomaly does NOT reproduce** — fresh win `test-all` @f8bcc040 (45147 lines) shows real pass
-  counts IDENTICAL to ubuntu (simd 13420, non_simd 25437+294, 1.0 212, wast 1158+72), SKIP histogram == ubuntu, 0
-  `SKIP-START-TRAP`. @87635409→@f8bcc040 is doc-only ⇒ the `pass=0` was a TRANSIENT win corpus state (incomplete/
-  unreadable corpus), masked by the silent "0 manifests" exit-0 path. Full result table + root-cause in
-  [`windows_hardening_findings.md`](windows_hardening_findings.md). **Fix landed (Mac green)**: simd/non_simd/wasm_3_0
-  runners `exit(1)` on missing corpus root (was silent `return`); build.zig `test-corpus-presence` (3 neg-runs,
-  expectExitCode 1) wired into test-all → enforced on every host = the v1 "no naive win skip" lesson made a gate.
-- **Exit-condition**: guard green 3-host (win `test-all` still real counts WITH guard active); THEN ADR-0174 phase 2
-  (`should_gate_windows.sh --suspend`).
+**Gating now SUSPENDED** — `.dev/windows_gate_suspended` = `9d832f1d` ⇒ inner loop is **2-host (Mac+ubuntu) FAST**.
+`should_gate_windows.sh --resume` before any `main` merge / Win64-risk diff (ABI/calling-convention/frame-layout) / on
+user request. A13 strict-3-host merge gate (`gate_merge.sh`) UNCHANGED. **Now resume the CM+WASI-P2 campaign below
+(Phase D3/E).** Loop NEVER idles; **No release/tag EVER** (ADR-0156).
 
 ## Active campaign — Component Model + WASI Preview 2 (ADR-0170, user-directed 2026-06-07)
 

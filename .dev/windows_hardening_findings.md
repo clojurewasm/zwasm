@@ -92,10 +92,16 @@ wired into `test-all` pins this on EVERY host incl. windowsmini — a runner tha
 silently skips its committed corpus now turns the build RED. This is the
 v1-lesson "windows must not naively skip" made enforceable.
 
-## Campaign status
+## Campaign status — COMPLETE @9d832f1d
 
 - Investigation (Phase I): **DONE** — anomaly = transient corpus state, masking
   path identified + removed.
-- windowsmini @f8bcc040 is **verifiably green with real counts == ubuntu**.
-- NEXT: land the guard 3-host (re-verify windows green WITH the guard active),
-  then ADR-0174 phase 2 (`should_gate_windows.sh --suspend`).
+- Guard **green 3-host @9d832f1d**: Mac (test-all) + ubuntu (`OK HEAD=9d832f1d`,
+  real counts) + windows (`OK`, real counts == ubuntu: simd 13420, non_simd
+  25437+294, 1.0 212). The 3 `expectExitCode(1)` neg-runs are test-all deps and
+  test-all is `OK` on all hosts ⇒ a missing committed corpus now turns the build
+  RED everywhere (proven on windows, the target host).
+- ADR-0174 phase 2 **DONE**: `should_gate_windows.sh --suspend` →
+  `.dev/windows_gate_suspended` = `9d832f1d`; inner loop is 2-host (Mac+ubuntu).
+  `--resume` before any `main` merge / Win64-risk diff. Bundle win-harden-I
+  CLOSED.
