@@ -3,46 +3,45 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## ⚑ windowsmini-hardening campaign — DONE; gating SUSPENDED (ADR-0174, 2026-06-07)
+## ⚑ windowsmini gating SUSPENDED (ADR-0174) — 2-host (Mac+ubuntu) FAST loop
 
-**win-harden-I bundle CLOSED @9d832f1d.** The `pass=0` anomaly did NOT reproduce: fresh windows `test-all` @f8bcc040
-showed real pass counts IDENTICAL to ubuntu (simd 13420, non_simd 25437+294, 1.0 212; 0 `SKIP-START-TRAP`). Root cause =
-a **transient windowsmini corpus state** (@87635409→@f8bcc040 is doc-only), masked by a silent "0 manifests" exit-0 in
-the simd/non_simd/wasm_3_0 runners. **Fix (3-host green @9d832f1d)**: those runners now `exit(1)` on a missing corpus
-root; build.zig `test-corpus-presence` (3 neg-runs, expectExitCode 1) wired into test-all = the v1 "no naive windows
-skip" lesson made a gate. Findings: [`windows_hardening_findings.md`](windows_hardening_findings.md); lesson
-`2026-06-07-windows-spec-pass0-was-transient-corpus`.
+win-harden-I bundle CLOSED @9d832f1d (the `pass=0` anomaly was a transient corpus state; fix = runners `exit(1)` on
+missing corpus root + build.zig `test-corpus-presence` gate). `.dev/windows_gate_suspended` = `9d832f1d`;
+`should_gate_windows.sh --resume` before any `main` merge / Win64-risk diff (ABI/cc/frame-layout). A13 strict-3-host
+merge gate (`gate_merge.sh`) UNCHANGED. Findings: [`windows_hardening_findings.md`](windows_hardening_findings.md).
+Loop NEVER idles; **No release/tag EVER** (ADR-0156).
 
-**Gating now SUSPENDED** — `.dev/windows_gate_suspended` = `9d832f1d` ⇒ inner loop is **2-host (Mac+ubuntu) FAST**.
-`should_gate_windows.sh --resume` before any `main` merge / Win64-risk diff (ABI/calling-convention/frame-layout) / on
-user request. A13 strict-3-host merge gate (`gate_merge.sh`) UNCHANGED. **Now resume the CM+WASI-P2 campaign below
-(Phase D3/E).** Loop NEVER idles; **No release/tag EVER** (ADR-0156).
+## ✅ E2 CLOSED — a REAL Rust wasm32-wasip2 component RUNS via zwasm (@96e1ccce)
 
-## ✅ E2 bundle CLOSED — a REAL Rust wasm32-wasip2 component RUNS via zwasm (@96e1ccce)
-
-The campaign headline: a genuine `rustc --target wasm32-wasip2` component (NOT hand-authored; wit-bindgen
-shim/fixup-table indirection, full wasi:cli world) prints "hello from a real rust wasip2 component" e2e + exit 0.
-Delivered: **ADR-0175** general instance-graph engine @8eab1703 · **D-310** runtime fix @4e802881 (imported host
-funcs funcref-able: per-import placeholder sig + call_indirect→host_calls) + component memory fix @96e1ccce
-(trampolines use `WasiP2Ctx.mem_instance`, not the memory-less shim caller) · core-table decode @73df8a7e ·
-cli/environment+terminal+check-write @0888a3f9. Fixture `test/component/wasi_p2_hello_rust.wasm` (78 KB) + e2e + dogfood.
+A genuine `rustc --target wasm32-wasip2` component (wit-bindgen shim/fixup, full wasi:cli) prints e2e + exit 0.
+Delivered: **ADR-0175** general instance-graph engine @8eab1703 · **D-310** imported-host-funcs-funcref-able @4e802881
++ component memory fix @96e1ccce. Fixture `test/component/wasi_p2_hello_rust.wasm` (78 KB) + e2e + dogfood.
 
 **E1 DONE** (plan §Phase E): `test/spec/component_model_assert_runner.zig` — a Component-Model spec corpus runner
 that decodes+instantiates+invokes over `test/spec/component-model-assert/`, built against a component-ENABLED
 `zwasm` module (`core_comp` in build.zig), wired into `test-all`. First corpus = greet (string→string) + adder graph
 (cross-module i32): 4 pass, 0 skip. ADR-0174 lesson: missing corpus root = hard `exit(1)`. Fixtures reuse `test/component/`.
 
-**NEXT = E3** (plan §Phase E, the next `[ ]`): WASI-P2 conformance + edge cases — AND grow the E1 corpus.
-**Survey finding (@279b7fb3)**: `~/Documents/OSS/WebAssembly/component-model/test/wasm-tools/*.wast` = **365
-`assert_invalid` + 17 `assert_malformed`, ZERO invoke tests** — negative decode/VALIDATE tests. Our `decode.zig` is
-decode-only (no component validation), so most would FALSELY pass → honest ingestion needs **component-validation
-depth (ADR-grade: how much §-by-§ component validation to implement) + a `.wast`→corpus distill script + `assert_invalid`/
-`assert_malformed` runner directives**. That makes E3 a multi-cycle BUNDLE, not a quick chain — open it with a Step 0
-survey + an ADR on validation scope. Positive-decode fixtures (bare `(component …)` forms) are the cheaper first slice.
-E2 remainder (Go/tinygo cross-toolchain proof + io/error trampoline) is opportunistic —
-toolchain-gated (wit-bindgen-go not in the gen shell), do it when convenient, not the blocker.
-**Resume routing**: handover §Active campaign DRIVER → `component_model_plan.md` §Work sequence (close-plan-override);
-ROADMAP §17 row also redirects there. Follow the plan's first `[ ]` (= E3). `/continue` alone resumes correctly.
+**NEXT = E3-CM-validation bundle (OPEN; see `## Active bundle`)**: component-model conformance via a structural-first
+**component validator** (ADR-0176) driven by the official `WebAssembly/component-model/test/wasm-tools` `assert_invalid`
+corpus (365 + 17 malformed). `src/feature/component/validate.zig` runs after `decodeTypeInfo`, before instantiate, at
+all 3 host entry points. **Rule 1 (type-index bounds) DONE** — runner gained `assert_invalid`/`assert_malformed`
+directives; fixture `type_index_oob/oob.wasm` (authored via `wasm-tools parse`, no-validate encode). Each further rule
+= 1 chunk + ≥1 corpus-derived fixture; deferred deep-type cases stay truthful `skip-impl` (NOT blanket-skip — D-301).
+E2 remainder (Go/tinygo cross-toolchain proof) is opportunistic — toolchain-gated, not the blocker.
+**Resume routing**: `## Active bundle` (1b) supersedes the plan's E3 row; `/continue` resumes the next validation rule.
+
+## Active bundle
+
+- **Bundle-ID**: E3-CM-validation (ADR-0176)
+- **Cycles-remaining**: ~4 — rules in frequency order: ✅1 type-index bounds · 2 names (kebab-case + valid
+  extern/import names) · 3 outer-alias count + alias-target existence · 4 export-type-validity / index-space bounds.
+- **Continuity-memo**: `validate.zig` walks the decoded `TypeInfo` (no re-parse) post-`decodeTypeInfo`, pre-instantiate,
+  at instantiate/instantiateGraph/runWasiP2Main. Runner `assert_invalid`/`assert_malformed` directives decode→typeinfo
+  →validate, expect error. Fixtures: hand-author invalid `.wat` (numeric OOB / bad names) → `wasm-tools parse` (encodes
+  WITHOUT validating) → commit `.wasm` under `test/spec/component-model-assert/<rule>/`. Deferred deep-type = truthful `skip-impl`.
+- **Exit-condition**: structural rule set (1–4) landed, each with ≥1 corpus-derived `assert_invalid` fixture passing in
+  `test-component-spec`; deep canonical-ABI / subtyping cases enumerated as `skip-impl` with specific reasons.
 
 ## Active campaign — Component Model + WASI Preview 2 (ADR-0170, user-directed 2026-06-07)
 
@@ -77,7 +76,7 @@ philosophy-maintained; proven by Rust+Go sample components). Decision + rational
   random · D3-5 stdin · **D3-6 fs descriptor** @43909eba (read/sync/stat/get-type + flush; **D-307 DISCHARGED**
   @beb887c6) · **D3-7 wasi:io/poll** @3a128a01 (pollable + subscribe + ready/block/poll). **D-309 DONE** @ccdee2fa —
   WASI-P2 trampolines extracted to `api/component_wasi_p2.zig` (component.zig 1922→1250).
-- **NOW = E3** (conformance + corpus growth; E1 runner DONE; D-308 edge case discharged @82d63d27). Deferred: D3-8 sockets (spike-first).
+- **NOW = E3-CM-validation bundle** (component validator; rule 1 type-index bounds @cfdb07be; D-308 edge case @82d63d27). Deferred: D3-8 sockets (spike-first).
   Cross-component aggregate → D-305. **D-308 DISCHARGED @82d63d27** — unknown-wasi-import errors cleanly (no signal);
   ADR-0175 engine's per-instance cleanup is sound; adversarial guard `wasi_p2_unknown_import.wasm` (E3 edge case).
 
@@ -85,7 +84,7 @@ philosophy-maintained; proven by Rust+Go sample components). Decision + rational
 
 - **Phase 17 (v0.2) IN-PROGRESS** (ADR-0168). DONE+3-host: atomics @9eb84833 · wide-arith @231d4536 ·
   custom-page-sizes @cd0de2dd · relaxed-SIMD @08342ec5 (+official corpus @8ef2e752, 13420 pass arm64+x86). Wasm-3.0
-  core 100%-spec COMPLETE. Last SHA **82d63d27** (E1 spec-corpus runner + E3 D-308 adversarial guard; ubuntu OK @07a11798; windows susp @9d832f1d).
+  core 100%-spec COMPLETE. Last SHA **cfdb07be** (E3-CM-validation rule 1: type-index bounds; test-all+lint green; ubuntu OK @1e31317a; windows susp @9d832f1d).
 - **Atomics fully conformant @e6f3b0c0** — official corpus **294 pass, 0 SKIPPED** (D-301), incl. the JIT
   unaligned-atomic-trap fix D-303 (code-14 `unaligned_atomic_fixups` both arches, @5b0db8e1, 3-host).
 - **ALL bounded debt CLEARED**: ✅ D-301 · ✅ D-303 · ✅ D-231 (cross-x86 DCE gate wired @aac4fe2f) · ✅ D-302

@@ -208,8 +208,12 @@ design forks. Update this doc's `[x]` + handover NEXT each chunk.
   fixtures; close the gap to wasmtime where "beyond is satisfiable" (ADR-0170).
   **Started**: D-308 adversarial edge case @82d63d27 — an unknown wasi import
   (`wasi:sockets/tcp`) errors cleanly (no signal); fixture `wasi_p2_unknown_import.wasm`.
-  Remaining: more WASI-P2 boundary fixtures (trap/handle-invalid paths) + grow the
-  E1 component-model corpus (official `.wast` ingestion needs component-validation depth — ADR-grade, see handover).
+  **E3-CM-validation bundle (ADR-0176) OPEN**: structural-first component validator
+  `src/feature/component/validate.zig` (post-decode, pre-instantiate, all 3 host entry points), driven by the official
+  `component-model/test/wasm-tools` `assert_invalid` corpus (365+17). Runner gained `assert_invalid`/`assert_malformed`
+  directives. **Rule 1 (type-index bounds) DONE** — fixture `type_index_oob/oob.wasm`. Rules 2–4 (names / alias /
+  export-type) follow as chunks; deep-type cases = truthful `skip-impl`. See handover `## Active bundle`.
+  Remaining (separate): more WASI-P2 boundary fixtures (trap/handle-invalid paths).
 
 ## Retrospective (fill at campaign close)
 
