@@ -158,6 +158,29 @@ pub fn build(b: *std.Build) void {
     // re-export hub regardless of nesting depth.
     core.addImport("zwasm", core);
 
+    // ADR-0177 (D-311) — a ReleaseSafe twin of `core` for the integration
+    // TEST RUNNERS only. Debug host execution is ~5-10x slower; the runners
+    // (spec / realworld / wast / edge corpus) are run-time-dominated, so they
+    // build ReleaseSafe for iteration speed (still full safety checks). The
+    // `core_tests` UNIT suite stays on Debug `core` (it calls raw `module.entry`
+    // fn-ptrs that violate the JIT host-boundary callee-saved contract under an
+    // optimized host — a test-harness pattern, not a production path; production
+    // routes through the cohort trampoline). Production (`exe`/lib) keeps `core`
+    // honouring `-Doptimize`. Floor at ReleaseSafe so a plain Debug build still
+    // runs runners fast; a higher `-Doptimize` (ReleaseFast) wins.
+    const runner_optimize: std.builtin.OptimizeMode = if (optimize == .Debug) .ReleaseSafe else optimize;
+    const core_rs = b.createModule(.{
+        .root_source_file = b.path("src/zwasm.zig"),
+        .target = target,
+        .optimize = runner_optimize,
+        .strip = strip_opt,
+        .link_libc = true,
+    });
+    applySanitize(core_rs, sanitize_opts);
+    core_rs.addImport("build_options", build_options_mod);
+    core_rs.addIncludePath(b.path("include"));
+    core_rs.addImport("zwasm", core_rs);
+
     // CLI exe — separate thin module rooted at `src/cli/main.zig`
     // (per ADR-0024 D-4) so `pub fn main` lives in the CLI zone
     // and doesn't collide with C hosts' `int main` when they link
@@ -277,12 +300,12 @@ pub fn build(b: *std.Build) void {
     // Wasm spec corpus (Phase 1 / §9.1 / 1.8: parser smoke; 1.9
     // upgrades to full decode + validate + lower).
     //
-    // Per ADR-0024 D-1, every test runner reuses the same `core`
-    // module via `addImport("zwasm", core)`. The `zwasm_lib_mod`
-    // alias below points at `core` so existing test-runner wiring
-    // (`spec_runner_mod.addImport("zwasm", zwasm_lib_mod)`) works
-    // without having to thread `core` through every callsite.
-    const zwasm_lib_mod = core;
+    // Per ADR-0024 D-1, every test runner reuses one shared zwasm module via
+    // `addImport("zwasm", zwasm_lib_mod)`. ADR-0177 (D-311): that alias now
+    // points at the ReleaseSafe twin `core_rs` so every integration runner
+    // builds ReleaseSafe (iteration speed) in one place. `core_tests`/`exe`
+    // still use Debug `core`.
+    const zwasm_lib_mod = core_rs;
     const spec_runner_mod = createSanitizedModule(b, sanitize_opts, .{
         .root_source_file = b.path("test/spec/runner.zig"),
         .target = target,
@@ -535,7 +558,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    wasm_3_0_assert_runner_mod.addImport("zwasm", core);
+    wasm_3_0_assert_runner_mod.addImport("zwasm", core_rs); // ADR-0177: integration runner → ReleaseSafe
     const wasm_3_0_assert_runner_exe = b.addExecutable(.{
         .name = "zwasm-spec-wasm-3-0-assert",
         .root_module = wasm_3_0_assert_runner_mod,
