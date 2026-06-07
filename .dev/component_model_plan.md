@@ -164,10 +164,17 @@ design forks. Update this doc's `[x]` + handover NEXT each chunk.
     all fs err arms (incl open-at/write) emit `result.err(error-code)`, no trap.
     Fixtures `wasi_p2_fs_full` (5 ops, guest asserts+traps) + `wasi_p2_fs_err`
     (open-at noent → err(no-entry)). Smell: `component.zig` 1834 LOC → **D-309**.
-  - **NEXT = D3-7**: `poll` (pollable resource + `poll.poll-list`) — needed before
-    sockets. Then **sockets last (spike first)**. OR Phase E (conformance corpus +
-    Rust/Go proof). **D-308**: runWasiP2Main error-cleanup SEGVs on a failed-import
-    wire (unknown-interface error path only).
+  - **D3-7 wasi:io/poll** @3a128a01 — pollable resource (POLLABLE_RT) +
+    subscribe-duration/instant + input/output-stream.subscribe mint pollables;
+    `pollable.ready`→true, `block`→noop, `poll(list)`→all-ready `list<u32>`
+    (synchronous always-ready host). `dropAny` returns the typed handle so the
+    generic drop skips fd_close for non-fd pollables. Fixture `wasi_p2_poll`.
+  - **D-309 extraction** @ccdee2fa — WASI-P2 trampolines + runWasiP2Main split to
+    `api/component_wasi_p2.zig` (component.zig 1922→1250 LOC), behavior-preserving.
+  - **NEXT = D3-8**: **sockets** (tcp/udp — spike-first per plan). OR Phase E
+    (E1 conformance corpus + E2 Rust/Go real-toolchain proof — the campaign's
+    wasmtime-equivalent existence proof). **D-308**: runWasiP2Main error-cleanup
+    SEGVs on a failed-import wire (unknown-interface error path only).
 
 ### Phase E — conformance + proof (Tier 2 = wasmtime-equivalent)
 

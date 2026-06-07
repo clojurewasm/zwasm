@@ -1070,21 +1070,6 @@ entries:
     first_raised: "2026-06-07"
     last_reviewed: "2026-06-07"
     refs: src/api/component.zig (runWasiP2Main defer cleanup; defineClassifiedFunc error arm); .dev/component_model_plan.md (Phase D3)
-  - id: "D-309"
-    layer: "code"
-    status: "note"
-    description: |-
-      note (file-size smell, not a block). `api/component.zig` reached 1834 lines (soft cap 1000 WARN) and
-      grows ~30-50 lines per D3 WASI-P2 chunk (poll/sockets remain). It bundles three cohesive concerns: CM
-      decode/instantiate/link orchestration, the WASI-P2 host trampolines (~500 LOC: p2GetStdout..p2DescriptorRead
-      + WasiP2Ctx + WasiP2Error), and runWasiP2Main. The trampoline block is a clean P3 extraction candidate
-      (independent change cadence, deep interface via WasiP2Ctx/Caller) → a sibling `api/component_wasi_p2.zig`.
-      Decide before it crosses the 2000 hard cap (which would BLOCK without a split-ADR / FILE-SIZE-EXEMPT marker):
-      either extract the trampolines (preferred) or file the exempt marker. Investigate the smell per
-      `file_size_smell.md` — do NOT split reflexively to silence the WARN.
-    first_raised: "2026-06-07"
-    last_reviewed: "2026-06-07"
-    refs: src/api/component.zig; .claude/rules/file_size_smell.md; .dev/component_model_plan.md (Phase D3)
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.

@@ -64,23 +64,25 @@ philosophy-maintained; proven by Rust+Go sample components). Decision + rational
   noreturn via `InvokeError.ProcExit`) · **D3-2/3 clocks** monotonic `()->i64` + wall `()->datetime` 12B · **D3-4
   random_get_bytes** (list via cabi_realloc) · **D3-5 stdin** (INPUT_STREAM_RT; input-stream.read) · **D3-6 fs
   descriptor completion** @43909eba — `read`(iovec→fdPread)/`sync`/`stat`(canonical descriptor-stat)/`get-type` +
-  `out-stream.blocking-flush`; **D-307 DISCHARGED** @beb887c6 (`adapter.errnoToP2ErrorCode`; all fs err arms incl
-  open-at/write emit `result.err(error-code)`, no trap). Fixtures `wasi_p2_fs_full` (5 ops) + `wasi_p2_fs_err`.
-- **NEXT = D3-7** = `poll` (pollable resource + `poll.poll-list`, needed before sockets); then **sockets last (spike
-  first)**. OR Phase E (conformance corpus + Rust/Go proof). Cross-component aggregate → D-305. **D-308**: runWasiP2Main
-  error-cleanup SEGVs on a failed-import wire (unknown-interface error path only). **D-309**: `component.zig` 1834 LOC
-  size smell — extract WASI-P2 trampolines before the 2000 hard cap.
+  `out-stream.blocking-flush`; **D-307 DISCHARGED** @beb887c6 (`adapter.errnoToP2ErrorCode`). Fixtures `wasi_p2_fs_full`
+  + `wasi_p2_fs_err` · **D3-7 wasi:io/poll** @3a128a01 — pollable (POLLABLE_RT) + subscribe + ready/block/poll
+  (synchronous always-ready host); `dropAny` returns the typed handle (skip fd_close for non-fd). Fixture `wasi_p2_poll`.
+- **D-309 DONE** @ccdee2fa — WASI-P2 trampolines + runWasiP2Main extracted to `api/component_wasi_p2.zig` (component.zig
+  1922→1250 LOC; behavior-preserving). New WASI-P2 chunks land in that module.
+- **NEXT = D3-8** = **sockets** (tcp/udp, spike-first) OR **Phase E** (E1 conformance corpus + E2 Rust/Go real-toolchain
+  proof — the wasmtime-equivalent existence proof). Cross-component aggregate → D-305. **D-308**: runWasiP2Main
+  error-cleanup SEGVs on a failed-import wire (unknown-interface error path only).
 
 ## Current state
 
 - **Phase 17 (v0.2) IN-PROGRESS** (ADR-0168). DONE+3-host: atomics @9eb84833 · wide-arith @231d4536 ·
   custom-page-sizes @cd0de2dd · relaxed-SIMD @08342ec5 (+official corpus @8ef2e752, 13420 pass arm64+x86). Wasm-3.0
-  core 100%-spec COMPLETE. Last SHA **beb887c6** (WASI-P2 D3-6 fs descriptor + D-307; windows gating suspended @9d832f1d).
+  core 100%-spec COMPLETE. Last SHA **ccdee2fa** (WASI-P2 D3-7 poll + D-309 module extraction; windows gating susp @9d832f1d).
 - **Atomics fully conformant @e6f3b0c0** — official corpus **294 pass, 0 SKIPPED** (D-301), incl. the JIT
   unaligned-atomic-trap fix D-303 (code-14 `unaligned_atomic_fixups` both arches, @5b0db8e1, 3-host).
 - **ALL bounded debt CLEARED**: ✅ D-301 · ✅ D-303 · ✅ D-231 (cross-x86 DCE gate wired @aac4fe2f) · ✅ D-302
   (branch-hint custom-section verified @dcc8d71c) · ✅ **D-279 DISCHARGED @c287d39c**.
-- Debt ledger **54 entries** (D-307 discharged; D-309 component.zig-size note added). `now` = D-299 only
+- Debt ledger **53 entries** (D-307 + D-309 discharged this cycle). `now` = D-299 only
   (env-constrained). **Correctly DEFERRED (do NOT clear)**: D-209
   (hot-path), D-259 (W54-ABI-risk), D-300 stack-switching (Phase-3 unstable), D-299 (x86_64 W^X).
 - 完成形 v0.1 surface COMPLETE: CLI D-295 (~85%, intentionally lean) · C-API ZERO gaps (293/293) · Zig-API
