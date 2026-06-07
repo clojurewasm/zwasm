@@ -127,6 +127,16 @@ pub const P2Op = enum {
     fs_descriptor_drop,
     // wasi:filesystem/preopens.
     fs_get_directories,
+    // wasi:io/poll — pollable resource + the poll free func. A synchronous host
+    // is always ready, so these are bookkeeping-only (no P1 syscall).
+    poll_pollable_ready,
+    poll_pollable_block,
+    poll_poll,
+    // `subscribe`-style methods that mint a pollable.
+    in_stream_subscribe,
+    out_stream_subscribe,
+    clocks_subscribe_instant,
+    clocks_subscribe_duration,
 };
 
 /// What P1 facility a `P2Op` ultimately drives (so the D1-2 integration maps
@@ -181,6 +191,15 @@ pub fn p1Target(op: P2Op) P1Target {
         .fs_descriptor_get_type => .fd_fdstat_get,
         .fs_descriptor_drop => .fd_close,
         .fs_get_directories => .preopens_get_directories,
+        // Poll + subscribe: no P1 facility (always-ready host bookkeeping).
+        .poll_pollable_ready,
+        .poll_pollable_block,
+        .poll_poll,
+        .in_stream_subscribe,
+        .out_stream_subscribe,
+        .clocks_subscribe_instant,
+        .clocks_subscribe_duration,
+        => .noop,
     };
 }
 
@@ -219,6 +238,13 @@ const table = [_]Entry{
     .{ .iface = "wasi:filesystem/types", .func = "[method]descriptor.get-type", .op = .fs_descriptor_get_type },
     .{ .iface = "wasi:filesystem/types", .func = "[resource-drop]descriptor", .op = .fs_descriptor_drop },
     .{ .iface = "wasi:filesystem/preopens", .func = "get-directories", .op = .fs_get_directories },
+    .{ .iface = "wasi:io/poll", .func = "[method]pollable.ready", .op = .poll_pollable_ready },
+    .{ .iface = "wasi:io/poll", .func = "[method]pollable.block", .op = .poll_pollable_block },
+    .{ .iface = "wasi:io/poll", .func = "poll", .op = .poll_poll },
+    .{ .iface = "wasi:io/streams", .func = "[method]input-stream.subscribe", .op = .in_stream_subscribe },
+    .{ .iface = "wasi:io/streams", .func = "[method]output-stream.subscribe", .op = .out_stream_subscribe },
+    .{ .iface = "wasi:clocks/monotonic-clock", .func = "subscribe-instant", .op = .clocks_subscribe_instant },
+    .{ .iface = "wasi:clocks/monotonic-clock", .func = "subscribe-duration", .op = .clocks_subscribe_duration },
 };
 
 /// Classify a P2 import `(interface, func)` → the `P2Op` it maps to, or null if
@@ -256,6 +282,15 @@ test "p1Target: clocks + random" {
     try testing.expectEqual(@as(u32, 0), p1Target(.clocks_wall_now).clock_time_get);
     try testing.expectEqual(@as(u32, 1), p1Target(.clocks_monotonic_now).clock_time_get);
     try testing.expectEqual(P1Target.random_get, p1Target(.random_get_bytes));
+}
+
+test "classify: wasi:io/poll + subscribe methods" {
+    try testing.expectEqual(P2Op.poll_poll, classifyImport("wasi:io/poll", "poll").?);
+    try testing.expectEqual(P2Op.poll_pollable_ready, classifyImport("wasi:io/poll", "[method]pollable.ready").?);
+    try testing.expectEqual(P2Op.poll_pollable_block, classifyImport("wasi:io/poll", "[method]pollable.block").?);
+    try testing.expectEqual(P2Op.in_stream_subscribe, classifyImport("wasi:io/streams", "[method]input-stream.subscribe").?);
+    try testing.expectEqual(P2Op.clocks_subscribe_duration, classifyImport("wasi:clocks/monotonic-clock", "subscribe-duration").?);
+    try testing.expectEqual(P1Target.noop, p1Target(.poll_poll));
 }
 
 test "D-307: errno → P2 filesystem error-code ordinals" {

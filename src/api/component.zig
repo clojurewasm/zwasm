@@ -408,6 +408,10 @@ pub const WasiP2Ctx = struct {
     const OUTPUT_STREAM_RT: u32 = 1;
     const DESCRIPTOR_RT: u32 = 2;
     const INPUT_STREAM_RT: u32 = 3;
+    /// A `wasi:io/poll` pollable. Its rep is NOT a P1 fd (it carries no host
+    /// resource for a synchronous always-ready host), so the generic drop must
+    /// NOT `fd_close` it — see `p2ResourceDrop`.
+    const POLLABLE_RT: u32 = 4;
 
     pub fn init(alloc: Allocator, host: *wasi_host.Host) !WasiP2Ctx {
         return .{ .host = host, .resources = try resource_table.ResourceTable.init(alloc) };
@@ -583,7 +587,11 @@ fn p2DescriptorDrop(caller: *Caller, self_handle: u32) WasiP2Error!void {
 /// host need not resolve which interface's resource was dropped.
 fn p2ResourceDrop(caller: *Caller, self_handle: u32) WasiP2Error!void {
     const ctx = caller.data(WasiP2Ctx);
-    if (try ctx.resources.dropAny(self_handle)) |fd| _ = wasi_fd.fdClose(ctx.host, @intCast(fd));
+    // fd-backed resources (stdio/descriptor streams) close their fd; a pollable
+    // carries no host fd, so only its handle slot is released.
+    if (try ctx.resources.dropAny(self_handle)) |h| {
+        if (h.rt != WasiP2Ctx.POLLABLE_RT) _ = wasi_fd.fdClose(ctx.host, @intCast(h.rep));
+    }
 }
 
 /// True if `inst` exports a function named `name`.
@@ -787,6 +795,61 @@ fn p2DescriptorRead(caller: *Caller, self_handle: u32, length: u64, offset: u64,
     try mem.write(retptr + 12, @as(u8, if (nread < n) 1 else 0)); // tuple.1 eof bool
 }
 
+// ---- wasi:io/poll (D3-7) ----
+//
+// A synchronous host has no async readiness: every resource it models is
+// always ready (a file read never blocks, stdio is immediate, a clock duration
+// is checked at poll time). So every pollable's `ready` is true, `block` is a
+// noop, and `poll` reports all input pollables ready. `subscribe`-style methods
+// mint a POLLABLE_RT handle; its rep is unused (kept 0). This matches the spec
+// contract (poll never fails; readiness errors surface via the source op).
+
+/// `wasi:io/streams`/`wasi:clocks` `subscribe*` → mint a pollable handle. The
+/// source handle / clock argument is irrelevant for an always-ready host.
+fn p2Subscribe(caller: *Caller, _: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    return ctx.resources.new(WasiP2Ctx.POLLABLE_RT, 0);
+}
+
+/// `wasi:clocks/monotonic-clock` `subscribe-instant`/`subscribe-duration`
+/// (when: u64) → pollable. Same always-ready handle; the deadline is ignored.
+fn p2SubscribeClock(caller: *Caller, _: u64) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    return ctx.resources.new(WasiP2Ctx.POLLABLE_RT, 0);
+}
+
+/// `wasi:io/poll` `[method]pollable.ready` (self) -> bool: always ready (1).
+fn p2PollableReady(caller: *Caller, self_handle: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    _ = try ctx.resources.rep(WasiP2Ctx.POLLABLE_RT, self_handle); // validate handle
+    return 1;
+}
+
+/// `wasi:io/poll` `[method]pollable.block` (self): a synchronous host never
+/// blocks — return immediately once the handle is validated.
+fn p2PollableBlock(caller: *Caller, self_handle: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    _ = try ctx.resources.rep(WasiP2Ctx.POLLABLE_RT, self_handle);
+}
+
+/// `wasi:io/poll` `poll(in: list<borrow<pollable>>) -> list<u32>` (in_ptr,
+/// in_len, retptr): every pollable is always ready, so return the full index
+/// set `[0, in_len)` as a freshly `cabi_realloc`'d `list<u32>` and write
+/// `(data_ptr, in_len)` at `retptr`. Each input handle is validated.
+fn p2Poll(caller: *Caller, in_ptr: u32, in_len: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = caller.memory() orelse return WasiP2Error.NoMemory;
+    var i: u32 = 0;
+    while (i < in_len) : (i += 1) {
+        _ = try ctx.resources.rep(WasiP2Ctx.POLLABLE_RT, try mem.read(u32, in_ptr + i * 4));
+    }
+    const data_ptr: u32 = if (in_len == 0) 0 else try ctx.reallocGuest(in_len * 4, 4);
+    i = 0;
+    while (i < in_len) : (i += 1) try mem.write(data_ptr + i * 4, i);
+    try mem.write(retptr, data_ptr); // list data ptr
+    try mem.write(retptr + 4, in_len); // list length
+}
+
 /// Classify a host-wasi core-instance export (a core-func index) by its
 /// COMPONENT interface — resolve a `canon lower` back to its imported interface
 /// + func and run it through `wasi/adapter`, so trampoline selection does NOT
@@ -832,6 +895,11 @@ fn defineClassifiedFunc(lk: *Linker, module: []const u8, name: []const u8, op: a
         .fs_descriptor_sync => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, p2DescriptorSync),
         .fs_descriptor_stat => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, p2DescriptorStat),
         .fs_descriptor_get_type => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, p2DescriptorGetType),
+        .poll_pollable_ready => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!u32, p2PollableReady),
+        .poll_pollable_block => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!void, p2PollableBlock),
+        .poll_poll => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32) WasiP2Error!void, p2Poll),
+        .in_stream_subscribe, .out_stream_subscribe => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!u32, p2Subscribe),
+        .clocks_subscribe_instant, .clocks_subscribe_duration => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u64) WasiP2Error!u32, p2SubscribeClock),
     }
 }
 
@@ -1639,6 +1707,26 @@ test "D-307: a failing descriptor.open-at returns result.err(no-entry), not a tr
     // open-at "nope.txt" without the create flag → P1 noent → the trampoline
     // writes result.err(error-code::no-entry); the guest asserts disc==err +
     // code==20 and traps on mismatch, so a clean return proves the D-307 map.
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+}
+
+test "D3-7: a WASI-P2 component drives wasi:io/poll (subscribe + poll + ready/block)" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/wasi_p2_poll.wasm", testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+    host.io = io;
+    host.stdin_bytes = "x";
+
+    // subscribe-duration + input-stream.subscribe mint pollables; poll([p1,p2])
+    // reports both ready (indices 0,1); ready()==true, block()==noop. The guest
+    // asserts each + traps on mismatch — a clean return proves the poll path.
     try runWasiP2Main(&eng, testing.allocator, bytes, &host);
 }
 
