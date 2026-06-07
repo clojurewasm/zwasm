@@ -63,6 +63,10 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const gpa = init.gpa;
 
+    // D-163-origin JIT hex dump: off by default, opt-in via ZWASM_DUMP_JIT
+    // (D-279 H7 — the previously-always-on dump flooded Win64 stdout).
+    base.dump_jit_enabled = init.environ_map.get("ZWASM_DUMP_JIT") != null;
+
     var stdout_buf: [1024]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buf);
     const stdout = &stdout_writer.interface;

@@ -391,6 +391,12 @@ pub const HOST_IMPORT_TRAP_SENTINEL: u32 = 0xBADC0DE;
 pub var host_import_stub_call_count: u32 = 0;
 pub var host_import_stub_last_trap_flag: u32 = 0;
 
+/// Per-defined-function JIT hex-dump toggle (D-163 origin closed). Off by
+/// default — the runner main sets it from `ZWASM_DUMP_JIT`. Kept reachable
+/// for D-279 investigation; default-off removes the per-func `std.debug.print`
+/// flood that drowned every test-all log (D-279 H7 probe).
+pub var dump_jit_enabled: bool = false;
+
 fn hostImportTrapStub(rt: *entry.JitRuntime) callconv(.c) void {
     // Phase 9 Cat III chunk (c)-1b: no-op return for spectest void
     // imports. Side-effect prints skipped (per Wasm spec §A.2 the
@@ -3145,19 +3151,18 @@ pub fn runCorpus(
                 };
                 current_compiled = compiled;
 
-                // D-163 cycle 11: per-defined-function JIT hex dump
-                // for offline disassembly via `llvm-objdump
-                // --disassemble -b binary -m x86_64
-                // --x86-asm-syntax=intel`. Output is pre-link
-                // intra-function bytes (probe JBE patched; CALL
-                // rel32 still placeholder). Use to inspect Win64
-                // caller-side bounds-check trap-stub `ADD RSP`
-                // value vs prologue `SUB RSP` (H1 / H4) and the
-                // R15 pre-trap state (H3). Identical instrumentation
-                // shape to the D-165 cycle-9 dump (removed at
-                // `5149c2de` when D-165 closed); revert when D-163
-                // closes.
-                if (true) {
+                // Per-defined-function JIT hex dump for offline
+                // disassembly (`llvm-objdump --disassemble -b binary
+                // -m x86_64 --x86-asm-syntax=intel`). D-163 (its
+                // origin) is CLOSED, so the previously-always-on dump
+                // is now ENV-GATED — set `ZWASM_DUMP_JIT=1` to re-enable.
+                // D-279 H7: the unconditional dump (a `std.debug.print`
+                // per func of the full byte stream) flooded Win64 stdout
+                // on every test-all and truncated mid-func right before
+                // each exit-3 crash; gating it OFF by default removes the
+                // noise AND probes whether D-279 persists without the dump
+                // (dump-I/O trigger vs real compile-time fault).
+                if (dump_jit_enabled) {
                     for (compiled.func_results, 0..) |*fr, def_idx| {
                         const wasm_idx = compiled.num_imports + @as(u32, @intCast(def_idx));
                         std.debug.print("[d-163-jit] func{d} (wasm_idx={d}) len={d} bytes=", .{ def_idx, wasm_idx, fr.out.bytes.len });
