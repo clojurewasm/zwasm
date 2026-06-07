@@ -449,6 +449,35 @@ test "E2 prereq: core-table index space resolves an alias-core-export table (ADR
     try testing.expectEqualStrings("tbl", ref.name);
 }
 
+fn testHostInc(_: *Caller, x: u32) anyerror!u32 {
+    return x + 1;
+}
+
+test "D-310: a guest call_indirects an imported host func through a table" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/edge_cases/p17/host_func_table/call_indirect_host.wasm", testing.allocator, .limited(1 << 16));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var mod = try eng.compile(bytes);
+    defer mod.deinit();
+    var lk = eng.linker();
+    defer lk.deinit();
+    // The host func is placed in the module's table via an active elem segment;
+    // run(x) reaches it by call_indirect — exercises the per-import placeholder
+    // sig + the call_indirect host-dispatch (D-310 runtime fix).
+    try lk.defineFunc("env", "inc", fn (*Caller, u32) anyerror!u32, testHostInc);
+    var inst = try lk.instantiate(&mod);
+    defer inst.deinit();
+
+    var res = [_]Value{.{ .i32 = 0 }};
+    try inst.invoke("run", &.{.{ .i32 = 41 }}, &res);
+    try testing.expectEqual(@as(i32, 42), res[0].i32);
+}
+
 /// `(module (func (export "add") (param i32 i32) (result i32) local.get 0 local.get 1 i32.add))`.
 const core_add = [_]u8{
     0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // \0asm v1

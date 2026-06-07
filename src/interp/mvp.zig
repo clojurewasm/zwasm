@@ -466,6 +466,17 @@ fn callIndirectOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     } else sigEq(callee.sig, expected);
     if (!accepted) return Trap.IndirectCallTypeMismatch;
 
+    // An imported func (host trampoline or cross-module guest) reached through a
+    // table slot dispatches via host_calls, not by executing its placeholder
+    // body (D-310). Mirrors callOp's host short-circuit; args sit on this rt's
+    // operand stack (the call_indirect runs here).
+    if (fe.func_idx < callee_rt.host_calls.len) {
+        if (callee_rt.host_calls[fe.func_idx]) |hc| {
+            try hc.fn_ptr(rt, hc.ctx);
+            return;
+        }
+    }
+
     const dispatch_tbl = rt.table orelse return Trap.Unreachable;
     try invoke(rt, dispatch_tbl, callee);
 }
@@ -504,6 +515,17 @@ fn callRefOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
         break :blk sigEq(callee.sig, expected);
     } else sigEq(callee.sig, expected);
     if (!accepted) return Trap.IndirectCallTypeMismatch;
+
+    // An imported func (host trampoline or cross-module guest) reached through a
+    // table slot dispatches via host_calls, not by executing its placeholder
+    // body (D-310). Mirrors callOp's host short-circuit; args sit on this rt's
+    // operand stack (the call_indirect runs here).
+    if (fe.func_idx < callee_rt.host_calls.len) {
+        if (callee_rt.host_calls[fe.func_idx]) |hc| {
+            try hc.fn_ptr(rt, hc.ctx);
+            return;
+        }
+    }
 
     const dispatch_tbl = rt.table orelse return Trap.Unreachable;
     try invoke(rt, dispatch_tbl, callee);

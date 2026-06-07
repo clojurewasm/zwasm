@@ -1186,10 +1186,20 @@ pub fn instantiateRuntime(
     const total_funcs = imp_func_count + funcs.len;
     const func_ptrs = try a.alloc(*const zir.ZirFunc, total_funcs);
     if (imp_func_count > 0) {
-        const placeholder = try a.create(zir.ZirFunc);
-        placeholder.* = zir.ZirFunc.init(0, .{ .params = &.{}, .results = &.{} }, &.{});
-        try placeholder.instrs.append(a, .{ .op = .@"unreachable", .payload = 0, .extra = 0 });
-        for (0..imp_func_count) |i| func_ptrs[i] = placeholder;
+        // Each imported func gets a placeholder body carrying its DECLARED sig
+        // (not a shared empty one), so a `call_indirect` whose table slot holds
+        // an imported func type-checks against the right signature (D-310). The
+        // body is never executed — both host and cross-module imports dispatch
+        // via host_calls (callOp / callIndirectOp); the unreachable is a backstop.
+        var imp_idx: u32 = 0;
+        for (imports_decoded.?.items) |it| {
+            if (it.kind != .func) continue;
+            const ph = try a.create(zir.ZirFunc);
+            ph.* = zir.ZirFunc.init(imp_idx, types.items[it.payload.func_typeidx], &.{});
+            try ph.instrs.append(a, .{ .op = .@"unreachable", .payload = 0, .extra = 0 });
+            func_ptrs[imp_idx] = ph;
+            imp_idx += 1;
+        }
     }
     for (funcs, 0..) |*f, i| func_ptrs[imp_func_count + i] = f;
     inst.func_ptrs_storage = func_ptrs;
