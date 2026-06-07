@@ -102,7 +102,7 @@ design forks. Update this doc's `[x]` + handover NEXT each chunk.
 - [x] **B3 — canon string** (utf8 first; utf16/latin1 next) over linear memory
   via realloc. **Refs** `CanonicalABI.md` string encoding. **Red**: a string
   round-trips guest↔host.
-- [ ] **B4 — canon list + record** (element/field layout, alignment). **Red**:
+- [x] **B4 — canon list + record** (element/field layout, alignment). **Red**:
   `list<u32>` + a record round-trip.
 - [ ] **B5 — canon variant/option/result/tuple** (discriminant + payload align).
   **Red**: option/result/variant round-trip.

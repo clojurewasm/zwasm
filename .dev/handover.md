@@ -30,9 +30,12 @@ philosophy-maintained; proven by Rust+Go sample components). Decision + rational
   canon `DespecType` + sizeOf/alignmentOf (prim 1/2/4/8, discriminant ≤256/≤65536 flips, flags ≤8/≤16 flips) + enum/
   flags lift/lower (one i32) with range/extra-bit validation; boundary tests. **B3 DONE @1234e7a6** (canon string): utf8 lower/lift
   over guest memory via the realloc callback (first coupling exercise); StringEncoding opt (utf8; utf16/latin1 → typed
-  defer); OOB/invalid-utf8/MAX-len guards, bump-mock tested. **NEXT = chunk B4** (canon list+record): the recursive
-  lift/lower tree — add `Value` aggregate variants + flatten/store/load over memory (element/field layout + alignment
-  per `CanonicalABI.md`). Red = `list<u32>` + a record round-trip. Then B5 variant/option/result → B6 invoke e2e.
+  defer); OOB/invalid-utf8/MAX-len guards, bump-mock tested. **B4 DONE @cb01a10e** (canon list+record): recursive
+  `CanonType` (list/record + Field) + `Value` aggregates + recursive `store`/`load` over guest memory (list = realloc
+  backing + (ptr,len); record = align_to field offsets; sizeOf/alignmentOf recursive); nested string fields; lower()
+  now errors NotFlatScalar for aggregates. Round-trips list<u32> / record / record+string. **NEXT = chunk B5** (canon
+  variant/option/result/tuple): discriminant + payload layout (max_case_alignment), store/load + lift/lower. Red =
+  option/result/variant round-trip. Then B6 = single-component instantiate+invoke e2e (wires cabi_realloc to the guest).
 - **Discipline**: Zone-2 new layer, NO core-VM change (consume `runtime/instance/*` + memory + `Runtime.invoke` as
   black box); component-value type DISTINCT from `runtime.Value`; TDD + boundary fixtures + spec-citation; no-copy;
   3-host gate; no tag. Full discipline list in the plan doc.
