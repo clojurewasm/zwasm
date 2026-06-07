@@ -168,6 +168,10 @@ pub const feature = struct {
         struct {
             pub const decode = @import("feature/component/decode.zig");
             pub const types = @import("feature/component/types.zig");
+            pub const wit = struct {
+                pub const lexer = @import("feature/component/wit/lexer.zig");
+                pub const parser = @import("feature/component/wit/parser.zig");
+            };
         }
     else
         struct {};
@@ -379,6 +383,8 @@ test {
     _ = @import("cli/invoke_args.zig");
     _ = @import("feature/component/decode.zig");
     _ = @import("feature/component/types.zig");
+    _ = @import("feature/component/wit/lexer.zig");
+    _ = @import("feature/component/wit/parser.zig");
 }
 
 // ============================================================
