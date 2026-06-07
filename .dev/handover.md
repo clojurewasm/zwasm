@@ -23,26 +23,29 @@ philosophy-maintained; proven by Rust+Go sample components). Decision + rational
 - **Step 0 survey is DONE** — do NOT re-survey. Read `.dev/component_model_survey.md` (architecture, 4 hard pieces,
   module breakdown) + the plan's "Reference chains" (spec `~/Documents/OSS/WebAssembly/component-model/`; v1
   textbook `~/Documents/MyProducts/zwasm/src/{component,wit,wit_parser,canon_abi}.zig`; wasmtime/wasm-tools refs).
-- **Tier 0 COMPLETE (A1–A4)**: decode @6c51c89b · types @8d70230d · wit lexer+parser @ce62e4c5 · wit resolver @04f39205.
-  ubuntu+windows GREEN through Tier 0. **B1 DONE @8724f038** (ADR-0171): `canon.zig` — component `Value` (distinct from
-  runtime.Value) + flat-scalar lower/lift (bool/s8..u64/f32/f64/char round-trip) + `CanonContext` with an INJECTED
-  `cabi_realloc` callback (vtable; B6 wires it to the guest export). **B2 DONE @6a223a6e**: enum (0x6d) + flags (0x6e) decode in types.zig;
-  canon `DespecType` + sizeOf/alignmentOf (prim 1/2/4/8, discriminant ≤256/≤65536 flips, flags ≤8/≤16 flips) + enum/
-  flags lift/lower (one i32) with range/extra-bit validation; boundary tests. **B3 DONE @1234e7a6** (canon string): utf8 lower/lift
-  over guest memory via the realloc callback (first coupling exercise); StringEncoding opt (utf8; utf16/latin1 → typed
-  defer); OOB/invalid-utf8/MAX-len guards, bump-mock tested. **B4 DONE @cb01a10e** (canon list+record): recursive
-  `CanonType` (list/record + Field) + `Value` aggregates + recursive `store`/`load` over guest memory (list = realloc
-  backing + (ptr,len); record = align_to field offsets; sizeOf/alignmentOf recursive); nested string fields; lower()
-  now errors NotFlatScalar for aggregates. Round-trips list<u32> / record / record+string. **B5 DONE @6bb2676d** (variant/option/result/tuple): types.zig
-  now decodes ALL compound defvaltypes (record/list/tuple/variant/option/result; closes B4 decode gap; own/borrow/
-  stream/future → C); canon CanonType.variant + Value.variant + store/load + size/align (disc + max_case_alignment +
-  payload). Tier-1 canon value machinery COMPLETE. **NEXT = chunk B6** (single-component instantiate + invoke e2e) —
-  the "a component runs" milestone: embed core module(s) → instantiate per module → wire canon trampolines + the
-  cabi_realloc callback to the guest export → invoke a string→string export. **B6 = multi-cycle integration; use BUNDLE
-  mode.** Red = a real wasm-tools/cargo-component string→string component runs via zwasm and returns the expected string.
-- **Discipline**: Zone-2 new layer, NO core-VM change (consume `runtime/instance/*` + memory + `Runtime.invoke` as
-  black box); component-value type DISTINCT from `runtime.Value`; TDD + boundary fixtures + spec-citation; no-copy;
-  3-host gate; no tag. Full discipline list in the plan doc.
+- **Tier 0 (A1–A4) + Tier-1 canon value machinery (B1–B5) COMPLETE** (per-chunk SHAs + recipes in the plan doc's `[x]`
+  rows): decode/types/wit (A1–A4) · canon flat-scalar (B1, ADR-0171) · enum/flags+size/align (B2) · utf8 string (B3) ·
+  recursive list/record store/load (B4) · variant/option/result/tuple decode + canon variant (B5). ubuntu GREEN through
+  B4; the canon module lifts/lowers/stores/loads every Tier-1 value type over guest memory via the injected realloc cb.
+- **Discipline**: pure component logic = Zone 1 (`feature/component/`), host orchestration = **Zone 3** (`api/component.zig`,
+  ADR-0172); NO core-VM change (drive `Engine`/`Instance` facade as black box); component-value DISTINCT from
+  `runtime.Value`; TDD + boundary fixtures + spec-citation; no-copy; 3-host gate; no tag.
+
+## Active bundle
+
+- **Bundle-ID**: CM-B6-IT (single-component instantiate + invoke e2e)
+- **Cycles-remaining**: ~3
+- **Continuity-memo**: ADR-0172 decided the Zone split (orchestration → Zone 3 `api/component.zig`, consuming the
+  public Engine facade + Zone-1 canon). **LIFETIME HAZARD** (capture before coding IT-1): the facade `Module`/`Instance`
+  are self-referential (`Instance` holds `*Module`), so they CANNOT be moved into a returned struct by value — heap-stable
+  storage (allocate Module/Instance on the caller allocator + keep pointers) is required for a `ComponentInstance` handle.
+  Flat-scalar invoke (IT-1/IT-2) uses facade `zwasm.Value` directly, no canon. Canon trampolines + `cabi_realloc`-via-
+  `inst.invoke("cabi_realloc",…)` engage at IT-3 (string→string), where facade `zwasm.Value` ↔ internal `runtime.Value`
+  conversion is also needed.
+- **Exit-condition**: a string→string component runs via zwasm `api/component.zig` and returns the expected string
+  (generate the real fixture via `nix develop .#gen` wasm-tools/cargo-component on the Mac host).
+- **IT plan**: IT-1 instantiate embedded core module (heap-stable handle) + invoke a `()->i32` export → 42 · IT-2
+  multi-export / args · IT-3 canon trampoline + cabi_realloc + string→string (the exit).
 
 ## Current state
 
