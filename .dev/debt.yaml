@@ -1055,6 +1055,30 @@ entries:
     first_raised: "2026-06-07"
     last_reviewed: "2026-06-07"
     refs: src/api/component.zig (instantiateGraph); test/component/adder_graph.wasm; .dev/component_model_plan.md (Phase C/D)
+  - id: "D-306"
+    layer: "code"
+    status: "blocked-by"
+    description: |-
+      Status: blocked-by: a fully-general WASI-P2 host wiring needs each
+      canon-lowered core import classified by its COMPONENT interface, not its
+      core import name. CM-D1-2 (`api/component.zig` `runWasiP2Main`) RUNS a real
+      `wasi:cli/run` component (`wasi_p2_hello.wasm` prints "hello") but takes two
+      D1-2 shortcuts: (1) host-wasi namespaces are wired via `defineWasiP2Io`,
+      which registers the fixed core import names `get-stdout`/`write`/`drop-os`
+      (the wasm-tools canon-lowering convention) rather than resolving each
+      `.lower(component_func_idx)` → its component import (`wasi:io/streams
+      [method]output-stream.blocking-write-and-flush`) → `wasi/adapter.zig
+      classifyImport` → the matching trampoline; (2) only output-stream + memory
+      are wired (stderr/stdin/clocks/random/exit + non-memory cross-instance
+      exports are not). General wiring needs: the component-func index space
+      (instance-import alias resolution) to name each lowered import, then
+      adapter-classified trampoline selection, covering the full P2 stdio subset.
+      Lands at plan §Phase D2 (resource-modeled P2 interfaces) / D3 (broader
+      native host). Also: wire `runWasiP2Main` into the `zwasm run` CLI (D1 exit
+      mentions "through the CLI"; the API run path is proven).
+    first_raised: "2026-06-07"
+    last_reviewed: "2026-06-07"
+    refs: src/api/component.zig (runWasiP2Main, defineWasiP2Io); src/wasi/adapter.zig (classifyImport); .dev/component_model_plan.md (Phase D2/D3)
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.

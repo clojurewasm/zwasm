@@ -38,49 +38,27 @@ philosophy-maintained; proven by Rust+Go sample components). Decision + rational
   real 2-component fixture decodes · **C2-3b-2 a 2-component graph LINKS + RUNS** (`instantiateGraph`: wire A's core
   import to B's `adder` via Linker cross-module; `add-five(10)`=15, a real cross-component call). Bundle CM-C2 CLOSED.
   Name-matched-import shortcut + aggregate cross-component args → **D-305**.
-- **Phase D (WASI Preview 2) IN PROGRESS** (plan doc §Phase D). **D1-1 @b35a683e** (`src/wasi/adapter.zig`: pure P2→P1
-  name-map `classifyImport`/`p1Target`, CLI subset, reuses P1 `fd.zig fdWrite`). **D1-2 fixture @aeb71483**
-  (`test/component/wasi_p2_hello.wasm` — real P2 hello-world, imports wasi:cli/stdout+io/streams, prints 'hello' via
-  wasmtime; structural decode test green). See the Active bundle below.
-
-## Active bundle
-
-- **Bundle-ID**: CM-D1-2 (run a WASI-P2 hello-world via the adapter)
-- **Cycles-remaining**: ~2
-- **Continuity-memo**: decode DONE (D1-2a/b). **(b) HOST TRAMPOLINES DONE @2d099ff1** (isolated): host-ctx seam
-  `Caller.data` + `Linker.defineFuncCtx` (ADR-0173, extends ADR-0109 §3.2); `api/component.zig` `WasiP2Ctx` +
-  `p2{GetStdout,OutStreamWrite,OutStreamDrop}` name-map onto P1 `wasi/fd.zig writeSlice` (extracted from fdWrite; P2
-  `list<u8>` is flat ptr/len, not a ciovec). `defineWasiP2Io(lk, "io", ctx)` registers the 3. Proven by a `$M`-shaped
-  core module (own memory) printing "hello\n" to a captured fd. **NEXT = (c) RUN the REAL `wasi_p2_hello.wasm`
-  decode-driven**: the inner structure (see `.wat`) is — canon-lower `get-stdout`/`write`(memory $libc)/resource.drop
-  `drop-os`; core module `$libc` (exports memory) + its instance; core module `$M` (imports `io.{get-stdout,write,
-  drop-os}` + `libc.memory`, exports `run`); core instance `$deps-io` (re-exports the 3 lowered funcs); core instance
-  `$m` = instantiate $M with io=$deps-io + libc=$libc; canon-lift run → RunShim subcomponent → export `wasi:cli/run`.
-  SURVEY DONE: `ctypes.TypeInfo` exposes `core_instances` (`.instantiate{module,args:[{name,instance}]}` /
-  `.inline_exports:[{name,sort,index}]`), `canons` (`.lower{func,opts}` / `.lift{core_func,opts,type_index}` /
-  `.resource_drop`), `aliases` (`.core_export{instance,name}` / `.outer`). Core modules = the Nth `.core_module`
-  section. **FIRST SUB-CHUNK = fix the core-func index-space model**: `types.zig resolveCoreFuncExport` (line ~359)
-  walks ONLY core-func aliases, so for `wasi_p2_hello` (core funcs [0=lower get-stdout, 1=lower write,
-  2=resource.drop, 3=alias $m.run]) index 3 mis-resolves. Build a unified walk assigning core-func indices in
-  definition order across {canon lower, canon resource.{new,drop,rep}-that-mint-core-funcs, core-func aliases} →
-  map idx → {lowered-component-func J | resource-builtin | core-export alias}. THEN `runWasiP2Main` in
-  `api/component.zig`: from the `canon lift run` → its core_func alias → core_export{$m,"run"}; $m =
-  core_instances[..].instantiate{module=$M, args=[io→$deps-io, libc→$libc]}; instantiate $libc (no-arg) → memory;
-  instantiate $M via a Linker wiring `io.*` (resolve $deps-io inline_exports → canon-lower idx → map the lowered
-  component-import name via `adapter.classifyImport` → `defineWasiP2Io` trampoline) + `libc.memory` → $libc memory
-  (`defineMemoryInstance`, cross-instance like C2); invoke run; assert `host.stdout_buffer` == "hello\n".
-- **Exit-condition**: `wasi_p2_hello.wasm` runs via `api/component.zig` and writes "hello" to the captured stdout.
+- **Phase D (WASI Preview 2) IN PROGRESS** (plan doc §Phase D). **D1 CORE DONE — a real WASI-P2 component RUNS via
+  zwasm.** D1-1 @b35a683e (`wasi/adapter.zig` P2→P1 name-map). D1-2 trampolines @2d099ff1 (host-ctx seam `Caller.data`
+  + `Linker.defineFuncCtx`, ADR-0173; `WasiP2Ctx` + p2 output-stream trampolines onto P1 `fd.writeSlice`). D1-2c
+  @27eb59b8 (unified core-func index-space `CoreFuncDef` — `resolveCoreFuncExport` now indexes lowers+resource+aliases,
+  not aliases alone). **D1-2 EXIT @96edb868** — `runWasiP2Main` decode-drives the inner core graph ($libc + $M, wasi
+  imports → trampolines, libc memory cross-instance) and `wasi_p2_hello.wasm` prints "hello\n" to captured stdout.
+- **NEXT = Phase D2** (plan §Phase D): resource-modeled P2 interfaces (stdio/clocks/random/filesystem as resources, not
+  just name-map). D1's remaining tail → **D-306**: generalize the host wiring (adapter-classify each `.lower` by its
+  COMPONENT interface instead of the fixed `get-stdout`/`write`/`drop-os` core names; cover stderr/stdin/clocks/random/
+  exit; wire `runWasiP2Main` into the `zwasm run` CLI). Plus cross-component aggregate args → D-305.
 
 ## Current state
 
 - **Phase 17 (v0.2) IN-PROGRESS** (ADR-0168). DONE+3-host: atomics @9eb84833 · wide-arith @231d4536 ·
   custom-page-sizes @cd0de2dd · relaxed-SIMD @08342ec5 (+official corpus @8ef2e752, 13420 pass arm64+x86). Wasm-3.0
-  core 100%-spec COMPLETE. Last SHA **c287d39c** (CM-D1-2 trampolines @2d099ff1 + D-279 discharge).
+  core 100%-spec COMPLETE. Last SHA **96edb868** (CM-D1-2 EXIT — real WASI-P2 component runs).
 - **Atomics fully conformant @e6f3b0c0** — official corpus **294 pass, 0 SKIPPED** (D-301), incl. the JIT
   unaligned-atomic-trap fix D-303 (code-14 `unaligned_atomic_fixups` both arches, @5b0db8e1, 3-host).
 - **ALL bounded debt CLEARED**: ✅ D-301 · ✅ D-303 · ✅ D-231 (cross-x86 DCE gate wired @aac4fe2f) · ✅ D-302
   (branch-hint custom-section verified @dcc8d71c) · ✅ **D-279 DISCHARGED @c287d39c**.
-- Debt ledger **52 entries**. `now` = D-299 only (env-constrained). **Correctly DEFERRED (do NOT clear)**: D-209
+- Debt ledger **53 entries**. `now` = D-299 only (env-constrained). **Correctly DEFERRED (do NOT clear)**: D-209
   (hot-path), D-259 (W54-ABI-risk), D-300 stack-switching (Phase-3 unstable), D-299 (x86_64 W^X).
 - 完成形 v0.1 surface COMPLETE: CLI D-295 (~85%, intentionally lean) · C-API ZERO gaps (293/293) · Zig-API
   COMPLETE · memory-safety all-areas SOUND (D-296/D-297). Dogfooding D-264 DONE (cw v1 side).
