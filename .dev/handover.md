@@ -34,25 +34,21 @@ Pre-release groundwork. Plan = `docs/migration_v1_to_v2.md` §1 tiers +
    - **#3a-4**: C API (`zwasm.h`) + `TrapKind.interrupted` in trap_surface (today
      `mapInterpTrap` else→binding_error) + CLI `--timeout <ms>` (timer→flag).
 
-**RE-SEQUENCE (autonomous, intra-Tier-1, 2026-06-08)**: interp+facade interruption
-(#3a-1/2) is the default-engine win and is DONE. The remaining codegen items
-(#3a-3 JIT interrupt poll, #3b fuel) are **Win64-prologue-risk** and need windows
-un-suspended (ADR-0174 `--resume`). So do the **non-codegen, low-Win64-risk** items
-FIRST: **NEXT = #3c store-limits** (host max memory pages / table elems), then
-**#1 C-API WASI preopen**. THEN a focused Win64-resumed block for #3a-3 + #3b.
-#3c clean design (VERIFIED): both engines already cap at a max-pages field —
-interp `memories[].pages_max` (used in `growMemory`, runtime.zig:443) + JIT
-`MemGrowCtx.max_pages` (used in `jitMemoryGrow`, setup.zig:178); tables cap at
-`d.max`/`memories[].`. So the store-limit is NOT a new grow check — it is a
-**tighter `pages_max` clamped at instance setup** = `min(module_declared_max,
-store_limit)`; both paths then enforce it for free. WORK = config plumbing only:
-add a store-limit option (Engine.init options / a Store method — wasmtime puts it
-on Store via `limiter`), thread it to instance setup (where `pages_max` /
-`MemGrowCtx.max_pages` / table `.max` are computed from the module), clamp there.
-Test: grow past the host cap → -1 (interp + jit). Tables: clamp `.max` (note: the
-JIT pre-allocs `refs` to `.max`, so a lower cap also shrinks the prealloc).
-4. **#3c store limits** → 5. **#3b fuel (opt-in)** → 6. **#1 C-API WASI preopen**
-   (`wasi.h`; CLI `--dir` capability already exists; D-251).
+**RE-SEQUENCE (autonomous, intra-Tier-1)**: interp+facade interruption (#3a-1/2)
+DONE (default engine). Codegen items (#3a-3 JIT interrupt poll, #3b fuel) are
+**Win64-prologue-risk** → need `should_gate_windows.sh --resume` first (ADR-0174);
+batched to a focused Win64-resumed block LAST. Low-Win64-risk items first:
+- ✅ **#3c-1 store memory-limit (interp/facade)** `7216e7b1`:
+  `Runtime.store_memory_pages_max` in growMemory's page-cap min;
+  `Instance.setMemoryPagesLimit(?u64)`; test green (grow past cap → −1).
+- **← NEXT #3c-2 JIT memory-limit + tables**: clamp `mem_max_pages` at
+  `setup.zig:~412` = `min(module max, store limit)` so `--engine jit`
+  `jitMemoryGrow` caps too; + a table-elems limit (interp `memories[]` / JIT
+  `d.max`). NOT Win64-risk (grow helper, not prologue). Needs the store-limit
+  value threaded to the JIT setup path (separate from the facade Runtime field).
+- **#1 C-API WASI preopen** (`wasi.h`; CLI `--dir` capability exists; D-251).
+- THEN Win64-resumed block: **#3a-3** JIT interrupt poll + **#3b** fuel + #3a-4
+  (C-API `zwasm.h` + `TrapKind.interrupted` + CLI `--timeout`/`--fuel`/`--max-memory`).
 
 **Phase B** — write the honest "v1-has / v2-still-lacks" remainder into
 `docs/migration_v1_to_v2.md` (Tier 2 #5 ILP32; Tier 3 #4 allocator / #6 mem-copy
