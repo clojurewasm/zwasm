@@ -3,29 +3,38 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Embedder-hardening pass landed (2026-06-08) — local commits, NOT pushed
+## Embedder-hardening pass landed (2026-06-08) — PUSHED, 2-host green
 
-User-directed robustness pass on the embedder surface + module decoder. Local
-commits `14de5430..d3f860d0` on `zwasm-from-scratch` (NOT pushed; **no release
-tagged** — ADR-0156). All gates green on Mac; standalone test binary
-2664 pass / 0 fail; ~8700-input mutation fuzz over the decoder = 0 crashes.
+User-directed robustness pass on the embedder surface + module decoder. Commits
+`14de5430..d6699b00` on `zwasm-from-scratch`, **pushed** (no release tagged —
+ADR-0156). Mac green; **ubuntu `test-all` OK @d6699b00**; windows gate OK
+@9ee8f297 (later commits ABI-neutral + Win64 cross-compile clean — a windows
+re-run + the 800MHz-throttle debug is batched for last, user-directed). Standalone
+2669 pass / 0 fail; ~8700-input decoder mutation fuzz = 0 crashes.
 
-**Shipped this pass (local)**:
+**Shipped this pass**:
 - **Facade `InstantiateOpts` budgets (ADR-0179 rev)** `14de5430` — `fuel` +
-  `max_memory_pages` as a `Budget` union with FINITE defaults (1e9 / 4096 pg);
-  armed before `(start)` + initial mem alloc; over-cap declared mem →
-  `error.MemoryLimitExceeded`. `.unmetered` is explicit. C-API/Linker keep
-  unmetered default (their budget surface = D-314 follow-on).
+  `max_memory_pages` `Budget` union, FINITE defaults (1e9 / 4096 pg); armed
+  before `(start)` + initial mem alloc; over-cap mem → `error.MemoryLimitExceeded`.
 - **Facade budget-mutator invariant** `ac3db7c2` — `assert(runtime != null)`
-  pins the interp-only facade; marks the D-314 JIT seam (no silent no-op).
-- **Decoder robustness** `bd59fe86`/`e41d0c2c` — `checkVecCount` bounds every
-  section vec-count vs remaining body (no huge speculative alloc); per-fn locals
-  capped at 50000 (wasmparser limit); subtype-read bounds guard.
-- **Fuzz** `a1c53484` — truncated rec-group seed; mutation campaign clean.
-- **Docs/CI** `c902e067`/`0a788775` — §3.8 WasiConfig matches as-built; 18
-  Actions SHA-pinned; bench.yml shellcheck clean.
-- **Debt** `d3f860d0` — D-315 (WASI cap-std path confinement, blocked-by) +
-  D-316 (store ResourceLimiter, note).
+  pins the interp-only facade (D-314 JIT seam tripwire).
+- **Decoder robustness** `bd59fe86`/`e41d0c2c`/`9dcf72a2` — `checkVecCount`
+  bounds every section vec-count; per-fn locals cap 50000; memory min/max vs spec
+  page ceiling validated on the INTERP path too (was JIT-only); subtype-read guard.
+- **table-min regression FIXED** `3ab0494f` — a large table `min` is spec-valid
+  (table.6); the 10M figure was wasmparser's element-COUNT cap, mis-applied.
+- **D-315 plant-time symlink** `e5510784` — `path_symlink` refuses an
+  escaping/absolute target (`symlinkTargetEscapes`); guest can't plant an escape.
+- **D-316 table cap** `d6699b00` — `Instance.setTableElementsLimit` (mirrors
+  setMemoryPagesLimit; interp + facade grow paths).
+- **ZE-3** closed by analysis — `_exit(70)` is CLI-only, never the embedder path;
+  no raw panic/unreachable in embedder-reachable decode/runtime (no code change).
+- **Fuzz** `a1c53484` — rec-group + limit-overrun seeds. **Docs/CI**
+  `c902e067`/`0a788775` — §3.8 WasiConfig as-built; 18 Actions SHA-pinned.
+- **Debt** `d3f860d0` (+ updates): D-315 follow-time symlink confinement
+  (blocked-by); D-316 store-level instance-COUNT limiter (note).
+
+> Audit-feedback bookkeeping for this pass lives in `private/` (gitignored).
 
 **Prior Tier-1 / release-prep (all ubuntu-green, pushed)**: #2 static-lib + extlink hardening
 `45438b7a` (D-312, GNU-stack=zig-upstream); **ADR-0179** sandboxing design;
