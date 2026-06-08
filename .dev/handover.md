@@ -40,11 +40,17 @@ Pre-release groundwork. Plan = `docs/migration_v1_to_v2.md` §1 tiers +
 un-suspended (ADR-0174 `--resume`). So do the **non-codegen, low-Win64-risk** items
 FIRST: **NEXT = #3c store-limits** (host max memory pages / table elems), then
 **#1 C-API WASI preopen**. THEN a focused Win64-resumed block for #3a-3 + #3b.
-#3c mapping: cap goes in `Runtime.growMemory` (interp+facade chokepoint, runtime.zig:443
-`page_cap` min-chain) AND the JIT `memory_grow_fn`/`table_grow_fn` overrides (find
-the runner override sites — they grow WITHOUT routing through growMemory) — or
-refactor those overrides to route through growMemory (cleaner). Config: add
-`store_memory_pages_max`/`store_table_elems_max` on Runtime (+Engine/Instance API).
+#3c clean design (VERIFIED): both engines already cap at a max-pages field —
+interp `memories[].pages_max` (used in `growMemory`, runtime.zig:443) + JIT
+`MemGrowCtx.max_pages` (used in `jitMemoryGrow`, setup.zig:178); tables cap at
+`d.max`/`memories[].`. So the store-limit is NOT a new grow check — it is a
+**tighter `pages_max` clamped at instance setup** = `min(module_declared_max,
+store_limit)`; both paths then enforce it for free. WORK = config plumbing only:
+add a store-limit option (Engine.init options / a Store method — wasmtime puts it
+on Store via `limiter`), thread it to instance setup (where `pages_max` /
+`MemGrowCtx.max_pages` / table `.max` are computed from the module), clamp there.
+Test: grow past the host cap → -1 (interp + jit). Tables: clamp `.max` (note: the
+JIT pre-allocs `refs` to `.max`, so a lower cap also shrinks the prealloc).
 4. **#3c store limits** → 5. **#3b fuel (opt-in)** → 6. **#1 C-API WASI preopen**
    (`wasi.h`; CLI `--dir` capability already exists; D-251).
 
