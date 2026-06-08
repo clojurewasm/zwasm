@@ -3,6 +3,24 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
+## Active bundle
+
+- **Bundle-ID**: tier1-3a3-jit-sandbox (JIT interrupt poll → fuel → JIT mem-cap)
+- **Cycles-remaining**: ~4
+- **Continuity-memo**: interp & JIT runtimes are SEPARATE (`setupRuntimeLinked`
+  builds `RuntimeOwned.rt: JitRuntime` independent of the interp `Runtime`). So
+  the JIT needs the SAME host flag via a new TRAILING `JitRuntime.interrupt_ptr:
+  ?*const std.atomic.Value(u32)` + `interrupt_ptr_off` const, set post-setup by a
+  `RuntimeOwned.setInterruptFlag(ptr)` (no signature churn). Poll = after the
+  arm64 stack-probe `B.LS` (emit.zig:~340): `LDR X16,[X19,#interrupt_ptr_off];
+  CBZ X16,+N; LDR W17,[X16]; CBNZ W17,<interrupted-stub>` (encCbnzW exists,
+  inst.zig:644) + an interrupted trap-stub mirroring the stack-overflow stub
+  (sets trap_flag + trap_kind). x86_64 mirrors. §2 rule: ship plumbing+codegen+
+  test in ONE chunk (no infra-only commit). Win64 = cross-compile only + debt the
+  runtime check (NOT grabbing windows — respects cw-dev suspend / ADR-0174).
+- **Exit-condition**: a JIT-compiled `(loop)` traps `error.Interrupted` when the
+  host raises the flag (arm64 Mac test first, then x86_64 ubuntu).
+
 ## ▶ ACTIVE CAMPAIGN: v1→v2 Tier-1 parity + release-doc prep (user-directed 2026-06-08)
 
 Pre-release groundwork. Plan = `docs/migration_v1_to_v2.md` §1 tiers +
@@ -34,32 +52,16 @@ Pre-release groundwork. Plan = `docs/migration_v1_to_v2.md` §1 tiers +
    - **#3a-4**: C API (`zwasm.h`) + `TrapKind.interrupted` in trap_surface (today
      `mapInterpTrap` else→binding_error) + CLI `--timeout <ms>` (timer→flag).
 
-**RE-SEQUENCE (autonomous, intra-Tier-1)**: interp+facade interruption (#3a-1/2)
-DONE (default engine). Codegen items (#3a-3 JIT interrupt poll, #3b fuel) are
-**Win64-prologue-risk** → need `should_gate_windows.sh --resume` first (ADR-0174);
-batched to a focused Win64-resumed block LAST. Low-Win64-risk items first:
-- ✅ **#3c-1 store memory-limit (interp/facade)** `7216e7b1`:
-  `Runtime.store_memory_pages_max` in growMemory's page-cap min;
-  `Instance.setMemoryPagesLimit(?u64)`; test green (grow past cap → −1).
-**STATE: interp-engine sandboxing (the default engine) is COMPLETE + green +
-pushed** = interrupt (#3a-1/2) + memory-limit (#3c-1). All remaining Tier-1 is
-GATED (verified this cycle):
-
-- **JIT-sandboxing block** (do as ONE focused effort AFTER `should_gate_windows.sh
-  --resume`, ADR-0174): #3a-3 JIT interrupt poll (prologue+back-edge, both arches,
-  trap stub — Win64-prologue-risk) + #3b fuel (codegen, Win64-risk) + #3c-2 JIT
-  memory-cap (clamp `mem_max_pages` setup.zig:~412 + a table limit; cross-engine
-  config, NOT codegen but coheres here) + #3a-4 (C-API `zwasm.h` +
-  `TrapKind.interrupted` + CLI `--timeout`/`--fuel`/`--max-memory`). Design: the
-  store-limit wants to become a **pre-instantiate config** (wasmtime StoreLimits
-  style) flowing to BOTH instantiate.zig (interp) + setup.zig (JIT), supplanting
-  the post-instantiate facade setter; the JIT interrupt needs JitRuntime
-  `interrupt_ptr` → the interp Runtime's flag (the two engines hold SEPARATE state
-  today — wire a back-pointer at JIT setup).
-- **#1 C-API WASI preopen — BLOCKED by D-251** (verified: `wasi.h:90-92` — the
-  pure C-API has NO `std.Io` token to open dirs; CLI `--dir` only works because
-  `main` owns an io). Needs a design decision first: how a libc-linked C-API
-  obtains a `std.Io` for filesystem ops (ADR-level). NOT a quick chunk.
+**STATE**: interp-engine sandboxing (default engine) COMPLETE + green + pushed
+= interrupt (#3a-1/2) + memory-limit (#3c-1 `7216e7b1`). Remaining Tier-1 GATED:
+- **JIT-sandboxing block** = the **Active bundle** above (#3a-3 JIT interrupt poll
+  → #3b fuel → #3c-2 JIT mem-cap → #3a-4 C-API/CLI). Win64 via cross-compile +
+  debt (NOT grabbing windows — respects cw-dev suspend, ADR-0174). #3c-2 may
+  upgrade the store-limit to a pre-instantiate config (wasmtime StoreLimits style)
+  flowing to BOTH instantiate.zig (interp) + setup.zig (JIT).
+- **#1 C-API WASI preopen — BLOCKED by D-251** (`wasi.h:90-92`: pure C-API has no
+  `std.Io` to open dirs; CLI `--dir` works only because `main` owns io). Needs an
+  io-design decision (ADR-level) → record as a Phase-B documented gap, don't block.
 
 **Phase B** — write the honest "v1-has / v2-still-lacks" remainder into
 `docs/migration_v1_to_v2.md` (Tier 2 #5 ILP32; Tier 3 #4 allocator / #6 mem-copy
