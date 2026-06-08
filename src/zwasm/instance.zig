@@ -58,6 +58,15 @@ pub const Instance = struct {
         return false;
     }
 
+    /// ADR-0179 #3c — impose a host max on linear-memory size, in PAGES (of
+    /// memory 0's page size), an extra cap below the module's declared max.
+    /// `memory.grow` past it returns the spec grow-failure (−1), not a trap.
+    /// `null` clears the host cap. (Interp/facade path; the JIT `--engine jit`
+    /// grow cap is clamped at setup — #3c-2.)
+    pub fn setMemoryPagesLimit(self: *Instance, max_pages: ?u64) void {
+        if (self.handle.runtime) |rt| rt.store_memory_pages_max = max_pages;
+    }
+
     /// Wasm spec §4.5.3 — comptime-typed export-function wrapper.
     /// `Sig` must be a Zig function type whose param + result
     /// types map to Wasm scalars (i32/i64/f32/f64); multi-result
@@ -328,4 +337,31 @@ test "facade Instance.interrupt(): a pending interrupt traps the next invoke; cl
     try testing.expect(!inst.interruptRequested());
     try inst.invoke("f", &.{}, &results);
     try testing.expectEqual(@as(i32, 42), results[0].i32);
+}
+
+test "facade setMemoryPagesLimit: host cap refuses memory.grow past it (ADR-0179 #3c)" {
+    // (module (memory (export "m") 1))  — min 1 page, no declared max.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // magic + version
+        0x05, 0x03, 0x01, 0x00, 0x01, // memory: 1× {min 1}
+        0x07, 0x05, 0x01, 0x01, 'm', 0x02, 0x00, // export "m" = memory 0
+    };
+    var eng = try _zwasm.Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var mod = try eng.compile(&bytes);
+    defer mod.deinit();
+    var inst = try mod.instantiate(.{});
+    defer inst.deinit();
+
+    inst.setMemoryPagesLimit(2); // host cap = 2 pages (below the spec max)
+    const mem = inst.memory() orelse return error.NoMemory;
+
+    try testing.expectEqual(@as(?u32, 1), mem.grow(1)); // 1 → 2 OK (old size 1)
+    try testing.expectEqual(@as(?u32, null), mem.grow(1)); // 2 → 3 refused by host cap
+
+    inst.setMemoryPagesLimit(4); // raise the cap → growth allowed again
+    try testing.expectEqual(@as(?u32, 2), mem.grow(1)); // 2 → 3 OK
+
+    inst.setMemoryPagesLimit(null); // clear host cap
+    try testing.expectEqual(@as(?u32, 3), mem.grow(1)); // 3 → 4 OK (spec max only)
 }

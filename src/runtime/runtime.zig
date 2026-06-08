@@ -380,6 +380,13 @@ pub const Runtime = struct {
     /// Free-running step counter for the throttled loop-back-edge poll above.
     interrupt_tick: u64 = 0,
 
+    /// ADR-0179 #3c: host-imposed max linear-memory size in PAGES (of memory 0's
+    /// page size), an extra cap BELOW the module's declared max — `null` = no
+    /// host limit. Folded into `growMemory`'s page-cap min, so `memory.grow`
+    /// past it returns the spec grow-failure (`-1` / previous size unchanged),
+    /// NOT a trap. (JIT path = `MemGrowCtx.max_pages`, clamped at setup — #3c-2.)
+    store_memory_pages_max: ?u64 = null,
+
     /// Optional per-instruction trace hook (Phase 6 / §9.6 / 6.A
     /// per ADR-0013). When non-null, `dispatch.step` invokes
     /// `trace_cb(trace_ctx, event)` after each handler call.
@@ -440,7 +447,11 @@ pub const Runtime = struct {
         // page scales it up. u128 byte_cap avoids the i64 2^64 overflow.
         const byte_cap: u128 = if (is_i64) (@as(u128, 1) << 64) else (@as(u128, 1) << 32);
         const spec_cap: u64 = @intCast(@min(byte_cap / page_size, @as(u128, std.math.maxInt(u64))));
-        const page_cap: u64 = @min(spec_cap, declared_pages_max orelse spec_cap);
+        const page_cap: u64 = @min(
+            spec_cap,
+            declared_pages_max orelse spec_cap,
+            self.store_memory_pages_max orelse spec_cap, // ADR-0179 #3c host cap
+        );
         const new_pages_ov = @addWithOverflow(old_pages, delta);
         if (new_pages_ov[1] != 0 or new_pages_ov[0] > page_cap) return null;
         const new_pages = new_pages_ov[0];
