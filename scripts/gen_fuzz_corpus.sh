@@ -42,6 +42,12 @@ printf '\x00\x61\x73\x6d\x01\x00\x00\x00\x01\xff\xff\xff\xff\x0f' > "$OUT/malfor
 # Type section: rec group (0x4E) declaring 5 subtypes but supplying none — the
 # subtype reader must hit its bounds guard, not read past the body.
 printf '\x00\x61\x73\x6d\x01\x00\x00\x00\x01\x03\x01\x4e\x05'     > "$OUT/malformed_trunc_rectype.wasm"
+# Declared-limit overruns — must be REJECTED at validate, never allocated.
+# Memory min 70000 pages (> 65536 i32 ceiling); table funcref min 20,000,000
+# (> the 10M entry cap); a function locals decl naming ~2^32 locals.
+printf '\x00\x61\x73\x6d\x01\x00\x00\x00\x05\x05\x01\x00\xf0\xa2\x04'                 > "$OUT/malformed_memory_min_overflow.wasm"
+printf '\x00\x61\x73\x6d\x01\x00\x00\x00\x04\x07\x01\x70\x00\x80\xdc\xbc\x09'         > "$OUT/malformed_table_min_overflow.wasm"
+printf '\x00\x61\x73\x6d\x01\x00\x00\x00\x01\x04\x01\x60\x00\x00\x03\x02\x01\x00\x0a\x0a\x01\x08\x01\xff\xff\xff\xff\x0f\x7f\x0b' > "$OUT/malformed_locals_overflow.wasm"
 : > "$OUT/malformed_empty.wasm"
 
 echo "[gen_fuzz_corpus] $MODE: $(find "$OUT" -type f | wc -l | tr -d ' ') files in $OUT"
