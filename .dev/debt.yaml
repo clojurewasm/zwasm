@@ -43,6 +43,11 @@ entries:
       wiring, Win64 codegen) is assessed in
       .dev/architecture/jit_facade_integration_scope.md — sandboxing (this row)
       is one slice of it; the gating spike is the generic argument-ABI trampoline.
+      CW-V1 IMPACT = NONE (verified 2026-06-08): cw consumes via the Zig facade
+      (Engine.init -> compile -> Instance), which ALWAYS yields an interp instance
+      (the facade never produces a JIT instance), so cw's untrusted code already
+      runs sandboxed on interp. JIT sandboxing matters only for a future
+      --engine-jit-from-API path. Priority for cw v1: LOW.
     first_raised: "2026-06-08"
     last_reviewed: "2026-06-08"
     refs: |-
@@ -75,6 +80,10 @@ entries:
       check needs new state), and the fix needs Mac+Linux+Windows verification.
       DISCHARGE: when FS-grant-to-untrusted ships, OR proactively as a
       `wasi/path.zig` resolver rework with a 3-host symlink-escape test.
+      CW-V1 IMPACT = NONE today (verified 2026-06-08): only bites a guest given a
+      WRITABLE preopen, and cw grants no writable preopen to untrusted wasm; the
+      plant-time half (done) already blocks the guest-plant vector. Becomes
+      relevant if cw later grants FS write to untrusted code. Priority for cw v1: LOW.
     first_raised: "2026-06-08"
     last_reviewed: "2026-06-08"
     refs: |-
@@ -93,6 +102,15 @@ entries:
       store-level limiter hook configured on the Engine/Store. Additive; design
       where it lives (Engine InitOpts vs Store) when an embedder needs it.
       DISCHARGE: add the store-level limiter struct + wire instantiation through it.
+      CW-V1 IMPACT = NONE + LOW INTRINSIC VALUE TODAY (verified 2026-06-08): there
+      is NO guest-triggered instantiation path in zwasm — the HOST drives every
+      `instantiate` explicitly, so an embedder (incl. cw) already bounds its own
+      instance/table/memory COUNT. A store-level count limiter only gains value
+      once a guest can trigger instantiation (e.g. a future host API). The
+      guest-blowup vector that DID matter — a single guest's `table.grow` — is
+      already capped per-instance (`setTableElementsLimit`). So building the
+      store-count knob now would be a speculative feature; keep as a note until a
+      guest-triggered instantiation path exists. Priority for cw v1: LOW.
     first_raised: "2026-06-08"
     last_reviewed: "2026-06-08"
     refs: |-
