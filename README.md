@@ -109,6 +109,14 @@ Surface: `Engine` / `Module` / `Instance` / `Linker` (host imports via
 `Trap` / `Value`. Runnable: [`examples/zig_dep/`](examples/zig_dep/)
 (external path-dep consumer) and [`examples/zig_host/`](examples/zig_host/).
 
+**Sandboxing untrusted guests** (interpreter engine): `Instance.interrupt()`
+stops a runaway guest from another thread (timeout or cancellation →
+`error.Interrupted`); `Instance.setFuel(n)` imposes a deterministic
+instruction budget (→ `error.OutOfFuel`); `Instance.setMemoryPagesLimit(n)`
+caps linear-memory growth. Run untrusted code on the interp engine (the
+default) for these guarantees. (JIT-engine sandboxing is a tracked follow-on —
+see [`docs/migration_v1_to_v2.md`](docs/migration_v1_to_v2.md) §1.)
+
 **C** (wasm-c-api) — [`include/wasm.h`](include/wasm.h) is byte-identical
 to the upstream standard (the interface wasmtime/wasmer follow); WASI
 host-setup is the hand-authored [`include/wasi.h`](include/wasi.h). See
@@ -171,7 +179,8 @@ private/     gitignored agent scratch
 - [`docs/reference/`](docs/reference/) — API reference:
   [Zig](docs/reference/zig_api.md) · [C](docs/reference/c_api.md) · [CLI](docs/reference/cli.md)
 - [`docs/benchmarks.md`](docs/benchmarks.md) — performance vs other runtimes + across engines
-- [`docs/migration_v1_to_v2.md`](docs/migration_v1_to_v2.md) — v1 → v2 migration
+- [`docs/migration_v1_to_v2.md`](docs/migration_v1_to_v2.md) — v1 → v2 migration + the honest v1-vs-v2 gap analysis
+- [`docs/v1_contributor_history.md`](docs/v1_contributor_history.md) — v1 community contributors + their PRs/issues
 - [`CHANGELOG.md`](CHANGELOG.md) — release notes
 
 ## References
