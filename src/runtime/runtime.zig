@@ -387,6 +387,14 @@ pub const Runtime = struct {
     /// NOT a trap. (JIT path = `MemGrowCtx.max_pages`, clamped at setup — #3c-2.)
     store_memory_pages_max: ?u64 = null,
 
+    /// ADR-0179 / D-316: host-imposed max table size in ELEMENTS, an extra cap
+    /// below the module's declared table max — `null` = no host limit. Folded
+    /// into `table.grow`'s cap check, so a grow past it returns the spec
+    /// grow-failure (`-1` / previous size unchanged), NOT a trap. Applies to
+    /// every table in the instance. (Interp/facade path; the JIT table-grow cap
+    /// is a documented post-v0.1 enhancement, like fuel.)
+    store_table_elements_max: ?u64 = null,
+
     /// ADR-0179 #3b: host-imposed deterministic instruction budget — remaining
     /// fuel, decremented once per executed interp instruction; trap `OutOfFuel`
     /// at 0. `null` = unmetered (zero hot-path cost: one predictable optional

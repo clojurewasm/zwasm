@@ -55,6 +55,11 @@ pub const Table = struct {
         if (self.max) |m| {
             if (new_len > m) return error.GrowFailed;
         }
+        // D-316: honour a host element cap (set via `Instance.setTableElementsLimit`),
+        // mirroring how `Memory.grow` honours `store_memory_pages_max`.
+        if (self.rt.store_table_elements_max) |cap| {
+            if (new_len > cap) return error.GrowFailed;
+        }
         const grown = self.rt.alloc.realloc(tab.refs, new_len) catch return error.GrowFailed;
         const fill = _vc.zwasmToRuntime(init);
         for (grown[old_len..new_len]) |*slot| slot.* = fill;

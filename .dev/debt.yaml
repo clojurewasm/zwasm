@@ -78,15 +78,16 @@ entries:
     layer: "code"
     status: "note"
     description: |-
-      note (additive API, LOW): no store-level `ResourceLimiter` equivalent for
-      instance / table-element COUNTS (wasmtime `ResourceLimiter` / `StoreLimits`).
-      Per-instance memory + fuel budgets exist (ADR-0179 / D-314); a host driving
-      many guest-requested instantiations or a large `table.grow` has no structural
-      ceiling beyond the per-memory page cap + the spec table max. あるべき論: a
-      store-level limiter hook (instances, table elems, total memory across
-      instances) configured on the Engine/Store. Additive; design where the limiter
-      lives (Engine InitOpts vs Store) when an embedder needs it. DISCHARGE: add the
-      limiter struct + wire the instance/table-grow paths through it, with tests.
+      note (additive API, LOW): partial — a per-instance TABLE-element cap now
+      exists (`Instance.setTableElementsLimit` → `store_table_elements_max`,
+      enforced in both the interp `table.grow` handler and the facade `Table.grow`,
+      mirroring `setMemoryPagesLimit`). REMAINING: no STORE-level limiter for
+      instance/table/memory COUNTS across a store (wasmtime `ResourceLimiter` /
+      `StoreLimits`) — a host driving many guest-requested instantiations has no
+      structural ceiling on the number of instances/tables/memories. あるべき論: a
+      store-level limiter hook configured on the Engine/Store. Additive; design
+      where it lives (Engine InitOpts vs Store) when an embedder needs it.
+      DISCHARGE: add the store-level limiter struct + wire instantiation through it.
     first_raised: "2026-06-08"
     last_reviewed: "2026-06-08"
     refs: |-

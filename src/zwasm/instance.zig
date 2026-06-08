@@ -75,6 +75,16 @@ pub const Instance = struct {
         if (self.handle.runtime) |rt| rt.store_memory_pages_max = max_pages;
     }
 
+    /// D-316 — impose a host max on table size, in ELEMENTS, applied to every
+    /// table in this instance (an extra cap below each table's declared max).
+    /// `table.grow` past it returns the spec grow-failure (−1), not a trap.
+    /// `null` clears the host cap. (Interp/facade path; the JIT table-grow cap
+    /// is a documented post-v0.1 enhancement — see the D-314 seam on `interrupt`.)
+    pub fn setTableElementsLimit(self: *Instance, max_elements: ?u64) void {
+        std.debug.assert(self.handle.runtime != null); // D-314 seam (see `interrupt`)
+        if (self.handle.runtime) |rt| rt.store_table_elements_max = max_elements;
+    }
+
     /// ADR-0179 #3b — set the deterministic instruction budget (fuel). The
     /// interp decrements once per executed instruction and traps
     /// `error.OutOfFuel` at 0. `null` = unmetered. (Interp/default engine; JIT
@@ -388,6 +398,34 @@ test "facade setMemoryPagesLimit: host cap refuses memory.grow past it (ADR-0179
 
     inst.setMemoryPagesLimit(null); // clear host cap
     try testing.expectEqual(@as(?u32, 3), mem.grow(1)); // 3 → 4 OK (spec max only)
+}
+
+test "facade setTableElementsLimit: host cap refuses table.grow past it (D-316)" {
+    // (module (table (export "t") 1 funcref))  — min 1, no declared max.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // magic + version
+        0x04, 0x04, 0x01, 0x70, 0x00, 0x01, // table: 1× funcref {min 1}
+        0x07, 0x05, 0x01, 0x01, 't', 0x01, 0x00, // export "t" = table 0
+    };
+    var eng = try _zwasm.Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var mod = try eng.compile(&bytes);
+    defer mod.deinit();
+    var inst = try mod.instantiate(.{});
+    defer inst.deinit();
+
+    inst.setTableElementsLimit(3); // host cap = 3 elements (below the spec max)
+    const tab = inst.table("t") orelse return error.NoTable;
+    const nullref = _zwasm.Value{ .funcref = null };
+
+    try tab.grow(2, nullref); // 1 → 3 OK (at the cap)
+    try testing.expectError(error.GrowFailed, tab.grow(1, nullref)); // 3 → 4 refused
+
+    inst.setTableElementsLimit(5); // raise the cap → growth allowed again
+    try tab.grow(2, nullref); // 3 → 5 OK
+
+    inst.setTableElementsLimit(null); // clear host cap
+    try tab.grow(1, nullref); // 5 → 6 OK (no declared/spec table max here)
 }
 
 test "facade setFuel: exhausted budget traps OutOfFuel; ample budget completes + drains (ADR-0179 #3b)" {

@@ -99,6 +99,12 @@ fn tableGrow(c: *@import("../../ir/dispatch_table.zig").InterpCtx, instr: *const
         try rt.pushOperand(.{ .i32 = -1 });
         return;
     };
+    // D-316: a host element cap refuses the grow (spec grow-failure, not a trap),
+    // the same way `store_memory_pages_max` bounds `memory.grow`.
+    if (rt.store_table_elements_max) |cap| if (new_len > cap) {
+        try rt.pushOperand(.{ .i32 = -1 });
+        return;
+    };
 
     const new_refs = rt.alloc.realloc(tbl.refs, @intCast(new_len)) catch {
         try rt.pushOperand(.{ .i32 = -1 });
