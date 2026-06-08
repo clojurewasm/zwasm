@@ -177,11 +177,8 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             defer ts_buf.deinit();
             defined_tables = @intCast(ts_buf.items.len);
             for (ts_buf.items) |tbl_entry| {
-                // Bound the per-table backing allocation against a crafted huge
-                // `min` (implementation entry cap; shared with the interp path).
-                if (tbl_entry.min > sections.MAX_TABLE_ENTRIES) return Error.InvalidTableLimit;
                 if (tbl_entry.max) |max| {
-                    if (max > sections.MAX_TABLE_ENTRIES or max < tbl_entry.min) return Error.InvalidTableLimit;
+                    if (max < tbl_entry.min) return Error.InvalidTableLimit;
                 }
             }
             // Copy reftypes into arena-allocated slice that

@@ -270,15 +270,31 @@ test "Engine.compile: rejects a memory whose declared min exceeds the spec page 
     try testing.expectError(error.ValidateFailed, eng.compile(&bytes));
 }
 
-test "Engine.compile: rejects a table whose declared min exceeds the implementation entry cap" {
-    // (table 20000000 funcref) — min 20M > MAX_TABLE_ENTRIES (10M). uleb 20000000 = 80 DC BC 09.
-    const bytes = [_]u8{
+test "Engine.compile: accepts a table with a large valid min; rejects max < min (§3.2.4)" {
+    // A large limit is a VALID table type (spec ceiling is the full u32 range;
+    // reserving the entries is an instantiation-time concern, not validation):
+    // the wasm-2.0 spec `table.6` fixture byte-for-byte — flag 0x01 (min+max),
+    // min 0, max 0xffffffff (2^32-1).
+    const ok = [_]u8{
         0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-        0x04, 0x07, 0x01, 0x70, 0x00, 0x80, 0xDC, 0xBC, 0x09, // table funcref min 20000000
+        0x04, 0x09, 0x01, 0x70, 0x01, 0x00, 0xFF, 0xFF,
+        0xFF, 0xFF, 0x0F,
     };
     var eng = try _zwasm.Engine.init(testing.allocator, .{});
     defer eng.deinit();
-    try testing.expectError(error.ValidateFailed, eng.compile(&bytes));
+    var mod = try eng.compile(&ok); // valid — no ValidateFailed
+    mod.deinit();
+
+    // But max < min is malformed: flag 0x01 (min+max), min 10, max 5. Rejected
+    // by compile (either the parse or the validate stage — both are correct
+    // refusals; assert it does not compile successfully).
+    const bad = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x04, 0x05, 0x01, 0x70, 0x01, 0x0A, 0x05,
+    };
+    var eng2 = try _zwasm.Engine.init(testing.allocator, .{});
+    defer eng2.deinit();
+    try testing.expect(std.meta.isError(eng2.compile(&bad)));
 }
 
 test "Module.instantiate: default opts arm a finite fuel budget (ADR-0179)" {

@@ -55,16 +55,14 @@ pub inline fn checkVecCount(count: u32, body: []const u8, pos: usize) Error!void
     if (count > body.len - pos) return Error.UnexpectedEnd;
 }
 
-/// Wasm §A.1 implementation limits, shared by both validate paths
+/// Wasm §A.1 memory page ceilings, shared by both validate paths
 /// (`runtime/instance/instantiate.zig::frontendValidate` for interp and
-/// `engine/compile.zig` for JIT) so neither can drift. Memory page ceilings are
-/// spec-defined (i32: 4 GiB / 64 KiB = 65536; i64: 2^32). The table-entry cap is
-/// the industry limit (`wasmparser` `MAX_WASM_TABLE_ENTRIES`, used by wasmtime) —
-/// the core spec leaves table size implementation-defined; it bounds the
-/// per-table backing allocation against a crafted huge `min`.
+/// `engine/compile.zig` for JIT) so neither can drift. Spec-defined: i32 =
+/// 4 GiB / 64 KiB = 65536 pages; i64 = 2^32. (Table size has no analogous spec
+/// ceiling — its `min` may be the full u32 range; reserving that many entries
+/// is an instantiation-time resource concern, D-316, not a validation limit.)
 pub const MAX_MEMORY_PAGES_I32: u64 = 65536;
 pub const MAX_MEMORY_PAGES_I64: u64 = @as(u64, 1) << 32;
-pub const MAX_TABLE_ENTRIES: u64 = 10_000_000;
 
 // Code section (Wasm §5.5.11) extracted to `sections_codes.zig`
 // per ADR-0096; re-exports below preserve `sections.X` namespace.

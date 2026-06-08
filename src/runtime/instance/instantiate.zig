@@ -506,12 +506,14 @@ fn preDecodeSectionBodies(alloc: std.mem.Allocator, module: *Module) bool {
         } else 0;
         for (t.items) |tbl| {
             if (!validRefTypeIdx(tbl.elem_type, ntypes)) return false;
-            // Wasm §A.1 — bound the per-table backing allocation against a
-            // crafted huge `min` (implementation entry cap). Runs unconditionally
-            // (this no-code path too), so a table-only module can't bypass it.
-            if (tbl.min > sections.MAX_TABLE_ENTRIES) return false;
+            // Wasm §3.2.4 table limits: `min ≤ max` if a max is present. The
+            // spec ceiling on the size itself is 2^32-1 (the full u32 range),
+            // so `min` needs no upper bound here — a large declared `min` is a
+            // valid module (table.6: `(table funcref 0xffffffff)`); refusing to
+            // RESERVE that many entries is an instantiation-time resource
+            // concern (D-316), not a validation error.
             if (tbl.max) |mx| {
-                if (mx > sections.MAX_TABLE_ENTRIES or mx < tbl.min) return false;
+                if (mx < tbl.min) return false;
             }
         }
     }
