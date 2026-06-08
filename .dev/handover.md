@@ -41,14 +41,25 @@ batched to a focused Win64-resumed block LAST. Low-Win64-risk items first:
 - ✅ **#3c-1 store memory-limit (interp/facade)** `7216e7b1`:
   `Runtime.store_memory_pages_max` in growMemory's page-cap min;
   `Instance.setMemoryPagesLimit(?u64)`; test green (grow past cap → −1).
-- **← NEXT #3c-2 JIT memory-limit + tables**: clamp `mem_max_pages` at
-  `setup.zig:~412` = `min(module max, store limit)` so `--engine jit`
-  `jitMemoryGrow` caps too; + a table-elems limit (interp `memories[]` / JIT
-  `d.max`). NOT Win64-risk (grow helper, not prologue). Needs the store-limit
-  value threaded to the JIT setup path (separate from the facade Runtime field).
-- **#1 C-API WASI preopen** (`wasi.h`; CLI `--dir` capability exists; D-251).
-- THEN Win64-resumed block: **#3a-3** JIT interrupt poll + **#3b** fuel + #3a-4
-  (C-API `zwasm.h` + `TrapKind.interrupted` + CLI `--timeout`/`--fuel`/`--max-memory`).
+**STATE: interp-engine sandboxing (the default engine) is COMPLETE + green +
+pushed** = interrupt (#3a-1/2) + memory-limit (#3c-1). All remaining Tier-1 is
+GATED (verified this cycle):
+
+- **JIT-sandboxing block** (do as ONE focused effort AFTER `should_gate_windows.sh
+  --resume`, ADR-0174): #3a-3 JIT interrupt poll (prologue+back-edge, both arches,
+  trap stub — Win64-prologue-risk) + #3b fuel (codegen, Win64-risk) + #3c-2 JIT
+  memory-cap (clamp `mem_max_pages` setup.zig:~412 + a table limit; cross-engine
+  config, NOT codegen but coheres here) + #3a-4 (C-API `zwasm.h` +
+  `TrapKind.interrupted` + CLI `--timeout`/`--fuel`/`--max-memory`). Design: the
+  store-limit wants to become a **pre-instantiate config** (wasmtime StoreLimits
+  style) flowing to BOTH instantiate.zig (interp) + setup.zig (JIT), supplanting
+  the post-instantiate facade setter; the JIT interrupt needs JitRuntime
+  `interrupt_ptr` → the interp Runtime's flag (the two engines hold SEPARATE state
+  today — wire a back-pointer at JIT setup).
+- **#1 C-API WASI preopen — BLOCKED by D-251** (verified: `wasi.h:90-92` — the
+  pure C-API has NO `std.Io` token to open dirs; CLI `--dir` only works because
+  `main` owns an io). Needs a design decision first: how a libc-linked C-API
+  obtains a `std.Io` for filesystem ops (ADR-level). NOT a quick chunk.
 
 **Phase B** — write the honest "v1-has / v2-still-lacks" remainder into
 `docs/migration_v1_to_v2.md` (Tier 2 #5 ILP32; Tier 3 #4 allocator / #6 mem-copy
