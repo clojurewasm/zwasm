@@ -3,6 +3,37 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-314"
+    layer: "code"
+    status: "blocked-by"
+    description: |-
+      blocked-by (multi-part effort + Win64-gate): zwasm v0 sandboxing (ADR-0179,
+      shipped @1001fa0e/460210f1/7216e7b1/58479dd6) is **interp-engine ONLY**, via
+      the Zig facade — `Instance.interrupt()`/`clearInterrupt()`/`interruptRequested()`
+      (cancel/timeout → error.Interrupted), `setFuel`/`fuelRemaining` (→
+      error.OutOfFuel), `setMemoryPagesLimit` (memory.grow cap). Untrusted code run
+      via `--engine jit` is currently UNGUARDED. Follow-ons (NOT v0.1-blocking — the
+      default interp engine carries the guarantee):
+      (1) **JIT-engine sandboxing** — extend interrupt/fuel/mem-cap to the JIT.
+          Needs a host→JIT interrupt DRIVING path (none today; facade is interp-only,
+          CLI `--engine jit` has no interrupt API), a prologue/back-edge poll +
+          interrupted trap-stub codegen on BOTH arches (Win64-prologue-risk →
+          `should_gate_windows.sh --resume` first per ADR-0174; conflicts w/ cw dev),
+          and a JIT-run-trap test harness (none exists — tests are byte-level).
+          interp & JIT runtimes are SEPARATE objects (`setupRuntimeLinked` builds
+          RuntimeOwned.rt independent of the interp Runtime) → needs JitRuntime
+          `interrupt_ptr` + a `setInterruptFlag`. Bundle memo: commit `fb18bd82`.
+      (2) **#3a-4 CLI/C-API surface** — `zwasm.h` setters + `TrapKind.interrupted`
+          (today trap_surface `mapInterpTrap` else→binding_error) + CLI `--fuel`/
+          `--timeout`(timer)/`--max-memory`. Small; the Zig facade already has it.
+      (3) **Design upgrades** (ADR-0179 Revision): epoch-COUNTER (per-store deadline
+          ticks) over the v0 binary flag; pre-instantiate StoreLimits config over the
+          post-instantiate setter; a table-elements limit.
+      DISCHARGE: pick (2) anytime (cheap); (1)+(3) as a focused windows-resumed bundle.
+    first_raised: "2026-06-08"
+    last_reviewed: "2026-06-08"
+    refs: |-
+      .dev/decisions/0179_execution_interruption_resource_limits.md (Revision); docs/migration_v1_to_v2.md §1; src/zwasm/instance.zig (facade methods); src/runtime/runtime.zig (interrupt/fuel/store_memory_pages_max); src/engine/setup.zig (JIT mem_max_pages); commit fb18bd82 (bundle memo)
   - id: "D-313"
     layer: "test"
     status: "blocked-by"

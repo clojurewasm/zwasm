@@ -123,3 +123,10 @@ in the JIT prologue) → **#3c store-limits** → **#3b fuel**.
 - `docs/migration_v1_to_v2.md` §1; `docs/v1_contributor_history.md`
 - Related ADRs: 0105 (JIT prologue stack-probe — epoch rides it), 0156 (no
   autonomous release), 0159 (lean CLI), 0070 (libc boundary — timer thread)
+
+## Revision history
+
+| Date | Commit | Change |
+|------|--------|--------|
+| 2026-06-08 | `91727cc6` | Initial draft (Accepted). Design: 3 wasmtime-aligned mechanisms — fuel · epoch counter · pre-instantiate StoreLimits. |
+| 2026-06-08 | `1001fa0e`/`460210f1`/`7216e7b1`/`58479dd6` | **As-built v0 (interp engine only) — DIVERGES from the draft; recorded so the gap is future-fixable.** Shipped: (1) interruption as a **binary per-instance atomic flag** the guest polls (`Runtime.interrupt_flag_storage` + `checkInterrupt`), NOT the u64 **epoch counter** — sufficient for cancel/timeout, but no per-store deadline ticks; (2) **fuel** as `Runtime.fuel` decremented per interp instruction (matches the design); (3) memory-limit as a **post-instantiate** `Instance.setMemoryPagesLimit` folded into `growMemory`, NOT the **pre-instantiate StoreLimits config**; table-elems limit not done. ALL **interp-engine only** (the default), via the Zig facade. **Deferred follow-ons (tracked: D-314)**: JIT-engine sandboxing (interrupt/fuel/mem-cap need a host→JIT driving path + both-arch prologue codegen + a run-trap harness), the epoch-counter upgrade, the pre-instantiate StoreLimits config, table limits, the CLI/C-API surface, and `TrapKind.interrupted` in `trap_surface` (today `mapInterpTrap` → `binding_error`). |
