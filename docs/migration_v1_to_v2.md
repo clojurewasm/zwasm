@@ -20,30 +20,49 @@
 
 ## 1. What v1 has that v2 does NOT (headline)
 
-| Capability                                 | v1 (verified)                                                                                                                                                                                                    | v2                                                                                                 | Nature                                                                                          |
-|--------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------|
-| **Fuel / instruction-budget metering**     | `Vm.fuel: ?u64`, `consumeInstructionBudget()`, `FuelExhausted` trap (`src/vm.zig`); `--fuel`, `zwasm_config_set_fuel`                                                                                            | **Absent** (0 matches for `fuel`/`instruction_budget` in `src/`)                                   | **Deferred**                                                                                    |
-| **Timeout / deadline traps**               | `Vm.deadline_ns: ?i128`, ~1024-instr deadline checks, `TimeoutExceeded` (`src/vm.zig`); `--timeout`, `zwasm_config_set_timeout`                                                                                  | **Absent** (0 matches for `deadline`/`TimeoutExceeded`)                                            | **Deferred**                                                                                    |
-| **Cooperative cancellation (host thread)** | `Vm.cancelled: std.atomic.Value(bool)`, `Vm.cancel()`, `zwasm_module_cancel()` (`src/vm.zig`, `src/c_api.zig`)                                                                                                   | **Absent** (only a WASI `cancel` syscall stub, unrelated)                                          | **Deferred**                                                                                    |
-| **WAT (text format) loading**              | full 6019-line parser `src/wat.zig` (`watToWasm`), `-Dwat`, `loadFromWat`, CLI accepts `.wat`                                                                                                                    | **Absent by design** — delegated to `wasm-tools`/`wabt` (ADR-0159)                                | **Intentional**                                                                                 |
-| **Custom host allocator via C API**        | `zwasm_config_set_allocator`, `zwasm_alloc_fn_t`/`zwasm_free_fn_t`                                                                                                                                               | wasm-c-api has no allocator hook                                                                   | **Intentional (API model change)**                                                              |
-| **C-API linear-memory accessors**          | `zwasm_module_memory_{data,size,read,write}`                                                                                                                                                                     | reach memory via wasm-c-api `wasm_memory_data/_size` (different shape; no read/write copy helpers) | **Model change**                                                                                |
-| **C-API WASI preopen / fd config**         | `zwasm_wasi_config_{preopen_dir,preopen_fd,set_stdio_fd}` (jtakakura #17/#20)                                                                                                                                    | `wasi.h` ships args/env/inherit-stdio only; **preopen deferred (ADR-0143 / D-251)**                | **Deferred**                                                                                    |
-| **Rich CLI** (see §5)                     | `inspect`, `validate`, `features` subcommands; `--batch`, `--link`, `--profile`, `--sandbox`, `--allow-*`, `--max-memory`, `--fuel`, `--timeout`, `--interp`, `--trace`, `--dump-regir`, `--dump-jit`, `--cache` | only `run`/`compile` + `--invoke`/`--engine`/`--dir`/`--env`                                       | **Mixed** (lean CLI intentional, ADR-0159; resource flags follow the deferred runtime features) |
+| Capability                                 | v1 (verified)                                                                                                                                                                                                    | v2                                                                                                                                                                                                                      | Nature                                                                                          |
+|--------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------|
+| **Fuel / instruction-budget metering**     | `Vm.fuel: ?u64`, `consumeInstructionBudget()`, `FuelExhausted` trap (`src/vm.zig`); `--fuel`, `zwasm_config_set_fuel`                                                                                            | **Addressed (interp engine)** — `Instance.setFuel`/`fuelRemaining` (`Runtime.fuel`, exact per-instr decrement in `dispatch.run`), `error.OutOfFuel` (ADR-0179 #3b). JIT-engine fuel + CLI `--fuel` + C-API = follow-on | **Addressed (interp); JIT/CLI follow-on**                                                       |
+| **Timeout / deadline traps**               | `Vm.deadline_ns: ?i128`, ~1024-instr deadline checks, `TimeoutExceeded` (`src/vm.zig`); `--timeout`, `zwasm_config_set_timeout`                                                                                  | **Addressed (interp engine)** — host-thread/timer raises `Instance.interrupt()`; the guest polls + traps `error.Interrupted` (ADR-0179 #3a). JIT-engine + CLI `--timeout` (timer) = follow-on                          | **Addressed (interp); JIT/CLI follow-on**                                                       |
+| **Cooperative cancellation (host thread)** | `Vm.cancelled: std.atomic.Value(bool)`, `Vm.cancel()`, `zwasm_module_cancel()` (`src/vm.zig`, `src/c_api.zig`)                                                                                                   | **Addressed (interp engine)** — `Instance.interrupt()`/`clearInterrupt()`/`interruptRequested()` (`Runtime.checkInterrupt`, func-entry + loop back-edge; ADR-0179 #3a). JIT-engine + C-API = follow-on                 | **Addressed (interp); JIT/C-API follow-on**                                                     |
+| **Host memory-size limit**                 | `--max-memory`, `zwasm_config_set_max_memory`                                                                                                                                                                    | **Addressed (interp engine)** — `Instance.setMemoryPagesLimit` (tighter `pages_max` in `growMemory`; ADR-0179 #3c). JIT-engine + CLI/C-API = follow-on                                                                 | **Addressed (interp); JIT/CLI follow-on**                                                       |
+| **WAT (text format) loading**              | full 6019-line parser `src/wat.zig` (`watToWasm`), `-Dwat`, `loadFromWat`, CLI accepts `.wat`                                                                                                                    | **Absent by design** — delegated to `wasm-tools`/`wabt` (ADR-0159)                                                                                                                                                     | **Intentional**                                                                                 |
+| **Custom host allocator via C API**        | `zwasm_config_set_allocator`, `zwasm_alloc_fn_t`/`zwasm_free_fn_t`                                                                                                                                               | wasm-c-api has no allocator hook                                                                                                                                                                                        | **Intentional (API model change)**                                                              |
+| **C-API linear-memory accessors**          | `zwasm_module_memory_{data,size,read,write}`                                                                                                                                                                     | reach memory via wasm-c-api `wasm_memory_data/_size` (different shape; no read/write copy helpers)                                                                                                                      | **Model change**                                                                                |
+| **C-API WASI preopen / fd config**         | `zwasm_wasi_config_{preopen_dir,preopen_fd,set_stdio_fd}` (jtakakura #17/#20)                                                                                                                                    | `wasi.h` ships args/env/inherit-stdio only; **preopen deferred (ADR-0143 / D-251)**                                                                                                                                     | **Deferred**                                                                                    |
+| **Rich CLI** (see §5)                     | `inspect`, `validate`, `features` subcommands; `--batch`, `--link`, `--profile`, `--sandbox`, `--allow-*`, `--max-memory`, `--fuel`, `--timeout`, `--interp`, `--trace`, `--dump-regir`, `--dump-jit`, `--cache` | only `run`/`compile` + `--invoke`/`--engine`/`--dir`/`--env`                                                                                                                                                            | **Mixed** (lean CLI intentional, ADR-0159; resource flags follow the deferred runtime features) |
 
-**Two buckets to be clear about:**
+**Three buckets to be clear about:**
 
+- **Addressed on the interp engine (the default), via the Zig facade** —
+  **fuel, timeout, cancellation, and a host memory-size limit** (the v1
+  sandboxing surface, several community-contributed: cancellation = jtakakura
+  #28, timeout = DeanoC #6) are now implemented for the **interpreter** engine
+  (ADR-0179): `Instance.interrupt()`/`clearInterrupt()`/`setFuel()`/
+  `fuelRemaining()`/`setMemoryPagesLimit()`. Route untrusted/sandboxed code
+  through the interp engine (the default) to get these guarantees today.
+- **Follow-on (real, scoped, not yet done)** —
+  1. **JIT-engine sandboxing**: the interrupt/fuel/mem-cap above currently apply
+     to the *interpreter*. Extending them to `--engine jit` is a multi-part effort
+     (a host→JIT interrupt driving path — none exists yet; prologue-poll codegen on
+     both arches; a JIT-run-trap test harness), best done as a focused windows-
+     resumed bundle. Not v0.1-blocking: the interp engine carries the guarantee.
+  2. **C-API + CLI surface** for the above (`zwasm.h` setters; CLI `--fuel`/
+     `--timeout`/`--max-memory`): the **Zig facade** (the recommended embedding
+     surface, ADR-0109) has them; the C-API/CLI surface is a small follow-on.
+  3. **C-API WASI directory preopen** (`zwasm_wasi_config_preopen_dir`, jtakakura
+     #17/#20) — **blocked by D-251**: the pure C-API has no `std.Io` token to open
+     directories (the CLI `--dir` works only because `main` owns an `io`). Needs an
+     io-acquisition design (how a libc-linked C-API obtains `std.Io`). CLI `--dir`
+     + the Zig API cover the preopen capability today.
 - **Intentional drops** — WAT parsing and the rich CLI verbs (`validate`/`inspect`/
   `features`/`wat`/`wasm`) are deliberately *not* in v2: validation is programmatic
   (`wasm_module_validate` / `Engine.compile`) and text/inspection is `wasm-tools`'
   job (ADR-0159). The custom C API was replaced wholesale by standard wasm-c-api.
-- **Deferred (genuine v1-has/v2-lacks regressions)** — **fuel, timeout, and
-  cooperative cancellation** are real runtime features that exist in v1 (several of
-  them community-contributed: cancellation = jtakakura #28, timeout = DeanoC #6) and
-  are **not yet present anywhere in v2** (`src/include/zwasm.h` is an empty
-  placeholder reserving exactly these). The **C-API WASI preopen** path (also a
-  jtakakura contribution, #17/#20) is likewise deferred. If v2's release intends to
-  serve v1's embedders, these are the gaps to weigh.
+  Custom host allocator + C-API memory copy-helpers: dropped (model change; no
+  contributor demand). **Tier 2 — `aarch64-watchos-ilp32`** (matthargett #97):
+  needs a `static-lib` build target + `@sizeOf(usize)<8` accommodations; weighed,
+  deferred.
 
 ---
 
@@ -160,6 +179,19 @@ const sum = try add.call(.{ 10, 20 });        // 30
 Public v2 facade (`src/zwasm.zig`): `Engine`, `Module`, `Instance`, `Linker`,
 `Caller`, `TypedFunc`, `Memory`, `Global`, `Table`, `Trap`, `Value`, `ExternKind`,
 plus `ImportItem`/`ExportItem`/`ModuleImports`/`ModuleExports` introspection.
+
+**Sandboxing (interp engine, ADR-0179)** — `Instance` methods replacing v1's
+`Vm`/`Config` resource controls:
+
+| v1                                                     | v2 (Zig facade)                                                                                                          |
+|--------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------|
+| `Vm.cancel()` / `zwasm_module_cancel` (timeout/cancel) | `Instance.interrupt()` (from any thread) → guest traps `error.Interrupted`; `clearInterrupt()` / `interruptRequested()` |
+| `Config.fuel` / `loadWithFuel`                         | `Instance.setFuel(?u64)` → `error.OutOfFuel` at exhaustion; `Instance.fuelRemaining()`                                  |
+| `Config{max_memory}` / `--max-memory`                  | `Instance.setMemoryPagesLimit(?u64)` → `memory.grow` past it returns −1                                                 |
+
+For a wall-clock timeout, a host timer thread calls `instance.interrupt()` after
+the deadline. These apply to the interpreter (the default engine); see §1 for the
+JIT-engine follow-on.
 
 ---
 
