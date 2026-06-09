@@ -1,5 +1,5 @@
 > [!IMPORTANT]
-> **v2 from-scratch rewrite in progress.** A cleaner internal architecture, sharper layer boundaries, and a smaller surface area — folding back lessons from v1 that are hard to retrofit in place. Spec coverage and benchmark numbers will be preserved. **Breaking changes expected: directory / module structure, the C API (`zwasm.h` and embedding entrypoints), and CLI option names & defaults.** v1 (this branch) is maintained in parallel during the transition; once v2 reaches parity it inherits `main`, and v1 ships a final `v1.x.y` tag and stops receiving updates. See the [v2 ROADMAP](https://github.com/clojurewasm/zwasm/blob/zwasm-from-scratch/.dev/ROADMAP.md).
+> **The v2 from-scratch reimplementation is nearly complete.** You can try it from the `v2.x.x` tags, though some instability and unimplemented items are still expected. Because development resources are limited, we are **pausing acceptance of Issues and Pull Requests** for now — if you hit a problem, please reach out via [Discussions](https://github.com/clojurewasm/zwasm/discussions) and mention @chaploud. On **2026-07-01** the `zwasm-from-scratch` branch will be merged into `main` and replace it. For the old version, refer to its tags and releases. See the [v1 → v2 migration guide](https://github.com/clojurewasm/zwasm/blob/zwasm-from-scratch/docs/migration_v1_to_v2.md).
 
 # zwasm
 
