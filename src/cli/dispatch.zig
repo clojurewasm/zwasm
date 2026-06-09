@@ -32,9 +32,10 @@ pub const usage =
     \\
     \\Usage:
     \\  zwasm run <file.wasm|file.cwasm> [args...]   Run a module (WASI _start / main)
-    \\    [--invoke <name>]                          Invoke a named zero-arg export instead
+    \\    [--invoke <name>[=a,b,...]]                Invoke a named export (optional call args)
     \\    [--engine <interp|jit>]                    Engine: interp (default) or jit (both full WASI; jit adds SIMD)
     \\    [--dir <host>[:<guest>]]                   Preopen a host directory for WASI
+    \\    [--env <KEY=VAL>]                          Set an environment variable for the guest
     \\  zwasm compile <file.wasm> -o <out.cwasm>     Compile to a .cwasm AOT artifact
     \\  zwasm --version | -V                         Print the version
     \\  zwasm --help | -h | help                     Print this help
@@ -61,7 +62,13 @@ test "classify: null is banner, unknown token is unknown" {
     try std.testing.expectEqual(Action.unknown, classify("foo.wasm"));
 }
 
-test "usage text names both shipped subcommands" {
+test "usage text names both shipped subcommands + every run flag main.zig parses" {
     try std.testing.expect(std.mem.find(u8, usage, "zwasm run ") != null);
     try std.testing.expect(std.mem.find(u8, usage, "zwasm compile ") != null);
+    // Lock doc/code coherence: every flag `run` actually accepts (main.zig)
+    // must be documented, so help can't silently drop one again (--env did).
+    try std.testing.expect(std.mem.find(u8, usage, "--invoke") != null);
+    try std.testing.expect(std.mem.find(u8, usage, "--engine") != null);
+    try std.testing.expect(std.mem.find(u8, usage, "--dir") != null);
+    try std.testing.expect(std.mem.find(u8, usage, "--env") != null);
 }
