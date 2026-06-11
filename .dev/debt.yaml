@@ -555,23 +555,6 @@ entries:
     last_reviewed: "2026-06-03"
     refs: |-
       `src/engine/codegen/x86_64/thunk.zig` (needs RBP frame-link); `src/engine/codegen/arm64/thunk.zig` (the arm64 D1 reference, `4f73d9ee`); `src/engine/codegen/shared/frame_chain_adapter.zig:60-76` (x86_64 sniffed read, D-184); ADR-0134 cycle 3; ADR-0114 (cross_module_throw_propagation.wat removal cond)
-  - id: "D-237"
-    layer: "test"
-    status: "blocked-by"
-    description: |-
-      Spec-runner `cur_module_bytes` DOUBLE-FREE (harness-only; surfaced during the
-      ADR-0133 Phase-10 re-scope inventory, 2026-06-03). `test/spec/spec_assert_runner_wasm_3_0.zig`
-      frees the per-module bytes at TWO sites: the `defer if (cur_module_bytes) |b| gpa.free(b)`
-      (:424) AND the `for (kept_bytes.items) |b| gpa.free(b)` loop (:434) — when ownership was
-      transferred to `kept_bytes` (D-225 cross-module exporter retention) the defer still fires →
-      DebugAllocator "Double free detected". Exit stays 0 (DebugAllocator logs, doesn't abort), so
-      corpus counts are unaffected, but it pollutes `2>&1` logs. FIX: null out `cur_module_bytes`
-      after transferring to `kept_bytes` (or skip the defer when transferred). Pairs with the D-234
-      runner-eval fix (both harness-side). Low priority (no correctness impact).
-    first_raised: "2026-06-03"
-    last_reviewed: "2026-06-03"
-    refs: |-
-      `test/spec/spec_assert_runner_wasm_3_0.zig:424` (defer free) + `:434` (kept_bytes loop); D-225 (kept_bytes ownership); D-234 (sibling harness-eval fix); ADR-0133
   - id: "D-234"
     layer: "code"
     status: "blocked-by"

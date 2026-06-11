@@ -369,7 +369,13 @@ pub fn main(init: std.process.Init) !void {
     // the buffered `stdout` (reliable) — NOT std.debug.print, which
     // under-reported vs the per-manifest breakdown in cyc161. Opt-in via
     // a `--fail-detail` arg; off by default so gate runs stay clean.
-    const fail_detail = if (args.next()) |a| std.mem.eql(u8, a, "--fail-detail") else false;
+    // `zig build test-spec-wasm-3.0-assert` can't append argv to the run
+    // step, so the env var form (ZWASM_SPEC_DETAIL=1) is the only way to
+    // get per-assert detail through the build runner.
+    const fail_detail = if (args.next()) |a|
+        std.mem.eql(u8, a, "--fail-detail")
+    else
+        init.environ_map.get("ZWASM_SPEC_DETAIL") != null;
 
     // §1 (ADR-0128) — opt-in JIT execution mode. Default = interp, so
     // `zig build test-spec-wasm-3.0-assert` (and test-all) is unchanged.
@@ -458,7 +464,6 @@ pub fn main(init: std.process.Init) !void {
             // `module <path>` directive replaces the slice; the
             // sub-corpus dir owns the alloc (freed below).
             var cur_module_bytes: ?[]u8 = null;
-            defer if (cur_module_bytes) |b| gpa.free(b);
             // D-225 — a registered JIT exporter's `JitInstance.wasm_bytes`
             // BORROWS cur_module_bytes; the importer's later module directive
             // would free it → exportedFuncTarget re-parses freed memory. So at
@@ -467,6 +472,12 @@ pub fn main(init: std.process.Init) !void {
             // directive from freeing them.
             var kept_bytes: std.ArrayList([]u8) = .empty;
             var cur_bytes_kept = false;
+            // D-237 — when the LAST module's bytes were transferred to
+            // kept_bytes, this defer must not free them again (the
+            // kept_bytes defer below owns them).
+            defer if (cur_module_bytes) |b| {
+                if (!cur_bytes_kept) gpa.free(b);
+            };
             defer {
                 for (kept_bytes.items) |b| gpa.free(b);
                 kept_bytes.deinit(gpa);
