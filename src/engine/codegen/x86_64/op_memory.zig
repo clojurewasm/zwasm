@@ -453,7 +453,15 @@ fn emitMemOpI64(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
         try ctx.buf.appendSlice(ctx.allocator, inst.encJccRel32(.ne, 0).slice()); // nonzero low bits = unaligned
         try ctx.unaligned_atomic_fixups.append(ctx.allocator, al_fixup);
     }
-    try ctx.buf.appendSlice(ctx.allocator, inst.encLeaR64BaseDisp8(.rcx, .rdx, access_size).slice());
+    // memory64 bounds: trap when `ea + size > mem_limit`. ADD (sets CF), not
+    // LEA (no flags), so an `ea + size` overflowing 64-bit (ea near 2^64, the
+    // spec memory_trap64 -1/-2 cases) traps via JC instead of wrapping to a
+    // small in-bounds address the CMP would accept.
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.q, .rcx, .rdx).slice());
+    try ctx.buf.appendSlice(ctx.allocator, inst.encAddR64Imm32(.rcx, access_size).slice());
+    const wrap_fixup: u32 = @intCast(ctx.buf.items.len);
+    try ctx.buf.appendSlice(ctx.allocator, inst.encJccRel32(.b, 0).slice()); // CF = ea+size wrapped past 2^64
+    try ctx.oob_fixups.append(ctx.allocator, wrap_fixup);
     try ctx.buf.appendSlice(ctx.allocator, inst.encCmpR64MemDisp32(.rcx, abi.runtime_ptr_save_gpr, jit_abi.mem_limit_off).slice());
     const fixup_at: u32 = @intCast(ctx.buf.items.len);
     try ctx.buf.appendSlice(ctx.allocator, inst.encJccRel32(.a, 0).slice());

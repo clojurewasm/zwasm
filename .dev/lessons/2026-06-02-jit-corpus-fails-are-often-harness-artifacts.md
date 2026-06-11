@@ -52,3 +52,31 @@ preserves type identity without READING `canonicalTypeidx`. **Rule 5: when reaso
 about a "canonical"/"exact"/"equal" check, read the actual canonicalization/equality
 function and confirm it preserves the distinction you care about (finality, subtyping,
 identity) — a "canonical" id is only as fine-grained as its equality relation.**
+
+**CORRECTION 2 (2026-06-12, D-234 REOPENED then FIXED):** the D-234 half of this
+lesson was WRONG, and the error is instructive. The 51 memory64 assert_trap fails
+were a **REAL JIT codegen bug**, not a harness artifact: `emitMemOpI64` computed the
+bounds check as `ADD ip1, ea, #size; CMP ip1, mem_limit; B.HI trap` (arm64) /
+`LEA RCX,[RDX+size]; CMP; JA` (x86_64). For an address near 2^64 (the corpus's
+`-1`/`-2`/`-4` cases) the `ea + size` addition WRAPS past 2^64 to a small value that
+passes the bounds check → no trap. Fixed by a flag-setting `ADDS`/`ADD` + carry
+branch (`B.HS`/`JC`) into the same oob stub, both arches (2026-06-12). After the fix:
+0 `FAILtrapNoTrap`, memory64 jit return 337/0.
+
+Why the "5 isolated paths" gave false confidence: **every isolated path used a SMALL
+address** (`runI32Export` const ≈ 65536, `runScalar1Export` 0x10000, the hand-rolled
+`0xfff8` near-page-edge). NONE used an address where `ea + size` overflows 64-bit —
+the exact input class the corpus exercises and the only one that triggers the bug. So
+the isolation was not "the same path, fewer moving parts"; it was a DIFFERENT,
+easier input that silently avoided the failure mode.
+
+**Rule 6 (overrides Rule 4): isolation must replay the corpus's actual INPUT VALUES,
+especially boundary/extreme ones — not just "a representative call."** Before
+concluding "harness artifact," diff your isolated input against the failing
+directive: same op AND same operand magnitude (near-zero, near-2^N, negative-as-
+unsigned, max-int). "N isolated paths pass" is decisive ONLY if at least one replays
+the specific failing input. Rule 4's "stop adding paths once the shared codegen is
+exercised" is wrong when the paths share an input property the bug is keyed on — the
+6th path (the overflow address) was the whole ballgame. When a corpus fail resists
+isolation, suspect your isolated input is in an easier equivalence class, not that
+the fail is phantom.

@@ -62,6 +62,17 @@ pub fn encAddImm12(rd: Xn, rn: Xn, imm12: u12) u32 {
     return 0x91000000 | (@as(u32, imm12) << 10) | (@as(u32, rn) << 5) | @as(u32, rd);
 }
 
+/// `ADDS Xd, Xn, #imm12` (no shift) — 64-bit ADD imm that SETS NZCV.
+/// `1 01 10001 0 0 [imm12:12] [Rn:5] [Rd:5]` = `0xB1000000` | …. The
+/// carry flag C records unsigned overflow; the memory64 bounds check
+/// uses `ADDS ip1, ip0, #size; B.HS trap` so an `ea + size` that wraps
+/// past 2^64 (ea near the top of the address space) traps instead of
+/// aliasing a small in-bounds address (a `CMP` after a plain `ADD`
+/// would miss the wrap).
+pub fn encAddsImm12(rd: Xn, rn: Xn, imm12: u12) u32 {
+    return 0xB1000000 | (@as(u32, imm12) << 10) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
 /// `ADD Xd, Xn, #imm12, lsl #12` — 64-bit ADD imm with sh=1. The
 /// imm12 field shifts left by 12 to span offsets 0..16773120 in
 /// 4096-byte steps. Used by `op_memory.zig` to lower the high

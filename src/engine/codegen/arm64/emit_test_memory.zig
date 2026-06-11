@@ -71,9 +71,10 @@ test "compile: memory64 i32.load — X-form addr load (encOrrReg, not encOrrRegW
     // compiled with memory0_idx_type=.i64 → emit dispatches to
     // emitMemOpI64 which uses encOrrReg (X-form, full 64-bit copy)
     // for the address load, vs encOrrRegW (W-form, zero-extends
-    // u32) in the i32 fast path. All other bytes identical: same
-    // ADD imm12 (offset), ADD imm12 (access_size), CMP X17,X27,
-    // B.HI trap, LDR W reg-offset.
+    // u32) in the i32 fast path. The bounds bytes diverge from the
+    // i32 path: ADD imm12 (offset), ADDS imm12 (access_size, sets
+    // carry), B.HS wrap-trap, CMP X17,X27, B.HI trap, LDR W reg-offset.
+    // (The i32 path can't overflow 64-bit so it keeps the plain ADD.)
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i32} };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
@@ -94,13 +95,19 @@ test "compile: memory64 i32.load — X-form addr load (encOrrReg, not encOrrRegW
     // body+4: ORR X16, XZR, X9 (X-form, encOrrReg) — i64 path
     // DIVERGENCE from the i32 path's encOrrRegW.
     try testing.expectEqual(@as(u32, inst.encOrrReg(16, 31, 9)), std.mem.readInt(u32, out.bytes[body0 + 4 ..][0..4], .little));
-    // body+8..16: identical to i32 path (offset ADD, access_size ADD, CMP).
+    // body+8: ADD X16,X16,#4 (offset) — same as i32 path.
     try testing.expectEqual(@as(u32, inst.encAddImm12(16, 16, 4)), std.mem.readInt(u32, out.bytes[body0 + 8 ..][0..4], .little));
-    try testing.expectEqual(@as(u32, inst.encAddImm12(17, 16, 4)), std.mem.readInt(u32, out.bytes[body0 + 12 ..][0..4], .little));
-    try testing.expectEqual(@as(u32, inst.encCmpRegX(17, 27)), std.mem.readInt(u32, out.bytes[body0 + 16 ..][0..4], .little));
-    // body+24: LDR W9, [X28, X16] — same as i32 (the load is W-form
-    // regardless of address space; the result is an i32).
-    try testing.expectEqual(@as(u32, inst.encLdrWReg(9, 28, 16)), std.mem.readInt(u32, out.bytes[body0 + 24 ..][0..4], .little));
+    // body+12: ADDS X17,X16,#4 (access_size, flag-setting — memory64 wrap check).
+    try testing.expectEqual(@as(u32, inst.encAddsImm12(17, 16, 4)), std.mem.readInt(u32, out.bytes[body0 + 12 ..][0..4], .little));
+    // body+16: B.HS → oob (carry = ea+size wrapped past 2^64). Not asserted:
+    // its disp19 is patched to the trap stub by the fixup pass (same reason
+    // the B.HI at body+24 isn't asserted).
+    // body+20: CMP X17,X27 (vs mem_limit).
+    try testing.expectEqual(@as(u32, inst.encCmpRegX(17, 27)), std.mem.readInt(u32, out.bytes[body0 + 20 ..][0..4], .little));
+    // body+28: LDR W9, [X28, X16] (the load is W-form regardless of
+    // address space; the result is an i32). +4 vs the i32 path: the
+    // extra B.HS wrap-trap word.
+    try testing.expectEqual(@as(u32, inst.encLdrWReg(9, 28, 16)), std.mem.readInt(u32, out.bytes[body0 + 28 ..][0..4], .little));
 }
 
 test "compile: memory64 i64.load offset=0x100000000 — 4-lane MOVZ+MOVK for u64 offset" {

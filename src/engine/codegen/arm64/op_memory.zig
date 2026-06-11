@@ -476,7 +476,14 @@ fn emitMemOpI64(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.ne, 0)); // nonzero low bits = unaligned
         try ctx.unaligned_atomic_fixups.append(ctx.allocator, al_fixup);
     }
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(ip1, ip0, access_size));
+    // memory64 bounds: trap when `ea + size > mem_limit`. ADDS (not ADD) so
+    // an `ea + size` that overflows 64-bit (ea near 2^64, e.g. the spec
+    // memory_trap64 -1/-2 cases) sets C and traps via B.HS — a plain ADD +
+    // CMP would let the wrapped (small) sum pass as in-bounds.
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddsImm12(ip1, ip0, access_size));
+    const wrap_fixup: u32 = @intCast(ctx.buf.items.len);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hs, 0)); // carry = ea+size wrapped past 2^64
+    try ctx.oob_fixups.append(ctx.allocator, wrap_fixup);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(ip1, 27));
     const fixup_at: u32 = @intCast(ctx.buf.items.len);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hi, 0));
