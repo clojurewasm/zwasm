@@ -174,7 +174,10 @@ pub fn main(init: std.process.Init) !void {
         const wt_stdout = wt_result.stdout;
 
         var v2_stdout: std.ArrayList(u8) = .empty;
-        defer v2_stdout.deinit(std.heap.c_allocator);
+        // capture_alloc contract (2d99e5a2): runWasmCaptured* grows the
+        // capture buffer with the CALLER's allocator — free with the same
+        // `gpa` or glibc aborts with `free(): invalid pointer`.
+        defer v2_stdout.deinit(gpa);
 
         // Mirror wasmtime's default of `argv[0] = <wasm filename>`
         // so guests like `c_hello_wasi` that print argv[0] produce
