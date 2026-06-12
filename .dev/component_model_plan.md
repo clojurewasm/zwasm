@@ -188,7 +188,15 @@ design forks. Update this doc's `[x]` + handover NEXT each chunk.
   First corpus = greet (string→string) + adder graph (cross-module i32): 4 pass, 0 skip.
   **NEXT corpus growth = E3** (distil official `WebAssembly/component-model` + wasm-tools
   `.wat` fixtures → committed `.wasm` on Mac; truthful skips for unsupported features).
-- [~] **E2 — Rust proof DONE @96e1ccce; Go (tinygo) remains.** A real
+- [x] **E2 — Rust proof DONE @96e1ccce; Go (tinygo) proof DONE @2976e380.**
+  tinygo 0.40.1 (already in the gen shell) builds `-target=wasip2` natively, so
+  the wit-bindgen-go toolchain gate DISSOLVED (go.mod must pin `go 1.25`).
+  Landed with the Go proof: P2 host completion (path-addressed descriptor
+  trampolines + directory-entry-stream + get-random-u64), the
+  start-function-via-import dispatch fix (wit-component start-shim), CLI
+  `--dir` threading into components, and POSIX-style directory opens in P1
+  pathOpen. Fixtures `wasi_p2_hello_go.wasm` ("hello") + `wasi_p2_fs_go.wasm`
+  (fs round-trip "FS-OK b.txt"); e2e tests + README_wasi_p2_go.md. A real
   `rustc --target wasm32-wasip2` component (no cargo-component/adapter; flake gen
   shell gained the wasip2 target) RUNS e2e through zwasm and prints. Delivered:
   **ADR-0175** general instance-graph engine (@8eab1703 — builds every core
@@ -199,11 +207,8 @@ design forks. Update this doc's `[x]` + handover NEXT each chunk.
   memory-less shim caller) · cli/environment+terminal+check-write trampolines
   (@0888a3f9) · core-table decode (@73df8a7e). Fixture
   `test/component/wasi_p2_hello_rust.wasm` (stripped 78 KB) + e2e test + dogfood.
-  **Remaining (OPPORTUNISTIC — not the next chunk; do E1 first)**: a Go (tinygo +
-  wit-bindgen-go) component for the cross-toolchain proof — toolchain-gated
-  (wit-bindgen-go not in the gen shell; needs self-provision per
-  `extended_challenge`); io/error trampoline (not yet exercised — a clean run
-  never errors). **Resume rule: the next `[ ]` chunk is E1, not this `[~]`.**
+  Remaining nit: io/error trampoline (not yet exercised — a clean run never
+  errors; surfaces with an error-path fixture when one matters).
 - [~] **E3 — WASI-P2 conformance + edge cases.** P2 test corpus + boundary
   fixtures; close the gap to wasmtime where "beyond is satisfiable" (ADR-0170).
   **Started**: D-308 adversarial edge case @82d63d27 — an unknown wasi import

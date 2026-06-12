@@ -14,31 +14,19 @@
   sequence** — the "Parked" note at the bottom predates those pivots'
   completion. If the user prefers debt work instead, the candidates are in
   NEXT below.
-- Last: **E3-CM-validation bundle CLOSED** — validator rules 5–8 landed this
-  session (kebab @2b2eaeac, outer-alias count, export-type-named with
-  `TypeInfo.type_space`, case-insensitive dup-names) on top of rules 1–4;
-  corpus runner **18 pass / 0 fail / 2 reasoned skip-impl** (triage in
-  `component_model_plan.md` E3 row). Mac test-all+lint green per chunk.
-- **NEXT (CM campaign)**: E2 Go proof bundle — see `## Active bundle`.
-  Then: WASI-P2 boundary fixtures (E3 remainder) · D3-8 sockets
-  (spike-first). Secondary (user-redirect only): D-318, D-314, D-251.
-
-## Active bundle
-
-- **Bundle-ID**: e2-go-wasip2-host (campaign E2 Go proof)
-- **Cycles-remaining**: ~3
-- **Continuity-memo**: toolchain gate DISSOLVED — tinygo 0.40.1 in the gen
-  shell builds `-target=wasip2` natively (no wit-bindgen-go needed; go.mod
-  must pin `go 1.25`, the shell's go1.26 trips tinygo). The built hello
-  component (730 KB, /tmp/tinygo_hello) wires-FAILs `UnsupportedWasiImport`:
-  ~12 unclassified funcs — chunk A (mechanical, P1 facilities exist):
-  random.get-random-u64 + descriptor.{stat-at,create-directory-at,link-at,
-  readlink-at,remove-directory-at,rename-at,symlink-at,sync-data,
-  unlink-file-at} → adapter table + trampolines + `wasi_p2_fs_path` fixture;
-  chunk B: read-directory + directory-entry-stream resource (cursor state in
-  WasiP2Ctx, rep = state index); chunk C: commit Go fixture + e2e + README.
-- **Exit-condition**: tinygo-built `wasi_p2_hello_go.wasm` runs e2e through
-  `zwasm run` printing "hello" (cross-toolchain proof beside Rust @96e1ccce).
+- Last: **E2 Go proof LANDED @2976e380** (bundle e2-go-wasip2-host CLOSED —
+  exit MET: tinygo wasip2 hello prints "hello" e2e; the fs component
+  round-trips mkdir/write/stat/rename/readdir/remove → "FS-OK b.txt").
+  Shipped with it: P2 host completion (path-`*-at` trampolines +
+  directory-entry-stream + get-random-u64), **start-via-import dispatch fix**
+  (Wasm §4.5.4; wit-component start-shim), CLI `--dir` → component path,
+  POSIX-style dir opens in P1 pathOpen. Earlier this session:
+  E3-CM-validation bundle CLOSED (validator rules 1–8; corpus 18/0 + 2
+  reasoned skip-impl). Mac test-all+lint+cross-compile green per chunk.
+- **NEXT (CM campaign, plan Work sequence)**: E3 remainder — WASI-P2
+  boundary fixtures (trap/handle-invalid paths) and/or corpus growth
+  (distil official `.wat` fixtures); D3-8 sockets (spike-first). Secondary
+  (user-redirect only): D-318, D-314 follow-ons, D-251.
 
 ## Sandboxing bundle d314-jit-sandbox — CLOSED 2026-06-12
 
