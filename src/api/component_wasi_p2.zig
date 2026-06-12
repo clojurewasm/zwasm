@@ -54,6 +54,15 @@ pub const WasiP2Ctx = struct {
     /// One handle table keyed by resource-type id; each P2 resource the host
     /// models gets a distinct id (output-stream rep = P1 fd, descriptor rep = P1 fd).
     resources: resource_table.ResourceTable,
+    /// GUEST-defined resources (D-322): handles minted by the component's
+    /// own `canon resource.new/drop/rep` builtins. SEPARATE from the host
+    /// `resources` table — its rt ids are the component's TYPE-SPACE
+    /// indices, which would collide with the hardcoded host RT ids.
+    guest_resources: resource_table.ResourceTable,
+    /// Per-definition contexts for the synthesized resource builtins.
+    rb_ctxs: std.ArrayList(*ResourceBuiltinCtx) = .empty,
+    /// Resolved guest-resource destructors (type-space index -> core func).
+    guest_dtors: std.ArrayList(GuestDtor) = .empty,
     /// Instance exporting `cabi_realloc` (set AFTER instantiation) — lets a
     /// trampoline allocate guest memory for list/string results (e.g.
     /// `get-directories`) via a nested invoke. See lesson
@@ -109,7 +118,12 @@ pub const WasiP2Ctx = struct {
     pub const DirStream = struct { fd: wasi_p1.Fd, cookie: u64 };
 
     pub fn init(alloc: Allocator, host: *wasi_host.Host) !WasiP2Ctx {
-        return .{ .alloc = alloc, .host = host, .resources = try resource_table.ResourceTable.init(alloc) };
+        return .{
+            .alloc = alloc,
+            .host = host,
+            .resources = try resource_table.ResourceTable.init(alloc),
+            .guest_resources = try resource_table.ResourceTable.init(alloc),
+        };
     }
 
     pub fn deinit(self: *WasiP2Ctx) void {
@@ -121,6 +135,10 @@ pub const WasiP2Ctx = struct {
         self.tcp_sockets.deinit(self.alloc);
         self.dir_streams.deinit(self.alloc);
         self.resources.deinit();
+        self.guest_resources.deinit();
+        for (self.rb_ctxs.items) |p| self.alloc.destroy(p);
+        self.rb_ctxs.deinit(self.alloc);
+        self.guest_dtors.deinit(self.alloc);
     }
 
     /// Allocate `size` bytes of fresh guest memory via the guest's
@@ -1466,7 +1484,26 @@ const Def = union(enum) {
     host_op: adapter.P2Op,
     guest_func: struct { inst: *Instance, name: []const u8 },
     guest_table: struct { inst: *Instance, name: []const u8 },
+    /// A synthesized `canon resource.new/drop/rep` builtin for a
+    /// GUEST-defined resource (D-322); `type_index` keys the handle table.
+    resource_builtin: struct { kind: ResourceBuiltinKind, type_index: u32 },
 };
+
+const ResourceBuiltinKind = enum { new, drop, rep };
+
+pub const ResourceBuiltinCtx = struct { ctx: *WasiP2Ctx, type_index: u32 };
+
+pub const GuestDtor = struct { type_index: u32, inst: *Instance, name: []const u8 };
+
+/// Is type-space entry `ti` a locally-DEFINED resource type (vs an
+/// imported/host one)?
+fn isGuestResourceType(info: *const ctypes.TypeInfo, ti: u32) bool {
+    if (ti >= info.type_space.items.len) return false;
+    return switch (info.type_space.items[ti]) {
+        .def => |d| info.deftypes.items[d] == .resource,
+        .named => false,
+    };
+}
 const SynthExport = struct { name: []const u8, def: Def };
 const Built = union(enum) { guest: *Instance, synthetic: []const SynthExport };
 
@@ -1481,8 +1518,15 @@ fn synthDef(info: *const ctypes.TypeInfo, built: []const ?Built, ex: ctypes.Core
                 const op = adapter.classifyImport(ref.interface, ref.func) orelse return error.UnsupportedWasiImport;
                 return .{ .host_op = op };
             },
-            // Any classified `canon resource.drop` routes to the generic drop.
-            .resource_drop => return .{ .host_op = .out_stream_drop },
+            .resource_new => |ti| return .{ .resource_builtin = .{ .kind = .new, .type_index = ti } },
+            .resource_rep => |ti| return .{ .resource_builtin = .{ .kind = .rep, .type_index = ti } },
+            // A drop of a GUEST-defined resource goes through its own handle
+            // table (+ dtor); drops of imported host resources keep the
+            // generic stream-drop route.
+            .resource_drop => |ti| {
+                if (isGuestResourceType(info, ti)) return .{ .resource_builtin = .{ .kind = .drop, .type_index = ti } };
+                return .{ .host_op = .out_stream_drop };
+            },
             .alias => |t| switch (t) {
                 .core_export => |ce| {
                     const prov = built[ce.instance] orelse return error.ImportUnsatisfied;
@@ -1496,7 +1540,6 @@ fn synthDef(info: *const ctypes.TypeInfo, built: []const ?Built, ex: ctypes.Core
                 },
                 else => return null,
             },
-            else => return null,
         },
         .table => {
             const ref = info.resolveCoreTableExport(ex.index) orelse return null;
@@ -1510,10 +1553,49 @@ fn synthDef(info: *const ctypes.TypeInfo, built: []const ?Built, ex: ctypes.Core
     }
 }
 
+/// `canon resource.new` for a guest-defined resource: store the rep, mint
+/// an OWN handle in the component's guest table.
+fn p2GuestResourceNew(caller: *Caller, rep_val: u32) WasiP2Error!u32 {
+    const rbc = caller.data(ResourceBuiltinCtx);
+    return rbc.ctx.guest_resources.new(rbc.type_index, rep_val);
+}
+
+/// `canon resource.rep`: handle -> stored representation.
+fn p2GuestResourceRep(caller: *Caller, handle: u32) WasiP2Error!u32 {
+    const rbc = caller.data(ResourceBuiltinCtx);
+    return rbc.ctx.guest_resources.rep(rbc.type_index, handle);
+}
+
+/// `canon resource.drop`: remove the handle; an OWN handle additionally
+/// runs the resource's declared destructor over the rep.
+fn p2GuestResourceDrop(caller: *Caller, handle: u32) WasiP2Error!void {
+    const rbc = caller.data(ResourceBuiltinCtx);
+    const rep_opt = try rbc.ctx.guest_resources.drop(rbc.type_index, handle);
+    if (rep_opt) |rep_val| {
+        for (rbc.ctx.guest_dtors.items) |gd| {
+            if (gd.type_index != rbc.type_index) continue;
+            var args = [_]Value{.{ .i32 = @bitCast(rep_val) }};
+            gd.inst.invoke(gd.name, &args, &.{}) catch return WasiP2Error.WriteFailed;
+            break;
+        }
+    }
+}
+
 /// Pour one synthetic export into `lk` under namespace `ns` as import `e.name`.
 fn defineSynth(lk: *Linker, ns: []const u8, e: SynthExport, ctx: *WasiP2Ctx) !void {
     switch (e.def) {
         .host_op => |op| try defineClassifiedFunc(lk, ns, e.name, op, ctx),
+        .resource_builtin => |rb| {
+            const rbc = try ctx.alloc.create(ResourceBuiltinCtx);
+            errdefer ctx.alloc.destroy(rbc);
+            rbc.* = .{ .ctx = ctx, .type_index = rb.type_index };
+            try ctx.rb_ctxs.append(ctx.alloc, rbc);
+            switch (rb.kind) {
+                .new => try lk.defineFuncCtx(ns, e.name, @ptrCast(rbc), fn (*Caller, u32) WasiP2Error!u32, p2GuestResourceNew),
+                .drop => try lk.defineFuncCtx(ns, e.name, @ptrCast(rbc), fn (*Caller, u32) WasiP2Error!void, p2GuestResourceDrop),
+                .rep => try lk.defineFuncCtx(ns, e.name, @ptrCast(rbc), fn (*Caller, u32) WasiP2Error!u32, p2GuestResourceRep),
+            }
+        },
         .guest_func => |g| try lk.defineCrossModuleFunc(ns, e.name, g.inst, g.name),
         .guest_table => |g| {
             const rt = g.inst.handle.runtime orelse return error.ImportUnsatisfied;
@@ -1679,6 +1761,39 @@ pub fn buildWasiP2Component(engine: *Engine, alloc: Allocator, bytes: []const u8
                 break :blk .{ .guest = gi };
             },
         };
+    }
+
+    // Resolve guest-resource destructors (D-322): a resource deftype's
+    // `dtor` is a core-func index — chase it to the exporting guest
+    // instance so `canon resource.drop` can run it on own-handle drops.
+    for (info.type_space.items, 0..) |entry, ti| {
+        const d = switch (entry) {
+            .def => |d| d,
+            .named => continue,
+        };
+        const rt = switch (info.deftypes.items[d]) {
+            .resource => |r| r,
+            else => continue,
+        };
+        const dtor_idx = rt.dtor orelse continue;
+        const cf = info.coreFunc(dtor_idx) orelse continue;
+        switch (cf) {
+            .alias => |t| switch (t) {
+                .core_export => |ce| {
+                    const prov = self.built[ce.instance] orelse continue;
+                    switch (prov) {
+                        .guest => |gi| try ctx.guest_dtors.append(alloc, .{
+                            .type_index = @intCast(ti),
+                            .inst = gi,
+                            .name = ce.name,
+                        }),
+                        .synthetic => {},
+                    }
+                },
+                else => {},
+            },
+            else => {},
+        }
     }
     return self;
 }

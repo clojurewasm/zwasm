@@ -1649,6 +1649,62 @@ test "ADR-0180 Phase 2: a real rust wasip2 TCP listener accepts + echoes through
     try testing.expectEqualStrings(expected, capture.items);
 }
 
+test "D-322: a wit-bindgen guest-defined resource component builds + counter round-trips via the synthesized builtins" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/resource_counter.wasm", testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+    host.io = io;
+    // The core module imports its OWN exported resource's builtins
+    // ([export]<iface> [resource-new/drop]counter) — the build must
+    // synthesize them over the guest resource table (was: UnknownImport).
+    var built = try cwasi.buildWasiP2Component(&eng, testing.allocator, bytes, &host);
+    defer built.deinit();
+
+    // Drive the generated core exports directly: constructor mints an own
+    // handle through [resource-new]; get/increment read it back via rep.
+    // (The main module is not necessarily the LAST instance — wit-bindgen
+    // graphs append shim/fixup instances — so find it by export.)
+    const ctor = "zwasm:restest/counter-api#[constructor]counter";
+    const main_inst = blk: {
+        for (built.instances.items) |gi| {
+            for (gi.handle.exports_storage) |exp| {
+                if (exp.kind == .func and std.mem.eql(u8, exp.name, ctor)) break :blk gi;
+            }
+        }
+        return error.TestUnexpectedResult;
+    };
+    var hres = [_]Value{.{ .i32 = 0 }};
+    try main_inst.invoke(ctor, &.{.{ .i32 = 5 }}, &hres);
+    const handle: u32 = @bitCast(hres[0].i32);
+    try testing.expect(handle >= 1);
+
+    // Core method exports take the REP (canon lift translates handle->rep
+    // before entering the guest); emulate the lift via the guest table.
+    const ti: u32 = blk: {
+        for (built.info.type_space.items, 0..) |entry, i| switch (entry) {
+            .def => |d| if (built.info.deftypes.items[d] == .resource) break :blk @intCast(i),
+            .named => {},
+        };
+        return error.TestUnexpectedResult;
+    };
+    const rep: i32 = @bitCast(try built.ctx.guest_resources.rep(ti, handle));
+
+    var vres = [_]Value{.{ .i32 = 0 }};
+    try main_inst.invoke("zwasm:restest/counter-api#[method]counter.get", &.{.{ .i32 = rep }}, &vres);
+    try testing.expectEqual(@as(i32, 5), vres[0].i32);
+    try main_inst.invoke("zwasm:restest/counter-api#[method]counter.increment", &.{.{ .i32 = rep }}, &vres);
+    try testing.expectEqual(@as(i32, 6), vres[0].i32);
+    try main_inst.invoke("zwasm:restest/counter-api#[method]counter.get", &.{.{ .i32 = rep }}, &vres);
+    try testing.expectEqual(@as(i32, 6), vres[0].i32);
+}
+
 test "ADR-0183 F1: greet introspects as (param string) -> string from the binary" {
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();
