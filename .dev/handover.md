@@ -33,12 +33,6 @@
   E3 error-path fixture `wasi_p2_fs_err_go` · sockets survey · ADR-0180.
   Phase 2 (listeners + windows WSAPoll D-319) + Phase 3 (UDP/name-lookup)
   deferred per ADR-0180.
-- **E3 corpus growth LANDED**: 115 official assert_invalid cases
-  distilled verbatim into `official_distilled/`; gap-driven validator
-  extensions (rule-1 definition-order bounds, rule-8 nested-scope
-  names, NEW rule-9 instantiate/inline-export/sortidx bounds, rule-3/6
-  count-0 outer-alias existence) → **corpus 105 pass / 0 fail / 30
-  reasoned skip-impl** (was 18 pass). test-all+lint green.
 - **ADR-0181 LANDED (user-approved 2026-06-13)**: version lines retired
   from the ROADMAP; §1.2 floor gained CM + WASI-0.2 wasmtime-equivalent
   rows; §1.3→capability backlog; optimising tier → §3.2 permanent-out;
@@ -65,9 +59,29 @@
   in the runner; corpus 139/0/19) · typed-invoke core deduped into
   `api/component_typed.zig` (component.zig 1994→1674 LOC, P1 split) ·
   docs `zig_api_design.md` §3.9 (typed invoke as-built).
-- **NEXT (CM campaign)**: sockets Phase-2 (ADR-0180: listeners/accept +
-  windows WSAPoll → discharges D-319) or the 19 validator skip-impl
-  gaps. Secondary: D-318, D-314 follow-ons, D-251.
+- **NEXT**: the Active bundle below (sockets Phase-2 impl-2). After the
+  bundle: 19 validator skip-impl gaps; secondary D-318, D-314
+  follow-ons, D-251.
+
+## Active bundle
+
+- **Bundle-ID**: adr0180-phase2-listeners
+- **Cycles-remaining**: ~3
+- **Continuity-memo**: impl-1 DONE @c13bbdc2 (TcpSocket
+  listen/accept/local-address/backlog + defer-bind DIVERGENCE — OS bind
+  runs inside start-listen; netListenIp is atomic in the pinned stdlib).
+  impl-2 NEXT: component trampolines — wire adapter rows
+  start-listen/finish-listen (now sock_stub_unit2), accept (3-tuple
+  own<tcp-socket,input,output> mint — reuse the finish-connect stream-pair
+  minting in component_wasi_p2.zig), local-address (needs the ENCODE
+  direction of decodeIpSocketAddress's 12-flat variant),
+  set-listen-backlog-size (sock_stub_unit3l). impl-3: rust wasip2
+  listener guest fixture (guest prints resolved port to stdout; e2e host
+  connects + echoes; gen via nix develop .#gen). impl-4: D-319 WSAPoll
+  (ws2_32) → windows pollOnce real.
+- **Exit-condition**: a rust wasip2 listener guest accepts a host
+  connection and echoes e2e (test green), AND D-319 discharged (WSAPoll)
+  or re-scoped with a named barrier.
 
 ## Closed-work pointers (detail in git log / ADRs)
 
@@ -84,26 +98,16 @@
 - **Open user-decision follow-ons**: D-251 (C-API WASI preopen io ADR);
   Tier-2 #5 ILP32/watchOS.
 
-## State at pause
+## State at pause (stable baseline)
 
-- **Core Wasm 1.0/2.0/3.0**: 100% spec, 0 skip, 3-host green. **v0.2 features**
-  (atomics / wide-arith / custom-page-sizes / relaxed-SIMD) complete + official
-  corpora. **WASI 0.1** complete. **Sandboxing triad on both engines + CLI/C-API.**
-- **Component Model + WASI Preview 2** (opt-in `-Dcomponent`): a real Rust
-  wasm32-wasip2 component runs e2e (ADR-0170/0175); E1 spec-corpus runner;
-  structural validation rules 1-4 (ADR-0176).
-- **Surfaces**: C-API 293/293 gap-free + zwasm.h extensions · Zig-API complete ·
-  CLI (`run`/`compile` + sandbox flags, intentionally lean) · memory-safety
-  sound · dogfooded into cw v1.
-- **Test iteration**: integration runners ReleaseSafe (ADR-0177); unit
-  `zig build test` Debug; `test-all` auto-fast.
-- Debt ledger **54 entries**, **zero `now` rows**; D-314 re-scoped to `note`
-  (follow-on list). Rest `blocked-by`/`note` = long-tail.
-
-**Parked (demand-driven)**: WASI-P2 sockets; Go/tinygo proof; 32
-`blocked-by` debt (call_ref / future proposals). (CM deeper conformance is
-NO LONGER parked — it is the ROADMAP Phase-17 NOW-pointer, see Current
-state.)
+- **Core Wasm 1.0/2.0/3.0**: 100% spec, 0 skip, 3-host green. v0.2 features +
+  official corpora complete. WASI 0.1 complete. Sandboxing triad everywhere.
+- **CM + WASI-P2**: default-ON (ADR-0182); real Rust/Go wasip2 components run
+  e2e; typed API (ADR-0183); validator rules 1–9; corpus 139/0/19.
+- **Surfaces**: C-API 293/293 · Zig-API complete (docs §3.9) · lean CLI ·
+  memory-safety sound · dogfooded into cw v1. Runners ReleaseSafe (ADR-0177).
+- Debt ledger: zero `now` rows; rest `blocked-by`/`note` long-tail (32
+  blocked-by = call_ref / future proposals).
 
 ## Key refs
 
