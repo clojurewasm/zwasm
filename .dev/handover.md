@@ -55,28 +55,35 @@
   wit-bindgen `typed_payload` round-trips rich types typed. Both CWFS
   ADR-0135 runtime asks servable.
 - **Typed-API polish LANDED**: `assert_typed` + `component_p2` corpus
-  directives (CanonType-driven typed value parser + canonical renderer
-  in the runner; corpus 139/0/19) · typed-invoke core deduped into
-  `api/component_typed.zig` (component.zig 1994→1674 LOC, P1 split) ·
-  docs `zig_api_design.md` §3.9 (typed invoke as-built).
-- **NEXT**: the Active bundle below (sockets Phase-2 impl-2). After the
-  bundle: 19 validator skip-impl gaps; secondary D-318, D-314
-  follow-ons, D-251.
+  directives · typed-invoke core deduped into `api/component_typed.zig`
+  (P1 split) · docs `zig_api_design.md` §3.9.
+- **Validator skips 19→10 (corpus 148/0/10)**: core-type/core-memory
+  index spaces + def-order alias_space_before (self-minting outer alias
+  fixed) + semantic extern-name keys ([method]r.r ⇒ label r) @6c895983 ·
+  rule 10 nested type-scope deep validation (local spaces, outer-alias
+  scope sizes, named-types restriction per wasm-tools model — instance
+  scopes checked at EXPORT not definition; real-component false-positive
+  pinned by e2e fixtures) @09c4d520. Remaining 10 skip-impl = the
+  nested-module/core-type DECODE cluster (inner component/module
+  sections undecoded: types_03/07/14, invalid_01, instantiate_08..14,
+  inline-component outer-alias).
+- **NEXT**: the Active bundle below (windows D-319 verify). Then: the
+  nested-decode cluster (10 skips) or D-318 / D-314 follow-ons / D-251.
 
 ## Active bundle
 
 - **Bundle-ID**: adr0180-phase2-listeners
 - **Cycles-remaining**: ~1
-- **Continuity-memo**: ALL impl chunks LANDED — impl-1 @c13bbdc2 (state
-  machine), impl-2/3 @c8efdd1a (trampolines: accept 3-tuple mint, REAL
-  local/remote-address encode, backlog; rust TcpListener e2e green on
-  Mac), impl-4 @8c0bb8f1 (WSAPoll via extern ws2_32; ALL windows socket
-  skips removed; D-319 row = awaiting-win-verify). REMAINING: a windows
-  gate run was kicked THIS turn (verify at Step 0.7) — green ⇒ mark
-  D-319 'CLOSED <sha>' in debt.yaml + drop skip.Blocker @"D-319" arm +
-  close the bundle (check_bundle_active.sh --close). Red ⇒ D7 protocol
-  (re-run once; reproduces = real Win64 bug, fix here; flake =
-  track_heisenbug).
+- **Continuity-memo**: ALL impl chunks LANDED — impl-1 @c13bbdc2,
+  impl-2/3 @c8efdd1a (rust TcpListener e2e green on Mac), impl-4
+  @8c0bb8f1 (WSAPoll; windows skips removed). Verify #1 went RED on a
+  real windows TEST-COMPILE error (posix.POLL → missing ws2_32.POLL in
+  pinned stdlib) — fixed (tests use module POLL_IN) + lesson
+  windows-test-compile-gate; `zig build test -Dtarget=x86_64-windows-gnu`
+  compiles clean. Verify #2 kicked in background (tail -2 /tmp/win.log
+  at Step 0.7) — green ⇒ mark D-319 'CLOSED <sha>' in debt.yaml + drop
+  skip.Blocker @"D-319" arm + close the bundle
+  (check_bundle_active.sh --close). Red ⇒ D7 protocol.
 - **Exit-condition**: a rust wasip2 listener guest accepts a host
   connection and echoes e2e (test green — MET @c8efdd1a), AND D-319
   discharged (windows batch green over the de-skipped socket tests).
