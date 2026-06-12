@@ -101,6 +101,7 @@ comptime {
     _ = @import("api/vec.zig");
     _ = @import("api/types.zig");
     _ = @import("api/instance.zig");
+    _ = @import("api/zwasm_ext.zig");
     _ = @import("api/module_introspect.zig");
     _ = @import("api/extern_new.zig");
     _ = @import("api/cross_module.zig");

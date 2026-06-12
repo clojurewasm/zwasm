@@ -217,6 +217,16 @@ pub export fn wasm_trap_new(s: ?*wasm_c_api.Store, message: ?*const wasm_c_api.B
     return t;
 }
 
+/// `zwasm_trap_kind` (ADR-0179 #3a-4) — project extension exposing the
+/// machine-readable trap kind beside upstream wasm.h's message-only
+/// surface, so a C host can distinguish e.g. `interrupted` (16) and
+/// `out_of_fuel` (17) from genuine guest faults without string-matching.
+/// Values = the `TrapKind` enum (documented in zwasm.h); -1 on null.
+pub export fn zwasm_trap_kind(t: ?*const Trap) callconv(.c) i32 {
+    const trap = t orelse return -1;
+    return @intCast(@intFromEnum(trap.kind));
+}
+
 /// `wasm_trap_delete(*Trap)` — free a Trap returned by any path
 /// (binding-internal `allocTrap`, `wasm_trap_new`, or
 /// `wasm_func_call`). Releases the message bytes first, then

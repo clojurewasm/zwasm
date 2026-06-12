@@ -910,6 +910,11 @@ pub export fn zwasm_instance_get_func(i: ?*Instance, idx: u32) callconv(.c) ?*Fu
     return f;
 }
 
+// ADR-0179 #3a-4 / D-314 — the instance-level sandboxing setters
+// (`zwasm_instance_set_fuel` / `interrupt` / `set_memory_pages_limit` …)
+// live in `zwasm_ext.zig` (per-file cap; the zwasm extension surface
+// evolves independently of the frozen upstream wasm.h binding).
+
 /// `wasm_func_delete(*Func)` — free a `Func` handle returned by
 /// `zwasm_instance_get_func`. Null-tolerant.
 pub export fn wasm_func_delete(f: ?*Func) callconv(.c) void {
