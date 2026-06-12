@@ -62,13 +62,14 @@
   10093 WSANOTINITIALISED — the pinned std.Io.net windows backend is
   pure NT/AFD, winsock never initialized; FIX LANDED (lazy WSAStartup in
   pollOnce). (b) netConnect maps NTSTATUS 0xC0000236 (CONNECTION_REFUSED)
-  to error.Unexpected — pinned-stdlib gap, recorded. PROBE #4: 10093
-  fixed but now WSA 10038 WSAENOTSOCK — the stdlib's raw NT/AFD handles
-  are not winsock SOCKETs; winsock is unusable on them entirely. NEXT
-  FIX (design in the D-319 row): IOCTL_AFD_POLL via
-  ntdll.NtDeviceIoControlFile (wepoll approach; NtDeviceIoControlFile
-  confirmed in the pinned stdlib) — replaces the WSAPoll/WSAStartup
-  externs. Implement + probe #5.
+  to error.Unexpected — pinned-stdlib gap, recorded. PROBE #4: WSAENOTSOCK
+  — winsock structurally unusable on the stdlib's raw NT/AFD handles.
+  FIX LANDED: pollOnce windows branch = IOCTL_AFD_POLL via
+  ntdll.NtDeviceIoControlFile (wepoll approach; zero-timeout snapshot;
+  winsock externs removed). PROBE #5 in flight → /tmp/win_probe5.log at
+  Step 0.7: lifecycle tests green ⇒ only residual = the stdlib
+  connect-refused NTSTATUS mapping (test expectation), then de-skip e2e
+  and re-verify the hang.
 - **D-322 CORE LANDED @3cf52d80**: resource defs (0x3f) decode (raw-byte
   peek — 0x3f is sleb-positive) + dtor core-func bounds + rule 12
   resource generativity (nested-component recursive scan; the corpus
