@@ -57,18 +57,17 @@
 - **typed-component-api bundle CLOSED (exit MET)**: ADR-0183 F1–F4
   shipped — ComponentValue + binary introspection + canonical-ABI call
   flattening (+ canon memory-staleness fix) + invokeTyped /
-  invokeTypedBuilt (general builder extracted from runWasiP2Main as
-  `BuiltComponent`) + named-type/nested-scope resolution
-  (TypeSpaceEntry provenance; `use`d interface types resolve into the
-  import's instance-type decls). PROOF: wit-bindgen `typed_payload`
-  round-trips `record{list<u32>, string}` ↔ `result<record, string>`
-  with named fields + re-specialization; greet runs typed. Both CWFS
-  ADR-0135 runtime asks now servable. Follow-up polish (not bundled):
-  `assert_typed` corpus directive · docs Zig-API section · simplify
-  pass (api/component.zig at 1994 LOC, near the 2000 cap).
-- **NEXT (CM campaign)**: simplify/docs polish for the typed API, then
-  sockets Phase-2 (listeners + D-319) or the 19 validator skips.
-  Secondary: D-318, D-314 follow-ons, D-251.
+  invokeTypedBuilt + named-type/nested-scope resolution. PROOF:
+  wit-bindgen `typed_payload` round-trips rich types typed. Both CWFS
+  ADR-0135 runtime asks servable.
+- **Typed-API polish LANDED**: `assert_typed` + `component_p2` corpus
+  directives (CanonType-driven typed value parser + canonical renderer
+  in the runner; corpus 139/0/19) · typed-invoke core deduped into
+  `api/component_typed.zig` (component.zig 1994→1674 LOC, P1 split) ·
+  docs `zig_api_design.md` §3.9 (typed invoke as-built).
+- **NEXT (CM campaign)**: sockets Phase-2 (ADR-0180: listeners/accept +
+  windows WSAPoll → discharges D-319) or the 19 validator skip-impl
+  gaps. Secondary: D-318, D-314 follow-ons, D-251.
 
 ## Closed-work pointers (detail in git log / ADRs)
 
