@@ -15,14 +15,14 @@
   completion. If the user prefers debt work instead, the candidates are in
   NEXT below.
 - Last: **CM campaign resumed** — validator rules **5 kebab** @2b2eaeac,
-  **6 outer-alias count**, **7 export-type-named** (+ `TypeInfo.type_space`
-  definition-order origins) @HEAD (E3-CM-validation bundle; corpus runner
-  15/0, Mac test-all+lint green). Prior: d314-jit-sandbox CLOSED @316d77b8.
-- **NEXT**: E3-CM-validation bundle next rule — undefined-resource refs (~5
-  corpus cases), then triage remaining corpus categories (fixture or
-  per-case skip-impl). See `## Active bundle`. Secondary (user-redirect
-  only): ledger long-tail — D-318 (Rosetta corpus-JIT SEGVs), D-314 note
-  follow-ons, D-251 (C-API WASI preopen io-acquisition ADR).
+  **6 outer-alias count**, **7 export-type-named** (`TypeInfo.type_space`),
+  **8 dup-names** @HEAD (E3-CM-validation bundle; corpus runner 18/0, Mac
+  test-all+lint green). Prior: d314-jit-sandbox CLOSED @316d77b8.
+- **NEXT**: E3-CM-validation — triage remaining corpus categories: nested
+  inline-component cases (resources.wast "refers to resources not defined")
+  need recursive nested-component decode → truthful skip-impl rows; deep
+  extern-name forms (base64/url/hash, ~12) likewise. See `## Active
+  bundle`. Secondary (user-redirect only): D-318, D-314 follow-ons, D-251.
 
 ## Active bundle
 
@@ -30,9 +30,10 @@
 - **Cycles-remaining**: ~3
 - **Continuity-memo**: rules land in corpus-frequency order; DONE rules 1–4
   index bounds (`cfdb07be`/`6224a7e7`/`5374dca7`/`d72c1b44`), 5 name format
-  (`2b2eaeac`), 6 outer-alias count, 7 export-type-named (type_space).
-  Next: undefined-resource refs → remaining-category triage. Deep-type
-  cases = truthful `skip-impl`.
+  (`2b2eaeac`), 6 outer-alias count, 7 export-type-named (type_space), 8
+  case-insensitive dup-names. Next: remaining-category triage (nested
+  inline-component decode gap + deep extern-name forms = truthful
+  `skip-impl` rows with per-case reasons).
 - **Exit-condition**: corpus runner covers the structural categories
   (index-bounds / names / outer-alias / export-type / resource-refs) with
   committed fixtures, 0 fail; remaining corpus categories triaged as either
