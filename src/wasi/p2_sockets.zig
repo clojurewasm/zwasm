@@ -300,6 +300,11 @@ fn pollOnce(handle: net.Socket.Handle, interest: i16) !bool {
         // discharges D-319). Winsock is already initialized: the handle
         // came from an `std.Io.net` socket op.
         .windows => {
+            // The pinned `std.Io.net` windows backend drives sockets via
+            // raw NT/AFD handles and never calls WSAStartup (probe #3: WSA
+            // error 10093 WSANOTINITIALISED) — initialize winsock lazily
+            // before the first WSAPoll. Double-init is benign (ref-counted).
+            ensureWsaStartup();
             const POLLERR: i16 = 0x0001;
             const POLLHUP: i16 = 0x0002;
             var fds = [_]WsaPollFd{.{ .fd = handle, .events = interest, .revents = 0 }};
@@ -325,6 +330,18 @@ fn pollOnce(handle: net.Socket.Handle, interest: i16) !bool {
 const WsaPollFd = extern struct { fd: net.Socket.Handle, events: i16, revents: i16 };
 extern "ws2_32" fn WSAPoll(fds: [*]WsaPollFd, nfds: c_ulong, timeout: c_int) callconv(.winapi) c_int;
 extern "ws2_32" fn WSAGetLastError() callconv(.winapi) c_int;
+extern "ws2_32" fn WSAStartup(version: u16, wsadata: *anyopaque) callconv(.winapi) c_int;
+
+var wsa_initialized = std.atomic.Value(bool).init(false);
+
+fn ensureWsaStartup() void {
+    if (wsa_initialized.load(.acquire)) return;
+    // WSADATA is ~400 bytes on win64; an opaque buffer avoids declaring
+    // the layout. Failure surfaces at the WSAPoll call site's diagnostic.
+    var wsadata: [512]u8 align(8) = undefined;
+    _ = WSAStartup(0x0202, @ptrCast(&wsadata));
+    wsa_initialized.store(true, .release);
+}
 
 // ============================================================
 // Tests

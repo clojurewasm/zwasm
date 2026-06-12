@@ -798,9 +798,20 @@ entries:
       tests (H2/H3), and the unit failures point at H4/H1: WSAPoll likely returns
       SOCKET_ERROR (ready() ⇒ error.Unexpected ⇒ try fails at :363). Coherent story:
       WSAPoll never reports ready ⇒ guest poll loops forever ⇒ e2e hang.
-      Probe #3: pollOnce now logs WSAGetLastError + fd + events on SOCKET_ERROR
-      (10022 WSAEINVAL = bad events/fd; 10038 WSAENOTSOCK = HANDLE is not a SOCKET —
-      the std.Io.net windows fd may need an explicit SOCKET extraction).
+      PROBE #3 RESULT — BOTH unit root causes captured:
+        (a) WSAPoll fails WSA 10093 WSANOTINITIALISED: the pinned std.Io.net windows
+            backend drives sockets via raw NT/AFD handles and NEVER calls WSAStartup
+            (no WSAStartup anywhere in the pinned stdlib). FIX LANDED: pollOnce lazily
+            WSAStartup(2.2)s before the first WSAPoll (atomic once; double-init benign).
+            Probe #4 verifies whether WSAPoll then accepts the AFD handle (SOCKET ≈ AFD
+            handle, expected yes).
+        (b) connect-to-closed-port: Threaded netConnect hits NTSTATUS 0xC0000236
+            (CONNECTION_REFUSED) and returns unexpectedStatus => error.Unexpected — a
+            PINNED-STDLIB unmapped-status gap (env bug, still user-facing: the guest
+            sees error-code unknown instead of connection-refused on windows). Decide
+            at fix time: local NTSTATUS mapping wrapper vs accept degraded code.
+      e2e hang (H2/H3) re-tested after (a) lands — never-ready WSAPoll explains the
+      guest poll loop never completing.
       Discharge: socket tests green on windowsmini.
     first_raised: "2026-06-12"
     last_reviewed: "2026-06-13"
