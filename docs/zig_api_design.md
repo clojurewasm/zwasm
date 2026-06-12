@@ -338,6 +338,54 @@ flag or the C API, and stdio capture via the C API. The shape above is the
 intended target once the config grows; code against the current single-field
 struct.
 
+### §3.9 — Component Model: typed invoke (ADR-0183, as-built)
+
+Component support is default-ON (`-Dcomponent=false` opts out, ADR-0182).
+The host surface lives at `zwasm.feature.component.host`
+(`src/api/component.zig`); the component binary is **self-describing** —
+no `.wit` sidecar is needed (CWFS ADR-0135 "the binary IS the interface").
+
+```zig
+const comp = zwasm.feature.component.host;
+
+// 1. Introspect: what typed funcs does this component export?
+var ci = try comp.instantiate(&engine, alloc, bytes); // single-module component
+defer ci.deinit();
+const funcs = try ci.exportedFuncs(alloc); // []ExportedFunc{name, params, result}
+defer alloc.free(funcs);
+
+// 2. Typed invoke through the canonical ABI. Args are `ComponentValue`
+//    trees validated against the export's WIT signature.
+const out = try ci.invokeTyped("greet", &.{.{ .string = "zwasm" }}, alloc);
+defer if (out) |o| o.deinit(alloc); // caller owns the result tree
+// out.?.string == "Hello, zwasm!"
+```
+
+Real-toolchain components (wit-bindgen Rust / TinyGo) import `wasi:*`, so
+they go through the general graph builder instead of `instantiate`:
+
+```zig
+var host = try zwasm.wasi.host.Host.init(alloc);
+defer host.deinit();
+host.io = io;
+var built = try comp.buildWasiP2Component(&engine, alloc, bytes, &host);
+defer built.deinit();
+const r = try comp.invokeTypedBuilt(&built, "process", &args, alloc);
+```
+
+`ComponentValue` (`src/feature/component/value.zig`) mirrors the WIT value
+model: `record` keeps field **names** (borrowed from the instance's decoded
+type info), `option`/`result`/`tuple` stay specialized (the canonical ABI's
+despecialization is internal), and `deinit(alloc)` frees the whole tree.
+Rich shapes round-trip — the pinned proof is
+`record{list<u32>, string} ⇄ result<record, string>` over a committed
+wit-bindgen fixture (`test/component/typed_payload.wasm`).
+
+Manifest-driven coverage: the component spec corpus runner's
+`assert_typed` directive (`test/spec/component_model_assert_runner.zig`)
+drives this same path from text, e.g.
+`assert_typed process ({xs: [1, 2, 3], label: "sum"}) -> ok({xs: [1, 2, 3, 6], label: "sum!"})`.
+
 ## §4 — Value layout (uniform 16-byte slot per ADR-0110)
 
 The `Value` type is an **untagged `extern union` of width 16
@@ -543,3 +591,7 @@ impl lands.
   execution plan + test strategy** (subagent-driven) is
   the next chunk after the amend round; the resulting
   plan doc gates the first J.* impl chunk.
+- 2026-06-13 — **§3.9 added** (Component Model typed invoke,
+  as-built per ADR-0183): `exportedFuncs` introspection +
+  `invokeTyped` / `invokeTypedBuilt` + `ComponentValue`
+  ownership contract + the corpus `assert_typed` pointer.
