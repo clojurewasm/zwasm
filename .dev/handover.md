@@ -6,13 +6,23 @@
 ## JIT-correctness pass (2026-06-12) — PUSHED, ubuntu re-gate in flight
 
 User-directed "make the codebase better" session, prioritised JIT spec-correctness
-(the bar's `100% spec` holds for interp; JIT had real gaps). Commits
-`e758412a..fc5be95e` on `zwasm-from-scratch`, **pushed** (no release — ADR-0156).
-Mac arm64 green; ubuntu `test-all` OK @008dc3be; **ubuntu re-gate of the memory64
-codegen commit `fc5be95e` IN FLIGHT** (verify verdict in `private/ubuntu_gate_3_*`
-before trusting). Rosetta x86_64 edge runner green (the JIT path).
+(the bar's `100% spec` held for interp; JIT had real gaps — now **wasm-3.0 JIT
+mode = assert_return 880/0 on BOTH arm64 + x86_64**, matching interp). Commits
+`e758412a..9a9b46de` on `zwasm-from-scratch`, **pushed** (no release — ADR-0156).
+Mac arm64 green; ubuntu `test-all` OK @008dc3be; **ubuntu re-gate of `9a9b46de`
+IN FLIGHT** (`private/ubuntu_gate_4_*`). Rosetta x86_64 corpus per-manifest green.
 
 **Shipped**:
+- **GC-ref-through-table JIT corruption FIXED (both arches)** `9a9b46de` — the
+  last 2 jit-mode wasm-3.0 fails (gc/ref_test test-sub/test-canon). TWO distinct
+  bugs, BOTH making a table-loaded struct.new* object fail ref.test: (1) arm64 —
+  struct.new*/array.new_fixed spilled the u32 GcRef result via STR W (32-bit),
+  leaving the 64-bit slot's high half stale → table.set stored `(stale<<32)|ref`;
+  fix = STR X. (2) x86_64 — table.set reused r10/r11 for the descriptor AND the
+  spill stages, so a force-spilled idx (struct.new is a CALL) clobbered `len` →
+  bounds `cmp idx,idx` → trap; fix = snapshot idx→EDX/val→R9 before the
+  descriptor (mirrors arm64 X16/X17). D-317 was MIS-FRAMED as call_indirect
+  subtyping; the real bugs were GcRef width + register clobber.
 - **memory64 JIT bounds overflow FIXED (both arches)** `fc5be95e` — `emitMemOpI64`
   did `ADD ea,#size; CMP; B.HI` so `ea+size` near 2^64 WRAPPED past the bounds
   check → no trap (spec violation). Now flag-setting `ADDS`+`B.HS` (arm64) /
@@ -34,16 +44,14 @@ before trusting). Rosetta x86_64 edge runner green (the JIT path).
 - **D-299 stale row deleted** `e758412a` — already fixed same-day as D-303.
 
 **Open JIT-correctness follow-ons (NEXT, per task list)**:
-- **D-317** — JIT call_indirect uses structural canonical equality, not GC
-  subtyping (interp D-198 analog). The last 2 jit-mode wasm-3.0 return fails
-  (`gc/ref_test test-sub`/`test-canon` wrongly trap a legit subtype). Multi-arch
-  hot-path change; interp carries correctness.
-- **D-318** (note) — Rosetta x86_64-macos corpus-JIT SEGVs (pre-existing, local-
-  diagnostic only, not a gate; native x86_64-Linux is green).
+- **D-318** (note) — Rosetta x86_64-macos FULL corpus-JIT SEGVs (pre-existing,
+  local-diagnostic only, not a gate; native x86_64-Linux + per-manifest Rosetta
+  are green). The GcRef fix above was verified per-manifest on Rosetta.
 - Then **D-314** JIT sandboxing (interrupt/fuel/mem-cap on `--engine jit`;
   Win64-risk → `should_gate_windows.sh --resume`, conflicts w/ cw dev) +
   diagnostics/DX (trap backtraces; industry pain #1) + D-313 realworld stdout-
-  assert gate-hole.
+  assert gate-hole. wasm-3.0 jit-mode is now CLEAN both arches (0 assert_return
+  fails); remaining jit skips are eligibility-gated, not correctness gaps.
 
 **Prior pass — embedder-hardening (2026-06-08, `14de5430..d6699b00`, pushed,
 ubuntu-green @d6699b00)**: facade `InstantiateOpts` fuel + `max_memory_pages`
