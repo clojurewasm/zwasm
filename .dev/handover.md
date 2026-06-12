@@ -75,55 +75,20 @@
   `record{list<u32>, string}` ↔ `result<record, string>` round-trips
   through `invokeTyped` in an e2e test (greet also callable typed).
 
-## Sandboxing bundle d314-jit-sandbox — CLOSED 2026-06-12
+## Closed-work pointers (detail in git log / ADRs)
 
-Exit-condition MET and exceeded: a JIT looping/recursive fn traps when the host
-raises the flag — and the full triad now spans both engines + CLI + C-API.
-
-- **#3a interrupt**: prologue polls both arches (`c1a9da15`/`6d56f517`); loop
-  back-edge polls + x86_64 R15-forcing (`72801881`); arm64 br_table-to-loop +
-  honest RUNNING-loop thread-raiser tests, hang-as-failure (`b365c190`).
-- **#3b fuel-on-JIT** (`a6d7ae72`): `fuel_metered`/`fuel_cell` polls beside the
-  interrupt polls; units = poll-site crossings (v1 parity, ADR-0179 rev); kind
-  17 = `TrapKind.out_of_fuel` wired interp+JIT+runner; new `encSubMem64Disp32Imm8`.
-- **#3c-2 mem-cap-on-JIT** (`866d784e`): `MemGrowCtx.host_max_pages` +
-  `JitInstance.setMemoryPagesLimit` (host-side only).
-- **#3a-4 CLI** (`ce2ded2b`): `--fuel`/`--timeout`/`--max-memory` on both
-  engines (io-event-loop timer → shared interrupt flag; cwasm/component refuse
-  loudly); **C-API** (`f1a88e77`): `zwasm_instance_*` setters + `zwasm_trap_kind`
-  in new `src/api/zwasm_ext.zig` + real `include/zwasm.h` (naming rev in
-  ADR-0179: instance-level over v1's config-level).
-- Follow-ons re-scoped into the **D-314 `note` row** (epoch counter, JIT
-  table-elems limit, cwasm/component limits, facade-JIT routing, poll
-  code-size measurement). Facade stays interp-only (live security posture).
-
-**GATE NOTE (D-311 residual)**: the 3 raw-entry-call tests crash seed-flakily in
-`zig build test`; NEW variant: under the build-runner `--listen` IPC the unit
-binary can crash AT EXIT after all results stream back OK — zig prints
-`failed command:` but exits 0; standalone = green. Don't chase as a new bug;
-3-host test-all is the authority (`releasesafe_jit_failures.md`).
-
-## JIT-correctness pass (2026-06-12) — LANDED, 2-host green
-
-wasm-3.0 JIT mode = assert_return 880/0 on BOTH arm64 + x86_64, matching interp
-(`e758412a..9a9b46de`). Shipped: GC-ref-through-table corruption `9a9b46de`;
-memory64 `ea+size` overflow `fc5be95e` (D-234 reopened+fixed); capture-allocator
-`008dc3be`; D-237 double-free `314a0c97`; 36 stale multi-memory skips `93792696`.
-**D-318** (note): Rosetta x86_64-macos FULL corpus-JIT SEGVs (local-diagnostic
-only). Remaining jit-mode skips are eligibility-gated, NOT correctness.
-
-**Prior passes (green, pushed; detail in git log)**: embedder-hardening
-`14de5430..d6699b00` (InstantiateOpts budgets, decoder robustness, D-315/D-316,
-Actions SHA-pinned); Tier-1 — static-lib `45438b7a` (D-312), ADR-0179 design +
-interp sandboxing triad (`1001fa0e`/`460210f1`/`7216e7b1`/`58479dd6`),
-migration-guide Phase B/D, musl (ADR-0178). Host-infra hardening 2026-06-12
-`3e501d9c` (gate timeouts, orphan reaps — host memory-exhaustion incident,
-lesson `host-memory-exhaustion-defenses`).
-
-**Documented follow-ons (need a user decision / focused effort)**:
-- **#1 C-API WASI preopen — D-251**: pure C-API has no `std.Io` to open dirs;
-  needs an io-acquisition ADR. CLI `--dir` + Zig API cover preopen today.
-- **Tier-2 #5** ILP32/watchOS (static-lib target + #97 accommodations).
+- **d314-jit-sandbox CLOSED 2026-06-12** (interrupt/fuel/mem-cap triad on
+  both engines + CLI + C-API; ADR-0179). **GATE NOTE (D-311 residual)**:
+  raw-entry-call tests crash seed-flakily in `zig build test` (at-exit IPC
+  variant prints `failed command:` but exits 0); 3-host test-all is the
+  authority (`releasesafe_jit_failures.md`).
+- **JIT-correctness pass 2026-06-12**: wasm-3.0 JIT assert_return 880/0 on
+  BOTH arches (`e758412a..9a9b46de`). D-318 (note): Rosetta x86_64-macos
+  corpus-JIT SEGVs, local-diagnostic only.
+- Earlier: embedder-hardening · Tier-1 static-lib · interp sandboxing ·
+  musl (ADR-0178) · host-infra hardening (`3e501d9c`).
+- **Open user-decision follow-ons**: D-251 (C-API WASI preopen io ADR);
+  Tier-2 #5 ILP32/watchOS.
 
 ## State at pause
 
