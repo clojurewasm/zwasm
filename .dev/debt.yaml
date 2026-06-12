@@ -397,7 +397,7 @@ entries:
     first_raised: "2026-06-04"
     last_reviewed: "2026-06-04"
     refs: |-
-      `include/wasi.h` (decls removed); `src/api/wasi.zig` (implemented surface); `src/cli/run.zig:149,155` (ambient-io preopen precedent); `src/cli/main.zig:43-44` (Init→io); ADR-0143; ADR-0070 line 62 (B132 getenv Necessary); D-251; ROADMAP §13.3 / §13.P
+      `include/wasi.h` (decls removed); `src/api/wasi.zig` (implemented surface); `src/cli/run.zig:149,155` (ambient-io preopen precedent); `src/cli/main.zig:43-44` (Init→io); ADR-0143; ADR-0070 line 62 (B132 getenv Necessary); ADR-0184 (Proposed: engine-owned io — the discharge design awaiting user review); ROADMAP §13.3 / §13.P
   - id: "D-254"
     layer: "process"
     status: "blocked-by"
