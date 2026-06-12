@@ -73,17 +73,19 @@
   handle→rep). D-322 residual: ComponentValue own-handle arms so
   invokeTyped drives constructor→method BY HANDLE (incl. the lift-side
   handle→rep translation for exported methods).
-- **D-322 typed handles slice (a) LANDED**: ComponentValue own/borrow +
-  CanonType own/borrow through flatten/lower/lift/store/load (+ NEW
-  optional CanonContext borrow_rep hook — lower_borrow owner-rep rule;
-  unit-pinned). Slice (b) NEXT: (1) invokeTypedBuilt builds the cx with
-  resource_ctx/borrow_rep_fn over ctx.guest_resources (ti = type-space
-  index); (2) nested-instance export resolution — the counter funcs live
-  INSIDE the exported `zwasm:restest/counter-api` instance, so
-  resolveFuncType/resolveLiftedFunc need an instance-path form (e.g.
-  "<iface>#<func>") before invokeTyped can address them; (3) typed e2e:
-  constructor → own handle → method-by-handle on resource_counter.wasm.
-- **NEXT**: D-322 slice (b) above · D-318 · D-251.
+- **D-322 CLOSED (typed guest resources e2e)**: own/borrow through the
+  whole canonical-ABI bridge (slice a, unit-pinned) + slice b: the
+  CanonContext borrow_rep hook wired in invokeTypedBuilt, and
+  `<iface>#<func>` export paths resolved through wit-component's
+  interface-WRAPPER instantiations (nested-scan import/export maps;
+  instance_origins local-ordinal mapping). PROOF: typed
+  [constructor]counter → ComponentValue.own → borrow methods mutate the
+  boxed state; unknown handles are typed shape errors. The CWFS "WIT as
+  north star" stack is now end-to-end: introspection + typed calls +
+  guest-defined resources.
+- **NEXT**: D-318 (Rosetta corpus-JIT diagnostic) · D-251 (C-API WASI
+  preopen ADR draft) · D-323 (stdlib NTSTATUS, blocked-by) · CM plan
+  long-tail per component_model_plan.md.
 
 ## Closed-work pointers (detail in git log / ADRs)
 
