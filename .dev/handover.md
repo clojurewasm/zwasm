@@ -73,12 +73,13 @@
   @d039d727, D-319 row re-scoped to the named hang barrier (3-hypothesis
   list + targeted-probe plan in the row). D-320 size datapoint: base
   1.97 MB (+37.6 KB), lean unchanged.
-- **D-319 probe #1 CONFIRMED (exit 124)**: the hang reproduces in the
-  unit step alone. Row updated (H4: WSAPoll misreports ready ⇒ blocking
-  recv hangs). Probe #2 flag re-scoped: -Dd319-probe now gates ONLY the
-  p2_sockets unit lifecycle tests (e2e stays plain-gated) — probe #2 run
-  KICKED this turn (/tmp/win_probe2.log, timeout 1200): hangs ⇒ H1/H4
-  (unit-level WSAPoll defect); completes ⇒ H2/H3 (e2e harness).
+- **D-319 ROOT CAUSES FOUND (probes #2/#3)**: (a) WSAPoll failed WSA
+  10093 WSANOTINITIALISED — the pinned std.Io.net windows backend is
+  pure NT/AFD, winsock never initialized; FIX LANDED (lazy WSAStartup in
+  pollOnce). (b) netConnect maps NTSTATUS 0xC0000236 (CONNECTION_REFUSED)
+  to error.Unexpected — pinned-stdlib gap, recorded. Probe #4 (verify
+  fix (a)) in flight → /tmp/win_probe4.log at Step 0.7: unit lifecycle
+  green ⇒ re-test e2e (the never-ready loop explains the hang).
 - **D-322 CORE LANDED @3cf52d80**: resource defs (0x3f) decode (raw-byte
   peek — 0x3f is sleb-positive) + dtor core-func bounds + rule 12
   resource generativity (nested-component recursive scan; the corpus
@@ -90,8 +91,16 @@
   `[export]<iface>` `[resource-new]/[resource-drop]` core imports → wire
   canon resource.new/drop/rep core_funcs to the C1 resource table in the
   graph builder, then ComponentValue own-handle arms for the typed path.
-- **NEXT**: D-322 runtime bundle (graph-builder resource builtin wiring
-  — the measured gap above) · D-319 probe #2 verdict · D-318 · D-251.
+- **NEXT**: D-322 runtime bundle — wiring plan SURVEYED: in
+  buildWasiP2Component, walk info.core_funcs .resource_new/.resource_drop
+  (CanonDef carries the resource type_index) and defineFuncCtx
+  trampolines under module `[export]<iface>` / names
+  `[resource-new/drop]<type>` (wit-component constants confirmed),
+  backed by a per-instance ResourceTable (C1 API: new(rt,rep)/rep/drop;
+  rt = the DEFTYPE index — the hardcoded WasiP2Ctx RT ids must not
+  collide; instance.zig:419-540 is the UnknownImport loop). Then
+  ComponentValue own-handle arms. After: D-319 probe #4 verdict ·
+  D-318 · D-251.
 
 ## Closed-work pointers (detail in git log / ADRs)
 
