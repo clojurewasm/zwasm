@@ -66,22 +66,20 @@
 ## Active bundle
 
 - **Bundle-ID**: adr0180-phase2-listeners
-- **Cycles-remaining**: ~3
-- **Continuity-memo**: impl-1 DONE @c13bbdc2 (TcpSocket
-  listen/accept/local-address/backlog + defer-bind DIVERGENCE — OS bind
-  runs inside start-listen; netListenIp is atomic in the pinned stdlib).
-  impl-2 NEXT: component trampolines — wire adapter rows
-  start-listen/finish-listen (now sock_stub_unit2), accept (3-tuple
-  own<tcp-socket,input,output> mint — reuse the finish-connect stream-pair
-  minting in component_wasi_p2.zig), local-address (needs the ENCODE
-  direction of decodeIpSocketAddress's 12-flat variant),
-  set-listen-backlog-size (sock_stub_unit3l). impl-3: rust wasip2
-  listener guest fixture (guest prints resolved port to stdout; e2e host
-  connects + echoes; gen via nix develop .#gen). impl-4: D-319 WSAPoll
-  (ws2_32) → windows pollOnce real.
+- **Cycles-remaining**: ~1
+- **Continuity-memo**: ALL impl chunks LANDED — impl-1 @c13bbdc2 (state
+  machine), impl-2/3 @c8efdd1a (trampolines: accept 3-tuple mint, REAL
+  local/remote-address encode, backlog; rust TcpListener e2e green on
+  Mac), impl-4 @8c0bb8f1 (WSAPoll via extern ws2_32; ALL windows socket
+  skips removed; D-319 row = awaiting-win-verify). REMAINING: a windows
+  gate run was kicked THIS turn (verify at Step 0.7) — green ⇒ mark
+  D-319 'CLOSED <sha>' in debt.yaml + drop skip.Blocker @"D-319" arm +
+  close the bundle (check_bundle_active.sh --close). Red ⇒ D7 protocol
+  (re-run once; reproduces = real Win64 bug, fix here; flake =
+  track_heisenbug).
 - **Exit-condition**: a rust wasip2 listener guest accepts a host
-  connection and echoes e2e (test green), AND D-319 discharged (WSAPoll)
-  or re-scoped with a named barrier.
+  connection and echoes e2e (test green — MET @c8efdd1a), AND D-319
+  discharged (windows batch green over the de-skipped socket tests).
 
 ## Closed-work pointers (detail in git log / ADRs)
 
