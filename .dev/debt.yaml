@@ -797,30 +797,6 @@ entries:
     last_reviewed: "2026-05-29"
     refs: |-
       `src/runtime/instance/instantiate.zig` frontendValidate; `src/zwasm/engine.zig` compile; `src/diagnostic/diagnostic.zig` setDiag/lastDiagnostic; `.dev/lessons/2026-05-29-gc-corpus-block-is-validate-not-parse.md`
-  - id: "D-317"
-    layer: "code"
-    status: "blocked-by"
-    description: |-
-      blocked-by: JIT call_indirect uses STRUCTURAL canonical equality, not GC subtyping (the JIT
-      analog of the interp D-198 work). Surfaced 2026-06-12 as the last 2 `ZWASM_SPEC_ENGINE=jit`
-      wasm-3.0 return fails after the memory64 overflow fix: `gc/ref_test test-sub` + `test-canon`
-      report `err=Trap` where the value is expected (the JIT call_indirect wrongly traps a LEGIT
-      subtype call — callee `<:` declared, different canonical id). The JIT `call_indirect`
-      (op_call.zig) does `LDR typeidx[idx]; CMP vs canonicalTypeidx; B.NE/JNE trap` — a
-      canonical-EXACT compare (D-111 `funcTypeEql`, finality/subtyping-blind). The interp side got
-      `sigCompatible` (sigEq OR `concreteReaches`) per the D-198/.17 work; the JIT hot path still
-      uses exact canonical equality. Fix: thread the declared type index into the JIT cind-sig
-      check and accept when `concreteReaches(callee.raw_typeidx, declared_idx)`, mirroring
-      mvp.zig — a hot-path change on both arches' cind dispatch. Both directions exist: over-strict
-      (these 2, wrongly trap a subtype) and the historical over-accept (D-234 cyc5, finality-blind).
-      Low corpus impact (2 fixtures); the interp carries correctness. Discharge: JIT cind-sig
-      accepts declared-supertype calls → gc/ref_test test-sub/test-canon green under jit mode.
-    first_raised: "2026-06-12"
-    last_reviewed: "2026-06-12"
-    refs: |-
-      `src/engine/codegen/arm64/op_call.zig` + `src/engine/codegen/x86_64/op_call.zig` (cind-sig CMP);
-      `src/instruction/wasm_3_0/ref_test_ops.zig::concreteReaches`; `src/interp/mvp.zig` (sigCompatible
-      precedent); `test/spec/wasm-3.0-assert/gc/ref_test/` (test-sub/test-canon); D-198 (interp analog)
   - id: "D-318"
     layer: "test"
     status: "note"

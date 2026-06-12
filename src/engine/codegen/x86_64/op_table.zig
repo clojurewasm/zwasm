@@ -289,14 +289,24 @@ pub fn emitTableSet(
     const val_v = pushed_vregs.pop().?;
     const idx_v = pushed_vregs.pop().?;
 
-    // Load tables_ptr → RAX; refs → R11; len → R10d.
+    // Snapshot operands into non-allocatable scratch BEFORE loading the
+    // table descriptor. r10/r11 are BOTH the spill-stage regs AND the
+    // descriptor regs (refs/len), so a SPILLED idx/val load would clobber
+    // the descriptor — a non-null struct.new result spills → its load into
+    // r11 destroys the refs base → the store targets `[val_addr + idx*8]`
+    // (a wasm-trap / bad address), only when the value is non-null/spilled.
+    // Mirrors arm64's X16/X17 snapshot. idx → EDX; val → R9 (full 64-bit;
+    // R9 is not allocatable, not a spill stage, untouched by the descriptor
+    // loads and the funcptr/typeidx mirror below).
+    const idx_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, idx_v, 0);
+    try buf.appendSlice(allocator, inst.encMovRR(.d, .rdx, idx_r).slice());
+    const val_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, val_v, 1);
+    try buf.appendSlice(allocator, inst.encMovRR(.q, .r9, val_r).slice());
+
+    // Load tables_ptr → RAX; refs → R11; len → R10d (r10/r11 free now).
     try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_ptr_off).slice());
     try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.r11, .rax, tbl_disp).slice());
     try buf.appendSlice(allocator, inst.encMovR32FromMemDisp32(.r10, .rax, tbl_disp + 8).slice());
-
-    // Stage idx in EDX.
-    const idx_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, idx_v, 0);
-    try buf.appendSlice(allocator, inst.encMovRR(.d, .rdx, idx_r).slice());
 
     // CMP EDX, R10d ; JAE trap.
     try buf.appendSlice(allocator, inst.encCmpRR(.d, .rdx, .r10).slice());
@@ -307,10 +317,8 @@ pub fn emitTableSet(
         trace.writeBounds(func_idx, fixup_at);
     }
 
-    // Load val as 64-bit (stage 1 to avoid clobbering idx in stage 0).
-    const val_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, val_v, 1);
-    // MOV [R11 + RDX*8], Rval
-    try buf.appendSlice(allocator, inst_mem.encStoreR64MemBaseIdxLsl3(val_r, .r11, .rdx).slice());
+    // MOV [R11 + RDX*8], R9 (val).
+    try buf.appendSlice(allocator, inst_mem.encStoreR64MemBaseIdxLsl3(.r9, .r11, .rdx).slice());
 
     // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
     // Mirror funcptrs + typeidx views, guarded on null funcptrs
@@ -322,10 +330,10 @@ pub fn emitTableSet(
     try buf.appendSlice(allocator, inst.encTestRR(.q, .rax, .rax).slice());
     const skip_at: u32 = @intCast(buf.items.len);
     try buf.appendSlice(allocator, inst.encJccRel32(.e, 0).slice());
-    try emitDeriveFuncptrFromFuncref(allocator, buf, .rcx, val_r);
+    try emitDeriveFuncptrFromFuncref(allocator, buf, .rcx, .r9);
     try buf.appendSlice(allocator, inst_mem.encStoreR64MemBaseIdxLsl3(.rcx, .rax, .rdx).slice());
     // typeidx mirror (γ.2):
-    try emitDeriveTypeidxFromFuncref(allocator, buf, .rcx, val_r);
+    try emitDeriveTypeidxFromFuncref(allocator, buf, .rcx, .r9);
     try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_jit_ci_ptr_off).slice());
     try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, .rax, @intCast(tableidx * 16 + 8)).slice());
     try buf.appendSlice(allocator, inst_mem.encStoreR32MemBaseIdxLsl2(.rcx, .rax, .rdx).slice());

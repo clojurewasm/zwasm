@@ -80,7 +80,12 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     ctx.next_vreg.* += 1;
     if (result >= ctx.alloc.slots.len) return ctx_mod.Error.SlotOverflow;
     const rd = try gpr.gprDefSpilled(ctx.alloc, result, 0);
-    if (rd != .rax) try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.d, rd, .rax).slice());
+    // Always zero-extend EAX→RAX (a u32 C-return leaves RAX's upper 32 bits
+    // unspecified): a GcRef Value fills the whole 64-bit slot, and gprStoreSpilled
+    // stores 64-bit, so a `rd == rax` skip would leak stale upper bits into the
+    // ref (table.set / ref.test then read `(stale<<32)|ref`). `mov eax,eax` when
+    // rd==rax is a valid zero-extend.
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.d, rd, .rax).slice());
     try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result, 0);
     try ctx.pushed_vregs.append(ctx.allocator, result);
 }

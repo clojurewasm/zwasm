@@ -92,8 +92,11 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
         },
         .spill => |off| {
             const abs_off: u32 = ctx.spill_base_off + off;
-            if (abs_off > 16380) return ctx_mod.Error.SlotOverflow;
-            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImmW(ref_reg, 31, @intCast(abs_off)));
+            if (abs_off > 32760) return ctx_mod.Error.SlotOverflow;
+            // STR X (not W): a GcRef Value occupies the full 64-bit slot (a
+            // 64-bit consumer like table.set reads it whole). ref_reg is already
+            // zero-extended; STR W would leave the slot's high half stale.
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrImm(ref_reg, 31, @intCast(abs_off)));
         },
     }
     try ctx.pushed_vregs.append(ctx.allocator, result);
