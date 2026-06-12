@@ -1004,7 +1004,7 @@ entries:
       infra exists; ZWASM_DEBUG env is internal-only). ~a few lines.
       P2 WAT (.wat text) input acceptance — LOW effort / HIGH dev-UX value, but needs a WAT→wasm parse path
       (wasm-tools/wabt or a minimal Zig parser); not 完成形-blocking (ecosystem converts). Possibly v0.2.
-      Lower: --mapdir alias, --fuel (D-277 deferred), trap-kind→exit-code differentiation, shell completion.
+      Lower: --mapdir alias, trap-kind→exit-code differentiation, shell completion. (--fuel/--timeout/--max-memory SHIPPED 2026-06-12 @ce2ded2b, ADR-0179 #3a-4.)
       P0 `--env KEY=VAL` DONE 2026-06-06 (`90e3ebfd`, 3-host: Mac test + ubuntu + windows green via the batch):
       threaded env_keys/env_vals through runWasmJit/runCwasmWasi/runWasmCapturedOpts → `host.setEnvs` (all 3
       engines; `cfg` IS a `*wasi_host.Host` so `cfg.setEnvs` works directly). CLI accumulate+parse in main.zig

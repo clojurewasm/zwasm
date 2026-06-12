@@ -191,10 +191,11 @@ These do not change between phases. Changing one requires an ADR.
 - WASI 0.1 (preview1) full surface.
 - `wasm.h` (wasm-c-api) full conformance.
 - `wasi.h` (wasmtime-compatible) full surface.
-- `zwasm.h` extensions (allocator injection, fuel, wall-clock timeout,
-  cancel flag, fast-path invoke): **deferred / on-demand** — `zwasm.h` ships
-  as a reserved placeholder; these are evaluated against real need post-v0.1.0
-  (code-as-truth 2026-06-05; D-277). The shipped C surface is `wasm.h` + `wasi.h`.
+- `zwasm.h` extensions: the SANDBOXING set (fuel, wall-clock timeout /
+  cancel, memory cap, trap-kind introspection) **shipped** 2026-06-12 as
+  instance-level setters (ADR-0179 #3a-4); allocator injection + the
+  fast-path invoke remain **deferred / on-demand** post-v0.1.0. The shipped
+  C surface is `wasm.h` + `wasi.h` + `zwasm.h`.
 - Single-pass JIT for `aarch64-darwin`, `aarch64-linux`,
   `x86_64-linux`, `x86_64-pc-windows`.
 - AOT compilation (`zwasm compile foo.wasm -o foo.cwasm`).
@@ -1812,13 +1813,13 @@ against real need under §16.5 dogfooding — not pre-built.
 
 `include/wasm.h` is upstream wasm-c-api (complete — gap 0, 293/293);
 `include/wasi.h` is the hand-authored WASI host-setup extension
-(`zwasm_wasi_config_*`, ADR-0005). `include/zwasm.h` is a **reserved
-placeholder** (code-as-truth, 2026-06-05): the extensions once sketched
-for it — allocator injection, fuel, wall-clock timeout, cancellation, and
-the kind-less fast-path `zwasm_func_call_fast` — are **not shipped**.
-They are post-v0.1.0 / evaluated-on-demand, consistent with the
-lightweight design (D-277 retired this drift; the C-API surface today is
-`wasm.h` + `wasi.h`).
+(`zwasm_wasi_config_*`, ADR-0005). `include/zwasm.h` ships the
+**instance-level sandboxing extensions** (ADR-0179 #3a-4, 2026-06-12):
+fuel, cooperative interruption (cancel/timeout), the host memory cap, and
+`zwasm_trap_kind`. The extensions once sketched but still NOT shipped —
+allocator injection and the kind-less fast-path `zwasm_func_call_fast` —
+remain post-v0.1.0 / evaluated-on-demand, consistent with the lightweight
+design (the C-API surface today is `wasm.h` + `wasi.h` + `zwasm.h`).
 
 ---
 

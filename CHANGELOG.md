@@ -36,9 +36,14 @@ has not yet been cut.
   `Instance` / `Linker` / `Caller` / `Memory` / `Global` / `Table` /
   `TypedFunc` / `Trap` / `Value` facade, consumable as an external
   `build.zig.zon` dependency.
-- **CLI** — `zwasm run` (WASI exec, `--invoke` / `--engine` / `--dir`)
-  and `zwasm compile` (`.cwasm` AOT), plus `--version` / `--help`
-  (ADR-0159).
+- **CLI** — `zwasm run` (WASI exec, `--invoke` / `--engine` / `--dir` /
+  `--env`) and `zwasm compile` (`.cwasm` AOT), plus `--version` /
+  `--help` (ADR-0159).
+- **Sandboxing (ADR-0179)** — cooperative interruption (cancel/timeout),
+  deterministic fuel metering, and a host memory-growth cap, on BOTH
+  engines (the JIT polls at function entry + every loop back-edge):
+  Zig facade setters, C `zwasm_instance_*` setters + `zwasm_trap_kind`
+  (`zwasm.h`), and CLI `--fuel` / `--timeout` / `--max-memory`.
 
 ### Changed (from v1)
 

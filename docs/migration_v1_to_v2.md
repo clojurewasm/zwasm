@@ -26,14 +26,14 @@ re-verify — see [Part 4](#part-4--verify-it-yourself).
 Most users can migrate now. **Check this list first** — if you depend on something
 in it, either stay on v1 for now, or use the noted alternative.
 
-| If you rely on…                                              | Status in v2                                                                 | What to do                                                                       |
-|--------------------------------------------------------------|------------------------------------------------------------------------------|----------------------------------------------------------------------------------|
-| **`.wat` (text format) loading**                             | **Removed by design** — v2 only consumes binary `.wasm`                      | Pre-assemble with `wasm-tools` / `wabt` (`wat2wasm`) and feed the `.wasm`        |
-| **fuel / timeout / cancellation / memory-limit via the C API or CLI** | **Not on the C API or CLI yet.** The **Zig embedding API has all of them** | Use the Zig API for sandboxing, or stay on v1's C API until the C/CLI surface lands |
-| **WASI directory preopen via the C API**                     | **Deferred** — `wasi.h` ships args/env/inherit-stdio only                    | Use the CLI `--dir` or the Zig API (both support preopen); else stay on v1       |
-| **Custom host allocator via the C API**                      | **Removed** (standard wasm-c-api has no allocator hook)                       | No direct replacement; raise an issue if you need it                             |
-| **C-API linear-memory copy helpers** (`..._memory_read/write`) | **Removed** — reach memory via `wasm_memory_data` / `wasm_memory_data_size` | Copy through the raw `wasm_memory_data` pointer yourself                          |
-| **watchOS / 32-bit (ILP32) targets**                         | **Deferred**                                                                 | Stay on v1                                                                        |
+| If you rely on…                                                      | Status in v2                                                                                                              | What to do                                                                 |
+|-----------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------|
+| **`.wat` (text format) loading**                                      | **Removed by design** — v2 only consumes binary `.wasm`                                                                  | Pre-assemble with `wasm-tools` / `wabt` (`wat2wasm`) and feed the `.wasm`  |
+| **fuel / timeout / cancellation / memory-limit via the C API or CLI** | **Shipped** (ADR-0179): C `zwasm_instance_*` setters in `zwasm.h`; CLI `--fuel`/`--timeout`/`--max-memory` (both engines) | Migrate to the instance-level setters (v1 was config-level)                |
+| **WASI directory preopen via the C API**                              | **Deferred** — `wasi.h` ships args/env/inherit-stdio only                                                                | Use the CLI `--dir` or the Zig API (both support preopen); else stay on v1 |
+| **Custom host allocator via the C API**                               | **Removed** (standard wasm-c-api has no allocator hook)                                                                   | No direct replacement; raise an issue if you need it                       |
+| **C-API linear-memory copy helpers** (`..._memory_read/write`)        | **Removed** — reach memory via `wasm_memory_data` / `wasm_memory_data_size`                                              | Copy through the raw `wasm_memory_data` pointer yourself                   |
+| **watchOS / 32-bit (ILP32) targets**                                  | **Deferred**                                                                                                              | Stay on v1                                                                 |
 
 Everything else — running `.wasm`, WASI 0.1, the embedding lifecycle, full Wasm
 3.0 — is available. Pick your surface below and port.
@@ -47,19 +47,19 @@ Everything else — running `.wasm`, WASI 0.1, the embedding lifecycle, full Was
 v2's CLI is deliberately minimal (only `run` and `compile`); inspection and text
 tooling are delegated to `wasm-tools` / `wabt`.
 
-| Task                       | v1                                                  | v2                                                                  |
-|----------------------------|-----------------------------------------------------|---------------------------------------------------------------------|
-| Run a module               | `zwasm run f.wasm` / bare `zwasm f.wasm`            | `zwasm run f.wasm` (no bare-file shorthand)                         |
-| Run `.wat`                 | `zwasm f.wat`                                        | pre-assemble to `.wasm` first (no `.wat` support)                  |
-| Invoke a named export      | `--invoke fn` / `--batch`                           | `--invoke <name>[=a,b,…]` (no `--batch`)                           |
-| Pick the engine            | `--interp` (JIT otherwise)                          | `--engine <interp\|jit>` (**interp is the default**; jit adds SIMD) |
-| Preopen a directory        | `--dir`, plus `--allow-*`, `--sandbox`              | `--dir <host>[:<guest>]` (no `--allow-*`, no `--sandbox`)          |
-| Pass env vars              | `--env`                                             | `--env KEY=VAL`                                                     |
-| Link extra modules         | `--link name=file`                                  | not in the CLI — use the Zig/C `Linker`                            |
-| Resource limits            | `--fuel`, `--timeout`, `--max-memory`               | **not yet** (use the Zig API)                                      |
-| Compile / cache to disk    | `--cache` → predecoded-IR `.zwcache`                | `zwasm compile f.wasm -o out.cwasm` → AOT `.cwasm`; `run` auto-detects it |
-| Inspect / validate         | `inspect`, `validate`, `features` subcommands       | **removed** — use `wasm-tools`; validation is programmatic (the API validates on compile) |
-| Diagnostics                | `--profile`, `--trace`, `--dump-regir/-jit`         | env-driven: `ZWASM_DEBUG`, `ZWASM_DIAG` (no CLI dump flags)         |
+| Task                    | v1                                            | v2                                                                                               |
+|-------------------------|-----------------------------------------------|--------------------------------------------------------------------------------------------------|
+| Run a module            | `zwasm run f.wasm` / bare `zwasm f.wasm`      | `zwasm run f.wasm` (no bare-file shorthand)                                                      |
+| Run `.wat`              | `zwasm f.wat`                                 | pre-assemble to `.wasm` first (no `.wat` support)                                                |
+| Invoke a named export   | `--invoke fn` / `--batch`                     | `--invoke <name>[=a,b,…]` (no `--batch`)                                                        |
+| Pick the engine         | `--interp` (JIT otherwise)                    | `--engine <interp\|jit>` (**interp is the default**; jit adds SIMD)                              |
+| Preopen a directory     | `--dir`, plus `--allow-*`, `--sandbox`        | `--dir <host>[:<guest>]` (no `--allow-*`, no `--sandbox`)                                        |
+| Pass env vars           | `--env`                                       | `--env KEY=VAL`                                                                                  |
+| Link extra modules      | `--link name=file`                            | not in the CLI — use the Zig/C `Linker`                                                         |
+| Resource limits         | `--fuel`, `--timeout`, `--max-memory`         | `--fuel` / `--timeout` / `--max-memory` (both engines; fuel units are engine-specific, ADR-0179) |
+| Compile / cache to disk | `--cache` → predecoded-IR `.zwcache`         | `zwasm compile f.wasm -o out.cwasm` → AOT `.cwasm`; `run` auto-detects it                       |
+| Inspect / validate      | `inspect`, `validate`, `features` subcommands | **removed** — use `wasm-tools`; validation is programmatic (the API validates on compile)       |
+| Diagnostics             | `--profile`, `--trace`, `--dump-regir/-jit`   | env-driven: `ZWASM_DEBUG`, `ZWASM_DIAG` (no CLI dump flags)                                      |
 
 **Note:** both engines run the **full WASI** surface, but the **interpreter does
 not execute SIMD** — SIMD code requires `--engine jit` (this is by design; see
@@ -85,21 +85,21 @@ wasm_func_call(func, &args, &results);
 
 **Symbol map:**
 
-| v1 (`zwasm.h`)                                                | v2 (wasm-c-api + `wasi.h`)                                                  |
-|---------------------------------------------------------------|----------------------------------------------------------------------------|
-| `zwasm_module_t` / `_config_t` / `_imports_t`                 | `wasm_engine_t` / `wasm_store_t` / `wasm_module_t` / `wasm_instance_t` / `wasm_func_t` … |
-| `zwasm_module_new[_wasi][_configured]`, `_with_imports`       | `wasm_module_new` → `wasm_instance_new` (imports via `wasm_extern_vec_t`)  |
-| `zwasm_module_invoke(uint64_t* args, results)`                | `wasm_func_call(func, wasm_val_vec_t args, results)`                        |
-| `zwasm_module_validate`                                       | `wasm_module_validate`                                                      |
-| `zwasm_module_export_{count,name,param_count,result_count}`   | `wasm_module_exports` → `wasm_exporttype_vec_t` / `wasm_functype_*`        |
-| `zwasm_module_memory_{data,size,read,write}`                  | `wasm_memory_data` / `wasm_memory_data_size` (no copy-read/write helpers)  |
-| `zwasm_last_error_message` (thread-local)                     | `wasm_trap_t` from the call + `wasm_trap_message`                          |
-| host imports via `zwasm_import_{new,add_fn}`                  | `wasm_func_new` + `wasm_extern_vec_t` passed to `wasm_instance_new`        |
-| `zwasm_wasi_config_{set_argv,set_env}`                        | `wasi.h`: `zwasm_wasi_config_set_args` / `_set_envs`                        |
-| `zwasm_wasi_config_{preopen_dir,preopen_fd,set_stdio_fd}`     | **no equivalent** — `wasi.h` has `inherit_stdio` only (preopen deferred)   |
-| `zwasm_config_set_{fuel,timeout,max_memory,…}`                | **no equivalent** (use the Zig API)                                        |
-| `zwasm_config_set_allocator`                                  | **no equivalent**                                                          |
-| `zwasm_module_cancel`                                         | **no equivalent** (use the Zig API)                                        |
+| v1 (`zwasm.h`)                                              | v2 (wasm-c-api + `wasi.h`)                                                                                                        |
+|-------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|
+| `zwasm_module_t` / `_config_t` / `_imports_t`               | `wasm_engine_t` / `wasm_store_t` / `wasm_module_t` / `wasm_instance_t` / `wasm_func_t` …                                         |
+| `zwasm_module_new[_wasi][_configured]`, `_with_imports`     | `wasm_module_new` → `wasm_instance_new` (imports via `wasm_extern_vec_t`)                                                        |
+| `zwasm_module_invoke(uint64_t* args, results)`              | `wasm_func_call(func, wasm_val_vec_t args, results)`                                                                              |
+| `zwasm_module_validate`                                     | `wasm_module_validate`                                                                                                            |
+| `zwasm_module_export_{count,name,param_count,result_count}` | `wasm_module_exports` → `wasm_exporttype_vec_t` / `wasm_functype_*`                                                              |
+| `zwasm_module_memory_{data,size,read,write}`                | `wasm_memory_data` / `wasm_memory_data_size` (no copy-read/write helpers)                                                         |
+| `zwasm_last_error_message` (thread-local)                   | `wasm_trap_t` from the call + `wasm_trap_message`                                                                                 |
+| host imports via `zwasm_import_{new,add_fn}`                | `wasm_func_new` + `wasm_extern_vec_t` passed to `wasm_instance_new`                                                               |
+| `zwasm_wasi_config_{set_argv,set_env}`                      | `wasi.h`: `zwasm_wasi_config_set_args` / `_set_envs`                                                                              |
+| `zwasm_wasi_config_{preopen_dir,preopen_fd,set_stdio_fd}`   | **no equivalent** — `wasi.h` has `inherit_stdio` only (preopen deferred)                                                         |
+| `zwasm_config_set_{fuel,timeout,max_memory,…}`             | `zwasm.h` instance-level: `zwasm_instance_set_fuel` / `_set_memory_pages_limit` / `_interrupt` (timeout = host timer + interrupt) |
+| `zwasm_config_set_allocator`                                | **no equivalent**                                                                                                                 |
+| `zwasm_module_cancel`                                       | `zwasm.h`: `zwasm_instance_interrupt` (+ `_clear_interrupt`)                                                                      |
 
 **WASI host setup** (`include/wasi.h`) — the full surface is:
 
@@ -165,18 +165,18 @@ const sum = try add.call(.{ 10, 20 });         // 30
 
 **Method map:**
 
-| v1 (`WasmModule`)                                   | v2                                                                                |
-|-----------------------------------------------------|-----------------------------------------------------------------------------------|
-| `WasmModule` (load == instantiate)                  | `Engine` / `Module` / `Instance` (one Module → many Instances)                   |
-| `load`, `loadWithOptions`                           | `Engine.init` + `engine.compile` + `module.instantiate`                          |
-| `loadFromWat`                                       | **none** (assemble `.wat` → `.wasm` externally)                                  |
-| `loadWasi[WithOptions]`                             | `Linker.defineWasi(.{})` then `linker.instantiate(&module)`                      |
-| `loadWithImports` / `loadWasiWithImports`           | `Linker.defineFunc("mod", "name", fn(*Caller, …) R, fn)` / `defineMemory` / …    |
-| `invoke(name, []u64, []u64)`                        | `instance.invoke(name, []Value, []Value)`                                        |
-| (no typed call)                                     | `instance.typedFunc(fn(P…) R, name).call(.{…})`                                  |
-| `invokeInterpreterOnly`                             | engine chosen at build/run time (`-Dengine`, `--engine`)                         |
-| `memoryRead` / `memoryWrite`                        | `instance.memory()` → `Memory.read(T, addr)` / `.write(addr, v)` / `.size()`     |
-| coarse error + `last_error` string                  | Zig error set with named traps (`error.DivByZero`, `error.OutOfBoundsLoad`, …); compile splits `error.ParseFailed` vs `error.ValidateFailed` |
+| v1 (`WasmModule`)                         | v2                                                                                                                                            |
+|-------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
+| `WasmModule` (load == instantiate)        | `Engine` / `Module` / `Instance` (one Module → many Instances)                                                                               |
+| `load`, `loadWithOptions`                 | `Engine.init` + `engine.compile` + `module.instantiate`                                                                                       |
+| `loadFromWat`                             | **none** (assemble `.wat` → `.wasm` externally)                                                                                              |
+| `loadWasi[WithOptions]`                   | `Linker.defineWasi(.{})` then `linker.instantiate(&module)`                                                                                   |
+| `loadWithImports` / `loadWasiWithImports` | `Linker.defineFunc("mod", "name", fn(*Caller, …) R, fn)` / `defineMemory` / …                                                               |
+| `invoke(name, []u64, []u64)`              | `instance.invoke(name, []Value, []Value)`                                                                                                     |
+| (no typed call)                           | `instance.typedFunc(fn(P…) R, name).call(.{…})`                                                                                             |
+| `invokeInterpreterOnly`                   | engine chosen at build/run time (`-Dengine`, `--engine`)                                                                                      |
+| `memoryRead` / `memoryWrite`              | `instance.memory()` → `Memory.read(T, addr)` / `.write(addr, v)` / `.size()`                                                                 |
+| coarse error + `last_error` string        | Zig error set with named traps (`error.DivByZero`, `error.OutOfBoundsLoad`, …); compile splits `error.ParseFailed` vs `error.ValidateFailed` |
 
 The public facade (`src/zwasm.zig`) exports: `Engine`, `Module`, `Instance`,
 `Linker`, `Caller`, `TypedFunc`, `Memory`, `Global`, `Table`, `Trap`, `Value`,
@@ -214,35 +214,35 @@ engine).** Under `--engine jit` they are not yet enforced (see
 
 ### 3.1 Feature parity
 
-| Capability                            | v1                            | v2                                                                                 |
-|---------------------------------------|-------------------------------|------------------------------------------------------------------------------------|
-| Fuel / instruction budget             | `Vm.fuel`, `--fuel`, C API    | **Zig API** (`InstantiateOpts.fuel`, `Instance.setFuel`); CLI/C-API = follow-on    |
-| Timeout / deadline                    | `Vm.deadline_ns`, `--timeout` | **Zig API** (host timer → `Instance.interrupt()`); CLI/C-API = follow-on           |
-| Cooperative cancellation              | `Vm.cancel()`, C API          | **Zig API** (`Instance.interrupt()`); C-API = follow-on                            |
-| Host memory-size limit                | `--max-memory`, C API         | **Zig API** (`InstantiateOpts.max_memory_pages`, `Instance.setMemoryPagesLimit`)   |
-| Table-elements limit                  | —                             | **new in v2** (`Instance.setTableElementsLimit`)                                   |
-| WAT text-format loading               | full `.wat` parser            | **removed by design** (delegated to `wasm-tools` / `wabt`)                         |
-| Custom host allocator (C API)         | yes                           | **removed** (no wasm-c-api hook)                                                   |
-| C-API memory copy helpers             | `..._memory_read/write`       | **removed** (use `wasm_memory_data`)                                               |
-| C-API WASI directory preopen          | yes                           | **deferred** (CLI `--dir` + Zig API cover it)                                      |
-| Rich CLI verbs (`inspect`/`validate`/`features`) | yes              | **removed** (lean CLI; use `wasm-tools` + programmatic validation)                 |
+| Capability                                       | v1                            | v2                                                                                                                   |
+|--------------------------------------------------|-------------------------------|----------------------------------------------------------------------------------------------------------------------|
+| Fuel / instruction budget                        | `Vm.fuel`, `--fuel`, C API    | Zig API + C `zwasm_instance_set_fuel` + CLI `--fuel`, BOTH engines (JIT units = entries + loop iterations, ADR-0179) |
+| Timeout / deadline                               | `Vm.deadline_ns`, `--timeout` | CLI `--timeout <ms>` (both engines) + host timer → interrupt (Zig/C)                                                |
+| Cooperative cancellation                         | `Vm.cancel()`, C API          | Zig `Instance.interrupt()` + C `zwasm_instance_interrupt`                                                            |
+| Host memory-size limit                           | `--max-memory`, C API         | **Zig API** (`InstantiateOpts.max_memory_pages`, `Instance.setMemoryPagesLimit`)                                     |
+| Table-elements limit                             | —                            | **new in v2** (`Instance.setTableElementsLimit`)                                                                     |
+| WAT text-format loading                          | full `.wat` parser            | **removed by design** (delegated to `wasm-tools` / `wabt`)                                                           |
+| Custom host allocator (C API)                    | yes                           | **removed** (no wasm-c-api hook)                                                                                     |
+| C-API memory copy helpers                        | `..._memory_read/write`       | **removed** (use `wasm_memory_data`)                                                                                 |
+| C-API WASI directory preopen                     | yes                           | **deferred** (CLI `--dir` + Zig API cover it)                                                                        |
+| Rich CLI verbs (`inspect`/`validate`/`features`) | yes                           | **removed** (lean CLI; use `wasm-tools` + programmatic validation)                                                   |
 
-The deferred sandboxing controls (fuel/timeout/cancel/mem-cap) are **fully present
-on the interpreter via the Zig API**; extending them to the JIT engine and exposing
-them on the C API + CLI is scoped follow-on work, not a regression in capability.
+The sandboxing controls (fuel/timeout/cancel/mem-cap) are **fully present on BOTH
+engines** (the JIT polls at function entry + every loop back-edge) and exposed on
+all three surfaces — Zig API, C `zwasm.h` setters, and the CLI flags (ADR-0179).
 
 ### 3.2 Behavioral & internal differences
 
-| Area                | v1                                              | v2                                                                                          |
-|---------------------|-------------------------------------------------|---------------------------------------------------------------------------------------------|
-| **Engine model**    | one `WasmModule` (load == instantiate)          | `Engine` → `Module` → `Instance` (compile once, instantiate many)                          |
-| **Default engine**  | JIT by default                                  | **interpreter by default**; `--engine jit` opt-in                                          |
-| **SIMD**            | interpreter-only (codegen was stubbed)          | **JIT-only**; the interpreter does **not** execute SIMD (by design — in an interpreter the dispatch cost dominates the vector work, so it carries no benefit) |
-| **GC**              | mark-and-sweep, on by default                   | mark-sweep with conservative native-stack root scan; **opt-in** (`-Dgc`, default off)      |
-| **Atomics (threads opcodes)** | on by default                         | implemented (validated + lowered + interpreted); broader shared-memory/spawn is a reserved stub |
-| **Compile to disk** | `--cache` → predecoded-IR `.zwcache`            | `compile` → AOT `.cwasm`; `run` auto-detects it                                            |
-| **Component Model** | decoder, on by default                          | decoder + canonical ABI + structural validation + WIT; **opt-in** (`-Dcomponent`, default off); a real `wasm32-wasip2` component runs e2e |
-| **Build defaults**  | `wat`/`jit`/`simd`/`gc`/`threads`/`component` all on | `-Dwasm=v3_0`, `-Dwasi=p1`, `-Dengine=both`; `gc` and `component` default **off**     |
+| Area                          | v1                                                   | v2                                                                                                                                                             |
+|-------------------------------|------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Engine model**              | one `WasmModule` (load == instantiate)               | `Engine` → `Module` → `Instance` (compile once, instantiate many)                                                                                            |
+| **Default engine**            | JIT by default                                       | **interpreter by default**; `--engine jit` opt-in                                                                                                              |
+| **SIMD**                      | interpreter-only (codegen was stubbed)               | **JIT-only**; the interpreter does **not** execute SIMD (by design — in an interpreter the dispatch cost dominates the vector work, so it carries no benefit) |
+| **GC**                        | mark-and-sweep, on by default                        | mark-sweep with conservative native-stack root scan; **opt-in** (`-Dgc`, default off)                                                                          |
+| **Atomics (threads opcodes)** | on by default                                        | implemented (validated + lowered + interpreted); broader shared-memory/spawn is a reserved stub                                                                |
+| **Compile to disk**           | `--cache` → predecoded-IR `.zwcache`                | `compile` → AOT `.cwasm`; `run` auto-detects it                                                                                                               |
+| **Component Model**           | decoder, on by default                               | decoder + canonical ABI + structural validation + WIT; **opt-in** (`-Dcomponent`, default off); a real `wasm32-wasip2` component runs e2e                      |
+| **Build defaults**            | `wat`/`jit`/`simd`/`gc`/`threads`/`component` all on | `-Dwasm=v3_0`, `-Dwasi=p1`, `-Dengine=both`; `gc` and `component` default **off**                                                                              |
 
 ### 3.3 WASI
 

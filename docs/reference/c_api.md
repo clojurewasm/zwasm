@@ -4,11 +4,11 @@ zwasm implements the standard **wasm-c-api** so a C host that drives any
 wasm-c-api runtime (wasmtime, wasmer, …) drives zwasm unchanged. Three
 headers in [`include/`](../../include/):
 
-| Header                             | Origin                                                           | Status                                                                                                                                              |
-|------------------------------------|------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
-| [`wasm.h`](../../include/wasm.h)   | Upstream `WebAssembly/wasm-c-api`, vendored read-only (ADR-0004) | **Complete** — every declared `extern` function is implemented (293/293; `scripts/capi_surface_gap.sh` enforces gap=0)                             |
-| [`wasi.h`](../../include/wasi.h)   | Hand-authored project extension (ADR-0005)                       | WASI 0.1 host-setup (`zwasm_wasi_config_*`, `zwasm_store_set_wasi`) — no canonical upstream `wasi.h` exists                                        |
-| [`zwasm.h`](../../include/zwasm.h) | Project extension slot                                           | **Reserved placeholder** — no extensions shipped (allocator injection / fuel / timeout / cancel / fast-path invoke are NOT implemented; see D-277) |
+| Header                             | Origin                                                           | Status                                                                                                                  |
+|------------------------------------|------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------|
+| [`wasm.h`](../../include/wasm.h)   | Upstream `WebAssembly/wasm-c-api`, vendored read-only (ADR-0004) | **Complete** — every declared `extern` function is implemented (293/293; `scripts/capi_surface_gap.sh` enforces gap=0) |
+| [`wasi.h`](../../include/wasi.h)   | Hand-authored project extension (ADR-0005)                       | WASI 0.1 host-setup (`zwasm_wasi_config_*`, `zwasm_store_set_wasi`) — no canonical upstream `wasi.h` exists            |
+| [`zwasm.h`](../../include/zwasm.h) | Hand-authored project extension (ADR-0179 #3a-4)                 | Instance-level sandboxing setters (fuel / memory cap / interrupt) + `zwasm_trap_kind` — see below                      |
 
 The header IS the reference — `wasm.h` is the upstream standard
 documented at <https://github.com/WebAssembly/wasm-c-api>. This page
@@ -46,10 +46,26 @@ ownership). See the worked example in
 [`include/wasi.h`](../../include/wasi.h) and
 [`examples/c_host/`](../../examples/c_host/).
 
-## Not shipped (`zwasm.h`)
+## Sandboxing extensions (`zwasm.h`)
 
-`zwasm.h` is a reserved placeholder. The performance / control extensions
-once sketched for it (allocator injection, fuel metering, wall-clock
-timeout, cancellation, the kind-less `zwasm_func_call_fast` hot path) are
-**not implemented** — they are post-v0.1.0 / evaluated-on-demand, in
-keeping with the lightweight design. Tracked as **D-277**.
+Instance-level budget setters (ADR-0179 #3a-4) mirroring the Zig facade —
+post-instantiate and re-armable mid-workload (v1's config-level
+`zwasm_config_set_*` shape was deliberately rejected). All null-tolerant.
+The C API creates interpreter-backed instances (the hardened default
+engine); `--engine jit` budgets are the CLI surface.
+
+| Function                                                            | Effect                                                                                                                                   |
+|---------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------|
+| `zwasm_instance_set_fuel(i, n)` / `zwasm_instance_disable_fuel(i)`  | deterministic budget; exhaustion traps `all fuel consumed` (kind 17). Interp units = instructions                                        |
+| `zwasm_instance_fuel_remaining(i, &out)`                            | remaining budget; returns `false` when unmetered                                                                                         |
+| `zwasm_instance_set_memory_pages_limit(i, p)` / `…_clear_…(i)`    | host ceiling below the declared max; `memory.grow` past it returns the spec `-1`                                                         |
+| `zwasm_instance_interrupt(i)` / `zwasm_instance_clear_interrupt(i)` | cooperative cancel/timeout from any thread; traps `interrupted` (kind 16) at the next poll                                               |
+| `zwasm_trap_kind(trap)`                                             | machine-readable trap kind beside wasm.h's message-only surface (`ZWASM_TRAP_INTERRUPTED`/`ZWASM_TRAP_OUT_OF_FUEL` macros); `-1` on NULL |
+
+## Not shipped (`zwasm.h` residuals)
+
+Allocator injection and the kind-less `zwasm_func_call_fast` hot path
+remain unimplemented (evaluated-on-demand, in keeping with the
+lightweight design). The pre-extension `zwasm_instance_get_func` /
+`zwasm_store_set_wasi` / `zwasm_wasi_config_*` exports are not yet
+declared in `zwasm.h` (the Phase-16 C-surface audit owns completing it).

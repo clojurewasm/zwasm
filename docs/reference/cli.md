@@ -26,11 +26,19 @@ Drives a WASI module's `_start` / `main` and exits with the guest's
 `proc_exit` code. A `.cwasm` (CWAS magic) loads + runs directly (no
 parse/compile).
 
-| Flag                     | Effect                                                                                                |
-|--------------------------|-------------------------------------------------------------------------------------------------------|
+| Flag                       | Effect                                                                                                                                                                                                                                       |
+|----------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `--invoke <name>[=a,b,…]` | run the named export instead of `_start`/`main`. Zero-arg form → result surfaces as the exit code. `=args` (comma-separated, parsed by param type i32/i64/f32/f64) → typed results print bare, one per line, on stdout. Interp engine only |
-| `--engine <interp\|jit>` | `interp` (default) or `jit` — BOTH do full WASI (D-244); `jit` additionally executes SIMD-128             |
-| `--dir <host>[:<guest>]` | preopen a host directory for WASI (colon separator; guest path mirrors host when omitted)             |
+| `--engine <interp\|jit>`   | `interp` (default) or `jit` — BOTH do full WASI (D-244); `jit` additionally executes SIMD-128                                                                                                                                               |
+| `--dir <host>[:<guest>]`   | preopen a host directory for WASI (colon separator; guest path mirrors host when omitted)                                                                                                                                                    |
+| `--env KEY=VAL`            | set a WASI environment variable for the guest (repeatable; bare `KEY` sets empty)                                                                                                                                                            |
+| `--fuel <N>`               | trap (`all fuel consumed`) after a deterministic budget. Units are engine-specific by design: interp counts instructions, jit counts function entries + loop iterations (ADR-0179)                                                           |
+| `--timeout <ms>`           | interrupt the guest (`interrupted` trap) after a wall-clock deadline — both engines                                                                                                                                                         |
+| `--max-memory <bytes>`     | refuse `memory.grow` past this many bytes (64 KiB page granularity); the spec `-1` failure, not a trap                                                                                                                                       |
+
+The sandboxing flags (`--fuel`/`--timeout`/`--max-memory`) apply to `.wasm`
+runs on both engines; a `.cwasm` or component run combined with them is
+refused loudly (exit 2) rather than running unsandboxed.
 
 ### `compile`
 
@@ -52,6 +60,6 @@ artifact (ADR-0039) to the `-o` / `--output` path. `zwasm run
 ## Not shipped
 
 `validate` / `inspect` / `features` / `wat` / `wasm` are deliberately
-absent (ADR-0159). wasmtime-style `--env` / `--fuel` / `--timeout` are
-tracked as D-273 (deferred-pending-need). (`--invoke NAME=ARGS`
-arg-marshalling + typed-result printing shipped — see the `run` table.)
+absent (ADR-0159). (`--env`, `--fuel`, `--timeout`, `--max-memory` and
+`--invoke NAME=ARGS` arg-marshalling + typed-result printing have all
+shipped — see the `run` table.)

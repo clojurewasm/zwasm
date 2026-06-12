@@ -116,9 +116,11 @@ linear-memory cap), so a forgotten budget still yields a metered instance; pass
 `.unmetered` for trusted code. `Instance.interrupt()` stops a runaway guest from
 another thread (timeout or cancellation → `error.Interrupted`);
 `setFuel`/`setMemoryPagesLimit`/`setTableElementsLimit` adjust the budgets on a
-live instance. Run untrusted code on the interp engine (the default) for these
-guarantees. (JIT-engine sandboxing is a tracked follow-on — see
-[`docs/migration_v1_to_v2.md`](docs/migration_v1_to_v2.md) §1.)
+live instance. The **JIT engine carries the same triad** (ADR-0179): polls at
+function entry + every loop back-edge deliver interruption and fuel (units there
+= entries + loop iterations), and `memory.grow` honours the host cap. From C,
+use the `zwasm_instance_*` setters in [`include/zwasm.h`](include/zwasm.h);
+from the CLI, `--fuel` / `--timeout` / `--max-memory` (both engines).
 
 **C** (wasm-c-api) — [`include/wasm.h`](include/wasm.h) is byte-identical
 to the upstream standard (the interface wasmtime/wasmer follow); WASI
