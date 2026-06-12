@@ -83,6 +83,10 @@ pub const Blocker = enum {
     /// a call/return boundary → reads stale FP reg. Un-skip the cross-func
     /// f32 repro when the FP-class result fix lands.
     @"D-212",
+    /// D-314 #3a — x86_64 JIT prologue interrupt poll. arm64 landed first;
+    /// the x86_64 poll (after the JBE stack probe) is the next chunk. The
+    /// interrupt-trap test arch-gates to aarch64 until then.
+    @"D-314",
 };
 
 /// Phase-end batch deferral. See `Win64Phase` doc.

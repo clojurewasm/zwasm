@@ -336,3 +336,31 @@ test "runVoidExportWasi: ed25519 JIT runs without trap (D-291 callee-saved-home 
     if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
     _ = try runner.runVoidExportWasi(testing.allocator, d291_ed25519_wasm, "_start", null, null);
 }
+
+test "JIT interrupt poll: prologue traps interrupted (trap_kind 16) on a host-set flag (D-314 #3a)" {
+    // arm64 prologue poll only this chunk; the x86_64 poll is the next D-314
+    // step → arch-gate via the registered Blocker (test_discipline §4). The
+    // interp surface is covered by trap_surface unit tests (code 16).
+    if (builtin.cpu.arch != .aarch64) return skip.blocker(.@"D-314");
+    // (module (func (export "f") (result i32) i32.const 42))
+    const f42 = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05, 0x01, 0x60,
+        0x00, 0x01, 0x7f, 0x03, 0x02, 0x01, 0x00, 0x07, 0x05, 0x01, 0x01, 0x66,
+        0x00, 0x00, 0x0a, 0x06, 0x01, 0x04, 0x00, 0x41, 0x2a, 0x0b,
+    };
+    var inst = try runner.JitInstance.init(testing.allocator, &f42);
+    defer inst.deinit(testing.allocator);
+    var flag = std.atomic.Value(u32).init(0);
+    inst.setInterruptFlag(&flag);
+    // Flag clear → the poll's CBZ/B.NE fall through; f runs normally.
+    try testing.expectEqual(@as(?u64, 42), try inst.invoke(testing.allocator, "f", &.{}));
+    // Flag set → the prologue poll traps before the body; trap_kind = 16.
+    flag.store(1, .monotonic);
+    try testing.expectError(entry.Error.Trap, inst.invoke(testing.allocator, "f", &.{}));
+    try testing.expectEqual(@as(u32, 16), inst.owned.rt.trap_kind);
+    try testing.expectEqual(trap_surface.TrapKind.interrupted, trap_surface.jitTrapCode(inst.owned.rt.trap_kind).?);
+    // Cleared → re-checked each call (not latched); f runs again.
+    flag.store(0, .monotonic);
+    inst.owned.rt.trap_flag = 0;
+    try testing.expectEqual(@as(?u64, 42), try inst.invoke(testing.allocator, "f", &.{}));
+}

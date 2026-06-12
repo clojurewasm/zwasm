@@ -721,6 +721,15 @@ pub const JitInstance = struct {
     /// side effects, e.g. `new` doing `global.set (array.new …)`, via the
     /// void dispatch path: the callee sets the result register, a void caller
     /// ignores it — ABI-safe; the spec runner uses `:?` for ref results, D-222).
+    /// ADR-0179 #3a / D-314 — host→JIT cooperative-interruption driving path.
+    /// Point the JIT runtime's `interrupt_ptr` at a host `std.atomic.Value(u32)`
+    /// (or null to disable). The JIT prologue/back-edge poll traps `Error.Trap`
+    /// (trap_kind 16 = interrupted) on the next entry/back-edge once the host
+    /// stores a nonzero value. The flag must outlive every `invoke`.
+    pub fn setInterruptFlag(self: *JitInstance, flag: ?*const std.atomic.Value(u32)) void {
+        self.owned.rt.interrupt_ptr = flag;
+    }
+
     /// Wider arities / v128 result / non-scalar args → `UnsupportedEntrySignature`.
     pub fn invoke(self: *JitInstance, allocator: Allocator, export_name: []const u8, args: []const u64) Error!?u64 {
         const func_idx = try findExportFunc(allocator, self.wasm_bytes, export_name);

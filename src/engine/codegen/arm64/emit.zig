@@ -338,6 +338,19 @@ pub fn compile(
     try gpr.writeU32(allocator, &buf, inst.encCmpRegX(17, 16));
     const stack_probe_fixup: u32 = @intCast(buf.items.len);
     try gpr.writeU32(allocator, &buf, inst.encBCond(.ls, 0));
+    // ADR-0179 #3a / D-314 — cooperative-interruption poll. Same pre-frame
+    // position as the stack probe (stub fb=0). `LDR X16 ← interrupt_ptr;
+    // CBZ X16, skip` (null = not configured → no per-call cost beyond the
+    // load+not-taken branch); `LDR W17 ← [X16]; CMP W17, WZR; B.NE` → the
+    // interrupted stub. CMP+B.NE (not CBNZ) so EmitCindStub's B.cond patcher
+    // re-targets the fixup correctly. X16/X17 = IP0/IP1 caller-saved scratch
+    // (body not started). Skip disp = 4 words (over LDR/CMP/B.NE).
+    try gpr.writeU32(allocator, &buf, inst.encLdrImm(16, abi.runtime_ptr_save_gpr, jit_abi.interrupt_ptr_off));
+    try gpr.writeU32(allocator, &buf, inst.encCbz(16, 4));
+    try gpr.writeU32(allocator, &buf, inst.encLdrImmW(17, 16, 0));
+    try gpr.writeU32(allocator, &buf, inst.encCmpRegW(17, 31));
+    const interrupt_probe_fixup: u32 = @intCast(buf.items.len);
+    try gpr.writeU32(allocator, &buf, inst.encBCond(.ne, 0));
     // §9.8a / 8a.2 (ADR-0034) — JIT-execution sentinel: write 1 to
     // `JitRuntime.jit_executed_flag` so post-call readers can
     // distinguish "JIT body actually ran" from "compile-passed but
@@ -1877,6 +1890,9 @@ pub fn compile(
                 // fb=0 + kind=4 (new code; 0=unmarked, 1=generic, 2=
                 // cind-bounds, 3=cind-sig, 4=stack-overflow).
                 try EmitCindStub.emit(allocator, &buf, &.{stack_probe_fixup}, 4, 0);
+                // ADR-0179 #3a / D-314 — cooperative-interruption stub (code 16).
+                // Fires at the same pre-frame position as the stack probe → fb=0.
+                try EmitCindStub.emit(allocator, &buf, &.{interrupt_probe_fixup}, 16, 0);
                 // §9.6/9.6-f-ii + §9.9-g-19 — SIMD const-pool flush +
                 // LDR-Q-literal imm19 fixups (per ADR-0042 + ADR-0051).
                 // After the trap stub, if any v128.const / i8x16.shuffle

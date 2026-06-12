@@ -25,10 +25,16 @@
 //!               ADD X17, SP, #0   (= MOV X17, SP)
 //!               CMP X17, X16
 //!               B.LS stack_overflow_trap_stub  (fixup)
-//!   Words 12-13: MOVZ X17,#1 + STR W17,[X19,#flag_off] (ADR-0034)
-//!   Word 14 (optional, frame > 0): SUB SP, SP, #frame_bytes  (4 bytes)
+//!   Words 12-16: ADR-0179 #3a / D-314 interrupt poll (20 bytes)
+//!               LDR X16, [X19, #interrupt_ptr_off]
+//!               CBZ X16, +4   (skip when no interrupt configured)
+//!               LDR W17, [X16]
+//!               CMP W17, WZR
+//!               B.NE interrupted_trap_stub  (fixup)
+//!   Words 17-18: MOVZ X17,#1 + STR W17,[X19,#flag_off] (ADR-0034)
+//!   Word 19 (optional, frame > 0): SUB SP, SP, #frame_bytes  (4 bytes)
 //!
-//! Total: 56 bytes (no frame) or 60 bytes (frame > 0). Words 0-1
+//! Total: 76 bytes (no frame) or 80 bytes (frame > 0). Words 0-1
 //! are pinned by AAPCS64 (Arm IHI 0055 §6.4); the optional SUB SP
 //! only appears when the function has locals + spill bytes.
 //!
@@ -57,8 +63,10 @@ pub const FpLrSave = struct {
 /// shifting body_start from 32 → 40 (no frame) and 36 → 44
 /// (with frame). ADR-0105 D2 adds the JIT-prologue stack-probe
 /// (4 instructions / 16 bytes), shifting again to 56 → 60.
+/// ADR-0179 #3a / D-314 adds the interrupt poll (5 instructions /
+/// 20 bytes) after the stack probe, shifting to 76 → 80.
 pub fn body_start_offset(has_frame: bool) u32 {
-    return if (has_frame) 60 else 56;
+    return if (has_frame) 80 else 76;
 }
 
 /// Body-start offset for MEMORY-class returns (AAPCS64 §6.8.2;
@@ -93,13 +101,13 @@ pub fn assertPrologueOpcodes(bytes: []const u8) error{ PrologueTooShort, BadStpO
 
 const testing = std.testing;
 
-test "body_start_offset: 56 bytes no frame, 60 bytes with frame (post-ADR-0105 D2 probe)" {
-    try testing.expectEqual(@as(u32, 56), body_start_offset(false));
-    try testing.expectEqual(@as(u32, 60), body_start_offset(true));
+test "body_start_offset: 76 bytes no frame, 80 bytes with frame (post-D-314 interrupt poll)" {
+    try testing.expectEqual(@as(u32, 76), body_start_offset(false));
+    try testing.expectEqual(@as(u32, 80), body_start_offset(true));
 }
 
-test "body_start_offset_memory_return: 64 bytes (MEMORY-class STR X8 after frame-SUB)" {
-    try testing.expectEqual(@as(u32, 64), body_start_offset_memory_return());
+test "body_start_offset_memory_return: 84 bytes (MEMORY-class STR X8 after frame-SUB)" {
+    try testing.expectEqual(@as(u32, 84), body_start_offset_memory_return());
 }
 
 test "wordAt reads u32 little-endian at offset" {

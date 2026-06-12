@@ -505,6 +505,14 @@ pub const JitRuntime = extern struct {
     /// load + variable shift is negligible vs threading a compile-time
     /// constant through compileOne.
     mem0_page_size_log2: u32 = 16,
+    /// Sandboxing (ADR-0179 #3a / D-314) — host cooperative-interruption flag.
+    /// Points at the host's `std.atomic.Value(u32)` (== the interp Runtime's
+    /// `interrupt_flag_storage` when shared); null = no interrupt configured.
+    /// The JIT prologue/back-edge poll does `LDR Xptr ← interrupt_ptr; CBZ
+    /// skip (null = disabled); LDR Wf ← [Xptr]; CMP Wf,0; B.NE interrupted-stub`.
+    /// A plain load is a relaxed/monotonic read of the aligned u32 (matches the
+    /// interp's `.monotonic`). TRAILING (extern-struct layout; no offset churn).
+    interrupt_ptr: ?*const std.atomic.Value(u32) = null,
 };
 
 /// Default `memory_grow_fn` — unconditionally refuses growth by
@@ -1257,6 +1265,9 @@ pub const eh_payload_len_off: u16 = @offsetOf(JitRuntime, "eh_payload_len");
 /// payload_size lookup.
 pub const gc_heap_off: u12 = @offsetOf(JitRuntime, "gc_heap");
 pub const gc_type_infos_ptr_off: u12 = @offsetOf(JitRuntime, "gc_type_infos_ptr");
+/// ADR-0179 #3a / D-314 — host cooperative-interruption flag pointer, read
+/// by the prologue/back-edge poll. Trailing field; no existing offset shifts.
+pub const interrupt_ptr_off: u12 = @offsetOf(JitRuntime, "interrupt_ptr");
 
 /// Total size of the head section consumed by the prologue.
 pub const head_size: u32 = @sizeOf(JitRuntime);
@@ -1432,7 +1443,8 @@ test "JitRuntime: total size = 464 bytes (post-10.E tag_ids tail)" {
     // ADR-0168 appends `atomic_cmpxchg_fns[4]` (+32 B, trailing) → 480 + 32 = 512.
     // ADR-0168 appends atomic_notify_fn (+8) + atomic_wait_fns[2] (+16) +
     // mem0_shared (u32 +4, pad +4) → 512 + 32 = 544.
-    try testing.expectEqual(@as(u32, 544), head_size);
+    // D-314 appends `interrupt_ptr` (?*const atomic, +8 B, trailing) → 544 + 8 = 552.
+    try testing.expectEqual(@as(u32, 552), head_size);
 }
 
 test "jitGcAlloc: allocates struct{i32} via the *JitRuntime bridge (10.G A-2a)" {

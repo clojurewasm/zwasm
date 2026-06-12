@@ -51,7 +51,7 @@ test "compile: (i32.const 7) (i32.const 5) i32.add end → returns 12 in X0" {
 
     // Stream: STP / MOV-FP / MOVZ X9 #7 / MOVZ X10 #5 / ADD X9 X9 X10 /
     //         MOV X0 X9 / LDP / RET = 8 u32s = 32 bytes.
-    try testing.expectEqual(@as(usize, 108), out.bytes.len);
+    try testing.expectEqual(@as(usize, 156), out.bytes.len);
     const body0 = prologue.body_start_offset(false);
     try testing.expectEqual(@as(u32, inst.encMovzImm16(9, 7)), std.mem.readInt(u32, out.bytes[body0..][0..4], .little));
     try testing.expectEqual(@as(u32, inst.encMovzImm16(10, 5)), std.mem.readInt(u32, out.bytes[body0 + 4 ..][0..4], .little));

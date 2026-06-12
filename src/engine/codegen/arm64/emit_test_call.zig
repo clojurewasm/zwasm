@@ -395,13 +395,13 @@ test "compile: bundled Class C MEMORY-class — caller LEA X8 + callee STR X8 + 
     //                    (set by prologue, read by epilogue)
     // Body starts at body_start_offset_memory_return() = 64
     // (post-ADR-0105 D2 probe shifted +16).
-    try testing.expectEqual(@as(u32, 64), prologue.body_start_offset_memory_return());
+    try testing.expectEqual(@as(u32, 84), prologue.body_start_offset_memory_return());
 
     // STR X8, [SP, #24] at body_start_offset(true) = 60 (post-SUB-SP,
     // just before body).
     try testing.expectEqual(
         @as(u32, inst.encStrImm(8, 31, 24)),
-        std.mem.readInt(u32, out.bytes[60..][0..4], .little),
+        std.mem.readInt(u32, out.bytes[prologue.body_start_offset(true)..][0..4], .little),
     );
 
     // Caller-side prologue at body0 = 64:
@@ -411,21 +411,21 @@ test "compile: bundled Class C MEMORY-class — caller LEA X8 + callee STR X8 + 
     //   [76..88] LDR W?, [SP, #0/8/16]  ; capture 3 results
     try testing.expectEqual(
         @as(u32, inst.encAddImm12(8, 31, 0)),
-        std.mem.readInt(u32, out.bytes[64..][0..4], .little),
+        std.mem.readInt(u32, out.bytes[prologue.body_start_offset(true) + 4 ..][0..4], .little),
     );
     try testing.expectEqual(
         @as(u32, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr)),
-        std.mem.readInt(u32, out.bytes[68..][0..4], .little),
+        std.mem.readInt(u32, out.bytes[prologue.body_start_offset(true) + 8 ..][0..4], .little),
     );
     try testing.expectEqual(
         @as(u32, inst.encBL(0)),
-        std.mem.readInt(u32, out.bytes[72..][0..4], .little),
+        std.mem.readInt(u32, out.bytes[prologue.body_start_offset(true) + 12 ..][0..4], .little),
     );
     // LDR W unsigned-offset: 0xB9400000 | (imm12<<10) | (rn<<5) | rt
     // imm12 = byte_off >> 2. rn = 31 (SP). opcode prefix = 0x2E5
     // (= 0xB9400000 >> 22 = 0x2E5).
     for ([_]u32{ 0, 8, 16 }, 0..) |abs_off, i| {
-        const w = std.mem.readInt(u32, out.bytes[76 + @as(u32, @intCast(i)) * 4 ..][0..4], .little);
+        const w = std.mem.readInt(u32, out.bytes[prologue.body_start_offset(true) + 16 + @as(u32, @intCast(i)) * 4 ..][0..4], .little);
         try testing.expectEqual(@as(u32, abs_off >> 2), (w >> 10) & 0xFFF);
         try testing.expectEqual(@as(u32, 31), (w >> 5) & 0x1F);
         try testing.expectEqual(@as(u32, 0x2E5), w >> 22);
@@ -436,7 +436,7 @@ test "compile: bundled Class C MEMORY-class — caller LEA X8 + callee STR X8 + 
     // followed by 3 × STR Xn, [X16, #i*8].
     const ldr_x16 = inst.encLdrImm(16, 31, 24);
     var found_ldr_at: ?usize = null;
-    var scan: usize = 88; // post the 3 LDR-W capture words
+    var scan: usize = prologue.body_start_offset(true) + 28; // post the 3 LDR-W capture words
     while (scan + 4 <= out.bytes.len) : (scan += 4) {
         const word = std.mem.readInt(u32, out.bytes[scan..][0..4], .little);
         if (word == ldr_x16) {
