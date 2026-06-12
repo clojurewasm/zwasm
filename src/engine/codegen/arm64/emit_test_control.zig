@@ -12,6 +12,8 @@ const std = @import("std");
 const zir = @import("../../../ir/zir.zig");
 const inst = @import("inst.zig");
 const prologue = @import("prologue.zig");
+const abi = @import("abi.zig");
+const jit_abi = @import("../shared/jit_abi.zig");
 const regalloc = @import("../shared/regalloc.zig");
 const emit = @import("emit.zig");
 const exception_table = @import("../shared/exception_table.zig");
@@ -83,11 +85,17 @@ test "compile: loop + br 0 + end — backward unconditional branch" {
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
     defer deinit(testing.allocator, out);
 
-    // Loop entry recorded at body0; br targets it from body0 → disp = 0 words.
-    // Then end (no-op for loop), then i32.const W9 #1, MOV X0, ...
+    // Loop entry recorded at body0. D-314: the `br 0` emits the loop back-edge
+    // interrupt poll (5 instrs / 20 bytes) FIRST, then the backward B. So body0
+    // is the poll's `LDR X16, [X19, #interrupt_ptr_off]`, and the B is at
+    // body0+20 targeting body0 → disp = -5 words (negative, as intended).
     const body0 = prologue.body_start_offset(false);
-    const b_word = std.mem.readInt(u32, out.bytes[body0..][0..4], .little);
-    try testing.expectEqual(@as(u32, inst.encB(0)), b_word);
+    try testing.expectEqual(
+        @as(u32, inst.encLdrImm(16, abi.runtime_ptr_save_gpr, jit_abi.interrupt_ptr_off)),
+        std.mem.readInt(u32, out.bytes[body0..][0..4], .little),
+    );
+    const b_word = std.mem.readInt(u32, out.bytes[body0 + 20 ..][0..4], .little);
+    try testing.expectEqual(@as(u32, inst.encB(-5)), b_word);
 }
 
 test "compile: if (i32.const N) end — single-arm if; CBZ skips to end" {

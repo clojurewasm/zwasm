@@ -706,6 +706,9 @@ pub fn compile(
     // ADR-0164 A3 / D-292 — memory oob (code 6) demuxed from bounds_fixups.
     var oob_fixups: std.ArrayList(u32) = .empty;
     defer oob_fixups.deinit(allocator);
+    // ADR-0179 #3a / D-314 — loop back-edge interrupt poll (code 16, fb=frame_bytes).
+    var back_edge_interrupt_fixups: std.ArrayList(u32) = .empty;
+    defer back_edge_interrupt_fixups.deinit(allocator);
 
     // Return fixup list (§9.7 / 7.5-return-op): each `return` op
     // emits its result marshal inline and an unconditional B
@@ -805,6 +808,7 @@ pub fn compile(
         .cast_fail_fixups = &cast_fail_fixups,
         .uncaught_exc_fixups = &uncaught_exc_fixups,
         .oob_fixups = &oob_fixups,
+        .back_edge_interrupt_fixups = &back_edge_interrupt_fixups,
         .return_fixups = &return_fixups,
         .call_fixups = &call_fixups,
         .simd_const_fixups = &simd_const_fixups,
@@ -1883,6 +1887,10 @@ pub fn compile(
                 // D-292 C — throw / throw_ref uncaught exception (unconditional B → code 12).
                 try EmitCindStub.emit(allocator, &buf, uncaught_exc_fixups.items, 12, frame_bytes);
                 try EmitCindStub.emit(allocator, &buf, oob_fixups.items, 6, frame_bytes);
+                // ADR-0179 #3a / D-314 — loop back-edge interrupt poll stub
+                // (code 16, POST-frame → fb=frame_bytes; distinct from the
+                // prologue interrupt stub which is fb=0).
+                try EmitCindStub.emit(allocator, &buf, back_edge_interrupt_fixups.items, 16, frame_bytes);
                 // ADR-0105 D3 — stack-overflow trap stub. Probe fired
                 // BEFORE `SUB SP, SP, frame_bytes`, so the stub must
                 // NOT add frame_bytes back (SP is still at the post-

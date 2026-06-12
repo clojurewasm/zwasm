@@ -40,6 +40,8 @@ const inst = @import("inst.zig");
 const inst_neon = @import("inst_neon.zig");
 const ctx_mod = @import("ctx.zig");
 const gpr = @import("gpr.zig");
+const abi = @import("abi.zig");
+const jit_abi = @import("../shared/jit_abi.zig");
 const label_mod = @import("label.zig");
 
 const ZirInstr = zir.ZirInstr;
@@ -220,6 +222,26 @@ pub fn marshalFunctionReturn(ctx: *EmitCtx) Error!void {
 /// Fixup for the matching end to patch. When `N` equals the
 /// number of explicit labels, the branch targets the implicit
 /// function-level block (= `return`); marshal the function's
+/// ADR-0179 #3a / D-314 — loop back-edge cooperative-interruption poll.
+/// Mirrors the prologue poll (emit.zig) but its B.NE fixup routes to a
+/// POST-frame interrupted stub (fb=frame_bytes). Inserted just BEFORE a
+/// backward branch (to a `loop` header) so the host flag is checked every
+/// iteration — the prologue poll alone misses a tight `(loop)` with no calls.
+/// `LDR X16←interrupt_ptr; CBZ +4 (skip when null); LDR W17←[X16]; CMP W17,WZR;
+/// B.NE → back_edge_interrupt_fixups`. X16/X17 = IP0/IP1 caller-saved scratch,
+/// free at a control-flow boundary; CMP+B.NE (not CBNZ) per the EmitCindStub
+/// patcher; the CMP's flags don't disturb a following CBNZ (compare-and-branch
+/// on a register, not NZCV).
+fn emitBackEdgeInterruptPoll(ctx: *EmitCtx) Error!void {
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, abi.runtime_ptr_save_gpr, jit_abi.interrupt_ptr_off));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbz(16, 4));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImmW(17, 16, 0));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegW(17, 31));
+    const fixup_at: u32 = @intCast(ctx.buf.items.len);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.ne, 0));
+    try ctx.back_edge_interrupt_fixups.append(ctx.allocator, fixup_at);
+}
+
 /// result and append to `return_fixups` so the final `end`
 /// patches it to the regular epilogue.
 pub fn emitBr(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
@@ -257,6 +279,9 @@ pub fn emitBr(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
                 }
             }
         }
+        // D-314 — back-edge poll before the unconditional backward B (an
+        // infinite `(loop (br 0))` is caught here, the prologue poll can't).
+        try emitBackEdgeInterruptPoll(ctx);
         const fixup_at: u32 = @intCast(ctx.buf.items.len);
         const tgt_byte = ctx.labels.items[tgt_idx].target_byte_offset;
         const disp_words: i32 = @as(i32, @intCast(tgt_byte)) -
@@ -329,6 +354,9 @@ pub fn branchOnReg(ctx: *EmitCtx, ins: *const ZirInstr, wn: inst.Xn) Error!void 
                     try merge_mov.emitMergeMov(ctx, src_vreg, dst_vreg, 1, 0);
                 }
             }
+            // D-314 — back-edge poll runs only when the branch is TAKEN
+            // (inside the cond≠0 region), before the backward B.
+            try emitBackEdgeInterruptPoll(ctx);
             const b_at: u32 = @intCast(ctx.buf.items.len);
             const tgt_byte = ctx.labels.items[tgt_idx].target_byte_offset;
             const disp_words: i32 = @as(i32, @intCast(tgt_byte)) -
@@ -340,6 +368,9 @@ pub fn branchOnReg(ctx: *EmitCtx, ins: *const ZirInstr, wn: inst.Xn) Error!void 
             std.mem.writeInt(u32, ctx.buf.items[cbz_at..][0..4], inst.encCbzW(wn, cbz_disp_words), .little);
             return;
         }
+        // D-314 — back-edge poll before the conditional backward CBNZ. Runs
+        // each iteration check (one harmless extra poll on the exit pass).
+        try emitBackEdgeInterruptPoll(ctx);
         const fixup_at: u32 = @intCast(ctx.buf.items.len);
         const tgt_byte = ctx.labels.items[tgt_idx].target_byte_offset;
         const disp_words: i32 = @as(i32, @intCast(tgt_byte)) -

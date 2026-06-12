@@ -366,3 +366,38 @@ test "JIT interrupt poll: prologue traps interrupted (trap_kind 16) on a host-se
     inst.owned.rt.trap_flag = 0;
     try testing.expectEqual(@as(?u64, 42), try inst.invoke(testing.allocator, "f", &.{}));
 }
+
+test "JIT loop back-edge interrupt poll: a tight loop traps interrupted (D-314 #3a)" {
+    // Back-edge poll is arm64-only this chunk (x86_64 back-edge + R15-forcing
+    // for a no-call loop fn is the next step) → arch-gate.
+    if (builtin.cpu.arch != .aarch64) return skip.blocker(.@"D-314");
+    // (func (export "f") (result i32) (local $i i32)
+    //   (local.set $i (i32.const 1000000))
+    //   (loop $L (local.set $i (i32.sub (local.get $i) (i32.const 1)))
+    //            (br_if $L (local.get $i)))    ;; backward br_if = a back-edge
+    //   (i32.const 42))
+    // No `call` → no prologue-poll coverage on a tight loop; the BACK-EDGE poll
+    // is what catches it (the whole point of this chunk).
+    const loop_wasm = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05, 0x01, 0x60,
+        0x00, 0x01, 0x7f, 0x03, 0x02, 0x01, 0x00, 0x07, 0x05, 0x01, 0x01, 0x66,
+        0x00, 0x00, 0x0a, 0x1c, 0x01, 0x1a, 0x01, 0x01, 0x7f, 0x41, 0xc0, 0x84,
+        0x3d, 0x21, 0x00, 0x03, 0x40, 0x20, 0x00, 0x41, 0x01, 0x6b, 0x21, 0x00,
+        0x20, 0x00, 0x0d, 0x00, 0x0b, 0x41, 0x2a, 0x0b,
+    };
+    var inst = try runner.JitInstance.init(testing.allocator, &loop_wasm);
+    defer inst.deinit(testing.allocator);
+    var flag = std.atomic.Value(u32).init(0);
+    inst.setInterruptFlag(&flag);
+    // Flag clear → the loop counts down ~1e6 iterations to 0 and returns 42.
+    try testing.expectEqual(@as(?u64, 42), try inst.invoke(testing.allocator, "f", &.{}));
+    // Flag set → the FIRST back-edge poll traps long before the loop finishes.
+    flag.store(1, .monotonic);
+    try testing.expectError(entry.Error.Trap, inst.invoke(testing.allocator, "f", &.{}));
+    try testing.expectEqual(@as(u32, 16), inst.owned.rt.trap_kind);
+    try testing.expectEqual(trap_surface.TrapKind.interrupted, trap_surface.jitTrapCode(inst.owned.rt.trap_kind).?);
+    // Cleared → runs to completion again.
+    flag.store(0, .monotonic);
+    inst.owned.rt.trap_flag = 0;
+    try testing.expectEqual(@as(?u64, 42), try inst.invoke(testing.allocator, "f", &.{}));
+}

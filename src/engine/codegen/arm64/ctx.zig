@@ -147,6 +147,11 @@ pub const EmitCtx = struct {
     /// reaches a dedicated trap stub. Other `bounds_fixups` kinds (oob_table /
     /// conversion / ref-null / cast / array-oob) stay generic (D-293).
     oob_fixups: *std.ArrayList(u32),
+    /// ADR-0179 #3a / D-314 — loop back-edge cooperative-interruption poll
+    /// (B.NE → code 16) fixups. Distinct from the PROLOGUE interrupt poll (a
+    /// separate single fixup, fb=0): a back-edge poll fires POST-frame, so its
+    /// stub restores frame_bytes before LDP/RET (fb=frame_bytes, same as oob).
+    back_edge_interrupt_fixups: *std.ArrayList(u32),
     /// `return` / `br <function-depth>` placeholders; patched at
     /// function-final `end` to share the regular epilogue path.
     return_fixups: *std.ArrayList(u32),
