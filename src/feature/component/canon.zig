@@ -209,13 +209,29 @@ pub const StringEncoding = enum { utf8, utf16, latin1_utf16 };
 /// Per-call canonical-ABI context: the guest linear memory (lift/lower target),
 /// the injected realloc callback, and the string encoding option.
 pub const CanonContext = struct {
-    memory: []u8,
+    /// Guest linear memory is RE-FETCHED on every access (`mem()`): a
+    /// `cabi_realloc` call may grow/move the backing mid-`store` (the
+    /// nested-list staleness bug this closure shape fixes — a cached
+    /// slice dangles after a moving grow).
+    memory_ctx: *anyopaque,
+    memory_fn: *const fn (*anyopaque) []u8,
     realloc_ctx: *anyopaque,
     realloc_fn: ReallocFn,
     string_encoding: StringEncoding = .utf8,
 
+    pub fn mem(self: CanonContext) []u8 {
+        return self.memory_fn(self.memory_ctx);
+    }
+
     pub fn realloc(self: CanonContext, old_ptr: u32, old_size: u32, alignment: u32, new_size: u32) ReallocError!u32 {
         return self.realloc_fn(self.realloc_ctx, old_ptr, old_size, alignment, new_size);
+    }
+
+    /// Test/fixed-buffer constructor half: a `memory_fn` reading a stable
+    /// `*[]u8` holder (tests update the holder when their buffer "grows").
+    pub fn sliceMemoryFn(p: *anyopaque) []u8 {
+        const holder: *[]u8 = @ptrCast(@alignCast(p));
+        return holder.*;
     }
 };
 
@@ -240,8 +256,8 @@ pub fn lowerString(cx: CanonContext, s: []const u8) StringError!struct { ptr: u3
     if (s.len > MAX_STRING_BYTE_LENGTH) return StringError.StringTooLong;
     const byte_len: u32 = @intCast(s.len);
     const ptr = try cx.realloc(0, 0, 1, byte_len);
-    if (@as(usize, ptr) + s.len > cx.memory.len) return StringError.OutOfBounds;
-    @memcpy(cx.memory[ptr..][0..s.len], s);
+    if (@as(usize, ptr) + s.len > cx.mem().len) return StringError.OutOfBounds;
+    @memcpy(cx.mem()[ptr..][0..s.len], s);
     return .{ .ptr = ptr, .packed_length = byte_len };
 }
 
@@ -252,8 +268,8 @@ pub fn liftString(cx: CanonContext, ptr: u32, packed_length: u32) StringError![]
     if (cx.string_encoding != .utf8) return StringError.UnsupportedEncoding;
     const byte_length = packed_length; // utf8: code units == bytes, no tag bit
     if (byte_length > MAX_STRING_BYTE_LENGTH) return StringError.StringTooLong;
-    if (@as(usize, ptr) + byte_length > cx.memory.len) return StringError.OutOfBounds;
-    const bytes = cx.memory[ptr..][0..byte_length];
+    if (@as(usize, ptr) + byte_length > cx.mem().len) return StringError.OutOfBounds;
+    const bytes = cx.mem()[ptr..][0..byte_length];
     if (!std.unicode.utf8ValidateSlice(bytes)) return StringError.InvalidUtf8;
     return bytes;
 }
@@ -354,17 +370,17 @@ pub const LoadError = error{ OutOfBounds, ValueTypeMismatch, OutOfMemory } || St
 
 /// Write an integer `v` as `nbytes` little-endian at `ptr` (`store_int`).
 fn storeInt(cx: CanonContext, v: u64, ptr: u32, nbytes: usize) StoreError!void {
-    if (@as(usize, ptr) + nbytes > cx.memory.len) return StoreError.OutOfBounds;
+    if (@as(usize, ptr) + nbytes > cx.mem().len) return StoreError.OutOfBounds;
     var i: usize = 0;
-    while (i < nbytes) : (i += 1) cx.memory[ptr + i] = @truncate(v >> @intCast(i * 8));
+    while (i < nbytes) : (i += 1) cx.mem()[ptr + i] = @truncate(v >> @intCast(i * 8));
 }
 
 /// Read `nbytes` little-endian at `ptr` as an unsigned integer (`load_int`).
 fn loadInt(cx: CanonContext, ptr: u32, nbytes: usize) LoadError!u64 {
-    if (@as(usize, ptr) + nbytes > cx.memory.len) return LoadError.OutOfBounds;
+    if (@as(usize, ptr) + nbytes > cx.mem().len) return LoadError.OutOfBounds;
     var v: u64 = 0;
     var i: usize = 0;
-    while (i < nbytes) : (i += 1) v |= @as(u64, cx.memory[ptr + i]) << @intCast(i * 8);
+    while (i < nbytes) : (i += 1) v |= @as(u64, cx.mem()[ptr + i]) << @intCast(i * 8);
     return v;
 }
 
@@ -395,7 +411,7 @@ pub fn store(cx: CanonContext, value: Value, ty: CanonType, ptr: u32) StoreError
             const ealign = alignmentOf(elem.*);
             const byte_len: u32 = @intCast(items.len * esize);
             const base = try cx.realloc(0, 0, @intCast(ealign), byte_len);
-            if (@as(usize, base) + byte_len > cx.memory.len) return StoreError.OutOfBounds;
+            if (@as(usize, base) + byte_len > cx.mem().len) return StoreError.OutOfBounds;
             for (items, 0..) |e, i| try store(cx, e, elem.*, base + @as(u32, @intCast(i * esize)));
             try storeInt(cx, base, ptr, 4);
             try storeInt(cx, items.len, ptr + 4, 4);
@@ -632,7 +648,8 @@ const Bump = struct {
 test "round-trip: utf8 string guest↔host via realloc + memory" {
     var mem = [_]u8{0} ** 256;
     var bump = Bump{ .next = 8 };
-    const cx = CanonContext{ .memory = &mem, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
+    var mem_slice: []u8 = &mem;
+    const cx = CanonContext{ .memory_ctx = @ptrCast(&mem_slice), .memory_fn = CanonContext.sliceMemoryFn, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
 
     const lowered = try lowerString(cx, "héllo, 世界"); // multibyte utf8
     try testing.expect(lowered.ptr >= 8);
@@ -643,7 +660,8 @@ test "round-trip: utf8 string guest↔host via realloc + memory" {
 test "round-trip: empty string" {
     var mem = [_]u8{0} ** 16;
     var bump = Bump{ .next = 0 };
-    const cx = CanonContext{ .memory = &mem, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
+    var mem_slice: []u8 = &mem;
+    const cx = CanonContext{ .memory_ctx = @ptrCast(&mem_slice), .memory_fn = CanonContext.sliceMemoryFn, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
     const lowered = try lowerString(cx, "");
     try testing.expectEqual(@as(u32, 0), lowered.packed_length);
     try testing.expectEqualStrings("", try liftString(cx, lowered.ptr, lowered.packed_length));
@@ -652,28 +670,32 @@ test "round-trip: empty string" {
 test "lift: out-of-bounds range rejected" {
     var mem = [_]u8{0} ** 8;
     var bump = Bump{ .next = 0 };
-    const cx = CanonContext{ .memory = &mem, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
+    var mem_slice: []u8 = &mem;
+    const cx = CanonContext{ .memory_ctx = @ptrCast(&mem_slice), .memory_fn = CanonContext.sliceMemoryFn, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
     try testing.expectError(StringError.OutOfBounds, liftString(cx, 4, 100));
 }
 
 test "lift: invalid utf8 rejected" {
     var mem = [_]u8{ 0xFF, 0xFE, 0, 0, 0, 0, 0, 0 }; // 0xFF is never valid utf8
     var bump = Bump{ .next = 0 };
-    const cx = CanonContext{ .memory = &mem, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
+    var mem_slice: []u8 = &mem;
+    const cx = CanonContext{ .memory_ctx = @ptrCast(&mem_slice), .memory_fn = CanonContext.sliceMemoryFn, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
     try testing.expectError(StringError.InvalidUtf8, liftString(cx, 0, 2));
 }
 
 test "string: non-utf8 encoding deferred" {
     var mem = [_]u8{0} ** 8;
     var bump = Bump{ .next = 0 };
-    const cx = CanonContext{ .memory = &mem, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc, .string_encoding = .utf16 };
+    var mem_slice: []u8 = &mem;
+    const cx = CanonContext{ .memory_ctx = @ptrCast(&mem_slice), .memory_fn = CanonContext.sliceMemoryFn, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc, .string_encoding = .utf16 };
     try testing.expectError(StringError.UnsupportedEncoding, lowerString(cx, "x"));
 }
 
 test "store/load round-trip: list<u32>" {
     var mem = [_]u8{0} ** 256;
     var bump = Bump{ .next = 32 };
-    const cx = CanonContext{ .memory = &mem, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
+    var mem_slice: []u8 = &mem;
+    const cx = CanonContext{ .memory_ctx = @ptrCast(&mem_slice), .memory_fn = CanonContext.sliceMemoryFn, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
 
     const elem = CanonType{ .prim = .u32 };
     const ty = CanonType{ .list = &elem };
@@ -694,7 +716,8 @@ test "store/load round-trip: list<u32>" {
 test "store/load round-trip: record { a: u8, b: u32, c: bool }" {
     var mem = [_]u8{0} ** 128;
     var bump = Bump{ .next = 16 };
-    const cx = CanonContext{ .memory = &mem, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
+    var mem_slice: []u8 = &mem;
+    const cx = CanonContext{ .memory_ctx = @ptrCast(&mem_slice), .memory_fn = CanonContext.sliceMemoryFn, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
 
     const fields = [_]CanonType.Field{
         .{ .name = "a", .ty = .{ .prim = .u8 } },
@@ -720,7 +743,8 @@ test "store/load round-trip: record { a: u8, b: u32, c: bool }" {
 test "store/load round-trip: record with a string field" {
     var mem = [_]u8{0} ** 256;
     var bump = Bump{ .next = 64 };
-    const cx = CanonContext{ .memory = &mem, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
+    var mem_slice: []u8 = &mem;
+    const cx = CanonContext{ .memory_ctx = @ptrCast(&mem_slice), .memory_fn = CanonContext.sliceMemoryFn, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
 
     const fields = [_]CanonType.Field{
         .{ .name = "id", .ty = .{ .prim = .u32 } },
@@ -740,7 +764,8 @@ test "store/load round-trip: record with a string field" {
 test "store: value/type mismatch rejected" {
     var mem = [_]u8{0} ** 16;
     var bump = Bump{ .next = 0 };
-    const cx = CanonContext{ .memory = &mem, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
+    var mem_slice: []u8 = &mem;
+    const cx = CanonContext{ .memory_ctx = @ptrCast(&mem_slice), .memory_fn = CanonContext.sliceMemoryFn, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
     // a u32 type with a bool value
     try testing.expectError(StoreError.ValueTypeMismatch, store(cx, .{ .bool = true }, .{ .prim = .u32 }, 0));
 }
@@ -752,7 +777,8 @@ test "lower: aggregate value has no flat scalar form" {
 test "store/load round-trip: variant (option<u32> shape, some case)" {
     var mem = [_]u8{0} ** 64;
     var bump = Bump{ .next = 0 };
-    const cx = CanonContext{ .memory = &mem, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
+    var mem_slice: []u8 = &mem;
+    const cx = CanonContext{ .memory_ctx = @ptrCast(&mem_slice), .memory_fn = CanonContext.sliceMemoryFn, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
     const cases = [_]CanonType.VCase{
         .{ .name = "none", .payload = null },
         .{ .name = "some", .payload = .{ .prim = .u32 } },
@@ -775,7 +801,8 @@ test "store/load round-trip: variant (option<u32> shape, some case)" {
 test "store/load round-trip: variant none case (no payload)" {
     var mem = [_]u8{0} ** 16;
     var bump = Bump{ .next = 0 };
-    const cx = CanonContext{ .memory = &mem, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
+    var mem_slice: []u8 = &mem;
+    const cx = CanonContext{ .memory_ctx = @ptrCast(&mem_slice), .memory_fn = CanonContext.sliceMemoryFn, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
     const cases = [_]CanonType.VCase{
         .{ .name = "none", .payload = null },
         .{ .name = "some", .payload = .{ .prim = .u32 } },
@@ -791,7 +818,8 @@ test "store/load round-trip: variant none case (no payload)" {
 test "store/load round-trip: result<u32, string> (err case)" {
     var mem = [_]u8{0} ** 128;
     var bump = Bump{ .next = 16 };
-    const cx = CanonContext{ .memory = &mem, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
+    var mem_slice: []u8 = &mem;
+    const cx = CanonContext{ .memory_ctx = @ptrCast(&mem_slice), .memory_fn = CanonContext.sliceMemoryFn, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
     const cases = [_]CanonType.VCase{
         .{ .name = "ok", .payload = .{ .prim = .u32 } },
         .{ .name = "err", .payload = .{ .prim = .string } },
@@ -812,7 +840,8 @@ test "variant: out-of-range case index on load rejected" {
     var mem = [_]u8{0} ** 16;
     mem[0] = 5; // disc says case 5, but only 2 cases
     var bump = Bump{ .next = 0 };
-    const cx = CanonContext{ .memory = &mem, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
+    var mem_slice: []u8 = &mem;
+    const cx = CanonContext{ .memory_ctx = @ptrCast(&mem_slice), .memory_fn = CanonContext.sliceMemoryFn, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
     const cases = [_]CanonType.VCase{ .{ .name = "a", .payload = null }, .{ .name = "b", .payload = null } };
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -831,11 +860,328 @@ test "CanonContext.realloc delegates to the injected callback" {
         }
     };
     var dummy_mem = [_]u8{0} ** 16;
+    var dummy_slice: []u8 = &dummy_mem;
     var sentinel: u8 = 0;
     const ctx = CanonContext{
-        .memory = &dummy_mem,
+        .memory_ctx = @ptrCast(&dummy_slice),
+        .memory_fn = CanonContext.sliceMemoryFn,
         .realloc_ctx = @ptrCast(&sentinel),
         .realloc_fn = Mock.realloc,
     };
     try testing.expectEqual(@as(u32, 64), try ctx.realloc(0, 0, 4, 64));
+}
+
+// ============================================================
+// Call flattening (ADR-0183 F2) — CanonicalABI `flatten_type` /
+// `lower_flat` / `lift_flat` for fn-call argument/result passing.
+// ============================================================
+
+/// `CanonicalABI.md` flat-arity caps: params beyond 16 flats spill to a
+/// memory tuple; results beyond 1 flat return via a guest return-area ptr.
+pub const MAX_FLAT_PARAMS = 16;
+pub const MAX_FLAT_RESULTS = 1;
+
+pub const FlattenError = std.mem.Allocator.Error;
+
+/// CanonicalABI `flatten_type` — append `t`'s flattened core types.
+pub fn flattenType(alloc: std.mem.Allocator, t: CanonType, out: *std.ArrayList(CoreType)) FlattenError!void {
+    switch (t) {
+        .prim => |p| switch (p) {
+            .string, .error_context => try out.appendSlice(alloc, &.{ .i32, .i32 }),
+            .bool, .s8, .u8, .s16, .u16, .s32, .u32, .s64, .u64, .f32, .f64, .char => try out.append(alloc, flatCoreType(p).?),
+        },
+        .enum_, .flags => try out.append(alloc, .i32),
+        .list => try out.appendSlice(alloc, &.{ .i32, .i32 }),
+        .record => |fields| for (fields) |f| try flattenType(alloc, f.ty, out),
+        .variant => |cases| {
+            try out.append(alloc, .i32); // discriminant
+            var joined: std.ArrayList(CoreType) = .empty;
+            defer joined.deinit(alloc);
+            try joinedPayloadTypes(alloc, cases, &joined);
+            try out.appendSlice(alloc, joined.items);
+        },
+    }
+}
+
+/// The position-wise `join` of every case payload's flat types
+/// (CanonicalABI `flatten_variant`).
+fn joinedPayloadTypes(alloc: std.mem.Allocator, cases: []const CanonType.VCase, joined: *std.ArrayList(CoreType)) FlattenError!void {
+    var tmp: std.ArrayList(CoreType) = .empty;
+    defer tmp.deinit(alloc);
+    for (cases) |c| {
+        const pt = c.payload orelse continue;
+        tmp.clearRetainingCapacity();
+        try flattenType(alloc, pt, &tmp);
+        for (tmp.items, 0..) |ct, i| {
+            if (i < joined.items.len) {
+                joined.items[i] = join(joined.items[i], ct);
+            } else {
+                try joined.append(alloc, ct);
+            }
+        }
+    }
+}
+
+/// CanonicalABI `join`: equal types keep; {i32,f32} mixes narrow to i32;
+/// anything else widens to i64.
+pub fn join(a: CoreType, b: CoreType) CoreType {
+    if (a == b) return a;
+    if ((a == .i32 or a == .f32) and (b == .i32 or b == .f32)) return .i32;
+    return .i64;
+}
+
+/// Reinterpret a flat core value of type `from` into a variant's joined
+/// slot type `to` (CanonicalABI `convert`; bit-preserving).
+fn convertFlat(v: CoreValue, from: CoreType, to: CoreType) CoreValue {
+    if (from == to) return v;
+    return switch (to) {
+        .i32 => switch (from) {
+            .f32 => CoreValue.fromI32(@bitCast(v.f32)),
+            // i32==i32 handled by the equality fast path; i64/f64 never
+            // narrow per join.
+            .i32, .i64, .f64 => v,
+        },
+        .i64 => switch (from) {
+            .i32 => CoreValue.fromI64(@as(u32, @bitCast(v.i32))),
+            .f32 => CoreValue.fromI64(@as(u32, @bitCast(v.f32))),
+            .f64 => CoreValue.fromI64(@bitCast(v.f64)),
+            .i64 => v,
+        },
+        .f32, .f64 => v, // join never yields float on mismatch
+    };
+}
+
+/// The inverse of `convertFlat` (joined slot → the case's own flat type).
+fn unconvertFlat(v: CoreValue, from: CoreType, to: CoreType) CoreValue {
+    if (from == to) return v;
+    return switch (to) {
+        .f32 => switch (from) {
+            .i32 => CoreValue{ .f32 = @bitCast(v.i32) },
+            .i64 => CoreValue{ .f32 = @bitCast(@as(u32, @truncate(@as(u64, @bitCast(v.i64))))) },
+            .f32, .f64 => v,
+        },
+        .f64 => switch (from) {
+            .i64 => CoreValue{ .f64 = @bitCast(v.i64) },
+            .i32, .f32, .f64 => v,
+        },
+        .i32 => switch (from) {
+            .i64 => CoreValue.fromI32(@bitCast(@as(u32, @truncate(@as(u64, @bitCast(v.i64)))))),
+            .i32, .f32, .f64 => v,
+        },
+        .i64 => v,
+    };
+}
+
+const zeroOf = struct {
+    fn f(t: CoreType) CoreValue {
+        return switch (t) {
+            .i32 => CoreValue.fromI32(0),
+            .i64 => CoreValue.fromI64(0),
+            .f32 => CoreValue{ .f32 = 0 },
+            .f64 => CoreValue{ .f64 = 0 },
+        };
+    }
+}.f;
+
+pub const LowerFlatError = StoreError || StringError || FlattenError;
+
+/// CanonicalABI `lower_flat` — lower `value` of type `t` into flat core
+/// values (compound payloads land in guest memory via `cx.realloc`).
+pub fn lowerFlat(cx: CanonContext, alloc: std.mem.Allocator, value: Value, t: CanonType, out: *std.ArrayList(CoreValue)) LowerFlatError!void {
+    switch (t) {
+        .prim => |p| switch (p) {
+            .string => {
+                const s = if (value == .string) value.string else return StoreError.ValueTypeMismatch;
+                const lowered = try lowerString(cx, s);
+                try out.append(alloc, CoreValue.fromI32(@bitCast(lowered.ptr)));
+                try out.append(alloc, CoreValue.fromI32(@bitCast(lowered.packed_length)));
+            },
+            .bool, .s8, .u8, .s16, .u16, .s32, .u32, .s64, .u64, .f32, .f64, .char, .error_context => try out.append(alloc, coreFromBits(try scalarBits(value, p), p)),
+        },
+        .enum_ => |n| {
+            if (value != .enum_value or value.enum_value >= n) return StoreError.ValueTypeMismatch;
+            try out.append(alloc, CoreValue.fromI32(@bitCast(value.enum_value)));
+        },
+        .flags => |n| {
+            _ = n;
+            if (value != .flags) return StoreError.ValueTypeMismatch;
+            try out.append(alloc, CoreValue.fromI32(@bitCast(value.flags)));
+        },
+        .list => |elem| {
+            const items = if (value == .list) value.list else return StoreError.ValueTypeMismatch;
+            const esize = sizeOf(elem.*);
+            const byte_len: u32 = @intCast(items.len * esize);
+            const base = try cx.realloc(0, 0, @intCast(alignmentOf(elem.*)), byte_len);
+            if (@as(usize, base) + byte_len > cx.mem().len) return StoreError.OutOfBounds;
+            for (items, 0..) |e, i| try store(cx, e, elem.*, base + @as(u32, @intCast(i * esize)));
+            try out.append(alloc, CoreValue.fromI32(@bitCast(base)));
+            try out.append(alloc, CoreValue.fromI32(@intCast(items.len)));
+        },
+        .record => |fields| {
+            const vals = if (value == .record) value.record else return StoreError.ValueTypeMismatch;
+            if (vals.len != fields.len) return StoreError.ValueTypeMismatch;
+            for (fields, vals) |f, v| try lowerFlat(cx, alloc, v, f.ty, out);
+        },
+        .variant => |cases| {
+            const vv = if (value == .variant) value.variant else return StoreError.ValueTypeMismatch;
+            if (vv.case >= cases.len) return StoreError.ValueTypeMismatch;
+            try out.append(alloc, CoreValue.fromI32(@bitCast(vv.case)));
+            var joined: std.ArrayList(CoreType) = .empty;
+            defer joined.deinit(alloc);
+            try joinedPayloadTypes(alloc, cases, &joined);
+            var payload_vals: std.ArrayList(CoreValue) = .empty;
+            defer payload_vals.deinit(alloc);
+            var payload_types: std.ArrayList(CoreType) = .empty;
+            defer payload_types.deinit(alloc);
+            if (cases[vv.case].payload) |pt| {
+                const pv = vv.payload orelse return StoreError.ValueTypeMismatch;
+                try lowerFlat(cx, alloc, pv.*, pt, &payload_vals);
+                try flattenType(alloc, pt, &payload_types);
+            }
+            for (joined.items, 0..) |jt, i| {
+                if (i < payload_vals.items.len) {
+                    try out.append(alloc, convertFlat(payload_vals.items[i], payload_types.items[i], jt));
+                } else {
+                    try out.append(alloc, zeroOf(jt));
+                }
+            }
+        },
+    }
+}
+
+pub const LiftFlatError = LoadError || StringError || FlattenError || error{FlatArityMismatch};
+
+/// CanonicalABI `lift_flat` — reconstruct a value of type `t` from the flat
+/// core values at `idx` (cursor advances). Compound payloads load from
+/// guest memory; slices allocate from `arena`.
+pub fn liftFlat(cx: CanonContext, arena: std.mem.Allocator, t: CanonType, flats: []const CoreValue, idx: *usize) LiftFlatError!Value {
+    switch (t) {
+        .prim => |p| switch (p) {
+            .string => {
+                const ptr: u32 = @bitCast((try takeFlat(flats, idx, .i32)).i32);
+                const plen: u32 = @bitCast((try takeFlat(flats, idx, .i32)).i32);
+                return .{ .string = try liftString(cx, ptr, plen) };
+            },
+            .bool, .s8, .u8, .s16, .u16, .s32, .u32, .s64, .u64, .f32, .f64, .char, .error_context => {
+                const ct = flatCoreType(p) orelse return LiftFlatError.ValueTypeMismatch;
+                return lift(try takeFlat(flats, idx, ct), p) catch LiftFlatError.ValueTypeMismatch;
+            },
+        },
+        .enum_ => |n| {
+            const v: u32 = @bitCast((try takeFlat(flats, idx, .i32)).i32);
+            if (v >= n) return LiftFlatError.ValueTypeMismatch;
+            return .{ .enum_value = v };
+        },
+        .flags => {
+            return .{ .flags = @bitCast((try takeFlat(flats, idx, .i32)).i32) };
+        },
+        .list => |elem| {
+            const base: u32 = @bitCast((try takeFlat(flats, idx, .i32)).i32);
+            const n: u32 = @bitCast((try takeFlat(flats, idx, .i32)).i32);
+            return loadListAt(cx, arena, elem.*, base, n);
+        },
+        .record => |fields| {
+            const out = try arena.alloc(Value, fields.len);
+            for (fields, out) |f, *slot| slot.* = try liftFlat(cx, arena, f.ty, flats, idx);
+            return .{ .record = out };
+        },
+        .variant => |cases| {
+            const case_index: u32 = @bitCast((try takeFlat(flats, idx, .i32)).i32);
+            if (case_index >= cases.len) return LiftFlatError.ValueTypeMismatch;
+            var joined: std.ArrayList(CoreType) = .empty;
+            defer joined.deinit(arena);
+            try joinedPayloadTypes(arena, cases, &joined);
+            if (idx.* + joined.items.len > flats.len) return LiftFlatError.FlatArityMismatch;
+            const slot_vals = flats[idx.*..][0..joined.items.len];
+            idx.* += joined.items.len;
+            if (cases[case_index].payload) |pt| {
+                var ptypes: std.ArrayList(CoreType) = .empty;
+                defer ptypes.deinit(arena);
+                try flattenType(arena, pt, &ptypes);
+                const conv = try arena.alloc(CoreValue, ptypes.items.len);
+                for (ptypes.items, 0..) |want, i| conv[i] = unconvertFlat(slot_vals[i], joined.items[i], want);
+                var pidx: usize = 0;
+                const pv = try arena.create(Value);
+                pv.* = try liftFlat(cx, arena, pt, conv, &pidx);
+                return .{ .variant = .{ .case = case_index, .payload = pv } };
+            }
+            return .{ .variant = .{ .case = case_index, .payload = null } };
+        },
+    }
+}
+
+fn takeFlat(flats: []const CoreValue, idx: *usize, want: CoreType) error{FlatArityMismatch}!CoreValue {
+    if (idx.* >= flats.len) return error.FlatArityMismatch;
+    const v = flats[idx.*];
+    idx.* += 1;
+    _ = want;
+    return v;
+}
+
+/// Load `n` elements of `elem` from `base` (the flat-list body — `load`'s
+/// list branch reads (ptr, len) from memory; here the pair arrived flat).
+fn loadListAt(cx: CanonContext, arena: std.mem.Allocator, elem: CanonType, base: u32, n: u32) LoadError!Value {
+    const esize = sizeOf(elem);
+    const out = try arena.alloc(Value, n);
+    for (out, 0..) |*slot, i| slot.* = try load(cx, arena, elem, base + @as(u32, @intCast(i * esize)));
+    return .{ .list = out };
+}
+
+test "flattenType: record{list,string} = 4 flats; variant joins {f32}|{i64,i32} -> i64,i32" {
+    const a = testing.allocator;
+    var out: std.ArrayList(CoreType) = .empty;
+    defer out.deinit(a);
+    const str: CanonType = .{ .prim = .string };
+    const rec_fields = [_]CanonType.Field{ .{ .name = "xs", .ty = .{ .list = &str } }, .{ .name = "s", .ty = str } };
+    try flattenType(a, .{ .record = &rec_fields }, &out);
+    try testing.expectEqualSlices(CoreType, &.{ .i32, .i32, .i32, .i32 }, out.items);
+
+    out.clearRetainingCapacity();
+    const f32t: CanonType = .{ .prim = .f32 };
+    const pair_fields = [_]CanonType.Field{ .{ .name = "a", .ty = .{ .prim = .s64 } }, .{ .name = "b", .ty = .{ .prim = .s32 } } };
+    const cases = [_]CanonType.VCase{
+        .{ .name = "x", .payload = f32t },
+        .{ .name = "y", .payload = .{ .record = &pair_fields } },
+    };
+    try flattenType(a, .{ .variant = &cases }, &out);
+    try testing.expectEqualSlices(CoreType, &.{ .i32, .i64, .i32 }, out.items);
+}
+
+test "lowerFlat/liftFlat round-trip: record{u32, string} + variant payload conversion" {
+    var bump = Bump{ .next = 64 };
+    var mem = [_]u8{0} ** 4096;
+    var mem_slice: []u8 = &mem;
+    const cx = CanonContext{ .memory_ctx = @ptrCast(&mem_slice), .memory_fn = CanonContext.sliceMemoryFn, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const str: CanonType = .{ .prim = .string };
+    const fields = [_]CanonType.Field{ .{ .name = "n", .ty = .{ .prim = .u32 } }, .{ .name = "s", .ty = str } };
+    const rec_ty: CanonType = .{ .record = &fields };
+    const rec_vals = [_]Value{ .{ .u32 = 7 }, .{ .string = "seven" } };
+
+    var flats: std.ArrayList(CoreValue) = .empty;
+    defer flats.deinit(testing.allocator);
+    try lowerFlat(cx, testing.allocator, .{ .record = &rec_vals }, rec_ty, &flats);
+    try testing.expectEqual(@as(usize, 3), flats.items.len); // u32 + (ptr,len)
+
+    var idx: usize = 0;
+    const back = try liftFlat(cx, arena, rec_ty, flats.items, &idx);
+    try testing.expectEqual(@as(u32, 7), back.record[0].u32);
+    try testing.expectEqualStrings("seven", back.record[1].string);
+
+    // variant: case 0 = f32 payload through an i64-joined slot.
+    const cases = [_]CanonType.VCase{
+        .{ .name = "x", .payload = .{ .prim = .f32 } },
+        .{ .name = "y", .payload = .{ .prim = .f64 } },
+    };
+    const var_ty: CanonType = .{ .variant = &cases };
+    const pv = Value{ .f32 = 1.5 };
+    flats.clearRetainingCapacity();
+    try lowerFlat(cx, testing.allocator, .{ .variant = .{ .case = 0, .payload = &pv } }, var_ty, &flats);
+    idx = 0;
+    const vback = try liftFlat(cx, arena, var_ty, flats.items, &idx);
+    try testing.expectEqual(@as(u32, 0), vback.variant.case);
+    try testing.expectEqual(@as(f32, 1.5), vback.variant.payload.?.f32);
 }

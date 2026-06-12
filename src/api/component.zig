@@ -129,12 +129,22 @@ pub const ComponentInstance = struct {
     /// while the guest does not GROW memory mid-lift/lower; a growing
     /// `cabi_realloc` would dangle it (addressed for the real fixture at IT-3b).
     pub fn canonContext(self: *ComponentInstance) CanonContextError!canon.CanonContext {
-        const mem = self.core.memory() orelse return CanonContextError.NoMemory;
+        if (self.core.memory() == null) return CanonContextError.NoMemory;
         return .{
-            .memory = mem.slice(),
+            .memory_ctx = @ptrCast(self),
+            .memory_fn = fetchCoreMemory,
             .realloc_ctx = @ptrCast(self),
             .realloc_fn = reallocViaGuest,
         };
+    }
+
+    /// `CanonContext.memory_fn` — RE-FETCH the core instance's linear memory
+    /// on every canon access (a guest `cabi_realloc` may grow/move it
+    /// mid-store; a cached slice would dangle).
+    fn fetchCoreMemory(ctx: *anyopaque) []u8 {
+        const self: *ComponentInstance = @ptrCast(@alignCast(ctx));
+        const mem = self.core.memory() orelse return &.{};
+        return mem.slice();
     }
 
     /// Invoke a `func(string) -> string` component export end-to-end through the
@@ -164,8 +174,8 @@ pub const ComponentInstance = struct {
 
         // Re-fetch memory: a growing cabi_realloc could have moved the backing.
         const cx2 = try self.canonContext();
-        const out_ptr = try readU32LE(cx2.memory, ret_ptr);
-        const out_len = try readU32LE(cx2.memory, ret_ptr + 4);
+        const out_ptr = try readU32LE(cx2.mem(), ret_ptr);
+        const out_len = try readU32LE(cx2.mem(), ret_ptr + 4);
         const borrowed = try canon.liftString(cx2, out_ptr, out_len);
         const owned = try out_alloc.dupe(u8, borrowed);
         errdefer out_alloc.free(owned);
