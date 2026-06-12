@@ -57,18 +57,19 @@
 - **Typed-API polish LANDED**: `assert_typed` + `component_p2` corpus
   directives · typed-invoke core deduped into `api/component_typed.zig`
   (P1 split) · docs `zig_api_design.md` §3.9.
-- **Validator skips 19→10 (corpus 148/0/10)**: core-type/core-memory
-  index spaces + def-order alias_space_before (self-minting outer alias
-  fixed) + semantic extern-name keys ([method]r.r ⇒ label r) @6c895983 ·
-  rule 10 nested type-scope deep validation (local spaces, outer-alias
-  scope sizes, named-types restriction per wasm-tools model — instance
-  scopes checked at EXPORT not definition; real-component false-positive
-  pinned by e2e fixtures) @09c4d520. Remaining 10 skip-impl = the
-  nested-module/core-type DECODE cluster (inner component/module
-  sections undecoded: types_03/07/14, invalid_01, instantiate_08..14,
-  inline-component outer-alias).
-- **NEXT**: the Active bundle below (windows D-319 verify). Then: the
-  nested-decode cluster (10 skips) or D-318 / D-314 follow-ons / D-251.
+- **Validator skips 19→6 (corpus 152/0/6)**: index spaces + def-order
+  alias_space_before + semantic extern-name keys @6c895983 · rule 10
+  nested type-scope deep validation (named-types restriction per
+  wasm-tools model — instance scopes checked at EXPORT not definition)
+  @09c4d520 · rule 11 core-type section decode + module-decl validation
+  (functype (ref N) refs, module-local space, outer type alias ct
+  semantics; GC forms pass through counted-but-unmodeled) @785acfaf.
+  Remaining 6 skip-impl = nested CONCRETE-component decode (inner
+  component sections: instantiate_08/09/11/13/14 + inline-component
+  outer-alias of parent resource).
+- **NEXT**: the Active bundle below (windows D-319 verify #2 verdict at
+  Step 0.7). Then: nested-component decode cluster (6 skips) or D-318 /
+  D-314 follow-ons / D-251.
 
 ## Active bundle
 
