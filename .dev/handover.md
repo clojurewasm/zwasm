@@ -21,12 +21,17 @@
   (both arches) — renamed that test to "R15-forcing"; the real back-edge net =
   2 RUNNING-loop tests (FlagRaiser thread + INFINITE loop/br_table guests;
   back-edge regression = hang-as-failure). TDD red observed for both chunks
-  (Rosetta completes-42 / arm64 hang exit-124). **NEXT = #3b fuel on JIT** —
-  survey how interp fuel (`setFuel`, 58479dd6) maps onto JIT codegen: likely a
-  back-edge/call-site fuel decrement via [R15/X19 + fuel_off] mirroring the
-  interrupt poll shape (reuse the poll sites; trap kind TBD vs interp Fuel
-  trap), or a documented interp-only stance + debt row if codegen-cost is
-  disproportionate (perf-measure-first). Then #3c-2 mem-cap → #3a-4 CLI. **Code-size**: poll
+  (Rosetta completes-42 / arm64 hang exit-124). **NEXT = #3b fuel on JIT — design
+  PINNED in ADR-0179 rev 2026-06-12** (survey done): per-poll-site
+  decrement-by-1 (v1 parity; NOT wasmtime per-op costs — P3/P6 conflict),
+  `JitRuntime.fuel_ptr: ?*i64` TRAILING field + offset, poll folds in BESIDE
+  the #3a interrupt polls (prologue + back-edges, both arches; scratch R11 /
+  X16-X17), `SUB [ptr],1` + sign-check → code **17** = NEW
+  `TrapKind.out_of_fuel` (+ mapInterpTrap OutOfFuel arm + runner trapKindName
+  arm — TrapKind-widening lesson!), stubs mirror #3a (back-edge POST-frame /
+  prologue fb=0), facade setFuel + InstantiateOpts.fuel arm the cell when
+  engine=jit. Tests mirror #3a (fuel=small traps 17 / fuel=big completes +
+  remaining decreased). Then #3c-2 mem-cap → #3a-4 CLI. **Code-size**: poll
   +stub unconditional per fn — measure, consider opt-in flag (perf-measure-first).
   **GATE NOTE**: the 3 D-311 raw-entry-call tests (linker×2/entry-f32,
   releasesafe_jit_failures.md) crash SEED-FLAKILY in `zig build test` (undefined-
