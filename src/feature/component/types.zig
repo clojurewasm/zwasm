@@ -439,6 +439,8 @@ pub const TypeInfo = struct {
     /// Core-memory index space size: aliases of core-instance exports of
     /// sort memory (the only top-level minting form).
     core_memory_count: u32,
+    /// Core-global index space size (alias-minted, like memories).
+    core_global_count: u32,
     /// Parallel to `aliases`: index-space sizes at each alias's DEFINITION
     /// point (an outer count-0 alias must not see indices it mints itself —
     /// definition order, same posture as the rule-1 type_space positions).
@@ -1394,6 +1396,7 @@ pub fn decodeTypeInfo(parent: Allocator, component: *const decode.Component) Err
     var component_count: u32 = 0;
     var core_type_count: u32 = 0;
     var core_memory_count: u32 = 0;
+    var core_global_count: u32 = 0;
     var alias_space_before: std.ArrayList(AliasSpaceBefore) = .empty;
     var core_types: std.ArrayList(CoreTypeDef) = .empty;
 
@@ -1474,6 +1477,7 @@ pub fn decodeTypeInfo(parent: Allocator, component: *const decode.Component) Err
                         .func => try core_funcs.append(a, .{ .alias = al.target }),
                         .table => try core_tables.append(a, al.target),
                         .memory => core_memory_count += 1,
+                        .global => core_global_count += 1,
                         .type => core_type_count += 1,
                         else => {},
                     },
@@ -1502,6 +1506,7 @@ pub fn decodeTypeInfo(parent: Allocator, component: *const decode.Component) Err
         .component_count = component_count,
         .core_type_count = core_type_count,
         .core_memory_count = core_memory_count,
+        .core_global_count = core_global_count,
         .alias_space_before = alias_space_before,
         .core_types = core_types,
         .imports = imports,

@@ -150,8 +150,7 @@ fn componentDeclInstanceDecl(decl: types.ComponentDecl) ?types.InstanceDecl {
 //   - an exported `(type (eq t))` whose `t` is a local structural DEF
 //     must reference only NAMED local entries (the top-level rule-7
 //     export restriction, applied in-scope).
-// Core (module) decl scopes stay deferred — the core-type section
-// bodies are not decoded yet (the instantiate_* skip cluster).
+// Core (module) decl scopes are rule 11 (core-type section decode).
 // ============================================================
 
 /// Enclosing-scope type-space sizes, innermost LAST (fixed depth cap;
@@ -455,7 +454,12 @@ fn checkInstances(info: *const TypeInfo) Error!void {
                 switch (e.sort) {
                     .func => if (e.index >= info.core_funcs.items.len) return Error.InvalidInstance,
                     .table => if (e.index >= info.core_tables.items.len) return Error.InvalidInstance,
-                    else => {}, // memory/global/... core spaces not tracked — deferred
+                    .memory => if (e.index >= info.core_memory_count) return Error.InvalidInstance,
+                    .global => if (e.index >= info.core_global_count) return Error.InvalidInstance,
+                    .type => if (e.index >= info.core_type_count) return Error.InvalidInstance,
+                    .module => if (e.index >= info.core_module_count) return Error.InvalidInstance,
+                    .instance => if (e.index >= i) return Error.InvalidInstance,
+                    _, .tag => {}, // core tag space not tracked — deferred
                 }
                 for (exps[0..ei]) |prev| {
                     if (std.ascii.eqlIgnoreCase(e.name, prev.name)) return Error.InvalidName;
@@ -468,7 +472,7 @@ fn checkInstances(info: *const TypeInfo) Error!void {
             .instantiate => |it| {
                 if (it.component >= info.component_count) return Error.InvalidInstance;
                 for (it.args, 0..) |arg, ai| {
-                    if (std.meta.activeTag(arg.sort) == .instance and arg.index >= i) return Error.InvalidInstance;
+                    try checkSortIdx(info, arg.sort, arg.index, @intCast(i));
                     for (it.args[0..ai]) |prev| {
                         if (std.ascii.eqlIgnoreCase(arg.name, prev.name)) return Error.InvalidName;
                     }
@@ -476,12 +480,35 @@ fn checkInstances(info: *const TypeInfo) Error!void {
             },
             .inline_exports => |exps| for (exps, 0..) |e, ei| {
                 try checkExternName(e.name, .@"export");
-                if (std.meta.activeTag(e.sort) == .instance and e.index >= i) return Error.InvalidInstance;
+                try checkSortIdx(info, e.sort, e.index, @intCast(i));
                 for (exps[0..ei]) |prev| {
                     if (std.ascii.eqlIgnoreCase(e.name, prev.name)) return Error.InvalidName;
                 }
             },
         }
+    }
+}
+
+/// Bounds-check a component-level `sortidx` (instantiate args + inline
+/// exports — the corpus instantiate.wast "index out of bounds" class).
+/// `self_instance` bounds instance-sort refs (only EARLIER instances).
+fn checkSortIdx(info: *const TypeInfo, sort: types.Sort, index: u32, self_instance: u32) Error!void {
+    switch (sort) {
+        .core => |cs| switch (cs) {
+            .module => if (index >= info.core_module_count) return Error.InvalidInstance,
+            .func => if (index >= info.core_funcs.items.len) return Error.InvalidInstance,
+            .table => if (index >= info.core_tables.items.len) return Error.InvalidInstance,
+            .memory => if (index >= info.core_memory_count) return Error.InvalidInstance,
+            .global => if (index >= info.core_global_count) return Error.InvalidInstance,
+            .type => if (index >= info.core_type_count) return Error.InvalidInstance,
+            .instance => if (index >= info.core_instances.items.len) return Error.InvalidInstance,
+            _, .tag => {}, // core tag space not tracked — deferred
+        },
+        .func => if (index >= info.component_funcs.items.len) return Error.InvalidInstance,
+        .component => if (index >= info.component_count) return Error.InvalidInstance,
+        .instance => if (index >= self_instance) return Error.InvalidInstance,
+        .type => if (index >= info.type_space_len) return Error.InvalidTypeIndex,
+        .value => {}, // value index space not tracked — deferred
     }
 }
 

@@ -109,24 +109,19 @@ assert_invalid test/spec/component-model-assert/official_distilled/instantiate_0
 # instantiate.wast: "index out of bounds"
 assert_invalid test/spec/component-model-assert/official_distilled/instantiate_07.wasm
 # instantiate.wast: "index out of bounds"
-# (fixture instantiate_08.wasm kept for when the gap closes)
-skip-impl instantiate_08: nested concrete-component decode not implemented (inner sections undecoded; ADR-0176)
+assert_invalid test/spec/component-model-assert/official_distilled/instantiate_08.wasm
 # instantiate.wast: "index out of bounds"
-# (fixture instantiate_09.wasm kept for when the gap closes)
-skip-impl instantiate_09: nested concrete-component decode not implemented (inner sections undecoded; ADR-0176)
+assert_invalid test/spec/component-model-assert/official_distilled/instantiate_09.wasm
 # instantiate.wast: "instantiation argument `a` conflicts with previous argument `a`"
 assert_invalid test/spec/component-model-assert/official_distilled/instantiate_10.wasm
 # instantiate.wast: "index out of bounds"
-# (fixture instantiate_11.wasm kept for when the gap closes)
-skip-impl instantiate_11: nested concrete-component decode not implemented (inner sections undecoded; ADR-0176)
+assert_invalid test/spec/component-model-assert/official_distilled/instantiate_11.wasm
 # instantiate.wast: "index out of bounds"
 assert_invalid test/spec/component-model-assert/official_distilled/instantiate_12.wasm
 # instantiate.wast: "index out of bounds"
-# (fixture instantiate_13.wasm kept for when the gap closes)
-skip-impl instantiate_13: nested concrete-component decode not implemented (inner sections undecoded; ADR-0176)
+assert_invalid test/spec/component-model-assert/official_distilled/instantiate_13.wasm
 # instantiate.wast: "index out of bounds"
-# (fixture instantiate_14.wasm kept for when the gap closes)
-skip-impl instantiate_14: nested concrete-component decode not implemented (inner sections undecoded; ADR-0176)
+assert_invalid test/spec/component-model-assert/official_distilled/instantiate_14.wasm
 # instantiate.wast: "export name `a` conflicts with previous name `a`"
 assert_invalid test/spec/component-model-assert/official_distilled/instantiate_15.wasm
 # instantiate.wast: "index out of bounds"
