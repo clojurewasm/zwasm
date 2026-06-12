@@ -49,13 +49,31 @@
   = real lean opt-out; CM subsystem measured at 156 KB / +8.3%). D-321
   (gate rot) discharged; D-320 size series live
   (`scripts/record_binary_size.sh`, base 1.94 MB / lean 1.78 MB).
-- **NEXT (CM campaign)**: ADR-0180 Phase-2 listeners (accept/listen +
-  windows WSAPoll D-319), or close the 30 validator skip-impl gaps
-  (nested-scope deep refs = biggest cluster). Secondary: D-318, D-314
-  follow-ons (incl. poll code-size, the D-320 residual), D-251. Loop
-  RESUMED per user directive (2026-06-13 「どんどん進めて」). Windows
-  batch gate kicked at 43ab91a8 (build.zig ABI-risk) — verify at next
-  Step 0.7 + --record.
+- **Rule-5 grammar COMPLETE** (dep/url/integrity/semver/projection +
+  import-only forms): corpus **136 pass / 0 fail / 19 skip-impl**. Win
+  batch at 43ab91a8: all suites green on win64 incl. component corpus;
+  the one red was the NEW TCP e2e lacking its D-319 gate — fixed
+  @d0cd9f67 (next batch verifies + --record).
+- **NEW NOW-POINTER (user-directed 2026-06-13): ADR-0183 typed component
+  embedder API** — CWFS's ADR-0135 made WIT the north star
+  (component-as-namespace; no .wit sidecar; records↔maps etc.). See
+  `## Active bundle`. After: sockets Phase-2 / remaining 19 validator
+  skips / D-318 / D-314 / D-251.
+
+## Active bundle
+
+- **Bundle-ID**: typed-component-api (ADR-0183 / plan Phase F)
+- **Cycles-remaining**: ~4
+- **Continuity-memo**: F1 `ComponentValue` union + `exportedFuncs()`
+  introspection (decode data already has exports + full type space;
+  this is facade plumbing) → F2 typed lower (reuse canon.zig
+  size/align/flatten + cabi_realloc patterns from the P2 trampolines)
+  → F3 lift + compound round-trip → F4 wit-bindgen proof fixture +
+  `assert_typed` corpus directives. Consumer = CWFS wasm/load+wasm/call
+  today (scalar-only); they're blocked on this surface.
+- **Exit-condition**: a committed wit-bindgen component exchanging
+  `record{list<u32>, string}` ↔ `result<record, string>` round-trips
+  through `invokeTyped` in an e2e test (greet also callable typed).
 
 ## Sandboxing bundle d314-jit-sandbox — CLOSED 2026-06-12
 

@@ -232,6 +232,27 @@ design forks. Update this doc's `[x]` + handover NEXT each chunk.
   (later bundle); wat-text-level malformed cases = N/A for a binary validator.
   Remaining (separate): more WASI-P2 boundary fixtures (trap/handle-invalid paths).
 
+### Phase F — typed component embedder API (ADR-0183; CWFS north-star)
+
+- [ ] **F1 — `ComponentValue` public value tree + introspection.** The WIT
+  value model as a Zig union (distinct from `runtime.Value`); 
+  `exportedFuncs()` on the decoded component/instance returning typed
+  signatures from the SELF-DESCRIBING binary (no `.wit` sidecar — CWFS
+  ADR-0135). **Red**: greet's export introspects as `(param "name" string)
+  (result string)`.
+- [ ] **F2 — typed invoke: lower.** `invokeTyped(name, args)` validates
+  against the export type and lowers via the canonical ABI (flat when it
+  fits; `cabi_realloc` + memory writes for strings/lists/records — reuse
+  `canon.zig` size/align/flatten). **Red**: call greet with
+  `.{ .string = "zwasm" }`.
+- [ ] **F3 — typed invoke: lift + compound round-trip.** Lift results into
+  caller-owned `ComponentValue`; record/list/variant/option/result arms.
+  **Red**: a wit-bindgen fixture exchanging `record{list<u32>, string}` →
+  `result<record, string>` round-trips.
+- [ ] **F4 — proof fixture + corpus directives.** Real wit-bindgen (rust)
+  component with rich types committed via gen shell; spec runner gains
+  `assert_typed` directives; docs (`docs/` Zig API section) updated.
+
 ## Retrospective (fill at campaign close)
 
 _(Tier reached? new debt? spec-corpus pass rate? sample-projects green on 3
