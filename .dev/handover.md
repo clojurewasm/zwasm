@@ -6,23 +6,25 @@
 ## Active bundle
 
 - **Bundle-ID**: d314-jit-sandbox (interrupt poll → fuel → mem-cap → C-API/CLI)
-- **Cycles-remaining**: ~6
-- **Continuity-memo**: trap surface DONE (`TrapKind.interrupted=16` + `mapInterpTrap`
-  arm — interp `error.Interrupted` was mis-surfaced as `binding_error` — +
-  `jitTrapCode(16)` + message, committed). NEXT chunk = arm64 prologue interrupt
-  poll: `JitRuntime` is an **extern struct** (trailing add = ABI-safe) → add
-  `interrupt_ptr: ?*const std.atomic.Value(u32)` + `interrupt_ptr_off`; poll after
-  the stack-probe `B.LS` (arm64 emit.zig ~340) / `JBE` (x86_64 ~351): `LDR ptr; CBZ
-  skip; LDR flag; CMP; B.NE → interrupt_fixups`; reuse the stack-overflow stub
-  (EmitCindStub kind=16, fb=0). **Use `CMP+B.NE` NOT raw CBNZ** — the EmitCindStub
-  patcher dispatches B/B.cond only. `setInterruptFlag` setter in setup.zig. Test
-  deterministic (pre-set flag → traps at prologue). Then x86_64 → loop back-edge
-  poll (the `(loop)`-traps case) → #3b fuel → #3c-2 mem-cap → #3a-4 CLI
-  `--timeout`/`--fuel`/`--max-memory`. **windowsmini is FREE now** (user 2026-06-12:
-  CWFS uses tag refs, doesn't touch windowsmini) → `--resume` + VERIFY Win64
-  prologue-poll directly, don't just cross-compile + debt.
+- **Cycles-remaining**: ~5
+- **Continuity-memo**: DONE — trap surface (`TrapKind.interrupted=16`) `5564c553`;
+  **arm64 prologue interrupt poll** `c1a9da15` (`JitRuntime.interrupt_ptr` trailing
+  field + `interrupt_ptr_off`; poll after the stack-probe `B.LS`: `LDR X16←ptr; CBZ
+  skip; LDR W17←[X16]; CMP W17,WZR; B.NE→interrupt stub kind=16`; `CMP+B.NE` NOT
+  CBNZ — EmitCindStub patcher does B/B.cond only; `JitInstance.setInterruptFlag`).
+  Prologue grew 56→76; param-store byte tests relativised to `body_start_offset()`.
+  **NEXT = x86_64 prologue poll** (after the `JBE` stack probe, emit.zig ~351;
+  stub in op_control.zig like the stack-overflow stub kind=16; MOV/TEST/JZ-skip/
+  MOV-flag/JNE). x86_64 prologue IS Win64-prologue-risk → `should_gate_windows.sh
+  --resume` + verify (windowsmini FREE now — user 2026-06-12, CWFS uses tag refs).
+  Then ungate the `runner_trap_test` interrupt test (drop the `skip.blocker(.@"D-314")`
+  arch-gate). Then loop **back-edge poll** (the `(loop)`-with-no-calls case; fb=
+  frame_bytes since it fires post-SUB-SP, a SEPARATE fixup list) → #3b fuel → #3c-2
+  mem-cap → #3a-4 CLI `--timeout`/`--fuel`/`--max-memory`. **Code-size note**: the
+  poll (20 B) + interrupt stub (28 B) are unconditional per fn — measure the bloat
+  and consider an opt-in compile flag (wasmtime-style) per perf-measure-first.
 - **Exit-condition**: a JIT-compiled looping/recursive fn traps `error.Interrupted`
-  when the host raises the flag, verified 3-host (windows now in scope).
+  when the host raises the flag, verified 3-host (windows in scope for x86_64).
 
 ## JIT-correctness pass (2026-06-12) — LANDED, 2-host green
 
