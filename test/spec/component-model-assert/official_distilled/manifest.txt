@@ -132,8 +132,7 @@ assert_invalid test/spec/component-model-assert/official_distilled/instantiate_1
 # instantiate.wast: "index out of bounds"
 assert_invalid test/spec/component-model-assert/official_distilled/instantiate_16.wasm
 # invalid.wast: "type index out of bounds"
-# (fixture invalid_01.wasm kept for when the gap closes)
-skip-impl invalid_01: nested type-scope deep validation deferred (decl-internal refs; ADR-0176)
+assert_invalid test/spec/component-model-assert/official_distilled/invalid_01.wasm
 # naming.wast: "`1` is not in kebab case"
 assert_invalid test/spec/component-model-assert/official_distilled/naming_01.wasm
 # naming.wast: "enum tag name `NevEr` is not in kebab case"
@@ -215,8 +214,7 @@ assert_invalid test/spec/component-model-assert/official_distilled/types_01.wasm
 # types.wast: "instance index out of bounds"
 assert_invalid test/spec/component-model-assert/official_distilled/types_02.wasm
 # types.wast: "type index out of bounds"
-# (fixture types_03.wasm kept for when the gap closes)
-skip-impl types_03: nested type-scope deep validation deferred (decl-internal refs; ADR-0176)
+assert_invalid test/spec/component-model-assert/official_distilled/types_03.wasm
 # types.wast: "type index out of bounds"
 assert_invalid test/spec/component-model-assert/official_distilled/types_04.wasm
 # types.wast: "export name `A` conflicts with previous name `a`"
@@ -224,8 +222,7 @@ assert_invalid test/spec/component-model-assert/official_distilled/types_05.wasm
 # types.wast: "import name `a` conflicts with previous name `A`"
 assert_invalid test/spec/component-model-assert/official_distilled/types_06.wasm
 # types.wast: "type index out of bounds"
-# (fixture types_07.wasm kept for when the gap closes)
-skip-impl types_07: nested type-scope deep validation deferred (decl-internal refs; ADR-0176)
+assert_invalid test/spec/component-model-assert/official_distilled/types_07.wasm
 # types.wast: "type index out of bounds"
 assert_invalid test/spec/component-model-assert/official_distilled/types_08.wasm
 # types.wast: "invalid outer alias count of 100"
@@ -239,8 +236,7 @@ assert_invalid test/spec/component-model-assert/official_distilled/types_12.wasm
 # types.wast: "invalid outer alias count of 100"
 assert_invalid test/spec/component-model-assert/official_distilled/types_13.wasm
 # types.wast: "type index out of bounds"
-# (fixture types_14.wasm kept for when the gap closes)
-skip-impl types_14: nested type-scope deep validation deferred (decl-internal refs; ADR-0176)
+assert_invalid test/spec/component-model-assert/official_distilled/types_14.wasm
 # export.wast: "not a valid export name"
 assert_invalid test/spec/component-model-assert/official_distilled/export_101.wasm
 # export.wast: "not a valid export name"

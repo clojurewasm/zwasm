@@ -55,6 +55,7 @@ pub fn validate(info: *const TypeInfo) Error!void {
     try checkInstances(info);
     try checkCanons(info, type_space_len);
     try checkAliases(info);
+    try checkCoreTypes(info);
     for (info.imports.items) |imp| {
         try checkExternDesc(imp.desc, type_space_len);
         try checkExternName(imp.name, .import);
@@ -384,6 +385,50 @@ fn checkDeclRefNamed(idx: u32, scope: anytype) Error!void {
         n += 1;
     }
     return Error.InvalidTypeIndex;
+}
+
+/// Rule 11 — core-type definitions (types.wast / invalid.wast module-decl
+/// classes). A top-level core functype's `(ref N)` heap types index the
+/// component's core-type space at the def's position (def-order). A
+/// moduletype decl scope carries its own module-LOCAL type space, minted
+/// in decl order by nested `type` decls and outer type aliases;
+/// func/tag import-export type refs bound by it. An outer type alias's
+/// ct counts outward (0 = the module scope, 1 = the enclosing
+/// component at the def's position; deeper is invalid at top level).
+fn checkCoreTypes(info: *const TypeInfo) Error!void {
+    for (info.core_types.items) |entry| {
+        try checkCoreDefType(entry.def, entry.space_before);
+    }
+}
+
+fn checkCoreDefType(def: types.CoreDefType, enclosing_space: u32) Error!void {
+    switch (def) {
+        .func => |refs| for (refs) |r| {
+            if (r >= enclosing_space) return Error.InvalidTypeIndex;
+        },
+        .module => |decls| {
+            var local_n: u32 = 0;
+            for (decls) |decl| switch (decl) {
+                .func_type_ref => |ti| if (ti >= local_n) return Error.InvalidTypeIndex,
+                .type_def => |td| {
+                    // A functype nested in the module references the
+                    // module-local space.
+                    try checkCoreDefType(td, local_n);
+                    local_n += 1;
+                },
+                .outer_type_alias => |o| {
+                    switch (o.count) {
+                        0 => if (o.index >= local_n) return Error.InvalidAlias,
+                        1 => if (o.index >= enclosing_space) return Error.InvalidAlias,
+                        else => return Error.InvalidAlias,
+                    }
+                    local_n += 1;
+                },
+                .other => {},
+            };
+        },
+        .other => {},
+    }
 }
 
 /// Rule 9: instantiate-section bounds + names (corpus instantiate.wast
