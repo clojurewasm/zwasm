@@ -25,3 +25,15 @@
   variant: "lean"
   optimize: "ReleaseFast"
   zwasm_bytes: 1775096
+
+- commit: "6979c838"
+  timestamp: "2026-06-12T19:19:56Z"
+  variant: "base"
+  optimize: "ReleaseFast"
+  zwasm_bytes: 1972696
+
+- commit: "6979c838"
+  timestamp: "2026-06-12T19:19:56Z"
+  variant: "lean"
+  optimize: "ReleaseFast"
+  zwasm_bytes: 1775096
