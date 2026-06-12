@@ -1,0 +1,13 @@
+package zwasm:restest;
+
+interface counter-api {
+  resource counter {
+    constructor(start: u32);
+    increment: func() -> u32;
+    get: func() -> u32;
+  }
+}
+
+world resource-test {
+  export counter-api;
+}
