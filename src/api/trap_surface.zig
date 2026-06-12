@@ -57,6 +57,11 @@ pub const TrapKind = enum(u32) {
     // Wasm threads/atomics (ADR-0168): memory.atomic.wait* on a non-shared
     // memory. Spec reason "expected shared memory"; appended C-ABI value.
     expected_shared_memory = 15,
+    // Sandboxing (ADR-0179 #3a): a host raised the cooperative-interruption
+    // flag (cancel / timeout) and the guest's next poll trapped. The interp
+    // already produces `error.Interrupted`; before this it mis-surfaced as
+    // `binding_error`. The JIT prologue/back-edge poll will emit stub code 16.
+    interrupted = 16,
 };
 
 /// `wasm_trap_t` — runtime trap surface. Carries the trap kind +
@@ -100,6 +105,7 @@ pub fn trapMessageFor(kind: TrapKind) []const u8 {
         .uncaught_exception => "uncaught exception",
         .unaligned_atomic => "unaligned atomic",
         .expected_shared_memory => "expected shared memory",
+        .interrupted => "interrupted",
     };
 }
 
@@ -127,6 +133,7 @@ pub fn jitTrapCode(code: u32) ?TrapKind {
         13 => .uninitialized_elem, // D-294 — call_indirect on a null (uninitialized) in-bounds table elem (typeidx == maxInt sentinel → CMP/CMN → JE/B.EQ)
         14 => .unaligned_atomic, // ADR-0168 rmw/cmpxchg/wait callout helper
         15 => .expected_shared_memory, // ADR-0168 wait* on non-shared (callout)
+        16 => .interrupted, // ADR-0179 #3a — JIT prologue/back-edge interruption poll stub
         else => null, // 0 unmarked / 1 generic — still-shared bounds kinds (D-293)
     };
 }
@@ -149,6 +156,10 @@ pub fn mapInterpTrap(err: anyerror) TrapKind {
         error.UncaughtException => .uncaught_exception,
         error.UnalignedAtomic => .unaligned_atomic,
         error.ExpectedSharedMemory => .expected_shared_memory,
+        // Sandboxing (ADR-0179 #3a): host cancel/timeout. Was mis-mapped to
+        // binding_error ("host invocation error") — the default engine traps
+        // `error.Interrupted` but the surface hid the kind.
+        error.Interrupted => .interrupted,
         else => .binding_error,
     };
 }
@@ -443,6 +454,16 @@ test "mapInterpTrap: Wasm 3.0 GC/typed-ref/EH traps surface their precise kind (
     try testing.expectEqualStrings("uncaught exception", trapMessageFor(.uncaught_exception));
     // Unmapped host errors still fall back to binding_error.
     try testing.expectEqual(TrapKind.binding_error, mapInterpTrap(error.SomeHostThing));
+}
+
+test "interrupted (ADR-0179 #3a): interp error + JIT code 16 both surface the same kind+message" {
+    // The default (interp) engine traps `error.Interrupted` on a host
+    // cancel/timeout; it previously fell through to binding_error.
+    try testing.expectEqual(TrapKind.interrupted, mapInterpTrap(error.Interrupted));
+    // JIT stub code 16 maps to the same kind (the prologue/back-edge poll).
+    try testing.expectEqual(TrapKind.interrupted, jitTrapCode(16).?);
+    // Both paths reuse one message table → interp/JIT parity.
+    try testing.expectEqualStrings("interrupted", trapMessageFor(.interrupted));
 }
 
 test "wasm_trap_*: null-arg discipline" {

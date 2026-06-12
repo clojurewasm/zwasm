@@ -3,55 +3,44 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## JIT-correctness pass (2026-06-12) — PUSHED, ubuntu re-gate in flight
+## Active bundle
 
-User-directed "make the codebase better" session, prioritised JIT spec-correctness
-(the bar's `100% spec` held for interp; JIT had real gaps — now **wasm-3.0 JIT
-mode = assert_return 880/0 on BOTH arm64 + x86_64**, matching interp). Commits
-`e758412a..9a9b46de` on `zwasm-from-scratch`, **pushed** (no release — ADR-0156).
-Mac arm64 green; ubuntu `test-all` OK @008dc3be; **ubuntu re-gate of `9a9b46de`
-IN FLIGHT** (`private/ubuntu_gate_4_*`). Rosetta x86_64 corpus per-manifest green.
+- **Bundle-ID**: d314-jit-sandbox (interrupt poll → fuel → mem-cap → C-API/CLI)
+- **Cycles-remaining**: ~6
+- **Continuity-memo**: trap surface DONE (`TrapKind.interrupted=16` + `mapInterpTrap`
+  arm — interp `error.Interrupted` was mis-surfaced as `binding_error` — +
+  `jitTrapCode(16)` + message, committed). NEXT chunk = arm64 prologue interrupt
+  poll: `JitRuntime` is an **extern struct** (trailing add = ABI-safe) → add
+  `interrupt_ptr: ?*const std.atomic.Value(u32)` + `interrupt_ptr_off`; poll after
+  the stack-probe `B.LS` (arm64 emit.zig ~340) / `JBE` (x86_64 ~351): `LDR ptr; CBZ
+  skip; LDR flag; CMP; B.NE → interrupt_fixups`; reuse the stack-overflow stub
+  (EmitCindStub kind=16, fb=0). **Use `CMP+B.NE` NOT raw CBNZ** — the EmitCindStub
+  patcher dispatches B/B.cond only. `setInterruptFlag` setter in setup.zig. Test
+  deterministic (pre-set flag → traps at prologue). Then x86_64 → loop back-edge
+  poll (the `(loop)`-traps case) → #3b fuel → #3c-2 mem-cap → #3a-4 CLI
+  `--timeout`/`--fuel`/`--max-memory`. **windowsmini is FREE now** (user 2026-06-12:
+  CWFS uses tag refs, doesn't touch windowsmini) → `--resume` + VERIFY Win64
+  prologue-poll directly, don't just cross-compile + debt.
+- **Exit-condition**: a JIT-compiled looping/recursive fn traps `error.Interrupted`
+  when the host raises the flag, verified 3-host (windows now in scope).
 
-**Shipped**:
-- **GC-ref-through-table JIT corruption FIXED (both arches)** `9a9b46de` — the
-  last 2 jit-mode wasm-3.0 fails (gc/ref_test test-sub/test-canon). TWO distinct
-  bugs, BOTH making a table-loaded struct.new* object fail ref.test: (1) arm64 —
-  struct.new*/array.new_fixed spilled the u32 GcRef result via STR W (32-bit),
-  leaving the 64-bit slot's high half stale → table.set stored `(stale<<32)|ref`;
-  fix = STR X. (2) x86_64 — table.set reused r10/r11 for the descriptor AND the
-  spill stages, so a force-spilled idx (struct.new is a CALL) clobbered `len` →
-  bounds `cmp idx,idx` → trap; fix = snapshot idx→EDX/val→R9 before the
-  descriptor (mirrors arm64 X16/X17). D-317 was MIS-FRAMED as call_indirect
-  subtyping; the real bugs were GcRef width + register clobber.
-- **memory64 JIT bounds overflow FIXED (both arches)** `fc5be95e` — `emitMemOpI64`
-  did `ADD ea,#size; CMP; B.HI` so `ea+size` near 2^64 WRAPPED past the bounds
-  check → no trap (spec violation). Now flag-setting `ADDS`+`B.HS` (arm64) /
-  `ADD`+`JC` (x86_64). `ZWASM_SPEC_ENGINE=jit` wasm-3.0 memory64 FAILtrapNoTrap
-  51→0, return 337/0. **This reopened+fixed D-234**, mis-closed as a "harness
-  artifact" over 6 cycles (its isolation tests all used SMALL addresses that never
-  overflow). Lesson `…harness-artifacts` corrected: Rule 6 (isolation must replay
-  the corpus's boundary INPUT values) overrides its Rule 4.
-- **Test capture-allocator mismatch FIXED** `008dc3be` — `2d99e5a2` made
-  runWasmCaptured* grow the buffer with the CALLER's allocator; diff_runner +
-  wasi/runner still freed with `c_allocator` → `free(): invalid pointer` SIGABRT
-  on x86_64-Linux (first ubuntu RED since that change). Mac aliased malloc so it
-  hid there.
-- **D-237 spec-runner double-free FIXED** `314a0c97` — the corpus-end
-  `defer free(cur_module_bytes)` fired even after ownership transferred to
-  kept_bytes; now respects `cur_bytes_kept`. `ZWASM_SPEC_DETAIL=1` env added.
-- **36 stale multi-memory skips retired** `93792696` — regen with the current
-  distiller; `assert_unlinkable`/`assert_uninstantiable` now real directives.
-- **D-299 stale row deleted** `e758412a` — already fixed same-day as D-303.
+## JIT-correctness pass (2026-06-12) — LANDED, 2-host green
 
-**Open JIT-correctness follow-ons (NEXT, per task list)**:
-- **D-318** (note) — Rosetta x86_64-macos FULL corpus-JIT SEGVs (pre-existing,
-  local-diagnostic only, not a gate; native x86_64-Linux + per-manifest Rosetta
-  are green). The GcRef fix above was verified per-manifest on Rosetta.
-- Then **D-314** JIT sandboxing (interrupt/fuel/mem-cap on `--engine jit`;
-  Win64-risk → `should_gate_windows.sh --resume`, conflicts w/ cw dev) +
-  diagnostics/DX (trap backtraces; industry pain #1) + D-313 realworld stdout-
-  assert gate-hole. wasm-3.0 jit-mode is now CLEAN both arches (0 assert_return
-  fails); remaining jit skips are eligibility-gated, not correctness gaps.
+JIT spec-correctness was the priority (`100% spec` held for interp; JIT had real
+gaps). **Now wasm-3.0 JIT mode = assert_return 880/0 on BOTH arm64 + x86_64**,
+matching interp. Commits `e758412a..9a9b46de` pushed, **ubuntu `test-all` OK
+@9a9b46de** (no release — ADR-0156; windows suspended ADR-0174 — now resumable).
+
+**Shipped (detail in git log)**: GC-ref-through-table JIT corruption `9a9b46de`
+(arm64 GcRef spill STR-W→STR-X + x86_64 table.set r10/r11 descriptor-vs-spill-stage
+clobber → snapshot idx/val first; D-317 re-framed from "call_indirect subtype");
+memory64 bounds `ea+size` 2^64-overflow `fc5be95e` (ADDS+carry, both arches;
+reopened+fixed D-234, mis-closed 6 cycles — lesson Rule 6: isolation must replay
+boundary INPUT values); test capture-allocator mismatch `008dc3be` (ubuntu RED);
+D-237 spec-runner double-free `314a0c97`; 36 stale multi-memory skips `93792696`;
+D-299 stale row `e758412a`. **D-318** (note): Rosetta x86_64-macos FULL corpus-JIT
+SEGVs (pre-existing, local-diagnostic only, not a gate). Remaining jit-mode skips
+are eligibility-gated (multi-memory/v128/multi-value/cross-module), NOT correctness.
 
 **Prior pass — embedder-hardening (2026-06-08, `14de5430..d6699b00`, pushed,
 ubuntu-green @d6699b00)**: facade `InstantiateOpts` fuel + `max_memory_pages`
