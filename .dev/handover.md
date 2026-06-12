@@ -5,7 +5,15 @@
 
 ## Current state
 
-- **Phase 16 (完成形 finalization, ADR-0156 — no release, pursued indefinitely).**
+- **ROADMAP widget: Phase 16 = DONE, Phase 17 = IN-PROGRESS** (v0.2 feature
+  line; NOW-pointer = the CM + WASI-P2 wasmtime-equivalent campaign,
+  user-directed 2026-06-07, driver `component_model_plan.md`). The recent
+  user-directed pivots (security → JIT-correctness → D-314 sandboxing) are
+  all COMPLETE, so per resume rules (ROADMAP wins over this file) an
+  unattended `/continue` resumes the **CM campaign at the plan's Work
+  sequence** — the "Parked" note at the bottom predates those pivots'
+  completion. If the user prefers debt work instead, the candidates are in
+  NEXT below.
 - Last: bundle **d314-jit-sandbox CLOSED** (see below) @316d77b8; 3-host
   green (ubuntu @a1f3d84d, windowsmini @a1f3d84d recorded, Mac 2688/0).
 - **D-313 DISCHARGED `7079ab9a`**: run-runner now captures guest stdout and
@@ -18,11 +26,11 @@
 - **ADR-0078 SOON drifts CLEARED**: the 4 standing pre-push findings
   (D-157/162/163/164) resolved — closure SHAs cited in the table + the
   pairing script taught id-first discharge phrasings; drift 0.
-- **NEXT**: Phase-16 ledger long-tail (all §9.16 rows [x]; open-ended debt
-  repayment + surface refinement per ADR-0156). At resume: Step 0.5 debt
-  sweep picks the next item — candidates: D-318 (Rosetta corpus-JIT SEGVs,
-  local-diagnostic), D-314 note follow-ons (poll code-size measure is
-  perf-measure-first cheap), D-251 (C-API WASI preopen io-acquisition ADR).
+- **NEXT (default, per ROADMAP)**: resume the CM + WASI-P2 campaign at
+  `component_model_plan.md`'s Work sequence. Secondary (user-redirect only):
+  ledger long-tail — D-318 (Rosetta corpus-JIT SEGVs, local-diagnostic),
+  D-314 note follow-ons (poll code-size measure, perf-measure-first cheap),
+  D-251 (C-API WASI preopen io-acquisition ADR).
 
 ## Sandboxing bundle d314-jit-sandbox — CLOSED 2026-06-12
 
@@ -90,9 +98,10 @@ lesson `host-memory-exhaustion-defenses`).
 - Debt ledger **54 entries**, **zero `now` rows**; D-314 re-scoped to `note`
   (follow-on list). Rest `blocked-by`/`note` = long-tail.
 
-**Parked (demand-driven)**: CM deeper conformance
-([`component_model_plan.md`](component_model_plan.md)); WASI-P2 sockets;
-Go/tinygo proof; 32 `blocked-by` debt (call_ref / future proposals).
+**Parked (demand-driven)**: WASI-P2 sockets; Go/tinygo proof; 32
+`blocked-by` debt (call_ref / future proposals). (CM deeper conformance is
+NO LONGER parked — it is the ROADMAP Phase-17 NOW-pointer, see Current
+state.)
 
 ## Key refs
 
