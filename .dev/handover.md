@@ -12,21 +12,28 @@
   case); **arm64 loop BACK-EDGE poll** `5b441f96` (poll at each br/br_if-to-loop
   site → POST-frame stub fb=frame_bytes via the SEPARATE `back_edge_interrupt_fixups`
   list; helper `emitBackEdgeInterruptPoll`; a tight `(loop)` now traps on arm64).
-  **NEXT = x86_64 loop back-edge poll** — mirror the arm64 helper in
-  x86_64/op_control.zig at the br/br_if-to-loop sites (a SEPARATE `interrupt_fixup`
-  is already a single u32 — need a LIST or a 2nd fixup; the back-edge stub is a
-  2nd op_control stub block with fb-restore = `ADD RSP, frame_bytes` before POP).
-  **CRITICAL x86_64 gotcha**: a no-call loop fn has NO R15 (`uses_runtime_ptr=false`)
-  → the back-edge poll can't read interrupt_ptr → must FORCE uses_runtime_ptr (R15
-  setup) when the fn contains a loop (prescan, or set it in usage.usesRuntimePtr).
-  Then UNGATE the loop test (drop `skip.blocker(.@"D-314")`) + the br_table-to-loop
-  case (both arches). Then #3b fuel → #3c-2 mem-cap → #3a-4 CLI. **Code-size**: poll
+  **x86_64 loop back-edge poll DONE `72801881`** — 32-byte R11-scratch poll at
+  the 3 backward sites (emitBr / branchOnReg br_if+br_on_cast / emitBrTableJmp;
+  no-params br_if re-TESTs cond after the flag-clobbering poll), POST-frame
+  `emitTrapExitStub(16)` via new `back_edge_interrupt_fixups`;
+  `usage.usesRuntimePtr += .loop` (R15-forcing); loop test ungated (TDD red→green
+  on Rosetta; standalone 2673/0 both arches); 2 loop byte tests re-anchored.
+  **NEXT = br_table-to-loop back-edge test (both arches) + arm64 br_table poll** —
+  x86_64 emitBrTableJmp already polls (this chunk); arm64's `emitBranchToDepth`
+  loop path (op_control.zig:433, used by br_table at :513/:518) has NO poll yet —
+  add `emitBackEdgeInterruptPoll(ctx)` there + a br_table-to-loop runner test
+  (mirror the loop test with `br_table 0` as the back edge). Then #3b fuel →
+  #3c-2 mem-cap → #3a-4 CLI. **Code-size**: poll
   +stub unconditional per fn — measure, consider opt-in flag (perf-measure-first).
   **GATE NOTE**: the 3 D-311 raw-entry-call tests (linker×2/entry-f32,
   releasesafe_jit_failures.md) crash SEED-FLAKILY in `zig build test` (undefined-
   memory read picks up test-order leftover) → can intermittently RED the local
   pre-commit gate. Pre-existing; retry the commit (reshuffles the seed) or the
   3-host test-all (Debug unit + ReleaseSafe integration) is the authority.
+  NEW variant (2026-06-12): under the build-runner's `--listen` IPC the unit
+  binary can crash AT EXIT after all 2685 results stream back OK — zig prints
+  `failed command:` but the step (and `zig build test`) still exits 0; the same
+  binary standalone = 2673/0. Same D-311 residual; don't chase it as a new bug.
 - **Exit-condition**: a JIT looping/recursive fn traps `error.Interrupted` when the
   host raises the flag. Recursion: DONE both arches. Tight loop: DONE arm64,
   pending x86_64 back-edge.
