@@ -73,22 +73,25 @@
   @d039d727, D-319 row re-scoped to the named hang barrier (3-hypothesis
   list + targeted-probe plan in the row). D-320 size datapoint: base
   1.97 MB (+37.6 KB), lean unchanged.
-- **D-319 probe #1 evidence (in flight)**: `zig build test
-  -Dd319-probe=true` on windowsmini showed NO output for 14+ min (normal
-  ~5 min) → hang REPRODUCES in the unit step (verdict via timeout-1200
-  notification; /tmp/win_probe.log). Next probe: bisect — the unit
-  binary contains BOTH p2_sockets lifecycle tests AND the component.zig
-  rust e2e; new hypothesis H4: WSAPoll misreports ready ⇒ blocking
-  netRead hangs (lifecycle recv) — vs H2/H3 e2e-only paths. Record
-  evidence in the D-319 row next cycle.
+- **D-319 probe #1 CONFIRMED (exit 124)**: the hang reproduces in the
+  unit step alone. Row updated (H4: WSAPoll misreports ready ⇒ blocking
+  recv hangs). Probe #2 flag re-scoped: -Dd319-probe now gates ONLY the
+  p2_sockets unit lifecycle tests (e2e stays plain-gated) — probe #2 run
+  KICKED this turn (/tmp/win_probe2.log, timeout 1200): hangs ⇒ H1/H4
+  (unit-level WSAPoll defect); completes ⇒ H2/H3 (e2e harness).
 - **D-322 CORE LANDED @3cf52d80**: resource defs (0x3f) decode (raw-byte
   peek — 0x3f is sleb-positive) + dtor core-func bounds + rule 12
   resource generativity (nested-component recursive scan; the corpus
   case now rejects via the REAL rule) + runner prints reject reasons +
   core_scan.zig P1 split (types.zig was past the 2000 cap). D-322
   residual = guest-resource RUNTIME path (exported-resource fixture e2e).
-- **NEXT**: D-319 probe verdict + row update, then D-322 runtime fixture
-  OR D-318 / D-251.
+- **D-322 Phase-I MEASURED**: resource_counter fixture committed
+  (wit-bindgen guest resource); gap = UnknownImport on the synthesized
+  `[export]<iface>` `[resource-new]/[resource-drop]` core imports → wire
+  canon resource.new/drop/rep core_funcs to the C1 resource table in the
+  graph builder, then ComponentValue own-handle arms for the typed path.
+- **NEXT**: D-322 runtime bundle (graph-builder resource builtin wiring
+  — the measured gap above) · D-319 probe #2 verdict · D-318 · D-251.
 
 ## Closed-work pointers (detail in git log / ADRs)
 
