@@ -91,3 +91,19 @@ ordinals) — a sibling of the D-307 filesystem errno map.
 - Win64: `poll(2)` → `WSAPoll` divergence; gate via the existing platform
   layer, cross-compile before push (platform_panic_vs_error discipline).
 - Bundle `d3-8-sockets-tcp` tracks the multi-cycle rollout.
+- **2026-06-13 (Phase 2 LANDED)**: listener subset shipped — `TcpState`
+  gains `listen_started`/`listening`; `start-listen` runs the OS
+  socket+bind+listen atomically (`netListenIp`; the pinned stdlib has no
+  separate stream-socket bind, so `start-bind` validates+stores and bind
+  failures surface at `finish-listen` — the Phase-2 defer-bind
+  DIVERGENCE); non-blocking `accept` gates on poll(2) readiness and
+  mints the accepted connection + stream pair; REAL
+  `local-address`/`remote-address` (canonical in-memory encode; peer
+  addr from netAccept); `set-listen-backlog-size` stored pre-listen.
+  Proof: `wasi_p2_listen_rust.wasm` (rustc wasip2 std::net::TcpListener)
+  accepts a host client and echoes e2e. **WSAPoll landed** (D-319): the
+  pinned stdlib has no WSAPoll binding, so `pollOnce` declares
+  `extern "ws2_32" WSAPoll` per the platform-layer `extern "kernel32"`
+  precedent (POLLRDNORM/POLLWRNORM interest bits); all windows skips
+  removed — windowsmini verifies at its next batch. Phase-3
+  (UDP/name-lookup) remains deferred.

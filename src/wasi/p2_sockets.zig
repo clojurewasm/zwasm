@@ -85,15 +85,15 @@ pub fn errorToCode(err: anyerror) ErrorCode {
     };
 }
 
-/// poll(2) interest bits, re-exported comptime-gated so consumers compile on
-/// Windows where `std.posix.POLL` is absent (the values are never read there
-/// — `pollOnce` panics per D-319 until the WSAPoll wiring lands in Phase 2).
+/// poll(2) interest bits, comptime-gated: `std.posix.POLL` is absent on
+/// Windows, where WSAPoll wants POLLRDNORM/POLLWRNORM (POLLIN/POLLOUT
+/// composites in `events` are rejected with WSAEINVAL for the BAND halves).
 pub const POLL_IN: i16 = switch (builtin.os.tag) {
-    .windows => 1,
+    .windows => 0x0100, // POLLRDNORM
     else => posix.POLL.IN,
 };
 pub const POLL_OUT: i16 = switch (builtin.os.tag) {
-    .windows => 4,
+    .windows => 0x0010, // POLLWRNORM
     else => posix.POLL.OUT,
 };
 
@@ -295,8 +295,18 @@ fn familyMatches(family: AddressFamily, addr: net.IpAddress) bool {
 /// (or an error/hup condition, which also unblocks a waiter) is pending.
 fn pollOnce(handle: net.Socket.Handle, interest: i16) !bool {
     switch (builtin.os.tag) {
-        // WSAPoll wiring is ADR-0180 Phase-2 scope (D-319).
-        .windows => @panic("wasi:sockets readiness poll on Windows pending (D-319, ADR-0180 Phase 2)"),
+        // The pinned stdlib has no WSAPoll binding — declared here per the
+        // platform-layer `extern "kernel32"` precedent (ADR-0180 Phase 2,
+        // discharges D-319). Winsock is already initialized: the handle
+        // came from an `std.Io.net` socket op.
+        .windows => {
+            const POLLERR: i16 = 0x0001;
+            const POLLHUP: i16 = 0x0002;
+            var fds = [_]WsaPollFd{.{ .fd = handle, .events = interest, .revents = 0 }};
+            const n = WSAPoll(&fds, 1, 0);
+            if (n < 0) return error.Unexpected;
+            return n > 0 and (fds[0].revents & (interest | POLLERR | POLLHUP)) != 0;
+        },
         else => {
             var fds = [_]posix.pollfd{.{ .fd = handle, .events = interest, .revents = 0 }};
             const n = try posix.poll(&fds, 0);
@@ -305,15 +315,16 @@ fn pollOnce(handle: net.Socket.Handle, interest: i16) !bool {
     }
 }
 
+/// winsock2 `WSAPOLLFD` (fd is SOCKET = handle-sized).
+const WsaPollFd = extern struct { fd: net.Socket.Handle, events: i16, revents: i16 };
+extern "ws2_32" fn WSAPoll(fds: [*]WsaPollFd, nfds: c_ulong, timeout: c_int) callconv(.winapi) c_int;
+
 // ============================================================
 // Tests
 // ============================================================
 const testing = std.testing;
-const skip = @import("../test_support/skip.zig");
 
 test "tcp client lifecycle: create → connect → echo against a loopback listener" {
-    // Windows socket-host verification is ADR-0180 Phase-2 scope (D-319).
-    if (builtin.os.tag == .windows) return skip.blocker(.@"D-319");
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
@@ -355,7 +366,6 @@ test "tcp client lifecycle: create → connect → echo against a loopback liste
 }
 
 test "tcp state machine: invalid transitions are rejected" {
-    if (builtin.os.tag == .windows) return skip.blocker(.@"D-319");
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
@@ -382,7 +392,6 @@ test "tcp state machine: invalid transitions are rejected" {
 }
 
 test "tcp connect to a closed port surfaces connection-refused at finish-connect" {
-    if (builtin.os.tag == .windows) return skip.blocker(.@"D-319");
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
@@ -401,7 +410,6 @@ test "tcp connect to a closed port surfaces connection-refused at finish-connect
 }
 
 test "tcp listener lifecycle: bind → listen → accept → echo (ADR-0180 Phase 2)" {
-    if (builtin.os.tag == .windows) return skip.blocker(.@"D-319");
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
@@ -453,7 +461,6 @@ test "tcp listener lifecycle: bind → listen → accept → echo (ADR-0180 Phas
 }
 
 test "tcp listener state machine: invalid transitions are rejected" {
-    if (builtin.os.tag == .windows) return skip.blocker(.@"D-319");
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();

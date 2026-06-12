@@ -778,15 +778,15 @@ entries:
     layer: "wasi"
     status: "note"
     description: |-
-      note (ADR-0180 Phase-2 scope): wasi:sockets host backing (src/wasi/p2_sockets.zig)
-      is untested on the Windows host — the lifecycle/state-machine unit tests skip on
-      builtin.os.tag == .windows (WSAPoll/WSAStartup divergence; std.posix socket surface
-      on win is unverified at runtime, cross-compile only). Discharge: enable the tests on
-      windowsmini and see them green (likely alongside ADR-0180 Phase-2 listeners work).
+      note (ADR-0180 Phase-2): WSAPoll readiness LANDED (extern "ws2_32"; pollOnce real on
+      windows; POLLRDNORM/POLLWRNORM interest bits) and ALL windows skips removed — the
+      sockets unit tests + both rust e2e (client/listener) now run on windowsmini.
+      Discharge: the next windows batch reports them green (win cross-compile already
+      green locally). Red => re-run once per D7; reproduces => real Win64 bug, fix here.
     first_raised: "2026-06-12"
-    last_reviewed: "2026-06-12"
+    last_reviewed: "2026-06-13"
     refs: |-
-      ADR-0180 (Phase 2 scope); src/wasi/p2_sockets.zig (skip sites); skip.Blocker D-319
+      ADR-0180 (Phase 2 Revision); src/wasi/p2_sockets.zig pollOnce/WSAPoll
 
   - id: "D-318"
     layer: "test"
