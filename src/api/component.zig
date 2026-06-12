@@ -1415,3 +1415,31 @@ test "E2: the tinygo fs component round-trips mkdir/write/stat/rename/readdir/re
     try runWasiP2Main(&eng, testing.allocator, bytes, &host);
     try testing.expectEqualStrings("FS-OK b.txt\n", capture.items);
 }
+
+test "E3: the tinygo fs error-path component sees exist/no-entry/empty-stream correctly" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/wasi_p2_fs_err_go.wasm", testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+    host.io = io;
+    _ = try host.addPreopen(tmp.dir.handle, "/work");
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(testing.allocator);
+    host.stdout_buffer = &capture;
+
+    // Boundary fixtures for the path-trampoline ERROR arms (D-307 errno →
+    // P2 error-code ordinals): duplicate mkdir → exist; stat/remove/rename
+    // on a missing path → no-entry; ReadDir on an empty dir → stream end
+    // (option none) on the first read-directory-entry. Guest asserts each
+    // via Go's os error predicates and prints ERR-OK.
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try testing.expectEqualStrings("ERR-OK\n", capture.items);
+}
