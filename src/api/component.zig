@@ -1443,3 +1443,52 @@ test "E3: the tinygo fs error-path component sees exist/no-entry/empty-stream co
     try runWasiP2Main(&eng, testing.allocator, bytes, &host);
     try testing.expectEqualStrings("ERR-OK\n", capture.items);
 }
+
+/// One-shot echo server for the TCP e2e: accept one connection, read up to
+/// 16 bytes, reply with "pong-<data>", close.
+fn tcpEchoServerOnce(io: std.Io, server: *std.Io.net.Server) void {
+    var conn = server.accept(io) catch return;
+    defer conn.close(io);
+    var buf: [16]u8 = undefined;
+    var bufs = [_][]u8{&buf};
+    const n = io.vtable.netRead(io.userdata, conn.socket.handle, &bufs) catch return;
+    var reply_buf: [32]u8 = undefined;
+    const reply = std.fmt.bufPrint(&reply_buf, "pong-{s}", .{buf[0..n]}) catch return;
+    const data = [_][]const u8{reply};
+    _ = io.vtable.netWrite(io.userdata, conn.socket.handle, "", &data, 1) catch return;
+}
+
+test "ADR-0180: a real rust wasip2 TCP client connects + echoes through wasi:sockets" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/wasi_p2_tcp_rust.wasm", testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    // Host-side loopback echo server on an ephemeral port, served
+    // concurrently while the guest runs.
+    const listen_addr: std.Io.net.IpAddress = .{ .ip4 = std.Io.net.Ip4Address.loopback(0) };
+    var server = try listen_addr.listen(io, .{ .mode = .stream, .protocol = .tcp });
+    defer server.deinit(io);
+    var port_buf: [8]u8 = undefined;
+    const port_str = try std.fmt.bufPrint(&port_buf, "{d}", .{server.socket.address.getPort()});
+    var server_fut = try io.concurrent(tcpEchoServerOnce, .{ io, &server });
+    defer server_fut.cancel(io);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+    host.io = io;
+    try host.setArgs(&.{ "tcp_echo", port_str });
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(testing.allocator);
+    host.stdout_buffer = &capture;
+
+    // A real `rustc --target wasm32-wasip2` std::net::TcpStream client:
+    // create-tcp-socket -> start/finish-connect (socket-backed stream pair)
+    // -> write "ping" -> subscribe/poll readiness -> read the reply — the
+    // ADR-0180 Phase-1 existence proof.
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try testing.expectEqualStrings("got pong-ping\n", capture.items);
+}
