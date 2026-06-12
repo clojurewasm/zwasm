@@ -377,8 +377,7 @@ pub fn p2DescriptorWrite(caller: *Caller, self_handle: u32, buf_ptr: u32, buf_le
     const bytes = mem.sliceAt(buf_ptr, buf_len) catch return WasiP2Error.OutOfBounds;
     const errno = wasi_fd.pwriteSlice(ctx.host, fd, bytes, offset);
     if (errno != .success) {
-        try mem.write(retptr, @as(u8, 1)); // result disc: err
-        try mem.write(retptr + 8, @intFromEnum(adapter.errnoToP2ErrorCode(errno))); // error-code (align 8)
+        try writeP1Err(mem, retptr, 8, errno); // result align 8
         return;
     }
     try mem.write(retptr, @as(u8, 0)); // result disc: ok
@@ -463,8 +462,7 @@ pub fn p2DescriptorOpenAt(caller: *Caller, self_handle: u32, path_flags: u32, pa
     // pathOpen writes the opened fd to retptr+4; reuse that slot for the result payload.
     const errno = wasi_fd.pathOpen(ctx.host, mem.slice(), dirfd, 0, path_ptr, path_len, oflags, rights, rights, 0, retptr + 4);
     if (errno != .success) {
-        try mem.write(retptr, @as(u8, 1)); // result disc: err
-        try mem.write(retptr + 4, @intFromEnum(adapter.errnoToP2ErrorCode(errno))); // D-307: error-code
+        try writeP1Err(mem, retptr, 4, errno);
         return;
     }
     const opened_fd = try mem.read(u32, retptr + 4);
@@ -524,8 +522,7 @@ fn p2DescriptorSync(caller: *Caller, self_handle: u32, retptr: u32) WasiP2Error!
     if (errno == .success) {
         try mem.write(retptr, @as(u8, 0));
     } else {
-        try mem.write(retptr, @as(u8, 1)); // result disc: err
-        try mem.write(retptr + 1, @intFromEnum(adapter.errnoToP2ErrorCode(errno)));
+        try writeP1Err(mem, retptr, 1, errno);
     }
 }
 
@@ -577,10 +574,7 @@ fn p2DescriptorGetType(caller: *Caller, self_handle: u32, retptr: u32) WasiP2Err
             try mem.write(retptr, @as(u8, 0)); // result disc: ok
             try mem.write(retptr + 1, filetypeToDescriptorType(fs.filetype));
         },
-        .err => |errno| {
-            try mem.write(retptr, @as(u8, 1));
-            try mem.write(retptr + 1, @intFromEnum(adapter.errnoToP2ErrorCode(errno)));
-        },
+        .err => |errno| try writeP1Err(mem, retptr, 1, errno),
     }
 }
 
@@ -613,10 +607,7 @@ fn writeStatResult(mem: Memory, retptr: u32, r: FilestatResult) WasiP2Error!void
                 try mem.write(t[0] + 16, @as(u32, @intCast(t[1] % std.time.ns_per_s)));
             }
         },
-        .err => |errno| {
-            try mem.write(retptr, @as(u8, 1));
-            try mem.write(retptr + 8, @intFromEnum(adapter.errnoToP2ErrorCode(errno)));
-        },
+        .err => |errno| try writeP1Err(mem, retptr, 8, errno),
     }
 }
 
@@ -632,6 +623,15 @@ fn p2DescriptorStatAt(caller: *Caller, self_handle: u32, path_flags: u32, path_p
     try writeStatResult(mem, retptr, try pathFilestat(ctx, mem, dirfd, path_flags, path_ptr, path_len));
 }
 
+/// Write the err-arm of a filesystem `result<_, error-code>`: disc 1 at
+/// `retptr`, then the D-307 P2 error-code ordinal at `retptr + off` (the
+/// payload offset varies with the result's alignment: 1 / 4 / 8 across the
+/// descriptor methods).
+fn writeP1Err(mem: Memory, retptr: u32, off: u32, errno: wasi_p1.Errno) WasiP2Error!void {
+    try mem.write(retptr, @as(u8, 1));
+    try mem.write(retptr + off, @intFromEnum(adapter.errnoToP2ErrorCode(errno)));
+}
+
 /// Store a `result<_, error-code>` at `retptr` — disc@0, error-code payload@1
 /// (both align 1; the unit ok-arm carries no payload). The shared back-half
 /// for the path-mutation `*-at` methods + `sync-data`.
@@ -640,8 +640,7 @@ fn writeUnitResult(mem: Memory, retptr: u32, errno: wasi_p1.Errno) WasiP2Error!v
         try mem.write(retptr, @as(u8, 0));
         return;
     }
-    try mem.write(retptr, @as(u8, 1));
-    try mem.write(retptr + 1, @intFromEnum(adapter.errnoToP2ErrorCode(errno)));
+    try writeP1Err(mem, retptr, 1, errno);
 }
 
 /// `wasi:filesystem/types` `[method]descriptor.create-directory-at`
@@ -727,8 +726,7 @@ fn p2DescriptorReadlinkAt(caller: *Caller, self_handle: u32, path_ptr: u32, path
     const scratch = try ctx.reallocGuest(4, 4); // P1 bufused out-slot
     const errno = wasi_path.pathReadlink(ctx.host, mem.slice(), dirfd, path_ptr, path_len, buf_ptr, buf_len, scratch);
     if (errno != .success) {
-        try mem.write(retptr, @as(u8, 1)); // result disc: err
-        try mem.write(retptr + 4, @intFromEnum(adapter.errnoToP2ErrorCode(errno)));
+        try writeP1Err(mem, retptr, 4, errno);
         return;
     }
     const used = try mem.read(u32, scratch);
@@ -773,8 +771,7 @@ fn p2DirEntryStreamReadEntry(caller: *Caller, self_handle: u32, retptr: u32) Was
     while (true) {
         const errno = wasi_fd.fdReaddir(ctx.host, mem.slice(), state.fd, buf_ptr, buf_len, state.cookie, used_ptr);
         if (errno != .success) {
-            try mem.write(retptr, @as(u8, 1)); // result disc: err
-            try mem.write(retptr + 4, @intFromEnum(adapter.errnoToP2ErrorCode(errno)));
+            try writeP1Err(mem, retptr, 4, errno);
             return;
         }
         const used = try mem.read(u32, used_ptr);
@@ -835,8 +832,7 @@ fn p2DescriptorRead(caller: *Caller, self_handle: u32, length: u64, offset: u64,
     try mem.write(scratch + 4, n); // iovec[0].buf_len
     const errno = wasi_fd.fdPread(ctx.host, mem.slice(), fd, scratch, 1, offset, scratch + 8);
     if (errno != .success) {
-        try mem.write(retptr, @as(u8, 1)); // result disc: err
-        try mem.write(retptr + 4, @intFromEnum(adapter.errnoToP2ErrorCode(errno)));
+        try writeP1Err(mem, retptr, 4, errno);
         return;
     }
     const nread = try mem.read(u32, scratch + 8);
@@ -1079,14 +1075,18 @@ fn decodeIpSocketAddress(disc: u32, p: [11]u32) ?std.Io.net.IpAddress {
     }
 }
 
+/// Write the err-arm of a sockets `result<_, error-code>`: disc 1 at `retptr`,
+/// then the `wasi:sockets/network` error-code ordinal at `retptr + off` (the
+/// payload offset varies with the result's alignment across the tcp methods).
+fn writeSockErr(mem: Memory, retptr: u32, off: u32, e: anyerror) WasiP2Error!void {
+    try mem.write(retptr, @as(u8, 1));
+    try mem.write(retptr + off, @intFromEnum(p2sock.errorToCode(e)));
+}
+
 /// Store a `result<_, error-code>` for a sockets op at `retptr` (disc@0,
 /// `wasi:sockets/network` error-code@+1).
 fn writeSockUnitResult(mem: Memory, retptr: u32, err: ?anyerror) WasiP2Error!void {
-    if (err) |e| {
-        try mem.write(retptr, @as(u8, 1));
-        try mem.write(retptr + 1, @intFromEnum(p2sock.errorToCode(e)));
-        return;
-    }
+    if (err) |e| return writeSockErr(mem, retptr, 1, e);
     try mem.write(retptr, @as(u8, 0));
 }
 
@@ -1132,11 +1132,7 @@ fn p2TcpFinishConnect(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void 
     const mem = try ctxMemory(caller);
     const rep = try ctx.resources.rep(WasiP2Ctx.TCP_SOCKET_RT, self);
     const sock = try ctxTcpSocket(ctx, rep);
-    sock.finishConnect() catch |e| {
-        try mem.write(retptr, @as(u8, 1));
-        try mem.write(retptr + 4, @intFromEnum(p2sock.errorToCode(e)));
-        return;
-    };
+    sock.finishConnect() catch |e| return writeSockErr(mem, retptr, 4, e);
     const in_h = try ctx.resources.new(WasiP2Ctx.SOCK_INPUT_STREAM_RT, rep);
     const out_h = try ctx.resources.new(WasiP2Ctx.SOCK_OUTPUT_STREAM_RT, rep);
     try mem.write(retptr, @as(u8, 0));
@@ -1211,11 +1207,7 @@ fn p2TcpAccept(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
     const ctx = caller.data(WasiP2Ctx);
     const mem = try ctxMemory(caller);
     const sock = try ctxTcpSocket(ctx, try ctx.resources.rep(WasiP2Ctx.TCP_SOCKET_RT, self));
-    const accepted = sock.accept(try ctxIo(ctx)) catch |e| {
-        try mem.write(retptr, @as(u8, 1));
-        try mem.write(retptr + 4, @intFromEnum(p2sock.errorToCode(e)));
-        return;
-    };
+    const accepted = sock.accept(try ctxIo(ctx)) catch |e| return writeSockErr(mem, retptr, 4, e);
     // NOTE: append AFTER the last `sock` deref — it may move the list.
     const idx: u32 = @intCast(ctx.tcp_sockets.items.len);
     ctx.tcp_sockets.append(ctx.alloc, accepted) catch return WasiP2Error.OutOfMemory;
@@ -1259,11 +1251,7 @@ fn p2TcpLocalAddress(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
     const ctx = caller.data(WasiP2Ctx);
     const mem = try ctxMemory(caller);
     const sock = try ctxTcpSocket(ctx, try ctx.resources.rep(WasiP2Ctx.TCP_SOCKET_RT, self));
-    const addr = sock.localAddress() catch |e| {
-        try mem.write(retptr, @as(u8, 1));
-        try mem.write(retptr + 4, @intFromEnum(p2sock.errorToCode(e)));
-        return;
-    };
+    const addr = sock.localAddress() catch |e| return writeSockErr(mem, retptr, 4, e);
     try writeIpSocketAddressResult(mem, retptr, addr);
 }
 
@@ -1272,11 +1260,7 @@ fn p2TcpRemoteAddress(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void 
     const ctx = caller.data(WasiP2Ctx);
     const mem = try ctxMemory(caller);
     const sock = try ctxTcpSocket(ctx, try ctx.resources.rep(WasiP2Ctx.TCP_SOCKET_RT, self));
-    const addr = sock.remoteAddress() catch |e| {
-        try mem.write(retptr, @as(u8, 1));
-        try mem.write(retptr + 4, @intFromEnum(p2sock.errorToCode(e)));
-        return;
-    };
+    const addr = sock.remoteAddress() catch |e| return writeSockErr(mem, retptr, 4, e);
     try writeIpSocketAddressResult(mem, retptr, addr);
 }
 
@@ -1454,17 +1438,6 @@ fn firstLiftCoreExport(info: *const ctypes.TypeInfo) ?ctypes.TypeInfo.CoreExport
     return null;
 }
 
-/// Run a single-component WASI-P2 CLI program end-to-end (the `wasi:cli/run`
-/// stdio print subset). Decodes the component, instantiates its inner core
-/// modules, wires the canon-lowered `wasi:*` imports to the P2 trampolines +
-/// the libc core-instance memory cross-instance, and invokes the lowered `run`.
-/// Captured output lands in `host` (e.g. `host.stdout_buffer`).
-///
-/// SCOPE (D1-2 → D-306): the print subset — host-wasi namespace(s)
-/// (get-stdout/write/drop-os) + libc core-instance memories. The general
-/// N-interface, adapter-classified wiring (resolve each `.lower` → its
-/// component import → `adapter.classifyImport` → the matching trampoline, and
-/// arbitrary cross-instance funcs) is the D2/D3 follow-up.
 // ============================================================
 // General component instantiation engine (ADR-0175)
 // ============================================================
@@ -1610,9 +1583,6 @@ fn defineSynth(lk: *Linker, ns: []const u8, e: SynthExport, ctx: *WasiP2Ctx) !vo
     }
 }
 
-/// Run a single-component WASI-P2 program end-to-end. Decodes the component,
-/// builds every core instance in definition order (ADR-0175 general engine),
-/// then invokes the lowered `run`. Captured output lands in `host`.
 /// A fully-BUILT component instance graph (ADR-0175) with its WASI-P2 host
 /// wiring intact — the reusable seam under `runWasiP2Main` and the typed
 /// embedder invoke (ADR-0183 F3: real-toolchain components import wasi, so
