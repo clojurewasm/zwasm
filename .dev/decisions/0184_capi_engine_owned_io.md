@@ -69,3 +69,31 @@ instance at `zwasm_engine_new`, exposed internally as `engine.io()`.**
 ## Revisions
 
 - (none yet)
+
+## Investigation addendum (2026-06-13, user-requested 裏取り)
+
+- **`include/wasm.h` is untouched by this ADR** and stays upstream-verbatim
+  (vendored from WebAssembly/wasm-c-api; the file's own header says so).
+  The new surface lives in `include/wasi.h`, zwasm's extension header —
+  the SAME split wasmtime uses (its `wasi.h` is runtime-specific too;
+  upstream ships no canonical wasi.h).
+- **wasmtime precedent verified** (`crates/wasi/src/ctx.rs preopened_dir`):
+  `cap_std::fs::Dir::open_ambient_dir(host_path, ambient_authority())` —
+  the strictest capability ecosystem in Rust provides an EXPLICIT
+  ambient-authority intake for exactly this boundary. "The embedder
+  boundary converts ambient authority into capabilities" is the
+  industry-standard answer, not a workaround.
+- **Zig 0.16 verified** (`std/Io/Threaded.zig:1607`):
+  `Threaded.init(gpa, options)` needs only an Allocator — no
+  `process.Init`, no privilege, threads spawn lazily. Constructing it at
+  the C boundary has no technical or doctrinal barrier; the
+  capability-passing discipline governs flow WITHIN Zig programs, and
+  the C caller is the authority holder at this edge.
+- **"Use libc from Zig" alternative REJECTED with evidence**: raw
+  open(2) would violate the ADR-0070 libc-boundary discipline and fork a
+  second I/O path around the established `Host.io` seam that preopens /
+  WASI-P2 / sockets all consume.
+- **Refinement option noted**: construct the io lazily at first WASI
+  config use instead of `engine_new` (io is only consumed by WASI
+  paths). Both are sound; engine-owned is simpler for lifetime
+  management (`engine_delete` reclaims). Decide at review.
