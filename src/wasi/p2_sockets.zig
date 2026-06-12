@@ -384,12 +384,8 @@ fn afdPollOnce(handle: net.Socket.Handle, interest: i16) !bool {
 // Tests
 // ============================================================
 const testing = std.testing;
-const skip = @import("../test_support/skip.zig");
 
 test "tcp client lifecycle: create → connect → echo against a loopback listener" {
-    // D-319: the first de-skipped win run HUNG the test step (see debt
-    // row). `-Dd319-probe=true` re-enables for targeted windows probes.
-    if (builtin.os.tag == .windows and !@import("build_options").d319_probe) return skip.blocker(.@"D-319");
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
@@ -431,9 +427,6 @@ test "tcp client lifecycle: create → connect → echo against a loopback liste
 }
 
 test "tcp state machine: invalid transitions are rejected" {
-    // D-319: the first de-skipped win run HUNG the test step (see debt
-    // row). `-Dd319-probe=true` re-enables for targeted windows probes.
-    if (builtin.os.tag == .windows and !@import("build_options").d319_probe) return skip.blocker(.@"D-319");
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
@@ -460,9 +453,6 @@ test "tcp state machine: invalid transitions are rejected" {
 }
 
 test "tcp connect to a closed port surfaces connection-refused at finish-connect" {
-    // D-319: the first de-skipped win run HUNG the test step (see debt
-    // row). `-Dd319-probe=true` re-enables for targeted windows probes.
-    if (builtin.os.tag == .windows and !@import("build_options").d319_probe) return skip.blocker(.@"D-319");
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
@@ -477,10 +467,10 @@ test "tcp connect to a closed port surfaces connection-refused at finish-connect
     defer sock.deinit(io);
     try sock.startConnect(io, .{ .ip4 = net.Ip4Address.loopback(port) });
     if (builtin.os.tag == .windows) {
-        // D-319 residual: the pinned stdlib's windows netConnect surfaces
-        // NTSTATUS 0xC0000236 (CONNECTION_REFUSED) as error.Unexpected
-        // (unmapped status) — the guest sees error-code `unknown` instead
-        // of `connection-refused` until the stdlib maps it.
+        // D-323: the pinned stdlib's windows netConnect surfaces NTSTATUS
+        // 0xC0000236 (CONNECTION_REFUSED) as error.Unexpected (unmapped
+        // status) — the guest sees error-code `unknown` instead of
+        // `connection-refused` until the stdlib maps it.
         try testing.expectError(error.Unexpected, sock.finishConnect());
     } else {
         try testing.expectError(error.ConnectionRefused, sock.finishConnect());
@@ -489,9 +479,6 @@ test "tcp connect to a closed port surfaces connection-refused at finish-connect
 }
 
 test "tcp listener lifecycle: bind → listen → accept → echo (ADR-0180 Phase 2)" {
-    // D-319: the first de-skipped win run HUNG the test step (see debt
-    // row). `-Dd319-probe=true` re-enables for targeted windows probes.
-    if (builtin.os.tag == .windows and !@import("build_options").d319_probe) return skip.blocker(.@"D-319");
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
@@ -543,9 +530,6 @@ test "tcp listener lifecycle: bind → listen → accept → echo (ADR-0180 Phas
 }
 
 test "tcp listener state machine: invalid transitions are rejected" {
-    // D-319: the first de-skipped win run HUNG the test step (see debt
-    // row). `-Dd319-probe=true` re-enables for targeted windows probes.
-    if (builtin.os.tag == .windows and !@import("build_options").d319_probe) return skip.blocker(.@"D-319");
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();

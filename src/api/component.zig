@@ -488,7 +488,6 @@ const p2GetDirectories = cwasi.p2GetDirectories;
 // Tests
 // ============================================================
 const testing = std.testing;
-const skip = @import("../test_support/skip.zig");
 
 /// A minimal core module: `(module (func (export "run") (result i32) i32.const 42))`.
 const core_run42 = [_]u8{
@@ -1552,9 +1551,6 @@ fn tcpEchoServerOnce(io: std.Io, server: *std.Io.net.Server) void {
 }
 
 test "ADR-0180: a real rust wasip2 TCP client connects + echoes through wasi:sockets" {
-    // D-319: windows-gated until the AFD-poll readiness fix is verified
-    // end-to-end; `-Dd319-probe=true` re-enables for the probe runs.
-    if (@import("builtin").os.tag == .windows and !@import("build_options").d319_probe) return skip.blocker(.@"D-319");
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
@@ -1615,9 +1611,6 @@ fn tcpClientOnce(io: std.Io, port: u16) void {
 }
 
 test "ADR-0180 Phase 2: a real rust wasip2 TCP listener accepts + echoes through wasi:sockets" {
-    // D-319: windows-gated until the AFD-poll readiness fix is verified
-    // end-to-end; `-Dd319-probe=true` re-enables for the probe runs.
-    if (@import("builtin").os.tag == .windows and !@import("build_options").d319_probe) return skip.blocker(.@"D-319");
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();

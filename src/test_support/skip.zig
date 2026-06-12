@@ -83,10 +83,6 @@ pub const Blocker = enum {
     /// a call/return boundary → reads stale FP reg. Un-skip the cross-func
     /// f32 repro when the FP-class result fix lands.
     @"D-212",
-    /// wasi:sockets host backing on Windows (WSAPoll/WSAStartup) is
-    /// ADR-0180 Phase-2 scope; the p2_sockets lifecycle tests are
-    /// posix-only until windowsmini verifies the socket host.
-    @"D-319",
 };
 
 /// Phase-end batch deferral. See `Win64Phase` doc.

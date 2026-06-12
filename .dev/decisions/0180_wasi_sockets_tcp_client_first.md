@@ -107,3 +107,13 @@ ordinals) — a sibling of the D-307 filesystem errno map.
   precedent (POLLRDNORM/POLLWRNORM interest bits); all windows skips
   removed — windowsmini verifies at its next batch. Phase-3
   (UDP/name-lookup) remains deferred.
+- **2026-06-13 (D-319 DISCHARGED)**: windows readiness verified full-green
+  on windowsmini (probe #6: unit + both rust e2e). The WSAPoll plan was
+  unimplementable on the pinned stdlib (raw NT/AFD handles, winsock
+  never initialized/registered — probes #3/#4: WSA 10093 → 10038);
+  shipped IOCTL_AFD_POLL via `ntdll.NtDeviceIoControlFile` instead
+  (wepoll approach). The earlier windowsmini "hang" was the guest poll
+  loop spinning on never-ready readiness. All windows test gates and the
+  probe flag are removed; residual: the stdlib's unmapped
+  connection-refused NTSTATUS (D-323). Lesson:
+  `2026-06-13-winsock-vs-nt-afd-handles`.

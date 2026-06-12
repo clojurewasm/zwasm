@@ -778,57 +778,20 @@ entries:
     layer: "wasi"
     status: "note"
     description: |-
-      note (ADR-0180 Phase-2): WSAPoll readiness landed (extern "ws2_32") but the first
-      de-skipped windowsmini run HUNG the unit-test step (timeout 3600 exit 124; every
-      RUNNER suite completed first, so the hang is inside `zig build test` = the socket
-      lifecycle tests and/or the rust client/listener e2e — all first-ever win
-      executions). Windows test gating RESTORED on the 7 sites pending root cause.
-      Hypotheses (§1) + PROBE #1 (2026-06-13, `zig build test -Dd319-probe=true`
-      @1bcf0d17, timeout 1200 exit 124): the hang REPRODUCES in the unit step alone.
-        1. ~~WSAPoll never-ready => fail-fast not hang~~ superseded by H4.
-        2. Threaded netAccept/io.concurrent deadlock (the e2e tests are IN the unit
-           binary too).
-        3. Guest poll infinite-retry (e2e path).
-        4. NEW: WSAPoll MISREPORTS ready (revents mask) => the lifecycle recv()
-           (blocking netRead) hangs with no data.
-      PROBE #2 RESULT (unit-only): NO hang — fail-fast with real Win64 errors:
-      'tcp client lifecycle' fails at the ready()/recv region (p2_sockets.zig:363) and
-      'connect to a closed port' fails in the startConnect error path; plus a test-
-      runner 'reached unreachable code' panic. ⇒ the HANG is isolated to the E2E
-      tests (H2/H3), and the unit failures point at H4/H1: WSAPoll likely returns
-      SOCKET_ERROR (ready() ⇒ error.Unexpected ⇒ try fails at :363). Coherent story:
-      WSAPoll never reports ready ⇒ guest poll loops forever ⇒ e2e hang.
-      PROBE #3 RESULT — BOTH unit root causes captured:
-        (a) WSAPoll fails WSA 10093 WSANOTINITIALISED: the pinned std.Io.net windows
-            backend drives sockets via raw NT/AFD handles and NEVER calls WSAStartup
-            (no WSAStartup anywhere in the pinned stdlib). FIX LANDED: pollOnce lazily
-            WSAStartup(2.2)s before the first WSAPoll (atomic once; double-init benign).
-            Probe #4 verifies whether WSAPoll then accepts the AFD handle (SOCKET ≈ AFD
-            handle, expected yes).
-        (b) connect-to-closed-port: Threaded netConnect hits NTSTATUS 0xC0000236
-            (CONNECTION_REFUSED) and returns unexpectedStatus => error.Unexpected — a
-            PINNED-STDLIB unmapped-status gap (env bug, still user-facing: the guest
-            sees error-code unknown instead of connection-refused on windows). Decide
-            at fix time: local NTSTATUS mapping wrapper vs accept degraded code.
-      PROBE #4: WSAStartup fixed 10093 but WSAPoll now fails WSA 10038 WSAENOTSOCK —
-      the pinned stdlib's raw NT/AFD handles are NOT winsock-registered SOCKETs, so
-      ALL of winsock (WSAPoll/select) is unusable on them. CORRECT FIX: NT-native
-      readiness via IOCTL_AFD_POLL (0x00012024) through ntdll.NtDeviceIoControlFile
-      (the wepoll/libuv/mio approach): AFD_POLL_INFO{timeout=0, 1 handle, events},
-      POLL_IN -> RECEIVE|DISCONNECT|ABORT|ACCEPT(0x0001|8|0x10|0x80), POLL_OUT ->
-      SEND(0x0004); zero-timeout single-handle poll on the socket handle itself.
-      Implement next cycle + probe #5. The WSAPoll extern + WSAStartup shim get
-      REPLACED by the AFD path (winsock externs removed).
-      PROBE #5 (AFD poll): 2700/2832 PASSED — lifecycle/listener readiness WORKS on
-      windows; the single failure is the stdlib connect-refused mapping, now expected
-      (windows arm: error.Unexpected; guest sees error-code `unknown` until the stdlib
-      maps 0xC0000236). Probe #6 = e2e re-enabled under the flag (hang re-test with
-      working readiness).
-      Discharge: socket tests green on windowsmini.
+      CLOSED 25faf45a (verified probe #6 full-green on windowsmini incl. both rust
+      e2e): wasi:sockets readiness on Windows. Root-cause chain (probes #1-#6): the
+      pinned std.Io.net windows backend creates sockets as raw NT/AFD handles —
+      winsock is never initialized AND the handles are not winsock-registered, so
+      WSAPoll was structurally unusable (10093 then 10038). Fix: NT-native
+      IOCTL_AFD_POLL via ntdll.NtDeviceIoControlFile (wepoll approach), zero-timeout
+      snapshot. The e2e "hang" was the guest poll loop never completing on the
+      never-ready WSAPoll. All windows gates + the -Dd319-probe flag removed; the
+      stdlib connect-refused NTSTATUS mapping residual is D-323.
     first_raised: "2026-06-12"
     last_reviewed: "2026-06-13"
     refs: |-
-      ADR-0180 (Phase 2 Revision); src/wasi/p2_sockets.zig pollOnce/WSAPoll; lesson windows-test-compile-gate
+      ADR-0180 (Phase 2 Revision); src/wasi/p2_sockets.zig afdPollOnce; lesson winsock-vs-nt-afd
+
   - id: "D-322"
     layer: "feature/component"
     status: "note"
@@ -847,6 +810,22 @@ entries:
     last_reviewed: "2026-06-13"
     refs: |-
       types.zig decodeDefType 0x3f; validate.zig rule 12; nested_component_resource_refs
+
+  - id: "D-323"
+    layer: "wasi"
+    status: "blocked-by"
+    description: |-
+      blocked-by (pinned Zig 0.16 stdlib): windows netConnect surfaces NTSTATUS
+      0xC0000236 (CONNECTION_REFUSED) as error.Unexpected (unmapped in the Threaded
+      AFD connect path) — a wasi:sockets guest sees error-code `unknown` instead of
+      `connection-refused` on windows. Test pins the degraded expectation
+      (p2_sockets "connect to a closed port", windows arm). Discharge: a stdlib
+      upgrade maps the status (re-run the test expecting ConnectionRefused), or a
+      local NTSTATUS-mapping wrapper if a consumer needs the precise code sooner.
+    first_raised: "2026-06-13"
+    last_reviewed: "2026-06-13"
+    refs: |-
+      src/wasi/p2_sockets.zig (windows arm of the connect-refused test); D-319 probes
 
 
   - id: "D-318"
