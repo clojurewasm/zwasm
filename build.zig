@@ -98,6 +98,7 @@ pub fn build(b: *std.Build) void {
     // ADR-0182). The decoder + WIT/canon layers are a Zone-2 layer
     // consuming the core runtime as a black box (ADR-0170).
     const enable_component = b.option(bool, "component", "Compile in Component Model + WASI Preview 2 (default: true; -Dcomponent=false = lean build; ADR-0182)") orelse true;
+    const d319_probe = b.option(bool, "d319-probe", "Run the windows-gated wasi:sockets tests (D-319 hang probe; default: false)") orelse false;
 
     const options = b.addOptions();
     options.addOption(WasmLevel, "wasm_level", wasm_level);
@@ -107,6 +108,7 @@ pub fn build(b: *std.Build) void {
     options.addOption(bool, "trace_stackprobe", trace_stackprobe);
     options.addOption(bool, "enable_gc", enable_gc);
     options.addOption(bool, "enable_component", enable_component);
+    options.addOption(bool, "d319_probe", d319_probe);
 
     // Build_options as a single shared module so both `core` and
     // `exe_mod` (and any other consumer) reference the same Module.
@@ -432,6 +434,7 @@ pub fn build(b: *std.Build) void {
     comp_options.addOption(bool, "trace_stackprobe", trace_stackprobe);
     comp_options.addOption(bool, "enable_gc", enable_gc);
     comp_options.addOption(bool, "enable_component", true);
+    comp_options.addOption(bool, "d319_probe", d319_probe);
     const comp_options_mod = comp_options.createModule();
     const core_comp = b.createModule(.{
         .root_source_file = b.path("src/zwasm.zig"),

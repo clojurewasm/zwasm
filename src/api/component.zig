@@ -1552,8 +1552,9 @@ fn tcpEchoServerOnce(io: std.Io, server: *std.Io.net.Server) void {
 }
 
 test "ADR-0180: a real rust wasip2 TCP client connects + echoes through wasi:sockets" {
-    // D-319: the first de-skipped win run HUNG the test step (see debt row).
-    if (@import("builtin").os.tag == .windows) return skip.blocker(.@"D-319");
+    // D-319: the first de-skipped win run HUNG the test step (see debt
+    // row). `-Dd319-probe=true` re-enables for targeted windows probes.
+    if (@import("builtin").os.tag == .windows and !@import("build_options").d319_probe) return skip.blocker(.@"D-319");
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
@@ -1614,8 +1615,9 @@ fn tcpClientOnce(io: std.Io, port: u16) void {
 }
 
 test "ADR-0180 Phase 2: a real rust wasip2 TCP listener accepts + echoes through wasi:sockets" {
-    // D-319: the first de-skipped win run HUNG the test step (see debt row).
-    if (@import("builtin").os.tag == .windows) return skip.blocker(.@"D-319");
+    // D-319: the first de-skipped win run HUNG the test step (see debt
+    // row). `-Dd319-probe=true` re-enables for targeted windows probes.
+    if (@import("builtin").os.tag == .windows and !@import("build_options").d319_probe) return skip.blocker(.@"D-319");
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
