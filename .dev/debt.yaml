@@ -310,7 +310,10 @@ entries:
       (memory-copy): NOT a v2 validator gap — wasm-tools' memory-copy.1.wasm is wabt's exact 219-byte module +
       a 38-byte `name` section (strip --all recovers parity), and the module is multi-memory (`memory.copy 1
       0`). The failure is tool-migration encoding/strip/indexing entanglement on proposal-laden fixtures, not a
-      v2 correctness bug — so no separate v2-validator debt; the blocker is purely the distiller tool-swap. So these are NOT tool-only swaps — they'd need per-fixture
+      v2 correctness bug — so no separate v2-validator debt; the blocker is purely the distiller tool-swap.
+      UPDATE 2026-06-13: regen_spec_2_0_assert.sh migrated CLEAN (swap-GREEN at the wg-2.0 pin: 25437/0/489
+      exact parity incl. a D-148 supported_multi staleness fix the parity check surfaced) — it LEAVES the
+      blocked class. REMAINING blocked = regen_wasmtime_misc.sh + regen_spec_simd_assert.sh. So those are NOT tool-only swaps — they'd need per-fixture
       re-curation (drop the now-failing fixtures from the BATCH/NAMES lists) OR a v2 encoding-acceptance fix,
       both beyond D-290's tool-hygiene scope. STATUS: the 3 proposal-laden distillers
       (`regen_wasmtime_misc.sh`, `regen_spec_2_0_assert.sh` 912 LOC, `regen_spec_simd_assert.sh` v128) +

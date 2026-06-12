@@ -22,6 +22,12 @@
 #   - block / loop / call multi-value fixtures (need multi-result
 #     return-value packing in the runner; deferred).
 #   - ref_func / ref_null / ref_is_null (need reftype handling).
+#
+# D-290 tool swap (wabt wast2json → `wasm-tools json-from-wast`)
+# validated by: regenerate in place at the wg-2.0 upstream pin →
+# `zig build test-spec-wasm-2.0-assert` green with baseline counts →
+# revert data (the committed corpus is a snapshot; this is a
+# script-only migration). Mirrors `regen_spec_1_0_assert.sh`.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -29,8 +35,8 @@ cd "$(dirname "$0")/.."
 UPSTREAM=${WASM_SPEC_REPO:-$HOME/Documents/OSS/WebAssembly/spec}
 DEST=test/spec/wasm-2.0-assert
 
-if ! command -v wast2json >/dev/null 2>&1; then
-  echo "[regen_spec_2_0_assert] wast2json not found (need wabt in PATH or dev shell)" >&2
+if ! command -v wasm-tools >/dev/null 2>&1; then
+  echo "[regen_spec_2_0_assert] wasm-tools not found (need it in PATH or dev shell)" >&2
   exit 1
 fi
 if ! command -v python3 >/dev/null 2>&1; then
@@ -378,18 +384,13 @@ for n in "${NAMES[@]}"; do
   TMP=$(mktemp -d)
   trap "rm -rf '$TMP'" EXIT
 
-  # §9.9 / 9.9-l-1b-d093-d31 (per ADR-0061): no Wasm 3.0 enables.
-  # wabt's default-on set (sign-extension, saturating-float-to-int,
-  # bulk-memory-opt, reference-types, multi-value, SIMD) is the
-  # Wasm 2.0 baseline. Previously this command passed
-  # `--enable-function-references / --enable-tail-call /
-  # --enable-extended-const / --enable-multi-memory`, all four of
-  # which are Wasm 3.0 proposals. The script's name (`2_0`)
-  # demands the parse layer NOT accept 3.0 syntax — those flags
-  # were a scope leak. Removing them is M-1 hygiene per the
-  # Wasm-2.0 completion plan (`private/wasm2-completion-plan/`).
-  if ! ( cd "$TMP" && wast2json "$src" -o "$n.json" >/dev/null 2>&1 ); then
-    echo "[regen_spec_2_0_assert] skip $n (wast2json rejected)" >&2
+  # D-290: wasm-tools enables all proposals by default (no
+  # --enable-* flags). The §9.9 / 9.9-l-1b-d093-d31 (ADR-0061)
+  # no-Wasm-3.0-enables concern is moot at the baker level: the
+  # curated NAMES below come from the wg-2.0 tag, so no 3.0 syntax
+  # reaches the baker regardless of what it would accept.
+  if ! ( cd "$TMP" && wasm-tools json-from-wast "$src" -o "$n.json" --wasm-dir . >/dev/null 2>&1 ); then
+    echo "[regen_spec_2_0_assert] skip $n (wasm-tools json-from-wast rejected)" >&2
     rm -rf "$TMP"
     trap - EXIT
     continue
@@ -432,13 +433,33 @@ def fmt(v):
         n = int(v['value'])
         host_ref = (1 << 63) | (n + 1)
         return f'i64:{host_ref}'
-    return f"{v['type']}:{v['value']}"
+    # D-290 baker normalization (wabt wast2json → wasm-tools
+    # json-from-wast): wabt emits i32/i64 values UNSIGNED
+    # (4294967295); wasm-tools emits them SIGNED (-1), sometimes as a
+    # JSON number rather than a string. The committed baseline + spec
+    # runner manifest use unsigned decimals — fold any negative into
+    # its unsigned width here, accepting both str and int inputs.
+    # f32/f64 are bit-pattern decimals in both tools (identical), and
+    # `nan:canonical` / `nan:arithmetic` tokens pass through unchanged.
+    t = v['type']
+    val = v['value']
+    if t in ('i32', 'i64'):
+        n = int(val)
+        if n < 0:
+            n += (1 << 32) if t == 'i32' else (1 << 64)
+        val = str(n)
+    return f"{t}:{val}"
 
 def kind_alias(t):
     """ADR-0061: reftype param/result classes alias onto the i64
     GPR-class scalar path. Maps arg/result type for arg_kinds /
     result_kind tuple-based dispatch lookup."""
     return 'i64' if t in ('externref', 'funcref') else t
+def norm_wasm(fn):
+    # wasm-tools emits some valid TEXT modules as `.wat` where wabt
+    # compiled `.wasm`; the copy loop converts via `wasm-tools parse`,
+    # so normalize the manifest name to its `.wasm` form here.
+    return fn[:-4] + '.wasm' if fn.endswith('.wat') else fn
 # §9.9 / 9.9-l-1b-d093-d53 (D-128): export names that contain
 # control chars / whitespace / quotes / colon are emitted as
 # `:hex:<utf8-hex>` so the manifest parser (whitespace-split)
@@ -468,7 +489,7 @@ for c in d['commands']:
     t = c.get('type')
     if t == 'module':
         module_state_diverged = False
-        lines.append('module ' + c['filename'])
+        lines.append('module ' + norm_wasm(c['filename']))
     elif t == 'assert_return':
         a = c['action']
         # §9.9 / 9.9-l-1b-d093-d43: divergent module state ⇒ skip.
@@ -576,11 +597,20 @@ for c in d['commands']:
                 ((), ('i32', 'i32', 'i32')),
                 ((), ('i32', 'i32', 'i64')),
                 (('i32',), ('i32', 'i32', 'i64')),
-                # ADR-0069 §Phase 3 D-140 / D-148: large-sig
-                # 17-param 16-result Class C. Mac aarch64 PASSES;
-                # x86_64 SysV regalloc-pressure path under
-                # investigation — manifest stays at `skip-impl`
-                # until D-148 closes (see debt row hypothesis list).
+                # ADR-0069 §Phase 3 D-140 / D-148 (closed at
+                # 435bebf3 via the LLVM-backend workaround for
+                # Codeberg ziglang/zig#35343): large-sig 17-param
+                # 16-result Class C (func.wast `large-sig`). The
+                # close commit hand-flipped the committed manifest
+                # but left this set stale; D-290 regen-validation
+                # surfaced the gap — tuple added so regen reproduces
+                # the committed corpus.
+                (('i32', 'i64', 'f32', 'f32', 'i32', 'f64', 'f32',
+                  'i32', 'i32', 'i32', 'f32', 'f64', 'f64', 'f64',
+                  'i32', 'i32', 'f32'),
+                 ('f64', 'f32', 'i32', 'i32', 'i32', 'i64', 'f32',
+                  'i32', 'i32', 'f32', 'f64', 'f64', 'i32', 'f32',
+                  'i32', 'f64')),
             }
             if (arg_kinds, result_kinds) not in supported_multi:
                 lines.append(f'skip-impl multi-result {a["field"]}')
@@ -883,15 +913,35 @@ with open(dst, 'w') as f:
     f.write('\n'.join(lines) + '\n')
 PY
 
-  # Copy referenced .wasm files (module, assert_invalid, assert_malformed,
-  # assert_uninstantiable).
-  while read -r line; do
-    set -- $line
-    if [ "$1" = "module" ] || [ "$1" = "assert_invalid" ] || [ "$1" = "assert_malformed" ] || [ "$1" = "assert_uninstantiable" ] || [ "$1" = "assert_unlinkable" ]; then
-      if [ -f "$TMP/$2" ]; then
-        cp "$TMP/$2" "$out_dir/"
-      fi
-    fi
+  # Materialize referenced .wasm files (D-290 tool-difference rules):
+  #   - `module` (valid): strip wasm-tools' name section; if emitted as
+  #     a `.wat` text module, parse it to .wasm first.
+  #   - `assert_uninstantiable` / `assert_unlinkable`: valid binaries
+  #     (they fail at instantiation / link, not decode) — strip too.
+  #     The distiller's `module_type == 'binary'` filter guarantees a
+  #     `.wasm` filename for these.
+  #   - `assert_invalid` / `assert_malformed`: intentionally
+  #     type-invalid / malformed — copy RAW (never re-encode/strip).
+  while read -r d1 file _; do
+    case "$d1" in
+      module)
+        base="${file%.wasm}"
+        if [ -f "$TMP/$file" ]; then
+          wasm-tools strip --all "$TMP/$file" -o "$out_dir/$file"
+        else
+          wasm-tools parse "$TMP/$base.wat" -o "$TMP/$base.fromwat.wasm"
+          wasm-tools strip --all "$TMP/$base.fromwat.wasm" -o "$out_dir/$file"
+        fi
+        ;;
+      assert_uninstantiable|assert_unlinkable)
+        wasm-tools strip --all "$TMP/$file" -o "$out_dir/$file"
+        ;;
+      assert_invalid|assert_malformed)
+        if [ -f "$TMP/$file" ]; then
+          cp "$TMP/$file" "$out_dir/"
+        fi
+        ;;
+    esac
   done < "$out_dir/manifest.txt"
 
   rm -rf "$TMP"
