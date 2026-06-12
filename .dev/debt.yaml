@@ -791,9 +791,16 @@ entries:
         3. Guest poll infinite-retry (e2e path).
         4. NEW: WSAPoll MISREPORTS ready (revents mask) => the lifecycle recv()
            (blocking netRead) hangs with no data.
-      Probe #2 (flag re-scoped @ this commit): -Dd319-probe now gates ONLY the
-      p2_sockets UNIT lifecycle tests (e2e stays plain-gated) — a unit-only windows
-      run isolates H1/H4 from H2/H3.
+      PROBE #2 RESULT (unit-only): NO hang — fail-fast with real Win64 errors:
+      'tcp client lifecycle' fails at the ready()/recv region (p2_sockets.zig:363) and
+      'connect to a closed port' fails in the startConnect error path; plus a test-
+      runner 'reached unreachable code' panic. ⇒ the HANG is isolated to the E2E
+      tests (H2/H3), and the unit failures point at H4/H1: WSAPoll likely returns
+      SOCKET_ERROR (ready() ⇒ error.Unexpected ⇒ try fails at :363). Coherent story:
+      WSAPoll never reports ready ⇒ guest poll loops forever ⇒ e2e hang.
+      Probe #3: pollOnce now logs WSAGetLastError + fd + events on SOCKET_ERROR
+      (10022 WSAEINVAL = bad events/fd; 10038 WSAENOTSOCK = HANDLE is not a SOCKET —
+      the std.Io.net windows fd may need an explicit SOCKET extraction).
       Discharge: socket tests green on windowsmini.
     first_raised: "2026-06-12"
     last_reviewed: "2026-06-13"

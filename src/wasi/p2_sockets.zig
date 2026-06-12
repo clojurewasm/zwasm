@@ -304,7 +304,13 @@ fn pollOnce(handle: net.Socket.Handle, interest: i16) !bool {
             const POLLHUP: i16 = 0x0002;
             var fds = [_]WsaPollFd{.{ .fd = handle, .events = interest, .revents = 0 }};
             const n = WSAPoll(&fds, 1, 0);
-            if (n < 0) return error.Unexpected;
+            if (n < 0) {
+                // D-319 probe diagnostic: the WSA error code names the
+                // failure mode (10022 WSAEINVAL = bad events/fd, 10038
+                // WSAENOTSOCK = handle is not a SOCKET, ...).
+                std.log.scoped(.zwasm_sockets).warn("WSAPoll failed: WSA error {d} (fd=0x{x}, events=0x{x})", .{ WSAGetLastError(), @intFromPtr(fds[0].fd), interest });
+                return error.Unexpected;
+            }
             return n > 0 and (fds[0].revents & (interest | POLLERR | POLLHUP)) != 0;
         },
         else => {
@@ -318,6 +324,7 @@ fn pollOnce(handle: net.Socket.Handle, interest: i16) !bool {
 /// winsock2 `WSAPOLLFD` (fd is SOCKET = handle-sized).
 const WsaPollFd = extern struct { fd: net.Socket.Handle, events: i16, revents: i16 };
 extern "ws2_32" fn WSAPoll(fds: [*]WsaPollFd, nfds: c_ulong, timeout: c_int) callconv(.winapi) c_int;
+extern "ws2_32" fn WSAGetLastError() callconv(.winapi) c_int;
 
 // ============================================================
 // Tests
