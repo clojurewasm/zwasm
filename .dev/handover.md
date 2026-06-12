@@ -15,14 +15,14 @@
   completion. If the user prefers debt work instead, the candidates are in
   NEXT below.
 - Last: **CM campaign resumed** — validator **rule 5 name format / kebab**
-  @2b2eaeac (E3-CM-validation bundle; corpus runner 11/0, Mac test-all+lint
-  green). Prior: d314-jit-sandbox bundle CLOSED @316d77b8 (3-host green);
-  D-313 discharged @7079ab9a; ADR-0078 SOON drifts cleared (drift 0).
-- **NEXT**: E3-CM-validation bundle next rule — outer-alias count (~5 corpus
-  cases), then export-type validity (~15), undefined-resource refs (~5). See
-  `## Active bundle`. Secondary (user-redirect only): ledger long-tail —
-  D-318 (Rosetta corpus-JIT SEGVs), D-314 note follow-ons, D-251 (C-API WASI
-  preopen io-acquisition ADR).
+  @2b2eaeac + **rule 6 outer-alias count** @HEAD (E3-CM-validation bundle;
+  corpus runner 13/0, Mac test-all+lint green). Prior: d314-jit-sandbox
+  bundle CLOSED @316d77b8 (3-host green); D-313 discharged @7079ab9a.
+- **NEXT**: E3-CM-validation bundle next rule — export-type validity (~15
+  corpus cases), then undefined-resource refs (~5). See `## Active bundle`.
+  Secondary (user-redirect only): ledger long-tail — D-318 (Rosetta
+  corpus-JIT SEGVs), D-314 note follow-ons, D-251 (C-API WASI preopen
+  io-acquisition ADR).
 
 ## Active bundle
 
@@ -30,8 +30,8 @@
 - **Cycles-remaining**: ~3
 - **Continuity-memo**: rules land in corpus-frequency order; DONE rules 1–4
   index bounds (`cfdb07be`/`6224a7e7`/`5374dca7`/`d72c1b44`) + rule 5 name
-  format (`2b2eaeac`). Next: outer-alias count → export-type validity →
-  undefined-resource refs. Deep-type cases = truthful `skip-impl`.
+  format (`2b2eaeac`) + rule 6 outer-alias count. Next: export-type
+  validity → undefined-resource refs. Deep-type cases = truthful `skip-impl`.
 - **Exit-condition**: corpus runner covers the structural categories
   (index-bounds / names / outer-alias / export-type / resource-refs) with
   committed fixtures, 0 fail; remaining corpus categories triaged as either
