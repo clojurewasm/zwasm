@@ -283,6 +283,10 @@ pub fn main(init: std.process.Init) !void {
             // version 0x0d, layer byte = 0x01) routes to the component host
             // (`runWasiP2Main`), not the core-module runner. stdio subset.
             if (bytes.len >= 8 and std.mem.eql(u8, bytes[0..4], "\x00asm") and bytes[6] == 0x01) {
+                if (comptime !@import("build_options").enable_component) {
+                    try printlnErr(io, "zwasm run: component support not compiled in (rebuild with -Dcomponent)");
+                    std.process.exit(2);
+                }
                 // ADR-0179 #3a-4 — same loud refusal for the component host.
                 if (limits.any()) {
                     try printlnErr(io, "zwasm run: --fuel/--timeout/--max-memory are not wired for components yet (core modules only)");

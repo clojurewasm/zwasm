@@ -90,13 +90,14 @@ pub fn build(b: *std.Build) void {
     // module-construction code paths.
     const enable_gc = b.option(bool, "gc", "Enable WasmGC heap+collector compile-in (default: false; per ADR-0115 §3)") orelse false;
 
-    // ADR-0170 — `-Dcomponent=true` opens the Component Model + WASI-P2
-    // subsystem (`src/feature/component/`). Default false so the production
-    // CLI/lib emit zero component code (the slot was build-rejected until
-    // campaign chunk A1). The decoder + WIT/canon layers are a Zone-2 new
-    // layer consuming the core runtime as a black box; future chunks wire the
-    // CLI entry behind `build_options.enable_component`.
-    const enable_component = b.option(bool, "component", "Enable Component Model + WASI Preview 2 compile-in (default: false; ADR-0170)") orelse false;
+    // ADR-0182 — Component Model + WASI-P2 support is DEFAULT-ON (the §1.2
+    // floor per ADR-0181; wasmtime-standard out-of-the-box behaviour).
+    // `-Dcomponent=false` is the REAL lean opt-out: the comptime gate in
+    // cli/main.zig strips the whole `src/feature/component/` + P2-host
+    // subsystem (~156 KB of a 1.9 MB ReleaseFast binary, measured at
+    // ADR-0182). The decoder + WIT/canon layers are a Zone-2 layer
+    // consuming the core runtime as a black box (ADR-0170).
+    const enable_component = b.option(bool, "component", "Compile in Component Model + WASI Preview 2 (default: true; -Dcomponent=false = lean build; ADR-0182)") orelse true;
 
     const options = b.addOptions();
     options.addOption(WasmLevel, "wasm_level", wasm_level);

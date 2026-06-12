@@ -89,3 +89,10 @@ tier rows; per-chunk recipes + reference chains live in the plan doc.
   `~/Documents/OSS/wit-bindgen/` (Go/Rust binding gen for sample projects).
 - ADR-0023 (subsystem slots) · ADR-0168 (Phase 17 v0.2 line) · ADR-0156
   (no autonomous release) · `no_copy_from_v1` · `single_slot_dual_meaning`.
+
+## Revisions
+
+- **2026-06-13 (ADR-0182)**: the "opt-in `-Dcomponent`" posture is
+  superseded — component support is DEFAULT-ON (`-Dcomponent=false` is the
+  lean opt-out) after the gate-rot discovery (D-321) and the 156 KB
+  measurement. See ADR-0182.

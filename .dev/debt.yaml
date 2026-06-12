@@ -760,27 +760,6 @@ entries:
     last_reviewed: "2026-05-29"
     refs: |-
       `src/runtime/instance/instantiate.zig` frontendValidate; `src/zwasm/engine.zig` compile; `src/diagnostic/diagnostic.zig` setDiag/lastDiagnostic; `.dev/lessons/2026-05-29-gc-corpus-block-is-validate-not-parse.md`
-  - id: "D-321"
-    layer: "build"
-    status: "now"
-    description: |-
-      The -Dcomponent build gate ROTTED for the CLI: a DEFAULT `zig build` (enable_component
-      = false) runs components end-to-end — cli/run.zig imports the component host
-      unconditionally, so base and -Dcomponent ReleaseFast binaries are byte-identical
-      (1,935,128 B, see size_history.yaml @5defc84e). build.zig's "default false so the
-      production CLI/lib emit zero component code" comment is false for the CLI today.
-      FORK to decide (ADR needed): (a) restore the comptime gate (default CLI refuses
-      components; measures the true size cost of the CM subsystem first —
-      perf-measure-first), or (b) make component support default-ON (matches ADR-0181's
-      floor promotion + industry standard wasmtime behaviour) and retire the flag's
-      "zero component code" claim honestly. Discharge: measure the gated-build size
-      delta, then file the ADR choosing (a)/(b) and align build.zig comments + docs.
-    first_raised: "2026-06-13"
-    last_reviewed: "2026-06-13"
-    refs: |-
-      ADR-0170 (opt-in decision) vs ADR-0181 (floor promotion); build.zig ~L93-99;
-      src/cli/run.zig runComponentCaptured; bench/results/size_history.yaml
-
   - id: "D-320"
     layer: "bench"
     status: "note"
