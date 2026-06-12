@@ -23,9 +23,16 @@
   POSIX-style dir opens in P1 pathOpen. Earlier this session:
   E3-CM-validation bundle CLOSED (validator rules 1–8; corpus 18/0 + 2
   reasoned skip-impl). Mac test-all+lint+cross-compile green per chunk.
-- **NEXT (CM campaign, plan Work sequence)**: E3 remainder — WASI-P2
-  boundary fixtures (trap/handle-invalid paths) and/or corpus growth
-  (distil official `.wat` fixtures); D3-8 sockets (spike-first). Secondary
+- Also landed: **E3 error-path boundary fixture** `wasi_p2_fs_err_go`
+  (exist/no-entry/empty-stream arms green, wasmtime-matched) + **D3-8
+  sockets survey** (`private/notes/p17-d3-8-sockets-survey.md`).
+- **NEXT (CM campaign)**: **D3-8 sockets design ADR** (architectural —
+  spike-first honoured; survey done). Fork to decide: (a) TCP-client
+  subset with blocking posix (dishonest at poll edges), (b) subset +
+  REAL socket-readiness pollable (poll(2) at p2Poll; honest, medium), or
+  (c) stay deferred (truthful unknown-import error, demand-driven). Draft
+  the ADR from the survey note, then implement per its decision. After:
+  E3 corpus growth (distil official `.wat` fixtures). Secondary
   (user-redirect only): D-318, D-314 follow-ons, D-251.
 
 ## Sandboxing bundle d314-jit-sandbox — CLOSED 2026-06-12
