@@ -810,8 +810,16 @@ entries:
             PINNED-STDLIB unmapped-status gap (env bug, still user-facing: the guest
             sees error-code unknown instead of connection-refused on windows). Decide
             at fix time: local NTSTATUS mapping wrapper vs accept degraded code.
-      e2e hang (H2/H3) re-tested after (a) lands — never-ready WSAPoll explains the
-      guest poll loop never completing.
+      PROBE #4: WSAStartup fixed 10093 but WSAPoll now fails WSA 10038 WSAENOTSOCK —
+      the pinned stdlib's raw NT/AFD handles are NOT winsock-registered SOCKETs, so
+      ALL of winsock (WSAPoll/select) is unusable on them. CORRECT FIX: NT-native
+      readiness via IOCTL_AFD_POLL (0x00012024) through ntdll.NtDeviceIoControlFile
+      (the wepoll/libuv/mio approach): AFD_POLL_INFO{timeout=0, 1 handle, events},
+      POLL_IN -> RECEIVE|DISCONNECT|ABORT|ACCEPT(0x0001|8|0x10|0x80), POLL_OUT ->
+      SEND(0x0004); zero-timeout single-handle poll on the socket handle itself.
+      Implement next cycle + probe #5. The WSAPoll extern + WSAStartup shim get
+      REPLACED by the AFD path (winsock externs removed).
+      e2e hang re-test follows a green unit probe.
       Discharge: socket tests green on windowsmini.
     first_raised: "2026-06-12"
     last_reviewed: "2026-06-13"
