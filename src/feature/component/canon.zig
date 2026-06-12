@@ -1199,14 +1199,194 @@ pub const TypeBridgeError = error{ UnsupportedType, InvalidTypeIndex } || std.me
 pub fn canonTypeFromDecoded(arena: std.mem.Allocator, info: *const types.TypeInfo, vt: types.ValType) TypeBridgeError!CanonType {
     switch (vt) {
         .primitive => |p| return .{ .prim = p },
-        .type_index => |ti| {
-            if (ti >= info.type_space.items.len) return TypeBridgeError.InvalidTypeIndex;
-            switch (info.type_space.items[ti]) {
-                // Alias/import/export-minted signatures — deferred (a
-                // concrete leaf component defines its value types locally).
-                .named => return TypeBridgeError.UnsupportedType,
-                .def => |d| return canonTypeFromDefType(arena, info, info.deftypes.items[d]),
+        .type_index => |ti| return canonTypeFromTypeIndex(arena, info, ti),
+    }
+}
+
+/// Resolve a type-space index, chasing `.named` provenance: an
+/// export/import re-binding follows its referenced index; a type ALIAS of
+/// an imported instance's export resolves into that import's
+/// instance-TYPE declarations (the nested scope where `use`d interface
+/// types actually live — ADR-0183 "the binary IS the interface").
+pub fn canonTypeFromTypeIndex(arena: std.mem.Allocator, info: *const types.TypeInfo, ti: u32) TypeBridgeError!CanonType {
+    if (ti >= info.type_space.items.len) return TypeBridgeError.InvalidTypeIndex;
+    switch (info.type_space.items[ti]) {
+        .def => |d| return canonTypeFromDefType(arena, info, info.deftypes.items[d]),
+        .named => |origin| switch (origin) {
+            .@"export" => |ei| return canonTypeFromTypeIndex(arena, info, info.exports.items[ei].index),
+            .import => |ii| switch (info.imports.items[ii].desc) {
+                .type_bound => |tb| switch (tb) {
+                    .eq => |eq_ti| return canonTypeFromTypeIndex(arena, info, eq_ti),
+                    .sub_resource => return TypeBridgeError.UnsupportedType,
+                },
+                else => return TypeBridgeError.UnsupportedType,
+            },
+            .alias => |ai| switch (info.aliases.items[ai].target) {
+                .component_export => |ce| return canonTypeFromInstanceExport(arena, info, ce.instance, ce.name),
+                .core_export, .outer => return TypeBridgeError.UnsupportedType,
+            },
+        },
+    }
+}
+
+/// A fully-resolved deftype + the LOCAL scope its `type_index` refs
+/// resolve against (empty for top-level definitions). The presentation
+/// layer (ADR-0183 fromCanonValue) uses this to keep option/result/tuple
+/// specialization that CanonType despecializes away.
+pub const ResolvedDefType = struct {
+    dt: types.DefType,
+    locals: []const ?*const types.DefType,
+};
+
+/// Resolve a top-level type-space index to its defining `DefType`,
+/// chasing `.named` provenance (export/import re-binds; alias →
+/// imported-instance nested scope).
+pub fn resolveTypeIndex(arena: std.mem.Allocator, info: *const types.TypeInfo, ti: u32) TypeBridgeError!ResolvedDefType {
+    if (ti >= info.type_space.items.len) return TypeBridgeError.InvalidTypeIndex;
+    switch (info.type_space.items[ti]) {
+        .def => |d| return .{ .dt = info.deftypes.items[d], .locals = &.{} },
+        .named => |origin| switch (origin) {
+            .@"export" => |ei| return resolveTypeIndex(arena, info, info.exports.items[ei].index),
+            .import => |ii| switch (info.imports.items[ii].desc) {
+                .type_bound => |tb| switch (tb) {
+                    .eq => |eq_ti| return resolveTypeIndex(arena, info, eq_ti),
+                    .sub_resource => return TypeBridgeError.UnsupportedType,
+                },
+                else => return TypeBridgeError.UnsupportedType,
+            },
+            .alias => |ai| switch (info.aliases.items[ai].target) {
+                .component_export => |ce| return resolveInstanceExportDefType(arena, info, ce.instance, ce.name),
+                .core_export, .outer => return TypeBridgeError.UnsupportedType,
+            },
+        },
+    }
+}
+
+/// Like `canonTypeFromInstanceExport` but returns the resolved deftype +
+/// its local scope (shared front-half).
+pub fn resolveInstanceExportDefType(arena: std.mem.Allocator, info: *const types.TypeInfo, instance_index: u32, name: []const u8) TypeBridgeError!ResolvedDefType {
+    const decls = try instanceImportDecls(info, instance_index);
+    var locals: std.ArrayList(?*const types.DefType) = .empty;
+    errdefer locals.deinit(arena);
+    var export_idx: ?u32 = null;
+    for (decls) |decl| switch (decl) {
+        .type_def => |td| try locals.append(arena, td),
+        .alias => |al| {
+            if (std.meta.activeTag(al.sort) == .type) try locals.append(arena, null);
+        },
+        .export_decl => |ed| switch (ed.desc) {
+            .type_bound => |tb| switch (tb) {
+                .eq => |local_ti| {
+                    if (std.mem.eql(u8, ed.name, name)) export_idx = local_ti;
+                    if (local_ti < locals.items.len) {
+                        try locals.append(arena, locals.items[local_ti]);
+                    } else {
+                        try locals.append(arena, null);
+                    }
+                },
+                .sub_resource => try locals.append(arena, null),
+            },
+            else => {},
+        },
+    };
+    const lti = export_idx orelse return TypeBridgeError.UnsupportedType;
+    if (lti >= locals.items.len) return TypeBridgeError.InvalidTypeIndex;
+    const dt = locals.items[lti] orelse return TypeBridgeError.UnsupportedType;
+    return .{ .dt = dt.*, .locals = try locals.toOwnedSlice(arena) };
+}
+
+/// The instance-type DECLS of an IMPORTED component instance.
+fn instanceImportDecls(info: *const types.TypeInfo, instance_index: u32) TypeBridgeError![]const types.InstanceDecl {
+    if (instance_index >= info.instance_origins.items.len) return TypeBridgeError.InvalidTypeIndex;
+    const import_name = switch (info.instance_origins.items[instance_index]) {
+        .import => |n| n,
+        .local => return TypeBridgeError.UnsupportedType,
+    };
+    for (info.imports.items) |imp| {
+        if (!std.mem.eql(u8, imp.name, import_name)) continue;
+        const inst_ti = switch (imp.desc) {
+            .instance => |t| t,
+            else => return TypeBridgeError.UnsupportedType,
+        };
+        if (inst_ti >= info.type_space.items.len) return TypeBridgeError.InvalidTypeIndex;
+        const dt = switch (info.type_space.items[inst_ti]) {
+            .def => |d| info.deftypes.items[d],
+            .named => return TypeBridgeError.UnsupportedType,
+        };
+        return switch (dt) {
+            .instance_type => |it| it.decls,
+            else => TypeBridgeError.UnsupportedType,
+        };
+    }
+    return TypeBridgeError.UnsupportedType;
+}
+
+/// Resolve a TYPE exported by component-instance `instance_index` under
+/// `name`. For an IMPORTED instance the type definition lives in the
+/// import's instance-type DECLS (a nested scope with its own local type
+/// index space) — walk it decl-by-decl.
+fn canonTypeFromInstanceExport(arena: std.mem.Allocator, info: *const types.TypeInfo, instance_index: u32, name: []const u8) TypeBridgeError!CanonType {
+    const resolved = try resolveInstanceExportDefType(arena, info, instance_index, name);
+    return canonTypeFromLocalDefType(arena, info, resolved.locals, resolved.dt);
+}
+
+/// Convert a NESTED-scope deftype: `type_index` refs resolve against the
+/// LOCAL decl-order space, not the component's top-level one.
+fn canonTypeFromLocalDefType(arena: std.mem.Allocator, info: *const types.TypeInfo, locals: []const ?*const types.DefType, dt: types.DefType) TypeBridgeError!CanonType {
+    switch (dt) {
+        .value => |vt| return canonTypeFromLocalValType(arena, info, locals, vt),
+        .record => |rec| {
+            const fields = try arena.alloc(CanonType.Field, rec.fields.len);
+            for (rec.fields, fields) |f, *slot| {
+                slot.* = .{ .name = f.name, .ty = try canonTypeFromLocalValType(arena, info, locals, f.ty) };
             }
+            return .{ .record = fields };
+        },
+        .tuple => |t| {
+            const fields = try arena.alloc(CanonType.Field, t.types.len);
+            for (t.types, fields) |ty, *slot| {
+                slot.* = .{ .name = "", .ty = try canonTypeFromLocalValType(arena, info, locals, ty) };
+            }
+            return .{ .record = fields };
+        },
+        .list => |l| {
+            if (l.fixed_length != null) return TypeBridgeError.UnsupportedType;
+            const elem = try arena.create(CanonType);
+            elem.* = try canonTypeFromLocalValType(arena, info, locals, l.element.*);
+            return .{ .list = elem };
+        },
+        .option => |o| {
+            const cases = try arena.alloc(CanonType.VCase, 2);
+            cases[0] = .{ .name = "none", .payload = null };
+            cases[1] = .{ .name = "some", .payload = try canonTypeFromLocalValType(arena, info, locals, o.payload.*) };
+            return .{ .variant = cases };
+        },
+        .result => |r| {
+            const cases = try arena.alloc(CanonType.VCase, 2);
+            cases[0] = .{ .name = "ok", .payload = if (r.ok) |ok| try canonTypeFromLocalValType(arena, info, locals, ok) else null };
+            cases[1] = .{ .name = "err", .payload = if (r.err) |er| try canonTypeFromLocalValType(arena, info, locals, er) else null };
+            return .{ .variant = cases };
+        },
+        .variant => |v| {
+            const cases = try arena.alloc(CanonType.VCase, v.cases.len);
+            for (v.cases, cases) |c, *slot| {
+                slot.* = .{ .name = c.name, .payload = if (c.payload) |pp| try canonTypeFromLocalValType(arena, info, locals, pp) else null };
+            }
+            return .{ .variant = cases };
+        },
+        .enum_ => |e| return .{ .enum_ = @intCast(e.labels.len) },
+        .flags => |fl| return .{ .flags = @intCast(fl.labels.len) },
+        .func, .own, .borrow, .instance_type, .component_type => return TypeBridgeError.UnsupportedType,
+    }
+}
+
+fn canonTypeFromLocalValType(arena: std.mem.Allocator, info: *const types.TypeInfo, locals: []const ?*const types.DefType, vt: types.ValType) TypeBridgeError!CanonType {
+    switch (vt) {
+        .primitive => |p| return .{ .prim = p },
+        .type_index => |ti| {
+            if (ti >= locals.len) return TypeBridgeError.InvalidTypeIndex;
+            const dt = locals[ti] orelse return TypeBridgeError.UnsupportedType;
+            return canonTypeFromLocalDefType(arena, info, locals, dt.*);
         },
     }
 }

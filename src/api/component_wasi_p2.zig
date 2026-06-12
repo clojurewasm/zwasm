@@ -1418,88 +1418,147 @@ fn defineSynth(lk: *Linker, ns: []const u8, e: SynthExport, ctx: *WasiP2Ctx) !vo
 /// Run a single-component WASI-P2 program end-to-end. Decodes the component,
 /// builds every core instance in definition order (ADR-0175 general engine),
 /// then invokes the lowered `run`. Captured output lands in `host`.
-pub fn runWasiP2Main(engine: *Engine, alloc: Allocator, bytes: []const u8, host: *wasi_host.Host) anyerror!void {
-    var decoded = try decode.decode(alloc, bytes);
-    defer decoded.deinit(alloc);
-    var info = try ctypes.decodeTypeInfo(alloc, &decoded);
-    defer info.deinit();
-    try cvalidate.validate(&info); // ADR-0176: reject invalid components pre-instantiate
+/// A fully-BUILT component instance graph (ADR-0175) with its WASI-P2 host
+/// wiring intact — the reusable seam under `runWasiP2Main` and the typed
+/// embedder invoke (ADR-0183 F3: real-toolchain components import wasi, so
+/// typed calls need the same build the CLI run uses).
+pub const BuiltComponent = struct {
+    alloc: Allocator,
+    decoded: decode.Component,
+    info: ctypes.TypeInfo,
+    /// Heap-stable: trampolines hold this pointer for the build's lifetime.
+    ctx: *WasiP2Ctx,
+    modules: std.ArrayList(*Module) = .empty,
+    instances: std.ArrayList(*Instance) = .empty,
+    linkers: std.ArrayList(*Linker) = .empty,
+    synth_arena: std.heap.ArenaAllocator,
+    built: []?Built,
 
-    const run_ref = firstLiftCoreExport(&info) orelse return error.NoRunExport;
-    const cis = info.core_instances.items;
-    if (run_ref.instance >= cis.len) return error.NoRunExport;
-
-    var ctx = try WasiP2Ctx.init(alloc, host);
-    defer ctx.deinit();
-
-    // Heap-stable holders (a Linker must outlive its instance; instances
-    // reference each other). A synthetic-export arena outlives the build loop.
-    var modules: std.ArrayList(*Module) = .empty;
-    var instances: std.ArrayList(*Instance) = .empty;
-    var linkers: std.ArrayList(*Linker) = .empty;
-    var synth_arena = std.heap.ArenaAllocator.init(alloc);
-    defer synth_arena.deinit();
-    defer {
-        for (instances.items) |p| {
+    pub fn deinit(self: *BuiltComponent) void {
+        const alloc = self.alloc;
+        for (self.instances.items) |p| {
             p.deinit();
             alloc.destroy(p);
         }
-        for (linkers.items) |p| {
+        for (self.linkers.items) |p| {
             p.deinit();
             alloc.destroy(p);
         }
-        for (modules.items) |p| {
+        for (self.modules.items) |p| {
             p.deinit();
             alloc.destroy(p);
         }
-        instances.deinit(alloc);
-        linkers.deinit(alloc);
-        modules.deinit(alloc);
+        self.instances.deinit(alloc);
+        self.linkers.deinit(alloc);
+        self.modules.deinit(alloc);
+        alloc.free(self.built);
+        self.synth_arena.deinit();
+        self.ctx.deinit();
+        alloc.destroy(self.ctx);
+        self.info.deinit();
+        self.decoded.deinit(alloc);
     }
 
-    const built = try alloc.alloc(?Built, cis.len);
-    defer alloc.free(built);
-    @memset(built, null);
+    /// The guest `*Instance` a core-instance index resolved to (null for
+    /// synthetic instances / out of range).
+    pub fn guestInstance(self: *const BuiltComponent, index: u32) ?*Instance {
+        if (index >= self.built.len) return null;
+        const b = self.built[index] orelse return null;
+        return switch (b) {
+            .guest => |gi| gi,
+            .synthetic => null,
+        };
+    }
+};
+
+/// Decode + validate + build EVERY core instance of `bytes` in definition
+/// order with the WASI-P2 host wiring (the ADR-0175 general engine,
+/// extracted from `runWasiP2Main`). Caller owns the result (`deinit`).
+pub fn buildWasiP2Component(engine: *Engine, alloc: Allocator, bytes: []const u8, host: *wasi_host.Host) anyerror!BuiltComponent {
+    var decoded = try decode.decode(alloc, bytes);
+    errdefer decoded.deinit(alloc);
+    var info = try ctypes.decodeTypeInfo(alloc, &decoded);
+    errdefer info.deinit();
+    try cvalidate.validate(&info); // ADR-0176: reject invalid components pre-instantiate
+
+    const cis = info.core_instances.items;
+
+    const ctx = try alloc.create(WasiP2Ctx);
+    errdefer alloc.destroy(ctx);
+    ctx.* = try WasiP2Ctx.init(alloc, host);
+    errdefer ctx.deinit();
+
+    var self: BuiltComponent = .{
+        .alloc = alloc,
+        .decoded = decoded,
+        .info = info,
+        .ctx = ctx,
+        .synth_arena = std.heap.ArenaAllocator.init(alloc),
+        .built = try alloc.alloc(?Built, cis.len),
+    };
+    @memset(self.built, null);
+    errdefer {
+        // Tear down only what THIS fn built; decoded/info/ctx have their own
+        // errdefers above (self.deinit would double-free them on early error).
+        for (self.instances.items) |p| {
+            p.deinit();
+            alloc.destroy(p);
+        }
+        for (self.linkers.items) |p| {
+            p.deinit();
+            alloc.destroy(p);
+        }
+        for (self.modules.items) |p| {
+            p.deinit();
+            alloc.destroy(p);
+        }
+        self.instances.deinit(alloc);
+        self.linkers.deinit(alloc);
+        self.modules.deinit(alloc);
+        alloc.free(self.built);
+        self.synth_arena.deinit();
+    }
 
     for (cis, 0..) |ci, i| {
-        built[i] = switch (ci) {
+        self.built[i] = switch (ci) {
             .inline_exports => |exps| blk: {
-                const list = try synth_arena.allocator().alloc(SynthExport, exps.len);
+                const list = try self.synth_arena.allocator().alloc(SynthExport, exps.len);
                 var n: usize = 0;
                 for (exps) |ex| {
-                    const def = (try synthDef(&info, built, ex)) orelse continue;
+                    const def = (try synthDef(&self.info, self.built, ex)) orelse continue;
                     list[n] = .{ .name = ex.name, .def = def };
                     n += 1;
                 }
                 break :blk .{ .synthetic = list[0..n] };
             },
             .instantiate => |it| blk: {
-                const mb = nthCoreModule(&decoded, it.module) orelse return error.NoCoreModule;
+                const mb = nthCoreModule(&self.decoded, it.module) orelse return error.NoCoreModule;
                 const mod = try alloc.create(Module);
                 mod.* = try engine.compile(mb);
-                try modules.append(alloc, mod);
+                try self.modules.append(alloc, mod);
 
                 const lk = try alloc.create(Linker);
                 lk.* = engine.linker();
-                try linkers.append(alloc, lk);
+                try self.linkers.append(alloc, lk);
 
-                // Pour each `with` argument's instance into the linker under its
-                // namespace, satisfying this module's imports.
+                // Pour each `with` argument's instance into the linker under
+                // its namespace, satisfying this module's imports.
                 for (it.args) |arg| {
                     if (arg.instance >= cis.len) return error.ImportUnsatisfied;
-                    const provider = built[arg.instance] orelse return error.ImportUnsatisfied;
+                    const provider = self.built[arg.instance] orelse return error.ImportUnsatisfied;
                     switch (provider) {
                         .guest => |gi| try lk.defineInstance(arg.name, gi),
-                        .synthetic => |se| for (se) |e| try defineSynth(lk, arg.name, e, &ctx),
+                        .synthetic => |se| for (se) |e| try defineSynth(lk, arg.name, e, ctx),
                     }
                 }
 
                 const gi = try alloc.create(Instance);
                 gi.* = try lk.instantiate(mod);
-                try instances.append(alloc, gi);
+                try self.instances.append(alloc, gi);
                 // The instance exporting cabi_realloc is the list/string
-                // return-area allocator the trampolines call via nested invoke;
-                // the memory-exporting instance is the lowers' bound memory.
+                // return-area allocator the trampolines call via nested
+                // invoke; the memory-exporting instance is the lowers' bound
+                // memory.
                 if (ctx.realloc_instance == null and instanceExportsFunc(gi, ctx.realloc_name))
                     ctx.realloc_instance = gi;
                 if (ctx.mem_instance == null and instanceExportsMemory(gi))
@@ -1508,11 +1567,15 @@ pub fn runWasiP2Main(engine: *Engine, alloc: Allocator, bytes: []const u8, host:
             },
         };
     }
+    return self;
+}
 
-    const main_inst = switch (built[run_ref.instance].?) {
-        .guest => |gi| gi,
-        .synthetic => return error.NoRunExport,
-    };
+pub fn runWasiP2Main(engine: *Engine, alloc: Allocator, bytes: []const u8, host: *wasi_host.Host) anyerror!void {
+    var built = try buildWasiP2Component(engine, alloc, bytes, host);
+    defer built.deinit();
+
+    const run_ref = firstLiftCoreExport(&built.info) orelse return error.NoRunExport;
+    const main_inst = built.guestInstance(run_ref.instance) orelse return error.NoRunExport;
     var results = [_]Value{.{ .i32 = 0 }};
     main_inst.invoke(run_ref.name, &.{}, &results) catch |err| {
         // wasi:cli/exit unwinds with ProcExit after recording host.exit_code —

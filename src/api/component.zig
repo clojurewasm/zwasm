@@ -373,6 +373,16 @@ fn toCanonValue(arena: std.mem.Allocator, v: ComponentValue, ty: canon.CanonType
 /// by the DECODED type (so records keep field NAMES and option/result/tuple
 /// re-specialize from the variant/record canon forms).
 fn fromCanonValue(out_alloc: std.mem.Allocator, info: *const ctypes.TypeInfo, vt: ctypes.ValType, cv: canon.Value) InvokeTypedError!ComponentValue {
+    var arena_state = std.heap.ArenaAllocator.init(out_alloc);
+    defer arena_state.deinit();
+    return fromCanonValueScoped(out_alloc, arena_state.allocator(), info, &.{}, vt, cv);
+}
+
+/// `fromCanonValue` with an explicit NESTED-scope context: `locals` is the
+/// decl-order local type space when `vt` came from an imported-instance
+/// type declaration (empty at top level). `scratch` backs resolver
+/// allocations only — output values are owned by `out_alloc`.
+fn fromCanonValueScoped(out_alloc: std.mem.Allocator, scratch: std.mem.Allocator, info: *const ctypes.TypeInfo, locals: []const ?*const ctypes.DefType, vt: ctypes.ValType, cv: canon.Value) InvokeTypedError!ComponentValue {
     switch (vt) {
         .primitive => |p| return switch (p) {
             .string => .{ .string = try out_alloc.dupe(u8, cv.string) },
@@ -391,44 +401,45 @@ fn fromCanonValue(out_alloc: std.mem.Allocator, info: *const ctypes.TypeInfo, vt
             .error_context => InvokeTypedError.UnsupportedType,
         },
         .type_index => |ti| {
-            if (ti >= info.type_space.items.len) return InvokeTypedError.InvalidTypeIndex;
-            const dt = switch (info.type_space.items[ti]) {
-                .named => return InvokeTypedError.UnsupportedType,
-                .def => |d| info.deftypes.items[d],
-            };
-            return fromCanonDefType(out_alloc, info, dt, cv);
+            if (locals.len != 0) {
+                if (ti >= locals.len) return InvokeTypedError.InvalidTypeIndex;
+                const dt = locals[ti] orelse return InvokeTypedError.UnsupportedType;
+                return fromCanonDefType(out_alloc, scratch, info, locals, dt.*, cv);
+            }
+            const resolved = try canon.resolveTypeIndex(scratch, info, ti);
+            return fromCanonDefType(out_alloc, scratch, info, resolved.locals, resolved.dt, cv);
         },
     }
 }
 
-fn fromCanonDefType(out_alloc: std.mem.Allocator, info: *const ctypes.TypeInfo, dt: ctypes.DefType, cv: canon.Value) InvokeTypedError!ComponentValue {
+fn fromCanonDefType(out_alloc: std.mem.Allocator, scratch: std.mem.Allocator, info: *const ctypes.TypeInfo, locals: []const ?*const ctypes.DefType, dt: ctypes.DefType, cv: canon.Value) InvokeTypedError!ComponentValue {
     switch (dt) {
-        .value => |vt| return fromCanonValue(out_alloc, info, vt, cv),
+        .value => |vt| return fromCanonValueScoped(out_alloc, scratch, info, locals, vt, cv),
         .record => |rec| {
             const fields = try out_alloc.alloc(ComponentValue.Field, rec.fields.len);
             errdefer out_alloc.free(fields);
             for (rec.fields, cv.record, fields) |f, val, *slot| {
-                slot.* = .{ .name = f.name, .value = try fromCanonValue(out_alloc, info, f.ty, val) };
+                slot.* = .{ .name = f.name, .value = try fromCanonValueScoped(out_alloc, scratch, info, locals, f.ty, val) };
             }
             return .{ .record = fields };
         },
         .tuple => |t| {
             const items = try out_alloc.alloc(ComponentValue, t.types.len);
             errdefer out_alloc.free(items);
-            for (t.types, cv.record, items) |ty, val, *slot| slot.* = try fromCanonValue(out_alloc, info, ty, val);
+            for (t.types, cv.record, items) |ty, val, *slot| slot.* = try fromCanonValueScoped(out_alloc, scratch, info, locals, ty, val);
             return .{ .tuple = items };
         },
         .list => |l| {
             const items = try out_alloc.alloc(ComponentValue, cv.list.len);
             errdefer out_alloc.free(items);
-            for (cv.list, items) |val, *slot| slot.* = try fromCanonValue(out_alloc, info, l.element.*, val);
+            for (cv.list, items) |val, *slot| slot.* = try fromCanonValueScoped(out_alloc, scratch, info, locals, l.element.*, val);
             return .{ .list = items };
         },
         .option => |o| {
             if (cv.variant.case == 0) return .{ .option = null };
             const slot = try out_alloc.create(ComponentValue);
             errdefer out_alloc.destroy(slot);
-            slot.* = try fromCanonValue(out_alloc, info, o.payload.*, cv.variant.payload.?.*);
+            slot.* = try fromCanonValueScoped(out_alloc, scratch, info, locals, o.payload.*, cv.variant.payload.?.*);
             return .{ .option = slot };
         },
         .result => |r| {
@@ -437,7 +448,7 @@ fn fromCanonDefType(out_alloc: std.mem.Allocator, info: *const ctypes.TypeInfo, 
             if (pt) |ty| {
                 const slot = try out_alloc.create(ComponentValue);
                 errdefer out_alloc.destroy(slot);
-                slot.* = try fromCanonValue(out_alloc, info, ty, cv.variant.payload.?.*);
+                slot.* = try fromCanonValueScoped(out_alloc, scratch, info, locals, ty, cv.variant.payload.?.*);
                 return .{ .result = .{ .is_ok = is_ok, .payload = slot } };
             }
             return .{ .result = .{ .is_ok = is_ok, .payload = null } };
@@ -448,7 +459,7 @@ fn fromCanonDefType(out_alloc: std.mem.Allocator, info: *const ctypes.TypeInfo, 
             if (v.cases[case].payload) |pt| {
                 const slot = try out_alloc.create(ComponentValue);
                 errdefer out_alloc.destroy(slot);
-                slot.* = try fromCanonValue(out_alloc, info, pt, cv.variant.payload.?.*);
+                slot.* = try fromCanonValueScoped(out_alloc, scratch, info, locals, pt, cv.variant.payload.?.*);
                 return .{ .variant = .{ .case = case, .payload = slot } };
             }
             return .{ .variant = .{ .case = case, .payload = null } };
@@ -457,6 +468,127 @@ fn fromCanonDefType(out_alloc: std.mem.Allocator, info: *const ctypes.TypeInfo, 
         .flags => return .{ .flags = cv.flags },
         .func, .own, .borrow, .instance_type, .component_type => return InvokeTypedError.UnsupportedType,
     }
+}
+
+/// `CanonContext.memory_fn` over a BUILT component: re-fetch the
+/// memory-exporting instance's linear memory on every access.
+fn builtMemoryFetch(p: *anyopaque) []u8 {
+    const ctx: *cwasi.WasiP2Ctx = @ptrCast(@alignCast(p));
+    const inst = ctx.mem_instance orelse return &.{};
+    const mem = inst.memory() orelse return &.{};
+    return mem.slice();
+}
+
+/// `CanonContext.realloc_fn` over a BUILT component: nested-invoke the
+/// realloc-exporting instance's `cabi_realloc`.
+fn builtRealloc(p: *anyopaque, old_ptr: u32, old_size: u32, alignment: u32, new_size: u32) canon.ReallocError!u32 {
+    const ctx: *cwasi.WasiP2Ctx = @ptrCast(@alignCast(p));
+    const inst = ctx.realloc_instance orelse return canon.ReallocError.AllocFailed;
+    var args = [_]Value{
+        .{ .i32 = @bitCast(old_ptr) },
+        .{ .i32 = @bitCast(old_size) },
+        .{ .i32 = @bitCast(alignment) },
+        .{ .i32 = @bitCast(new_size) },
+    };
+    var res = [_]Value{.{ .i32 = 0 }};
+    inst.invoke(ctx.realloc_name, &args, &res) catch return canon.ReallocError.AllocFailed;
+    const ptr: u32 = @bitCast(res[0].i32);
+    if (ptr == 0 and new_size != 0) return canon.ReallocError.AllocFailed;
+    return ptr;
+}
+
+/// ADR-0183 F3 — TYPED invoke against a BUILT component (the general
+/// ADR-0175 graph incl. WASI wiring): real-toolchain components import
+/// wasi, so the single-module `ComponentInstance` path cannot run them.
+/// Same contract as `ComponentInstance.invokeTyped`.
+pub fn invokeTypedBuilt(
+    built: *cwasi.BuiltComponent,
+    export_name: []const u8,
+    args: []const ComponentValue,
+    out_alloc: std.mem.Allocator,
+) InvokeTypedError!?ComponentValue {
+    const info = &built.info;
+    const ft = info.resolveFuncType(export_name) orelse return InvokeTypedError.ExportNotResolved;
+    const r = info.resolveLiftedFunc(export_name) orelse return InvokeTypedError.ExportNotResolved;
+    if (r.string_encoding != .utf8) return InvokeTypedError.UnsupportedEncoding;
+    if (r.realloc) |rr| built.ctx.realloc_name = rr.name;
+    if (args.len != ft.params.len) return InvokeTypedError.ArgArityMismatch;
+    const core_inst = built.guestInstance(r.core_func.instance) orelse return InvokeTypedError.ExportNotResolved;
+
+    var arena_state = std.heap.ArenaAllocator.init(built.alloc);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+
+    const cx = canon.CanonContext{
+        .memory_ctx = @ptrCast(built.ctx),
+        .memory_fn = builtMemoryFetch,
+        .realloc_ctx = @ptrCast(built.ctx),
+        .realloc_fn = builtRealloc,
+    };
+
+    const ptypes = try a.alloc(canon.CanonType, ft.params.len);
+    var flat_param_types: std.ArrayList(canon.CoreType) = .empty;
+    for (ft.params, ptypes) |param, *slot| {
+        slot.* = try canon.canonTypeFromDecoded(a, info, param.ty);
+        try canon.flattenType(a, slot.*, &flat_param_types);
+    }
+    var flats: std.ArrayList(canon.CoreValue) = .empty;
+    if (flat_param_types.items.len <= canon.MAX_FLAT_PARAMS) {
+        for (args, ptypes) |arg, pt| {
+            try canon.lowerFlat(cx, a, try toCanonValue(a, arg, pt), pt, &flats);
+        }
+    } else {
+        const spill_fields = try a.alloc(canon.CanonType.Field, ptypes.len);
+        for (ptypes, spill_fields) |pt, *f| f.* = .{ .name = "", .ty = pt };
+        const spill_ty: canon.CanonType = .{ .record = spill_fields };
+        const spill_vals = try a.alloc(canon.Value, args.len);
+        for (args, ptypes, spill_vals) |arg, pt, *slot| slot.* = try toCanonValue(a, arg, pt);
+        const size: u32 = @intCast(canon.sizeOf(spill_ty));
+        const base = try cx.realloc(0, 0, @intCast(canon.alignmentOf(spill_ty)), size);
+        try canon.store(cx, .{ .record = spill_vals }, spill_ty, base);
+        try flats.append(a, canon.CoreValue.fromI32(@bitCast(base)));
+        flat_param_types.clearRetainingCapacity();
+        try flat_param_types.append(a, .i32);
+    }
+
+    var ret_ct: ?canon.CanonType = null;
+    var ret_flat_n: usize = 0;
+    if (ft.result) |rt| {
+        ret_ct = try canon.canonTypeFromDecoded(a, info, rt);
+        var rtl: std.ArrayList(canon.CoreType) = .empty;
+        try canon.flattenType(a, ret_ct.?, &rtl);
+        ret_flat_n = rtl.items.len;
+    }
+
+    const argbuf = try a.alloc(Value, flats.items.len);
+    for (flats.items, flat_param_types.items, argbuf) |fv, ct, *slot| slot.* = coreToFacade(fv, ct);
+    var resbuf: [1]Value = .{.{ .i32 = 0 }};
+    const results: []Value = if (ret_ct == null) resbuf[0..0] else resbuf[0..1];
+    try core_inst.invoke(r.core_func.name, argbuf, results);
+
+    var out: ?ComponentValue = null;
+    if (ret_ct) |rc| {
+        var lifted: canon.Value = undefined;
+        if (ret_flat_n <= canon.MAX_FLAT_RESULTS) {
+            var idx: usize = 0;
+            const rcore = [_]canon.CoreValue{value_conv.zwasmToRuntime(resbuf[0])};
+            lifted = try canon.liftFlat(cx, a, rc, rcore[0..ret_flat_n], &idx);
+        } else {
+            const ret_ptr: u32 = @bitCast(resbuf[0].i32);
+            lifted = try canon.load(cx, a, rc, ret_ptr);
+        }
+        out = try fromCanonValue(out_alloc, info, ft.result.?, lifted);
+    }
+    errdefer if (out) |o| o.deinit(out_alloc);
+
+    if (r.post_return) |pr| {
+        if (built.guestInstance(pr.instance)) |pri| {
+            var pr_args = [_]Value{resbuf[0]};
+            const pa: []Value = if (ret_ct == null) pr_args[0..0] else pr_args[0..1];
+            try pri.invoke(pr.name, pa, &.{});
+        }
+    }
+    return out;
 }
 
 pub const InvokeStringError = error{
@@ -660,6 +792,8 @@ pub const ComponentValue = @import("../feature/component/value.zig").ComponentVa
 
 const cwasi = @import("component_wasi_p2.zig");
 pub const runWasiP2Main = cwasi.runWasiP2Main;
+pub const BuiltComponent = cwasi.BuiltComponent;
+pub const buildWasiP2Component = cwasi.buildWasiP2Component;
 const WasiP2Ctx = cwasi.WasiP2Ctx;
 const WasiP2Error = cwasi.WasiP2Error;
 const p2GetStdout = cwasi.p2GetStdout;
@@ -1815,4 +1949,46 @@ test "ADR-0183 F2b: greet invoked TYPED — string arg in, owned string result o
     // Shape validation: wrong arm + wrong arity reject before any call.
     try testing.expectError(InvokeTypedError.ValueShapeMismatch, ci.invokeTyped("greet", &.{.{ .u32 = 1 }}, testing.allocator));
     try testing.expectError(InvokeTypedError.ArgArityMismatch, ci.invokeTyped("greet", &.{}, testing.allocator));
+}
+
+test "ADR-0183 F3/F4: wit-bindgen rich types round-trip TYPED — record{list<u32>, string} <-> result" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/typed_payload.wasm", testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+    host.io = io;
+    var built = try cwasi.buildWasiP2Component(&eng, testing.allocator, bytes, &host);
+    defer built.deinit();
+
+    // ok path: process({xs: [1,2,3], label: "sum"}) appends sum(xs)=6 and "!".
+    const xs = [_]ComponentValue{ .{ .u32 = 1 }, .{ .u32 = 2 }, .{ .u32 = 3 } };
+    const in_fields = [_]ComponentValue.Field{
+        .{ .name = "xs", .value = .{ .list = @constCast(&xs) } },
+        .{ .name = "label", .value = .{ .string = "sum" } },
+    };
+    const out = (try invokeTypedBuilt(&built, "process", &.{.{ .record = @constCast(&in_fields) }}, testing.allocator)).?;
+    defer out.deinit(testing.allocator);
+    try testing.expect(out.result.is_ok);
+    const payload = out.result.payload.?.*;
+    try testing.expectEqualStrings("xs", payload.record[0].name);
+    const out_xs = payload.record[0].value.list;
+    try testing.expectEqual(@as(usize, 4), out_xs.len);
+    try testing.expectEqual(@as(u32, 6), out_xs[3].u32);
+    try testing.expectEqualStrings("sum!", payload.record[1].value.string);
+
+    // err path: label "fail" -> result err "boom: fail".
+    const fail_fields = [_]ComponentValue.Field{
+        .{ .name = "xs", .value = .{ .list = @constCast(xs[0..0]) } },
+        .{ .name = "label", .value = .{ .string = "fail" } },
+    };
+    const err_out = (try invokeTypedBuilt(&built, "process", &.{.{ .record = @constCast(&fail_fields) }}, testing.allocator)).?;
+    defer err_out.deinit(testing.allocator);
+    try testing.expect(!err_out.result.is_ok);
+    try testing.expectEqualStrings("boom: fail", err_out.result.payload.?.string);
 }

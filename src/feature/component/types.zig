@@ -359,7 +359,19 @@ pub const ComponentInlineExport = struct {
 /// (`.named` — the type is introduced under a name).
 pub const TypeSpaceEntry = union(enum) {
     def: u32,
-    named,
+    named: NamedOrigin,
+};
+
+/// WHICH construct minted a `.named` type index — lets a consumer chase
+/// the name back to its defining scope (ADR-0183: `use`d interface types
+/// live in the import's instance-type decls).
+pub const NamedOrigin = union(enum) {
+    /// Index into `aliases`.
+    alias: u32,
+    /// Index into `imports` (a `(type (eq i))` import).
+    import: u32,
+    /// Index into `exports` (a type export re-binding an earlier index).
+    @"export": u32,
 };
 
 /// One `instance` (`Binary.md` §Instance, component level): instantiate a child
@@ -524,20 +536,35 @@ pub const TypeInfo = struct {
             }
         }
         const fi = func_idx orelse return null;
+        const lift = self.liftForFuncIndex(fi) orelse return null;
+        const ti = lift.type_index;
+        if (ti >= self.type_space.items.len) return null;
+        switch (self.type_space.items[ti]) {
+            .def => |d| switch (self.deftypes.items[d]) {
+                .func => |ft| return ft,
+                else => return null,
+            },
+            .named => return null, // alias-minted signature — deferred
+        }
+    }
+
+    /// The `canon lift` a component-FUNC index resolves to, via the
+    /// definition-order `component_funcs` index space (func aliases /
+    /// imports occupy earlier slots in real wit-bindgen output — counting
+    /// lifts by ordinal mis-resolves those components).
+    fn liftForFuncIndex(self: *const TypeInfo, fi: u32) ?@TypeOf(@as(Canon, undefined).lift) {
+        if (fi < self.component_funcs.items.len) {
+            switch (self.component_funcs.items[fi]) {
+                .lift => |ci| return self.canons.items[ci].lift,
+                .import, .alias => return null,
+            }
+        }
+        // Fallback for hand-built TypeInfos without a populated func space:
+        // the historical lift-ordinal walk.
         var li: u32 = 0;
         for (self.canons.items) |c| {
             if (c != .lift) continue;
-            if (li == fi) {
-                const ti = c.lift.type_index;
-                if (ti >= self.type_space.items.len) return null;
-                switch (self.type_space.items[ti]) {
-                    .def => |d| switch (self.deftypes.items[d]) {
-                        .func => |ft| return ft,
-                        else => return null,
-                    },
-                    .named => return null, // alias-minted signature — deferred
-                }
-            }
+            if (li == fi) return c.lift;
             li += 1;
         }
         return null;
@@ -570,22 +597,13 @@ pub const TypeInfo = struct {
             }
         }
         const fi = func_idx orelse return null;
-
-        var li: u32 = 0;
-        for (self.canons.items) |c| {
-            if (c != .lift) continue;
-            if (li == fi) {
-                const lift = c.lift;
-                return .{
-                    .core_func = self.resolveCoreFuncExport(lift.core_func) orelse return null,
-                    .realloc = if (lift.opts.realloc) |r| self.resolveCoreFuncExport(r) else null,
-                    .post_return = if (lift.opts.post_return) |p| self.resolveCoreFuncExport(p) else null,
-                    .string_encoding = lift.opts.string_encoding,
-                };
-            }
-            li += 1;
-        }
-        return null;
+        const lift = self.liftForFuncIndex(fi) orelse return null;
+        return .{
+            .core_func = self.resolveCoreFuncExport(lift.core_func) orelse return null,
+            .realloc = if (lift.opts.realloc) |r| self.resolveCoreFuncExport(r) else null,
+            .post_return = if (lift.opts.post_return) |p| self.resolveCoreFuncExport(p) else null,
+            .string_encoding = lift.opts.string_encoding,
+        };
     }
 };
 
@@ -1218,7 +1236,7 @@ pub fn decodeTypeInfo(parent: Allocator, component: *const decode.Component) Err
             .import => for (imports.items[imports_before..], imports_before..) |imp, abs| switch (imp.desc) {
                 .func => try component_funcs.append(a, .{ .import = @intCast(abs) }),
                 .instance => try instance_origins.append(a, .{ .import = imp.name }),
-                .type_bound => try type_space.append(a, .named),
+                .type_bound => try type_space.append(a, .{ .named = .{ .import = @intCast(abs) } }),
                 else => {},
             },
             .canon => for (canons.items[canons_before..], canons_before..) |c, abs| switch (c) {
@@ -1228,7 +1246,7 @@ pub fn decodeTypeInfo(parent: Allocator, component: *const decode.Component) Err
                 .resource_rep => |t| try core_funcs.append(a, .{ .resource_rep = t }),
                 .lift => try component_funcs.append(a, .{ .lift = @intCast(abs) }),
             },
-            .alias => for (aliases.items[aliases_before..]) |al| switch (al.sort) {
+            .alias => for (aliases.items[aliases_before..], aliases_before..) |al, al_abs| switch (al.sort) {
                 .core => |cs| switch (cs) {
                     .func => try core_funcs.append(a, .{ .alias = al.target }),
                     .table => try core_tables.append(a, al.target),
@@ -1236,12 +1254,12 @@ pub fn decodeTypeInfo(parent: Allocator, component: *const decode.Component) Err
                 },
                 .func => try component_funcs.append(a, .{ .alias = al.target }),
                 .instance => try instance_origins.append(a, .local),
-                .type => try type_space.append(a, .named),
+                .type => try type_space.append(a, .{ .named = .{ .alias = @intCast(al_abs) } }),
                 else => {},
             },
             .instance => for (component_instances.items[cinst_before..]) |_| try instance_origins.append(a, .local),
-            .@"export" => for (exports.items[exports_before..]) |ex| {
-                if (std.meta.activeTag(ex.sort) == .type) try type_space.append(a, .named);
+            .@"export" => for (exports.items[exports_before..], exports_before..) |ex, ex_abs| {
+                if (std.meta.activeTag(ex.sort) == .type) try type_space.append(a, .{ .named = .{ .@"export" = @intCast(ex_abs) } });
             },
             else => {},
         }
