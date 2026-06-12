@@ -15,6 +15,7 @@
 //!
 //! Zone 1 (`feature/component/`): pure logic, no host orchestration (ADR-0172).
 
+const std = @import("std");
 const types = @import("types.zig");
 
 const TypeInfo = types.TypeInfo;
@@ -32,11 +33,94 @@ pub fn validate(info: *const TypeInfo) Error!void {
     const type_space_len = info.type_space_len;
     for (info.deftypes.items) |dt| {
         try checkDefTypeIndices(dt, type_space_len);
+        try checkDefTypeLabels(dt);
     }
     try checkCanons(info, type_space_len);
     try checkAliases(info);
-    for (info.imports.items) |imp| try checkExternDesc(imp.desc, type_space_len);
-    for (info.exports.items) |ex| if (ex.desc) |d| try checkExternDesc(d, type_space_len);
+    for (info.imports.items) |imp| {
+        try checkExternDesc(imp.desc, type_space_len);
+        try checkExternName(imp.name);
+    }
+    for (info.exports.items) |ex| {
+        if (ex.desc) |d| try checkExternDesc(d, type_space_len);
+        try checkExternName(ex.name);
+    }
+}
+
+/// Rule 5: name format. Every label-carrying deftype member (func param,
+/// record field, variant case, enum/flags label) must be in kebab case per
+/// the Explainer.md `label` grammar. Nested `instance`/`component` type
+/// scopes are deferred (consistent with rule 1 — never a false-positive).
+fn checkDefTypeLabels(dt: DefType) Error!void {
+    switch (dt) {
+        .func => |ft| for (ft.params) |p| try checkLabel(p.name),
+        .record => |rec| for (rec.fields) |f| try checkLabel(f.name),
+        .variant => |v| for (v.cases) |c| try checkLabel(c.name),
+        .enum_ => |e| for (e.labels) |l| try checkLabel(l),
+        .flags => |fl| for (fl.labels) |l| try checkLabel(l),
+        .value, .list, .tuple, .option, .result, .own, .borrow => {},
+        .instance_type, .component_type => {},
+    }
+}
+
+/// Rule 5: import/export name format (Explainer.md `importname`/`exportname`).
+/// Dispatches on the name's shape:
+/// - `=`-carrying forms (`locked-dep=…`/`unlocked-dep=…`/`url=…`/`integrity=…`)
+///   are accepted unchecked — their grammars are deferred (false-negative at
+///   worst, never a false-positive).
+/// - `:`-carrying `interfacename` (`namespace:package/interface@version`):
+///   each `:`/`/` segment before the `@` must be a label. (The spec restricts
+///   namespace/package to lowercase; the general label check is deliberately
+///   more permissive — deferred refinement, false-negative direction only.
+///   The `@version` semver grammar is likewise deferred.)
+/// - `[constructor]l` / `[method]l.l` / `[static]l.l`: label parts checked;
+///   other bracket forms (async) are deferred.
+/// - anything else is a `plainname` → plain kebab label.
+fn checkExternName(name: []const u8) Error!void {
+    if (name.len == 0) return Error.InvalidName;
+    if (std.mem.findScalar(u8, name, '=') != null) return;
+    if (std.mem.findScalar(u8, name, ':') != null) {
+        const base = if (std.mem.findScalar(u8, name, '@')) |at| name[0..at] else name;
+        var it = std.mem.splitAny(u8, base, ":/");
+        while (it.next()) |segment| try checkLabel(segment);
+        return;
+    }
+    if (name[0] == '[') {
+        const close = std.mem.findScalar(u8, name, ']') orelse return Error.InvalidName;
+        const kind = name[1..close];
+        const rest = name[close + 1 ..];
+        if (std.mem.eql(u8, kind, "constructor")) return checkLabel(rest);
+        if (std.mem.eql(u8, kind, "method") or std.mem.eql(u8, kind, "static")) {
+            const dot = std.mem.findScalar(u8, rest, '.') orelse return Error.InvalidName;
+            try checkLabel(rest[0..dot]);
+            return checkLabel(rest[dot + 1 ..]);
+        }
+        return; // other bracket forms (async lift/lower) — deferred
+    }
+    return checkLabel(name);
+}
+
+/// Explainer.md `label` grammar: `label ::= <fragment> ('-' <fragment>)*`
+/// where the first fragment is `[a-z][0-9a-z]*` or `[A-Z][0-9A-Z]*` (starts
+/// with a letter) and later fragments are `[0-9a-z]+` or `[0-9A-Z]+` (may
+/// start with a digit). Mixing cases WITHIN a fragment, empty fragments
+/// (leading/trailing/double `-`), and the empty label are invalid.
+fn checkLabel(label: []const u8) Error!void {
+    if (label.len == 0) return Error.InvalidName;
+    var it = std.mem.splitScalar(u8, label, '-');
+    var first = true;
+    while (it.next()) |fragment| {
+        if (fragment.len == 0) return Error.InvalidName;
+        if (first and std.ascii.isDigit(fragment[0])) return Error.InvalidName;
+        var all_lower = true;
+        var all_upper = true;
+        for (fragment) |ch| {
+            if (!(std.ascii.isDigit(ch) or std.ascii.isLower(ch))) all_lower = false;
+            if (!(std.ascii.isDigit(ch) or std.ascii.isUpper(ch))) all_upper = false;
+        }
+        if (!all_lower and !all_upper) return Error.InvalidName;
+        first = false;
+    }
 }
 
 /// Rule 4: an import/export `externdesc` that ascribes a type must reference an
@@ -125,4 +209,41 @@ fn checkValType(vt: ValType, type_space_len: u32) Error!void {
         .primitive => {},
         .type_index => |idx| if (idx >= type_space_len) return Error.InvalidTypeIndex,
     }
+}
+
+test "rule 5: label grammar boundaries" {
+    // Valid: single word, multi-fragment, acronym fragment, digit-led later fragment.
+    try checkLabel("a");
+    try checkLabel("foo-bar");
+    try checkLabel("foo-BAR2");
+    try checkLabel("a-1");
+    try checkLabel("WASI");
+    // Invalid: empty, case-mix within a fragment, empty fragments, digit-led first.
+    try std.testing.expectError(Error.InvalidName, checkLabel(""));
+    try std.testing.expectError(Error.InvalidName, checkLabel("TyPeS"));
+    try std.testing.expectError(Error.InvalidName, checkLabel("Foo"));
+    try std.testing.expectError(Error.InvalidName, checkLabel("foo--bar"));
+    try std.testing.expectError(Error.InvalidName, checkLabel("-foo"));
+    try std.testing.expectError(Error.InvalidName, checkLabel("foo-"));
+    try std.testing.expectError(Error.InvalidName, checkLabel("1foo"));
+    try std.testing.expectError(Error.InvalidName, checkLabel("foo_bar"));
+}
+
+test "rule 5: extern name forms" {
+    // interfacename: segments label-checked, @version skipped.
+    try checkExternName("wasi:cli/environment@0.2.3");
+    try checkExternName("wasi:io/streams");
+    try std.testing.expectError(Error.InvalidName, checkExternName("wasi:cLi/x"));
+    // bracket forms.
+    try checkExternName("[constructor]blob");
+    try checkExternName("[method]blob.get-size");
+    try checkExternName("[static]blob.merge");
+    try std.testing.expectError(Error.InvalidName, checkExternName("[method]no-dot"));
+    try std.testing.expectError(Error.InvalidName, checkExternName("[constructor]Bad"));
+    // deferred `=` forms accepted unchecked.
+    try checkExternName("unlocked-dep=<a:b/c>");
+    // plainname falls through to the label grammar.
+    try checkExternName("hello");
+    try std.testing.expectError(Error.InvalidName, checkExternName("NevEr"));
+    try std.testing.expectError(Error.InvalidName, checkExternName(""));
 }

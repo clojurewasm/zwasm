@@ -1,0 +1,5 @@
+# Official corpus rule: "not in kebab case" (ADR-0176 validator rule 5 — name
+# format): record field label / plain import name / plain export name.
+assert_invalid test/spec/component-model-assert/kebab_name/record_field.wasm
+assert_invalid test/spec/component-model-assert/kebab_name/import_name.wasm
+assert_invalid test/spec/component-model-assert/kebab_name/export_name.wasm
