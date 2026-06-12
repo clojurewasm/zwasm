@@ -36,6 +36,10 @@ pub const usage =
     \\    [--engine <interp|jit>]                    Engine: interp (default) or jit (both full WASI; jit adds SIMD)
     \\    [--dir <host>[:<guest>]]                   Preopen a host directory for WASI
     \\    [--env <KEY=VAL>]                          Set an environment variable for the guest
+    \\    [--fuel <N>]                               Trap after a fuel budget (units are engine-specific:
+    \\                                               interp = instructions, jit = function entries + loop iterations)
+    \\    [--timeout <ms>]                           Interrupt the guest after a wall-clock deadline
+    \\    [--max-memory <bytes>]                     Refuse memory.grow past this many bytes (64 KiB page granularity)
     \\  zwasm compile <file.wasm> -o <out.cwasm>     Compile to a .cwasm AOT artifact
     \\  zwasm --version | -V                         Print the version
     \\  zwasm --help | -h | help                     Print this help
@@ -71,4 +75,8 @@ test "usage text names both shipped subcommands + every run flag main.zig parses
     try std.testing.expect(std.mem.find(u8, usage, "--engine") != null);
     try std.testing.expect(std.mem.find(u8, usage, "--dir") != null);
     try std.testing.expect(std.mem.find(u8, usage, "--env") != null);
+    // ADR-0179 #3a-4 / D-314 — the sandboxing triad flags.
+    try std.testing.expect(std.mem.find(u8, usage, "--fuel") != null);
+    try std.testing.expect(std.mem.find(u8, usage, "--timeout") != null);
+    try std.testing.expect(std.mem.find(u8, usage, "--max-memory") != null);
 }

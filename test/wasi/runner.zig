@@ -119,7 +119,7 @@ pub fn main(init: std.process.Init) !void {
         }
 
         const actual = (if (env_keys.items.len > 0)
-            cli_run.runWasmCapturedOpts(gpa, io, wasm_bytes, &wasi_argv, stdout_capture_ptr, null, &.{}, env_keys.items, env_vals.items, null)
+            cli_run.runWasmCapturedOpts(gpa, io, wasm_bytes, &wasi_argv, stdout_capture_ptr, null, &.{}, env_keys.items, env_vals.items, null, .{})
         else
             cli_run.runWasmCaptured(gpa, io, wasm_bytes, &wasi_argv, stdout_capture_ptr, null)) catch |err| {
             try stdout.print("FAIL  {s}: runtime error {s}\n", .{ entry.name, @errorName(err) });

@@ -448,12 +448,28 @@ fn resolveLenientEntryIdx(allocator: Allocator, wasm_bytes: []const u8) Error!?u
 /// exit, AOT-aligned). Other default-entry shapes (params / non-i32 result) have
 /// no args to supply → instantiate-only. `--invoke` of an unsupported sig keeps
 /// the existing UnsupportedEntrySignature contract.
+/// ADR-0179 #3a-4 / D-314 — sandboxing limits the CLI threads into the JIT
+/// run path (the facade stays interp-only by design, so the JIT runner arms
+/// its JitRuntime directly). All optional; defaults = unmetered/uncapped.
+pub const RunLimits = struct {
+    /// JIT fuel budget; units = poll-site crossings (prologue + loop
+    /// back-edges), NOT interp instructions (ADR-0179 rev 2026-06-12).
+    fuel: ?u64 = null,
+    /// Host cap on linear memory, in BYTES (converted to memory0's page
+    /// units here, where mem0_page_size_log2 is known).
+    max_memory_bytes: ?u64 = null,
+    /// Cooperative-interruption flag (e.g. the CLI's --timeout timer raises
+    /// it). Must outlive the run.
+    interrupt_flag: ?*const std.atomic.Value(u32) = null,
+};
+
 pub fn runWasiLenient(
     allocator: Allocator,
     wasm_bytes: []const u8,
     invoke_name: ?[]const u8,
     wasi_host: ?*anyopaque,
     trap_code_out: ?*u32,
+    limits: RunLimits,
 ) Error!u32 {
     const entry_idx: ?u32 = if (invoke_name) |name|
         try findExportFunc(allocator, wasm_bytes, name)
@@ -466,6 +482,14 @@ pub fn runWasiLenient(
     var owned = try setupRuntime(allocator, &compiled, wasm_bytes);
     defer owned.deinit(allocator);
     owned.rt.wasi_host = wasi_host;
+    if (limits.fuel) |n| {
+        owned.rt.fuel_cell = std.math.cast(i64, n) orelse std.math.maxInt(i64);
+        owned.rt.fuel_metered = 1;
+    }
+    if (limits.max_memory_bytes) |bytes_cap| {
+        if (owned.mem_ctx) |ctx| ctx.host_max_pages = bytes_cap >> @intCast(owned.rt.mem0_page_size_log2);
+    }
+    if (limits.interrupt_flag) |flag| owned.rt.interrupt_ptr = flag;
 
     const idx = entry_idx orelse return owned.rt.jit_executed_flag; // no entry → instantiate-only
     if (idx >= compiled.func_sigs.len) return Error.ExportNotFound;

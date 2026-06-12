@@ -447,6 +447,23 @@ test "JIT fuel: metered budget meters poll crossings and traps out_of_fuel (kind
     try testing.expectEqual(@as(?u64, 42), try inst.invoke(testing.allocator, "f", &.{}));
 }
 
+test "runWasiLenient: RunLimits fuel + interrupt_flag bound an infinite-loop guest (D-314 #3a-4)" {
+    // (module (func (export "_start") (loop (br 0)))) — only a limit ends it.
+    const inf_start = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x04, 0x01, 0x60,
+        0x00, 0x00, 0x03, 0x02, 0x01, 0x00, 0x07, 0x0a, 0x01, 0x06, 0x5f, 0x73,
+        0x74, 0x61, 0x72, 0x74, 0x00, 0x00, 0x0a, 0x09, 0x01, 0x07, 0x00, 0x03,
+        0x40, 0x0c, 0x00, 0x0b, 0x0b,
+    };
+    var trap_code: u32 = 0;
+    try testing.expectError(entry.Error.Trap, runner.runWasiLenient(testing.allocator, &inf_start, null, null, &trap_code, .{ .fuel = 100 }));
+    try testing.expectEqual(@as(u32, 17), trap_code); // out_of_fuel
+    var flag = std.atomic.Value(u32).init(1);
+    trap_code = 0;
+    try testing.expectError(entry.Error.Trap, runner.runWasiLenient(testing.allocator, &inf_start, null, null, &trap_code, .{ .interrupt_flag = &flag }));
+    try testing.expectEqual(@as(u32, 16), trap_code); // interrupted (prologue poll)
+}
+
 test "JIT back-edge poll interrupts a RUNNING infinite loop (br back edge, D-314 #3a)" {
     // (func (export "f") (result i32) (loop (br 0)) (i32.const 42)) — the
     // backward `br 0` is the only exit-capable site (emitBr loop path on both

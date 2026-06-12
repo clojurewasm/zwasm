@@ -23,6 +23,34 @@ const diagnostic = @import("../diagnostic/diagnostic.zig");
 const wasi_host = @import("../wasi/host.zig");
 const invoke_args_mod = @import("invoke_args.zig");
 
+/// ADR-0179 #3a-4 / D-314 — `zwasm run` sandboxing flags (`--fuel` /
+/// `--timeout` / `--max-memory`). All optional; `.{}` = unlimited. Fuel
+/// UNITS are engine-specific by design (interp = instructions, JIT =
+/// poll-site crossings — ADR-0179 rev 2026-06-12); --help says so.
+pub const Limits = struct {
+    fuel: ?u64 = null,
+    max_memory_bytes: ?u64 = null,
+    timeout_ms: ?u64 = null,
+
+    pub fn any(self: Limits) bool {
+        return self.fuel != null or self.max_memory_bytes != null or self.timeout_ms != null;
+    }
+};
+
+/// `--timeout` timer body: sleeps on the io event loop (`.awake` = the
+/// monotonic clock WASI also uses), then raises the cooperative-interruption
+/// flag both engines poll. Canceled (guest finished first) → returns without
+/// raising.
+fn timeoutRaiser(io: std.Io, ms: u64, flag: *std.atomic.Value(u32)) void {
+    io.sleep(.{ .nanoseconds = @as(i96, ms) * std.time.ns_per_ms }, .awake) catch return;
+    flag.store(1, .monotonic);
+}
+
+/// Interp default page size; the interp's `store_memory_pages_max` is in
+/// pages. (The JIT path converts with the module's actual page size —
+/// `RunLimits.max_memory_bytes` stays in bytes for that reason.)
+const wasm_page_bytes: u64 = 64 * 1024;
+
 pub fn runWasm(
     alloc: std.mem.Allocator,
     io: std.Io,
@@ -50,11 +78,22 @@ pub fn runWasmJit(
     preopens: []const PreopenDir,
     env_keys: []const []const u8,
     env_vals: []const []const u8,
+    limits: Limits,
 ) !u8 {
     const runner = @import("../engine/runner.zig");
     var host = try wasi_host.Host.init(alloc);
     defer host.deinit();
     host.io = io;
+    // ADR-0179 #3a-4 — `--timeout` arms a timer on the io event loop that
+    // raises the interrupt flag the JIT polls (prologue + back-edges).
+    // ConcurrencyUnavailable surfaces loudly (a silent no-timeout run would
+    // be a sandbox hole, no_workaround).
+    var timeout_flag = std.atomic.Value(u32).init(0);
+    var timeout_fut: ?std.Io.Future(void) = null;
+    if (limits.timeout_ms) |ms| {
+        timeout_fut = try io.concurrent(timeoutRaiser, .{ io, ms, &timeout_flag });
+    }
+    defer if (timeout_fut) |*f| f.cancel(io);
     if (argv.len > 0) try host.setArgs(argv);
     if (env_keys.len > 0) try host.setEnvs(env_keys, env_vals); // D-295 P0: --env KEY=VAL
     // D-244: map `--dir` host directories into the guest's preopen table so the
@@ -68,7 +107,11 @@ pub fn runWasmJit(
     // the JIT trap mechanism (returns Error.Trap). Surface the guest's exit
     // code; a trap with NO exit_code is a genuine fault → propagate (exit 1).
     var trap_code: u32 = 0;
-    _ = runner.runWasiLenient(alloc, bytes, invoke_name, &host, &trap_code) catch |err| {
+    _ = runner.runWasiLenient(alloc, bytes, invoke_name, &host, &trap_code, .{
+        .fuel = limits.fuel,
+        .max_memory_bytes = limits.max_memory_bytes,
+        .interrupt_flag = if (limits.timeout_ms != null) &timeout_flag else null,
+    }) catch |err| {
         if (host.exit_code) |code| return @intCast(@min(code, std.math.maxInt(u8)));
         // A genuine trap (no recorded exit_code) surfaces its kind on stderr
         // then maps to exit 1 — interp-parity per ADR-0164 workstream A. A
@@ -245,7 +288,7 @@ pub fn runWasmCaptured(
     stdout_capture: ?*std.ArrayList(u8),
     invoke_name: ?[]const u8,
 ) !u8 {
-    return runWasmCapturedOpts(alloc, io, bytes, argv, stdout_capture, invoke_name, &.{}, &.{}, &.{}, null);
+    return runWasmCapturedOpts(alloc, io, bytes, argv, stdout_capture, invoke_name, &.{}, &.{}, &.{}, null, .{});
 }
 
 /// One host→guest directory mapping for a WASI preopen (`--dir`, D-243).
@@ -268,6 +311,7 @@ pub fn runWasmCapturedFull(
     env_keys: []const []const u8,
     env_vals: []const []const u8,
     invoke_args: ?[]const u8,
+    limits: Limits,
 ) !u8 {
 
     // Per ADR-0016 phase 1: clear any stale diagnostic from a
@@ -349,6 +393,25 @@ pub fn runWasmCapturedFull(
         return error.InstanceAllocFailed;
     };
     defer wasm_c_api.wasm_instance_delete(instance);
+
+    // ADR-0179 #3a-4 / D-314 — arm the sandboxing limits on the interp
+    // Runtime (post-instantiate, mirroring the facade setters). The
+    // `--timeout` timer raises the interrupt flag the dispatch loop polls;
+    // ConcurrencyUnavailable surfaces loudly (a silent no-timeout run would
+    // be a sandbox hole, no_workaround).
+    var timeout_flag = std.atomic.Value(u32).init(0);
+    var timeout_fut: ?std.Io.Future(void) = null;
+    defer if (timeout_fut) |*f| f.cancel(io);
+    if (limits.any()) {
+        if (instance.runtime) |rt| {
+            if (limits.fuel) |n| rt.fuel = n;
+            if (limits.max_memory_bytes) |b| rt.store_memory_pages_max = b / wasm_page_bytes;
+            if (limits.timeout_ms) |ms| {
+                timeout_fut = try io.concurrent(timeoutRaiser, .{ io, ms, &timeout_flag });
+                rt.interrupt = &timeout_flag;
+            }
+        }
+    }
 
     // Locate the entry export. When `invoke_name` is non-null the
     // caller has picked a specific export by name (Phase 11 bench
@@ -451,8 +514,9 @@ pub fn runWasmCapturedOpts(
     env_keys: []const []const u8,
     env_vals: []const []const u8,
     invoke_args: ?[]const u8,
+    limits: Limits,
 ) !u8 {
-    return runWasmCapturedFull(alloc, io, bytes, argv, stdout_capture, null, null, invoke_name, preopens, env_keys, env_vals, invoke_args);
+    return runWasmCapturedFull(alloc, io, bytes, argv, stdout_capture, null, null, invoke_name, preopens, env_keys, env_vals, invoke_args, limits);
 }
 
 /// Emit the formatted `--invoke` result text on the guest-stdout channel:
@@ -605,16 +669,69 @@ const add_wasm = [_]u8{
 test "runWasmCapturedOpts: --invoke add=2,3 marshals args and prints the typed result (D-273(1))" {
     var capture: std.ArrayList(u8) = .empty;
     defer capture.deinit(testing.allocator);
-    const code = try runWasmCapturedOpts(testing.allocator, testing.io, &add_wasm, &.{}, &capture, "add", &.{}, &.{}, &.{}, "2,3");
+    const code = try runWasmCapturedOpts(testing.allocator, testing.io, &add_wasm, &.{}, &capture, "add", &.{}, &.{}, &.{}, "2,3", .{});
     try testing.expectEqual(@as(u8, 0), code);
     try testing.expectEqualStrings("5\n", capture.items);
 }
 
 test "runWasmCapturedOpts: --invoke add with a bad arg count is a loud binding_error" {
-    const result = runWasmCapturedOpts(testing.allocator, testing.io, &add_wasm, &.{}, null, "add", &.{}, &.{}, &.{}, "2");
+    const result = runWasmCapturedOpts(testing.allocator, testing.io, &add_wasm, &.{}, null, "add", &.{}, &.{}, &.{}, "2", .{});
     try testing.expectError(error.ArgCountMismatch, result);
     const diag = diagnostic.lastDiagnostic().?;
     try testing.expectEqual(diagnostic.Kind.binding_error, diag.kind);
+}
+
+// (module (func (export "_start") (loop (br 0)))) — infinite; only a
+// sandboxing limit can end it (hang-as-failure, bounded by gate timeouts).
+const infinite_start_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x04, 0x01, 0x60,
+    0x00, 0x00, 0x03, 0x02, 0x01, 0x00, 0x07, 0x0a, 0x01, 0x06, 0x5f, 0x73,
+    0x74, 0x61, 0x72, 0x74, 0x00, 0x00, 0x0a, 0x09, 0x01, 0x07, 0x00, 0x03,
+    0x40, 0x0c, 0x00, 0x0b, 0x0b,
+};
+
+test "run --fuel: interp path traps an infinite loop and exits 1 (ADR-0179 #3a-4)" {
+    const code = try runWasmCapturedOpts(testing.allocator, testing.io, &infinite_start_wasm, &.{}, null, null, &.{}, &.{}, &.{}, null, .{ .fuel = 1000 });
+    try testing.expectEqual(@as(u8, 1), code);
+}
+
+test "run --timeout: interp path interrupts an infinite loop and exits 1 (ADR-0179 #3a-4)" {
+    const code = try runWasmCapturedOpts(testing.allocator, testing.io, &infinite_start_wasm, &.{}, null, null, &.{}, &.{}, &.{}, null, .{ .timeout_ms = 50 });
+    try testing.expectEqual(@as(u8, 1), code);
+}
+
+test "run --fuel: JIT path traps an infinite loop and exits 1 (ADR-0179 #3a-4)" {
+    const code = try runWasmJit(testing.allocator, testing.io, &infinite_start_wasm, null, &.{}, &.{}, &.{}, &.{}, .{ .fuel = 1000 });
+    try testing.expectEqual(@as(u8, 1), code);
+}
+
+test "run --timeout: JIT path interrupts an infinite loop and exits 1 (ADR-0179 #3a-4)" {
+    const code = try runWasmJit(testing.allocator, testing.io, &infinite_start_wasm, null, &.{}, &.{}, &.{}, &.{}, .{ .timeout_ms = 50 });
+    try testing.expectEqual(@as(u8, 1), code);
+}
+
+// (module (memory 1) (func (export "_start")
+//   (drop (memory.grow (i32.const 1)))                       ;; 1→2
+//   (if (i32.ne (memory.grow (i32.const 1)) (i32.const -1))  ;; 2→3
+//     (then unreachable))))
+// With --max-memory 131072 (= 2 pages) the SECOND grow is refused (-1) →
+// clean exit 0; without the cap it succeeds → unreachable → exit 1. Pins
+// the bytes→pages conversion on both engine paths.
+const grow_probe_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x04, 0x01, 0x60,
+    0x00, 0x00, 0x03, 0x02, 0x01, 0x00, 0x05, 0x03, 0x01, 0x00, 0x01, 0x07,
+    0x0a, 0x01, 0x06, 0x5f, 0x73, 0x74, 0x61, 0x72, 0x74, 0x00, 0x00, 0x0a,
+    0x14, 0x01, 0x12, 0x00, 0x41, 0x01, 0x40, 0x00, 0x1a, 0x41, 0x01, 0x40,
+    0x00, 0x41, 0x7f, 0x47, 0x04, 0x40, 0x00, 0x0b, 0x0b,
+};
+
+test "run --max-memory: caps memory.grow on both engine paths (ADR-0179 #3a-4)" {
+    // Capped at 2 pages → second grow refused → guest exits clean (0).
+    try testing.expectEqual(@as(u8, 0), try runWasmCapturedOpts(testing.allocator, testing.io, &grow_probe_wasm, &.{}, null, null, &.{}, &.{}, &.{}, null, .{ .max_memory_bytes = 2 * 64 * 1024 }));
+    try testing.expectEqual(@as(u8, 0), try runWasmJit(testing.allocator, testing.io, &grow_probe_wasm, null, &.{}, &.{}, &.{}, &.{}, .{ .max_memory_bytes = 2 * 64 * 1024 }));
+    // Uncapped → second grow succeeds → guest hits unreachable (exit 1).
+    try testing.expectEqual(@as(u8, 1), try runWasmCapturedOpts(testing.allocator, testing.io, &grow_probe_wasm, &.{}, null, null, &.{}, &.{}, &.{}, null, .{}));
+    try testing.expectEqual(@as(u8, 1), try runWasmJit(testing.allocator, testing.io, &grow_probe_wasm, null, &.{}, &.{}, &.{}, &.{}, .{}));
 }
 
 test "runWasmCaptured: --invoke <bogus> on proc_exit_42 fixture returns NoFuncExport" {
@@ -754,7 +871,7 @@ test "runWasmJit: SIMD _start runs via the JIT where the interp traps (ADR-0136 
     try testing.expect(interp_code != 0);
 
     // JIT path: compiles + runs the SIMD `_start` to completion → 0.
-    const jit_code = try runWasmJit(testing.allocator, testing.io, &simd_start_wasm, null, &.{}, &.{}, &.{}, &.{});
+    const jit_code = try runWasmJit(testing.allocator, testing.io, &simd_start_wasm, null, &.{}, &.{}, &.{}, &.{}, .{});
     try testing.expectEqual(@as(u8, 0), jit_code);
 }
 
@@ -776,7 +893,7 @@ test "runWasmJit: --engine jit attaches a WASI host → real clock, no trap (D-2
     const builtin = @import("builtin");
     if (builtin.os.tag == .windows) return @import("../test_support/skip.zig").phaseEnd(.win64);
     // Host attached → real (nonzero) clock → the trap-if-zero guard passes → 0.
-    const code = try runWasmJit(testing.allocator, testing.io, &clock_start_wasm, null, &.{}, &.{}, &.{}, &.{});
+    const code = try runWasmJit(testing.allocator, testing.io, &clock_start_wasm, null, &.{}, &.{}, &.{}, &.{}, .{});
     try testing.expectEqual(@as(u8, 0), code);
 }
 
@@ -813,7 +930,7 @@ const proc_exit_42_jit = [_]u8{
 test "runWasmJit: --engine jit surfaces the guest proc_exit code (D-244 2d)" {
     const builtin = @import("builtin");
     if (builtin.os.tag == .windows) return @import("../test_support/skip.zig").phaseEnd(.win64);
-    const code = try runWasmJit(testing.allocator, testing.io, &proc_exit_42_jit, null, &.{}, &.{}, &.{}, &.{});
+    const code = try runWasmJit(testing.allocator, testing.io, &proc_exit_42_jit, null, &.{}, &.{}, &.{}, &.{}, .{});
     try testing.expectEqual(@as(u8, 42), code);
 }
 
@@ -834,7 +951,7 @@ const unreachable_start_jit = [_]u8{
 test "runWasmJit: a genuine trap maps to exit 1, not a propagated error (ADR-0164 A parity)" {
     const builtin = @import("builtin");
     if (builtin.os.tag == .windows) return @import("../test_support/skip.zig").phaseEnd(.win64);
-    const code = try runWasmJit(testing.allocator, testing.io, &unreachable_start_jit, null, &.{}, &.{}, &.{}, &.{});
+    const code = try runWasmJit(testing.allocator, testing.io, &unreachable_start_jit, null, &.{}, &.{}, &.{}, &.{}, .{});
     try testing.expectEqual(@as(u8, 1), code);
 }
 
@@ -876,7 +993,7 @@ test "runWasmJit: --engine jit threads argv → guest args_sizes_get sees argc (
     const builtin = @import("builtin");
     if (builtin.os.tag == .windows) return @import("../test_support/skip.zig").phaseEnd(.win64);
     // argv = {prog, a, b} → argc 3 → the guest proc_exits with it.
-    const code = try runWasmJit(testing.allocator, testing.io, &argc_exit_jit, null, &.{ "prog", "a", "b" }, &.{}, &.{}, &.{});
+    const code = try runWasmJit(testing.allocator, testing.io, &argc_exit_jit, null, &.{ "prog", "a", "b" }, &.{}, &.{}, &.{}, .{});
     try testing.expectEqual(@as(u8, 3), code);
 }
 
@@ -923,10 +1040,10 @@ test "runWasmJit: --dir preopen makes the JIT's fd_prestat_get(3) succeed (D-244
     if (builtin.os.tag == .windows) return @import("../test_support/skip.zig").phaseEnd(.win64);
     // Preopen the cwd (".") → guest fd 3 is a valid preopen dir → prestat_get
     // returns success (0).
-    const code = try runWasmJit(testing.allocator, testing.io, &prestat_jit, null, &.{}, &.{.{ .host_path = ".", .guest_path = "/sandbox" }}, &.{}, &.{});
+    const code = try runWasmJit(testing.allocator, testing.io, &prestat_jit, null, &.{}, &.{.{ .host_path = ".", .guest_path = "/sandbox" }}, &.{}, &.{}, .{});
     try testing.expectEqual(@as(u8, 0), code);
     // No preopen → fd 3 is badf (8).
-    const code2 = try runWasmJit(testing.allocator, testing.io, &prestat_jit, null, &.{}, &.{}, &.{}, &.{});
+    const code2 = try runWasmJit(testing.allocator, testing.io, &prestat_jit, null, &.{}, &.{}, &.{}, &.{}, .{});
     try testing.expectEqual(@as(u8, 8), code2);
 }
 
@@ -944,7 +1061,7 @@ const no_start_init_wasm = [_]u8{
 };
 
 test "runWasmJit: no-_start module runs the first func export, jit==interp (D-284)" {
-    const jit_code = try runWasmJit(testing.allocator, testing.io, &no_start_init_wasm, null, &.{}, &.{}, &.{}, &.{});
+    const jit_code = try runWasmJit(testing.allocator, testing.io, &no_start_init_wasm, null, &.{}, &.{}, &.{}, &.{}, .{});
     const interp_code = try runWasm(testing.allocator, testing.io, &no_start_init_wasm, &.{});
     try testing.expectEqual(@as(u8, 0), jit_code); // was Error.ExportNotFound (exit 1) pre-fix
     try testing.expectEqual(interp_code, jit_code); // intra-zwasm agreement

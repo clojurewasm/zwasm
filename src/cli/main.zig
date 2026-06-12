@@ -129,6 +129,8 @@ pub fn main(init: std.process.Init) !void {
             defer env_keys.deinit(gpa);
             var env_vals: std.ArrayList([]const u8) = .empty;
             defer env_vals.deinit(gpa);
+            // ADR-0179 #3a-4 / D-314 — `--fuel` / `--timeout` / `--max-memory`.
+            var limits: cli_run.Limits = .{};
             var next_arg = arg_it.next();
             while (next_arg) |a| {
                 if (std.mem.eql(u8, a, "--invoke")) {
@@ -190,10 +192,40 @@ pub fn main(init: std.process.Init) !void {
                         try env_vals.append(gpa, spec[spec.len..]);
                     }
                     next_arg = arg_it.next();
+                } else if (std.mem.eql(u8, a, "--fuel")) {
+                    const v = arg_it.next() orelse {
+                        try printlnErr(io, "usage: zwasm run --fuel <N> <path.wasm> [args...]");
+                        std.process.exit(2);
+                    };
+                    limits.fuel = std.fmt.parseInt(u64, v, 10) catch {
+                        try printlnErr(io, "zwasm run: --fuel expects a non-negative integer");
+                        std.process.exit(2);
+                    };
+                    next_arg = arg_it.next();
+                } else if (std.mem.eql(u8, a, "--timeout")) {
+                    const v = arg_it.next() orelse {
+                        try printlnErr(io, "usage: zwasm run --timeout <ms> <path.wasm> [args...]");
+                        std.process.exit(2);
+                    };
+                    limits.timeout_ms = std.fmt.parseInt(u64, v, 10) catch {
+                        try printlnErr(io, "zwasm run: --timeout expects milliseconds as a non-negative integer");
+                        std.process.exit(2);
+                    };
+                    next_arg = arg_it.next();
+                } else if (std.mem.eql(u8, a, "--max-memory")) {
+                    const v = arg_it.next() orelse {
+                        try printlnErr(io, "usage: zwasm run --max-memory <bytes> <path.wasm> [args...]");
+                        std.process.exit(2);
+                    };
+                    limits.max_memory_bytes = std.fmt.parseInt(u64, v, 10) catch {
+                        try printlnErr(io, "zwasm run: --max-memory expects bytes as a non-negative integer");
+                        std.process.exit(2);
+                    };
+                    next_arg = arg_it.next();
                 } else break;
             }
             const path_arg = next_arg orelse {
-                try printlnErr(io, "usage: zwasm run [--invoke <name>] [--engine <interp|jit>] [--dir <host>[:<guest>]] [--env KEY=VAL] <path.wasm> [args...]");
+                try printlnErr(io, "usage: zwasm run [--invoke <name>] [--engine <interp|jit>] [--dir <host>[:<guest>]] [--env KEY=VAL] [--fuel <N>] [--timeout <ms>] [--max-memory <bytes>] <path.wasm> [args...]");
                 std.process.exit(2);
             };
             const path = try gpa.dupe(u8, path_arg);
@@ -231,6 +263,13 @@ pub fn main(init: std.process.Init) !void {
             // `--dir` preopens are threaded into a host, so a WASI-importing
             // `.cwasm` prints / exits / sees args like the `.wasm` path.
             if (bytes.len >= 4 and std.mem.eql(u8, bytes[0..4], "CWAS")) {
+                // ADR-0179 #3a-4 — refuse loudly rather than silently running
+                // an UNSANDBOXED .cwasm when the user asked for limits (the
+                // AOT runner's limit threading is a follow-up; no_workaround).
+                if (limits.any()) {
+                    try printlnErr(io, "zwasm run: --fuel/--timeout/--max-memory are not wired for .cwasm artifacts yet (run the .wasm form, or drop the flag)");
+                    std.process.exit(2);
+                }
                 const code = cli_run.runCwasmWasi(gpa, io, bytes, invoke_name, argv_list.items, preopen_list.items, env_keys.items, env_vals.items, null) catch |err| {
                     var buf: [256]u8 = undefined;
                     const msg = std.fmt.bufPrint(&buf, "zwasm run: cannot run '{s}': {s}", .{ path, @errorName(err) }) catch "zwasm run: .cwasm run failed";
@@ -244,6 +283,11 @@ pub fn main(init: std.process.Init) !void {
             // version 0x0d, layer byte = 0x01) routes to the component host
             // (`runWasiP2Main`), not the core-module runner. stdio subset.
             if (bytes.len >= 8 and std.mem.eql(u8, bytes[0..4], "\x00asm") and bytes[6] == 0x01) {
+                // ADR-0179 #3a-4 — same loud refusal for the component host.
+                if (limits.any()) {
+                    try printlnErr(io, "zwasm run: --fuel/--timeout/--max-memory are not wired for components yet (core modules only)");
+                    std.process.exit(2);
+                }
                 const code = cli_run.runComponentWasi(gpa, io, bytes, argv_list.items) catch |err| {
                     var buf: [256]u8 = undefined;
                     const msg = std.fmt.bufPrint(&buf, "zwasm run: cannot run component '{s}': {s}", .{ path, @errorName(err) }) catch "zwasm run: component run failed";
@@ -255,9 +299,9 @@ pub fn main(init: std.process.Init) !void {
 
             // D-244 — `--engine=jit` now does real WASI (incl. `--dir` preopens).
             const code = (if (engine_jit)
-                cli_run.runWasmJit(gpa, io, bytes, invoke_name, argv_list.items, preopen_list.items, env_keys.items, env_vals.items)
+                cli_run.runWasmJit(gpa, io, bytes, invoke_name, argv_list.items, preopen_list.items, env_keys.items, env_vals.items, limits)
             else
-                cli_run.runWasmCapturedOpts(gpa, io, bytes, argv_list.items, null, invoke_name, preopen_list.items, env_keys.items, env_vals.items, invoke_args)) catch |err| {
+                cli_run.runWasmCapturedOpts(gpa, io, bytes, argv_list.items, null, invoke_name, preopen_list.items, env_keys.items, env_vals.items, invoke_args, limits)) catch |err| {
                 // Per ADR-0016 phase 1: prefer the structured
                 // diagnostic when one was set; fall back to the
                 // legacy `@errorName` form for unwired sites.
