@@ -31,17 +31,24 @@
   joins #3a-4. **#3c-2 mem-cap-on-JIT DONE
   `866d784e`** (host-side only as predicted: `MemGrowCtx.host_max_pages` +
   one check in jitMemoryGrow + `JitInstance.setMemoryPagesLimit`; 2679/0).
-  **NEXT = #3a-4 CLI/C-API surface — the LAST bundle item**: CLI
-  `--fuel <N>` / `--timeout <ms>` / `--max-memory <bytes>` flags (run.zig,
-  ADR-0179 sketch §CLI; keep lean per ADR-0159); `zwasm.h` C-API setters
-  (today an empty placeholder — decide minimal set: instance-level
-  set_fuel/set_memory_limit/interrupt + TrapKind.interrupted/out_of_fuel
-  exposure); facade engine=jit arming seam (facade Instance.interrupt/
-  setFuel/setMemoryPagesLimit currently assert handle.runtime != null =
-  interp-only; route to the JIT instance when engine=jit). On close: bundle
-  exit verified → `check_bundle_active.sh --close`, refresh D-314 debt row,
-  consider the deferred epoch-counter + table-limit follow-ons (debt rows,
-  NOT bundle extension). **Code-size**: poll
+  **NEXT = #3a-4, RE-SCOPED post-survey (2 chunks)**. Survey findings: CLI =
+  hand-rolled flags in cli/main.zig (~110-195); interp path runWasmCapturedOpts
+  → C-API wasm_instance_new (NO budget knobs); JIT path runWasmJit →
+  engine/runner directly (no facade). **Facade is interp-only as LIVE security
+  posture** (seam asserts at zwasm/instance.zig:49-50 stay) → "facade
+  engine=jit arming" is OUT; the CLI JIT path arms JitInstance directly
+  (setFuel/setMemoryPagesLimit/setInterruptFlag all exist post-#3b/#3c-2).
+  **Chunk 1 (CLI)**: `--fuel <N>` (interp: rt.fuel via the api Instance's
+  runtime ptr; jit: thread into runWasmJit→runner opts), `--max-memory
+  <bytes>` (interp: store_memory_pages_max; jit: MemGrowCtx.host_max_pages),
+  `--timeout <ms>` (host timer thread → interrupt flag; works BOTH engines —
+  JIT polls interrupt_ptr since #3a). Engine-dependent fuel units documented
+  in --help. **Chunk 2 (C-API)**: zwasm.h minimal instance-level setters
+  (mirror facade: set_fuel/fuel_remaining/set_memory_pages_limit/interrupt;
+  v1 was config-level — v2 chose post-instantiate mutability) + TrapKind 16/17
+  exposure; needs a small ADR-0179 rev note on the C naming. THEN bundle
+  close: exit verified → `check_bundle_active.sh --close`; refresh D-314 row;
+  epoch-counter + JIT-table-limit + facade-JIT = debt rows, NOT extension. **Code-size**: poll
   +stub unconditional per fn — measure, consider opt-in flag (perf-measure-first).
   **GATE NOTE**: the 3 D-311 raw-entry-call tests (linker×2/entry-f32,
   releasesafe_jit_failures.md) crash SEED-FLAKILY in `zig build test` (undefined-
