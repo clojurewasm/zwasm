@@ -28,12 +28,20 @@
   fuel_ptr — RuntimeOwned moves by value, D-215; new x86_64 encoder
   `encSubMem64Disp32Imm8`; kind 17 = TrapKind.out_of_fuel wired interp+JIT+
   runner). `JitInstance.setFuel/fuelRemaining`; facade engine=jit arming
-  joins #3a-4. **NEXT = #3c-2 mem-cap on JIT** — likely HOST-side only (JIT
-  memory.grow already callouts through `memory_grow_fn` [R15+off] → check
-  whether the grow host fn (MemGrowCtx / jitGrowMemory in setup.zig) can
-  honour the interp's `setMemoryPagesLimit` cap; survey first, probably no
-  codegen). Then #3a-4 CLI/C-API surface (--fuel/--timeout/--max-memory +
-  zwasm.h setters + facade engine=jit arming). **Code-size**: poll
+  joins #3a-4. **#3c-2 mem-cap-on-JIT DONE
+  `866d784e`** (host-side only as predicted: `MemGrowCtx.host_max_pages` +
+  one check in jitMemoryGrow + `JitInstance.setMemoryPagesLimit`; 2679/0).
+  **NEXT = #3a-4 CLI/C-API surface — the LAST bundle item**: CLI
+  `--fuel <N>` / `--timeout <ms>` / `--max-memory <bytes>` flags (run.zig,
+  ADR-0179 sketch §CLI; keep lean per ADR-0159); `zwasm.h` C-API setters
+  (today an empty placeholder — decide minimal set: instance-level
+  set_fuel/set_memory_limit/interrupt + TrapKind.interrupted/out_of_fuel
+  exposure); facade engine=jit arming seam (facade Instance.interrupt/
+  setFuel/setMemoryPagesLimit currently assert handle.runtime != null =
+  interp-only; route to the JIT instance when engine=jit). On close: bundle
+  exit verified → `check_bundle_active.sh --close`, refresh D-314 debt row,
+  consider the deferred epoch-counter + table-limit follow-ons (debt rows,
+  NOT bundle extension). **Code-size**: poll
   +stub unconditional per fn — measure, consider opt-in flag (perf-measure-first).
   **GATE NOTE**: the 3 D-311 raw-entry-call tests (linker×2/entry-f32,
   releasesafe_jit_failures.md) crash SEED-FLAKILY in `zig build test` (undefined-
