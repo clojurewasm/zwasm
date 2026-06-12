@@ -64,6 +64,10 @@ pub const InitArgs = struct {
     uninit_elem_fixups: *std.ArrayList(u32),
     /// D-303 — atomic load/store unaligned-access (code 14 = unaligned_atomic).
     unaligned_atomic_fixups: *std.ArrayList(u32),
+    /// ADR-0179 #3a / D-314 — loop back-edge interrupt poll (code 16,
+    /// POST-frame stub via emitTrapExitStub; the PROLOGUE poll's
+    /// `interrupt_fixup` is a separate pre-frame single fixup, fb=0).
+    back_edge_interrupt_fixups: *std.ArrayList(u32),
     call_fixups: *std.ArrayList(CallFixup),
     simd_const_fixups: *std.ArrayList(SimdConstFixup),
     extra_consts: *std.ArrayList([16]u8),
@@ -177,6 +181,13 @@ pub const EmitCtx = struct {
     /// load/store path had no alignment check (interp-only); RMW/cmpxchg/wait/
     /// notify check it in the jit_abi helper. Mirrors arm64 unaligned_atomic_fixups.
     unaligned_atomic_fixups: *std.ArrayList(u32),
+    /// ADR-0179 #3a / D-314 — loop back-edge cooperative-interruption poll
+    /// (`JNE rel32`, 6-byte) fixups → code 16 = interrupted. Distinct from the
+    /// PROLOGUE poll's `interrupt_fixup` (single u32, fires pre-frame, fb=0):
+    /// a back-edge poll fires POST-frame, so its stub is the full
+    /// emitTrapExitStub epilogue (fb-restore + homed-reg restore), same shape
+    /// as oob_fixups. Mirrors arm64 back_edge_interrupt_fixups.
+    back_edge_interrupt_fixups: *std.ArrayList(u32),
     /// D-293 — table-access + call_indirect-bounds out-of-bounds (oob_table, code 2)
     /// fixups (`JAE rel32`, 6-byte), demuxed from `bounds_fixups` to a dedicated
     /// stub. Unifies x86_64 with arm64 (which already produces code 2 for cind).
@@ -359,6 +370,7 @@ pub const EmitCtx = struct {
             .uncaught_exc_fixups = args.uncaught_exc_fixups,
             .oob_fixups = args.oob_fixups,
             .unaligned_atomic_fixups = args.unaligned_atomic_fixups,
+            .back_edge_interrupt_fixups = args.back_edge_interrupt_fixups,
             .oobtable_fixups = args.oobtable_fixups,
             .cind_sig_fixups = args.cind_sig_fixups,
             .uninit_elem_fixups = args.uninit_elem_fixups,

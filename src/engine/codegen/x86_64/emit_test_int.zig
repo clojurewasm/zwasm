@@ -14,6 +14,7 @@ const regalloc = @import("../shared/regalloc.zig");
 const liveness = @import("../../../ir/analysis/liveness.zig");
 const inst = @import("inst.zig");
 const abi = @import("abi.zig");
+const jit_abi = @import("../shared/jit_abi.zig");
 const prologue = @import("prologue.zig");
 
 const emit = @import("emit.zig");
@@ -237,25 +238,19 @@ test "compile: (loop (br 0) end) end — backward br with concrete disp" {
     const out = try compile(testing.allocator, &f, empty_alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
     defer deinit(testing.allocator, out);
 
-    // loop captures byte_offset = 4 (post-prologue). br at offset 4
-    // emits JMP with disp = 4 - 4 - 5 = -5. So bytes:
-    //   55 48 89 E5                    prologue
-    //   E9 FB FF FF FF                 JMP -5 (back to loop entry — infinite loop)
-    //   5D C3                          POP RBP ; RET (unreachable but emitted)
-    const expected = [_]u8{
-        0x55,
-        0x48,
-        0x89,
-        0xE5,
-        0xE9,
-        0xFB,
-        0xFF,
-        0xFF,
-        0xFF,
-        0x5D,
-        0xC3,
-    };
-    try testing.expectEqualSlices(u8, &expected, out.bytes);
+    // D-314: a `loop` forces uses_runtime_ptr (the back-edge poll reads
+    // [R15+interrupt_ptr_off] and its stub writes via R15), so the full R15
+    // prologue is emitted; fb = 8 (no locals/spills — just the 2-PUSH parity
+    // pad). The `br 0` emits the 32-byte poll FIRST (MOV R11,[R15+ipo] 7 +
+    // TEST 3 + JZ 6 + MOV R11D,[R11] 7 + TEST 3 + JNE 6), then the backward
+    // JMP at body0+32 targeting the loop header at body0 → disp = -37.
+    const body0 = prologue.body_start_offset(true, 8);
+    try testing.expectEqualSlices(
+        u8,
+        inst.encMovR64FromMemDisp32(.r11, abi.runtime_ptr_save_gpr, @intCast(jit_abi.interrupt_ptr_off)).slice(),
+        out.bytes[body0..][0..7],
+    );
+    try testing.expectEqualSlices(u8, inst.encJmpRel32(-37).slice(), out.bytes[body0 + 32 ..][0..5]);
 }
 
 test "compile: (i32.const 1) (if) (i32.const 7) (end) end — single-arm if; JE patched" {
@@ -380,30 +375,18 @@ test "compile: (loop (i32.const 0) (br_if 0) end) end — Jcc backward concrete 
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
     defer deinit(testing.allocator, out);
 
-    // loop entry at offset 4 (post-prologue). After chunk 13b pool shrink,
-    // br_if Jcc at offset 11; disp = 4 - 11 - 6 = -13 = 0xFFFFFFF3.
-    const expected = [_]u8{
-        0x55,
-        0x48,
-        0x89,
-        0xE5,
-        0xBB,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x85,
-        0xDB,
-        0x0F,
-        0x85,
-        0xF3,
-        0xFF,
-        0xFF,
-        0xFF,
-        0x5D,
-        0xC3,
-    };
-    try testing.expectEqualSlices(u8, &expected, out.bytes);
+    // D-314: loop forces uses_runtime_ptr → full R15 prologue, fb = 8 (no
+    // locals/spills). Body: MOV EBX,#0 (5) + TEST EBX,EBX (2) at body0, then
+    // the no-params br_if-to-loop path = 32-byte back-edge poll + re-TEST
+    // EBX,EBX (2, the poll clobbers flags) + backward JNE at body0+41
+    // targeting the loop header at body0 → disp = body0-(body0+41)-6 = -47.
+    const body0 = prologue.body_start_offset(true, 8);
+    try testing.expectEqualSlices(
+        u8,
+        inst.encMovR64FromMemDisp32(.r11, abi.runtime_ptr_save_gpr, @intCast(jit_abi.interrupt_ptr_off)).slice(),
+        out.bytes[body0 + 7 ..][0..7],
+    );
+    try testing.expectEqualSlices(u8, inst.encJccRel32(.ne, -47).slice(), out.bytes[body0 + 41 ..][0..6]);
 }
 
 test "compile: br_table — single case + default both → block end" {

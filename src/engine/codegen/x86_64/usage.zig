@@ -312,6 +312,14 @@ pub fn usesRuntimePtr(func: *const ZirFunc) bool {
             .throw,
             .throw_ref,
             .try_table,
+            // ADR-0179 #3a / D-314 — a `loop` makes every backward br /
+            // br_if / br_table to its header emit the back-edge interrupt
+            // poll, which reads `[R15 + interrupt_ptr_off]` AND emits a
+            // trap-stub fixup (stub writes trap_flag/trap_kind via R15).
+            // Without this entry a no-call tight loop gets the no-R15
+            // prologue and the poll would read garbage — the exact D-180
+            // silent-miscompile class (Mac arm64 immune; X19 always set).
+            .loop,
             => return true,
             else => {},
         }

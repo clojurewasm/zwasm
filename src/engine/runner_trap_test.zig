@@ -368,9 +368,9 @@ test "JIT interrupt poll: prologue traps interrupted (trap_kind 16) on a host-se
 }
 
 test "JIT loop back-edge interrupt poll: a tight loop traps interrupted (D-314 #3a)" {
-    // Back-edge poll is arm64-only this chunk (x86_64 back-edge + R15-forcing
-    // for a no-call loop fn is the next step) → arch-gate.
-    if (builtin.cpu.arch != .aarch64) return skip.blocker(.@"D-314");
+    // BOTH arches: arm64 polls at each br/br_if-to-loop site; x86_64 mirrors it
+    // AND forces uses_runtime_ptr for loop-containing fns (a no-call loop fn
+    // otherwise has no R15 to read interrupt_ptr through).
     // (func (export "f") (result i32) (local $i i32)
     //   (local.set $i (i32.const 1000000))
     //   (loop $L (local.set $i (i32.sub (local.get $i) (i32.const 1)))

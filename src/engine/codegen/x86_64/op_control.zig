@@ -404,6 +404,44 @@ pub fn emitLoop(
     });
 }
 
+/// ADR-0179 #3a / D-314 — loop back-edge cooperative-interruption poll.
+/// Mirrors the PROLOGUE poll (emit.zig) but its JNE fixup routes to a
+/// POST-frame interrupted stub (`emitTrapExitStub`, code 16, full
+/// fb-restore + homed-reg epilogue). Inserted just BEFORE a backward
+/// branch (to a `loop` header) so the host flag is checked every
+/// iteration — the prologue poll alone misses a tight `(loop)` with no
+/// calls. `usage.usesRuntimePtr` forces R15 setup for any loop-containing
+/// fn, so `[R15 + interrupt_ptr_off]` is always readable here.
+///
+/// Scratch = R11 at every site: never allocatable (`abi.allocatable_gprs`
+/// is callee-saved-only), never a live branch operand (br_if's spilled
+/// cond stages into R10 = `spill_stage_gprs[0]`; br_on_cast's cond is
+/// RAX; br_table's index is an allocated reg or R10), and the merge MOVs
+/// preceding the poll are complete by the time it runs. CLOBBERS FLAGS —
+/// a caller that branches on a prior TEST must re-TEST after the poll.
+///
+/// `MOV R11,[R15+interrupt_ptr_off]; TEST R11,R11; JZ skip (null = not
+/// configured); MOV R11D,[R11]; TEST R11D,R11D; JNE → fixup list`.
+fn emitBackEdgeInterruptPoll(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    back_edge_interrupt_fixups: *std.ArrayList(u32),
+) Error!void {
+    try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.r11, abi.runtime_ptr_save_gpr, @intCast(jit_abi.interrupt_ptr_off)).slice());
+    try buf.appendSlice(allocator, inst.encTestRR(.q, .r11, .r11).slice());
+    const skip_at: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJccRel32(.e, 0).slice());
+    try buf.appendSlice(allocator, inst.encMovR32FromMemDisp32(.r11, .r11, 0).slice());
+    try buf.appendSlice(allocator, inst.encTestRR(.d, .r11, .r11).slice());
+    const fixup_at: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJccRel32(.ne, 0).slice());
+    try back_edge_interrupt_fixups.append(allocator, fixup_at);
+    // Patch the JZ to land just after the JNE (skip the whole poll when
+    // the host never configured an interrupt pointer).
+    const after_poll: u32 = @intCast(buf.items.len);
+    inst.patchRel32(buf.items, skip_at, 6, @as(i32, @intCast(after_poll)) - (@as(i32, @intCast(skip_at)) + 6));
+}
+
 /// Wasm spec §3.4.5 (br N) — unconditional branch to label at
 /// depth N (0 = innermost). Loop targets resolve immediately to
 /// a concrete disp; block targets emit a placeholder JMP rel32
@@ -431,6 +469,7 @@ pub fn emitBr(
     return_is_memory_class: bool,
     indirect_result_slot_neg_off: u32,
     home_save_base_disp: i32,
+    back_edge_interrupt_fixups: *std.ArrayList(u32),
     depth: u32,
 ) Error!void {
     if (depth == labels.items.len) {
@@ -456,6 +495,9 @@ pub fn emitBr(
                 }
             }
         }
+        // D-314 — back-edge poll before the unconditional backward JMP (an
+        // infinite `(loop (br 0))` is caught here, the prologue poll can't).
+        try emitBackEdgeInterruptPoll(allocator, buf, back_edge_interrupt_fixups);
         const at: u32 = @intCast(buf.items.len);
         const tgt_byte = labels.items[tgt_idx].target_byte_offset;
         const disp: i32 = @as(i32, @intCast(tgt_byte)) -
@@ -694,6 +736,7 @@ fn emitBrTableJmp(
     return_is_memory_class: bool,
     indirect_result_slot_neg_off: u32,
     home_save_base_disp: i32,
+    back_edge_interrupt_fixups: *std.ArrayList(u32),
     depth: u32,
 ) Error!void {
     // d-23 (D-107 discharge): `br_table 0` at function scope (= no
@@ -722,6 +765,12 @@ fn emitBrTableJmp(
                 }
             }
         }
+        // D-314 — back-edge poll before the backward JMP. Sits inside the
+        // per-case JNE-skipped body (the caller's variable-disp patch covers
+        // the poll bytes); the live br_table index is an allocated reg or
+        // R10, never the poll's R11; the next case re-CMPs so the poll's
+        // flag clobber is harmless.
+        try emitBackEdgeInterruptPoll(allocator, buf, back_edge_interrupt_fixups);
         const at: u32 = @intCast(buf.items.len);
         const tgt_byte = labels.items[tgt_idx].target_byte_offset;
         const disp: i32 = @as(i32, @intCast(tgt_byte)) -
@@ -769,6 +818,7 @@ pub fn emitBrTable(
     return_is_memory_class: bool,
     indirect_result_slot_neg_off: u32,
     home_save_base_disp: i32,
+    back_edge_interrupt_fixups: *std.ArrayList(u32),
     count: u32,
     start: u32,
 ) Error!void {
@@ -803,7 +853,7 @@ pub fn emitBrTable(
         } else {
             try buf.appendSlice(allocator, inst.encJccRel32(.ne, 0).slice());
         }
-        try emitBrTableJmp(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, func, frame_bytes, uses_runtime_ptr, return_is_memory_class, indirect_result_slot_neg_off, home_save_base_disp, targets[start + i]);
+        try emitBrTableJmp(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, func, frame_bytes, uses_runtime_ptr, return_is_memory_class, indirect_result_slot_neg_off, home_save_base_disp, back_edge_interrupt_fixups, targets[start + i]);
         const after: usize = buf.items.len;
         const disp: usize = after - (jne_at + jne_size);
         if (i <= 127) {
@@ -815,7 +865,7 @@ pub fn emitBrTable(
             std.mem.writeInt(u32, buf.items[jne_at + 2 ..][0..4], disp32, .little);
         }
     }
-    try emitBrTableJmp(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, func, frame_bytes, uses_runtime_ptr, return_is_memory_class, indirect_result_slot_neg_off, home_save_base_disp, targets[start + count]);
+    try emitBrTableJmp(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, func, frame_bytes, uses_runtime_ptr, return_is_memory_class, indirect_result_slot_neg_off, home_save_base_disp, back_edge_interrupt_fixups, targets[start + count]);
 }
 
 /// Wasm spec §3.4.5 (br_if N) — pop cond, branch to label at
@@ -840,12 +890,13 @@ pub fn emitBrIf(
     return_is_memory_class: bool,
     indirect_result_slot_neg_off: u32,
     home_save_base_disp: i32,
+    back_edge_interrupt_fixups: *std.ArrayList(u32),
     depth: u32,
 ) Error!void {
     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const cond_v = pushed_vregs.pop().?;
     const cond_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, cond_v, 0);
-    try branchOnReg(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, func, frame_bytes, uses_runtime_ptr, return_is_memory_class, indirect_result_slot_neg_off, home_save_base_disp, depth, cond_r);
+    try branchOnReg(allocator, buf, alloc, pushed_vregs, labels, spill_base_off, func, frame_bytes, uses_runtime_ptr, return_is_memory_class, indirect_result_slot_neg_off, home_save_base_disp, back_edge_interrupt_fixups, depth, cond_r);
 }
 
 /// Conditional-branch-to-label body shared by `br_if` and `br_on_cast`
@@ -866,6 +917,7 @@ pub fn branchOnReg(
     return_is_memory_class: bool,
     indirect_result_slot_neg_off: u32,
     home_save_base_disp: i32,
+    back_edge_interrupt_fixups: *std.ArrayList(u32),
     depth: u32,
     cond_r: abi.Gpr,
 ) Error!void {
@@ -907,6 +959,10 @@ pub fn branchOnReg(
                     try emitMergeMov(allocator, buf, alloc, spill_base_off, func, src_vreg, dst_vreg);
                 }
             }
+            // D-314 — back-edge poll runs only when the branch is TAKEN
+            // (inside the JE-skipped cond≠0 region), after the merge MOVs
+            // (R11 free again), before the backward JMP. Flags are dead here.
+            try emitBackEdgeInterruptPoll(allocator, buf, back_edge_interrupt_fixups);
             const back_at: u32 = @intCast(buf.items.len);
             const tgt_byte = labels.items[tgt_idx].target_byte_offset;
             const back_disp: i32 = @as(i32, @intCast(tgt_byte)) -
@@ -919,6 +975,13 @@ pub fn branchOnReg(
             @memcpy(buf.items[je_at .. je_at + patched.len], patched.slice());
             return;
         }
+        // D-314 — back-edge poll before the conditional backward JNE. The
+        // poll CLOBBERS FLAGS (its own TESTs), so re-TEST cond_r after it;
+        // the shared TEST above is left in place for the forward paths.
+        // Runs on every pass (one harmless extra poll on the exit pass) —
+        // same semantics as the arm64 CBNZ-path poll.
+        try emitBackEdgeInterruptPoll(allocator, buf, back_edge_interrupt_fixups);
+        try buf.appendSlice(allocator, inst.encTestRR(.d, cond_r, cond_r).slice());
         const at: u32 = @intCast(buf.items.len);
         const tgt_byte = labels.items[tgt_idx].target_byte_offset;
         const disp: i32 = @as(i32, @intCast(tgt_byte)) -
@@ -1548,6 +1611,18 @@ fn emitEndInter(ctx: *ctx_mod.EmitCtx) Error!void {
             inst.patchRel32(ctx.buf.items, fx_byte, 6, disp);
         }
     }
+    // ADR-0179 #3a / D-314 — loop back-edge interrupt poll (interrupted,
+    // code 16) stub; `JNE rel32` (6-byte). POST-frame, so the full
+    // emitTrapExitStub epilogue applies (fb-restore + homed-reg restore) —
+    // unlike the PROLOGUE poll's pre-frame stub below (fb=0).
+    if (ctx.back_edge_interrupt_fixups.items.len > 0) {
+        const trap_byte = try emitTrapExitStub(ctx, 16);
+        for (ctx.back_edge_interrupt_fixups.items) |fx_byte| {
+            const disp: i32 = @as(i32, @intCast(trap_byte)) -
+                @as(i32, @intCast(fx_byte)) - 6;
+            inst.patchRel32(ctx.buf.items, fx_byte, 6, disp);
+        }
+    }
 
     // ADR-0105 D3 — stack-overflow trap stub. Probe at prologue fired
     // BEFORE the `SUB RSP, frame_bytes`, so the stub MUST NOT add
@@ -1641,6 +1716,7 @@ pub fn emitBrCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
         ctx.return_is_memory_class,
         ctx.indirect_result_slot_neg_off,
         ctx.home_save_base_disp,
+        ctx.back_edge_interrupt_fixups,
         @as(u32, @intCast(ins.payload)),
     );
     ctx.dead_code.* = true;
@@ -1660,6 +1736,7 @@ pub fn emitBrIfCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
         ctx.return_is_memory_class,
         ctx.indirect_result_slot_neg_off,
         ctx.home_save_base_disp,
+        ctx.back_edge_interrupt_fixups,
         @as(u32, @intCast(ins.payload)),
     );
 }
@@ -1683,6 +1760,7 @@ pub fn branchOnRegCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr, cond_r: a
         ctx.return_is_memory_class,
         ctx.indirect_result_slot_neg_off,
         ctx.home_save_base_disp,
+        ctx.back_edge_interrupt_fixups,
         @as(u32, @intCast(ins.payload)),
         cond_r,
     );
@@ -1702,6 +1780,7 @@ pub fn emitBrTableCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!voi
         ctx.return_is_memory_class,
         ctx.indirect_result_slot_neg_off,
         ctx.home_save_base_disp,
+        ctx.back_edge_interrupt_fixups,
         @as(u32, @intCast(ins.payload)),
         ins.extra,
     );

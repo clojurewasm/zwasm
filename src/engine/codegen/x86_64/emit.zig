@@ -759,6 +759,9 @@ pub fn compile(
     // before the sig CMP so a null slot reports code 13, not the sig code 3.
     var uninit_elem_fixups: std.ArrayList(u32) = .empty;
     defer uninit_elem_fixups.deinit(allocator);
+    // ADR-0179 #3a / D-314 — loop back-edge interrupt poll (code 16, POST-frame).
+    var back_edge_interrupt_fixups: std.ArrayList(u32) = .empty;
+    defer back_edge_interrupt_fixups.deinit(allocator);
 
     // Direct-call placeholders awaiting linker patch.
     var call_fixups: std.ArrayList(CallFixup) = .empty;
@@ -835,6 +838,7 @@ pub fn compile(
         .uncaught_exc_fixups = &uncaught_exc_fixups,
         .oob_fixups = &oob_fixups,
         .unaligned_atomic_fixups = &unaligned_atomic_fixups,
+        .back_edge_interrupt_fixups = &back_edge_interrupt_fixups,
         .oobtable_fixups = &oobtable_fixups,
         .cind_sig_fixups = &cind_sig_fixups,
         .uninit_elem_fixups = &uninit_elem_fixups,
