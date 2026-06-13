@@ -376,6 +376,24 @@ defer built.deinit();
 const r = try comp.invokeTypedBuilt(&built, "process", &args, alloc);
 ```
 
+`comp.open(engine, alloc, bytes, host, opts)` (REQ-1) is the UNIFIED entry: it
+auto-selects single-module vs the WASI-P2 / multi-instance graph (structural
+— a component with host imports or > 1 embedded core module needs the graph)
+and returns one `Opened` handle that drives both paths through the same
+methods (`exportedFuncs` / `invokeTyped` / `resolveFuncSig` / `dropResource` /
+`typeInfo` / `deinit`) — no try-catch fallback, no two-way dispatch.
+`comp.componentNeedsWasi(alloc, bytes)` is the cheap pre-instantiation
+predicate.
+
+```zig
+var opened = try comp.open(&engine, alloc, bytes, &host, .{});
+defer opened.deinit();
+const out = try opened.invokeTyped("greet", &.{.{ .string = "zwasm" }}, alloc);
+// Guest-defined resources: a host that caches an `own` handle frees it via
+//   try opened.dropResource(handle); // REQ-5 — removes the handle + runs the
+//                                     // declared destructor (own handles)
+```
+
 `ComponentValue` (`src/feature/component/value.zig`) mirrors the WIT value
 model: `record` keeps field **names** (borrowed from the instance's decoded
 type info), `option`/`result`/`tuple` stay specialized (the canonical ABI's
