@@ -46,20 +46,17 @@
 
 ## NEXT (autonomous)
 
-No `now` debt. Debt sweep 2026-06-13 found the actionable partials (both
-precision-critical → do with FRESH context, TDD per slice):
-- **D-245 remainder (b)** — the arg'd / i32 / v128 `invokeAndCheck*`
-  variants (entry.zig ~182/189: `@call(.auto, f, .{rt}++args)` + clobber
-  barrier) are ReleaseSafe-unsafe host→JIT calls; migrate them to the
-  proven `jitTrampoline`/`jitTrampolineVoid` asm save/restore pattern
-  (the no-arg void fix `8eca59e3`/`de576a76`; arm64 stp/ldp X19-X28 /
-  x86_64 push/pop RBX+R12-R15). Currently Debug-only-used (runners run
-  Debug) so latent; close for 完成形 ReleaseSafe-safety. Then check
-  D-245 remainder (a) win64 entry (windowsmini phase-boundary).
-- **D-293 SLICE-5+** — JIT trap-kind demux refactor continuation
-  (remaining generic kinds: array_oob, cast_failure code 12 [surface
-  added slice-4a], struct/array null deref). Per-slice, both arches,
-  TDD JIT+interp parity. Lower frequency / conformance-neutral; quality.
+No `now` debt. Debt sweep 2026-06-13:
+- **D-245 → note (RESOLVED, re-audit)** — the "remainder (a) win64 / (b)
+  arg'd still @call" was STALE (pre-§15.5). entry.zig routes ALL non-
+  manual-asm paths (arg'd/i32/v128 RESULT + arg'd + win64 VOID) through
+  the non-inline clobber-barrier `jitTrampoline`/`jitTrampolineVoid`
+  (arg- + os-agnostic cohort save/restore; no bare @call). Mac ReleaseSafe
+  gate + probe green 2026-06-13; 3-host test-all green (ReleaseSafe runners).
+- **D-293 SLICE-5+** (the remaining actionable partial; conformance-NEUTRAL,
+  lower-frequency, deferred) — JIT trap-kind demux continuation (array_oob,
+  cast_failure code 12 [surface added slice-4a], struct/array null deref);
+  per-slice both arches, TDD JIT+interp parity. Quality nicety, not urgent.
 - Else: §1.3 backlog demand-driven · blocked-by long-tail · D-323.
 
 ## Closed-work pointers (detail in git log / ADRs)

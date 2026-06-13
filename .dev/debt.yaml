@@ -357,19 +357,24 @@ entries:
       `examples/rust_host/hello.rs`; `build.zig` (`run-rust-host` step + SDKROOT probe); `.dev/toolchain_provisioning.md`; ROADMAP §13.5 / §13.P; mirrors c_host §13.4 conformance
   - id: "D-245"
     layer: "code"
-    status: "partial"
+    status: "note"
     description: |-
-      **FIXED both gate arches (no-arg void path): arm64 `8eca59e3` (Mac-verified) + x86_64
-      `de576a76` (ubuntu ReleaseSafe-verified). `entry.invokeAndCheckVoid`'s no-arg branch now
-      calls the JIT via asm that save/restores the host callee-saved set (arm64 stp/ldp X19-X28;
-      x86_64 push/pop RBX/R12-R15 + sub/add $8 for 16-align). `zwasm run --engine=jit` (=
-      runVoidExport, the CLI path) now works in ReleaseSafe on both arches.** REMAINDER (status
-      partial): (a) win64 host→JIT entry still `@call` (windowsmini phase-boundary); (b) the
-      arg'd / i32 / v128 `invokeAndCheck*` variants still `@call` — ReleaseSafe-unsafe but
-      Debug-only-used (spec runner / test harness run Debug); same asm-save fix applies. (c) DONE
-      (`0c42e913`): ReleaseSafe regression gate `scripts/check_jit_releasesafe.sh` (build
-      ReleaseSafe + run a SIMD `_start` via `--engine=jit`) wired into `gate_merge.sh`; also
-      silenced the leftover `[stack_probe]` stderr diagnostic in release builds. (Historical root cause below.)
+      RESOLVED 2026-06-13 (re-audit): the host→JIT callee-saved-cohort preservation is now
+      complete across EVERY entry path; the prior "REMAINDER (a)/(b) still @call" text was STALE
+      (pre-§15.5-chunk-1). Current state in `entry.zig`: the no-arg void path uses manual
+      stp/ldp (arm64) / push-pop (x86_64-SysV) save-restore (`8eca59e3`/`de576a76`); ALL OTHER
+      paths — arg'd / i32 / v128 RESULT variants (`invokeAndCheck`→`jitTrampoline`, line ~229,
+      unconditional) AND arg'd + win64 VOID variants (`invokeAndCheckVoid` else-branch→
+      `jitTrampolineVoid`; the manual-asm branch is `os != windows` only) — route through the
+      non-inline clobber-barrier trampoline, which makes its OWN frame save/restore the cohort
+      (arg-count- AND os-agnostic; no bare unprotected `@call` remains). So (a) win64 and (b)
+      arg'd are BOTH trampoline-protected, not "@call". VERIFIED: `scripts/check_jit_releasesafe.sh`
+      (void `_start` + `runI32Export` RESULT path) green on Mac 2026-06-13; `releasesafe_result_probe`
+      green; 3-host test-all green with ReleaseSafe runners (ADR-0177). Residual (low, non-gating):
+      no win64-SPECIFIC ReleaseSafe-ISOLATING probe (windowsmini test-all runs ReleaseSafe runners
+      so it IS exercised, just not host→JIT-seam-isolated like the Mac probe) — belt-and-suspenders
+      only; the trampoline mechanism is os-agnostic. (c) DONE (`0c42e913`): ReleaseSafe regression
+      gate wired into `gate_merge.sh` + silenced the `[stack_probe]` release-build diagnostic. (Historical root cause below.)
       Host→JIT calls do NOT preserve the host's callee-saved registers → ANY JIT
       execution from the Zig host SEGV-corrupts the heap in **ReleaseSafe** (works in
       Debug). Surfaced via `zwasm run --engine=jit` (ADR-0136, `8011293a`): exit 134 on
@@ -415,7 +420,7 @@ entries:
       remote-only probabilistic verify + 114-helper surface; not autonomous-loop-suited). Discharge
       in its JIT-ABI home (§11.3 / Phase-15 SIMD-JIT) BEFORE it compromises further phase closes.
     first_raised: "2026-06-03"
-    last_reviewed: "2026-06-04"
+    last_reviewed: "2026-06-13"
     refs: |-
       `src/engine/codegen/shared/entry.zig` invokeAndCheckVoid (the `@call` seam) + callVoidNoArgs; `src/engine/codegen/shared/jit_abi.zig:9+` (cohort X19/X24/X28 = arm64 callee-saved); ADR-0017 sub-2d-ii (MOV-install cohort, not stack-save) + D-210; `src/cli/run.zig` runWasmJit (Debug-only test); ADR-0136; ROADMAP §11.3 / 11.3-simd-gap bundle
   - id: "D-238"
