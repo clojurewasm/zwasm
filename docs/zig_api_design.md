@@ -384,6 +384,27 @@ Rich shapes round-trip — the pinned proof is
 `record{list<u32>, string} ⇄ result<record, string>` over a committed
 wit-bindgen fixture (`test/component/typed_payload.wasm`).
 
+A lifted `.@"enum"` / `.variant` / `.flags` carries its LABEL(s) (REQ-2,
+borrowed from the decoded type info): `.@"enum" = {index, label}`,
+`.variant = {case, case_name, payload}`, `.flags = {bits, labels}` (bit `i`
+⇔ `labels[i]`). On a host-constructed INPUT value the label fields are
+empty and invoke dispatches by the numeric ordinal/bits — map a host label
+to its ordinal with `resolveFuncSig` (below), whose `WitType` enum/flags
+arms list the labels in order.
+
+`resolveFuncSig(arena, name)` / `resolveType(arena, info, vt)` (REQ-3,
+`feature/component/wit_type.zig`) resolve an export's signature to a
+`WitType` TYPE tree — the type counterpart to `ComponentValue`:
+specialization-preserving (`option`/`result`/`tuple` distinct) and
+label-carrying (`enum_`/`variant`/`flags`), with the decoded 2-space
+resolution rule hidden. Both `ComponentInstance` and `BuiltComponent`
+expose `resolveFuncSig`.
+
+Component instantiation takes a budget: `instantiate(engine, alloc, bytes,
+opts)` / `buildWasiP2Component(…, opts)` accept
+`component.InstantiateOpts{fuel, max_memory_pages}` (REQ-4); `.{}` = the
+default budget.
+
 Guest-defined RESOURCES (D-322) work through the same surface: a
 constructor returns `ComponentValue.own` (an opaque handle into the
 component instance's table); methods take `.borrow` handles (the

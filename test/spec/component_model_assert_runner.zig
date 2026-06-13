@@ -530,12 +530,12 @@ fn parseTypedValue(a: std.mem.Allocator, text: []const u8, pos: *usize, ct: cano
         .enum_ => |n| {
             const v = try parseIntToken(u32, text, pos);
             if (v >= n) return error.BadValue;
-            return .{ .@"enum" = v };
+            return .{ .@"enum" = .{ .index = v } };
         },
         .flags => |n| {
             const v = try parseIntToken(u32, text, pos);
             if (n < 32 and v >= (@as(u32, 1) << @intCast(n))) return error.BadValue;
-            return .{ .flags = v };
+            return .{ .flags = .{ .bits = v } };
         },
         .list => |elem| {
             try expectChar(text, pos, '[');
@@ -670,7 +670,7 @@ fn renderValue(a: std.mem.Allocator, out: *std.ArrayList(u8), v: ComponentValue)
                 try out.append(a, ')');
             }
         },
-        .@"enum" => |c| try out.appendSlice(a, try std.fmt.allocPrint(a, "enum<{d}>", .{c})),
+        .@"enum" => |c| try out.appendSlice(a, try std.fmt.allocPrint(a, "enum<{d}>", .{c.index})),
         .option => |opt| {
             if (opt) |p| {
                 try out.appendSlice(a, "some(");
@@ -688,7 +688,7 @@ fn renderValue(a: std.mem.Allocator, out: *std.ArrayList(u8), v: ComponentValue)
                 try out.append(a, ')');
             }
         },
-        .flags => |bits| try out.appendSlice(a, try std.fmt.allocPrint(a, "flags<0x{x}>", .{bits})),
+        .flags => |f| try out.appendSlice(a, try std.fmt.allocPrint(a, "flags<0x{x}>", .{f.bits})),
         .own => |h| try out.appendSlice(a, try std.fmt.allocPrint(a, "own<{d}>", .{h})),
         .borrow => |h| try out.appendSlice(a, try std.fmt.allocPrint(a, "borrow<{d}>", .{h})),
     }

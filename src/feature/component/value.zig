@@ -38,12 +38,13 @@ pub const ComponentValue = union(enum) {
     tuple: []ComponentValue,
     /// `case` = the variant's case ordinal (type-model order).
     variant: Variant,
-    /// The enum case ordinal.
-    @"enum": u32,
+    /// The enum case ordinal + its label (REQ-2, cw CM-API).
+    @"enum": Enum,
     option: ?*ComponentValue,
     result: Result,
-    /// Bit-packed per the type's label order (≤ 32 labels per spec).
-    flags: u32,
+    /// Bit-packed per the type's label order (≤ 32 labels per spec) + the
+    /// type's labels (REQ-2, cw CM-API; bit i ↔ labels[i]).
+    flags: Flags,
     /// An OWNING resource handle (component-table index; D-322). The
     /// handle's lifecycle belongs to the component instance's table —
     /// `deinit` does not drop it.
@@ -59,12 +60,33 @@ pub const ComponentValue = union(enum) {
 
     pub const Variant = struct {
         case: u32,
+        /// The case's label (REQ-2). Borrows from the decoded `TypeInfo` on
+        /// a lifted result; `""` on a host-constructed input value (invoke
+        /// dispatches by `case` ordinal — use `resolveFuncSig` to map a
+        /// label to its ordinal).
+        case_name: []const u8 = "",
         payload: ?*ComponentValue,
     };
 
     pub const Result = struct {
         is_ok: bool,
         payload: ?*ComponentValue,
+    };
+
+    /// An enum value: the case ordinal + (on a lifted result) its label.
+    pub const Enum = struct {
+        index: u32,
+        /// Borrows from `TypeInfo` (output); `""` on host input.
+        label: []const u8 = "",
+    };
+
+    /// A flags value: the bit set + (on a lifted result) the type's labels in
+    /// bit order. `bits` is authoritative; `labels` is the introspection aid
+    /// (set label `i` ⇔ `bits & (1 << i) != 0`).
+    pub const Flags = struct {
+        bits: u32,
+        /// Borrows from `TypeInfo` (output); `&.{}` on host input.
+        labels: []const []const u8 = &.{},
     };
 
     /// Recursively free every allocation the tree owns.

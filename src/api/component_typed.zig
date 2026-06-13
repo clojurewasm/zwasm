@@ -169,8 +169,10 @@ fn toCanonValue(arena: std.mem.Allocator, v: ComponentValue, ty: canon.CanonType
             .char => if (v == .char) .{ .char = v.char } else InvokeTypedError.ValueShapeMismatch,
             .error_context => InvokeTypedError.ValueShapeMismatch,
         },
-        .enum_ => return if (v == .@"enum") .{ .enum_value = v.@"enum" } else InvokeTypedError.ValueShapeMismatch,
-        .flags => return if (v == .flags) .{ .flags = v.flags } else InvokeTypedError.ValueShapeMismatch,
+        // REQ-2: input dispatches by the numeric ordinal/bits (the label /
+        // labels fields are output-only introspection aids).
+        .enum_ => return if (v == .@"enum") .{ .enum_value = v.@"enum".index } else InvokeTypedError.ValueShapeMismatch,
+        .flags => return if (v == .flags) .{ .flags = v.flags.bits } else InvokeTypedError.ValueShapeMismatch,
         .list => |elem| {
             const items = if (v == .list) v.list else return InvokeTypedError.ValueShapeMismatch;
             const out = try arena.alloc(canon.Value, items.len);
@@ -301,16 +303,22 @@ fn fromCanonDefType(out_alloc: std.mem.Allocator, scratch: std.mem.Allocator, in
         .variant => |v| {
             const case = cv.variant.case;
             if (case >= v.cases.len) return InvokeTypedError.ValueShapeMismatch;
+            // REQ-2: carry the case label (borrows from the decoded TypeInfo).
+            const case_name = v.cases[case].name;
             if (v.cases[case].payload) |pt| {
                 const slot = try out_alloc.create(ComponentValue);
                 errdefer out_alloc.destroy(slot);
                 slot.* = try fromCanonValueScoped(out_alloc, scratch, info, locals, pt, cv.variant.payload.?.*);
-                return .{ .variant = .{ .case = case, .payload = slot } };
+                return .{ .variant = .{ .case = case, .case_name = case_name, .payload = slot } };
             }
-            return .{ .variant = .{ .case = case, .payload = null } };
+            return .{ .variant = .{ .case = case, .case_name = case_name, .payload = null } };
         },
-        .enum_ => return .{ .@"enum" = cv.enum_value },
-        .flags => return .{ .flags = cv.flags },
+        // REQ-2: carry the enum label + the flags label list (borrow from TypeInfo).
+        .enum_ => |e| {
+            if (cv.enum_value >= e.labels.len) return InvokeTypedError.ValueShapeMismatch;
+            return .{ .@"enum" = .{ .index = cv.enum_value, .label = e.labels[cv.enum_value] } };
+        },
+        .flags => |fl| return .{ .flags = .{ .bits = cv.flags, .labels = fl.labels } },
         .own => return .{ .own = cv.handle },
         // Borrow results are spec-invalid; func/type-scope forms aren't values.
         .func, .borrow, .instance_type, .component_type, .resource => return InvokeTypedError.UnsupportedType,
@@ -322,6 +330,48 @@ fn fromCanonDefType(out_alloc: std.mem.Allocator, scratch: std.mem.Allocator, in
 // component.zig + the corpus runner's assert_typed directive)
 // ============================================================
 const testing = std.testing;
+
+test "REQ-2 (cw CM-API): lifted enum carries its label (borrow from TypeInfo)" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // `.enum_`/`.flags` leaf lifts read only the DefType — info/scratch unused.
+    const dt = ctypes.DefType{ .enum_ = .{ .labels = &.{ "red", "green", "blue" } } };
+    const out = try fromCanonDefType(a, a, undefined, &.{}, dt, .{ .enum_value = 1 });
+    try testing.expectEqual(@as(u32, 1), out.@"enum".index);
+    try testing.expectEqualStrings("green", out.@"enum".label);
+    // Out-of-range ordinal is a shape error, not a crash.
+    try testing.expectError(
+        InvokeTypedError.ValueShapeMismatch,
+        fromCanonDefType(a, a, undefined, &.{}, dt, .{ .enum_value = 3 }),
+    );
+}
+
+test "REQ-2 (cw CM-API): lifted flags carry the bit-order label list" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const dt = ctypes.DefType{ .flags = .{ .labels = &.{ "a", "b", "c" } } };
+    const out = try fromCanonDefType(a, a, undefined, &.{}, dt, .{ .flags = 0b101 });
+    try testing.expectEqual(@as(u32, 0b101), out.flags.bits);
+    try testing.expectEqual(@as(usize, 3), out.flags.labels.len);
+    try testing.expectEqualStrings("a", out.flags.labels[0]); // bit 0 set
+    try testing.expectEqualStrings("c", out.flags.labels[2]); // bit 2 set
+}
+
+test "REQ-2 (cw CM-API): lifted variant carries the case label" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const cases = [_]ctypes.Case{
+        .{ .name = "off", .payload = null },
+        .{ .name = "on", .payload = null },
+    };
+    const dt = ctypes.DefType{ .variant = .{ .cases = &cases } };
+    const out = try fromCanonDefType(a, a, undefined, &.{}, dt, .{ .variant = .{ .case = 1, .payload = null } });
+    try testing.expectEqual(@as(u32, 1), out.variant.case);
+    try testing.expectEqualStrings("on", out.variant.case_name);
+}
 
 test "toCanonValue rejects a wrong union arm (shape mismatch, not coercion)" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
