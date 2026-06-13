@@ -53,10 +53,18 @@ No `now` debt. Debt sweep 2026-06-13:
   the non-inline clobber-barrier `jitTrampoline`/`jitTrampolineVoid`
   (arg- + os-agnostic cohort save/restore; no bare @call). Mac ReleaseSafe
   gate + probe green 2026-06-13; 3-host test-all green (ReleaseSafe runners).
-- **D-293 SLICE-5+** (the remaining actionable partial; conformance-NEUTRAL,
-  lower-frequency, deferred) — JIT trap-kind demux continuation (array_oob,
-  cast_failure code 12 [surface added slice-4a], struct/array null deref);
-  per-slice both arches, TDD JIT+interp parity. Quality nicety, not urgent.
+- **D-293 — remaining demux = `array_oob` ONLY** (re-surveyed 2026-06-13;
+  cast_failure DONE slice-4d `cast_fail_fixups`, struct/array null-deref DONE
+  slice-4b `null_ref_fixups` — the row's slice list is behind). Precise scope:
+  these JIT ops still append to the GENERIC `bounds_fixups` (→ code 2 oob_table,
+  a mislabel for array OOB): `array_init_data/copy/fill/init_elem/new_elem/
+  new_data` + `i31_get_s/u` + `struct_get_s` (both arches, ~12 sites). Recipe
+  = mirror slice-1/4d: add an `array_oob` TrapKind surface variant (next C-ABI
+  code + spec msg "out of bounds array access" + mapInterpTrap arm, like
+  slice-4a) → new `array_oob_fixups` channel in ctx.zig (both arches, +emit.zig
+  wire) → route the array appends → per-kind stub → TDD (array.get OOB →
+  array_oob, JIT+interp parity). DELIBERATE architectural chunk (open fresh,
+  3-cycle cap); conformance-NEUTRAL (suite matches by kind today), lower-freq.
 - Else: §1.3 backlog demand-driven · blocked-by long-tail · D-323.
 
 ## Closed-work pointers (detail in git log / ADRs)
