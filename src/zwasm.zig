@@ -714,7 +714,7 @@ test "zwasm facade T1.9: Linker.defineFunc + host import round-trip" {
     defer lk.deinit();
     try lk.defineFunc("env", "add", fn (*Caller, i32, i32) i32, hostAdd);
 
-    var inst = try lk.instantiate(&mod);
+    var inst = try lk.instantiate(&mod, .{});
     defer inst.deinit();
 
     const go = inst.typedFunc(fn (i32, i32) i32, "go");
@@ -759,7 +759,7 @@ test "zwasm facade T1.10: host fn uses caller.memory() to write linear memory" {
     defer lk.deinit();
     try lk.defineFunc("env", "poke_42", fn (*Caller) void, hostPoke42);
 
-    var inst = try lk.instantiate(&mod);
+    var inst = try lk.instantiate(&mod, .{});
     defer inst.deinit();
 
     const go = inst.typedFunc(fn () void, "go");
@@ -784,7 +784,7 @@ test "zwasm facade T1.11: arity-mismatched host fn → error.SignatureMismatch" 
     // Module declares env.add as (i32,i32)→i32; register with (i32)→i32.
     try lk.defineFunc("env", "add", fn (*Caller, i32) i32, hostAddOneArg);
 
-    try std.testing.expectError(error.SignatureMismatch, lk.instantiate(&mod));
+    try std.testing.expectError(error.SignatureMismatch, lk.instantiate(&mod, .{}));
 }
 
 // T1.12 importer — imports env.shared (memory 1); writes 42 into memory[4].
@@ -832,7 +832,7 @@ test "zwasm facade T1.12: cross-instance memory sharing via Linker.defineMemory"
     const exp_mem = exporter.memory() orelse return error.TestUnexpectedResult;
     try lk.defineMemory("env", "shared", exp_mem);
 
-    var writer = try lk.instantiate(&writer_mod);
+    var writer = try lk.instantiate(&writer_mod, .{});
     defer writer.deinit();
 
     const go = writer.typedFunc(fn () void, "go");
@@ -880,7 +880,7 @@ test "zwasm facade T1.13: Linker.defineWasi smoke instantiation" {
     var mod = try eng.compile(&facade_wasi_smoke_wasm);
     defer mod.deinit();
 
-    var inst = try lk.instantiate(&mod);
+    var inst = try lk.instantiate(&mod, .{});
     defer inst.deinit();
     // Smoke: instantiate succeeds and ownership of the wasi_host
     // transfers to the Store (`wasm_store_delete` will free it).

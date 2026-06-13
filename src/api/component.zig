@@ -43,6 +43,11 @@ pub const Error = error{
     OutOfMemory,
 } || decode.Error || ctypes.Error || Module.InstantiateError;
 
+/// Per-instance budget (fuel / max-memory) for the component instantiate
+/// entry points (REQ-4, cw CM-API). Re-exported from `Module` so consumers
+/// have a single name; `.{}` = the default budget.
+pub const InstantiateOpts = Module.InstantiateOpts;
+
 /// An instantiated component. IT-1 holds a single embedded core module's
 /// instance; multi-module graphs land in C2. The `Module`/`Instance` are
 /// heap-allocated for stable addresses (the facade structs hold c-api handles;
@@ -397,7 +402,7 @@ pub const ComponentGraph = struct {
 };
 
 /// Instantiate + link a multi-component graph (see `ComponentGraph`).
-pub fn instantiateGraph(engine: *Engine, alloc: Allocator, bytes: []const u8) anyerror!ComponentGraph {
+pub fn instantiateGraph(engine: *Engine, alloc: Allocator, bytes: []const u8, opts: InstantiateOpts) anyerror!ComponentGraph {
     var graph = ComponentGraph{
         .alloc = alloc,
         .outer = try decode.decode(alloc, bytes),
@@ -432,7 +437,7 @@ pub fn instantiateGraph(engine: *Engine, alloc: Allocator, bytes: []const u8) an
 
         const inst = try alloc.create(Instance);
         if (mod_imports.items.len == 0) {
-            inst.* = try module.instantiate(.{});
+            inst.* = try module.instantiate(opts);
         } else {
             const lk = try alloc.create(Linker);
             lk.* = engine.linker();
@@ -443,7 +448,7 @@ pub fn instantiateGraph(engine: *Engine, alloc: Allocator, bytes: []const u8) an
                 } else return error.ImportUnsatisfied;
                 try lk.defineCrossModuleFunc(imp.module, imp.name, src, imp.name);
             }
-            inst.* = try lk.instantiate(module);
+            inst.* = try lk.instantiate(module, opts);
         }
         try graph.instances.append(alloc, inst);
     }
@@ -452,7 +457,9 @@ pub fn instantiateGraph(engine: *Engine, alloc: Allocator, bytes: []const u8) an
 
 /// Decode a component and instantiate its (first) embedded core module via the
 /// `Engine` facade. `engine` must outlive the returned `ComponentInstance`.
-pub fn instantiate(engine: *Engine, alloc: Allocator, bytes: []const u8) Error!ComponentInstance {
+/// `opts` carries the per-instance budget (fuel / max-memory); pass `.{}` for
+/// the default budget (REQ-4, cw CM-API).
+pub fn instantiate(engine: *Engine, alloc: Allocator, bytes: []const u8, opts: InstantiateOpts) Error!ComponentInstance {
     var decoded = try decode.decode(alloc, bytes);
     errdefer decoded.deinit(alloc);
 
@@ -465,7 +472,9 @@ pub fn instantiate(engine: *Engine, alloc: Allocator, bytes: []const u8) Error!C
 
     const core = try alloc.create(Instance);
     errdefer alloc.destroy(core);
-    core.* = try module.instantiate(.{});
+    // Propagate the rich InstantiateError (StartTrapped / MemoryLimitExceeded)
+    // so the budget cause reaches the consumer (REQ-4).
+    core.* = try module.instantiate(opts);
 
     var info = try ctypes.decodeTypeInfo(alloc, &decoded);
     errdefer info.deinit();
@@ -520,7 +529,7 @@ test "IT-1: instantiate embedded core module + invoke a ()->i32 export" {
     var eng = try Engine.init(testing.allocator, .{});
     defer eng.deinit();
 
-    var ci = try instantiate(&eng, testing.allocator, &component_run42);
+    var ci = try instantiate(&eng, testing.allocator, &component_run42, .{});
     defer ci.deinit();
 
     var results = [_]Value{.{ .i32 = 0 }};
@@ -533,7 +542,7 @@ test "IT-1: a component with no core module is rejected" {
     defer eng.deinit();
     // Empty component (preamble only, no sections).
     const empty = [_]u8{ 0x00, 0x61, 0x73, 0x6d, 0x0d, 0x00, 0x01, 0x00 };
-    try testing.expectError(Error.NoCoreModule, instantiate(&eng, testing.allocator, &empty));
+    try testing.expectError(Error.NoCoreModule, instantiate(&eng, testing.allocator, &empty, .{}));
 }
 
 test "E2 prereq: core-table index space resolves an alias-core-export table (ADR-0175)" {
@@ -577,7 +586,7 @@ test "D-310: a guest call_indirects an imported host func through a table" {
     // run(x) reaches it by call_indirect — exercises the per-import placeholder
     // sig + the call_indirect host-dispatch (D-310 runtime fix).
     try lk.defineFunc("env", "inc", fn (*Caller, u32) anyerror!u32, testHostInc);
-    var inst = try lk.instantiate(&mod);
+    var inst = try lk.instantiate(&mod, .{});
     defer inst.deinit();
 
     var res = [_]Value{.{ .i32 = 0 }};
@@ -601,7 +610,7 @@ const component_add = [_]u8{
 test "IT-2: canon flat trampoline — add(u32,u32)->u32 component invoke" {
     var eng = try Engine.init(testing.allocator, .{});
     defer eng.deinit();
-    var ci = try instantiate(&eng, testing.allocator, &component_add);
+    var ci = try instantiate(&eng, testing.allocator, &component_add, .{});
     defer ci.deinit();
 
     var out: canon.Value = undefined;
@@ -612,7 +621,7 @@ test "IT-2: canon flat trampoline — add(u32,u32)->u32 component invoke" {
 test "IT-2: trampoline lifts a signed result through the canon boundary" {
     var eng = try Engine.init(testing.allocator, .{});
     defer eng.deinit();
-    var ci = try instantiate(&eng, testing.allocator, &component_add);
+    var ci = try instantiate(&eng, testing.allocator, &component_add, .{});
     defer ci.deinit();
     // s32 view of the same add: -1 + -1 = -2 (two's complement through i32 core).
     var out: canon.Value = undefined;
@@ -654,7 +663,7 @@ const component_realloc = [_]u8{
 test "IT-3a: cabi_realloc-via-guest — string lower/lift over real guest memory" {
     var eng = try Engine.init(testing.allocator, .{});
     defer eng.deinit();
-    var ci = try instantiate(&eng, testing.allocator, &component_realloc);
+    var ci = try instantiate(&eng, testing.allocator, &component_realloc, .{});
     defer ci.deinit();
 
     const cx = try ci.canonContext();
@@ -666,10 +675,25 @@ test "IT-3a: cabi_realloc-via-guest — string lower/lift over real guest memory
     try testing.expectEqualStrings("héllo, 世界", back);
 }
 
+test "REQ-4 (cw CM-API): component instantiate threads the budget — max_memory_pages=0 → MemoryLimitExceeded" {
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    // component_realloc's embedded core declares ≥1 initial memory page; a
+    // zero-page cap must reject at instantiation (the budget reaches
+    // module.instantiate through the new `opts` param, not the hardcoded `.{}`).
+    try testing.expectError(
+        Module.InstantiateError.MemoryLimitExceeded,
+        instantiate(&eng, testing.allocator, &component_realloc, .{ .max_memory_pages = .{ .limited = 0 } }),
+    );
+    // The default budget (`.{}`) still instantiates cleanly.
+    var ci = try instantiate(&eng, testing.allocator, &component_realloc, .{});
+    ci.deinit();
+}
+
 test "IT-3a: two allocations via the guest allocator don't overlap" {
     var eng = try Engine.init(testing.allocator, .{});
     defer eng.deinit();
-    var ci = try instantiate(&eng, testing.allocator, &component_realloc);
+    var ci = try instantiate(&eng, testing.allocator, &component_realloc, .{});
     defer ci.deinit();
 
     const cx = try ci.canonContext();
@@ -814,7 +838,7 @@ test "C2-3b-2 (EXIT): a 2-component graph links + runs (A calls B across compone
 
     var eng = try Engine.init(testing.allocator, .{});
     defer eng.deinit();
-    var graph = try instantiateGraph(&eng, testing.allocator, bytes);
+    var graph = try instantiateGraph(&eng, testing.allocator, bytes, .{});
     defer graph.deinit();
 
     // add-five(10) = adder(10, 5) = 15 — the call crosses from component A into B.
@@ -881,7 +905,7 @@ test "IT-3b-3 (EXIT): a real string→string component runs end-to-end" {
 
     var eng = try Engine.init(testing.allocator, .{});
     defer eng.deinit();
-    var ci = try instantiate(&eng, testing.allocator, bytes);
+    var ci = try instantiate(&eng, testing.allocator, bytes, .{});
     defer ci.deinit();
 
     // greet("zwasm") ⇒ "Hello, zwasm!" — a real component runs via zwasm.
@@ -904,7 +928,7 @@ test "C2-2 (D-304): resolve the component export → core funcs (no hard-coded n
 
     var eng = try Engine.init(testing.allocator, .{});
     defer eng.deinit();
-    var ci = try instantiate(&eng, testing.allocator, bytes);
+    var ci = try instantiate(&eng, testing.allocator, bytes, .{});
     defer ci.deinit();
 
     // The resolver maps the component func type + canon-lift to the core exports.
@@ -965,7 +989,7 @@ test "D1-2 trampolines: WASI-P2 output-stream funcs print to a captured fd" {
     try lk.defineFuncCtx("io", "write", &ctx, fn (*Caller, u32, u32, u32, u32) WasiP2Error!void, p2OutStreamWrite);
     try lk.defineFuncCtx("io", "drop-os", &ctx, fn (*Caller, u32) WasiP2Error!void, p2OutStreamDrop);
 
-    var inst = try lk.instantiate(&mod);
+    var inst = try lk.instantiate(&mod, .{});
     defer inst.deinit();
 
     var results = [_]Value{.{ .i32 = 1 }};
@@ -992,7 +1016,7 @@ test "D1-2 (EXIT): a real WASI-P2 hello-world component runs + prints via the ad
 
     // greet/adder proved component invoke; this proves a real P2 CLI program
     // runs through the canon-lowered wasi imports → the P2 trampolines.
-    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host, .{});
     try testing.expectEqualStrings("hello\n", capture.items);
 }
 
@@ -1014,7 +1038,7 @@ test "D2: a WASI-P2 component prints to STDERR via get-stderr (fd 2 stream)" {
     host.stderr_buffer = &cap_err;
     host.stdout_buffer = &cap_out;
 
-    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host, .{});
     try testing.expectEqualStrings("oops\n", cap_err.items); // wrote to fd 2
     try testing.expectEqualStrings("", cap_out.items); // NOT stdout
 }
@@ -1035,7 +1059,7 @@ test "D3: a WASI-P2 component calls wasi:cli/exit(err) → host exit code 1" {
     // The component's `run` calls wasi:cli/exit.exit(err) — the cli_exit trampoline
     // records the code via P1 proc_exit and unwinds (noreturn); runWasiP2Main treats
     // a set exit_code as a clean termination.
-    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host, .{});
     try testing.expectEqual(@as(u32, 1), host.exit_code.?);
 }
 
@@ -1056,7 +1080,7 @@ test "D-308: a WASI-P2 component importing an unknown wasi interface errors clea
     // synthetic instance must raise a CLEAN error — never a fatal signal from
     // the deferred instance/linker/module cleanup (the D-308 partial-state path,
     // forced here by a guest core instance built before the failing host one).
-    try testing.expectError(error.UnsupportedWasiImport, runWasiP2Main(&eng, testing.allocator, bytes, &host));
+    try testing.expectError(error.UnsupportedWasiImport, runWasiP2Main(&eng, testing.allocator, bytes, &host, .{}));
 }
 
 test "D3: a WASI-P2 component reads monotonic-clock.now() — sane + monotonic → exit 0" {
@@ -1074,7 +1098,7 @@ test "D3: a WASI-P2 component reads monotonic-clock.now() — sane + monotonic �
 
     // run() reads now() twice; exit(0) iff first>0 and second>=first (the
     // clocks_monotonic_now trampoline forwards to the host monotonic clock).
-    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host, .{});
     try testing.expectEqual(@as(u32, 0), host.exit_code.?);
 }
 
@@ -1094,7 +1118,7 @@ test "D3: a WASI-P2 component reads wall-clock.now() — realtime past 2017 → 
     // run() reads wall-clock.now() into a 12-byte datetime record at retptr and
     // exit(0) iff seconds>1.5e9 (the clocks_wall_now trampoline writes seconds@0,
     // nanoseconds@8 to guest memory; realtime clock id 0).
-    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host, .{});
     try testing.expectEqual(@as(u32, 0), host.exit_code.?);
 }
 
@@ -1114,7 +1138,7 @@ test "D3: a WASI-P2 component calls random.get-random-bytes(16) — list realloc
     // run() calls get-random-bytes(16) — the trampoline allocates 16 bytes via the
     // guest cabi_realloc, fills with secure random, returns (ptr,len); run ORs the
     // bytes and exit(0) iff len==16 and some byte is nonzero.
-    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host, .{});
     try testing.expectEqual(@as(u32, 0), host.exit_code.?);
 }
 
@@ -1134,7 +1158,7 @@ test "D3: a WASI-P2 component reads stdin via get-stdin+input-stream.read — ec
 
     // run() mints an input-stream (get-stdin), read(16) returns ok(list) with the
     // 5 fed bytes via cabi_realloc; run checks len==5 + 'z'../'m' → exit 0.
-    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host, .{});
     try testing.expectEqual(@as(u32, 0), host.exit_code.?);
 }
 
@@ -1156,7 +1180,7 @@ test "D2 (EXIT): a WASI-P2 fs component writes a file via get-directories+open-a
 
     // Drives get-directories (realloc list area) → open-at "out.txt" → write "DATA42" → drop, all
     // through the classified fs trampolines + the guest's cabi_realloc (nested invoke).
-    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host, .{});
 
     // Read the written file back through the still-open preopen dir.
     var pmem: [128]u8 = @splat(0);
@@ -1189,7 +1213,7 @@ test "D3-6: a WASI-P2 fs component drives sync/stat/get-type/read + stdout flush
     // regular-file, get-type regular-file, read "DATA42"+eof, flush ok) and
     // traps (unreachable) on any mismatch — a clean return proves all five
     // D3-6 trampolines returned correct data.
-    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host, .{});
 }
 
 test "D-307: a failing descriptor.open-at returns result.err(no-entry), not a trap" {
@@ -1211,7 +1235,7 @@ test "D-307: a failing descriptor.open-at returns result.err(no-entry), not a tr
     // open-at "nope.txt" without the create flag → P1 noent → the trampoline
     // writes result.err(error-code::no-entry); the guest asserts disc==err +
     // code==20 and traps on mismatch, so a clean return proves the D-307 map.
-    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host, .{});
 }
 
 test "D3-7: a WASI-P2 component drives wasi:io/poll (subscribe + poll + ready/block)" {
@@ -1231,7 +1255,7 @@ test "D3-7: a WASI-P2 component drives wasi:io/poll (subscribe + poll + ready/bl
     // subscribe-duration + input-stream.subscribe mint pollables; poll([p1,p2])
     // reports both ready (indices 0,1); ready()==true, block()==noop. The guest
     // asserts each + traps on mismatch — a clean return proves the poll path.
-    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host, .{});
 }
 
 test "E2: WASI-P2 cli/environment + terminal + check-write (sandboxed non-tty host)" {
@@ -1249,7 +1273,7 @@ test "E2: WASI-P2 cli/environment + terminal + check-write (sandboxed non-tty ho
 
     // get-environment/get-arguments empty, initial-cwd + get-terminal-stdout none,
     // check-write reports a permit. The guest asserts each + traps on mismatch.
-    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host, .{});
 }
 
 test "E2 (bundle exit): a real Rust wasm32-wasip2 component runs + prints via zwasm" {
@@ -1272,7 +1296,7 @@ test "E2 (bundle exit): a real Rust wasm32-wasip2 component runs + prints via zw
     // wit-bindgen shim/fixup-table indirection) runs end-to-end through the
     // general instance-graph engine (ADR-0175) + the D-310 host-funcs-in-tables
     // fix — THE Phase E2 "CM actually works, real toolchain" existence proof.
-    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host, .{});
     try testing.expectEqualStrings("hello from a real rust wasip2 component\n", capture.items);
 }
 
@@ -1302,7 +1326,7 @@ test "D2: WASI-P2 get-directories returns a preopen descriptor list (realloc fro
     defer lk.deinit();
     try lk.defineFuncCtx("fs", "get-directories", &ctx, fn (*Caller, u32) WasiP2Error!void, p2GetDirectories);
 
-    var inst = try lk.instantiate(&mod);
+    var inst = try lk.instantiate(&mod, .{});
     defer inst.deinit();
     ctx.realloc_instance = &inst; // allocate the return area via the guest's cabi_realloc (nested invoke)
 
@@ -1348,7 +1372,7 @@ test "D2: WASI-P2 descriptor.open-at creates+writes a file under a dir descripto
     try lk.defineFuncCtx("fs", "write", &ctx, fn (*Caller, u32, u32, u32, u64, u32) WasiP2Error!void, p2DescriptorWrite);
     try lk.defineFuncCtx("fs", "drop", &ctx, fn (*Caller, u32) WasiP2Error!void, p2DescriptorDrop);
 
-    var inst = try lk.instantiate(&mod);
+    var inst = try lk.instantiate(&mod, .{});
     defer inst.deinit();
     var res = [_]Value{.{ .i32 = 9 }};
     try inst.invoke("run", &.{.{ .i32 = @bitCast(dir_handle) }}, &res);
@@ -1399,7 +1423,7 @@ test "D2: WASI-P2 descriptor.write writes a file via the descriptor resource (fd
     try lk.defineFuncCtx("fs", "write", &ctx, fn (*Caller, u32, u32, u32, u64, u32) WasiP2Error!void, p2DescriptorWrite);
     try lk.defineFuncCtx("fs", "drop", &ctx, fn (*Caller, u32) WasiP2Error!void, p2DescriptorDrop);
 
-    var inst = try lk.instantiate(&mod);
+    var inst = try lk.instantiate(&mod, .{});
     defer inst.deinit();
     var noret = [_]Value{};
     try inst.invoke("run", &.{.{ .i32 = @bitCast(handle) }}, &noret); // write + drop
@@ -1434,7 +1458,7 @@ test "D-306 (EXIT): a component with renamed core imports runs via classified wi
     defer capture.deinit(testing.allocator);
     host.stdout_buffer = &capture;
 
-    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host, .{});
     try testing.expectEqualStrings("hello\n", capture.items);
 }
 
@@ -1464,7 +1488,7 @@ test "D2/D-306: a lowered func resolves back to its WASI component interface + f
 test "IT-1: a core module (not a component) is rejected as NotAComponent" {
     var eng = try Engine.init(testing.allocator, .{});
     defer eng.deinit();
-    try testing.expectError(decode.Error.NotAComponent, instantiate(&eng, testing.allocator, &core_run42));
+    try testing.expectError(decode.Error.NotAComponent, instantiate(&eng, testing.allocator, &core_run42, .{}));
 }
 
 test "E2: a real tinygo wasm32-wasip2 component runs end-to-end (Go cross-toolchain proof)" {
@@ -1487,7 +1511,7 @@ test "E2: a real tinygo wasm32-wasip2 component runs end-to-end (Go cross-toolch
     // filesystem/random interfaces, wit-component start-shim calling
     // `_initialize` as an IMPORTED start function) runs end-to-end — the
     // SECOND Phase E2 cross-toolchain existence proof beside Rust.
-    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host, .{});
     try testing.expectEqualStrings("hello\n", capture.items);
 }
 
@@ -1516,7 +1540,7 @@ test "E2: the tinygo fs component round-trips mkdir/write/stat/rename/readdir/re
     // rename-at, read-directory + directory-entry-stream, unlink-file-at,
     // remove-directory-at. The guest asserts each step and prints the
     // renamed entry it saw in the directory stream.
-    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host, .{});
     try testing.expectEqualStrings("FS-OK b.txt\n", capture.items);
 }
 
@@ -1544,7 +1568,7 @@ test "E3: the tinygo fs error-path component sees exist/no-entry/empty-stream co
     // on a missing path → no-entry; ReadDir on an empty dir → stream end
     // (option none) on the first read-directory-entry. Guest asserts each
     // via Go's os error predicates and prints ERR-OK.
-    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host, .{});
     try testing.expectEqualStrings("ERR-OK\n", capture.items);
 }
 
@@ -1593,7 +1617,7 @@ test "ADR-0180: a real rust wasip2 TCP client connects + echoes through wasi:soc
     // create-tcp-socket -> start/finish-connect (socket-backed stream pair)
     // -> write "ping" -> subscribe/poll readiness -> read the reply — the
     // ADR-0180 Phase-1 existence proof.
-    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host, .{});
     try testing.expectEqualStrings("got pong-ping\n", capture.items);
 }
 
@@ -1655,7 +1679,7 @@ test "ADR-0180 Phase 2: a real rust wasip2 TCP listener accepts + echoes through
     // bind(argv port) -> start/finish-listen -> local-address ->
     // subscribe/poll readiness -> accept (3-tuple mint + remote-address)
     // -> echo "ping"+"-ack" — the ADR-0180 Phase-2 existence proof.
-    try runWasiP2Main(&eng, testing.allocator, bytes, &host);
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host, .{});
     var expect_buf: [48]u8 = undefined;
     const expected = try std.fmt.bufPrint(&expect_buf, "served ping on {d}\n", .{port});
     try testing.expectEqualStrings(expected, capture.items);
@@ -1676,7 +1700,7 @@ test "D-322: a wit-bindgen guest-defined resource component builds + counter rou
     // The core module imports its OWN exported resource's builtins
     // ([export]<iface> [resource-new/drop]counter) — the build must
     // synthesize them over the guest resource table (was: UnknownImport).
-    var built = try cwasi.buildWasiP2Component(&eng, testing.allocator, bytes, &host);
+    var built = try cwasi.buildWasiP2Component(&eng, testing.allocator, bytes, &host, .{});
     defer built.deinit();
 
     // Drive the generated core exports directly: constructor mints an own
@@ -1743,7 +1767,7 @@ test "exportedFuncs enumerates interface-nested funcs path-qualified (CWFS compo
     var host = try wasi_host.Host.init(testing.allocator);
     defer host.deinit();
     host.io = io;
-    var built = try cwasi.buildWasiP2Component(&eng, testing.allocator, bytes, &host);
+    var built = try cwasi.buildWasiP2Component(&eng, testing.allocator, bytes, &host, .{});
     defer built.deinit();
 
     // The component exports NO top-level funcs — everything lives inside
@@ -1780,7 +1804,7 @@ test "ADR-0183 F1: greet introspects as (param string) -> string from the binary
 
     var eng = try Engine.init(testing.allocator, .{});
     defer eng.deinit();
-    var ci = try instantiate(&eng, testing.allocator, bytes);
+    var ci = try instantiate(&eng, testing.allocator, bytes, .{});
     defer ci.deinit();
 
     const funcs = try ci.exportedFuncs(testing.allocator);
@@ -1801,7 +1825,7 @@ test "ADR-0183 F2b: greet invoked TYPED — string arg in, owned string result o
 
     var eng = try Engine.init(testing.allocator, .{});
     defer eng.deinit();
-    var ci = try instantiate(&eng, testing.allocator, bytes);
+    var ci = try instantiate(&eng, testing.allocator, bytes, .{});
     defer ci.deinit();
 
     const out = (try ci.invokeTyped("greet", &.{.{ .string = "zwasm" }}, testing.allocator)).?;
@@ -1825,7 +1849,7 @@ test "ADR-0183 F3/F4: wit-bindgen rich types round-trip TYPED — record{list<u3
     var host = try wasi_host.Host.init(testing.allocator);
     defer host.deinit();
     host.io = io;
-    var built = try cwasi.buildWasiP2Component(&eng, testing.allocator, bytes, &host);
+    var built = try cwasi.buildWasiP2Component(&eng, testing.allocator, bytes, &host, .{});
     defer built.deinit();
 
     // ok path: process({xs: [1,2,3], label: "sum"}) appends sum(xs)=6 and "!".

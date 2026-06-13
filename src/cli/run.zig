@@ -174,7 +174,10 @@ pub fn runComponentCaptured(
         _ = try host.addPreopen(dir.handle, pd.guest_path);
     }
 
-    component.runWasiP2Main(&eng, alloc, bytes, &host) catch |err| {
+    // REQ-4 — the component CLI path uses the default budget for now; wiring
+    // the `--fuel`/`--max-memory` flags into `runComponentCaptured` is a
+    // separate CLI enhancement (the API-level budget is the cw requirement).
+    component.runWasiP2Main(&eng, alloc, bytes, &host, .{}) catch |err| {
         if (host.exit_code) |code| return @intCast(@min(code, std.math.maxInt(u8)));
         return err;
     };

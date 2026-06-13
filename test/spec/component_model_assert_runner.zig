@@ -170,7 +170,7 @@ fn runCorpus(
             const wh = try gpa.create(wasi_host.Host);
             wh.* = try wasi_host.Host.init(gpa);
             wh.io = io;
-            const bc = host.buildWasiP2Component(engine, gpa, bytes, wh) catch |err| {
+            const bc = host.buildWasiP2Component(engine, gpa, bytes, wh, .{}) catch |err| {
                 wh.deinit();
                 gpa.destroy(wh);
                 try stdout.print("FAIL  {s}: buildWasiP2Component '{s}': {s}\n", .{ name, path, @errorName(err) });
@@ -197,14 +197,14 @@ fn runCorpus(
             current_bytes = bytes;
 
             if (is_graph) {
-                const g = host.instantiateGraph(engine, gpa, bytes) catch |err| {
+                const g = host.instantiateGraph(engine, gpa, bytes, .{}) catch |err| {
                     try stdout.print("FAIL  {s}: instantiateGraph '{s}': {s}\n", .{ name, path, @errorName(err) });
                     failed.* += 1;
                     continue;
                 };
                 current = .{ .graph = g };
             } else {
-                const ci = host.instantiate(engine, gpa, bytes) catch |err| {
+                const ci = host.instantiate(engine, gpa, bytes, .{}) catch |err| {
                     try stdout.print("FAIL  {s}: instantiate '{s}': {s}\n", .{ name, path, @errorName(err) });
                     failed.* += 1;
                     continue;

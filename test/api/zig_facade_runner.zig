@@ -146,7 +146,7 @@ fn runFixture(alloc: std.mem.Allocator, bytes: []const u8) Outcome {
         var lk = zwasm.Linker.init(&eng);
         defer lk.deinit();
         lk.defineWasi(.{}) catch return .{ .fail_inst = "defineWasi OOM" };
-        var inst = lk.instantiate(&mod) catch |err| switch (err) {
+        var inst = lk.instantiate(&mod, .{}) catch |err| switch (err) {
             error.UnsupportedWasiImport => return .skip_wasi,
             else => return .{ .fail_inst = @errorName(err) },
         };

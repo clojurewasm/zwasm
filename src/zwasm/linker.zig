@@ -485,7 +485,7 @@ pub const Linker = struct {
     /// type-check happens here against each `(import ...)`
     /// declaration; unknown imports + signature mismatches surface
     /// as named errors before any runtime state is allocated.
-    pub fn instantiate(self: *Linker, mod: *_module.Module) LinkError!_zwasm.Instance {
+    pub fn instantiate(self: *Linker, mod: *_module.Module, opts: _module.Module.InstantiateOpts) LinkError!_zwasm.Instance {
         const arena = std.heap.ArenaAllocator;
         var scratch_arena = arena.init(self.engine.alloc);
         defer scratch_arena.deinit();
@@ -687,10 +687,17 @@ pub const Linker = struct {
             }
         };
         var pre: Pre = .{ .slice = if (prebuilt.len == 0) null else prebuilt };
+        // REQ-4 (cw CM-API) — per-instance budget (fuel / max-memory) applied at
+        // instantiation, mirroring Module.instantiate: cap takes effect before the
+        // start fn runs + before the initial memory alloc.
+        const limits: _api_instance.InstantiateLimits = .{
+            .fuel = opts.fuel.toOptional(),
+            .max_memory_pages = opts.max_memory_pages.toOptional(),
+        };
         // trap_out=null: the Linker path keeps the coarse InstantiateFailed for
         // a start trap (its rich LinkError covers the import-resolution failures);
         // surfacing a start trap here is a follow-up if a consumer needs it (D-275).
-        const inst_ptr = _api_instance.instantiateInternal(mod.c_store, mod.c_handle, pre.asBuilder(), null, .{}) orelse return error.InstantiateFailed;
+        const inst_ptr = _api_instance.instantiateInternal(mod.c_store, mod.c_handle, pre.asBuilder(), null, limits) orelse return error.InstantiateFailed;
         return .{ .handle = inst_ptr, .c_store = mod.c_store };
     }
 
@@ -770,7 +777,7 @@ test "start function may be an IMPORTED host func (wit-component start-shim shap
         }
     };
     try lk.defineFuncCtx("env", "tick", &ticks, fn (*Caller) anyerror!void, H.tick);
-    var inst = try lk.instantiate(&mod);
+    var inst = try lk.instantiate(&mod, .{});
     defer inst.deinit();
     try testing.expectEqual(@as(u32, 1), ticks);
 }

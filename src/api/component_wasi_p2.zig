@@ -1639,7 +1639,9 @@ pub const BuiltComponent = struct {
 /// Decode + validate + build EVERY core instance of `bytes` in definition
 /// order with the WASI-P2 host wiring (the ADR-0175 general engine,
 /// extracted from `runWasiP2Main`). Caller owns the result (`deinit`).
-pub fn buildWasiP2Component(engine: *Engine, alloc: Allocator, bytes: []const u8, host: *wasi_host.Host) anyerror!BuiltComponent {
+/// `opts` is the per-instance budget applied to every guest instance
+/// (REQ-4, cw CM-API); pass `.{}` for the default budget.
+pub fn buildWasiP2Component(engine: *Engine, alloc: Allocator, bytes: []const u8, host: *wasi_host.Host, opts: Module.InstantiateOpts) anyerror!BuiltComponent {
     var decoded = try decode.decode(alloc, bytes);
     errdefer decoded.deinit(alloc);
     var info = try ctypes.decodeTypeInfo(alloc, &decoded);
@@ -1718,7 +1720,7 @@ pub fn buildWasiP2Component(engine: *Engine, alloc: Allocator, bytes: []const u8
                 }
 
                 const gi = try alloc.create(Instance);
-                gi.* = try lk.instantiate(mod);
+                gi.* = try lk.instantiate(mod, opts);
                 try self.instances.append(alloc, gi);
                 // The instance exporting cabi_realloc is the list/string
                 // return-area allocator the trampolines call via nested
@@ -1768,8 +1770,8 @@ pub fn buildWasiP2Component(engine: *Engine, alloc: Allocator, bytes: []const u8
     return self;
 }
 
-pub fn runWasiP2Main(engine: *Engine, alloc: Allocator, bytes: []const u8, host: *wasi_host.Host) anyerror!void {
-    var built = try buildWasiP2Component(engine, alloc, bytes, host);
+pub fn runWasiP2Main(engine: *Engine, alloc: Allocator, bytes: []const u8, host: *wasi_host.Host, opts: Module.InstantiateOpts) anyerror!void {
+    var built = try buildWasiP2Component(engine, alloc, bytes, host, opts);
     defer built.deinit();
 
     const run_ref = firstLiftCoreExport(&built.info) orelse return error.NoRunExport;

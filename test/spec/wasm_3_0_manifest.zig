@@ -214,7 +214,7 @@ pub fn runOne(
     defer module.deinit();
     var linker = zwasm_root.Linker.init(&engine);
     defer linker.deinit();
-    var instance = linker.instantiate(&module) catch return RunError.InvokeFailed;
+    var instance = linker.instantiate(&module, .{}) catch return RunError.InvokeFailed;
     defer instance.deinit();
 
     var results: [1]zwasm_root.Value = undefined;
@@ -282,7 +282,7 @@ pub fn runOneTrap(
     defer module.deinit();
     var linker = zwasm_root.Linker.init(&engine);
     defer linker.deinit();
-    var instance = linker.instantiate(&module) catch return RunError.LoadFailed;
+    var instance = linker.instantiate(&module, .{}) catch return RunError.LoadFailed;
     defer instance.deinit();
 
     const sig = instance.exportFuncSig(func_name) orelse return RunError.LoadFailed;
@@ -348,7 +348,7 @@ pub fn runOneExpectException(
     defer module.deinit();
     var linker = zwasm_root.Linker.init(&engine);
     defer linker.deinit();
-    var instance = linker.instantiate(&module) catch return RunError.LoadFailed;
+    var instance = linker.instantiate(&module, .{}) catch return RunError.LoadFailed;
     defer instance.deinit();
 
     const sig = instance.exportFuncSig(func_name) orelse return RunError.LoadFailed;
@@ -800,7 +800,7 @@ test "D-190 invokeInstance shared-state: grow then size on memory64 returns post
     defer module.deinit();
     var linker = zwasm_root.Linker.init(&engine);
     defer linker.deinit();
-    var instance = try linker.instantiate(&module);
+    var instance = try linker.instantiate(&module, .{});
     defer instance.deinit();
 
     // size () -> i64:0 (initial)
@@ -997,7 +997,7 @@ test "10.G-foundation cycle 5: clean module instantiates with gc_heap=null (zero
     try testing.expectEqual(false, module.native.needs_gc_heap);
     var linker = zwasm_root.Linker.init(&engine);
     defer linker.deinit();
-    var instance = try linker.instantiate(&module);
+    var instance = try linker.instantiate(&module, .{});
     defer instance.deinit();
     const rt = instance.handle.runtime.?;
     try testing.expectEqual(@as(?*zwasm_root.feature.gc.heap.Heap, null), rt.gc_heap);
@@ -1058,7 +1058,7 @@ test "memory64 instantiate: address64.0 succeeds (i64-offset active data segment
     defer module.deinit();
     var linker = zwasm_root.Linker.init(&engine);
     defer linker.deinit();
-    var instance = try linker.instantiate(&module);
+    var instance = try linker.instantiate(&module, .{});
     defer instance.deinit();
 }
 
@@ -1106,7 +1106,7 @@ test "10.M cycle 66: memory.size on memidx=1 returns page count (interp)" {
     defer module.deinit();
     var linker = zwasm_root.Linker.init(&engine);
     defer linker.deinit();
-    var instance = try linker.instantiate(&module);
+    var instance = try linker.instantiate(&module, .{});
     defer instance.deinit();
 
     var results: [1]zwasm_root.Value = undefined;
@@ -1166,7 +1166,7 @@ test "10.M cycle 64: i32.store + i32.load via memidx=1 round-trip 42 (interp)" {
     defer module.deinit();
     var linker = zwasm_root.Linker.init(&engine);
     defer linker.deinit();
-    var instance = try linker.instantiate(&module);
+    var instance = try linker.instantiate(&module, .{});
     defer instance.deinit();
 
     var results: [1]zwasm_root.Value = undefined;
@@ -1204,7 +1204,7 @@ test "10.M cycle 62: two-defined-memory module instantiates (multi-memory relax)
     defer module.deinit();
     var linker = zwasm_root.Linker.init(&engine);
     defer linker.deinit();
-    var instance = try linker.instantiate(&module);
+    var instance = try linker.instantiate(&module, .{});
     defer instance.deinit();
     // Substrate verification: the runtime now holds 2 MemoryInstance
     // entries. (The native API doesn't expose `rt.memories.len`

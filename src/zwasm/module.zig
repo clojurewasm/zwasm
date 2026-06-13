@@ -97,7 +97,7 @@ pub const Module = struct {
         unmetered,
         limited: u64,
 
-        fn toOptional(self: Budget) ?u64 {
+        pub fn toOptional(self: Budget) ?u64 {
             return switch (self) {
                 .unmetered => null,
                 .limited => |v| v,
