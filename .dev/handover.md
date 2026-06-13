@@ -32,14 +32,18 @@
 ## Active bundle
 
 - **Bundle-ID**: cljw-cm-api-finished-form
-- **Cycles-remaining**: ~4
-- **Progress**: REQ-4 DONE (`8a647a2b` — InstantiateOpts budget threaded
-  into all component instantiate entries + Linker.instantiate;
-  component.InstantiateOpts re-export). REQ-3 DONE (`ef1bdbb0` — public
-  `WitType` tree + `resolveType`/`resolveFuncSig` in new
-  feature/component/wit_type.zig; methods on ComponentInstance +
-  BuiltComponent). NEXT: REQ-2 (labels) → REQ-6 (diag) → REQ-1 (open) →
-  REQ-5 (drop).
+- **Cycles-remaining**: ~2
+- **Progress**: REQ-4 DONE (`8a647a2b` + `336c9db4` test-all caller fix —
+  InstantiateOpts budget). REQ-3 DONE (`ef1bdbb0` — `WitType` +
+  resolveType/resolveFuncSig in feature/component/wit_type.zig). REQ-2
+  DONE (`115f6be9` — enum/variant/flags labels borrow in value tree;
+  output self-describing, input by ordinal). REQ-6 DONE (`0af412ce` —
+  typed-invoke diagnostics + EXTRACTED component.zig tests to
+  component_tests.zig 2007→529 lines). REMAINING: REQ-1 (unified
+  `comp.open` + `Opened` union handle, delegating methods + predicate)
+  → REQ-5 (`Opened.dropResource` host-facing, reaches guest_resources +
+  destructor). NOTE: component.zig is lean (529) again — room for both.
+  cw handover (COMPLETED) written at the very end.
 - **Continuity-memo**: 6 cw CM-API requests (below). USER GO GIVEN
   2026-06-13 ("finished-form priority over impl difficulty; you decide
   the shape / provide both"). Design decisions made (finished-form):
