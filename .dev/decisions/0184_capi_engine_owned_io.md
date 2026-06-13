@@ -1,9 +1,12 @@
 # ADR-0184 — C-API: engine-owned `std.Io` for WASI preopens / inherit-env
 
 > **Doc-state**: ACTIVE
-> Status: Accepted (user-approved 2026-06-13 after the investigation
-> addendum; supersedes the ADR-0143 removal of the preopen/inherit-env
-> declarations — implementation scheduled as the next /continue chunk)
+> Status: Implemented 2026-06-13 (steps 1–4: `0f9dcfc6` engine-owned io,
+> `12d71f5d` preopen_dir, `8be99968` inherit_env, + C-API preopen e2e
+> smoke `test/c_api_conformance/wasi_preopen.c`; D-255 discharged.
+> `inherit_argv` stays deferred — no Zig-0.16 library-side process-args
+> path. User-approved 2026-06-13 after the investigation addendum;
+> supersedes the ADR-0143 removal of the preopen/inherit-env declarations)
 
 ## Context
 
