@@ -5,34 +5,21 @@
 
 ## Active campaign — spec re-vendor → alpha.3 tag (USER-AUTHORIZED; option A chosen 2026-06-14)
 
-VERIFIED FINDING (2026-06-14, web-裏取り): Wasm 3.0 is a LIVING spec (latest
-release dated 2026-06-13 = spec `main` b1c5da6a), NOT a frozen 2025 Rec.
-Consequences, confirmed empirically:
-- **1.0/2.0 corpora**: correctly frozen (bake from `wg-2.0`; re-bake = semantically
-  identical, only cosmetic `$`-sigil + benign wasm-tools byte-churn). CURRENT.
-  Baking 2.0 from `main` was MY ERROR (pulled post-3.0 content → false failures).
-- **3.0 corpus**: BEHIND. It bakes from the frozen proposal repos (Dec-2024/
-  Mar-2025), but the living-3.0 `main` test/core/{gc,…} has evolved — gc
-  `array.wast` 47 vs 39 asserts (+8), `type-subtyping.wast` 73 vs 47 (+26), a
-  renamed file. So the 3.0 corpus genuinely trails the latest 3.0 by real new
-  assertions. THIS is the legitimate re-vendor work.
-Re-bake = VALIDATE-then-REVERT (corpus is a snapshot; never commit byte-churn —
-D-290, in runbook). Mechanism DONE: refdialect.py `44711469` + runbook.
-1.0/2.0/simd/threads current; only 3.0 needs re-vendor.
-SOURCE = `wg-3.0` tag (Wasm 3.0 Recommendation, 2025-09-26) — the canonical
-"latest 3.0" (gc 620 asserts vs corpus-source 578). Layout: gc/exceptions/
-memory64/multi-memory = clean subdirs; tail-call/function-references = merged
-top-level (curated names).
+Full plan/findings: **`private/spec_revendor_campaign.md`**. Verified (web 裏取り
++ local): 1.0/2.0/simd/threads CURRENT (frozen `wg` tags; baking 2.0 from `main`
+was MY error). Only the **3.0 corpus** is behind — it baked from PRE-MERGE frozen
+proposal repos, trailing the Wasm 3.0 Recommendation. SOURCE for re-vendor =
+**`wg-3.0` tag** (2025-09-26; gc/exceptions/memory64/multi-memory = clean
+subdirs, tail-call/func-refs = merged top-level). Mechanism DONE: refdialect.py
+`44711469` + runbook. Discipline = VALIDATE-then-REVERT (commit only semantic
+deltas, never byte-churn — D-290).
 SLICE 1 DONE `335a0107`: gc re-vendored from wg-3.0 — array/array_init_data/
 array_new_data/type-subtyping additions incorporated, runtime PASSES (test-spec-
-wasm-3.0-assert green rc=0, 0 new skip-impl). FINDING: wg-3.0's `extern.wast`
-multi-value asserts (+13) FAIL on the runtime = the known multi-value-execution
-gap (runner note "follow-on cycles") → DEFERRED (extern left at old bake); not a
-regression. So full wg-3.0 conformance needs the multi-value-exec fix eventually.
-NEXT: slices 2-6 (exceptions/memory64/multi-memory subdirs; tail-call/func-refs
-top-level) — same pattern (refresh raw from wg-3.0 → re-bake → commit passing
-deltas, defer known-gap asserts) → 3-host → surface alpha.3 (outward-facing;
-user-only). Each may surface more known-gap deferrals.
+wasm-3.0-assert green, 0 new skip-impl). Known gap: wg-3.0 `extern` multi-value
+asserts fail (the runner's documented multi-value-exec gap) → DEFERRED, not a
+regression. NEXT: slices 2-6 (exceptions/memory64/multi-memory/tail-call/
+func-refs), same pattern (commit passing deltas, defer known-gap asserts) →
+3-host → surface alpha.3 (outward-facing; user-only).
 
 ## Current state
 
