@@ -25,14 +25,14 @@
     `BuiltComponent.dropResource` (removes handle + runs destructor).
   - cljw handover written `COMPLETED` →
     `$MY/ClojureWasmFromScratch/private/20260613_handover_from_zwasm/handover.md`
-    (pin commit `5795c3d0`). docs §3.9 synced.
-- **D-325 OPEN (now)** — latent guest-resource DESTRUCTOR-run bug surfaced
-  by REQ-5: running a wit-bindgen dtor (resource_counter) traps `globalGet`
-  OOB — the dtor resolves to a shim instance (component_wasi_p2.zig:1791),
-  SHARED with the guest-side `resource.drop` path (equally untested). Host
-  drop's REMOVAL contract is sound (handle freed before dtor); only the
-  dtor-run is affected (surfaced as DestructorTrapped). Fix = resolve the
-  dtor's true owning instance.
+    (pin commit **`65a760e2`**). docs §3.9 synced.
+- **D-325 FIXED + closed (`65a760e2`)** — cross-instance
+  `call_indirect`/`call_ref` ran the callee in the CALLER's runtime context;
+  a guest func reached through a wit-bindgen shim's `$imports` table executed
+  against the shim's empty globals → `globalGet` OOB (the REQ-5 dtor trap).
+  Fix: a foreign-runtime funcref runs in ITS context via new
+  `invokeCrossRuntime` (shared by call_indirect/call_ref + cross_module.thunk,
+  single source). REQ-5 dtor now runs cleanly; 3-host + test-all green.
 - **D-324 CLOSED** (memory64 × multi-memory bulk-op; B1–B4+JIT).
 - **D-290 progressed**: regen_spec_2_0_assert.sh + regen_wasmtime_misc.sh
   swapped to wasm-tools. REMAINING blocked = only regen_spec_simd_assert.sh
@@ -43,9 +43,6 @@
 
 ## NEXT (autonomous)
 
-- **D-325** — fix guest-dtor instance resolution (run resource_counter dtor
-  cleanly from host `dropResource` + a guest `resource.drop`); then flip the
-  REQ-5 test from "tolerate DestructorTrapped" to "drop succeeds + side-effect".
 - **D-290** — regen_spec_simd_assert.sh (v128) wasm-tools swap + flake
   wabt-pin drop (the last blocked distillers).
 - Debt long-tail · §1.3 backlog demand-driven · D-323 (NTSTATUS, blocked-by).
@@ -69,7 +66,7 @@
 - **Surfaces**: C-API 293/293 (+preopen_dir/inherit_env per ADR-0184) ·
   Zig-API complete (docs §3.9) · lean CLI · memory-safety sound ·
   dogfooded into cw v1. Runners ReleaseSafe (ADR-0177).
-- Debt ledger: D-325 (now); rest `blocked-by`/`note` long-tail.
+- Debt ledger: zero `now` rows; rest `blocked-by`/`note` long-tail.
 
 ## Key refs
 
