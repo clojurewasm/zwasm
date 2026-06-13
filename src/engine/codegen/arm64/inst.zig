@@ -664,6 +664,13 @@ pub fn encCbz(rt: Xn, disp_words: i32) u32 {
     return 0xB4000000 | (masked << 5) | @as(u32, rt);
 }
 
+/// `CBNZ Xn, disp` — 64-bit form, branch when Xn != 0.
+/// Encoding: `1 011010 1 [imm19:19] [Rt:5]` = `0xB5000000`.
+pub fn encCbnz(rt: Xn, disp_words: i32) u32 {
+    const masked: u32 = @as(u32, @bitCast(disp_words)) & 0x0007FFFF;
+    return 0xB5000000 | (masked << 5) | @as(u32, rt);
+}
+
 /// `B.cond disp` — conditional branch; 19-bit signed offset.
 /// Encoding: `01010100 [imm19:19] 0 [cond:4]` = `0x54000000`.
 pub fn encBCond(cond: Cond, disp_words: i32) u32 {

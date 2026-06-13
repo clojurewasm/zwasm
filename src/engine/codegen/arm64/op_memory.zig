@@ -594,6 +594,12 @@ pub fn emitMemoryFill(ctx: *EmitCtx) Error!void {
     const n_v = ctx.pushed_vregs.pop().?;
     const val_v = ctx.pushed_vregs.pop().?;
     const dst_v = ctx.pushed_vregs.pop().?;
+    // D-324 — i64-indexed (memory64) memory: dst + n are full u64
+    // operands; capture X-form and use the no-overflow bounds scheme
+    // (W-form capture truncated addresses ≥ 2^32 to their low bits).
+    const is64 = bulkIs64(ctx);
+    const cbz: *const fn (inst.Xn, i32) u32 = if (is64) inst.encCbz else inst.encCbzW;
+    const cbnz: *const fn (inst.Xn, i32) u32 = if (is64) inst.encCbnz else inst.encCbnzW;
 
     // Step A: Load each operand into a stable private holder.
     //
@@ -609,40 +615,35 @@ pub fn emitMemoryFill(ctx: *EmitCtx) Error!void {
     //              X16 = val (low byte used),
     //              X14 = n   (counter, zero-extended u32).
     const w_dst_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, dst_v, 0);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(17, 31, w_dst_src));
+    try gpr.writeU32(ctx.allocator, ctx.buf, (@as(*const fn (inst.Xn, inst.Xn, inst.Xn) u32, if (is64) inst.encOrrReg else inst.encOrrRegW))(17, 31, w_dst_src));
     const w_val_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, val_v, 0);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(16, 31, w_val_src));
     const w_n_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, n_v, 0);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(14, 31, w_n_src));
+    try gpr.writeU32(ctx.allocator, ctx.buf, (@as(*const fn (inst.Xn, inst.Xn, inst.Xn) u32, if (is64) inst.encOrrReg else inst.encOrrRegW))(14, 31, w_n_src));
 
     // Step B: Bounds check — trap if dst + n > mem_size.
-    // X17 = dst (zero-extended u32 in the upper-bits-zero X17 from
-    // the W-form ORR above), X14 = n (likewise zero-extended).
-    // ADD X15, X17, X14 ; X15 = dst + n  (both u32 → result < 2^33)
-    // CMP X15, X27
-    // B.HI  trap_stub
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(15, 17, 14));
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(15, 27));
-    const fixup_at: u32 = @intCast(ctx.buf.items.len);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hi, 0));
-    try ctx.oob_fixups.append(ctx.allocator, fixup_at);
-    trace.writeBounds(ctx.func.func_idx, fixup_at);
+    // i32 path: ADD X15, X17, X14 (both zero-extended u32 → sum
+    // < 2^33, no overflow); CMP X15, X27; B.HI trap.
+    // i64 path (D-324): dst + n can wrap u64 — use the no-overflow
+    // scheme instead: n > limit → trap; dst > limit - n → trap.
+    try emitBulkBounds(ctx, is64, 17, 14);
 
     // Step C: Convert dst index to absolute pointer.
     // X17 = X28 + X17 (vm_base + dst_idx).
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(17, 28, 17));
 
     // Step D: If n == 0, skip the loop.
-    // CBZ W14, .end  (forward branch — patched after loop end).
+    // CBZ {W,X}14, .end  (forward branch — patched after loop end;
+    // X-form on memory64 — n can legitimately exceed 2^32).
     const skip_at: u32 = @intCast(ctx.buf.items.len);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbzW(14, 0));
+    try gpr.writeU32(ctx.allocator, ctx.buf, cbz(14, 0));
 
     // Step E: Loop body.
     //   .loop:
     //     STRB W16, [X17]      ; *X17 = val (low byte)
     //     ADD  X17, X17, #1    ; X17++
-    //     SUB  X14, X14, #1    ; X14--  (CBNZ checks W14)
-    //     CBNZ W14, .loop
+    //     SUB  X14, X14, #1    ; X14--  (CBNZ checks {W,X}14)
+    //     CBNZ {W,X}14, .loop
     const loop_start: u32 = @intCast(ctx.buf.items.len);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrbImm(16, 17, 0));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(17, 17, 1));
@@ -651,7 +652,7 @@ pub fn emitMemoryFill(ctx: *EmitCtx) Error!void {
         @as(i32, @intCast(loop_start)) - @as(i32, @intCast(ctx.buf.items.len)),
         4,
     );
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbnzW(14, back_disp_words));
+    try gpr.writeU32(ctx.allocator, ctx.buf, cbnz(14, back_disp_words));
 
     // Step F: Patch the CBZ skip target to land here (post-loop).
     const end_byte: u32 = @intCast(ctx.buf.items.len);
@@ -659,7 +660,46 @@ pub fn emitMemoryFill(ctx: *EmitCtx) Error!void {
         @as(i32, @intCast(end_byte)) - @as(i32, @intCast(skip_at)),
         4,
     ));
-    std.mem.writeInt(u32, ctx.buf.items[skip_at..][0..4], inst.encCbzW(14, skip_disp_words), .little);
+    std.mem.writeInt(u32, ctx.buf.items[skip_at..][0..4], cbz(14, skip_disp_words), .little);
+}
+
+/// D-324 — is this module's (single, memidx-0) memory i64-indexed?
+/// Comptime-pruned below v3.0, mirroring `emitMemOp`'s gate.
+inline fn bulkIs64(ctx: *EmitCtx) bool {
+    if (comptime @intFromEnum(build_options.wasm_level) >= @intFromEnum(@TypeOf(build_options.wasm_level).v3_0)) {
+        return ctx.memory0_idx_type == .i64;
+    }
+    return false;
+}
+
+/// D-324 — bulk-op bounds check: trap when `base + n > mem_limit`
+/// (X27). `base_x` / `n_x` name the holder registers. The i32 path
+/// keeps the historical byte-identical ADD/CMP/B.HI (both operands
+/// are zero-extended u32 → the sum cannot wrap). The i64 path's
+/// operands are full u64 where `base + n` CAN wrap — use the
+/// subtraction scheme: `n > limit` → trap; `base > limit - n` → trap.
+/// Clobbers X15.
+fn emitBulkBounds(ctx: *EmitCtx, is64: bool, base_x: inst.Xn, n_x: inst.Xn) Error!void {
+    if (is64) {
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(n_x, 27));
+        const fixup_n_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hi, 0));
+        try ctx.oob_fixups.append(ctx.allocator, fixup_n_at);
+        trace.writeBounds(ctx.func.func_idx, fixup_n_at);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encSubReg(15, 27, n_x));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(base_x, 15));
+        const fixup_base_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hi, 0));
+        try ctx.oob_fixups.append(ctx.allocator, fixup_base_at);
+        trace.writeBounds(ctx.func.func_idx, fixup_base_at);
+        return;
+    }
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(15, base_x, n_x));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(15, 27));
+    const fixup_at: u32 = @intCast(ctx.buf.items.len);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hi, 0));
+    try ctx.oob_fixups.append(ctx.allocator, fixup_at);
+    trace.writeBounds(ctx.func.func_idx, fixup_at);
 }
 
 /// Wasm spec §4.4.7 (memory.copy) — pop n / src / dst (top→bottom);
@@ -692,30 +732,27 @@ pub fn emitMemoryCopy(ctx: *EmitCtx) Error!void {
     const n_v = ctx.pushed_vregs.pop().?;
     const src_v = ctx.pushed_vregs.pop().?;
     const dst_v = ctx.pushed_vregs.pop().?;
+    // D-324 — memory64: dst / src / n are full u64 (JIT compiles only
+    // memidx 0, so the memories are uniform and it_min = i64 too).
+    const is64 = bulkIs64(ctx);
+    const cbz: *const fn (inst.Xn, i32) u32 = if (is64) inst.encCbz else inst.encCbzW;
+    const cbnz: *const fn (inst.Xn, i32) u32 = if (is64) inst.encCbnz else inst.encCbnzW;
+    const cmp_imm: *const fn (inst.Xn, u12) u32 = if (is64) inst.encCmpImmX else inst.encCmpImmW;
+    const capture: *const fn (inst.Xn, inst.Xn, inst.Xn) u32 = if (is64) inst.encOrrReg else inst.encOrrRegW;
 
     // Step A: capture into private holders X17 / X16 / X14.
     const w_dst_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, dst_v, 0);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(17, 31, w_dst_src));
+    try gpr.writeU32(ctx.allocator, ctx.buf, capture(17, 31, w_dst_src));
     const w_src_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_v, 0);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(16, 31, w_src_src));
+    try gpr.writeU32(ctx.allocator, ctx.buf, capture(16, 31, w_src_src));
     const w_n_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, n_v, 0);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(14, 31, w_n_src));
+    try gpr.writeU32(ctx.allocator, ctx.buf, capture(14, 31, w_n_src));
 
-    // Step B1: Bounds check dst + n.
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(15, 17, 14));
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(15, 27));
-    const fixup_dst_at: u32 = @intCast(ctx.buf.items.len);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hi, 0));
-    try ctx.oob_fixups.append(ctx.allocator, fixup_dst_at);
-    trace.writeBounds(ctx.func.func_idx, fixup_dst_at);
+    // Step B1: Bounds check dst + n. (D-324: overflow-safe on i64.)
+    try emitBulkBounds(ctx, is64, 17, 14);
 
     // Step B2: Bounds check src + n.
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(15, 16, 14));
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(15, 27));
-    const fixup_src_at: u32 = @intCast(ctx.buf.items.len);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hi, 0));
-    try ctx.oob_fixups.append(ctx.allocator, fixup_src_at);
-    trace.writeBounds(ctx.func.func_idx, fixup_src_at);
+    try emitBulkBounds(ctx, is64, 16, 14);
 
     // Step C: Convert indices to absolute pointers.
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(17, 28, 17)); // dst_p = vm_base + dst
@@ -723,7 +760,7 @@ pub fn emitMemoryCopy(ctx: *EmitCtx) Error!void {
 
     // Step D: If n == 0, skip both loops.
     const skip_zero_at: u32 = @intCast(ctx.buf.items.len);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbzW(14, 0));
+    try gpr.writeU32(ctx.allocator, ctx.buf, cbz(14, 0));
 
     // Step E: Direction switch.
     //   CMP X17, X16          ; dst <=> src
@@ -741,7 +778,7 @@ pub fn emitMemoryCopy(ctx: *EmitCtx) Error!void {
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(16, 16, 14));
     // .bwd_word: while (n >= 8) { dst-=8; src-=8; *dst = *src; n-=8; }
     const bwd_word_top: u32 = @intCast(ctx.buf.items.len);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmW(14, 8));
+    try gpr.writeU32(ctx.allocator, ctx.buf, cmp_imm(14, 8));
     const bwd_word_exit_at: u32 = @intCast(ctx.buf.items.len);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.lo, 0)); // B.lo .bwd_tail (fixup)
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encSubImm12(17, 17, 8));
@@ -760,14 +797,14 @@ pub fn emitMemoryCopy(ctx: *EmitCtx) Error!void {
         4,
     )), .little);
     const bwd_tail_skip_at: u32 = @intCast(ctx.buf.items.len);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbzW(14, 0)); // CBZ W14, .bwd_done (fixup)
+    try gpr.writeU32(ctx.allocator, ctx.buf, cbz(14, 0)); // CBZ W14, .bwd_done (fixup)
     const bwd_tail_loop: u32 = @intCast(ctx.buf.items.len);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encSubImm12(17, 17, 1));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encSubImm12(16, 16, 1));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrbImm(15, 16, 0));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrbImm(15, 17, 0));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encSubImm12(14, 14, 1));
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbnzW(14, @divExact(
+    try gpr.writeU32(ctx.allocator, ctx.buf, cbnz(14, @divExact(
         @as(i32, @intCast(bwd_tail_loop)) - @as(i32, @intCast(ctx.buf.items.len)),
         4,
     )));
@@ -775,7 +812,7 @@ pub fn emitMemoryCopy(ctx: *EmitCtx) Error!void {
     const bwd_end_jmp_at: u32 = @intCast(ctx.buf.items.len);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encB(0));
     // Patch the no-tail CBZ to skip straight to .bwd_done (the B→.end).
-    std.mem.writeInt(u32, ctx.buf.items[bwd_tail_skip_at..][0..4], inst.encCbzW(14, @divExact(
+    std.mem.writeInt(u32, ctx.buf.items[bwd_tail_skip_at..][0..4], cbz(14, @divExact(
         @as(i32, @intCast(bwd_end_jmp_at)) - @as(i32, @intCast(bwd_tail_skip_at)),
         4,
     )), .little);
@@ -788,7 +825,7 @@ pub fn emitMemoryCopy(ctx: *EmitCtx) Error!void {
     )), .little);
     // .fwd_word: while (n >= 8) { *dst = *src; dst+=8; src+=8; n-=8; }
     const fwd_word_top: u32 = @intCast(ctx.buf.items.len);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmW(14, 8));
+    try gpr.writeU32(ctx.allocator, ctx.buf, cmp_imm(14, 8));
     const fwd_word_exit_at: u32 = @intCast(ctx.buf.items.len);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.lo, 0)); // B.lo .fwd_tail (fixup)
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(15, 16, 0));
@@ -807,21 +844,21 @@ pub fn emitMemoryCopy(ctx: *EmitCtx) Error!void {
         4,
     )), .little);
     const fwd_tail_skip_at: u32 = @intCast(ctx.buf.items.len);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbzW(14, 0)); // CBZ W14, .end (fixup)
+    try gpr.writeU32(ctx.allocator, ctx.buf, cbz(14, 0)); // CBZ W14, .end (fixup)
     const fwd_tail_loop: u32 = @intCast(ctx.buf.items.len);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrbImm(15, 16, 0));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrbImm(15, 17, 0));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(17, 17, 1));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(16, 16, 1));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encSubImm12(14, 14, 1));
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbnzW(14, @divExact(
+    try gpr.writeU32(ctx.allocator, ctx.buf, cbnz(14, @divExact(
         @as(i32, @intCast(fwd_tail_loop)) - @as(i32, @intCast(ctx.buf.items.len)),
         4,
     )));
 
     // .end: patch the n==0 skip, the bwd path's exit jump, and the fwd no-tail skip.
     const end_byte: u32 = @intCast(ctx.buf.items.len);
-    std.mem.writeInt(u32, ctx.buf.items[skip_zero_at..][0..4], inst.encCbzW(14, @divExact(
+    std.mem.writeInt(u32, ctx.buf.items[skip_zero_at..][0..4], cbz(14, @divExact(
         @as(i32, @intCast(end_byte)) - @as(i32, @intCast(skip_zero_at)),
         4,
     )), .little);
@@ -829,7 +866,7 @@ pub fn emitMemoryCopy(ctx: *EmitCtx) Error!void {
         @as(i32, @intCast(end_byte)) - @as(i32, @intCast(bwd_end_jmp_at)),
         4,
     )), .little);
-    std.mem.writeInt(u32, ctx.buf.items[fwd_tail_skip_at..][0..4], inst.encCbzW(14, @divExact(
+    std.mem.writeInt(u32, ctx.buf.items[fwd_tail_skip_at..][0..4], cbz(14, @divExact(
         @as(i32, @intCast(end_byte)) - @as(i32, @intCast(fwd_tail_skip_at)),
         4,
     )), .little);
@@ -863,9 +900,12 @@ pub fn emitMemoryInit(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const dst_v = ctx.pushed_vregs.pop().?;
 
     // Step A: capture operands into X17 / X16 / X14 (W-form copies
-    // zero-extend to 64-bit; safe since Wasm i32 ops never set bit 32+).
+    // zero-extend to 64-bit; safe since Wasm i32 ops never set bit
+    // 32+). D-324: dst is the TARGET memory's address — full u64
+    // X-form on memory64; src + n stay i32 (data-segment offsets).
+    const is64 = bulkIs64(ctx);
     const w_dst_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, dst_v, 0);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(17, 31, w_dst_src));
+    try gpr.writeU32(ctx.allocator, ctx.buf, (@as(*const fn (inst.Xn, inst.Xn, inst.Xn) u32, if (is64) inst.encOrrReg else inst.encOrrRegW))(17, 31, w_dst_src));
     const w_src_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_v, 0);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(16, 31, w_src_src));
     const w_n_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, n_v, 0);
@@ -900,15 +940,11 @@ pub fn emitMemoryInit(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         trace.writeBounds(ctx.func.func_idx, fixup_at);
     }
 
-    // Step D2: bounds — dst + n > mem_limit (X27) → trap.
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(sx12, 17, 14));
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(sx12, 27));
-    {
-        const fixup_at: u32 = @intCast(ctx.buf.items.len);
-        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hi, 0));
-        try ctx.oob_fixups.append(ctx.allocator, fixup_at);
-        trace.writeBounds(ctx.func.func_idx, fixup_at);
-    }
+    // Step D2: bounds — dst + n > mem_limit (X27) → trap. D-324: on
+    // memory64 dst is full u64 and `dst + n` can wrap — the helper's
+    // i64 arm uses the subtraction scheme. X15 (seg.len) is dead
+    // after D1, so the helper's X15 clobber is safe.
+    try emitBulkBounds(ctx, is64, 17, 14);
 
     // Step E: if n == 0, skip the copy (CBZ on W14 — Wasm n is i32).
     const skip_zero_at: u32 = @intCast(ctx.buf.items.len);

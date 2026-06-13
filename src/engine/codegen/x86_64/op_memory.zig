@@ -536,6 +536,7 @@ pub fn emitMemoryFillCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!
         ctx.oob_fixups,
         ctx.spill_base_off,
         ctx.func_idx,
+        bulkIs64(ctx),
     );
 }
 
@@ -549,6 +550,7 @@ pub fn emitMemoryCopyCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!
         ctx.oob_fixups,
         ctx.spill_base_off,
         ctx.func_idx,
+        bulkIs64(ctx),
     );
 }
 
@@ -562,7 +564,58 @@ pub fn emitMemoryInitCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!
         ctx.spill_base_off,
         ctx.func_idx,
         @as(u32, @intCast(ins.payload)),
+        bulkIs64(ctx),
     );
+}
+
+/// D-324 — is this module's (single, memidx-0) memory i64-indexed?
+/// Comptime-pruned below v3.0; mirrors arm64 op_memory.zig bulkIs64.
+inline fn bulkIs64(ctx: *ctx_mod.EmitCtx) bool {
+    if (comptime @intFromEnum(build_options.wasm_level) >= @intFromEnum(@TypeOf(build_options.wasm_level).v3_0)) {
+        return ctx.memory0_idx_type == .i64;
+    }
+    return false;
+}
+
+/// D-324 — bulk-op bounds check: trap when `base + n(R10) > mem_limit`.
+/// i32 path keeps the historical MOV.d/ADD/CMP/JA (zero-extended u32
+/// operands cannot wrap). i64 path's operands are full u64 where
+/// `base + n` CAN wrap — subtraction scheme: `n > limit` → trap;
+/// `base > limit - n` → trap. Clobbers RAX.
+fn emitBulkBounds(
+    allocator: Allocator,
+    buf: *std.ArrayList(u8),
+    oob_fixups: *std.ArrayList(u32),
+    func_idx: u32,
+    is64: bool,
+    base: inst.Gpr,
+) Error!void {
+    if (is64) {
+        try buf.appendSlice(allocator, inst.encCmpR64MemDisp32(.r10, abi.runtime_ptr_save_gpr, jit_abi.mem_limit_off).slice());
+        {
+            const fixup_at: u32 = @intCast(buf.items.len);
+            try buf.appendSlice(allocator, inst.encJccRel32(.a, 0).slice());
+            try oob_fixups.append(allocator, fixup_at);
+            trace.writeBounds(func_idx, fixup_at);
+        }
+        try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.mem_limit_off).slice());
+        try buf.appendSlice(allocator, inst.encSubRR(.q, .rax, .r10).slice());
+        try buf.appendSlice(allocator, inst.encCmpRR(.q, base, .rax).slice());
+        {
+            const fixup_at: u32 = @intCast(buf.items.len);
+            try buf.appendSlice(allocator, inst.encJccRel32(.a, 0).slice());
+            try oob_fixups.append(allocator, fixup_at);
+            trace.writeBounds(func_idx, fixup_at);
+        }
+        return;
+    }
+    try buf.appendSlice(allocator, inst.encMovRR(.d, .rax, base).slice());
+    try buf.appendSlice(allocator, inst.encAddRR(.q, .rax, .r10).slice());
+    try buf.appendSlice(allocator, inst.encCmpR64MemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.mem_limit_off).slice());
+    const fixup_at: u32 = @intCast(buf.items.len);
+    try buf.appendSlice(allocator, inst.encJccRel32(.a, 0).slice());
+    try oob_fixups.append(allocator, fixup_at);
+    trace.writeBounds(func_idx, fixup_at);
 }
 
 // ============================================================
@@ -622,6 +675,7 @@ pub fn emitMemoryFill(
     oob_fixups: *std.ArrayList(u32),
     spill_base_off: u32,
     func_idx: u32,
+    is64: bool,
 ) Error!void {
     if (pushed_vregs.items.len < 3) return Error.AllocationMissing;
     const n_v = pushed_vregs.pop().?;
@@ -629,25 +683,22 @@ pub fn emitMemoryFill(
     const dst_v = pushed_vregs.pop().?;
 
     // Step A: load each operand and capture into private holders.
-    //   dst → RCX (32-bit MOV zero-extends to RCX),
+    //   dst → RCX (32-bit MOV zero-extends to RCX; D-324: full
+    //         64-bit MOV on memory64 — dst/n are u64 there),
     //   val → RDX (low byte goes to DL),
     //   n   → R10 (overwriting stage 0 since all spill-loads done
     //         after this point).
+    const addr_w: inst.Width = if (is64) .q else .d;
     const dst_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, dst_v, 0);
-    try buf.appendSlice(allocator, inst.encMovRR(.d, .rcx, dst_r).slice());
+    try buf.appendSlice(allocator, inst.encMovRR(addr_w, .rcx, dst_r).slice());
     const val_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, val_v, 0);
     try buf.appendSlice(allocator, inst.encMovRR(.d, .rdx, val_r).slice());
     const n_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, n_v, 0);
-    try buf.appendSlice(allocator, inst.encMovRR(.d, .r10, n_r).slice());
+    try buf.appendSlice(allocator, inst.encMovRR(addr_w, .r10, n_r).slice());
 
-    // Step B: bounds check — RAX = dst + n; cmp RAX, mem_limit.
-    try buf.appendSlice(allocator, inst.encMovRR(.d, .rax, .rcx).slice()); // zero-extends u32
-    try buf.appendSlice(allocator, inst.encAddRR(.q, .rax, .r10).slice());
-    try buf.appendSlice(allocator, inst.encCmpR64MemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.mem_limit_off).slice());
-    const fixup_at: u32 = @intCast(buf.items.len);
-    try buf.appendSlice(allocator, inst.encJccRel32(.a, 0).slice());
-    try oob_fixups.append(allocator, fixup_at);
-    trace.writeBounds(func_idx, fixup_at);
+    // Step B: bounds check — dst + n > mem_limit → trap (D-324:
+    // overflow-safe subtraction scheme on memory64).
+    try emitBulkBounds(allocator, buf, oob_fixups, func_idx, is64, .rcx);
 
     // Step C: convert dst to absolute pointer.
     //   MOV RAX, [R15 + vm_base_off]
@@ -725,41 +776,29 @@ pub fn emitMemoryCopy(
     oob_fixups: *std.ArrayList(u32),
     spill_base_off: u32,
     func_idx: u32,
+    is64: bool,
 ) Error!void {
     if (pushed_vregs.items.len < 3) return Error.AllocationMissing;
     const n_v = pushed_vregs.pop().?;
     const src_v = pushed_vregs.pop().?;
     const dst_v = pushed_vregs.pop().?;
 
-    // Step A: capture operands into RCX, RDX, R10.
+    // Step A: capture operands into RCX, RDX, R10. D-324: full
+    // 64-bit MOVs on memory64 (dst/src/n are u64 — the JIT compiles
+    // only memidx 0, so the memories are uniform and it_min = i64).
+    const addr_w: inst.Width = if (is64) .q else .d;
     const dst_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, dst_v, 0);
-    try buf.appendSlice(allocator, inst.encMovRR(.d, .rcx, dst_r).slice());
+    try buf.appendSlice(allocator, inst.encMovRR(addr_w, .rcx, dst_r).slice());
     const src_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
-    try buf.appendSlice(allocator, inst.encMovRR(.d, .rdx, src_r).slice());
+    try buf.appendSlice(allocator, inst.encMovRR(addr_w, .rdx, src_r).slice());
     const n_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, n_v, 0);
-    try buf.appendSlice(allocator, inst.encMovRR(.d, .r10, n_r).slice());
+    try buf.appendSlice(allocator, inst.encMovRR(addr_w, .r10, n_r).slice());
 
-    // Step B1: bounds check dst + n.
-    try buf.appendSlice(allocator, inst.encMovRR(.d, .rax, .rcx).slice());
-    try buf.appendSlice(allocator, inst.encAddRR(.q, .rax, .r10).slice());
-    try buf.appendSlice(allocator, inst.encCmpR64MemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.mem_limit_off).slice());
-    {
-        const fixup_at: u32 = @intCast(buf.items.len);
-        try buf.appendSlice(allocator, inst.encJccRel32(.a, 0).slice());
-        try oob_fixups.append(allocator, fixup_at);
-        trace.writeBounds(func_idx, fixup_at);
-    }
+    // Step B1: bounds check dst + n. (D-324: overflow-safe on i64.)
+    try emitBulkBounds(allocator, buf, oob_fixups, func_idx, is64, .rcx);
 
     // Step B2: bounds check src + n.
-    try buf.appendSlice(allocator, inst.encMovRR(.d, .rax, .rdx).slice());
-    try buf.appendSlice(allocator, inst.encAddRR(.q, .rax, .r10).slice());
-    try buf.appendSlice(allocator, inst.encCmpR64MemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.mem_limit_off).slice());
-    {
-        const fixup_at: u32 = @intCast(buf.items.len);
-        try buf.appendSlice(allocator, inst.encJccRel32(.a, 0).slice());
-        try oob_fixups.append(allocator, fixup_at);
-        trace.writeBounds(func_idx, fixup_at);
-    }
+    try emitBulkBounds(allocator, buf, oob_fixups, func_idx, is64, .rdx);
 
     // Step C: convert dst / src to absolute pointers.
     //   MOV RAX, [R15 + vm_base_off]
@@ -909,6 +948,7 @@ pub fn emitMemoryInit(
     spill_base_off: u32,
     func_idx: u32,
     dataidx: u32,
+    is64: bool,
 ) Error!void {
     // Encoding-budget guard: 16-byte stride means disp32 always
     // suffices for realistic segment counts. Match the arm64 path's
@@ -922,9 +962,11 @@ pub fn emitMemoryInit(
     const dst_v = pushed_vregs.pop().?;
 
     // Step A: capture pop'd operands into RCX, RDX, R10 (private
-    // holders that survive subsequent spill-aware loads).
+    // holders that survive subsequent spill-aware loads). D-324: dst
+    // is the TARGET memory's address — full 64-bit MOV on memory64;
+    // src + n stay i32 (data-segment offsets).
     const dst_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, dst_v, 0);
-    try buf.appendSlice(allocator, inst.encMovRR(.d, .rcx, dst_r).slice());
+    try buf.appendSlice(allocator, inst.encMovRR(if (is64) .q else .d, .rcx, dst_r).slice());
     const src_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, src_v, 0);
     try buf.appendSlice(allocator, inst.encMovRR(.d, .rdx, src_r).slice());
     const n_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, n_v, 0);
@@ -970,16 +1012,9 @@ pub fn emitMemoryInit(
         trace.writeBounds(func_idx, fixup_at);
     }
 
-    // Step D2: bounds — dst + n > mem_limit → trap.
-    try buf.appendSlice(allocator, inst.encMovRR(.d, .rax, .rcx).slice());
-    try buf.appendSlice(allocator, inst.encAddRR(.q, .rax, .r10).slice());
-    try buf.appendSlice(allocator, inst.encCmpR64MemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.mem_limit_off).slice());
-    {
-        const fixup_at: u32 = @intCast(buf.items.len);
-        try buf.appendSlice(allocator, inst.encJccRel32(.a, 0).slice());
-        try oob_fixups.append(allocator, fixup_at);
-        trace.writeBounds(func_idx, fixup_at);
-    }
+    // Step D2: bounds — dst + n > mem_limit → trap. (D-324:
+    // overflow-safe subtraction scheme on memory64.)
+    try emitBulkBounds(allocator, buf, oob_fixups, func_idx, is64, .rcx);
 
     // Step E: if n == 0, skip the copy.
     try buf.appendSlice(allocator, inst.encTestRR(.q, .r10, .r10).slice());
