@@ -3,36 +3,6 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
-  - id: "D-324"
-    layer: "code"
-    status: "now"
-    description: |-
-      memory64 × multi-memory bulk-op correctness gap (measured 2026-06-13, surfaced by the D-290
-      regen_wasmtime_misc wasm-tools swap emitting wasmtime's memory-copy.1.wasm — 2×i32 + 2×i64
-      memories, cross-idx-type memory.copy m32_to_m64 etc.):
-      (1) VALIDATOR: `memAddrType()` returns the MODULE-WIDE `memory0_idx_type` (ADR-0111 D2) —
-      memory.copy/init/fill/size/grow/load/store don't look up the PER-MEMORY idx type, so any
-      module mixing i32- and i64-indexed memories rejects with StackTypeMismatch at 0xfc
-      (verified: `zwasm run memory-copy.1.wasm` → "StackTypeMismatch at op 0xfc"). Wasm 3.0
-      memory.copy x y types operands [it_dst it_src it_min] (it_min = i32 if either side is i32).
-      (2) INTERP: `wasm_2_0/bulk_memory.zig` memoryCopy/memoryFill/memoryInit pop `.i32`
-      UNCONDITIONALLY — on an i64-indexed memory an address like 2^32 silently truncates to 0
-      (wrong region copied, no trap). Latent because of (3).
-      (3) CORPUS: the wasm-3.0 memory64 ACTIVE corpus distills only address64/align64/load64/
-      memory_grow64/memory_redundancy64/memory_trap64; `memory64/raw/memory_copy.wast` (+ fill/
-      init) were NEVER distilled — the "100% spec" state is corpus-relative and this hole hid (1)+(2).
-      FIX (active bundle d324-mem64-bulk): validator per-memory idx_types slice + per-op lookup
-      (copy = it_min rule) → interp pops keyed on rt.memories[memidx].idx_type (+ 64-bit bounds
-      math) → distill the memory64 bulk-op corpora into the active set → regen wasmtime_misc
-      corpus (script already swapped, 065fa116) and confirm basic 74/0 + runtime ~359/0/5.
-      JIT scope note: codegen asserts MemArgExtra.memidx == 0 (10.M-4a) — multi-memory modules
-      don't JIT-compile; the interp is the execution surface for this class. JIT single-memory64
-      bulk ops DO exist — verify they take the i64 path before closing.
-      DISCHARGE: all three numbered gaps closed + the two corpora green 3-host.
-    first_raised: "2026-06-13"
-    last_reviewed: "2026-06-13"
-    refs: |-
-      `src/validate/validator.zig:2181` (opMemoryCopy) `:2907` (memAddrType); `src/instruction/wasm_2_0/bulk_memory.zig:54` (memoryCopy pops .i32); `test/spec/wasm-3.0-assert/memory64/raw/memory_copy.wast` (undistilled); `scripts/regen_wasmtime_misc.sh` (065fa116); D-290 (the surfacing swap); ADR-0111 D2 (memory0_idx_type origin)
   - id: "D-314"
     layer: "code"
     status: "note"
@@ -354,13 +324,13 @@ entries:
       gate-state, or (b) keep wabt for those 3 (one CLI is then NOT achievable — re-scope the goal). Direction
       (a) TAKEN 2026-06-13 (it IS the user's "one modern CLI" want; (b) was the re-scope fallback).
       `rg -n 'wat2wasm|wast2json|wabt' scripts/ build.zig flake.nix` discharge unchanged.
-      UPDATE 2026-06-13: `regen_wasmtime_misc.sh` SWAPPED (065fa116 — signed-value fold + .wat parse +
-      strip --all + embenchen `.1.wasm` skip-curation preserved in-script). Regenerated-corpus gate state:
-      basic 73/1 + runtime 328/31/5 — ALL 31 runtime fails + the 1 basic fail are ONE root cause, the
-      mixed-idx-type memory.copy gap now rowed as **D-324** (active bundle d324-mem64-bulk). Corpus
-      regen+commit lands when D-324 closes (expect basic 74/0, runtime ~359/0/5 incl. the stale
-      externref-segment skip dropping). REMAINING after that: `regen_spec_simd_assert.sh` (v128) + the
-      flake wabt-pin drop (needs windows install_tools.ps1 sync too).
+      UPDATE 2026-06-13: `regen_wasmtime_misc.sh` SWAP COMPLETE (065fa116 script + corpus committed at
+      D-324 close — signed-value fold + .wat parse + strip --all + embenchen `.1.wasm` skip-curation
+      in-script). The regen SURFACED the D-324 mixed-idx-type memory.copy gap (now FIXED + discharged);
+      final gate state basic 74/0 + runtime 359/0/5 (stale externref-segment skip-ADR Closed, fixture
+      PASSes). So `regen_wasmtime_misc.sh` LEAVES the blocked class. REMAINING blocked = only
+      `regen_spec_simd_assert.sh` (v128) + the flake wabt-pin drop (needs windows install_tools.ps1 sync;
+      blocked until the simd distiller swaps). regen_spec_2_0_assert.sh + regen_wasmtime_misc.sh both done.
       Low urgency (current tooling works).
     first_raised: "2026-06-05"
     last_reviewed: "2026-06-13"

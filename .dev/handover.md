@@ -5,110 +5,80 @@
 
 ## Current state
 
-- **ROADMAP widget: Phase 17 = IN-PROGRESS (feature line)** — the
-  **CM + WASI-P2 wasmtime-equivalent campaign CLOSED 2026-06-13**
-  (component_model_plan.md ARCHIVED-IN-PLACE; Retrospective filled:
-  Tier 2 EXCEEDED — typed embedder API ADR-0183, sockets incl. windows
-  AFD readiness with D-319 discharged, guest-defined resources D-322,
-  component default-ON ADR-0182, validator rules 1–12, corpus
-  **158/0/0**, rust+tinygo proofs 3-host green).
-- **ADR-0184 COMPLETE 2026-06-13 (Status: Implemented)** — engine-owned
-  io for C-API WASI: (1) `0f9dcfc6` engine-owned `std.Io.Threaded`;
-  (2) `12d71f5d` `zwasm_wasi_config_preopen_dir`; (3) `8be99968`
-  `zwasm_wasi_config_inherit_env`; (4) `e9cfe566` C-API preopen e2e
-  smoke (`test/c_api_conformance/wasi_preopen.c` + committed guest
-  fixture `wasi_preopen_guest.wat/.wasm`, argv[1]-wired via build.zig
-  `wasm_arg`; red-verified — wrong content fails, missing preopen
-  fails). **D-255 discharged**; **D-007 discharged** (stale "minimal
-  WASI subset" row — full preview1 + CLI preopens/env long landed);
-  ROADMAP 13.3 resolution note appended. `inherit_argv` stays deferred
-  per the ADR (no Zig-0.16 library-side process-args path).
-- **Campaign-close audit DONE** (private/audit-2026-06-13.md): 0 block;
-  health good. Docs sweep + simplify sweep (3/3) done — campaign-grown
-  surfaces clean.
-- **D-290 progressed**: regen_spec_2_0_assert.sh migrated to
-  wasm-tools (swap-GREEN, exact 25437/0/489 parity; + D-148
-  supported_multi staleness fixed). Remaining blocked distillers =
-  regen_wasmtime_misc.sh + regen_spec_simd_assert.sh (re-curation
-  class — per-fixture work, the D-290 row has the full evidence).
-- Mac test/lint green per commit; ubuntu test-all baseline green
-  2026-06-13 (exit 0, post-account-switch re-kick); windows batch not
-  due (last batch landed pre-stop).
-- **CWFS exportedFuncs gap CLOSED `af112e9a` (2026-06-13)** —
-  `TypeInfo.exportedFuncs` now enumerates interface-nested funcs
-  path-qualified `<iface>#<func>` (exactly the `invokeTyped` form;
-  `localInstanceDef` helper shared with exportedFuncIndex). Contract
-  change: names alloc-owned, free via `TypeInfo.freeExportedFuncs`
-  (docs §3.9 synced). Test over resource_counter.wasm; corpus 158/0/0.
-- **D-290 progressed `065fa116`**: regen_wasmtime_misc.sh swapped to
-  wasm-tools (signed fold + .wat parse + strip + embenchen skip
-  curation in-script). Regenerated corpus surfaced ONE root cause for
-  all 31 runtime + 1 basic fails → rowed as **D-324** (memory64 ×
-  multi-memory bulk-op gap: validator memAddrType is module-wide;
-  interp bulk ops pop .i32 unconditionally; memory64 bulk corpora
-  never distilled). Corpus regen+commit lands when D-324 closes.
-- **THEN (after bundle)**: D-290 regen_spec_simd_assert.sh + flake
-  wabt-pin drop · debt long-tail · §1.3 backlog · D-323 blocked-by.
+- **ROADMAP widget: Phase 17 = IN-PROGRESS (feature line)**. CM + WASI-P2
+  wasmtime-equivalent campaign CLOSED 2026-06-13 (corpus 158/0/0).
+- **D-324 CLOSED 2026-06-13 (bundle d324-mem64-bulk, B1–B4 + B-JIT)** —
+  memory64 × multi-memory bulk-op correctness. (B1) validator per-memory
+  `idx_types` slice + `memIdxTypeAt`/`memEntryIdxType`; memory.copy types
+  `[it_dst it_src it_min]` (it_min = i32 if either side i32); load/store/
+  atomics/size/grow/fill/init all per-memidx. (B2) interp bulk pops at
+  validated width (`popAddr`/`memIs64`/`outOfRange`, overflow-safe). (B3)
+  distilled memory64 memory_copy/fill/init + float_memory64 corpora (the
+  suffix-`64` curation hole that hid the gap; wasm-3.0 11937 directives
+  0 fail). (B-JIT) arm64+x86_64 bulk emitters capture X-form/64-bit + the
+  overflow-safe subtraction bounds scheme (`encCbnz` added); 2
+  memory64_bulk edge fixtures. (B4) wast_runner per-memory validation +
+  **regen_wasmtime_misc.sh wasm-tools swap COMMITTED** (basic 74/0,
+  runtime 359/0/5; externref-segment skip-ADR Closed — fixture PASSes).
+- **D-290 progressed**: regen_spec_2_0_assert.sh + regen_wasmtime_misc.sh
+  both swapped to wasm-tools. REMAINING blocked = only
+  regen_spec_simd_assert.sh (v128) + flake wabt-pin drop.
+- **ADR-0184 COMPLETE** (engine-owned io for C-API WASI preopen/env;
+  D-255 + D-007 discharged). **CWFS exportedFuncs** enumerates
+  interface-nested funcs path-qualified (`af112e9a`).
+- Mac test/lint green per commit; ubuntu test-all green 2026-06-13;
+  **windows batch green 2026-06-13** (`beb2g2d5a`, 55/55 realworld + all).
 
-## Active bundle
+## NEXT — ClojureWasm CM-API finished-form requirements (USER-SURFACED 2026-06-13)
 
-- **Bundle-ID**: d324-mem64-bulk
-- **Cycles-remaining**: ~2
-- **Continuity-memo**: D-324 row has full evidence. **B1+B2+B3 DONE
-  (one commit, post-6fddfd87)**: validator per-memory idx_types +
-  it_min copy rule + unit tests; interp bulk pops at validated width
-  (popAddr/memIs64/outOfRange in bulk_memory.zig) + 3 truncation
-  regression tests; memory64 bulk corpora distilled (11937 directives
-  0 fail; existing corpora regen churn = ZERO, raw/ is deterministic).
-  **NEXT (B-JIT)**: JIT bulk-op memory64 capture is the remaining
-  truncation — arm64 `emitMemoryFill/Copy/Init` (op_memory.zig:592+)
-  capture operands via W-form `encOrrRegW` (drops high 32 bits) and
-  `ADD+CMP X27` bounds assume <2^33; when `ctx.memory0_idx_type ==
-  .i64` capture X-form + overflow-aware bounds (ADDS + B.CS, like
-  load/store's existing mem64 path at :88/:323). Mirror on x86_64
-  op_memory.zig. Red harness: recreate
-  `test/edge_cases/p17/memory64_bulk/{copy,fill}_high_addr_traps.{wat,wasm,expect}`
-  (i64 mem 1 page; dst=0x100000000; expect trap — recipe in git log,
-  was red 2 fails on JIT, deleted pre-commit). THEN (B4)
-  `bash scripts/regen_wasmtime_misc.sh` → commit corpus (expect basic
-  74/0, runtime ~359/0/5) + D-324 discharge + D-290 row update.
-- **Exit-condition**: the two memory64_bulk edge fixtures pass (JIT);
-  memory-copy.1.wasm validates+runs green via wast_runtime_runner;
-  wasmtime_misc corpus committed at the new gate-state.
-- **Other open**: D-323 (stdlib NTSTATUS, blocked-by) · D-318 (note,
-  non-gating Rosetta limitation) · §1.3 backlog demand-driven.
+cw dogfooding (D-404 / ADR-0135) surfaced 6 component-model API requests.
+**User directed: assess + report first, then await go.** When implementing,
+write the response handover to
+`$MY/ClojureWasmFromScratch/private/20260613_handover_from_zwasm/handover.md`
+with a `COMPLETED` marker so cw resumes. The 6 (priority order):
+1. **Unified open API** — `comp.open(engine,alloc,bytes,host)` auto-selecting
+   single-module vs WASI-P2 graph (or a cheap "needs-wasi-imports?" predicate);
+   unify the `ComponentInstance` / `BuiltComponent` return types. (kills cw's
+   try-catch fallback + Opened union dispatch.)
+2. **enum/variant/flags labels in the value tree** — `ComponentValue` carries
+   only ordinals/bits, no label names → cw can't map enum→keyword etc. Add
+   labels (TypeInfo-borrow ok) or return the result ValType alongside invoke.
+3. **type-resolution 2-space rule API** — public recursive `ValType`→concrete
+   resolver (despecialized type tree) so consumers don't re-implement TypeCtx.
+4. **budget threading to component path** — `instantiate`/`buildWasiP2Component`
+   take `InstantiateOpts` (fuel/max-memory); currently `.{}` hardcoded
+   (component-side of D-347).
+5. **host resource-drop API** — api-layer "drop own handle w/ destructor"
+   entry (ResourceTable.drop is internal only).
+6. **component-path diagnostics** — instantiate/invoke failures are bare Zig
+   errors; no `diagnostic.setDiag` equivalent for user-facing messages.
 
 ## Closed-work pointers (detail in git log / ADRs)
 
-- **d314-jit-sandbox CLOSED 2026-06-12** (interrupt/fuel/mem-cap triad on
-  both engines + CLI + C-API; ADR-0179). **GATE NOTE (D-311 residual)**:
-  raw-entry-call tests crash seed-flakily in `zig build test` (at-exit IPC
-  variant prints `failed command:` but exits 0); 3-host test-all is the
-  authority (`releasesafe_jit_failures.md`).
-- **JIT-correctness pass 2026-06-12**: wasm-3.0 JIT assert_return 880/0 on
-  BOTH arches (`e758412a..9a9b46de`). D-318 (note): Rosetta x86_64-macos
-  corpus-JIT SEGVs, local-diagnostic only.
-- Earlier: embedder-hardening · Tier-1 static-lib · interp sandboxing ·
-  musl (ADR-0178) · host-infra hardening (`3e501d9c`).
+- **d314-jit-sandbox CLOSED 2026-06-12** (sandboxing triad; ADR-0179).
+  GATE NOTE (D-311): raw-entry-call seed-flaky in `zig build test`; 3-host
+  test-all is authority (`releasesafe_jit_failures.md`).
+- JIT-correctness 2026-06-12: wasm-3.0 assert_return 880/0 both arches.
+  D-318 (note): Rosetta x86_64-macos corpus-JIT SEGVs, local-only.
 - **Open user-decision follow-ons**: Tier-2 #5 ILP32/watchOS.
+- Other open debt: D-323 (stdlib NTSTATUS, blocked-by) · D-318 (note).
 
 ## State at pause (stable baseline)
 
 - **Core Wasm 1.0/2.0/3.0**: 100% spec, 0 skip, 3-host green. v0.2 features +
   official corpora complete. WASI 0.1 complete. Sandboxing triad everywhere.
 - **CM + WASI-P2**: default-ON (ADR-0182); real Rust/Go wasip2 components run
-  e2e; typed API (ADR-0183); validator rules 1–9; corpus 139/0/19.
+  e2e; typed API (ADR-0183); validator rules 1–12; corpus 158/0/0.
 - **Surfaces**: C-API 293/293 (+preopen_dir/inherit_env per ADR-0184) ·
   Zig-API complete (docs §3.9) · lean CLI · memory-safety sound ·
   dogfooded into cw v1. Runners ReleaseSafe (ADR-0177).
-- Debt ledger: zero `now` rows; rest `blocked-by`/`note` long-tail
-  (blocked-by = call_ref / future proposals).
+- Debt ledger: zero `now` rows; rest `blocked-by`/`note` long-tail.
 
 ## Key refs
 
 - [`docs/handoff_cw_v1.md`](../docs/handoff_cw_v1.md) — consumer-side handoff.
-- **ADR-0184** (engine-owned io, Implemented) · **ADR-0179** (sandboxing) ·
-  **ADR-0156** (no release) · **ADR-0153** (rework posture) ·
-  **ADR-0174** (windows gate) · **ADR-0170/0176/0177** (CM / validation / runners).
+- **ADR-0184** (engine-owned io) · **ADR-0183** (typed component API) ·
+  **ADR-0179** (sandboxing) · **ADR-0156** (no release) · **ADR-0153**
+  (rework) · **ADR-0170/0176/0177** (CM / validation / runners).
 - [`component_model_plan.md`](component_model_plan.md) ·
-  [`releasesafe_jit_failures.md`](releasesafe_jit_failures.md) (D-311 residual).
+  [`releasesafe_jit_failures.md`](releasesafe_jit_failures.md) (D-311).
