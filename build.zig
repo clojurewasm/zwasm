@@ -987,7 +987,12 @@ pub fn build(b: *std.Build) void {
     // runs it (exit 0 = pass). Validates the §13.2 C surface end-to-end
     // through the real C ABI. Add `.c` files here as they land.
     const conformance_step = b.step("test-c-api-conformance", "Build + run the C-API conformance examples");
-    const conformance_cases = [_]struct { src: []const u8, name: []const u8 }{
+    const conformance_cases = [_]struct {
+        src: []const u8,
+        name: []const u8,
+        /// Committed guest .wasm passed to the case as argv[1] (absolute path).
+        wasm_arg: ?[]const u8 = null,
+    }{
         .{ .src = "test/c_api_conformance/callback.c", .name = "callback" },
         .{ .src = "test/c_api_conformance/global_import.c", .name = "global_import" },
         .{ .src = "test/c_api_conformance/memory_import.c", .name = "memory_import" },
@@ -995,6 +1000,11 @@ pub fn build(b: *std.Build) void {
         .{ .src = "test/c_api_conformance/trap.c", .name = "trap" },
         .{ .src = "test/c_api_conformance/funcref_table_call.c", .name = "funcref_table_call" },
         .{ .src = "test/c_api_conformance/funcref_result_call.c", .name = "funcref_result_call" },
+        .{
+            .src = "test/c_api_conformance/wasi_preopen.c",
+            .name = "wasi_preopen",
+            .wasm_arg = "test/c_api_conformance/wasi_preopen_guest.wasm",
+        },
     };
     for (conformance_cases) |c| {
         const cmod = createSanitizedModule(b, sanitize_opts, .{
@@ -1013,6 +1023,7 @@ pub fn build(b: *std.Build) void {
             .root_module = cmod,
         });
         const run_c = b.addRunArtifact(cexe);
+        if (c.wasm_arg) |w| run_c.addFileArg(b.path(w));
         run_c.expectExitCode(0);
         conformance_step.dependOn(&run_c.step);
     }
