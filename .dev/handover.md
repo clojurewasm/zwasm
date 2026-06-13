@@ -34,18 +34,21 @@
   `invokeCrossRuntime` (shared by call_indirect/call_ref + cross_module.thunk,
   single source). REQ-5 dtor now runs cleanly; 3-host + test-all green.
 - **D-324 CLOSED** (memory64 × multi-memory bulk-op; B1–B4+JIT).
-- **D-290 progressed**: regen_spec_2_0_assert.sh + regen_wasmtime_misc.sh
-  swapped to wasm-tools. REMAINING blocked = only regen_spec_simd_assert.sh
-  (v128) + flake wabt-pin drop.
+- **D-290 CLOSED 2026-06-13 — wabt→wasm-tools migration COMPLETE.** All
+  distillers swapped (2_0 / wasmtime_misc / **simd** `fa06c202` 13420/0
+  skip-impl 32→0 / **threads** `db72560a` exact-parity 294/0 / 3_0 stale-
+  check fix); **`pkgs.wabt` dropped from flake** (`dd1a96e5`). Zero wabt
+  invocations remain (spec runners read pre-baked corpora; build.zig
+  spectest = `wasm-tools parse`). ONE modern wasm CLI.
 - **ADR-0184 COMPLETE** (engine-owned io for C-API WASI; D-255+D-007 closed).
 - Mac test/lint green per commit; ubuntu test-all green; windows batch
   green 2026-06-13 (`beb2g2d5a`); local `zig build test-all` green post-REQ-5.
 
 ## NEXT (autonomous)
 
-- **D-290** — regen_spec_simd_assert.sh (v128) wasm-tools swap + flake
-  wabt-pin drop (the last blocked distillers).
-- Debt long-tail · §1.3 backlog demand-driven · D-323 (NTSTATUS, blocked-by).
+- Debt long-tail sweep · §1.3 backlog demand-driven · D-323 (NTSTATUS,
+  blocked-by) · D-318 (Rosetta note). No `now` debt rows remain — pick
+  from the blocked-by/note long-tail or audit_scaffolding drift signals.
 
 ## Closed-work pointers (detail in git log / ADRs)
 
