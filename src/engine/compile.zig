@@ -862,12 +862,17 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
     // memory if any); otherwise the first defined memory.
     var memory0_idx_type: sections.MemoryEntry.IdxType = .i32;
     var memory0_idx_type_known = false;
+    // D-324 — collect the full per-memory idx_type slice (imports
+    // first, then defined) so mixed i32/i64 multi-memory bodies
+    // validate each memory op against ITS memory. Arena-allocated.
+    var memory_idx_types: std.ArrayList(sections.MemoryEntry.IdxType) = .empty;
     if (imports_buf) |ib| {
         for (ib.items) |imp| if (imp.kind == .memory) {
             if (!memory0_idx_type_known) {
                 memory0_idx_type = imp.payload.memory.idx_type;
                 memory0_idx_type_known = true;
             }
+            try memory_idx_types.append(a, imp.payload.memory.idx_type);
             validator_memory_count += 1;
         };
     }
@@ -878,6 +883,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             memory0_idx_type = ms_buf.items[0].idx_type;
             memory0_idx_type_known = true;
         }
+        for (ms_buf.items) |me| try memory_idx_types.append(a, me.idx_type);
         validator_memory_count += @intCast(ms_buf.items.len);
     }
 
@@ -1099,6 +1105,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             data_count_section_present,
             &select_types,
             memory0_idx_type,
+            memory_idx_types.items,
             tags_slice,
             // 10.G GC-on-JIT: thread the type section's kind + struct/array
             // defs so struct.new* / array.* validate (vs InvalidFuncIndex).

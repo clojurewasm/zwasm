@@ -1,0 +1,200 @@
+module memory_fill.0.wasm
+invoke test ()
+assert_return checkRange i32:0 i32:65280 i32:0 -> i32:4294967295
+assert_return checkRange i32:65280 i32:65536 i32:85 -> i32:4294967295
+module memory_fill.1.wasm
+assert_trap test ()
+module memory_fill.2.wasm
+assert_trap test ()
+module memory_fill.3.wasm
+invoke test ()
+assert_return checkRange i32:0 i32:65536 i32:0 -> i32:4294967295
+module memory_fill.4.wasm
+invoke test ()
+module memory_fill.5.wasm
+assert_trap test ()
+module memory_fill.6.wasm
+invoke test ()
+assert_return checkRange i32:0 i32:1 i32:0 -> i32:4294967295
+assert_return checkRange i32:1 i32:65535 i32:170 -> i32:4294967295
+assert_return checkRange i32:65535 i32:65536 i32:0 -> i32:4294967295
+module memory_fill.7.wasm
+invoke test ()
+assert_return checkRange i32:0 i32:18 i32:0 -> i32:4294967295
+assert_return checkRange i32:18 i32:21 i32:85 -> i32:4294967295
+assert_return checkRange i32:21 i32:25 i32:170 -> i32:4294967295
+assert_return checkRange i32:25 i32:28 i32:85 -> i32:4294967295
+assert_return checkRange i32:28 i32:65536 i32:0 -> i32:4294967295
+assert_invalid memory_fill.8.wasm
+assert_invalid memory_fill.9.wasm
+assert_invalid memory_fill.10.wasm
+assert_invalid memory_fill.11.wasm
+assert_invalid memory_fill.12.wasm
+assert_invalid memory_fill.13.wasm
+assert_invalid memory_fill.14.wasm
+assert_invalid memory_fill.15.wasm
+assert_invalid memory_fill.16.wasm
+assert_invalid memory_fill.17.wasm
+assert_invalid memory_fill.18.wasm
+assert_invalid memory_fill.19.wasm
+assert_invalid memory_fill.20.wasm
+assert_invalid memory_fill.21.wasm
+assert_invalid memory_fill.22.wasm
+assert_invalid memory_fill.23.wasm
+assert_invalid memory_fill.24.wasm
+assert_invalid memory_fill.25.wasm
+assert_invalid memory_fill.26.wasm
+assert_invalid memory_fill.27.wasm
+assert_invalid memory_fill.28.wasm
+assert_invalid memory_fill.29.wasm
+assert_invalid memory_fill.30.wasm
+assert_invalid memory_fill.31.wasm
+assert_invalid memory_fill.32.wasm
+assert_invalid memory_fill.33.wasm
+assert_invalid memory_fill.34.wasm
+assert_invalid memory_fill.35.wasm
+assert_invalid memory_fill.36.wasm
+assert_invalid memory_fill.37.wasm
+assert_invalid memory_fill.38.wasm
+assert_invalid memory_fill.39.wasm
+assert_invalid memory_fill.40.wasm
+assert_invalid memory_fill.41.wasm
+assert_invalid memory_fill.42.wasm
+assert_invalid memory_fill.43.wasm
+assert_invalid memory_fill.44.wasm
+assert_invalid memory_fill.45.wasm
+assert_invalid memory_fill.46.wasm
+assert_invalid memory_fill.47.wasm
+assert_invalid memory_fill.48.wasm
+assert_invalid memory_fill.49.wasm
+assert_invalid memory_fill.50.wasm
+assert_invalid memory_fill.51.wasm
+assert_invalid memory_fill.52.wasm
+assert_invalid memory_fill.53.wasm
+assert_invalid memory_fill.54.wasm
+assert_invalid memory_fill.55.wasm
+assert_invalid memory_fill.56.wasm
+assert_invalid memory_fill.57.wasm
+assert_invalid memory_fill.58.wasm
+assert_invalid memory_fill.59.wasm
+assert_invalid memory_fill.60.wasm
+assert_invalid memory_fill.61.wasm
+assert_invalid memory_fill.62.wasm
+assert_invalid memory_fill.63.wasm
+assert_invalid memory_fill.64.wasm
+assert_invalid memory_fill.65.wasm
+assert_invalid memory_fill.66.wasm
+assert_invalid memory_fill.67.wasm
+assert_invalid memory_fill.68.wasm
+assert_invalid memory_fill.69.wasm
+assert_invalid memory_fill.70.wasm
+assert_invalid memory_fill.71.wasm
+module memory_fill.72.wasm
+assert_trap run i32:65280 i32:37 i32:512
+assert_return checkRange i32:0 i32:1 i32:0 -> i32:4294967295
+module memory_fill.73.wasm
+assert_trap run i32:65279 i32:37 i32:514
+assert_return checkRange i32:0 i32:1 i32:0 -> i32:4294967295
+module memory_fill.74.wasm
+assert_trap run i32:65279 i32:37 i32:4294967295
+assert_return checkRange i32:0 i32:1 i32:0 -> i32:4294967295
+module memory_fill.75.wasm
+invoke test ()
+assert_return checkRange i64:0 i64:65280 i32:0 -> i64:18446744073709551615
+assert_return checkRange i64:65280 i64:65536 i32:85 -> i64:18446744073709551615
+module memory_fill.76.wasm
+assert_trap test ()
+module memory_fill.77.wasm
+assert_trap test ()
+module memory_fill.78.wasm
+invoke test ()
+assert_return checkRange i64:0 i64:65536 i32:0 -> i64:18446744073709551615
+module memory_fill.79.wasm
+invoke test ()
+module memory_fill.80.wasm
+assert_trap test ()
+module memory_fill.81.wasm
+invoke test ()
+assert_return checkRange i64:0 i64:1 i32:0 -> i64:18446744073709551615
+assert_return checkRange i64:1 i64:65535 i32:170 -> i64:18446744073709551615
+assert_return checkRange i64:65535 i64:65536 i32:0 -> i64:18446744073709551615
+module memory_fill.82.wasm
+invoke test ()
+assert_return checkRange i64:0 i64:18 i32:0 -> i64:18446744073709551615
+assert_return checkRange i64:18 i64:21 i32:85 -> i64:18446744073709551615
+assert_return checkRange i64:21 i64:25 i32:170 -> i64:18446744073709551615
+assert_return checkRange i64:25 i64:28 i32:85 -> i64:18446744073709551615
+assert_return checkRange i64:28 i64:65536 i32:0 -> i64:18446744073709551615
+assert_invalid memory_fill.83.wasm
+assert_invalid memory_fill.84.wasm
+assert_invalid memory_fill.85.wasm
+assert_invalid memory_fill.86.wasm
+assert_invalid memory_fill.87.wasm
+assert_invalid memory_fill.88.wasm
+assert_invalid memory_fill.89.wasm
+assert_invalid memory_fill.90.wasm
+assert_invalid memory_fill.91.wasm
+assert_invalid memory_fill.92.wasm
+assert_invalid memory_fill.93.wasm
+assert_invalid memory_fill.94.wasm
+assert_invalid memory_fill.95.wasm
+assert_invalid memory_fill.96.wasm
+assert_invalid memory_fill.97.wasm
+assert_invalid memory_fill.98.wasm
+assert_invalid memory_fill.99.wasm
+assert_invalid memory_fill.100.wasm
+assert_invalid memory_fill.101.wasm
+assert_invalid memory_fill.102.wasm
+assert_invalid memory_fill.103.wasm
+assert_invalid memory_fill.104.wasm
+assert_invalid memory_fill.105.wasm
+assert_invalid memory_fill.106.wasm
+assert_invalid memory_fill.107.wasm
+assert_invalid memory_fill.108.wasm
+assert_invalid memory_fill.109.wasm
+assert_invalid memory_fill.110.wasm
+assert_invalid memory_fill.111.wasm
+assert_invalid memory_fill.112.wasm
+assert_invalid memory_fill.113.wasm
+assert_invalid memory_fill.114.wasm
+assert_invalid memory_fill.115.wasm
+assert_invalid memory_fill.116.wasm
+assert_invalid memory_fill.117.wasm
+assert_invalid memory_fill.118.wasm
+assert_invalid memory_fill.119.wasm
+assert_invalid memory_fill.120.wasm
+assert_invalid memory_fill.121.wasm
+assert_invalid memory_fill.122.wasm
+assert_invalid memory_fill.123.wasm
+assert_invalid memory_fill.124.wasm
+assert_invalid memory_fill.125.wasm
+assert_invalid memory_fill.126.wasm
+assert_invalid memory_fill.127.wasm
+assert_invalid memory_fill.128.wasm
+assert_invalid memory_fill.129.wasm
+assert_invalid memory_fill.130.wasm
+assert_invalid memory_fill.131.wasm
+assert_invalid memory_fill.132.wasm
+assert_invalid memory_fill.133.wasm
+assert_invalid memory_fill.134.wasm
+assert_invalid memory_fill.135.wasm
+assert_invalid memory_fill.136.wasm
+assert_invalid memory_fill.137.wasm
+assert_invalid memory_fill.138.wasm
+assert_invalid memory_fill.139.wasm
+assert_invalid memory_fill.140.wasm
+assert_invalid memory_fill.141.wasm
+assert_invalid memory_fill.142.wasm
+assert_invalid memory_fill.143.wasm
+assert_invalid memory_fill.144.wasm
+assert_invalid memory_fill.145.wasm
+assert_invalid memory_fill.146.wasm
+module memory_fill.147.wasm
+assert_trap run i64:65280 i32:37 i64:512
+assert_return checkRange i64:0 i64:1 i32:0 -> i64:18446744073709551615
+module memory_fill.148.wasm
+assert_trap run i64:65279 i32:37 i64:514
+assert_return checkRange i64:0 i64:1 i32:0 -> i64:18446744073709551615
+module memory_fill.149.wasm
+assert_trap run i64:65279 i32:37 i64:4294967295
+assert_return checkRange i64:0 i64:1 i32:0 -> i64:18446744073709551615

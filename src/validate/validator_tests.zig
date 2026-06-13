@@ -634,6 +634,66 @@ test "validate: memory.copy memidx out of range → UnknownMemory (10.M cycle 67
     try testing.expectError(Error.UnknownMemory, r);
 }
 
+// D-324 — mixed i32/i64 multi-memory (Wasm 3.0 memory64 × multi-memory):
+// per-memory idx_type threading. memory 0 = i32-indexed, memory 1 = i64.
+const mixed_idx_types = [_]sections.MemoryEntry.IdxType{ .i32, .i64 };
+
+fn validateMixedMem(sig: FuncType, body: []const u8) validator.Error!void {
+    return validator.validateFunctionWithMemIdxAndTags(
+        sig,
+        &.{},
+        body,
+        &.{},
+        &.{},
+        &.{},
+        0,
+        &.{},
+        0,
+        2, // memory_count
+        .i32, // memory0_idx_type
+        &mixed_idx_types,
+        &.{}, // tags
+        &.{}, // declared_funcs
+        &.{}, // func_type_indices
+        &.{}, // module_types_kinds
+        &.{}, // struct_defs
+        &.{}, // array_defs
+        &.{}, // supertypes
+        &.{}, // elem_types
+    );
+}
+
+test "validate: memory.copy m32→m64 mixed — [it_dst=i64 it_src=i32 n=i32] (D-324)" {
+    // i64.const 0 (dst, mem 1) ; i32.const 0 (src, mem 0) ;
+    // i32.const 0 (n = it_min) ; memory.copy dst=1 src=0 ; end
+    const body = [_]u8{
+        0x42, 0x00, 0x41, 0x00, 0x41, 0x00,
+        0xFC, 0x0A, 0x01, 0x00, 0x0B,
+    };
+    try validateMixedMem(empty_sig, &body);
+}
+
+test "validate: memory.copy mixed with i64 n rejects — it_min is i32 (D-324)" {
+    // n must be i32 when either side is i32-indexed.
+    const body = [_]u8{
+        0x42, 0x00, 0x41, 0x00, 0x42, 0x00,
+        0xFC, 0x0A, 0x01, 0x00, 0x0B,
+    };
+    try testing.expectError(Error.StackTypeMismatch, validateMixedMem(empty_sig, &body));
+}
+
+test "validate: memory.size memidx=1 pushes the TARGET memory's i64 (D-324)" {
+    // memory.size 1 ; end  on () -> i64 (file-scope i64_result_sig)
+    const body = [_]u8{ 0x3F, 0x01, 0x0B };
+    try validateMixedMem(i64_result_sig, &body);
+}
+
+test "validate: i32.load memarg memidx=1 pops an i64 address (D-324)" {
+    // i64.const 0 ; i32.load align=2|bit6 memidx=1 offset=0 ; drop ; end
+    const body = [_]u8{ 0x42, 0x00, 0x28, 0x42, 0x01, 0x00, 0x1A, 0x0B };
+    try validateMixedMem(empty_sig, &body);
+}
+
 test "validate: i32.atomic.load (0xFE 0x10) exact align=2 — pops addr, pushes i32" {
     // i32.const 0 ; i32.atomic.load align=2 offset=0 ; end  on () -> i32
     const body = [_]u8{ 0x41, 0x00, 0xFE, 0x10, 0x02, 0x00, 0x0B };
@@ -736,6 +796,7 @@ test "validate: ref.func yields typed (ref N) satisfying a typed-ref param (ADR-
         0,
         1,
         .i32,
+        &.{}, // memory_idx_types
         &.{},
         &.{},
         &fti,
@@ -770,6 +831,7 @@ test "validate: typed (ref N) from ref.func is a subtype of funcref (global.set)
         0,
         1,
         .i32,
+        &.{}, // memory_idx_types
         &.{},
         &.{},
         &fti,
@@ -805,6 +867,7 @@ test "validate: ref.as_non_null in unreachable code stays polymorphic (satisfies
         0,
         1,
         .i32,
+        &.{}, // memory_idx_types
         &.{},
         &.{},
         &.{},
@@ -842,6 +905,7 @@ test "validate: br_on_non_null to a concrete (ref N) label in unreachable code" 
         0,
         1,
         .i32,
+        &.{}, // memory_idx_types
         &.{},
         &.{},
         &.{},
@@ -874,6 +938,7 @@ test "validate: typed (ref N) from ref.func is NOT a subtype of externref" {
         0,
         1,
         .i32,
+        &.{}, // memory_idx_types
         &.{},
         &.{},
         &fti,

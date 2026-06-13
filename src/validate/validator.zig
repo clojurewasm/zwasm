@@ -1,4 +1,4 @@
-// FILE-SIZE-EXEMPT: Wasm spec §3.3 validation single-pass walker (type-stack + control-stack); P1 spec-defined sub-language, intrinsically singular (splitting the stack-walking opcode handlers would create artificial seams across an unsplittable algorithm). D-204: the pure file-scope GC valtype-subtype helpers (valTypeIsSubtypeFree / gcHeapAbstractSubtype / castTargetType / gcConcreteReaches{,Canonical} / gcValTypeSubtype / gcFieldSubtype) were extracted to `gc_subtype.zig` (they touch no Validator state); the remaining module-level helpers (constExprResultType / validateGlobalInits / funcTypeImportCompatible / validateTypeSection) are pub + externally-called → extract separately if the cap presses again. (per ADR-0099) (cap=3300)
+// FILE-SIZE-EXEMPT: Wasm spec §3.3 validation single-pass walker (type-stack + control-stack); P1 spec-defined sub-language, intrinsically singular (splitting the stack-walking opcode handlers would create artificial seams across an unsplittable algorithm). D-204: the pure file-scope GC valtype-subtype helpers (valTypeIsSubtypeFree / gcHeapAbstractSubtype / castTargetType / gcConcreteReaches{,Canonical} / gcValTypeSubtype / gcFieldSubtype) were extracted to `gc_subtype.zig` (they touch no Validator state); the remaining module-level helpers (constExprResultType / validateGlobalInits / funcTypeImportCompatible / validateTypeSection) are pub + externally-called → extract separately if the cap presses again. (per ADR-0099) (cap=3400) (3300→3400 for D-324 per-memory idx_type plumbing — Wasm 3.0 memory64 × multi-memory spec-conformance feature add, same ADR-0099-amend class as the instance.zig raise)
 //! Wasm function-body **type-stack + control-stack validator**
 //! (Phase 1 / §9.1 / 1.5).
 //!
@@ -349,6 +349,9 @@ pub fn validateFunctionWithMemIdxAndTags(
     elem_count: u32,
     memory_count: u32,
     memory0_idx_type: sections.MemoryEntry.IdxType,
+    /// D-324 — per-memory idx_type (imports first, then defined) for
+    /// mixed i32/i64 multi-memory modules. Empty → memory0 fallback.
+    memory_idx_types: []const sections.MemoryEntry.IdxType,
     tags: []const sections.TagEntry,
     /// 10.R cycle 60 (D-195 sub-gap c) — Wasm spec §3.4.10
     /// declared-funcrefs bitset. When non-empty, `ref.func N` rejects
@@ -390,6 +393,7 @@ pub fn validateFunctionWithMemIdxAndTags(
         .elem_types = elem_types,
         .memory_count = memory_count,
         .memory0_idx_type = memory0_idx_type,
+        .memory_idx_types = memory_idx_types,
         .tags = tags,
         .declared_funcs = declared_funcs,
         .func_type_indices = func_type_indices,
@@ -497,6 +501,9 @@ pub fn validateFunctionAndCollectSelectTypesWithMemory(
     data_count_section_present: bool,
     out_select_types: *std.ArrayList(u8),
     memory0_idx_type: sections.MemoryEntry.IdxType,
+    /// D-324 — per-memory idx_type (imports first, then defined) for
+    /// mixed i32/i64 multi-memory modules. Empty → memory0 fallback.
+    memory_idx_types: []const sections.MemoryEntry.IdxType,
     tags: []const sections.TagEntry,
     // 10.G GC-on-JIT (ADR-0128 §2): thread the type section's GC
     // kind + struct/array defs so the JIT compile path validates
@@ -535,6 +542,7 @@ pub fn validateFunctionAndCollectSelectTypesWithMemory(
         .elem_count = elem_count,
         .memory_count = memory_count,
         .memory0_idx_type = memory0_idx_type,
+        .memory_idx_types = memory_idx_types,
         .declared_funcs = declared_funcs,
         .elem_types = elem_types,
         .data_count_section_present = data_count_section_present,
@@ -592,6 +600,15 @@ pub const Validator = struct {
     /// `compileWasm` uses the WithMemory entry which sets it
     /// explicitly per module.
     memory0_idx_type: sections.MemoryEntry.IdxType = .i32,
+    /// D-324 — per-memory idx_type slice (imports first, then
+    /// defined) for mixed i32/i64 multi-memory modules (Wasm 3.0
+    /// memory64 × multi-memory). Indexed by memidx; memory ops look
+    /// their target memory's address type up here. Empty (default)
+    /// falls back to `memory0_idx_type` for every memidx — preserves
+    /// legacy single-memory callers (unit tests, wast_runner).
+    /// Production `compileWasm` / `frontendValidate` thread the real
+    /// slice.
+    memory_idx_types: []const sections.MemoryEntry.IdxType = &.{},
     /// §9.9 / 9.9-l-1b-d093-d82 — declared-funcrefs bitset per
     /// Wasm spec §3.4.10. Length = total funcs (imports +
     /// defined); entry `true` iff that funcidx appears in some
@@ -2173,11 +2190,11 @@ pub const Validator = struct {
         try self.pushType(.i64);
     }
 
-    /// memory.copy: 0xFC 10 0x00 0x00 (two reserved memidx bytes).
-    /// Pops three idx-type values (n, src, dst); pushes nothing.
-    /// For memory64 the three are i64 per Wasm 3.0 §3.4.7
-    /// (multi-memory cross-memory copies use the destination
-    /// memory's idx_type per spec; single-memory case uses memory 0).
+    /// memory.copy x y: 0xFC 10 dst_memidx src_memidx. Wasm 3.0
+    /// §3.4.7: operand types are [it_dst it_src it_min] where
+    /// it_min = i32 if EITHER memory is i32-indexed (mixed
+    /// i32/i64 cross-memory copies are valid; D-324). Pops n
+    /// (it_min), src (it_src), dst (it_dst); pushes nothing.
     fn opMemoryCopy(self: *Validator) Error!void {
         if (self.memory_count == 0) return Error.UnknownMemory;
         // 10.M cycle 67 — relax multi-memory: dst + src memidx are
@@ -2188,10 +2205,12 @@ pub const Validator = struct {
         if (dst_memidx >= self.memory_count or src_memidx >= self.memory_count) {
             return Error.UnknownMemory;
         }
-        const addr = self.memAddrType();
-        try self.popExpect(addr); // n
-        try self.popExpect(addr); // src
-        try self.popExpect(addr); // dst
+        const dst_t = self.memIdxTypeAt(dst_memidx);
+        const src_t = self.memIdxTypeAt(src_memidx);
+        const n_t: ValType = if (dst_t == .i32 or src_t == .i32) .i32 else .i64;
+        try self.popExpect(n_t); // n (it_min)
+        try self.popExpect(src_t); // src
+        try self.popExpect(dst_t); // dst
     }
 
     /// memory.init: 0xFC 8 dataidx 0x00 (one reserved memidx byte).
@@ -2210,7 +2229,7 @@ pub const Validator = struct {
         if (dst_memidx >= self.memory_count) return Error.UnknownMemory;
         try self.popExpect(.i32); // n (data-segment byte count)
         try self.popExpect(.i32); // src (data-segment offset)
-        try self.popExpect(self.memAddrType()); // dst (memory addr)
+        try self.popExpect(self.memIdxTypeAt(dst_memidx)); // dst (memory addr)
     }
 
     /// data.drop: 0xFC 9 dataidx. No operand stack effects.
@@ -2653,17 +2672,17 @@ pub const Validator = struct {
         try self.popExpect(.i32);
     }
 
-    /// memory.fill: 0xFC 11 0x00 (one reserved memidx byte).
-    /// Pops three values (n:idx_type, val:i32, dst:idx_type);
-    /// pushes nothing. Wasm 3.0 §3.4.7: dst + n use the memory's
-    /// idx_type (i64 for memory64); val is always i32.
+    /// memory.fill: 0xFC 11 memidx. Pops three values
+    /// (n:idx_type, val:i32, dst:idx_type); pushes nothing.
+    /// Wasm 3.0 §3.4.7: dst + n use the TARGET memory's idx_type
+    /// (per-memory, D-324); val is always i32.
     fn opMemoryFill(self: *Validator) Error!void {
         if (self.memory_count == 0) return Error.UnknownMemory;
         // 10.M cycle 67 — relax multi-memory memidx LEB (was
         // reserved 0x00). Range-check against memory_count.
         const memidx = try leb128.readUleb128(u32, self.body, &self.pos);
         if (memidx >= self.memory_count) return Error.UnknownMemory;
-        const addr = self.memAddrType();
+        const addr = self.memIdxTypeAt(memidx);
         try self.popExpect(addr); // n
         try self.popExpect(.i32); // val
         try self.popExpect(addr); // dst
@@ -2859,13 +2878,17 @@ pub const Validator = struct {
     /// an explicit memidx LEB follows. Mirrors `lower.zig::emitMemarg`
     /// byte consumption so validator + lowerer stay in sync; without
     /// this the validator's position desyncs on bit-6-set memargs
-    /// and subsequent opcodes parse from wrong offsets.
-    fn skipMemarg(self: *Validator) Error!void {
+    /// and subsequent opcodes parse from wrong offsets. Returns the
+    /// memarg's memidx (0 when bit 6 unset) so callers can type the
+    /// address operand per memory (D-324).
+    fn skipMemarg(self: *Validator) Error!u32 {
         const raw_align = try leb128.readUleb128(u32, self.body, &self.pos);
+        var memidx: u32 = 0;
         if ((raw_align & 0x40) != 0) {
-            _ = try leb128.readUleb128(u32, self.body, &self.pos); // memidx
+            memidx = try leb128.readUleb128(u32, self.body, &self.pos);
         }
-        try self.skipMemargOffset();
+        try self.skipMemargOffset(memidx);
+        return memidx;
     }
 
     /// Wasm 3.0 §5.4.6: an i64-indexed (memory64) memory's memarg
@@ -2874,10 +2897,10 @@ pub const Validator = struct {
     /// memory64 (relocatable fixed-width), so decoding at u32 width
     /// wrongly rejects a valid offset as Error.Overlong (D-209,
     /// realworld clang_wasm64 — the spec corpus only uses minimal
-    /// LEBs, which masked this). Width keys off `memory0_idx_type`
-    /// (multi-memory mixed idx_type = separate cycle, like memAddrType).
-    fn skipMemargOffset(self: *Validator) Error!void {
-        switch (self.memory0_idx_type) {
+    /// LEBs, which masked this). Width keys off the TARGET memory's
+    /// idx_type (per-memory via `memory_idx_types`; D-324).
+    fn skipMemargOffset(self: *Validator, memidx: u32) Error!void {
+        switch (self.memEntryIdxType(memidx)) {
             .i32 => _ = try leb128.readUleb128(u32, self.body, &self.pos),
             .i64 => _ = try leb128.readUleb128(u64, self.body, &self.pos),
         }
@@ -2888,22 +2911,24 @@ pub const Validator = struct {
     /// the actual alignExp ≤ `max_align_log2` (the op's natural
     /// alignment exponent). Then consume the optional memidx +
     /// offset uleb just like `skipMemarg`. Rejects with
-    /// `Error.InvalidAlignment` on out-of-range align.
-    fn readMemargCheckAlign(self: *Validator, max_align_log2: u32) Error!void {
+    /// `Error.InvalidAlignment` on out-of-range align. Returns the
+    /// memidx (0 when bit 6 unset) for per-memory address typing.
+    fn readMemargCheckAlign(self: *Validator, max_align_log2: u32) Error!u32 {
         const raw_align = try leb128.readUleb128(u32, self.body, &self.pos);
         const align_log2 = raw_align & ~@as(u32, 0x40);
         if (align_log2 > max_align_log2) return Error.InvalidAlignment;
+        var memidx: u32 = 0;
         if ((raw_align & 0x40) != 0) {
-            _ = try leb128.readUleb128(u32, self.body, &self.pos); // memidx
+            memidx = try leb128.readUleb128(u32, self.body, &self.pos);
         }
-        try self.skipMemargOffset();
+        try self.skipMemargOffset(memidx);
+        return memidx;
     }
 
     /// Address operand type for memory ops per Wasm 3.0 §3.4.7 —
     /// `.i32` for legacy i32-indexed memory; `.i64` for memory64.
-    /// Determined by `self.memory0_idx_type` (multi-memory still
-    /// rejected at instantiate; codegen sees only memory 0 per
-    /// 10.M-4a `MemArgExtra.memidx == 0` assert).
+    /// Determined by `self.memory0_idx_type`; per-memidx ops use
+    /// `memIdxTypeAt` (D-324) which falls back here.
     fn memAddrType(self: *const Validator) ValType {
         return switch (self.memory0_idx_type) {
             .i32 => .i32,
@@ -2911,10 +2936,27 @@ pub const Validator = struct {
         };
     }
 
+    /// D-324 — raw idx_type of a SPECIFIC memidx, falling back to
+    /// `memory0_idx_type` when per-memory types aren't threaded
+    /// (legacy callers with the empty default).
+    fn memEntryIdxType(self: *const Validator, memidx: u32) sections.MemoryEntry.IdxType {
+        if (memidx < self.memory_idx_types.len) return self.memory_idx_types[memidx];
+        return self.memory0_idx_type;
+    }
+
+    /// D-324 — address operand valtype for a SPECIFIC memidx
+    /// (Wasm 3.0 §3.4.7 multi-memory × memory64 mixing).
+    fn memIdxTypeAt(self: *const Validator, memidx: u32) ValType {
+        return switch (self.memEntryIdxType(memidx)) {
+            .i32 => .i32,
+            .i64 => .i64,
+        };
+    }
+
     fn opLoad(self: *Validator, t: ValType, max_align_log2: u32) Error!void {
         if (self.memory_count == 0) return Error.UnknownMemory;
-        try self.readMemargCheckAlign(max_align_log2);
-        try self.popExpect(self.memAddrType()); // address (i32 or i64)
+        const memidx = try self.readMemargCheckAlign(max_align_log2);
+        try self.popExpect(self.memIdxTypeAt(memidx)); // address (i32 or i64)
         try self.pushType(t);
     }
 
@@ -2922,14 +2964,16 @@ pub const Validator = struct {
     /// natural alignment (Wasm threads §valid: "atomic instructions
     /// must always specify maximum alignment") — stricter than
     /// `readMemargCheckAlign`'s `≤`. Out-of-range → `InvalidAlignment`.
-    fn readMemargCheckAlignExact(self: *Validator, natural_align_log2: u32) Error!void {
+    fn readMemargCheckAlignExact(self: *Validator, natural_align_log2: u32) Error!u32 {
         const raw_align = try leb128.readUleb128(u32, self.body, &self.pos);
         const align_log2 = raw_align & ~@as(u32, 0x40);
         if (align_log2 != natural_align_log2) return Error.InvalidAlignment;
+        var memidx: u32 = 0;
         if ((raw_align & 0x40) != 0) {
-            _ = try leb128.readUleb128(u32, self.body, &self.pos); // memidx
+            memidx = try leb128.readUleb128(u32, self.body, &self.pos);
         }
-        try self.skipMemargOffset();
+        try self.skipMemargOffset(memidx);
+        return memidx;
     }
 
     /// Wasm threads §valid — `tNN.atomic.load*`: EXACT natural
@@ -2939,8 +2983,8 @@ pub const Validator = struct {
     /// enforced by the handler/JIT, not the validator.
     fn opAtomicLoad(self: *Validator, t: ValType, natural_align_log2: u32) Error!void {
         if (self.memory_count == 0) return Error.UnknownMemory;
-        try self.readMemargCheckAlignExact(natural_align_log2);
-        try self.popExpect(self.memAddrType()); // address (i32 or i64)
+        const memidx = try self.readMemargCheckAlignExact(natural_align_log2);
+        try self.popExpect(self.memIdxTypeAt(memidx)); // address (i32 or i64)
         try self.pushType(t);
     }
 
@@ -2948,18 +2992,18 @@ pub const Validator = struct {
     /// a memory present; pop value (type t) then addr. No result (ADR-0168).
     fn opAtomicStore(self: *Validator, t: ValType, natural_align_log2: u32) Error!void {
         if (self.memory_count == 0) return Error.UnknownMemory;
-        try self.readMemargCheckAlignExact(natural_align_log2);
+        const memidx = try self.readMemargCheckAlignExact(natural_align_log2);
         try self.popExpect(t); // value
-        try self.popExpect(self.memAddrType()); // address (i32 or i64)
+        try self.popExpect(self.memIdxTypeAt(memidx)); // address (i32 or i64)
     }
 
     /// Wasm threads §valid — `tNN.atomic.rmw*.<op>` (non-cmpxchg): EXACT
     /// natural align + a memory; pop value (t) + addr, push old (t).
     fn opAtomicRmw(self: *Validator, t: ValType, natural_align_log2: u32) Error!void {
         if (self.memory_count == 0) return Error.UnknownMemory;
-        try self.readMemargCheckAlignExact(natural_align_log2);
+        const memidx = try self.readMemargCheckAlignExact(natural_align_log2);
         try self.popExpect(t); // value
-        try self.popExpect(self.memAddrType()); // address
+        try self.popExpect(self.memIdxTypeAt(memidx)); // address
         try self.pushType(t); // old
     }
 
@@ -2967,10 +3011,10 @@ pub const Validator = struct {
     /// memory; pop replacement (t) + expected (t) + addr, push old (t).
     fn opAtomicCmpxchg(self: *Validator, t: ValType, natural_align_log2: u32) Error!void {
         if (self.memory_count == 0) return Error.UnknownMemory;
-        try self.readMemargCheckAlignExact(natural_align_log2);
+        const memidx = try self.readMemargCheckAlignExact(natural_align_log2);
         try self.popExpect(t); // replacement
         try self.popExpect(t); // expected
-        try self.popExpect(self.memAddrType()); // address
+        try self.popExpect(self.memIdxTypeAt(memidx)); // address
         try self.pushType(t); // old
     }
 
@@ -2979,9 +3023,9 @@ pub const Validator = struct {
     /// woken). Valid on any memory (notify on non-shared returns 0).
     fn opAtomicNotify(self: *Validator) Error!void {
         if (self.memory_count == 0) return Error.UnknownMemory;
-        try self.readMemargCheckAlignExact(2);
+        const memidx = try self.readMemargCheckAlignExact(2);
         try self.popExpect(.i32); // count
-        try self.popExpect(self.memAddrType()); // address
+        try self.popExpect(self.memIdxTypeAt(memidx)); // address
         try self.pushType(.i32); // waiters woken
     }
 
@@ -2991,39 +3035,37 @@ pub const Validator = struct {
     /// non-shared memory (not a validation constraint).
     fn opAtomicWait(self: *Validator, t: ValType, natural_align_log2: u32) Error!void {
         if (self.memory_count == 0) return Error.UnknownMemory;
-        try self.readMemargCheckAlignExact(natural_align_log2);
+        const memidx = try self.readMemargCheckAlignExact(natural_align_log2);
         try self.popExpect(.i64); // timeout
         try self.popExpect(t); // expected (i32 for wait32, i64 for wait64)
-        try self.popExpect(self.memAddrType()); // address
+        try self.popExpect(self.memIdxTypeAt(memidx)); // address
         try self.pushType(.i32); // status
     }
 
     fn opStore(self: *Validator, t: ValType, max_align_log2: u32) Error!void {
         if (self.memory_count == 0) return Error.UnknownMemory;
-        try self.readMemargCheckAlign(max_align_log2);
+        const memidx = try self.readMemargCheckAlign(max_align_log2);
         try self.popExpect(t); // value
-        try self.popExpect(self.memAddrType()); // address (i32 or i64)
+        try self.popExpect(self.memIdxTypeAt(memidx)); // address (i32 or i64)
     }
 
     fn opMemorySize(self: *Validator) Error!void {
         if (self.memory_count == 0) return Error.UnknownMemory;
         // 10.M cycle 66 — Wasm 3.0 multi-memory: was `if (body[pos]
         // != 0x00) reject` (single reserved byte). Now LEB-decode
-        // memidx + range-check against memory_count. Pushed type
-        // uses memAddrType() which is currently memory0's idx_type;
-        // mixed i32/i64 multi-memory modules need per-memory
-        // idx_type plumbing (separate cycle).
+        // memidx + range-check against memory_count. Pushed type =
+        // the TARGET memory's idx_type (per-memory, D-324).
         const memidx = try leb128.readUleb128(u32, self.body, &self.pos);
         if (memidx >= self.memory_count) return Error.UnknownMemory;
-        try self.pushType(self.memAddrType());
+        try self.pushType(self.memIdxTypeAt(memidx));
     }
 
     fn opMemoryGrow(self: *Validator) Error!void {
         if (self.memory_count == 0) return Error.UnknownMemory;
         const memidx = try leb128.readUleb128(u32, self.body, &self.pos);
         if (memidx >= self.memory_count) return Error.UnknownMemory;
-        try self.popExpect(self.memAddrType());
-        try self.pushType(self.memAddrType());
+        try self.popExpect(self.memIdxTypeAt(memidx));
+        try self.pushType(self.memIdxTypeAt(memidx));
     }
 
     // ----------------------------------------------------------------

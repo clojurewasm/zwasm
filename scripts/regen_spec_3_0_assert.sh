@@ -56,6 +56,13 @@ declare -a SMOKE=(
     "memory64/memory_grow64"
     "memory64/memory_redundancy64"
     "memory64/memory_trap64"
+    # D-324 — the bulk-op .wast files lack the `64` suffix the
+    # original expansion keyed on and were never distilled; that
+    # hole hid the mixed-idx-type validator/interp gaps.
+    "memory64/memory_copy"
+    "memory64/memory_fill"
+    "memory64/memory_init"
+    "memory64/float_memory64"
     "tail-call/return_call"
     # 10.TC cycle 80 — return_call_indirect spec corpus expansion.
     "tail-call/return_call_indirect"

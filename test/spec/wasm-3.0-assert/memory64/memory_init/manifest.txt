@@ -1,0 +1,480 @@
+module memory_init.0.wasm
+invoke test ()
+assert_return load8_u i32:0 -> i32:0
+assert_return load8_u i32:1 -> i32:0
+assert_return load8_u i32:2 -> i32:3
+assert_return load8_u i32:3 -> i32:1
+assert_return load8_u i32:4 -> i32:4
+assert_return load8_u i32:5 -> i32:1
+assert_return load8_u i32:6 -> i32:0
+assert_return load8_u i32:7 -> i32:0
+assert_return load8_u i32:8 -> i32:0
+assert_return load8_u i32:9 -> i32:0
+assert_return load8_u i32:10 -> i32:0
+assert_return load8_u i32:11 -> i32:0
+assert_return load8_u i32:12 -> i32:7
+assert_return load8_u i32:13 -> i32:5
+assert_return load8_u i32:14 -> i32:2
+assert_return load8_u i32:15 -> i32:3
+assert_return load8_u i32:16 -> i32:6
+assert_return load8_u i32:17 -> i32:0
+assert_return load8_u i32:18 -> i32:0
+assert_return load8_u i32:19 -> i32:0
+assert_return load8_u i32:20 -> i32:0
+assert_return load8_u i32:21 -> i32:0
+assert_return load8_u i32:22 -> i32:0
+assert_return load8_u i32:23 -> i32:0
+assert_return load8_u i32:24 -> i32:0
+assert_return load8_u i32:25 -> i32:0
+assert_return load8_u i32:26 -> i32:0
+assert_return load8_u i32:27 -> i32:0
+assert_return load8_u i32:28 -> i32:0
+assert_return load8_u i32:29 -> i32:0
+module memory_init.1.wasm
+invoke test ()
+assert_return load8_u i32:0 -> i32:0
+assert_return load8_u i32:1 -> i32:0
+assert_return load8_u i32:2 -> i32:3
+assert_return load8_u i32:3 -> i32:1
+assert_return load8_u i32:4 -> i32:4
+assert_return load8_u i32:5 -> i32:1
+assert_return load8_u i32:6 -> i32:0
+assert_return load8_u i32:7 -> i32:2
+assert_return load8_u i32:8 -> i32:7
+assert_return load8_u i32:9 -> i32:1
+assert_return load8_u i32:10 -> i32:8
+assert_return load8_u i32:11 -> i32:0
+assert_return load8_u i32:12 -> i32:7
+assert_return load8_u i32:13 -> i32:5
+assert_return load8_u i32:14 -> i32:2
+assert_return load8_u i32:15 -> i32:3
+assert_return load8_u i32:16 -> i32:6
+assert_return load8_u i32:17 -> i32:0
+assert_return load8_u i32:18 -> i32:0
+assert_return load8_u i32:19 -> i32:0
+assert_return load8_u i32:20 -> i32:0
+assert_return load8_u i32:21 -> i32:0
+assert_return load8_u i32:22 -> i32:0
+assert_return load8_u i32:23 -> i32:0
+assert_return load8_u i32:24 -> i32:0
+assert_return load8_u i32:25 -> i32:0
+assert_return load8_u i32:26 -> i32:0
+assert_return load8_u i32:27 -> i32:0
+assert_return load8_u i32:28 -> i32:0
+assert_return load8_u i32:29 -> i32:0
+module memory_init.2.wasm
+invoke test ()
+assert_return load8_u i32:0 -> i32:0
+assert_return load8_u i32:1 -> i32:0
+assert_return load8_u i32:2 -> i32:3
+assert_return load8_u i32:3 -> i32:1
+assert_return load8_u i32:4 -> i32:4
+assert_return load8_u i32:5 -> i32:1
+assert_return load8_u i32:6 -> i32:0
+assert_return load8_u i32:7 -> i32:0
+assert_return load8_u i32:8 -> i32:0
+assert_return load8_u i32:9 -> i32:0
+assert_return load8_u i32:10 -> i32:0
+assert_return load8_u i32:11 -> i32:0
+assert_return load8_u i32:12 -> i32:7
+assert_return load8_u i32:13 -> i32:5
+assert_return load8_u i32:14 -> i32:2
+assert_return load8_u i32:15 -> i32:9
+assert_return load8_u i32:16 -> i32:2
+assert_return load8_u i32:17 -> i32:7
+assert_return load8_u i32:18 -> i32:0
+assert_return load8_u i32:19 -> i32:0
+assert_return load8_u i32:20 -> i32:0
+assert_return load8_u i32:21 -> i32:0
+assert_return load8_u i32:22 -> i32:0
+assert_return load8_u i32:23 -> i32:0
+assert_return load8_u i32:24 -> i32:0
+assert_return load8_u i32:25 -> i32:0
+assert_return load8_u i32:26 -> i32:0
+assert_return load8_u i32:27 -> i32:0
+assert_return load8_u i32:28 -> i32:0
+assert_return load8_u i32:29 -> i32:0
+module memory_init.3.wasm
+invoke test ()
+assert_return load8_u i32:0 -> i32:0
+assert_return load8_u i32:1 -> i32:0
+assert_return load8_u i32:2 -> i32:3
+assert_return load8_u i32:3 -> i32:1
+assert_return load8_u i32:4 -> i32:4
+assert_return load8_u i32:5 -> i32:1
+assert_return load8_u i32:6 -> i32:0
+assert_return load8_u i32:7 -> i32:2
+assert_return load8_u i32:8 -> i32:7
+assert_return load8_u i32:9 -> i32:1
+assert_return load8_u i32:10 -> i32:8
+assert_return load8_u i32:11 -> i32:0
+assert_return load8_u i32:12 -> i32:7
+assert_return load8_u i32:13 -> i32:0
+assert_return load8_u i32:14 -> i32:7
+assert_return load8_u i32:15 -> i32:5
+assert_return load8_u i32:16 -> i32:2
+assert_return load8_u i32:17 -> i32:7
+assert_return load8_u i32:18 -> i32:0
+assert_return load8_u i32:19 -> i32:9
+assert_return load8_u i32:20 -> i32:0
+assert_return load8_u i32:21 -> i32:7
+assert_return load8_u i32:22 -> i32:0
+assert_return load8_u i32:23 -> i32:8
+assert_return load8_u i32:24 -> i32:8
+assert_return load8_u i32:25 -> i32:0
+assert_return load8_u i32:26 -> i32:0
+assert_return load8_u i32:27 -> i32:0
+assert_return load8_u i32:28 -> i32:0
+assert_return load8_u i32:29 -> i32:0
+assert_invalid memory_init.4.wasm
+assert_invalid memory_init.5.wasm
+module memory_init.6.wasm
+invoke test ()
+module memory_init.7.wasm
+assert_trap test ()
+module memory_init.8.wasm
+assert_trap test ()
+assert_invalid memory_init.9.wasm
+assert_invalid memory_init.10.wasm
+module memory_init.11.wasm
+invoke test ()
+module memory_init.12.wasm
+assert_trap test ()
+module memory_init.13.wasm
+assert_trap test ()
+module memory_init.14.wasm
+assert_trap test ()
+module memory_init.15.wasm
+assert_trap test ()
+module memory_init.16.wasm
+invoke test ()
+module memory_init.17.wasm
+assert_trap test ()
+module memory_init.18.wasm
+invoke test ()
+module memory_init.19.wasm
+invoke test ()
+module memory_init.20.wasm
+assert_trap test ()
+assert_invalid memory_init.21.wasm
+assert_invalid memory_init.22.wasm
+assert_invalid memory_init.23.wasm
+assert_invalid memory_init.24.wasm
+assert_invalid memory_init.25.wasm
+assert_invalid memory_init.26.wasm
+assert_invalid memory_init.27.wasm
+assert_invalid memory_init.28.wasm
+assert_invalid memory_init.29.wasm
+assert_invalid memory_init.30.wasm
+assert_invalid memory_init.31.wasm
+assert_invalid memory_init.32.wasm
+assert_invalid memory_init.33.wasm
+assert_invalid memory_init.34.wasm
+assert_invalid memory_init.35.wasm
+assert_invalid memory_init.36.wasm
+assert_invalid memory_init.37.wasm
+assert_invalid memory_init.38.wasm
+assert_invalid memory_init.39.wasm
+assert_invalid memory_init.40.wasm
+assert_invalid memory_init.41.wasm
+assert_invalid memory_init.42.wasm
+assert_invalid memory_init.43.wasm
+assert_invalid memory_init.44.wasm
+assert_invalid memory_init.45.wasm
+assert_invalid memory_init.46.wasm
+assert_invalid memory_init.47.wasm
+assert_invalid memory_init.48.wasm
+assert_invalid memory_init.49.wasm
+assert_invalid memory_init.50.wasm
+assert_invalid memory_init.51.wasm
+assert_invalid memory_init.52.wasm
+assert_invalid memory_init.53.wasm
+assert_invalid memory_init.54.wasm
+assert_invalid memory_init.55.wasm
+assert_invalid memory_init.56.wasm
+assert_invalid memory_init.57.wasm
+assert_invalid memory_init.58.wasm
+assert_invalid memory_init.59.wasm
+assert_invalid memory_init.60.wasm
+assert_invalid memory_init.61.wasm
+assert_invalid memory_init.62.wasm
+assert_invalid memory_init.63.wasm
+assert_invalid memory_init.64.wasm
+assert_invalid memory_init.65.wasm
+assert_invalid memory_init.66.wasm
+assert_invalid memory_init.67.wasm
+assert_invalid memory_init.68.wasm
+assert_invalid memory_init.69.wasm
+assert_invalid memory_init.70.wasm
+assert_invalid memory_init.71.wasm
+assert_invalid memory_init.72.wasm
+assert_invalid memory_init.73.wasm
+assert_invalid memory_init.74.wasm
+assert_invalid memory_init.75.wasm
+assert_invalid memory_init.76.wasm
+assert_invalid memory_init.77.wasm
+assert_invalid memory_init.78.wasm
+assert_invalid memory_init.79.wasm
+assert_invalid memory_init.80.wasm
+assert_invalid memory_init.81.wasm
+assert_invalid memory_init.82.wasm
+assert_invalid memory_init.83.wasm
+module memory_init.84.wasm
+assert_trap run i32:65528 i32:16
+assert_return checkRange i32:0 i32:1 i32:0 -> i32:4294967295
+module memory_init.85.wasm
+assert_trap run i32:65527 i32:16
+assert_return checkRange i32:0 i32:1 i32:0 -> i32:4294967295
+module memory_init.86.wasm
+assert_trap run i32:65472 i32:30
+assert_return checkRange i32:0 i32:1 i32:0 -> i32:4294967295
+module memory_init.87.wasm
+assert_trap run i32:65473 i32:31
+assert_return checkRange i32:0 i32:1 i32:0 -> i32:4294967295
+module memory_init.88.wasm
+assert_trap run i32:65528 i32:4294967040
+assert_return checkRange i32:0 i32:1 i32:0 -> i32:4294967295
+module memory_init.89.wasm
+assert_trap run i32:0 i32:4294967292
+assert_return checkRange i32:0 i32:1 i32:0 -> i32:4294967295
+module memory_init.90.wasm
+module memory_init.91.wasm
+invoke test ()
+assert_return load8_u i64:0 -> i32:0
+assert_return load8_u i64:1 -> i32:0
+assert_return load8_u i64:2 -> i32:3
+assert_return load8_u i64:3 -> i32:1
+assert_return load8_u i64:4 -> i32:4
+assert_return load8_u i64:5 -> i32:1
+assert_return load8_u i64:6 -> i32:0
+assert_return load8_u i64:7 -> i32:0
+assert_return load8_u i64:8 -> i32:0
+assert_return load8_u i64:9 -> i32:0
+assert_return load8_u i64:10 -> i32:0
+assert_return load8_u i64:11 -> i32:0
+assert_return load8_u i64:12 -> i32:7
+assert_return load8_u i64:13 -> i32:5
+assert_return load8_u i64:14 -> i32:2
+assert_return load8_u i64:15 -> i32:3
+assert_return load8_u i64:16 -> i32:6
+assert_return load8_u i64:17 -> i32:0
+assert_return load8_u i64:18 -> i32:0
+assert_return load8_u i64:19 -> i32:0
+assert_return load8_u i64:20 -> i32:0
+assert_return load8_u i64:21 -> i32:0
+assert_return load8_u i64:22 -> i32:0
+assert_return load8_u i64:23 -> i32:0
+assert_return load8_u i64:24 -> i32:0
+assert_return load8_u i64:25 -> i32:0
+assert_return load8_u i64:26 -> i32:0
+assert_return load8_u i64:27 -> i32:0
+assert_return load8_u i64:28 -> i32:0
+assert_return load8_u i64:29 -> i32:0
+module memory_init.92.wasm
+invoke test ()
+assert_return load8_u i64:0 -> i32:0
+assert_return load8_u i64:1 -> i32:0
+assert_return load8_u i64:2 -> i32:3
+assert_return load8_u i64:3 -> i32:1
+assert_return load8_u i64:4 -> i32:4
+assert_return load8_u i64:5 -> i32:1
+assert_return load8_u i64:6 -> i32:0
+assert_return load8_u i64:7 -> i32:2
+assert_return load8_u i64:8 -> i32:7
+assert_return load8_u i64:9 -> i32:1
+assert_return load8_u i64:10 -> i32:8
+assert_return load8_u i64:11 -> i32:0
+assert_return load8_u i64:12 -> i32:7
+assert_return load8_u i64:13 -> i32:5
+assert_return load8_u i64:14 -> i32:2
+assert_return load8_u i64:15 -> i32:3
+assert_return load8_u i64:16 -> i32:6
+assert_return load8_u i64:17 -> i32:0
+assert_return load8_u i64:18 -> i32:0
+assert_return load8_u i64:19 -> i32:0
+assert_return load8_u i64:20 -> i32:0
+assert_return load8_u i64:21 -> i32:0
+assert_return load8_u i64:22 -> i32:0
+assert_return load8_u i64:23 -> i32:0
+assert_return load8_u i64:24 -> i32:0
+assert_return load8_u i64:25 -> i32:0
+assert_return load8_u i64:26 -> i32:0
+assert_return load8_u i64:27 -> i32:0
+assert_return load8_u i64:28 -> i32:0
+assert_return load8_u i64:29 -> i32:0
+module memory_init.93.wasm
+invoke test ()
+assert_return load8_u i64:0 -> i32:0
+assert_return load8_u i64:1 -> i32:0
+assert_return load8_u i64:2 -> i32:3
+assert_return load8_u i64:3 -> i32:1
+assert_return load8_u i64:4 -> i32:4
+assert_return load8_u i64:5 -> i32:1
+assert_return load8_u i64:6 -> i32:0
+assert_return load8_u i64:7 -> i32:0
+assert_return load8_u i64:8 -> i32:0
+assert_return load8_u i64:9 -> i32:0
+assert_return load8_u i64:10 -> i32:0
+assert_return load8_u i64:11 -> i32:0
+assert_return load8_u i64:12 -> i32:7
+assert_return load8_u i64:13 -> i32:5
+assert_return load8_u i64:14 -> i32:2
+assert_return load8_u i64:15 -> i32:9
+assert_return load8_u i64:16 -> i32:2
+assert_return load8_u i64:17 -> i32:7
+assert_return load8_u i64:18 -> i32:0
+assert_return load8_u i64:19 -> i32:0
+assert_return load8_u i64:20 -> i32:0
+assert_return load8_u i64:21 -> i32:0
+assert_return load8_u i64:22 -> i32:0
+assert_return load8_u i64:23 -> i32:0
+assert_return load8_u i64:24 -> i32:0
+assert_return load8_u i64:25 -> i32:0
+assert_return load8_u i64:26 -> i32:0
+assert_return load8_u i64:27 -> i32:0
+assert_return load8_u i64:28 -> i32:0
+assert_return load8_u i64:29 -> i32:0
+module memory_init.94.wasm
+invoke test ()
+assert_return load8_u i64:0 -> i32:0
+assert_return load8_u i64:1 -> i32:0
+assert_return load8_u i64:2 -> i32:3
+assert_return load8_u i64:3 -> i32:1
+assert_return load8_u i64:4 -> i32:4
+assert_return load8_u i64:5 -> i32:1
+assert_return load8_u i64:6 -> i32:0
+assert_return load8_u i64:7 -> i32:2
+assert_return load8_u i64:8 -> i32:7
+assert_return load8_u i64:9 -> i32:1
+assert_return load8_u i64:10 -> i32:8
+assert_return load8_u i64:11 -> i32:0
+assert_return load8_u i64:12 -> i32:7
+assert_return load8_u i64:13 -> i32:0
+assert_return load8_u i64:14 -> i32:7
+assert_return load8_u i64:15 -> i32:5
+assert_return load8_u i64:16 -> i32:2
+assert_return load8_u i64:17 -> i32:7
+assert_return load8_u i64:18 -> i32:0
+assert_return load8_u i64:19 -> i32:9
+assert_return load8_u i64:20 -> i32:0
+assert_return load8_u i64:21 -> i32:7
+assert_return load8_u i64:22 -> i32:0
+assert_return load8_u i64:23 -> i32:8
+assert_return load8_u i64:24 -> i32:8
+assert_return load8_u i64:25 -> i32:0
+assert_return load8_u i64:26 -> i32:0
+assert_return load8_u i64:27 -> i32:0
+assert_return load8_u i64:28 -> i32:0
+assert_return load8_u i64:29 -> i32:0
+assert_invalid memory_init.95.wasm
+assert_invalid memory_init.96.wasm
+module memory_init.97.wasm
+invoke test ()
+module memory_init.98.wasm
+assert_trap test ()
+module memory_init.99.wasm
+assert_trap test ()
+assert_invalid memory_init.100.wasm
+assert_invalid memory_init.101.wasm
+module memory_init.102.wasm
+invoke test ()
+module memory_init.103.wasm
+assert_trap test ()
+module memory_init.104.wasm
+assert_trap test ()
+module memory_init.105.wasm
+assert_trap test ()
+module memory_init.106.wasm
+assert_trap test ()
+module memory_init.107.wasm
+invoke test ()
+module memory_init.108.wasm
+assert_trap test ()
+module memory_init.109.wasm
+invoke test ()
+module memory_init.110.wasm
+invoke test ()
+module memory_init.111.wasm
+assert_trap test ()
+assert_invalid memory_init.112.wasm
+assert_invalid memory_init.113.wasm
+assert_invalid memory_init.114.wasm
+assert_invalid memory_init.115.wasm
+assert_invalid memory_init.116.wasm
+assert_invalid memory_init.117.wasm
+assert_invalid memory_init.118.wasm
+assert_invalid memory_init.119.wasm
+assert_invalid memory_init.120.wasm
+assert_invalid memory_init.121.wasm
+assert_invalid memory_init.122.wasm
+assert_invalid memory_init.123.wasm
+assert_invalid memory_init.124.wasm
+assert_invalid memory_init.125.wasm
+assert_invalid memory_init.126.wasm
+assert_invalid memory_init.127.wasm
+assert_invalid memory_init.128.wasm
+assert_invalid memory_init.129.wasm
+assert_invalid memory_init.130.wasm
+assert_invalid memory_init.131.wasm
+assert_invalid memory_init.132.wasm
+assert_invalid memory_init.133.wasm
+assert_invalid memory_init.134.wasm
+assert_invalid memory_init.135.wasm
+assert_invalid memory_init.136.wasm
+assert_invalid memory_init.137.wasm
+assert_invalid memory_init.138.wasm
+assert_invalid memory_init.139.wasm
+assert_invalid memory_init.140.wasm
+assert_invalid memory_init.141.wasm
+assert_invalid memory_init.142.wasm
+assert_invalid memory_init.143.wasm
+assert_invalid memory_init.144.wasm
+assert_invalid memory_init.145.wasm
+assert_invalid memory_init.146.wasm
+assert_invalid memory_init.147.wasm
+assert_invalid memory_init.148.wasm
+assert_invalid memory_init.149.wasm
+assert_invalid memory_init.150.wasm
+assert_invalid memory_init.151.wasm
+assert_invalid memory_init.152.wasm
+assert_invalid memory_init.153.wasm
+assert_invalid memory_init.154.wasm
+assert_invalid memory_init.155.wasm
+assert_invalid memory_init.156.wasm
+assert_invalid memory_init.157.wasm
+assert_invalid memory_init.158.wasm
+assert_invalid memory_init.159.wasm
+assert_invalid memory_init.160.wasm
+assert_invalid memory_init.161.wasm
+assert_invalid memory_init.162.wasm
+assert_invalid memory_init.163.wasm
+assert_invalid memory_init.164.wasm
+assert_invalid memory_init.165.wasm
+assert_invalid memory_init.166.wasm
+assert_invalid memory_init.167.wasm
+assert_invalid memory_init.168.wasm
+assert_invalid memory_init.169.wasm
+assert_invalid memory_init.170.wasm
+assert_invalid memory_init.171.wasm
+assert_invalid memory_init.172.wasm
+assert_invalid memory_init.173.wasm
+assert_invalid memory_init.174.wasm
+module memory_init.175.wasm
+assert_trap run i64:65528 i32:16
+assert_return checkRange i64:0 i64:1 i32:0 -> i64:18446744073709551615
+module memory_init.176.wasm
+assert_trap run i64:65527 i32:16
+assert_return checkRange i64:0 i64:1 i32:0 -> i64:18446744073709551615
+module memory_init.177.wasm
+assert_trap run i64:65472 i32:30
+assert_return checkRange i64:0 i64:1 i32:0 -> i64:18446744073709551615
+module memory_init.178.wasm
+assert_trap run i64:65473 i32:31
+assert_return checkRange i64:0 i64:1 i32:0 -> i64:18446744073709551615
+module memory_init.179.wasm
+assert_trap run i64:65528 i32:4294967040
+assert_return checkRange i64:0 i64:1 i32:0 -> i64:18446744073709551615
+module memory_init.180.wasm
+assert_trap run i64:0 i32:4294967292
+assert_return checkRange i64:0 i64:1 i32:0 -> i64:18446744073709551615
+module memory_init.181.wasm

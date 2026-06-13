@@ -51,18 +51,42 @@ inline fn memSliceByIdx(rt: *Runtime, memidx: u64) []u8 {
     return rt.memories[i].bytes;
 }
 
+/// D-324 — is the memory at `memidx` i64-indexed? Scaffold fallback
+/// (no `memories` entries) = legacy i32, mirroring `memSliceByIdx`.
+inline fn memIs64(rt: *Runtime, memidx: u64) bool {
+    const i: usize = @intCast(memidx);
+    return i < rt.memories.len and rt.memories[i].idx_type == .i64;
+}
+
+/// D-324 — pop one address/count operand at the width the validator
+/// typed it (i64-indexed memory → full u64; else u32). Popping `.i32`
+/// unconditionally silently truncated i64 addresses ≥ 2^32 (wrong
+/// region touched instead of a trap).
+inline fn popAddr(rt: *Runtime, is64: bool) u64 {
+    if (is64) return rt.popOperand().u64;
+    return @as(u32, @bitCast(rt.popOperand().i32));
+}
+
+/// D-324 — overflow-safe `base + n > len` (u64 base/n wrap at 2^64
+/// would bypass the bounds check for huge memory64 operands).
+inline fn outOfRange(base: u64, n: u64, len: usize) bool {
+    const end = @addWithOverflow(base, n);
+    return end[1] != 0 or end[0] > len;
+}
+
 fn memoryCopy(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
     // 10.M cycle 67 — payload = dst_memidx, extra = src_memidx.
     const dst_mem = memSliceByIdx(rt, instr.payload);
     const src_mem = memSliceByIdx(rt, instr.extra);
-    const n_i = rt.popOperand().i32;
-    const src_i = rt.popOperand().i32;
-    const dst_i = rt.popOperand().i32;
-    const n: u64 = @as(u32, @bitCast(n_i));
-    const src: u64 = @as(u32, @bitCast(src_i));
-    const dst: u64 = @as(u32, @bitCast(dst_i));
-    if (src + n > src_mem.len or dst + n > dst_mem.len) return Trap.OutOfBoundsStore;
+    // Wasm 3.0 §3.4.7 (D-324): operands are [it_dst it_src it_min]
+    // (it_min = i32 if either memory is i32-indexed); pop in reverse.
+    const dst64 = memIs64(rt, instr.payload);
+    const src64 = memIs64(rt, instr.extra);
+    const n = popAddr(rt, dst64 and src64);
+    const src = popAddr(rt, src64);
+    const dst = popAddr(rt, dst64);
+    if (outOfRange(src, n, src_mem.len) or outOfRange(dst, n, dst_mem.len)) return Trap.OutOfBoundsStore;
     if (n == 0) return;
     const src_lo: usize = @intCast(src);
     const dst_lo: usize = @intCast(dst);
@@ -81,12 +105,12 @@ fn memoryCopy(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
 fn memoryFill(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
     const mem = memSliceByIdx(rt, instr.payload);
-    const n_i = rt.popOperand().i32;
+    // D-324: dst + n carry the TARGET memory's idx_type width.
+    const is64 = memIs64(rt, instr.payload);
+    const n = popAddr(rt, is64);
     const val_i = rt.popOperand().i32;
-    const dst_i = rt.popOperand().i32;
-    const n: u64 = @as(u32, @bitCast(n_i));
-    const dst: u64 = @as(u32, @bitCast(dst_i));
-    if (dst + n > mem.len) return Trap.OutOfBoundsStore;
+    const dst = popAddr(rt, is64);
+    if (outOfRange(dst, n, mem.len)) return Trap.OutOfBoundsStore;
     if (n == 0) return;
     const dst_lo: usize = @intCast(dst);
     const n_lo: usize = @intCast(n);
@@ -108,13 +132,12 @@ fn memoryInit(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const seg_len: u64 = if (dropped) 0 else rt.datas[@intCast(dataidx)].len;
     const dst_mem = memSliceByIdx(rt, instr.extra);
 
-    const n_i = rt.popOperand().i32;
-    const src_i = rt.popOperand().i32;
-    const dst_i = rt.popOperand().i32;
-    const n: u64 = @as(u32, @bitCast(n_i));
-    const src: u64 = @as(u32, @bitCast(src_i));
-    const dst: u64 = @as(u32, @bitCast(dst_i));
-    if (src + n > seg_len or dst + n > dst_mem.len) return Trap.OutOfBoundsStore;
+    // D-324: dst carries the TARGET memory's idx_type width; src + n
+    // are data-segment offsets (always i32 per Wasm 3.0 §3.4.7).
+    const n: u64 = @as(u32, @bitCast(rt.popOperand().i32));
+    const src: u64 = @as(u32, @bitCast(rt.popOperand().i32));
+    const dst = popAddr(rt, memIs64(rt, instr.extra));
+    if (src + n > seg_len or outOfRange(dst, n, dst_mem.len)) return Trap.OutOfBoundsStore;
     if (n == 0) return;
     const src_lo: usize = @intCast(src);
     const dst_lo: usize = @intCast(dst);
@@ -153,6 +176,49 @@ fn allocMem(rt: *Runtime, len: usize) !void {
     rt.memories = mi;
     rt.memory_storage = storage;
     rt.memory = bytes;
+}
+
+/// D-324 — same scaffold but the memory is i64-indexed, so the
+/// handlers must pop full-width u64 address/count operands.
+fn allocMem64(rt: *Runtime, len: usize) !void {
+    try allocMem(rt, len);
+    rt.memory_storage[0].idx_type = .i64;
+}
+
+test "memory.copy on i64 memory: dst ≥ 2^32 traps (D-324 — was silently truncated to 0)" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try allocMem64(&rt, 16);
+    try rt.pushOperand(.{ .u64 = 1 << 32 }); // dst (low 32 bits = 0)
+    try rt.pushOperand(.{ .u64 = 0 }); // src
+    try rt.pushOperand(.{ .u64 = 1 }); // n
+    try testing.expectError(Trap.OutOfBoundsStore, driveOne(&rt, &t, .@"memory.copy", 0, 0));
+}
+
+test "memory.copy on i64 memory: u64 wrap in bounds math still traps (D-324)" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try allocMem64(&rt, 16);
+    try rt.pushOperand(.{ .u64 = std.math.maxInt(u64) }); // dst
+    try rt.pushOperand(.{ .u64 = 0 }); // src
+    try rt.pushOperand(.{ .u64 = std.math.maxInt(u64) }); // n (dst+n wraps)
+    try testing.expectError(Trap.OutOfBoundsStore, driveOne(&rt, &t, .@"memory.copy", 0, 0));
+}
+
+test "memory.fill on i64 memory: dst ≥ 2^32 traps (D-324)" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    try allocMem64(&rt, 16);
+    try rt.pushOperand(.{ .u64 = 1 << 32 }); // dst
+    try rt.pushOperand(.{ .i32 = 0xAB }); // val
+    try rt.pushOperand(.{ .u64 = 1 }); // n
+    try testing.expectError(Trap.OutOfBoundsStore, driveOne(&rt, &t, .@"memory.fill", 0, 0));
 }
 
 test "register: bulk-memory slots populated" {

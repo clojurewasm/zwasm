@@ -222,11 +222,32 @@ pub fn frontendValidate(alloc: std.mem.Allocator, binary: []const u8) bool {
     else
         null;
     defer if (memories_owned) |*m| m.deinit();
+    // D-324 — per-memory idx_type slice (imports first, then defined)
+    // so mixed i32/i64 multi-memory bodies type each memory op
+    // against ITS memory. memory0_idx_type derives from slot 0
+    // (was: defined-section-only, ignoring imported memories).
+    const memory_idx_types: []sections.MemoryEntry.IdxType = blk: {
+        var n: usize = 0;
+        if (imports_decoded) |im| for (im.items) |it| {
+            if (it.kind == .memory) n += 1;
+        };
+        const def_n: usize = if (memories_owned) |m| m.items.len else 0;
+        const buf = alloc.alloc(sections.MemoryEntry.IdxType, n + def_n) catch return false;
+        var i: usize = 0;
+        if (imports_decoded) |im| for (im.items) |it| {
+            if (it.kind != .memory) continue;
+            buf[i] = it.payload.memory.idx_type;
+            i += 1;
+        };
+        if (memories_owned) |m| for (m.items) |me| {
+            buf[i] = me.idx_type;
+            i += 1;
+        };
+        break :blk buf;
+    };
+    defer alloc.free(memory_idx_types);
     const memory0_idx_type: sections.MemoryEntry.IdxType =
-        if (memories_owned) |m|
-            (if (m.items.len > 0) m.items[0].idx_type else .i32)
-        else
-            .i32;
+        if (memory_idx_types.len > 0) memory_idx_types[0] else .i32;
 
     // 10.E EH module-compile path: decode the tag section so
     // `throw` / `try_table` catch clauses range-check tag_idx
@@ -381,6 +402,7 @@ pub fn frontendValidate(alloc: std.mem.Allocator, binary: []const u8) bool {
             elem_seg_count, // table.init / elem.drop elemidx bound
             total_memory_count,
             memory0_idx_type,
+            memory_idx_types,
             tags_slice,
             declared_funcs,
             func_type_indices,
