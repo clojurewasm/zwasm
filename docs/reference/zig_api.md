@@ -47,9 +47,9 @@ lifetime.
 
 **Host imports** — build a `Linker`, `defineFunc("env", "add", fn (*Caller, i32, i32) i32, hostAdd)`
 (the Wasm signature is comptime-derived from the Zig fn; first param is
-`*Caller`), then `linker.instantiate(&module)`. `defineWasi(.{ .args = …, .envs = … })`
-satisfies any `wasi_snapshot_preview1` import (carries `args` + `envs`; preopens are
-deferred — D-177). See `examples/zig_dep` block (2).
+`*Caller`), then `linker.instantiate(&module)`. `defineWasi(.{ .args, .envs, .preopens, .io })`
+satisfies any `wasi_snapshot_preview1` import (`args` + `envs` + filesystem `preopens` —
+preopens need `.io`; stdio capture stays C-API-only). See `examples/zig_dep` block (2).
 
 ## Errors
 

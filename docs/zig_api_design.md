@@ -319,23 +319,25 @@ defer inst_b.deinit();
 
 ### §3.8 — WASI
 
-As-built `WasiConfig` (`src/zwasm/linker.zig`) carries `args` only; after
-`defineWasi` every `wasi_snapshot_preview1` import in the module is satisfied as
-a unit:
+As-built `WasiConfig` (`src/zwasm/linker.zig`) carries `args` / `envs` /
+`preopens` (+ `io`); after `defineWasi` every `wasi_snapshot_preview1` import in
+the module is satisfied as a unit:
 
 ```zig
 try linker.defineWasi(.{
     .args = &.{ "prog", "arg1", "arg2" },
-    .envs = &.{ .{ .name = "LANG", .value = "C" } }, // → environ_get
+    .envs = &.{ .{ .name = "LANG", .value = "C" } },           // → environ_get
+    .io = my_io,                                                // your std.Io
+    .preopens = &.{ .{ .host_path = ".", .guest_path = "/" } }, // → path_open
 });
 // All wasi_snapshot_preview1 imports are defined as a unit.
 const inst = try linker.instantiate(module);
 ```
 
-`args` and `envs` are settable on the Zig `WasiConfig`. `preopens` / `stdin` /
-`stdout` / `stderr` are not yet fields (deferred — D-177 / D-251); until they
-land, drive those from the surfaces that already support them: filesystem
-preopens via the CLI `--dir` flag or the C API, and stdio capture via the C API.
+`args` / `envs` / `preopens` are settable on the Zig `WasiConfig` (preopens are
+opened at `instantiate` via the caller-provided `io`; the embedder owns the event
+loop). Only stdin / stdout / stderr *capture* is still facade-unwired (D-251) —
+use the C API for stdio redirection.
 
 ### §3.9 — Component Model: typed invoke (ADR-0183, as-built)
 

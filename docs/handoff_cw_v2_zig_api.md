@@ -141,17 +141,19 @@ type-definition checks (D-202 A/B/C) before binding.
 ```zig
 try lk.defineWasi(.{
     .args = &.{ "prog", "arg1" },
-    .envs = &.{ .{ .name = "LANG", .value = "C" } },  // → environ_get
+    .envs = &.{ .{ .name = "LANG", .value = "C" } },         // → environ_get
+    .io = my_io,                                              // your std.Io (event loop)
+    .preopens = &.{ .{ .host_path = ".", .guest_path = "/" } }, // → path_open
 });
 // installs all 46 WASI 0.1 thunks; at-most-once per Linker.
 ```
 
-`WasiConfig` carries `args` + `envs` today. **`preopens` / stdin / stdout /
-stderr are NOT yet fields on the Zig `WasiConfig`** (the host supports them; the
-facade wiring is the remaining facet of **D-177** — needs an io-token into the
-facade Engine). Until then drive filesystem preopens via the CLI `--dir` flag or
-the C API. A named WASI import with no registered thunk surfaces as
-`error.UnsupportedWasiImport` (distinct from `UnknownImport`).
+`WasiConfig` carries `args` + `envs` + filesystem `preopens`. **`preopens` need
+`.io`** — the embedder brings its own `std.Io` (event loop; no engine-owned thread);
+the dirs are opened at `instantiate` and the Host closes them on deinit. stdin /
+stdout / stderr *capture* is still facade-unwired (use the C API). A named WASI
+import with no registered thunk surfaces as `error.UnsupportedWasiImport` (distinct
+from `UnknownImport`).
 
 ## 7. Instance state access + sandboxing
 
@@ -235,12 +237,12 @@ ownership).
 
 ## 11. Known gaps (current residuals)
 
-| Gap                                           | Ticket | Note                                                       |
-|-----------------------------------------------|--------|------------------------------------------------------------|
-| Zig `WasiConfig.preopens`/stdio wiring        | D-177  | host supports it; reach via CLI `--dir` / C-API meanwhile  |
-| JIT fuel / memory-cap / table-cap             | D-314  | interp/default engine has them in v0.1; JIT path post-v0.1 |
-| Standalone host-constructed `Global`/`Memory` | D-178  | v0.2; only import-aliasing in v0.1                         |
-| Callable funcref handle                       | D-269  | tracked                                                    |
+| Gap                                            | Ticket | Note                                                       |
+|------------------------------------------------|--------|------------------------------------------------------------|
+| Zig `WasiConfig` stdio (stdin/out/err) capture | —     | preopens shipped (D-177 closed); stdio capture stays C-API |
+| JIT fuel / memory-cap / table-cap              | D-314  | interp/default engine has them in v0.1; JIT path post-v0.1 |
+| Standalone host-constructed `Global`/`Memory`  | D-178  | v0.2; only import-aliasing in v0.1                         |
+| Callable funcref handle                        | D-269  | tracked                                                    |
 
 ## 12. Pointers
 
