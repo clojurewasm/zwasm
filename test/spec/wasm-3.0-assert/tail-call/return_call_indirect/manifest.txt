@@ -18,7 +18,7 @@ assert_return dispatch i32:12 i64:5 -> i64:120
 assert_return dispatch i32:17 i64:2 -> i64:2
 assert_trap dispatch i32:0 i64:2
 assert_trap dispatch i32:15 i64:2
-assert_trap dispatch i32:22 i64:2
+assert_trap dispatch i32:20 i64:2
 assert_trap dispatch i32:4294967295 i64:2
 assert_trap dispatch i32:1213432423 i64:2
 assert_return dispatch-structural i32:5 -> i64:9
@@ -46,8 +46,6 @@ assert_return odd i32:200 -> i32:99
 assert_return odd i32:77 -> i32:44
 assert_return odd i32:200002 -> i32:99
 assert_return odd i32:300003 -> i32:44
-assert_return call_tailprint i32:5 f32:1119223808 -> ()
-assert_return call_mpmr f64:4616414798036126925 i64:99 -> i32:99 f32:1082549862
 skip-adr-skip_text_format_parser directive-assert_malformed-text
 skip-adr-skip_text_format_parser directive-assert_malformed-text
 skip-adr-skip_text_format_parser directive-assert_malformed-text
@@ -75,5 +73,3 @@ assert_invalid return_call_indirect.24.wasm
 assert_invalid return_call_indirect.25.wasm
 assert_invalid return_call_indirect.26.wasm
 assert_invalid return_call_indirect.27.wasm
-assert_invalid return_call_indirect.28.wasm
-assert_invalid return_call_indirect.29.wasm

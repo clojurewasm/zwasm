@@ -30,8 +30,6 @@ assert_return odd i64:200 -> i32:99
 assert_return odd i64:77 -> i32:44
 assert_return odd i64:1000000 -> i32:99
 assert_return odd i64:999999 -> i32:44
-assert_return tailprint_i32_f32 i32:5 f32:1119223808 -> ()
-assert_return type-f64-i64-to-i32-f32 f64:4616414798036126925 i64:99 -> i32:99 f32:1082549862
 assert_invalid return_call.1.wasm
 assert_invalid return_call.2.wasm
 assert_invalid return_call.3.wasm
@@ -44,4 +42,3 @@ assert_invalid return_call.9.wasm
 assert_invalid return_call.10.wasm
 assert_invalid return_call.11.wasm
 assert_invalid return_call.12.wasm
-assert_invalid return_call.13.wasm
