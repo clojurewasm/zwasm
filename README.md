@@ -3,7 +3,7 @@
 A from-scratch WebAssembly runtime in Zig 0.16.0.
 
 > **Status: feature-complete (Phase 16 — 完成形), not yet tagged.** Full
-> WebAssembly 3.0 + WASI preview1, interpreter + JIT (arm64 / x86_64) +
+> WebAssembly 3.0 + WASI preview1 & preview2 (Component Model), interpreter + JIT (arm64 / x86_64) +
 > AOT (`.cwasm`), and the C / Zig / CLI surfaces are settled and green on
 > the 3-host gate (Mac aarch64 + Linux x86_64 + Windows x86_64). A
 > `v0.1.0` tag is a deliberate, manual step and has not been cut.
@@ -159,7 +159,7 @@ bash scripts/run_remote_windows.sh test-all
 
 Nix + direnv is the supported dev environment. `direnv allow` loads
 the pinned Zig 0.16.0 and tool surface (`flake.nix`: hyperfine,
-wasm-tools, wasmtime, wabt, yq-go, lldb, nasm).
+wasm-tools, wasmtime, yq-go, lldb, nasm).
 
 ## Layout
 
