@@ -73,9 +73,12 @@ headline) · docs axis verified (cli.md/c_api.md accurate-to-code; comparison do
 dated-snapshot) · **D-297 discharged `13069bcc`** (Linker-deinit guard rejected —
 cross-path inc/dec false-fire risk; contract suffices, wasmtime-parity) · **D-177
 re-scoped `dca15df8`** (thunk barrier DISSOLVED — lookupWasiThunk 46/46, facade
-runner 55 PASS/0 SKIP verified; residual = WasiConfig struct envs/preopens surface,
-host-supported, minor). Alpha conformance MET (`d151538a`).
+55 PASS/0 SKIP) · **WasiConfig.envs shipped `04cb3497`** (Zig-API WASI env-var
+parity, TDD; D-177 narrowed `13be9d5b` → preopens-only). Alpha conformance MET.
 Next actionable (demand-driven long-tail — pick by signal):
+- **D-177 preopens** (the narrowed facet) = add `WasiConfig.preopens` — needs the
+  host-fd ownership story resolved first (addPreopen takes an open dir fd; who
+  closes it — Host.deinit or caller?). Focused chunk; host-supported; minor.
 - **D-293 remainder** = GC array.* trampolines only. **RE-SURVEYED + barrier
   RE-CONFIRMED deferred 2026-06-14 (`565ed49a`)** — full demux mechanism walked
   (new no-static-kind stub variant ×2 + `gc_array_trap_fixups` channel + ~30-site
