@@ -17,10 +17,12 @@ miscompiles that produce wrong output but DON'T crash:
   llvm-mc disasm). VALIDATED: `-H` bp fires on a JIT page (func 11). Wired into debug_jit_auto Recipe 18
   + decision-tree + lesson `2026-06-15-lldb-value-trace-on-jit-code`.
 
-**D-330 c_sha256 `\n` (deprioritized; top Phase-B item)**: localized to a putc-into-buffer miss before
-the single exit `fd_write`. CORRECTION: piped stdout = musl FULL buffering → first fd_write is the exit
-flush AFTER all putc, so stop EARLIER than `fdWrite` to trace the putc-side store. Full trail + corrected
-next probe in D-330 debt residual. Niche cosmetic (values+interp correct; 55/56 byte-exact).
+**D-330 c_sha256 `\n` — MECHANISM CONFIRMED (`4365e478`, via the harness)**: c_sha256 is LINE-buffered
+(3 fd_writes). Read iovecs at `jit_dispatch.zig:78`: write 1 (input) iov[1] len=1 → `\n` correct; write 3
+(verify: OK) iov[0] len=**10** not 11, iov[1]=**{0,0}** → `\n` in NEITHER iovec. Buffered `wpos-wbase`=10
+not 11: the final `putc('\n')` didn't advance `wpos` — `\n` dropped at buffer-construction. Same value-
+miscompile family as discharged D-330 primary. **NEXT**: disasm/trace the wpos-store for the verify line
+(jit_value_trace.sh). Deprioritized cosmetic (values+interp correct; 55/56 byte-exact). Trail: D-330 debt.
 
 ## Prior session — D-332 table-cap SHIPPED (`3cb5e3bf`) + D-330 coalescing/fp-select/D-289
 
