@@ -1060,36 +1060,24 @@ entries:
       func's body-relative machine bytes as a hex line (`[jit.dump] func=N len=L hex=...`). Disasm
       arm64 via llvm-mc (NO objdump `-b` in llvm-21): `echo "$HEX" | sed -E 's/(..)/0x\1 /g' |
       /nix/store/*llvm-21*/bin/llvm-mc --disassemble --triple=aarch64`. Done for func 4 (10580 B =
-      2645 insns). **FINDING**: the inlined musl putc/`__overflow` '\n'-write lives at asm lines
-      ~2300-2375. Two buffer-check gates `cbnz w14` at asm-line 2316 + 2345 (each `cmp wpos,wend` i.e.
-      `cmp mem[1996],mem[1992]`); the '\n' byte write is `mov x14,#10; strb w15,[x28,x16]` at ~2364.
-      Static structure is CORRECT (it does write 10 to the buffer) → bug is a RUNTIME VALUE at one of
-      those compares. **NEXT (concrete, tool-equipped — NOT a 5th source guess)**: lldb value-trace —
-      code_map.zig has func 4's runtime start_addr; breakpoint at `start_addr + (asm_line-1)*4` for the
-      2345 cbnz, inspect w14/w15 interp-vs-jit. OR add a wasm-pc→machine-offset emit map (2nd primitive)
-      for precise pc678↔offset correlation. Repro on Mac arm64 confirmed (`verify: OK` no trailing \n).
+      2645 insns). The earlier disasm-region speculation (mem[2056] lbf load; "full buffering") was
+      UNCONFIRMED guessing — superseded by the hard iovec data below.
       ---
-      **SHARPENED 2026-06-15 (`<this-commit>`)**: re-read the disasm — the gating compare is the
-      musl **line-buffer-flush check `if (lbf == '\n')`**: func4.asm line 2308 `ldr w14,[x28,x16]`
-      loads guest `mem[2056]` (the stdout FILE's `lbf` field), line 2314 `cmp w14,#10`. interp
-      `mem[2056]`=10 → ne(10,10)=false → `\n` emitted; **JIT reads 0** → ne(0,10)=true → `\n` skipped.
-      Since `lbf` is set ONCE at FILE init + constant, the bug is EITHER (a) the load at 2308 is
-      miscompiled, OR (b) an upstream store never wrote 10 to `mem[2056]` under JIT. **DECISIVE NEXT
-      PROBE (fully equipped now)**: `setup.zig` logs `func=4 runtime_addr=0xADDR` under
-      `ZWASM_DEBUG=jit.dump`; under lldb (disable-aslr default) break at `ADDR + 0x240c` (line 2308
-      load) — read `w14` (loaded value) + guest mem at `x28+x16` (x16=2056). w14==0 & mem==10 ⇒ load
-      miscompile (a); w14==0 & mem==0 ⇒ upstream store miscompile (b), then trace who writes [2056].
-      ---
-      **HARNESS BUILT + buffering correction 2026-06-15 (`<this-commit>`, user-directed persistence)**:
-      `scripts/jit_value_trace.sh {addr|disasm|trace}` automates the whole lldb-on-JIT value-trace
-      (lesson `2026-06-15-lldb-value-trace-on-jit-code` + debug_jit_auto Recipe 18). VALIDATED: a `-H`
-      bp fires on a JIT page (func 11 entry). **CORRECTION**: tracing func4+0x240c (line 2308) at
-      `fdWrite` showed NO hit — because piped stdout = musl FULL buffering → the program flushes ONCE
-      at exit, so the FIRST fdWrite is the exit flush, AFTER all putc. The mem[2056] load runs during
-      putc, BEFORE that fdWrite, so arming there is too late. **NEXT PROBE (corrected)**: stop EARLIER
-      than fdWrite (an earlier host call / the JIT entry, before buffering) then trace func 4's putc
-      store of the final `\n` + the wpos increment; the bug is a putc-into-buffer miss that shorts the
-      buffer by 1 byte before the single exit flush. Use `jit_value_trace.sh trace ... <earlier-symbol>`.
+      **MECHANISM CONFIRMED 2026-06-15 (`<this-commit>`, via `scripts/jit_value_trace.sh` + lldb)**:
+      c_sha256 is **LINE-buffered** (one WASI `fd_write` per printf line, 3 total — NOT full-buffered).
+      Read both ciovecs at each `fd_write` (break `jit_dispatch.zig:78`; `memory read --format x --size 4
+      --count 4 \`mem.ptr + iovs_ptr\``; musl `__stdout_write` passes `iov[0]={wbase, wpos-wbase}` +
+      `iov[1]={new buf, len}`):
+        - write 1 "input: …\n": iov[0] len=22, iov[1] len=1 → `\n` present. **CORRECT.**
+        - write 3 "verify: OK\n": iov[0] len=**10** ("verify: OK"), iov[1]=**{0,0}**. The `\n` is in
+          NEITHER iovec → the buffered length `wpos-wbase` is 10, should be 11. The final `putc('\n')`
+          for the LAST line did NOT advance `wpos` (or stored a short count). So `\n` is dropped at
+          BUFFER-CONSTRUCTION, not at the write. A length value miscomputed to 10-not-11 — same
+          "value should be N reads N-1/0" family as the (now-discharged) D-330 coalescing primary.
+      **NEXT (well-defined)**: trace the putc/`__fwritex` that appends the verify line's `\n` to stdout's
+      buffer (the `wpos` store) — find why `wpos` ends at +10 not +11. Reproduce the iovec read above to
+      re-confirm, then `jit_value_trace.sh disasm`/`trace` the buffering func at its `wpos`-store,
+      interp-vs-jit. STILL DEPRIORITIZED (niche cosmetic; values+interp correct; 55/56 byte-exact).
     first_raised: "2026-06-15"
     last_reviewed: "2026-06-15"
     refs: |-
