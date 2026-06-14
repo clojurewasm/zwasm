@@ -189,6 +189,15 @@ elif [ "$DOCS_ONLY" -eq 0 ]; then
     echo "[gate_commit] (no ADR changed — skipping check_adr_history)"
 fi
 
+# --- gate: ReleaseSafe runner floor (when build.zig staged; ADR-0177) ---
+
+if grep -qE '(^|/)build\.zig$' <<<"$STAGED"; then
+    if [ -x scripts/check_releasesafe_runners.sh ]; then
+        echo "[gate_commit] check_releasesafe_runners ..."
+        bash scripts/check_releasesafe_runners.sh
+    fi
+fi
+
 # --- gate: lesson citing (info only) ------------------------------------
 
 if [ -x scripts/check_lesson_citing.sh ]; then

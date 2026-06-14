@@ -66,3 +66,20 @@ JIT smoke).
 - Debugging a runner in Debug needs a temporary build.zig edit (rare).
 - Extra cache: `core` (Debug) + `core_rs` (ReleaseSafe) + `core_comp`
   (component) coexist in `.zig-cache`.
+
+## Revision history
+
+- 2026-06-14 — **Gap closed: `core_comp` was Debug.** A cross-project audit
+  (prompted by ClojureWasmFromScratch's own ReleaseSafe campaign — Debug sneaking
+  into gate paths is ~100× slower) found the original change floored the *wasm*
+  spec/realworld/edge runners at ReleaseSafe (via the `zwasm_lib_mod = core_rs`
+  alias) but the **Component Model spec runner** (`comp_spec_runner`, a 158-manifest
+  corpus in `test-all`) imports the SEPARATE `core_comp` module, which was still
+  `.optimize = optimize` (= Debug on a plain `zig build test-all`). The surface
+  looked unified but this one integration runner ran the whole CM corpus in Debug.
+  Fix: `core_comp.optimize = runner_optimize` (same ReleaseSafe floor as `core_rs`;
+  `core_comp` is consumed only by that runner, no production component exe). Audit
+  recipe + the full runner→module map: lesson `releasesafe-runner-floor-audit`.
+  Remaining Debug-by-design (verified intentional): `core_tests` (leak-detecting
+  DebugAllocator), `exe` (production CLI honours `-Doptimize`), the light unit-test
+  mods, and the trivial `zig_host`/`c_host` single-wasm examples.
