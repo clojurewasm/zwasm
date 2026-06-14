@@ -1050,9 +1050,21 @@ entries:
       internal corruption AFTER the correct output (NON-DETERMINISTIC across runs: `poll_oneoff` fatal /
       `badmorestackg0` / `unlock of unlocked lock` / `switchToCrashStack0`). Non-determinism ⇒ a
       memory-corruption miscompile (uninit reg/stack-class), D-330/D-283 class — NOT an entry-sig or
-      WASI-host gap (poll_oneoff is wired, jit_dispatch.zig:352, same impl as interp). DISCHARGE (A-next):
-      `debug_jit_auto` miscompile hunt on a go_* func under JIT (link D-330). The `--jit` lane (report-only)
-      now shows go_* run-and-corrupt (huge crash-dump output) instead of compile-skip — louder but truer.
+      WASI-host gap (poll_oneoff is wired, jit_dispatch.zig:352, same impl as interp).
+      CHARACTERIZED 2026-06-15 (subagent, arm64): (1) go_hello stdout is BYTE-IDENTICAL to interp (91 B,
+      fully correct) — corruption is ONLY in Go-runtime teardown, after the visible work. (2) Root fault
+      = `runtime.panicmem`/`sigpanic` (a WILD/NIL POINTER DEREF) in `runtime.main`; the top-line
+      `poll_oneoff` "fatal error / panic during panic" is a CASCADE (freezetheworld re-enters WASI while
+      panicking) — a secondary symptom, not the cause. (3) Deterministic within a session (5 runs
+      byte-identical) but cross-session message variation (badmorestackg0/unlock-of-unlocked) ⇒ heisenbug,
+      state/timing-sensitive corruption (NOT a fixed wrong constant). (4) No env/fuel/ZWASM_JIT_RUN knob
+      influences it. HYPOTHESIS: a store with wrong width/offset OR a clobbered callee-saved/scratch reg in
+      a HOT Go-runtime helper (GC write-barrier / memmove / linear-mem bounds path) leaves a bad heap/stack
+      pointer, latent until the teardown deref. DISCHARGE (A-next): build a per-function interp-fallback
+      bisect (run a function-exclusion list under interp, rest JIT) to localize WHICH compiled go-runtime
+      func introduces corruption — this INFRA does not exist yet (build it first) — OR heap-checksum diff
+      JIT-vs-interp at teardown. Run 20-50× to surface the variant signatures first. NICHE: output correct,
+      interp default correct; only the EXIT (panic vs clean 0) + stderr noise differ for fat standard-Go.
       (B) **go_regex SlotOverflow** = the HARD D-289 large-frame class: `max_slots=4095` (regalloc_compute.zig:32,
       fixed `active_buf`/`free_buf` buffers) for SIMULTANEOUSLY-LIVE values, AND >4095 live ⇒ spill offsets
       blow the `>32760` imm limit (op_alu_int.zig:565 etc.). Needs BOTH a dynamic slot table AND large-frame
