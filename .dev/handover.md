@@ -6,17 +6,20 @@
 ## Active bundle
 
 - **Bundle-ID**: D-330-jit-printf-disasm (JIT `%s`/strnlen miscompile hunt)
-- **Cycles-remaining**: ~2-3
-- **Continuity-memo**: ARCH-INDEPENDENT (repros on arm64 AND x86_64-Rosetta, interp
-  correct both) ⇒ bug is in **shared** codegen (lowering/liveness/regalloc), NOT arch
-  emit. Culprit = repro2.wasm **func 12** (vfprintf, 1412 wat lines). Mechanism:
-  inlined `strnlen(s, SIZE_MAX)` SWAR returns too-large under pressure → musl
-  `if(p<0 && *z) goto overflow` → vfprintf returns -1 → empty %s + dropped `\n`.
-  Full trail: `private/spikes/jit-vararg/README.md` cycle-3. NEXT: dump shared
-  regalloc/liveness slot assignment for func 12 (regalloc_compute.zig); find the
-  pressure-triggered spill/slot collision on the strnlen loop's running-ptr / word / mask.
-- **Exit-condition**: `zwasm run --engine jit repro2.wasm` prints `1:hi`/`2:lit`
-  (strnlen returns correct length) + boundary fixture + lesson; D-330 deletable.
+- **Cycles-remaining**: ~1-2
+- **Continuity-memo**: ARCH-INDEPENDENT (arm64 == x86_64-Rosetta, interp correct both) ⇒
+  **shared** codegen. Culprit = repro2.wasm **func 12** (vfprintf, 1087 vregs, well under
+  4095 cap → reuse bug not cap). **Cycle-4 localized it**: the regalloc_compute.zig expiry
+  `last_use_pc <= def_pc` def==last_use **slot-coalescing** is the bug — EXP2 (`<` strict) FIXES
+  repro + flips both fixtures (c_sha256_hash, emcc_fasta) to MATCH, but breaks the intended-design
+  test `regalloc_compute.zig:448`. So coalescing (result⟵last-use-operand, same slot) is unsafe
+  here via (a) an op emit that writes result before reading the coalesced operand, OR (b) liveness
+  under-computing a last_use. EXP5 ruled out select-result. Normal ALU is read-before-write safe ⇒
+  leans (b) liveness, unconfirmed. NEXT (cycle-5): PC-window bisect (disable boundary-coalescing
+  per def_pc range in func 12) → nail the ONE corrupting (freed_vreg,new_vreg,op,slot); then fix
+  emit read-order OR liveness range — keep the :448 test green. Full trail: spike README cycle-4.
+- **Exit-condition**: `zwasm run --engine jit repro2.wasm` prints `1:hi`/`2:lit` + the :448 test
+  stays green + boundary fixture + lesson; D-330 deletable.
 
 ## ACTIVE AGENDA (user-directed 2026-06-14) — real-world toolchain/bench reproduction
 
