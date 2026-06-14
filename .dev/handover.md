@@ -7,19 +7,25 @@
 
 - **Bundle-ID**: d327-catch_ref
 - **Cycles-remaining**: ~3
-- **Continuity-memo**: plan in `private/notes/d327-catch_ref-plan.md`. Decode/IR/
-  validate DONE; landing-pad emit (`arm64/emit.zig:1699`, `x86_64:1014`) loads only
-  payload. CORRECTED 2026-06-14: the JIT EH model is VALUE-based (`eh_payload_buf`
-  only) — NO exception-object ptr at the landing pad (interp has `*Exception exc`;
-  JIT discarded it). So exnref must be REIFIED via a new runtime helper
-  (`zwasm_reify_exnref(rt, tag_idx, payload) → *exc`) called at the landing pad +
-  pushed. DESIGN SUBTLETY: exnref IDENTITY matters for `throw_ref` (rethrow) — a
-  catch-time reification must round-trip. So this is MEDIUM (real EH design), not
-  the survey's SMALL. Mirror interp `mvp.zig:943-957` semantics.
-- **Exit-condition**: JIT `try_table (result i32 exnref) (catch_ref)` pushes the
-  exnref (red test green, both arches) → re-vendor eh try_table from wg-3.0 (w/
-  wasm_3_0_manifest hardcoded-count updates) → eh wg-3.0-current, full `zig build
-  test` + 3-host green. (Closes D-327; the alpha tag stays separate/user-only.)
+- **Continuity-memo**: INVESTIGATION COMPLETE 2026-06-14 — full de-risked impl
+  contract in `private/notes/d327-catch_ref-plan.md` (read it; no re-derivation
+  needed). D-327 = **ADR-0120 D6 Cycle-4+5** (decision already accepted, no new
+  ADR). Findings: (1) JIT exnref = interp's shared `*Exception`; reify a heap
+  Exception at the landing pad (copy tag_idx + `eh_payload_buf` slots). (2) gap is
+  TWO-sided: catch_ref/catch_all_ref landing pad never pushes exnref AND
+  `throw_ref` JIT is also a stub (needs symmetric read-back for the round-trip).
+  (3) Reps settled: payload slot ↔ `Value{.bits64=u64}` (clean for v0.1 gpr
+  types); caught tag_idx via new `rt.eh_thrown_tag_idx` stashed by trampolineCore;
+  Exception lifetime via an `EhReifyCtx{allocator,exceptions}` on RuntimeOwned
+  (setup.zig:118/996+), mirroring memory_grow_fn default-safe/override.
+- **NEXT = Cycle-4a**: jit_abi trailing fields (`reify_exnref_fn`/`eh_reify_ctx`/
+  `eh_thrown_tag_idx`) + `defaultReifyExnref` @panic + production `reifyExnref` +
+  unit test (reify snapshots tag_idx+payload; clobber-safety). Then 4b trampoline
+  stash → 4c landing-pad emit (×2 arch, e2e `drop`→88) → 4d throw_ref read-back
+  (round-trip 88) → 5 re-vendor eh from wg-3.0 (UPDATE wasm_3_0_manifest counts).
+- **Exit-condition**: JIT catch_ref pushes exnref + throw_ref round-trips, both
+  arches green → eh wg-3.0-current, full `zig build test` + 3-host green. (Closes
+  D-327; the alpha tag stays separate/user-only.)
 
 ## Campaign — spec re-vendor (CONVERGED; full detail `private/spec_revendor_campaign.md`)
 
