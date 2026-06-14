@@ -15,11 +15,15 @@ ubuntu (lesson `2026-06-14-corpus-revendor-breaks-hardcoded-manifest-tests`).
 memory64/multi-memory/func-refs no-drift; eh + tail-call drift remain (deferred).
 So 3.0 corpus = current-for-wg-3.0 EXCEPT multi-value asserts (D-327) + the
 reverted tail-call/eh deltas. Mechanism DONE (refdialect.py + runbook).
-D-327 keeps revealing layers (hardcoded manifest tests; DUAL runners —
-`spec_assert_runner_wasm_3_0.zig` ALREADY routes multi-value via `invokeMulti`
-@960-977, `non_simd.zig`@694 hand-codes 3 shapes). Likely NARROWER than ~250-400
-LOC but EXACT gap unpinned (which runner drives wasm-3.0-assert; why eh failed).
-A genuine multi-cycle investigate+impl for an ALPHA.
+D-327 PINNED 2026-06-14c: `test-spec-wasm-3.0-assert` is driven by
+`spec_assert_runner_wasm_3_0.zig` (build.zig:558), which ALREADY does multi-value
+via `inst.invokeMulti` for ALL-SCALAR results (@963-1002); non-scalar (v128/ref)
+multi defers. So the eh try_table +5 failures are NOT "runner can't check" — they
+are VALUE MISMATCHES (`jitScalarResultMatches` false @989) ⇒ a likely REAL
+JIT/runtime multi-value bug in try_table/exception contexts (or arg/result
+encoding), NOT a pure test-harness gap. So option A = a genuine RUNTIME
+investigation (bigger than the ~250-400 LOC harness estimate). For an ALPHA this
+strengthens B.
 DECISION (user's call — alpha effort/release tradeoff): **A** = close D-327 →
 re-vendor deferred asserts (w/ manifest-test updates) → full wg-3.0 → tag. **B** =
 tag `v2.0.0-alpha.3` NOW (corpus wg-3.0-current-except-multi-value, 3-host green;
