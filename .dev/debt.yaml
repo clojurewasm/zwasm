@@ -652,12 +652,18 @@ entries:
       (:234) + `addPreopen` (:261), and both the CLI (`--env`/`--dir`) and C-API (`zwasm_wasi_config_*`)
       already expose them. So the facade WasiConfig undersells the host. **envs DONE `04cb3497`**:
       `WasiConfig.envs` ([]const Env{name,value}) wired via h.setEnvs + white-box test + docs §3.8 synced.
-      REMAINING = preopens (+ optional stdio): `addPreopen(host_fd, guest_path)` takes an ALREADY-OPENED dir
-      fd, so the facade would open each host path → fd → addPreopen, and those host fds need a clear ownership/
-      close story (does `Host.deinit` close preopen host_fds, or the caller? — the design question that gates
-      this facet). DISCHARGE: resolve the host-fd ownership, add `WasiConfig.preopens` ([]const {host_path,
-      guest_path}) + wire + a facade fixture importing path_open + docs §3.8. Low priority (reachable via CLI
-      `--dir` / C-API); facade-convenience parity only.
+      REMAINING = preopens (+ optional stdio). SURVEYED 2026-06-14 — the fd-ownership question is SOLVED by
+      the existing ADR-0184 `addPendingPreopen(host_path, guest_path)` + `materializePendingPreopens` path:
+      Host opens the dir via `Host.io` at instantiate, tracks the fd in `owned_preopen_fds`, and CLOSES it on
+      `Host.deinit` (host.zig:160-212). BUT the real gate is IO-TOKEN PLUMBING: the facade `Linker.instantiate`
+      (linker.zig:515) binds WASI thunks but NEVER sets `Host.io` nor calls `materializePendingPreopens`, and
+      the facade `Engine` struct (engine.zig:24) has NO io field — so the facade has no io token to materialize
+      with (unlike the C-API/component path which threads engine-owned io per ADR-0184). DISCHARGE: source an
+      io token into the facade (ADR-0184 follow-up — where does the facade Engine get io?) → set `host.io` +
+      call `materializePendingPreopens` at instantiate → add `WasiConfig.preopens` ([]const {host_path,
+      guest_path}) wired via `addPendingPreopen` → facade fixture importing path_open + docs §3.8. Genuine
+      design chunk (io plumbing), NOT config wiring. Low priority (reachable via CLI `--dir` / C-API);
+      facade-convenience parity only.
     first_raised: "2026-05-25"
     last_reviewed: "2026-06-14"
     refs: |-
