@@ -3,44 +3,48 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Active bundle
+## D-327 REFRAMED 2026-06-14 (investigation; premise was a MISDIAGNOSIS)
 
-- **Bundle-ID**: d327-catch_ref
-- **Cycles-remaining**: ~3
-- **Continuity-memo**: INVESTIGATION COMPLETE 2026-06-14 — full de-risked impl
-  contract in `private/notes/d327-catch_ref-plan.md` (read it; no re-derivation
-  needed). D-327 = **ADR-0120 D6 Cycle-4+5** (decision already accepted, no new
-  ADR). Findings: (1) JIT exnref = interp's shared `*Exception`; reify a heap
-  Exception at the landing pad (copy tag_idx + `eh_payload_buf` slots). (2) gap is
-  TWO-sided: catch_ref/catch_all_ref landing pad never pushes exnref AND
-  `throw_ref` JIT is also a stub (needs symmetric read-back for the round-trip).
-  (3) Reps settled: payload slot ↔ `Value{.bits64=u64}` (clean for v0.1 gpr
-  types); caught tag_idx via new `rt.eh_thrown_tag_idx` stashed by trampolineCore;
-  Exception lifetime via an `EhReifyCtx{allocator,exceptions}` on RuntimeOwned
-  (setup.zig:118/996+), mirroring memory_grow_fn default-safe/override.
-- **Cycle-4a DONE `8478d853`**: jit_abi reify infra (fields +24B→592, EhReifyCtx,
-  reifyExnref snapshot+clobber-safe, panic stub, off) + unit test green.
-- **NEXT = Cycle-4b+4c (bundled — 4b has no signal without 4c)**: (4b) trampoline
-  `throw_trampoline.zig` `.handler` path stashes the thrown tag_idx →
-  `rt.eh_thrown_tag_idx`; (4c) landing-pad emit (`arm64/emit.zig:~1699`,
-  `x86_64:~1014`): after the payload prelude, if `entry.kind == .catch_ref or
-  .catch_all_ref` → BLR `[rt + reify_exnref_fn_off]`, push X0/RAX as the last
-  result vreg (treat 0 → trap). e2e red→green both arches: `try_table (result i32
-  exnref) (catch_ref $e0) … drop` → 88. Then 4d throw_ref read-back (round-trip
-  88) → 5 re-vendor eh from wg-3.0 (UPDATE wasm_3_0_manifest counts).
-- **Exit-condition**: JIT catch_ref pushes exnref + throw_ref round-trips, both
-  arches green → eh wg-3.0-current, full `zig build test` + 3-host green. (Closes
-  D-327; the alpha tag stays separate/user-only.)
+Direct probing corrected the bundle's premise. KEY FACTS (high-confidence):
+- **EH try_table corpus is ALREADY wg-3.0-current**: committed raw = upstream
+  `exception-handling/test/core/try_table.wast` (BOTH 34 assert_returns, identical
+  exports). NO new asserts to add. The debt-row D-327 claim "EH +5 multi-value" is
+  STALE.
+- **EH spec runner is 100% GREEN now**: `[exception-handling] return 34/34, trap
+  2/2, invalid 7/7, exception 4/4`. catch_ref asserts pass because the wast
+  `(drop)`s the exnref + checks only the param (wast line 158). NO assert validates
+  exnref VALUE at runtime; exnref-using cases (wast 354-5) are `assert_invalid`.
+- So **the JIT exnref garbage + throw_ref stub is CONFORMANCE-NEUTRAL** — a genuine
+  JIT *completeness* gap (interp-correct, JIT-wrong) that NO spec assert exercises.
+  It does NOT block the alpha's "100% latest spec" for EH, and does NOT block
+  EH-wg-3.0-currency. The bundle's "catch_ref FAILsetup" premise was wrong.
+- **Cycle-4a infra is still correct + kept** (`8478d853`: reify fields/helper/test).
+  It's the substrate for the genuine completeness work IF pursued — but that work
+  is now decoupled from the alpha gate.
+
+## Active item (NEXT) — systematic wg-3.0 currency verification (the REAL gate)
+
+Since the debt-row's EH claim was stale, RE-VERIFY every proposal's wg-3.0
+currency the PROPER way (runbook §1-4: checkout wg-3.0 / proposal HEAD → re-bake →
+diff manifest). Confirmed current: EH try_table, tail-call (un-revert `21959b5f`).
+TO CHECK: gc (debt claims extern+13 — suspect), function-references, memory64,
+multi-memory, simd, threads. Any real new/changed assert the committed bake lacks
+= the actual alpha-conformance work (+ whether the multi-value-runner ceiling
+genuinely bites for a specific proposal). JIT exnref reification = separate
+conformance-neutral completeness (own track; not the alpha gate).
 
 ## alpha.3 GATE (user-directed 2026-06-14) — close BOTH to "ideal form" before tag
 
 User wants the 3.0 corpus genuinely complete (not "alpha-ready except gaps")
 before `v2.0.0-alpha.3`. Two autonomous items gate the tag; close both → tag
 surfaces ready (user-only, ADR-0156):
-1. **tail-call un-revert — DONE `21959b5f`** (Mac green 2853/0 + ubuntu green; root
-   cause + fix detail in that commit msg: import-bearing module → `runOneSpectest`).
-2. **D-327 — IN PROGRESS** (Active bundle above; Cycle-4a done) → then eh wg-3.0
-   re-vendor. Plan: `private/notes/d327-catch_ref-plan.md`.
+1. **tail-call un-revert — DONE `21959b5f`** (3-host green; root cause + fix in that
+   commit msg: import-bearing module → `runOneSpectest`).
+2. **wg-3.0 currency re-verification — IN PROGRESS** (see "Active item" above).
+   REFRAMED: the EH "gap" was a misdiagnosis (EH already wg-3.0-current + green). The
+   true gate = confirm gc/fr/memory64/mm/simd/threads currency via the runbook
+   re-bake. JIT exnref reification is conformance-NEUTRAL completeness, NOT a tag
+   blocker — surfaced to user 2026-06-14 for an ideal-form call.
 
 ## Campaign — spec re-vendor (full detail `private/spec_revendor_campaign.md`)
 
