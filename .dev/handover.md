@@ -7,21 +7,27 @@
 
 - **Bundle-ID**: D-238 x86_64 cross-instance EH frame-walk (ADR-0185), slices 1–5
 - **Cycles-remaining**: ~3
-- **Done**: ADR-0185 `0d6b07e3`; **Slice 1** `68a480b9` (eh_registry thunk-range set +
-  `isCodeAddr`, Mac-green); **Slice 2a** `9aadd97b` (`loadFrameSniffedPred` +
-  4 tests, x86_64-cross-compiled — tests EXECUTE on ubuntu gate, not Mac).
-- **NEXT — Slice 2b**: thread an `is_code_addr: ?*const fn(usize) bool` field into
-  `frame_chain_adapter.Context` (separate axis from `normalize_ctx` — no dual-use);
-  route the x86_64 branch of `loadFrameLink` to `loadFrameSniffedPred` when set;
-  wire production in `throw_trampoline`/`zwasm_throw` (`adapterContextFor`) to
-  `eh_registry.isCodeAddr`. Then **Slice 3** RBP-framed 40-byte thunk
-  (`x86_64/thunk.zig`, byte test, `thunk_bytes` 27→40), **Slice 4** `setup.zig`
-  registers each instance's `thunk_arena` via `registerThunkArena`, **Slice 5**
-  ubuntu `ZWASM_SPEC_ENGINE=jit` EH-dir functional verify + ship ADR-0114
-  `cross_module_throw_propagation.wat` fixture → close D-238 + ADR-0185.
-- **Continuity-memo**: x86_64-functional-verify is ubuntu-only; the LOGIC of
-  slices 1/2a IS unit-tested (eh_registry on Mac, frame_chain on ubuntu). Cross-
-  compile (`-Dtarget=x86_64-linux-gnu`) gates compilation every slice.
+- **Done**: ADR-0185 `0d6b07e3`; **Slice 1** `68a480b9` (eh_registry thunk-range set
+  + `isCodeAddr`, Mac-green); **Slice 2a** `9aadd97b` (`loadFrameSniffedPred` + 4
+  tests); **Slice 2b** `05c66ab0` (`Context.is_code_addr` field + `dispatchThrow`
+  predicate param + x86_64 `loadFrameLink` routing + `throw_trampoline` wires
+  `eh_registry.isCodeAddr`; arm64 + unit tests unaffected via null fallback);
+  **Slice 3** `9fbb7881` (RBP-framed 40-byte thunk + 4 byte tests). All
+  cross-compiled (`-Dtarget=x86_64-linux-gnu`) + Mac-test-green (no regression).
+- **NEXT — Slice 4**: in `spec_assert_runner_wasm_3_0.zig`, alongside the existing
+  `eh_registry.register(&owned.rt)` (line ~760) + the 3 `unregister` sites
+  (~517/526/698), register each instance's thunk_arena range via
+  `registerThunkArena(@intFromPtr(owned.thunk_arena.?.bytes.ptr), .bytes.len)` /
+  `unregisterThunkArena(...)` (guard `thunk_arena != null && .bytes.len > 0`).
+  `reset()` (line 514) already clears thunk_ranges per-manifest. Then **Slice 5**:
+  ubuntu `ZWASM_SPEC_ENGINE=jit` EH-dir functional verify (importer catches
+  exporter throw) + ship ADR-0114 `cross_module_throw_propagation.wat` fixture →
+  close D-238 + ADR-0185.
+- **Continuity-memo**: x86_64-functional-verify is ubuntu-only (opt-in JIT engine);
+  unit tests (frame_chain + thunk byte tests) execute on the ubuntu gate, not Mac
+  (x86_64/ files aren't in the Mac test graph). Cross-compile gates compilation
+  every slice. Default ubuntu test-all verifies unit tests + regression; Slice 5
+  is a SEPARATE `ZWASM_SPEC_ENGINE=jit` remote run.
 - **Exit-condition**: ubuntu `ZWASM_SPEC_ENGINE=jit` EH cross-module dir green
   (importer catches exporter throw) + non-EH D-225 set + arm64 EH stay green +
   ADR-0114 fixture shipped both arches.
