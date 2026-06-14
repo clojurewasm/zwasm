@@ -695,15 +695,6 @@ entries:
     last_reviewed: "2026-06-13"
     refs: |-
       `test/spec/wasm-3.0-assert/function-references/{br_on_null,br_on_non_null,ref_as_non_null,ref_null,ref_is_null,ref_func}/manifest.txt` + .wasm fixtures (cycle-59 bake), `test/spec/spec_assert_runner_wasm_3_0.zig` (per-module FAIL stderr emit added cycle 59), `src/parse/sections.zig::readValType` (typed-ref bytes 0x63/0x64 reject), `src/runtime/instance/instantiate.zig::frontendValidate` (sub-gap c discharge `e7666598`), ADR-0123 (Proposed), D-188 (sibling — EH invalid-accepted gap), D-192 (sibling — cross-module register), ROADMAP §10 row 10.R
-  - id: "D-196"
-    layer: "code"
-    status: "blocked-by"
-    description: |-
-      blocked-by: (a) `Linker.defineGlobal` API absent (D-178 partial). Spec testsuite's `spectest.global_i32` / `global_i64` / `global_f32` / `global_f64` conventional exports needed for 2+ multi-memory fixtures (`data0.3`, `data0.5`) + several function-references fixtures. Substrate (`runtime.GlobalImport`) exists per ADR-0014 §6.K.3; the Linker.Payload + defineGlobal method are the missing pieces. (b) Upstream-baked corrupted fixtures — `multi-memory/{data0.2, data0.4, data0.6, imports1.0, imports2.3, imports2.4, linking1.1}` all `compile FAIL: ParseFailed`; wasm-tools itself rejects them with "unexpected end-of-file". Suggests wast2json output quirk with the v1.0.40 wabt for these specific .wast files. (c) Cross-module `(register "name" $module_id?)` form where `$module_id` names a non-most-recent module — sibling to D-192/D-195(b); a few imports2/imports4 sub-modules use this. | **10.M-D195b post-bundle tail — remaining ~25 multi-memory return fails** (post cycle 75 closure). Spec runner observable: `[multi-memory] return=407 (pass=382 fail=25) trap=238 (pass=237 fail=1)`. The bundle's autonomous portion closed cycles 71-75 (wired cross-instance memory + func + spectest stubs); the tail comprises (a) Linker.defineGlobal + spectest globals, (b) 7 upstream-corrupted fixtures (out-of-band fix; either re-bake offline or skip via manifest editing), (c) named-module register-as form. Discharge path A: file ADR for Linker.defineGlobal API extension (D-178 partial). Path B: skip corrupted fixtures via runner-side allowlist.
-    first_raised: "2026-05-28"
-    last_reviewed: "2026-06-13"
-    refs: |-
-      `test/spec/wasm-3.0-assert/multi-memory/{data0,imports1,imports2,linking1}/*.wasm` (cycle-69/73 baked), `test/spec/spec_assert_runner_wasm_3_0.zig::register-arm` (cycle 71-75 substrate), `src/zwasm/linker.zig::defineMemory/defineMemoryBytes/defineCrossModuleFunc` (cycle 71-75 substrate), D-178 (Linker.defineGlobal absent), D-192 / D-195 (sibling cross-module register variants)
   - id: "D-186"
     layer: "code"
     status: "blocked-by"
