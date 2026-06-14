@@ -18,16 +18,19 @@
   edge-runner thrower → `isCodeAddr` false for all → mis-walk → SEGV 0x1008).
   Fixed by UNION'ing the local throwing-instance CodeMap (normalize_ctx) with the
   global predicate (lesson `global-predicate-cannot-replace-local-codemap`). All
-  cross-compiled + Mac-test-green; the SEGV fix itself is ubuntu-verified (re-kick).
-- **NEXT — Slice 4**: in `spec_assert_runner_wasm_3_0.zig`, alongside the existing
-  `eh_registry.register(&owned.rt)` (line ~760) + the 3 `unregister` sites
-  (~517/526/698), register each instance's thunk_arena range via
-  `registerThunkArena(@intFromPtr(owned.thunk_arena.?.bytes.ptr), .bytes.len)` /
-  `unregisterThunkArena(...)` (guard `thunk_arena != null && .bytes.len > 0`).
-  `reset()` (line 514) already clears thunk_ranges per-manifest. Then **Slice 5**:
-  ubuntu `ZWASM_SPEC_ENGINE=jit` EH-dir functional verify (importer catches
-  exporter throw) + ship ADR-0114 `cross_module_throw_propagation.wat` fixture →
-  close D-238 + ADR-0185.
+  cross-compiled + Mac-test-green; union regression tests added `29c4a049`
+  (per user) pin the broken shape. **Slice 4** `03e99a8a` (spec-runner registers
+  each instance's thunk_arena range via `registerThunkArena`/`unregisterThunkArena`
+  at the eh_registry.register/unregister sites; interp spec corpus 0-fail).
+- **PENDING VERIFY (next Step 0.7)**: the ubuntu run on `29c4a049` (fix + union
+  regression tests) was IN-FLIGHT — confirm no `loadFrameSniffedPred` ABRT, OK
+  verdict. Remote was busy, so Slice 4 NOT yet ubuntu-kicked.
+- **NEXT — Slice 5 (closes D-238 + ADR-0185)**: kick ubuntu `ZWASM_SPEC_ENGINE=jit`
+  on the EH cross-module dir (importer catches exporter throw — the functional
+  proof) + confirm non-EH D-225 + arm64 EH stay green; then ship the ADR-0114
+  `cross_module_throw_propagation.wat` fixture (both arches) + flip D-238→resolved
+  + ADR-0185/0127-style Closed. First: a plain ubuntu test-all kick verifies
+  Slice 4 + the unit tests once the remote frees.
 - **Continuity-memo**: x86_64-functional-verify is ubuntu-only (opt-in JIT engine);
   unit tests (frame_chain + thunk byte tests) execute on the ubuntu gate, not Mac
   (x86_64/ files aren't in the Mac test graph). Cross-compile gates compilation
