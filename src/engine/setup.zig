@@ -498,10 +498,16 @@ pub fn setupRuntimeLinked(
             }
         }
     }
-    // Cap to keep allocator pressure bounded; fixtures with large
-    // declared globals / tables surface as UnsupportedEntrySignature.
-    if (globals_count > 4096) return Error.UnsupportedEntrySignature;
-    if (table_size > 4096) return Error.UnsupportedEntrySignature;
+    // D-331(A): no arbitrary globals/table-size cap here. `globals_buf`,
+    // `funcptrs_buf` and `typeidxs_buf` are all allocator-backed (sized to
+    // the declared counts below), so the old 4096 ceiling was a pure early-
+    // dev guard, NOT a fixed-array dependency — and it diverged from the
+    // interp, which allocates `min` table cells uncapped (instantiate.zig).
+    // Real toolchains exceed it (Go/wasip1 declares a ~5790-entry funcref
+    // table), so the cap rejected them as UnsupportedEntrySignature on the
+    // JIT path only. The cross-engine DoS bound on eager table allocation is
+    // the sandbox knob `store_table_elements_max` (D-332), not an asymmetric
+    // hard reject here.
 
     const globals_buf = try allocator.alloc(Value, if (globals_total == 0) 1 else globals_total);
     errdefer allocator.free(globals_buf);
