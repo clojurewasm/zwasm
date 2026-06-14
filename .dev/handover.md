@@ -27,14 +27,25 @@
   arches green → eh wg-3.0-current, full `zig build test` + 3-host green. (Closes
   D-327; the alpha tag stays separate/user-only.)
 
-## Campaign — spec re-vendor (CONVERGED; full detail `private/spec_revendor_campaign.md`)
+## alpha.3 GATE (user-directed 2026-06-14) — close BOTH to "ideal form" before tag
+
+User wants the 3.0 corpus genuinely complete (not "alpha-ready except gaps")
+before `v2.0.0-alpha.3`. Two autonomous items gate the tag; close both → tag
+surfaces ready (user-only, ADR-0156):
+1. **tail-call un-revert** — re-vendor wg-3.0 tail-call (`return_call` +3 /
+   `return_call_indirect` +4 asserts) **WITH** `wasm_3_0_manifest.zig` hardcoded
+   updates (e2e `i32:306` value + "enumerate 31 asserts" count) in the SAME
+   commit (lesson 2026-06-14). Low-risk; **do this FIRST**.
+2. **D-327** — the Active bundle above (JIT EH catch_ref/throw_ref) → then eh
+   wg-3.0 re-vendor. Bigger, multi-cycle.
+
+## Campaign — spec re-vendor (full detail `private/spec_revendor_campaign.md`)
 
 1.0/2.0/simd/threads CURRENT; gc re-vendored to wg-3.0 `b8e8b16c` (3-host green);
-tail-call reverted `a981e5d8` (hardcoded-test breakage — lesson filed); rest
-no-drift. Sustainable mechanism DONE (refdialect.py + runbook). So the 3.0 corpus
-is **wg-3.0-current except the catch_ref EH-codegen gap (D-327)**, 3-host green —
-**alpha-ready**. D-327 root cause pinned `04e5fae2` → the Active bundle above is
-now closing it as normal completeness work.
+tail-call reverted `a981e5d8` (→ GATE item 1); rest no-drift. Sustainable
+mechanism DONE (refdialect.py + runbook). 3.0 corpus = **wg-3.0-current except
+tail-call (reverted) + catch_ref EH gap (D-327)**, 3-host green. Both are the
+alpha.3 GATE above. D-327 root cause pinned `04e5fae2`.
 **The alpha is tag-ready NOW** — `v2.0.0-alpha.3`, tag-only (no Release), user-only
 (ADR-0156). Say "tag it" anytime; the catch_ref bundle proceeds independently.
 
