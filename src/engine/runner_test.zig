@@ -2036,6 +2036,23 @@ test "runVoidExportWasi: JIT _start clock real with host (no trap); 0-stub traps
     try testing.expectError(entry.Error.Trap, runner.runVoidExportWasi(testing.allocator, &clock_start_wasm, "_start", null, null));
 }
 
+test "runWasiLenient: declared table elements over max_table_elements → TableLimitExceeded (D-332 JIT triad)" {
+    // Minimal module: type []→[], 1 func, (table 5 funcref), export _start,
+    // empty body. The declared initial table is 5 elements.
+    const wasm = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // type: []→[]
+        0x03, 0x02, 0x01, 0x00, // func: 1 func, type 0
+        0x04, 0x04, 0x01, 0x70, 0x00, 0x05, // table: funcref min=5
+        0x07, 0x0a, 0x01, 0x06, 0x5f, 0x73, 0x74, 0x61, 0x72, 0x74, 0x00, 0x00, // export "_start" func 0
+        0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b, // code: 1 body, 0 locals, end
+    };
+    // Cap of 2 < declared 5 → early-reject before setup's eager alloc.
+    try testing.expectError(runner.Error.TableLimitExceeded, runner.runWasiLenient(testing.allocator, &wasm, null, null, null, .{ .max_table_elements = 2 }));
+    // Uncapped (null) → runs to completion (5-element table allocated, _start empty).
+    _ = try runner.runWasiLenient(testing.allocator, &wasm, null, null, null, .{});
+}
+
 // Trap-KIND execution tests (ADR-0164 A / D-292: unreachable=5, oob_memory=6,
 // div_by_zero=7, int_overflow=8) live in the sibling `runner_trap_test.zig`
 // (split to keep this file under the 2000-line hard cap; mirrors runner_gc_test).

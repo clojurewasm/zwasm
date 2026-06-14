@@ -507,8 +507,9 @@ pub fn setupRuntimeLinked(
     // Real toolchains exceed it (Go/wasip1 declares a ~5790-entry funcref
     // table), so the cap rejected them as UnsupportedEntrySignature on the
     // JIT path only. The cross-engine DoS bound on eager table allocation is
-    // the sandbox knob `store_table_elements_max` (D-332), not an asymmetric
-    // hard reject here.
+    // the sandbox knob `RunLimits.max_table_elements` (D-332), enforced as an
+    // early-reject in `runner.runWasiLenient` BEFORE this eager alloc (mirrors
+    // the interp eager-alloc cap) — not an asymmetric hard reject here.
 
     const globals_buf = try allocator.alloc(Value, if (globals_total == 0) 1 else globals_total);
     errdefer allocator.free(globals_buf);

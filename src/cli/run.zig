@@ -23,17 +23,21 @@ const diagnostic = @import("../diagnostic/diagnostic.zig");
 const wasi_host = @import("../wasi/host.zig");
 const invoke_args_mod = @import("invoke_args.zig");
 
-/// ADR-0179 #3a-4 / D-314 — `zwasm run` sandboxing flags (`--fuel` /
-/// `--timeout` / `--max-memory`). All optional; `.{}` = unlimited. Fuel
+/// ADR-0179 #3a-4 / D-314 / D-332 — `zwasm run` sandboxing flags (`--fuel` /
+/// `--timeout` / `--max-memory` / `--max-table-elements`). All optional;
+/// `.{}` = unlimited. Fuel
 /// UNITS are engine-specific by design (interp = instructions, JIT =
 /// poll-site crossings — ADR-0179 rev 2026-06-12); --help says so.
 pub const Limits = struct {
     fuel: ?u64 = null,
     max_memory_bytes: ?u64 = null,
+    /// D-332 — host cap on a module's declared initial table elements
+    /// (`--max-table-elements`); completes the JIT sandbox triad.
+    max_table_elements: ?u64 = null,
     timeout_ms: ?u64 = null,
 
     pub fn any(self: Limits) bool {
-        return self.fuel != null or self.max_memory_bytes != null or self.timeout_ms != null;
+        return self.fuel != null or self.max_memory_bytes != null or self.max_table_elements != null or self.timeout_ms != null;
     }
 };
 
@@ -131,6 +135,7 @@ pub fn runWasmJitCaptured(
     _ = runner.runWasiLenient(alloc, bytes, invoke_name, &host, &trap_code, .{
         .fuel = limits.fuel,
         .max_memory_bytes = limits.max_memory_bytes,
+        .max_table_elements = limits.max_table_elements,
         .interrupt_flag = if (limits.timeout_ms != null) &timeout_flag else null,
     }) catch |err| {
         if (host.exit_code) |code| return @intCast(@min(code, std.math.maxInt(u8)));

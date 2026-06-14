@@ -135,6 +135,14 @@ pub const Error = error{
     /// present, its value must equal the data section's entry
     /// count. Triggered by `binary.{62,63,64}.wasm`.
     DataCountMismatch,
+    /// Sandbox bound (D-332): a module's declared initial table
+    /// elements exceed the host's `RunLimits.max_table_elements`
+    /// cap. The JIT-path analogue of the interp's eager-table-alloc
+    /// cap (instantiate.zig) — completes the cross-engine sandbox
+    /// triad (fuel / memory / table) on the JIT runner. Early-reject
+    /// before `setupRuntime`'s eager `table_refs` allocation, so a
+    /// pathological `(table 4e9)` cannot OOM the host.
+    TableLimitExceeded,
 } || compile_func.Error || parser.Error || sections.Error || linker.Error || entry.Error || validator_mod.Error || rv.Error;
 // `InvalidGlobalInitExpr` / `UnsupportedEntrySignature` /
 // `UnsupportedConstExpr` originate in `runner_validate.zig`
@@ -458,10 +466,32 @@ pub const RunLimits = struct {
     /// Host cap on linear memory, in BYTES (converted to memory0's page
     /// units here, where mem0_page_size_log2 is known).
     max_memory_bytes: ?u64 = null,
+    /// Host cap on a module's declared INITIAL table elements, summed across
+    /// all defined tables (D-332). `null` = unlimited (no regression). The
+    /// JIT-path analogue of the interp eager-table-alloc cap; enforced as an
+    /// early-reject before setup's `table_refs` allocation.
+    max_table_elements: ?u64 = null,
     /// Cooperative-interruption flag (e.g. the CLI's --timeout timer raises
     /// it). Must outlive the run.
     interrupt_flag: ?*const std.atomic.Value(u32) = null,
 };
+
+/// Sum a module's declared INITIAL table elements across all defined tables,
+/// for the `RunLimits.max_table_elements` sandbox check (D-332). Mirrors
+/// setup.zig's table decode; an arena keeps it allocation-clean.
+fn declaredTableElements(allocator: Allocator, wasm_bytes: []const u8) Error!u64 {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const ta = arena.allocator();
+    const module = try parser.parse(ta, wasm_bytes);
+    var total: u64 = 0;
+    if (module.find(.table)) |s| {
+        var tables = try sections.decodeTables(ta, s.body);
+        defer tables.deinit();
+        for (tables.items) |t| total += t.min;
+    }
+    return total;
+}
 
 pub fn runWasiLenient(
     allocator: Allocator,
@@ -478,6 +508,14 @@ pub fn runWasiLenient(
 
     var compiled = try compileWasm(allocator, wasm_bytes);
     defer compiled.deinit(allocator);
+
+    // D-332 sandbox triad (table leg): reject a module whose declared initial
+    // table elements exceed the host cap BEFORE setup's eager `table_refs`
+    // alloc, so a pathological `(table 4e9)` can't OOM the host. Mirrors the
+    // interp eager-alloc cap (instantiate.zig); `null` = unlimited.
+    if (limits.max_table_elements) |cap| {
+        if (try declaredTableElements(allocator, wasm_bytes) > cap) return Error.TableLimitExceeded;
+    }
 
     var owned = try setupRuntime(allocator, &compiled, wasm_bytes);
     defer owned.deinit(allocator);

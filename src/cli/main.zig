@@ -222,10 +222,20 @@ pub fn main(init: std.process.Init) !void {
                         std.process.exit(2);
                     };
                     next_arg = arg_it.next();
+                } else if (std.mem.eql(u8, a, "--max-table-elements")) {
+                    const v = arg_it.next() orelse {
+                        try printlnErr(io, "usage: zwasm run --max-table-elements <N> <path.wasm> [args...]");
+                        std.process.exit(2);
+                    };
+                    limits.max_table_elements = std.fmt.parseInt(u64, v, 10) catch {
+                        try printlnErr(io, "zwasm run: --max-table-elements expects a non-negative integer");
+                        std.process.exit(2);
+                    };
+                    next_arg = arg_it.next();
                 } else break;
             }
             const path_arg = next_arg orelse {
-                try printlnErr(io, "usage: zwasm run [--invoke <name>] [--engine <interp|jit>] [--dir <host>[:<guest>]] [--env KEY=VAL] [--fuel <N>] [--timeout <ms>] [--max-memory <bytes>] <path.wasm> [args...]");
+                try printlnErr(io, "usage: zwasm run [--invoke <name>] [--engine <interp|jit>] [--dir <host>[:<guest>]] [--env KEY=VAL] [--fuel <N>] [--timeout <ms>] [--max-memory <bytes>] [--max-table-elements <N>] <path.wasm> [args...]");
                 std.process.exit(2);
             };
             const path = try gpa.dupe(u8, path_arg);
