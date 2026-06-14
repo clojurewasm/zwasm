@@ -3,12 +3,16 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Just closed — JIT value-trace tooling: dump primitives + `jit_value_trace.sh` harness (PERSISTED)
+## Just closed — D-332 JIT sandbox-triad completion: `--max-table-elements` (`bd355258`)
 
-**3-host gate**: D-289+D-332 batch Win64-green + RECORDED (windowsmini `41e0f705`, 25437/0); ubuntu
-green `5ef2f33b` + `db3109d8`/docs verified green this session. Batch fully 3-host.
+**`bd355258`**: the JIT runner enforced fuel + max_memory but NOT a table-elements cap (the interp
+eager-alloc path did) — an asymmetric triad gap + a setup.zig comment that falsely claimed the bound.
+Added `RunLimits.max_table_elements` + `Error.TableLimitExceeded`, early-reject in `runWasiLenient`
+(Σ declared table mins > cap) before setup's eager `table_refs` alloc; CLI `--max-table-elements`
+mirrors `--max-memory`; null = unlimited. Test + lint green (2864/2876, 0 fail). This was the D-332
+"low-value follow-on" — now closed; the sandbox triad (fuel/memory/table) is cross-engine complete.
 
-**Phase-B debug tooling (user-directed persistence)** — a reusable lldb value-trace stack for JIT
+**Phase-B debug tooling (user-directed persistence, prior turns)** — a reusable lldb value-trace stack for JIT
 miscompiles that produce wrong output but DON'T crash:
 - `ZWASM_DEBUG=jit.dump` prints per-func machine bytes (`db3109d8`, compile.zig) + runtime entry
   addr (`f49b3675`, setup.zig) — the instruction-level lens the 4 prior IR-level c_sha256 attempts lacked.
