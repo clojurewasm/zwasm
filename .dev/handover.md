@@ -18,14 +18,14 @@ routed the 8 contract-violating test direct-calls (entry.zig f32 / linker.zig×2
 runner_test.zig×4). Full finding: [`releasesafe_jit_failures.md`](releasesafe_jit_failures.md)
 §RESOLVED-as-NOT-A-FAILURE. (Residual --listen line = build-runner quirk, deferred.)
 
-**A2 — ClojureWasm (cljw/CWFS) handoff doc — CURRENT STATE of the Zig API.** Not a
-changelog — a standalone "here is the Zig embedding API as it stands now" for the
-cljw consumer. Cover: Engine/Module/Instance lifecycle, `Linker` (defineFunc/
-defineInstance/defineGlobal/defineMemory/defineWasi + `WasiConfig{args, envs}`,
-preopens NOT yet wired = D-177), component surface (open/Opened/WitType/labels/
-budget/dropResource/diagnostics), lifetime contracts (Linker outlives importers;
-cross-instance source outlives importer). Base on `docs/zig_api_design.md` +
-`docs/handoff_cw_v1.md`; land as a new `docs/handoff_cw_v2_zig_api.md` (name TBD).
+**A2 — cljw Zig-API current-state handoff doc — DONE `4aeaea75`.** Authored
+`docs/handoff_cw_v2_zig_api.md` (signatures verified accurate-to-HEAD via source
+survey): mental model + outlives contracts, lifecycle, host imports (defineFunc/
+defineFuncCtx + Caller), cross-module linking, WASI P1 (WasiConfig{args,envs};
+preopens=D-177), invoke (untyped+typedFunc), state access, sandboxing, Component
+Model (comp.open→Opened: invokeTyped/resolveFuncSig/dropResource/diagnostics +
+WitType + ComponentValue), trap set, known-gaps table. Linked from README; tables
+aligned. cljw can now read the current Zig embedding surface in one place.
 
 **A3 — external-facing doc精査 + update (non-dev).** Re-examine every PUBLIC doc
 against current reality and fix drift: `README.md`, `docs/tutorial.md`,
