@@ -372,74 +372,6 @@ entries:
     last_reviewed: "2026-06-05"
     refs: |-
       `examples/rust_host/hello.rs`; `build.zig` (`run-rust-host` step + SDKROOT probe); `.dev/toolchain_provisioning.md`; ROADMAP §13.5 / §13.P; mirrors c_host §13.4 conformance
-  - id: "D-245"
-    layer: "code"
-    status: "note"
-    description: |-
-      RESOLVED 2026-06-13 (re-audit): the host→JIT callee-saved-cohort preservation is now
-      complete across EVERY entry path; the prior "REMAINDER (a)/(b) still @call" text was STALE
-      (pre-§15.5-chunk-1). Current state in `entry.zig`: the no-arg void path uses manual
-      stp/ldp (arm64) / push-pop (x86_64-SysV) save-restore (`8eca59e3`/`de576a76`); ALL OTHER
-      paths — arg'd / i32 / v128 RESULT variants (`invokeAndCheck`→`jitTrampoline`, line ~229,
-      unconditional) AND arg'd + win64 VOID variants (`invokeAndCheckVoid` else-branch→
-      `jitTrampolineVoid`; the manual-asm branch is `os != windows` only) — route through the
-      non-inline clobber-barrier trampoline, which makes its OWN frame save/restore the cohort
-      (arg-count- AND os-agnostic; no bare unprotected `@call` remains). So (a) win64 and (b)
-      arg'd are BOTH trampoline-protected, not "@call". VERIFIED: `scripts/check_jit_releasesafe.sh`
-      (void `_start` + `runI32Export` RESULT path) green on Mac 2026-06-13; `releasesafe_result_probe`
-      green; 3-host test-all green with ReleaseSafe runners (ADR-0177). Residual (low, non-gating):
-      no win64-SPECIFIC ReleaseSafe-ISOLATING probe (windowsmini test-all runs ReleaseSafe runners
-      so it IS exercised, just not host→JIT-seam-isolated like the Mac probe) — belt-and-suspenders
-      only; the trampoline mechanism is os-agnostic. (c) DONE (`0c42e913`): ReleaseSafe regression
-      gate wired into `gate_merge.sh` + silenced the `[stack_probe]` release-build diagnostic. (Historical root cause below.)
-      Host→JIT calls do NOT preserve the host's callee-saved registers → ANY JIT
-      execution from the Zig host SEGV-corrupts the heap in **ReleaseSafe** (works in
-      Debug). Surfaced via `zwasm run --engine=jit` (ADR-0136, `8011293a`): exit 134 on
-      EVERY module incl. an EMPTY `_start` (so NOT body/SIMD/memory/deinit specific).
-      **ROOT CAUSE (2026-06-03, bisected):** the arm64 JIT prologue MOV-installs the pinned
-      runtime cohort (X19 host_dispatch_base, X24 typeidx_base, X28 vm_base, …; jit_abi.zig:9+)
-      from `rt` WITHOUT stack-saving the caller's X19–X28 (ADR-0017 sub-2d-ii / D-210), so the
-      JIT body CLOBBERS callee-saved regs and its epilogue can't restore them. But
-      `entry.invokeAndCheckVoid` calls the JIT via a plain `@call(.auto, f, .{rt})` with f a
-      `callconv(.c)` fn — a normal C call, where the caller (optimized Zig host) keeps LIVE
-      values in callee-saved X19–X28 across the call, trusting the callee to preserve them.
-      ReleaseSafe does keep live values there → the JIT clobbers them → the host then computes
-      with garbage (e.g. a slice ptr ~0x18) → SIGSEGV in the first `free` after the call
-      (`compiled.deinit`→`deinitFuncResult`, or `owned.deinit` — whichever runs first; both are
-      victims). Debug keeps nothing live in X19–X28 across the call → no corruption (luck).
-      BISECTION (the proof): skip `owned.deinit` → crash moves to `compiled.deinit:204`; skip
-      `callVoidNoArgs` (the JIT call) entirely → NO crash (deinits run clean). So the JIT call
-      is the corruptor, not the deinits. This is a LATENT PROJECT-WIDE host→JIT issue: all JIT
-      execution from Zig (spec runner, runI32Export, …) is ReleaseSafe-unsafe — masked only
-      because those run in Debug. `--engine=jit` is the first release host→JIT path, so it bit
-      first. **Blocks §11.3 gap DATA** (`run_bench.sh` builds ReleaseSafe → zwasm rows = null).
-      DISCHARGE: wrap the host→JIT entry boundary in an asm trampoline that saves/restores the
-      host callee-saved set around the `blr`/`call` (arm64 X19–X28 + FP/LR; x86_64 RBX/RBP/
-      R12–R15) — `entry.invokeAndCheck*`'s `@call` is the single seam. Survey whether a
-      register-preserving entry already exists (the spec runner's path) to route through. ADD a
-      **ReleaseSafe** `runWasmJit` regression test (the Debug-only test is why this shipped).
-      NOT a regression to existing behaviour (interp default unaffected; JIT was Debug-only).
-      **§13.P REPRO (2026-06-04): the win64 remainder (a)+(b) is now CONCRETELY surfaced.** The
-      Phase-13 windowsmini `test-all` reconcile crashed `zwasm-spec-simd` (exit code 3, silent —
-      access-violation-class, no Zig panic trace) executing `simd_bit_shift.1.wasm` func0 via the
-      v128 host→JIT `@call` seam. Build Summary: 61/63 steps OK, this the ONLY failure (Phase-13
-      C-API + c_host/zig_host all PASS on win). Seed-dependent in Debug (this run `--seed
-      0x931361c3`; Phase-12 close passed on a lucky seed → flaky-red). **win64 widens the seam vs
-      x86_64-SysV**: the trampoline must save/restore win64 callee-saved = RBX/RBP/RDI/RSI/R12–R15
-      **+ XMM6–XMM15** (win64 non-volatile XMM the SIMD JIT body must not leak) + the 32-byte shadow
-      space + 16-byte align. The unfixed seam is the RETURN-value `invokeAndCheck` (`entry.zig:172`,
-      plain `@call` for ALL arches/variants) + win64; the done partial (`8eca59e3`/`de576a76`) covers
-      only the VOID no-arg path on arm64 + x86_64-SysV. **ELEVATED 2026-06-04 to a windows-gate-
-      RELIABILITY item**: flaky-crashes windowsmini reconciles across Phase-11/12/13 closes (lucky
-      seeds passed; this one didn't). §13.P was **re-scoped PAST it per ADR-0144** (Phase-13 C-API is
-      3-host-green; this is unrelated Phase-11 JIT-ABI — 0 src/engine|src/instruction diff since
-      `0810b339`). **No longer an active /continue bundle** (full win64-asm fix = intricate asm +
-      remote-only probabilistic verify + 114-helper surface; not autonomous-loop-suited). Discharge
-      in its JIT-ABI home (§11.3 / Phase-15 SIMD-JIT) BEFORE it compromises further phase closes.
-    first_raised: "2026-06-03"
-    last_reviewed: "2026-06-13"
-    refs: |-
-      `src/engine/codegen/shared/entry.zig` invokeAndCheckVoid (the `@call` seam) + callVoidNoArgs; `src/engine/codegen/shared/jit_abi.zig:9+` (cohort X19/X24/X28 = arm64 callee-saved); ADR-0017 sub-2d-ii (MOV-install cohort, not stack-save) + D-210; `src/cli/run.zig` runWasmJit (Debug-only test); ADR-0136; ROADMAP §11.3 / 11.3-simd-gap bundle
   - id: "D-238"
     layer: "code"
     status: "blocked-by"
@@ -703,23 +635,6 @@ entries:
     last_reviewed: "2026-06-13"
     refs: |-
       ADR-0181 Consequences; D-314 (e); bench/ history
-  - id: "D-319"
-    layer: "wasi"
-    status: "note"
-    description: |-
-      CLOSED 25faf45a (verified probe #6 full-green on windowsmini incl. both rust
-      e2e): wasi:sockets readiness on Windows. Root-cause chain (probes #1-#6): the
-      pinned std.Io.net windows backend creates sockets as raw NT/AFD handles —
-      winsock is never initialized AND the handles are not winsock-registered, so
-      WSAPoll was structurally unusable (10093 then 10038). Fix: NT-native
-      IOCTL_AFD_POLL via ntdll.NtDeviceIoControlFile (wepoll approach), zero-timeout
-      snapshot. The e2e "hang" was the guest poll loop never completing on the
-      never-ready WSAPoll. All windows gates + the -Dd319-probe flag removed; the
-      stdlib connect-refused NTSTATUS mapping residual is D-323.
-    first_raised: "2026-06-12"
-    last_reviewed: "2026-06-13"
-    refs: |-
-      ADR-0180 (Phase 2 Revision); src/wasi/p2_sockets.zig afdPollOnce; lesson winsock-vs-nt-afd
   - id: "D-322"
     layer: "feature/component"
     status: "note"
