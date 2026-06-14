@@ -7,19 +7,22 @@
 
 Full plan: **`private/spec_revendor_campaign.md`**. Verified (web+local):
 1.0/2.0/simd/threads CURRENT; only **3.0 corpus** trailed the wg-3.0 Recommendation.
-Re-vendor CONVERGED: incorporable wg-3.0 deltas DONE (gc `b8e8b16c` + tail-call
-`6ce31520`, runtime-PASS green); memory64/multi-memory/func-refs no-drift; eh
-try_table drift is multi-value-result → deferred. So the 3.0 corpus is **current
-for wg-3.0 EXCEPT the multi-value asserts = D-327**. Mechanism DONE (refdialect.py
-+ runbook). Discipline: VALIDATE-then-REVERT (commit semantic deltas only).
-D-327 SCOPED `bd764663`: SMALL-MEDIUM (~250-400 LOC). Engine already has
-`JitInstance.invokeMulti`→`[]TypedResult` (runner.zig:853); only the test-runner
-result-check (`dispatchMultiResult` non_simd:694) lags. FIX = handle_assert_return
-→ invokeMulti + generic tuple compare.
-NEXT: START D-327 impl (TDD — red: a multi-value assert_return the runner can't
-check; green: invokeMulti refactor) → re-vendor the deferred eh/gc-extern asserts
-→ full wg-3.0 → surface alpha.3 tag (user-only/outward-facing). User may pick B
-(tag now on current-except-D-327) — honour if so.
+Re-vendor: gc `b8e8b16c` incorporated (runtime-PASS, 3-host green incl windows).
+tail-call `6ce31520` REVERTED `a981e5d8` — it broke HARDCODED `wasm_3_0_manifest.zig`
+tests (D-187 "enumerate 31 assert_returns" marker + return_call.0.wasm→i32:306
+e2e) that pin corpus structure; `test-spec-X` missed it, `test-all` caught it on
+ubuntu (lesson `2026-06-14-corpus-revendor-breaks-hardcoded-manifest-tests`).
+memory64/multi-memory/func-refs no-drift; eh + tail-call drift remain (deferred).
+So 3.0 corpus = current-for-wg-3.0 EXCEPT multi-value asserts (D-327) + the
+reverted tail-call/eh deltas. Mechanism DONE (refdialect.py + runbook).
+D-327 SCOPED `bd764663`: SMALL-MEDIUM (~250-400 LOC); engine has
+`JitInstance.invokeMulti`→`[]TypedResult` (runner.zig:853), only the runner
+result-check (`dispatchMultiResult` non_simd:694) lags. **NOTE (new): any corpus
+re-vendor must ALSO update the hardcoded wasm_3_0_manifest.zig counts/values +
+run FULL `zig build test`.**
+NEXT: START D-327 impl (TDD: invokeMulti refactor) → re-vendor deferred
+eh/tail-call/gc-extern asserts (w/ manifest-test updates) → full wg-3.0 →
+surface alpha.3 (user-only). User may pick B (tag now on current state) — honour.
 
 ## Current state
 
