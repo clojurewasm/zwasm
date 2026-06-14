@@ -81,3 +81,33 @@ This is a per-exe `optimize` in build.zig — Zig caches per optimize (no thrash
 
 NEXT chunk: build.zig per-exe optimize split + flip the gate scripts'
 runner invocations + verify Mac+ubuntu green, then discharge D-311.
+
+## Re-narrowed 2026-06-14 (flaky `zig build test` — NOT a 5-min fix)
+
+Investigated the residual seed-flaky SEGV in `zig build test` (Debug unit tests).
+The doc's "119 raw-entry call-sites" OVER-COUNTED: most are safe fn-ptr
+*materializations* (`module.entry(idx, Fn)` passed into `invokeAndCheck` /
+`invokeAndCheckVoid` / `invokeBufferWrite` / `invokeMultiResultNoArgs` / the
+`jitTrampolineBuf` helper at `entry_buffer_write.zig:107`). The contract-violating
+**direct** test calls (bound ptr invoked inline as `f(&rt, …)`, bypassing the
+clobber barrier) are FEW:
+
+- `entry.zig:2693-2695` — f32 round-trip test: `const f = module.entry(0,Fn); f(&rt, 3.5)`.
+- `linker.zig:597-598` + `828-829` — 2 link tests: `const f = module.entry(0,Fn); f(&rt)`.
+
+**Fix recipe** (route through the existing safe helpers, all in `entry.zig`):
+- f32 test → `try invokeAndCheck(&rt, f32, f, .{@as(f32, 3.5)})` (invokeAndCheck is
+  the private inline wrapper; the test is in-module so it can call it).
+- linker u32/no-arg tests → `try entry.callI32NoArgs(&module, 0, &rt)` (pub helper).
+
+**OPEN (why it's not a clean 5-min fix)**: the x86_64 production multi-result path
+`entry.zig:1365` + `:1424` (`const result = f(rt);`) has NO asm-clobber barrier
+after the call (the arm64 sibling at :1361 uses `aarch64_blr_clobbers`). ubuntu
+x86_64 test-all is green, so it may be safe-by-ABI (FuncRet struct-return) or just
+not tripped — but UNVERIFIED. Before declaring the flaky gone, must (a) decide if
+:1365/:1424 need the `asm volatile("" ::: entry.jit_cohort_clobbers)` barrier, and
+(b) run `zig build test` ×~20 (seed-dependent) + 3-host to confirm zero SEGV.
+
+→ Scoped as a focused chunk (test-site routing + x86_64 production-path decision +
+many-run verification), NOT inline make-work. 3-host `test-all` remains authority
+(green); this only improves local `zig build test` determinism.

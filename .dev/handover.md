@@ -3,112 +3,63 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## D-327 REFRAMED 2026-06-14 (premise was a MISDIAGNOSIS)
+## ACTIVE AGENDA (user-directed 2026-06-14) — drive these in order via `/continue`
 
-Probing corrected it: **EH try_table corpus is ALREADY wg-3.0-current** (committed
-raw = upstream, 34=34 asserts) + **spec runner 100% GREEN** (`[exception-handling]
-return 34/34, trap 2/2, invalid 7/7, exception 4/4`). catch_ref asserts pass
-because the wast `(drop)`s the exnref + checks only the param; NO assert validates
-exnref VALUE (exnref-using cases are `assert_invalid`). So the JIT exnref garbage +
-throw_ref stub is **CONFORMANCE-NEUTRAL** completeness (interp-correct, JIT-wrong),
-NOT an alpha blocker. Cycle-4a infra kept (`8478d853`).
+Project is feature-complete + 3-host green + tag-ready; **tag is user-only, NEVER
+autonomous (ADR-0156)**. This agenda is completion-refinement under Phase 17.
+Work the tasks top-to-bottom; each names a concrete first action.
 
-## CLOSED 2026-06-14 — JIT exnref completeness (bundle d327-exnref-jit) + alpha conformance
+**A1 — flaky `zig build test` (D-311), focused chunk.** Local `zig build test`
+seed-flakily SEGVs (3-host `test-all` is authority + green; this only improves
+LOCAL determinism). Investigation DONE + recipe in
+[`releasesafe_jit_failures.md`](releasesafe_jit_failures.md) §"Re-narrowed
+2026-06-14". Steps: (1) route the contract-violating test direct-calls through
+the existing safe helpers — `entry.zig:2694-95` (f32 test) → `invokeAndCheck`;
+`linker.zig:598,829` → `entry.callI32NoArgs`; (2) DECIDE whether x86_64 production
+multi-result `entry.zig:1365/1424` (`f(rt)`, no asm-clobber vs arm64's
+`aarch64_blr_clobbers` sibling) needs the `asm volatile("":::entry.jit_cohort_clobbers)`
+barrier; (3) verify `zig build test` ×~20 (seed-varying) shows ZERO SEGV + 3-host.
+If step 2 opens deeper ABI work, ship step 1 + document; don't rabbit-hole.
 
-User's "ideal form" exnref work COMPLETE (3-host green; conformance-NEUTRAL — no spec
-test, EH was already current). **D-328** `00cd1fb4` (multi-value catch result-vreg
-collision: BlockInfo.result_arity/is_catch_target; lower.zig resolves the catch
-TARGET via block_stack[len-2-label_idx]; liveness + emit ×2 truncate-dead + mint
-distinct result vregs at the target `.end` in LOCKSTEP). **D-327** `5866b601` (exnref
-reify→TOP result vreg + throw_ref round-trip; reify emitted FIRST since the emit-synth
-CALL clobbers caller-saved) + Win64 shadow-space hardening `d941c3a4`. Round-trip 88 /
-catch_ref_88 88 / catch_all_ref_77 77. **Alpha conformance MET** (`d151538a`): 3.0
-corpus FULLY wg-3.0-current (EH 34=34, gc all files, tail-call; 0 skip-impl; multi-
-value asserts run). Tag = user-only (ADR-0156); say "tag it" → I surface the tag-only
-cmd for `v2.0.0-alpha.3`.
+**A2 — ClojureWasm (cljw/CWFS) handoff doc — CURRENT STATE of the Zig API.** Not a
+changelog — a standalone "here is the Zig embedding API as it stands now" for the
+cljw consumer. Cover: Engine/Module/Instance lifecycle, `Linker` (defineFunc/
+defineInstance/defineGlobal/defineMemory/defineWasi + `WasiConfig{args, envs}`,
+preopens NOT yet wired = D-177), component surface (open/Opened/WitType/labels/
+budget/dropResource/diagnostics), lifetime contracts (Linker outlives importers;
+cross-instance source outlives importer). Base on `docs/zig_api_design.md` +
+`docs/handoff_cw_v1.md`; land as a new `docs/handoff_cw_v2_zig_api.md` (name TBD).
 
-## Parallel track — wg-3.0 currency re-verification — DONE `d151538a`
+**A3 — external-facing doc精査 + update (non-dev).** Re-examine every PUBLIC doc
+against current reality and fix drift: `README.md`, `docs/tutorial.md`,
+`docs/reference/{cli,c_api,zig_api}.md`, `docs/benchmarks.md`,
+`docs/migration_v1_to_v2.md`. (cli.md/c_api.md were verified accurate 2026-06-14;
+README got a wabt/WASI-P2 fix `b34183a7` — re-walk the rest end-to-end, esp.
+tutorial command accuracy + reference/zig_api vs the A2 current-state.) NOT `.dev/`
+(internal) — only outward-facing docs.
 
-VERIFIED FULLY wg-3.0-current (the debt's "multi-value-runner ceiling / deferred
-asserts" was STALE — refuted): EH try_table 34=34, gc all files (array 24 / struct
-17 / i31 55 / type-subtyping 17 / ref_cast 11 / ref_test 68), tail-call. 0
-skip-impl; multi-value-result asserts (type-f64-i64-to-i32-f32, get_globals) run
-via invokeMulti. spec-main drift bumped (spectec/editorial, 0 test/core changes).
-D-327 (multi-value-runner) debt CLOSED. **Alpha conformance condition MET.**
+**Wiring note**: this handover IS the `/continue` driving doc; `releasesafe_jit_failures.md`
+holds the A1 recipe; A2/A3 source docs all exist (verified). No auto-tag, no
+release. Mark each task done here as it completes; retarget the NEXT marker.
 
-## alpha.3 GATE (user-directed 2026-06-14) — "ideal form" before tag
+## State (tag-ready baseline, all 3-host green)
 
-Two autonomous tracks gate the tag (user-only, ADR-0156): (1) the Active bundle
-above (JIT exnref completeness — user's ideal-form call) + (2) the Parallel track
-(wg-3.0 currency re-verification). Sustainable mechanism DONE (refdialect.py +
-runbook). 1.0/2.0/simd/threads current; gc `b8e8b16c`; tail-call DONE `21959b5f`;
-EH wg-3.0-current. **Conformance-wise the alpha is essentially ready** (`v2.0.0-
-alpha.3`, tag-only, no Release); the two tracks pursue genuine completeness +
-per-proposal re-verification before surfacing "tag it".
-
-## Current state
-
-- **ROADMAP widget: Phase 17 = IN-PROGRESS (feature line)**. CM + WASI-P2
-  wasmtime-equivalent campaign CLOSED 2026-06-13 (corpus 158/0/0).
-- **cljw CM-API finished-form campaign CLOSED 2026-06-13** (all 6 cw requests +
-  REQ-7 `33e0100c` opened-component-owns-bytes; 3-host green; cljw handovers
-  COMPLETED). **D-325 / D-324 CLOSED** (cross-instance ctx fix; memory64×multi-mem
-  bulk-op). Detail in git log / ADRs.
-- **D-290 CLOSED 2026-06-13 — wabt→wasm-tools migration COMPLETE.** All
-  distillers swapped (2_0 / wasmtime_misc / **simd** `fa06c202` 13420/0
-  skip-impl 32→0 / **threads** `db72560a` exact-parity 294/0 / 3_0 stale-
-  check fix); **`pkgs.wabt` dropped from flake** (`dd1a96e5`). Zero wabt
-  invocations remain (spec runners read pre-baked corpora; build.zig
-  spectest = `wasm-tools parse`). ONE modern wasm CLI.
-- **ADR-0184 COMPLETE** (engine-owned io for C-API WASI; D-255+D-007 closed).
-- Mac test/lint green per commit; ubuntu test-all green; windows batch
-  green 2026-06-13 (`beb2g2d5a`); local `zig build test-all` green post-REQ-5.
-
-## NEXT (autonomous)
-
-No `now` debt (53 entries). **2026-06-14 sweep** (all green; detail in git): audit
-false-positive `1e887116` · D-301 `37d05775` (threads/atomic phantom skips) · README
-`b34183a7` · docs axis verified · D-297 discharged `13069bcc` (Linker guard rejected,
-contract suffices) · **D-177 thunk barrier dissolved `dca15df8`** + **WasiConfig.envs
-shipped `04cb3497`** (Zig-API env parity, TDD) · **D-179 closed `e9e436b0`** (wabt
-GC-bake gate gone — D-290 removed wabt, wasm-tools bakes GC). Alpha conformance MET.
-Next actionable (demand-driven long-tail — pick by signal):
-- **D-177 preopens** (narrowed facet) = add `WasiConfig.preopens`. SURVEYED
-  `35b08704`: fd-ownership solved by ADR-0184 addPendingPreopen/materialize; real
-  gate = IO-TOKEN PLUMBING (facade Engine has no io field, instantiate never sets
-  host.io/materializes). Genuine design chunk (ADR-0184 follow-up), low-priority.
-- **D-293 remainder** = GC array.* trampolines — RE-SURVEYED + RE-CONFIRMED
-  deferred 2026-06-14 (`565ed49a`; full demux mechanism in the debt row, DON'T
-  re-walk). ZERO conformance + ZERO default-engine gain → correctly else-leave.
-- Else: §1.3 backlog demand-driven · blocked-by long-tail · D-323.
-
-## Closed-work pointers (detail in git log / ADRs)
-
-- **d314-jit-sandbox CLOSED 2026-06-12** (sandboxing triad; ADR-0179).
-  GATE NOTE (D-311): raw-entry-call seed-flaky in `zig build test`; 3-host
-  test-all is authority (`releasesafe_jit_failures.md`).
-- JIT-correctness 2026-06-12: wasm-3.0 assert_return 880/0 both arches.
-  D-318 (note): Rosetta x86_64-macos corpus-JIT SEGVs, local-only.
-- **Open user-decision follow-ons**: Tier-2 #5 ILP32/watchOS.
-
-## State at pause (stable baseline)
-
-- **Core Wasm 1.0/2.0/3.0**: 100% spec, 0 skip, 3-host green. v0.2 features +
-  official corpora complete. WASI 0.1 complete. Sandboxing triad everywhere.
-- **CM + WASI-P2**: default-ON (ADR-0182); real Rust/Go wasip2 components run
-  e2e; typed API (ADR-0183) + cljw CM-API finished-form (open/WitType/labels/
-  budget/dropResource/diagnostics); validator rules 1–12; corpus 158/0/0.
-- **Surfaces**: C-API 293/293 (+preopen_dir/inherit_env per ADR-0184) ·
-  Zig-API complete (docs §3.9) · lean CLI · memory-safety sound ·
+- **Wasm 1.0/2.0/3.0**: 100% spec, 0 skip. **WASI 0.1** complete; **0.2/CM**
+  default-ON (ADR-0182/0183; corpus 158/0/0). Sandboxing triad everywhere.
+- **Surfaces**: C-API 293/293 (+preopen_dir/inherit_env, ADR-0184) · Zig-API
+  complete (+`WasiConfig.envs` `04cb3497`) · lean CLI · memory-safety sound ·
   dogfooded into cw v1. Runners ReleaseSafe (ADR-0177).
-- Debt ledger: zero `now` rows; rest `blocked-by`/`note` long-tail.
+- **Debt**: 53 entries, **zero `now`**; rest blocked-by(external)/note long-tail.
+  Recent: D-301/D-177/D-179 closed; D-297 discharged (2026-06-14 sweep, in git).
+- **Alpha conformance MET** (`d151538a`): 3.0 corpus fully wg-3.0-current. Tag
+  `v2.0.0-alpha.3` is tag-only (no Release → Latest stays v1.11.0), USER-ONLY.
 
 ## Key refs
 
-- [`docs/handoff_cw_v1.md`](../docs/handoff_cw_v1.md) · `docs/zig_api_design.md`
-  §3.9 (component surface, incl. open/Opened/WitType/dropResource).
-- **ADR-0184** (engine-owned io) · **ADR-0183** (typed component API) ·
-  **ADR-0179** (sandboxing) · **ADR-0156** (no release) · **ADR-0153**
-  (rework) · **ADR-0170/0176/0177** (CM / validation / runners).
+- [`docs/zig_api_design.md`](../docs/zig_api_design.md) (Zig API, §3.8 WASI/§3.9
+  component) · [`docs/handoff_cw_v1.md`](../docs/handoff_cw_v1.md) (prior cljw handoff).
+- **ADR-0184** (engine-owned io) · **0183** (typed component API) · **0182** (CM
+  default-ON) · **0179** (sandboxing) · **0177** (ReleaseSafe runners) · **0156**
+  (NO autonomous release) · **0153** (rework) · **0109** (Linker/facade API).
 - [`component_model_plan.md`](component_model_plan.md) ·
-  [`releasesafe_jit_failures.md`](releasesafe_jit_failures.md) (D-311).
+  [`releasesafe_jit_failures.md`](releasesafe_jit_failures.md) (D-311 / A1 recipe).
