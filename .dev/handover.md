@@ -5,30 +5,19 @@
 
 ## Active campaign — spec re-vendor → alpha.3 tag (USER-AUTHORIZED; option A chosen 2026-06-14)
 
-Full plan: **`private/spec_revendor_campaign.md`**. Verified (web+local):
-1.0/2.0/simd/threads CURRENT; only **3.0 corpus** trailed the wg-3.0 Recommendation.
-Re-vendor: gc `b8e8b16c` incorporated (runtime-PASS, 3-host green incl windows).
-tail-call `6ce31520` REVERTED `a981e5d8` — it broke HARDCODED `wasm_3_0_manifest.zig`
-tests (D-187 "enumerate 31 assert_returns" marker + return_call.0.wasm→i32:306
-e2e) that pin corpus structure; `test-spec-X` missed it, `test-all` caught it on
-ubuntu (lesson `2026-06-14-corpus-revendor-breaks-hardcoded-manifest-tests`).
-memory64/multi-memory/func-refs no-drift; eh + tail-call drift remain (deferred).
-So 3.0 corpus = current-for-wg-3.0 EXCEPT multi-value asserts (D-327) + the
-reverted tail-call/eh deltas. Mechanism DONE (refdialect.py + runbook).
-D-327 PINNED 2026-06-14c: `test-spec-wasm-3.0-assert` is driven by
-`spec_assert_runner_wasm_3_0.zig` (build.zig:558), which ALREADY does multi-value
-via `inst.invokeMulti` for ALL-SCALAR results (@963-1002); non-scalar (v128/ref)
-multi defers. So the eh try_table +5 failures are NOT "runner can't check" — they
-are VALUE MISMATCHES (`jitScalarResultMatches` false @989) ⇒ a likely REAL
-JIT/runtime multi-value bug in try_table/exception contexts (or arg/result
-encoding), NOT a pure test-harness gap. So option A = a genuine RUNTIME
-investigation (bigger than the ~250-400 LOC harness estimate). For an ALPHA this
-strengthens B.
-DECISION (user's call — alpha effort/release tradeoff): **A** = close D-327 →
-re-vendor deferred asserts (w/ manifest-test updates) → full wg-3.0 → tag. **B** =
-tag `v2.0.0-alpha.3` NOW (corpus wg-3.0-current-except-multi-value, 3-host green;
-D-327+deferred → beta/rc debt). Recommend B. NEXT: honour pick; if silent,
-continue D-327 investigation (pin the exact runner gap).
+Full plan + all findings: **`private/spec_revendor_campaign.md`** (read first).
+SUMMARY: 1.0/2.0/simd/threads CURRENT; gc re-vendored to wg-3.0 `b8e8b16c` (3-host
+green); tail-call reverted `a981e5d8` (broke hardcoded `wasm_3_0_manifest.zig`
+tests — lesson filed); rest no-drift. So 3.0 corpus = **wg-3.0-current EXCEPT the
+multi-value asserts (D-327)**. Sustainable mechanism DONE (refdialect.py + runbook).
+D-327 PINNED: the eh try_table multi-value failures are **VALUE MISMATCHES** in
+`spec_assert_runner_wasm_3_0.zig` (which already does invokeMulti) ⇒ a likely REAL
+JIT multi-value bug (try_table/exception context), NOT a test-harness gap. So
+closing it (full wg-3.0) is a genuine **runtime investigation** (multi-cycle).
+DECISION (user's call): **A** = investigate+fix D-327 → full wg-3.0 → tag (multi-
+cycle). **B** = tag `v2.0.0-alpha.3` NOW (3-host green, current-except-D-327;
+D-327 → beta/rc debt). **Recommend B** for an alpha. NEXT: honour pick; if silent,
+begin the D-327 runtime investigation (re-vendor eh + bisect the try_table fail).
 
 ## Current state
 
