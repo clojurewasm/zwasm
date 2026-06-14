@@ -20,7 +20,7 @@ SUSTAINED**; the user assists when a toolchain needs installing.
 - **Phase A — reproduction infra (QUICK; get it working)**:
   - **A1 (Zig half DONE `5c044967`)**: `zig_{hello,fib,prime_sieve}` wasm32-wasi added;
     interp 53/53, byte-diff 53/53 vs wasmtime, JIT-clean (+ fixed a diff_runner green-path
-    flush bug `6995bbd3`). **AssemblyScript + WasmGC (Kotlin/Wasm/Dart) → D-324** (need
+    flush bug `6995bbd3`). **AssemblyScript + WasmGC (Kotlin/Wasm/Dart) → D-329** (need
     `asc`/SDK provisioning + a call-export harness; AS dropped WASI).
   - **A2 (autonomous, NEXT)**: **embenchen** (emcc in `.#gen`) — the classic Emscripten
     bench; the find = the emscripten env-stub host-import gap (D-026/D-082).
@@ -58,33 +58,33 @@ byte-identical to wasmtime under its existing WASI host, no shim. realworld_run 
 12-trap framing: **`diff_runner [jit]: 45/56 matched, 2 mismatched, 9 skipped`**. The truth: 45
 JIT-correct, 2 genuine miscompiles, 9 `go_*` compile-gaps. B1 bundle CLOSED (lane = the deliverable).
 
-**B2 PIVOTED → D-325 `a0dfccaf`+ (no active bundle).** The 2 miscompiles (`c_sha256_hash`,
+**B2 PIVOTED → D-330 `a0dfccaf`+ (no active bundle).** The 2 miscompiles (`c_sha256_hash`,
 `emcc_fasta`) were bisected over 4 cycles to **plain `%s` (no precision)** under --jit/--aot (codegen,
 interp correct). FOUR reductions (generic varargs, array-store, hand-SWAR, count-limited scan, AND
 the EXACT musl null-scan `((0x01010100-w)|w)&0x80808080` as minimal `.wat`) ALL run CORRECT — so it's
 a **context-dependent regalloc/spill-class miscompile** that only manifests under the real ~large
-vfprintf's register pressure (reduction can't isolate it). Filed **D-325** (focused `debug_jit_auto`
+vfprintf's register pressure (reduction can't isolate it). Filed **D-330** (focused `debug_jit_auto`
 disasm campaign of repro2.wasm's printf_core; private/spikes/jit-vararg has all reductions). The
 `--jit` lane keeps it visible (report-only). Niche (emscripten plain-%s stdout only; values correct).
 
-**D-326 PRIMARY GAP FIXED `10d7d2b2`.** Root cause: the JIT liveness pass used a FIXED `[256]Frame`
+**D-331 PRIMARY GAP FIXED `10d7d2b2`.** Root cause: the JIT liveness pass used a FIXED `[256]Frame`
 control-nesting stack; fat standard-Go funcs (go_hello func[303]: 11151 instrs, >256 nested blocks)
 overflowed it → UnsupportedOp. Made `block_stack` allocator-backed + doubling. Result: realworld JIT
 compile-pass **47/56 → 55/56** (8 of 9 go_* flip compile-op→compile-pass); zig build test green, no
-regression; boundary fixture deep_control_nest_300. D-326 now `partial` — 2 SEPARATE smaller remaining
+regression; boundary fixture deep_control_nest_300. D-331 now `partial` — 2 SEPARATE smaller remaining
 gaps: (A) 8 go_* **UnsupportedEntrySignature** (they compile, but JIT run-path can't invoke Go's `_start`
 ABI); (B) **go_regex SlotOverflow** (a different fixed vreg/slot cap — same dynamic-vs-fixed pattern,
 likely a similar fix).
 
 **Phase-B status**: D-283 `--jit` lane done + 3-host green (45/2/9, REPORT-ONLY). Remaining JIT-correctness
-debt: **D-325** (2 `%s` regalloc-class miscompiles) + **D-326** partial (go entry-sig + go_regex slot cap).
+debt: **D-330** (2 `%s` regalloc-class miscompiles) + **D-331** partial (go entry-sig + go_regex slot cap).
 
-**First action on resume**: continue D-326 — **(B) go_regex SlotOverflow** is the more tractable (same
+**First action on resume**: continue D-331 — **(B) go_regex SlotOverflow** is the more tractable (same
 fixed-cap→dynamic pattern just landed for the control stack; grep `SlotOverflow` in regalloc/emit, find
 the fixed vreg/slot table, make it grow). OR (A) the go `_start` UnsupportedEntrySignature in the JIT
-entry runner (`runVoidExportWasi`/`runWasiLenient` entry resolution). (Alt: D-325 %s disasm.)
+entry runner (`runVoidExportWasi`/`runWasiLenient` entry resolution). (Alt: D-330 %s disasm.)
 (A1 Zig + A2 embenchen + A3 wasmer-oracle +
-runtime-bump + tool-currency-3host + B1 jit-diff-lane DONE; D-326 primary FIXED; B2→D-325.)
+runtime-bump + tool-currency-3host + B1 jit-diff-lane DONE; D-331 primary FIXED; B2→D-330.)
 
 ## State (tag-ready baseline, all 3-host green)
 

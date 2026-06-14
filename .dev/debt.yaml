@@ -970,7 +970,7 @@ entries:
     first_raised: "2026-06-07"
     last_reviewed: "2026-06-07"
     refs: src/api/component.zig (instantiateGraph); test/component/adder_graph.wasm; .dev/component_model_plan.md (Phase C/D)
-  - id: "D-324"
+  - id: "D-329"
     layer: "test"
     status: "blocked-by"
     description: |-
@@ -992,7 +992,7 @@ entries:
     refs: |-
       .dev/realworld_reproduction_plan.md (Phase A1); test/realworld/{runner,run_runner,diff_runner}.zig
       (WASI-entry assumption); test/realworld/src/zig (the landed WASI-stdout half); flake.nix devShells.gen
-  - id: "D-325"
+  - id: "D-330"
     layer: "code"
     status: "blocked-by"
     description: |-
@@ -1019,7 +1019,7 @@ entries:
       D-283 (parent / the --jit lane); test/realworld/diff_runner.zig (--jit lane); private/spikes/jit-vararg
       (repro.c/repro2.c/repro3.c/swar.c/swar2.c/scan.wat — all reductions); lesson
       jit-realworld-runtraps-are-null-wasi-harness-artifacts; debug_jit_auto skill
-  - id: "D-326"
+  - id: "D-331"
     layer: "code"
     status: "partial"
     description: |-

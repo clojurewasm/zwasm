@@ -144,7 +144,7 @@ pub fn compute(
         // slots collapsed onto the second if's else-arm vreg).
         merge_vregs: [8]u32,
     };
-    // Dynamic control-nesting stack (D-326): fat toolchains (standard Go's
+    // Dynamic control-nesting stack (D-331): fat toolchains (standard Go's
     // giant runtime funcs — go_hello_wasi func[303] has 11151 instrs nesting
     // blocks >256 deep) exceed any fixed cap. The interp runs them, so the JIT
     // liveness must too. `max_control_stack` is the initial capacity; it grows
