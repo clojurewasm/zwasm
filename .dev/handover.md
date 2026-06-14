@@ -66,7 +66,10 @@ per-proposal re-verification before surfacing "tag it".
 
 ## NEXT (autonomous)
 
-No `now` debt. Recent closes: JIT exnref completeness (D-327 `5866b601` + D-328
+No `now` debt. **Scaffolding audit run 2026-06-14 (`1e887116`)**: clean — only a
+recurring check_adr_history.sh false-positive (template counted as pending
+backfill) fixed; rest steady-state (mature large files, external-blocked debt).
+Recent closes: JIT exnref completeness (D-327 `5866b601` + D-328
 `00cd1fb4` + Win64 `d941c3a4`); alpha conformance verified MET (`d151538a`); D-326
 (cw REQ-7) `33e0100c`. Next actionable (demand-driven long-tail — pick by signal):
 - **D-293 remainder** = GC array.* trampolines only. **RE-SURVEYED + barrier
