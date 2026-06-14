@@ -32,3 +32,23 @@ cd test/realworld/src/rust_sha256
 cargo build --release --target wasm32-wasip1
 cp target/wasm32-wasip1/release/sha256.wasm ../../wasm/rust_sha256.wasm
 ```
+
+## zig/*.zig → wasm/zig_*.wasm
+
+Zig is on PATH in `nix develop .#gen` (same pinned 0.16.0 as the runtime
+itself — self-language dogfood-adjacent corpus). Each source compiles
+standalone to wasm32-wasi and writes to stdout via `fd_write` (AssemblyScript
+dropped WASI, so Zig is the lean WASI-stdout generator here):
+
+```sh
+cd test/realworld/src/zig
+for f in hello fib prime_sieve; do
+    zig build-exe "$f.zig" -target wasm32-wasi -O ReleaseSmall
+    cp "$f.wasm" "../../wasm/zig_$f.wasm"
+done
+rm -f *.wasm *.o
+```
+
+- `hello` — minimal WASI stdout line.
+- `fib` — recursive fib(0..24) + i64 math + `bufPrint` (deep call-chain JIT stress).
+- `prime_sieve` — Sieve of Eratosthenes over a stack array (linear memory + nested loops).
