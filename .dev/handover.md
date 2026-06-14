@@ -79,12 +79,16 @@ likely a similar fix).
 **Phase-B status**: D-283 `--jit` lane done + 3-host green (45/2/9, REPORT-ONLY). Remaining JIT-correctness
 debt: **D-330** (2 `%s` regalloc-class miscompiles) + **D-331** partial (go entry-sig + go_regex slot cap).
 
-**First action on resume**: continue D-331 — **(B) go_regex SlotOverflow** is the more tractable (same
-fixed-cap→dynamic pattern just landed for the control stack; grep `SlotOverflow` in regalloc/emit, find
-the fixed vreg/slot table, make it grow). OR (A) the go `_start` UnsupportedEntrySignature in the JIT
-entry runner (`runVoidExportWasi`/`runWasiLenient` entry resolution). (Alt: D-330 %s disasm.)
-(A1 Zig + A2 embenchen + A3 wasmer-oracle +
-runtime-bump + tool-currency-3host + B1 jit-diff-lane DONE; D-331 primary FIXED; B2→D-330.)
+**First action on resume**: D-331(A) — the **go `_start` UnsupportedEntrySignature** (MOST tractable;
+likely flips 8 go_* + a clean green-commit overnight start). LEAD (already traced): go's `_start`
+(`_rt0_wasm_wasip1`) is VOID `()->()` (type 11), idx 1326, defined (16 imports); `runWasiLenient`
+(runner.zig:466) HANDLES void at L502 + `resolveLenientEntryIdx` returns it correctly — yet `zwasm run
+--engine jit go_hello` still rejects. Interp runs it fine ⇒ a downstream ASYMMETRY (suspect:
+`compiled.func_sigs[idx]` module-index-vs-defined-index OR compile-incomplete). Step 0: TEMP-instrument
+runWasiLenient to print which branch rejects for idx 1326. Then D-331(B) go_regex SlotOverflow = HARD
+D-289 large-frame (max_slots=4095 fixed + >32760 spill offsets) — defer/link D-289. (Alt: D-330 %s
+disasm — hard regalloc.) (A1 Zig + A2 embenchen + A3 wasmer-oracle + runtime-bump + tool-currency-3host
++ B1 jit-diff-lane DONE; D-331 primary FIXED.)
 
 ## State (tag-ready baseline, all 3-host green)
 
@@ -96,9 +100,9 @@ runtime-bump + tool-currency-3host + B1 jit-diff-lane DONE; D-331 primary FIXED;
   Rev 2026-06-14 floored `core_comp` too; `check_releasesafe_runners.sh` guards it).
 - **EH**: cross-instance exception-handling on JIT works on BOTH arches (arm64 `4f73d9ee`
   + x86_64 D-238/ADR-0185 `c534afca`). Interp + JIT EH spec corpus green.
-- **Debt**: 43 entries, **zero `now`**; all blocked-by are external (upstream
+- **Debt**: 46 entries, **zero `now`**; all blocked-by are external (upstream
   Zig / hosts) / future-phase (11/12/14) / user-gated, or `note`/`partial` long-tail.
-  D-283 (realworld-under-JIT) is the Phase-B anchor. D-026/D-082 (embenchen) feed Phase A.
+  D-283 (realworld-under-JIT) Phase-B anchor; D-330 (%s) + D-331 (go, primary FIXED) JIT-debt.
 - **Realworld corpus**: 50 fixtures (c/cpp/rust/tinygo/go), interp 50/50; JIT run-stage
   opt-in (`ZWASM_JIT_RUN=1`) — the Phase-B signal source. cljw fixtures retired.
 - **Tag**: `v2.0.0-alpha.3` tag-only (no Release → Latest stays v1.11.0), USER-ONLY.
