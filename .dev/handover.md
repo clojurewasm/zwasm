@@ -66,12 +66,12 @@ per-proposal re-verification before surfacing "tag it".
 
 ## NEXT (autonomous)
 
-No `now` debt (54 entries). **2026-06-14 sweep**: scaffolding audit clean (only a
-check_adr_history.sh false-positive fixed `1e887116`); **D-301 closed `37d05775`**
-(stale note — threads/atomic residual fully resolved: corpus 294 directives / 0
-skip, the claimed "47 residual skips" were converted to real asserts at the D-290
-re-bake; 294/0 3-host). Recent closes: JIT exnref (D-327 `5866b601` + D-328
-`00cd1fb4` + Win64 `d941c3a4`); alpha conformance MET (`d151538a`).
+No `now` debt (54 entries). **2026-06-14 completion-refinement sweep** (all green):
+scaffolding audit (1 false-positive fixed `1e887116`) · **D-301 closed `37d05775`**
+(stale note — threads/atomic 294/0, the "47 residual skips" were real asserts since
+D-290 re-bake) · **README docs fix `b34183a7`** (stale flake wabt list + headline
+now surfaces WASI-P2/CM). Recent closes: JIT exnref (D-327/D-328/Win64); alpha
+conformance MET (`d151538a`).
 Next actionable (demand-driven long-tail — pick by signal):
 - **D-293 remainder** = GC array.* trampolines only. **RE-SURVEYED + barrier
   RE-CONFIRMED deferred 2026-06-14 (`565ed49a`)** — full demux mechanism walked
