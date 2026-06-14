@@ -69,13 +69,13 @@ per-proposal re-verification before surfacing "tag it".
 No `now` debt. Recent closes: JIT exnref completeness (D-327 `5866b601` + D-328
 `00cd1fb4` + Win64 `d941c3a4`); alpha conformance verified MET (`d151538a`); D-326
 (cw REQ-7) `33e0100c`. Next actionable (demand-driven long-tail — pick by signal):
-- **D-293 remainder** = the GC array.* trampolines only (`array_init_data/copy/
-  fill/init_elem/new_data/new_elem`). Each single 0-return from `jitGcArray*`
-  mixes ≥6 failure modes (null/OOM/segidx-OOB/dropped-seg/dst+src-OOB) → NOT a
-  fixup re-route; proper fix = helper RETURNS A KIND the stub maps. LOW priority,
-  conformance-neutral, interp already precise — "else leave" until a GC-on-JIT
-  program needs precise array-trap codes. (slice-4e corrected the stale
-  `array_oob`-TrapKind recipe: contradicted slice-4c's array-OOB=oob_memory.)
+- **D-293 remainder** = GC array.* trampolines only. **RE-SURVEYED + barrier
+  RE-CONFIRMED deferred 2026-06-14 (`565ed49a`)** — full demux mechanism walked
+  (new no-static-kind stub variant ×2 + `gc_array_trap_fixups` channel + ~30-site
+  `rt.trap_kind` write convention, gated on an interp-parity TrapKind survey;
+  return-slot overload trips single_slot_dual_meaning). Multi-cycle architectural
+  surface for ZERO conformance + ZERO default-engine gain → correctly else-leave;
+  the debt row now holds the saved survey, so DON'T re-walk.
 - D-245 → note (RESOLVED, re-audit 2026-06-13; see row).
 - Else: §1.3 backlog demand-driven · blocked-by long-tail · D-323.
 
