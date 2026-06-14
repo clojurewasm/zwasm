@@ -26,6 +26,7 @@ const zir = @import("../../../ir/zir.zig");
 const Value = @import("../../../runtime/value.zig").Value;
 const FuncEntity = @import("../../../runtime/instance/func.zig").FuncEntity;
 const exception_table = @import("exception_table.zig");
+const exception_mod = @import("../../../feature/exception_handling/exception.zig");
 const code_map = @import("code_map.zig");
 const heap_mod = @import("../../../feature/gc/heap.zig");
 const gc_type_info = @import("../../../feature/gc/type_info.zig");
@@ -528,7 +529,79 @@ pub const JitRuntime = extern struct {
     /// JIT fuel budget. Signed so the post-SUB sign check is one flag test:
     /// budget N permits N polls; the poll taking it to -1 traps. TRAILING.
     fuel_cell: i64 = 0,
+    /// Wasm 3.0 EH exnref reification (ADR-0120 D6 / D-327). Callout the
+    /// catch_ref / catch_all_ref landing pad BLRs to materialize an exnref
+    /// (`*Exception`) from the live thrown tag + payload. Defaults to a
+    /// panic stub — only reached when an `_ref` catch clause was compiled,
+    /// which REQUIRES the runner to install the real `reifyExnref`. TRAILING.
+    reify_exnref_fn: *const fn (rt: *JitRuntime) callconv(.c) usize = defaultReifyExnref,
+    /// Opaque `*EhReifyCtx` (allocator + Exception tracker) consumed by
+    /// `reifyExnref`. Null on the default/no-`_ref` path. TRAILING.
+    eh_reify_ctx: ?*anyopaque = null,
+    /// The tag index of the exception currently being dispatched. Stashed by
+    /// `trampolineCore` on the `.handler` path (ADR-0134) so a catch_all_ref
+    /// landing pad — whose clause carries no compile-time tag — can reify the
+    /// exnref with the ACTUAL thrown tag. TRAILING.
+    eh_thrown_tag_idx: u32 = 0,
+    _pad_reify: u32 = 0,
 };
+
+/// Host-side context for `reifyExnref` (ADR-0120 D6 / D-327). Owns the
+/// allocator + a tracker of every Exception reified at an `_ref` catch
+/// landing pad. The exnref handle is a raw `*Exception` the Wasm program
+/// may hold across calls and re-throw (`throw_ref`), so the objects must
+/// outlive the catching frame; the tracker frees them at instance
+/// teardown (mirrors the interp's `Runtime.live_exceptions`). Installed
+/// on `JitRuntime.eh_reify_ctx` by the runner (setup.zig) only when a
+/// module compiles an `_ref` catch clause.
+pub const EhReifyCtx = struct {
+    allocator: std.mem.Allocator,
+    exceptions: std.ArrayList(*exception_mod.Exception) = .empty,
+
+    pub fn deinit(self: *EhReifyCtx) void {
+        for (self.exceptions.items) |exc| self.allocator.destroy(exc);
+        self.exceptions.deinit(self.allocator);
+    }
+};
+
+/// Default `reify_exnref_fn`. Reached only if an `_ref`-suffixed catch
+/// clause was compiled yet the runner failed to install the real impl —
+/// a wiring bug, not a runtime condition. Panic loudly (ADR-0120 D6 +
+/// platform_panic_vs_error rule: a comptime-unreachable branch panics
+/// rather than silently returning a null exnref).
+pub fn defaultReifyExnref(rt: *JitRuntime) callconv(.c) usize {
+    _ = rt;
+    @panic("reify_exnref_fn not installed but an _ref catch clause was compiled (D-327)");
+}
+
+/// ADR-0120 D6 — materialize an `exnref` at a catch_ref / catch_all_ref
+/// landing pad. Snapshots the live `eh_thrown_tag_idx` + `eh_payload_buf
+/// [0..eh_payload_len]` into a freshly-allocated `Exception` (the interp
+/// representation, so JIT + interp exnref values are bit-identical) and
+/// returns its address as the handle the landing pad pushes. The copy is
+/// a SNAPSHOT, not an alias: the shared payload buffer is overwritten by
+/// the next throw while a caught exnref may still be live. Each `u64`
+/// payload slot round-trips through `Value{.bits64=…}` (lossless for the
+/// v0.1 gpr param types). Returns `0` (null exnref) on allocation
+/// failure; the landing-pad emit treats `0` as a trap (D-327 Cycle-4c).
+pub fn reifyExnref(rt: *JitRuntime) callconv(.c) usize {
+    const ctx: *EhReifyCtx = @ptrCast(@alignCast(rt.eh_reify_ctx orelse return 0));
+    const exc = ctx.allocator.create(exception_mod.Exception) catch return 0;
+    exc.* = .{
+        .tag_idx = rt.eh_thrown_tag_idx,
+        .tag = null,
+        .payload_len = rt.eh_payload_len,
+        .payload = undefined,
+    };
+    const n = @min(rt.eh_payload_len, exception_mod.max_payload);
+    var i: u32 = 0;
+    while (i < n) : (i += 1) exc.payload[i] = .{ .bits64 = rt.eh_payload_buf[i] };
+    ctx.exceptions.append(ctx.allocator, exc) catch {
+        ctx.allocator.destroy(exc);
+        return 0;
+    };
+    return @intFromPtr(exc);
+}
 
 /// Default `memory_grow_fn` — unconditionally refuses growth by
 /// returning the spec sentinel `-1`. Spec-conformant for any host
@@ -1274,6 +1347,10 @@ pub const eh_handler_fp_off: u12 = @offsetOf(JitRuntime, "eh_handler_fp");
 pub const eh_payload_buf_off: u16 = @offsetOf(JitRuntime, "eh_payload_buf");
 pub const eh_payload_len_off: u16 = @offsetOf(JitRuntime, "eh_payload_len");
 
+/// D-327 / ADR-0120 D6 — exnref reify callout slot (X-form, 8-byte fn
+/// pointer); the catch_ref / catch_all_ref landing pad BLRs through it.
+pub const reify_exnref_fn_off: u16 = @offsetOf(JitRuntime, "reify_exnref_fn");
+
 /// 10.G GC-on-JIT (ADR-0128 §2) — both X-form (8-byte pointer)
 /// loads: `gc_heap` read by the alloc trampoline + struct.get/set
 /// slab-base load; `gc_type_infos_ptr` read by the trampoline for
@@ -1468,7 +1545,9 @@ test "JitRuntime: total size = 464 bytes (post-10.E tag_ids tail)" {
     // mem0_shared (u32 +4, pad +4) → 512 + 32 = 544.
     // D-314 appends `interrupt_ptr` (?*const atomic, +8 B, trailing) → 544 + 8 = 552.
     // D-314 #3b appends `fuel_metered`+pad+`fuel_cell` (+16 B, trailing) → 552 + 16 = 568.
-    try testing.expectEqual(@as(u32, 568), head_size);
+    // D-327 (ADR-0120 D6) appends `reify_exnref_fn` (+8) + `eh_reify_ctx` (+8) +
+    // `eh_thrown_tag_idx` (u32 +4) + `_pad_reify` (+4) → 568 + 24 = 592.
+    try testing.expectEqual(@as(u32, 592), head_size);
 }
 
 test "jitGcAlloc: allocates struct{i32} via the *JitRuntime bridge (10.G A-2a)" {
@@ -1587,6 +1666,39 @@ test "JitRuntime: eh_payload_buf + eh_payload_len offsets (ADR-0120 Cycle 2)" {
     if ((eh_payload_len_off & 3) != 0) @compileError("eh_payload_len_off not 4-aligned");
     // eh_payload_len immediately follows the 16×u64 buf.
     try testing.expectEqual(@as(u16, eh_payload_buf_off) + 128, eh_payload_len_off);
+}
+
+test "reifyExnref: snapshots thrown tag + payload into a *Exception (ADR-0120 D6 / D-327)" {
+    // reify_exnref_fn_off is an X-form (8-byte) fn-pointer load.
+    if ((reify_exnref_fn_off & 7) != 0) @compileError("reify_exnref_fn_off not 8-aligned");
+
+    var ctx: EhReifyCtx = .{ .allocator = testing.allocator };
+    defer ctx.deinit();
+
+    var rt: JitRuntime = std.mem.zeroes(JitRuntime);
+    rt.eh_reify_ctx = &ctx;
+    rt.eh_thrown_tag_idx = 7;
+    rt.eh_payload_len = 2;
+    rt.eh_payload_buf[0] = 88;
+    rt.eh_payload_buf[1] = 0xDEAD_BEEF;
+
+    const handle = reifyExnref(&rt);
+    try testing.expect(handle != 0);
+    const exc: *exception_mod.Exception = @ptrFromInt(handle);
+    try testing.expectEqual(@as(u32, 7), exc.tag_idx);
+    try testing.expectEqual(@as(u32, 2), exc.payload_len);
+    try testing.expectEqual(@as(u64, 88), exc.payload[0].bits64);
+    try testing.expectEqual(@as(u64, 0xDEAD_BEEF), exc.payload[1].bits64);
+
+    // Snapshot, not alias: clobbering the shared buffer + reifying again
+    // must not disturb the first exnref (it may be held + re-thrown later).
+    rt.eh_payload_buf[0] = 0xAA;
+    rt.eh_thrown_tag_idx = 3;
+    const handle2 = reifyExnref(&rt);
+    try testing.expect(handle2 != 0 and handle2 != handle);
+    try testing.expectEqual(@as(u64, 88), exc.payload[0].bits64); // first unchanged
+    try testing.expectEqual(@as(u32, 7), exc.tag_idx);
+    try testing.expectEqual(@as(usize, 2), ctx.exceptions.items.len); // both tracked
 }
 
 test "JitRuntime: D-165 cycle 4 trap_stub_entry_count offset (W-form imm12-safe)" {

@@ -226,7 +226,9 @@ pub fn runOne(
 /// gained a `tailprint_i32_f32` export that imports it (the conventional
 /// spec-testsuite print module), so a fixture using that corpus can only
 /// be instantiated once the import is satisfied.
-fn spectestPrintI32F32(_: *zwasm_root.Caller, _: i32, _: f32) void {}
+fn spectestPrintI32F32(_: *zwasm_root.Caller, _: i32, _: f32) void {
+    // no-op (trace print semantics)
+}
 
 /// Like `runOne` but registers the conventional `spectest.print_i32_f32`
 /// host import. Needed for the wg-3.0 tail-call corpus's import-bearing
