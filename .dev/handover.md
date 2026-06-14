@@ -13,23 +13,19 @@ exnref VALUE (exnref-using cases are `assert_invalid`). So the JIT exnref garbag
 throw_ref stub is **CONFORMANCE-NEUTRAL** completeness (interp-correct, JIT-wrong),
 NOT an alpha blocker. Cycle-4a infra kept (`8478d853`).
 
-## Active bundle — JIT exnref completeness (user chose "do it now" 2026-06-14)
+## CLOSED 2026-06-14 — JIT exnref completeness (bundle d327-exnref-jit) + alpha conformance
 
-- **Bundle-ID**: d327-exnref-jit  **Cycles-remaining**: ~1 (verify)
-- **Continuity-memo**: BOTH DONE (user's "ideal form"; CONFORMANCE-NEUTRAL — no spec
-  test, EH was already wg-3.0-current). **D-328 3-HOST GREEN** `00cd1fb4` (multi-
-  value catch result-vreg collision: BlockInfo.result_arity/is_catch_target;
-  lower.zig resolves each catch's TARGET block via block_stack[len-2-label_idx] —
-  try_table transparent for its own catch labels; liveness + emit ×2 TRUNCATE dead
-  body vregs + MINT distinct result vregs at the target `.end` in LOCKSTEP).
-  **D-327 DONE Mac `5866b601`** (exnref reify + throw_ref round-trip; reify emitted
-  FIRST — emit-synth CALL clobbers caller-saved, params after survive; param base
-  skips the exnref top slot; setup installs reifyExnref+ctx; trampoline stashes
-  thrown tag). Round-trip 88 / catch_ref_88 88 / catch_all_ref_77 77; 2856/0, lint,
-  x86_64 cross-compiles. NEXT = verify D-327 ubuntu+windows (Win64 RCX arg0 =
-  ABI-risk); then CLOSE bundle. No eh re-vendor needed (EH already current).
-- **Exit-condition**: D-327 ubuntu+windows green (3-host) → close bundle d327-
-  exnref-jit (round-trip + catch_ref_88 + catch_all_ref_77 all green everywhere).
+User's "ideal form" exnref work COMPLETE (3-host green; conformance-NEUTRAL — no spec
+test, EH was already current). **D-328** `00cd1fb4` (multi-value catch result-vreg
+collision: BlockInfo.result_arity/is_catch_target; lower.zig resolves the catch
+TARGET via block_stack[len-2-label_idx]; liveness + emit ×2 truncate-dead + mint
+distinct result vregs at the target `.end` in LOCKSTEP). **D-327** `5866b601` (exnref
+reify→TOP result vreg + throw_ref round-trip; reify emitted FIRST since the emit-synth
+CALL clobbers caller-saved) + Win64 shadow-space hardening `d941c3a4`. Round-trip 88 /
+catch_ref_88 88 / catch_all_ref_77 77. **Alpha conformance MET** (`d151538a`): 3.0
+corpus FULLY wg-3.0-current (EH 34=34, gc all files, tail-call; 0 skip-impl; multi-
+value asserts run). Tag = user-only (ADR-0156); say "tag it" → I surface the tag-only
+cmd for `v2.0.0-alpha.3`.
 
 ## Parallel track — wg-3.0 currency re-verification — DONE `d151538a`
 
@@ -70,8 +66,9 @@ per-proposal re-verification before surfacing "tag it".
 
 ## NEXT (autonomous)
 
-No `now` debt. Recent closes: D-326 (cw REQ-7) `33e0100c`; D-293 slice-4e
-`b5af6e2b`. Next actionable (demand-driven long-tail — pick by signal):
+No `now` debt. Recent closes: JIT exnref completeness (D-327 `5866b601` + D-328
+`00cd1fb4` + Win64 `d941c3a4`); alpha conformance verified MET (`d151538a`); D-326
+(cw REQ-7) `33e0100c`. Next actionable (demand-driven long-tail — pick by signal):
 - **D-293 remainder** = the GC array.* trampolines only (`array_init_data/copy/
   fill/init_elem/new_data/new_elem`). Each single 0-return from `jitGcArray*`
   mixes ≥6 failure modes (null/OOM/segidx-OOB/dropped-seg/dst+src-OOB) → NOT a
