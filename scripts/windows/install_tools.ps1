@@ -6,7 +6,7 @@
     Idempotent, per-user installer. Mirrors flake.nix pin list so
     Mac / Linux / Windows share the same tool surface (per user
     guidance 2026-05-22 "Mac side と同じツールを使うべき"):
-        zig, hyperfine, wasm-tools, wasmtime,
+        zig, hyperfine, wasm-tools, wasmtime, wasmer,
         wabt (wat2wasm + wast2json), yq (yq-go), lldb (LLVM),
         sysinternals (Procmon + ProcExp + DebugView + Handle + ~70 tools).
     Tools land in %LOCALAPPDATA%\zwasm-tools\<name>-<version>\
@@ -48,7 +48,7 @@
 [CmdletBinding()]
 param(
     [switch]$Force,
-    [ValidateSet('zig', 'hyperfine', 'wasm-tools', 'wasmtime', 'wabt', 'yq', 'lldb', 'sysinternals', 'all')]
+    [ValidateSet('zig', 'hyperfine', 'wasm-tools', 'wasmtime', 'wasmer', 'wabt', 'yq', 'lldb', 'sysinternals', 'all')]
     [string]$OnlyTool = 'all'
 )
 
@@ -58,10 +58,11 @@ Set-StrictMode -Version Latest
 # --- Pinned versions (mirror flake.nix; bumped manually) ---
 
 $versions = @{
-    'zig'        = '0.16.0'
+    'zig'        = '0.16.0'      # PINNED — never bump; the whole project targets Zig 0.16.0
     'hyperfine'  = '1.20.0'
-    'wasm-tools' = '1.246.1'
-    'wasmtime'   = '42.0.1'
+    'wasm-tools' = '1.251.0'
+    'wasmtime'   = '45.0.0'
+    'wasmer'     = '7.1.0'       # 2nd reference oracle (§9.6 A3); mirrors flake .#default Mac
     'wabt'       = '1.0.41'
     'yq'         = '4.53.2'
     'lldb'       = '22.1.6'      # via LLVM installer; lldb is bundled
@@ -256,6 +257,15 @@ if ($OnlyTool -in @('all', 'wasmtime')) {
     $paths['wasmtime'] = Install-Archive -Name 'wasmtime' -Version $v -Url $url -Format 'zip'
 }
 
+if ($OnlyTool -in @('all', 'wasmer')) {
+    $v = $versions['wasmer']
+    # wasmer ships a flat tar.gz (bin/ lib/ include/, no top-level version dir);
+    # Resolve-SingleSubdir falls through to the staging dir, so the stamped dir
+    # holds bin\wasmer.exe (PATH points at the bin subdir, like wabt).
+    $url = "https://github.com/wasmerio/wasmer/releases/download/v$v/wasmer-windows-amd64.tar.gz"
+    $paths['wasmer'] = Install-Archive -Name 'wasmer' -Version $v -Url $url -Format 'tar.gz'
+}
+
 if ($OnlyTool -in @('all', 'wabt')) {
     $v = $versions['wabt']
     # wabt release naming: wabt-<v>-windows-x64.tar.gz (NO 'v' prefix on tag).
@@ -314,6 +324,34 @@ if ($OnlyTool -in @('all', 'sysinternals')) {
 
 # --- PATH wiring (User scope, idempotent) ---
 
+# Remove stale User-PATH entries for a tool being (re)installed at a new
+# version. Without this, a version bump only APPENDS the new stamped dir while
+# the old `<name>-<oldver>` entry keeps its earlier PATH position and wins the
+# `where <tool>` lookup — so the update silently has no effect. Drops any User
+# PATH entry under the install root whose stamped leaf is `<name>-*`, for each
+# tool in $ToolNames; the matching new entry is re-added by Update-UserPath.
+function Remove-StalePathEntries {
+    param([Parameter(Mandatory)][string[]]$ToolNames)
+    $current = [Environment]::GetEnvironmentVariable('Path', 'User')
+    if (-not $current) { return }
+    $entries = @($current.Split(';') | Where-Object { $_ })
+    $rootPrefix = $installRoot.TrimEnd('\') + '\'
+    $kept = foreach ($e in $entries) {
+        $drop = $false
+        if ($e.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+            $stamped = $e.Substring($rootPrefix.Length).Split('\')[0]   # <name>-<version>
+            foreach ($t in $ToolNames) {
+                if ($stamped.StartsWith($t + '-', [StringComparison]::OrdinalIgnoreCase)) { $drop = $true; break }
+            }
+        }
+        if (-not $drop) { $e }
+    }
+    if (@($kept).Count -ne $entries.Count) {
+        [Environment]::SetEnvironmentVariable('Path', (@($kept) -join ';'), 'User')
+        Write-Host "[path] dropped stale entries for: $($ToolNames -join ', ')"
+    }
+}
+
 function Update-UserPath {
     param([Parameter(Mandatory)][string[]]$Add)
     $current = [Environment]::GetEnvironmentVariable('Path', 'User')
@@ -343,6 +381,7 @@ if ($paths.ContainsKey('zig'))         { $pathsToAdd += $paths['zig'] }
 if ($paths.ContainsKey('hyperfine'))   { $pathsToAdd += $paths['hyperfine'] }
 if ($paths.ContainsKey('wasm-tools'))  { $pathsToAdd += $paths['wasm-tools'] }
 if ($paths.ContainsKey('wasmtime'))    { $pathsToAdd += $paths['wasmtime'] }
+if ($paths.ContainsKey('wasmer'))      { $pathsToAdd += (Join-Path $paths['wasmer'] 'bin') }
 if ($paths.ContainsKey('wabt'))        { $pathsToAdd += (Join-Path $paths['wabt']  'bin') }
 if ($paths.ContainsKey('yq'))          { $pathsToAdd += $paths['yq'] }
 # lldb dir is already the LLVM bin dir (Split-Path of lldb.exe).
@@ -361,6 +400,9 @@ if (Test-Path (Join-Path $gitBin 'bash.exe')) {
     $pathsToAdd += $gitBin
 }
 
+# Drop stale prior-version entries for every tool we just installed BEFORE
+# appending the current ones, so a version bump actually takes precedence.
+Remove-StalePathEntries -ToolNames @($paths.Keys)
 Update-UserPath -Add $pathsToAdd
 
 Write-Host ""
@@ -370,6 +412,7 @@ Write-Host "  zig version"
 Write-Host "  hyperfine --version"
 Write-Host "  wasm-tools --version"
 Write-Host "  wasmtime --version"
+Write-Host "  wasmer --version"
 Write-Host "  wat2wasm --version       # (wabt)"
 Write-Host "  wast2json --version      # (wabt)"
 Write-Host "  yq --version"
