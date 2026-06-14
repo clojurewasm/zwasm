@@ -1076,10 +1076,18 @@ entries:
       func introduces corruption — this INFRA does not exist yet (build it first) — OR heap-checksum diff
       JIT-vs-interp at teardown. Run 20-50× to surface the variant signatures first. NICHE: output correct,
       interp default correct; only the EXIT (panic vs clean 0) + stderr noise differ for fat standard-Go.
-      (B) **go_regex SlotOverflow** = the HARD D-289 large-frame class: `max_slots=4095` (regalloc_compute.zig:32,
-      fixed `active_buf`/`free_buf` buffers) for SIMULTANEOUSLY-LIVE values, AND >4095 live ⇒ spill offsets
-      blow the `>32760` imm limit (op_alu_int.zig:565 etc.). Needs BOTH a dynamic slot table AND large-frame
-      spill addressing — link to **D-289** (large_frame). Lower priority than (A).
+      (B) **go_regex SlotOverflow** — REGALLOC CAP RAISED 2026-06-15 `682401fd` (D-289): the
+      `max_slots=4095` cap + fixed `[max_slots+1]` stack buffers were the 4th dynamic-vs-fixed instance →
+      allocator-backed buffers + cap 65535 (prologue already two-steps past 4095; spill addressing already
+      escalates via frameAddrLarge — survey confirmed). go_regex **func[1516] (16070 vregs) now CLEARS
+      regalloc + prologue** (frame_bytes=21184, spill_bytes=128 — regalloc reuses slots well). REMAINING:
+      a SEPARATE **emit-side SlotOverflow** — `vreg >= alloc.slots.len` (=ranges.len=16070) in a body op
+      handler (NOT ctx.popBinary/popUnary, NOT frame_bytes>16MiB). I.e. EMIT references a vreg id ≥ the
+      liveness range count → a LIVENESS-vs-EMIT vreg-COUNT mismatch for this huge func (liveness produced
+      16070 ranges; emit's next_vreg / a handler addresses ≥16070). DISCHARGE: instrument which emit.zig
+      SlotOverflow site (947/965/1004/1019/1054/1236/1411) fires + the vreg id; compare emit's vreg
+      numbering vs liveness's for func 1516 (suspect liveness under-counts vregs for a specific op pattern,
+      OR an emit handler mints an extra vreg). Lower priority than (A). NICHE (one realworld fixture).
       (Historical root-cause trail:)
       blocked-by: a **structural JIT-codegen limit hit by fat standard-Go (GOOS=wasip1) binaries** —
       the 9 `go_*` realworld fixtures (D-283 sub-cluster) JIT-compile-FAIL with `UnsupportedOp` at a

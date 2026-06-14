@@ -54,9 +54,10 @@ wasmtime 45 (verify next Step 0.7). D-249 hyperfine-absent premise dissolved.
 investigation, ALL parked/blocked with recipes recorded: **D-330 residual** (c_sha256 `\n` → func-8
 `__overflow` fast-path miscompile; NICHE, partial — next-probe recipe in debt) + **D-331(A)-next** go_*
 runtime-corruption (panicmem teardown deref; INFRA-BLOCKED — needs per-function interp-fallback bisect,
-which does not exist) + **D-331(B)** go_regex SlotOverflow (= D-289 large-frame: dynamic slot table +
->32760 spill addressing — a structural rework). **NEXT**: D-331(B)/D-289 large-frame is the only
-un-parked JIT item (structural); else diversify to 完成形 surface/dogfooding/debt work. (A1 Zig + A2
+which does not exist) + **D-331(B)/D-289** go_regex — regalloc cap RAISED `682401fd` (4095→65535 +
+allocator-backed buffers, the 4th dynamic-vs-fixed instance; func[1516]/16070 vregs now clears regalloc+
+prologue); remainder = a SEPARATE emit-side `vreg>=slots.len` mismatch (parked, recipe in debt). **NEXT**:
+ALL JIT items now parked/blocked — diversify to 完成形 surface/dogfooding/debt work. (A1 Zig + A2
 embenchen + A3 wasmer-oracle + runtime-bump + tool-currency-3host + B1 jit-diff-lane DONE; D-331 primary
 `10d7d2b2` + (A) `45ff0b94`; D-330 coalescing `6790c204` FIXED.)
 
