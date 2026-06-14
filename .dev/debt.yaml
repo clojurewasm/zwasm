@@ -1139,37 +1139,6 @@ entries:
       D-283 (parent); src/engine/codegen/arm64/emit.zig (emit-setup >32760 checks 427/430/484-541;
       body else-arm 2148; per-op errdefer 869); src/engine/codegen/shared/compile.zig (compileOne stages);
       D-289 (large_frame offset class); test/realworld/wasm/go_*.wasm
-  - id: "D-332"
-    layer: "code"
-    status: "blocked-by"
-    description: |-
-      blocked-by: **no design decision yet on bounding EAGER initial table allocation by the sandbox
-      limit, cross-engine.** Surfaced removing D-331(A)'s arbitrary `table_size > 4096` cap in
-      setup.zig: both the JIT (`setupRuntimeLinked`) and the interp (`instantiate.zig` `alloc(Value,
-      entry.min)`) eagerly allocate a table's declared `min` cells with NO upper bound — only OOM
-      stops a pathological declared min (up to 2^32-1 → ~32 GB attempt). The runtime HAS a sandbox knob
-      `store_table_elements_max` (runtime.zig:396) but it is enforced ONLY at `table.grow` time
-      (table_ops.zig:104), NOT against the initial `min`. A module declaring `(table 4000000000 funcref)`
-      over-allocates before any grow. PRE-EXISTING (the old 4096 cap masked it on the JIT path only; the
-      interp always had the exposure). DISCHARGE: decide + apply ONE bound uniformly to both engines —
-      either consult `store_table_elements_max` against `min` at instantiation (reject over-cap as a
-      clean trap, not OOM), or a generous spec-aligned default ceiling. Must stay engine-symmetric (the
-      asymmetry is exactly the D-331(A) bug class). NICHE: needs an adversarial fixture, not a real
-      toolchain (Go's 5790 is fine).
-      DESIGN BLOCKER PINNED (2026-06-15): `store_table_elements_max` is set POST-instantiation
-      (`src/zwasm/instance.zig:85` — a setter on an already-built instance), and is enforced only at
-      table.GROW (table_ops.zig:104 / zwasm/table.zig:60). The INITIAL eager alloc happens DURING
-      instantiation, BEFORE the cap is set → consulting it there is impossible with the current API
-      ordering. So the discharge is NOT a one-line check: it needs an instantiation-TIME cap source (a
-      config option threaded into instantiate / setupRuntime, or a generous fixed default ceiling
-      applied uniformly to interp instantiate.zig + JIT setup.zig). API-design decision (autonomous-
-      with-ADR posture); medium effort, not a quick chunk.
-    first_raised: "2026-06-15"
-    last_reviewed: "2026-06-15"
-    refs: |-
-      src/engine/setup.zig (~L501 eager funcptrs/typeidxs alloc); src/runtime/instance/instantiate.zig
-      (~L1509 alloc(Value, entry.min)); src/runtime/runtime.zig:396 (store_table_elements_max);
-      src/instruction/wasm_2_0/table_ops.zig:104 (grow-time enforcement); D-331 (origin)
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.

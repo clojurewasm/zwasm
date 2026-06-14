@@ -3,7 +3,12 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Just closed — D-330 coalescing FIXED (`6790c204`) + x86_64 fp-select companion (`cccb2313`)
+## Just closed — D-332 table-cap SHIPPED (`3cb5e3bf`) + D-330 coalescing/fp-select/D-289 (this session)
+
+**D-332 (sandboxing) DONE** `3cb5e3bf`: `InstantiateOpts.max_table_elements` (default 10M) bounds the
+INITIAL eager table alloc (mirrors `max_memory_pages`; ADR-0179 amendment) → closes the pathological-
+`(table 4e9)` OOM the D-331(A) cap-removal exposed. Interp/facade surface (the sandboxing surface);
+test + test-spec + lint green. Debt row deleted. Follow-on (low value): `--engine jit` CLI table cap.
 
 The JIT `%s`/strnlen miscompile was the **LSRA free-pool expiry coalescing a result vreg into
 a same-pc last-use operand's slot** (`<=` → strict `<`; ADR-0037 amendment). repro2 correct;
