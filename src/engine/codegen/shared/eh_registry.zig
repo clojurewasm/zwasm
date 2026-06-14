@@ -31,6 +31,16 @@ const unwind = @import("unwind.zig");
 const CAP = 64;
 var rts: [CAP]?*jit_abi.JitRuntime = .{null} ** CAP;
 
+/// Registered bridge-thunk arena address ranges (D-238 / ADR-0185 (b)).
+/// A cross-module bridge thunk lives in the IMPORTER instance's
+/// `thunk_arena`, outside every instance's per-function CodeMap. The
+/// x86_64 frame-chain sniff must still recognize a thunk-return address
+/// as valid code to disambiguate the callee's prologue layout, so the
+/// arenas are registered globally here (the importer's arena is not the
+/// throwing instance's view).
+const ThunkRange = struct { start: usize, len: usize };
+var thunk_ranges: [CAP]?ThunkRange = .{null} ** CAP;
+
 /// Register a live instance (idempotent). Address must be stable for
 /// the registered lifetime (heap-pinned per D-225's exporter contract).
 pub fn register(rt: *jit_abi.JitRuntime) void {
@@ -50,9 +60,61 @@ pub fn unregister(rt: *jit_abi.JitRuntime) void {
     };
 }
 
+/// Register a bridge-thunk arena's address range (idempotent on `start`).
+/// Called at JIT finalize once the arena page is mapped (`setup.zig`).
+pub fn registerThunkArena(start: usize, len: usize) void {
+    for (thunk_ranges) |slot| if (slot) |r| {
+        if (r.start == start) return;
+    };
+    for (&thunk_ranges) |*slot| if (slot.* == null) {
+        slot.* = .{ .start = start, .len = len };
+        return;
+    };
+    // Full → drop (bounded by per-test instance count, like `rts`).
+}
+
+/// Remove a thunk arena at teardown (no-op if absent).
+pub fn unregisterThunkArena(start: usize) void {
+    for (&thunk_ranges) |*slot| if (slot.*) |r| {
+        if (r.start == start) {
+            slot.* = null;
+            return;
+        }
+    };
+}
+
+/// True if `addr` falls inside any registered bridge-thunk arena.
+pub fn isThunkAddr(addr: usize) bool {
+    for (thunk_ranges) |slot| if (slot) |r| {
+        if (addr >= r.start and addr < r.start + r.len) return true;
+    };
+    return false;
+}
+
+/// True if `abs_pc` is a valid JIT code address ANYWHERE in the live EH
+/// world — any registered instance's CodeMap OR any registered bridge-thunk
+/// arena (ADR-0185 (c)). The x86_64 frame-chain sniff uses this (not a
+/// single instance's CodeMap) to disambiguate a frame's prologue layout,
+/// because a cross-instance unwind walks frames belonging to other
+/// instances + the importer's bridge thunk.
+pub fn isCodeAddr(abs_pc: usize) bool {
+    if (isThunkAddr(abs_pc)) return true;
+    for (rts) |slot| {
+        const rt = slot orelse continue;
+        const cmap = cmapFor(rt);
+        if (cmap.entries.len == 0) continue;
+        switch (cmap.lookup(abs_pc)) {
+            .inside => return true,
+            .outside => {},
+        }
+    }
+    return false;
+}
+
 /// Drop all registrations (test isolation).
 pub fn reset() void {
     rts = .{null} ** CAP;
+    thunk_ranges = .{null} ** CAP;
 }
 
 fn cmapFor(rt: *const jit_abi.JitRuntime) code_map_mod.CodeMap {
@@ -164,4 +226,48 @@ test "eh_registry: resolve picks the instance whose CodeMap contains the PC" {
     // After unregister, A's PC no longer resolves.
     unregister(&a_rt);
     try testing.expectEqual(@as(?unwind.ResolvedFrame, null), resolve(0x10042, null));
+}
+
+test "eh_registry: thunk-arena range registration + isThunkAddr (ADR-0185 b)" {
+    reset();
+    defer reset();
+
+    registerThunkArena(0x50000, 0x80);
+    registerThunkArena(0x50000, 0x80); // idempotent on start
+    registerThunkArena(0x60000, 0x40);
+
+    try testing.expect(isThunkAddr(0x50000)); // first byte
+    try testing.expect(isThunkAddr(0x5007F)); // last byte in range
+    try testing.expect(!isThunkAddr(0x50080)); // one past end → outside
+    try testing.expect(!isThunkAddr(0x4FFFF)); // one before start → outside
+    try testing.expect(isThunkAddr(0x60020)); // second arena
+
+    unregisterThunkArena(0x50000);
+    try testing.expect(!isThunkAddr(0x50000)); // gone
+    try testing.expect(isThunkAddr(0x60020)); // other arena intact
+}
+
+test "eh_registry: isCodeAddr spans all instances' CodeMaps + thunk ranges (ADR-0185 c)" {
+    reset();
+    defer reset();
+
+    var a_cm = [_]code_map_mod.Entry{.{ .start_addr = 0x10000, .len = 0x100, .func_idx = 0 }};
+    var b_cm = [_]code_map_mod.Entry{.{ .start_addr = 0x20000, .len = 0x100, .func_idx = 0 }};
+    var a_rt: jit_abi.JitRuntime = undefined;
+    a_rt.eh_code_map_entries = &a_cm;
+    a_rt.eh_code_map_count = 1;
+    var b_rt: jit_abi.JitRuntime = undefined;
+    b_rt.eh_code_map_entries = &b_cm;
+    b_rt.eh_code_map_count = 1;
+    register(&a_rt);
+    register(&b_rt);
+    registerThunkArena(0x50000, 0x80);
+
+    // The load-bearing D-238 property: a PC in ANY instance's CodeMap OR
+    // any thunk arena is "code", even though no single instance's CodeMap
+    // contains all three — the single-CodeMap sniff could not see this.
+    try testing.expect(isCodeAddr(0x10042)); // instance A's body
+    try testing.expect(isCodeAddr(0x20010)); // instance B's body
+    try testing.expect(isCodeAddr(0x50040)); // a bridge-thunk return addr
+    try testing.expect(!isCodeAddr(0x90000)); // host stack / not code → false
 }
