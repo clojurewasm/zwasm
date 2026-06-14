@@ -219,6 +219,28 @@ pub fn compute(
                     }
                 }
                 block_stack_len -= 1;
+                // D-328: a catch-target block's results are delivered by the
+                // unwinder, not produced by a ZIR op (the catch branches here
+                // with the caught values; the static body's fall-through is the
+                // throwing/unreachable path, leaving only dead vregs). Truncate
+                // those dead vregs back to the block's entry depth and mint
+                // `result_arity` fresh canonical result vregs so the regalloc
+                // sizes distinct slots. The JIT emit does the IDENTICAL truncate
+                // + mint at this same `.end`, keeping next_vreg in lockstep.
+                const bidx: u64 = instr.payload;
+                if (bidx < func.blocks.items.len and
+                    func.blocks.items[@intCast(bidx)].is_catch_target and
+                    fr.result_arity > 0)
+                {
+                    sim_len = fr.entry_depth;
+                    var ci: u32 = 0;
+                    while (ci < fr.result_arity) : (ci += 1) {
+                        const vreg: u32 = @intCast(ranges.items.len);
+                        try ranges.append(allocator, .{ .def_pc = pc, .last_use_pc = pc });
+                        sim_stack[sim_len] = vreg;
+                        sim_len += 1;
+                    }
+                }
             }
             // Mid-function `end` (block/loop/if frame closer) is
             // transparent at the liveness level — values produced

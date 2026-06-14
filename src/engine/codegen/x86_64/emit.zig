@@ -950,6 +950,14 @@ pub fn compile(
         // of the arm64 emit.zig logic, hoisted above the ctx
         // dispatcher because `.end` is in `collected_x86_64_ctx_ops`.
         const end_pre_pop_depth: u32 = if (ins.op == .end) @intCast(labels.items.len) else 0;
+        // D-328: capture the catch-target block's arity + entry depth BEFORE
+        // dispatch pops the label (mirror of arm64). Mint distinct result vregs
+        // after dispatch, below.
+        const ct_bidx: u64 = if (ins.op == .end) ins.payload else 0;
+        const ct_is_target = ins.op == .end and ct_bidx < func.blocks.items.len and
+            func.blocks.items[@intCast(ct_bidx)].is_catch_target;
+        const ct_arity: u32 = if (ins.op == .end and labels.items.len > 0) labels.items[labels.items.len - 1].result_arity else 0;
+        const ct_entry_depth: u32 = if (ins.op == .end and labels.items.len > 0) labels.items[labels.items.len - 1].entry_stack_depth else 0;
         if (ins.op == .end and labels.items.len > 0 and open_try_tables.items.len > 0) {
             const top = open_try_tables.items[open_try_tables.items.len - 1];
             if (top.labels_depth == labels.items.len) {
@@ -963,6 +971,22 @@ pub fn compile(
             }
         }
         if (try dispatch_collector.dispatchX86_64Ctx(ins.op, &ctx, &ins)) {
+            // D-328: dead-fall-through catch landing pad — truncate dead body
+            // vregs to the block entry, then mint ct_arity DISTINCT result vregs
+            // (IDENTICAL to liveness + arm64, keeping next_vreg in lockstep) so a
+            // multi-value catch result occupies separate slots.
+            if (ct_is_target and ct_arity > 0) {
+                if (pushed_vregs.items.len > ct_entry_depth) {
+                    pushed_vregs.shrinkRetainingCapacity(ct_entry_depth);
+                }
+                var ci: u32 = 0;
+                while (ci < ct_arity) : (ci += 1) {
+                    const rv = next_vreg;
+                    next_vreg += 1;
+                    if (rv >= alloc.slots.len) return Error.SlotOverflow;
+                    try pushed_vregs.append(allocator, rv);
+                }
+            }
             // IT-6 prep + 10.E-payload-prop D-182 — post-dispatch
             // landing_pad_pc patch (mirror of arm64 emit.zig). See
             // arm64 sibling for the per-clause-prelude rationale;

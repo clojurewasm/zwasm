@@ -1643,7 +1643,35 @@ pub fn compile(
                     //     (.catch_ref / .catch_all_ref) is v0.2 scope
                     //     per ADR-0120 §3.
                     const popped_depth: u32 = @intCast(labels.items.len);
+                    // D-328: capture the catch-target block's arity + entry
+                    // depth BEFORE emitEndIntra pops the label.
+                    const ct_bidx: u64 = ins.payload;
+                    const ct_is_target = ct_bidx < func.blocks.items.len and
+                        func.blocks.items[@intCast(ct_bidx)].is_catch_target;
+                    const ct_arity: u32 = if (labels.items.len > 0) labels.items[labels.items.len - 1].result_arity else 0;
+                    const ct_entry_depth: u32 = if (labels.items.len > 0) labels.items[labels.items.len - 1].entry_stack_depth else 0;
                     try op_control.emitEndIntra(&ctx, &ins);
+                    // D-328: dead-fall-through catch landing pad — mint
+                    // `result_arity` DISTINCT result vregs (lockstep with
+                    // liveness, which mints the same vregs at this `.end`) so a
+                    // multi-value catch result occupies separate slots. The
+                    // landing-pad prelude below then writes the caught payload
+                    // into these distinct vregs.
+                    if (ct_is_target and ct_arity > 0) {
+                        // Truncate dead body vregs back to entry, then mint
+                        // ct_arity fresh canonical result vregs (IDENTICAL to
+                        // liveness — keeps next_vreg in lockstep).
+                        if (pushed_vregs.items.len > ct_entry_depth) {
+                            pushed_vregs.shrinkRetainingCapacity(ct_entry_depth);
+                        }
+                        var ci: u32 = 0;
+                        while (ci < ct_arity) : (ci += 1) {
+                            const rv = next_vreg;
+                            next_vreg += 1;
+                            if (rv >= alloc.slots.len) return Error.SlotOverflow;
+                            try pushed_vregs.append(allocator, rv);
+                        }
+                    }
                     if (landing_pad_fixups.items.len > 0) {
                         // Detect if any matching clause needs a prelude.
                         var any_payload = false;

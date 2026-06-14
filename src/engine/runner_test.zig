@@ -382,6 +382,35 @@ test "runI32Export: throw + catch_all returns 42 (IT-6 cycle 3c-iii-d end-to-end
     try testing.expectError(entry.Error.Trap, runI32Export(testing.allocator, &uncaught_bytes, "test"));
 }
 
+test "runI32Export: JIT multi-value catch landing pad allocates DISTINCT result vregs (D-328)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    // A catch_ with a 2-param tag → catch block result [i32 i32]. The catch
+    // landing pad's result vregs must be DISTINCT slots. Pre-fix they collide
+    // (both → vreg 0; the catch bypasses the merge-capture path), so both
+    // params alias one slot and `first_of_two` returns the SECOND param (20)
+    // instead of the first (10).
+    //
+    // (module (tag $e (param i32 i32))
+    //   (func (export "first_of_two") (result i32)
+    //     (block $h (result i32 i32)
+    //       (try_table (result i32 i32) (catch $e $h)
+    //         (i32.const 10) (i32.const 20) (throw $e))
+    //       (unreachable))
+    //     (drop)))
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x0f, 0x03, 0x60,
+        0x02, 0x7f, 0x7f, 0x00, 0x60, 0x00, 0x01, 0x7f, 0x60, 0x00, 0x02, 0x7f,
+        0x7f, 0x03, 0x02, 0x01, 0x01, 0x0d, 0x03, 0x01, 0x00, 0x00, 0x07, 0x10,
+        0x01, 0x0c, 0x66, 0x69, 0x72, 0x73, 0x74, 0x5f, 0x6f, 0x66, 0x5f, 0x74,
+        0x77, 0x6f, 0x00, 0x00, 0x0a, 0x16, 0x01, 0x14, 0x00, 0x02, 0x02, 0x1f,
+        0x02, 0x01, 0x00, 0x00, 0x00, 0x41, 0x0a, 0x41, 0x14, 0x08, 0x00, 0x0b,
+        0x00, 0x0b, 0x1a, 0x0b, 0x00, 0x13, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x03,
+        0x06, 0x01, 0x00, 0x01, 0x00, 0x01, 0x68, 0x0b, 0x04, 0x01, 0x00, 0x01,
+        0x65,
+    };
+    try testing.expectEqual(@as(u32, 10), try runI32Export(testing.allocator, &bytes, "first_of_two"));
+}
+
 test "runI32Export: return_call inside try_table — tail-call consumes the frame so the throw escapes the handler (10.TC × 10.E)" {
     if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
     // EH × Tail-Call integration (ROADMAP 10.TC / 10.E `return_call_in_try_table`).
