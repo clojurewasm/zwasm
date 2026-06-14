@@ -1010,10 +1010,16 @@ entries:
       under `--engine jit`. This is a SEPARATE bug that was MASKED by the coalescing corruption and
       surfaced only after it was fixed — NOT the coalescing class (strict `<` removes ALL boundary
       coalescing yet this persists). emcc_fasta is fully fixed; c_sha256 alone has the residual.
-      DISCHARGE: byte-diff interp vs jit on c_sha256_hash (`cmp` — interp 107 / jit 106; the dropped
-      byte is the final 0x0a), find which print/op drops the final newline (likely a different
-      vfprintf path or a puts/fputs); fix + confirm byte-exact in `test-realworld-diff-jit`. Severity:
-      NICHE (one trailing newline in one fixture; values correct; interp correct).
+      MECHANISM PINNED (2026-06-15, fdWrite trace): the final `printf("verify: OK\n")` flushes as TWO
+      ciovecs (musl line-buffered `__stdio_write`): iov[0]="verify: OK" len=10, iov[1]="\n" len=1.
+      Under JIT the guest passes **iov[1].buf_len = 0** (interp passes 1) → the `\n` write is empty.
+      So a length value (the unbuffered-tail byte count) is MISCOMPUTED to 0 under JIT — a SEPARATE
+      codegen miscompile from the coalescing one (strict `<` did NOT fix it; not boundary-coalescing).
+      Both engines share `wasi_fd.fdWrite` (fd.zig:75), so it's guest-side. DISCHARGE: minimal repro of
+      the musl line-buffer 2-iovec final flush (printf a string ending in `\n` as the LAST output),
+      bisect the iov[1].iov_len computation in __stdio_write under JIT (likely a sub giving 0 vs 1, or
+      a regalloc/spill issue distinct from D-330's coalescing). Severity: NICHE (one trailing newline,
+      one fixture; values correct; interp correct). Check arch-independence (Rosetta) when resumed.
     first_raised: "2026-06-15"
     last_reviewed: "2026-06-15"
     refs: |-

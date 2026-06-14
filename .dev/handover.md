@@ -10,8 +10,9 @@ a same-pc last-use operand's slot** (`<=` → strict `<`; ADR-0037 amendment). A
 (arm64 == x86_64-Rosetta ⇒ shared codegen). repro2 correct; **emcc_fasta byte-exact MATCH**;
 test + test-spec green; +1 slot worst-case. Lesson `2026-06-15-regalloc-boundary-coalesce-read-after-write`.
 **Residual (D-330 partial)**: `c_sha256_hash` 91B→106B (sha256 hash now correct) still drops ONE
-trailing `\n` — a SEPARATE bug masked by the coalescing one, now exposed (strict `<` removes ALL
-coalescing yet it persists). go corruption (D-331A-next) UNCHANGED by this fix (different bug).
+trailing `\n`. MECHANISM PINNED (fdWrite trace): musl line-buffered final flush sends 2 ciovecs
+(iov[0]="verify: OK" len=10, iov[1]="\n" len=1); under JIT the guest passes **iov[1] len=0** (interp
+1) → a length value miscomputed to 0. SEPARATE codegen bug (strict `<` didn't fix; not coalescing).
 
 ## ACTIVE AGENDA (user-directed 2026-06-14) — real-world toolchain/bench reproduction
 
