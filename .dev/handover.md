@@ -5,30 +5,21 @@
 
 ## Active campaign — spec re-vendor → alpha.3 tag (USER-AUTHORIZED; option A chosen 2026-06-14)
 
-Full plan/findings: **`private/spec_revendor_campaign.md`**. Verified (web 裏取り
-+ local): 1.0/2.0/simd/threads CURRENT (frozen `wg` tags). Only the **3.0 corpus**
-is behind (baked from PRE-MERGE frozen proposal repos). SOURCE = **`wg-3.0` tag**
-(2025-09-26; gc/exceptions/memory64/multi-memory = subdirs, tail-call/func-refs =
-merged top-level). Mechanism DONE: refdialect.py `44711469` + runbook. Discipline
-= VALIDATE-then-REVERT (commit only semantic deltas, never byte-churn — D-290).
-CONVERGED (re-vendor prep walked): incorporable wg-3.0 deltas DONE — gc
-`b8e8b16c` + tail-call `6ce31520` (both runtime-PASS, green). memory64/
-multi-memory/function-references = NO drift (already current). eh try_table
-drift is ENTIRELY multi-value-result → DEFERRED. So the 3.0 corpus is now
-**current for wg-3.0 EXCEPT the multi-value asserts**, blocked on **D-327** (the
-spec-assert RUNNER handles single-scalar/void + a few 2-tuple shapes, not generic
-N-tuple multi-value; a TEST-HARNESS gap — runtime multi-value is sound).
-D-327 SCOPED `bd764663` (subagent): SMALL-MEDIUM (~250-400 LOC), NOT large — the
-ENGINE already has `JitInstance.invokeMulti`→`[]TypedResult` (runner.zig:853);
-only the test-runner result-check (`dispatchMultiResult` non_simd:694, 3 hardcoded
-shapes) lags. FIX = switch handle_assert_return to invokeMulti + generic tuple
-compare. So option A is feasible in a few cycles → genuine full wg-3.0.
-DECISION (surfaced; tag is user-only/outward-facing): (A) implement D-327 →
-full wg-3.0; now bounded. (B) tag alpha.3 now (current-except-D-327). Given A is
-bounded + aligns with 全合格, NEXT cycle: START D-327 impl (TDD — red: a
-multi-value assert_return the runner can't check; green: invokeMulti refactor) →
-then re-vendor the deferred eh/gc-extern asserts → surface the tag for user go.
-User may still pick B (tag now) — honour if they say so.
+Full plan: **`private/spec_revendor_campaign.md`**. Verified (web+local):
+1.0/2.0/simd/threads CURRENT; only **3.0 corpus** trailed the wg-3.0 Recommendation.
+Re-vendor CONVERGED: incorporable wg-3.0 deltas DONE (gc `b8e8b16c` + tail-call
+`6ce31520`, runtime-PASS green); memory64/multi-memory/func-refs no-drift; eh
+try_table drift is multi-value-result → deferred. So the 3.0 corpus is **current
+for wg-3.0 EXCEPT the multi-value asserts = D-327**. Mechanism DONE (refdialect.py
++ runbook). Discipline: VALIDATE-then-REVERT (commit semantic deltas only).
+D-327 SCOPED `bd764663`: SMALL-MEDIUM (~250-400 LOC). Engine already has
+`JitInstance.invokeMulti`→`[]TypedResult` (runner.zig:853); only the test-runner
+result-check (`dispatchMultiResult` non_simd:694) lags. FIX = handle_assert_return
+→ invokeMulti + generic tuple compare.
+NEXT: START D-327 impl (TDD — red: a multi-value assert_return the runner can't
+check; green: invokeMulti refactor) → re-vendor the deferred eh/gc-extern asserts
+→ full wg-3.0 → surface alpha.3 tag (user-only/outward-facing). User may pick B
+(tag now on current-except-D-327) — honour if so.
 
 ## Current state
 
