@@ -480,6 +480,31 @@ entries:
       ZWASM_SPEC_ENGINE=jit on ubuntu, EH dir has cross-module `catch-imported`);
       non-EH cross-module-call regression IS caught by default 3-host (D-225
       fixtures). LOW priority — do as a focused x86_64-verifiable chunk, not blind.
+      **INVESTIGATION 2026-06-14 (the OPEN question RESOLVED — the design note's
+      thunk-RBP candidate is NECESSARY BUT NOT SUFFICIENT)**: walked the actual
+      unwind path. The real gap is the **callee→thunk SNIFF transition**, not the
+      thunk's own frame. x86_64 `loadFrameSniffed` (`x86_64/frame_chain.zig:68-93`)
+      disambiguates the two prologue layouts (standard vs uses_runtime_ptr R15-push)
+      by CodeMap-resolving the candidate saved-RIP slot to `.inside`. The callee
+      (uses_runtime_ptr) has saved RIP at `[RBP,16]` = the return address INTO the
+      thunk (thunk_addr+CALL_offset). But the thunk arena (`setup.zig:395-402`) is
+      **NOT registered in any CodeMap / eh_registry** (separate `thunk_arena`
+      JitBlock), so `code_map.lookup(thunk_ret)` → `.outside` for BOTH sniff slots
+      → the callee frame mis-walks (falls to the wrong default at frame_chain.zig:92,
+      returning saved-R15 as caller_fp). arm64 escapes this because its walk is a
+      PURE-POINTER FP-chain (`loadFrame`, no sniff) + per-frame eh_registry dispatch;
+      the thunk's own address never needs CodeMap resolution for WALKING. So the
+      x86_64 fix = (a) the ~40-byte RBP-framed thunk (verified-correct alignment:
+      `PUSH RBP; MOV RBP,RSP; PUSH R15; SUB RSP,8; MOVs; CALL RAX; ADD RSP,8; POP
+      R15; POP RBP; RET` keeps CALL at RSP≡0; all encoders exist + byte offsets
+      computed) AND (b) **register the thunk-arena address range so the sniff
+      resolves a thunk-return frame to a known (standard) layout** — e.g. an
+      eh_registry/CodeMap entry spanning the thunk arena tagged standard-layout, OR
+      a sniff branch that recognizes a thunk-range RIP. (b) is the load-bearing
+      architectural decision + is x86_64-only-verifiable; do NOT ship (a) alone (it
+      LOOKS done but the walk still breaks at the callee frame). Next cycle: decide
+      (b)'s mechanism, implement (a)+(b) together, verify via ubuntu ZWASM_SPEC_ENGINE=jit
+      on the EH dir.
     first_raised: "2026-06-03"
     last_reviewed: "2026-06-14"
     refs: |-
