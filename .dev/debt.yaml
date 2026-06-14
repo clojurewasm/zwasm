@@ -650,11 +650,14 @@ entries:
       the Zig facade's bulk `WasiConfig` struct (src/zwasm/linker.zig:60) is args-only — `defineWasi` wires
       only `cfg.args` via `h.setArgs`, while the underlying `wasi/host.zig` Host ALSO has `setEnvs(keys,vals)`
       (:234) + `addPreopen` (:261), and both the CLI (`--env`/`--dir`) and C-API (`zwasm_wasi_config_*`)
-      already expose them. So the facade WasiConfig undersells the host. DISCHARGE (clean focused chunk, design
-      the field shapes + preopens carry FS-handle/ownership weight): add `envs` / `preopens` / stdio fields to
-      WasiConfig + wire them in `defineWasi` (h.setEnvs / h.addPreopen) + a facade fixture importing
-      environ_get/path_open that reads them + docs §3.8 update. Low priority (the host IS reachable via the
-      lower-level API + CLI/C-API); facade-convenience parity only.
+      already expose them. So the facade WasiConfig undersells the host. **envs DONE `04cb3497`**:
+      `WasiConfig.envs` ([]const Env{name,value}) wired via h.setEnvs + white-box test + docs §3.8 synced.
+      REMAINING = preopens (+ optional stdio): `addPreopen(host_fd, guest_path)` takes an ALREADY-OPENED dir
+      fd, so the facade would open each host path → fd → addPreopen, and those host fds need a clear ownership/
+      close story (does `Host.deinit` close preopen host_fds, or the caller? — the design question that gates
+      this facet). DISCHARGE: resolve the host-fd ownership, add `WasiConfig.preopens` ([]const {host_path,
+      guest_path}) + wire + a facade fixture importing path_open + docs §3.8. Low priority (reachable via CLI
+      `--dir` / C-API); facade-convenience parity only.
     first_raised: "2026-05-25"
     last_reviewed: "2026-06-14"
     refs: |-
