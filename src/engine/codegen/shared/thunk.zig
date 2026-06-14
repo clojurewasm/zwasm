@@ -39,9 +39,11 @@ const arch_thunk = switch (builtin.target.cpu.arch) {
 /// - 56 bytes on AArch64 (9 instructions + 4-byte alignment pad
 ///   + 16-byte literal pool); call-and-return shape preserving
 ///   caller's X19 across the BLR.
-/// - 27 bytes on x86_64 (PUSH R15 + 2× MOV imm64 + CALL RAX +
-///   POP R15 + RET); call-and-return shape preserving caller's
-///   R15 across the CALL.
+/// - 40 bytes on x86_64 (PUSH RBP + MOV RBP,RSP + PUSH R15 + SUB
+///   RSP,8 + 2× MOV imm64 + CALL RAX + ADD RSP,8 + POP R15 + POP
+///   RBP + RET); call-and-return shape preserving caller's R15
+///   across the CALL + an RBP frame-link for cross-instance EH
+///   unwinding (D-238 / ADR-0185 a).
 /// Stable across all callee signatures — every thunk has the
 /// same shape; only the embedded literals differ.
 pub const thunk_bytes: usize = arch_thunk.thunk_bytes;
