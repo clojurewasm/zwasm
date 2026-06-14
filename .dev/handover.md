@@ -58,38 +58,22 @@ byte-identical to wasmtime under its existing WASI host, no shim. realworld_run 
 12-trap framing: **`diff_runner [jit]: 45/56 matched, 2 mismatched, 9 skipped`**. The truth: 45
 JIT-correct, 2 genuine miscompiles, 9 `go_*` compile-gaps. B1 bundle CLOSED (lane = the deliverable).
 
-## Active bundle
+**B2 PIVOTED → D-325 `a0dfccaf`+ (no active bundle).** The 2 miscompiles (`c_sha256_hash`,
+`emcc_fasta`) were bisected over 4 cycles to **plain `%s` (no precision)** under --jit/--aot (codegen,
+interp correct). FOUR reductions (generic varargs, array-store, hand-SWAR, count-limited scan, AND
+the EXACT musl null-scan `((0x01010100-w)|w)&0x80808080` as minimal `.wat`) ALL run CORRECT — so it's
+a **context-dependent regalloc/spill-class miscompile** that only manifests under the real ~large
+vfprintf's register pressure (reduction can't isolate it). Filed **D-325** (focused `debug_jit_auto`
+disasm campaign of repro2.wasm's printf_core; private/spikes/jit-vararg has all reductions). The
+`--jit` lane keeps it visible (report-only). Niche (emscripten plain-%s stdout only; values correct).
 
-- **Bundle-ID**: B2-D283-jit-miscompiles
-- **Cycles-remaining**: ~3
-- **Continuity-memo**: (INVESTIGATION cycle-1 done; cycle-2 = disassembly) 2 deterministic
-  **CODEGEN** miscompiles (CONFIRMED codegen, not harness: the `--aot` lane mismatches IDENTICALLY
-  — c_sha256_hash→91B, emcc_fasta→87B, same bytes as `--jit`; JIT+AOT share `compileWasm`, interp
-  is correct). Precise localization (output diff vs interp):
-  · **c_sha256_hash** `printf("input: %%s\n", input)` (sha256_hash.c:115) prints `input: ` then
-    DROPS the `%%s` string + `\n` (16 bytes). BUT the SAME `input` ptr hashes correctly (line 112,
-    strlen+loop) AND `printf("%%02x", hash[i])` (int vararg, line 118) prints correctly.
-  · **emcc_fasta** `printf("%%c:%%d ", syms[j], counts[j])` (fasta.c:37): `%%c` (1st vararg) CORRECT,
-    `%%d` (2nd vararg counts[j]) prints **0** for all — yet `%%lu` checksum (line 36) is correct.
-  **CYCLE-2 ISOLATED (`private/spikes/jit-vararg/`)**: the bug is **plain `%s` (no precision)**.
-  `printf("%s\n","hi")` → JIT empty + drops `\n`. REJECTED: H1 varargs (`%c %d %lu` 1–4 args ok),
-  H2 array-store (`arr[i]++`→ok), AND `%.2s` (precision) → CORRECT, `fputs`/`puts` ok, standalone
-  `strnlen(s,0x7FFFFFFF)`/`memchr(...,0x7FFFFFFF)` ok. CYCLE-2.5: a hand-written SWAR word-scan
-  (`swar.c`) compiled -O2 RUNS CORRECT under --jit → generic SWAR is NOT the bug. Refined: the SAME
-  vfprintf runs for `%.2s` (works) and `%s` (broken), differing only in precision (2 vs -1→PTRDIFF_MAX),
-  so it is a **VALUE-DEPENDENT miscompile** on musl's actual `%s` path — an op wrong only for the
-  -1/PTRDIFF_MAX-derived value (signed-cmp / select / shift on a large/neg i32?). Needs real-vfprintf
-  disasm (debug_jit_auto), NOT a hand-rolled idiom. Separately: 9 `go_*` UnsupportedOp
-  compile-gaps = debt-tracked op backlog (per-op, predicate clear).
-- **Exit-condition**: both `c_sha256_hash` + `emcc_fasta` flip to MATCH in `test-realworld-diff-jit`
-  (jit mismatched → 0); each fix carries a boundary fixture + a lesson on the miscompiled op/pattern.
-
-**First action on resume**: B2 cycle-3 — `debug_jit_auto` disassemble the inlined-`strnlen` SWAR
-word-scan in the plain-`%s` path (repro: `private/spikes/jit-vararg/repro2.wasm`, lines 1/2 drop
-under --jit). Find the miscompiled i32 op in `(w-0x01010101)&~w&0x80808080`; OR reduce to a
-hand-written word-scan `.wat`. On fix: boundary fixture + lesson. (A1 Zig + A2 embenchen + A3
-wasmer-oracle + runtime-bump + tool-currency-3host + B1 jit-diff-lane all DONE; B2 cycle-2 isolated
-plain-`%s`/inlined-SWAR — see Active bundle + spike README.)
+**First action on resume**: the more tractable Phase-B remainder — the **9 `go_*` UnsupportedOp
+compile-gaps**. Step 0: `ZWASM_JIT_RUN=1 zig build test-realworld-run-jit` then `compileWasm: func[N]
+... UnsupportedOp` — identify WHICH op (likely ONE shared op across all go_*; Go's runtime uses a
+specific construct). If one op → implement its JIT emit (established op-emit pattern, both arches) →
+flips up to 9 fixtures in `test-realworld-diff-jit`. (A1 Zig + A2 embenchen + A3 wasmer-oracle +
+runtime-bump + tool-currency-3host + B1 jit-diff-lane DONE; B2→D-325. D-325 disasm campaign is the
+alternative deliberate track when prioritized.)
 
 ## State (tag-ready baseline, all 3-host green)
 
