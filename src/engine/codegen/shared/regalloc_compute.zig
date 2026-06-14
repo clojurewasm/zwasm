@@ -249,7 +249,18 @@ pub fn computeWith(
         }
         var i: u16 = 0;
         while (i < active_len) {
-            if (active_buf[i].last_use_pc <= r.def_pc) {
+            // D-330 / ADR-0037 amendment: STRICT expiry (`<`, not `<=`). A vreg
+            // last-used at pc P and a vreg defined at pc P OVERLAP at P — the op
+            // at P reads the former while writing the latter. Coalescing their
+            // slot (the old `<=`) is only safe if EVERY op emit reads all
+            // operands before writing its result; that invariant is unenforced
+            // and was violated (a strnlen byte-loop op in emscripten vfprintf →
+            // empty `%s` + dropped `\n`, c_sha256_hash/emcc_fasta miscompiled).
+            // Strict expiry guarantees a result slot never aliases an operand the
+            // defining op reads, making per-op read-before-write discipline
+            // unnecessary (misuse-resistant). Cost: ~+1 slot on the worst
+            // realworld function (vfprintf 12→13); negligible.
+            if (active_buf[i].last_use_pc < r.def_pc) {
                 free_buf[free_len] = active_buf[i].slot;
                 free_len += 1;
                 active_len -= 1;
@@ -445,7 +456,13 @@ test "compute: two overlapping ranges get distinct slots" {
     try regalloc.verify(&f, alloc);
 }
 
-test "compute: shared-edge (use=def at same pc) does not count as overlap" {
+test "compute: shared-edge (use=def at same pc) IS an overlap → distinct slots (D-330)" {
+    // D-330 / ADR-0037 amendment: a vreg last-used at pc P and a vreg defined at
+    // pc P overlap AT P (the op at P reads the first while writing the second), so
+    // they must NOT share a slot. The prior `<=` expiry coalesced them (1 slot),
+    // which is only safe if every op emit reads operands before writing its
+    // result — an unenforced invariant violated by a strnlen byte-loop op in
+    // emscripten vfprintf (empty `%s` + dropped `\n`). Strict `<` expiry → 2 slots.
     var f = freshFunc();
     defer f.deinit(testing.allocator);
     const ranges = [_]LiveRange{
@@ -455,8 +472,8 @@ test "compute: shared-edge (use=def at same pc) does not count as overlap" {
     f.liveness = .{ .ranges = &ranges };
     const alloc = try compute(testing.allocator, &f);
     defer regalloc.deinit(testing.allocator, alloc);
-    try testing.expectEqual(@as(u16, 1), alloc.n_slots);
-    try testing.expectEqual(alloc.slots[0], alloc.slots[1]);
+    try testing.expectEqual(@as(u16, 2), alloc.n_slots);
+    try testing.expect(alloc.slots[0] != alloc.slots[1]);
     try regalloc.verify(&f, alloc);
 }
 
