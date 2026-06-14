@@ -31,12 +31,14 @@ NOT an alpha blocker. Cycle-4a infra kept (`8478d853`).
 - **Exit-condition**: D-327 ubuntu+windows green (3-host) → close bundle d327-
   exnref-jit (round-trip + catch_ref_88 + catch_all_ref_77 all green everywhere).
 
-## Parallel track — wg-3.0 currency re-verification (the conformance gate)
+## Parallel track — wg-3.0 currency re-verification — DONE `d151538a`
 
-Debt-row D-327's EH claim was stale → RE-VERIFY each proposal's wg-3.0 currency via
-the runbook (checkout wg-3.0/proposal HEAD → re-bake → diff manifest). Confirmed
-current: EH try_table (34=34), tail-call (`21959b5f`). TO CHECK: gc (debt claims
-extern+13 — suspect), function-references, memory64, multi-memory, simd, threads.
+VERIFIED FULLY wg-3.0-current (the debt's "multi-value-runner ceiling / deferred
+asserts" was STALE — refuted): EH try_table 34=34, gc all files (array 24 / struct
+17 / i31 55 / type-subtyping 17 / ref_cast 11 / ref_test 68), tail-call. 0
+skip-impl; multi-value-result asserts (type-f64-i64-to-i32-f32, get_globals) run
+via invokeMulti. spec-main drift bumped (spectec/editorial, 0 test/core changes).
+D-327 (multi-value-runner) debt CLOSED. **Alpha conformance condition MET.**
 
 ## alpha.3 GATE (user-directed 2026-06-14) — "ideal form" before tag
 
