@@ -12,12 +12,14 @@ a same-pc last-use operand's slot** (`<=` → strict `<`; ADR-0037 amendment). r
 29 `float_exprs no_fold_*_select`): `emitFpSelect` TESTed cond AFTER `MOVQ r_a,xmm_val1`, but
 gprLoadSpilled stages a SPILLED cond through `r_a` → cond clobbered before the test. Fixed
 `cccb2313` (TEST cond first; matches the already-correct x86_64 int select; arm64 CSEL unaffected).
-wasm-2.0-assert now 25437/0 on arm64 + x86_64-Rosetta + **ubuntu x86_64 CONFIRMED green `5ef2f33b`** (was
-25408/29). windows gate pending (Win64 shares the x86_64 emit; verify next 0.7).
-**Residual (D-330 partial)**: `c_sha256_hash` 91B→106B (sha256 hash now correct) still drops ONE
-trailing `\n`. MECHANISM PINNED (fdWrite trace): musl line-buffered final flush sends 2 ciovecs
-(iov[0]="verify: OK" len=10, iov[1]="\n" len=1); under JIT the guest passes **iov[1] len=0** (interp
-1) → a length value miscomputed to 0. SEPARATE codegen bug (strict `<` didn't fix; not coalescing).
+wasm-2.0-assert now 25437/0 on arm64 + x86_64-Rosetta + ubuntu x86_64 `5ef2f33b` + **windows Win64
+(recorded `217fa950`)** — ALL 4 environments green. D-330 coalescing + fp-select FULLY validated.
+**Residual (D-330 partial)**: `c_sha256_hash` still drops ONE trailing `\n`. DEEP-TRACED (subagent):
+NOT the coalescing class. The `\n` is lost because **func 8 `__overflow`** wrongly takes the buffered
+fast-path on its 2nd call under JIT (the `wpos==wend`/`lbf==10` br_if at pc26/pc31 don't fire) → `\n`
+stuck in buffer → flushed empty at exit. ARCH-INDEPENDENT (shared codegen). Possibly a GENERAL
+branch-cond or FILE-struct-store miscompile (elevates priority). NEXT = ring-log func-8's loads
+[1992]/[1996]/[2056] + br_if outcomes interp-vs-jit → first divergence = the op. Full trail: D-330 debt.
 
 ## ACTIVE AGENDA (user-directed 2026-06-14) — real-world toolchain/bench reproduction
 

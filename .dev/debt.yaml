@@ -1015,11 +1015,22 @@ entries:
       Under JIT the guest passes **iov[1].buf_len = 0** (interp passes 1) → the `\n` write is empty.
       So a length value (the unbuffered-tail byte count) is MISCOMPUTED to 0 under JIT — a SEPARATE
       codegen miscompile from the coalescing one (strict `<` did NOT fix it; not boundary-coalescing).
-      Both engines share `wasi_fd.fdWrite` (fd.zig:75), so it's guest-side. DISCHARGE: minimal repro of
-      the musl line-buffer 2-iovec final flush (printf a string ending in `\n` as the LAST output),
-      bisect the iov[1].iov_len computation in __stdio_write under JIT (likely a sub giving 0 vs 1, or
-      a regalloc/spill issue distinct from D-330's coalescing). Severity: NICHE (one trailing newline,
-      one fixture; values correct; interp correct). Check arch-independence (Rosetta) when resumed.
+      Both engines share `wasi_fd.fdWrite` (fd.zig:75), so it's guest-side. DEEP-TRACED 2026-06-15
+      (subagent, ring-buffer probes correlating func-11 prologue `buf`/X30-LR + interp callIndirect
+      `(caller,buf,len)`): the `{0,0}` iovec is built by **func 11 `__stdio_write`** (correct — stores
+      what it's given), but the DIVERGENCE is its 3rd-entry CALLER. interp: caller=**func 8 `__overflow`**,
+      buf=&'\n' len=1 → `\n` written. jit: caller=**func 6** (exit fflush), buf=0 len=0 (empty wbase
+      flush) → `\n` dropped. ROOT: **func 8 `__overflow` is called 2× in interp but its write-path runs
+      only 1× under JIT** — on the 2nd call JIT wrongly takes the BUFFERED FAST-PATH (`*wpos++=c`) instead
+      of the write path. The branch = func 8 ZIR pc19-31: `wpos==wend` (pc26 br_if) OR `lbf==10` (pc31
+      br_if) → write; under JIT NEITHER br_if fires on call 2 → fast-path → `\n` stuck in buffer →
+      flushed empty at exit. Inputs = loads `i32.load [1992]`(wpos)/`[1996]`(wend)/`[2056]`(lbf) + their
+      `i32.eq`. **ARCH-INDEPENDENT** (arm64 == x86_64-macos) ⇒ SHARED codegen/IR, not arch emit (rules out
+      fp-select; strict-`<` regalloc didn't fix — func 8/11 slots non-overlapping). Could be a GENERAL
+      branch-cond or FILE-struct-STORE miscompile (the `\n` is just the symptom) — elevates priority if so.
+      DISCHARGE (next probe, subagent recipe): ring-log func-8's three loads ([1992]/[1996]/[2056]) + the
+      two br_if outcomes per func-8 entry, interp vs jit → FIRST divergence = the miscompiled op; suspect
+      an earlier miscompiled STORE to f->wpos/wbase (op_memory.zig) or func-8 branch-cond regalloc pc19-31.
     first_raised: "2026-06-15"
     last_reviewed: "2026-06-15"
     refs: |-
