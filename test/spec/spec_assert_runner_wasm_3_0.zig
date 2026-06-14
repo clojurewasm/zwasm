@@ -515,6 +515,8 @@ pub fn main(init: std.process.Init) !void {
             defer {
                 for (jit_owned.items) |p| {
                     zwasm.engine.runner.eh_registry.unregister(&p.owned.rt);
+                    if (p.owned.thunk_arena) |a| if (a.bytes.len > 0)
+                        zwasm.engine.runner.eh_registry.unregisterThunkArena(@intFromPtr(a.bytes.ptr));
                     p.deinit(gpa);
                     gpa.destroy(p);
                 }
@@ -524,6 +526,8 @@ pub fn main(init: std.process.Init) !void {
             defer if (cur_jit) |j| {
                 if (!cur_jit_kept) {
                     zwasm.engine.runner.eh_registry.unregister(&j.owned.rt);
+                    if (j.owned.thunk_arena) |a| if (a.bytes.len > 0)
+                        zwasm.engine.runner.eh_registry.unregisterThunkArena(@intFromPtr(a.bytes.ptr));
                     j.deinit(gpa);
                     gpa.destroy(j);
                 }
@@ -696,6 +700,8 @@ pub fn main(init: std.process.Init) !void {
                             // free only the transient ones here (D-225).
                             if (!cur_jit_kept) {
                                 zwasm.engine.runner.eh_registry.unregister(&j.owned.rt);
+                                if (j.owned.thunk_arena) |a| if (a.bytes.len > 0)
+                                    zwasm.engine.runner.eh_registry.unregisterThunkArena(@intFromPtr(a.bytes.ptr));
                                 j.deinit(gpa);
                                 gpa.destroy(j);
                             }
@@ -758,6 +764,11 @@ pub fn main(init: std.process.Init) !void {
                                 // dispatch (stable address; unregistered
                                 // at every free site below).
                                 zwasm.engine.runner.eh_registry.register(&pp.owned.rt);
+                                // D-238 / ADR-0185 (b) — register this instance's
+                                // bridge-thunk arena range so the x86_64 EH sniff
+                                // resolves a thunk-return frame across instances.
+                                if (pp.owned.thunk_arena) |a| if (a.bytes.len > 0)
+                                    zwasm.engine.runner.eh_registry.registerThunkArena(@intFromPtr(a.bytes.ptr), a.bytes.len);
                                 break :blk pp;
                             };
                         }
