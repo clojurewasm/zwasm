@@ -45,11 +45,12 @@ completion-refinement / barrier-dissolution sweeps. No auto-tag (ADR-0156).
 - **Surfaces**: C-API 293/293 (+preopen_dir/inherit_env, ADR-0184) · Zig-API
   complete (+`WasiConfig.envs` `04cb3497`) · lean CLI · memory-safety sound ·
   dogfooded into cw v1. Runners ReleaseSafe (ADR-0177).
-- **Debt**: 49 entries, **zero `now`**; rest blocked-by(external)/note long-tail.
-  Recent barrier-dissolution sweep (verified via `test-spec-wasm-3.0-assert`):
-  D-196 (multi-memory 407/0) · D-195/D-186 (typed-funcref parser + return_call_ref
-  both arches) · D-198 (iso-recursive subtype, gc fail=0) · D-301/D-179/D-177 +
-  D-297 discharged. Phase-10 + D-290 dissolved a stale-barrier cluster.
+- **Debt**: 48 entries, **zero `now`**; rest blocked-by(external)/note long-tail.
+  2026-06-14 barrier-dissolution sweep (verified via `test-spec-wasm-3.0-assert`)
+  closed D-196 (multi-memory 407/0) / D-195 / D-186 (return_call_ref both arches) /
+  D-198 (iso-recursive, gc fail=0) / D-206 (cross-module return_call) + D-301/D-179
+  + D-297/D-177. **Cluster SWEPT** — remaining blocked-by are genuinely external
+  (upstream Zig / hosts / §1.3 demand-gated / Phase-11 cohort) or partial-remainder.
 - **Alpha conformance MET** (`d151538a`): 3.0 corpus fully wg-3.0-current. Tag
   `v2.0.0-alpha.3` is tag-only (no Release → Latest stays v1.11.0), USER-ONLY.
 
