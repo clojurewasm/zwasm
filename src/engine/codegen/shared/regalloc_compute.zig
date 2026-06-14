@@ -25,11 +25,16 @@ const Allocation = regalloc.Allocation;
 const ShapeTag = regalloc.ShapeTag;
 
 /// Cap on distinct slots before `compute` returns `SlotOverflow`.
-/// Mirrors the validator's `max_operand_stack` (1024) — bounded
-/// in straight-line code. Slot ids are u16 so the hard cap reaches
-/// 4095. Bound is now driven by the prologue's `frame_bytes`
-/// imm12 budget (4095 bytes for SUB SP imm12).
-pub const max_slots: u16 = 4095;
+/// D-289/D-331(B): raised 4095 → u16-max so fat funcs (go_regex) with
+/// >4095 SIMULTANEOUSLY-LIVE values compile. The prior `4095` was the
+/// arm64 `SUB SP, #imm12` budget — STALE: the prologue now two-steps
+/// (arm64 emit.zig) / uses disp32 (x86_64 rbp_disp) past it, and spill
+/// addressing escalates via `frameAddrLarge` (gpr.zig). The remaining
+/// hard limit is the u16 slot id itself. `active_buf`/`free_buf` are
+/// allocator-backed (sized to the live-range count, capped here), so a
+/// large cap costs nothing for small functions (the dynamic-vs-fixed
+/// pattern — 4th instance after [256]Frame block_stack + table_size 4096).
+pub const max_slots: u16 = 65535;
 
 const max_reg_slots_gpr_default: u16 = 8;
 
@@ -214,9 +219,15 @@ pub fn computeWith(
     var n_slots: u16 = 0;
     var n_spill_minted: u16 = 0;
 
-    var active_buf: [@as(usize, max_slots) + 1]ActiveEntry = undefined;
+    // D-289: allocator-backed (was `[max_slots+1]` stack arrays — 65536 entries
+    // would blow the stack). active_len/free_len never exceed n_slots ≤
+    // min(ranges.len, max_slots), so size to that tight bound.
+    const buf_cap: usize = @min(live.ranges.len, @as(usize, max_slots)) + 1;
+    const active_buf = try allocator.alloc(ActiveEntry, buf_cap);
+    defer allocator.free(active_buf);
     var active_len: u16 = 0;
-    var free_buf: [@as(usize, max_slots) + 1]u16 = undefined;
+    const free_buf = try allocator.alloc(u16, buf_cap);
+    defer allocator.free(free_buf);
     var free_len: u16 = 0;
 
     // ADR-0155 stage 1 — register-homed locals. liveness APPENDED K
@@ -474,6 +485,26 @@ test "compute: shared-edge (use=def at same pc) IS an overlap → distinct slots
     defer regalloc.deinit(testing.allocator, alloc);
     try testing.expectEqual(@as(u16, 2), alloc.n_slots);
     try testing.expect(alloc.slots[0] != alloc.slots[1]);
+    try regalloc.verify(&f, alloc);
+}
+
+test "compute: >4095 simultaneously-live ranges no longer SlotOverflow (D-289/D-331(B))" {
+    // D-289: fat funcs (go_regex) need >4095 simultaneously-live values. The old
+    // fixed `[max_slots+1]` stack buffers + `max_slots=4095` cap returned
+    // SlotOverflow; allocator-backed buffers + a raised cap (the 4th dynamic-vs-
+    // fixed instance) mint one slot per live value. 5000 fully-overlapping ranges.
+    const n: u16 = 5000;
+    var f = freshFunc();
+    defer f.deinit(testing.allocator);
+    const ranges = try testing.allocator.alloc(LiveRange, n);
+    defer testing.allocator.free(ranges);
+    for (ranges) |*r| r.* = .{ .def_pc = 0, .last_use_pc = 10000 };
+    f.liveness = .{ .ranges = ranges };
+    const alloc = try compute(testing.allocator, &f);
+    defer regalloc.deinit(testing.allocator, alloc);
+    try testing.expectEqual(n, alloc.n_slots); // fully overlapping → no reuse
+    try testing.expectEqual(@as(u16, 0), alloc.slots[0]);
+    try testing.expectEqual(@as(u16, n - 1), alloc.slots[n - 1]);
     try regalloc.verify(&f, alloc);
 }
 
