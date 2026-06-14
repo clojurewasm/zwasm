@@ -522,13 +522,13 @@ entries:
       `src/diagnostic/diagnostic.zig`
   - id: "D-022"
     layer: "code"
-    status: "blocked-by"
+    status: "note"
     description: |-
-      blocked-by: ADR-0028 M3-a-2 (trap event runtime write) + interp trap-location wiring | `wast_runtime_runner` cannot localise `result[0] mismatch` — needs M3 (interp trap location + trace ringbuffer). 5 deferred misc-runtime fixtures' silent-failure path is gated on this. **2026-05-05 follow-up**: ADR-0028 superseded ADR-0016's M3 deferral; M3-a-1 (ringbuffer infra + compile-time bounds writes) landed. The remaining barrier is M3-a-2 (trap stub → ring buffer write at runtime; needs trap-stub helper-call calling-convention coordination per ADR-0028 §"Trap-time JIT register state") + interp trap-location capture. Once those land, the runner can correlate result mismatches with the actual trap site.
+      note: deferred low-value diagnostic (M3-a-2 trap-event ringbuffer) — NOT blocking anything. **2026-06-14 re-audit CORRECTED the original framing, which was a category error.** Original row claimed M3-a-2 would let `wast_runtime_runner` "localise `result[0] mismatch`" and that "5 deferred misc-runtime fixtures' silent-failure path is gated on this." Both false (verified): (1) a `result[0] mismatch` is a value-comparison failure (`wast_runtime_runner.zig:889`), NOT a trap — and that path has zero reference to D-022/M3/trace. Trap-event capture cannot localise a wrong *return value*; that needs per-op operand trace (ADR-0028 M3-c `regir` category, deliberately deferred). (2) The 5 misc-runtime skips fail at INSTANTIATION (`InstanceAllocFailed`): 4 embenchen need emcc env-shim (`skip_embenchen_emcc_env_imports.md`, D-082/Phase-11), 1 externref needs reftype support (`skip_externref_segment.md`, Phase-10+) — none gated on M3-a-2. What M3-a-2 actually is: a JIT trap-stub → ringbuffer write (trap_kind + pc) for trap *diagnosis*, behind `build_options.trace_ringbuffer`. It is TRACTABLE now (the D-245 cohort-clobber trampoline / `entry.zig` `jitTrampoline` dissolved the former "trap-stub helper-call calling-convention" barrier; interp already tracks `frame.pc`) — but it is a diagnostic nicety that unlocks no skip, fixes no correctness/spec gap, so it stays deferred-by-low-value, not built speculatively. Revisit only if trap diagnosis becomes a real need.
     first_raised: "2026-05-04"
-    last_reviewed: "2026-06-13"
+    last_reviewed: "2026-06-14"
     refs: |-
-      `test/runners/wast_runtime_runner.zig`, `src/diagnostic/trace.zig`, ADR-0028
+      `test/runners/wast_runtime_runner.zig:889`, `src/diagnostic/trace.zig` (Category.trap reserved), ADR-0028 §M3-a-2/M3-c, `.dev/decisions/skip_embenchen_emcc_env_imports.md`, `.dev/decisions/skip_externref_segment.md`
   - id: "D-028"
     layer: "infra"
     status: "blocked-by"

@@ -36,10 +36,14 @@ preopen_dir+inherit_env; jit-sandbox "not yet enforced" → D-314 enforced; CM
 **AGENDA COMPLETE** (A1+A2+A3 done). **D-177 preopens SHIPPED `9bdf9401` + closed
 `94c40966`** (full facade WASI args/envs/preopens parity; docs synced `93e94821`).
 **Barrier-dissolution sweep EXHAUSTED** (closed the whole Phase-10/D-290/discharged
-cluster, 9 rows; scaffolding-coherence re-verified clean post-churn). NEXT (no `now`
-debt, long-tail THINNING — pick by signal): lower-value completeness (D-253 (C)
-per-handle `host_info` wasm-c-api conformance — A/B/D done; D-022 trap-localization
-— diagnostic, touches JIT-ABI) · else genuinely user-gated (§1.3 capabilities / tag /
+cluster, 9 rows; scaffolding-coherence re-verified clean post-churn). **D-022 re-audited
+`c812d56b`→`note` 2026-06-14**: its "M3-a-2 unlocks `result[0] mismatch` localization +
+5 misc-runtime skips" claim was a CATEGORY ERROR (verified) — a value mismatch is not a
+trap (`wast_runtime_runner.zig:889` refs no trace), and the 5 skips fail at instantiation
+(emcc env-shim/externref, Phase-11/10), not on M3-a-2; M3-a-2 itself is tractable (D-245
+dissolved the calling-conv barrier) but a low-value trap-diagnosis nicety unlocking
+nothing → deferred, NOT built. **Lower-value completeness now EXHAUSTED** (D-253 (C)
+host_info DONE; D-022 corrected). NEXT = genuinely user-gated (§1.3 capabilities / tag /
 §13.4 prioritization) or blocked-external (upstream Zig / hosts). No auto-tag (ADR-0156).
 
 ## State (tag-ready baseline, all 3-host green)
