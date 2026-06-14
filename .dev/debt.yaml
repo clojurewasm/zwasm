@@ -994,31 +994,32 @@ entries:
       (WASI-entry assumption); test/realworld/src/zig (the landed WASI-stdout half); flake.nix devShells.gen
   - id: "D-330"
     layer: "code"
-    status: "blocked-by"
+    status: "partial"
     description: |-
-      blocked-by: a **focused JIT-disassembly campaign on the large emscripten musl `vfprintf`** —
-      this is a CONTEXT-DEPENDENT codegen miscompile (regalloc/spill-class) that resists reduction.
-      Found by the D-283 `--jit` lane (`219dbd17`): under `--engine jit` AND `--aot` (same codegen,
-      so NOT a runtime bug; interp is correct), 2 realworld fixtures emit wrong stdout —
-      **`c_sha256_hash`** (107→91B) + **`emcc_fasta`** (154→87B). Bisected (private/spikes/jit-vararg,
-      cycles 2–3): the bug is **plain `%s` (no precision)** in printf — JIT prints the string EMPTY
-      and drops the rest of that format (vfprintf overflow early-return from a bogus huge length).
-      `%.Ns` (precision), `%c`/`%d`/`%lu`, array-store `arr[i]++`, fputs/puts, AND standalone
-      strnlen/memchr(0x7FFFFFFF) ALL work. FOUR reductions — hand-SWAR, count-limited word scan, and
-      the EXACT musl null-scan formula `((0x01010100 - w) | w) & 0x80808080 != 0x80808080` (repro2.wat
-      lines 2051-2075) authored as a minimal `.wat` — ALL run CORRECT under --jit. So the miscompile
-      only manifests under the register pressure of the real ~large vfprintf function (regalloc-class,
-      W54-adjacent). DISCHARGE: a focused `debug_jit_auto` disassembly of repro2.wasm's printf_core JIT
-      bytes vs interp to find the divergence (NOT reduction — it changes the pressure); then fix +
-      boundary fixture + lesson; both fixtures flip to MATCH in `test-realworld-diff-jit`. Severity:
-      NICHE (emscripten plain-%s stdout only; the computed values are correct + interp default is
-      correct), but a genuine JIT correctness bug. The `--jit` lane keeps it visible (report-only).
+      **PRIMARY MECHANISM FIXED 2026-06-15 `6790c204`** (ADR-0037 amendment): the JIT `%s`/strnlen
+      miscompile was the LSRA free-pool expiry coalescing a RESULT vreg into the slot of a same-pc
+      last-use OPERAND (`active.last_use_pc <= new.def_pc`) — their closed intervals overlap at that
+      pc; safe only if every op emit reads operands before writing result (unenforced; violated by a
+      byte-loop op in emscripten vfprintf's strnlen null check → empty `%s` + dropped `\n`). Fix =
+      strict `<` expiry. Arch-INDEPENDENT (arm64 == x86_64-Rosetta ⇒ shared codegen). repro2 correct;
+      **emcc_fasta byte-exact MATCH**; full test + test-spec green; +1 slot worst-case (vfprintf
+      12→13). Lesson `2026-06-15-regalloc-boundary-coalesce-read-after-write`; trail private/spikes/jit-vararg.
+      ---
+      **RESIDUAL (partial)**: `c_sha256_hash` improved 91B → 106B (the sha256 hash output is now
+      CORRECT) but still drops ONE trailing `\n` ("verify: OK\n" → "verify: OK", 107 vs 106 bytes)
+      under `--engine jit`. This is a SEPARATE bug that was MASKED by the coalescing corruption and
+      surfaced only after it was fixed — NOT the coalescing class (strict `<` removes ALL boundary
+      coalescing yet this persists). emcc_fasta is fully fixed; c_sha256 alone has the residual.
+      DISCHARGE: byte-diff interp vs jit on c_sha256_hash (`cmp` — interp 107 / jit 106; the dropped
+      byte is the final 0x0a), find which print/op drops the final newline (likely a different
+      vfprintf path or a puts/fputs); fix + confirm byte-exact in `test-realworld-diff-jit`. Severity:
+      NICHE (one trailing newline in one fixture; values correct; interp correct).
     first_raised: "2026-06-15"
     last_reviewed: "2026-06-15"
     refs: |-
-      D-283 (parent / the --jit lane); test/realworld/diff_runner.zig (--jit lane); private/spikes/jit-vararg
-      (repro.c/repro2.c/repro3.c/swar.c/swar2.c/scan.wat — all reductions); lesson
-      jit-realworld-runtraps-are-null-wasi-harness-artifacts; debug_jit_auto skill
+      `6790c204` (strict-expiry fix) + ADR-0037 Revision history; src/engine/codegen/shared/regalloc_compute.zig
+      (expiry); test/realworld/wasm/c_sha256_hash.wasm (residual); test/realworld/diff_runner.zig (--jit lane);
+      private/spikes/jit-vararg; lesson 2026-06-15-regalloc-boundary-coalesce-read-after-write
   - id: "D-331"
     layer: "code"
     status: "partial"

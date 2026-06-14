@@ -3,24 +3,15 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Active bundle
+## Just closed — D-330 primary mechanism FIXED (`6790c204`)
 
-- **Bundle-ID**: D-330-jit-printf-disasm (JIT `%s`/strnlen miscompile hunt)
-- **Cycles-remaining**: ~2
-- **Continuity-memo**: ARCH-INDEPENDENT (arm64 == x86_64-Rosetta, interp correct both) ⇒
-  **shared** codegen. Culprit = repro2.wasm **func 12** (vfprintf, 1087 vregs, under 4095 cap).
-  EXP2 (`<` strict expiry, NO def==last_use slot-coalescing) FIXES repro + flips both fixtures
-  (c_sha256_hash, emcc_fasta) to MATCH — but breaks the intended-design test `regalloc_compute.zig:448`
-  (coalescing relies on read-before-write emit). **Cycle-5**: PC-window bisect → perturbation that
-  fixes narrows to **def_pc 1437** = `i32.eqz` of `i32.load8_u` (the strnlen byte-loop NULL CHECK;
-  not SWAR). BUT the eqz emit is read-before-write correct + the slot-8 timeline is cleanly
-  sequential (no overlap) ⇒ disabling 1437 coalescing likely fixes by perturbing GLOBAL slot state
-  (window-bisect ≠ clean pinpoint); precision-at-1437 still suspicious (spill-stage X14/X15 reuse
-  across the byte loop?). NEXT (cycle-6): map ZIR pc→JIT byte (debug_jit_auto Recipe 16), DISASSEMBLE
-  the load8_u/eqz/br_if region (pc ~1434-1442) buggy `<=` vs 1437-strict, diff to SEE the divergence;
-  fix the specific stage-reg/emit hazard, keep :448 green. Full trail: spike README cycle-5.
-- **Exit-condition**: `zwasm run --engine jit repro2.wasm` prints `1:hi`/`2:lit` + the :448 test
-  stays green + boundary fixture + lesson; D-330 deletable.
+The JIT `%s`/strnlen miscompile was the **LSRA free-pool expiry coalescing a result vreg into
+a same-pc last-use operand's slot** (`<=` → strict `<`; ADR-0037 amendment). Arch-INDEPENDENT
+(arm64 == x86_64-Rosetta ⇒ shared codegen). repro2 correct; **emcc_fasta byte-exact MATCH**;
+test + test-spec green; +1 slot worst-case. Lesson `2026-06-15-regalloc-boundary-coalesce-read-after-write`.
+**Residual (D-330 partial)**: `c_sha256_hash` 91B→106B (sha256 hash now correct) still drops ONE
+trailing `\n` — a SEPARATE bug masked by the coalescing one, now exposed (strict `<` removes ALL
+coalescing yet it persists). go corruption (D-331A-next) UNCHANGED by this fix (different bug).
 
 ## ACTIVE AGENDA (user-directed 2026-06-14) — real-world toolchain/bench reproduction
 
@@ -37,7 +28,7 @@ SUSTAINED**; the user assists when a toolchain needs installing.
   D-329) + A2 embenchen (`1aac480f`) + A3 `--wasmer` 2nd-oracle lane (`897b54d7`) + runtime bump
   (wasmtime 45 / wasmer 7.1). A4 remote rust provisioning = D-254; hyperfine = D-249. Details in plan.
 - **Phase B — deep JIT bug-hunt (SUSTAINED).** B1 = D-283 `--jit` lane DONE (`219dbd17`); now working
-  the remaining miscompiles (active bundle D-330, see top + Phase-B status below). Multi-cycle.
+  the remaining miscompiles (D-330 coalescing FIXED `6790c204`; see Phase-B status below). Multi-cycle.
 
 **Tool currency (user directive 2026-06-14) DONE+VERIFIED on ALL 3 hosts**: Mac+ubuntu via
 flake (wasmtime 45, wasmer 7.1, nixpkgs 06-10, rust/zig-overlay 06-14; **zig PINNED 0.16.0**;
@@ -82,12 +73,14 @@ of unlocked lock` / `switchToCrashStack0`) ⇒ a late memory-corruption miscompi
 class), D-330/D-283 class — NOT entry-sig or WASI-host (poll_oneoff is wired, same impl as interp).
 The `--jit` lane (report-only) now shows go_* run-and-corrupt (huge crash-dump) vs prior compile-skip.
 
-**Phase-B status**: D-283 `--jit` lane 3-host green (REPORT-ONLY). Remaining JIT-correctness debt, all
-HARD multi-cycle codegen miscompiles → **active bundle = D-330** (`%s`, see top). Sibling: **D-331(A)-
-next** go_* runtime-corruption (non-deterministic; likely same regalloc/spill-class as D-330, may share
-the fix) + **D-331(B)** go_regex SlotOverflow (= D-289 large-frame, lowest priority). (A1 Zig + A2
+**Phase-B status**: D-283 `--jit` lane 3-host green (REPORT-ONLY). **D-330 coalescing miscompile FIXED**
+`6790c204` (no active bundle). Remaining JIT-correctness debt (no clear shared fix — each its own
+investigation): **D-330 residual** (c_sha256 dropped `\n`, NICHE, partial) + **D-331(A)-next** go_*
+runtime-corruption (non-deterministic; UNCHANGED by the regalloc fix) + **D-331(B)** go_regex
+SlotOverflow (= D-289 large-frame, lowest priority). **NEXT**: D-330 residual is the cheapest (byte-diff
+c_sha256 interp/jit → the dropped final 0x0a → which print drops it); then go corruption. (A1 Zig + A2
 embenchen + A3 wasmer-oracle + runtime-bump + tool-currency-3host + B1 jit-diff-lane DONE; D-331 primary
-`10d7d2b2` + (A) `45ff0b94` FIXED.)
+`10d7d2b2` + (A) `45ff0b94`; D-330 coalescing `6790c204` FIXED.)
 
 ## State (tag-ready baseline, all 3-host green)
 
