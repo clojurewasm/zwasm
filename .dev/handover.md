@@ -27,17 +27,16 @@ Model (comp.open→Opened: invokeTyped/resolveFuncSig/dropResource/diagnostics +
 WitType + ComponentValue), trap set, known-gaps table. Linked from README; tables
 aligned. cljw can now read the current Zig embedding surface in one place.
 
-**A3 — external-facing doc精査 + update (non-dev).** Re-examine every PUBLIC doc
-against current reality and fix drift: `README.md`, `docs/tutorial.md`,
-`docs/reference/{cli,c_api,zig_api}.md`, `docs/benchmarks.md`,
-`docs/migration_v1_to_v2.md`. (cli.md/c_api.md were verified accurate 2026-06-14;
-README got a wabt/WASI-P2 fix `b34183a7` — re-walk the rest end-to-end, esp.
-tutorial command accuracy + reference/zig_api vs the A2 current-state.) NOT `.dev/`
-(internal) — only outward-facing docs.
+**A3 — external-facing doc精査 + update — DONE `ff9ad225`.** Audited every public
+doc vs source. Fixed: reference/zig_api.md (defineWasi args+envs); migration_v1_to_v2.md
+(C-API WASI preopen was "deferred" in 4 places — STALE, ADR-0184 shipped
+preopen_dir+inherit_env; jit-sandbox "not yet enforced" → D-314 enforced; CM
+"opt-in experimental" → default-ON). tutorial/README/benchmarks/cli/c_api CLEAN.
 
-**Wiring note**: this handover IS the `/continue` driving doc; `releasesafe_jit_failures.md`
-holds the A1 recipe; A2/A3 source docs all exist (verified). No auto-tag, no
-release. Mark each task done here as it completes; retarget the NEXT marker.
+**AGENDA COMPLETE** (A1+A2+A3 done). NEXT = demand-driven long-tail (no `now` debt):
+**D-177 preopens** (the WasiConfig preopens facet — io-token plumbing, ADR-0184
+follow-up, low-priority — see debt row + handoff_cw_v2 §6), or further
+completion-refinement / barrier-dissolution sweeps. No auto-tag (ADR-0156).
 
 ## State (tag-ready baseline, all 3-host green)
 
