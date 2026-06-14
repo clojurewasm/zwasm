@@ -144,7 +144,13 @@ pub fn compute(
         // slots collapsed onto the second if's else-arm vreg).
         merge_vregs: [8]u32,
     };
-    var block_stack: [max_control_stack]Frame = undefined;
+    // Dynamic control-nesting stack (D-326): fat toolchains (standard Go's
+    // giant runtime funcs — go_hello_wasi func[303] has 11151 instrs nesting
+    // blocks >256 deep) exceed any fixed cap. The interp runs them, so the JIT
+    // liveness must too. `max_control_stack` is the initial capacity; it grows
+    // by doubling at the push sites below (OutOfMemory is the only ceiling).
+    var block_stack: []Frame = try allocator.alloc(Frame, max_control_stack);
+    defer allocator.free(block_stack);
     var block_stack_len: usize = 0;
 
     // Sub-7.5c-iv: after an unconditional branch (br / return /
@@ -259,7 +265,7 @@ pub fn compute(
         // — liveness treats it as a regular block for stack-effect
         // purposes.
         if (instr.op == .block or instr.op == .loop or instr.op == .try_table) {
-            if (block_stack_len == max_control_stack) return Error.UnsupportedOp;
+            if (block_stack_len == block_stack.len) block_stack = try allocator.realloc(block_stack, block_stack.len * 2);
             // block/loop store result_arity for completeness;
             // merge mechanism here is fall-through-only so
             // merge_vregs are not captured (block-with-br is
@@ -333,7 +339,7 @@ pub fn compute(
             // D-093 (d-10): capture top `param_arity` vregs (from
             // `(extra >> 8) & 0xFF` — lower.zig packing) so .else
             // can re-push them; cap at 8 to fit Frame.param_vregs.
-            if (block_stack_len == max_control_stack) return Error.UnsupportedOp;
+            if (block_stack_len == block_stack.len) block_stack = try allocator.realloc(block_stack, block_stack.len * 2);
             const param_arity_u: u32 = (instr.extra >> 8) & 0xFF;
             const result_arity_u: u32 = instr.extra & 0xFF;
             if (param_arity_u > 8 or result_arity_u > 8) return Error.UnsupportedOp;
