@@ -949,6 +949,28 @@ entries:
     first_raised: "2026-06-07"
     last_reviewed: "2026-06-07"
     refs: src/api/component.zig (instantiateGraph); test/component/adder_graph.wasm; .dev/component_model_plan.md (Phase C/D)
+  - id: "D-324"
+    layer: "test"
+    status: "blocked-by"
+    description: |-
+      Status: blocked-by: corpus diversity for **AssemblyScript** and a **WasmGC lang**
+      (Kotlin/Wasm or Dart) — Phase A1 follow-ups in `.dev/realworld_reproduction_plan.md`.
+      Two distinct barriers: (1) PROVISIONING — `asc` (AssemblyScript) is not on PATH in
+      `nix develop .#gen` (node IS present, so `npm i -g assemblyscript` / `npx asc` is
+      feasible but the plan defers tool installs to user-assisted); Kotlin/Wasm + Dart
+      need their own SDKs. (2) HARNESS — AssemblyScript **dropped WASI**, so AS modules
+      export a function rather than running as a WASI command; the three existing runners
+      (runner/run_runner/diff_runner) all assume a WASI `_start` entry + stdout byte-diff
+      vs wasmtime. AS (and WasmGC return-value) fixtures need a new
+      call-export-and-compare harness. The Zig corpus (zig_hello/fib/prime_sieve, landed
+      2026-06-14 `5c044967`) is the WASI-stdout half of A1; this row tracks the non-WASI /
+      WasmGC half. DISCHARGE: provision asc (+ a WasmGC SDK), add the export-call harness,
+      generate AS compute fixtures + a WasmGC program exercising zwasm GC on real code.
+    first_raised: "2026-06-14"
+    last_reviewed: "2026-06-14"
+    refs: |-
+      .dev/realworld_reproduction_plan.md (Phase A1); test/realworld/{runner,run_runner,diff_runner}.zig
+      (WASI-entry assumption); test/realworld/src/zig (the landed WASI-stdout half); flake.nix devShells.gen
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.

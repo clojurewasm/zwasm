@@ -46,6 +46,13 @@ Order = autonomous-Mac-side first, then user-assisted host installs.
   to the `.#gen` fixture pipeline; generate small real programs (compute + WASI), drop
   into `test/realworld/wasm/`, run through zwasm interp + byte-diff wasmtime. Then
   investigate a WasmGC lang (Kotlin/Wasm or Dart) to exercise zwasm's GC on real code.
+  - **DONE (Zig half, 2026-06-14 `5c044967`)**: `zig_{hello,fib,prime_sieve}` — Zig
+    wasm32-wasi (toolchain already pinned in `.#gen`); interp 53/53, byte-diff 53/53 vs
+    wasmtime, JIT-run clean. Recipe in `src/zig` + `src/PROVENANCE.md`. Found+fixed a
+    `diff_runner` green-path summary-flush bug (`6995bbd3`) en route.
+  - **DEFERRED → D-324**: AssemblyScript (needs `asc` provisioning + AS dropped WASI ⇒ a
+    call-export harness, not the WASI-stdout runners) and the WasmGC lang (Kotlin/Wasm /
+    Dart SDK + GC return-value harness). Both are user-assisted installs.
 - **A2 (Tier 2, autonomous) — embenchen (D-026/D-082).** emcc is in `.#gen`. Reproduce
   the classic Emscripten benchmark; the find is the emscripten env-stub host-import gap
   — implement enough `env`/emscripten imports to instantiate + run, triage from there.

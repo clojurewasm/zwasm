@@ -18,10 +18,10 @@ supersedes ROADMAP §9 for these tasks. **User ordering: Phase A QUICK → Phase
 SUSTAINED**; the user assists when a toolchain needs installing.
 
 - **Phase A — reproduction infra (QUICK; get it working)**:
-  - **A1 (autonomous)**: corpus diversity — add **AssemblyScript** + **Zig** generators
-    to `nix develop .#gen`; generate small real programs, run zwasm interp + byte-diff
-    wasmtime. Then a **WasmGC lang (Kotlin/Wasm or Dart)** to exercise zwasm's GC on
-    REAL programs (untested surface).
+  - **A1 (Zig half DONE `5c044967`)**: `zig_{hello,fib,prime_sieve}` wasm32-wasi added;
+    interp 53/53, byte-diff 53/53 vs wasmtime, JIT-clean (+ fixed a diff_runner green-path
+    flush bug `6995bbd3`). **AssemblyScript + WasmGC (Kotlin/Wasm/Dart) → D-324** (need
+    `asc`/SDK provisioning + a call-export harness; AS dropped WASI).
   - **A2 (autonomous)**: **embenchen** (emcc in `.#gen`) — the classic Emscripten bench;
     the find = the emscripten env-stub host-import gap (D-026/D-082).
   - **A3 (autonomous)**: **3-way differential** — zwasm vs wasmtime vs wasmer (both on
@@ -36,9 +36,10 @@ SUSTAINED**; the user assists when a toolchain needs installing.
     `UnsupportedOp` ⇒ unimplemented JIT op). Root-cause each cluster, fix, add boundary
     fixtures, enable `ZWASM_JIT_RUN=1` by default for the runnable set. Multi-cycle.
 
-**First action on resume**: Phase A1 — `nix develop .#gen`; add an AssemblyScript hello
-+ a Zig hello; generate + byte-diff vs wasmtime (`test/realworld/` runners + the `.#gen`
-flake devshell are the entry points). (No active bundle/campaign; this agenda drives.)
+**First action on resume**: Phase A3 — wire the **3-way differential** (zwasm vs wasmtime
+vs **wasmer**) over the corpus: confirm wasmer is on PATH (`.#gen` / bench shell), extend
+`diff_runner` (or a sibling) to byte-compare a second reference + add hyperfine perf.
+Then A2 (embenchen via emcc, D-026/D-082). (No active bundle/campaign; this agenda drives.)
 
 ## State (tag-ready baseline, all 3-host green)
 
