@@ -34,10 +34,13 @@ preopen_dir+inherit_env; jit-sandbox "not yet enforced" → D-314 enforced; CM
 "opt-in experimental" → default-ON). tutorial/README/benchmarks/cli/c_api CLEAN.
 
 **AGENDA COMPLETE** (A1+A2+A3 done). **D-177 preopens SHIPPED `9bdf9401` + closed
-`94c40966`** (WasiConfig.io + .preopens, option B caller-provided io; facade WASI
-args/envs/preopens parity complete + docs synced `93e94821`). NEXT = demand-driven
-long-tail (no `now` debt): completion-refinement / further barrier sweeps / §1.3
-demand-gated capabilities. No auto-tag (ADR-0156).
+`94c40966`** (full facade WASI args/envs/preopens parity; docs synced `93e94821`).
+**Barrier-dissolution sweep EXHAUSTED** (closed the whole Phase-10/D-290/discharged
+cluster, 9 rows; scaffolding-coherence re-verified clean post-churn). NEXT (no `now`
+debt, long-tail THINNING — pick by signal): lower-value completeness (D-253 (C)
+per-handle `host_info` wasm-c-api conformance — A/B/D done; D-022 trap-localization
+— diagnostic, touches JIT-ABI) · else genuinely user-gated (§1.3 capabilities / tag /
+§13.4 prioritization) or blocked-external (upstream Zig / hosts). No auto-tag (ADR-0156).
 
 ## State (tag-ready baseline, all 3-host green)
 
