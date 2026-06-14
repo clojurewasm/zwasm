@@ -79,7 +79,7 @@ audit was launched. The audit findings (compiled into
    > "c api / zig api の wasm 2.0 時点での利用テスト分は完備されて
    > いる必要がある"
 
-6. **6 ADR Revision history rows had `<backfill>` SHA placeholders**
+6. **6 ADR Revision history rows had backfill-pending SHA placeholders**
    (0064, 0062, 0071, 0098, 0100, 0101); 17 §9.x rows have bare
    `[x]` without commit SHA pointers.
 

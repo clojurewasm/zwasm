@@ -42,6 +42,13 @@ backfill_count=0
 for f in "${adr_files[@]}"; do
   rel="${f#$REPO_ROOT/}"
 
+  # The 0000_template.md skeleton matches the numbered glob but its
+  # Revision-history row is an illustrative `<backfill>` placeholder by
+  # design — exclude it so it isn't counted as a real pending backfill.
+  case "$f" in
+    */0000_template.md) continue ;;
+  esac
+
   # Only process files that have a Revision history § (header H2
   # with the exact text "Revision history").
   if ! grep -q '^## .*Revision history' "$f"; then
