@@ -33,19 +33,20 @@ doc vs source. Fixed: reference/zig_api.md (defineWasi args+envs); migration_v1_
 preopen_dir+inherit_env; jit-sandbox "not yet enforced" → D-314 enforced; CM
 "opt-in experimental" → default-ON). tutorial/README/benchmarks/cli/c_api CLEAN.
 
-**AGENDA COMPLETE** (A1+A2+A3 done). NEXT = demand-driven long-tail (no `now` debt):
-**D-177 preopens** (the WasiConfig preopens facet — io-token plumbing, ADR-0184
-follow-up, low-priority — see debt row + handoff_cw_v2 §6), or further
-completion-refinement / barrier-dissolution sweeps. No auto-tag (ADR-0156).
+**AGENDA COMPLETE** (A1+A2+A3 done). **D-177 preopens SHIPPED `9bdf9401` + closed
+`94c40966`** (WasiConfig.io + .preopens, option B caller-provided io; facade WASI
+args/envs/preopens parity complete + docs synced `93e94821`). NEXT = demand-driven
+long-tail (no `now` debt): completion-refinement / further barrier sweeps / §1.3
+demand-gated capabilities. No auto-tag (ADR-0156).
 
 ## State (tag-ready baseline, all 3-host green)
 
 - **Wasm 1.0/2.0/3.0**: 100% spec, 0 skip. **WASI 0.1** complete; **0.2/CM**
   default-ON (ADR-0182/0183; corpus 158/0/0). Sandboxing triad everywhere.
 - **Surfaces**: C-API 293/293 (+preopen_dir/inherit_env, ADR-0184) · Zig-API
-  complete (+`WasiConfig.envs` `04cb3497`) · lean CLI · memory-safety sound ·
-  dogfooded into cw v1. Runners ReleaseSafe (ADR-0177).
-- **Debt**: 48 entries, **zero `now`**; rest blocked-by(external)/note long-tail.
+  complete (+`WasiConfig.{envs,preopens,io}` — full WASI parity) · lean CLI ·
+  memory-safety sound · dogfooded into cw v1. Runners ReleaseSafe (ADR-0177).
+- **Debt**: 47 entries, **zero `now`**; rest blocked-by(external)/note long-tail.
   2026-06-14 barrier-dissolution sweep (verified via `test-spec-wasm-3.0-assert`)
   closed D-196 (multi-memory 407/0) / D-195 / D-186 (return_call_ref both arches) /
   D-198 (iso-recursive, gc fail=0) / D-206 (cross-module return_call) + D-301/D-179
