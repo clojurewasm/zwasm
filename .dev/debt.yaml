@@ -1170,6 +1170,32 @@ entries:
     first_raised: "2026-06-07"
     last_reviewed: "2026-06-07"
     refs: src/api/component.zig (instantiateGraph); test/component/adder_graph.wasm; .dev/component_model_plan.md (Phase C/D)
+  - id: D-328
+    layer: code
+    status: blocked-by
+    description: |-
+      Status: blocked-by: PREREQUISITE for D-327's JIT exnref reify. A JIT
+      try_table catch_ref / catch_all_ref landing pad whose catch target block
+      has a MULTI-VALUE result (e.g. `block $h (result i32 exnref)`) gets
+      COLLIDING result vregs — instrumented 2026-06-14: `pushed_vregs={0,0}`
+      (both results are placeholder vreg 0). The param prelude + any exnref
+      store then write the SAME spill slot. Currently HARMLESS (the spec corpus
+      `throw-catch_ref-param-i32` drops the exnref + returns the i32, and both
+      vregs aliasing slot-0 happen to leave the i32 there — JIT passes 34/34).
+      But it BLOCKS D-327: once reify writes a real *Exception into the exnref
+      slot, it overwrites the i32 result (catch_ref simple-drop returns the
+      pointer, not 88). The D-327 exnref machinery (reify helper + throw_ref
+      read-back) is otherwise VALIDATED — the throw_ref round-trip fixture goes
+      green (it routes the payload through the Exception, not the i32 slot).
+      DISCHARGE: make op_control.emitEndIntra (+ regalloc) allocate DISTINCT
+      result vregs for a multi-value catch landing-pad block, so params and the
+      exnref occupy separate slots; then re-apply D-327 reify (contract +
+      fixture bytes in private/notes/d327-catch_ref-plan.md → EXECUTION
+      CONTRACT). Investigate WHY the two results share vreg 0 (placeholder /
+      unallocated) first.
+    first_raised: "2026-06-14"
+    last_reviewed: "2026-06-14"
+    refs: src/engine/codegen/arm64/op_control.zig (emitEndIntra, ~68-116 result vregs); src/engine/codegen/arm64/emit.zig (landing-pad per-clause prelude ~1690-1740); private/notes/d327-catch_ref-plan.md
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.

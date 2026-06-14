@@ -3,38 +3,34 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## D-327 REFRAMED 2026-06-14 (investigation; premise was a MISDIAGNOSIS)
+## D-327 REFRAMED 2026-06-14 (premise was a MISDIAGNOSIS)
 
-Direct probing corrected the bundle's premise. KEY FACTS (high-confidence):
-- **EH try_table corpus is ALREADY wg-3.0-current**: committed raw = upstream
-  `exception-handling/test/core/try_table.wast` (BOTH 34 assert_returns, identical
-  exports). NO new asserts to add. The debt-row D-327 claim "EH +5 multi-value" is
-  STALE.
-- **EH spec runner is 100% GREEN now**: `[exception-handling] return 34/34, trap
-  2/2, invalid 7/7, exception 4/4`. catch_ref asserts pass because the wast
-  `(drop)`s the exnref + checks only the param (wast line 158). NO assert validates
-  exnref VALUE at runtime; exnref-using cases (wast 354-5) are `assert_invalid`.
-- So **the JIT exnref garbage + throw_ref stub is CONFORMANCE-NEUTRAL** — a genuine
-  JIT *completeness* gap (interp-correct, JIT-wrong) that NO spec assert exercises.
-  It does NOT block the alpha's "100% latest spec" for EH, and does NOT block
-  EH-wg-3.0-currency. The bundle's "catch_ref FAILsetup" premise was wrong.
-- **Cycle-4a infra is still correct + kept** (`8478d853`: reify fields/helper/test).
-  It's the substrate for the genuine completeness work IF pursued — but that work
-  is now decoupled from the alpha gate.
+Probing corrected it: **EH try_table corpus is ALREADY wg-3.0-current** (committed
+raw = upstream, 34=34 asserts) + **spec runner 100% GREEN** (`[exception-handling]
+return 34/34, trap 2/2, invalid 7/7, exception 4/4`). catch_ref asserts pass
+because the wast `(drop)`s the exnref + checks only the param; NO assert validates
+exnref VALUE (exnref-using cases are `assert_invalid`). So the JIT exnref garbage +
+throw_ref stub is **CONFORMANCE-NEUTRAL** completeness (interp-correct, JIT-wrong),
+NOT an alpha blocker. Cycle-4a infra kept (`8478d853`).
 
 ## Active bundle — JIT exnref completeness (user chose "do it now" 2026-06-14)
 
 - **Bundle-ID**: d327-exnref-jit  **Cycles-remaining**: ~3
-- **Continuity-memo**: conformance-neutral but user chose "do it now" (ideal form).
-  RED CONFIRMED: `zwasm run --engine jit --invoke roundtrip` → **trap**; interp →
-  **88**. Strong test = throw_ref ROUND-TRIP (not the weak drop test). NEXT = 4b+4c+4d
-  in one chunk — full execution contract + fixture bytes + emit mechanics (Explore
-  survey) in `private/notes/d327-catch_ref-plan.md` → "EXECUTION CONTRACT": 4b
-  trampoline tag stash · 4c landing-pad reify+push both arches (extend `any_payload`
-  for `_ref`; exnref vreg = slot the param prelude does NOT fill) · 4d throw_ref
-  read-back · setup.zig install reifyExnref+ctx. Win64 arg0=RCX = ABI-risk. Cycle-4a
-  infra `8478d853` is the substrate.
-- **Exit-condition**: JIT round-trip returns 88 both arches; full `zig build test` +
+- **Continuity-memo**: 4b/4c/4d IMPLEMENTED + VALIDATED then REVERTED (clean tree)
+  2026-06-14 — the exnref machinery is CORRECT (the throw_ref round-trip fixture
+  goes green: reify + rethrowFromExnref work). BUT it's BLOCKED by **D-328** (new):
+  a multi-value catch landing-pad block (`block $h (result i32 exnref)`) gets
+  COLLIDING result vregs — instrumented `pushed_vregs={0,0}` (both results =
+  placeholder vreg 0). Harmless today (spec drops the exnref; JIT 34/34) but reify
+  writing the *Exception into the shared slot CORRUPTS the i32 result (catch_ref
+  simple-drop returns the pointer, not 88). So **fix D-328 FIRST** (distinct result
+  vregs for multi-value catch in op_control.emitEndIntra/regalloc — investigate why
+  both are vreg 0), THEN re-apply 4b/4c/4d (code re-derivable from
+  `private/notes/d327-catch_ref-plan.md` → EXECUTION CONTRACT; the round-trip
+  fixture bytes + emit mechanics are there). Cycle-4a infra `8478d853` is the
+  substrate.
+- **Exit-condition**: D-328 fixed (distinct vregs) → JIT round-trip + catch_ref_88
+  + catch_all_ref_77 all return their values both arches; full `zig build test` +
   lint + 3-host green.
 
 ## Parallel track — wg-3.0 currency re-verification (the conformance gate)
