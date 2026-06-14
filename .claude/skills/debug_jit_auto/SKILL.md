@@ -96,14 +96,19 @@ to the heading.
 | 13 | `Dbgview.exe` + `OutputDebugStringA` VEH trace | windowsmini | W3.b post-land VEH handler verification |
 | 14 | Crash dump (WER `.dmp`) post-mortem with lldb | windowsmini | Win64 outright crash post-mortem |
 | 15 | `ssh windowsmini cmd /c '...'` stable orchestration | windowsmini | HANG / interactive debug with quoting traps |
-| 16 | JIT bytes dump via runner instrumentation | any | Runtime hangs before debugger can reach |
+| 16 | JIT bytes dump via runner instrumentation (`ZWASM_DEBUG=jit.dump`, codified) | any | Disassemble a JIT body |
 | 17 | Manifest-bisect via `test/private/d-165/` scratch | any | Isolate which directive triggers the bug |
+| 18 | **lldb VALUE-trace inside JIT code (`scripts/jit_value_trace.sh`)** | Mac/ubuntu | **Miscompile = wrong output, NO crash** — read regs/mem at a JIT instruction |
 
 
 ## When to invoke each recipe (decision tree)
 
 ```
 Host = Mac / ubuntunote?
+├── Wrong OUTPUT but NO crash (value miscompile — e.g. diff-jit mismatch)?
+│   └── Recipe 18 (`scripts/jit_value_trace.sh`): disasm the suspect func,
+│       then VALUE-trace the instruction (regs/mem) interp-vs-jit. This is
+│       the lens IR/vreg-level analysis (liveness/regalloc) cannot give.
 ├── SEGV reproduces in test-realworld-run-jit?
 │   ├── YES → Recipe 1 (lldb -b) for first triage. Read fault RIP.
 │   │        ├── RIP inside JIT block (block.bytes.ptr ≤ RIP < ptr+len)?

@@ -569,3 +569,34 @@ scratch fixture. Reverts to base state by `rm -rf test/private/d-165/fac/*; cp .
 ensures `zig-out/bin/<runner>` is the stable canonical path
 (landed cycle 9 / `12fb9e4f`). Without this you'd hunt for
 the latest `.zig-cache/o/HASH/<runner>.exe` per build.
+
+### Recipe 18 — lldb VALUE-trace inside JIT code (`scripts/jit_value_trace.sh`)
+
+For a miscompile that produces WRONG OUTPUT but does NOT crash (the
+crash recipes 1/4/7 don't apply). JIT bodies have no symbols and live
+in runtime-mmap'd W^X pages, so a raw-address bp set before `run` is
+resolved but NEVER inserted. The harness automates the fix; full
+rationale in lesson `2026-06-15-lldb-value-trace-on-jit-code`.
+
+```bash
+# 1. find the suspect instruction
+bash scripts/jit_value_trace.sh disasm <file.wasm> <func_idx>   # → /tmp/jit_func<idx>.asm
+#    (asm line N is at byte offset (N-1)*4 on arm64)
+
+# 2. value-trace it (post_cmds_file = lldb -o commands, one per line)
+printf 'register read x28 x16\nthread step-inst\nregister read w14\n' > /tmp/post.lldb
+bash scripts/jit_value_trace.sh trace <file.wasm> <func_idx> <asm_line> fdWrite /tmp/post.lldb
+```
+
+Key facts the harness encodes (so you don't re-pay the ~9-attempt cost):
+- `settings set target.disable-aslr true` → JIT addresses stable across runs.
+- Arm the JIT-address bp ONLY after the page maps: stop first at a host
+  symbol (`fdWrite` default — the WASI write, always hit on output), then
+  `br set -H -a <addr>`. **`-H` (hardware) bp is REQUIRED** (W^X JIT pages
+  can't take a software BRK patch). VALIDATED to fire (func 11 entry).
+- WASI guest→host: JIT guest → `jit_dispatch.fd_write` (Zig; `rt.vm_base`
+  = guest mem base) → `fdWrite`. Break PAST the prologue (a body line, not
+  the function entry) for Zig locals to resolve.
+- **Buffering gotcha**: piped/redirected stdout = musl FULL buffering →
+  the stream flushes ONCE at exit, so the first `fdWrite` is AFTER all
+  `putc`. To trace `putc`-path guest code, stop EARLIER than `fdWrite`.

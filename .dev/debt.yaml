@@ -1079,6 +1079,17 @@ entries:
       `ZWASM_DEBUG=jit.dump`; under lldb (disable-aslr default) break at `ADDR + 0x240c` (line 2308
       load) — read `w14` (loaded value) + guest mem at `x28+x16` (x16=2056). w14==0 & mem==10 ⇒ load
       miscompile (a); w14==0 & mem==0 ⇒ upstream store miscompile (b), then trace who writes [2056].
+      ---
+      **HARNESS BUILT + buffering correction 2026-06-15 (`<this-commit>`, user-directed persistence)**:
+      `scripts/jit_value_trace.sh {addr|disasm|trace}` automates the whole lldb-on-JIT value-trace
+      (lesson `2026-06-15-lldb-value-trace-on-jit-code` + debug_jit_auto Recipe 18). VALIDATED: a `-H`
+      bp fires on a JIT page (func 11 entry). **CORRECTION**: tracing func4+0x240c (line 2308) at
+      `fdWrite` showed NO hit — because piped stdout = musl FULL buffering → the program flushes ONCE
+      at exit, so the FIRST fdWrite is the exit flush, AFTER all putc. The mem[2056] load runs during
+      putc, BEFORE that fdWrite, so arming there is too late. **NEXT PROBE (corrected)**: stop EARLIER
+      than fdWrite (an earlier host call / the JIT entry, before buffering) then trace func 4's putc
+      store of the final `\n` + the wpos increment; the bug is a putc-into-buffer miss that shorts the
+      buffer by 1 byte before the single exit flush. Use `jit_value_trace.sh trace ... <earlier-symbol>`.
     first_raised: "2026-06-15"
     last_reviewed: "2026-06-15"
     refs: |-
