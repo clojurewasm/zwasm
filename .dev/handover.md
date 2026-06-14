@@ -22,39 +22,37 @@ Direct probing corrected the bundle's premise. KEY FACTS (high-confidence):
   It's the substrate for the genuine completeness work IF pursued — but that work
   is now decoupled from the alpha gate.
 
-## Active item (NEXT) — systematic wg-3.0 currency verification (the REAL gate)
+## Active bundle — JIT exnref completeness (user chose "do it now" 2026-06-14)
 
-Since the debt-row's EH claim was stale, RE-VERIFY every proposal's wg-3.0
-currency the PROPER way (runbook §1-4: checkout wg-3.0 / proposal HEAD → re-bake →
-diff manifest). Confirmed current: EH try_table, tail-call (un-revert `21959b5f`).
-TO CHECK: gc (debt claims extern+13 — suspect), function-references, memory64,
-multi-memory, simd, threads. Any real new/changed assert the committed bake lacks
-= the actual alpha-conformance work (+ whether the multi-value-runner ceiling
-genuinely bites for a specific proposal). JIT exnref reification = separate
-conformance-neutral completeness (own track; not the alpha gate).
+- **Bundle-ID**: d327-exnref-jit  **Cycles-remaining**: ~3
+- **Continuity-memo**: conformance-neutral but user chose "do it now" (ideal form).
+  RED CONFIRMED: `zwasm run --engine jit --invoke roundtrip` → **trap**; interp →
+  **88**. Strong test = throw_ref ROUND-TRIP (not the weak drop test). NEXT = 4b+4c+4d
+  in one chunk — full execution contract + fixture bytes + emit mechanics (Explore
+  survey) in `private/notes/d327-catch_ref-plan.md` → "EXECUTION CONTRACT": 4b
+  trampoline tag stash · 4c landing-pad reify+push both arches (extend `any_payload`
+  for `_ref`; exnref vreg = slot the param prelude does NOT fill) · 4d throw_ref
+  read-back · setup.zig install reifyExnref+ctx. Win64 arg0=RCX = ABI-risk. Cycle-4a
+  infra `8478d853` is the substrate.
+- **Exit-condition**: JIT round-trip returns 88 both arches; full `zig build test` +
+  lint + 3-host green.
 
-## alpha.3 GATE (user-directed 2026-06-14) — close BOTH to "ideal form" before tag
+## Parallel track — wg-3.0 currency re-verification (the conformance gate)
 
-User wants the 3.0 corpus genuinely complete (not "alpha-ready except gaps")
-before `v2.0.0-alpha.3`. Two autonomous items gate the tag; close both → tag
-surfaces ready (user-only, ADR-0156):
-1. **tail-call un-revert — DONE `21959b5f`** (3-host green; root cause + fix in that
-   commit msg: import-bearing module → `runOneSpectest`).
-2. **wg-3.0 currency re-verification — IN PROGRESS** (see "Active item" above).
-   REFRAMED: the EH "gap" was a misdiagnosis (EH already wg-3.0-current + green). The
-   true gate = confirm gc/fr/memory64/mm/simd/threads currency via the runbook
-   re-bake. JIT exnref reification is conformance-NEUTRAL completeness, NOT a tag
-   blocker — surfaced to user 2026-06-14 for an ideal-form call.
+Debt-row D-327's EH claim was stale → RE-VERIFY each proposal's wg-3.0 currency via
+the runbook (checkout wg-3.0/proposal HEAD → re-bake → diff manifest). Confirmed
+current: EH try_table (34=34), tail-call (`21959b5f`). TO CHECK: gc (debt claims
+extern+13 — suspect), function-references, memory64, multi-memory, simd, threads.
 
-## Campaign — spec re-vendor (full detail `private/spec_revendor_campaign.md`)
+## alpha.3 GATE (user-directed 2026-06-14) — "ideal form" before tag
 
-1.0/2.0/simd/threads CURRENT; gc re-vendored to wg-3.0 `b8e8b16c` (3-host green);
-tail-call reverted `a981e5d8` (→ GATE item 1); rest no-drift. Sustainable
-mechanism DONE (refdialect.py + runbook). 3.0 corpus = **wg-3.0-current except
-tail-call (reverted) + catch_ref EH gap (D-327)**, 3-host green. Both are the
-alpha.3 GATE above. D-327 root cause pinned `04e5fae2`.
-**The alpha is tag-ready NOW** — `v2.0.0-alpha.3`, tag-only (no Release), user-only
-(ADR-0156). Say "tag it" anytime; the catch_ref bundle proceeds independently.
+Two autonomous tracks gate the tag (user-only, ADR-0156): (1) the Active bundle
+above (JIT exnref completeness — user's ideal-form call) + (2) the Parallel track
+(wg-3.0 currency re-verification). Sustainable mechanism DONE (refdialect.py +
+runbook). 1.0/2.0/simd/threads current; gc `b8e8b16c`; tail-call DONE `21959b5f`;
+EH wg-3.0-current. **Conformance-wise the alpha is essentially ready** (`v2.0.0-
+alpha.3`, tag-only, no Release); the two tracks pursue genuine completeness +
+per-proposal re-verification before surfacing "tag it".
 
 ## Current state
 
