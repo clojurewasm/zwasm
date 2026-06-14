@@ -70,8 +70,10 @@ No `now` debt (54 entries). **2026-06-14 completion-refinement sweep** (all gree
 scaffolding audit (1 false-positive fixed `1e887116`) · **D-301 closed `37d05775`**
 (stale note — threads/atomic 294/0, the "47 residual skips" were real asserts since
 D-290 re-bake) · **README docs fix `b34183a7`** (stale flake wabt list + headline
-now surfaces WASI-P2/CM). Recent closes: JIT exnref (D-327/D-328/Win64); alpha
-conformance MET (`d151538a`).
+now surfaces WASI-P2/CM) · **docs axis verified tag-ready**: cli.md + c_api.md
+accurate-to-code (CLI flags/commands match `src/cli/`; WASI exports as-documented),
+runtime_deep_comparison correctly dated 2026-05-24 snapshot (don't edit). Recent
+closes: JIT exnref (D-327/D-328/Win64); alpha conformance MET (`d151538a`).
 Next actionable (demand-driven long-tail — pick by signal):
 - **D-293 remainder** = GC array.* trampolines only. **RE-SURVEYED + barrier
   RE-CONFIRMED deferred 2026-06-14 (`565ed49a`)** — full demux mechanism walked
