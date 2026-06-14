@@ -1084,10 +1084,16 @@ entries:
       a SEPARATE **emit-side SlotOverflow** — `vreg >= alloc.slots.len` (=ranges.len=16070) in a body op
       handler (NOT ctx.popBinary/popUnary, NOT frame_bytes>16MiB). I.e. EMIT references a vreg id ≥ the
       liveness range count → a LIVENESS-vs-EMIT vreg-COUNT mismatch for this huge func (liveness produced
-      16070 ranges; emit's next_vreg / a handler addresses ≥16070). DISCHARGE: instrument which emit.zig
-      SlotOverflow site (947/965/1004/1019/1054/1236/1411) fires + the vreg id; compare emit's vreg
-      numbering vs liveness's for func 1516 (suspect liveness under-counts vregs for a specific op pattern,
-      OR an emit handler mints an extra vreg). Lower priority than (A). NICHE (one realworld fixture).
+      16070 ranges; emit's next_vreg / a handler addresses ≥16070). The op-result vreg checks are the
+      `next_vreg += 1; if (vreg >= alloc.slots.len)` guards in the emit body dispatch (emit.zig
+      947/965/1004/1019/1052/1234/1409/1453/1671 — ref.null/ref.func/...). SAME CLASS as the EH-lockstep
+      lesson `jit-eh-landing-pad-emit-gotchas` (liveness + emit MUST mint result vregs in LOCKSTEP; a
+      desync corrupts) — here liveness's per-op vreg minting and emit's `next_vreg` diverge for SOME op in
+      this 16070-vreg func. DISCHARGE: instrument liveness's final vreg count AND emit's next_vreg at the
+      overflow (+ pc/op/total-instrs) for func 1516 → the gap magnitude (off-by-1 = one op; off-by-many =
+      systematic) + WHERE (pc vs len) localizes the desyncing op; then make liveness+emit count it in
+      lockstep. Lower priority than (A). NICHE: one realworld fixture; interp runs go_regex fine; spec
+      suite (thousands of funcs) 100% green ⇒ the desync is scale/op-pattern-specific to func 1516.
       (Historical root-cause trail:)
       blocked-by: a **structural JIT-codegen limit hit by fat standard-Go (GOOS=wasip1) binaries** —
       the 9 `go_*` realworld fixtures (D-283 sub-cluster) JIT-compile-FAIL with `UnsupportedOp` at a
