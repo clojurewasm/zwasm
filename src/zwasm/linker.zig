@@ -54,12 +54,15 @@ pub const LinkError = error{
 };
 
 /// Bulk WASI configuration per ADR-0109 §3.8 +
-/// `docs/zig_api_design.md` §3.8. v0.1 carries the minimum
-/// surface; full preopens / env / stdin streams land at Phase 11
-/// (D-177).
+/// `docs/zig_api_design.md` §3.8. Carries `args` today; the Host
+/// itself supports envs/preopens (`wasi/host.zig` setEnvs/addPreopen,
+/// exposed by the CLI `--env`/`--dir` + the C-API `zwasm_wasi_config_*`),
+/// so wiring them into this bulk struct is a facade-convenience parity
+/// item tracked as D-177.
 pub const WasiConfig = struct {
     args: []const []const u8 = &.{},
-    // envs / preopens / stdin / stdout / stderr deferred to Phase 11 (D-177).
+    // envs / preopens / stdin / stdout / stderr: see D-177 (host supports them;
+    // facade struct not yet wired — reachable via CLI / C-API meanwhile).
 };
 
 pub const Linker = struct {
@@ -192,9 +195,9 @@ pub const Linker = struct {
 
     /// ADR-0109 §3.8 — bulk WASI bindings. After `defineWasi`,
     /// any `(import "wasi_snapshot_preview1" "<name>" ...)` in
-    /// the module is satisfied by the registered host. v0.1
-    /// installs args; envs / preopens / stdin streams land at
-    /// Phase 11 (D-177). At-most-once per Linker.
+    /// the module is satisfied by the registered host (all 46 WASI
+    /// 0.1 thunks; Phase 11). Installs `cfg.args`; envs/preopens
+    /// are a facade-struct parity item (D-177). At-most-once per Linker.
     pub fn defineWasi(self: *Linker, cfg: WasiConfig) !void {
         if (self.wasi_host != null) return error.WasiAlreadyDefined;
         const h = try self.engine.alloc.create(_wasi_host.Host);

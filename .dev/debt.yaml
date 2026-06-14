@@ -639,11 +639,24 @@ entries:
       D-072 (closes (a/b)-path runner enforcement at chunk 9.9-h-23; this row inherits (c)-path), ADR-0029, ADR-0050 D-2, ADR-0012 §6, ADR-0065, `skip_embenchen_emcc_env_imports.md`, `skip_externref_segment.md`, ROADMAP Phase 10 + Phase 11 rows
   - id: "D-177"
     layer: "code"
-    status: "blocked-by"
+    status: "note"
     description: |-
-      blocked-by: Phase 11 WASI full coverage — `lookupWasiThunk` only registers 16 of WASI 0.1's ~50 syscalls (fd_filestat_get / path_filestat_get / fd_prestat_get / etc. missing). Discharge: Phase 11 adds the remaining thunks + Host fields per WASI 0.1 spec; current 10 SKIP-WASI fixtures in zig_facade_runner (all Go-toolchain emcc-style WASI consumers) flip to PASS or proper-FAIL. Barrier holds until Phase 11 opens. | **Phase 11 WASI 0.1 full coverage**: native facade's `Linker.defineWasi` (J.7 skeleton) routes through `api/wasi.zig::lookupWasiThunk` which covers 16 names; the 10 Go-toolchain realworld fixtures import additional WASI names (fd_filestat_get etc.) that surface as `UnsupportedWasiImport` and SKIP-WASI in the runner. Phase 11 closes the gap.
+      note (RE-SCOPED 2026-06-14 — thunk-coverage barrier DISSOLVED, verified): the original `blocked-by:
+      Phase 11 lookupWasiThunk only 16 of ~50 syscalls` is STALE — Phase 11 closed it. `lookupWasiThunk`
+      (src/api/wasi.zig:531) now registers the FULL 46-name WASI 0.1 surface (the cited fd_filestat_get /
+      path_filestat_get / fd_prestat_get are all present, with a coverage test at :677), and the 10 SKIP-WASI
+      fixtures all PASS: `zig build test-api-zig-facade` = 55 PASS / 0 SKIP-WASI / 0 SKIP-IMPORTS / 0 FAIL
+      (verified 2026-06-14). REMAINING (distinct, minor, host-supported surface gap, NOT the thunk barrier):
+      the Zig facade's bulk `WasiConfig` struct (src/zwasm/linker.zig:60) is args-only — `defineWasi` wires
+      only `cfg.args` via `h.setArgs`, while the underlying `wasi/host.zig` Host ALSO has `setEnvs(keys,vals)`
+      (:234) + `addPreopen` (:261), and both the CLI (`--env`/`--dir`) and C-API (`zwasm_wasi_config_*`)
+      already expose them. So the facade WasiConfig undersells the host. DISCHARGE (clean focused chunk, design
+      the field shapes + preopens carry FS-handle/ownership weight): add `envs` / `preopens` / stdio fields to
+      WasiConfig + wire them in `defineWasi` (h.setEnvs / h.addPreopen) + a facade fixture importing
+      environ_get/path_open that reads them + docs §3.8 update. Low priority (the host IS reachable via the
+      lower-level API + CLI/C-API); facade-convenience parity only.
     first_raised: "2026-05-25"
-    last_reviewed: "2026-06-13"
+    last_reviewed: "2026-06-14"
     refs: |-
       ADR-0109 §3.8, `src/api/wasi.zig::lookupWasiThunk`, `src/wasi/host.zig`, `test/api/zig_facade_runner.zig`, plan §3 J.7
   - id: "D-148"
