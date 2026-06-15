@@ -44,6 +44,16 @@
         # NOT in `default`, so the test hosts' `zig build test-all` shell stays
         # toolchain-free; only the `run-rust-host` step opts into native rust.
         rustNative = genPkgs.rust-bin.stable.latest.minimal;
+        # Nightly + rust-src for the wasm32-wasip3 (WASI 0.3) Tier-3 target:
+        # wasip3 ships NO prebuilt std (Tier 3), so components are built via
+        # `-Z build-std` from source. Mac-gen-only (`.#gen-wasip3`); the emitted
+        # `.wasm` is committed + run on the test hosts by the edge-runner (no
+        # rust there). Front-① WASI 0.3 conformance path ② (2026-06-16).
+        # Pinned nightly (not `.latest`) for reproducibility — this exact nightly
+        # is verified to build wasip3 via the recipe in `devShells.gen-wasip3`.
+        rustNightlyWasip3 = genPkgs.rust-bin.nightly."2026-06-14".minimal.override {
+          extensions = [ "rust-src" ];
+        };
       in {
         devShells.default = pkgs.mkShell {
           packages = [
@@ -148,6 +158,38 @@
             echo "  toolchains: zig rustc(wasm32) emcc tinygo go clang+lld on PATH"
             echo "  EM_CACHE=$EM_CACHE  (emcc builds its cache lazily on first use)"
             echo "Generated .wasm is COMMITTED; test hosts run it via the edge-runner (no toolchain there)."
+          '';
+        };
+
+        # WASI 0.3 (wasm32-wasip3) fixture generation — Mac host only. wasip3 is
+        # a Tier-3 target (no prebuilt std), so this shell carries nightly +
+        # rust-src and components are built with `cargo build -Z build-std`.
+        # Kept separate from `.#gen` (stable) so the main generation shell is
+        # never perturbed by nightly. Front-① conformance path ② (2026-06-16).
+        devShells.gen-wasip3 = genPkgs.mkShell {
+          packages = [
+            rustNightlyWasip3
+            genPkgs.wasm-tools
+            genPkgs.lld           # wasm-ld — replaces the nix nightly rust-lld (broken on Darwin: libLLVM mismatch)
+          ];
+          # wasip3 is Tier-3 → ships NO prebuilt std and NO wasi-libc, and the nix
+          # nightly `rust-lld` can't link on Darwin (libLLVM `llvm::lto::DTLTO`
+          # symbol mismatch). The reproducible recipe (verified 2026-06-16, spike
+          # `private/spikes/wasip3-build-std`, zwasm runs the output → exit 1):
+          #   (1) `-Z build-std` builds std from source (rust-src extension);
+          #   (2) `wasm-component-ld --wasm-ld-path <nixpkgs wasm-ld>` does the
+          #       component wrap but links via nixpkgs lld, NOT the broken rust-lld;
+          #   (3) `link-self-contained=no` + the STABLE toolchain's wasip2
+          #       crt1-command.o + libc.a (wasip3's libc layer == wasip2's).
+          # `$ZWASM_WASIP3_RUSTFLAGS` presets all of it; build with:
+          #   RUSTFLAGS="$ZWASM_WASIP3_RUSTFLAGS" cargo build -Z build-std=std,panic_abort --target wasm32-wasip3 --release
+          shellHook = ''
+            echo "zwasm v2 — WASI 0.3 (wasm32-wasip3) gen shell (nightly + build-std; Mac only)"
+            export ZWASM_WASIP3_WASMLD="${genPkgs.lld}/bin/wasm-ld"
+            export ZWASM_WASIP3_WASILIBC="${rustWasm}/lib/rustlib/wasm32-wasip2/lib/self-contained"
+            export ZWASM_WASIP3_RUSTFLAGS="-Clink-self-contained=no -Clink-arg=--wasm-ld-path=$ZWASM_WASIP3_WASMLD -Clink-arg=-L$ZWASM_WASIP3_WASILIBC -Clink-arg=$ZWASM_WASIP3_WASILIBC/crt1-command.o -Clink-arg=-lc"
+            echo "  rustc: $(rustc --version 2>/dev/null || echo 'NOT FOUND')"
+            echo "  wasip3 link recipe preset in \$ZWASM_WASIP3_RUSTFLAGS (build-std + nixpkgs wasm-ld + wasip2 wasi-libc)"
           '';
         };
 

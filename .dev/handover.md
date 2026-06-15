@@ -24,12 +24,14 @@ cloned** (`tests/rust/wasm32-wasip3`); wasm-tools/component-model refreshed (`im
   copy on a DONE end (spec `stream_copy`/`future_copy` `trap_if(state!=IDLE)`, `trap-if-done.wast`). **VERIFY
   EACH ROW vs spec** (lesson `2026-06-16-gap-matrix-subagent-verify-against-spec`): the matrix's "cancel-not-copying
   → returns 0" was WRONG (CanonicalABI `cancel_copy` traps; our `async_cancel_no_copy` already correct). NEXT:
-  **front② TIER-1 DONE**; deferred **D-446** Gap B + **D-447** TIER-2/3 (design-grade). **front① official build
-  BLOCKED → D-448**: wasm32-wasip3 rust-std absent from pinned stable (verified+reverted) + the suite needs
-  Buck2/wit-bindgen-async/wkg (bleeding-edge, WASI 0.3 is 5 days old). **NEXT = front① via behavior-mirror**:
-  hand-write wasip3 component `.wat` fixtures mirroring the suite's behaviors (`cli-exit`→exit(Err)=code 1;
-  `cli-stdio-roundtrip`→stdin→stdout via streams; `cli-env`), assembled via wasm-tools (our async_*.wat style) —
-  satisfies the user's "真似する" intent without the blocked official build. Then front ④ perf (no toolchain).
+  **front② TIER-1 DONE**; deferred **D-446** Gap B + **D-447** TIER-2/3 (design-grade). **front① = path ② (plain
+  rust wasip3) — TOOLCHAIN RESOLVED + BAKED**: `flake.nix devShells.gen-wasip3` + `$ZWASM_WASIP3_RUSTFLAGS` build a
+  real rust wasip3 component hermetically (nightly `-Z build-std` + `wasm-component-ld --wasm-ld-path` nixpkgs
+  wasm-ld + `link-self-contained=no` w/ stable wasip2 crt1/libc; pinned nightly 2026-06-14, reproducible). **VERIFIED:
+  zwasm runs the output → exit 1** (cli-exit). Recipe: lesson `2026-06-16-wasip3-hermetic-build-recipe`; caveats in
+  D-448. **NEXT (front①)**: author plain-rust wasip3 fixtures under `test/component/wasip3/` (cli-exit ✓spike,
+  cli-stdio-roundtrip, cli-env) + a runner asserting the wasi-testsuite `.json` expectations (`run`/`wait exit_code`);
+  commit the `.wasm` (run via edge-runner on test hosts). Generation: `nix develop .#gen-wasip3` (Mac only).
 - **① WASI 0.3 conformance**: compile wasi-testsuite `rust/wasm32-wasip3` via `.#gen` (add wasm32-wasip3 target + wit
   deps), run as a conformance corpus.
 - **③ real-world corpus 50→100**: add MoonBit/Grain/Kotlin (Wasm-GC) + AssemblyScript/Swift/Zig toolchains to

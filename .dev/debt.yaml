@@ -1588,27 +1588,26 @@ entries:
       ~/Documents/OSS/wasmtime/tests/misc_testsuite/component-model/async/
   - id: "D-448"
     layer: "infra"
-    status: "blocked-by"
+    status: "note"
     front: D-wasi03
     description: |-
-      blocked-by (toolchain maturity — WASI 0.3 ratified 2026-06-11, 5 days old):
-      the OFFICIAL `wasi-testsuite/tests/rust/wasm32-wasip3` conformance corpus
-      cannot be built in `.#gen`. Two confirmed blockers (extended_challenge Step
-      1+2, 2026-06-16): (1) the pinned `rust-bin.stable.latest` ships rust-std for
-      wasm32-wasip1/wasip2 but NOT wasm32-wasip3 (`rustup-components-history`: no
-      std component for wasip3 yet) — adding the target to flake.nix breaks `.#gen`
-      eval (verified + reverted); (2) the suite builds via Buck2 (BUCK/defs.bzl, no
-      Cargo.toml) + `wkg` for wit deps + `wit-bindgen` ASYNC bindings (`async fn
-      run`, `wit_stream`) — a heavy bleeding-edge pipeline. DISCHARGE: wasm32-wasip3
-      rust-std lands in a pinned stable (re-probe `rustc --print target-list` +
-      rustup component availability) AND a non-Buck build path (hand Cargo.toml +
-      wit-bindgen async + local wit/ dir, skipping wkg) is verified on one test.
-      MEANWHILE (front ① unblocked path): hand-write wasip3 component `.wat`
-      fixtures mirroring the suite's BEHAVIORS (cli-exit → exit(Err)=code 1;
-      cli-stdio-roundtrip → stdin→stdout via streams; cli-env) assembled via
-      wasm-tools — same style as test/component/async_*.wat. The user's #1 intent
-      was "真似する" (mimic), so behavior-mirror fixtures satisfy it without the
-      blocked official build.
+      note (RESOLVED build path 2026-06-16; maintenance caveats remain). wasm32-
+      wasip3 is a Tier-3 target (no prebuilt std, no prebuilt wasi-libc) + the nix
+      nightly rust-lld is broken on Darwin (libLLVM `DTLTO` mismatch). The hermetic
+      build recipe is now baked in `flake.nix devShells.gen-wasip3` +
+      `$ZWASM_WASIP3_RUSTFLAGS` (nightly + `-Z build-std`; `wasm-component-ld
+      --wasm-ld-path` nixpkgs wasm-ld; `link-self-contained=no` + stable wasip2
+      crt1-command.o/libc.a). VERIFIED: a real rust wasip3 component builds + zwasm
+      runs it → exit 1 (cli-exit). Full recipe + rationale: lesson
+      `2026-06-16-wasip3-hermetic-build-recipe`. CAVEATS (the residual debt): (a)
+      the pinned nightly `2026-06-14` needs periodic refresh; (b) the wasip2-libc-
+      borrow assumes wasip3's libc ABI stays == wasip2's (re-verify on a wasip3 std
+      bump); (c) the OFFICIAL wasi-testsuite (Buck2 + wit-bindgen-async + wkg) is
+      NOT wired — path ② (plain rust wasip3, user-chosen) is used instead, which
+      proves the same behaviors without the heavy bleeding-edge pipeline. NEXT
+      (front ①, tracked in handover): author plain-rust wasip3 fixtures (cli-exit
+      done as the spike; cli-stdio-roundtrip, cli-env) + a runner asserting the
+      wasi-testsuite `.json` expectations, committed `.wasm` run via the edge-runner.
     first_raised: "2026-06-16"
     last_reviewed: "2026-06-16"
     refs: |-
