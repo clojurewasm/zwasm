@@ -53,10 +53,22 @@ pub fn formatDiagnostic(
             });
         },
         .validate => {
-            try writer.print("zwasm: validation error in {s}: {s}\n", .{
-                source.filename,
-                diag.message(),
-            });
+            // ADR-0016 M3 — surface the captured failure site (fn_idx + body
+            // offset) the validator already records, instead of dropping it.
+            if (diag.location == .validate) {
+                const v = diag.location.validate;
+                try writer.print("zwasm: validation error in {s} (func #{d} @ 0x{x}): {s}\n", .{
+                    source.filename,
+                    v.fn_idx,
+                    v.body_offset,
+                    diag.message(),
+                });
+            } else {
+                try writer.print("zwasm: validation error in {s}: {s}\n", .{
+                    source.filename,
+                    diag.message(),
+                });
+            }
         },
         .execute => {
             try writer.print("zwasm: trapped in {s}: {s}\n", .{
@@ -117,6 +129,26 @@ test "formatDiagnostic: instantiate phase renders the §5/Q-C (c) shape" {
 
     const got = w.buffered();
     const want = "zwasm: instantiation failed for foo.wasm: module decode/validate failed (no further detail in phase 1)\n";
+    try testing.expect(std.mem.eql(u8, got, want));
+}
+
+test "formatDiagnostic: validate phase renders the captured func# + body offset (M3 F5b)" {
+    diagnostic.clearDiag();
+    diagnostic.setDiag(
+        .validate,
+        .other,
+        .{ .validate = .{ .fn_idx = 7, .body_offset = 0x12, .opcode = 0x20 } },
+        "type mismatch",
+        .{},
+    );
+    const d = diagnostic.lastDiagnostic().?;
+
+    var buf: [256]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&buf);
+    try formatDiagnostic(d, .{ .filename = "f.wasm" }, &w);
+
+    const got = w.buffered();
+    const want = "zwasm: validation error in f.wasm (func #7 @ 0x12): type mismatch\n";
     try testing.expect(std.mem.eql(u8, got, want));
 }
 

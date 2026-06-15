@@ -53,7 +53,24 @@ WASM_API_EXTERN void zwasm_instance_clear_interrupt(wasm_instance_t*);
 /* ── Trap kind introspection ─────────────────────────────────────────── */
 
 /* Machine-readable trap kind beside wasm.h's message-only surface; -1 on
- * NULL. Stable values for the sandboxing kinds: */
+ * NULL. Values mirror the `TrapKind` enum (src/api/trap_surface.zig), which is
+ * append-only stable; a C host can switch on these without string-matching. */
+#define ZWASM_TRAP_BINDING_ERROR 0
+#define ZWASM_TRAP_UNREACHABLE 1
+#define ZWASM_TRAP_DIV_BY_ZERO 2
+#define ZWASM_TRAP_INT_OVERFLOW 3
+#define ZWASM_TRAP_INVALID_CONVERSION 4
+#define ZWASM_TRAP_OOB_MEMORY 5
+#define ZWASM_TRAP_OOB_TABLE 6
+#define ZWASM_TRAP_UNINITIALIZED_ELEM 7
+#define ZWASM_TRAP_INDIRECT_CALL_MISMATCH 8
+#define ZWASM_TRAP_STACK_OVERFLOW 9
+#define ZWASM_TRAP_OUT_OF_MEMORY 10
+#define ZWASM_TRAP_NULL_REFERENCE 11
+#define ZWASM_TRAP_CAST_FAILURE 12
+#define ZWASM_TRAP_UNCAUGHT_EXCEPTION 13
+#define ZWASM_TRAP_UNALIGNED_ATOMIC 14
+#define ZWASM_TRAP_EXPECTED_SHARED_MEMORY 15
 #define ZWASM_TRAP_INTERRUPTED 16
 #define ZWASM_TRAP_OUT_OF_FUEL 17
 WASM_API_EXTERN int32_t zwasm_trap_kind(const wasm_trap_t*);
