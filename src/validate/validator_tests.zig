@@ -392,6 +392,19 @@ test "validate: type-mismatch diagnostic names expected/found types (D-334 F5a)"
     try testing.expect(std.mem.find(u8, d.message(), "expected i32, found f64") != null);
 }
 
+test "validate: isRef-gate diagnostic names 'expected a reference type, found X' (D-334 F5a)" {
+    // (func (param i32))  local.get 0 ; ref.is_null — the ref-expecting gate
+    // finds the i32 → StackTypeMismatch carrying the reference-expected message.
+    const diagnostic = @import("../diagnostic/diagnostic.zig");
+    const i32_param_sig: FuncType = .{ .params = &i32_arr, .results = &.{} };
+    diagnostic.clearDiag();
+    const body = [_]u8{ 0x20, 0x00, 0xD1, 0x0B }; // local.get 0 ; ref.is_null ; end
+    const r = validateFunction(i32_param_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
+    try testing.expectError(Error.StackTypeMismatch, r);
+    const d = diagnostic.lastDiagnostic().?;
+    try testing.expect(std.mem.find(u8, d.message(), "expected a reference type, found i32") != null);
+}
+
 test "validate: br to outer block consumes labeled type" {
     // outer block (result i32) { i32.const 5 ; br 0 } end
     // function sig () -> i32, expected to validate.

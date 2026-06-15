@@ -698,12 +698,17 @@ pub const Validator = struct {
     out_select_types: ?*std.ArrayList(u8) = null,
     out_allocator: ?std.mem.Allocator = null,
 
-    /// D-334 F5a — set by `popExpect` on a type-mismatch reject so the
-    /// dispatch-loop cold path (which owns the op location) can render
-    /// "type mismatch: expected <x>, found <y>" instead of the bare
-    /// error name. The error short-circuits straight to that catch, so
-    /// no successful op ever observes a stale value.
-    mismatch: ?struct { expected: ValType, found: ValType } = null,
+    /// D-334 F5a — set by a type-mismatch reject site so the dispatch-loop
+    /// cold path (which owns the op location) can render a rich message
+    /// instead of the bare error name: `.types` = a concrete expected/found
+    /// pair (popExpect); `.expected_ref` = a reference type was required but
+    /// the found type isn't one (the `isRef` gates). The error
+    /// short-circuits straight to that catch, so no successful op ever
+    /// observes a stale value.
+    mismatch: ?union(enum) {
+        types: struct { expected: ValType, found: ValType },
+        expected_ref: ValType, // the (non-ref) found type
+    } = null,
 
     fn run(self: *Validator) Error!void {
         // Implicit function frame: a `block` with the function's result type.
@@ -747,8 +752,10 @@ pub const Validator = struct {
                     .opcode = op,
                 } };
                 if (e == Error.StackTypeMismatch and self.mismatch != null) {
-                    const m = self.mismatch.?;
-                    diagnostic.setDiag(.validate, .other, loc, "type mismatch: expected {s}, found {s} at op 0x{x}", .{ m.expected.name(), m.found.name(), op });
+                    switch (self.mismatch.?) {
+                        .types => |m| diagnostic.setDiag(.validate, .other, loc, "type mismatch: expected {s}, found {s} at op 0x{x}", .{ m.expected.name(), m.found.name(), op }),
+                        .expected_ref => |found| diagnostic.setDiag(.validate, .other, loc, "type mismatch: expected a reference type, found {s} at op 0x{x}", .{ found.name(), op }),
+                    }
                 } else {
                     diagnostic.setDiag(.validate, .other, loc, "{s} at op 0x{x}", .{ @errorName(e), op });
                 }
@@ -795,7 +802,7 @@ pub const Validator = struct {
         switch (top) {
             .bot => {},
             .known => |t| if (!self.subtypeCtx(t, expected)) {
-                self.mismatch = .{ .expected = expected, .found = t };
+                self.mismatch = .{ .types = .{ .expected = expected, .found = t } };
                 return Error.StackTypeMismatch;
             },
         }
@@ -1220,7 +1227,10 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (!t.isRef()) return Error.StackTypeMismatch,
+            .known => |t| if (!t.isRef()) {
+                self.mismatch = .{ .expected_ref = t };
+                return Error.StackTypeMismatch;
+            },
         }
         self.markUnreachable();
     }
@@ -1702,7 +1712,10 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (!t.isRef()) return Error.StackTypeMismatch,
+            .known => |t| if (!t.isRef()) {
+                self.mismatch = .{ .expected_ref = t };
+                return Error.StackTypeMismatch;
+            },
         }
         try self.pushType(.i32);
     }
@@ -1723,7 +1736,10 @@ pub const Validator = struct {
         switch (top) {
             .bot => try self.pushBot(),
             .known => |t| {
-                if (!t.isRef()) return Error.StackTypeMismatch;
+                if (!t.isRef()) {
+                    self.mismatch = .{ .expected_ref = t };
+                    return Error.StackTypeMismatch;
+                }
                 try self.pushType(gc_subtype.castTargetType(ht_byte, nullable) orelse t);
             },
         }
@@ -2033,7 +2049,10 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (!t.isRef()) return Error.StackTypeMismatch,
+            .known => |t| if (!t.isRef()) {
+                self.mismatch = .{ .expected_ref = t };
+                return Error.StackTypeMismatch;
+            },
         }
         try self.pushType(.i32);
     }
@@ -2101,7 +2120,10 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (!t.isRef()) return Error.StackTypeMismatch,
+            .known => |t| if (!t.isRef()) {
+                self.mismatch = .{ .expected_ref = t };
+                return Error.StackTypeMismatch;
+            },
         }
         const diff: ValType = .{ .ref = .{
             .nullable = ht1_nullable and !ht2_nullable,
@@ -2154,7 +2176,10 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (!t.isRef()) return Error.StackTypeMismatch,
+            .known => |t| if (!t.isRef()) {
+                self.mismatch = .{ .expected_ref = t };
+                return Error.StackTypeMismatch;
+            },
         }
         try self.pushType(.i32);
     }
@@ -2299,7 +2324,10 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (!t.isRef()) return Error.StackTypeMismatch,
+            .known => |t| if (!t.isRef()) {
+                self.mismatch = .{ .expected_ref = t };
+                return Error.StackTypeMismatch;
+            },
         }
         try self.pushType(.i32);
     }
@@ -2327,7 +2355,10 @@ pub const Validator = struct {
                 try self.pushBot();
             },
             .known => |t| {
-                if (!t.isRef()) return Error.StackTypeMismatch;
+                if (!t.isRef()) {
+                    self.mismatch = .{ .expected_ref = t };
+                    return Error.StackTypeMismatch;
+                }
                 // ADR-0123 D2 (cycle 93 / 10.R-valtype-widen Cycle 4):
                 // narrow the popped ref's `nullable` flag to false.
                 // `ref.as_non_null` traps at runtime on null; on the
@@ -2359,7 +2390,10 @@ pub const Validator = struct {
         const reftype: ValType = switch (top) {
             .bot => .funcref, // polymorphic; pick any reftype
             .known => |t| blk: {
-                if (!t.isRef()) return Error.StackTypeMismatch;
+                if (!t.isRef()) {
+                    self.mismatch = .{ .expected_ref = t };
+                    return Error.StackTypeMismatch;
+                }
                 break :blk t;
             },
         };
@@ -2407,7 +2441,10 @@ pub const Validator = struct {
         const reftype: ValType = switch (top) {
             .bot => .funcref, // polymorphic; pick any reftype
             .known => |t| blk: {
-                if (!t.isRef()) return Error.StackTypeMismatch;
+                if (!t.isRef()) {
+                    self.mismatch = .{ .expected_ref = t };
+                    return Error.StackTypeMismatch;
+                }
                 break :blk t;
             },
         };
@@ -2465,7 +2502,10 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (!t.isRef()) return Error.StackTypeMismatch,
+            .known => |t| if (!t.isRef()) {
+                self.mismatch = .{ .expected_ref = t };
+                return Error.StackTypeMismatch;
+            },
         }
         // Pop args in reverse, then push results.
         var i: usize = callee.params.len;
@@ -2496,7 +2536,10 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (!t.isRef()) return Error.StackTypeMismatch,
+            .known => |t| if (!t.isRef()) {
+                self.mismatch = .{ .expected_ref = t };
+                return Error.StackTypeMismatch;
+            },
         }
         // Pop callee params in reverse (the tail-call args).
         var i: usize = callee.params.len;
