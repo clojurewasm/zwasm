@@ -37,6 +37,11 @@ pub const TypedResult = buffer_write.TypedResult;
 // ADR-0079 Step 1 — setup carve-out (RuntimeOwned + setupRuntime +
 // hostDispatchTrap). Re-exports below keep callers unchanged.
 const setup_mod = @import("setup.zig");
+// D-451 — same WASI import oracle the JIT setup uses to bind dispatch slots
+// (`populateDispatch` → `jit_dispatch.lookup`); a `null` lookup means the
+// import has no host handler, so it must reject at instantiation rather than
+// silently install a trap-on-call stub (Wasm spec §4.5.4).
+const jit_dispatch = @import("../wasi/jit_dispatch.zig");
 const setupRuntime = setup_mod.setupRuntime;
 /// D-225 — resolved cross-module FUNC import target (re-exported so the
 /// spec runner can build the slice for `initLinked` / `exportedFuncTarget`).
@@ -143,6 +148,15 @@ pub const Error = error{
     /// before `setupRuntime`'s eager `table_refs` allocation, so a
     /// pathological `(table 4e9)` cannot OOM the host.
     TableLimitExceeded,
+    /// Wasm spec §4.5.4 (instantiation): a module declares an import
+    /// the host cannot satisfy. The interp path rejects this at
+    /// instantiation via the linker (`UnknownImport` /
+    /// `UnsupportedWasiImport`); the JIT WASI run path mirrors it here
+    /// instead of silently binding the import to a trap-on-call stub
+    /// (`hostDispatchTrap`) that only faults if the import is ever
+    /// called. An unsatisfied import MUST fail instantiation regardless
+    /// of whether it is reached at runtime (D-451).
+    ImportUnsatisfied,
 } || compile_func.Error || parser.Error || sections.Error || linker.Error || entry.Error || validator_mod.Error || rv.Error;
 // `InvalidGlobalInitExpr` / `UnsupportedEntrySignature` /
 // `UnsupportedConstExpr` originate in `runner_validate.zig`
@@ -479,6 +493,30 @@ pub const RunLimits = struct {
 /// Sum a module's declared INITIAL table elements across all defined tables,
 /// for the `RunLimits.max_table_elements` sandbox check (D-332). Mirrors
 /// setup.zig's table decode; an arena keeps it allocation-clean.
+/// Wasm spec §4.5.4 — reject instantiation when the module declares an import
+/// the WASI host cannot satisfy (D-451). The JIT WASI run path's only import
+/// provider is `jit_dispatch` (the same oracle `setupRuntime` uses to populate
+/// the dispatch table); an import whose `(module, name)` does not resolve there
+/// would otherwise be left as a trap-on-call `hostDispatchTrap` stub and the
+/// module would instantiate + run if the import is never called — diverging
+/// from the interp path (linker `UnknownImport`) and the spec. Non-func imports
+/// (memory/table/global/tag) are never satisfiable through the WASI host, so
+/// any such import is unsatisfied here too (the interp WASI path rejects them
+/// identically). Modules with no import section pass trivially.
+fn assertWasiImportsSatisfied(allocator: Allocator, wasm_bytes: []const u8) Error!void {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const ta = arena.allocator();
+    const module = try parser.parse(ta, wasm_bytes);
+    const s = module.find(.import) orelse return;
+    var imports_buf = try sections.decodeImports(ta, s.body);
+    defer imports_buf.deinit();
+    for (imports_buf.items) |imp| {
+        if (imp.kind != .func) return Error.ImportUnsatisfied;
+        if (jit_dispatch.lookup(imp.module, imp.name) == null) return Error.ImportUnsatisfied;
+    }
+}
+
 fn declaredTableElements(allocator: Allocator, wasm_bytes: []const u8) Error!u64 {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
@@ -508,6 +546,11 @@ pub fn runWasiLenient(
 
     var compiled = try compileWasm(allocator, wasm_bytes);
     defer compiled.deinit(allocator);
+
+    // D-451 — Wasm spec §4.5.4: an unsatisfied import MUST fail instantiation,
+    // regardless of whether it is ever called. Reject here (interp-parity)
+    // rather than leaving the import as a trap-on-call stub.
+    try assertWasiImportsSatisfied(allocator, wasm_bytes);
 
     // D-332 sandbox triad (table leg): reject a module whose declared initial
     // table elements exceed the host cap BEFORE setup's eager `table_refs`

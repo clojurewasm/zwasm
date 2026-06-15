@@ -2053,6 +2053,23 @@ test "runWasiLenient: declared table elements over max_table_elements → TableL
     _ = try runner.runWasiLenient(testing.allocator, &wasm, null, null, null, .{});
 }
 
+test "runWasiLenient: unsatisfied import → ImportUnsatisfied at instantiation, even if never called (D-451, Wasm spec §4.5.4)" {
+    // Module imports `env.abort` (func []→[]) — no WASI handler, no exporter —
+    // and exports an empty `_start` that NEVER calls it. The interp path
+    // rejects this at instantiation (linker UnknownImport); the JIT WASI run
+    // path must mirror that instead of installing a trap-on-call stub and
+    // running to completion because the import is never reached.
+    const wasm = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // type: []→[]
+        0x02, 0x0d, 0x01, 0x03, 0x65, 0x6e, 0x76, 0x05, 0x61, 0x62, 0x6f, 0x72, 0x74, 0x00, 0x00, // import "env" "abort" func type 0
+        0x03, 0x02, 0x01, 0x00, // func: 1 defined func, type 0
+        0x07, 0x0a, 0x01, 0x06, 0x5f, 0x73, 0x74, 0x61, 0x72, 0x74, 0x00, 0x01, // export "_start" func idx 1
+        0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b, // code: 1 body, 0 locals, end
+    };
+    try testing.expectError(runner.Error.ImportUnsatisfied, runner.runWasiLenient(testing.allocator, &wasm, null, null, null, .{}));
+}
+
 test "jitTableGrow: store_table_elements_max refuses table.grow past host cap (D-314(b))" {
     // (module (table 1 10 externref) (func (export "g") (result i32)
     //   ref.null extern  i32.const 5  table.grow 0))
