@@ -13,7 +13,7 @@ job, not a runtime's. Dispatch source:
 zwasm                                     # version + build-options banner
 zwasm run <file.wasm|.cwasm> [args...]    # run a module
 zwasm compile <file.wasm> -o <out.cwasm>  # compile to a .cwasm AOT artifact
-zwasm --version | -V                      # version
+zwasm --version | -V                      # version + build identity (wasm/wasi/engine)
 zwasm --help | -h | help                  # usage
 ```
 
@@ -51,6 +51,19 @@ artifact (ADR-0039) to the `-o` / `--output` path. `zwasm run
 - `.cwasm` input → AOT-loaded directly (full WASI, D-251).
 - `.wasm` input → interpreter by default; `--engine jit` opts into the JIT
   (full WASI via D-244, plus SIMD execution).
+
+## Exit codes
+
+| Code | Meaning                                                                                          |
+|------|--------------------------------------------------------------------------------------------------|
+| `0`  | Success — guest returned normally, or called `proc_exit(0)`                                     |
+| `N`  | Guest called `proc_exit(N)` (the guest's own status surfaces verbatim)                           |
+| `1`  | Guest trapped (OOB access, `unreachable`, integer divide-by-zero, fuel/timeout, …)              |
+| `2`  | Usage error — unknown subcommand, bad flag value, or a requested limit refused (loud, ADR-0159) |
+| `70` | Internal zwasm fault — a fatal signal/panic caught by the diagnostic fault handler (ADR-0166)   |
+
+Source of truth: the `run` exit-code mapping (`src/cli/run.zig`) +
+`main.zig`'s dispatch (`2`) and internal-fault handler (`70`).
 
 ## Environment
 
