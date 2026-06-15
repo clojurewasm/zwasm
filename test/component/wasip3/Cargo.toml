@@ -16,3 +16,9 @@ path = "src/bin/cli-exit.rs"
 panic = "abort"
 opt-level = "s"
 strip = true
+
+
+
+[[bin]]
+name = "cli-stdout"
+path = "src/bin/cli-stdout.rs"

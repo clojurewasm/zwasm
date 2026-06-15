@@ -584,3 +584,23 @@ test "WASI 0.3 conformance (wasip3): cli-exit → exit code 1 (real rust compone
     try runWasiMain(&eng, testing.allocator, bytes, &host, .{});
     try testing.expectEqual(@as(?u32, 1), host.exit_code);
 }
+
+test "WASI 0.3 conformance (wasip3): cli-stdout writes to stdout (real rust component)" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/wasip3/cli-stdout.wasm", testing.allocator, .limited(4 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(testing.allocator);
+    host.stdout_buffer = &capture;
+
+    // `print!("zwasm-wasip3-ok")` → the host stdout capture holds it.
+    try runWasiMain(&eng, testing.allocator, bytes, &host, .{});
+    try testing.expectEqualStrings("zwasm-wasip3-ok", capture.items);
+}

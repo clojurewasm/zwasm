@@ -24,7 +24,7 @@ RUSTFLAGS="$ZWASM_WASIP3_RUSTFLAGS" \
   cargo build -Z build-std=std,panic_abort --target wasm32-wasip3 --release
 
 # Each [[bin]] in Cargo.toml → a committed top-level <name>.wasm fixture.
-for bin in cli-exit; do
+for bin in cli-exit cli-stdout; do
   src="target/wasm32-wasip3/release/${bin}.wasm"
   wasm-tools validate "$src"
   cp "$src" "${bin}.wasm"
