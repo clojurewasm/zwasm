@@ -1613,6 +1613,36 @@ entries:
     refs: |-
       flake.nix (devShells.gen rustWasm targets — wasip3 NOT addable yet);
       ~/Documents/OSS/wasi-testsuite/tests/rust/wasm32-wasip3/ (BUCK + wit + src/bin)
+  - id: "D-449"
+    layer: "code"
+    status: "now"
+    front: D-wasi03
+    description: |-
+      now (real correctness gap, surfaced 2026-06-16 by front-① wasip3 fixtures). A
+      wasip3 component guest reads env vars + argv as EMPTY even though the component
+      host path wires `p2GetEnvironment` (from `ctx.host.envs`) + get-arguments (from
+      `ctx.host.args`) — `component_wasi_p2.zig:1046/1064`, bound at `:1445`. REPRO:
+      a real rust wasip3 cli-env (`std::env::var("WASI_TEST")` → exit 42 iff "ok")
+      run via `runWasiMain` with `host.envs = {WASI_TEST: ok}` → exits 1 (guest saw
+      empty), expected 42; same for cli-args (`std::env::args().nth(1)`). NOT import
+      resolution: the SAME-version `wasi:cli/stdout@0.2.6` works (cli-stdout fixture
+      passes). NOT version skew: the component imports environment@0.2.6 and stdout
+      @0.2.6 alike. Leading hypothesis: the `get-environment` `list<tuple<string,
+      string>>` / `get-arguments` `list<string>` retptr LOWERING (nested list-of-
+      string, or string ptr/len encoding) doesn't match what the guest's generated
+      bindings decode → empty list. Distinguishing probes: (1) does a wasip2 (Tier-2,
+      stable) cli-env component also read empty? (isolates wasip3-specific vs general
+      get-environment marshalling); (2) `ZWASM_DEBUG` / dump the retptr bytes
+      p2GetEnvironment writes vs the canon list<tuple<string,string>> ABI layout.
+      FIX then un-skip the cli-env/cli-args fixtures (recreate from this row: 5-line
+      `std::env::var`/`args().nth(1)` → exit 42, add `[[bin]]` + the gen-script loop
+      + the host.envs/args test asserting exit_code==42).
+    first_raised: "2026-06-16"
+    last_reviewed: "2026-06-16"
+    refs: |-
+      src/api/component_wasi_p2.zig (p2GetEnvironment ~L1046/L1064; bound ~L1445);
+      test/component/wasip3/ (cli-exit + cli-stdout fixtures; cli-env/args to re-add);
+      scripts/gen_wasip3_fixtures.sh
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.

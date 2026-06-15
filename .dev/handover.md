@@ -29,12 +29,13 @@ cloned** (`tests/rust/wasm32-wasip3`); wasm-tools/component-model refreshed (`im
   real rust wasip3 component hermetically (nightly `-Z build-std` + `wasm-component-ld --wasm-ld-path` nixpkgs
   wasm-ld + `link-self-contained=no` w/ stable wasip2 crt1/libc; pinned nightly 2026-06-14, reproducible). **VERIFIED:
   zwasm runs the output → exit 1** (cli-exit). Recipe: lesson `2026-06-16-wasip3-hermetic-build-recipe`; caveats in
-  D-448. **cli-exit DONE** (`a03a22a1`): `test/component/wasip3/` Cargo project + `scripts/gen_wasip3_fixtures.sh` +
-  committed `cli-exit.wasm` (56KB) + a test running it via runWasiMain asserting `exit_code==1` (mirrors
-  `cli-exit.json`). **NEXT (front①)**: more plain-std wasip3 fixtures — cli-args (`std::env::args`), cli-env
-  (`std::env::vars`), stdout (`println!`), stdin (`std::io::stdin`); add each `[[bin]]` to the Cargo.toml + a loop
-  in `gen_wasip3_fixtures.sh` + a test. NOTE: the suite's `cli-stdio-roundtrip` uses `wit_stream`/wit-bindgen =
-  path ① (heavy), NOT plain-std — defer it. Then front ④ perf (no toolchain).
+  D-448. **cli-exit (`a03a22a1`) + cli-stdout (`31af8925`) DONE**: `test/component/wasip3/` + `scripts/gen_wasip3_
+  fixtures.sh`; tests run via runWasiMain (cli-exit → exit_code==1; cli-stdout → stdout capture "zwasm-wasip3-ok").
+  **FOUND D-449 (now)**: a wasip3 guest reads env/argv EMPTY despite the component path wiring p2GetEnvironment/
+  get-arguments (cli-env/cli-args fixtures exit 1 not 42; same-version cli-stdout works → list<tuple/string> retptr
+  marshalling, not resolution). **NEXT (front①)**: investigate+fix D-449 (probe: does a wasip2 cli-env also read
+  empty? + dump get-environment retptr bytes vs canon list ABI), then un-skip cli-env/cli-args (recreate per D-449).
+  cli-stdio-roundtrip = wit_stream/wit-bindgen (path①, defer). Then front ④ perf (no toolchain).
 - **① WASI 0.3 conformance**: compile wasi-testsuite `rust/wasm32-wasip3` via `.#gen` (add wasm32-wasip3 target + wit
   deps), run as a conformance corpus.
 - **③ real-world corpus 50→100**: add MoonBit/Grain/Kotlin (Wasm-GC) + AssemblyScript/Swift/Zig toolchains to
