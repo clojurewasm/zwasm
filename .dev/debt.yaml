@@ -1143,6 +1143,24 @@ entries:
       Now tracked as handover Active bundle **d330-blockmerge-liveness** (proper fix = mirror emit EXACTLY
       + handle br_table + GATE on test-spec-wasm-2.0-assert NOT test-spec). Trail: trace notes Round 4 +
       lesson `spill-stage-reg-clobber-and-spec-gate-gap` (the 2.0-assert ≠ test-spec gate gap).
+      ---
+      **ROUND-5 — DEEPER: the emit-aligned fix has CONFLICTING constraints (3rd attempt, bundle CLOSED →
+      this note)**. A 3rd attempt implemented the design EXACTLY (liveness mirrors emit's
+      captureOrEmitBlockMergeMov: instrumented + VERIFIED agreement — labels $exit liveness-merge0=2 ==
+      emit-merge0=2; $ret 3==3). DESPITE perfect liveness↔emit agreement, `labels $switch` STILL produced
+      25 (exp 50) AND c_sha256 regressed to 90B. KEY: at clean HEAD (OLD liveness, NO merge-vreg extension)
+      labels $switch is CORRECT (50) + 2.0-assert 25437/0. So c_sha256 (needs the merge vreg extended past
+      the block body) and labels/multi-br+br_table (correct WITHOUT extension) have **CONFLICTING liveness
+      requirements under the current emit** — a blanket "extend block-merge vregs to .end" is WRONG; it
+      exposes/creates a separate emit-or-regalloc miscompile in the multi-writer/br_table path. The real fix
+      is NARROWER/deeper than the design assumed: understand WHY labels is correct without extension (emit
+      likely relies on the fall-through value staying in its slot for multi-br), then target ONLY c_sha256's
+      specific single-br+drop+intra-block-loop-reuse pattern, OR fix at the emit/regalloc layer the correct
+      liveness exposes. **DISPOSITION**: 3 failed attempts on a COSMETIC-symptom bug (one trailing `\n`;
+      values + interp correct; 55/56 corpus byte-exact) = genuinely disproportionate (matches the original
+      5×-deprioritization). Bundle d330-blockmerge-liveness CLOSED; this is a hard-parked debt note. Design +
+      conflicting-constraint finding preserved (private/notes/d330-emit-align-design.md + trace Round 4) for
+      a FUTURE fresh-context careful attempt. Do NOT immediately re-attempt the blanket fix (it thrashes).
     first_raised: "2026-06-15"
     last_reviewed: "2026-06-15"
     refs: |-

@@ -3,40 +3,24 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Active bundle — c_sha256 `\n` = block-result merge-vreg liveness not extended to block end (D-330)
+## Current state — Phase-17 完成形 steady-state; branch GREEN (`f80df3e4`, 2-host verified)
 
-- **Bundle-ID**: d330-blockmerge-liveness
-- **Cycles-remaining**: ~2-3 (proper emit-aligned fix + 2.0-assert gate)
-- **Continuity-memo**: ROOT (Round-4, instrumented regalloc probe — HARD DATA; trace
-  `private/notes/c_sha256_trace_2026-06-15.md` Round 4): c_sha256 JIT drops the final `\n` (106 vs 107).
-  A `br`/`br_if` carrying a `block`-result merge
-  vreg is NOT extended to the block `.end` in liveness.zig (the `if`-frame path is wired D-093 d-11/d-12;
-  plain block+br never was). In c_sha256's inlined strlen the merge vreg(477) died at the fall-through `drop`
-  → regalloc freed its slot → the strlen SWAR loop's vreg(485) reused it → `.end` read garbage → strlen
-  off-by-one → fputs wrote len-1. (Rounds 1-3 — wpos / flush-branch / cross-call-X22 — ALL DISPROVEN.)
-- **ATTEMPTED FIX — REVERTED `a71906fa`+`547d5ce1`** (orig `960a27b4`+`c9dad2d4`): liveness-only — capture
-  br/br_if-carried result vregs into the target block/try_table `merge_vregs` + fire `.end` re-injection for
-  block frames + `Frame.is_loop`. PASSED arm64 `test` 2767/0 + `test-spec` 9/9 + c_sha256 byte-exact +
-  diff-jit corpus 0-mismatch — **but FAILED `test-spec-wasm-2.0-assert`: `labels` switch ×3 (got 25 exp 50)**,
-  both arches. The naive capture is INCONSISTENT with the emit's `captureOrEmitBlockMergeMov` for multi-br /
-  `br_table` / nested block-result merges (`br $exit (v)` / `br $ret (v)`); it only matched c_sha256's narrow
-  single-br-with-drop shape.
-- **NEXT (proper fix)**: mirror `op_control_merge_mov.captureOrEmitBlockMergeMov` EXACTLY — same capture
-  conditions (frame kinds .block/.if_then/.else_open; first-br capture vs subsequent-br MOV) + handle
-  `br_table` (payload=label COUNT → decode `branch_targets`, per target) + `.end` re-injection must match the
-  emit's post-block canonical vreg. **GATE (mandatory, the gap that bit this): `zig build test-spec-wasm-2.0-assert`
-  (≠ `test-spec`!) + Rosetta x86_64 BEFORE push** (lesson `spill-stage-reg-clobber-and-spec-gate-gap`).
-  Correctness-first: the white-box liveness unit test (last_use 4→7) is necessary but NOT sufficient — add a
-  `labels`-shaped multi-br/br_table characterization test that is RED on the naive fix.
-- **Exit-condition**: c_sha256 JIT = 107B byte-exact + `test-spec-wasm-2.0-assert` 25437/0 (Mac arm64 +
-  Rosetta x86_64) + diff-jit corpus 0-mismatch + full `zig build test`.
+c_sha256 `\n`-drop (D-330) deep-investigated this session (5 trace rounds + 3 fix attempts) → **bundle
+d330-blockmerge-liveness CLOSED, demoted to a hard-parked debt note**. Root IS understood (a br/br_if
+block-result merge vreg not extended to the block `.end`), BUT the fix has **CONFLICTING constraints**:
+c_sha256 needs the extension; `labels $switch` (multi-br/br_table) is correct WITHOUT it and breaks WITH it
+(even when liveness perfectly mirrors emit — verified). So a blanket fix is wrong; the real fix is a
+narrower/deeper emit-or-regalloc change — a multi-cycle research problem, disproportionate for a cosmetic
+symptom (one `\n`; values + interp correct; 55/56 byte-exact). Full findings + design + conflicting-constraint
+note preserved in **D-330 debt** (Round 5) + `private/notes/{c_sha256_trace_2026-06-15.md, d330-emit-align-design.md}`
+for a FUTURE fresh-context attempt. **Do NOT immediately re-attempt the blanket fix — it thrashes.**
 
-## State note (post-revert)
+**Branch verified GREEN**: `test` 2766/0, `test-spec-wasm-2.0-assert` 25437/0 (Mac arm64), ubuntu x86_64
+`OK (HEAD=f80df3e4)`. windows batched/deferred. Reverts `a71906fa`+`547d5ce1` (naive fix `960a27b4` undone).
 
-c_sha256 `\n` drop is BACK (fix reverted; branch GREEN again: test 2766/0, test-spec-wasm-2.0-assert 25437/0).
-**D-293 array_oob** COMPLETE (`855ca5ca`+`dafab5ce`). Scaffolding audit (this session): **0 block, healthy**.
-Long-tail: **go corruption** D-331(A) (infra-blocked), **D-289/D-331(B)** go_regex emit-side (parked),
-**D-294-R2** (conformance-neutral CLI). br_table block-result merge-vreg gap folds into this bundle's fix.
+**Other long-tail (parked/blocked)**: go corruption D-331(A) (infra-blocked), D-289/D-331(B) go_regex
+emit-side (parked), D-294-R2 (conformance-neutral CLI), D-333 (br_table merge — folds into D-330's future fix).
+**D-293 array_oob** COMPLETE. Scaffolding audit (this session): **0 block, healthy**.
 
 ## ACTIVE AGENDA (user-directed 2026-06-14) — real-world toolchain/bench reproduction
 
@@ -66,7 +50,7 @@ D-332 closed); D-294 R1 `2a53213f`. Trace tooling: `ZWASM_DEBUG=jit.dump` + `scr
   + x86_64 D-238/ADR-0185 `c534afca`). Interp + JIT EH spec corpus green.
 - **Debt**: 46 entries, **zero `now`**; all blocked-by are external (upstream
   Zig / hosts) / future-phase (11/12/14) / user-gated, or `note`/`partial` long-tail.
-  D-330 = Active bundle; D-331 (go, primary+(A) FIXED, miscompile-next) parked.
+  D-330 = hard-parked debt note (bundle closed; conflicting-constraint fix, see Round 5); D-331 (go) parked.
 - **Realworld corpus**: 50 fixtures (c/cpp/rust/tinygo/go), interp 50/50; JIT run-stage
   opt-in (`ZWASM_JIT_RUN=1`) — the Phase-B signal source. cljw fixtures retired.
 - **Tag**: `v2.0.0-alpha.3` tag-only (no Release → Latest stays v1.11.0), USER-ONLY.
