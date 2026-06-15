@@ -1416,9 +1416,13 @@ entries:
         p2WriteViaStream registers host sink (WasiP2Ctx.host_sinks: SharedStream handle→fd) + returns a future;
         p2StreamFutureCopy COMPLETION branch (was error.OutOfBounds trap) marshals n u8 from guest mem ptr via
         wasi_fd.writeSlice → COMPLETED(n); e2e async_stdout_write_via_stream.wat (guest writes "hi\n" → host
-        captures). First guest stream.write COMPLETION + marshalling. NEXT = E2 (WAIT-path e2e via
-        driveCallbackLoop WAIT branch; needs waitable-set builtins + the write-via-stream future resolution) /
-        E3 (stdin read-via-stream, host-as-writer + multi-byte marshalling). Then F/G. (D-444 = P3-host file split.)
+        captures). First guest stream.write COMPLETION + marshalling. E3 DONE (63fee3d4): wasi:cli/stdin
+        read-via-stream host-as-writer; mints stream+future, registers readable as host source (host_sources:
+        shared→stdin fd), writes tuple<stream,future> to retptr (flattens past MAX_FLAT_RESULTS=1); READ branch
+        pulls via readStdinSlice → COMPLETED(n); e2e reads "ok" → COMPLETED(2). Both stream directions COMPLETE.
+        NEXT = E2: WAIT-path e2e (decode+wire waitable-set.new/waitable.join [types.zig defers 0x05..0x0d] + a
+        host event-delivery trigger → driveCallbackLoop WAIT branch; survey+ADR). Gaps: multi-byte/typed element
+        marshalling (E1/E3 did u8); return-future resolution. Then F/G. (D-444 = P3-host file split.)
       - E — WASI-P3 host interfaces (new component_wasi_p3.zig; sockets/http/clocks
         async; ~2000; MED; coexists with P2, does NOT replace it). Needs D.
       - F — async-export ABI + P3 component runner (canon.zig; ~400; MED). Needs E.

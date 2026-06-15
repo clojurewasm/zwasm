@@ -3,7 +3,7 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Current state — WASI-0.3 campaign (D-335); Unit E1 done — host stream peer (stdout+stderr e2e) (`198e210b`)
+## Current state — WASI-0.3 campaign (D-335); Unit E1+E3 done — both stream directions COMPLETE e2e (`63fee3d4`)
 
 **WASI 0.3 / Preview 3 campaign** (Front D, ratified 2026-06-11; CM-async — `async` func / `stream<T>` /
 `future<T>`, NOT core stack-switching). Critical path A→B→C→D(crux)→E→F→G; full unit plan + per-unit DONE-SHAs
@@ -37,29 +37,38 @@ through a stream → host captures it. **First guest stream.write COMPLETION + e
 write-via-stream e2e too (`198e210b`, fd-2 routing). (p2 crossed
 2000 lines → FILE-SIZE-EXEMPT marker; **D-444** = split the P3 async host to a sibling `component_wasi_p3_host.zig`.)
 
-**NEXT — Unit E2/E3** (extend the host-peer surface):
-- **E2 — the WAIT-path e2e** (today only EXIT/YIELD are e2e through the runner): a guest that BLOCKs on a
-  stream op then a host-peer completion delivers an event + re-enters `callback` via `driveCallbackLoop`'s WAIT
-  branch (`waitOn`). May need `waitable-set.new`/`.join` builtins + the future's resolution (the write-via-
-  stream return future, deferred in E1). Survey the WAIT seam wiring.
-- **E3 — `wasi:cli/stdin.read-via-stream`** (host-as-writer: host supplies bytes, guest reads → COMPLETION the
-  other direction) + multi-byte/typed element marshalling (E1 only did `u8`).
-- Then F (async-export public API), G (p3 corpus). Per D-335. (Also: **D-444** P3-host file split when E settles.)
+**E3 DONE** (`63fee3d4`, ADR-0190): `wasi:cli/stdin.read-via-stream` host-as-writer (mirror of E1). New P2Op;
+`p2StdinReadViaStream` mints a stream+future, registers the readable end as a host SOURCE (`WasiP2Ctx
+.host_sources`: shared→stdin fd), writes the `tuple<stream,future>` to the guest retptr (flattens past
+MAX_FLAT_RESULTS=1 → memory return). `p2StreamFutureCopy`'s READ branch pulls bytes via `wasi_fd.readStdinSlice`
+→ COMPLETED(n). E2E: guest reads host stdin "ok" → COMPLETED(2)+bytes (self-asserts). **Both stream directions
+now COMPLETE e2e.**
+
+**NEXT — Unit E2: the WAIT-path e2e** (the last callback-loop gap — today only EXIT/YIELD are e2e; WAIT is
+mock-only). A guest BLOCKs on a stream op (no peer ready → BLOCKED, parks) → returns WAIT(set) to the loop →
+`driveCallbackLoop` WAIT branch → `waitOn(set)` → an event must be ready. Needs: (1) `waitable-set.new` +
+`waitable.join` canon builtins (currently undecoded — `types.zig` defers 0x05..0x0d) — DECODE + wire them
+(`WaitableSet`/`WaitableSetTable` Zone-1 exists); (2) a host-peer completion that delivers a pending event to
+the set member (the host-source/sink could, on a later byte arrival, set the end's `pending_event`); (3) the
+loop re-enters `callback(STREAM_READ, idx, payload)`. **Survey + likely an ADR** for the waitable-set builtin
+shape + the event-delivery trigger. Gaps to also note: multi-byte/typed element marshalling (E1/E3 did `u8`
+only); the write-via-stream/read-via-stream return-future resolution (deferred). Then F/G. (**D-444** P3-host
+file split when E settles.)
 
 ## Active bundle
 
 - **Bundle-ID**: wasi03-D-335 (§9.0 Front D; WASI 0.3 / Preview 3; units A→G)
-- **Cycles-remaining**: ~3 (D done + Unit E1 host-peer done; remaining = E2 WAIT-path / E3 stdin → F → G)
+- **Cycles-remaining**: ~3 (D done + E1+E3 host-peer both directions done; remaining = E2 WAIT-path → F → G)
 - **Continuity-memo**: critical path **A→B→C→D(DONE incl. ζ2 single-task-complete)→E(WASI-P3 host interfaces; unlocks read/write COMPLETION)→F→G**
   (full plan in **D-335**; design in **ADR-0187** — stackless callback ABI, no fibers). CM-async, NOT core
   stack-switching. Spec: `~/Documents/OSS/{WASI, WebAssembly/component-model}` (design/mvp/{Binary,CanonicalABI,
   Concurrency}.md); ref impl `~/Documents/OSS/wasmtime` (43+; `concurrent/futures_and_streams.rs`).
 - **Exit-condition**: a WASI-0.3 async/stream/future component runs end-to-end through zwasm (new P3
   corpus green, 3-host); each unit lands green per D-335 along the way.
-- **Unit D + E1 DONE (HIGH/crux); Unit E2/E3 START HERE**: Zone-1 model + P3 runner + ζ2 + the first host
-  stream peer (stdout write-via-stream, COMPLETION + u8 marshalling) all e2e green. Next = E2 (WAIT-path e2e
-  through `driveCallbackLoop`'s WAIT branch) / E3 (stdin read-via-stream, host-as-writer + multi-byte
-  marshalling). Then F/G. (D-444 = split the P3 async host to a sibling when E settles.)
+- **Unit D + E1 + E3 DONE (HIGH/crux); Unit E2 START HERE**: Zone-1 model + P3 runner + ζ2 + both host stream
+  peer directions (stdout/stderr write-via-stream, stdin read-via-stream — COMPLETION + u8 marshalling) all e2e
+  green. Next = E2 (the WAIT-path e2e: waitable-set builtins + a host event delivery → `driveCallbackLoop`'s
+  WAIT branch; survey+ADR). Then F/G. (D-444 = split the P3 async host to a sibling when E settles.)
 
 ## Long-tail (debt-tracked / parked — NOT active; see §9.0 fronts + debt.yaml)
 
