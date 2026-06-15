@@ -3,23 +3,22 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Just closed — Phase-17 codegen trap-kind parity: D-293 array_oob siblings (`855ca5ca`) + D-294 R1 (`2a53213f`)
+## Just closed — D-293 array_oob COMPLETE (`855ca5ca` + `dafab5ce`); D-293 trap-kind demux effectively done
 
-**`855ca5ca` (D-293 array_oob slice-5)**: `array.get_s`/`get_u` (packed reads) still routed null+OOB to the
-generic `bounds_fixups` while `array.get`/`set` were precise (slice-4c) — rerouted both arches to
-null→null_reference (10) + OOB→oob_memory (6); fixed stale array.get header comments; test via wasm-tools
-`(array i8)`. REMAINING array_oob: `array.copy`/`fill` (trampoline collapses null+OOB → needs a D-294-style
-sentinel split; low priority, conformance-neutral). Ubuntu+lint green (2868/2880).
+**`855ca5ca`**: array.get_s/get_u rerouted null→null_reference (10) + OOB→oob_memory (6) (were generic).
+**`dafab5ce`**: array.fill/copy trampolines (jitGcArrayFill/Copy) now return `ARRAY_NULL_SENTINEL` (2) so
+both arch callers split null (10) vs OOB (6) — were collapsed to W0=0. **All 6 array trap sites now
+precise + consistent with array.get/set + interp.** Tests via wasm-tools `(array (mut i8))` (fill/copy need
+MUTABLE). 2869/2881 + lint green. **D-293 demux now effectively complete**; only residual = D-294-R2 code-2
+SUB-split (call_indirect vs table-access OOB message, both code 2), conformance-neutral CLI polish (deferred).
+**Codegen quick-win tail exhausted** — remaining: c_sha256 `\n` (deep, parked), go corruption (blocked),
+D-294-R2 (architectural, conformance-neutral). Next = reassess / steady-state Phase-17 refinement.
 
-## Earlier this session — D-294 R1 fixed (`2a53213f`); sandbox triad complete
+## Earlier this session (SHAs durable; detail in commits/debt)
 
-**`2a53213f` (D-294 R1)**: subtyping `call_indirect` on null elem now → uninitialized_elem (13) not
-indirect_call_mismatch (3); trampoline returns `NULL_ELEM_SENTINEL`, callers route to `uninit_elem_fixups`.
-D-294 R2 (code-2 channel split) remains, conformance-neutral. **3-host gate**: windows recorded green
-`cefdca2b` (`25437/0`) — table-grow-cap ABI batch 3-host confirmed.
-
-**Sandbox triad (prior, `bd355258`+`fa4678f4`)**: JIT caps table initial-alloc + runtime `table.grow` + CLI
-`--max-table-elements`. Triad (fuel/memory/table) cross-engine complete. D-314(b) discharged; D-332 closed.
+**D-294 R1** `2a53213f`: subtyping call_indirect null elem → uninitialized_elem (13) via `NULL_ELEM_SENTINEL`.
+**Sandbox triad** `bd355258`+`fa4678f4`: JIT table initial-alloc + `table.grow` caps + CLI `--max-table-elements`
+(fuel/memory/table cross-engine complete; D-314(b)/D-332 closed). **3-host**: windows green `cefdca2b` (25437/0).
 
 **Phase-B debug tooling (user-directed persistence, prior turns)** — reusable lldb value-trace for JIT
 miscompiles with wrong output but no crash: `ZWASM_DEBUG=jit.dump` (per-func bytes `db3109d8` + runtime

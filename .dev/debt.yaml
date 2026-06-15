@@ -214,12 +214,13 @@ entries:
       add a per-kind channel each, route every append to its kind, emit one stub per kind. ~50 sites across both
       arches → an architectural/rework-style chunk, NOT a quick fix. Lower frequency than the common 4 so
       deferred behind D-292 B/C/D; pick up as a follow-on widening (or fold into workstream D's audit-gap close).
-      SLICE-5 (array_oob siblings) DONE (`855ca5ca`): array.get_s/get_u (packed-array reads) were still on
-      generic bounds_fixups while array.get/set were precise (slice-4c) — rerouted both arches to null→
-      null_reference (10) + OOB→oob_memory (6); stale array.get header comments fixed; test (array.get_s
-      null/OOB). REMAINING array_oob: array.copy/array.fill route through the jitGcArrayCopy/Fill TRAMPOLINE
-      which collapses null+OOB into W0=0 (like the pre-D-294 call_indirect path) → needs a distinct sentinel
-      (D-294-style) to split null_reference vs oob; low priority (conformance-neutral, suite matches by kind).
+      SLICE-5 (array_oob) DONE — COMPLETE across all 6 array trap sites: array.get_s/get_u rerouted
+      (`855ca5ca`); array.fill/copy trampolines now return ARRAY_NULL_SENTINEL (2) so callers split
+      null→null_reference (10) vs OOB→oob_memory (6) (`dafab5ce`). All array null/OOB now precise +
+      consistent with array.get/set + interp; tests via wasm-tools `(array (mut i8))`. **D-293 trap-kind
+      demux is now effectively complete**; only residual is the D-294-R2 code-2 SUB-split (call_indirect
+      "undefined element" vs table-access "out of bounds table access", both code 2 today), conformance-
+      neutral CLI-message polish (suite matches by kind) → tracked under D-294 R2.
       SLICE-1 DONE (`15a54fdf`): oob_table (code 2) now precise + UNIFIED across arm64+x86_64 for table-access
       (get/set/fill/copy/init) + call_indirect bounds (x86_64 oobtable_fixups channel built; arm64 op_table
       re-routed to cind_bounds_fixups; sig/null sites correctly left generic). Test: table.get OOB → code 2.
