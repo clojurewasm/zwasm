@@ -2553,20 +2553,22 @@ pub const Validator = struct {
     }
 
     /// Tail-call result-type check used by `return_call*` family
-    /// (Wasm 3.0 §3.3.10.3-5). The callee's results MUST match the
-    /// enclosing function's return type element-wise — otherwise the
-    /// tail call would lose values and the function would
-    /// type-violate at its `end`.
+    /// (Wasm 3.0 §3.3.10.3-5). Each callee result MUST be a SUBTYPE of
+    /// the corresponding enclosing-function return type — the tail call
+    /// forwards its results as the enclosing function's results, so the
+    /// same subtyping that `end` would apply governs here (e.g. a callee
+    /// returning `(ref extern)` satisfies an enclosing `externref`).
+    /// Exact equality is too strict and rejects spec-valid GC programs.
     fn checkResultsMatchFnReturn(self: *Validator, callee_results: []const ValType) Error!void {
         const fn_frame = &self.control_buf[0];
         switch (fn_frame.end_type) {
             .empty => if (callee_results.len != 0) return Error.StackTypeMismatch,
             .single => |t| {
-                if (callee_results.len != 1 or !callee_results[0].eql(t)) return Error.StackTypeMismatch;
+                if (callee_results.len != 1 or !self.subtypeCtx(callee_results[0], t)) return Error.StackTypeMismatch;
             },
             .multi => |ts| {
                 if (callee_results.len != ts.len) return Error.StackTypeMismatch;
-                for (callee_results, ts) |a, b| if (!a.eql(b)) return Error.StackTypeMismatch;
+                for (callee_results, ts) |a, b| if (!self.subtypeCtx(a, b)) return Error.StackTypeMismatch;
             },
         }
     }

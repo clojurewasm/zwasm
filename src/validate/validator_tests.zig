@@ -2022,6 +2022,20 @@ test "validate (tail-call): return_call with callee.results != fn.results fails"
     try testing.expectError(Error.StackTypeMismatch, r);
 }
 
+test "validate (tail-call): return_call callee result (ref extern) subtype of fn return externref (Wasm 3.0 §3.3.10.3)" {
+    // Enclosing fn returns externref = (ref null extern); callee[0] returns the
+    // non-null (ref extern). (ref extern) <: externref, so the tail call is
+    // spec-valid — the result-vs-fn-return check must use SUBTYPING, not eql.
+    // Regression: a Guile-Hoot (Scheme→wasm-gc) module tripped the old eql check.
+    const body = [_]u8{ 0x12, 0x00, 0x0B };
+    const externref_arr = [_]ValType{ValType.externref};
+    const ref_extern_nn = [_]ValType{.{ .ref = zir.RefType.abs(.extern_, false) }};
+    const enclosing_sig: FuncType = .{ .params = &.{}, .results = &externref_arr };
+    const callee_sig: FuncType = .{ .params = &.{}, .results = &ref_extern_nn };
+    const func_types = [_]FuncType{callee_sig};
+    try validateFunction(enclosing_sig, &.{}, &body, &func_types, &.{}, &.{}, 0, &.{}, 0);
+}
+
 test "validate (tail-call): return_call with funcidx out of range fails" {
     // body: return_call 99 ; end
     const body = [_]u8{ 0x12, 0x63, 0x0B };
