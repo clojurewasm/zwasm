@@ -1363,8 +1363,10 @@ entries:
         (stackless callback ABI; NO fibers; synchronous engine CAN host CM-async — no
         hard blocker). Staged α→η. α DONE (17a810f9): handle table + CopyState + ReturnCode.
         β DONE (71ffb302): SharedStream read/write rendezvous (min-count copy + zero-length
-        livelock tiebreak; Step.notify_pending = δ event seam). NEXT γ: stream.cancel-read/
-        write + drop + tie CopyState (idle→async_copying→done) to the table ends.
+        livelock tiebreak; Step.notify_pending = δ event seam). γ DONE (253dcb56): StreamFutureEnd
+        CopyEnd methods (copying/copy/cancel/drop) tie CopyState to the rendezvous (the α↔β join).
+        NEXT δ: EventCode/Waitable/WaitableSet + deliver notify_pending as a pending_event (rewire
+        SharedStream.pending to reference the peer end → set its event on rendezvous; wait/poll).
       - E — WASI-P3 host interfaces (new component_wasi_p3.zig; sockets/http/clocks
         async; ~2000; MED; coexists with P2, does NOT replace it). Needs D.
       - F — async-export ABI + P3 component runner (canon.zig; ~400; MED). Needs E.
