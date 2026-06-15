@@ -369,6 +369,18 @@ test "canon: bare async opt (no callback) decodes is_async" {
     try testing.expectEqual(@as(?u32, null), info.canons.items[0].lift.opts.callback);
 }
 
+test "canon section: task.return decode (0x09) mints a core func" {
+    // count=1; task.return 0x09 resultlist{0x00 s32(0x7a)} opts{} → core func 0.
+    const body = [_]u8{ 0x01, 0x09, 0x00, 0x7a, 0x00 };
+    const bytes = comptime buildComponent(&.{.{ 8, &body }});
+    var info = try decodeBoth(bytes);
+    defer info.deinit();
+    const tr = info.canons.items[0].task_return;
+    try testing.expectEqual(PrimValType.s32, tr.result.?.primitive);
+    try testing.expectEqual(StringEncoding.utf8, tr.opts.string_encoding);
+    try testing.expectEqual(PrimValType.s32, info.coreFunc(0).?.task_return.result.?.primitive);
+}
+
 test "canon section: stream/future builtins decode (0x0e–0x1b)" {
     // stream.new<5>: 0x0e 0x05; stream.read<5> opts{utf8}: 0x0f 0x05 0x01 0x00;
     // stream.cancel-read<5> async: 0x11 0x05 0x01; future.drop-writable<7>: 0x1b 0x07.

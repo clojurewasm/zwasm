@@ -1501,10 +1501,10 @@ fn synthDef(info: *const ctypes.TypeInfo, built: []const ?Built, ex: ctypes.Core
                 if (isGuestResourceType(info, ti)) return .{ .resource_builtin = .{ .kind = .drop, .type_index = ti } };
                 return .{ .host_op = .out_stream_drop };
             },
-            // stream/future builtins are CM-async (WASI 0.3) — the P2 host
-            // runner cannot satisfy them (the P3 runner, Unit E/F, will). Fail
-            // loudly rather than silently mis-bind a core-func index.
-            .stream_future => return error.UnsupportedWasiImport,
+            // stream/future builtins + task.return are CM-async (WASI 0.3) —
+            // the P2 host runner cannot satisfy them (the P3 runner, Unit E/F,
+            // will). Fail loudly rather than silently mis-bind a core-func index.
+            .stream_future, .task_return => return error.UnsupportedWasiImport,
             .alias => |t| switch (t) {
                 .core_export => |ce| {
                     const prov = built[ce.instance] orelse return error.ImportUnsatisfied;

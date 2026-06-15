@@ -316,6 +316,9 @@ pub const Canon = union(enum) {
     /// `canon stream.*` / `future.*` (0x0e–0x1b) over element type `type_index`.
     /// `opts` present only for read/write; `is_async` only for cancel-read/write.
     stream_future: struct { op: StreamFutureOp, type_index: u32, opts: ?CanonOpts = null, is_async: ?bool = null },
+    /// `canon task.return` (0x09): the core func an async task imports to return
+    /// its `result` (a single optional valtype), lifted via `opts`.
+    task_return: struct { result: ?ValType, opts: CanonOpts },
 };
 
 /// `core:instantiatearg ::= name 0x12 instanceidx` — a `with` argument
@@ -355,6 +358,9 @@ pub const CoreFuncDef = union(enum) {
     /// A `canon stream.*`/`future.*` builtin (0x0e–0x1b) over element type
     /// `type_index` — minted into the core-func index space ("(core func)").
     stream_future: struct { op: StreamFutureOp, type_index: u32 },
+    /// `canon task.return` (0x09) minted into the core-func space ("(core
+    /// func)") — carries the result type + lift `opts` the async runner needs.
+    task_return: struct { result: ?ValType, opts: CanonOpts },
     /// A core-func `alias` (a core-instance export, or an `outer` alias).
     alias: AliasTarget,
 };
@@ -901,20 +907,25 @@ fn decodeFuncType(arena: Allocator, body: []const u8, pos: *usize, is_async: boo
         try params.append(arena, .{ .name = name, .ty = ty });
     }
 
+    const result = try decodeResultList(body, pos);
+    return .{ .params = try params.toOwnedSlice(arena), .result = result, .is_async = is_async };
+}
+
+/// `resultlist ::= 0x00 valtype | 0x01 0x00` — a single optional result.
+/// Shared by `functype` and `canon task.return`.
+fn decodeResultList(body: []const u8, pos: *usize) Error!?ValType {
     if (pos.* >= body.len) return Error.InvalidFuncType;
-    const result_tag = body[pos.*];
+    const tag = body[pos.*];
     pos.* += 1;
-    const result: ?ValType = switch (result_tag) {
+    return switch (tag) {
         0x00 => try decodeValType(body, pos),
         0x01 => blk: {
             if (pos.* >= body.len or body[pos.*] != 0x00) return Error.InvalidFuncType;
             pos.* += 1;
             break :blk null;
         },
-        else => return Error.InvalidFuncType,
+        else => Error.InvalidFuncType,
     };
-
-    return .{ .params = try params.toOwnedSlice(arena), .result = result, .is_async = is_async };
 }
 
 /// Store a `ValType` on the arena and return a stable pointer (for the
@@ -1371,6 +1382,10 @@ fn decodeCanonSection(arena: Allocator, out: *std.ArrayList(Canon), body: []cons
             0x02 => .{ .resource_new = try leb128.readUleb128(u32, body, &pos) },
             0x03 => .{ .resource_drop = try leb128.readUleb128(u32, body, &pos) },
             0x04 => .{ .resource_rep = try leb128.readUleb128(u32, body, &pos) },
+            0x09 => blk: { // canon task.return: 0x09 resultlist opts
+                const result = try decodeResultList(body, &pos);
+                break :blk .{ .task_return = .{ .result = result, .opts = try decodeCanonOpts(body, &pos) } };
+            },
             0x0e => try decodeStreamFutureCanon(.stream_new, body, &pos),
             0x0f => try decodeStreamFutureCanon(.stream_read, body, &pos),
             0x10 => try decodeStreamFutureCanon(.stream_write, body, &pos),
@@ -1584,6 +1599,7 @@ pub fn decodeTypeInfo(parent: Allocator, component: *const decode.Component) Err
                 .resource_drop => |t| try core_funcs.append(a, .{ .resource_drop = t }),
                 .resource_rep => |t| try core_funcs.append(a, .{ .resource_rep = t }),
                 .stream_future => |sf| try core_funcs.append(a, .{ .stream_future = .{ .op = sf.op, .type_index = sf.type_index } }),
+                .task_return => |tr| try core_funcs.append(a, .{ .task_return = .{ .result = tr.result, .opts = tr.opts } }),
                 .lift => try component_funcs.append(a, .{ .lift = @intCast(abs) }),
             },
             .alias => for (aliases.items[aliases_before..], aliases_before..) |al, al_abs| {

@@ -1070,6 +1070,13 @@ fn checkCanons(info: *const TypeInfo, type_space_len: u32) Error!void {
             if (sf.type_index >= type_space_len) return Error.InvalidTypeIndex;
             if (sf.opts) |o| try checkCanonOpts(info, o);
         },
+        .task_return => |tr| {
+            if (tr.result) |r| switch (r) {
+                .type_index => |ti| if (ti >= type_space_len) return Error.InvalidTypeIndex,
+                .primitive => {},
+            };
+            try checkCanonOpts(info, tr.opts);
+        },
     };
 }
 
@@ -1080,6 +1087,7 @@ fn checkCanonOpts(info: *const TypeInfo, opts: types.CanonOpts) Error!void {
     if (opts.memory) |m| if (m >= info.core_memory_count) return Error.InvalidCanon;
     if (opts.realloc) |r| if (r >= core_func_len) return Error.InvalidCanon;
     if (opts.post_return) |pr| if (pr >= core_func_len) return Error.InvalidCanon;
+    if (opts.callback) |cb| if (cb >= core_func_len) return Error.InvalidCanon; // CM-async `callback` core:funcidx
 }
 
 /// Rule 1: bounds-check every type-index a top-level deftype references against
