@@ -14,72 +14,44 @@ single-task CANNOT reach guest↔guest COMPLETION (lesson `2026-06-16-stackless-
 needs a scheduler/buffering — front ② item). (D-444 = p2-async file split deferred; D-445 remainder = host-FAILURE
 error contract, ADR-grade.)
 
-**NEW DIRECTION (4-front async-maturity + completion campaign).** Reference clones updated to latest 2026-06-16:
-wasmtime @06-13 (`tests/misc_testsuite/component-model/async/` ~44 `.wast`); WASI @0.3.0 release; **wasi-testsuite
-cloned** (`tests/rust/wasm32-wasip3`); wasm-tools/component-model refreshed (`implements.wast` new). Order ②→①→③→④:
-- **② wasmtime async .wast gap-mining (ACTIVE — highest ROI)**: gap matrix in `private/notes/p17-wasmtime-async-gaps.md`.
-  **DONE**: Gap A (`afcf889a`) — an async export declaring a result MUST call task.return before EXIT, else trap
-  (`task-return-traps.wast`); `driveAsyncMain` checks `ctx.task_return` when `asyncExportExpectsResult`. copy-requires-
-  IDLE (`05b35c28`): `StreamFutureEnd.copy` traps (CopyNotIdle→guest trap) on a non-IDLE end — 2nd concurrent copy or
-  copy on a DONE end (spec `stream_copy`/`future_copy` `trap_if(state!=IDLE)`, `trap-if-done.wast`). **VERIFY
-  EACH ROW vs spec** (lesson `2026-06-16-gap-matrix-subagent-verify-against-spec`): the matrix's "cancel-not-copying
-  → returns 0" was WRONG (CanonicalABI `cancel_copy` traps; our `async_cancel_no_copy` already correct). NEXT:
-  **front② TIER-1 DONE**; deferred **D-446** Gap B + **D-447** TIER-2/3 (design-grade). **front① = path ② (plain
-  rust wasip3) — TOOLCHAIN RESOLVED + BAKED**: `flake.nix devShells.gen-wasip3` + `$ZWASM_WASIP3_RUSTFLAGS` build a
-  real rust wasip3 component hermetically (nightly `-Z build-std` + `wasm-component-ld --wasm-ld-path` nixpkgs
-  wasm-ld + `link-self-contained=no` w/ stable wasip2 crt1/libc; pinned nightly 2026-06-14, reproducible). **VERIFIED:
-  zwasm runs the output → exit 1** (cli-exit). Recipe: lesson `2026-06-16-wasip3-hermetic-build-recipe`; caveats in
-  D-448. **wasip3 conformance corpus — 7 fixtures GREEN** (…`32719a76`/`b4a5b66d`):
-  cli-exit + cli-stdout + cli-stderr + cli-env + cli-args + cli-stdin + cli-clocks (exit + 3 stdio + env + argv +
-  wasi:clocks), real rust wasip3 components via `test/component/wasip3/` + `scripts/gen_wasip3_fixtures.sh`. That caps
-  the **plain-std-reachable** surface (filesystem needs preopens; random needs a non-std crate). **D-449 RESOLVED — false alarm,
-  not a runtime bug**: env/args/stdin ARE delivered; the "empty input" was a fixture flaw — `wasi:cli/exit` is
-  `func(status: result<_,_>)` (ok/err only), so a guest `exit(N>0)` collapses to exit_code 1, making an `exit(42)`
-  success-sentinel unsatisfiable (subagent-instrumented: p2GetEnvironment called once, envs.len=1, bytes correct).
-  Lesson `2026-06-16-wasi-cli-exit-result-channel-fixture-trap` (signal success via exit(0)/stdout, never a numeric
-  code). **front① cli+clocks conformance DONE (7 fixtures).** **front ④ perf LAUNCHED (measure-first done → D-450)**:
-  the all-engine matrix shows zwasm-jit vs wasmtime clusters ~1.5–4× (single-pass tradeoff) EXCEPT **shootout/base64
-  at 13.6×** (781 vs 57 ms; all optimizing comparators ~60-80 → zwasm-specific hotspot) = the highest-ROI target.
-  **D-450 Phase-I DONE** (profiled): base64's hot loop (func 52 encode kernel, 15 locals + 30 mask consts) emits
-  59-68% SPILL traffic — only 8 GPRs allocatable. **Bulk = class-B** (global-regalloc/LICM ceiling — single-pass
-  can't close w/o the forbidden optimizing tier; ACCEPTED, don't chase to 57ms). **Class-A residue** (single-pass-
-  legal, GENERAL spill-heavy win ~1.3-2×): a peephole — re-materialize spilled i32.const via `mov` (op_const.zig:66)
-  + elide store-then-reload-same-slot. **④ CONCLUDED — ROI-rejected, accept the ceiling**: on inspecting gpr.zig the
-  class-A "peephole" is NOT contained (spill stages through op-local scratch X14/X15 reused per op → store-reload-
-  elision needs CROSS-OP emit state; const-remat needs const-ness in the regalloc model) — cross-cutting changes in
-  the D-265-class subsystem for a PARTIAL win on an outlier. High cost+risk+partial = ROI-insufficient. zwasm is
-  "lightweight-fast within single-pass" (1.5-4× Cranelift, beats interps/wazero-small); base64/matrix/keccak are the
-  accepted single-pass tradeoff (§1.3/§3.2). D-450→note. **③ corpus: AssemblyScript probe → FOUND a real bug
-  (D-451)**: AS is in nixpkgs + compiles a WASI `_start`, but imports `env.abort` (always, even --noAssert) → and
-  this surfaced an **interp/jit instantiation divergence** — interp REJECTS unsatisfied imports at instantiation
-  (spec-correct), jit is LENIENT (trapping stub, only traps if the import is CALLED) → an AS module with unused
-  env.abort runs under `--engine jit` (exit 0) but not interp. **NEXT = drive D-451** (make jit reject unsatisfied
-  imports at instantiation, match interp+spec §4.5.4; concrete autonomous bug). Then ③ corpus-expansion needs an
-  env.abort host stub (AS) + the GC-langs (Grain/MoonBit, NOT in nixpkgs → heavy from-source — the user's GC-stress
-  intent, a fresh toolchain campaign). ②①④ done; ③ in progress. **D-451 FIXED** (`4c8c14fe`): the AS probe's
-  interp/jit instantiation divergence is closed — `runWasiLenient` now rejects unsatisfied imports at instantiation
-  (`assertWasiImportsSatisfied`, spec §4.5.4), matching interp; realworld 56/0 confirms no fixture relied on the old
-  lazy-import. **NEXT (③)**: env.abort host stub to actually RUN AS modules, OR the GC-langs (Grain/MoonBit) heavy
-  from-source toolchain (the user's GC-stress intent). The AS probe already paid off (found+fixed a real engine bug).
-- **① WASI 0.3 conformance**: compile wasi-testsuite `rust/wasm32-wasip3` via `.#gen` (add wasm32-wasip3 target + wit
-  deps), run as a conformance corpus.
-- **③ real-world corpus 50→100**: add MoonBit/Grain/Kotlin (Wasm-GC) + AssemblyScript/Swift/Zig toolchains to
-  `.#gen`, web-search real programs, compile+run. Folds in D-329/D-026/D-074/D-082 (corpus/provisioning debt).
-- **④ perf rework (ADR-0153, single-pass-bounded)**: measure benches regressed by feature additions; optimise within
-  §1.3/§3.2 (no optimising tier). Goal = lightweight-fast + no regression, NOT beating Cranelift/LLVM.
+**4-front async-maturity + completion campaign.** Reference clones updated 2026-06-16 (wasmtime @06-13, WASI @0.3.0,
+wasi-testsuite, wasm-tools). **②①④ DONE; ③ ACTIVE (GC-corpus).**
+- **② wasmtime async .wast gap-mining — DONE (TIER-1).** Gap A (`afcf889a`): async export declaring a result MUST
+  `task.return` before EXIT else trap. copy-IDLE (`05b35c28`): `StreamFutureEnd.copy` traps on non-IDLE end. Matrix:
+  `private/notes/p17-wasmtime-async-gaps.md`; verify-each-row-vs-spec lesson. Deferred: **D-446** Gap B + **D-447**
+  TIER-2/3 (design-grade).
+- **① wasip3 conformance — DONE (7 fixtures GREEN).** cli-exit/stdout/stderr/env/args/stdin/clocks, real rust wasip3
+  components via the hermetic `.#gen-wasip3` recipe (nightly `-Z build-std` + nixpkgs wasm-ld + wasip2 crt1/libc,
+  reproducible). Caps the plain-std surface (fs needs preopens; random needs a crate). Lessons `…-wasip3-hermetic-
+  build-recipe` + `…-wasi-cli-exit-result-channel-fixture-trap` (signal success via exit(0)/stdout, never numeric).
+  D-449 was a fixture false-alarm. Caveats in D-448.
+- **④ perf — DONE (ROI-rejected, accept the single-pass ceiling).** all-engine matrix: zwasm-jit ~1.5–4× wasmtime
+  EXCEPT shootout/base64 13.6× (D-450). Profiled: base64 kernel = 59-68% spill traffic, only 8 GPRs. **Bulk class-B**
+  (global-regalloc/LICM — single-pass can't close w/o the forbidden optimizing tier). Class-A peephole NOT contained
+  (cross-op emit state in the D-265 subsystem) → high-cost/partial = ROI-insufficient. zwasm is "lightweight-fast
+  within single-pass"; base64/matrix/keccak are the accepted §1.3/§3.2 tradeoff. D-450→note. Lesson `…-base64-single-
+  pass-register-pressure-ceiling`.
+- **③ real-world corpus 56→100 (ACTIVE).** Probe already paid off: **AssemblyScript surfaced + we fixed D-451**
+  (`4c8c14fe`) — jit was LENIENT on unsatisfied imports (trap-on-call stub) vs interp's spec-correct instantiation
+  reject; `runWasiLenient` now calls `assertWasiImportsSatisfied` (spec §4.5.4). **GC-stress (the user's core ③
+  intent) — CORRECTED: Hoot + dart ARE in nixpkgs** (`guile-hoot` 0.8.0 Scheme→wasm-gc, `dart` 3.12.1 dart2wasm→
+  wasm-gc) — NOT "heavy from-source". Corpus today: 56 fixtures (c18/cpp7/emcc3/go9/tinygo4/rust12/zig3), **zero
+  Wasm-GC source-lang programs** (GC backend exercised only by hand-written spec `.wat`). **NEXT = runnability gate**:
+  a real GC-lang module's host-import surface decides if zwasm can run it standalone (Hoot needs a reflect/runtime;
+  dart2wasm needs JS glue). Investigating which (Hoot vs dart) yields a runnable-with-minimal-stub wasm-gc fixture.
 
 ## Active bundle
 
-- **Bundle-ID**: p17-async-maturity-4front (②wasmtime-gaps → ①wasip3-conformance → ③corpus-100 → ④perf-rework)
-- **Cycles-remaining**: many (multi-front; ② DONE, ① DONE 7 fixtures, ④ perf active, ③ corpus deferred)
-- **Continuity-memo**: ② DONE (Gap A `afcf889a` + copy-IDLE `05b35c28`; D-446/D-447 deferred). ① DONE — real rust
-  wasip3 corpus (cli-exit/stdout/stderr/env/args/stdin/clocks, 7 green) via the hermetic `.#gen-wasip3` recipe; built
-  the toolchain from scratch (nightly+build-std+nixpkgs-wasm-ld+wasip2-libc, lessons `2026-06-16-wasip3-hermetic-build-
-  recipe` + `…-wasi-cli-exit-result-channel-fixture-trap`); D-449 was a fixture false-alarm. **④ perf active**: D-450
-  = profile shootout/base64 (13.6× wasmtime, the outlier) under `--engine jit`, single-pass-bounded fix. ③ corpus
-  (MoonBit/Grain/Kotlin/AssemblyScript toolchains) deferred — heavy new-toolchain setup, lower priority than ④.
-- **Exit-condition**: (front ④) base64's jit/wasmtime ratio brought toward the ~1.5–4× single-pass baseline via a
-  measured single-pass fix (D-450 Phase I–V), OR ROI shown insufficient + documented; full bench re-profile recorded.
+- **Bundle-ID**: p17-③-gc-corpus (real Wasm-GC source-lang fixtures to stress the GC backend)
+- **Cycles-remaining**: several (new-toolchain integration like wasip3 was)
+- **Continuity-memo**: ②①④ DONE (see above). ③ now active. Candidates BOTH in nixpkgs: `guile-hoot` 0.8.0
+  (Scheme→wasm-gc; CLI is repl/server-only — compiler is the `(hoot compile)` Guile module, invoke via guile script)
+  + `dart` 3.12.1 (`dart compile wasm`→wasm-gc, but imports heavy JS glue). Deciding factor = host-import surface
+  (must be stubbable to run standalone in zwasm). Spike dir `/tmp/hoot-spike`. If runnable → bake a `.#gen-gc` shell
+  + `scripts/gen_gc_fixtures.sh` mirroring the wasip3 hermetic recipe + commit fixtures under `test/realworld/wasm/`.
+- **Exit-condition**: ≥1 real Wasm-GC source-language program (Hoot or dart) compiled hermetically + committed +
+  running green under zwasm (interp at minimum), exercising struct/array/ref GC opcodes — OR documented impossibility
+  (host-import surface too heavy to stub) with the evidence + a debt row for the alternative path.
 
 ## Long-tail (debt-tracked / parked — NOT active; see §9.0 fronts + debt.yaml)
 
