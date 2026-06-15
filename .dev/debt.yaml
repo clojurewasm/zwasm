@@ -1408,8 +1408,12 @@ entries:
         (blocked op returns to callback loop w/ no continuation → peer never acts); COMPLETION + element
         marshalling + WAIT-path e2e GATE ON Unit E (host stream peer). NEXT = Slice 3b: wire read/write/cancel
         returning single-task outcomes BLOCKED (no peer) / DROPPED (peer dropped) via StreamFutureEnd.copy/cancel
-        + Step→ReturnCode (no marshalling); fixtures assert BLOCKED + DROPPED. Then Unit E unlocks COMPLETION +
-        marshalling + WAIT e2e. Then units F/G.
+        + Step→ReturnCode (no marshalling); fixtures assert BLOCKED + DROPPED. Slice 3b DONE (90e2bd55):
+        p2StreamFutureCopy (one trampoline, copy() dispatches read/write on side) → ReturnCode; e2e
+        read-no-writer→BLOCKED + drop-then-read→DROPPED (guest self-asserts); COMPLETION(n>0) traps until Unit E.
+        NEXT = Slice 3c: wire cancel-read/write (4 ops, currently UnsupportedWasiImport) → StreamFutureEnd.cancel
+        → ReturnCode; fixture read(BLOCKED)→cancel-read→assert cancelled. Then ζ2 single-task-complete → Unit E
+        unlocks read/write COMPLETION + element marshalling + WAIT e2e. Then units F/G.
       - E — WASI-P3 host interfaces (new component_wasi_p3.zig; sockets/http/clocks
         async; ~2000; MED; coexists with P2, does NOT replace it). Needs D.
       - F — async-export ABI + P3 component runner (canon.zig; ~400; MED). Needs E.

@@ -3,7 +3,7 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Current state — WASI-0.3 campaign (D-335); ζ2 Slice 3 re-scoped — read/write COMPLETION→Unit E (`023a07cd`)
+## Current state — WASI-0.3 campaign (D-335); ζ2 Slice 3b done — read/write BLOCKED/DROPPED e2e (`90e2bd55`)
 
 **WASI 0.3 / Preview 3 campaign** (Front D, ratified 2026-06-11; CM-async — `async` func / `stream<T>` /
 `future<T>`, NOT core stack-switching). Critical path A→B→C→D(crux)→E→F→G; full unit plan + per-unit DONE-SHAs
@@ -36,31 +36,32 @@ COMPLETION** — a blocked op returns to the callback loop with no continuation,
 COMPLETION + element marshalling + the WAIT-path e2e payoff **gate on Unit E** (a host stream peer) — NOT pure
 ζ2. ζ2 Slice 3 re-scoped (ADR-0132 carve-out) to the single-task-testable outcomes.
 
-**NEXT — ζ2 Slice 3b: wire stream/future `read`/`write`/`cancel` returning the single-task outcomes**:
-- `.stream_read`/`.stream_write` (+ future, + cancel) — currently `UnsupportedWasiImport` — call
-  `StreamFutureEnd.copy`/`cancel` over the `SharedTable` rendezvous and return the encoded `ReturnCode`:
-  **BLOCKED** (no peer, the common single-task case) / **DROPPED** (peer dropped first). NO element marshalling
-  (it runs only on COMPLETION → defers to Unit E). Trampoline takes guest `(ptr, len)` but for BLOCKED/DROPPED
-  no bytes move; map `Step.caller` → `ReturnCode` (blocked/dropped) → the i32 the guest reads.
-- **Fixtures** (single-task): a guest `stream.new`s then `stream.read` with no writer → asserts BLOCKED; and a
-  guest that drops the writable end then `stream.read`s the readable → asserts DROPPED.
-- After ζ2 Slice 3: **Unit E** (WASI-P3 host interfaces — the host stream peer that unlocks COMPLETION + the
-  WAIT-path e2e), then F (async-export public API), G (p3 corpus). Per D-335.
+read/write BLOCKED/DROPPED wired (`90e2bd55`): `p2StreamFutureCopy` (one trampoline; `copy()` dispatches
+read/write on the end's side) → `Step`→`ReturnCode`; e2e read-no-writer→BLOCKED + drop-then-read→DROPPED
+(guest self-asserts via `unreachable`). COMPLETION(n>0) traps until Unit E supplies the marshalling+peer.
+
+**NEXT — ζ2 Slice 3c: `cancel-read`/`cancel-write` (closes ζ2's single-task scope)**:
+- Wire the 4 cancel ops (currently `UnsupportedWasiImport`) → `StreamFutureEnd.cancel(shared)` → `ReturnCode`.
+  Single-task testable: a guest `stream.read`s (→ BLOCKED, end parks `async_copying`), then `stream.cancel-read`
+  → returns cancelled (state → idle). Bind via the existing `AsyncBuiltinCtx`/`p2*` pattern.
+- Fixture: read (BLOCKED) → cancel-read → assert the cancelled code; EXIT.
+- **Then ζ2 is single-task-complete** → **Unit E** (WASI-P3 host interfaces: the host stream peer that unlocks
+  read/write COMPLETION + element marshalling + the WAIT-path e2e), then F (async public API), G (p3 corpus).
 
 ## Active bundle
 
 - **Bundle-ID**: wasi03-D-335 (§9.0 Front D; WASI 0.3 / Preview 3; units A→G)
-- **Cycles-remaining**: ~2 (ζ2 Slices 1+2+3a + the read/write re-scope done; remaining = Slice 3b read/write BLOCKED/DROPPED, then E unlocks COMPLETION)
-- **Continuity-memo**: critical path **A→B→C→D(...Slice3a + read/write-scope-finding done; Slice3b=read/write BLOCKED/DROPPED next; COMPLETION→Unit E)→E→F→G**
+- **Cycles-remaining**: ~1 (ζ2 Slices 1+2+3a+3b done; remaining = Slice 3c cancel → ζ2 single-task-complete, then Unit E)
+- **Continuity-memo**: critical path **A→B→C→D(...Slice3b read/write BLOCKED/DROPPED done; Slice3c=cancel next; COMPLETION→Unit E)→E→F→G**
   (full plan in **D-335**; design in **ADR-0187** — stackless callback ABI, no fibers). CM-async, NOT core
   stack-switching. Spec: `~/Documents/OSS/{WASI, WebAssembly/component-model}` (design/mvp/{Binary,CanonicalABI,
   Concurrency}.md); ref impl `~/Documents/OSS/wasmtime` (43+; `concurrent/futures_and_streams.rs`).
 - **Exit-condition**: a WASI-0.3 async/stream/future component runs end-to-end through zwasm (new P3
   corpus green, 3-host); each unit lands green per D-335 along the way.
-- **Current unit — D (HIGH/crux; ζ2 Slice 3a + read/write scope-finding done, Slice 3b START HERE)**: P3 runner
-  + task.return + stream/future new+drop all e2e green; the COMPLETION-needs-a-peer finding re-scoped read/write.
-  Remaining = Slice 3b (read/write/cancel returning BLOCKED/DROPPED, no marshalling) → then **Unit E** unlocks
-  COMPLETION + element marshalling + the WAIT-path e2e. Then F/G.
+- **Current unit — D (HIGH/crux; ζ2 Slice 3b done, Slice 3c cancel START HERE)**: P3 runner
+  + task.return + stream/future new+drop + read/write(BLOCKED/DROPPED) all e2e green. Remaining = Slice 3c
+  (cancel-read/write → closes ζ2's single-task scope) → then **Unit E** unlocks read/write COMPLETION + element
+  marshalling + the WAIT-path e2e. Then F/G.
 
 ## Long-tail (debt-tracked / parked — NOT active; see §9.0 fronts + debt.yaml)
 
