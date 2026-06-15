@@ -73,3 +73,23 @@ builtin):
   multi-value results are a later slice (tracked in D-335).
 - The shared-arena refcount is the one piece of genuinely new lifetime logic;
   Slice 2 lands it with adversarial drop-order tests.
+
+## Revision (2026-06-16) — Slice 3 read/write COMPLETION gates on Unit E
+
+Investigation (lesson `2026-06-16-stackless-stream-completion-needs-host-peer`)
+established that zwasm's **stackless single-task** P3 runner (ADR-0187, no fibers)
+**cannot reach a guest-to-guest stream/future read/write COMPLETION** (count > 0):
+a blocked read/write returns to the callback loop with no held continuation, so
+the peer can never act within the same task. The original Slice 3 exit — "a
+WAIT-path e2e (guest blocks on read → a write delivers STREAM_READ)" — therefore
+**gates on a HOST stream peer (Unit E) or a multi-task scheduler**, NOT pure ζ2.
+
+Re-scope (ADR-0132 carve-out — autonomous, references genuinely-later-phase work):
+- **ζ2 Slice 3 (now)** wires stream/future `read`/`write`/`cancel`/`drop` returning
+  the single-task-testable outcomes: **BLOCKED** (no peer), **DROPPED** (peer
+  dropped first), zero-length write. Element marshalling (Unit-C store/load) runs
+  only on COMPLETION, so it **defers with COMPLETION**.
+- The **WAIT-path e2e + read/write COMPLETION + element marshalling** move to
+  **Unit E** (host stream peer) — the natural driver that supplies the peer.
+- The Zone-1 rendezvous (`SharedStream`) is correct + peer-agnostic; only the
+  driver is missing. No async.zig change needed.
