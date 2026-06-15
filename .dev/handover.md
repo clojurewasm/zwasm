@@ -3,83 +3,42 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Current state — WASI-0.3 campaign (D-335); D+ζ2+E+F done; async guest-fault hardening (D-445 → `76d9dd20`)
+## Current state — Phase 17 completion-refinement; 4-front async-maturity campaign (user-steered 2026-06-16)
 
-**WASI 0.3 / Preview 3 campaign** (Front D, ratified 2026-06-11; CM-async — `async` func / `stream<T>` /
-`future<T>`, NOT core stack-switching). Critical path A→B→C→D(crux)→E→F→G; full unit plan + per-unit DONE-SHAs
-in debt **D-335**. Loop drives all fronts autonomously; only tag-cut is user-reserved (ADR-0156).
+**WASI 0.3 / Preview 3 core DONE** (D-335, per-SHA detail in the debt row). The CM-async runtime runs an async
+component from `zwasm run` + the embedder (`component.runWasiMain`): callback loop EXIT/YIELD/WAIT, both stream
+directions COMPLETE (host sink/source), waitable-set, return-future — all e2e green, 3-host (ADR-0187 stackless, no
+fibers; 0188 P3 runner; 0189 ζ2; 0190 host peers; 0191 WAIT path). Hardening: **D-337** future-drop-before-write
+traps; **D-445 partial** async guest-faults → guest trap (not host panic). 18 async e2e fixtures green. Stackless
+single-task CANNOT reach guest↔guest COMPLETION (lesson `2026-06-16-stackless-stream-completion-needs-host-peer`;
+needs a scheduler/buffering — front ② item). (D-444 = p2-async file split deferred; D-445 remainder = host-FAILURE
+error contract, ADR-grade.)
 
-**DONE (per-SHA detail in D-335)**: Units A/B/C (stream/future valtypes + 14 canon builtins + value-ABI) · D —
-Zone-1 async model (`async.zig`: handle/stream/future tables, rendezvous, `WaitableSet`/`WaitableSetTable`,
-`Subtask`, `driveCallbackLoop`, `SharedTable` refcount arena; ADR-0187 stackless, no fibers) + ηB decode + the
-**P3 runner** (ADR-0188: async export runs e2e via the callback loop; EXIT+YIELD e2e) + **ζ2 single-task
-COMPLETE** (ADR-0189): all canon async builtins host-wired (task.return, stream/future new/drop/read/write/
-cancel; read/write reach BLOCKED/DROPPED — guest-to-guest COMPLETION needs a host peer per ADR-0189 Rev) +
-**Unit E host stream peers** (ADR-0190): **E1** stdout/stderr `write-via-stream` (host sink, `WasiP2Ctx
-.host_sinks`, guest write→COMPLETION+u8 marshal to fd) `612cd1e8`/`198e210b`; **E3** stdin `read-via-stream`
-(host source, retptr tuple, guest read→COMPLETION from stdin) `63fee3d4` — **both stream directions COMPLETE
-e2e**; **E2a** waitable-set decode 0x1f–0x23 `116287c1`; **E2b** `waitable-set.new`/`waitable.join` host
-builtins `85817b84` (mint a set + join a waitable). **13 async e2e fixtures green.** (Lessons: `zig build
-test`≠`test-all`; `catch {}` in errdefer + `else` on exhaustive switch are gate/lint-blocked; stackless
-single-task can't reach guest-to-guest COMPLETION — `2026-06-16-stackless-stream-completion-needs-host-peer`.
-`D-444` split p2 async host to a sibling; `D-445` mapDispatchErr panics on un-narrowed host-fn errors.)
-
-**Future-drop guard DONE** (`81e5d864`, closes D-337): per CanonicalABI.md §Future State a future's writable end
-cannot be dropped before its value is written — `SharedFuture.written` flag + `guardWritableDrop`; `p2StreamFutureDrop`
-surfaces the canonical guest trap. New fixtures: `async_future_read_blocked` (the SharedFuture rendezvous, prior only
-hit via the host-result future) + `async_future_drop_before_write` (the trap). The future readable end never observes
-DROPPED (unlike streams).
-
-**Async guest-fault hardening DONE** (`c79be25d`+`76d9dd20`, D-445 partial): a guest supplies the handle/ptr to the
-async builtins, so a bad handle / illegal drop-cancel sequencing / OOB buffer is a GUEST fault — but those WasiP2Error
-variants aren't `runtime.Trap` variants, so they hit `mapDispatchErr`'s `else => @panic` and **aborted the host on guest
-input** (a sandboxing hole). `mapAsyncFault` now narrows the guest-fault subset → the canonical guest trap at the
-copy/drop/cancel/waitable.join trampolines (3 trap fixtures). REMAINING in D-445: mint TableFull (unrealistic) + a
-host-call error contract for host-FAILURE errors (WriteFailed/NoMemory — ADR-grade, deferred).
-
-**E2c DONE** (`249e8e85`, ADR-0191): the WAIT-path e2e. `WasiP2Ctx.pending_reads` ({ptr,cap} keyed by end) +
-`defer_host_source_reads`; `p2StreamFutureCopy` parks a deferred host-source read (record + BLOCKED);
-`WasiP2Ctx.deliverParkedReads` copies the ready bytes + `setPendingEvent(STREAM_READ)` for each set member at
-`waitOn`; `P3CallbackCtx` holds the `WasiP2Ctx`, `waitOn` delivers-then-polls. E2E `async_wait_path.wat`: guest
-read PARKS → returns `WAIT(set)` → host delivers "ok" → `driveCallbackLoop` WAIT branch re-enters callback →
-EXIT. **The callback loop is now COMPLETE e2e (EXIT + YIELD + WAIT); both stream directions COMPLETE.**
-
-**Return-future resolution DONE** (`13c7afce`): `WasiP2Ctx.host_result_futures` (the returned future readable
-handle); a guest `future.read` on it COMPLETES with the `ok` discriminant (0, 1 byte) — a host peer always
-succeeds, no rendezvous/typed-marshalling. E2E `async_future_result.wat`: write "hi" → future.read →
-COMPLETED(1)+ok. **The write/read-via-stream interface contract (stream + return future) is now complete.**
-
-**Unit F DONE** (`2962dd21`): `runWasiMain` builds once + dispatches — a `canon lift` with `opts.is_async` → the
-P3 callback loop, else the sync `wasi:cli/run` path (`runWasiP2MainBuilt`). `cli/run.zig` calls it → an async
-WASI-0.3 component **runs from `zwasm run`** (CLI e2e: write-via-stream → "hi"). **The async runtime is reachable
-through the public CLI/embedder surface.**
-
-**NEXT — Unit G + the deferred breadth** (the campaign's core path D→…→F is e2e-proven CLI-reachable):
-- **G — a `test/component/p3` corpus** consolidating the ~15 async fixtures (`async_*.wat/.wasm`) + a runner
-  entry, so the async surface is a named regression corpus (today they're individual `component_wasi_p3.zig`
-  inline tests). Light reorg + an aggregator. Per D-335.
-- **Deferred breadth** (separate, harder — scope/ADR when picked up): typed/multi-byte element marshalling
-  (E moved `u8` only, `count==bytes`; generalise via `canon.zig` store/load + `bytes=count*elem_size`, needs a
-  non-`u8` exercise path); general guest↔guest stream COMPLETION (Zone-1 rendezvous doesn't buffer bytes — host
-  must hold both ends' buffers); broader WASI-P3 host interfaces (sockets/http/clocks async).
-- (**D-444** P3-host file split when E settles.)
-- Then **F** (async-export public API surface — the embedder C/Zig API for driving an async component) and **G**
-  (a `test/component/p3` corpus consolidating the async fixtures). Per D-335. (**D-444** P3-host file split.)
+**NEW DIRECTION (4-front async-maturity + completion campaign).** Reference clones updated to latest 2026-06-16:
+wasmtime @06-13 (`tests/misc_testsuite/component-model/async/` ~44 `.wast`); WASI @0.3.0 release; **wasi-testsuite
+cloned** (`tests/rust/wasm32-wasip3`); wasm-tools/component-model refreshed (`implements.wast` new). Order ②→①→③→④:
+- **② wasmtime async .wast gap-mining (ACTIVE — highest ROI, ready now)**: read the ~44 `.wast`, build a gap matrix
+  (behavior → zwasm status implemented/partial/missing), land top cleanly-bounded gaps as fixtures+impl else precise
+  debt. Surfaced gaps: intra-streams/intra-futures (guest↔guest COMPLETION = scheduler), error-context type,
+  partial/big/typed stream copies, task-deletion/backpressure/cancel-subtask. `futures-must-write` validates D-337.
+- **① WASI 0.3 conformance**: compile wasi-testsuite `rust/wasm32-wasip3` via `.#gen` (add wasm32-wasip3 target + wit
+  deps), run as a conformance corpus.
+- **③ real-world corpus 50→100**: add MoonBit/Grain/Kotlin (Wasm-GC) + AssemblyScript/Swift/Zig toolchains to
+  `.#gen`, web-search real programs, compile+run. Folds in D-329/D-026/D-074/D-082 (corpus/provisioning debt).
+- **④ perf rework (ADR-0153, single-pass-bounded)**: measure benches regressed by feature additions; optimise within
+  §1.3/§3.2 (no optimising tier). Goal = lightweight-fast + no regression, NOT beating Cranelift/LLVM.
 
 ## Active bundle
 
-- **Bundle-ID**: wasi03-D-335 (§9.0 Front D; WASI 0.3 / Preview 3; units A→G)
-- **Cycles-remaining**: ~2 (D+ζ2+E+F done — async runs from CLI; remaining = G corpus + deferred breadth)
-- **Continuity-memo**: critical path **A→B→C→D(DONE)→E(callback loop EXIT/YIELD/WAIT + both stream dirs e2e DONE; breadth next)→F→G**
-  (full plan in **D-335**; design in **ADR-0187** — stackless callback ABI, no fibers). CM-async, NOT core
-  stack-switching. Spec: `~/Documents/OSS/{WASI, WebAssembly/component-model}` (design/mvp/{Binary,CanonicalABI,
-  Concurrency}.md); ref impl `~/Documents/OSS/wasmtime` (43+; `concurrent/futures_and_streams.rs`).
-- **Exit-condition**: a WASI-0.3 async/stream/future component runs end-to-end through zwasm (new P3
-  corpus green, 3-host); each unit lands green per D-335 along the way.
-- **Unit D + ζ2 + E + F DONE (HIGH/crux); G START HERE**: the async runtime runs an async WASI-0.3 component
-  from `zwasm run` (callback loop EXIT/YIELD/WAIT + both stream dirs + waitable-set + return-future + CLI
-  dispatch, all e2e green). Next = G (p3 corpus consolidation) + the deferred breadth (typed marshalling,
-  guest↔guest COMPLETION, broader P3 interfaces — separate/harder). (D-444 = P3-host split when E settles.)
+- **Bundle-ID**: p17-async-maturity-4front (②wasmtime-gaps → ①wasip3-conformance → ③corpus-100 → ④perf-rework)
+- **Cycles-remaining**: many (multi-front; ② active first)
+- **Continuity-memo**: ② = gap-mine wasmtime `tests/misc_testsuite/component-model/async/*.wast` (~44) vs zwasm async
+  builtins (`component_wasi_p2.zig` / `feature/component/async.zig` / `types.zig`) → prioritized gap matrix in
+  `private/notes/`. Clones updated 2026-06-16. zwasm stackless single-task (no fibers, ADR-0187); guest↔guest
+  COMPLETION + multi-task subtask scheduling are the big known gaps (design-grade). Spec: `~/Documents/OSS/{WASI,
+  WebAssembly/component-model}` design/mvp/{Binary,CanonicalABI,Concurrency}.md.
+- **Exit-condition**: (front ②) gap matrix produced + top cleanly-bounded gaps landed (green fixtures+impl OR precise debt
+  rows with named barriers); then advance to ①. Unit G (corpus consolidation) folds into ① conformance harness.
 
 ## Long-tail (debt-tracked / parked — NOT active; see §9.0 fronts + debt.yaml)
 
