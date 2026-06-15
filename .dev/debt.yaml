@@ -1416,7 +1416,12 @@ entries:
         (8 async e2e fixtures green). NEXT = Unit E (WASI-P3 host interfaces; sockets/http/clocks async; ~2000;
         coexists w/ P2): the host implements a stream's other end → unlocks guest read/write COMPLETION + element
         marshalling (the error.OutOfBounds trap in p2StreamFutureCopy) + the WAIT-path e2e (driveCallbackLoop WAIT
-        branch). Survey + likely ADR for host-stream-peer shape; simplest host interface first. Then F/G.
+        branch). Unit E plan: ADR-0190 (4c528925) — host implements a stream's other end (synchronous, no
+        scheduler); first interface wasi:cli/stdout.write-via-stream (host-as-reader, u8). NEXT = E1: classify
+        write-via-stream → P2Op/host-op, trampoline registers host as pending reader on SharedStream; guest
+        stream.write → p2StreamFutureCopy COMPLETION wires canon.load (u8 from guest mem ptr → host buf → fd1);
+        fixture asserts host captured the bytes (first read/write COMPLETION + marshalling e2e). Then E2 (WAIT-
+        path), E3 (stdin), then F/G.
       - E — WASI-P3 host interfaces (new component_wasi_p3.zig; sockets/http/clocks
         async; ~2000; MED; coexists with P2, does NOT replace it). Needs D.
       - F — async-export ABI + P3 component runner (canon.zig; ~400; MED). Needs E.

@@ -3,7 +3,7 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Current state — WASI-0.3 campaign (D-335); ζ2 COMPLETE (single-task) — all async builtins wired (`e6cfb865`)
+## Current state — WASI-0.3 campaign (D-335); D done (ζ2 single-task) + ADR-0190 Unit-E plan (`4c528925`)
 
 **WASI 0.3 / Preview 3 campaign** (Front D, ratified 2026-06-11; CM-async — `async` func / `stream<T>` /
 `future<T>`, NOT core stack-switching). Critical path A→B→C→D(crux)→E→F→G; full unit plan + per-unit DONE-SHAs
@@ -28,14 +28,20 @@ e2e read(BLOCKED→parks)→cancel-read→CANCELLED. **All `.stream_future` ops 
 complete.** 7 async e2e fixtures green (`async_{exit_immediate,yield_then_exit,task_return,stream_new,stream_drop,
 stream_read_blocked,stream_read_dropped,stream_cancel}`).
 
-**NEXT — Unit E: WASI-P3 host interfaces** (the host stream peer that unlocks the deferred ζ2 work):
-- New host impls (D-335 unit E: sockets/http/clocks async; ~2000 LOC; coexists w/ P2). The host implements a
-  stream's OTHER end → unblocks guest read/write **COMPLETION** + drives the element marshalling at `ptr`
-  (deferred from ζ2 Slice 3b, the `error.OutOfBounds`-trap path in `p2StreamFutureCopy`) + the **WAIT-path e2e**
-  (`driveCallbackLoop`'s WAIT branch via `waitOn`, today only EXIT/YIELD are e2e).
-- **Survey first** (likely an ADR for the host-stream-peer shape); start with the SIMPLEST host interface (e.g.
-  async clocks, or a host-readable byte stream) to land the first read/write COMPLETION e2e. Then F (async-export
-  public API), G (p3 corpus). Per D-335.
+**Unit E plan settled — ADR-0190** (`4c528925`): the host implements a stream's other end (synchronous, no
+scheduler/fibers); first interface = **`wasi:cli/stdout.write-via-stream`** (host-as-reader, `u8`, simplest).
+
+**NEXT — Unit E Slice E1: the host stream peer + first COMPLETION e2e** (per ADR-0190):
+- A new P3 host interface `wasi:cli/stdout.write-via-stream(stream<u8>)`: classify via `adapter.classifyImport`
+  → a new `P2Op`/host-op; the trampoline registers the host as a pending READER on the stream's `SharedStream`
+  (`shared.read`), recording the host end.
+- Guest `stream.write(writable, ptr, n)` → `p2StreamFutureCopy` COMPLETION branch (currently the
+  `error.OutOfBounds` trap): rendezvous with the host's pending read → COMPLETED(n) → **wire `canon.load`** (
+  `canon.zig` store/load; inputs `CanonContext`=mem+alloc, `Value`, `CanonType`, `ptr`; `mem_instance` for mem)
+  to move the `n` `u8`s from guest mem → host buffer → write fd 1. Guest `drop-writable` → host flush.
+- **Fixture**: a guest that `stream.new`s, passes the readable to `write-via-stream`, `stream.write`s "hi\n",
+  drops → assert host captured "hi\n" (capture buffer like the existing P2 stdout tests). This is the FIRST
+  read/write COMPLETION + element-marshalling e2e. Then E2 (WAIT-path variant), E3 (stdin), then F/G.
 
 ## Active bundle
 
@@ -47,10 +53,10 @@ stream_read_blocked,stream_read_dropped,stream_cancel}`).
   Concurrency}.md); ref impl `~/Documents/OSS/wasmtime` (43+; `concurrent/futures_and_streams.rs`).
 - **Exit-condition**: a WASI-0.3 async/stream/future component runs end-to-end through zwasm (new P3
   corpus green, 3-host); each unit lands green per D-335 along the way.
-- **Unit D DONE (HIGH/crux); Unit E START HERE**: Zone-1 model + P3 runner + ζ2 (all async builtins, single-task)
-  all e2e green. **Unit E** = WASI-P3 host interfaces (the host stream peer) — unlocks read/write COMPLETION +
-  element marshalling + the WAIT-path e2e (the deferred ζ2 work). Survey + likely an ADR for the host-stream-peer
-  shape; start with the simplest host interface. Then F/G.
+- **Unit D DONE (HIGH/crux); Unit E Slice E1 START HERE**: Zone-1 model + P3 runner + ζ2 all e2e green;
+  ADR-0190 settles the host-stream-peer design. E1 = `wasi:cli/stdout.write-via-stream` host-as-reader +
+  `p2StreamFutureCopy` COMPLETION marshalling (`canon.load` u8→fd1) → first guest stream.write COMPLETION e2e.
+  Then E2 (WAIT-path), E3 (stdin), then F/G.
 
 ## Long-tail (debt-tracked / parked — NOT active; see §9.0 fronts + debt.yaml)
 
