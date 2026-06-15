@@ -159,7 +159,7 @@ These do not change between phases. Changing one requires an ADR.
 | #   | Principle                                    | Effect                                                                                                                                                                                         |
 |-----|----------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | P1  | **WebAssembly spec is ground truth**         | Spec test fail / skip is a release-blocker. If a test breaks, the design is wrong, not the test.                                                                                               |
-| P2  | **Library and CLI in one binary**            | Single `zwasm` binary serves `run / compile / validate / inspect / features / wat / wasm`.                                                                                                     |
+| P2  | **Library and CLI in one binary**            | Single `zwasm` binary serves `run` + `compile` (ADR-0159; validate/inspect/wat↔wasm are the ecosystem's job — wasm-tools/wabt — not owed by the runtime CLI).                                  |
 | P3  | **Cold-start is the primary metric**         | Compile pipeline is single-pass (no SSA optimisation passes). AOT mode (Phase 12) is the second answer.                                                                                        |
 | P4  | **Zig 0.16 idioms**                          | `std.Io` DI, `*std.Io.Writer`, `packed struct`, `comptime`, `@branchHint`. No `std.Thread.Mutex`, no `std.io.AnyWriter`.                                                                       |
 | P5  | **link_libc=false, host-side**               | All host math via Zig builtins (LLVM intrinsics). No libm. No MSVCRT.                                                                                                                          |
@@ -171,7 +171,7 @@ These do not change between phases. Changing one requires an ADR.
 | P11 | **Three OS first-class**                     | macOS aarch64, Linux x86_64, Windows x86_64 are all gated locally (Mac native + `ubuntunote` SSH + `windowsmini` SSH per ADR-0049 + ADR-0067).                                                 |
 | P12 | **Differential testing is the oracle**       | Every test that runs a wasm module asserts `interp == jit` on the host's native backend. The two-platform gate (and Phase 14's CI matrix) gives `interp == jit_arm64 == jit_x86` transitively. |
 | P13 | **Day-one ZIR sized for the full target**    | All Wasm 3.0 ops + Phase 3-4 proposal ops + JIT pseudo-ops are reserved as `ZirOp` slots from day 1. Implementation is staged; the type is not.                                                |
-| P14 | **Optimisation lands last in commit order**  | Phases 1-10 = simplest correct implementation. Phase 15 = port v1's optimisation work (W43 / W44 / W45 / W54-class) onto the v2 substrate, where the slots already exist.                      |
+| P14 | **Optimisation lands last in commit order**  | Phases 1-10 = simplest correct implementation; perf work comes after correctness. Phase 15 MEASURED the v1 W43/W44/W45 ports as ~0-headroom (v2 emit already efficient) and instead closed the D-265 register-homing rework (ADR-0153). Optimising tier stays permanently out (§3.2).         |
 
 ### 2.1 Architecture rules (verifiable)
 
@@ -195,7 +195,7 @@ These do not change between phases. Changing one requires an ADR.
 
 ## 3. Scope: what we build, what we do not
 
-### 3.1 In scope (will be implemented for v0.1.0)
+### 3.1 In scope (the 完成形 correctness floor — no version gate, ADR-0181)
 
 - Full WebAssembly 3.0 (all Phase 5 proposals — see §6).
 - Wide arithmetic + custom page sizes (matching v1's coverage).
@@ -1249,6 +1249,54 @@ a phase first opens.
 - **No calendar estimates** — phases are task-driven, not
   time-driven. Pace is what the agent and the user can sustain.
 
+### 9.0 Completion-grade model — plateau + live fronts + future bucket (ADR-0186)
+
+The project is at the **完成形 plateau**: Phases 0–16 are DONE and Phase 17
+(the widget's feature/refinement line) is the steady state. The forward
+phase-queue framing is retired — remaining work is **a few live fronts + a
+genuinely-future bucket**, not a phase march. **Old Phase numbers stay as
+stable section anchors** for existing citations (ADRs / debt / handover); the
+**front** is the real unit. The goal-line is the **完成形 bar (§1.2)** — a
+named state, never a version (release is user-only, ADR-0156; version lines
+retired, ADR-0181). Modelled on ClojureWasm's ADR-0142 reframe.
+
+**Phase → status redirect** (so existing "Phase N" / §9.N citations resolve):
+
+| Former phase       | Status                                                                                          |
+|--------------------|-------------------------------------------------------------------------------------------------|
+| Phase 0–16         | **DONE** — §1.2 correctness floor + all surfaces (C/Zig/CLI); detailed tables archived           |
+| Phase 17 (widget)  | **Feature / refinement line** — completion-refinement over campaign-grown surfaces + debt long-tail; demand-driven (§1.3) |
+
+**Live fronts** (the demand-driven hardening surface — re-evaluated each
+`/continue` Step 0.5):
+
+- **Front A — surface/diagnostic finishing tail**: D-334 validator type-mismatch
+  diag (popExpect + isRef done; further enrichment is cap-bounded at
+  `validator.zig`'s 3400-line cap = principled stop), F6 per-section parse
+  diagnostics (ADR-grade — decoders run in compile/instantiate, body-relative
+  offsets), F4 trap-format (`@tagName` underscore; user-gated). Effectively
+  drained → monitoring.
+- **Front B — debt natural-discharge / steady-state hardening**: the
+  external-blocked (upstream Zig / 3-host) + future-phase debt rows; each
+  Step 0.5 re-walks the barrier and discharges what dissolved (the 2026-06-15
+  ground-truth sweep reconciled D-082(b)/D-026 externref-segment).
+- **Front C — dogfooding-driven**: the cw-v1 `@import("zwasm")` consumer
+  (**D-264**) when it lands → ergonomic / regression signal.
+
+**Genuinely-future bucket** (demand-driven, NO version gate — the §1.3 + §3.3
+set; not a queue):
+
+- Threaded EXECUTION (shared memory + spawn; the atomics *instruction set* is
+  shipped single-threaded).
+- Stack switching / WASI 0.3 (async / streams); `wasi:sockets`
+  listeners/UDP/name-lookup; fs `*-via-stream`.
+- RISC-V / s390x backends (separate ADR each).
+- The **optimising tier is permanently OUT** (single-pass is the design — §3.2).
+
+> Already-shipped former "v0.2.0 line" items (Component Model + WASI 0.2,
+> atomics / wide-arith / custom-page-sizes / relaxed-SIMD instruction sets)
+> graduated into the §1.2 correctness floor — NOT future work.
+
 ### Phase 0 — Phase 8b — archived
 
 Phase 0 through Phase 8b are all `DONE` per the §9 Phase Status widget
@@ -1723,12 +1771,12 @@ discharge predicate, not a silent workaround.
 > the loop; the loop never prepares-then-tags. When every item above hits 完成形,
 > the loop keeps refining / paying debt — it does not surface "ready to release."
 
-### Post-completion (v0.2.0 line)
+### Post-completion — see §9.0 future bucket (no version line, ADR-0181/0186)
 
-- Component Model + WASI 0.2.
-- Threads + atomics.
-- Optimising tier (post-baseline).
-- Other tier promotions as Wasm proposals advance.
+The old "v0.2.0 line" queue is retired. Component Model + WASI 0.2 **shipped**
+(§1.2 floor); the remaining demand-driven items (threaded EXECUTION, stack-
+switching / WASI 0.3, tier promotions) live in **§9.0's genuinely-future
+bucket** + §3.3. The optimising tier is permanently out (§3.2).
 
 ---
 

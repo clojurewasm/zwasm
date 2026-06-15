@@ -22,16 +22,19 @@ pillar already addressed** — D-265 (deterministic-slot regalloc 2.3× miss) wa
 register-homed locals (ADR-0154/0155, closed per ADR-0156); perf is deliberately NOT target-gated (bench
 README / ROADMAP §12.1, Goodhart). So there is no known open perf deficiency and no perf-baseline lead.
 
-**NEXT — 完成形 plateau: no clean positive-ROI autonomous track remains.** Every surface (diag/CLI/C-API/
-Zig-API/docs/perf) is swept/addressed; debt healthy; scaffolding clean. The remaining tracks are deliberately
-NOT to be forced as make-work: **F6 per-section** parse diags = marginal (those errors already surface WITH a
-message since `098d2036`; this only adds byte-offset precision) + multi-cycle + phase/offset design questions;
-**validator_gc.zig carve** = forbidden as make-work (`file_size_smell`: don't split to satisfy the cap; ADR-0099
-deliberately kept it whole; no high-value addition is blocked); **F4** trap-format = user-gated. So the right
-posture is **steady-state monitoring**: the next cycle should pick up a NEW signal (cw dogfooding feedback, a
-real malformed-input/diag need, a perf regression in CI bench, or a user directive) rather than manufacture
-churn. Re-arm continues the loop so a future signal is caught. **Do NOT** force F6/validator-carve, and do NOT
-re-attempt parked items (D-330 hard-park; D-331 go infra-blocked). Verify any prior remote kick at Step 0.7.
+**ACTIVE — user-directed ROADMAP+debt+ADR re-organization (2026-06-15), modelled on ClojureWasm's ADR-0142
+completion-grade reframe.** zwasm is at the 完成形 plateau; the ROADMAP still read as a forward phase-queue
+with drift. Campaign (ADR-0186):
+- **Chunk 1 DONE (this turn)**: §9 gained **§9.0 completion-grade model** (plateau + 3 live fronts A/B/C +
+  genuinely-future bucket; phase numbers = anchors); "Post-completion v0.2.0 line" stub → §9.0 pointer; drift
+  fixed: P2 (CLI = run+compile), §3.1 heading (version gate removed), P14 example (D-265 rework reality).
+- **Chunk 2 NEXT**: **debt re-placement** — group `.dev/debt.yaml` (47 rows) by front (live / future-bucket /
+  external-blocked / user-gated), mirroring CWFS's D-440 re-barrier. Consider an `active`/`standing`/`discharged`
+  split (CWFS pattern) or a lighter front-tag.
+- **Chunk 3 NEXT**: **ADR hygiene** — verify superseded/closed statuses (e.g. ADR-0025→0109, 0148/0149/0150
+  rework chain), optional index.
+No new `F-`/`O-` prefixes (user-chosen: consolidate into §1.2/§2/§14 + §1.3/§3.3). The live fronts A/B/C +
+future bucket are now in §9.0 — that is the steady-state work surface. Verify any prior remote kick at Step 0.7.
 
 c_sha256 `\n`-drop (D-330) deep-investigated this session (5 trace rounds + 3 fix attempts) → **bundle
 d330-blockmerge-liveness CLOSED, demoted to a hard-parked debt note**. Root IS understood (a br/br_if
