@@ -3,17 +3,23 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Current state — Phase-17 完成形 steady-state; branch GREEN (`098d2036`; da57e23b was last 3-host-verified)
+## Current state — Phase-17 完成形 steady-state; branch GREEN, Mac+ubuntu-verified (`b622cbbe`)
 
 **Diag-quality audit batch (this session) — cheap wins DONE**: F1 CLI `--max-table-elements` usage+test
 (`240f97de`), F3 full `ZWASM_TRAP_*` C #defines (`240f97de`), F5b validate-diag `(func #N @ 0xXX)`
 (`240f97de`), **F6 parser `.parse`-phase diagnostics w/ byte offset (`098d2036`, top-level 8 sites)**.
-240f97de = 3-host green (windows recorded da57e23b); 098d2036 = Mac `test` 2768/0 + lint (parse/CLI only,
-behavior-preserving — ubuntu/windows kicked this turn). **Remaining D-334 = no cheap wins left**: F5a
-(validator expected/found types — DEEP multi-site), F6-deeper (sections*.zig ~70 sites — LOW value), F4
-(trap `kind=` underscore — cosmetic format call). Audit: `private/notes/d-diag-audit-2026-06-15.md`.
-**NEXT: back to steady-state** — diag cheap-wins exhausted; remaining is DEEP/low-value/parked (D-330
-hard-parked, go infra-blocked). Diversify or hold; do NOT thrash the parked items.
+240f97de = 3-host green (windows recorded da57e23b); 098d2036 = Mac `test` 2768/0 + lint + **ubuntu OK
+(b622cbbe)**; windows batching 3/12 (abi_risk=0). Audit: `private/notes/d-diag-audit-2026-06-15.md`.
+
+**NEXT (fresh-context resume — user chose `/clear`→`/continue` 2026-06-15 to reset a heavy session)**: diag
+cheap wins are exhausted; with fresh context the highest-value 完成形 increments are (pick one, TDD + gate
+on `zig build test`; codegen/regalloc changes ALSO need `test-spec-wasm-2.0-assert` + Rosetta per lesson
+`spill-stage-reg-clobber-and-spec-gate-gap`): **(1) D-334 F5a** — thread expected/found `ValType` into the
+validator's reject sites for "type mismatch: expected i32, found f64" messages (DEEP multi-site but
+MECHANICAL plumbing; mirror the F6 setDiag pattern `098d2036`); OR **(2) a fresh 完成形 surface audit** of a
+not-yet-covered dimension (memory-safety/dogfooding were CLEAN per D-297/295/296) to surface new cheap wins.
+**Do NOT re-attempt the parked items** (D-330 conflicting-constraint hard-park; D-331 go infra-blocked) — they
+thrash. Verify any prior remote kick at Step 0.7.
 
 c_sha256 `\n`-drop (D-330) deep-investigated this session (5 trace rounds + 3 fix attempts) → **bundle
 d330-blockmerge-liveness CLOSED, demoted to a hard-parked debt note**. Root IS understood (a br/br_if
