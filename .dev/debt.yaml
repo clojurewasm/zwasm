@@ -1424,9 +1424,12 @@ entries:
         .waitable_set op-tagged; wait/poll carry cancellable+memory; mint+validate+P2-reject; decode test;
         test-all green). OPCODE CORRECTION: waitable-set is 0x1f-0x23 (NOT 0x05-0x0d = subtask/task/thread).
         Survey: zwasm STACKLESS → guest callback RETURNS WAIT(set), not the stackful waitable-set.wait builtin.
-        NEXT = E2b (waitable-set.new/join host trampolines on WaitableSetTable) → E2c (WAIT-path e2e: 2-phase
-        host source → guest blocks → WAIT(set) → driveCallbackLoop WAIT branch re-enters callback). Gaps:
-        multi-byte/typed marshalling (E1/E3 did u8); return-future resolution. Then F/G. (D-444 = P3-host split.)
+        E2b DONE (85817b84): waitable-set.new/join host trampolines (Def.waitable_set_builtin; p2WaitableSetNew
+        mints into WasiP2Ctx.sets, p2WaitableJoin → WaitableSet.join; wait/poll/drop defer); e2e mints a set +
+        joins a stream end. NEXT = E2c (WAIT-path e2e: 2-phase host source → guest read BLOCKs → waitable-set.new
+        + join + return WAIT(set) → driveCallbackLoop WAIT branch → waitOn poll → re-enter callback → COMPLETED;
+        the missing bit is the 2-phase source trigger; survey+small ADR). Gaps: multi-byte/typed marshalling
+        (E1/E3 did u8); return-future resolution. Then F/G. (D-444 = P3-host split.)
       - E — WASI-P3 host interfaces (new component_wasi_p3.zig; sockets/http/clocks
         async; ~2000; MED; coexists with P2, does NOT replace it). Needs D.
       - F — async-export ABI + P3 component runner (canon.zig; ~400; MED). Needs E.
