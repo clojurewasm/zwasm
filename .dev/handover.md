@@ -17,10 +17,13 @@ error contract, ADR-grade.)
 **NEW DIRECTION (4-front async-maturity + completion campaign).** Reference clones updated to latest 2026-06-16:
 wasmtime @06-13 (`tests/misc_testsuite/component-model/async/` ~44 `.wast`); WASI @0.3.0 release; **wasi-testsuite
 cloned** (`tests/rust/wasm32-wasip3`); wasm-tools/component-model refreshed (`implements.wast` new). Order ②→①→③→④:
-- **② wasmtime async .wast gap-mining (ACTIVE — highest ROI, ready now)**: read the ~44 `.wast`, build a gap matrix
-  (behavior → zwasm status implemented/partial/missing), land top cleanly-bounded gaps as fixtures+impl else precise
-  debt. Surfaced gaps: intra-streams/intra-futures (guest↔guest COMPLETION = scheduler), error-context type,
-  partial/big/typed stream copies, task-deletion/backpressure/cancel-subtask. `futures-must-write` validates D-337.
+- **② wasmtime async .wast gap-mining (ACTIVE — highest ROI)**: gap matrix in `private/notes/p17-wasmtime-async-gaps.md`.
+  **DONE**: Gap A (`afcf889a`) — an async export declaring a result MUST call task.return before EXIT, else trap
+  (`task-return-traps.wast`); `driveAsyncMain` checks `ctx.task_return` when `asyncExportExpectsResult`. **VERIFY
+  EACH ROW vs spec** (lesson `2026-06-16-gap-matrix-subagent-verify-against-spec`): the matrix's "cancel-not-copying
+  → returns 0" was WRONG (CanonicalABI `cancel_copy` traps; our `async_cancel_no_copy` already correct). NEXT:
+  Gap B (task.return sig/opts must match the lift's result type — `task-return-traps.wast` L108-150) + read/write-on-
+  DONE-end traps (`trap-if-done.wast`). TIER-3 (guest↔guest/scheduler, error-context) = design-grade debt.
 - **① WASI 0.3 conformance**: compile wasi-testsuite `rust/wasm32-wasip3` via `.#gen` (add wasm32-wasip3 target + wit
   deps), run as a conformance corpus.
 - **③ real-world corpus 50→100**: add MoonBit/Grain/Kotlin (Wasm-GC) + AssemblyScript/Swift/Zig toolchains to
