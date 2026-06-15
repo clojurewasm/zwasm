@@ -29,9 +29,12 @@ cloned** (`tests/rust/wasm32-wasip3`); wasm-tools/component-model refreshed (`im
   real rust wasip3 component hermetically (nightly `-Z build-std` + `wasm-component-ld --wasm-ld-path` nixpkgs
   wasm-ld + `link-self-contained=no` w/ stable wasip2 crt1/libc; pinned nightly 2026-06-14, reproducible). **VERIFIED:
   zwasm runs the output → exit 1** (cli-exit). Recipe: lesson `2026-06-16-wasip3-hermetic-build-recipe`; caveats in
-  D-448. **NEXT (front①)**: author plain-rust wasip3 fixtures under `test/component/wasip3/` (cli-exit ✓spike,
-  cli-stdio-roundtrip, cli-env) + a runner asserting the wasi-testsuite `.json` expectations (`run`/`wait exit_code`);
-  commit the `.wasm` (run via edge-runner on test hosts). Generation: `nix develop .#gen-wasip3` (Mac only).
+  D-448. **cli-exit DONE** (`a03a22a1`): `test/component/wasip3/` Cargo project + `scripts/gen_wasip3_fixtures.sh` +
+  committed `cli-exit.wasm` (56KB) + a test running it via runWasiMain asserting `exit_code==1` (mirrors
+  `cli-exit.json`). **NEXT (front①)**: more plain-std wasip3 fixtures — cli-args (`std::env::args`), cli-env
+  (`std::env::vars`), stdout (`println!`), stdin (`std::io::stdin`); add each `[[bin]]` to the Cargo.toml + a loop
+  in `gen_wasip3_fixtures.sh` + a test. NOTE: the suite's `cli-stdio-roundtrip` uses `wit_stream`/wit-bindgen =
+  path ① (heavy), NOT plain-std — defer it. Then front ④ perf (no toolchain).
 - **① WASI 0.3 conformance**: compile wasi-testsuite `rust/wasm32-wasip3` via `.#gen` (add wasm32-wasip3 target + wit
   deps), run as a conformance corpus.
 - **③ real-world corpus 50→100**: add MoonBit/Grain/Kotlin (Wasm-GC) + AssemblyScript/Swift/Zig toolchains to
