@@ -25,6 +25,7 @@ const wasi_p1 = @import("../wasi/preview1.zig");
 const p2sock = @import("../wasi/p2_sockets.zig");
 const adapter = @import("../wasi/adapter.zig");
 const resource_table = @import("../feature/component/resource_table.zig");
+const async_mod = @import("../feature/component/async.zig");
 const Caller = @import("../zwasm/caller.zig").Caller;
 
 const Allocator = std.mem.Allocator;
@@ -89,6 +90,15 @@ pub const WasiP2Ctx = struct {
     /// exits. Minimal single-`i32`-lowered-result form; typed/multi-value is a
     /// later ζ2 slice. `null` until the guest calls `task.return`.
     task_return: ?u32 = null,
+    /// CM-async per-task state (ADR-0189 ζ2): the stream/future end handle table,
+    /// the shared-rendezvous arena, and the waitable-set table. Lives here (not
+    /// in the P3 runner's frame) so the canon async builtins reach it via
+    /// `Caller.data`. Empty for a P2 component (P2 mints no async builtins).
+    streams: async_mod.StreamFutureTable,
+    shared: async_mod.SharedTable,
+    sets: async_mod.WaitableSetTable,
+    /// Per-definition contexts for the synthesized async builtins.
+    ab_ctxs: std.ArrayList(*AsyncBuiltinCtx) = .empty,
 
     /// Resource-type ids for the P2 resources the host models (`pub` for the
     /// in-tree tests that mint handles directly).
@@ -129,6 +139,9 @@ pub const WasiP2Ctx = struct {
             .host = host,
             .resources = try resource_table.ResourceTable.init(alloc),
             .guest_resources = try resource_table.ResourceTable.init(alloc),
+            .streams = try async_mod.StreamFutureTable.init(alloc),
+            .shared = async_mod.SharedTable.init(alloc),
+            .sets = try async_mod.WaitableSetTable.init(alloc),
         };
     }
 
@@ -145,6 +158,11 @@ pub const WasiP2Ctx = struct {
         for (self.rb_ctxs.items) |p| self.alloc.destroy(p);
         self.rb_ctxs.deinit(self.alloc);
         self.guest_dtors.deinit(self.alloc);
+        for (self.ab_ctxs.items) |p| self.alloc.destroy(p);
+        self.ab_ctxs.deinit(self.alloc);
+        self.streams.deinit();
+        self.shared.deinit();
+        self.sets.deinit();
     }
 
     /// Allocate `size` bytes of fresh guest memory via the guest's
@@ -1470,7 +1488,15 @@ const Def = union(enum) {
     /// result-delivery import; the trampoline records the value in
     /// `WasiP2Ctx.task_return`.
     task_return_builtin,
+    /// A `canon stream.*`/`future.*` builtin (WASI 0.3, ADR-0189 ζ2). `op`
+    /// selects the trampoline; `type_index` is the stream/future type. Slice 2
+    /// wires `stream.new`/`future.new`; the rest are a later slice.
+    async_builtin: struct { op: ctypes.StreamFutureOp, type_index: u32 },
 };
+
+/// Per-definition context for a synthesized async builtin (mirrors
+/// `ResourceBuiltinCtx`): the heap-stable ctx + the stream/future type index.
+pub const AsyncBuiltinCtx = struct { ctx: *WasiP2Ctx, type_index: u32 };
 
 const ResourceBuiltinKind = enum { new, drop, rep };
 
@@ -1513,10 +1539,13 @@ fn synthDef(info: *const ctypes.TypeInfo, built: []const ?Built, ex: ctypes.Core
             // task.return (CM-async) is satisfied by the P3 runner's host
             // builtin (ADR-0189 ζ2); it records the task's delivered result.
             .task_return => return .task_return_builtin,
-            // stream/future builtins are CM-async (WASI 0.3) — wired in a later
-            // ζ2 slice (they need the shared rendezvous arena). Fail loudly
-            // rather than silently mis-bind a core-func index until then.
-            .stream_future => return error.UnsupportedWasiImport,
+            // stream.new/future.new are wired (ADR-0189 ζ2 Slice 2); the rest of
+            // the stream/future builtins (read/write/cancel/drop) land in a later
+            // slice — fail loudly rather than silently mis-bind until then.
+            .stream_future => |sf| switch (sf.op) {
+                .stream_new, .future_new => return .{ .async_builtin = .{ .op = sf.op, .type_index = sf.type_index } },
+                .stream_read, .stream_write, .stream_cancel_read, .stream_cancel_write, .stream_drop_readable, .stream_drop_writable, .future_read, .future_write, .future_cancel_read, .future_cancel_write, .future_drop_readable, .future_drop_writable => return error.UnsupportedWasiImport,
+            },
             .alias => |t| switch (t) {
                 .core_export => |ce| {
                     const prov = built[ce.instance] orelse return error.ImportUnsatisfied;
@@ -1578,6 +1607,21 @@ fn p2TaskReturn(caller: *Caller, val: i32) WasiP2Error!void {
     caller.data(WasiP2Ctx).task_return = @bitCast(val);
 }
 
+/// `canon stream.new` (ADR-0189 ζ2): mint a readable+writable end pair over a
+/// fresh shared rendezvous; return the spec's packed `ri | (wi << 32)`.
+fn p2StreamNew(caller: *Caller) WasiP2Error!u64 {
+    const abc = caller.data(AsyncBuiltinCtx);
+    const pair = async_mod.newStreamPair(&abc.ctx.streams, &abc.ctx.shared, abc.type_index) catch return WasiP2Error.WriteFailed;
+    return @as(u64, pair.readable) | (@as(u64, pair.writable) << 32);
+}
+
+/// `canon future.new` — symmetric to `p2StreamNew`.
+fn p2FutureNew(caller: *Caller) WasiP2Error!u64 {
+    const abc = caller.data(AsyncBuiltinCtx);
+    const pair = async_mod.newFuturePair(&abc.ctx.streams, &abc.ctx.shared, abc.type_index) catch return WasiP2Error.WriteFailed;
+    return @as(u64, pair.readable) | (@as(u64, pair.writable) << 32);
+}
+
 /// Pour one synthetic export into `lk` under namespace `ns` as import `e.name`.
 fn defineSynth(lk: *Linker, ns: []const u8, e: SynthExport, ctx: *WasiP2Ctx) !void {
     switch (e.def) {
@@ -1594,6 +1638,19 @@ fn defineSynth(lk: *Linker, ns: []const u8, e: SynthExport, ctx: *WasiP2Ctx) !vo
             }
         },
         .task_return_builtin => try lk.defineFuncCtx(ns, e.name, ctx, fn (*Caller, i32) WasiP2Error!void, p2TaskReturn),
+        .async_builtin => |ab| {
+            const abc = try ctx.alloc.create(AsyncBuiltinCtx);
+            errdefer ctx.alloc.destroy(abc);
+            abc.* = .{ .ctx = ctx, .type_index = ab.type_index };
+            try ctx.ab_ctxs.append(ctx.alloc, abc);
+            switch (ab.op) {
+                .stream_new => try lk.defineFuncCtx(ns, e.name, @ptrCast(abc), fn (*Caller) WasiP2Error!u64, p2StreamNew),
+                .future_new => try lk.defineFuncCtx(ns, e.name, @ptrCast(abc), fn (*Caller) WasiP2Error!u64, p2FutureNew),
+                // other stream/future ops are a later ζ2 slice; synthDef already
+                // rejects them, so reaching here is a build-logic bug.
+                .stream_read, .stream_write, .stream_cancel_read, .stream_cancel_write, .stream_drop_readable, .stream_drop_writable, .future_read, .future_write, .future_cancel_read, .future_cancel_write, .future_drop_readable, .future_drop_writable => unreachable,
+            }
+        },
         .guest_func => |g| try lk.defineCrossModuleFunc(ns, e.name, g.inst, g.name),
         .guest_table => |g| {
             const rt = g.inst.handle.runtime orelse return error.ImportUnsatisfied;

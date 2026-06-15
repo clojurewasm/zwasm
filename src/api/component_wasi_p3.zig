@@ -79,12 +79,9 @@ pub fn driveAsyncMain(built: *wasi_p2.BuiltComponent) anyerror!void {
     const cb_ref = built.info.resolveCoreFuncExport(callback_idx) orelse return error.NoAsyncCallback;
     const inst = built.guestInstance(entry_ref.instance) orelse return error.NoRunExport;
 
-    var streams = try async_mod.StreamFutureTable.init(built.alloc);
-    defer streams.deinit();
-    var sets = try async_mod.WaitableSetTable.init(built.alloc);
-    defer sets.deinit();
-
-    var ctx = P3CallbackCtx{ .inst = inst, .callback_name = cb_ref.name, .streams = &streams, .sets = &sets };
+    // The async tables live in the component ctx (ADR-0189 ζ2) so the canon
+    // builtin trampolines (bound at instantiation) and the loop share them.
+    var ctx = P3CallbackCtx{ .inst = inst, .callback_name = cb_ref.name, .streams = &built.ctx.streams, .sets = &built.ctx.sets };
 
     // Invoke the async task entry once; its packed i32 return seeds the loop.
     var results = [_]Value{.{ .i32 = 0 }};
@@ -152,4 +149,26 @@ test "D-335 unit D-ζ2: canon task.return delivers the async task result to the 
     defer built.deinit();
     try driveAsyncMain(&built);
     try testing.expectEqual(@as(?u32, 42), built.ctx.task_return);
+}
+
+test "D-335 unit D-ζ2: canon stream.new mints a stream end pair via the host builtin" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/async_stream_new.wasm", testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+
+    // The core entry calls stream.new (was UnsupportedWasiImport pre-ζ2) then
+    // EXITs. After the run, the ctx stream table holds the minted readable +
+    // writable ends (handles 1 and 2).
+    var built = try wasi_p2.buildWasiP2Component(&eng, testing.allocator, bytes, &host, .{});
+    defer built.deinit();
+    try driveAsyncMain(&built);
+    _ = try built.ctx.streams.get(1); // readable end minted
+    _ = try built.ctx.streams.get(2); // writable end minted
 }
