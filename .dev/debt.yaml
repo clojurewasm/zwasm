@@ -1403,9 +1403,13 @@ entries:
         wires the 4 drop-{readable,writable} ops (StreamFutureEnd.drop marks shared dropped + dropEnd releases
         end/ref); WasiP2Error widened w/ async_mod.Error for try-propagation; e2e async_stream_drop.wat. NEXT =
         Slice 3b: wire stream/future read/write (currently UnsupportedWasiImport) to StreamFutureEnd.copy over
-        the SharedTable rendezvous + Unit-C element marshalling (resolve element WIT type from stream type_index,
-        move len elements guest-mem↔host); cancel-read/write small. Then Slice 3c (waitable-set builtins +
-        WAIT-path e2e exercising driveCallbackLoop's WAIT branch). Then units E/F/G.
+        the SharedTable rendezvous. SCOPE FINDING (023a07cd, lesson 2026-06-16-stackless-stream-completion-needs-
+        host-peer + ADR-0189 Rev): stackless single-task runner CANNOT reach guest-to-guest read/write COMPLETION
+        (blocked op returns to callback loop w/ no continuation → peer never acts); COMPLETION + element
+        marshalling + WAIT-path e2e GATE ON Unit E (host stream peer). NEXT = Slice 3b: wire read/write/cancel
+        returning single-task outcomes BLOCKED (no peer) / DROPPED (peer dropped) via StreamFutureEnd.copy/cancel
+        + Step→ReturnCode (no marshalling); fixtures assert BLOCKED + DROPPED. Then Unit E unlocks COMPLETION +
+        marshalling + WAIT e2e. Then units F/G.
       - E — WASI-P3 host interfaces (new component_wasi_p3.zig; sockets/http/clocks
         async; ~2000; MED; coexists with P2, does NOT replace it). Needs D.
       - F — async-export ABI + P3 component runner (canon.zig; ~400; MED). Needs E.
