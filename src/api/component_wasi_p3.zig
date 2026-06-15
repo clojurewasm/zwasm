@@ -276,3 +276,30 @@ test "D-335 unit E1: wasi:cli/stdout write-via-stream — a guest stream.write C
     try driveAsyncMain(&built);
     try testing.expectEqualStrings("hi\n", capture.items);
 }
+
+test "D-335 unit E1: wasi:cli/stderr write-via-stream routes a guest stream.write to fd 2" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/async_stderr_write_via_stream.wasm", testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+    var cap_err: std.ArrayList(u8) = .empty;
+    defer cap_err.deinit(testing.allocator);
+    var cap_out: std.ArrayList(u8) = .empty;
+    defer cap_out.deinit(testing.allocator);
+    host.stderr_buffer = &cap_err;
+    host.stdout_buffer = &cap_out;
+
+    // The stderr host sink (fd 2) captures the bytes; stdout stays empty —
+    // proving the write-via-stream fd routing is per-interface.
+    var built = try wasi_p2.buildWasiP2Component(&eng, testing.allocator, bytes, &host, .{});
+    defer built.deinit();
+    try driveAsyncMain(&built);
+    try testing.expectEqualStrings("er\n", cap_err.items);
+    try testing.expectEqualStrings("", cap_out.items);
+}
