@@ -3,85 +3,48 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Current state — WASI-0.3 campaign (D-335); P3 runner runs async e2e + ADR-0189 ζ2 plan (`4b9704d8`)
+## Current state — WASI-0.3 campaign (D-335); ζ2 Slice 1 (task.return) runs e2e (`48b052ca`)
 
-**WASI 0.3 / Preview 3 campaign is the active feature work** (Front D, ratified 2026-06-11; CM-async —
-`async` func / `stream<T>` / `future<T>` — NOT core stack-switching). Critical path A→B→C→D(crux)→E→F→G;
-full unit plan + per-unit DONE-SHAs in debt **D-335**. The loop drives ALL fronts autonomously, only
-tag-cut is user-reserved (ADR-0156). **Decode + the canon VALUE-ABI are now complete; D is the runtime crux.**
+**WASI 0.3 / Preview 3 campaign** (Front D, ratified 2026-06-11; CM-async — `async` func / `stream<T>` /
+`future<T>`, NOT core stack-switching). Critical path A→B→C→D(crux)→E→F→G; full unit plan + per-unit DONE-SHAs
+in debt **D-335**. Loop drives all fronts autonomously; only tag-cut is user-reserved (ADR-0156).
 
-**Done so far**:
-- **Unit A** (`95a23c53`+`e5acb989`): `stream<t?>`/`future<t?>` valtypes (0x66/0x65) decode (element is
-  **optional** `<valtype>?`, unlike `list`) + validation (payload bounds + reject `(stream char)`/transitive
-  `borrow`). Test block extracted to `types_tests.zig` (hard-cap).
-- **Unit B** (`0376ee44`): 14 canon `stream.*`/`future.*` builtins (0x0e–0x1b) — `StreamFutureOp` +
-  `Canon.stream_future`; each mints a `CoreFuncDef.stream_future`; P2 runner rejects (P3 = Units E/F).
-- **Unit C** (`58e3f46a`): stream/future VALUES marshal as **i32 handles, identical to `own`** — `CanonType`
-  `.stream`/`.future` + arms in flatten/lower/lift/store/load/liftTyped (grouped with `.own`; valid as results,
-  unlike `.borrow`). Pure pass-through; the handle TABLE lifecycle is Unit D. Typed public API defers (Unit F).
-- **D-336 part a** (`210f081d`): functype `result` rejects transitive `borrow`; part b blocked-by the
-  untracked value index space (sort=value deferred).
+**DONE (per-SHA detail in D-335)**: Units A/B/C — stream/future valtypes (0x66/0x65) + 14 canon builtins
+(0x0e–0x1b) + value-ABI as i32 handles · D Zone-1 model α..ζ1+ηA in `async.zig` (handle/stream/future tables,
+rendezvous, `EventCode`/`WaitableSet`, `Subtask`, `driveCallbackLoop`, `WaitableSetTable`; ADR-0187 stackless
+callback ABI, no fibers) · ηB decode (canonopts `async`/`callback`; `task.return` 0x09) · **P3 runner**
+(`component_wasi_p3.zig`, ADR-0188): async export runs end-to-end — `P3CallbackCtx` installs the
+`invokeCallback`(→`Instance.invoke`)/`waitOn`(→`WaitableSetTable.poll`, trap `error.AsyncDeadlock`) seams;
+EXIT + YIELD→callback-reentry both e2e green · **ζ2 Slice 1** (`48b052ca`, ADR-0189): `canon task.return` host
+builtin (`WasiP2Ctx.task_return` + `Def.task_return_builtin` + `p2TaskReturn`) delivers the async result —
+fixture calls task.return(42)→EXIT, `ctx.task_return == 42`. (Lesson: `zig build test` ≠ `test-all` — a new
+union variant can break the test-all-only `component_model_assert_runner`; grep `test/` switches + run
+`test-all` locally. `D-337` tracks the deferred writable-future-drop guard.)
 
-**Unit D underway** (async task/waitable RUNTIME — the architectural crux, ADR-0187). The spike settled the
-key question: zwasm's **synchronous engine CAN host CM-async via the stackless callback ABI — NO fibers, no
-hard blocker**. Staged α→η in D-335. **α** (`17a810f9`): handle table + `CopyState` + `ReturnCode`.
-**β** (`71ffb302`): `SharedStream` read/write rendezvous. **γ** (`253dcb56`): `StreamFutureEnd` CopyEnd methods
-(`copying`/`copy`/`cancel`/`drop`). **δ** (`be5a3e06`+`55dfd53d`): `EventCode`/`EventTuple`/`Waitable` slot +
-`WaitableSet`, and the delivery wiring. **ε** (`038214ee`): `SharedFuture` single-shot rendezvous
-(FUTURE_READ/WRITE; only the writable end observes a reader-drop; `copy`/`cancel`/`drop` are now generic over
-the shared type via `anytype`). **ζ1** (`1e3e814b`): `Subtask` waitable (state machine + lenders + resolve→
-SUBTASK event). **ηA** (`55452135`): `CallbackCode` (exit/yield/wait) + `unpackCallbackResult`. **The full
-Zone-1 async data model — streams + futures + subtasks, rendezvous + event delivery + the callback-ABI
-return-code — is complete and tested.** (`D-337` tracks the deferred writable-future-drop guard.)
-
-**`zig build test` ≠ `test-all`** (lesson `2026-06-15-test-all-builds-exes-zig-build-test-skips`): Unit C's
-CanonType `.stream`/`.future` had been latently breaking the `test-all`-only `component_model_assert_runner`
-exe (local `zig build test` never builds it) since `58e3f46a` — fixed `5e0610a1` (arm added), **test-all now
-green locally** (spec_assert 212/0, wast_runtime 359/0, wasi 3/0). When adding a union variant, grep `test/`
-for switches + run `test-all` locally once.
-
-**ηB decode pieces DONE**: **ηB.1** (`53d8e9fd`): `0x06 async`/`0x07 callback<funcidx>` canonopts decode onto
-`CanonOpts {is_async, callback}`. **ηB.2** (`47ca072a`): `canon task.return` (0x09) decode+validate+mint
-(`Canon.task_return`/`CoreFuncDef.task_return`; shared `decodeResultList`; P2 rejects loudly; validate bounds-
-checks result type-index + opts + callback core:funcidx). Decode surface for async is now complete.
-
-**P3 runner DONE — async runs end-to-end**: `component_wasi_p3.zig` (`cfaff104`) — `P3CallbackCtx` installs
-`driveCallbackLoop`'s `invokeCallback`(→`Instance.invoke`)+`waitOn`(→`WaitableSetTable.poll`, trap
-`error.AsyncDeadlock` on empty) seams; `runWasiP3Main` reuses `buildWasiP2Component`, detects the async lift
-via `opts.is_async`, invokes the task entry, drives the loop. The decode/validate path ACCEPTED async lift
-(no validate.zig change needed). E2E tests (`cfaff104`+`87ffa08b`): immediate-EXIT + YIELD→callback→EXIT, both
-green; wasm-tools-assembled fixtures (`test/component/async_{exit_immediate,yield_then_exit}.wasm`). Zone-1
-model done earlier: `driveCallbackLoop` (`d8fabc91`), `WaitableSetTable` (`bcb0ca9f`); shape in ADR-0188.
-
-**NEXT — ζ2 Slice 1: `task.return`, per ADR-0189** (design settled; build it):
-- Move `streams`/`sets` tables from the P3-runner locals INTO `WasiP2Ctx` (init/deinit); `runWasiP3Main` uses
-  `built.ctx.streams`/`.sets`. Add `task_return: ?u32` to `WasiP2Ctx`.
-- `synthDef` (`component_wasi_p2.zig:1507`): replace `.task_return → UnsupportedWasiImport` with a new
-  `Def.task_return_builtin`; `defineSynth` binds `p2TaskReturn(caller, val: i32)` (template
-  `p2GuestResourceNew`+`ResourceBuiltinCtx` ~`:1536`) storing `val` in `ctx.task_return`. `runWasiP3Main`
-  surfaces it.
-- **Red→green**: fixture `test/component/async_task_return.wat` — a `(result u32)` async export whose core
-  entry calls `task.return(42)` then returns EXIT; assert the surfaced value == 42. WAT plumbing (verified vs
-  `wasi_p2_cli_env.wat`): `(core func $tr (canon task.return (result u32)))` → `(core instance $deps (export
-  "task-return" (func $tr)))` → `(with ...)`; core module `(import ... (func $tr (param i32)))`. Assemble via
-  `nix develop .#gen` wasm-tools.
-- **Then** ζ2 Slice 2 (`stream.new`/`future.new` + ctx-owned shared arena + `StreamFutureEnd.shared` link, per
-  ADR-0189), Slice 3+ (read/write/drop + WAIT-path e2e). After ζ2: units E/F/G per D-335.
+**NEXT — ζ2 Slice 2: `stream.new`/`future.new` + the shared arena, per ADR-0189** (the one genuinely new
+lifetime piece — land it with adversarial drop-order tests):
+- `StreamFutureEnd` gains a `shared` handle into a NEW ctx-owned shared-stream/future arena (refcount = 2 ends,
+  freed on the 2nd drop). Move `streams`/`sets` tables into `WasiP2Ctx` (now there's a consumer).
+- `stream.new` trampoline `() -> i64`: create the shared, mint readable+writable ends linked to it, return
+  `ri | (wi<<32)` (spec `canon_stream_new`); same for `future.new`.
+- `synthDef` `.stream_future` → real `Def.async_builtin{op,type_index}` (was `UnsupportedWasiImport`);
+  `defineSynth` binds per-op trampolines (template `p2GuestResourceNew`+`ResourceBuiltinCtx` `~:1536`).
+- **Then** Slice 3+ (read/write/cancel/drop + a WAIT-path e2e fixture exercising `driveCallbackLoop`'s WAIT
+  branch through the runner). After ζ2: units E/F/G per D-335.
 
 ## Active bundle
 
 - **Bundle-ID**: wasi03-D-335 (§9.0 Front D; WASI 0.3 / Preview 3; units A→G)
-- **Cycles-remaining**: ~3 (P3 runner e2e + ADR-0189 ζ2 plan done; remaining = ζ2 Slices 1-3, then E/F/G)
-- **Continuity-memo**: critical path **A→B→C→D(...P3-runner-e2e + ADR-0189 done; ζ2 Slice1=task.return next)→E→F→G**
+- **Cycles-remaining**: ~3 (ζ2 Slice 1 done; remaining = ζ2 Slices 2-3, then E/F/G)
+- **Continuity-memo**: critical path **A→B→C→D(...P3-runner-e2e + ζ2-Slice1=task.return done; ζ2-Slice2=stream/future.new next)→E→F→G**
   (full plan in **D-335**; design in **ADR-0187** — stackless callback ABI, no fibers). CM-async, NOT core
   stack-switching. Spec: `~/Documents/OSS/{WASI, WebAssembly/component-model}` (design/mvp/{Binary,CanonicalABI,
   Concurrency}.md); ref impl `~/Documents/OSS/wasmtime` (43+; `concurrent/futures_and_streams.rs`).
 - **Exit-condition**: a WASI-0.3 async/stream/future component runs end-to-end through zwasm (new P3
   corpus green, 3-host); each unit lands green per D-335 along the way.
-- **Current unit — D (HIGH/crux; P3 runner e2e + ADR-0189, ζ2 Slice1 START HERE)**: Zone-1 model +
-  `driveCallbackLoop` + `WaitableSetTable` + the P3 runner (EXIT+YIELD e2e) done + green; ADR-0189 settles the
-  ζ2 wiring (state in WasiP2Ctx; task.return first; stream/future need a shared arena). Remaining = ζ2 Slice 1
-  (task.return) → Slice 2 (stream/future.new + shared arena) → Slice 3+ (read/write/drop + WAIT e2e). Then E/F/G.
+- **Current unit — D (HIGH/crux; P3 runner e2e + ζ2 Slice 1 done, ζ2 Slice 2 START HERE)**: Zone-1 model +
+  P3 runner + task.return all green; ADR-0189 settles ζ2 wiring. Remaining = Slice 2 (stream/future.new +
+  ctx-owned shared arena + `StreamFutureEnd.shared` link) → Slice 3+ (read/write/drop + WAIT e2e). Then E/F/G.
 
 ## Long-tail (debt-tracked / parked — NOT active; see §9.0 fronts + debt.yaml)
 
