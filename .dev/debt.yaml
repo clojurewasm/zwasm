@@ -1375,9 +1375,12 @@ entries:
         ηA DONE (55452135): CallbackCode (exit/yield/wait) + unpackCallbackResult. Zone-1 async model +
         callback-ABI return-code COMPLETE. test-all gap fixed (5e0610a1): Unit C CanonType .stream/.future
         broke the test-all-only component_model_assert_runner switch (latent since 58e3f46a; lesson
-        2026-06-15-test-all-builds-exes). NEXT = Zone-3 engine-wiring finale: ηB (the callback LOOP in a P3
-        runner + task.return + async export lifting) then ζ2 (replace component_wasi_p2.zig `.stream_future →
-        UnsupportedWasiImport` with real async.zig dispatch; gates on ηB). May want a P3-runner ADR first.
+        2026-06-15-test-all-builds-exes). ηB.1 DONE (53d8e9fd): 0x06 async/0x07 callback<funcidx> canonopts
+        decode. ηB.2 DONE (47ca072a): canon task.return (0x09) decode+validate+mint (Canon/CoreFuncDef
+        .task_return; shared decodeResultList; P2 rejects; validate bounds-checks result+opts+callback funcidx).
+        Async decode surface COMPLETE. NEXT = Zone-3 engine wiring: ηB-loop (the callback LOOP in a P3 runner +
+        async export lifting + task.return delivery) then ζ2 (replace component_wasi_p2.zig `.stream_future →
+        UnsupportedWasiImport` with real async.zig dispatch; gates on ηB-loop). ADR the P3-runner shape first.
       - E — WASI-P3 host interfaces (new component_wasi_p3.zig; sockets/http/clocks
         async; ~2000; MED; coexists with P2, does NOT replace it). Needs D.
       - F — async-export ABI + P3 component runner (canon.zig; ~400; MED). Needs E.

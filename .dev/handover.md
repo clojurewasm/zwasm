@@ -3,7 +3,7 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Current state — WASI-0.3 campaign (D-335); A+B+C + D-α..ε + ζ1 + ηA done; test-all GREEN (`5e0610a1`)
+## Current state — WASI-0.3 campaign (D-335); A+B+C + D-α..ε + ζ1 + ηA + ηB.1/ηB.2 done (`47ca072a`)
 
 **WASI 0.3 / Preview 3 campaign is the active feature work** (Front D, ratified 2026-06-11; CM-async —
 `async` func / `stream<T>` / `future<T>` — NOT core stack-switching). Critical path A→B→C→D(crux)→E→F→G;
@@ -40,31 +40,38 @@ exe (local `zig build test` never builds it) since `58e3f46a` — fixed `5e0610a
 green locally** (spec_assert 212/0, wast_runtime 359/0, wasi 3/0). When adding a union variant, grep `test/`
 for switches + run `test-all` locally once.
 
-**NEXT — Unit D-ηB (the callback event LOOP) then ζ2 — the Zone-3 engine-wiring finale.** Everything so far is
-Zone-1 pure data; these WIRE it into real guest execution (engine/`Caller`-aware, survey-first — re-read the
-η + ζ surveys in this session's transcript):
-- **ηB — the stackless callback loop** (likely a new `src/api/component_wasi_p3.zig` runner): call the
-  async-lifted export once → `unpackCallbackResult` → while ≠ EXIT: on WAIT `WaitableSet.poll(si)`, call the
-  guest `callback(event_code,p1,p2)` via `Instance.invoke`, repeat. + decode `task.return` (canon builtin,
-  currently UnsupportedCanon) + async export lifting. Spec `CanonicalABI.md` canon_lift stackless ~3498–3590.
-- **ζ2 — canon-builtin dispatch.** Replace `component_wasi_p2.zig:1507` `.stream_future →
+**ηB decode pieces DONE**: **ηB.1** (`53d8e9fd`): `0x06 async`/`0x07 callback<funcidx>` canonopts decode onto
+`CanonOpts {is_async, callback}`. **ηB.2** (`47ca072a`): `canon task.return` (0x09) decode+validate+mint
+(`Canon.task_return`/`CoreFuncDef.task_return`; shared `decodeResultList`; P2 rejects loudly; validate bounds-
+checks result type-index + opts + callback core:funcidx). Decode surface for async is now complete.
+
+**NEXT — Unit D-ηB-loop (the stackless callback LOOP) then ζ2 — the Zone-3 engine-wiring finale.** Everything
+so far is Zone-1 pure data + decode; these WIRE it into real guest execution (engine/`Caller`-aware,
+survey-first — the engine/Caller/Instance.invoke seam):
+- **ηB-loop** (likely a new `src/api/component_wasi_p3.zig` runner): call the async-lifted export once →
+  `unpackCallbackResult` → while ≠ EXIT: on WAIT `WaitableSet.poll(si)`, call the guest
+  `callback(event_code,p1,p2)` via `Instance.invoke`, repeat. + async export lifting + wire `task.return`
+  to deliver the task result. Spec `CanonicalABI.md` canon_lift stackless ~3498–3590. **May want a
+  P3-runner-shape ADR first** (architectural chunk — survey before code).
+- **ζ2 — canon-builtin dispatch.** Replace `component_wasi_p2.zig` `.stream_future →
   error.UnsupportedWasiImport` with a real host builtin calling async.zig's stream/future ops (template:
-  `p2GuestResourceNew`/`ResourceBuiltinCtx` ~`:1536`). Gates on ηB. May want a P3-runner-shape ADR first.
+  `p2GuestResourceNew`/`ResourceBuiltinCtx`). Gates on ηB-loop.
 
 ## Active bundle
 
 - **Bundle-ID**: wasi03-D-335 (§9.0 Front D; WASI 0.3 / Preview 3; units A→G)
-- **Cycles-remaining**: ~2 (A+B+C + D-α..ε + ζ1 + ηA done; remaining = the Zone-3 engine-wiring finale ηB + ζ2)
-- **Continuity-memo**: critical path **A(done)→B(done)→C(done)→D(α..ε+ζ1+ηA done; ηB+ζ2 = engine-wiring next)→E→F→G**
+- **Cycles-remaining**: ~2 (A+B+C + D-α..ε + ζ1 + ηA + ηB.1/.2 done; remaining = ηB-loop + ζ2 engine-wiring)
+- **Continuity-memo**: critical path **A(done)→B(done)→C(done)→D(α..ε+ζ1+ηA+ηB.1/.2 done; ηB-loop+ζ2 = engine-wiring next)→E→F→G**
   (full plan in **D-335**; design in **ADR-0187** — stackless callback ABI, no fibers). CM-async, NOT core
   stack-switching. Spec: `~/Documents/OSS/{WASI, WebAssembly/component-model}` (design/mvp/{Binary,CanonicalABI,
   Concurrency}.md); ref impl `~/Documents/OSS/wasmtime` (43+; `concurrent/futures_and_streams.rs`).
 - **Exit-condition**: a WASI-0.3 async/stream/future component runs end-to-end through zwasm (new P3
   corpus green, 3-host); each unit lands green per D-335 along the way.
-- **Current unit — D (HIGH/crux; α..ε+ζ1+ηA done, ηB START HERE)**: the full Zone-1 async data model + the
-  callback-ABI return-code are done in async.zig. Remaining = Zone-3 engine wiring: ηB (the callback LOOP in a
-  P3 runner + task.return + async export lifting) then ζ2 (canon-builtin dispatch into async.zig). Survey the
-  engine/Caller + event-loop seam first (η+ζ surveys are in this session's transcript).
+- **Current unit — D (HIGH/crux; α..ε+ζ1+ηA+ηB.1/.2 done, ηB-loop START HERE)**: the full Zone-1 async data
+  model + callback-ABI return-code + the async decode surface (canonopts + task.return) are done. Remaining =
+  Zone-3 engine wiring: ηB-loop (the callback LOOP in a P3 runner + async export lifting + task.return
+  delivery) then ζ2 (canon-builtin dispatch into async.zig). Survey the engine/Caller/Instance.invoke seam
+  first; ADR the P3-runner shape before code.
 
 ## Long-tail (debt-tracked / parked — NOT active; see §9.0 fronts + debt.yaml)
 
