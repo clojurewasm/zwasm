@@ -100,6 +100,30 @@ pub const EventTuple = struct {
     payload: u32,
 };
 
+/// Drive the stackless callback event loop (`CanonicalABI.md` canon_lift, the
+/// `callback`/stackless path). After an async-lifted export's first call returns
+/// `initial` (a packed `CallbackResult`), re-enter the guest's `callback` core
+/// func with each delivered event until it signals EXIT. `ctx` injects the two
+/// engine seams so this stays Zone-1 (the Zone-3 P3 runner installs them):
+///   - `invokeCallback(event_code: u32, p1: u32, p2: u32) Error!u32` — call the
+///     guest `callback`, returning its packed result;
+///   - `waitOn(set_index: u32) Error!EventTuple` — block until the named
+///     waitable set delivers an event (the WAIT seam).
+/// YIELD re-enters with `EventCode.none` (no scheduler yet — the guest must make
+/// its own progress); EXIT ends the loop (the task has called `task.return`).
+pub fn driveCallbackLoop(ctx: anytype, initial: u32) Error!void {
+    var result = try unpackCallbackResult(initial);
+    while (result.code != .exit) {
+        const ev: EventTuple = switch (result.code) {
+            .exit => unreachable, // excluded by the loop guard
+            .yield => .{ .code = .none, .index = 0, .payload = 0 },
+            .wait => try ctx.waitOn(result.waitable_set_index),
+        };
+        const next_bits = try ctx.invokeCallback(@intFromEnum(ev.code), ev.index, ev.payload);
+        result = try unpackCallbackResult(next_bits);
+    }
+}
+
 pub const EndKind = enum { stream, future };
 pub const EndSide = enum { readable, writable };
 
@@ -718,4 +742,70 @@ test "stream/future end table: add/get/remove lifecycle + index-0 reserved" {
     const h2 = try t.add(.{ .kind = .future, .side = .writable, .elem_type = null });
     try testing.expectEqual(h, h2);
     try testing.expectEqual(EndKind.future, (try t.get(h2)).kind);
+}
+
+/// Records what the callback loop asked of the engine + scripts the guest's
+/// packed callback returns, so the pure loop driver can be tested with no real
+/// component instance.
+const ScriptedLoopCtx = struct {
+    cb_returns: []const u32, // the guest's packed result per callback call, in order
+    wait_event: EventTuple, // the event waitOn delivers for a WAIT
+    cb_calls: std.ArrayList(EventTuple) = .empty,
+    wait_calls: std.ArrayList(u32) = .empty,
+    next: usize = 0,
+    alloc: Allocator,
+
+    fn deinit(self: *ScriptedLoopCtx) void {
+        self.cb_calls.deinit(self.alloc);
+        self.wait_calls.deinit(self.alloc);
+    }
+
+    fn waitOn(self: *ScriptedLoopCtx, set_index: u32) Error!EventTuple {
+        try self.wait_calls.append(self.alloc, set_index);
+        return self.wait_event;
+    }
+
+    fn invokeCallback(self: *ScriptedLoopCtx, event_code: u32, p1: u32, p2: u32) Error!u32 {
+        try self.cb_calls.append(self.alloc, .{ .code = @enumFromInt(event_code), .index = p1, .payload = p2 });
+        const r = self.cb_returns[self.next];
+        self.next += 1;
+        return r;
+    }
+};
+
+test "D-335 unit D-ηB: driveCallbackLoop re-enters callback per delivered event until EXIT" {
+    // WAIT(set=5) → engine delivers a STREAM_READ event → callback returns EXIT.
+    {
+        var ctx = ScriptedLoopCtx{
+            .cb_returns = &.{0}, // first (only) callback returns EXIT
+            .wait_event = .{ .code = .stream_read, .index = 3, .payload = 0 },
+            .alloc = testing.allocator,
+        };
+        defer ctx.deinit();
+        try driveCallbackLoop(&ctx, (5 << 4) | 2); // initial = WAIT on set 5
+        // the loop waited on set 5 once, then re-entered the callback once with
+        // the delivered event (STREAM_READ=2, index 3, payload 0).
+        try testing.expectEqualSlices(u32, &.{5}, ctx.wait_calls.items);
+        try testing.expectEqual(@as(usize, 1), ctx.cb_calls.items.len);
+        try testing.expectEqual(EventCode.stream_read, ctx.cb_calls.items[0].code);
+        try testing.expectEqual(@as(u32, 3), ctx.cb_calls.items[0].index);
+    }
+
+    // YIELD → re-enter with EventCode.none (no scheduler), then EXIT. No wait.
+    {
+        var ctx = ScriptedLoopCtx{ .cb_returns = &.{0}, .wait_event = undefined, .alloc = testing.allocator };
+        defer ctx.deinit();
+        try driveCallbackLoop(&ctx, 1); // initial = YIELD
+        try testing.expectEqual(@as(usize, 0), ctx.wait_calls.items.len);
+        try testing.expectEqual(@as(usize, 1), ctx.cb_calls.items.len);
+        try testing.expectEqual(EventCode.none, ctx.cb_calls.items[0].code);
+    }
+
+    // initial = EXIT immediately → the callback is never entered.
+    {
+        var ctx = ScriptedLoopCtx{ .cb_returns = &.{}, .wait_event = undefined, .alloc = testing.allocator };
+        defer ctx.deinit();
+        try driveCallbackLoop(&ctx, 0);
+        try testing.expectEqual(@as(usize, 0), ctx.cb_calls.items.len);
+    }
 }
