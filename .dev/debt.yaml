@@ -1613,6 +1613,35 @@ entries:
     refs: |-
       flake.nix (devShells.gen rustWasm targets — wasip3 NOT addable yet);
       ~/Documents/OSS/wasi-testsuite/tests/rust/wasm32-wasip3/ (BUCK + wit + src/bin)
+  - id: "D-450"
+    layer: "code"
+    status: "now"
+    front: D-perf
+    description: |-
+      now (front ④ perf — measure-first ROI target, 2026-06-16). The all-engine
+      matrix (`bench/results/all_engine_matrix.md`, ReleaseFast, Mac aarch64,
+      2026-06-05) shows zwasm-jit vs wasmtime ratios cluster ~1.5–4× (the expected
+      single-pass-vs-Cranelift tradeoff: fib2 1.5×, sieve 1.6×, heapsort 2.5×,
+      keccak 3.7×, matrix 3.9×) — EXCEPT **shootout/base64 at 13.6×** (zwasm-jit
+      781 ms vs wasmtime 57 ms; wasmer 62, wazero 79 — all optimizing comparators
+      ~60–80 ms, so it is a zwasm-specific hotspot, not a fixture artifact). 13.6×
+      is far beyond the single-pass baseline → a SPECIFIC fixable inefficiency in
+      base64's hot loop, the highest-ROI perf target. ADR-0153 rework Phase I
+      (mechanism) is NEXT: profile which op dominates base64 under `--engine jit`
+      (candidates: integer div/mod for the /3,%3,/4 base64 arithmetic not strength-
+      reduced; table-lookup load8 addressing; byte mask/shift spills) via
+      `ZWASM_DEBUG=jit.dump` + `scripts/jit_value_trace.sh` (Recipe 18) on
+      `bench/runners/wasm/shootout/base64.wasm`. Then a single-pass-bounded fix
+      (§1.3/§3.2 — NO optimising tier). matrix/keccak (3.7–3.9×) are secondary
+      targets. NOT bench-gated for correctness (perf-only, ROI-first per
+      `feedback_perf_measure_first`); only pursue if the hotspot is a cheap
+      single-pass win.
+    first_raised: "2026-06-16"
+    last_reviewed: "2026-06-16"
+    refs: |-
+      bench/results/all_engine_matrix.md (the measured ratios);
+      bench/runners/wasm/shootout/base64.wasm (profile target);
+      scripts/run_bench.sh (--bench=shootout/base64); .claude/skills/debug_jit_auto
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.

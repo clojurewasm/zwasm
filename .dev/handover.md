@@ -37,10 +37,12 @@ cloned** (`tests/rust/wasm32-wasip3`); wasm-tools/component-model refreshed (`im
   `func(status: result<_,_>)` (ok/err only), so a guest `exit(N>0)` collapses to exit_code 1, making an `exit(42)`
   success-sentinel unsatisfiable (subagent-instrumented: p2GetEnvironment called once, envs.len=1, bytes correct).
   Lesson `2026-06-16-wasi-cli-exit-result-channel-fixture-trap` (signal success via exit(0)/stdout, never a numeric
-  code). **front① cli+clocks conformance DONE (7 fixtures).** **NEXT = front ④ perf** (no new toolchain — run the
-  bench suite, diff vs `bench/` history to find benches regressed by the CM/async/GC feature additions, then optimise
-  within single-pass §1.3/§3.2; measure-first per `feedback_perf_measure_first`). Optional later: wasip3 filesystem
-  (preopens) conformance. Per the user's 4-front order ②done→①done→③corpus→④perf (④ chosen next over ③: no toolchain).
+  code). **front① cli+clocks conformance DONE (7 fixtures).** **front ④ perf LAUNCHED (measure-first done → D-450)**:
+  the all-engine matrix shows zwasm-jit vs wasmtime clusters ~1.5–4× (single-pass tradeoff) EXCEPT **shootout/base64
+  at 13.6×** (781 vs 57 ms; all optimizing comparators ~60-80 → zwasm-specific hotspot) = the highest-ROI target.
+  **NEXT**: D-450 Phase-I — profile base64's hot loop under `--engine jit` (`ZWASM_DEBUG=jit.dump` + Recipe 18; suspects
+  = unreduced div/mod for /3,%3,/4, table-lookup load8 addressing, byte mask/shift spills), then a single-pass-bounded
+  fix (§1.3/§3.2, NO optimising tier). matrix/keccak (3.7-3.9×) secondary. ROI-first — only fix a cheap single-pass win.
 - **① WASI 0.3 conformance**: compile wasi-testsuite `rust/wasm32-wasip3` via `.#gen` (add wasm32-wasip3 target + wit
   deps), run as a conformance corpus.
 - **③ real-world corpus 50→100**: add MoonBit/Grain/Kotlin (Wasm-GC) + AssemblyScript/Swift/Zig toolchains to
@@ -51,15 +53,15 @@ cloned** (`tests/rust/wasm32-wasip3`); wasm-tools/component-model refreshed (`im
 ## Active bundle
 
 - **Bundle-ID**: p17-async-maturity-4front (②wasmtime-gaps → ①wasip3-conformance → ③corpus-100 → ④perf-rework)
-- **Cycles-remaining**: many (multi-front; ② TIER-1 DONE → ① active next)
-- **Continuity-memo**: ② DONE (gap matrix `private/notes/p17-wasmtime-async-gaps.md`; Gap A `afcf889a` + copy-IDLE
-  `05b35c28`; cancel verified; D-446/D-447 deferred). **① official build BLOCKED (D-448)** — wasip3 std not in
-  pinned stable + Buck/wit-bindgen-async. **① via behavior-mirror**: hand-write wasip3 `.wat` fixtures from the
-  suite's `src/bin/*.rs` + `.json` (operations: run/wait exit_code) at `~/Documents/OSS/wasi-testsuite/tests/rust/
-  wasm32-wasip3/`, assembled via wasm-tools, run through driveAsyncMain/runWasiMain. zwasm stackless single-task
-  (ADR-0187). Start with cli-exit (simplest). Spec: `~/Documents/OSS/{WASI,WebAssembly/component-model}`.
-- **Exit-condition**: (front ①) a set of wasip3 cli-behavior `.wat` fixtures (cli-exit, cli-stdio-roundtrip, cli-env)
-  green through zwasm 3-host, mirroring the wasi-testsuite `.json` expectations; new gaps → fixtures/debt.
+- **Cycles-remaining**: many (multi-front; ② DONE, ① DONE 7 fixtures, ④ perf active, ③ corpus deferred)
+- **Continuity-memo**: ② DONE (Gap A `afcf889a` + copy-IDLE `05b35c28`; D-446/D-447 deferred). ① DONE — real rust
+  wasip3 corpus (cli-exit/stdout/stderr/env/args/stdin/clocks, 7 green) via the hermetic `.#gen-wasip3` recipe; built
+  the toolchain from scratch (nightly+build-std+nixpkgs-wasm-ld+wasip2-libc, lessons `2026-06-16-wasip3-hermetic-build-
+  recipe` + `…-wasi-cli-exit-result-channel-fixture-trap`); D-449 was a fixture false-alarm. **④ perf active**: D-450
+  = profile shootout/base64 (13.6× wasmtime, the outlier) under `--engine jit`, single-pass-bounded fix. ③ corpus
+  (MoonBit/Grain/Kotlin/AssemblyScript toolchains) deferred — heavy new-toolchain setup, lower priority than ④.
+- **Exit-condition**: (front ④) base64's jit/wasmtime ratio brought toward the ~1.5–4× single-pass baseline via a
+  measured single-pass fix (D-450 Phase I–V), OR ROI shown insufficient + documented; full bench re-profile recorded.
 
 ## Long-tail (debt-tracked / parked — NOT active; see §9.0 fronts + debt.yaml)
 
