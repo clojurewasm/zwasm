@@ -32,6 +32,8 @@ pub const Error = error{
     CopyInProgress,
     /// `cancel-read`/`cancel-write` on an end with no async copy in flight.
     NotCopying,
+    /// A stackless-async callback returned a reserved code (low nibble > MAX=2).
+    InvalidCallbackCode,
 };
 
 /// Copy-state of a stream/future end (`CanonicalABI.md` §Stream State). The
@@ -58,6 +60,26 @@ pub const ReturnCode = union(enum) {
         };
     }
 };
+
+/// The code a stackless-async lifted export (or its `callback`) returns to the
+/// host event loop (`CanonicalABI.md` `CallbackCode`): the host either exits,
+/// re-enters on a yield, or waits on a waitable set.
+pub const CallbackCode = enum(u8) { exit = 0, yield = 1, wait = 2 };
+
+pub const CallbackResult = struct { code: CallbackCode, waitable_set_index: u32 };
+
+/// `unpack_callback_result` — decode the packed i32 the guest returns: low 4
+/// bits = `CallbackCode` (a value > MAX=2 traps), high 28 bits = the
+/// waitable-set index the host waits on for a WAIT.
+pub fn unpackCallbackResult(bits: u32) Error!CallbackResult {
+    const code: CallbackCode = switch (bits & 0xf) {
+        0 => .exit,
+        1 => .yield,
+        2 => .wait,
+        else => return Error.InvalidCallbackCode,
+    };
+    return .{ .code = code, .waitable_set_index = bits >> 4 };
+}
 
 /// The async event kinds delivered to core wasm (`CanonicalABI.md` `EventCode`).
 pub const EventCode = enum(u8) {
@@ -479,6 +501,19 @@ test "ReturnCode packs per the canonical-ABI encoding" {
     try testing.expectEqual(@as(u32, (2 << 4) | 2), (ReturnCode{ .cancelled = 2 }).encode());
     // futures carry a zero count → just the code in the low bits.
     try testing.expectEqual(@as(u32, 0), (ReturnCode{ .completed = 0 }).encode());
+}
+
+test "D-335 unit D-η: unpackCallbackResult decodes the stackless callback-ABI return code" {
+    // EXIT (0) carries no waitable set.
+    try testing.expectEqual(CallbackCode.exit, (try unpackCallbackResult(0)).code);
+    // WAIT (2) with waitable-set index 7: (7 << 4) | 2.
+    const w = try unpackCallbackResult((7 << 4) | 2);
+    try testing.expectEqual(CallbackCode.wait, w.code);
+    try testing.expectEqual(@as(u32, 7), w.waitable_set_index);
+    // YIELD (1), no set.
+    try testing.expectEqual(CallbackCode.yield, (try unpackCallbackResult(1)).code);
+    // a code > MAX (2) traps (the reserved low-nibble values).
+    try testing.expectError(Error.InvalidCallbackCode, unpackCallbackResult(3));
 }
 
 test "stream rendezvous: write-then-read copies min(counts); notifies the pending writer" {
