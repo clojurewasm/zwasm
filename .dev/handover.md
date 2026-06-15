@@ -3,7 +3,7 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Current state — WASI-0.3 campaign (D-335); E2c WAIT-path e2e — callback loop COMPLETE (`249e8e85`)
+## Current state — WASI-0.3 campaign (D-335); callback loop + stream peer contract COMPLETE (`13c7afce`)
 
 **WASI 0.3 / Preview 3 campaign** (Front D, ratified 2026-06-11; CM-async — `async` func / `stream<T>` /
 `future<T>`, NOT core stack-switching). Critical path A→B→C→D(crux)→E→F→G; full unit plan + per-unit DONE-SHAs
@@ -31,31 +31,40 @@ single-task can't reach guest-to-guest COMPLETION — `2026-06-16-stackless-stre
 read PARKS → returns `WAIT(set)` → host delivers "ok" → `driveCallbackLoop` WAIT branch re-enters callback →
 EXIT. **The callback loop is now COMPLETE e2e (EXIT + YIELD + WAIT); both stream directions COMPLETE.**
 
-**NEXT — Unit E extensions / F / G** (the core async mechanism is proven; what remains is breadth + polish):
-- **Multi-byte/typed element marshalling** — E1/E3/E2c moved `u8` only. Generalise the stream read/write
-  marshalling to arbitrary element WIT types via the Unit-C `canon.zig` store/load (resolve the element type
-  from the stream `type_index`). The first real non-`u8` stream fixture.
-- **Return-future resolution** — `write-via-stream`/`read-via-stream` return a `future<result<_,error-code>>`
-  the guest can read for completion; today the host returns an unresolved future. Resolve it (ok on
-  drop-writable / EOF) + a `future.read` e2e.
+**Return-future resolution DONE** (`13c7afce`): `WasiP2Ctx.host_result_futures` (the returned future readable
+handle); a guest `future.read` on it COMPLETES with the `ok` discriminant (0, 1 byte) — a host peer always
+succeeds, no rendezvous/typed-marshalling. E2E `async_future_result.wat`: write "hi" → future.read →
+COMPLETED(1)+ok. **The write/read-via-stream interface contract (stream + return future) is now complete.**
+
+**NEXT — Unit E breadth / F / G** (the core async mechanism + the stdio stream contract are proven; remaining
+is breadth + the public surface):
+- **Typed/multi-byte element marshalling** — E1/E3/E2c moved `u8` only (count==bytes). Generalise the stream
+  read/write byte math + the marshalling to arbitrary element WIT types via the Unit-C `canon.zig` store/load
+  (resolve the element type from the stream `type_index`, `bytes = count * elem_size`). Needs a typed (non-u8)
+  stream interface or a guest-to-guest path to exercise it — scope a fixture first. (Latent: the current code
+  treats `count` as bytes — correct only for `u8` streams.)
+- **General guest-to-guest stream COMPLETION** — the Zone-1 rendezvous doesn't buffer the in-flight bytes; a
+  true guest↔guest copy needs the host to hold both ends' buffers. Separate harder design (likely an ADR).
+- Then **F** (async-export public API — the C/Zig embedder surface to drive an async component + read its
+  result) and **G** (a `test/component/p3` corpus consolidating the ~15 async fixtures). Per D-335.
+  (**D-444** P3-host file split when E settles.)
 - Then **F** (async-export public API surface — the embedder C/Zig API for driving an async component) and **G**
   (a `test/component/p3` corpus consolidating the async fixtures). Per D-335. (**D-444** P3-host file split.)
 
 ## Active bundle
 
 - **Bundle-ID**: wasi03-D-335 (§9.0 Front D; WASI 0.3 / Preview 3; units A→G)
-- **Cycles-remaining**: ~3 (D + E callback-loop COMPLETE e2e; remaining = E breadth (typed marshalling, future
-  resolution) → F → G)
+- **Cycles-remaining**: ~3 (D + E callback-loop + stdio stream contract COMPLETE; remaining = E breadth (typed marshalling) → F → G)
 - **Continuity-memo**: critical path **A→B→C→D(DONE)→E(callback loop EXIT/YIELD/WAIT + both stream dirs e2e DONE; breadth next)→F→G**
   (full plan in **D-335**; design in **ADR-0187** — stackless callback ABI, no fibers). CM-async, NOT core
   stack-switching. Spec: `~/Documents/OSS/{WASI, WebAssembly/component-model}` (design/mvp/{Binary,CanonicalABI,
   Concurrency}.md); ref impl `~/Documents/OSS/wasmtime` (43+; `concurrent/futures_and_streams.rs`).
 - **Exit-condition**: a WASI-0.3 async/stream/future component runs end-to-end through zwasm (new P3
   corpus green, 3-host); each unit lands green per D-335 along the way.
-- **Unit D + E callback-loop COMPLETE (HIGH/crux); E breadth START HERE**: Zone-1 model + P3 runner + ζ2 + host
-  stream peers (both directions COMPLETE) + waitable-set + the WAIT-path all e2e green — the async callback loop
-  (EXIT/YIELD/WAIT) is proven end-to-end. Next = E breadth: typed/multi-byte element marshalling + return-future
-  resolution → then F (async public API) / G (p3 corpus). (D-444 = P3-host split when E settles.)
+- **Unit D + E callback-loop + stdio stream contract COMPLETE (HIGH/crux); E breadth START HERE**: Zone-1 model
+  + P3 runner + ζ2 + host stream peers (both directions COMPLETE) + waitable-set + WAIT-path + return-future
+  all e2e green. Next = E breadth: typed/multi-byte element marshalling (needs a non-u8 fixture) → then F
+  (async public API) / G (p3 corpus). (D-444 = P3-host split when E settles.)
 
 ## Long-tail (debt-tracked / parked — NOT active; see §9.0 fronts + debt.yaml)
 

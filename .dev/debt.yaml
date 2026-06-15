@@ -1434,10 +1434,13 @@ entries:
         parks a deferred host-source read; WasiP2Ctx.deliverParkedReads delivers bytes + setPendingEvent at
         waitOn; P3CallbackCtx holds WasiP2Ctx, waitOn delivers-then-polls. async_wait_path.wat: read PARKS →
         WAIT(set) → host delivers "ok" → driveCallbackLoop WAIT branch re-enters callback → EXIT. CALLBACK LOOP
-        COMPLETE e2e (EXIT/YIELD/WAIT); both stream directions COMPLETE. NEXT = E breadth: typed/multi-byte
-        element marshalling (E1/E3/E2c did u8) via canon.zig store/load; return-future resolution (write/read-
-        via-stream return an unresolved future) + future.read e2e. Then F (async public API), G (p3 corpus).
-        (D-444 = P3-host split.)
+        COMPLETE e2e (EXIT/YIELD/WAIT); both stream directions COMPLETE. Return-future resolution DONE
+        (13c7afce): WasiP2Ctx.host_result_futures; future.read on a host-result future → COMPLETED(1)+ok
+        discriminant (host peer always succeeds, no rendezvous); e2e async_future_result.wat. write/read-via-
+        stream contract (stream + future) complete. NEXT = E breadth: typed/multi-byte element marshalling
+        (E1/E3/E2c did u8, count==bytes; generalise via canon.zig store/load + bytes=count*elem_size — needs a
+        non-u8 fixture); general guest-to-guest stream COMPLETION (Zone-1 rendezvous doesn't buffer bytes —
+        separate harder design, likely ADR). Then F (async public API), G (p3 corpus). (D-444 = P3-host split.)
       - E — WASI-P3 host interfaces (new component_wasi_p3.zig; sockets/http/clocks
         async; ~2000; MED; coexists with P2, does NOT replace it). Needs D.
       - F — async-export ABI + P3 component runner (canon.zig; ~400; MED). Needs E.
