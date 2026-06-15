@@ -377,6 +377,21 @@ test "validate: unreachable polymorphism — () -> i32 satisfied by `unreachable
     try validateFunction(i32_result_sig, &.{}, &[_]u8{ 0x00, 0x0B }, &.{}, &.{}, &.{}, 0, &.{}, 0);
 }
 
+test "validate: type-mismatch diagnostic names expected/found types (D-334 F5a)" {
+    // (func (param f64))  local.get 0 ; i32.eqz — i32.eqz's popExpect(.i32)
+    // finds the f64 local → StackTypeMismatch carrying an enriched message.
+    const diagnostic = @import("../diagnostic/diagnostic.zig");
+    const f64_arr = [_]ValType{.f64};
+    const f64_param_sig: FuncType = .{ .params = &f64_arr, .results = &.{} };
+    diagnostic.clearDiag();
+    const body = [_]u8{ 0x20, 0x00, 0x45, 0x0B }; // local.get 0 ; i32.eqz ; end
+    const r = validateFunction(f64_param_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &.{}, 0);
+    try testing.expectError(Error.StackTypeMismatch, r);
+    const d = diagnostic.lastDiagnostic().?;
+    try testing.expectEqual(diagnostic.Phase.validate, d.phase);
+    try testing.expect(std.mem.find(u8, d.message(), "expected i32, found f64") != null);
+}
+
 test "validate: br to outer block consumes labeled type" {
     // outer block (result i32) { i32.const 5 ; br 0 } end
     // function sig () -> i32, expected to validate.

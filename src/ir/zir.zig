@@ -176,6 +176,51 @@ pub const ValType = union(enum) {
         };
     }
 
+    /// Human-readable value-type name for diagnostics (Wasm 3.0 text
+    /// keywords). Nullable abstract refs use the shorthand keywords
+    /// (`funcref`/`anyref`/…); non-null abstract refs use `(ref head)`;
+    /// concrete typed refs collapse to `(ref $type)` since the index
+    /// needs runtime formatting a `[]const u8` can't carry.
+    pub fn name(self: ValType) []const u8 {
+        return switch (self) {
+            .i32 => "i32",
+            .i64 => "i64",
+            .f32 => "f32",
+            .f64 => "f64",
+            .v128 => "v128",
+            .ref => |r| switch (r.heap_type) {
+                .concrete => "(ref $type)",
+                .abstract => |a| if (r.nullable) switch (a) {
+                    .func => "funcref",
+                    .extern_ => "externref",
+                    .any => "anyref",
+                    .eq => "eqref",
+                    .i31 => "i31ref",
+                    .struct_ => "structref",
+                    .array => "arrayref",
+                    .none => "nullref",
+                    .noextern => "nullexternref",
+                    .nofunc => "nullfuncref",
+                    .exn => "exnref",
+                    .noexn => "nullexnref",
+                } else switch (a) {
+                    .func => "(ref func)",
+                    .extern_ => "(ref extern)",
+                    .any => "(ref any)",
+                    .eq => "(ref eq)",
+                    .i31 => "(ref i31)",
+                    .struct_ => "(ref struct)",
+                    .array => "(ref array)",
+                    .none => "(ref none)",
+                    .noextern => "(ref noextern)",
+                    .nofunc => "(ref nofunc)",
+                    .exn => "(ref exn)",
+                    .noexn => "(ref noexn)",
+                },
+            },
+        };
+    }
+
     /// Deep structural equality. Zig auto-derives `==` for unions
     /// only when the inner types support it; `RefType` contains a
     /// `HeapType` union which the auto-derive can't traverse, so
@@ -943,4 +988,23 @@ test "isSimdZirOp: scalar ops do not match" {
     try std.testing.expect(!isSimdZirOp(.end));
     try std.testing.expect(!isSimdZirOp(.@"local.get"));
     try std.testing.expect(!isSimdZirOp(.call));
+}
+
+test "ValType.name: scalars + abstract refs (D-334 F5a diagnostics)" {
+    const eql = std.mem.eql;
+    const i32_t: ValType = .i32;
+    const f64_t: ValType = .f64;
+    const v128_t: ValType = .v128;
+    try std.testing.expect(eql(u8, i32_t.name(), "i32"));
+    try std.testing.expect(eql(u8, f64_t.name(), "f64"));
+    try std.testing.expect(eql(u8, v128_t.name(), "v128"));
+    try std.testing.expect(eql(u8, ValType.funcref.name(), "funcref"));
+    try std.testing.expect(eql(u8, ValType.externref.name(), "externref"));
+    try std.testing.expect(eql(u8, ValType.exnref.name(), "exnref"));
+    // non-null abstract ref → `(ref head)`
+    const ref_func: ValType = .{ .ref = RefType.abs(.func, false) };
+    try std.testing.expect(eql(u8, ref_func.name(), "(ref func)"));
+    // concrete typed ref → index-less placeholder
+    const ref_conc: ValType = .{ .ref = RefType.conc(3, true) };
+    try std.testing.expect(eql(u8, ref_conc.name(), "(ref $type)"));
 }

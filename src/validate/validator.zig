@@ -698,6 +698,13 @@ pub const Validator = struct {
     out_select_types: ?*std.ArrayList(u8) = null,
     out_allocator: ?std.mem.Allocator = null,
 
+    /// D-334 F5a — set by `popExpect` on a type-mismatch reject so the
+    /// dispatch-loop cold path (which owns the op location) can render
+    /// "type mismatch: expected <x>, found <y>" instead of the bare
+    /// error name. The error short-circuits straight to that catch, so
+    /// no successful op ever observes a stale value.
+    mismatch: ?struct { expected: ValType, found: ValType } = null,
+
     fn run(self: *Validator) Error!void {
         // Implicit function frame: a `block` with the function's result type.
         // The frame's start_type stays `.empty` — the function's params live
@@ -734,11 +741,17 @@ pub const Validator = struct {
             // permanent replacement for the throwaway op-probe used during
             // GC corpus bring-up (lesson `gc-type-subtyping-is-rtt-blocked`).
             self.dispatch(op) catch |e| {
-                diagnostic.setDiag(.validate, .other, .{ .validate = .{
+                const loc: diagnostic.Location = .{ .validate = .{
                     .fn_idx = 0,
                     .body_offset = @intCast(op_pos),
                     .opcode = op,
-                } }, "{s} at op 0x{x}", .{ @errorName(e), op });
+                } };
+                if (e == Error.StackTypeMismatch and self.mismatch != null) {
+                    const m = self.mismatch.?;
+                    diagnostic.setDiag(.validate, .other, loc, "type mismatch: expected {s}, found {s} at op 0x{x}", .{ m.expected.name(), m.found.name(), op });
+                } else {
+                    diagnostic.setDiag(.validate, .other, loc, "{s} at op 0x{x}", .{ @errorName(e), op });
+                }
                 return e;
             };
         }
@@ -781,7 +794,10 @@ pub const Validator = struct {
         const top = try self.popAny();
         switch (top) {
             .bot => {},
-            .known => |t| if (!self.subtypeCtx(t, expected)) return Error.StackTypeMismatch,
+            .known => |t| if (!self.subtypeCtx(t, expected)) {
+                self.mismatch = .{ .expected = expected, .found = t };
+                return Error.StackTypeMismatch;
+            },
         }
     }
 
