@@ -3,7 +3,7 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Current state — WASI-0.3 campaign (D-335); Units A+B+C DONE; branch GREEN (`58e3f46a`)
+## Current state — WASI-0.3 campaign (D-335); Units A+B+C done, D-α done; branch GREEN (`17a810f9`)
 
 **WASI 0.3 / Preview 3 campaign is the active feature work** (Front D, ratified 2026-06-11; CM-async —
 `async` func / `stream<T>` / `future<T>` — NOT core stack-switching). Critical path A→B→C→D(crux)→E→F→G;
@@ -22,27 +22,32 @@ tag-cut is user-reserved (ADR-0156). **Decode + the canon VALUE-ABI are now comp
 - **D-336 part a** (`210f081d`): functype `result` rejects transitive `borrow`; part b blocked-by the
   untracked value index space (sort=value deferred).
 
-**NEXT — Unit D (async task/waitable RUNTIME — the architectural crux, HIGH risk, ~1200 LOC, multi-cycle).**
-New `src/feature/component/async.zig`: per-component stream/future handle TABLE + lifecycle (the table
-Unit C's i32 handles index into), async task/waitable model, `ReturnCode` packing (wasmtime: Blocked
-0xffff_ffff / Completed / Dropped / Cancelled). **Step 0 = mandatory SPIKE first** — deep-read wasmtime
-`crates/wasmtime/src/runtime/component/concurrent/futures_and_streams.rs` + `concurrent.rs` + CM
-`Concurrency.md`; design an ADR for the table+task model BEFORE redesign code (this is bundle-mode
-multi-cycle within Unit D). Verify the prior remote kick at Step 0.7.
+**Unit D underway** (async task/waitable RUNTIME — the architectural crux, ADR-0187). The spike settled the
+key question: zwasm's **synchronous engine CAN host CM-async via the stackless callback ABI — NO fibers, no
+hard blocker**. Staged α→η in D-335. **α DONE** (`17a810f9`): `src/feature/component/async.zig` — the
+per-component stream/future handle table (mirrors `resource_table.zig`: dense array + free list, index-0
+reserved, tombstone-on-remove) + `CopyState` + `ReturnCode` packing. Zone-1 pure data, no engine.
+
+**NEXT — Unit D-β (stream.read/write rendezvous).** Add the shared rendezvous buffer joining a stream's two
+ends (`SharedStreamImpl`: elem type, dropped flag, pending buffer + on-copy-done) and the copy logic: when a
+readable end has a pending buffer and the writable end writes (or vice versa), copy immediately, track
+copy-progress, and produce the `ReturnCode` (Completed(n)/Blocked). Spec: `CanonicalABI.md` §Stream State
+(~1548–1833, stream_copy ~1705). Drives the IDLE→ASYNC_COPYING→DONE latch. Verify the prior remote kick at
+Step 0.7.
 
 ## Active bundle
 
 - **Bundle-ID**: wasi03-D-335 (§9.0 Front D; WASI 0.3 / Preview 3; units A→G)
-- **Cycles-remaining**: ~5+ (A+B+C done; D = async task/waitable runtime is the multi-cycle crux)
-- **Continuity-memo**: critical path **A(done)→B(done)→C(done)→D(crux)→E→F→G** (full plan in **D-335**).
-  CM-async, NOT core stack-switching. Spec: `~/Documents/OSS/{WASI, WebAssembly/component-model}`
-  (design/mvp/{Binary,CanonicalABI,Concurrency}.md); ref impl `~/Documents/OSS/wasmtime` (43+;
-  `concurrent/futures_and_streams.rs` is the handle-table model). Unit C's i32 handles index the Unit-D table.
+- **Cycles-remaining**: ~5+ (A+B+C + D-α done; D is the multi-cycle crux, staged α→η per ADR-0187)
+- **Continuity-memo**: critical path **A(done)→B(done)→C(done)→D(α done; β next)→E→F→G** (full plan in
+  **D-335**; design in **ADR-0187** — stackless callback ABI, no fibers). CM-async, NOT core stack-switching.
+  Spec: `~/Documents/OSS/{WASI, WebAssembly/component-model}` (design/mvp/{Binary,CanonicalABI,Concurrency}.md);
+  ref impl `~/Documents/OSS/wasmtime` (43+; `concurrent/futures_and_streams.rs`).
 - **Exit-condition**: a WASI-0.3 async/stream/future component runs end-to-end through zwasm (new P3
   corpus green, 3-host); each unit lands green per D-335 along the way.
-- **Current unit — D (START HERE; HIGH/crux)**: async task/waitable runtime + stream/future handle-table
-  lifecycle + `ReturnCode` in a new `async.zig` (~1200 LOC). SPIKE wasmtime first + ADR before redesign
-  code. Multi-cycle (bundle-within-unit). Done = a stream/future handle round-trips through the table.
+- **Current unit — D (HIGH/crux; α done, β START HERE)**: `async.zig` handle table + CopyState + ReturnCode
+  landed. β = stream read/write rendezvous (SharedStreamImpl buffer + copy logic + CopyState latch). Then
+  γ cancel/drop · δ waitable-set · ε futures · ζ subtask · η task.return + callback loop.
 
 ## Long-tail (debt-tracked / parked — NOT active; see §9.0 fronts + debt.yaml)
 

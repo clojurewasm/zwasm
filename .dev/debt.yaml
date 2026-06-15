@@ -1359,8 +1359,10 @@ entries:
         handle pass-through — the table lifecycle is Unit D. (MAX_FLAT_ASYNC_PARAMS
         enforcement deferred to the async call-lowering in D/F; handles never spill.)
       - D — async task/waitable runtime + stream/future handle lifecycle + ReturnCode
-        (new async.zig; ~1200; **HIGH — architectural crux**; spike wasmtime
-        concurrent.rs / futures_and_streams.rs first). Needs A,B,C.
+        (new async.zig; ~1200; **HIGH — architectural crux**). Needs A,B,C. ADR-0187
+        (stackless callback ABI; NO fibers; synchronous engine CAN host CM-async — no
+        hard blocker). Staged α→η. α DONE 2026-06-15 (17a810f9): handle table +
+        CopyState + ReturnCode. NEXT β: stream.read/write rendezvous + copy-progress.
       - E — WASI-P3 host interfaces (new component_wasi_p3.zig; sockets/http/clocks
         async; ~2000; MED; coexists with P2, does NOT replace it). Needs D.
       - F — async-export ABI + P3 component runner (canon.zig; ~400; MED). Needs E.
