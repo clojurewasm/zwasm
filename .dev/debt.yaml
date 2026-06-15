@@ -1252,10 +1252,15 @@ entries:
     description: |-
       note (diagnostic 完成形 follow-ups from the 2026-06-15 diag-quality audit; the cheap wins F1/F3/F5b
       SHIPPED `240f97de`). Remaining, each a real あるべき論 gap but not yet done:
-      (F5a, DEEP) validator messages are generic: the whole 3334-line validator has ONE setDiag —
-        `"{s} at op 0x{x}"` (@errorName + opcode), no expected-vs-found ValType, no offending index.
-        wasmtime-equivalent is "type mismatch: expected i32, found f64". Needs threading expected/found
-        ValType + index into the reject sites (validate/validator.zig ~736-742) — multi-site refactor.
+      (F5a, PARTIAL) **central site DONE `dc463af5`**: `popExpect` (the funnel for nearly every
+        param/operand type check) stashes expected+found ValType on a `Validator.mismatch` scratch slot;
+        the dispatch cold path renders "type mismatch: expected i32, found f64 at op 0x{x}" (new
+        `ValType.name()` in zir.zig gives Wasm 3.0 text keywords). wasmtime-equivalent reached for the
+        common case. **REMAINING**: the non-popExpect StackTypeMismatch sites (isRef gates ~1207, label-type
+        checks ~1261/1273/1280/1287, GC struct/array ops ~1710/1775) still emit the bare `@errorName` message;
+        each has a different "expected" shape (a ref class / a label type / a field type), so threading them
+        is per-site, not the single mechanical plumbing popExpect was. LOW value (rarer paths); do per-site
+        if a real diagnostic-quality need surfaces.
       (F6, PARTIAL) parse errors had ZERO setDiag. **Top-level parser.zig DONE `098d2036`** (8 module-decode
         rejects → `.parse`-phase setDiag with byte offset; CLI coarse `.instantiate` fallback steps aside).
         **REMAINING**: the deeper per-section decoders (sections.zig ~53 sites + sections_{codes,data,element}.zig,

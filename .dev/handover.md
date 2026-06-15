@@ -3,23 +3,25 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Current state — Phase-17 完成形 steady-state; branch GREEN, Mac+ubuntu-verified (`b622cbbe`)
+## Current state — Phase-17 完成形 steady-state; branch GREEN, Mac+ubuntu-verified (`dc463af5`)
 
-**Diag-quality audit batch (this session) — cheap wins DONE**: F1 CLI `--max-table-elements` usage+test
-(`240f97de`), F3 full `ZWASM_TRAP_*` C #defines (`240f97de`), F5b validate-diag `(func #N @ 0xXX)`
-(`240f97de`), **F6 parser `.parse`-phase diagnostics w/ byte offset (`098d2036`, top-level 8 sites)**.
-240f97de = 3-host green (windows recorded da57e23b); 098d2036 = Mac `test` 2768/0 + lint + **ubuntu OK
-(b622cbbe)**; windows batching 3/12 (abi_risk=0). Audit: `private/notes/d-diag-audit-2026-06-15.md`.
+**Diag-quality audit batch — cheap wins DONE**: F1 CLI `--max-table-elements` (`240f97de`), F3 full
+`ZWASM_TRAP_*` C #defines (`240f97de`), F5b validate-diag `(func #N @ 0xXX)` (`240f97de`), F6 parser
+`.parse`-phase diagnostics w/ byte offset (`098d2036`, top-level 8 sites), **F5a validator type-mismatch
+diagnostics — central `popExpect` site DONE (`dc463af5`)**: "type mismatch: expected i32, found f64 at op
+0x{x}" via a `Validator.mismatch` scratch slot read by the dispatch cold path + new `ValType.name()`
+(zir.zig, Wasm 3.0 text keywords). dc463af5 = Mac `test` 2770/0 + lint clean (ubuntu/windows TBV at next
+Step 0.7). Audit: `private/notes/d-diag-audit-2026-06-15.md`.
 
-**NEXT (fresh-context resume — user chose `/clear`→`/continue` 2026-06-15 to reset a heavy session)**: diag
-cheap wins are exhausted; with fresh context the highest-value 完成形 increments are (pick one, TDD + gate
+**NEXT**: diag cheap wins now exhausted (F5a central + F6 top-level shipped). Remaining diag tails are
+LOW-value, per-site, deferred in D-334: F5a remainder (non-popExpect StackTypeMismatch sites — isRef/label/GC,
+each a different "expected" shape), F6 remainder (~80 per-section parse decoders), F4 (CLI trap @tagName
+underscore leak — user-visible format change, left for a deliberate call). Highest-value next = **a fresh
+完成形 surface audit** of a not-yet-covered dimension (memory-safety/dogfooding were CLEAN per D-297/295/296)
+to surface new cheap wins — OR pick a D-334 tail only if a real diagnostic-quality need surfaces. TDD + gate
 on `zig build test`; codegen/regalloc changes ALSO need `test-spec-wasm-2.0-assert` + Rosetta per lesson
-`spill-stage-reg-clobber-and-spec-gate-gap`): **(1) D-334 F5a** — thread expected/found `ValType` into the
-validator's reject sites for "type mismatch: expected i32, found f64" messages (DEEP multi-site but
-MECHANICAL plumbing; mirror the F6 setDiag pattern `098d2036`); OR **(2) a fresh 完成形 surface audit** of a
-not-yet-covered dimension (memory-safety/dogfooding were CLEAN per D-297/295/296) to surface new cheap wins.
-**Do NOT re-attempt the parked items** (D-330 conflicting-constraint hard-park; D-331 go infra-blocked) — they
-thrash. Verify any prior remote kick at Step 0.7.
+`spill-stage-reg-clobber-and-spec-gate-gap`. **Do NOT re-attempt parked items** (D-330 conflicting-constraint
+hard-park; D-331 go infra-blocked) — they thrash. Verify any prior remote kick at Step 0.7.
 
 c_sha256 `\n`-drop (D-330) deep-investigated this session (5 trace rounds + 3 fix attempts) → **bundle
 d330-blockmerge-liveness CLOSED, demoted to a hard-parked debt note**. Root IS understood (a br/br_if
