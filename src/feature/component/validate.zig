@@ -53,6 +53,7 @@ pub fn validate(info: *const TypeInfo) Error!void {
         try checkDefTypeLabels(dt);
         try checkDefTypeOuterAliases(dt, 1);
         try checkDefTypeDeclDups(dt);
+        try checkStreamFutureElement(info, dt);
     }
     try checkInstances(info);
     try checkCanons(info, type_space_len);
@@ -1115,6 +1116,58 @@ fn checkValType(vt: ValType, type_space_len: u32) Error!void {
     }
 }
 
+/// Spec (`Binary.md`): a `stream`/`future` element type may not transitively
+/// contain a `borrow`, and `(stream char)` is a temporary rejection
+/// (`Concurrency.md` TODO). The sibling transitive-`borrow` rule for functype
+/// results / exported values is a separate, pre-existing gap (D-336).
+fn checkStreamFutureElement(info: *const TypeInfo, dt: DefType) Error!void {
+    const payload = switch (dt) {
+        .stream => |s| s.payload orelse return,
+        .future => |f| f.payload orelse return,
+        else => return,
+    };
+    try checkValTypeNoBorrow(info, payload);
+    if (dt == .stream and payload == .primitive and payload.primitive == .char) {
+        return Error.InvalidDefType;
+    }
+}
+
+fn checkValTypeNoBorrow(info: *const TypeInfo, vt: ValType) Error!void {
+    switch (vt) {
+        .primitive => {},
+        .type_index => |ti| {
+            if (ti >= info.type_space.items.len) return; // bounds checked elsewhere
+            switch (info.type_space.items[ti]) {
+                .named => {},
+                .def => |d| try checkDefTypeNoBorrow(info, info.deftypes.items[d]),
+            }
+        },
+    }
+}
+
+fn checkDefTypeNoBorrow(info: *const TypeInfo, dt: DefType) Error!void {
+    switch (dt) {
+        .borrow => return Error.InvalidDefType,
+        .value => |vt| try checkValTypeNoBorrow(info, vt),
+        .record => |rec| for (rec.fields) |f| try checkValTypeNoBorrow(info, f.ty),
+        .tuple => |t| for (t.types) |vt| try checkValTypeNoBorrow(info, vt),
+        .list => |l| try checkValTypeNoBorrow(info, l.element.*),
+        .option => |o| try checkValTypeNoBorrow(info, o.payload.*),
+        .stream => |s| if (s.payload) |p| try checkValTypeNoBorrow(info, p),
+        .future => |f| if (f.payload) |p| try checkValTypeNoBorrow(info, p),
+        .variant => |v| for (v.cases) |c| {
+            if (c.payload) |pl| try checkValTypeNoBorrow(info, pl);
+        },
+        .result => |res| {
+            if (res.ok) |ok| try checkValTypeNoBorrow(info, ok);
+            if (res.err) |er| try checkValTypeNoBorrow(info, er);
+        },
+        // `own` (not borrow), funcs, resources, enum/flags, and nested type
+        // scopes never carry a borrow value type.
+        .own, .func, .enum_, .flags, .resource, .instance_type, .component_type => {},
+    }
+}
+
 /// Decode a component binary (magic + layer preamble prepended) and validate.
 fn validateBytes(bytes: []const u8) !void {
     var comp = try decode.decode(std.testing.allocator, bytes);
@@ -1151,6 +1204,26 @@ test "rule 7: exported local type may reference named types only" {
         [_]u8{ 7, type_local_ref.len } ++ type_local_ref ++
         [_]u8{ 11, export_g2.len } ++ export_g2;
     try std.testing.expectError(Error.InvalidExternDesc, validateBytes(&invalid));
+}
+
+test "stream/future element: reject (stream char) + transitive borrow" {
+    const preamble = [_]u8{ 0x00, 0x61, 0x73, 0x6d, 0x0d, 0x00, 0x01, 0x00 };
+
+    // VALID: type[0] stream<u32>, type[1] future (no element).
+    const ok_body = [_]u8{ 0x02, 0x66, 0x01, 0x79, 0x65, 0x00 };
+    const ok = preamble ++ [_]u8{ 7, ok_body.len } ++ ok_body;
+    try validateBytes(&ok);
+
+    // INVALID: (stream char) — temporary restriction (Concurrency.md TODO).
+    const char_body = [_]u8{ 0x01, 0x66, 0x01, 0x74 };
+    const bad_char = preamble ++ [_]u8{ 7, char_body.len } ++ char_body;
+    try std.testing.expectError(Error.InvalidDefType, validateBytes(&bad_char));
+
+    // INVALID: element transitively contains a `borrow`. type[0]=resource(rep
+    // i32); type[1]=borrow<0>; type[2]=stream<type 1>.
+    const borrow_body = [_]u8{ 0x03, 0x3f, 0x7f, 0x00, 0x68, 0x00, 0x66, 0x01, 0x01 };
+    const bad_borrow = preamble ++ [_]u8{ 7, borrow_body.len } ++ borrow_body;
+    try std.testing.expectError(Error.InvalidDefType, validateBytes(&bad_borrow));
 }
 
 test "rule 8: case-insensitive label duplicates" {
