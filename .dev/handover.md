@@ -34,8 +34,10 @@ cloned** (`tests/rust/wasm32-wasip3`); wasm-tools/component-model refreshed (`im
   gen_wasip3_fixtures.sh`. **FOUND D-449 (now) — wasip3 INPUTS not delivered to the guest**: env/argv read EMPTY
   (get-environment/get-arguments list<tuple/string> retptr marshalling) AND stdin reads EMPTY (cli/stdin input-
   stream read) — despite the host wiring; OUTPUTS work, INPUTS don't. cli-env/cli-args/cli-stdin removed pending fix.
-  **NEXT (front①)**: investigate+fix D-449 (focused debug cycle — instrument p2GetEnvironment + the stdin read path;
-  probe wasip2-vs-wasip3) then un-skip the input fixtures. cli-stdio-roundtrip = wit-bindgen (path①, defer). Then ④ perf.
+  **D-449 NARROWED** (instrumented 2026-06-16): get-environment IS called with envs.len=1 + realloc OK, yet the guest
+  exits 1 → NOT host-delivery/realloc; a BYTE-LEVEL decode mismatch in the `list<tuple<string,string>>` lowering.
+  **NEXT (front①)**: dump p2GetEnvironment's retptr+list+string bytes vs the canon ABI the wasip3 guest expects
+  (alignment / retptr indirection / string encoding / tuple stride), fix, un-skip cli-env/args/stdin. Then ④ perf.
 - **① WASI 0.3 conformance**: compile wasi-testsuite `rust/wasm32-wasip3` via `.#gen` (add wasm32-wasip3 target + wit
   deps), run as a conformance corpus.
 - **③ real-world corpus 50→100**: add MoonBit/Grain/Kotlin (Wasm-GC) + AssemblyScript/Swift/Zig toolchains to

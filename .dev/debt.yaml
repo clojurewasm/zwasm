@@ -1630,10 +1630,15 @@ entries:
       @0.2.6 alike. Leading hypothesis: the `get-environment` `list<tuple<string,
       string>>` / `get-arguments` `list<string>` retptr LOWERING (nested list-of-
       string, or string ptr/len encoding) doesn't match what the guest's generated
-      bindings decode → empty list. Distinguishing probes: (1) does a wasip2 (Tier-2,
-      stable) cli-env component also read empty? (isolates wasip3-specific vs general
-      get-environment marshalling); (2) `ZWASM_DEBUG` / dump the retptr bytes
-      p2GetEnvironment writes vs the canon list<tuple<string,string>> ABI layout.
+      bindings decode → empty list. **INSTRUMENTED 2026-06-16** (eprintln in
+      p2GetEnvironment, cli-env run): get-environment IS CALLED with the correct
+      data — `envs.len=1`, `realloc_set=true` — yet the guest still exits 1. So it
+      is NOT host-delivery and NOT realloc-wiring (both fine); it is a BYTE-LEVEL
+      decode mismatch: the `list<tuple<string,string>>` bytes p2GetEnvironment
+      writes (retptr={list_ptr,n}; each tuple 16B = k{ptr,len},v{ptr,len}) aren't
+      what the wasip3 guest's bindings read. Next probe: dump the exact retptr +
+      list + string bytes and diff vs the canon ABI the guest expects (alignment?
+      the retptr indirection level? string encoding? tuple field order/stride?).
       FIX then un-skip the cli-env/cli-args fixtures (recreate from this row: 5-line
       `std::env::var`/`args().nth(1)` → exit 42, add `[[bin]]` + the gen-script loop
       + the host.envs/args test asserting exit_code==42).
