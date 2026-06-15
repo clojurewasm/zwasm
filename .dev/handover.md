@@ -49,8 +49,14 @@ cloned** (`tests/rust/wasm32-wasip3`); wasm-tools/component-model refreshed (`im
   elision needs CROSS-OP emit state; const-remat needs const-ness in the regalloc model) — cross-cutting changes in
   the D-265-class subsystem for a PARTIAL win on an outlier. High cost+risk+partial = ROI-insufficient. zwasm is
   "lightweight-fast within single-pass" (1.5-4× Cranelift, beats interps/wazero-small); base64/matrix/keccak are the
-  accepted single-pass tradeoff (§1.3/§3.2). D-450→note. **Remaining front: ③ corpus 50→100** (MoonBit/Grain/Kotlin/
-  AssemblyScript toolchains — heavy nix setup, like the wasip3 toolchain build). ②①④ done; ③ is the last 4-front item.
+  accepted single-pass tradeoff (§1.3/§3.2). D-450→note. **③ corpus: AssemblyScript probe → FOUND a real bug
+  (D-451)**: AS is in nixpkgs + compiles a WASI `_start`, but imports `env.abort` (always, even --noAssert) → and
+  this surfaced an **interp/jit instantiation divergence** — interp REJECTS unsatisfied imports at instantiation
+  (spec-correct), jit is LENIENT (trapping stub, only traps if the import is CALLED) → an AS module with unused
+  env.abort runs under `--engine jit` (exit 0) but not interp. **NEXT = drive D-451** (make jit reject unsatisfied
+  imports at instantiation, match interp+spec §4.5.4; concrete autonomous bug). Then ③ corpus-expansion needs an
+  env.abort host stub (AS) + the GC-langs (Grain/MoonBit, NOT in nixpkgs → heavy from-source — the user's GC-stress
+  intent, a fresh toolchain campaign). ②①④ done; ③ in progress (D-451 found).
 - **① WASI 0.3 conformance**: compile wasi-testsuite `rust/wasm32-wasip3` via `.#gen` (add wasm32-wasip3 target + wit
   deps), run as a conformance corpus.
 - **③ real-world corpus 50→100**: add MoonBit/Grain/Kotlin (Wasm-GC) + AssemblyScript/Swift/Zig toolchains to

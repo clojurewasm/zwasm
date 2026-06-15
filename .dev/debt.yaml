@@ -1674,6 +1674,40 @@ entries:
       bench/results/all_engine_matrix.md (the measured ratios);
       bench/runners/wasm/shootout/base64.wasm (profile target);
       scripts/run_bench.sh (--bench=shootout/base64); .claude/skills/debug_jit_auto
+  - id: "D-451"
+    layer: "code"
+    status: "now"
+    front: D-correctness
+    description: |-
+      now (real interp/jit divergence, surfaced 2026-06-16 by the front-③
+      AssemblyScript probe). A module with an UNSATISFIED import behaves
+      differently under interp vs jit at the CLI (`zwasm run` vs `run --engine
+      jit`): **interp REJECTS it at instantiation** ("instantiation failed (phase
+      1)", exit 1 — spec-correct: imports are matched at instantiation regardless
+      of whether called), but **jit is LENIENT** — it instantiates with a trapping
+      stub for the missing import and only traps if/when the import is CALLED
+      (D-292 "trap kind not distinguished under jit"). REPRO: an AS-compiled module
+      imports `env.abort` (always emitted, even with --noAssert) + `wasi…proc_exit`;
+      its `_start` never calls abort on the success path → `zwasm run` fails to
+      instantiate (env.abort unsatisfied) while `run --engine jit` runs to exit 0.
+      A `(import "env" "abort")` module that DOES call abort: interp fails
+      instantiate; jit instantiates + traps on the call. Per the Wasm spec
+      (§4.5.4 instantiation) an unsatisfied import MUST fail instantiation — so the
+      jit CLI path's trapping-stub leniency is a SPEC-COMPLIANCE GAP (a module with
+      an unused unsatisfied import runs under jit but not interp). INVESTIGATE: where
+      the `--engine jit` CLI path resolves imports (does it install trapping stubs
+      for unknown imports instead of failing?) vs interp's strict resolution; make
+      jit reject unsatisfied imports at instantiation to match interp + the spec.
+      Verify the fix keeps the realworld/spec corpora green. NOTE: separately, to
+      RUN AssemblyScript modules at all, zwasm needs an `env.abort` host stub
+      (AS emits it unconditionally — an `env` namespace, not WASI) — a prerequisite
+      for any AS corpus fixture (front ③); decide whether to stub env.abort (trap
+      with the AS message) or keep AS out of the _start corpus.
+    first_raised: "2026-06-16"
+    last_reviewed: "2026-06-16"
+    refs: |-
+      src/zwasm/instance.zig + src/engine/setup.zig (import resolution, interp vs jit);
+      /tmp/as_sieve.wasm repro (AS env.abort); D-292 (jit trap-kind)
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
