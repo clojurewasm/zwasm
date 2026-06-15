@@ -1345,8 +1345,10 @@ entries:
       substrate (`src/feature/component/`, `src/api/component_wasi_p2.zig`). Ordered
       work units (delta survey 2026-06-15; ~5600 LOC; critical path A→B→C→D→E→F→G):
       - A — `stream<T>`/`future<T>` valtype (0x66/0x65) + async functype (0x43)
-        decode+validate (types.zig, decode.zig; ~400 LOC; LOW). Prereq for all; START HERE.
-      - B — canon stream/future builtins 0x0e–0x1b decode (types.zig; ~200; LOW). Needs A.
+        decode+validate (types.zig; ~400 LOC; LOW). DONE 2026-06-15: 95a23c53 (decode;
+        stream/future carry an OPTIONAL element — `<valtype>?`, not bare typeidx; 0x43
+        already decoded) + e5acb989 (validate: reject char + transitive borrow). Prereq for all.
+      - B — canon stream/future builtins 0x0e–0x1b decode (types.zig; ~200; LOW). Needs A. START HERE.
       - C — async lift/lower in canon.zig (MAX_FLAT_ASYNC_PARAMS=4; lift_async_value /
         lower_stream / lower_future; ~600; MED). Needs A,B.
       - D — async task/waitable runtime + stream/future handle lifecycle + ReturnCode
