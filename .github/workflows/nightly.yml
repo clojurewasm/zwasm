@@ -1,8 +1,10 @@
 name: Nightly
 
+# FROZEN for the zwasm_from_scratch migration: scheduled run disabled.
+# Re-enable by uncommenting the `schedule` block below.
 on:
-  schedule:
-    - cron: '0 3 * * 3'  # Wednesday 03:00 UTC (weekly)
+  # schedule:
+  #   - cron: '0 3 * * 3'  # Wednesday 03:00 UTC (weekly)
   workflow_dispatch:
 
 jobs:

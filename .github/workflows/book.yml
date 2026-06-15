@@ -1,9 +1,11 @@
 name: Book
 
+# FROZEN for the zwasm_from_scratch migration: auto-triggers disabled.
+# Re-enable by uncommenting the `push` block below.
 on:
-  push:
-    branches: [main]
-    paths: ['book/**']
+  # push:
+  #   branches: [main]
+  #   paths: ['book/**']
   workflow_dispatch:
 
 permissions:

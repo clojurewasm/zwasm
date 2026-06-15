@@ -1,8 +1,10 @@
 name: Spec Bump
 
+# FROZEN for the zwasm_from_scratch migration: scheduled run disabled.
+# Re-enable by uncommenting the `schedule` block below.
 on:
-  schedule:
-    - cron: '0 4 * * 1'  # Monday 04:00 UTC (weekly)
+  # schedule:
+  #   - cron: '0 4 * * 1'  # Monday 04:00 UTC (weekly)
   workflow_dispatch:
 
 permissions:

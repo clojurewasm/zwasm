@@ -1,8 +1,11 @@
 name: Release
 
+# FROZEN for the zwasm_from_scratch migration: tag-triggered release disabled.
+# Re-enable by uncommenting the `push` block below.
 on:
-  push:
-    tags: ['v*']
+  # push:
+  #   tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write

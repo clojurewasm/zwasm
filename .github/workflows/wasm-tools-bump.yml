@@ -1,8 +1,10 @@
 name: wasm-tools Bump
 
+# FROZEN for the zwasm_from_scratch migration: scheduled run disabled.
+# Re-enable by uncommenting the `schedule` block below.
 on:
-  schedule:
-    - cron: '0 5 1 * *'  # 1st of month 05:00 UTC
+  # schedule:
+  #   - cron: '0 5 1 * *'  # 1st of month 05:00 UTC
   workflow_dispatch:
 
 permissions:
