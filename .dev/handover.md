@@ -3,7 +3,7 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Current state — WASI-0.3 campaign (D-335); Units A+B+C done, D-α done; branch GREEN (`17a810f9`)
+## Current state — WASI-0.3 campaign (D-335); Units A+B+C done, D-α+β done; branch GREEN (`71ffb302`)
 
 **WASI 0.3 / Preview 3 campaign is the active feature work** (Front D, ratified 2026-06-11; CM-async —
 `async` func / `stream<T>` / `future<T>` — NOT core stack-switching). Critical path A→B→C→D(crux)→E→F→G;
@@ -24,30 +24,31 @@ tag-cut is user-reserved (ADR-0156). **Decode + the canon VALUE-ABI are now comp
 
 **Unit D underway** (async task/waitable RUNTIME — the architectural crux, ADR-0187). The spike settled the
 key question: zwasm's **synchronous engine CAN host CM-async via the stackless callback ABI — NO fibers, no
-hard blocker**. Staged α→η in D-335. **α DONE** (`17a810f9`): `src/feature/component/async.zig` — the
-per-component stream/future handle table (mirrors `resource_table.zig`: dense array + free list, index-0
-reserved, tombstone-on-remove) + `CopyState` + `ReturnCode` packing. Zone-1 pure data, no engine.
+hard blocker**. Staged α→η in D-335. **α** (`17a810f9`): `async.zig` handle table (mirrors
+`resource_table.zig`) + `CopyState` + `ReturnCode`. **β** (`71ffb302`): `SharedStream` read/write rendezvous
+— copy min(reader-cap, writer-count), resolve both ends, with the zero-length livelock tiebreak (zero-zero →
+write completes, read pends). `Step.notify_pending` is the δ event seam. Zone-1 control logic; bytes move
+host-side via Unit-C store/load.
 
-**NEXT — Unit D-β (stream.read/write rendezvous).** Add the shared rendezvous buffer joining a stream's two
-ends (`SharedStreamImpl`: elem type, dropped flag, pending buffer + on-copy-done) and the copy logic: when a
-readable end has a pending buffer and the writable end writes (or vice versa), copy immediately, track
-copy-progress, and produce the `ReturnCode` (Completed(n)/Blocked). Spec: `CanonicalABI.md` §Stream State
-(~1548–1833, stream_copy ~1705). Drives the IDLE→ASYNC_COPYING→DONE latch. Verify the prior remote kick at
-Step 0.7.
+**NEXT — Unit D-γ (cancel/drop + wire CopyState to the ends).** `stream.cancel-read/write` + `drop` +
+connect `StreamFutureEnd.state` (idle→async_copying→done/cancelling) to the `SharedStream` pending slot — i.e.
+when an end blocks (`Step.caller == .blocked`) its table entry goes `async_copying`; on rendezvous/notify it
+goes `done`; cancel moves through `cancelling_copy`. This is where the α table ends and the β shared state
+join. Spec: `CanonicalABI.md` §Stream State cancel/drop. Verify the prior remote kick at Step 0.7.
 
 ## Active bundle
 
 - **Bundle-ID**: wasi03-D-335 (§9.0 Front D; WASI 0.3 / Preview 3; units A→G)
-- **Cycles-remaining**: ~5+ (A+B+C + D-α done; D is the multi-cycle crux, staged α→η per ADR-0187)
-- **Continuity-memo**: critical path **A(done)→B(done)→C(done)→D(α done; β next)→E→F→G** (full plan in
+- **Cycles-remaining**: ~4+ (A+B+C + D-α+β done; D is the multi-cycle crux, staged α→η per ADR-0187)
+- **Continuity-memo**: critical path **A(done)→B(done)→C(done)→D(α+β done; γ next)→E→F→G** (full plan in
   **D-335**; design in **ADR-0187** — stackless callback ABI, no fibers). CM-async, NOT core stack-switching.
   Spec: `~/Documents/OSS/{WASI, WebAssembly/component-model}` (design/mvp/{Binary,CanonicalABI,Concurrency}.md);
   ref impl `~/Documents/OSS/wasmtime` (43+; `concurrent/futures_and_streams.rs`).
 - **Exit-condition**: a WASI-0.3 async/stream/future component runs end-to-end through zwasm (new P3
   corpus green, 3-host); each unit lands green per D-335 along the way.
-- **Current unit — D (HIGH/crux; α done, β START HERE)**: `async.zig` handle table + CopyState + ReturnCode
-  landed. β = stream read/write rendezvous (SharedStreamImpl buffer + copy logic + CopyState latch). Then
-  γ cancel/drop · δ waitable-set · ε futures · ζ subtask · η task.return + callback loop.
+- **Current unit — D (HIGH/crux; α+β done, γ START HERE)**: handle table + rendezvous landed. γ = cancel/drop
+  + wire `StreamFutureEnd.state` to the `SharedStream` pending slot (the α↔β join). Then δ waitable-set ·
+  ε futures · ζ subtask · η task.return + callback loop.
 
 ## Long-tail (debt-tracked / parked — NOT active; see §9.0 fronts + debt.yaml)
 
