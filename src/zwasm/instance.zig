@@ -111,6 +111,20 @@ pub const Instance = struct {
         return .{ .instance = self, .export_name = name };
     }
 
+    /// Wasm spec §4.5.3 — one-shot typed call: the convenience
+    /// shorthand for `typedFunc(Sig, name).call(args)` when a cached
+    /// handle isn't needed (cold-path / one-off invocations). `Sig` is
+    /// a Zig function type (see `typedFunc`); `args` is its argument
+    /// tuple. Per `docs/zig_api_design.md` §3.2.
+    pub fn call(
+        self: *Instance,
+        comptime Sig: type,
+        name: []const u8,
+        args: std.meta.ArgsTuple(Sig),
+    ) InvokeError!@typeInfo(Sig).@"fn".return_type.? {
+        return self.typedFunc(Sig, name).call(args);
+    }
+
     /// Wasm spec §4.5.3 — surface the named export's function
     /// signature for callers that need to size args / results
     /// buffers without invoking. Returns null if the name has no
@@ -461,4 +475,31 @@ test "facade setFuel: exhausted budget traps OutOfFuel; ample budget completes +
     inst.setFuel(null);
     try inst.invoke("f", &.{}, &results);
     try testing.expectEqual(@as(i32, 42), results[0].i32);
+}
+
+test "facade Instance.call: one-shot typed shorthand matches typedFunc().call (docs §3.2)" {
+    // (module (func (export "add") (param i32 i32) (result i32)
+    //   (i32.add (local.get 0) (local.get 1))))
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // magic + version
+        0x01, 0x07, 0x01, 0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7f, // type: (i32,i32)->(i32)
+        0x03, 0x02, 0x01, 0x00, // func: 1× type 0
+        0x07, 0x07, 0x01, 0x03, 'a', 'd', 'd', 0x00, 0x00, // export "add" = func 0
+        0x0a, 0x09, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x01, 0x6a, 0x0b, // local.get 0,1; i32.add; end
+    };
+    var eng = try _zwasm.Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var mod = try eng.compile(&bytes);
+    defer mod.deinit();
+    var inst = try mod.instantiate(.{});
+    defer inst.deinit();
+
+    const Sig = fn (i32, i32) i32;
+    const shorthand = try inst.call(Sig, "add", .{ 2, 3 });
+    const via_handle = try inst.typedFunc(Sig, "add").call(.{ 2, 3 });
+    try testing.expectEqual(@as(i32, 5), shorthand);
+    try testing.expectEqual(via_handle, shorthand);
+
+    // Missing export surfaces through the same InvokeError channel.
+    try testing.expectError(error.ExportNotFound, inst.call(Sig, "nope", .{ 1, 1 }));
 }
