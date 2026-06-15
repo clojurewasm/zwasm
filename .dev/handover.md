@@ -25,10 +25,9 @@ infra-blocked), **D-294-R2** (conformance-neutral CLI msg). No quick wins; loop 
 **Sandbox triad** `bd355258`+`fa4678f4`: JIT table initial-alloc + `table.grow` caps + CLI `--max-table-elements`
 (fuel/memory/table cross-engine complete; D-314(b)/D-332 closed). **3-host**: windows green `cefdca2b` (25437/0).
 
-**Phase-B debug tooling (user-directed persistence, prior turns)** — reusable lldb value-trace for JIT
-miscompiles with wrong output but no crash: `ZWASM_DEBUG=jit.dump` (per-func bytes `db3109d8` + runtime
-addr `f49b3675`) + **`scripts/jit_value_trace.sh {addr|disasm|trace}`** (`39d53605`, automates the
-arm-`-H`-bp-after-W^X-map flow). Wired into debug_jit_auto Recipe 18 + lesson `2026-06-15-lldb-value-trace-on-jit-code`.
+**Phase-B debug tooling (prior turns)** — `ZWASM_DEBUG=jit.dump` (`db3109d8`/`f49b3675`) +
+`scripts/jit_value_trace.sh` (`39d53605`) for JIT value-traces. Detail: debug_jit_auto Recipe 18 + lesson
+`2026-06-15-lldb-value-trace-on-jit-code`.
 
 **D-330 c_sha256 `\n`** mechanism confirmed `4365e478` (LINE-buffered; verify-line iov[0]=10 not 11, \n
 dropped at buffer-construction). Full trail + next-probe in D-330 debt residual. Deprioritized cosmetic.
