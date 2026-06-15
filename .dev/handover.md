@@ -56,7 +56,11 @@ cloned** (`tests/rust/wasm32-wasip3`); wasm-tools/component-model refreshed (`im
   env.abort runs under `--engine jit` (exit 0) but not interp. **NEXT = drive D-451** (make jit reject unsatisfied
   imports at instantiation, match interp+spec §4.5.4; concrete autonomous bug). Then ③ corpus-expansion needs an
   env.abort host stub (AS) + the GC-langs (Grain/MoonBit, NOT in nixpkgs → heavy from-source — the user's GC-stress
-  intent, a fresh toolchain campaign). ②①④ done; ③ in progress (D-451 found).
+  intent, a fresh toolchain campaign). ②①④ done; ③ in progress. **D-451 FIXED** (`4c8c14fe`): the AS probe's
+  interp/jit instantiation divergence is closed — `runWasiLenient` now rejects unsatisfied imports at instantiation
+  (`assertWasiImportsSatisfied`, spec §4.5.4), matching interp; realworld 56/0 confirms no fixture relied on the old
+  lazy-import. **NEXT (③)**: env.abort host stub to actually RUN AS modules, OR the GC-langs (Grain/MoonBit) heavy
+  from-source toolchain (the user's GC-stress intent). The AS probe already paid off (found+fixed a real engine bug).
 - **① WASI 0.3 conformance**: compile wasi-testsuite `rust/wasm32-wasip3` via `.#gen` (add wasm32-wasip3 target + wit
   deps), run as a conformance corpus.
 - **③ real-world corpus 50→100**: add MoonBit/Grain/Kotlin (Wasm-GC) + AssemblyScript/Swift/Zig toolchains to
