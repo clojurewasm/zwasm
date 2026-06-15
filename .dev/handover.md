@@ -31,17 +31,23 @@ stream_read_blocked,stream_read_dropped,stream_cancel}`).
 **Unit E plan settled — ADR-0190** (`4c528925`): the host implements a stream's other end (synchronous, no
 scheduler/fibers); first interface = **`wasi:cli/stdout.write-via-stream`** (host-as-reader, `u8`, simplest).
 
-**NEXT — Unit E Slice E1: the host stream peer + first COMPLETION e2e** (per ADR-0190):
-- A new P3 host interface `wasi:cli/stdout.write-via-stream(stream<u8>)`: classify via `adapter.classifyImport`
-  → a new `P2Op`/host-op; the trampoline registers the host as a pending READER on the stream's `SharedStream`
-  (`shared.read`), recording the host end.
-- Guest `stream.write(writable, ptr, n)` → `p2StreamFutureCopy` COMPLETION branch (currently the
-  `error.OutOfBounds` trap): rendezvous with the host's pending read → COMPLETED(n) → **wire `canon.load`** (
-  `canon.zig` store/load; inputs `CanonContext`=mem+alloc, `Value`, `CanonType`, `ptr`; `mem_instance` for mem)
-  to move the `n` `u8`s from guest mem → host buffer → write fd 1. Guest `drop-writable` → host flush.
-- **Fixture**: a guest that `stream.new`s, passes the readable to `write-via-stream`, `stream.write`s "hi\n",
-  drops → assert host captured "hi\n" (capture buffer like the existing P2 stdout tests). This is the FIRST
-  read/write COMPLETION + element-marshalling e2e. Then E2 (WAIT-path variant), E3 (stdin), then F/G.
+**NEXT — Unit E Slice E1: the host stream peer + first COMPLETION e2e** (per ADR-0190). Signature CONFIRMED
+(`~/Documents/OSS/WASI/proposals/cli/wit/stdio.wit:48`): `write-via-stream: func(data: stream<u8>) ->
+future<result<_, error-code>>` — lowered core import takes the stream readable handle (i32) + returns a future
+handle (i32). `adapter.classifyImport` is a `(iface,func)` table (`adapter.zig:482`, P2Op enum `:97`); a
+via-stream stub precedent exists (`fs_stub_via_stream_offset` `:418`).
+- **Riskiest first**: author the P3 fixture — a component importing `wasi:cli/stdout@0.3.0` with the
+  `write-via-stream(stream<u8>)->future<result<_,error-code>>` shape; verify `wasm-tools parse` accepts it
+  (the import instance type must declare the stream/future/error-code types). If the future-return WAT is a
+  rabbit hole, scope E1 to a host-sink that completes the write + skip the returned future's readiness for E2.
+- **Host trampoline**: classify → new `P2Op`; register a host sink (fd 1) for the stream's `SharedStream`
+  (a `WasiP2Ctx` side-map keyed by the shared handle); mint + return the future handle. Model: stdout is
+  ALWAYS write-ready → a guest `stream.write` to a host-sink stream COMPLETES immediately (no pending-read
+  dance needed) — simpler than ADR-0190's pending-reader framing.
+- **COMPLETION marshalling**: `p2StreamFutureCopy` COMPLETION branch (the `error.OutOfBounds` trap) — if the
+  stream has a host sink, `canon.load` the `n` `u8`s from guest mem `ptr` → write to fd 1; else generic.
+- **Fixture asserts** host captured the bytes (capture buffer like P2 stdout tests). First read/write
+  COMPLETION + element-marshalling e2e. Then E2 (WAIT-path), E3 (stdin), then F/G.
 
 ## Active bundle
 
