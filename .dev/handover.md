@@ -3,7 +3,7 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Current state — WASI-0.3 campaign (D-335); Unit E1 done — host stream peer + first COMPLETION e2e (`612cd1e8`)
+## Current state — WASI-0.3 campaign (D-335); Unit E1 done — host stream peer (stdout+stderr e2e) (`198e210b`)
 
 **WASI 0.3 / Preview 3 campaign** (Front D, ratified 2026-06-11; CM-async — `async` func / `stream<T>` /
 `future<T>`, NOT core stack-switching). Critical path A→B→C→D(crux)→E→F→G; full unit plan + per-unit DONE-SHAs
@@ -33,7 +33,8 @@ stream_read_blocked,stream_read_dropped,stream_cancel}`).
 `SharedStream` handle → P1 fd) + returns a future handle. `p2StreamFutureCopy`'s COMPLETION branch (was the
 `error.OutOfBounds` trap) — for a host-sink writable end — marshals the `n` `u8`s from guest mem `ptr` via
 `wasi_fd.writeSlice` to the fd → COMPLETED(n). E2E `async_stdout_write_via_stream.wat`: guest writes "hi\n"
-through a stream → host captures it. **First guest stream.write COMPLETION + element marshalling.** (p2 crossed
+through a stream → host captures it. **First guest stream.write COMPLETION + element marshalling.** stderr
+write-via-stream e2e too (`198e210b`, fd-2 routing). (p2 crossed
 2000 lines → FILE-SIZE-EXEMPT marker; **D-444** = split the P3 async host to a sibling `component_wasi_p3_host.zig`.)
 
 **NEXT — Unit E2/E3** (extend the host-peer surface):
