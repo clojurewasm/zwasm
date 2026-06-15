@@ -555,6 +555,9 @@ const WasiP2Ctx = cwasi.WasiP2Ctx;
 /// loop. Re-exported so `cli/run.zig` + the in-tree tests reach it.
 const cwasi3 = @import("component_wasi_p3.zig");
 pub const runWasiP3Main = cwasi3.runWasiP3Main;
+/// Unified WASI-component runner (D-335 Unit F): builds once, then drives the
+/// async (P3 callback-loop) or sync (`wasi:cli/run`) path automatically.
+pub const runWasiMain = cwasi3.runWasiMain;
 
 // ============================================================
 // REQ-1 (cw CM-API) — unified open + handle

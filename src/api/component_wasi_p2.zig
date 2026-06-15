@@ -2113,7 +2113,13 @@ pub fn buildWasiP2Component(engine: *Engine, alloc: Allocator, bytes: []const u8
 pub fn runWasiP2Main(engine: *Engine, alloc: Allocator, bytes: []const u8, host: *wasi_host.Host, opts: Module.InstantiateOpts) anyerror!void {
     var built = try buildWasiP2Component(engine, alloc, bytes, host, opts);
     defer built.deinit();
+    try runWasiP2MainBuilt(&built);
+}
 
+/// The post-build half of `runWasiP2Main` (the sync `wasi:cli/run` path):
+/// invoke the first `canon lift` export. Split out so the unified
+/// `runWasiMain` dispatcher (P3) can reuse it after building once.
+pub fn runWasiP2MainBuilt(built: *BuiltComponent) anyerror!void {
     const run_ref = firstLiftCoreExport(&built.info) orelse return error.NoRunExport;
     const main_inst = built.guestInstance(run_ref.instance) orelse return error.NoRunExport;
     var results = [_]Value{.{ .i32 = 0 }};

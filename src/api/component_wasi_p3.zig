@@ -63,6 +63,19 @@ pub fn runWasiP3Main(engine: *Engine, alloc: Allocator, bytes: []const u8, host:
     try driveAsyncMain(&built);
 }
 
+/// The unified WASI-component entry (D-335 Unit F): build once, then dispatch —
+/// an **async-lifted** export (a `canon lift` with `opts.is_async`) goes through
+/// the P3 stackless callback loop, else the sync `wasi:cli/run` path. This is
+/// the surface the CLI / embedders call so an async P3 component "just runs".
+pub fn runWasiMain(engine: *Engine, alloc: Allocator, bytes: []const u8, host: *wasi_host.Host, opts: Module.InstantiateOpts) anyerror!void {
+    var built = try wasi_p2.buildWasiP2Component(engine, alloc, bytes, host, opts);
+    defer built.deinit();
+    for (built.info.canons.items) |c| {
+        if (c == .lift and c.lift.opts.is_async) return driveAsyncMain(&built);
+    }
+    return wasi_p2.runWasiP2MainBuilt(&built);
+}
+
 /// Drive the first async-lifted export of an already-built component through the
 /// stackless callback loop. Split from `runWasiP3Main` so tests (and embedders)
 /// can inspect the result the guest delivered via `task.return`

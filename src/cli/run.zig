@@ -203,7 +203,9 @@ pub fn runComponentCaptured(
     // REQ-4 — the component CLI path uses the default budget for now; wiring
     // the `--fuel`/`--max-memory` flags into `runComponentCaptured` is a
     // separate CLI enhancement (the API-level budget is the cw requirement).
-    component.runWasiP2Main(&eng, alloc, bytes, &host, .{}) catch |err| {
+    // Unified runner (D-335 Unit F): async-lifted components run through the P3
+    // callback loop, sync ones through `wasi:cli/run` — auto-dispatched.
+    component.runWasiMain(&eng, alloc, bytes, &host, .{}) catch |err| {
         if (host.exit_code) |code| return @intCast(@min(code, std.math.maxInt(u8)));
         return err;
     };
@@ -676,6 +678,18 @@ test "runComponentWasi: a real WASI-P2 component runs from the CLI path + prints
     const code = try runComponentCaptured(testing.allocator, testing.io, bytes, &.{}, &.{}, &capture);
     try testing.expectEqual(@as(u8, 0), code);
     try testing.expectEqualStrings("hello\n", capture.items);
+}
+
+test "runComponentWasi: an ASYNC (WASI-0.3 P3) component runs from the CLI path (Unit F dispatch)" {
+    // D-335 Unit F: the unified runner auto-detects the async lift and drives
+    // the P3 callback loop — the guest writes "hi" to stdout via write-via-stream.
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(testing.io, "test/component/async_stdout_write_via_stream.wasm", testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(testing.allocator);
+    const code = try runComponentCaptured(testing.allocator, testing.io, bytes, &.{}, &.{}, &capture);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expectEqualStrings("hi\n", capture.items);
 }
 
 test "runWasm: malformed wasm produces a parse-phase diagnostic with byte offset (F6)" {
