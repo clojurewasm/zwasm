@@ -250,6 +250,46 @@ test "D-335 unit D-ζ2: stream.read after the writer drops returns DROPPED (sing
     try driveAsyncMain(&built);
 }
 
+test "D-335 unit D-ζ2: future.read with no writer returns BLOCKED (single-task)" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/async_future_read_blocked.wasm", testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+
+    // Future analogue of the stream BLOCKED test: exercises the SharedFuture
+    // rendezvous (the `.future` arm of end.copy), not the SharedStream path.
+    var built = try wasi_p2.buildWasiP2Component(&eng, testing.allocator, bytes, &host, .{});
+    defer built.deinit();
+    try driveAsyncMain(&built);
+}
+
+test "D-335 / D-337: future.drop-writable before any write traps (CanonicalABI §Future State)" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/async_future_drop_before_write.wasm", testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+
+    // Unlike a stream, a future's readable end never observes DROPPED and its
+    // writable end cannot be dropped pre-write — the drop itself traps.
+    var built = try wasi_p2.buildWasiP2Component(&eng, testing.allocator, bytes, &host, .{});
+    defer built.deinit();
+    // The drop traps (canonical guest trap); a clean run would mean the guard
+    // is missing and the guest reached its EXIT.
+    try testing.expectError(error.Unreachable, driveAsyncMain(&built));
+}
+
 test "D-335 unit D-ζ2: stream.cancel-read cancels a parked read (single-task)" {
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();

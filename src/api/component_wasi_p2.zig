@@ -247,7 +247,7 @@ fn ctxMemory(caller: *Caller) WasiP2Error!Memory {
     return caller.memory() orelse return WasiP2Error.NoMemory;
 }
 
-pub const WasiP2Error = error{ NoMemory, OutOfBounds, WriteFailed, NoRealloc, ReallocFailed, ProcExit, OutOfMemory, NoHostIo } ||
+pub const WasiP2Error = error{ NoMemory, OutOfBounds, WriteFailed, NoRealloc, ReallocFailed, ProcExit, OutOfMemory, NoHostIo, Unreachable } ||
     resource_table.Error || Memory.Error || async_mod.Error;
 
 const Memory = @import("../zwasm/memory.zig").Memory;
@@ -1827,7 +1827,13 @@ fn p2StreamFutureDrop(caller: *Caller, handle: u32) WasiP2Error!void {
     const sh = try abc.ctx.shared.get(end.shared);
     switch (sh.*) {
         .stream => |*s| try end.drop(s),
-        .future => |*f| try end.drop(f),
+        .future => |*f| {
+            // Spec: a future's writable end traps if dropped before its value
+            // is written (D-337, CanonicalABI.md §Future State). The CM "trap"
+            // has no distinct code → surface the canonical guest trap.
+            if (end.side == .writable) f.guardWritableDrop() catch return error.Unreachable;
+            try end.drop(f);
+        },
     }
     try async_mod.dropEnd(&abc.ctx.streams, &abc.ctx.shared, handle);
 }

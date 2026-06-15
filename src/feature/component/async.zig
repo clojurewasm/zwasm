@@ -34,6 +34,10 @@ pub const Error = error{
     NotCopying,
     /// A stackless-async callback returned a reserved code (low nibble > MAX=2).
     InvalidCallbackCode,
+    /// `future.drop-writable` on a future whose value was never written and
+    /// whose reader has not dropped (spec `WritableFutureEnd.drop` traps —
+    /// `CanonicalABI.md` §Future State).
+    FutureDropBeforeWrite,
 };
 
 /// Copy-state of a stream/future end (`CanonicalABI.md` §Stream State). The
@@ -540,6 +544,9 @@ fn futureEventFor(side: EndSide) EventCode {
 pub const SharedFuture = struct {
     elem_type: ?u32,
     dropped: bool = false,
+    /// Set once the single value has passed writer→reader (either rendezvous
+    /// order completes the write). Gates `future.drop-writable` per spec.
+    written: bool = false,
     pending: ?SharedStream.Pending = null,
 
     fn mkNotify(p: SharedStream.Pending) Step.Notify {
@@ -556,6 +563,7 @@ pub const SharedFuture = struct {
         };
         std.debug.assert(w.side == .writable);
         self.pending = null;
+        self.written = true; // a pending writer's value is now delivered
         return .{ .caller = .{ .completed = 0 }, .notify = mkNotify(w) };
     }
 
@@ -569,7 +577,15 @@ pub const SharedFuture = struct {
         };
         std.debug.assert(r.side == .readable);
         self.pending = null;
+        self.written = true; // the value reached the pending reader
         return .{ .caller = .{ .completed = 0 }, .notify = mkNotify(r) };
+    }
+
+    /// `WritableFutureEnd.drop` guard (`CanonicalABI.md` §Future State): the
+    /// writable end MUST NOT be dropped before its value is written, unless the
+    /// reader has already dropped (then the writer is notified and may drop).
+    pub fn guardWritableDrop(self: *const SharedFuture) Error!void {
+        if (!self.written and !self.dropped) return Error.FutureDropBeforeWrite;
     }
 };
 
@@ -871,6 +887,18 @@ test "D-335 unit D-ε: future single-shot rendezvous delivers FUTURE_READ; write
     var fut2 = SharedFuture{ .elem_type = null, .dropped = true };
     const wh2 = try t.add(.{ .kind = .future, .side = .writable, .elem_type = null });
     try testing.expect((try (try t.get(wh2)).copy(&fut2, &t, wh2, 1)).caller == .dropped);
+}
+
+test "D-337: future.drop-writable guard — traps pre-write, allowed after write or reader-drop" {
+    // Pristine future: writable drop traps (value never written, reader present).
+    var fut = SharedFuture{ .elem_type = null };
+    try testing.expectError(Error.FutureDropBeforeWrite, fut.guardWritableDrop());
+    // After a completed rendezvous the value is written → drop allowed.
+    fut.written = true;
+    try fut.guardWritableDrop();
+    // Reader-dropped first → the writer is notified and may drop without writing.
+    var fut2 = SharedFuture{ .elem_type = null, .dropped = true };
+    try fut2.guardWritableDrop();
 }
 
 test "stream/future end table: add/get/remove lifecycle + index-0 reserved" {
