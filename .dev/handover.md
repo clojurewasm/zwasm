@@ -3,24 +3,25 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Current state — Phase-17 完成形 steady-state; branch GREEN, Mac+ubuntu-verified (`a5eaca1e`)
+## Current state — Phase-17 完成形 steady-state; branch GREEN, Mac+ubuntu-verified (`20a49c9c`)
 
-**完成形 surface-audit sweep (this session)** — diag + CLI + C-API now CLEAN: (a) **diag** F5a validator
-central `popExpect` site (`dc463af5`, "type mismatch: expected i32, found f64" + `ValType.name()`);
-F1/F3/F5b (`240f97de`), F6 top-level parser (`098d2036`). (b) **CLI audit** (vs wasmtime/wasmer): `--version`
-/`-V` carry build identity (`73fd1fa2`, pure `dispatch.versionLine` + test); `## Exit codes` table in
-`docs/reference/cli.md` (`7e2d90fc`). (c) **C-API audit** (vs upstream wasm-c-api): the only gap was
-`zwasm_instance_get_func` exported+Zig-tested but undeclared in any header → declared in zwasm.h + stale
-preamble fixed + new `instance_get_func.c` conformance test (in test-all) (`c40caca9`). Mac green, lint clean.
+**完成形 surface-audit sweep (this session) — diag + CLI + C-API + Zig-API all swept CLEAN**: (a) **diag**
+F5a validator `popExpect` (`dc463af5`) + F1/F3/F5b (`240f97de`) + F6 top-level parser (`098d2036`). (b) **CLI**
+(vs wasmtime/wasmer): `--version`/`-V` build identity (`73fd1fa2`) + `## Exit codes` doc (`7e2d90fc`).
+(c) **C-API** (vs upstream wasm-c-api): `zwasm_instance_get_func` declared in zwasm.h + conformance test
+(`c40caca9`). (d) **Zig-API** (vs design doc): `Instance.call` one-shot shorthand implemented per docs §3.2
+(`4843488f`, was sketched-but-missing) + Engine/Instance/Module deinit doc-comments (`8bb4bf41`). Each
+dimension was found tight/完成形 with only 1-2 cheap wins. Mac green, lint clean.
 
-**NEXT**: diag/CLI/C-API/memory-safety/dogfooding all swept CLEAN (this session + D-297/295/296). Remaining
-not-yet-swept 完成形 dimension = **Zig-API** (`docs/zig_api_design.md`, `src/zwasm/`) ergonomics/completeness
-audit — the next surface-audit target to surface cheap wins. D-334 tails stay LOW-value/deferred (F5a
-non-popExpect sites, F6 ~80 per-section decoders, F4 user-gated trap-format); pick one only if a real
-diagnostic-quality need surfaces. TDD + gate on `zig build test`; codegen/regalloc changes ALSO need
+**NEXT**: all core 完成形 surfaces (diag/CLI/C-API/Zig-API/memory-safety/dogfooding) now swept CLEAN — cheap
+wins genuinely exhausted. Remaining autonomous tracks (lower-value, pick one): (1) **README/examples
+completeness audit** (the one not-yet-swept doc surface — `README.md`, `examples/`); (2) a **D-334 diag tail**
+(F5a non-popExpect sites / F6 ~80 per-section decoders) only if a real diagnostic-quality need surfaces;
+(3) other long-tail debt sweep. Zig-API design doc is a "target sketch" (source authoritative on divergence)
+— don't force-sync it. TDD + gate on `zig build test`; codegen/regalloc changes ALSO need
 `test-spec-wasm-2.0-assert` + Rosetta per lesson `spill-stage-reg-clobber-and-spec-gate-gap`. **Do NOT
 re-attempt parked items** (D-330 conflicting-constraint hard-park; D-331 go infra-blocked) — they thrash.
-Verify any prior remote kick at Step 0.7.
+**Verify windows verdict on 20a49c9c at Step 0.7** (batch fired last turn, bk3sdof1p) + record on green.
 
 c_sha256 `\n`-drop (D-330) deep-investigated this session (5 trace rounds + 3 fix attempts) → **bundle
 d330-blockmerge-liveness CLOSED, demoted to a hard-parked debt note**. Root IS understood (a br/br_if
