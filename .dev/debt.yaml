@@ -1353,7 +1353,11 @@ entries:
         opts for read/write + async? for cancel); each mints a CoreFuncDef.stream_future;
         P2 host runner rejects them (UnsupportedWasiImport, P3 = Unit E/F).
       - C — async lift/lower in canon.zig (MAX_FLAT_ASYNC_PARAMS=4; lift_async_value /
-        lower_stream / lower_future; ~600; MED). Needs A,B.
+        lower_stream / lower_future; ~600; MED). Needs A,B. DONE 2026-06-15 (58e3f46a):
+        stream/future VALUES marshal as i32 handles, identical to own (CanonType
+        .stream/.future + arms in flatten/lower/lift/store/load/liftTyped). Pure
+        handle pass-through — the table lifecycle is Unit D. (MAX_FLAT_ASYNC_PARAMS
+        enforcement deferred to the async call-lowering in D/F; handles never spill.)
       - D — async task/waitable runtime + stream/future handle lifecycle + ReturnCode
         (new async.zig; ~1200; **HIGH — architectural crux**; spike wasmtime
         concurrent.rs / futures_and_streams.rs first). Needs A,B,C.

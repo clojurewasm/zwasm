@@ -3,43 +3,46 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Current state — WASI-0.3 campaign (D-335); Units A+B DONE; branch GREEN (`210f081d`)
+## Current state — WASI-0.3 campaign (D-335); Units A+B+C DONE; branch GREEN (`58e3f46a`)
 
 **WASI 0.3 / Preview 3 campaign is the active feature work** (Front D, ratified 2026-06-11; CM-async —
 `async` func / `stream<T>` / `future<T>` — NOT core stack-switching). Critical path A→B→C→D(crux)→E→F→G;
 full unit plan + per-unit DONE-SHAs in debt **D-335**. The loop drives ALL fronts autonomously, only
-tag-cut is user-reserved (ADR-0156).
+tag-cut is user-reserved (ADR-0156). **Decode + the canon VALUE-ABI are now complete; D is the runtime crux.**
 
-**Done so far** (decode is now complete for the CM-async type + canon surface):
-- **Unit A** (`95a23c53` decode + `e5acb989` validate): `stream<t?>`/`future<t?>` valtypes (0x66/0x65) — the
-  element type is **optional** (`<valtype>?`), unlike `list`; `0x43` async functype was already decoded.
-  Validation: payload bounds + reject `(stream char)` + transitive `borrow`. Test block extracted to
-  `types_tests.zig` (hard-cap-forced); types.zig 1639.
-- **Unit B** (`0376ee44`): the 14 canon `stream.*`/`future.*` builtins (0x0e–0x1b) — `StreamFutureOp` +
-  `Canon.stream_future` (typeidx; `opts` for read/write; `async?` for cancel); each mints a
-  `CoreFuncDef.stream_future`; P2 host runner rejects them (P3 = Units E/F).
-- **D-336 part a** (`210f081d`): functype `result` rejects transitive `borrow` (param borrow stays allowed).
-  Part b (exported value) is now **blocked-by** the untracked value index space (sort=value deferred).
+**Done so far**:
+- **Unit A** (`95a23c53`+`e5acb989`): `stream<t?>`/`future<t?>` valtypes (0x66/0x65) decode (element is
+  **optional** `<valtype>?`, unlike `list`) + validation (payload bounds + reject `(stream char)`/transitive
+  `borrow`). Test block extracted to `types_tests.zig` (hard-cap).
+- **Unit B** (`0376ee44`): 14 canon `stream.*`/`future.*` builtins (0x0e–0x1b) — `StreamFutureOp` +
+  `Canon.stream_future`; each mints a `CoreFuncDef.stream_future`; P2 runner rejects (P3 = Units E/F).
+- **Unit C** (`58e3f46a`): stream/future VALUES marshal as **i32 handles, identical to `own`** — `CanonType`
+  `.stream`/`.future` + arms in flatten/lower/lift/store/load/liftTyped (grouped with `.own`; valid as results,
+  unlike `.borrow`). Pure pass-through; the handle TABLE lifecycle is Unit D. Typed public API defers (Unit F).
+- **D-336 part a** (`210f081d`): functype `result` rejects transitive `borrow`; part b blocked-by the
+  untracked value index space (sort=value deferred).
 
-**NEXT — Unit C (async lift/lower in canon.zig).** `MAX_FLAT_ASYNC_PARAMS=4` + `lift_async_value` /
-`lower_stream` / `lower_future` (~600 LOC, MED; needs A+B). This is the first RUNTIME-shape unit — read
-`CanonicalABI.md` (async lift/lower) + wasmtime `concurrent.rs`/`futures_and_streams.rs` first (Step 0
-survey mandatory). The canon/wit/typed `UnsupportedType` defer-arms added in Unit A are the slots to fill.
-Verify the prior remote kick (ubuntu+windows BOTH batched last turn) at Step 0.7.
+**NEXT — Unit D (async task/waitable RUNTIME — the architectural crux, HIGH risk, ~1200 LOC, multi-cycle).**
+New `src/feature/component/async.zig`: per-component stream/future handle TABLE + lifecycle (the table
+Unit C's i32 handles index into), async task/waitable model, `ReturnCode` packing (wasmtime: Blocked
+0xffff_ffff / Completed / Dropped / Cancelled). **Step 0 = mandatory SPIKE first** — deep-read wasmtime
+`crates/wasmtime/src/runtime/component/concurrent/futures_and_streams.rs` + `concurrent.rs` + CM
+`Concurrency.md`; design an ADR for the table+task model BEFORE redesign code (this is bundle-mode
+multi-cycle within Unit D). Verify the prior remote kick at Step 0.7.
 
 ## Active bundle
 
 - **Bundle-ID**: wasi03-D-335 (§9.0 Front D; WASI 0.3 / Preview 3; units A→G)
-- **Cycles-remaining**: ~5+ (A+B done; D = async task/waitable runtime is the multi-cycle crux)
-- **Continuity-memo**: critical path **A(done)→B(done)→C→D(crux)→E→F→G** (full plan in **D-335**). CM-async,
-  NOT core stack-switching. Spec: `~/Documents/OSS/{WASI, WebAssembly/component-model}`
-  (design/mvp/{Binary,CanonicalABI,Concurrency}.md); ref impl `~/Documents/OSS/wasmtime` (43+). Builds on
-  shipped CM substrate `src/feature/component/` + `src/api/component_wasi_p2.zig` (P3 coexists with P2).
+- **Cycles-remaining**: ~5+ (A+B+C done; D = async task/waitable runtime is the multi-cycle crux)
+- **Continuity-memo**: critical path **A(done)→B(done)→C(done)→D(crux)→E→F→G** (full plan in **D-335**).
+  CM-async, NOT core stack-switching. Spec: `~/Documents/OSS/{WASI, WebAssembly/component-model}`
+  (design/mvp/{Binary,CanonicalABI,Concurrency}.md); ref impl `~/Documents/OSS/wasmtime` (43+;
+  `concurrent/futures_and_streams.rs` is the handle-table model). Unit C's i32 handles index the Unit-D table.
 - **Exit-condition**: a WASI-0.3 async/stream/future component runs end-to-end through zwasm (new P3
   corpus green, 3-host); each unit lands green per D-335 along the way.
-- **Current unit — C (START HERE)**: async lift/lower in `canon.zig` (`MAX_FLAT_ASYNC_PARAMS=4`,
-  `lift_async_value`/`lower_stream`/`lower_future`; ~600 LOC, MED). Fill the `stream_future`/`is_async`
-  `UnsupportedType` defer-arms. Done = green async lift/lower test → retarget Current-unit to D (the crux).
+- **Current unit — D (START HERE; HIGH/crux)**: async task/waitable runtime + stream/future handle-table
+  lifecycle + `ReturnCode` in a new `async.zig` (~1200 LOC). SPIKE wasmtime first + ADR before redesign
+  code. Multi-cycle (bundle-within-unit). Done = a stream/future handle round-trips through the table.
 
 ## Long-tail (debt-tracked / parked — NOT active; see §9.0 fronts + debt.yaml)
 
