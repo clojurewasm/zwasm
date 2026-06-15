@@ -493,6 +493,15 @@ pub fn emitCallIndirect(
         const addr: u64 = @intFromPtr(&jit_abi.jitCallIndirectResolve);
         try buf.appendSlice(allocator, inst.encMovImm64Q(.rax, addr).slice());
         try buf.appendSlice(allocator, inst.encCallReg(.rax).slice());
+        // RAX = funcptr | 0 (OOB/sig) | 1 (NULL_ELEM_SENTINEL). D-294 residual:
+        // CMP RAX,1 ; JE → uninitialized_elem (code 13) FIRST, so a null elem under
+        // a subtyping module matches the inline path + interp + wasmtime/wasmer.
+        try buf.appendSlice(allocator, inst.encCmpRImm8(.q, .rax, 1).slice());
+        {
+            const fixup_at: u32 = @intCast(buf.items.len);
+            try buf.appendSlice(allocator, inst.encJccRel32(.e, 0).slice());
+            try uninit_elem_fixups.append(allocator, fixup_at);
+        }
         // RAX = funcptr | 0. TEST RAX,RAX ; JE → shared trap stub.
         try buf.appendSlice(allocator, inst.encTestRR(.q, .rax, .rax).slice());
         {

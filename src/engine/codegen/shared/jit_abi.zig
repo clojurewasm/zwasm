@@ -1290,9 +1290,23 @@ pub fn jitCallIndirectResolve(rt: *JitRuntime, table_idx: u32, idx: u32, expecte
         size = rt.tables_ptr[table_idx].len;
     }
     if (idx >= size) return 0;
+    // D-294 residual: a NULL (uninitialized) element has the maxInt(u32) no-func
+    // sentinel typeidx (compile_init.zig pre-seeds it; same indicator the inline
+    // non-subtyping path's `CMN typeidx,#1` checks). Return the distinct NULL
+    // sentinel (1) so the caller emits uninitialized_elem (code 13), matching
+    // interp + wasmtime/wasmer, instead of collapsing it into the generic
+    // sig-mismatch (code 3) the `return 0` path traps as. Funcptrs are mmap'd
+    // code addresses, never 0/1, so both sentinels are unambiguous.
+    if (typeidx_base[idx] == std.math.maxInt(u32)) return NULL_ELEM_SENTINEL;
     if (!ref_test_ops.concreteReachesGti(gti, typeidx_base[idx], expected_typeidx)) return 0;
     return funcptr_base[idx];
 }
+
+/// Distinct return value from `jitCallIndirectResolve` signalling a null/
+/// uninitialized table element (vs `0` = generic OOB / sig-subtype failure).
+/// The subtyping call_indirect caller (op_call.zig both arches) routes it to
+/// the uninitialized_elem (code 13) trap stub. D-294 residual.
+pub const NULL_ELEM_SENTINEL: u64 = 1;
 
 // ============================================================
 // Comptime offset constants — consumed by prologue emit (per-arch

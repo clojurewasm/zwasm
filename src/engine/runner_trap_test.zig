@@ -163,6 +163,30 @@ test "runVoidExportWasi: JIT call_indirect on a null table element → precise u
     try testing.expectEqual(trap_surface.TrapKind.uninitialized_elem, trap_surface.jitTrapCode(ue).?);
 }
 
+// SUBTYPING variant of the above (D-294 RESIDUAL). The rec group `(type $base
+// (sub (func))) (type $t (sub $base (func)))` makes the module USE subtyping, so
+// call_indirect routes through the `jitCallIndirectResolve` trampoline (not the
+// inline finality-blind CMP). table[0] is NULL → the trampoline returns the
+// NULL_ELEM_SENTINEL → uninitialized_elem (code 13), where it previously
+// collapsed to indirect_call_mismatch (code 3). Bytes from `wasm-tools parse`.
+const cind_subtype_null_elem_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x11, 0x02, 0x4e,
+    0x02, 0x50, 0x00, 0x60, 0x00, 0x00, 0x50, 0x01, 0x00, 0x60, 0x00, 0x00,
+    0x60, 0x00, 0x00, 0x03, 0x02, 0x01, 0x02, 0x04, 0x04, 0x01, 0x70, 0x00,
+    0x01, 0x07, 0x0a, 0x01, 0x06, 0x5f, 0x73, 0x74, 0x61, 0x72, 0x74, 0x00,
+    0x00, 0x0a, 0x09, 0x01, 0x07, 0x00, 0x41, 0x00, 0x11, 0x01, 0x00, 0x0b,
+};
+
+test "runVoidExportWasi: JIT call_indirect on null elem under SUBTYPING → uninitialized_elem code 13 (D-294 residual)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    var ue: u32 = 99;
+    try testing.expectError(entry.Error.Trap, runner.runVoidExportWasi(testing.allocator, &cind_subtype_null_elem_wasm, "_start", null, &ue));
+    // Was 3 (indirect_call_mismatch) — the subtyping resolve trampoline collapsed
+    // null/OOB/sig into funcptr=0; now returns a distinct NULL sentinel → code 13.
+    try testing.expectEqual(@as(u32, 13), ue);
+    try testing.expectEqual(trap_surface.TrapKind.uninitialized_elem, trap_surface.jitTrapCode(ue).?);
+}
+
 // `(module (func (export "_start") f32.const nan i32.trunc_f32_s drop))` — the Wasm
 // 1.0 trapping `i32.trunc_f32_s` traps on NaN (the FP self-compare sets PF/V). D-293
 // slice-3: invalid_conversion code 9, UNIFIED across arm64+x86_64 (previously the
