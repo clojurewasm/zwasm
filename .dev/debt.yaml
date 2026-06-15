@@ -1365,8 +1365,10 @@ entries:
         β DONE (71ffb302): SharedStream read/write rendezvous (min-count copy + zero-length
         livelock tiebreak; Step.notify_pending = δ event seam). γ DONE (253dcb56): StreamFutureEnd
         CopyEnd methods (copying/copy/cancel/drop) tie CopyState to the rendezvous (the α↔β join).
-        NEXT δ: EventCode/Waitable/WaitableSet + deliver notify_pending as a pending_event (rewire
-        SharedStream.pending to reference the peer end → set its event on rendezvous; wait/poll).
+        δ DONE (be5a3e06 + 55dfd53d): EventCode/EventTuple/Waitable slot/WaitableSet + the
+        delivery wiring (SharedStream.pending carries the peer handle; copy() delivers the
+        rendezvous result as the peer's pending_event; WaitableSet.poll returns it). NEXT ε:
+        futures (SharedFuture: at-most-1 value, no count; reuse the stream end/waitable machinery).
       - E — WASI-P3 host interfaces (new component_wasi_p3.zig; sockets/http/clocks
         async; ~2000; MED; coexists with P2, does NOT replace it). Needs D.
       - F — async-export ABI + P3 component runner (canon.zig; ~400; MED). Needs E.

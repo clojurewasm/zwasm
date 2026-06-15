@@ -3,7 +3,7 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Current state — WASI-0.3 campaign (D-335); Units A+B+C done, D-α+β+γ done; branch GREEN (`253dcb56`)
+## Current state — WASI-0.3 campaign (D-335); Units A+B+C done, D-α..δ done; branch GREEN (`55dfd53d`)
 
 **WASI 0.3 / Preview 3 campaign is the active feature work** (Front D, ratified 2026-06-11; CM-async —
 `async` func / `stream<T>` / `future<T>` — NOT core stack-switching). Critical path A→B→C→D(crux)→E→F→G;
@@ -25,32 +25,31 @@ tag-cut is user-reserved (ADR-0156). **Decode + the canon VALUE-ABI are now comp
 **Unit D underway** (async task/waitable RUNTIME — the architectural crux, ADR-0187). The spike settled the
 key question: zwasm's **synchronous engine CAN host CM-async via the stackless callback ABI — NO fibers, no
 hard blocker**. Staged α→η in D-335. **α** (`17a810f9`): handle table + `CopyState` + `ReturnCode`.
-**β** (`71ffb302`): `SharedStream` read/write rendezvous (min-count copy + zero-length livelock tiebreak;
-`Step.notify_pending` = δ seam). **γ** (`253dcb56`): `StreamFutureEnd` CopyEnd methods — `copying`/`copy`
-(folds rendezvous into CopyState) / `cancel` / `drop` (traps if copying). The α-table ↔ β-shared join is done.
+**β** (`71ffb302`): `SharedStream` read/write rendezvous. **γ** (`253dcb56`): `StreamFutureEnd` CopyEnd methods
+(`copying`/`copy`/`cancel`/`drop`). **δ** (`be5a3e06`+`55dfd53d`): `EventCode`/`EventTuple`/`Waitable` slot +
+`WaitableSet`, and the delivery wiring — `SharedStream.pending` carries the peer handle, `copy()` delivers the
+rendezvous result as the peer's `pending_event`, `WaitableSet.poll` returns it. A blocked reader now gets a
+`STREAM_READ completed(n)` event end-to-end after the writer rendezvous.
 
-**NEXT — Unit D-δ (event delivery: Waitable + WaitableSet).** This is the integration chunk that makes a
-blocked end actually resume. Add `EventCode` (none/subtask/stream_read=2/stream_write=3/future_read=4/
-future_write=5/task_cancelled=6), `EventTuple{code,index,payload}`, a `Waitable` (`pending_event: ?EventTuple`
-stored directly — the spec's optimized non-closure form — + `wset` link), and `WaitableSet` (elems + `poll`/
-`wait`/has/get_pending_event; drop traps if non-empty). **Rewire `SharedStream.pending`** to reference the
-peer END (not just `{side,remain}`) so a rendezvous can SET the peer's `pending_event` =
-`(STREAM_READ/WRITE, handle, ReturnCode.completed(n))` — i.e. deliver `Step.notify_pending` as a real event.
-Spec: `CanonicalABI.md` §985–1100 (EventCode/Waitable/WaitableSet). Verify the prior remote kick at Step 0.7.
+**NEXT — Unit D-ε (futures).** Add `SharedFuture` + future-end copy: a future is a single-shot value (at most
+ONE item; no count — `ReturnCode.completed` carries 0), otherwise mirroring `SharedStream`'s read/write
+rendezvous + `Waitable`/event delivery (`FUTURE_READ`/`FUTURE_WRITE` codes). Reuse the `StreamFutureEnd`
+(`kind = .future`) + `WaitableSet` machinery; the rendezvous is simpler (no partial copy). Spec:
+`CanonicalABI.md` §Future State. Verify the prior remote kick at Step 0.7.
 
 ## Active bundle
 
 - **Bundle-ID**: wasi03-D-335 (§9.0 Front D; WASI 0.3 / Preview 3; units A→G)
-- **Cycles-remaining**: ~3+ (A+B+C + D-α+β+γ done; D is the multi-cycle crux, staged α→η per ADR-0187)
-- **Continuity-memo**: critical path **A(done)→B(done)→C(done)→D(α+β+γ done; δ next)→E→F→G** (full plan in
+- **Cycles-remaining**: ~3 (A+B+C + D-α..δ done; D is the multi-cycle crux, staged α→η per ADR-0187)
+- **Continuity-memo**: critical path **A(done)→B(done)→C(done)→D(α..δ done; ε next)→E→F→G** (full plan in
   **D-335**; design in **ADR-0187** — stackless callback ABI, no fibers). CM-async, NOT core stack-switching.
   Spec: `~/Documents/OSS/{WASI, WebAssembly/component-model}` (design/mvp/{Binary,CanonicalABI,Concurrency}.md);
   ref impl `~/Documents/OSS/wasmtime` (43+; `concurrent/futures_and_streams.rs`).
 - **Exit-condition**: a WASI-0.3 async/stream/future component runs end-to-end through zwasm (new P3
   corpus green, 3-host); each unit lands green per D-335 along the way.
-- **Current unit — D (HIGH/crux; α+β+γ done, δ START HERE)**: handle table + rendezvous + CopyState/cancel/
-  drop landed. δ = EventCode/Waitable/WaitableSet + deliver notify_pending as a pending_event (rewire
-  SharedStream.pending to reference the peer end). Then ε futures · ζ subtask · η task.return + callback loop.
+- **Current unit — D (HIGH/crux; α..δ done, ε START HERE)**: stream handle table + rendezvous + CopyState +
+  event delivery landed. ε = futures (SharedFuture single-shot value; FUTURE_READ/WRITE; reuse the stream
+  machinery). Then ζ subtask · η task.return + callback loop. async.zig is the home.
 
 ## Long-tail (debt-tracked / parked — NOT active; see §9.0 fronts + debt.yaml)
 
