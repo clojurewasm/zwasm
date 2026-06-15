@@ -1732,8 +1732,11 @@ fn p2WaitableSetNew(caller: *Caller) WasiP2Error!u32 {
 
 /// `canon waitable.join` (ADR-0190 E2b): add a waitable handle to a set.
 fn p2WaitableJoin(caller: *Caller, set_handle: u32, waitable: u32) WasiP2Error!void {
+    return p2WaitableJoinInner(caller, set_handle, waitable) catch |e| mapAsyncFault(e);
+}
+fn p2WaitableJoinInner(caller: *Caller, set_handle: u32, waitable: u32) WasiP2Error!void {
     const ctx = caller.data(WasiP2Ctx);
-    const set = try ctx.sets.get(set_handle);
+    const set = try ctx.sets.get(set_handle); // bad set handle = guest fault → trap
     try set.join(waitable);
 }
 
