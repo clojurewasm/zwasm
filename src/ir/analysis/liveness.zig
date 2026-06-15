@@ -129,11 +129,6 @@ pub fn compute(
         param_arity: u8,
         result_arity: u8,
         is_if: bool,
-        // D-330: distinguishes `loop` from `block`/`try_table` (all three
-        // have is_if=false). A `br` to a loop targets the loop's PARAM entry
-        // (back-edge / continue), not its result, so the block-result
-        // merge_vregs capture below must skip loop frames.
-        is_loop: bool,
         merge_captured: bool,
         param_vregs: [8]u32,
         // D-093 (d-11) — if-frame result-merge survival. emit's
@@ -202,11 +197,7 @@ pub fn compute(
                 // post-if consumer would then read whichever
                 // later vreg got V_then_i's slot.
                 const fr = block_stack[block_stack_len - 1];
-                // D-330: also fires for block/try_table frames — `merge_captured`
-                // is set at `.else` (if-frame) OR at a `br`/`br_if` carrying
-                // results to a block target (below). Either way the captured
-                // merge vregs become the canonical post-block result here.
-                if (fr.merge_captured and fr.result_arity > 0) {
+                if (fr.is_if and fr.merge_captured and fr.result_arity > 0) {
                     if (sim_len >= @as(usize, fr.result_arity)) {
                         const base = sim_len - @as(usize, fr.result_arity);
                         var i: u32 = 0;
@@ -286,7 +277,6 @@ pub fn compute(
                 .param_arity = 0,
                 .result_arity = @intCast(result_arity_u),
                 .is_if = false,
-                .is_loop = (instr.op == .loop),
                 .merge_captured = false,
                 .param_vregs = undefined,
                 .merge_vregs = undefined,
@@ -368,7 +358,6 @@ pub fn compute(
                 .param_arity = param_arity,
                 .result_arity = result_arity,
                 .is_if = true,
-                .is_loop = false,
                 .merge_captured = false,
                 .param_vregs = param_vregs,
                 .merge_vregs = undefined,
@@ -445,21 +434,8 @@ pub fn compute(
             const depth: u32 = @intCast(instr.payload);
             const target_depth: u32 = if (depth >= block_stack_len)
                 0
-            else blk: {
-                const ti = block_stack_len - 1 - @as(usize, depth);
-                // D-330: capture the br-carried result vregs as the block's merge
-                // target (see the `.br_if` site + `.end` re-injection below).
-                const tf = &block_stack[ti];
-                if (!tf.is_if and !tf.is_loop and tf.result_arity > 0 and !tf.merge_captured and
-                    sim_len >= @as(usize, tf.result_arity))
-                {
-                    const mbase = sim_len - @as(usize, tf.result_arity);
-                    var mi: u32 = 0;
-                    while (mi < tf.result_arity) : (mi += 1) tf.merge_vregs[mi] = sim_stack[mbase + mi];
-                    tf.merge_captured = true;
-                }
-                break :blk tf.entry_depth;
-            };
+            else
+                block_stack[block_stack_len - 1 - @as(usize, depth)].entry_depth;
             while (sim_len > @as(usize, target_depth)) {
                 sim_len -= 1;
                 const vreg = sim_stack[sim_len];
@@ -478,27 +454,6 @@ pub fn compute(
                 sim_len -= 1;
                 const cond_vreg = sim_stack[sim_len];
                 ranges.items[cond_vreg].last_use_pc = pc;
-            }
-            // D-330: br_if carries the top result_arity values to its target on
-            // the taken edge (the fall-through keeps them on the stack). For a
-            // block/try_table target with results, capture them as the canonical
-            // merge target so the `.end` re-injection extends their live range to
-            // post-block consumers. (br_table's payload is a label COUNT, not a
-            // single depth — its multi-target carry is tracked as same-class
-            // follow-up debt; br_on_non_null carries a ref via a separate path.)
-            if (instr.op == .br_if) {
-                const depth: u32 = @intCast(instr.payload);
-                if (depth < block_stack_len) {
-                    const tf = &block_stack[block_stack_len - 1 - @as(usize, depth)];
-                    if (!tf.is_if and !tf.is_loop and tf.result_arity > 0 and !tf.merge_captured and
-                        sim_len >= @as(usize, tf.result_arity))
-                    {
-                        const mbase = sim_len - @as(usize, tf.result_arity);
-                        var mi: u32 = 0;
-                        while (mi < tf.result_arity) : (mi += 1) tf.merge_vregs[mi] = sim_stack[mbase + mi];
-                        tf.merge_captured = true;
-                    }
-                }
             }
             continue;
         }
@@ -750,46 +705,6 @@ test "compute: br closes all live vregs at branch site (sub-7.5c-iv)" {
     defer testing.allocator.free(live.ranges);
     try testing.expectEqual(@as(usize, 1), live.ranges.len);
     try testing.expectEqual(@as(u32, 1), live.ranges[0].last_use_pc); // br at pc=1
-}
-
-test "compute: D-330 block-result merge vreg (br_if carry) survives to block end + consumer" {
-    // block (result i32)        ;; pc0 (extra: result_arity=1)
-    //   i32.const 0             ;; pc1 vreg0 = speculative br-path result
-    //   i32.const 0             ;; pc2 vreg1 = br_if condition
-    //   br_if 0                 ;; pc3 carries vreg0 to block@0 (captured as merge target)
-    //   drop                    ;; pc4 fall-through drops vreg0
-    //   i32.const 5             ;; pc5 vreg2 = fall-through result
-    // end                       ;; pc6 block end (merge → canonical result = vreg0)
-    // drop                      ;; pc7 post-block consumer of the block result
-    // end                       ;; pc8 function end
-    //
-    // D-330: a `br`/`br_if` carrying values to a `block` target must extend
-    // those merge vregs' live range to the block `.end` + post-block consumer,
-    // mirroring the if-frame merge_vregs machinery (D-093 d-11/d-12). Without
-    // it vreg0 dies at the fall-through `drop` (pc4); regalloc then frees its
-    // slot and an intra-block temp reuses it, so the `.end` merge reads garbage
-    // (the c_sha256 inlined-strlen `\n`-drop bug).
-    var f = try buildFunc(testing.allocator, &.{
-        .{ .op = .block, .extra = 1 },
-        .{ .op = .@"i32.const", .payload = 0 },
-        .{ .op = .@"i32.const", .payload = 0 },
-        .{ .op = .br_if, .payload = 0 },
-        .{ .op = .drop },
-        .{ .op = .@"i32.const", .payload = 5 },
-        .{ .op = .end },
-        .{ .op = .drop },
-        .{ .op = .end },
-    });
-    defer f.deinit(testing.allocator);
-
-    const live = try compute(testing.allocator, &f, &.{}, &.{});
-    defer deinit(testing.allocator, live);
-
-    try testing.expectEqual(@as(usize, 3), live.ranges.len);
-    // vreg0 (br_if-carried block-result merge vreg): def at pc1, must live to
-    // the post-block consumer (drop at pc7) — NOT die at the drop at pc4.
-    try testing.expectEqual(@as(u32, 1), live.ranges[0].def_pc);
-    try testing.expectEqual(@as(u32, 7), live.ranges[0].last_use_pc);
 }
 
 test "compute: pop on empty stack is tolerant (validator-cleared dead-code path)" {
