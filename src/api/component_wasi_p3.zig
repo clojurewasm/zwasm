@@ -682,3 +682,22 @@ test "WASI 0.3 conformance (wasip3): cli-stdin reads stdin (real rust component)
     try runWasiMain(&eng, testing.allocator, bytes, &host, .{});
     try testing.expectEqual(@as(?u32, 0), host.exit_code);
 }
+
+test "WASI 0.3 conformance (wasip3): cli-clocks reads wall+monotonic clocks (real rust component)" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/wasip3/cli-clocks.wasm", testing.allocator, .limited(4 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+    host.io = io; // wasi:clocks reads the real host clock through std.Io
+
+    // Instant::now() (monotonic) + SystemTime::now().duration_since(UNIX_EPOCH)
+    // (wall) must succeed → exit(0); proves wasi:clocks is served to the guest.
+    try runWasiMain(&eng, testing.allocator, bytes, &host, .{});
+    try testing.expectEqual(@as(?u32, 0), host.exit_code);
+}

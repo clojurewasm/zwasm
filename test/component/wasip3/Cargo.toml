@@ -39,3 +39,7 @@ path = "src/bin/cli-args.rs"
 [[bin]]
 name = "cli-stdin"
 path = "src/bin/cli-stdin.rs"
+
+[[bin]]
+name = "cli-clocks"
+path = "src/bin/cli-clocks.rs"
