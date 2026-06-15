@@ -29,13 +29,13 @@ cloned** (`tests/rust/wasm32-wasip3`); wasm-tools/component-model refreshed (`im
   real rust wasip3 component hermetically (nightly `-Z build-std` + `wasm-component-ld --wasm-ld-path` nixpkgs
   wasm-ld + `link-self-contained=no` w/ stable wasip2 crt1/libc; pinned nightly 2026-06-14, reproducible). **VERIFIED:
   zwasm runs the output → exit 1** (cli-exit). Recipe: lesson `2026-06-16-wasip3-hermetic-build-recipe`; caveats in
-  D-448. **cli-exit (`a03a22a1`) + cli-stdout (`31af8925`) DONE**: `test/component/wasip3/` + `scripts/gen_wasip3_
-  fixtures.sh`; tests run via runWasiMain (cli-exit → exit_code==1; cli-stdout → stdout capture "zwasm-wasip3-ok").
-  **FOUND D-449 (now)**: a wasip3 guest reads env/argv EMPTY despite the component path wiring p2GetEnvironment/
-  get-arguments (cli-env/cli-args fixtures exit 1 not 42; same-version cli-stdout works → list<tuple/string> retptr
-  marshalling, not resolution). **NEXT (front①)**: investigate+fix D-449 (probe: does a wasip2 cli-env also read
-  empty? + dump get-environment retptr bytes vs canon list ABI), then un-skip cli-env/cli-args (recreate per D-449).
-  cli-stdio-roundtrip = wit_stream/wit-bindgen (path①, defer). Then front ④ perf (no toolchain).
+  D-448. **wasip3 conformance corpus — 3 OUTPUT fixtures GREEN**: cli-exit (`a03a22a1`, exit_code==1) + cli-stdout
+  (`31af8925`, stdout capture) + cli-stderr (`18658846`, stderr capture), via `test/component/wasip3/` + `scripts/
+  gen_wasip3_fixtures.sh`. **FOUND D-449 (now) — wasip3 INPUTS not delivered to the guest**: env/argv read EMPTY
+  (get-environment/get-arguments list<tuple/string> retptr marshalling) AND stdin reads EMPTY (cli/stdin input-
+  stream read) — despite the host wiring; OUTPUTS work, INPUTS don't. cli-env/cli-args/cli-stdin removed pending fix.
+  **NEXT (front①)**: investigate+fix D-449 (focused debug cycle — instrument p2GetEnvironment + the stdin read path;
+  probe wasip2-vs-wasip3) then un-skip the input fixtures. cli-stdio-roundtrip = wit-bindgen (path①, defer). Then ④ perf.
 - **① WASI 0.3 conformance**: compile wasi-testsuite `rust/wasm32-wasip3` via `.#gen` (add wasm32-wasip3 target + wit
   deps), run as a conformance corpus.
 - **③ real-world corpus 50→100**: add MoonBit/Grain/Kotlin (Wasm-GC) + AssemblyScript/Swift/Zig toolchains to

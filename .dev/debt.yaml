@@ -1637,6 +1637,16 @@ entries:
       FIX then un-skip the cli-env/cli-args fixtures (recreate from this row: 5-line
       `std::env::var`/`args().nth(1)` → exit 42, add `[[bin]]` + the gen-script loop
       + the host.envs/args test asserting exit_code==42).
+      RELATED SYMPTOM (2026-06-16, same campaign, DISTINCT mechanism): a plain-std
+      wasip3 `std::io::stdin().read_to_string` ALSO reads EMPTY (cli-stdin fixture
+      exited 1 not 42 with `host.stdin_bytes="hello"`). Pattern: wasip3 component
+      OUTPUTS work (cli-exit ✓ + cli-stdout ✓ + cli-stderr ✓ all green) but INPUTS
+      don't reach the guest (env/args via get-environment list; stdin via cli/stdin
+      get-stdin → input-stream blocking-read). The stdin path is stream-based (not
+      the list marshalling), so likely a separate wiring gap — the component path's
+      blocking input-stream read may not source `host.stdin_bytes` (the async E3
+      read-via-stream used host_sources, a different path). Investigate alongside
+      env/args; both block the input-side conformance fixtures.
     first_raised: "2026-06-16"
     last_reviewed: "2026-06-16"
     refs: |-
