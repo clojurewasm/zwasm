@@ -40,6 +40,7 @@ entries:
     last_reviewed: "2026-06-15"
     refs: |-
       .dev/decisions/0179_execution_interruption_resource_limits.md (Revisions 2026-06-12); .dev/architecture/jit_facade_integration_scope.md; include/zwasm.h; src/api/zwasm_ext.zig; src/engine/runner.zig (RunLimits); src/cli/run.zig (Limits)
+    front: B-hardening
   - id: "D-315"
     layer: "code"
     status: "blocked-by"
@@ -76,6 +77,7 @@ entries:
     last_reviewed: "2026-06-08"
     refs: |-
       src/wasi/path.zig (symlinkTargetEscapes DONE; resolve / pathHasParentEscape; the FOLLOW-time gap is pathOpen/statFile/readLink follow modes via std.Io.Dir); src/wasi/host.zig (PreopenEntry: host_handle + guest_path, no host root path)
+    front: B-hardening
   - id: "D-316"
     layer: "code"
     status: "note"
@@ -103,6 +105,7 @@ entries:
     last_reviewed: "2026-06-08"
     refs: |-
       src/zwasm/engine.zig (InitOpts); src/runtime/instance/instantiate.zig (instance/table alloc); src/runtime/runtime.zig (growMemory page cap)
+    front: B-hardening
   - id: "D-312"
     layer: "infra"
     status: "blocked-by"
@@ -123,6 +126,7 @@ entries:
     last_reviewed: "2026-06-08"
     refs: |-
       build.zig (static-lib step); docs/migration_v1_to_v2.md (C-API external link line); scripts/test_extlink.sh
+    front: B-hardening
   - id: "D-294"
     layer: "code"
     status: "partial"
@@ -159,6 +163,7 @@ entries:
       Fixed: 4fa16b29. src/engine/codegen/{arm64,x86_64}/{op_call,op_tail_call,ctx,emit}.zig +
       x86_64/op_control.zig (demux) + api/trap_surface.zig (jitTrapCode 13). Tests: runner_trap_test.zig,
       x86_64/emit_test_int.zig, arm64/emit_test_call.zig. Residual 1: jitCallIndirectResolve trampoline.
+    front: B-hardening
   - id: "D-292"
     layer: "code"
     status: "note"
@@ -199,6 +204,7 @@ entries:
     last_reviewed: "2026-06-06"
     refs: |-
       `.dev/decisions/0164_trap_crash_exception_diagnostics_ux.md`; `src/runtime/trap.zig` (Trap set); `src/cli/run.zig` (surfaceTrap + runWasmJit generic Trap); `src/cli/diag_print.zig`; `src/platform/stack_limit.zig`; `~/Documents/MyProducts/zwasm/src/cli.zig` (v1 per-kind msgs); D-291 (motivating case); D-165 (JIT trap-code infra)
+    front: B-hardening
   - id: "D-293"
     layer: "code"
     status: "partial"
@@ -297,6 +303,7 @@ entries:
       D-292 (parent program, ADR-0164) + D-165 (trap-code infra); src/api/trap_surface.zig (jitTrapCode);
       src/engine/codegen/{arm64,x86_64}/{op_table,op_convert,op_call,op_tail_call,ops/wasm_3_0/*}.zig +
       arm64/bounds_check.zig (the still-generic append sites)
+    front: B-hardening
   - id: "D-289"
     layer: "code"
     status: "note"
@@ -329,6 +336,7 @@ entries:
     last_reviewed: "2026-06-05"
     refs: |-
       `340eaf5e` (GPR fix); `test/edge_cases/p9/large_frame/`; `src/engine/codegen/arm64/gpr.zig` (frameAddrLarge/frameLdrGpr/frameStrGpr); `src/engine/codegen/arm64/emit.zig` (FP/v128 + param :397-455 + stack-args :466-531 remaining); D-244; D-291 (ed25519 runtime SIGSEGV)
+    front: B-hardening
   - id: "D-286"
     layer: "code"
     status: "note"
@@ -348,6 +356,7 @@ entries:
     last_reviewed: "2026-06-05"
     refs: |-
       `.dev/findings/d285_jit_bulk_memory_byteloop.md` §Results; `src/engine/codegen/arm64/op_memory.zig:483` (emitMemoryFill) `:763` (emitMemoryInit); `src/engine/codegen/x86_64/op_memory.zig`; D-285 (the copy fix, resolved)
+    front: B-hardening
   - id: "D-254"
     layer: "process"
     status: "blocked-by"
@@ -381,6 +390,7 @@ entries:
     last_reviewed: "2026-06-05"
     refs: |-
       `examples/rust_host/hello.rs`; `build.zig` (`run-rust-host` step + SDKROOT probe); `.dev/toolchain_provisioning.md`; ROADMAP §13.5 / §13.P; mirrors c_host §13.4 conformance
+    front: B-hardening
   - id: "D-026"
     layer: "code"
     status: "blocked-by"
@@ -390,6 +400,7 @@ entries:
     last_reviewed: "2026-06-15"
     refs: |-
       `src/api/instance.zig` cross-module func dispatch; `skip_embenchen_emcc_env_imports.md`; `skip_externref_segment.md`; D-082(a) (sibling embenchen-shim row); ADR-0065 (Cat III boundary clarification)
+    front: B-hardening
   - id: "D-010"
     layer: "code"
     status: "blocked-by"
@@ -399,6 +410,7 @@ entries:
     last_reviewed: "2026-06-05"
     refs: |-
       `src/runtime/runtime.zig`, ADR-0014 §6.K.2 sub-change 4
+    front: B-hardening
   - id: "D-020"
     layer: "infra"
     status: "blocked-by"
@@ -408,6 +420,7 @@ entries:
     last_reviewed: "2026-06-13"
     refs: |-
       `build.zig` run-repro step, ADR-0015
+    front: B-hardening
   - id: "D-021"
     layer: "code"
     status: "blocked-by"
@@ -417,6 +430,7 @@ entries:
     last_reviewed: "2026-06-05"
     refs: |-
       `src/diagnostic/diagnostic.zig`
+    front: B-hardening
   - id: "D-022"
     layer: "code"
     status: "note"
@@ -426,6 +440,7 @@ entries:
     last_reviewed: "2026-06-14"
     refs: |-
       `test/runners/wast_runtime_runner.zig:889`, `src/diagnostic/trace.zig` (Category.trap reserved), ADR-0028 §M3-a-2/M3-c, `.dev/decisions/skip_embenchen_emcc_env_imports.md`, `.dev/decisions/skip_externref_segment.md`
+    front: B-hardening
   - id: "D-028"
     layer: "infra"
     status: "blocked-by"
@@ -435,6 +450,7 @@ entries:
     last_reviewed: "2026-06-13"
     refs: |-
       `scripts/run_remote_windows.sh`, observed in commits `741a9b4` (chunk 9) + likely earlier 7.5d-era runs, `private/notes/p9-d028-flake-rate.md` (2026-05-22 W1 partial)
+    front: B-hardening
   - id: "D-074"
     layer: "infra"
     status: "blocked-by"
@@ -444,6 +460,7 @@ entries:
     last_reviewed: "2026-06-14"
     refs: |-
       ADR-0012 §1–§3 + Amendment log, ADR-0043 Revision history 2026-05-12 row, ADR-0065, ROADMAP §9.10 (`[~]` moved row) + Phase 11 row, `.dev/phase10_prep/track_a_9.10_scope.md`, `flake.nix` (the `versions.lock` integration target)
+    front: B-hardening
   - id: "D-210"
     layer: "code"
     status: "blocked-by"
@@ -462,6 +479,7 @@ entries:
     last_reviewed: "2026-06-04"
     refs: |-
       `src/engine/codegen/{arm64,x86_64}/op_tail_call.zig` (emitCrossModuleReturnCall) + `op_call.zig` (emitImportDispatch); ADR-0112 Amendment 2026-05-30; ADR-0066; ADR-0017; `.claude/rules/abi_callee_saved_pinning.md`; lesson `2026-05-30-cross-module-tail-call-cohort-asymmetry`; ROADMAP §10 / 10.TC
+    front: B-hardening
   - id: "D-209"
     layer: "code"
     status: "note"
@@ -489,6 +507,7 @@ entries:
     last_reviewed: "2026-06-07"
     refs: |-
       `src/validate/validator.zig` (skipMemargOffset); `src/ir/lower.zig` + `src/ir/lower_simd.zig` (readMemargOffset); `test/realworld/p10/clang_wasm64/`; ROADMAP §10 / 10.M
+    front: future-bucket
   - id: "D-211"
     layer: "code"
     status: "blocked-by"
@@ -498,6 +517,7 @@ entries:
     last_reviewed: "2026-06-05"
     refs: |-
       `src/engine/codegen/{arm64,x86_64}/ops/wasm_3_0/` (no GC emit file — cf. the EH/TC/func-ref files present); `src/zwasm/instance.zig:169` (interp invoke path); `scripts/check_phase10_close_invariants.sh` I16; `build.zig:69-71` (needs_gc_heap skip); lesson `2026-05-30-phase10-jit-coverage-partial-spec-corpus-interp`; ROADMAP §10 / 10.G
+    front: B-hardening
   - id: "D-202"
     layer: "code"
     status: "note"
@@ -507,6 +527,7 @@ entries:
     last_reviewed: "2026-06-14"
     refs: |-
       `src/zwasm/linker.zig:611` (residual same-typespace structural #1) + `:626` (PHASE C #2 wired); `src/parse/sections.zig:298` (`canonicalEqualCross`) + `:385` (`superReachesCross`); ADR-0127 (Closed at `add983e8`); D-198 (.30/.48/.50 positive cases)
+    front: B-hardening
   - id: "D-075"
     layer: "code"
     status: "blocked-by"
@@ -516,6 +537,7 @@ entries:
     last_reviewed: "2026-06-13"
     refs: |-
       ADR-0109 (Accepted 2026-05-25; impl-complete Revision row 2026-05-25), `docs/zig_api_design.md`, ROADMAP §10 / 10.J `[x]`, `src/zwasm/{engine,module,instance,typed_func,memory,linker,caller,host_func_marshal}.zig`, `test/api/zig_facade_runner.zig`, plan §4.2 audit
+    front: C-dogfooding
   - id: "D-082"
     layer: "code"
     status: "blocked-by"
@@ -525,6 +547,7 @@ entries:
     last_reviewed: "2026-06-15"
     refs: |-
       D-072 (closes (a/b)-path runner enforcement at chunk 9.9-h-23; this row inherits (c)-path), ADR-0029, ADR-0050 D-2, ADR-0012 §6, ADR-0065, `skip_embenchen_emcc_env_imports.md`, `skip_externref_segment.md`, ROADMAP Phase 10 + Phase 11 rows
+    front: B-hardening
   - id: "D-148"
     layer: "code"
     status: "blocked-by"
@@ -534,6 +557,7 @@ entries:
     last_reviewed: "2026-06-13"
     refs: |-
       Codeberg ziglang/zig#35343 (upstream report), `build.zig::test-spec-wasm-2.0-assert` (workaround site), `src/engine/codegen/shared/entry.zig::callLargesig`, `private/spikes/d148-zig-sysv-fp-args/` (minimal repro + CODEBERG-ISSUE-DRAFT.md), commits `0cba220b` / `15f55120` / `a8474d1a`
+    front: B-hardening
   - id: "D-197"
     layer: "code"
     status: "note"
@@ -543,6 +567,7 @@ entries:
     last_reviewed: "2026-06-14"
     refs: |-
       `src/validate/validator.zig:737` (the one generic setDiag); `test/spec/spec_assert_runner_wasm_3_0.zig:770/776` (clearDiag/lastDiagnostic wired); `src/diagnostic/diagnostic.zig` setDiag/lastDiagnostic; `.dev/lessons/2026-05-29-gc-corpus-block-is-validate-not-parse.md`
+    front: B-hardening
   - id: "D-320"
     layer: "bench"
     status: "note"
@@ -556,6 +581,7 @@ entries:
     last_reviewed: "2026-06-13"
     refs: |-
       ADR-0181 Consequences; D-314 (e); bench/ history
+    front: B-hardening
   - id: "D-322"
     layer: "feature/component"
     status: "note"
@@ -578,6 +604,7 @@ entries:
     last_reviewed: "2026-06-13"
     refs: |-
       types.zig decodeDefType 0x3f; validate.zig rule 12; nested_component_resource_refs
+    front: B-hardening
   - id: "D-323"
     layer: "wasi"
     status: "blocked-by"
@@ -593,6 +620,7 @@ entries:
     last_reviewed: "2026-06-13"
     refs: |-
       src/wasi/p2_sockets.zig (windows arm of the connect-refused test); D-319 probes
+    front: B-hardening
   - id: "D-318"
     layer: "test"
     status: "note"
@@ -615,6 +643,7 @@ entries:
     refs: |-
       `test/spec/spec_assert_runner_wasm_3_0.zig`; `zig build test-spec-wasm-3.0-assert -Dtarget=x86_64-macos`
       (ZWASM_SPEC_ENGINE=jit → SEGV; interp → green); `.dev/lessons/2026-05-17-d134-rosetta-2-signal-translation-limit.md`
+    front: B-hardening
   - id: "D-249"
     layer: "infra"
     status: "blocked-by"
@@ -634,6 +663,7 @@ entries:
     refs: |-
       ADR-0137; scripts/run_remote_windows.sh (no bench step); scripts/run_bench.sh (hyperfine);
       bench/results/history.yaml; ROADMAP §11.2 / §11.P
+    front: B-hardening
   - id: "D-253"
     layer: "code"
     status: "blocked-by"
@@ -672,6 +702,7 @@ entries:
       (wasm_ref_copy/same); src/api/instance.zig (Ref @189, wasm_ref_delete, Func.host);
       src/runtime/value.zig (fromFuncRef @103, refAsFuncEntity @109); src/runtime/runtime.zig
       (instance back-ptr @152); .dev/phase13_capi_gap.md
+    front: B-hardening
   - id: "D-259"
     layer: "code"
     status: "note"
@@ -688,6 +719,7 @@ entries:
     refs: |-
       src/engine/codegen/shared/regalloc.zig (spillBytes, class-blind slot space @127-137);
       regalloc_vreg_class.zig (vregClassOfOp); ADR-0150; ADR-0038/0040
+    front: B-hardening
   - id: "D-266"
     layer: "perf"
     status: "note"
@@ -709,6 +741,7 @@ entries:
     refs: |-
       bench/results/s15p_parity_vs_v1.md (D-265 post-rework verification table); ADR-0153 (rework campaign);
       private/spikes/s15p-parity/ (w45_addi/w45_addc); scripts/run_remote_ubuntu.sh; ~/Documents/MyProducts/zwasm
+    front: B-hardening
   - id: "D-268"
     layer: "perf"
     status: "note"
@@ -730,6 +763,7 @@ entries:
     refs: |-
       src/ir/analysis/local_homing.zig:60,87 (max_homed @min(6, arch)); ADR-0155 (register-homed locals);
       ADR-0153 (D-265 campaign); bench/results/s15p_parity_vs_v1.md; ROADMAP §16 (完成形 surface/perf bar)
+    front: B-hardening
   - id: "D-271"
     layer: "perf"
     status: "note"
@@ -745,6 +779,7 @@ entries:
     last_reviewed: "2026-06-05"
     refs: |-
       src/api/module_serialize.zig; include/wasm.h:422-423 (serialize/deserialize); ROADMAP §16.2 G; D-269
+    front: B-hardening
   - id: "D-281"
     layer: "code"
     status: "note"
@@ -769,6 +804,7 @@ entries:
     refs: |-
       src/wasi/fd.zig (sock_accept/recv/send/shutdown = notsock); src/api/wasi.zig (thunks); ADR-0161 §3;
       ROADMAP §11.1; D-278 (preview1 surface, now 46/46)
+    front: B-hardening
   - id: "D-282"
     layer: "infra"
     status: "note"
@@ -789,6 +825,7 @@ entries:
     refs: |-
       scripts/run_remote_windows.sh; CLAUDE.md (D-028 Defender note); ADR-0076 D7 (win64 gate);
       scripts/track_heisenbug.sh (win-configure-phase); /tmp/win.log
+    front: B-hardening
   - id: "D-283"
     layer: "test"
     status: "note"
@@ -840,6 +877,7 @@ entries:
       test/realworld/run_runner_jit.zig (run-stage disabled); test/realworld/diff_runner.zig (interp + opt-in
       --aot lane); build.zig (test-realworld-diff-aot); src/wasi/jit_dispatch.zig; src/cli/run.zig (runWasmJit /
       runCwasmWasi); D-244 (JIT-WASI) / D-251 (AOT-WASI), both done
+    front: B-hardening
   - id: "D-295"
     layer: "cli"
     status: "note"
@@ -881,6 +919,7 @@ entries:
       src/cli/main.zig (arg parse ~120-176, --dir@159, --env wiring target); src/cli/run.zig (runWasmJit@44 /
       runCwasmWasi@122 / runWasmCapturedWithPreopens — setArgs+addPreopen sites @56/62/149/152/253/260);
       src/wasi/host.zig (setEnvs@160, setArgs@143, EnvEntry@61); ADR-0159 (CLI scope lock); ADR-0016 (diag).
+    front: B-hardening
   - id: "D-296"
     layer: "api"
     status: "note"
@@ -916,6 +955,7 @@ entries:
     refs: |-
       src/zwasm/module.zig (imports/exports@~95+); src/zwasm.zig (ExternKind/ImportItem/ExportItem re-exports);
       ADR-0109 (line 378 carve-out); scripts/capi_surface_gap.sh; include/wasm.h; D-269 / D-177 / D-178 / D-271.
+    front: B-hardening
   - id: "D-297"
     layer: "api"
     status: "note"
@@ -950,6 +990,7 @@ entries:
     refs: |-
       src/zwasm/linker.zig (header lifetime contract; deinit@~176; ctx_storage@58; cmf.ctx_ptr wiring@548);
       src/api/instance.zig (zombie parking@206-269); ADR-0014 §2.1/6.K.2 (zombie list); D-199 / D-201b (aliasing).
+    front: B-hardening
   - id: D-300
     layer: code
     status: blocked-by
@@ -957,6 +998,7 @@ entries:
     first_raised: "2026-06-07"
     last_reviewed: "2026-06-07"
     refs: src/ir/zir_ops.zig:665-671; src/feature/stack_switching/README.md; .dev/proposal_watch.md (Phase 3); OSS/WebAssembly stack-switching proposal
+    front: future-bucket
   - id: D-305
     layer: code
     status: blocked-by
@@ -979,6 +1021,7 @@ entries:
     first_raised: "2026-06-07"
     last_reviewed: "2026-06-07"
     refs: src/api/component.zig (instantiateGraph); test/component/adder_graph.wasm; .dev/component_model_plan.md (Phase C/D)
+    front: future-bucket
   - id: "D-329"
     layer: "test"
     status: "blocked-by"
@@ -1001,6 +1044,7 @@ entries:
     refs: |-
       .dev/realworld_reproduction_plan.md (Phase A1); test/realworld/{runner,run_runner,diff_runner}.zig
       (WASI-entry assumption); test/realworld/src/zig (the landed WASI-stdout half); flake.nix devShells.gen
+    front: future-bucket
   - id: "D-330"
     layer: "code"
     status: "partial"
@@ -1167,6 +1211,7 @@ entries:
       `6790c204` (strict-expiry fix) + ADR-0037 Revision history; src/engine/codegen/shared/regalloc_compute.zig
       (expiry); test/realworld/wasm/c_sha256_hash.wasm (residual); test/realworld/diff_runner.zig (--jit lane);
       private/spikes/jit-vararg; lesson 2026-06-15-regalloc-boundary-coalesce-read-after-write
+    front: parked
   - id: "D-331"
     layer: "code"
     status: "partial"
@@ -1246,6 +1291,7 @@ entries:
       D-283 (parent); src/engine/codegen/arm64/emit.zig (emit-setup >32760 checks 427/430/484-541;
       body else-arm 2148; per-op errdefer 869); src/engine/codegen/shared/compile.zig (compileOne stages);
       D-289 (large_frame offset class); test/realworld/wasm/go_*.wasm
+    front: parked
   - id: "D-334"
     layer: "code"
     status: "note"
@@ -1287,6 +1333,7 @@ entries:
       `240f97de` (F1/F3/F5b shipped); src/validate/validator.zig (~736-742 reject sites; F5a);
       src/parse/{parser.zig,sections.zig} (F6); src/cli/run.zig:590-617 (F4 trap format);
       src/diagnostic/diagnostic.zig (Location.validate); private/notes/d-diag-audit-2026-06-15.md
+    front: A-diag-tail
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
@@ -1330,6 +1377,24 @@ conventions: |-
   - Refs link to the artefact — file path + line, ADR §, or skill /
     rule path. If a Refs link 404s, that is itself a debt finding
     (the `audit_scaffolding` skill checks for this).
+
+  ## Front grouping (ADR-0186)
+
+  Each row carries a `front:` tag mapping it to ROADMAP §9.0's completion-grade
+  model (the live work surface at the 完成形 plateau). `front` is informational
+  grouping (like `layer`); `status` still decides whether a row is acted on now.
+
+  - `A-diag-tail` — surface/diagnostic finishing (D-334; cap-bounded at
+    validator.zig's 3400-line cap = principled stop).
+  - `B-hardening` — steady-state hardening / natural-discharge: external-blocked
+    (upstream Zig / 3-host) + future-phase rows; `/continue` Step 0.5 re-walks
+    each barrier and discharges what dissolved. **Default** for open rows.
+  - `C-dogfooding` — driven by the cw-v1 `@import("zwasm")` consumer signal.
+  - `future-bucket` — genuinely-future, demand-driven, NO version gate
+    (§1.3/§3.3): proposal-gated (stack-switching/WASI 0.3, multi-component),
+    distal backends, >4 GiB memory64.
+  - `parked` — thrash-prone; do NOT auto-attempt (D-330 conflicting-constraint
+    hard-park, D-331 go infra-blocked).
 
   ## Promotion to ADR
 
