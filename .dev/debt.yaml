@@ -1420,9 +1420,13 @@ entries:
         read-via-stream host-as-writer; mints stream+future, registers readable as host source (host_sources:
         shared→stdin fd), writes tuple<stream,future> to retptr (flattens past MAX_FLAT_RESULTS=1); READ branch
         pulls via readStdinSlice → COMPLETED(n); e2e reads "ok" → COMPLETED(2). Both stream directions COMPLETE.
-        NEXT = E2: WAIT-path e2e (decode+wire waitable-set.new/waitable.join [types.zig defers 0x05..0x0d] + a
-        host event-delivery trigger → driveCallbackLoop WAIT branch; survey+ADR). Gaps: multi-byte/typed element
-        marshalling (E1/E3 did u8); return-future resolution. Then F/G. (D-444 = P3-host file split.)
+        E2a DONE (116287c1): canon waitable-set builtins 0x1f-0x23 decode (WaitableSetOp + Canon/CoreFuncDef
+        .waitable_set op-tagged; wait/poll carry cancellable+memory; mint+validate+P2-reject; decode test;
+        test-all green). OPCODE CORRECTION: waitable-set is 0x1f-0x23 (NOT 0x05-0x0d = subtask/task/thread).
+        Survey: zwasm STACKLESS → guest callback RETURNS WAIT(set), not the stackful waitable-set.wait builtin.
+        NEXT = E2b (waitable-set.new/join host trampolines on WaitableSetTable) → E2c (WAIT-path e2e: 2-phase
+        host source → guest blocks → WAIT(set) → driveCallbackLoop WAIT branch re-enters callback). Gaps:
+        multi-byte/typed marshalling (E1/E3 did u8); return-future resolution. Then F/G. (D-444 = P3-host split.)
       - E — WASI-P3 host interfaces (new component_wasi_p3.zig; sockets/http/clocks
         async; ~2000; MED; coexists with P2, does NOT replace it). Needs D.
       - F — async-export ABI + P3 component runner (canon.zig; ~400; MED). Needs E.
