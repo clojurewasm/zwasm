@@ -3,33 +3,25 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Active bundle — c_sha256 `\n` = GENERAL cross-call-live merge-temp regalloc bug (D-330)
+## Just closed — D-330 c_sha256 `\n` FIXED (`960a27b4`); bundle d330-crosscall-merge-temp CLOSED
 
-- **Bundle-ID**: d330-crosscall-merge-temp
-- **Cycles-remaining**: ~2-3 (liveness probe → fix → both-arch verify)
-- **Continuity-memo**: c_sha256 `--engine jit` drops the final `\n` (106 vs 107). ROOT (Round-3 lldb,
-  hard data; trace `private/notes/c_sha256_trace_2026-06-15.md`): NOT wpos, NOT a flush branch (both
-  DISPROVEN). Verify line `puts("verify: OK")` = fputs + `putc('\n')`; the `putc('\n')` is SKIPPED by a
-  mis-taken `i32.ne br_if`. The fputs select/if-result MERGE vreg lives in **X22**, LIVE ACROSS `call 10`;
-  X22 is not prologue-preserved (ADR-0060) nor D-291-spilled (op_call.zig:86 = HOMED locals only) →
-  clobbered to 0 → `(0!=10)` true → branch skips putc. `captureOrEmitBlockMergeMov`
-  (op_control_merge_mov.zig:199-206) emits no taken-edge move (assumes the reg survives). GENERAL: any
-  cross-call-live block/if-result merge temp in X20-22 / RBX-R14, not just this `\n`.
-- **NEXT (probe-before-fix — regalloc=high-risk)**: ADR-0060 force-spill (regalloc_compute.zig:284) ALREADY
-  spills cross-call vregs → dump func4's liveness range for the merge vreg vs `call 10` pc. Range NOT
-  crossing → fix liveness.zig (extend merge-vreg range to post-block consumer); crossing-but-kept-in-reg →
-  fix force-spill scan / merge capture. Correctness-first: RED edge fixture `(value)(call f)(if (result i32)
-  (cond)(then value)(else other))` where value crosses the call AND feeds the captured merge → before the fix.
-- **Exit-condition**: c_sha256 `--engine jit` = 107 bytes + edge fixture red→green + full test-net +
-  both-arch (Mac arm64 + Rosetta x86_64) green.
+The 5×-parked c_sha256 dropped-`\n` (106 vs 107) is **FIXED**. ROOT (Round-4 instrumented probe; the
+Round-3 cross-call/X22 framing was OVERTURNED): a `br`/`br_if` carrying a `block`-result merge vreg did
+NOT extend that vreg's liveness to the block `.end` (the `if`-frame path was wired D-093 d-11/d-12; plain
+block+br never was). The merge vreg died at the fall-through `drop` → regalloc freed its slot → the inlined
+strlen SWAR loop reused it → `.end` read garbage → strlen off-by-one → fputs wrote len-1 → `\n` dropped.
+FIX = liveness-only (arch-indep): capture br/br_if-carried result vregs into the target block/try_table
+frame's merge_vregs + fire the `.end` re-injection for block frames; `Frame.is_loop` excludes loop targets.
+**Verified**: deterministic liveness unit test RED(4)→GREEN(7); c_sha256 JIT byte-exact w/ interp (107B);
+**realworld diff-jit corpus 0 mismatched** (was 1 — dogfooding milestone); zig build test 2767/0, test-spec
+9/9, lint clean. **x86_64 confirm = ubuntu remote gate (kicked this turn; arch-indep fix, verify Step 0.7).**
+Lesson `2026-06-15-block-result-merge-vreg-liveness`; **D-333** = same-class br_table multi-target follow-up.
 
-## Just closed (detail in commits/debt)
+## Long-tail (detail in commits/debt)
 
-**D-330 c_sha256**: 3 lldb runtime-trace rounds (`1cecf8bb` + this commit) LOCALIZED the long-parked `\n`
-miscompile → the cross-call merge-temp bug above (was mis-pinned as wpos/flush 4× prior). **D-293 array_oob
-COMPLETE** (`855ca5ca`+`dafab5ce`, 25437/0 3-host). Scaffolding audit (this resume): **0 block, healthy**.
-Other long-tail: **go corruption** (non-deterministic, infra-blocked), **D-294-R2** (conformance-neutral CLI).
-**Hosts**: ubuntunote+windowsmini ASLEEP this resume (No route to host) — verify gate at next Step 0.7.
+**D-293 array_oob** COMPLETE (`855ca5ca`+`dafab5ce`, 25437/0 3-host). Scaffolding audit (this resume): **0
+block, healthy**. Remaining JIT-debt: **go corruption** D-331(A) (non-deterministic, infra-blocked),
+**D-289/D-331(B)** go_regex emit-side `vreg>=slots.len` (parked), **D-294-R2** (conformance-neutral CLI msg).
 
 ## ACTIVE AGENDA (user-directed 2026-06-14) — real-world toolchain/bench reproduction
 

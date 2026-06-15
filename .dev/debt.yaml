@@ -1001,142 +1001,6 @@ entries:
     refs: |-
       .dev/realworld_reproduction_plan.md (Phase A1); test/realworld/{runner,run_runner,diff_runner}.zig
       (WASI-entry assumption); test/realworld/src/zig (the landed WASI-stdout half); flake.nix devShells.gen
-  - id: "D-330"
-    layer: "code"
-    status: "partial"
-    description: |-
-      **PRIMARY MECHANISM FIXED 2026-06-15 `6790c204`** (ADR-0037 amendment): the JIT `%s`/strnlen
-      miscompile was the LSRA free-pool expiry coalescing a RESULT vreg into the slot of a same-pc
-      last-use OPERAND (`active.last_use_pc <= new.def_pc`) — their closed intervals overlap at that
-      pc; safe only if every op emit reads operands before writing result (unenforced; violated by a
-      byte-loop op in emscripten vfprintf's strnlen null check → empty `%s` + dropped `\n`). Fix =
-      strict `<` expiry. Arch-INDEPENDENT (arm64 == x86_64-Rosetta ⇒ shared codegen). repro2 correct;
-      **emcc_fasta byte-exact MATCH**; full test + test-spec green; +1 slot worst-case (vfprintf
-      12→13). Lesson `2026-06-15-regalloc-boundary-coalesce-read-after-write`; trail private/spikes/jit-vararg.
-      ---
-      **RESIDUAL (partial)**: `c_sha256_hash` improved 91B → 106B (the sha256 hash output is now
-      CORRECT) but still drops ONE trailing `\n` ("verify: OK\n" → "verify: OK", 107 vs 106 bytes)
-      under `--engine jit`. This is a SEPARATE bug that was MASKED by the coalescing corruption and
-      surfaced only after it was fixed — NOT the coalescing class (strict `<` removes ALL boundary
-      coalescing yet this persists). emcc_fasta is fully fixed; c_sha256 alone has the residual.
-      MECHANISM PINNED (2026-06-15, fdWrite trace): the final `printf("verify: OK\n")` flushes as TWO
-      ciovecs (musl line-buffered `__stdio_write`): iov[0]="verify: OK" len=10, iov[1]="\n" len=1.
-      Under JIT the guest passes **iov[1].buf_len = 0** (interp passes 1) → the `\n` write is empty.
-      So a length value (the unbuffered-tail byte count) is MISCOMPUTED to 0 under JIT — a SEPARATE
-      codegen miscompile from the coalescing one (strict `<` did NOT fix it; not boundary-coalescing).
-      Both engines share `wasi_fd.fdWrite` (fd.zig:75), so it's guest-side. DEEP-TRACED 2026-06-15
-      (subagent, ring-buffer probes correlating func-11 prologue `buf`/X30-LR + interp callIndirect
-      `(caller,buf,len)`): the `{0,0}` iovec is built by **func 11 `__stdio_write`** (correct — stores
-      what it's given), but the DIVERGENCE is its 3rd-entry CALLER. interp: caller=**func 8 `__overflow`**,
-      buf=&'\n' len=1 → `\n` written. jit: caller=**func 6** (exit fflush), buf=0 len=0 (empty wbase
-      flush) → `\n` dropped. ROOT: **func 8 `__overflow` is called 2× in interp but its write-path runs
-      of the write path... — **THIS func-8 ROOT WAS WRONG** (2nd subagent 2026-06-15, runtime ring-probes):
-      func 8 is invoked only 1× under JIT (2× interp); the func-8/caller framing was a red herring.
-      **CORRECTED ROOT = func 4 (`_start`), a BLOCK-RESULT MERGE at `end`@676** (NOT a store/branch/compare):
-      the final `printf("verify: OK\n")` inlines two `putchar('\n')` blocks; the 2nd (the final `\n`) is
-      gated by `pc678 i32.ne; pc679 br_if 1` with operands `i32.ne(lhs = block@676 result, rhs = local.get 0)`.
-      interp: `i32.ne(10,10)`→false→not taken→2nd putchar runs→`\n`. JIT: `i32.ne(0,10)`→**true**→taken→`\n`
-      SKIPPED (106 vs 107). The lhs is WRONG: block@676's single result should be `local.get 2` (=10, the
-      `call 10`/fwrite byte count, verified correct), but pc678's i32.ne reads **vreg 477 (homed X22 / slot 7)
-      holding 0** — a STALE/wrong vreg (NOT the local.get outputs 483/514/519; possibly left from the dropped
-      `i32.eq`@672 result vreg 522). So the operand-stack/vreg threading at `end`@676 MIS-BINDS the block
-      result (the block-result vreg X22/slot7 left holding 0 instead of MOV'd from the result operand).
-      Concrete: interp@pc678 `(wn=10,wm=10)` vs JIT `(wn=0,wm=10)`; CMP-EMIT `lhs_vreg=477, slot=.reg=7(X22)`.
-      Homed-local X9 preserved across `call 10` (pre=10/post=10) → NOT the D-291 spill/reload. SAME FAMILY as
-      lesson `jit-eh-landing-pad-emit-gotchas` (block/catch result vregs must be minted liveness+emit LOCKSTEP).
-      FIX SITE: `src/engine/codegen/arm64/emit.zig` `.end` handler (~1642) → `op_control.emitEndIntra` +
-      `src/engine/codegen/arm64/op_control_merge_mov.zig`. Two candidates (NEXT PROBE to disambiguate): (a)
-      regalloc slot-collision — block-result vreg + an unrelated vreg share X22/slot7 (run the allocation
-      overlap check on func 4); (b) emitEndIntra fails to MOV the result operand into the block-result vreg.
-      ARCH-INDEPENDENT (arm64 == x86_64-Rosetta) ⇒ shared (liveness/regalloc), MOV emit per-arch. CAUTION:
-      **FOUR investigations have now mis-localized this (func-11→func-8→func-4-block-merge→numbering-desync);
-      all DISPROVEN.** Empirical disproofs (own probes, all REVERTED): (1) func 4 regalloc is VALID — 0
-      same-slot overlaps, n_slots=15, ranges=567 → NOT a slot-collision. (2) liveness↔emit are in PERFECT
-      LOCKSTEP for func 4 — instrumented BOTH passes per-pc: identical 847 pcs, identical final vreg count
-      (561=561), ZERO per-pc divergence → NOT a vreg-numbering desync (so the subagent's "pc678 reads vreg 477"
-      was simply WRONG — 477 is def=696, unreachable at 678). **NOT the same class as D-331(B) go_regex**
-      (that one's emit DID exceed liveness ranges.len; func 4 does not — the prior "unification" was wrong,
-      built on the bad vreg-477 claim). So the c_sha256 `\n` is a GENUINE VALUE-MISCOMPILE in some op's
-      machine code (a value that should be 10 reads 0 at the branch that gates the final putchar) — NOT
-      regalloc, NOT vreg-numbering, NOT a known structural class. DISCHARGE now requires RUNTIME
-      instruction-level tracing (disassemble func 4's JIT bytes, single-step/log register values, find where
-      10→0) — source-level hypothesizing has failed 4×. **DEPRIORITIZED**: NICHE cosmetic (one trailing `\n`;
-      the sha256 + verify VALUES are correct; interp correct; 55/56 corpus byte-exact). Disproportionate
-      effort already spent; do NOT re-chase the 4 dead hypotheses.
-      ---
-      **TOOLING NOW EXISTS (2026-06-15 `db3109d8`)**: the instruction-level lens that all 4 prior
-      (IR-level) attempts lacked. `ZWASM_DEBUG=jit.dump zwasm run --engine jit <wasm>` prints each
-      func's body-relative machine bytes as a hex line (`[jit.dump] func=N len=L hex=...`). Disasm
-      arm64 via llvm-mc (NO objdump `-b` in llvm-21): `echo "$HEX" | sed -E 's/(..)/0x\1 /g' |
-      /nix/store/*llvm-21*/bin/llvm-mc --disassemble --triple=aarch64`. Done for func 4 (10580 B =
-      2645 insns). The earlier disasm-region speculation (mem[2056] lbf load; "full buffering") was
-      UNCONFIRMED guessing — superseded by the hard iovec data below.
-      ---
-      **MECHANISM CONFIRMED 2026-06-15 (`<this-commit>`, via `scripts/jit_value_trace.sh` + lldb)**:
-      c_sha256 is **LINE-buffered** (one WASI `fd_write` per printf line, 3 total — NOT full-buffered).
-      Read both ciovecs at each `fd_write` (break `jit_dispatch.zig:78`; `memory read --format x --size 4
-      --count 4 \`mem.ptr + iovs_ptr\``; musl `__stdout_write` passes `iov[0]={wbase, wpos-wbase}` +
-      `iov[1]={new buf, len}`):
-        - write 1 "input: …\n": iov[0] len=22, iov[1] len=1 → `\n` present. **CORRECT.**
-        - write 3 "verify: OK\n": iov[0] len=**10** ("verify: OK"), iov[1]=**{0,0}**. The `\n` is in
-          NEITHER iovec → the buffered length `wpos-wbase` is 10, should be 11. The final `putc('\n')`
-          for the LAST line did NOT advance `wpos` (or stored a short count). So `\n` is dropped at
-          BUFFER-CONSTRUCTION, not at the write. A length value miscomputed to 10-not-11 — same
-          "value should be N reads N-1/0" family as the (now-discharged) D-330 coalescing primary.
-      **NEXT (well-defined)**: trace the putc/`__fwritex` that appends the verify line's `\n` to stdout's
-      buffer (the `wpos` store) — find why `wpos` ends at +10 not +11. Reproduce the iovec read above to
-      re-confirm, then `jit_value_trace.sh disasm`/`trace` the buffering func at its `wpos`-store,
-      interp-vs-jit. STILL DEPRIORITIZED (niche cosmetic; values+interp correct; 55/56 byte-exact).
-      ---
-      **CORRECTION 2026-06-15 (`<this-commit>`, runtime lldb + linear-mem reads; trace
-      private/notes/c_sha256_trace_2026-06-15.md)**: the "wpos ends +10 not +11 / buffer-construction
-      miscompute" mechanism above is ~~DISPROVEN~~ by hard data — at the verify-line flush BOTH engines
-      read `wpos`=2290 `wbase`=2280 (FILE struct: wpos@byte1996, wbase@byte2004), buffered len 10 in
-      both. `wpos` is NOT miscomputed. The guest uses `puts()` = fputs(str)+putc('\n'); 3 line-buffered
-      writes. The REAL divergence is the UNBUFFERED-TAIL iovec into `__stdio_write` (func 11): interp
-      emits an EXTRA per-line immediate flush `__stdio_write(buf=&'\n', len=1)` for the verify line; JIT
-      does NOT (its only func-11 call is the correct exit `{0,0}` flush via func4 _start atexit). So the
-      verify line's `putc('\n')` did NOT trigger its OWN line-buffered immediate-flush under JIT, while
-      writes 1&2 (longer lines) DID → a **CONTROL-FLOW / `br_if` miscompile in the line-buffered putc
-      flush-trigger** (`char=='\n' → flush now`, or the `wpos==wend` full-buffer branch), mis-taken for
-      the LAST line only (data-dependent). This is the SHAPE of disproven-hyp#3 (a branch gating a flush)
-      but at the putc `\n`-flush site (func 8 `__overflow` 0x1007cc084 / func 10 `__fwritex` 0x1007cd268),
-      NOT func-4 block-merge. **RAISES PRIORITY**: a mis-taken br_if is a potential GENERAL codegen bug,
-      not just this cosmetic `\n`. **NEW NEXT PROBE**: single-step the verify-line putc flush-decision
-      compare+br_if jit-vs-interp (branch-condition register values, not wpos); find why data-dependent
-      (last line only — register clobber by prior longer-line iter? wrong compare operand? flag reuse?);
-      map mis-taken branch → IR br_if pc + emit site (op_control.zig br_if / op_int compare; arch-indep).
-      ---
-      **ROUND-3 ROOT CONFIRMED 2026-06-15 (`<this-commit>`, lldb single-step func4; trace notes Round 3)**:
-      the Round-2 "line-buffer flush-trigger branch" framing is REFINED — it IS a branch miscompile, but
-      NOT a flush decision. Bug reproduces under FULL buffering too (`> file`: drops `\n`), so no
-      line-buffer/memrchr path is involved. Verify line = `puts("verify: OK")` (bare rodata string, no
-      `\n`) = fputs + `putc('\n')`; the `putc('\n')` is **SKIPPED ENTIRELY** by an earlier branch.
-      MECHANISM (hard disasm + register reads, func4 @0x1007c905c): fputs lowers as `call 10`(__fwritex)
-      → `(if (result i32) (ret==len) (then len)(else ret))` SELECT → `i32.ne(result!=len)` → `br_if @1`
-      that skips putc when true. The SELECT's block-result merge vreg is allocated to **X22**; on the
-      taken (`then len`) edge `captureOrEmitBlockMergeMov` (op_control_merge_mov.zig:199-206) emits NO
-      move (assumes the merge value already lives in X22). BUT that value is **LIVE ACROSS `call 10`**, and
-      X22 (allocatable_callee_saved_gprs, abi.zig:154) is NOT preserved by the JIT prologue (ADR-0060) nor
-      spilled by D-291 homedCallerSavedSpillReload (op_call.zig:86 covers HOMED LOCALS only, not merge
-      temporaries). func10 clobbers X22 → reads **0** at the ne-branch (w0/w9/w11 all correctly 0xa) →
-      `(0 != 10)` true → br_if taken → putc skipped → `\n` dropped. **GENERAL bug**: any cross-call-live
-      block/if-result merge temporary in the X20-X22 / RBX-R14 bank, not just this `\n`.
-      **OPEN FIX-SITE QUESTION (next probe)**: ADR-0060 force-spill (regalloc_compute.zig:284) ALREADY
-      force-spills vregs whose liveness range crosses a call — so WHY did this merge vreg stay in X22?
-      Dump func4's liveness range for the merge vreg vs `call 10` pc: if its range is recorded as NOT
-      crossing (def_pc after / last_use_pc before the call) → fix in liveness.zig (extend merge-vreg range
-      to the post-block consumer); if it DOES cross but stayed in a reg → fix in the force-spill scan / the
-      merge capture (reload spilled source instead of assuming the reg survives). Pick the layer from the
-      dump BEFORE writing the fix (regalloc = high-risk). Correctness-first: add an edge-case fixture
-      `(value)(call f)(if (result i32)(cond)(then value)(else other))` where value crosses the call AND
-      feeds the captured block-merge → RED now, green after. ARCH-INDEP (x86_64 abi.zig:137 same bank).
-    first_raised: "2026-06-15"
-    last_reviewed: "2026-06-15"
-    refs: |-
-      `6790c204` (strict-expiry fix) + ADR-0037 Revision history; src/engine/codegen/shared/regalloc_compute.zig
-      (expiry); test/realworld/wasm/c_sha256_hash.wasm (residual); test/realworld/diff_runner.zig (--jit lane);
-      private/spikes/jit-vararg; lesson 2026-06-15-regalloc-boundary-coalesce-read-after-write
   - id: "D-331"
     layer: "code"
     status: "partial"
@@ -1216,6 +1080,28 @@ entries:
       D-283 (parent); src/engine/codegen/arm64/emit.zig (emit-setup >32760 checks 427/430/484-541;
       body else-arm 2148; per-op errdefer 869); src/engine/codegen/shared/compile.zig (compileOne stages);
       D-289 (large_frame offset class); test/realworld/wasm/go_*.wasm
+  - id: "D-333"
+    layer: "code"
+    status: "note"
+    description: |-
+      note (same class as the fixed D-330 block-result merge bug; `br_table` half not
+      yet wired): the D-330 fix (`960a27b4`) extends `br`/`br_if`-carried block-result
+      merge vregs to the target block's `.end` in liveness.zig (so regalloc doesn't free
+      + reuse the merge slot mid-block). `br_table` was DEFERRED: its `instr.payload` is a
+      label COUNT (the targets live in `branch_targets`, not a single depth), so the same
+      capture needs the multi-target decode. A `br_table` whose target is a `block`/
+      `try_table` with result_arity>0 AND whose carried merge value is later clobbered by an
+      intra-block temp could hit the identical corruption. NO known repro (br_table to a
+      block-with-results where the merge value is dropped on a sibling edge is rare; the
+      spec corpus + realworld corpus are green). DISCHARGE: decode the br_table target list
+      (each target frame) and apply the same `captureBlockMergeVregs`-equivalent per
+      block/try_table target, then add a br_table edge fixture. LOW priority (theoretical).
+    first_raised: "2026-06-15"
+    last_reviewed: "2026-06-15"
+    refs: |-
+      `960a27b4` (D-330 fix, the br/br_if half); src/ir/analysis/liveness.zig (.br_table handler
+      ~458 — the deferred site; .br/.br_if capture + .end re-injection = the wired pattern to mirror);
+      src/ir/lower.zig:1073 (br_table payload = label count); lesson 2026-06-15-block-result-merge-vreg-liveness
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
