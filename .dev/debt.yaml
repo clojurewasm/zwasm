@@ -1131,6 +1131,18 @@ entries:
       dump BEFORE writing the fix (regalloc = high-risk). Correctness-first: add an edge-case fixture
       `(value)(call f)(if (result i32)(cond)(then value)(else other))` where value crosses the call AND
       feeds the captured block-merge → RED now, green after. ARCH-INDEP (x86_64 abi.zig:137 same bank).
+      ---
+      **ROUND-4 — Round-3 cross-call/X22 framing OVERTURNED (instrumented regalloc probe, hard data)**:
+      the merge vreg does NOT span a call. REAL ROOT: a `br`/`br_if` carrying a `block`-result merge vreg
+      is not extended to the block `.end` in liveness.zig (the `if`-frame path is wired D-093 d-11/d-12;
+      plain block+br never was) → regalloc frees+reuses the merge slot mid-block (c_sha256 inlined-strlen
+      loop vreg) → strlen off-by-one → `\n` dropped. A naive liveness-only fix (capture br/br_if into
+      merge_vregs + `.end` re-inject + Frame.is_loop) FIXED c_sha256 + passed arm64 test/test-spec/diff-jit
+      but FAILED `test-spec-wasm-2.0-assert` (labels switch ×3, multi-br/br_table inconsistent with the
+      emit's captureOrEmitBlockMergeMov) → REVERTED (`a71906fa`+`547d5ce1`; orig `960a27b4`+`c9dad2d4`).
+      Now tracked as handover Active bundle **d330-blockmerge-liveness** (proper fix = mirror emit EXACTLY
+      + handle br_table + GATE on test-spec-wasm-2.0-assert NOT test-spec). Trail: trace notes Round 4 +
+      lesson `spill-stage-reg-clobber-and-spec-gate-gap` (the 2.0-assert ≠ test-spec gate gap).
     first_raised: "2026-06-15"
     last_reviewed: "2026-06-15"
     refs: |-

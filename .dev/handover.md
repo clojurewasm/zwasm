@@ -3,33 +3,40 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Active bundle — c_sha256 `\n` = GENERAL cross-call-live merge-temp regalloc bug (D-330)
+## Active bundle — c_sha256 `\n` = block-result merge-vreg liveness not extended to block end (D-330)
 
-- **Bundle-ID**: d330-crosscall-merge-temp
-- **Cycles-remaining**: ~2-3 (liveness probe → fix → both-arch verify)
-- **Continuity-memo**: c_sha256 `--engine jit` drops the final `\n` (106 vs 107). ROOT (Round-3 lldb,
-  hard data; trace `private/notes/c_sha256_trace_2026-06-15.md`): NOT wpos, NOT a flush branch (both
-  DISPROVEN). Verify line `puts("verify: OK")` = fputs + `putc('\n')`; the `putc('\n')` is SKIPPED by a
-  mis-taken `i32.ne br_if`. The fputs select/if-result MERGE vreg lives in **X22**, LIVE ACROSS `call 10`;
-  X22 is not prologue-preserved (ADR-0060) nor D-291-spilled (op_call.zig:86 = HOMED locals only) →
-  clobbered to 0 → `(0!=10)` true → branch skips putc. `captureOrEmitBlockMergeMov`
-  (op_control_merge_mov.zig:199-206) emits no taken-edge move (assumes the reg survives). GENERAL: any
-  cross-call-live block/if-result merge temp in X20-22 / RBX-R14, not just this `\n`.
-- **NEXT (probe-before-fix — regalloc=high-risk)**: ADR-0060 force-spill (regalloc_compute.zig:284) ALREADY
-  spills cross-call vregs → dump func4's liveness range for the merge vreg vs `call 10` pc. Range NOT
-  crossing → fix liveness.zig (extend merge-vreg range to post-block consumer); crossing-but-kept-in-reg →
-  fix force-spill scan / merge capture. Correctness-first: RED edge fixture `(value)(call f)(if (result i32)
-  (cond)(then value)(else other))` where value crosses the call AND feeds the captured merge → before the fix.
-- **Exit-condition**: c_sha256 `--engine jit` = 107 bytes + edge fixture red→green + full test-net +
-  both-arch (Mac arm64 + Rosetta x86_64) green.
+- **Bundle-ID**: d330-blockmerge-liveness
+- **Cycles-remaining**: ~2-3 (proper emit-aligned fix + 2.0-assert gate)
+- **Continuity-memo**: ROOT (Round-4, instrumented regalloc probe — HARD DATA; trace
+  `private/notes/c_sha256_trace_2026-06-15.md` Round 4): c_sha256 JIT drops the final `\n` (106 vs 107).
+  A `br`/`br_if` carrying a `block`-result merge
+  vreg is NOT extended to the block `.end` in liveness.zig (the `if`-frame path is wired D-093 d-11/d-12;
+  plain block+br never was). In c_sha256's inlined strlen the merge vreg(477) died at the fall-through `drop`
+  → regalloc freed its slot → the strlen SWAR loop's vreg(485) reused it → `.end` read garbage → strlen
+  off-by-one → fputs wrote len-1. (Rounds 1-3 — wpos / flush-branch / cross-call-X22 — ALL DISPROVEN.)
+- **ATTEMPTED FIX — REVERTED `a71906fa`+`547d5ce1`** (orig `960a27b4`+`c9dad2d4`): liveness-only — capture
+  br/br_if-carried result vregs into the target block/try_table `merge_vregs` + fire `.end` re-injection for
+  block frames + `Frame.is_loop`. PASSED arm64 `test` 2767/0 + `test-spec` 9/9 + c_sha256 byte-exact +
+  diff-jit corpus 0-mismatch — **but FAILED `test-spec-wasm-2.0-assert`: `labels` switch ×3 (got 25 exp 50)**,
+  both arches. The naive capture is INCONSISTENT with the emit's `captureOrEmitBlockMergeMov` for multi-br /
+  `br_table` / nested block-result merges (`br $exit (v)` / `br $ret (v)`); it only matched c_sha256's narrow
+  single-br-with-drop shape.
+- **NEXT (proper fix)**: mirror `op_control_merge_mov.captureOrEmitBlockMergeMov` EXACTLY — same capture
+  conditions (frame kinds .block/.if_then/.else_open; first-br capture vs subsequent-br MOV) + handle
+  `br_table` (payload=label COUNT → decode `branch_targets`, per target) + `.end` re-injection must match the
+  emit's post-block canonical vreg. **GATE (mandatory, the gap that bit this): `zig build test-spec-wasm-2.0-assert`
+  (≠ `test-spec`!) + Rosetta x86_64 BEFORE push** (lesson `spill-stage-reg-clobber-and-spec-gate-gap`).
+  Correctness-first: the white-box liveness unit test (last_use 4→7) is necessary but NOT sufficient — add a
+  `labels`-shaped multi-br/br_table characterization test that is RED on the naive fix.
+- **Exit-condition**: c_sha256 JIT = 107B byte-exact + `test-spec-wasm-2.0-assert` 25437/0 (Mac arm64 +
+  Rosetta x86_64) + diff-jit corpus 0-mismatch + full `zig build test`.
 
-## Just closed (detail in commits/debt)
+## State note (post-revert)
 
-**D-330 c_sha256**: 3 lldb runtime-trace rounds (`1cecf8bb` + this commit) LOCALIZED the long-parked `\n`
-miscompile → the cross-call merge-temp bug above (was mis-pinned as wpos/flush 4× prior). **D-293 array_oob
-COMPLETE** (`855ca5ca`+`dafab5ce`, 25437/0 3-host). Scaffolding audit (this resume): **0 block, healthy**.
-Other long-tail: **go corruption** (non-deterministic, infra-blocked), **D-294-R2** (conformance-neutral CLI).
-**Hosts**: ubuntunote+windowsmini ASLEEP this resume (No route to host) — verify gate at next Step 0.7.
+c_sha256 `\n` drop is BACK (fix reverted; branch GREEN again: test 2766/0, test-spec-wasm-2.0-assert 25437/0).
+**D-293 array_oob** COMPLETE (`855ca5ca`+`dafab5ce`). Scaffolding audit (this session): **0 block, healthy**.
+Long-tail: **go corruption** D-331(A) (infra-blocked), **D-289/D-331(B)** go_regex emit-side (parked),
+**D-294-R2** (conformance-neutral CLI). br_table block-result merge-vreg gap folds into this bundle's fix.
 
 ## ACTIVE AGENDA (user-directed 2026-06-14) — real-world toolchain/bench reproduction
 
