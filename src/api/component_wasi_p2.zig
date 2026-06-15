@@ -121,6 +121,12 @@ pub const WasiP2Ctx = struct {
     /// "source not ready yet"); default off = E3's deliver-immediately.
     pending_reads: std.AutoHashMapUnmanaged(u32, PendingRead) = .empty,
     defer_host_source_reads: bool = false,
+    /// WASI 0.3 (ADR-0190): the readable end of a `future<result<_,error-code>>`
+    /// that `write-via-stream`/`read-via-stream` returned. A host stream peer
+    /// always succeeds, so the result future is "ok and ready" — a guest
+    /// `future.read` on it COMPLETES with the `ok` discriminant (0) without a
+    /// rendezvous.
+    host_result_futures: std.AutoHashMapUnmanaged(u32, void) = .empty,
 
     /// Resource-type ids for the P2 resources the host models (`pub` for the
     /// in-tree tests that mint handles directly).
@@ -185,6 +191,7 @@ pub const WasiP2Ctx = struct {
         self.host_sinks.deinit(self.alloc);
         self.host_sources.deinit(self.alloc);
         self.pending_reads.deinit(self.alloc);
+        self.host_result_futures.deinit(self.alloc);
         self.streams.deinit();
         self.shared.deinit();
         self.sets.deinit();
@@ -1687,6 +1694,7 @@ fn p2WriteViaStream(caller: *Caller, stream_handle: u32, fd: wasi_p1.Fd) WasiP2E
     const end = try ctx.streams.get(stream_handle);
     try ctx.host_sinks.put(ctx.alloc, end.shared, fd);
     const fut = try async_mod.newFuturePair(&ctx.streams, &ctx.shared, null);
+    try ctx.host_result_futures.put(ctx.alloc, fut.readable, {}); // host always succeeds → ok future
     return fut.readable;
 }
 
@@ -1710,6 +1718,7 @@ fn p2StdinReadViaStream(caller: *Caller, retptr: u32) WasiP2Error!void {
     const pair = try async_mod.newStreamPair(&ctx.streams, &ctx.shared, null);
     try ctx.host_sources.put(ctx.alloc, (try ctx.streams.get(pair.readable)).shared, 0); // fd 0 = stdin
     const fut = try async_mod.newFuturePair(&ctx.streams, &ctx.shared, null);
+    try ctx.host_result_futures.put(ctx.alloc, fut.readable, {}); // host always succeeds → ok future
     const mem = try ctx.memory();
     try mem.write(retptr, pair.readable);
     try mem.write(retptr + 4, fut.readable);
@@ -1738,6 +1747,16 @@ fn p2WaitableJoin(caller: *Caller, set_handle: u32, waitable: u32) WasiP2Error!v
 fn p2StreamFutureCopy(caller: *Caller, handle: u32, ptr: u32, count: u32) WasiP2Error!u32 {
     const abc = caller.data(AsyncBuiltinCtx);
     const end = try abc.ctx.streams.get(handle);
+    // Host result future (ADR-0190): the `future<result<_,error-code>>` returned
+    // by write/read-via-stream. A host stream peer always succeeds → a guest
+    // `future.read` COMPLETES with the `ok` discriminant (0, 1 byte) — no
+    // rendezvous, no general typed marshalling.
+    if (abc.ctx.host_result_futures.contains(handle)) {
+        const mem = try abc.ctx.memory();
+        const buf = mem.sliceAt(ptr, 1) catch return WasiP2Error.OutOfBounds;
+        buf[0] = 0; // result<_, error-code> ok
+        return (async_mod.ReturnCode{ .completed = 1 }).encode();
+    }
     // Host stream peer (Unit E, ADR-0190): the host is the always-ready reader,
     // so a guest write COMPLETES immediately — marshal the `count` u8s from guest
     // memory at `ptr` to the sink fd (the deferred ζ2 COMPLETION + marshalling).

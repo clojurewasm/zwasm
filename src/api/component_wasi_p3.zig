@@ -372,3 +372,27 @@ test "D-335 unit E2c: the WAIT path — a parked read → WAIT(set) → host del
     built.ctx.defer_host_source_reads = true;
     try driveAsyncMain(&built);
 }
+
+test "D-335 unit E: write-via-stream's result future resolves to ok (future.read)" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/async_future_result.wasm", testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(testing.allocator);
+    host.stdout_buffer = &capture;
+
+    // Guest writes "hi" then future.reads the returned result future; it traps
+    // unless the read reports COMPLETED(1) + ok (0) — a clean run proves the
+    // host result future resolves.
+    var built = try wasi_p2.buildWasiP2Component(&eng, testing.allocator, bytes, &host, .{});
+    defer built.deinit();
+    try driveAsyncMain(&built);
+    try testing.expectEqualStrings("hi", capture.items);
+}
