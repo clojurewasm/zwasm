@@ -111,7 +111,9 @@ pub const EventTuple = struct {
 ///     waitable set delivers an event (the WAIT seam).
 /// YIELD re-enters with `EventCode.none` (no scheduler yet — the guest must make
 /// its own progress); EXIT ends the loop (the task has called `task.return`).
-pub fn driveCallbackLoop(ctx: anytype, initial: u32) Error!void {
+/// The error set is inferred so a Zone-3 ctx can surface its own engine errors
+/// (`Instance.invoke` traps, an empty-poll deadlock) through the loop.
+pub fn driveCallbackLoop(ctx: anytype, initial: u32) !void {
     var result = try unpackCallbackResult(initial);
     while (result.code != .exit) {
         const ev: EventTuple = switch (result.code) {

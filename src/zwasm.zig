@@ -408,6 +408,7 @@ test {
     _ = @import("feature/component/value.zig");
     _ = @import("api/component.zig");
     _ = @import("api/component_tests.zig");
+    _ = @import("api/component_wasi_p3.zig");
     _ = @import("api/component_typed.zig");
 }
 

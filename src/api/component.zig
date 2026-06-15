@@ -550,6 +550,12 @@ pub const BuiltComponent = cwasi.BuiltComponent;
 pub const buildWasiP2Component = cwasi.buildWasiP2Component;
 const WasiP2Ctx = cwasi.WasiP2Ctx;
 
+/// WASI Preview 3 / CM-async runner (D-335 unit D-ηB, ADR-0188) — sibling of
+/// the P2 runner; drives an async-lifted export through the stackless callback
+/// loop. Re-exported so `cli/run.zig` + the in-tree tests reach it.
+const cwasi3 = @import("component_wasi_p3.zig");
+pub const runWasiP3Main = cwasi3.runWasiP3Main;
+
 // ============================================================
 // REQ-1 (cw CM-API) — unified open + handle
 // ============================================================
