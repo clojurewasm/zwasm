@@ -411,6 +411,9 @@ pub fn frontendValidate(alloc: std.mem.Allocator, binary: []const u8) bool {
             types_owned.array_defs,
             types_owned.supertypes,
             elem_types_validate,
+            // ADR-0126: full Types so subtypeCtx uses iso-recursive canonical
+            // equality on concrete→concrete (cross-rec-group identity).
+            &types_owned,
         ) catch {
             // ADR-0016 M3 — the validator set the op/offset diagnostic in
             // its dispatch loop; attach the defined-function index here.

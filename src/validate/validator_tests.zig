@@ -688,6 +688,7 @@ fn validateMixedMem(sig: FuncType, body: []const u8) validator.Error!void {
         &.{}, // array_defs
         &.{}, // supertypes
         &.{}, // elem_types
+        null, // canonical_types
     );
 }
 
@@ -833,6 +834,7 @@ test "validate: ref.func yields typed (ref N) satisfying a typed-ref param (ADR-
         &.{}, // array_defs
         &.{}, // supertypes
         &.{}, // elem_types
+        null, // canonical_types
     );
 }
 
@@ -868,6 +870,7 @@ test "validate: typed (ref N) from ref.func is a subtype of funcref (global.set)
         &.{}, // array_defs
         &.{}, // supertypes
         &.{}, // elem_types
+        null, // canonical_types
     );
 }
 
@@ -904,6 +907,7 @@ test "validate: ref.as_non_null in unreachable code stays polymorphic (satisfies
         &.{}, // array_defs
         &.{}, // supertypes
         &.{}, // elem_types
+        null, // canonical_types
     );
 }
 
@@ -942,6 +946,7 @@ test "validate: br_on_non_null to a concrete (ref N) label in unreachable code" 
         &.{}, // array_defs
         &.{}, // supertypes
         &.{}, // elem_types
+        null, // canonical_types
     );
 }
 
@@ -975,6 +980,7 @@ test "validate: typed (ref N) from ref.func is NOT a subtype of externref" {
         &.{}, // array_defs
         &.{}, // supertypes
         &.{}, // elem_types
+        null, // canonical_types
     );
     try testing.expectError(Error.StackTypeMismatch, r);
 }

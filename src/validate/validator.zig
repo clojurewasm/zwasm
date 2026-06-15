@@ -1,4 +1,4 @@
-// FILE-SIZE-EXEMPT: Wasm spec §3.3 validation single-pass walker (type-stack + control-stack); P1 spec-defined sub-language, intrinsically singular (splitting the stack-walking opcode handlers would create artificial seams across an unsplittable algorithm). D-204: the pure file-scope GC valtype-subtype helpers (valTypeIsSubtypeFree / gcHeapAbstractSubtype / castTargetType / gcConcreteReaches{,Canonical} / gcValTypeSubtype / gcFieldSubtype) were extracted to `gc_subtype.zig` (they touch no Validator state); the remaining module-level helpers (constExprResultType / validateGlobalInits / funcTypeImportCompatible / validateTypeSection) are pub + externally-called → extract separately if the cap presses again. (per ADR-0099) (cap=3400) (3300→3400 for D-324 per-memory idx_type plumbing — Wasm 3.0 memory64 × multi-memory spec-conformance feature add, same ADR-0099-amend class as the instance.zig raise)
+// FILE-SIZE-EXEMPT: Wasm spec §3.3 validation single-pass walker (type-stack + control-stack); P1 spec-defined sub-language, intrinsically singular (splitting the stack-walking opcode handlers would create artificial seams across an unsplittable algorithm). D-204: the pure file-scope GC valtype-subtype helpers (valTypeIsSubtypeFree / gcHeapAbstractSubtype / castTargetType / gcConcreteReaches{,Canonical} / gcValTypeSubtype / gcFieldSubtype) were extracted to `gc_subtype.zig` (they touch no Validator state); the remaining module-level helpers (constExprResultType / validateGlobalInits / funcTypeImportCompatible / validateTypeSection) are pub + externally-called → extract separately if the cap presses again. (per ADR-0099) (cap=3450) (3300→3400 for D-324 per-memory idx_type plumbing; 3400→3450 for ADR-0126 iso-recursive canonical-equality threading into the per-function subtype path — both Wasm 3.0 GC/memory64 spec-conformance feature adds, same ADR-0099-amend class as the instance.zig raise)
 //! Wasm function-body **type-stack + control-stack validator**
 //! (Phase 1 / §9.1 / 1.5).
 //!
@@ -374,6 +374,8 @@ pub fn validateFunctionWithMemIdxAndTags(
     /// (segment <: array element) + table.init (segment == table elem).
     /// Empty (`&.{}`) → legacy callers skip the segment-reftype check.
     elem_types: []const ValType,
+    /// ADR-0126: full Types → subtypeCtx canonical equality; null → raw reach.
+    canonical_types: ?*const sections.Types,
 ) Error!void {
     var v = Validator{
         .sig = sig,
@@ -387,6 +389,7 @@ pub fn validateFunctionWithMemIdxAndTags(
         .struct_defs = struct_defs,
         .array_defs = array_defs,
         .supertypes = supertypes,
+        .canonical_types = canonical_types,
         .data_count = data_count,
         .tables = tables,
         .elem_count = elem_count,
@@ -526,9 +529,12 @@ pub fn validateFunctionAndCollectSelectTypesWithMemory(
     // (br_on_null / br_on_non_null / ref_as_non_null modules). The interp
     // path threads it via instantiate.zig:128-143.
     func_type_indices: []const u32,
+    // ADR-0126: full Types → subtypeCtx canonical equality; null → raw reach.
+    canonical_types: ?*const sections.Types,
 ) Error!void {
     var v = Validator{
         .supertypes = supertypes,
+        .canonical_types = canonical_types,
         .func_type_indices = func_type_indices,
         .sig = sig,
         .locals = locals,
@@ -677,6 +683,12 @@ pub const Validator = struct {
     /// `$super` (`gcConcreteReaches`). Empty (default) → concrete refs
     /// match only by identity, preserving pre-GC callers' behaviour.
     supertypes: []const []const u32 = &.{},
+
+    /// ADR-0126 — full type section (when threaded) so `subtypeCtx`'s
+    /// concrete→concrete rule uses iso-recursive CANONICAL equality
+    /// (cross-rec-group identity) not raw-index reach. Null → fall back
+    /// to `supertypes`.
+    canonical_types: ?*const sections.Types = null,
 
     operand_buf: [max_operand_stack]TypeOrBot = undefined,
     operand_len: usize = 0,
@@ -836,7 +848,12 @@ pub const Validator = struct {
                 // iff `$a`'s declared supertype chain reaches `$b`. Drives
                 // call-arg / return / local.set coercion of narrowed GC
                 // refs (gc/type-subtyping.6/7 fail at `call` without this).
-                .concrete => |e_idx| gc_subtype.gcConcreteReaches(idx, e_idx, self.supertypes),
+                // ADR-0126 — canonical (cross-rec-group) equality when Types
+                // is threaded; else raw-index reach.
+                .concrete => |e_idx| if (self.canonical_types) |t|
+                    gc_subtype.gcConcreteReachesCanonical(idx, e_idx, t)
+                else
+                    gc_subtype.gcConcreteReaches(idx, e_idx, self.supertypes),
             },
             // Wasm 3.0 GC §4.2.8 abstract heap-type hierarchy
             // (i31/struct/array <: eq <: any; bottoms <: all in their

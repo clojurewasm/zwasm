@@ -1118,6 +1118,9 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             // (ADR-0123 D4); else abstract funcref → StackTypeMismatch vs a
             // `(ref $t)` param (br_on_null / br_on_non_null / ref_as_non_null).
             func_typeidxs,
+            // ADR-0126: full Types so subtypeCtx uses iso-recursive canonical
+            // equality on concrete→concrete (cross-rec-group identity).
+            &types,
         ) catch |err| {
             std.debug.print("compileWasm: func[{d}] params={d} results={d} → validate {s}\n", .{
                 wasm_idx,
