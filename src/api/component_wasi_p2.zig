@@ -105,6 +105,11 @@ pub const WasiP2Ctx = struct {
     /// `stream.write` to such a stream COMPLETES immediately (stdout/stderr are
     /// always write-ready), the bytes marshalled to `fd`.
     host_sinks: std.AutoHashMapUnmanaged(u32, wasi_p1.Fd) = .empty,
+    /// WASI 0.3 host stream SOURCES (ADR-0190, the read direction): a
+    /// `SharedStream` handle whose readable end the guest reads → the P1 fd the
+    /// host supplies bytes from (stdin). A guest `stream.read` pulls available
+    /// bytes from `fd` into guest memory.
+    host_sources: std.AutoHashMapUnmanaged(u32, wasi_p1.Fd) = .empty,
 
     /// Resource-type ids for the P2 resources the host models (`pub` for the
     /// in-tree tests that mint handles directly).
@@ -167,6 +172,7 @@ pub const WasiP2Ctx = struct {
         for (self.ab_ctxs.items) |p| self.alloc.destroy(p);
         self.ab_ctxs.deinit(self.alloc);
         self.host_sinks.deinit(self.alloc);
+        self.host_sources.deinit(self.alloc);
         self.streams.deinit();
         self.shared.deinit();
         self.sets.deinit();
@@ -1373,6 +1379,7 @@ fn defineClassifiedFunc(lk: *Linker, module: []const u8, name: []const u8, op: a
         .cli_get_stderr => try lk.defineFuncCtx(module, name, ctx, fn (*Caller) WasiP2Error!u32, p2GetStderr),
         .cli_stdout_write_via_stream => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!u32, p2StdoutWriteViaStream),
         .cli_stderr_write_via_stream => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!u32, p2StderrWriteViaStream),
+        .cli_stdin_read_via_stream => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!void, p2StdinReadViaStream),
         .out_stream_write, .out_stream_blocking_write_and_flush => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32, u32) WasiP2Error!void, p2OutStreamWrite),
         // Any classified `canon resource.drop` (classifyCoreExport returns
         // out_stream_drop for all) routes to the generic drop — correct for both
@@ -1651,6 +1658,23 @@ fn p2StderrWriteViaStream(caller: *Caller, stream_handle: u32) WasiP2Error!u32 {
     return p2WriteViaStream(caller, stream_handle, 2);
 }
 
+/// `wasi:cli/stdin.read-via-stream` (WASI 0.3, ADR-0190): the host becomes the
+/// stream's WRITER (supplying bytes from a P1 fd). Mint a stream pair + a future
+/// and write the `tuple<stream<u8>, future<result<_,error-code>>>` result to the
+/// guest's return pointer `retptr` (the tuple flattens past MAX_FLAT_RESULTS=1 →
+/// a memory return: `ri` at `retptr`, the future handle at `retptr+4`). The
+/// readable end is registered as a host source so a guest `stream.read` pulls
+/// bytes from `fd` (stdin).
+fn p2StdinReadViaStream(caller: *Caller, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const pair = try async_mod.newStreamPair(&ctx.streams, &ctx.shared, null);
+    try ctx.host_sources.put(ctx.alloc, (try ctx.streams.get(pair.readable)).shared, 0); // fd 0 = stdin
+    const fut = try async_mod.newFuturePair(&ctx.streams, &ctx.shared, null);
+    const mem = try ctx.memory();
+    try mem.write(retptr, pair.readable);
+    try mem.write(retptr + 4, fut.readable);
+}
+
 /// `canon stream.read`/`stream.write` (+ future) (ADR-0189 ζ2, re-scoped per
 /// lesson 2026-06-16): drive one rendezvous step on the end named by `handle`
 /// (`StreamFutureEnd.copy` dispatches read vs write on the end's side) and
@@ -1670,6 +1694,17 @@ fn p2StreamFutureCopy(caller: *Caller, handle: u32, ptr: u32, count: u32) WasiP2
             const bytes = mem.sliceAt(ptr, count) catch return WasiP2Error.OutOfBounds;
             if (wasi_fd.writeSlice(abc.ctx.host, fd, bytes) != .success) return WasiP2Error.WriteFailed;
             return (async_mod.ReturnCode{ .completed = @intCast(count) }).encode();
+        }
+    }
+    // Host stream SOURCE (Unit E3, the read direction): the host supplies bytes
+    // from `fd` (stdin) → a guest read COMPLETES with the available count copied
+    // into guest memory at `ptr`.
+    if (end.side == .readable) {
+        if (abc.ctx.host_sources.get(end.shared)) |_| {
+            const mem = try abc.ctx.memory();
+            const buf = mem.sliceAt(ptr, count) catch return WasiP2Error.OutOfBounds;
+            const n: u32 = @intCast(wasi_fd.readStdinSlice(abc.ctx.host, buf));
+            return (async_mod.ReturnCode{ .completed = @intCast(n) }).encode();
         }
     }
     const sh = try abc.ctx.shared.get(end.shared);

@@ -303,3 +303,24 @@ test "D-335 unit E1: wasi:cli/stderr write-via-stream routes a guest stream.writ
     try testing.expectEqualStrings("er\n", cap_err.items);
     try testing.expectEqualStrings("", cap_out.items);
 }
+
+test "D-335 unit E3: wasi:cli/stdin read-via-stream — a guest stream.read COMPLETES from the host source" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/async_stdin_read_via_stream.wasm", testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+    host.stdin_bytes = "ok"; // the host stream source
+
+    // The guest read-via-streams, reads the host source, and traps unless it
+    // sees COMPLETED(2) + bytes "ok" — a clean run proves the read-direction
+    // COMPLETION + host→guest element marshalling.
+    var built = try wasi_p2.buildWasiP2Component(&eng, testing.allocator, bytes, &host, .{});
+    defer built.deinit();
+    try driveAsyncMain(&built);
+}
