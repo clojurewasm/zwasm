@@ -59,6 +59,25 @@ pub const ReturnCode = union(enum) {
     }
 };
 
+/// The async event kinds delivered to core wasm (`CanonicalABI.md` `EventCode`).
+pub const EventCode = enum(u8) {
+    none = 0,
+    subtask = 1,
+    stream_read = 2,
+    stream_write = 3,
+    future_read = 4,
+    future_write = 5,
+    task_cancelled = 6,
+};
+
+/// One delivered event `(code, index, payload)` — `index` is the waitable
+/// handle, `payload` the encoded `ReturnCode` (or subtask state).
+pub const EventTuple = struct {
+    code: EventCode,
+    index: u32,
+    payload: u32,
+};
+
 pub const EndKind = enum { stream, future };
 pub const EndSide = enum { readable, writable };
 
@@ -71,6 +90,27 @@ pub const StreamFutureEnd = struct {
     side: EndSide,
     elem_type: ?u32,
     state: CopyState = .idle,
+    /// spec `Waitable.pending_event` — at most one event awaits delivery. Stored
+    /// as the value directly (the spec's optimized non-closure form).
+    pending_event: ?EventTuple = null,
+    /// the waitable-set handle this end belongs to, if any (`Waitable.wset`).
+    wset: ?u32 = null,
+
+    /// `Waitable.set_pending_event`.
+    pub fn setPendingEvent(self: *StreamFutureEnd, ev: EventTuple) void {
+        self.pending_event = ev;
+    }
+
+    /// `Waitable.has_pending_event`.
+    pub fn hasPendingEvent(self: StreamFutureEnd) bool {
+        return self.pending_event != null;
+    }
+
+    /// `Waitable.get_pending_event` — delivers + clears the single event.
+    pub fn takePendingEvent(self: *StreamFutureEnd) ?EventTuple {
+        defer self.pending_event = null;
+        return self.pending_event;
+    }
 
     /// spec `CopyEnd.copying` — true while a copy is in flight or cancelling
     /// (the states a `drop` must not interrupt).
@@ -167,6 +207,49 @@ pub const StreamFutureTable = struct {
         self.slots.items[i] = null;
         try self.free.append(self.alloc, i);
         return end;
+    }
+};
+
+/// A "waitable set" (`CanonicalABI.md` `WaitableSet`): a collection of waitable
+/// handles that core wasm waits on / polls for *any* member to make progress.
+/// `elems` holds the member handle indices into the `StreamFutureTable`; a real
+/// implementation would embed a ready-list to avoid the O(n) scan, but a member
+/// can carry at most one pending event so correctness is unaffected.
+pub const WaitableSet = struct {
+    elems: std.ArrayList(u32),
+    alloc: Allocator,
+
+    pub fn init(alloc: Allocator) WaitableSet {
+        return .{ .elems = .empty, .alloc = alloc };
+    }
+
+    pub fn deinit(self: *WaitableSet) void {
+        self.elems.deinit(self.alloc);
+    }
+
+    /// `Waitable.join` (the set side) — add a member handle.
+    pub fn join(self: *WaitableSet, handle: u32) Error!void {
+        try self.elems.append(self.alloc, handle);
+    }
+
+    /// True if any member has a pending event (`WaitableSet.has_pending_event`).
+    pub fn hasPendingEvent(self: WaitableSet, table: *StreamFutureTable) bool {
+        for (self.elems.items) |h| {
+            const e = table.get(h) catch continue;
+            if (e.hasPendingEvent()) return true;
+        }
+        return false;
+    }
+
+    /// `WaitableSet.poll` — deliver (and clear) the first member's pending
+    /// event, or null for `EventCode.NONE` (nothing ready). The blocking
+    /// `wait` variant adds the event-loop suspension on top (Unit η).
+    pub fn poll(self: *WaitableSet, table: *StreamFutureTable) Error!?EventTuple {
+        for (self.elems.items) |h| {
+            const e = table.get(h) catch continue;
+            if (e.hasPendingEvent()) return e.takePendingEvent();
+        }
+        return null;
     }
 };
 
@@ -278,6 +361,30 @@ test "stream rendezvous: dropped end + zero-length livelock tiebreak (write wins
     const w = s.write(0);
     try testing.expectEqual(@as(u32, 0), w.caller.completed);
     try testing.expect(s.pending != null); // read still pending
+}
+
+test "waitable-set: poll delivers a member's pending event once, then clears it" {
+    var t = try StreamFutureTable.init(testing.allocator);
+    defer t.deinit();
+    const h = try t.add(.{ .kind = .stream, .side = .readable, .elem_type = null });
+
+    var ws = WaitableSet.init(testing.allocator);
+    defer ws.deinit();
+    try ws.join(h);
+    try testing.expect(!ws.hasPendingEvent(&t));
+    try testing.expect((try ws.poll(&t)) == null); // EventCode.NONE → null
+
+    // a STREAM_READ event lands on the member end.
+    (try t.get(h)).setPendingEvent(.{ .code = .stream_read, .index = h, .payload = 7 });
+    try testing.expect(ws.hasPendingEvent(&t));
+    const ev = (try ws.poll(&t)).?;
+    try testing.expectEqual(EventCode.stream_read, ev.code);
+    try testing.expectEqual(h, ev.index);
+    try testing.expectEqual(@as(u32, 7), ev.payload);
+
+    // get_pending_event clears it (at-most-one event per waitable).
+    try testing.expect(!ws.hasPendingEvent(&t));
+    try testing.expect((try ws.poll(&t)) == null);
 }
 
 test "stream end CopyState: blocked copy → async_copying; cancel → idle; drop traps while copying" {
