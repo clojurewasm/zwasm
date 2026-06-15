@@ -1411,17 +1411,14 @@ entries:
         + Step→ReturnCode (no marshalling); fixtures assert BLOCKED + DROPPED. Slice 3b DONE (90e2bd55):
         p2StreamFutureCopy (one trampoline, copy() dispatches read/write on side) → ReturnCode; e2e
         read-no-writer→BLOCKED + drop-then-read→DROPPED (guest self-asserts); COMPLETION(n>0) traps until Unit E.
-        Slice 3c DONE (e6cfb865): p2StreamFutureCancel → StreamFutureEnd.cancel → ReturnCode.cancelled; e2e
-        read(BLOCKED→parks)→cancel-read→CANCELLED. ALL .stream_future ops now host-wired → ζ2 SINGLE-TASK-COMPLETE
-        (8 async e2e fixtures green). NEXT = Unit E (WASI-P3 host interfaces; sockets/http/clocks async; ~2000;
-        coexists w/ P2): the host implements a stream's other end → unlocks guest read/write COMPLETION + element
-        marshalling (the error.OutOfBounds trap in p2StreamFutureCopy) + the WAIT-path e2e (driveCallbackLoop WAIT
-        branch). Unit E plan: ADR-0190 (4c528925) — host implements a stream's other end (synchronous, no
-        scheduler); first interface wasi:cli/stdout.write-via-stream (host-as-reader, u8). NEXT = E1: classify
-        write-via-stream → P2Op/host-op, trampoline registers host as pending reader on SharedStream; guest
-        stream.write → p2StreamFutureCopy COMPLETION wires canon.load (u8 from guest mem ptr → host buf → fd1);
-        fixture asserts host captured the bytes (first read/write COMPLETION + marshalling e2e). Then E2 (WAIT-
-        path), E3 (stdin), then F/G.
+        ζ2 SINGLE-TASK-COMPLETE (8 async e2e fixtures green). Unit E plan: ADR-0190 (host implements a stream's
+        other end, synchronous). UNIT E1 DONE (612cd1e8): wasi:cli/stdout+stderr write-via-stream → new P2Ops;
+        p2WriteViaStream registers host sink (WasiP2Ctx.host_sinks: SharedStream handle→fd) + returns a future;
+        p2StreamFutureCopy COMPLETION branch (was error.OutOfBounds trap) marshals n u8 from guest mem ptr via
+        wasi_fd.writeSlice → COMPLETED(n); e2e async_stdout_write_via_stream.wat (guest writes "hi\n" → host
+        captures). First guest stream.write COMPLETION + marshalling. NEXT = E2 (WAIT-path e2e via
+        driveCallbackLoop WAIT branch; needs waitable-set builtins + the write-via-stream future resolution) /
+        E3 (stdin read-via-stream, host-as-writer + multi-byte marshalling). Then F/G. (D-444 = P3-host file split.)
       - E — WASI-P3 host interfaces (new component_wasi_p3.zig; sockets/http/clocks
         async; ~2000; MED; coexists with P2, does NOT replace it). Needs D.
       - F — async-export ABI + P3 component runner (canon.zig; ~400; MED). Needs E.
@@ -1473,6 +1470,25 @@ entries:
     refs: |-
       WebAssembly/component-model design/mvp/CanonicalABI.md §Future State
       (WritableFutureEnd.drop trap); src/feature/component/async.zig SharedFuture / drop
+  - id: "D-444"
+    layer: "code"
+    status: "note"
+    front: D-wasi03
+    description: |-
+      note (file-size split, mechanical; do when Unit E settles). component_wasi_p2.zig crossed the 2000
+      hard cap (FILE-SIZE-EXEMPT marker added, cap→2500, per ADR-0190+0099) as the
+      WASI-0.3 (P3) async host-peer surface grew (task.return + stream/future
+      builtins + write-via-stream + AsyncBuiltinCtx + the ctx async fields). Split
+      the P3 async host trampolines into a sibling `component_wasi_p3_host.zig`
+      (ADR-0190 names this sibling). The WasiP2Ctx async fields stay on the ctx
+      (shared); the trampolines + Def.async_builtin/task_return + AsyncBuiltinCtx
+      move. Do it once the E1..E3 host interfaces have settled (else churn). Split
+      criterion: P3 independent change cadence + a deep WasiP2Ctx interface (P3).
+    first_raised: "2026-06-16"
+    last_reviewed: "2026-06-16"
+    refs: |-
+      src/api/component_wasi_p2.zig (FILE-SIZE-EXEMPT marker line 1);
+      .dev/decisions/0190_wasi_p3_host_stream_peer.md (sibling module)
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.

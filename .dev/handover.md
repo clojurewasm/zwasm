@@ -3,7 +3,7 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Current state — WASI-0.3 campaign (D-335); D done (ζ2 single-task) + ADR-0190 Unit-E plan (`4c528925`)
+## Current state — WASI-0.3 campaign (D-335); Unit E1 done — host stream peer + first COMPLETION e2e (`612cd1e8`)
 
 **WASI 0.3 / Preview 3 campaign** (Front D, ratified 2026-06-11; CM-async — `async` func / `stream<T>` /
 `future<T>`, NOT core stack-switching). Critical path A→B→C→D(crux)→E→F→G; full unit plan + per-unit DONE-SHAs
@@ -28,41 +28,37 @@ e2e read(BLOCKED→parks)→cancel-read→CANCELLED. **All `.stream_future` ops 
 complete.** 7 async e2e fixtures green (`async_{exit_immediate,yield_then_exit,task_return,stream_new,stream_drop,
 stream_read_blocked,stream_read_dropped,stream_cancel}`).
 
-**Unit E plan settled — ADR-0190** (`4c528925`): the host implements a stream's other end (synchronous, no
-scheduler/fibers); first interface = **`wasi:cli/stdout.write-via-stream`** (host-as-reader, `u8`, simplest).
+**Unit E1 DONE** (`612cd1e8`, ADR-0190): the first WASI-0.3 host stream peer. `wasi:cli/stdout`/`stderr`
+`write-via-stream` classify to new `P2Op`s; `p2WriteViaStream` registers a host sink (`WasiP2Ctx.host_sinks`:
+`SharedStream` handle → P1 fd) + returns a future handle. `p2StreamFutureCopy`'s COMPLETION branch (was the
+`error.OutOfBounds` trap) — for a host-sink writable end — marshals the `n` `u8`s from guest mem `ptr` via
+`wasi_fd.writeSlice` to the fd → COMPLETED(n). E2E `async_stdout_write_via_stream.wat`: guest writes "hi\n"
+through a stream → host captures it. **First guest stream.write COMPLETION + element marshalling.** (p2 crossed
+2000 lines → FILE-SIZE-EXEMPT marker; **D-444** = split the P3 async host to a sibling `component_wasi_p3_host.zig`.)
 
-**NEXT — Unit E Slice E1: the host stream peer + first COMPLETION e2e** (per ADR-0190). Signature CONFIRMED
-(`~/Documents/OSS/WASI/proposals/cli/wit/stdio.wit:48`): `write-via-stream: func(data: stream<u8>) ->
-future<result<_, error-code>>` — lowered core import takes the stream readable handle (i32) + returns a future
-handle (i32). `adapter.classifyImport` is a `(iface,func)` table (`adapter.zig:482`, P2Op enum `:97`); a
-via-stream stub precedent exists (`fs_stub_via_stream_offset` `:418`).
-- **Riskiest first**: author the P3 fixture — a component importing `wasi:cli/stdout@0.3.0` with the
-  `write-via-stream(stream<u8>)->future<result<_,error-code>>` shape; verify `wasm-tools parse` accepts it
-  (the import instance type must declare the stream/future/error-code types). If the future-return WAT is a
-  rabbit hole, scope E1 to a host-sink that completes the write + skip the returned future's readiness for E2.
-- **Host trampoline**: classify → new `P2Op`; register a host sink (fd 1) for the stream's `SharedStream`
-  (a `WasiP2Ctx` side-map keyed by the shared handle); mint + return the future handle. Model: stdout is
-  ALWAYS write-ready → a guest `stream.write` to a host-sink stream COMPLETES immediately (no pending-read
-  dance needed) — simpler than ADR-0190's pending-reader framing.
-- **COMPLETION marshalling**: `p2StreamFutureCopy` COMPLETION branch (the `error.OutOfBounds` trap) — if the
-  stream has a host sink, `canon.load` the `n` `u8`s from guest mem `ptr` → write to fd 1; else generic.
-- **Fixture asserts** host captured the bytes (capture buffer like P2 stdout tests). First read/write
-  COMPLETION + element-marshalling e2e. Then E2 (WAIT-path), E3 (stdin), then F/G.
+**NEXT — Unit E2/E3** (extend the host-peer surface):
+- **E2 — the WAIT-path e2e** (today only EXIT/YIELD are e2e through the runner): a guest that BLOCKs on a
+  stream op then a host-peer completion delivers an event + re-enters `callback` via `driveCallbackLoop`'s WAIT
+  branch (`waitOn`). May need `waitable-set.new`/`.join` builtins + the future's resolution (the write-via-
+  stream return future, deferred in E1). Survey the WAIT seam wiring.
+- **E3 — `wasi:cli/stdin.read-via-stream`** (host-as-writer: host supplies bytes, guest reads → COMPLETION the
+  other direction) + multi-byte/typed element marshalling (E1 only did `u8`).
+- Then F (async-export public API), G (p3 corpus). Per D-335. (Also: **D-444** P3-host file split when E settles.)
 
 ## Active bundle
 
 - **Bundle-ID**: wasi03-D-335 (§9.0 Front D; WASI 0.3 / Preview 3; units A→G)
-- **Cycles-remaining**: ~3 (D incl. ζ2 single-task-complete; remaining = Unit E host interfaces → F → G)
+- **Cycles-remaining**: ~3 (D done + Unit E1 host-peer done; remaining = E2 WAIT-path / E3 stdin → F → G)
 - **Continuity-memo**: critical path **A→B→C→D(DONE incl. ζ2 single-task-complete)→E(WASI-P3 host interfaces; unlocks read/write COMPLETION)→F→G**
   (full plan in **D-335**; design in **ADR-0187** — stackless callback ABI, no fibers). CM-async, NOT core
   stack-switching. Spec: `~/Documents/OSS/{WASI, WebAssembly/component-model}` (design/mvp/{Binary,CanonicalABI,
   Concurrency}.md); ref impl `~/Documents/OSS/wasmtime` (43+; `concurrent/futures_and_streams.rs`).
 - **Exit-condition**: a WASI-0.3 async/stream/future component runs end-to-end through zwasm (new P3
   corpus green, 3-host); each unit lands green per D-335 along the way.
-- **Unit D DONE (HIGH/crux); Unit E Slice E1 START HERE**: Zone-1 model + P3 runner + ζ2 all e2e green;
-  ADR-0190 settles the host-stream-peer design. E1 = `wasi:cli/stdout.write-via-stream` host-as-reader +
-  `p2StreamFutureCopy` COMPLETION marshalling (`canon.load` u8→fd1) → first guest stream.write COMPLETION e2e.
-  Then E2 (WAIT-path), E3 (stdin), then F/G.
+- **Unit D + E1 DONE (HIGH/crux); Unit E2/E3 START HERE**: Zone-1 model + P3 runner + ζ2 + the first host
+  stream peer (stdout write-via-stream, COMPLETION + u8 marshalling) all e2e green. Next = E2 (WAIT-path e2e
+  through `driveCallbackLoop`'s WAIT branch) / E3 (stdin read-via-stream, host-as-writer + multi-byte
+  marshalling). Then F/G. (D-444 = split the P3 async host to a sibling when E settles.)
 
 ## Long-tail (debt-tracked / parked — NOT active; see §9.0 fronts + debt.yaml)
 
