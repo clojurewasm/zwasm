@@ -1380,12 +1380,14 @@ entries:
         .task_return; shared decodeResultList; P2 rejects; validate bounds-checks result+opts+callback funcidx).
         Async decode surface COMPLETE. ηB-loop CORE DONE (d8fabc91): async.zig driveCallbackLoop(ctx, initial)
         — the canon_lift stackless loop body as a Zone-1 generic over invokeCallback+waitOn engine seams,
-        unit-tested with a scripted mock (no real instance). NEXT = the Zone-3 P3 runner (component_wasi_p3.zig,
-        coexists w/ P2) installing the concrete ctx: *Instance + StreamFutureTable + a NEW waitable-set table
-        (gap: WaitableSet exists, table-of-sets does not); invokeCallback→Instance.invoke of CanonOpts.callback,
-        waitOn→poll the set; + async export detection (FuncType.is_async) + task.return delivery. File the
-        P3-runner-shape ADR with the skeleton. Then ζ2 (replace component_wasi_p2.zig `.stream_future/.task_return
-        → UnsupportedWasiImport` with real async.zig dispatch; gates on the wiring).
+        unit-tested with a scripted mock (no real instance). WaitableSetTable DONE (bcb0ca9f): per-task
+        table-of-sets keyed by waitable_set_index (mirrors StreamFutureTable). Zone-1 async model COMPLETE.
+        ADR-0188 (249b5747) fixes the Zone-3 P3-runner shape + the self-provisioned async-lift .wat fixture
+        (verified vs wasmtime async/lift.wast). NEXT = implement component_wasi_p3.zig per ADR-0188 (reuse
+        buildWasiP2Component; P3CallbackCtx installs invokeCallback→Instance.invoke + waitOn→WaitableSetTable.poll,
+        trap on empty; detect async export via lift.opts.is_async; immediate-EXIT fixture end-to-end first; watch
+        validate.zig accepting an async canon lift). Then ζ2 (replace component_wasi_p2.zig `.stream_future/
+        .task_return → UnsupportedWasiImport` with real async.zig dispatch; gates on the runner).
       - E — WASI-P3 host interfaces (new component_wasi_p3.zig; sockets/http/clocks
         async; ~2000; MED; coexists with P2, does NOT replace it). Needs D.
       - F — async-export ABI + P3 component runner (canon.zig; ~400; MED). Needs E.
