@@ -256,6 +256,26 @@ test "D-335 unit D-ζ2: stream.read with no writer returns BLOCKED (single-task)
     try driveAsyncMain(&built);
 }
 
+test "ADR-0195 char: a single task that WAITs on a peerless stream read traps AsyncDeadlock" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/async_deadlock_single.wasm", testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+
+    // Plain (no host peer) stream read → BLOCKED → WAIT(set); nothing ever
+    // writes, so `waitOn` polls an empty set → AsyncDeadlock. Pins the exact
+    // behaviour the ADR-0195 multi-task scheduler generalises (all-blocked→trap).
+    var built = try wasi_p2.buildWasiP2Component(&eng, testing.allocator, bytes, &host, .{});
+    defer built.deinit();
+    try testing.expectError(error.AsyncDeadlock, driveAsyncMain(&built));
+}
+
 test "D-335 unit D-ζ2: stream.read after the writer drops returns DROPPED (single-task)" {
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();
