@@ -1,4 +1,4 @@
-// FILE-SIZE-EXEMPT: Wasm spec §3.3 validation single-pass walker (type-stack + control-stack); P1 spec-defined sub-language, intrinsically singular (splitting the stack-walking opcode handlers would create artificial seams across an unsplittable algorithm). D-204: the pure file-scope GC valtype-subtype helpers (valTypeIsSubtypeFree / gcHeapAbstractSubtype / gcConcreteReaches{,Canonical} / gcValTypeSubtype / gcFieldSubtype) were extracted to `gc_subtype.zig` (they touch no Validator state); the remaining module-level helpers (constExprResultType / validateGlobalInits / funcTypeImportCompatible / validateTypeSection) are pub + externally-called → extract separately if the cap presses again. (per ADR-0099) (cap=3450) (3300→3400 for D-324 per-memory idx_type plumbing; 3400→3450 for ADR-0126 iso-recursive canonical-equality threading into the per-function subtype path — both Wasm 3.0 GC/memory64 spec-conformance feature adds, same ADR-0099-amend class as the instance.zig raise)
+// FILE-SIZE-EXEMPT: Wasm spec §3.3 validation single-pass walker (type-stack + control-stack); P1 spec-defined sub-language, intrinsically singular (splitting the stack-walking opcode handlers would create artificial seams across an unsplittable algorithm). D-204: the pure file-scope GC valtype-subtype helpers (valTypeIsSubtypeFree / gcHeapAbstractSubtype / gcConcreteReaches{,Canonical} / gcValTypeSubtype / gcFieldSubtype) were extracted to `gc_subtype.zig` (they touch no Validator state); the remaining module-level helpers (constExprResultType / validateGlobalInits / funcTypeImportCompatible / validateTypeSection) are pub + externally-called → extract separately if the cap presses again. (per ADR-0099) (cap=3510) (3300→3400 for D-324 per-memory idx_type plumbing; 3400→3450 for ADR-0126 iso-recursive canonical-equality threading into the per-function subtype path; 3450→3510 for D-459 local definite-assignment (Wasm 3.0 §3.3.1) — the init-set restore at block/if `end`+`else` is woven into pushFrame/opEnd/opElse + the per-frame entry mask, NOT extractable — all Wasm 3.0 spec-conformance feature adds, same ADR-0099-amend class as the instance.zig raise. NEXT cap pressure → extract the 4 pub tail helpers (constExprResultType / validateGlobalInits / funcTypeImportCompatible / validateTypeSection) + their GlobalEntry/typeDefIsSubtype deps to a `validator_helpers.zig` sibling.)
 //! Wasm function-body **type-stack + control-stack validator**
 //! (Phase 1 / §9.1 / 1.5).
 //!
@@ -205,6 +205,13 @@ const ControlFrame = struct {
     /// True after `unreachable` / `br` / `return` until this frame's
     /// `end` (or `else`, which resets it for the alternate branch).
     unreachable_flag: bool,
+    /// D-459 — definite-assignment init-set of the non-defaultable locals
+    /// (bit i ↔ `nondefault_idx[i]`) captured at frame ENTRY. Wasm 3.0
+    /// §3.3.1: `local.set`/`tee` inside a structured block do NOT escape it —
+    /// at `end` (and at `else`, back to the if-entry state) the init-set is
+    /// restored to this snapshot, so a `local.get` of a local set only inside
+    /// a nested block/if is correctly rejected. 0 when no non-defaultable locals.
+    init_mask_at_entry: u64 = 0,
 
     /// Types popped by `br` to this label. Wasm 2.0 §3.4.4: blocks
     /// / ifs use the frame's *end* types; loops use the frame's
@@ -702,6 +709,14 @@ pub const Validator = struct {
     locals_init: [max_operand_stack]bool = undefined,
     track_local_init: bool = false,
     n_locals_total: u32 = 0,
+    /// D-459 — indices of the non-defaultable locals (the only ones whose
+    /// init bit can transition false→true), capped at 64 so a frame's
+    /// entry init-set fits one u64 (`ControlFrame.init_mask_at_entry`). A
+    /// function with >64 non-defaultable locals tracks the first 64 for the
+    /// block-escape rule (the rest keep grow-only global tracking — strictly
+    /// better than no block-restore; >64 non-null-ref locals is unheard-of).
+    nondefault_idx: [64]u16 = undefined,
+    n_nondefault: u32 = 0,
 
     /// D-115 d-39: when non-null, `opSelect` appends the resolved
     /// operand valtype byte per untyped `select` (0x1B). Body-walk
@@ -742,7 +757,14 @@ pub const Validator = struct {
                 var li: u32 = 0;
                 while (li < total) : (li += 1) {
                     // Params always init (receive args); declared locals by defaultability.
-                    self.locals_init[li] = li < params_len or localIsDefaultable(self.localType(li).?);
+                    const defaultable = li < params_len or localIsDefaultable(self.localType(li).?);
+                    self.locals_init[li] = defaultable;
+                    // D-459: record non-defaultable locals (init can flip
+                    // false→true) so per-frame entry masks can restore them.
+                    if (!defaultable and self.n_nondefault < self.nondefault_idx.len) {
+                        self.nondefault_idx[self.n_nondefault] = @intCast(li);
+                        self.n_nondefault += 1;
+                    }
                 }
             }
         }
@@ -922,6 +944,9 @@ pub const Validator = struct {
             .end_type = end_bt,
             .height = @intCast(self.operand_len),
             .unreachable_flag = false,
+            // D-459: snapshot the init-set so this block's local sets are
+            // discarded at its `end` (they don't escape — Wasm 3.0 §3.3.1).
+            .init_mask_at_entry = self.currentInitMask(),
         };
         self.control_len += 1;
     }
@@ -1399,6 +1424,9 @@ pub const Validator = struct {
         self.operand_len = frame.height;
         frame.kind = .else_open;
         frame.unreachable_flag = false;
+        // D-459: the else-arm starts from the if's ENTRY init-set — sets made
+        // in the then-arm do not carry into the else-arm (Wasm 3.0 §3.3.1).
+        self.restoreInitMask(frame.init_mask_at_entry);
         // D-093 (d-10) — Wasm spec §3.4.4: the else-arm starts with
         // the if-frame's `start` (param) types pushed back onto the
         // operand stack (same shape the then-arm saw at entry).
@@ -1431,6 +1459,9 @@ pub const Validator = struct {
         }
         try self.expectFrameEndTypes(frame);
         self.control_len -= 1;
+        // D-459: sets inside this block/loop/if do not escape it — restore the
+        // non-defaultable locals' init-set to the frame's entry snapshot.
+        self.restoreInitMask(frame.init_mask_at_entry);
         // Restore stack height to entry, then push the frame's end types.
         self.operand_len = frame.height;
         switch (frame.endType()) {
@@ -1507,6 +1538,28 @@ pub const Validator = struct {
             !self.topFrame().unreachable_flag)
         {
             self.locals_init[idx] = true;
+        }
+    }
+
+    /// D-459 — snapshot the current init-set of the (≤64) non-defaultable
+    /// locals into a u64 (bit i ↔ `nondefault_idx[i]`). Captured at frame
+    /// entry; 0 when there are none (the common case → no-op).
+    fn currentInitMask(self: *const Validator) u64 {
+        var mask: u64 = 0;
+        var i: u32 = 0;
+        while (i < self.n_nondefault) : (i += 1) {
+            if (self.locals_init[self.nondefault_idx[i]]) mask |= @as(u64, 1) << @intCast(i);
+        }
+        return mask;
+    }
+
+    /// D-459 — restore the non-defaultable locals' init bits from a frame's
+    /// entry mask (discards sets made inside the just-closed structured block,
+    /// per Wasm 3.0 §3.3.1 — sets do not escape block/loop/if).
+    fn restoreInitMask(self: *Validator, mask: u64) void {
+        var i: u32 = 0;
+        while (i < self.n_nondefault) : (i += 1) {
+            self.locals_init[self.nondefault_idx[i]] = (mask >> @intCast(i)) & 1 == 1;
         }
     }
 
