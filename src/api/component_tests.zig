@@ -520,6 +520,33 @@ test "ADR-0195 c-2b: a 2-component async graph runs e2e (A async-calls B; both t
     try testing.expectEqual(@as(usize, 2), counts.done); // both reached EXIT
 }
 
+const two_async_components_task_return_path = "test/component/two_async_components_task_return.wasm";
+
+test "ADR-0195 d-a: a cross-component async callee's task.return value is captured graph-side" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, two_async_components_task_return_path, testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var graph = try instantiateGraph(&eng, testing.allocator, bytes, .{});
+    defer graph.deinit();
+
+    // A's async `run` async-calls B's async `tick: async func() -> u32`. B's core
+    // `tick` calls task.return(42) then EXITs. The graph-level task.return host
+    // func captures 42 into B's subtask's per-task result slot — proving the
+    // smallest guest↔guest async DATA transfer (not just both tasks completing).
+    try graph.driveAsyncMain("run");
+    const counts = graph.asyncTaskCounts();
+    try testing.expectEqual(@as(usize, 2), counts.total); // A's run + B's tick
+    try testing.expectEqual(@as(usize, 2), counts.done); // both reached EXIT
+
+    // B's subtask is the SECOND task added (task id 2: A's run = 1, B's tick = 2).
+    try testing.expectEqual(@as(?u32, 42), graph.taskResult(2));
+}
+
 test "D-305 (security): an OOB (ptr,len) into a cross-component string import TRAPS, not silently returns 0" {
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();

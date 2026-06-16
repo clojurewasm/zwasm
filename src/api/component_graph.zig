@@ -151,6 +151,11 @@ const GraphAsync = struct {
     tasks: async_mod.TaskTable,
     /// funcidx (registry index) → the callback to re-enter for that task.
     callbacks: std.ArrayList(CallbackTarget),
+    /// ADR-0195 step (d-a): the task currently executing a guest entry/callback.
+    /// Set IMMEDIATELY before each callee invoke so the graph-level `task.return`
+    /// host func knows which task's `TaskDescriptor.result` to store into. 0 = no
+    /// task executing (the reserved table id is never a live task).
+    current_task_id: u32 = 0,
 
     const CallbackTarget = struct { inst: *Instance, name: []const u8 };
 
@@ -171,6 +176,18 @@ const GraphAsync = struct {
         const idx: u32 = @intCast(self.callbacks.items.len);
         try self.callbacks.append(self.alloc, .{ .inst = inst, .name = name });
         return idx;
+    }
+
+    /// The live task id whose callback is registry `funcidx` (ADR-0195 d-a),
+    /// or 0 if none — drives `current_task_id` so a callback's `task.return`
+    /// stores into the right per-task slot. Each task registers a distinct
+    /// callback funcidx, so the match is unique.
+    fn taskOfCallback(self: *GraphAsync, funcidx: u32) u32 {
+        for (self.tasks.slots.items, 0..) |slot, i| {
+            const t = slot orelse continue;
+            if (t.callback_funcidx == funcidx) return @intCast(i);
+        }
+        return 0;
     }
 };
 
@@ -269,6 +286,11 @@ pub const ComponentGraph = struct {
                 .{ .i32 = @bitCast(p2) },
             };
             var res = [_]Value{.{ .i32 = 0 }};
+            // ADR-0195 d-a: mark the task whose callback this is as current so a
+            // task.return from inside the callback lands in its own result slot.
+            const prev = self.state.current_task_id;
+            self.state.current_task_id = self.state.taskOfCallback(funcidx);
+            defer self.state.current_task_id = prev;
             try target.inst.invoke(target.name, &args, &res);
             return @bitCast(res[0].i32);
         }
@@ -298,15 +320,23 @@ pub const ComponentGraph = struct {
 
         const as = try self.asyncState();
 
+        // Reserve task 0's id BEFORE invoking the main entry, so a `task.return`
+        // from inside it (a result-bearing async export) lands in this task's slot
+        // (ADR-0195 d-a). The placeholder is folded to its real state afterward.
+        const main_funcidx = try as.registerCallback(cb_inst, cb.name);
+        const main_id = try as.tasks.add(.{ .callback_funcidx = main_funcidx });
+        as.current_task_id = main_id;
+
         // Invoke the async task entry once; its packed i32 return seeds the task.
         var results = [_]Value{.{ .i32 = 0 }};
         try inst.invoke(r.core_func.name, &.{}, &results);
         const initial: u32 = @bitCast(results[0].i32);
+        as.current_task_id = 0;
 
-        const main_funcidx = try as.registerCallback(cb_inst, cb.name);
-        var seed = try async_mod.seedTask(initial);
-        seed.callback_funcidx = main_funcidx;
-        _ = try as.tasks.add(seed);
+        const seed = try async_mod.seedTask(initial);
+        const main_task = try as.tasks.get(main_id);
+        main_task.state = seed.state;
+        main_task.set_index = seed.set_index;
 
         var ctx = GraphAsyncCtx{ .state = as };
         try async_mod.driveScheduler(&ctx, &as.tasks);
@@ -325,6 +355,16 @@ pub const ComponentGraph = struct {
             if (t.state == .done) done += 1;
         }
         return .{ .total = total, .done = done };
+    }
+
+    /// ADR-0195 step (d-a) — the value task `id` delivered via `canon task.return`
+    /// (the cross-component async DATA channel), or null if the task never returned
+    /// a value (or `id` is not a live task). The test seam proving a callee's
+    /// `task.return(value)` was captured graph-side into its per-task slot.
+    pub fn taskResult(self: *ComponentGraph, id: u32) ?u32 {
+        const as = self.async_state orelse return null;
+        const task = as.tasks.get(id) catch return null;
+        return task.result;
     }
 
     const ExportResolution = struct { child: *GraphChild, export_name: []const u8 };
@@ -529,6 +569,17 @@ fn pourSyntheticExport(
     const cf = child.info.coreFunc(ex.index) orelse return GraphError.ImportUnsatisfied;
     const import_name = switch (cf) {
         .lower => |component_func_idx| importNameOfLoweredFunc(&child.info, component_func_idx) orelse return GraphError.ImportUnsatisfied,
+        // A child's own `canon task.return` (ADR-0195 d-a): wire the graph-level
+        // host func that captures the value into the currently-executing task.
+        // Only the minimal single-`u32` result is implemented; a multi-value /
+        // typed task.return is a typed deferral (UnsupportedBoundaryType), never
+        // a silent partial capture.
+        .task_return => |tr| {
+            if (tr.result == null or !isFlat4Scalar(tr.result.?)) return GraphError.UnsupportedBoundaryType;
+            const as = try graph.asyncState();
+            try lk.defineFuncCtx(ns, ex.name, @ptrCast(as), TaskReturnSig, graphTaskReturn);
+            return;
+        },
         else => return GraphError.UnsupportedBoundaryType,
     };
     // The outer `with` arg whose name matches this import names the provider
@@ -666,22 +717,33 @@ fn installBoundaryTrampoline(
 /// fixture's callee EXITs immediately, so the lowered call returns RETURNED.
 const SUBTASK_RETURNED: u32 = @intFromEnum(async_mod.SubtaskState.returned);
 
-/// The async boundary trampoline's flattened core signature: the async-lowered
-/// import (`canon lower … async` of a no-arg `func()`) is `() -> i32`, returning
-/// the async-call status code. `BoundaryError!u32` so a callee trap propagates.
+/// The async boundary trampoline's flattened core signature for a NO-RESULT
+/// async import (`canon lower … async` of `func()`): `() -> i32`, returning the
+/// async-call status code. `BoundaryError!u32` so a callee trap propagates.
 const AsyncBoundarySig = fn (*Caller) BoundaryError!u32;
 
-/// Install the async cross-component boundary (ADR-0195 c-2b). When the importer
-/// calls the async-lowered import, the trampoline invokes the callee's async
-/// task entry once, mints a `Subtask` for it, and enqueues a `TaskDescriptor`
-/// (callback = the callee's async `callback`) into the shared scheduler table so
-/// the graph runner drives the callee to completion alongside the caller.
+/// The async boundary trampoline's core signature for a RESULT-BEARING async
+/// import (`canon lower … async` of `func() -> u32`): the lowered core func gains
+/// a leading `retptr` param naming where the importer would receive the result,
+/// `(retptr:i32) -> i32`. The result itself travels via the callee's
+/// `task.return` (captured graph-side into the subtask's per-task slot, ADR-0195
+/// d-a), so the retptr is currently unused by the boundary (the minimal d-a step
+/// captures graph-side; lowering the result back into the importer's retptr is a
+/// later slice).
+const AsyncBoundaryRetSig = fn (*Caller, u32) BoundaryError!u32;
+
+/// Install the async cross-component boundary (ADR-0195 c-2b / d-a). When the
+/// importer calls the async-lowered import, the trampoline invokes the callee's
+/// async task entry once, mints a `Subtask` for it, and enqueues a
+/// `TaskDescriptor` (callback = the callee's async `callback`) into the shared
+/// scheduler table so the graph runner drives the callee to completion alongside
+/// the caller.
 ///
-/// Only the minimal `func()` shape (no params, no result) is implemented — the
-/// fixture that proves "A async-calls B, both complete". A broader async
-/// signature (params / a result that needs marshalling across the boundary) is a
-/// typed deferral to step (d)/(e): `UnsupportedBoundaryType`, never a silent
-/// wrong value.
+/// Two shapes are implemented: the no-result `func()` (c-2b) and a single
+/// flat-4-scalar result `func() -> u32` (d-a — the result is delivered via the
+/// callee's `task.return`, captured graph-side). Any param list, or a wider /
+/// aggregate result that needs cross-boundary marshalling, is a typed deferral:
+/// `UnsupportedBoundaryType`, never a silent wrong value.
 fn installAsyncBoundary(
     graph: *ComponentGraph,
     lk: *Linker,
@@ -692,7 +754,11 @@ fn installAsyncBoundary(
     core_inst: *Instance,
     provider: Provider,
 ) GraphError!void {
-    if (ft.params.len != 0 or ft.result != null) return GraphError.UnsupportedBoundaryType;
+    if (ft.params.len != 0) return GraphError.UnsupportedBoundaryType;
+    const has_result = if (ft.result) |rt| blk: {
+        if (!isFlat4Scalar(rt)) return GraphError.UnsupportedBoundaryType;
+        break :blk true;
+    } else false;
     const cb = r.callback orelse return GraphError.UnsupportedBoundaryType; // async lift implies a callback
     const cb_inst = provider.child.core_instances.items[cb.instance] orelse return GraphError.ImportUnsatisfied;
 
@@ -711,7 +777,11 @@ fn installAsyncBoundary(
     };
     try graph.boundaries.append(graph.alloc, bctx);
 
-    try lk.defineFuncCtx(ns, core_export_name, @ptrCast(bctx), AsyncBoundarySig, asyncBoundaryTrampoline);
+    if (has_result) {
+        try lk.defineFuncCtx(ns, core_export_name, @ptrCast(bctx), AsyncBoundaryRetSig, asyncBoundaryRetTrampoline);
+    } else {
+        try lk.defineFuncCtx(ns, core_export_name, @ptrCast(bctx), AsyncBoundarySig, asyncBoundaryTrampoline);
+    }
 }
 
 /// Host trampoline for an async cross-component import (ADR-0195 c-2b): invoke
@@ -720,17 +790,60 @@ fn installAsyncBoundary(
 /// scheduler table, and return the async-call status (RETURNED, since the
 /// minimal callee resolves synchronously). A callee trap propagates as a trap.
 fn asyncBoundaryTrampoline(caller: *Caller) BoundaryError!u32 {
-    const bctx = caller.data(BoundaryCtx);
+    return enqueueCalleeSubtask(caller.data(BoundaryCtx));
+}
+
+/// Result-bearing async import (`func() -> u32`, ADR-0195 d-a): the lowered core
+/// func carries a leading `retptr` (where the importer would receive the result).
+/// The result travels via the callee's `task.return` (captured graph-side), so
+/// the retptr is unused here — the enqueue path is identical to the void shape.
+fn asyncBoundaryRetTrampoline(caller: *Caller, retptr: u32) BoundaryError!u32 {
+    _ = retptr;
+    return enqueueCalleeSubtask(caller.data(BoundaryCtx));
+}
+
+/// Shared enqueue body: invoke the callee's async entry once, mint its subtask,
+/// fold the packed result into the subtask state, return the async-call status.
+fn enqueueCalleeSubtask(bctx: *BoundaryCtx) BoundaryError!u32 {
     const as = bctx.async_state orelse return error.OutOfBoundsLoad; // wired only for async boundaries
+
+    // Reserve the callee subtask's id BEFORE invoking its entry, so the
+    // graph-level task.return host func (ADR-0195 d-a) routes the callee's
+    // `task.return(value)` into THIS task's `result` slot. A placeholder
+    // descriptor is folded to its real state from the entry's packed return.
+    const task_id = as.tasks.add(.{ .callback_funcidx = bctx.async_cb_funcidx }) catch return error.OutOfMemory;
+    const prev = as.current_task_id;
+    as.current_task_id = task_id;
+    defer as.current_task_id = prev;
 
     var res = [_]Value{.{ .i32 = 0 }};
     try bctx.core_inst.invoke(bctx.core_func_name, &.{}, &res);
     const initial: u32 = @bitCast(res[0].i32);
 
-    var seed = async_mod.seedTask(initial) catch return error.OutOfBoundsLoad; // bad callback code = guest fault
-    seed.callback_funcidx = bctx.async_cb_funcidx;
-    _ = as.tasks.add(seed) catch return error.OutOfMemory;
+    const seed = async_mod.seedTask(initial) catch return error.OutOfBoundsLoad; // bad callback code = guest fault
+    const task = as.tasks.get(task_id) catch return error.OutOfBoundsLoad;
+    task.state = seed.state;
+    task.set_index = seed.set_index;
     return SUBTASK_RETURNED;
+}
+
+/// The graph-level `canon task.return` host func's flattened core signature:
+/// `(value:i32) -> ()` (the minimal single-`u32`-lowered-result form). Returns
+/// `BoundaryError!void` so a wiring fault propagates as a trap, never silently.
+const TaskReturnSig = fn (*Caller, i32) BoundaryError!void;
+
+/// Host trampoline for a graph child's `canon task.return(value)` (ADR-0195 d-a):
+/// store the delivered value into the CURRENTLY-EXECUTING task's per-task `result`
+/// slot. The graph runner sets `current_task_id` immediately before each guest
+/// entry/callback invoke, so the value lands in the right subtask even with many
+/// concurrent graph tasks (the per-task slot avoids the single-ctx-slot collision
+/// the P3 runner's `WasiP2Ctx.task_return` would have across tasks). A
+/// task.return with no executing task, or a stale task id, is a wiring fault →
+/// trap (never a silent drop).
+fn graphTaskReturn(caller: *Caller, value: i32) BoundaryError!void {
+    const as = caller.data(GraphAsync);
+    const task = as.tasks.get(as.current_task_id) catch return error.OutOfBoundsStore;
+    task.result = @bitCast(value);
 }
 
 /// Does this WIT func return a `string`? A string result flattens to >1 core

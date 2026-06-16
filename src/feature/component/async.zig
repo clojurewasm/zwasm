@@ -344,6 +344,13 @@ pub const TaskDescriptor = struct {
     /// (set when the callback returns WAIT(set); meaningless in other states).
     set_index: u32 = 0,
     state: TaskState = .ready,
+    /// ADR-0195 step (d-a): the value this task delivered via `canon task.return`
+    /// (the cross-component async DATA channel). Per-task (NOT a single shared
+    /// ctx slot) so concurrent graph tasks each capture their own result. `null`
+    /// until the task's callee calls task.return; `seedTask` leaves it null. The
+    /// minimal single-`u32`-lowered-result form — a multi-value / typed result is
+    /// an `UnsupportedBoundaryType` deferral at the graph boundary, not stored here.
+    result: ?u32 = null,
 };
 
 /// ADR-0195 §1 — per-component table of cooperative tasks (mirrors

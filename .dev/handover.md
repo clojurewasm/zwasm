@@ -59,10 +59,17 @@ CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`. Windows batch 
   mints a `Subtask` + enqueues a `TaskDescriptor`, returns SUBTASK_RETURNED=2. `pollSet`→null so a real WAIT
   deadlocks loudly. `UnsupportedBoundaryType` for async-with-params/result (loud). build+test+comp-spec 163/0+lint+
   fallback all green; x86_64 verify pending next ubuntu kick.
-- **NEXT (d — full guest↔guest stream rendezvous)**: extend beyond "both EXIT" to actual data transfer — B
-  produces stream data A consumes (the `async_two_tasks_stream_rendezvous` exit-condition): `pollSet` must deliver
-  cross-task stream events (today null), the async trampoline handles params/results (today UnsupportedBoundaryType),
-  + the rendezvous routes through the shared `SharedTable`. Then (e) adversarial (deadlock/dropped/cancelled).
+- **(d) SURVEY DONE** — incremental path (a)→(b)→(c): **(d-a) = SMALLEST data-transfer = B's async export
+  `task.return(42)` captured graph-side** (no SharedTable needed); then (d-b) single-shot future rendezvous, (d-c)
+  full stream — both need `SharedTable` moved to `GraphAsync` (graph-level) + `pollSet` harvesting peer
+  `pending_event` (today null) + handle-param marshalling (handles transfer transparently once SharedTable is
+  graph-level). **GAP found**: graph children do NOT wire canon builtins (no `WasiP2Ctx` in component_graph.zig —
+  c-2b invokes B's callback RAW), so (d-a) must wire a graph-level `task.return` host func + track the CURRENT task
+  (set before each `invokeTaskCallback`) so it stores into that `TaskDescriptor.result: ?u32` (new per-task slot —
+  the single `WasiP2Ctx.task_return` slot would collide across tasks).
+- **NEXT (d-a, DELEGATED — verify on return)**: `TaskDescriptor.result` + graph-level task.return wiring +
+  current-task tracking + fixture `two_async_components_task_return.wat` (B `tick()->i32` task.return(42); assert
+  the subtask's captured result==42 + both tasks done). Then (d-b)/(d-c) rendezvous via graph-level SharedTable.
 - **Exit-condition**: `async_two_tasks_stream_rendezvous.wat` (2-component: A async-imports B's async export)
   builds + asserts Subtask creation→resolution + waitable-set delivery, e2e green; full async corpus + (e)
   adversarial (deadlock/dropped/cancelled) green; single-task path unchanged.
