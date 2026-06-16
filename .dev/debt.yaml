@@ -1026,6 +1026,16 @@ entries:
       space → its canon-lower → its core import; and canon lift/lower for
       aggregate (string/list/record) cross-component args. Lands when a fixture
       demands aggregate cross-component values.
+      **SCOPE PINNED 2026-06-17 (RED fixture `test/component/strlen_graph.wat`)**: a realistic aggregate-passing
+      component needs a `$libc` core module (memory + cabi_realloc) PLUS its main module — but `instantiateGraph`
+      (`component.zig:470` `firstCoreModule`) compiles only the FIRST core module per child, so a 2-module child's
+      `run` export is never instantiated → `error.ExportNotResolved`. So the FIRST barrier is **multi-core-module /
+      multi-core-instance graph linking** (iterate the child's core instances, resolve each `(with ...)` arg incl.
+      canon-lowered import instances + the libc memory), THEN the canon lower→core→lift cross-component STRING
+      marshalling (A-mem→B-mem copy) at the boundary. Full fully-general linker = genuinely multi-cycle (matches the
+      original "disproportionate effort" assessment). RED fixture committed (asserts `run()==0x5A`); wire its test
+      WITH the impl (can't commit a failing test). Incremental plan: (1) multi-module graph linking (flat args, new
+      flat 2-module fixture) → green; (2) canon boundary aggregate marshalling (strlen_graph) → green.
     first_raised: "2026-06-07"
     last_reviewed: "2026-06-07"
     refs: src/api/component.zig (instantiateGraph); test/component/adder_graph.wasm; .dev/component_model_plan.md (Phase C/D)

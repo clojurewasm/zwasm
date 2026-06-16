@@ -35,18 +35,31 @@ it now = speculative infra (spike §2, no consumer). **Retained**: Phase II(a) s
 (v1-JIT parity met/exceeded, D-265 closed — `bench/results/s15p_parity_vs_v1.md`). Robustness re-verified: fuzz 808
 mods 0 crashes on BOTH interp AND **JIT** codegen; README/docs/flags drift-clean.
 
-**NEXT (autonomous) — OPEN D-305 component-composition campaign** (drive the hard parked work per
-`feedback_no_premature_deferral_lock`; verified TESTABLE unlike the parked scheduler). The flat-u32 2-component graph
-already works + is tested (`adder_graph`, C2-3b-1, `component.zig:instantiateGraph@437`; `invokeFlat@428`). The gap =
-AGGREGATE (string/list/record) cross-component args need canon lower→core→lift AT THE COMPONENT BOUNDARY (today the
-cross-component call is a direct flat-u32 core call, no boundary marshalling — scope comment `component.zig:382-386`).
-**Plan (TDD)**: (a) RED = author a 2-component graph `.wat` where B exports a func taking/returning a STRING (or
-list), A imports+calls it → currently unsupported (fails); mirror `adder_graph.wat` but aggregate. (b) file an ADR
-(component-boundary canon lift/lower; §10-area) once the RED pins the exact requirement. (c) impl boundary marshalling
-in `instantiateGraph`/`invokeFlat` (reuse the host-boundary canon lift/lower that WASI already has, applied
-component↔component). This unblocks D-305's discharge ("lands when a fixture demands aggregate cross-component
-values") and is the first step of the linker that the async chain (D-335) ultimately needs. ADR-0193 (P1-P4, D-462) +
-D-461 (ADR-0194) CLOSED (below). **windowsmini gating RESUMED**. Version `2.0.0-alpha.3`.
+**D-305 component-composition campaign OPEN — Phase I scoped via RED fixture** (this turn). Authored
+`strlen_graph.wat` (2-component graph, B exports `firstbyte(s:string)->u32=s[0]`, A builds "Z" + calls it → must
+return 0x5A). It exposed the REAL first barrier: `instantiateGraph` (`component.zig:470` `firstCoreModule`) compiles
+only the FIRST core module per child, so a realistic 2-module child (libc + main) never instantiates `run` →
+`error.ExportNotResolved`. So the fully-general linker is genuinely multi-cycle (matches "disproportionate effort").
+See `## Active bundle`. ADR-0193 (P1-P4, D-462) + D-461 (ADR-0194) CLOSED (below). **windowsmini gating RESUMED**
+(batch a3b04e57 green). Version `2.0.0-alpha.3`.
+
+## Active bundle — D-305 fully-general component linker (component composition)
+
+- **Bundle-ID**: d305-component-linker
+- **Cycles-remaining**: ~5-8 (genuinely multi-cycle; disproportionate-effort per debt)
+- **Continuity-memo**: RED fixture `test/component/strlen_graph.{wat,wasm}` ready (asserts `run()==0x5A`; its test
+  is UNWIRED — can't commit a failing test, wire it WITH the green impl). Incremental TDD plan: **(1) FIRST**
+  multi-core-module / multi-core-instance graph linking — `instantiateGraph` (`component.zig:437-496`) currently
+  compiles only `firstCoreModule` + name-matches flat func imports; rework to iterate the child's core instances,
+  resolve each `(with ...)` arg (incl. canon-lowered import instances + the libc memory export). Author a FLAT
+  2-module-per-component fixture (libc + main, flat-u32 args) as the RED for THIS step → green (lifts the
+  "one-core-module-per-child" limit, no marshalling yet). **(2) THEN** canon lower→core→lift cross-component STRING
+  marshalling at the boundary (A-mem→B-mem copy; reuse the host-boundary canon machinery WASI already has) → wire
+  strlen_graph test → green. File an ADR (§10-area component-boundary canon lift/lower) at step (2) design. Key
+  files: `src/api/component.zig` (`instantiateGraph`/`ComponentGraph`/`invokeFlat`), `feature/component/canon.zig`
+  (lift/lower), `feature/component/ctypes.zig` (component_instances / canons). D-305 debt has the pinned scope.
+- **Exit-condition**: `strlen_graph` test green (a STRING marshals across the component boundary, `run()==0x5A`),
+  AND `adder_graph` (flat) + the full component corpus stay green.
 
 ## D-461 regalloc-origin rework (ADR-0153/ADR-0194) — CLOSED Phase I-V 2026-06-16
 
