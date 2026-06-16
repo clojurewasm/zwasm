@@ -19,17 +19,18 @@ CLI surface audit (@4e5e42fe): code↔`--help` fully consistent. Gate change @b1
 (windows `[run_remote_windows] OK.` wasm-3.0-assert pass=10234 fail=0 / simd 24805/0 / spec 25539/0; ubuntu OK
 @f1a1d503). win-specassert campaign fully closed; the fail-gate is clean.
 
-**ADR-0193 feature-separation follow-up audit DONE** (this turn): the user's flagged drift swept — stale
-`-Dcomponent` flag refs in source comments fixed (@c7ee8f49, code already used the derived `enable_component`); the
-version string single-sourced from `build.zig.zon` via build_options (@a7e61d62, killed the zwasm.zig hardcode →
-`zwasm --version` can't drift from the tag). CWFS handoff (`docs/handoff_cw_v1.md`) confirmed CURRENT re: `-Dwasi>=p2`
-gating (relay scratch is gitignored, regenerated per-handoff). D-335 typed marshalling DONE both directions
-(write @630e7141 / read @f2a002f4).
+**wasi:random surface COMPLETED** (this turn): the trio now wired — `random` (pre-existing) + `insecure`
+(@6ec83e31) + `insecure-seed` (@21b0c574). insecure variants over-satisfied by the host secure fill (route to the
+same handlers, no separate RNG); insecure-seed `tuple<u64,u64>`→retptr. Each has a classify test + e2e fixture
+(exit 0). Closes the WASI 0.3 random gap (HashMap-seeding Rust guests now resolve). 3-host green (win @21b0c574,
+ubuntu @fab05508). Prior: ADR-0193 follow-up audit (comment drift @c7ee8f49 + version SSOT @a7e61d62; CWFS handoff
+confirmed current); D-335 typed marshalling DONE both directions (@630e7141 / @f2a002f4).
 
 **NEXT (autonomous)**: the default `p2→p3` flip is gated only on D-335's BIGGER remainders (guest↔guest stream
 byte-buffering = Zone-1 rendezvous redesign, may tension ADR-0187 stackless; sockets/http async = Unit E full — each
-a fresh multi-cycle bundle, open via Step-0). Fronts: D-335 big remainder OR `D-209` memory64. ADR-0193 (P1-P4,
-D-462) + D-461 regalloc-origin (ADR-0194) CLOSED (below). **windowsmini gating RESUMED**. Version `2.0.0-alpha.3`.
+a fresh multi-cycle bundle, open via Step-0). Fronts: D-335 big remainder OR continued WASI/CLI surface
+completeness. ADR-0193 (P1-P4, D-462) + D-461 regalloc-origin (ADR-0194) CLOSED (below). **windowsmini gating
+RESUMED**. Version `2.0.0-alpha.3`.
 
 ## D-461 regalloc-origin rework (ADR-0153/ADR-0194) — CLOSED Phase I-V 2026-06-16
 
