@@ -15,6 +15,10 @@ now pass=10234 = ubuntu, 0 MODULE-READ-FAIL, VERIFIED**; + @b1606384 gates the r
 "OK-hides-pass=0" masking; lesson `windows-crlf-manifest-badpathname-hidden-by-nongating-skeleton`). D-458 RESIDUAL
 (note): broad regen non-idempotency. Ratchet baseline 24 loose (real 22) — harmless. Stale-doc: ROADMAP §16.7 D-277.
 
+CLI surface audit (@4e5e42fe): code↔`--help` fully consistent (all parsed flags documented); fixed one stale doc —
+`--max-table-elements` was missing from `docs/reference/cli.md`. Gate change @b1606384 ubuntu-verified green @f1a1d503;
+windows gate-verify in flight.
+
 **NEXT (autonomous)**: ADR-0174 Phase-1 done → windowsmini fully green; **Phase-2 (gate suspension) now eligible** —
 `should_gate_windows.sh --suspend` would drop to a 2-host fast-loop (memory `feedback_windowsmini_campaign_then_suspend`:
 CWFS uses tag refs, no conflict; resume before main-merge / Win64-risk). Else: Phase-17 完成形 surface audits
