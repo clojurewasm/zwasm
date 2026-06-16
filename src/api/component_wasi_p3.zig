@@ -505,6 +505,27 @@ test "D-335 unit E3: wasi:cli/stdin read-via-stream — a guest stream.read COMP
     try driveAsyncMain(&built);
 }
 
+test "D-335 typed marshalling (READ): a stream<u32>.read of 2 elements consumes 8 host bytes (elem_size=4)" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/async_stdin_read_via_stream_u32.wasm", testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+    // 8 host bytes = two little-endian u32 (0x11223344, 0x55667788). The guest
+    // reads 2 ELEMENTS → COMPLETED(2) (not 8) + the bytes land verbatim; a clean
+    // run proves the read-path host→guest elem_size=4 marshalling.
+    host.stdin_bytes = &.{ 0x44, 0x33, 0x22, 0x11, 0x88, 0x77, 0x66, 0x55 };
+
+    var built = try wasi_p2.buildWasiP2Component(&eng, testing.allocator, bytes, &host, .{});
+    defer built.deinit();
+    try driveAsyncMain(&built);
+}
+
 test "D-335 unit E2b: waitable-set.new + waitable.join build a set holding the joined waitable" {
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();
