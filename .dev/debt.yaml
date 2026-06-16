@@ -1040,7 +1040,7 @@ entries:
       marshalling landed in new `src/api/component_graph.zig` (outer component_instances × inner core_instances loop
       + boundary trampoline via `canon.CanonContext` copying the string caller-mem→callee-mem; typed
       `UnsupportedBoundaryType` for unimpl shapes). `component_model_assert` 159/0/0 (strlen `firstbyte("Z")→0x5A`
-      PASS + adder flat intact); 3-host pending. **REMAINING (keeps this row)**: other aggregate shapes
+      PASS + adder flat intact); x86_64-verified @b4e33689 (ubuntu test-all exit 0); windows batched. **REMAINING (keeps this row)**: other aggregate shapes
       (list/record/result/tuple) + result-direction string + >2-component/deeper graphs. PROBED 2026-06-17: a
       `list<u32>` cross-component fixture correctly hits the typed `UnsupportedBoundaryType` deferral (NOT a silent
       mis-marshal — the design's safety verified). NEXT-INCREMENT SCOPE (component_graph.zig): the marshaller is

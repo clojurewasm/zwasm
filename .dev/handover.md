@@ -22,10 +22,13 @@ Prior: wasi:random COMPLETE; ADR-0193 follow-up + version SSOT; D-335 typed mars
 cross-component STRING marshalling works (`strlen_graph` PASS). The fully-general linker now exists; remaining
 aggregate shapes are consumer-gated D-305 debt.
 
-**NEXT (autonomous)**: 3-host-verify @4cceeb1e first (ubuntu+windows — new load-bearing instantiation code).
-Then options: (a) continue D-305 — next aggregate shape (a `(list u8)` or `record` cross-component fixture; reuses
-`BoundaryCtx`/`CanonContext`, likely small now the string case works); (b) light maintenance on the plateau.
-ADR-0193 (P1-P4, D-462) + D-461 (ADR-0194) CLOSED (below). **windowsmini gating RESUMED**. Version `2.0.0-alpha.3`.
+**NEXT (autonomous)**: the D-305 milestone is banked + x86_64-verified; the remaining aggregate shapes
+(list/record/result/tuple) are **consumer-gated debt with a precise scope recorded** (D-305 row) — NOT grinding the
+long-tail speculatively (each needs alignment-sensitive boundary marshalling; lands when a fixture/consumer demands,
+or in a dedicated fresh-context session). Posture = **plateau maintenance** (periodic fuzz, debt sweeps, surface
+micro-audits); land a remaining aggregate IF a real consumer appears. Windows verifies the D-305 code at the next
+batch (8/12). ADR-0193 (D-462) + D-461 (ADR-0194) CLOSED (below). **windowsmini gating RESUMED**. Version
+`2.0.0-alpha.3`.
 
 ## D-305 component-composition — first milestone CLOSED 2026-06-17 (@4cceeb1e, ADR-0196)
 
@@ -33,7 +36,8 @@ CLOSED: cross-component STRING marshalling works. New `src/api/component_graph.z
 (outer `component_instances` × inner `core_instances` loop) + a boundary trampoline copying the string
 caller-mem→callee-mem via `canon.CanonContext`; typed `UnsupportedBoundaryType` for unimpl shapes. `strlen_graph`
 spec PASS (`firstbyte("Z")→0x5A`) + adder flat intact = `component_model_assert` 159/0/0; build+test+test-spec+
-test-component-spec+lint green (3-host pending). REMAINING D-305 (debt, consumer-gated): other aggregate shapes
+test-component-spec+lint green; **x86_64-VERIFIED @b4e33689 (ubuntu test-all exit 0)**, windows batched. REMAINING
+D-305 (debt, consumer-gated; NOT grinding speculatively): other aggregate shapes
 (list/record/result/tuple) + result-direction string + deeper graphs — reuse `BoundaryCtx`/`CanonContext`, land
 when a fixture demands. (A subagent wrote the impl during an API outage; main loop verified + committed it.)
 
