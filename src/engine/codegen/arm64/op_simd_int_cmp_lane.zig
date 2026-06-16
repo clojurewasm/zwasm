@@ -485,7 +485,8 @@ pub fn emitI16x8Bitmask(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     const result_vreg = ctx.next_vreg.*;
     ctx.next_vreg.* += 1;
     if (result_vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
-    const result_w = try gpr.resolveGpr(ctx.alloc, result_vreg);
+    // D-461: spill-aware i32 result (was resolveGpr-reject under high v128 pressure).
+    const result_w = try gpr.gprDefSpilled(ctx.alloc, result_vreg, 0);
 
     const mask_idx = try lookupOrAppendExtraConst(ctx, I16X8_BITMASK_MASK);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon_arith.encSshrV8H(bitmask_scratch_v_t, src_v, 15));
@@ -493,6 +494,7 @@ pub fn emitI16x8Bitmask(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encAnd16B(bitmask_scratch_v_t, bitmask_scratch_v_t, bitmask_scratch_v_mask));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon_arith.encAddvH8H(bitmask_scratch_v_t, bitmask_scratch_v_t));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon_lane_cmp.encUmovWFromH(result_w, bitmask_scratch_v_t, 0));
+    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 0);
     try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
 }
 

@@ -1047,7 +1047,11 @@ pub fn emitI16x8Bitmask(
     next_vreg.* += 1;
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
-    const src_x = try gpr.resolveXmm(alloc, src_v);
+    // D-461: spill-aware v128 source — load into STAGE 1 (XMM15), NOT stage 0,
+    // because this op uses stage-0 XMM14 as its PACKSSWB scratch (`scratch_x`
+    // below). A stage-0 load would clobber the source. Backward-compatible
+    // (home XMM when not spilled).
+    const src_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, src_v, 1);
     const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
     const scratch_x = abi.fp_spill_stage_xmms[0]; // XMM14
 
