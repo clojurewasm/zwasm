@@ -244,8 +244,8 @@ all three surfaces — Zig API, C `zwasm.h` setters, and the CLI flags (ADR-0179
 | **GC**                        | mark-and-sweep, on by default                        | mark-sweep with conservative native-stack root scan; **opt-in** (`-Dgc`, default off)                                                                          |
 | **Atomics (threads opcodes)** | on by default                                        | implemented (validated + lowered + interpreted); broader shared-memory/spawn is a reserved stub                                                                |
 | **Compile to disk**           | `--cache` → predecoded-IR `.zwcache`                | `compile` → AOT `.cwasm`; `run` auto-detects it                                                                                                               |
-| **Component Model**           | decoder, on by default                               | decoder + canonical ABI + structural validation + WIT; **opt-in** (`-Dcomponent`, default off); a real `wasm32-wasip2` component runs e2e                      |
-| **Build defaults**            | `wat`/`jit`/`simd`/`gc`/`threads`/`component` all on | `-Dwasm=v3_0`, `-Dwasi=p1`, `-Dengine=both`; `gc` and `component` default **off**                                                                              |
+| **Component Model**           | decoder, on by default                               | decoder + canonical ABI + structural validation + WIT; gated by `-Dwasi>=p2` (default `p2`, so **on**); a real `wasm32-wasip2` component runs e2e             |
+| **Build defaults**            | `wat`/`jit`/`simd`/`gc`/`threads`/`component` all on | `-Dwasm=v3_0`, `-Dwasi=p2`, `-Dengine=both`; component **on** (via `-Dwasi>=p2`), `gc` default **off** (ADR-0193)                                              |
 
 ### 3.3 WASI
 
@@ -253,9 +253,11 @@ Both ship **WASI 0.1 (preview1)**. In v2:
 
 - WASI runs on **all execution paths** — interpreter, `--engine jit`, and AOT
   `.cwasm` — with a deny-by-default capability model and `--dir` preopen at the CLI.
-- **WASI 0.2 / preview2** (Component Model) is **default-ON** (ADR-0182;
-  `-Dcomponent=false` for a lean opt-out) — real `wasm32-wasip2` Rust/Go
-  components run e2e (corpus 158/0/0).
+- **WASI 0.2 / preview2** (Component Model) is **default-ON** via the WASI tier
+  `-Dwasi>=p2` (default `p2`; `-Dwasi=p1` for a lean opt-out — ADR-0193 folded the
+  former `-Dcomponent` flag into the version axis) — real `wasm32-wasip2` Rust/Go
+  components run e2e (corpus 158/0/0). **WASI 0.3 / preview3** (async) compiles at
+  `-Dwasi=p3` (opt-in; the default `p2` keeps it out until it settles).
 - **C-API preopen** is **shipped** (ADR-0184: `zwasm_wasi_config_preopen_dir`
   + `inherit_env`); the CLI `--dir` and Zig facade also cover it.
 - **Preopen confinement:** guest paths are escape-guarded (absolute and `..` are
@@ -290,8 +292,8 @@ Claims above are anchored to the v2 source tree (paths are repo-relative):
   `src/instruction/wasm_2_0/` are not interpreter-wired; real codegen lives in
   `src/engine/codegen/{arm64,x86_64}/op_simd_*.zig`; the spec SIMD runner
   (`test/spec/simd_assert_runner.zig`) JIT-executes.
-- **Build defaults:** `build.zig` (`-Dwasm` / `-Dwasi` / `-Dengine` / `-Dgc` /
-  `-Dcomponent`).
+- **Build defaults:** `build.zig` (`-Dwasm` / `-Dwasi` / `-Dengine` / `-Dgc`;
+  component + P3-async are derived from the `-Dwasi` tier — ADR-0193).
 - **WASI confinement:** `src/wasi/path.zig` (`symlinkTargetEscapes`), `src/wasi/fd.zig`.
 
 To build and run:

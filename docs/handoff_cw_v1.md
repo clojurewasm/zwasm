@@ -30,7 +30,7 @@
 | Core Wasm **1.0 / 2.0 / 3.0** | **100% spec testsuite, 0 skip**, 3-host green (Mac aarch64 · ubuntu x86_64 · windows x86_64) |
 | v0.2 features | atomics (threads), wide-arithmetic, custom-page-sizes, relaxed-SIMD — all complete + official corpora |
 | WASI **0.1 (preview1)** | Complete |
-| **Component Model + WASI Preview 2** | Functional: a real `rustc --target wasm32-wasip2` component runs e2e through zwasm. Structural component validation (type-index / Canon / alias / ExternDesc bounds — ADR-0176). **Compile-in is opt-in** (`-Dcomponent`) |
+| **Component Model + WASI Preview 2** | Functional: a real `rustc --target wasm32-wasip2` component runs e2e through zwasm. Structural component validation (type-index / Canon / alias / ExternDesc bounds — ADR-0176). **Compile-in is on by default** (gated by `-Dwasi>=p2`; `-Dwasi=p1` opts out) |
 | Engine | Single-pass JIT (aarch64 + x86_64 SysV/Win64) + interpreter. `-Dengine=jit\|interp\|both` |
 | Surfaces | **C-API** (upstream wasm-c-api, `include/wasm.h`+`wasi.h`+`zwasm.h`) — gap-free vs the suite. **Zig API** (`src/zwasm.zig` facade). **CLI** (`zwasm run`, `zwasm compile`) |
 | Memory safety | Sound across all areas (ASan/leak-checked); JIT now ReleaseSafe-clean on the host boundary (D-311) |
@@ -72,13 +72,14 @@ explicit — there is no GC finaliser, so deinit in reverse construction order:
 wasm-c-api). Drop-in for hosts already targeting that interface.
 
 **CLI.** `zig build` → `zig-out/bin/zwasm run <file.wasm>` /
-`zwasm compile <file.wasm>`. WASI P1 by default; component/P2 via a build
-with `-Dcomponent`.
+`zwasm compile <file.wasm>`. Component Model / WASI-P2 is on by default
+(default `-Dwasi=p2`); `-Dwasi=p1` for a lean core+P1 build.
 
 **Build flags** (`zig build -D…`): `wasm=1.0|2.0|3.0` (default 3.0),
-`wasi=none|p1` (default p1), `engine=jit|interp|both` (default both),
-`gc=true` (WasmGC compile-in, default off), `component=true` (CM + WASI-P2,
-default off — production stays zero-cost when off), `strip`, `sanitize`.
+`wasi=none|p1|p2|p3` (default p2; ordered tier — p2 = Component Model / WASI-P2,
+p3 = + Preview-3 async), `engine=jit|interp|both` (default both),
+`gc=true` (WasmGC compile-in, default off), `strip`, `sanitize`. ADR-0193 folded
+the former `component=true` flag into `-Dwasi>=p2`.
 
 See also: `docs/tutorial.md`, `docs/migration_v1_to_v2.md` (v1→v2 surface map).
 
@@ -91,8 +92,8 @@ See also: `docs/tutorial.md`, `docs/migration_v1_to_v2.md` (v1→v2 surface map)
   signatures are functional and the e2e path is proven. The `IT-1/2/3` labels in
   that file's comments/test names are **campaign stage-markers, not signature
   churn**. Execution is functional (real component e2e), but the embedding API
-  is **not yet frozen** (opt-in `-Dcomponent`): it may still change when the
-  deeper-conformance thread resumes. Recommendation:
+  is **not yet frozen** (gated by `-Dwasi>=p2`, on by default): it may still change
+  when the deeper-conformance thread resumes. Recommendation:
   pin core-Wasm FFI now (stable); treat the CM embedding surface as a spike until
   it's frozen. Demand a freeze when cw v1 commits to a CM spike.
 - **Component Model deeper conformance**: structural validation done (4 rules);
@@ -109,8 +110,9 @@ See also: `docs/tutorial.md`, `docs/migration_v1_to_v2.md` (v1→v2 surface map)
   long-tail deferrals, not bugs.
 - **D-299**: an x86_64 W^X / JIT atomic-alignment item, env-constrained
   (deferred, env-blocked, not a correctness gap on the supported path).
-- Component compile-in (`-Dcomponent`) is **off by default**; enable it in the
-  cw v1 build only if cw v1 needs the Component Model / WASI P2.
+- Component compile-in is gated by the WASI tier `-Dwasi>=p2` and is **on by
+  default** (default `-Dwasi=p2`); pass `-Dwasi=p1` for a lean build if cw v1
+  does not need the Component Model / WASI P2 (ADR-0193 removed `-Dcomponent`).
 
 None of these block core-Wasm / WASI-P1 embedding, which is complete.
 

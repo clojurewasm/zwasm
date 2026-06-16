@@ -170,7 +170,7 @@ inst.setTableElementsLimit(?u64)    // D-316 table.grow cap; over-cap = spec −
 inst.interrupt() / clearInterrupt() / interruptRequested()  // #3a cooperative cancel (any thread)
 ```
 
-## 8. Component Model + WASI 0.2 (default-ON; `-Dcomponent`)
+## 8. Component Model + WASI 0.2 (default-ON; gated by `-Dwasi>=p2`, ADR-0193)
 
 The cljw-facing entry is the **unified `open`** (REQ-1) returning an `Opened`
 handle that drives both the graph-engine and typed paths through one method set

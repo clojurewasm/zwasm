@@ -341,8 +341,9 @@ use the C API for stdio redirection.
 
 ### §3.9 — Component Model: typed invoke (ADR-0183, as-built)
 
-Component support is default-ON (`-Dcomponent=false` opts out, ADR-0182).
-The host surface lives at `zwasm.feature.component.host`
+Component support is gated by the WASI tier `-Dwasi>=p2` (default `p2`, so on
+by default; `-Dwasi=p1` opts out — ADR-0193 folded the former `-Dcomponent`
+flag into the WASI version axis). The host surface lives at `zwasm.feature.component.host`
 (`src/api/component.zig`); the component binary is **self-describing** —
 no `.wit` sidecar is needed (CWFS ADR-0135 "the binary IS the interface").
 

@@ -93,7 +93,7 @@ ecosystem bar, not because v1 had it):
 | Custom page sizes           | Complete                                                                                               |
 | Atomics / relaxed-SIMD      | Complete (instruction sets; threaded EXECUTION stays §3.3)                                            |
 | WASI 0.1                    | Complete                                                                                               |
-| **Component Model**         | **wasmtime-equivalent — SHIPPED** (ADR-0170/0181/0182; default-ON, `-Dcomponent=false` = lean opt-out; campaign closed 2026-06-13, corpus 158/0/0) |
+| **Component Model**         | **wasmtime-equivalent — SHIPPED** (ADR-0170/0181/0182; default-ON via `-Dwasi>=p2`, `-Dwasi=p1` = lean opt-out per ADR-0193; campaign closed 2026-06-13, corpus 158/0/0) |
 | **WASI 0.2 (preview2)**     | **wasmtime-equivalent native host** (ADR-0170/0180; CLI world + fs + sockets-TCP shipped)              |
 | **WASI 0.3 (preview3)**     | **ratified 2026-06-11; CM-async-based** (async func / stream / future) — now an **actionable front** on the shipped CM substrate (§9.0 Front D / **D-335**), build in progress; NOT a future-bucket lock |
 | 4-platform JIT              | aarch64-darwin / aarch64-linux / x86_64-linux / x86_64-windows                                         |

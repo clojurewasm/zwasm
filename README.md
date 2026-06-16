@@ -42,7 +42,7 @@ out of scope (demand-driven; ADR-0181 — no version-line planning anchors).
 | Spec                                 | Status                    | Notes                                                                                                                                                                                                                                                                                                                                                         |
 |--------------------------------------|---------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | WASI 0.1 (preview1)                  | ✅ functional             | interpreter: args / env / preopened dirs / clock / random / fd I/O                                                                                                                                                                                                                                                                                            |
-| WASI 0.2 (preview2, Component Model) | ✅ functional, default-ON | wasmtime-equivalent campaign complete (2026-06-13): real `wasm32-wasip2` Rust/TinyGo components run e2e (fs, sockets incl. TCP listeners, guest-defined resources); typed embedder API (introspection + `invokeTyped`); validation rules 1-12, official corpus 158/0/0; `-Dcomponent=false` = lean opt-out (see `.dev/component_model_plan.md` Retrospective) |
+| WASI 0.2 (preview2, Component Model) | ✅ functional, default-ON | wasmtime-equivalent campaign complete (2026-06-13): real `wasm32-wasip2` Rust/TinyGo components run e2e (fs, sockets incl. TCP listeners, guest-defined resources); typed embedder API (introspection + `invokeTyped`); validation rules 1-12, official corpus 158/0/0; gated by `-Dwasi>=p2` (default), `-Dwasi=p1` = lean opt-out (ADR-0193) |
 
 All three execution paths do full WASI I/O — the interpreter, the JIT
 (`--engine jit`, D-244), and AOT (`.cwasm`, D-251). The JIT additionally
@@ -144,9 +144,9 @@ FFI-capable language, not just C.
 
 ```
 -Dwasm=3.0|2.0|1.0          # default 3.0; lower levels omit later proposals
--Dwasi=p1|p2|both|none      # default p1
+-Dwasi=none|p1|p2|p3        # default p2; ordered tier. p2 = Component Model / WASI-P2 host,
+                            #   p3 = + Preview-3 async. -Dwasi=p1 = lean build (~-10%; ADR-0193)
 -Dengine=both|jit|interp    # default both
--Dcomponent=true|false      # default true; Component Model + WASI-P2 (-Dcomponent=false = lean build, ~-10%; ADR-0182)
 -Dstrip=true|false          # default false
 ```
 

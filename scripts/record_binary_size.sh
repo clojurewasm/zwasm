@@ -4,8 +4,8 @@
 # "lightweight" axis of the 完成形 bar is OBSERVED, not assumed.
 #
 # Records two variants per invocation (append-only, per ROADMAP §A9):
-#   base — `zig build -Doptimize=ReleaseFast` (components default-ON, ADR-0182)
-#   lean — same + -Dcomponent=false (CM/WASI-P2 subsystem stripped)
+#   base — `zig build -Doptimize=ReleaseFast` (components default-ON via -Dwasi=p2, ADR-0193)
+#   lean — same + -Dwasi=p1 (CM/WASI-P2 subsystem stripped)
 #
 # Cadence: manual / phase-boundary (alongside run_bench.sh --phase-record);
 # NOT a per-commit gate.
