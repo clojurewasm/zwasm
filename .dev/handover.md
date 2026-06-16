@@ -19,15 +19,27 @@ CLI surface audit (@4e5e42fe): code↔`--help` fully consistent. Gate change @b1
 (windows `[run_remote_windows] OK.` wasm-3.0-assert pass=10234 fail=0 / simd 24805/0 / spec 25539/0; ubuntu OK
 @f1a1d503). win-specassert campaign fully closed; the fail-gate is clean.
 
-**NEXT (autonomous)**: **ADR-0193 feature-separation migration CLOSED** (P1-P4, user-flagged D-462) — one ordered
-`-Dwasi={none,p1,p2,p3}` axis (default p2), `-Dcomponent` removed (component == `wasi_level>=.p2`), p3/async
-comptime-fenced (`test-wasi-p3` + DCE assertion), docs synced. WASI D+→B, component D→B. Residual: flip default
-`p2→p3` once WASI-0.3 Unit E/F settles (tracked under D-335). Now resume **`D-461` IV (SIMD spill)**, parked behind
-it: slice 1 DONE (`97afa4d4`, arm64 extract_lane spill-aware); next step = regalloc class-boundary OOB at
-`regalloc.zig:222` (`spill_idx = id - max_reg_slots_gpr` indexes the **fp** `spill_offsets` with the GPR boundary →
-x86_64 panic). x86_64 codegen locally TDD-able via `zig build test -Dtarget=x86_64-macos` under Rosetta (lesson
-`rosetta-x86_64-local-jit-unit-test`). Then `D-209` memory64. **windowsmini gating RESUMED**. Version →
-`2.0.0-alpha.3`.
+**NEXT (autonomous)**: **ADR-0193 feature-separation migration CLOSED** (P1-P4, D-462) — one ordered `-Dwasi`
+axis (default p2), `-Dcomponent` removed, p3/async comptime-fenced (`test-wasi-p3` + DCE), docs synced (WASI D+→B,
+component D→B; default `p2→p3` flip tracked under D-335). Now driving the **D-461 rework campaign** (see below).
+Then `D-209` memory64. **windowsmini gating RESUMED**. Version → `2.0.0-alpha.3`.
+
+## Active rework campaign — D-461 x86_64 regalloc FP-spill arch-parameterization (ADR-0153)
+
+- **Measured deficiency**: x86_64 JIT PANICS (`index out of bounds`, regalloc.zig:222) under ≥7 live FP/v128
+  vregs — a correctness gap (not bench). Root: the deterministic regalloc is **arm64-tuned** (8 GPR/13 FP slots,
+  spills minted at origin 8); x86_64 (4 GPR/6 XMM) "fakes" extra spills by lowering `slot()` thresholds, and the
+  v128 `spill_offsets` array is sized origin-8 but indexed `id - max_reg_slots_gpr(=4)` → +4 skew → OOB. Blocks
+  D-460 v128-GC x86_64 + array-copy-inline.6.
+- **Phase I (Investigation) DONE 2026-06-16** (`ccf49f4c`): mechanism nailed via instrumented `slot()` dump
+  (class=.fpr id=9 gpr=4 fp=6 n_slots=13 len=5 spill_idx=5); lesson `x86_64-regalloc-fp-spill-origin-mismatch` +
+  D-461 debt updated. Repro: un-gate the 12-live-v128 D-461 test (`runner_gc_test.zig:278`) + `zig build test
+  -Dtarget=x86_64-macos` (Rosetta).
+- **Phase II (Correctness-assurance FIRST) — NEXT**: write characterization tests pinning CURRENT x86_64 regalloc
+  behaviour (scalar GPR spill offsets, FP-register-only allocations, the boundary cases that work today) so the
+  arch-parameterization rework cannot silently regress them. THEN Phase III design ADR (parameterize `computeWith`
+  per-arch GPR/FP counts OR store spill-region origin in `Allocation`), IV impl, V retrospective. I+II are hard
+  gates before any redesign code.
 
 ## Active phase — doc-inventory + freshening (USER-requested 2026-06-16)
 
