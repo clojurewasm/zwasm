@@ -19,9 +19,12 @@ CLI surface audit (@4e5e42fe): code↔`--help` fully consistent. Gate change @b1
 (windows `[run_remote_windows] OK.` wasm-3.0-assert pass=10234 fail=0 / simd 24805/0 / spec 25539/0; ubuntu OK
 @f1a1d503). win-specassert campaign fully closed; the fail-gate is clean.
 
-**NEXT (autonomous)**: **`D-462` investigation + design DONE → ADR-0193 (Proposed)** awaiting USER review (see
-below). Meanwhile the autonomous track is **doc-inventory** (below). Version fixed: 0.0.0-pre → `2.0.0-alpha.3`
-(`46e900ce`). Secondary: ADR-0174 Phase-2 windows-suspension; debt sweep.
+**NEXT (autonomous)**: doc-inventory reader-facing surface DONE (count claims verified). `D-462` design DONE
+(ADR-0193) awaiting USER review. **Top autonomous candidate = `D-335` Unit G** — consolidate the ~21
+`test/component/async_*.wat` fixtures into a p3 corpus + directory-walking runner (LOW, ~800 LOC; finished-form
+aligned). **Also: ADR-0174 Phase-2 windows-suspension** (`--suspend` → 2-host fast-loop) is eligible — windows
+gate green (10234/0); upcoming work (D-335 G corpus, debt) is non-Win64-risk, so suspend to speed the loop
+(`--resume` before D-462 impl / any Win64-ABI diff). Version → `2.0.0-alpha.3` (`46e900ce`).
 
 ## USER-flagged D-462 — feature-separation finished-form — DESIGN DONE (ADR-0193), implementation USER-GATED
 
