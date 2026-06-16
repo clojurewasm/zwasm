@@ -22,7 +22,11 @@ CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`. Windows batch 
 ## Active bundle — ADR-0195 multi-task async scheduler (UNBLOCKED 2026-06-17 PM)
 
 - **Bundle-ID**: adr0195-scheduler-IIa..b (guest↔guest async = D-335 last functional gap)
-- **Cycles-remaining**: ~4 (II(a) correctness corpus → (b) TaskTable → (c) async trampoline + (d) e2e → (e) adversarial)
+- **Cycles-remaining**: ~3 (✓II(a) char net → (b) TaskTable → (c) async trampoline + (d) e2e → (e) adversarial)
+- **II(a) DONE** (@529cfcba): single-task `driveCallbackLoop` pinned at unit level — immediate-EXIT / YIELD /
+  single-WAIT / multi-iteration WAIT→WAIT→EXIT / mixed YIELD→WAIT (per-code dispatch + waitOn-set ordering +
+  re-entry count); real-runner AsyncDeadlock char test (`component_wasi_p3.zig:259`) pins error propagation. This
+  is the regression net the step-(b) refactor must keep byte-identical.
 - **Why now**: the D-305 SYNC linker landed → ADR-0195's parking precondition ("route async-import→guest-callee
   first") is OBSOLETE (ADR-0195 Rev 2026-06-17 PM). The async routing trampoline is a ~100 LOC mirror of the
   sync `boundaryTrampoline` (folds into step c); the TRUE remaining bottleneck is scheduler-internal: step (b)
@@ -30,8 +34,10 @@ CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`. Windows batch 
 - **Continuity-memo**: Phase II(a) correctness-FIRST — pin the single-task driver (EXIT/YIELD/WAIT/host-peer/
   `AsyncDeadlock`) with char tests BEFORE the TaskTable generalisation (the single-task path must stay
   byte-identical). `Subtask` (`async.zig:397`) is built-but-unwired ζ1 machinery to revive.
-- **NEXT**: Phase II(a) — author/confirm the single-task driver characterization corpus (adversarial), then
-  step (b) TaskTable. ADR-0195 (a)–(e) is the plan; ROI ~300–350 LOC total, MEDIUM risk.
+- **NEXT**: step (b) — `TaskDescriptor` + `TaskTable` (Zone-1) + refactor `driveCallbackLoop` (async.zig:124) to
+  drive a 1-entry table (single-task path byte-identical, guarded by the @529cfcba char net). ADR-0195 Decision
+  holds the design (cooperative round-robin). Re-read it + the existing `Subtask` (async.zig:397) inline; it's an
+  architectural chunk (own cycle). ROI ~200 LOC for (b), MEDIUM risk.
 - **Exit-condition**: `async_two_tasks_stream_rendezvous.wat` (2-component: A async-imports B's async export)
   builds + asserts Subtask creation→resolution + waitable-set delivery, e2e green; full async corpus + (e)
   adversarial (deadlock/dropped/cancelled) green; single-task path unchanged.
