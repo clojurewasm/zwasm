@@ -55,15 +55,21 @@ windows-suspension (`--suspend` → 2-host fast-loop; resume before main-merge /
 ## Active bundle
 
 - **Bundle-ID**: D-460-jit-v128-gc-emit (campaign Phase IV continuity)
-- **Cycles-remaining**: ~3 (architectural; 7 op files × 2 arches + v128 vreg result class)
-- **Continuity-memo**: JIT GC ops hardcode an 8-byte slot. Extend struct_get/set/new + array_get/set/new_fixed/copy
-  on BOTH arches to v128: index×16 stride (x86_64 uses Lsl3=×8 in `encMovR64FromBaseIdxLsl3`; arm64 mirror) + a
-  16-byte XMM load/store (movdqu) + a NEW v128 result-class arm (def = XMM vreg, not GPR). Width from
-  `FieldInfo.size` / `arrayElemValType==0x7B`. Full Phase-I scope in debt D-460. NOT a wrapper-thunk issue (func
-  returns i32 via extract_lane).
-- **Test vehicle**: `engine/runner_gc_test.zig` `runI32Export(alloc,&bytes,"f")`. First red→green:
-  `struct.new $s (i32x4.splat 5); struct.get $s 0; i32x4.extract_lane 0` → 5. `zwasm run --engine jit` does NOT
-  print export results — use runI32Export / native runner.
+- **Cycles-remaining**: ~2 (arm64 STRUCT done; arm64 array + x86_64 mirror remain)
+- **Continuity-memo**: **arm64 struct.new/get/set v128 DONE** (`f79a3ced`, 3 runI32Export tests green). Infra added:
+  vreg_class 0x7B→v128; `ZirFunc.structFieldByteOffset`/`arrayElemBytes`/`gcSlotBytes` (compile-time running-sum,
+  v128=16B); arm64 v128 arm = ADD field_off into base + `inst_neon.encLdrQImm`/`encStrQImm` at #0 (field not
+  16-aligned, but offset 0 satisfies the scaled-imm; arm64 permits the unaligned access). qDef/qLoad/qStoreSpilled
+  already existed.
+- **NEXT**: (1) **arm64 array_get/set/new_fixed/copy** v128 — these use a RUNTIME `index×8` stride
+  (`encLdrXRegLsl3`); v128 needs `index×16` (shift idx<<4 into a scratch, ADD into base, then `encLdrQImm`/StrQ at
+  #0). (2) **x86_64 mirror** (struct + array): index×8 Lsl3 → ×16, movdqu, v128/XMM result arm. (3) verify wasmtime
+  gc/array-copy-inline.6 → 16 under the native runner.
+- **Gotcha**: `v128.const` FEEDING a GC op (struct.new operand) gives `UnsupportedOp` (separate pre-existing JIT
+  constant-pool/spill interaction; `i32x4.splat`/`replace_lane` work fine — array-copy-inline.6 uses splat). Don't
+  chase it inside this bundle; note as its own debt if a fixture needs it.
+- **Test vehicle**: `runI32Export(alloc,&bytes,"f")` (Mac=arm64). Build modules via `wasm-tools parse`, strip the
+  name section. `zwasm run --engine jit` does NOT print export results — use runI32Export / native runner.
 - **Exit-condition**: struct + array v128 round-trip via runI32Export green on BOTH arches AND wasmtime
   gc/array-copy-inline.6 returns 16 under the native runner; e2e edge fixture under test/edge_cases/p10/gc/.
 
