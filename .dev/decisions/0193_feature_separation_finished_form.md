@@ -49,8 +49,8 @@ Per-axis finished-form grade + biggest erosion:
 
 ## Decision (target finished form)
 
-**Single ordered WASI version axis, with the component runtime as its P2+ substrate, reified as Zone-1 feature
-registration.**
+**Single ordered WASI version axis, with the component runtime as its P2+ substrate, gated by a comptime
+`wasi_level` predicate at the feature boundary** (NOT a dispatch-table `register()` — see §3 revision).
 
 1. `WasiLevel = enum { none, p1, p2, p3 }` — an **ordered tier** (drop the `both` wildcard; `p3 ⊇ p2 ⊇ p1`).
    Dispatch filter becomes `need > build_level → drop` (remove the `!= .both` special case at
@@ -60,10 +60,18 @@ registration.**
    component substrate here; P3 = P2 + async. `-Dcomponent` is **hard-removed** (user decision (a): no
    deprecated alias — an alias would preserve exactly the two-flag `分岐散り` this ADR exists to kill). This
    eliminates the two-flag overlap + the contradictory-combo class.
-3. **Reify P2/P3 as Zone-1 feature registration** mirroring `src/feature/gc/register.zig`: new
-   `src/feature/wasi_p2/register.zig` + `src/feature/wasi_p3/register.zig` declaring their level + a `register()`
-   that wires host builtins, so the gate lives *with the feature* (file tier) instead of a Zone-3 CLI branch.
-   Zone-3 keeps only thin orchestration (`api/component_wasi_glue.zig`).
+3. **Gate the P2/P3 host by a comptime `wasi_level` predicate at the feature boundary** — NOT a dispatch-table
+   `register()`. **REVISED 2026-06-16 after the P2 survey**: the `src/feature/gc/register.zig` model does NOT
+   fit WASI. GC `register()` installs static IR-op handlers into the Zone-1 `DispatchTable` singleton; WASI host
+   imports resolve **by-name at instantiation** (`buildWasiP2Component`, Zone-3, per-run resource-handle tables),
+   so there is no global-registration analog — a `wasi_p2/register.zig` would be an empty mirror, and Zone 1
+   (`src/feature/`) cannot reference the Zone-3 `Linker`/`Instance` the host wiring needs. The real reification:
+   (i) a single comptime predicate `build_options.wasi_level >= .p2` replaces the separate `enable_component`
+   bool everywhere (so build-time gate == runtime reachability — kills the two-flag erosion); (ii) the async/P3
+   host (`api/component_wasi_p3.zig` + `feature/component/async.zig`) compiles **only** under
+   `wasi_level >= .p3`, the component/P2 host only under `>= .p2` — replacing today's runtime export-shape
+   P2-vs-P3 dispatch's *always-compiled* state, so a p2 build emits zero p3-async symbols (DCE-assertable). The
+   Zone-1 `feature/component/` decoder is unchanged; only the gate axis + comptime fences move.
 4. **Structuralise the ~4 cheap branch sites** (instance.zig imports → registration; memory64 emit →
    `op_memory_i64.zig`); **explicitly accept the ~6 unavoidable** ones (document each with a one-line "why
    unavoidable" so future audits don't re-flag them).
@@ -88,13 +96,20 @@ registration.**
    ship in any `-Dcomponent=true` build regardless of `-Dwasi`. That ungated state IS the WASI-D+ erosion; the
    `wasi_level >= p3` gate + the matching `check_build_dce` p3-forbidden assertion (a p2 build has no p3-async
    symbols) land in **P2/P3** once the gate exists, NOT in P1.
-2. **P2 — registration reification**: introduce `src/feature/wasi_p{2,3}/register.zig`; move host-builtin wiring
-   out of the Zone-3 CLI branch into `register()`. Behaviour-preserving; characterization tests pin the WASI
-   corpus (158/0/0) at every commit.
-3. **P3 — fold `-Dcomponent` into `wasi_level >= p2`**: **hard-remove** the standalone bool. Breaking flag
-   change; do last, after the axis is coherent. Rewrite the old-default-assuming consumers in one go:
-   `record_binary_size.sh` (lean = `-Dwasi=p1`, was `-Dcomponent=false`), `build.zig` comp_options, the
-   `enable_component` gate sites (`src/zwasm.zig:170`, `src/cli/main.zig:296`).
+2. **P2 — fold `enable_component` into `wasi_level >= .p2`** (REVISED per survey — NOT a `register()` reify).
+   Derive the gate from the tier: in `build.zig`, `enable_component = @intFromEnum(wasi_level) >= @intFromEnum(.p2)`,
+   and **hard-remove the `-Dcomponent` b.option**. `enable_component` survives only as the internal derived
+   `build_options` bool the existing `comptime` fences already read (`src/zwasm.zig:170`, `cli/main.zig:296`) —
+   so those sites are untouched; only their *source of truth* changes from a flag to the tier. Rewrite the
+   old-default-assuming consumers in one go: `record_binary_size.sh` (lean = `-Dwasi=p1`, was `-Dcomponent=false`),
+   `build.zig` comp_options (`core_comp` forces `enable_component=true` → forces `wasi_level=.p2` floor instead).
+   Behaviour-preserving at default (p2 ⇒ component on, == today). Characterization: WASI/component corpus 158/0/0
+   pinned every commit.
+3. **P3 — comptime-fence the p3/async host on `wasi_level >= .p3`**: add the derived `enable_async`/`enable_wasi_p3`
+   `build_options` bool; `comptime`-gate `api/component_wasi_p3.zig` + `feature/component/async.zig` imports
+   (`component.zig:556`, `zwasm.zig:413`) on it so a p2 build emits **zero** p3 symbols. Then add the
+   `check_build_dce` p3-forbidden assertion (a `-Dwasi=p2` build has no `wasi_p3_`/async symbols) + extend its
+   matrix to p3. This is the erosion's true close: build-time `-Dwasi` finally agrees with runtime reachability.
 4. **P4 — structuralise + follow-on sync**: structuralise the cheap branch sites (instance.zig imports,
    `op_memory_i64.zig`) + annotate the unavoidable ones; **sync the Zig API doc** (`docs/zig_api_design.md`
    §3.8/§3.9 still says "`-Dcomponent=false` opts out" — rewrite to the `-Dwasi` axis); **CWFS dogfooding
