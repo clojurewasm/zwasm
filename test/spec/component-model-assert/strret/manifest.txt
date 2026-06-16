@@ -1,0 +1,10 @@
+# D-305: a 2-component graph that marshals a STRING RESULT across the boundary.
+# Component B exports tag()->string returning the fixed "Z" (0x5A); Component A
+# imports tag, calls it, reads the first byte of the returned string from A's
+# OWN memory, and returns it. The correct 0x5A REQUIRES the result string be
+# lowered B-memory -> A-memory (lift from B, lower into A via A's realloc), not
+# B's (ptr,len) passed through into foreign memory. A string result flattens to
+# >1 core value, so it returns via a RETPTR — the lowered import is (retptr)->().
+# Provenance: test/component/strret_graph.wat.
+graph test/component/strret_graph.wasm
+assert_flat_i32 run -> 90

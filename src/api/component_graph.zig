@@ -123,6 +123,10 @@ const BoundaryCtx = struct {
     /// For a single `list<primitive>` param: the element byte size (1/2/4/8),
     /// so the boundary copies `count * elem_size` bytes. 0 = not a list param.
     list_elem_size: u32 = 0,
+    /// The IMPORTER child (owns the memory + realloc a `string` RESULT is
+    /// lowered INTO). Only set for the retptr-result trampoline (`tag() ->
+    /// string`); null for the flat-result trampoline.
+    importer: ?*GraphChild = null,
 };
 
 /// A linked multi-component graph (D-305). Heap-allocated children +
@@ -391,7 +395,7 @@ fn pourSyntheticExport(
     // The outer `with` arg whose name matches this import names the provider
     // child + that child's exported func.
     const provider = resolveProvider(graph, outer_it, import_name) orelse return GraphError.ImportUnsatisfied;
-    try installBoundaryTrampoline(graph, lk, ns, ex.name, import_name, &child.info, provider);
+    try installBoundaryTrampoline(graph, lk, ns, ex.name, import_name, child, provider);
 }
 
 const Provider = struct { child: *GraphChild, export_name: []const u8 };
@@ -432,15 +436,39 @@ fn installBoundaryTrampoline(
     ns: []const u8,
     core_export_name: []const u8,
     import_name: []const u8,
-    importer_info: *const ctypes.TypeInfo,
+    importer: *GraphChild,
     provider: Provider,
 ) GraphError!void {
-    _ = importer_info;
     const r = provider.child.info.resolveLiftedFunc(provider.export_name) orelse return GraphError.ImportUnsatisfied;
     const ft = provider.child.info.resolveFuncType(provider.export_name) orelse return GraphError.ImportUnsatisfied;
     const core_inst = provider.child.core_instances.items[r.core_func.instance] orelse return GraphError.ImportUnsatisfied;
     if (r.string_encoding != .utf8) return GraphError.UnsupportedBoundaryType;
     if (r.realloc) |rr| provider.child.realloc_name = rr.name;
+    _ = import_name;
+
+    // A `string` RESULT flattens to >1 core value, so per the Canonical ABI it
+    // returns via a RETPTR: the lowered import's core signature is `(retptr) ->
+    // ()`, NOT the fixed `(i32,i32) -> i32`. Detect it and install the dedicated
+    // retptr-result trampoline (no value params; the result string is lifted
+    // from B and lowered into A's memory).
+    if (resultIsString(graph.alloc, &provider.child.info, ft)) {
+        // Only the no-param shape `() -> string` is implemented: it flattens to
+        // core `(retptr) -> ()`. Value params alongside a string result flatten
+        // to `(params.., retptr)` — a broader shape (typed deferral).
+        if (ft.params.len != 0) return GraphError.UnsupportedBoundaryType;
+        const bctx = try graph.alloc.create(BoundaryCtx);
+        errdefer graph.alloc.destroy(bctx);
+        bctx.* = .{
+            .callee = provider.child,
+            .core_func_name = r.core_func.name,
+            .core_inst = core_inst,
+            .func_type = ft,
+            .importer = importer,
+        };
+        try graph.boundaries.append(graph.alloc, bctx);
+        try lk.defineFuncCtx(ns, core_export_name, @ptrCast(bctx), RetPtrSig, retPtrTrampoline);
+        return;
+    }
 
     // For a single `list<primitive>` param, resolve the element byte size now so
     // the call-time copy moves `count * elem_size` bytes. A `list<u32>` param is a
@@ -460,9 +488,9 @@ fn installBoundaryTrampoline(
 
     // The fixed boundary trampoline marshals shapes flattening to `(i32,i32)->i32`:
     // a `string` / `list<primitive>` param (ptr,len) OR two flat 4-byte scalars,
-    // returning one flat 4-byte scalar. Broader arities / wide scalars / aggregate
-    // results are a typed deferral (no silent mis-marshal). D-305 follow-up:
-    // arity-general trampolines + record/result marshalling.
+    // returning one flat 4-byte scalar. Broader arities / wide scalars / non-string
+    // aggregate results are a typed deferral (no silent mis-marshal). D-305
+    // follow-up: arity-general trampolines + record/result marshalling.
     if (!boundaryShapeOk(ft, list_elem_size > 0)) return GraphError.UnsupportedBoundaryType;
 
     const bctx = try graph.alloc.create(BoundaryCtx);
@@ -475,9 +503,23 @@ fn installBoundaryTrampoline(
         .list_elem_size = list_elem_size,
     };
     try graph.boundaries.append(graph.alloc, bctx);
-    _ = import_name;
 
     try lk.defineFuncCtx(ns, core_export_name, @ptrCast(bctx), BoundarySig, boundaryTrampoline);
+}
+
+/// Does this WIT func return a `string`? A string result flattens to >1 core
+/// value so it returns via a retptr — the dedicated `(retptr) -> ()` trampoline.
+fn resultIsString(alloc: Allocator, info: *const ctypes.TypeInfo, ft: ctypes.FuncType) bool {
+    const rt = ft.result orelse return false;
+    if (isString(rt)) return true;
+    // A `type_index` result may alias `string` (the provider type space).
+    var tmp = std.heap.ArenaAllocator.init(alloc);
+    defer tmp.deinit();
+    if (canon.canonTypeFromDecoded(tmp.allocator(), info, rt)) |ct| {
+        return ct == .prim and ct.prim == .string;
+    } else |_| {
+        return false;
+    }
 }
 
 /// Does the WIT func type flatten to the core signature `(i32,i32) -> i32`, the
@@ -576,6 +618,56 @@ fn boundaryMarshal(caller: *Caller, bctx: *BoundaryCtx, w0: u32, w1: u32) !Bound
     var res = [_]Value{.{ .i32 = 0 }};
     bctx.core_inst.invoke(bctx.core_func_name, &args, &res) catch return GraphError.ImportUnsatisfied;
     return @bitCast(res[0].i32);
+}
+
+/// The retptr-result trampoline's flattened core signature: `(retptr:i32) ->
+/// ()`. A `string` RESULT can't be a flat return word, so the importer passes a
+/// return-area pointer (into its OWN memory) where the boundary writes the
+/// A-side `(ptr, len)` pair.
+const RetPtrSig = fn (*Caller, u32) callconv(.c) void;
+
+/// Host trampoline for `() -> string`: invoke the callee's core func (writing
+/// the result string into the CALLEE's memory via a callee-side return area),
+/// lift that string, then lower it into the IMPORTER's memory and write the
+/// A-side `(ptr, len)` at the importer's retptr.
+fn retPtrTrampoline(caller: *Caller, retptr: u32) callconv(.c) void {
+    const bctx = caller.data(BoundaryCtx);
+    retPtrMarshal(caller, bctx, retptr) catch {
+        // EXEMPT-FALLBACK: a void-returning core trampoline can't surface a
+        // host error to the guest; a marshalling failure leaves the importer's
+        // return area untouched so the guest reads its zero-initialised default
+        // (a deterministic wrong value the assert catches, never a silent
+        // mis-marshal of a partial write). D-305: aggregate-result error
+        // propagation across the void boundary is a follow-up.
+    };
+}
+
+fn retPtrMarshal(caller: *Caller, bctx: *BoundaryCtx, retptr: u32) !void {
+    // 1. Allocate a return area in the CALLEE's memory and invoke its core func,
+    //    which writes the result string (ptr,len) there (B writes B's memory).
+    const callee_cx = bctx.callee.canonContext();
+    const callee_ret = callee_cx.realloc(0, 0, 4, 8) catch return GraphError.UnsupportedBoundaryType;
+    var args = [_]Value{.{ .i32 = @bitCast(callee_ret) }};
+    var res = [_]Value{};
+    bctx.core_inst.invoke(bctx.core_func_name, &args, &res) catch return GraphError.ImportUnsatisfied;
+
+    // 2. Lift the result string from the CALLEE's memory at its return area.
+    if (@as(usize, callee_ret) + 8 > callee_cx.mem().len) return GraphError.UnsupportedBoundaryType;
+    const b_ptr = std.mem.readInt(u32, callee_cx.mem()[callee_ret..][0..4], .little);
+    const b_len = std.mem.readInt(u32, callee_cx.mem()[callee_ret + 4 ..][0..4], .little);
+    const lifted = canon.liftString(callee_cx, b_ptr, b_len) catch return GraphError.UnsupportedBoundaryType;
+
+    // 3. Lower the string into the IMPORTER's memory (snapshot first: the lift
+    //    borrows callee memory, the lower realloc may move it). Then write the
+    //    A-side (ptr,len) at the importer's retptr in the importer's memory.
+    const importer = bctx.importer orelse return GraphError.ImportUnsatisfied;
+    const tmp = try caller.allocator().dupe(u8, lifted);
+    defer caller.allocator().free(tmp);
+    const importer_cx = importer.canonContext();
+    const lowered = canon.lowerString(importer_cx, tmp) catch return GraphError.UnsupportedBoundaryType;
+    if (@as(usize, retptr) + 8 > importer_cx.mem().len) return GraphError.UnsupportedBoundaryType;
+    std.mem.writeInt(u32, importer_cx.mem()[retptr..][0..4], lowered.ptr, .little);
+    std.mem.writeInt(u32, importer_cx.mem()[retptr + 4 ..][0..4], lowered.packed_length, .little);
 }
 
 /// The component-import NAME a `canon lower`'s func operand aliases — for a
