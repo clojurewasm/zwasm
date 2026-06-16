@@ -45,9 +45,13 @@ below). Meanwhile the autonomous track is **doc-inventory** (below). Version fix
   survey's "skip-impl 1790" finding was a Phase-9 historical false positive — always re-verify against CURRENT
   state). Other docs clean of the retired-anchor class (only CLAUDE.md:108 uses `v0.1.0` as intentional design-
   priority shorthand — left as-is).
-- **NEXT (remaining doc targets)**: deeper reconcile of `docs/**` (reference/*.md, design docs) + `.dev/ROADMAP.md`
-  widget vs code truth — spot-check feature-completeness + count claims (C-API 293/293, corpus counts, GC 362/0)
-  against current runners. Lower-priority: the README was the high-risk surface.
+- **Reader-facing count/coverage claims VERIFIED accurate** (vs current runners): C-API **293/293** (gap=0,
+  `capi_surface_gap.sh`), component corpus **158/0/0** (README:45 + migration_v1_to_v2.md, ×2), Wasm 2.0
+  `skip-impl==0` + 3.0 all-9-proposals. No Phase-16 staleness in zwasm claims (the `cw_v1_consumer_contracts.md`
+  "Phase 16" refs are correctly about CW v1's own roadmap, not zwasm). **Reader-facing doc surface = clean.**
+- **NEXT (lower-priority remaining)**: `.dev/ROADMAP.md` widget + working-doc count drift (e.g. handover State
+  "Debt: 56" is now 61) are internal hygiene, not reader-facing — opportunistic. The high-risk surfaces (README,
+  c_api.md, version anchors) are done.
 
 ## ADR-0192 wasmtime campaign — substantive work DONE; residuals debt-tracked (paused 2026-06-16)
 
@@ -86,7 +90,8 @@ TIER-1 (`afcf889a`/`05b35c28`; D-446/447 deferred), ① wasip3 conformance (7 re
 - **Surfaces**: C-API 293/293 · Zig-API complete (full WASI parity) · lean CLI · memory-safety sound · dogfooded into
   cw. Runners ReleaseSafe (ADR-0177; `check_releasesafe_runners.sh`).
 - **EH**: cross-instance JIT EH on BOTH arches (arm64 `4f73d9ee` + x86_64 `c534afca`). Interp + JIT EH corpus green.
-- **Debt**: 56 entries; D-335 (WASI 0.3) the main `now`-class. Rest front-tagged (A/B/C/D-wasi03/future-bucket/parked).
+- **Debt**: 61 entries; `now`-class = D-462 (feature-separation, ADR-0193, user-gated), D-460 (v128-GC partial),
+  D-461 (SIMD-spill, blocks D-460). D-335 (WASI 0.3 core) DONE. Rest front-tagged (future-bucket/parked).
 - **Realworld corpus**: 56 fixtures (c/cpp/emcc/go/tinygo/rust/zig), interp 56/0; JIT run-stage opt-in.
 - **Tag**: `v2.0.0-alpha.3` tag-only (no Release → Latest stays v1.11.0), USER-ONLY.
 
