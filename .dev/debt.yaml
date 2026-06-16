@@ -1009,7 +1009,7 @@ entries:
     front: future-bucket
   - id: D-305
     layer: code
-    status: blocked-by
+    status: partial
     description: |-
       Status: blocked-by: a fully-general component linker needs each child's
       canon-lower + instance-wiring structure decoded to map a component-level
@@ -1057,7 +1057,7 @@ entries:
       to 2 / one aggregate). All correctly hit the typed `UnsupportedBoundaryType` deferral today; each lands when a
       fixture/consumer demands it. Async cross-component routing (the ADR-0195 scheduler prerequisite) is a further axis.
     first_raised: "2026-06-07"
-    last_reviewed: "2026-06-07"
+    last_reviewed: "2026-06-17"
     refs: src/api/component.zig (instantiateGraph); test/component/adder_graph.wasm; .dev/component_model_plan.md (Phase C/D)
     front: future-bucket
   - id: "D-329"
