@@ -404,6 +404,18 @@ pub fn emitPrefixFD(self: *Lowerer) Error!void {
         274 => try self.emit(.@"i16x8.relaxed_dot_i8x16_i7x16_s", 0, 0),
         275 => try self.emit(.@"i32x4.relaxed_dot_i8x16_i7x16_add_s", 0, 0),
 
+        // Float↔int LANE conversions (248..255), all unary (D-457, ADR-0192).
+        // Were absent → NotImplemented blocked instantiate; validate fixed at
+        // 79fd589e. SIMD is JIT-only, so these run via the per-arch emit.
+        248 => try self.emit(.@"i32x4.trunc_sat_f32x4_s", 0, 0),
+        249 => try self.emit(.@"i32x4.trunc_sat_f32x4_u", 0, 0),
+        250 => try self.emit(.@"f32x4.convert_i32x4_s", 0, 0),
+        251 => try self.emit(.@"f32x4.convert_i32x4_u", 0, 0),
+        252 => try self.emit(.@"i32x4.trunc_sat_f64x2_s_zero", 0, 0),
+        253 => try self.emit(.@"i32x4.trunc_sat_f64x2_u_zero", 0, 0),
+        254 => try self.emit(.@"f64x2.convert_low_i32x4_s", 0, 0),
+        255 => try self.emit(.@"f64x2.convert_low_i32x4_u", 0, 0),
+
         else => return Error.NotImplemented,
     }
 }

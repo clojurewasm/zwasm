@@ -832,8 +832,10 @@ test "lower (simd): v128.const truncated immediate fails" {
 test "lower (simd): unknown 0xFD sub-opcode → NotImplemented" {
     var f = newFunc(empty_sig);
     defer f.deinit(testing.allocator);
-    // 0xFD with sub 250 (unmapped in MVP catalogue)
-    const body = [_]u8{ 0xFD, 0xFA, 0x01, 0x0B };
+    // 0xFD with sub 276 (0x94 0x02 LEB128) — beyond the relaxed-simd range
+    // (≤275), genuinely unmapped. (Was 250 = f32x4.convert_i32x4_s, now lowered
+    // per D-457.)
+    const body = [_]u8{ 0xFD, 0x94, 0x02, 0x0B };
     try testing.expectError(Error.NotImplemented, lowerFunctionBody(testing.allocator, &body, &f, &.{}, &.{}));
 }
 
