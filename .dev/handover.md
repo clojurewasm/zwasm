@@ -37,18 +37,18 @@ Then `D-209` memory64. **windowsmini gating RESUMED**. Version → `2.0.0-alpha.
   class-aware-mint over-reach + the array-elimination (scalars still pack 8-byte). New debt = none beyond the
   pre-existing D-461 continuation below.
 
-## NEXT — D-461 SIMD v128-spill: DONE the safe single-source ops; REMAINING is exotic+fixture-gated
+## NEXT — D-461 SIMD v128-spill: single-source ops DONE; REMAINING = v128-RESULT-write ops (exotic)
 
-**DONE both arches, 3-host green** (regalloc rework ADR-0194 Win64-verified @8f4f88c5): all 6 extract_lane variants
-+ bitmask i8x16/i32x4/i64x2 — backward-compatible source swap `resolveXmm→xmmLoadSpilledV128` (home XMM when not
-spilled; no scratch collision). The concrete D-460 blocker (extract_lane) is CLEARED. **REMAINING (exotic,
-high-v128-pressure only; each needs a force-spill FIXTURE)**: (a) i16x8 bitmask — uses XMM14(=stage 0) as PACKSSWB
-scratch → load source into stage 1; (b) result-WRITE ops Extend/Extadd/replace_lane + op_simd.zig binop dsts
-(:249/282/313/343/373/402) — need source-swap + dest `xmmDefSpilledV128`/`xmmStoreSpilledV128` + stage alloc.
-**LANDMINE**: stage XMMs 14/15 can collide with an op's internal scratch → audit per-op + add a force-spill
-fixture before each swap (silent miscompile otherwise — the i16x8 case proves it). NEXT chunk = i16x8 bitmask
-(stage-1 source load) WITH a force-spill fixture, then the result-write ops one at a time (fixture each). TDD via
-`zig build test -Dtarget=x86_64-macos` (Rosetta). `D-209` memory64 is the front after this bundle closes.
+**DONE both arches, 3-host green** (regalloc rework ADR-0194 Win64-verified @8f4f88c5): all 6 extract_lane + ALL 4
+bitmask widths. Single-source ops use the backward-compatible source swap `resolveXmm→xmmLoadSpilledV128`; i16x8
+bitmask needed STAGE-1 (XMM14 is its scratch) + an arm64 i32-result gprDefSpilled (opposite per-arch gaps). The
+concrete D-460 blocker is CLEARED. **FIXTURE WORKFLOW**: author .wat → `wasm-tools parse` → embed bytes in
+runner_gc_test (`zwasm run --engine jit --invoke f` repros UnsupportedOp; interp traps SIMD by design). **REMAINING
+(exotic, high-v128-pressure; per-op fixture each)**: v128-RESULT-write ops — Extend Low/High, ExtaddPairwise,
+replace_lane ×4, op_simd.zig binop dsts (:249/282/313/343/373/402) — these WRITE a v128 result via resolveXmm/
+resolveFp (reject spilled dst) → need source-swap + dest `xmmDefSpilledV128`/`xmmStoreSpilledV128` (x86_64) /
+qDefSpilled (arm64) + per-op scratch-XMM audit (LANDMINE: stage 14/15 collide). NEXT chunk = Extend Low/High WITH a
+force-spill fixture. `D-209` memory64 is the front after this bundle closes.
 
 ## Closed/paused (detail in git + debt.yaml)
 

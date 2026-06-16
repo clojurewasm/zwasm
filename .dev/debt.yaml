@@ -1842,12 +1842,13 @@ entries:
       → each needs a force-spill FIXTURE (stage allocation is non-trivial; the gc-spec corpus does NOT exercise
       v128-spill, untested patches risk silent bugs — lesson `runi32export-host-arch-arm64-only-emit-x86-gate-red`).
       AUDIT DONE 2026-06-16: the op_simd_int_cmp_lane.zig `resolveXmm(src)` sites are NOT cmp/shift binops but more
-      SINGLE-v128-source ops — Bitmask ×4, Extend Low/High ×2, ExtaddPairwise. **Bitmask i8x16/i32x4/i64x2 DONE**
-      (no-scratch, stage-0 source swap, result already gprDefSpilled). **i16x8 Bitmask HELD**: uses XMM14 (= stage 0)
-      as PACKSSWB scratch → a stage-0 source load COLLIDES; load into stage 1 (XMM15) + add a force-spill fixture.
-      **LANDMINE (lesson-worthy)**: xmmLoadSpilledV128 stage XMMs (14/15) can collide with an op's internal scratch
-      XMMs — every remaining op MUST be audited for scratch-XMM use before the swap, and needs a force-spill fixture
-      (silent miscompile otherwise). REMAINING result-WRITE ops (Extend/Extadd write v128 via resolveXmm(result_v);
+      SINGLE-v128-source ops — Bitmask ×4, Extend Low/High ×2, ExtaddPairwise. **ALL 4 Bitmask widths DONE both
+      arches** (i8x16/i32x4/i64x2 x86_64 no-scratch stage-0 source swap; i16x8 x86_64 STAGE-1 source [XMM14 is its
+      PACKSSWB scratch] + arm64 i32-result gprDefSpilled — OPPOSITE per-arch gaps; 12-v128 i16x8.bitmask fixture →255
+      both arches). **FIXTURE WORKFLOW established**: author .wat → `wasm-tools parse` → embed inline bytes in
+      runner_gc_test; `zwasm run --engine jit --invoke f` repros UnsupportedOp (interp traps on SIMD BY DESIGN — use
+      JIT). **LANDMINE confirmed**: xmmLoadSpilledV128 stage XMMs (14/15) collide with an op's internal scratch — audit
+      scratch-XMM use per-op + force-spill fixture each (i16x8 proved it). REMAINING result-WRITE ops (Extend/Extadd write v128 via resolveXmm(result_v);
       replace_lane reads vec + writes dst; op_simd.zig binop dsts at :249/282/313/343/373/402) need source-swap +
       dest `xmmDefSpilledV128`/`xmmStoreSpilledV128` + stage allocation + fixtures. op_simd.zig binop SOURCES already
       spill-aware (:95-96, why v128.or worked). EXOTIC (high-v128-pressure only); concrete D-460 blocker already
