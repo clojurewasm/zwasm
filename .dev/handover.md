@@ -5,21 +5,23 @@
 
 ## Current state — Phase 17 完成形 completion-refinement (release = USER-ONLY, ADR-0156)
 
-## Active bundle
+## Recently closed — simd-convert-ops-e2e bundle (D-457): CLOSED @95b8eb99
 
-- **Bundle-ID**: simd-convert-ops-e2e (D-457) — **IMPLEMENTATION DONE; closing**
-- **Cycles-remaining**: ~1 (verify ubuntu x86 + close + corpus promote)
-- **Continuity-memo**: ALL 8 SIMD float↔int conversions (248-255) now run e2e via JIT. The bug was 3-layer, all hiding
-  behind a corpus that never tested them: validate mis-categorized (fixed 79fd589e), lower_simd missing (58e88f32),
-  emit dispatch UNWIRED (93f4710c — the per-arch handlers were COMPLETE all along, just never connected; relaxed-simd
-  trunc reuses the same handlers so they were corpus-tested). All 8 pass on arm64 (Mac edge fixtures
-  test/edge_cases/p9/simd_convert/, 8 cases); x86_64 cross-compiles clean — **ubuntu test-all confirms x86 next 0.7**.
-- **Exit-condition**: ubuntu x86 green → promote convert fixtures into committed simd corpus (so the gap
-  can't recur) → **systemic audit** (the naive lowered-vs-emitted diff is dominated by table-dispatched ops; need a
-  per-dispatch-mechanism audit OR a full-SIMD-op execution sweep to find other corpus-hidden gaps). f64x2_convert_low
-  _i32x4_u still unlisted in ir/dispatch_collector_ops (cosmetic; SIMD validate/lower are opcode-based).
+D-457 discharged. The systemic audit (full-SIMD-op execution sweep) found+fixed **6 more corpus-hidden bugs**, all the
+same multi-layer-wiring pattern as the convert ops. Root cause: `regen_spec_simd_assert.sh`'s `NAMES` array baked only
+**33 of 59** upstream `simd_*.wast`; the 26 omitted hid whole op families. Added all 59 → surfaced 6 fails:
+- demote/promote (94/95) + f32x4/f64x2 rounding (103-106/116/117/122/148): validator binop→unop arity fix (same MVP
+  miscount as convert ops); i64x2.extmul (220-223): absent from validator binop list; narrow (101/102/133/134):
+  lower-side wiring missing. Per-arch emit handlers were complete on both arches all along — wired validate+lower+emit.
+- simd_memory-multi: multi-memory is a Phase-14 JIT deferral (compile.zig:125) → runner records SKIP-JIT-MULTI-MEMORY.
+- simd_assert corpus **24805 passed / 0 failed** (was 24117 / 6 fail). +688 real assertions. Lesson
+  `hardcoded-corpus-subset-hides-whole-op-families`. This substantially corrects the overstated "100% SIMD spec" claim.
 
-## Planned future phase (USER-requested 2026-06-16, AFTER this campaign)
+**NEXT (autonomous)**: resume general Phase-17 work — Step 0.5 debt sweep (56 entries), surface audits (C/Zig/CLI), OR
+the queued doc-inventory phase (below). The hardcoded-allowlist anti-pattern may also hide gaps in NON-simd corpora —
+worth a future `comm -23` audit of every regen script's inclusion list vs upstream.
+
+## Planned future phase (USER-requested 2026-06-16)
 
 - **Doc inventory + freshening**: walk ALL zwasm_from_scratch docs (CLAUDE.md, .dev/, .claude/, README, docs/) and
   reconcile against CODE TRUTH — find+fix stale claims (e.g. "100% SIMD spec" was overstated; conversion ops were
