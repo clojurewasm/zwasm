@@ -31,10 +31,13 @@ should trap per Canonical ABI; D-305 debt). **error-trap follow-up DONE** (this 
 main-loop-verified, SECURITY): the graph boundary trampolines now use error-union sigs (like the WASI host fns) that
 TRAP on a marshalling failure instead of `catch 0`/untouched — a malicious component passing an OOB `(ptr,len)` now
 traps (`oob_param_graph` test asserts `error.OutOfBoundsLoad`) instead of a silent-wrong result; EXEMPT-FALLBACK
-removed. build+test+comp-spec(162/0)+lint+fallback-check green. **Posture = plateau maintenance**: D-305 common
-aggregates (string/list params + string result) + boundary error-trapping all DONE+verified; remaining permutations
-(record/result aggregates, >2-param arities) are scoped consumer-gated debt — land when a consumer demands. Periodic
-fuzz / debt sweeps baseline. Windows verifies @184b5e05+@30bd1881 next batch.
+removed. **`(string)->string` boundary DONE** (this turn, @2b9b14ee, subagent + main-loop-verified): the `dup`
+shape (string param AND string result) marshals via a `(ptr,len,retptr)->void` trampoline composing the existing
+param-side lower + result-side retptr lift/lower (`dup_graph` PASS, component_model **163/0**; build+test+comp-spec+
+lint+fallback-check green; x86_64 verify pending next ubuntu kick). **D-305 COMMON shapes now ALL covered**
+(string/list params, string result, `(string)->string`, boundary error-trap). **Posture = plateau maintenance**:
+remaining rare shapes (record/result aggregates, >2-param arities, list results) stay scoped consumer-gated debt —
+land when a consumer demands; do NOT grind speculatively. Windows verifies @184b5e05+@30bd1881+@2b9b14ee next batch.
 ADR-0193 (D-462) + D-461 (ADR-0194) CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`.
 
 ## D-305 component-composition — first milestone CLOSED 2026-06-17 (@4cceeb1e, ADR-0196)

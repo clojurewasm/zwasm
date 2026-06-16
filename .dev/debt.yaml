@@ -1055,10 +1055,15 @@ entries:
       `list<u32>` (`listu32_graph` PASS, 160/0/0) — element size resolved at install via
       `canon.canonTypeFromDecoded`→`sizeOf` (a list param is a `type_index`, NOT a raw `.list` ValType; restricted
       to flat-scalar elements via `isFlatPrim`), `boundaryMarshal` copies `count*elem_size` bytes aligned to the
-      element. **REMAINING (keeps this row)**: record/result/tuple params + aggregate (string/list) RESULTS +
-      >2-component/deeper graphs + arity-general trampolines (the fixed `(i32,i32)->i32` `BoundarySig` caps params
-      to 2 / one aggregate). All correctly hit the typed `UnsupportedBoundaryType` deferral today; each lands when a
-      fixture/consumer demands it. Async cross-component routing (the ADR-0195 scheduler prerequisite) is a further axis.
+      element. **`(string)->string` DONE 2026-06-17 (@2b9b14ee)**: a `dup`-shape func (string param AND string
+      result) marshals via a `(ptr,len,retptr)->void` trampoline composing the param-side lower with the
+      result-side retptr lift/lower (`dup_graph` PASS, 163/0); error-union trapping. **COMMON shapes now ALL
+      covered** (string/list params, string result, `(string)->string`, boundary error-trap). **REMAINING (keeps
+      this row, consumer-gated — do NOT grind speculatively)**: record/result/tuple params + aggregate
+      (string/list) RESULTS + multi-param-alongside-string + >2-component/deeper graphs + arity-general trampolines
+      (the fixed sigs cap params to 2 / one aggregate). All correctly hit the typed `UnsupportedBoundaryType`
+      deferral today; each lands when a fixture/consumer demands it. Async cross-component routing (the ADR-0195
+      scheduler prerequisite) is a further axis.
     first_raised: "2026-06-07"
     last_reviewed: "2026-06-17"
     refs: src/api/component.zig (instantiateGraph); test/component/adder_graph.wasm; .dev/component_model_plan.md (Phase C/D)
