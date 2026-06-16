@@ -15,26 +15,19 @@ intersection). D-458 RESIDUAL (note): broad regen non-idempotency (~727-file chu
 ## Active bundle — windowsmini spec-assert pass=0 root-cause (ADR-0174 Phase-1, immediate priority)
 
 - **Bundle-ID**: win-specassert-pass0 (ADR-0174 windowsmini-hardening Phase-1) — windows NOT suspended (3-host active).
-- **Cycles-remaining**: ~3 (windows-side iterative debug)
-- **Continuity-memo**: Phase-I done. The windows `wasm-3.0-assert` runner enumerates the corpus (75 manifests, 11813
-  directives) but reports **pass=0 UNIFORMLY across all 5 buckets** (gc/memory64/tail-call/function-references/
-  multi-memory): `assert_return pass=0 fail=0` (NOT evaluated) + `assert_invalid` ALL-fail (modules not rejected).
-  ubuntu runs the SAME runner+corpus fine (pass=10234, confirmed current @3b3f16fa default test-all — NOT engine-env-
-  gated). So windows-specific + uniform → NOT per-op logic; since `assert_invalid` (host-independent validate) all-fail,
-  **modules aren't being LOADED on windows**. Found the swallow site: runner line 718 `sub_dir.readFileAlloc(module)
-  catch { null; continue }` silently dropped read failures (line 789 already prints validate-compile-fails, which the
-  windows log did NOT show → it's upstream at the file READ). **DIAGNOSTIC LANDED @60f3706d**: that catch now prints
-  `MODULE-READ-FAIL: <errno>` (no-op on Mac/ubuntu — read succeeds). **NEXT: read the windowsmini run's MODULE-READ-FAIL
-  lines** (errno = FileNotFound? AccessDenied? → path-resolution vs file-access) to pinpoint + fix the root cause until
-  windows pass counts MATCH ubuntu. Non-gating (`[run_remote_windows] OK`) because the 10.T-2b skeleton doesn't
-  propagate counts to exit code — the ADR-0174 "OK-hides-pass=0" anomaly (build.zig:599). RULED OUT: git CRLF/binary
-  mangling — no `.gitattributes` wasm rule but realworld `.wasm` (same unspecified attrs) passes on windows, so it's
-  NOT blanket-corruption. BRANCH: if the windows run shows `MODULE-READ-FAIL` → read-path (path/access); if it does
-  NOT (pass=0 persists, no read-fail) → read-OK-but-compile/parse-fail (add a 2nd diagnostic on the parse/compile
-  swallow). Windows diagnostic run was kicked @ab8dd44b — IN FLIGHT; read its output at next Step 0.7.
-- **Exit-condition**: windowsmini wasm-3.0-assert real pass counts MATCH ubuntu (not a MATCH-only/OK-hides-0); the
-  runner's exit code gates its fail counts (no silent skeleton pass-through). Then ADR-0174 Phase-2 (gate suspension)
-  is eligible.
+- **Cycles-remaining**: ~1 (windows verification of the fix)
+- **Continuity-memo**: **ROOT CAUSE FOUND + FIXED @02592aa8.** The @60f3706d diagnostic showed `MODULE-READ-FAIL:
+  BadPathName ×364` on windowsmini. Cause: LF-committed manifests → CRLF on windows checkout (git autocrlf); the
+  wasm-3.0 runner split on `\n` WITHOUT trimming the trailing `\r` (the other 4 runners base/spec/wast/component all
+  `std.mem.trim(raw," \r\t")` — this was the lone miss) → `module_path` ended in `\r` → readFileAlloc →
+  `error.BadPathName` on Win64 → every module silently un-loaded → pass=0 (uniform; Mac/ubuntu LF immune). Fix: trim
+  `" \r\t"` per line (mirrors the 4 runners). No-op on Mac (pass=10234 unchanged, verified). Lesson
+  `windows-crlf-manifest-badpathname-hidden-by-nongating-skeleton`. **NEXT: windows run verifies pass counts MATCH
+  ubuntu** (the read diagnostic stays as permanent no-silent-skip hardening; it'll be silent once green).
+- **Exit-condition**: windowsmini wasm-3.0-assert real pass counts MATCH ubuntu (~pass=10234, not pass=0/OK-hides).
+  Then close the bundle; ADR-0174 Phase-2 (gate suspension) eligible. NOTE: the skeleton still doesn't gate its
+  exit code (separate ADR-0174 concern — the runner reporting counts-without-gating); the CRLF fix restores real
+  coverage but a follow-on could make the runner's exit propagate its fail counts.
 
 **Other NEXT if bundle stalls**: Phase-17 surface audits (Zig-API/CLI あるべき論); debt long-tail (D-456 larger).
 
