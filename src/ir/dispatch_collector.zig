@@ -443,6 +443,9 @@ test "dispatcherOver returns UnsupportedOpForBuildLevel for build-filtered op ta
     //
     // Synthetic op_mod with wasi_level: .p3 is filtered under the
     // default -Dwasi=p2 build (p3 > p2 in the ordered tier; ADR-0193).
+    // A max-tier (.p3) build has nothing above it to filter, so the
+    // "build-filtered" case is unreachable there — comptime-skip.
+    if (comptime build_options.wasi_level == .p3) return;
     const synthetic = struct {
         pub const op_tag: ZirOp = .@"unreachable";
         pub const wasm_level: ?WasmLevel = null;

@@ -63,19 +63,6 @@ pub fn runWasiP3Main(engine: *Engine, alloc: Allocator, bytes: []const u8, host:
     try driveAsyncMain(&built);
 }
 
-/// The unified WASI-component entry (D-335 Unit F): build once, then dispatch —
-/// an **async-lifted** export (a `canon lift` with `opts.is_async`) goes through
-/// the P3 stackless callback loop, else the sync `wasi:cli/run` path. This is
-/// the surface the CLI / embedders call so an async P3 component "just runs".
-pub fn runWasiMain(engine: *Engine, alloc: Allocator, bytes: []const u8, host: *wasi_host.Host, opts: Module.InstantiateOpts) anyerror!void {
-    var built = try wasi_p2.buildWasiP2Component(engine, alloc, bytes, host, opts);
-    defer built.deinit();
-    for (built.info.canons.items) |c| {
-        if (c == .lift and c.lift.opts.is_async) return driveAsyncMain(&built);
-    }
-    return wasi_p2.runWasiP2MainBuilt(&built);
-}
-
 /// Drive the first async-lifted export of an already-built component through the
 /// stackless callback loop. Split from `runWasiP3Main` so tests (and embedders)
 /// can inspect the result the guest delivered via `task.return`
@@ -581,7 +568,7 @@ test "WASI 0.3 conformance (wasip3): cli-exit → exit code 1 (real rust compone
 
     // std::process::exit(1) → wasi:cli/exit → ProcExit (caught by the runner),
     // host records exit code 1 — matches test/component/wasip3/cli-exit.json.
-    try runWasiMain(&eng, testing.allocator, bytes, &host, .{});
+    try wasi_p2.runWasiMain(&eng, testing.allocator, bytes, &host, .{});
     try testing.expectEqual(@as(?u32, 1), host.exit_code);
 }
 
@@ -603,7 +590,7 @@ test "WASI 0.3 conformance (wasip3): cli-env reads host env (real rust component
     // decoded. NB: wasi:cli/exit only carries result<ok,err> (no numeric code),
     // so the success signal MUST be exit(0)→host exit_code 0, never a non-zero
     // sentinel (any non-zero rust exit collapses to host exit_code 1).
-    try runWasiMain(&eng, testing.allocator, bytes, &host, .{});
+    try wasi_p2.runWasiMain(&eng, testing.allocator, bytes, &host, .{});
     try testing.expectEqual(@as(?u32, 0), host.exit_code);
 }
 
@@ -623,7 +610,7 @@ test "WASI 0.3 conformance (wasip3): cli-stdout writes to stdout (real rust comp
     host.stdout_buffer = &capture;
 
     // `print!("zwasm-wasip3-ok")` → the host stdout capture holds it.
-    try runWasiMain(&eng, testing.allocator, bytes, &host, .{});
+    try wasi_p2.runWasiMain(&eng, testing.allocator, bytes, &host, .{});
     try testing.expectEqualStrings("zwasm-wasip3-ok", capture.items);
 }
 
@@ -642,7 +629,7 @@ test "WASI 0.3 conformance (wasip3): cli-stderr writes to stderr (real rust comp
     defer cap_err.deinit(testing.allocator);
     host.stderr_buffer = &cap_err;
 
-    try runWasiMain(&eng, testing.allocator, bytes, &host, .{});
+    try wasi_p2.runWasiMain(&eng, testing.allocator, bytes, &host, .{});
     try testing.expectEqualStrings("zwasm-wasip3-err", cap_err.items);
 }
 
@@ -661,7 +648,7 @@ test "WASI 0.3 conformance (wasip3): cli-args reads argv (real rust component)" 
 
     // Guest reads argv[1] via get-arguments; success signal is exit(0) (the
     // wasi:cli/exit result<_,_> channel — any non-zero rust exit → host code 1).
-    try runWasiMain(&eng, testing.allocator, bytes, &host, .{});
+    try wasi_p2.runWasiMain(&eng, testing.allocator, bytes, &host, .{});
     try testing.expectEqual(@as(?u32, 0), host.exit_code);
 }
 
@@ -679,7 +666,7 @@ test "WASI 0.3 conformance (wasip3): cli-stdin reads stdin (real rust component)
     host.stdin_bytes = "hello";
 
     // Guest reads stdin via wasi:cli/stdin; success (== "hello") = exit(0).
-    try runWasiMain(&eng, testing.allocator, bytes, &host, .{});
+    try wasi_p2.runWasiMain(&eng, testing.allocator, bytes, &host, .{});
     try testing.expectEqual(@as(?u32, 0), host.exit_code);
 }
 
@@ -698,6 +685,6 @@ test "WASI 0.3 conformance (wasip3): cli-clocks reads wall+monotonic clocks (rea
 
     // Instant::now() (monotonic) + SystemTime::now().duration_since(UNIX_EPOCH)
     // (wall) must succeed → exit(0); proves wasi:clocks is served to the guest.
-    try runWasiMain(&eng, testing.allocator, bytes, &host, .{});
+    try wasi_p2.runWasiMain(&eng, testing.allocator, bytes, &host, .{});
     try testing.expectEqual(@as(?u32, 0), host.exit_code);
 }

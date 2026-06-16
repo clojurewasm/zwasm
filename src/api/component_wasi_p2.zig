@@ -35,6 +35,7 @@ const Module = @import("../zwasm/module.zig").Module;
 const Instance = @import("../zwasm/instance.zig").Instance;
 const Linker = @import("../zwasm/linker.zig").Linker;
 const Value = @import("../zwasm.zig").Value;
+const build_options = @import("build_options");
 
 // ============================================================
 // WASI Preview 2 host trampolines (CM campaign chunk D1-2)
@@ -2169,4 +2170,26 @@ pub fn runWasiP2MainBuilt(built: *BuiltComponent) anyerror!void {
         if (err == error.ProcExit) return;
         return err;
     };
+}
+
+/// The unified WASI-component entry (D-335 Unit F): build once, then dispatch —
+/// an **async-lifted** export (a `canon lift` with `opts.is_async`) goes through
+/// the P3 stackless callback loop, else the sync `wasi:cli/run` path. This is
+/// the surface the CLI / embedders call so an async P3 component "just runs".
+///
+/// ADR-0193 P3: the async branch is `comptime build_options.enable_wasi_p3`-gated
+/// (relocated here from `component_wasi_p3.zig` so a `wasi_level < .p3` build
+/// never references the P3 driver — `component_wasi_p3.zig` is then unimported).
+/// At a p2 build an async component falls through to the sync runner, which
+/// surfaces `NoRunExport` if it has no sync `wasi:cli/run` export.
+pub fn runWasiMain(engine: *Engine, alloc: Allocator, bytes: []const u8, host: *wasi_host.Host, opts: Module.InstantiateOpts) anyerror!void {
+    var built = try buildWasiP2Component(engine, alloc, bytes, host, opts);
+    defer built.deinit();
+    if (comptime build_options.enable_wasi_p3) {
+        const cwasi3 = @import("component_wasi_p3.zig");
+        for (built.info.canons.items) |c| {
+            if (c == .lift and c.lift.opts.is_async) return cwasi3.driveAsyncMain(&built);
+        }
+    }
+    return runWasiP2MainBuilt(&built);
 }

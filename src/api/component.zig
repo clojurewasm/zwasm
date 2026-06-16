@@ -549,15 +549,19 @@ pub const runWasiP2Main = cwasi.runWasiP2Main;
 pub const BuiltComponent = cwasi.BuiltComponent;
 pub const buildWasiP2Component = cwasi.buildWasiP2Component;
 const WasiP2Ctx = cwasi.WasiP2Ctx;
-
-/// WASI Preview 3 / CM-async runner (D-335 unit D-ηB, ADR-0188) — sibling of
-/// the P2 runner; drives an async-lifted export through the stackless callback
-/// loop. Re-exported so `cli/run.zig` + the in-tree tests reach it.
-const cwasi3 = @import("component_wasi_p3.zig");
-pub const runWasiP3Main = cwasi3.runWasiP3Main;
 /// Unified WASI-component runner (D-335 Unit F): builds once, then drives the
-/// async (P3 callback-loop) or sync (`wasi:cli/run`) path automatically.
-pub const runWasiMain = cwasi3.runWasiMain;
+/// async (P3 callback-loop) or sync (`wasi:cli/run`) path automatically. Lives
+/// in the P2 home (ADR-0193 P3); its async branch is `enable_wasi_p3`-gated.
+pub const runWasiMain = cwasi.runWasiMain;
+
+/// WASI Preview 3 / CM-async runner (D-335 unit D-ηB, ADR-0188). ADR-0193 P3:
+/// the P3 driver compiles only at `wasi_level >= .p3`; at a p2 build this
+/// re-export is absent and `component_wasi_p3.zig` is never imported.
+pub const runWasiP3Main = if (@import("build_options").enable_wasi_p3)
+    @import("component_wasi_p3.zig").runWasiP3Main
+else {
+    // absent at wasi_level < .p3 — no external caller reaches it (ADR-0193 P3)
+};
 
 // ============================================================
 // REQ-1 (cw CM-API) — unified open + handle

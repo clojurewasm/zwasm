@@ -99,6 +99,10 @@ pub fn build(b: *std.Build) void {
     // of a 1.9 MB ReleaseFast binary, measured at ADR-0182) via the same
     // comptime fences that read `enable_component`.
     const enable_component = @intFromEnum(wasi_level) >= @intFromEnum(WasiLevel.p2);
+    // ADR-0193 P3 — the P3/async host (component_wasi_p3.zig + component/async.zig)
+    // compiles only at `wasi_level >= .p3`. At the default `.p2` async is opt-in
+    // (`-Dwasi=p3`) — a p2 build emits zero p3-async symbols (DCE-assertable).
+    const enable_wasi_p3 = @intFromEnum(wasi_level) >= @intFromEnum(WasiLevel.p3);
 
     const options = b.addOptions();
     options.addOption(WasmLevel, "wasm_level", wasm_level);
@@ -108,6 +112,7 @@ pub fn build(b: *std.Build) void {
     options.addOption(bool, "trace_stackprobe", trace_stackprobe);
     options.addOption(bool, "enable_gc", enable_gc);
     options.addOption(bool, "enable_component", enable_component);
+    options.addOption(bool, "enable_wasi_p3", enable_wasi_p3);
 
     // Build_options as a single shared module so both `core` and
     // `exe_mod` (and any other consumer) reference the same Module.
@@ -435,6 +440,7 @@ pub fn build(b: *std.Build) void {
     comp_options.addOption(bool, "trace_stackprobe", trace_stackprobe);
     comp_options.addOption(bool, "enable_gc", enable_gc);
     comp_options.addOption(bool, "enable_component", true);
+    comp_options.addOption(bool, "enable_wasi_p3", @intFromEnum(comp_wasi_level) >= @intFromEnum(WasiLevel.p3));
     const comp_options_mod = comp_options.createModule();
     const core_comp = b.createModule(.{
         .root_source_file = b.path("src/zwasm.zig"),
@@ -468,6 +474,39 @@ pub fn build(b: *std.Build) void {
     run_comp_spec_assert.addArg(b.pathFromRoot("test/spec/component-model-assert"));
     const test_comp_spec_step = b.step("test-component-spec", "Run the Component Model spec corpus runner (E1; ADR-0170)");
     test_comp_spec_step.dependOn(&run_comp_spec_assert.step);
+
+    // ADR-0193 P3 — the 28 WASI Preview-3 (async) unit tests live in
+    // `api/component_wasi_p3.zig`, which compiles only at `wasi_level >= .p3`.
+    // The default `.p2` `zig build test` skips them (the file is unimported),
+    // so a dedicated module forced to `.p3` runs them regardless of the
+    // top-level `-Dwasi`. Mirrors `core_comp`'s forced-`.p2` floor above; uses
+    // the Debug `optimize` (like `core_tests`, not `runner_optimize`) since the
+    // async tests are unit-suite shape, not run-time-dominated corpus runners.
+    const p3_options = b.addOptions();
+    p3_options.addOption(WasmLevel, "wasm_level", wasm_level);
+    p3_options.addOption(WasiLevel, "wasi_level", .p3);
+    p3_options.addOption(EngineMode, "engine_mode", engine_mode);
+    p3_options.addOption(bool, "trace_ringbuffer", trace_ringbuffer);
+    p3_options.addOption(bool, "trace_stackprobe", trace_stackprobe);
+    p3_options.addOption(bool, "enable_gc", enable_gc);
+    p3_options.addOption(bool, "enable_component", true);
+    p3_options.addOption(bool, "enable_wasi_p3", true);
+    const p3_options_mod = p3_options.createModule();
+    const core_p3 = b.createModule(.{
+        .root_source_file = b.path("src/zwasm.zig"),
+        .target = target,
+        .optimize = optimize,
+        .strip = strip_opt,
+        .link_libc = true,
+    });
+    applySanitize(core_p3, sanitize_opts);
+    core_p3.addImport("build_options", p3_options_mod);
+    core_p3.addIncludePath(b.path("include"));
+    core_p3.addImport("zwasm", core_p3);
+    const p3_tests = b.addTest(.{ .root_module = core_p3 });
+    const run_p3_tests = b.addRunArtifact(p3_tests);
+    const test_wasi_p3_step = b.step("test-wasi-p3", "Run the WASI Preview-3 (async) unit tests under a forced -Dwasi=p3 module (ADR-0193 P3)");
+    test_wasi_p3_step.dependOn(&run_p3_tests.step);
 
     // `zig build test-spec-simd` — §9.9 per ADR-0045. SIMD spec
     // assertion runner (parallel to spec_assert_runner). §9.9-a
@@ -1214,6 +1253,7 @@ pub fn build(b: *std.Build) void {
     test_all_step.dependOn(&run_non_simd_assert.step);
     test_all_step.dependOn(&run_threads_assert.step); // §17.4 D-301 atomics corpus
     test_all_step.dependOn(&run_comp_spec_assert.step); // E1 Component Model spec corpus (ADR-0170)
+    test_all_step.dependOn(&run_p3_tests.step); // ADR-0193 P3 — async unit tests under forced -Dwasi=p3
     // ADR-0174 win-harden-I: assert the resource runners FAIL on a missing
     // corpus root (no silent "0 manifests" skip) on EVERY host incl. windowsmini.
     test_all_step.dependOn(&run_simd_absent.step);
