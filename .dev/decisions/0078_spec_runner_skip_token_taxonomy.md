@@ -82,6 +82,7 @@ ADR amendment).
 | `SKIP-WIN64-EXHAUSTION`        | `debt-trackable`  | D-162 — CLOSED `17917f07` (ADR-0105 JIT-prologue stack-probe). Token no longer emitted (SKIP arm removed); row retained for citation lineage |
 | `SKIP-WIN64-CALL-INDIRECT-TRAP`| `debt-trackable`  | D-163 — CLOSED 2026-05-23 (R3 stack-probe `1e2d716d` repaired the trap path; SKIP arm removed `0de438a6`; latest closure affirmation `d9d525a4`). Token no longer emitted; row retained for citation lineage |
 | `SKIP-WIN64-MULTI-RESULT`      | `debt-trackable`  | D-164 — CLOSED `17953c9e` (ADR-0106 Phase 2'f-2'k wrapper-thunk path; SKIP arm removed same commit). Token no longer emitted; row retained for citation lineage |
+| `SKIP-JIT-MULTI-MEMORY`        | `debt-trackable`  | multi-memory-on-JIT is a ROADMAP §14 deferral (`compile.zig:125` rejects >1 memory); the JIT-only simd_assert runner can't run `simd_memory-multi.wast`. Discharged when §14 lands JIT multi-memory codegen |
 
 ### When a new token is introduced
 

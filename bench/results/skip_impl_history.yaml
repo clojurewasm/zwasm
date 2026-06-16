@@ -125,3 +125,35 @@ entries:
       `spec_assert_runner_base.zig:3243`) — the per-class ratchet
       now surfaces it explicitly.
     exempt: ADR-0078
+
+  - commit: "D-457 systemic close — full SIMD spec corpus added"
+    timestamp: "2026-06-16T00:00:00Z"
+    non_simd_skip_impl: 0
+    simd_skip_impl: 271
+    total: 271
+    runtime_debt_trackable: 22
+    runtime_adr_required: 0
+    runtime_internal: 0
+    note: |
+      D-457 systemic close (commits 95b8eb99 / d9da5d7d). The
+      simd_assert corpus inclusion list (`regen_spec_simd_assert.sh`
+      NAMES) grew from 33 to all 59 upstream `simd_*.wast`; the 26
+      added files exposed whole op families that had never been
+      JIT-executed (demote/promote/rounding/narrow/i64x2.extmul — all
+      now wired + green, +688 passing assertions). The gated rise
+      (+237: manifest 0→271, debt 56→22) is NOT a regression:
+        - manifest 271 = the new fixtures' advanced assertion shapes
+          (v128-param marshal / multi-result) that the JIT runner's
+          entry-helper table doesn't cover yet — a runner-harness
+          coverage limit (ADR-0045 §9.9 runner scope), recorded
+          transparently rather than pre-filtered out at corpus-gen.
+          The prior baseline row (2026-05-21, total=0) predated the
+          SIMD corpus being counted, so this is the first real
+          snapshot, not solely this change.
+        - runtime_debt_trackable fell 56→22 (fewer runtime skips).
+        - SKIP-JIT-MULTI-MEMORY ×1 (new token, classified
+          debt-trackable; multi-memory-on-JIT = ROADMAP §14 deferral).
+      Including the full upstream corpus + transparent skips is the
+      direct remedy for the hard-coded-allowlist blind spot (lesson
+      `hardcoded-corpus-subset-hides-whole-op-families`).
+    exempt: ADR-0192
