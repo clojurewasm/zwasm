@@ -5,21 +5,27 @@
 
 ## Current state — Phase 17 完成形 completion-refinement (release = USER-ONLY, ADR-0156)
 
-## Recently closed — simd-convert-ops-e2e bundle (D-457): CLOSED @95b8eb99
+D-457 (SIMD systemic close) DONE + **ubuntu-verified @8a6b4c0e** (24805/0). The full-SIMD-op sweep fixed 6
+corpus-hidden bugs (demote/promote/rounding/narrow/i64x2.extmul — same multi-layer-wiring pattern; per-arch emit
+handlers were complete, only validate-arity+lower+emit-dispatch missing). Lesson
+`hardcoded-corpus-subset-hides-whole-op-families`.
 
-D-457 discharged. The systemic audit (full-SIMD-op execution sweep) found+fixed **6 more corpus-hidden bugs**, all the
-same multi-layer-wiring pattern as the convert ops. Root cause: `regen_spec_simd_assert.sh`'s `NAMES` array baked only
-**33 of 59** upstream `simd_*.wast`; the 26 omitted hid whole op families. Added all 59 → surfaced 6 fails:
-- demote/promote (94/95) + f32x4/f64x2 rounding (103-106/116/117/122/148): validator binop→unop arity fix (same MVP
-  miscount as convert ops); i64x2.extmul (220-223): absent from validator binop list; narrow (101/102/133/134):
-  lower-side wiring missing. Per-arch emit handlers were complete on both arches all along — wired validate+lower+emit.
-- simd_memory-multi: multi-memory is a Phase-14 JIT deferral (compile.zig:125) → runner records SKIP-JIT-MULTI-MEMORY.
-- simd_assert corpus **24805 passed / 0 failed** (was 24117 / 6 fail). +688 real assertions. Lesson
-  `hardcoded-corpus-subset-hides-whole-op-families`. This substantially corrects the overstated "100% SIMD spec" claim.
+## Active bundle — spec-corpus-completeness (D-458)
 
-**NEXT (autonomous)**: resume general Phase-17 work — Step 0.5 debt sweep (56 entries), surface audits (C/Zig/CLI), OR
-the queued doc-inventory phase (below). The hardcoded-allowlist anti-pattern may also hide gaps in NON-simd corpora —
-worth a future `comm -23` audit of every regen script's inclusion list vs upstream.
+- **Bundle-ID**: spec-corpus-completeness (D-458) — extends the D-457 finding to NON-simd corpora.
+- **Cycles-remaining**: ~2
+- **Continuity-memo**: Investigation (this cycle) found spec EXECUTION is validated ONLY on curated JIT-assert corpora;
+  `wast_runner.zig`/`runner.zig` are **parse+validate only**. So "100% spec, 0 skip" = a skip-impl gate on the curated
+  execution corpus, NOT full-upstream execution. Core-2.0 executable omissions (hyphen-aware diff): genuine 2.0 gaps =
+  **`align`** (47 assert_return) + **`local_init`** (4, described in regen header but silently absent from NAMES); rest
+  are Phase-10 scope (call_ref/return_call*/br_on_null/type-rec) or parse-only (utf8-*/binary-leb128). **BLOCKER**: the
+  2.0 regen distiller `fmt()` raises `KeyError 'value'` on `align`+`select` shapes with the CURRENT pinned wasm-tools —
+  the committed corpus is NON-IDEMPOTENT (re-bake EMPTIES select's 148-line manifest = regression). local_init alone
+  baked + surfaced 2 fails in a churned bake (verify on a clean bake). Reverted this cycle to keep 2.0-assert green.
+- **Exit-condition**: distiller robust to malformed/value-less shapes → re-bake == committed (idempotent) → align +
+  local_init added + green + any surfaced exec bug fixed. Then feed doc-inventory phase (reconcile "100% spec" wording).
+
+## Planned future phase (USER-requested 2026-06-16) — now eligible
 
 ## Planned future phase (USER-requested 2026-06-16)
 
@@ -29,35 +35,15 @@ worth a future `comm -23` audit of every regen script's inclusion list vs upstre
 
 ## Active rework campaign
 
-- **Campaign**: wasmtime misc_testsuite full differential coverage (ADR-0192, user-directed 2026-06-16). Phase I DONE; Phase II in flight.
-- **Goal**: run wasmtime's full `tests/misc_testsuite/` (312 .wast @897aa00d) through zwasm, fundamentally fix every real gap.
-- **3 REAL zwasm bugs found+fixed (gc bucket, native sweep)**: (1) `array.copy` self-region `@memcpy` alias panic —
-  interp+JIT → `copyForwards` (`46c2975e`); (2) huge `array.new*` u32 size-overflow panic → u64 + OutOfMemory trap +
-  mapDispatchErr OutOfHeap wiring (`7e527dba`); (3) `readValType` rejected abbreviated bottom reftypes 0x71-0x74
-  (nullref/nullexternref/nullfuncref/nullexnref) → BadValType on valid GC modules (`d54b789f`, wasmtime gc/issue-13152).
-  All three the synthetic spec suite (362/0) never hit. Lesson `gc-bulk-op-memcpy-aliases-on-self-region-copy`.
-- **Ref arg+result comparison wired into the native runner** (`7ae5f54c`, D-456 ref-part DONE): parsePayload null-ref
-  args, runtimeToZwasm made total, assert_return compares refs by got's active tag. Committed wasm-3.0-assert corpus
-  stays green (11997 directives, 0 fails).
-- **CLEAN RESULT — native sweep shows 0 value/ref mismatches** across gc/memory64/tail-call/function-references/
-  multi-memory: **every assert the runner can evaluate passes**. After the harness fix function-references fails 35→9,
-  gc 45→42. ALL remaining fails are `FAILsetup`/`FAILtrapSetup`/`UnknownImport` (47+3+9) — fixtures that import host
-  functions the runner doesn't define (+ memory64 `more-than-4gb` = environmental). NO zwasm value/behaviour bug remains
-  in the native buckets beyond the 3 fixed.
-- **4th real bug — C-API instantiate path didn't drop active DATA segments** (`c1f727d4`): instantiateRuntime wrote
-  active data to memory but left data_dropped=false (the elem path + native setupRuntime/populateDataSegments already
-  dropped) → memory.init from the dropped segment didn't trap (§4.5.4 step 15). Found via top-level memory_init.
-  Coverage: `test/c_api_conformance/data_active_drop.c`. Spec suite stays green (Wasm-2.0 25437/0).
-- **Top-level core triaged**: canonicalize-nan = spec-legal NaN divergence (wasmtime over-asserts exact bits; lesson
-  `wasmtime-fixtures-over-assert-exact-canonical-nan`, NOT a bug). Rest (memory-combos/int-to-float-splat/issue6562/
-  alias-region = ModuleAllocFailed multi-mem/SIMD/region modules the C-API rejects; embenchen = env-import; wast-syntax/
-  many-results-with-exceptions = setup/EH harness). memory_init was the one real bug.
-- **Campaign tally: 6 real zwasm bugs fixed** (array.copy alias ×interp+JIT, array.new overflow, bottom-reftype decode,
-  active-data-drop) + harness now compares refs. Native buckets + top-level core extracted.
-- **NEXT (Phase II→V)**: (a) run simd via `simd_assert_runner` (last unchecked bucket); (b) optional host-import wiring;
-  then campaign retrospective (V) + consider promoting legit fixtures into the committed corpus.
-- **Harness**: `scripts/wasmtime_misc_sweep.sh` (C-API) + `scripts/wasmtime_misc_native_sweep.sh` (native GC-capable) +
-  distillers `scripts/wast_to_manifest.py` / `scripts/spec_distill/wast_to_native_manifest.py`. Both runners installed.
+- **Campaign**: wasmtime misc_testsuite full differential coverage (ADR-0192, user-directed 2026-06-16). Phase II in flight.
+- **Goal**: run wasmtime's full `tests/misc_testsuite/` (312 .wast) through zwasm, fundamentally fix every real gap.
+- **Tally: 7 real zwasm bugs fixed** — array.copy self-region alias ×interp+JIT (`46c2975e`), array.new u32 overflow
+  (`7e527dba`), bottom-reftype 0x71-0x74 decode (`d54b789f`), C-API active-data-drop (`c1f727d4`), + the 6 SIMD ops via
+  D-457 (different bucket). Native sweep CLEAN (0 value/ref mismatches all buckets); remaining fails are
+  FAILsetup/UnknownImport host-import fixtures. Ref arg+result compare wired into native runner (`7ae5f54c`, D-456).
+  Lessons: `gc-bulk-op-memcpy-aliases-on-self-region-copy`, `wasmtime-fixtures-over-assert-exact-canonical-nan`.
+- **NEXT (Phase II→V)**: SIMD bucket DONE (D-457). Remaining: (a) optional host-import wiring; (b) campaign
+  retrospective (V) + promote legit fixtures. Harness: `scripts/wasmtime_misc_{sweep,native_sweep}.sh` + distillers.
 
 **The prior user-steered 4-front async-maturity campaign (2026-06-16) is COMPLETE** — all four closed (history below);
 general Phase-17 completion work (debt sweep / surface audits) interleaves when the campaign pauses.

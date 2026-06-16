@@ -1701,6 +1701,66 @@ entries:
     refs: |-
       /tmp/hoot-spike (spike artifacts); test/edge_cases/p10/gc/ (GC execution fixtures);
       lessons validator-exact-eql-where-reftype-subtyping-required + leb-decode-desync-manifests-far-downstream
+  - id: "D-455"
+    layer: "code"
+    status: "note"
+    front: D-wmt-misc
+    description: |-
+      note (ADR-0192 campaign, 2026-06-16). Array allocation size arithmetic +
+      ArrayHeader stamping is duplicated between interp `array_ops.allocateArray`
+      and JIT-shared `feature/gc/object_alloc.allocArrayObject` — the u64 overflow
+      guard had to be applied to BOTH (commit 7e527dba). They differ only in the
+      maybeCollect caller and zero-init flag. Unify: interp allocateArray should
+      delegate to allocArrayObject (caller does maybeCollect, as the JIT path
+      already does). Discharge: one allocator, one size-arithmetic site.
+    first_raised: "2026-06-16"
+    last_reviewed: "2026-06-16"
+    refs: ""
+  - id: "D-456"
+    layer: "test"
+    status: "note"
+    front: D-wmt-misc
+    description: |-
+      note (ADR-0192 campaign, 2026-06-16). The native wasm-3.0 assert runner
+      (spec_assert_runner_wasm_3_0.zig) did NOT compare ref-typed assert_return
+      results (D-222). RESOLVED (ref-part, 7ae5f54c): null-ref args +
+      externref/null-funcref result compare wired; re-sweep shows 0 value/ref
+      mismatches across all native buckets. REMAINING (note): FAILsetup/
+      UnknownImport fails are fixtures importing host functions the runner doesn't
+      define — wiring those host imports is the only path to running them.
+    first_raised: "2026-06-16"
+    last_reviewed: "2026-06-16"
+    refs: ""
+  - id: "D-458"
+    layer: "test"
+    status: "now"
+    front: spec-corpus-completeness
+    description: |-
+      now (2026-06-16, follow-on to D-457 systemic audit). Spec EXECUTION
+      conformance is validated ONLY on curated JIT-assert corpora
+      (wasm-1.0-assert / wasm-2.0-assert / wasm-2.0-simd-assert / wasm-3.0-assert);
+      the full-upstream runners (wast_runner.zig / runner.zig) are parse+validate
+      ONLY (no runtime asserts). So "100% spec, 0 skip" = a skip-impl gate on the
+      curated execution corpus, NOT full-upstream execution coverage. The SIMD
+      blind-spot (D-457) was the first proof. Core-2.0 execution-corpus omissions
+      confirmed (corrected count, hyphen-aware): genuine 2.0 gaps are `align` (47
+      assert_return, memory-alignment exec) + `local_init` (4 assert_return,
+      definite-init — described in the regen header but silently absent from NAMES);
+      the rest are Phase-10 scope (call_ref/return_call*/br_on_null/type-rec) or
+      parse/validate-only (utf8-*/binary-leb128/annotations). BLOCKER: the 2.0 regen
+      distiller's `fmt()` raises KeyError 'value' on `align` + `select` command
+      shapes with the CURRENT pinned wasm-tools — the committed corpus is
+      non-idempotent (a re-bake EMPTIES select's 148-line manifest = regression).
+      Discharge: (1) make the distiller robust to those shapes (assert_malformed/
+      assert_invalid + value-less commands), (2) add align + local_init, run, fix
+      any surfaced exec bugs (local_init surfaced 2 fails in a churned bake — verify
+      on a clean bake), (3) confirm regen idempotency (re-bake == committed). Feeds
+      the USER-requested doc-inventory phase: reconcile the "100% spec" wording.
+    first_raised: "2026-06-16"
+    last_reviewed: "2026-06-16"
+    refs: |-
+      scripts/regen_spec_2_0_assert.sh (NAMES + distiller fmt); test/spec/spec_assert_runner_non_simd.zig;
+      lesson hardcoded-corpus-subset-hides-whole-op-families; supersedes stranded-in-conventions D-455/456/457 text
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
@@ -1773,49 +1833,3 @@ conventions: |-
   behaviour change) is promoted from this file to a `.dev/decisions/
   NNNN_<slug>.md` ADR. The discharge commit removes the row from this
   file. See `.claude/rules/lessons_vs_adr.md` for the decision tree.
-  - id: "D-455"
-    layer: "code"
-    status: "note"
-    front: D-wmt-misc
-    description: |-
-      note (ADR-0192 campaign, 2026-06-16). Array allocation size arithmetic +
-      ArrayHeader stamping is duplicated between interp `array_ops.allocateArray`
-      and JIT-shared `feature/gc/object_alloc.allocArrayObject` — the u64 overflow
-      guard had to be applied to BOTH (commit 7e527dba). They differ only in the
-      maybeCollect caller and zero-init flag. Unify: interp allocateArray should
-      delegate to allocArrayObject (caller does maybeCollect, as the JIT path
-      already does). Discharge: one allocator, one size-arithmetic site.
-  - id: "D-456"
-    layer: "test"
-    status: "note"
-    front: D-wmt-misc
-    description: |-
-      note (ADR-0192 campaign, 2026-06-16). The native wasm-3.0 assert runner
-      (spec_assert_runner_wasm_3_0.zig) does NOT compare ref-typed assert_return
-      results (D-222) — match() returns false for any non-i32/i64/f32/f64 type, so
-      EVERY ref-returning assert counts as a fail. This inflates the wasmtime-misc
-      native-sweep return-fail counts (esp. function-references 35, gc ~45) with
-      false-fails that are NOT zwasm bugs. To get a TRUE differential signal, the
-      runner needs ref-result comparison. RESOLVED (ref-part, 7ae5f54c): null-ref
-      args + externref/null-funcref result compare wired; re-sweep shows 0 value/ref
-      mismatches across all native buckets. REMAINING (downgraded to note): the
-      FAILsetup/UnknownImport fails are fixtures importing host functions the runner
-      doesn't define — wiring those host imports is the only path to running them.
-  - id: "D-457"
-    layer: "code"
-    status: "now"
-    front: D-wmt-misc
-    description: |-
-      now (ADR-0192, 2026-06-16). The 8 SIMD float<->int LANE-CONVERSION ops have
-      NEVER worked end-to-end in zwasm (the vendored official simd corpus never
-      tested them, hiding the gap): i32x4.trunc_sat_f32x4_{s,u} (248/249),
-      f32x4.convert_i32x4_{s,u} (250/251), i32x4.trunc_sat_f64x2_{s,u}_zero
-      (252/253), f64x2.convert_low_i32x4_{s,u} (254/255). VALIDATE fixed (79fd589e:
-      were miscategorized as binop). REMAINING: lower_simd.zig has no emit for them
-      (else => NotImplemented:407) so instantiate fails; per-op interp anchors are
-      NotMigrated stubs (no interp); f64x2_convert_low_i32x4_u missing from
-      dispatch_collector_ops registration; JIT emit handlers EXIST but are
-      unreachable (dead) until lower produces the ZirOps. Discharge: wire
-      lower_simd + interp + registration for all 8, JIT becomes reachable, add
-      runtime fixtures (extract-to-scalar) + promote to committed simd corpus.
-      Also AUDIT for other untested-op families (the corpus gap is systemic).
