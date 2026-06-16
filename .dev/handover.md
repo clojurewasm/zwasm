@@ -7,17 +7,17 @@
 
 ## Active bundle
 
-- **Bundle-ID**: simd-convert-ops-e2e (D-457)
-- **Cycles-remaining**: ~2
-- **Continuity-memo**: 8 SIMD float↔int conversions (opcodes 248-255). SIMD is JIT-ONLY (no interp; 13420 simd
-  asserts run via JIT). DONE: validate (79fd589e), lower_simd all 8 (58e88f32). **3/8 run e2e** (252/253/255 had JIT
-  emit; edge fixtures test/edge_cases/p9/simd_convert/ pass). **REMAINING: per-arch JIT emit for 5** —
-  i32x4.trunc_sat_f32x4_{s,u} (248/249), f32x4.convert_i32x4_{s,u} (250/251), f64x2.convert_low_i32x4_s (254).
-  Each needs arm64 emit.zig + x86_64 emit.zig handler arms (mirror the existing trunc_sat_f64x2/convert_low_u recipes
-  in op_simd_float.zig). f64x2_convert_low_i32x4_u still missing from ir/dispatch_collector_ops (works anyway since
-  SIMD validate/lower are opcode-based; tidy later).
-- **Exit-condition**: all 8 run e2e via JIT (edge fixtures, extract-to-scalar) + promote to committed simd corpus +
-  audit for other untested-op families (the corpus gap is systemic — convert ops were 100% untested).
+- **Bundle-ID**: simd-convert-ops-e2e (D-457) — **IMPLEMENTATION DONE; closing**
+- **Cycles-remaining**: ~1 (verify ubuntu x86 + close + corpus promote)
+- **Continuity-memo**: ALL 8 SIMD float↔int conversions (248-255) now run e2e via JIT. The bug was 3-layer, all hiding
+  behind a corpus that never tested them: validate mis-categorized (fixed 79fd589e), lower_simd missing (58e88f32),
+  emit dispatch UNWIRED (93f4710c — the per-arch handlers were COMPLETE all along, just never connected; relaxed-simd
+  trunc reuses the same handlers so they were corpus-tested). All 8 pass on arm64 (Mac edge fixtures
+  test/edge_cases/p9/simd_convert/, 8 cases); x86_64 cross-compiles clean — **ubuntu test-all confirms x86 next 0.7**.
+- **Exit-condition**: ubuntu x86 green → promote convert fixtures into committed simd corpus (so the gap
+  can't recur) → **systemic audit** (the naive lowered-vs-emitted diff is dominated by table-dispatched ops; need a
+  per-dispatch-mechanism audit OR a full-SIMD-op execution sweep to find other corpus-hidden gaps). f64x2_convert_low
+  _i32x4_u still unlisted in ir/dispatch_collector_ops (cosmetic; SIMD validate/lower are opcode-based).
 
 ## Planned future phase (USER-requested 2026-06-16, AFTER this campaign)
 
