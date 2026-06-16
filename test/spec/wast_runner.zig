@@ -370,6 +370,7 @@ fn runOne(gpa: std.mem.Allocator, module: *runtime.Module) !void {
             &.{}, // array_defs
             &.{}, // supertypes
             &.{}, // elem_types
+            null, // canonical_types (non-GC MVP/2.0 runner — no rec-group types)
         );
     }
 }
