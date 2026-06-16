@@ -1102,7 +1102,20 @@ pub fn main(init: std.process.Init) !void {
                         const match = if (std.mem.eql(u8, expected_tv.ty, "i32")) got.i32 == expected_zv.i32 else if (std.mem.eql(u8, expected_tv.ty, "i64")) got.i64 == expected_zv.i64 else if (std.mem.eql(u8, expected_tv.ty, "f32")) got.f32 == expected_zv.f32 else if (std.mem.eql(u8, expected_tv.ty, "f64")) got.f64 == expected_zv.f64 else false;
                         if (match) summary.asserts_return_pass += 1 else {
                             summary.asserts_return_fail += 1;
-                            if (fail_detail) try stdout.print("  FAILval [{s}/{s}] {s} exp={d} got={d} ty={s}\n", .{ proposal, entry.name, d.func_name, expected_zv.i32, got.i32, expected_tv.ty });
+                            // Type-safe fail print: only read the union field the
+                            // result type actually populated. ref/v128/fp types
+                            // (which `match` treats as not-yet-comparable, D-222)
+                            // print type-only — reading `.i32` on an externref slot
+                            // would panic "access of union field".
+                            if (fail_detail) {
+                                if (std.mem.eql(u8, expected_tv.ty, "i32")) {
+                                    try stdout.print("  FAILval [{s}/{s}] {s} exp={d} got={d} ty=i32\n", .{ proposal, entry.name, d.func_name, expected_zv.i32, got.i32 });
+                                } else if (std.mem.eql(u8, expected_tv.ty, "i64")) {
+                                    try stdout.print("  FAILval [{s}/{s}] {s} exp={d} got={d} ty=i64\n", .{ proposal, entry.name, d.func_name, expected_zv.i64, got.i64 });
+                                } else {
+                                    try stdout.print("  FAILval [{s}/{s}] {s} ty={s} (ref/fp/v128 result — not value-compared, D-222)\n", .{ proposal, entry.name, d.func_name, expected_tv.ty });
+                                }
+                            }
                         }
                     },
                     .assert_trap => {
