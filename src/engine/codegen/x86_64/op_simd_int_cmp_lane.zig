@@ -537,7 +537,9 @@ pub fn emitI64x2ExtractLane(
     next_vreg.* += 1;
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
-    const src_x = try gpr.resolveXmm(alloc, src_v);
+    // D-461: spill-aware v128 source (was resolveXmm-reject), same shape as
+    // the tested i32x4.extract_lane (single src → PEXTR).
+    const src_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, src_v, 0);
     const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
 
     const lane: u1 = @intCast(payload & 0b1);
@@ -1544,7 +1546,9 @@ fn emitV128IntExtractLaneNarrow(
     next_vreg.* += 1;
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
-    const src_x = try gpr.resolveXmm(alloc, src_v);
+    // D-461: spill-aware v128 source (was resolveXmm-reject), same single-source
+    // shape as the tested i32x4.extract_lane. Covers i8x16/i16x8 extract_lane s/u.
+    const src_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, src_v, 0);
     const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
 
     switch (kind) {
