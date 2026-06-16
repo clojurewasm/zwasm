@@ -50,15 +50,20 @@ wasi-testsuite, wasm-tools). **②①④ DONE; ③ ACTIVE (GC-corpus).**
 - **Bundle-ID**: p17-③-gc-corpus (real Wasm-GC source-lang fixtures to stress the GC backend)
 - **Cycles-remaining**: several (new-toolchain integration like wasip3 was)
 - **Hoot bring-up — validator bug chain (each blocker = a real spec fix; wasm-tools validates the whole module)**:
-  func #84 op 0x10 canonical-equality **FIXED** (`9ec68a75`). func #354 `UninitializedLocal` **ROOT-CAUSED → D-453**
-  (NOT definite-assignment): ref.test/ref.cast/br_on_cast decode the heap-type immediate as a single BYTE, but it's
-  an SLEB128 — a concrete type index ≥ 64 takes 2+ bytes, so the continuation byte mis-reads as `unreachable`,
-  poisoning reachability → a skipped local.set → false UninitializedLocal downstream. Multi-file (validator + lower +
-  ref_test_ops + mvp) + an IR-encoding crux (br_on_cast packs flags|ht1|ht2 in one u32 `extra`, no room for a u32
-  idx). **NEXT = execute D-453 (correctness-first ADR-0153 II)**: characterization-pin the current abstract-head +
-  idx<64 path FIRST, then thread the full heaptype (validator → readTypedRef; lower → SLEB; ref_test_ops/mvp → u32 ht;
-  design the br_on_cast IR encoding). Repro: `private/notes/d453_refcast_idx64_repro.wat` (wasm-tools accepts, zwasm
-  false-rejects; boundary exactly idx 64).
+  Four validator/decoder spec bugs found+FIXED by the probe: func#36 return_call subtype (`9064faa5`), table.copy
+  subtype (`480809af`), func#84 canonical-equality (`9ec68a75`), func#354 **D-453 heap-type SLEB decode / concrete
+  idx≥64** (`c528c3b3`). D-453 was the big one: ref.test/cast/br_on_cast read the heap-type immediate as 1 byte but
+  it's SLEB128 (idx≥64 = 2+ bytes) → decoder desync → false UninitializedLocal 3 hops downstream. Fixed across
+  validator+lower+ref_test_ops+mvp+both-arch JIT (encoding: abstract/idx<64 = bare byte unchanged; idx≥64 =
+  0x8000_0000|idx; JIT null-flag bit8→bit30; +x86_64 `&0xFF` truncation fixed). 2 regression fixtures + lesson
+  `leb-decode-desync-manifests-far-downstream`. **The Hoot module now passes validation + lowering cleanly** and
+  reaches INSTANTIATION, where it correctly fails on unsatisfied `rt`/`io`/`debug` imports (~36 — the D-451 strict
+  reject). **③ DECISION POINT**: to RUN a real Hoot program needs a host-import shim (a Scheme runtime: bignum/
+  wtf8-string/io/quit leaf prims) — a sizable undertaking. The probe's PRIMARY value (4 real GC spec-conformance
+  fixes the synthetic suite missed) is banked + the new edge fixtures (canonical_eq, ref_cast_concrete_idx64,
+  ref_test_null_idx256) ARE real GC programs running green. NEXT: weigh (a) build the Hoot host-shim to land a
+  running real-world wasm-gc fixture vs (b) accept the validator-hardening payoff + close the bundle on the
+  hand-derived GC fixtures + dart2wasm probe. Likely (b) unless the shim is small.
 - **Continuity-memo**: ②①④ DONE. ③ active — Hoot chosen (lean import surface; dart2wasm needs heavy JS glue,
   deprioritized). Probe already found+fixed 2 validator bugs (`9064faa5`/`480809af`). **NEXT = re-run the Hoot module
   under zwasm** now return_call validates; expect next blocker = D-452 (br_table) OR an unsatisfied `io`/`rt` import

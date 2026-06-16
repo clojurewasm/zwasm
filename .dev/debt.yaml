@@ -1699,45 +1699,6 @@ entries:
     refs: |-
       src/validate/validator.zig:2794 (br_table call site) + :3379 (labelTypesEq);
       Wasm 3.0 spec §3.3.8.8 (br_table); siblings 9064faa5 + 480809af
-  - id: "D-453"
-    layer: "code"
-    status: "now"
-    front: "B-hardening"
-    description: |-
-      Status: now — ref.test/ref.cast/br_on_cast heap-type immediate decoded+stored as a
-      single BYTE; concrete type index ≥ 64 is unrepresentable AND desyncs the decoder.
-      The GC cast-family heap-type immediate is an SLEB128 (s33): abstract heads + concrete
-      indices 0..63 fit in 1 byte, but a concrete index ≥ 64 takes 2+ bytes. zwasm reads
-      exactly ONE byte in (a) validator opRefTest (validator.zig:1728 `pos += 1`) +
-      opRefCast (:1750 single ht_byte → gc_subtype.castTargetType(byte)), and (b) lower.zig
-      ref.test/ref.test_null/ref.cast/ref.cast_null (:742-766 single `heap_type_byte`).
-      For index ≥ 64 the leftover continuation byte (often 0x00) is then mis-read as the
-      next opcode (`unreachable`), poisoning reachability → a downstream local.set is
-      skipped by markLocalInit → a later local.get false-trips UninitializedLocal (the
-      symptom that surfaced this, via the front-③ Guile-Hoot module func #354). The runtime
-      type-test machinery is ALSO byte-wide: ref_test_ops.decodeAbstract(b: u8) /
-      gcRefMatchesNonNull(..., ht: u8); mvp.zig br_on_cast `ht2: u8 = @truncate(extra>>16)`.
-      NOTE: the VALIDATOR's br_on_cast already decodes correctly (init_expr.readTypedRef);
-      only its LOWER side (lower.zig:768-784 reads ht1/ht2 as single bytes) desyncs.
-      FIX (correctness-first per ADR-0153 II — characterization-pin the current abstract-head
-      + idx<64 path on all three ops FIRST, the spec GC suite covers it; then redesign):
-      thread the full heaptype (abstract head | u32 concrete index) — validator opRefTest/
-      opRefCast → init_expr.readTypedRef (as br_on_cast already does); lower.zig → SLEB
-      decode + store the u32 index (ref.test/ref.cast payload is u32 = room; br_on_cast packs
-      flags|ht1|ht2 into one u32 `extra` = NO room for a u32 index → needs an IR-encoding
-      change: ZirInstr field budget / side-table, the design crux); ref_test_ops +
-      mvp.zig → take u32 ht + abstract/concrete discrimination. Minimal repro (also
-      private/notes/d453_refcast_idx64_repro.wat): 65 singleton struct types so index 64 is
-      a 2-byte LEB, then `local.get 0; ref.cast (ref 64); local.set 1; block (result (ref
-      eq)) local.get 1 end`. wasm-tools VALIDATES it; `zwasm run` → false UninitializedLocal.
-      Boundary is exactly index 64 (idx 63 passes). Blocks the front-③ Hoot bring-up.
-    first_raised: "2026-06-16"
-    last_reviewed: "2026-06-16"
-    refs: |-
-      src/validate/validator.zig:1722 (opRefTest) + :1748 (opRefCast); src/ir/lower.zig:742-784
-      (ref.test/cast/br_on_cast lower); src/instruction/wasm_3_0/ref_test_ops.zig:58-104
-      (decodeAbstract/gcRefMatchesNonNull, ht:u8); src/interp/mvp.zig:351 (br_on_cast ht2);
-      src/parse/init_expr.zig:151 (readTypedRef, the correct decoder); Wasm 3.0 GC §3.3.5.3-5
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
