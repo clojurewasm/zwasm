@@ -49,6 +49,15 @@ wasi-testsuite, wasm-tools). **②①④ DONE; ③ ACTIVE (GC-corpus).**
 
 - **Bundle-ID**: p17-③-gc-corpus (real Wasm-GC source-lang fixtures to stress the GC backend)
 - **Cycles-remaining**: several (new-toolchain integration like wasip3 was)
+- **WINDOWS @886d0667 — VERIFY CAREFULLY next Step 0.7**: at last mid-stream check win.log showed an EARLY block
+  `[gc] invalid=68 (pass=0 fail=68)`, `[memory64] invalid=473 pass=0 fail=473`, `[tail-call] invalid=27 pass=0 fail=27`
+  (return/trap pass=0 too). Likely the wasm-3.0-assert SKELETON enumeration (the step is described as a skeleton,
+  "0 manifests until §9.9-b") OR a windows-corpus artifact — NOT necessarily a regression (ubuntu ran the SAME
+  commit with `[gc] pass=362 fail=0`, and the validator is arch-independent Zig, so a Win64-only validator regress
+  is implausible). Read the FINAL `[run_remote_windows] OK|FAIL` verdict + compare GC pass counts to ubuntu before
+  concluding. If genuinely FAIL → D7 (re-run once; reproduces=real bug; flake=track_heisenbug).
+- **③ feasibility probe IN FLIGHT**: investigating whether a pure-compute Hoot program runs under zwasm with
+  trap-stub host imports (Zig test harness) — decides close-bundle vs run-real-GC-program. Report → next turn.
 - **STEP 0.7 NEXT TURN**: ubuntu **GREEN @886d0667** (`OK`, wast_runner 1158/0+74/0, GC 362/0, realworld 56/0) —
   D-453 + the wast_runner caller fix (`1d58980d`) fully verified on x86_64. D-452 (`79742cb4`, br_table subtyping)
   landed AFTER → **kick ubuntu @79742cb4 + verify next Step 0.7**. **windows is verifying @886d0667** (D-453 ABI-risk
