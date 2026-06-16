@@ -19,34 +19,15 @@ CLI surface audit (@4e5e42fe): code↔`--help` fully consistent. Gate change @b1
 (windows `[run_remote_windows] OK.` wasm-3.0-assert pass=10234 fail=0 / simd 24805/0 / spec 25539/0; ubuntu OK
 @f1a1d503). win-specassert campaign fully closed; the fail-gate is clean.
 
-**NEXT (autonomous)**: drive the **ADR-0193 feature-separation migration** (Active bundle below). User resolved
-both open questions + granted full autonomy. `D-461` IV (SIMD spill) is PARKED behind it: slice 1 DONE
-(`97afa4d4`, arm64 extract_lane spill-aware); next D-461 step = regalloc class-boundary OOB at `regalloc.zig:222`
-(`spill_idx = id - max_reg_slots_gpr` indexes the **fp** `spill_offsets` with the GPR boundary → x86_64 panic).
-x86_64 codegen is locally TDD-able via `zig build test -Dtarget=x86_64-macos` under Rosetta (lesson
+**NEXT (autonomous)**: **ADR-0193 feature-separation migration CLOSED** (P1-P4, user-flagged D-462) — one ordered
+`-Dwasi={none,p1,p2,p3}` axis (default p2), `-Dcomponent` removed (component == `wasi_level>=.p2`), p3/async
+comptime-fenced (`test-wasi-p3` + DCE assertion), docs synced. WASI D+→B, component D→B. Residual: flip default
+`p2→p3` once WASI-0.3 Unit E/F settles (tracked under D-335). Now resume **`D-461` IV (SIMD spill)**, parked behind
+it: slice 1 DONE (`97afa4d4`, arm64 extract_lane spill-aware); next step = regalloc class-boundary OOB at
+`regalloc.zig:222` (`spill_idx = id - max_reg_slots_gpr` indexes the **fp** `spill_offsets` with the GPR boundary →
+x86_64 panic). x86_64 codegen locally TDD-able via `zig build test -Dtarget=x86_64-macos` under Rosetta (lesson
 `rosetta-x86_64-local-jit-unit-test`). Then `D-209` memory64. **windowsmini gating RESUMED**. Version →
 `2.0.0-alpha.3`.
-
-## Active bundle
-
-- **Bundle-ID**: ADR-0193-feature-sep P1..P4 (D-462)
-- **Cycles-remaining**: ~1 (P4)
-- **Continuity-memo**: P1 + P2 DONE. P1 (`eb43d8af`): `WasiLevel={none,p1,p2,p3}` tier, default `p1→p2`, filter
-  `need>cur`. **Survey killed the register()-mirror** (gc pattern installs Zone-1 dispatch handlers; WASI host
-  resolves by-name at instantiation, Zone-3 per-run — no global-reg analog; ADR §3 REVISED). P2 (`3a2c2c36`):
-  folded `enable_component` into derived `wasi_level>=.p2`, **removed `-Dcomponent`** (lean = `-Dwasi=p1`); comp
-  runner forced to p2 floor; unit 2945/2957 + component 158/0/0 green; `-Dcomponent` now rejected.
-  **P3 DONE** (`888585e2`): derived `enable_wasi_p3=wasi_level>=.p3`; relocated `runWasiMain` to
-  `component_wasi_p2.zig` (async branch `comptime enable_wasi_p3`-gated); p3 import comptime-fenced in ship path
-  (component.zig re-exports + zwasm.zig:413). 28 async tests → new `test-wasi-p3` step (forced `-Dwasi=p3`, mirrors
-  core_comp) wired into test-all. `check_build_dce` FORBIDDEN_BELOW_P3 assertion + matrix→p3. VERIFIED: p2 CLI 0
-  p3-driver syms / p3 +2232B; component 158/0/0; default test 2917/2929; test-wasi-p3 green; lint clean. Default p2
-  ⇒ async is OPT-IN (`-Dwasi=p3`), deliberate (p2-interim). **P4 (NEXT, bundle close)**: (a) structuralise the ~4
-  cheap branch sites (instance.zig feature imports → discovery; memory64 emit → `op_memory_i64.zig`) + annotate the
-  ~6 unavoidable; (b) sync stale `-Dcomponent` docs → `-Dwasi` axis (`README.md:45,149`, `docs/zig_api_design.md`
-  §3.8/§3.9:344, `docs/migration_v1_to_v2.md`, `handoff_cw_v{1,2}*`); (c) CWFS handover note (lean = `-Dwasi=p1`).
-- **Exit-condition**: `-Dcomponent` gone ✓(P2); p3 host `wasi_level`-gated (P3); WASI/component corpora green
-  throughout. Decisions: (a) hard-remove ✓, (b) single-axis, default p2 interim (p3 flip later).
 
 ## Active phase — doc-inventory + freshening (USER-requested 2026-06-16)
 

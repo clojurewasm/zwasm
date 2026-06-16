@@ -1359,6 +1359,9 @@ entries:
       element marshalling (E1/E3/E2c did only u8, count==bytes), general guest↔guest stream COMPLETION (Zone-1
       rendezvous doesn't buffer bytes — separate design), broader P3 host interfaces (sockets/http async = Unit E
       full). Detailed unit-by-unit history below.
+      GATES the ADR-0193 default flip: `-Dwasi` default stays `.p2` (async opt-in via `-Dwasi=p3`) until this
+      Unit E/F host breadth settles; when it does, flip the build.zig default `.p2 → .p3` (one line) + the
+      old-default-assuming sites (`check_build_dce` p2-clean assertion becomes p3-base, README/docs default text).
       now (§9.0 Front D — WASI 0.3 / Preview 3 implementation campaign). WASI 0.3.0
       RATIFIED 2026-06-11; CM-async-based (`async` func / `stream<T>` / `future<T>`),
       NOT the core stack-switching proposal. Builds on the shipped CM + WASI-0.2
@@ -1859,68 +1862,6 @@ entries:
       src/engine/codegen/x86_64/gpr.zig (resolveXmm — rejects .spill v128);
       src/engine/codegen/{x86_64,arm64}/op_simd_int_cmp_lane.zig (extract/replace_lane SPILL-EXEMPT paths);
       blocks D-460 array-copy-inline.6 + x86_64 v128-GC mirror
-  - id: "D-462"
-    layer: "code"
-    status: "now"
-    front: feature-separation-finished-form
-    description: |-
-      now (USER-flagged 2026-06-16, expanded same day). FEATURE-SEPARATION FINISHED-FORM audit — covers BOTH WASI
-      version separation AND Wasm spec-level separation (and component/engine). The build-time/runtime separation
-      has eroded as P2 (Component Model) then P3 (WASI 0.3 async, D-335) landed.
-      DESIGN NORTH-STAR (user, the finished-form preference, LEFT = more finished): **directory > file >
-      function-cluster > comptime/runtime `if`-branch**. Scattered inline branches (`分岐散り`) are the LEAST
-      finished form; some are genuinely unavoidable ("どうしても仕方がない部分") — the task is to tell the TRUE
-      finished form from the unavoidable, and design a realistic Phase-split migration toward it (don't force-fit).
-      CURRENT STATE (scan 2026-06-16):
-      - Wasm spec ops = MOSTLY finished-form: directory `src/instruction/wasm_{1,2,3}_0/` + per-file `wasm_level`
-        metadata (compile-error-enforced, dispatch_collector.zig:86) + central comptime filter (line 109-111). Good.
-      - BUT ~9 files carry scattered `build_options.{wasm_level,wasi_level,enable_component}` `if`-branches
-        (interp/mvp.zig, parse/sections.zig, cli/main.zig, api/instance.zig, codegen op_memory+emit ×2 arch) — the
-        non-finished-form fallback; audit which are unavoidable vs structuralisable.
-      - WASI/component is the WORST-eroded: IR ops use `wasi_level` file-metadata, but the component/P2/P3 HOST
-        (Zone 3) is gated by a separate `enable_component` bool + scattered `if`s + runtime import-NAME resolution —
-        NOT the directory/file-metadata scheme. WASI audit findings (subagent 2026-06-16; core facts confirmed):
-      1. `WasiLevel = enum { none, p1, p2, both }` (build.zig:1306) has NO `.p3` — P3 is implemented + runtime-
-         reachable (src/api/component_wasi_p3.zig, component/async) but UNSELECTABLE at build time (no `-Dwasi=p3`).
-      2. TWO coupled-but-orthogonal axes pretend to be one: `-Dwasi` (default p1) is an IR-dispatch filter
-         (dispatch_collector.zig:116-122 drops ops whose `wasi_level` > build level unless `.both`), while
-         `-Dcomponent` (default true, build.zig:100) gates "Component Model + WASI Preview 2" host code in Zone 3.
-         So P2 is gated by BOTH flags; `-Dwasi=p1 -Dcomponent=true` compiles AND runtime-instantiates P2 component
-         imports despite claiming P1-only. Contradictory combos (`-Dwasi=p2 -Dcomponent=false`, `-Dwasi=none
-         -Dcomponent=true`) are silently allowed — no coherence validation.
-      3. P3 async is ALWAYS-on under `-Dcomponent` (no `-Dwasi=p3` / `-Dasync`); `runWasiMain` auto-dispatches
-         P2 vs P3 at RUNTIME by export shape — no way to build "P2 only, no async".
-      4. `.both` is a wildcard, not a version — ambiguous once `.p3` is added (p1+p2? or all incl p3?).
-      5. LAYER GAP: `wasi_level` dispatch-filtering only covers Zone-1 IR ops. Zone-3 component host trampolines
-         (component_wasi_p2.zig) + component import resolution (by name string, no version check) are NOT under
-         that gate, so build-time `-Dwasi` and runtime reachability disagree.
-      INVESTIGATION + DESIGN DONE 2026-06-16 → **ADR-0193** (Proposed): classified all ~11 scattered-branch sites
-      (~6 genuinely unavoidable: parser byte-level / CLI display / diagnostics / interp subtype-arm; ~4
-      structuralisable: instance.zig feature-imports → registration, memory64 emit → op_memory_i64.zig). Per-axis
-      grades: Wasm-level B, engine B+, GC B (placeholder), WASI **D+**, component **D**. Recommended target = single
-      ordered `WasiLevel={none,p1,p2,p3}` (drop `both`), component gated by `wasi_level≥p2` (remove the standalone
-      `-Dcomponent` axis), P2/P3 reified as Zone-1 `register()` (mirror src/feature/gc/register.zig). 4-phase
-      migration in the ADR (add p3 tier → registration reify → fold -Dcomponent → structuralise cheap branches).
-      ADR-0193 **ACCEPTED** 2026-06-16 (user resolved both open questions + granted full autonomy): (a) HARD-REMOVE
-      -Dcomponent (no alias); (b) single-axis Option A (no component-without-WASI target); default = **p2 interim**
-      (p3 flip deferred until WASI-0.3 Unit E/F host breadth settles — p3 core green but not settled).
-      MIGRATION PROGRESS: **P1 + P2 DONE**. P1 (eb43d8af): WasiLevel={none,p1,p2,p3} tier, default p1→p2, filter
-      `need>cur`. Survey KILLED the register()-mirror (gc installs Zone-1 dispatch handlers; WASI host resolves
-      by-name at instantiation Zone-3 per-run — no global-reg analog; ADR §3 REVISED). P2 (3a2c2c36): folded
-      enable_component into derived wasi_level>=.p2, REMOVED -Dcomponent (lean = -Dwasi=p1); comp runner forced p2
-      floor; unit 2945/2957 + component 158/0/0 green; -Dcomponent rejected. P3 (888585e2): relocated runWasiMain
-      to component_wasi_p2.zig + comptime-fenced p3/async on enable_wasi_p3 (ship path: component.zig + zwasm.zig:413);
-      28 async tests → new test-wasi-p3 step (forced -Dwasi=p3) in test-all; check_build_dce FORBIDDEN_BELOW_P3 +
-      matrix→p3. VERIFIED p2 CLI 0 p3 syms / p3 +2232B / component 158/0/0 / test-wasi-p3 green. NEXT: P4 (bundle
-      close) = (a) structuralise ~4 cheap branch sites (instance.zig imports, memory64 emit→op_memory_i64.zig) +
-      annotate ~6 unavoidable; (b) sync stale -Dcomponent docs→-Dwasi (README/zig_api_design/migration/handoff_cw);
-      (c) CWFS handover (lean=-Dwasi=p1). Active bundle in handover.
-    first_raised: "2026-06-16"
-    last_reviewed: "2026-06-16"
-    refs: |-
-      build.zig:31 (-Dwasi default p2) / :100 (-Dcomponent, to remove) / :1306 (WasiLevel enum, now p3);
-      src/ir/dispatch_collector.zig:107-126; src/api/component_wasi_p2.zig + component_wasi_p3.zig;
-      src/feature/component/{async,canon}.zig; component.zig:556 (p3 ungated); ADR-0193 (Accepted) + ADR-0187-0191
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.

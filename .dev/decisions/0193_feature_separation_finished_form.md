@@ -143,3 +143,19 @@ preservation is pinned by characterization before the move.
   no such consumer; `-Dwasi` is the sole axis with the component runtime as its P2+ substrate.
 - **Default p2 vs p3?** → **p2 interim.** p3 async core is green but Unit E/F host breadth is incomplete; flip to
   p3 default once it settles. The p2 stage's measured blast-radius is the de-risking input for that flip.
+
+## Retrospective (V) — all four phases landed 2026-06-16
+
+- **Hit the 完成形 bar?** Yes for the substantive axis. WASI went **D+ → B** and component **D → B**: one ordered
+  `-Dwasi` axis now gates everything (build-time == runtime reachability), the two-flag contradiction class is
+  gone, and a p2 build emits **zero** p3-async symbols (DCE-gated). Wasm-level sites (already B/B+) were left as
+  clean file-tier manifests after a smell-test check (P4a).
+- **Verified deltas**: P1 `eb43d8af` (tier+default p2), P2 `3a2c2c36` (gate fold, `-Dcomponent` removed),
+  P3 `888585e2` (async comptime-fence + `test-wasi-p3`) + DCE `888585e2`-area, P4 doc-sync + judgment. Throughout:
+  component corpus **158/0/0**, default unit suite green (2917/2929; 28 async tests moved to `test-wasi-p3`),
+  `check_build_dce` v3_0:p2 clean / p3 +2232 B. ubuntu green each cycle.
+- **New debt / residual**: ONE — flip the default `p2 → p3` once WASI-0.3 Unit E/F host breadth settles (tracked
+  under **D-335**, gated, not urgent). The p2-interim blast-radius measured here (the consumer-rewrite set:
+  `record_binary_size`, comp_options floor, docs) is the de-risking input for that one-line flip.
+- **Superseded**: ADR-0182's `-Dcomponent` flag is removed; ADR-0181/0182 wording about the separate component
+  axis is superseded on this branch (the flag no longer exists; component == `-Dwasi>=p2`).
