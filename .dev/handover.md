@@ -10,26 +10,20 @@ corpus-hidden ops fixed) · **D-458** core-2.0 corpus completeness (@67b3a3ed: a
 distiller value-less-ref crash fixed) + cross-corpus audit COMPLETE (SIMD was the unique blind spot; threads/1.0/3.0
 clean) · doc-inventory pass (@216bf200: CHANGELOG WASI-0.2-sockets stale claim fixed) · **C-ABI trap-kind drift
 guard** (@dc39fb8c, `scripts/check_trap_abi_sync.sh` gate-wired) · **D-455** interp allocateArray → shared
-allocArrayObject (@83c90264: one allocator/one size-arith site; behavior-preserving, GC 365+126/0). D-458 RESIDUAL
-(note): broad regen non-idempotency (~727-file churn under current wasm-tools). Lessons
+allocArrayObject (@83c90264: one allocator/one size-arith site; behavior-preserving, GC 365+126/0) · **D-459** Wasm
+3.0 §3.3.1 local definite-assignment (@33658bdb): non-defaultable `(ref)` locals now follow the spec restore-at-end
+rule (sets inside block/loop/if don't escape) — all 4 local_init assert_invalid reject (was 2 SKIP-VALIDATOR-GAP),
+25539/0, GC unaffected. Key lesson: the rule is restore-at-end NOT dataflow-intersection (`$uninit-from-if` sets in
+BOTH branches yet invalid; survey's intersection model was spec-wrong). D-458 RESIDUAL (note): broad regen
+non-idempotency (~727-file churn). Lessons `local-definite-assignment-is-restore-at-end-not-intersection`,
 `hardcoded-corpus-subset-hides-whole-op-families`.
 
-## Active bundle — D-459 local definite-assignment validator gap
-
-- **Bundle-ID**: D-459 (Wasm 3.0 §3.3.1 local definite-assignment) — surfaced by the D-458 local_init corpus add.
-- **Cycles-remaining**: ~2
-- **Continuity-memo**: validator ACCEPTS modules that read a non-defaultable `(ref $t)`/`(ref extern)` local before
-  it's definitely set on all paths → local_init.2 (read-before-set) + local_init.4 (set in `then`, read in `else`)
-  pass validation (should be assert_invalid; emitted SKIP-VALIDATOR-GAP ×2, ratchet-exempt ADR-0192 @baseline 24).
-  Fix = definite-assignment dataflow in validator.zig: per-local "initialized" bitset in frame state; local.set/tee
-  mark init; block/if-else/loop-end/br joins INTERSECT merging paths' init-sets (unreachable paths don't constrain);
-  local.get of a non-defaultable local checks init. Defaultable locals (i32/.../nullable ref) keep implicit default —
-  no tracking. Correctness-first: the 4 assert_invalid + 3 valid local_init.wast cases are the characterization net.
-- **Exit-condition**: local_init.2 + .4 reject (SKIP-VALIDATOR-GAP ×2 → 0) + the 3 valid cases stay green + GC/2.0
-  suites unaffected; ratchet baseline drops back to 22.
-
-**Other NEXT options if bundle stalls**: Zig-API/CLI surface audits; debt long-tail (D-456 host-import-wiring larger;
-partials parked/zero-gain). Stale-doc note: ROADMAP §16.7 D-277 ("zwasm.h empty") stale — DONE historical row, left.
+**NEXT (autonomous)**: continue Phase-17 完成形 surface audits / corpus-completeness — Zig-API + CLI あるべき論; debt
+long-tail (31 note: D-456 host-import-wiring larger; partials parked/zero-gain). Ratchet baseline 24 is now loose
+(real 22 post-D459 once logs refresh) — harmless, tighten opportunistically. Stale-doc: ROADMAP §16.7 D-277
+("zwasm.h empty") stale (header filled), DONE historical row. **WATCH**: windows wasm-3.0-assert summary shows
+pass=0/fail=595 yet `[run_remote_windows] OK` — a non-gating windows-runner-tally quirk worth a look (NOT D-459;
+present at 7289eda5; D-459 is host-independent validator logic verified on Mac+ubuntu).
 
 ## Planned future phase (USER-requested 2026-06-16)
 

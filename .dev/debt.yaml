@@ -1749,35 +1749,6 @@ entries:
     refs: |-
       scripts/regen_spec_2_0_assert.sh (NAMES + distiller fmt guard); test/spec/wasm-2.0-assert/{align,local_init};
       lesson hardcoded-corpus-subset-hides-whole-op-families
-  - id: "D-459"
-    layer: "code"
-    status: "now"
-    front: validator-completeness
-    description: |-
-      now (2026-06-16; surfaced by the D-458 local_init corpus add). The validator
-      does NOT enforce Wasm 3.0 §3.3.1 LOCAL DEFINITE-ASSIGNMENT for non-defaultable
-      locals (non-null `(ref $t)` / `(ref extern)` — types with no default value). A
-      `local.get` of such a local is valid ONLY if the local is definitely set on
-      every control-flow path reaching the read; reading it uninitialized (or set on
-      only one branch of an if/else) MUST be rejected. zwasm currently ACCEPTS these
-      invalid modules → `local_init.2.wasm` (read before set) + `local_init.4.wasm`
-      (set in `then`, read in `else`) pass validation (confirmed: reach instantiation,
-      not rejected) → emitted as SKIP-VALIDATOR-GAP (×2, debt-trackable). The synthetic
-      GC suite (362/0) never had local_init.wast, so the gap hid (corpus-completeness
-      theme, cf. D-457/D-458). Fix = a definite-assignment dataflow pass in the
-      validator: a per-local "initialized" bitset in the frame state; local.set/tee
-      mark init; control-flow joins (block/if-else/loop end, br targets) intersect the
-      init-sets of the merging paths (unreachable paths don't constrain); local.get of
-      a non-defaultable local checks init. Moderate (touches validator block/if/loop/br
-      state) → a focused bundle (correctness-first: the 4 local_init assert_invalid
-      cases + the 3 valid cases are the characterization net). Discharge: local_init.2
-      + .4 reject (SKIP-VALIDATOR-GAP ×2 → 0); defaultable locals (i32/.../nullable ref)
-      unaffected (they keep their implicit zero/null default — no init tracking needed).
-    first_raised: "2026-06-16"
-    last_reviewed: "2026-06-16"
-    refs: |-
-      src/validate/validator.zig (local.get/set/tee + block/if/loop/br frame state);
-      test/spec/wasm-2.0-assert/local_init/ (corpus); upstream spec/test/core/local_init.wast
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
