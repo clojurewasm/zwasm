@@ -1348,11 +1348,16 @@ entries:
     front: D-wasi03
     description: |-
       CURRENT STATE (2026-06-16): **CORE DONE** — the critical path A→D→ζ2→E→F is e2e-proven + CLI-reachable
-      (async components run from `zwasm run`; 18+ async fixtures green; 3-host; ADR-0187-0191). **REMAINING (keeps
-      this `now`)**: (G) consolidate the ~21 `test/component/async_*.wat` fixtures into a proper p3 corpus + a
-      directory-walking runner (LOW, ~800 LOC — the tractable next autonomous chunk); (breadth, HARDER, ADR-needed)
-      typed/multi-byte element marshalling (E1/E3/E2c only did u8, count==bytes), general guest↔guest stream
-      COMPLETION (Zone-1 rendezvous doesn't buffer bytes), broader P3 host interfaces (sockets/http async = Unit E
+      (async components run from `zwasm run`; 3-host; ADR-0187-0191). **Unit G effectively DONE** (Step-0
+      investigation 2026-06-16): the **21 `test/component/async_*.wasm` fixtures ARE the corpus, all covered** by 28
+      bespoke tests in `component_wasi_p3.zig` (0 built-but-untested: `comm` of fixtures vs test readFileAlloc refs
+      = empty). The original "directory-walking corpus runner" sub-goal is REJECTED as a mis-fit: async fixtures
+      have HETEROGENEOUS expected outcomes (EXIT / YIELD / trap / task.return value / host side-effect like stdout
+      capture) a uniform-assert corpus runner can't express — the per-fixture Zig tests ARE the correct finished
+      form (lesson `feature-separation-finished-form-preference`: not every structure fits; don't force one).
+      **REMAINING (keeps this `now`, all HARDER + ADR-needed — no tractable quick win left)**: typed/multi-byte
+      element marshalling (E1/E3/E2c did only u8, count==bytes), general guest↔guest stream COMPLETION (Zone-1
+      rendezvous doesn't buffer bytes — separate design), broader P3 host interfaces (sockets/http async = Unit E
       full). Detailed unit-by-unit history below.
       now (§9.0 Front D — WASI 0.3 / Preview 3 implementation campaign). WASI 0.3.0
       RATIFIED 2026-06-11; CM-async-based (`async` func / `stream<T>` / `future<T>`),
