@@ -30,14 +30,23 @@ it now = speculative infra (spike §2, no consumer). **Retained**: Phase II(a) s
 ~400 LOC. Prior arcs: fuzz campaign 808 mods 0 crashes; bounded 完成形 vein plateaued (WASI sync surface, C-API
 @b4d75506, decoder, CLI clean); wasi:random COMPLETE; ADR-0193 follow-up + version SSOT; D-335 typed marshalling DONE.
 
-**NEXT (autonomous)**: the big async features (guest↔guest + sockets/http) are correctly **blocked-by D-305** (the
-fully-general component linker; itself `blocked-by` disproportionate-effort). The component linker is the genuine
-gating front but is a very large undertaking for a not-urgent feature — NOT opened now (the ADR-0195 mis-scope is a
-fresh reminder to verify in-process testability + true blockers before opening big campaigns). Posture = **light
-maintenance on the high-quality plateau**: periodic fuzz campaigns (find real crashes), debt-sweep barrier checks,
-surface micro-audits (the wasi.h `WASM_API_EXTERN` fix was one), proposal_watch. If a concrete defect surfaces, fix
-it; otherwise keep the plateau healthy. ADR-0193 (P1-P4, D-462) + D-461 (ADR-0194) CLOSED (below). **windowsmini
-gating RESUMED**. Version `2.0.0-alpha.3`.
+**Plateau confirmed across ALL 完成形 dimensions** (this turn): clean (C/Zig/CLI surface audits done), full-featured
+(WASI complete bar consumer-gated big async/composition), 100% spec (`test-spec` 25539/0), lightweight-yet-fast
+(v1-JIT parity met/exceeded, D-265 closed — `bench/results/s15p_parity_vs_v1.md`). Robustness re-verified: fuzz 808
+mods 0 crashes on BOTH interp AND **JIT** codegen; README/docs/flags drift-clean.
+
+**NEXT (autonomous) — OPEN D-305 component-composition campaign** (drive the hard parked work per
+`feedback_no_premature_deferral_lock`; verified TESTABLE unlike the parked scheduler). The flat-u32 2-component graph
+already works + is tested (`adder_graph`, C2-3b-1, `component.zig:instantiateGraph@437`; `invokeFlat@428`). The gap =
+AGGREGATE (string/list/record) cross-component args need canon lower→core→lift AT THE COMPONENT BOUNDARY (today the
+cross-component call is a direct flat-u32 core call, no boundary marshalling — scope comment `component.zig:382-386`).
+**Plan (TDD)**: (a) RED = author a 2-component graph `.wat` where B exports a func taking/returning a STRING (or
+list), A imports+calls it → currently unsupported (fails); mirror `adder_graph.wat` but aggregate. (b) file an ADR
+(component-boundary canon lift/lower; §10-area) once the RED pins the exact requirement. (c) impl boundary marshalling
+in `instantiateGraph`/`invokeFlat` (reuse the host-boundary canon lift/lower that WASI already has, applied
+component↔component). This unblocks D-305's discharge ("lands when a fixture demands aggregate cross-component
+values") and is the first step of the linker that the async chain (D-335) ultimately needs. ADR-0193 (P1-P4, D-462) +
+D-461 (ADR-0194) CLOSED (below). **windowsmini gating RESUMED**. Version `2.0.0-alpha.3`.
 
 ## D-461 regalloc-origin rework (ADR-0153/ADR-0194) — CLOSED Phase I-V 2026-06-16
 
