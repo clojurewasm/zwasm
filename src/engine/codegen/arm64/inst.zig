@@ -951,6 +951,16 @@ pub fn encLslvRegX(rd: Xn, rn: Xn, rm: Xn) u32 {
     return 0x9AC02000 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
 }
 
+/// `LSL Xd, Xn, #shift` — 64-bit immediate left shift (UBFM alias,
+/// sf=1, N=1). immr = (-shift) mod 64, imms = 63 - shift. Used by
+/// D-460 to scale a GC array index by the v128 element size (`<<4`)
+/// for the register-offset Q load/store.
+pub fn encLslImmX(rd: Xn, rn: Xn, shift: u6) u32 {
+    const immr: u32 = (@as(u32, 64) - shift) & 63;
+    const imms: u32 = 63 - @as(u32, shift);
+    return 0xD3400000 | (immr << 16) | (imms << 10) | (@as(u32, rn) << 5) | @as(u32, rd);
+}
+
 /// `LSR Xd, Xn, Xm` — 64-bit variable logical right shift.
 pub fn encLsrvRegX(rd: Xn, rn: Xn, rm: Xn) u32 {
     return 0x9AC02400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
@@ -1153,6 +1163,9 @@ test "encLdrXReg x0, [x28, x16] — `ldr x0, [x28, x16]` → 0xF8706B80" {
 }
 test "encLdrXRegLsl3 x0, [x28, x16, lsl #3] → 0xF8707B80" {
     try testing.expectEqual(@as(u32, 0xF8707B80), encLdrXRegLsl3(0, 28, 16));
+}
+test "encLslImmX x0, x1, #4 → 0xD37CEC20 (D-460 v128 array stride)" {
+    try testing.expectEqual(@as(u32, 0xD37CEC20), encLslImmX(0, 1, 4));
 }
 test "encStrXRegLsl3 x0, [x11, x17, lsl #3] → 0xF8317960" {
     try testing.expectEqual(@as(u32, 0xF8317960), encStrXRegLsl3(0, 11, 17));

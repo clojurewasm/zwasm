@@ -244,6 +244,24 @@ test "runI32Export: struct.set of a v128 field then struct.get + extract_lane 3 
     try testing.expectEqual(@as(u32, 44), runI32Export(testing.allocator, &bytes, "f"));
 }
 
+test "runI32Export: array.new_default + array.set + array.get of a v128 element → 44 (D-460 JIT v128-GC)" {
+    // (type $a (array (mut v128))); local (ref null 0) holds the array.
+    // new_default 2; set element 1 = replace_lane 3 (splat 2) 44; get element
+    // 1; extract_lane 3 → 44. Element 1 sits at byte 12 + 1*16 = 28; an index×8
+    // stride would touch offset 20 (wrong) and an 8-byte load/store would drop
+    // lane 3 — so this pins the 16-byte stride + the Q load/store of array.set
+    // and array.get. array.new_default = fb 07; array.set = fb 0e; array.get =
+    // fb 0b. (array.new_fixed with v128 elements is a separate upstream gap.)
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x5e, 0x7b, 0x01, 0x60, 0x00,
+        0x01, 0x7f, 0x03, 0x02, 0x01, 0x01, 0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00, 0x0a, 0x28, 0x01,
+        0x26, 0x01, 0x01, 0x63, 0x00, 0x41, 0x02, 0xfb, 0x07, 0x00, 0x21, 0x00, 0x20, 0x00, 0x41, 0x01,
+        0x41, 0x02, 0xfd, 0x11, 0x41, 0x2c, 0xfd, 0x1c, 0x03, 0xfb, 0x0e, 0x00, 0x20, 0x00, 0x41, 0x01,
+        0xfb, 0x0b, 0x00, 0xfd, 0x1b, 0x03, 0x0b,
+    };
+    try testing.expectEqual(@as(u32, 44), runI32Export(testing.allocator, &bytes, "f"));
+}
+
 test "runI32Export: array.new_default + array.len → 3 (10.G array-on-JIT A-2)" {
     // Both arches (arm64 + x86_64 SysV emit landed together).
     // (module

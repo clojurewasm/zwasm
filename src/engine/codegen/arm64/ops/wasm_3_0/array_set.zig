@@ -13,6 +13,7 @@ const abi = @import("../../abi.zig");
 const gpr = @import("../../gpr.zig");
 const inst = @import("../../inst.zig");
 const inst_fp = @import("../../inst_fp.zig");
+const inst_neon = @import("../../inst_neon.zig");
 const jit_abi = @import("../../../shared/jit_abi.zig");
 const heap_mod = @import("../../../../../feature/gc/heap.zig");
 const zir = @import("../../../../../ir/zir.zig");
@@ -66,6 +67,13 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
             else
                 try gpr.writeU32(ctx.allocator, ctx.buf, inst_fp.encFmovXFromD(scratch0, vs));
             try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrXRegLsl3(scratch0, base, xidx));
+        },
+        0x7B => {
+            // v128 (D-460): qLoad the value into a Q-reg, scale the index by
+            // 16 (idx<<4) into X14 (length, dead now), STR Q [base, X14].
+            const vs = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, value_vreg, 0);
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLslImmX(scratch0, xidx, 4));
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encStrQReg(vs, base, scratch0));
         },
         else => {
             const xval = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, value_vreg, 0);
