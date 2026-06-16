@@ -1825,12 +1825,22 @@ entries:
       → spill → v128.or chain → extract_lane=4095) green on arm64. **ENABLER**: x86_64 codegen is now locally
       TDD-able via `zig build test -Dtarget=x86_64-macos` under Rosetta (SHORT unit-test runs are fine; the D-134
       Rosetta signal-race only bites the 24k-fixture test-all) — lesson `rosetta-x86_64-local-jit-unit-test`.
-      **NEW x86_64 BLOCKER found via that path (deeper than resolveXmm, hit FIRST)**: under heavy v128 spill,
-      x86_64 `emitLocalGet`→`xmmDefSpilled`→`regalloc.zig:222 slot` PANICS "index out of bounds" — `spill_idx = id
-      - max_reg_slots_gpr` uses the GPR boundary to index the **fp** `spill_offsets` array (sized by the FP
-      boundary), so an FPR-class spill OOBs when fp-spill-count exceeds the gpr/fp boundary gap. This crashes the
-      x86_64 codegen BEFORE the resolveXmm lane-op path → x86_64 D-461 must fix this regalloc class-boundary bug
-      first. (Test arm64-gated via skip.blocker(.@"D-461") until then.)
+      **NEW x86_64 BLOCKER — ROOT CAUSE NAILED 2026-06-16 (ground-truth instrumented `slot()` dump:
+      class=.fpr id=9 gpr=4 fp=6 n_slots=13 len=5 spill_idx=5 → offsets[5] OOB)**: TWO compounding facts.
+      (1) **spill_offsets sizing-vs-resolve ORIGIN mismatch**: `computeSpillOffsets` (regalloc_compute.zig:354)
+      sizes the v128 `spill_offsets` array `n_slots - max_reg_slots_gpr_default` (origin **8**, hardcoded), but
+      `slot()` (regalloc.zig:221) indexes `id - self.max_reg_slots_gpr` and the x86_64 emit path sets that field
+      to **4** (its real GPR pool) → every FP spill index is +4 too high → OOB. (2) **arm64-tuned deterministic
+      regalloc**: it mints register slots assuming 8 GPR / 13 FP and spills at force-threshold 8 (arm64 counts);
+      x86_64 (4 GPR / 6 XMM) "fakes" extra spills by lowering slot() thresholds, but spill_offsets has NO entries
+      for the faked-spill ids < 8 — so fixing (1)'s origin alone is insufficient. Hidden until D-460 high-v128-
+      pressure (scalar GPR spills use the array-less `(id-gpr)*16` fallback, tolerated the slop). Lesson:
+      `x86_64-regalloc-fp-spill-origin-mismatch`. **This is a multi-cycle regalloc ARCH-PARAMETERIZATION rework
+      (ADR-0153 grade)**: model per-arch GPR/FP register counts (one shared force-threshold cannot express
+      GPR≠FP pools) — parameterize `computeWith` per-arch OR store the spill-region origin in `Allocation` so
+      sizing and indexing always agree. Phase I (investigation) DONE; Phase II (characterization tests pinning
+      current x86_64 regalloc behaviour) NEXT before any redesign code. (Test arm64-gated via
+      skip.blocker(.@"D-461") until the rework lands.)
       EVIDENCE: (1) x86_64 `codegen/x86_64/gpr.zig resolveXmm` EXPLICITLY rejects a `.spill` v128 vreg ("handler not
       XMM-spill-aware") → e.g. `emitV128IntReplaceLane` UnsupportedOp (this is the root cause of the x86_64 ubuntu
       red on the D-460 runI32Export tests). (2) arm64 `op_simd_int_cmp_lane.zig` extract/replace_lane are partially
