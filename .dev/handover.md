@@ -19,15 +19,15 @@ CLI surface audit (@4e5e42fe): code↔`--help` fully consistent. Gate change @b1
 (windows `[run_remote_windows] OK.` wasm-3.0-assert pass=10234 fail=0 / simd 24805/0 / spec 25539/0; ubuntu OK
 @f1a1d503). win-specassert campaign fully closed; the fail-gate is clean.
 
-**NEXT (autonomous)**: tractable quick-wins EXHAUSTED — doc-inventory reader-facing DONE; `D-335` Unit G DONE
-(fixtures+tests ARE the corpus); `D-462` design (ADR-0193) AWAITS USER review. Remaining autonomous work is all
-hard/multi-cycle. **Highest-value next bundle = `D-461`** (SIMD lane ops not spilled-v128-aware): unblocks `D-460`
-v128-GC + real correctness gap. **Phase-I DONE** (`624f3166`): the spill-aware helpers ALREADY EXIST (x86_64
-`xmmLoad/Def/StoreSpilledV128`, arm64 `qLoad/Def/Store`) — fix = MECHANICAL migration of ~14 `resolveXmm` sites in
-`op_simd*.zig` → those helpers (same pattern as the D-460 GC-op migration). Implementation plan (II→IV): (1) build a
-deterministic **≥9-live-v128 force-spill red fixture** FIRST (verification is x86_64-ONLY — no local TDD on
-Mac=arm64; each check = ubuntu round-trip), (2) migrate sites, (3) ubuntu-verify + the D-460 chain returns 16. Then
-`D-209` memory64. **`should_gate_windows.sh --resume` BEFORE this code (Win64-risk)**; gating currently SUSPENDED
+**NEXT (autonomous)**: `D-462` design (ADR-0193) AWAITS USER review. **Active bundle = `D-461` IV** (SIMD spill):
+slice 1 DONE (`97afa4d4`) — arm64 i32x4.extract_lane i32-result spill-aware. **ENABLER discovered**: x86_64 codegen
+is locally TDD-able via `zig build test -Dtarget=x86_64-macos` under Rosetta (short unit tests; lesson
+`rosetta-x86_64-local-jit-unit-test`) — NO more ubuntu round-trips for the inner loop. **NEXT D-461 step (x86_64
+blocker found, deeper than resolveXmm)**: fix the regalloc class-boundary OOB at `regalloc.zig:222` —
+`spill_idx = id - max_reg_slots_gpr` uses the GPR boundary to index the **fp** `spill_offsets` (should use the FP
+boundary) → OOB/panic on heavy fp spill, crashing x86_64 codegen before resolveXmm. Then: migrate x86_64
+`resolveXmm` lane-op sites + remaining arm64 lane-op SPILL-EXEMPT scalar paths (replace_lane etc.). Then `D-209`
+memory64. **windowsmini gating RESUMED** (Win64-risk codegen now in flight). Gating was SUSPENDED
 (ADR-0174, `518a3b86`) → 2-host. Version → `2.0.0-alpha.3`.
 
 ## USER-flagged D-462 — feature-separation finished-form — DESIGN DONE (ADR-0193), implementation USER-GATED
