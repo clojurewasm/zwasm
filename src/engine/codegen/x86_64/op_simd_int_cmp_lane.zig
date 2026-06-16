@@ -1024,7 +1024,9 @@ pub fn emitI8x16Bitmask(
     next_vreg.* += 1;
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
-    const src_x = try gpr.resolveXmm(alloc, src_v);
+    // D-461: spill-aware v128 source (stage 0; no scratch XMM used here, so no
+    // stage collision). Result already gprDefSpilled-aware.
+    const src_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, src_v, 0);
     const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
     try buf.appendSlice(allocator, inst.encPmovmskb(dst_r, src_x).slice());
     try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, result_v, 0);
@@ -1075,7 +1077,8 @@ pub fn emitI32x4Bitmask(
     next_vreg.* += 1;
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
-    const src_x = try gpr.resolveXmm(alloc, src_v);
+    // D-461: spill-aware v128 source (stage 0; no scratch XMM used here).
+    const src_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, src_v, 0);
     const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
     try buf.appendSlice(allocator, inst.encMovmskps(dst_r, src_x).slice());
     try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, result_v, 0);
@@ -1096,7 +1099,8 @@ pub fn emitI64x2Bitmask(
     next_vreg.* += 1;
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
-    const src_x = try gpr.resolveXmm(alloc, src_v);
+    // D-461: spill-aware v128 source (stage 0; no scratch XMM used here).
+    const src_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, src_v, 0);
     const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
     try buf.appendSlice(allocator, inst.encMovmskpd(dst_r, src_x).slice());
     try gpr.gprStoreSpilled(allocator, buf, alloc, spill_base_off, result_v, 0);
