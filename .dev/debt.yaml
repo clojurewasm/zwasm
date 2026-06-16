@@ -1908,10 +1908,13 @@ entries:
       `need>cur`. Survey KILLED the register()-mirror (gc installs Zone-1 dispatch handlers; WASI host resolves
       by-name at instantiation Zone-3 per-run — no global-reg analog; ADR §3 REVISED). P2 (3a2c2c36): folded
       enable_component into derived wasi_level>=.p2, REMOVED -Dcomponent (lean = -Dwasi=p1); comp runner forced p2
-      floor; unit 2945/2957 + component 158/0/0 green; -Dcomponent rejected. NEXT: P3 = comptime-fence p3/async on
-      enable_wasi_p3 — WRINKLE: runWasiMain (unified entry) lives in component_wasi_p3.zig:70, must RELOCATE to a
-      P2 home + leave only async there + gate its import; then check_build_dce p3-forbidden assertion. P4 =
-      structuralise cheap branches + sync docs/zig_api_design.md §3.8/§3.9 + CWFS handover. Active bundle in handover.
+      floor; unit 2945/2957 + component 158/0/0 green; -Dcomponent rejected. P3 (888585e2): relocated runWasiMain
+      to component_wasi_p2.zig + comptime-fenced p3/async on enable_wasi_p3 (ship path: component.zig + zwasm.zig:413);
+      28 async tests → new test-wasi-p3 step (forced -Dwasi=p3) in test-all; check_build_dce FORBIDDEN_BELOW_P3 +
+      matrix→p3. VERIFIED p2 CLI 0 p3 syms / p3 +2232B / component 158/0/0 / test-wasi-p3 green. NEXT: P4 (bundle
+      close) = (a) structuralise ~4 cheap branch sites (instance.zig imports, memory64 emit→op_memory_i64.zig) +
+      annotate ~6 unavoidable; (b) sync stale -Dcomponent docs→-Dwasi (README/zig_api_design/migration/handoff_cw);
+      (c) CWFS handover (lean=-Dwasi=p1). Active bundle in handover.
     first_raised: "2026-06-16"
     last_reviewed: "2026-06-16"
     refs: |-

@@ -30,22 +30,21 @@ x86_64 codegen is locally TDD-able via `zig build test -Dtarget=x86_64-macos` un
 ## Active bundle
 
 - **Bundle-ID**: ADR-0193-feature-sep P1..P4 (D-462)
-- **Cycles-remaining**: ~2 (P3/P4)
+- **Cycles-remaining**: ~1 (P4)
 - **Continuity-memo**: P1 + P2 DONE. P1 (`eb43d8af`): `WasiLevel={none,p1,p2,p3}` tier, default `p1→p2`, filter
   `need>cur`. **Survey killed the register()-mirror** (gc pattern installs Zone-1 dispatch handlers; WASI host
   resolves by-name at instantiation, Zone-3 per-run — no global-reg analog; ADR §3 REVISED). P2 (`3a2c2c36`):
   folded `enable_component` into derived `wasi_level>=.p2`, **removed `-Dcomponent`** (lean = `-Dwasi=p1`); comp
   runner forced to p2 floor; unit 2945/2957 + component 158/0/0 green; `-Dcomponent` now rejected.
-  **P3 (NEXT) — settled plan**: add derived `enable_wasi_p3 = wasi_level>=.p3` build_option. (1) RELOCATE
-  `runWasiMain` from `component_wasi_p3.zig:70` → `component_wasi_p2.zig` (its only non-test caller is
-  `cli/run.zig:208`; `runWasiP2MainBuilt` already lives there @:2162); its async branch does `if (comptime
-  enable_wasi_p3) { const cwasi3=@import("component_wasi_p3.zig"); ...driveAsyncMain }`. (2) comptime-gate the p3
-  import in SHIP path (`component.zig:560` re-exports, `zwasm.zig:413`) on `enable_wasi_p3`. (3) the 28 async
-  tests in component_wasi_p3.zig get fenced out at default p2 → add a **`test-wasi-p3` step forcing `-Dwasi=p3`**
-  (mirror `test-component-spec`/`core_comp` p2-floor at build.zig:427) + wire into test-all. (4) `check_build_dce`
-  p3-forbidden assertion (`-Dwasi=p2` has no `wasi_p3_`/async syms) + matrix→p3. P4 = structuralise cheap branches
-  + sync `docs/zig_api_design.md` §3.8/§3.9 + CWFS handover (lean now `-Dwasi=p1`). NOTE: default p2 means async
-  is OPT-IN (`-Dwasi=p3`) — deliberate per the p2-interim decision (p3 not settled).
+  **P3 DONE** (`888585e2`): derived `enable_wasi_p3=wasi_level>=.p3`; relocated `runWasiMain` to
+  `component_wasi_p2.zig` (async branch `comptime enable_wasi_p3`-gated); p3 import comptime-fenced in ship path
+  (component.zig re-exports + zwasm.zig:413). 28 async tests → new `test-wasi-p3` step (forced `-Dwasi=p3`, mirrors
+  core_comp) wired into test-all. `check_build_dce` FORBIDDEN_BELOW_P3 assertion + matrix→p3. VERIFIED: p2 CLI 0
+  p3-driver syms / p3 +2232B; component 158/0/0; default test 2917/2929; test-wasi-p3 green; lint clean. Default p2
+  ⇒ async is OPT-IN (`-Dwasi=p3`), deliberate (p2-interim). **P4 (NEXT, bundle close)**: (a) structuralise the ~4
+  cheap branch sites (instance.zig feature imports → discovery; memory64 emit → `op_memory_i64.zig`) + annotate the
+  ~6 unavoidable; (b) sync stale `-Dcomponent` docs → `-Dwasi` axis (`README.md:45,149`, `docs/zig_api_design.md`
+  §3.8/§3.9:344, `docs/migration_v1_to_v2.md`, `handoff_cw_v{1,2}*`); (c) CWFS handover note (lean = `-Dwasi=p1`).
 - **Exit-condition**: `-Dcomponent` gone ✓(P2); p3 host `wasi_level`-gated (P3); WASI/component corpora green
   throughout. Decisions: (a) hard-remove ✓, (b) single-axis, default p2 interim (p3 flip later).
 
