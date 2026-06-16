@@ -496,6 +496,30 @@ test "C2-3b-2 (EXIT): a 2-component graph links + runs (A calls B across compone
     try testing.expectEqual(@as(i32, 15), results[0].i32);
 }
 
+const two_async_components_path = "test/component/two_async_components.wasm";
+
+test "ADR-0195 c-2b: a 2-component async graph runs e2e (A async-calls B; both tasks complete)" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, two_async_components_path, testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var graph = try instantiateGraph(&eng, testing.allocator, bytes, .{});
+    defer graph.deinit();
+
+    // A's async `run` async-calls B's async `tick`. The boundary trampoline mints
+    // B's subtask into the SHARED scheduler table; driveScheduler drives BOTH to
+    // completion. A clean return (no AsyncDeadlock) + both tasks `.done` proves
+    // the cross-component async routing — not just A running in isolation.
+    try graph.driveAsyncMain("run");
+    const counts = graph.asyncTaskCounts();
+    try testing.expectEqual(@as(usize, 2), counts.total); // A's run + B's tick
+    try testing.expectEqual(@as(usize, 2), counts.done); // both reached EXIT
+}
+
 test "D-305 (security): an OOB (ptr,len) into a cross-component string import TRAPS, not silently returns 0" {
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();

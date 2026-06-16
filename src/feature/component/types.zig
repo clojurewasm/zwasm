@@ -636,6 +636,14 @@ pub const TypeInfo = struct {
         realloc: ?CoreExportRef,
         post_return: ?CoreExportRef,
         string_encoding: StringEncoding,
+        /// The CM-async `async` canonopt (0x06) on this lift — true when the
+        /// export is a stackless-async task (ADR-0195 c-2b: the graph
+        /// async-runner routes such an export through `driveScheduler`).
+        is_async: bool,
+        /// The async `callback` core:funcidx (0x07), resolved to its core-instance
+        /// export, when present (lift-only; implies `is_async`). The graph
+        /// async-runner re-enters this per delivered event.
+        callback: ?CoreExportRef,
     };
 
     /// One introspected func export: the name + its WIT-typed signature,
@@ -818,6 +826,8 @@ pub const TypeInfo = struct {
             .realloc = if (lift.opts.realloc) |r| self.resolveCoreFuncExport(r) else null,
             .post_return = if (lift.opts.post_return) |p| self.resolveCoreFuncExport(p) else null,
             .string_encoding = lift.opts.string_encoding,
+            .is_async = lift.opts.is_async,
+            .callback = if (lift.opts.callback) |cb| self.resolveCoreFuncExport(cb) else null,
         };
     }
 };
