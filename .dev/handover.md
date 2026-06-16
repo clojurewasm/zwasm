@@ -19,61 +19,33 @@ CLI surface audit (@4e5e42fe): code↔`--help` fully consistent. Gate change @b1
 (windows `[run_remote_windows] OK.` wasm-3.0-assert pass=10234 fail=0 / simd 24805/0 / spec 25539/0; ubuntu OK
 @f1a1d503). win-specassert campaign fully closed; the fail-gate is clean.
 
-**NEXT (autonomous)**: the **ADR-0192 wasmtime campaign is the active frame (Phase III — see below)**. Gap B fixed
-(`2daaf643`); gap A core fixed (`60c54db5`). Next candidate = JIT GC-v128 emit (D-460 residual) OR gap C (D-209
-memory64) — both multi-arch codegen bundles — OR campaign V retrospective. Secondary: ADR-0174 Phase-2
-windows-suspension (`--suspend` → 2-host fast-loop; resume before main-merge / Win64-risk); doc-inventory phase.
+**NEXT (autonomous)**: **doc-inventory phase** (USER-requested, below) — the wasmtime campaign's substantive
+bug-fixing is DONE (9 real bugs) and its 3 residuals are exotic + debt-tracked (D-460 partial / D-461 / D-209), so
+the loop pivots to the user-requested doc freshening. Secondary: ADR-0174 Phase-2 windows-suspension; debt sweep.
 
-## Planned future phase (USER-requested 2026-06-16)
+## Active phase — doc-inventory + freshening (USER-requested 2026-06-16)
 
-- **Doc inventory + freshening**: walk ALL zwasm_from_scratch docs (CLAUDE.md, .dev/, .claude/, README, docs/) and
-  reconcile against CODE TRUTH — find+fix stale claims (e.g. "100% SIMD spec" was overstated; conversion ops were
-  missing). Not started; queued post-campaign per user.
+- **Goal**: walk ALL zwasm_from_scratch docs (CLAUDE.md, `.dev/`, `.claude/`, README, `docs/`) and reconcile against
+  CODE TRUTH — find+fix stale claims (e.g. "100% SIMD spec" was once overstated; conversion ops were missing).
+- **Phase I (survey, NOT started)**: fan out an Explore subagent to grep docs for quantified/absolute claims
+  ("100%", "0 skip", "complete", version/count numbers, "DONE") and cross-check each against the code/tests. Output a
+  ranked stale-claim list. Then fix the top findings (TDD-style: cite the code truth in the doc edit).
 
-## Active rework campaign
+## ADR-0192 wasmtime campaign — substantive work DONE; residuals debt-tracked (paused 2026-06-16)
 
-- **Campaign**: wasmtime misc_testsuite full differential coverage (ADR-0192, user-directed 2026-06-16). **Phase III
-  REOPENED 2026-06-16** — the prior "native sweep CLEAN" tally was WRONG (lesson
-  `native-sweep-instantiate-fail-not-equal-host-import`): it folded all instantiate-FAILs into "host-import parked",
-  but per-module re-triage (`zwasm run <baked> --invoke`) found **3 real DEFERRED engine gaps**, not host imports.
-- **Goal**: run wasmtime's full `tests/misc_testsuite/` (312 .wast) through zwasm, fundamentally fix every real gap.
-- **Tally: 8 real zwasm bugs fixed** — array.copy self-region alias ×interp+JIT (`46c2975e`), array.new u32 overflow
-  (`7e527dba`), bottom-reftype 0x71-0x74 decode (`d54b789f`), C-API active-data-drop (`c1f727d4`), **extern.convert_any/
-  any.convert_extern identity in const-expr (`2daaf643`, this cycle — gap B; fixture const-expr-gc returns 55)**, + 6
-  SIMD via D-457. Lessons: `gc-bulk-op-memcpy-aliases-on-self-region-copy`, `wasmtime-fixtures-over-assert-exact-canonical-nan`,
-  `native-sweep-instantiate-fail-not-equal-host-import`.
-- **Real-gap triage (Phase III)**: **A `D-460` CORE DONE** (`60c54db5`) v128 in a GC aggregate — 16-byte slot +
-  interp struct/array get/set + const-expr v128.const; alloc-v128-struct instantiates, const-expr-gc-simd
-  v128-array-len→2. RESIDUAL: JIT GC-v128 emit (SIMD is JIT-only D-244, so observing a v128 field via extract_lane
-  needs the JIT path — array-copy-inline.6→16 still `UnsupportedOp`); array.new_data+v128 exotic. **B FIXED**
-  (`2daaf643`). **C `D-209`** memory64 >4 GiB memarg offset `BadMemarg` at lowering (assert_trap-executed; multi-arch
-  10.M-4b chunk). **Parked = D-456** host-import fixtures (UnknownImport; runner-extension, not engine gap;
-  v128-with-gc-ref is here too — `import "wasmtime" "gc"`).
-- **NEXT (Phase IV)**: the JIT GC-v128 emit bundle (below) is the active sub-task. After it: gap C `D-209` memory64
-  (multi-arch 10.M-4b) then campaign V retrospective. Harness: `scripts/wasmtime_misc_{sweep,native_sweep}.sh`.
-
-## Active bundle
-
-- **Bundle-ID**: D-460-jit-v128-gc-emit (campaign Phase IV continuity)
-- **Cycles-remaining**: ~1 — BLOCKED on D-461 (see below); decide next turn: open the D-461 SIMD-spill bundle, or
-  accept arm64 struct+array get/set v128 as the deliverable and debt-row the rest.
-- **Continuity-memo**: **arm64 DONE: struct.new/get/set** (`f79a3ced`) **+ array.get/set** (`41015a9b`) v128, 4
-  runI32Export tests green (low v128-pressure cases). Infra: vreg_class 0x7B→v128;
-  `ZirFunc.structFieldByteOffset`/`arrayElemBytes`/`gcSlotBytes`; struct = ADD-offset + `encLdrQImm`/`encStrQImm`
-  #0; array = new `inst.encLslImmX` (LSL via UBFM `idx<<4`) + `encLdrQReg`/`encStrQReg`.
-- **ROOT-CAUSE FOUND (the real blocker = `D-461`)**: full v128-GC under register pressure is blocked by a
-  PRE-EXISTING SIMD-spill limitation, NOT GC-specific. x86_64 `resolveXmm` explicitly rejects a `.spill` v128 (→
-  the ubuntu red on the runI32Export tests); arm64 lane ops are only partly spill-aware. The
-  array.new_fixed→array.get→extract_lane chain force-spills a v128 → extract_lane UnsupportedOp. array.new_fixed
-  v128 EMIT IS CORRECT (new_fixed+array.len → 1; reverted because its values can only be read via a lane op).
-  array.copy v128 also remains (its `jitGcArrayCopy` trampoline assumes 8-byte stride). The x86_64 v128-GC mirror
-  is also blocked on D-461 (resolveXmm).
-- **Gotcha**: `v128.const` FEEDING a GC op gives `UnsupportedOp` (separate pre-existing constant-pool/spill issue;
-  `i32x4.splat`/`replace_lane` work). Likely the SAME D-461 spill class.
-- **Test vehicle**: `runI32Export(alloc,&bytes,"f")` (Mac=arm64). Build modules via `wasm-tools parse`, strip the
-  name section. `zwasm run --engine jit` does NOT print export results — use runI32Export / native runner.
-- **Exit-condition**: struct + array v128 round-trip via runI32Export green on BOTH arches AND wasmtime
-  gc/array-copy-inline.6 returns 16 under the native runner; e2e edge fixture under test/edge_cases/p10/gc/.
+- **Differential-coverage GOAL MET**: ran wasmtime's `tests/misc_testsuite/` through zwasm; found every gap; **fixed
+  9 real engine bugs** the synthetic suite missed — array.copy self-region alias ×interp+JIT (`46c2975e`), array.new
+  u32 overflow (`7e527dba`), bottom-reftype decode (`d54b789f`), C-API active-data-drop (`c1f727d4`),
+  extern/any.convert in const-expr (`2daaf643`), v128-in-GC-aggregate layout+interp+const-expr (`60c54db5`), + 6 SIMD
+  via D-457. Lessons: `native-sweep-instantiate-fail-not-equal-host-import` + 2 more.
+- **Residuals (all exotic, debt-tracked, NOT premature-locked — discharge predicates clear)**: **`D-460`** (partial)
+  v128-GC: arm64 JIT struct+array get/set EMIT DONE (`f79a3ced`/`41015a9b`, 4 runI32Export tests, arm64-gated via
+  skip.blocker) — array.new_fixed/copy + the x86_64 mirror + array-copy-inline.6 are all blocked on **`D-461`** (a
+  PRE-EXISTING broad SIMD-spill gap: lane ops can't read a spilled v128 — x86_64 `resolveXmm` rejects `.spill`,
+  arm64 lane-op GPR paths SPILL-EXEMPT; staging XMMs xmm14/15 + V29/30 exist, so it's per-op wiring across many SIMD
+  ops × 2 arches). **`D-209`** memory64 >4 GiB memarg offset (10.M-4b multi-arch). **Parked = D-456** host-import
+  fixtures. Harness: `scripts/wasmtime_misc_{sweep,native_sweep}.sh`. Re-open D-461 as its own bundle if a real
+  high-v128-pressure program (not just this fixture) needs it, or to finish v128-GC.
 
 **Closed campaigns (detail in git/lessons)**: prior 4-front async-maturity (2026-06-16) — ② wasmtime async .wast
 TIER-1 (`afcf889a`/`05b35c28`; D-446/447 deferred), ① wasip3 conformance (7 real-rust fixtures, `.#gen-wasip3`),
