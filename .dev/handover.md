@@ -5,26 +5,19 @@
 
 ## Current state — Phase 17 完成形 completion-refinement (release = USER-ONLY, ADR-0156)
 
-D-457 (SIMD systemic close) DONE + **ubuntu-verified @8a6b4c0e** (24805/0). D-458 spec-corpus-completeness CORRECTNESS
-PART DONE (@67b3a3ed): closed the core-2.0 execution-corpus blind spot — `align` (47 assert_return, alignment) +
-`local_init` (4, was silently absent from NAMES) now run e2e, **0 hidden bugs** (25437→25537, 0 failed); distiller
-crash fixed (value-less ref result → skip-impl, not KeyError). Cross-corpus blind-spot audit COMPLETE: SIMD was UNIQUE
-(JIT-only + undocumented) — threads-assert (atomic.wast full, 201+45, 0 skip), 1.0-assert (subsumed by 2.0-assert),
-3.0-assert (documented Phase-10 smoke set) have NO hidden executable-op gap; other omissions are validation/parse/
-Phase-10 scope. Doc-inventory first pass DONE (@216bf200): fixed 1 stale claim (CHANGELOG WASI-0.2-sockets-deferred →
-functional); the "100% spec" headline claim is accurate-now (post-D457/458: real gaps closed) so it was left as-is — no
-rewording needed. D-458 RESIDUAL (note): broad regen non-idempotency (~727-file churn under current wasm-tools). Lessons
-`hardcoded-corpus-subset-hides-whole-op-families` (+ D-457 multi-layer-wiring).
-
-C-API surface audit (this cycle): the public `ZWASM_TRAP_*` constants (zwasm.h) were correctly in sync with the
-`TrapKind` enum but guarded by PROSE only → added `scripts/check_trap_abi_sync.sh` (gate_commit-wired, @74) as a
-cross-artifact drift guard (@dc39fb8c; verified pos+neg). Only numeric C-ABI contract — wasm.h/wasi.h have none.
-Doc-inventory residual: ROADMAP §16.7's D-277 ref ("zwasm.h empty placeholder") is STALE — the header is filled
-(Phase-16 C-surface audit completed it) + D-277 isn't in debt.yaml; §16.7 is a DONE historical row so left as-is.
+Recent closed arcs (all 3-host or ubuntu-verified): **D-457** SIMD systemic close (@8a6b4c0e, 24805/0; 6
+corpus-hidden ops fixed) · **D-458** core-2.0 corpus completeness (@67b3a3ed: align+local_init e2e, 0 bugs;
+distiller value-less-ref crash fixed) + cross-corpus audit COMPLETE (SIMD was the unique blind spot; threads/1.0/3.0
+clean) · doc-inventory pass (@216bf200: CHANGELOG WASI-0.2-sockets stale claim fixed) · **C-ABI trap-kind drift
+guard** (@dc39fb8c, `scripts/check_trap_abi_sync.sh` gate-wired) · **D-455** interp allocateArray → shared
+allocArrayObject (@83c90264: one allocator/one size-arith site; behavior-preserving, GC 365+126/0). D-458 RESIDUAL
+(note): broad regen non-idempotency (~727-file churn under current wasm-tools). Lessons
+`hardcoded-corpus-subset-hides-whole-op-families`.
 
 **NEXT (autonomous)**: continue Phase-17 完成形 surface audits — Zig-API + CLI あるべき論 (industry-standard,
-breaking-allowed), memory-safety spot-checks, OR debt long-tail repayment (32 note: pick genuinely-dischargeable).
-Partials all parked/zero-gain-deferred (D-293/294 trap-precision complete bar cosmetic; D-330/331 parked).
+breaking-allowed), memory-safety spot-checks, OR debt long-tail repayment (31 note: pick genuinely-dischargeable; D-456
+host-import-wiring is larger). Partials all parked/zero-gain (D-293/294 trap-precision complete bar cosmetic; D-330/331
+parked). Stale-doc note: ROADMAP §16.7 D-277 ref ("zwasm.h empty") is stale (header filled) — DONE historical row, left.
 
 ## Planned future phase (USER-requested 2026-06-16)
 

@@ -1701,21 +1701,6 @@ entries:
     refs: |-
       /tmp/hoot-spike (spike artifacts); test/edge_cases/p10/gc/ (GC execution fixtures);
       lessons validator-exact-eql-where-reftype-subtyping-required + leb-decode-desync-manifests-far-downstream
-  - id: "D-455"
-    layer: "code"
-    status: "note"
-    front: D-wmt-misc
-    description: |-
-      note (ADR-0192 campaign, 2026-06-16). Array allocation size arithmetic +
-      ArrayHeader stamping is duplicated between interp `array_ops.allocateArray`
-      and JIT-shared `feature/gc/object_alloc.allocArrayObject` — the u64 overflow
-      guard had to be applied to BOTH (commit 7e527dba). They differ only in the
-      maybeCollect caller and zero-init flag. Unify: interp allocateArray should
-      delegate to allocArrayObject (caller does maybeCollect, as the JIT path
-      already does). Discharge: one allocator, one size-arithmetic site.
-    first_raised: "2026-06-16"
-    last_reviewed: "2026-06-16"
-    refs: ""
   - id: "D-456"
     layer: "test"
     status: "note"
