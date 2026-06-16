@@ -715,7 +715,13 @@ pub fn main(init: std.process.Init) !void {
                             if (!cur_bytes_kept) gpa.free(b);
                         }
                         cur_bytes_kept = false;
-                        cur_module_bytes = sub_dir.readFileAlloc(io, d.module_path, gpa, .limited(4 << 20)) catch {
+                        cur_module_bytes = sub_dir.readFileAlloc(io, d.module_path, gpa, .limited(4 << 20)) catch |err| {
+                            // ADR-0174 no-silent-skip: a manifest-referenced module
+                            // .wasm that can't be read is a REAL error, not a skip —
+                            // surfacing it roots-caused the windowsmini pass=0 anomaly
+                            // (every module silently un-loaded → asserts un-evaluated).
+                            // No-op on hosts where the read succeeds (Mac/ubuntu).
+                            std.debug.print("[wasm-3.0-assert] {s}/{s} MODULE-READ-FAIL: {s}\n", .{ proposal, d.module_path, @errorName(err) });
                             cur_module_bytes = null;
                             cur_inst_idx = null;
                             continue;
