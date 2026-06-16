@@ -55,7 +55,10 @@ has not yet been cut.
 
 ### Known limitations
 
-- Sockets are stubbed (`sock_*` return `ENOTSOCK`; no host socket-preopen
-  yet) and WASI 0.2 (preview2 / Component Model) is deferred to v0.2.0.
+- WASI 0.1 (preview1) `sock_*` calls have no host socket layer (they
+  validate the fd and return `notsock`; preview1 has no socket-open).
+  Real socket support — including TCP listeners — is available via
+  WASI 0.2 (`wasi:sockets/tcp`), which is default-ON (Component Model
+  functional, not deferred).
 - Table funcref slots surface as opaque handles (not yet directly
   callable from the host).
