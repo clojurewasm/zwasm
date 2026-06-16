@@ -32,9 +32,10 @@
 
 const std = @import("std");
 
-// Keep in sync with build.zig.zon `.version` and the planned next tag-cut
-// (v2 pre-release line, USER-only per ADR-0156). Bump when the user cuts a tag.
-pub const version = "2.0.0-alpha.3";
+// Single source of truth = build.zig.zon `.version`, threaded through
+// build_options by build.zig (no hand-sync; bump the zon when the user cuts
+// a tag, per ADR-0156 USER-only release). `--version` reads this.
+pub const version = @import("build_options").version;
 
 // ============================================================
 // Zig facade (ADR-0109 native API) — first-principles Engine +

@@ -14,6 +14,11 @@ const std = @import("std");
 // so the lazy restructuring is not worth it.
 const zlinter = @import("zlinter");
 
+// Single source of truth for the version string: read it from build.zig.zon
+// and thread it through `build_options` so `zwasm.version` / `--version`
+// can never drift from the published package version (and the tag).
+const zon = @import("build.zig.zon");
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -113,6 +118,7 @@ pub fn build(b: *std.Build) void {
     options.addOption(bool, "enable_gc", enable_gc);
     options.addOption(bool, "enable_component", enable_component);
     options.addOption(bool, "enable_wasi_p3", enable_wasi_p3);
+    options.addOption([]const u8, "version", zon.version);
 
     // Build_options as a single shared module so both `core` and
     // `exe_mod` (and any other consumer) reference the same Module.
@@ -441,6 +447,7 @@ pub fn build(b: *std.Build) void {
     comp_options.addOption(bool, "enable_gc", enable_gc);
     comp_options.addOption(bool, "enable_component", true);
     comp_options.addOption(bool, "enable_wasi_p3", @intFromEnum(comp_wasi_level) >= @intFromEnum(WasiLevel.p3));
+    comp_options.addOption([]const u8, "version", zon.version);
     const comp_options_mod = comp_options.createModule();
     const core_comp = b.createModule(.{
         .root_source_file = b.path("src/zwasm.zig"),
@@ -491,6 +498,7 @@ pub fn build(b: *std.Build) void {
     p3_options.addOption(bool, "enable_gc", enable_gc);
     p3_options.addOption(bool, "enable_component", true);
     p3_options.addOption(bool, "enable_wasi_p3", true);
+    p3_options.addOption([]const u8, "version", zon.version);
     const p3_options_mod = p3_options.createModule();
     const core_p3 = b.createModule(.{
         .root_source_file = b.path("src/zwasm.zig"),
