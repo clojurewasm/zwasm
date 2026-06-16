@@ -32,10 +32,14 @@ ADR-0193 (P1-P4, D-462) + D-461 (ADR-0194) CLOSED (below). **windowsmini gating 
 
 - **Bundle-ID**: wasi-p3-multitask-scheduler
 - **Cycles-remaining**: ~4-5
-- **Continuity-memo**: ADR-0195 is the design. Correctness-FIRST. Step (a) NEXT = strengthen/confirm the
-  characterization net for the 8+ single-task async e2e fixtures in `component_wasi_p3.zig` (EXIT / YIELD / WAIT /
-  host-peer COMPLETION / single-task `AsyncDeadlock`) so the `driveCallbackLoop` generalisation can't silently
-  regress them. THEN (b) `TaskDescriptor`+`TaskTable` (Zone-1, `async.zig:~397` near Subtask) + refactor the driver
+- **Continuity-memo**: ADR-0195 is the design. Correctness-FIRST. Phase II(a) ASSESSED: the single-task net in
+  `component_wasi_p3.zig` is already STRONG (EXIT@121 / YIELD@138 / task.return@157 / BLOCKED@240 / DROPPED@259 /
+  host-peer COMPLETION write@410 read@487 / WAIT-path@550 / cancel / all trap cases). The ONE gap = no test DRIVES a
+  single task to `AsyncDeadlock` (raised at `component_wasi_p3.zig:54` `waitOn` empty-set) — the exact behavior the
+  scheduler generalizes (all-tasks-blocked→trap). Step (a) NEXT = author `async_deadlock_single.wat` (mint stream,
+  read→BLOCKED, join readable to a set, return WAIT(set), NO host delivery) mirroring `async_wait_path.wat` MINUS the
+  host source; test asserts `driveAsyncMain` returns `error.AsyncDeadlock`. THEN (b) `TaskDescriptor`+`TaskTable`
+  (Zone-1, `async.zig:~397` near Subtask) + refactor the driver
   to a 1-entry table (single-task byte-identical, corpus green); (c) async-lowered-import→enqueue-task + scheduler
   dispatch loop in the Zone-3 P3 runner (`component_wasi_p3.zig` `driveAsyncMain`/`P3CallbackCtx`); (d) e2e
   `async_two_tasks_stream_rendezvous.wat` (main mints `stream<u8>`, spawns subtask, writes; subtask reads → both
