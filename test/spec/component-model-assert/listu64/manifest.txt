@@ -1,0 +1,4 @@
+# D-305: list<u64> across the boundary (elem size 8, align 8). A=[0x1122334455667788],
+# B.firstelem->low32(xs[0])=0x55667788=1432778632. Provenance: test/component/listu64_graph.wat.
+graph test/component/listu64_graph.wasm
+assert_flat_i32 run -> 1432778632
