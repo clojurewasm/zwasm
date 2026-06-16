@@ -1826,10 +1826,22 @@ entries:
       WHY IT MATTERS NOW: it is the BLOCKER for (a) wasmtime gc/array-copy-inline.6 → 16 (the D-460 bundle
       exit-condition), (b) the x86_64 v128-GC emit mirror, (c) testing array.new_fixed v128 (whose emit IS correct —
       new_fixed + array.len returns 1 — but its stored values can only be read back via a SIMD lane op).
-      SCOPE: make resolveXmm (x86_64) + the lane-op GPR-scalar paths (both arches) spill-aware (XMM/Q load+store
-      from the spill slot). Broad SIMD-codegen change touching many lane ops; pre-existing — any high-v128-pressure
-      program (not just GC) hits it. Discharge: a v128 forced to spill flows through extract/replace_lane on BOTH
-      arches; the D-460 array.new_fixed+get+extract chain returns the stored lane.
+      PHASE-I INVESTIGATION DONE 2026-06-16 (de-risks the fix): the spill-aware XMM helpers ALREADY EXIST — x86_64
+      `xmmLoadSpilledV128`/`xmmDefSpilledV128`/`xmmStoreSpilledV128` (gpr.zig ~264-300; the op_simd.zig:31 comment
+      "resolveXmm until the 16-byte spill helpers land" is STALE — they landed) + arm64 `qLoad/qDef/qStoreSpilled`.
+      So the fix is NOT new infrastructure but a MECHANICAL per-op migration: replace each `resolveXmm(alloc,v)` in
+      `op_simd*.zig` (~14 sites: op_simd.zig ×11, op_simd_int_cmp_lane/arith/float) with `xmmLoadSpilledV128(...,
+      stage_idx)` for READ operands and `xmmDefSpilledV128(...)` + `xmmStoreSpilledV128(...)` for the result def
+      (mirrors the GPR gprLoad/Def/Store pattern + the D-460 GC-op migration I already did). Some sites already use
+      the V128 helpers for one operand + resolveXmm for the other (op_simd.zig:911/950) — finish those.
+      VERIFICATION IS THE HARD PART (why this stays a careful bundle, not a quick fix): forcing a v128 to SPILL needs
+      a high-v128-pressure module (≥9 simultaneously-live v128 on x86_64's 8 XMM), and the failing path is
+      x86_64-ONLY → cannot TDD locally on Mac=arm64; each verification is an ubuntu-gate round-trip. Build a
+      deterministic ≥9-live-v128 red fixture FIRST (II correctness-assurance) before migrating.
+      SCOPE: ~14 resolveXmm sites (x86_64) + the arm64 lane-op GPR-scalar SPILL-EXEMPT paths. Pre-existing — any
+      high-v128-pressure program (not just GC) hits it. **Win64-risk** → `should_gate_windows.sh --resume` before
+      the code. Discharge: a v128 forced to spill flows through extract/replace_lane on BOTH arches; the D-460
+      array.new_fixed+get+extract chain returns the stored lane.
     first_raised: "2026-06-16"
     last_reviewed: "2026-06-16"
     refs: |-
