@@ -156,7 +156,13 @@ pub fn stepTask(ctx: anytype, task: *TaskDescriptor) !void {
         .waiting => try ctx.waitOn(task.set_index),
     };
     const next_bits = try ctx.invokeCallback(@intFromEnum(ev.code), ev.index, ev.payload);
-    const result = try unpackCallbackResult(next_bits);
+    foldResult(task, try unpackCallbackResult(next_bits));
+}
+
+/// ADR-0195 — fold a callback's packed return into the task's next state:
+/// EXIT→done, YIELD→ready (re-enter with `none`), WAIT→waiting on the named set.
+/// Shared by the single-task `stepTask` and the multi-task `driveScheduler`.
+fn foldResult(task: *TaskDescriptor, result: CallbackResult) void {
     switch (result.code) {
         .exit => task.state = .done,
         .yield => task.state = .ready,
@@ -164,6 +170,47 @@ pub fn stepTask(ctx: anytype, task: *TaskDescriptor) !void {
             task.state = .waiting;
             task.set_index = result.waitable_set_index;
         },
+    }
+}
+
+/// ADR-0195 step (c) — the cooperative round-robin scheduler over a `TaskTable`.
+/// Each pass: step every `ready` task once (deliver `none`), and for every
+/// `waiting` task poll its set and, if an event is pending, deliver it. Terminate
+/// when all tasks are `done`. Trap `AsyncDeadlock` when a whole pass makes NO
+/// progress — no task was `ready` and no `waiting` task's poll yielded an event
+/// (generalises the single-task `waitOn`-empty deadlock to N tasks). The ctx
+/// seam is the *non-blocking* multi-task pair (a task must never block the
+/// others), distinct from the single-task blocking `waitOn`:
+///   - `invokeTaskCallback(funcidx, event_code, p1, p2) Error!u32` — re-enter the
+///     task whose stackless callback is `funcidx`;
+///   - `pollSet(set_index) Error!?EventTuple` — non-blocking poll (null = none).
+pub fn driveScheduler(ctx: anytype, table: *TaskTable) !void {
+    while (true) {
+        var any_live = false; // a non-done task remains
+        var progressed = false; // at least one task stepped this pass
+        for (table.slots.items, 0..) |slot, i| {
+            if (slot == null) continue;
+            const task = &table.slots.items[i].?;
+            switch (task.state) {
+                .done => {},
+                .ready => {
+                    any_live = true;
+                    progressed = true;
+                    const next = try ctx.invokeTaskCallback(task.callback_funcidx, @intFromEnum(EventCode.none), 0, 0);
+                    foldResult(task, try unpackCallbackResult(next));
+                },
+                .waiting => {
+                    any_live = true;
+                    if (try ctx.pollSet(task.set_index)) |ev| {
+                        progressed = true;
+                        const next = try ctx.invokeTaskCallback(task.callback_funcidx, @intFromEnum(ev.code), ev.index, ev.payload);
+                        foldResult(task, try unpackCallbackResult(next));
+                    }
+                },
+            }
+        }
+        if (!any_live) return; // all tasks done
+        if (!progressed) return error.AsyncDeadlock; // all waiting, no events deliverable
     }
 }
 
@@ -1218,6 +1265,79 @@ test "ADR-0195 step (b): seedTask + stepTask fold one callback return into task 
     const w = try seedTask((9 << 4) | 2);
     try testing.expectEqual(TaskState.waiting, w.state);
     try testing.expectEqual(@as(u32, 9), w.set_index);
+}
+
+/// Scripted multi-task ctx for `driveScheduler` (the step-c seam): records the
+/// funcidxs re-entered + sets polled; `invokeTaskCallback` returns `cb_return`;
+/// `pollSet` delivers `poll_result` once then `null` (drives a task to wait then
+/// be released, or deadlock).
+const SchedCtx = struct {
+    cb_return: u32 = 0, // EXIT by default
+    poll_result: ?EventTuple = null,
+    poll_consumed: bool = false,
+    invoked: std.ArrayList(u32) = .empty,
+    polls: std.ArrayList(u32) = .empty,
+    alloc: Allocator,
+
+    fn deinit(self: *SchedCtx) void {
+        self.invoked.deinit(self.alloc);
+        self.polls.deinit(self.alloc);
+    }
+    fn invokeTaskCallback(self: *SchedCtx, funcidx: u32, ec: u32, p1: u32, p2: u32) !u32 {
+        _ = ec;
+        _ = p1;
+        _ = p2;
+        try self.invoked.append(self.alloc, funcidx);
+        return self.cb_return;
+    }
+    fn pollSet(self: *SchedCtx, set_index: u32) !?EventTuple {
+        try self.polls.append(self.alloc, set_index);
+        if (self.poll_consumed) return null;
+        self.poll_consumed = true;
+        return self.poll_result;
+    }
+};
+
+test "ADR-0195 step (c): driveScheduler runs every ready task once + terminates when all done" {
+    var table = try TaskTable.init(testing.allocator);
+    defer table.deinit();
+    const a = try table.add(.{ .callback_funcidx = 10 }); // .ready
+    const b = try table.add(.{ .callback_funcidx = 20 }); // .ready
+    var ctx = SchedCtx{ .cb_return = 0, .alloc = testing.allocator }; // both EXIT on first step
+    defer ctx.deinit();
+
+    try driveScheduler(&ctx, &table);
+    try testing.expectEqual(@as(usize, 2), ctx.invoked.items.len); // each task's callback ran once
+    try testing.expectEqual(TaskState.done, (try table.get(a)).state);
+    try testing.expectEqual(TaskState.done, (try table.get(b)).state);
+}
+
+test "ADR-0195 step (c): driveScheduler traps AsyncDeadlock when all tasks wait with no deliverable event" {
+    var table = try TaskTable.init(testing.allocator);
+    defer table.deinit();
+    _ = try table.add(.{ .callback_funcidx = 10, .state = .waiting, .set_index = 5 });
+    var ctx = SchedCtx{ .poll_result = null, .alloc = testing.allocator }; // poll yields nothing
+    defer ctx.deinit();
+
+    try testing.expectError(error.AsyncDeadlock, driveScheduler(&ctx, &table));
+    try testing.expectEqualSlices(u32, &.{5}, ctx.polls.items); // polled the waiting task's set
+    try testing.expectEqual(@as(usize, 0), ctx.invoked.items.len); // never re-entered the guest
+}
+
+test "ADR-0195 step (c): driveScheduler delivers a polled event to a waiting task, which then exits" {
+    var table = try TaskTable.init(testing.allocator);
+    defer table.deinit();
+    const a = try table.add(.{ .callback_funcidx = 7, .state = .waiting, .set_index = 3 });
+    var ctx = SchedCtx{
+        .cb_return = 0, // after the delivered event the callback EXITs
+        .poll_result = .{ .code = .stream_read, .index = 1, .payload = 0 },
+        .alloc = testing.allocator,
+    };
+    defer ctx.deinit();
+
+    try driveScheduler(&ctx, &table);
+    try testing.expectEqualSlices(u32, &.{7}, ctx.invoked.items); // delivered to task 7's callback
+    try testing.expectEqual(TaskState.done, (try table.get(a)).state);
 }
 
 test "D-335 unit D-ζ2: newStreamPair mints linked readable+writable ends; shared freed on 2nd drop" {
