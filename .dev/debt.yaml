@@ -1036,6 +1036,14 @@ entries:
       original "disproportionate effort" assessment). RED fixture committed (asserts `run()==0x5A`); wire its test
       WITH the impl (can't commit a failing test). Incremental plan: (1) multi-module graph linking (flat args, new
       flat 2-module fixture) → green; (2) canon boundary aggregate marshalling (strlen_graph) → green.
+      **FIRST MILESTONE DONE 2026-06-17 (@4cceeb1e, ADR-0196)**: two-level graph linking + cross-component STRING
+      marshalling landed in new `src/api/component_graph.zig` (outer component_instances × inner core_instances loop
+      + boundary trampoline via `canon.CanonContext` copying the string caller-mem→callee-mem; typed
+      `UnsupportedBoundaryType` for unimpl shapes). `component_model_assert` 159/0/0 (strlen `firstbyte("Z")→0x5A`
+      PASS + adder flat intact); 3-host pending. **REMAINING (keeps this row)**: other aggregate shapes (list/record/
+      result/tuple) + result-direction string + >2-component/deeper graphs across the boundary — they reuse
+      `BoundaryCtx`/`CanonContext` but are untested; each lands when a fixture demands it. Async cross-component
+      routing (the ADR-0195 scheduler prerequisite) is a further axis.
     first_raised: "2026-06-07"
     last_reviewed: "2026-06-07"
     refs: src/api/component.zig (instantiateGraph); test/component/adder_graph.wasm; .dev/component_model_plan.md (Phase C/D)

@@ -5,19 +5,9 @@
 
 ## Current state — Phase 17 完成形 completion-refinement (release = USER-ONLY, ADR-0156)
 
-Recent closed arcs (3-host or ubuntu-verified; full detail in git/lessons): **D-457** SIMD systemic close (24805/0) ·
-**D-458** core-2.0 corpus completeness + cross-corpus audit · doc-inventory pass · **C-ABI trap-kind drift guard** ·
-**D-455** array-alloc dedup · **D-459** Wasm 3.0 §3.3.1 local definite-assignment (restore-at-end NOT intersection) ·
-**win-specassert-pass0 (ADR-0174 Phase-1) CLOSED**: windowsmini wasm-3.0-assert pass=0 root-caused to CRLF — the
-runner was the lone one not trimming `\r`, so windows-CRLF manifests gave `module_path` ending `\r` →
-`error.BadPathName` → all modules silently un-loaded. Fixed @02592aa8 (trim, mirrors 4 other runners) → **windows
-now pass=10234 = ubuntu, 0 MODULE-READ-FAIL, VERIFIED**; + @b1606384 gates the runner on fails (closes the
-"OK-hides-pass=0" masking; lesson `windows-crlf-manifest-badpathname-hidden-by-nongating-skeleton`). D-458 RESIDUAL
-(note): broad regen non-idempotency. Ratchet baseline 24 loose (real 22) — harmless. Stale-doc: ROADMAP §16.7 D-277.
-
-CLI surface audit (@4e5e42fe): code↔`--help` fully consistent. Gate change @b1606384 **VERIFIED GREEN on BOTH hosts**
-(windows `[run_remote_windows] OK.` wasm-3.0-assert pass=10234 fail=0 / simd 24805/0 / spec 25539/0; ubuntu OK
-@f1a1d503). win-specassert campaign fully closed; the fail-gate is clean.
+Project at the **完成形 plateau** (all dims confirmed): clean (C/Zig/CLI audits), full-featured (WASI complete +
+now cross-component STRING composition, D-305 milestone), 100% spec (`test-spec` 25539/0), lightweight-yet-fast
+(v1-JIT parity, D-265 closed). Robustness: interp+JIT fuzz 0 crashes. Closed-arc detail lives in git/ADRs/lessons.
 
 **ADR-0195 multi-task async scheduler PARKED** (blocked-by D-305): guest↔guest async needs a subtask = cross-component
 async import to a GUEST callee = the component linker. Retained the Phase II(a) `AsyncDeadlock` char test (`80ec1f63`);
@@ -28,35 +18,24 @@ consumer-gated big async/composition), 100% spec (`test-spec` 25539/0), lightwei
 `s15p_parity_vs_v1.md`, D-265 closed). Robustness: fuzz 808 mods 0 crashes on interp AND JIT; docs drift-clean.
 Prior: wasi:random COMPLETE; ADR-0193 follow-up + version SSOT; D-335 typed marshalling DONE; C-API @b4d75506.
 
-**D-305 component-composition campaign OPEN — Phase I scoped via RED fixture** (this turn). Authored
-`strlen_graph.wat` (2-component graph, B exports `firstbyte(s:string)->u32=s[0]`, A builds "Z" + calls it → must
-return 0x5A). It exposed the REAL first barrier: `instantiateGraph` (`component.zig:470` `firstCoreModule`) compiles
-only the FIRST core module per child, so a realistic 2-module child (libc + main) never instantiates `run` →
-`error.ExportNotResolved`. So the fully-general linker is genuinely multi-cycle (matches "disproportionate effort").
-See `## Active bundle`. ADR-0193 (P1-P4, D-462) + D-461 (ADR-0194) CLOSED (below). **windowsmini gating RESUMED**
-(batch a3b04e57 green). Version `2.0.0-alpha.3`.
+**D-305 component-composition first milestone DONE** (this turn, @4cceeb1e, ADR-0196 — see closed-arc below):
+cross-component STRING marshalling works (`strlen_graph` PASS). The fully-general linker now exists; remaining
+aggregate shapes are consumer-gated D-305 debt.
 
-## Active bundle — D-305 fully-general component linker (component composition)
+**NEXT (autonomous)**: 3-host-verify @4cceeb1e first (ubuntu+windows — new load-bearing instantiation code).
+Then options: (a) continue D-305 — next aggregate shape (a `(list u8)` or `record` cross-component fixture; reuses
+`BoundaryCtx`/`CanonContext`, likely small now the string case works); (b) light maintenance on the plateau.
+ADR-0193 (P1-P4, D-462) + D-461 (ADR-0194) CLOSED (below). **windowsmini gating RESUMED**. Version `2.0.0-alpha.3`.
 
-- **Bundle-ID**: d305-component-linker
-- **Cycles-remaining**: ~5-8 (genuinely multi-cycle; disproportionate-effort per debt)
-- **Continuity-memo**: Phase I COMPLETE — concrete impl path found. RED fixture `strlen_graph.{wat,wasm}` ready
-  (asserts `run()==0x5A`; test UNWIRED — wire WITH the green impl). **KEY REUSE**: the multi-core-module machinery
-  ALREADY exists in `buildWasiP2Component` (`component_wasi_p2.zig:2112-2159`): it iterates `info.core_instances`,
-  and per `.instantiate` ci compiles the core module, makes a Linker, pours each `with` arg's prior instance
-  (`self.built[arg.instance]`) into it, instantiates; `.inline_exports` → synthetic host instances. The graph linker
-  needs **TWO-LEVEL instantiation**: process the OUTER component's `component_instances` (each child = a sub-component
-  run through that SAME core-instance loop), then resolve the component-level `with` args (A's `firstbyte` import ←
-  B's lifted `firstbyte` export) + canon lift/lower at the cross-component boundary. **Impl TDD plan**: (1) extract
-  the `component_wasi_p2.zig:2112-2159` core-instance loop into a reusable helper (behavior-preserving, existing
-  tests green); rework `instantiateGraph` (`component.zig:437-496`, today only `firstCoreModule`) to run it per
-  child + wire flat cross-component funcs — RED = a FLAT 2-module-per-component fixture → green. (2) THEN canon
-  boundary STRING marshalling (A-mem→B-mem copy; reuse `canon.zig` lift/lower) → wire `strlen_graph` → green; ADR at
-  (2) design (§10-area). **Genuinely multi-cycle refactor of load-bearing instantiation code — best driven on FRESH
-  context (full machinery in view), NOT mid-deep-context.** Key files: `component.zig`, `component_wasi_p2.zig:2112`,
-  `feature/component/canon.zig`, `feature/component/types.zig` (TypeInfo: core_instances/component_instances/canons).
-- **Exit-condition**: `strlen_graph` test green (a STRING marshals across the component boundary, `run()==0x5A`),
-  AND `adder_graph` (flat) + the full component corpus stay green.
+## D-305 component-composition — first milestone CLOSED 2026-06-17 (@4cceeb1e, ADR-0196)
+
+CLOSED: cross-component STRING marshalling works. New `src/api/component_graph.zig` does two-level instantiation
+(outer `component_instances` × inner `core_instances` loop) + a boundary trampoline copying the string
+caller-mem→callee-mem via `canon.CanonContext`; typed `UnsupportedBoundaryType` for unimpl shapes. `strlen_graph`
+spec PASS (`firstbyte("Z")→0x5A`) + adder flat intact = `component_model_assert` 159/0/0; build+test+test-spec+
+test-component-spec+lint green (3-host pending). REMAINING D-305 (debt, consumer-gated): other aggregate shapes
+(list/record/result/tuple) + result-direction string + deeper graphs — reuse `BoundaryCtx`/`CanonContext`, land
+when a fixture demands. (A subagent wrote the impl during an API outage; main loop verified + committed it.)
 
 ## D-461 regalloc-origin rework (ADR-0153/ADR-0194) — CLOSED Phase I-V 2026-06-16
 
