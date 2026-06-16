@@ -49,16 +49,16 @@ wasi-testsuite, wasm-tools). **②①④ DONE; ③ ACTIVE (GC-corpus).**
 
 - **Bundle-ID**: p17-③-gc-corpus (real Wasm-GC source-lang fixtures to stress the GC backend)
 - **Cycles-remaining**: several (new-toolchain integration like wasip3 was)
-- **STEP 0.7 NEXT TURN**: D-453 (`c528c3b3`) was Mac-green but the ubuntu gate @85315fcf caught a MISSED caller —
-  `wast_runner.zig:352` wasn't updated for the canonical-equality `canonical_types` param (`9ec68a75`); Mac gates
-  don't compile wast_runner, only remote test-all does. **FORWARD-FIXED `1d58980d`** (null arg; verified
-  `test-spec-wasm-2.0` 1158/0 on Mac). ALL ubuntu test SUITES had passed (GC 362/0, realworld 56/0) — only the
-  build step failed. ubuntu re-kicked @1d58980d — **verify it's GREEN at next Step 0.7** before proceeding. Lesson
-  `src-signature-change-misses-test-all-only-runner-callers`.
+- **STEP 0.7 NEXT TURN**: ubuntu **GREEN @886d0667** (`OK`, wast_runner 1158/0+74/0, GC 362/0, realworld 56/0) —
+  D-453 + the wast_runner caller fix (`1d58980d`) fully verified on x86_64. D-452 (`79742cb4`, br_table subtyping)
+  landed AFTER → **kick ubuntu @79742cb4 + verify next Step 0.7**. **windows is verifying @886d0667** (D-453 ABI-risk
+  batch, jit_abi.zig) — verify its `/tmp/win.log` verdict next Step 0.7 (NOT yet recorded). validator.zig at
+  3449/3450 cap — the NEXT validator fix MUST extract per the file's marker plan (don't re-bump the cap a 3rd time).
 - **Hoot bring-up — validator bug chain (each blocker = a real spec fix; wasm-tools validates the whole module)**:
-  Four validator/decoder spec bugs found+FIXED by the probe: func#36 return_call subtype (`9064faa5`), table.copy
+  FIVE validator/decoder spec bugs found+FIXED by the probe: func#36 return_call subtype (`9064faa5`), table.copy
   subtype (`480809af`), func#84 canonical-equality (`9ec68a75`), func#354 **D-453 heap-type SLEB decode / concrete
-  idx≥64** (`c528c3b3`). D-453 was the big one: ref.test/cast/br_on_cast read the heap-type immediate as 1 byte but
+  idx≥64** (`c528c3b3`), **D-452 br_table operands subtype-not-pairwise-eql** (`79742cb4`). All same
+  exact-eql-vs-subtyping / decode class; all missed by the synthetic spec suite. D-453 was the big one: ref.test/cast/br_on_cast read the heap-type immediate as 1 byte but
   it's SLEB128 (idx≥64 = 2+ bytes) → decoder desync → false UninitializedLocal 3 hops downstream. Fixed across
   validator+lower+ref_test_ops+mvp+both-arch JIT (encoding: abstract/idx<64 = bare byte unchanged; idx≥64 =
   0x8000_0000|idx; JIT null-flag bit8→bit30; +x86_64 `&0xFF` truncation fixed). 2 regression fixtures + lesson

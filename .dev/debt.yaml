@@ -1674,31 +1674,6 @@ entries:
       bench/results/all_engine_matrix.md (the measured ratios);
       bench/runners/wasm/shootout/base64.wasm (profile target);
       scripts/run_bench.sh (--bench=shootout/base64); .claude/skills/debug_jit_auto
-  - id: "D-452"
-    layer: "code"
-    status: "now"
-    front: "B-hardening"
-    description: |-
-      Status: now — br_table label-type check is exact-eql, spec needs subtyping.
-      `labelTypesEq` (validator.zig:3379, used at :2794 for br_table) requires all
-      br_table target labels to be PAIRWISE-EQUAL when the stack is not polymorphic.
-      Wasm 3.0 §3.3.8.8 is more permissive: there need only exist an operand type
-      sequence t* that is a subtype of EVERY label's type (labels need not be equal
-      to each other) — e.g. labels `[funcref]` and `[(ref func)]` are jointly valid
-      with operand `(ref func)`. Same exact-eql-vs-subtyping class as the return_call
-      (`9064faa5`) + table.copy (`480809af`) fixes, but the correct fix restructures
-      br_table validation (pop operands against each label via `subtypeCtx`, or
-      compute the meet) rather than a one-line swap — deserves its own TDD cycle with
-      adversarial fixtures (incl. the polymorphic-stack interaction at :2794). Surfaced
-      by the same front-③ GC-corpus audit that found the two fixed siblings; not yet
-      observed to block a real fixture (Hoot's module tripped return_call first), so
-      latent. Discharge: br_table accepts compatible-but-unequal reftype labels +
-      still rejects genuinely-incompatible ones (cross-hierarchy), with fixtures.
-    first_raised: "2026-06-16"
-    last_reviewed: "2026-06-16"
-    refs: |-
-      src/validate/validator.zig:2794 (br_table call site) + :3379 (labelTypesEq);
-      Wasm 3.0 spec §3.3.8.8 (br_table); siblings 9064faa5 + 480809af
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
