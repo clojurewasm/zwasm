@@ -22,8 +22,8 @@ CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`. Windows batch 
 ## Active bundle — ADR-0195 multi-task async scheduler (UNBLOCKED 2026-06-17 PM)
 
 - **Bundle-ID**: adr0195-scheduler-IIa..b (guest↔guest async = D-335 last functional gap)
-- **Cycles-remaining**: ~2 (✓II(a) char net → ✓(b) TaskTable+driver-refactor → ✓(c-1) scheduler loop →
-  (c-2) real-runner wiring + async trampoline + (d) e2e → (e) adversarial)
+- **Cycles-remaining**: ~2 (✓II(a) → ✓(b) TaskTable → ✓(c-1) scheduler → ✓(c-2a) runner-unify →
+  (c-2b) xcomponent routing + (d) guest↔guest e2e → (e) adversarial)
 - **II(a) DONE** (@529cfcba) + **(b) DONE** (@b90cbecb TaskTable, @61c4a20d driver refactor): `driveCallbackLoop`
   now drives a `TaskDescriptor` via the `stepTask` primitive (seed→loop stepTask until done), byte-identical
   (char net + component corpus 163/0 green, ubuntu+win verified through @8352ef9c). Zone-1 `TaskTable`/
@@ -36,17 +36,17 @@ CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`. Windows batch 
 - **Continuity-memo**: Phase II(a) correctness-FIRST — pin the single-task driver (EXIT/YIELD/WAIT/host-peer/
   `AsyncDeadlock`) with char tests BEFORE the TaskTable generalisation (the single-task path must stay
   byte-identical). `Subtask` (`async.zig:397`) is built-but-unwired ζ1 machinery to revive.
-- **c-1 DONE** (@822d30d5): Zone-1 `driveScheduler(ctx, table)` — round-robin over `TaskTable` ready tasks +
-  non-blocking `pollSet` of waiting tasks + all-done termination + all-waiting→`AsyncDeadlock` trap; shares
-  `foldResult` with single-task `stepTask` (byte-identical refactor). New non-blocking ctx seam:
-  `invokeTaskCallback(funcidx,…)` + `pollSet(set)`. 3 scheduler unit tests (round-robin/deadlock/event-delivery)
-  + char net all green.
-- **NEXT (c-2, the real-runner wiring)**: (1) implement the `invokeTaskCallback`/`pollSet` seam on the real P3
-  runner — today `P3CallbackCtx.invokeCallback` invokes ONE callback by NAME (`component_wasi_p3.zig:34`); a
-  multi-task callee lives in another instance, so `invokeTaskCallback` must dispatch by `(instance, funcidx)`
-  (coupled to the cross-component routing). (2) async-lowered-import → enqueue: `component_graph.zig` boundary
-  trampoline detects `is_async`, mints a `Subtask` (async.zig:397) + enqueues a `TaskDescriptor`. (3) the
-  guest↔guest fixture (exit-condition below). This is the cross-component-coupled half; likely its own cycle.
+- **c-1 DONE** (@822d30d5): Zone-1 `driveScheduler(ctx, table)` — round-robin + non-blocking `pollSet` +
+  all-done termination + all-waiting→`AsyncDeadlock`; ctx seam `invokeTaskCallback(funcidx,…)` + `pollSet(set)`.
+- **c-2a DONE** (@54a9b0bc + @c7710cda): the real P3 runner drives via `driveScheduler` over a 1-entry `TaskTable`
+  (`P3CallbackCtx.invokeTaskCallback`/`pollSet` seam added); all 24 async fixtures + component corpus 163/0 green.
+  UNIFIED on one driver — retired the superseded `driveCallbackLoop`/`stepTask`/`ScriptedLoopCtx`, char net ported
+  to `driveScheduler` 1-entry tests (multi-iter WAIT ordering, ready-vs-waiting dispatch, immediate-EXIT).
+- **NEXT (c-2b, cross-component routing — needs Step 0 survey)**: (1) `component_graph.zig` boundary trampoline
+  detects `is_async` → mints a `Subtask` (async.zig:397) + enqueues a `TaskDescriptor` for the guest callee; (2)
+  the graph runner's `invokeTaskCallback` dispatches by `(instance, funcidx)` across components (today single-
+  instance ignores funcidx); (3) the guest↔guest fixture (exit-condition below). The cross-component-coupled half
+  — survey component_graph.zig boundary install + Subtask wiring + whether a 2-component async .wat is buildable.
 - **Exit-condition**: `async_two_tasks_stream_rendezvous.wat` (2-component: A async-imports B's async export)
   builds + asserts Subtask creation→resolution + waitable-set delivery, e2e green; full async corpus + (e)
   adversarial (deadlock/dropped/cancelled) green; single-task path unchanged.
