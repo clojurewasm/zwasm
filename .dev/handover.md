@@ -49,40 +49,29 @@ windows-suspension (`--suspend` → 2-host fast-loop; resume before main-merge /
   (`2daaf643`). **C `D-209`** memory64 >4 GiB memarg offset `BadMemarg` at lowering (assert_trap-executed; multi-arch
   10.M-4b chunk). **Parked = D-456** host-import fixtures (UnknownImport; runner-extension, not engine gap;
   v128-with-gc-ref is here too — `import "wasmtime" "gc"`).
-- **NEXT (Phase III→V)**: candidates — (a) JIT GC-v128 emit (closes D-460 residual + array-copy-inline.6, both
-  arches, larger); (b) C `D-209` memory64 multi-arch; (c) V retrospective + promote legit fixtures. Both (a)/(b) are
-  multi-arch codegen bundles. Harness: `scripts/wasmtime_misc_{sweep,native_sweep}.sh`.
+- **NEXT (Phase IV)**: the JIT GC-v128 emit bundle (below) is the active sub-task. After it: gap C `D-209` memory64
+  (multi-arch 10.M-4b) then campaign V retrospective. Harness: `scripts/wasmtime_misc_{sweep,native_sweep}.sh`.
 
-**The prior user-steered 4-front async-maturity campaign (2026-06-16) is COMPLETE** — all four closed (history below);
-general Phase-17 completion work (debt sweep / surface audits) interleaves when the campaign pauses.
+## Active bundle
 
-- **② wasmtime async .wast gaps — DONE (TIER-1)**: Gap A `afcf889a` (async export w/ result must `task.return` before
-  EXIT), copy-IDLE `05b35c28`. Deferred design-grade: **D-446** Gap B, **D-447** TIER-2/3.
-- **① wasip3 conformance — DONE**: 7 real-rust-wasip3 fixtures (cli-exit/stdout/stderr/env/args/stdin/clocks) via the
-  hermetic `.#gen-wasip3` recipe. D-448 caveats. Lessons `…-wasip3-hermetic-build-recipe`, `…-wasi-cli-exit-result-channel`.
-- **④ perf — DONE (ROI-rejected, accept the single-pass ceiling)**: base64 13.6× = mostly class-B (global-regalloc/LICM,
-  needs the forbidden optimizing tier). zwasm is "lightweight-fast within single-pass". D-450→note. Lesson `…-base64-…-ceiling`.
-- **③ real-world GC corpus — CLOSED (validator-hardening payoff banked)**: the AssemblyScript + Guile-Hoot probes found
-  + FIXED **6 real engine spec bugs the synthetic spec suite missed**: D-451 jit-lenient-import instantiation (`4c8c14fe`)
-  + 5 validator/decoder — return_call subtype (`9064faa5`), table.copy subtype (`480809af`), iso-recursive canonical
-  equality (`9ec68a75`), **D-453** heap-type SLEB decode / concrete idx≥64 across validator+lower+interp+both-arch JIT
-  (`c528c3b3`), **D-452** br_table operands subtype-not-pairwise-eql (`79742cb4`). All one exact-eql-vs-subtyping /
-  decode-length class. **4 GC edge fixtures green** (`test/edge_cases/p10/gc/`: canonical_eq_call_arg,
-  ref_cast_concrete_idx64, ref_test_null_idx256, br_table_reftype_subtype — real GC programs exercising
-  struct.new/get + ref.cast/test + br_table at runtime). zwasm now fully validates+lowers a dense real Hoot wasm-gc
-  module (correctly rejecting its 36 unsatisfied imports at instantiation, §4.5.4). RUNNING a real Hoot program to an
-  observable result is **deferred → D-454** (blocked on porting Hoot's reflect host ABI — disproportionate; feasibility
-  probe 2026-06-16: run-side bounded, observe-side a multi-cycle host port). Lessons
-  `validator-exact-eql-where-reftype-subtyping-required` + `leb-decode-desync-manifests-far-downstream` +
-  `src-signature-change-misses-test-all-only-runner-callers`.
+- **Bundle-ID**: D-460-jit-v128-gc-emit (campaign Phase IV continuity)
+- **Cycles-remaining**: ~3 (architectural; 7 op files × 2 arches + v128 vreg result class)
+- **Continuity-memo**: JIT GC ops hardcode an 8-byte slot. Extend struct_get/set/new + array_get/set/new_fixed/copy
+  on BOTH arches to v128: index×16 stride (x86_64 uses Lsl3=×8 in `encMovR64FromBaseIdxLsl3`; arm64 mirror) + a
+  16-byte XMM load/store (movdqu) + a NEW v128 result-class arm (def = XMM vreg, not GPR). Width from
+  `FieldInfo.size` / `arrayElemValType==0x7B`. Full Phase-I scope in debt D-460. NOT a wrapper-thunk issue (func
+  returns i32 via extract_lane).
+- **Test vehicle**: `engine/runner_gc_test.zig` `runI32Export(alloc,&bytes,"f")`. First red→green:
+  `struct.new $s (i32x4.splat 5); struct.get $s 0; i32x4.extract_lane 0` → 5. `zwasm run --engine jit` does NOT
+  print export results — use runI32Export / native runner.
+- **Exit-condition**: struct + array v128 round-trip via runI32Export green on BOTH arches AND wasmtime
+  gc/array-copy-inline.6 returns 16 under the native runner; e2e edge fixture under test/edge_cases/p10/gc/.
 
-**WASI 0.3 / Preview 3 core DONE** (D-335): CM-async runtime runs async components from `zwasm run` + embedder —
-callback loop EXIT/YIELD/WAIT, both stream directions (host peers), waitable-set, return-future; 18 async e2e fixtures,
-3-host (ADR-0187 stackless / 0188-0191). Hardening D-337 (future-drop-before-write trap), D-445-partial (guest-fault→trap).
-
-**NEXT (autonomous)**: 4 fronts done → resume general Phase-17 完成形 work. Candidates: Step 0.5 debt sweep (55 entries;
-discharge dissolved barriers); surface audits (C/Zig/CLI あるべき論); D-446/D-447 (async design-grade) if pursuing CM-async
-depth. validator.zig at 3449/3450 cap — the NEXT validator edit MUST extract per the file's marker plan (no 3rd cap-bump).
+**Closed campaigns (detail in git/lessons)**: prior 4-front async-maturity (2026-06-16) — ② wasmtime async .wast
+TIER-1 (`afcf889a`/`05b35c28`; D-446/447 deferred), ① wasip3 conformance (7 real-rust fixtures, `.#gen-wasip3`),
+④ perf (ROI-rejected single-pass ceiling, D-450), ③ real-world GC corpus (6 engine bugs FIXED: D-451-453/9064faa5/
+480809af/9ec68a75/79742cb4; 4 GC edge fixtures; real Hoot execution → D-454). **WASI 0.3/Preview-3 core DONE**
+(D-335; ADR-0187-0191). validator.zig at 3449/3450 cap — NEXT validator edit MUST extract per the file's marker plan.
 
 ## Long-tail (debt-tracked / parked — NOT active; see debt.yaml)
 

@@ -1769,16 +1769,28 @@ entries:
       struct_ops v128 new/get/set round-trip + type_info offset/size layout. VERIFIED end-to-end via interp:
       gc/alloc-v128-struct instantiates+runs, gc/const-expr-gc-simd `v128-array-len` returns 2,
       `v128-struct-default` instantiates.
-      RESIDUAL (the still-open part): SIMD is JIT-only by design (D-244), so OBSERVING a v128 GC field via
-      i32x4.extract_lane (gc/array-copy-inline.6 → expects 16) needs **JIT GC-v128 struct/array op emit** on
-      BOTH arches — currently `compileWasm … UnsupportedOp`. That is a multi-arch codegen chunk (struct.get/set/
-      new + array.get/set/new/copy emitting 16-byte SIMD loads/stores), the larger follow-on. ALSO exotic:
-      array.new_data/init_data with a v128 element traps (dataElemNaturalSize→null; the `u64 raw` accumulator
-      can't hold 16 bytes) — spec-valid but unexercised by the campaign fixtures; widen to a [16]u8 path when
-      a consumer appears. gc/v128-with-gc-ref is host-import-blocked (`import "wasmtime" "gc"` → D-456), not a
-      v128-layout gap; its v128+ref struct layout already materialises.
-      Discharge: array-copy-inline.6 returns 16 under `--engine jit`; add an end-to-end edge fixture under
-      test/edge_cases/p10/gc/ once JIT GC-v128 emits.
+      RESIDUAL (the still-open part = the "JIT GC-v128 emit" bundle): SIMD is JIT-only by design (D-244), so
+      OBSERVING a v128 GC field via i32x4.extract_lane (gc/array-copy-inline.6 → expects 16) needs JIT GC-v128
+      struct/array op emit on BOTH arches. Phase-I scope (2026-06-16):
+      - Op files to extend (×2 arches): struct_get / struct_set / struct_new + array_get / array_set /
+        array_new_fixed / array_copy (array_new_default already @memsets, size-agnostic). Each currently hardcodes
+        an 8-byte slot: e.g. x86_64 array_get.zig uses `encMovR64FromBaseIdxLsl3` (index×8, Lsl3) + a 2-way
+        result class switch (FP→XMM movd/movq, else→GPR). v128 needs index×16 stride + a 16-byte XMM load/store
+        (movdqu) + a NEW v128 result-register class arm (the def must be an XMM vreg holding 16 bytes, not GPR).
+      - The element/field width is `FieldInfo.size` / `arrayElemValType==0x7B`; mirror struct field via the
+        StructInfo offset+size already materialised (D-460 core).
+      - TEST VEHICLE: `engine/runner_gc_test.zig` `runI32Export(alloc, &wasm_bytes, "f")` compiles a module to
+        JIT + runs an i32 export. Red→green per op with a module like `struct.new $s (i32x4.splat 5);
+        struct.get; i32x4.extract_lane 0` → 5 (the func returns i32, so the wrapper-thunk v128-result limit is
+        NOT hit). `zwasm run --engine jit` does NOT print export results — use the spec/native runner or
+        runI32Export to verify, NOT the CLI.
+      - NOT the wrapper thunk: array-copy-inline.6's func returns i32 (extract_lane), so no v128-result boundary
+        work; the `UnsupportedOp` is the GC-op emit choking on the v128 field/element.
+      ALSO exotic: array.new_data/init_data with a v128 element traps (dataElemNaturalSize→null; `u64 raw` can't
+      hold 16B) — spec-valid but unexercised; widen to a [16]u8 path when a consumer appears. gc/v128-with-gc-ref
+      is host-import-blocked (`import "wasmtime" "gc"` → D-456), not a v128-layout gap.
+      Discharge: a struct.new/get + array.new_fixed/copy/get v128 round-trip via runI32Export on BOTH arches;
+      array-copy-inline.6 returns 16 under the native runner; e2e edge fixture under test/edge_cases/p10/gc/.
     first_raised: "2026-06-16"
     last_reviewed: "2026-06-16"
     refs: |-
