@@ -336,24 +336,26 @@ fn brIfOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     }
 }
 
-/// Wasm 3.0 GC §4.4.5 — `br_on_cast` / `br_on_cast_fail`. ZirInstr:
-/// payload = labelidx, extra = flags | ht1<<8 | ht2<<16 (lower.zig). The
-/// operand ref stays on the stack (it's carried on a taken branch and
-/// kept on fall-through — only its static type narrows, a validate-time
-/// concern); we branch iff the runtime type-test against ht2 matches
-/// (`br_on_cast`) or doesn't (`br_on_cast_fail`). Null matches ht2 only
-/// when ht2 is nullable (flags bit 1). Concrete ht2 walks the supertype
-/// chain via `gcRefMatchesNonNull` (10.G cycle 153).
+/// Wasm 3.0 GC §4.4.5 — `br_on_cast` / `br_on_cast_fail`. ZirInstr (D-453):
+/// payload = labelidx | (ht2_encoded << 32), extra = flags (lower.zig).
+/// ht2 is the full D-453 encoded heap-type (idx ≥ 64 representable); ht1
+/// is validation-only and dropped. The operand ref stays on the stack
+/// (carried on a taken branch, kept on fall-through — only its static type
+/// narrows, a validate-time concern); we branch iff the runtime type-test
+/// against ht2 matches (`br_on_cast`) or doesn't (`br_on_cast_fail`). Null
+/// matches ht2 only when ht2 is nullable (flags bit 1). Concrete ht2 walks
+/// the supertype chain via `gcRefMatchesNonNull` (10.G cycle 153).
 fn brOnCastImpl(c: *InterpCtx, instr: *const ZirInstr, is_fail: bool) anyerror!void {
     const rt = Runtime.fromOpaque(c);
     const v = rt.popOperand();
     const flags: u8 = @truncate(instr.extra);
-    const ht2: u8 = @truncate(instr.extra >> 16);
+    const ht2: u32 = @truncate(instr.payload >> 32);
+    const labelidx: u32 = @truncate(instr.payload);
     const ht2_nullable = (flags & 0x02) != 0;
     const matches = if (v.ref == Value.null_ref) ht2_nullable else ref_test_ops.gcRefMatchesNonNull(rt, v, ht2);
     try rt.pushOperand(v); // ref remains on the stack (branch carries it / fall-through keeps it)
     const take = if (is_fail) !matches else matches;
-    if (take) try doBranch(rt, rt.currentFrame(), @intCast(instr.payload));
+    if (take) try doBranch(rt, rt.currentFrame(), labelidx);
 }
 
 fn brOnCastOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {

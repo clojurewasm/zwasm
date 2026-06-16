@@ -31,15 +31,17 @@ pub const wasi_level = meta.wasi_level;
 const scratch: inst.Xn = 16; // IP0 — &jitGcRefCast.
 
 pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void {
-    const ht: u16 = @intCast(ins.payload & 0xFF);
+    // D-453: ht is the full encoded u32 (bit31 concrete-tag | idx, or bare byte).
+    const ht: u32 = @truncate(ins.payload);
     // args.src = ref (operand), args.result = ref (unchanged on success).
     const args = try ctx.popUnary();
     // X1 = ref (64-bit reftype value).
     const xsrc = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.src, 0);
     if (xsrc != 1) try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(1, 31, xsrc));
-    // X0 = rt; W2 = ht.
+    // X0 = rt; W2 = ht (full 32-bit: MOVZ low half + MOVK high half).
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr));
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(2, ht));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(2, @intCast(ht & 0xFFFF)));
+    if (ht >> 16 != 0) try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(2, @intCast((ht >> 16) & 0xFFFF), 1));
     // MOVZ/MOVK X16 = &jitGcRefCast; BLR X16.
     const addr: u64 = @intFromPtr(&jit_abi.jitGcRefCast);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(scratch, @intCast(addr & 0xFFFF)));

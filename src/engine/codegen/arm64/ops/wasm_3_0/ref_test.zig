@@ -6,7 +6,7 @@
 //! plain 3-arg marshal + CALL + capture W0. 1 → 1. No trap.
 //!
 //! `ref.test` and `ref.test_null` share this handler: the null-handling
-//! bit is folded into arg2 (`ht | (nullbit << 8)`), so a null ref yields
+//! bit is folded into arg2 (`ht | (nullbit << 30)`), so a null ref yields
 //! 0 for `ref.test` and 1 for `ref.test_null` INSIDE the trampoline —
 //! emit stays straight-line. The nullbit is read from `ins.op`.
 //!
@@ -33,16 +33,21 @@ pub const wasi_level = meta.wasi_level;
 const scratch: inst.Xn = 16; // IP0 — &jitGcRefTest.
 
 pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void {
-    const null_bit: u32 = if (ins.op == .@"ref.test_null") 0x100 else 0;
-    const arg2: u16 = @intCast((ins.payload & 0xFF) | null_bit);
+    const null_bit: u32 = if (ins.op == .@"ref.test_null") 0x4000_0000 else 0;
+    // D-453 trampoline ABI: ht is the full encoded u32 (concrete-tag = bit
+    // 31, idx = bits 0..29 for a tagged concrete index, else a bare wire
+    // byte). The null flag is bit 30 — just below the concrete-tag, above
+    // any in-range typeidx — so it never collides with the index bits.
+    const arg2: u32 = @as(u32, @truncate(ins.payload)) | null_bit;
     // args.src = ref (the operand), args.result = i32.
     const args = try ctx.popUnary();
     // X1 = ref (64-bit reftype value).
     const xsrc = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.src, 0);
     if (xsrc != 1) try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(1, 31, xsrc));
-    // X0 = rt; W2 = ht|nullbit.
+    // X0 = rt; W2 = ht|nullbit (full 32-bit: MOVZ low half + MOVK high half).
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr));
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(2, arg2));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(2, @intCast(arg2 & 0xFFFF)));
+    if (arg2 >> 16 != 0) try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(2, @intCast((arg2 >> 16) & 0xFFFF), 1));
     // MOVZ/MOVK X16 = &jitGcRefTest; BLR X16.
     const addr: u64 = @intFromPtr(&jit_abi.jitGcRefTest);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(scratch, @intCast(addr & 0xFFFF)));

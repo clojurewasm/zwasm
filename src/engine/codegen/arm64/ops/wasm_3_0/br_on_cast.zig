@@ -13,10 +13,12 @@
 //! captureOrEmitBlockMergeMov carries it to the label result (= the narrowed
 //! ref, br_on_cast's label block-type result).
 //!
-//! `ins.extra` packs {flags, ht1, ht2}: `ht2 = (extra>>16)&0xFF` (the TARGET
-//! heap-type byte — NOT `>>8`, which is ht1), `ht2_nullable = flags bit1 =
-//! (extra&0x02)!=0`. Null folds inside the trampoline (arg2 bit 0x100). ht1
-//! (the source type) is validator-only and not consulted at runtime.
+//! D-453 ZirInstr: `payload = labelidx | (ht2_encoded << 32)`, `extra =
+//! flags`. `ht2 = payload >> 32` (the full TARGET heap-type — idx ≥ 64
+//! representable), `ht2_nullable = flags bit1 = (extra&0x02)!=0`. Null folds
+//! inside the trampoline (arg2 bit 0x4000_0000). ht1 (the source type) is
+//! validator-only and dropped at lower time. The label depth handed to the
+//! shared `branchOnReg` is the low 32 bits of `payload` (a masked copy).
 //!
 //! `br_on_cast` and `br_on_cast_fail` share this `emit` (the sense is read
 //! from `ins.op`); `br_on_cast_fail.zig` re-exports it (mirror ref_test_null).
@@ -39,9 +41,9 @@ const scratch: inst.Xn = 16; // IP0 — &jitGcRefTest.
 pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void {
     if (ctx.pushed_vregs.items.len < 1) return ctx_mod.Error.AllocationMissing;
     const is_fail = ins.op == .br_on_cast_fail;
-    const ht2: u32 = (ins.extra >> 16) & 0xFF;
+    const ht2: u32 = @truncate(ins.payload >> 32);
     const ht2_nullable = (ins.extra & 0x02) != 0;
-    const arg2: u16 = @intCast(ht2 | (if (ht2_nullable) @as(u32, 0x100) else 0));
+    const arg2: u32 = ht2 | (if (ht2_nullable) @as(u32, 0x4000_0000) else 0);
 
     // PEEK the ref (do NOT pop — it stays as the block-result top vreg that
     // branchOnReg's merge carries to the label, and that fall-through keeps).
@@ -50,7 +52,8 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     // X1 = ref (64-bit reftype value); X0 = rt; W2 = ht2|nullbit.
     if (xsrc != 1) try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(1, 31, xsrc));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr));
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(2, arg2));
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(2, @intCast(arg2 & 0xFFFF)));
+    if (arg2 >> 16 != 0) try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(2, @intCast((arg2 >> 16) & 0xFFFF), 1));
     // MOVZ/MOVK X16 = &jitGcRefTest; BLR X16 → W0 = 0/1.
     const addr: u64 = @intFromPtr(&jit_abi.jitGcRefTest);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(scratch, @intCast(addr & 0xFFFF)));
@@ -66,6 +69,10 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCsetW(0, .eq));
     }
 
-    // Conditional branch on the cast bool in W0 (= register 0).
-    try op_control.branchOnReg(ctx, ins, 0);
+    // Conditional branch on the cast bool in W0 (= register 0). The shared
+    // branchOnReg reads `ins.payload` as the label depth; D-453 packs ht2
+    // into payload bits 32+, so hand it a copy masked to the low 32 (labelidx).
+    var br_ins = ins.*;
+    br_ins.payload = @as(u32, @truncate(ins.payload));
+    try op_control.branchOnReg(ctx, &br_ins, 0);
 }

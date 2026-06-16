@@ -1232,14 +1232,20 @@ pub fn jitGcArrayInitElem(rt: *JitRuntime, segidx: u32, ref: u32, dst_off: u32, 
 /// 10.G GC-on-JIT R-1 — `ref.test` / `ref.test_null` emit materialises this
 /// fn's address + `CALL`s it (rt=arg0, ref=arg1 [the full 64-bit reftype
 /// value], ht_nullbit=arg2). Returns 1 if the ref is a non-null instance of
-/// heap-type `ht_nullbit & 0xFF` (Wasm 3.0 GC §3.3.5.3), else 0. Null is
-/// folded in: a null ref returns `(ht_nullbit >> 8) & 1` — 0 for `ref.test`
-/// (nullbit=0), 1 for `ref.test_null` (nullbit=0x100) — so emit stays
-/// straight-line (no inline null branch). The non-null match reuses the SAME
+/// heap-type `ht_nullbit` (with the null flag masked off; Wasm 3.0 GC
+/// §3.3.5.3), else 0. Null is folded in: a null ref returns
+/// `(ht_nullbit >> 30) & 1` — 0 for `ref.test` (null flag clear), 1 for
+/// `ref.test_null` (null flag = 0x4000_0000) — so emit stays straight-line
+/// (no inline null branch). The non-null match reuses the SAME
 /// `gcRefMatchesNonNullCore` the interp uses (gti + heap read off JitRuntime).
 pub fn jitGcRefTest(rt: *JitRuntime, ref: u64, ht_nullbit: u32) callconv(.c) u32 {
-    if (ref == Value.null_ref) return (ht_nullbit >> 8) & 1;
-    const ht: u8 = @truncate(ht_nullbit);
+    if (ref == Value.null_ref) return (ht_nullbit >> 30) & 1;
+    // D-453 trampoline ABI bit layout: concrete-tag = bit 31, null-flag =
+    // bit 30, concrete idx = bits 0..29 (a bare wire byte otherwise). The
+    // null flag sits just below the concrete-tag and above any in-range
+    // typeidx, so it can never collide with the index (the old bit-8 flag
+    // collided with idx ≥ 256). Mask out the null flag before the core.
+    const ht: u32 = ht_nullbit & ~@as(u32, 0x4000_0000);
     const gti: ?*const gc_type_info.GcTypeInfos = if (rt.gc_type_infos_ptr) |p| @ptrCast(@alignCast(p)) else null;
     const heap: ?*const heap_mod.Heap = if (rt.gc_heap) |p| @ptrCast(@alignCast(p)) else null;
     return @intFromBool(ref_test_ops.gcRefMatchesNonNullCore(gti, heap, .{ .ref = ref }, ht));
@@ -1258,7 +1264,8 @@ pub fn jitGcRefCast(rt: *JitRuntime, ref: u64, ht: u32) callconv(.c) u64 {
     if (ref == Value.null_ref) return 0; // null → trap (non-null target)
     const gti: ?*const gc_type_info.GcTypeInfos = if (rt.gc_type_infos_ptr) |p| @ptrCast(@alignCast(p)) else null;
     const heap: ?*const heap_mod.Heap = if (rt.gc_heap) |p| @ptrCast(@alignCast(p)) else null;
-    if (!ref_test_ops.gcRefMatchesNonNullCore(gti, heap, .{ .ref = ref }, @truncate(ht))) return 0;
+    // D-453: `ht` is the full encoded u32 (no null flag on the cast path).
+    if (!ref_test_ops.gcRefMatchesNonNullCore(gti, heap, .{ .ref = ref }, ht)) return 0;
     return ref;
 }
 

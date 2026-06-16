@@ -1,4 +1,4 @@
-// FILE-SIZE-EXEMPT: Wasm spec §3.3 validation single-pass walker (type-stack + control-stack); P1 spec-defined sub-language, intrinsically singular (splitting the stack-walking opcode handlers would create artificial seams across an unsplittable algorithm). D-204: the pure file-scope GC valtype-subtype helpers (valTypeIsSubtypeFree / gcHeapAbstractSubtype / castTargetType / gcConcreteReaches{,Canonical} / gcValTypeSubtype / gcFieldSubtype) were extracted to `gc_subtype.zig` (they touch no Validator state); the remaining module-level helpers (constExprResultType / validateGlobalInits / funcTypeImportCompatible / validateTypeSection) are pub + externally-called → extract separately if the cap presses again. (per ADR-0099) (cap=3450) (3300→3400 for D-324 per-memory idx_type plumbing; 3400→3450 for ADR-0126 iso-recursive canonical-equality threading into the per-function subtype path — both Wasm 3.0 GC/memory64 spec-conformance feature adds, same ADR-0099-amend class as the instance.zig raise)
+// FILE-SIZE-EXEMPT: Wasm spec §3.3 validation single-pass walker (type-stack + control-stack); P1 spec-defined sub-language, intrinsically singular (splitting the stack-walking opcode handlers would create artificial seams across an unsplittable algorithm). D-204: the pure file-scope GC valtype-subtype helpers (valTypeIsSubtypeFree / gcHeapAbstractSubtype / gcConcreteReaches{,Canonical} / gcValTypeSubtype / gcFieldSubtype) were extracted to `gc_subtype.zig` (they touch no Validator state); the remaining module-level helpers (constExprResultType / validateGlobalInits / funcTypeImportCompatible / validateTypeSection) are pub + externally-called → extract separately if the cap presses again. (per ADR-0099) (cap=3450) (3300→3400 for D-324 per-memory idx_type plumbing; 3400→3450 for ADR-0126 iso-recursive canonical-equality threading into the per-function subtype path — both Wasm 3.0 GC/memory64 spec-conformance feature adds, same ADR-0099-amend class as the instance.zig raise)
 //! Wasm function-body **type-stack + control-stack validator**
 //! (Phase 1 / §9.1 / 1.5).
 //!
@@ -1716,16 +1716,15 @@ pub const Validator = struct {
     }
 
     /// Wasm spec 3.0 §3.3.5.3 — `ref.test heap_type` /
-    /// `ref.test_null heap_type`: consume heap_type byte (no
-    /// validator constraint for cycle 7 — RTT lands later with
-    /// type_hierarchy.zig); pop reftype; push i32.
+    /// `ref.test_null heap_type`: consume the SLEB128 heap_type
+    /// immediate (D-453: a concrete idx ≥ 64 is multi-byte — decode
+    /// to advance pos past the full immediate, not one byte); pop
+    /// reftype; push i32.
     fn opRefTest(self: *Validator) Error!void {
-        if (self.pos >= self.body.len) return Error.UnexpectedEnd;
-        // Heap-type byte consumed; runtime stores it via lower-
-        // side payload. Validator-side range-check defers until
-        // RTT (sub-chunks 5-7 of plan); for cycle 7 accept any
-        // single-byte heap_type encoding.
-        self.pos += 1;
+        // `readTypedRef` validates well-formedness + advances pos past the
+        // full SLEB (the result type itself is unused here — ref.test pushes
+        // i32). `nullable` is immaterial to advancing; pass false.
+        _ = init_expr.readTypedRef(self.body, &self.pos, false) catch return Error.BadValType;
         const top = try self.popAny();
         switch (top) {
             .bot => {},
@@ -1746,9 +1745,12 @@ pub const Validator = struct {
     /// byte (multi-byte index, not stored by lower) falls back to the
     /// operand type.
     fn opRefCast(self: *Validator, nullable: bool) Error!void {
-        if (self.pos >= self.body.len) return Error.UnexpectedEnd;
-        const ht_byte = self.body[self.pos];
-        self.pos += 1;
+        // D-453: the heap_type is an SLEB128 (concrete idx ≥ 64 is multi-
+        // byte). `readTypedRef` decodes the full immediate AND yields the
+        // cast TARGET reftype directly — `(ref [null] ht)` for both abstract
+        // and concrete (idx ≥ 64) targets — replacing the byte-wide
+        // `castTargetType`.
+        const target = init_expr.readTypedRef(self.body, &self.pos, nullable) catch return Error.BadValType;
         const top = try self.popAny();
         switch (top) {
             .bot => try self.pushBot(),
@@ -1757,7 +1759,7 @@ pub const Validator = struct {
                     self.mismatch = .{ .expected_ref = t };
                     return Error.StackTypeMismatch;
                 }
-                try self.pushType(gc_subtype.castTargetType(ht_byte, nullable) orelse t);
+                try self.pushType(target);
             },
         }
     }

@@ -30,7 +30,10 @@ pub const wasi_level = meta.wasi_level;
 const call_scratch: abi.Gpr = .r10; // emit scratch — &fn, then CALL target.
 
 pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void {
-    const ht: u32 = @intCast(ins.payload & 0xFF);
+    // D-453: full encoded u32 (concrete-tag bit 31 | idx bits 0..29, or a
+    // bare wire byte) — must NOT mask to one byte or a concrete idx ≥ 64 is
+    // lost. Null passes via the inline JZ branch, so no null flag is ORed.
+    const ht: u32 = @truncate(ins.payload);
     const args = try ctx.popUnary();
     const xsrc = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.src, 0);
     const rd = try gpr.gprDefSpilled(ctx.alloc, args.result, 0);

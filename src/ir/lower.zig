@@ -735,52 +735,46 @@ pub const Lowerer = struct {
                 try self.emit(tag, typeidx, segidx);
             },
             // ref.test / ref.test_null (Wasm 3.0 GC §3.3.5.3).
-            // Each consumes a heap_type byte from the body. The
-            // byte is stored in payload (u32-extended) so the
-            // future RTT integration can subtype-test against it
-            // when type_hierarchy.zig lands.
+            // Each consumes an SLEB128 heap_type immediate (D-453: a
+            // concrete idx ≥ 64 is multi-byte). `readHeapType` advances
+            // pos past the full SLEB and returns the D-453 encoded u32
+            // (abstract head / idx<64 → bare byte; idx≥64 → 0x8000_0000|idx)
+            // stored in payload so the runtime type-test can resolve it.
             20 => {
-                if (self.pos >= self.body.len) return Error.UnexpectedEnd;
-                const heap_type_byte = self.body[self.pos];
-                self.pos += 1;
-                try self.emit(.@"ref.test", heap_type_byte, 0);
+                const ht = init_expr.readHeapType(self.body, &self.pos) catch return Error.UnexpectedOpcode;
+                try self.emit(.@"ref.test", ht, 0);
             },
             21 => {
-                if (self.pos >= self.body.len) return Error.UnexpectedEnd;
-                const heap_type_byte = self.body[self.pos];
-                self.pos += 1;
-                try self.emit(.@"ref.test_null", heap_type_byte, 0);
+                const ht = init_expr.readHeapType(self.body, &self.pos) catch return Error.UnexpectedOpcode;
+                try self.emit(.@"ref.test_null", ht, 0);
             },
             // ref.cast / ref.cast_null (Wasm 3.0 GC §3.3.5.4).
-            // Same heap_type encoding as ref.test family.
+            // Same SLEB heap_type encoding as ref.test family.
             22 => {
-                if (self.pos >= self.body.len) return Error.UnexpectedEnd;
-                const heap_type_byte = self.body[self.pos];
-                self.pos += 1;
-                try self.emit(.@"ref.cast", heap_type_byte, 0);
+                const ht = init_expr.readHeapType(self.body, &self.pos) catch return Error.UnexpectedOpcode;
+                try self.emit(.@"ref.cast", ht, 0);
             },
             23 => {
-                if (self.pos >= self.body.len) return Error.UnexpectedEnd;
-                const heap_type_byte = self.body[self.pos];
-                self.pos += 1;
-                try self.emit(.@"ref.cast_null", heap_type_byte, 0);
+                const ht = init_expr.readHeapType(self.body, &self.pos) catch return Error.UnexpectedOpcode;
+                try self.emit(.@"ref.cast_null", ht, 0);
             },
             // br_on_cast / br_on_cast_fail (Wasm 3.0 GC §3.3.5.5).
-            // Encoding: flags(u8) labelidx(uleb32) ht1(u8) ht2(u8).
-            // Pack labelidx in payload; pack {flags,ht1,ht2} bytes
-            // in extra (low 8 = flags, mid 8 = ht1, high 8 = ht2).
+            // Wire: flags(u8) labelidx(uleb32) ht1(SLEB) ht2(SLEB).
+            // D-453 IR encoding: ht1 is validation-only (the validator
+            // already checked rt2<:rt1) so it is DROPPED here; the target
+            // ht2 needs the full u32 width (idx≥64) so it can't share
+            // `extra` with labelidx+flags. payload = labelidx |
+            // (ht2_encoded << 32); extra = flags.
             24, 25 => {
                 if (self.pos >= self.body.len) return Error.UnexpectedEnd;
                 const flags = self.body[self.pos];
                 self.pos += 1;
                 const labelidx = try leb128.readUleb128(u32, self.body, &self.pos);
-                if (self.pos + 2 > self.body.len) return Error.UnexpectedEnd;
-                const ht1 = self.body[self.pos];
-                const ht2 = self.body[self.pos + 1];
-                self.pos += 2;
-                const extra: u32 = @as(u32, flags) | (@as(u32, ht1) << 8) | (@as(u32, ht2) << 16);
+                _ = init_expr.readHeapType(self.body, &self.pos) catch return Error.UnexpectedOpcode; // ht1 (validation-only)
+                const ht2 = init_expr.readHeapType(self.body, &self.pos) catch return Error.UnexpectedOpcode;
+                const payload: u64 = @as(u64, labelidx) | (@as(u64, ht2) << 32);
                 const tag: zir.ZirOp = if (sub == 24) .br_on_cast else .br_on_cast_fail;
-                try self.emit(tag, labelidx, extra);
+                try self.emit(tag, payload, flags);
             },
             // any.convert_extern / extern.convert_any (Wasm 3.0 GC
             // §3.3.5.7). No immediates; reinterpret the operand

@@ -185,6 +185,39 @@ pub fn readTypedRef(body: []const u8, pos: *usize, nullable: bool) Error!ValType
     } };
 }
 
+/// Wasm spec §5.3.5 (heaptype) — decode the cast-family heap-type
+/// immediate (`ref.test` / `ref.cast` / `br_on_cast` targets) into the
+/// D-453 encoded `u32` that lower.zig stores in `ZirInstr.payload`:
+///   - abstract head (0x69..0x74) → the bare wire byte (high bit clear).
+///   - concrete index < 64 → the bare byte 0..63 (high bit clear).
+///   - concrete index ≥ 64 → `0x8000_0000 | typeidx` (tagged; the bare
+///     byte is ambiguous with an abstract head once ≥ 0x40, and >63 no
+///     longer fits one LEB byte). Asserts `typeidx < 2^30`.
+/// The encoded `u32` layout (D-453): concrete-tag = bit 31, the typeidx
+/// occupies bits 0..29, and bit 30 stays CLEAR. The JIT trampoline ABI
+/// reserves bit 30 for its null-handling flag (`jit_abi.zig`), so the
+/// encoded index must never set it — an out-of-range typeidx (≥ 2^30) is
+/// already rejected as a section index elsewhere; assert defensively.
+/// Advances `pos` past the full SLEB128 (the v1-byte bug read 1 byte and
+/// desynced for idx ≥ 64). Mirrors `readTypedRef`'s abstract/concrete split.
+pub fn readHeapType(body: []const u8, pos: *usize) Error!u32 {
+    if (pos.* >= body.len) return Error.UnexpectedEnd;
+    const ht_b = body[pos.*];
+    switch (ht_b) {
+        0x69...0x74 => {
+            pos.* += 1;
+            return ht_b;
+        },
+        else => {},
+    }
+    const idx_signed = leb128.readSleb128(i33, body, pos) catch return Error.BadValType;
+    if (idx_signed < 0) return Error.BadValType;
+    const idx: u32 = @intCast(idx_signed);
+    if (idx < 64) return idx;
+    std.debug.assert(idx < (@as(u32, 1) << 30));
+    return 0x8000_0000 | idx;
+}
+
 /// Wasm spec §5.3.4 (reftype) — a reftype-only valtype: the abstract
 /// single-byte heads (`funcref`/`externref`/GC heads) or the multi-byte
 /// `0x63`/`0x64` typed refs. Rejects numeric / vector valtypes. Used by

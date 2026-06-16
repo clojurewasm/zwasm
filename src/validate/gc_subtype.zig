@@ -78,31 +78,6 @@ pub fn gcHeapAbstractSubtype(a: zir.AbstractHeapType, e: zir.AbstractHeapType) b
     };
 }
 
-/// Decode a single heap-type byte (the form `lower.zig` stores for
-/// ref.cast / ref.test targets — abstract 0x69..0x74 or a concrete
-/// typeidx < 0x40) into the cast-target `ValType`. `null` for an
-/// unrecognised byte (multi-byte index); the caller keeps the operand.
-pub fn castTargetType(byte: u8, nullable: bool) ?ValType {
-    const abs: ?zir.AbstractHeapType = switch (byte) {
-        0x70 => .func,
-        0x6F => .extern_,
-        0x6E => .any,
-        0x6D => .eq,
-        0x6C => .i31,
-        0x6B => .struct_,
-        0x6A => .array,
-        0x69 => .exn,
-        0x71 => .none,
-        0x72 => .noextern,
-        0x73 => .nofunc,
-        0x74 => .noexn,
-        else => null,
-    };
-    if (abs) |a| return .{ .ref = .{ .nullable = nullable, .heap_type = .{ .abstract = a } } };
-    if (byte < 0x40) return .{ .ref = .{ .nullable = nullable, .heap_type = .{ .concrete = byte } } };
-    return null;
-}
-
 /// True if concrete type `super_idx` is reachable from `sub_idx` via
 /// its declared supertype chain (transitive). Visited-bounded against
 /// malformed cycles (chains are shallow in practice).

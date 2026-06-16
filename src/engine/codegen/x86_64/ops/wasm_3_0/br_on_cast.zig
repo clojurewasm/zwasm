@@ -11,10 +11,13 @@
 //! emitted instruction in every case is `TEST cond_r, cond_r`, so RAX (the
 //! cast bool; ∉ regalloc pool {RBX,R12,R13,R14}) survives the merge MOVs.
 //!
-//! `ins.extra` packs {flags, ht1, ht2}: `ht2 = (extra>>16)&0xFF` (TARGET
-//! heap-type byte — NOT `>>8`, which is ht1), `ht2_nullable = (extra&0x02)!=0`.
-//! Null folds inside the trampoline (arg2 bit 0x100). Shares `emit` with
-//! `br_on_cast_fail.zig` (sense from `ins.op`; mirror ref_test_null).
+//! D-453 ZirInstr: `payload = labelidx | (ht2_encoded << 32)`, `extra =
+//! flags`. `ht2 = payload >> 32` (full TARGET heap-type — idx ≥ 64
+//! representable), `ht2_nullable = (extra&0x02)!=0`. Null folds inside the
+//! trampoline (arg2 bit 0x4000_0000). ht1 (source) is dropped at lower time. The
+//! shared `branchOnRegCtx` reads `ins.payload` as the depth, so it gets a
+//! copy masked to the low 32 bits. Shares `emit` with `br_on_cast_fail.zig`
+//! (sense from `ins.op`; mirror ref_test_null).
 
 const meta = @import("../../../../../instruction/wasm_3_0/br_on_cast.zig");
 const ctx_mod = @import("../../ctx.zig");
@@ -34,9 +37,9 @@ const call_scratch: abi.Gpr = .r10; // emit scratch — &fn, then CALL target.
 pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void {
     if (ctx.pushed_vregs.items.len < 1) return ctx_mod.Error.AllocationMissing;
     const is_fail = ins.op == .br_on_cast_fail;
-    const ht2: u32 = (ins.extra >> 16) & 0xFF;
+    const ht2: u32 = @truncate(ins.payload >> 32);
     const ht2_nullable = (ins.extra & 0x02) != 0;
-    const arg2: u32 = ht2 | (if (ht2_nullable) @as(u32, 0x100) else 0);
+    const arg2: u32 = ht2 | (if (ht2_nullable) @as(u32, 0x4000_0000) else 0);
 
     // PEEK the ref (do NOT pop — stays as the block-result top vreg).
     const src = ctx.pushed_vregs.items[ctx.pushed_vregs.items.len - 1];
@@ -58,6 +61,10 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
         try ctx.buf.appendSlice(ctx.allocator, inst.encMovzxR32R8(.rax, .rax).slice());
     }
 
-    // Conditional branch on the cast bool in RAX.
-    try op_control.branchOnRegCtx(ctx, ins, .rax);
+    // Conditional branch on the cast bool in RAX. branchOnRegCtx reads
+    // `ins.payload` as the label depth; D-453 packs ht2 into bits 32+, so
+    // hand it a copy masked to the low 32 (labelidx).
+    var br_ins = ins.*;
+    br_ins.payload = @as(u32, @truncate(ins.payload));
+    try op_control.branchOnRegCtx(ctx, &br_ins, .rax);
 }

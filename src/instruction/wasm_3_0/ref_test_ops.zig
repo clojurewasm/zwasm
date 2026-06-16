@@ -55,10 +55,21 @@ pub fn register(table: *DispatchTable) void {
     table.interp[op(.@"ref.cast_null")] = refCastNull;
 }
 
+/// Concrete-index tag bit for the D-453 encoded heap-type `u32`
+/// (`init_expr.readHeapType`): when set, the low 31 bits are a concrete
+/// typeidx ≥ 64; when clear, the value is a bare wire byte (abstract head
+/// or concrete idx < 64).
+const concrete_tag: u32 = 0x8000_0000;
+
+/// Bits 0..29 of the D-453 encoded heap-type — the concrete typeidx range.
+/// Bit 31 is `concrete_tag`; bit 30 is the JIT trampoline's null flag
+/// (`jit_abi.zig`), so a tagged index must mask it off to recover the idx.
+const idx_mask: u32 = 0x3FFF_FFFF;
+
 /// Map a heap-type wire byte to its abstract head, or null for a
 /// concrete typeidx byte (single-byte indices 0x00..0x3F don't collide
-/// with the 0x69..0x74 abstract set; multi-byte indices aren't yet
-/// reachable here — lower.zig stores one byte). Mirrors
+/// with the 0x69..0x74 abstract set; tagged multi-byte indices ≥ 64 are
+/// handled by the `concrete_tag` branch before this is reached). Mirrors
 /// `init_expr.readTypedRef`'s abstract switch.
 fn decodeAbstract(b: u8) ?AbstractHeapType {
     return switch (b) {
@@ -152,11 +163,25 @@ pub fn concreteReachesGti(gti: *const GcTypeInfos, obj_idx: u32, target: u32) bo
 /// struct / array test the concrete runtime shape; a concrete typeidx
 /// target walks the supertype chain (ADR-0116). `gti` null → concrete path
 /// can't resolve (no match); abstract path still works without it.
-pub fn gcRefMatchesNonNullCore(gti: ?*const GcTypeInfos, heap: ?*const Heap, v: Value, ht: u8) bool {
+pub fn gcRefMatchesNonNullCore(gti: ?*const GcTypeInfos, heap: ?*const Heap, v: Value, ht: u32) bool {
     const is_i31 = Value.isI31Ref(v);
-    if (decodeAbstract(ht) == null) {
-        // Concrete typeidx target (single-byte; multi-byte indices aren't
-        // reachable — lower.zig stores one byte). i31 has no concrete type.
+    // D-453: a concrete typeidx target is either the high-bit-tagged form
+    // (idx ≥ 64) OR a bare byte not in the abstract set (idx < 64). Both
+    // resolve to a u32 concrete index `cidx`; only abstract heads fall
+    // through to `gcAbstractMatch`.
+    const cidx: ?u32 = if (ht & concrete_tag != 0)
+        // Mask to bits 0..29 (idx_mask): the concrete-tag is bit 31 and the
+        // JIT trampoline reserves bit 30 for its null flag. The trampoline
+        // strips the null flag BEFORE calling here, so bit 30 is normally
+        // clear (and interp never sets it) — this mask is defensive so a
+        // stray bit-30 can't leak into the index (D-453 nullbit fix).
+        ht & idx_mask
+    else if (decodeAbstract(@truncate(ht)) == null)
+        ht
+    else
+        null;
+    if (cidx) |target| {
+        // i31 has no concrete type.
         if (is_i31) return false;
         const g = gti orelse return false;
         // ADR-0126 — a concrete FUNC-type target tests a funcref operand:
@@ -164,22 +189,22 @@ pub fn gcRefMatchesNonNullCore(gti: ?*const GcTypeInfos, heap: ?*const Heap, v: 
         // (funcrefs are NOT GC-heap objects, so `readObjInfoHeap` can't see
         // them → ref.test would wrongly return 0). struct/array targets
         // read the heap object's `ObjectHeader.info`.
-        if (concreteTargetIsFuncGti(g, ht)) {
+        if (concreteTargetIsFuncGti(g, target)) {
             const fe = Value.refAsFuncEntity(v) orelse return false;
-            return concreteReachesGti(g, fe.raw_typeidx, ht);
+            return concreteReachesGti(g, fe.raw_typeidx, target);
         }
         const info = readObjInfoHeap(heap, v) orelse return false;
-        return concreteReachesGti(g, info, ht);
+        return concreteReachesGti(g, info, target);
     }
     const obj_kind: ?ObjectKind = if (is_i31) null else readObjKindHeap(heap, v);
-    return gcAbstractMatch(ht, is_i31, obj_kind);
+    return gcAbstractMatch(@truncate(ht), is_i31, obj_kind);
 }
 
 /// Interp entry point: resolves the materialised GC type table + heap from
 /// `rt`, then delegates to `gcRefMatchesNonNullCore`. Shared with the
 /// interp's br_on_cast handler (Zone 2 → Zone 1). Null handling (per the
 /// op's nullability flag) is the caller's concern.
-pub fn gcRefMatchesNonNull(rt: *Runtime, v: Value, ht: u8) bool {
+pub fn gcRefMatchesNonNull(rt: *Runtime, v: Value, ht: u32) bool {
     const gti: ?*const GcTypeInfos = blk: {
         const inst_opaque = rt.instance orelse break :blk null;
         const inst = @as(*const Instance, @ptrCast(@alignCast(inst_opaque)));
@@ -248,7 +273,7 @@ fn gcAbstractMatch(ht: u8, is_i31: bool, obj_kind: ?ObjectKind) bool {
 fn refTest(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
     const v = rt.popOperand();
-    const ht: u8 = @truncate(instr.payload);
+    const ht: u32 = @truncate(instr.payload);
     const matches: i32 = if (v.ref == Value.null_ref) 0 else @intFromBool(gcRefMatchesNonNull(rt, v, ht));
     try rt.pushOperand(.{ .i32 = matches });
 }
@@ -256,7 +281,7 @@ fn refTest(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
 fn refTestNull(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
     const v = rt.popOperand();
-    const ht: u8 = @truncate(instr.payload);
+    const ht: u32 = @truncate(instr.payload);
     // `_null` variant: null matches; otherwise same runtime test.
     const matches: i32 = if (v.ref == Value.null_ref) 1 else @intFromBool(gcRefMatchesNonNull(rt, v, ht));
     try rt.pushOperand(.{ .i32 = matches });
@@ -272,7 +297,7 @@ fn refTestNull(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
 fn refCast(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
     const v = rt.popOperand();
-    const ht: u8 = @truncate(instr.payload);
+    const ht: u32 = @truncate(instr.payload);
     if (v.ref == Value.null_ref) return runtime.Trap.CastFailure;
     if (!gcRefMatchesNonNull(rt, v, ht)) return runtime.Trap.CastFailure;
     try rt.pushOperand(v);
@@ -283,7 +308,7 @@ fn refCast(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
 fn refCastNull(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
     const v = rt.popOperand();
-    const ht: u8 = @truncate(instr.payload);
+    const ht: u32 = @truncate(instr.payload);
     if (v.ref == Value.null_ref) {
         try rt.pushOperand(v);
         return;

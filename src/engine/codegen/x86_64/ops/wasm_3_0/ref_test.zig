@@ -5,8 +5,8 @@
 //! trampoline. Emit = 3-arg marshal + CALL + capture EAX. 1 → 1. No trap.
 //!
 //! `ref.test` / `ref.test_null` share this handler — the null-handling bit
-//! is folded into arg2 (`ht | (nullbit << 8)`) from `ins.op`, so emit is
-//! straight-line. ht is an immediate (ins.payload byte); the ref is the
+//! is folded into arg2 (`ht | (nullbit << 30)`) from `ins.op`, so emit is
+//! straight-line. ht is the D-453 encoded u32 (ins.payload); the ref is the
 //! popped operand (RSI, 64-bit). SysV arg regs ∉ regalloc pool → no
 //! parallel-move.
 //!
@@ -28,8 +28,11 @@ pub const wasi_level = meta.wasi_level;
 const call_scratch: abi.Gpr = .r10; // emit scratch — &fn, then CALL target.
 
 pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void {
-    const null_bit: u32 = if (ins.op == .@"ref.test_null") 0x100 else 0;
-    const arg2: u32 = @as(u32, @intCast(ins.payload & 0xFF)) | null_bit;
+    const null_bit: u32 = if (ins.op == .@"ref.test_null") 0x4000_0000 else 0;
+    // D-453: ht is the full encoded u32 (concrete-tag = bit 31, idx = bits
+    // 0..29, or a bare wire byte) — must NOT be masked to one byte, or a
+    // concrete idx ≥ 64 is lost. The null flag is bit 30 (non-colliding).
+    const arg2: u32 = @as(u32, @truncate(ins.payload)) | null_bit;
     const args = try ctx.popUnary(); // src=ref, result=i32
     // RSI = ref (64-bit reftype value).
     const xsrc = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.src, 0);
