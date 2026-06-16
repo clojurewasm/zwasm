@@ -393,7 +393,12 @@ fn arrayCopy(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
         const i = if (overlap_backward) len - 1 - k else k;
         const s = src_ref + array_header_size + (src_off + i) * esz;
         const d = dst_ref + array_header_size + (dst_off + i) * esz;
-        @memcpy(heap.bytes[d .. d + esz], heap.bytes[s .. s + esz]);
+        // copyForwards (not @memcpy): a self-region copy with dst_off ==
+        // src_off makes these slices identical, which @memcpy rejects as
+        // aliasing. Cross-element overlap is already handled by the
+        // overlap_backward iteration order above; per element the ranges
+        // are either disjoint or identical, both safe for copyForwards.
+        std.mem.copyForwards(u8, heap.bytes[d .. d + esz], heap.bytes[s .. s + esz]);
     }
 }
 
@@ -693,4 +698,42 @@ test "array.len on null GcRef traps NullReference (10.G op_gc cycle 25)" {
     register(&t);
     try env.rt.pushOperand(.{ .ref = Value.null_ref });
     try testing.expectError(runtime.Trap.NullReference, driveOne(env.rt, &t, .@"array.len", 0, 0));
+}
+
+test "array.copy self-region with identical src/dst offset is alias-safe (ADR-0192; wasmtime gc corpus)" {
+    // Regression: per-element `@memcpy` panicked "@memcpy arguments alias"
+    // when copying a region of an array onto itself (same array,
+    // dst_off == src_off) — identical slices alias. memmove semantics
+    // (array.copy spec §3.3.5.6.14) must tolerate it as a no-op-equivalent.
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const body = [_]u8{ 0x01, 0x5E, 0x7F, 0x01 };
+    const env = try buildInstanceForTypes(&arena, &body);
+
+    var t = DispatchTable.init();
+    register(&t);
+    try env.rt.pushOperand(.{ .i32 = 4 });
+    try driveOne(env.rt, &t, .@"array.new_default", 0, 0);
+    const ref_val = env.rt.popOperand();
+    const seed = [_]i32{ 10, 20, 30, 40 };
+    for (seed, 0..) |v, i| {
+        try env.rt.pushOperand(ref_val);
+        try env.rt.pushOperand(.{ .i32 = @intCast(i) });
+        try env.rt.pushOperand(.{ .i32 = v });
+        try driveOne(env.rt, &t, .@"array.set", 0, 0);
+    }
+    // array.copy onto itself, dst_off == src_off == 1, len 2.
+    // Stack bottom→top: dst_ref, dst_off, src_ref, src_off, len.
+    try env.rt.pushOperand(ref_val);
+    try env.rt.pushOperand(.{ .i32 = 1 });
+    try env.rt.pushOperand(ref_val);
+    try env.rt.pushOperand(.{ .i32 = 1 });
+    try env.rt.pushOperand(.{ .i32 = 2 });
+    try driveOne(env.rt, &t, .@"array.copy", 0, 0);
+    for (seed, 0..) |want, i| {
+        try env.rt.pushOperand(ref_val);
+        try env.rt.pushOperand(.{ .i32 = @intCast(i) });
+        try driveOne(env.rt, &t, .@"array.get", 0, 0);
+        try testing.expectEqual(want, env.rt.popOperand().i32);
+    }
 }

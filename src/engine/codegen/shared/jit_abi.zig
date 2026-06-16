@@ -1043,7 +1043,10 @@ pub fn jitGcArrayCopy(rt: *JitRuntime, dst_ref: u32, dst_off: u32, src_ref: u32,
         const i = if (overlap_backward) len - 1 - k else k;
         const s = src_ref + ahsz + (src_off + i) * esz;
         const d = dst_ref + ahsz + (dst_off + i) * esz;
-        @memcpy(heap.bytes[d .. d + esz], heap.bytes[s .. s + esz]);
+        // copyForwards (not @memcpy): a self-region copy with dst_off ==
+        // src_off makes these slices identical, which @memcpy rejects as
+        // aliasing. Mirrors the interp fix in array_ops.zig arrayCopy.
+        std.mem.copyForwards(u8, heap.bytes[d .. d + esz], heap.bytes[s .. s + esz]);
     }
     return 1;
 }
