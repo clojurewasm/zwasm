@@ -18,7 +18,8 @@
 //! Zone-2 new layer (ADR-0170 / `component_model_survey`): consumes the core
 //! runtime as a black box and never alters it. The component-level value model
 //! is kept DISTINCT from `runtime.Value` (`single_slot_dual_meaning`); A1
-//! introduces no value type yet (decode only). Gated `-Dcomponent`.
+//! introduces no value type yet (decode only). Gated on `wasi_level >= .p2`
+//! (ADR-0193 folded the former `-Dcomponent` flag into the `-Dwasi` axis).
 
 const std = @import("std");
 

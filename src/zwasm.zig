@@ -164,9 +164,10 @@ pub const feature = struct {
     pub const function_references = @import("feature/function_references/register.zig");
     pub const memory64 = @import("feature/memory64/register.zig");
     // Component Model + WASI Preview 2 (ADR-0170). Exposed on the public
-    // surface only under `-Dcomponent`; the default build emits zero
-    // component code. Unit tests reference `decode.zig` directly (test
-    // loader below), so coverage runs regardless of the gate.
+    // surface only when `wasi_level >= .p2` (ADR-0193 folded the former
+    // `-Dcomponent` flag into the `-Dwasi` axis); a `-Dwasi=p1`/`none`
+    // build emits zero component code. Unit tests reference `decode.zig`
+    // directly (test loader below), so coverage runs regardless of the gate.
     pub const component = if (@import("build_options").enable_component)
         struct {
             pub const decode = @import("feature/component/decode.zig");
