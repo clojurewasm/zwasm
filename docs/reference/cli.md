@@ -35,8 +35,9 @@ parse/compile).
 | `--fuel <N>`               | trap (`all fuel consumed`) after a deterministic budget. Units are engine-specific by design: interp counts instructions, jit counts function entries + loop iterations (ADR-0179)                                                           |
 | `--timeout <ms>`           | interrupt the guest (`interrupted` trap) after a wall-clock deadline — both engines                                                                                                                                                         |
 | `--max-memory <bytes>`     | refuse `memory.grow` past this many bytes (64 KiB page granularity); the spec `-1` failure, not a trap                                                                                                                                       |
+| `--max-table-elements <N>` | refuse table growth/alloc past this many elements; the spec `-1` failure, not a trap                                                                                                                                                         |
 
-The sandboxing flags (`--fuel`/`--timeout`/`--max-memory`) apply to `.wasm`
+The sandboxing flags (`--fuel`/`--timeout`/`--max-memory`/`--max-table-elements`) apply to `.wasm`
 runs on both engines; a `.cwasm` or component run combined with them is
 refused loudly (exit 2) rather than running unsandboxed.
 
@@ -73,6 +74,6 @@ Source of truth: the `run` exit-code mapping (`src/cli/run.zig`) +
 ## Not shipped
 
 `validate` / `inspect` / `features` / `wat` / `wasm` are deliberately
-absent (ADR-0159). (`--env`, `--fuel`, `--timeout`, `--max-memory` and
-`--invoke NAME=ARGS` arg-marshalling + typed-result printing have all
-shipped — see the `run` table.)
+absent (ADR-0159). (`--env`, `--fuel`, `--timeout`, `--max-memory`,
+`--max-table-elements` and `--invoke NAME=ARGS` arg-marshalling +
+typed-result printing have all shipped — see the `run` table.)
