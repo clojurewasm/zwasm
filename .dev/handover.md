@@ -22,8 +22,8 @@ CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`. Windows batch 
 ## Active bundle — ADR-0195 multi-task async scheduler (UNBLOCKED 2026-06-17 PM)
 
 - **Bundle-ID**: adr0195-scheduler-IIa..b (guest↔guest async = D-335 last functional gap)
-- **Cycles-remaining**: ~2 (✓II(a) → ✓(b) → ✓(c-1) → ✓(c-2a) → ✓(c-2b core: xcomponent routing works) →
-  (d) full stream rendezvous → (e) adversarial)
+- **Cycles-remaining**: ~2 (✓II(a) → ✓(b) → ✓(c-1) → ✓(c-2a) → ✓(c-2b routing) → ✓(d-a task.return capture) →
+  (d-b A-consumes + future rendezvous) → (d-c stream) → (e) adversarial)
 - **II(a) DONE** (@529cfcba) + **(b) DONE** (@b90cbecb TaskTable, @61c4a20d driver refactor): `driveCallbackLoop`
   now drives a `TaskDescriptor` via the `stepTask` primitive (seed→loop stepTask until done), byte-identical
   (char net + component corpus 163/0 green, ubuntu+win verified through @8352ef9c). Zone-1 `TaskTable`/
@@ -67,9 +67,18 @@ CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`. Windows batch 
   c-2b invokes B's callback RAW), so (d-a) must wire a graph-level `task.return` host func + track the CURRENT task
   (set before each `invokeTaskCallback`) so it stores into that `TaskDescriptor.result: ?u32` (new per-task slot —
   the single `WasiP2Ctx.task_return` slot would collide across tasks).
-- **NEXT (d-a, DELEGATED — verify on return)**: `TaskDescriptor.result` + graph-level task.return wiring +
-  current-task tracking + fixture `two_async_components_task_return.wat` (B `tick()->i32` task.return(42); assert
-  the subtask's captured result==42 + both tasks done). Then (d-b)/(d-c) rendezvous via graph-level SharedTable.
+- **(d-a) DONE** (@cc63edd9 subagent + main-loop-verified; TODO-clarified @e7a3d8d9): cross-component async
+  `task.return(42)` captured graph-side. `TaskDescriptor.result: ?u32` (per-task, no collision); `GraphAsync.
+  current_task_id` set before each callee invoke; a graph-wired `graphTaskReturn` host func (per child's `canon
+  task.return`) stores into the current task's slot; `taskResult(id)` accessor. Fixture
+  `two_async_components_task_return.wat` (B `tick()->u32` task.return(42)); test asserts `taskResult(2)==42` + both
+  done. build+test+comp-spec 163/0+lint+fallback green; x86_64 verify pending. **Known partial (explicit TODO,
+  not silent)**: A does NOT yet consume B's result — `asyncBoundaryRetTrampoline` leaves `retptr` unwritten
+  (lowering the resolved result into A = d-b).
+- **NEXT (d-b — A consumes B's async result + future rendezvous)**: (1) lower the resolved subtask result into the
+  caller's `retptr` (the TODO in asyncBoundaryRetTrampoline) so A reads B's value in-guest; (2) single-shot FUTURE
+  rendezvous needs `SharedTable` moved to `GraphAsync` (graph-level) + `pollSet` harvesting the peer's
+  `pending_event` (today null). Then (d-c) full stream + (e) adversarial.
 - **Exit-condition**: `async_two_tasks_stream_rendezvous.wat` (2-component: A async-imports B's async export)
   builds + asserts Subtask creation→resolution + waitable-set delivery, e2e green; full async corpus + (e)
   adversarial (deadlock/dropped/cancelled) green; single-task path unchanged.
