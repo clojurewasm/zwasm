@@ -55,8 +55,8 @@ extern "C" {
  */
 typedef struct zwasm_wasi_config_t zwasm_wasi_config_t;
 
-zwasm_wasi_config_t* zwasm_wasi_config_new(void);
-void                 zwasm_wasi_config_delete(zwasm_wasi_config_t*);
+WASM_API_EXTERN zwasm_wasi_config_t* zwasm_wasi_config_new(void);
+WASM_API_EXTERN void                 zwasm_wasi_config_delete(zwasm_wasi_config_t*);
 
 /**
  * Route the guest's stdin/stdout/stderr (fd 0/1/2) to the host
@@ -67,7 +67,7 @@ void                 zwasm_wasi_config_delete(zwasm_wasi_config_t*);
  * Zig 0.16 offers no library-side cross-platform process-args
  * read (ADR-0184). Use the explicit `set_args` below instead.
  */
-void zwasm_wasi_config_inherit_stdio(zwasm_wasi_config_t*);
+WASM_API_EXTERN void zwasm_wasi_config_inherit_stdio(zwasm_wasi_config_t*);
 
 /**
  * Snapshot the host process's environment into the config,
@@ -75,19 +75,19 @@ void zwasm_wasi_config_inherit_stdio(zwasm_wasi_config_t*);
  * `set_envs`). Later host-process env changes are not reflected.
  * Returns true on success; false on NULL cfg or snapshot failure.
  */
-bool zwasm_wasi_config_inherit_env(zwasm_wasi_config_t*);
+WASM_API_EXTERN bool zwasm_wasi_config_inherit_env(zwasm_wasi_config_t*);
 
 /**
  * Explicit argv / envs override. Each `argv` / `keys` / `vals`
  * array is borrowed for the duration of the call only — the
  * config copies the strings.
  */
-void zwasm_wasi_config_set_args(
+WASM_API_EXTERN void zwasm_wasi_config_set_args(
     zwasm_wasi_config_t*,
     size_t argc,
     const char* const* argv);
 
-void zwasm_wasi_config_set_envs(
+WASM_API_EXTERN void zwasm_wasi_config_set_envs(
     zwasm_wasi_config_t*,
     size_t count,
     const char* const* keys,
@@ -104,7 +104,7 @@ void zwasm_wasi_config_set_envs(
  * `wasm_instance_new` return NULL. Returns true when queued,
  * false on NULL args or allocation failure.
  */
-bool zwasm_wasi_config_preopen_dir(
+WASM_API_EXTERN bool zwasm_wasi_config_preopen_dir(
     zwasm_wasi_config_t*,
     const char* host_path,
     const char* guest_path);
@@ -118,7 +118,7 @@ bool zwasm_wasi_config_preopen_dir(
  * (the old config is freed by the binding). Pass `NULL` to
  * uninstall WASI hosting on a Store.
  */
-void zwasm_store_set_wasi(wasm_store_t*, zwasm_wasi_config_t*);
+WASM_API_EXTERN void zwasm_store_set_wasi(wasm_store_t*, zwasm_wasi_config_t*);
 
 #ifdef __cplusplus
 }  // extern "C"
