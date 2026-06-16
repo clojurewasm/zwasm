@@ -15,15 +15,14 @@ now pass=10234 = ubuntu, 0 MODULE-READ-FAIL, VERIFIED**; + @b1606384 gates the r
 "OK-hides-pass=0" masking; lesson `windows-crlf-manifest-badpathname-hidden-by-nongating-skeleton`). D-458 RESIDUAL
 (note): broad regen non-idempotency. Ratchet baseline 24 loose (real 22) — harmless. Stale-doc: ROADMAP §16.7 D-277.
 
-CLI surface audit (@4e5e42fe): code↔`--help` fully consistent (all parsed flags documented); fixed one stale doc —
-`--max-table-elements` was missing from `docs/reference/cli.md`. Gate change @b1606384 ubuntu-verified green @f1a1d503;
-windows gate-verify in flight.
+CLI surface audit (@4e5e42fe): code↔`--help` fully consistent. Gate change @b1606384 **VERIFIED GREEN on BOTH hosts**
+(windows `[run_remote_windows] OK.` wasm-3.0-assert pass=10234 fail=0 / simd 24805/0 / spec 25539/0; ubuntu OK
+@f1a1d503). win-specassert campaign fully closed; the fail-gate is clean.
 
-**NEXT (autonomous)**: ADR-0174 Phase-1 done → windowsmini fully green; **Phase-2 (gate suspension) now eligible** —
-`should_gate_windows.sh --suspend` would drop to a 2-host fast-loop (memory `feedback_windowsmini_campaign_then_suspend`:
-CWFS uses tag refs, no conflict; resume before main-merge / Win64-risk). Else: Phase-17 完成形 surface audits
-(Zig-API/CLI あるべき論); debt long-tail (D-456 host-import-wiring larger; partials parked/zero-gain). Verify the
-b1606384 gate stays green on windows+ubuntu at next Step 0.7 (0 fails → gate clean).
+**NEXT (autonomous)**: the **ADR-0192 wasmtime campaign is the active frame (Phase III REOPENED — see below)**; pick
+gap **A `D-460`** (v128-in-GC-aggregate) next. Secondary: ADR-0174 Phase-2 windows-suspension still eligible
+(`should_gate_windows.sh --suspend` → 2-host fast-loop; resume before main-merge / Win64-risk); Phase-17 surface
+audits; doc-inventory phase (USER-requested).
 
 ## Planned future phase (USER-requested 2026-06-16)
 
@@ -33,15 +32,25 @@ b1606384 gate stays green on windows+ubuntu at next Step 0.7 (0 fails → gate c
 
 ## Active rework campaign
 
-- **Campaign**: wasmtime misc_testsuite full differential coverage (ADR-0192, user-directed 2026-06-16). Phase II in flight.
+- **Campaign**: wasmtime misc_testsuite full differential coverage (ADR-0192, user-directed 2026-06-16). **Phase III
+  REOPENED 2026-06-16** — the prior "native sweep CLEAN" tally was WRONG (lesson
+  `native-sweep-instantiate-fail-not-equal-host-import`): it folded all instantiate-FAILs into "host-import parked",
+  but per-module re-triage (`zwasm run <baked> --invoke`) found **3 real DEFERRED engine gaps**, not host imports.
 - **Goal**: run wasmtime's full `tests/misc_testsuite/` (312 .wast) through zwasm, fundamentally fix every real gap.
-- **Tally: 7 real zwasm bugs fixed** — array.copy self-region alias ×interp+JIT (`46c2975e`), array.new u32 overflow
-  (`7e527dba`), bottom-reftype 0x71-0x74 decode (`d54b789f`), C-API active-data-drop (`c1f727d4`), + the 6 SIMD ops via
-  D-457 (different bucket). Native sweep CLEAN (0 value/ref mismatches all buckets); remaining fails are
-  FAILsetup/UnknownImport host-import fixtures. Ref arg+result compare wired into native runner (`7ae5f54c`, D-456).
-  Lessons: `gc-bulk-op-memcpy-aliases-on-self-region-copy`, `wasmtime-fixtures-over-assert-exact-canonical-nan`.
-- **NEXT (Phase II→V)**: SIMD bucket DONE (D-457). Remaining: (a) optional host-import wiring; (b) campaign
-  retrospective (V) + promote legit fixtures. Harness: `scripts/wasmtime_misc_{sweep,native_sweep}.sh` + distillers.
+- **Tally: 8 real zwasm bugs fixed** — array.copy self-region alias ×interp+JIT (`46c2975e`), array.new u32 overflow
+  (`7e527dba`), bottom-reftype 0x71-0x74 decode (`d54b789f`), C-API active-data-drop (`c1f727d4`), **extern.convert_any/
+  any.convert_extern identity in const-expr (`2daaf643`, this cycle — gap B; fixture const-expr-gc returns 55)**, + 6
+  SIMD via D-457. Lessons: `gc-bulk-op-memcpy-aliases-on-self-region-copy`, `wasmtime-fixtures-over-assert-exact-canonical-nan`,
+  `native-sweep-instantiate-fail-not-equal-host-import`.
+- **Real-gap triage (Phase III)**: **A `D-460` (now)** v128 in a GC aggregate field rejected by
+  `type_info.fieldSlotSize` (uniform-8-byte slot vs 16-byte v128) — 4 fixtures; multi-step (slot model). **B FIXED**
+  this cycle (`2daaf643`). **C `D-209`** memory64 >4 GiB memarg offset `BadMemarg` at lowering — wasmtime
+  `memory64/offsets.wast` uses it in an `assert_trap` (executed), falsifying D-209's "never executed" premise; fix =
+  the multi-arch 10.M-4b chunk. **Parked = D-456** host-import fixtures (UnknownImport: binary-tree/gc-pressure/
+  issue-13066/13480/struct-set-gc-ref/array-copy-gc-refs/function-references-instance/multi-memory-simple) — genuine
+  host funcs the native runner doesn't define; runner-extension, not engine gap.
+- **NEXT (Phase III→V)**: pick A (`D-460` v128-aggregate) next — TDD struct/array v128 field. Then C (`D-209`) if
+  pursuing. Then V retrospective + promote legit fixtures. Harness: `scripts/wasmtime_misc_{sweep,native_sweep}.sh`.
 
 **The prior user-steered 4-front async-maturity campaign (2026-06-16) is COMPLETE** — all four closed (history below);
 general Phase-17 completion work (debt sweep / surface audits) interleaves when the campaign pauses.

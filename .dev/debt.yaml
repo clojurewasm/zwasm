@@ -484,6 +484,14 @@ entries:
     layer: "code"
     status: "note"
     description: |-
+      2026-06-16 PREMISE PARTIALLY FALSIFIED (ADR-0192 wasmtime differential): the "offsets ≥ 2^32 appear ONLY
+      in assert_malformed/assert_invalid, never executed" claim below holds for the OFFICIAL corpus but NOT for
+      wasmtime's `tests/misc_testsuite/memory64/offsets.wast`, which uses `offset=0xffff_ffff_ffff_fff0` inside an
+      `assert_trap` (executed; expects OOB trap). zwasm rejects it at lowering (`BadMemarg`) → the module won't
+      instantiate, so that executed OOB-trap differential is currently unmet. Still DEFERRED: the fix is the SAME
+      multi-arch 10.M-4b chunk (lift cap + 64-bit base+offset codegen + wrap-trap, both arches); the new datum is
+      that ONE executed conformance fixture now exercises it (premise "no conformance test" no longer absolute).
+      Discharge predicate unchanged. Front reclassified future-bucket→D-wmt-misc to track under the campaign.
       note — DEFERRED low-ROI (reassessed 2026-06-06 §0.5 sweep; prior "now" prose was stale, status always note):
       spec-100% is ALREADY met — `readMemargOffset` (lower.zig:913) decodes at u64 then rejects `> maxInt(u32)`
       with `BadMemarg`, which is spec-CONFORMANT because the official memory64 corpus carries offsets `≥ 2^32`
@@ -504,10 +512,10 @@ entries:
       memory64 `> 4 GiB`-static-offset consumer appears, OR consciously close as won't-do for v1.0.
       `ZirInstr.payload` is already **u64** (10.Z), so the "payload u32" framing below is obsolete. **Realworld memory64 memarg-offset gap — common case FIXED cyc214**: clang `--target=wasm64` / lld emit the memarg `offset` as a width-padded (9-byte) LEB128, valid for a u64 (memory64) offset (≤ 10 bytes) but the validator (`skipMemarg`/`readMemargCheckAlign`) + lowerer (`emitMemarg`/`emitMemargLane`) decoded it at u32 width → `Error.Overlong`. The spec corpus only emits minimal-LEB offsets so this was invisible until the `clang_wasm64/wasm64_load_store` realworld fixture ran. Fix: validator decodes the offset at u64 width for memory64 (`skipMemargOffset`, keyed on `memory0_idx_type`); lowerer decodes at u64 then range-checks ≤ u32 for the payload slot (`readMemargOffset`). **Residual (the blocked-by)**: a genuine memory64 offset > 4 GiB (> u32 max) is rejected with `Error.BadMemarg` because `payload` is u32 — spec-valid but unsupported. Real code never uses > 4 GiB *static* offsets (large memory ≠ large offset), and the spec corpus doesn't exercise it, so deferred. Discharge (ADR-0128 §4 — web-verified): the official memory64 corpus's max EXECUTED offset is `2^32−1` (`address64.wast offset=4294967295`); offsets ≥ 2^32 appear only in assert_malformed/assert_invalid (validator path, never reach the lowerer), so spec-100% does NOT need the lowerer to accept `> 4 GiB`. The only residual is a leftover `> maxInt(u32)` reject in `readMemargOffset` (`lower.zig:864-867`) + `lower_simd.zig:372` — return u64 + drop the reject + ensure 64-bit `base+offset` math with wrap-trap + add an edge-case fixture for offset `> 2^32−1`. NO ZirInstr layout change / side-table (that plan is obsolete). | **STALE blocker (payload now u64); minimal fix = lift the leftover u32 check; spec corpus max offset = 2^32−1 so this never blocked spec-100%.**
     first_raised: "2026-05-30"
-    last_reviewed: "2026-06-07"
+    last_reviewed: "2026-06-16"
     refs: |-
       `src/validate/validator.zig` (skipMemargOffset); `src/ir/lower.zig` + `src/ir/lower_simd.zig` (readMemargOffset); `test/realworld/p10/clang_wasm64/`; ROADMAP §10 / 10.M
-    front: future-bucket
+    front: D-wmt-misc
   - id: "D-211"
     layer: "code"
     status: "blocked-by"
@@ -1749,6 +1757,33 @@ entries:
     refs: |-
       scripts/regen_spec_2_0_assert.sh (NAMES + distiller fmt guard); test/spec/wasm-2.0-assert/{align,local_init};
       lesson hardcoded-corpus-subset-hides-whole-op-families
+  - id: "D-460"
+    layer: "code"
+    status: "now"
+    front: D-wmt-misc
+    description: |-
+      now (ADR-0192 wasmtime differential, 2026-06-16). zwasm REJECTS a v128 field inside a GC aggregate
+      (struct/array): `(type $s (struct (field v128)))` → `feature/gc/type_info.zig:171 fieldSlotSize` returns
+      `Error.UnsupportedFieldSize` → the module fails to instantiate (`materialiseGcTypes`). wasmtime accepts it
+      (the Wasm 3.0 GC×SIMD intersection: a field's storagetype may be any valtype incl. v128). Real engine gap,
+      surfaced by the native sweep's instantiate-FAILs (NOT host-import; see lesson
+      native-sweep-instantiate-fail-not-equal-host-import). Affected wasmtime fixtures: gc/alloc-v128-struct,
+      gc/const-expr-gc-simd, gc/v128-with-gc-ref, gc/array-copy-inline.
+      ROOT BARRIER: the GC heap slot model is uniform 8 bytes (ADR-0116 §3a) — `fieldSlotSize` returns
+      `slot_size` (8) for every valtype; a v128 needs 16. Fix = make v128 fields occupy 2 slots (16B), adjust
+      per-field offset computation in materialiseGcTypes, and handle 16-byte struct.get/set + struct.new[_default]
+      writes in BOTH interp (struct_ops.zig/array_ops.zig) and JIT (struct/array op emit both arches) + the
+      const-expr evaluator (evalGlobalInitGc field-write memcpy is hardcoded `[0..8]`). GC mark/sweep already
+      skips non-heap-reftype fields (isHeapReftype), so v128 (non-ref) needs no tracing change.
+      Discharge: a `(struct (field v128))` + a `(array (mut v128))` instantiate + struct.get/array.get round-trip
+      the lane bits on both engines; the 4 fixtures above instantiate; an edge fixture under
+      test/edge_cases/p10/gc/v128_field/.
+    first_raised: "2026-06-16"
+    last_reviewed: "2026-06-16"
+    refs: |-
+      src/feature/gc/type_info.zig:167-175 (fieldSlotSize); src/feature/gc/type_info.zig (materialiseGcTypes offsets);
+      src/instruction/wasm_3_0/{struct_ops,array_ops}.zig; src/runtime/instance/instantiate.zig (evalGlobalInitGc);
+      wasmtime tests/misc_testsuite/gc/{alloc-v128-struct,const-expr-gc-simd,v128-with-gc-ref,array-copy-inline}.wast
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
