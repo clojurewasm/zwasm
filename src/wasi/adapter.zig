@@ -156,6 +156,10 @@ pub const P2Op = enum {
     out_stream_check_write,
     // wasi:random — free-func u64 variant.
     random_get_u64,
+    // wasi:random/insecure — pseudo-random; the contract permits a non-crypto
+    // source, so a host's secure fill over-satisfies it (same handler/P1 target).
+    random_insecure_get_bytes,
+    random_insecure_get_u64,
     // wasi:filesystem/types — path-addressed descriptor methods (the *-at
     // family) + sync-data. Each maps onto the existing P1 path_* facility;
     // the dirfd is resolved from the descriptor handle rep at call time.
@@ -293,6 +297,7 @@ pub fn p1Target(op: P2Op) P1Target {
         .fs_descriptor_drop => .fd_close,
         .fs_get_directories => .preopens_get_directories,
         .random_get_u64 => .random_get,
+        .random_insecure_get_bytes, .random_insecure_get_u64 => .random_get,
         .fs_descriptor_stat_at => .path_filestat_get,
         .fs_descriptor_create_directory_at => .path_create_directory,
         .fs_descriptor_link_at => .path_link,
@@ -411,6 +416,8 @@ const table = [_]Entry{
     .{ .iface = "wasi:cli/terminal-stderr", .func = "get-terminal-stderr", .op = .cli_get_terminal_stderr },
     .{ .iface = "wasi:io/streams", .func = "[method]output-stream.check-write", .op = .out_stream_check_write },
     .{ .iface = "wasi:random/random", .func = "get-random-u64", .op = .random_get_u64 },
+    .{ .iface = "wasi:random/insecure", .func = "get-insecure-random-bytes", .op = .random_insecure_get_bytes },
+    .{ .iface = "wasi:random/insecure", .func = "get-insecure-random-u64", .op = .random_insecure_get_u64 },
     .{ .iface = "wasi:filesystem/types", .func = "[method]descriptor.stat-at", .op = .fs_descriptor_stat_at },
     .{ .iface = "wasi:filesystem/types", .func = "[method]descriptor.create-directory-at", .op = .fs_descriptor_create_directory_at },
     .{ .iface = "wasi:filesystem/types", .func = "[method]descriptor.link-at", .op = .fs_descriptor_link_at },
@@ -577,6 +584,12 @@ test "p1Target: descriptor ops map to fd syscalls (fd from the handle rep at cal
     try testing.expectEqual(P1Target.fd_fdstat_get, p1Target(.fs_descriptor_get_type));
     try testing.expectEqual(P1Target.fd_close, p1Target(.fs_descriptor_drop));
     try testing.expectEqual(P1Target.preopens_get_directories, p1Target(.fs_get_directories));
+}
+
+test "classify: wasi:random/insecure resolves to the insecure ops (secure-fill backed)" {
+    try testing.expectEqual(P2Op.random_insecure_get_bytes, classifyImport("wasi:random/insecure", "get-insecure-random-bytes").?);
+    try testing.expectEqual(P2Op.random_insecure_get_u64, classifyImport("wasi:random/insecure", "get-insecure-random-u64").?);
+    try testing.expectEqual(P1Target.random_get, p1Target(.random_insecure_get_bytes));
 }
 
 test "classify: path-addressed descriptor methods + random u64 (E2 Go world)" {
