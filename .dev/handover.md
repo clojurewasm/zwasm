@@ -21,13 +21,15 @@ cross-component STRING + `list<primitive>` marshalling works (strlen + listu32 +
 The fully-general linker now exists; remaining
 aggregate shapes are consumer-gated D-305 debt.
 
-**NEXT (autonomous)**: the D-305 milestone is banked + x86_64-verified; the remaining aggregate shapes
-(list/record/result/tuple) are **consumer-gated debt with a precise scope recorded** (D-305 row) — NOT grinding the
-long-tail speculatively (each needs alignment-sensitive boundary marshalling; lands when a fixture/consumer demands,
-or in a dedicated fresh-context session). Posture = **plateau maintenance** (periodic fuzz, debt sweeps, surface
-micro-audits); land a remaining aggregate IF a real consumer appears. **D-305 milestone now 3-HOST-VERIFIED**
-(`component_model_assert` 161/0 on ubuntu x86_64 AND windows Win64; string + list<primitive> boundary marshalling).
-ADR-0193 (D-462) + D-461 (ADR-0194) CLOSED (below). **windowsmini gating RESUMED**. Version `2.0.0-alpha.3`.
+**NEXT (autonomous)**: D-305 milestone 3-HOST-VERIFIED (`component_model_assert` 161/0 on ubuntu x86_64 AND windows
+Win64; string + list<primitive> boundary marshalling). **DRIVING the next D-305 piece** (per
+`feedback_no_premature_deferral_lock` — drive future-bucket/hard): the **aggregate-RESULT path** (a function
+returning a `string` across the boundary), which needs the arity-general trampoline (the fixed `(i32,i32)->i32`
+`BoundarySig` in `component_graph.zig` caps it — a string result returns via retptr `(...,retptr)->void`). Delegated
+to a subagent (self-contained, comparable to the original string-impl), green target = a `dup(s:string)->string`
+2-component fixture. If it lands green + verified → commit; else revert to `a467de3f` + keep as scoped debt. Records /
+>2-params follow. ADR-0193 (D-462) + D-461 (ADR-0194) CLOSED (below). **windowsmini RESUMED** (record `8895176d` when
+its full OK lands). Version `2.0.0-alpha.3`.
 
 ## D-305 component-composition — first milestone CLOSED 2026-06-17 (@4cceeb1e, ADR-0196)
 
