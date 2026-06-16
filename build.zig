@@ -570,6 +570,10 @@ pub fn build(b: *std.Build) void {
         .name = "zwasm-spec-wasm-3-0-assert",
         .root_module = wasm_3_0_assert_runner_mod,
     });
+    // Installed so the wasmtime-misc native differential sweep (ADR-0192)
+    // can run gc/memory64/tail-call/function-references/multi-memory
+    // buckets through the GC/typed-ref-capable native engine runner.
+    b.installArtifact(wasm_3_0_assert_runner_exe);
     const run_wasm_3_0_assert = b.addRunArtifact(wasm_3_0_assert_runner_exe);
     run_wasm_3_0_assert.addArg(b.pathFromRoot("test/spec/wasm-3.0-assert"));
     const test_spec_wasm_3_0_assert_step = b.step("test-spec-wasm-3.0-assert", "Run Wasm 3.0 spec assertion runner skeleton (§10 / 10.T-2b; 5 sub-corpora enumerated)");
