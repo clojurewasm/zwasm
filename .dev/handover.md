@@ -24,49 +24,21 @@ CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`. Windows batch 
 - **Bundle-ID**: adr0195-scheduler-IIa..b (guest↔guest async = D-335 last functional gap)
 - **Cycles-remaining**: ~2 (✓II(a) → ✓(b) → ✓(c-1) → ✓(c-2a) → ✓(c-2b routing) → ✓(d-a task.return capture) →
   (d-b A-consumes + future rendezvous) → (d-c stream) → (e) adversarial)
+- **Continuity-memo**: the cross-component async substrate works (routing + task.return capture). d-b adds A
+  CONSUMING B's result: lower the resolved subtask result into the caller's `retptr` (TODO in
+  `asyncBoundaryRetTrampoline`), then move `SharedTable` to `GraphAsync` + wire `pollSet` to harvest peer events.
 - **II(a) DONE** (@529cfcba) + **(b) DONE** (@b90cbecb TaskTable, @61c4a20d driver refactor): `driveCallbackLoop`
   now drives a `TaskDescriptor` via the `stepTask` primitive (seed→loop stepTask until done), byte-identical
   (char net + component corpus 163/0 green, ubuntu+win verified through @8352ef9c). Zone-1 `TaskTable`/
   `TaskDescriptor`/`TaskState{ready,waiting,done}` exist + lifecycle-tested; `stepTask`/`seedTask` are the
   per-step primitive step (c) reuses over `TaskTable` slots.
-- **Why now**: the D-305 SYNC linker landed → ADR-0195's parking precondition ("route async-import→guest-callee
-  first") is OBSOLETE (ADR-0195 Rev 2026-06-17 PM). The async routing trampoline is a ~100 LOC mirror of the
-  sync `boundaryTrampoline` (folds into step c); the TRUE remaining bottleneck is scheduler-internal: step (b)
-  `TaskTable` + 1-entry-table refactor of `driveCallbackLoop` (~200 LOC, Zone-1/3, in-process testable).
-- **Continuity-memo**: Phase II(a) correctness-FIRST — pin the single-task driver (EXIT/YIELD/WAIT/host-peer/
-  `AsyncDeadlock`) with char tests BEFORE the TaskTable generalisation (the single-task path must stay
-  byte-identical). `Subtask` (`async.zig:397`) is built-but-unwired ζ1 machinery to revive.
-- **c-1 DONE** (@822d30d5): Zone-1 `driveScheduler(ctx, table)` — round-robin + non-blocking `pollSet` +
-  all-done termination + all-waiting→`AsyncDeadlock`; ctx seam `invokeTaskCallback(funcidx,…)` + `pollSet(set)`.
-- **c-2a DONE** (@54a9b0bc + @c7710cda): the real P3 runner drives via `driveScheduler` over a 1-entry `TaskTable`
-  (`P3CallbackCtx.invokeTaskCallback`/`pollSet` seam added); all 24 async fixtures + component corpus 163/0 green.
-  UNIFIED on one driver — retired the superseded `driveCallbackLoop`/`stepTask`/`ScriptedLoopCtx`, char net ported
-  to `driveScheduler` 1-entry tests (multi-iter WAIT ordering, ready-vs-waiting dispatch, immediate-EXIT).
-- **c-2b SURVEY DONE** (design locked): (a) async-detect hook = `resolveLiftedFunc` (component_graph.zig:~442)
-  returns `ResolvedLift` (types.zig:~634) which must expose `is_async` (from `lift.opts.is_async`); the async
-  branch forks in `installBoundaryTrampoline`. (b) `Subtask` (async.zig:~494): `init`→.starting; `.resolve(handle,
-  state)` queues a SUBTASK event; NO subtask table yet. (c) graph runner NOT built — needs a graph-level ctx whose
-  `invokeTaskCallback(funcidx,…)` maps funcidx→(child instance, callback name); each child's callback stored in
-  `GraphChild` during `buildChild` (component_graph.zig:~275, field absent). (d) FIXTURE **SPIKE DONE — BUILDABLE**
-  (`wasm-tools 1.251 parse+validate` rc=0; lesson `2026-06-17-cross-component-async-wat-spelling` + spike
-  `private/spikes/async-graph/two_async_components.wat`): import declared `(func $x async)` + `canon lower … async`
-  needs a `(memory …)`; async import = core func returning i32 status. Ref `OSS/…/component-model/test/async/cross-abi-calls.wast`.
-- **c-2b CORE DONE** (@a0e2d4c7a, subagent + main-loop-verified): cross-component async routing WORKS — a
-  2-component async graph runs e2e (`test/component/two_async_components.wasm`; test asserts BOTH A's run + B's
-  tick reach `.done` via `graph.asyncTaskCounts()`). `ComponentGraph.driveAsyncMain` owns ONE `TaskTable` +
-  `driveScheduler`; `GraphAsyncCtx.invokeTaskCallback` dispatches funcidx→(instance, callback) via a `GraphAsync.
-  callbacks` registry (the cross-instance routing); `installAsyncBoundary` (forks on new `ResolvedLift.is_async`)
-  mints a `Subtask` + enqueues a `TaskDescriptor`, returns SUBTASK_RETURNED=2. `pollSet`→null so a real WAIT
-  deadlocks loudly. `UnsupportedBoundaryType` for async-with-params/result (loud). build+test+comp-spec 163/0+lint+
-  fallback all green; x86_64 verify pending next ubuntu kick.
-- **(d) SURVEY DONE** — incremental path (a)→(b)→(c): **(d-a) = SMALLEST data-transfer = B's async export
-  `task.return(42)` captured graph-side** (no SharedTable needed); then (d-b) single-shot future rendezvous, (d-c)
-  full stream — both need `SharedTable` moved to `GraphAsync` (graph-level) + `pollSet` harvesting peer
-  `pending_event` (today null) + handle-param marshalling (handles transfer transparently once SharedTable is
-  graph-level). **GAP found**: graph children do NOT wire canon builtins (no `WasiP2Ctx` in component_graph.zig —
-  c-2b invokes B's callback RAW), so (d-a) must wire a graph-level `task.return` host func + track the CURRENT task
-  (set before each `invokeTaskCallback`) so it stores into that `TaskDescriptor.result: ?u32` (new per-task slot —
-  the single `WasiP2Ctx.task_return` slot would collide across tasks).
+- **✓ DONE so far** (detail in git/commits): **II(a)** char net @529cfcba · **(b)** `TaskTable`/`TaskDescriptor`/
+  `seedTask`/`foldResult` @b90cbecb+@61c4a20d · **(c-1)** Zone-1 `driveScheduler` (round-robin + non-blocking
+  `pollSet` + all-waiting→`AsyncDeadlock`; seam `invokeTaskCallback(funcidx)`+`pollSet`) @822d30d5 · **(c-2a)** P3
+  runner unified on `driveScheduler`(1-entry table), retired `driveCallbackLoop`/`stepTask` @54a9b0bc+@c7710cda ·
+  **(c-2b core)** cross-component async ROUTING works @a0e2d4c7a — `ComponentGraph.driveAsyncMain` owns ONE
+  `TaskTable`; `GraphAsync.callbacks` registry routes `invokeTaskCallback(funcidx)`→(instance, callback);
+  `installAsyncBoundary`(forks on `ResolvedLift.is_async`) mints a `Subtask`+enqueues a `TaskDescriptor`.
 - **(d-a) DONE** (@cc63edd9 subagent + main-loop-verified; TODO-clarified @e7a3d8d9): cross-component async
   `task.return(42)` captured graph-side. `TaskDescriptor.result: ?u32` (per-task, no collision); `GraphAsync.
   current_task_id` set before each callee invoke; a graph-wired `graphTaskReturn` host func (per child's `canon
