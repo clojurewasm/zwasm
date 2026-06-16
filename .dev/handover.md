@@ -37,18 +37,18 @@ Then `D-209` memory64. **windowsmini gating RESUMED**. Version → `2.0.0-alpha.
   class-aware-mint over-reach + the array-elimination (scalars still pack 8-byte). New debt = none beyond the
   pre-existing D-461 continuation below.
 
-## NEXT — D-461 continuation: x86_64 SIMD v128-source spill-awareness (per-op bundle)
+## NEXT — D-461 SIMD v128-spill: DONE the safe single-source ops; REMAINING is exotic+fixture-gated
 
-**ALL 6 v128 extract_lane variants = spill-aware DONE both arches** (i32x4 `422cd491`; i64x2 + i8x16/i16x8_s_u via
-shared `emitV128IntExtractLaneNarrow`): swap `resolveXmm→xmmLoadSpilledV128` for the single v128 source,
-backward-compatible (home XMM when not spilled). regalloc OOB fixed by ADR-0194; 12-v128 fixture returns 4095 on
-x86_64, gate removed. REMAINING: replace_lane ×4 (read vec + WRITE dst → source-spill swap **+ dest**
-`xmmDefSpilledV128`/`xmmStoreSpilledV128`, 2-stage alloc) + the cmp/shift binop `resolveXmm` sites. These are
-**multi-operand → each needs a force-spill FIXTURE** (stage alloc non-trivial; gc-spec corpus does NOT exercise
-v128-spill, untested patches risk silent bugs, lesson `runi32export-host-arch-arm64-only-emit-x86-gate-red`).
-NOTE: v128.or-chain already worked spilled in the repro → some binops are already spill-aware; AUDIT which
-cmp/shift sites genuinely reject before swapping. TDD via `zig build test -Dtarget=x86_64-macos` (Rosetta).
-Unblocks D-460 v128-GC x86_64. Then `D-209` memory64.
+**DONE both arches, 3-host green** (regalloc rework ADR-0194 Win64-verified @8f4f88c5): all 6 extract_lane variants
++ bitmask i8x16/i32x4/i64x2 — backward-compatible source swap `resolveXmm→xmmLoadSpilledV128` (home XMM when not
+spilled; no scratch collision). The concrete D-460 blocker (extract_lane) is CLEARED. **REMAINING (exotic,
+high-v128-pressure only; each needs a force-spill FIXTURE)**: (a) i16x8 bitmask — uses XMM14(=stage 0) as PACKSSWB
+scratch → load source into stage 1; (b) result-WRITE ops Extend/Extadd/replace_lane + op_simd.zig binop dsts
+(:249/282/313/343/373/402) — need source-swap + dest `xmmDefSpilledV128`/`xmmStoreSpilledV128` + stage alloc.
+**LANDMINE**: stage XMMs 14/15 can collide with an op's internal scratch → audit per-op + add a force-spill
+fixture before each swap (silent miscompile otherwise — the i16x8 case proves it). NEXT chunk = i16x8 bitmask
+(stage-1 source load) WITH a force-spill fixture, then the result-write ops one at a time (fixture each). TDD via
+`zig build test -Dtarget=x86_64-macos` (Rosetta). `D-209` memory64 is the front after this bundle closes.
 
 ## Closed/paused (detail in git + debt.yaml)
 
