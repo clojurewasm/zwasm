@@ -432,6 +432,31 @@ test "D-335 unit E1: wasi:cli/stdout write-via-stream — a guest stream.write C
     try testing.expectEqualStrings("hi\n", capture.items);
 }
 
+test "D-335 typed marshalling: a stream<u32>.write of 2 elements transfers 8 bytes (elem_size=4)" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/async_stdout_write_via_stream_u32.wasm", testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(testing.allocator);
+    host.stdout_buffer = &capture;
+
+    // stream<u32>: the guest writes 2 u32 ELEMENTS (0x11223344, 0x55667788);
+    // the host sink must receive 2*4 = 8 BYTES (little-endian), NOT 2. This
+    // distinguishes the typed-element marshalling (elem_size=4) from the prior
+    // u8/count==bytes assumption (which would transfer only 2 bytes).
+    var built = try wasi_p2.buildWasiP2Component(&eng, testing.allocator, bytes, &host, .{});
+    defer built.deinit();
+    try driveAsyncMain(&built);
+    try testing.expectEqualSlices(u8, &.{ 0x44, 0x33, 0x22, 0x11, 0x88, 0x77, 0x66, 0x55 }, capture.items);
+}
+
 test "D-335 unit E1: wasi:cli/stderr write-via-stream routes a guest stream.write to fd 2" {
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();

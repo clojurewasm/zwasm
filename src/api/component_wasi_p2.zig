@@ -15,6 +15,7 @@ const std = @import("std");
 
 const decode = @import("../feature/component/decode.zig");
 const ctypes = @import("../feature/component/types.zig");
+const canon = @import("../feature/component/canon.zig");
 const wit_type = @import("../feature/component/wit_type.zig");
 const cvalidate = @import("../feature/component/validate.zig");
 const wasi_host = @import("../wasi/host.zig");
@@ -55,7 +56,7 @@ const build_options = @import("build_options");
 /// trampoline via `Caller.data`.
 /// A guest `stream.read` parked at a host source (ADR-0191 E2c): the destination
 /// buffer the delivered bytes are copied into when the source becomes ready.
-pub const PendingRead = struct { ptr: u32, cap: u32 };
+pub const PendingRead = struct { ptr: u32, cap: u32, elem_size: u32 = 1 };
 
 pub const WasiP2Ctx = struct {
     host: *wasi_host.Host,
@@ -228,10 +229,11 @@ pub const WasiP2Ctx = struct {
             const end = self.streams.get(m) catch continue;
             if (self.host_sources.get(end.shared) == null) continue;
             const mem = try self.memory();
-            const buf = mem.sliceAt(pr.ptr, pr.cap) catch return WasiP2Error.OutOfBounds;
+            // D-335: cap is in ELEMENTS; slice cap*elem_size bytes, COMPLETE in elements.
+            const buf = mem.sliceAt(pr.ptr, pr.cap * pr.elem_size) catch return WasiP2Error.OutOfBounds;
             const n: u32 = @intCast(wasi_fd.readStdinSlice(self.host, buf));
             end.state = .done;
-            end.setPendingEvent(.{ .code = .stream_read, .index = m, .payload = (async_mod.ReturnCode{ .completed = @intCast(n) }).encode() });
+            end.setPendingEvent(.{ .code = .stream_read, .index = m, .payload = (async_mod.ReturnCode{ .completed = @intCast(n / pr.elem_size) }).encode() });
             _ = self.pending_reads.remove(m);
         }
     }
@@ -1545,7 +1547,7 @@ const Def = union(enum) {
     /// A `canon stream.*`/`future.*` builtin (WASI 0.3, ADR-0189 ζ2). `op`
     /// selects the trampoline; `type_index` is the stream/future type. Slice 2
     /// wires `stream.new`/`future.new`; the rest are a later slice.
-    async_builtin: struct { op: ctypes.StreamFutureOp, type_index: u32 },
+    async_builtin: struct { op: ctypes.StreamFutureOp, type_index: u32, elem_size: u32 = 1 },
     /// A `canon waitable-set.new` / `waitable.join` builtin (WASI 0.3, ADR-0190
     /// E2b) on the per-task `WaitableSetTable`. `wait`/`poll`/`drop` defer.
     waitable_set_builtin: ctypes.WaitableSetOp,
@@ -1553,7 +1555,7 @@ const Def = union(enum) {
 
 /// Per-definition context for a synthesized async builtin (mirrors
 /// `ResourceBuiltinCtx`): the heap-stable ctx + the stream/future type index.
-pub const AsyncBuiltinCtx = struct { ctx: *WasiP2Ctx, type_index: u32 };
+pub const AsyncBuiltinCtx = struct { ctx: *WasiP2Ctx, type_index: u32, elem_size: u32 = 1 };
 
 const ResourceBuiltinKind = enum { new, drop, rep };
 
@@ -1570,13 +1572,30 @@ fn isGuestResourceType(info: *const ctypes.TypeInfo, ti: u32) bool {
         .named => false,
     };
 }
+/// D-335: lowered byte size of a `stream<T>`/`future<T>`'s element type `T`,
+/// for typed multi-byte marshalling. Returns 1 (byte semantics) for a
+/// payload-less stream/future, a non-stream `type_index`, or any resolution
+/// failure. `arena` (the build's synth_arena) owns any compound CanonType.
+fn streamElemByteSize(arena: Allocator, info: *const ctypes.TypeInfo, type_index: u32) u32 {
+    const resolved = canon.resolveTypeIndex(arena, info, type_index) catch return 1;
+    const payload: ?ctypes.ValType = switch (resolved.dt) {
+        .stream => |s| s.payload,
+        .future => |f| f.payload,
+        else => return 1,
+    };
+    const p = payload orelse return 1;
+    const ct = canon.canonTypeFromDecoded(arena, info, p) catch return 1;
+    const sz = canon.sizeOf(ct);
+    return if (sz == 0) 1 else @intCast(sz);
+}
+
 const SynthExport = struct { name: []const u8, def: Def };
 const Built = union(enum) { guest: *Instance, synthetic: []const SynthExport };
 
 /// Resolve one `core:inlineexport` to the `Def` an importer should bind, or
 /// null when it is not a host-relevant export (skipped). `built` holds the
 /// already-constructed earlier instances (aliases only reference those).
-fn synthDef(info: *const ctypes.TypeInfo, built: []const ?Built, ex: ctypes.CoreInlineExport) !?Def {
+fn synthDef(arena: Allocator, info: *const ctypes.TypeInfo, built: []const ?Built, ex: ctypes.CoreInlineExport) !?Def {
     switch (ex.sort) {
         .func => switch (info.coreFunc(ex.index) orelse return null) {
             .lower => |cfn| {
@@ -1608,7 +1627,10 @@ fn synthDef(info: *const ctypes.TypeInfo, built: []const ?Built, ex: ctypes.Core
             // slice — fail loudly rather than silently mis-bind until then.
             // all stream/future builtins are now host-satisfied (ADR-0189 ζ2);
             // a guest-to-guest read/write COMPLETION still needs a peer (Unit E).
-            .stream_future => |sf| return .{ .async_builtin = .{ .op = sf.op, .type_index = sf.type_index } },
+            // D-335: `type_index` is the `stream<T>`/`future<T>` TYPE; resolve
+            // its payload T's lowered byte size for typed multi-byte marshalling
+            // (default 1 = payload-less / u8 / unresolvable).
+            .stream_future => |sf| return .{ .async_builtin = .{ .op = sf.op, .type_index = sf.type_index, .elem_size = streamElemByteSize(arena, info, sf.type_index) } },
             .alias => |t| switch (t) {
                 .core_export => |ce| {
                     const prov = built[ce.instance] orelse return error.ImportUnsatisfied;
@@ -1792,7 +1814,8 @@ fn p2StreamFutureCopyInner(caller: *Caller, handle: u32, ptr: u32, count: u32) W
     if (end.side == .writable) {
         if (abc.ctx.host_sinks.get(end.shared)) |fd| {
             const mem = try abc.ctx.memory();
-            const bytes = mem.sliceAt(ptr, count) catch return WasiP2Error.OutOfBounds;
+            // D-335: `count` is in ELEMENTS; the byte span is count * elem_size.
+            const bytes = mem.sliceAt(ptr, count * abc.elem_size) catch return WasiP2Error.OutOfBounds;
             if (wasi_fd.writeSlice(abc.ctx.host, fd, bytes) != .success) return WasiP2Error.WriteFailed;
             return (async_mod.ReturnCode{ .completed = @intCast(count) }).encode();
         }
@@ -1806,14 +1829,16 @@ fn p2StreamFutureCopyInner(caller: *Caller, handle: u32, ptr: u32, count: u32) W
             // record the read + return BLOCKED; the bytes are delivered at the
             // next `waitOn` (the guest reaches it after returning WAIT).
             if (abc.ctx.defer_host_source_reads) {
-                try abc.ctx.pending_reads.put(abc.ctx.alloc, handle, .{ .ptr = ptr, .cap = count });
+                try abc.ctx.pending_reads.put(abc.ctx.alloc, handle, .{ .ptr = ptr, .cap = count, .elem_size = abc.elem_size });
                 end.state = .async_copying;
                 return (async_mod.ReturnCode{ .blocked = {} }).encode();
             }
             const mem = try abc.ctx.memory();
-            const buf = mem.sliceAt(ptr, count) catch return WasiP2Error.OutOfBounds;
+            // D-335: `count` is in ELEMENTS; slice count*elem_size bytes, and
+            // COMPLETE in elements (n bytes read / elem_size).
+            const buf = mem.sliceAt(ptr, count * abc.elem_size) catch return WasiP2Error.OutOfBounds;
             const n: u32 = @intCast(wasi_fd.readStdinSlice(abc.ctx.host, buf));
-            return (async_mod.ReturnCode{ .completed = @intCast(n) }).encode();
+            return (async_mod.ReturnCode{ .completed = @intCast(n / abc.elem_size) }).encode();
         }
     }
     const sh = try abc.ctx.shared.get(end.shared);
@@ -1897,7 +1922,7 @@ fn defineSynth(lk: *Linker, ns: []const u8, e: SynthExport, ctx: *WasiP2Ctx) !vo
         .async_builtin => |ab| {
             const abc = try ctx.alloc.create(AsyncBuiltinCtx);
             errdefer ctx.alloc.destroy(abc);
-            abc.* = .{ .ctx = ctx, .type_index = ab.type_index };
+            abc.* = .{ .ctx = ctx, .type_index = ab.type_index, .elem_size = ab.elem_size };
             try ctx.ab_ctxs.append(ctx.alloc, abc);
             switch (ab.op) {
                 .stream_new => try lk.defineFuncCtx(ns, e.name, @ptrCast(abc), fn (*Caller) WasiP2Error!u64, p2StreamNew),
@@ -2073,7 +2098,7 @@ pub fn buildWasiP2Component(engine: *Engine, alloc: Allocator, bytes: []const u8
                 const list = try self.synth_arena.allocator().alloc(SynthExport, exps.len);
                 var n: usize = 0;
                 for (exps) |ex| {
-                    const def = (try synthDef(&self.info, self.built, ex)) orelse continue;
+                    const def = (try synthDef(self.synth_arena.allocator(), &self.info, self.built, ex)) orelse continue;
                     list[n] = .{ .name = ex.name, .def = def };
                     n += 1;
                 }
