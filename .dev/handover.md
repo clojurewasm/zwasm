@@ -22,8 +22,8 @@ CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`. Windows batch 
 ## Active bundle — ADR-0195 multi-task async scheduler (UNBLOCKED 2026-06-17 PM)
 
 - **Bundle-ID**: adr0195-scheduler-IIa..b (guest↔guest async = D-335 last functional gap)
-- **Cycles-remaining**: ~2 (✓II(a) → ✓(b) TaskTable → ✓(c-1) scheduler → ✓(c-2a) runner-unify →
-  (c-2b) xcomponent routing + (d) guest↔guest e2e → (e) adversarial)
+- **Cycles-remaining**: ~2 (✓II(a) → ✓(b) → ✓(c-1) → ✓(c-2a) → ✓(c-2b core: xcomponent routing works) →
+  (d) full stream rendezvous → (e) adversarial)
 - **II(a) DONE** (@529cfcba) + **(b) DONE** (@b90cbecb TaskTable, @61c4a20d driver refactor): `driveCallbackLoop`
   now drives a `TaskDescriptor` via the `stepTask` primitive (seed→loop stepTask until done), byte-identical
   (char net + component corpus 163/0 green, ubuntu+win verified through @8352ef9c). Zone-1 `TaskTable`/
@@ -51,11 +51,18 @@ CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`. Windows batch 
   (`wasm-tools 1.251 parse+validate` rc=0; lesson `2026-06-17-cross-component-async-wat-spelling` + spike
   `private/spikes/async-graph/two_async_components.wat`): import declared `(func $x async)` + `canon lower … async`
   needs a `(memory …)`; async import = core func returning i32 status. Ref `OSS/…/component-model/test/async/cross-abi-calls.wast`.
-- **NEXT (c-2b build, TDD red→green toward the confirmed fixture)**: (1) expose `ResolvedLift.is_async`, (2) store
-  each child's async-callback in `GraphChild`, (3) graph-runner ctx mapping `invokeTaskCallback(funcidx)`→(child
-  instance, callback) over ONE `TaskTable`+`driveScheduler`, (4) async boundary trampoline (fork `is_async` →
-  `Subtask` mint + `TaskDescriptor` enqueue). Green = promote spike .wat to test/component + assert A async-calls B
-  → both EXIT (NOT full stream rendezvous = (d)/(e)). Big coupled chunk — consider delegating w/ this brief + verify.
+- **c-2b CORE DONE** (@a0e2d4c7a, subagent + main-loop-verified): cross-component async routing WORKS — a
+  2-component async graph runs e2e (`test/component/two_async_components.wasm`; test asserts BOTH A's run + B's
+  tick reach `.done` via `graph.asyncTaskCounts()`). `ComponentGraph.driveAsyncMain` owns ONE `TaskTable` +
+  `driveScheduler`; `GraphAsyncCtx.invokeTaskCallback` dispatches funcidx→(instance, callback) via a `GraphAsync.
+  callbacks` registry (the cross-instance routing); `installAsyncBoundary` (forks on new `ResolvedLift.is_async`)
+  mints a `Subtask` + enqueues a `TaskDescriptor`, returns SUBTASK_RETURNED=2. `pollSet`→null so a real WAIT
+  deadlocks loudly. `UnsupportedBoundaryType` for async-with-params/result (loud). build+test+comp-spec 163/0+lint+
+  fallback all green; x86_64 verify pending next ubuntu kick.
+- **NEXT (d — full guest↔guest stream rendezvous)**: extend beyond "both EXIT" to actual data transfer — B
+  produces stream data A consumes (the `async_two_tasks_stream_rendezvous` exit-condition): `pollSet` must deliver
+  cross-task stream events (today null), the async trampoline handles params/results (today UnsupportedBoundaryType),
+  + the rendezvous routes through the shared `SharedTable`. Then (e) adversarial (deadlock/dropped/cancelled).
 - **Exit-condition**: `async_two_tasks_stream_rendezvous.wat` (2-component: A async-imports B's async export)
   builds + asserts Subtask creation→resolution + waitable-set delivery, e2e green; full async corpus + (e)
   adversarial (deadlock/dropped/cancelled) green; single-task path unchanged.
