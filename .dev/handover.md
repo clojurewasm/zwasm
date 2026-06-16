@@ -13,10 +13,8 @@ now cross-component STRING composition, D-305 milestone), 100% spec (`test-spec`
 async import to a GUEST callee = the component linker. Retained the Phase II(a) `AsyncDeadlock` char test (`80ec1f63`);
 design stands (ADR-0195 Rev + lesson `2026-06-17-guest-guest-async-is-downstream-of-component-linker`).
 
-**Plateau confirmed across ALL 完成形 dimensions**: clean (C/Zig/CLI audits), full-featured (WASI complete bar
-consumer-gated big async/composition), 100% spec (`test-spec` 25539/0), lightweight-yet-fast (v1-JIT parity per
-`s15p_parity_vs_v1.md`, D-265 closed). Robustness: fuzz 808 mods 0 crashes on interp AND JIT; docs drift-clean.
-Prior: wasi:random COMPLETE; ADR-0193 follow-up + version SSOT; D-335 typed marshalling DONE; C-API @b4d75506.
+**Prior arcs**: wasi:random COMPLETE; ADR-0193 feature-separation follow-up + version SSOT; D-335 typed marshalling
+DONE; C-API @b4d75506 (Windows export fix); interp+JIT fuzz 808 mods 0 crashes (robustness verified).
 
 **D-305 component-composition first milestone DONE** (this turn, @4cceeb1e, ADR-0196 — see closed-arc below):
 cross-component STRING + `list<primitive>` marshalling works (strlen + listu32 + listu64 PASS, 161/0; @689040e6).
@@ -27,9 +25,9 @@ aggregate shapes are consumer-gated D-305 debt.
 (list/record/result/tuple) are **consumer-gated debt with a precise scope recorded** (D-305 row) — NOT grinding the
 long-tail speculatively (each needs alignment-sensitive boundary marshalling; lands when a fixture/consumer demands,
 or in a dedicated fresh-context session). Posture = **plateau maintenance** (periodic fuzz, debt sweeps, surface
-micro-audits); land a remaining aggregate IF a real consumer appears. Windows verifies the D-305 code at the next
-batch (8/12). ADR-0193 (D-462) + D-461 (ADR-0194) CLOSED (below). **windowsmini gating RESUMED**. Version
-`2.0.0-alpha.3`.
+micro-audits); land a remaining aggregate IF a real consumer appears. **D-305 milestone now 3-HOST-VERIFIED**
+(`component_model_assert` 161/0 on ubuntu x86_64 AND windows Win64; string + list<primitive> boundary marshalling).
+ADR-0193 (D-462) + D-461 (ADR-0194) CLOSED (below). **windowsmini gating RESUMED**. Version `2.0.0-alpha.3`.
 
 ## D-305 component-composition — first milestone CLOSED 2026-06-17 (@4cceeb1e, ADR-0196)
 
