@@ -798,6 +798,12 @@ fn asyncBoundaryTrampoline(caller: *Caller) BoundaryError!u32 {
 /// The result travels via the callee's `task.return` (captured graph-side), so
 /// the retptr is unused here — the enqueue path is identical to the void shape.
 fn asyncBoundaryRetTrampoline(caller: *Caller, retptr: u32) BoundaryError!u32 {
+    // d-a: the callee's task.return value is captured graph-side (TaskDescriptor.result),
+    // NOT lowered back into the caller's `retptr`. The caller (A) does not consume B's
+    // async result yet; delivering it into `retptr` on synchronous RETURNED is the d-b
+    // slice (cross-component async-result lowering). Until then the result lives in the
+    // subtask's per-task slot, readable via `ComponentGraph.taskResult`.
+    // TODO(p17 d-b): lower the resolved subtask result into `retptr` for a caller that reads it.
     _ = retptr;
     return enqueueCalleeSubtask(caller.data(BoundaryCtx));
 }
