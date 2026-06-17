@@ -1,11 +1,48 @@
 # ADR-0195 — Multi-task async scheduler for guest↔guest stream/future completion (D-335 remainder)
 
-- Status: **Accepted (design) — UNBLOCKED 2026-06-17 (the D-305 blocker landed); ready to revive**. The D-305
-  sync cross-component linker (`src/api/component_graph.zig`, @2b9b14ee) now provides the routing substrate the
-  scheduler sat above; the async-import→guest-callee routing is a small trampoline variant within step (c)
-  below (see **Revision 2026-06-17 (PM)**). The (a)–(e) plan stands; next is the Phase II(a) correctness gate.
-  The single-task `AsyncDeadlock` char test (`80ec1f63`) is retained.
+- Status: **Implemented — FUNCTIONALLY COMPLETE 2026-06-17 (@a82b4f84)**. Steps (a)–(d) landed end-to-end
+  (multi-task scheduler → cross-component routing → `task.return` capture + result round-trip → future +
+  synchronous + BLOCKING multi-element stream rendezvous + pollSet/waitable-set delivery + AsyncDeadlock guard).
+  This closed the D-335 last functional gap. Step (e) adversarial corpus is **partially done** (the AsyncDeadlock
+  guard landed; the cross-component DROPPED / CANCELLED variants + graph cancel-op/waitable wait-poll-drop
+  builtins remain as **D-464**, consumer-gated). See **Phase V retrospective (2026-06-17)** below. The (a)–(e)
+  plan stands as the historical record; the campaign ran as bundle `wasi-p3-multitask-scheduler`.
 - Date: 2026-06-17
+
+## Phase V retrospective (2026-06-17) — campaign close
+
+The campaign ran as bundle `wasi-p3-multitask-scheduler` (not a formal five-phase rework — it was new
+functionality on a green base, not a redesign of a measured deficiency, so the ADR-0153 II-before-IV gate did
+not apply; the (a) correctness-corpus-first ordering served the same role). Pipeline as landed:
+
+| Step | Delivered | Key SHA(s) |
+|------|-----------|-----------|
+| II(a) | single-task driver characterization net pinned | `529cfcba` |
+| (b) | `TaskTable` / `seedTask` / `foldResult` (Zone-1) | `b90cbecb`, `61c4a20d` |
+| (c-1) | `driveScheduler` (round-robin + `pollSet` seam + all-waiting→`AsyncDeadlock`) | `822d30d5` |
+| (c-2a) | P3 runner unified on `driveScheduler`; retired `driveCallbackLoop` | `54a9b0bc`, `c7710cda` |
+| (c-2b) | cross-component ROUTING (`ComponentGraph.driveAsyncMain` + `installAsyncBoundary`) | `a0e2d4c7` |
+| (d-a) | `task.return` capture into `TaskDescriptor.result` | `cc63edd9` |
+| (d-b-1) | A consumes result via `retptr` | `7cf62e3a` |
+| (d-b-2) | future rendezvous (shared `GraphAsync` tables) | `4a344503` |
+| (d-c-1) | synchronous multi-element stream rendezvous | `9eabb709` |
+| (d-c-2) | BLOCKING stream rendezvous + pollSet/waitable-set delivery + AsyncDeadlock guard | `a82b4f84` |
+
+**Hit the 完成形?** Functional dimension yes — guest↔guest async works end-to-end (future / stream / blocking /
+deadlock fixtures in `test/component/two_async_components_*.wat`, each asserting `taskResult == 42`); the D-335
+last functional gap is closed. 3-host verified (ubuntu OK @4f95129a; windows BATCHED). P3/P6 single-pass
+invariants untouched (interp/host driver only, no JIT/codegen surface).
+
+**New debt.** Step (e) is intentionally incomplete — the cross-component DROPPED / CANCELLED adversarial
+variants, the graph cancel-op + waitable-set wait/poll/drop builtins (currently loud `UnsupportedBoundaryType`
+in `pourSyntheticExport`), and the deferred async boundary shapes (param-alongside-retptr, aggregate async
+params, >`SharedStream.buf[64]` payloads) are tracked as **D-464** and land when a consumer/fixture demands
+them — not grindable speculatively. **D-463** (shared `StreamFutureTable` across the graph vs per-component
+handle isolation) is the structural-simplification residual — correct for a trusted composed graph, a
+spec-fidelity refinement for untrusted composition.
+
+**Superseded-simplification note.** None — this campaign added capability on a green base rather than reworking
+an earlier simplification, so there is no prior ADR to mark `Revised`.
 
 ## Revision 2026-06-17 (PM) — UNBLOCKED (the D-305 blocker landed)
 

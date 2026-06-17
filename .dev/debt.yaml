@@ -1984,11 +1984,11 @@ entries:
           builtins — currently loud `UnsupportedBoundaryType` in `pourSyntheticExport` (component_graph.zig).
       (3) async boundary shapes still deferred: a param ALONGSIDE a retptr-result, wider/aggregate async params,
           >buffer-cap (`SharedStream.buf[64]`) stream payloads.
-      (4) **ADR-0195 Phase V retrospective** not yet written (the campaign ran as a bundle, not a formal rework;
-          a short retro + an ADR-0195 "implemented @… (d-a..d-c-2)" status note would close it cleanly).
-      Relatedly **D-463** = the shared-handle-table isolation simplification. None block v0.1.0 functional completeness.
+      Phase V retrospective DONE 2026-06-17 (@a82b4f84 close-note in ADR-0195 "Phase V retrospective" section +
+      Status flipped to Implemented). Relatedly **D-463** = the shared-handle-table isolation simplification.
+      None block v0.1.0 functional completeness.
     first_raised: "2026-06-17"
-    last_reviewed: "2026-06-17"
+    last_reviewed: "2026-06-18"
     refs: |-
       src/api/component_graph.zig (graphStream*/graphFuture*/graphWaitable* + pourSyntheticExport arms; pollSet);
       src/feature/component/async.zig (SharedStream/SharedFuture/WaitableSet rendezvous primitives);
