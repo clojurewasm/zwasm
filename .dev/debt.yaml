@@ -1971,6 +1971,35 @@ entries:
       src/api/component_graph.zig (graphStream*/graphFuture*/graphWaitable* + pourSyntheticExport arms; pollSet);
       src/feature/component/async.zig (SharedStream/SharedFuture/WaitableSet rendezvous primitives);
       test/component/two_async_components_*.wat (the d-a..d-c-2 fixtures); ADR-0195
+  - id: "D-465"
+    layer: "code"
+    status: "note"
+    description: |-
+      Status: note — FUTURE drop semantics asymmetry/gaps, surfaced 2026-06-18 while adding the D-464(1)
+      cross-component peer-drop adversarial tests. The STREAM peer-drop path was fixed (dropEnd now marks the
+      rendezvous DROPPED so a reader observes DROPPED not BLOCKED, @27f9464e0). The FUTURE path has two
+      remaining gaps the stream fix did NOT cover (deferred — needs careful spec design, not a rushed fix):
+      (1) **`SharedFuture.read` does not honor `self.dropped`** (async.zig ~723) — asymmetric with
+          `SharedStream.read` (:642) and `SharedFuture.write` (:738), both of which return `.dropped`. So a
+          future reader whose writable peer legitimately dropped (only valid AFTER the reader itself dropped,
+          per the future state machine) would see BLOCKED, not DROPPED. Add the `if (self.dropped) return
+          .{ .caller = .dropped }` guard symmetric to the others, WITH a fixture exercising it.
+      (2) **`guardWritableDrop` (async.zig :752, spec `CanonicalABI.md` §Future State) is NOT enforced on the
+          guest-facing future-writable drop path** — dropping a future writable end BEFORE writing (and before
+          the reader drops) must TRAP `FutureDropBeforeWrite`, but `graphFutureDrop`/p2-future-drop currently
+          succeed (return BLOCKED on the peer read). The guard CANNOT go in `dropEnd` — the refcount unit test
+          (async.zig:1319, D-335 D-ζ2) drops a future writable without writing and expects success, treating
+          dropEnd as a pure refcount/remove primitive. So the guard belongs at the BUILTIN level
+          (`graphFutureDrop` + the p2 future-drop builtin), distinguishing future-writable from stream/readable.
+      Consumer-gated; the cross-component STREAM drop case (the common one) is fixed. Pick up with: split the
+      future-writable-drop guard into the builtins + the `SharedFuture.read` dropped check + an adversarial
+      fixture asserting the TRAP (writable-drop-before-write) and the DROPPED (reader-drop-then-write).
+    first_raised: "2026-06-18"
+    last_reviewed: "2026-06-18"
+    refs: |-
+      src/feature/component/async.zig (SharedFuture.read :723 missing dropped check; guardWritableDrop :752;
+      dropEnd refcount role + unit test :1319); src/api/component_graph.zig (graphFutureDrop builtin);
+      stream sibling fixed @27f9464e0; D-464(1)
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
