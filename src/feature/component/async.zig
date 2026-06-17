@@ -722,6 +722,10 @@ pub const SharedFuture = struct {
     /// value). Per spec the readable end never observes a drop.
     pub fn read(self: *SharedFuture, n: u32, handle: u32) Step {
         _ = n;
+        // No `self.dropped` check here (unlike SharedStream.read / SharedFuture.write,
+        // D-465): a future read with dropped=true is unreachable — the writable end
+        // cannot drop before writing (guardWritableDrop traps), and a reader that
+        // dropped its own end is no longer reading. Adding one would be dead code.
         const w = self.pending orelse {
             self.pending = .{ .side = .readable, .remain = 1, .waitable = handle };
             return .{ .caller = .blocked };

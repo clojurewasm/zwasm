@@ -49,18 +49,16 @@ Status→Implemented + retrospective section; D-464 item (4) closed).
 
 ## RESUME POINTER (2026-06-18) — for a fresh session
 
-1. **No active bundle.** At the **完成形 plateau** (ADR-0156). D-463 isolation CLOSED + ubuntu-green; async-test
-   extraction @ea98c20b9. **D-464(1) STREAM peer-drop**: adversarial test found a REAL bug (reader hung as BLOCKED
-   instead of DROPPED on peer-drop mid-rendezvous) → root-cause fix in `dropEnd` (marks rendezvous DROPPED, Zone-1,
-   fixes graph + WASI-P2 siblings) @27f9464e0. Mac test+lint green.
-2. **Next front** = **D-465** (filed @2b5705d87) — the FUTURE drop sibling gaps the stream fix did NOT cover:
-   (1) `SharedFuture.read` missing the `dropped` check (async.zig :723, asymmetric with stream/write); (2)
-   `guardWritableDrop` not enforced on the guest-facing future-writable drop (writable-drop-before-write must TRAP
-   `FutureDropBeforeWrite`, not BLOCK) — the guard belongs in `graphFutureDrop` + p2 builtin (NOT `dropEnd`, which
-   the refcount unit test async.zig:1319 needs guard-free). Author a TRAP fixture (writable-drop-pre-write) + a
-   DROPPED fixture (reader-drop-then-write). D-464(2) cancel-op FEATURE builtins stay consumer-gated/do-not-grind.
-3. **Remote**: ubuntu green @1ed6feb5c; D-028 listen-IPC flake recurs cosmetically (exit 0, no assertion fail);
-   windows batch ~9/12, non-urgent. Other fronts: D-461 (v128 spill, EXOTIC/x86_64), D-460/D-209 (parked), D-305 rare.
+1. **No active bundle.** At the **完成形 plateau** (ADR-0156). Cross-component async drop robustness HARDENED this
+   session (adversarial D-464(1)): STREAM peer-drop bug (reader hung BLOCKED, not DROPPED) fixed @27f9464e0;
+   **D-465 future-drop CLOSED @360382c33** — graph future-writable-drop-before-write now TRAPS, drop builtins
+   unified on `dropEndGuarded` (graph + p2 share one contract); gap-1 (SharedFuture.read dropped check) proven
+   dead-code (guard prevents the only setting sequence; comment added). 4 new adversarial fixtures, Mac test+lint green.
+2. **Next front**: no active drop work. Per Step 0.5 debt sweep + design-priority, do NOT grind speculatively.
+   Candidates (all consumer-gated/exotic): D-464(2) cancel-op FEATURE builtins (consumer-gated), D-461 (v128
+   result-write spill, EXOTIC/x86_64), D-460/D-209 (parked), D-305 rare aggregate shapes. Or a surface/dogfood pass.
+3. **Remote**: ubuntu green @2f69c4256 (exit 0); windows batch FIRED @2f69c4256 — verify its verdict at Step 0.7
+   (a CONNECTION_REFUSED appeared mid-run = likely win IPC flake; my batch is non-Win64). D-028 listen-IPC cosmetic.
 
 ## Recently closed arcs (detail in ADRs/git/debt — one-liners)
 
