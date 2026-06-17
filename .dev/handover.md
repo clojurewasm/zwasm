@@ -49,13 +49,16 @@ Status→Implemented + retrospective section; D-464 item (4) closed).
 
 ## RESUME POINTER (2026-06-18) — for a fresh session
 
-1. **No active bundle.** D-463 isolation campaign CLOSED @633189454 (ADR-0197 ledger), **ubuntu test-all green
-   @1ed6feb5c (exit 0)**. Test-file extraction @ea98c20b9: cross-component async tests → `component_async_tests.zig`
-   (component_tests.zig 1936→1734, off the 2000 cap). At the **完成形 plateau** (ADR-0156 completion-mode).
-2. **Next front** = **D-464 (1) adversarial ROBUSTNESS** (correctness-assurance, NOT speculative feature-building):
-   a graph-level cross-component DROPPED-mid-rendezvous test (A passes writable to B, B drops without writing, A
-   reads → must get clean DROPPED, not hang/silent/crash) + a subtask-cancelled variant. Same robustness theme as
-   D-463/D-305. (D-464 item (2) cancel-op FEATURE builtins stay consumer-gated/do-not-grind.)
+1. **No active bundle.** At the **完成形 plateau** (ADR-0156). D-463 isolation CLOSED + ubuntu-green; async-test
+   extraction @ea98c20b9. **D-464(1) STREAM peer-drop**: adversarial test found a REAL bug (reader hung as BLOCKED
+   instead of DROPPED on peer-drop mid-rendezvous) → root-cause fix in `dropEnd` (marks rendezvous DROPPED, Zone-1,
+   fixes graph + WASI-P2 siblings) @27f9464e0. Mac test+lint green.
+2. **Next front** = **D-465** (filed @2b5705d87) — the FUTURE drop sibling gaps the stream fix did NOT cover:
+   (1) `SharedFuture.read` missing the `dropped` check (async.zig :723, asymmetric with stream/write); (2)
+   `guardWritableDrop` not enforced on the guest-facing future-writable drop (writable-drop-before-write must TRAP
+   `FutureDropBeforeWrite`, not BLOCK) — the guard belongs in `graphFutureDrop` + p2 builtin (NOT `dropEnd`, which
+   the refcount unit test async.zig:1319 needs guard-free). Author a TRAP fixture (writable-drop-pre-write) + a
+   DROPPED fixture (reader-drop-then-write). D-464(2) cancel-op FEATURE builtins stay consumer-gated/do-not-grind.
 3. **Remote**: ubuntu green @1ed6feb5c; D-028 listen-IPC flake recurs cosmetically (exit 0, no assertion fail);
    windows batch ~9/12, non-urgent. Other fronts: D-461 (v128 spill, EXOTIC/x86_64), D-460/D-209 (parked), D-305 rare.
 
