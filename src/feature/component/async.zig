@@ -845,19 +845,31 @@ pub fn newFuturePair(ends: *StreamFutureTable, shared: *SharedTable, elem_type: 
 pub fn dropEnd(ends: *StreamFutureTable, shared: *SharedTable, handle: u32) Error!void {
     const end = try ends.get(handle);
     const sh = end.shared;
-    if (sh != 0) {
-        // Mark the rendezvous dropped (via the end's own `drop`, which also traps a
-        // mid-copy drop) so the SURVIVING peer's next read/write observes DROPPED
-        // instead of BLOCKing on a rendezvous that can never complete. Refcount-release
-        // alone (below) left the shared alive but un-dropped → a peer read hung as
-        // BLOCKED (D-464 adversarial: cross-component peer-drop mid-rendezvous).
-        switch ((try shared.get(sh)).*) {
-            .stream => |*s| try end.drop(s),
-            .future => |*f| try end.drop(f),
-        }
-    }
     _ = try ends.remove(handle);
     if (sh != 0) try shared.release(sh);
+}
+
+/// Guest-facing end drop (the canon `{stream,future}.drop-{readable,writable}`
+/// path). Beyond the raw refcount `dropEnd` it: (a) enforces the spec future
+/// guard — a future WRITABLE end dropped before its value is written traps
+/// `FutureDropBeforeWrite` (CanonicalABI.md §Future State); (b) marks the
+/// rendezvous DROPPED via `end.drop`, so the SURVIVING peer's next read/write
+/// observes DROPPED instead of BLOCKing on a rendezvous that can never complete
+/// (D-464: cross-component peer-drop mid-rendezvous). The raw `dropEnd` stays
+/// guard/flag-free for internal teardown + refcount tests. Used by every
+/// guest-facing drop builtin (graph + WASI-P2), so they share one drop contract.
+pub fn dropEndGuarded(ends: *StreamFutureTable, shared: *SharedTable, handle: u32) Error!void {
+    const end = try ends.get(handle);
+    if (end.shared != 0) {
+        switch ((try shared.get(end.shared)).*) {
+            .stream => |*s| try end.drop(s),
+            .future => |*f| {
+                if (end.side == .writable) try f.guardWritableDrop();
+                try end.drop(f);
+            },
+        }
+    }
+    try dropEnd(ends, shared, handle);
 }
 
 // ============================================================

@@ -1900,19 +1900,10 @@ fn p2StreamFutureDrop(caller: *Caller, handle: u32) WasiP2Error!void {
 }
 fn p2StreamFutureDropInner(caller: *Caller, handle: u32) WasiP2Error!void {
     const abc = caller.data(AsyncBuiltinCtx);
-    const end = try abc.ctx.streams.get(handle);
-    const sh = try abc.ctx.shared.get(end.shared);
-    switch (sh.*) {
-        .stream => |*s| try end.drop(s),
-        .future => |*f| {
-            // Spec: a future's writable end traps if dropped before its value
-            // is written (D-337, CanonicalABI.md §Future State). mapAsyncFault
-            // turns the guard's FutureDropBeforeWrite into the guest trap.
-            if (end.side == .writable) try f.guardWritableDrop();
-            try end.drop(f);
-        },
-    }
-    try async_mod.dropEnd(&abc.ctx.streams, &abc.ctx.shared, handle);
+    // Shared drop contract: future-writable-before-write traps
+    // (FutureDropBeforeWrite, mapAsyncFault → guest trap) + marks the rendezvous
+    // DROPPED for the surviving peer (same helper the graph path uses).
+    try async_mod.dropEndGuarded(&abc.ctx.streams, &abc.ctx.shared, handle);
 }
 
 /// Pour one synthetic export into `lk` under namespace `ns` as import `e.name`.

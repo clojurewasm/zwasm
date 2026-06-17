@@ -1138,7 +1138,9 @@ fn graphFutureRead(caller: *Caller, handle: u32, ptr: u32) BoundaryError!u32 {
 fn graphFutureDrop(caller: *Caller, handle: u32) BoundaryError!void {
     const ctx = caller.data(GraphFutureCtx);
     try checkOwner(ctx, handle);
-    async_mod.dropEnd(&ctx.as.streams, &ctx.as.shared, handle) catch |e| return mapGraphAsyncFault(e);
+    // dropEndGuarded enforces the future-writable-before-write trap + marks the
+    // rendezvous DROPPED for the surviving peer (shared with the WASI-P2 path).
+    async_mod.dropEndGuarded(&ctx.as.streams, &ctx.as.shared, handle) catch |e| return mapGraphAsyncFault(e);
     _ = ctx.as.owners.remove(handle); // the end no longer exists; free its ledger entry
 }
 

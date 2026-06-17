@@ -240,3 +240,43 @@ test "ADR-0195 (e)/D-464: a cross-component stream whose WRITABLE peer is DROPPE
     try testing.expectEqual(@as(usize, 2), counts.done); // both reached EXIT
     try testing.expectEqual(@as(?u32, 1), graph.taskResult(1)); // A saw DROPPED (code 1)
 }
+
+const two_async_components_future_drop_trap_path = "test/component/two_async_components_future_drop_trap.wasm";
+
+test "D-465: dropping a cross-component FUTURE writable end before writing TRAPS (FutureDropBeforeWrite), not BLOCK/silent" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, two_async_components_future_drop_trap_path, testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var graph = try instantiateGraph(&eng, testing.allocator, bytes, .{});
+    defer graph.deinit();
+
+    // B drops the writable future end before writing; the reader (A) has not dropped,
+    // so the spec guard (`guardWritableDrop` → FutureDropBeforeWrite) must fire and the
+    // drive must trap. Pre-fix the graph drop builtin skipped the guard (BLOCKED).
+    try testing.expectError(error.Unreachable, graph.driveAsyncMain("run"));
+}
+
+const two_async_components_future_drop_reader_path = "test/component/two_async_components_future_drop_reader.wasm";
+
+test "D-465: when the FUTURE reader drops its readable end, the writer's future.write observes DROPPED" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, two_async_components_future_drop_reader_path, testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var graph = try instantiateGraph(&eng, testing.allocator, bytes, .{});
+    defer graph.deinit();
+
+    // A drops its readable end, then B writes → B's future.write sees the dropped
+    // rendezvous and returns the spec DROPPED code (1). B's task (task 2) result == 1.
+    try graph.driveAsyncMain("run");
+    try testing.expectEqual(@as(?u32, 1), graph.taskResult(2)); // B saw DROPPED (code 1)
+}
