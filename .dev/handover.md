@@ -59,13 +59,11 @@ Status→Implemented + retrospective section; D-464 item (4) closed).
 3. **D-461 x86_64 EXTEND result-write spill DONE @83256d210** — GREEN arm64-native + x86_64-Rosetta + **ubuntu
    @b8d6ba461 (exit 0)**; windows in-flight (verify next Step 0.7; rides Win64-proven stage-XMM mechanism).
    **Remaining D-461 ops investigated 2026-06-18 — each ENTANGLED/harder than extend, NOT clean chunks** (detail in
-   D-461 row): **replace_lane** needs the x86_64 v128 fix AND the arm64 GPR-scalar spill (D-034 cohort — a force-spill
-   fixture always spills the high-vreg-index new-lane scalar which arm64 `resolveGpr` SPILL-EXEMPTs) → do WITH D-034;
-   **Extadd-pairwise** (4 impls) each uses XMM14 as scratch → stage0 collision, needs src→stage1 workaround (mirror
-   bitmask). **Next cycle**: drive Extadd-pairwise — but FIRST verify arm64 Extadd spill-awareness (the replace_lane
-   surprise showed arm64 can have its own SPILL-EXEMPT gap); if arm64 is clean (shared unop helper like extend),
-   it's x86_64-only + the documented stage1-src collision workaround. If arm64 Extadd is ALSO entangled, pivot to a
-   broad dogfood/realworld sweep instead. Do NOT speculatively grind consumer-gated work (D-464(2), D-305).
+   D-461 row): **replace_lane** needs the x86_64 v128 fix AND the arm64 GPR-scalar spill (D-034 cohort) → do WITH
+   D-034 (deferred). **Extadd-pairwise DONE @4b839f29a** (arm64 clean via emitV128Unop; x86_64 all-4 migrated
+   src+dst→stage1, scratch stage0; extadd_pairwise_i16x8_s→8190 GREEN arm64+x86_64-Rosetta). **Next**: the LAST
+   D-461 result-write category — op_simd.zig binop dsts (:249/282/313/343/373/402, still resolveXmm) — verify arm64
+   first (replace_lane lesson), then x86_64. Or pivot to dogfood. Do NOT grind consumer-gated work (D-464(2), D-305).
 4. **Remote**: D-461 extend @83256d210 GREEN on ALL 3 HOSTS (arm64+Rosetta+ubuntu @b8d6ba461; **windows exit 0**,
    gate recorded @aaec6db9d). D-028/windows-listen IPC flakes cosmetic.
 
