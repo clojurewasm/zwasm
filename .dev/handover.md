@@ -15,58 +15,43 @@ boundary error-trap (@30bd1881, SECURITY — marshalling failures now TRAP, not 
 163/0; ubuntu OK @dfdcfdcf. Remaining rare shapes (record/result aggregates, >2-param arities) = consumer-gated
 debt, do NOT grind speculatively.
 
+**ADR-0195 guest↔guest async (multi-task scheduler) — FUNCTIONALLY COMPLETE 2026-06-17** (the D-335 last
+functional gap; campaign closed-arc below). Cross-component async now works end-to-end: multi-task scheduler
+(`driveScheduler`) → cross-component ROUTING (c-2b) → `task.return` capture + result round-trip (d-a/d-b-1) →
+future rendezvous (d-b-2) → synchronous + BLOCKING multi-element stream rendezvous + pollSet/waitable-set delivery
++ AsyncDeadlock guard (d-c-1/d-c-2, @a82b4f84). Local gate green (test-all unit + comp-spec 163/0 + lint +
+fallback). **Residuals (debt-tracked, NOT blocking, do NOT grind): D-464** (broader (e) adversarial dropped/
+cancelled cross-component cases + cancel-op/waitable wait-poll-drop graph builtins + ADR-0195 Phase-V retro),
+**D-463** (shared-handle-table isolation refinement).
+
 **Prior arcs**: wasi:random COMPLETE; ADR-0193 feature-separation + version SSOT; D-335 typed marshalling DONE;
 C-API @b4d75506 (Windows export fix); interp+JIT fuzz 808 mods 0 crashes. ADR-0193 (D-462) + D-461 (ADR-0194)
-CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`. Windows batch verifies @…+@2b9b14ee next fire.
+CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`.
 
-## Active bundle — ADR-0195 multi-task async scheduler (UNBLOCKED 2026-06-17 PM)
+## ADR-0195 guest↔guest async — CAMPAIGN COMPLETE 2026-06-17 (bundle closed; residuals = D-464/D-463)
 
-- **Bundle-ID**: adr0195-scheduler-IIa..b (guest↔guest async = D-335 last functional gap)
-- **Cycles-remaining**: ~1-2 (✓II(a)→✓b→✓c-1→✓c-2a→✓c-2b routing→✓d-a→✓d-b-1→✓d-b-2 future→✓d-c-1 sync stream →
-  (d-c-2 BLOCKING + pollSet) → (e) adversarial)
-- **Continuity-memo**: SYNCHRONOUS cross-component async fully works — routing, task.return, result round-trip,
-  future rendezvous, multi-element stream rendezvous (B writes during the entry invoke, A reads after). The ONLY
-  remaining functional gap = the BLOCKING case: A reads/waits BEFORE B writes → needs `GraphAsyncCtx.pollSet`
-  (today null) to deliver the peer's `pending_event` so the scheduler re-enters the parked task.
-- **II(a) DONE** (@529cfcba) + **(b) DONE** (@b90cbecb TaskTable, @61c4a20d driver refactor): `driveCallbackLoop`
-  now drives a `TaskDescriptor` via the `stepTask` primitive (seed→loop stepTask until done), byte-identical
-  (char net + component corpus 163/0 green, ubuntu+win verified through @8352ef9c). Zone-1 `TaskTable`/
-  `TaskDescriptor`/`TaskState{ready,waiting,done}` exist + lifecycle-tested; `stepTask`/`seedTask` are the
-  per-step primitive step (c) reuses over `TaskTable` slots.
-- **✓ DONE so far** (detail in git/commits): **II(a)** char net @529cfcba · **(b)** `TaskTable`/`TaskDescriptor`/
-  `seedTask`/`foldResult` @b90cbecb+@61c4a20d · **(c-1)** Zone-1 `driveScheduler` (round-robin + non-blocking
-  `pollSet` + all-waiting→`AsyncDeadlock`; seam `invokeTaskCallback(funcidx)`+`pollSet`) @822d30d5 · **(c-2a)** P3
-  runner unified on `driveScheduler`(1-entry table), retired `driveCallbackLoop`/`stepTask` @54a9b0bc+@c7710cda ·
-  **(c-2b core)** cross-component async ROUTING works @a0e2d4c7a — `ComponentGraph.driveAsyncMain` owns ONE
-  `TaskTable`; `GraphAsync.callbacks` registry routes `invokeTaskCallback(funcidx)`→(instance, callback);
-  `installAsyncBoundary`(forks on `ResolvedLift.is_async`) mints a `Subtask`+enqueues a `TaskDescriptor`.
-- **(d-a) DONE** (@cc63edd9 + @e7a3d8d9): cross-component async `task.return(42)` captured graph-side into a
-  per-task `TaskDescriptor.result: ?u32` (no collision); `GraphAsync.current_task_id` set before each callee
-  invoke; graph-wired `graphTaskReturn` host func + `taskResult(id)` accessor. Fixture asserts B's task 2 == 42.
-- **(d-b-1) DONE** (@7cf62e3a, inline TDD red→green, full gate verified): **A now CONSUMES B's result**.
-  `enqueueCalleeSubtask` returns the task id; `asyncBoundaryRetTrampoline` reads B's synchronously-resolved
-  `.result` + writes it (flat-4 i32) into the IMPORTER's memory at `retptr` (`bctx.importer` threaded through
-  `installAsyncBoundary`). Fixture `two_async_components_consume_result.wat` (A reads mem[0]→42, task.returns it);
-  test asserts A's own task 1 == 42. A blocked-callee (no result yet) stays unwritten = async-completion path (later).
-- **(d-b-2) DONE** (@4a344503) + **(d-c-1) DONE** (@9eabb709): SYNCHRONOUS (write-before-read) guest↔guest
-  **future** + multi-element **stream** rendezvous. `GraphAsync` owns ONE graph-level `SharedTable`+`StreamFutureTable`;
-  `graphFuture*`/`graphStream*` builtins (wired via `pourSyntheticExport` `.stream_future` arm) mint/look-up there so
-  a handle minted in A is valid in B (only the i32 crosses). Value channel: `SharedFuture.value[8]` + `SharedStream.buf[64]`
-  (count-only rendezvous; writer deposits from `caller.memory()`, reader drains). Async boundary takes ONE flat-i32
-  handle param. Fixtures assert A's task 1 == 42 (mutation-proven). **D-463** = shared-table isolation simplification.
-  Deferrals (loud): cancel ops, param+retptr, >cap.
-- **(d-c-2) DONE** — BLOCKING guest↔guest stream rendezvous + pollSet/waitable-set delivery. B (callee)
-  `stream.read`s → BLOCKED → `waitable-set.new`+`join`+WAIT → B's task GENUINELY `.waiting`; A writes later →
-  `graphStreamWrite`'s `step.notify` copies bytes into B's recorded reader-memory (`GraphAsync.pending_graph_reads`,
-  keyed by read-end handle) + `end.copy` sets B's read-end `pending_event`; `GraphAsyncCtx.pollSet` (now polls
-  `GraphAsync.sets` member `pending_event`) harvests it → scheduler re-enters B → B reads {20,22}→sums→task.return(42).
-  Graph waitable-set builtins (`graphWaitableSetNew`/`graphWaitableJoin`, mirror p2) wired via the new
-  `pourSyntheticExport` `.waitable_set` arm (wait/poll/drop = loud UnsupportedBoundaryType). Fixtures:
-  `two_async_components_stream_blocking.wat` (B's task 2 == 42) + `two_async_components_stream_deadlock.wat` (A never
-  writes → `error.AsyncDeadlock`, the (e)-adjacent guard). 2941/2953 unit + comp-spec 163/0 + lint/fallback/zone green.
-- **Exit-condition**: `async_two_tasks_stream_rendezvous.wat` (2-component: A async-imports B's async export)
-  builds + asserts Subtask creation→resolution + waitable-set delivery, e2e green; full async corpus + (e)
-  adversarial (deadlock/dropped/cancelled) green; single-task path unchanged.
+The multi-task async scheduler closed the D-335 last functional gap. Pipeline + key SHAs (all main-loop-verified;
+detail in git/commits + ADR-0195): **II(a)** char net @529cfcba · **(b)** `TaskTable`/`seedTask`/`foldResult`
+@b90cbecb+@61c4a20d · **(c-1)** Zone-1 `driveScheduler` (round-robin + `pollSet` seam + all-waiting→`AsyncDeadlock`)
+@822d30d5 · **(c-2a)** P3 runner unified on `driveScheduler`, retired `driveCallbackLoop` @54a9b0bc+@c7710cda ·
+**(c-2b)** cross-component ROUTING (`ComponentGraph.driveAsyncMain` + `GraphAsync.callbacks` funcidx→(instance,cb)
++ `installAsyncBoundary` mints `Subtask`+enqueues `TaskDescriptor`) @a0e2d4c7a · **(d-a)** `task.return` capture
+into per-task `TaskDescriptor.result` @cc63edd9 · **(d-b-1)** A consumes result via `retptr` @7cf62e3a · **(d-b-2)**
+future rendezvous @4a344503 · **(d-c-1)** synchronous multi-element stream rendezvous @9eabb709 · **(d-c-2)** BLOCKING
+stream rendezvous + `pollSet`/waitable-set delivery + AsyncDeadlock guard @a82b4f84. All over ONE graph-level
+`GraphAsync` (shared `SharedTable`/`StreamFutureTable`/`WaitableSetTable`; `graphFuture*`/`graphStream*`/
+`graphWaitable*` builtins via `pourSyntheticExport`). Fixtures `test/component/two_async_components_*.wat`
+(future/stream/blocking/deadlock; assert taskResult==42). Local gate green; **3-host through @4ed08f57d** (d-c-1
+batch ubuntu+win OK); **d-c-2 (@a82b4f84) ubuntu verify PENDING** (see resume pointer).
+
+## RESUME POINTER (clean-stop 2026-06-17) — for a fresh session
+
+1. **Step 0.7**: verify d-c-2 — `grep -E "run_remote_ubuntu] OK|FAIL" /tmp/ubuntu.log` (kicked at stop for HEAD;
+   expect OK). If FAIL → investigate the d-c-2 graph code (no auto-revert; it's a fresh-session first-resume).
+2. Project is at the **完成形 plateau**; no active bundle. Optional next fronts (all debt-tracked, none urgent):
+   **D-464** (ADR-0195 (e) adversarial dropped/cancelled + cancel-op graph builtins + Phase-V retro), **D-463**
+   (shared-handle-table isolation), D-460/D-209 (parked), D-305 rare aggregate shapes (consumer-gated). Drive per
+   `/continue` Step 0.5 debt sweep + the design-priority bar — do NOT grind speculatively.
 
 ## Recently closed arcs (detail in ADRs/git/debt — one-liners)
 

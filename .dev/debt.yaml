@@ -1967,6 +1967,32 @@ entries:
     refs: |-
       src/api/component_graph.zig (GraphAsync shared StreamFutureTable + SharedTable; graphFuture* builtins);
       ADR-0195 d-b-2; survey said "per-component ends + shared .shared slot" — subagent simplified to shared tables
+  - id: "D-464"
+    layer: "code"
+    status: "note"
+    description: |-
+      Status: note (ADR-0195 guest↔guest async — FUNCTIONALLY COMPLETE residuals, all currently LOUD
+      `UnsupportedBoundaryType`/typed-defer, NOT silent). The multi-task async scheduler campaign closed its last
+      functional gap (d-c-2: blocking cross-component stream rendezvous + pollSet/waitable-set delivery + the
+      AsyncDeadlock adversarial guard, @a82b4f84). The cross-component async substrate now does: routing, task.return
+      capture + result round-trip, future rendezvous, synchronous + BLOCKING multi-element stream rendezvous. REMAINING
+      hardening (optional, land when a consumer/fixture demands — do NOT grind speculatively):
+      (1) **(e) broader adversarial** cross-component cases beyond the deadlock guard: a stream/future DROPPED
+          mid-rendezvous (peer drops), and a subtask CANCELLED before/after start. (single-component versions exist
+          in async.zig; the GRAPH-level cross-component variants are untested.)
+      (2) graph **cancel-op builtins** (`stream/future cancel-read/write`) + waitable-set `wait/poll/drop` graph
+          builtins — currently loud `UnsupportedBoundaryType` in `pourSyntheticExport` (component_graph.zig).
+      (3) async boundary shapes still deferred: a param ALONGSIDE a retptr-result, wider/aggregate async params,
+          >buffer-cap (`SharedStream.buf[64]`) stream payloads.
+      (4) **ADR-0195 Phase V retrospective** not yet written (the campaign ran as a bundle, not a formal rework;
+          a short retro + an ADR-0195 "implemented @… (d-a..d-c-2)" status note would close it cleanly).
+      Relatedly **D-463** = the shared-handle-table isolation simplification. None block v0.1.0 functional completeness.
+    first_raised: "2026-06-17"
+    last_reviewed: "2026-06-17"
+    refs: |-
+      src/api/component_graph.zig (graphStream*/graphFuture*/graphWaitable* + pourSyntheticExport arms; pollSet);
+      src/feature/component/async.zig (SharedStream/SharedFuture/WaitableSet rendezvous primitives);
+      test/component/two_async_components_*.wat (the d-a..d-c-2 fixtures); ADR-0195
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
