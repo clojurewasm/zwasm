@@ -164,8 +164,23 @@ const GraphAsync = struct {
     /// `WasiP2Ctx.{streams,shared}`, but graph-level rather than per-component.)
     shared: async_mod.SharedTable,
     streams: async_mod.StreamFutureTable,
+    /// ADR-0195 step (d-c-2): the GRAPH-shared waitable-set table. A child's
+    /// `canon waitable-set.new`/`join` mint/extend sets HERE, so a blocked guest
+    /// callee (B) joins its parked read-end into a set the graph scheduler polls
+    /// via `GraphAsyncCtx.pollSet` (mirrors `WasiP2Ctx.sets`, but graph-level).
+    sets: async_mod.WaitableSetTable,
+    /// ADR-0195 step (d-c-2): a guest `stream.read` that PARKS (the peer has not
+    /// yet written) records its reader-side destination here, keyed by the readable
+    /// end handle. When the peer's later `stream.write` resolves the rendezvous, the
+    /// deposited bytes are copied into THIS reader's memory at `ptr` (the guest↔guest
+    /// analogue of the host-source `deliverParkedReads`). Cleared on delivery.
+    pending_graph_reads: std.AutoHashMapUnmanaged(u32, PendingGraphRead) = .empty,
 
     const CallbackTarget = struct { inst: *Instance, name: []const u8 };
+    /// A parked cross-component read: where (which guest memory + offset) the
+    /// resolving write must deposit the bytes. `elem_size` is the lowered element
+    /// width; `cap` the requested element count (the read's buffer capacity).
+    const PendingGraphRead = struct { mem: Memory, ptr: u32, cap: u32, elem_size: u8 };
 
     fn init(alloc: Allocator) async_mod.Error!GraphAsync {
         return .{
@@ -174,6 +189,7 @@ const GraphAsync = struct {
             .callbacks = .empty,
             .shared = async_mod.SharedTable.init(alloc),
             .streams = try async_mod.StreamFutureTable.init(alloc),
+            .sets = try async_mod.WaitableSetTable.init(alloc),
         };
     }
 
@@ -182,6 +198,8 @@ const GraphAsync = struct {
         self.callbacks.deinit(self.alloc);
         self.shared.deinit();
         self.streams.deinit();
+        self.sets.deinit();
+        self.pending_graph_reads.deinit(self.alloc);
     }
 
     /// Register a callback target and return its funcidx (the dense registry
@@ -292,10 +310,10 @@ pub const ComponentGraph = struct {
 
     /// The ctx `driveScheduler` is generic over for the cross-component graph
     /// (ADR-0195 c-2b): dispatch a task's callback by its registry funcidx across
-    /// the graph's instances. `pollSet` has no cross-component waitable delivery
-    /// yet (streams/futures across the boundary land in step (d)/(e)) — it always
-    /// returns null, so a task that WAITs with no progress deadlocks loudly via
-    /// `driveScheduler`'s `AsyncDeadlock` (never a silent NONE).
+    /// the graph's instances. `pollSet` (ADR-0195 d-c-2) delivers a cross-component
+    /// stream/future event that a peer's write already deposited into a joined end's
+    /// `pending_event`; a `.waiting` task with no such event returns null, so the
+    /// scheduler deadlocks loudly via `AsyncDeadlock` (never a silent NONE).
     const GraphAsyncCtx = struct {
         state: *GraphAsync,
 
@@ -317,10 +335,17 @@ pub const ComponentGraph = struct {
             return @bitCast(res[0].i32);
         }
 
+        /// ADR-0195 step (d-c-2): deliver a pending cross-component event for a
+        /// `.waiting` task's waitable set. The peer's `stream.write` already
+        /// resolved the parked read (copying bytes into the reader's memory + setting
+        /// its read-end `pending_event` via `end.copy`'s notify), so this just polls
+        /// the set's members. No host-source `deliverParkedReads` step is needed —
+        /// the producer is the peer guest, not a host fd. Returns null when nothing
+        /// is pending, letting `driveScheduler` trap `AsyncDeadlock` for an
+        /// unresolvable WAIT (the adversarial no-peer-write case).
         pub fn pollSet(self: *GraphAsyncCtx, set_index: u32) !?async_mod.EventTuple {
-            _ = self;
-            _ = set_index;
-            return null;
+            const set = try self.state.sets.get(set_index);
+            return try set.poll(&self.state.streams);
         }
     };
 
@@ -609,6 +634,20 @@ fn pourSyntheticExport(
         // ops are wired; cancel ops are a typed deferral (d-c-2) — fail loudly.
         .stream_future => |sf| {
             try installGraphFutureBuiltin(graph, child, lk, ns, ex.name, sf.op, sf.type_index);
+            return;
+        },
+        // A child's own `canon waitable-set.new` / `waitable.join` (ADR-0195 d-c-2):
+        // wire the graph-level host func backed by the GRAPH-shared `sets` table, so a
+        // blocked guest callee can build a set + join its parked read-end and the graph
+        // scheduler's `pollSet` finds it. `wait`/`poll`/`drop` are typed deferrals
+        // (the scheduler delivers WAIT via the callback ABI, not a guest `wait` call).
+        .waitable_set => |ws| {
+            const as = try graph.asyncState();
+            switch (ws.op) {
+                .new => try lk.defineFuncCtx(ns, ex.name, @ptrCast(as), fn (*Caller) BoundaryError!u32, graphWaitableSetNew),
+                .join => try lk.defineFuncCtx(ns, ex.name, @ptrCast(as), fn (*Caller, u32, u32) BoundaryError!void, graphWaitableJoin),
+                .wait, .poll, .drop => return GraphError.UnsupportedBoundaryType,
+            }
             return;
         },
         else => return GraphError.UnsupportedBoundaryType,
@@ -955,6 +994,24 @@ fn graphTaskReturn(caller: *Caller, value: i32) BoundaryError!void {
     task.result = @bitCast(value);
 }
 
+/// `canon waitable-set.new` at the graph boundary (ADR-0195 d-c-2): mint an empty
+/// waitable set into the GRAPH-shared `sets` table (mirror of `p2WaitableSetNew`).
+/// A blocked guest callee builds a set, joins its parked end, and returns WAIT(set);
+/// the graph scheduler's `pollSet` then resolves it across the boundary.
+fn graphWaitableSetNew(caller: *Caller) BoundaryError!u32 {
+    const as = caller.data(GraphAsync);
+    return as.sets.add(async_mod.WaitableSet.init(as.alloc)) catch |e| return mapGraphAsyncFault(e);
+}
+
+/// `canon waitable.join` at the graph boundary (ADR-0195 d-c-2): add a waitable
+/// (a stream/future end handle in `GraphAsync.streams`) to a graph-shared set. A
+/// bad set handle is a guest fault → trap (mirror of `p2WaitableJoin`).
+fn graphWaitableJoin(caller: *Caller, set_handle: u32, waitable: u32) BoundaryError!void {
+    const as = caller.data(GraphAsync);
+    const set = as.sets.get(set_handle) catch |e| return mapGraphAsyncFault(e);
+    set.join(waitable) catch |e| return mapGraphAsyncFault(e);
+}
+
 /// The host context a graph `canon future.*` builtin binds to (ADR-0195 d-b-2):
 /// the GRAPH-shared rendezvous arena + its handle table (so a future minted in
 /// child A is readable by child B), plus the resolved payload byte size for the
@@ -1065,6 +1122,24 @@ fn graphStreamWrite(caller: *Caller, handle: u32, ptr: u32, count: u32) Boundary
     @memcpy(st.buf[0..@intCast(nbytes)], src);
     st.buf_len = @intCast(nbytes);
     const step = end.copy(st, &ctx.as.streams, handle, count) catch |e| return mapGraphAsyncFault(e);
+    // ADR-0195 d-c-2 (the BLOCKING path): if this write resolved a PARKED reader
+    // (the reader blocked before any writer arrived), deliver the deposited bytes
+    // into that reader's recorded memory now — its `pending_event` is already set
+    // by `end.copy`'s notify, so `pollSet` re-enters its task to find the bytes
+    // in place. The guest↔guest analogue of the host-source `deliverParkedReads`.
+    if (step.notify) |nt| {
+        if (ctx.as.pending_graph_reads.fetchRemove(nt.waitable)) |kv| {
+            const pr = kv.value;
+            // Deliver min(reader capacity, deposited) bytes — the rendezvous count
+            // model resolves to `min(write_count, read_cap)`, so cap the copy by
+            // both the reader's requested span and what the writer actually stashed.
+            const rbytes = @min(@as(u64, pr.cap) * @as(u64, pr.elem_size), @as(u64, st.buf_len));
+            if (rbytes > 0) {
+                const dst = pr.mem.sliceAt(pr.ptr, @intCast(rbytes)) catch return error.OutOfBoundsStore;
+                @memcpy(dst, st.buf[0..@intCast(rbytes)]);
+            }
+        }
+    }
     return step.code().encode();
 }
 
@@ -1091,6 +1166,15 @@ fn graphStreamRead(caller: *Caller, handle: u32, ptr: u32, count: u32) BoundaryE
             const dst = mem.sliceAt(ptr, @intCast(nbytes)) catch return error.OutOfBoundsStore;
             @memcpy(dst, st.buf[0..@intCast(nbytes)]);
         }
+    } else if (step.caller == .blocked) {
+        // ADR-0195 d-c-2: the read parked (no writer yet). Record where the resolving
+        // peer-write must deposit the bytes (this reader's memory + ptr), keyed by the
+        // readable end handle the guest then joins to its waitable set. Validate the
+        // destination span up front so a bad (ptr,cap) traps at park time, not later.
+        const mem = caller.memory() orelse return error.OutOfBoundsStore;
+        const span = @as(u64, count) * @as(u64, ctx.elem_size);
+        _ = mem.sliceAt(ptr, @intCast(span)) catch return error.OutOfBoundsStore;
+        ctx.as.pending_graph_reads.put(ctx.as.alloc, handle, .{ .mem = mem, .ptr = ptr, .cap = count, .elem_size = ctx.elem_size }) catch return error.OutOfMemory;
     }
     return step.code().encode();
 }

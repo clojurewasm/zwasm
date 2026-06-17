@@ -48,19 +48,22 @@ CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`. Windows batch 
   `.result` + writes it (flat-4 i32) into the IMPORTER's memory at `retptr` (`bctx.importer` threaded through
   `installAsyncBoundary`). Fixture `two_async_components_consume_result.wat` (A reads mem[0]→42, task.returns it);
   test asserts A's own task 1 == 42. A blocked-callee (no result yet) stays unwritten = async-completion path (later).
-- **(d-b-2) DONE** (@4a344503) + **(d-c-1) DONE** (@9eabb709) — both subagent + main-loop-verified (build+test+
-  comp-spec 163/0+lint+fallback green): SYNCHRONOUS guest↔guest **future** + multi-element **stream** rendezvous.
-  `GraphAsync` owns ONE graph-level `SharedTable`+`StreamFutureTable`; `graphFuture*`/`graphStream*` builtins
-  (wired via `pourSyntheticExport` `.stream_future` arm) mint/look-up there so a handle minted in A is valid in B
-  (only the i32 crosses). Value channel: `SharedFuture.value[8]` cell + `SharedStream.buf[64]` (count-only
-  rendezvous moves no bytes; writer deposits from `caller.memory()`, reader drains). Async boundary takes ONE
-  flat-i32 handle param (`AsyncBoundaryParamSig`/`asyncBoundaryParamTrampoline`). Fixtures: future (B writes 42→A
-  reads), stream (B writes {10,20,12}→A sums→42); tests assert A's task 1 == 42 (mutation-proven). **D-463** tracks
-  the shared-table isolation simplification. Deferrals (loud): cancel ops, BLOCKED/read-first, param+retptr, >cap.
-- **NEXT (d-c-2 — the BLOCKING case + pollSet/waitable-set)**: A `stream.read`s BEFORE B writes → BLOCKED →
-  `GraphAsyncCtx.pollSet` (still null) must harvest the peer end's `pending_event` after B's later write + the
-  scheduler re-enters A. This is the waitable-set-delivery in the exit-condition. Then (e) adversarial. Likely
-  Step-0-survey the single-component WAIT/pollSet path (`component_wasi_p3.zig` `waitOn` + `WaitableSet.poll`).
+- **(d-b-2) DONE** (@4a344503) + **(d-c-1) DONE** (@9eabb709): SYNCHRONOUS (write-before-read) guest↔guest
+  **future** + multi-element **stream** rendezvous. `GraphAsync` owns ONE graph-level `SharedTable`+`StreamFutureTable`;
+  `graphFuture*`/`graphStream*` builtins (wired via `pourSyntheticExport` `.stream_future` arm) mint/look-up there so
+  a handle minted in A is valid in B (only the i32 crosses). Value channel: `SharedFuture.value[8]` + `SharedStream.buf[64]`
+  (count-only rendezvous; writer deposits from `caller.memory()`, reader drains). Async boundary takes ONE flat-i32
+  handle param. Fixtures assert A's task 1 == 42 (mutation-proven). **D-463** = shared-table isolation simplification.
+  Deferrals (loud): cancel ops, param+retptr, >cap.
+- **(d-c-2) DONE** — BLOCKING guest↔guest stream rendezvous + pollSet/waitable-set delivery. B (callee)
+  `stream.read`s → BLOCKED → `waitable-set.new`+`join`+WAIT → B's task GENUINELY `.waiting`; A writes later →
+  `graphStreamWrite`'s `step.notify` copies bytes into B's recorded reader-memory (`GraphAsync.pending_graph_reads`,
+  keyed by read-end handle) + `end.copy` sets B's read-end `pending_event`; `GraphAsyncCtx.pollSet` (now polls
+  `GraphAsync.sets` member `pending_event`) harvests it → scheduler re-enters B → B reads {20,22}→sums→task.return(42).
+  Graph waitable-set builtins (`graphWaitableSetNew`/`graphWaitableJoin`, mirror p2) wired via the new
+  `pourSyntheticExport` `.waitable_set` arm (wait/poll/drop = loud UnsupportedBoundaryType). Fixtures:
+  `two_async_components_stream_blocking.wat` (B's task 2 == 42) + `two_async_components_stream_deadlock.wat` (A never
+  writes → `error.AsyncDeadlock`, the (e)-adjacent guard). 2941/2953 unit + comp-spec 163/0 + lint/fallback/zone green.
 - **Exit-condition**: `async_two_tasks_stream_rendezvous.wat` (2-component: A async-imports B's async export)
   builds + asserts Subtask creation→resolution + waitable-set delivery, e2e green; full async corpus + (e)
   adversarial (deadlock/dropped/cancelled) green; single-task path unchanged.

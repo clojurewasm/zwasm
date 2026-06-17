@@ -625,6 +625,56 @@ test "ADR-0195 d-c-1: a synchronous multi-element guest↔guest async stream ren
     try testing.expectEqual(@as(?u32, 42), graph.taskResult(1)); // A summed B's stream bytes
 }
 
+const two_async_components_stream_blocking_path = "test/component/two_async_components_stream_blocking.wasm";
+const two_async_components_stream_deadlock_path = "test/component/two_async_components_stream_deadlock.wasm";
+
+test "ADR-0195 d-c-2: a BLOCKING guest↔guest async stream rendezvous (B reads→BLOCKS→WAITs, A writes, B re-enters via pollSet, sums to 42)" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, two_async_components_stream_blocking_path, testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var graph = try instantiateGraph(&eng, testing.allocator, bytes, .{});
+    defer graph.deinit();
+
+    // A's `run` mints a `stream<u8>`, async-calls B's `tick(stream<u8>)` passing the
+    // READABLE end. B `stream.read`s it → BLOCKED (A has not written) → joins it to a
+    // fresh waitable-set + returns WAIT(set), so B's task is `.waiting` (the genuine
+    // block — NOT the synchronous d-c-1 path). A then `stream.write`s {20,22} into the
+    // writable end: the rendezvous resolves B's parked read, copies the bytes into B's
+    // memory + sets B's read-end STREAM_READ pending_event. `driveScheduler` polls B's
+    // `.waiting` task → `GraphAsyncCtx.pollSet` fetches the set, finds the pending event,
+    // re-enters B's callback, which reads 20+22 == 42 and task.returns it. B's OWN task
+    // result (task 2) == 42 proves the value crossed A→B through the BLOCKING park-then-
+    // deliver path + the pollSet/waitable-set delivery.
+    try graph.driveAsyncMain("run");
+    const counts = graph.asyncTaskCounts();
+    try testing.expectEqual(@as(usize, 2), counts.total); // A's run + B's tick
+    try testing.expectEqual(@as(usize, 2), counts.done); // both reached EXIT
+    try testing.expectEqual(@as(?u32, 42), graph.taskResult(2)); // B summed A's delivered bytes
+}
+
+test "ADR-0195 d-c-2 (adversarial): a cross-component async read that BLOCKS with no peer write TRAPS AsyncDeadlock, never hangs or completes silently" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, two_async_components_stream_deadlock_path, testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var graph = try instantiateGraph(&eng, testing.allocator, bytes, .{});
+    defer graph.deinit();
+
+    // B blocks on the read; A never writes → B's `.waiting` task is never woken
+    // (pollSet returns null forever) and a whole scheduler pass makes no progress.
+    // The driver MUST trap `AsyncDeadlock` (loud), not hang or silently return.
+    try testing.expectError(error.AsyncDeadlock, graph.driveAsyncMain("run"));
+}
+
 test "D-305 (security): an OOB (ptr,len) into a cross-component string import TRAPS, not silently returns 0" {
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();
