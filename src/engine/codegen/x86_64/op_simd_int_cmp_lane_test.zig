@@ -958,7 +958,7 @@ test "emitI32x4ExtaddPairwiseI16x8S: PCMPEQB + PSRLW imm=15 + MOVAPS + PMADDWD (
     try pushed.append(testing.allocator, 0);
     var next_vreg: u32 = 1;
 
-    try op_simd_int_cmp_lane.emitI32x4ExtaddPairwiseI16x8S(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+    try op_simd_int_cmp_lane.emitI32x4ExtaddPairwiseI16x8S(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
 
     var expected: std.ArrayList(u8) = .empty;
     defer expected.deinit(testing.allocator);
@@ -985,7 +985,7 @@ test "emitI16x8ExtaddPairwiseI8x16U: PCMPEQB + PABSB + MOVAPS + PMADDUBSW (4 ins
     try pushed.append(testing.allocator, 0);
     var next_vreg: u32 = 1;
 
-    try op_simd_int_cmp_lane.emitI16x8ExtaddPairwiseI8x16U(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+    try op_simd_int_cmp_lane.emitI16x8ExtaddPairwiseI8x16U(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
 
     var expected: std.ArrayList(u8) = .empty;
     defer expected.deinit(testing.allocator);
@@ -1013,7 +1013,7 @@ test "emitI16x8ExtaddPairwiseI8x16S: PCMPEQB + PABSB scratch, MOVAPS dst, PMADDU
     try pushed.append(testing.allocator, 0);
     var next_vreg: u32 = 1;
 
-    try op_simd_int_cmp_lane.emitI16x8ExtaddPairwiseI8x16S(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+    try op_simd_int_cmp_lane.emitI16x8ExtaddPairwiseI8x16S(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
 
     var expected: std.ArrayList(u8) = .empty;
     defer expected.deinit(testing.allocator);

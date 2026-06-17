@@ -437,22 +437,22 @@ pub fn emitI8x16SwizzleCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Erro
 
 pub fn emitI16x8ExtaddPairwiseI8x16SCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitI16x8ExtaddPairwiseI8x16S(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitI16x8ExtaddPairwiseI8x16S(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitI16x8ExtaddPairwiseI8x16UCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitI16x8ExtaddPairwiseI8x16U(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitI16x8ExtaddPairwiseI8x16U(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitI32x4ExtaddPairwiseI16x8SCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitI32x4ExtaddPairwiseI16x8S(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitI32x4ExtaddPairwiseI16x8S(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitI32x4ExtaddPairwiseI16x8UCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitI32x4ExtaddPairwiseI16x8U(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitI32x4ExtaddPairwiseI16x8U(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 /// Wasm spec §4.4.3 (i32x4.splat) — pop scalar i32, push v128
@@ -1922,15 +1922,16 @@ pub fn emitI64x2ExtmulHighI32x4U(allocator: Allocator, buf: *std.ArrayList(u8), 
 /// to plain pairwise-add. Synthesise the +1 vector inline via
 /// PCMPEQB ones + PABSB → 0x01 per byte (no const-pool dep).
 /// 4-instr recipe.
-pub fn emitI16x8ExtaddPairwiseI8x16U(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+pub fn emitI16x8ExtaddPairwiseI8x16U(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const src_v = pushed_vregs.pop().?;
     const result_v = next_vreg.*;
     next_vreg.* += 1;
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
-    const src_x = try gpr.resolveXmm(alloc, src_v);
-    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    // D-461: spill-aware src+dst on STAGE1 (XMM15) — XMM14 (stage0) is the const scratch.
+    const src_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, src_v, 1);
+    const dst_x = try gpr.xmmDefSpilledV128(alloc, result_v, 1);
     const tmp = abi.fp_spill_stage_xmms[0]; // XMM14
 
     // 1-2: tmp = 0x01 per byte (signed +1).
@@ -1942,6 +1943,7 @@ pub fn emitI16x8ExtaddPairwiseI8x16U(allocator: Allocator, buf: *std.ArrayList(u
         try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, src_x).slice());
     }
     try buf.appendSlice(allocator, inst.encPmaddubsw(dst_x, tmp).slice());
+    try gpr.xmmStoreSpilledV128(allocator, buf, alloc, spill_base_off, result_v, 1);
     try pushed_vregs.append(allocator, result_v);
 }
 
@@ -1954,15 +1956,16 @@ pub fn emitI16x8ExtaddPairwiseI8x16U(allocator: Allocator, buf: *std.ArrayList(u
 /// no const-pool dep. The _u variant cannot use the same recipe
 /// (PMADDWD reads operands as signed i16, treating high u16 lanes
 /// as negative) — deferred to a later chunk pending ADR-0042.
-pub fn emitI32x4ExtaddPairwiseI16x8S(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+pub fn emitI32x4ExtaddPairwiseI16x8S(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const src_v = pushed_vregs.pop().?;
     const result_v = next_vreg.*;
     next_vreg.* += 1;
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
-    const src_x = try gpr.resolveXmm(alloc, src_v);
-    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    // D-461: spill-aware src+dst on STAGE1 (XMM15) — XMM14 (stage0) is the const scratch.
+    const src_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, src_v, 1);
+    const dst_x = try gpr.xmmDefSpilledV128(alloc, result_v, 1);
     const tmp = abi.fp_spill_stage_xmms[0]; // XMM14
 
     // 1-2: tmp = 0x0001 per word (= +1 per i16 lane).
@@ -1974,6 +1977,7 @@ pub fn emitI32x4ExtaddPairwiseI16x8S(allocator: Allocator, buf: *std.ArrayList(u
         try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, src_x).slice());
     }
     try buf.appendSlice(allocator, inst.encPmaddwd(dst_x, tmp).slice());
+    try gpr.xmmStoreSpilledV128(allocator, buf, alloc, spill_base_off, result_v, 1);
     try pushed_vregs.append(allocator, result_v);
 }
 
@@ -2085,15 +2089,16 @@ pub fn emitI8x16Shuffle(
 /// 7  : PMADDWD dst, t1          (pairwise sum into i32)
 /// 8-10: t1 = 0x00010000-per-dword (PCMPEQB + PSRLD 31 + PSLLD 16)
 /// 11 : PADDD dst, t1            (correction: + 0x10000 per i32)
-pub fn emitI32x4ExtaddPairwiseI16x8U(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+pub fn emitI32x4ExtaddPairwiseI16x8U(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const src_v = pushed_vregs.pop().?;
     const result_v = next_vreg.*;
     next_vreg.* += 1;
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
-    const src_x = try gpr.resolveXmm(alloc, src_v);
-    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    // D-461: spill-aware src+dst on STAGE1 (XMM15) — XMM14 (stage0) is the const scratch.
+    const src_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, src_v, 1);
+    const dst_x = try gpr.xmmDefSpilledV128(alloc, result_v, 1);
     const t1 = abi.fp_spill_stage_xmms[0]; // XMM14
 
     // 1-2: t1 = 0x8000-per-word (sign-flip mask).
@@ -2117,6 +2122,7 @@ pub fn emitI32x4ExtaddPairwiseI16x8U(allocator: Allocator, buf: *std.ArrayList(u
     // 11: PADDD dst, t1 → recover the original (u16+u16) sum per i32.
     try buf.appendSlice(allocator, inst.encPaddD(dst_x, t1).slice());
 
+    try gpr.xmmStoreSpilledV128(allocator, buf, alloc, spill_base_off, result_v, 1);
     try pushed_vregs.append(allocator, result_v);
 }
 
@@ -2135,15 +2141,16 @@ pub fn emitI32x4ExtaddPairwiseI16x8U(allocator: Allocator, buf: *std.ArrayList(u
 /// XMM7 on the alias path (D-066 / D-071 mirror; the `_u` variant
 /// already keeps its constant out of dst, so it was never hit).
 /// 4-instr recipe (+1 MOVAPS stash on the alias case).
-pub fn emitI16x8ExtaddPairwiseI8x16S(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+pub fn emitI16x8ExtaddPairwiseI8x16S(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const src_v = pushed_vregs.pop().?;
     const result_v = next_vreg.*;
     next_vreg.* += 1;
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
-    const src_x = try gpr.resolveXmm(alloc, src_v);
-    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    // D-461: spill-aware src+dst on STAGE1 (XMM15) — XMM14 (stage0) is the const scratch.
+    const src_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, src_v, 1);
+    const dst_x = try gpr.xmmDefSpilledV128(alloc, result_v, 1);
     const ones = abi.fp_spill_stage_xmms[0]; // XMM14 — 0x01-per-byte
 
     // 1-2: ones = 0x01 per byte (read as unsigned 1 by PMADDUBSW).
@@ -2161,5 +2168,6 @@ pub fn emitI16x8ExtaddPairwiseI8x16S(allocator: Allocator, buf: *std.ArrayList(u
     // 4: PMADDUBSW dst, src — result_word = unsigned(1)*signed(b0)
     // + unsigned(1)*signed(b1) = i8 + i8 (sign-extended sum).
     try buf.appendSlice(allocator, inst.encPmaddubsw(dst_x, src_for_op).slice());
+    try gpr.xmmStoreSpilledV128(allocator, buf, alloc, spill_base_off, result_v, 1);
     try pushed_vregs.append(allocator, result_v);
 }
