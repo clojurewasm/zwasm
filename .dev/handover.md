@@ -3,20 +3,6 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Active bundle
-
-- **Bundle-ID**: D-463 per-component async handle-isolation (ADR-0197)
-- **Cycles-remaining**: ~3 (Phase II fixture → Phase IV per-component tables + transfer + re-key)
-- **Continuity-memo**: correctness-FIRST. Design locked in ADR-0197: per-`GraphChild` `streams`+`sets`
-  (inject pointers into `GraphFutureCtx`); `SharedTable` STAYS graph-shared; boundary end-transfer
-  (remove from caller table, mint callee-local handle, same `.shared`); `pending_graph_reads` re-keys
-  raw-handle → shared-slot id (else per-component same-valued handles collide).
-- **Exit-condition**: `GraphAsync.streams`/`.sets` gone (per-`GraphChild`); all 6 trusted
-  `two_async_components_*` fixtures + the new `two_async_components_stream_isolation` fixture green.
-  NEXT step (Phase II, do FIRST): author `two_async_components_stream_isolation.wat` (A mints 2 streams,
-  passes only w1 to B; B writes to A's PRIVATE end index) + RED test `expectError` (traps post-fix; SUCCEEDS
-  today = the leak) BEFORE any impl.
-
 ## Current state — Phase 17 完成形 completion-refinement (release = USER-ONLY, ADR-0156)
 
 Project at the **完成形 plateau** (all dims confirmed): clean (C/Zig/CLI audits), full-featured (WASI complete +
@@ -34,9 +20,10 @@ functional gap; campaign closed-arc below). Cross-component async now works end-
 (`driveScheduler`) → cross-component ROUTING (c-2b) → `task.return` capture + result round-trip (d-a/d-b-1) →
 future rendezvous (d-b-2) → synchronous + BLOCKING multi-element stream rendezvous + pollSet/waitable-set delivery
 + AsyncDeadlock guard (d-c-1/d-c-2, @a82b4f84). Local gate green (test-all unit + comp-spec 163/0 + lint +
-fallback). **Residuals (debt-tracked, NOT blocking, do NOT grind): D-464** (broader (e) adversarial dropped/
-cancelled cross-component cases + cancel-op/waitable wait-poll-drop graph builtins + ADR-0195 Phase-V retro),
-**D-463** (shared-handle-table isolation refinement).
+fallback). **D-463 cross-component async handle isolation CLOSED 2026-06-18 (@633189454, ADR-0197 ownership
+ledger)**: a child can no longer reach a peer's un-granted stream/future end (adversarial isolation fixture
+RED→GREEN). **Residual (debt-tracked, NOT blocking, do NOT grind): D-464** (broader (e) adversarial dropped/
+cancelled cross-component cases + cancel-op/waitable wait-poll-drop graph builtins).
 
 **Prior arcs**: wasi:random COMPLETE; ADR-0193 feature-separation + version SSOT; D-335 typed marshalling DONE;
 C-API @b4d75506 (Windows export fix); interp+JIT fuzz 808 mods 0 crashes. ADR-0193 (D-462) + D-461 (ADR-0194)
@@ -62,11 +49,12 @@ Status→Implemented + retrospective section; D-464 item (4) closed).
 
 ## RESUME POINTER (2026-06-18) — for a fresh session
 
-1. **Active bundle drives** (above): D-463 per-component async handle-isolation, Phase II next (Step 1b routes here).
-2. **Remote state**: d-c-2 Mac+ubuntu-verified; windows batch at 3/12 (fires at 12, verifies @a82b4f84 — non-urgent).
-   Nothing pending blocks resume. (Normal `/continue` Step 0.7 still runs.) ADR-0195 campaign FULLY closed @f799128a.
-3. Other debt-tracked fronts (none urgent, do NOT grind speculatively): **D-464** (1)-(3) consumer-gated,
-   D-461 (v128 result-write spill, EXOTIC/x86_64), D-460/D-209 (parked), D-305 rare aggregate shapes.
+1. **No active bundle.** D-463 isolation campaign CLOSED @633189454 (ADR-0197 ledger; Phase II+IV+V done this session).
+   At the **完成形 plateau** — pick the next front per Step 0.5 debt sweep + design-priority, do NOT grind speculatively.
+2. **Remote state**: D-463 commits (@7c45d1f4d..@633189454) Mac-local green (test + lint); ubuntu re-kick @7c45d1f4d
+   green (prior fail = D-028 listen-IPC flake, streak tracked). windows batch ~7/12, non-urgent. Step 0.7 still runs.
+3. Other debt-tracked fronts (none urgent, do NOT grind speculatively): **D-464** (1)-(3) consumer-gated graph
+   cancel-op/adversarial, D-461 (v128 result-write spill, EXOTIC/x86_64), D-460/D-209 (parked), D-305 rare shapes.
 
 ## Recently closed arcs (detail in ADRs/git/debt — one-liners)
 

@@ -41,8 +41,12 @@ them — not grindable speculatively. **D-463** (shared `StreamFutureTable` acro
 handle isolation) is the structural-simplification residual — correct for a trusted composed graph, a
 spec-fidelity refinement for untrusted composition.
 
-**Superseded-simplification note.** None — this campaign added capability on a green base rather than reworking
-an earlier simplification, so there is no prior ADR to mark `Revised`.
+**Superseded-simplification note.** The d-b-2 graph-shared `StreamFutureTable` ("the handle crosses verbatim …
+no rebind is needed") was a deliberate trusted-graph simplification — it gave all children one shared handle
+index space, so a child could reach a peer's un-granted stream/future end. **Superseded 2026-06-18 by ADR-0197**
+(cross-component async handle isolation via an ownership ledger; D-463): handles are now owner-tagged and
+transfer-on-lower, so an un-granted end traps. The shared rendezvous (`SharedTable`) stays graph-shared (reached
+only through an owned end) — that part of d-b-2 stands.
 
 ## Revision 2026-06-17 (PM) — UNBLOCKED (the D-305 blocker landed)
 

@@ -1,8 +1,10 @@
 # ADR-0197 — Cross-component async handle isolation via an ownership ledger (D-463)
 
-- Status: **Accepted (design) — correctness-first bundle OPEN 2026-06-18**. Phase I investigation done
-  (the GraphAsync survey + the `pending_graph_reads` re-key analysis below); Phase II (adversarial isolation
-  fixture + characterization) is the next-cycle gate BEFORE any Phase IV redesign code.
+- Status: **Implemented 2026-06-18 (@633189454)**. Phase II adversarial fixture
+  `two_async_components_stream_isolation` (RED→GREEN, "found void"→trap) + Phase IV ownership-ledger landed:
+  `GraphAsync.owners` + `GraphFutureCtx.child_idx` + `GraphChild.idx`; owner-set on stream/future mint;
+  owner-check in stream/future write/read/drop + waitable.join; owner-transfer in the boundary trampoline. All
+  6 trusted `two_async_components_*` fixtures + the isolation fixture green; D-463 discharged. Phase V retro below.
 - Date: 2026-06-18
 - Refines: ADR-0195 d-b-2 (the graph-shared `StreamFutureTable`/`SharedTable` was the least-change path that
   made cross-component future/stream rendezvous work; this ADR closes its deliberate handle-isolation
@@ -91,3 +93,17 @@ Make the async handle tables **per-component**, with **call-time end-transfer** 
 - No public API change; no WIT/fixture-semantics change for the 6 trusted fixtures (their passed end transfers
   ownership; the holder keeps its own end). New adversarial fixture `two_async_components_stream_isolation`.
 - P3/P6 single-pass invariants untouched (interp/host driver only; no JIT/codegen surface).
+
+## Phase V retrospective (2026-06-18)
+
+- **Hit the 完成形?** Yes for the isolation dimension: a child can no longer read/write/drop/join a
+  stream/future end it was not granted (the `two_async_components_stream_isolation` fixture goes from a silent
+  cross-component data-injection — A read 42 from a stream only B should have touched — to a hard trap). 100%
+  spec (handle opacity) + sandboxing-triad extended to graph async handles.
+- **Design pivot during the campaign** (logged in the Revision above): the per-component-table plan was dropped
+  for the ownership ledger when Phase-IV scoping exposed the scheduler/Zone-1 threading cost for zero
+  guest-observable benefit. The ADR process worked — the cheaper, equally-conformant design surfaced before code.
+- **New debt:** none from this pass. Untouched residuals remain **D-464** (graph cancel-op / wider boundary
+  shapes — a handle crossing via a result or aggregate param is not yet transfer-tagged because those shapes are
+  themselves deferred; when they land, mirror the `asyncBoundaryParamTrampoline` retag).
+- **Superseded simplification:** ADR-0195 d-b-2's graph-shared-table "no rebind needed" note — annotated there.
