@@ -56,16 +56,13 @@ Status→Implemented + retrospective section; D-464 item (4) closed).
    (ubuntu+win @0e1fca6e7 recorded). 9 adversarial fixtures in `component_async_tests.zig`.
 2. **Audit DONE 2026-06-18 (CLEAN)** — `audit_scaffolding` 0 block/0 soon (only J.3 chronic debt=61);
    `private/audit-2026-06-18.md`. Fuzz smoke 0 crashes.
-3. **D-461 x86_64 EXTEND result-write spill DONE @83256d210** — GREEN arm64-native + x86_64-Rosetta + **ubuntu
-   @b8d6ba461 (exit 0)**; windows in-flight (verify next Step 0.7; rides Win64-proven stage-XMM mechanism).
-   **Remaining D-461 ops investigated 2026-06-18 — each ENTANGLED/harder than extend, NOT clean chunks** (detail in
-   D-461 row): **replace_lane** needs the x86_64 v128 fix AND the arm64 GPR-scalar spill (D-034 cohort) → do WITH
-   D-034 (deferred). **Extadd-pairwise DONE @4b839f29a** (arm64 clean via emitV128Unop; x86_64 all-4 migrated
-   src+dst→stage1, scratch stage0; extadd_pairwise_i16x8_s→8190 GREEN arm64+x86_64-Rosetta). **Next** (LAST D-461
-   result-write category): **v128 memory-LOAD op dsts** (op_simd.zig :249/282/313/343/373/402,+439/514 — investigated:
-   NOT arithmetic binops, those are done; these are v128.load*/load_lane writing a spilled dst via resolveXmm + XMM14
-   scratch → migrate dst→stage1 like Extadd; needs a memory+12-v128 force-spill fixture). EXOTIC + careful codegen →
-   best done fresh, arm64-verify first. Or pivot to dogfood. Do NOT grind consumer-gated work (D-464(2), D-305).
+3. **D-461 x86_64 v128 result-write spill — 3 op families DONE this session** (arm64 was already spill-aware for
+   all; x86_64 migrated dst→stage1/XMM15, scratch stays stage0/XMM14; each with a 12-v128 force-spill fixture,
+   arm64+Rosetta GREEN): **extend** @83256d210 (also ubuntu+windows = 3-host), **Extadd-pairwise** @4b839f29a (ubuntu
+   green), **v128.load splat/zero** (6 ops) @612a1b6b9. **Remaining D-461** (detail in row): **load_lane** (op_simd.zig
+   :439/514, reads vec+dst — next clean-ish candidate, arm64-verify first per lesson); **replace_lane** ENTANGLED with
+   D-034 arm64-GPR-scalar (deferred to the D-034 cohort). Or pivot to dogfood. Do NOT grind consumer-gated (D-464(2),
+   D-305).
 4. **Remote**: D-461 extend @83256d210 GREEN on ALL 3 HOSTS (arm64+Rosetta+ubuntu @b8d6ba461; **windows exit 0**,
    gate recorded @aaec6db9d). D-028/windows-listen IPC flakes cosmetic.
 

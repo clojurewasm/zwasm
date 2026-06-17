@@ -1884,11 +1884,11 @@ entries:
           migrated src+dst→stage1/XMM15 (const scratch stays stage0/XMM14, collision-avoided), spill_base_off
           threaded through 4 sig+ctx + 3 unit-test callers. Fixture extadd_pairwise_i16x8_s→8190 arm64+x86_64-Rosetta
           GREEN. (Other 3 variants share the recipe + migration; one representative tested per bitmask/extend precedent.)
-      (3) **v128 memory-LOAD op dsts** (op_simd.zig :249/282/313/343/373/402, +439/514) — the LAST D-461 result-write
-          category. NOT arithmetic binops (those are FULLY spill-aware: sources :95-96, dsts proven by `v128.or`
-          working spilled in the extend/Extadd fixtures); these are v128.load*/load_lane ops whose `dst_x = resolveXmm`
-          rejects a spilled dst + use XMM14 (stage0) scratch → migrate dst→stage1 like Extadd. Needs a memory+12-v128
-          force-spill fixture (harder: memory section + load + spill pressure). EXOTIC; verify arm64-clean first (lesson).
+      (3) **v128 memory-LOAD op dsts** — arm64 clean (emitV128LoadFamily). x86_64 splat/zero (6 ops :249/282/313/343/
+          373/402: load8/16/32/64_splat + load32/64_zero) DONE @612a1b6b9 (dst→stage1; load8 PSHUFB scratch stays
+          stage0; spill_base_off already present, no threading). Fixture 12×v128.load32_splat→4095 arm64+Rosetta GREEN.
+          REMAINING: **load_lane** (:439/514 — reads a v128 vec + writes dst, different shape; vec+dst both resolveXmm).
+          (NOT arithmetic binops — those are fully spill-aware: sources :95-96, dsts proven by `v128.or` spilling.)
       EXOTIC (high-v128-pressure only; concrete D-460 array-copy blocker already cleared by extract_lane).
       Original surfacing context below.
 
