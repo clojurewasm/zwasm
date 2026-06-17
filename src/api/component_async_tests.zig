@@ -280,3 +280,24 @@ test "D-465: when the FUTURE reader drops its readable end, the writer's future.
     try graph.driveAsyncMain("run");
     try testing.expectEqual(@as(?u32, 1), graph.taskResult(2)); // B saw DROPPED (code 1)
 }
+
+const two_async_components_stream_blocking_drop_path = "test/component/two_async_components_stream_blocking_drop.wasm";
+
+test "D-464(1): a PARKED cross-component stream reader is woken with DROPPED when its writable peer drops (no deadlock)" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, two_async_components_stream_blocking_drop_path, testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var graph = try instantiateGraph(&eng, testing.allocator, bytes, .{});
+    defer graph.deinit();
+
+    // B parks reading; A drops the writable peer. The drop must wake B's parked read
+    // with DROPPED (B re-reads → low bit set → task.return 99), not leave it waiting
+    // forever (AsyncDeadlock).
+    try graph.driveAsyncMain("run");
+    try testing.expectEqual(@as(?u32, 99), graph.taskResult(2)); // B woken with DROPPED
+}

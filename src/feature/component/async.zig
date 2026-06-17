@@ -866,7 +866,22 @@ pub fn dropEndGuarded(ends: *StreamFutureTable, shared: *SharedTable, handle: u3
     const end = try ends.get(handle);
     if (end.shared != 0) {
         switch ((try shared.get(end.shared)).*) {
-            .stream => |*s| try end.drop(s),
+            .stream => |*s| {
+                try end.drop(s);
+                // Wake a PARKED peer (a blocked reader/writer waiting in a waitable
+                // set) so its scheduler re-entry observes DROPPED, instead of waiting
+                // forever for a rendezvous that can never complete (D-464: a parked
+                // cross-component reader + peer-drop deadlocked). Mirrors how a write
+                // notifies a parked reader; the peer's re-read/-write sees `s.dropped`
+                // and returns DROPPED. Futures can't reach this (a future writable
+                // can't drop before writing, and a write wakes the reader first).
+                if (s.pending) |p| {
+                    const peer = try ends.get(p.waitable);
+                    peer.setPendingEvent(.{ .code = streamEventFor(p.side), .index = p.waitable, .payload = 0 });
+                    peer.state = .idle;
+                    s.pending = null;
+                }
+            },
             .future => |*f| {
                 if (end.side == .writable) try f.guardWritableDrop();
                 try end.drop(f);
