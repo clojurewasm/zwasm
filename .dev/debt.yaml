@@ -2052,11 +2052,16 @@ entries:
           reused the EXISTING FMA template (emitV128FpFmaX86 @:653): cmp→home-or-stage1, dst→home-or-XMM7, base
           loaded into dst (MOVAPS or RBP-disp v128 load), store XMM7 if spilled; NO common-case cost (no-spill path
           byte-identical). **add/sub/mul/div + pmin/pmax already spill-aware** (route via op_simd.emitV128IntBinop).
-          REMAINING (g): the SCRATCH-HEAVY ops that consume BOTH XMM14+XMM15 internally — spec NaN-min/max
-          (:519/:568, 2 scratch) + convert/trunc_sat (:1176/:1275/:1445/:1541). The FMA/compare template (dst→XMM7,
-          2 stages for operands) does NOT directly fit when 2 internal scratches ALSO need both stages → per-op
-          restructure (free a stage by parking one scratch on XMM7 like abs/neg, or memory-operand scratch). REJECT
-          a global 3rd-stage-XMM pool cut (perf cost, exotic). Opt-in-JIT-only, exotic; lower priority than done set.
+          **single-instr FP-unop + int-abs (9 ops) DONE @2f74db7ed** — emitV128FpUnop (sqrt + convert_i32x4_s/
+          convert_low_i32x4_s/promote/demote + i8x16/i16x8/i32x4.abs via PABS) is 0-scratch → clean 2-stage like
+          round. REMAINING (g) = the genuinely SCRATCH-HEAVY ops consuming BOTH XMM14+XMM15: spec NaN-min/max
+          (:519/:568, 2-source + 2-scratch = 5 regs) + the UNSIGNED/TRUNC-SAT converts (convert_i32x4_u :1210,
+          i32x4.trunc_sat_f32x4_s/u :1255/:1309, trunc_sat_f64x2_s/u_zero :1470/:1566, convert_low_i32x4_u :1624 —
+          all use float-magic-const recipes with 2 scratch). Neither template fits (2 scratch ALSO want both
+          stages) → per-op in-place restructure (load src into one stage, compute result there using XMM7 + the
+          other stage as scratch, store to dst slot — feasible for 1-source converts: src/dst share a stage; the
+          2-source min/max are hardest at 5 regs). REJECT a global 3rd-stage-XMM pool cut (perf, exotic).
+          Opt-in-JIT-only, exotic; the clean-template wins (0/1-scratch + 3-operand-FMA-shape) are now ALL done.
       NOT D-034 (genuinely-structural, leave): op_simd.zig:490/:672 (v128 select/bitselect need 3 simultaneous V
       regs vs 2 stage regs — a stage-count limit, not a missing migration).
       STAGING confirmed collision-free: arm64 GPR stages = X14/X15 (`abi.spill_stage_gprs`), disjoint from the
