@@ -395,7 +395,7 @@ test "emitF64x2ExtractLane: lane 1 → PSHUFD imm 0xEE (select high qword)" {
     try pushed.append(testing.allocator, 0);
     var next_vreg: u32 = 1;
 
-    try op_simd_float.emitF64x2ExtractLane(testing.allocator, &buf, alloc, &pushed, &next_vreg, 1);
+    try op_simd_float.emitF64x2ExtractLane(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0, 1);
 
     try testing.expectEqualSlices(u8, inst.encPshufd(.xmm9, .xmm8, 0xEE).slice(), buf.items);
 }
@@ -550,7 +550,7 @@ test "emitF32x4ExtractLane: lane 2 → PSHUFD dst, src, 0xAA" {
     try pushed.append(testing.allocator, 0);
     var next_vreg: u32 = 1;
 
-    try op_simd_float.emitF32x4ExtractLane(testing.allocator, &buf, alloc, &pushed, &next_vreg, 2);
+    try op_simd_float.emitF32x4ExtractLane(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0, 2);
 
     // lane 2 → 2 * 0x55 = 0xAA.
     try testing.expectEqualSlices(u8, inst.encPshufd(.xmm9, .xmm8, 0xAA).slice(), buf.items);

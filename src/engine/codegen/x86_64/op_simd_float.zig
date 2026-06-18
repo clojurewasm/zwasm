@@ -959,6 +959,7 @@ pub fn emitF64x2ExtractLane(
     alloc: regalloc.Allocation,
     pushed_vregs: *std.ArrayList(u32),
     next_vreg: *u32,
+    spill_base_off: u32,
     payload: u32,
 ) Error!void {
     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
@@ -967,12 +968,14 @@ pub fn emitF64x2ExtractLane(
     next_vreg.* += 1;
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
-    const src_x = try gpr.resolveXmm(alloc, src_v);
-    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    // D-461: spill-aware v128 src (16-byte) + FP-scalar dst (stages 0/1).
+    const src_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, src_v, 0);
+    const dst_x = try gpr.xmmDefSpilled(alloc, result_v, 1);
 
     const lane: u1 = @intCast(payload & 0b1);
     const imm8: u8 = if (lane == 0) 0x44 else 0xEE;
     try buf.appendSlice(allocator, inst.encPshufd(dst_x, src_x, imm8).slice());
+    try gpr.xmmStoreSpilled(allocator, buf, alloc, spill_base_off, result_v, 1);
     try pushed_vregs.append(allocator, result_v);
 }
 
@@ -1080,6 +1083,7 @@ pub fn emitF32x4ExtractLane(
     alloc: regalloc.Allocation,
     pushed_vregs: *std.ArrayList(u32),
     next_vreg: *u32,
+    spill_base_off: u32,
     payload: u32,
 ) Error!void {
     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
@@ -1088,11 +1092,14 @@ pub fn emitF32x4ExtractLane(
     next_vreg.* += 1;
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
-    const src_x = try gpr.resolveXmm(alloc, src_v);
-    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    // D-461: spill-aware v128 src (16-byte) + FP-scalar dst. src→stage0/XMM14,
+    // dst→stage1/XMM15 (distinct stages; PSHUFD reads src, writes dst).
+    const src_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, src_v, 0);
+    const dst_x = try gpr.xmmDefSpilled(alloc, result_v, 1);
 
     const lane: u8 = @intCast(payload & 0b11);
     try buf.appendSlice(allocator, inst.encPshufd(dst_x, src_x, lane *% 0x55).slice());
+    try gpr.xmmStoreSpilled(allocator, buf, alloc, spill_base_off, result_v, 1);
     try pushed_vregs.append(allocator, result_v);
 }
 

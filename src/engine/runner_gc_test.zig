@@ -375,6 +375,22 @@ test "runI32Export: array.new_fixed 2 ×(f32x4.splat) + i32x4.extract_lane → 0
     try testing.expectEqual(@as(u32, 0x41100000), runI32Export(testing.allocator, &bytes, "f"));
 }
 
+test "runI32Export: f32x4.extract_lane of a spilled FP result + reinterpret → 0x41100000 (D-461 FP-extract result spill)" {
+    // D-461: f32x4/f64x2.extract_lane share emitV128ExtractLaneFp, whose FP
+    // scalar RESULT was resolveFp-EXEMPT → UnsupportedOp when the f32 result
+    // spills (array.new_fixed pressure). Fix: fpDefSpilled/fpStoreSpilled
+    // stage1/V30 (src qLoadSpilled is stage0/V29 — same V-file, distinct
+    // stages). element 1 = f32x4.splat(9.0); extract_lane 0 = 9.0f32;
+    // reinterpret = 0x41100000. arm64 gap (x86_64 was already spill-aware).
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x5e, 0x7b, 0x01, 0x60, 0x00,
+        0x01, 0x7f, 0x03, 0x02, 0x01, 0x01, 0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00, 0x0a, 0x1f, 0x01,
+        0x1d, 0x00, 0x43, 0x00, 0x00, 0x10, 0x41, 0xfd, 0x13, 0x43, 0x00, 0x00, 0x10, 0x41, 0xfd, 0x13,
+        0xfb, 0x08, 0x00, 0x02, 0x41, 0x01, 0xfb, 0x0b, 0x00, 0xfd, 0x1f, 0x00, 0xbc, 0x0b,
+    };
+    try testing.expectEqual(@as(u32, 0x41100000), runI32Export(testing.allocator, &bytes, "f"));
+}
+
 test "runI32Export: 12 live v128 force-spill + v128.or chain + extract_lane → 4095 (D-461 SIMD spill)" {
     // 12 v128 locals live simultaneously force a v128 spill (arm64 13 V-regs,
     // x86_64 6 XMM). v128.or-chains them; extract_lane 0 of OR(1,2,4,...,2048)

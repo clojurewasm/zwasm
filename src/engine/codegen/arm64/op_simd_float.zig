@@ -91,11 +91,15 @@ fn emitV128ExtractLaneFp(
     const result_vreg = ctx.next_vreg.*;
     ctx.next_vreg.* += 1;
     if (result_vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
-    // SPILL-EXEMPT: FP scalar result; fpDefSpilled (D-form, 8-byte stride) is its own follow-on alongside other FP-side sites.
-    const result_v = try gpr.resolveFp(ctx.alloc, result_vreg);
+    // D-461: spill-aware FP-scalar result (was resolveFp-reject). The v128 src
+    // uses qLoadSpilled stage 0 (V29); the FP result uses stage 1 (V30) — both
+    // draw from fp_spill_stage_vregs {V29,V30}, so distinct stages avoid a
+    // same-V-file collision (unlike the GPR narrow-extract's disjoint X-file).
+    const result_v = try gpr.fpDefSpilled(ctx.alloc, result_vreg, 1);
 
     const lane: u32 = @intCast(ins.payload & lane_mask);
     try gpr.writeU32(ctx.allocator, ctx.buf, encoder(result_v, src_v, lane));
+    try gpr.fpStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 1);
     try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
 }
 

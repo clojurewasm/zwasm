@@ -1360,13 +1360,13 @@ pub fn compile(
             // §9.7 / 9.7-i: f32x4 lane access trio. XMM-source
             // semantics — splat / extract reuse encPshufd; replace
             // uses the new INSERTPS encoder (SSE4.1 3A 21 /r ib).
-            .@"f32x4.extract_lane" => try op_simd_float.emitF32x4ExtractLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, @as(u32, @intCast(ins.payload))),
+            .@"f32x4.extract_lane" => try op_simd_float.emitF32x4ExtractLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, @as(u32, @intCast(ins.payload))),
             .@"f32x4.replace_lane" => try op_simd_float.emitF32x4ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, @as(u32, @intCast(ins.payload))),
             // §9.7 / 9.7-j: f64x2 lane access trio. splat + extract_lane
             // reuse encPshufd (imm 0x44 / 0xEE for low/high qword).
             // replace_lane uses MOVAPS preamble + MOVSD (lane=0) /
             // MOVLHPS (lane=1).
-            .@"f64x2.extract_lane" => try op_simd_float.emitF64x2ExtractLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, @as(u32, @intCast(ins.payload))),
+            .@"f64x2.extract_lane" => try op_simd_float.emitF64x2ExtractLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, @as(u32, @intCast(ins.payload))),
             .@"f64x2.replace_lane" => try op_simd_float.emitF64x2ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, @as(u32, @intCast(ins.payload))),
             // §9.7 / 9.7-k: int compare eq/ne family. PCMPEQ B/W/D
             // (SSE2) + PCMPEQQ (SSE4.1); ne paths apply NOT via
