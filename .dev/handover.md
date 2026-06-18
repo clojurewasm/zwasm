@@ -32,16 +32,19 @@ CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`.
 ## Active bundle
 
 - **Bundle-ID**: D-034 SIMD spill-completeness cohort (scalar-operand sibling of D-461 + the v128-source arith gap)
-- **Cycles-remaining**: ~1 (DONE through @b50c1ad1e: (e) + ALL of (g) [v128-operand arc COMPLETE 3-host] + scalar
-  (a) GPR new-lane + (b) splat-src; opened 2026-06-18). Fixture trick: push ≥pool-size scalars LIVE on the stack.
-- **Continuity-memo**: ALL 4 spill templates now exist — 0-scratch (round/sqrt/converts-s/int-abs), 1-scratch
-  XMM7-park (abs/neg), 3-operand FMA (FP-compare), **2-scratch single-source in-place (convert_i32x4_u @bceeef4cf:
-  load src INTO dst home-or-XMM7, recipe reads dst, store XMM7 if spilled)**. add/sub/mul/div + pmin/pmax already
-  spill-aware. REMAINING (g), now MECHANICAL via the in-place template: trunc_sat_f32x4_s/u (:1255/:1309),
-  trunc_sat_f64x2_s/u_zero (:1470/:1566), convert_low_i32x4_u (:1624). Only genuinely-different = the 2-SOURCE spec
-  NaN-min/max (op_simd_float.zig:519/:568, 5 regs — hardest, needs memory-operand scratch). REJECT a global
-  3rd-stage-XMM pool cut. Scalar sub-cats remain: (a) GPR new-lane (arm64 :109/:183), (b) GPR splat-src (:43),
-  (c) FP new-lane (:126), (f) shift-amt (:425) — need new GPR/FP-pressure fixtures. 3-host clean through @2f74db7ed.
+- **Cycles-remaining**: ~2 (the SCALAR cohort + the FP (g) arc are now DONE; the REMAINING (g) int-arith
+  synthesized ops are the harder multi-scratch template). DONE through @b56cb514f: (a)(b)(e) + all FP (g) +
+  **(c) FP new-lane + (f) shift-amt BOTH arches** + **shift v128-SOURCE spill** (arm64 dup_v→V31 collision fix;
+  x86_64 generic i16/i32/i64 emitV128IntShift vec/dst→spill-aware). Fixture trick: push ≥pool-size scalars LIVE.
+- **Continuity-memo**: the prior "REMAINING = ONLY (c)+(f), campaign closes after 2" was WRONG — the (g) int-arith
+  sub-arc still has bare-`resolveXmm` x86_64 ops the FP-only progress list skipped. CONFIRMED gap: **x86_64
+  synthesized i8x16 shifts** (emitI8x16Shl :557 / ShrU :597 / ShrS — vec/dst bare resolveXmm AND both stages
+  XMM14/XMM15 consumed internally → the HARD multi-scratch case, use XMM7-park / in-place template like NaN-min/max)
+  + **i8x16.popcnt** (:~1235) + likely avgr/min/max-signed/dot. arm64 routes i8x16 shifts through the now-spill-aware
+  emitV128IntShift, so this is an x86_64-only asymmetry. An Explore inventory (launched @b56cb514f) is producing the
+  exact site table — read its result, then drive op-by-op TDD (live-v128-pressure fixture per op, RED→GREEN both
+  arches). The 4 spill templates (0-scratch / XMM7-park 1-scratch / FMA 3-operand / 2-scratch in-place) all apply.
+  REJECT a global 3rd-stage-XMM pool cut.
 - **Exit-condition**: every a–g sub-category's operand forced to spill flows through its op on BOTH arches; zero
   bare resolveGpr/resolveFp/resolveXmm SPILL-EXEMPT sites remain (except the structural 3-V-reg select/bitselect).
 
@@ -49,11 +52,12 @@ CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`.
 
 0. **ADR-0195 guest↔guest async — CAMPAIGN COMPLETE** (D-335 closed; detail in git + ADR-0195; residuals D-463
    CLOSED / D-464 future-bucket). **D-461 v128-DST-spill arc COMPLETE both arches** (FP replace_lane @4acd24152).
-1. **Active bundle = D-034** (above): SIMD spill-completeness; through @b50c1ad1e — v128-operand arc COMPLETE
-   (3-host) + scalar (a) GPR new-lane + (b) splat-src DONE. **REMAINING = ONLY (c) FP new-lane (arm64
-   op_simd_float.zig:126 resolveFp) + (f) shift-amt (op_simd_int_arith.zig:425 resolveGpr)** — same
-   gprLoadSpilled/fpLoadSpilled swap (X14/V-stage), verified with a live-scalar-pressure fixture (push ≥pool-size
-   scalars LIVE on the stack before the lane op; FP-pressure floats for (c)). The whole D-034 campaign closes after these 2.
+1. **Active bundle = D-034** (above): SIMD spill-completeness; through @b56cb514f — scalar (a)(b)(c)(e)(f) DONE +
+   FP (g) arc DONE + shift v128-source spill (both arches) DONE. **REMAINING = the (g) int-arith x86_64 synthesized
+   ops** the FP-only progress list skipped: i8x16 shifts (emitI8x16Shl/ShrU/ShrS — HARD: both stage XMMs used
+   internally, needs XMM7-park/in-place template), i8x16.popcnt, likely avgr/min/max-signed/dot. Read the Explore
+   inventory result first; drive op-by-op TDD with a live-v128-pressure fixture, RED→GREEN both arches. NOT "2
+   mechanical swaps" — a harder multi-scratch sub-arc.
 2. **Audit DONE 2026-06-18 (CLEAN)** — `audit_scaffolding` 0 block/0 soon (J.3 chronic debt); fuzz 0 crashes.
 3. **D-460 v128-GC JIT emit DONE both arches** (@3d8be3c00/@8137c7268/@5292569e0; 6 runI32Export fixtures = the
    authoritative JIT verification). Only an optional edge fixture remains (low value). Consumer-gated, do NOT grind:

@@ -2071,14 +2071,25 @@ entries:
           DONE.** **NaN-min/max DONE @5484c6763** (fmin uses XMM15 as the just-in-time temp for spilled lhs/rhs;
           fmax uses the dst reg, free until step 5; shared loadV128Into/resolveOrLoadV128/storeV128IfSpilled
           helpers; no-spill path byte-identical; 2 force-spill fixtures min(3,5)→0x40400000 / max→0x40A00000).
-          **The ENTIRE v128-OPERAND spill arc (D-461 + all of D-034(g)) is now COMPLETE on both arches.**
+          **The FP v128-OPERAND spill arc (D-461 + D-034(g) FP family) is COMPLETE on both arches** (the int-arith
+          synthesized ops below were NOT in this claim — see STILL REMAINING).
           **(a)+(b) DONE @b50c1ad1e**: arm64 GPR new-lane (replace_lane :109/:183) + splat-source
           (emitV128SplatFromGpr :44) → gprLoadSpilled stage0/X14 (X-file, disjoint from V-file qLoad/qDef). NEW
           fixture-infra technique: push ≥pool-size i32 LIVE onto the stack before the lane op (mirrors the
           12-live-v128 trick — scalar pressure). One fixture (11 live i32 + replace_lane → 4095) exercised both.
-          REMAINING D-034 = ONLY (c) FP new-lane (arm64 op_simd_float.zig:126 resolveFp) + (f) shift-amt (arm64
-          op_simd_int_arith.zig:425 resolveGpr) — same gprLoadSpilled/fpLoadSpilled swap + a live-scalar-pressure
-          fixture (FP-pressure for c). Opt-in-JIT-only, exotic.
+          **(c)+(f) DONE @b56cb514f both arches**: (c) FP new-lane — arm64 op_simd_float.zig:126 resolveFp →
+          fpLoadSpilled stage1 (shares result's V30 stage, the D-066 V31 aliasing-stash preserves it); x86_64
+          emitF32x4/F64x2ReplaceLane new-lane resolveXmm → xmmLoadSpilled stage1 (XMM7 stash). (f) shift-amt — arm64
+          gprLoadSpilled stage0/X14. **ALSO closed the shift v128-SOURCE spill gap** (the (g) progress list had
+          skipped it): arm64 emitV128IntShift hardcoded dup_v=V29 = qLoadSpilled stage0, clobbered a spilled src
+          before USHL (1<<1=2) → moved dup to simd_scratch_v V31; x86_64 generic i16/i32/i64 emitV128IntShift vec/dst
+          were bare resolveXmm → made spill-aware (share stage0 in-place, count→stage1). 2 fixtures (11-live-i32
+          shift→6, 13-live-f32 replace_lane→0x40400000), RED→GREEN arm64-native + x86_64-Rosetta.
+          **STILL REMAINING (g) — the int-arith SYNTHESIZED ops the FP-only progress list skipped** (x86_64-only;
+          arm64 routes them through shared spill-aware helpers): **i8x16 shifts** emitI8x16Shl :557 / ShrU :597 /
+          ShrS — vec/dst bare resolveXmm AND both stages XMM14/XMM15 consumed internally = HARD multi-scratch
+          (XMM7-park / in-place template); **i8x16.popcnt** ~:1235; likely avgr / min/max-signed / dot. Inventory
+          subagent launched @b56cb514f for the exact site table. Opt-in-JIT-only, exotic.
       NOT D-034 (genuinely-structural, leave): op_simd.zig:490/:672 (v128 select/bitselect need 3 simultaneous V
       regs vs 2 stage regs — a stage-count limit, not a missing migration).
       STAGING confirmed collision-free: arm64 GPR stages = X14/X15 (`abi.spill_stage_gprs`), disjoint from the
@@ -2090,7 +2101,7 @@ entries:
       empirically: author WAT → `--engine jit --invoke` → confirm UnsupportedOp → migrate → GREEN, both arches via
       Rosetta). Discharge: every sub-category's scalar forced to spill flows through its lane op on BOTH arches.
     first_raised: "2026-06-18"
-    last_reviewed: "2026-06-18"
+    last_reviewed: "2026-06-19"
     refs: |-
       src/engine/codegen/arm64/op_simd_int_cmp_lane.zig (:43/:109/:183 resolveGpr new-lane+splat; :322/:359 GPR result);
       src/engine/codegen/arm64/op_simd_float.zig (:126 resolveFp new-lane); src/engine/codegen/arm64/op_simd.zig (:774);
