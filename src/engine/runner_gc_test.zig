@@ -358,6 +358,23 @@ test "runI32Export: array.new_fixed 2 ×(i8x16.splat) + extract_lane_u → 9 (D-
     try testing.expectEqual(@as(u32, 9), runI32Export(testing.allocator, &bytes, "f"));
 }
 
+test "runI32Export: array.new_fixed 2 ×(f32x4.splat) + i32x4.extract_lane → 0x41100000 (D-461 f32x4.splat spilled-dst)" {
+    // D-461: f32x4.splat (FP-scalar source → v128) used resolveXmm for src+dst.
+    // array.new_fixed force-spills the 2 splat results → x86_64 UnsupportedOp.
+    // Fix mirrors arm64 emitV128SplatFromV (src xmmLoadSpilled + dst
+    // xmmDefSpilledV128, stage0, PSHUFD read-before-write). element 1 =
+    // f32x4.splat(9.0) → every i32 lane = the f32 bits 0x41100000; read it with
+    // i32x4.extract_lane (GPR-result, spill-aware) — NOT f32x4.extract_lane,
+    // whose FP result is still resolveFp-EXEMPT on arm64 (sibling gap).
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x5e, 0x7b, 0x01, 0x60, 0x00,
+        0x01, 0x7f, 0x03, 0x02, 0x01, 0x01, 0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00, 0x0a, 0x1e, 0x01,
+        0x1c, 0x00, 0x43, 0x00, 0x00, 0x10, 0x41, 0xfd, 0x13, 0x43, 0x00, 0x00, 0x10, 0x41, 0xfd, 0x13,
+        0xfb, 0x08, 0x00, 0x02, 0x41, 0x01, 0xfb, 0x0b, 0x00, 0xfd, 0x1b, 0x00, 0x0b,
+    };
+    try testing.expectEqual(@as(u32, 0x41100000), runI32Export(testing.allocator, &bytes, "f"));
+}
+
 test "runI32Export: 12 live v128 force-spill + v128.or chain + extract_lane → 4095 (D-461 SIMD spill)" {
     // 12 v128 locals live simultaneously force a v128 spill (arm64 13 V-regs,
     // x86_64 6 XMM). v128.or-chains them; extract_lane 0 of OR(1,2,4,...,2048)

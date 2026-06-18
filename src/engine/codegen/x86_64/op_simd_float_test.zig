@@ -374,7 +374,7 @@ test "emitF64x2Splat: PSHUFD dst, src, 0x44 — broadcast low qword" {
     try pushed.append(testing.allocator, 0);
     var next_vreg: u32 = 1;
 
-    try op_simd_float.emitF64x2Splat(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+    try op_simd_float.emitF64x2Splat(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
 
     try testing.expectEqualSlices(u8, inst.encPshufd(.xmm9, .xmm8, 0x44).slice(), buf.items);
 }
@@ -529,7 +529,7 @@ test "emitF32x4Splat: PSHUFD dst, src, 0x00" {
     try pushed.append(testing.allocator, 0);
     var next_vreg: u32 = 1;
 
-    try op_simd_float.emitF32x4Splat(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+    try op_simd_float.emitF32x4Splat(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
 
     try testing.expectEqualSlices(u8, inst.encPshufd(.xmm9, .xmm8, 0x00).slice(), buf.items);
 }
