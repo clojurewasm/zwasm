@@ -116,17 +116,17 @@ pub fn emitI64x2NegCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!vo
 
 pub fn emitI8x16AbsCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitI8x16Abs(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitI8x16Abs(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitI16x8AbsCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitI16x8Abs(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitI16x8Abs(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitI32x4AbsCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitI32x4Abs(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitI32x4Abs(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitI64x2AbsCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
@@ -688,16 +688,16 @@ pub fn emitI64x2Neg(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regall
 ///
 /// For src >= 0: sign_mask = 0; result = src.
 /// For src < 0:  sign_mask = -1; result = ~src - (-1) = -src.
-pub fn emitI8x16Abs(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return op_simd_float.emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPabsb);
+pub fn emitI8x16Abs(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd_float.emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPabsb);
 }
 
-pub fn emitI16x8Abs(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return op_simd_float.emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPabsw);
+pub fn emitI16x8Abs(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd_float.emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPabsw);
 }
 
-pub fn emitI32x4Abs(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return op_simd_float.emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encPabsd);
+pub fn emitI32x4Abs(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return op_simd_float.emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPabsd);
 }
 
 /// i64x2.abs synthesis (no PABSQ in SSE; SSE4.2 PCMPGTQ

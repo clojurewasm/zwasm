@@ -192,7 +192,7 @@ test "emitF32x4Sqrt: unary path — single SQRTPS dst, src (no MOVAPS)" {
     try pushed.append(testing.allocator, 0);
     var next_vreg: u32 = 1;
 
-    try op_simd_float.emitF32x4Sqrt(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+    try op_simd_float.emitF32x4Sqrt(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
 
     var expected: std.ArrayList(u8) = .empty;
     defer expected.deinit(testing.allocator);
@@ -216,7 +216,7 @@ test "emitF64x2Sqrt: unary path — single SQRTPD dst, src" {
     try pushed.append(testing.allocator, 0);
     var next_vreg: u32 = 1;
 
-    try op_simd_float.emitF64x2Sqrt(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+    try op_simd_float.emitF64x2Sqrt(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
 
     var expected: std.ArrayList(u8) = .empty;
     defer expected.deinit(testing.allocator);

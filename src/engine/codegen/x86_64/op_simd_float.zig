@@ -133,7 +133,7 @@ pub fn emitF32x4NegCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!vo
 
 pub fn emitF32x4SqrtCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF32x4Sqrt(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF32x4Sqrt(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitF32x4CeilCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
@@ -168,7 +168,7 @@ pub fn emitF64x2NegCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!vo
 
 pub fn emitF64x2SqrtCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF64x2Sqrt(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF64x2Sqrt(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitF64x2CeilCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
@@ -442,6 +442,7 @@ pub fn emitV128FpUnop(
     alloc: regalloc.Allocation,
     pushed_vregs: *std.ArrayList(u32),
     next_vreg: *u32,
+    spill_base_off: u32,
     encoder: *const fn (dst: inst.Xmm, src: inst.Xmm) inst.EncodedInsn,
 ) Error!void {
     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
@@ -450,19 +451,23 @@ pub fn emitV128FpUnop(
     next_vreg.* += 1;
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
-    const val_x = try gpr.resolveXmm(alloc, val_v);
-    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    // D-034 (g): spill-aware v128 src+dst. Single-instruction unary (SQRTPS/PD,
+    // CVTDQ2PS/PD, CVTPS2PD, CVTPD2PS) with NO internal scratch → clean 2-stage
+    // migration (src→stage0/XMM14, dst→stage1/XMM15), like emitV128FpRound.
+    const val_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, val_v, 0);
+    const dst_x = try gpr.xmmDefSpilledV128(alloc, result_v, 1);
 
     try buf.appendSlice(allocator, encoder(dst_x, val_x).slice());
+    try gpr.xmmStoreSpilledV128(allocator, buf, alloc, spill_base_off, result_v, 1);
     try pushed_vregs.append(allocator, result_v);
 }
 
-pub fn emitF32x4Sqrt(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encSqrtps);
+pub fn emitF32x4Sqrt(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encSqrtps);
 }
 
-pub fn emitF64x2Sqrt(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encSqrtpd);
+pub fn emitF64x2Sqrt(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encSqrtpd);
 }
 
 /// Wasm spec §4.4.4 (f*x*.{min, max}) — pop two v128, push v128
@@ -942,20 +947,20 @@ pub fn emitF64x2Nearest(allocator: Allocator, buf: *std.ArrayList(u8), alloc: re
 /// Unsigned conversions and trunc-sat ops defer to later chunks
 /// (cranelift uses const-pool float magic numbers per
 /// `lower.isle:3761+`; pending ADR-0042 plumbing).
-pub fn emitF32x4ConvertI32x4S(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encCvtdq2ps);
+pub fn emitF32x4ConvertI32x4S(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encCvtdq2ps);
 }
 
-pub fn emitF64x2ConvertLowI32x4S(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encCvtdq2pd);
+pub fn emitF64x2ConvertLowI32x4S(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encCvtdq2pd);
 }
 
-pub fn emitF64x2PromoteLowF32x4(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encCvtps2pd);
+pub fn emitF64x2PromoteLowF32x4(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encCvtps2pd);
 }
 
-pub fn emitF32x4DemoteF64x2Zero(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encCvtpd2ps);
+pub fn emitF32x4DemoteF64x2Zero(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpUnop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encCvtpd2ps);
 }
 
 /// Wasm spec §4.4.3 (f64x2.splat) — pop scalar f64 (XMM low 64),
@@ -1675,7 +1680,7 @@ pub fn emitF64x2SplatCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!
 
 pub fn emitF32x4ConvertI32x4SCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF32x4ConvertI32x4S(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF32x4ConvertI32x4S(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitF32x4ConvertI32x4UCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
@@ -1685,17 +1690,17 @@ pub fn emitF32x4ConvertI32x4UCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr
 
 pub fn emitF64x2ConvertLowI32x4SCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF64x2ConvertLowI32x4S(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF64x2ConvertLowI32x4S(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitF64x2PromoteLowF32x4Ctx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF64x2PromoteLowF32x4(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF64x2PromoteLowF32x4(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitF32x4DemoteF64x2ZeroCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF32x4DemoteF64x2Zero(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF32x4DemoteF64x2Zero(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitI32x4TruncSatF32x4SCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {

@@ -1609,17 +1609,17 @@ pub fn compile(
             // Complete handlers, shared with the relaxed-simd trunc variants below;
             // only the dispatch wiring was missing (validate also rejected them
             // pre-79fd589e).
-            .@"f32x4.convert_i32x4_s" => try op_simd_float.emitF32x4ConvertI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.convert_i32x4_s" => try op_simd_float.emitF32x4ConvertI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             .@"f32x4.convert_i32x4_u" => try op_simd_float.emitF32x4ConvertI32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.convert_low_i32x4_s" => try op_simd_float.emitF64x2ConvertLowI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f64x2.convert_low_i32x4_s" => try op_simd_float.emitF64x2ConvertLowI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             .@"i32x4.trunc_sat_f32x4_s" => try op_simd_float.emitI32x4TruncSatF32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             .@"i32x4.trunc_sat_f32x4_u" => try op_simd_float.emitI32x4TruncSatF32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
             // Remaining float conversions + rounding + narrow + i64x2.extmul
             // (D-457 systemic close): complete handlers, dispatch was unwired —
             // the old corpus never had simd_conversions / *_rounding /
             // simd_i64x2_extmul_i32x4 so the gap stayed hidden.
-            .@"f32x4.demote_f64x2_zero" => try op_simd_float.emitF32x4DemoteF64x2Zero(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
-            .@"f64x2.promote_low_f32x4" => try op_simd_float.emitF64x2PromoteLowF32x4(allocator, &buf, alloc, &pushed_vregs, &next_vreg),
+            .@"f32x4.demote_f64x2_zero" => try op_simd_float.emitF32x4DemoteF64x2Zero(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
+            .@"f64x2.promote_low_f32x4" => try op_simd_float.emitF64x2PromoteLowF32x4(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             // FP rounding (ROUNDPS/ROUNDPD imm8 mode; SSE4.1).
             .@"f32x4.ceil" => try op_simd_float.emitF32x4Ceil(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             .@"f32x4.floor" => try op_simd_float.emitF32x4Floor(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
