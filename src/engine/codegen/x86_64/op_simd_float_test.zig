@@ -600,16 +600,16 @@ test "emitF32x4Abs: PCMPEQB + PSLLD-31 + (MOVAPS dst,src) + PANDN + MOVAPS" {
     try pushed.append(testing.allocator, 0);
     var next_vreg: u32 = 1;
 
-    try op_simd_float.emitF32x4Abs(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+    try op_simd_float.emitF32x4Abs(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
 
     var expected: std.ArrayList(u8) = .empty;
     defer expected.deinit(testing.allocator);
-    // src = xmm8, dst = xmm9, mask = xmm14.
-    try expected.appendSlice(testing.allocator, inst.encPcmpeqB(.xmm14, .xmm14).slice());
-    try expected.appendSlice(testing.allocator, inst.encPslldImm(.xmm14, 31).slice());
+    // src = xmm8, dst = xmm9, mask = xmm7.
+    try expected.appendSlice(testing.allocator, inst.encPcmpeqB(.xmm7, .xmm7).slice());
+    try expected.appendSlice(testing.allocator, inst.encPslldImm(.xmm7, 31).slice());
     try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm9, .xmm8).slice());
-    try expected.appendSlice(testing.allocator, inst.encPandn(.xmm14, .xmm9).slice());
-    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm9, .xmm14).slice());
+    try expected.appendSlice(testing.allocator, inst.encPandn(.xmm7, .xmm9).slice());
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm9, .xmm7).slice());
     try testing.expectEqualSlices(u8, expected.items, buf.items);
 }
 
@@ -629,15 +629,15 @@ test "emitF64x2Abs: PCMPEQB + PSLLQ-63 (qword sign-mask) for f64x2" {
     try pushed.append(testing.allocator, 0);
     var next_vreg: u32 = 1;
 
-    try op_simd_float.emitF64x2Abs(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+    try op_simd_float.emitF64x2Abs(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
 
     var expected: std.ArrayList(u8) = .empty;
     defer expected.deinit(testing.allocator);
-    try expected.appendSlice(testing.allocator, inst.encPcmpeqB(.xmm14, .xmm14).slice());
-    try expected.appendSlice(testing.allocator, inst.encPsllqImm(.xmm14, 63).slice());
+    try expected.appendSlice(testing.allocator, inst.encPcmpeqB(.xmm7, .xmm7).slice());
+    try expected.appendSlice(testing.allocator, inst.encPsllqImm(.xmm7, 63).slice());
     try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm9, .xmm8).slice());
-    try expected.appendSlice(testing.allocator, inst.encPandn(.xmm14, .xmm9).slice());
-    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm9, .xmm14).slice());
+    try expected.appendSlice(testing.allocator, inst.encPandn(.xmm7, .xmm9).slice());
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm9, .xmm7).slice());
     try testing.expectEqualSlices(u8, expected.items, buf.items);
 }
 
@@ -657,14 +657,14 @@ test "emitF32x4Neg: PCMPEQB + PSLLD-31 + MOVAPS dst,src + PXOR dst, mask (4 inst
     try pushed.append(testing.allocator, 0);
     var next_vreg: u32 = 1;
 
-    try op_simd_float.emitF32x4Neg(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+    try op_simd_float.emitF32x4Neg(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
 
     var expected: std.ArrayList(u8) = .empty;
     defer expected.deinit(testing.allocator);
-    try expected.appendSlice(testing.allocator, inst.encPcmpeqB(.xmm14, .xmm14).slice());
-    try expected.appendSlice(testing.allocator, inst.encPslldImm(.xmm14, 31).slice());
+    try expected.appendSlice(testing.allocator, inst.encPcmpeqB(.xmm7, .xmm7).slice());
+    try expected.appendSlice(testing.allocator, inst.encPslldImm(.xmm7, 31).slice());
     try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm9, .xmm8).slice());
-    try expected.appendSlice(testing.allocator, inst.encPxor(.xmm9, .xmm14).slice());
+    try expected.appendSlice(testing.allocator, inst.encPxor(.xmm9, .xmm7).slice());
     try testing.expectEqualSlices(u8, expected.items, buf.items);
 }
 
@@ -684,14 +684,14 @@ test "emitF64x2Neg: PCMPEQB + PSLLQ-63 + MOVAPS + PXOR" {
     try pushed.append(testing.allocator, 0);
     var next_vreg: u32 = 1;
 
-    try op_simd_float.emitF64x2Neg(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+    try op_simd_float.emitF64x2Neg(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
 
     var expected: std.ArrayList(u8) = .empty;
     defer expected.deinit(testing.allocator);
-    try expected.appendSlice(testing.allocator, inst.encPcmpeqB(.xmm14, .xmm14).slice());
-    try expected.appendSlice(testing.allocator, inst.encPsllqImm(.xmm14, 63).slice());
+    try expected.appendSlice(testing.allocator, inst.encPcmpeqB(.xmm7, .xmm7).slice());
+    try expected.appendSlice(testing.allocator, inst.encPsllqImm(.xmm7, 63).slice());
     try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm9, .xmm8).slice());
-    try expected.appendSlice(testing.allocator, inst.encPxor(.xmm9, .xmm14).slice());
+    try expected.appendSlice(testing.allocator, inst.encPxor(.xmm9, .xmm7).slice());
     try testing.expectEqualSlices(u8, expected.items, buf.items);
 }
 
