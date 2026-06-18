@@ -2069,8 +2069,16 @@ entries:
           @04f0f1e2f** (2-scratch in-place; also covers relaxed_trunc_f32x4_u); **trunc_sat_f64x2_s/u_zero DONE
           @e4a9e79d6** (2-scratch const-pool in-place; also relaxed variants). **ALL convert/trunc_sat ops in (g)
           DONE.** REMAINING (g) = ONLY the 2-SOURCE NaN-min/max
-          (op_simd_float.zig:519/:568, 5 regs — hardest). All 4 templates exist (0-scratch / 1-scratch-XMM7-park /
-          3-operand-FMA / 2-scratch-in-place). Opt-in-JIT-only, exotic.
+          (op_simd_float.zig emitV128FpMin :536 / FpMax :585, 5 regs — hardest). All 4 templates exist (0-scratch /
+          1-scratch-XMM7-park / 3-operand-FMA / 2-scratch-in-place). PHASE-I PLAN (2026-06-19): fmin/fmax need 5
+          v128 ROLES (lhs/rhs/dst + scratch XMM14 + scratch2 XMM15) but PEAK is 4-live (step 3: lhs,rhs,dst,scratch;
+          rhs dead after step 3, lhs after step 4, scratch2 first used step 6). NO new mem-operand encoders needed:
+          dst→home-or-XMM7, scratch XMM14, scratch2 XMM15, and LOAD spilled lhs/rhs just-in-time at their use points
+          via encLoadXmmV128MemRBPDisp32 — lhs into dst-reg @step1 (the MOVAPS becomes a load) + into XMM15 (free
+          until step 6) @step4; rhs into XMM15 @step2-MIN (reuse @step3). store XMM7→dst slot at end. Common
+          (no-spill) path MUST stay byte-identical (conditional loads only when spilled). Intricate per-op
+          interleaving × 4 spill-combos × 2 recipes → a careful fresh-context chunk (a min/max NaN miscompile is a
+          real correctness bug; do NOT rush). Opt-in-JIT-only, exotic.
       NOT D-034 (genuinely-structural, leave): op_simd.zig:490/:672 (v128 select/bitselect need 3 simultaneous V
       regs vs 2 stage regs — a stage-count limit, not a missing migration).
       STAGING confirmed collision-free: arm64 GPR stages = X14/X15 (`abi.spill_stage_gprs`), disjoint from the

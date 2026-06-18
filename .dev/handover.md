@@ -50,8 +50,9 @@ CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`.
 0. **ADR-0195 guest↔guest async — CAMPAIGN COMPLETE** (D-335 closed; detail in git + ADR-0195; residuals D-463
    CLOSED / D-464 future-bucket). **D-461 v128-DST-spill arc COMPLETE both arches** (FP replace_lane @4acd24152).
 1. **Active bundle = D-034** (above): SIMD spill-completeness; through @e4a9e79d6 — **ALL converts/trunc_sat DONE**.
-   REMAINING (g) = ONLY the 2-source spec NaN-min/max (op_simd_float.zig:519/:568, 5 regs — the hardest case,
-   needs memory-operand scratch or a clever recipe). Then scalar sub-cats (a/b/c/f, need GPR/FP-pressure fixtures).
+   REMAINING (g) = ONLY the 2-source spec NaN-min/max (emitV128FpMin/Max) — **PHASE-I plan recorded in D-034 row**
+   (just-in-time loads into XMM7/14/15, no new encoders; intricate interleaving → careful fresh-context chunk; a
+   min/max NaN miscompile is a real bug, don't rush). Then scalar sub-cats (a/b/c/f, need GPR/FP-pressure fixtures).
 2. **Audit DONE 2026-06-18 (CLEAN)** — `audit_scaffolding` 0 block/0 soon (J.3 chronic debt); fuzz 0 crashes.
 3. **D-460 v128-GC JIT emit DONE both arches** (@3d8be3c00/@8137c7268/@5292569e0; 6 runI32Export fixtures = the
    authoritative JIT verification). Only an optional edge fixture remains (low value). Consumer-gated, do NOT grind:
