@@ -2065,9 +2065,10 @@ entries:
           (home or XMM7), recipe reads dst (src read-only, dead by final write), 2 scratch stay on stages, store
           XMM7 if spilled; +1 MOVAPS common-case.** The OTHER 2-scratch single-source converts follow this SAME
           template, now mechanical. **trunc_sat_f32x4_s DONE @f264d3f33** (1-scratch XMM7-park);
-          **convert_low_i32x4_u DONE @f6c5501c1** (1-scratch XMM7-park, const-pool). REMAINING (g): 2-scratch
-          in-place template → trunc_sat_f32x4_u (:1339), trunc_sat_f64x2_s_zero (:1505, const-pool, 2-scratch),
-          trunc_sat_f64x2_u_zero (:1566, const-pool). Only genuinely-different = the 2-SOURCE NaN-min/max
+          **convert_low_i32x4_u DONE @f6c5501c1** (1-scratch XMM7-park, const-pool); **trunc_sat_f32x4_u DONE
+          @04f0f1e2f** (2-scratch in-place; also covers relaxed_trunc_f32x4_u). REMAINING (g): the const-pool
+          2-scratch trunc_sat_f64x2_s_zero (:1505), trunc_sat_f64x2_u_zero (:1566) via the in-place template. Only
+          genuinely-different = the 2-SOURCE NaN-min/max
           (op_simd_float.zig:519/:568, 5 regs — hardest). All 4 templates exist (0-scratch / 1-scratch-XMM7-park /
           3-operand-FMA / 2-scratch-in-place). Opt-in-JIT-only, exotic.
       NOT D-034 (genuinely-structural, leave): op_simd.zig:490/:672 (v128 select/bitselect need 3 simultaneous V

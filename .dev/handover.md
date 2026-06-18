@@ -32,8 +32,9 @@ CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`.
 ## Active bundle
 
 - **Bundle-ID**: D-034 SIMD spill-completeness cohort (scalar-operand sibling of D-461 + the v128-source arith gap)
-- **Cycles-remaining**: ~2 (sub-cats a–g; DONE through @f6c5501c1: (e) GPR-result + (g) all_true-src/FP-round/
-  abs-neg/FP-compare/FP-unop+int-abs/convert_i32x4_u/trunc_sat_f32x4_s/convert_low_i32x4_u; opened 2026-06-18)
+- **Cycles-remaining**: ~2 (sub-cats a–g; DONE through @04f0f1e2f: (e) GPR-result + (g) all_true-src/FP-round/
+  abs-neg/FP-compare/FP-unop+int-abs + converts: convert_i32x4_s/u, convert_low_i32x4_s/u, trunc_sat_f32x4_s/u
+  (+ relaxed); opened 2026-06-18)
 - **Continuity-memo**: ALL 4 spill templates now exist — 0-scratch (round/sqrt/converts-s/int-abs), 1-scratch
   XMM7-park (abs/neg), 3-operand FMA (FP-compare), **2-scratch single-source in-place (convert_i32x4_u @bceeef4cf:
   load src INTO dst home-or-XMM7, recipe reads dst, store XMM7 if spilled)**. add/sub/mul/div + pmin/pmax already
@@ -49,9 +50,9 @@ CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`.
 
 0. **ADR-0195 guest↔guest async — CAMPAIGN COMPLETE** (D-335 closed; detail in git + ADR-0195; residuals D-463
    CLOSED / D-464 future-bucket). **D-461 v128-DST-spill arc COMPLETE both arches** (FP replace_lane @4acd24152).
-1. **Active bundle = D-034** (above): SIMD spill-completeness; through @f6c5501c1 (convert_low_i32x4_u). NEXT
-   (2-scratch in-place template): trunc_sat_f32x4_u (:1339) + the const-pool trunc_sat_f64x2_s/u_zero (:1505/:1566).
-   Then the 2-source NaN-min/max (hardest, 5 regs) OR scalar sub-cats (a/b/c/f, need GPR/FP-pressure fixtures).
+1. **Active bundle = D-034** (above): SIMD spill-completeness; through @04f0f1e2f (trunc_sat_f32x4_u). NEXT (2-scratch
+   in-place template): const-pool trunc_sat_f64x2_s_zero (:1505) + trunc_sat_f64x2_u_zero (:1566). Then only the
+   2-source NaN-min/max (hardest, 5 regs) + scalar sub-cats (a/b/c/f, need GPR/FP-pressure fixtures) remain.
 2. **Audit DONE 2026-06-18 (CLEAN)** — `audit_scaffolding` 0 block/0 soon (J.3 chronic debt); fuzz 0 crashes.
 3. **D-460 v128-GC JIT emit DONE both arches** (@3d8be3c00/@8137c7268/@5292569e0; 6 runI32Export fixtures = the
    authoritative JIT verification). Only an optional edge fixture remains (low value). Consumer-gated, do NOT grind:
