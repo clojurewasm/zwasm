@@ -35,7 +35,7 @@ test "emitF32x4Eq: direct CMPPS imm=0x00 (no swap)" {
     try pushed.append(testing.allocator, 1);
     var next_vreg: u32 = 2;
 
-    try op_simd_float.emitF32x4Eq(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+    try op_simd_float.emitF32x4Eq(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
 
     var expected: std.ArrayList(u8) = .empty;
     defer expected.deinit(testing.allocator);
@@ -61,7 +61,7 @@ test "emitF32x4Gt: swap path — MOVAPS dst, rhs + CMPPS dst, lhs, imm=0x01 (LT)
     try pushed.append(testing.allocator, 1); // rhs
     var next_vreg: u32 = 2;
 
-    try op_simd_float.emitF32x4Gt(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+    try op_simd_float.emitF32x4Gt(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
 
     var expected: std.ArrayList(u8) = .empty;
     defer expected.deinit(testing.allocator);
@@ -88,7 +88,7 @@ test "emitF64x2Lt: direct CMPPD imm=0x01 (no swap)" {
     try pushed.append(testing.allocator, 1);
     var next_vreg: u32 = 2;
 
-    try op_simd_float.emitF64x2Lt(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+    try op_simd_float.emitF64x2Lt(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
 
     var expected: std.ArrayList(u8) = .empty;
     defer expected.deinit(testing.allocator);
@@ -114,7 +114,7 @@ test "emitF64x2Ge: swap + CMPPD imm=0x02 (LE)" {
     try pushed.append(testing.allocator, 1);
     var next_vreg: u32 = 2;
 
-    try op_simd_float.emitF64x2Ge(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+    try op_simd_float.emitF64x2Ge(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
 
     var expected: std.ArrayList(u8) = .empty;
     defer expected.deinit(testing.allocator);

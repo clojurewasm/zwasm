@@ -196,62 +196,62 @@ pub fn emitF64x2NearestCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Erro
 
 pub fn emitF32x4EqCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF32x4Eq(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF32x4Eq(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitF32x4NeCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF32x4Ne(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF32x4Ne(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitF32x4LtCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF32x4Lt(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF32x4Lt(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitF32x4GtCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF32x4Gt(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF32x4Gt(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitF32x4LeCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF32x4Le(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF32x4Le(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitF32x4GeCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF32x4Ge(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF32x4Ge(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitF64x2EqCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF64x2Eq(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF64x2Eq(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitF64x2NeCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF64x2Ne(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF64x2Ne(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitF64x2LtCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF64x2Lt(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF64x2Lt(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitF64x2GtCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF64x2Gt(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF64x2Gt(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitF64x2LeCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF64x2Le(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF64x2Le(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitF64x2GeCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF64x2Ge(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF64x2Ge(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 /// Wasm spec §4.4.4 (f*x*.{eq, ne, lt, gt, le, ge}) — pop two
@@ -276,6 +276,7 @@ fn emitV128FpCmp(
     alloc: regalloc.Allocation,
     pushed_vregs: *std.ArrayList(u32),
     next_vreg: *u32,
+    spill_base_off: u32,
     encoder: *const fn (dst: inst.Xmm, src: inst.Xmm, imm8: u8) inst.EncodedInsn,
     imm8: u8,
     swap_operands: bool,
@@ -287,73 +288,99 @@ fn emitV128FpCmp(
     next_vreg.* += 1;
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
-    const rhs_x = try gpr.resolveXmm(alloc, rhs_v);
-    const lhs_x = try gpr.resolveXmm(alloc, lhs_v);
-    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    const base_v = if (swap_operands) rhs_v else lhs_v;
+    const cmp_v = if (swap_operands) lhs_v else rhs_v;
 
-    const base_x = if (swap_operands) rhs_x else lhs_x;
-    const cmp_x = if (swap_operands) lhs_x else rhs_x;
+    // D-034 (g): spill-aware 3-v128-operand shape (base, cmp, dst) that keeps the
+    // common (no-spill) emit byte-identical. cmp stays where it resolves (home,
+    // or stage1/XMM15 when spilled — no forced copy); dst → home or XMM7 when
+    // spilled; base loaded into dst (MOVAPS reg-home, or RBP-disp v128 load when
+    // spilled); CMPPS dst, cmp; store XMM7 → dst slot when spilled. The only
+    // clobber hazard is dst==cmp (both home, the classic D-066 alias) — a stage
+    // reg never equals a home reg, so the XMM7 stash still covers exactly that.
+    const cmp_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, cmp_v, 1);
+    const result_slot = alloc.slot(result_v, .fpr);
+    const dst_x: inst.Xmm = switch (result_slot) {
+        .reg => |id| abi.fpSlotToReg(id) orelse return Error.SlotOverflow,
+        .spill => .xmm7,
+    };
+    const base_is_dst = switch (alloc.slot(base_v, .fpr)) {
+        .reg => |id| (abi.fpSlotToReg(id) orelse return Error.SlotOverflow) == dst_x,
+        .spill => false,
+    };
 
-    // Aliasing safety (D-066 mirror; D-070 partial discharge).
     var cmp_for_op = cmp_x;
-    if (dst_x != base_x and dst_x == cmp_x) {
+    if (!base_is_dst and dst_x == cmp_x) {
         try buf.appendSlice(allocator, inst.encMovapsXmmXmm(.xmm7, cmp_x).slice());
         cmp_for_op = .xmm7;
     }
-    if (dst_x != base_x) {
-        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, base_x).slice());
+    switch (alloc.slot(base_v, .fpr)) {
+        .reg => |id| {
+            const base_home = abi.fpSlotToReg(id) orelse return Error.SlotOverflow;
+            if (dst_x != base_home) try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, base_home).slice());
+        },
+        .spill => |off| {
+            const abs_off = spill_base_off + off;
+            if (abs_off > 0x7FFF_FFFF) return Error.SlotOverflow;
+            try buf.appendSlice(allocator, inst.encLoadXmmV128MemRBPDisp32(dst_x, -@as(i32, @intCast(abs_off))).slice());
+        },
     }
     try buf.appendSlice(allocator, encoder(dst_x, cmp_for_op, imm8).slice());
 
+    if (result_slot == .spill) {
+        const abs_off = spill_base_off + result_slot.spill;
+        if (abs_off > 0x7FFF_FFFF) return Error.SlotOverflow;
+        try buf.appendSlice(allocator, inst.encStoreXmmV128MemRBPDisp32(-@as(i32, @intCast(abs_off)), .xmm7).slice());
+    }
     try pushed_vregs.append(allocator, result_v);
 }
 
-pub fn emitF32x4Eq(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encCmpps, 0x00, false);
+pub fn emitF32x4Eq(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encCmpps, 0x00, false);
 }
 
-pub fn emitF32x4Ne(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encCmpps, 0x04, false);
+pub fn emitF32x4Ne(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encCmpps, 0x04, false);
 }
 
-pub fn emitF32x4Lt(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encCmpps, 0x01, false);
+pub fn emitF32x4Lt(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encCmpps, 0x01, false);
 }
 
-pub fn emitF32x4Gt(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encCmpps, 0x01, true);
+pub fn emitF32x4Gt(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encCmpps, 0x01, true);
 }
 
-pub fn emitF32x4Le(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encCmpps, 0x02, false);
+pub fn emitF32x4Le(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encCmpps, 0x02, false);
 }
 
-pub fn emitF32x4Ge(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encCmpps, 0x02, true);
+pub fn emitF32x4Ge(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encCmpps, 0x02, true);
 }
 
-pub fn emitF64x2Eq(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encCmppd, 0x00, false);
+pub fn emitF64x2Eq(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encCmppd, 0x00, false);
 }
 
-pub fn emitF64x2Ne(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encCmppd, 0x04, false);
+pub fn emitF64x2Ne(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encCmppd, 0x04, false);
 }
 
-pub fn emitF64x2Lt(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encCmppd, 0x01, false);
+pub fn emitF64x2Lt(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encCmppd, 0x01, false);
 }
 
-pub fn emitF64x2Gt(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encCmppd, 0x01, true);
+pub fn emitF64x2Gt(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encCmppd, 0x01, true);
 }
 
-pub fn emitF64x2Le(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encCmppd, 0x02, false);
+pub fn emitF64x2Le(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encCmppd, 0x02, false);
 }
 
-pub fn emitF64x2Ge(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encCmppd, 0x02, true);
+pub fn emitF64x2Ge(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpCmp(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encCmppd, 0x02, true);
 }
 
 /// Wasm spec §4.4.4 (f*x*.{add, sub, mul, div}) — pop two v128,
