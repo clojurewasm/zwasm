@@ -771,14 +771,17 @@ pub fn emitV128AnyTrue(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     const result_vreg = ctx.next_vreg.*;
     ctx.next_vreg.* += 1;
     if (result_vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
-    // SPILL-EXEMPT: i32 result; mirrors emitI32x4ExtractLane's pre-spill-aware GPR-result shape.
-    const result_w = try gpr.resolveGpr(ctx.alloc, result_vreg);
+    // D-034 (e): spill-aware GPR result (was resolveGpr-reject). gprDefSpilled
+    // stage 0 → X14 if spilled (disjoint from the X16 scratch + V29); result
+    // written once (CSET) at the end, then flushed. Mirrors the all_true reduces.
+    const result_w = try gpr.gprDefSpilled(ctx.alloc, result_vreg, 0);
 
     // Reduce into V29 (lane 0 holds the max byte).
     try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon_arith.encUmaxv16B(any_true_scratch_v, src_v));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon_lane_cmp.encUmovWFromB(any_true_scratch_x_a, any_true_scratch_v, 0));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmW(any_true_scratch_x_a, 0));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCsetW(result_w, .ne));
+    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 0);
     try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
 }
 

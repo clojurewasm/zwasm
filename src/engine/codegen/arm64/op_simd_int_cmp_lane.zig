@@ -319,8 +319,11 @@ fn emitV128ReduceWithEncoder(
     const result_vreg = ctx.next_vreg.*;
     ctx.next_vreg.* += 1;
     if (result_vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
-    // SPILL-EXEMPT: i32 result; mirrors emitI32x4ExtractLane's pre-spill-aware GPR-result shape.
-    const result_w = try gpr.resolveGpr(ctx.alloc, result_vreg);
+    // D-034 (e): spill-aware GPR result (was resolveGpr-reject). gprDefSpilled
+    // stage 0 → X14 if spilled, disjoint from the X16/X17 reduce scratch + V29;
+    // the result is written once (CSET) at the end, then flushed via
+    // gprStoreSpilled. Mirrors emitV128ExtractLane's GPR-result @a534d1c45.
+    const result_w = try gpr.gprDefSpilled(ctx.alloc, result_vreg, 0);
 
     // Reduce into V29 (lane 0 holds the max/min byte/half/word).
     try gpr.writeU32(ctx.allocator, ctx.buf, encoder(reduce_scratch_v, src_v));
@@ -331,6 +334,7 @@ fn emitV128ReduceWithEncoder(
     try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon_lane_cmp.encUmovWFromB(reduce_scratch_x_a, reduce_scratch_v, 0));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmW(reduce_scratch_x_a, 0));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCsetW(result_w, .ne));
+    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 0);
     try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
 }
 
@@ -356,8 +360,10 @@ pub fn emitI64x2AllTrue(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     const result_vreg = ctx.next_vreg.*;
     ctx.next_vreg.* += 1;
     if (result_vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
-    // SPILL-EXEMPT: i32 result mirrors emitV128ReduceWithEncoder.
-    const result_w = try gpr.resolveGpr(ctx.alloc, result_vreg);
+    // D-034 (e): spill-aware GPR result (was resolveGpr-reject). gprDefSpilled
+    // stage 0 → X14 if spilled (disjoint from X16/X17 + V29); result written
+    // once (AND) at the end, then flushed. Mirrors emitV128ReduceWithEncoder.
+    const result_w = try gpr.gprDefSpilled(ctx.alloc, result_vreg, 0);
 
     // X16 ← src.D[0]; X17 ← src.D[1].
     try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon_lane_cmp.encUmovXFromD(reduce_scratch_x_a, src_v, 0));
@@ -370,6 +376,7 @@ pub fn emitI64x2AllTrue(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCsetW(reduce_scratch_x_b, .ne));
     // AND W<result>, W16, W17
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAndRegW(result_w, reduce_scratch_x_a, reduce_scratch_x_b));
+    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 0);
     try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
 }
 
