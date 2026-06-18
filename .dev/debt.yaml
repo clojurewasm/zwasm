@@ -1382,7 +1382,7 @@ entries:
     front: A-diag-tail
   - id: "D-335"
     layer: "code"
-    status: "now"
+    status: "note"
     front: D-wasi03
     description: |-
       CURRENT STATE (2026-06-16): **CORE DONE** — the critical path A→D→ζ2→E→F is e2e-proven + CLI-reachable
@@ -1399,16 +1399,13 @@ entries:
       transfers 8 bytes (was 2); u8 corpus regression-free. Read-direction typed coverage DONE (@f2a002f4):
       async_stdin_read_via_stream_u32.wat reads 2 u32 elements from an 8-byte host source → COMPLETED(2). Both
       stream directions now carry a typed (elem_size=4) e2e test.
-      **REMAINING**: (1) guest↔guest stream COMPLETION — the ADR-0195 multi-task scheduler. **UNBLOCKED
-      2026-06-17 (PM)** (was blocked-by D-305): the D-305 SYNC linker (`component_graph.zig` @2b9b14ee) now
-      provides the cross-component routing substrate, and the async-import→guest-callee trampoline is a ~100 LOC
-      mirror of the sync `boundaryTrampoline` (folds into ADR-0195 step c). The TRUE remaining bottleneck is now
-      scheduler-internal: ADR-0195 step (b) `TaskTable` + 1-entry-table refactor of `driveCallbackLoop` (~200
-      LOC, Zone-1/3, in-process testable via a 2-component async fixture). ADR-0195 Status = UNBLOCKED/ready to
-      revive; next-cycle entry = Phase II(a) correctness corpus FIRST, then (b). Retained: single-task
-      `AsyncDeadlock` char test (`80ec1f63`). Lesson `2026-06-17-guest-guest-async-is-downstream-of-component-
-      linker` (the downstream dep is now satisfied; scheduler is the frontier). (2) broader P3 host
-      interfaces (sockets/http async = Unit E full; http needs the scheduler too). Detailed history below.
+      **REMAINING**: ~~(1) guest↔guest stream COMPLETION — the ADR-0195 multi-task scheduler~~ **DONE 2026-06-17**
+      (ADR-0195 campaign COMPLETE @a82b4f84, Phase V retro @f799128a): multi-task `driveScheduler` + cross-component
+      routing + task.return round-trip + future/stream rendezvous + AsyncDeadlock guard, all over one graph-level
+      `GraphAsync`; fixtures `test/component/two_async_components_*.wat`; comp-spec 163/0. The async-import→guest
+      trampoline + `TaskTable` refactor landed there. Residuals are D-463/D-464 (handle-isolation closed; broader
+      adversarial = future-bucket). Only (2) remains: **(2) broader P3 host interfaces** (sockets/http async = Unit
+      E full; http needs the scheduler too) — FUTURE-BUCKET / consumer-gated, NOT `now`. Detailed history below.
       GATES the ADR-0193 default flip: `-Dwasi` default stays `.p2` (async opt-in via `-Dwasi=p3`) until this
       Unit E/F host breadth settles; when it does, flip the build.zig default `.p2 → .p3` (one line) + the
       old-default-assuming sites (`check_build_dce` p2-clean assertion becomes p3-base, README/docs default text).
@@ -1526,7 +1523,7 @@ entries:
       WASI sockets/http wit. Use bundle mode per unit; gate `zig build test` +
       `test-spec`-style component corpus; 3-host at campaign milestones.
     first_raised: "2026-06-15"
-    last_reviewed: "2026-06-17"
+    last_reviewed: "2026-06-18"
     refs: |-
       ROADMAP §9.0 Front D + §1.2 floor + .dev/proposal_watch.md; ADR-0186 Rev1;
       ~/Documents/OSS/WASI/ + ~/Documents/OSS/WebAssembly/component-model/ + wasmtime 43+;
