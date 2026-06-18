@@ -1674,8 +1674,11 @@ fn emitV128IntReplaceLaneNarrow(
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
     const value_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, value_v, 0);
-    const vec_x = try gpr.resolveXmm(alloc, vec_v);
-    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    // D-461: spill-aware v128 vec-read (stage0/XMM14) + dst-write (stage1/XMM15).
+    // PINSR uses the GPR `value_r`, so no internal XMM scratch — stages never
+    // collide (same shape as load_lane).
+    const vec_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, vec_v, 0);
+    const dst_x = try gpr.xmmDefSpilledV128(alloc, result_v, 1);
 
     if (dst_x != vec_x) {
         try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, vec_x).slice());
@@ -1690,6 +1693,7 @@ fn emitV128IntReplaceLaneNarrow(
             try buf.appendSlice(allocator, inst.encPinsrW(dst_x, value_r, lane).slice());
         },
     }
+    try gpr.xmmStoreSpilledV128(allocator, buf, alloc, spill_base_off, result_v, 1);
     try pushed_vregs.append(allocator, result_v);
 }
 
@@ -1740,8 +1744,10 @@ fn emitV128IntReplaceLane32Or64(
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
     const value_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, value_v, 0);
-    const vec_x = try gpr.resolveXmm(alloc, vec_v);
-    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    // D-461: spill-aware v128 vec-read (stage0) + dst-write (stage1); PINSR uses
+    // the GPR value_r, so no internal XMM scratch (same shape as load_lane).
+    const vec_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, vec_v, 0);
+    const dst_x = try gpr.xmmDefSpilledV128(alloc, result_v, 1);
 
     if (dst_x != vec_x) {
         try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, vec_x).slice());
@@ -1753,6 +1759,7 @@ fn emitV128IntReplaceLane32Or64(
         const lane: u2 = @intCast(payload & 0b11);
         try buf.appendSlice(allocator, inst.encPinsrD(dst_x, value_r, lane).slice());
     }
+    try gpr.xmmStoreSpilledV128(allocator, buf, alloc, spill_base_off, result_v, 1);
     try pushed_vregs.append(allocator, result_v);
 }
 
