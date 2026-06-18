@@ -1910,11 +1910,16 @@ entries:
       arches. **Bonus root-cause (bisection 2026-06-18)**: the original i8x16 "UnsupportedOp" was NOT splat — it was
       **arm64 `emitV128ExtractLane` GPR-RESULT resolveGpr-EXEMPT** (i8x16/i16x8/i64x2.extract_lane; only i32x4 had its
       own spill-aware handler). FIXED @a534d1c45 (gprDefSpilled/Store stage0; x86_64 narrow-extract was already
-      spill-aware) → gave the GREEN ref that unblocked i8x16.splat. **REMAINING splat**: f32x4/f64x2.splat (lack a
-      `spill_base_off` param + FP-scalar source — need param threading + fpLoadSpilled-vs-v128 choice).
+      spill-aware) → gave the GREEN ref that unblocked i8x16.splat. **f32x4/f64x2.splat DONE @539e7512a** (threaded
+      spill_base_off through the 2 handlers + Ctx wrappers; src→xmmLoadSpilled 8-byte, dst→xmmDefSpilledV128, both
+      stage0 — PSHUFD read-before-write makes dst==src reuse safe, mirrors arm64 emitV128SplatFromV). **SPLAT FAMILY
+      FULLY COMPLETE both arches (all 6).**
+      **NEW sibling gap (found @539e7512a)**: **arm64 f32x4/f64x2.extract_lane FP-RESULT is resolveFp-EXEMPT**
+      (`arm64/gpr.zig:280`) → UnsupportedOp when the f32/f64 lane result spills. Analogous to the narrow-extract GPR
+      fix but FP-class (needs fpDefSpilled/fpStoreSpilled). Self-contained; pair with replace_lane's FP work or do solo.
       **REMAINING D-461 result-write**: **replace_lane** ×4 — ENTANGLED with D-034 (a green force-spill fixture
       also spills the new-lane scalar GPR which arm64 handles SPILL-EXEMPT); do it WITH the D-034 arm64-GPR cohort,
-      not isolated (see (1)). Extend/Extadd/v128-load/load_lane/splat(int)/narrow-extract all DONE.
+      not isolated (see (1)). Extend/Extadd/v128-load/load_lane/splat(all)/narrow-extract(GPR) all DONE.
       EXOTIC (high-v128-pressure only; concrete D-460 array-copy blocker already cleared by extract_lane).
       Original surfacing context below.
 

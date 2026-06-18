@@ -63,13 +63,13 @@ Status→Implemented + retrospective section; D-464 item (4) closed).
    2026-06-18: the wasmtime native sweep does NOT cover SIMD-GC — array-copy-inline.wast is SIMD→simd_runner, not
    the wasm-3.0 corpus; 38 gc-sweep fails are pre-existing ADR-0192 residuals, NOT regressions). Only an optional
    edge fixture remains (low value). Do NOT grind consumer-gated (D-464(2), D-305).
-4. **D-461 v128 spill — integer splat family + narrow-extract NOW COMPLETE both arches**. This turn: bisection
-   root-caused the i8x16 "UnsupportedOp" = arm64 `emitV128ExtractLane` GPR-RESULT was resolveGpr-EXEMPT (i8x16/
-   i16x8/i64x2.extract_lane; only i32x4 had its own handler) → FIXED @a534d1c45; that GREEN ref unblocked **x86_64
-   i8x16.splat @f543f4672** (dst→STAGE1, PSHUFB landmine). Prior: extend/Extadd/v128.load/load_lane @5785dffa2/
-   i32x4-i16x8-i64x2.splat @60c4f043a. **REMAINING D-461 (EXOTIC, high-pressure only)**: f32x4/f64x2.splat (need
-   spill_base_off param threading + FP-scalar source) + replace_lane (D-034 arm64-GPR-scalar cohort). NEXT options:
-   f32x4/f64x2.splat (self-contained) / D-034 cohort (replace_lane) / pivot to other 完成形 work.
+4. **D-461 v128 spill — SPLAT FAMILY (all 6) + narrow-extract(GPR) COMPLETE both arches**. Closed this arc:
+   i8x16/i16x8/i32x4/i64x2.splat + **f32x4/f64x2.splat @539e7512a** (spill_base_off threaded; src xmmLoadSpilled +
+   dst xmmDefSpilledV128 stage0, PSHUFD read-before-write), arm64 narrow-extract GPR-result @a534d1c45 (root-caused
+   the i8x16 puzzle via bisection), x86_64 i8x16.splat @f543f4672. **REMAINING D-461 (EXOTIC, high-pressure only,
+   NO current consumer)**: (a) **arm64 f32x4/f64x2.extract_lane FP-RESULT resolveFp-EXEMPT** (`arm64/gpr.zig:280`)
+   — self-contained, needs fpDefSpilled/Store; (b) **replace_lane** (D-034 arm64-GPR-scalar cohort). NEXT options:
+   (a) FP-extract / (b) D-034 cohort / **pivot to other 完成形 work (surface audit / dogfood / debt)**.
 
 ## Recently closed arcs (detail in ADRs/git/debt — one-liners)
 
