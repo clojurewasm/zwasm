@@ -63,13 +63,13 @@ Status→Implemented + retrospective section; D-464 item (4) closed).
    2026-06-18: the wasmtime native sweep does NOT cover SIMD-GC — array-copy-inline.wast is SIMD→simd_runner, not
    the wasm-3.0 corpus; 38 gc-sweep fails are pre-existing ADR-0192 residuals, NOT regressions). Only an optional
    edge fixture remains (low value). Do NOT grind consumer-gated (D-464(2), D-305).
-4. **D-461 v128 spill — SPLAT (all 6) + EXTRACT_LANE (GPR narrow + FP, all) COMPLETE both arches**. Closed this arc
-   (all RED→GREEN both arches, EXOTIC high-pressure cases): splat i8x16/i16x8/i32x4/i64x2 @60c4f043a + f32x4/f64x2
-   @539e7512a; extract_lane GPR-narrow @a534d1c45 (root-caused the i8x16 puzzle via bisection) + **FP f32x4/f64x2
-   @d7e7f1fbb**; x86_64 i8x16.splat @f543f4672. **REMAINING D-461 = replace_lane ONLY** (×4, ENTANGLED with the
-   D-034 arm64-GPR-scalar SPILL-EXEMPT cohort — needs BOTH the v128 fix AND arm64 GPR-scalar spill; do WITH D-034,
-   NOT isolated). **All self-contained D-461 spill work is now EXHAUSTED.** NEXT: **pivot off SIMD-spill** — D-034
-   cohort (replace_lane) OR other 完成形 work (surface audit / dogfood / debt). EXOTIC, no current consumer.
+4. **D-461 v128-DST-spill — COMPLETE for ALL lane ops both arches**. splat(all 6) @60c4f043a/@539e7512a;
+   extract_lane(GPR-narrow @a534d1c45 + FP @d7e7f1fbb); x86_64 i8x16.splat @f543f4672; **integer replace_lane
+   vec/dst @c9548931b** (this turn — closes the v128-dst story). **REMAINING D-461 (2 distinct EXOTIC residuals, NO
+   consumer)**: (i) **x86_64 FP replace_lane** (f32x4/f64x2 — 3 XMM operands + XMM7 scratch vs 2 stage XMMs, needs
+   careful staging); (ii) **new-lane SCALAR spill = the D-034 GPR/FP-scalar SPILL-EXEMPT cohort** (replace_lane
+   new-lane + splat-sources etc.; needs GPR/FP-PRESSURE fixtures — a separate campaign). **The clean v128-spill arc
+   is DONE.** NEXT: D-034 cohort (GPR/FP-scalar pressure) OR FP-replace_lane OR pivot to other 完成形 work.
 
 ## Recently closed arcs (detail in ADRs/git/debt — one-liners)
 

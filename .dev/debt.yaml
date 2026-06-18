@@ -1919,10 +1919,15 @@ entries:
       stages, same V-file); x86_64 emitF32x4/F64x2ExtractLane → threaded spill_base_off, src xmmLoadSpilledV128
       stage0 + dst xmmDefSpilled stage1. Fixture array.new_fixed 2×f32x4.splat(9.0)→extract_lane→reinterpret=
       0x41100000. **extract_lane family (GPR narrow + FP) FULLY spill-aware.**
-      **REMAINING D-461 result-write (the ONLY self-contained-but-entangled op left)**: **replace_lane** ×4 — ENTANGLED with D-034 (a green force-spill fixture
-      also spills the new-lane scalar GPR which arm64 handles SPILL-EXEMPT); do it WITH the D-034 arm64-GPR cohort,
-      not isolated (see (1)). Extend/Extadd/v128-load/load_lane/splat(all)/narrow-extract(GPR) all DONE.
-      EXOTIC (high-v128-pressure only; concrete D-460 array-copy blocker already cleared by extract_lane).
+      **replace_lane — INTEGER vec/dst DONE @c9548931b** (i8x16/i16x8/i32x4/i64x2: vec→xmmLoadSpilledV128 stage0,
+      dst→xmmDefSpilledV128 stage1, PINSR-GPR no-scratch; arm64 already qLoad/qDef; fixture array.new_fixed 2×
+      i32x4.replace_lane→get→extract=9). **This closes the v128-DST-spill story for ALL lane ops.** REMAINING two
+      DISTINCT residuals (both EXOTIC, no consumer): (i) **x86_64 FP replace_lane** (f32x4/f64x2) — 3 XMM operands
+      (value FP + vec + dst) + an XMM7 aliasing scratch vs only 2 stage XMMs → needs careful staging, harder; (ii)
+      **new-lane SCALAR spill** (GPR for int / FP for f32x4-f64x2 replace_lane; also splat-sources etc.) = the
+      **D-034 GPR/FP-scalar SPILL-EXEMPT cohort** — needs GPR/FP-PRESSURE test fixtures (distinct from v128-pressure),
+      a separate campaign. Extend/Extadd/v128-load/load_lane/splat(all)/extract(GPR+FP)/replace_lane(int-vec/dst) DONE.
+      EXOTIC (high-pressure only; concrete D-460 array-copy blocker already cleared by extract_lane).
       Original surfacing context below.
 
       SIMD lane ops were NOT fully spilled-v128-operand-aware (pre-existing, NOT GC-specific). Surfaced
