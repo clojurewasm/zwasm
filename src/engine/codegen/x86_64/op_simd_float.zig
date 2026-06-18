@@ -138,22 +138,22 @@ pub fn emitF32x4SqrtCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!v
 
 pub fn emitF32x4CeilCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF32x4Ceil(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF32x4Ceil(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitF32x4FloorCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF32x4Floor(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF32x4Floor(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitF32x4TruncCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF32x4Trunc(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF32x4Trunc(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitF32x4NearestCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF32x4Nearest(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF32x4Nearest(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitF64x2AbsCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
@@ -173,22 +173,22 @@ pub fn emitF64x2SqrtCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!v
 
 pub fn emitF64x2CeilCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF64x2Ceil(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF64x2Ceil(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitF64x2FloorCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF64x2Floor(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF64x2Floor(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitF64x2TruncCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF64x2Trunc(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF64x2Trunc(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitF64x2NearestCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF64x2Nearest(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF64x2Nearest(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 // §9.12-B / B103 (ADR-0075) — `(ctx, ins)` adapters for the
@@ -843,6 +843,7 @@ fn emitV128FpRound(
     alloc: regalloc.Allocation,
     pushed_vregs: *std.ArrayList(u32),
     next_vreg: *u32,
+    spill_base_off: u32,
     encoder: *const fn (dst: inst.Xmm, src: inst.Xmm, imm8: u8) inst.EncodedInsn,
     mode: u8,
 ) Error!void {
@@ -852,42 +853,45 @@ fn emitV128FpRound(
     next_vreg.* += 1;
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
-    const src_x = try gpr.resolveXmm(alloc, src_v);
-    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    // D-034 (g): spill-aware v128 src+dst. ROUNDPS/PD uses NO internal scratch
+    // XMM, so both stages are free: src→stage0/XMM14, dst→stage1/XMM15.
+    const src_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, src_v, 0);
+    const dst_x = try gpr.xmmDefSpilledV128(alloc, result_v, 1);
     try buf.appendSlice(allocator, encoder(dst_x, src_x, 0x08 | (mode & 0x03)).slice());
+    try gpr.xmmStoreSpilledV128(allocator, buf, alloc, spill_base_off, result_v, 1);
     try pushed_vregs.append(allocator, result_v);
 }
 
-pub fn emitF32x4Ceil(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpRound(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encRoundps, 0b10);
+pub fn emitF32x4Ceil(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpRound(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encRoundps, 0b10);
 }
 
-pub fn emitF32x4Floor(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpRound(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encRoundps, 0b01);
+pub fn emitF32x4Floor(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpRound(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encRoundps, 0b01);
 }
 
-pub fn emitF32x4Trunc(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpRound(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encRoundps, 0b11);
+pub fn emitF32x4Trunc(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpRound(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encRoundps, 0b11);
 }
 
-pub fn emitF32x4Nearest(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpRound(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encRoundps, 0b00);
+pub fn emitF32x4Nearest(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpRound(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encRoundps, 0b00);
 }
 
-pub fn emitF64x2Ceil(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpRound(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encRoundpd, 0b10);
+pub fn emitF64x2Ceil(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpRound(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encRoundpd, 0b10);
 }
 
-pub fn emitF64x2Floor(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpRound(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encRoundpd, 0b01);
+pub fn emitF64x2Floor(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpRound(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encRoundpd, 0b01);
 }
 
-pub fn emitF64x2Trunc(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpRound(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encRoundpd, 0b11);
+pub fn emitF64x2Trunc(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpRound(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encRoundpd, 0b11);
 }
 
-pub fn emitF64x2Nearest(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
-    return emitV128FpRound(allocator, buf, alloc, pushed_vregs, next_vreg, inst.encRoundpd, 0b00);
+pub fn emitF64x2Nearest(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
+    return emitV128FpRound(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encRoundpd, 0b00);
 }
 
 /// Wasm spec §4.4.4 (FP convert family — signed + promote/demote)

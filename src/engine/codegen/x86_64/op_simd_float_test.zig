@@ -711,7 +711,7 @@ test "emitF32x4Ceil: ROUNDPS dst, src, imm=0x0A (suppress-precision | ceil)" {
     try pushed.append(testing.allocator, 0);
     var next_vreg: u32 = 1;
 
-    try op_simd_float.emitF32x4Ceil(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+    try op_simd_float.emitF32x4Ceil(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
 
     var expected: std.ArrayList(u8) = .empty;
     defer expected.deinit(testing.allocator);
@@ -740,7 +740,7 @@ test "emitF32x4Floor / Trunc / Nearest: ROUNDPS imm bits 09 / 0B / 08" {
         try pushed.append(testing.allocator, 0);
         var next_vreg: u32 = 1;
 
-        try pair[0](testing.allocator, &buf, alloc, &pushed, &next_vreg);
+        try pair[0](testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
 
         var expected: std.ArrayList(u8) = .empty;
         defer expected.deinit(testing.allocator);
@@ -931,7 +931,7 @@ test "emitF64x2 Ceil/Floor/Trunc/Nearest: ROUNDPD imm bits 0A/09/0B/08" {
         try pushed.append(testing.allocator, 0);
         var next_vreg: u32 = 1;
 
-        try pair[0](testing.allocator, &buf, alloc, &pushed, &next_vreg);
+        try pair[0](testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
 
         var expected: std.ArrayList(u8) = .empty;
         defer expected.deinit(testing.allocator);
