@@ -63,11 +63,12 @@ Status→Implemented + retrospective section; D-464 item (4) closed).
    :439/514, reads vec+dst — next clean-ish candidate, arm64-verify first per lesson); **replace_lane** ENTANGLED with
    D-034 arm64-GPR-scalar (deferred to the D-034 cohort). Or pivot to dogfood. Do NOT grind consumer-gated (D-464(2),
    D-305).
-4. **Remote**: extend 3-host GREEN; Extadd ubuntu-green; v128.load splat/zero arm64+Rosetta-green. **ubuntu @29a6e8c9
-   FAILED = nix-shell-env DEPENDENCY BUILD failure on ubuntunote (INFRA/env, NOT a test/code regression — no
-   assertion fail, no listen-flake; `zig build test-all` never ran). Code is arm64-native + x86_64-Rosetta verified.
-   → Step 0.7 D3 NON-CODE-GAP exception: RE-KICK ubuntu, do NOT auto-revert.** windows batch 7/12 (Extadd+memload
-   pending, non-ABI, same Win64-proven stage-XMM mechanism). D-028/windows-listen IPC flakes cosmetic.
+4. **Remote**: extend 3-host GREEN; Extadd ubuntu-green; v128.load splat/zero arm64+Rosetta-green. **ubuntunote nix
+   failure FIXED 2026-06-18**: was a FULL DISK (100%, 444G/468G) — a 402GB `.zig-cache` (unbounded test-all growth);
+   `rm -rf .zig-cache` freed 405G (→9%), `nix develop`+zig-0.16.0 rebuild green. test-all re-kicked (cold cache,
+   in-flight). Lesson `2026-06-18-remote-zig-cache-fills-disk-masquerades-as-nix-failure` (a "nix dependency failed"
+   → check `df -h` first; non-code-gap, re-kick not revert; prune remote `.zig-cache` periodically). windows batch
+   7/12 (Extadd+memload pending, non-ABI, Win64-proven stage-XMM). D-028/windows-listen IPC flakes cosmetic.
 
 ## Recently closed arcs (detail in ADRs/git/debt — one-liners)
 
