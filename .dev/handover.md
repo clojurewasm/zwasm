@@ -32,14 +32,16 @@ CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`.
 ## Active bundle
 
 - **Bundle-ID**: D-034 SIMD spill-completeness cohort (scalar-operand sibling of D-461 + the v128-source arith gap)
-- **Cycles-remaining**: ~5 (sub-categories a–g; **(e) GPR-result DONE @e52d5a5f9**; opened 2026-06-18)
-- **Continuity-memo**: same mechanical swap as D-461 (resolveGpr/Fp/Xmm → gprLoadSpilled/fpLoadSpilled/
-  xmmLoadSpilledV128). **(e) surfaced the big one: (g) — D-461 "v128-operand COMPLETE" was OVERSTATED**; ~30 bare
-  resolveXmm v128 source/dst sites in x86_64 op_simd_float.zig (FP arith/convert) + op_simd_int_arith.zig remain
-  → UnsupportedOp under v128 spill. NEXT chunk = (g) FP binops (op_simd_float.zig:290 min/max etc.) — audit each
-  op's internal scratch-XMM for the stage collision LANDMINE (all_true used stage1/XMM15 vs PXOR-scratch XMM14).
-  Remaining scalar sub-cats: (a) GPR new-lane (arm64 :109/:183), (b) GPR splat-src (:43), (c) FP new-lane (:126),
-  (f) shift-amt (:425). Verification = force-spill fixtures (array.new_fixed result-spill OR ≥pool live-source).
+- **Cycles-remaining**: ~5 (sub-cats a–g; **(e) GPR-result + (g) all_true-source DONE @e52d5a5f9; (g) FP-round
+  DONE @2c6f0235c**; opened 2026-06-18)
+- **Continuity-memo**: mechanical swap (resolveGpr/Fp/Xmm → gprLoadSpilled/fpLoadSpilled/xmmLoadSpilledV128).
+  **(g) = the big one (D-461 "v128-operand COMPLETE" was OVERSTATED for arith/convert)**; split by difficulty:
+  NEXT = TRACTABLE (g) sites (abs/neg op_simd_float.zig:779/:808 use XMM14 only → src/dst on free stages, like
+  round). Then the SCRATCH-HEAVY wall: convert/trunc_sat (:1176/:1275/:1445/:1541 use BOTH XMM14+XMM15) + 3-v128
+  FP binops (:290 min/max) — no free stage for spilled src/dst; need per-op recipe restructure (REJECT a global
+  3rd-stage-XMM pool cut — perf cost for an exotic path). Remaining scalar sub-cats: (a) GPR new-lane (arm64
+  :109/:183), (b) GPR splat-src (:43), (c) FP new-lane (:126), (f) shift-amt (:425). LANDMINE: audit each op's
+  internal scratch-XMM before picking the spilled operand's stage (all_true used stage1 vs PXOR-scratch stage0).
 - **Exit-condition**: every a–g sub-category's operand forced to spill flows through its op on BOTH arches; zero
   bare resolveGpr/resolveFp/resolveXmm SPILL-EXEMPT sites remain (except the structural 3-V-reg select/bitselect).
 
@@ -47,8 +49,9 @@ CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`.
 
 0. **ADR-0195 guest↔guest async — CAMPAIGN COMPLETE** (D-335 closed; detail in git + ADR-0195; residuals D-463
    CLOSED / D-464 future-bucket). **D-461 v128-DST-spill arc COMPLETE both arches** (FP replace_lane @4acd24152).
-1. **Active bundle = D-034** (above): drive the SIMD spill-completeness cohort. (e) GPR-result DONE @e52d5a5f9;
-   NEXT = (g) x86_64 v128-source spill in FP/int arith binops (~30 sites; D-461 "complete" was overstated).
+1. **Active bundle = D-034** (above): drive SIMD spill-completeness. (e) GPR-result @e52d5a5f9 + (g) all_true-src
+   @e52d5a5f9 + (g) FP-round @2c6f0235c DONE; NEXT = (g) tractable abs/neg (op_simd_float.zig:779/:808), then the
+   scratch-heavy convert/binop wall (need per-op restructure; details in D-034 (g)).
 2. **Audit DONE 2026-06-18 (CLEAN)** — `audit_scaffolding` 0 block/0 soon (J.3 chronic debt); fuzz 0 crashes.
 3. **D-460 v128-GC JIT emit DONE both arches** (@3d8be3c00/@8137c7268/@5292569e0; 6 runI32Export fixtures = the
    authoritative JIT verification). Only an optional edge fixture remains (low value). Consumer-gated, do NOT grind:

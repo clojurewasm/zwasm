@@ -2041,13 +2041,17 @@ entries:
       (f) **shift-amount scalar** (i32): arm64 op_simd_int_arith.zig:425 `resolveGpr`.
       (g) **v128 SOURCE/DST spill across arith/convert/reduce binops — D-461 "v128-operand arc COMPLETE" was
           OVERSTATED** (it covered lane/load/extend/extadd/bitmask + now reduce, NOT the arith binops). ~30 bare
-          `resolveXmm` source/dst sites: x86_64 op_simd_float.zig (FP add/sub/mul/div/min/max :290-292/:519/:568/
-          :1365 + convert/ceil/etc. single-src) + op_simd_int_arith.zig (:469/:568/:608/:654/:724/:753/:790/:869/
-          :1239) → UnsupportedOp under v128 spill pressure. x86_64 all_true v128-source FIXED @e52d5a5f9 (the first
-          instance, stage1/XMM15 vs PXOR-scratch XMM14). arm64 likely covered via shared emitV128Unop/Binop (audit).
-          This (g) is now the BULK of remaining spill-completeness work — same mechanical resolveXmm→xmmLoadSpilledV128
-          migration as D-461, but ~30 sites each needing a force-spill fixture (audit per-op for stage-XMM-scratch
-          collisions — the LANDMINE). Opt-in-JIT-only, exotic, but a real completeness gap.
+          `resolveXmm` source/dst sites in x86_64 op_simd_float.zig + op_simd_int_arith.zig → UnsupportedOp under
+          v128 spill. arm64 covered via shared emitV128Unop/Binop. PROGRESS:
+            - all_true v128-source FIXED @e52d5a5f9 (stage1/XMM15 vs PXOR-scratch XMM14).
+            - **FP-round (ceil/floor/trunc/nearest, f32x4+f64x2) DONE @2c6f0235c** — emitV128FpRound has 0 internal
+              scratch → clean 2-stage migration (src stage0, dst stage1). 2 fixtures (f32x4.ceil/f64x2.floor).
+          REMAINING (g) splits by difficulty: **TRACTABLE** (≤1 internal scratch XMM, like the round ops):
+          abs/neg (:779/:808 use XMM14 only), simple single-instr unaries. **SCRATCH-HEAVY** (consume BOTH XMM14+
+          XMM15 internally → NO free stage for spilled src/dst, the genuine wall): convert/trunc_sat (:1176/:1275/
+          :1445/:1541) + the 3-v128-operand FP binops (:290 min/max etc., 2 src+dst+XMM7-alias). The scratch-heavy
+          set needs per-op staging redesign OR a 3rd reserved stage XMM (a perf-costly global pool reduction —
+          REJECT for an exotic path; favour per-op memory-scratch or recipe restructure). Opt-in-JIT-only, exotic.
       NOT D-034 (genuinely-structural, leave): op_simd.zig:490/:672 (v128 select/bitselect need 3 simultaneous V
       regs vs 2 stage regs — a stage-count limit, not a missing migration).
       STAGING confirmed collision-free: arm64 GPR stages = X14/X15 (`abi.spill_stage_gprs`), disjoint from the
