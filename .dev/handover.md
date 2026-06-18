@@ -29,46 +29,29 @@ cancelled cross-component cases + cancel-op/waitable wait-poll-drop graph builti
 C-API @b4d75506 (Windows export fix); interp+JIT fuzz 808 mods 0 crashes. ADR-0193 (D-462) + D-461 (ADR-0194)
 CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`.
 
-## ADR-0195 guest↔guest async — CAMPAIGN COMPLETE 2026-06-17 (bundle closed; residuals = D-464/D-463)
+## Active bundle
 
-The multi-task async scheduler closed the D-335 last functional gap. Pipeline + key SHAs (all main-loop-verified;
-detail in git/commits + ADR-0195): **II(a)** char net @529cfcba · **(b)** `TaskTable`/`seedTask`/`foldResult`
-@b90cbecb+@61c4a20d · **(c-1)** Zone-1 `driveScheduler` (round-robin + `pollSet` seam + all-waiting→`AsyncDeadlock`)
-@822d30d5 · **(c-2a)** P3 runner unified on `driveScheduler`, retired `driveCallbackLoop` @54a9b0bc+@c7710cda ·
-**(c-2b)** cross-component ROUTING (`ComponentGraph.driveAsyncMain` + `GraphAsync.callbacks` funcidx→(instance,cb)
-+ `installAsyncBoundary` mints `Subtask`+enqueues `TaskDescriptor`) @a0e2d4c7a · **(d-a)** `task.return` capture
-into per-task `TaskDescriptor.result` @cc63edd9 · **(d-b-1)** A consumes result via `retptr` @7cf62e3a · **(d-b-2)**
-future rendezvous @4a344503 · **(d-c-1)** synchronous multi-element stream rendezvous @9eabb709 · **(d-c-2)** BLOCKING
-stream rendezvous + `pollSet`/waitable-set delivery + AsyncDeadlock guard @a82b4f84. All over ONE graph-level
-`GraphAsync` (shared `SharedTable`/`StreamFutureTable`/`WaitableSetTable`; `graphFuture*`/`graphStream*`/
-`graphWaitable*` builtins via `pourSyntheticExport`). Fixtures `test/component/two_async_components_*.wat`
-(future/stream/blocking/deadlock; assert taskResult==42). Local gate green; **3-host through @4ed08f57d** (d-c-1
-batch ubuntu+win OK); **d-c-2 ubuntu OK @4f95129a** (Mac+ubuntu verified); windows BATCHED (3/12 since baseline
-@4ed08f57d → verifies @a82b4f84 next fire; non-ABI, non-urgent). **Phase V retro DONE @f799128a** (ADR-0195
-Status→Implemented + retrospective section; D-464 item (4) closed).
+- **Bundle-ID**: D-034 GPR/FP-scalar SPILL-EXEMPT cohort (the scalar-operand sibling of the DONE D-461 v128-arc)
+- **Cycles-remaining**: ~4 (6 sub-categories a–f; opened 2026-06-18, Phase-I findings in the D-034 debt row)
+- **Continuity-memo**: same mechanical swap as D-461 (resolveGpr/Fp → gprLoadSpilled/fpLoadSpilled, X14/X15 stages
+  disjoint from V29/V30). Easiest first chunk = (e) GPR-RESULT (any_true/all_true/reduce; result-spill via
+  array.new_fixed, mirrors extract_lane @a534d1c45). Verification = NEW e2e GPR/FP-pressure fixtures (force a SCALAR
+  to spill; author WAT → --engine jit → confirm UnsupportedOp → migrate → GREEN both arches via Rosetta).
+- **Exit-condition**: every a–f sub-category's scalar forced to spill flows through its lane op on BOTH arches;
+  zero `resolveGpr`/`resolveFp` SPILL-EXEMPT scalar sites remain (except the structural 3-V-reg select/bitselect).
 
 ## RESUME POINTER (2026-06-18) — for a fresh session
 
-1. **No active bundle.** At the **完成形 plateau** (ADR-0156). **Cross-component async drop/park robustness arc
-   COMPLETE** — 4 real bugs found+fixed this session via adversarial tests: D-463 handle-isolation leak (ADR-0197),
-   stream peer-drop hang @27f9464e0, future-drop-before-write missing trap @360382c33 (D-465, `dropEndGuarded`
-   unifies graph+p2), parked-peer-drop deadlock @cc25647df (both reader+writer dirs, @34aad9314). All 3-host green
-   (ubuntu+win @0e1fca6e7 recorded). 9 adversarial fixtures in `component_async_tests.zig`.
-2. **Audit DONE 2026-06-18 (CLEAN)** — `audit_scaffolding` 0 block/0 soon (only J.3 chronic debt=61);
-   `private/audit-2026-06-18.md`. Fuzz smoke 0 crashes.
-3. **D-460 v128-GC JIT emit — FULLY DONE BOTH ARCHES** (struct/array get/set/new @3d8be3c00 + array_new_fixed
-   @8137c7268 + array_copy @5292569e0). x86_64 mirrors arm64 via MOVUPS + running-sum struct offset + `encShlRImm8`
-   index×16; array_copy resolves elem size from `ObjectHeader.info` (was 8-byte) in arch-indep `jitGcArrayCopy`.
-   6 runI32Export RED→GREEN fixtures = the AUTHORITATIVE JIT verification. **Substantively COMPLETE** (clarified
-   2026-06-18: the wasmtime native sweep does NOT cover SIMD-GC — array-copy-inline.wast is SIMD→simd_runner, not
-   the wasm-3.0 corpus; 38 gc-sweep fails are pre-existing ADR-0192 residuals, NOT regressions). Only an optional
-   edge fixture remains (low value). Do NOT grind consumer-gated (D-464(2), D-305).
-4. **D-461 v128-DST-spill arc — FULLY COMPLETE both arches** (FP replace_lane @4acd24152 closed the last op;
-   vec→stage0/dst→stage1, new-lane FP scalar stays resolveXmm SPILL-EXEMPT). Its fixture crossed
-   runner_gc_test.zig's 2000-cap → v128-on-JIT block split to `runner_v128_jit_test.zig` (ADR-0198). D-461 →
-   `note`; **now-class debt = NONE**. Only EXOTIC residual left: the **D-034 GPR/FP-scalar SPILL-EXEMPT cohort**
-   (new-lane scalar spill; needs GPR/FP-pressure fixtures, NO consumer — a separate campaign, do NOT grind).
-   NEXT: pivot to other 完成形 work; open the D-034 cohort only if a consumer appears.
+0. **ADR-0195 guest↔guest async — CAMPAIGN COMPLETE** (D-335 closed; detail in git + ADR-0195; residuals D-463
+   CLOSED / D-464 future-bucket). **D-461 v128-DST-spill arc COMPLETE both arches** (FP replace_lane @4acd24152).
+1. **Active bundle = D-034** (above): drive the GPR/FP-scalar spill cohort. Start at sub-category (e) GPR-RESULT
+   (any_true/all_true/reduce; result-spill via array.new_fixed, mirrors extract_lane @a534d1c45 — easiest first).
+2. **Audit DONE 2026-06-18 (CLEAN)** — `audit_scaffolding` 0 block/0 soon (J.3 chronic debt); fuzz 0 crashes.
+3. **D-460 v128-GC JIT emit DONE both arches** (@3d8be3c00/@8137c7268/@5292569e0; 6 runI32Export fixtures = the
+   authoritative JIT verification). Only an optional edge fixture remains (low value). Consumer-gated, do NOT grind:
+   D-464(2) broader async + D-305 rare CM shapes (those NEED a consumer; D-034 does NOT, hence it is driven).
+4. **D-461 v128-DST-spill arc — FULLY COMPLETE both arches** (FP replace_lane @4acd24152; v128-on-JIT block split
+   to `runner_v128_jit_test.zig`, ADR-0198). D-461 → `note`. Its scalar-operand sibling = the D-034 active bundle.
 
 ## Recently closed arcs (detail in ADRs/git/debt — one-liners)
 
@@ -105,8 +88,8 @@ TIER-1 (`afcf889a`/`05b35c28`; D-446/447 deferred), ① wasip3 conformance (7 re
 - **Surfaces**: C-API 293/293 · Zig-API complete (full WASI parity) · lean CLI · memory-safety sound · dogfooded into
   cw. Runners ReleaseSafe (ADR-0177; `check_releasesafe_runners.sh`).
 - **EH**: cross-instance JIT EH on BOTH arches (arm64 `4f73d9ee` + x86_64 `c534afca`). Interp + JIT EH corpus green.
-- **Debt**: 61 entries; `now`-class = **NONE** (D-461 v128-spill arc COMPLETE → `note`; residual = D-034 scalar
-  cohort, exotic/no-consumer). D-460 v128-GC emit DONE both arches. D-335 → `note` (ADR-0195 scheduler DONE).
+- **Debt**: 62 entries; `now`-class = **D-034** (GPR/FP-scalar spill cohort = active bundle; D-461 v128 arc DONE →
+  `note`). D-460 v128-GC emit DONE both arches. D-335 → `note` (ADR-0195 scheduler DONE).
   Rest front-tagged (future-bucket/parked); D-462 feature-separation = user-gated.
 - **Realworld corpus**: 56 fixtures (c/cpp/emcc/go/tinygo/rust/zig), interp 56/0; JIT run-stage opt-in.
 - **Tag**: `v2.0.0-alpha.3` tag-only (no Release → Latest stays v1.11.0), USER-ONLY.

@@ -2013,6 +2013,45 @@ entries:
       src/engine/codegen/x86_64/gpr.zig (resolveXmm — rejects .spill v128);
       src/engine/codegen/{x86_64,arm64}/op_simd_int_cmp_lane.zig (extract/replace_lane SPILL-EXEMPT paths);
       blocks D-460 array-copy-inline.6 + x86_64 v128-GC mirror
+  - id: "D-034"
+    layer: "code"
+    status: "now"
+    front: D-wmt-misc
+    description: |-
+      now (opened 2026-06-18 as the next autonomous work after the D-461 v128-DST-spill arc closed @4acd24152;
+      driven NOT deferred per the anti-premature-deferral mandate — D-034 is self-contained/fully-specifiable here,
+      unlike consumer-gated D-305/D-464). The **GPR/FP-SCALAR SPILL-EXEMPT cohort**: SIMD lane/reduce ops resolve a
+      scalar operand/result via bare `resolveGpr`/`resolveFp`/`resolveXmm` (SPILL-EXEMPT) → `UnsupportedOp` when that
+      scalar spills under high GPR/FP register pressure. Opt-in-JIT-only (interp default handles all); exotic
+      (extreme-pressure) but a real JIT completeness gap (a valid module `--engine jit` refuses). The v128-OPERAND
+      spill arc is DONE (D-461); this is the SCALAR-operand sibling.
+      PHASE-I FINDINGS (2026-06-18, site inventory both arches): 6 sub-categories —
+      (a) **GPR new-lane** (replace_lane i8/16/32/64): arm64 op_simd_int_cmp_lane.zig:109 (i32x4) + :183
+          (emitV128ReplaceLane helper, i8/16/64) `resolveGpr`. x86_64 already `gprLoadSpilled` (done).
+      (b) **GPR splat-source** (i8/16/32/64.splat from scalar): arm64 op_simd_int_cmp_lane.zig:43 `resolveGpr`.
+      (c) **FP new-lane** (f32x4/f64x2.replace_lane): arm64 op_simd_float.zig:126 `resolveFp`; x86_64 op_simd_float.zig
+          :1011/:1137 stays `resolveXmm` (deliberately, the FP-scalar half of this cohort).
+      (d) **FP splat-source**: x86_64 already `xmmLoadSpilled` 8-byte (done); arm64 audit needed.
+      (e) **GPR result** (reduce / any_true / all_true): arm64 op_simd_int_cmp_lane.zig:322/:359 + op_simd.zig:774
+          `resolveGpr` "mirrors pre-spill-aware GPR-result" — RESULT spill, easier (array.new_fixed pressure like the
+          done extract_lane GPR-result @a534d1c45, NOT input-pressure).
+      (f) **shift-amount scalar** (i32): arm64 op_simd_int_arith.zig:425 `resolveGpr`.
+      NOT D-034 (genuinely-structural, leave): op_simd.zig:490/:672 (v128 select/bitselect need 3 simultaneous V
+      regs vs 2 stage regs — a stage-count limit, not a missing migration).
+      STAGING confirmed collision-free: arm64 GPR stages = X14/X15 (`abi.spill_stage_gprs`), disjoint from the
+      V-file stages V29/V30 (`qLoad/qDef`). `gprLoadSpilled`/`fpLoadSpilled` are drop-in (return home reg when not
+      spilled). The migration is the same mechanical swap as D-461 (resolveX → xLoadSpilled), but for scalar operands.
+      VERIFICATION = NEW INFRA: e2e fixtures must force a SCALAR (GPR or FP) to spill (≥pool-size live i32/i64/f32/f64
+      at the lane op) — distinct from the v128-pressure fixtures. (e) GPR-RESULT is the easiest first chunk
+      (result-spill via array.new_fixed, mirrors @a534d1c45); (a)/(c) new-lane need input-pressure modules (build
+      empirically: author WAT → `--engine jit --invoke` → confirm UnsupportedOp → migrate → GREEN, both arches via
+      Rosetta). Discharge: every sub-category's scalar forced to spill flows through its lane op on BOTH arches.
+    first_raised: "2026-06-18"
+    last_reviewed: "2026-06-18"
+    refs: |-
+      src/engine/codegen/arm64/op_simd_int_cmp_lane.zig (:43/:109/:183 resolveGpr new-lane+splat; :322/:359 GPR result);
+      src/engine/codegen/arm64/op_simd_float.zig (:126 resolveFp new-lane); src/engine/codegen/arm64/op_simd.zig (:774);
+      src/engine/codegen/arm64/op_simd_int_arith.zig (:425 shift amount); sibling of D-461 (v128-operand arc, DONE)
   - id: "D-464"
     layer: "code"
     status: "note"
