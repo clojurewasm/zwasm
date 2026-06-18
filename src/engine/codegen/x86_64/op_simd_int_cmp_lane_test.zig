@@ -525,7 +525,7 @@ test "emitI8x16Ne: PCMPEQB + all-ones-mask + PXOR (4-instr sequence)" {
     try pushed.append(testing.allocator, 1);
     var next_vreg: u32 = 2;
 
-    try op_simd_int_cmp_lane.emitI8x16Ne(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+    try op_simd_int_cmp_lane.emitI8x16Ne(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
 
     var expected: std.ArrayList(u8) = .empty;
     defer expected.deinit(testing.allocator);
@@ -554,7 +554,7 @@ test "emitI64x2Ne: dispatches to PCMPEQQ (SSE4.1 0x29)" {
     try pushed.append(testing.allocator, 1);
     var next_vreg: u32 = 2;
 
-    try op_simd_int_cmp_lane.emitI64x2Ne(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+    try op_simd_int_cmp_lane.emitI64x2Ne(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
 
     var expected: std.ArrayList(u8) = .empty;
     defer expected.deinit(testing.allocator);
@@ -591,7 +591,7 @@ test "emitI16x8Ne: dst aliases rhs — stash rhs to XMM7 before PCMPEQW (D-071 p
     try pushed.append(testing.allocator, 1);
     var next_vreg: u32 = 2;
 
-    try op_simd_int_cmp_lane.emitI16x8Ne(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+    try op_simd_int_cmp_lane.emitI16x8Ne(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
 
     var expected: std.ArrayList(u8) = .empty;
     defer expected.deinit(testing.allocator);
