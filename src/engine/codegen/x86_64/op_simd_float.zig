@@ -1212,26 +1212,45 @@ pub fn emitF32x4ReplaceLane(
 /// recombines: low half is exact, high half is shifted-right-1
 /// then doubled to fit signed conversion's range. 11-instruction
 /// inline recipe, no const-pool dep.
-pub fn emitF32x4ConvertI32x4U(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32) Error!void {
+pub fn emitF32x4ConvertI32x4U(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const src_v = pushed_vregs.pop().?;
     const result_v = next_vreg.*;
     next_vreg.* += 1;
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
-    const src_x = try gpr.resolveXmm(alloc, src_v);
-    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    // D-034 (g): spill-aware 2-internal-scratch convert. Both stages are the
+    // recipe's scratch (a_lo/a_hi), so src+dst share one reg via the FMA-template
+    // shape: load src INTO dst (home or XMM7 when spilled), then the recipe reads
+    // dst (src is read-only and dead by the final write at step 10). +1 MOVAPS in
+    // the common case — negligible for a rare convert.
     const a_lo = abi.fp_spill_stage_xmms[0]; // XMM14
     const a_hi = abi.fp_spill_stage_xmms[1]; // XMM15
+    const result_slot = alloc.slot(result_v, .fpr);
+    const dst_x: inst.Xmm = switch (result_slot) {
+        .reg => |id| abi.fpSlotToReg(id) orelse return Error.SlotOverflow,
+        .spill => .xmm7,
+    };
+    switch (alloc.slot(src_v, .fpr)) {
+        .reg => |id| {
+            const src_home = abi.fpSlotToReg(id) orelse return Error.SlotOverflow;
+            if (dst_x != src_home) try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, src_home).slice());
+        },
+        .spill => |off| {
+            const abs_off = spill_base_off + off;
+            if (abs_off > 0x7FFF_FFFF) return Error.SlotOverflow;
+            try buf.appendSlice(allocator, inst.encLoadXmmV128MemRBPDisp32(dst_x, -@as(i32, @intCast(abs_off))).slice());
+        },
+    }
 
-    // 1-3: a_lo = src masked to low 16 bits per lane.
-    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(a_lo, src_x).slice());
+    // 1-3: a_lo = dst masked to low 16 bits per lane.
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(a_lo, dst_x).slice());
     try buf.appendSlice(allocator, inst.encPslldImm(a_lo, 16).slice());
     try buf.appendSlice(allocator, inst.encPsrldImm(a_lo, 16).slice());
 
-    // 4-5: a_hi = src - a_lo gives the high 16 bits in each lane
+    // 4-5: a_hi = dst - a_lo gives the high 16 bits in each lane
     // (still up high; we never shifted them down).
-    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(a_hi, src_x).slice());
+    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(a_hi, dst_x).slice());
     try buf.appendSlice(allocator, inst.encPsubD(a_hi, a_lo).slice());
 
     // 6: convert low halves via signed CVTDQ2PS (low halves fit
@@ -1244,9 +1263,15 @@ pub fn emitF32x4ConvertI32x4U(allocator: Allocator, buf: *std.ArrayList(u8), all
     try buf.appendSlice(allocator, inst.encCvtdq2ps(a_hi, a_hi).slice());
     try buf.appendSlice(allocator, inst.encAddps(a_hi, a_hi).slice());
 
-    // 10-11: dst = a_hi + a_lo.
+    // 10-11: dst = a_hi + a_lo (overwrites dst, which held src — now dead).
     try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, a_hi).slice());
     try buf.appendSlice(allocator, inst.encAddps(dst_x, a_lo).slice());
+
+    if (result_slot == .spill) {
+        const abs_off = spill_base_off + result_slot.spill;
+        if (abs_off > 0x7FFF_FFFF) return Error.SlotOverflow;
+        try buf.appendSlice(allocator, inst.encStoreXmmV128MemRBPDisp32(-@as(i32, @intCast(abs_off)), .xmm7).slice());
+    }
     try pushed_vregs.append(allocator, result_v);
 }
 
@@ -1685,7 +1710,7 @@ pub fn emitF32x4ConvertI32x4SCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr
 
 pub fn emitF32x4ConvertI32x4UCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitF32x4ConvertI32x4U(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitF32x4ConvertI32x4U(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitF64x2ConvertLowI32x4SCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {

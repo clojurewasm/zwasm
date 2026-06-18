@@ -765,15 +765,17 @@ test "emitF32x4ConvertI32x4U: 11-instr split-and-recombine recipe" {
     try pushed.append(testing.allocator, 0);
     var next_vreg: u32 = 1;
 
-    try op_simd_float.emitF32x4ConvertI32x4U(testing.allocator, &buf, alloc, &pushed, &next_vreg);
+    try op_simd_float.emitF32x4ConvertI32x4U(testing.allocator, &buf, alloc, &pushed, &next_vreg, 0);
 
     var expected: std.ArrayList(u8) = .empty;
     defer expected.deinit(testing.allocator);
-    // src = xmm8, dst = xmm9, a_lo = xmm14, a_hi = xmm15.
-    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm14, .xmm8).slice());
+    // src = xmm8, dst = xmm9, a_lo = xmm14, a_hi = xmm15. D-034 (g): src is
+    // first loaded into dst (MOVAPS xmm9, xmm8) and the recipe then reads dst.
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm9, .xmm8).slice());
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm14, .xmm9).slice());
     try expected.appendSlice(testing.allocator, inst.encPslldImm(.xmm14, 16).slice());
     try expected.appendSlice(testing.allocator, inst.encPsrldImm(.xmm14, 16).slice());
-    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm15, .xmm8).slice());
+    try expected.appendSlice(testing.allocator, inst.encMovapsXmmXmm(.xmm15, .xmm9).slice());
     try expected.appendSlice(testing.allocator, inst.encPsubD(.xmm15, .xmm14).slice());
     try expected.appendSlice(testing.allocator, inst.encCvtdq2ps(.xmm14, .xmm14).slice());
     try expected.appendSlice(testing.allocator, inst.encPsrldImm(.xmm15, 1).slice());

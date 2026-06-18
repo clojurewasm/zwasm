@@ -585,3 +585,25 @@ test "runI32Export: f32x4.convert_i32x4_s of a spilled v128 src/dst → 0x408000
     };
     try testing.expectEqual(@as(u32, 0x40800000), runI32Export(testing.allocator, &bytes, "f"));
 }
+
+// ============================================================
+// D-034 (g) — v128 spill for a 2-internal-scratch convert
+// (f32x4.convert_i32x4_u). The 11-instr recipe uses BOTH XMM14+XMM15
+// internally (a_lo/a_hi). Fix reuses the FMA-template shape: load src
+// INTO dst (home-or-XMM7), run the recipe reading dst (src is
+// read-only and dead by the final write), 2 scratch on the stages,
+// store XMM7→slot if spilled. +1 MOVAPS common-case (negligible for a
+// rare convert). arm64 already spill-aware.
+// ============================================================
+
+test "runI32Export: f32x4.convert_i32x4_u of a spilled v128 src/dst → 0x40800000 (D-034 (g) 2-scratch convert)" {
+    // convert_i32x4_u(splat 4) = 4.0; extract_lane 0 = f32 bits of 4.0 = 0x40800000.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x5e,
+        0x7b, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03, 0x02, 0x01, 0x01, 0x07, 0x05,
+        0x01, 0x01, 0x66, 0x00, 0x00, 0x0a, 0x1b, 0x01, 0x19, 0x00, 0x41, 0x04,
+        0xfd, 0x11, 0x41, 0x04, 0xfd, 0x11, 0xfb, 0x08, 0x00, 0x02, 0x41, 0x01,
+        0xfb, 0x0b, 0x00, 0xfd, 0xfb, 0x01, 0xfd, 0x1b, 0x00, 0x0b,
+    };
+    try testing.expectEqual(@as(u32, 0x40800000), runI32Export(testing.allocator, &bytes, "f"));
+}
