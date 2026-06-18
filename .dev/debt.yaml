@@ -2088,8 +2088,20 @@ entries:
           **STILL REMAINING (g) — the int-arith SYNTHESIZED ops the FP-only progress list skipped** (x86_64-only;
           arm64 routes them through shared spill-aware helpers): **i8x16 shifts** emitI8x16Shl :557 / ShrU :597 /
           ShrS — vec/dst bare resolveXmm AND both stages XMM14/XMM15 consumed internally = HARD multi-scratch
-          (XMM7-park / in-place template); **i8x16.popcnt** ~:1235; likely avgr / min/max-signed / dot. Inventory
-          subagent launched @b56cb514f for the exact site table. Opt-in-JIT-only, exotic.
+          (XMM7-park / in-place template). Opt-in-JIT-only, exotic.
+          **EXACT 18-SITE INVENTORY (Explore @b56cb514f; all confirmed x86_64-only asymmetries — arm64 routes each
+          through a spill-aware shared helper; operand = v128 vec/src/lhs/rhs/dst, scalar operands already done):**
+            op_simd_int_arith.zig: emitI8x16Shl :572 · emitI8x16ShrU :612 · emitV128IntNeg :658 · emitI64x2Abs :728 ·
+              emitI8x16ShrS :757 · emitI64x2ShrS :794 · emitI64x2Mul :873 · emitI8x16Popcnt :1243
+            op_simd_int_cmp_lane.zig: emitV128IntCmpSigned :584 · emitV128IntCmpUnsigned :828 · emitI8x16Swizzle
+              :1156 · emitV128IntNe :1394 · emitV128IntExtmulLow :1810 · emitV128IntExtmulHigh :1841 ·
+              emitV128I64x2Extmul :1910 · emitI8x16Shuffle :2042
+            op_simd_float.zig: emitV128FpPseudoBinop (Pmin/Pmax f32x4/f64x2) :1522
+            op_simd.zig: v128LoadExtend (dst) :446 · v128StoreLane (vec) :571
+          HARD (both stages internal): i8x16 Shl/ShrU/ShrS, swizzle/shuffle (PSHUFB ctrl), popcnt. EASIER (likely
+          2-stage src→0/dst→1 or single-operand): LoadExtend dst, StoreLane vec, Neg, Mul, cmp/ne/extmul/Pmin-Pmax
+          (verify per-op internal-scratch count first). STRUCTURAL-EXEMPT (leave): op_simd.zig:961 emitV128Select
+          val2 (3 v128 regs vs 2 stages); emitV128Bitselect has NO bare site.
       NOT D-034 (genuinely-structural, leave): op_simd.zig:490/:672 (v128 select/bitselect need 3 simultaneous V
       regs vs 2 stage regs — a stage-count limit, not a missing migration).
       STAGING confirmed collision-free: arm64 GPR stages = X14/X15 (`abi.spill_stage_gprs`), disjoint from the
