@@ -1901,9 +1901,15 @@ entries:
           dst-write→xmmDefSpilled/Store STAGE1/XMM15; no internal XMM scratch [RCX GPR roundtrip] so stages never
           collide; 12-v128 fixture runner_gc_test load32_lane→4095 arm64+Rosetta GREEN).
           (NOT arithmetic binops — those are fully spill-aware: sources :95-96, dsts proven by `v128.or` spilling.)
-      **REMAINING D-461 (the only result-write gap left)**: **replace_lane** ×4 — ENTANGLED with D-034 (a green
-      force-spill fixture also spills the new-lane scalar GPR which arm64 handles SPILL-EXEMPT); do it WITH the
-      D-034 arm64-GPR cohort, not as an isolated D-461 chunk (see (1) above). Extend/Extadd/v128-load all DONE.
+      **splat family** (D-461 5th op family, x86_64 spilled-dst): i32x4/i16x8/i64x2.splat DONE @60c4f043a
+      (dst→xmmDefSpilledV128 STAGE0/XMM14 + flush, no scratch; i32x4 fixture array.new_fixed 2×splat→get[1]→
+      extract=9 arm64+Rosetta GREEN). **DEFERRED**: (i) **i8x16.splat** — x86_64 dst needs STAGE1 (PSHUFB ctrl on
+      XMM14) but arm64 i8x16 ALSO UnsupportedOps a spilled operand (gap in arm64 i8x16.splat OR extract_lane_u) →
+      no GREEN reference; fix the arm64 i8x16 spill gap FIRST, then mirror x86_64 stage1. (ii) **f32x4/f64x2.splat**
+      — lack a `spill_base_off` param + FP-scalar source (need param threading + fpLoadSpilled-vs-v128 choice).
+      **REMAINING D-461 result-write**: **replace_lane** ×4 — ENTANGLED with D-034 (a green force-spill fixture
+      also spills the new-lane scalar GPR which arm64 handles SPILL-EXEMPT); do it WITH the D-034 arm64-GPR cohort,
+      not isolated (see (1)). Extend/Extadd/v128-load/load_lane/i32x4-i16x8-i64x2-splat all DONE.
       EXOTIC (high-v128-pressure only; concrete D-460 array-copy blocker already cleared by extract_lane).
       Original surfacing context below.
 

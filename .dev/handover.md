@@ -56,18 +56,18 @@ Status→Implemented + retrospective section; D-464 item (4) closed).
    (ubuntu+win @0e1fca6e7 recorded). 9 adversarial fixtures in `component_async_tests.zig`.
 2. **Audit DONE 2026-06-18 (CLEAN)** — `audit_scaffolding` 0 block/0 soon (only J.3 chronic debt=61);
    `private/audit-2026-06-18.md`. Fuzz smoke 0 crashes.
-3. **D-460 v128-GC JIT emit — FULLY DONE BOTH ARCHES** (struct/array get/set/new @3d8be3c00 x86_64 mirror +
-   array_new_fixed @8137c7268 + **array_copy @5292569e0**). x86_64 mirrors arm64 via MOVUPS + running-sum struct
-   offset + new `encShlRImm8` index×16; array_copy resolves elem size from `ObjectHeader.info` (was hardcoded
-   8-byte) in the arch-independent `jitGcArrayCopy`. 6 runI32Export RED→GREEN fixtures use a `v128.load` producer
-   (struct.new/array.new_* force-spill the operand [ADR-0060] + x86_64 replace_lane not spilled-dst aware → would
-   mask the GC op). arm64 2955/2967, Rosetta 2961/2973. **D-460 status=partial**: only coverage formalities left
-   (run gc/array-copy-inline.6 via `wasmtime_misc_native_sweep.sh` + optional test/edge_cases/p10/gc fixture). NEXT:
-   discharge D-460 via the wasmtime sweep, OR pivot (D-034 GPR-scalar cohort / dogfood). Do NOT grind consumer-gated.
-4. **D-461 x86_64 v128 spill — 4 op families DONE** (extend @83256d210, Extadd @4b839f29a, splat/zero @612a1b6b9,
-   **load_lane @5785dffa2 — 3-host GREEN**). Remaining = **replace_lane ONLY** (entangled with D-034 GPR-scalar; do
-   WITH that cohort). ubuntunote nix-disk FIXED 2026-06-18 (402GB `.zig-cache` → `rm -rf`; lesson
-   `2026-06-18-remote-zig-cache-fills-disk-*`: "nix dep failed" → check `df -h`).
+3. **D-460 v128-GC JIT emit — FULLY DONE BOTH ARCHES** (struct/array get/set/new @3d8be3c00 + array_new_fixed
+   @8137c7268 + array_copy @5292569e0). x86_64 mirrors arm64 via MOVUPS + running-sum struct offset + `encShlRImm8`
+   index×16; array_copy resolves elem size from `ObjectHeader.info` (was 8-byte) in arch-indep `jitGcArrayCopy`.
+   6 runI32Export RED→GREEN fixtures. **status=partial**: only the wasmtime-sweep formality left (discharge via
+   `wasmtime_misc_native_sweep.sh gc` — its splat-producer is NOW spilled-dst aware per point 4). Do NOT grind
+   consumer-gated (D-464(2), D-305).
+4. **D-461 x86_64 v128 spill — 5 op families DONE** (extend, Extadd, v128.load splat/zero, load_lane @5785dffa2,
+   **i32x4/i16x8/i64x2.splat @60c4f043a**). Remaining: **i8x16.splat** (x86_64 stage1 BLOCKED on an arm64 i8x16
+   spilled-operand gap — fix arm64 first for a GREEN ref), **f32x4/f64x2.splat** (no spill_base_off param),
+   **replace_lane** (D-034 GPR-scalar cohort). NEXT options: arm64 i8x16 spill gap (unblocks i8x16) / D-034 cohort
+   / discharge D-460 via `wasmtime_misc_native_sweep.sh gc` (splat-producer now spilled-dst aware). ubuntunote
+   nix-disk FIXED (402GB `.zig-cache` → `rm -rf`; lesson `2026-06-18-remote-zig-cache-fills-disk-*`).
 
 ## Recently closed arcs (detail in ADRs/git/debt — one-liners)
 
