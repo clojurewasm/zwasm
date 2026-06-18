@@ -32,16 +32,16 @@ CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`.
 ## Active bundle
 
 - **Bundle-ID**: D-034 SIMD spill-completeness cohort (scalar-operand sibling of D-461 + the v128-source arith gap)
-- **Cycles-remaining**: ~5 (sub-cats a–g; DONE: (e) GPR-result + (g) all_true-src @e52d5a5f9; (g) FP-round
-  @2c6f0235c; (g) abs/neg @2fa6ce553; opened 2026-06-18)
-- **Continuity-memo**: mechanical swap (resolveGpr/Fp/Xmm → gprLoadSpilled/fpLoadSpilled/xmmLoadSpilledV128).
-  **KEY TECHNIQUE (abs/neg): park the op's internal scratch on XMM7** (reserved, op-unused) to free BOTH stages
-  for src(0)+dst(1) — clean for any ≤1-scratch op. Those are now ALL done (round 0-scratch + abs/neg 1-scratch).
-  REMAINING (g) = the SCRATCH-HEAVY tail: convert/trunc_sat (:1176/:1275/:1445/:1541 use BOTH XMM14+XMM15) +
-  3-v128 FP binops (:290 min/max). XMM7 gives only a 3rd reg; 2-scratch+src+dst=4-when-all-spill still short →
-  need per-op in-place restructure (compute in src stage, store to dst slot) or memory-operand scratch. REJECT a
-  global 3rd-stage-XMM pool cut (perf cost, exotic path). Scalar sub-cats remain: (a) GPR new-lane (arm64
-  :109/:183), (b) GPR splat-src (:43), (c) FP new-lane (:126), (f) shift-amt (:425) — need GPR/FP-pressure fixtures.
+- **Cycles-remaining**: ~4 (sub-cats a–g; DONE: (e) GPR-result + (g) all_true-src @e52d5a5f9; (g) FP-round
+  @2c6f0235c; (g) abs/neg @2fa6ce553; (g) FP-compare @21ae06d01; opened 2026-06-18)
+- **Continuity-memo**: 2 reusable TEMPLATES now in hand — (1) XMM7-park (≤1-scratch ops: round/abs/neg DONE),
+  (2) the 3-v128-operand FMA template (emitV128FpFmaX86 @:653 → dst home-or-XMM7, 2 stages for operands, RBP-disp
+  v128 load/store) which closed FP-compare with NO common-case cost. **add/sub/mul/div + pmin/pmax already
+  spill-aware** (via op_simd.emitV128IntBinop). REMAINING (g) = SCRATCH-HEAVY tail (2 internal scratch + operands):
+  spec NaN-min/max (op_simd_float.zig:519/:568) + convert/trunc_sat (:1176/:1275/:1445/:1541). Neither template
+  fits directly (2 scratch ALSO want both stages) → per-op restructure (park one scratch on XMM7 to free a stage,
+  or memory-operand scratch). REJECT a global 3rd-stage-XMM pool cut (perf, exotic). Scalar sub-cats remain: (a)
+  GPR new-lane (arm64 :109/:183), (b) GPR splat-src (:43), (c) FP new-lane (:126), (f) shift-amt (:425, pressure fx).
 - **Exit-condition**: every a–g sub-category's operand forced to spill flows through its op on BOTH arches; zero
   bare resolveGpr/resolveFp/resolveXmm SPILL-EXEMPT sites remain (except the structural 3-V-reg select/bitselect).
 
@@ -49,9 +49,9 @@ CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`.
 
 0. **ADR-0195 guest↔guest async — CAMPAIGN COMPLETE** (D-335 closed; detail in git + ADR-0195; residuals D-463
    CLOSED / D-464 future-bucket). **D-461 v128-DST-spill arc COMPLETE both arches** (FP replace_lane @4acd24152).
-1. **Active bundle = D-034** (above): drive SIMD spill-completeness. DONE: (e) GPR-result + (g) all_true-src
-   @e52d5a5f9, (g) FP-round @2c6f0235c, (g) abs/neg @2fa6ce553 (XMM7-park technique). NEXT = scratch-heavy (g)
-   convert/trunc_sat + FP binops (per-op in-place restructure) OR scalar sub-cats (a/b/c/f, need pressure fixtures).
+1. **Active bundle = D-034** (above): SIMD spill-completeness. DONE: (e) GPR-result + (g) all_true-src @e52d5a5f9,
+   (g) FP-round @2c6f0235c, (g) abs/neg @2fa6ce553, (g) FP-compare @21ae06d01 (FMA template). NEXT = scratch-heavy
+   (g) NaN-min/max + convert/trunc_sat (per-op restructure) OR scalar sub-cats (a/b/c/f, need pressure fixtures).
 2. **Audit DONE 2026-06-18 (CLEAN)** — `audit_scaffolding` 0 block/0 soon (J.3 chronic debt); fuzz 0 crashes.
 3. **D-460 v128-GC JIT emit DONE both arches** (@3d8be3c00/@8137c7268/@5292569e0; 6 runI32Export fixtures = the
    authoritative JIT verification). Only an optional edge fixture remains (low value). Consumer-gated, do NOT grind:

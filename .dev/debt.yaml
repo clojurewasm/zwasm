@@ -2046,16 +2046,17 @@ entries:
             - all_true v128-source FIXED @e52d5a5f9 (stage1/XMM15 vs PXOR-scratch XMM14).
             - **FP-round (ceil/floor/trunc/nearest, f32x4+f64x2) DONE @2c6f0235c** — emitV128FpRound has 0 internal
               scratch → clean 2-stage migration (src stage0, dst stage1). 2 fixtures (f32x4.ceil/f64x2.floor).
-          **abs/neg DONE @2fa6ce553** — KEY TECHNIQUE: move the op's internal scratch (the sign mask) from a stage
-          XMM (XMM14) to **XMM7** (a reserved scratch unused by the op), freeing BOTH stages for src(0)+dst(1). This
-          generalises: any op with ≤1 internal scratch becomes a clean helper migration by parking that scratch on
-          XMM7. REMAINING (g): **SCRATCH-HEAVY** ops that consume BOTH XMM14+XMM15 internally — convert/trunc_sat
-          (:1176/:1275/:1445/:1541) + 3-v128-operand FP binops (:290 min/max, 2src+dst+XMM7-alias). For these, XMM7
-          gives only a 3rd reg (XMM14/15/7); when an op needs 2 internal scratch + src + dst (=4 when all spill) it
-          still falls short → needs per-op in-place restructure (compute in the src stage, store to dst slot) OR
-          memory-operand scratch. REJECT a global 3rd-stage-XMM pool cut (perf cost for an exotic path). The clean
-          XMM7-park ops (≤1 scratch) are now ALL done (round 0-scratch + abs/neg 1-scratch); the rest are the hard
-          per-op-restructure tail. Opt-in-JIT-only, exotic.
+          **abs/neg DONE @2fa6ce553** — KEY TECHNIQUE: park the op's internal scratch on **XMM7** (reserved, unused
+          by the op), freeing BOTH stages for src(0)+dst(1). Generalises to any ≤1-scratch op.
+          **FP-compare (eq/ne/lt/gt/le/ge × f32x4/f64x2, 12 ops) DONE @21ae06d01** — 3-v128-operand (base/cmp/dst)
+          reused the EXISTING FMA template (emitV128FpFmaX86 @:653): cmp→home-or-stage1, dst→home-or-XMM7, base
+          loaded into dst (MOVAPS or RBP-disp v128 load), store XMM7 if spilled; NO common-case cost (no-spill path
+          byte-identical). **add/sub/mul/div + pmin/pmax already spill-aware** (route via op_simd.emitV128IntBinop).
+          REMAINING (g): the SCRATCH-HEAVY ops that consume BOTH XMM14+XMM15 internally — spec NaN-min/max
+          (:519/:568, 2 scratch) + convert/trunc_sat (:1176/:1275/:1445/:1541). The FMA/compare template (dst→XMM7,
+          2 stages for operands) does NOT directly fit when 2 internal scratches ALSO need both stages → per-op
+          restructure (free a stage by parking one scratch on XMM7 like abs/neg, or memory-operand scratch). REJECT
+          a global 3rd-stage-XMM pool cut (perf cost, exotic). Opt-in-JIT-only, exotic; lower priority than done set.
       NOT D-034 (genuinely-structural, leave): op_simd.zig:490/:672 (v128 select/bitselect need 3 simultaneous V
       regs vs 2 stage regs — a stage-count limit, not a missing migration).
       STAGING confirmed collision-free: arm64 GPR stages = X14/X15 (`abi.spill_stage_gprs`), disjoint from the
