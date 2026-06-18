@@ -63,11 +63,11 @@ Status→Implemented + retrospective section; D-464 item (4) closed).
    :439/514, reads vec+dst — next clean-ish candidate, arm64-verify first per lesson); **replace_lane** ENTANGLED with
    D-034 arm64-GPR-scalar (deferred to the D-034 cohort). Or pivot to dogfood. Do NOT grind consumer-gated (D-464(2),
    D-305).
-4. **Remote**: extend 3-host GREEN; Extadd ubuntu-green; v128.load splat/zero arm64+Rosetta-green. **ubuntunote nix
-   failure FIXED 2026-06-18**: was a FULL DISK (100%) — a 402GB `.zig-cache`; `rm -rf .zig-cache` freed 405G (→9%),
-   nix+zig rebuild green; test-all re-kicked (cold, in-flight). Lesson `2026-06-18-remote-zig-cache-fills-disk-*`
-   (remote "nix dependency failed" → check `df -h`; non-code-gap re-kick not revert). windows batch 7/12
-   (Extadd+memload pending, non-ABI, Win64-proven stage-XMM). D-028/windows-listen IPC flakes cosmetic.
+4. **Remote**: extend 3-host GREEN; Extadd ubuntu-green; **v128.load splat/zero now ubuntu-green too** (test-all OK
+   @fc7c2a04e). **ubuntunote nix failure FIXED 2026-06-18**: was a FULL DISK (100%) — a 402GB `.zig-cache`;
+   `rm -rf .zig-cache` freed 405G (→9%), cold test-all rebuilt + GREEN. Lesson `2026-06-18-remote-zig-cache-fills-
+   disk-*` (remote "nix dependency failed" → check `df -h`; non-code-gap re-kick not revert; prune remote cache).
+   windows batch 7/12 (Extadd+memload pending, non-ABI, Win64-proven stage-XMM). D-028/windows-listen flakes cosmetic.
 
 ## Recently closed arcs (detail in ADRs/git/debt — one-liners)
 
