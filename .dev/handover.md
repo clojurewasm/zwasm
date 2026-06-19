@@ -45,18 +45,11 @@ high-value bar is OFF. Sweep toward 0% the 3 gap classes — (1) wasmtime-works-
 non-conformance (skips/missing), (3) instability/crashes — from already-known items, EASIEST-first, TDD + 3-host
 gate, repeat. Do NOT stop to ask "is this high-value." **Inventory DONE** (subagent): spec-skip front already ~0
 (only real skip-impl = simd `directive-register` = test-harness residue; #2/#3 validator-rejects already done, stale
-comments fixed @94f0b7122). **#9 DONE @97abd6887**: the 9 go_* already compiled (the "fail" was stale; D-331B
-go_* closed), but the sweep surfaced + fixed a real latent residual — arm64 v128 LOCAL ZERO-INIT large-frame
-`UnsupportedOp` (>32760 offset → routed through frameStrGpr/X16; fixture setup_v128_zeroinit; emit byte-tests
-unchanged). **D-330 + D-331A root FOUND (the elusive class = ONE bug) — fix arm64-correct but REVERTED (x86_64
-regression).** Root (CORRECT): a `block(result T)` reached by a forward `br/br_if/br_table` captures its result
-operands as merge vregs (emit), but LIVENESS left their range `[def,def]` dying at the branch → regalloc parks the
-value in a callee-saved reg (X20-22 / RBX-R14) an intervening call clobbers; the taken edge jumps over `.end`'s
-home-MOV → stale → wrong branch. Fix (`liveness.zig`, mirror if/else D-093 d-11) closed both on arm64 (c_sha256 107,
-go_hello prints) but **REGRESSED x86_64 `labels.wast switch` (got 25, expected 50)** — `captureBlockMergeVregs`
-fires on ONE `depth` but `br_table` has MANY targets, so multi-target br_table merges are mishandled (x86_64 regalloc
-surfaces it). Reverted to keep main green; diff preserved @1c59101ff; lesson `block-result-merge-vreg-survival`
-(with the caveat). **See `## Active bundle` for the re-land.**
+comments fixed @94f0b7122). **#9 DONE @97abd6887**: arm64 v128 LOCAL ZERO-INIT large-frame `UnsupportedOp` (>32760
+→ frameStrGpr/X16; fixture setup_v128_zeroinit) — the 9 go_* already compiled (stale "fail"). **D-330 + D-331A
+root FOUND (the elusive class = ONE bug); fix arm64-correct but REVERTED (x86_64 regression).** See `## Active
+bundle` for the full root + the re-land plan. Reverted to keep main green; diff @1c59101ff; lesson
+`block-result-merge-vreg-survival`.
 **Sweep queue (after re-land)**: D-209 memory64 >4GiB offset (≤1 CHUNK — survey found the codegen ALREADY exists
 both arches; only an artificial cap at `lower.zig:1004` gates it; lift it for i64 memories + fixture) → D-336
 borrow-export (blocked sort=value) → D-456 host-stubs (test-harness). (#1 simd = test-harness.)
@@ -72,14 +65,9 @@ comp-assert 170/0; 3-host green. Lessons `host-fn-two-value-types`, `component-r
 **Step-0.7 NOTE**: `failed command: test…--listen=-` is COSMETIC (exits 0); trust `[run_remote_*] OK/FAIL` + `N
 passed, 0 failed`, not that line.
 
-**PARKED / gated (do NOT speculatively grind)**: **D-331A FINAL-RE-PARKED 2026-06-20** — 4 investigations removed
-4 false theories (spill-hole / call-return / memory-load-width / cbnz-w21). Now well-characterized: a miscompiled
-branch-condition VREG inside `runtime.goargs`(835)'s br_table state machine (linear memory PROVABLY identical at the
-divergence → it's a register, not memory). Further progress needs INFRASTRUCTURE (a JIT per-branch tracer) or an
-untried state-machine-shaped minimal-wat bet — both in the D-331 row; not surgical. NICHE (fat-Go JIT-run only).
-· D-305 long-tail (list<record>/variant/multi-param — niche, + `component_graph.zig` 1895/2000 file-split first);
-D-464 async; 21 `blocked-by` (upstream/proposal/time-gate/corpus). (NOTE: the D-331A "needs infrastructure" text
-above is SUPERSEDED — root found, fix arm64-correct, re-land bundle below.)
+**PARKED / gated (do NOT speculatively grind)**: D-305 long-tail (list<record>/variant/multi-param — niche, +
+`component_graph.zig` 1895/2000 file-split first); D-464 async; 21 `blocked-by` (upstream/proposal/time-gate/corpus).
+(D-331A's old "needs-infrastructure / NICHE" text is SUPERSEDED — root found, fix arm64-correct; see the bundle.)
 
 ## Active bundle
 
