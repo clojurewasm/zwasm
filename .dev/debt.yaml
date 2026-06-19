@@ -1339,6 +1339,25 @@ entries:
     layer: "code"
     status: "partial"
     description: |-
+      **(A) RE-SCOPED 2026-06-20 — the "regalloc spill hole" was a PROBE ARTIFACT; the real bug is a DETERMINISTIC
+      JIT wrong-branch during Go runtime init.** A fresh poison-bisect investigation REFUTED the entire (A)-below
+      spill-hole theory: (1) the escalating per-8-byte prologue poison NEVER reaches linear memory (3/3) — the
+      uninitialized value, if any, flows through registers/branch predicates, not a guest store, so it's
+      unbisectable by memory scan; (2) poison ON (whole frame) vs OFF produce BYTE-IDENTICAL host-call streams —
+      nothing to bisect against; (3) the "frame-fill makes it deterministic" signal the prior arc relied on is an
+      **I/O-buffering artifact** (Go's traceback flush under `timeout`, fatal-print vs silent-hang), NOT real
+      behavior. **REAL ROOT CAUSE (deterministic, stable 3/3, NOT func 233, NOT a heisenbug)**: the JIT host-call
+      stream diverges at **host-call #5** — JIT does `…args_sizes_get → clock_time_get…`, interp does
+      `…args_sizes_get(3) → args_get(2)…`. After `args_sizes_get` returns during Go runtime init
+      (`runtime.args`/`goargs`/`schedinit`), the guest takes the WRONG BRANCH under JIT, landing on the clock/sleep/
+      poll path → later corruption. Clean external observable now exists. REPRO:
+      `ZWASM_DEBUG=mem.cksum timeout 25 ./zig-out/bin/zwasm run --engine {interp,jit} test/realworld/wasm/go_hello_wasi.wasm 2>&1 | grep -oE 'jit [a-z_]+'`
+      → diff streams, first diverging call = #5. **NEXT (well-defined)**: re-add the per-guest-call func_idx trace
+      (the `callseq` channel reverted @7b37ad6d — HEED lesson `2026-06-19-build-options-field-needs-all-exes`: wire
+      the build_option into EVERY `b.addOptions()` instance), diff both engines to find the FIRST func whose JIT
+      branch flips between `args_sizes_get`'s return and the spurious `clock_time_get`, then disasm that func's JIT
+      bytes for a wrong-width/offset i64 load or a miscompiled branch in the schedinit/args path. The (A)-below arc
+      is the SUPERSEDED prior characterization (kept for the refuted-theory audit trail; do NOT re-walk it).
       **(A) CHARACTERIZED 2026-06-19 — go-runtime JIT miscompile = a REGALLOC SPILL live-range hole (arm64).**
       7 deep investigations (full arc + repro + poison diagnostic → `private/notes/d331a-memdiff-plan.md`) built a
       mem.cksum host-call hash + a `-Dd331` per-guest-call tracer (REVERTED @7b37ad6d — build-graph gap) and

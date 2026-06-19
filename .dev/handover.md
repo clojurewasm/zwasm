@@ -58,18 +58,19 @@ passed, 0 failed`, not that line.
 
 ## Active bundle
 
-- **Bundle-ID**: D-331A-poison-bisect
-- **Cycles-remaining**: ~2-3 (localize slot → fix)
-- **Continuity-memo**: arm64 REGALLOC SPILL live-range hole — `mallocgcTiny`(func 233) reads an UNINITIALIZED spill
-  slot (poison-confirmed: a prologue frame-fill makes the NONDETERMINISTIC JIT deterministic). NEXT documented step
-  = escalating per-8-byte poison frame-fill (garbage encodes its source offset) to localize WHICH slot/offset → then
-  audit regalloc spill emission + `op_call.zig spillHomedCallerSaved` for a call-crossing TEMP vreg whose spill-STR
-  misses a merge path (D-291 only covered homed locals; bug is in SPILL, not op_control/load-encoders). Full plan:
-  D-331 row + `private/notes/d331a-memdiff-plan.md`. NICHE: fat-Go JIT-run-stage only; interp+spec+TinyGo green.
-  Driving hard/parked per the no-premature-deferral directive — ONE bounded step/cycle, reassess (not re-pouring the
-  prior ~1.3M-token grind).
-- **Exit-condition**: the uninitialized slot's producing instruction/vreg identified (fix = a localized
-  spill-emission change) OR a poison-bisect finding that re-scopes the root cause.
+- **Bundle-ID**: D-331A-branch-bisect
+- **Cycles-remaining**: ~2-3 (func-bisect → disasm → fix)
+- **Continuity-memo**: RE-SCOPED 2026-06-20 (poison-bisect step REFUTED the spill-hole theory — see D-331 row).
+  Real bug = a DETERMINISTIC JIT wrong-branch during Go runtime init: the JIT host-call stream diverges at
+  **host-call #5** (JIT `args_sizes_get→clock_time_get` vs interp `args_sizes_get→args_get`); after `args_sizes_get`
+  returns in `schedinit`, JIT takes the wrong branch. NOT func 233, NOT a heisenbug — clean observable. REPRO:
+  `ZWASM_DEBUG=mem.cksum timeout 25 ./zig-out/bin/zwasm run --engine {interp,jit} test/realworld/wasm/go_hello_wasi.wasm 2>&1 | grep -oE 'jit [a-z_]+'`.
+  NEXT step = re-add the per-guest-call func_idx `callseq` trace (reverted @7b37ad6d — HEED lesson
+  `build-options-field-needs-all-exes`), diff both engines → FIRST func whose JIT branch flips, then disasm that
+  func for a wrong-width/offset i64 load or miscompiled branch in the schedinit/args path. NICHE: fat-Go JIT-run
+  only; interp+spec+TinyGo green. ONE bounded step/cycle.
+- **Exit-condition**: the first divergent guest func identified + its miscompiled instruction (load width/offset or
+  branch) located → fix becomes a localized codegen change.
 
 ## Closed arcs (detail in ADRs/git/debt)
 
