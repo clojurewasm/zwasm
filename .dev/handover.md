@@ -38,18 +38,21 @@ consolidate the duplicated spill helpers into a shared op_simd.zig pub set.
 ## Active bundle
 
 - **Bundle-ID**: D-331A-memdiff (correctness — fix the go-runtime miscompile)
-- **Cycles-remaining**: ~3 (diagnostic DONE; now pinpoint the bad codegen + fix)
-- **Continuity-memo**: **DIAGNOSTIC DONE @27244fe86** (`ZWASM_DEBUG=mem.cksum`: fnv1a(linear-mem) hashed at WASI
-  host-call boundaries on both engines — interp mvp.zig:392 + JIT jit_dispatch.zig clock/random/args/fd_write/
-  poll_oneoff). **LOCALIZED on go_hello**: boundary-1 clock_time_get hashes MATCH (73e036d0 — layout identical,
-  diagnostic sound) → boundary-2 clock_time_get DIVERGES (interp c5a1e0df vs jit 92959216). So the JIT corrupts
-  linear memory in **guest code BETWEEN the 1st and 2nd clock_time_get host calls** (then enters a poll_oneoff+
-  panic path interp never takes; interp = 25 host calls, 0 poll, clean exit). **NEXT**: `ZWASM_DEBUG=codegen,jit.dump`
-  to list the guest funcs executing in that window; identify which JIT-compiled func writes the divergent bytes
-  (add finer cksum points / a per-store trace if needed), find the bad codegen, fix. Repro:
-  `diff <(…interp 2>&1|grep mem.cksum) <(…jit 2>&1|grep mem.cksum)` (cksum on STDERR — use 2>&1, NOT 2>/dev/null).
-- **Exit-condition**: (localize DONE @27244fe86) the miscompiling JIT-compiled guest function in the 1st→2nd
-  clock_time_get window is identified + its bad codegen fixed (go_hello JIT-run-stage stops corrupting), OR the
+- **Cycles-remaining**: ~3 (localized to a CONTROL-FLOW divergence in the allocator/systemstack path; now pin the bad codegen + fix)
+- **Continuity-memo**: diagnostic mem.cksum committed @27244fe86, but **CORRECTED 2026-06-19 (subagent adc5667a,
+  full detail → `private/notes/d331a-memdiff-plan.md`)**: per-host-call MEMORY hashing was a RED HERRING — the
+  "2nd clock_time_get divergence" is non-deterministic CLOCK nanosecond reads (interp-A≠interp-B), not corruption.
+  The PRODUCTIVE signal = a per-guest-CALL **func-idx sequence** diff: **the bug is CONTROL-FLOW**. Interp calls
+  `runtime.recordspan`(470) ZERO times → clean exit; JIT calls it 35× stuck in an infinite `fixalloc.alloc`(314)↔
+  recordspan(470) loop → panic. Gate in fixalloc.alloc loads `f.first` (`i64.load offset=8`): interp reads 0 (skip),
+  JIT reads NON-ZERO (call→loop); first structural divergence after `call 1270`(systemstack) → spurious `call 246`.
+  **HYPOTHESIS**: a JIT miscompile in the Go allocator/systemstack path clobbers the SP/g globals (`global.set 0/1`)
+  OR an `i64.load/store` offset/width, so a pointer field that should be nil reads garbage. **NEXT (surgical)**:
+  probe the VALUE of `i64.load offset=8`(f.first) + base `offset=56` at the FIRST call to func 314 on both engines
+  → struct-BASE (SP/g) vs FIELD content; gate any prologue probe behind a comptime flag or func-idx==314 ONLY (the
+  subagent's unconditional prologue probe broke byte tests — reverted).
+- **Exit-condition**: the JIT miscompile making `fixalloc.alloc`'s `f.first` read non-zero (allocator/systemstack
+  path — SP/g global or i64.load/store offset) is identified + fixed (go_hello JIT stops looping), OR the
   exact bad instruction is named in D-331 with a minimal repro if the fix needs its own bundle.
 
 ## RESUME POINTER (2026-06-19) — for a fresh session
