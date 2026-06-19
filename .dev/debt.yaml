@@ -2209,27 +2209,6 @@ entries:
       src/api/component_graph.zig (graphStream*/graphFuture*/graphWaitable* + pourSyntheticExport arms; pollSet);
       src/feature/component/async.zig (SharedStream/SharedFuture/WaitableSet rendezvous primitives);
       test/component/two_async_components_*.wat (the d-a..d-c-2 fixtures); ADR-0195
-  - id: D-466
-    layer: code
-    status: now
-    description: |-
-      DebugAllocator **double-free in the FAILED-`instantiateGraph` cleanup path**. Observed
-      2026-06-19 while the arity3 fixture was still RED: when `installBoundaryTrampoline` returns
-      `UnsupportedBoundaryType` mid-build (an unsupported boundary shape), the partial-graph teardown
-      double-frees — the component_model_assert_runner's `runCorpus` catch printed "Double free
-      detected. Allocation:" pointing at the per-fixture loop. Did NOT reproduce once arity3 went GREEN
-      (all corpus fixtures now instantiate), so it is latent — but ANY future unsupported-boundary
-      graph (or a malicious/edge component) re-triggers it. Likely a `bctx`/`graph.boundaries` entry
-      that is BOTH appended to the graph (freed by `graph.deinit`) AND freed by an `errdefer` on the
-      error path, or a memory/instance alias deinited twice. DISCHARGE: add a temp unsupported-boundary
-      fixture (e.g. a 4-param or wide-scalar graph) to reproduce deterministically under the runner,
-      then audit the `instantiateGraph`/`installBoundaryTrampoline` error-path ownership (errdefer vs
-      graph-owned). Memory-safety in the error path. See [[D-305]] (the arity work that surfaced it).
-    first_raised: "2026-06-19"
-    last_reviewed: "2026-06-19"
-    refs: |-
-      src/api/component_graph.zig (installBoundaryTrampoline error paths; graph.deinit / boundaries);
-      src/api/component.zig (instantiateGraph); test/spec/component_model_assert_runner.zig (runCorpus catch)
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.

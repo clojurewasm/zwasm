@@ -54,25 +54,23 @@ consolidate the duplicated spill helpers into a shared op_simd.zig pub set.
    **D-331(B) go_regex SlotOverflow — CLOSED 2026-06-19 @adb7b99a** (arm64 large-frame spill-offset overflow >
    W-form imm12 cap 16380; siblings routed through frame{Ldr,Str}{Gpr,Fp}; go_regex diff-jit MATCHES wasmtime
    94 B; detail in D-331 row + lesson `2026-06-19-arm64-large-frame-spill-offset`).
-   **D-305 cross-component 3-PARAM ARITY — DONE @db79e7df**
-   (BoundarySig3 + boundaryTrampoline3 pass-through; fixture arity3_graph; comp-assert 164/0). NEXT FRONT (pick
-   any; all drivable now): (1) **D-466 (now)** — failed-`instantiateGraph` cleanup DOUBLE-FREE (surfaced by the
-   arity3 RED run; latent — reproduce via an unsupported-boundary fixture, audit errdefer-vs-graph-owned). Quick
-   memory-safety win. (2) **D-305 follow-ons** — 4..7 flat-scalar arities (same recipe as 3); then aggregate
-   record/result params (NOMINAL-type fixtures: B exports type + A imports it; flat record = pass-through but a
-   wasm-tools validate snag remains; non-flat → canon.store/load, already built). (3) **D-331(A) go-runtime
-   poll_oneoff miscompile** — build the **memory-divergence diff** FIRST (~120-200 LOC, NOT ADR-gated: hash
-   mem+globals at the shared host-call boundary jit_dispatch.zig:352/:65 + interp mvp.zig:392, diff JIT vs interp;
-   approach recorded in D-331 (A)); the per-func interp-fallback knob is ADR-gated + ~600-1000 LOC, defer.
+   **D-305 3-PARAM ARITY — DONE @db79e7df** (BoundarySig3 pass-through; arity3_graph; comp-assert 164/0).
+   **D-466 failed-instantiateGraph DOUBLE-FREE — FIXED @99a33f9f** (local errdefers outliving the append to
+   graph-owned lists; dropped at module/3×bctx/fctx; regression test unsupported_boundary_graph). **D-323 windows
+   sockets — FIXED @3d8314df** (the stdlib's windows real-TCP-connect crashed + aborted the Win64 unit binary;
+   skipped on windows). NEXT FRONT (pick any; all drivable now): (1) **D-305 follow-ons** — 4..7 flat-scalar
+   arities (same recipe as 3); then aggregate record/result params (NOMINAL-type fixtures: B exports type + A
+   imports it; flat record = pass-through but a wasm-tools validate snag remains; non-flat → canon.store/load,
+   already built). (2) **D-331(A) go-runtime poll_oneoff miscompile** — build the **memory-divergence diff** FIRST
+   (~120-200 LOC, NOT ADR-gated: hash mem+globals at the shared host-call boundary jit_dispatch.zig:352/:65 +
+   interp mvp.zig:392, diff JIT vs interp; approach in D-331 (A)); the per-func interp-fallback knob is ADR-gated
+   + ~600-1000 LOC, defer.
    **D-330 c_sha256 `\n` is PROVABLY-BLOCKED (bucket-2, survey-confirmed)**: genuine constraint conflict
    (block-result liveness extension fixes c_sha256 but regresses br_table/labels), cosmetic (1 byte, values+interp
    correct), row says do-NOT-re-run the blanket fix — do not drive. D-464 broader async stays consumer-gated.
 2. **Audit DONE 2026-06-18 (CLEAN)** — `audit_scaffolding` 0 block/0 soon (J.3 chronic debt); fuzz 0 crashes.
-3. **D-460 v128-GC arc COMPLETE both arches** — struct/array get/set/new_fixed/new_default emit (@3d8be3c00/
-   @8137c7268/@5292569e0) + array.copy (@5292569e0, jit_abi.zig:1049 `ai.element.size`); 7 runI32Export fixtures.
-   D-460 → `note`. Consumer-gated, do NOT grind: D-464(2) broader async + D-305 rare CM shapes (need a consumer).
-4. **D-461 v128-DST-spill arc — FULLY COMPLETE both arches** (FP replace_lane @4acd24152; ADR-0198). D-461 → `note`.
-   Its scalar-operand sibling D-034 arc is now also CLOSED @411dd1e14 (the entire v128 spill story is complete).
+3. **v128 spill story COMPLETE both arches** — D-460 v128-GC + D-461 v128-DST-spill + D-034 scalar-operand all
+   CLOSED (`note`; SHAs in their rows). D-464(2) broader async stays consumer-gated.
 
 ## Recently closed arcs (detail in ADRs/git/debt — one-liners)
 
