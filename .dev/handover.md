@@ -40,7 +40,9 @@ consolidate the duplicated spill helpers into a shared op_simd.zig pub set.
 - **Bundle-ID**: D-331A-memdiff (correctness — fix the go-runtime miscompile)
 - **Cycles-remaining**: ~3 (root cause = a JIT CONTROL-FLOW/branch-fixup miscompile; pinned to func 235's gate; now minimal-repro + fix)
 - **Continuity-memo**: a JIT **branch-bypass** miscompile (full detail+repro → `private/notes/d331a-memdiff-plan.md`).
-  Tool = `zig build -Dd331` + `ZWASM_DEBUG=callseq` per-guest-call tracer (committed @007033764). REFUTED (don't
+  Tool = a `-Dd331` per-guest-call tracer (REVERTED @7b37ad6d — its build.zig added `d331_probe` to the main
+  options but NOT the test-exe options module → x86_64 fresh build failed compiling emit_test; Mac cache masked it.
+  Re-add WITH d331_probe in EVERY `addOptions()` instance, OR just use the minimal-repro path below). REFUTED (don't
   re-chase): mem.cksum hash=clock-jitter; func 314 byte-identical; "host-call #5"=probe artifact; **func 233 i64.ne
   value diverges = REFUTED (all 696 compare/eqz outcomes match interp)**. REAL bug: in `runtime.mallocgcSmallScanNoHeader`
   (func 235) the profilealloc gate `MemProfileRate i64.ne nextSample; i32.eqz; if{br <skip>}` (WAT 82064-82071) is
