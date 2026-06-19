@@ -131,7 +131,7 @@ pub fn emitI32x4AbsCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!vo
 
 pub fn emitI64x2AbsCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitI64x2Abs(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitI64x2Abs(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 // §9.12-B / B97 (ADR-0075) — `(ctx, ins)` adapters for the
@@ -722,6 +722,7 @@ pub fn emitI64x2Abs(
     alloc: regalloc.Allocation,
     pushed_vregs: *std.ArrayList(u32),
     next_vreg: *u32,
+    spill_base_off: u32,
 ) Error!void {
     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const src_v = pushed_vregs.pop().?;
@@ -729,9 +730,11 @@ pub fn emitI64x2Abs(
     next_vreg.* += 1;
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
-    const src_x = try gpr.resolveXmm(alloc, src_v);
-    const dst_x = try gpr.resolveXmm(alloc, result_v);
-    const mask_x = abi.fp_spill_stage_xmms[0]; // XMM14
+    // D-034 (g): spill-aware. The PCMPGTQ sign-mask scratch moves to XMM7 (mirror
+    // of i*x*.neg), freeing both stages for src(0) + dst(1).
+    const src_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, src_v, 0);
+    const dst_x = try gpr.xmmDefSpilledV128(alloc, result_v, 1);
+    const mask_x: inst.Xmm = .xmm7;
 
     try buf.appendSlice(allocator, inst.encPxor(mask_x, mask_x).slice());
     try buf.appendSlice(allocator, inst.encPcmpgtQ(mask_x, src_x).slice());
@@ -740,6 +743,7 @@ pub fn emitI64x2Abs(
     }
     try buf.appendSlice(allocator, inst.encPxor(dst_x, mask_x).slice());
     try buf.appendSlice(allocator, inst.encPsubq(dst_x, mask_x).slice());
+    try gpr.xmmStoreSpilledV128(allocator, buf, alloc, spill_base_off, result_v, 1);
     try pushed_vregs.append(allocator, result_v);
 }
 
