@@ -32,20 +32,19 @@ CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`.
 ## Active bundle
 
 - **Bundle-ID**: D-034 SIMD spill-completeness cohort (scalar-operand sibling of D-461 + the v128-source arith gap)
-- **Cycles-remaining**: ~2 (7 of 18 x86_64 int-arith (g) sites remain). DONE through @05b05b508 — 11 sites: Neg,
-  Pmin/Pmax, signed-cmp(16), Ne, unsigned-cmp(12), extmul_low(4), extmul_high(4)+i64x2_extmul(4), i64x2_abs,
-  LoadExtend-dst, StoreLane-vec. Templates: cmp/ne/extmul-low = 3-operand (operands→stage0/1 or home, dst→home/XMM7,
-  store-if-spilled, XMM7 alias-stash only when dst home, byte-identical no-spill); extmul-high/i64x2 use dst/XMM15 as
-  the load-temp; abs/neg park the scratch on XMM7; LoadExtend/StoreLane single-operand→stage0. File-local
-  resolveOrLoadV128 + storeV128IfSpilledLocal in op_simd_int_cmp_lane.zig.
-- **Continuity-memo**: x86_64-only asymmetry. **EXACT 7-remaining table in the D-034 debt row** = the HARD
-  both-stages-internal cluster (t1=XMM14, t2=XMM15 + dst): i8x16 Shl/ShrU/ShrS, i64x2 ShrS, swizzle/shuffle (PSHUFB
-  ctrl), popcnt (reads src 2× → 4 live at peak), i64x2 Mul. **KEY TECHNIQUE: just-in-time reload** — don't keep a
-  spilled operand in a persistent reg; reload it from its RBP-disp slot into a stage each time it's needed (only
-  dst→home/XMM7 + 2 stages live); dst==src home-alias still needs the XMM7 stash (fires only when dst home). Fixture =
-  the live-stack v128-pressure trick (13 live v128 + OR/drop chain; see LoadExtend/StoreLane fixtures). REJECT a
-  global 3rd-stage-XMM pool cut. **GOTCHA: verify each fixture's value via wasmtime `--invoke f -W gc=y
-  -W function-references=y <f>.wasm` (interp has no SIMD); double-check the SIMD opcode byte.**
+- **Cycles-remaining**: ~1 (4 of 18 x86_64 int-arith (g) sites remain). DONE through @b870f146a — 15 sites incl.
+  i8x16 shl/shr_u/shr_s + i64x2 shr_s @b870f146a (just-in-time reload). Templates: cmp/ne/extmul-low = 3-operand;
+  extmul-high/i64x2 = dst/XMM15 load-temp; abs/neg = XMM7-park; LoadExtend/StoreLane single-operand→stage0; shifts =
+  just-in-time reload (dst→home/XMM7, vec reloaded into dst each use). File-local helpers: resolveOrLoadV128 +
+  storeV128IfSpilledLocal (op_simd_int_cmp_lane.zig); dstHomeOrXmm7 + loadV128IntoLocal + storeXmm7IfSpilledLocal
+  (op_simd_int_arith.zig).
+- **Continuity-memo**: x86_64-only asymmetry. **REMAINING 4 sites (same both-stages-internal class)**: emitI8x16Swizzle
+  (PSHUFB idx-ctrl) + emitI8x16Shuffle (2-operand PSHUFB), emitI8x16Popcnt (reads src 2× → reload src into a stage
+  twice; dst→home/XMM7; XMM7 src-alias stash only when dst home), emitI64x2Mul (XMM14+XMM15+XMM7-rhs-stash). Apply the
+  just-in-time reload + the new file-local helpers (op_simd_int_arith.zig already has dstHomeOrXmm7/loadV128IntoLocal/
+  storeXmm7IfSpilledLocal; swizzle/shuffle are in op_simd_int_cmp_lane.zig → use its resolveOrLoadV128). Fixture =
+  live-stack 13-v128-pressure trick (OR/drop chain). **GOTCHA: verify values via wasmtime `--invoke f -W gc=y
+  -W function-references=y <f>.wasm` + double-check the SIMD opcode byte.** REJECT a global 3rd-stage-XMM pool cut.
 - **Exit-condition**: every a–g sub-category's operand forced to spill flows through its op on BOTH arches; zero
   bare resolveGpr/resolveFp/resolveXmm SPILL-EXEMPT sites remain (except the structural 3-V-reg select/bitselect).
 
@@ -53,11 +52,11 @@ CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`.
 
 0. **ADR-0195 guest↔guest async — CAMPAIGN COMPLETE** (D-335 closed; detail in git + ADR-0195; residuals D-463
    CLOSED / D-464 future-bucket). **D-461 v128-DST-spill arc COMPLETE both arches** (FP replace_lane @4acd24152).
-1. **Active bundle = D-034** (above): through @05b05b508 — 11 sites DONE. **REMAINING = 7 x86_64 int-arith (g) sites**
-   = the HARD both-stages-internal cluster (exact table + just-in-time-reload technique in the D-034 debt row): i8x16
-   Shl/ShrU/ShrS, i64x2 ShrS, swizzle, shuffle, popcnt, i64x2 Mul. Drive op-by-op TDD (live-stack v128-pressure
-   fixture, RED→GREEN both arches; verify values via wasmtime GC flags). Reload spilled operands from their slot into
-   a stage just-in-time so only dst→home/XMM7 + the 2 stages are live.
+1. **Active bundle = D-034** (above): through @b870f146a — 15 sites DONE. **REMAINING = 4 x86_64 int-arith (g) sites**
+   (same both-stages-internal class, just-in-time-reload technique): emitI8x16Swizzle, emitI8x16Shuffle (op_simd_int_
+   cmp_lane.zig), emitI8x16Popcnt, emitI64x2Mul (op_simd_int_arith.zig). Drive op-by-op TDD (live-stack v128-pressure
+   fixture, RED→GREEN both arches; verify values via wasmtime GC flags). The file-local helpers already exist in both
+   files. This closes the whole D-034 (g) sub-arc → bundle exit-condition met.
 2. **Audit DONE 2026-06-18 (CLEAN)** — `audit_scaffolding` 0 block/0 soon (J.3 chronic debt); fuzz 0 crashes.
 3. **D-460 v128-GC JIT emit DONE both arches** (@3d8be3c00/@8137c7268/@5292569e0; 6 runI32Export fixtures = the
    authoritative JIT verification). Only an optional edge fixture remains (low value). Consumer-gated, do NOT grind:

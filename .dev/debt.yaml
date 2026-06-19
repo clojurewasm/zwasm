@@ -2091,23 +2091,22 @@ entries:
           (XMM7-park / in-place template). Opt-in-JIT-only, exotic.
           **EXACT 18-SITE INVENTORY (Explore @b56cb514f; all confirmed x86_64-only asymmetries — arm64 routes each
           through a spill-aware shared helper; operand = v128 vec/src/lhs/rhs/dst, scalar operands already done):**
-            op_simd_int_arith.zig: emitI8x16Shl :572 · emitI8x16ShrU :612 · ~~emitV128IntNeg~~ DONE @22f748d82 ·
-              ~~emitI64x2Abs~~ DONE @af0b84418 · emitI8x16ShrS :757 · emitI64x2ShrS :794 · emitI64x2Mul :873 ·
-              emitI8x16Popcnt :1243
+            op_simd_int_arith.zig: ~~emitI8x16Shl~~ ~~ShrU~~ ~~ShrS~~ ~~i64x2ShrS~~ DONE @b870f146a · ~~emitV128IntNeg~~
+              DONE @22f748d82 · ~~emitI64x2Abs~~ DONE @af0b84418 · emitI64x2Mul :873 · emitI8x16Popcnt :1243
             op_simd_int_cmp_lane.zig: ~~emitV128IntCmpSigned~~ DONE @ba6ea97fe (16) · ~~emitV128IntCmpUnsigned~~ DONE
               @c1beacfab (12) · emitI8x16Swizzle :1156 · ~~emitV128IntNe~~ DONE @ab99e083a · ~~emitV128IntExtmulLow~~
               DONE @195218eac (4) · ~~emitV128IntExtmulHigh~~ DONE @c6b2744f5 (4) · ~~emitV128I64x2Extmul~~ DONE
               @c6b2744f5 (4) · emitI8x16Shuffle :2042
             op_simd_float.zig: ~~emitV128FpPseudoBinop (Pmin/Pmax)~~ DONE @3a43ef6e4
             op_simd.zig: ~~v128LoadExtend (dst)~~ DONE @05b05b508 · ~~v128StoreLane (vec)~~ DONE @05b05b508
-          DONE (2026-06-19): 11 sites — Neg, Pmin/Pmax, signed-cmp, Ne, CmpUnsigned, ExtmulLow, ExtmulHigh, i64x2_extmul,
-          i64x2_abs, LoadExtend (dst→stage0, mem-source so no XMM scratch), StoreLane (vec→stage0, PEXTR-only). Templates:
-          cmp/ne/extmul-low = 3-operand; extmul-high/i64x2 = dst/XMM15 as load-temp; abs/neg = XMM7-park scratch.
-          REMAINING 7 sites — the HARD both-stages-internal cluster (t1=XMM14, t2=XMM15 + dst): i8x16 Shl/ShrU/ShrS,
-          i64x2 ShrS, swizzle/shuffle (PSHUFB ctrl), popcnt (reads src 2× — 4 live v128 at peak), i64x2 Mul
-          (XMM14+XMM15+XMM7). KEY TECHNIQUE for these: **just-in-time reload** — don't keep a spilled operand in a
-          persistent reg; reload it from its RBP-disp slot into a stage each time it's needed (so only dst→home/XMM7
-          + the 2 stages are live). dst==src home-alias still needs the XMM7 stash (fires only when dst is a home reg).
+          DONE (2026-06-19): 15 sites. The i8x16/i64x2 shifts @b870f146a use the **just-in-time reload** technique
+          (dst→home/XMM7 via file-local dstHomeOrXmm7; vec loaded into dst — and into high_x for shr_s — via
+          loadV128IntoLocal each use; storeXmm7IfSpilledLocal flush; all in op_simd_int_arith.zig). Earlier sites: cmp/
+          ne/extmul = 3-operand template; extmul-high/i64x2 = dst/XMM15 load-temp; abs/neg = XMM7-park; LoadExtend/
+          StoreLane single-operand→stage0. REMAINING 4 sites (same both-stages-internal class, apply just-in-time
+          reload + the new file-local helpers): emitI8x16Swizzle (PSHUFB idx-ctrl), emitI8x16Shuffle (2-operand PSHUFB),
+          emitI8x16Popcnt (reads src 2× → load src into a stage twice; dst→home/XMM7; XMM7 src-alias stash fires only
+          when dst home), emitI64x2Mul (XMM14+XMM15 + XMM7 rhs-stash).
           Fixture: the live-stack v128-pressure trick (13 live v128 + OR/drop chain) forces dst/src spill; verify via
           wasmtime. (LoadExtend/StoreLane fixtures already use this — see runner_v128_jit_test.zig.)
           STRUCTURAL-EXEMPT (leave): op_simd.zig:961 emitV128Select val2 (3 v128 regs vs 2 stages); emitV128Bitselect
