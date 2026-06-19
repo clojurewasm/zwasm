@@ -2099,14 +2099,17 @@ entries:
               DONE @195218eac (4) · ~~emitV128IntExtmulHigh~~ DONE @c6b2744f5 (4) · ~~emitV128I64x2Extmul~~ DONE
               @c6b2744f5 (4) · emitI8x16Shuffle :2042
             op_simd_float.zig: ~~emitV128FpPseudoBinop (Pmin/Pmax)~~ DONE @3a43ef6e4
-            op_simd.zig: v128LoadExtend (dst) :446 · v128StoreLane (vec) :571
-          DONE (2026-06-19): 9 sites — Neg, Pmin/Pmax, signed-cmp, Ne, CmpUnsigned, ExtmulLow, ExtmulHigh (dst as
-          spilled-operand load-temp; both PSHUFD stages internal), i64x2_extmul, i64x2_abs (XMM7-park mask, neg-style).
-          cmp/ne/extmul-low reuse the 3-operand template; extmul-high/i64x2 use dst/XMM15 as load-temp; abs/neg park
-          the scratch on XMM7 + src/dst→stage0/1. Added file-local resolveOrLoadV128 + storeV128IfSpilledLocal in
-          op_simd_int_cmp_lane.zig. REMAINING 9 sites. NEXT: LoadExtend-dst/StoreLane-vec (single operand, MEMORY
-          fixture). HARD (both stages internal → XMM7-park / dst-as-temp): i8x16 Shl/ShrU/ShrS, i64x2 ShrS, swizzle/
-          shuffle (PSHUFB ctrl), popcnt, i64x2 Mul (XMM14+XMM15+XMM7).
+            op_simd.zig: ~~v128LoadExtend (dst)~~ DONE @05b05b508 · ~~v128StoreLane (vec)~~ DONE @05b05b508
+          DONE (2026-06-19): 11 sites — Neg, Pmin/Pmax, signed-cmp, Ne, CmpUnsigned, ExtmulLow, ExtmulHigh, i64x2_extmul,
+          i64x2_abs, LoadExtend (dst→stage0, mem-source so no XMM scratch), StoreLane (vec→stage0, PEXTR-only). Templates:
+          cmp/ne/extmul-low = 3-operand; extmul-high/i64x2 = dst/XMM15 as load-temp; abs/neg = XMM7-park scratch.
+          REMAINING 7 sites — the HARD both-stages-internal cluster (t1=XMM14, t2=XMM15 + dst): i8x16 Shl/ShrU/ShrS,
+          i64x2 ShrS, swizzle/shuffle (PSHUFB ctrl), popcnt (reads src 2× — 4 live v128 at peak), i64x2 Mul
+          (XMM14+XMM15+XMM7). KEY TECHNIQUE for these: **just-in-time reload** — don't keep a spilled operand in a
+          persistent reg; reload it from its RBP-disp slot into a stage each time it's needed (so only dst→home/XMM7
+          + the 2 stages are live). dst==src home-alias still needs the XMM7 stash (fires only when dst is a home reg).
+          Fixture: the live-stack v128-pressure trick (13 live v128 + OR/drop chain) forces dst/src spill; verify via
+          wasmtime. (LoadExtend/StoreLane fixtures already use this — see runner_v128_jit_test.zig.)
           STRUCTURAL-EXEMPT (leave): op_simd.zig:961 emitV128Select val2 (3 v128 regs vs 2 stages); emitV128Bitselect
           has NO bare site. FIXTURE GOTCHA: i32x4 cmp opcodes are eq=0x37 ne=0x38 lt_s=0x39 gt_s=0x3b le_s=0x3d
           ge_s=0x3f (NOT 0x37=gt — a mis-typed opcode cost a full miscompile-hunt 2026-06-19; verify via wasmtime
