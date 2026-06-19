@@ -167,6 +167,16 @@ pub fn fnv1a(bytes: []const u8) u64 {
     return h;
 }
 
+/// D-331A (TEMPORARY): JIT function-entry callseq reporter. The arm64 emit
+/// prologue (gated on `build_options.d331_probe`) emits a `BL` here with the
+/// guest `func_idx` in X0; we print `jit call <idx>` so the stream can be
+/// diffed against the interp `callseq` channel to find the first divergent
+/// guest call. `callconv(.c)` so the native BL ABI matches.
+pub fn d331ReportJit(func_idx: u32) callconv(.c) void {
+    if (!on("callseq")) return;
+    std.debug.print("[dbg callseq] jit call {d}\n", .{func_idx});
+}
+
 /// Force-disable the cached whitelist. Test-only: lets a unit test
 /// re-evaluate `ZWASM_DEBUG` after mutating the process env.
 pub fn resetForTest() void {

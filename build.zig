@@ -109,6 +109,12 @@ pub fn build(b: *std.Build) void {
     // (`-Dwasi=p3`) — a p2 build emits zero p3-async symbols (DCE-assertable).
     const enable_wasi_p3 = @intFromEnum(wasi_level) >= @intFromEnum(WasiLevel.p3);
 
+    // D-331A go-runtime miscompile localization probe (TEMPORARY, NOT for
+    // landing). Comptime-false normally → zero codegen change, tests safe.
+    // `-Dd331` emits a JIT function-entry BL into a Zig reporter to capture
+    // the per-guest-call sequence vs interp; diff localizes the bad branch.
+    const d331 = b.option(bool, "d331", "D-331A: emit JIT function-entry callseq probe") orelse false;
+
     const options = b.addOptions();
     options.addOption(WasmLevel, "wasm_level", wasm_level);
     options.addOption(WasiLevel, "wasi_level", wasi_level);
@@ -118,6 +124,7 @@ pub fn build(b: *std.Build) void {
     options.addOption(bool, "enable_gc", enable_gc);
     options.addOption(bool, "enable_component", enable_component);
     options.addOption(bool, "enable_wasi_p3", enable_wasi_p3);
+    options.addOption(bool, "d331_probe", d331);
     options.addOption([]const u8, "version", zon.version);
 
     // Build_options as a single shared module so both `core` and

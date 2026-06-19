@@ -291,6 +291,33 @@ pub fn compile(
     const indirect_result_slot_off: u32 = spill_base_off + spill_bytes;
     try gpr.writeU32(allocator, &buf, encStpFpLrPreIdx());
     try gpr.writeU32(allocator, &buf, encMovSpToFp());
+    // D-331A (TEMPORARY): function-entry callseq probe. Comptime-gated on
+    // `-Dd331`; zero codegen otherwise. The `callconv(.c)` reporter may
+    // clobber ANY caller-saved GPR (X0-X18) + X30, INCLUDING the guest's
+    // incoming params (X1-X8). We are BEFORE the prologue's rt-ptr LDRs and
+    // the param shuffle, so X0=rt-ptr and X1.. = guest params are still live
+    // and MUST be preserved, else we corrupt the very branch we are tracing.
+    // Save X0..X8 (5 pairs, 80 bytes) + X16/X30 around the BL.
+    if (build_options.d331_probe) {
+        const reporter_addr: u64 = @intFromPtr(&@import("../../../support/dbg.zig").d331ReportJit);
+        try gpr.writeU32(allocator, &buf, inst.encStpPreIdx(0, 1, 31, -16));
+        try gpr.writeU32(allocator, &buf, inst.encStpPreIdx(2, 3, 31, -16));
+        try gpr.writeU32(allocator, &buf, inst.encStpPreIdx(4, 5, 31, -16));
+        try gpr.writeU32(allocator, &buf, inst.encStpPreIdx(6, 7, 31, -16));
+        try gpr.writeU32(allocator, &buf, inst.encStpPreIdx(8, 30, 31, -16));
+        try gpr.writeU32(allocator, &buf, inst.encMovzImm16(0, @truncate(func.func_idx)));
+        try gpr.writeU32(allocator, &buf, inst.encMovkImm16(0, @truncate(func.func_idx >> 16), 1));
+        try gpr.writeU32(allocator, &buf, inst.encMovzImm16(16, @truncate(reporter_addr)));
+        try gpr.writeU32(allocator, &buf, inst.encMovkImm16(16, @truncate(reporter_addr >> 16), 1));
+        try gpr.writeU32(allocator, &buf, inst.encMovkImm16(16, @truncate(reporter_addr >> 32), 2));
+        try gpr.writeU32(allocator, &buf, inst.encMovkImm16(16, @truncate(reporter_addr >> 48), 3));
+        try gpr.writeU32(allocator, &buf, inst.encBlr(16));
+        try gpr.writeU32(allocator, &buf, inst.encLdpPostIdx(8, 30, 31, 16));
+        try gpr.writeU32(allocator, &buf, inst.encLdpPostIdx(6, 7, 31, 16));
+        try gpr.writeU32(allocator, &buf, inst.encLdpPostIdx(4, 5, 31, 16));
+        try gpr.writeU32(allocator, &buf, inst.encLdpPostIdx(2, 3, 31, 16));
+        try gpr.writeU32(allocator, &buf, inst.encLdpPostIdx(0, 1, 31, 16));
+    }
     // ADR-0017 prologue: 5 LDRs from X0 = `*const JitRuntime`
     // into the reserved invariant regs. Per ROADMAP §2 P3 (cold-
     // start over peak throughput), 5 cycles uncached overhead is
