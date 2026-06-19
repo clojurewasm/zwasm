@@ -38,21 +38,21 @@ consolidate the duplicated spill helpers into a shared op_simd.zig pub set.
 ## Active bundle
 
 - **Bundle-ID**: D-331A-memdiff (correctness — fix the go-runtime miscompile)
-- **Cycles-remaining**: ~3 (localized to a CONTROL-FLOW divergence in the allocator/systemstack path; now pin the bad codegen + fix)
-- **Continuity-memo**: CONTROL-FLOW bug, CONVERGED (full detail+repro → `private/notes/d331a-memdiff-plan.md`).
-  REFUTED theories: mem.cksum memory hash = clock-jitter noise; func 314 byte-identical; "host-call #5/args_get"
-  was a PROBE ARTIFACT (a probe clobbered X1-X8). Tool = **`zig build -Dd331`** comptime-gated per-guest-call tracer
-  (committed @007033764). Clean diff of interp-vs-JIT guest call sequences → **first true divergence @call #559**:
-  after `runtime.publicationBarrier`(1278) interp→`gcTrigger.test`(321), JIT→`profilealloc`(243). **Deciding func =
-  `runtime.mallocgcTiny`(233)**; branch (WAT /tmp/go.wat 79952-79961): `MemProfileRate` (`i64.load` from CONST addr
-  1245624, via `i64.const;i32.wrap_i64;i64.load`) `i64.ne` `c.nextSample` (`i64.load offset=8`). interp: equal→skip;
-  JIT: not-equal→profile path Go chokes on. So **the JIT mis-reads ONE of those two i64 loads**. **NEXT (final)**:
-  value-probe both loads in func 233 (which diverges?) — prime suspect = the **constant-address i64.load lowering**
-  (`i64.const;i32.wrap_i64;i64.load`, an unusual pattern) OR `c.nextSample`'s prior `i64.store offset=8`. Try a
-  minimal fixture of that exact load pattern. op_memory.zig:302 `encLdrXReg` is full-64-bit (looks ok) → check the
-  address computation / wrap / store side.
-- **Exit-condition**: the mis-read i64 load in `mallocgcTiny`(233) is identified (value-probe) + the codegen fixed
-  (go_hello JIT takes gcTrigger.test like interp, no profile path), OR the exact bad op+a minimal repro is named in D-331.
+- **Cycles-remaining**: ~3 (root cause = a JIT CONTROL-FLOW/branch-fixup miscompile; pinned to func 235's gate; now minimal-repro + fix)
+- **Continuity-memo**: a JIT **branch-bypass** miscompile (full detail+repro → `private/notes/d331a-memdiff-plan.md`).
+  Tool = `zig build -Dd331` + `ZWASM_DEBUG=callseq` per-guest-call tracer (committed @007033764). REFUTED (don't
+  re-chase): mem.cksum hash=clock-jitter; func 314 byte-identical; "host-call #5"=probe artifact; **func 233 i64.ne
+  value diverges = REFUTED (all 696 compare/eqz outcomes match interp)**. REAL bug: in `runtime.mallocgcSmallScanNoHeader`
+  (func 235) the profilealloc gate `MemProfileRate i64.ne nextSample; i32.eqz; if{br <skip>}` (WAT 82064-82071) is
+  **BYPASSED in JIT** — after `call publicationBarrier` the JIT jumps straight to `profilealloc`(243), the gate
+  `i32.eqz` NEVER runs (37× JIT vs 40× interp); spurious profile path → Go throw/sigpanic (the timeout loop is Go's
+  traceback printer). LOCUS: conditional-branch lowering for `if`/`br N` OUT of deeply-nested blocks right after a
+  `call` + `global.get 0; local.set 1; br_if` reload — `arm64/op_control.zig` (if/else/end + br/br_if target fixups)
+  + emit.zig block-label bookkeeping. **NEXT (convergent, NOT more value-probing)**: build a MINIMAL .wat — deep
+  nested blocks → call → global-reload br_if → `i32.eqz; if{br <outer>}` — interp-vs-jit; if JIT skips the br, disasm
+  the tiny fixture + fix op_control.zig; if it won't trigger, vary block depth / post-call reload (regalloc state).
+- **Exit-condition**: the op_control.zig branch-fixup bug is fixed (go_hello JIT runs the gate eqz like interp →
+  gcTrigger.test, no spurious profilealloc; callseq #559 matches) + a boundary fixture, OR the exact bad fixup+minimal repro is named in D-331.
 
 ## RESUME POINTER (2026-06-19) — for a fresh session
 
