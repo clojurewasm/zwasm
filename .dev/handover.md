@@ -42,15 +42,14 @@ consolidate the duplicated spill helpers into a shared op_simd.zig pub set.
 1. **D-034 SIMD spill arc CLOSED @411dd1e14** — no active bundle; ZERO `now`-class debt; **D-460 v128-GC arc ALSO
    COMPLETE** (array.copy was already done @5292569e0 — the 2026-06-19 sweep misread a stale "REMAINING" line; a
    confirm-before-implement survey caught it, D-460 → `note`, jit_abi.zig docstring corrected). The debt is at the
-   完成形 plateau: remaining partials are parked (D-330/331) or consumer-gated (D-305). Debt-coherence audit DONE
-   2026-06-19 (@9bd551958 — swept stale REMAINING/DONE drift across D-034/D-294/D-460/handover; spill arc verified
-   ubuntu+windows GREEN, windows baseline recorded @66976f436). **NEXT (autonomous, your choice): (a) the D-034
-   helper-consolidation** (dedup resolveOrLoadV128/loadV128Into*/dstHomeOrXmm7*/store* across op_simd_float/
-   int_cmp_lane/int_arith into a shared op_simd.zig pub set — behaviour-preserving, byte-asserting unit tests + spill
-   fixtures are the net; NOTE it re-churns the just-verified spill files → a fresh windows re-verify, so weigh ROI),
-   **or (b) a 完成形 maintenance pass** — dogfooding (realworld/cw JIT run-stage vs the new spill codegen) /
-   memory-safety / a C-Zig-CLI surface audit. No urgent completion gap remains.
-   Consumer-gated (do NOT grind): D-305 rare CM shapes, D-464 broader async.
+   **thoroughly-validated 完成形 plateau** (2026-06-19). Walked + GREEN: debt-coherence audit (@9bd551958);
+   spill arc ubuntu+windows verified (baseline @66976f436); fuzz smoke 0 crashes over post-D-034 codegen; realworld
+   JIT compile-pass 56/56; **C-API surface audit (@a6c82e6) — complete vs standard wasm-c-api, NO gaps**, only a
+   stale docstring fixed @3c84ae3b3. JUDGED NOT-WORTH-DOING (do not re-litigate): D-294-R2 (a new TrapKind for a
+   conformance-neutral message nicety = over-engineering), the helper-consolidation (low-ROI churn re-verifying the
+   spill arc). **NEXT (light maintenance — no urgent completion gap remains)**: the remaining surface audits (Zig-API
+   / CLI あるべき論 — the C-API pattern suggests clean), or pick up any newly-arrived consumer/parked work. Parked
+   (infra/conflicting): D-330/331. Consumer-gated (do NOT grind): D-305 rare CM shapes, D-464 broader async.
 2. **Audit DONE 2026-06-18 (CLEAN)** — `audit_scaffolding` 0 block/0 soon (J.3 chronic debt); fuzz 0 crashes.
 3. **D-460 v128-GC arc COMPLETE both arches** — struct/array get/set/new_fixed/new_default emit (@3d8be3c00/
    @8137c7268/@5292569e0) + array.copy (@5292569e0, jit_abi.zig:1049 `ai.element.size`); 7 runI32Export fixtures.
