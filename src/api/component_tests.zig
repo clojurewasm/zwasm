@@ -510,10 +510,10 @@ test "D-466: a graph with an unsupported boundary shape fails to instantiate WIT
 
     var eng = try Engine.init(testing.allocator, .{});
     defer eng.deinit();
-    // The 5-param boundary is unsupported → instantiateGraph errors mid-build,
-    // AFTER an earlier child's module (and any bctx/fctx) were appended to the
-    // graph. Its `errdefer graph.deinit()` must free each EXACTLY once — the prior
-    // surviving local errdefers double-freed, which testing.allocator panics on.
+    // The wide-u64-param boundary is unsupported → instantiateGraph errors
+    // mid-build, AFTER an earlier child's module (and any bctx/fctx) were appended
+    // to the graph. Its `errdefer graph.deinit()` must free each EXACTLY once — the
+    // prior surviving local errdefers double-freed, which testing.allocator panics on.
     try testing.expectError(error.UnsupportedBoundaryType, instantiateGraph(&eng, testing.allocator, bytes, .{}));
 }
 

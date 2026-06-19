@@ -25,6 +25,13 @@ const canon = @import("../feature/component/canon.zig");
 const ctypes = @import("../feature/component/types.zig");
 const cvalidate = @import("../feature/component/validate.zig");
 const async_mod = @import("../feature/component/async.zig");
+const zir = @import("../ir/zir.zig");
+const marshal = @import("../zwasm/host_func_marshal.zig");
+/// The operand-stack `Value` (extern union) the generic `rawThunk` pops and the
+/// boundary trampoline receives — distinct from the public tagged `zwasm.Value`
+/// (`Value` below) that `Instance.invoke` takes. The boundary is all-i32, so the
+/// bridge between them is a single `.i32` field copy.
+const RtValue = @import("../runtime/value.zig").Value;
 const zwasm = @import("../zwasm.zig");
 
 const Allocator = std.mem.Allocator;
@@ -811,15 +818,27 @@ fn installBoundaryTrampoline(
     };
     try graph.boundaries.append(graph.alloc, bctx);
 
-    // D-305: a 3/4-flat-scalar param func binds the matching wide trampoline;
-    // 1-2 param shapes (incl. string/list marshalling) keep the 2-word `BoundarySig`.
-    if (ft.params.len == 4) {
-        try lk.defineFuncCtx(ns, core_export_name, @ptrCast(bctx), BoundarySig4, boundaryTrampoline4);
-    } else if (ft.params.len == 3) {
-        try lk.defineFuncCtx(ns, core_export_name, @ptrCast(bctx), BoundarySig3, boundaryTrampoline3);
-    } else {
-        try lk.defineFuncCtx(ns, core_export_name, @ptrCast(bctx), BoundarySig, boundaryTrampoline);
-    }
+    // D-305: ONE Value-slice trampoline marshals ANY flat-scalar arity (plus the
+    // 2-word string/list path). The flattened core signature is all-i32: a
+    // `string`/`list<primitive>` param is two words (ptr,len), else one word per
+    // flat scalar; the result is a single flat-4 word. `boundaryShapeOk` already
+    // bounded the word count to `marshal.raw_max_words`.
+    const n_words = boundaryWordCount(ft, list_elem_size > 0);
+    try lk.defineFuncRaw(
+        ns,
+        core_export_name,
+        @ptrCast(bctx),
+        boundary_core_i32[0..n_words],
+        boundary_core_i32[0..1],
+        boundaryTrampolineRaw,
+    );
+}
+
+/// The flattened core word count for a boundary func: a `string`/`list` param is
+/// two words (ptr,len), else one word per flat-4 scalar. Mirrors `boundaryShapeOk`.
+fn boundaryWordCount(ft: ctypes.FuncType, param0_is_list: bool) usize {
+    if (param0_is_list or (ft.params.len == 1 and isString(ft.params[0].ty))) return 2;
+    return ft.params.len;
 }
 
 /// `Subtask.State` codes the async-LOWERED import returns to the caller per the
@@ -1331,30 +1350,29 @@ fn resultIsString(alloc: Allocator, info: *const ctypes.TypeInfo, ft: ctypes.Fun
     }
 }
 
-/// Does the WIT func type flatten to the core signature `(i32,i32) -> i32`, the
-/// fixed shape the boundary trampoline marshals? True for `(string)`,
-/// `(list<primitive>)` (when `param0_is_list`), or `(scalar4, scalar4)`,
-/// returning one flat 4-byte scalar.
+/// Backing storage for every boundary's core param/result ValType slices passed
+/// to `defineFuncRaw`. Every flat-scalar/string/list boundary flattens to all-i32
+/// core words, so one static all-i32 array serves them all — no per-boundary
+/// allocation (D-305). Sized to the linker's raw-arity cap.
+const boundary_core_i32: [marshal.raw_max_words]zir.ValType = .{.i32} ** marshal.raw_max_words;
+
+/// Does the WIT func type flatten to an all-i32 core signature the generic
+/// boundary trampoline marshals? True for a single `(string)` / `(list<primitive>)`
+/// param (two ptr,len words) OR N flat-4 scalars (one word each), returning one
+/// flat 4-byte scalar. D-305: the flat-scalar arity is no longer per-trampoline
+/// capped — only the generic thunk's buffer (`marshal.raw_max_words`) bounds it
+/// (no real component approaches it; beyond is `UnsupportedBoundaryType`).
+/// Wide scalars (s64/u64/f32/f64) and non-string aggregate results stay a typed
+/// deferral (record/result marshalling is the still-open D-305 (b) slice).
 fn boundaryShapeOk(ft: ctypes.FuncType, param0_is_list: bool) bool {
     const result_ok = if (ft.result) |rt| isFlat4Scalar(rt) else false;
     if (!result_ok) return false;
-    if (ft.params.len == 1) {
-        return isString(ft.params[0].ty) or param0_is_list;
+    if (ft.params.len == 1 and (isString(ft.params[0].ty) or param0_is_list)) return true;
+    if (ft.params.len == 0 or ft.params.len > marshal.raw_max_words) return false;
+    for (ft.params) |p| {
+        if (!isFlat4Scalar(p.ty)) return false;
     }
-    if (ft.params.len == 2) {
-        return isFlat4Scalar(ft.params[0].ty) and isFlat4Scalar(ft.params[1].ty);
-    }
-    // D-305: 3 flat-4 scalars flatten to 3 core i32 words → the 3-word
-    // `BoundarySig3` pass-through trampoline (no memory marshalling).
-    if (ft.params.len == 3) {
-        return isFlat4Scalar(ft.params[0].ty) and isFlat4Scalar(ft.params[1].ty) and isFlat4Scalar(ft.params[2].ty);
-    }
-    // D-305: 4 flat-4 scalars → the 4-word `BoundarySig4` pass-through trampoline.
-    if (ft.params.len == 4) {
-        return isFlat4Scalar(ft.params[0].ty) and isFlat4Scalar(ft.params[1].ty) and
-            isFlat4Scalar(ft.params[2].ty) and isFlat4Scalar(ft.params[3].ty);
-    }
-    return false;
+    return true;
 }
 
 fn isString(vt: ctypes.ValType) bool {
@@ -1394,34 +1412,40 @@ fn isFlat4Scalar(vt: ctypes.ValType) bool {
 /// untrusted-component sandboxing: a bad `(ptr,len)` must trap.
 const BoundaryError = Instance.InvokeError || error{OutOfMemory};
 
-/// The flattened core signature the boundary trampoline binds to:
-/// `(w0:i32, w1:i32) -> i32`, returning `BoundaryError!u32` so a marshalling
-/// failure PROPAGATES as a guest trap. `defineFuncCtx`'s thunk handles the
-/// error-union form natively (a returned error becomes `anyerror!void` out of
-/// the thunk), exactly like the WASI-P2 host trampolines. The two words are
-/// interpreted per the WIT param list at call time — a string's (ptr,len) or two
-/// flat scalars.
-const BoundarySig = fn (*Caller, u32, u32) BoundaryError!u32;
-
-/// Host trampoline: marshal the two flat words across the boundary per the
-/// importer's WIT signature, invoke the callee's core func, return its flat
-/// result. A `string` param is copied importer-memory → callee-memory via the
-/// callee's realloc (canon lower → core → lift); flat scalars pass through. A
-/// marshalling failure (out-of-bounds (ptr,len), invalid UTF-8, realloc
-/// overflow) propagates as a trap — never a silent fallback.
-fn boundaryTrampoline(caller: *Caller, w0: u32, w1: u32) BoundaryError!u32 {
+/// D-305: ONE Value-slice host fn replaces the per-arity `boundaryTrampoline{,3,4}`.
+/// `defineFuncRaw` pops the flattened core words into `args` (all-i32) and hands
+/// them here; `boundaryMarshal` marshals a `string`/`list<primitive>` param into
+/// the callee's memory, passes flat scalars straight through, invokes the callee
+/// core func, and writes the single flat result. Serves ANY flat-scalar arity —
+/// no per-arity Zig fn. A marshalling failure propagates as a guest trap (never a
+/// silent fallback), exactly as the prior fixed-arity trampolines.
+fn boundaryTrampolineRaw(caller: *Caller, args: []const RtValue, results: []RtValue) anyerror!void {
     const bctx = caller.data(BoundaryCtx);
-    return boundaryMarshal(caller, bctx, w0, w1);
+    results[0] = .{ .i32 = @bitCast(try boundaryMarshal(caller, bctx, args)) };
 }
 
-fn boundaryMarshal(caller: *Caller, bctx: *BoundaryCtx, w0: u32, w1: u32) BoundaryError!u32 {
+/// Marshal the flattened core words across the boundary per the importer's WIT
+/// signature, invoke the callee's core func, return its flat result. A `string` /
+/// `list<primitive>` param (args[0]=ptr, args[1]=len/count in the IMPORTER's
+/// memory) is copied into the CALLEE's memory via its realloc (the callee reads
+/// its OWN memory); flat scalars pass through. A marshalling failure (OOB
+/// (ptr,len), invalid UTF-8, realloc overflow) propagates as a trap — never a
+/// silent fallback. The args are mutated in a local buffer before the invoke, so
+/// the popped operands are not aliased.
+fn boundaryMarshal(caller: *Caller, bctx: *BoundaryCtx, args: []const RtValue) BoundaryError!u32 {
     const params = bctx.func_type.params;
-    var args = [_]Value{ .{ .i32 = @bitCast(w0) }, .{ .i32 = @bitCast(w1) } };
+    var arg_buf: [marshal.raw_max_words]Value = undefined;
+    // Bridge the operand-stack words (RtValue) to the public `Value` invoke takes.
+    // Every boundary word is a flat i32 (flat scalar or string/list ptr/len).
+    for (args, 0..) |a, i| arg_buf[i] = .{ .i32 = a.i32 };
+    const marshalled = arg_buf[0..args.len];
 
     if (bctx.list_elem_size > 0) {
         // list<primitive>: w0=ptr, w1=COUNT in the IMPORTER's memory. Copy
         // count*elem_size bytes into the CALLEE's memory via its realloc
         // (aligned to the element size), since the callee reads its OWN memory.
+        const w0: u32 = @bitCast(marshalled[0].i32);
+        const w1: u32 = @bitCast(marshalled[1].i32);
         const caller_mem: Memory = caller.memory() orelse return error.OutOfBoundsLoad;
         const byte_count: u32 = w1 * bctx.list_elem_size;
         const src = try caller_mem.sliceAt(w0, byte_count); // OOB read → OutOfBoundsLoad trap
@@ -1431,55 +1455,27 @@ fn boundaryMarshal(caller: *Caller, bctx: *BoundaryCtx, w0: u32, w1: u32) Bounda
         const ptr = cx.realloc(0, 0, bctx.list_elem_size, byte_count) catch return error.OutOfBoundsStore;
         if (@as(usize, ptr) + byte_count > cx.mem().len) return error.OutOfBoundsStore;
         @memcpy(cx.mem()[ptr..][0..byte_count], tmp);
-        args[0] = .{ .i32 = @bitCast(ptr) };
-        args[1] = .{ .i32 = @bitCast(w1) }; // count unchanged
+        marshalled[0] = .{ .i32 = @bitCast(ptr) };
+        // count (marshalled[1]) unchanged.
     } else if (params.len == 1 and isString(params[0].ty)) {
         // Single string: w0=ptr, w1=len in the IMPORTER's memory. Snapshot the
         // bytes, then lower them into the CALLEE's memory via its realloc — the
         // callee reads its OWN memory, so the string must physically move.
+        const w0: u32 = @bitCast(marshalled[0].i32);
+        const w1: u32 = @bitCast(marshalled[1].i32);
         const caller_mem: Memory = caller.memory() orelse return error.OutOfBoundsLoad;
         const src = try caller_mem.sliceAt(w0, w1); // OOB read → OutOfBoundsLoad trap
         const tmp = try caller.allocator().dupe(u8, src);
         defer caller.allocator().free(tmp);
         const cx = bctx.callee.canonContext();
         const lowered = canon.lowerString(cx, tmp) catch |e| return stringErrToTrap(e);
-        args[0] = .{ .i32 = @bitCast(lowered.ptr) };
-        args[1] = .{ .i32 = @bitCast(lowered.packed_length) };
+        marshalled[0] = .{ .i32 = @bitCast(lowered.ptr) };
+        marshalled[1] = .{ .i32 = @bitCast(lowered.packed_length) };
     }
-    // else: two flat scalars pass straight through (no memory marshalling).
+    // else: flat scalars pass straight through (no memory marshalling).
 
     var res = [_]Value{.{ .i32 = 0 }};
-    try bctx.core_inst.invoke(bctx.core_func_name, &args, &res);
-    return @bitCast(res[0].i32);
-}
-
-/// D-305: the 3-flat-scalar boundary signature `(w0,w1,w2) -> i32`. Three flat-4
-/// scalar params flatten to three core i32 words that pass straight through to
-/// the callee — no linear-memory marshalling (that path is the 1-2 param
-/// `BoundarySig`). `boundaryShapeOk` gates this to all-flat-scalar params.
-const BoundarySig3 = fn (*Caller, u32, u32, u32) BoundaryError!u32;
-
-/// Host trampoline for a 3-flat-scalar boundary func: pass the three words
-/// straight to the callee's core func and return its flat result. A marshalling
-/// failure (callee trap) propagates — never a silent fallback.
-fn boundaryTrampoline3(caller: *Caller, w0: u32, w1: u32, w2: u32) BoundaryError!u32 {
-    const bctx = caller.data(BoundaryCtx);
-    var args = [_]Value{ .{ .i32 = @bitCast(w0) }, .{ .i32 = @bitCast(w1) }, .{ .i32 = @bitCast(w2) } };
-    var res = [_]Value{.{ .i32 = 0 }};
-    try bctx.core_inst.invoke(bctx.core_func_name, &args, &res);
-    return @bitCast(res[0].i32);
-}
-
-/// D-305: the 4-flat-scalar boundary signature `(w0,w1,w2,w3) -> i32` — four flat
-/// words pass straight through to the callee (no memory marshalling), as
-/// `BoundarySig3` but one wider. `boundaryShapeOk` gates this to all-flat-scalar.
-const BoundarySig4 = fn (*Caller, u32, u32, u32, u32) BoundaryError!u32;
-
-fn boundaryTrampoline4(caller: *Caller, w0: u32, w1: u32, w2: u32, w3: u32) BoundaryError!u32 {
-    const bctx = caller.data(BoundaryCtx);
-    var args = [_]Value{ .{ .i32 = @bitCast(w0) }, .{ .i32 = @bitCast(w1) }, .{ .i32 = @bitCast(w2) }, .{ .i32 = @bitCast(w3) } };
-    var res = [_]Value{.{ .i32 = 0 }};
-    try bctx.core_inst.invoke(bctx.core_func_name, &args, &res);
+    try bctx.core_inst.invoke(bctx.core_func_name, marshalled, &res);
     return @bitCast(res[0].i32);
 }
 

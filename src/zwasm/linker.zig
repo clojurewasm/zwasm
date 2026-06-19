@@ -322,6 +322,47 @@ pub const Linker = struct {
         });
     }
 
+    /// Register a host function with a RUNTIME-arity signature: `params` /
+    /// `results` are explicit core ValType slices (must outlive every Instance
+    /// instantiated through this Linker, same contract as `host_data`), and the
+    /// host fn receives the popped operands as a `[]const Value`. Unlike
+    /// `defineFuncCtx`, no per-arity Zig fn type is reflected — ONE `rawThunk`
+    /// serves every arity. Used by the cross-component boundary to collapse the
+    /// per-arity trampolines (D-305): a single Value-slice trampoline marshals
+    /// any flat-scalar arity instead of a `BoundarySigN` per N.
+    pub fn defineFuncRaw(
+        self: *Linker,
+        module: []const u8,
+        name: []const u8,
+        host_data: ?*anyopaque,
+        params: []const _zir.ValType,
+        results: []const _zir.ValType,
+        user_fn: _marshal.RawHostFn,
+    ) !void {
+        const ctx_ptr = try self.engine.alloc.create(_marshal.RawHostFnCtx);
+        errdefer self.engine.alloc.destroy(ctx_ptr);
+        ctx_ptr.* = .{
+            .user_fn = user_fn,
+            .host_data = host_data,
+            .n_params = params.len,
+            .n_results = results.len,
+        };
+        try self.ctx_storage.append(self.engine.alloc, .{
+            .ptr = ctx_ptr,
+            .destroy_fn = destroyForCtx(_marshal.RawHostFnCtx),
+        });
+        try self.entries.append(self.engine.alloc, .{
+            .module = module,
+            .name = name,
+            .payload = .{ .host_func = .{
+                .thunk_fn = _marshal.rawThunk,
+                .ctx = ctx_ptr,
+                .params = params,
+                .results = results,
+            } },
+        });
+    }
+
     pub fn defineMemory(self: *Linker, module: []const u8, name: []const u8, mem: _memory_mod.Memory) !void {
         // D-199 — share the exporter's memory0 `*MemoryInstance` so
         // importers see growth. Requires the source to have a

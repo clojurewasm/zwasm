@@ -1,0 +1,6 @@
+# D-305: a 5-param cross-component call — the forcing function for the generic
+# defineFuncRaw arity-collapse. B exports sel5(a,b,c,d,e)->u32=e; the per-arity
+# trampolines stopped at 4, so boundaryShapeOk rejected params.len==5. A calls
+# sel5(7,8,9,10,11) -> 11. Provenance: test/component/arity5_graph.wat.
+graph test/component/arity5_graph.wasm
+assert_flat_i32 run -> 11

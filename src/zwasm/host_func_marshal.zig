@@ -81,6 +81,46 @@ pub fn thunkFor(comptime Sig: type) *const fn (*_runtime.Runtime, *anyopaque) an
     }.t;
 }
 
+/// A RUNTIME-arity host fn: receives the popped operands as a `[]const Value`
+/// and writes its results into `results`. Unlike the comptime `thunkFor` path
+/// (one generated thunk per Zig arity), ONE `rawThunk` serves every arity — the
+/// arity travels in `RawHostFnCtx`, not the Zig fn type. This collapses the
+/// per-arity cross-component boundary trampolines (D-305).
+pub const RawHostFn = *const fn (caller: *Caller, args: []const RuntimeValue, results: []RuntimeValue) anyerror!void;
+
+/// Context for a `rawThunk`-dispatched host fn: the user fn, its opaque host
+/// data, and the flattened core arity. Allocated by `Linker.defineFuncRaw`;
+/// lifetime tied to the Linker (same contract as `HostFnCtx`).
+pub const RawHostFnCtx = struct {
+    user_fn: RawHostFn,
+    host_data: ?*anyopaque = null,
+    n_params: usize,
+    n_results: usize,
+};
+
+/// Max flattened core words a `defineFuncRaw` host fn may take or return.
+/// Cross-component boundary funcs flatten to a small number of i32 words; 32 is
+/// well clear of any realistic flat-scalar arity. Asserted in `rawThunk`.
+pub const raw_max_words = 32;
+
+/// Runtime-arity thunk: pop `n_params` operands into a Value buffer (reverse —
+/// last pushed is on top), invoke the user fn with the args + a results buffer,
+/// push the results. The single thunk every `defineFuncRaw` host fn shares.
+pub fn rawThunk(rt: *_runtime.Runtime, ctx: *anyopaque) anyerror!void {
+    const wrapper: *RawHostFnCtx = @ptrCast(@alignCast(ctx));
+    std.debug.assert(wrapper.n_params <= raw_max_words and wrapper.n_results <= raw_max_words);
+    var args_buf: [raw_max_words]RuntimeValue = undefined;
+    var results_buf: [raw_max_words]RuntimeValue = undefined;
+    var i: usize = wrapper.n_params;
+    while (i > 0) {
+        i -= 1;
+        args_buf[i] = rt.popOperand();
+    }
+    var caller: Caller = .{ .rt = rt, .host_data = wrapper.host_data };
+    try wrapper.user_fn(&caller, args_buf[0..wrapper.n_params], results_buf[0..wrapper.n_results]);
+    for (results_buf[0..wrapper.n_results]) |rv| try rt.pushOperand(rv);
+}
+
 fn pushResult(rt: *_runtime.Runtime, comptime Ret: type, ret: Ret) !void {
     if (Ret == void) return;
     switch (@typeInfo(Ret)) {
