@@ -37,17 +37,20 @@ consolidate the duplicated spill helpers into a shared op_simd.zig pub set.
 
 ## Active bundle
 
-- **Bundle-ID**: D-331A-memdiff (correctness — localize the go-runtime poll_oneoff miscompile)
-- **Cycles-remaining**: ~3
-- **Continuity-memo**: a read-only MEMORY-DIVERGENCE DIFF — `fnv1a(linear-mem + globals)` hashed at the shared
-  WASI host-call boundary for BOTH engines (`wasi/jit_dispatch.zig:65/:352` + interp `interp/mvp.zig:392`),
-  gated `ZWASM_DEBUG=mem.cksum`; run go_hello under `--engine interp` vs `jit`, diff the cksum traces → FIRST
-  divergent host-call window, then `jit.dump` those funcs. **Phase-I plan DONE → `private/notes/d331a-memdiff-plan.md`**
-  (accessors: JIT `memOf(rt)`+`rt.globals_base[0..globals_count]`; interp `rt.memory`+`rt.globals`; `fnv1a` helper
-  in `support/dbg.zig`; **CRITICAL gotcha: hash active 64-bit value-bits only, NOT struct padding — else false
-  divergence**; TDD first asserts interp-vs-interp determinism). NOT ADR-gated (read-only, ~25-35 LOC). NEXT: implement the hook.
-- **Exit-condition**: the `mem.cksum` interp-vs-jit diff localizes the first divergence on go_hello to a named
-  host-call window (or the diff infra is committed + a follow-up debt row names the localized window).
+- **Bundle-ID**: D-331A-memdiff (correctness — fix the go-runtime miscompile)
+- **Cycles-remaining**: ~3 (diagnostic DONE; now pinpoint the bad codegen + fix)
+- **Continuity-memo**: **DIAGNOSTIC DONE @27244fe86** (`ZWASM_DEBUG=mem.cksum`: fnv1a(linear-mem) hashed at WASI
+  host-call boundaries on both engines — interp mvp.zig:392 + JIT jit_dispatch.zig clock/random/args/fd_write/
+  poll_oneoff). **LOCALIZED on go_hello**: boundary-1 clock_time_get hashes MATCH (73e036d0 — layout identical,
+  diagnostic sound) → boundary-2 clock_time_get DIVERGES (interp c5a1e0df vs jit 92959216). So the JIT corrupts
+  linear memory in **guest code BETWEEN the 1st and 2nd clock_time_get host calls** (then enters a poll_oneoff+
+  panic path interp never takes; interp = 25 host calls, 0 poll, clean exit). **NEXT**: `ZWASM_DEBUG=codegen,jit.dump`
+  to list the guest funcs executing in that window; identify which JIT-compiled func writes the divergent bytes
+  (add finer cksum points / a per-store trace if needed), find the bad codegen, fix. Repro:
+  `diff <(…interp 2>&1|grep mem.cksum) <(…jit 2>&1|grep mem.cksum)` (cksum on STDERR — use 2>&1, NOT 2>/dev/null).
+- **Exit-condition**: (localize DONE @27244fe86) the miscompiling JIT-compiled guest function in the 1st→2nd
+  clock_time_get window is identified + its bad codegen fixed (go_hello JIT-run-stage stops corrupting), OR the
+  exact bad instruction is named in D-331 with a minimal repro if the fix needs its own bundle.
 
 ## RESUME POINTER (2026-06-19) — for a fresh session
 
@@ -76,24 +79,12 @@ consolidate the duplicated spill helpers into a shared op_simd.zig pub set.
 2. **Audit DONE 2026-06-18 CLEAN** (0 block/0 soon; fuzz 0 crashes). **v128 spill story COMPLETE** (D-460/D-461/D-034
    all `note`).
 
-## Recently closed arcs (detail in ADRs/git/debt — one-liners)
+## Closed arcs (detail in ADRs/git/debt)
 
-- **D-305 first milestone** (@4cceeb1e, ADR-0196): cross-component STRING marshalling; `component_graph.zig`
-  two-level instantiation + boundary trampoline via `canon.CanonContext`. Common shapes now ALL done (see top).
-
-## Closed/paused (detail in git + debt.yaml)
-
-- **doc-inventory freshening DONE** (`42441634` README + ADR-0193 P4 doc-sync): reader-facing surfaces clean
-  (C-API 293/293, component 158/0/0, Wasm 2.0 skip-impl==0, 3.0 all-9-proposals, version anchors retired).
-- **ADR-0192 wasmtime differential campaign — paused**: goal met (9 real engine bugs fixed via wasmtime
-  misc_testsuite + 6 SIMD via D-457). Residuals: **`D-460`** v128-GC COMPLETE both arches (`note`); **`D-209`**
-  memory64 >4 GiB offset, **D-456** host-import fixtures (parked). Harness `scripts/wasmtime_misc_*.sh`.
-
-**Closed campaigns (detail in git/lessons)**: prior 4-front async-maturity (2026-06-16) — ② wasmtime async .wast
-TIER-1 (`afcf889a`/`05b35c28`; D-446/447 deferred), ① wasip3 conformance (7 real-rust fixtures, `.#gen-wasip3`),
-④ perf (ROI-rejected single-pass ceiling, D-450), ③ real-world GC corpus (6 engine bugs FIXED: D-451-453/9064faa5/
-480809af/9ec68a75/79742cb4; 4 GC edge fixtures; real Hoot execution → D-454). **WASI 0.3/Preview-3 core DONE**
-(D-335; ADR-0187-0191). validator.zig at 3449/3450 cap — NEXT validator edit MUST extract per the file's marker plan.
+- D-305 STRING milestone (@4cceeb1e, ADR-0196) · doc-inventory fresh (`42441634`) · ADR-0192 wasmtime differential
+  (9+6 engine bugs fixed; residual D-209/D-456 parked) · 4-front async-maturity (wasmtime async .wast, wasip3, perf
+  ROI-rejected D-450, GC corpus 6 bugs) · WASI 0.3 core DONE (D-335, ADR-0187-0191). **validator.zig at 3449/3450
+  cap — NEXT validator edit MUST extract per the file's marker plan.**
 
 ## Long-tail (debt-tracked / parked — NOT active; see debt.yaml)
 
