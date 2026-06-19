@@ -131,41 +131,41 @@ assert_return as-i16x8_extract_lane_s-operand-first i32:4294934527 -> i32:32767
 assert_return as-i16x8_extract_lane_s-operand-last i32:32768 -> i32:4294934528
 assert_return as-i32x4_extract_lane_s-operand-first i32:2147483647 -> i32:2147483647
 assert_return as-i32x4_extract_lane_s-operand-last i32:2147483648 -> i32:2147483648
-skip-impl unsupported-shape ('f32',)->('f32',) as-f32x4_extract_lane_s-operand-first
-skip-impl unsupported-shape ('f32',)->('f32',) as-f32x4_extract_lane_s-operand-last
-skip-impl unsupported-shape ('i32', 'i32')->('v128',) as-v8x16_swizzle-operands
-skip-impl unsupported-shape ('i64',)->('i64',) as-i64x2_extract_lane-operand-last
-skip-impl unsupported-shape ('i64',)->('i64',) as-i64x2_extract_lane-operand-first
-skip-impl unsupported-shape ('f64',)->('f64',) as-f64x2_extract_lane-operand-first
-skip-impl unsupported-shape ('f64',)->('f64',) as-f64x2_extract_lane-operand-last
-skip-impl unsupported-shape ('i32', 'i32', 'i32')->('v128',) as-i8x16_add_sub-operands
-skip-impl unsupported-shape ('i32', 'i32', 'i32', 'i32')->('v128',) as-i16x8_add_sub_mul-operands
-skip-impl unsupported-shape ('i32', 'i32', 'i32', 'i32')->('v128',) as-i32x4_add_sub_mul-operands
-skip-impl unsupported-shape ('i64', 'i64', 'i64', 'i64')->('v128',) as-i64x2_add_sub_mul-operands
-skip-impl unsupported-shape ('f64', 'f64', 'f64', 'f64')->('v128',) as-f64x2_add_sub_mul-operands
-skip-impl unsupported-shape ('i32', 'i32')->('v128',) as-i8x16_add_sat_s-operands
-skip-impl unsupported-shape ('i32', 'i32')->('v128',) as-i16x8_add_sat_s-operands
-skip-impl unsupported-shape ('i32', 'i32')->('v128',) as-i8x16_sub_sat_u-operands
-skip-impl unsupported-shape ('i32', 'i32')->('v128',) as-i16x8_sub_sat_u-operands
-skip-impl unsupported-shape ('i32', 'i32')->('v128',) as-i8x16_shr_s-operand
-skip-impl unsupported-shape ('i32', 'i32')->('v128',) as-i16x8_shr_s-operand
-skip-impl unsupported-shape ('i32', 'i32')->('v128',) as-i32x4_shr_s-operand
-skip-impl unsupported-shape ('i32', 'i32')->('v128',) as-v128_and-operands
-skip-impl unsupported-shape ('i32', 'i32')->('v128',) as-v128_or-operands
-skip-impl unsupported-shape ('i32', 'i32')->('v128',) as-v128_xor-operands
+assert_return as-f32x4_extract_lane_s-operand-first f32:1069547520 -> f32:1069547520
+assert_return as-f32x4_extract_lane_s-operand-last f32:3196059648 -> f32:3196059648
+assert_return as-v8x16_swizzle-operands i32:1 i32:4294967295 -> v128:00000000000000000000000000000000
+assert_return as-i64x2_extract_lane-operand-last i64:18446744073709551574 -> i64:18446744073709551574
+assert_return as-i64x2_extract_lane-operand-first i64:42 -> i64:42
+assert_return as-f64x2_extract_lane-operand-first f64:4609434218613702656 -> f64:4609434218613702656
+assert_return as-f64x2_extract_lane-operand-last f64:13830554455654793216 -> f64:13830554455654793216
+assert_return as-i8x16_add_sub-operands i32:3 i32:2 i32:1 -> v128:04040404040404040404040404040404
+assert_return as-i16x8_add_sub_mul-operands i32:257 i32:128 i32:16 i32:16 -> v128:81008100810081008100810081008100
+assert_return as-i32x4_add_sub_mul-operands i32:65535 i32:65537 i32:256 i32:256 -> v128:00000100000001000000010000000100
+assert_return as-i64x2_add_sub_mul-operands i64:2147483647 i64:4294967297 i64:65536 i64:65536 -> v128:00000080000000000000008000000000
+assert_return as-f64x2_add_sub_mul-operands f64:4602678819172646912 f64:4604930618986332160 f64:4602678819172646912 f64:4602678819172646912 -> v128:000000000000f03f000000000000f03f
+assert_return as-i8x16_add_sat_s-operands i32:127 i32:1 -> v128:7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f
+assert_return as-i16x8_add_sat_s-operands i32:32767 i32:1 -> v128:ff7fff7fff7fff7fff7fff7fff7fff7f
+assert_return as-i8x16_sub_sat_u-operands i32:127 i32:255 -> v128:00000000000000000000000000000000
+assert_return as-i16x8_sub_sat_u-operands i32:32767 i32:65535 -> v128:00000000000000000000000000000000
+assert_return as-i8x16_shr_s-operand i32:240 i32:3 -> v128:fefefefefefefefefefefefefefefefe
+assert_return as-i16x8_shr_s-operand i32:256 i32:4 -> v128:10001000100010001000100010001000
+assert_return as-i32x4_shr_s-operand i32:4294967295 i32:16 -> v128:ffffffffffffffffffffffffffffffff
+assert_return as-v128_and-operands i32:17 i32:255 -> v128:11111111111111111111111111111111
+assert_return as-v128_or-operands i32:0 i32:65535 -> v128:ffffffffffffffffffffffffffffffff
+assert_return as-v128_xor-operands i32:4042322160 i32:4294967295 -> v128:0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f
 assert_return as-i8x16_all_true-operand i32:0 -> i32:0
 assert_return as-i16x8_all_true-operand i32:65535 -> i32:1
 assert_return as-i32x4_all_true-operand1 i32:4042322160 -> i32:1
-skip-impl unsupported-shape ('i64',)->('i32',) as-i32x4_all_true-operand2
-skip-impl unsupported-shape ('i32', 'i32')->('v128',) as-i8x16_eq-operands
-skip-impl unsupported-shape ('i32', 'i32')->('v128',) as-i16x8_eq-operands
-skip-impl unsupported-shape ('i32', 'i32')->('v128',) as-i32x4_eq-operands1
-skip-impl unsupported-shape ('f32', 'f32')->('v128',) as-f32x4_eq-operands
-skip-impl unsupported-shape ('i64', 'i64')->('v128',) as-i32x4_eq-operands2
-skip-impl unsupported-shape ('f64', 'f64')->('v128',) as-f64x2_eq-operands
+assert_return as-i32x4_all_true-operand2 i64:18446744073709551615 -> i32:1
+assert_return as-i8x16_eq-operands i32:1 i32:2 -> v128:00000000000000000000000000000000
+assert_return as-i16x8_eq-operands i32:4294967295 i32:65535 -> v128:ffffffffffffffffffffffffffffffff
+assert_return as-i32x4_eq-operands1 i32:4294967295 i32:4294967295 -> v128:ffffffffffffffffffffffffffffffff
+assert_return as-f32x4_eq-operands f32:0 f32:2147483648 -> v128:ffffffffffffffffffffffffffffffff
+assert_return as-i32x4_eq-operands2 i64:1 i64:2 -> v128:00000000ffffffff00000000ffffffff
+assert_return as-f64x2_eq-operands f64:0 f64:9223372036854775808 -> v128:ffffffffffffffffffffffffffffffff
 assert_return as-f32x4_abs-operand f32:3213885440 -> v128:0000903f0000903f0000903f0000903f
-skip-impl unsupported-shape ('f32', 'f32')->('v128',) as-f32x4_min-operands
-skip-impl unsupported-shape ('f32', 'f32')->('v128',) as-f32x4_div-operands
+assert_return as-f32x4_min-operands f32:1048576000 f32:7136238 -> v128:eee36c00eee36c00eee36c00eee36c00
+assert_return as-f32x4_div-operands f32:1065353216 f32:1090519040 -> v128:0000003e0000003e0000003e0000003e
 assert_return as-f32x4_convert_s_i32x4-operand i32:12345 -> v128:00e4404600e4404600e4404600e44046
 assert_return as-i32x4_trunc_s_f32x4_sat-operand f32:1066192077 -> v128:01000000010000000100000001000000
 module simd_splat.20.wasm

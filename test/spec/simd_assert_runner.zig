@@ -735,6 +735,36 @@ fn runAssertReturn(
             };
             break :blk @as(u64, @bitCast(r));
         }
+        // D-467 single-scalar → scalar (simd_splat extract_lane
+        // operand fixtures: splat the scalar to v128, extract a lane,
+        // return scalar). `.i64` Value field is already i64; `.f32`/
+        // `.f64` hold RAW BITS → @bitCast to the float before call.
+        if (n_args == 1 and args[0] == .i64 and result_kind == .i64) {
+            break :blk entry.callI64_i64(compiled.module, func_idx, &rt, @bitCast(args[0].i64)) catch |err| {
+                try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+                return false;
+            };
+        }
+        if (n_args == 1 and args[0] == .i64 and result_kind == .i32) {
+            break :blk @as(u64, entry.callI32_i64(compiled.module, func_idx, &rt, @bitCast(args[0].i64)) catch |err| {
+                try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+                return false;
+            });
+        }
+        if (n_args == 1 and args[0] == .f32 and result_kind == .f32) {
+            const r = entry.callF32_f32(compiled.module, func_idx, &rt, @as(f32, @bitCast(args[0].f32))) catch |err| {
+                try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+                return false;
+            };
+            break :blk @as(u64, @as(u32, @bitCast(r)));
+        }
+        if (n_args == 1 and args[0] == .f64 and result_kind == .f64) {
+            const r = entry.callF64_f64(compiled.module, func_idx, &rt, @as(f64, @bitCast(args[0].f64))) catch |err| {
+                try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+                return false;
+            };
+            break :blk @as(u64, @bitCast(r));
+        }
         try stdout.print("FAIL  {s}: scalar-result unsupported (n_args={d}, shape) for {s}({s}) -> {s}\n", .{ name, n_args, fn_name, args_s, results_s });
         return false;
     };
@@ -877,6 +907,57 @@ fn invokeV128(
     // `as-i64x2_add-operands`.
     if (n_args == 4 and args[0] == .v128 and args[1] == .i64 and args[2] == .v128 and args[3] == .i64) {
         return entry.callV128_v128i64v128i64(compiled.module, func_idx, rt, args[0].v128, args[1].i64, args[2].v128, args[3].i64) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        };
+    }
+    // D-467 multi-scalar → v128 constructor shapes (simd_splat
+    // `as-i*x*_*-operands` / `as-f*x*_*-operands`). The `.f32`/`.f64`
+    // Value fields hold RAW BITS → @bitCast to the float before call.
+    if (n_args == 2 and args[0] == .i32 and args[1] == .i32) {
+        return entry.callV128_i32i32(compiled.module, func_idx, rt, args[0].i32, args[1].i32) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        };
+    }
+    if (n_args == 3 and args[0] == .i32 and args[1] == .i32 and args[2] == .i32) {
+        return entry.callV128_i32i32i32(compiled.module, func_idx, rt, args[0].i32, args[1].i32, args[2].i32) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        };
+    }
+    if (n_args == 4 and args[0] == .i32 and args[1] == .i32 and args[2] == .i32 and args[3] == .i32) {
+        return entry.callV128_i32i32i32i32(compiled.module, func_idx, rt, args[0].i32, args[1].i32, args[2].i32, args[3].i32) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        };
+    }
+    if (n_args == 2 and args[0] == .i64 and args[1] == .i64) {
+        return entry.callV128_i64i64(compiled.module, func_idx, rt, @bitCast(args[0].i64), @bitCast(args[1].i64)) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        };
+    }
+    if (n_args == 4 and args[0] == .i64 and args[1] == .i64 and args[2] == .i64 and args[3] == .i64) {
+        return entry.callV128_i64i64i64i64(compiled.module, func_idx, rt, @bitCast(args[0].i64), @bitCast(args[1].i64), @bitCast(args[2].i64), @bitCast(args[3].i64)) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        };
+    }
+    if (n_args == 2 and args[0] == .f32 and args[1] == .f32) {
+        return entry.callV128_f32f32(compiled.module, func_idx, rt, @as(f32, @bitCast(args[0].f32)), @as(f32, @bitCast(args[1].f32))) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        };
+    }
+    if (n_args == 2 and args[0] == .f64 and args[1] == .f64) {
+        return entry.callV128_f64f64(compiled.module, func_idx, rt, @as(f64, @bitCast(args[0].f64)), @as(f64, @bitCast(args[1].f64))) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        };
+    }
+    if (n_args == 4 and args[0] == .f64 and args[1] == .f64 and args[2] == .f64 and args[3] == .f64) {
+        return entry.callV128_f64f64f64f64(compiled.module, func_idx, rt, @as(f64, @bitCast(args[0].f64)), @as(f64, @bitCast(args[1].f64)), @as(f64, @bitCast(args[2].f64)), @as(f64, @bitCast(args[3].f64))) catch |err| {
             try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
             return null;
         };

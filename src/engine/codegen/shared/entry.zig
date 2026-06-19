@@ -1,4 +1,4 @@
-// FILE-SIZE-EXEMPT: uniform-pattern catalog (117 callXX_yy per-shape entry helpers; monotonic growth with Wasm signature shapes — +3 for §17.4 D-301 atomic 3-arg cmpxchg/wait) (cap=3100) (per ADR-0063 + ADR-0099 Revision 2026-05-24)
+// FILE-SIZE-EXEMPT: uniform-pattern catalog (125 callXX_yy per-shape entry helpers; monotonic growth with Wasm signature shapes — +8 for D-467 multi-scalar→v128 simd constructor shapes) (cap=3200) (per ADR-0063 + ADR-0099 Revision 2026-05-24)
 // Comptime generation is a follow-up; see ADR-0063 Alternative B + debt ledger.
 
 //! JIT entry frame (ADR-0017).
@@ -1870,6 +1870,82 @@ pub fn callV128_f64(module: linker.JitModule, func_idx: u32, rt: *JitRuntime, a0
     const result = try invokeAndCheck(rt, Vec, module.entry(func_idx, Fn), .{a0});
     return @bitCast(result);
 }
+
+// D-467 multi-scalar → v128 constructor shapes. Used by simd_splat
+// `as-i8x16_add_sub-operands` / `as-i32x4_add_sub_mul-operands` /
+// `as-f32x4_eq-operands` etc. — exports that take N scalar lanes (all
+// of one type) and build a v128. Each scalar follows its register
+// class (GPR i32/i64 in X1.. / RSI.. ; FP f32/f64 in V0.. / XMM0..)
+// per AAPCS64 + SysV ordering; Zig's `callconv(.c)` does the
+// assignment. v128 result in the SIMD return register.
+
+/// Wasm spec §4.4 — `(i32, i32) → v128` invocation (D-467).
+pub fn callV128_i32i32(module: linker.JitModule, func_idx: u32, rt: *JitRuntime, a0: u32, a1: u32) Error![16]u8 {
+    const Vec = @Vector(16, u8);
+    const Fn = *const fn (*const JitRuntime, u32, u32) callconv(.c) Vec;
+    const result = try invokeAndCheck(rt, Vec, module.entry(func_idx, Fn), .{ a0, a1 });
+    return @bitCast(result);
+}
+
+/// Wasm spec §4.4 — `(i32, i32, i32) → v128` invocation (D-467).
+pub fn callV128_i32i32i32(module: linker.JitModule, func_idx: u32, rt: *JitRuntime, a0: u32, a1: u32, a2: u32) Error![16]u8 {
+    const Vec = @Vector(16, u8);
+    const Fn = *const fn (*const JitRuntime, u32, u32, u32) callconv(.c) Vec;
+    const result = try invokeAndCheck(rt, Vec, module.entry(func_idx, Fn), .{ a0, a1, a2 });
+    return @bitCast(result);
+}
+
+/// Wasm spec §4.4 — `(i32, i32, i32, i32) → v128` invocation (D-467).
+pub fn callV128_i32i32i32i32(module: linker.JitModule, func_idx: u32, rt: *JitRuntime, a0: u32, a1: u32, a2: u32, a3: u32) Error![16]u8 {
+    const Vec = @Vector(16, u8);
+    const Fn = *const fn (*const JitRuntime, u32, u32, u32, u32) callconv(.c) Vec;
+    const result = try invokeAndCheck(rt, Vec, module.entry(func_idx, Fn), .{ a0, a1, a2, a3 });
+    return @bitCast(result);
+}
+
+/// Wasm spec §4.4 — `(i64, i64) → v128` invocation (D-467).
+pub fn callV128_i64i64(module: linker.JitModule, func_idx: u32, rt: *JitRuntime, a0: u64, a1: u64) Error![16]u8 {
+    const Vec = @Vector(16, u8);
+    const Fn = *const fn (*const JitRuntime, u64, u64) callconv(.c) Vec;
+    const result = try invokeAndCheck(rt, Vec, module.entry(func_idx, Fn), .{ a0, a1 });
+    return @bitCast(result);
+}
+
+/// Wasm spec §4.4 — `(i64, i64, i64, i64) → v128` invocation (D-467).
+pub fn callV128_i64i64i64i64(module: linker.JitModule, func_idx: u32, rt: *JitRuntime, a0: u64, a1: u64, a2: u64, a3: u64) Error![16]u8 {
+    const Vec = @Vector(16, u8);
+    const Fn = *const fn (*const JitRuntime, u64, u64, u64, u64) callconv(.c) Vec;
+    const result = try invokeAndCheck(rt, Vec, module.entry(func_idx, Fn), .{ a0, a1, a2, a3 });
+    return @bitCast(result);
+}
+
+/// Wasm spec §4.4 — `(f32, f32) → v128` invocation (D-467).
+pub fn callV128_f32f32(module: linker.JitModule, func_idx: u32, rt: *JitRuntime, a0: f32, a1: f32) Error![16]u8 {
+    const Vec = @Vector(16, u8);
+    const Fn = *const fn (*const JitRuntime, f32, f32) callconv(.c) Vec;
+    const result = try invokeAndCheck(rt, Vec, module.entry(func_idx, Fn), .{ a0, a1 });
+    return @bitCast(result);
+}
+
+/// Wasm spec §4.4 — `(f64, f64) → v128` invocation (D-467).
+pub fn callV128_f64f64(module: linker.JitModule, func_idx: u32, rt: *JitRuntime, a0: f64, a1: f64) Error![16]u8 {
+    const Vec = @Vector(16, u8);
+    const Fn = *const fn (*const JitRuntime, f64, f64) callconv(.c) Vec;
+    const result = try invokeAndCheck(rt, Vec, module.entry(func_idx, Fn), .{ a0, a1 });
+    return @bitCast(result);
+}
+
+/// Wasm spec §4.4 — `(f64, f64, f64, f64) → v128` invocation (D-467).
+pub fn callV128_f64f64f64f64(module: linker.JitModule, func_idx: u32, rt: *JitRuntime, a0: f64, a1: f64, a2: f64, a3: f64) Error![16]u8 {
+    const Vec = @Vector(16, u8);
+    const Fn = *const fn (*const JitRuntime, f64, f64, f64, f64) callconv(.c) Vec;
+    const result = try invokeAndCheck(rt, Vec, module.entry(func_idx, Fn), .{ a0, a1, a2, a3 });
+    return @bitCast(result);
+}
+
+// D-467 single-scalar → scalar shapes (simd_splat extract-lane
+// operand fixtures) reuse the existing scalar↔scalar helpers
+// `callI64_i64` / `callI32_i64` / `callF32_f32` / `callF64_f64`.
 
 /// Wasm spec §4.4 — `(v128) → v128` invocation. §9.9 / 9.9-f-4
 /// scope expansion: enables FP / int unop fixtures

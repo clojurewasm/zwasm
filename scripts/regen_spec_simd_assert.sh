@@ -459,6 +459,28 @@ SUPPORTED = {
     # `simd_address` `store_data_6` OOB-trap fixture. Entry
     # helper: `entry.callVoid_i32`.
     (("i32",), ()): True,
+    # D-467 multi-scalar → v128 constructor shapes (simd_splat
+    # `as-i*x*_*-operands` / `as-f*x*_*-operands`). N scalar lanes
+    # (one type) build a v128. Entry helpers: `callV128_i32i32`,
+    # `callV128_i32i32i32`, `callV128_i32i32i32i32`, `callV128_i64i64`,
+    # `callV128_i64i64i64i64`, `callV128_f32f32`, `callV128_f64f64`,
+    # `callV128_f64f64f64f64`.
+    (("i32", "i32"), ("v128",)): True,
+    (("i32", "i32", "i32"), ("v128",)): True,
+    (("i32", "i32", "i32", "i32"), ("v128",)): True,
+    (("i64", "i64"), ("v128",)): True,
+    (("i64", "i64", "i64", "i64"), ("v128",)): True,
+    (("f32", "f32"), ("v128",)): True,
+    (("f64", "f64"), ("v128",)): True,
+    (("f64", "f64", "f64", "f64"), ("v128",)): True,
+    # D-467 single-scalar → scalar (simd_splat extract_lane operand:
+    # splat scalar → v128, extract lane, return scalar). Entry
+    # helpers: `callI64_i64`, `callI32_i64`, `callF32_f32`,
+    # `callF64_f64`.
+    (("i64",), ("i64",)): True,
+    (("i64",), ("i32",)): True,
+    (("f32",), ("f32",)): True,
+    (("f64",), ("f64",)): True,
 }
 
 lines = []
