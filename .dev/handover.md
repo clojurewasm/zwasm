@@ -50,11 +50,18 @@ consolidate the duplicated spill helpers into a shared op_simd.zig pub set.
    mismatch); the only findings across all 3 were stale doc-comments, all fixed (@3c84ae3b3, @ce4224afc). JUDGED
    NOT-WORTH-DOING per Simplicity-First (do NOT re-litigate): D-294-R2 (a new TrapKind for a conformance-neutral
    message nicety = over-engineering on an already-spec-correct trap); the helper-consolidation (low-ROI big refactor
-   re-churning the whole verified v128-spill arc for a benign internal DRY smell). **No substantive non-gated forward
-   work remains.** Gated: D-305 rare CM record/result-aggregate shapes + D-464 broader async = consumer-gated (need a
-   driving program; do NOT grind speculatively — risk of wrong ABI shape); D-330/331 = parked (infra-blocked /
-   conflicting-constraint). NEXT resume: re-check if a consumer arrived / a parked barrier dissolved (Step 0.5); else
-   light maintenance only — this is a genuine resting plateau, NOT a hidden gap.
+   re-churning the whole verified v128-spill arc for a benign internal DRY smell).
+   **CORRECTION (do not re-declare a plateau): per the anti-deferral mandate (`feedback_no_premature_deferral_lock`
+   — drive ALL fronts + future-bucket + hard/parked autonomously; hardness→campaign), substantive autonomous work
+   DOES remain — I was over-deferring.** NEXT FRONT (survey first, fresh context; correctness-first ordering):
+   (1) **D-330 / D-331 realworld JIT-correctness miscompiles** (c_sha256 `\n`, go_regex/go-runtime) — real
+   miscompiles on the opt-in JIT run-stage; "parked" prose may be stale → barrier-dissolution check, then a
+   characterization-first campaign (ADR-0153) IF the parking reason (D-330 conflicting-constraint / D-331(A)
+   infra-repro) is genuinely dissolvable, ELSE document the provable block. (2) **D-305 rare CM shapes**
+   (record/result aggregates, >2-param cross-component marshalling) — spec-PINNED (CM canonical ABI), so testable
+   vs wasmtime WITHOUT an external consumer; the "do NOT grind speculatively / consumer-gated" note conflicts with
+   the anti-deferral mandate and is the over-deferral to revisit. D-464 broader async stays consumer-gated (genuinely
+   needs a 2-guest async program). Start with (1) or (2) via an Explore survey, then TDD.
 2. **Audit DONE 2026-06-18 (CLEAN)** — `audit_scaffolding` 0 block/0 soon (J.3 chronic debt); fuzz 0 crashes.
 3. **D-460 v128-GC arc COMPLETE both arches** — struct/array get/set/new_fixed/new_default emit (@3d8be3c00/
    @8137c7268/@5292569e0) + array.copy (@5292569e0, jit_abi.zig:1049 `ai.element.size`); 7 runI32Export fixtures.
