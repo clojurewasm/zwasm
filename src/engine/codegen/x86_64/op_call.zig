@@ -37,6 +37,7 @@ const gpr = @import("gpr.zig");
 const rbp_disp = @import("rbp_disp.zig");
 const jit_abi = @import("../shared/jit_abi.zig");
 const types = @import("types.zig");
+const op_control = @import("op_control.zig");
 const canonical_type = @import("../shared/canonical_type.zig");
 const func_mod = @import("../../../runtime/instance/func.zig");
 
@@ -146,6 +147,7 @@ pub fn emitCallCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
         @as(u32, @intCast(ins.payload)),
     );
     try reloadHomedCallerSaved(ctx);
+    try op_control.emitPostCallTrapCheck(ctx);
 }
 
 pub fn emitCallIndirectCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
@@ -168,6 +170,7 @@ pub fn emitCallIndirectCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Erro
         ctx.uses_type_subtyping,
     );
     try reloadHomedCallerSaved(ctx);
+    try op_control.emitPostCallTrapCheck(ctx);
 }
 
 /// Wasm spec §3.4.7 (call N) — direct call. Mirrors
@@ -701,6 +704,7 @@ pub fn emitCallRefCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!voi
         @as(u32, @intCast(ins.payload)),
     );
     try reloadHomedCallerSaved(ctx);
+    try op_control.emitPostCallTrapCheck(ctx);
 }
 
 pub fn emitCallRef(

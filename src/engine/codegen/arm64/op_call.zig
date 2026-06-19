@@ -197,6 +197,7 @@ pub fn emitCall(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         try emitImportDispatch(ctx, @intCast(ins.payload));
         try reloadHomedCallerSaved(ctx);
         try captureCallResult(ctx, callee_sig, memory_class_return, return_buffer_off);
+        try emitPostCallTrapCheck(ctx);
         return;
     }
 
@@ -222,6 +223,25 @@ pub fn emitCall(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     try reloadHomedCallerSaved(ctx);
 
     try captureCallResult(ctx, callee_sig, memory_class_return, return_buffer_off);
+    try emitPostCallTrapCheck(ctx);
+}
+
+/// ADR-0199 (D-468): after ANY call, if the callee set `trap_flag` (proc_exit,
+/// a trapping host import, or a transitively-trapping wasm callee), unwind to
+/// this function's epilogue HERE instead of executing the next op. Mirrors the
+/// interp's "check exit/trap after each host-call return + short-circuit"
+/// (proc.zig/mvp.zig). Branches to the CLEAN epilogue (via `return_fixups`, an
+/// unconditional B patched at finalization) — NOT the trap stub — so the
+/// host-set `trap_flag`/`trap_kind`/`exit_code` survive (proc_exit must still
+/// surface "program-requested exit"). W17 is scratch (not in the regalloc pool)
+/// and the call result is already captured, so clobbering it is safe.
+fn emitPostCallTrapCheck(ctx: *EmitCtx) Error!void {
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImmW(17, abi.runtime_ptr_save_gpr, jit_abi.trap_flag_off));
+    // trap_flag == 0 → skip the branch (CBZ lands 2 words ahead, past the B).
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbz(17, 2));
+    const fixup_at: u32 = @intCast(ctx.buf.items.len);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encB(0));
+    try ctx.return_fixups.append(ctx.allocator, fixup_at);
 }
 
 /// Emit the host-import indirect dispatch (ADR-0066 §9.9-III chunk
@@ -329,6 +349,7 @@ fn emitCallIndirectSubtype(
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBLR(17));
     try reloadHomedCallerSaved(ctx);
     try captureCallResult(ctx, callee_sig, memory_class_return, return_buffer_off);
+    try emitPostCallTrapCheck(ctx);
 }
 
 /// Indirect call: `call_indirect type_idx tableidx`. Pops the
@@ -502,6 +523,7 @@ pub fn emitCallIndirect(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     try reloadHomedCallerSaved(ctx);
 
     try captureCallResult(ctx, callee_sig, memory_class_return, return_buffer_off);
+    try emitPostCallTrapCheck(ctx);
 }
 
 /// Wasm spec 3.0 §3.3.8.13 (`call_ref $sig`) — call through a typed
@@ -565,6 +587,7 @@ pub fn emitCallRef(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     try reloadHomedCallerSaved(ctx);
 
     try captureCallResult(ctx, callee_sig, memory_class_return, return_buffer_off);
+    try emitPostCallTrapCheck(ctx);
 }
 
 /// Wasm spec §3.4.7 (call N) — marshal call arguments per AAPCS64

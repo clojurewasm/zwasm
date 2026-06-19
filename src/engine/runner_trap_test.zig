@@ -37,6 +37,35 @@ test "runVoidExportWasi: a JIT `unreachable` surfaces the precise trap-kind code
     try testing.expectEqual(trap_surface.TrapKind.unreachable_, trap_surface.jitTrapCode(trap_code).?);
 }
 
+// D-468 / ADR-0199 — a host-import call that sets `trap_flag` (here the default
+// `hostDispatchTrap` planted for the unresolved `env.h`; proc_exit's mechanism
+// is identical) MUST unwind to the function epilogue at the CALL SITE, not fall
+// through to the next op. Module: `$inner = call $h ; unreachable` and
+// `_start = call $inner ; unreachable`. Correct: the trap surfaces but NEITHER
+// `unreachable` runs, so trap_kind != unreachable_(5). Before the fix the guest
+// kept executing past the trap-flagging call → the first `unreachable` fired →
+// trap_code == 5 (the D-468 go_* JIT-exit-hang root cause: proc_exit set
+// trap_flag but execution continued into Go's scheduler). Exercises BOTH the
+// post-import-call check ($inner) and the post-body-call check (_start).
+const import_trap_then_unreachable_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x04, 0x01, 0x60,
+    0x00, 0x00, 0x02, 0x09, 0x01, 0x03, 0x65, 0x6e, 0x76, 0x01, 0x68, 0x00,
+    0x00, 0x03, 0x03, 0x02, 0x00, 0x00, 0x07, 0x0a, 0x01, 0x06, 0x5f, 0x73,
+    0x74, 0x61, 0x72, 0x74, 0x00, 0x02, 0x0a, 0x0d, 0x02, 0x05, 0x00, 0x10,
+    0x00, 0x00, 0x0b, 0x05, 0x00, 0x10, 0x01, 0x00, 0x0b, 0x00, 0x12, 0x04,
+    0x6e, 0x61, 0x6d, 0x65, 0x01, 0x0b, 0x02, 0x00, 0x01, 0x68, 0x01, 0x05,
+    0x69, 0x6e, 0x6e, 0x65, 0x72,
+};
+
+test "JIT host-import trap_flag unwinds at the call site, not the next op (D-468/ADR-0199)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    var trap_code: u32 = 99; // sentinel
+    try testing.expectError(entry.Error.Trap, runner.runVoidExportWasi(testing.allocator, &import_trap_then_unreachable_wasm, "_start", null, &trap_code));
+    // The `unreachable` ops must NOT have executed — the trap unwound at the
+    // trap-flagging call site, so the kind is the import trap (NOT 5/unreachable_).
+    try testing.expect(trap_code != 5);
+}
+
 // `(module (func (export "_start") i32.const 1 i32.const 0 i32.div_s drop))` —
 // the div-by-zero check traps before the IDIV/SDIV (ADR-0164 A2 / D-292: code 7).
 const divzero_start_wasm = [_]u8{

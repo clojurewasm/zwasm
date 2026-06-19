@@ -1476,6 +1476,28 @@ fn emitTrapExitStub(ctx: *ctx_mod.EmitCtx, kind: ?u32) Error!u32 {
     return stub_byte;
 }
 
+/// ADR-0199 (D-468): after a CALL, if the callee set `trap_flag` (proc_exit, a
+/// trapping host import, or a transitively-trapping wasm callee), unwind to the
+/// function epilogue HERE instead of executing the next op — mirrors the interp's
+/// "check exit/trap after each host-call return + short-circuit" (proc.zig /
+/// mvp.zig). `emitTrapExitStub(null)` leaves `trap_kind` unwritten so the host-set
+/// kind/`exit_code` survive (proc_exit must still surface "program-requested
+/// exit"). RAX is dead post-capture (the call result is already homed), so it is
+/// safe scratch. Emitted inline (x86_64 has no `return_fixups` table; multiple
+/// physical epilogues are harmless). Shape:
+///   MOV eax, [R15 + trap_flag_off] ; TEST eax,eax ; JE skip ; <trap-exit> ; skip:
+pub fn emitPostCallTrapCheck(ctx: *ctx_mod.EmitCtx) Error!void {
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovR32FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.trap_flag_off).slice());
+    try ctx.buf.appendSlice(ctx.allocator, inst.encTestRR(.d, .rax, .rax).slice());
+    const je_at: u32 = @intCast(ctx.buf.items.len);
+    try ctx.buf.appendSlice(ctx.allocator, inst.encJccRel32(.e, 0).slice());
+    _ = try emitTrapExitStub(ctx, null);
+    const skip_byte: u32 = @intCast(ctx.buf.items.len);
+    const je_disp: i32 = @as(i32, @intCast(skip_byte)) - @as(i32, @intCast(je_at)) - 6;
+    const patched = inst.encJccRel32(.e, je_disp);
+    @memcpy(ctx.buf.items[je_at .. je_at + patched.len], patched.slice());
+}
+
 fn emitEndInter(ctx: *ctx_mod.EmitCtx) Error!void {
     try marshalReturnRegs(
         ctx.allocator,
