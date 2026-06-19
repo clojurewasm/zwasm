@@ -39,21 +39,20 @@ consolidate the duplicated spill helpers into a shared op_simd.zig pub set.
 
 - **Bundle-ID**: D-331A-memdiff (correctness — fix the go-runtime miscompile)
 - **Cycles-remaining**: ~3 (localized to a CONTROL-FLOW divergence in the allocator/systemstack path; now pin the bad codegen + fix)
-- **Continuity-memo**: CONTROL-FLOW bug (full detail + repro → `private/notes/d331a-memdiff-plan.md`). TWO prior
-  over-specific theories REFUTED: mem.cksum per-host-call memory hash = clock-jitter noise (red herring); and func
-  314 `fixalloc.alloc` is BYTE-IDENTICAL interp-vs-JIT (SP/globals/struct-base/field all match, 80× both, no loop).
-  **Re-localized via a `callseq` per-guest-call name stream + mem.cksum host-call names**: the divergence is the
-  HOST-CALL SEQUENCE at **#5** — after `args_sizes_get`(wrapper func 594) returns, interp calls `args_get`(import
-  2); the JIT instead branches into Go's fatal path (fd_write→poll_oneoff→runtime.throw — funcs interp NEVER
-  touches). So a JIT-miscompiled BRANCH in the schedinit/osinit window (between args_sizes_get and args_get) makes
-  Go throw early. **HYPOTHESIS**: an i64 load/store width or call-RESULT sign/zero-extension bug (an i64 read after
-  a host call deciding a branch) in `arm64/op_memory.zig` / `op_call.zig captureCallResult`. **NEXT**: re-add the
-  `callseq` channel + a func-idx==N entry probe (gated, NOT unconditional prologue) onto the ~200 runtime-init funcs
-  in callseq window (lines ~745-949) right after args_sizes_get → find the first JIT branch that flips; OR build a
-  minimal fixture: a host call returning i32 + an i64-branch on it. func 314 is RULED OUT.
-- **Exit-condition**: the JIT-miscompiled branch in the args_sizes_get→args_get runtime-init window (the i64/call-
-  result bug that makes Go throw early) is identified + fixed (go_hello JIT calls args_get, not the fatal path), OR the
-  exact bad instruction is named in D-331 with a minimal repro if the fix needs its own bundle.
+- **Continuity-memo**: CONTROL-FLOW bug, CONVERGED (full detail+repro → `private/notes/d331a-memdiff-plan.md`).
+  REFUTED theories: mem.cksum memory hash = clock-jitter noise; func 314 byte-identical; "host-call #5/args_get"
+  was a PROBE ARTIFACT (a probe clobbered X1-X8). Tool = **`zig build -Dd331`** comptime-gated per-guest-call tracer
+  (committed @007033764). Clean diff of interp-vs-JIT guest call sequences → **first true divergence @call #559**:
+  after `runtime.publicationBarrier`(1278) interp→`gcTrigger.test`(321), JIT→`profilealloc`(243). **Deciding func =
+  `runtime.mallocgcTiny`(233)**; branch (WAT /tmp/go.wat 79952-79961): `MemProfileRate` (`i64.load` from CONST addr
+  1245624, via `i64.const;i32.wrap_i64;i64.load`) `i64.ne` `c.nextSample` (`i64.load offset=8`). interp: equal→skip;
+  JIT: not-equal→profile path Go chokes on. So **the JIT mis-reads ONE of those two i64 loads**. **NEXT (final)**:
+  value-probe both loads in func 233 (which diverges?) — prime suspect = the **constant-address i64.load lowering**
+  (`i64.const;i32.wrap_i64;i64.load`, an unusual pattern) OR `c.nextSample`'s prior `i64.store offset=8`. Try a
+  minimal fixture of that exact load pattern. op_memory.zig:302 `encLdrXReg` is full-64-bit (looks ok) → check the
+  address computation / wrap / store side.
+- **Exit-condition**: the mis-read i64 load in `mallocgcTiny`(233) is identified (value-probe) + the codegen fixed
+  (go_hello JIT takes gcTrigger.test like interp, no profile path), OR the exact bad op+a minimal repro is named in D-331.
 
 ## RESUME POINTER (2026-06-19) — for a fresh session
 
