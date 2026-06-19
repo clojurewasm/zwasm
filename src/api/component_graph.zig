@@ -800,7 +800,13 @@ fn installBoundaryTrampoline(
     };
     try graph.boundaries.append(graph.alloc, bctx);
 
-    try lk.defineFuncCtx(ns, core_export_name, @ptrCast(bctx), BoundarySig, boundaryTrampoline);
+    // D-305: a 3-flat-scalar param func binds the 3-word trampoline; 1-2 param
+    // shapes (incl. string/list marshalling) keep the 2-word `BoundarySig`.
+    if (ft.params.len == 3) {
+        try lk.defineFuncCtx(ns, core_export_name, @ptrCast(bctx), BoundarySig3, boundaryTrampoline3);
+    } else {
+        try lk.defineFuncCtx(ns, core_export_name, @ptrCast(bctx), BoundarySig, boundaryTrampoline);
+    }
 }
 
 /// `Subtask.State` codes the async-LOWERED import returns to the caller per the
@@ -1324,6 +1330,11 @@ fn boundaryShapeOk(ft: ctypes.FuncType, param0_is_list: bool) bool {
     if (ft.params.len == 2) {
         return isFlat4Scalar(ft.params[0].ty) and isFlat4Scalar(ft.params[1].ty);
     }
+    // D-305: 3 flat-4 scalars flatten to 3 core i32 words → the 3-word
+    // `BoundarySig3` pass-through trampoline (no memory marshalling).
+    if (ft.params.len == 3) {
+        return isFlat4Scalar(ft.params[0].ty) and isFlat4Scalar(ft.params[1].ty) and isFlat4Scalar(ft.params[2].ty);
+    }
     return false;
 }
 
@@ -1418,6 +1429,23 @@ fn boundaryMarshal(caller: *Caller, bctx: *BoundaryCtx, w0: u32, w1: u32) Bounda
     }
     // else: two flat scalars pass straight through (no memory marshalling).
 
+    var res = [_]Value{.{ .i32 = 0 }};
+    try bctx.core_inst.invoke(bctx.core_func_name, &args, &res);
+    return @bitCast(res[0].i32);
+}
+
+/// D-305: the 3-flat-scalar boundary signature `(w0,w1,w2) -> i32`. Three flat-4
+/// scalar params flatten to three core i32 words that pass straight through to
+/// the callee — no linear-memory marshalling (that path is the 1-2 param
+/// `BoundarySig`). `boundaryShapeOk` gates this to all-flat-scalar params.
+const BoundarySig3 = fn (*Caller, u32, u32, u32) BoundaryError!u32;
+
+/// Host trampoline for a 3-flat-scalar boundary func: pass the three words
+/// straight to the callee's core func and return its flat result. A marshalling
+/// failure (callee trap) propagates — never a silent fallback.
+fn boundaryTrampoline3(caller: *Caller, w0: u32, w1: u32, w2: u32) BoundaryError!u32 {
+    const bctx = caller.data(BoundaryCtx);
+    var args = [_]Value{ .{ .i32 = @bitCast(w0) }, .{ .i32 = @bitCast(w1) }, .{ .i32 = @bitCast(w2) } };
     var res = [_]Value{.{ .i32 = 0 }};
     try bctx.core_inst.invoke(bctx.core_func_name, &args, &res);
     return @bitCast(res[0].i32);

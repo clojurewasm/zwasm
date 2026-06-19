@@ -1,0 +1,5 @@
+# D-305: a 3-param cross-component call. B exports sel(a,b,c:u32)->u32 = c; the
+# fixed 2-word boundary trampoline rejected params.len > 2 before the >2-arity
+# variadic trampoline. A calls sel(7,8,9) -> 9. Provenance: test/component/arity3_graph.wat.
+graph test/component/arity3_graph.wasm
+assert_flat_i32 run -> 9
