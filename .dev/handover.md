@@ -45,42 +45,45 @@ high-value bar is OFF. Sweep toward 0% the 3 gap classes — (1) wasmtime-works-
 non-conformance (skips/missing), (3) instability/crashes — from already-known items, EASIEST-first, TDD + 3-host
 gate, repeat. Do NOT stop to ask "is this high-value." **Inventory DONE** (subagent): spec-skip front already ~0
 (only real skip-impl = simd `directive-register` = test-harness residue; #2/#3 validator-rejects already done, stale
-comments fixed @94f0b7122). **#9 DONE @97abd6887**: arm64 v128 LOCAL ZERO-INIT large-frame `UnsupportedOp` (>32760
-→ frameStrGpr/X16; fixture setup_v128_zeroinit) — the 9 go_* already compiled (stale "fail"). **D-330 + D-331A
-CLOSED @69a0953b1 (both arches), after 3 reverts** — the elusive JIT-value-miscompile class (~1.9M tokens) was
-TWO liveness bugs: (1) block-result merge vregs not surviving an intervening call (callee-saved clobber); (2) a
-forward `br` draining the sim stack to its TARGET block's depth instead of the INNERMOST open block's, prematurely
-killing a vreg on a br_table fall-out path. c_sha256 107, go_hello prints, `labels.wast switch`=50 on BOTH arm64 +
-x86_64. **VERIFICATION LESSON (cost 3 reverts)**: a JIT-codegen fix MUST be checked with `test-spec-wasm-2.0-assert`
-(the JIT assert runner) on BOTH arm64 AND `-Dtarget=x86_64-macos` — NOT `test-spec`(interp)/`zig build test`(unit).
-D-330/D-331 discharged; lesson updated.
+comments fixed @94f0b7122). **#9 DONE @97abd6887** (arm64 v128 zero-init large-frame). **D-330 + D-331A CLOSED @69a0953b1 (both arches)** —
+two liveness bugs (block-merge-vreg call survival + `br` drain-to-innermost). **VERIFICATION LESSON (cost 3
+reverts)**: a JIT-codegen fix MUST be checked with `test-spec-wasm-2.0-assert` on BOTH arm64 AND
+`-Dtarget=x86_64-macos` — NOT `test-spec`(interp)/`zig build test`(unit). Lesson filed.
 **D-209 memory64 >4GiB static offset CLOSED @b8cf64123**: lifted the artificial `readMemargOffset` u32 cap (the
 validator already gatekeeps per-memory offset width; zir payload is u64; 64-bit base+offset carry-trap codegen
 already on both arches). RED fixture `offset_ge_4gib_oob_trap` BadMemarg→OOB-trap; memory64 spec assert 9317/0.
-**Sweep queue — TOP = D-468 (now, HIGH value)**: re-running `test-realworld-diff-jit` post-D-330/D-331A
-surfaced that **all 8 non-trivial go_* fixtures HANG at exit under `--engine jit` (rc=124) but run rc=0 under
-interp** — JIT prints byte-identical correct output then `fatal error: poll_oneoff` → panic-during-panic
-livelock. Root not a value-miscompile; `clocks.zig:167 pollOneoff` is a STUB (non-zero subs → notsup) and Go's
-scheduler park is the guest that needs it. **Leading fix (hyp 1, gap-class #2+#1+#3): implement real
-poll_oneoff clock-subscription polling** (TDD, clean context) + re-run the 8 probes; if still hung, hyp-2 probe
-(WASI-call trace: is proc_exit reached before the poll_oneoff fatal?). Full evidence + 3 hypotheses in D-468.
-Then: D-336 borrow-export (blocked sort=value — VERIFY first), D-456 host-stubs. (#1 simd = test-harness.)
+**Sweep queue — TOP = D-468 bundle (see ## Active bundle below).** ROOT CAUSE CONFIRMED (ADR-0199): all 8
+go_* fixtures print byte-identical correct output under JIT then HANG — **JIT `proc_exit` does not terminate**
+(sets trap_flag, returns; flag only checked when the body returns naturally, which Go's scheduler loop never
+does; host-import call sites have no post-call trap_flag check). poll_oneoff stub was a red herring. Then:
+D-336 borrow-export (blocked sort=value — VERIFY first), D-456 host-stubs. (#1 simd = test-harness.)
+
+## Active bundle
+
+- **Bundle-ID**: D-468-proc-exit-jit-termination
+- **Cycles-remaining**: ~2–3
+- **Continuity-memo**: ADR-0199 design A = post-call `trap_flag` check after host-import AND body calls,
+  branching to the existing trap-stub fixup (mirrors interp's post-host-call exit short-circuit). Phase-I
+  (investigation) DONE: root cause = JIT proc_exit doesn't terminate (trace via `ZWASM_DEBUG=wasi.jit`).
+  Edit sites: `op_call.zig` arm64 (after `emitImportDispatch`+`captureCallResult` ~L199, and after the body
+  BL ~L224) + x86_64 `op_call.zig` (import branch ~L276 + body-call site). Load trap_flag (W17/scratch via
+  runtime_ptr_save_gpr + `jit_abi.trap_flag_off`), CBNZ/JNZ → trap stub. Result already captured → preserved.
+- **Exit-condition**: RED fixture `proc_exit/terminates_midbody` (proc_exit then side-effect that must NOT run)
+  GREEN + go_* exit rc=0 under `--engine jit` + `test-spec-wasm-2.0-assert` 25539/0 on arm64 AND x86_64-macos
+  + trap corpus no-regress. **NEXT = Phase-II RED fixture, then implement both arches.**
 
 **Phase 17 完成形 plateau** (validated — do NOT re-walk): async COMPLETE; v128 spill (D-034/D-460/D-461) CLOSED;
 surface audits clean 2026-06-18; fuzz 0-crash; realworld JIT compile 56/56. NOT-WORTH: D-294-R2 TrapKind.
 
-**COMPLETE this session (detail in debt/git/lessons)**: **D-467** simd invoke-boundary skips (271→1, no latent
-v128-ABI bug); **D-305 cross-component AGGREGATE marshalling** — generic `defineFuncRaw` arity-collapse (a) + record
-param/result flat (b1/b2) + record-with-string BOTH directions (b3/b4, canon liftFlat/lowerFlat + load/store);
-comp-assert 170/0; 3-host green. Lessons `host-fn-two-value-types`, `component-record-retptr-asymmetry`.
+**Recently CLOSED (detail in debt/git/lessons)**: D-467 simd invoke-boundary skips; D-305 cross-component
+AGGREGATE marshalling (record param/result flat + record-with-string both directions, comp-assert 170/0);
+D-209 memory64 >4GiB offset @b8cf64123.
 
 **Step-0.7 NOTE**: `failed command: test…--listen=-` is COSMETIC (exits 0); trust `[run_remote_*] OK/FAIL` + `N
 passed, 0 failed`, not that line.
 
 **PARKED / gated (do NOT speculatively grind)**: D-305 long-tail (list<record>/variant/multi-param — niche, +
 `component_graph.zig` 1895/2000 file-split first); D-464 async; 21 `blocked-by` (upstream/proposal/time-gate/corpus).
-(D-330/D-331A now CLOSED @69a0953b1 — see Current state.)
-
 
 ## Closed arcs (detail in ADRs/git/debt)
 
