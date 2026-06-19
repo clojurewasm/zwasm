@@ -40,9 +40,13 @@ consolidate the duplicated spill helpers into a shared op_simd.zig pub set.
 
 ## RESUME POINTER (2026-06-20) — for a fresh session
 
-**Phase 17 完成形 plateau** (exhaustively validated — do NOT re-walk): async campaign COMPLETE; v128 spill story
-(D-034/D-460/D-461) CLOSED; surface audits (C/Zig/CLI) clean 2026-06-18; fuzz 0-crash; realworld JIT compile 56/56.
-NOT-WORTH (do NOT re-litigate): D-294-R2 TrapKind; v128-spill helper-consolidation.
+**ACTIVE DIRECTIVE = CORRECTNESS SWEEP** (user 2026-06-20, memory `feedback_correctness_sweep_phase`): the
+high-value bar is OFF. Sweep toward 0% the 3 gap classes — (1) wasmtime-works-zwasm-doesn't, (2) wasm/wasi spec
+non-conformance (skips/missing), (3) instability/crashes — from already-known items, EASIEST-first, TDD + 3-host
+gate, repeat. Do NOT stop to ask "is this high-value." Inventory survey in flight (→ prioritized sweep list).
+
+**Phase 17 完成形 plateau** (validated — do NOT re-walk): async COMPLETE; v128 spill (D-034/D-460/D-461) CLOSED;
+surface audits clean 2026-06-18; fuzz 0-crash; realworld JIT compile 56/56. NOT-WORTH: D-294-R2 TrapKind.
 
 **COMPLETE this session (detail in debt/git/lessons)**: **D-467** simd invoke-boundary skips (271→1, no latent
 v128-ABI bug); **D-305 cross-component AGGREGATE marshalling** — generic `defineFuncRaw` arity-collapse (a) + record
