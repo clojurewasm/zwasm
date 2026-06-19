@@ -1297,24 +1297,22 @@ entries:
       func introduces corruption — this INFRA does not exist yet (build it first) — OR heap-checksum diff
       JIT-vs-interp at teardown. Run 20-50× to surface the variant signatures first. NICHE: output correct,
       interp default correct; only the EXIT (panic vs clean 0) + stderr noise differ for fat standard-Go.
-      (B) **go_regex SlotOverflow** — REGALLOC CAP RAISED 2026-06-15 `682401fd` (D-289): the
-      `max_slots=4095` cap + fixed `[max_slots+1]` stack buffers were the 4th dynamic-vs-fixed instance →
-      allocator-backed buffers + cap 65535 (prologue already two-steps past 4095; spill addressing already
-      escalates via frameAddrLarge — survey confirmed). go_regex **func[1516] (16070 vregs) now CLEARS
-      regalloc + prologue** (frame_bytes=21184, spill_bytes=128 — regalloc reuses slots well). REMAINING:
-      a SEPARATE **emit-side SlotOverflow** — `vreg >= alloc.slots.len` (=ranges.len=16070) in a body op
-      handler (NOT ctx.popBinary/popUnary, NOT frame_bytes>16MiB). I.e. EMIT references a vreg id ≥ the
-      liveness range count → a LIVENESS-vs-EMIT vreg-COUNT mismatch for this huge func (liveness produced
-      16070 ranges; emit's next_vreg / a handler addresses ≥16070). The op-result vreg checks are the
-      `next_vreg += 1; if (vreg >= alloc.slots.len)` guards in the emit body dispatch (emit.zig
-      947/965/1004/1019/1052/1234/1409/1453/1671 — ref.null/ref.func/...). SAME CLASS as the EH-lockstep
-      lesson `jit-eh-landing-pad-emit-gotchas` (liveness + emit MUST mint result vregs in LOCKSTEP; a
-      desync corrupts) — here liveness's per-op vreg minting and emit's `next_vreg` diverge for SOME op in
-      this 16070-vreg func. DISCHARGE: instrument liveness's final vreg count AND emit's next_vreg at the
-      overflow (+ pc/op/total-instrs) for func 1516 → the gap magnitude (off-by-1 = one op; off-by-many =
-      systematic) + WHERE (pc vs len) localizes the desyncing op; then make liveness+emit count it in
-      lockstep. Lower priority than (A). NICHE: one realworld fixture; interp runs go_regex fine; spec
-      suite (thousands of funcs) 100% green ⇒ the desync is scale/op-pattern-specific to func 1516.
+      (B) **go_regex SlotOverflow — RESOLVED 2026-06-19 `adb7b99a`.** The prior hypothesis (a
+      liveness-vs-emit vreg-COUNT desync) was a RED HERRING. REAL cause: an arm64 LARGE-FRAME
+      SPILL-OFFSET overflow. func[1516] (16070 vregs, ~21KB i64-locals area) put spill_base_off=21056,
+      exceeding the W-form imm12 cap (16380) that several arm64 op-handlers hardcoded for
+      spilled-operand FRAME access WITHOUT the `frameAddrLarge` fallback that gpr.zig's spill helpers
+      already use. x86_64 (disp32) is immune → the arch asymmetry that masked it (x86_64 `compile`
+      passes; only arm64 overflowed). Firing site = op_call captureCallResult i32 spill (STR W,
+      abs_off=21152). FIX: routed all same-class siblings through the large-off-safe
+      frame{Ldr,Str}{Gpr,Fp} helpers (byte-identical for off<=cap → no-spill output + byte-asserting
+      tests unchanged) — op_call (captureCallResult all widths + memory-class returns +
+      homedCallerSavedSpillReload), op_memory (x3), op_table, op_alu_int captureWideResult, emit.zig
+      memory.grow. Fixture `test/edge_cases/p9/large_frame/call_result_spill` (2100 i64 locals + 20
+      live call results → forces the W-form result store past the cap, =210). go_regex diff-jit now
+      MATCHES wasmtime byte-for-byte (94 B). Lesson `2026-06-19-arm64-large-frame-spill-offset`.
+      (regalloc cap to 65535 / allocator-backed buffers was the prior `682401fd`/D-289 step that let
+      func[1516] clear regalloc+prologue; the emit-side offset overflow was the residual, now closed.)
       (Historical root-cause trail:)
       blocked-by: a **structural JIT-codegen limit hit by fat standard-Go (GOOS=wasip1) binaries** —
       the 9 `go_*` realworld fixtures (D-283 sub-cluster) JIT-compile-FAIL with `UnsupportedOp` at a
@@ -1332,7 +1330,7 @@ entries:
       under JIT; TinyGo (the lean Go path) JIT-compiles fine (tinygo_* are in the 45 OK), and interp
       runs all go_* correctly (interp is the default). The `--jit` lane keeps it visible (9 skipped).
     first_raised: "2026-06-15"
-    last_reviewed: "2026-06-15"
+    last_reviewed: "2026-06-19"
     refs: |-
       D-283 (parent); src/engine/codegen/arm64/emit.zig (emit-setup >32760 checks 427/430/484-541;
       body else-arm 2148; per-op errdefer 869); src/engine/codegen/shared/compile.zig (compileOne stages);

@@ -51,17 +51,20 @@ consolidate the duplicated spill helpers into a shared op_simd.zig pub set.
    NOT-WORTH-DOING per Simplicity-First (do NOT re-litigate): D-294-R2 (a new TrapKind for a conformance-neutral
    message nicety = over-engineering on an already-spec-correct trap); the helper-consolidation (low-ROI big refactor
    re-churning the whole verified v128-spill arc for a benign internal DRY smell).
-   **CORRECTION (do not re-declare a plateau): per the anti-deferral mandate (`feedback_no_premature_deferral_lock`
-   — drive ALL fronts + future-bucket + hard/parked autonomously; hardness→campaign), substantive autonomous work
-   DOES remain — I was over-deferring.** NEXT FRONT (survey first, fresh context; correctness-first ordering):
-   (1) **D-330 / D-331 realworld JIT-correctness miscompiles** (c_sha256 `\n`, go_regex/go-runtime) — real
-   miscompiles on the opt-in JIT run-stage; "parked" prose may be stale → barrier-dissolution check, then a
-   characterization-first campaign (ADR-0153) IF the parking reason (D-330 conflicting-constraint / D-331(A)
-   infra-repro) is genuinely dissolvable, ELSE document the provable block. (2) **D-305 rare CM shapes**
-   (record/result aggregates, >2-param cross-component marshalling) — spec-PINNED (CM canonical ABI), so testable
-   vs wasmtime WITHOUT an external consumer; the "do NOT grind speculatively / consumer-gated" note conflicts with
-   the anti-deferral mandate and is the over-deferral to revisit. D-464 broader async stays consumer-gated (genuinely
-   needs a 2-guest async program). Start with (1) or (2) via an Explore survey, then TDD.
+   **D-331(B) go_regex SlotOverflow — CLOSED 2026-06-19 @adb7b99a** (arm64 large-frame spill-offset overflow;
+   the prior "vreg-count desync" hypothesis was a RED HERRING — real cause = spill_base_off=21056 > the W-form
+   imm12 cap 16380 at op-handlers lacking the frameAddrLarge fallback; x86_64 disp32 immune. Swept all siblings
+   through frame{Ldr,Str}{Gpr,Fp}; fixture call_result_spill; go_regex diff-jit now MATCHES wasmtime 94 B. Lesson
+   `2026-06-19-arm64-large-frame-spill-offset`). NEXT FRONT (correctness-first; survey verdicts recorded in D-331/
+   D-330 rows): (1) **D-331(A) go-runtime poll_oneoff miscompile** — DRIVABLE but a CAMPAIGN, not a quick win:
+   non-deterministic memory-corruption heisenbug in fat standard-Go runtime helpers; the recorded "infra-blocked"
+   = no per-func interp-fallback bisect harness exists (un-attempted, NOT externally absent) → must BUILD that
+   bisect infra (heap-checksum diff / per-func exclusion knob) FIRST, then characterize. (2) **D-305 rare CM
+   shapes** (record/result aggregates, >2-param cross-component marshalling) — spec-PINNED (CM canonical ABI),
+   testable vs wasmtime WITHOUT a consumer; the cleaner pick if (1)'s infra-build is too heavy this cycle.
+   **D-330 c_sha256 `\n` is PROVABLY-BLOCKED (bucket-2, survey-confirmed)**: genuine constraint conflict
+   (block-result liveness extension fixes c_sha256 but regresses br_table/labels), cosmetic (1 byte, values+interp
+   correct), row says do-NOT-re-run the blanket fix — do not drive. D-464 broader async stays consumer-gated.
 2. **Audit DONE 2026-06-18 (CLEAN)** — `audit_scaffolding` 0 block/0 soon (J.3 chronic debt); fuzz 0 crashes.
 3. **D-460 v128-GC arc COMPLETE both arches** — struct/array get/set/new_fixed/new_default emit (@3d8be3c00/
    @8137c7268/@5292569e0) + array.copy (@5292569e0, jit_abi.zig:1049 `ai.element.size`); 7 runI32Export fixtures.
@@ -90,9 +93,9 @@ TIER-1 (`afcf889a`/`05b35c28`; D-446/447 deferred), ① wasip3 conformance (7 re
 
 ## Long-tail (debt-tracked / parked — NOT active; see debt.yaml)
 
-- **JIT-correctness** (front B / parked): D-330 c_sha256 `\n` (parked — conflicting-constraint; do NOT re-run the
-  blanket fix) · D-331(A) go runtime-corruption (infra-blocked) · D-331(B)/D-289 go_regex emit (parked) · D-333
-  (br_table, folds into D-330). Realworld corpus interp-green; JIT run-stage opt-in (`ZWASM_JIT_RUN=1`). Trace:
+- **JIT-correctness** (front B): D-331(B) go_regex CLOSED @adb7b99a (large-frame spill-offset; diff-jit MATCHES).
+  REMAINING: D-330 c_sha256 `\n` PROVABLY-BLOCKED (bucket-2) · D-331(A) go runtime-corruption (DRIVABLE campaign,
+  build bisect infra first) · D-333 (folds into D-330). Corpus interp-green; run-stage opt-in. Trace:
   `ZWASM_DEBUG=jit.dump` + `scripts/jit_value_trace.sh` (Recipe 18).
 - **D-454** (future-bucket): real GC-language program execution fixture, blocked on Hoot reflect-ABI host port.
 
@@ -104,7 +107,7 @@ TIER-1 (`afcf889a`/`05b35c28`; D-446/447 deferred), ① wasip3 conformance (7 re
   cw. Runners ReleaseSafe (ADR-0177; `check_releasesafe_runners.sh`).
 - **EH**: cross-instance JIT EH on BOTH arches (arm64 `4f73d9ee` + x86_64 `c534afca`). Interp + JIT EH corpus green.
 - **Debt**: 62 entries; **ZERO `now`-class** (D-034 spill arc CLOSED @411dd1e14 → `note`; D-460 v128-GC + D-461 +
-  D-293 + D-294 all `note`). Remaining partials: D-305 (consumer-gated CM shapes), D-330/D-331 (parked go_* JIT).
+  D-293 + D-294 all `note`). Remaining partials: D-305 (consumer-gated CM shapes), D-331(A)/D-330 (go_* JIT; B closed).
   Rest front-tagged (future-bucket/parked); D-462 feature-separation = user-gated. **完成形 plateau.**
 - **Realworld corpus**: 56 fixtures (c/cpp/emcc/go/tinygo/rust/zig), interp 56/0; JIT run-stage opt-in.
 - **Tag**: `v2.0.0-alpha.3` tag-only (no Release → Latest stays v1.11.0), USER-ONLY.
