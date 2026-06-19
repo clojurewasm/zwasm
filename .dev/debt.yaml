@@ -1339,6 +1339,20 @@ entries:
     layer: "code"
     status: "partial"
     description: |-
+      **(A) LOCALIZED 2026-06-20 (func-bisect) — a call's i32 RETURN VALUE is wrong under JIT, mis-firing a `br_if`.**
+      First divergent guest func = **`runtime.goargs` (func 835)**. The miscompiled instr: `func835+0x0654 cbnz w21`
+      where **w21 = w0 = the i32 return of the `bl` at 0x062c** (`runtime.makeslice`/`mallocgc`). The wat is
+      `call $makeslice … br_if N` (a morestack-restart flag normally 0 → fall through); under JIT w0 is wrongly
+      NONZERO, so the br_if fires → goargs returns "restart" → scheduler re-runs from stale state → lands on the
+      clock/poll path. goargs's OWN loads/compares are correctly width-lowered (ldrsw/ldr-w/eqz all verified) — the
+      fault is the VALUE left in w0 by the call (or goargs reading a stale return reg across the caller-saved
+      spill/reload at 0x0614-0x0644; normal path loads `x0=[sp,#0x1d0]`). **GENERAL + high-value (NOT Go-specific)**:
+      "ordinary call → br_if on the i32 return value" — a call-return-value mis-capture could miscompile any program;
+      this also explains the prior "mallocgc reads uninitialized" symptom (it was the wrong return reg). **NEXT
+      discriminator**: trace w0 immediately after the `bl makeslice` and diff vs interp (0) → if w0 is already wrong
+      right after the call = callee return-lowering bug; if correct-then-clobbered before the cbnz = caller-side reg
+      restore / `op_call.zig spillHomedCallerSaved` clobbering w0 on a merge path. Fix candidates (arm64 codegen):
+      `op_call.zig` return-reg capture, or the regalloc spill emission around calls.
       **(A) RE-SCOPED 2026-06-20 — the "regalloc spill hole" was a PROBE ARTIFACT; the real bug is a DETERMINISTIC
       JIT wrong-branch during Go runtime init.** A fresh poison-bisect investigation REFUTED the entire (A)-below
       spill-hole theory: (1) the escalating per-8-byte prologue poison NEVER reaches linear memory (3/3) — the
