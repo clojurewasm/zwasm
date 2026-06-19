@@ -42,14 +42,19 @@ consolidate the duplicated spill helpers into a shared op_simd.zig pub set.
 1. **D-034 SIMD spill arc CLOSED @411dd1e14** — no active bundle; ZERO `now`-class debt; **D-460 v128-GC arc ALSO
    COMPLETE** (array.copy was already done @5292569e0 — the 2026-06-19 sweep misread a stale "REMAINING" line; a
    confirm-before-implement survey caught it, D-460 → `note`, jit_abi.zig docstring corrected). The debt is at the
-   **thoroughly-validated 完成形 plateau** (2026-06-19). Walked + GREEN: debt-coherence audit (@9bd551958);
-   spill arc ubuntu+windows verified (baseline @66976f436); fuzz smoke 0 crashes over post-D-034 codegen; realworld
-   JIT compile-pass 56/56; **C-API surface audit (@a6c82e6) — complete vs standard wasm-c-api, NO gaps**, only a
-   stale docstring fixed @3c84ae3b3. JUDGED NOT-WORTH-DOING (do not re-litigate): D-294-R2 (a new TrapKind for a
-   conformance-neutral message nicety = over-engineering), the helper-consolidation (low-ROI churn re-verifying the
-   spill arc). **NEXT (light maintenance — no urgent completion gap remains)**: the remaining surface audits (Zig-API
-   / CLI あるべき論 — the C-API pattern suggests clean), or pick up any newly-arrived consumer/parked work. Parked
-   (infra/conflicting): D-330/331. Consumer-gated (do NOT grind): D-305 rare CM shapes, D-464 broader async.
+   **exhaustively-validated 完成形 plateau** (2026-06-19) — all 4 dimensions at the bar; every Phase-16 activity walked
+   + GREEN (so the next resume need NOT re-walk these): (a) debt-coherence audit @9bd551958 (zero `now`-debt); (b)
+   spill arc ubuntu+windows verified, baseline @66976f436; (c) memory-safety fuzz smoke 0-crash over post-D-034
+   codegen; (d) dogfooding realworld JIT compile-pass 56/56; (e) **surface audits ALL THREE done & clean** — C-API
+   @a6c82e6 (complete vs standard wasm-c-api), Zig-API + CLI @ae032aab (structurally complete, no help-vs-code
+   mismatch); the only findings across all 3 were stale doc-comments, all fixed (@3c84ae3b3, @ce4224afc). JUDGED
+   NOT-WORTH-DOING per Simplicity-First (do NOT re-litigate): D-294-R2 (a new TrapKind for a conformance-neutral
+   message nicety = over-engineering on an already-spec-correct trap); the helper-consolidation (low-ROI big refactor
+   re-churning the whole verified v128-spill arc for a benign internal DRY smell). **No substantive non-gated forward
+   work remains.** Gated: D-305 rare CM record/result-aggregate shapes + D-464 broader async = consumer-gated (need a
+   driving program; do NOT grind speculatively — risk of wrong ABI shape); D-330/331 = parked (infra-blocked /
+   conflicting-constraint). NEXT resume: re-check if a consumer arrived / a parked barrier dissolved (Step 0.5); else
+   light maintenance only — this is a genuine resting plateau, NOT a hidden gap.
 2. **Audit DONE 2026-06-18 (CLEAN)** — `audit_scaffolding` 0 block/0 soon (J.3 chronic debt); fuzz 0 crashes.
 3. **D-460 v128-GC arc COMPLETE both arches** — struct/array get/set/new_fixed/new_default emit (@3d8be3c00/
    @8137c7268/@5292569e0) + array.copy (@5292569e0, jit_abi.zig:1049 `ai.element.size`); 7 runI32Export fixtures.
