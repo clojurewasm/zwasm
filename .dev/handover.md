@@ -39,20 +39,20 @@ consolidate the duplicated spill helpers into a shared op_simd.zig pub set.
 
 - **Bundle-ID**: D-331A-memdiff (correctness — fix the go-runtime miscompile)
 - **Cycles-remaining**: ~3 (localized to a CONTROL-FLOW divergence in the allocator/systemstack path; now pin the bad codegen + fix)
-- **Continuity-memo**: diagnostic mem.cksum committed @27244fe86, but **CORRECTED 2026-06-19 (subagent adc5667a,
-  full detail → `private/notes/d331a-memdiff-plan.md`)**: per-host-call MEMORY hashing was a RED HERRING — the
-  "2nd clock_time_get divergence" is non-deterministic CLOCK nanosecond reads (interp-A≠interp-B), not corruption.
-  The PRODUCTIVE signal = a per-guest-CALL **func-idx sequence** diff: **the bug is CONTROL-FLOW**. Interp calls
-  `runtime.recordspan`(470) ZERO times → clean exit; JIT calls it 35× stuck in an infinite `fixalloc.alloc`(314)↔
-  recordspan(470) loop → panic. Gate in fixalloc.alloc loads `f.first` (`i64.load offset=8`): interp reads 0 (skip),
-  JIT reads NON-ZERO (call→loop); first structural divergence after `call 1270`(systemstack) → spurious `call 246`.
-  **HYPOTHESIS**: a JIT miscompile in the Go allocator/systemstack path clobbers the SP/g globals (`global.set 0/1`)
-  OR an `i64.load/store` offset/width, so a pointer field that should be nil reads garbage. **NEXT (surgical)**:
-  probe the VALUE of `i64.load offset=8`(f.first) + base `offset=56` at the FIRST call to func 314 on both engines
-  → struct-BASE (SP/g) vs FIELD content; gate any prologue probe behind a comptime flag or func-idx==314 ONLY (the
-  subagent's unconditional prologue probe broke byte tests — reverted).
-- **Exit-condition**: the JIT miscompile making `fixalloc.alloc`'s `f.first` read non-zero (allocator/systemstack
-  path — SP/g global or i64.load/store offset) is identified + fixed (go_hello JIT stops looping), OR the
+- **Continuity-memo**: CONTROL-FLOW bug (full detail + repro → `private/notes/d331a-memdiff-plan.md`). TWO prior
+  over-specific theories REFUTED: mem.cksum per-host-call memory hash = clock-jitter noise (red herring); and func
+  314 `fixalloc.alloc` is BYTE-IDENTICAL interp-vs-JIT (SP/globals/struct-base/field all match, 80× both, no loop).
+  **Re-localized via a `callseq` per-guest-call name stream + mem.cksum host-call names**: the divergence is the
+  HOST-CALL SEQUENCE at **#5** — after `args_sizes_get`(wrapper func 594) returns, interp calls `args_get`(import
+  2); the JIT instead branches into Go's fatal path (fd_write→poll_oneoff→runtime.throw — funcs interp NEVER
+  touches). So a JIT-miscompiled BRANCH in the schedinit/osinit window (between args_sizes_get and args_get) makes
+  Go throw early. **HYPOTHESIS**: an i64 load/store width or call-RESULT sign/zero-extension bug (an i64 read after
+  a host call deciding a branch) in `arm64/op_memory.zig` / `op_call.zig captureCallResult`. **NEXT**: re-add the
+  `callseq` channel + a func-idx==N entry probe (gated, NOT unconditional prologue) onto the ~200 runtime-init funcs
+  in callseq window (lines ~745-949) right after args_sizes_get → find the first JIT branch that flips; OR build a
+  minimal fixture: a host call returning i32 + an i64-branch on it. func 314 is RULED OUT.
+- **Exit-condition**: the JIT-miscompiled branch in the args_sizes_get→args_get runtime-init window (the i64/call-
+  result bug that makes Go throw early) is identified + fixed (go_hello JIT calls args_get, not the fatal path), OR the
   exact bad instruction is named in D-331 with a minimal repro if the fix needs its own bundle.
 
 ## RESUME POINTER (2026-06-19) — for a fresh session
