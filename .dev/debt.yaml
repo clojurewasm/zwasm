@@ -1011,6 +1011,23 @@ entries:
     layer: code
     status: partial
     description: |-
+      **RARE-SHAPE PROGRESS 2026-06-19**: **3-PARAM ARITY DONE @db79e7df** — added
+      BoundarySig3 + boundaryTrampoline3 (3 flat-4 scalars → 3 core i32 words,
+      pass-through; boundaryShapeOk + install dispatch on params.len). Fixture
+      arity3_graph (sel(a,b,c)->c). Follow-ons (same recipe, each needs a fixture):
+      4..7 flat-scalar arities. AGGREGATE params/results (record/result/tuple) are
+      a SEPARATE harder shape: (a) a record is a NOMINAL type — the cross-component
+      fixture must EXPORT the type from B + IMPORT it in A (an anonymous record in an
+      import/export func sig is rejected by wasm-tools; structural string/list are
+      fine), and the lift/lower need (memory)+(realloc) options even when flat; a
+      flat record{u32,u32} flattens to 2 direct words so the CODE is pass-through,
+      but the nominal-type graph WAT hit a wasm-tools validate snag (print OK,
+      validate "func not valid to be used as export" at the A-side) still to be
+      resolved; (b) non-flat aggregates need recursive canon.store/load (already
+      built+tested in feature/component/canon.zig). DRIVABLE without an external
+      consumer: hand-authored 2-component fixtures + wasmtime offline oracle (see
+      test/component/README_adder_graph.md). See also [[D-466]] (failed-graph
+      cleanup double-free, observed via the arity3 RED run).
       Status: blocked-by: a fully-general component linker needs each child's
       canon-lower + instance-wiring structure decoded to map a component-level
       import to its core import — not yet built. CM-C2-3b-2
@@ -1065,7 +1082,7 @@ entries:
       deferral today; each lands when a fixture/consumer demands it. Async cross-component routing (the ADR-0195
       scheduler prerequisite) is a further axis.
     first_raised: "2026-06-07"
-    last_reviewed: "2026-06-17"
+    last_reviewed: "2026-06-19"
     refs: src/api/component.zig (instantiateGraph); test/component/adder_graph.wasm; .dev/component_model_plan.md (Phase C/D)
     front: future-bucket
   - id: "D-329"
@@ -1262,6 +1279,14 @@ entries:
     layer: "code"
     status: "partial"
     description: |-
+      **(A) BISECT-INFRA APPROACH CHOSEN 2026-06-19** (scoping subagent): the per-func interp-fallback
+      knob is ADR-gated + large (~600-1000 LOC new engine-boundary ABI — JIT calls are statically-linked
+      native `BL`/`CALL` with no JIT↔interp trampoline; `op_call.zig:166`/`shared/linker.zig:296`). The
+      TRACTABLE first diagnostic is a **memory-divergence diff** (~120-200 LOC, NOT ADR-gated): hash linear
+      memory + globals at the shared WASI host-call boundary (`wasi/jit_dispatch.zig:352` poll_oneoff + `:65`
+      fd_write for JIT; interp mirror `interp/mvp.zig:392`) under a `ZWASM_DEBUG=mem.cksum` toggle, run the
+      same module under both engines (stdout byte-identical per below), diff to find the FIRST diverging
+      host-call window, then `ZWASM_DEBUG=jit.dump` the funcs active in that window. Build this FIRST.
       **PRIMARY GAP FIXED 2026-06-15 `10d7d2b2`**: the root cause was a FIXED `[256]Frame` control-
       nesting stack in the JIT liveness pass (`max_control_stack=256`) — fat standard-Go runtime funcs
       (go_hello_wasi func[303]: 11151 instrs, >256 nested blocks) overflowed it. Made `block_stack` an
@@ -2176,6 +2201,27 @@ entries:
       src/api/component_graph.zig (graphStream*/graphFuture*/graphWaitable* + pourSyntheticExport arms; pollSet);
       src/feature/component/async.zig (SharedStream/SharedFuture/WaitableSet rendezvous primitives);
       test/component/two_async_components_*.wat (the d-a..d-c-2 fixtures); ADR-0195
+  - id: D-466
+    layer: code
+    status: now
+    description: |-
+      DebugAllocator **double-free in the FAILED-`instantiateGraph` cleanup path**. Observed
+      2026-06-19 while the arity3 fixture was still RED: when `installBoundaryTrampoline` returns
+      `UnsupportedBoundaryType` mid-build (an unsupported boundary shape), the partial-graph teardown
+      double-frees — the component_model_assert_runner's `runCorpus` catch printed "Double free
+      detected. Allocation:" pointing at the per-fixture loop. Did NOT reproduce once arity3 went GREEN
+      (all corpus fixtures now instantiate), so it is latent — but ANY future unsupported-boundary
+      graph (or a malicious/edge component) re-triggers it. Likely a `bctx`/`graph.boundaries` entry
+      that is BOTH appended to the graph (freed by `graph.deinit`) AND freed by an `errdefer` on the
+      error path, or a memory/instance alias deinited twice. DISCHARGE: add a temp unsupported-boundary
+      fixture (e.g. a 4-param or wide-scalar graph) to reproduce deterministically under the runner,
+      then audit the `instantiateGraph`/`installBoundaryTrampoline` error-path ownership (errdefer vs
+      graph-owned). Memory-safety in the error path. See [[D-305]] (the arity work that surfaced it).
+    first_raised: "2026-06-19"
+    last_reviewed: "2026-06-19"
+    refs: |-
+      src/api/component_graph.zig (installBoundaryTrampoline error paths; graph.deinit / boundaries);
+      src/api/component.zig (instantiateGraph); test/spec/component_model_assert_runner.zig (runCorpus catch)
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.

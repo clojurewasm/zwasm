@@ -51,17 +51,19 @@ consolidate the duplicated spill helpers into a shared op_simd.zig pub set.
    NOT-WORTH-DOING per Simplicity-First (do NOT re-litigate): D-294-R2 (a new TrapKind for a conformance-neutral
    message nicety = over-engineering on an already-spec-correct trap); the helper-consolidation (low-ROI big refactor
    re-churning the whole verified v128-spill arc for a benign internal DRY smell).
-   **D-331(B) go_regex SlotOverflow — CLOSED 2026-06-19 @adb7b99a** (arm64 large-frame spill-offset overflow;
-   the prior "vreg-count desync" hypothesis was a RED HERRING — real cause = spill_base_off=21056 > the W-form
-   imm12 cap 16380 at op-handlers lacking the frameAddrLarge fallback; x86_64 disp32 immune. Swept all siblings
-   through frame{Ldr,Str}{Gpr,Fp}; fixture call_result_spill; go_regex diff-jit now MATCHES wasmtime 94 B. Lesson
-   `2026-06-19-arm64-large-frame-spill-offset`). NEXT FRONT (correctness-first; survey verdicts recorded in D-331/
-   D-330 rows): (1) **D-331(A) go-runtime poll_oneoff miscompile** — DRIVABLE but a CAMPAIGN, not a quick win:
-   non-deterministic memory-corruption heisenbug in fat standard-Go runtime helpers; the recorded "infra-blocked"
-   = no per-func interp-fallback bisect harness exists (un-attempted, NOT externally absent) → must BUILD that
-   bisect infra (heap-checksum diff / per-func exclusion knob) FIRST, then characterize. (2) **D-305 rare CM
-   shapes** (record/result aggregates, >2-param cross-component marshalling) — spec-PINNED (CM canonical ABI),
-   testable vs wasmtime WITHOUT a consumer; the cleaner pick if (1)'s infra-build is too heavy this cycle.
+   **D-331(B) go_regex SlotOverflow — CLOSED 2026-06-19 @adb7b99a** (arm64 large-frame spill-offset overflow >
+   W-form imm12 cap 16380; siblings routed through frame{Ldr,Str}{Gpr,Fp}; go_regex diff-jit MATCHES wasmtime
+   94 B; detail in D-331 row + lesson `2026-06-19-arm64-large-frame-spill-offset`).
+   **D-305 cross-component 3-PARAM ARITY — DONE @db79e7df**
+   (BoundarySig3 + boundaryTrampoline3 pass-through; fixture arity3_graph; comp-assert 164/0). NEXT FRONT (pick
+   any; all drivable now): (1) **D-466 (now)** — failed-`instantiateGraph` cleanup DOUBLE-FREE (surfaced by the
+   arity3 RED run; latent — reproduce via an unsupported-boundary fixture, audit errdefer-vs-graph-owned). Quick
+   memory-safety win. (2) **D-305 follow-ons** — 4..7 flat-scalar arities (same recipe as 3); then aggregate
+   record/result params (NOMINAL-type fixtures: B exports type + A imports it; flat record = pass-through but a
+   wasm-tools validate snag remains; non-flat → canon.store/load, already built). (3) **D-331(A) go-runtime
+   poll_oneoff miscompile** — build the **memory-divergence diff** FIRST (~120-200 LOC, NOT ADR-gated: hash
+   mem+globals at the shared host-call boundary jit_dispatch.zig:352/:65 + interp mvp.zig:392, diff JIT vs interp;
+   approach recorded in D-331 (A)); the per-func interp-fallback knob is ADR-gated + ~600-1000 LOC, defer.
    **D-330 c_sha256 `\n` is PROVABLY-BLOCKED (bucket-2, survey-confirmed)**: genuine constraint conflict
    (block-result liveness extension fixes c_sha256 but regresses br_table/labels), cosmetic (1 byte, values+interp
    correct), row says do-NOT-re-run the blanket fix — do not drive. D-464 broader async stays consumer-gated.
@@ -93,10 +95,9 @@ TIER-1 (`afcf889a`/`05b35c28`; D-446/447 deferred), ① wasip3 conformance (7 re
 
 ## Long-tail (debt-tracked / parked — NOT active; see debt.yaml)
 
-- **JIT-correctness** (front B): D-331(B) go_regex CLOSED @adb7b99a (large-frame spill-offset; diff-jit MATCHES).
-  REMAINING: D-330 c_sha256 `\n` PROVABLY-BLOCKED (bucket-2) · D-331(A) go runtime-corruption (DRIVABLE campaign,
-  build bisect infra first) · D-333 (folds into D-330). Corpus interp-green; run-stage opt-in. Trace:
-  `ZWASM_DEBUG=jit.dump` + `scripts/jit_value_trace.sh` (Recipe 18).
+- **JIT-correctness** (front B): D-331(B) CLOSED @adb7b99a · D-330 c_sha256 PROVABLY-BLOCKED (bucket-2) ·
+  D-331(A) go runtime-corruption (DRIVABLE; build mem-divergence diff first) · D-333 (folds into D-330). Corpus
+  interp-green; run-stage opt-in. Trace: `ZWASM_DEBUG=jit.dump` + `scripts/jit_value_trace.sh` (Recipe 18).
 - **D-454** (future-bucket): real GC-language program execution fixture, blocked on Hoot reflect-ABI host port.
 
 ## State (all 3-host green @046d9c67/win @886d0667; release = USER-ONLY, ADR-0156)
