@@ -30,6 +30,47 @@ const op_simd_float = @import("op_simd_float.zig");
 const Allocator = std.mem.Allocator;
 const Error = types.Error;
 
+// D-034 (g) file-local v128 spill helpers for the both-stages-internal ops
+// (i8x16/i64x2 shifts, popcnt, i64x2 mul) where the two FP stage regs are the
+// op's own scratch, so dst → home or XMM7 and a spilled operand is reloaded
+// just-in-time from its RBP-disp slot rather than parked in a persistent reg.
+
+/// dst register: its home XMM when not spilled, else XMM7 (flushed at the end).
+fn dstHomeOrXmm7(alloc: regalloc.Allocation, result_v: usize) Error!inst.Xmm {
+    return switch (alloc.slot(result_v, .fpr)) {
+        .reg => |id| abi.fpSlotToReg(id) orelse Error.SlotOverflow,
+        .spill => .xmm7,
+    };
+}
+
+/// Put operand `v`'s value into `reg`: MOVAPS from its home XMM (skipped when
+/// `reg` already IS the home), or an RBP-disp v128 load when spilled.
+fn loadV128IntoLocal(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, spill_base_off: u32, reg: inst.Xmm, v: usize) Error!void {
+    switch (alloc.slot(v, .fpr)) {
+        .reg => |id| {
+            const home = abi.fpSlotToReg(id) orelse return Error.SlotOverflow;
+            if (reg != home) try buf.appendSlice(allocator, inst.encMovapsXmmXmm(reg, home).slice());
+        },
+        .spill => |off| {
+            const abs_off = spill_base_off + off;
+            if (abs_off > 0x7FFF_FFFF) return Error.SlotOverflow;
+            try buf.appendSlice(allocator, inst.encLoadXmmV128MemRBPDisp32(reg, -@as(i32, @intCast(abs_off))).slice());
+        },
+    }
+}
+
+/// Flush XMM7 → the result's spill slot when result spilled (no-op for home regs).
+fn storeXmm7IfSpilledLocal(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, spill_base_off: u32, result_v: usize) Error!void {
+    switch (alloc.slot(result_v, .fpr)) {
+        .reg => {},
+        .spill => |off| {
+            const abs_off = spill_base_off + off;
+            if (abs_off > 0x7FFF_FFFF) return Error.SlotOverflow;
+            try buf.appendSlice(allocator, inst.encStoreXmmV128MemRBPDisp32(-@as(i32, @intCast(abs_off)), .xmm7).slice());
+        },
+    }
+}
+
 // §9.12-B / B91 (ADR-0075) — `(ctx, ins)` adapters for the SIMD
 // int binary arith cohort (8 add/sub + 2 native mul + 1 synthesised
 // i64x2.mul = 11 ops). Each wraps its existing helper. ins is
@@ -569,8 +610,9 @@ pub fn emitI8x16Shl(
     next_vreg.* += 1;
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
-    const vec_x = try gpr.resolveXmm(alloc, vec_v);
-    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    // D-034 (g): spill-aware. mask=XMM14, count=XMM15 are internal scratch, so
+    // dst → home/XMM7 and vec is loaded just-in-time into dst (its only use).
+    const dst_x = try dstHomeOrXmm7(alloc, result_v);
     const count_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, count_v, 0);
     const mask_x = abi.fp_spill_stage_xmms[0]; // XMM14
     const count_x = abi.fp_spill_stage_xmms[1]; // XMM15
@@ -579,13 +621,12 @@ pub fn emitI8x16Shl(
     try buf.appendSlice(allocator, inst.encPcmpeqB(mask_x, mask_x).slice());
     try buf.appendSlice(allocator, inst.encMovdXmmFromR32(count_x, count_r).slice());
     try buf.appendSlice(allocator, inst.encPsllwReg(mask_x, count_x).slice());
-    if (dst_x != vec_x) {
-        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, vec_x).slice());
-    }
+    try loadV128IntoLocal(allocator, buf, alloc, spill_base_off, dst_x, vec_v);
     try buf.appendSlice(allocator, inst.encPsllwReg(dst_x, count_x).slice());
     try buf.appendSlice(allocator, inst.encPxor(count_x, count_x).slice()); // reuse as zero ctrl
     try buf.appendSlice(allocator, inst.encPshufb(mask_x, count_x).slice()); // broadcast byte 0
     try buf.appendSlice(allocator, inst.encPand(dst_x, mask_x).slice());
+    try storeXmm7IfSpilledLocal(allocator, buf, alloc, spill_base_off, result_v);
     try pushed_vregs.append(allocator, result_v);
 }
 
@@ -609,8 +650,9 @@ pub fn emitI8x16ShrU(
     next_vreg.* += 1;
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
-    const vec_x = try gpr.resolveXmm(alloc, vec_v);
-    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    // D-034 (g): spill-aware (mask=XMM14, count=XMM15 internal; dst→home/XMM7,
+    // vec loaded just-in-time into dst).
+    const dst_x = try dstHomeOrXmm7(alloc, result_v);
     const count_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, count_v, 0);
     const mask_x = abi.fp_spill_stage_xmms[0]; // XMM14
     const count_x = abi.fp_spill_stage_xmms[1]; // XMM15
@@ -620,13 +662,12 @@ pub fn emitI8x16ShrU(
     try buf.appendSlice(allocator, inst.encPsrlwImm(mask_x, 8).slice()); // → 0x00FF per word
     try buf.appendSlice(allocator, inst.encMovdXmmFromR32(count_x, count_r).slice());
     try buf.appendSlice(allocator, inst.encPsrlwReg(mask_x, count_x).slice()); // → 0x00FF >> c per word
-    if (dst_x != vec_x) {
-        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, vec_x).slice());
-    }
+    try loadV128IntoLocal(allocator, buf, alloc, spill_base_off, dst_x, vec_v);
     try buf.appendSlice(allocator, inst.encPsrlwReg(dst_x, count_x).slice());
     try buf.appendSlice(allocator, inst.encPxor(count_x, count_x).slice()); // zero ctrl
     try buf.appendSlice(allocator, inst.encPshufb(mask_x, count_x).slice()); // broadcast byte 0
     try buf.appendSlice(allocator, inst.encPand(dst_x, mask_x).slice());
+    try storeXmm7IfSpilledLocal(allocator, buf, alloc, spill_base_off, result_v);
     try pushed_vregs.append(allocator, result_v);
 }
 
@@ -762,25 +803,26 @@ pub fn emitI8x16ShrS(
     next_vreg.* += 1;
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
-    const vec_x = try gpr.resolveXmm(alloc, vec_v);
-    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    // D-034 (g): spill-aware. sign_x=XMM14, high_x=XMM15 internal; dst→home/XMM7.
+    // vec is read 3× — materialise it into high_x first, take the PCMPGTB sign-mask
+    // from high_x (= vec), then reload vec into dst just-in-time.
+    const dst_x = try dstHomeOrXmm7(alloc, result_v);
     const count_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, count_v, 0);
     const sign_x = abi.fp_spill_stage_xmms[0]; // XMM14: sign-mask, then count
     const high_x = abi.fp_spill_stage_xmms[1]; // XMM15: src copy, then high-half sign-extended
 
     try buf.appendSlice(allocator, inst.encAndRImm8(.d, count_r, 7).slice());
+    try loadV128IntoLocal(allocator, buf, alloc, spill_base_off, high_x, vec_v); // high_x = vec
     try buf.appendSlice(allocator, inst.encPxor(sign_x, sign_x).slice());
-    try buf.appendSlice(allocator, inst.encPcmpgtB(sign_x, vec_x).slice());
-    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(high_x, vec_x).slice());
-    if (dst_x != vec_x) {
-        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, vec_x).slice());
-    }
+    try buf.appendSlice(allocator, inst.encPcmpgtB(sign_x, high_x).slice()); // sign-mask from high_x(=vec)
+    try loadV128IntoLocal(allocator, buf, alloc, spill_base_off, dst_x, vec_v); // dst = vec (reload)
     try buf.appendSlice(allocator, inst.encPunpcklbw(dst_x, sign_x).slice());
     try buf.appendSlice(allocator, inst.encPunpckhbw(high_x, sign_x).slice());
     try buf.appendSlice(allocator, inst.encMovdXmmFromR32(sign_x, count_r).slice()); // sign_x repurposed → count
     try buf.appendSlice(allocator, inst.encPsrawReg(dst_x, sign_x).slice());
     try buf.appendSlice(allocator, inst.encPsrawReg(high_x, sign_x).slice());
     try buf.appendSlice(allocator, inst.encPacksswb(dst_x, high_x).slice());
+    try storeXmm7IfSpilledLocal(allocator, buf, alloc, spill_base_off, result_v);
     try pushed_vregs.append(allocator, result_v);
 }
 
@@ -799,8 +841,9 @@ pub fn emitI64x2ShrS(
     next_vreg.* += 1;
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
-    const vec_x = try gpr.resolveXmm(alloc, vec_v);
-    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    // D-034 (g): spill-aware (mask=XMM14, count=XMM15 internal; dst→home/XMM7,
+    // vec loaded just-in-time into dst).
+    const dst_x = try dstHomeOrXmm7(alloc, result_v);
     const count_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, count_v, 0);
     const mask_x = abi.fp_spill_stage_xmms[0]; // XMM14 — sign_bit_loc
     const count_x = abi.fp_spill_stage_xmms[1]; // XMM15 — count broadcast
@@ -810,12 +853,11 @@ pub fn emitI64x2ShrS(
     try buf.appendSlice(allocator, inst.encPsllqImm(mask_x, 63).slice());
     try buf.appendSlice(allocator, inst.encMovdXmmFromR32(count_x, count_r).slice());
     try buf.appendSlice(allocator, inst.encPsrlqReg(mask_x, count_x).slice());
-    if (dst_x != vec_x) {
-        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, vec_x).slice());
-    }
+    try loadV128IntoLocal(allocator, buf, alloc, spill_base_off, dst_x, vec_v);
     try buf.appendSlice(allocator, inst.encPsrlqReg(dst_x, count_x).slice());
     try buf.appendSlice(allocator, inst.encPxor(dst_x, mask_x).slice());
     try buf.appendSlice(allocator, inst.encPsubq(dst_x, mask_x).slice());
+    try storeXmm7IfSpilledLocal(allocator, buf, alloc, spill_base_off, result_v);
     try pushed_vregs.append(allocator, result_v);
 }
 
