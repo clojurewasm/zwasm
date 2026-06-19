@@ -347,6 +347,7 @@ SUPPORTED = {
     ((), ("v128",)): True,
     ((), ()): True,
     (("i32",), ("v128",)): True,
+    (("i64",), ("v128",)): True,  # D-467: i64x2.splat
     (("i32",), ("i32",)): True,
     # §9.9 / 9.9-f: (v128, v128) → v128 binop shape (FP arith /
     # int arith / bitwise fixtures). Entry helper:

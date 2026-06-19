@@ -1842,6 +1842,20 @@ pub fn callV128_i32(
     return @bitCast(result);
 }
 
+/// Wasm spec §4.4 — `(i64) → v128` invocation (D-467, i64x2.splat). The i64 arg
+/// follows the X1 / RSI GPR ABI; the v128 result uses the SIMD return register.
+pub fn callV128_i64(
+    module: linker.JitModule,
+    func_idx: u32,
+    rt: *JitRuntime,
+    a0: u64,
+) Error![16]u8 {
+    const Vec = @Vector(16, u8);
+    const Fn = *const fn (*const JitRuntime, u64) callconv(.c) Vec;
+    const result = try invokeAndCheck(rt, Vec, module.entry(func_idx, Fn), .{a0});
+    return @bitCast(result);
+}
+
 /// Wasm spec §4.4 — `(v128) → v128` invocation. §9.9 / 9.9-f-4
 /// scope expansion: enables FP / int unop fixtures
 /// (simd_f32x4_arith neg / sqrt, simd_i32x4_arith neg / abs,
