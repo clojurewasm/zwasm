@@ -1,7 +1,11 @@
 # ADR-0199 — JIT `proc_exit` / trap propagation: post-call `trap_flag` check
 
 > **Doc-state**: ACTIVE
-> **Status**: Accepted (2026-06-20) — implementation pending (D-468 bundle).
+> **Status**: Implemented (2026-06-20, @1a629c5fe) — D-468 closed. Post-call
+> trap_flag check landed on both arches (arm64 CBZ-skip→epilogue via
+> return_fixups; x86_64 JE-skip→emitTrapExitStub(null)). Verified: all 9 go_*
+> exit rc=0 under JIT (was rc=124 hang), test-spec-wasm-2.0-assert 25539/0 on
+> arm64 + x86_64-macos, zig build test green both arches.
 
 ## Context
 

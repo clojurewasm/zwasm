@@ -52,25 +52,16 @@ reverts)**: a JIT-codegen fix MUST be checked with `test-spec-wasm-2.0-assert` o
 **D-209 memory64 >4GiB static offset CLOSED @b8cf64123**: lifted the artificial `readMemargOffset` u32 cap (the
 validator already gatekeeps per-memory offset width; zir payload is u64; 64-bit base+offset carry-trap codegen
 already on both arches). RED fixture `offset_ge_4gib_oob_trap` BadMemarg→OOB-trap; memory64 spec assert 9317/0.
-**Sweep queue — TOP = D-468 bundle (see ## Active bundle below).** ROOT CAUSE CONFIRMED (ADR-0199): all 8
-go_* fixtures print byte-identical correct output under JIT then HANG — **JIT `proc_exit` does not terminate**
-(sets trap_flag, returns; flag only checked when the body returns naturally, which Go's scheduler loop never
-does; host-import call sites have no post-call trap_flag check). poll_oneoff stub was a red herring. Then:
-D-336 borrow-export (blocked sort=value — VERIFY first), D-456 host-stubs. (#1 simd = test-harness.)
-
-## Active bundle
-
-- **Bundle-ID**: D-468-proc-exit-jit-termination
-- **Cycles-remaining**: ~2–3
-- **Continuity-memo**: ADR-0199 design A = post-call `trap_flag` check after host-import AND body calls,
-  branching to the existing trap-stub fixup (mirrors interp's post-host-call exit short-circuit). Phase-I
-  (investigation) DONE: root cause = JIT proc_exit doesn't terminate (trace via `ZWASM_DEBUG=wasi.jit`).
-  Edit sites: `op_call.zig` arm64 (after `emitImportDispatch`+`captureCallResult` ~L199, and after the body
-  BL ~L224) + x86_64 `op_call.zig` (import branch ~L276 + body-call site). Load trap_flag (W17/scratch via
-  runtime_ptr_save_gpr + `jit_abi.trap_flag_off`), CBNZ/JNZ → trap stub. Result already captured → preserved.
-- **Exit-condition**: RED fixture `proc_exit/terminates_midbody` (proc_exit then side-effect that must NOT run)
-  GREEN + go_* exit rc=0 under `--engine jit` + `test-spec-wasm-2.0-assert` 25539/0 on arm64 AND x86_64-macos
-  + trap corpus no-regress. **NEXT = Phase-II RED fixture, then implement both arches.**
+**D-468 CLOSED @1a629c5fe (ADR-0199) — go_* JIT-exit hang FIXED both arches.** Root cause: JIT trap_flag was
+sticky-flag + natural-return (proc_exit set trap_flag + returned; only the entry shim checked it after the body
+returned naturally — Go's scheduler loop never returns). Fix: post-call trap_flag check after every
+call/call_indirect/call_ref (both arches) → unwind to the clean epilogue (arm64 CBZ-skip→return_fixups; x86_64
+JE-skip→emitTrapExitStub(null), trap_kind/exit_code preserved). Verified: all 9 go_* rc=0 (was rc=124),
+test-spec-wasm-2.0-assert 25539/0 arm64 + x86_64-macos, test+lint green. Lesson + ADR filed.
+**Sweep queue (next)**: re-run the realworld diff-jit lane (go_* now runnable → new matched count) as a quick
+confirmation; D-336 borrow-export (blocked sort=value — VERIFY first); D-456 host-stubs; then re-run the
+gap-inventory subagent (EASIEST-first, VERIFY-BEFORE-INVEST). poll_oneoff clock polling is a separate
+gap-class-#2 conformance follow-up (low pri — go now exits before needing it).
 
 **Phase 17 完成形 plateau** (validated — do NOT re-walk): async COMPLETE; v128 spill (D-034/D-460/D-461) CLOSED;
 surface audits clean 2026-06-18; fuzz 0-crash; realworld JIT compile 56/56. NOT-WORTH: D-294-R2 TrapKind.

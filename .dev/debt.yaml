@@ -1972,65 +1972,6 @@ entries:
       src/api/component_graph.zig (graphStream*/graphFuture*/graphWaitable* + pourSyntheticExport arms; pollSet);
       src/feature/component/async.zig (SharedStream/SharedFuture/WaitableSet rendezvous primitives);
       test/component/two_async_components_*.wat (the d-a..d-c-2 fixtures); ADR-0195
-  - id: "D-468"
-    layer: "code"
-    front: "B-hardening"
-    status: "now"
-    description: |-
-      now (correctness-sweep, 2026-06-20): **every non-trivial Go realworld fixture HANGS at
-      exit under `--engine jit` while running correctly under interp.** Discovered re-running
-      `test-realworld-diff-jit` after the D-330/D-331A liveness fix landed. NOT a JIT
-      value-miscompile and NOT D-283's old "go_* UnsupportedOp compile-gap" (those now compile):
-      the JIT-compiled program produces byte-IDENTICAL correct stdout to interp, THEN hangs.
-      **Evidence (probe @b8cf64123, `zwasm run --engine {interp,jit}`):** all 8 of
-      go_{crypto_sha256,json_marshal,map_ops,math_big,regex,sort_benchmark,string_builder,error_handling}
-      = interp rc=0 / jit rc=124 (timeout). go_hello_wasi: jit prints the correct 3 lines then
-      rc=124 (so the handover's "go_hello prints" was true but it never EXITS). go_map_ops jit:
-      prints the exact interp line, then `fatal error: wasi_snapshot_preview1.poll_oneoff` →
-      "panic during panic" → the freezetheworld `usleep`→`poll_oneoff` path recurses → livelock.
-      **Mechanism (confirmed pieces):** (1) `clocks.zig pollOneoff` is an explicit STUB —
-      "any non-zero subscription count returns `notsup` until a realworld guest needs polling"
-      (clocks.zig:167); Go's scheduler park IS that guest. (2) ONE pollOneoff impl, shared by
-      interp + JIT (jit_dispatch.zig:361 → clocks.pollOneoff), so the stub is not itself the
-      interp/JIT divergence. (3) interp's `procExit` propagates as an error through every frame;
-      JIT `proc_exit` (jit_dispatch.zig:316) records the code + raises trap_flag to unwind to
-      the epilogue. **Hypotheses (numbered; predicted signature + cheapest distinguishing probe):**
-      1. **poll_oneoff stub is the root blocker** — under JIT, Go's exit path reaches a scheduler
-         park that calls poll_oneoff(nsubs>0); the `notsup` makes Go fatal. Predicted: implementing
-         real clock-subscription polling in clocks.pollOneoff (compute timeout, sleep, write 1
-         clock event) makes go_* exit rc=0 under JIT. Probe/fix: implement it (gap-class #2 WASI
-         conformance regardless) + RED fixture; re-run the 8 probes. **LEADING — tractable + a real
-         conformance fix either way.**
-      2. **proc_exit unwind divergence** — JIT proc_exit's trap_flag isn't honored at some
-         intermediate Go-runtime call return, so Go runs PAST exit into the scheduler (which interp
-         never does). Distinguishing probe: enable a WASI-call-sequence trace under JIT for
-         go_map_ops — is `proc_exit` called BEFORE the poll_oneoff fatal (→ unwind broken, hyp 2)
-         or never (→ Go never reached exit, hyp 1)?
-      3. **JIT control-flow divergence (D-331A residue)** — a deeper codegen difference makes the
-         Go runtime take a different shutdown path under JIT. Less likely (output is byte-identical
-         up to exit) but not excluded; falls out if hyps 1+2 don't fully fix.
-      **ROOT CAUSE CONFIRMED 2026-06-20 (hyp 2) — see ADR-0199.** A `wasi.jit` trace channel
-      (added @THIS to jit_dispatch.zig proc_exit/poll_oneoff/sched_yield) of go_map_ops under JIT
-      shows: correct output → `proc_exit rval=0` → execution CONTINUES → `poll_oneoff` → fatal →
-      11 more non-terminating proc_exit calls. So **JIT proc_exit does not terminate the program**:
-      it sets `trap_flag=1` + returns, but the flag is only inspected by the entry shim AFTER the
-      body returns naturally, and host-import call sites have NO post-call trap_flag check
-      (op_call.zig). Go never returns (scheduler loops) → hang. **Hyp 1 (poll_oneoff stub) REFUTED
-      as root cause** — implementing it only turns the hang into an infinite sleep; proc_exit
-      already fired. **Fix (ADR-0199, design A): emit a post-call trap_flag check after host-import
-      AND body calls, branching to the trap stub — mirrors interp's "check host.exit_code after
-      each host-call return + short-circuit" (proc.zig/mvp.zig).** Multi-cycle → BUNDLE (handover).
-      Phase-I (investigation) DONE; next: Phase-II RED fixture (proc_exit-then-side-effect) +
-      implement both arches + verify via test-spec-wasm-2.0-assert on arm64 + x86_64-macos
-      (D-330/D-331A lesson) + go_* rc=0. Highest-value sweep target (8 fixtures, gap #1+#3).
-      Supersedes D-283's go_* framing. (poll_oneoff clock polling stays a separate gap-class-#2
-      conformance follow-up, lower priority — file under D-468 tail or a new row when reached.)
-    first_raised: "2026-06-20"
-    last_reviewed: "2026-06-20"
-    refs: |-
-      src/wasi/clocks.zig:167 (pollOneoff stub — non-zero subs → notsup); src/wasi/jit_dispatch.zig:316
-      (proc_exit), :361 (poll_oneoff → clocks); test/realworld/wasm/go_*.wasm; build.zig
-      test-realworld-diff-jit; D-283 (superseded go_* framing); D-330/D-331A lessons.
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
