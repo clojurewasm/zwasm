@@ -779,6 +779,18 @@ fn invokeV128(
             return null;
         };
     }
+    if (n_args == 1 and args[0] == .f32) {
+        return entry.callV128_f32(compiled.module, func_idx, rt, @bitCast(args[0].f32)) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        };
+    }
+    if (n_args == 1 and args[0] == .f64) {
+        return entry.callV128_f64(compiled.module, func_idx, rt, @bitCast(args[0].f64)) catch |err| {
+            try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });
+            return null;
+        };
+    }
     if (n_args == 1 and args[0] == .v128) {
         return entry.callV128_v128(compiled.module, func_idx, rt, args[0].v128) catch |err| {
             try stdout.print("FAIL  {s}: call {s}({s}): {s}\n", .{ name, fn_name, args_s, @errorName(err) });

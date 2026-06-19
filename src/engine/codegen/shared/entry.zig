@@ -1855,6 +1855,21 @@ pub fn callV128_i64(
     const result = try invokeAndCheck(rt, Vec, module.entry(func_idx, Fn), .{a0});
     return @bitCast(result);
 }
+/// Wasm spec §4.4 — `(f32) → v128` (D-467, f32x4.splat). f32 arg in V0/XMM0; v128 result in the SIMD return reg.
+pub fn callV128_f32(module: linker.JitModule, func_idx: u32, rt: *JitRuntime, a0: f32) Error![16]u8 {
+    const Vec = @Vector(16, u8);
+    const Fn = *const fn (*const JitRuntime, f32) callconv(.c) Vec;
+    const result = try invokeAndCheck(rt, Vec, module.entry(func_idx, Fn), .{a0});
+    return @bitCast(result);
+}
+
+/// Wasm spec §4.4 — `(f64) → v128` (D-467, f64x2.splat). f64 arg in V0/XMM0; v128 result in the SIMD return reg.
+pub fn callV128_f64(module: linker.JitModule, func_idx: u32, rt: *JitRuntime, a0: f64) Error![16]u8 {
+    const Vec = @Vector(16, u8);
+    const Fn = *const fn (*const JitRuntime, f64) callconv(.c) Vec;
+    const result = try invokeAndCheck(rt, Vec, module.entry(func_idx, Fn), .{a0});
+    return @bitCast(result);
+}
 
 /// Wasm spec §4.4 — `(v128) → v128` invocation. §9.9 / 9.9-f-4
 /// scope expansion: enables FP / int unop fixtures

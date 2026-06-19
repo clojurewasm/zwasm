@@ -35,28 +35,28 @@ assert_return i32x4.splat i32:2147483647 -> v128:ffffff7fffffff7fffffff7fffffff7
 assert_return i32x4.splat i32:2147483648 -> v128:00000080000000800000008000000080
 assert_return i32x4.splat i32:1234567890 -> v128:d2029649d2029649d2029649d2029649
 assert_return i32x4.splat i32:305419896 -> v128:78563412785634127856341278563412
-skip-impl unsupported-shape ('f32',)->('v128',) f32x4.splat
-skip-impl unsupported-shape ('f32',)->('v128',) f32x4.splat
-skip-impl unsupported-shape ('f32',)->('v128',) f32x4.splat
-skip-impl unsupported-shape ('f32',)->('v128',) f32x4.splat
-skip-impl unsupported-shape ('f32',)->('v128',) f32x4.splat
-skip-impl unsupported-shape ('f32',)->('v128',) f32x4.splat
-skip-impl unsupported-shape ('f32',)->('v128',) f32x4.splat
-skip-impl unsupported-shape ('f32',)->('v128',) f32x4.splat
-skip-impl unsupported-shape ('f32',)->('v128',) f32x4.splat
-skip-impl unsupported-shape ('f32',)->('v128',) f32x4.splat
-skip-impl unsupported-shape ('f32',)->('v128',) f32x4.splat
-skip-impl unsupported-shape ('f32',)->('v128',) f32x4.splat
-skip-impl unsupported-shape ('f32',)->('v128',) f32x4.splat
-skip-impl unsupported-shape ('f32',)->('v128',) f32x4.splat
-skip-impl unsupported-shape ('f32',)->('v128',) f32x4.splat
-skip-impl unsupported-shape ('f32',)->('v128',) f32x4.splat
-skip-impl unsupported-shape ('f32',)->('v128',) f32x4.splat
-skip-impl unsupported-shape ('f32',)->('v128',) f32x4.splat
-skip-impl unsupported-shape ('f32',)->('v128',) f32x4.splat
-skip-impl unsupported-shape ('f32',)->('v128',) f32x4.splat
-skip-impl unsupported-shape ('f32',)->('v128',) f32x4.splat
-skip-impl unsupported-shape ('f32',)->('v128',) f32x4.splat
+assert_return f32x4.splat f32:0 -> v128:00000000000000000000000000000000
+assert_return f32x4.splat f32:1066192077 -> v128:cdcc8c3fcdcc8c3fcdcc8c3fcdcc8c3f
+assert_return f32x4.splat f32:3213675725 -> v128:cdcc8cbfcdcc8cbfcdcc8cbfcdcc8cbf
+assert_return f32x4.splat f32:2123789977 -> v128:9976967e9976967e9976967e9976967e
+assert_return f32x4.splat f32:4271273625 -> v128:997696fe997696fe997696fe997696fe
+assert_return f32x4.splat f32:2139095039 -> v128:ffff7f7fffff7f7fffff7f7fffff7f7f
+assert_return f32x4.splat f32:4286578687 -> v128:ffff7fffffff7fffffff7fffffff7fff
+assert_return f32x4.splat f32:2130706432 -> v128:0000007f0000007f0000007f0000007f
+assert_return f32x4.splat f32:4278190080 -> v128:000000ff000000ff000000ff000000ff
+assert_return f32x4.splat f32:2139095040 -> v128:0000807f0000807f0000807f0000807f
+assert_return f32x4.splat f32:4286578688 -> v128:000080ff000080ff000080ff000080ff
+assert_return f32x4.splat f32:2143289344 -> v128:0000c07f0000c07f0000c07f0000c07f
+assert_return f32x4.splat f32:2139095041 -> v128:0100807f0100807f0100807f0100807f
+assert_return f32x4.splat f32:2147483647 -> v128:ffffff7fffffff7fffffff7fffffff7f
+assert_return f32x4.splat f32:1290500515 -> v128:a379eb4ca379eb4ca379eb4ca379eb4c
+assert_return f32x4.splat f32:1290500515 -> v128:a379eb4ca379eb4ca379eb4ca379eb4c
+assert_return f32x4.splat f32:1536271028 -> v128:b4a2915bb4a2915bb4a2915bb4a2915b
+assert_return f32x4.splat f32:1536271028 -> v128:b4a2915bb4a2915bb4a2915bb4a2915b
+assert_return f32x4.splat f32:1820282235 -> v128:7b4d7f6c7b4d7f6c7b4d7f6c7b4d7f6c
+assert_return f32x4.splat f32:1820282235 -> v128:7b4d7f6c7b4d7f6c7b4d7f6c7b4d7f6c
+assert_return f32x4.splat f32:1695654580 -> v128:b4a21165b4a21165b4a21165b4a21165
+assert_return f32x4.splat f32:1376887476 -> v128:b4a21152b4a21152b4a21152b4a21152
 assert_return i64x2.splat i64:0 -> v128:00000000000000000000000000000000
 assert_return i64x2.splat i64:0 -> v128:00000000000000000000000000000000
 assert_return i64x2.splat i64:1 -> v128:01000000000000000100000000000000
@@ -71,36 +71,36 @@ assert_return i64x2.splat i64:9223372036854775808 -> v128:0000000000000080000000
 assert_return i64x2.splat i64:9223372036854775808 -> v128:00000000000000800000000000000080
 assert_return i64x2.splat i64:1234567890123456789 -> v128:1581e97df41022111581e97df4102211
 assert_return i64x2.splat i64:1311768467294899695 -> v128:efcdab9078563412efcdab9078563412
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
-skip-impl unsupported-shape ('f64',)->('v128',) f64x2.splat
+assert_return f64x2.splat f64:0 -> v128:00000000000000000000000000000000
+assert_return f64x2.splat f64:9223372036854775808 -> v128:00000000000000800000000000000080
+assert_return f64x2.splat f64:4607632778762754458 -> v128:9a9999999999f13f9a9999999999f13f
+assert_return f64x2.splat f64:13831004815617530266 -> v128:9a9999999999f1bf9a9999999999f1bf
+assert_return f64x2.splat f64:1 -> v128:01000000000000000100000000000000
+assert_return f64x2.splat f64:9223372036854775809 -> v128:01000000000000800100000000000080
+assert_return f64x2.splat f64:4503599627370496 -> v128:00000000000010000000000000001000
+assert_return f64x2.splat f64:9227875636482146304 -> v128:00000000000010800000000000001080
+assert_return f64x2.splat f64:4602678819172646912 -> v128:000000000000e03f000000000000e03f
+assert_return f64x2.splat f64:13826050856027422720 -> v128:000000000000e0bf000000000000e0bf
+assert_return f64x2.splat f64:4607182418800017408 -> v128:000000000000f03f000000000000f03f
+assert_return f64x2.splat f64:13830554455654793216 -> v128:000000000000f0bf000000000000f0bf
+assert_return f64x2.splat f64:4618760256179416344 -> v128:182d4454fb211940182d4454fb211940
+assert_return f64x2.splat f64:13842132293034192152 -> v128:182d4454fb2119c0182d4454fb2119c0
+assert_return f64x2.splat f64:9218868437227405311 -> v128:ffffffffffffef7fffffffffffffef7f
+assert_return f64x2.splat f64:18442240474082181119 -> v128:ffffffffffffefffffffffffffffefff
+assert_return f64x2.splat f64:9218868437227405312 -> v128:000000000000f07f000000000000f07f
+assert_return f64x2.splat f64:18442240474082181120 -> v128:000000000000f0ff000000000000f0ff
+assert_return f64x2.splat f64:9221120237041090560 -> v128:000000000000f87f000000000000f87f
+assert_return f64x2.splat f64:18444492273895866368 -> v128:000000000000f8ff000000000000f8ff
+assert_return f64x2.splat f64:9219994337134247936 -> v128:000000000000f47f000000000000f47f
+assert_return f64x2.splat f64:18443366373989023744 -> v128:000000000000f4ff000000000000f4ff
+assert_return f64x2.splat f64:4728057454347157504 -> v128:00000054346f9d4100000054346f9d41
+assert_return f64x2.splat f64:4728057454347157504 -> v128:00000054346f9d4100000054346f9d41
+assert_return f64x2.splat f64:4968090884938317023 -> v128:dfbc9a785634f244dfbc9a785634f244
+assert_return f64x2.splat f64:4968090884938317023 -> v128:dfbc9a785634f244dfbc9a785634f244
+assert_return f64x2.splat f64:5012481849648092922 -> v128:fa165e5bafe98f45fa165e5bafe98f45
+assert_return f64x2.splat f64:5012481849648092922 -> v128:fa165e5bafe98f45fa165e5bafe98f45
+assert_return f64x2.splat f64:5053659277858356447 -> v128:dfbc9a7856342246dfbc9a7856342246
+assert_return f64x2.splat f64:4882522492018277599 -> v128:dfbc9a785634c243dfbc9a785634c243
 skip-adr-skip_text_format_parser directive-assert_malformed-text
 assert_invalid simd_splat.2.wasm
 assert_invalid simd_splat.3.wasm
@@ -123,7 +123,7 @@ assert_return as-v128_store-operand-1 i32:1 -> v128:0101010101010101010101010101
 assert_return as-v128_store-operand-2 i32:256 -> v128:00010001000100010001000100010001
 assert_return as-v128_store-operand-3 i32:4294967295 -> v128:ffffffffffffffffffffffffffffffff
 assert_return as-v128_store-operand-4 i64:1 -> v128:01000000000000000100000000000000
-skip-impl unsupported-shape ('f64',)->('v128',) as-v128_store-operand-5
+assert_return as-v128_store-operand-5 f64:13830554455654793216 -> v128:000000000000f0bf000000000000f0bf
 module simd_splat.19.wasm
 assert_return as-i8x16_extract_lane_s-operand-first i32:42 -> i32:42
 assert_return as-i8x16_extract_lane_s-operand-last i32:4294967254 -> i32:4294967254
@@ -163,20 +163,20 @@ skip-impl unsupported-shape ('i32', 'i32')->('v128',) as-i32x4_eq-operands1
 skip-impl unsupported-shape ('f32', 'f32')->('v128',) as-f32x4_eq-operands
 skip-impl unsupported-shape ('i64', 'i64')->('v128',) as-i32x4_eq-operands2
 skip-impl unsupported-shape ('f64', 'f64')->('v128',) as-f64x2_eq-operands
-skip-impl unsupported-shape ('f32',)->('v128',) as-f32x4_abs-operand
+assert_return as-f32x4_abs-operand f32:3213885440 -> v128:0000903f0000903f0000903f0000903f
 skip-impl unsupported-shape ('f32', 'f32')->('v128',) as-f32x4_min-operands
 skip-impl unsupported-shape ('f32', 'f32')->('v128',) as-f32x4_div-operands
 assert_return as-f32x4_convert_s_i32x4-operand i32:12345 -> v128:00e4404600e4404600e4404600e44046
-skip-impl unsupported-shape ('f32',)->('v128',) as-i32x4_trunc_s_f32x4_sat-operand
+assert_return as-i32x4_trunc_s_f32x4_sat-operand f32:1066192077 -> v128:01000000010000000100000001000000
 module simd_splat.20.wasm
 assert_return as-br-value1 i32:171 -> v128:abababababababababababababababab
 assert_return as-return-value1 i32:43981 -> v128:cdabcdabcdabcdabcdabcdabcdabcdab
 assert_return as-local_set-value1 i32:65536 -> v128:00000100000001000000010000000100
-skip-impl unsupported-shape ('f32',)->('v128',) as-global_set-value1
+assert_return as-global_set-value1 f32:1065353216 -> v128:0000803f0000803f0000803f0000803f
 assert_return as-br-value2 i64:43981 -> v128:cdab000000000000cdab000000000000
 assert_return as-return-value2 i64:43981 -> v128:cdab000000000000cdab000000000000
 assert_return as-local_set-value2 i64:65536 -> v128:00000100000000000000010000000000
-skip-impl unsupported-shape ('f64',)->('v128',) as-global_set-value2
+assert_return as-global_set-value2 f64:4607182418800017408 -> v128:000000000000f03f000000000000f03f
 assert_invalid simd_splat.21.wasm
 assert_invalid simd_splat.22.wasm
 assert_invalid simd_splat.23.wasm
