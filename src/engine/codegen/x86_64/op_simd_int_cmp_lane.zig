@@ -432,7 +432,7 @@ pub fn emitI64x2SplatCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!
 
 pub fn emitI8x16SwizzleCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
-    return emitI8x16Swizzle(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg);
+    return emitI8x16Swizzle(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
 pub fn emitI16x8ExtaddPairwiseI8x16SCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
@@ -924,6 +924,31 @@ fn emitV128IntCmpUnsigned(
     try pushed_vregs.append(allocator, result_v);
 }
 
+/// D-034 (g): dst register — its home XMM when not spilled, else XMM7 (flushed
+/// at the end via storeV128IfSpilledLocal).
+fn dstHomeOrXmm7Cmp(alloc: regalloc.Allocation, result_v: usize) Error!inst.Xmm {
+    return switch (alloc.slot(result_v, .fpr)) {
+        .reg => |id| abi.fpSlotToReg(id) orelse Error.SlotOverflow,
+        .spill => .xmm7,
+    };
+}
+
+/// D-034 (g): put operand `v`'s value into `reg` (MOVAPS from its home XMM,
+/// skipped when `reg` already IS the home; or an RBP-disp v128 load when spilled).
+fn loadV128IntoCmp(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, spill_base_off: u32, reg: inst.Xmm, v: usize) Error!void {
+    switch (alloc.slot(v, .fpr)) {
+        .reg => |id| {
+            const home = abi.fpSlotToReg(id) orelse return Error.SlotOverflow;
+            if (reg != home) try buf.appendSlice(allocator, inst.encMovapsXmmXmm(reg, home).slice());
+        },
+        .spill => |off| {
+            const abs_off = spill_base_off + off;
+            if (abs_off > 0x7FFF_FFFF) return Error.SlotOverflow;
+            try buf.appendSlice(allocator, inst.encLoadXmmV128MemRBPDisp32(reg, -@as(i32, @intCast(abs_off))).slice());
+        },
+    }
+}
+
 /// D-034 (g) file-local v128 spill helper: returns the operand's home XMM when
 /// not spilled (no emit); when spilled, emits an RBP-disp v128 load into `temp`
 /// and returns `temp`. Mirrors op_simd_float.zig's resolveOrLoadV128.
@@ -1254,6 +1279,7 @@ pub fn emitI8x16Swizzle(
     alloc: regalloc.Allocation,
     pushed_vregs: *std.ArrayList(u32),
     next_vreg: *u32,
+    spill_base_off: u32,
 ) Error!void {
     if (pushed_vregs.items.len < 2) return Error.AllocationMissing;
     const idx_v = pushed_vregs.pop().?;
@@ -1262,23 +1288,37 @@ pub fn emitI8x16Swizzle(
     next_vreg.* += 1;
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
-    const idx_x = try gpr.resolveXmm(alloc, idx_v);
-    const v_x = try gpr.resolveXmm(alloc, v_v);
-    const dst_x = try gpr.resolveXmm(alloc, result_v);
-    const f_x = abi.fp_spill_stage_xmms[0]; // XMM14: 0x0F broadcast
+    // D-034 (g): spill-aware. f_x=XMM14, c_x=XMM15 internal; dst→home/XMM7. idx is
+    // read twice — a home idx is used directly (byte-identical no-spill); a spilled
+    // idx loads into c_x for the first read and is reloaded into the now-dead f_x
+    // for the POR. v is loaded just-in-time into dst (its only use; dst==idx is safe
+    // since idx is read before dst is written).
+    const dst_x = try dstHomeOrXmm7Cmp(alloc, result_v);
+    const f_x = abi.fp_spill_stage_xmms[0]; // XMM14: 0x0F broadcast, then idx reload
     const c_x = abi.fp_spill_stage_xmms[1]; // XMM15: corrected ctrl
+    const idx_reg: ?inst.Xmm = switch (alloc.slot(idx_v, .fpr)) {
+        .reg => |id| abi.fpSlotToReg(id) orelse return Error.SlotOverflow,
+        .spill => null,
+    };
 
     try buf.appendSlice(allocator, inst.encPcmpeqB(f_x, f_x).slice());
     try buf.appendSlice(allocator, inst.encPsrlwImm(f_x, 12).slice());
     try buf.appendSlice(allocator, inst.encPxor(c_x, c_x).slice());
     try buf.appendSlice(allocator, inst.encPshufb(f_x, c_x).slice()); // f_x = 0x0F broadcast
-    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(c_x, idx_x).slice());
+    if (idx_reg) |r| {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(c_x, r).slice());
+    } else try loadV128IntoCmp(allocator, buf, alloc, spill_base_off, c_x, idx_v);
     try buf.appendSlice(allocator, inst.encPcmpgtB(c_x, f_x).slice());
-    try buf.appendSlice(allocator, inst.encPor(c_x, idx_x).slice());
-    if (dst_x != v_x) {
-        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, v_x).slice());
+    if (idx_reg) |r| {
+        try buf.appendSlice(allocator, inst.encPor(c_x, r).slice());
+    } else {
+        // f_x (0x0F broadcast) is dead after PCMPGTB → reuse it to reload idx.
+        try loadV128IntoCmp(allocator, buf, alloc, spill_base_off, f_x, idx_v);
+        try buf.appendSlice(allocator, inst.encPor(c_x, f_x).slice());
     }
+    try loadV128IntoCmp(allocator, buf, alloc, spill_base_off, dst_x, v_v);
     try buf.appendSlice(allocator, inst.encPshufb(dst_x, c_x).slice());
+    try storeV128IfSpilledLocal(allocator, buf, alloc, spill_base_off, result_v);
     try pushed_vregs.append(allocator, result_v);
 }
 
@@ -2186,6 +2226,7 @@ pub fn emitI8x16Shuffle(
     alloc: regalloc.Allocation,
     pushed_vregs: *std.ArrayList(u32),
     next_vreg: *u32,
+    spill_base_off: u32,
     simd_const_fixups: *std.ArrayList(@import("types.zig").SimdConstFixup),
     extra_consts: *std.ArrayList([16]u8),
     simd_consts_base: u32,
@@ -2203,11 +2244,24 @@ pub fn emitI8x16Shuffle(
     next_vreg.* += 1;
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
-    const lhs_x = try gpr.resolveXmm(alloc, lhs_v);
-    const rhs_x = try gpr.resolveXmm(alloc, rhs_v);
-    const dst_x = try gpr.resolveXmm(alloc, result_v);
+    // D-034 (g): spill-aware. t1=XMM14, t2=XMM15 internal; dst→home/XMM7. lhs is
+    // loaded just-in-time into dst; rhs is read once into t2 — a home rhs is used
+    // directly, the D-066 dst==rhs alias stashes rhs→XMM7 (dst home → XMM7 free),
+    // a spilled rhs reloads from its slot into t2.
+    const dst_x = try dstHomeOrXmm7Cmp(alloc, result_v);
     const t1 = abi.fp_spill_stage_xmms[0]; // XMM14 — mask register
     const t2 = abi.fp_spill_stage_xmms[1]; // XMM15 — src2 PSHUFB result
+    const rhs_reg: ?inst.Xmm = switch (alloc.slot(rhs_v, .fpr)) {
+        .reg => |id| blk: {
+            const home = abi.fpSlotToReg(id) orelse return Error.SlotOverflow;
+            if (home == dst_x) {
+                try buf.appendSlice(allocator, inst.encMovapsXmmXmm(.xmm7, home).slice());
+                break :blk .xmm7;
+            }
+            break :blk home;
+        },
+        .spill => null,
+    };
 
     // Derive a_mask + b_mask from the original Wasm mask. PSHUFB's
     // bit-7 = "zero output" semantics handles the cross-source
@@ -2225,35 +2279,26 @@ pub fn emitI8x16Shuffle(
     const b_idx: u32 = simd_consts_base + @as(u32, @intCast(extra_consts.items.len));
     try extra_consts.append(allocator, b_mask);
 
-    // Aliasing safety (D-071 part d shuffle cluster; D-066 mirror).
-    // Step 2's unconditional `MOVAPS dst, lhs` clobbers rhs when
-    // regalloc's LIFO slot-reuse aliases `dst == rhs`. Step 5
-    // would then read the post-MOVAPS dst (= lhs's bytes shuffled
-    // through PSHUFB by step 3) into t2, producing a wrong merge.
-    // Stash rhs through XMM7 (project SIMD scratch — abi.zig:200
-    // reserves it mirroring arm64's V31).
-    var rhs_for_op = rhs_x;
-    if (dst_x == rhs_x) {
-        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(.xmm7, rhs_x).slice());
-        rhs_for_op = .xmm7;
-    }
-
     // 1: t1 = a_mask.
     try op_simd.emitConstLoad(allocator, buf, simd_const_fixups, t1, a_idx);
-    // 2: dst = lhs.
-    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(dst_x, lhs_x).slice());
+    // 2: dst = lhs (just-in-time; clobbers a spilled-rhs slot? no — rhs reloads
+    // from its own slot / the XMM7 stash already taken above for the dst==rhs alias).
+    try loadV128IntoCmp(allocator, buf, alloc, spill_base_off, dst_x, lhs_v);
     // 3: PSHUFB dst, t1 → dst = lhs[a_mask] (zeros where a_mask
     // had bit 7 set = lanes that selected from rhs).
     try buf.appendSlice(allocator, inst.encPshufb(dst_x, t1).slice());
     // 4: t1 = b_mask.
     try op_simd.emitConstLoad(allocator, buf, simd_const_fixups, t1, b_idx);
-    // 5: t2 = rhs (from stash if dst aliased rhs).
-    try buf.appendSlice(allocator, inst.encMovapsXmmXmm(t2, rhs_for_op).slice());
+    // 5: t2 = rhs (home reg / XMM7 stash, or reloaded from its slot).
+    if (rhs_reg) |r| {
+        try buf.appendSlice(allocator, inst.encMovapsXmmXmm(t2, r).slice());
+    } else try loadV128IntoCmp(allocator, buf, alloc, spill_base_off, t2, rhs_v);
     // 6: PSHUFB t2, t1 → t2 = rhs[b_mask] (zeros where b_mask had
     // bit 7 set = lanes that selected from lhs).
     try buf.appendSlice(allocator, inst.encPshufb(t2, t1).slice());
     // 7: dst = dst | t2 → merge the two halves.
     try buf.appendSlice(allocator, inst.encPor(dst_x, t2).slice());
+    try storeV128IfSpilledLocal(allocator, buf, alloc, spill_base_off, result_v);
 
     try pushed_vregs.append(allocator, result_v);
 }

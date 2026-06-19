@@ -1182,6 +1182,7 @@ test "emitI8x16Shuffle: dst aliases rhs — stash rhs to XMM7 (D-071 part d shuf
         alloc,
         &pushed,
         &next_vreg,
+        0, // spill_base_off
         &fixups,
         &extras,
         @intCast(consts.len), // simd_consts_base = past const-pool

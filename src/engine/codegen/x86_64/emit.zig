@@ -1572,7 +1572,7 @@ pub fn compile(
             // b-mask, and appends both to extra_consts.
             .@"i8x16.shuffle" => {
                 const simd_consts_base: u32 = if (func.simd_consts) |sc| @intCast(sc.len) else 0;
-                try op_simd_int_cmp_lane.emitI8x16Shuffle(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &simd_const_fixups, &extra_consts, simd_consts_base, func.simd_consts, @as(u32, @intCast(ins.payload)));
+                try op_simd_int_cmp_lane.emitI8x16Shuffle(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, &simd_const_fixups, &extra_consts, simd_consts_base, func.simd_consts, @as(u32, @intCast(ins.payload)));
             },
             // §9.7/9.7-al — v128.const via ADR-0042 const-pool
             // (mirror of ARM64 §9.6/9.6-f-ii). Lower pass stored
