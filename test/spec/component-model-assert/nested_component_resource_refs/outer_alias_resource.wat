@@ -1,4 +1,4 @@
-;; Invalid component (NOT yet detected — skip-impl): a nested inline component
+;; Invalid component (DETECTED — assert_invalid rejects as InvalidAlias, rule 12): a nested inline component
 ;; outer-aliases the parent's resource type; aliasing a resource-carrying type
 ;; across a component boundary is invalid ("refers to resources not defined in
 ;; the current component", resources.wast ~5 cases). Detecting this needs
