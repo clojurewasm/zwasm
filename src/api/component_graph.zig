@@ -799,12 +799,13 @@ fn installBoundaryTrampoline(
         }
     }
 
-    // The fixed boundary trampoline marshals shapes flattening to `(i32,i32)->i32`:
-    // a `string` / `list<primitive>` param (ptr,len) OR two flat 4-byte scalars,
-    // returning one flat 4-byte scalar. Broader arities / wide scalars / non-string
-    // aggregate results are a typed deferral (no silent mis-marshal). D-305
-    // follow-up: arity-general trampolines + record/result marshalling.
-    if (!boundaryShapeOk(ft, list_elem_size > 0)) return GraphError.UnsupportedBoundaryType;
+    // D-305(a)+(b): resolve the flattened all-i32 core shape — any flat-scalar
+    // arity, a flat record/tuple param (fields flatten to i32 → pass-through), or
+    // a single string/list param (2-word memory-marshalled). A wide scalar
+    // (i64/f32/f64), a string/list INSIDE a record, or an aggregate RESULT (the
+    // retptr path is handled earlier) is a typed deferral (no silent mis-marshal).
+    const shape = boundaryFlatShape(graph.alloc, &provider.child.info, ft, list_elem_size > 0);
+    if (!shape.ok) return GraphError.UnsupportedBoundaryType;
 
     const bctx = try graph.alloc.create(BoundaryCtx);
     // D-466: no local errdefer — graph.deinit owns bctx once appended below; a
@@ -818,12 +819,11 @@ fn installBoundaryTrampoline(
     };
     try graph.boundaries.append(graph.alloc, bctx);
 
-    // D-305: ONE Value-slice trampoline marshals ANY flat-scalar arity (plus the
-    // 2-word string/list path). The flattened core signature is all-i32: a
-    // `string`/`list<primitive>` param is two words (ptr,len), else one word per
-    // flat scalar; the result is a single flat-4 word. `boundaryShapeOk` already
+    // D-305: ONE Value-slice trampoline marshals the flattened all-i32 core words
+    // (any flat-scalar arity / flat record pass-through, plus the 2-word
+    // string/list path); the result is a single flat-4 word. `boundaryFlatShape`
     // bounded the word count to `marshal.raw_max_words`.
-    const n_words = boundaryWordCount(ft, list_elem_size > 0);
+    const n_words = shape.words;
     try lk.defineFuncRaw(
         ns,
         core_export_name,
@@ -832,13 +832,6 @@ fn installBoundaryTrampoline(
         boundary_core_i32[0..1],
         boundaryTrampolineRaw,
     );
-}
-
-/// The flattened core word count for a boundary func: a `string`/`list` param is
-/// two words (ptr,len), else one word per flat-4 scalar. Mirrors `boundaryShapeOk`.
-fn boundaryWordCount(ft: ctypes.FuncType, param0_is_list: bool) usize {
-    if (param0_is_list or (ft.params.len == 1 and isString(ft.params[0].ty))) return 2;
-    return ft.params.len;
 }
 
 /// `Subtask.State` codes the async-LOWERED import returns to the caller per the
@@ -1356,23 +1349,68 @@ fn resultIsString(alloc: Allocator, info: *const ctypes.TypeInfo, ft: ctypes.Fun
 /// allocation (D-305). Sized to the linker's raw-arity cap.
 const boundary_core_i32: [marshal.raw_max_words]zir.ValType = .{.i32} ** marshal.raw_max_words;
 
-/// Does the WIT func type flatten to an all-i32 core signature the generic
-/// boundary trampoline marshals? True for a single `(string)` / `(list<primitive>)`
-/// param (two ptr,len words) OR N flat-4 scalars (one word each), returning one
-/// flat 4-byte scalar. D-305: the flat-scalar arity is no longer per-trampoline
-/// capped — only the generic thunk's buffer (`marshal.raw_max_words`) bounds it
-/// (no real component approaches it; beyond is `UnsupportedBoundaryType`).
-/// Wide scalars (s64/u64/f32/f64) and non-string aggregate results stay a typed
-/// deferral (record/result marshalling is the still-open D-305 (b) slice).
-fn boundaryShapeOk(ft: ctypes.FuncType, param0_is_list: bool) bool {
+/// The resolved boundary shape: whether the func flattens to the all-i32 core
+/// signature the generic trampoline marshals, and its flattened param word count.
+const BoundaryShape = struct { ok: bool, words: usize };
+
+/// Resolve the boundary's flattened all-i32 core shape + param word count.
+/// Accepts: a single `(string)` / `(list<primitive>)` param (2 ptr,len words,
+/// memory-marshalled at call time); OR params that flatten to all-i32 with no
+/// internal pointer — flat-4 scalars and flat records/tuples thereof (D-305(b)),
+/// each passing straight through. The result must be a single flat-4 scalar (an
+/// aggregate RESULT uses the retptr path, handled earlier). D-305: flat-scalar
+/// arity is no longer per-trampoline capped — only `marshal.raw_max_words` (the
+/// generic thunk buffer) bounds the flattened word count. Wide scalars
+/// (s64/u64/f32/f64), strings/lists INSIDE a record, and variant/enum/flags stay
+/// a typed deferral (no silent mis-marshal).
+fn boundaryFlatShape(alloc: Allocator, info: *const ctypes.TypeInfo, ft: ctypes.FuncType, param0_is_list: bool) BoundaryShape {
+    const no = BoundaryShape{ .ok = false, .words = 0 };
     const result_ok = if (ft.result) |rt| isFlat4Scalar(rt) else false;
-    if (!result_ok) return false;
-    if (ft.params.len == 1 and (isString(ft.params[0].ty) or param0_is_list)) return true;
-    if (ft.params.len == 0 or ft.params.len > marshal.raw_max_words) return false;
+    if (!result_ok) return no;
+    if (ft.params.len == 1 and (isString(ft.params[0].ty) or param0_is_list)) return .{ .ok = true, .words = 2 };
+    if (ft.params.len == 0 or ft.params.len > marshal.raw_max_words) return no;
+    var total: usize = 0;
     for (ft.params) |p| {
-        if (!isFlat4Scalar(p.ty)) return false;
+        var tmp = std.heap.ArenaAllocator.init(alloc);
+        defer tmp.deinit();
+        const ct = canon.canonTypeFromDecoded(tmp.allocator(), info, p.ty) catch return no;
+        if (!canonIsFlatI32(ct)) return no;
+        total += canonFlatWidth(ct);
     }
-    return true;
+    if (total == 0 or total > marshal.raw_max_words) return no;
+    return .{ .ok = true, .words = total };
+}
+
+/// D-305(b): does a canonical type flatten to all-i32 core words with NO internal
+/// pointer (string/list)? True for the flat-4 scalars (`flatCoreType == .i32`)
+/// and records recursively built from them — these pass straight through the
+/// boundary like flat scalars. Wide (i64/f32/f64) prims, string/list, and
+/// variant/enum/flags are NOT (a different core word or a typed deferral).
+fn canonIsFlatI32(t: canon.CanonType) bool {
+    return switch (t) {
+        .prim => |p| (canon.flatCoreType(p) orelse return false) == .i32,
+        .record => |fields| {
+            for (fields) |f| {
+                if (!canonIsFlatI32(f.ty)) return false;
+            }
+            return true;
+        },
+        else => false,
+    };
+}
+
+/// Flattened i32-word count of a `canonIsFlatI32` type: a flat scalar is 1 word,
+/// a record is the sum of its fields.
+fn canonFlatWidth(t: canon.CanonType) usize {
+    return switch (t) {
+        .prim => 1,
+        .record => |fields| blk: {
+            var n: usize = 0;
+            for (fields) |f| n += canonFlatWidth(f.ty);
+            break :blk n;
+        },
+        else => 0,
+    };
 }
 
 fn isString(vt: ctypes.ValType) bool {

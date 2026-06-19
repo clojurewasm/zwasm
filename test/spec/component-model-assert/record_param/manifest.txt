@@ -1,0 +1,6 @@
+# D-305(b): a RECORD param across a cross-component boundary. B exports
+# sumrec(p: point)->u32 = p.x+p.y, point=record{x:u32,y:u32}; a flat record
+# flattens to 2 direct i32 words (pass-through, no memory). A calls
+# sumrec({7,8}) -> 15. Provenance: test/component/record_param_graph.wat.
+graph test/component/record_param_graph.wasm
+assert_flat_i32 run -> 15
