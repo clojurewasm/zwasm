@@ -505,11 +505,8 @@ pub fn load(cx: CanonContext, arena: std.mem.Allocator, ty: CanonType, ptr: u32)
         },
         .list => |elem| {
             const base: u32 = @intCast(try loadInt(cx, ptr, 4));
-            const len: usize = @intCast(try loadInt(cx, ptr + 4, 4));
-            const esize = sizeOf(elem.*);
-            const out = try arena.alloc(Value, len);
-            for (out, 0..) |*slot, i| slot.* = try load(cx, arena, elem.*, base + @as(u32, @intCast(i * esize)));
-            return .{ .list = out };
+            const len: u32 = @intCast(try loadInt(cx, ptr + 4, 4));
+            return loadListAt(cx, arena, elem.*, base, len);
         },
         .record => |fields| {
             const out = try arena.alloc(Value, fields.len);
@@ -754,6 +751,25 @@ test "store/load round-trip: list<u32>" {
     try testing.expectEqual(@as(u32, 1), back.list[0].u32);
     try testing.expectEqual(@as(u32, 0xDEAD_BEEF), back.list[1].u32);
     try testing.expectEqual(@as(u32, 3), back.list[2].u32);
+}
+
+test "list load with an oversized length TRAPS before the eager alloc (amplification guard)" {
+    var mem = [_]u8{0} ** 256;
+    var bump = Bump{ .next = 32 };
+    var mem_slice: []u8 = &mem;
+    const cx = CanonContext{ .memory_ctx = @ptrCast(&mem_slice), .memory_fn = CanonContext.sliceMemoryFn, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc };
+
+    const elem = CanonType{ .prim = .u32 };
+    const ty = CanonType{ .list = &elem };
+    // Forge a list header at offset 8: base=16, len=0x4000_0000 (1G elements) —
+    // far beyond the 256-byte memory. Must trap (OutOfBounds), NOT attempt the
+    // ~16GB `arena.alloc(Value, 1G)` an untrusted component could otherwise force.
+    std.mem.writeInt(u32, mem[8..12], 16, .little);
+    std.mem.writeInt(u32, mem[12..16], 0x4000_0000, .little);
+
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    try testing.expectError(error.OutOfBounds, load(cx, arena.allocator(), ty, 8));
 }
 
 test "store/load round-trip: record { a: u8, b: u32, c: bool }" {
@@ -1184,6 +1200,15 @@ fn takeFlat(flats: []const CoreValue, idx: *usize, want: CoreType) error{FlatAri
 /// list branch reads (ptr, len) from memory; here the pair arrived flat).
 fn loadListAt(cx: CanonContext, arena: std.mem.Allocator, elem: CanonType, base: u32, n: u32) LoadError!Value {
     const esize = sizeOf(elem);
+    // Bound the (guest-controlled) `n` by what could actually fit in guest memory
+    // BEFORE the alloc: a list of `n` elements of `esize` bytes must occupy
+    // `n*esize` bytes at `base`, so an `n` larger than that is malformed — trap
+    // rather than attempt an attacker-amplified allocation. Each element read
+    // below is itself bounds-checked, but only AFTER the eager alloc; this guard
+    // is the cheap pre-check at the untrusted-component boundary. `n > mem.len`
+    // also covers a zero-size element type (no per-byte bound otherwise).
+    const byte_span: u64 = @as(u64, n) * esize;
+    if (@as(u64, base) + byte_span > cx.mem().len or n > cx.mem().len) return LoadError.OutOfBounds;
     const out = try arena.alloc(Value, n);
     for (out, 0..) |*slot, i| slot.* = try load(cx, arena, elem, base + @as(u32, @intCast(i * esize)));
     return .{ .list = out };
