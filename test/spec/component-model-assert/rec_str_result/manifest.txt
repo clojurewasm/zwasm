@@ -1,0 +1,7 @@
+# D-305(b4): a record-with-STRING result across a cross-component boundary via
+# retptr. B exports mk() -> record{msg:string, n:u32} = {msg:"hi", n:5}. The
+# record has an internal pointer, so the boundary canon.load's it from B then
+# canon.store's it into A's retptr, lowering "hi" into A's memory. A reads
+# n + first_byte(msg) = 5 + 'h'(104) = 109. Provenance: rec_str_result_graph.wat.
+graph test/component/rec_str_result_graph.wasm
+assert_flat_i32 run -> 109

@@ -150,6 +150,11 @@ const BoundaryCtx = struct {
     /// the callee's memory) round-trip instead of by-words pass-through. Requires
     /// `importer` set (the lift reads A's memory). false = no pointer-bearing param.
     param_record_marshal: bool = false,
+    /// D-305(b4): the RESULT is a record CONTAINING a string/list (internal
+    /// pointer), returned via retptr. B's producer returns a pointer to the record
+    /// in B's memory; the trampoline `canon.load`s it from B then `canon.store`s it
+    /// into A's retptr (lowering the string into A's memory). Requires `importer`.
+    result_record_marshal: bool = false,
     /// Set when the imported func is async-lifted (ADR-0195 c-2b): the shared
     /// graph scheduler state the async trampoline enqueues the callee subtask
     /// into. null for a synchronous boundary.
@@ -818,6 +823,28 @@ fn installBoundaryTrampoline(
         return;
     }
 
+    // D-305(b4): a record RESULT CONTAINING a string/list (internal pointer) also
+    // returns via retptr, but the raw byte-copy (b2) would carry B-relative
+    // pointers into A — wrong. Instead `canon.load` the record from B's memory
+    // into a canon Value, then `canon.store` it into A's retptr (lowering the
+    // string into A's OWN memory via A's realloc, writing A-relative pointers).
+    // Only the no-value-param `() -> record` shape; mixed params deferred.
+    if (resultRecordWithPointer(graph.alloc, &provider.child.info, ft)) {
+        if (ft.params.len != 0) return GraphError.UnsupportedBoundaryType;
+        const bctx = try graph.alloc.create(BoundaryCtx);
+        bctx.* = .{
+            .callee = provider.child,
+            .core_func_name = r.core_func.name,
+            .core_inst = core_inst,
+            .func_type = ft,
+            .importer = importer,
+            .result_record_marshal = true,
+        };
+        try graph.boundaries.append(graph.alloc, bctx);
+        try lk.defineFuncCtx(ns, core_export_name, @ptrCast(bctx), RetPtrSig, recordPtrRetTrampoline);
+        return;
+    }
+
     // For a single `list<primitive>` param, resolve the element byte size now so
     // the call-time copy moves `count * elem_size` bytes. A `list<u32>` param is a
     // `type_index` into the provider's type space, so resolve via `canon`.
@@ -1399,6 +1426,19 @@ fn resultFlatRecordBlob(alloc: Allocator, info: *const ctypes.TypeInfo, ft: ctyp
     return .{ .size = @intCast(canon.sizeOf(ct)) };
 }
 
+/// D-305(b4): is the result a record CONTAINING an internal pointer (string/list)?
+/// Such a record can't cross by raw byte copy (its pointers are B-relative); it
+/// needs the `canon.load`(B)→`canon.store`(A) memory→memory marshal that relocates
+/// the pointed-to bytes into A's memory. A flat record (no pointer) takes the
+/// cheaper `resultFlatRecordBlob` raw-copy path above instead.
+fn resultRecordWithPointer(alloc: Allocator, info: *const ctypes.TypeInfo, ft: ctypes.FuncType) bool {
+    const rt = ft.result orelse return false;
+    var tmp = std.heap.ArenaAllocator.init(alloc);
+    defer tmp.deinit();
+    const ct = canon.canonTypeFromDecoded(tmp.allocator(), info, rt) catch return false;
+    return ct == .record and canonHasPointer(ct);
+}
+
 /// A canonical type whose in-memory representation is a self-contained byte blob
 /// — fixed-size scalars (incl. wide f32/f64/i64) and records built from them,
 /// with NO internal pointer (string/list/handle). Such a value crosses a retptr
@@ -1737,6 +1777,30 @@ fn recordRetTrampoline(caller: *Caller, retptr: u32) BoundaryError!void {
     const importer_cx = importer.canonContext();
     if (@as(usize, retptr) + size > importer_cx.mem().len) return error.OutOfBoundsStore;
     @memcpy(importer_cx.mem()[retptr..][0..size], callee_cx.mem()[b_ptr..][0..size]);
+}
+
+/// D-305(b4) host trampoline for `() -> record-with-string` (a record result with
+/// an internal pointer): A passes a retptr into its OWN memory. Invoke B's producer
+/// (returns a pointer to the record in B's memory), `canon.load` the record from
+/// B's memory into a canon Value (lifting the string), then `canon.store` it into
+/// A's retptr — which lowers the string into A's OWN memory via A's realloc and
+/// writes A-relative pointers. canon.load/store recurse over record fields. A
+/// marshalling failure propagates as a guest trap — never a silent fallback.
+fn recordPtrRetTrampoline(caller: *Caller, retptr: u32) BoundaryError!void {
+    const bctx = caller.data(BoundaryCtx);
+    var arena = std.heap.ArenaAllocator.init(caller.allocator());
+    defer arena.deinit();
+    const a = arena.allocator();
+    const ct = canon.canonTypeFromDecoded(a, &bctx.callee.info, bctx.func_type.result.?) catch return error.OutOfBoundsLoad;
+
+    var args = [_]Value{};
+    var res = [_]Value{.{ .i32 = 0 }};
+    try bctx.core_inst.invoke(bctx.core_func_name, &args, &res);
+    const b_ptr: u32 = @bitCast(res[0].i32);
+
+    const value = canon.load(bctx.callee.canonContext(), a, ct, b_ptr) catch return error.OutOfBoundsLoad;
+    const importer = bctx.importer orelse return error.OutOfBoundsStore;
+    canon.store(importer.canonContext(), value, ct, retptr) catch return error.OutOfBoundsStore;
 }
 
 /// The `(string) -> string` boundary's flattened core signature:
