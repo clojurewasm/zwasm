@@ -1019,11 +1019,11 @@ pub fn jitGcArrayFill(rt: *JitRuntime, typeidx: u32, ref: u32, idx: u32, value: 
 /// slots src→dst with memmove-overlap semantics (backward copy when the
 /// same array + dst_off > src_off) — the SAME copy the interp arrayCopy
 /// does. Returns `1` on success, `0` on trap (null ref / OOB); the JIT
-/// caller maps `0` to a trap. The element slot size is the uniform 8 bytes
-/// (ADR-0116 §3a — the array JIT family hardcodes the 8-byte slot
-/// throughout; revisit with non-uniform slots), so the typeidx immediates
-/// are NOT passed — this trampoline needs only `rt.gc_heap` (no
-/// gc_type_infos).
+/// caller maps `0` to a trap. The element slot size is read at runtime from
+/// the array's type info (D-460 @5292569e0): `ai.element.size` = 8 for
+/// scalar/ref, 16 for v128 — recovered via the dst object's `info` typeidx
+/// into `rt.gc_type_infos_ptr` (the trampoline therefore needs `gc_heap` AND
+/// `gc_type_infos_ptr`, no per-call typeidx immediate).
 pub fn jitGcArrayCopy(rt: *JitRuntime, dst_ref: u32, dst_off: u32, src_ref: u32, src_off: u32, len: u32) callconv(.c) u32 {
     const heap_opaque = rt.gc_heap orelse return 0;
     const heap: *heap_mod.Heap = @ptrCast(@alignCast(heap_opaque));

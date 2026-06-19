@@ -1821,14 +1821,16 @@ entries:
       lesson hardcoded-corpus-subset-hides-whole-op-families
   - id: "D-460"
     layer: "code"
-    status: "partial"
+    status: "note"
     front: D-wmt-misc
     description: |-
-      **2026-06-19 UNBLOCKED**: the body below noted "x86_64 replace_lane not yet spilled-dst aware [D-461/D-034
-      cohort]" as a soft blocker for fixtures — that cohort is now CLOSED (D-034 SIMD spill arc @411dd1e14, both
-      arches). REMAINING = ONLY the v128-aware array.copy element-size (jitGcArrayCopy trampoline: per-element byte
-      copy must use FieldInfo.size, 16 for v128, not the scalar stride). Self-contained, non-consumer-gated; NEXT.
-      ----
+      **RESOLVED — v128-GC arc COMPLETE. 2026-06-19 correction: the array.copy slice was ALREADY done @5292569e0
+      (Jun 18); a stale "REMAINING = array.copy" line in the body below misled the 2026-06-19 debt sweep into
+      re-teeing it — caught by a confirm-before-implement survey. ALL v128-GC ops are v128-element-aware: struct.new/
+      get/set + array.new_fixed/new_default/get/set/copy. jitGcArrayCopy reads `ai.element.size` (16 for v128) from
+      the dst object's type info (jit_abi.zig:1049; stale docstring corrected this commit). 7 runI32Export fixtures
+      in runner_v128_jit_test.zig, both arches, values vs wasmtime gc.** Old partial/blocker prose preserved below
+      for history. ----
       partial (ADR-0192 wasmtime differential, 2026-06-16). v128 field inside a GC aggregate (struct/array).
       CORE DONE (`60c54db5`): `fieldSlotSize` gives v128 a 16-byte slot (offsets were already a running sum);
       struct.new/get/set copy `field.size` bytes (8 scalar/ref, 16 v128) into the tagless Value union; the

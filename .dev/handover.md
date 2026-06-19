@@ -39,15 +39,16 @@ consolidate the duplicated spill helpers into a shared op_simd.zig pub set.
 
 0. **ADR-0195 guest↔guest async — CAMPAIGN COMPLETE** (D-335 closed; detail in git + ADR-0195; residuals D-463
    CLOSED / D-464 future-bucket). **D-461 v128-DST-spill arc COMPLETE both arches** (FP replace_lane @4acd24152).
-1. **D-034 SIMD spill arc CLOSED @411dd1e14** — no active bundle; ZERO `now`-class debt remains. **NEXT FRONT =
-   D-460 v128-array.copy** (debt-swept 2026-06-19; UNBLOCKED — its only blocker was the D-034 spill cohort, now
-   closed). The last D-460 slice: `jitGcArrayCopy` trampoline's per-element byte copy must use `FieldInfo.size`
-   (16 for a v128 element, not the scalar stride), both arches. Self-contained, non-consumer-gated. Test vehicle:
-   `runner_gc_test.zig` runI32Export with an `(array (mut v128))` copy round-trip → extract → i32 (verify vs
-   wasmtime GC flags). THEN low-pri: the D-034 helper-consolidation (dedup resolveOrLoadV128/loadV128Into*/
-   dstHomeOrXmm7*/store* across op_simd_float/int_cmp_lane/int_arith into a shared op_simd.zig pub set; behaviour-
-   preserving — the byte-asserting unit tests + spill fixtures are the safety net). Consumer-gated (do NOT grind):
-   D-305 rare CM shapes, D-464 broader async, D-294-R2 code-2 CLI-message polish (conformance-neutral).
+1. **D-034 SIMD spill arc CLOSED @411dd1e14** — no active bundle; ZERO `now`-class debt; **D-460 v128-GC arc ALSO
+   COMPLETE** (array.copy was already done @5292569e0 — the 2026-06-19 sweep misread a stale "REMAINING" line; a
+   confirm-before-implement survey caught it, D-460 → `note`, jit_abi.zig docstring corrected). The debt is at the
+   完成形 plateau: remaining partials are parked (D-330/331), consumer-gated (D-305), or conformance-neutral polish
+   (D-294-R2 code-2 CLI sub-split — low value, suites match by kind). **NEXT (autonomous, your choice): (a) the
+   D-034 helper-consolidation** (dedup resolveOrLoadV128/loadV128Into*/dstHomeOrXmm7*/store* across op_simd_float/
+   int_cmp_lane/int_arith into a shared op_simd.zig pub set — behaviour-preserving, byte-asserting unit tests +
+   spill fixtures are the net; ideally after windows confirms the spill arc), **or (b) an opportunistic
+   `audit_scaffolding`** pass (timely after the 18-site arc + many debt edits; the last audit was 2026-06-18).
+   Consumer-gated (do NOT grind): D-305 rare CM shapes, D-464 broader async.
 2. **Audit DONE 2026-06-18 (CLEAN)** — `audit_scaffolding` 0 block/0 soon (J.3 chronic debt); fuzz 0 crashes.
 3. **D-460 v128-GC: struct/array get/set/new_fixed emit DONE both arches** (@3d8be3c00/@8137c7268/@5292569e0; 6
    runI32Export fixtures). REMAINING = the v128-array.copy slice (item 1 NEXT). Consumer-gated, do NOT grind:
