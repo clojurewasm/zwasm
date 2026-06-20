@@ -314,6 +314,56 @@ fn fpLoadSysV(out: *[8]u8, is_f64: bool, x: u32, param_idx: u32) usize {
     return 5;
 }
 
+/// Win64 POSITIONAL load: arg `param_i` (byte off 8·i, base R8=args_ptr) → its
+/// slot register (slot = i+1). int → arg_gprs[slot] (RDX/R8/R9), float →
+/// XMM{slot} via MOVSS/MOVSD. R8 is the base so every encoding carries REX.B;
+/// int dests R8/R9 add REX.R. Returns the instruction length. The body reads
+/// param `i` from exactly this register (survey-confirmed Win64 two-bank-by-slot).
+fn loadParamWin64(out: *[8]u8, param_i: u32, pt: @import("../../../ir/zir.zig").ValType) usize {
+    const off: u32 = 8 * param_i;
+    const slot = param_i + 1; // 1, 2, 3
+    switch (pt) {
+        .i32, .i64, .ref => {
+            // dest GPR by slot: 1→RDX(reg2,REX.W+B), 2→R8(reg0,REX.W+R+B), 3→R9(reg1,+R+B).
+            const rex: u8 = switch (slot) {
+                1 => 0x49, // REX.W+B (base R8)
+                2, 3 => 0x4D, // + REX.R (dest R8/R9)
+                else => unreachable,
+            };
+            const reg: u8 = switch (slot) {
+                1 => 2, // RDX
+                2 => 0, // R8
+                3 => 1, // R9
+                else => unreachable,
+            };
+            out[0] = rex;
+            out[1] = 0x8B;
+            if (off == 0) {
+                out[2] = (reg << 3) | 0; // mod=00, rm=R8(0)
+                return 3;
+            }
+            out[2] = (@as(u8, 0b01) << 6) | (reg << 3) | 0; // mod=01 disp8
+            out[3] = @intCast(off);
+            return 4;
+        },
+        .f32, .f64 => {
+            out[0] = if (pt == .f64) 0xF2 else 0xF3;
+            out[1] = 0x41; // REX.B (base R8)
+            out[2] = 0x0F;
+            out[3] = 0x10;
+            const reg: u8 = @intCast(slot); // XMM{slot}
+            if (off == 0) {
+                out[4] = (reg << 3) | 0; // mod=00, rm=R8(0)
+                return 5;
+            }
+            out[4] = (@as(u8, 0b01) << 6) | (reg << 3) | 0; // mod=01 disp8
+            out[5] = @intCast(off);
+            return 6;
+        },
+        .v128 => unreachable, // rejected by the caller
+    }
+}
+
 /// x86_64 Win64 wrapper emit. Public so byte-sequence unit
 /// tests can exercise it on Mac/Linux hosts (the bytes are
 /// host-independent; runtime execution requires Win64).
@@ -380,13 +430,14 @@ pub fn emitX8664Win64(
 ) Error!EmitOutput {
     const n_params = params.sig.params.len;
     const n_results = params.sig.results.len;
-    // FP params = a later D-477 slice (this thunk marshals GPR params only;
-    // GPR/XMM RESULTS are both handled below).
-    if (n_params != 0 and !all_gpr_class(params.sig.params)) return Error.UnsupportedOp;
+    // v128 params/results = a later D-477 slice (16B ≠ 8B slot). f32/f64 params
+    // ARE handled below via Win64's POSITIONAL XMM bank.
+    if (contains_v128(params.sig.params) or contains_v128(params.sig.results)) return Error.UnsupportedOp;
     const results_all_gpr = all_gpr_class(params.sig.results);
     const results_all_xmm = all_xmm_class(params.sig.results);
     if (!results_all_gpr and !results_all_xmm) return Error.UnsupportedOp;
-    // Win64 GPR arg registers after RCX=rt are RDX, R8, R9 → ≤3 register params.
+    // Win64 arg registers after RCX=rt occupy POSITIONAL slots 1..3 (RDX/R8/R9 for
+    // int, XMM1/XMM2/XMM3 for FP — slot N uses either the GPR or the XMM by type).
     // ≥4 params need stack args above the 32B shadow space (defer to a later slice).
     if (n_params > 3) return Error.UnsupportedOp;
 
@@ -428,33 +479,40 @@ pub fn emitX8664Win64(
         return .{ .bytes = try bytes.toOwnedSlice(allocator) };
     }
 
-    // D-477 generic GPR register-class: n_params ≤ 3, n_results ∈ {1,2} GPR.
-    // Body (register-write) takes RCX=rt, p0=RDX, p1=R8, p2=R9; returns r0=RAX,
-    // r1=RDX. Wrapper entry (Win64): RCX=rt, RDX=results_ptr, R8=args_ptr. Save
-    // results_ptr to the shadow slot, marshal args with the reorder (p2→R9 FIRST,
-    // p0→RDX, p1→R8 LAST — R8 is the args base so it is consumed last), CALL, then
-    // write results back. Reproduces the prior 0/1/3-arg 2-int shapes byte-for-byte
-    // and adds 2-param + n_results==1. Alignment: entry RSP≡8, SUB 0x28→≡0, CALL→≡8.
-    if ((n_results == 1 or n_results == 2) and results_all_gpr) {
+    // D-477 generic two-bank positional path: n_params ≤ 3, n_results ∈ {1 (GPR
+    // or FP), 2 (GPR)}. Win64 assigns arg slot N (1-based after RCX=rt) to EITHER
+    // arg_gprs[N] (RDX/R8/R9) for int OR XMM{N} for float — positional. Wrapper
+    // entry: RCX=rt, RDX=results_ptr, R8=args_ptr. Save results_ptr to shadow;
+    // marshal each param from [R8+8i] into its slot register; CALL; write
+    // result(s) back. Emit order is [p2, p0, p1] — an INT p1 targets R8 (the args
+    // base) so it must be LAST; every other load (incl any FP, which targets XMM
+    // and never R8) reads R8 first. GPR-only shapes reproduce the prior bytes
+    // exactly. Alignment: entry RSP≡8, SUB 0x28→≡0, CALL→≡8.
+    if (n_results == 1 or (n_results == 2 and results_all_gpr)) {
         try bytes.appendSlice(allocator, &.{ 0x48, 0x83, 0xEC, 0x28 }); // SUB RSP, 0x28
-        try bytes.appendSlice(allocator, &.{ 0x48, 0x89, 0x54, 0x24, 0x20 }); // MOV [RSP+0x20], RDX
+        try bytes.appendSlice(allocator, &.{ 0x48, 0x89, 0x54, 0x24, 0x20 }); // MOV [RSP+0x20], RDX (save results_ptr)
         var pre_len: u32 = 4 + 5;
-        if (n_params >= 3) {
-            try bytes.appendSlice(allocator, &.{ 0x4D, 0x8B, 0x48, 0x10 }); // MOV R9, [R8+0x10] (p2)
-            pre_len += 4;
-        }
-        if (n_params >= 1) {
-            try bytes.appendSlice(allocator, &.{ 0x49, 0x8B, 0x10 }); // MOV RDX, [R8] (p0)
-            pre_len += 3;
-        }
-        if (n_params >= 2) {
-            try bytes.appendSlice(allocator, &.{ 0x4D, 0x8B, 0x40, 0x08 }); // MOV R8, [R8+0x08] (p1, last)
-            pre_len += 4;
+        var buf: [8]u8 = undefined;
+        // Order [p2, p0, p1]: p1 (slot 2) is the only one that can target R8.
+        for ([_]?usize{ if (n_params >= 3) 2 else null, if (n_params >= 1) 0 else null, if (n_params >= 2) 1 else null }) |maybe_i| {
+            const i = maybe_i orelse continue;
+            const len = loadParamWin64(&buf, @intCast(i), params.sig.params[i]);
+            try bytes.appendSlice(allocator, buf[0..len]);
+            pre_len += @intCast(len);
         }
         try emitCallRel32(allocator, &bytes, params, pre_len);
-        try bytes.appendSlice(allocator, &.{ 0x4C, 0x8B, 0x44, 0x24, 0x20 }); // MOV R8, [RSP+0x20]
-        try bytes.appendSlice(allocator, &.{ 0x49, 0x89, 0x00 }); // MOV [R8], RAX (r0)
-        if (n_results == 2) try bytes.appendSlice(allocator, &.{ 0x49, 0x89, 0x50, 0x08 }); // MOV [R8+8], RDX (r1)
+        try bytes.appendSlice(allocator, &.{ 0x4C, 0x8B, 0x44, 0x24, 0x20 }); // MOV R8, [RSP+0x20] (restore results_ptr)
+        if (n_results == 1) {
+            switch (params.sig.results[0]) {
+                .i32, .i64, .ref => try bytes.appendSlice(allocator, &.{ 0x49, 0x89, 0x00 }), // MOV [R8], RAX
+                .f32 => try bytes.appendSlice(allocator, &.{ 0xF3, 0x41, 0x0F, 0x11, 0x00 }), // MOVSS [R8], XMM0
+                .f64 => try bytes.appendSlice(allocator, &.{ 0xF2, 0x41, 0x0F, 0x11, 0x00 }), // MOVSD [R8], XMM0
+                .v128 => unreachable,
+            }
+        } else {
+            try bytes.appendSlice(allocator, &.{ 0x49, 0x89, 0x00 }); // MOV [R8], RAX (r0)
+            try bytes.appendSlice(allocator, &.{ 0x49, 0x89, 0x50, 0x08 }); // MOV [R8+8], RDX (r1)
+        }
         try bytes.appendSlice(allocator, &.{ 0x48, 0x83, 0xC4, 0x28 }); // ADD RSP, 0x28
         try bytes.appendSlice(allocator, &.{ 0x31, 0xC0, 0xC3 }); // XOR EAX,EAX ; RET
         return .{ .bytes = try bytes.toOwnedSlice(allocator) };
@@ -884,6 +942,41 @@ test "wrapper_thunk: emitX8664SysV D-477 mixed (i32,f32)->f32 — two banks inde
     try testing.expectEqualSlices(u8, &.{ 0x48, 0x8B, 0x32 }, out.bytes[8..11]); // MOV RSI,[RDX] (p0 i32 → GPR bank)
     try testing.expectEqualSlices(u8, &.{ 0xF3, 0x0F, 0x10, 0x42, 0x08 }, out.bytes[11..16]); // MOVSS XMM0,[RDX+8] (p1 f32 → FP bank)
     try testing.expectEqualSlices(u8, &.{ 0xF3, 0x0F, 0x11, 0x06 }, out.bytes[29..33]); // MOVSS [RSI],XMM0 (result)
+}
+
+test "wrapper_thunk: emitX8664Win64 D-477 FP (f64,f64)->f64 — positional XMM1/XMM2 + MOVSD result (42 bytes)" {
+    // SIBLING-AT: src/engine/codegen/shared/wrapper_thunk.zig (emitAarch64/emitX8664SysV FP banks)
+    if (comptime builtin.cpu.arch != .x86_64) return;
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    const VT = @import("../../../ir/zir.zig").ValType;
+    const p = [_]VT{ .f64, .f64 };
+    const results = [_]VT{.f64};
+    const out = try emitX8664Win64(testing.allocator, .{ .sig = .{ .params = &p, .results = &results }, .body_offset = 100, .thunk_offset = 0 });
+    defer testing.allocator.free(out.bytes);
+    try testing.expectEqual(@as(usize, 42), out.bytes.len);
+    // Positional: p0 → XMM1 (slot 1), p1 → XMM2 (slot 2). R8 = args base.
+    try testing.expectEqualSlices(u8, &.{ 0xF2, 0x41, 0x0F, 0x10, 0x08 }, out.bytes[9..14]); // MOVSD XMM1,[R8] (p0)
+    try testing.expectEqualSlices(u8, &.{ 0xF2, 0x41, 0x0F, 0x10, 0x50, 0x08 }, out.bytes[14..20]); // MOVSD XMM2,[R8+8] (p1)
+    try testing.expectEqual(@as(u8, 0xE8), out.bytes[20]); // CALL
+    try testing.expectEqual(@as(i32, 75), std.mem.readInt(i32, out.bytes[21..25], .little)); // 100-(20+5)
+    try testing.expectEqualSlices(u8, &.{ 0xF2, 0x41, 0x0F, 0x11, 0x00 }, out.bytes[30..35]); // MOVSD [R8],XMM0 (result)
+}
+
+test "wrapper_thunk: emitX8664Win64 D-477 mixed (i32,f32)->f32 — positional RDX + XMM2 (40 bytes)" {
+    // SIBLING-AT: src/engine/codegen/shared/wrapper_thunk.zig (emitAarch64/emitX8664SysV FP banks)
+    if (comptime builtin.cpu.arch != .x86_64) return;
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    const VT = @import("../../../ir/zir.zig").ValType;
+    const p = [_]VT{ .i32, .f32 };
+    const results = [_]VT{.f32};
+    const out = try emitX8664Win64(testing.allocator, .{ .sig = .{ .params = &p, .results = &results }, .body_offset = 100, .thunk_offset = 0 });
+    defer testing.allocator.free(out.bytes);
+    try testing.expectEqual(@as(usize, 40), out.bytes.len);
+    // Positional: p0 i32 → slot 1 = RDX; p1 f32 → slot 2 = XMM2 (NOT XMM0/1).
+    try testing.expectEqualSlices(u8, &.{ 0x49, 0x8B, 0x10 }, out.bytes[9..12]); // MOV RDX,[R8] (p0)
+    try testing.expectEqualSlices(u8, &.{ 0xF3, 0x41, 0x0F, 0x10, 0x50, 0x08 }, out.bytes[12..18]); // MOVSS XMM2,[R8+8] (p1)
+    // CALL @18 (5B), restore MOV R8,[RSP+0x20] @23 (5B), then the result store @28.
+    try testing.expectEqualSlices(u8, &.{ 0xF3, 0x41, 0x0F, 0x11, 0x00 }, out.bytes[28..33]); // MOVSS [R8],XMM0 (result)
 }
 
 test "wrapper_thunk: emitX8664Win64 3-arg 2-int register-class (i64, i64, i32) -> (i64, i32) (44 bytes)" {
