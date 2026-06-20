@@ -21,8 +21,8 @@
 //! is skipped. Modules with imports are skipped (interp instantiate fails without
 //! a host → the whole module is skipped, avoiding an import asymmetry).
 //!
-//! REPORT-ONLY for now (prints MISMATCH details, exits 0 unless it crashes); a
-//! follow-up flips it to gating once a clean baseline is confirmed.
+//! GATING: prints each MISMATCH (module / func / values) and exits non-zero if
+//! any divergence is seen (the campaign baseline confirmed 122 funcs / 0 mismatch).
 //!
 //! Usage: `zig build test-fuzz-exec` (seed corpus) / `zwasm-fuzz-exec <dir>`.
 
@@ -150,7 +150,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     try stdout.print(
-        "\nfuzz_exec: {d} processed, {d} modules compared, {d} funcs compared, {d} mismatched (interp-vs-JIT) — REPORT-ONLY\n",
+        "\nfuzz_exec: {d} processed, {d} modules compared, {d} funcs compared, {d} mismatched (interp-vs-JIT) — GATING\n",
         .{ processed, modules_compared, funcs_compared, mismatched },
     );
     try stdout.flush();
@@ -160,4 +160,8 @@ pub fn main(init: std.process.Init) !void {
         try stdout.flush();
         std.process.exit(1);
     }
+    // GATING: a value/trap divergence between the interp and the JIT on the same
+    // function is a real bug (a JIT-execute miscompile). The campaign run validated
+    // the comparison (122 funcs, 0 mismatch), so any future mismatch is a finding.
+    if (mismatched != 0) std.process.exit(1);
 }
