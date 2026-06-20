@@ -49,19 +49,18 @@ value/trap/loop/call + **FP** + trap-kind modules, toolchain-free). f32/f64 resu
 incomparable = interp binding_error / JIT generic-bucket) — closes the both-trap-OK blind spot that hid this
 session's 6 GC-trap-kind bugs. Seed = 9 funcs (div_by_zero/unreachable_/oob_memory kinds), 0 mismatch; **FUZZ_N=4000
 campaign 2163 modules / 315 funcs, 0 mismatch** (kind compare = 0 false-positive at scale). Param-widening stays out.
-**FUZZ campaigns (10000 modules) PRODUCTIVE — 4 real bugs found + fixed this session** (sweep NOT at floor):
-- **@222a2e45b** — wasmtime-diff spike: `--engine jit --invoke` dropped i32 / errored i64/f32/f64; runWasiLenient
-  u32-return dual-meaning split onto a result_out channel. Spike (wasmtime `--invoke` vs zwasm) is productive.
-- **@66acaeee0** — JIT table arena `@min(max,65536)` < `min` (non-funcref min>65536) → setup OOB-write SEGV.
-  Fix: `@max(tm.min, @min(max,cap))`.
-- **@9313c37a8** — exec-fuzz false-positive: interp has NO SIMD (JIT-only — lesson
-  `2026-06-20-interp-is-non-simd-jit-only`). Fix: skip an interp `unreachable_` the JIT doesn't mirror.
-- **@18df72ec1 (D-471)** — JIT try_table in DEAD CODE integer-overflow PANIC (both arches): dead-code emit
-  pushed placeholder labels for block/loop/if but NOT try_table, so its `end` popped an enclosing frame →
-  label-stack undercount → `labels_depth_outer - label_idx` underflow. Fix: push a block-kind placeholder for
-  try_table in the dead-code switch. Verified arm64+x86_64-macos; regression test + fuzz-seed; campaign 0-crash.
-Re-inventory (Explore subagent) found 0 runtime-reachable category-(a) gaps. JIT `--invoke NAME=ARGS` = arity limit.
-NEXT: more fuzz campaigns (fresh seeds / varied smith config) — they keep finding real codegen/runtime bugs.
+**FUZZ campaigns PRODUCTIVE — 5 real bugs found + fixed this session** (sweep NOT at floor; detail in git):
+- **@222a2e45b** — `--engine jit --invoke` dropped/errored value results (runWasiLenient u32 dual-meaning → result_out).
+- **@66acaeee0** — JIT table arena `@min(max,65536)`<`min` → setup OOB SEGV. Fix `@max(tm.min,@min(max,cap))`.
+- **@9313c37a8** — exec-fuzz false-positive: interp has NO SIMD (JIT-only; lesson `2026-06-20-interp-is-non-simd-jit-only`).
+- **@18df72ec1 (D-471)** — JIT try_table in DEAD CODE panic: dead-code emit didn't push a placeholder label for
+  try_table → its `end` popped an enclosing frame → `labels_depth_outer - label_idx` underflow. Both arches.
+- **@3daee4592 (D-472)** — `array.new` const-expr huge length×element_size u32-overflow PANIC. Fix: u64 size +
+  OutOfHeap cap (mirrors object_alloc). Found by the **varied-config campaign** (gc + extended-const + deep nesting).
+Re-inventory found 0 runtime-reachable category-(a) gaps. **D-473 noted**: JIT setup global-init swallows
+evalGlobalInitGc errors (incl OutOfHeap) to a 0 global → niche interp-vs-JIT divergence (panic already fixed).
+NEXT: more varied smith-config campaigns (different knobs) — the varied config (deep nesting / all proposals /
+big funcs) finds bugs the default config misses. Productive technique: regen config + run exec+loader fuzz, fix, repeat.
 
 **Phase 17 完成形 plateau** (validated — do NOT re-walk): async COMPLETE; v128 spill (D-034/D-460/D-461) CLOSED;
 surface audits clean 2026-06-18; fuzz 0-crash; realworld JIT run 56/56 byte-match wasmtime (gating). NOT-WORTH: D-294-R2 TrapKind.

@@ -3,6 +3,30 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-473"
+    layer: "code"
+    status: "note"
+    description: |-
+      JIT setup global-init SILENT FALLBACK (gap-#1 divergence, niche). The JIT
+      setup path (`setup.zig` global-init loop) wraps the GC const-expr evaluator
+      as `instantiate.evalGlobalInitGc(...) catch .{ .bits128 = 0 }` — it SWALLOWS
+      every error (incl. a real `OutOfHeap` resource trap, surfaced by D-472's
+      array.new const-expr overflow fix) to a 0 global. The interp instantiate
+      path (`instantiateRuntime`) instead PROPAGATES OutOfHeap → instantiation
+      fails (wasmtime parity). So a too-large GC global const-expr: interp rejects,
+      JIT runs with a 0 global = an interp-vs-JIT divergence. Also the general
+      `UnsupportedConstExpr → 0` fallback may hide a genuine miscompile (JIT uses 0
+      for a global the interp evaluates). DISCHARGE: distinguish a real trap
+      (OutOfHeap → propagate, needs the setup error set to carry/map it to a
+      runner.Error variant) from a genuinely-unsupported-shape fallback (verify the
+      latter is interp-parity / unreachable, else fix). Low priority: the trigger
+      (const-expr array.new with length×size > 4 GiB) is extremely rare; the PANIC
+      it caused is already fixed (D-472).
+    first_raised: "2026-06-20"
+    last_reviewed: "2026-06-20"
+    refs: |-
+      src/engine/setup.zig:624-629 (global-init catch -> .bits128 = 0)
+      src/runtime/instance/instantiate.zig evalGlobalInitGc (OutOfHeap source)
   - id: "D-314"
     layer: "code"
     status: "note"
