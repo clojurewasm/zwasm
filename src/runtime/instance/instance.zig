@@ -49,6 +49,14 @@ pub const Instance = struct {
     /// C-API binding casts at the boundary.
     module: ?*const anyopaque,
     runtime: ?*Runtime,
+    /// ADR-0200 — JIT-backed engine handle (`engine/runner.zig::JitInstance`),
+    /// the per-instance alternative to the interp `runtime`. Exactly one of
+    /// `runtime` / `jit` is non-null (the engine fork chosen at instantiate).
+    /// Held as `?*anyopaque` because this Zone-1 file MUST NOT import Zone-2
+    /// `engine/`; the Zone-3 api / native facade casts at the boundary
+    /// (mirrors `module: ?*const anyopaque`). NOT a reuse of `runtime`
+    /// (single_slot_dual_meaning): each carries distinct engine state.
+    jit: ?*anyopaque = null,
     /// Per-instance arena holding every derived-state slice. A
     /// single `arena.deinit()` releases types, lowered ZirFunc
     /// state, the func-pointer table — uniformly. Owned (heap-

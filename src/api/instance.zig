@@ -35,6 +35,7 @@ const trap_surface = @import("trap_surface.zig");
 const vec = @import("vec.zig");
 const dispatch = @import("../interp/dispatch.zig");
 const interp_mvp = @import("../interp/mvp.zig");
+const runner = @import("../engine/runner.zig"); // ADR-0200 JIT engine (Zone 2)
 const build_options = @import("build_options");
 const wasm_2_0_enabled = @intFromEnum(build_options.wasm_level) >= @intFromEnum(@as(@TypeOf(build_options.wasm_level), .v2_0));
 const wasm_3_0_enabled = @intFromEnum(build_options.wasm_level) >= @intFromEnum(@as(@TypeOf(build_options.wasm_level), .v3_0));
@@ -630,8 +631,58 @@ pub export fn wasm_instance_new(
 /// that threads per-instance runtime budgets (ADR-0179). Mirrors
 /// `wasm_instance_new` with a null imports vector but accepts `limits` so fuel /
 /// memory caps are armed before the start function and the initial allocation.
-pub fn instantiateFacade(store: *Store, module: *const Module, trap_out: ?*?*Trap, limits: InstantiateLimits) ?*Instance {
+/// ADR-0200 — per-instance engine selection. `auto` lets the runtime pick
+/// (eventually JIT-default, interp fallback on a JIT-less arch); `jit` /
+/// `interp` force one. The default ratified shape is JIT-default; until the
+/// JIT path covers host imports + WASI, `auto` routes to interp so existing
+/// import-using facade modules keep working — see `instantiateFacade`.
+pub const EngineKind = enum { auto, jit, interp };
+
+pub fn instantiateFacade(store: *Store, module: *const Module, trap_out: ?*?*Trap, limits: InstantiateLimits, engine: EngineKind) ?*Instance {
+    // TODO(ADR-0200): route `.auto` → JIT once the host-import / WASI bridge
+    // lands; until then `.auto` = interp so import-using modules keep working
+    // (defer, not workaround — the JIT path is no-import-only this increment).
+    if (engine == .jit) return instantiateJit(store, module, limits);
     return instantiateInternal(store, module, BuildBindingsCApi{ .imports_array = null }, trap_out, limits);
+}
+
+/// ADR-0200 — build a JIT-backed `Instance` (`runtime == null`, `jit` set).
+/// The smallest increment: a no-import compute module compiled to native code
+/// via `engine/runner.zig::JitInstance`. Host imports + WASI are a later slice
+/// (the `func_import_targets` / `wasi_host` plumbing in the impl map). The
+/// borrowed `wasm_bytes` live in the owning `Module`, which outlives the
+/// instance, and the `JitInstance` is heap-pinned so `exportedFuncTarget`'s
+/// `&owned.rt` stays stable.
+fn instantiateJit(store: *Store, module: *const Module, limits: InstantiateLimits) ?*Instance {
+    const alloc = storeAllocator(store) orelse return null;
+    const bytes_ptr = module.bytes_ptr orelse return null;
+    const bytes = bytes_ptr[0..module.bytes_len];
+
+    const jit = alloc.create(runner.JitInstance) catch return null;
+    jit.* = runner.JitInstance.init(alloc, bytes) catch {
+        alloc.destroy(jit);
+        return null;
+    };
+    // ADR-0179 budgets: the JIT meters poll-site crossings (not interp insns);
+    // null axes stay unmetered. Memory cap clamps `memory.grow` at setup.
+    jit.setFuel(limits.fuel);
+    jit.setMemoryPagesLimit(limits.max_memory_pages);
+
+    const inst = alloc.create(Instance) catch {
+        jit.deinit(alloc);
+        alloc.destroy(jit);
+        return null;
+    };
+    inst.* = .{
+        .store = store,
+        .module = module,
+        .runtime = null,
+        .jit = jit,
+    };
+    // D-174 live-instance registry so wasm_store_delete cascades teardown.
+    // EXEMPT-FALLBACK: D-174 — append OOM degrades to forward-order-only teardown (matches interp path).
+    store.live_instances.append(alloc, @ptrCast(inst)) catch {};
+    return inst;
 }
 
 /// Shape produced by either the c_api Extern path (`wasm_instance_new`)
@@ -904,6 +955,13 @@ pub export fn wasm_instance_delete(i: ?*Instance) callconv(.c) void {
     // free so wasm_store_delete doesn't try to cascade-cleanup an
     // already-freed handle.
     removeFromLiveInstances(store, handle);
+    if (handle.jit) |jp| {
+        // ADR-0200 — JIT-backed instance: free the heap-pinned JitInstance.
+        const jit: *runner.JitInstance = @ptrCast(@alignCast(jp));
+        jit.deinit(alloc);
+        alloc.destroy(jit);
+        handle.jit = null;
+    }
     if (handle.runtime) |rt| {
         if (handle.arena) |arena| {
             // Park instead of free. If parkAsZombie OOMs we accept

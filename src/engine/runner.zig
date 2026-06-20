@@ -991,6 +991,16 @@ pub const JitInstance = struct {
         if (self.owned.mem_ctx) |ctx| ctx.host_max_pages = max_pages;
     }
 
+    /// ADR-0200 — surface a named export's function signature (params/results)
+    /// without invoking, so the embedding API can validate arity + type results.
+    /// Null when `name` is not an exported function. The JIT path populates no
+    /// `exports_storage`, so this resolves via `findExportFunc` over the bytes.
+    pub fn exportFuncSig(self: *JitInstance, allocator: Allocator, name: []const u8) ?FuncType {
+        const idx = findExportFunc(allocator, self.wasm_bytes, name) catch return null;
+        if (idx >= self.compiled.func_sigs.len) return null;
+        return self.compiled.func_sigs[idx];
+    }
+
     /// Wider arities / v128 result / non-scalar args → `UnsupportedEntrySignature`.
     pub fn invoke(self: *JitInstance, allocator: Allocator, export_name: []const u8, args: []const u64) Error!?u64 {
         const func_idx = try findExportFunc(allocator, self.wasm_bytes, export_name);

@@ -18,6 +18,8 @@ const _runtime_value = @import("../runtime/value.zig");
 const _runtime_trap = @import("../runtime/trap.zig");
 const _dispatch = @import("../interp/dispatch.zig");
 const _zir = @import("../ir/zir.zig");
+const _runner = @import("../engine/runner.zig"); // ADR-0200 JIT engine (Zone 2)
+const _trap_surface = @import("../api/trap_surface.zig"); // JIT trap_kind → TrapKind
 
 const _memory = @import("memory.zig");
 const _global = @import("global.zig");
@@ -211,6 +213,11 @@ pub const Instance = struct {
         /// the guest (a clean noreturn termination, NOT a wasm trap). The
         /// component-run caller catches it and reads the recorded code.
         ProcExit,
+        /// ADR-0200 — the selected engine (currently the JIT) cannot yet invoke
+        /// this export's signature (e.g. v128 / ref args, FP/v128 results, or an
+        /// arity past the host-invoke thunk coverage). The interp engine has no
+        /// such gap; surface it distinctly so a host can fall back to `.interp`.
+        UnsupportedEngineSignature,
     } || Trap;
 
     /// Wasm spec §4.5.3 + §4.4 — invoke an exported function by name.
@@ -222,6 +229,16 @@ pub const Instance = struct {
         args: []const _zwasm.Value,
         results: []_zwasm.Value,
     ) InvokeError!void {
+        // ADR-0200 — JIT-backed instance (`runtime == null`, `jit` set): route
+        // to the native engine. The interp body below assumes `runtime != null`.
+        if (self.handle.runtime == null) {
+            if (self.handle.jit) |jp| {
+                const jit: *_runner.JitInstance = @ptrCast(@alignCast(jp));
+                return self.invokeJit(jit, name, args, results);
+            }
+            return error.ExportNotFound; // no engine attached
+        }
+
         // ADR-0179 #3a: the facade runs the body via `dispatch.run` directly
         // (not `mvp.invoke`), so the function-entry interrupt poll must happen
         // here; the throttled loop poll inside `dispatch.run` covers tight loops.
@@ -318,7 +335,115 @@ pub const Instance = struct {
         }
         rt.operand_len = op_base;
     }
+
+    /// ADR-0200 — JIT engine invoke arm. Resolves the export sig (for arity +
+    /// result typing), marshals scalar args to the JIT's u64 bit-carriers, runs
+    /// via `JitInstance.invoke`, and unpacks the single scalar result. v128 / ref
+    /// args+results and uncovered arities surface `UnsupportedEngineSignature`
+    /// (the JIT host-invoke coverage gap — a host may retry on `.interp`).
+    fn invokeJit(
+        self: *Instance,
+        jit: *_runner.JitInstance,
+        name: []const u8,
+        args: []const _zwasm.Value,
+        results: []_zwasm.Value,
+    ) InvokeError!void {
+        const store = self.handle.store orelse return error.ExportNotFound;
+        const alloc = _api_instance.storeAllocator(store) orelse return error.OutOfMemory;
+
+        const sig = jit.exportFuncSig(alloc, name) orelse return error.ExportNotFound;
+        if (args.len != sig.params.len) return error.ArgArityMismatch;
+        if (results.len != sig.results.len) return error.ResultArityMismatch;
+
+        if (args.len > 16) return error.UnsupportedEngineSignature;
+        var abuf: [16]u64 = undefined;
+        for (args, 0..) |a, i| abuf[i] = jitArgBits(a);
+
+        const got = jit.invoke(alloc, name, abuf[0..args.len]) catch |err|
+            return mapJitErr(err, jit);
+
+        if (sig.results.len == 0) return;
+        // Single-result shape. `got == null` ⇒ the result ran via the JIT void
+        // path (a ref result run for side effects — D-222): no scalar to unpack,
+        // so a ref result is not yet retrievable through this arm (a later slice
+        // routes ref/v128/multi results via `invokeMulti`). Scalars decode by
+        // valtype.
+        const bits = got orelse return error.UnsupportedEngineSignature;
+        results[0] = jitResultValue(sig.results[0], bits) orelse
+            return error.UnsupportedEngineSignature;
+    }
 };
+
+/// ADR-0200 — marshal a facade `Value` to the JIT host-invoke u64 bit-carrier
+/// (declaration order). i32/f32 occupy the low 32 bits. v128/ref carriers are
+/// passed through but `JitInstance.invoke` rejects those param kinds before use.
+fn jitArgBits(v: _zwasm.Value) u64 {
+    return switch (v) {
+        .i32 => |x| @as(u64, @as(u32, @bitCast(x))),
+        .i64 => |x| @bitCast(x),
+        .f32 => |b| @as(u64, b),
+        .f64 => |b| b,
+        .v128 => |b| @truncate(b),
+        .funcref => |r| r orelse 0,
+        .externref => |r| r orelse 0,
+    };
+}
+
+/// ADR-0200 — decode a JIT scalar result u64 into a facade `Value` by valtype.
+/// Null for v128 / ref results (not retrievable via the single-u64 arm).
+fn jitResultValue(vt: _zir.ValType, bits: u64) ?_zwasm.Value {
+    return switch (vt) {
+        .i32 => .{ .i32 = @bitCast(@as(u32, @truncate(bits))) },
+        .i64 => .{ .i64 = @bitCast(bits) },
+        .f32 => .{ .f32 = @truncate(bits) },
+        .f64 => .{ .f64 = bits },
+        .v128 => null,
+        .ref => null,
+    };
+}
+
+/// ADR-0200 — map a JIT engine error to the facade `InvokeError`. Runtime traps
+/// surface as `entry.Error.Trap` with a numeric kind on the JIT runtime; the
+/// compile-time-only `runner.Error` variants cannot arise from a post-instantiate
+/// invoke (the module already compiled) — reaching one is a bug.
+fn mapJitErr(err: _runner.Error, jit: *_runner.JitInstance) Instance.InvokeError {
+    return switch (err) {
+        error.ExportNotFound => error.ExportNotFound,
+        error.ExportIsNotFunction => error.NotAFunc,
+        error.UnsupportedEntrySignature => error.UnsupportedEngineSignature,
+        error.OutOfMemory => error.OutOfMemory,
+        error.Trap => jitTrapToError(jit.owned.rt.trap_kind),
+        else => @panic("zwasm.Instance.invokeJit: compile-time runner.Error from a post-instantiate invoke"),
+    };
+}
+
+/// ADR-0200 — map the JIT runtime's numeric `trap_kind` (the stub-recorded code)
+/// to the facade `Trap` error. The generic bucket (codes the codegen does not
+/// yet distinguish, D-292) maps to `error.Unreachable` — honest pending the
+/// per-kind codegen widening; `oob_memory` collapses load/store (same D-292 gap).
+fn jitTrapToError(code: u32) Instance.InvokeError {
+    const kind = _trap_surface.jitTrapCode(code) orelse return error.Unreachable;
+    return switch (kind) {
+        .unreachable_ => error.Unreachable,
+        .div_by_zero => error.DivByZero,
+        .int_overflow => error.IntOverflow,
+        .invalid_conversion => error.InvalidConversionToInt,
+        .oob_memory => error.OutOfBoundsLoad,
+        .oob_table => error.OutOfBoundsTableAccess,
+        .uninitialized_elem => error.UninitializedElement,
+        .indirect_call_mismatch => error.IndirectCallTypeMismatch,
+        .stack_overflow => error.StackOverflow,
+        .out_of_memory => error.OutOfMemory,
+        .null_reference => error.NullReference,
+        .cast_failure => error.CastFailure,
+        .uncaught_exception => error.UncaughtException,
+        .unaligned_atomic => error.UnalignedAtomic,
+        .expected_shared_memory => error.ExpectedSharedMemory,
+        .interrupted => error.Interrupted,
+        .out_of_fuel => error.OutOfFuel,
+        .binding_error => error.Unreachable,
+    };
+}
 
 /// Narrow `dispatch.run`'s `anyerror!void` return back to the
 /// `Trap`-shaped set the spec actually defines. `else => @panic`
@@ -391,6 +516,30 @@ test "facade Instance.interrupt(): a pending interrupt traps the next invoke; cl
     try testing.expect(!inst.interruptRequested());
     try inst.invoke("f", &.{}, &results);
     try testing.expectEqual(@as(i32, 42), results[0].i32);
+}
+
+test "facade engine=.jit: opt-in JIT instance invokes a no-import compute export (ADR-0200)" {
+    // (module (func (export "add") (param i32 i32) (result i32)
+    //   local.get 0 local.get 1 i32.add))
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // magic + version
+        0x01, 0x07, 0x01, 0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7f, // type: (i32 i32)->i32
+        0x03, 0x02, 0x01, 0x00, // func: type 0
+        0x07, 0x07, 0x01, 0x03, 0x61, 0x64, 0x64, 0x00, 0x00, // export "add" func 0
+        0x0a, 0x09, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x01, 0x6a, 0x0b, // code: i32.add
+    };
+    var eng = try _zwasm.Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var mod = try eng.compile(&bytes);
+    defer mod.deinit();
+    var inst = try mod.instantiate(.{ .engine = .jit });
+    defer inst.deinit();
+    try testing.expect(inst.handle.runtime == null); // JIT-backed: no interp runtime
+    try testing.expect(inst.handle.jit != null);
+
+    var results = [_]_zwasm.Value{.{ .i32 = 0 }};
+    try inst.invoke("add", &.{ .{ .i32 = 2 }, .{ .i32 = 3 } }, &results);
+    try testing.expectEqual(@as(i32, 5), results[0].i32);
 }
 
 test "facade setMemoryPagesLimit: host cap refuses memory.grow past it (ADR-0179 #3c)" {

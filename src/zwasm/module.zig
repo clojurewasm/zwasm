@@ -129,6 +129,11 @@ pub const Module = struct {
         /// D-332 — host cap on a table's INITIAL declared element count (mirrors
         /// `max_memory_pages`; extends the grow-time `store_table_elements_max`).
         max_table_elements: Budget = .{ .limited = default_max_table_elements },
+        /// ADR-0200 — per-instance engine selection. `.auto` (default) routes to
+        /// interp until the JIT host-import bridge lands; `.jit` opts into the
+        /// native JIT engine (no-import compute modules this increment); `.interp`
+        /// forces the interpreter.
+        engine: _api_instance.EngineKind = .auto,
     };
 
     /// `StartTrapped` = the module's `(start)` function trapped during
@@ -163,7 +168,7 @@ pub const Module = struct {
         }
 
         var trap: ?*_trap_surface.Trap = null;
-        const inst = _api_instance.instantiateFacade(self.c_store, self.c_handle, &trap, limits) orelse {
+        const inst = _api_instance.instantiateFacade(self.c_store, self.c_handle, &trap, limits, opts.engine) orelse {
             if (trap) |t| {
                 _trap_surface.wasm_trap_delete(t); // facade owns the trap; free it
                 return error.StartTrapped;
