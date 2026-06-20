@@ -3,32 +3,6 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
-  - id: "D-474"
-    layer: "code"
-    status: "note"
-    description: |-
-      JIT-compile memory ACCUMULATION across many complex modules (gap-#3
-      instability, LOW severity — graceful, no crash). The loader-fuzz process,
-      run over a varied-config campaign (gc + EH + SIMD + multi-table + 3000-instr
-      funcs, smith_v2), grew to ~7 GiB RSS by ~module 3350/3776 (killed). NOT a
-      single-module blowup: an individual `zwasm run --engine jit <mod>` on EVERY
-      v2 module peaks < 500 MB (CLI scan found none). Per-process growth is modest
-      and sub-linear in isolation (300 mods → 127 MB, 1500 → 337 MB ≈ 0.2 MB/mod
-      retained), so 7 GiB is unexplained by uniform growth — a specific complex-
-      module cluster in 1500-3776 likely allocates a large transient that
-      `CompiledWasm.deinit` (or the loader's per-module cleanup) does not fully
-      release. Under a memory ulimit the loader OOMs gracefully and continues
-      (the offending compile is skipped). NOT seen on the DEFAULT smith config
-      (10008 small modules completed 0-crash). DISCHARGE: a DebugAllocator
-      (testing.allocator) leak test that compiles+deinits a COMPLEX module
-      (multi-table GC/EH/SIMD) — if it reports a leak, fix the deinit site (real
-      product leak for embedders calling compileWasm repeatedly); if clean, it is
-      allocator fragmentation / high-watermark (harness-only, lower priority).
-    first_raised: "2026-06-20"
-    last_reviewed: "2026-06-20"
-    refs: |-
-      test/fuzz/fuzz_loader.zig (Path 4 compileWasm loop)
-      src/engine/compile.zig compileWasm / CompiledWasm.deinit
   - id: "D-314"
     layer: "code"
     status: "note"

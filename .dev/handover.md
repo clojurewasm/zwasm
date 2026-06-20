@@ -60,10 +60,10 @@ campaign 2163 modules / 315 funcs, 0 mismatch** (kind compare = 0 false-positive
 Re-inventory found 0 runtime-reachable category-(a) gaps. **D-473 DONE @d9d3325db**: JIT setup global-init now
 propagates OutOfHeap (→ OutOfMemory, fail instantiation, interp parity) instead of swallowing to a 0 global. **3rd
 varied config (table/bulk-mem/atomics/relaxed-simd/multi-table, smith_v3) CLEAN** — 2500 mods 0-crash, exec 286
-funcs 0-mismatch. **2nd varied config (smith_v2) → D-474 noted** (low-sev JIT-compile mem accumulation ~7 GiB over
-3776 complex mods; no single-module blowup; graceful under cap; CompiledWasm.deinit leak vs fragmentation — needs
-a DebugAllocator leak test to discharge). NEXT: more varied smith-config campaigns (the technique found 5 bugs +
-fixed 2 divergences this session); the productive veins (gc/extended-const/dead-code/table-setup) are now fixed —
+funcs 0-mismatch. **D-474 CLOSED (disproven)**: the smith_v2 ~7 GiB loader RSS is NOT a compileWasm leak —
+DebugAllocator over 300 diverse modules = 0 leaks; it's page-allocator fragmentation / high-watermark, harness-only,
+graceful under a memory cap (lesson `2026-06-20-fuzz-loader-high-rss-is-fragmentation-not-leak`). NEXT: more varied
+smith-config campaigns (the technique found 5 bugs + 2 divergence fixes this session); productive veins fixed —
 remaining axes (v3 table/bulk) are clean, so try new axes (custom-page-sizes, shared-memory, deep multi-value).
 
 **Phase 17 完成形 plateau** (validated — do NOT re-walk): async COMPLETE; v128 spill (D-034/D-460/D-461) CLOSED;
