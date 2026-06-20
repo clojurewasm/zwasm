@@ -49,26 +49,28 @@ value/trap/loop/call + **FP** + trap-kind modules, toolchain-free). f32/f64 resu
 incomparable = interp binding_error / JIT generic-bucket) — closes the both-trap-OK blind spot that hid this
 session's 6 GC-trap-kind bugs. Seed = 9 funcs (div_by_zero/unreachable_/oob_memory kinds), 0 mismatch; **FUZZ_N=4000
 campaign 2163 modules / 315 funcs, 0 mismatch** (kind compare = 0 false-positive at scale). Param-widening stays out.
-**FUZZ campaigns PRODUCTIVE — 6 real bugs found + fixed this session** (sweep NOT at floor; detail in git):
-- **@fae437597** — parse REJECTED valid GC modules: imported-table elem_type + element `ref.null <heaptype>` both
-  hardcoded funcref/externref, rejecting anyref/eqref/structref/arrayref/null… → route via shared reftype reader.
-  Found by smith_v4 (custom-page-sizes + GC). **D-475 noted**: i64-indexed TABLES (memory64 table ext) still
-  rejected — a real feature gap (TableType has no idx_type; needs runtime i64-index, not a quick parse fix).
-- **@222a2e45b** — `--engine jit --invoke` dropped/errored value results (runWasiLenient u32 dual-meaning → result_out).
-- **@66acaeee0** — JIT table arena `@min(max,65536)`<`min` → setup OOB SEGV. Fix `@max(tm.min,@min(max,cap))`.
-- **@9313c37a8** — exec-fuzz false-positive: interp has NO SIMD (JIT-only; lesson `2026-06-20-interp-is-non-simd-jit-only`).
-- **@18df72ec1 (D-471)** — JIT try_table in DEAD CODE panic: dead-code emit didn't push a placeholder label for
-  try_table → its `end` popped an enclosing frame → `labels_depth_outer - label_idx` underflow. Both arches.
-- **@3daee4592 (D-472)** — `array.new` const-expr huge length×element_size u32-overflow PANIC. Fix: u64 size +
-  OutOfHeap cap (mirrors object_alloc). Found by the **varied-config campaign** (gc + extended-const + deep nesting).
-Re-inventory found 0 runtime-reachable category-(a) gaps. **D-473 DONE @d9d3325db**: JIT setup global-init now
-propagates OutOfHeap (→ OutOfMemory, fail instantiation, interp parity) instead of swallowing to a 0 global. **3rd
-varied config (table/bulk-mem/atomics/relaxed-simd/multi-table, smith_v3) CLEAN** — 2500 mods 0-crash, exec 286
-funcs 0-mismatch. **D-474 CLOSED (disproven)**: the smith_v2 ~7 GiB loader RSS is NOT a compileWasm leak —
-DebugAllocator over 300 diverse modules = 0 leaks; it's page-allocator fragmentation / high-watermark, harness-only,
-graceful under a memory cap (lesson `2026-06-20-fuzz-loader-high-rss-is-fragmentation-not-leak`). NEXT: more varied
-smith-config campaigns (the technique found 5 bugs + 2 divergence fixes this session); productive veins fixed —
-remaining axes (v3 table/bulk) are clean, so try new axes (custom-page-sizes, shared-memory, deep multi-value).
+**FUZZ campaigns found+fixed 6 real bugs + 2 divergences this session** (sweep NOT at floor; ALL detail in git):
+JIT --invoke result-drop @222a2e45b · table-arena SEGV @66acaeee0 · exec-fuzz SIMD false-positive @9313c37a8 ·
+try_table dead-code panic @18df72ec1 (D-471) · array.new const-expr overflow @3daee4592 (D-472) · GC-reftype parse
+reject @fae437597 · D-473 JIT global-init OutOfHeap propagation @d9d3325db. Disproven: interp-non-SIMD + D-474
+(loader 7GiB = fragmentation not leak, lesson). v3 (table/bulk/atomics) CLEAN. **OPEN gaps (debt): D-475** i64-tables
+(memory64 table ext — feature, needs TableType.idx_type). Campaign technique (varied smith config → exec+loader fuzz
+→ fix) is the productive sweep loop; new axes still surface ~1 gap each.
+
+## Active bundle
+
+- **Bundle-ID**: extended-const-arithmetic
+- **Cycles-remaining**: ~1
+- **Continuity-memo**: smith_v4 found zwasm REJECTS valid extended-const arithmetic (i32/i64 add/sub/mul =
+  0x6A/0x6B/0x6C/0x7C/0x7D/0x7E) in const-exprs (in-scope per ROADMAP §56). 5 pieces: (1) `init_expr.scanInitExpr`
+  accept the 6 ops (no immediate); (2) `instantiate.evalGlobalInitGc` eval them on its stack (pop2/push1, WRAPPING
+  +%/-%/*%) — VERIFIED working for interp globals; (3) `runner_validate.validateGlobalInitExpr` (JIT path, ~line 68)
+  is single-op → convert to a stack-based const-expr type-validator (else InvalidGlobalInitExpr); (4)
+  `runner_validate.evalConstOffsetU64` (~line 354) for data/elem active offsets — stack machine; (5) tests + a
+  global.get fixture. CAUTION: a PARTIAL fix (1+2 only) creates an interp-accepts/JIT-rejects DIVERGENCE — landed
+  this turn then REVERTED to stay consistent. Do ALL 5 in one commit.
+- **Exit-condition**: `(global i32 (i32.add (i32.const 40) (i32.const 2)))` reads 42 on BOTH engines + data-offset
+  extended-const lands correctly; full test gate green.
 
 **Phase 17 完成形 plateau** (validated — do NOT re-walk): async COMPLETE; v128 spill (D-034/D-460/D-461) CLOSED;
 surface audits clean 2026-06-18; fuzz 0-crash; realworld JIT run 56/56 byte-match wasmtime (gating). NOT-WORTH: D-294-R2 TrapKind.
