@@ -158,24 +158,76 @@ pub fn randomFill(host: *Host, dest: []u8) p1.Errno {
 // poll_oneoff
 // ============================================================
 
-/// `poll_oneoff(in_ptr, out_ptr, nsubscriptions,
-/// *nevents_out) → errno` — stub. With `nsubscriptions == 0`
-/// writes `nevents_out = 0` (vacuously satisfied poll). Any
-/// non-zero subscription count returns `notsup` until §9.4 /
-/// 4.10's realworld samples surface a guest that genuinely
-/// needs polling.
+/// `poll_oneoff(in_ptr, out_ptr, nsubscriptions, *nevents_out) → errno`.
+/// Blocks until the earliest CLOCK subscription's timeout elapses, then writes
+/// one clock event (poll_oneoff is satisfied once ≥1 subscription fires; a guest
+/// re-polls for the rest). This covers the scheduler-park case (Go/wasi-libc
+/// sleep). `nsubscriptions == 0` → nevents=0. fd_read/fd_write subscriptions
+/// (fd-readiness polling) are not yet modelled → `notsup` (no guest needs them;
+/// zwasm runs the guest single-threaded with no socket/netpoll source).
+///
+/// Subscription (48 B): userdata u64 @0; tag eventtype @8; clock body —
+/// id u32 @16, timeout u64 @24, precision u64 @32, flags u16 @40
+/// (bit 0 = ABSTIME). Event (32 B): userdata @0, error u16 @8, type @10,
+/// fd_readwrite @16 (zeroed for clock).
 pub fn pollOneoff(
-    _: *Host,
+    host: *Host,
     mem: []u8,
     in_ptr: u32,
     out_ptr: u32,
     nsubscriptions: u32,
     nevents_ptr: u32,
 ) p1.Errno {
-    _ = in_ptr;
-    _ = out_ptr;
-    if (nsubscriptions != 0) return .notsup;
-    return writeU32LE(mem, nevents_ptr, 0);
+    if (nsubscriptions == 0) return writeU32LE(mem, nevents_ptr, 0);
+    const io = host.io orelse return .nosys;
+
+    const SUB_SIZE: u32 = 48;
+    const EVT_SIZE: u32 = 32;
+    const ABSTIME: u16 = 0x1;
+
+    if (@as(u64, in_ptr) + @as(u64, nsubscriptions) * SUB_SIZE > mem.len) return .fault;
+    if (@as(u64, out_ptr) + EVT_SIZE > mem.len) return .fault;
+
+    // Earliest-deadline clock subscription (relative ns from now) + its userdata.
+    var best_rel_ns: ?u64 = null;
+    var best_userdata: u64 = 0;
+    var i: u32 = 0;
+    while (i < nsubscriptions) : (i += 1) {
+        const base = in_ptr + i * SUB_SIZE;
+        if (mem[base + 8] != @intFromEnum(p1.EventType.clock)) return .notsup;
+        const userdata = std.mem.readInt(u64, mem[base..][0..8], .little);
+        const clock_id = std.mem.readInt(u32, mem[base + 16 ..][0..4], .little);
+        const timeout_ns = std.mem.readInt(u64, mem[base + 24 ..][0..8], .little);
+        const flags = std.mem.readInt(u16, mem[base + 40 ..][0..2], .little);
+        const rel: u64 = if (flags & ABSTIME != 0) blk: {
+            const now_ns = clockTimeNs(host, clock_id) catch |err| return switch (err) {
+                error.NoSys => .nosys,
+                error.Inval => .inval,
+            };
+            break :blk if (timeout_ns > now_ns) timeout_ns - now_ns else 0;
+        } else timeout_ns;
+        if (best_rel_ns == null or rel < best_rel_ns.?) {
+            best_rel_ns = rel;
+            best_userdata = userdata;
+        }
+    }
+
+    // Block until the earliest subscription fires (monotonic; a duration is a
+    // duration regardless of the named clock). Cancellation just proceeds.
+    if (best_rel_ns) |ns| {
+        if (ns > 0) std.Io.sleep(io, std.Io.Duration.fromNanoseconds(@intCast(ns)), .awake) catch |err| switch (err) {
+            // A cancelled sleep just wakes early; poll_oneoff still reports the
+            // clock event and the guest re-polls if its real deadline has not
+            // elapsed. There is no other Cancelable error to handle.
+            error.Canceled => {},
+        };
+    }
+
+    // One clock event: userdata echoed, error=success(0), type=clock, rest zero.
+    @memset(mem[out_ptr .. out_ptr + EVT_SIZE], 0);
+    std.mem.writeInt(u64, mem[out_ptr..][0..8], best_userdata, .little);
+    mem[out_ptr + 10] = @intFromEnum(p1.EventType.clock);
+    return writeU32LE(mem, nevents_ptr, 1);
 }
 
 // ============================================================
@@ -311,10 +363,30 @@ test "pollOneoff: zero subscriptions writes nevents=0" {
     try testing.expectEqual(@as(u32, 0), std.mem.readInt(u32, mem[0..4], .little));
 }
 
-test "pollOneoff: non-zero subscriptions returns notsup" {
+test "pollOneoff: a clock subscription fires + writes one event" {
     var h = try Host.init(testing.allocator);
     defer h.deinit();
-    var mem: [8]u8 = @splat(0);
-    const e = pollOneoff(&h, &mem, 0, 0, 1, 0);
-    try testing.expectEqual(p1.Errno.notsup, e);
+    h.io = testing.io;
+    // 48-byte subscription @0; 32-byte event out @48; nevents @80.
+    var mem: [128]u8 = @splat(0);
+    std.mem.writeInt(u64, mem[0..8], 0xCAFE, .little); // userdata @0
+    mem[8] = @intFromEnum(p1.EventType.clock); // tag @8 = clock
+    std.mem.writeInt(u32, mem[16..20], 1, .little); // clock_id @16 = monotonic
+    std.mem.writeInt(u64, mem[24..32], 0, .little); // timeout @24 = 0 (relative → immediate)
+    // flags @40 = 0 (relative)
+    const e = pollOneoff(&h, &mem, 0, 48, 1, 80);
+    try testing.expectEqual(p1.Errno.success, e);
+    try testing.expectEqual(@as(u32, 1), std.mem.readInt(u32, mem[80..84], .little)); // nevents
+    try testing.expectEqual(@as(u64, 0xCAFE), std.mem.readInt(u64, mem[48..56], .little)); // event.userdata
+    try testing.expectEqual(@as(u16, 0), std.mem.readInt(u16, mem[56..58], .little)); // event.error = success
+    try testing.expectEqual(@as(u8, @intFromEnum(p1.EventType.clock)), mem[58]); // event.type @ 48+10
+}
+
+test "pollOneoff: a non-clock (fd) subscription is notsup" {
+    var h = try Host.init(testing.allocator);
+    defer h.deinit();
+    h.io = testing.io;
+    var mem: [128]u8 = @splat(0);
+    mem[8] = @intFromEnum(p1.EventType.fd_read); // tag @8 = fd_read
+    try testing.expectEqual(p1.Errno.notsup, pollOneoff(&h, &mem, 0, 48, 1, 80));
 }
