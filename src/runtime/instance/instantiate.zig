@@ -57,6 +57,15 @@ const TableInstance = runtime_mod.TableInstance;
 const Instance = instance_mod.Instance;
 const ImportBinding = import_mod.ImportBinding;
 
+/// Narrow a table64 u64 limit to the u32-width export-type / C-API
+/// descriptor (wasm-c-api models table limits as u32). Saturates rather
+/// than truncating — a >u32 i64-table limit can't be represented in the
+/// 32-bit introspection surface, so it reports u32-max (the closest
+/// expressible bound) instead of a wrapped value.
+fn tblLimU32(v: u64) u32 {
+    return std.math.cast(u32, v) orelse std.math.maxInt(u32);
+}
+
 /// Run the frontend pipeline (parse + section decode + per-fn
 /// validate) over `binary`. Returns `true` on success. Caller
 /// owns nothing — this is the read-only validate path.
@@ -738,7 +747,7 @@ pub fn buildExportTypes(
                         if (it.kind != .table) continue;
                         if (idx == exp.idx) {
                             const t = it.payload.table;
-                            break :blk .{ .table = .{ .elem_type = t.elem_type, .min = t.min, .max = t.max } };
+                            break :blk .{ .table = .{ .elem_type = t.elem_type, .min = tblLimU32(t.min), .max = if (t.max) |m| tblLimU32(m) else null } };
                         }
                         idx += 1;
                     }
@@ -748,7 +757,7 @@ pub fn buildExportTypes(
                 const dt = (defined_tables orelse return error.UnsupportedImport).items;
                 if (def_idx >= dt.len) return error.UnsupportedImport;
                 const t = dt[def_idx];
-                break :blk .{ .table = .{ .elem_type = t.elem_type, .min = t.min, .max = t.max } };
+                break :blk .{ .table = .{ .elem_type = t.elem_type, .min = tblLimU32(t.min), .max = if (t.max) |m| tblLimU32(m) else null } };
             },
             .memory => blk: {
                 var imp_count: u32 = 0;
