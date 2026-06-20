@@ -60,6 +60,11 @@ Interp: `buildBindings` (`instance.zig:430+`) resolves imports → WASI via
 
 ## Smallest first increment (opt-in JIT, ONE no-import compute export)
 
+> **LANDED @7bfc49c8d** via the Zig-facade seam (not `instantiateInternal`): the fork
+> lives in `instantiateFacade` + a new `instantiateJit` (C-path `wasm_func_call` arm +
+> `wasm_instance_new` engine knob are a later slice). `.auto` still routes to interp
+> pending the host-import bridge. Result typing uses `JitInstance.exportFuncSig` (added).
+
 4 files (+1 optional):
 1. `src/runtime/instance/instance.zig` — add `jit: ?*anyopaque` slot + deinit it.
 2. `src/api/instance.zig` — fork in `instantiateInternal` (engine=jit → `JitInstance.init`,

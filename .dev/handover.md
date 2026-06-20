@@ -18,22 +18,21 @@ D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate dupl
 ## Active bundle
 
 - **Bundle-ID**: ADR-0200-jit-backed-embedding-api
-- **Cycles-remaining**: ~5+ (design → instantiate fork → accessors → host-import bridge →
-  D-314 sandbox sign-off → mini-consumer → cljw signal)
-- **Continuity-memo**: **D-477 bundle CLOSED — core complete** (GPR+FP+ref multi-arg, single+
-  multi result, CLI, all 3 arches runtime-verified; debt D-477 `partial`; niche tails v128-args
-  + Win64-≥4-stackspill = build-on-demand debt, designs in `private/notes/`). **PIVOTED to
-  ADR-0200 (user-steered 2026-06-21)**: JIT-backed embedding API, **per-instance engine
-  selection, JIT-default** (interp coexists — cljw dual-engine oracle req). Phase-I peer 裏取り
-  DONE (ADR-0200 §"API shape": EngineKind{auto,jit,interp}, auto→JIT, interp-fallback on
-  JIT-less arch, C untyped + Zig typed sugar, caller-pre-sized multi-value). **Instantiate-fork
-  survey DONE → impl map `.dev/adr0200_api_impl_map.md`** (fork at `instantiateInternal`
-  api/instance.zig:716; add `Instance.jit: ?*anyopaque` slot — Zone-1 so anyopaque, NOT
-  overloading `runtime`; accessor blast radius enumerated; JIT export lookup via findExportFunc
-  = largest divergence). **NEXT = smallest first increment (4 files)**: (1) instance.zig `jit`
-  slot+deinit; (2) api/instance.zig fork in instantiateInternal (engine=jit→JitInstance.init) +
-  wasm_func_call JIT invoke arm + teardown; (3) zwasm/module.zig `engine` field on InstantiateOpts;
-  (4) zwasm/instance.zig invoke JIT arm. TDD: facade test `engine=.jit` add(2,3)→5 (native arm64).
+- **Cycles-remaining**: ~5 (SIMD/v128 arm → accessors → host-import bridge → C-path + sandbox →
+  mini-consumer → cljw signal)
+- **Continuity-memo**: **First increment LANDED @7bfc49c8d** — `InstantiateOpts.engine:
+  EngineKind{auto,jit,interp}`; `.jit` forks `instantiateFacade`→heap-pinned `runner.JitInstance`
+  (new Zone-1 `Instance.jit: ?*anyopaque`, interp `runtime==null`); Zig-facade `invoke` JIT arm
+  (`JitInstance.exportFuncSig` + scalar arg→u64 marshal + `trap_kind`→facade `Trap` map); new
+  `InvokeError.UnsupportedEngineSignature` for uncovered shapes. Scope = no-import scalar exports;
+  `.auto` STILL→interp pending host-import bridge (TODO in `instantiateFacade`, defer-not-workaround).
+  Green @full unit suite (3061/3074, 0 fail). **NEXT slices (impl map `.dev/adr0200_api_impl_map.md`
+  §"Accessor blast radius"/§"Host imports")**: (a) **SIMD/v128 + multi-result arm** via
+  `JitInstance.invokeMulti`/`TypedResult` (the headline — must be JIT per user constraint); (b)
+  facade accessors `runtime==null` JIT arms (memory/global/table/fuel/interrupt setters — replace the
+  D-314-seam `assert(runtime!=null)`); (c) host-import→JIT bridge + WASI (`func_import_targets` +
+  `rt.wasi_host`), then flip `.auto`→JIT; (d) C-path `wasm_func_call` JIT arm + `wasm_instance_new`
+  engine knob; (e) D-314 sandbox sign-off; (f) mini-consumer + cljw signal.
 - **Exit-condition**: first-party mini-consumer (C via `include/zwasm.h` + Zig via `src/zwasm/*`)
   instantiates engine=jit, calls a multi-arg AND a v128/SIMD export, asserts results; engine-knob
   default documented; cljw readiness signal sent (`to_cljw_NN`). NOT cw — that's cw's responsibility.
@@ -48,11 +47,11 @@ D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate dupl
 
 **🎯 ACTIVE = ADR-0200 JIT-backed embedding API** (user-steered pivot 2026-06-21; D-477 core DONE/closed,
 niche tails = build-on-demand debt). Per-instance engine selection, **JIT-default**, interp coexists.
-See `## Active bundle` + ADR-0200 (§"API shape" + §"Consuming requirements"). NEXT = instantiate-fork
-survey (dispatched) → `EngineKind{auto,jit,interp}` knob in `Engine.InitOpts`/C `zwasm_engine_kind` →
-smallest increment: opt-in JIT for one no-import compute export (`wasm_instance_new`/`Module.instantiate`
-forks to `JitInstance`, `wasm_func_call`→`invoke`). Then accessor `runtime==null` arms, host-import→JIT
-bridge, D-314 sandbox sign-off, mini-consumer, cljw readiness signal. D-477 invoke matrix is the substrate.
+See `## Active bundle` + ADR-0200 (§"API shape" + §"Consuming requirements"). Smallest increment DONE
+@7bfc49c8d (Zig-facade `engine=.jit` opt-in, no-import scalar invoke). NEXT = SIMD/v128 + multi-result
+arm (`invokeMulti`/`TypedResult`), then facade accessors `runtime==null` arms, host-import→JIT bridge
+(+`.auto`→JIT flip), C-path `wasm_func_call` arm, D-314 sandbox sign-off, mini-consumer, cljw signal.
+D-477 invoke matrix is the substrate; impl map `.dev/adr0200_api_impl_map.md`.
 
 **STANDING DIRECTIVE = CORRECTNESS SWEEP** (user 2026-06-20, memory `feedback_correctness_sweep_phase`): high-value
 bar OFF. Sweep toward 0% the 3 gap classes — (1) wasmtime-works-zwasm-doesn't, (2) wasm/wasi spec non-conformance,
