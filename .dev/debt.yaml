@@ -18,15 +18,29 @@ entries:
       GC-reftype gap @fae437597 where the runtime was already ready) — it needs
       `TableType.idx_type` + i64-index threading through the table ops + the JIT
       bounds-check codegen. DISCHARGE: a memory64-table feature slice (model the
-      idx_type, widen the table-op index path, JIT i64 table bounds). Niche
-      (i64 tables are rare); the runtime memory64 memory path (D-209) is the
-      precedent for the idx_type plumbing. Counterpart shared-everything-threads
-      smith modules are a SEPARATE out-of-scope proposal (correct to reject).
+      idx_type, widen the table-op index path, JIT i64 table bounds). The
+      runtime memory64 memory path (D-209) is the precedent for the idx_type
+      plumbing. Counterpart shared-everything-threads smith modules are a SEPARATE
+      out-of-scope proposal (correct to reject). PRIORITY ELEVATED 2026-06-20:
+      this is a SPEC-CONFORMANCE gap, NOT just niche-completeness — the Wasm 3.0
+      spec testsuite RAW corpus already contains i64-table tests (`memory64/raw/
+      table.wast:50` = `(table i64 0 funcref)`, `table_copy_mixed.wast` =
+      `(table $t64 i64 30 30 funcref)` + i64-index table.copy, `call_indirect.wast`
+      = `(table $t64 i64 funcref)`), but they are NOT DISTILLED into a runnable
+      `memory64/table*/` subdir (only the memory ops — load64/memory_copy/fill/
+      grow64/etc. — are distilled), so zwasm's "100% spec, 0 skip" claim silently
+      OMITS the i64-table coverage. So the IMPLEMENTATION HAS A READY TDD CORPUS:
+      distil the raw memory64 `table*.wast` + `call_indirect.wast` i64 cases and
+      drive the feature to green against them (the gap closes when those distil +
+      pass on both engines + 3 hosts).
     first_raised: "2026-06-20"
     last_reviewed: "2026-06-20"
     refs: |-
       src/parse/sections.zig (.table import / defined-table readLimits — no idx_type)
       src/runtime TableType (i32-indexed only)
+      test/spec/wasm-3.0-assert/memory64/raw/table.wast (i64-table spec corpus, not distilled)
+      test/spec/wasm-3.0-assert/memory64/raw/table_copy_mixed.wast
+      test/spec/wasm-3.0-assert/memory64/raw/call_indirect.wast
   - id: "D-314"
     layer: "code"
     status: "note"
