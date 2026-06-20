@@ -15,63 +15,38 @@ D-463 handle isolation (ADR-0197); D-034 SIMD spill-completeness CLOSED @411dd1e
 marshalling, C-API Windows-export. Residual long-tails (debt-tracked, do NOT grind): D-464 async adversarial,
 D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate duplicated SIMD spill helpers.
 
+## Active bundle
+
+- **Bundle-ID**: D-477-jit-multiarg-invoke
+- **Cycles-remaining**: ~4-5
+- **Continuity-memo**: Phase I (裏取り) DONE → `.dev/d477_findings.md`. Substrate
+  ALREADY EXISTS (ADR-0106 buffer-write ABI: `invokeMulti`→`invokeBufferWrite`,
+  gated on `hasThunk`). Real gap = `wrapper_thunk.emit` shape limits (≤1 param,
+  GPR-only, 2-3 results). Plan: generalize thunk to N typed args + multi/FP/ref
+  results (arm64 first), wire `runWasiLenient --invoke`→`invokeMulti`, drop
+  `runner.zig:657` + `main.zig:257` rejects. v128 = separate slice (8-byte u64
+  slots can't hold 16B). Correctness-first: pin interp multi-arg as oracle.
+- **Exit-condition**: `zwasm run --engine jit --invoke add=2,3 <multi-arg.wasm>`
+  matches interp for i32/i64/f32/f64 multi-arg + multi-result shapes; CLI reject
+  gone; debt D-477 → `note`/closed.
+
 ## RESUME POINTER (2026-06-20) — for a fresh session
 
-**🎯 NEXT-SESSION PRIORITY (user directive 2026-06-20, memory `feedback_ai_invented_by_design_not_sacred`)**: close
-**D-477** (now `now`-class) — make the JIT host-invoke path carry the FULL feature set (multi typed args + multi/v128/
-ref results), matching wasmtime. The "JIT --invoke is zero-arg-only, typed args route to interp" (D-273, main.zig:253-
-258) is an AI-INVENTED transitional limitation, NOT user-sanctioned — do NOT defer behind its "by design" label. User
-constraint: SIMD-requiring paths MUST be JIT (interp overhead too high) → JIT must NOT lack multi-arg invoke. APPROACH:
-裏取り FIRST (web-search + ~/Documents/OSS wasmtime/wasmer for host→guest typed multi-arg JIT ABI — array-call /
-Func::call / trampoline gen + WASI arg interaction), THEN design a generic N-arg JIT entry trampoline. Done: v128-result
-zero-arg @1d3dfdb25. (C-API-facade interp-only is a SEPARATE user-ratified security decision — the CLI JIT --invoke
-need not route through the facade.)
+**🎯 D-477 bundle (user directive, memory `feedback_ai_invented_by_design_not_sacred`)**: see `## Active bundle`
+above + `.dev/d477_findings.md`. NEXT = Phase II characterization tests (interp multi-arg oracle + pin current reject),
+THEN generalize `wrapper_thunk.emit` arm64 to N GPR args. (C-API-facade interp-only is a SEPARATE user-ratified
+security decision — the CLI JIT --invoke need not route through the facade.)
 
-**ACTIVE DIRECTIVE = CORRECTNESS SWEEP** (user 2026-06-20, memory `feedback_correctness_sweep_phase`): the
-high-value bar is OFF. Sweep toward 0% the 3 gap classes — (1) wasmtime-works-zwasm-doesn't, (2) wasm/wasi spec
-non-conformance (skips/missing), (3) instability/crashes — from already-known items, EASIEST-first, TDD + 3-host
-gate, repeat. Do NOT stop to ask "is this high-value." **This session's sweep CLOSURES (detail in git/lessons/
-ADRs — do NOT re-walk)**: D-330+D-331A liveness (@69a0953b1), D-209 memory64 >4GiB offset (@b8cf64123),
-**D-468 go_* JIT-exit hang / proc_exit non-termination (@1a629c5fe, ADR-0199 post-call trap_flag check, both
-arches)**, fd_seek/fd_tell (@571fb5176), poll_oneoff clock subs (@132cf5527). **MILESTONE: realworld
-JIT-vs-wasmtime 56/56, lane flipped REPORT-ONLY→GATING @3b6f8d5b5** (D-283 discharged) — gap-class #1 = 0% for
-the corpus + permanent regression gate (`zig build test-realworld-diff-jit`, Mac-host+wasmtime; run after
-JIT-codegen changes). **VERIFICATION LESSON**: a JIT-codegen fix MUST be checked with `test-spec-wasm-2.0-assert`
+**STANDING DIRECTIVE = CORRECTNESS SWEEP** (user 2026-06-20, memory `feedback_correctness_sweep_phase`): high-value
+bar OFF. Sweep toward 0% the 3 gap classes — (1) wasmtime-works-zwasm-doesn't, (2) wasm/wasi spec non-conformance,
+(3) instability/crashes — easiest-first, TDD + 3-host, repeat; don't ask "is this high-value." Status: spec
+skip-impl=0, realworld JIT 56/56 GATING (`test-realworld-diff-jit`), no UnsupportedOp crash, fuzz 0-crash. The
+D-477 bundle is the live front; prior sweep closures (D-468/D-469/D-470/D-475/D-476/extended-const/GC trap-kind/
+memory64+SIMD/fuzz exec-differential) are in git/lessons — do NOT re-walk.
+**VERIFICATION LESSON (operationally live)**: a JIT-codegen fix MUST be checked with `test-spec-wasm-2.0-assert`
 on BOTH arm64 AND `-Dtarget=x86_64-macos` — NOT `test-spec`(interp)/`zig build test`(unit).
-**Sweep front — KNOWN gaps EXHAUSTED (2026-06-20)**: the gap-inventory's 3 verified WASI preview1 stubs are
-all DONE — fd_seek + fd_tell @571fb5176 (OpenFd gained a logical `pos` cursor; positional IO), poll_oneoff clock
-subscriptions @132cf5527 (decode 48B subscription, sleep to earliest deadline, write 1 clock event; fd subs stay
-notsup). Sweep status: spec skip-impl=0, debt `now`=0, realworld JIT 56/56 gating, no UnsupportedOp runtime
-crash, fuzz 0-crash. **Net BROADENED @13ca72155**: fuzz_loader Path 4 now runs each smith module through the JIT
-codegen pipeline (was interp-only) — verified **1840 diverse modules JIT-compiled, 0 crashes** (FUZZ_N=3000
-campaign; gap-class #3 net now covers codegen). **Wider inventory DONE**: WASI/C-API/CLI surfaces VERIFIED
-complete (no reachable stubs beyond the 3 done); only gap found = **JIT GC trap-kind precision** (the JIT routed
-GC traps to the generic bounds bucket, kind 0, where the interp reports the precise kind). **DONE this turn**:
-array.len/struct.get_u null-ref → null_reference (@3f267ef14); array.new_data/new_elem segment-oob → oob_memory
-(@5ce49c70e); array.init_data/init_elem null vs oob split via an inline null-ref check (@fcbda5d79, D-470 DONE).
-**GC trap-kind precision cluster COMPLETE** — all 6 ops, both arches, GC spec 678/0; 3-host green.
-**D-469 interp-vs-JIT EXECUTION differential fuzzer @fccbf61ce** (`test/fuzz/fuzz_exec.zig`, GATING via curated
-`exec_seed`): 0-param/single-scalar smith exports under both engines, value + precise TRAP KIND (@8c9a1ff87); FUZZ_N=4000
-2163 modules, 0 mismatch.
-**FUZZ campaigns: 8 real bugs + 2 divergences fixed this session** (ALL detail in git/lessons): incl. **memory64+SIMD
-validators @06d0c2ea1** (v128.load*/store*/lane hardcoded i32 addr — D-324 missed SIMD; readSimdMemarg → memIdxTypeAt;
-lesson `index-width-audit-all-memory-op-families`), JIT --invoke result-drop, table-arena SEGV, try_table/array.new/
-GC-reftype/global-init. **wasmtime-vs-JIT differential BUILT @9ba3f8c9f** (`scripts/fuzz_wasmtime_diff.py`); JIT SIMD
-body codegen VERIFIED CORRECT vs wasmtime (lesson `wasmtime-jit-differential-wrapper-blocked`). **v128-RESULT host-invoke
-FIXED @1d3dfdb25**. **OTHER remaining gap-classes** (after the 🎯 D-477 priority above): cross-module table harness
-(D-475 coverage), JIT table64 codegen (D-475 slice 4 structural ABI). Known-item correctness-sweep else exhausted.
-**extended-const @d258097e9** (i32/i64 add/sub/mul in const-exprs, 6 eval/validate sites) + **D-476 @4b10c569c**
-(element global.get + concrete typed-ref `(ref.null $t)` parse-acceptance) — both engines, closed. **8 gaps fixed +
-2 divergences + 2 disproven this session.**
-**D-475 table64: SELF-CONTAINED table64 FULLY interp-conformant — 11/13 memory64 spec dirs distilled + green** (all
-slices done; detail in debt row — parse/validator/interp-runtime/u64-limits/element-offset, JIT GUARD keeps i64-table
-modules off the still-i32 JIT). The 2 remaining dirs (table.12/34, table_grow.6/7) = **HARNESS-COVERAGE gap, NOT a
-zwasm miss** (harness wires `(register)` cross-module func+global only, no table; zwasm's linker supports it via
-defineTable→TableAlias; lesson `2026-06-20-spec-harness-cross-module-table-unwired`). **Slice 4 (JIT table64 codegen)
-SURVEYED — STRUCTURAL, deferred to FRESH context**: not a W→X flip — `jit_abi.TableSlice.len`/`table_size` are u32 so it
-needs a u32→u64 descriptor widening FIRST (Win64-risk: pinned X25 + len offsets + imm12 asserts); bounded 4-cycle bundle
-(C1 widen+thread, C2 get/set W→X, C3 call_indirect, C4 remove-guard) in the debt row, PERF not correctness (low-pri).
-**NEXT: pick a FRESH sweep axis** — table64 conformance itself is DONE.
+**D-475 table64 slice 4 (JIT table64 codegen) PARKED** (structural u32→u64 descriptor widening, Win64-risk; bounded
+4-cycle bundle in debt row, PERF not correctness). Self-contained table64 interp-conformance DONE.
 
 **Phase 17 完成形 plateau** (validated — do NOT re-walk): async COMPLETE; v128 spill (D-034/D-460/D-461) CLOSED;
 surface audits clean 2026-06-18; fuzz 0-crash; realworld JIT run 56/56 byte-match wasmtime (gating). NOT-WORTH: D-294-R2 TrapKind.
