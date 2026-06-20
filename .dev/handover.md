@@ -66,10 +66,12 @@ JIT-codegen changes (`zig build test-realworld-diff-jit`, Mac-host, needs wasmti
 all DONE — fd_seek + fd_tell @571fb5176 (OpenFd gained a logical `pos` cursor; positional IO), poll_oneoff clock
 subscriptions @132cf5527 (decode 48B subscription, sleep to earliest deadline, write 1 clock event; fd subs stay
 notsup). Sweep status: spec skip-impl=0, debt `now`=0, realworld JIT 56/56 gating, no UnsupportedOp runtime
-crash, fuzz 0-crash. **NEXT (broaden the net — known concrete gaps are 0)**: options, EASIEST-first — (a) add a
-realworld/edge fixture exercising file seek + poll end-to-end (locks in the new conformance via the gating
-diff-jit lane; may surface integration gaps); (b) re-run gap-inventory with a WIDER lens (more diverse
-wasmtime-differential programs, deeper fuzz seeds); (c) D-456 host-stub test-harness. D-336 blocked (sort=value).
+crash, fuzz 0-crash. **Net BROADENED @13ca72155**: fuzz_loader Path 4 now runs each smith module through the JIT
+codegen pipeline (was interp-only) — 494 diverse modules JIT-compiled, 0 crashes (gap-class #3 net now covers
+codegen, where D-330/D-468-class bugs live). **NEXT (broaden further — concrete gaps remain 0)**, EASIEST-first:
+(a) wider fuzz campaign (`FUZZ_N=3000 gen_fuzz_corpus.sh campaign` + run) for more codegen coverage; (b) extend
+fuzz to interp-vs-JIT EXECUTION differential (needs loop/fuel bounding — bigger); (c) file-seek/poll end-to-end
+fixture via the gating diff-jit lane; (d) D-456 host-stub harness. D-336 blocked (sort=value).
 
 **Phase 17 完成形 plateau** (validated — do NOT re-walk): async COMPLETE; v128 spill (D-034/D-460/D-461) CLOSED;
 surface audits clean 2026-06-18; fuzz 0-crash; realworld JIT run 56/56 byte-match wasmtime (gating). NOT-WORTH: D-294-R2 TrapKind.
