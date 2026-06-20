@@ -45,6 +45,12 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     // Marshal each operand into its arg reg (W2=ref, W3=dst_off, W4=src_off,
     // W5=len) — all i32, so the 32-bit ORR form throughout.
     const xref = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, ref_vreg, 0);
+    // D-470 — inline null-ref check (→ null_reference, kind 10, matching interp)
+    // BEFORE the call; the residual result==0 is then only the segment/array OOB.
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmW(xref, 0));
+    const null_fixup: u32 = @intCast(ctx.buf.items.len);
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.eq, 0));
+    try ctx.null_ref_fixups.append(ctx.allocator, null_fixup);
     if (xref != 2) try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(2, 31, xref));
     const xdst = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, dst_off_vreg, 0);
     if (xdst != 3) try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(3, 31, xdst));
@@ -65,10 +71,11 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(scratch, @intCast((addr >> 48) & 0xFFFF), 3));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBLR(scratch));
 
-    // Trap on result == 0 (null ref / OOB): CMP W0, #0 ; B.EQ → trap stub.
+    // Trap on result == 0 (segment/array OOB; null caught inline above):
+    // CMP W0, #0 ; B.EQ → oob_memory stub (kind 6), matching interp.
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmW(0, 0));
     const fixup: u32 = @intCast(ctx.buf.items.len);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.eq, 0));
-    try ctx.bounds_fixups.append(ctx.allocator, fixup);
+    try ctx.oob_fixups.append(ctx.allocator, fixup);
     // array.init_data is 4 → 0: no result vreg pushed.
 }

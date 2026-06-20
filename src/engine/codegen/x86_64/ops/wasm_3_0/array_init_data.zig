@@ -47,6 +47,13 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     // src_off (arg 4) + len (arg 5) spill to [RSP+0x20]/[RSP+0x28]
     // (D-248). stage R10/R11 + arg regs ∉ pool → no source clobbered.
     const xref = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, ref_vreg, 0);
+    // D-470 — the trampoline's result==0 conflates null-ref + OOB. Emit an INLINE
+    // null-ref check (→ null_reference, kind 10, matching interp) BEFORE the call;
+    // the residual result==0 is then only the segment/array OOB (oob_memory below).
+    try ctx.buf.appendSlice(ctx.allocator, inst.encTestRR(.q, xref, xref).slice());
+    const null_fixup: u32 = @intCast(ctx.buf.items.len);
+    try ctx.buf.appendSlice(ctx.allocator, inst.encJccRel32(.e, 0).slice());
+    try ctx.null_ref_fixups.append(ctx.allocator, null_fixup);
     try gc_marshal.routeArg(ctx, 2, xref, .d);
     const xdst = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, dst_off_vreg, 0);
     try gc_marshal.routeArg(ctx, 3, xdst, .d);
@@ -63,10 +70,11 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     try ctx.buf.appendSlice(ctx.allocator, inst.encMovImm64Q(call_scratch, addr).slice());
     try ctx.buf.appendSlice(ctx.allocator, inst.encCallReg(call_scratch).slice());
 
-    // Trap on result == 0 (null ref / OOB): TEST EAX, EAX ; JE → trap stub.
+    // Trap on result == 0 (segment/array OOB; null already caught inline above):
+    // TEST EAX, EAX ; JE → oob_memory stub (kind 6), matching interp.
     try ctx.buf.appendSlice(ctx.allocator, inst.encTestRR(.d, .rax, .rax).slice());
     const fixup: u32 = @intCast(ctx.buf.items.len);
     try ctx.buf.appendSlice(ctx.allocator, inst.encJccRel32(.e, 0).slice());
-    try ctx.bounds_fixups.append(ctx.allocator, fixup);
+    try ctx.oob_fixups.append(ctx.allocator, fixup);
     // array.init_data is 4 → 0: no result vreg pushed.
 }

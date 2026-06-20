@@ -113,6 +113,32 @@ test "JIT array.new_data segment-oob traps oob_memory (GC trap-kind precision sw
     try testing.expectEqual(trap_surface.TrapKind.oob_memory, trap_surface.jitTrapCode(inst.owned.rt.trap_kind).?);
 }
 
+// `array.init_data` on a null destination array must surface null_reference (raw
+// 10), matching interp. The trampoline conflates null + oob in one result==0
+// check (D-470), so the JIT emits an INLINE null-ref check (→ null_ref_fixups)
+// before the call; the residual result==0 (only the segment/array OOB for a
+// validated module) routes to oob_memory. `(type $a (array (mut i8)))
+// (data $d "ab") (func (export "test") (result i32) ref.null $a
+//   i32.const 0 i32.const 0 i32.const 1 array.init_data $a $d i32.const 0)`.
+const array_init_data_null_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x5e,
+    0x78, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03, 0x02, 0x01, 0x01, 0x07, 0x08,
+    0x01, 0x04, 0x74, 0x65, 0x73, 0x74, 0x00, 0x00, 0x0c, 0x01, 0x01, 0x0a,
+    0x12, 0x01, 0x10, 0x00, 0xd0, 0x00, 0x41, 0x00, 0x41, 0x00, 0x41, 0x01,
+    0xfb, 0x12, 0x00, 0x00, 0x41, 0x00, 0x0b, 0x0b, 0x05, 0x01, 0x01, 0x02,
+    0x61, 0x62, 0x00, 0x11, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x04, 0x04, 0x01,
+    0x00, 0x01, 0x61, 0x09, 0x04, 0x01, 0x00, 0x01, 0x64,
+};
+
+test "JIT array.init_data on null array traps null_reference (GC trap-kind precision sweep)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    var inst = try runner.JitInstance.init(testing.allocator, &array_init_data_null_wasm);
+    defer inst.deinit(testing.allocator);
+    try testing.expectError(entry.Error.Trap, inst.invoke(testing.allocator, "test", &.{}));
+    try testing.expectEqual(@as(u32, 10), inst.owned.rt.trap_kind); // null_reference
+    try testing.expectEqual(trap_surface.TrapKind.null_reference, trap_surface.jitTrapCode(inst.owned.rt.trap_kind).?);
+}
+
 // `(module (func (export "_start") i32.const 1 i32.const 0 i32.div_s drop))` —
 // the div-by-zero check traps before the IDIV/SDIV (ADR-0164 A2 / D-292: code 7).
 const divzero_start_wasm = [_]u8{
