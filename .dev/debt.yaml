@@ -22,14 +22,12 @@ entries:
       6db14695d (Win64 GPR) d791dc6b9 (arm64 FP) 77c5fd943 (SysV FP) 3077f165b (Win64 FP)
       6d750b5a9 (multi-arg×multi-result lock). Design substrate = ADR-0106 buffer-write
       ABI; full per-arch design in `private/notes/d477-remaining-slices-design.md`.
-      RESIDUAL = 3 NICHE slivers (the embedding API + CLI scalar/FP/ref invoke is
-      complete WITHOUT them; build on demand): (1) CLI `--invoke` multi-RESULT
-      multi-line print (embedding-API multi-result via invokeMulti already works +
-      spec-corpus-exercised; only the CLI text path prints 1 value — wire
-      runWasmJitCaptured→invokeMulti + per-result formatScalar); (2) v128 args/results
+      CLI multi-RESULT multi-line print DONE @eb573e13a (runWasiLenientArgs multi_out
+      channel + runWasmJitCaptured per-result formatScalar; swap2=7,9→"9\n7\n", arm64
+      + x86_64 SysV). RESIDUAL = 2 NICHE slivers (build on demand): (1) v128 args/results
       (model A = 2 consecutive 16-aligned u64 slots DECIDED; Win64-by-REFERENCE gotcha;
       niche — SIMD bodies execute fine, scalar/FP multi-arg invoke meets the SIMD
-      constraint); (3) Win64 ≥4-param stack-spill (rare). RECOMMENDATION: D-477 core
+      constraint); (2) Win64 ≥4-param stack-spill (rare). RECOMMENDATION: D-477 core
       unblocks the ADR-0200 API-JIT phase (the user's priority) — the slivers need not
       gate it; pivot to the API phase, build slivers on demand.
     first_raised: "2026-06-20"

@@ -24,12 +24,11 @@ D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate dupl
   result (`invoke`/`runWasiLenientArgs`) + MULTI result (`invokeMulti`, incl 2-arg×2-result
   @6d750b5a9). Generic two-bank wrapper-thunk (emitAarch64 ≤7 / emitX8664SysV ≤5 /
   emitX8664Win64 ≤3) replaced the shape helpers; CLI `--invoke add=2,3`→5 interp-parity.
-  All SHAs + designs in debt **D-477 (now `partial`)** + `private/notes/`. **RESIDUAL = 3 NICHE
-  slivers** (embedding API + CLI scalar/FP/ref invoke complete WITHOUT them): (1) CLI `--invoke`
-  multi-RESULT multi-line PRINT — **next sliver if continuing D-477** (embedding-API multi-result
-  via invokeMulti already works + spec-exercised; only the CLI text path prints 1 — wire
-  runWasmJitCaptured→invokeMulti + per-result formatScalar); (2) v128 args (model-A decided,
-  Win64-by-ref); (3) Win64 ≥4-param stack-spill.
+  All SHAs + designs in debt **D-477 (now `partial`)** + `private/notes/`. **CLI multi-RESULT print DONE
+  @eb573e13a** (swap2=7,9→"9\n7\n", arm64+SysV; runWasiLenientArgs multi_out + typedResultToVal).
+  **RESIDUAL = 2 NICHE slivers** (build on demand): (1) v128 args (model-A 2-slot decided,
+  Win64-by-ref gotcha — `private/notes/` §Slice 3) — **next sliver if continuing D-477**;
+  (2) Win64 ≥4-param stack-spill (rare).
 - **🔭 RECOMMENDATION (for user steer)**: D-477 core unblocks the **ADR-0200 API-JIT phase**
   (the user's stated priority). The 3 slivers are niche + debt-tracked + do NOT gate the API.
   Recommend PIVOT to the API phase now; build slivers on demand. (Honoring the literal "完遂
