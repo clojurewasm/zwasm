@@ -57,13 +57,15 @@ subscriptions @132cf5527 (decode 48B subscription, sleep to earliest deadline, w
 notsup). Sweep status: spec skip-impl=0, debt `now`=0, realworld JIT 56/56 gating, no UnsupportedOp runtime
 crash, fuzz 0-crash. **Net BROADENED @13ca72155**: fuzz_loader Path 4 now runs each smith module through the JIT
 codegen pipeline (was interp-only) — verified **1840 diverse modules JIT-compiled, 0 crashes** (FUZZ_N=3000
-campaign; gap-class #3 net now covers codegen where D-330/D-468-class bugs live). **NEXT**: a WIDER
-gap-inventory was launched (lens: WASI surface beyond the 3 done stubs, C-API/CLI surface, trap-kind
-conformance, spec-edge) — **act on its verified findings next turn**; if it reports the surface complete, the
-known-gap sweep is genuinely done. The interp-vs-JIT EXECUTION differential fuzzer (strongest gap-finder but
-2-cycle complex: divergent invoke APIs + fuel-unit mismatch) is **deferred as D-469** (full design captured
-there; speculative-ROI since execution is already heavily validated). D-456 host-stub harness + D-336 (blocked
-sort=value) remain.
+campaign; gap-class #3 net now covers codegen). **Wider inventory DONE**: WASI/C-API/CLI surfaces VERIFIED
+complete (no reachable stubs beyond the 3 done); only gap found = **JIT GC trap-kind precision** (the JIT routed
+GC traps to the generic bounds bucket, kind 0, where the interp reports the precise kind). **DONE this turn**:
+array.len/struct.get_u null-ref → null_reference (@3f267ef14); array.new_data/new_elem segment-oob → oob_memory
+(@5ce49c70e); both arches + RED tests + GC spec 678/0. **Deferred D-470**: array.init_data/init_elem conflate
+null+oob in one result==0 check → need a trampoline discriminator (low value; spec assert doesn't check kinds).
+**Sweep now genuinely at the floor**: concrete known gaps = 0 across WASI/C-API/CLI/spec-skip/GC-traps;
+remaining work is speculative robustness — D-469 exec-differential fuzzer (deferred), D-456 host-stubs, D-336
+(blocked sort=value). NEXT: re-inventory periodically, or pivot to general 完成形 refinement / debt repayment.
 
 **Phase 17 完成形 plateau** (validated — do NOT re-walk): async COMPLETE; v128 spill (D-034/D-460/D-461) CLOSED;
 surface audits clean 2026-06-18; fuzz 0-crash; realworld JIT run 56/56 byte-match wasmtime (gating). NOT-WORTH: D-294-R2 TrapKind.
