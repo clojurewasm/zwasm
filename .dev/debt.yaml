@@ -3,31 +3,6 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
-  - id: "D-471"
-    layer: "code"
-    status: "now"
-    description: |-
-      JIT try_table codegen integer-overflow PANIC on a VALID module (gap-#3
-      crash, BOTH arches). `target_labels_depth = labels_depth_outer -
-      ce.label_idx` underflows when a catch clause's `label_idx` exceeds the
-      codegen label-stack depth at the try_table. The crashing try_table sits in
-      an UNREACHABLE region (smith_9693: after `return_call 0`, nested in two
-      loops, `catch_all 2` targets the function label) — wasm-tools + zwasm both
-      VALIDATE the module, so codegen MUST NOT crash. Hypothesis: codegen
-      under-tracks enclosing labels in unreachable code so labels_depth_outer <
-      label_idx. NOTE: minimal `return; loop; loop; try_table (catch_all 2)` did
-      NOT reproduce — the real trigger is more specific (return_call / preceding
-      try_table / atomics). NEXT (bundle): reproduce minimally, fix label-depth
-      tracking (or skip the moot fixup for an unreachable catch) on BOTH arches,
-      regression test + add the minimal repro to the committed fuzz seed. Found
-      by the FUZZ_N=10000 exec/loader campaign + the loader crash-attribution
-      print (98c57a675).
-    first_raised: "2026-06-20"
-    last_reviewed: "2026-06-20"
-    refs: |-
-      src/engine/codegen/arm64/ops/wasm_3_0/try_table.zig:136
-      src/engine/codegen/x86_64/ops/wasm_3_0/try_table.zig:103
-      private/spikes/bug-c-try-table-deadcode/smith_9693.wasm (repro; regen via FUZZ_N>=9694 campaign)
   - id: "D-314"
     layer: "code"
     status: "note"

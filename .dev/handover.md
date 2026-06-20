@@ -49,26 +49,19 @@ value/trap/loop/call + **FP** + trap-kind modules, toolchain-free). f32/f64 resu
 incomparable = interp binding_error / JIT generic-bucket) — closes the both-trap-OK blind spot that hid this
 session's 6 GC-trap-kind bugs. Seed = 9 funcs (div_by_zero/unreachable_/oob_memory kinds), 0 mismatch; **FUZZ_N=4000
 campaign 2163 modules / 315 funcs, 0 mismatch** (kind compare = 0 false-positive at scale). Param-widening stays out.
-**FUZZ campaigns (10000 modules) are PRODUCTIVE — 3 real bugs found this session** (sweep NOT at floor):
-- **DONE @222a2e45b** — wasmtime-diff spike: `--engine jit --invoke` dropped i32 / errored i64/f32/f64 results;
-  runWasiLenient u32-return dual-meaning split onto a result_out channel (all 4 scalar types). Spike method
-  (wasmtime `--invoke` vs zwasm) is a productive technique. exec_seed wasmtime-validated 9/9.
-- **DONE @66acaeee0** — JIT table arena `@min(max,65536)` < `min` for a non-funcref table with min>65536 →
-  setup OOB-write SEGV (interp allocs min; gap-#1+#3). Fix: `@max(tm.min, @min(max,cap))`.
-- **DONE @9313c37a8** — exec-fuzz false-positive: interp has NO SIMD (JIT-only; simd_assert_runner is JIT —
-  lesson `2026-06-20-interp-is-non-simd-jit-only`). Fix: skip an interp `unreachable_` the JIT doesn't mirror.
-- **D-471 OPEN (bundle below)** — JIT try_table codegen integer-overflow PANIC on a VALID module, both arches.
-Re-inventory (Explore subagent) found 0 runtime-reachable category-(a) gaps (46 WASI syscalls correct errno;
-JIT UnsupportedOp = interp fallback; CM-async = experimental). JIT `--invoke NAME=ARGS` = deliberate arity limit.
-
-## Active bundle
-
-- **Bundle-ID**: D-471-try_table-codegen-underflow
-- **Cycles-remaining**: ~1
-- **Continuity-memo**: `labels_depth_outer - ce.label_idx` underflows at arm64 try_table.zig:136 + x86_64 :103
-  on a try_table in UNREACHABLE code (repro `private/spikes/bug-c-try-table-deadcode/smith_9693.wasm`; minimal
-  `return;loop;loop;try_table(catch_all 2)` did NOT repro — trigger is more specific). See debt D-471.
-- **Exit-condition**: minimal repro compiles JIT-green on BOTH arches + a committed-seed regression module.
+**FUZZ campaigns (10000 modules) PRODUCTIVE — 4 real bugs found + fixed this session** (sweep NOT at floor):
+- **@222a2e45b** — wasmtime-diff spike: `--engine jit --invoke` dropped i32 / errored i64/f32/f64; runWasiLenient
+  u32-return dual-meaning split onto a result_out channel. Spike (wasmtime `--invoke` vs zwasm) is productive.
+- **@66acaeee0** — JIT table arena `@min(max,65536)` < `min` (non-funcref min>65536) → setup OOB-write SEGV.
+  Fix: `@max(tm.min, @min(max,cap))`.
+- **@9313c37a8** — exec-fuzz false-positive: interp has NO SIMD (JIT-only — lesson
+  `2026-06-20-interp-is-non-simd-jit-only`). Fix: skip an interp `unreachable_` the JIT doesn't mirror.
+- **@18df72ec1 (D-471)** — JIT try_table in DEAD CODE integer-overflow PANIC (both arches): dead-code emit
+  pushed placeholder labels for block/loop/if but NOT try_table, so its `end` popped an enclosing frame →
+  label-stack undercount → `labels_depth_outer - label_idx` underflow. Fix: push a block-kind placeholder for
+  try_table in the dead-code switch. Verified arm64+x86_64-macos; regression test + fuzz-seed; campaign 0-crash.
+Re-inventory (Explore subagent) found 0 runtime-reachable category-(a) gaps. JIT `--invoke NAME=ARGS` = arity limit.
+NEXT: more fuzz campaigns (fresh seeds / varied smith config) — they keep finding real codegen/runtime bugs.
 
 **Phase 17 完成形 plateau** (validated — do NOT re-walk): async COMPLETE; v128 spill (D-034/D-460/D-461) CLOSED;
 surface audits clean 2026-06-18; fuzz 0-crash; realworld JIT run 56/56 byte-match wasmtime (gating). NOT-WORTH: D-294-R2 TrapKind.
