@@ -923,6 +923,17 @@ pub fn compile(
                     .pending = .empty,
                     .if_skip_byte = null,
                 }),
+                // try_table is block-like: its matching `end` pops one label.
+                // In dead code it skips the real emit (handler registration),
+                // but it STILL needs a placeholder so its `end` pops THIS frame,
+                // not the enclosing block/loop — else the label stack under-
+                // counts and a later catch's `labels_depth_outer - label_idx`
+                // underflows into an integer-overflow panic (D-471).
+                .try_table => try labels.append(allocator, .{
+                    .kind = .block,
+                    .target_byte_offset = 0,
+                    .pending = .empty,
+                }),
                 else => {},
             }
             continue;

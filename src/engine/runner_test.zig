@@ -736,6 +736,27 @@ test "compileWasm: empty module (header only) compiles to empty CompiledWasm" {
     try testing.expectEqual(@as(usize, 0), compiled.func_results.len);
 }
 
+test "compileWasm: try_table in dead code does not underflow the label stack (D-471)" {
+    // (func (export "f") return_call $g (loop (loop (try_table (catch_all 1) end)
+    //  (try_table (catch_all 2) end)))). After `return_call` the loops + try_tables
+    // are UNREACHABLE (validator accepts via polymorphic typing). The dead-code
+    // emit path pushed placeholder labels for block/loop/if but NOT try_table, so
+    // the first try_table's `end` popped an enclosing loop frame, leaving the label
+    // stack one short. The second try_table's `catch_all 2` then computed
+    // `labels_depth_outer - label_idx` = 1 - 2 → integer-overflow PANIC on BOTH
+    // arches. Compiling without a crash is the regression assertion.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x04, 0x01, 0x60, 0x00, 0x00,
+        0x03, 0x03, 0x02, 0x00, 0x00, 0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x01, 0x0a, 0x1b,
+        0x02, 0x02, 0x00, 0x0b, 0x16, 0x00, 0x12, 0x00, 0x03, 0x40, 0x03, 0x40, 0x1f, 0x40,
+        0x01, 0x02, 0x01, 0x0b, 0x1f, 0x40, 0x01, 0x02, 0x02, 0x0b, 0x0b, 0x0b, 0x0b, 0x00,
+        0x0b, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x01, 0x04, 0x01, 0x00, 0x01, 0x67,
+    };
+    var compiled = try compileWasm(testing.allocator, &bytes);
+    defer compiled.deinit(testing.allocator);
+    try testing.expectEqual(@as(usize, 2), compiled.func_sigs.len);
+}
+
 test "compileWasm: empty function section (count=0) — binary.60.wasm shape (D-135 path)" {
     // §9.9 / 9.9-l-1b-d093-d69 (D-135 path discriminator): a
     // function section that is present-but-empty (body = single
