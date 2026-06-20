@@ -52,15 +52,15 @@ reject @fae437597 · D-473 JIT global-init OutOfHeap propagation @d9d3325db. Dis
 is the productive sweep loop. **memory64+SIMD axis @06d0c2ea1**: v128.load*/store*/lane VALIDATORS hardcoded
 popExpect(.i32) for the address — D-324 covered regular/bulk/atomic load/store but MISSED SIMD; fixed (readSimdMemarg →
 memIdxTypeAt), JIT already lowers i64 addr, simd_assert 25075/0 (lesson `index-width-audit-all-memory-op-families`).
-**Sweep status — at a FLOOR**: fresh axes (no-import-rich, maximal-features, mem64-enabled) all CLEAN (500/500
-compile+JIT, 0 crashes, 0 validation-rejections). **wasmtime-vs-JIT differential BUILT @9ba3f8c9f**
-(`scripts/fuzz_wasmtime_diff.py`, proven exec_seed 6/0) to cover the JIT-SIMD blind spot (interp oracle is non-SIMD) —
-but raw smith corpora hit compared=0: the host-invoke **wrapper_thunk (ADR-0106) sig limitation** fails the whole module
-on any f32/v128-result or 2/4+-param func. **JIT SIMD body codegen VERIFIED CORRECT** (complex SIMD chain matches
-wasmtime + simd_assert 25075/0; the apparent divergences were ALL the wrapper limit, not miscompiles; lesson
-`wasmtime-jit-differential-wrapper-blocked`). Remaining gap-classes (all FRESH-CONTEXT, lower-pri, NOT correctness-sweep):
-cross-module table harness wiring (D-475, harness-coverage), JIT table64 codegen (D-475 slice 4, structural ABI),
-wrapper_thunk broadening (would unblock the differential). Known-item sweep is genuinely exhausted.
+**Sweep at a FLOOR**: fresh axes (no-import-rich, maximal-features, mem64-enabled) all CLEAN (500/500 compile+JIT, 0
+crashes/rejections). **wasmtime-vs-JIT differential BUILT @9ba3f8c9f** (`scripts/fuzz_wasmtime_diff.py`, exec_seed 6/0)
+for the JIT-SIMD blind spot; raw smith → compared=0 (wrapper_thunk ADR-0106 sig limit fails whole module on f32/v128-
+result or 2/4+-param func). JIT SIMD body codegen VERIFIED CORRECT (lesson `wasmtime-jit-differential-wrapper-blocked`).
+**v128-RESULT host-invoke FIXED @1d3dfdb25** (gap-class-#1 the differential surfaced): `--invoke (result v128)` was
+UnsupportedEntrySignature → wired entry.callV128NoArgs + ScalarResult.v128 + CLI u128-decimal (matches wasmtime, dual-arch
+verified). **Remaining gap-classes (FRESH-CONTEXT, lower-pri, NOT correctness)**: entry-sig completeness (ref/multi-
+result/multi-param + wrapper_thunk broadening → unblocks the differential), cross-module table harness wiring (D-475
+harness-coverage), JIT table64 codegen (D-475 slice 4 structural ABI). Known-item correctness-sweep is exhausted.
 **extended-const @d258097e9** (i32/i64 add/sub/mul in const-exprs, 6 eval/validate sites) + **D-476 @4b10c569c**
 (element global.get + concrete typed-ref `(ref.null $t)` parse-acceptance) — both engines, closed. **8 gaps fixed +
 2 divergences + 2 disproven this session.**
