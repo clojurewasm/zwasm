@@ -1642,6 +1642,7 @@ pub fn instantiateRuntime(
                         .refs = refs,
                         .elem_type = entry.elem_type,
                         .max = entry.max,
+                        .idx_type = entry.idx_type,
                     };
                 }
             }

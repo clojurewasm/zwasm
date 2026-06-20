@@ -785,6 +785,11 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
         }
         break :blk out;
     };
+    // D-475 — the JIT cannot yet index tables at i64 width (slice 4); reject an
+    // i64-indexed table here so a table64 module fails cleanly under the JIT
+    // instead of silently miscompiling a large index. The interp path supports
+    // table64 fully and does not route through compileWasm.
+    for (validator_tables) |t| if (t.idx_type == .i64) return Error.JitTable64Unsupported;
     const validator_data_count: u32 = if (datas_buf) |d| @intCast(d.items.len) else 0;
     const validator_elem_count: u32 = if (elems_buf) |e| @intCast(e.items.len) else 0;
 

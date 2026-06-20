@@ -1825,6 +1825,28 @@ test "validate: table.get with out-of-range tableidx → InvalidFuncIndex" {
     try testing.expectError(Error.InvalidFuncIndex, r);
 }
 
+test "validate (table64): table.get on i64 table pops i64 index" {
+    const tables = [_]zir.TableEntry{.{ .idx_type = .i64, .elem_type = .funcref, .min = 0 }};
+    // i64.const 0 ; table.get 0 ; drop ; end
+    const body = [_]u8{ 0x42, 0x00, 0x25, 0x00, 0x1A, 0x0B };
+    try validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &tables, 0);
+}
+
+test "validate (table64): table.get on i64 table rejects i32 index" {
+    const tables = [_]zir.TableEntry{.{ .idx_type = .i64, .elem_type = .funcref, .min = 0 }};
+    // i32.const 0 ; table.get 0 ; drop ; end — i32 index where i64 required.
+    const body = [_]u8{ 0x41, 0x00, 0x25, 0x00, 0x1A, 0x0B };
+    const r = validateFunction(empty_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &tables, 0);
+    try testing.expectError(Error.StackTypeMismatch, r);
+}
+
+test "validate (table64): table.size on i64 table pushes i64" {
+    const tables = [_]zir.TableEntry{.{ .idx_type = .i64, .elem_type = .funcref, .min = 0 }};
+    // table.size 0 ; end  on () -> i64
+    const body = [_]u8{ 0xFC, 0x10, 0x00, 0x0B };
+    try validateFunction(i64_result_sig, &.{}, &body, &.{}, &.{}, &.{}, 0, &tables, 0);
+}
+
 test "validate: table.grow pops i32 + reftype, pushes i32" {
     const tables = [_]zir.TableEntry{.{ .elem_type = .funcref, .min = 0 }};
     // ref.null funcref ; i32.const 1 ; table.grow 0 ; drop ; end

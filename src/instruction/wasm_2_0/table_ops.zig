@@ -48,10 +48,21 @@ fn tableGet(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const tableidx = instr.payload;
     if (tableidx >= rt.tables.len) return Trap.Unreachable;
     const tbl = rt.tables[tableidx];
-    const idx_i = rt.popOperand().i32;
-    const idx: u64 = @as(u32, @bitCast(idx_i));
+    const idx = popTableIndex(rt, tbl.idx_type);
     if (idx >= tbl.refs.len) return Trap.OutOfBoundsTableAccess;
     try rt.pushOperand(tbl.refs[@intCast(idx)]);
+}
+
+/// Pop a table index/count operand at the table's address width. For a
+/// table64 the producer pushed an i64 (validator-enforced) — read the full
+/// 64 bits so an out-of-range index still trips the bounds check (reading
+/// `.i32` would truncate a >2^32 index and wrongly pass). i32 tables read
+/// the low word and zero-extend.
+inline fn popTableIndex(rt: *Runtime, idx_type: zir.IdxType) u64 {
+    return switch (idx_type) {
+        .i64 => @bitCast(rt.popOperand().i64),
+        .i32 => @as(u32, @bitCast(rt.popOperand().i32)),
+    };
 }
 
 fn tableSet(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
@@ -60,8 +71,7 @@ fn tableSet(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     if (tableidx >= rt.tables.len) return Trap.Unreachable;
     const tbl = rt.tables[tableidx];
     const v = rt.popOperand();
-    const idx_i = rt.popOperand().i32;
-    const idx: u64 = @as(u32, @bitCast(idx_i));
+    const idx = popTableIndex(rt, tbl.idx_type);
     if (idx >= tbl.refs.len) return Trap.OutOfBoundsTableAccess;
     tbl.refs[@intCast(idx)] = v;
 }
@@ -71,51 +81,68 @@ fn tableSize(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const tableidx = instr.payload;
     if (tableidx >= rt.tables.len) return Trap.Unreachable;
     const tbl = rt.tables[tableidx];
-    const sz: i32 = @intCast(tbl.refs.len);
-    try rt.pushOperand(.{ .i32 = sz });
+    try pushTableIndex(rt, tbl.idx_type, tbl.refs.len);
 }
 
-/// table.grow x: pop n:i32, init:reftype. Realloc refs to
-/// len+n and fill new slots with init. Push prev_size on
-/// success or -1 on max-cap violation / alloc failure.
+/// Push a table size/result at the table's address width: i64 for a
+/// table64 (table.size / table.grow result), i32 otherwise.
+inline fn pushTableIndex(rt: *Runtime, idx_type: zir.IdxType, val: u64) anyerror!void {
+    switch (idx_type) {
+        .i64 => try rt.pushOperand(.{ .i64 = @bitCast(val) }),
+        .i32 => try rt.pushOperand(.{ .i32 = @bitCast(@as(u32, @intCast(val))) }),
+    }
+}
+
+/// table.grow x: pop n:idx_type, init:reftype. Realloc refs to
+/// len+n and fill new slots with init. Push prev_size (at the table's
+/// address width) on success, or -1 on max-cap violation / alloc failure.
 fn tableGrow(c: *@import("../../ir/dispatch_table.zig").InterpCtx, instr: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
     const tableidx = instr.payload;
     if (tableidx >= rt.tables.len) return Trap.Unreachable;
     const tbl = &rt.tables[tableidx];
 
-    const n_i = rt.popOperand().i32;
+    const n = popTableIndex(rt, tbl.idx_type);
     const init_v = rt.popOperand();
     const prev: u64 = tbl.refs.len;
-    const n: u64 = @as(u32, @bitCast(n_i));
-    const new_len = prev + n;
+    // The grow-failure result is -1 represented at the table's address width.
+    const fail_val: Value = switch (tbl.idx_type) {
+        .i64 => .{ .i64 = -1 },
+        .i32 => .{ .i32 = -1 },
+    };
+    const add = @addWithOverflow(prev, n);
+    const new_len = add[0];
 
-    // Max-cap or u32-range violation → push -1, no mutation.
-    if (new_len > std.math.maxInt(u32)) {
-        try rt.pushOperand(.{ .i32 = -1 });
+    // Overflow, u32-range (i32 table can't exceed u32), max-cap, or host
+    // element-cap violation → push -1, no mutation. (A >2^32-cell table is
+    // unallocatable regardless of idx_type, so the realloc below also fails.)
+    if (add[1] != 0 or (tbl.idx_type == .i32 and new_len > std.math.maxInt(u32))) {
+        try rt.pushOperand(fail_val);
         return;
     }
     if (tbl.max) |m| if (new_len > m) {
-        try rt.pushOperand(.{ .i32 = -1 });
+        try rt.pushOperand(fail_val);
         return;
     };
     // D-316: a host element cap refuses the grow (spec grow-failure, not a trap),
     // the same way `store_memory_pages_max` bounds `memory.grow`.
     if (rt.store_table_elements_max) |cap| if (new_len > cap) {
-        try rt.pushOperand(.{ .i32 = -1 });
+        try rt.pushOperand(fail_val);
         return;
     };
 
-    const new_refs = rt.alloc.realloc(tbl.refs, @intCast(new_len)) catch {
-        try rt.pushOperand(.{ .i32 = -1 });
+    const new_refs = rt.alloc.realloc(tbl.refs, std.math.cast(usize, new_len) orelse {
+        try rt.pushOperand(fail_val);
+        return;
+    }) catch {
+        try rt.pushOperand(fail_val);
         return;
     };
     var i: usize = @intCast(prev);
     while (i < new_refs.len) : (i += 1) new_refs[i] = init_v;
     tbl.refs = new_refs;
 
-    const prev_i: i32 = @intCast(prev);
-    try rt.pushOperand(.{ .i32 = prev_i });
+    try pushTableIndex(rt, tbl.idx_type, prev);
 }
 
 /// table.fill x: pop n:i32, val:reftype, dst:i32. Set n cells
@@ -126,15 +153,14 @@ fn tableFill(c: *@import("../../ir/dispatch_table.zig").InterpCtx, instr: *const
     if (tableidx >= rt.tables.len) return Trap.Unreachable;
     const tbl = rt.tables[tableidx];
 
-    const n_i = rt.popOperand().i32;
+    const n = popTableIndex(rt, tbl.idx_type);
     const v = rt.popOperand();
-    const dst_i = rt.popOperand().i32;
-    const n: u64 = @as(u32, @bitCast(n_i));
-    const dst: u64 = @as(u32, @bitCast(dst_i));
-    if (dst + n > tbl.refs.len) return Trap.OutOfBoundsTableAccess;
+    const dst = popTableIndex(rt, tbl.idx_type);
+    const end_ov = @addWithOverflow(dst, n);
+    if (end_ov[1] != 0 or end_ov[0] > tbl.refs.len) return Trap.OutOfBoundsTableAccess;
     if (n == 0) return;
     var i: usize = @intCast(dst);
-    const end: usize = @intCast(dst + n);
+    const end: usize = @intCast(end_ov[0]);
     while (i < end) : (i += 1) tbl.refs[i] = v;
 }
 
@@ -150,13 +176,15 @@ fn tableCopy(c: *@import("../../ir/dispatch_table.zig").InterpCtx, instr: *const
     const dst_tbl = rt.tables[dst_tbl_idx];
     const src_tbl = rt.tables[src_tbl_idx];
 
-    const n_i = rt.popOperand().i32;
-    const src_i = rt.popOperand().i32;
-    const dst_i = rt.popOperand().i32;
-    const n: u64 = @as(u32, @bitCast(n_i));
-    const src: u64 = @as(u32, @bitCast(src_i));
-    const dst: u64 = @as(u32, @bitCast(dst_i));
-    if (src + n > src_tbl.refs.len or dst + n > dst_tbl.refs.len) return Trap.OutOfBoundsTableAccess;
+    // table64: dst/src indices use their own table's width; n uses the
+    // narrower (mirrors the validator's memory.copy-style n typing).
+    const n_idx_type: zir.IdxType = if (dst_tbl.idx_type == .i32 or src_tbl.idx_type == .i32) .i32 else .i64;
+    const n = popTableIndex(rt, n_idx_type);
+    const src = popTableIndex(rt, src_tbl.idx_type);
+    const dst = popTableIndex(rt, dst_tbl.idx_type);
+    const src_end = @addWithOverflow(src, n);
+    const dst_end = @addWithOverflow(dst, n);
+    if (src_end[1] != 0 or dst_end[1] != 0 or src_end[0] > src_tbl.refs.len or dst_end[0] > dst_tbl.refs.len) return Trap.OutOfBoundsTableAccess;
     if (n == 0) return;
     const src_lo: usize = @intCast(src);
     const dst_lo: usize = @intCast(dst);
@@ -192,13 +220,13 @@ fn tableInit(c: *@import("../../ir/dispatch_table.zig").InterpCtx, instr: *const
     const seg_len: u64 = if (dropped) 0 else seg.len;
     const tbl = rt.tables[tableidx];
 
-    const n_i = rt.popOperand().i32;
-    const src_i = rt.popOperand().i32;
-    const dst_i = rt.popOperand().i32;
-    const n: u64 = @as(u32, @bitCast(n_i));
-    const src: u64 = @as(u32, @bitCast(src_i));
-    const dst: u64 = @as(u32, @bitCast(dst_i));
-    if (src + n > seg_len or dst + n > tbl.refs.len) return Trap.OutOfBoundsTableAccess;
+    // table64: the elem segment is i32-indexed (src + n stay i32); only the
+    // destination table address uses the table's width.
+    const n: u64 = @as(u32, @bitCast(rt.popOperand().i32));
+    const src: u64 = @as(u32, @bitCast(rt.popOperand().i32));
+    const dst = popTableIndex(rt, tbl.idx_type);
+    const dst_end = @addWithOverflow(dst, n);
+    if (src + n > seg_len or dst_end[1] != 0 or dst_end[0] > tbl.refs.len) return Trap.OutOfBoundsTableAccess;
     if (n == 0) return;
     var i: usize = 0;
     while (i < @as(usize, @intCast(n))) : (i += 1) {
@@ -602,4 +630,50 @@ test "elem.drop: elemidx out of range traps Unreachable" {
     var rt = Runtime.init(testing.allocator);
     defer rt.deinit();
     try testing.expectError(Trap.Unreachable, driveOne(&rt, &t, .@"elem.drop", 0, 0));
+}
+
+// table64 (D-475): an i64-indexed table pops its index/n + pushes
+// size/grow results at i64 width.
+test "table64: get/set round-trip with i64 index" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    var refs = [_]Value{ .{ .ref = Value.null_ref }, .{ .ref = Value.null_ref }, .{ .ref = Value.null_ref } };
+    var tbls = [_]TableInstance{.{ .refs = &refs, .elem_type = .funcref, .idx_type = .i64 }};
+    rt.tables = &tbls;
+
+    try rt.pushOperand(.{ .i64 = 2 });
+    try rt.pushOperand(.{ .ref = 99 });
+    try driveOne(&rt, &t, .@"table.set", 0, 0);
+
+    try rt.pushOperand(.{ .i64 = 2 });
+    try driveOne(&rt, &t, .@"table.get", 0, 0);
+    try testing.expectEqual(@as(u64, 99), rt.popOperand().ref);
+}
+
+test "table64: size pushes i64" {
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    var refs = [_]Value{ .{ .ref = Value.null_ref }, .{ .ref = Value.null_ref }, .{ .ref = Value.null_ref } };
+    var tbls = [_]TableInstance{.{ .refs = &refs, .elem_type = .funcref, .idx_type = .i64 }};
+    rt.tables = &tbls;
+    try driveOne(&rt, &t, .@"table.size", 0, 0);
+    try testing.expectEqual(@as(i64, 3), rt.popOperand().i64);
+}
+
+test "table64: index > 2^32 traps OOB (full-width read, not i32-truncated)" {
+    // refs.len = 2; index = 2^32 (low 32 bits = 0). An i32-truncating read
+    // would see 0 (in-bounds → wrong); the full i64 read sees 2^32 → OOB.
+    var t = DispatchTable.init();
+    register(&t);
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    var refs = [_]Value{ .{ .ref = Value.null_ref }, .{ .ref = Value.null_ref } };
+    var tbls = [_]TableInstance{.{ .refs = &refs, .elem_type = .funcref, .idx_type = .i64 }};
+    rt.tables = &tbls;
+    try rt.pushOperand(.{ .i64 = 0x1_0000_0000 });
+    try testing.expectError(Trap.OutOfBoundsTableAccess, driveOne(&rt, &t, .@"table.get", 0, 0));
 }

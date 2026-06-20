@@ -21,4 +21,8 @@ pub const TableInstance = struct {
     refs: []Value,
     elem_type: zir.ValType,
     max: ?u32 = null,
+    /// table64 (memory64 proposal's table extension): `.i64` for an
+    /// i64-indexed table — the table-op handlers pop the index/n at this
+    /// width and table.size/grow push their result at this width.
+    idx_type: zir.IdxType = .i32,
 };

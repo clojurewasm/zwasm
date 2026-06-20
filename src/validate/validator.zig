@@ -2752,32 +2752,32 @@ pub const Validator = struct {
     fn opTableGet(self: *Validator) Error!void {
         const idx = try leb128.readUleb128(u32, self.body, &self.pos);
         if (idx >= self.tables.len) return Error.InvalidFuncIndex;
-        try self.popExpect(.i32);
+        try self.popExpect(self.tableIdxType(idx)); // index (i32 or i64 for table64)
         try self.pushType(self.tables[idx].elem_type);
     }
 
-    /// table.set x: pop tables[x].elem_type, pop i32 idx.
+    /// table.set x: pop tables[x].elem_type, pop idx (i32/i64).
     fn opTableSet(self: *Validator) Error!void {
         const idx = try leb128.readUleb128(u32, self.body, &self.pos);
         if (idx >= self.tables.len) return Error.InvalidFuncIndex;
         try self.popExpect(self.tables[idx].elem_type);
-        try self.popExpect(.i32);
+        try self.popExpect(self.tableIdxType(idx));
     }
 
-    /// table.size x (0xFC 16): push i32.
+    /// table.size x (0xFC 16): push the table's index type (i64 for table64).
     fn opTableSize(self: *Validator) Error!void {
         const idx = try leb128.readUleb128(u32, self.body, &self.pos);
         if (idx >= self.tables.len) return Error.InvalidFuncIndex;
-        try self.pushType(.i32);
+        try self.pushType(self.tableIdxType(idx));
     }
 
-    /// table.grow x (0xFC 15): pop n:i32, init:elem_type; push i32.
+    /// table.grow x (0xFC 15): pop n:idx_type, init:elem_type; push idx_type.
     fn opTableGrow(self: *Validator) Error!void {
         const idx = try leb128.readUleb128(u32, self.body, &self.pos);
         if (idx >= self.tables.len) return Error.InvalidFuncIndex;
-        try self.popExpect(.i32);
+        try self.popExpect(self.tableIdxType(idx)); // n (delta)
         try self.popExpect(self.tables[idx].elem_type);
-        try self.pushType(.i32);
+        try self.pushType(self.tableIdxType(idx)); // previous size
     }
 
     /// Wasm spec §3.3.5.20 (table.init x y, 0xFC 12): pop three
@@ -2801,9 +2801,9 @@ pub const Validator = struct {
                 return Error.StackTypeMismatch;
             }
         }
-        try self.popExpect(.i32);
-        try self.popExpect(.i32);
-        try self.popExpect(.i32);
+        try self.popExpect(.i32); // n (elem-segment item count)
+        try self.popExpect(.i32); // src (elem-segment offset)
+        try self.popExpect(self.tableIdxType(tableidx)); // dst (table addr)
     }
 
     /// elem.drop x (0xFC 13): no operand-stack effects. Validates
@@ -2826,18 +2826,23 @@ pub const Validator = struct {
         if (!self.subtypeCtx(self.tables[src].elem_type, self.tables[dst].elem_type)) {
             return Error.StackTypeMismatch;
         }
-        try self.popExpect(.i32);
-        try self.popExpect(.i32);
-        try self.popExpect(.i32);
+        // table64: dst uses dst-table idx_type, src uses src-table idx_type,
+        // n uses the narrower of the two (mirrors memory.copy, §3.4.7).
+        const dst_t = self.tableIdxType(dst);
+        const src_t = self.tableIdxType(src);
+        const n_t: ValType = if (dst_t == .i32 or src_t == .i32) .i32 else .i64;
+        try self.popExpect(n_t); // n
+        try self.popExpect(src_t); // src
+        try self.popExpect(dst_t); // dst
     }
 
-    /// table.fill x (0xFC 17): pop n:i32, val:elem_type, dst:i32.
+    /// table.fill x (0xFC 17): pop n:idx_type, val:elem_type, dst:idx_type.
     fn opTableFill(self: *Validator) Error!void {
         const idx = try leb128.readUleb128(u32, self.body, &self.pos);
         if (idx >= self.tables.len) return Error.InvalidFuncIndex;
-        try self.popExpect(.i32);
+        try self.popExpect(self.tableIdxType(idx)); // n
         try self.popExpect(self.tables[idx].elem_type);
-        try self.popExpect(.i32);
+        try self.popExpect(self.tableIdxType(idx)); // dst
     }
 
     /// memory.fill: 0xFC 11 memidx. Pops three values
@@ -2952,8 +2957,8 @@ pub const Validator = struct {
         if (!self.subtypeCtx(self.tables[table_idx].elem_type, ValType.funcref)) return Error.InvalidFuncIndex;
         if (type_idx >= self.module_types.len) return Error.InvalidFuncIndex;
         const callee = self.module_types[type_idx];
-        // Pop the function-table index (i32), then args in reverse.
-        try self.popExpect(.i32);
+        // Pop the function-table index (i64 for a table64), then args in reverse.
+        try self.popExpect(self.tableIdxType(table_idx));
         var i: usize = callee.params.len;
         while (i > 0) {
             i -= 1;
@@ -3122,6 +3127,17 @@ pub const Validator = struct {
     /// (Wasm 3.0 §3.4.7 multi-memory × memory64 mixing).
     fn memIdxTypeAt(self: *const Validator, memidx: u32) ValType {
         return switch (self.memEntryIdxType(memidx)) {
+            .i32 => .i32,
+            .i64 => .i64,
+        };
+    }
+
+    /// The index/operand valtype for a table's address space (table64,
+    /// memory64 proposal's table extension): i64 for an i64-indexed table,
+    /// i32 otherwise. table.get/set/grow/size/fill/copy/init + call_indirect
+    /// index this table at this width (caller must have range-checked idx).
+    fn tableIdxType(self: *const Validator, idx: u32) ValType {
+        return switch (self.tables[idx].idx_type) {
             .i32 => .i32,
             .i64 => .i64,
         };

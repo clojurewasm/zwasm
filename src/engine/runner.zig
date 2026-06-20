@@ -157,6 +157,13 @@ pub const Error = error{
     /// called. An unsatisfied import MUST fail instantiation regardless
     /// of whether it is reached at runtime (D-451).
     ImportUnsatisfied,
+    /// D-475 — a module declares an i64-indexed table (table64, the memory64
+    /// proposal's table extension). The validator + interp runtime support
+    /// these, but the JIT codegen still indexes tables at i32 width, so
+    /// compiling one would silently miscompile a >2^32 index. The JIT compile
+    /// path rejects it (clean failure) until the i64 table-bounds codegen lands
+    /// (D-475 slice 4); the interp path runs table64 modules correctly.
+    JitTable64Unsupported,
 } || compile_func.Error || parser.Error || sections.Error || linker.Error || entry.Error || validator_mod.Error || rv.Error;
 // `InvalidGlobalInitExpr` / `UnsupportedEntrySignature` /
 // `UnsupportedConstExpr` originate in `runner_validate.zig`

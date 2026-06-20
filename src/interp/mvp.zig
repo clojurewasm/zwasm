@@ -440,15 +440,26 @@ fn callOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
 ///   - selector >= table.len               → OutOfBoundsTableAccess
 ///   - table[selector] == null_ref         → UninitializedElement
 ///   - resolved sig != expected sig        → IndirectCallTypeMismatch
+/// Pop a call_indirect table selector at the table's address width: a
+/// table64 (memory64 proposal's table extension) selector is i64 (read the
+/// full 64 bits so a >2^32 selector still trips the bounds check); an i32
+/// table reads the low word.
+inline fn popTableSelector(rt: *Runtime, idx_type: zir.IdxType) u64 {
+    return switch (idx_type) {
+        .i64 => @bitCast(rt.popOperand().i64),
+        .i32 => rt.popOperand().u32,
+    };
+}
+
 fn callIndirectOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
     const tableidx = instr.extra;
     if (tableidx >= rt.tables.len) return Trap.Unreachable;
     const tbl = rt.tables[tableidx];
 
-    const sel = rt.popOperand().u32;
+    const sel = popTableSelector(rt, tbl.idx_type);
     if (sel >= tbl.refs.len) return Trap.OutOfBoundsTableAccess;
-    const ref_v = tbl.refs[sel];
+    const ref_v = tbl.refs[@intCast(sel)];
     const fe = runtime.Value.refAsFuncEntity(ref_v) orelse return Trap.UninitializedElement;
     const callee_rt = fe.runtime;
     if (fe.func_idx >= callee_rt.funcs.len) return Trap.UninitializedElement;
@@ -663,9 +674,9 @@ fn returnCallIndirectOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     if (tableidx >= rt.tables.len) return Trap.Unreachable;
     const tbl = rt.tables[tableidx];
 
-    const sel = rt.popOperand().u32;
+    const sel = popTableSelector(rt, tbl.idx_type);
     if (sel >= tbl.refs.len) return Trap.OutOfBoundsTableAccess;
-    const ref_v = tbl.refs[sel];
+    const ref_v = tbl.refs[@intCast(sel)];
     const fe = runtime.Value.refAsFuncEntity(ref_v) orelse return Trap.UninitializedElement;
     const callee_rt = fe.runtime;
     if (fe.func_idx >= callee_rt.funcs.len) return Trap.UninitializedElement;
