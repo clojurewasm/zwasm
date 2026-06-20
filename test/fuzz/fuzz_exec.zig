@@ -4,11 +4,20 @@
 //! engines instantiate, invokes every 0-param / single-scalar-result (i32/i64/
 //! f32/f64) export under the interp (`Instance.invoke`) AND the JIT (`JitInstance.invoke`) with
 //! a deterministic fuel budget, then compares the outcomes. A divergence —
-//! interp returns a value the JIT doesn't (or vice versa), or the two return
-//! DIFFERENT values — is a finding (the D-330/D-331A/D-468 class of JIT-execute
-//! miscompiles, which the spec/realworld corpora may not reach). A process-level
-//! CRASH (panic / unreachable / SEGV) is likewise a finding (external detection:
-//! the process dies, the runner sees the signal exit).
+//! interp returns a value the JIT doesn't (or vice versa), the two return
+//! DIFFERENT values, or both trap with DIFFERENT precise kinds — is a finding
+//! (the D-330/D-331A/D-468 JIT-execute-miscompile class + the D-470/GC-trap-kind
+//! precision class, neither of which the spec/realworld corpora reliably reach).
+//! A process-level CRASH (panic / unreachable / SEGV) is likewise a finding
+//! (external detection: the process dies, the runner sees the signal exit).
+//!
+//! Trap-kind compare: both engines map a trap to the shared `trap_surface.TrapKind`
+//! (interp error → `mapInterpTrap`; JIT raw code → `jitTrapCode`). Kinds are only
+//! compared when BOTH sides name one precisely; an interp `binding_error` (host
+//! catch-all) or a JIT generic-bucket code (raw 0/1, codegen-unsplit) is treated
+//! as incomparable and falls back to the lenient both-trap-OK rule — no false
+//! mismatch, but a genuine kind divergence (e.g. interp `null_reference` vs JIT
+//! `oob_memory`) is caught.
 //!
 //! Why FOCUSED (0-param, 1 scalar result): it sidesteps argument generation and
 //! the multi-result / v128 / ref-result marshalling mismatch between the two
@@ -34,15 +43,28 @@ const std = @import("std");
 
 const zwasm = @import("zwasm");
 const engine_runner = zwasm.engine.runner;
+const trap_surface = zwasm.api.trap_surface;
+const TrapKind = trap_surface.TrapKind;
 
 const FUEL: u64 = 200_000;
 const OUT_OF_FUEL_KIND: u32 = 17; // jit raw trap_kind for out_of_fuel
 
 const Outcome = union(enum) {
     value: u64, // normalised result bits (i32 zero-extended into the low 32)
-    trap, // a non-fuel trap
+    // A non-fuel trap. The payload is the PRECISE trap kind when both ABIs can
+    // name it (interp error → `mapInterpTrap`; JIT raw code → `jitTrapCode`), or
+    // `null` when incomparable — interp `binding_error` (host catch-all) or JIT
+    // generic bucket (raw 0/1, codegen-unsplit). Comparing kinds catches the
+    // D-470 / GC-trap-kind-precision class (both engines trap, but with DIFFERENT
+    // kinds) that a plain both-trap-OK check silently passes; `null` on either
+    // side falls back to that lenient both-trap-OK to avoid a false mismatch.
+    trap: ?TrapKind,
     fuel, // out_of_fuel — not comparable across engines
 };
+
+fn kindName(k: ?TrapKind) []const u8 {
+    return if (k) |kk| @tagName(kk) else "(incomparable)";
+}
 
 // f32/f64 results: the smith corpus is generated with `canonicalize-nans` so a
 // NaN result is the single canonical bit pattern in BOTH engines — a direct bit
@@ -66,7 +88,10 @@ fn interpInvoke(inst: *zwasm.Instance, name: []const u8) Outcome {
     var results: [1]zwasm.Value = undefined;
     inst.invoke(name, &.{}, results[0..1]) catch |err| {
         if (err == error.OutOfFuel) return .fuel;
-        return .trap;
+        const k = trap_surface.mapInterpTrap(err);
+        // `binding_error` is the host catch-all bucket, not a spec trap kind the
+        // JIT path emits — treat as incomparable rather than risk a false mismatch.
+        return .{ .trap = if (k == .binding_error) null else k };
     };
     return .{ .value = valueBits(results[0]) };
 }
@@ -75,8 +100,11 @@ fn jitInvoke(jit: *engine_runner.JitInstance, gpa: std.mem.Allocator, name: []co
     // `JitInstance.invoke` returns the scalar result as a u64 carrier already
     // zero-extended for 32-bit types (dispatchNoArg) — matches `valueBits`.
     const r = jit.invoke(gpa, name, &.{}) catch {
-        if (jit.owned.rt.trap_kind == OUT_OF_FUEL_KIND) return .fuel;
-        return .trap;
+        const raw = jit.owned.rt.trap_kind;
+        if (raw == OUT_OF_FUEL_KIND) return .fuel;
+        // `jitTrapCode` → null for the generic bucket (raw 0/1) the codegen does
+        // not split per-kind; null = incomparable (preserve the both-trap-OK path).
+        return .{ .trap = trap_surface.jitTrapCode(raw) };
     };
     return .{ .value = r orelse 0 };
 }
@@ -151,6 +179,9 @@ pub fn main(init: std.process.Init) !void {
             interp_inst.setFuel(FUEL);
             jit.owned.rt.fuel_cell = std.math.cast(i64, FUEL) orelse std.math.maxInt(i64);
             jit.owned.rt.fuel_metered = 1;
+            // Reset the shared trap-kind slot so a trap on THIS invoke can't read
+            // a stale code from a prior export; raw 0 → `jitTrapCode` null (lenient).
+            jit.owned.rt.trap_kind = 0;
 
             const io_out = interpInvoke(&interp_inst, name);
             const jo_out = jitInvoke(&jit, gpa, name);
@@ -158,7 +189,12 @@ pub fn main(init: std.process.Init) !void {
             funcs_compared += 1;
 
             const ok = switch (io_out) {
-                .trap => jo_out == .trap,
+                // Both trap: OK iff the kinds match, OR either side is incomparable
+                // (interp host bucket / JIT generic bucket) → lenient both-trap-OK.
+                .trap => |ik| switch (jo_out) {
+                    .trap => |jk| ik == null or jk == null or ik.? == jk.?,
+                    else => false,
+                },
                 .value => |iv| jo_out == .value and jo_out.value == iv,
                 .fuel => unreachable,
             };
@@ -169,6 +205,10 @@ pub fn main(init: std.process.Init) !void {
                 });
                 if (io_out == .value and jo_out == .value) {
                     try stdout.print("          interp=0x{x} jit=0x{x}\n", .{ io_out.value, jo_out.value });
+                } else if (io_out == .trap and jo_out == .trap) {
+                    try stdout.print("          interp-kind={s} jit-kind={s}\n", .{
+                        kindName(io_out.trap), kindName(jo_out.trap),
+                    });
                 }
             }
         }
