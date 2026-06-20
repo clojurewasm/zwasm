@@ -33,11 +33,12 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     // args.src = array ref; args.result = pushed length (i32).
     const args = try ctx.popUnary();
     const xref = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.src, 0);
-    // Null-ref trap: CMP Xref, #0 ; B.EQ → generic trap stub.
+    // Null-ref trap: CMP Xref, #0 ; B.EQ → null_reference stub (kind 10),
+    // matching the interp (Trap.NullReference) — not the generic bounds bucket.
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmX(xref, 0));
     const fixup_at: u32 = @intCast(ctx.buf.items.len);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.eq, 0));
-    try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+    try ctx.null_ref_fixups.append(ctx.allocator, fixup_at);
 
     // slab = [[X19,#gc_heap_off], #offsetOf(Heap,bytes)]; + ref → base.
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(slab, abi.runtime_ptr_save_gpr, jit_abi.gc_heap_off));

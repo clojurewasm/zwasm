@@ -28,11 +28,12 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     _ = ins;
     const args = try ctx.popUnary();
     const xref = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, args.src, 0);
-    // Null-ref trap: TEST xref, xref ; JE rel32 → generic trap stub.
+    // Null-ref trap: TEST xref, xref ; JE rel32 → null_reference stub (kind 10),
+    // matching the interp (Trap.NullReference) — not the generic bounds bucket.
     try ctx.buf.appendSlice(ctx.allocator, inst.encTestRR(.q, xref, xref).slice());
     const fixup_at: u32 = @intCast(ctx.buf.items.len);
     try ctx.buf.appendSlice(ctx.allocator, inst.encJccRel32(.e, 0).slice());
-    try ctx.bounds_fixups.append(ctx.allocator, fixup_at);
+    try ctx.null_ref_fixups.append(ctx.allocator, fixup_at);
 
     // slab = [R15 + gc_heap_off] (*Heap), then [slab + offsetOf(Heap,bytes)]
     // (the slice `.ptr`); then slab += ref → object base.

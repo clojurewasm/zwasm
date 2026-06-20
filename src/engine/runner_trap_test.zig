@@ -66,6 +66,29 @@ test "JIT host-import trap_flag unwinds at the call site, not the next op (D-468
     try testing.expect(trap_code != 5);
 }
 
+// GC trap-kind precision (correctness sweep): `array.len` on a null array ref must
+// surface trap_kind = null_reference (raw 10, jitTrapCode → .null_reference), the
+// same kind the interp reports (`mvp.zig` Trap.NullReference). Before the fix the
+// JIT routed the null check to the GENERIC `bounds_fixups` (kind 0), diverging from
+// interp + spec. `(type $a (array i32)) (func (export "test") (result i32)
+//   ref.null $a array.len)`.
+const array_len_null_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x5e,
+    0x7f, 0x00, 0x60, 0x00, 0x01, 0x7f, 0x03, 0x02, 0x01, 0x01, 0x07, 0x08,
+    0x01, 0x04, 0x74, 0x65, 0x73, 0x74, 0x00, 0x00, 0x0a, 0x08, 0x01, 0x06,
+    0x00, 0xd0, 0x00, 0xfb, 0x0f, 0x0b, 0x00, 0x0b, 0x04, 0x6e, 0x61, 0x6d,
+    0x65, 0x04, 0x04, 0x01, 0x00, 0x01, 0x61,
+};
+
+test "JIT array.len on null ref traps null_reference (GC trap-kind precision sweep)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    var inst = try runner.JitInstance.init(testing.allocator, &array_len_null_wasm);
+    defer inst.deinit(testing.allocator);
+    try testing.expectError(entry.Error.Trap, inst.invoke(testing.allocator, "test", &.{}));
+    try testing.expectEqual(@as(u32, 10), inst.owned.rt.trap_kind); // null_reference
+    try testing.expectEqual(trap_surface.TrapKind.null_reference, trap_surface.jitTrapCode(inst.owned.rt.trap_kind).?);
+}
+
 // `(module (func (export "_start") i32.const 1 i32.const 0 i32.div_s drop))` —
 // the div-by-zero check traps before the IDIV/SDIV (ADR-0164 A2 / D-292: code 7).
 const divzero_start_wasm = [_]u8{
