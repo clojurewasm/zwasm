@@ -53,24 +53,20 @@ config → exec+loader fuzz → fix) is the productive sweep loop; new axes stil
 **extended-const DONE @d258097e9** (7th gap fixed): the extended-const proposal (i32/i64 add/sub/mul in const-exprs,
 ROADMAP §56) was rejected; wired through ALL 6 eval/validate sites (parse + interp global/i32-offset/i64-offset +
 JIT global-validate + JIT data/elem offset) in ONE commit — both engines read 42 on global + offset, no divergence.
-Unit tests + committed fuzz seed (extended_const_arith.wasm). **smith_v5 (func-refs/GC/EH) codegen-CLEAN (720
-JIT-compiled, 0 crashes) + exec-CLEAN (0 mismatch)** — but 924/1686 rejected reveals a **parse/validate ACCEPTANCE
-gap CLUSTER (D-476)**: zwasm rejects valid Wasm 3.0 GC/func-ref modules (concrete OPEN: `(elem funcref (global.get
-$g))`). **D-476 DONE @4b10c569c (8th gap)**: the residual parse-acceptance cluster was just 2 element-item forms —
-(1) element `global.get` (interp validator funcidx-loop missed the global.get-marker skip the JIT already had);
-(2) element concrete typed-ref `(ref.null $t)` (0xD0 reader used readValType = abstract-only → readTypedRef). Both
-fixed, both engines, parser test + fuzz seed; enumeration confirmed no other element-item gaps (rest of smith_v5's
-924 rejects = shared-everything-threads + i64-tables D-475 = out-of-scope/feature). **8 gaps fixed + 2 divergences +
-2 disproven this session.**
-**D-475 table64 ELEVATED to spec-conformance gap @7bfe12ddb** (Wasm 3.0 spec testsuite raw corpus has i64-table
-tests — memory64/raw/table.wast + table_copy_mixed + call_indirect — NOT distilled/run). **SLICE 1 DONE @3cbc804ef**:
-i64 table TYPES parse (zir.IdxType + TableEntry.idx_type; readLimits decodes flag-bit 0x04 for defined+imported,
-v3_0-gated). Safe standalone (i64-INDEX ops still validator-rejected; only i32-indexed access to i64 tables leniently
-accepted, no crash). **NEXT (D-475 multi-cycle, see debt row): slices 2+3 MUST bundle** — validator per-table index
-width (tableIdxType → 7 table-op + call_indirect popExpect; size/grow push i64) + interp runtime i64 indexing — because
-slice 2 alone makes i64-index modules VALIDATE while the i32-only runtime mis-executes = validates-but-crashes hazard.
-Slice 2 PREREQ: validator.zig (3502/cap-3510) needs the OVERDUE validator_helpers.zig extraction FIRST (the +16-line
-threading overflows it). Then (4) JIT i64 bounds (W→X, mirror op_memory.zig:88), (5) distil raw table*.wast.
+Unit tests + committed fuzz seed (extended_const_arith.wasm). **D-476 DONE @4b10c569c (8th gap)**: smith_v5's
+parse-acceptance cluster was just 2 element-item forms — element `global.get` (interp validator missed the
+global.get-marker skip) + concrete typed-ref `(ref.null $t)` (0xD0 reader readValType→readTypedRef); both engines,
+enumeration confirmed no other element-item gaps. **8 gaps fixed + 2 divergences + 2 disproven this session.**
+**D-475 table64 (spec-conformance gap @7bfe12ddb): SLICES 1+2+3 DONE — works fully under the INTERP.** Slice 1
+@3cbc804ef parse i64 table types; slices 2+3 @389131e36 (bundled to avoid validates-but-mis-executes): validator
+per-table index width (tableIdxType → 7 table-op + call_indirect; size/grow push i64; i32-on-i64 rejects) + interp
+runtime (TableInstance.idx_type; FULL i64 read so >2^32 index trips OOB — real fix; overflow-safe grow). Enabled by
+**validator_helpers.zig extraction @d96297628** (the marker's overdue move; validator.zig 3502→3363; 6 pure helpers
+re-exported, zero caller edits). **JIT GUARD @389131e36**: compileWasm rejects i64-table modules
+(Error.JitTable64Unsupported) — clean fail vs silent i32-width miscompile; interp doesn't route through compileWasm.
+**NEXT (D-475): (4) JIT i64 table-bounds codegen** (W→X form, mirror op_memory.zig:88 mem64; BOTH arches × 8 table ops
++ call_indirect) → removes the guard; verify per JIT-codegen lesson (2.0-assert on arm64 AND -Dtarget=x86_64-macos).
+Then (5) distil memory64/raw/table*.wast + call_indirect i64 cases, run both engines + 3 hosts.
 
 **Phase 17 完成形 plateau** (validated — do NOT re-walk): async COMPLETE; v128 spill (D-034/D-460/D-461) CLOSED;
 surface audits clean 2026-06-18; fuzz 0-crash; realworld JIT run 56/56 byte-match wasmtime (gating). NOT-WORTH: D-294-R2 TrapKind.
