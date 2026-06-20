@@ -57,11 +57,12 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(scratch, @intCast((addr >> 48) & 0xFFFF), 3));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBLR(scratch));
 
-    // Trap on result == 0 (OOB / dropped / bad substrate): CMP W0,#0 ; B.EQ.
+    // Trap on result == 0 (segment OOB): CMP W0,#0 ; B.EQ → oob_memory stub
+    // (kind 6), matching interp Trap.OutOfBoundsLoad — not the generic bucket.
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmW(0, 0));
     const fixup: u32 = @intCast(ctx.buf.items.len);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.eq, 0));
-    try ctx.bounds_fixups.append(ctx.allocator, fixup);
+    try ctx.oob_fixups.append(ctx.allocator, fixup);
 
     // Capture W0 (GcRef) → result vreg.
     const rd = try gpr.gprDefSpilled(ctx.alloc, args.result, 0);

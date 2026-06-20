@@ -52,11 +52,12 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     try ctx.buf.appendSlice(ctx.allocator, inst.encMovImm64Q(call_scratch, addr).slice());
     try ctx.buf.appendSlice(ctx.allocator, inst.encCallReg(call_scratch).slice());
 
-    // Trap on result == 0: TEST EAX, EAX ; JE → trap stub.
+    // Trap on result == 0 (segment OOB): TEST EAX, EAX ; JE → oob_memory stub
+    // (kind 6), matching interp Trap.OutOfBoundsLoad — not the generic bucket.
     try ctx.buf.appendSlice(ctx.allocator, inst.encTestRR(.d, .rax, .rax).slice());
     const fixup: u32 = @intCast(ctx.buf.items.len);
     try ctx.buf.appendSlice(ctx.allocator, inst.encJccRel32(.e, 0).slice());
-    try ctx.bounds_fixups.append(ctx.allocator, fixup);
+    try ctx.oob_fixups.append(ctx.allocator, fixup);
 
     // Capture EAX (GcRef) → result vreg.
     const rd = try gpr.gprDefSpilled(ctx.alloc, args.result, 0);

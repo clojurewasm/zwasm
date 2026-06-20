@@ -89,6 +89,30 @@ test "JIT array.len on null ref traps null_reference (GC trap-kind precision swe
     try testing.expectEqual(trap_surface.TrapKind.null_reference, trap_surface.jitTrapCode(inst.owned.rt.trap_kind).?);
 }
 
+// `array.new_data` whose segment access is out of bounds must surface oob_memory
+// (raw 6), matching the interp (Trap.OutOfBoundsLoad, array_ops.zig). Was the
+// generic bounds bucket. `(type $a (array i8)) (data $d "ab")
+//   (func (export "test") (result i32) i32.const 0 i32.const 100
+//     array.new_data $a $d drop i32.const 0)` — size 100 >> the 2-byte segment.
+const array_new_data_oob_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x5e,
+    0x78, 0x00, 0x60, 0x00, 0x01, 0x7f, 0x03, 0x02, 0x01, 0x01, 0x07, 0x08,
+    0x01, 0x04, 0x74, 0x65, 0x73, 0x74, 0x00, 0x00, 0x0c, 0x01, 0x01, 0x0a,
+    0x10, 0x01, 0x0e, 0x00, 0x41, 0x00, 0x41, 0xe4, 0x00, 0xfb, 0x09, 0x00,
+    0x00, 0x1a, 0x41, 0x00, 0x0b, 0x0b, 0x05, 0x01, 0x01, 0x02, 0x61, 0x62,
+    0x00, 0x11, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x04, 0x04, 0x01, 0x00, 0x01,
+    0x61, 0x09, 0x04, 0x01, 0x00, 0x01, 0x64,
+};
+
+test "JIT array.new_data segment-oob traps oob_memory (GC trap-kind precision sweep)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    var inst = try runner.JitInstance.init(testing.allocator, &array_new_data_oob_wasm);
+    defer inst.deinit(testing.allocator);
+    try testing.expectError(entry.Error.Trap, inst.invoke(testing.allocator, "test", &.{}));
+    try testing.expectEqual(@as(u32, 6), inst.owned.rt.trap_kind); // oob_memory
+    try testing.expectEqual(trap_surface.TrapKind.oob_memory, trap_surface.jitTrapCode(inst.owned.rt.trap_kind).?);
+}
+
 // `(module (func (export "_start") i32.const 1 i32.const 0 i32.div_s drop))` —
 // the div-by-zero check traps before the IDIV/SDIV (ADR-0164 A2 / D-292: code 7).
 const divzero_start_wasm = [_]u8{
