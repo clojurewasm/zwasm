@@ -30,6 +30,13 @@ entries:
       DONE so far: v128-result zero-arg @1d3dfdb25 (entry.callV128NoArgs +
       ScalarResult.v128 + CLI u128-decimal; dual-arch). Sibling niche results:
       multi-RESULT (≥2) + ref-result zero-arg fold into the same trampoline work.
+      PHASE I (裏取り) DONE → `.dev/d477_findings.md`: the array-call substrate
+      ALREADY EXISTS (ADR-0106 buffer-write ABI — `invokeMulti`→`invokeBufferWrite`,
+      gated on `hasThunk`). Real gap = `wrapper_thunk.emit` shape limits (≤1 param,
+      GPR-only via `all_gpr_class`, 2-3 results). Plan: generalize the thunk to N
+      typed args + multi/FP/ref results per-arch, wire `runWasiLenient --invoke`→
+      `invokeMulti`, drop `runner.zig:657` + `main.zig:257` rejects. v128 = separate
+      slice (8-byte u64 slots can't hold 16B). Driven as bundle D-477-jit-multiarg-invoke.
     first_raised: "2026-06-20"
     last_reviewed: "2026-06-20"
     refs: |-
