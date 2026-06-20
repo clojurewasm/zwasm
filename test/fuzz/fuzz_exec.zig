@@ -13,7 +13,10 @@
 //! Why FOCUSED (0-param, 1 scalar result): it sidesteps argument generation and
 //! the multi-result / v128 / ref-result marshalling mismatch between the two
 //! invoke ABIs (interp `[]Value`; JIT `[]u64 → ?u64`), while still exercising the
-//! full function body under both engines.
+//! full function body under both engines. Widening to (zero-filled) i32/i64 params
+//! was measured to add 0 funcs on the smith campaign — the single-scalar-RESULT
+//! filter is the binding constraint, not params; a real widening would need
+//! f32/f64 results (with NaN-bit-aware compare), deferred as diminishing-returns.
 //!
 //! Fuel: both engines are bounded so an infinite-loop smith body can't hang the
 //! fuzzer. The fuel UNITS differ (interp = per-instruction; JIT = poll-site
