@@ -2088,6 +2088,27 @@ test "setupRuntimeLinked: non-funcref table with min > grow_cap allocates min sl
     _ = try runner.runWasiLenient(testing.allocator, &wasm, null, null, null, .{}, null);
 }
 
+test "runWasiLenient: array.new_default global with overflowing length → OutOfHeap, not panic (D-472)" {
+    // (type $a (array i32)) (global (ref null $a) i32.const 1428501940
+    //  array.new_default $a): length 1428501940 × 4-byte element overflows the
+    // u32 size product. The GC const-expr evaluator (evalGlobalInitGc) must
+    // compute the size in u64 and trap OutOfHeap (wasmtime gc/array-alloc-too-
+    // large), NOT integer-overflow PANIC. Found by the varied-config fuzz campaign.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x07, 0x02, 0x5e, 0x7f, 0x00,
+        0x60, 0x00, 0x00, 0x03, 0x02, 0x01, 0x01, 0x06, 0x0e, 0x01, 0x63, 0x00, 0x00, 0x41,
+        0xb4, 0xeb, 0x94, 0xa9, 0x05, 0xfb, 0x07, 0x00, 0x0b, 0x07, 0x05, 0x01, 0x01, 0x66,
+        0x00, 0x00, 0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b, 0x00, 0x0b, 0x04, 0x6e, 0x61, 0x6d,
+        0x65, 0x04, 0x04, 0x01, 0x00, 0x01, 0x61,
+    };
+    // The JIT setup path swallows the OutOfHeap to a 0 global (setup.zig
+    // global-init fallback, D-472 follow-up debt) so it returns cleanly; the
+    // KEY regression is that it no longer PANICS (a pre-fix integer overflow
+    // crashed the process). The interp path's OutOfHeap propagation is covered
+    // by the committed fuzz-seed (array_new_constexpr_overflow.wasm).
+    _ = try runner.runWasiLenient(testing.allocator, &bytes, null, null, null, .{}, null);
+}
+
 test "runWasiLenient: unsatisfied import → ImportUnsatisfied at instantiation, even if never called (D-451, Wasm spec §4.5.4)" {
     // Module imports `env.abort` (func []→[]) — no WASI handler, no exporter —
     // and exports an empty `_start` that NEVER calls it. The interp path

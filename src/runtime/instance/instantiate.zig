@@ -985,7 +985,14 @@ pub fn evalGlobalInitGc(
                             sp -= 1;
                             init_v = stack[sp];
                         }
-                        const ref = try heap.allocate(ahs + length * @as(u32, ai.element.size));
+                        // u64 size arithmetic: a huge `array.new*` length (here
+                        // from a global const-expr) overflows the u32 product
+                        // before Heap.allocate's 4 GiB cap fires → trap OutOfHeap
+                        // instead of an integer-overflow panic (wasmtime gc/
+                        // array-alloc-too-large). Mirrors object_alloc.allocArrayObject.
+                        const total_u64: u64 = @as(u64, ahs) + @as(u64, length) * @as(u64, ai.element.size);
+                        if (total_u64 > std.math.maxInt(u32)) return error.OutOfHeap;
+                        const ref = try heap.allocate(@intCast(total_u64));
                         const ah: type_info.ArrayHeader = .{ .header = .{ .kind = .array, .info = typeidx }, .length = length };
                         @memcpy(heap.bytes[ref .. ref + ahs], std.mem.asBytes(&ah)[0..ahs]);
                         var k: u32 = 0;
