@@ -53,14 +53,21 @@ entries:
       evalConstI32Expr → InstantiateFailed / i32-truncated offset mis-populated the
       table → call_indirect/table.copy/table.init wrong) — routed through the
       i64 evaluator; turned table_copy(1220 traps)/table_init(632)/call_indirect(104)
-      fully green. REMAINING gaps (the last 2 spec dirs, NOT distilled): table_grow
-      (table_grow.6 InstantiateFailed + 2 runtime mismatches) + table.wast
-      (table.30/32 validator over-rejection of valid modules + table.12/34
-      cross-module (register) i64-table import = UnknownImport). And (4) JIT i64
-      table-bounds codegen (W→X, mirror op_memory.zig:88, BOTH arches × 8 table ops
-      + call_indirect) → removes the guard; verify per the JIT-codegen lesson
-      (2.0-assert on arm64 AND -Dtarget=x86_64-macos). table64 is now a
-      sweep-tractable worklist, not a monolith.
+      fully green. The u64-LIMITS fix @cf02b765c: a table64 declares u64 min/max
+      (spec §5.3.5) but TableEntry kept them u32 (slice-1), so readLimits' u32 LEB
+      read overflowed and rejected valid `(table i64 0 4294967296 funcref)` /
+      max=2^64-1 types (table.30/32 ValidateFailed). Widened TableEntry +
+      TableInstance + C-API table handle min/max to u64 (~12 files; wasm-c-api/JIT/
+      AOT saturate to u32, i64 tables JIT-guarded); closed table.30/32. REMAINING
+      gap = CROSS-MODULE (register) i64-table import only: table.12/34 +
+      table_grow.6/7 = UnknownImport (a module imports a table another module
+      `register`ed). Likely the spec-assert harness's cross-module table-import
+      resolution (resolveCrossModuleImports), possibly NOT table64-specific — next
+      investigate whether ANY cross-module register-table import works in this
+      harness (i32 too) → harness/linker gap. Then (4) JIT i64 table-bounds codegen
+      (W→X, mirror op_memory.zig:88, BOTH arches × 8 table ops + call_indirect) →
+      removes the guard; verify per the JIT-codegen lesson (2.0-assert on arm64 AND
+      -Dtarget=x86_64-macos). table64 = 11/13 spec dirs interp-green.
     first_raised: "2026-06-20"
     last_reviewed: "2026-06-20"
     refs: |-
