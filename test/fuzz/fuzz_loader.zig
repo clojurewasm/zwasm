@@ -112,6 +112,10 @@ pub fn main(init: std.process.Init) !void {
             // (unimplemented op) + other compile errors are graceful — only a
             // panic / unreachable / SEGV is caught (externally, by this process
             // dying). Compile-only: imports get trap trampolines, no host needed.
+            // Name the module on stderr before the JIT pipeline so a codegen
+            // PANIC/SEGV (no Zig-catchable handler) is attributable to a specific
+            // corpus file, not anonymous.
+            std.debug.print("JIT-COMPILE {s}\n", .{entry.name});
             if (engine_runner.compileWasm(gpa, bytes)) |jit_mod| {
                 var jc = jit_mod;
                 jc.deinit(gpa);
