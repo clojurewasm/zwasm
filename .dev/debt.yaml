@@ -1976,36 +1976,6 @@ entries:
       src/api/component_graph.zig (graphStream*/graphFuture*/graphWaitable* + pourSyntheticExport arms; pollSet);
       src/feature/component/async.zig (SharedStream/SharedFuture/WaitableSet rendezvous primitives);
       test/component/two_async_components_*.wat (the d-a..d-c-2 fixtures); ADR-0195
-  - id: "D-469"
-    layer: "code"
-    front: "B-hardening"
-    status: "note"
-    description: |-
-      note (correctness-sweep robustness, 2026-06-20): an **interp-vs-JIT EXECUTION
-      differential fuzzer** over the `wasm-tools smith` corpus would be the strongest remaining
-      gap-finder for JIT execution miscompiles (the D-330/D-331A/D-468 class). Current coverage:
-      JIT execution is validated by the 25539-directive spec assert runner + 56 realworld
-      fixtures (both engines + vs wasmtime, gating) + fuzz Path 4 JIT-CODEGEN over 1840 smith
-      modules (0 crash, @13ca72155) — but no harness EXECUTES random smith bodies under BOTH
-      engines and compares results. **Deferred as a note (not `now`)**: concrete known gaps are 0
-      and execution is already heavily validated, so this is speculative-ROI robustness, not a
-      known gap. **Design (gathered 2026-06-20, so a future build doesn't re-survey)**: (1) both
-      engines HAVE fuel bounding — interp `dispatch.zig:114` per-instruction `error.OutOfFuel`;
-      JIT `runner.zig:479` poll-site crossings → out_of_fuel(17). BUT the fuel UNITS DIFFER, so
-      out_of_fuel is NOT comparable — if EITHER engine traps out_of_fuel, SKIP the comparison
-      (the module looped). (2) the two invoke APIs DIVERGE: interp `Instance.invoke(name, args:
-      []Value, results: []Value)` (typed, multi-result, interp-only facade) vs JIT
-      `runner.JitInstance.invoke(alloc, name, args: []u64) !?u64` (u64-erased, single-result).
-      Reconcile: zero-arg invokes first (no arg-gen); filter exports to <=1 result; extract the
-      interp result Value's raw bits (i32/i64/f32/f64 -> u64) and compare to the JIT ?u64;
-      void<->null. (3) skip modules with imports (can't instantiate hostless) or plant trap-stub
-      imports. Outcomes: both-value -> compare (MISMATCH=finding); both-non-fuel-trap -> ok;
-      value-vs-trap -> MISMATCH; crash -> process death = finding. ~150-200 LOC, ~2 cycles.
-    first_raised: "2026-06-20"
-    last_reviewed: "2026-06-20"
-    refs: |-
-      test/fuzz/fuzz_loader.zig (Path 4 JIT-codegen, the base to extend); src/engine/runner.zig:273-479
-      (JitInstance.invoke + fuel); src/zwasm/instance.zig:219 (interp Instance.invoke); D-330/D-468 lessons.
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.

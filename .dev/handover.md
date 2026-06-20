@@ -9,34 +9,11 @@ Project at the **完成形 plateau** (all dims confirmed): clean (C/Zig/CLI audi
 now cross-component STRING composition, D-305 milestone), 100% spec (`test-spec` 25539/0), lightweight-yet-fast
 (v1-JIT parity, D-265 closed). Robustness: interp+JIT fuzz 0 crashes. Closed-arc detail lives in git/ADRs/lessons.
 
-**D-305 cross-component linker — COMMON shapes + ARITY-COLLAPSE DONE** (ADR-0196; detail in the D-305 debt
-row + git): string/list params (@689040e6), string result (@184b5e05), `(string)->string` (@2b9b14ee), boundary
-error-trap (@30bd1881, SECURITY — marshalling failures TRAP). **(a) `defineFuncRaw` @4c8329428** replaced the per-arity
-BoundarySig/3/4 with ONE Value-slice path (any flat-scalar arity). **(b) record AGGREGATE DONE**: (b1) flat-record
-PARAM pass-through @b3ee9fcf0 + (b2) flat-record RESULT via retptr @3b5a0a4f8 (lift producer returns a storage
-ptr, raw-copy blob to A's retptr). comp-assert 168/0. The nominal-type WAT snag was a spelling issue (spike-solved).
-Remaining long-tail (consumer-gated, do NOT grind): mixed params+record-result, nested-pointer records, variant
-results.
-
-**ADR-0195 guest↔guest async (multi-task scheduler) — FUNCTIONALLY COMPLETE 2026-06-17** (the D-335 last
-functional gap; campaign closed-arc below). Cross-component async now works end-to-end: multi-task scheduler
-(`driveScheduler`) → cross-component ROUTING (c-2b) → `task.return` capture + result round-trip (d-a/d-b-1) →
-future rendezvous (d-b-2) → synchronous + BLOCKING multi-element stream rendezvous + pollSet/waitable-set delivery
-+ AsyncDeadlock guard (d-c-1/d-c-2, @a82b4f84). Local gate green (test-all unit + comp-spec 163/0 + lint +
-fallback). **D-463 cross-component async handle isolation CLOSED 2026-06-18 (@633189454, ADR-0197 ownership
-ledger)**: a child can no longer reach a peer's un-granted stream/future end (adversarial isolation fixture
-RED→GREEN). **Residual (debt-tracked, NOT blocking, do NOT grind): D-464** (broader (e) adversarial dropped/
-cancelled cross-component cases + cancel-op/waitable wait-poll-drop graph builtins).
-
-**Prior arcs**: wasi:random COMPLETE; ADR-0193 feature-separation + version SSOT; D-335 typed marshalling DONE;
-C-API @b4d75506 (Windows export fix); interp+JIT fuzz 808 mods 0 crashes. ADR-0193 (D-462) + D-461 (ADR-0194)
-CLOSED (below). **windowsmini RESUMED**. Version `2.0.0-alpha.3`.
-
-**D-034 SIMD spill-completeness arc — CLOSED 2026-06-19 @411dd1e14 (bundle exit-condition met).** All scalar
-sub-categories (a–g) + the full 18-site x86_64 v128-operand (g) sub-arc are spill-aware on both arches; the only
-remaining bare-resolve sites are the structural emitV128Select val2 (3-V-reg-vs-2-stage) + emitI64x2Mul's
-byte-identical all-reg fast path. Detail + per-op SHAs in the D-034 debt row (now `note`) + git. Low-pri follow-up:
-consolidate the duplicated spill helpers into a shared op_simd.zig pub set.
+**Closed arcs (detail in git/ADRs/debt — do NOT re-walk)**: D-305 cross-component linker (string/list/record
+marshalling both directions, ADR-0196, comp-assert 170/0); ADR-0195 guest↔guest async FUNCTIONALLY COMPLETE +
+D-463 handle isolation (ADR-0197); D-034 SIMD spill-completeness CLOSED @411dd1e14; wasi:random, D-335 typed
+marshalling, C-API Windows-export. Residual long-tails (debt-tracked, do NOT grind): D-464 async adversarial,
+D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate duplicated SIMD spill helpers.
 
 ## RESUME POINTER (2026-06-20) — for a fresh session
 
@@ -62,10 +39,14 @@ complete (no reachable stubs beyond the 3 done); only gap found = **JIT GC trap-
 GC traps to the generic bounds bucket, kind 0, where the interp reports the precise kind). **DONE this turn**:
 array.len/struct.get_u null-ref → null_reference (@3f267ef14); array.new_data/new_elem segment-oob → oob_memory
 (@5ce49c70e); array.init_data/init_elem null vs oob split via an inline null-ref check (@fcbda5d79, D-470 DONE).
-**GC trap-kind precision cluster COMPLETE** — all 6 ops, both arches, RED tests, GC spec 678/0 no-regress.
-**Sweep now genuinely at the floor**: concrete known gaps = 0 across WASI/C-API/CLI/spec-skip/GC-traps;
-remaining work is speculative robustness — D-469 exec-differential fuzzer (deferred), D-456 host-stubs, D-336
-(blocked sort=value). NEXT: re-inventory periodically, or pivot to general 完成形 refinement / debt repayment.
+**GC trap-kind precision cluster COMPLETE** — all 6 ops, both arches, RED tests, GC spec 678/0; **3-host green
+(win OK)**. **D-469 interp-vs-JIT EXECUTION differential fuzzer BUILT @fccbf61ce** (`test/fuzz/fuzz_exec.zig`,
+`zig build test-fuzz-exec`): invokes 0-param/single-scalar smith exports under BOTH engines (fuel-bounded),
+compares value/trap. Needed a corpus regen (smith exported nothing → `smith_config.json` export-everything).
+Campaign: 1626 mods / 122 funcs / **0 mismatch, 0 crash** — interp+JIT agree. REPORT-ONLY (flip to gating later).
+**Sweep at the floor + nets broadened**: concrete known gaps = 0 (WASI/C-API/CLI/spec-skip/GC-traps); JIT
+codegen-fuzz + exec-fuzz both 0-finding. Remaining: D-456 host-stubs (test-harness), D-336 (blocked sort=value).
+NEXT: periodic re-inventory / larger fuzz campaigns, or general 完成形 refinement / debt repayment.
 
 **Phase 17 完成形 plateau** (validated — do NOT re-walk): async COMPLETE; v128 spill (D-034/D-460/D-461) CLOSED;
 surface audits clean 2026-06-18; fuzz 0-crash; realworld JIT run 56/56 byte-match wasmtime (gating). NOT-WORTH: D-294-R2 TrapKind.
