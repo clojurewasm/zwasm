@@ -37,10 +37,12 @@ D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate dupl
 
 ## RESUME POINTER (2026-06-20) — for a fresh session
 
-**🎯 D-477 bundle (user directive, memory `feedback_ai_invented_by_design_not_sacred`)**: see `## Active bundle`
-above + `.dev/d477_findings.md`. arm64 multi-arg JIT invoke DONE; NEXT = x86_64 SysV `emitX8664SysV` N-param emit,
-then Win64, then CLI arg-threading for `runWasiLenient`. (C-API-facade interp-only is a SEPARATE user-ratified
-security decision — the CLI JIT --invoke need not route through the facade.)
+**🎯 D-477 bundle (memory `feedback_ai_invented_by_design_not_sacred`)**: see `## Active bundle` + `.dev/d477_findings.md`.
+arm64 + x86_64 SysV multi-arg JIT invoke DONE; NEXT = CLI arg-threading (`runWasiLenient`), then Win64 + FP + v128.
+**PARENT ARC = ADR-0200** (user 2026-06-20): D-477 is the gating #1 of "JIT-backed embedding API, JIT-DEFAULT,
+selectable" — interp-only-API was an UNRATIFIED AI deferral, now reversed (SIMD is JIT-only → unrunnable via API).
+After D-477: PRIORITIZED API-JIT phase = peer 裏取り (wasmtime Config/Strategy) → API design → impl → first-party
+mini-consumer test (C + Zig embedder calling multi-arg + v128 export; NOT cw — that's cw's responsibility).
 
 **STANDING DIRECTIVE = CORRECTNESS SWEEP** (user 2026-06-20, memory `feedback_correctness_sweep_phase`): high-value
 bar OFF. Sweep toward 0% the 3 gap classes — (1) wasmtime-works-zwasm-doesn't, (2) wasm/wasi spec non-conformance,

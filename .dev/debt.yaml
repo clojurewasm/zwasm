@@ -174,12 +174,17 @@ entries:
           flags there loudly rather than running unsandboxed).
       (d) facade/C-API JIT-backed instances — DECISION TO BUILD (ADR-0200,
           user 2026-06-20): the interp-only API was an AI/campaign transitional
-          deferral, NOT ratified; reversed → build opt-in JIT-backed embedding
-          API (headline: SIMD is JIT-only, so SIMD modules are unrunnable via
-          the interp-only API). Gating blocker #1 = generic argument-ABI
-          trampoline = D-477 (arm64 ✓, x86_64 SysV ✓; Win64/CLI/FP/v128 left).
-          Then #2 Module.instantiate JIT fork + #3 accessor runtime==null
-          branches + #4 host-import JIT bridge + D-314 sandbox sign-off + #6 Win64.
+          deferral, NOT ratified; reversed → build a JIT-backed embedding API
+          with selectable engine, **JIT as DEFAULT** (interp selectable as the
+          oracle/fallback). Headline: SIMD is JIT-only, so SIMD modules are
+          unrunnable via the interp-only API. This is a PRIORITIZED phase after
+          D-477, research-driven (peer 裏取り: wasmtime Config/Strategy, wasmer,
+          V8) + self-verified by a first-party mini-consumer (C + Zig embedder
+          calling a multi-arg AND a v128/SIMD export — NOT via cw, that's cw's
+          responsibility). Gating blocker #1 = generic argument-ABI trampoline =
+          D-477 (arm64 ✓, x86_64 SysV ✓; Win64/CLI/FP/v128 left). Then #2
+          Module.instantiate JIT fork + #3 accessor runtime==null branches + #4
+          host-import JIT bridge + D-314 sandbox sign-off + #6 Win64.
           Rides .dev/architecture/jit_facade_integration_scope.md.
       (e) JIT poll code-size: prologue ~60 B + per-back-edge 48 B (arm64) /
           62 B (x86_64) + stubs, unconditional per fn — MEASURE on a realworld
