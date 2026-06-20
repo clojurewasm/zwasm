@@ -2126,6 +2126,28 @@ test "runWasiLenient: unsatisfied import → ImportUnsatisfied at instantiation,
     try testing.expectError(runner.Error.ImportUnsatisfied, runner.runWasiLenient(testing.allocator, &wasm, null, null, null, .{}, null));
 }
 
+test "runWasiLenient: 0-param v128-result invoke returns the 16 bytes (host-invoke, matches wasmtime)" {
+    // (module (func (export "v") (result v128) (v128.const i32x4 1 2 3 4)))
+    // Was rejected with UnsupportedEntrySignature; the JIT returns the SIMD
+    // register via entry.callV128NoArgs (interp is non-SIMD, so JIT-only).
+    const wasm = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7b, // type: []→[v128]
+        0x03, 0x02, 0x01, 0x00, // func: 1 defined, type 0
+        0x07, 0x05, 0x01, 0x01, 0x76, 0x00, 0x00, // export "v" func 0
+        0x0a, 0x16, 0x01, 0x14, 0x00, 0xfd, 0x0c,
+        0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00,
+        0x00, 0x03, 0x00, 0x00, 0x00, 0x04, 0x00,
+        0x00, 0x00, 0x0b,
+    };
+    var result: ?runner.ScalarResult = null;
+    _ = try runner.runWasiLenient(testing.allocator, &wasm, "v", null, null, .{}, &result);
+    try testing.expect(result != null and result.? == .v128);
+    // i32x4 {1,2,3,4} little-endian.
+    const expected = [16]u8{ 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0 };
+    try testing.expectEqualSlices(u8, &expected, &result.?.v128);
+}
+
 test "jitTableGrow: store_table_elements_max refuses table.grow past host cap (D-314(b))" {
     // (module (table 1 10 externref) (func (export "g") (result i32)
     //   ref.null extern  i32.const 5  table.grow 0))

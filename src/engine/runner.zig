@@ -548,6 +548,10 @@ pub const ScalarResult = union(enum) {
     i64: i64,
     f32: f32,
     f64: f64,
+    /// A v128 result — outside the C-ABI `Val` kind set, so the CLI formats
+    /// the raw 16 bytes directly. The JIT returns it via `entry.callV128NoArgs`
+    /// (the interp is non-SIMD, so v128-result invoke is JIT-only).
+    v128: [16]u8,
 };
 
 fn decodeScalarResult(t: zir.ValType, carrier: u64) ScalarResult {
@@ -630,8 +634,23 @@ pub fn runWasiLenient(
             if (result_out) |ro| ro.* = decodeScalarResult(sig.results[0], carrier);
             return owned.rt.jit_executed_flag;
         }
-        // non-scalar single result (v128 / ref) — the named-invoke path rejects
-        // it; a default entry just instantiate-runs.
+        // v128 single result: outside the scalar (u64-carrier) set — the JIT
+        // returns the full 16 bytes via the SIMD return register. wasmtime
+        // supports this host-invoke; without this branch a `(result v128)`
+        // export rejected with UnsupportedEntrySignature (the interp is
+        // non-SIMD, so this path is JIT-only).
+        if (sig.results[0] == .v128) {
+            const v = entry.callV128NoArgs(compiled.module, idx, &owned.rt) catch |err| {
+                if (err == Error.Trap) {
+                    if (trap_code_out) |p| p.* = owned.rt.trap_kind;
+                }
+                return err;
+            };
+            if (result_out) |ro| ro.* = .{ .v128 = v };
+            return owned.rt.jit_executed_flag;
+        }
+        // remaining non-scalar single result (ref) — the named-invoke path
+        // rejects it; a default entry just instantiate-runs.
         if (invoke_name != null) return Error.UnsupportedEntrySignature;
         return owned.rt.jit_executed_flag;
     }

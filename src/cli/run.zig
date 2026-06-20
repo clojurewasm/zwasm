@@ -159,7 +159,12 @@ pub fn runWasmJitCaptured(
     if (invoke_name != null) {
         if (scalar_result) |sr| {
             var b: [80]u8 = undefined;
-            const bare = try invoke_args_mod.formatScalar(b[0 .. b.len - 1], scalarToVal(sr));
+            // v128 is outside the C-ABI `Val` set — render the 16 bytes as a
+            // little-endian u128 decimal (matches wasmtime's `--invoke` output).
+            const bare = if (sr == .v128)
+                try std.fmt.bufPrint(b[0 .. b.len - 1], "{d}", .{@as(u128, @bitCast(sr.v128))})
+            else
+                try invoke_args_mod.formatScalar(b[0 .. b.len - 1], scalarToVal(sr));
             b[bare.len] = '\n';
             try writeResultText(io, stdout_capture, alloc, b[0 .. bare.len + 1]);
         }
@@ -176,6 +181,9 @@ fn scalarToVal(r: @import("../engine/runner.zig").ScalarResult) wasm_c_api.Val {
         .i64 => |x| .{ .kind = .i64, .of = .{ .i64 = x } },
         .f32 => |x| .{ .kind = .f32, .of = .{ .f32 = x } },
         .f64 => |x| .{ .kind = .f64, .of = .{ .f64 = x } },
+        // v128 is rendered directly (caller branches before this); it has no
+        // C-ABI `Val` representation.
+        .v128 => unreachable,
     };
 }
 
