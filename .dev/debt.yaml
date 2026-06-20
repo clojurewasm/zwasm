@@ -3,6 +3,37 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-477"
+    layer: "code"
+    status: "note"
+    description: |-
+      JIT host-invoke SIGNATURE COMPLETENESS. The JIT `--invoke` entry path
+      (runWasiLenient) handles a SUBSET of export signatures; unsupported shapes
+      route to interp or reject. NOT a correctness gap — the interp gives the
+      right answer for all of them — but it is a "wasmtime-JIT-does-X,
+      zwasm-JIT-doesn't" completeness item, and closing it would unblock the
+      wasmtime-vs-JIT differential (scripts/fuzz_wasmtime_diff.py) for richer
+      funcs. Surfaced by that differential. STATUS:
+      - v128-result single export: DONE @1d3dfdb25 (wired entry.callV128NoArgs +
+        ScalarResult.v128 + CLI u128-decimal; dual-arch verified).
+      - multi-param `--invoke NAME=ARGS`: REJECTED under --engine jit ("arg-passing
+        requires the interp engine; the JIT entry runner invokes a zero-arg
+        export"); interp handles it (add=3,4 → 7). The N-arg entry helpers exist
+        (entry.callI32_i32i32 / callV128_i32i32 …); the gap is wiring the CLI
+        invoke_args marshalling → JIT N-arg dispatch.
+      - multi-RESULT (results.len ≥ 2): wrapper_thunk (ADR-0106) supports only a
+        sig subset (0/1/3-param, results all-GPR or all-XMM); broadening it also
+        unblocks the differential (lesson `wasmtime-jit-differential-wrapper-blocked`).
+      - ref-result (funcref/externref): no scalar carrier; niche.
+      All FRESH-CONTEXT, lower-pri (non-correctness). The wrapper_thunk + N-arg
+      dispatch are intricate per-sig trampoline work.
+    first_raised: "2026-06-20"
+    last_reviewed: "2026-06-20"
+    refs: |-
+      src/engine/runner.zig (runWasiLenient entry path; 0-arg + v128-result)
+      src/engine/codegen/shared/wrapper_thunk.zig (ADR-0106 multi-result sig subset)
+      src/engine/codegen/shared/entry.zig (callV128NoArgs + N-arg call helpers)
+      scripts/fuzz_wasmtime_diff.py (the differential this would unblock)
   - id: "D-475"
     layer: "code"
     status: "note"
