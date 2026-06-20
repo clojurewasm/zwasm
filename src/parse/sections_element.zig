@@ -293,15 +293,15 @@ fn readFuncrefInitExpr(body: []const u8, pos: *usize, expected: ValType) section
             break :blk try leb128.readUleb128(u32, body, pos);
         },
         0xD0 => blk: {
-            if (pos.* >= body.len) return sections.Error.UnexpectedEnd;
-            const rt_byte = body[pos.*];
-            const rt_vt: ValType = switch (rt_byte) {
-                0x70 => .funcref,
-                0x6F => .externref,
-                else => return sections.Error.BadValType,
-            };
+            // ref.null <heaptype>: the heaptype may be ANY abstract head
+            // (func/extern/any/eq/i31/struct/array/none/noextern/nofunc/exn),
+            // not just func/extern — its byte encodes the same as the nullable
+            // reftype shorthand, so map via the shared reader (mirrors the
+            // imported-table + element-segment reftype sites). A hardcoded
+            // 0x70/0x6F switch wrongly rejected `(ref.null none)` etc. in valid
+            // GC element segments.
+            const rt_vt = init_expr.readValType(body, pos) catch return sections.Error.BadValType;
             if (!rt_vt.eql(expected)) return sections.Error.InvalidFunctype;
-            pos.* += 1;
             break :blk std.math.maxInt(u32);
         },
         0x23 => blk: {

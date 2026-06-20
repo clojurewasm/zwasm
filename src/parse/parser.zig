@@ -206,6 +206,23 @@ test "parse: empty MVP module (header only)" {
     try testing.expectEqual(@as(usize, 8), m.input.len);
 }
 
+test "parse: GC abstract heap reftypes in imported table + element ref.null are accepted (fuzz-found gap)" {
+    // (import "e" "t" (table 1 anyref)) (elem structref (ref.null struct)).
+    // Both the imported-table elem_type parser (sections.zig) and the element
+    // ref.null heaptype reader (sections_element.zig) hardcoded a funcref/
+    // externref-only switch, wrongly rejecting valid Wasm 3.0 GC modules with
+    // "module decode/validate failed" (wasm-tools accepts them). Both now route
+    // through the shared reftype reader. wasm-tools-validated 51-byte module.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x04, 0x01, 0x60, 0x00, 0x00,
+        0x02, 0x09, 0x01, 0x01, 0x65, 0x01, 0x74, 0x01, 0x6e, 0x00, 0x01, 0x03, 0x02, 0x01,
+        0x00, 0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00, 0x09, 0x07, 0x01, 0x05, 0x6b, 0x01,
+        0xd0, 0x6b, 0x0b, 0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b,
+    };
+    var m = try parse(testing.allocator, &bytes);
+    defer m.deinit(testing.allocator);
+}
+
 test "parse: needs_gc_heap flag set true when type section declares struct (10.G-foundation cycle 2; ADR-0115 §1)" {
     // Wire test: parser runs needs_heap_detector at the end of
     // parse() so Module.needs_gc_heap reflects the module's

@@ -703,13 +703,15 @@ pub fn decodeImports(parent_alloc: Allocator, body: []const u8) Error!Imports {
                 break :blk .{ .tag_typeidx = try leb128.readUleb128(u32, body, &pos) };
             },
             .table => blk: {
-                if (pos >= body.len) return Error.UnexpectedEnd;
-                const reftype_byte = body[pos];
-                pos += 1;
-                const elem_type: ValType = switch (reftype_byte) {
-                    0x70 => .funcref,
-                    0x6f => .externref,
-                    else => return Error.InvalidFunctype,
+                // An imported table's elem_type may be ANY reftype — incl. the GC
+                // abstract heap types (anyref / eqref / structref / arrayref /
+                // i31ref / nullref…) and the typed `(ref null? $t)` forms — not
+                // just the legacy funcref/externref shorthands. Decode via the
+                // shared reftype reader (mirrors the DEFINED-table path); a
+                // hardcoded 0x70/0x6f switch wrongly rejected valid GC modules.
+                const elem_type = init_expr.readRefType(body, &pos) catch |e| switch (e) {
+                    error.UnexpectedEnd => return Error.UnexpectedEnd,
+                    else => return Error.BadValType,
                 };
                 const limits = try readLimits(body, &pos);
                 break :blk .{ .table = .{ .elem_type = elem_type, .min = limits.min, .max = limits.max } };
