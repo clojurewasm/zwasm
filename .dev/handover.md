@@ -61,8 +61,8 @@ campaign; gap-class #3 net now covers codegen). **Wider inventory DONE**: WASI/C
 complete (no reachable stubs beyond the 3 done); only gap found = **JIT GC trap-kind precision** (the JIT routed
 GC traps to the generic bounds bucket, kind 0, where the interp reports the precise kind). **DONE this turn**:
 array.len/struct.get_u null-ref → null_reference (@3f267ef14); array.new_data/new_elem segment-oob → oob_memory
-(@5ce49c70e); both arches + RED tests + GC spec 678/0. **Deferred D-470**: array.init_data/init_elem conflate
-null+oob in one result==0 check → need a trampoline discriminator (low value; spec assert doesn't check kinds).
+(@5ce49c70e); array.init_data/init_elem null vs oob split via an inline null-ref check (@fcbda5d79, D-470 DONE).
+**GC trap-kind precision cluster COMPLETE** — all 6 ops, both arches, RED tests, GC spec 678/0 no-regress.
 **Sweep now genuinely at the floor**: concrete known gaps = 0 across WASI/C-API/CLI/spec-skip/GC-traps;
 remaining work is speculative robustness — D-469 exec-differential fuzzer (deferred), D-456 host-stubs, D-336
 (blocked sort=value). NEXT: re-inventory periodically, or pivot to general 完成形 refinement / debt repayment.

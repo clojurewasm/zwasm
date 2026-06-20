@@ -2006,29 +2006,6 @@ entries:
     refs: |-
       test/fuzz/fuzz_loader.zig (Path 4 JIT-codegen, the base to extend); src/engine/runner.zig:273-479
       (JitInstance.invoke + fuel); src/zwasm/instance.zig:219 (interp Instance.invoke); D-330/D-468 lessons.
-  - id: "D-470"
-    layer: "code"
-    front: "B-hardening"
-    status: "note"
-    description: |-
-      note (GC trap-kind precision, 2026-06-20): JIT **array.init_data / array.init_elem** surface a GENERIC
-      trap kind (0) where the interp reports the precise kind — but unlike array.len/struct.get_u (null_reference,
-      @3f267ef14) and array.new_data/new_elem (oob_memory, @5ce49c70e, both DONE), these two CONFLATE two trap
-      conditions in a single `result == 0` check: the `jitGcArrayInitData/Elem` trampoline returns 0 for BOTH a
-      null destination array (interp Trap.NullReference) AND a segment/array OOB (interp Trap.OutOfBoundsLoad/
-      Store). The JIT cannot distinguish them at the call site, so neither a pure `null_ref_fixups` nor a pure
-      `oob_fixups` retarget is fully correct. **Fix (deferred — needs a trampoline discriminator)**: change
-      `jitGcArrayInitData`/`jitGcArrayInitElem` to return a 3-way code (1=ok, 0=oob, 2=null) instead of 1/0, then
-      branch in the emit (JE/B.EQ on 0 → oob_fixups(6); CMP==2 → null_ref_fixups(10)), both arches. ~30 LOC +
-      tests. Low value (rare GC ops; the wasm-3.0 spec assert does NOT check trap kinds yet — assert_trap class
-      discrimination is a documented follow-on), so deferred as a note. The 4 sites stay in the generic bucket
-      (no worse than before) until then.
-    first_raised: "2026-06-20"
-    last_reviewed: "2026-06-20"
-    refs: |-
-      src/engine/codegen/{x86_64,arm64}/ops/wasm_3_0/array_init_data.zig + array_init_elem.zig (the conflated
-      result==0 checks); src/feature/component/.. jitGcArrayInit* trampolines; src/instruction/wasm_3_0/array_ops.zig
-      (interp parity: NullReference vs OutOfBoundsLoad/Store).
 conventions: |-
   > Tracked technical debt. Refresh on every `/continue` resume —
   > see `.claude/skills/continue/SKILL.md` Step 0.5.
