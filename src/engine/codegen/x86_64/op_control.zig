@@ -1533,8 +1533,10 @@ fn emitEndInter(ctx: *ctx_mod.EmitCtx) Error!void {
     // each runs the full trap-exit epilogue so the host's callee-saved regs
     // survive. ADR-0164 A / D-292 — `unreachable` gets a DEDICATED stub that
     // records the precise trap_kind code 5 (was the shared generic stub, which
-    // left trap_kind unwritten = 0); `bounds_fixups` (oob/div/overflow) keeps the
-    // generic bucket until A2/A3.
+    // left trap_kind unwritten = 0). div/overflow/oob/null_reference/cast + the
+    // GC null-ref + segment-oob checks now all demux to dedicated kind stubs
+    // (codes 6-11); `bounds_fixups` is the residual GENERIC bucket (kind
+    // unwritten = 0) for any check not yet assigned a precise kind.
     if (ctx.bounds_fixups.items.len > 0) {
         const trap_byte = try emitTrapExitStub(ctx, null);
         for (ctx.bounds_fixups.items) |fx_byte| {
