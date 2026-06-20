@@ -833,7 +833,11 @@ entries:
       jit 91B) + `emcc_fasta` (154B / 87B); interp byte-matches wasmtime, JIT emits SHORT/wrong output ⇒ a real
       codegen bug (next: root-cause via debug_jit_auto — bundle B2). (B) **9 `go_*` UnsupportedOp** compile-gaps
       (unimplemented JIT op at a specific func) — discharge predicate clear, file/fix per-op. Lane stays REPORT-ONLY
-      until (A)+(B) clear, then gates. — the realworld WASI corpus is NOT exercised
+      until (A)+(B) clear, then gates. **CLEARED 2026-06-20 → 56/56 matched, lane now GATING @3b6f8d5b5.** (A): both
+      c_sha256 (D-330 liveness) + emcc_fasta now byte-match. (B): the 9 go_* were NOT compile-gaps (they compile)
+      but exit-HANGS — JIT proc_exit didn't terminate (D-468/ADR-0199 post-call trap_flag check); all 9 now exit
+      rc=0 + match wasmtime. `diff_runner [jit]` fails on any byte mismatch. JIT-lane reason for `note` discharged;
+      only the AOT-subprocess-lane note (below) remains. — the realworld WASI corpus is NOT exercised
       end-to-end under
       `--engine jit`. `test/realworld/run_runner_jit.zig` compiles the fixtures via JIT (46/55 compile-pass) but its
       RUN stage is OPT-IN (`ZWASM_JIT_RUN=1`, default-off) — so the new full-46 JIT WASI surface (D-244,

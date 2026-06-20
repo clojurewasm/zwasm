@@ -58,13 +58,16 @@ returned naturally — Go's scheduler loop never returns). Fix: post-call trap_f
 call/call_indirect/call_ref (both arches) → unwind to the clean epilogue (arm64 CBZ-skip→return_fixups; x86_64
 JE-skip→emitTrapExitStub(null), trap_kind/exit_code preserved). Verified: all 9 go_* rc=0 (was rc=124),
 test-spec-wasm-2.0-assert 25539/0 arm64 + x86_64-macos, test+lint green. Lesson + ADR filed.
-**Sweep queue (next)**: re-run the realworld diff-jit lane (go_* now runnable → new matched count) as a quick
-confirmation; D-336 borrow-export (blocked sort=value — VERIFY first); D-456 host-stubs; then re-run the
-gap-inventory subagent (EASIEST-first, VERIFY-BEFORE-INVEST). poll_oneoff clock polling is a separate
+**MILESTONE: realworld JIT-vs-wasmtime differential now 56/56, lane FLIPPED REPORT-ONLY→GATING @3b6f8d5b5**
+(D-283 (A)+(B) cleared: D-330 miscompiles + D-468 go_* hangs). gap-class #1 (wasmtime-works/zwasm-doesn't) =
+0% for the realworld corpus; a future JIT-vs-wasmtime byte mismatch now fails the gate. Run the lane after
+JIT-codegen changes (`zig build test-realworld-diff-jit`, Mac-host, needs wasmtime).
+**Sweep queue (next)**: D-336 borrow-export (blocked sort=value — VERIFY first); D-456 host-stubs; then re-run
+the gap-inventory subagent (EASIEST-first, VERIFY-BEFORE-INVEST). poll_oneoff clock polling = separate
 gap-class-#2 conformance follow-up (low pri — go now exits before needing it).
 
 **Phase 17 完成形 plateau** (validated — do NOT re-walk): async COMPLETE; v128 spill (D-034/D-460/D-461) CLOSED;
-surface audits clean 2026-06-18; fuzz 0-crash; realworld JIT compile 56/56. NOT-WORTH: D-294-R2 TrapKind.
+surface audits clean 2026-06-18; fuzz 0-crash; realworld JIT run 56/56 byte-match wasmtime (gating). NOT-WORTH: D-294-R2 TrapKind.
 
 **Recently CLOSED (detail in debt/git/lessons)**: D-467 simd invoke-boundary skips; D-305 cross-component
 AGGREGATE marshalling (record param/result flat + record-with-string both directions, comp-assert 170/0);
