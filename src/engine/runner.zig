@@ -575,7 +575,7 @@ pub fn runWasiLenient(
     limits: RunLimits,
     result_out: ?*?ScalarResult,
 ) Error!u32 {
-    return runWasiLenientArgs(allocator, wasm_bytes, invoke_name, wasi_host, trap_code_out, limits, result_out, &.{});
+    return runWasiLenientArgs(allocator, wasm_bytes, invoke_name, wasi_host, trap_code_out, limits, result_out, &.{}, null);
 }
 
 /// D-477: lenient WASI run that also accepts typed `--invoke` ARGS (pre-packed
@@ -593,6 +593,7 @@ pub fn runWasiLenientArgs(
     limits: RunLimits,
     result_out: ?*?ScalarResult,
     args: []const u64,
+    multi_out: ?[]buffer_write.TypedResult,
 ) Error!u32 {
     const entry_idx: ?u32 = if (invoke_name) |name|
         try findExportFunc(allocator, wasm_bytes, name)
@@ -677,18 +678,20 @@ pub fn runWasiLenientArgs(
         return owned.rt.jit_executed_flag;
     }
     // D-477: multi-arg (params > 0) host invoke via the generalized buffer-write
-    // thunk. Supports any GPR shape with a single scalar (or void) result for
-    // which `wrapper_thunk.emit` produced a thunk (hasThunk); `args` are the
-    // pre-packed u64 carriers from the CLI. FP/v128/>N-param shapes have no
-    // thunk → fall through to the reject below (their later slice). Multi-result
-    // (>1) is not surfaced here yet (ScalarResult is single-valued).
+    // thunk. Single scalar/void result fills `result_out`; a MULTI result (≥2,
+    // when `multi_out` is provided + sized to the result arity) fills `multi_out`
+    // (TypedResult[], same decode as `invokeMulti`). Only shapes for which
+    // `wrapper_thunk.emit` produced a thunk (hasThunk) qualify; FP/v128/>N-param
+    // shapes have no thunk → fall through to the reject below. `args` are the
+    // pre-packed u64 carriers.
+    const can_multi = sig.results.len >= 2 and multi_out != null and multi_out.?.len == sig.results.len;
     if (sig.params.len == args.len and
-        (sig.results.len == 0 or (sig.results.len == 1 and scalarKey(sig.results[0]) != null)) and
+        (sig.results.len == 0 or (sig.results.len == 1 and scalarKey(sig.results[0]) != null) or can_multi) and
         compiled.module.hasThunk(idx))
     {
         var abuf: [16]u64 = undefined;
         for (args, 0..) |a, j| abuf[j] = a;
-        var rbuf: [1]u64 = .{0};
+        var rbuf: [16]u64 = [_]u64{0} ** 16;
         const fnp = compiled.module.entry_buf(idx, buffer_write.BufferWriteFn);
         buffer_write.invokeBufferWrite(&owned.rt, fnp, &abuf, &rbuf) catch |err| {
             if (err == Error.Trap) {
@@ -698,6 +701,17 @@ pub fn runWasiLenientArgs(
         };
         if (sig.results.len == 1) {
             if (result_out) |ro| ro.* = decodeScalarResult(sig.results[0], rbuf[0]);
+        } else if (can_multi) {
+            for (multi_out.?, 0..) |*res, i| {
+                res.* = switch (resultKind(sig.results[i]) orelse return Error.UnsupportedEntrySignature) {
+                    .i32 => .{ .i32 = @truncate(rbuf[i]) },
+                    .i64 => .{ .i64 = rbuf[i] },
+                    .f32 => .{ .f32 = @truncate(rbuf[i]) },
+                    .f64 => .{ .f64 = rbuf[i] },
+                    .funcref => .{ .funcref = rbuf[i] },
+                    .externref => .{ .externref = rbuf[i] },
+                };
+            }
         }
         return owned.rt.jit_executed_flag;
     }

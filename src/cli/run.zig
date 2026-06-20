@@ -142,12 +142,29 @@ pub fn runWasmJitCaptured(
         break :blk try packJitInvokeArgs(alloc, bytes, invoke_name.?, astr);
     } else &.{};
     defer if (packed_args.len > 0) alloc.free(@constCast(packed_args));
+    // D-477 multi-result: a `--invoke` of an export with ≥2 results fills
+    // `multi_out` (TypedResult[]); each value is printed on its own line, like
+    // the interp path (`invoke_args.invokeFormatted`) + wasmtime.
+    var multi_buf: [16]runner.TypedResult = undefined;
+    var multi_out: ?[]runner.TypedResult = null;
+    if (invoke_name) |name| {
+        if (export_lookup.getExportFuncType(alloc, bytes, name)) |ft| {
+            defer {
+                alloc.free(ft.params);
+                alloc.free(ft.results);
+            }
+            if (ft.results.len >= 2 and ft.results.len <= multi_buf.len) multi_out = multi_buf[0..ft.results.len];
+        } else |_| {
+            // Bad/missing export → leave multi_out null; runWasiLenientArgs
+            // surfaces the proper ExportNotFound/UnsupportedEntrySignature.
+        }
+    }
     _ = runner.runWasiLenientArgs(alloc, bytes, invoke_name, &host, &trap_code, .{
         .fuel = limits.fuel,
         .max_memory_bytes = limits.max_memory_bytes,
         .max_table_elements = limits.max_table_elements,
         .interrupt_flag = if (limits.timeout_ms != null) &timeout_flag else null,
-    }, &scalar_result, packed_args) catch |err| {
+    }, &scalar_result, packed_args, multi_out) catch |err| {
         if (host.exit_code) |code| return @intCast(@min(code, std.math.maxInt(u8)));
         // A genuine trap (no recorded exit_code) surfaces its kind on stderr
         // then maps to exit 1 — interp-parity per ADR-0164 workstream A. A
@@ -166,7 +183,15 @@ pub fn runWasmJitCaptured(
     // invoke — a `_start`/default entry stays exit-code-only). `void` exports
     // leave `scalar_result` null → nothing extra printed.
     if (invoke_name != null) {
-        if (scalar_result) |sr| {
+        if (multi_out) |results| {
+            // Multi-value result: one bare value per line, in order (interp parity).
+            for (results) |tr| {
+                var b: [80]u8 = undefined;
+                const bare = try invoke_args_mod.formatScalar(b[0 .. b.len - 1], typedResultToVal(tr));
+                b[bare.len] = '\n';
+                try writeResultText(io, stdout_capture, alloc, b[0 .. bare.len + 1]);
+            }
+        } else if (scalar_result) |sr| {
             var b: [80]u8 = undefined;
             // v128 is outside the C-ABI `Val` set — render the 16 bytes as a
             // little-endian u128 decimal (matches wasmtime's `--invoke` output).
@@ -224,6 +249,20 @@ fn packJitInvokeArgs(alloc: std.mem.Allocator, bytes: []const u8, name: []const 
         };
     }
     return out;
+}
+
+/// Map a D-477 multi-result `TypedResult` slot to the C-API boundary `Val` so
+/// `invoke_args.formatScalar` renders it identically to the interp multi-value
+/// path. i32/i64/f32/f64 are bit-casts of the slot; refs render null/ref.
+fn typedResultToVal(r: @import("../engine/runner.zig").TypedResult) wasm_c_api.Val {
+    return switch (r) {
+        .i32 => |x| .{ .kind = .i32, .of = .{ .i32 = @bitCast(x) } },
+        .i64 => |x| .{ .kind = .i64, .of = .{ .i64 = @bitCast(x) } },
+        .f32 => |x| .{ .kind = .f32, .of = .{ .f32 = @bitCast(x) } },
+        .f64 => |x| .{ .kind = .f64, .of = .{ .f64 = @bitCast(x) } },
+        .funcref => |x| .{ .kind = .funcref, .of = .{ .ref = if (x == 0) null else @ptrFromInt(x) } },
+        .externref => |x| .{ .kind = .anyref, .of = .{ .ref = if (x == 0) null else @ptrFromInt(x) } },
+    };
 }
 
 /// Map the engine's Zone-2 `ScalarResult` to the C-API boundary `Val` so the
@@ -881,6 +920,31 @@ test "runWasmJitCaptured: D-477 --invoke add=2,3 on the JIT engine prints 5 (arm
     const code = try runWasmJitCaptured(testing.allocator, testing.io, &add2_wasm, "add", &.{}, &.{}, &.{}, &.{}, .{}, &capture, "2,3");
     try testing.expectEqual(@as(u8, 0), code);
     try testing.expectEqualStrings("5\n", capture.items);
+}
+
+// (module (func (export "swap2") (param i32 i32) (result i32 i32) local.get 1 local.get 0))
+// D-477 multi-result CLI: `--invoke swap2=7,9` prints "9\n7\n" (each value a line).
+const swap2_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x08, 0x01, 0x60, 0x02, 0x7f, 0x7f, 0x02,
+    0x7f, 0x7f, 0x03, 0x02, 0x01, 0x00, 0x07, 0x09,
+    0x01, 0x05, 0x73, 0x77, 0x61, 0x70, 0x32, 0x00,
+    0x00, 0x0a, 0x08, 0x01, 0x06, 0x00, 0x20, 0x01,
+    0x20, 0x00, 0x0b,
+};
+
+test "runWasmJitCaptured: D-477 --invoke swap2=7,9 multi-result prints each value on its own line (arm64 + x86_64 SysV)" {
+    // CLI multi-RESULT sliver: a 2-result export prints both values, in order,
+    // one per line — interp parity. arm64 + x86_64 SysV emit the 2-param 2-GPR-
+    // result thunk; Win64 RUN stays phase-end-gated (verified on Mac arm64 +
+    // ubuntu SysV here).
+    const builtin = @import("builtin");
+    if (builtin.os.tag == .windows) return;
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(testing.allocator);
+    const code = try runWasmJitCaptured(testing.allocator, testing.io, &swap2_wasm, "swap2", &.{}, &.{}, &.{}, &.{}, .{}, &capture, "7,9");
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expectEqualStrings("9\n7\n", capture.items);
 }
 
 // (module (func (export "_start") (loop (br 0)))) — infinite; only a

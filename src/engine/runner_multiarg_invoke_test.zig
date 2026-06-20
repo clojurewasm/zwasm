@@ -91,7 +91,7 @@ test "D-477 FP: runWasiLenientArgs addf(2.5,1.5) → f64 4.0 via the FP-bank thu
     var result: ?runner.ScalarResult = null;
     const a: u64 = @bitCast(@as(f64, 2.5));
     const b: u64 = @bitCast(@as(f64, 1.5));
-    _ = try runner.runWasiLenientArgs(testing.allocator, &addf_f64, "addf", null, null, .{}, &result, &.{ a, b });
+    _ = try runner.runWasiLenientArgs(testing.allocator, &addf_f64, "addf", null, null, .{}, &result, &.{ a, b }, null);
     try testing.expectEqual(@as(f64, 4.0), result.?.f64);
 }
 
@@ -111,6 +111,6 @@ test "D-477: runWasiLenientArgs add(2,3) → scalar i32 5 (all arches: arm64 ≤
     // ALL three arches (arm64 emitAarch64, x86_64 SysV emitX8664SysV, Win64
     // emitX8664Win64 generic ≤3-param). (sum4's 4 params stay Win64-deferred.)
     var result: ?runner.ScalarResult = null;
-    _ = try runner.runWasiLenientArgs(testing.allocator, &add_i32i32, "add", null, null, .{}, &result, &.{ 2, 3 });
+    _ = try runner.runWasiLenientArgs(testing.allocator, &add_i32i32, "add", null, null, .{}, &result, &.{ 2, 3 }, null);
     try testing.expectEqual(@as(i32, 5), result.?.i32);
 }
