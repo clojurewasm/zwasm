@@ -33,6 +33,24 @@ entries:
       distil the raw memory64 `table*.wast` + `call_indirect.wast` i64 cases and
       drive the feature to green against them (the gap closes when those distil +
       pass on both engines + 3 hosts).
+      SLICE 1 DONE @3cbc804ef: i64 table TYPES parse (zir.IdxType + TableEntry.
+      idx_type, readLimits decodes the 0x04 bit for defined+imported tables,
+      v3_0-gated). Safe standalone — i64-index ops are still validator-rejected
+      (validator pops .i32), only i32-indexed access to an i64 table is leniently
+      accepted (no crash; mild over-acceptance vs wasmtime). REMAINING SLICES:
+      (2+3, MUST LAND TOGETHER) validator per-table index width (tableIdxType →
+      the 7 table-op + call_indirect popExpect sites; table.size/grow push i64)
+      + interp runtime i64 indexing (table_ops.zig pops index at idx_type;
+      TableInstance learns its idx_type; size/grow push i64). They bundle because
+      slice 2 alone makes i64-index modules VALIDATE while the i32-only runtime
+      mis-executes them = a validates-but-crashes hazard (worse than rejecting).
+      (4) JIT i64 table bounds (W→X form, mirror op_memory.zig:88 mem64 branch).
+      (5) distil memory64/raw/table*.wast + call_indirect i64 cases, run both
+      engines + 3 hosts. PREREQUISITE for slice 2: the validator edit triggers
+      validator.zig's validator_helpers.zig extraction (4 pub tail helpers): the
+      file is at 3502/cap-3510, and the +16-line tableIdxType threading overflows
+      it. Extract FIRST (the marker's planned move), THEN add slice-2 validation —
+      avoids another ADR-0099 cap-raise on an already-overgrown file.
     first_raised: "2026-06-20"
     last_reviewed: "2026-06-20"
     refs: |-

@@ -39,23 +39,17 @@ complete (no reachable stubs beyond the 3 done); only gap found = **JIT GC trap-
 GC traps to the generic bounds bucket, kind 0, where the interp reports the precise kind). **DONE this turn**:
 array.len/struct.get_u null-ref → null_reference (@3f267ef14); array.new_data/new_elem segment-oob → oob_memory
 (@5ce49c70e); array.init_data/init_elem null vs oob split via an inline null-ref check (@fcbda5d79, D-470 DONE).
-**GC trap-kind precision cluster COMPLETE** — all 6 ops, both arches, RED tests, GC spec 678/0; **3-host green
-(win OK)**. **D-469 interp-vs-JIT EXECUTION differential fuzzer BUILT @fccbf61ce** (`test/fuzz/fuzz_exec.zig`,
-`zig build test-fuzz-exec`): invokes 0-param/single-scalar smith exports under BOTH engines (fuel-bounded),
-compares value/trap. Needed a corpus regen (smith exported nothing → `smith_config.json` export-everything).
-**GATING + wired into test-all (3-host CI gate)** via a curated `test/fuzz/corpus/exec_seed` (7 hand-written
-value/trap/loop/call + **FP** + trap-kind modules, toolchain-free). f32/f64 results covered @8ee695876.
-**Now compares precise TRAP KINDS @8c9a1ff87** (both ABIs → `trap_surface.TrapKind`; lenient when either side is
-incomparable = interp binding_error / JIT generic-bucket) — closes the both-trap-OK blind spot that hid this
-session's 6 GC-trap-kind bugs. Seed = 9 funcs (div_by_zero/unreachable_/oob_memory kinds), 0 mismatch; **FUZZ_N=4000
-campaign 2163 modules / 315 funcs, 0 mismatch** (kind compare = 0 false-positive at scale). Param-widening stays out.
+**GC trap-kind precision cluster COMPLETE** — all 6 ops, both arches, GC spec 678/0; 3-host green.
+**D-469 interp-vs-JIT EXECUTION differential fuzzer BUILT @fccbf61ce** (`test/fuzz/fuzz_exec.zig`,
+`zig build test-fuzz-exec`, GATING via curated toolchain-free `exec_seed`): invokes 0-param/single-scalar smith
+exports under both engines, compares value + precise TRAP KIND (@8c9a1ff87, both ABIs → `trap_surface.TrapKind`);
+FUZZ_N=4000 campaign 2163 modules / 315 funcs, 0 mismatch. Param-widening stays out.
 **FUZZ campaigns found+fixed 6 real bugs + 2 divergences this session** (sweep NOT at floor; ALL detail in git):
 JIT --invoke result-drop @222a2e45b · table-arena SEGV @66acaeee0 · exec-fuzz SIMD false-positive @9313c37a8 ·
 try_table dead-code panic @18df72ec1 (D-471) · array.new const-expr overflow @3daee4592 (D-472) · GC-reftype parse
 reject @fae437597 · D-473 JIT global-init OutOfHeap propagation @d9d3325db. Disproven: interp-non-SIMD + D-474
-(loader 7GiB = fragmentation not leak, lesson). v3 (table/bulk/atomics) CLEAN. **OPEN gaps (debt): D-475** i64-tables
-(memory64 table ext — feature, needs TableType.idx_type). Campaign technique (varied smith config → exec+loader fuzz
-→ fix) is the productive sweep loop; new axes still surface ~1 gap each.
+(loader 7GiB = fragmentation not leak, lesson). v3 (table/bulk/atomics) CLEAN. Campaign technique (varied smith
+config → exec+loader fuzz → fix) is the productive sweep loop; new axes still surface ~1 gap each.
 **extended-const DONE @d258097e9** (7th gap fixed): the extended-const proposal (i32/i64 add/sub/mul in const-exprs,
 ROADMAP §56) was rejected; wired through ALL 6 eval/validate sites (parse + interp global/i32-offset/i64-offset +
 JIT global-validate + JIT data/elem offset) in ONE commit — both engines read 42 on global + offset, no divergence.
@@ -66,8 +60,17 @@ $g))`). **D-476 DONE @4b10c569c (8th gap)**: the residual parse-acceptance clust
 (1) element `global.get` (interp validator funcidx-loop missed the global.get-marker skip the JIT already had);
 (2) element concrete typed-ref `(ref.null $t)` (0xD0 reader used readValType = abstract-only → readTypedRef). Both
 fixed, both engines, parser test + fuzz seed; enumeration confirmed no other element-item gaps (rest of smith_v5's
-924 rejects = shared-everything-threads + i64-tables D-475 = out-of-scope/feature). NEXT: D-475 i64-table feature
-(memory64 table ext) OR more varied campaigns. **8 gaps fixed + 2 divergences + 2 disproven this session.**
+924 rejects = shared-everything-threads + i64-tables D-475 = out-of-scope/feature). **8 gaps fixed + 2 divergences +
+2 disproven this session.**
+**D-475 table64 ELEVATED to spec-conformance gap @7bfe12ddb** (Wasm 3.0 spec testsuite raw corpus has i64-table
+tests — memory64/raw/table.wast + table_copy_mixed + call_indirect — NOT distilled/run). **SLICE 1 DONE @3cbc804ef**:
+i64 table TYPES parse (zir.IdxType + TableEntry.idx_type; readLimits decodes flag-bit 0x04 for defined+imported,
+v3_0-gated). Safe standalone (i64-INDEX ops still validator-rejected; only i32-indexed access to i64 tables leniently
+accepted, no crash). **NEXT (D-475 multi-cycle, see debt row): slices 2+3 MUST bundle** — validator per-table index
+width (tableIdxType → 7 table-op + call_indirect popExpect; size/grow push i64) + interp runtime i64 indexing — because
+slice 2 alone makes i64-index modules VALIDATE while the i32-only runtime mis-executes = validates-but-crashes hazard.
+Slice 2 PREREQ: validator.zig (3502/cap-3510) needs the OVERDUE validator_helpers.zig extraction FIRST (the +16-line
+threading overflows it). Then (4) JIT i64 bounds (W→X, mirror op_memory.zig:88), (5) distil raw table*.wast.
 
 **Phase 17 完成形 plateau** (validated — do NOT re-walk): async COMPLETE; v128 spill (D-034/D-460/D-461) CLOSED;
 surface audits clean 2026-06-18; fuzz 0-crash; realworld JIT run 56/56 byte-match wasmtime (gating). NOT-WORTH: D-294-R2 TrapKind.
