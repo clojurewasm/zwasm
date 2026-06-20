@@ -563,6 +563,9 @@ fn decodeScalarResult(t: zir.ValType, carrier: u64) ScalarResult {
     };
 }
 
+/// Back-compat delegate: lenient WASI run with NO typed invoke args (the
+/// common case — `_start` / a zero-arg `--invoke`). Threads an empty arg slice
+/// to `runWasiLenientArgs`.
 pub fn runWasiLenient(
     allocator: Allocator,
     wasm_bytes: []const u8,
@@ -571,6 +574,25 @@ pub fn runWasiLenient(
     trap_code_out: ?*u32,
     limits: RunLimits,
     result_out: ?*?ScalarResult,
+) Error!u32 {
+    return runWasiLenientArgs(allocator, wasm_bytes, invoke_name, wasi_host, trap_code_out, limits, result_out, &.{});
+}
+
+/// D-477: lenient WASI run that also accepts typed `--invoke` ARGS (pre-packed
+/// u64 carriers per the buffer-write ABI: i32/f32 in the low 32 bits, i64/f64/
+/// ref full-64). A params-bearing GPR export with a single scalar (or void)
+/// result routes through the generalized buffer-write thunk; `args.len` must
+/// equal the entry's param arity. v1/zero-arg shapes behave exactly as before
+/// (`args` empty).
+pub fn runWasiLenientArgs(
+    allocator: Allocator,
+    wasm_bytes: []const u8,
+    invoke_name: ?[]const u8,
+    wasi_host: ?*anyopaque,
+    trap_code_out: ?*u32,
+    limits: RunLimits,
+    result_out: ?*?ScalarResult,
+    args: []const u64,
 ) Error!u32 {
     const entry_idx: ?u32 = if (invoke_name) |name|
         try findExportFunc(allocator, wasm_bytes, name)
@@ -652,6 +674,31 @@ pub fn runWasiLenient(
         // remaining non-scalar single result (ref) — the named-invoke path
         // rejects it; a default entry just instantiate-runs.
         if (invoke_name != null) return Error.UnsupportedEntrySignature;
+        return owned.rt.jit_executed_flag;
+    }
+    // D-477: multi-arg (params > 0) host invoke via the generalized buffer-write
+    // thunk. Supports any GPR shape with a single scalar (or void) result for
+    // which `wrapper_thunk.emit` produced a thunk (hasThunk); `args` are the
+    // pre-packed u64 carriers from the CLI. FP/v128/>N-param shapes have no
+    // thunk → fall through to the reject below (their later slice). Multi-result
+    // (>1) is not surfaced here yet (ScalarResult is single-valued).
+    if (sig.params.len == args.len and
+        (sig.results.len == 0 or (sig.results.len == 1 and scalarKey(sig.results[0]) != null)) and
+        compiled.module.hasThunk(idx))
+    {
+        var abuf: [16]u64 = undefined;
+        for (args, 0..) |a, j| abuf[j] = a;
+        var rbuf: [1]u64 = .{0};
+        const fnp = compiled.module.entry_buf(idx, buffer_write.BufferWriteFn);
+        buffer_write.invokeBufferWrite(&owned.rt, fnp, &abuf, &rbuf) catch |err| {
+            if (err == Error.Trap) {
+                if (trap_code_out) |p| p.* = owned.rt.trap_kind;
+            }
+            return err;
+        };
+        if (sig.results.len == 1) {
+            if (result_out) |ro| ro.* = decodeScalarResult(sig.results[0], rbuf[0]);
+        }
         return owned.rt.jit_executed_flag;
     }
     if (invoke_name != null) return Error.UnsupportedEntrySignature;

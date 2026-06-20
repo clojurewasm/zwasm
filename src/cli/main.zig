@@ -250,12 +250,11 @@ pub fn main(init: std.process.Init) !void {
             };
             defer gpa.free(bytes);
 
-            // D-273(1) — typed arg-passing + result printing is wired on the
-            // interp path only; the JIT/AOT entry runners are zero-arg
-            // (WASI argv arrives via the host args_get, not the entry's
-            // params). Reject `=ARGS` there rather than silently dropping.
-            if (invoke_args != null and (engine_jit or (bytes.len >= 4 and std.mem.eql(u8, bytes[0..4], "CWAS")))) {
-                try printlnErr(io, "zwasm run: --invoke NAME=ARGS arg-passing requires the interp engine (the JIT/.cwasm entry runner invokes a zero-arg export)");
+            // D-273(1) / D-477 — typed arg-passing now runs on BOTH the interp
+            // AND the JIT engine (D-477 buffer-write thunk). The AOT (.cwasm)
+            // entry runner is still zero-arg, so reject `=ARGS` only there.
+            if (invoke_args != null and bytes.len >= 4 and std.mem.eql(u8, bytes[0..4], "CWAS")) {
+                try printlnErr(io, "zwasm run: --invoke NAME=ARGS arg-passing is not wired for .cwasm AOT artifacts (run the .wasm form)");
                 std.process.exit(2);
             }
 
@@ -312,8 +311,10 @@ pub fn main(init: std.process.Init) !void {
             }
 
             // D-244 — `--engine=jit` now does real WASI (incl. `--dir` preopens).
+            // D-477 — typed `--invoke NAME=ARGS` now also runs on the JIT engine
+            // (marshalled through the generalized buffer-write thunk).
             const code = (if (engine_jit)
-                cli_run.runWasmJit(gpa, io, bytes, invoke_name, argv_list.items, preopen_list.items, env_keys.items, env_vals.items, limits)
+                cli_run.runWasmJitCaptured(gpa, io, bytes, invoke_name, argv_list.items, preopen_list.items, env_keys.items, env_vals.items, limits, null, invoke_args)
             else
                 cli_run.runWasmCapturedOpts(gpa, io, bytes, argv_list.items, null, invoke_name, preopen_list.items, env_keys.items, env_vals.items, invoke_args, limits)) catch |err| {
                 // Per ADR-0016 phase 1: prefer the structured

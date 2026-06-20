@@ -530,7 +530,7 @@ fn jitCompare(
         &.{.{ .host_path = preopen_scratch, .guest_path = "." }}
     else
         &.{};
-    const jit_exit: u8 = cli_run.runWasmJitCaptured(gpa, io, bytes, null, argv, preopens, &.{}, &.{}, .{}, &jit_stdout) catch |err| {
+    const jit_exit: u8 = cli_run.runWasmJitCaptured(gpa, io, bytes, null, argv, preopens, &.{}, &.{}, .{}, &jit_stdout, null) catch |err| {
         try out.print("  SKIP-JIT-RUN  {s}: {s}\n", .{ name, @errorName(err) });
         return .skip;
     };

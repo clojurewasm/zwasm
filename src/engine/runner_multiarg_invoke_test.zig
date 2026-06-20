@@ -74,12 +74,32 @@ test "D-477: JitInstance.invoke 4×i32 sum4(2,3,4,5) → 14 via buffer thunk (ar
     }
 }
 
-test "D-477 GAP (flips in Phase IV): runWasiLenient --invoke of a 2-arg export → UnsupportedEntrySignature" {
-    // runner.zig:657 — the CLI `--invoke` JIT path rejects any param today.
-    // Phase IV routes it through invokeMulti/invokeBufferWrite; this flips to
-    // a value-check then.
+test "D-477: runWasiLenient (no args) of a 2-arg export → UnsupportedEntrySignature" {
+    // Zero args supplied for a 2-param entry → can't invoke. The back-compat
+    // delegate threads an empty arg slice, so the arity guard rejects (this is
+    // distinct from the WITH-args path below).
     try testing.expectError(
         runner.Error.UnsupportedEntrySignature,
         runner.runWasiLenient(testing.allocator, &add_i32i32, "add", null, null, .{}, null),
     );
+}
+
+test "D-477: runWasiLenientArgs add(2,3) → scalar i32 5 (arm64 + x86_64 SysV; Win64 2-param pending)" {
+    // The CLI `--invoke add=2,3 --engine jit` exit-condition at the engine
+    // boundary: typed args threaded through the buffer-write thunk. arm64 (≤7)
+    // and x86_64 SysV (≤5) emit a 2-param thunk; Win64 currently enumerates
+    // {0,1,3}-param shapes (2 unsupported) → no thunk → reject until its slice.
+    // Arch/OS-split gate cited to D-477 per test_discipline §4.
+    var result: ?runner.ScalarResult = null;
+    const supported = builtin.cpu.arch == .aarch64 or
+        (builtin.cpu.arch == .x86_64 and builtin.os.tag != .windows);
+    if (supported) {
+        _ = try runner.runWasiLenientArgs(testing.allocator, &add_i32i32, "add", null, null, .{}, &result, &.{ 2, 3 });
+        try testing.expectEqual(@as(i32, 5), result.?.i32);
+    } else {
+        try testing.expectError(
+            runner.Error.UnsupportedEntrySignature,
+            runner.runWasiLenientArgs(testing.allocator, &add_i32i32, "add", null, null, .{}, &result, &.{ 2, 3 }),
+        );
+    }
 }
