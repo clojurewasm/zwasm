@@ -55,11 +55,11 @@ simd_assert 25075/0 (lesson `index-width-audit-all-memory-op-families`).
 crashes/rejections). **wasmtime-vs-JIT differential BUILT @9ba3f8c9f** (`scripts/fuzz_wasmtime_diff.py`, exec_seed 6/0)
 for the JIT-SIMD blind spot; raw smith → compared=0 (wrapper_thunk ADR-0106 sig limit fails whole module on f32/v128-
 result or 2/4+-param func). JIT SIMD body codegen VERIFIED CORRECT (lesson `wasmtime-jit-differential-wrapper-blocked`).
-**v128-RESULT host-invoke FIXED @1d3dfdb25** (gap-class-#1): `--invoke (result v128)` was UnsupportedEntrySignature →
-wired entry.callV128NoArgs (matches wasmtime, dual-arch). **Remaining gap-classes (FRESH-CONTEXT, lower-pri, NOT
-correctness — interp gives right answers)**: JIT host-invoke sig completeness (**D-477**: multi-param `--invoke=ARGS`
-routes to interp, multi-result wrapper_thunk subset, ref-result — would unblock the differential), cross-module table
-harness wiring (D-475), JIT table64 codegen (D-475 slice 4 structural ABI). Known-item correctness-sweep exhausted.
+**v128-RESULT host-invoke FIXED @1d3dfdb25** (gap-class-#1): `--invoke (result v128)` → wired entry.callV128NoArgs
+(matches wasmtime, dual-arch). **Remaining gap-classes (FRESH-CONTEXT, lower-pri, NOT correctness — interp is right)**:
+D-477 host-invoke sig completeness (multi-param `--invoke=ARGS` is interp-only BY DESIGN per D-273 zero-arg WASI model,
+NOT a gap; only niche zero-arg multi-result/ref-result remain), cross-module table harness (D-475), JIT table64 codegen
+(D-475 slice 4 structural ABI). Known-item correctness-sweep exhausted.
 **extended-const @d258097e9** (i32/i64 add/sub/mul in const-exprs, 6 eval/validate sites) + **D-476 @4b10c569c**
 (element global.get + concrete typed-ref `(ref.null $t)` parse-acceptance) — both engines, closed. **8 gaps fixed +
 2 divergences + 2 disproven this session.**
