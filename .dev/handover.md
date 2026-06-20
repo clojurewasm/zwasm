@@ -48,8 +48,12 @@ FUZZ_N=4000 campaign 2163 modules / 315 funcs, 0 mismatch. Param-widening stays 
 JIT --invoke result-drop @222a2e45b · table-arena SEGV @66acaeee0 · exec-fuzz SIMD false-positive @9313c37a8 ·
 try_table dead-code panic @18df72ec1 (D-471) · array.new const-expr overflow @3daee4592 (D-472) · GC-reftype parse
 reject @fae437597 · D-473 JIT global-init OutOfHeap propagation @d9d3325db. Disproven: interp-non-SIMD + D-474
-(loader 7GiB = fragmentation not leak, lesson). v3 (table/bulk/atomics) CLEAN. Campaign technique (varied smith
-config → exec+loader fuzz → fix) is the productive sweep loop; new axes still surface ~1 gap each.
+(loader 7GiB = fragmentation not leak, lesson). Campaign technique (varied smith config → exec+loader fuzz → fix)
+is the productive sweep loop; new axes still surface ~1 gap each. **memory64+SIMD axis @06d0c2ea1**: the v128.load*/
+store*/load_lane/store_lane VALIDATORS hardcoded popExpect(.i32) for the memory ADDRESS — D-324's memory64 idx_type
+threading covered regular load/store + atomics but MISSED the SIMD memory ops, so valid memory64+SIMD modules were
+wrongly rejected ("expected i32 found i64 at 0xfd"). Fixed (readSimdMemarg returns memidx → memIdxTypeAt); JIT already
+lowers the i64 addr (verified roundtrip); simd_assert 25075/0. Atomics confirmed already-correct (vein closed).
 **extended-const DONE @d258097e9** (7th gap fixed): the extended-const proposal (i32/i64 add/sub/mul in const-exprs,
 ROADMAP §56) was rejected; wired through ALL 6 eval/validate sites (parse + interp global/i32-offset/i64-offset +
 JIT global-validate + JIT data/elem offset) in ONE commit — both engines read 42 on global + offset, no divergence.
