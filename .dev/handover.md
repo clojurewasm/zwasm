@@ -54,13 +54,14 @@ store*/load_lane/store_lane VALIDATORS hardcoded popExpect(.i32) for the memory 
 threading covered regular load/store + atomics but MISSED the SIMD memory ops, so valid memory64+SIMD modules were
 wrongly rejected ("expected i32 found i64 at 0xfd"). Fixed (readSimdMemarg returns memidx → memIdxTypeAt); JIT already
 lowers the i64 addr (verified roundtrip); simd_assert 25075/0. Atomics confirmed already-correct (vein closed).
-**extended-const DONE @d258097e9** (7th gap fixed): the extended-const proposal (i32/i64 add/sub/mul in const-exprs,
-ROADMAP §56) was rejected; wired through ALL 6 eval/validate sites (parse + interp global/i32-offset/i64-offset +
-JIT global-validate + JIT data/elem offset) in ONE commit — both engines read 42 on global + offset, no divergence.
-Unit tests + committed fuzz seed (extended_const_arith.wasm). **D-476 DONE @4b10c569c (8th gap)**: smith_v5's
-parse-acceptance cluster was just 2 element-item forms — element `global.get` (interp validator missed the
-global.get-marker skip) + concrete typed-ref `(ref.null $t)` (0xD0 reader readValType→readTypedRef); both engines,
-enumeration confirmed no other element-item gaps. **8 gaps fixed + 2 divergences + 2 disproven this session.**
+**Sweep status**: 2 fresh axes after the mem64+SIMD fix came back CLEAN — no-import rich (tail-call/multi-value/
+ref-types/GC) 500/500 compile + JIT, and maximal-features (+SIMD/relaxed-simd/threads/EH) 500/500 compile + JIT, 0
+crashes. exec-fuzz can't differential these (rich exports ≠ 0-param/single-scalar; param-widening deliberately out).
+The productive remaining veins are mem64-FEATURE COMBOS (where the SIMD gap lived) + non-fuzz gap-classes (cross-module
+table harness wiring D-475, JIT table64 codegen, wasmtime differential on a new corpus).
+**extended-const @d258097e9** (i32/i64 add/sub/mul in const-exprs, 6 eval/validate sites) + **D-476 @4b10c569c**
+(element global.get + concrete typed-ref `(ref.null $t)` parse-acceptance) — both engines, closed. **8 gaps fixed +
+2 divergences + 2 disproven this session.**
 **D-475 table64: SELF-CONTAINED table64 FULLY interp-conformant — 11/13 memory64 spec dirs distilled + green.** Done
 across slices: parse types @3cbc804ef; validator index-width + interp runtime (TableInstance.idx_type, full-i64 read,
 overflow-safe grow) @389131e36 (enabled by validator_helpers.zig extraction @d96297628); JIT GUARD @389131e36
