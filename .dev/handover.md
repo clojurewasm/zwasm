@@ -18,14 +18,19 @@ D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate dupl
 ## Active bundle
 
 - **Bundle-ID**: D-477-jit-multiarg-invoke
-- **Cycles-remaining**: ~4-5
-- **Continuity-memo**: Phase I (裏取り) DONE → `.dev/d477_findings.md`. Substrate
-  ALREADY EXISTS (ADR-0106 buffer-write ABI: `invokeMulti`→`invokeBufferWrite`,
-  gated on `hasThunk`). Real gap = `wrapper_thunk.emit` shape limits (≤1 param,
-  GPR-only, 2-3 results). Plan: generalize thunk to N typed args + multi/FP/ref
-  results (arm64 first), wire `runWasiLenient --invoke`→`invokeMulti`, drop
-  `runner.zig:657` + `main.zig:257` rejects. v128 = separate slice (8-byte u64
-  slots can't hold 16B). Correctness-first: pin interp multi-arg as oracle.
+- **Cycles-remaining**: ~3-4
+- **Continuity-memo**: Phase I (裏取り) + Phase II (characterization) DONE.
+  Findings `.dev/d477_findings.md`. Substrate ALREADY EXISTS (ADR-0106 buffer-write
+  ABI: `invokeMulti`→`invokeBufferWrite`, gated on `hasThunk`). Real gap =
+  `wrapper_thunk.emit` shape limits (≤1 param, GPR-only via `all_gpr_class`, 2-3
+  results; arm64 `emitAarch64:506`). Characterization pins in
+  `runner_multiarg_invoke_test.zig` (2 reject-pins FLIP to value-checks in the
+  Phase IV commit that removes each reject). **NEXT (Phase IV, fresh context)**:
+  generalize `emitAarch64` to N GPR args (arm64 first) → `hasThunk` true for
+  >1-param GPR shapes → route `JitInstance.invoke`/`runWasiLenient --invoke`
+  through `invokeBufferWrite`; then x86_64 SysV+Win64, then FP-class, then v128
+  (separate slice: 8-byte u64 slots can't hold 16B). Drop `runner.zig:657` +
+  `main.zig:257` rejects as the shapes land.
 - **Exit-condition**: `zwasm run --engine jit --invoke add=2,3 <multi-arg.wasm>`
   matches interp for i32/i64/f32/f64 multi-arg + multi-result shapes; CLI reject
   gone; debt D-477 → `note`/closed.
@@ -33,9 +38,9 @@ D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate dupl
 ## RESUME POINTER (2026-06-20) — for a fresh session
 
 **🎯 D-477 bundle (user directive, memory `feedback_ai_invented_by_design_not_sacred`)**: see `## Active bundle`
-above + `.dev/d477_findings.md`. NEXT = Phase II characterization tests (interp multi-arg oracle + pin current reject),
-THEN generalize `wrapper_thunk.emit` arm64 to N GPR args. (C-API-facade interp-only is a SEPARATE user-ratified
-security decision — the CLI JIT --invoke need not route through the facade.)
+above + `.dev/d477_findings.md`. Phase I+II DONE; NEXT = Phase IV — generalize `wrapper_thunk.emit` `emitAarch64` to
+N GPR args, route `invoke`/`runWasiLenient` through `invokeBufferWrite`. (C-API-facade interp-only is a SEPARATE
+user-ratified security decision — the CLI JIT --invoke need not route through the facade.)
 
 **STANDING DIRECTIVE = CORRECTNESS SWEEP** (user 2026-06-20, memory `feedback_correctness_sweep_phase`): high-value
 bar OFF. Sweep toward 0% the 3 gap classes — (1) wasmtime-works-zwasm-doesn't, (2) wasm/wasi spec non-conformance,
