@@ -537,50 +537,53 @@ fn emitAarch64(allocator: std.mem.Allocator, params: EmitParams) Error!EmitOutpu
         try writeInsn(allocator, &bytes, 0xA8C17FFE);
         try writeInsn(allocator, &bytes, 0x2A1F03E0);
         try writeInsn(allocator, &bytes, 0xD65F03C0);
-    } else if (n_results == 2) {
-        // 2-int register-class shape: body returns result 0 in X0,
-        // result 1 in X1 per AAPCS64. Save results ptr (X1) + LR to
-        // stack across the BL, then write X0/X1 to caller's buffer.
-        // A register_write body reads its params from X1.. (X0=rt); a
-        // 1-param body therefore needs param0 loaded into X1 from the
-        // args buffer ([X2]) AFTER results_ptr (also X1) is stacked.
-        if (n_params == 0) {
-            // ```text
-            //   STP X1, X30, [SP, #-16]!  ; A9BF7BE1
-            //   BL  body                   ; 94?????
-            //   LDP X9, X30, [SP], #16     ; A8C17BE9  — X9 = results, X30 = LR
-            //   STR X0, [X9, #0]           ; F9000120
-            //   STR X1, [X9, #8]           ; F9000521
-            //   MOV W0, WZR                ; 2A1F03E0
-            //   RET                        ; D65F03C0
-            // ```
-            // 7 insns × 4 = 28 bytes.
-            try writeInsn(allocator, &bytes, 0xA9BF7BE1); // STP X1, X30, [SP, #-16]!
-            try emitBLAarch64(allocator, &bytes, params, 4);
-            try writeInsn(allocator, &bytes, 0xA8C17BE9); // LDP X9, X30, [SP], #16
-            try writeInsn(allocator, &bytes, 0xF9000120); // STR X0, [X9, #0]
-            try writeInsn(allocator, &bytes, 0xF9000521); // STR X1, [X9, #8]
-            try writeInsn(allocator, &bytes, 0x2A1F03E0); // MOV W0, WZR
-            try writeInsn(allocator, &bytes, 0xD65F03C0); // RET
-        } else if (n_params == 1) {
-            // 8 insns × 4 = 32 bytes. LDR X1, [X2, #0] loads param0 into
-            // the body's AAPCS slot (overwriting the now-stacked X1).
-            try writeInsn(allocator, &bytes, 0xA9BF7BE1); // STP X1, X30, [SP, #-16]!
-            try writeInsn(allocator, &bytes, 0xF9400041); // LDR X1, [X2, #0]
-            try emitBLAarch64(allocator, &bytes, params, 8);
-            try writeInsn(allocator, &bytes, 0xA8C17BE9); // LDP X9, X30, [SP], #16
-            try writeInsn(allocator, &bytes, 0xF9000120); // STR X0, [X9, #0]
-            try writeInsn(allocator, &bytes, 0xF9000521); // STR X1, [X9, #8]
-            try writeInsn(allocator, &bytes, 0x2A1F03E0); // MOV W0, WZR
-            try writeInsn(allocator, &bytes, 0xD65F03C0); // RET
-        } else {
-            return Error.UnsupportedOp;
-        }
-    } else {
-        return Error.UnsupportedOp;
+        return .{ .bytes = try bytes.toOwnedSlice(allocator) };
     }
 
+    // D-477 generic GPR path — n_results ∈ {1,2}, n_params ≤ 7 (the AAPCS64
+    // integer arg registers X1..X7 after X0=rt; ≥8 params need stack spill,
+    // deferred). The buffer-write thunk receives rt=X0, results_ptr=X1,
+    // args_ptr=X2; it stacks results_ptr+LR, marshals each arg from
+    // [args_ptr + 8k] into the body's AAPCS slot X{k+1}, BLs the
+    // register_write body, then stores each result reg X{i} → [results_ptr+8i].
+    // Reproduces the prior hand-written 0/1-param 2-result shapes byte-for-byte.
+    // 0-result deferred for cross-arch parity (x86_64 still requires ≥2 results);
+    // a 0-result void multi-arg invoke routes via the dispatchVoid* helpers.
+    if (n_results < 1 or n_results > 2 or n_params > 7) return Error.UnsupportedOp;
+
+    // STP X1, X30, [SP, #-16]! — save results_ptr (X1) + LR (BL clobbers X30).
+    try writeInsn(allocator, &bytes, 0xA9BF7BE1);
+    // Marshal args. Param k → body slot X{k+1} via `LDR X{k+1}, [X2, #8k]`.
+    // X2 is the args_ptr base, and param 1's destination is X2 itself — so
+    // load every k != 1 first (ascending), then k == 1 LAST (its load
+    // overwrites the base after all other reads are done).
+    var k: usize = 0;
+    while (k < n_params) : (k += 1) {
+        if (k == 1) continue;
+        try writeInsn(allocator, &bytes, ldrParamAarch64(k));
+    }
+    if (n_params >= 2) try writeInsn(allocator, &bytes, ldrParamAarch64(1));
+    // BL body — pre-offset = STP (4) + one LDR (4) per param.
+    try emitBLAarch64(allocator, &bytes, params, @intCast(4 + 4 * n_params));
+    // LDP X9, X30, [SP], #16 — X9 = results_ptr, X30 = LR.
+    try writeInsn(allocator, &bytes, 0xA8C17BE9);
+    // Store result i (in X{i}) → [results_ptr + 8i]: `STR X{i}, [X9, #8i]`.
+    var i: u32 = 0;
+    while (i < n_results) : (i += 1) {
+        try writeInsn(allocator, &bytes, 0xF9000000 | (i << 10) | (9 << 5) | i);
+    }
+    try writeInsn(allocator, &bytes, 0x2A1F03E0); // MOV W0, WZR (ErrCode_OK)
+    try writeInsn(allocator, &bytes, 0xD65F03C0); // RET
+
     return .{ .bytes = try bytes.toOwnedSlice(allocator) };
+}
+
+/// AAPCS64 `LDR X{k+1}, [X2, #8*k]` — load arg `k` from the args buffer
+/// (base X2) into the register_write body's param slot. Scaled imm12 = k.
+fn ldrParamAarch64(k: usize) u32 {
+    const t: u32 = @intCast(k + 1);
+    const imm12: u32 = @intCast(k);
+    return 0xF9400000 | (imm12 << 10) | (@as(u32, 2) << 5) | t;
 }
 
 /// Emit a 4-byte BL instruction. `pre_offset` is the number of
@@ -1119,6 +1122,71 @@ test "wrapper_thunk: emit aarch64 1-param 2-int register-class (32 bytes)" {
     // MOV W0, WZR ; RET
     try testing.expectEqual(@as(u32, 0x2A1F03E0), std.mem.readInt(u32, out.bytes[24..28], .little));
     try testing.expectEqual(@as(u32, 0xD65F03C0), std.mem.readInt(u32, out.bytes[28..32], .little));
+}
+
+test "wrapper_thunk: emit aarch64 D-477 2-param 1-result (i32,i32)->i32 (32 bytes)" {
+    // SIBLING-AT: src/engine/codegen/shared/wrapper_thunk.zig (emitX8664SysV — x86_64 N-param parity is a later D-477 slice)
+    if (comptime builtin.cpu.arch != .aarch64) return;
+    const VT = @TypeOf(@as(@import("../../../ir/zir.zig").ValType, .i32));
+    const p = [_]VT{ .i32, .i32 };
+    const results = [_]VT{.i32};
+    const out = try emit(testing.allocator, .{ .sig = .{ .params = &p, .results = &results }, .body_offset = 256, .thunk_offset = 0 });
+    defer testing.allocator.free(out.bytes);
+    try testing.expectEqual(@as(usize, 32), out.bytes.len);
+    try testing.expectEqual(@as(u32, 0xA9BF7BE1), std.mem.readInt(u32, out.bytes[0..4], .little)); // STP X1,X30,[SP,#-16]!
+    try testing.expectEqual(@as(u32, 0xF9400041), std.mem.readInt(u32, out.bytes[4..8], .little)); // LDR X1,[X2,#0]  (p0)
+    try testing.expectEqual(@as(u32, 0xF9400442), std.mem.readInt(u32, out.bytes[8..12], .little)); // LDR X2,[X2,#8]  (p1, last)
+    try testing.expectEqual(@as(u32, 0x94000000 | 61), std.mem.readInt(u32, out.bytes[12..16], .little)); // BL: (256-12)/4=61
+    try testing.expectEqual(@as(u32, 0xA8C17BE9), std.mem.readInt(u32, out.bytes[16..20], .little)); // LDP X9,X30,[SP],#16
+    try testing.expectEqual(@as(u32, 0xF9000120), std.mem.readInt(u32, out.bytes[20..24], .little)); // STR X0,[X9,#0]
+    try testing.expectEqual(@as(u32, 0x2A1F03E0), std.mem.readInt(u32, out.bytes[24..28], .little)); // MOV W0,WZR
+    try testing.expectEqual(@as(u32, 0xD65F03C0), std.mem.readInt(u32, out.bytes[28..32], .little)); // RET
+}
+
+test "wrapper_thunk: emit aarch64 D-477 3-param 1-result — load order p0,p2,p1 (36 bytes)" {
+    // SIBLING-AT: src/engine/codegen/shared/wrapper_thunk.zig (emitX8664SysV — x86_64 N-param parity is a later D-477 slice)
+    if (comptime builtin.cpu.arch != .aarch64) return;
+    const VT = @TypeOf(@as(@import("../../../ir/zir.zig").ValType, .i32));
+    const p = [_]VT{ .i32, .i32, .i32 };
+    const results = [_]VT{.i32};
+    const out = try emit(testing.allocator, .{ .sig = .{ .params = &p, .results = &results }, .body_offset = 256, .thunk_offset = 0 });
+    defer testing.allocator.free(out.bytes);
+    try testing.expectEqual(@as(usize, 36), out.bytes.len);
+    try testing.expectEqual(@as(u32, 0xA9BF7BE1), std.mem.readInt(u32, out.bytes[0..4], .little));
+    // p0→X1, then p2→X3 (skips p1), then p1→X2 LAST — the base X2 survives every read.
+    try testing.expectEqual(@as(u32, 0xF9400041), std.mem.readInt(u32, out.bytes[4..8], .little)); // LDR X1,[X2,#0]
+    try testing.expectEqual(@as(u32, 0xF9400843), std.mem.readInt(u32, out.bytes[8..12], .little)); // LDR X3,[X2,#16]
+    try testing.expectEqual(@as(u32, 0xF9400442), std.mem.readInt(u32, out.bytes[12..16], .little)); // LDR X2,[X2,#8]
+    try testing.expectEqual(@as(u32, 0x94000000 | 60), std.mem.readInt(u32, out.bytes[16..20], .little)); // BL: (256-16)/4=60
+    try testing.expectEqual(@as(u32, 0xA8C17BE9), std.mem.readInt(u32, out.bytes[20..24], .little));
+    try testing.expectEqual(@as(u32, 0xF9000120), std.mem.readInt(u32, out.bytes[24..28], .little));
+    try testing.expectEqual(@as(u32, 0x2A1F03E0), std.mem.readInt(u32, out.bytes[28..32], .little));
+    try testing.expectEqual(@as(u32, 0xD65F03C0), std.mem.readInt(u32, out.bytes[32..36], .little));
+}
+
+test "wrapper_thunk: emit aarch64 D-477 4-param 1-result (40 bytes)" {
+    // SIBLING-AT: src/engine/codegen/shared/wrapper_thunk.zig (emitX8664SysV — x86_64 N-param parity is a later D-477 slice)
+    if (comptime builtin.cpu.arch != .aarch64) return;
+    const VT = @TypeOf(@as(@import("../../../ir/zir.zig").ValType, .i32));
+    const p = [_]VT{ .i32, .i32, .i32, .i32 };
+    const results = [_]VT{.i32};
+    const out = try emit(testing.allocator, .{ .sig = .{ .params = &p, .results = &results }, .body_offset = 256, .thunk_offset = 0 });
+    defer testing.allocator.free(out.bytes);
+    try testing.expectEqual(@as(usize, 40), out.bytes.len);
+    try testing.expectEqual(@as(u32, 0xF9400041), std.mem.readInt(u32, out.bytes[4..8], .little)); // p0→X1
+    try testing.expectEqual(@as(u32, 0xF9400843), std.mem.readInt(u32, out.bytes[8..12], .little)); // p2→X3
+    try testing.expectEqual(@as(u32, 0xF9400C44), std.mem.readInt(u32, out.bytes[12..16], .little)); // p3→X4
+    try testing.expectEqual(@as(u32, 0xF9400442), std.mem.readInt(u32, out.bytes[16..20], .little)); // p1→X2 LAST
+    try testing.expectEqual(@as(u32, 0x94000000 | 59), std.mem.readInt(u32, out.bytes[20..24], .little)); // BL: (256-20)/4=59
+}
+
+test "wrapper_thunk: emit aarch64 D-477 8-param → UnsupportedOp (no stack-spill yet)" {
+    // SIBLING-AT: src/engine/codegen/shared/wrapper_thunk.zig (emitX8664SysV — x86_64 N-param parity is a later D-477 slice)
+    if (comptime builtin.cpu.arch != .aarch64) return;
+    const VT = @TypeOf(@as(@import("../../../ir/zir.zig").ValType, .i32));
+    const p = [_]VT{ .i32, .i32, .i32, .i32, .i32, .i32, .i32, .i32 };
+    const results = [_]VT{.i32};
+    try testing.expectError(Error.UnsupportedOp, emit(testing.allocator, .{ .sig = .{ .params = &p, .results = &results }, .body_offset = 256, .thunk_offset = 0 }));
 }
 
 test "wrapper_thunk: emit aarch64 3-int MEMORY-class (24 bytes)" {
