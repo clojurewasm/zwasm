@@ -57,21 +57,15 @@ Unit tests + committed fuzz seed (extended_const_arith.wasm). **D-476 DONE @4b10
 parse-acceptance cluster was just 2 element-item forms — element `global.get` (interp validator missed the
 global.get-marker skip) + concrete typed-ref `(ref.null $t)` (0xD0 reader readValType→readTypedRef); both engines,
 enumeration confirmed no other element-item gaps. **8 gaps fixed + 2 divergences + 2 disproven this session.**
-**D-475 table64 (spec-conformance gap @7bfe12ddb): SLICES 1+2+3 DONE — works fully under the INTERP.** Slice 1
-@3cbc804ef parse types; slices 2+3 @389131e36: validator per-table index width + interp runtime (TableInstance.idx_type;
-FULL i64 read so >2^32 index trips OOB; overflow-safe grow); enabled by **validator_helpers.zig extraction @d96297628**
-(validator.zig 3502→3363). **JIT GUARD @389131e36**: compileWasm rejects i64-table modules (Error.JitTable64Unsupported)
-— clean fail vs silent i32-width miscompile; interp doesn't route through compileWasm.
-**SLICE 5 @3454905ef+@a7609a65b: 11 of 13 table64 spec dirs distilled into wasm-3.0-assert, ALL interp-green**
-(memory64 manifests 10→21). The @a7609a65b fix = i64-table active ELEMENT-segment offset (i32-only evalConstI32Expr →
-InstantiateFailed / wrong-slot) routed through the i64 evaluator — table_copy/table_init/call_indirect green.
-**u64-LIMITS fix @cf02b765c**: widened TableEntry/TableInstance/C-API
-handle min/max to u64 (~12 files; table64 declares u64 limits per §5.3.5, was rejecting valid `(table i64 0
-4294967296 funcref)`/max=2^64-1) → closed table.30/32 ValidateFailed. **NEXT (D-475): the ONLY remaining table64 spec
-gap = CROSS-MODULE (register) i64-table import** (table.12/34 + table_grow.6/7 = UnknownImport — a module imports a
-`register`ed table). First check if ANY cross-module register-table import works in the spec-assert harness (i32 too)
-→ likely harness/linker gap, maybe not table64-specific. Then (4) JIT i64 table-bounds codegen (W→X, mirror
-op_memory.zig:88, BOTH arches × 8 ops + call_indirect → removes guard; verify 2.0-assert arm64 AND x86_64-macos).
+**D-475 table64: SELF-CONTAINED table64 FULLY interp-conformant — 11/13 memory64 spec dirs distilled + green.** Done
+across slices: parse types @3cbc804ef; validator index-width + interp runtime (TableInstance.idx_type, full-i64 read,
+overflow-safe grow) @389131e36 (enabled by validator_helpers.zig extraction @d96297628); JIT GUARD @389131e36
+(compileWasm rejects i64-table modules — interp is the conformant path); active-element-segment i64-offset fix
+@a7609a65b (turned table_copy/table_init/call_indirect green); u64 limits @cf02b765c+@eac1ed76b (closed table.30/32).
+The last 2 dirs (table.12/34, table_grow.6/7 = UnknownImport) are a **HARNESS-COVERAGE gap, NOT a zwasm miss** (lesson
+`2026-06-20-spec-harness-cross-module-table-unwired`): the harness wires `(register)` cross-module imports for
+func+global ONLY (no table); zwasm's linker DOES support it (defineTable→TableAlias). **NEXT: pick a FRESH sweep axis**
+— table64 conformance is done; cross-module harness wiring + (4) JIT i64 table codegen are tracked lower-pri D-475 debt.
 
 **Phase 17 完成形 plateau** (validated — do NOT re-walk): async COMPLETE; v128 spill (D-034/D-460/D-461) CLOSED;
 surface audits clean 2026-06-18; fuzz 0-crash; realworld JIT run 56/56 byte-match wasmtime (gating). NOT-WORTH: D-294-R2 TrapKind.

@@ -58,16 +58,24 @@ entries:
       read overflowed and rejected valid `(table i64 0 4294967296 funcref)` /
       max=2^64-1 types (table.30/32 ValidateFailed). Widened TableEntry +
       TableInstance + C-API table handle min/max to u64 (~12 files; wasm-c-api/JIT/
-      AOT saturate to u32, i64 tables JIT-guarded); closed table.30/32. REMAINING
-      gap = CROSS-MODULE (register) i64-table import only: table.12/34 +
-      table_grow.6/7 = UnknownImport (a module imports a table another module
-      `register`ed). Likely the spec-assert harness's cross-module table-import
-      resolution (resolveCrossModuleImports), possibly NOT table64-specific — next
-      investigate whether ANY cross-module register-table import works in this
-      harness (i32 too) → harness/linker gap. Then (4) JIT i64 table-bounds codegen
-      (W→X, mirror op_memory.zig:88, BOTH arches × 8 table ops + call_indirect) →
-      removes the guard; verify per the JIT-codegen lesson (2.0-assert on arm64 AND
-      -Dtarget=x86_64-macos). table64 = 11/13 spec dirs interp-green.
+      AOT saturate to u32, i64 tables JIT-guarded); closed table.30/32. SELF-CONTAINED
+      table64 is now FULLY interp-conformant (11/13 spec dirs green). The last 2
+      dirs (table.12/34, table_grow.6/7 = UnknownImport) are a HARNESS-COVERAGE gap,
+      NOT a zwasm conformance miss (lesson `2026-06-20-spec-harness-cross-module-
+      table-unwired`): the spec-assert harness wires `(register)` cross-module
+      imports for func (resolveCrossModuleImports, kind!=.func continue) + global
+      (applyImportedGlobalsFromRegistered) ONLY — no table/memory equivalent — so a
+      module importing a registered TABLE fails LinkError.UnknownImport. NOT
+      table64-specific (i32 cross-module register-table fails identically); zwasm's
+      linker DOES support it (Linker.defineTable→TableAlias, D-201b). To close: add
+      applyImportedTablesFromRegistered to the harness (mirror the globals path) —
+      read-only imports only; table_grow.6 GROWS an imported table + TableAlias
+      value-snapshots refs (stales on cross-module grow), needing *TableInstance
+      pointer-sharing (D-199 memory precedent) first. The remaining REAL zwasm gap =
+      (4) JIT i64 table-bounds codegen (W→X, mirror op_memory.zig:88, BOTH arches ×
+      8 table ops + call_indirect) → removes the JitTable64Unsupported guard;
+      perf/completeness (interp is the conformant reference), verify per the
+      JIT-codegen lesson (2.0-assert arm64 AND -Dtarget=x86_64-macos).
     first_raised: "2026-06-20"
     last_reviewed: "2026-06-20"
     refs: |-
