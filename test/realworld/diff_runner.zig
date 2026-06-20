@@ -337,7 +337,7 @@ pub fn main(init: std.process.Init) !void {
     }
     if (jit_lane) {
         try stdout.print(
-            "diff_runner [jit]: {d}/{d} matched vs wasmtime, {d} mismatched, {d} skipped (JIT-unsupported / trap) — REPORT-ONLY\n",
+            "diff_runner [jit]: {d}/{d} matched vs wasmtime, {d} mismatched, {d} skipped (JIT-unsupported / trap) — GATING (fatal on mismatch)\n",
             .{ jit_matched, total, jit_mismatched, jit_skipped },
         );
     }
@@ -348,6 +348,14 @@ pub fn main(init: std.process.Init) !void {
     try stdout.flush();
 
     if (mismatched != 0) std.process.exit(1);
+    // D-283 discharge (2026-06-20): the JIT-vs-wasmtime lane is now a REAL gate
+    // (was REPORT-ONLY). The realworld corpus reached 56/56 matched under
+    // `--engine jit` once the (A) 2 miscompiles (c_sha256/emcc_fasta, D-330) and
+    // (B) 9 go_* hangs (proc_exit JIT termination, D-468/ADR-0199) cleared. A
+    // single JIT-vs-wasmtime byte mismatch now fails the gate. Safe on
+    // wasmtime-less hosts: jit_mismatched stays 0 (all SKIP) so it can't fire
+    // falsely — the interp gate's `matched >= 30` confirms wasmtime actually ran.
+    if (jit_lane and jit_mismatched != 0) std.process.exit(1);
     // wasmtime resolved via `which` but every spawn failed (e.g. on
     // windowsmini, where `which wasmtime` finds a stub that doesn't
     // actually execute). Treat as SKIP-WASMTIME-MISSING so the gate
