@@ -856,7 +856,11 @@ pub fn build(b: *std.Build) void {
         .root_module = fuzz_exec_mod,
     });
     const run_fuzz_exec = b.addRunArtifact(fuzz_exec_exe);
-    run_fuzz_exec.addArg(b.pathFromRoot("test/fuzz/corpus/seed"));
+    // Curated, hand-written 0-param/scalar modules (value/trap/loop/call cases) —
+    // the smith seed exports nothing comparable, so this dedicated corpus is what
+    // makes the committed gate actually compare functions. The wide campaign run
+    // (122 funcs) rides `zwasm-fuzz-exec test/fuzz/corpus/campaign` directly.
+    run_fuzz_exec.addArg(b.pathFromRoot("test/fuzz/corpus/exec_seed"));
     run_fuzz_exec.has_side_effects = true;
     const test_fuzz_exec_step = b.step("test-fuzz-exec", "Interp-vs-JIT execution differential fuzz (D-469)");
     test_fuzz_exec_step.dependOn(&run_fuzz_exec.step);
@@ -1255,6 +1259,7 @@ pub fn build(b: *std.Build) void {
     test_all_step.dependOn(conformance_step); // §13.4 C-API conformance
     test_all_step.dependOn(&run_zig_host.step); // §13.5 zig_host example
     test_all_step.dependOn(&run_fuzz.step); // §14.3 / D-256 fuzz smoke (seed corpus)
+    test_all_step.dependOn(&run_fuzz_exec.step); // D-469 interp-vs-JIT exec differential (exec_seed; toolchain-free, 3-host)
     test_all_step.dependOn(&run_wasi_p1.step);
     // §9.7 / 7.8 row close (D-045 chunks 1-14 fully discharged):
     // wire test-spec-assert into test-all on ALL hosts. Three-host
