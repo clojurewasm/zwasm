@@ -27,12 +27,13 @@ D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate dupl
   `runWasiLenientArgs` + `run.zig packJitInvokeArgs` + main.zig JIT arg-threading
   (@b88435743, dropped the interp-only reject). **Win64 GPR ≤3-param DONE @6db14695d**
   (emitX8664Win64 collapsed to generic register-class; add=2,3 now all 3 arches;
-  byte-verified Mac + x86_64-macos). **arm64 FP DONE @d791dc6b9** (emitAarch64 two-bank:
-  f32/f64 params→V0-7, S0/D0 result; runtime-verified native arm64 addf(2.5,1.5)→4.0).
-  **Win64 GPR runtime verdict PENDING a CLEAN re-run** — the prior windows run hit
-  `.zig-cache file_hash FileNotFound` (user deleted windowsmini .zig-cache mid-run = INFRA,
-  NOT a Win64 bug); re-kicked this turn. **REMAINING slices** (extend bundle): (1) x86_64
-  SysV + Win64 FP-param marshal (still GPR-only there → FP funcs arm64-only); (2) v128 (16B
+  byte-verified Mac + x86_64-macos). **arm64 FP @d791dc6b9 + x86_64 SysV FP @77c5fd943 DONE**
+  (two-bank: f32/f64 params→V0-7/XMM0-7, S0/D0/XMM0 result; addf(2.5,1.5)→4.0 runtime-verified
+  native arm64 AND x86_64-macos Rosetta). **Win64 GPR runtime verdict PENDING CLEAN re-run** —
+  prior windows hit `.zig-cache file_hash FileNotFound` (user deleted windowsmini .zig-cache
+  mid-run = INFRA, NOT a Win64 bug); re-kicked. **REMAINING slices** (extend bundle): (1) Win64
+  FP-param marshal (POSITIONAL: arg slot i+1 → XMM{i+1} or arg_gprs[i+1]; runtime only on
+  windowsmini); (2) v128 (16B
   ≠ 8B u64 slot — 16B-slot buffer ADR sub-decision); (3) multi-result (>1) via `invoke`/CLI
   (ScalarResult single — invokeMulti already does ≥2 via thunk); (4) Win64 ≥4-param stack-spill.
 - **Exit-condition**: MET (above). Extended close = the 4 completeness slices land →
