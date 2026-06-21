@@ -18,38 +18,36 @@ stays in WAIT for the tag (end of campaign).
   `wasm_extern_type`/`wasm_memory_type`/`wasm_table_type`/`wasm_global_type`) — so `.auto`→JIT can be the default with
   ZERO C-API regressions. Then flip `.auto`→JIT (keep the LINKER `.interp` for now — it caused ~36 of the 69) + re-land
   the CLI `--fuel`/`--timeout` JIT-arm. Exit = full `zig build test` + 3-host green WITH `.auto`=JIT, then tag.
-- **Phase**: I Investigation (IN PROGRESS) — map how the interp instance exposes memory/table/global externs+accessors+
-  introspection, enumerate the exact JIT gaps + blast-radius (the ~30 C-API failures), ROI → findings doc + ADR.
-- **Phases (ADR-0153)**: I Investigation → II correctness-first tests (pin current interp behaviour; JIT-accessor
-  characterization) → III design (ADR for the JIT C-API extern/accessor surface) → IV impl (TDD, green at every commit)
-  → V retro + flip + tag. I+II are hard gates before redesign code.
+- **Phase**: I DONE (findings below). NEXT = Phase IV impl on `.jit`-PINNED tests (keep `.auto`=interp GREEN throughout;
+  flip LAST). Strategy: build the JIT C-API surface red→green via `.jit`-pinned accessor tests, NOT by flipping `.auto`
+  (which reds 69 until done). When the JIT surface is complete → flip `.auto`→JIT + re-land run.zig fuel-arm + keep
+  LINKER `.interp` → full test + 3-host green → tag.
+- **Phase I FINDINGS (agent a91c8f4a)**: (1) HIGHEST-LEVERAGE chunk = extend `instantiateJit` (instance.zig ~791-842)
+  to populate `.memory`/`.table`/`.global` into exports_storage+export_types (mirror interp `buildExportTypes`
+  instantiate.zig:685; source = `jit.exportGlobal`/`exportTable` (runner.zig:1118/1159) + module memory section). That
+  alone builds all 4 handle kinds in `wasm_instance_exports` (already kind-generic, instance.zig:1785) → unblocks every
+  `wasm_extern_as_*` (null→handle) AND ALL introspection (module_introspect reads handle fields + module bytes, NOT
+  runtime — free once handles exist). (2) Per-accessor JIT arms (each is `inst.runtime orelse return` → add `if
+  (inst.jit) |jit|`): MECHANICAL — global_get/set (rt.globals_base+globals_offsets), memory_data/size/grow
+  (rt.vm_base/mem_limit + JitInstance.growMemory runner.zig:1095), table_size/get/set/grow (rt.tables_ptr + growTable);
+  zwasm_instance_get_func (instance.zig:1206 — bound vs compiled.func_sigs-imports, not empty funcs_storage). HARDER
+  edge: funcref-table get/set (no host funcptr mirror, runner.zig:1200) — handle carefully or defer w/ debt. v128
+  globals already C-union-excluded (no new gap). JitRuntime fields: jit_abi.zig:151 (vm_base:154, globals_base:206,
+  tables_ptr:290).
+- **Phase IV chunks**: (1) instantiateJit memory/table/global exports + `.jit`-pinned exports/introspection test;
+  (2) global get/set JIT arm; (3) memory data/size/grow JIT arm; (4) table size/get/set/grow JIT arm (funcref edge);
+  (5) zwasm_instance_get_func JIT arm; (6) flip `.auto`→JIT + run.zig fuel-arm + linker stays interp + full+3-host;
+  (7) tag alpha.3. Each chunk = `.jit`-pinned red test → impl → green.
 - **Continuity-memo**: 69-failure breakdown in D-496. Full flip routing/run.zig-fuel-arm code re-implementable per D-496
   refs + git reflog. Green baseline = `8a4a01905` (regalloc fix + docs). Phase I investigation agent dispatched
   (JIT-C-API gap map). **Backstop cron = `f34c7ee2`** (every 10 min /continue) — `CronDelete` it at the FINAL stop
   (after the alpha.3 tag), with no ScheduleWakeup re-arm (clean stop). The alpha.3 tag is USER-AUTHORIZED but cut ONLY
   at campaign end (flip green + 3-host), per option C.
 
-**What IS done (committed, 3-host green)**: D-489 + D-494 — the two real flip blockers — RESOLVED @462ea1e57 (regalloc
-LSRA dual spill-slot mint collision; fix = unify on `n_spill_minted`; ubuntu+windows test-all OK; realworld 56/56 both
-arches; regverify 0). This is the substantive content of a would-be alpha.3.
-
-**Why the flip stalled (D-496)**: implemented the routing (`.auto`→try-JIT→interp-fallback) + fixed a REAL regression
-(CLI `--fuel`/`--timeout` only armed interp → .auto→JIT hung an infinite loop; fixed via jitOf().setFuel/setInterruptFlag)
-+ test pins. Full `zig build test` then surfaced **69 failures**: ~36 component (via the LINKER — avoidable if the
-linker stays `.interp`), ~30 genuine **JIT-C-API GAPS** (a JIT instance surfaces NO memory/table/global externs;
-`zwasm_instance_get_func`/`wasm_extern_as_memory|table|global`/introspection return NULL on JIT), ~3 cli.run. CLI
-`zwasm run` itself is fully JIT-correct (.auto-vs-interp 56/56). あるべき論 (don't ship a half-working default) → reverted.
-
-**DECISION NEEDED (D-496) — three options for the user**:
-- **(A)** Tag `v2.0.0-alpha.3` NOW on the green regalloc-fix baseline; defer the flip to a campaign (cljw is BLOCKED
-  awaiting the tag; flip becomes alpha.4/post). Fastest unblock for cljw. *(to_cljw_07 announced the flip "landing" —
-  correct via to_cljw_08 before tagging.)*
-- **(B)** SCOPED flip = CLI `zwasm run`→JIT-with-interp-fallback only; C-API `.auto` stays interp (overnight-feasible;
-  delivers "run defaults to JIT" without the C-API surface work) → then tag.
-- **(C)** FULL flip = a JIT-C-API accessor/introspection campaign (ADR-0153 five-phase) before the tag.
-
-cljw status: CONSUMED to_cljw_07 (resource contract pts 1-4 confirmed) + AWAITS the alpha.3 tag. Release notes drafted
-`.dev/release_notes/v2.0.0-alpha.3.md`; last tag `v2.0.0-alpha.2`. Full flip work re-implementable per D-496 refs + git reflog.
+**DONE (committed, 3-host green @462ea1e57)**: D-489 + D-494 (the two real flip blockers) RESOLVED = regalloc LSRA dual
+spill-slot mint collision, fix = unify on `n_spill_minted`. The 69-failure flip-attempt detail + reverted-flip work is
+in D-496. cljw CONSUMED to_cljw_07/08 (resource pts 1-4 confirmed) + AWAITS the tag (cut at campaign end). Release notes
+drafted `.dev/release_notes/v2.0.0-alpha.3.md`; last tag `v2.0.0-alpha.2`.
 
 Project at the **完成形 plateau** (all dims confirmed): clean (C/Zig/CLI audits), full-featured (WASI complete +
 now cross-component STRING composition, D-305 milestone), 100% spec (`test-spec` 25539/0), lightweight-yet-fast
