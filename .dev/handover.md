@@ -3,13 +3,15 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Current state — Phase 17 完成形, NEXT-TAG PREP posture (release = USER-ONLY, ADR-0156)
+## Current state — Phase 17, `.auto`→JIT FLIP CAMPAIGN = PRIORITY (release = USER-ONLY, ADR-0156)
 
-**POSTURE (user-directed 2026-06-21)**: solidify prep for the next prerelease tag, then **WAIT for ClojureWasm
-dogfooding** to validate the embedding API before the tag is cut. **Last ACTUAL git tag = `v2.0.0-alpha.2`**
-(`90037c63d`); handover's "alpha.3" was an uncut version string — next tag = **alpha.3** (alpha.2..HEAD = 1123
-commits). Curated release notes drafted: `.dev/release_notes/v2.0.0-alpha.3.md`. **Tag/version/timing = USER-ONLY**
-(ADR-0156); the loop never cuts it. asyncify deep-dive (D-489/D-494) **PAUSED — niche, non-blocking, NOT a tag gate**.
+**POSTURE (user-directed 2026-06-21, REVISED)**: drive the **`.auto`→JIT flip** as the top priority. The flip's
+only true blockers are the two no-fallback runtime bugs **D-489** (x86_64 realworld JIT miscompile, tinygo_json) +
+**D-494** (TinyGo defer/recover asyncify deadlock under JIT, both arches) — everything else (imports / unsupported
+ops / wide host-sigs) rejects at instantiation and falls back to interp safely (instance.zig:725-731). Fix both →
+re-land the flip → green-light = 3-host gate + full x86_64 interp-vs-jit realworld sweep clean. **Tag-cut PENDED**
+(release notes already drafted at `.dev/release_notes/v2.0.0-alpha.3.md`; last actual tag = `v2.0.0-alpha.2`).
+**cljw dogfooding PAUSED both sides** (cljw mid require-redesign; brief `to_cljw_06.md` sent with current truth).
 
 Project at the **完成形 plateau** (all dims confirmed): clean (C/Zig/CLI audits), full-featured (WASI complete +
 now cross-component STRING composition, D-305 milestone), 100% spec (`test-spec` 25539/0), lightweight-yet-fast
@@ -21,21 +23,23 @@ D-463 handle isolation (ADR-0197); D-034 SIMD spill-completeness CLOSED @411dd1e
 marshalling, C-API Windows-export. Residual long-tails (debt-tracked, do NOT grind): D-464 async adversarial,
 D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate duplicated SIMD spill helpers.
 
-## JIT-asyncify (D-489 + D-494) — PAUSED (niche, NOT a tag gate; resume only if cljw dogfooding hits it)
+## JIT-asyncify FLIP CAMPAIGN (D-494 → D-489) — ACTIVE, TOP PRIORITY
 
-Localized this session, paused per the next-tag posture. Resume pointer (debt D-489/D-494 + lessons):
-- **D-494** (both-arch TinyGo defer/recover JIT deadlock): globals RULED OUT @a1c589c58 (JIT drives g1/g2 0→1→0
-  IDENTICALLY to interp via `global.trace`) → bug is the asyncify **SHADOW-STACK MEMORY** save/restore (g2-indexed
-  local-spill on unwind + rewind-restore at fn entry). NEXT = diff the g2-indexed shadow-stack stores interp-vs-jit
-  on dfr2 (the `memstore.trace` instrumentation was built then reverted; `call_profile.mstore*` doc has the design).
-- **D-489** (x86_64-only): run$1 wasm 1539-1551 nested-select/rewind-br_if; static exhausted; may share D-494's root.
-- Reusable diagnostics kept: `jit.callcount` / `jit.calledge` / `global.trace` primitives + trap-dump.
+Drive D-494 first (arm64-reproducible, more localized), then D-489 (may share root), then re-land the flip.
+- **D-494 NEXT-STEP** (both-arch TinyGo defer/recover JIT deadlock): globals RULED OUT @a1c589c58 (JIT drives g1/g2
+  0→1→0 IDENTICALLY to interp via `global.trace`) → bug is the asyncify **SHADOW-STACK MEMORY** save/restore
+  (g2-indexed local-spill on unwind + rewind-restore at fn entry). **NEXT = rebuild the `memstore.trace` primitive**
+  (interp i32.store handler in `instruction/wasm_1_0/memory.zig` + JIT arm64 store-emit in `engine/codegen/arm64/
+  op_memory.zig` + `support/call_profile.zig` flat (addr,val) log filtered to window [89990,90200], g2≈89996) →
+  run dfr2 under both engines → **first divergent (addr,val) = the corrupted asyncify local save** = the codegen bug.
+- **D-489** (x86_64-only realworld miscompile): run$1 wasm 1539-1551 nested-select/rewind-br_if; static exhausted;
+  may share D-494's asyncify-codegen root (fix D-494 first, re-test D-489).
+- Reusable diagnostics kept: `jit.callcount` / `jit.calledge` / `global.trace` primitives + trap-dump. dfr2 repro =
+  `private/spikes/d489-minimal-repro/dfr2.wasm` (gitignored).
 
-**WINDOWS GATE — RE-VERIFIED GREEN @ed9332294 (2026-06-21)**: the earlier host-example file-create failure was an
-ENV FLAKE — cleared on re-run. Now **3-host GREEN** (Mac + ubuntu + windows): Win64 spec asserts 25539/0, simd 25075/0,
-wasi 3/0, all suites pass. Recorded via `should_gate_windows.sh --record`. The intermittent host-embedding-example
-file-create (missing-parent-dir) remains debt-tracked (`windows-host-example-filecreate`) as a pre-tag polish item,
-NOT a code regression. Codebase is CI-clean across all hosts for the next tag (modulo the cljw-dogfooding gate).
+**WINDOWS GATE — 3-host GREEN @ed9332294** (2026-06-21): earlier host-example file-create failure was an ENV FLAKE,
+cleared on re-run (Win64 spec 25539/0, simd 25075/0, wasi 3/0). Recorded via `--record`. Intermittent
+host-embedding-example file-create stays debt-tracked (`windows-host-example-filecreate`), NOT a code regression.
 
 ## RESUME POINTER (2026-06-21) — STANDING CORRECTNESS SWEEP; D-491/492(abstract)/493 CLOSED; D-495 v128-array-fill host-PANIC GUARDED; D-489/494(asyncify) paused, D-492(typed-ref)/D-495(proper v128-fill) open
 
