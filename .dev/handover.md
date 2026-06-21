@@ -15,55 +15,20 @@ D-463 handle isolation (ADR-0197); D-034 SIMD spill-completeness CLOSED @411dd1e
 marshalling, C-API Windows-export. Residual long-tails (debt-tracked, do NOT grind): D-464 async adversarial,
 D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate duplicated SIMD spill helpers.
 
-## Active bundle
+## RESUME POINTER (2026-06-21) — bundle D-478 CLOSED @<this-commit>
 
-- **Bundle-ID**: D-478-host-func-jit-bridge
-- **Cycles-remaining**: ~1 (7: close — exit-cond long-met; verify + remove bundle, retarget correctness-sweep)
-- **Continuity-memo**: INCREMENTS 1-5 DONE (@a83b28849 0-arg; @e001514d9 GP N-arg; @4675c345c FP; @195ba57ff
-  `(start)`; **@3d701ddaf incr 5 = dual-engine facade accessors**). Host-func callbacks dispatch under JIT for
-  **all-GP (i32/i64) args 0..4, OR ≤2 scalar args with ≥1 FP, × result {void,i32,i64,f32,f64}**
-  (`src/api/jit_host_bridge.zig`). **Incr 5**: `Memory`/`Global`/`Table` now carry a union backing
-  (`interp:*Runtime | jit:*JitInstance`, `src/zwasm/{memory,global,table}.zig`) — memory read/write/slice/grow,
-  global get/set, table get/size/grow + externref set all work under JIT; `instance.zig` `memory()/global()/table()`
-  branch on `jitHandle()`; `runner.zig` adds `export{Global,Table}`/`growMemory`/`growTable`. ONE residual: JIT
-  funcref `Table.set` @panics (ADR-0068 funcptrs mirror, folded into D-478). Dual-engine tests added per facade.
-  **Incr 6 DONE @9fcf9fb5b**: `.auto` (default) now attempts JIT first and falls back to interp on a pre-`(start)`
-  build reject (`fallback_ok` out-param threads the commit point); Linker pinned `.interp` (spec runner routes via it).
-  test-all green (realworld 56/56, C-API conformance, fuzz 0-crash). File-size cap api/instance.zig 3700→3750
-  (ADR-0099 amend, user-authorized 2026-06-21; D-171 split still the real fix). **NEXT = increment 7: bundle close** —
-  exit-cond long-met; verify + remove this bundle, **overwrite `private/dogfooding_handover/to_cljw_02.md`** with the
-  post-flip truth (JIT-default engine, dual-engine facade, contract deltas — user directive 2026-06-21), retarget at
-  the standing correctness-sweep. **Flip fallback design (historical)**: instantiateJit has NO side effect before `(start)`, so any
-  pre-start null is interp-fall-back-eligible; only a start that RAN+trapped (`Error.Trap`) must not re-run → signal
-  via `fallback_ok` out-param. Linker (`linker.zig:795`) stays `.interp` (separate engine-selection slice). Pin
-  interp-internal harnesses to `.interp` (Linker already is; `wasm_3_0_manifest.zig` routes via Linker). NOTE:
-  export-invoke gap (i32,f64) filed under D-477.
-- **Exit-condition**: a JIT-backed instance calls an embedder host-func import with scalar args, asserted green via
-  `wasm_func_call`, 3-host. [host-func exit-cond MET @4675c345c; bundle extended for facade-completeness + flip.]
-
-## RESUME POINTER (2026-06-21) — for a fresh session
-
-**ADR-0200 JIT-backed embedding API — COMPUTE PATH DELIVERED, bundle CLOSED @<this-commit>.** Both
-surfaces (Zig `Module.instantiate(.{.engine=.jit})` + C `zwasm_instance_new_ex`) instantiate + call
-JIT exports: scalar/FP/ref multi-arg + multi-result invoke, SIMD-body execution, fuel/memory/table/
-interrupt sandboxing, exports discovery, D-451 import-reject. Mini-consumers
-`examples/{c_host,zig_host}/jit_engine.*` (gated: `test-c-api-conformance` + `run-zig-host-jit` in
-test-all) run engine=jit + multi-arg `add`→5 + SIMD-body `lane0`→42. Engine knob documented
-(`docs/zig_api_design.md` §3.10 + `include/zwasm.h` ZWASM_ENGINE_*). **cljw readiness signal SENT**
-(`private/dogfooding_handover/to_cljw_02.md` — engine shape + arity/type matrix + contract deltas + pin
-`zwasm@025b1f2cb`); cljw obligation DISCHARGED. ADR-0200 ACCEPTED+delivered; commit-chain in git.
-
-**NEXT FRONT = D-478 (ADR-0200 completeness tail)** — use `.interp` for not-yet-covered modules
-(documented in to_cljw_02). **WASI host-fn dispatch under JIT DONE @b29606b17** (`jit.owned.rt.wasi_host
-= store.wasi_host` + preopens in `instantiateJit`; `jit_wasi` conformance: clock_time_get→i64.load
-nonzero, gated). (1b) non-WASI host-func dispatch under JIT — INCREMENT 1 LANDED (see Active bundle);
-0-arg→{void,i32} now dispatches, N-scalar-arg next. + proc_exit exit-code (jit_dispatch.zig:313). (2)
-`.auto`→JIT flip once host-func arities are good-enough. (3)
-WASI via the Linker (holds OWN wasi_host, linker.zig:95 — facade `Module.instantiate` + store.wasi_host
-path works now; Linker path is separate). (4) accessor reads/mutators **DONE @3d701ddaf incr 5** (dual-engine
-facade; funcref Table.set residual in D-478). (5) v128-at-boundary + Win64 ≥4-param stack-spill = D-477 niche slivers. Likely bundle the
-host-import/Linker work if it proves multi-cycle. **OR** fall back to the STANDING CORRECTNESS-SWEEP
-directive (below).
+**ADR-0200 JIT-backed embedding API — DELIVERED + `.auto` FLIPPED TO JIT-FIRST.** Both surfaces (Zig
+`Module.instantiate(.{})` + C `wasm_instance_new`/`_ex`) default `.auto` now attempt JIT and transparently
+fall back to interp on a pre-`(start)` build reject (`fallback_ok` out-param; `instantiateInternal`/`instantiateJit`,
+@9fcf9fb5b). Linker path pinned `.interp` (spec runner routes via it). JIT covers: no-import compute, SIMD-body,
+WASI imports (w/ wasi_host @b29606b17), covered host-func sigs (all-GP 0..4 / ≤2 mixed-FP × scalar result,
+`jit_host_bridge.zig`), AND full dual-engine facade accessors (@3d701ddaf incr 5: `Memory`/`Global`/`Table`
+read/write/grow off live JIT runtime). test-all green (realworld 56/56, C-API conformance, fuzz 0-crash).
+**cljw signal OVERWRITTEN** with post-flip truth (`private/dogfooding_handover/to_cljw_02.md`, pin `zwasm@9fcf9fb5b`,
+user directive 2026-06-21). Residual JIT gaps (bounded debt, fall back to `.interp` via `.auto`): funcref
+`Table.set` (@panic, ADR-0068 funcptrs mirror — D-478); v128/wider host-func sigs at the call boundary (D-477);
+proc_exit exit-code partial. File-size cap api/instance.zig 3700→3750 (ADR-0099 amend, user-authorized; D-171
+split is the real fix). **NEXT = STANDING CORRECTNESS-SWEEP** (below) — no live bundle.
 
 **STANDING DIRECTIVE = CORRECTNESS SWEEP** (user 2026-06-20, memory `feedback_correctness_sweep_phase`): high-value
 bar OFF. Sweep toward 0% the 3 gap classes — (1) wasmtime-works-zwasm-doesn't, (2) wasm/wasi spec non-conformance,
