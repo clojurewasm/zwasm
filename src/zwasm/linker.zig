@@ -790,13 +790,9 @@ pub const Linker = struct {
         // trap_out=null: the Linker path keeps the coarse InstantiateFailed for
         // a start trap (its rich LinkError covers the import-resolution failures);
         // surfacing a start trap here is a follow-up if a consumer needs it (D-275).
-        // ADR-0200 increment 6 — Linker path is PINNED `.interp` (was `.auto`,
-        // a no-op pre-flip). Host-fn / cross-instance binding is interp's domain
-        // (the JIT host bridge covers only a bounded scalar-sig subset); engine
-        // selection on the Linker is a follow-up slice. Pinning keeps the spec
-        // runner (`wasm_3_0_manifest.zig` routes through the Linker) on interp
-        // after `.auto` flips to JIT-first in `instantiateInternal`.
-        const inst_ptr = _api_instance.instantiateInternal(mod.c_store, mod.c_handle, pre.asBuilder(), null, limits, .interp) orelse return error.InstantiateFailed;
+        // ADR-0200 — Linker path is interp for now (engine selection on the
+        // Linker is a follow-up slice; WASI/host-import JIT bridge pending).
+        const inst_ptr = _api_instance.instantiateInternal(mod.c_store, mod.c_handle, pre.asBuilder(), null, limits, .auto) orelse return error.InstantiateFailed;
         return .{ .handle = inst_ptr, .c_store = mod.c_store };
     }
 

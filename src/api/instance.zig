@@ -710,15 +710,14 @@ fn collectHostFuncTargets(
     return out.toOwnedSlice(ta);
 }
 
-/// ADR-0200 — build a JIT-backed `Instance` (`runtime == null`, `jit` set) via
-/// `engine/runner.zig::JitInstance`: no-import compute + WASI + covered host-func
-/// imports. `wasm_bytes` borrow the owning `Module` (outlives the instance); the
-/// `JitInstance` is heap-pinned so `&owned.rt` stays stable.
-/// `fallback_ok` (incr 6, `.auto` flip): `true` while only pre-`(start)` build
-/// ran (no side effect → caller may retry on interp); flips `false` at the commit
-/// point so a start trap is a GENUINE failure not re-run on interp. `.jit` → null.
-fn instantiateJit(store: *Store, module: *const Module, builder_state: anytype, trap_out: ?*?*Trap, limits: InstantiateLimits, fallback_ok: ?*bool) ?*Instance {
-    if (fallback_ok) |f| f.* = true;
+/// ADR-0200 — build a JIT-backed `Instance` (`runtime == null`, `jit` set).
+/// The smallest increment: a no-import compute module compiled to native code
+/// via `engine/runner.zig::JitInstance`. Host imports + WASI are a later slice
+/// (the `func_import_targets` / `wasi_host` plumbing in the impl map). The
+/// borrowed `wasm_bytes` live in the owning `Module`, which outlives the
+/// instance, and the `JitInstance` is heap-pinned so `exportedFuncTarget`'s
+/// `&owned.rt` stays stable.
+fn instantiateJit(store: *Store, module: *const Module, builder_state: anytype, trap_out: ?*?*Trap, limits: InstantiateLimits) ?*Instance {
     const alloc = storeAllocator(store) orelse return null;
     const bytes_ptr = module.bytes_ptr orelse return null;
     const bytes = bytes_ptr[0..module.bytes_len];
@@ -750,10 +749,6 @@ fn instantiateJit(store: *Store, module: *const Module, builder_state: anytype, 
     // ADR-0200 — point the JIT interrupt poll at the now-heap-pinned own flag so
     // the facade `interrupt()` can cooperatively cancel a running guest.
     jit.armSelfInterrupt();
-    // ADR-0200 incr 6 — COMMIT POINT: side effects begin here (preopens, then
-    // `(start)`), so an `.auto` caller must NOT re-run on interp past this line.
-    if (fallback_ok) |f| f.* = false;
-
     // ADR-0200 / D-478 — attach the store's WASI host so the JIT's planted WASI
     // dispatch thunks do real syscalls (null → compute-only stub: clock/random/
     // fd_write silently no-op). Both fields are `?*anyopaque`. Materialize any
@@ -936,19 +931,11 @@ pub fn instantiateInternal(store: *Store, module: *const Module, builder_state: 
 
     // ADR-0200 — per-instance engine fork, shared by EVERY entry point
     // (`instantiateFacade`, `wasm_instance_new`, `src/zwasm/linker.zig`). `.jit`
-    // builds a native JIT-backed instance; `.interp` uses the interp setup below.
-    if (engine == .jit) return instantiateJit(store, module, builder_state, trap_out, limits, null);
-
-    // ADR-0200 incr 6 — `.auto` flip: attempt JIT first; on a pre-`(start)` build
-    // reject (`fb_ok == true`, no side effect) fall back to interp; a start trap
-    // (`fb_ok == false`) is genuine — do NOT re-run. Linker pins `.interp`, so this
-    // only routes the C-ABI + native facade `.auto` default to the JIT fast path.
-    if (engine == .auto) {
-        var fb_ok = true;
-        if (instantiateJit(store, module, builder_state, trap_out, limits, &fb_ok)) |jit_inst| return jit_inst;
-        if (!fb_ok) return null; // start ran + trapped → genuine instantiation failure
-        // build failed pre-start with no observable effect → fall through to interp.
-    }
+    // builds a native JIT-backed instance; `.auto`/`.interp` fall through to the
+    // interp setup below. TODO(ADR-0200): route `.auto` → JIT once the JIT path
+    // covers host imports + WASI (defer, not workaround — JIT is no-import-only
+    // this increment, so `.auto` stays interp to keep import-using modules working).
+    if (engine == .jit) return instantiateJit(store, module, builder_state, trap_out, limits);
 
     // ADR-0184: open any preopen requests queued by the io-free
     // config builder (`zwasm_wasi_config_preopen_dir`) via the

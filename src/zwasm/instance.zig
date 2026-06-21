@@ -606,31 +606,6 @@ test "facade Instance.interrupt(): a pending interrupt traps the next invoke; cl
     try testing.expectEqual(@as(i32, 42), results[0].i32);
 }
 
-test "facade engine=.auto (default): a no-import compute module now runs under JIT (ADR-0200 incr 6 flip)" {
-    // (module (func (export "add") (param i32 i32) (result i32) local.get 0 local.get 1 i32.add))
-    const bytes = [_]u8{
-        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-        0x01, 0x07, 0x01, 0x60, 0x02, 0x7f, 0x7f, 0x01,
-        0x7f, 0x03, 0x02, 0x01, 0x00, 0x07, 0x07, 0x01,
-        0x03, 0x61, 0x64, 0x64, 0x00, 0x00, 0x0a, 0x09,
-        0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x01, 0x6a,
-        0x0b,
-    };
-    var eng = try _zwasm.Engine.init(testing.allocator, .{});
-    defer eng.deinit();
-    var mod = try eng.compile(&bytes);
-    defer mod.deinit();
-    // `.{}` defaults to `.auto`; the increment-6 flip attempts JIT first.
-    var inst = try mod.instantiate(.{});
-    defer inst.deinit();
-    try testing.expect(inst.handle.jit != null); // JIT-backed via the flip
-    try testing.expect(inst.handle.runtime == null);
-
-    var results = [_]_zwasm.Value{.{ .i32 = 0 }};
-    try inst.invoke("add", &.{ .{ .i32 = 2 }, .{ .i32 = 3 } }, &results);
-    try testing.expectEqual(@as(i32, 5), results[0].i32);
-}
-
 test "facade engine=.jit: opt-in JIT instance invokes a no-import compute export (ADR-0200)" {
     // (module (func (export "add") (param i32 i32) (result i32)
     //   local.get 0 local.get 1 i32.add))
