@@ -59,9 +59,15 @@ callee-saved in BOTH cases; capture-vs-realfd differs only INSIDE that boundary 
 STACK/MEMORY data effect: the JIT reads a wasm value (the fmt format-slice ptr/len) from a STALE native-stack spill
 slot AFTER the call — it failed to spill-or-reload it — and the slot's stale contents depend on the host call's stack
 usage (appendSlice shallow vs writeStreamingAll deep differ on x86_64-linux). Fits all: linux-only, optimize-indep,
-heap-indep (stack), ReleaseSafe-silent (valid addr, stale data). Suspect: op_call.zig spill/reload is incomplete for
-some live value across host-import calls. **NEXT = lldb: after the fd_write call, see what addr/value the JIT loads as
-the format-slice, vs what it spilled** (ubuntu, by NAME not addr — PIE; outer/inner + `nix develop --command lldb -s`) (ubuntu, by NAME not addr — PIE; outer/inner script pattern + `nix develop --command lldb`, command-file via
+heap-indep (stack), ReleaseSafe-silent (valid addr, stale data). **RED-ZONE / frame-under-alloc FALSIFIED** (2026-06-22): +4096 prologue frame pad did NOT fix (still 130) — spills are
+RBP-relative within the SUB-RSP frame, not below RSP. **BUILD-ENV INDEPENDENT**: a Mac-CROSS-built x86_64-linux-gnu
+binary on ubuntu = identical (CLI 90, capture 130) → not a toolchain artifact. 🚀 **FAST LOOP**: edit on Mac →
+`zig build [d489-repro] -Dtarget=x86_64-linux-gnu` → `scp` the ELF to ubuntu → run (no slow nix build). **PARADOX**:
+both host paths are the SAME callconv(.c) call (`jit_dispatch.fd_write`) with identical ABI (callee-saved preserved,
+caller-saved clobbered) — so the JIT must rely on BEYOND-ABI state (a specific caller-saved reg VALUE or a stack/mem
+content the appendSlice vs writeStreamingAll paths leave differently). **NEXT**: with the fast loop, either (a) inline-asm
+clobber caller-saved regs at fd_write return + see if CLI breaks (isolates which reg the JIT wrongly relies on), or (b)
+lldb register/value compare across the call. Search agent precedent: Jato JIT #40 (red-zone, but pad falsified it here). (ubuntu, by NAME not addr — PIE; outer/inner script pattern + `nix develop --command lldb`, command-file via
 `-s`). Diagnostics in tree: `ZWASM_DEBUG=fmtwatch` / `mem.cksum` (mem.cksum CONFOUNDED by random_get). Repro: `zig
 build d489-repro` (scenario1 jit-alone=130 on ubuntu only). **Closed arcs** (do NOT re-walk): v128-GC sweep
 (D-491/492/493 fixed, D-495 guarded); arm64 JIT-exec ZERO divergences; ADR-0200 JIT embedding API + cljw to_cljw_06.
