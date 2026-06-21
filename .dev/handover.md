@@ -49,7 +49,11 @@ an incomplete **JIT export-invoke dispatch matrix** — see Active bundle. cljw 
   `many-results` = wasmtime's EXTREME stress (`f` returns **17 i32**, `f2` 17-param+17-result) — needs stack-spill +
   sret emit, the genuine hard D-477 slice, but ONLY appears in the conformance corpus; (b) `func--params` similar
   extreme; (c) `tinygo_json` realworld self-verify FAIL under `.auto`→JIT while `test-realworld-diff-jit` (direct JIT)
-  is 56/56 — a real `.auto`/facade-WASI-`_start`-invoke-path bug to investigate separately. **SO THE FLIP RE-LAND PATH
+  is 56/56 — NOW CONFIRMED an **x86_64-SPECIFIC JIT MISCOMPILE = D-489** (CLI `--engine jit` on x86_64-macos
+  mangles tinygo_json fmt output → `%!(EXTRA ...)`/`roundtrip: FAIL`; arm64-JIT + interp correct). The "56/56" missed
+  it because the JIT RUN-stage is opt-in (`ZWASM_JIT_RUN=1`, run_runner_jit.zig:235) — x86_64 JIT realworld
+  EXECUTION is under-gated. So the flip is a **forcing function exposing real x86_64 JIT correctness bugs**, not just
+  harness routing. **SO THE FLIP RE-LAND PATH
   IS LIKELY NOT "implement 17-value emit"**: it's (1) **pin the interp-conformance harnesses** (`wast_runtime_runner`/
   wasmtime_misc_runtime — they test SPEC semantics; JIT conformance has its OWN runner `test-spec-wasm-2.0-assert`) to
   `.interp` by threading an engine param (the memo always said "pin interp-internal harnesses to .interp"); (2) fix the

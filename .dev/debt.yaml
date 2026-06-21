@@ -3,6 +3,33 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-489"
+    layer: "code"
+    status: "now"
+    description: |-
+      x86_64 JIT MISCOMPILE in a realworld Go program (tinygo_json.wasm). Under JIT on
+      x86_64 the program's fmt output is mangled — `name=Alice age=30 city=Tokyo` becomes
+      `%!(EXTRA string=Alice, int=30, string=Tokyo)` + `roundtrip: FAIL` (Go's fmt detects
+      a format/arg-count mismatch at runtime). CORRECT on interp (both arches) AND on
+      arm64 JIT. So it's an x86_64-SPECIFIC JIT codegen bug (some op tinygo's fmt path uses
+      — likely string/slice header handling, a memory access, or arg marshalling —
+      miscompiles on x86_64 SysV). Gap-class-1 (wasmtime-works-zwasm-doesn't) + real
+      correctness. EXPOSED BY the `.auto`→JIT flip running realworld_run under JIT on
+      ubuntu x86_64 (`tinygo_json: guest self-verify reported FAIL`). WHY IT SLIPPED the
+      "realworld JIT 56/56": the JIT RUN-stage is opt-in (`ZWASM_JIT_RUN=1` + fork(2)
+      per-fixture isolation, run_runner_jit.zig:235) and not part of the standard x86_64
+      gate — so x86_64 JIT *execution* of realworld programs is under-tested vs arm64.
+      REPRO (Mac): `zig build -Dtarget=x86_64-macos && ./zig-out/bin/zwasm run --engine jit
+      test/realworld/wasm/tinygo_json.wasm` → mangled; `--engine interp` → `roundtrip: OK`.
+      DRIVE: debug_jit_auto — isolate via a minimal tinygo/hand-wat fixture reproducing the
+      same op on x86_64; bisect the miscompiled op (jit.dump + value-trace, Recipe 18). Also
+      a GATE gap: x86_64 JIT realworld run-stage should join the standard gate so these are
+      caught. Blocks the `.auto`-flip re-land (the flip needs x86_64 JIT realworld-correct).
+    first_raised: "2026-06-21"
+    last_reviewed: "2026-06-21"
+    refs: |-
+      test/realworld/wasm/tinygo_json.wasm (fixture) + test/realworld/run_runner_jit.zig:235 (opt-in run gate)
+      .claude/skills/debug_jit_auto/SKILL.md (Recipe 18 value-trace) ; relates to the jit-export-invoke-dispatch-matrix bundle (flip re-land)
   - id: "D-478"
     layer: "code"
     status: "partial"
