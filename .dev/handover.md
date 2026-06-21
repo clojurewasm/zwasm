@@ -19,17 +19,18 @@ D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate dupl
 
 - **Bundle-ID**: D-478-host-func-jit-bridge
 - **Cycles-remaining**: ~1 (`.auto`→JIT flip; then close — FP-arg arity 3-4 niche → debt)
-- **Continuity-memo**: INCREMENTS 1+2+3 DONE (@a83b28849 0-arg; @e001514d9 GP N-arg; @4675c345c FP) — embedder
-  host-func callbacks dispatch under JIT for **all-GP (i32/i64) args 0..4, OR ≤2 scalar args with ≥1 FP (f32/f64),
-  each × result {void,i32,i64,f32,f64}** via a Zig comptime thunk-table (`src/api/jit_host_bridge.zig`,
-  arch-INDEPENDENT, NO machine-code emit). i32/i64 collapse to `u64` thunk params (one integer reg class); FP
-  positions get exact f32/f64 params (separate reg class, Win64-coupled). `host_payloads_base` on `JitRuntime`
-  (jit_abi +8B→608); `instantiateJit`+`collectHostFuncTargets`; planted by `setupRuntimeLinked`/`initLinked`. Gated
-  `jit_callback{,_args,_fp}.c`. **NEXT = flip `.auto`→JIT** (instance.zig:838-841 TODO): make `.auto` try
-  `instantiateJit` first, fall back to interp on null (uncovered import / non-func import). Covered host-funcs + WASI
-  now make the flip safe; FP-arg arity 3-4 + cross-module + accessor-reads stay interp-fallback. Careful: `.auto` is
-  the DEFAULT path — every facade/C-API instantiate hits it; 3-host gate (esp. windows). NOTE: found export-invoke
-  gap (i32,f64) → filed under D-477 (dispatchScalar2 incomplete; route 2-arg via buffer thunk).
+- **Continuity-memo**: INCREMENTS 1-4 DONE (@a83b28849 0-arg; @e001514d9 GP N-arg; @4675c345c FP; @195ba57ff
+  `(start)` runs under JIT). Host-func callbacks dispatch under JIT for **all-GP (i32/i64) args 0..4, OR ≤2 scalar
+  args with ≥1 FP (f32/f64), × result {void,i32,i64,f32,f64}** (`src/api/jit_host_bridge.zig`, arch-INDEPENDENT
+  comptime thunk-table; i32/i64→`u64` params, FP→exact f32/f64). `instantiateJit` now also runs `(start)` via
+  `JitInstance.runStart` (trap→fail+trap_out; imported start→UnsupportedEntrySignature). Gated
+  `jit_callback{,_args,_fp}.c` + `jit_start.c`. **NEXT = flip `.auto`→JIT** (instance.zig:838-841 TODO).
+  **DESIGN SUBTLETY (resolve first)**: instantiateJit returns null for BOTH "JIT-ineligible" (non-func import,
+  uncovered host-func sig, imported start) AND "genuine failure" (start trap, OOM). `.auto` must FALL BACK to interp
+  only for the former; for a genuine start trap it must NOT silently re-run interp (double side-effects). Cleanest =
+  a cheap pre-eligibility check (collectHostFuncTargets ok + no non-func imports + start not imported) → route JIT;
+  else interp. A JIT failure for an ELIGIBLE module is then genuine → report, don't fall back. 3-host gate (esp.
+  windows — `.auto` is the DEFAULT path). NOTE: export-invoke gap (i32,f64) filed under D-477.
 - **Exit-condition**: a JIT-backed instance calls an embedder host-func import with scalar args, asserted green via
   `wasm_func_call`, 3-host. Uncovered sigs stay `.interp` (no silent wrong). [GP ≤4 + FP ≤2 met @4675c345c.]
 
