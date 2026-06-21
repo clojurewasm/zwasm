@@ -3,7 +3,13 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Current state — Phase 17 完成形 completion-refinement (release = USER-ONLY, ADR-0156)
+## Current state — Phase 17 完成形, NEXT-TAG PREP posture (release = USER-ONLY, ADR-0156)
+
+**POSTURE (user-directed 2026-06-21)**: solidify prep for the next prerelease tag, then **WAIT for ClojureWasm
+dogfooding** to validate the embedding API before the tag is cut. **Last ACTUAL git tag = `v2.0.0-alpha.2`**
+(`90037c63d`); handover's "alpha.3" was an uncut version string — next tag = **alpha.3** (alpha.2..HEAD = 1123
+commits). Curated release notes drafted: `.dev/release_notes/v2.0.0-alpha.3.md`. **Tag/version/timing = USER-ONLY**
+(ADR-0156); the loop never cuts it. asyncify deep-dive (D-489/D-494) **PAUSED — niche, non-blocking, NOT a tag gate**.
 
 Project at the **完成形 plateau** (all dims confirmed): clean (C/Zig/CLI audits), full-featured (WASI complete +
 now cross-component STRING composition, D-305 milestone), 100% spec (`test-spec` 25539/0), lightweight-yet-fast
@@ -15,19 +21,15 @@ D-463 handle isolation (ADR-0197); D-034 SIMD spill-completeness CLOSED @411dd1e
 marshalling, C-API Windows-export. Residual long-tails (debt-tracked, do NOT grind): D-464 async adversarial,
 D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate duplicated SIMD spill helpers.
 
-## JIT-asyncify/coroutine campaign — PAUSED for breadth (debt-tracked D-489 + D-494)
+## JIT-asyncify (D-489 + D-494) — PAUSED (niche, NOT a tag gate; resume only if cljw dogfooding hits it)
 
-Exhaustively investigated this session (built jit.callcount/jit.calledge profilers + trap-dump; 2 bugs localized):
-- **D-489** (x86_64-only silent-wrong-value): run$1 wasm 1539-1551 nested-select/rewind-br_if region; static exhausted.
-- **D-494** (`now`; both-arch defer/recover JIT deadlock/silent): localized to the asyncify global-state-machine
-  (globals 0=__stack_pointer / 1=state / 2=data-ptr; unwind/rewind logic in main.safe-class fns). arm64-reproducible.
-- Likely SHARED ROOT (asyncify unwind/global-state codegen). Full detail: debt D-489/D-494 + lessons.
-- **GLOBALS RULED OUT @a1c589c58**: built interp+JIT `ZWASM_DEBUG=global.trace`. The asyncify state machine = g1 0→1→0
-  (fn 205 start_unwind: g1=1,g2=89996; fn 206: g1=0). The JIT drives g1/g2 IDENTICALLY to interp (g1 last=0 sets=2,
-  g2=89996 sets=1) yet STILL deadlocks → the asyncify global state machine is CORRECT under JIT. So the bug is AFTER
-  the globals: the asyncify **SHADOW-STACK MEMORY** save/restore (g2-indexed `load[/offset=4]; … i32.store` local-spill
-  on unwind + rewind-restore at fn entry). **NEXT = trace the g2-indexed shadow-stack memory writes (the local-save
-  loop) interp-vs-jit on dfr2**, OR dump the saved locals at the yield. Reusable: callcount/calledge/global.trace primitives.
+Localized this session, paused per the next-tag posture. Resume pointer (debt D-489/D-494 + lessons):
+- **D-494** (both-arch TinyGo defer/recover JIT deadlock): globals RULED OUT @a1c589c58 (JIT drives g1/g2 0→1→0
+  IDENTICALLY to interp via `global.trace`) → bug is the asyncify **SHADOW-STACK MEMORY** save/restore (g2-indexed
+  local-spill on unwind + rewind-restore at fn entry). NEXT = diff the g2-indexed shadow-stack stores interp-vs-jit
+  on dfr2 (the `memstore.trace` instrumentation was built then reverted; `call_profile.mstore*` doc has the design).
+- **D-489** (x86_64-only): run$1 wasm 1539-1551 nested-select/rewind-br_if; static exhausted; may share D-494's root.
+- Reusable diagnostics kept: `jit.callcount` / `jit.calledge` / `global.trace` primitives + trap-dump.
 
 **WINDOWS GATE (D-495 batch @c3c4e8447) — ENV FLAKE, not a code regression** (2026-06-21): build summary 5736/6030
 passed; ALL suites green on Win64 (wasm-3.0-assert 86/0, memory64/gc/multi-memory, realworld 56 PASS, component 170/0,
