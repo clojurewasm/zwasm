@@ -294,7 +294,7 @@ pub fn compile(
     // pushed return address lands on local 0 at [RBP-16]. Win64's
     // 32-byte shadow_space inflates the frame enough that it hid
     // this bug until OrbStack runs (= Linux x86_64 SysV).
-    const frame_unaligned: u32 = outgoing_max_bytes + locals_bytes + spill_bytes + indirect_result_slot_bytes + r15_save_bytes + home_save_bytes;
+    const frame_unaligned: u32 = outgoing_max_bytes + locals_bytes + spill_bytes + indirect_result_slot_bytes + r15_save_bytes + home_save_bytes + 4096; // D-489 DEBUG PAD — test frame under-allocation / red-zone hypothesis
     const frame_bytes: u32 = if (uses_runtime_ptr)
         ((frame_unaligned + 7) & ~@as(u32, 15)) + 8
     else
