@@ -15,55 +15,34 @@ D-463 handle isolation (ADR-0197); D-034 SIMD spill-completeness CLOSED @411dd1e
 marshalling, C-API Windows-export. Residual long-tails (debt-tracked, do NOT grind): D-464 async adversarial,
 D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate duplicated SIMD spill helpers.
 
-## Active bundle
-
-- **Bundle-ID**: ADR-0200-jit-backed-embedding-api
-- **Cycles-remaining**: ~3 (v128 substrate → WASI host-fn → mini-consumer → cljw)
-- **Continuity-memo**: **LANDED (`engine=.jit`, BOTH surfaces; detail in git/commits)**: Zig-facade fork
-  @7bfc49c8d (`EngineKind{auto,jit,interp}`, `.jit`→heap-pinned `runner.JitInstance`, Zone-1
-  `Instance.jit: ?*anyopaque`); multi-result @bc534de73; mutator/budget arms @441c24e77; fork CENTRALIZED
-  in `instantiateInternal` @34ffb855c; D-451 import validation @8ba2e5121; **C-path call path @ddb75feed**
-  (`instantiateJit` populates `exports_storage`+arena → `wasm_instance_exports`; `wasm_func_call` JIT arm,
-  `Val`↔u64 marshalling, func_idx→name reverse-map); **C budget setters route to JIT @0aa60a481**
-  (`capi.jitOf`; killed silent-no-op footgun); **C engine knob @fbdbd3523** — `zwasm_instance_new_ex` +
-  `ZWASM_ENGINE_{AUTO=0,JIT,INTERP}` in zwasm.h (`instanceNewWithEngine` shared body). Both surfaces now
-  instantiate+call JIT scalar/multi-result exports. api/instance.zig cap 3700. `.auto` STILL→interp.
-  **SIMD-body on JIT PROVEN @a82d54af0** (facade engine=.jit runs v128.const+extract_lane body → i32 42):
-  the user's "SIMD must be JIT" constraint = met by JIT-executed SIMD bodies at a scalar boundary; v128 AS a
-  host-call arg/result is NICHE bounded-debt (D-477 tail, design `private/notes/d477-remaining-slices-design.md`
-  §Slice-3), NOT an exit-condition blocker. Both exit-condition call capabilities (multi-arg + SIMD-body) now
-  proven. **NEXT (toward bundle close)**: (a) **mini-consumer** — first-party C (`include/zwasm.h` +
-  `zwasm_instance_new_ex`) + Zig (`src/zwasm/*` `Module.instantiate(.{.engine=.jit})`) example programs under
-  `examples/` that instantiate engine=jit, call a multi-arg AND a SIMD-body export, assert results. (b)
-  engine-knob default documented (`docs/zig_api_design.md` + zwasm.h already has the ZWASM_ENGINE_* doc). (c)
-  cljw readiness signal `to_cljw_NN.md`. THEN close bundle. Deferred (debt, NOT exit-cond): WASI host-fn
-  `rt.wasi_host` wiring; WASI/Linker engine sel + `.auto`→JIT flip; accessor READS; D-314 sign-off; v128-boundary.
-  **Next = (a) mini-consumer example programs.**
-- **Exit-condition**: first-party mini-consumer (C via `include/zwasm.h` + Zig via `src/zwasm/*`)
-  instantiates engine=jit, calls a multi-arg AND a SIMD-body export (v128-at-boundary = niche debt, not
-  required), asserts results; engine-knob default documented; cljw readiness signal sent (`to_cljw_NN`). NOT cw.
-- **cljw dogfooding OBLIGATION (don't forget across sessions)**: when the ADR-0200 JIT-backed
-  API is embedder-stable, send `private/dogfooding_handover/to_cljw_NN.md` = engine-selection
-  shape + invoke arity/type matrix + embedder-contract deltas + pin SHA (from_cljw_01 CONSUMED,
-  reqs folded into ADR-0200; memory `project_cljw_dogfooding_mailbox`). Mailbox cadence: check
-  `from_cljw_*` for `SENT` at unit boundaries (after a commit). Engine select = per-instance,
-  interp MUST coexist (cljw dual-engine diff oracle).
-
 ## RESUME POINTER (2026-06-21) — for a fresh session
 
-**🎯 ACTIVE = ADR-0200 JIT-backed embedding API** (user-steered pivot 2026-06-21; D-477 core DONE/closed,
-niche tails = build-on-demand debt). Per-instance engine selection, **JIT-default**, interp coexists.
-See `## Active bundle` + ADR-0200 (§"API shape" + §"Consuming requirements"). Smallest increment DONE
-@7bfc49c8d (Zig-facade `engine=.jit` opt-in, no-import scalar invoke). NEXT = SIMD/v128 + multi-result
-arm (`invokeMulti`/`TypedResult`), then facade accessors `runtime==null` arms, host-import→JIT bridge
-(+`.auto`→JIT flip), C-path `wasm_func_call` arm, D-314 sandbox sign-off, mini-consumer, cljw signal.
-D-477 invoke matrix is the substrate; impl map `.dev/adr0200_api_impl_map.md`.
+**ADR-0200 JIT-backed embedding API — COMPUTE PATH DELIVERED, bundle CLOSED @<this-commit>.** Both
+surfaces (Zig `Module.instantiate(.{.engine=.jit})` + C `zwasm_instance_new_ex`) instantiate + call
+JIT exports: scalar/FP/ref multi-arg + multi-result invoke, SIMD-body execution, fuel/memory/table/
+interrupt sandboxing, exports discovery, D-451 import-reject. Mini-consumers
+`examples/{c_host,zig_host}/jit_engine.*` (gated: `test-c-api-conformance` + `run-zig-host-jit` in
+test-all) run engine=jit + multi-arg `add`→5 + SIMD-body `lane0`→42. Engine knob documented
+(`docs/zig_api_design.md` §3.10 + `include/zwasm.h` ZWASM_ENGINE_*). **cljw readiness signal SENT**
+(`private/dogfooding_handover/to_cljw_02.md` — engine shape + arity/type matrix + contract deltas + pin
+`zwasm@025b1f2cb`); cljw obligation DISCHARGED. ADR-0200 ACCEPTED+delivered; commit-chain in git.
+
+**NEXT FRONT = D-478 (ADR-0200 completeness tail)** — use `.interp` for these meanwhile (documented in
+to_cljw_02): (1) **host-import + WASI dispatch under JIT facade** — `jit.owned.rt.wasi_host =
+store.wasi_host` in `instantiateJit` + preopens (survey done: setupRuntime plants WASI thunks; e2e =
+clock_time_get→memory→i64.load nonzero, cf. jit_dispatch.zig:688; proc_exit exit-code INCOMPLETE
+jit_dispatch.zig:313); then non-WASI host-func dispatch. (2) `.auto`→JIT flip once (1) lands. (3) WASI
+via the Linker (holds OWN wasi_host, linker.zig:95). (4) accessor READS memory/global/table JIT arms.
+(5) v128-at-boundary + Win64 ≥4-param stack-spill = D-477 niche slivers. This tail is likely a new
+bundle (host-import/WASI JIT = multi-cycle, Linker-entangled) — bundle it if it proves so.
+**OR** fall back to the STANDING CORRECTNESS-SWEEP directive (below) if the tail is deferred.
 
 **STANDING DIRECTIVE = CORRECTNESS SWEEP** (user 2026-06-20, memory `feedback_correctness_sweep_phase`): high-value
 bar OFF. Sweep toward 0% the 3 gap classes — (1) wasmtime-works-zwasm-doesn't, (2) wasm/wasi spec non-conformance,
 (3) instability/crashes — easiest-first, TDD + 3-host, repeat; don't ask "is this high-value." Status: spec
-skip-impl=0, realworld JIT 56/56 GATING (`test-realworld-diff-jit`), no UnsupportedOp crash, fuzz 0-crash. The
-D-477 bundle is the live front; prior sweep closures (D-468/D-469/D-470/D-475/D-476/extended-const/GC trap-kind/
+skip-impl=0, realworld JIT 56/56 GATING (`test-realworld-diff-jit`), no UnsupportedOp crash, fuzz 0-crash.
+ADR-0200 (JIT embedding API) + D-477 (JIT host-invoke) were the live fronts — both delivered/closed; the
+ADR-0200 tail = D-478. Prior sweep closures (D-468/D-469/D-470/D-475/D-476/extended-const/GC trap-kind/
 memory64+SIMD/fuzz exec-differential) are in git/lessons — do NOT re-walk.
 **VERIFICATION LESSON (operationally live)**: a JIT-codegen fix MUST be checked with `test-spec-wasm-2.0-assert`
 on BOTH arm64 AND `-Dtarget=x86_64-macos` — NOT `test-spec`(interp)/`zig build test`(unit).

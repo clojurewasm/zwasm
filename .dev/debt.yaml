@@ -3,6 +3,38 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-478"
+    layer: "code"
+    status: "partial"
+    description: |-
+      ADR-0200 JIT-backed embedding-API completeness tail. The JIT compute path is
+      embedder-stable on BOTH surfaces (Zig `Module.instantiate(.{.engine=.jit})` +
+      C `zwasm_instance_new_ex`): instantiate, scalar/FP/ref multi-arg + multi-result
+      invoke, SIMD-body execution, fuel/memory/table/interrupt sandboxing, exports
+      discovery, D-451 import-reject — all landed + gated (mini-consumers
+      examples/{c_host,zig_host}/jit_engine.*). REMAINING (deferred, NOT exit-cond
+      blockers; use `.interp` for these modules meanwhile — documented in to_cljw_02):
+      (1) **host-import + WASI dispatch under JIT facade** — set
+      `jit.owned.rt.wasi_host = store.wasi_host` in `instantiateJit` + materialize
+      preopens (survey done: setupRuntime already plants WASI thunks; e2e test =
+      clock_time_get→memory→i64.load nonzero, cf. jit_dispatch.zig:688). proc_exit
+      exit-code surfacing INCOMPLETE in JIT (jit_dispatch.zig:313). Then non-WASI
+      host-func dispatch. (2) **`.auto`→JIT flip** once (1) lands (today `.auto`=interp;
+      the default's meaning is documented so the flip is not an API break). (3) **WASI
+      via the Linker** (holds its OWN wasi_host, linker.zig:95 — not store's) — engine
+      selection on the Linker path. (4) **accessor READS** memory()/global()/table()
+      JIT arms (return null today — need JIT runtime layout access). (5) v128-at-boundary
+      + Win64 ≥4-param stack-spill = the D-477 niche slivers (tracked there). Build on
+      demand as cljw/real consumers exercise them.
+    first_raised: "2026-06-21"
+    last_reviewed: "2026-06-21"
+    refs: |-
+      .dev/decisions/0200_jit_backed_embedding_api.md
+      src/api/instance.zig (instantiateJit + wasm_func_call JIT arm + instanceNewWithEngine)
+      src/zwasm/instance.zig (facade invokeJit + mutator JIT arms; accessor reads return null for JIT)
+      src/api/zwasm_ext.zig (zwasm_instance_new_ex + budget setter JIT arms)
+      private/notes/d477-remaining-slices-design.md (v128 slivers)
+      private/dogfooding_handover/to_cljw_02.md (readiness signal documenting these deltas)
   - id: "D-477"
     layer: "code"
     status: "partial"

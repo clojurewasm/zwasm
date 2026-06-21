@@ -1,7 +1,14 @@
 # ADR-0200 — JIT-backed embedding API (C + Zig), opt-in engine selection
 
 > **Doc-state**: ACTIVE
-> **Status**: ACCEPTED (user directive 2026-06-20)
+> **Status**: ACCEPTED (user directive 2026-06-20) — **compute path DELIVERED
+> 2026-06-21** (both surfaces: Zig `Module.instantiate(.{.engine=.jit})` + C
+> `zwasm_instance_new_ex`; instantiate / scalar+FP+ref multi-arg + multi-result
+> invoke / SIMD-body execution / fuel+memory+table+interrupt sandboxing / exports
+> discovery / D-451 import-reject; mini-consumers `examples/{c_host,zig_host}/
+> jit_engine.*` gated in test-all; cljw readiness signal `to_cljw_02.md`). Tail
+> (host-import/WASI dispatch under JIT, `.auto`→JIT flip, accessor reads,
+> v128-at-boundary) deferred to **D-478** — use `.interp` for those modules.
 > **Supersedes (in part)**: the *assessment-stage* "interp-only facade"
 > posture of `.dev/architecture/jit_facade_integration_scope.md` and the
 > implicit reading of ADR-0109 that the public facade is interp-bound.
