@@ -175,6 +175,14 @@ entries:
       (jit_value_trace.sh), unlike x86_64-only D-489. NEXT: trace the asyncify unwind path
       (tinygo_unwind / the global1/global2 manipulation in the yielding fn) interp-vs-jit on dfr2 to
       find the miscompiled op; likely a global.get/set or the unwind control-flow under the transform.
+      NARROWED (2026-06-21): `-scheduler=none` build of dfr2 ALSO fails under JIT but SILENTLY (empty
+      output, no deadlock) — the SAME silent signature as D-489. So the bug is NOT purely the asyncify
+      SCHEDULER; the common factor is defer/recover's UNWIND / state-save mechanism (TinyGo emits an
+      unwind transform for defer/recover even w/o the scheduler). Manifestation depends on scheduler
+      mode: default(asyncify)→deadlock; none→silent. Both-arch (vs D-489 x86_64-only). Reinforces a
+      shared "defer/recover/unwind JIT-codegen" root with D-489. NOT-YET-PINPOINTED: needs a dedicated
+      value-trace (arm64 lldb harness on dfr2, since arm64-reproducible) of the global1/global2 +
+      local-save-to-shadow-stack at the post-call unwind-check — a focused future campaign, not a quick fix.
     first_raised: "2026-06-21"
     last_reviewed: "2026-06-21"
     refs: |-

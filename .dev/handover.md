@@ -25,9 +25,11 @@ D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate dupl
   `nilPanic(39)→runtimePanicAt→putchar`. Root = JIT mishandles ASYNCIFY suspend/resume (`tinygo_unwind`, global 1=task
   state, global 2=shadow-stack ptr) — the SAME transform as D-489's run$1. **D-494 is arm64-reproducible → use the
   lldb value-trace harness (jit_value_trace.sh), unlike x86_64-only D-489.** Likely SHARED ROOT.
-- **Next step**: trace the asyncify unwind (tinygo_unwind / the global1/global2 + unwind control-flow in the yielding
-  fn) interp-vs-jit on dfr2 to find the miscompiled op (global.get/set or unwind branch under the transform). Fixing
-  D-494 plausibly fixes D-489. Profiler now dumps on traps (@d869f0b58). Tools: jit.callcount/jit.calledge.
+- **NARROWED**: `-scheduler=none` dfr2 ALSO fails under JIT but SILENTLY (= D-489's signature, not deadlock) → bug is
+  defer/recover's UNWIND mechanism, NOT purely the asyncify scheduler. Both-arch. Reinforces shared root w/ D-489.
+- **Next step**: arm64 lldb value-trace (`scripts/jit_value_trace.sh`) on dfr2.wasm (arm64-reproducible) — trace
+  global 1 (task state) + global 2 (shadow-stack ptr) + the local-save at the post-call unwind-check; find where the
+  jit value diverges from interp. Fixing D-494 plausibly fixes D-489. Profiler dumps on traps now (@d869f0b58).
 - **D-489 PAUSED (static exhausted)**: x86_64 silent-wrong-value in run$1 wasm 1539-1551 (nested-select/rewind-br_if;
   IsNil clean, emitSelectCtx correct). Needs heavy x86_64 dynamic per-op trace OR the D-494 fix. Full detail in debt
   D-489 + lesson 2026-06-21-d489-static-exhausted-run1-select-region.
