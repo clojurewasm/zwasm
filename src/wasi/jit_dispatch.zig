@@ -72,6 +72,17 @@ pub fn fd_write(
 ) callconv(.c) i32 {
     // D-331A: fingerprint linear memory at the host-call boundary (interp-vs-jit diff).
     dbg.print("mem.cksum", "jit fd_write {x}", .{dbg.fnv1a(memOf(rt))});
+    // D-489 fmtwatch: track the tinygo_json fmt string ("name=%s age=%d city=%s") in
+    // guest rodata at each fd_write — the transition intact→corrupted localizes the
+    // guest-mem corruption to a specific host-call boundary (rodata = random_get-free).
+    if (dbg.on("fmtwatch")) {
+        const gm = memOf(rt);
+        if (std.mem.indexOf(u8, gm, "name=%s age=%d")) |off| {
+            std.debug.print("[fmtwatch] fd={d} fmt@{d} INTACT\n", .{ fd, off });
+        } else {
+            std.debug.print("[fmtwatch] fd={d} fmt CORRUPTED (name=%s gone)\n", .{fd});
+        }
+    }
     // D-244: with a host, delegate to the shared interp handler — it gathers
     // the ciovecs, routes to the host's real stdout/stderr (or capture buffer),
     // and supports file fds, none of which the compute-only stub does.
