@@ -30,8 +30,14 @@ test-all) run engine=jit + multi-arg `add`→5 + SIMD-body `lane0`→42. Engine 
 **NEXT FRONT = D-478 (ADR-0200 completeness tail)** — use `.interp` for not-yet-covered modules
 (documented in to_cljw_02). **WASI host-fn dispatch under JIT DONE @b29606b17** (`jit.owned.rt.wasi_host
 = store.wasi_host` + preopens in `instantiateJit`; `jit_wasi` conformance: clock_time_get→i64.load
-nonzero, gated). Remaining: (1b) non-WASI host-func (`wasm_func_new` callback) dispatch under JIT +
-proc_exit exit-code (jit_dispatch.zig:313). (2) `.auto`→JIT flip once host-imports fully covered. (3)
+nonzero, gated). Remaining: (1b) non-WASI host-func dispatch under JIT — SURVEYED (design
+`private/notes/d478-host-func-jit-bridge-design.md`): JIT passes guest CALL args in NATIVE arg regs
+per the callee's exact C sig (no uniform buffer) → host bridge must be SIGNATURE-SPECIALIZED (comptime
+fn-table ≤4-scalar-arg×scalar-result, reg→Val[]→callback→trap_flag; plant via `func_import_targets` +
+relax `assertWasiImportsSatisfied`). Multi-cycle codegen bundle = OPEN it when a consumer needs JIT
+host-imports OR to unblock `.auto`→JIT; current safe state = host-func imports reject at JIT instantiate
+→ `.interp` (no silent wrong answer). + proc_exit exit-code (jit_dispatch.zig:313). (2) `.auto`→JIT flip
+once (1b) lands. (3)
 WASI via the Linker (holds OWN wasi_host, linker.zig:95 — facade `Module.instantiate` + store.wasi_host
 path works now; Linker path is separate). (4) accessor READS memory/global/table JIT arms (return null
 today). (5) v128-at-boundary + Win64 ≥4-param stack-spill = D-477 niche slivers. Likely bundle the

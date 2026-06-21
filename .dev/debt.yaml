@@ -18,7 +18,15 @@ entries:
       `jit.owned.rt.wasi_host = store.wasi_host` + preopen materialization in
       `instantiateJit`; `jit_wasi` conformance case (clock_time_get→memory→i64.load
       nonzero) gated. REMAINING in (1): non-WASI host-func (`wasm_func_new` callback)
-      dispatch under JIT; proc_exit exit-code surfacing INCOMPLETE (jit_dispatch.zig:313). (2) **`.auto`→JIT flip** once (1) lands (today `.auto`=interp;
+      dispatch under JIT; proc_exit exit-code INCOMPLETE (jit_dispatch.zig:313). host-func
+      SURVEYED 2026-06-21 (design `private/notes/d478-host-func-jit-bridge-design.md`): the
+      JIT passes guest CALL args to `dispatch[idx]` in NATIVE arg registers per the callee's
+      exact C sig (no uniform buffer; `op_call.zig` marshalCallArgs) → the host bridge must be
+      SIGNATURE-SPECIALIZED (comptime fn-table over a bounded ≤4-scalar-arg×scalar-result combo,
+      reg→`Val[]`→`WasmFuncCallback`→trap_flag; plant via `func_import_targets` + relax
+      `assertWasiImportsSatisfied`). Multi-cycle codegen bundle, build on demand; current safe
+      state = host-func imports REJECT at JIT instantiate → embedder uses `.interp` (no silent
+      wrong answer). (2) **`.auto`→JIT flip** once (1) lands (today `.auto`=interp;
       the default's meaning is documented so the flip is not an API break). (3) **WASI
       via the Linker** (holds its OWN wasi_host, linker.zig:95 — not store's) — engine
       selection on the Linker path. (4) **accessor READS** memory()/global()/table()
