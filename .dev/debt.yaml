@@ -80,6 +80,33 @@ entries:
       test/realworld/wasm/tinygo_json.wasm (fixture) + test/realworld/run_runner_jit.zig:235 (opt-in run gate)
       src/engine/codegen/x86_64/abi.zig:160 (4-GPR pool) + src/engine/codegen/x86_64/gpr.zig (spill staging) + src/wasi/fd.zig:81 (fdWrite — where the iovec trace was taken)
       .claude/skills/debug_jit_auto/SKILL.md (Recipe 18 value-trace) ; relates to the jit-export-invoke-dispatch-matrix bundle (flip re-land)
+  - id: "D-492"
+    layer: "code"
+    status: "note"
+    description: |-
+      Typed `select t` (0x1c) does not yet accept GC/heap reftypes (anyref 0x6E /
+      eqref 0x6D / i31ref 0x6C / structref 0x6B / arrayref 0x6A / exnref 0x69) or
+      typed-ref `(ref null? ht)` operands — only i32/i64/f32/f64/v128/funcref/externref.
+      Per Wasm spec §3.3.2.2 `select t` admits ANY valtype. Surfaced while closing
+      D-491 (typed-select-v128): `opSelectTyped` (validator.zig:3041) + `lower.zig:354`
+      hand-roll PARTIAL valtype-byte switches that diverge from the canonical
+      `parse/init_expr.zig:readValType` (which handles all GC reftypes). あるべき論 fix =
+      route both through readValType (or a shared subset) instead of the hand-rolled copy.
+      CODEGEN GOTCHA (verified, latent — not active since the validator rejects today):
+      the arm64 select dispatch (emit.zig:1277) maps only i64/funcref/externref → gpr64;
+      all OTHER bytes fall to `else => .gpr32` — a GC reftype would TRUNCATE the 64-bit
+      reference. So the fix MUST add the GC reftype bytes to the gpr64 arm on BOTH arches
+      (arm64 emit.zig:1278 + x86_64 emitSelectCtx ref-width) + a fixture. VERY LOW PRIORITY:
+      no toolchain emits typed-select with a GC ref (even typed-select-v128 was niche; refs
+      are select-able but compilers use untyped 0x1b / control flow). Discharge predicate:
+      a `(select (result anyref) ...)` fixture validates + lowers + JIT-executes without
+      ref truncation on both arches.
+    first_raised: "2026-06-21"
+    last_reviewed: "2026-06-21"
+    refs: |-
+      src/validate/validator.zig:3041 (opSelectTyped partial switch) + src/ir/lower.zig:354 (0x1c partial switch)
+      src/parse/init_expr.zig:110 (readValType — canonical, handles all GC reftypes)
+      src/engine/codegen/arm64/emit.zig:1277 (gpr64 dispatch) + src/engine/codegen/x86_64/op_alu_int.zig:1074 (emitSelectCtx) ; closed-sibling D-491 (typed-select-v128)
   - id: "D-478"
     layer: "code"
     status: "partial"
