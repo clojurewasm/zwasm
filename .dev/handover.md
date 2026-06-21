@@ -18,26 +18,25 @@ D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate dupl
 ## Active bundle
 
 - **Bundle-ID**: ADR-0200-jit-backed-embedding-api
-- **Cycles-remaining**: ~4 (host-import bridge → C-path → v128 substrate → sandbox → mini-consumer → cljw)
-- **Continuity-memo**: **LANDED (Zig-facade `engine=.jit`, no-import scalar; detail in git)**: engine fork
-  @7bfc49c8d (`InstantiateOpts.engine: EngineKind{auto,jit,interp}`; `.jit`→heap-pinned `runner.JitInstance`,
-  Zone-1 `Instance.jit: ?*anyopaque`, interp `runtime==null`; invoke arm + `UnsupportedEngineSignature` +
-  `trap_kind`→`Trap` map); multi-result @bc534de73 (`invokeMulti`/`TypedResult`); **mutator/budget arms
-  @441c24e77** (fuel/memory/table/interrupt route to JIT — discharged the D-314 `assert(runtime!=null)`
-  crash seam; `JitInstance` owns a heap-pinned `interrupt_flag` + `armSelfInterrupt`/`setTableElementsLimit`).
-  `.auto` STILL→interp pending host-import bridge (TODO now in `instantiateInternal`). **Fork CENTRALIZED
-  @34ffb855c** — `engine` threaded through `instantiateInternal` so the C `wasm_instance_new` + linker
-  paths fork too (not just facade); callers pass `.auto` for now. **NEXT (survey done — JIT WASI map:
-  `setupRuntime` already plants WASI dispatch thunks via `jit_dispatch.populateDispatch`; just set
-  `jit.owned.rt.wasi_host = store.wasi_host` (both `?*anyopaque`) AFTER init + call
-  `runner.assertWasiImportsSatisfied` [runner.zig:513, make `pub`] for D-451 reject)**: (a) **C-path**
-  — `wasm_func_call` JIT arm (`runtime==null`→JIT invoke) + C `zwasm_engine_kind` knob (ADR-0200 §API:
-  AUTO=0/JIT/INTERP, per-instance, `jit`-on-JIT-less-arch ERRORS + resolved-kind read-back; needs a
-  `zwasm_instance_new_ex` since stock `wasm_instance_new` has no engine param) — cljw's C surface. (b)
-  **WASI/Linker bridge** — engine selection on the Linker (holds its OWN `wasi_host` linker.zig:95, NOT
-  store's) + wire it into `instantiateJit`; then flip `.auto`→JIT. (c) accessor READS memory/global/table
-  JIT arms. (d) **v128/SIMD** — needs D-477 v128 substrate (build-on-demand debt). (e) D-314 sign-off;
-  (f) mini-consumer + cljw signal. **Next = (a) C-path** (cleaner, cljw-critical).
+- **Cycles-remaining**: ~4 (WASI host-fn → C-path → v128 substrate → sandbox → mini-consumer → cljw)
+- **Continuity-memo**: **LANDED (Zig-facade `engine=.jit`; detail in git)**: engine fork @7bfc49c8d
+  (`InstantiateOpts.engine: EngineKind{auto,jit,interp}`; `.jit`→heap-pinned `runner.JitInstance`, Zone-1
+  `Instance.jit: ?*anyopaque`, interp `runtime==null`; invoke arm + `UnsupportedEngineSignature` +
+  `trap_kind`→`Trap` map); multi-result @bc534de73; mutator/budget arms @441c24e77 (fuel/memory/table/
+  interrupt → JIT, discharged D-314 assert-crash seam); **fork CENTRALIZED in `instantiateInternal`
+  @34ffb855c** (C `wasm_instance_new` + linker fork too; callers pass `.auto`); **D-451 import validation
+  @8ba2e5121** (`runner.assertWasiImportsSatisfied` pub; unsatisfiable import → InstantiateFailed;
+  sched_yield dispatches). `.auto` STILL→interp pending host-import bridge. **NEXT**: (a) **WASI host-fn
+  wiring** — set `jit.owned.rt.wasi_host = store.wasi_host` (both `?*anyopaque`) in `instantiateJit` +
+  materialize preopens; END-TO-END test = clock_time_get into memory + i64.load → nonzero (host-vs-no-host
+  divergence; cf. jit_dispatch.zig:688 unit test). NOTE proc_exit exit-code surfacing is INCOMPLETE in JIT
+  (jit_dispatch.zig:313 → Error.Trap generic). (b) **C-path** — `wasm_func_call` JIT arm + C engine knob;
+  **DIVERGENCE found: JIT instances populate NO `exports_storage`/`func_ptrs_storage`**, so the wasm-c-api
+  Func-handle path (`wasm_instance_exports`→`wasm_func_call`) needs a retrofit (populate exports from
+  `jit.compiled.exports` name→idx + a by-funcidx JIT call arm) — bigger than the facade mirror; ADR-0200 §API
+  wants `zwasm_engine_kind` AUTO=0/JIT/INTERP per-instance. (c) **WASI/Linker** engine selection (Linker holds
+  OWN `wasi_host` linker.zig:95) then flip `.auto`→JIT. (d) accessor READS. (e) **v128/SIMD** (needs D-477
+  v128 substrate). (f) D-314 sign-off; (g) mini-consumer + cljw signal. **Next = (a) WASI host-fn wiring.**
 - **Exit-condition**: first-party mini-consumer (C via `include/zwasm.h` + Zig via `src/zwasm/*`)
   instantiates engine=jit, calls a multi-arg AND a v128/SIMD export, asserts results; engine-knob
   default documented; cljw readiness signal sent (`to_cljw_NN`). NOT cw — that's cw's responsibility.
