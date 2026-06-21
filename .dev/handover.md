@@ -21,9 +21,12 @@ Exhaustively investigated this session (built jit.callcount/jit.calledge profile
 - **D-489** (x86_64-only silent-wrong-value): run$1 wasm 1539-1551 nested-select/rewind-br_if region; static exhausted.
 - **D-494** (`now`; both-arch defer/recover JIT deadlock/silent): localized to the asyncify global-state-machine
   (globals 0=__stack_pointer / 1=state / 2=data-ptr; unwind/rewind logic in main.safe-class fns). arm64-reproducible.
-- Likely SHARED ROOT (asyncify unwind/global-state codegen). Resume = lldb/global value-trace of globals 0/1/2 in
-  main.safe (dfr2.wasm) jit-vs-interp — a dedicated heavy effort. Full detail: debt D-489/D-494 + lessons.
-PAUSED (not 妥協): after a long single-area deep-dive, rotating to drive OTHER fronts per "drive all fronts"+breadth.
+- Likely SHARED ROOT (asyncify unwind/global-state codegen). Full detail: debt D-489/D-494 + lessons.
+- **NEW @1a7a04703**: built interp `ZWASM_DEBUG=global.trace`. On dfr2 the asyncify STATE MACHINE = exactly **3 global
+  sets: g1 0→1→0** (fn 205 = asyncify start_unwind: `g1=1; g2=data_ptr; load/cmp/trap`; fn 206 = g1=0). The unwind-check
+  `if(g1==1)return` after calls is the shared-root suspect, BUT the isolated pattern (gstale.wat) WORKS → needs full
+  asyncify context. **NEXT = JIT half of global.trace** (instrument JIT global.set emit, op_globals.zig, ~1 site/arch):
+  diff jit g1/g2 vs interp 0→1→0 on dfr2 — if jit's g1 doesn't follow, that's the asyncify divergence. Tractable + targeted.
 
 ## RESUME POINTER (2026-06-21) — STANDING CORRECTNESS SWEEP; D-491/492(abstract)/493 CLOSED; D-495 v128-array-fill host-PANIC GUARDED; D-489/494(asyncify) paused, D-492(typed-ref)/D-495(proper v128-fill) open
 
