@@ -23,6 +23,8 @@ const diagnostic = @import("../diagnostic/diagnostic.zig");
 const wasi_host = @import("../wasi/host.zig");
 const invoke_args_mod = @import("invoke_args.zig");
 const export_lookup = @import("../engine/export_lookup.zig");
+const dbg = @import("../support/dbg.zig");
+const call_profile = @import("../support/call_profile.zig");
 
 /// ADR-0179 #3a-4 / D-314 / D-332 — `zwasm run` sandboxing flags (`--fuel` /
 /// `--timeout` / `--max-memory` / `--max-table-elements`). All optional;
@@ -107,6 +109,8 @@ pub fn runWasmJitCaptured(
     invoke_args: ?[]const u8,
 ) !u8 {
     const runner = @import("../engine/runner.zig");
+    if (dbg.on("jit.callcount")) call_profile.reset();
+    defer if (dbg.on("jit.callcount")) call_profile.dump();
     var host = try wasi_host.Host.init(alloc);
     defer host.deinit();
     host.io = io;
@@ -478,6 +482,8 @@ pub fn runWasmCapturedFull(
     invoke_args: ?[]const u8,
     limits: Limits,
 ) !u8 {
+    if (dbg.on("jit.callcount")) call_profile.reset();
+    defer if (dbg.on("jit.callcount")) call_profile.dump();
 
     // Per ADR-0016 phase 1: clear any stale diagnostic from a
     // previous call before populating a fresh one on failure.

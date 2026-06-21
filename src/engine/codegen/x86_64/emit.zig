@@ -42,6 +42,7 @@
 
 const std = @import("std");
 const dbg = @import("../../../support/dbg.zig");
+const call_profile = @import("../../../support/call_profile.zig");
 
 const zir = @import("../../../ir/zir.zig");
 const sections = @import("../../../parse/sections.zig");
@@ -317,6 +318,15 @@ pub fn compile(
         try buf.appendSlice(allocator, inst.encPushR(.r15).slice());
     }
     try buf.appendSlice(allocator, inst.encMovRR(.q, .rbp, .rsp).slice());
+    // D-489 call-count primitive (ZWASM_DEBUG=jit.callcount): per-function-entry
+    // counter, bumped via an absolute-address `INC qword [&counts[idx]]`. RAX is
+    // dead at prologue entry (not an arg reg) and RSP/RBP/frame are untouched, so
+    // this has zero frame-layout impact. Compile-time gated → no cost when off.
+    if (dbg.on("jit.callcount") and func.func_idx < call_profile.max_funcs) {
+        const counts_addr: u64 = @intFromPtr(&call_profile.counts[func.func_idx]);
+        try buf.appendSlice(allocator, inst.encMovImm64Q(.rax, counts_addr).slice());
+        try buf.appendSlice(allocator, &.{ 0x48, 0xFF, 0x00 }); // INC qword ptr [RAX]
+    }
     var stack_probe_fixup: u32 = 0;
     var interrupt_fixup: u32 = 0;
     var fuel_fixup: u32 = 0;

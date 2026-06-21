@@ -50,6 +50,7 @@ const wasm_v3_plus = @intFromEnum(build_options.wasm_level) >=
 
 const dispatch = @import("../ir/dispatch_table.zig");
 const dbg = @import("../support/dbg.zig");
+const call_profile = @import("../support/call_profile.zig");
 const zir = @import("../ir/zir.zig");
 const runtime = @import("../runtime/runtime.zig");
 const memory_ops = @import("../instruction/wasm_1_0/memory.zig");
@@ -417,6 +418,7 @@ fn callOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
         }
     }
     if (idx >= rt.funcs.len) return Trap.Unreachable;
+    if (dbg.on("jit.callcount")) call_profile.bump(@intCast(idx));
     const callee = rt.funcs[idx];
     const tbl = rt.table orelse return Trap.Unreachable;
     try invoke(rt, tbl, callee);
@@ -463,6 +465,7 @@ fn callIndirectOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const fe = runtime.Value.refAsFuncEntity(ref_v) orelse return Trap.UninitializedElement;
     const callee_rt = fe.runtime;
     if (fe.func_idx >= callee_rt.funcs.len) return Trap.UninitializedElement;
+    if (dbg.on("jit.callcount") and callee_rt == rt) call_profile.bump(fe.func_idx);
     const callee = callee_rt.funcs[fe.func_idx];
 
     if (instr.payload >= rt.module_types.len) return Trap.IndirectCallTypeMismatch;
@@ -680,6 +683,7 @@ fn returnCallIndirectOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const fe = runtime.Value.refAsFuncEntity(ref_v) orelse return Trap.UninitializedElement;
     const callee_rt = fe.runtime;
     if (fe.func_idx >= callee_rt.funcs.len) return Trap.UninitializedElement;
+    if (dbg.on("jit.callcount") and callee_rt == rt) call_profile.bump(fe.func_idx);
     const callee = callee_rt.funcs[fe.func_idx];
 
     if (instr.payload >= rt.module_types.len) return Trap.IndirectCallTypeMismatch;
