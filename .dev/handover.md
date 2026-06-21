@@ -18,21 +18,18 @@ D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate dupl
 ## Active bundle
 
 - **Bundle-ID**: D-478-host-func-jit-bridge
-- **Cycles-remaining**: ~3 (0-arg bridge → N-scalar-arg spill → FP/Win64 + `.auto`→JIT flip)
-- **Continuity-memo**: D-478 (1b) non-WASI host-func dispatch under JIT — the linchpin for "JIT full feature
-  use" (user 2026-06-21 priority) + unblocks `.auto`→JIT. **READ FIRST: `private/notes/d478-host-func-jit-bridge-design.md`
-  §"REVISED APPROACH"** — audited 2026-06-21 (file:line verified) wiring chain + chosen approach. Approach =
-  **Zig comptime thunk-table, NO machine-code emission, arch-INDEPENDENT** (no Rosetta/Win64 codegen risk):
-  `dispatch[idx]=&thunk_<ret>_table[idx]` (comptime `fn(rt,...) callconv(.c) <ret>` hardcoding slot K → reads
-  `rt.host_payloads_base[K]` → generic bridge: pack `Val[]`, call `WasmFuncCallback`, set `trap_flag`). Seams
-  (all verified): fork `instance.zig:841`→`instantiateJit:666` (thread `builder_state`); payloads via
-  `buildBindings` (`:431`, host arm `:509`); `host_func_targets` through `initLinked` (`runner.zig:904`)→
-  `setupRuntimeLinked` (`setup.zig:256`); plant near `setup.zig:259/:394`; APPEND `host_payloads_base` to
-  `JitRuntime` (`jit_abi.zig:151`); relax `assertWasiImportsSatisfied` (`runner.zig:513`, reject `instance.zig:678`).
-  **0-ARG→i32/void FIRST**, then N-scalar-arg, FP, then `.auto`→JIT. Bounded slots/combos; uncovered → `.interp`.
-- **Exit-condition**: a JIT-backed instance calls an embedder host-func import (C `wasm_func_new` /
-  facade) — first 0-arg→i32, then ≤4 scalar args — asserted green via `wasm_func_call` (mirror
-  `test/c_api_conformance/callback.c` with `.jit`), 3-host. Uncovered sigs stay `.interp` (no silent wrong).
+- **Cycles-remaining**: ~2 (N-scalar-arg → FP/i64+ref results → `.auto`→JIT flip)
+- **Continuity-memo**: INCREMENT 1 DONE @a83b28849 — 0-arg→{void,i32} embedder host-func callbacks now dispatch
+  under JIT via a Zig comptime thunk-table (`src/api/jit_host_bridge.zig`, arch-INDEPENDENT, NO machine-code emit).
+  Landed: `host_payloads_base` appended to `JitRuntime` (jit_abi +8B→608); `instantiateJit` threads `builder_state`
+  + `collectHostFuncTargets`; `HostFuncTarget` planted by `setupRuntimeLinked`/`initLinked`. Gated
+  `test/c_api_conformance/jit_callback.c` (JIT f()→host h()→42). **NEXT = N-scalar-arg**: the JIT passes guest CALL
+  args in NATIVE arg regs per the callee C sig (op_call.zig marshalCallArgs) → add per-(arity×types) comptime tables
+  `thunkN_<ret>(rt, a0, a1, …)` packing regs into `Val[]` before the callback; extend `jit_host_bridge.dispatchPtrFor`
+  (today rejects params.len≠0). Then FP/i64+ref results, then flip `.auto`→JIT (instance.zig:841 TODO). Design history:
+  `private/notes/d478-host-func-jit-bridge-design.md`.
+- **Exit-condition**: a JIT-backed instance calls an embedder host-func import with ≤4 scalar args, asserted green
+  via `wasm_func_call`, 3-host. Uncovered sigs stay `.interp` (no silent wrong). [0-arg→{void,i32} met @a83b28849.]
 
 ## RESUME POINTER (2026-06-21) — for a fresh session
 
@@ -49,14 +46,9 @@ test-all) run engine=jit + multi-arg `add`→5 + SIMD-body `lane0`→42. Engine 
 **NEXT FRONT = D-478 (ADR-0200 completeness tail)** — use `.interp` for not-yet-covered modules
 (documented in to_cljw_02). **WASI host-fn dispatch under JIT DONE @b29606b17** (`jit.owned.rt.wasi_host
 = store.wasi_host` + preopens in `instantiateJit`; `jit_wasi` conformance: clock_time_get→i64.load
-nonzero, gated). Remaining: (1b) non-WASI host-func dispatch under JIT — SURVEYED (design
-`private/notes/d478-host-func-jit-bridge-design.md`): JIT passes guest CALL args in NATIVE arg regs
-per the callee's exact C sig (no uniform buffer) → host bridge must be SIGNATURE-SPECIALIZED (comptime
-fn-table ≤4-scalar-arg×scalar-result, reg→Val[]→callback→trap_flag; plant via `func_import_targets` +
-relax `assertWasiImportsSatisfied`). Multi-cycle codegen bundle = OPEN it when a consumer needs JIT
-host-imports OR to unblock `.auto`→JIT; current safe state = host-func imports reject at JIT instantiate
-→ `.interp` (no silent wrong answer). + proc_exit exit-code (jit_dispatch.zig:313). (2) `.auto`→JIT flip
-once (1b) lands. (3)
+nonzero, gated). (1b) non-WASI host-func dispatch under JIT — INCREMENT 1 LANDED (see Active bundle);
+0-arg→{void,i32} now dispatches, N-scalar-arg next. + proc_exit exit-code (jit_dispatch.zig:313). (2)
+`.auto`→JIT flip once host-func arities are good-enough. (3)
 WASI via the Linker (holds OWN wasi_host, linker.zig:95 — facade `Module.instantiate` + store.wasi_host
 path works now; Linker path is separate). (4) accessor READS memory/global/table JIT arms (return null
 today). (5) v128-at-boundary + Win64 ≥4-param stack-spill = D-477 niche slivers. Likely bundle the
