@@ -419,6 +419,10 @@ fn callOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     }
     if (idx >= rt.funcs.len) return Trap.Unreachable;
     if (dbg.on("jit.callcount")) call_profile.bump(@intCast(idx));
+    if (dbg.on("jit.calledge")) {
+        const caller: u32 = if (rt.currentFrame().func) |zf| zf.func_idx else 0xFFFF_FFFF;
+        std.debug.print("[calledge] {d}->{d}\n", .{ caller, @as(u32, @intCast(idx)) });
+    }
     const callee = rt.funcs[idx];
     const tbl = rt.table orelse return Trap.Unreachable;
     try invoke(rt, tbl, callee);
@@ -466,6 +470,10 @@ fn callIndirectOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const callee_rt = fe.runtime;
     if (fe.func_idx >= callee_rt.funcs.len) return Trap.UninitializedElement;
     if (dbg.on("jit.callcount") and callee_rt == rt) call_profile.bump(fe.func_idx);
+    if (dbg.on("jit.calledge") and callee_rt == rt) {
+        const caller: u32 = if (rt.currentFrame().func) |zf| zf.func_idx else 0xFFFF_FFFF;
+        std.debug.print("[calledge] {d}->{d}\n", .{ caller, fe.func_idx });
+    }
     const callee = callee_rt.funcs[fe.func_idx];
 
     if (instr.payload >= rt.module_types.len) return Trap.IndirectCallTypeMismatch;
@@ -684,6 +692,10 @@ fn returnCallIndirectOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const callee_rt = fe.runtime;
     if (fe.func_idx >= callee_rt.funcs.len) return Trap.UninitializedElement;
     if (dbg.on("jit.callcount") and callee_rt == rt) call_profile.bump(fe.func_idx);
+    if (dbg.on("jit.calledge") and callee_rt == rt) {
+        const caller: u32 = if (rt.currentFrame().func) |zf| zf.func_idx else 0xFFFF_FFFF;
+        std.debug.print("[calledge] {d}->{d}\n", .{ caller, fe.func_idx });
+    }
     const callee = callee_rt.funcs[fe.func_idx];
 
     if (instr.payload >= rt.module_types.len) return Trap.IndirectCallTypeMismatch;
