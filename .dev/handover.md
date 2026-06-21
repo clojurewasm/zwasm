@@ -30,18 +30,23 @@ an incomplete **JIT export-invoke dispatch matrix** — see Active bundle. cljw 
 
 - **Bundle-ID**: jit-export-invoke-dispatch-matrix
 - **Cycles-remaining**: ~3 (fill dispatch gaps → wast_runtime_runner passes under JIT → re-land flip + verify)
-- **Continuity-memo**: The host→guest entry dispatch (`runner.zig` `dispatchScalar1/2`, `dispatchVoid2`,
-  `invokeMulti`, 3+arg dispatchers) only has KEYS for the type-combos the spec corpus historically exercised;
-  real-consumer shapes fall to `else => UnsupportedEntrySignature` → surface as TRAP. `dispatchScalar1` (1-arg) is
-  COMPLETE (all 16). **DONE: dispatchScalar2 FP 2-arg @d7da97e04** (keys 0x03/0x28/0x2a/0x2e/0x3a/0x3c/0x3f; entry
-  helpers `callF64_f64f64` etc. pre-existed — only keys were missing). **REMAINING (from the @f62e08bac ubuntu flip
-  run, `^FAIL` list)**: (1) multi-result FP via `invokeMulti` (`many-results/f` binding_error); (2) 3+arg shapes
-  (`func--params/x`, `issue/f` binding_error) — check the 3/4-arg dispatchers for FP/key gaps; (3) `divbyzero`
-  binding_error (a (i32,i32)→i32 div traps as binding_error not DivByZero — investigate the trap-kind mapping under
-  JIT invoke); (4) `imported-memory-copy InstanceAllocFailed` (memory-IMPORT module: `.auto` should fall back to
-  interp — check why fallback fails / the runner's import binding). **Method**: for each, add a facade `.jit` unit
-  test reproducing (like the addf test, instance.zig), confirm RED, add the dispatch key / fix, verify arm64 +
-  x86_64-macos. Entry helpers usually already exist (grep `entry.zig`).
+- **Continuity-memo**: (survey-informed @a73ab393) 1-2 arg invoke uses the per-combo `dispatchScalar1/2`
+  fast-path veneer (`runner.zig`): `dispatchScalar1` COMPLETE; **dispatchScalar2 FP DONE @d7da97e04**
+  (0x03/0x28/0x2a/0x2e/0x3a/0x3c/0x3f). 3+arg/4+/multi-result fall through to the GENERIC path
+  `invokeViaBufferSingle`/`invokeMulti` → `entry_buffer_write.invokeBufferWrite`, backed by per-arch ASM
+  `wrapper_thunk.emit` (ADR-0106, `codegen/shared/wrapper_thunk.zig`) that marshals a `u64[]` buffer into
+  GPR/FP banks. **THE GAP IS NOT MISSING DISPATCH — it's `wrapper_thunk.emit` shape coverage**: it returns
+  `Error.UnsupportedOp` (→ `hasThunk(idx)=false` → `UnsupportedEntrySignature`) for: **Win64 >3 params, v128
+  params/results (16B≠8B slot — explicit D-477 slice, wrapper_thunk.zig:185), some multi-result shapes**. f32/f64
+  ARE supported. So `many-results/f` + wide `func--params/x` = `emit` didn't produce a thunk. **DONE this turn**:
+  divbyzero `.jit` test @ac6733cd7 (basic JIT trap-kind surfacing CORRECT for covered shapes — so the wast
+  divbyzero binding_error is a wide-shape thunk gap, NOT trap-mapping). **METHOD (next cycles, MEDIUM, arch-sensitive
+  — VERIFICATION LESSON applies)**: widen `wrapper_thunk.emit` per-arch (emitAarch64:554 / emitX8664SysV:181 /
+  emitX8664Win64:427) one shape at a time — Win64 >3 params, then multi-result FP, then v128 (D-477). Each: a `.jit`
+  facade test reproducing (like addf), RED, widen emit + paired byte test, verify arm64 + `-Dtarget=x86_64-macos` +
+  ubuntu. Caveat to confirm: thunk emission is gated per-EXPORT (compile.zig:1178/1208), so wide-func coverage needs
+  both `emit` shape support AND the emission gate firing. (imported-memory-copy InstanceAllocFailed = separate:
+  `.auto` fallback for a memory-IMPORT module under the flip — re-check at flip re-land.)
 - **Exit-condition**: re-land the `.auto` flip (re-apply git @9fcf9fb5b code; the revert of it is @7dbdb973c — so
   `git revert 7dbdb973c`) and the **ubuntu x86_64 gate is GREEN** (wast_runtime_runner + wasmtime_misc_runtime pass
   under `.auto`→JIT). Until then `.auto` stays interp. Residual non-blocking: funcref `Table.set` @panic + v128 (D-478/D-477).
