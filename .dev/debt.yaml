@@ -114,6 +114,17 @@ entries:
       GUEST-VALUE differential trace (instruction- or function-boundary level, interp-vs-x86_64-jit)
       to pinpoint the miscompiled instruction — a codegen-instrumentation build (multi-cycle) OR
       x86_64-native gdb on ubuntu. This is the remaining path; not a quick win.
+      STEP 4 DONE (2026-06-21, @2cda0771c) — built the GUEST-VALUE trace as a per-function
+      call PROFILER (ZWASM_DEBUG=jit.callcount, src/support/call_profile.zig: interp bumps at
+      call/call_indirect, x86_64-jit bumps via an absolute-addr INC in the prologue). Diff on
+      min.wasm: interp 161 funcs vs jit 63. The JIT skips the ENTIRE json encoder —
+      typeEncoder/newTypeEncoder/structEncoder/encodeState ALL 0 (vs interp), reflect.toType
+      25→1. It reaches reflect.TypeOf/interfaceTypeAssert/toType then NEVER dispatches an
+      encoder → json.Marshal bails BEFORE the encoder lookup. NOT a deep-in-encoder bug.
+      STEP 5 = narrow within Marshal→encoder-dispatch: prime suspect reflect.toType (idx=243 in
+      min.wasm, called 1× in jit = tiny window) — disassemble it arm64-vs-x86_64 (jit.dump) OR
+      trace its args/return; the miscompiled scalar (a wrong type-kind / nil encoder / early
+      error) is on that path. See lesson 2026-06-21-d489-callcount-pinpoints-marshal-bail.
     first_raised: "2026-06-21"
     last_reviewed: "2026-06-21"
     refs: |-

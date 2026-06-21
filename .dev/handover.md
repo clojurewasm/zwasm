@@ -19,21 +19,18 @@ D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate dupl
 
 - **Bundle-ID**: D-489-x86_64-miscompile-campaign (user-directed 2026-06-21, anti-先回しロック)
 - **Cycles-remaining**: ~3
-- **Continuity-memo**: STEPS 2-3 DONE. Controllable repro `private/spikes/d489-minimal-repro/`
-  (min.wasm json = floor; main.go source there). iovec diff: x86_64-jit `data` slice from
-  `json.Marshal` has len=0. Hypotheses RULED OUT: pure-fmt-codegen (literal printf fine),
-  multi-value-return-capture (mv2.go clean `([]byte,int)`+pressure FINE; captureCallResult
-  op_call.zig:1006 inspected = correct R10-staged read-back). Bug needs json/REFLECT-specific
-  pressure → likely a COUNT/LENGTH computed→0 under x86_64 spill in reflect field-iter / encoder.
-  Minimal-repro track EXHAUSTED.
-- **Next step (STEP 4)**: GUEST-VALUE differential trace to pinpoint the miscompiled instruction.
-  UNLOCK: min.wasm has a NAME SECTION (266 named funcs) + full DWARF — the json encoder funcs are
-  named (`(*encoding/json.encodeState).reflectValue/.marshal`, etc.). Plan: map those names→wasm idx
-  (wasm-tools print), add func-boundary entry/exit value trace keyed by idx (interp trivial; JIT =
-  debug-gated trace call in prologue/epilogue emit, 2 sites) OR enhance jit.dump to print names +
-  disassemble the specific encoder fn arm64-vs-x86_64. Find the fn whose return/count diverges. Repro:
-  `zig build -Dtarget=x86_64-macos && ./zig-out/bin/zwasm run --engine jit private/spikes/d489-minimal-repro/min.wasm`
-  (x86_64-jit: `json: ` empty + roundtrip FAIL; interp correct).
+- **Continuity-memo**: STEPS 2-4 DONE. Repro `private/spikes/d489-minimal-repro/min.wasm` (json).
+  Built `ZWASM_DEBUG=jit.callcount` profiler (call_profile.zig @2cda0771c). Diff interp-vs-x86_64-jit:
+  interp 161 funcs / jit 63. The JIT skips the ENTIRE json encoder (typeEncoder/structEncoder/
+  encodeState all 0 vs interp; reflect.toType 25→1) → `json.Marshal` bails BEFORE the encoder lookup
+  (reaches reflect.TypeOf/toType then no encoder dispatch). NOT deep-in-encoder. Hypotheses ruled out:
+  pure-fmt-codegen, multi-value-return-capture (mv2.go clean; captureCallResult correct).
+- **Next step (STEP 5)**: narrow within Marshal→encoder-dispatch. Prime suspect `reflect.toType`
+  (idx=243 in min.wasm, called 1× in jit = tiny window). Disassemble it arm64-vs-x86_64 via jit.dump
+  (now mappable by name) OR trace its args/return — the miscompiled scalar (wrong type-kind / nil
+  encoder / early error) is on that path. Tools: `ZWASM_DEBUG=jit.callcount` (profiler) +
+  `private/spikes/d489-minimal-repro/` (idx→name via `/tmp/mapnames.py` pattern). Repro: `zig build
+  -Dtarget=x86_64-macos && ./zig-out/bin/zwasm run --engine jit .../min.wasm` (jit: empty json).
 - **Exit-condition**: miscompiled instruction/value identified + fixed (interp==jit on min.wasm +
   tinygo_json x86_64) OR proven root-cause class with a targeted fixture. Unblocks `.auto`→JIT flip.
 
