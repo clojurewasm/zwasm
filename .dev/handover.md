@@ -19,14 +19,17 @@ D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate dupl
 
 - **Bundle-ID**: D-478-host-func-jit-bridge
 - **Cycles-remaining**: ~3 (0-arg bridge → N-scalar-arg spill → FP/Win64 + `.auto`→JIT flip)
-- **Continuity-memo**: D-478 (1b) non-WASI host-func dispatch under JIT (unblocks `.auto`→JIT). FULL design
-  `private/notes/d478-host-func-jit-bridge-design.md` — read it first. Multi-part: (0) thread `builder_state`
-  into `instantiateJit` (`src/api/instance.zig:656` — doesn't receive it today) + resolve host-func payloads;
-  per-import emitted bridge stub into `dispatch[]` (extend `func_import_targets`, `setup.zig:394`/`runner.zig:904`)
-  + generic Zig marshaller; relax `runner.assertWasiImportsSatisfied` (runner.zig:513, reject instance.zig:678).
-  CRUX: JIT passes guest args in NATIVE arg regs per callee C sig → **0-ARG FIRST** (stub embeds payload ptr →
-  `genericHostBridge0(rt,payload)`); then signature-agnostic arg-spill stub. Per-arch (mirror `shared/thunk.zig`
-  emitThunk); VERIFY each codegen increment arm64 + `-Dtarget=x86_64-macos` + windows gate.
+- **Continuity-memo**: D-478 (1b) non-WASI host-func dispatch under JIT — the linchpin for "JIT full feature
+  use" (user 2026-06-21 priority) + unblocks `.auto`→JIT. **READ FIRST: `private/notes/d478-host-func-jit-bridge-design.md`
+  §"REVISED APPROACH"** — audited 2026-06-21 (file:line verified) wiring chain + chosen approach. Approach =
+  **Zig comptime thunk-table, NO machine-code emission, arch-INDEPENDENT** (no Rosetta/Win64 codegen risk):
+  `dispatch[idx]=&thunk_<ret>_table[idx]` (comptime `fn(rt,...) callconv(.c) <ret>` hardcoding slot K → reads
+  `rt.host_payloads_base[K]` → generic bridge: pack `Val[]`, call `WasmFuncCallback`, set `trap_flag`). Seams
+  (all verified): fork `instance.zig:841`→`instantiateJit:666` (thread `builder_state`); payloads via
+  `buildBindings` (`:431`, host arm `:509`); `host_func_targets` through `initLinked` (`runner.zig:904`)→
+  `setupRuntimeLinked` (`setup.zig:256`); plant near `setup.zig:259/:394`; APPEND `host_payloads_base` to
+  `JitRuntime` (`jit_abi.zig:151`); relax `assertWasiImportsSatisfied` (`runner.zig:513`, reject `instance.zig:678`).
+  **0-ARG→i32/void FIRST**, then N-scalar-arg, FP, then `.auto`→JIT. Bounded slots/combos; uncovered → `.interp`.
 - **Exit-condition**: a JIT-backed instance calls an embedder host-func import (C `wasm_func_new` /
   facade) — first 0-arg→i32, then ≤4 scalar args — asserted green via `wasm_func_call` (mirror
   `test/c_api_conformance/callback.c` with `.jit`), 3-host. Uncovered sigs stay `.interp` (no silent wrong).
