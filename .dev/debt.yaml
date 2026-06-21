@@ -196,6 +196,14 @@ entries:
       shadow-stack load/store via global2 + nested rewind/unwind control flow), not simple global-caching.
       JIT-EXEC SWEEP (2026-06-21): interp-vs-jit diff over all 56 realworld fixtures = arm64 0 divergences,
       x86_64 only tinygo_json(=D-489). So D-494's defer-pattern is NOT in the corpus; JIT is broadly correct.
+      LOCALIZED (2026-06-21): built interp+JIT `ZWASM_DEBUG=global.trace` (@1a7a04703 interp, @a1c589c58 JIT-arm64).
+      The asyncify state machine = exactly g1 0→1→0 (fn 205 start_unwind sets g1=1,g2=89996; fn 206 sets g1=0).
+      GLOBALS RULED OUT: the JIT drives g1/g2 IDENTICALLY to interp (g1 last=0 sets=2, g2 last=89996 sets=1) yet still
+      deadlocks → the asyncify global STATE machine is correct under JIT. So the bug is AFTER the globals: the asyncify
+      SHADOW-STACK MEMORY save/restore (the g2-indexed `global.get 2; i32.load[/offset=4]; … i32.store` local-spill on
+      unwind + the rewind-restore at fn entry) — if a saved/restored LOCAL is wrong under JIT, the resumed fn has corrupt
+      state → deadlock. NEXT = trace the g2-indexed shadow-stack memory writes (the local-save loop) interp-vs-jit on
+      dfr2, OR dump the saved locals at the yield. Reusable: jit.callcount/jit.calledge/global.trace primitives.
     first_raised: "2026-06-21"
     last_reviewed: "2026-06-21"
     refs: |-

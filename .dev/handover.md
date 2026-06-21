@@ -22,11 +22,12 @@ Exhaustively investigated this session (built jit.callcount/jit.calledge profile
 - **D-494** (`now`; both-arch defer/recover JIT deadlock/silent): localized to the asyncify global-state-machine
   (globals 0=__stack_pointer / 1=state / 2=data-ptr; unwind/rewind logic in main.safe-class fns). arm64-reproducible.
 - Likely SHARED ROOT (asyncify unwind/global-state codegen). Full detail: debt D-489/D-494 + lessons.
-- **NEW @1a7a04703**: built interp `ZWASM_DEBUG=global.trace`. On dfr2 the asyncify STATE MACHINE = exactly **3 global
-  sets: g1 0→1→0** (fn 205 = asyncify start_unwind: `g1=1; g2=data_ptr; load/cmp/trap`; fn 206 = g1=0). The unwind-check
-  `if(g1==1)return` after calls is the shared-root suspect, BUT the isolated pattern (gstale.wat) WORKS → needs full
-  asyncify context. **NEXT = JIT half of global.trace** (instrument JIT global.set emit, op_globals.zig, ~1 site/arch):
-  diff jit g1/g2 vs interp 0→1→0 on dfr2 — if jit's g1 doesn't follow, that's the asyncify divergence. Tractable + targeted.
+- **GLOBALS RULED OUT @a1c589c58**: built interp+JIT `ZWASM_DEBUG=global.trace`. The asyncify state machine = g1 0→1→0
+  (fn 205 start_unwind: g1=1,g2=89996; fn 206: g1=0). The JIT drives g1/g2 IDENTICALLY to interp (g1 last=0 sets=2,
+  g2=89996 sets=1) yet STILL deadlocks → the asyncify global state machine is CORRECT under JIT. So the bug is AFTER
+  the globals: the asyncify **SHADOW-STACK MEMORY** save/restore (g2-indexed `load[/offset=4]; … i32.store` local-spill
+  on unwind + rewind-restore at fn entry). **NEXT = trace the g2-indexed shadow-stack memory writes (the local-save
+  loop) interp-vs-jit on dfr2**, OR dump the saved locals at the yield. Reusable: callcount/calledge/global.trace primitives.
 
 **WINDOWS GATE (D-495 batch @c3c4e8447) — ENV FLAKE, not a code regression** (2026-06-21): build summary 5736/6030
 passed; ALL suites green on Win64 (wasm-3.0-assert 86/0, memory64/gc/multi-memory, realworld 56 PASS, component 170/0,
