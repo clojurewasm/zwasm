@@ -65,5 +65,23 @@ pub fn main(init: std.process.Init) !void {
         try out.print("(3) jit pre-sized buf: exit={d} len={d} {s}\n", .{ exit, buf.items.len, if (buf.items.len == 90) "OK" else "DIVERGED" });
     }
 
+    // (4) heap-layout probe: pre-allocate dummy heap to shift allocation layout,
+    // then JIT-captured. If the result changes vs (1), the bad write targets a
+    // HOST address that depends on heap layout (not a fixed guest offset) — which
+    // also explains why arm64/Rosetta (different layout) don't corrupt.
+    {
+        const dummy = try gpa.alloc(u8, 8 << 20);
+        defer gpa.free(dummy);
+        @memset(dummy, 0xAA);
+        var buf: std.ArrayList(u8) = .empty;
+        defer buf.deinit(gpa);
+        const exit = cli_run.runWasmJitCaptured(gpa, io, bytes, null, &ARGV, &.{}, &.{}, &.{}, .{}, &buf, null) catch |e| {
+            try out.print("(4) heap-shifted ERR {s}\n", .{@errorName(e)});
+            try out.flush();
+            return;
+        };
+        try out.print("(4) heap-shifted:     exit={d} len={d} {s}\n", .{ exit, buf.items.len, if (buf.items.len == 90) "OK" else "DIVERGED" });
+    }
+
     try out.flush();
 }
