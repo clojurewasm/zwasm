@@ -18,7 +18,7 @@ D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate dupl
 ## Active bundle
 
 - **Bundle-ID**: D-478-host-func-jit-bridge
-- **Cycles-remaining**: ~2 (6: `.auto`→JIT flip → 7: close)
+- **Cycles-remaining**: ~1 (7: close — exit-cond long-met; verify + remove bundle, retarget correctness-sweep)
 - **Continuity-memo**: INCREMENTS 1-5 DONE (@a83b28849 0-arg; @e001514d9 GP N-arg; @4675c345c FP; @195ba57ff
   `(start)`; **@3d701ddaf incr 5 = dual-engine facade accessors**). Host-func callbacks dispatch under JIT for
   **all-GP (i32/i64) args 0..4, OR ≤2 scalar args with ≥1 FP, × result {void,i32,i64,f32,f64}**
@@ -27,9 +27,13 @@ D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate dupl
   global get/set, table get/size/grow + externref set all work under JIT; `instance.zig` `memory()/global()/table()`
   branch on `jitHandle()`; `runner.zig` adds `export{Global,Table}`/`growMemory`/`growTable`. ONE residual: JIT
   funcref `Table.set` @panics (ADR-0068 funcptrs mirror, folded into D-478). Dual-engine tests added per facade.
-  **NEXT = increment 6: the `.auto`→JIT flip** (fallback design below) — facade reads no longer return null on JIT,
-  so the blocker that reverted the prior flip attempt is cleared. Keep interp tests AND `.jit` tests (dual-engine).
-  **Flip fallback design (for incr 6)**: instantiateJit has NO host-observable side effect before `(start)`, so any
+  **Incr 6 DONE @9fcf9fb5b**: `.auto` (default) now attempts JIT first and falls back to interp on a pre-`(start)`
+  build reject (`fallback_ok` out-param threads the commit point); Linker pinned `.interp` (spec runner routes via it).
+  test-all green (realworld 56/56, C-API conformance, fuzz 0-crash). File-size cap api/instance.zig 3700→3750
+  (ADR-0099 amend, user-authorized 2026-06-21; D-171 split still the real fix). **NEXT = increment 7: bundle close** —
+  exit-cond long-met; verify + remove this bundle, **overwrite `private/dogfooding_handover/to_cljw_02.md`** with the
+  post-flip truth (JIT-default engine, dual-engine facade, contract deltas — user directive 2026-06-21), retarget at
+  the standing correctness-sweep. **Flip fallback design (historical)**: instantiateJit has NO side effect before `(start)`, so any
   pre-start null is interp-fall-back-eligible; only a start that RAN+trapped (`Error.Trap`) must not re-run → signal
   via `fallback_ok` out-param. Linker (`linker.zig:795`) stays `.interp` (separate engine-selection slice). Pin
   interp-internal harnesses to `.interp` (Linker already is; `wasm_3_0_manifest.zig` routes via Linker). NOTE:
