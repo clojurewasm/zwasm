@@ -48,20 +48,15 @@ re-run diff-jit (should go green) → flip is clear.
 cleared on re-run (Win64 spec 25539/0, simd 25075/0, wasi 3/0). Recorded via `--record`. Intermittent
 host-embedding-example file-create stays debt-tracked (`windows-host-example-filecreate`), NOT a code regression.
 
-## RESUME POINTER (2026-06-21) — STANDING CORRECTNESS SWEEP; D-491/492(abstract)/493 CLOSED; D-495 v128-array-fill host-PANIC GUARDED; D-489/494(asyncify) paused, D-492(typed-ref)/D-495(proper v128-fill) open
+## D-489 NEXT-STEP (lldb on ubuntu) + closed arcs
 
-**v128-GC class swept this session**: select-v128 (D-491), select-GC-reftype (D-492), array.new_data-v128 (D-493) all
-FIXED. struct.new v128-field + array.get-v128 (D-460) already worked. array.fill/new with a v128 VALUE crash-GUARDED
-(D-495 — was a guest-triggerable host panic; proper pointer-marshal impl deferred). No more v128-GC host panics.
+**NEXT = lldb watchpoint on ubuntu**: d489-repro is optimize-INDEPENDENT (Debug/ReleaseSafe/ReleaseFast all 130;
+ReleaseSafe does NOT panic → corruption is by JIT-EMITTED code, not Zig host — Zig-compiler-bug line is weak, codeberg
+search found nothing matching). Find the guest addr of the "name=%s age=%d city=%s" fmt string, `watch` it under lldb
+(`nix develop --command lldb`), run d489-repro, catch the write that turns it to spaces → backtrace = the emit site.
+Then fix → re-run diff-jit green → flip clear. **Closed arcs** (do NOT re-walk): v128-GC sweep (D-491/492/493 fixed,
+D-495 guarded); arm64 JIT-exec ZERO divergences; ADR-0200 JIT embedding API + explicit `.jit` (cljw consumed to_cljw_06).
 
-**JIT-exec sweep**: arm64 = ZERO divergences. ubuntu x86_64-linux = tinygo_json fails (D-489); Rosetta x86_64-macos
-MASKS it (see the flip-campaign env-correction above). Debug D-489 over SSH on ubuntu (user-directed 2026-06-21).
-
-**ADR-0200 JIT embedding API delivered + explicit `.jit` SOLID** (cljw actively dogfooding, 4 reported bugs fixed):
-dual-engine accessors @3d701ddaf, exportFuncSig @5b6449779, export_types-on-JIT @f68532e44, FP/mixed 1-2arg invoke
-@d7da97e04/@3cf40a573. The **jit-export-invoke-dispatch-matrix bundle is CLOSED** (pivot): 1/2-arg invoke matrix
-COMPLETE (veneer→buffer-path fall-through); 3-arg+ ride the generic buffer-write path (`invokeViaBufferSingle` →
-`wrapper_thunk.emit`, ADR-0106). cljw all-consumed (to_cljw_05; default `.interp`, agreed).
 
 **`.auto`→JIT flip = blocked on D-489, now an ACTIVE CAMPAIGN** (see `## Active bundle` above — user-directed
 2026-06-21, NOT a 妥協/defer). Twice-reverted (last @7dbdb973c; origin green). The flip is a FORCING FUNCTION that
