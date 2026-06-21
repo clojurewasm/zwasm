@@ -50,12 +50,21 @@ host-embedding-example file-create stays debt-tracked (`windows-host-example-fil
 
 ## D-489 NEXT-STEP (lldb on ubuntu) + closed arcs
 
-**NEXT = lldb watchpoint on ubuntu**: d489-repro is optimize-INDEPENDENT (Debug/ReleaseSafe/ReleaseFast all 130;
-ReleaseSafe does NOT panic → corruption is by JIT-EMITTED code, not Zig host — Zig-compiler-bug line is weak, codeberg
-search found nothing matching). Find the guest addr of the "name=%s age=%d city=%s" fmt string, `watch` it under lldb
-(`nix develop --command lldb`), run d489-repro, catch the write that turns it to spaces → backtrace = the emit site.
-Then fix → re-run diff-jit green → flip clear. **Closed arcs** (do NOT re-walk): v128-GC sweep (D-491/492/493 fixed,
-D-495 guarded); arm64 JIT-exec ZERO divergences; ADR-0200 JIT embedding API + explicit `.jit` (cljw consumed to_cljw_06).
+**fmtwatch RULED OUT memory-overwrite (2026-06-22)**: `ZWASM_DEBUG=fmtwatch` (committed in jit_dispatch.fd_write) shows
+the "name=%s age=%d city=%s" rodata @guest-off 86586 is INTACT at ALL 9 fd_writes — yet output is 130/`%!(EXTRA)`. So
+the format-string BYTES are NOT corrupted; a guest VALUE (the fmt format-slice ptr/len passed to fmt) is wrong. TinyGo
+fmt writes incrementally (9 fd_writes) → a value live across a capture-path fd_write gets clobbered. **REFINED
+HYPOTHESIS**: NOT a register clobber — the JIT calls one C fn (`jit_dispatch.fd_write`, callconv .c) that preserves
+callee-saved in BOTH cases; capture-vs-realfd differs only INSIDE that boundary (invisible to JIT). So it's a
+STACK/MEMORY data effect: the JIT reads a wasm value (the fmt format-slice ptr/len) from a STALE native-stack spill
+slot AFTER the call — it failed to spill-or-reload it — and the slot's stale contents depend on the host call's stack
+usage (appendSlice shallow vs writeStreamingAll deep differ on x86_64-linux). Fits all: linux-only, optimize-indep,
+heap-indep (stack), ReleaseSafe-silent (valid addr, stale data). Suspect: op_call.zig spill/reload is incomplete for
+some live value across host-import calls. **NEXT = lldb: after the fd_write call, see what addr/value the JIT loads as
+the format-slice, vs what it spilled** (ubuntu, by NAME not addr — PIE; outer/inner + `nix develop --command lldb -s`) (ubuntu, by NAME not addr — PIE; outer/inner script pattern + `nix develop --command lldb`, command-file via
+`-s`). Diagnostics in tree: `ZWASM_DEBUG=fmtwatch` / `mem.cksum` (mem.cksum CONFOUNDED by random_get). Repro: `zig
+build d489-repro` (scenario1 jit-alone=130 on ubuntu only). **Closed arcs** (do NOT re-walk): v128-GC sweep
+(D-491/492/493 fixed, D-495 guarded); arm64 JIT-exec ZERO divergences; ADR-0200 JIT embedding API + cljw to_cljw_06.
 
 
 **`.auto`→JIT flip = blocked on D-489, now an ACTIVE CAMPAIGN** (see `## Active bundle` above — user-directed
