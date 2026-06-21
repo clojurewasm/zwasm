@@ -26,10 +26,13 @@ D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate dupl
   op_call.zig:1006 inspected = correct R10-staged read-back). Bug needs json/REFLECT-specific
   pressure → likely a COUNT/LENGTH computed→0 under x86_64 spill in reflect field-iter / encoder.
   Minimal-repro track EXHAUSTED.
-- **Next step (STEP 4)**: GUEST-VALUE differential trace (instruction- or function-boundary level,
-  interp-vs-x86_64-jit) to pinpoint the miscompiled instruction — needs a codegen-instrumentation
-  build (multi-cycle) OR x86_64-native gdb on ubuntu. NOT a quick win. Repro: `zig build
-  -Dtarget=x86_64-macos && ./zig-out/bin/zwasm run --engine jit private/spikes/d489-minimal-repro/min.wasm`
+- **Next step (STEP 4)**: GUEST-VALUE differential trace to pinpoint the miscompiled instruction.
+  UNLOCK: min.wasm has a NAME SECTION (266 named funcs) + full DWARF — the json encoder funcs are
+  named (`(*encoding/json.encodeState).reflectValue/.marshal`, etc.). Plan: map those names→wasm idx
+  (wasm-tools print), add func-boundary entry/exit value trace keyed by idx (interp trivial; JIT =
+  debug-gated trace call in prologue/epilogue emit, 2 sites) OR enhance jit.dump to print names +
+  disassemble the specific encoder fn arm64-vs-x86_64. Find the fn whose return/count diverges. Repro:
+  `zig build -Dtarget=x86_64-macos && ./zig-out/bin/zwasm run --engine jit private/spikes/d489-minimal-repro/min.wasm`
   (x86_64-jit: `json: ` empty + roundtrip FAIL; interp correct).
 - **Exit-condition**: miscompiled instruction/value identified + fixed (interp==jit on min.wasm +
   tinygo_json x86_64) OR proven root-cause class with a targeted fixture. Unblocks `.auto`→JIT flip.
