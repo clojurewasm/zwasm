@@ -182,6 +182,16 @@ pub const FuncExport = struct {
     func_idx: u32,
 };
 
+/// ADR-0200 increment 5 — resolved exported-global descriptor for the host
+/// facade. `idx` is in the full global index space (imports + defined),
+/// matching `JitRuntime.globals_base`.
+pub const GlobalView = struct { idx: u32, valtype: zir.ValType, mutable: bool };
+
+/// ADR-0200 increment 5 — resolved exported-table descriptor for the host
+/// facade. `idx` is in the full table index space (imports + defined),
+/// matching `JitRuntime.tables_ptr`.
+pub const TableView = struct { idx: u32, elem_type: zir.ValType, max: ?u32 };
+
 pub const CompiledWasm = struct {
     module: linker.JitModule,
     func_results: []compile_func.FuncResult,
@@ -1063,6 +1073,20 @@ pub const JitInstance = struct {
         if (self.owned.mem_ctx) |ctx| ctx.host_max_pages = max_pages;
     }
 
+    /// ADR-0200 increment 5 — host-facade `Memory.grow`. Grows linear
+    /// memory0 by `delta` pages, returning the OLD page count, or `null`
+    /// on refusal (declared/host max exceeded or OOM) — the spec
+    /// `memory.grow` recoverable failure (no trap). `null` too when the
+    /// module has no memory. Delegates to `jitMemoryGrow`, which moves
+    /// the backing buffer and re-syncs `rt.vm_base`/`rt.mem_limit` so a
+    /// subsequent facade read sees the grown region.
+    pub fn growMemory(self: *JitInstance, delta: u32) ?u32 {
+        if (self.owned.mem_ctx == null) return null;
+        const old = setup_mod.jitMemoryGrow(&self.owned.rt, delta);
+        if (old < 0) return null;
+        return @bitCast(old);
+    }
+
     /// ADR-0200 — surface a named export's function signature (params/results)
     /// without invoking, so the embedding API can validate arity + type results.
     /// Null when `name` is not an exported function. The JIT path populates no
@@ -1071,6 +1095,104 @@ pub const JitInstance = struct {
         const idx = findExportFunc(allocator, self.wasm_bytes, name) catch return null;
         if (idx >= self.compiled.func_sigs.len) return null;
         return self.compiled.func_sigs[idx];
+    }
+
+    /// ADR-0200 increment 5 — facade `Instance.global()` support. Resolves an
+    /// exported global by name to its full-index-space idx (matching
+    /// `JitRuntime.globals_base`), valtype, and mutability. Null when `name`
+    /// is not an exported global. Mutability is re-decoded from the section
+    /// (the JIT path keeps no `export_types`); valtype comes from the
+    /// already-computed `globals_valtypes` (same full-space indexing).
+    pub fn exportGlobal(self: *JitInstance, allocator: Allocator, name: []const u8) ?GlobalView {
+        var module = parser.parse(allocator, self.wasm_bytes) catch return null;
+        defer module.deinit(allocator);
+
+        const export_section = module.find(.@"export") orelse return null;
+        var exports = sections.decodeExports(allocator, export_section.body) catch return null;
+        defer exports.deinit();
+        var found: ?u32 = null;
+        for (exports.items) |e| {
+            if (!std.mem.eql(u8, e.name, name)) continue;
+            if (e.kind != .global) return null;
+            found = e.idx;
+            break;
+        }
+        const idx = found orelse return null;
+        if (idx >= self.compiled.globals_valtypes.len) return null;
+        const valtype = self.compiled.globals_valtypes[idx];
+
+        // Imports occupy the low index range, then defined globals.
+        var num_imports: u32 = 0;
+        if (module.find(.import)) |is| {
+            var imports = sections.decodeImports(allocator, is.body) catch return null;
+            defer imports.deinit();
+            for (imports.items) |imp| {
+                if (imp.kind != .global) continue;
+                if (num_imports == idx) return .{ .idx = idx, .valtype = valtype, .mutable = imp.payload.global.mutable };
+                num_imports += 1;
+            }
+        }
+        const gs = module.find(.global) orelse return null;
+        var gs_buf = sections.decodeGlobals(allocator, gs.body) catch return null;
+        defer gs_buf.deinit();
+        const defined_off = idx - num_imports;
+        if (defined_off >= gs_buf.items.len) return null;
+        return .{ .idx = idx, .valtype = valtype, .mutable = gs_buf.items[defined_off].mutable };
+    }
+
+    /// ADR-0200 increment 5 — facade `Instance.table()` support. Resolves an
+    /// exported table by name to its full-index-space idx (matching
+    /// `JitRuntime.tables_ptr`), reftype, and declared max. Null when `name`
+    /// is not an exported table.
+    pub fn exportTable(self: *JitInstance, allocator: Allocator, name: []const u8) ?TableView {
+        var module = parser.parse(allocator, self.wasm_bytes) catch return null;
+        defer module.deinit(allocator);
+
+        const export_section = module.find(.@"export") orelse return null;
+        var exports = sections.decodeExports(allocator, export_section.body) catch return null;
+        defer exports.deinit();
+        var found: ?u32 = null;
+        for (exports.items) |e| {
+            if (!std.mem.eql(u8, e.name, name)) continue;
+            if (e.kind != .table) return null;
+            found = e.idx;
+            break;
+        }
+        const idx = found orelse return null;
+
+        // Imports occupy the low index range, then defined tables.
+        var num_imports: u32 = 0;
+        if (module.find(.import)) |is| {
+            var imports = sections.decodeImports(allocator, is.body) catch return null;
+            defer imports.deinit();
+            for (imports.items) |imp| {
+                if (imp.kind != .table) continue;
+                if (num_imports == idx) {
+                    const t = imp.payload.table;
+                    return .{ .idx = idx, .elem_type = t.elem_type, .max = if (t.max) |m| std.math.cast(u32, m) orelse null else null };
+                }
+                num_imports += 1;
+            }
+        }
+        const ts = module.find(.table) orelse return null;
+        var tbls = sections.decodeTables(allocator, ts.body) catch return null;
+        defer tbls.deinit();
+        const defined_off = idx - num_imports;
+        if (defined_off >= tbls.items.len) return null;
+        const td = tbls.items[defined_off];
+        return .{ .idx = idx, .elem_type = td.elem_type, .max = if (td.max) |m| std.math.cast(u32, m) orelse null else null };
+    }
+
+    /// ADR-0200 increment 5 — host-facade `Table.grow`. Grows table `tableidx`
+    /// by `delta` slots filled with `init` (a `Value.ref`-encoded u64),
+    /// returning the OLD size, or `null` on refusal. funcref tables are
+    /// rejected (`jitTableGrow` needs a funcptr mirror it can't synthesise
+    /// host-side — same restriction the guest `table.grow` op carries).
+    pub fn growTable(self: *JitInstance, tableidx: u32, init_ref: u64, delta: u32) ?u32 {
+        if (tableidx >= self.owned.rt.tables_count) return null;
+        const old = setup_mod.jitTableGrow(&self.owned.rt, tableidx, init_ref, delta);
+        if (old < 0) return null;
+        return @bitCast(old);
     }
 
     /// Wider arities / v128 result / non-scalar args → `UnsupportedEntrySignature`.

@@ -10,21 +10,38 @@
 const std = @import("std");
 
 const _runtime = @import("../runtime/runtime.zig");
+const _runner = @import("../engine/runner.zig"); // ADR-0200 JIT engine (Zone 2; `lib`-exempt)
 
 pub const Memory = struct {
-    rt: *_runtime.Runtime,
+    /// Engine the view reads through (ADR-0200 increment 5). Interp wraps
+    /// the `*Runtime`'s flat slice; JIT reads the live `vm_base`/`mem_limit`
+    /// pair on `JitInstance.owned.rt`, which `growMemory` keeps in sync.
+    backing: Backing,
+
+    pub const Backing = union(enum) {
+        interp: *_runtime.Runtime,
+        jit: *_runner.JitInstance,
+    };
 
     pub const Error = error{ OutOfBoundsLoad, OutOfBoundsStore };
+
+    /// Current linear-memory bytes for whichever engine backs this view.
+    fn liveBytes(self: Memory) []u8 {
+        return switch (self.backing) {
+            .interp => |rt| rt.memory,
+            .jit => |jit| jit.owned.rt.vm_base[0..jit.owned.rt.mem_limit],
+        };
+    }
 
     /// Wasm spec §4.2.8 — returns the raw underlying byte slice.
     /// Lifetime ties to the owning `Instance`.
     pub fn slice(self: Memory) []u8 {
-        return self.rt.memory;
+        return self.liveBytes();
     }
 
     /// Wasm spec §4.4.7 — page size 65536 bytes.
     pub fn size(self: Memory) u32 {
-        return @intCast(self.rt.memory.len / 65536);
+        return @intCast(self.liveBytes().len / 65536);
     }
 
     /// Wasm spec §4.4.7 (memory.load) — little-endian typed read.
@@ -33,7 +50,7 @@ pub const Memory = struct {
     /// canonicalisation per ADR-0109 §3.4 + `zig_api_design.md` §4.3).
     pub fn read(self: Memory, comptime T: type, addr: u32) Error!T {
         const sz = @sizeOf(T);
-        const mem = self.rt.memory;
+        const mem = self.liveBytes();
         if (@as(u64, addr) + sz > mem.len) return error.OutOfBoundsLoad;
         const bytes = mem[addr..][0..sz];
         return switch (T) {
@@ -47,7 +64,7 @@ pub const Memory = struct {
     pub fn write(self: Memory, addr: u32, val: anytype) Error!void {
         const T = @TypeOf(val);
         const sz = @sizeOf(T);
-        const mem = self.rt.memory;
+        const mem = self.liveBytes();
         if (@as(u64, addr) + sz > mem.len) return error.OutOfBoundsStore;
         const bytes = mem[addr..][0..sz];
         switch (T) {
@@ -63,7 +80,7 @@ pub const Memory = struct {
     /// Use over `slice()` when an embedder wants a checked window rather
     /// than the whole backing store.
     pub fn sliceAt(self: Memory, offset: u32, len: u32) Error![]u8 {
-        const mem = self.rt.memory;
+        const mem = self.liveBytes();
         if (@as(u64, offset) + len > mem.len) return error.OutOfBoundsLoad;
         return mem[offset..][0..len];
     }
@@ -75,8 +92,13 @@ pub const Memory = struct {
     /// or the host allocator failed). Mirrors wasmtime's `Memory::grow`
     /// (no trap — grow failure is a recoverable, expected outcome).
     pub fn grow(self: Memory, delta: u32) ?u32 {
-        const old_pages = self.rt.growMemory(0, delta) orelse return null;
-        return @intCast(old_pages);
+        switch (self.backing) {
+            .interp => |rt| {
+                const old_pages = rt.growMemory(0, delta) orelse return null;
+                return @intCast(old_pages);
+            },
+            .jit => |jit| return jit.growMemory(delta),
+        }
     }
 };
 
@@ -128,4 +150,39 @@ test "Memory.sliceAt: in-bounds window is a mutable view; OOB → error" {
     try testing.expectEqual(@as(u8, 0xAB), try mem.read(u8, 8)); // …visible via read
     // window crossing the 1-page (65536) boundary → OOB.
     try testing.expectError(error.OutOfBoundsLoad, mem.sliceAt(65530, 16));
+}
+
+test "Memory engine=.jit: read/write/grow through the live JIT vm_base view (ADR-0200 incr 5)" {
+    // (module (memory 1 2) (func (export "f") (result i32) i32.const 42)
+    //         (export "mem" (memory 0)))
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // magic + version
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, // type: ()->i32
+        0x03, 0x02, 0x01, 0x00, // func: type 0
+        0x05, 0x04, 0x01, 0x01, 0x01, 0x02, // memory: min 1, max 2
+        0x07, 0x0b, 0x02, 0x01, 'f', 0x00, 0x00, 0x03, 'm', 'e', 'm', 0x02, 0x00, // exports "f"(func0) "mem"(mem0)
+        0x0a, 0x06, 0x01, 0x04, 0x00, 0x41, 0x2a, 0x0b, // code: i32.const 42
+    };
+    var eng = try _zwasm.Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var mod = try eng.compile(&bytes);
+    defer mod.deinit();
+    var inst = try mod.instantiate(.{ .engine = .jit });
+    defer inst.deinit();
+    try testing.expect(inst.handle.runtime == null); // JIT-backed
+
+    var mem = inst.memory().?;
+    try testing.expectEqual(@as(u32, 1), mem.size());
+    // write/read round-trips through the JIT-owned linear memory.
+    try mem.write(16, @as(u32, 0xDEADBEEF));
+    try testing.expectEqual(@as(u32, 0xDEADBEEF), try mem.read(u32, 16));
+    // grow 1 → 2 pages: prev (1); a fresh view sees the larger size after the
+    // realloc moved vm_base (the facade reloads vm_base/mem_limit each call).
+    try testing.expectEqual(@as(?u32, 1), mem.grow(1));
+    try testing.expectEqual(@as(u32, 2), mem.size());
+    // pre-grow bytes survive the realloc move.
+    try testing.expectEqual(@as(u32, 0xDEADBEEF), try mem.read(u32, 16));
+    // grow past declared max (2) → refused, memory unchanged.
+    try testing.expectEqual(@as(?u32, null), mem.grow(1));
+    try testing.expectEqual(@as(u32, 2), mem.size());
 }

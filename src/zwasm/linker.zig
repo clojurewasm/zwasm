@@ -371,7 +371,7 @@ pub const Linker = struct {
         try self.entries.append(self.engine.alloc, .{
             .module = module,
             .name = name,
-            .payload = .{ .memory_alias = .{ .inst = mem.rt.memories[0] } },
+            .payload = .{ .memory_alias = .{ .inst = mem.backing.interp.memories[0] } },
         });
     }
 

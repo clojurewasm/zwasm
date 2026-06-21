@@ -20,7 +20,8 @@ pub const Caller = struct {
 
     pub fn memory(self: Caller) ?_memory.Memory {
         if (self.rt.memory.len == 0) return null;
-        return .{ .rt = self.rt };
+        // Linker host-fn path is interp-only (ADR-0200): wrap the runtime.
+        return .{ .backing = .{ .interp = self.rt } };
     }
 
     pub fn allocator(self: Caller) std.mem.Allocator {

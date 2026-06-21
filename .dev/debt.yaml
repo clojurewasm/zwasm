@@ -40,8 +40,14 @@ entries:
       wrong answer). (2) **`.auto`→JIT flip** once (1) lands (today `.auto`=interp;
       the default's meaning is documented so the flip is not an API break). (3) **WASI
       via the Linker** (holds its OWN wasi_host, linker.zig:95 — not store's) — engine
-      selection on the Linker path. (4) **accessor READS** memory()/global()/table()
-      JIT arms (return null today — need JIT runtime layout access). (5) v128-at-boundary
+      selection on the Linker path. (4) **accessor reads/mutators DONE (incr 5)** —
+      facade memory()/global()/table() now dual-engine (union backing `interp:*Runtime |
+      jit:*JitInstance`): memory read/write/slice/grow off live `vm_base`/`mem_limit`;
+      global get/set off `globals_base`; table get/size/grow off `tables_ptr` + externref
+      set. ONE residual sliver: JIT funcref `Table.set` @panics — needs the ADR-0068
+      `funcptrs[]` native-entry mirror the host cannot synthesise from an encoded funcref
+      (externref set + all reads + grow are complete). Resolvers `JitInstance.export{Global,
+      Table}` re-decode the section (JIT keeps no `export_types`). (5) v128-at-boundary
       + Win64 ≥4-param stack-spill = the D-477 niche slivers (tracked there). Build on
       demand as cljw/real consumers exercise them.
     first_raised: "2026-06-21"
@@ -49,7 +55,8 @@ entries:
     refs: |-
       .dev/decisions/0200_jit_backed_embedding_api.md
       src/api/instance.zig (instantiateJit + wasm_func_call JIT arm + instanceNewWithEngine)
-      src/zwasm/instance.zig (facade invokeJit + mutator JIT arms; accessor reads return null for JIT)
+      src/zwasm/instance.zig (facade invokeJit + memory/global/table() dual-engine JIT arms, incr 5)
+      src/zwasm/{memory,global,table}.zig (union backing) + runner.zig export{Global,Table}/growMemory/growTable
       src/api/zwasm_ext.zig (zwasm_instance_new_ex + budget setter JIT arms)
       private/notes/d477-remaining-slices-design.md (v128 slivers)
       private/dogfooding_handover/to_cljw_02.md (readiness signal documenting these deltas)

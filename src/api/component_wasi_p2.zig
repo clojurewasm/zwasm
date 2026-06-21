@@ -216,7 +216,7 @@ pub const WasiP2Ctx = struct {
         const inst = self.mem_instance orelse return WasiP2Error.NoMemory;
         const rt = inst.handle.runtime orelse return WasiP2Error.NoMemory;
         if (rt.memory.len == 0) return WasiP2Error.NoMemory;
-        return .{ .rt = rt };
+        return .{ .backing = .{ .interp = rt } };
     }
 
     /// WAIT-path delivery (ADR-0191 E2c): for each member of `set` with a parked

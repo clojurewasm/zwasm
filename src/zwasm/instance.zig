@@ -163,9 +163,17 @@ pub const Instance = struct {
     /// allows at most one per module; v0.1 of the facade returns
     /// the implicit memory0 view.
     pub fn memory(self: *Instance) ?_memory.Memory {
-        const rt = self.handle.runtime orelse return null;
-        if (rt.memory.len == 0) return null;
-        return .{ .rt = rt };
+        if (self.handle.runtime) |rt| {
+            if (rt.memory.len == 0) return null;
+            return .{ .backing = .{ .interp = rt } };
+        }
+        // ADR-0200 increment 5 — JIT-backed instance: read the live
+        // `vm_base`/`mem_limit` view (null when the module has no memory).
+        if (self.jitHandle()) |jit| {
+            if (jit.owned.mem_ctx == null or jit.owned.rt.mem_limit == 0) return null;
+            return .{ .backing = .{ .jit = jit } };
+        }
+        return null;
     }
 
     /// Wasm spec §4.5.5/6 — accessor for an exported global by name
@@ -174,16 +182,31 @@ pub const Instance = struct {
     /// `Global` reads/writes the live runtime cell (`get`/`set`);
     /// `set` on an immutable global is `error.Immutable`.
     pub fn global(self: *Instance, name: []const u8) ?_global.Global {
-        const rt = self.handle.runtime orelse return null;
-        for (self.handle.exports_storage, self.handle.export_types) |exp, et| {
-            if (!std.mem.eql(u8, exp.name, name)) continue;
-            if (exp.kind != .global) return null;
-            if (exp.idx >= rt.globals.len) return null;
+        if (self.handle.runtime) |rt| {
+            for (self.handle.exports_storage, self.handle.export_types) |exp, et| {
+                if (!std.mem.eql(u8, exp.name, name)) continue;
+                if (exp.kind != .global) return null;
+                if (exp.idx >= rt.globals.len) return null;
+                return .{
+                    .backing = .{ .interp = rt },
+                    .global_idx = exp.idx,
+                    .valtype = et.global.valtype,
+                    .mutable = et.global.mutable,
+                };
+            }
+            return null;
+        }
+        // ADR-0200 increment 5 — JIT-backed instance: resolve idx/valtype/
+        // mutability from the bytes (the JIT path keeps no `export_types`).
+        if (self.jitHandle()) |jit| {
+            const store = self.handle.store orelse return null;
+            const alloc = _api_instance.storeAllocator(store) orelse return null;
+            const desc = jit.exportGlobal(alloc, name) orelse return null;
             return .{
-                .rt = rt,
-                .global_idx = exp.idx,
-                .valtype = et.global.valtype,
-                .mutable = et.global.mutable,
+                .backing = .{ .jit = jit },
+                .global_idx = desc.idx,
+                .valtype = desc.valtype,
+                .mutable = desc.mutable,
             };
         }
         return null;
@@ -195,16 +218,31 @@ pub const Instance = struct {
     /// `Table` reads/writes the live runtime table (`get`/`set`/`size`/
     /// `grow`).
     pub fn table(self: *Instance, name: []const u8) ?_table.Table {
-        const rt = self.handle.runtime orelse return null;
-        for (self.handle.exports_storage, self.handle.export_types) |exp, et| {
-            if (!std.mem.eql(u8, exp.name, name)) continue;
-            if (exp.kind != .table) return null;
-            if (exp.idx >= rt.tables.len) return null;
+        if (self.handle.runtime) |rt| {
+            for (self.handle.exports_storage, self.handle.export_types) |exp, et| {
+                if (!std.mem.eql(u8, exp.name, name)) continue;
+                if (exp.kind != .table) return null;
+                if (exp.idx >= rt.tables.len) return null;
+                return .{
+                    .backing = .{ .interp = rt },
+                    .table_idx = exp.idx,
+                    .elem_type = et.table.elem_type,
+                    .max = et.table.max,
+                };
+            }
+            return null;
+        }
+        // ADR-0200 increment 5 — JIT-backed instance: resolve idx/reftype/max
+        // from the bytes (the JIT path keeps no `export_types`).
+        if (self.jitHandle()) |jit| {
+            const store = self.handle.store orelse return null;
+            const alloc = _api_instance.storeAllocator(store) orelse return null;
+            const desc = jit.exportTable(alloc, name) orelse return null;
             return .{
-                .rt = rt,
-                .table_idx = exp.idx,
-                .elem_type = et.table.elem_type,
-                .max = et.table.max,
+                .backing = .{ .jit = jit },
+                .table_idx = desc.idx,
+                .elem_type = desc.elem_type,
+                .max = desc.max,
             };
         }
         return null;
