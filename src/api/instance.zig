@@ -717,7 +717,7 @@ fn collectHostFuncTargets(
 /// borrowed `wasm_bytes` live in the owning `Module`, which outlives the
 /// instance, and the `JitInstance` is heap-pinned so `exportedFuncTarget`'s
 /// `&owned.rt` stays stable.
-fn instantiateJit(store: *Store, module: *const Module, builder_state: anytype, limits: InstantiateLimits) ?*Instance {
+fn instantiateJit(store: *Store, module: *const Module, builder_state: anytype, trap_out: ?*?*Trap, limits: InstantiateLimits) ?*Instance {
     const alloc = storeAllocator(store) orelse return null;
     const bytes_ptr = module.bytes_ptr orelse return null;
     const bytes = bytes_ptr[0..module.bytes_len];
@@ -762,6 +762,19 @@ fn instantiateJit(store: *Store, module: *const Module, builder_state: anytype, 
         };
     }
     jit.owned.rt.wasi_host = store.wasi_host;
+
+    // Wasm §4.5.4 — run the `(start)` function AFTER setup initialised globals /
+    // memory / tables, BEFORE the instance is surfaced. A start trap fails
+    // instantiation (mirrors the interp path; `trap_out` carries the trap). An
+    // imported start is unsupported here → fail so an `.auto` caller can retry on
+    // interp rather than silently skip it. Run before `inst` exists so teardown
+    // is just the jit (no registry/arena to unwind).
+    jit.runStart() catch |err| {
+        if (trap_out) |to| to.* = jitErrToTrap(err, jit, alloc, store);
+        jit.deinit(alloc);
+        alloc.destroy(jit);
+        return null;
+    };
 
     const inst = alloc.create(Instance) catch {
         jit.deinit(alloc);
@@ -897,7 +910,7 @@ pub fn instantiateInternal(store: *Store, module: *const Module, builder_state: 
     // interp setup below. TODO(ADR-0200): route `.auto` → JIT once the JIT path
     // covers host imports + WASI (defer, not workaround — JIT is no-import-only
     // this increment, so `.auto` stays interp to keep import-using modules working).
-    if (engine == .jit) return instantiateJit(store, module, builder_state, limits);
+    if (engine == .jit) return instantiateJit(store, module, builder_state, trap_out, limits);
 
     // ADR-0184: open any preopen requests queued by the io-free
     // config builder (`zwasm_wasi_config_preopen_dir`) via the

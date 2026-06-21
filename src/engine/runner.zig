@@ -21,6 +21,7 @@ const Allocator = std.mem.Allocator;
 
 const parser = @import("../parse/parser.zig");
 const sections = @import("../parse/sections.zig");
+const leb128 = @import("../support/leb128.zig"); // D-478 — start-section funcidx decode
 const zir = @import("../ir/zir.zig");
 const validator_mod = @import("../validate/validator.zig");
 const FuncType = zir.FuncType;
@@ -259,6 +260,27 @@ pub const CompiledWasm = struct {
 
 /// Find an exported function by name. Returns its func_idx in
 /// the module's function index space (imports + defined).
+/// D-478 — the `(start)` section's funcidx, or null when absent. Raw section
+/// scan (start section id = 8; body is a single uleb funcidx) — allocation-free
+/// so `runStart` need not thread an allocator.
+fn startFuncIdx(bytes: []const u8) ?u32 {
+    if (bytes.len < 8) return null;
+    var pos: usize = 8; // magic + version
+    while (pos < bytes.len) {
+        const id = bytes[pos];
+        pos += 1;
+        const size = leb128.readUleb128(u32, bytes, &pos) catch return null;
+        const body_start = pos;
+        if (id == 8) {
+            var p = body_start;
+            return leb128.readUleb128(u32, bytes, &p) catch null;
+        }
+        pos = body_start + size;
+        if (pos > bytes.len) return null;
+    }
+    return null;
+}
+
 pub fn findExportFunc(allocator: Allocator, wasm_bytes: []const u8, name: []const u8) Error!u32 {
     var module = try parser.parse(allocator, wasm_bytes);
     defer module.deinit(allocator);
@@ -918,6 +940,19 @@ pub const JitInstance = struct {
     pub fn deinit(self: *JitInstance, allocator: Allocator) void {
         self.owned.deinit(allocator);
         self.compiled.deinit(allocator);
+    }
+
+    /// D-478 — run the module's `(start)` function (Wasm §4.5.4) on the JIT,
+    /// AFTER setup has initialised globals / memory / tables. A DEFINED start is
+    /// a `()->()` func invoked via the void no-arg entry; a trap propagates as
+    /// `Error.Trap` so the caller fails instantiation. An IMPORTED start (rare;
+    /// e.g. a wit-component start-shim wrapping `_initialize`) is not yet
+    /// dispatchable here → `UnsupportedEntrySignature` (caller falls back to
+    /// interp). No start section → no-op.
+    pub fn runStart(self: *JitInstance) Error!void {
+        const sfx = startFuncIdx(self.wasm_bytes) orelse return;
+        if (sfx < self.compiled.num_imports) return Error.UnsupportedEntrySignature;
+        try entry.callVoidNoArgs(self.compiled.module, sfx, &self.owned.rt);
     }
 
     /// D-225 — resolve THIS instance as a cross-module export target: the
