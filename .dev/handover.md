@@ -18,21 +18,27 @@ D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate dupl
 ## Active bundle
 
 - **Bundle-ID**: D-478-host-func-jit-bridge
-- **Cycles-remaining**: ~1 (`.auto`→JIT flip; then close — FP-arg arity 3-4 niche → debt)
+- **Cycles-remaining**: ~3 (5: facade accessor-read JIT arms → 6: `.auto`→JIT flip → 7: close)
 - **Continuity-memo**: INCREMENTS 1-4 DONE (@a83b28849 0-arg; @e001514d9 GP N-arg; @4675c345c FP; @195ba57ff
   `(start)` runs under JIT). Host-func callbacks dispatch under JIT for **all-GP (i32/i64) args 0..4, OR ≤2 scalar
   args with ≥1 FP (f32/f64), × result {void,i32,i64,f32,f64}** (`src/api/jit_host_bridge.zig`, arch-INDEPENDENT
-  comptime thunk-table; i32/i64→`u64` params, FP→exact f32/f64). `instantiateJit` now also runs `(start)` via
-  `JitInstance.runStart` (trap→fail+trap_out; imported start→UnsupportedEntrySignature). Gated
-  `jit_callback{,_args,_fp}.c` + `jit_start.c`. **NEXT = flip `.auto`→JIT** (instance.zig:838-841 TODO).
-  **DESIGN SUBTLETY (resolve first)**: instantiateJit returns null for BOTH "JIT-ineligible" (non-func import,
-  uncovered host-func sig, imported start) AND "genuine failure" (start trap, OOM). `.auto` must FALL BACK to interp
-  only for the former; for a genuine start trap it must NOT silently re-run interp (double side-effects). Cleanest =
-  a cheap pre-eligibility check (collectHostFuncTargets ok + no non-func imports + start not imported) → route JIT;
-  else interp. A JIT failure for an ELIGIBLE module is then genuine → report, don't fall back. 3-host gate (esp.
-  windows — `.auto` is the DEFAULT path). NOTE: export-invoke gap (i32,f64) filed under D-477.
+  comptime thunk-table). `instantiateJit` runs `(start)` via `JitInstance.runStart`. Gated `jit_callback{,_args,_fp}.c`
+  + `jit_start.c`. **USER DIRECTIVE 2026-06-21 (memory `project_auto_jit_flip_strategy`)**: the `.auto`→JIT flip was
+  attempted + REVERTED — premature, because facade accessor READS `inst.memory()/global()/table()` are interp-only
+  (`runtime orelse return null`, `src/zwasm/instance.zig:166/177/198`) → null on JIT. User: cljw breakage is NOT a
+  blocker (self-dev, no release, no users); proceed **あるべき論** — make JIT facade COMPLETE first, then flip; keep
+  interp tests AND add JIT-mode tests (dual-engine). **NEXT = increment 5: facade accessor-read JIT arms** — teach
+  `_zwasm.Memory`/`Global`/`Table` (each currently `{ rt: *Runtime }`, `src/zwasm/{memory,global,table}.zig`) to read
+  the JitRuntime instead (memory: `jit.owned.rt.vm_base`/`mem_limit` + `mem_ctx` for grow; globals: `globals_base`;
+  tables: `tables_ptr`). Make `instance.zig` `memory()/global()/table()` branch on `handle.jit`. Add `.jit`-engine
+  facade tests for each; keep the existing `.{}` (interp) tests. THEN increment 6 = the flip (fallback design below).
+  **Flip fallback design (for incr 6)**: instantiateJit has NO host-observable side effect before `(start)`, so any
+  pre-start null is interp-fall-back-eligible; only a start that RAN+trapped (`Error.Trap`) must not re-run → signal
+  via `fallback_ok` out-param. Linker (`linker.zig:795`) stays `.interp` (separate engine-selection slice). Pin
+  interp-internal harnesses to `.interp` (Linker already is; `wasm_3_0_manifest.zig` routes via Linker). NOTE:
+  export-invoke gap (i32,f64) filed under D-477.
 - **Exit-condition**: a JIT-backed instance calls an embedder host-func import with scalar args, asserted green via
-  `wasm_func_call`, 3-host. Uncovered sigs stay `.interp` (no silent wrong). [GP ≤4 + FP ≤2 met @4675c345c.]
+  `wasm_func_call`, 3-host. [host-func exit-cond MET @4675c345c; bundle extended for facade-completeness + flip.]
 
 ## RESUME POINTER (2026-06-21) — for a fresh session
 
