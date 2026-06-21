@@ -88,10 +88,9 @@ passed, 0 failed`, not that line.
 
 ## Closed arcs (detail in ADRs/git/debt)
 
-- D-305 STRING milestone (@4cceeb1e, ADR-0196) · doc-inventory fresh (`42441634`) · ADR-0192 wasmtime differential
-  (9+6 engine bugs fixed; residual D-209/D-456 parked) · 4-front async-maturity (wasmtime async .wast, wasip3, perf
-  ROI-rejected D-450, GC corpus 6 bugs) · WASI 0.3 core DONE (D-335, ADR-0187-0191). **validator.zig at 3449/3450
-  cap — NEXT validator edit MUST extract per the file's marker plan.**
+- D-305 STRING (@4cceeb1e, ADR-0196) · ADR-0192 wasmtime differential (9+6 bugs fixed; D-209/D-456 parked) ·
+  async-maturity (ROI-rejected D-450, GC corpus 6 bugs) · WASI 0.3 core (D-335, ADR-0187-0191). **validator.zig at
+  3449/3450 cap — NEXT validator edit MUST extract per the file's marker plan.**
 
 ## Long-tail (debt-tracked / parked — NOT active; see debt.yaml)
 
