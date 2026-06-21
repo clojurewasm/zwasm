@@ -23,21 +23,26 @@ D-463 handle isolation (ADR-0197); D-034 SIMD spill-completeness CLOSED @411dd1e
 marshalling, C-API Windows-export. Residual long-tails (debt-tracked, do NOT grind): D-464 async adversarial,
 D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate duplicated SIMD spill helpers.
 
-## JIT-asyncify FLIP CAMPAIGN (D-489) — ACTIVE; CRITICAL ENV CORRECTION (2026-06-21)
+## JIT FLIP CAMPAIGN (D-489) — BREAKTHROUGH: NOT a codegen bug; it's the JIT stdout-CAPTURE path (2026-06-21)
 
-**D-489 is x86_64-LINUX-ONLY** — confirmed @f097b174 by the ubuntu diff-jit gate: tinygo_json `MISMATCH-JIT
-wasmtime=90 / jit=130 bytes` (the extra 40B = Go fmt's `%!(EXTRA string=Alice,int=30,string=Tokyo)` + `roundtrip:
-FAIL` = **fmt arg-count corruption** under the x86_64 JIT). **Mac arm64 AND Mac x86_64-via-Rosetta BOTH MASK it**
-(both return the correct 90B). So **Rosetta is NOT a valid proxy for x86_64-linux** — any Mac-based "fixed" is a
-FALSE GREEN, and the prior Mac/Rosetta localization (callcount/global.trace "globals ruled out" / "shadow-stack
-next") is SUSPECT — likely run where the bug doesn't manifest. **Symptom = real-x86_64 garbage in a spill slot /
-arg register that Rosetta zeroes** (classic emulation-masks-uninit). **NEXT = repro + instrument on ubuntu ONLY**
-(remote): run tinygo_json under x86_64-linux JIT, trace the fmt arg-passing / spill-reload that corrupts arg count.
-- **D-494** (dfr2 defer/recover): works on arm64 + Rosetta; NOT in the diff-jit corpus → ubuntu status UNVERIFIED;
-  likely also x86_64-linux-only OR already-resolved. Verify on ubuntu (add dfr2 as a fixture or remote-run) before
-  re-investing. The "both-arch arm64-reproducible" claim is now DOUBTFUL (dfr2 is arm64-correct at HEAD).
-- diff-jit lane is OPT-IN (not in `test-all`) → D-489 is a known segregated fail, not a test-all regression.
-- Reusable diagnostics: `jit.callcount`/`jit.calledge`/`global.trace`. dfr2 = `private/spikes/d489-minimal-repro/`.
+**D-489 is NOT a JIT miscompile.** Direct CLI `zwasm run tinygo_json.wasm --engine jit` on ubuntu x86_64-linux is
+**CORRECT (90B, genuine JIT — 45 callcounts)**. The 130B failure reproduces ONLY through the stdout-**CAPTURE** path
+(`host.stdout_buffer` set) under JIT, x86_64-linux only (arm64 + Rosetta mask it). **Minimal repro committed:
+`zig build d489-repro`** (`test/realworld/d489_repro.zig`) — scenario (1) jit-alone (fresh process, nothing before
+it) = 130 DIVERGED. **RULED OUT**: in-process ripple (1-alone fails), buffer realloc (scenario 3 pre-sized still
+130), argv-len (probe3), limits/preopen/env (all match interp which is correct). **Isolated to** `src/wasi/fd.zig`
+`writeSlice` (~157): the ONLY diff between correct/broken is `buffer.appendSlice(...)` vs `std_stream.writeStreamingAll`
+— yet the buffer branch corrupts GUEST linear memory (fmt format-string → spaces, roundtrip OK→FAIL) under JIT on
+x86_64-linux. Shared interp/JIT code, so the corruption is an interaction (memory layout / io-context / Zig
+memory-model — user's hypothesis open). **IMPLICATION: the `.auto`→JIT flip is NOT blocked by a codegen bug** —
+direct JIT exec is correct; the diff-jit GATE gives a FALSE failure (it uses the capture path). The capture bug is
+real (hits any stdout-capturing embedder) but narrow. **NEXT = dynamic trace on ubuntu** (remote, the only place it
+manifests): why does appendSlice-to-buffer vs real-fd-write corrupt guest memory under JIT x86_64-linux? Then fix →
+re-run diff-jit (should go green) → flip is clear.
+- **D-494** (dfr2 defer/recover): arm64-correct at HEAD; the "both-arch arm64-reproducible" claim was DOUBTFUL —
+  likely the same capture-path artifact. Verify via d489-repro-style harness if needed.
+- diff-jit lane is OPT-IN (not in `test-all`) → not a test-all regression. SSH iterate on ubuntu (`nix develop
+  --command zig build d489-repro`); pull-to-experiment per user.
 
 **WINDOWS GATE — 3-host GREEN @ed9332294** (2026-06-21): earlier host-example file-create failure was an ENV FLAKE,
 cleared on re-run (Win64 spec 25539/0, simd 25075/0, wasi 3/0). Recorded via `--record`. Intermittent
