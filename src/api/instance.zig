@@ -610,6 +610,21 @@ pub export fn wasm_instance_new(
     imports: ?*const anyopaque,
     trap_out: ?*?*Trap,
 ) callconv(.c) ?*Instance {
+    // Stock wasm-c-api: engine is `.auto` (= interp until the JIT host-import
+    // bridge lands). The `zwasm_instance_new_ex` extension selects per-instance.
+    return instanceNewWithEngine(s, m, imports, trap_out, .auto);
+}
+
+/// ADR-0200 — shared `wasm_instance_new` body parameterised by engine. The C
+/// extension `zwasm_ext.zig::zwasm_instance_new_ex` calls this with the
+/// caller's `EngineKind`; `wasm_instance_new` passes `.auto`.
+pub fn instanceNewWithEngine(
+    s: ?*Store,
+    m: ?*const Module,
+    imports: ?*const anyopaque,
+    trap_out: ?*?*Trap,
+    engine: EngineKind,
+) ?*Instance {
     const store = s orelse return null;
     const module = m orelse return null;
     // wasm.h: `imports` is `const wasm_extern_vec_t*` ({size,data}), NOT a
@@ -621,10 +636,10 @@ pub export fn wasm_instance_new(
     } else null;
 
     // D-275: thread `trap_out` so a start-function trap surfaces per the
-    // wasm-c-api contract (null return + `*trap_out` = the start trap).
-    // The C ABI `wasm_instance_new` carries no budget knobs (upstream wasm.h
-    // shape); per-instance budgets are the Zig facade's `instantiateFacade`.
-    return instantiateInternal(store, module, BuildBindingsCApi{ .imports_array = imports_array }, trap_out, .{}, .auto);
+    // wasm-c-api contract (null return + `*trap_out` = the start trap). The C
+    // ABI carries no budget knobs (upstream wasm.h shape); per-instance budgets
+    // are the Zig facade's `instantiateFacade` + the `zwasm_instance_*` setters.
+    return instantiateInternal(store, module, BuildBindingsCApi{ .imports_array = imports_array }, trap_out, .{}, engine);
 }
 
 /// Zig-facade no-import instantiation (`src/zwasm/module.zig::Module.instantiate`)

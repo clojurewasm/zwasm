@@ -108,6 +108,27 @@ pub export fn zwasm_instance_clear_interrupt(i: ?*Instance) callconv(.c) void {
     }
 }
 
+/// ADR-0200 — per-instance engine selection for the C ABI. Stock
+/// `wasm_instance_new` has no engine param; this extension mirrors it with a
+/// trailing `engine_kind` (`ZWASM_ENGINE_AUTO=0` / `JIT=1` / `INTERP=2`; unknown
+/// → auto). `auto` resolves to interp until the JIT host-import/WASI bridge lands
+/// (documented to change without an API break). An explicit `jit` on a JIT-less
+/// arch fails instantiation (returns null) rather than silently downgrading.
+pub export fn zwasm_instance_new_ex(
+    s: ?*capi.Store,
+    m: ?*const capi.Module,
+    imports: ?*const anyopaque,
+    trap_out: ?*?*trap_surface.Trap,
+    engine_kind: u8,
+) callconv(.c) ?*Instance {
+    const eng: capi.EngineKind = switch (engine_kind) {
+        1 => .jit,
+        2 => .interp,
+        else => .auto,
+    };
+    return capi.instanceNewWithEngine(s, m, imports, trap_out, eng);
+}
+
 // ============================================================
 // Tests
 // ============================================================
@@ -244,4 +265,41 @@ test "ADR-0200: C budget setters route to a JIT instance (set_fuel / fuel_remain
     try testing.expectEqual(@as(u64, 12345), out);
     zwasm_instance_disable_fuel(inst);
     try testing.expect(!zwasm_instance_fuel_remaining(inst, &out));
+}
+
+test "ADR-0200: zwasm_instance_new_ex(JIT) builds a JIT instance the C path can call (add 2,3→5)" {
+    const e = capi.wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer capi.wasm_engine_delete(e);
+    const s = capi.wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer capi.wasm_store_delete(s);
+    // (module (func (export "add") (param i32 i32) (result i32) local.get 0 local.get 1 i32.add))
+    const add = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x07, 0x01, 0x60, 0x02, 0x7f, 0x7f, 0x01,
+        0x7f, 0x03, 0x02, 0x01, 0x00, 0x07, 0x07, 0x01,
+        0x03, 0x61, 0x64, 0x64, 0x00, 0x00, 0x0a, 0x09,
+        0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x01, 0x6a,
+        0x0b,
+    };
+    const bv: ByteVec = .{ .size = add.len, .data = @constCast(&add) };
+    const m = capi.wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer capi.wasm_module_delete(m);
+    const inst = zwasm_instance_new_ex(s, m, null, null, 1) orelse return error.InstanceAllocFailed; // 1 = ZWASM_ENGINE_JIT
+    defer capi.wasm_instance_delete(inst);
+    try testing.expect(inst.runtime == null and inst.jit != null);
+
+    var exports: vec.ExternVec = .{ .size = 0, .data = null };
+    capi.wasm_instance_exports(inst, &exports);
+    defer capi.wasm_extern_vec_delete(&exports);
+    const ext = exports.data.?[0] orelse return error.MissingExtern;
+    const fc = capi.wasm_extern_as_func(ext) orelse return error.NotFunc;
+    var args_data = [_]capi.Val{
+        .{ .kind = .i32, .of = .{ .i32 = 2 } },
+        .{ .kind = .i32, .of = .{ .i32 = 3 } },
+    };
+    const args: ValVec = .{ .size = 2, .data = &args_data };
+    var rdata: [1]capi.Val = undefined;
+    var results: ValVec = .{ .size = 1, .data = &rdata };
+    try testing.expect(capi.wasm_func_call(fc, &args, &results) == null);
+    try testing.expectEqual(@as(i32, 5), rdata[0].of.i32);
 }

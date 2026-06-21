@@ -83,6 +83,25 @@ WASM_API_EXTERN int32_t zwasm_trap_kind(const wasm_trap_t*);
  * caller owns the result and must release it with wasm_func_delete. */
 WASM_API_EXTERN wasm_func_t* zwasm_instance_get_func(wasm_instance_t*, uint32_t idx);
 
+/* ── Engine selection (ADR-0200) ─────────────────────────────────────── */
+
+/* Per-instance engine kind for zwasm_instance_new_ex. AUTO resolves to the
+ * runtime's choice (currently the interpreter until the JIT host-import/WASI
+ * bridge lands; documented to change without an API break). JIT forces the
+ * native JIT (an explicit JIT on a JIT-less arch fails instantiation, returning
+ * NULL — no silent downgrade). INTERP forces the interpreter. */
+#define ZWASM_ENGINE_AUTO 0
+#define ZWASM_ENGINE_JIT 1
+#define ZWASM_ENGINE_INTERP 2
+
+/* wasm_instance_new with a trailing per-instance engine selector (the stock
+ * wasm_instance_new is AUTO). Same ownership/trap contract as wasm_instance_new:
+ * NULL on null input / instantiation failure / OOM; a start-function trap is
+ * written through trap_out (when non-NULL) with a NULL return. */
+WASM_API_EXTERN wasm_instance_t* zwasm_instance_new_ex(
+    wasm_store_t*, const wasm_module_t*, const wasm_extern_vec_t*,
+    wasm_trap_t**, uint8_t engine_kind);
+
 #ifdef __cplusplus
 }  /* extern "C" */
 #endif
