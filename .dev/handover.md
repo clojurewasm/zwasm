@@ -24,7 +24,10 @@ stays in WAIT for the tag (end of campaign).
   characterization) → III design (ADR for the JIT C-API extern/accessor surface) → IV impl (TDD, green at every commit)
   → V retro + flip + tag. I+II are hard gates before redesign code.
 - **Continuity-memo**: 69-failure breakdown in D-496. Full flip routing/run.zig-fuel-arm code re-implementable per D-496
-  refs + git reflog. Green baseline = `8a4a01905` (regalloc fix + docs).
+  refs + git reflog. Green baseline = `8a4a01905` (regalloc fix + docs). Phase I investigation agent dispatched
+  (JIT-C-API gap map). **Backstop cron = `f34c7ee2`** (every 10 min /continue) — `CronDelete` it at the FINAL stop
+  (after the alpha.3 tag), with no ScheduleWakeup re-arm (clean stop). The alpha.3 tag is USER-AUTHORIZED but cut ONLY
+  at campaign end (flip green + 3-host), per option C.
 
 **What IS done (committed, 3-host green)**: D-489 + D-494 — the two real flip blockers — RESOLVED @462ea1e57 (regalloc
 LSRA dual spill-slot mint collision; fix = unify on `n_spill_minted`; ubuntu+windows test-all OK; realworld 56/56 both
