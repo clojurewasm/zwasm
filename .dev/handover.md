@@ -28,8 +28,11 @@ JIT hardening; see Active bundle. cljw aligned (to_cljw_05; default `.interp`).
 - **Bundle-ID**: jit-export-invoke-dispatch-matrix
 - **Cycles-remaining**: ~3. **1/2-arg invoke matrix now COMPLETE** (@3cf40a573 — the veneer falls through to the
   generic buffer-write path on any uncovered combo; cljw mixed-2-arg fixed). **TOP REMAINING BLOCKER = D-489**
-  (x86_64 JIT realworld miscompile, tinygo_json) — needs debug_jit_auto isolation; gates the flip re-land. Then
-  conformance-harness pinning + wide-shape `wrapper_thunk.emit` (D-477). cljw exchanges to_cljw_05 (all consumed).
+  (x86_64 JIT miscompile, tinygo_json) — NARROWED @34046a8a8 to an **x86_64 SPILL-PRESSURE bug** (only 4 GPRs;
+  wrong scalar value under tinygo_json's ~65KB spill frame; iovec ptr Δ416/len wrong — NOT string-load). NEXT:
+  value-trace (Recipe 18) the func issuing fmt write #2 → audit multi-spilled-operand handlers (emitSelectCtx/div-rem/
+  wide-mul) + patchRel32 under >16-slot frames (x86_64/gpr.zig). Gates the flip re-land; then conformance-harness
+  pinning + wide-shape `wrapper_thunk.emit` (D-477). cljw all-consumed (to_cljw_05).
 - **Continuity-memo**: (survey-informed @a73ab393) 1-2 arg invoke uses the per-combo `dispatchScalar1/2`
   fast-path veneer (`runner.zig`); **uncovered combos now FALL THROUGH to `invokeViaBufferSingle` @3cf40a573**
   (cljw mixed (i32,f64)→f64 fixed). `dispatchScalar1` COMPLETE; **dispatchScalar2 FP DONE @d7da97e04**
