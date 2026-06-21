@@ -97,10 +97,9 @@ passed, 0 failed`, not that line.
 
 ## Long-tail (debt-tracked / parked — NOT active; see debt.yaml)
 
-- **JIT-correctness** (front B): D-331(B) CLOSED @adb7b99a · D-330 c_sha256 PROVABLY-BLOCKED (bucket-2) ·
-  D-331(A) go runtime-corruption (DRIVABLE; build mem-divergence diff first) · D-333 (folds into D-330). Corpus
-  interp-green; run-stage opt-in. Trace: `ZWASM_DEBUG=jit.dump` + `scripts/jit_value_trace.sh` (Recipe 18).
-- **D-454** (future-bucket): real GC-language program execution fixture, blocked on Hoot reflect-ABI host port.
+- **JIT-correctness** (front B): D-331(B) CLOSED · D-330 c_sha256 PROVABLY-BLOCKED · D-331(A) go runtime-corruption
+  DRIVABLE · D-333 folds into D-330 (all in debt.yaml; D-489 may share the go/x86_64 spill root). D-454 GC-program
+  fixture future-bucket. Trace tooling: `ZWASM_DEBUG=jit.dump` + `scripts/jit_value_trace.sh` (Recipe 18).
 
 ## State (all 3-host green @046d9c67/win @886d0667; release = USER-ONLY, ADR-0156)
 
