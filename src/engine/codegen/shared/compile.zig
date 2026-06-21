@@ -33,6 +33,7 @@ const hoist = @import("../../../ir/hoist/pass.zig");
 const coalesce = @import("../../../ir/coalesce/pass.zig");
 const regalloc = @import("regalloc.zig");
 const trace = @import("../../../diagnostic/trace.zig");
+const dbg = @import("../../../support/dbg.zig");
 
 /// 7.5-close-d042 / 7.8 prep: comptime arch dispatch. ARM64 hosts
 /// (Mac) use `arm64/emit.zig`; x86_64 hosts (Linux + Windows) use
@@ -285,6 +286,15 @@ pub fn compileOne(
             // Default max_reg_slots_fp (13) already matches arm64.
         },
         else => @compileError("unsupported host arch"),
+    }
+    // D-489 diagnostic (ZWASM_DEBUG=regverify): run the regalloc overlap verifier
+    // (test-only in production) on the live x86_64/arm64 allocation to catch an
+    // invalid alloc (two liveness-overlapping vregs sharing a spill slot) on a real
+    // module. Gated → zero cost off.
+    if (dbg.on("regverify")) {
+        regalloc.verifyWith(&func, alloc, scratch_reservations) catch |e| {
+            std.debug.print("[regverify] func[{d}] FAIL: {s} (n_slots={d})\n", .{ func_idx, @errorName(e), alloc.n_slots });
+        };
     }
     {
         const applied: u32 = alloc.n_slots;

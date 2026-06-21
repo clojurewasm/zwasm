@@ -282,6 +282,9 @@ pub fn computeWith(
             // unnecessary (misuse-resistant). Cost: ~+1 slot on the worst
             // realworld function (vfprintf 12→13); negligible.
             if (active_buf[i].last_use_pc < r.def_pc) {
+                // D-489 experiment (ZWASM_DEBUG=regalloc.noreuse): drop the freed slot
+                // instead of recycling it → every vreg mints a fresh slot. If the bug
+                // vanishes, slot REUSE is the cause.
                 free_buf[free_len] = active_buf[i].slot;
                 free_len += 1;
                 active_len -= 1;
@@ -339,36 +342,58 @@ pub fn computeWith(
                     }
                 }
             }
-            while (slotForbidden(forbidden, n_slots, force_spill_threshold)) {
-                if (n_slots >= max_slots) {
-                    dbg.print("codegen", "regalloc: SlotOverflow (mint past fence) at func[{d}] vreg={d} ranges.len={d}\n", .{ func.func_idx, vreg, live.ranges.len });
-                    return Error.SlotOverflow;
-                }
+            // Register region: skip forbidden register slots (slotForbidden is
+            // false for ids >= force_spill_threshold, so this only advances through
+            // register ids).
+            while (n_slots < force_spill_threshold and slotForbidden(forbidden, n_slots, force_spill_threshold)) {
                 n_slots += 1;
             }
-            if (n_slots >= max_slots) {
-                dbg.print("codegen", "regalloc: SlotOverflow at func[{d}] vreg={d} ranges.len={d} (>{d} simultaneously live)\n", .{ func.func_idx, vreg, live.ranges.len, max_slots });
+            if (n_slots < force_spill_threshold) {
+                const new = n_slots;
+                n_slots += 1;
+                break :blk new;
+            }
+            // D-489 fix: registers exhausted → mint the spill slot from the UNIFIED
+            // `n_spill_minted` counter (shared with the spans_call path above). The
+            // previous code minted `n_slots` here, whose values reach the same
+            // `force_spill_threshold + k` ids the spans_call path mints — double-booking
+            // a spill slot between a call-spanning vreg and a normal spilled vreg. The
+            // collision only bites when normal-path spilling actually occurs (n_slots
+            // passes the threshold), which is routine on x86_64's 4-GPR pool but rare on
+            // arm64's 8 → the x86_64-only D-489 tinygo_json miscompile.
+            const s_u32: u32 = @as(u32, force_spill_threshold) + n_spill_minted;
+            if (s_u32 >= max_slots) {
+                dbg.print("codegen", "regalloc: SlotOverflow (spill mint) at func[{d}] vreg={d} ranges.len={d} (>{d} simultaneously live)\n", .{ func.func_idx, vreg, live.ranges.len, max_slots });
                 return Error.SlotOverflow;
             }
-            const new = n_slots;
-            n_slots += 1;
-            break :blk new;
+            n_spill_minted += 1;
+            break :blk @as(u16, @intCast(s_u32));
         };
         slots[vreg] = assigned;
-        if (assigned + 1 > n_slots) n_slots = assigned + 1;
+        // Track the register high-water only; spill slots are accounted by
+        // `n_spill_minted` (D-489 — keeps `n_slots` as the register counter so a
+        // spill assignment can't push register minting into the spill region).
+        if (assigned < force_spill_threshold and assigned + 1 > n_slots) n_slots = assigned + 1;
         active_buf[active_len] = .{ .slot = assigned, .last_use_pc = r.last_use_pc };
         active_len += 1;
     }
 
+    // Total slot count = register high-water, or the top of the spill region when
+    // any spill was minted (spill ids are force_spill_threshold .. +n_spill_minted-1).
+    const total_slots: u16 = if (n_spill_minted > 0)
+        @intCast(@as(u32, force_spill_threshold) + n_spill_minted)
+    else
+        n_slots;
+
     const spill_offsets = if (shape_tags) |tags|
-        try computeSpillOffsets(allocator, slots, n_slots, max_reg_slots_gpr, tags)
+        try computeSpillOffsets(allocator, slots, total_slots, max_reg_slots_gpr, tags)
     else
         null;
     errdefer if (spill_offsets) |so| allocator.free(so);
 
     return .{
         .slots = slots,
-        .n_slots = n_slots,
+        .n_slots = total_slots,
         .shape_tags = shape_tags,
         .spill_offsets = spill_offsets,
         .max_reg_slots_gpr = @intCast(max_reg_slots_gpr),
@@ -788,6 +813,33 @@ test "fence: boundary PC (vreg ending AT reserving op) is safe on slot 0" {
     defer regalloc.deinit(testing.allocator, alloc);
     try testing.expectEqual(@as(u16, 0), alloc.slots[0]);
     try regalloc.verify(&f, alloc);
+}
+
+test "D-489: call-spanning spill + normal-path spill never share a slot" {
+    // Regression for the dual-counter spill-mint collision: a call-spanning vreg
+    // (force-spilled via the spans_call path, minting `threshold + n_spill_minted`)
+    // and a normal-path spilled vreg (formerly minting `n_slots`, which reaches the
+    // SAME `threshold + k` ids once registers are exhausted) double-booked one spill
+    // slot. With force_spill_threshold = 2, v0 spans the call@5 and v3 spills via the
+    // normal path while v0 is still live → the old code gave both slot 2.
+    var f = freshFunc();
+    defer f.deinit(testing.allocator);
+    var i: usize = 0;
+    while (i < 11) : (i += 1) {
+        try f.instrs.append(testing.allocator, .{ .op = if (i == 5) .call else .nop });
+    }
+    const ranges = [_]LiveRange{
+        .{ .def_pc = 0, .last_use_pc = 10 }, // v0 — spans call@5 → force-spilled
+        .{ .def_pc = 6, .last_use_pc = 9 }, // v1 — register
+        .{ .def_pc = 6, .last_use_pc = 8 }, // v2 — register (pool of 2 now full)
+        .{ .def_pc = 6, .last_use_pc = 7 }, // v3 — normal-path spill, overlaps v0
+    };
+    f.liveness = .{ .ranges = &ranges };
+    const alloc = try computeWith(testing.allocator, &f, 2, null, 2);
+    defer regalloc.deinit(testing.allocator, alloc);
+    try regalloc.verify(&f, alloc); // would throw OverlappingVregsShareSlot pre-fix
+    try testing.expect(alloc.slots[0] >= 2 and alloc.slots[3] >= 2); // both spilled
+    try testing.expect(alloc.slots[0] != alloc.slots[3]); // distinct spill slots
 }
 
 test "validateRegallocOpScratchReservation: well-formed table compiles" {
