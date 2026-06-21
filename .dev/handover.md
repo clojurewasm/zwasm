@@ -23,19 +23,21 @@ D-463 handle isolation (ADR-0197); D-034 SIMD spill-completeness CLOSED @411dd1e
 marshalling, C-API Windows-export. Residual long-tails (debt-tracked, do NOT grind): D-464 async adversarial,
 D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate duplicated SIMD spill helpers.
 
-## JIT-asyncify FLIP CAMPAIGN (D-494 → D-489) — ACTIVE, TOP PRIORITY
+## JIT-asyncify FLIP CAMPAIGN (D-489) — ACTIVE; CRITICAL ENV CORRECTION (2026-06-21)
 
-Drive D-494 first (arm64-reproducible, more localized), then D-489 (may share root), then re-land the flip.
-- **D-494 NEXT-STEP** (both-arch TinyGo defer/recover JIT deadlock): globals RULED OUT @a1c589c58 (JIT drives g1/g2
-  0→1→0 IDENTICALLY to interp via `global.trace`) → bug is the asyncify **SHADOW-STACK MEMORY** save/restore
-  (g2-indexed local-spill on unwind + rewind-restore at fn entry). **NEXT = rebuild the `memstore.trace` primitive**
-  (interp i32.store handler in `instruction/wasm_1_0/memory.zig` + JIT arm64 store-emit in `engine/codegen/arm64/
-  op_memory.zig` + `support/call_profile.zig` flat (addr,val) log filtered to window [89990,90200], g2≈89996) →
-  run dfr2 under both engines → **first divergent (addr,val) = the corrupted asyncify local save** = the codegen bug.
-- **D-489** (x86_64-only realworld miscompile): run$1 wasm 1539-1551 nested-select/rewind-br_if; static exhausted;
-  may share D-494's asyncify-codegen root (fix D-494 first, re-test D-489).
-- Reusable diagnostics kept: `jit.callcount` / `jit.calledge` / `global.trace` primitives + trap-dump. dfr2 repro =
-  `private/spikes/d489-minimal-repro/dfr2.wasm` (gitignored).
+**D-489 is x86_64-LINUX-ONLY** — confirmed @f097b174 by the ubuntu diff-jit gate: tinygo_json `MISMATCH-JIT
+wasmtime=90 / jit=130 bytes` (the extra 40B = Go fmt's `%!(EXTRA string=Alice,int=30,string=Tokyo)` + `roundtrip:
+FAIL` = **fmt arg-count corruption** under the x86_64 JIT). **Mac arm64 AND Mac x86_64-via-Rosetta BOTH MASK it**
+(both return the correct 90B). So **Rosetta is NOT a valid proxy for x86_64-linux** — any Mac-based "fixed" is a
+FALSE GREEN, and the prior Mac/Rosetta localization (callcount/global.trace "globals ruled out" / "shadow-stack
+next") is SUSPECT — likely run where the bug doesn't manifest. **Symptom = real-x86_64 garbage in a spill slot /
+arg register that Rosetta zeroes** (classic emulation-masks-uninit). **NEXT = repro + instrument on ubuntu ONLY**
+(remote): run tinygo_json under x86_64-linux JIT, trace the fmt arg-passing / spill-reload that corrupts arg count.
+- **D-494** (dfr2 defer/recover): works on arm64 + Rosetta; NOT in the diff-jit corpus → ubuntu status UNVERIFIED;
+  likely also x86_64-linux-only OR already-resolved. Verify on ubuntu (add dfr2 as a fixture or remote-run) before
+  re-investing. The "both-arch arm64-reproducible" claim is now DOUBTFUL (dfr2 is arm64-correct at HEAD).
+- diff-jit lane is OPT-IN (not in `test-all`) → D-489 is a known segregated fail, not a test-all regression.
+- Reusable diagnostics: `jit.callcount`/`jit.calledge`/`global.trace`. dfr2 = `private/spikes/d489-minimal-repro/`.
 
 **WINDOWS GATE — 3-host GREEN @ed9332294** (2026-06-21): earlier host-example file-create failure was an ENV FLAKE,
 cleared on re-run (Win64 spec 25539/0, simd 25075/0, wasi 3/0). Recorded via `--record`. Intermittent
@@ -47,9 +49,8 @@ host-embedding-example file-create stays debt-tracked (`windows-host-example-fil
 FIXED. struct.new v128-field + array.get-v128 (D-460) already worked. array.fill/new with a v128 VALUE crash-GUARDED
 (D-495 — was a guest-triggerable host panic; proper pointer-marshal impl deferred). No more v128-GC host panics.
 
-**JIT-execution sweep (interp-vs-jit diff over all 56 realworld fixtures)**: arm64 = **ZERO divergences** (corpus
-JIT-correct on arm64; D-494's defer-deadlock pattern isn't in the corpus). x86_64 sweep RUNNING (will catalog
-x86_64-only gaps — expect tinygo_json=D-489; file any NEW ones as debt). NEXT = read /tmp/x86sweep.log, file new gaps.
+**JIT-exec sweep**: arm64 = ZERO divergences. ubuntu x86_64-linux = tinygo_json fails (D-489); Rosetta x86_64-macos
+MASKS it (see the flip-campaign env-correction above). Debug D-489 over SSH on ubuntu (user-directed 2026-06-21).
 
 **ADR-0200 JIT embedding API delivered + explicit `.jit` SOLID** (cljw actively dogfooding, 4 reported bugs fixed):
 dual-engine accessors @3d701ddaf, exportFuncSig @5b6449779, export_types-on-JIT @f68532e44, FP/mixed 1-2arg invoke
