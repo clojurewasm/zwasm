@@ -125,6 +125,14 @@ entries:
       min.wasm, called 1× in jit = tiny window) — disassemble it arm64-vs-x86_64 (jit.dump) OR
       trace its args/return; the miscompiled scalar (a wrong type-kind / nil encoder / early
       error) is on that path. See lesson 2026-06-21-d489-callcount-pinpoints-marshal-bail.
+      STEP 5 DONE (2026-06-21, @9ee6d9736): added jit.calledge interp call-edge logging; cross-ref
+      with jit counts → BAIL FUNCTION = idx=136 `runtime.run$1` (TinyGo inlined main+json.Marshal). It
+      runs in jit but fails to call reflectValue(147); bails AFTER calling (reflectlite.Value).IsNil(65,
+      both engines) and BEFORE encode dispatch. So x86_64 miscompiles a WRONG BRANCH/VALUE in run$1
+      between the IsNil and reflectValue call sites (reflect.toType was a downstream symptom, NOT the
+      cause). STEP 6 = disassemble IsNil(65) first (small; if its x86_64 return is wrong, that's the bug)
+      via `ZWASM_DEBUG=jit.dump | grep 'func=65 '` → llvm-mc, diff arm64-vs-x86_64; else disassemble
+      run$1(136) branch region + DWARF .debug_line offset→source map.
     first_raised: "2026-06-21"
     last_reviewed: "2026-06-21"
     refs: |-

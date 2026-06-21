@@ -19,18 +19,19 @@ D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate dupl
 
 - **Bundle-ID**: D-489-x86_64-miscompile-campaign (user-directed 2026-06-21, anti-先回しロック)
 - **Cycles-remaining**: ~3
-- **Continuity-memo**: STEPS 2-4 DONE. Repro `private/spikes/d489-minimal-repro/min.wasm` (json).
-  Built `ZWASM_DEBUG=jit.callcount` profiler (call_profile.zig @2cda0771c). Diff interp-vs-x86_64-jit:
-  interp 161 funcs / jit 63. The JIT skips the ENTIRE json encoder (typeEncoder/structEncoder/
-  encodeState all 0 vs interp; reflect.toType 25→1) → `json.Marshal` bails BEFORE the encoder lookup
-  (reaches reflect.TypeOf/toType then no encoder dispatch). NOT deep-in-encoder. Hypotheses ruled out:
-  pure-fmt-codegen, multi-value-return-capture (mv2.go clean; captureCallResult correct).
-- **Next step (STEP 5)**: narrow within Marshal→encoder-dispatch. Prime suspect `reflect.toType`
-  (idx=243 in min.wasm, called 1× in jit = tiny window). Disassemble it arm64-vs-x86_64 via jit.dump
-  (now mappable by name) OR trace its args/return — the miscompiled scalar (wrong type-kind / nil
-  encoder / early error) is on that path. Tools: `ZWASM_DEBUG=jit.callcount` (profiler) +
-  `private/spikes/d489-minimal-repro/` (idx→name via `/tmp/mapnames.py` pattern). Repro: `zig build
-  -Dtarget=x86_64-macos && ./zig-out/bin/zwasm run --engine jit .../min.wasm` (jit: empty json).
+- **Continuity-memo**: STEPS 2-5 DONE. Repro `private/spikes/d489-minimal-repro/min.wasm`. Built
+  `ZWASM_DEBUG=jit.callcount` profiler + `jit.calledge` edge-logging (call_profile.zig @2cda0771c,
+  mvp.zig @9ee6d9736). BAIL FUNCTION PINNED: **idx=136 `runtime.run$1`** (TinyGo inlined main+json.Marshal)
+  runs in jit but fails to call `reflectValue`(147) → bails AFTER calling `(reflectlite.Value).IsNil`(65,
+  both engines do) and BEFORE the encode dispatch. So the x86_64 miscompile is a WRONG BRANCH/VALUE in
+  run$1 between the IsNil call site and the reflectValue call site. (2nd bail: stateBeginValue(360)→
+  pushParseState(359), decode-side — likely same root.)
+- **Next step (STEP 6)**: find the wrong instruction in that region. (a) Disassemble `IsNil`(65) FIRST
+  (small fn — if its x86_64 return value is miscompiled, that's it): `ZWASM_DEBUG=jit.dump … | grep 'func=65 '`
+  → llvm-mc disasm, diff arm64-vs-x86_64. (b) If IsNil clean, the branch-on-IsNil-result in run$1(136) is
+  miscompiled — disassemble run$1's region, use min.wasm's DWARF `.debug_line` to map offsets→Go source.
+  Tools: jit.callcount/jit.calledge, idx→name `/tmp/fullnames.py` pattern. Repro: `zig build
+  -Dtarget=x86_64-macos && ./zig-out/bin/zwasm run --engine jit .../min.wasm` (jit: empty `json: `).
 - **Exit-condition**: miscompiled instruction/value identified + fixed (interp==jit on min.wasm +
   tinygo_json x86_64) OR proven root-cause class with a targeted fixture. Unblocks `.auto`→JIT flip.
 
