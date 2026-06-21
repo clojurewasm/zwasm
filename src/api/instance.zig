@@ -1,4 +1,4 @@
-// FILE-SIZE-EXEMPT: (cap=3700) C ABI translation catalog (Zone 3 boundary layer); no separable subsystem per ADR-0099 §D2 P3 evaluation (see .dev/architecture/api_instance_audit.md, §9.12-G (c)). 10.F D-173/D-172 accessor surfaces extended exempt cap 2500→2800→3000; cyc174 raised 3000→3200 (ADR-0099 amend) for the Wasm start-section execution feature (a runtime-feature add in instantiateInternal, NOT accessor bloat) — consistent with the non-separable P3 eval + the validator.zig cyc158 precedent. P13 §13.2 raised 3200→3300 (ADR-0099 amend) for the runtime-entity host-creation surface — standalone-entity (instance==null) branches in the global/table/memory accessors + the buildBindings host-import arm; the `_new` CONSTRUCTORS are already split to extern_new.zig, this is the irreducible accessor/binding half coupled to the entity structs. ADR-0184 raised 3300→3400 (ADR-0099 amend 2026-06-13) for the engine-owned io plumbing (Threaded ownership + Host.io wiring + preopen materialization), same runtime-feature-add class. ADR-0200 raised 3400→3700 (ADR-0099 amend 2026-06-21) for the JIT-backed engine surface (EngineKind + instantiateJit + the per-instance engine branch in instantiateInternal; the wasm_func_call JIT arm + Val↔JIT marshalling helpers + JIT exports_storage population — all C-ABI translation, NOT a separable subsystem: extracting the ~80-LOC marshalling cluster would be an N3 shallow module). D-171 restructure increasingly warranted as ADR-0200 grows the C surface — the genuine separable-subsystem split.
+// FILE-SIZE-EXEMPT: (cap=3800) C ABI translation catalog (Zone 3 boundary layer); no separable subsystem per ADR-0099 §D2 P3 evaluation (see .dev/architecture/api_instance_audit.md, §9.12-G (c)). 10.F D-173/D-172 accessor surfaces extended exempt cap 2500→2800→3000; cyc174 raised 3000→3200 (ADR-0099 amend) for the Wasm start-section execution feature (a runtime-feature add in instantiateInternal, NOT accessor bloat) — consistent with the non-separable P3 eval + the validator.zig cyc158 precedent. P13 §13.2 raised 3200→3300 (ADR-0099 amend) for the runtime-entity host-creation surface — standalone-entity (instance==null) branches in the global/table/memory accessors + the buildBindings host-import arm; the `_new` CONSTRUCTORS are already split to extern_new.zig, this is the irreducible accessor/binding half coupled to the entity structs. ADR-0184 raised 3300→3400 (ADR-0099 amend 2026-06-13) for the engine-owned io plumbing (Threaded ownership + Host.io wiring + preopen materialization), same runtime-feature-add class. ADR-0200 raised 3400→3700 (ADR-0099 amend 2026-06-21) for the JIT-backed engine surface (EngineKind + instantiateJit + the per-instance engine branch in instantiateInternal; the wasm_func_call JIT arm + Val↔JIT marshalling helpers + JIT exports_storage population — all C-ABI translation, NOT a separable subsystem: extracting the ~80-LOC marshalling cluster would be an N3 shallow module). ADR-0200 raised 3700→3800 (ADR-0099 amend 2026-06-21, user-authorized) for the JIT C-surface completion (instantiateJit now populating export_types parallel to exports_storage for by-name discovery + the C-path discover/invoke test) — same runtime-feature-add-in-instantiate class. D-171 restructure increasingly warranted as ADR-0200 grows the C surface — the genuine separable-subsystem split.
 //! Engine / Store / Module / Instance / Func / Extern surface of
 //! the C ABI binding (§9.5 / 5.0 chunk d carve-out from
 //! `wasm.zig` per ADR-0007).
@@ -811,9 +811,34 @@ fn instantiateJit(store: *Store, module: *const Module, builder_state: anytype, 
             alloc.destroy(inst);
             return null;
         };
-        for (fexports, exps) |fe, *ex| ex.* = .{ .name = fe.name, .kind = .func, .idx = fe.func_idx };
+        // ADR-0200 — `export_types` MUST be parallel to `exports_storage`: the C
+        // discovery path (`findExport` / `wasm_instance_exports`) bails when the
+        // lengths differ and reads `export_types[idx]` for each handle's type.
+        // Without this a JIT instance's exports were unreachable by NAME via the
+        // C-ABI (the `wast_runtime_runner` regression that reverted the `.auto`
+        // flip — D-478). `final = true`: JIT modules carry no GC sub-type finals
+        // through `compiled`; cross-module GC type-identity on JIT is a follow-up.
+        const ets = arena.allocator().alloc(ExportType, fexports.len) catch {
+            arena.deinit();
+            alloc.destroy(arena);
+            jit.deinit(alloc);
+            alloc.destroy(jit);
+            alloc.destroy(inst);
+            return null;
+        };
+        // `fe.func_idx` is a validated export → always in range of the
+        // imports-then-defined `func_sigs`/`func_typeidxs` (parallel to it).
+        for (fexports, exps, ets) |fe, *ex, *et| {
+            ex.* = .{ .name = fe.name, .kind = .func, .idx = fe.func_idx };
+            et.* = .{ .func = .{
+                .sig = jit.compiled.func_sigs[fe.func_idx],
+                .final = true,
+                .typeidx = jit.compiled.func_typeidxs[fe.func_idx],
+            } };
+        }
         inst.arena = arena;
         inst.exports_storage = exps;
+        inst.export_types = ets;
     }
 
     // D-174 live-instance registry so wasm_store_delete cascades teardown.
@@ -2846,6 +2871,57 @@ test "wasm 2.0 mixed-exports c_api walk: func+memory+table+global surface via wa
     try testing.expect(wasm_extern_as_global_const(data[0]) == null);
     // null-arg discipline.
     try testing.expect(wasm_extern_as_func_const(null) == null);
+}
+
+test "ADR-0200 JIT C-path: export_types parallel to exports_storage so by-name discovery resolves (wast_runtime_runner regression)" {
+    // (module (func (export "add") (param i32 i32) (result i32) local.get 0 local.get 1 i32.add))
+    // The .auto-flip reverted because a JIT instance populated exports_storage but
+    // NOT export_types, so `lookupSourceExportType` (length-mismatch bail) + the
+    // C by-name invoke path saw ExportNotFound. This pins the parallel-arrays fix.
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+    var bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x07, 0x01, 0x60, 0x02, 0x7f, 0x7f, 0x01,
+        0x7f, 0x03, 0x02, 0x01, 0x00, 0x07, 0x07, 0x01,
+        0x03, 0x61, 0x64, 0x64, 0x00, 0x00, 0x0a, 0x09,
+        0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x01, 0x6a,
+        0x0b,
+    };
+    const bv: ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer wasm_module_delete(m);
+
+    const inst = instanceNewWithEngine(s, m, null, null, .jit) orelse return error.InstanceAllocFailed;
+    defer wasm_instance_delete(inst);
+    try testing.expect(inst.runtime == null); // JIT-backed
+
+    // The invariant the C discovery path requires: parallel arrays.
+    try testing.expectEqual(@as(usize, 1), inst.exports_storage.len);
+    try testing.expectEqual(inst.exports_storage.len, inst.export_types.len);
+    const et = try lookupSourceExportType(inst, .func, "add");
+    try testing.expectEqual(@as(usize, 2), et.func.sig.params.len);
+    try testing.expectEqual(@as(usize, 1), et.func.sig.results.len);
+
+    // End-to-end: by-name discovery via wasm_instance_exports surfaces the func.
+    var exports_vec: ExternVec = .{ .size = 0, .data = null };
+    wasm_instance_exports(inst, &exports_vec);
+    defer wasm_extern_vec_delete(&exports_vec);
+    try testing.expectEqual(@as(usize, 1), exports_vec.size);
+    const data = exports_vec.data orelse return error.ExportsDataNull;
+    try testing.expectEqual(@as(u8, @intFromEnum(ExternKind.func)), wasm_extern_kind(data[0]));
+    const func = wasm_extern_as_func(data[0]) orelse return error.ExternNotFunc;
+
+    // Invoke the discovered handle through the C path (the exact wast_runtime_runner
+    // shape: discover → call) — add(2,3) → 5, proving the JIT C invoke works end-to-end.
+    var args_data: [2]Val = .{ .{ .kind = .i32, .of = .{ .i32 = 2 } }, .{ .kind = .i32, .of = .{ .i32 = 3 } } };
+    const args: ValVec = .{ .size = 2, .data = &args_data };
+    var results_data: [1]Val = undefined;
+    var results: ValVec = .{ .size = 1, .data = &results_data };
+    try testing.expect(wasm_func_call(func, &args, &results) == null); // no trap
+    try testing.expectEqual(@as(i32, 5), results_data[0].of.i32);
 }
 
 test "wasm 2.0 c_api scalar global accessors: read and write mutable i32 via wasm_extern_as_global + wasm_global_get/set (D-171)" {
