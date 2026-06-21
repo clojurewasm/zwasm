@@ -1087,7 +1087,16 @@ fn globalSet(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const rt = Runtime.fromOpaque(c);
     const idx = instr.payload;
     if (idx >= rt.globals.len) return Trap.Unreachable;
-    rt.globals[idx].* = rt.popOperand();
+    const v = rt.popOperand();
+    rt.globals[idx].* = v;
+    // D-494 asyncify debug (ZWASM_DEBUG=global.trace): the TinyGo asyncify state
+    // machine drives globals 0/1/2 (i32). Byte-read the low 4 bytes so a non-i32
+    // global in another program doesn't trip the union active-field check.
+    if (dbg.on("global.trace")) {
+        const lo4 = std.mem.bytesToValue(i32, std.mem.asBytes(&v)[0..4]);
+        const fnz: u32 = if (rt.currentFrame().func) |zf| zf.func_idx else 0xFFFF_FFFF;
+        std.debug.print("[gset] fn={d} g{d}={d}\n", .{ fnz, idx, lo4 });
+    }
 }
 
 // ============================================================
