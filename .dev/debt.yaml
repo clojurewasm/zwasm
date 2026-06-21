@@ -3,6 +3,37 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-496"
+    layer: "code"
+    status: "blocked-by"
+    description: |-
+      blocked-by: user decision on flip SCOPE + the alpha.3 tag (the precondition the
+      `.auto`→JIT flip assumed — a complete JIT C-API surface — does NOT exist yet).
+      `.auto`→JIT FLIP = a multi-cycle CAMPAIGN, not the overnight task it was assumed to be.
+      Attempted 2026-06-22: routing `instance.zig:938` (.auto → try-JIT → interp-fallback) +
+      `run.zig` JIT fuel/timeout arm (a REAL regression fixed: CLI `--fuel`/`--timeout` only
+      armed the interp rt, so .auto→JIT hung an infinite loop; fixed via jitOf(inst).setFuel/
+      setInterruptFlag) + `linker.zig` opts.engine + test `.interp` pins. Local `zig build test`
+      then surfaced **69 failures**. Breakdown: ~36 component (api.component_tests/async — via the
+      LINKER, avoidable if the linker stays `.interp` per the flip-strategy memory); ~30 genuine
+      JIT-C-API GAPS — a JIT instance does NOT surface memory/table/global externs, and
+      `zwasm_instance_get_func` / `wasm_extern_as_memory|table|global` / introspection
+      (`wasm_extern_type`, `wasm_memory_type`…) return NULL on JIT (api.instance/module_introspect/
+      zwasm_ext/extern_new); ~3 cli.run. CLI `zwasm run` itself is FULLY JIT-correct on .auto
+      (realworld .auto-vs-interp 56/56 both arches) — the gap is the EMBEDDING C-API accessor/
+      introspection surface on JIT instances. あるべき論: don't ship a half-working default
+      (project principle) → reverted all flip changes to the green committed baseline (dbda9f873).
+      NEXT (user decision): (A) tag `v2.0.0-alpha.3` NOW on the green regalloc-fix baseline,
+      defer the flip to a campaign (cljw is blocked awaiting the tag; flip ≠ alpha.3); OR (B)
+      scoped flip = CLI `zwasm run`→JIT-with-interp-fallback only, C-API .auto stays interp
+      (overnight-feasible, delivers "run defaults to JIT"); OR (C) full flip = a JIT-C-API
+      accessor/introspection campaign (ADR-0153 five-phase) before the tag. Full flip work is
+      stashed in this row + git reflog; re-implement per the routing above.
+    first_raised: "2026-06-22"
+    last_reviewed: "2026-06-22"
+    refs: |-
+      src/api/instance.zig:938 (routing) · src/cli/run.zig:runWasmCapturedFull (fuel arm) ·
+      src/api/instance.zig jitOf + JIT exports (func-only) · memory project_auto_jit_flip_strategy
   - id: "D-495"
     layer: "code"
     status: "note"
