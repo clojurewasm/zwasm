@@ -1095,6 +1095,7 @@ pub fn jitGcArrayNewData(rt: *JitRuntime, typeidx: u32, segidx: u32, offset: u32
         0x77 => 2, // i16
         0x7F, 0x7D => 4, // i32, f32
         0x7E, 0x7C => 8, // i64, f64
+        0x7B => 16, // v128 (D-493)
         else => return 0,
     };
     if (segidx >= rt.data_segments_count) return 0;
@@ -1104,17 +1105,18 @@ pub fn jitGcArrayNewData(rt: *JitRuntime, typeidx: u32, segidx: u32, offset: u32
     const off64: u64 = offset; // negative i32 arrives as a large u32 → OOB below
     const byte_len: u64 = @as(u64, size) * nat;
     if (off64 + byte_len > seg_len) return 0; // OOB (also catches negatives)
-    const esz: u8 = ai.element.size; // uniform 8-byte slot
+    const esz: u8 = ai.element.size; // slot size (8 scalars / 16 v128)
     const ahsz: u32 = @sizeOf(gc_type_info.ArrayHeader);
     const ref = object_alloc.allocArrayObject(heap, typeidx, size, esz, false) catch return 0;
     var i: u32 = 0;
     while (i < size) : (i += 1) {
-        var raw: u64 = 0;
+        // D-493: zero slot + copy `nat` natural bytes — handles v128 (nat=16);
+        // the prior u64-pack overflowed its shift at nat=16.
         const src: u64 = off64 + @as(u64, i) * nat;
-        var b: u64 = 0;
-        while (b < nat) : (b += 1) raw |= @as(u64, seg.ptr[@intCast(src + b)]) << @intCast(b * 8);
         const dst_off = ref + ahsz + i * @as(u32, esz);
-        @memcpy(heap.bytes[dst_off .. dst_off + 8], std.mem.asBytes(&raw)[0..8]);
+        const slot = heap.bytes[dst_off .. dst_off + esz];
+        @memset(slot, 0);
+        @memcpy(slot[0..@intCast(nat)], seg.ptr[@intCast(src)..@intCast(src + nat)]);
     }
     return ref;
 }
@@ -1188,6 +1190,7 @@ pub fn jitGcArrayInitData(rt: *JitRuntime, segidx: u32, ref: u32, dst_off: u32, 
         0x77 => 2, // i16
         0x7F, 0x7D => 4, // i32, f32
         0x7E, 0x7C => 8, // i64, f64
+        0x7B => 16, // v128 (D-493)
         else => return 0,
     };
     const len_off: u32 = @offsetOf(gc_type_info.ArrayHeader, "length");
@@ -1200,16 +1203,16 @@ pub fn jitGcArrayInitData(rt: *JitRuntime, segidx: u32, ref: u32, dst_off: u32, 
     const seg_len: u64 = if (dropped) 0 else seg.len;
     const so64: u64 = src_off; // negative i32 arrives as a large u32 → src OOB below
     if (so64 + @as(u64, len) * nat > seg_len) return 0; // src OOB (also catches negatives)
-    const esz: u8 = ai.element.size; // uniform 8-byte slot
+    const esz: u8 = ai.element.size; // slot size (8 scalars / 16 v128)
     const ahsz: u32 = @sizeOf(gc_type_info.ArrayHeader);
     var i: u32 = 0;
     while (i < len) : (i += 1) {
-        var raw: u64 = 0;
+        // D-493: zero slot + copy `nat` bytes — handles v128 (nat=16).
         const s: u64 = so64 + @as(u64, i) * nat;
-        var b: u64 = 0;
-        while (b < nat) : (b += 1) raw |= @as(u64, seg.ptr[@intCast(s + b)]) << @intCast(b * 8);
         const dst = ref + ahsz + (dst_off + i) * @as(u32, esz);
-        @memcpy(heap.bytes[dst .. dst + 8], std.mem.asBytes(&raw)[0..8]);
+        const slot = heap.bytes[dst .. dst + esz];
+        @memset(slot, 0);
+        @memcpy(slot[0..@intCast(nat)], seg.ptr[@intCast(s)..@intCast(s + nat)]);
     }
     return 1;
 }

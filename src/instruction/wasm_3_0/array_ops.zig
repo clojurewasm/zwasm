@@ -180,12 +180,15 @@ fn arrayNewData(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     const off_lo: usize = @intCast(offset);
     var i: u32 = 0;
     while (i < size) : (i += 1) {
-        var raw: u64 = 0;
+        // D-493: zero the slot then copy `nat` natural bytes — handles every
+        // element width incl. v128 (nat=16). The prior u64-pack loop overflowed
+        // its shift for nat=16; a direct memcpy zero-extends scalars (nat<slot)
+        // and copies v128 in full (nat==slot==16).
         const src = off_lo + i * nat;
-        var b: u8 = 0;
-        while (b < nat) : (b += 1) raw |= @as(u64, seg[src + b]) << @intCast(@as(u32, b) * 8);
         const dst_off = ref + array_header_size + i * ai.element.size;
-        @memcpy(heap.bytes[dst_off .. dst_off + 8], std.mem.asBytes(&raw)[0..8]);
+        const slot = heap.bytes[dst_off .. dst_off + ai.element.size];
+        @memset(slot, 0);
+        @memcpy(slot[0..nat], seg[src .. src + nat]);
     }
     try rt.pushOperand(.{ .ref = @as(u64, ref) });
 }
@@ -199,6 +202,7 @@ fn dataElemNaturalSize(valtype_byte: u8) ?u8 {
         0x77 => 2, // i16 (packed)
         0x7F, 0x7D => 4, // i32, f32
         0x7E, 0x7C => 8, // i64, f64
+        0x7B => 16, // v128 (vectype packs into 16 data bytes; D-493)
         else => null,
     };
 }
@@ -431,12 +435,12 @@ fn arrayInitData(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
     if (src_off + @as(u64, len) * nat > seg.len) return runtime.Trap.OutOfBoundsLoad;
     var i: u32 = 0;
     while (i < len) : (i += 1) {
-        var raw: u64 = 0;
+        // D-493: zero slot + copy `nat` bytes — handles v128 (nat=16) like arrayNewData.
         const s: usize = @intCast(src_off + @as(u64, i) * nat);
-        var b: u8 = 0;
-        while (b < nat) : (b += 1) raw |= @as(u64, seg[s + b]) << @intCast(@as(u32, b) * 8);
         const d = dst_ref + array_header_size + (dst_off + i) * ai.element.size;
-        @memcpy(heap.bytes[d .. d + 8], std.mem.asBytes(&raw)[0..8]);
+        const slot = heap.bytes[d .. d + ai.element.size];
+        @memset(slot, 0);
+        @memcpy(slot[0..nat], seg[s .. s + nat]);
     }
 }
 
