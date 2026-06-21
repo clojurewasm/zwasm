@@ -18,19 +18,20 @@ D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate dupl
 ## Active bundle
 
 - **Bundle-ID**: D-478-host-func-jit-bridge
-- **Cycles-remaining**: ~2 (FP args/results → `.auto`→JIT flip → Linker engine-select)
-- **Continuity-memo**: INCREMENTS 1+2 DONE (@a83b28849 0-arg; @e001514d9 N-arg) — embedder host-func callbacks now
-  dispatch under JIT for **0..4 GP-scalar (i32/i64) args × result {void,i32,i64}** via a Zig comptime thunk-table
-  (`src/api/jit_host_bridge.zig`, arch-INDEPENDENT, NO machine-code emit). Key simplification: i32/i64 share the
-  integer arg-register class → thunk takes N `u64` params, bridge marshals each per `payload.params[i]` (no 4^N
-  table). `host_payloads_base` on `JitRuntime` (jit_abi +8B→608); `instantiateJit`+`collectHostFuncTargets`;
-  `HostFuncTarget` planted by `setupRuntimeLinked`/`initLinked`. Gated `jit_callback.c` (0-arg→42) +
-  `jit_callback_args.c` (add(i32,i32)→5, dbl(i64)→42). **NEXT = FP args/results**: f32/f64 are a SEPARATE register
-  class — a u64 thunk param won't receive them; need positionally-typed thunks (per-position GP-vs-FP), so the
-  `u64`-collapse only holds for all-GP sigs. dispatchPtrFor today rejects any FP param/result → `.interp`. Then flip
-  `.auto`→JIT (instance.zig:841 TODO) once arities good-enough. History: `private/notes/d478-host-func-jit-bridge-design.md`.
-- **Exit-condition**: a JIT-backed instance calls an embedder host-func import with ≤4 scalar args, asserted green
-  via `wasm_func_call`, 3-host. Uncovered sigs stay `.interp` (no silent wrong). [GP ≤4 args met @e001514d9; FP next.]
+- **Cycles-remaining**: ~1 (`.auto`→JIT flip; then close — FP-arg arity 3-4 niche → debt)
+- **Continuity-memo**: INCREMENTS 1+2+3 DONE (@a83b28849 0-arg; @e001514d9 GP N-arg; @4675c345c FP) — embedder
+  host-func callbacks dispatch under JIT for **all-GP (i32/i64) args 0..4, OR ≤2 scalar args with ≥1 FP (f32/f64),
+  each × result {void,i32,i64,f32,f64}** via a Zig comptime thunk-table (`src/api/jit_host_bridge.zig`,
+  arch-INDEPENDENT, NO machine-code emit). i32/i64 collapse to `u64` thunk params (one integer reg class); FP
+  positions get exact f32/f64 params (separate reg class, Win64-coupled). `host_payloads_base` on `JitRuntime`
+  (jit_abi +8B→608); `instantiateJit`+`collectHostFuncTargets`; planted by `setupRuntimeLinked`/`initLinked`. Gated
+  `jit_callback{,_args,_fp}.c`. **NEXT = flip `.auto`→JIT** (instance.zig:838-841 TODO): make `.auto` try
+  `instantiateJit` first, fall back to interp on null (uncovered import / non-func import). Covered host-funcs + WASI
+  now make the flip safe; FP-arg arity 3-4 + cross-module + accessor-reads stay interp-fallback. Careful: `.auto` is
+  the DEFAULT path — every facade/C-API instantiate hits it; 3-host gate (esp. windows). NOTE: found export-invoke
+  gap (i32,f64) → filed under D-477 (dispatchScalar2 incomplete; route 2-arg via buffer thunk).
+- **Exit-condition**: a JIT-backed instance calls an embedder host-func import with scalar args, asserted green via
+  `wasm_func_call`, 3-host. Uncovered sigs stay `.interp` (no silent wrong). [GP ≤4 + FP ≤2 met @4675c345c.]
 
 ## RESUME POINTER (2026-06-21) — for a fresh session
 

@@ -77,7 +77,14 @@ entries:
       + x86_64 SysV). RESIDUAL = 2 NICHE slivers (build on demand): (1) v128 args/results
       (model A = 2 consecutive 16-aligned u64 slots DECIDED; Win64-by-REFERENCE gotcha;
       niche — SIMD bodies execute fine, scalar/FP multi-arg invoke meets the SIMD
-      constraint); (2) Win64 ≥4-param stack-spill (rare). RECOMMENDATION: D-477 core
+      constraint); (2) Win64 ≥4-param stack-spill (rare). (3) NEW (found 2026-06-21 via
+      D-478 FP host-bridge test): the C-API EXPORT-call path `JitInstance.invoke` routes
+      1-/2-arg through the hand-enumerated `dispatchScalar1`/`dispatchScalar2` tables
+      (runner.zig:787/830), which OMIT many scalar combos — e.g. an export `(i32,f64)->f64`
+      hits `else => UnsupportedEntrySignature` and traps, instead of falling through to the
+      `invokeViaBufferSingle` buffer-write thunk (which arity-3+ already uses). Fix = route
+      uncovered 1-/2-arg shapes through the buffer thunk too (then drop the partial scalar
+      tables). Small; needs 3-host (Win64 FP). RECOMMENDATION: D-477 core
       unblocks the ADR-0200 API-JIT phase (the user's priority) — the slivers need not
       gate it; pivot to the API phase, build slivers on demand.
     first_raised: "2026-06-20"
