@@ -1,4 +1,4 @@
-// FILE-SIZE-EXEMPT: (cap=3750) C ABI translation catalog (Zone 3 boundary layer); no separable subsystem per ADR-0099 §D2 P3 evaluation (see .dev/architecture/api_instance_audit.md, §9.12-G (c)). 10.F D-173/D-172 accessor surfaces extended exempt cap 2500→2800→3000; cyc174 raised 3000→3200 (ADR-0099 amend) for the Wasm start-section execution feature (a runtime-feature add in instantiateInternal, NOT accessor bloat) — consistent with the non-separable P3 eval + the validator.zig cyc158 precedent. P13 §13.2 raised 3200→3300 (ADR-0099 amend) for the runtime-entity host-creation surface — standalone-entity (instance==null) branches in the global/table/memory accessors + the buildBindings host-import arm; the `_new` CONSTRUCTORS are already split to extern_new.zig, this is the irreducible accessor/binding half coupled to the entity structs. ADR-0184 raised 3300→3400 (ADR-0099 amend 2026-06-13) for the engine-owned io plumbing (Threaded ownership + Host.io wiring + preopen materialization), same runtime-feature-add class. ADR-0200 raised 3400→3700 (ADR-0099 amend 2026-06-21) for the JIT-backed engine surface (EngineKind + instantiateJit + the per-instance engine branch in instantiateInternal; the wasm_func_call JIT arm + Val↔JIT marshalling helpers + JIT exports_storage population — all C-ABI translation, NOT a separable subsystem: extracting the ~80-LOC marshalling cluster would be an N3 shallow module). ADR-0200 incr 6 raised 3700→3750 (ADR-0099 amend 2026-06-21, user-authorized) for the `.auto`→JIT-first engine-selection flip (the `fallback_ok`-threaded fork in instantiateInternal + instantiateJit) — same runtime-feature-add-in-instantiate class, NOT accessor bloat. D-171 restructure increasingly warranted as ADR-0200 grows the C surface — the genuine separable-subsystem split.
+// FILE-SIZE-EXEMPT: (cap=3700) C ABI translation catalog (Zone 3 boundary layer); no separable subsystem per ADR-0099 §D2 P3 evaluation (see .dev/architecture/api_instance_audit.md, §9.12-G (c)). 10.F D-173/D-172 accessor surfaces extended exempt cap 2500→2800→3000; cyc174 raised 3000→3200 (ADR-0099 amend) for the Wasm start-section execution feature (a runtime-feature add in instantiateInternal, NOT accessor bloat) — consistent with the non-separable P3 eval + the validator.zig cyc158 precedent. P13 §13.2 raised 3200→3300 (ADR-0099 amend) for the runtime-entity host-creation surface — standalone-entity (instance==null) branches in the global/table/memory accessors + the buildBindings host-import arm; the `_new` CONSTRUCTORS are already split to extern_new.zig, this is the irreducible accessor/binding half coupled to the entity structs. ADR-0184 raised 3300→3400 (ADR-0099 amend 2026-06-13) for the engine-owned io plumbing (Threaded ownership + Host.io wiring + preopen materialization), same runtime-feature-add class. ADR-0200 raised 3400→3700 (ADR-0099 amend 2026-06-21) for the JIT-backed engine surface (EngineKind + instantiateJit + the per-instance engine branch in instantiateInternal; the wasm_func_call JIT arm + Val↔JIT marshalling helpers + JIT exports_storage population — all C-ABI translation, NOT a separable subsystem: extracting the ~80-LOC marshalling cluster would be an N3 shallow module). D-171 restructure increasingly warranted as ADR-0200 grows the C surface — the genuine separable-subsystem split.
 //! Engine / Store / Module / Instance / Func / Extern surface of
 //! the C ABI binding (§9.5 / 5.0 chunk d carve-out from
 //! `wasm.zig` per ADR-0007).
@@ -710,15 +710,14 @@ fn collectHostFuncTargets(
     return out.toOwnedSlice(ta);
 }
 
-/// ADR-0200 — build a JIT-backed `Instance` (`runtime == null`, `jit` set) via
-/// `engine/runner.zig::JitInstance`: no-import compute + WASI + covered host-func
-/// imports. `wasm_bytes` borrow the owning `Module` (outlives the instance); the
-/// `JitInstance` is heap-pinned so `&owned.rt` stays stable.
-/// `fallback_ok` (incr 6, `.auto` flip): `true` while only pre-`(start)` build
-/// ran (no side effect → caller may retry on interp); flips `false` at the commit
-/// point so a start trap is a GENUINE failure not re-run on interp. `.jit` → null.
-fn instantiateJit(store: *Store, module: *const Module, builder_state: anytype, trap_out: ?*?*Trap, limits: InstantiateLimits, fallback_ok: ?*bool) ?*Instance {
-    if (fallback_ok) |f| f.* = true;
+/// ADR-0200 — build a JIT-backed `Instance` (`runtime == null`, `jit` set).
+/// The smallest increment: a no-import compute module compiled to native code
+/// via `engine/runner.zig::JitInstance`. Host imports + WASI are a later slice
+/// (the `func_import_targets` / `wasi_host` plumbing in the impl map). The
+/// borrowed `wasm_bytes` live in the owning `Module`, which outlives the
+/// instance, and the `JitInstance` is heap-pinned so `exportedFuncTarget`'s
+/// `&owned.rt` stays stable.
+fn instantiateJit(store: *Store, module: *const Module, builder_state: anytype, trap_out: ?*?*Trap, limits: InstantiateLimits) ?*Instance {
     const alloc = storeAllocator(store) orelse return null;
     const bytes_ptr = module.bytes_ptr orelse return null;
     const bytes = bytes_ptr[0..module.bytes_len];
@@ -750,10 +749,6 @@ fn instantiateJit(store: *Store, module: *const Module, builder_state: anytype, 
     // ADR-0200 — point the JIT interrupt poll at the now-heap-pinned own flag so
     // the facade `interrupt()` can cooperatively cancel a running guest.
     jit.armSelfInterrupt();
-    // ADR-0200 incr 6 — COMMIT POINT: side effects begin here (preopens, then
-    // `(start)`), so an `.auto` caller must NOT re-run on interp past this line.
-    if (fallback_ok) |f| f.* = false;
-
     // ADR-0200 / D-478 — attach the store's WASI host so the JIT's planted WASI
     // dispatch thunks do real syscalls (null → compute-only stub: clock/random/
     // fd_write silently no-op). Both fields are `?*anyopaque`. Materialize any
@@ -911,19 +906,11 @@ pub fn instantiateInternal(store: *Store, module: *const Module, builder_state: 
 
     // ADR-0200 — per-instance engine fork, shared by EVERY entry point
     // (`instantiateFacade`, `wasm_instance_new`, `src/zwasm/linker.zig`). `.jit`
-    // builds a native JIT-backed instance; `.interp` uses the interp setup below.
-    if (engine == .jit) return instantiateJit(store, module, builder_state, trap_out, limits, null);
-
-    // ADR-0200 incr 6 — `.auto` flip: attempt JIT first; on a pre-`(start)` build
-    // reject (`fb_ok == true`, no side effect) fall back to interp; a start trap
-    // (`fb_ok == false`) is genuine — do NOT re-run. Linker pins `.interp`, so this
-    // only routes the C-ABI + native facade `.auto` default to the JIT fast path.
-    if (engine == .auto) {
-        var fb_ok = true;
-        if (instantiateJit(store, module, builder_state, trap_out, limits, &fb_ok)) |jit_inst| return jit_inst;
-        if (!fb_ok) return null; // start ran + trapped → genuine instantiation failure
-        // build failed pre-start with no observable effect → fall through to interp.
-    }
+    // builds a native JIT-backed instance; `.auto`/`.interp` fall through to the
+    // interp setup below. TODO(ADR-0200): route `.auto` → JIT once the JIT path
+    // covers host imports + WASI (defer, not workaround — JIT is no-import-only
+    // this increment, so `.auto` stays interp to keep import-using modules working).
+    if (engine == .jit) return instantiateJit(store, module, builder_state, trap_out, limits);
 
     // ADR-0184: open any preopen requests queued by the io-free
     // config builder (`zwasm_wasi_config_preopen_dir`) via the
