@@ -177,6 +177,10 @@ pub fn runWasmJitCaptured(
         // main.zig's renderFallback is reserved for non-trap errors (compile/
         // validate/load).
         if (err == error.Trap) {
+            // JIT traps unwind via siglongjmp, which skips the top-of-fn
+            // `defer call_profile.dump()` — dump explicitly here so the
+            // profiler works for trapping/crashing programs (D-494).
+            if (dbg.on("jit.callcount")) call_profile.dump();
             surfaceJitTrap(io, trap_code);
             return 1;
         }
