@@ -15,6 +15,25 @@ D-463 handle isolation (ADR-0197); D-034 SIMD spill-completeness CLOSED @411dd1e
 marshalling, C-API Windows-export. Residual long-tails (debt-tracked, do NOT grind): D-464 async adversarial,
 D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate duplicated SIMD spill helpers.
 
+## Active bundle
+
+- **Bundle-ID**: D-478-host-func-jit-bridge
+- **Cycles-remaining**: ~3 (0-arg bridge → N-scalar-arg spill → FP/Win64 + `.auto`→JIT flip)
+- **Continuity-memo**: Pay down D-478 (1b) — non-WASI host-func dispatch under JIT (unblocks `.auto`→JIT).
+  Full design `private/notes/d478-host-func-jit-bridge-design.md`. Confirmed multi-part: `instantiateJit`
+  (`src/api/instance.zig:656`) does NOT receive `builder_state`, so step 0 = thread the resolved
+  import bindings (host-func payloads) into it. Then per-import emitted bridge stub planted into
+  `dispatch[]` (extend `func_import_targets` channel, `setup.zig:394` / `runner.zig:904`) + a generic Zig
+  marshaller; relax `runner.assertWasiImportsSatisfied` (runner.zig:513, reject site instance.zig:678) for
+  covered host-func sigs. CRUX: JIT passes guest args in NATIVE arg regs per the callee C sig (no uniform
+  buffer) → **0-ARG FIRST** (no marshalling: stub embeds payload ptr → `genericHostBridge0(rt, payload)
+  callconv(.c) i32`); then a signature-AGNOSTIC arg-spill stub (X1..X7/V0..V7 → an rt scratch `[N]u64`) +
+  marshaller reads per payload.sig. Per-arch (arm64 + x86_64 SysV + Win64); mirror `shared/thunk.zig`
+  emitThunk. VERIFY each codegen increment on arm64 native + `-Dtarget=x86_64-macos` (Rosetta) + windows gate.
+- **Exit-condition**: a JIT-backed instance calls an embedder host-func import (C `wasm_func_new` /
+  facade) — first 0-arg→i32, then ≤4 scalar args — asserted green via `wasm_func_call` (mirror
+  `test/c_api_conformance/callback.c` with `.jit`), 3-host. Uncovered sigs stay `.interp` (no silent wrong).
+
 ## RESUME POINTER (2026-06-21) — for a fresh session
 
 **ADR-0200 JIT-backed embedding API — COMPUTE PATH DELIVERED, bundle CLOSED @<this-commit>.** Both
