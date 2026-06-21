@@ -606,6 +606,33 @@ test "facade Instance.interrupt(): a pending interrupt traps the next invoke; cl
     try testing.expectEqual(@as(i32, 42), results[0].i32);
 }
 
+test "facade engine=.jit: 3-arg f64 export invoke via the buffer-write path (D-477 — typical wide shape)" {
+    // (module (func (export "add3") (param f64 f64 f64) (result f64)
+    //   local.get 0 local.get 1 f64.add local.get 2 f64.add))
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x08, 0x01, 0x60, 0x03, 0x7c, 0x7c, 0x7c, 0x01, 0x7c, // (f64 f64 f64)->f64
+        0x03, 0x02, 0x01, 0x00,
+        0x07, 0x08, 0x01, 0x04, 0x61, 0x64, 0x64, 0x33, 0x00, 0x00, // export "add3"
+        0x0a, 0x0c, 0x01, 0x0a, 0x00, 0x20, 0x00, 0x20, 0x01, 0xa0,
+        0x20, 0x02, 0xa0, 0x0b,
+    };
+    var eng = try _zwasm.Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var mod = try eng.compile(&bytes);
+    defer mod.deinit();
+    var inst = try mod.instantiate(.{ .engine = .jit });
+    defer inst.deinit();
+
+    var results = [_]_zwasm.Value{.{ .f64 = 0 }};
+    try inst.invoke("add3", &.{
+        .{ .f64 = @bitCast(@as(f64, 1.5)) },
+        .{ .f64 = @bitCast(@as(f64, 2.25)) },
+        .{ .f64 = @bitCast(@as(f64, 0.25)) },
+    }, &results);
+    try testing.expectEqual(@as(f64, 4.0), @as(f64, @bitCast(results[0].f64)));
+}
+
 test "facade engine=.jit: i32.div_s by zero traps DivByZero (not a binding error) — wast misc_traps/divbyzero" {
     // (module (func (export "div") (param i32 i32) (result i32) local.get 0 local.get 1 i32.div_s))
     // (i32,i32)->i32 is a covered dispatch key, so the JIT body runs + traps; the facade
