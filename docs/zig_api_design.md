@@ -446,6 +446,35 @@ Manifest-driven coverage: the component spec corpus runner's
 drives this same path from text, e.g.
 `assert_typed process ({xs: [1, 2, 3], label: "sum"}) -> ok({xs: [1, 2, 3, 6], label: "sum!"})`.
 
+### §3.10 — Engine selection (JIT vs interpreter, ADR-0200)
+
+Engine choice is **per-instance, at instantiate time** (never per-call); both
+engines coexist in one build. The Zig facade carries it on
+`Module.InstantiateOpts.engine`:
+
+```zig
+var jit_inst = try module.instantiate(.{ .engine = .jit }); // native JIT
+var int_inst = try module.instantiate(.{ .engine = .interp }); // interpreter
+var auto_inst = try module.instantiate(.{}); // .auto (default)
+```
+
+`EngineKind = enum { auto, jit, interp }`. **`.auto` is the default** and is
+documented to resolve to the runtime's best choice — currently the interpreter
+until the JIT host-import/WASI bridge lands, then JIT-on-arches-with-a-backend
+(interp fallback on a JIT-less arch). Because the default's *meaning* is what is
+specified (not a fixed engine), the resolution can change without an API break.
+An explicit `.jit` on a JIT-less arch fails instantiation rather than silently
+downgrading. The call boundary (`invoke` / `typedFunc().call()`) is
+engine-agnostic — identical args/results contract across engines (cw runs a
+dual-engine differential oracle on exactly this property).
+
+The C ABI mirrors this with the `zwasm_instance_new_ex(store, module, imports,
+trap_out, engine_kind)` extension (`include/zwasm.h`; `ZWASM_ENGINE_AUTO=0` /
+`JIT` / `INTERP`) — stock `wasm_instance_new` is `.auto`. Worked end-to-end
+mini-consumers: `examples/zig_host/jit_engine.zig` + `examples/c_host/`…`jit_engine.c`
+(`test-c-api-conformance`), each instantiating `engine=jit` and calling a
+multi-arg export plus a SIMD-body export (SIMD executes on the JIT).
+
 ## §4 — Value layout (uniform 16-byte slot per ADR-0110)
 
 The `Value` type is an **untagged `extern union` of width 16
