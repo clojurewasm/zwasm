@@ -980,6 +980,25 @@ pub fn build(b: *std.Build) void {
     const test_realworld_diff_aot_step = b.step("test-realworld-diff-aot", "Realworld differential incl. the opt-in AOT lane (D-283)");
     test_realworld_diff_aot_step.dependOn(&run_realworld_diff_aot.step);
 
+    // `zig build d489-repro` — minimal D-489 isolation harness (x86_64-linux only;
+    // Rosetta + arm64 mask it). Isolates capture-buffer vs in-process-ripple as the
+    // cause of tinygo_json's jit=130/correct=90 divergence under the diff-runner.
+    const d489_repro_mod = createSanitizedModule(b, sanitize_opts, .{
+        .root_source_file = b.path("test/realworld/d489_repro.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    d489_repro_mod.addImport("zwasm", zwasm_lib_mod);
+    const d489_repro_exe = b.addExecutable(.{
+        .name = "zwasm-d489-repro",
+        .root_module = d489_repro_mod,
+    });
+    const run_d489_repro = b.addRunArtifact(d489_repro_exe);
+    run_d489_repro.has_side_effects = true;
+    const d489_repro_step = b.step("d489-repro", "Minimal D-489 isolation harness");
+    d489_repro_step.dependOn(&run_d489_repro.step);
+
     // `zig build test-realworld-diff-wasmer` — §9.6 A3 second-oracle lane.
     // Same wasmtime differential PLUS wasmer as a 2nd reference oracle; flags
     // REF-DISAGREE fixtures (the two reference runtimes disagree — the
