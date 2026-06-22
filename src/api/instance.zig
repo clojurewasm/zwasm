@@ -794,8 +794,15 @@ fn instantiateJit(store: *Store, module: *const Module, builder_state: anytype, 
     // `compiled.exports` (name→funcidx) to `sections.Export{name, .func, idx}`.
     // The name slices borrow `jit.compiled.arena` (lives in the JitInstance); the
     // slice itself lives on a minimal per-instance arena freed in the JIT teardown.
-    const fexports = jit.compiled.exports;
-    if (fexports.len > 0) {
+    // ADR-0200 / D-496 — surface ALL exports (func/table/memory/global) through the
+    // C-API discovery path so a JIT instance has the SAME embedding surface as interp.
+    // Mirrors the interp path (instantiate.zig:1439-1442): decode the export section +
+    // `buildExportTypes` (kind-generic, reads module type/table/memory/global sections,
+    // never the runtime). Without the non-func kinds, `wasm_extern_as_memory|table|global`
+    // + introspection returned null on a JIT instance (the D-496 flip blocker). The
+    // arena holds the decoded export items + ExportType[]; names borrow the module bytes
+    // (which outlive the instance). Freed in the JIT instance teardown via `inst.arena`.
+    {
         const arena = alloc.create(std.heap.ArenaAllocator) catch {
             jit.deinit(alloc);
             alloc.destroy(jit);
@@ -803,42 +810,35 @@ fn instantiateJit(store: *Store, module: *const Module, builder_state: anytype, 
             return null;
         };
         arena.* = std.heap.ArenaAllocator.init(alloc);
-        const exps = arena.allocator().alloc(sections.Export, fexports.len) catch {
+        const a = arena.allocator();
+        const built = blk: {
+            // Re-parse the section index off the module bytes (the C-API `module` is
+            // an extern struct without `.find`; `instantiateJit` compiled from raw
+            // bytes). Cheap header walk; arena-scoped.
+            var rt_module = parser.parse(a, bytes) catch break :blk false;
+            const export_section = rt_module.find(.@"export") orelse break :blk true; // no exports
+            const imports_decoded: ?sections.Imports = if (rt_module.find(.import)) |imp|
+                (sections.decodeImports(a, imp.body) catch break :blk false)
+            else
+                null;
+            const exports = sections.decodeExports(a, export_section.body) catch break :blk false;
+            inst.exports_storage = exports.items;
+            inst.export_types = instantiate.buildExportTypes(a, rt_module, exports.items, imports_decoded) catch break :blk false;
+            break :blk true;
+        };
+        if (!built) {
             arena.deinit();
             alloc.destroy(arena);
             jit.deinit(alloc);
             alloc.destroy(jit);
             alloc.destroy(inst);
             return null;
-        };
-        // ADR-0200 — `export_types` MUST be parallel to `exports_storage`: the C
-        // discovery path (`findExport` / `wasm_instance_exports`) bails when the
-        // lengths differ and reads `export_types[idx]` for each handle's type.
-        // Without this a JIT instance's exports were unreachable by NAME via the
-        // C-ABI (the `wast_runtime_runner` regression that reverted the `.auto`
-        // flip — D-478). `final = true`: JIT modules carry no GC sub-type finals
-        // through `compiled`; cross-module GC type-identity on JIT is a follow-up.
-        const ets = arena.allocator().alloc(ExportType, fexports.len) catch {
-            arena.deinit();
-            alloc.destroy(arena);
-            jit.deinit(alloc);
-            alloc.destroy(jit);
-            alloc.destroy(inst);
-            return null;
-        };
-        // `fe.func_idx` is a validated export → always in range of the
-        // imports-then-defined `func_sigs`/`func_typeidxs` (parallel to it).
-        for (fexports, exps, ets) |fe, *ex, *et| {
-            ex.* = .{ .name = fe.name, .kind = .func, .idx = fe.func_idx };
-            et.* = .{ .func = .{
-                .sig = jit.compiled.func_sigs[fe.func_idx],
-                .final = true,
-                .typeidx = jit.compiled.func_typeidxs[fe.func_idx],
-            } };
         }
-        inst.arena = arena;
-        inst.exports_storage = exps;
-        inst.export_types = ets;
+        // Retain the arena only if it backs live export storage; else release it.
+        if (inst.exports_storage.len > 0) inst.arena = arena else {
+            arena.deinit();
+            alloc.destroy(arena);
+        }
     }
 
     // D-174 live-instance registry so wasm_store_delete cascades teardown.
@@ -2871,6 +2871,38 @@ test "wasm 2.0 mixed-exports c_api walk: func+memory+table+global surface via wa
     try testing.expect(wasm_extern_as_global_const(data[0]) == null);
     // null-arg discipline.
     try testing.expect(wasm_extern_as_func_const(null) == null);
+}
+
+test "D-496 JIT C-path: func+memory+table+global exports all surface via wasm_instance_exports (.jit)" {
+    // D-496 chunk 1: a JIT instance must expose ALL export kinds (not just funcs)
+    // through the C-API discovery path, so `wasm_extern_as_memory|table|global`
+    // resolve (they returned null pre-fix → the .auto→JIT flip's C-API blocker).
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+    var bytes = mixed_exports_wasm;
+    const bv: ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer wasm_module_delete(m);
+    const inst = instanceNewWithEngine(s, m, null, null, .jit) orelse return error.InstanceAllocFailed;
+    defer wasm_instance_delete(inst);
+    try testing.expect(inst.jit != null and inst.runtime == null); // confirm JIT-backed
+
+    var exports_vec: ExternVec = .{ .size = 0, .data = null };
+    wasm_instance_exports(inst, &exports_vec);
+    defer wasm_extern_vec_delete(&exports_vec);
+    try testing.expectEqual(@as(usize, 4), exports_vec.size);
+    const data = exports_vec.data orelse return error.ExportsDataNull;
+    try testing.expectEqual(@as(u8, @intFromEnum(ExternKind.func)), wasm_extern_kind(data[0]));
+    try testing.expectEqual(@as(u8, @intFromEnum(ExternKind.memory)), wasm_extern_kind(data[1]));
+    try testing.expectEqual(@as(u8, @intFromEnum(ExternKind.table)), wasm_extern_kind(data[2]));
+    try testing.expectEqual(@as(u8, @intFromEnum(ExternKind.global)), wasm_extern_kind(data[3]));
+    // The fix's observable: non-func externs now resolve on a JIT instance.
+    try testing.expect(wasm_extern_as_func(data[0]) != null);
+    try testing.expect(wasm_extern_as_memory(data[1]) != null);
+    try testing.expect(wasm_extern_as_table(data[2]) != null);
+    try testing.expect(wasm_extern_as_global(data[3]) != null);
 }
 
 test "ADR-0200 JIT C-path: export_types parallel to exports_storage so by-name discovery resolves (wast_runtime_runner regression)" {
