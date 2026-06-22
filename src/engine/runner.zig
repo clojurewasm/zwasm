@@ -1183,6 +1183,37 @@ pub const JitInstance = struct {
         return self.compiled.func_sigs.len;
     }
 
+    /// D-496 — slot count of table `idx` (full index space, matching
+    /// `JitRuntime.tables_ptr`), backing C-API `wasm_table_size`. Null if OOB.
+    pub fn tableLen(self: *JitInstance, idx: u32) ?u32 {
+        if (idx >= self.owned.rt.tables_count) return null;
+        return self.owned.rt.tables_ptr[idx].len;
+    }
+
+    /// D-496 — read the raw ref payload at `table[idx][slot]` (matches interp's
+    /// raw `Value.ref` C-API round-trip). Null if OOB.
+    pub fn tableGetRef(self: *JitInstance, idx: u32, slot: u32) ?u64 {
+        if (idx >= self.owned.rt.tables_count) return null;
+        const d = self.owned.rt.tables_ptr[idx];
+        if (slot >= d.len) return null;
+        return d.refs[slot];
+    }
+
+    /// D-496 — write the raw ref payload at `table[idx][slot]`. For a funcref
+    /// table (funcptr-mirror present) the parallel funcptr slot is CLEARED to the
+    /// uninitialized sentinel: a host-poked raw ref has no resolvable native entry,
+    /// so a later `call_indirect` on the slot traps cleanly rather than jumping to
+    /// a stale funcptr (fail-safe). Returns false if OOB. funcref-table GROW on JIT
+    /// is a separate gap (growTable rejects it; D-497).
+    pub fn tableSetRef(self: *JitInstance, idx: u32, slot: u32, payload: u64) bool {
+        if (idx >= self.owned.rt.tables_count) return false;
+        const d = &@as([*]entry.TableSlice, @constCast(self.owned.rt.tables_ptr))[idx];
+        if (slot >= d.len) return false;
+        d.refs[slot] = payload;
+        if (@intFromPtr(d.funcptrs) != 0) d.funcptrs[slot] = 0; // fail-safe stale-mirror guard
+        return true;
+    }
+
     /// ADR-0200 increment 5 — facade `Instance.table()` support. Resolves an
     /// exported table by name to its full-index-space idx (matching
     /// `JitRuntime.tables_ptr`), reftype, and declared max. Null when `name`

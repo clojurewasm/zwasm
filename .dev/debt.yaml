@@ -3,6 +3,29 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-497"
+    layer: "code"
+    status: "blocked-by"
+    description: |-
+      blocked-by: a host funcptr-mirror realloc path on JIT (the same barrier the guest
+      `table.grow` op carries — `setup.jitTableGrow` rejects funcref tables because it
+      cannot synthesise the parallel `funcptrs` native-entry mirror for new slots).
+      C-API `wasm_table_grow` on a FUNCREF table backed by a JIT instance returns false
+      (vs interp, which reallocs the refs slice and supports it). externref/non-funcref
+      table grow on JIT works (no funcptr mirror). Surfaced by the D-496 `.auto`→JIT
+      flip campaign (chunk 4): `growTable` (runner.zig:1234) `if funcptrs != 0 → reject`.
+      IMPACT: the existing `wasm 2.0 c_api wasm_table_grow` test grows mixed_exports' "t"
+      (funcref) — at the chunk-6 flip it must either pin `.interp` OR this gap closes.
+      DISCHARGE: implement a host funcref-table grow that extends BOTH refs and the
+      funcptrs mirror (resolve each new slot's FuncEntity→native entry), OR ratify that
+      host-side funcref-table grow on JIT is out of scope + pin the one test `.interp`.
+      table size/get/set on JIT funcref tables WORK (raw-ref round-trip + fail-safe
+      funcptr clear; D-496 chunk 4 @<sha>).
+    first_raised: "2026-06-22"
+    last_reviewed: "2026-06-22"
+    refs: |-
+      src/engine/runner.zig:growTable + tableSetRef · src/engine/setup.zig:jitTableGrow ·
+      src/api/instance.zig:wasm_table_grow · D-496 (parent campaign)
   - id: "D-496"
     layer: "code"
     status: "blocked-by"

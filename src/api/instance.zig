@@ -1692,9 +1692,12 @@ pub export fn wasm_table_delete(t: ?*Table) callconv(.c) void {
 pub export fn wasm_table_size(t: ?*const Table) callconv(.c) u32 {
     const handle = t orelse return 0;
     if (handle.instance) |inst| {
-        const rt = inst.runtime orelse return 0;
-        if (handle.table_idx >= rt.tables.len) return 0;
-        return @intCast(rt.tables[handle.table_idx].refs.len);
+        if (inst.runtime) |rt| {
+            if (handle.table_idx >= rt.tables.len) return 0;
+            return @intCast(rt.tables[handle.table_idx].refs.len);
+        }
+        if (jitOf(inst)) |jit| return jit.tableLen(handle.table_idx) orelse 0; // D-496
+        return 0;
     }
     return @intCast((handle.tinst orelse return 0).refs.len); // standalone host table
 }
@@ -1707,6 +1710,19 @@ pub export fn wasm_table_size(t: ?*const Table) callconv(.c) u32 {
 /// reference vs OOB by `wasm_table_size` bound check.
 pub export fn wasm_table_get(t: ?*const Table, idx: u32) callconv(.c) ?*Ref {
     const handle = t orelse return null;
+    // D-496 — JIT-backed instance: read the raw ref payload from the JitRuntime
+    // table slot (mirrors interp's raw `Value.ref` round-trip).
+    if (handle.instance) |inst| {
+        if (inst.runtime == null) {
+            const jit = jitOf(inst) orelse return null;
+            const payload = jit.tableGetRef(handle.table_idx, idx) orelse return null;
+            const store = inst.store orelse return null;
+            const alloc = storeAllocator(store) orelse return null;
+            const ref_handle = alloc.create(Ref) catch return null;
+            ref_handle.* = .{ .instance = handle.instance, .ref = payload };
+            return ref_handle;
+        }
+    }
     const tab: runtime.TableInstance = if (handle.instance) |inst| blk: {
         const rt = inst.runtime orelse return null;
         if (handle.table_idx >= rt.tables.len) return null;
@@ -1727,13 +1743,21 @@ pub export fn wasm_table_get(t: ?*const Table, idx: u32) callconv(.c) ?*Ref {
 /// (only the `.ref` payload is read).
 pub export fn wasm_table_set(t: ?*Table, idx: u32, ref: ?*Ref) callconv(.c) bool {
     const handle = t orelse return false;
+    const payload: u64 = if (ref) |r| r.ref else runtime.Value.null_ref;
+    // D-496 — JIT-backed instance: write the raw ref into the JitRuntime table slot
+    // (funcptr mirror fail-safe-cleared inside tableSetRef).
+    if (handle.instance) |inst| {
+        if (inst.runtime == null) {
+            const jit = jitOf(inst) orelse return false;
+            return jit.tableSetRef(handle.table_idx, idx, payload);
+        }
+    }
     const tab: runtime.TableInstance = if (handle.instance) |inst| blk: {
         const rt = inst.runtime orelse return false;
         if (handle.table_idx >= rt.tables.len) return false;
         break :blk rt.tables[handle.table_idx];
     } else (handle.tinst orelse return false).*; // refs slice aliased — write hits the backing
     if (idx >= tab.refs.len) return false;
-    const payload: u64 = if (ref) |r| r.ref else runtime.Value.null_ref;
     tab.refs[idx] = .{ .ref = payload };
     return true;
 }
@@ -3000,6 +3024,36 @@ test "D-496 JIT C-path: zwasm_instance_get_func resolves by index (.jit)" {
     defer wasm_instance_delete(inst);
     const func = zwasm_instance_get_func(inst, 0) orelse return error.FuncResolveFailed;
     defer wasm_func_delete(func);
+}
+
+test "D-496 JIT C-path: wasm_table_size/get/set raw-ref round-trip on a JIT instance (.jit)" {
+    // D-496 chunk 4: table size + raw-ref get/set on a JIT instance (was no-op on
+    // JIT). Mirrors interp's raw Value.ref C-API semantics (the existing interp
+    // table test forges a sentinel ref). funcref-table GROW on JIT = D-497 gap.
+    const e = wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer wasm_engine_delete(e);
+    const s = wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer wasm_store_delete(s);
+    var bytes = mixed_exports_wasm;
+    const bv: ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer wasm_module_delete(m);
+    const inst = instanceNewWithEngine(s, m, null, null, .jit) orelse return error.InstanceAllocFailed;
+    defer wasm_instance_delete(inst);
+    var exports_vec: ExternVec = .{ .size = 0, .data = null };
+    wasm_instance_exports(inst, &exports_vec);
+    defer wasm_extern_vec_delete(&exports_vec);
+    const data = exports_vec.data orelse return error.ExportsDataNull;
+    const tab = wasm_extern_as_table(data[2]) orelse return error.TableNull;
+    try testing.expectEqual(@as(u32, 1), wasm_table_size(tab)); // mixed_exports "t" = funcref min 1
+    const r0 = wasm_table_get(tab, 0) orelse return error.RefNull;
+    defer wasm_ref_delete(r0);
+    try testing.expectEqual(@as(u64, runtime.Value.null_ref), r0.ref);
+    var sentinel: Ref = .{ .instance = null, .ref = 0xC0FFEE };
+    try testing.expect(wasm_table_set(tab, 0, &sentinel));
+    const r1 = wasm_table_get(tab, 0) orelse return error.RefNull;
+    defer wasm_ref_delete(r1);
+    try testing.expectEqual(@as(u64, 0xC0FFEE), r1.ref);
 }
 
 test "ADR-0200 JIT C-path: export_types parallel to exports_storage so by-name discovery resolves (wast_runtime_runner regression)" {
