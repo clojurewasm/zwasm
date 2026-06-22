@@ -13,49 +13,13 @@ must confirm GREEN with `.auto`=JIT (kicked this turn — verify at Step 0.7). T
 `v2.0.0-alpha.3` TAG (USER-AUTHORIZED, tag-only, no Release) + send to_cljw_09 (flip landed + tag) + CronDelete f34c7ee2
 + clean stop (no ScheduleWakeup re-arm). Do NOT tag before 3-host green. cljw waits for the tag.
 
-## Active rework campaign
+## D-496 campaign (jit-capi-surface-flip) — LANDED local-green, pending 3-host
 
-- **Campaign-ID**: jit-capi-surface-flip (D-496)
-- **Goal**: a JIT-backed instance exposes the FULL embedding C-API surface (memory/table/global externs via
-  `wasm_instance_exports`; `wasm_extern_as_memory|table|global`; `zwasm_instance_get_func`; introspection
-  `wasm_extern_type`/`wasm_memory_type`/`wasm_table_type`/`wasm_global_type`) — so `.auto`→JIT can be the default with
-  ZERO C-API regressions. Then flip `.auto`→JIT (keep the LINKER `.interp` for now — it caused ~36 of the 69) + re-land
-  the CLI `--fuel`/`--timeout` JIT-arm. Exit = full `zig build test` + 3-host green WITH `.auto`=JIT, then tag.
-- **Phase**: I DONE (findings below). NEXT = Phase IV impl on `.jit`-PINNED tests (keep `.auto`=interp GREEN throughout;
-  flip LAST). Strategy: build the JIT C-API surface red→green via `.jit`-pinned accessor tests, NOT by flipping `.auto`
-  (which reds 69 until done). When the JIT surface is complete → flip `.auto`→JIT + re-land run.zig fuel-arm + keep
-  LINKER `.interp` → full test + 3-host green → tag.
-- **Phase I FINDINGS (agent a91c8f4a)**: (1) HIGHEST-LEVERAGE chunk = extend `instantiateJit` (instance.zig ~791-842)
-  to populate `.memory`/`.table`/`.global` into exports_storage+export_types (mirror interp `buildExportTypes`
-  instantiate.zig:685; source = `jit.exportGlobal`/`exportTable` (runner.zig:1118/1159) + module memory section). That
-  alone builds all 4 handle kinds in `wasm_instance_exports` (already kind-generic, instance.zig:1785) → unblocks every
-  `wasm_extern_as_*` (null→handle) AND ALL introspection (module_introspect reads handle fields + module bytes, NOT
-  runtime — free once handles exist). (2) Per-accessor JIT arms (each is `inst.runtime orelse return` → add `if
-  (inst.jit) |jit|`): MECHANICAL — global_get/set (rt.globals_base+globals_offsets), memory_data/size/grow
-  (rt.vm_base/mem_limit + JitInstance.growMemory runner.zig:1095), table_size/get/set/grow (rt.tables_ptr + growTable);
-  zwasm_instance_get_func (instance.zig:1206 — bound vs compiled.func_sigs-imports, not empty funcs_storage). HARDER
-  edge: funcref-table get/set (no host funcptr mirror, runner.zig:1200) — handle carefully or defer w/ debt. v128
-  globals already C-union-excluded (no new gap). JitRuntime fields: jit_abi.zig:151 (vm_base:154, globals_base:206,
-  tables_ptr:290).
-- **Phase IV chunks**: (1) DONE @45f5b93c7 kind-generic exports. (2/3/5) DONE @f7d5e0233 global/memory/get_func arms.
-  instance.zig `(cap=UNCAPPED)` @4e1b06892. (4) DONE @d3602f214 — table size/get/set raw-ref round-trip; funcref-GROW
-  gap → D-497; funcptr fail-safe-clear on set. **(6) FLIP IN PROGRESS (UNCOMMITTED)**: `.auto`→JIT routing landed
-  instance.zig:938 (try-JIT→interp-fallback on pre-start reject; start-trap propagates); LINKER pinned `.interp`
-  (linker.zig:795, covers the ~36 component failures); run.zig fuel-arm re-landed (~593, jitOf().setFuel/
-  setMemoryPagesLimit/setInterruptFlag); 6 interp-internal C-API tests pinned `.interp` (instance.zig 2305/2337/2356/
-  2612 + cross-module 3344/3361). Behaviorally confirmed: `.auto` --fuel→trap exit 1, tinygo_json→roundtrip OK via JIT.
-  flip attempt #3 STASHED "D-496-ch6-flip" (tree GREEN @d3602f214) with TWO REAL FIXES added (preserved in stash):
-  (1) engine-param threading (`Limits.engine`, `--engine interp`→`.interp`, SIMD test interp-leg pinned) — cleared
-  runWasmJit-SIMD; (2) WASI-host rejection in collectHostFuncTargets (interp parity). Full test 69→~14 remaining, ALL
-  CLASSIFIED in D-496: clean `.interp` pins (cross-module aliasing/zombie = MULTI-instance, pin carefully; non-exported
-  func call; facade source) + funcref gaps → pin+debt (NEW D-498 JIT C-API funcref param/result marshalling; D-497
-  funcref-table grow). **NEXT cycle = `git stash pop` → apply ~14 pins per D-496 → file D-498 → green → 3-host → tag
-  alpha.3** (USER-AUTHORIZED, campaign end). ubuntu green @414bb9a17 (ch1-4).
-- **Continuity-memo**: 69-failure breakdown in D-496. Full flip routing/run.zig-fuel-arm code re-implementable per D-496
-  refs + git reflog. Green baseline = `8a4a01905` (regalloc fix + docs). Phase I investigation agent dispatched
-  (JIT-C-API gap map). **Backstop cron = `f34c7ee2`** (every 10 min /continue) — `CronDelete` it at the FINAL stop
-  (after the alpha.3 tag), with no ScheduleWakeup re-arm (clean stop). The alpha.3 tag is USER-AUTHORIZED but cut ONLY
-  at campaign end (flip green + 3-host), per option C.
+Five chunks done: ch1 @45f5b93c7 (kind-generic exports), ch2/3/5 @f7d5e0233 (global/memory/get_func arms), ch4
+@d3602f214 (table), ch6 FLIP @3db5e40bd (`.auto`→JIT, full test 69→0). instance.zig `(cap=UNCAPPED)` @4e1b06892.
+Known niche JIT gaps: D-497 (funcref-table grow), D-498 (funcref param/result C-API marshalling) — both pinned+debt.
+**Backstop cron `f34c7ee2`** (10-min /continue): `CronDelete` at the FINAL stop (after the tag), no ScheduleWakeup
+re-arm (clean stop). The alpha.3 tag is USER-AUTHORIZED, cut ONLY after 3-host green.
 
 **DONE (committed, 3-host green @462ea1e57)**: D-489 + D-494 (the two real flip blockers) RESOLVED = regalloc LSRA dual
 spill-slot mint collision, fix = unify on `n_spill_minted`. The 69-failure flip-attempt detail + reverted-flip work is
