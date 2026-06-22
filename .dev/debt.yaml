@@ -160,6 +160,19 @@ entries:
       Prior ~14-pin classification + 2 real fixes (engine-param, NOT WASI-host) re-applicable from
       git (revert @18d2f887a is itself revertible: `git revert 18d2f887a` restores the flip).
       facade `table.zig` ALREADY has JIT arms so T1.15's gap is funcref grow (D-497), not get/set/size.
+      ---- ATTEMPTS #5+#6 (2026-06-22): THIRD blocker class — flip default CRASHES on funcref C-API ----
+      #5 = full flip + (A) always-R15 + (B): ubuntu RED — (A) always-R15 caused an x86_64 REGRESSION
+      (`entry_buffer_write` multi-result ABRT, frame/param-shuffle interaction). Reverted (A).
+      #6 = (b) flip WITHOUT always-R15 + 3 facade-sandbox `.interp` pins + D-499: Mac-green BUT ubuntu RED
+      on a NEW class — the `test-c-api-conformance` standalone exes **`funcref_table_call` (SEGV) +
+      `funcref_result_call` (exit 1)** under `.auto`→JIT. These run the PUBLIC default engine + exercise
+      funcref tables/results (the D-497/D-498 gaps), manifesting as a **CRASH in the default path**, NOT
+      pinnable niche debt (public-API conformance exes). A SEGV in the default violates memory-safety + the
+      no-half-working-default principle → the flip CANNOT ship until the JIT funcref C-API path at least
+      CLEANLY REJECTS (no SEGV) and ideally works. THREE flip-blocker classes: (1) x86_64 trivial-fn sandbox
+      poll, (2) always-R15 buffer-write regression, (3) funcref C-API conformance SEGV. Deep multi-class
+      campaign, not niche-debt-away. Reverted to green @4a042b5fc. SURFACED to user (A-tag-now vs C-keep) with
+      the SEGV as the decisive new fact; A recommended (default-engine funcref SEGV needs real work).
     first_raised: "2026-06-22"
     last_reviewed: "2026-06-22"
     refs: |-

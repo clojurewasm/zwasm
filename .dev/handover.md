@@ -3,20 +3,18 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Current state — Phase 17, `.auto`→JIT flip RE-LANDED @a2fc02782, Mac-GREEN; ubuntu-gate is the verdict → then tag
+## Current state — Phase 17, `.auto`→JIT flip REVERTED to green @4a042b5fc; 3 blocker classes; A-vs-C SURFACED to user
 
-**FLIP RE-LANDED (user=C), Mac `zig build test` GREEN (TESTEXIT 0).** The full flip = (A) always-R15 prologue poll
-@3424fe4f0 (Rosetta-verified: trivial `--fuel 0`→out_of_fuel; closes the x86_64 sandbox gap) + (B) wast_runtime_runner
-`.interp` pin @bddcd0c62 + the flip routing/linker-pin/run.zig-engine-param/~14 interp pins restored @a2fc02782.
-funcref D-497/D-498 stay pinned-debt. **NEXT: ubuntu-gate (the MANDATORY real verdict — Mac is necessary-not-sufficient,
-the hard lesson) + windows.** If 3-host GREEN with `.auto`=JIT → close campaign + cut+push `v2.0.0-alpha.3` tag
-(USER-AUTHORIZED, tag-only) + to_cljw_09 + CronDelete f34c7ee2 + clean stop. If ubuntu RED → triage the new failure
-(likely another x86_64 gap), do NOT tag. cron `f34c7ee2` backstop; CronDelete only at the final stop.
-
-**IN FLIGHT**: a subagent (agentId a4b151e9...) is implementing the (a) always-R15 fix + `bodyStartFromBytes`
-helper + 59 emit-test sed, verifying Mac-green + Rosetta `--fuel 0`-traps; it leaves changes UNCOMMITTED for review
-(do NOT edit emit.zig/prologue.zig/emit_test_* concurrently). Next cycle: review its diff → commit (A) → (B) pin →
-`git revert 18d2f887a` (restore flip+~14 pins) → layer A+B → ubuntu-gate → 3-host → tag.
+**FLIP REVERTED (tree green @4a042b5fc); awaiting user A-vs-C decision.** The flip kept hitting REAL ubuntu
+blockers across 6 attempts — THREE distinct classes (full detail D-496): (1) x86_64 trivial-fn sandbox poll
+(D-499); (2) always-R15 "proper" fix caused an `entry_buffer_write` ABRT regression; (3) **funcref C-API
+conformance exes `funcref_table_call` SEGV + `funcref_result_call` exit-1 under `.auto`→JIT** — a CRASH in the
+DEFAULT path (D-497/D-498), not pinnable niche debt. A SEGV in the default violates memory-safety; the flip
+cannot ship until the JIT funcref C-API path at least cleanly rejects (no SEGV). SOLID + committed + 3-host-green:
+the D-489/D-494 regalloc miscompile fix (the substantive alpha.3 content) + the 5 JIT-C-API accessor chunks.
+**NEXT = user decision**: A) tag `v2.0.0-alpha.3` NOW on this green baseline + defer the flip to a continued
+campaign (recommended — unblocks cljw; the meat is done+green); or C) keep grinding the flip (funcref-JIT-C-API
+work, multi-day). The tag is USER-AUTHORIZED either way. cron `f34c7ee2` backstop; CronDelete only at the final stop.
 
 **LESSON (load-bearing): Mac `zig build test` is INSUFFICIENT to declare the flip green — MUST ubuntu-gate.**
 
