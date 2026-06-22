@@ -159,6 +159,9 @@ pub fn main(init: std.process.Init) !void {
                         engine_jit = true;
                     } else if (std.mem.eql(u8, mode, "interp")) {
                         engine_jit = false;
+                        // D-496 `.auto`→JIT flip: the default captured path now prefers
+                        // JIT, so an EXPLICIT `--engine interp` must force interp.
+                        limits.engine = .interp;
                     } else {
                         try printlnErr(io, "zwasm run: --engine must be 'interp' or 'jit'");
                         std.process.exit(2);

@@ -837,7 +837,7 @@ test "zwasm facade T1.12: cross-instance memory sharing via Linker.defineMemory"
 
     var exporter_mod = try eng.compile(&facade_cross_mem_exporter_wasm);
     defer exporter_mod.deinit();
-    var exporter = try exporter_mod.instantiate(.{});
+    var exporter = try exporter_mod.instantiate(.{ .engine = .interp });
     defer exporter.deinit();
 
     var writer_mod = try eng.compile(&facade_cross_mem_writer_wasm);
@@ -971,7 +971,7 @@ test "zwasm facade T1.15: Instance.table get/set/size/grow (D-272)" {
     defer eng.deinit();
     var mod = try eng.compile(&facade_table_wasm);
     defer mod.deinit();
-    var inst = try mod.instantiate(.{});
+    var inst = try mod.instantiate(.{ .engine = .interp });
     defer inst.deinit();
 
     const t = inst.table("t") orelse return error.TestUnexpectedResult;

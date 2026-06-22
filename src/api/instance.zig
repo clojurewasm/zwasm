@@ -931,11 +931,25 @@ pub fn instantiateInternal(store: *Store, module: *const Module, builder_state: 
 
     // ADR-0200 — per-instance engine fork, shared by EVERY entry point
     // (`instantiateFacade`, `wasm_instance_new`, `src/zwasm/linker.zig`). `.jit`
-    // builds a native JIT-backed instance; `.auto`/`.interp` fall through to the
-    // interp setup below. TODO(ADR-0200): route `.auto` → JIT once the JIT path
-    // covers host imports + WASI (defer, not workaround — JIT is no-import-only
-    // this increment, so `.auto` stays interp to keep import-using modules working).
+    // builds a native JIT-backed instance; `.interp` forces the interp setup below.
     if (engine == .jit) return instantiateJit(store, module, builder_state, trap_out, limits);
+
+    // ADR-0200 / D-496 — `.auto`→JIT flip (D-489/D-494 regalloc miscompiles fixed;
+    // JIT instances now expose the full C-API surface: exports + memory/table/global
+    // accessors + introspection + get_func, chunks 1-5). TRY the JIT first; it
+    // rejects (returns null, NO trap) any module with an import/signature it can't
+    // satisfy — that rejection is at the import check BEFORE any setup side-effect
+    // (preopens, start), so the interp retry below is clean. A real `(start)` trap
+    // sets `jit_trap` and propagates (interp would trap too) rather than re-running.
+    if (engine == .auto) {
+        var jit_trap: ?*Trap = null;
+        if (instantiateJit(store, module, builder_state, &jit_trap, limits)) |inst| return inst;
+        if (jit_trap) |t| {
+            if (trap_out) |to| to.* = t;
+            return null;
+        }
+        // JIT could not compile this module → fall through to the interp setup below.
+    }
 
     // ADR-0184: open any preopen requests queued by the io-free
     // config builder (`zwasm_wasi_config_preopen_dir`) via the
@@ -2269,7 +2283,7 @@ test "wasm_instance_new / delete: round-trip with minimal module" {
     const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
     defer wasm_module_delete(m);
 
-    const i = wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    const i = instanceNewWithEngine(s, m, null, null, .interp) orelse return error.InstanceAllocFailed;
     defer wasm_instance_delete(i);
 
     try testing.expect(i.store == s);
@@ -2288,7 +2302,7 @@ test "wasm_instance_new: lowers Module funcs into Runtime" {
     const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
     defer wasm_module_delete(m);
 
-    const i = wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    const i = instanceNewWithEngine(s, m, null, null, .interp) orelse return error.InstanceAllocFailed;
     defer wasm_instance_delete(i);
 
     const rt = i.runtime.?;
@@ -2320,7 +2334,7 @@ test "wasm_instance_new: populates Runtime.tag_param_counts from tag section (10
     const bv: ByteVec = .{ .size = bytes.len, .data = &bytes };
     const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
     defer wasm_module_delete(m);
-    const i = wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    const i = instanceNewWithEngine(s, m, null, null, .interp) orelse return error.InstanceAllocFailed;
     defer wasm_instance_delete(i);
 
     const rt = i.runtime.?;
@@ -2339,7 +2353,7 @@ test "wasm_instance_new: tag_param_counts empty for module without tag section" 
     const bv: ByteVec = .{ .size = bytes.len, .data = &bytes };
     const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
     defer wasm_module_delete(m);
-    const i = wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    const i = instanceNewWithEngine(s, m, null, null, .interp) orelse return error.InstanceAllocFailed;
     defer wasm_instance_delete(i);
 
     try testing.expectEqual(@as(usize, 0), i.runtime.?.tag_param_counts.len);
@@ -2371,7 +2385,7 @@ test "wasm_func_call: i32-returning function dispatches to 42" {
     const bv: ByteVec = .{ .size = bytes.len, .data = &bytes };
     const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
     defer wasm_module_delete(m);
-    const i = wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    const i = instanceNewWithEngine(s, m, null, null, .interp) orelse return error.InstanceAllocFailed;
     defer wasm_instance_delete(i);
 
     const func = zwasm_instance_get_func(i, 0) orelse return error.FuncResolveFailed;
@@ -2500,9 +2514,13 @@ test "wasm_instance_new: rejects WASI imports when no host is configured" {
     const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
     defer wasm_module_delete(m);
 
-    // Module imports wasi_snapshot_preview1.fd_write but no host
-    // is configured on the Store. wasm_instance_new fails.
-    const inst = wasm_instance_new(s, m, null, null);
+    // Module imports wasi_snapshot_preview1.fd_write but no host is configured.
+    // D-496 — this is the INTERP rejection contract (interp rejects an
+    // unsatisfiable WASI import at instantiation). The JIT contract differs by
+    // design (D-451: it plants WASI thunks that stub-dispatch even without a host),
+    // so pin `.interp` — the post-flip `.auto` default would otherwise accept this
+    // on the JIT and no-op the syscalls.
+    const inst = instanceNewWithEngine(s, m, null, null, .interp);
     try testing.expect(inst == null);
 }
 
@@ -2595,7 +2613,7 @@ test "wasm_instance_new: succeeds for WASI imports when host configured (4.7c)" 
     // With host configured, instantiation succeeds even though
     // no defined functions exist — the import is wired into
     // host_calls[0] via thunkFdWrite.
-    const inst = wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    const inst = instanceNewWithEngine(s, m, null, null, .interp) orelse return error.InstanceAllocFailed;
     defer wasm_instance_delete(inst);
 
     const rt = inst.runtime.?;
@@ -2784,7 +2802,9 @@ test "wasm 2.0 reftype c_api round-trip: funcref param+result via wasm_func_call
     const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
     defer wasm_module_delete(m);
 
-    const inst = wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    // D-498 — funcref param/result marshalling through the C-API call boundary is
+    // interp-only for now (the JIT call arm lacks reftype marshal); pin `.interp`.
+    const inst = instanceNewWithEngine(s, m, null, null, .interp) orelse return error.InstanceAllocFailed;
     defer wasm_instance_delete(inst);
 
     const func = zwasm_instance_get_func(inst, 0) orelse return error.FuncResolveFailed;
@@ -3265,7 +3285,7 @@ test "wasm 2.0 cross-module funcref via wasm_instance_new: B's main dispatches i
     const bv_a: ByteVec = .{ .size = bytes_a.len, .data = &bytes_a };
     const m_a = wasm_module_new(s, &bv_a) orelse return error.ModuleAAllocFailed;
     defer wasm_module_delete(m_a);
-    const inst_a = wasm_instance_new(s, m_a, null, null) orelse return error.InstanceAAllocFailed;
+    const inst_a = instanceNewWithEngine(s, m_a, null, null, .interp) orelse return error.InstanceAAllocFailed;
     defer wasm_instance_delete(inst_a);
 
     // Walk A's exports → take the Extern* for "answer" and pass it
@@ -3286,7 +3306,7 @@ test "wasm 2.0 cross-module funcref via wasm_instance_new: B's main dispatches i
     var imports_arr: [1]?*Extern = .{answer_ext};
     var imports_vec: ExternVec = .{ .size = imports_arr.len, .data = &imports_arr };
     const imports_opaque: *const anyopaque = @ptrCast(&imports_vec);
-    const inst_b = wasm_instance_new(s, m_b, imports_opaque, null) orelse return error.InstanceBAllocFailed;
+    const inst_b = instanceNewWithEngine(s, m_b, imports_opaque, null, .interp) orelse return error.InstanceBAllocFailed;
     defer wasm_instance_delete(inst_b);
 
     // Walk B's exports → wasm_extern_as_func borrows the "main"
@@ -3327,7 +3347,7 @@ test "wasm 2.0 cross-module v128 global via wasm_instance_new: D-170 close" {
     const bv_exp: ByteVec = .{ .size = bytes_exp.len, .data = &bytes_exp };
     const m_exp = wasm_module_new(s, &bv_exp) orelse return error.ExporterModuleAllocFailed;
     defer wasm_module_delete(m_exp);
-    const inst_exp = wasm_instance_new(s, m_exp, null, null) orelse return error.ExporterInstanceAllocFailed;
+    const inst_exp = instanceNewWithEngine(s, m_exp, null, null, .interp) orelse return error.ExporterInstanceAllocFailed;
     defer wasm_instance_delete(inst_exp);
 
     var exports_exp: ExternVec = .{ .size = 0, .data = null };
@@ -3344,7 +3364,7 @@ test "wasm 2.0 cross-module v128 global via wasm_instance_new: D-170 close" {
     var imports_arr: [1]?*Extern = .{g_ext};
     var imports_vec: ExternVec = .{ .size = imports_arr.len, .data = &imports_arr };
     const imports_opaque: *const anyopaque = @ptrCast(&imports_vec);
-    const inst_imp = wasm_instance_new(s, m_imp, imports_opaque, null) orelse return error.ImporterInstanceAllocFailed;
+    const inst_imp = instanceNewWithEngine(s, m_imp, imports_opaque, null, .interp) orelse return error.ImporterInstanceAllocFailed;
     defer wasm_instance_delete(inst_imp);
 
     // Source (exporter) cell: defined global at idx=0, init via
@@ -3439,9 +3459,9 @@ test "wasm 2.0 c_api cross-module Store binding: multiple stores on same engine 
     // BEFORE its owning store s2 below; deferring would run after
     // s2 is freed and dereference dead store memory.
 
-    const inst1 = wasm_instance_new(s1, mod1, null, null) orelse return error.InstanceAllocFailed;
+    const inst1 = instanceNewWithEngine(s1, mod1, null, null, .interp) orelse return error.InstanceAllocFailed;
     defer wasm_instance_delete(inst1);
-    const inst2 = wasm_instance_new(s2, mod2, null, null) orelse return error.InstanceAllocFailed;
+    const inst2 = instanceNewWithEngine(s2, mod2, null, null, .interp) orelse return error.InstanceAllocFailed;
 
     // Isolation invariant 1: each instance's store back-pointer
     // resolves only to its own store.
@@ -3473,7 +3493,7 @@ test "wasm 2.0 c_api zombie lifecycle: B holds funcref into A after wasm_instanc
     const bv_a: ByteVec = .{ .size = bytes_a.len, .data = &bytes_a };
     const m_a = wasm_module_new(s, &bv_a) orelse return error.ModuleAAllocFailed;
     defer wasm_module_delete(m_a);
-    const inst_a = wasm_instance_new(s, m_a, null, null) orelse return error.InstanceAAllocFailed;
+    const inst_a = instanceNewWithEngine(s, m_a, null, null, .interp) orelse return error.InstanceAAllocFailed;
     // No `defer wasm_instance_delete(inst_a)` — we delete A
     // BEFORE B to exercise the zombie keep-alive contract.
 
@@ -3494,7 +3514,7 @@ test "wasm 2.0 c_api zombie lifecycle: B holds funcref into A after wasm_instanc
         var imports_arr: [1]?*Extern = .{answer_ext};
         var imports_vec: ExternVec = .{ .size = imports_arr.len, .data = &imports_arr };
         const imports_opaque: *const anyopaque = @ptrCast(&imports_vec);
-        break :blk wasm_instance_new(s, m_b, imports_opaque, null) orelse return error.InstanceBAllocFailed;
+        break :blk instanceNewWithEngine(s, m_b, imports_opaque, null, .interp) orelse return error.InstanceBAllocFailed;
     };
     defer wasm_instance_delete(inst_b);
 
@@ -3609,7 +3629,7 @@ test "wasm 2.0 c_api cross-module Store binding: engine-allocator survives store
         const s1 = wasm_store_new(e) orelse return error.Store1AllocFailed;
         const bv_1: ByteVec = .{ .size = bytes_1.len, .data = &bytes_1 };
         const m_1 = wasm_module_new(s1, &bv_1) orelse return error.Module1AllocFailed;
-        const inst_1 = wasm_instance_new(s1, m_1, null, null) orelse return error.Instance1AllocFailed;
+        const inst_1 = instanceNewWithEngine(s1, m_1, null, null, .interp) orelse return error.Instance1AllocFailed;
         try testing.expect(inst_1.runtime != null);
         wasm_instance_delete(inst_1);
         wasm_module_delete(m_1);
@@ -3625,7 +3645,7 @@ test "wasm 2.0 c_api cross-module Store binding: engine-allocator survives store
     const bv_2: ByteVec = .{ .size = bytes_2.len, .data = &bytes_2 };
     const m_2 = wasm_module_new(s2, &bv_2) orelse return error.Module2AllocFailed;
     defer wasm_module_delete(m_2);
-    const inst_2 = wasm_instance_new(s2, m_2, null, null) orelse return error.Instance2AllocFailed;
+    const inst_2 = instanceNewWithEngine(s2, m_2, null, null, .interp) orelse return error.Instance2AllocFailed;
     defer wasm_instance_delete(inst_2);
 
     try testing.expect(inst_2.runtime != null);
@@ -3705,7 +3725,7 @@ test "wasm 2.0 c_api zombie multi-consumer: 2 instances hold funcref into A afte
     const bv_a: ByteVec = .{ .size = bytes_a.len, .data = &bytes_a };
     const m_a = wasm_module_new(s, &bv_a) orelse return error.ModuleAAllocFailed;
     defer wasm_module_delete(m_a);
-    const inst_a = wasm_instance_new(s, m_a, null, null) orelse return error.InstanceAAllocFailed;
+    const inst_a = instanceNewWithEngine(s, m_a, null, null, .interp) orelse return error.InstanceAAllocFailed;
     // Intentionally NOT deferred — explicit pre-consumer delete
     // below exercises zombie keep-alive across multiple consumers.
 
@@ -3732,8 +3752,8 @@ test "wasm 2.0 c_api zombie multi-consumer: 2 instances hold funcref into A afte
         var imports_vec2: ExternVec = .{ .size = imports_arr2.len, .data = &imports_arr2 };
         const imp1_opaque: *const anyopaque = @ptrCast(&imports_vec1);
         const imp2_opaque: *const anyopaque = @ptrCast(&imports_vec2);
-        const b1 = wasm_instance_new(s, m_b1, imp1_opaque, null) orelse return error.InstanceB1AllocFailed;
-        const b2 = wasm_instance_new(s, m_b2, imp2_opaque, null) orelse return error.InstanceB2AllocFailed;
+        const b1 = instanceNewWithEngine(s, m_b1, imp1_opaque, null, .interp) orelse return error.InstanceB1AllocFailed;
+        const b2 = instanceNewWithEngine(s, m_b2, imp2_opaque, null, .interp) orelse return error.InstanceB2AllocFailed;
         break :blk .{ b1, b2 };
     };
     defer wasm_instance_delete(inst_b2);
@@ -3909,7 +3929,7 @@ test "wasm 2.0 c_api wasm_table_grow: grow + init-fill + max-limit (10.F-c)" {
     const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
     defer wasm_module_delete(m);
 
-    const inst = wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    const inst = instanceNewWithEngine(s, m, null, null, .interp) orelse return error.InstanceAllocFailed;
     defer wasm_instance_delete(inst);
 
     var exports: ExternVec = .{ .size = 0, .data = null };

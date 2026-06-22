@@ -790,9 +790,12 @@ pub const Linker = struct {
         // trap_out=null: the Linker path keeps the coarse InstantiateFailed for
         // a start trap (its rich LinkError covers the import-resolution failures);
         // surfacing a start trap here is a follow-up if a consumer needs it (D-275).
-        // ADR-0200 — Linker path is interp for now (engine selection on the
-        // Linker is a follow-up slice; WASI/host-import JIT bridge pending).
-        const inst_ptr = _api_instance.instantiateInternal(mod.c_store, mod.c_handle, pre.asBuilder(), null, limits, .auto) orelse return error.InstantiateFailed;
+        // ADR-0200 / D-496 — the Linker path stays INTERP-pinned even after the
+        // `.auto`→JIT flip: cross-module func/global/table/memory aliasing +
+        // component graph wiring are interp-runtime invariants (the JIT instance
+        // exposes accessors but not the cross-instance aliasing the Linker builds).
+        // Engine selection on the Linker is a separate follow-up slice.
+        const inst_ptr = _api_instance.instantiateInternal(mod.c_store, mod.c_handle, pre.asBuilder(), null, limits, .interp) orelse return error.InstantiateFailed;
         return .{ .handle = inst_ptr, .c_store = mod.c_store };
     }
 
@@ -831,7 +834,7 @@ test "Linker.defineInstance: registers every export (func/table/memory/global) u
     defer eng.deinit();
     var mod_a = try eng.compile(&a_bytes);
     defer mod_a.deinit();
-    var inst_a = try mod_a.instantiate(.{});
+    var inst_a = try mod_a.instantiate(.{ .engine = .interp });
     defer inst_a.deinit();
 
     var lk = eng.linker();

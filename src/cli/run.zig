@@ -38,6 +38,11 @@ pub const Limits = struct {
     /// (`--max-table-elements`); completes the JIT sandbox triad.
     max_table_elements: ?u64 = null,
     timeout_ms: ?u64 = null,
+    /// D-496 — engine for the C-API captured-run path. `.auto` (default) =
+    /// JIT-preferring with interp fallback (the `.auto`→JIT flip); `.interp`
+    /// forces interp (CLI `--engine interp`). `--engine jit` uses the dedicated
+    /// `runWasmJitCaptured` path, not this field.
+    engine: @import("../api/instance.zig").EngineKind = .auto,
 
     pub fn any(self: Limits) bool {
         return self.fuel != null or self.max_memory_bytes != null or self.max_table_elements != null or self.timeout_ms != null;
@@ -566,7 +571,9 @@ pub fn runWasmCapturedFull(
     };
     defer wasm_c_api.wasm_module_delete(module);
 
-    const instance = wasm_c_api.wasm_instance_new(store, module, null, null) orelse {
+    // D-496 — honour the caller's engine selection (default `.auto` = JIT-preferring
+    // with interp fallback per the flip; `.interp` forces interp for `--engine interp`).
+    const instance = @import("../api/instance.zig").instanceNewWithEngine(store, module, null, null, limits.engine) orelse {
         diagnostic.setDiag(.instantiate, .instance_alloc_failed, .unknown, "instantiation failed (no further detail in phase 1)", .{});
         return error.InstanceAllocFailed;
     };
@@ -587,6 +594,18 @@ pub fn runWasmCapturedFull(
             if (limits.timeout_ms) |ms| {
                 timeout_fut = try io.concurrent(timeoutRaiser, .{ io, ms, &timeout_flag });
                 rt.interrupt = &timeout_flag;
+            }
+        } else if (@import("../api/instance.zig").jitOf(instance)) |jit| {
+            // ADR-0200/D-496 `.auto`→JIT flip: this captured-run path now defaults to
+            // the JIT, so the sandbox limits must arm the JIT instance too (else
+            // `--fuel`/`--timeout` are silently dropped and an infinite-loop guest
+            // hangs — the regression the flip exposes). The JIT meters poll-site
+            // crossings (prologue + back-edges) for both fuel and interrupt.
+            if (limits.fuel) |n| jit.setFuel(n);
+            if (limits.max_memory_bytes) |b| jit.setMemoryPagesLimit(b / wasm_page_bytes);
+            if (limits.timeout_ms) |ms| {
+                timeout_fut = try io.concurrent(timeoutRaiser, .{ io, ms, &timeout_flag });
+                jit.setInterruptFlag(&timeout_flag);
             }
         }
     }
@@ -1145,8 +1164,9 @@ test "runCwasmWasi: a WASI fd_write .cwasm writes 'hi\\n' to the captured stdout
 test "runWasmJit: SIMD _start runs via the JIT where the interp traps (ADR-0136 / D-244)" {
     // Interpreter path: no SIMD execution → the `i32x4.add` dispatch slot is
     // null → Trap.Unreachable, which the run path maps to a non-zero exit
-    // code (a trap is exit≠0, not a Zig error).
-    const interp_code = try runWasm(testing.allocator, testing.io, &simd_start_wasm, &.{});
+    // code (a trap is exit≠0, not a Zig error). D-496: force `.interp` — the
+    // post-flip default `.auto` would run SIMD on the JIT (this leg is the foil).
+    const interp_code = try runWasmCapturedOpts(testing.allocator, testing.io, &simd_start_wasm, &.{}, null, null, &.{}, &.{}, &.{}, null, .{ .engine = .interp });
     try testing.expect(interp_code != 0);
 
     // JIT path: compiles + runs the SIMD `_start` to completion → 0.

@@ -949,7 +949,7 @@ test "facade setTableElementsLimit: host cap refuses table.grow past it (D-316)"
     defer eng.deinit();
     var mod = try eng.compile(&bytes);
     defer mod.deinit();
-    var inst = try mod.instantiate(.{});
+    var inst = try mod.instantiate(.{ .engine = .interp });
     defer inst.deinit();
 
     inst.setTableElementsLimit(3); // host cap = 3 elements (below the spec max)

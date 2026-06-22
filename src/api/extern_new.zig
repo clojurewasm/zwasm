@@ -877,7 +877,7 @@ test "wasm_func_as_ref / wasm_ref_as_func: funcref round-trip recovers a callabl
     const bv: vec.ByteVec = .{ .size = bytes.len, .data = &bytes };
     const m = instance.wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
     defer instance.wasm_module_delete(m);
-    const inst = instance.wasm_instance_new(s, m, null, null) orelse return error.InstanceAllocFailed;
+    const inst = instance.instanceNewWithEngine(s, m, null, null, .interp) orelse return error.InstanceAllocFailed;
     defer instance.wasm_instance_delete(inst);
 
     var exports: vec.ExternVec = .{ .size = 0, .data = null };

@@ -3,6 +3,25 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-498"
+    layer: "code"
+    status: "blocked-by"
+    description: |-
+      blocked-by: a JIT C-API funcref/externref param+result marshalling path. The C-API
+      `wasm_func_call` JIT arm (`wasmFuncCallJit` → `cValToJitBits`/`jitBitsToCVal`) marshals
+      i32/i64/f32/f64 but not reftype (funcref/externref) values. So calling an exported func
+      with a funcref param/result on a JIT instance traps (binding_error); the interp path
+      handles it. Surfaced by the D-496 `.auto`→JIT flip (ch6): `reftype c_api round-trip:
+      funcref param+result` (funcref_id `(funcref)→(funcref)`) + `extern_new wasm_func_as_ref/
+      ref_as_func funcref round-trip` — both pinned `.interp` for now. NICHE: host passing/
+      receiving funcref values through the C-API is uncommon (the core scalar surface works on
+      JIT). DISCHARGE: extend cValToJitBits/jitBitsToCVal (+ Ref marshalling) to encode/decode a
+      funcref/externref Value through the JIT call boundary (null funcref = the null_ref bits;
+      non-null funcref = the same FuncEntity-ptr encoding the table path uses), then unpin.
+    first_raised: "2026-06-22"
+    last_reviewed: "2026-06-22"
+    refs: |-
+      src/api/instance.zig:wasmFuncCallJit + cValToJitBits/jitBitsToCVal · D-496 (parent) · D-497
   - id: "D-497"
     layer: "code"
     status: "blocked-by"
@@ -75,13 +94,15 @@ entries:
       interp` actually forces interp** (real design need, NOT a pin).
       ---- ch6 FLIP attempt #3 (2026-06-22, STASHED "D-496-ch6-flip" again — 2 REAL FIXES added
       since #2, NOT committed; tree green at d3602f214) ----
-      Two REAL fixes made (in the stash): (1) **engine-param threading** — `Limits.engine`
-      (default `.auto`) wired into `runWasmCapturedFull`'s instantiate; main.zig sets `.interp`
-      for explicit `--engine interp` (was broken by the flip: --engine interp routed to JIT);
-      SIMD test interp-leg forced `.interp`. CLEARED runWasmJit-SIMD. (2) **WASI-host rejection**
-      — `collectHostFuncTargets` now rejects a WASI import when `store.wasi_host == null` (interp
-      parity: don't silently accept a hostless WASI module on JIT). Full test now **16→(WASI fix
-      will clear rejects-WASI) ~15**. FINAL triage of the remaining ~14 (all CLASSIFIED, execute
+      REAL fix kept: **engine-param threading** — `Limits.engine` (default `.auto`) wired into
+      `runWasmCapturedFull`'s instantiate; main.zig sets `.interp` for explicit `--engine interp`
+      (was broken by the flip: --engine interp routed to JIT); SIMD test interp-leg forced
+      `.interp`. CLEARED runWasmJit-SIMD. A second attempted fix (WASI-host rejection in
+      collectHostFuncTargets) was REVERTED — it conflicted with the JIT's established D-451
+      contract (a `.jit` instance accepts a stub-satisfiable WASI import like sched_yield WITHOUT
+      a host). Correct resolution: the `rejects WASI imports when no host` test encodes the INTERP
+      rejection contract → pinned `.interp` (the JIT/`.auto` lenient WASI-stub behavior is by
+      design per D-451). FINAL triage of the remaining ~14 (all CLASSIFIED, execute
       cleanly next cycle):
       • CLEAN `.interp` pins — genuinely interp-specific (cross-instance aliasing is interp-only;
         non-exported func call is interp-only; the JIT call arm dispatches by EXPORT NAME):
