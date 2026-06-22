@@ -3,12 +3,15 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Current state — Phase 17, ACTIVE CAMPAIGN: JIT-C-API surface → `.auto`→JIT flip → tag alpha.3 (user chose C)
+## Current state — Phase 17, `.auto`→JIT FLIP LANDED (local green @3db5e40bd); 3-host gate → then tag alpha.3
 
-**USER DECISION 2026-06-22: option C** — run the FULL JIT-C-API flip CAMPAIGN (ADR-0153 five-phase), THEN `.auto`→JIT,
-THEN tag `v2.0.0-alpha.3`. Multi-cycle (overnight+). Drive autonomously. cljw confirmed the green baseline `8a4a01905`
-is CLEAN (from_cljw_06 LOAD-regression alarm RETRACTED = false alarm; their wasm e2e all green) — no blocker. cljw
-stays in WAIT for the tag (end of campaign).
+**FLIP COMPLETE LOCALLY @3db5e40bd** (D-496, user option C): `.auto`→JIT default landed; full `zig build test` GREEN
+(69→0). Built on chunks 1-5 JIT C-API surface. ~21 interp-specific tests pinned `.interp` (cross-instance aliasing,
+by-index internal call, WASI-no-host interp contract per D-451). Known niche JIT gaps debt-rowed: D-498 (funcref
+param/result marshalling), D-497 (funcref-table grow). **NEXT (this is the campaign EXIT-condition)**: 3-host `test-all`
+must confirm GREEN with `.auto`=JIT (kicked this turn — verify at Step 0.7). THEN: close campaign + cut+push
+`v2.0.0-alpha.3` TAG (USER-AUTHORIZED, tag-only, no Release) + send to_cljw_09 (flip landed + tag) + CronDelete f34c7ee2
++ clean stop (no ScheduleWakeup re-arm). Do NOT tag before 3-host green. cljw waits for the tag.
 
 ## Active rework campaign
 
