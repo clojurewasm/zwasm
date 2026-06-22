@@ -69,14 +69,10 @@ D-463 handle isolation (ADR-0197); D-034 SIMD spill-completeness CLOSED @411dd1e
 marshalling, C-API Windows-export. Residual long-tails (debt-tracked, do NOT grind): D-464 async adversarial,
 D-305 niche shapes. Version `2.0.0-alpha.3`. Low-pri follow-up: consolidate duplicated SIMD spill helpers.
 
-## Closed bundle — D-489/D-494 regalloc fix (DONE @462ea1e57)
+## Closed: D-489/D-494 regalloc fix (DONE @462ea1e57) + windows gate
 
-Exit-condition met (x86_64 jit tinygo_json = 90). Both flip blockers resolved by the unified spill-mint fix; full
-story in lesson `2026-06-22-d489-capture-path-investigation.md`. No active bundle.
-
-**WINDOWS GATE — 3-host GREEN @ed9332294** (2026-06-21): earlier host-example file-create failure was an ENV FLAKE,
-cleared on re-run (Win64 spec 25539/0, simd 25075/0, wasi 3/0). Recorded via `--record`. Intermittent
-host-embedding-example file-create stays debt-tracked (`windows-host-example-filecreate`), NOT a code regression.
+D-489/D-494 both flip blockers resolved by the unified spill-mint fix (lesson `2026-06-22-d489-capture-path-investigation.md`).
+Windows gate 3-host GREEN @ed9332294 (intermittent host-example file-create = ENV flake, debt `windows-host-example-filecreate`, not a regression).
 
 ## Closed arcs (do NOT re-walk)
 
