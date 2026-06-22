@@ -95,9 +95,28 @@ entries:
         (funcref)→(funcref); wasmFuncCallJit's cValToJitBits/jitBitsToCVal likely lack funcref) +
         extern_new funcref round-trip → NEW debt D-498 "JIT C-API funcref param/result marshalling";
         T1.15 Instance.table + setTableElementsLimit + wasm_table_grow = funcref-table GROW = D-497.
-      NEXT: `git stash pop`, apply the ~14 pins (careful w/ multi-instance cross-module tests),
-      file D-498, green full test → 3-host → tag alpha.3. facade `table.zig` ALREADY has JIT arms
-      (lines 39-40/53/70/108) so T1.15's gap is specifically funcref grow (D-497), not get/set/size.
+      ---- ch6 FLIP attempt #4 (2026-06-22): COMMITTED @3db5e40bd (local Mac `zig build test` GREEN
+      69→0) then REVERTED @18d2f887a — 3-host gate caught x86_64-LINUX failures Mac MASKED ----
+      Mac arm64 `zig build test` passed all, but ubuntu `zig build test-all` FAILED @67e144752 on
+      THREE NEW classes Mac didn't surface (the flip-exposes-x86_64 pattern, like D-489):
+      (A) **facade fuel/interrupt SANDBOX tests trap on interp but NOT on x86_64 JIT** —
+      `Module.instantiate fuel=.limited(0)` (module.zig:376) + `Instance.interrupt` (instance.zig:600)
+      + `setFuel exhausted` (instance.zig:989) all `expected error.OutOfFuel/Interrupted, found void`
+      = the guest COMPLETED instead of trapping. These facade sandbox tests ran on interp pre-flip;
+      post-flip `.auto`→JIT, and x86_64 JIT does NOT honor fuel=0 / interrupt for a TRIVIAL function
+      (no loop back-edge; only the prologue poll, which x86_64 may not emit/check the same as arm64).
+      POTENTIAL x86_64 SANDBOX HOLE or these are interp-semantics tests needing `.interp` pin —
+      MUST investigate (arm64 JIT honored them = Mac green; x86_64 did not). (B) **spec wast
+      `imported-memory-copy/* invoke ExportNotFound`** — the spec assert runner's `.auto` path does
+      not fall back to interp for an imported-memory module (JIT rejects imports → but the runner
+      surfaced ExportNotFound instead of interp-running). (C) (windows verdict never landed; ubuntu
+      failed first.) NEXT: investigate (A) — is x86_64 JIT prologue fuel/interrupt poll a real gap
+      (FIX) or do these sandbox tests assert interp-granularity (pin `.interp`)? + (B) spec-runner
+      `.auto` fallback. THEN re-land the flip + the ~14 pins from attempt #3 + green 3-host → tag.
+      Mac `zig build test` is INSUFFICIENT for the flip — MUST gate ubuntu before declaring green.
+      Prior ~14-pin classification + 2 real fixes (engine-param, NOT WASI-host) re-applicable from
+      git (revert @18d2f887a is itself revertible: `git revert 18d2f887a` restores the flip).
+      facade `table.zig` ALREADY has JIT arms so T1.15's gap is funcref grow (D-497), not get/set/size.
     first_raised: "2026-06-22"
     last_reviewed: "2026-06-22"
     refs: |-
