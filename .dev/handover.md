@@ -7,27 +7,16 @@
 
 **Mode: overnight autonomous niche-debt discharge** (user-directed 2026-06-23: "逐次修正、取り組めるところを").
 `.auto`→JIT campaign DONE; tag `v2.0.0-alpha.3` @fc7ff0b3b (tag-only, Latest stays v1.11.0); cljw pins fc7ff0b3b.
-Plateau holds; no active campaign. **D-498 DONE @ab996afc0**: JIT C-API funcref param+result marshalling —
-`invokeRefIdx` extended to 1/2-param ref-result shapes (ref params ride i64 carrier); unpinned the param+result
-`wasm_func_call` test to `.jit` + added non-null funcref-PARAM round-trip test. Deleted from debt.
-**Remaining niche JIT gaps (interp-pinned, default never crashes)**: D-497 funcref-table GROW (ACTIVE BUNDLE below),
-D-499 x86_64 trivial-fn fuel/interrupt poll (blanket-R15 regressed buffer-write; targeted-fix OR ratify-interp),
-D-500 Win64 component wrapper-thunk.
-
-## Active bundle
-
-- **Bundle-ID**: D-497-jit-funcref-table-grow (ADR-0201)
-- **Cycles-remaining**: ~1 (impl DONE @11d70d69f, Mac green; awaiting ubuntu+windows verify)
-- **Continuity-memo**: Impl landed @11d70d69f: setup.zig pre-allocs funcref funcptr/typeidx mirrors to growCapacity;
-  jitTableGrowGuest (resolves *FuncEntity .funcptr/.typeidx) = table_grow_fn, jitTableGrowHost (fail-safe clear) =
-  growTable facade; arm64 X25 (table_size) reload after table-0 grow (x86_64 reads fresh); wasm_table_grow C-API JIT
-  arm. Mac `zig build test` 3092/3104 GREEN (guest call_indirect-grown-slot + host grow tests). **ABI-sensitive** —
-  setup arena-stride arithmetic + x86_64 fresh-table_size + windows call_indirect MUST be gate-verified.
-- **NEXT (Step 0.7)**: verify `/tmp/ubuntu.log` + `/tmp/win.log` green @11d70d69f. ubuntu green + windows green →
-  CLOSE bundle: delete D-497 from debt + drop this section. ubuntu RED → the setup pre-alloc stride is wrong (revert
-  + re-derive). windows RED on call_indirect → real Win64 bug (debt + fix).
-- **Exit-condition**: 11d70d69f green on ubuntu (x86_64) AND windows (Win64 call_indirect of a grown funcref slot);
-  then D-497 deleted from debt, bundle section removed.
+Plateau holds; no active campaign. **This session closed 3 niche JIT gaps**:
+- **D-498 DONE @ab996afc0**: JIT C-API funcref param+result marshalling (`invokeRefIdx` 1/2-param ref-result arms).
+- **D-497 DONE @11d70d69f, 3-host GREEN** (Mac+ubuntu+windows `test-all` 0-fail): JIT funcref-table grow (ADR-0201) —
+  setup pre-allocs funcptr/typeidx mirrors to growCapacity; jitTableGrowGuest (resolve *FuncEntity) vs jitTableGrowHost
+  (fail-safe clear); arm64 X25 reload after table-0 grow; wasm_table_grow C-API JIT arm. Both deleted from debt.
+- **D-499 RATIFIED interp-only @cd0a75e96** (note): targeted fix intractable (always-R15 regresses Win64 buffer-write;
+  trap stub structurally needs R15); runaway-safety intact on both arches; 3 facade tests `.interp`-pinned.
+**Remaining niche gap**: D-500 Win64 component wrapper-thunk (components-on-JIT works Mac+ubuntu; Win64 string-arg
+thunk missing → component CM-API `.interp`-pinned). **NEXT**: D-500 decision pending investigation (fix-Win64-thunk
+vs ratify-as-intended-architecture); windows host now FREE for any Win64-thunk verification.
 
 **Operational wins this session (keep using)**: (1) Rosetta x86_64-macos reproduces x86_64-linux JIT bugs (build on
 Mac `-Dtarget=x86_64-macos`, run under Rosetta). (2) **Win64 fast-repro**: cross-build `zig build test -Dtarget=

@@ -53,36 +53,6 @@ entries:
       src/engine/codegen/x86_64/usage.zig:57 + emit.zig:193 (uses_runtime_ptr gate) ·
       emit.zig:516 (Win64 buffer-write stack-arg, the regression) · src/zwasm/module.zig +
       instance.zig (.interp pins) · D-496 (parent) · investigation agent a748eff3 2026-06-23
-  - id: "D-497"
-    layer: "code"
-    status: "blocked-by"
-    description: |-
-      blocked-by: a host funcptr-mirror realloc path on JIT (the same barrier the guest
-      `table.grow` op carries — `setup.jitTableGrow` rejects funcref tables because it
-      cannot synthesise the parallel `funcptrs` native-entry mirror for new slots).
-      C-API `wasm_table_grow` on a FUNCREF table backed by a JIT instance returns false
-      (vs interp, which reallocs the refs slice and supports it). externref/non-funcref
-      table grow on JIT works (no funcptr mirror). Surfaced by the D-496 `.auto`→JIT
-      flip campaign (chunk 4): `growTable` (runner.zig:1234) `if funcptrs != 0 → reject`.
-      IMPACT: the existing `wasm 2.0 c_api wasm_table_grow` test grows mixed_exports' "t"
-      (funcref) — at the chunk-6 flip it must either pin `.interp` OR this gap closes.
-      DISCHARGE (ADR-0201, ACTIVE BUNDLE 2026-06-23): also affects the GUEST path —
-      guest table.grow routes through rt.table_grow_fn (= jitTableGrow), so guest
-      funcref grow is rejected too (masked: test-spec runs on interp). Mechanism mapped:
-      FuncEntity already carries .funcptr (native entry) + .typeidx; jitTableGrow can
-      reach both per-table mirrors via rt.tables_jit_ci_ptr[idx].{funcptr_base,typeidx_base}
-      (NO TableSlice layout change). Two barriers: (1) funcref mirrors size to `min`
-      (shared arena, no realloc) → pre-allocate to growCapacity like non-funcref refs;
-      (2) guest init = real *FuncEntity (resolve fe.funcptr/typeidx) vs host init = maybe
-      forged (must NOT deref — clear like tableSetRef) → split jitTableGrowGuest (resolve)
-      / jitTableGrowHost (fail-safe clear). ABI-sensitive (call_indirect grown slot) =
-      3-host gate incl windows.
-    first_raised: "2026-06-22"
-    last_reviewed: "2026-06-23"
-    refs: |-
-      ADR-0201 · src/engine/runner.zig:growTable + tableSetRef · src/engine/setup.zig:jitTableGrow +
-      growCapacity/funcptrs_buf/extra_offs · src/api/instance.zig:wasm_table_grow ·
-      src/runtime/instance/func.zig:FuncEntity{funcptr,typeidx} · D-496 (parent campaign)
   - id: "D-496"
     layer: "code"
     status: "blocked-by"
