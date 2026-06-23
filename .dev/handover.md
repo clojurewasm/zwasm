@@ -21,36 +21,25 @@ No active campaign/bundle.
 - **D-477 sliver(3) @083affd47 RESOLVED+tested** — mixed (i32,f64)→f64 JIT export works via the 2-arg buffer-thunk
   fall-through (regression guard added). **SIMD-spill dedup @df3fa42d7** (xmmDefSpilledV128→delegates).
 
-**NEXT — ACTIVE BUNDLE (below): D-477 v128 host-invoke** (Phase 16 是 indefinite 完成形/debt-repayment; the
-"build-on-demand" tag was phase-relative to the now-done API phase, not permanent). Builds JIT host-invoke ABI
-completeness for v128 args/results + unblocks the SIMD-vs-wasmtime differential oracle (currently blocked, lesson
-2026-06-20). No `now`-class debt; this is the chosen completeness front.
+**NEXT**: idle plateau — no `now`-class debt; remaining work is build-on-demand/parked (below). v128-host-invoke bundle
+OPENED then PARKED 2026-06-24 after Phase-I survey (ae0522a8): the only easy win (no-arg `()→v128` result) ALREADY
+WORKS (runner.zig:698 runWasi→callV128NoArgs→ScalarResult.v128; "wasmtime supports this"). The genuine remainder is
+the delicate ~7-site thunk path (v128 PARAMS + general marshalling, model-A) with LOW marginal value (SIMD correctness
+already covered: simd_assert 25075/0 + fuzz-loader 1665 JIT clean + spec-driver `()→v128`) and NO waiting consumer →
+correct call = do NOT grind; build when the SIMD-differential productization (or a real v128-host-invoke need) lands.
 **Fuzz sweeps CLEAN** (2026-06-23 @7af222e9a): loader campaign `2008 processed, 1777 compiled (1266 interp + 1665 JIT),
 231 rejected, 0 crashes`; exec-differential (interp-vs-JIT, D-469) seed `9/9 funcs, 0 mismatched`. Robustness +
 JIT-correctness reconfirmed. NOTE: exec-diff over the RAW SMITH campaign corpus reports `0 funcs compared` (smith
 exports no 0-param/scalar-result funcs — KNOWN limitation, lesson 2026-06-20) → don't re-run exec-diff on raw smith;
 the curated `exec_seed` is its real coverage. Re-run loader: `nix develop .#gen --command bash scripts/gen_fuzz_corpus.sh campaign && zig build fuzz-campaign`.
 
-## Active bundle
+## v128-host-invoke — Phase-I done, BUILD-ON-DEMAND (preserved for the real-consumer cycle)
 
-- **Bundle-ID**: D-477-v128-host-invoke
-- **Cycles-remaining**: ~4 (argByteOffsets helper + arm64 emit + SysV emit + Win64-by-ref + CLI v128 literal; arm64+SysV first, Win64-by-ref tail)
-- **Continuity-memo**: model A = v128 is 2 consecutive 16-aligned u64 slots in the existing `[*]u64` buffer (NOT a sig
-  widen — keeps scalar 8·k byte tests intact; slot size only governs cursor STRIDE + 16-align pad before each v128).
-  A SHARED `argByteOffsets(sig)` helper (cumulative, 16-align-before-v128) MUST drive BOTH the thunk loads AND the runner
-  packing identically. Per-arch param emit: arm64 `LDR Q V{fp},[X2,#16k]`; SysV `MOVUPS XMM{fp},[RDX+off]`; Win64 GOTCHA
-  = v128 passed BY REFERENCE (LEA ptr-to-slot into the GPR arg slot, body does its own MOVUPS). Result always V0/XMM0 →
-  STR Q / MOVUPS. Full recipe: `private/notes/d477-remaining-slices-design.md` Slice 3. Survey agent ae0522a8 mapping
-  current file:line + smallest-first red chunk.
-- **Plan (survey ae0522a8, concrete)**: chunk1 = **`()->v128` result-only, arm64** — (a) `TypedResult` gains a `.v128`
-  variant + `invokeMultiIdx` result-unpack arm (runner.zig ~1452, currently no `.v128`); (b) wrapper_thunk emitArm64
-  v128-result arm (`n_params==0, n_results==1, results[0]==.v128`): `LDR Q V0,[X2/results]; STR Q V0,[X1]` via existing
-  `encLdrQImm`/`encStrQImm`; (c) red test asserting an `i32x4(42,42,42,42)` const-result invoke round-trips. v128 gate
-  at wrapper_thunk.zig:185-187/696-699 (`contains_v128`→UnsupportedOp). chunk2 = v128 PARAMS + shared `argByteOffsets`
-  (16-stride) + SysV thunk (MOVUPS, Rosetta-verify); chunk3 = Win64-by-ref (windowsmini); chunk4 = CLI v128 literal +
-  wire SIMD differential. NOTE: direct-entry `callV128_*` already work (entry.zig:1819+); the gap is the THUNK path only.
-- **Exit-condition**: a v128 host-invoke (v128 arg + v128 result) round-trips byte-correct on arm64 + ubuntu x86_64
-  (Mac+ubuntu green); then the JIT-SIMD-vs-wasmtime differential can invoke v128-signature exports (no longer blocked).
+Implementation plan ready (survey ae0522a8 + `private/notes/d477-remaining-slices-design.md` Slice 3): model-A = v128 as
+2 consecutive 16-aligned u64 slots in the `[*]u64` buffer; a SHARED `argByteOffsets(sig)` drives thunk-loads + runner-
+packing; per-arch param emit arm64 `LDR Q`/SysV `MOVUPS`/Win64 BY-REFERENCE; adding `.v128` to the shared `TypedResult`
+union (entry_buffer_write.zig:253) touches ~7 exhaustive switches. **Easy part (no-arg `()→v128`) already done**
+(runner.zig:698). Build when a real consumer needs v128 PARAMS/general marshalling (SIMD-differential productization).
 
 ## Operational invariants (keep using)
 
