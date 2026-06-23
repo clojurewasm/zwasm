@@ -24,6 +24,9 @@ No active campaign/bundle.
 **NEXT**: no `now`-class debt (0); high/medium-value named work is exhausted. Remaining = build-on-demand / parked
 (below). Per ROADMAP §16: correctness-sweep / surface refinement / debt repayment as real signals surface (a consumer
 need, a new spec item, a discovered bug). Do NOT speculatively grind no-consumer niche slivers (debt's own guidance).
+**IN-FLIGHT (Step 0.7 check `/tmp/fuzz.log`)**: §14.3 nightly fuzz campaign kicked @4e0da7aa2 (gen 2000-module campaign
+corpus via `nix develop .#gen` + `zig build fuzz-campaign` loader, reject-not-crash sweep). A crash/abort in the log =
+REAL robustness bug → debt row + fix (the genuine next work). Clean = robustness reconfirmed, no action.
 
 ## Operational invariants (keep using)
 
