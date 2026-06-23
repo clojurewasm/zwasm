@@ -3,15 +3,16 @@
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:
 > [`handover_doc_discipline.md`](../.claude/rules/handover_doc_discipline.md).
 
-## Current state — Phase 17 完成形 plateau; `.auto`→JIT flip CAMPAIGN COMPLETE; v2.0.0-alpha.3 TAGGED @fc7ff0b3b
+## Current state — Phase 17 完成形 plateau; v2.0.0-alpha.3 TAGGED @fc7ff0b3b; niche-JIT-gap discharge in progress
 
-**CAMPAIGN DONE (user option C).** `.auto`→JIT is the default engine, **3-host GREEN** (Mac+ubuntu+windows full
-`test-all`). **Tag `v2.0.0-alpha.3` CUT + pushed @fc7ff0b3b** (annotated, tag-only — NO GitHub Release, Latest stays
-v1.11.0). to_cljw_09 SENT (cljw pins fc7ff0b3b). What landed: D-489/D-494 regalloc fix + 5 JIT-C-API accessor chunks
-(D-496) + `.auto`→JIT routing + D-498 funcref C-API (table-call + result). Niche debts (interp-pinned, default never
-crashes): D-497 funcref-table grow, D-499 x86_64 trivial-fn fuel poll, D-500 Win64 component thunk.
-**Next session = the loop is back at the 完成形 plateau** (no active campaign): correctness-sweep / debt repayment /
-surface refinement per ROADMAP §16. The D-497/499/500 JIT gaps are the natural next discharge candidates.
+**Mode: overnight autonomous niche-debt discharge** (user-directed 2026-06-23: "逐次修正、取り組めるところを").
+`.auto`→JIT campaign DONE; tag `v2.0.0-alpha.3` @fc7ff0b3b (tag-only, Latest stays v1.11.0); cljw pins fc7ff0b3b.
+Plateau holds; no active campaign. **D-498 DONE @ab996afc0**: JIT C-API funcref param+result marshalling —
+`invokeRefIdx` extended to 1/2-param ref-result shapes (ref params ride i64 carrier); unpinned the param+result
+`wasm_func_call` test to `.jit` + added non-null funcref-PARAM round-trip test. Deleted from debt.
+**Remaining niche JIT gaps (interp-pinned, default never crashes)**: D-497 funcref-table GROW on JIT (host
+funcptr-mirror realloc), D-499 x86_64 trivial-fn fuel/interrupt poll (blanket-R15 regressed buffer-write;
+targeted-fix OR ratify-interp), D-500 Win64 component wrapper-thunk. **NEXT = D-497** (Mac-testable arm64+x86_64).
 
 **Operational wins this session (keep using)**: (1) Rosetta x86_64-macos reproduces x86_64-linux JIT bugs (build on
 Mac `-Dtarget=x86_64-macos`, run under Rosetta). (2) **Win64 fast-repro**: cross-build `zig build test -Dtarget=
