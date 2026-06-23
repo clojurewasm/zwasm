@@ -18,8 +18,10 @@ Plateau holds; no active campaign. **This session closed 3 niche JIT gaps**:
   aliasing is Zone-2, component-on-JIT architecturally precluded), NOT a Win64 workaround; the residual general Win64
   `wrapper_thunk` ≥2-arg/3-result MEMORY-class host-invoke gap folded into D-477 sliver (4) (niche, build-on-demand).
 **All named niche JIT gaps are now closed/ratified/folded — loop back at the clean 完成形 plateau** (no active campaign).
-**NEXT**: correctness-sweep / surface refinement / debt repayment per ROADMAP §16. D-477 residual slivers (incl. the new
-Win64 multi-result thunk) are niche build-on-demand; no consumer is blocked.
+Also **D-477 sliver(3) RESOLVED+tested @083affd47** (mixed (i32,f64)→f64 JIT export works via the 2-arg buffer-thunk
+fall-through; regression guard added). **NEXT**: correctness-sweep / surface refinement / debt repayment per ROADMAP §16.
+Remaining D-477 slivers (v128 invoke; Win64 ≥4-param spill; Win64 ≥2-arg/3-result thunk) are niche build-on-demand; no
+consumer blocked.
 
 **Operational wins this session (keep using)**: (1) Rosetta x86_64-macos reproduces x86_64-linux JIT bugs (build on
 Mac `-Dtarget=x86_64-macos`, run under Rosetta). (2) **Win64 fast-repro**: cross-build `zig build test -Dtarget=
