@@ -2819,9 +2819,7 @@ test "wasm 2.0 reftype c_api round-trip: funcref param+result via wasm_func_call
     const m = wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
     defer wasm_module_delete(m);
 
-    // D-498 — funcref param/result marshalling through the C-API call boundary is
-    // interp-only for now (the JIT call arm lacks reftype marshal); pin `.interp`.
-    const inst = instanceNewWithEngine(s, m, null, null, .interp) orelse return error.InstanceAllocFailed;
+    const inst = instanceNewWithEngine(s, m, null, null, .jit) orelse return error.InstanceAllocFailed;
     defer wasm_instance_delete(inst);
 
     const func = zwasm_instance_get_func(inst, 0) orelse return error.FuncResolveFailed;

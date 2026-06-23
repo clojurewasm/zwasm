@@ -989,6 +989,64 @@ test "D-498 JIT C-path: funcref returned from a call is callable (func_call→re
     try testing.expectEqual(@as(i32, 42), results_data[0].of.i32);
 }
 
+// (module
+//   (type (func (param funcref) (result funcref)))   ;; id
+//   (type (func (result funcref)))                    ;; mk
+//   (func (export "id") (param funcref) (result funcref) local.get 0)
+//   (func (export "mk") (result funcref) ref.func 0)
+//   (elem declare func 0))
+// — exercises the NON-NULL funcref PARAM marshalling through the JIT call
+// boundary (D-498: invokeRefIdx 1-param arm + cValToJitBits ref). `mk` sources a
+// non-null funcref (wasm_func_as_ref is null on a pure-JIT instance, no runtime).
+const funcref_id_param_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x0a, 0x02, 0x60, 0x01, 0x70, 0x01, 0x70,
+    0x60, 0x00, 0x01, 0x70, 0x03, 0x03, 0x02, 0x00,
+    0x01, 0x07, 0x0b, 0x02, 0x02, 0x69, 0x64, 0x00,
+    0x00, 0x02, 0x6d, 0x6b, 0x00, 0x01, 0x09, 0x05,
+    0x01, 0x03, 0x00, 0x01, 0x00, 0x0a, 0x0b, 0x02,
+    0x04, 0x00, 0x20, 0x00, 0x0b, 0x04, 0x00, 0xd2,
+    0x00, 0x0b,
+};
+
+test "D-498 JIT C-path: non-null funcref PARAM round-trips through wasm_func_call (.jit)" {
+    const e = instance.wasm_engine_new() orelse return error.EngineAllocFailed;
+    defer instance.wasm_engine_delete(e);
+    const s = instance.wasm_store_new(e) orelse return error.StoreAllocFailed;
+    defer instance.wasm_store_delete(s);
+    var bytes = funcref_id_param_wasm;
+    const bv: vec.ByteVec = .{ .size = bytes.len, .data = &bytes };
+    const m = instance.wasm_module_new(s, &bv) orelse return error.ModuleAllocFailed;
+    defer instance.wasm_module_delete(m);
+    const inst = instance.instanceNewWithEngine(s, m, null, null, .jit) orelse return error.InstanceAllocFailed;
+    defer instance.wasm_instance_delete(inst);
+
+    const id = instance.zwasm_instance_get_func(inst, 0) orelse return error.FuncResolveFailed;
+    defer instance.wasm_func_delete(id);
+    const mk = instance.zwasm_instance_get_func(inst, 1) orelse return error.FuncResolveFailed;
+    defer instance.wasm_func_delete(mk);
+
+    // mk() -> a non-null funcref denoting `id`.
+    const empty: vec.ValVec = .{ .size = 0, .data = null };
+    var mk_res_data: [1]instance.Val = undefined;
+    var mk_res: vec.ValVec = .{ .size = 1, .data = &mk_res_data };
+    try testing.expect(instance.wasm_func_call(mk, &empty, &mk_res) == null);
+    const in_opaque = mk_res_data[0].of.ref orelse return error.MkRefNull;
+    const in_ref: *instance.Ref = @ptrCast(@alignCast(in_opaque));
+
+    // id(funcref) -> funcref: pass the non-null funcref as the param.
+    var args_data: [1]instance.Val = .{.{ .kind = .funcref, .of = .{ .ref = in_ref } }};
+    const args: vec.ValVec = .{ .size = 1, .data = &args_data };
+    var results_data: [1]instance.Val = undefined;
+    var results: vec.ValVec = .{ .size = 1, .data = &results_data };
+    try testing.expect(instance.wasm_func_call(id, &args, &results) == null);
+    try testing.expectEqual(instance.ValKind.funcref, results_data[0].kind);
+    const out_opaque = results_data[0].of.ref orelse return error.ResultRefNull;
+    const out_ref: *instance.Ref = @ptrCast(@alignCast(out_opaque));
+    // Identity: the returned funcref must carry the same payload it was passed.
+    try testing.expectEqual(in_ref.ref, out_ref.ref);
+}
+
 var foreign_test_finalized: bool = false;
 fn markForeignFinalized(info: ?*anyopaque) callconv(.c) void {
     _ = info;

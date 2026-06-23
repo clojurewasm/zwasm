@@ -1379,17 +1379,31 @@ pub const JitInstance = struct {
     /// func_idx, capturing the ref payload (u64) from the integer return register.
     /// The scalar `invokeIdx` runs a ref-result func as VOID (discards the result),
     /// so this dedicated path is needed to return a funcref/externref to a C host.
-    /// No-arg shape (the common funcref-getter, `funcref_result_call`); an arg'd
-    /// ref-result func → UnsupportedEntrySignature (clean reject; extendable).
+    /// The ref result rides the i64 carrier (rk=1 per `scalarKey`); ref PARAMS ride
+    /// the i64 carrier too (`paramScalarKey`), so a `(funcref)->(funcref)` identity
+    /// or a `(ref,...)->(ref)` shape dispatches through the scalar 0/1/2-arg helpers.
+    /// 3+ params → UnsupportedEntrySignature (clean reject; extendable via buffer-write).
     pub fn invokeRefIdx(self: *JitInstance, func_idx: u32, args: []const u64) Error!u64 {
         if (func_idx >= self.compiled.func_sigs.len) return Error.ExportNotFound;
         if (func_idx < self.compiled.num_imports) return Error.UnsupportedEntrySignature;
         const sig = self.compiled.func_sigs[func_idx];
         if (sig.results.len != 1 or std.meta.activeTag(sig.results[0]) != .ref) return Error.UnsupportedEntrySignature;
-        if (sig.params.len != args.len or sig.params.len != 0) return Error.UnsupportedEntrySignature;
-        // The ref result lives in the integer return register; capture it as u64 via
-        // the i64-width no-arg dispatch (rk=1 = i64 per scalarKey).
-        return try dispatchNoArg(self.compiled.module, func_idx, &self.owned.rt, 1);
+        if (sig.params.len != args.len) return Error.UnsupportedEntrySignature;
+        const m = self.compiled.module;
+        const r = &self.owned.rt;
+        switch (sig.params.len) {
+            0 => return try dispatchNoArg(m, func_idx, r, 1),
+            1 => {
+                const pk = paramScalarKey(sig.params[0]) orelse return Error.UnsupportedEntrySignature;
+                return try dispatchScalar1(m, func_idx, r, @as(u4, pk) * 4 + 1, args[0]);
+            },
+            2 => {
+                const pk0 = paramScalarKey(sig.params[0]) orelse return Error.UnsupportedEntrySignature;
+                const pk1 = paramScalarKey(sig.params[1]) orelse return Error.UnsupportedEntrySignature;
+                return try dispatchScalar2(m, func_idx, r, (@as(u8, pk0) << 4) | (@as(u8, pk1) << 2) | 1, args[0], args[1]);
+            },
+            else => return Error.UnsupportedEntrySignature,
+        }
     }
 
     /// Multi-value invoke (results.len > 1), which `invoke` rejects. Routes
