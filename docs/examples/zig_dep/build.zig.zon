@@ -2,14 +2,14 @@
     // A standalone package that consumes zwasm as an EXTERNAL Zig
     // dependency via a `build.zig.zon` path-dep — the genuine
     // library-consumability proof (ADR-0109 / §16.5 dogfooding).
-    // `examples/zig_host/` shares zwasm's private module inside the
+    // `docs/examples/zig_host/` shares zwasm's private module inside the
     // repo build; this one pulls it through the package boundary.
     .name = .zwasm_zig_dep_example,
     .version = "0.0.0",
     .fingerprint = 0x1840c09a5ebd7799,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
-        .zwasm = .{ .path = "../.." },
+        .zwasm = .{ .path = "../../.." },
     },
     .paths = .{
         "build.zig",

@@ -4,8 +4,8 @@ The native Zig facade (ADR-0109) lives in
 [`src/zwasm.zig`](../../src/zwasm.zig) and `src/zwasm/`. It is the
 authoritative source — this page organizes the surface and links to it;
 exact signatures + doc-comments live in the code. Runnable usage:
-[`examples/zig_dep/`](../../examples/zig_dep/) (external `build.zig.zon`
-path-dep consumer) and [`examples/zig_host/`](../../examples/zig_host/).
+[`docs/examples/zig_dep/`](../examples/zig_dep/) (external `build.zig.zon`
+path-dep consumer) and [`docs/examples/zig_host/`](../examples/zig_host/).
 
 ## Consuming the package
 
@@ -57,13 +57,13 @@ budgets.
 ## Two embedding shapes
 
 **No imports** — `Engine.compile` → `Module.instantiate(.{})` →
-`Instance.typedFunc(...).call(...)`. See `examples/zig_dep` block (1).
+`Instance.typedFunc(...).call(...)`. See `docs/examples/zig_dep` block (1).
 
 **Host imports** — build a `Linker`, `defineFunc("env", "add", fn (*Caller, i32, i32) i32, hostAdd)`
 (the Wasm signature is comptime-derived from the Zig fn; first param is
 `*Caller`), then `linker.instantiate(&module, .{})`. `defineWasi(.{ .args, .envs, .preopens, .io })`
 satisfies any `wasi_snapshot_preview1` import (`args` + `envs` + filesystem `preopens` —
-preopens need `.io`; stdio capture stays C-API-only). See `examples/zig_dep` block (2).
+preopens need `.io`; stdio capture stays C-API-only). See `docs/examples/zig_dep` block (2).
 
 ## Errors
 

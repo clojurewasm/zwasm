@@ -12,7 +12,7 @@
  * Build wiring lands in §9.3 / 3.9 (`zig build test-c-api`).
  * For now this file is hand-compileable via:
  *
- *   zig cc -c -I include examples/c_host/hello.c -o /tmp/hello.o
+ *   zig cc -c -I include docs/examples/c_host/hello.c -o /tmp/hello.o
  *
  * which proves the wasm.h surface is consumable by a real C TU.
  */

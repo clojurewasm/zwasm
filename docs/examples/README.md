@@ -1,7 +1,7 @@
 # Examples
 
 Runnable embeddings of zwasm across its host surfaces. See the top-level
-[README](../README.md) (§Embedding) and [`docs/tutorial.md`](../docs/tutorial.md)
+[README](../../README.md) (§Embedding) and [`docs/tutorial.md`](../tutorial.md)
 for the full walkthrough.
 
 | Example | Surface | What it shows |
@@ -21,5 +21,5 @@ zig build run-rust-host    # build + run the Rust host example (needs a native R
 ```
 
 The `zig_dep/` example is its own project — build it from inside its directory
-(`cd examples/zig_dep && zig build`). The `c_host/` example links the C API
+(`cd docs/examples/zig_dep && zig build`). The `c_host/` example links the C API
 library; see the tutorial for the compile/link invocation.

@@ -1078,7 +1078,7 @@ zwasm_from_scratch/
 │   ├── runners/                # bench wasm samples
 │   └── fixtures/               # bench-specific data files
 │
-├── examples/
+├── docs/examples/
 │   ├── c_host/
 │   ├── zig_host/
 │   └── rust_host/

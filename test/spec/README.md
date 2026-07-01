@@ -24,7 +24,7 @@ alerts when upstream advances beyond the pinned revisions.
 The vendored WebAssembly test suites are licensed under **Apache License 2.0**
 by the WebAssembly Community Group. zwasm is itself Apache-2.0, so the full
 license text in the repository root [`LICENSE`](../../LICENSE) applies to this
-vendored material as well. See [`THIRD_PARTY.md`](../../THIRD_PARTY.md) for the
+vendored material as well. See [`THIRD_PARTY.md`](../../legal/THIRD_PARTY.md) for the
 complete third-party attribution list.
 
 zwasm-authored fixtures in this tree (e.g. the `component-model-assert/*`

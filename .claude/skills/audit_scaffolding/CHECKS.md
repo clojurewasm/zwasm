@@ -7,7 +7,7 @@
 
 ### A.1 Dead file references
 
-For each markdown file under `.dev/`, `.claude/`, `CLAUDE.md`,
+For each markdown file under `.dev/`, `.claude/` (incl. `.claude/CLAUDE.md`),
 `README.md`:
 
 - Extract every `(./path)` and `path/to/file` reference.
@@ -85,7 +85,7 @@ short procedures, not narratives.
 
 ```
 grep -E '^\s*(- \*\*)?(Always|Never|All)' \
-    .dev/ROADMAP.md .claude/rules/*.md CLAUDE.md
+    .dev/ROADMAP.md .claude/rules/*.md .claude/CLAUDE.md
 ```
 
 For each absolute claim, verify it holds:

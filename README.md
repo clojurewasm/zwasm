@@ -124,8 +124,8 @@ const r = try add.call(.{ 2, 40 }); // 42
 
 Surface: `Engine` / `Module` / `Instance` / `Linker` (host imports via
 `defineFunc` + `Caller`) / `Memory` / `Global` / `Table` / `TypedFunc` /
-`Trap` / `Value`. Runnable: [`examples/zig_dep/`](examples/zig_dep/)
-(external path-dep consumer) and [`examples/zig_host/`](examples/zig_host/).
+`Trap` / `Value`. Runnable: [`docs/examples/zig_dep/`](docs/examples/zig_dep/)
+(external path-dep consumer) and [`docs/examples/zig_host/`](docs/examples/zig_host/).
 
 **Sandboxing untrusted guests** (both engines): `mod.instantiate(.{})`
 is **bounded by default** — `InstantiateOpts.fuel` and `.max_memory_pages` carry
@@ -143,10 +143,10 @@ from the CLI, `--fuel` / `--timeout` / `--max-memory` (both engines).
 **C** (wasm-c-api) — [`include/wasm.h`](include/wasm.h) is byte-identical
 to the upstream standard (the interface wasmtime/wasmer follow); WASI
 host-setup is the hand-authored [`include/wasi.h`](include/wasi.h). See
-[`examples/c_host/`](examples/c_host/) and
+[`docs/examples/c_host/`](docs/examples/c_host/) and
 [`docs/reference/c_api.md`](docs/reference/c_api.md).
 
-**Any FFI language** — [`examples/rust_host/`](examples/rust_host/)
+**Any FFI language** — [`docs/examples/rust_host/`](docs/examples/rust_host/)
 (`zig build run-rust-host`) declares the same `wasm.h` ABI from Rust and
 links `libzwasm`, demonstrating the C surface is consumable from any
 FFI-capable language, not just C.

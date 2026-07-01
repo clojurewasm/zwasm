@@ -2,7 +2,7 @@
 //! (ADR-0109): Engine → compile → instantiate → typedFunc().call(), plus
 //! the host-import path (Linker.defineFunc + Caller). Imported through the
 //! package boundary (`@import("zwasm")` resolves to the path-dep's public
-//! module), unlike `examples/zig_host/` which shares the in-repo private
+//! module), unlike `docs/examples/zig_host/` which shares the in-repo private
 //! module. Proves true library consumability of the full embedding surface
 //! (§16.5 dogfooding).
 

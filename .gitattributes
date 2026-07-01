@@ -6,4 +6,4 @@
 # Vendored / upstream content — keep out of GitHub's language statistics.
 test/spec/** linguist-vendored
 include/wasm.h linguist-vendored
-examples/zig_dep/zig-pkg/** linguist-vendored
+docs/examples/zig_dep/zig-pkg/** linguist-vendored

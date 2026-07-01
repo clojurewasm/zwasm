@@ -80,9 +80,9 @@ try lk.defineFunc("env", "add", fn (*zwasm.Caller, i32, i32) i32, hostAdd);
 var inst = try lk.instantiate(&mod, .{});
 ```
 
-Runnable: [`examples/zig_dep/`](../examples/zig_dep/) (external path-dep
+Runnable: [`docs/examples/zig_dep/`](examples/zig_dep/) (external path-dep
 consumer, exercises the full surface) and
-[`examples/zig_host/`](../examples/zig_host/). Surface reference:
+[`docs/examples/zig_host/`](examples/zig_host/). Surface reference:
 [`reference/zig_api.md`](reference/zig_api.md).
 
 ## 5. Embed in C
@@ -90,7 +90,7 @@ consumer, exercises the full surface) and
 zwasm implements the standard wasm-c-api ([`include/wasm.h`](../include/wasm.h)).
 A C host that drives any wasm-c-api runtime drives zwasm unchanged; WASI
 is configured via [`include/wasi.h`](../include/wasi.h). Runnable:
-[`examples/c_host/`](../examples/c_host/). Reference:
+[`docs/examples/c_host/`](examples/c_host/). Reference:
 [`reference/c_api.md`](reference/c_api.md).
 
 ## 6. Migrating from v1

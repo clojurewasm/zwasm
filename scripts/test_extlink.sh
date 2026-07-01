@@ -25,7 +25,7 @@ LDFLAGS=(-lm)
 if [ "$(uname -s)" = "Linux" ]; then LDFLAGS+=(-Wl,-z,noexecstack); fi
 
 echo "[test_extlink] $CC external link (system linker, not zig)"
-"$CC" -std=c11 -Izig-out/include examples/c_host/hello.c \
+"$CC" -std=c11 -Izig-out/include docs/examples/c_host/hello.c \
     zig-out/lib/libzwasm.a "${LDFLAGS[@]}" -o "$out/hello"
 
 echo "[test_extlink] run"

@@ -3,7 +3,7 @@
 //! Native Zig embedder selecting the JIT engine per-instance
 //! (`Module.instantiate(.{ .engine = .jit })`) and driving it through the
 //! ADR-0109 facade (`typedFunc().call()`). Counterpart to
-//! `examples/c_host/jit_engine.c` — same module, two embedding surfaces.
+//! `docs/examples/c_host/jit_engine.c` — same module, two embedding surfaces.
 //!
 //! One module exports a multi-arg `add` (→5) and a SIMD-body `lane0`
 //! (i32x4.extract_lane on a v128.const → 42; SIMD executes on the JIT, the

@@ -104,7 +104,7 @@
         };
 
         # `rust_host` embedder shell (§13.5; ADR-pending toolchain-on-test-host).
-        # zig (builds `libzwasm.a`) + native rustc (builds `examples/rust_host/
+        # zig (builds `libzwasm.a`) + native rustc (builds `docs/examples/rust_host/
         # hello.rs` linking it). Used by the `run-rust-host` step on the Linux
         # test host via `nix develop .#rust-host`; kept separate from `default`
         # so `test-all` stays toolchain-free. Windows uses native winget rust

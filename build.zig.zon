@@ -15,7 +15,7 @@
         "src",
         "include",
         "LICENSE",
-        "THIRD_PARTY.md",
+        "legal/THIRD_PARTY.md",
         "README.md",
         "CHANGELOG.md",
     },

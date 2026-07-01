@@ -44,7 +44,7 @@ A C host that already drives `wasm.h` configures WASI via
 `inherit_stdio` / … → `zwasm_store_set_wasi(store, cfg)` (takes
 ownership). See the worked example in
 [`include/wasi.h`](../../include/wasi.h) and
-[`examples/c_host/`](../../examples/c_host/).
+[`docs/examples/c_host/`](../examples/c_host/).
 
 ## `zwasm.h` extensions
 

@@ -1069,7 +1069,7 @@ pub fn build(b: *std.Build) void {
     // `zig build test-c-api` — Phase 3 / §9.3 / 3.9. Builds
     // `libzwasm.a` from the shared `core` module (rooted at
     // `src/zwasm.zig` per ADR-0024 D-1), compiles
-    // `examples/c_host/hello.c` against `include/wasm.h`, links
+    // `docs/examples/c_host/hello.c` against `include/wasm.h`, links
     // the two, and runs the resulting executable. The C host
     // exits 0 on success (printed result == 42).
     const c_api_lib = b.addLibrary(.{
@@ -1084,7 +1084,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     c_host_mod.addCSourceFile(.{
-        .file = b.path("examples/c_host/hello.c"),
+        .file = b.path("docs/examples/c_host/hello.c"),
         .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" },
     });
     c_host_mod.addIncludePath(b.path("include"));
@@ -1169,10 +1169,10 @@ pub fn build(b: *std.Build) void {
     }
 
     // `zig build run-zig-host` — §13.5. The Zig-native embedding example
-    // (`examples/zig_host/hello.zig`, ADR-0109 API) — counterpart to the
+    // (`docs/examples/zig_host/hello.zig`, ADR-0109 API) — counterpart to the
     // C-ABI `c_host`. Imports the `zwasm` core module, runs, exits 0.
     const zig_host_mod = createSanitizedModule(b, sanitize_opts, .{
-        .root_source_file = b.path("examples/zig_host/hello.zig"),
+        .root_source_file = b.path("docs/examples/zig_host/hello.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -1188,9 +1188,9 @@ pub fn build(b: *std.Build) void {
 
     // `zig build run-zig-host-jit` (ADR-0200) — the JIT-backed mini-consumer:
     // `Module.instantiate(.{ .engine = .jit })` calling a multi-arg + a SIMD-body
-    // export. Counterpart to `examples/c_host/jit_engine.c`. Run in test-all.
+    // export. Counterpart to `docs/examples/c_host/jit_engine.c`. Run in test-all.
     const zig_host_jit_mod = createSanitizedModule(b, sanitize_opts, .{
-        .root_source_file = b.path("examples/zig_host/jit_engine.zig"),
+        .root_source_file = b.path("docs/examples/zig_host/jit_engine.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -1205,7 +1205,7 @@ pub fn build(b: *std.Build) void {
     run_zig_host_jit_step.dependOn(&run_zig_host_jit.step);
 
     // `zig build run-rust-host` — §13.5. A third, independent embedding-
-    // ABI consumer: `examples/rust_host/hello.rs` declares the wasm-c-api
+    // ABI consumer: `docs/examples/rust_host/hello.rs` declares the wasm-c-api
     // surface via `extern "C"` and links the same `libzwasm.a` the C host
     // uses. **3-host (ADR-0162)**: native rust now lives on the test hosts
     // (the Linux host's `nix develop .#rust-host`; the Windows host's winget rust). Still
@@ -1235,7 +1235,7 @@ pub fn build(b: *std.Build) void {
         })
     else
         b.addSystemCommand(&.{ "rustc", "--edition", "2021" });
-    rustc_cmd.addFileArg(b.path("examples/rust_host/hello.rs"));
+    rustc_cmd.addFileArg(b.path("docs/examples/rust_host/hello.rs"));
     rustc_cmd.addPrefixedDirectoryArg("-Lnative=", c_api_lib.getEmittedBinDirectory());
     rustc_cmd.addArg("-lstatic=zwasm");
     rustc_cmd.addArg("-o");

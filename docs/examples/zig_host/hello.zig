@@ -2,7 +2,7 @@
 //!
 //! Drives the **native Zig embedding API** (ADR-0109): Engine → compile →
 //! inspect (`Module.exports`) → instantiate → `typedFunc().call()`. This is
-//! the Zig-native counterpart to `examples/c_host/hello.c` (which uses the
+//! the Zig-native counterpart to `docs/examples/c_host/hello.c` (which uses the
 //! wasm-c-api C ABI) — same module, two embedding surfaces.
 //!
 //!   (module (func (export "main") (result i32) (i32.const 42)))

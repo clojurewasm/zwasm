@@ -471,7 +471,7 @@ dual-engine differential oracle on exactly this property).
 The C ABI mirrors this with the `zwasm_instance_new_ex(store, module, imports,
 trap_out, engine_kind)` extension (`include/zwasm.h`; `ZWASM_ENGINE_AUTO=0` /
 `JIT` / `INTERP`) — stock `wasm_instance_new` is `.auto`. Worked end-to-end
-mini-consumers: `examples/zig_host/jit_engine.zig` + `examples/c_host/`…`jit_engine.c`
+mini-consumers: `docs/examples/zig_host/jit_engine.zig` + `docs/examples/c_host/`…`jit_engine.c`
 (`test-c-api-conformance`), each instantiating `engine=jit` and calling a
 multi-arg export plus a SIMD-body export (SIMD executes on the JIT).
 
