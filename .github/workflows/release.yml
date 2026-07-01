@@ -1,0 +1,77 @@
+# Release — build ReleaseSafe binaries for all supported targets and publish a
+# GitHub Release. Zig cross-compiles every target from a single Linux runner,
+# so no cross-job artifact plumbing is needed (only the pinned checkout action).
+#
+# TRIGGER: a maintainer pushing a `v*` tag (a deliberate, human act — the
+# autonomous loop never tags or releases; ADR-0156), or manual dispatch.
+#
+# NOTE: aarch64-macos is cross-linked from Linux using Zig's bundled macOS
+# libSystem stubs. Validate the macOS artifact on the first real release; if the
+# cross-link is unsatisfactory, split that target onto a native macos runner.
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Install Zig 0.16.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          source .github/versions.lock
+          mkdir -p ~/.local
+          dir="zig-x86_64-linux-${ZIG_VERSION}"
+          curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/${dir}.tar.xz" -o /tmp/zig.tar.xz
+          tar -xJf /tmp/zig.tar.xz -C ~/.local
+          echo "$HOME/.local/${dir}" >> "$GITHUB_PATH"
+
+      - name: Build + package all targets (ReleaseSafe)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          build_one() {
+            local target="$1" artifact="$2" pkg="$3"
+            echo "::group::build $target"
+            rm -rf zig-out
+            zig build -Doptimize=ReleaseSafe -Dtarget="$target"
+            if [ "$pkg" = zip ]; then
+              cp zig-out/bin/zwasm.exe dist/zwasm.exe
+              ( cd dist && zip -q "${artifact}.zip" zwasm.exe && rm zwasm.exe )
+            else
+              cp zig-out/bin/zwasm dist/zwasm
+              ( cd dist && tar czf "${artifact}.tar.gz" zwasm && rm zwasm )
+            fi
+            echo "::endgroup::"
+          }
+          build_one aarch64-macos   zwasm-macos-aarch64   tar.gz
+          build_one x86_64-linux    zwasm-linux-x86_64    tar.gz
+          build_one aarch64-linux   zwasm-linux-aarch64   tar.gz
+          build_one x86_64-windows  zwasm-windows-x86_64  zip
+          ( cd dist && for f in *.tar.gz *.zip; do sha256sum "$f"; done > SHA256SUMS )
+          ls -l dist
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          gh release create "$TAG_NAME" \
+            --title "$TAG_NAME" \
+            --generate-notes \
+            dist/*.tar.gz dist/*.zip dist/SHA256SUMS
