@@ -5,9 +5,9 @@
 # when the install step succeeds.
 #
 # Triggers: pull_request (any target) + push to `main` + manual dispatch.
-# NOTE: intentionally NOT `push` on `zwasm-from-scratch` — the maintainer's
-# development branch receives frequent pushes and local verification is the
-# primary path; gating there would storm the runners.
+# `main` is the trunk; feature work happens on `develop/*` branches that
+# gate via pull_request, so a push trigger there is unnecessary (the PR
+# run already covers it) and would only double-spend the runners.
 #
 # The Windows leg is advisory (continue-on-error): the authoritative Windows
 # verification is a native Windows x86_64 host, and the hosted

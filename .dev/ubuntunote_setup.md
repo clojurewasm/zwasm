@@ -106,8 +106,8 @@ nix flake --help | head -3
 ```bash
 mkdir -p ~/Documents/MyProducts
 cd ~/Documents/MyProducts
-git clone -b zwasm-from-scratch git@github.com:clojurewasm/zwasm.git zwasm_from_scratch
-cd zwasm_from_scratch
+git clone -b main git@github.com:clojurewasm/zwasm.git zwasm
+cd zwasm
 nix develop --command zig version   # should print 0.16.0
 ```
 

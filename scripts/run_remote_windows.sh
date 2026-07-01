@@ -2,13 +2,13 @@
 # scripts/run_remote_windows.sh — drive build/test on the windowsmini SSH host.
 #
 # `git fetch + reset --hard` the windowsmini clone to the latest
-# pushed `origin/zwasm-from-scratch`, then run the requested
+# pushed `origin/main`, then run the requested
 # `zig build` step there. Phase 15+ may extend this with a
 # `git bundle` path so unpushed commits can also be exercised; for
 # now we test the latest pushed state, mirroring zwasm v1.
 #
 # Usage:
-#   bash scripts/run_remote_windows.sh                         # default: zig build test-all on zwasm-from-scratch
+#   bash scripts/run_remote_windows.sh                         # default: zig build test-all on main
 #   bash scripts/run_remote_windows.sh build                   # zig build
 #   bash scripts/run_remote_windows.sh test                    # zig build test
 #   bash scripts/run_remote_windows.sh test-spec               # zig build test-spec
@@ -16,12 +16,12 @@
 #
 # The `--branch` form mirrors run_remote_ubuntu.sh and is used
 # by §9.13-V Phase A.6 to verify feature branches (e.g.
-# `zwasm-from-scratch-value16`) before merging to the main dev
-# branch.
+# `develop/value16`) before merging to the trunk
+# (`main`).
 #
 # Prerequisites: SSH alias `windowsmini` configured; Zig 0.16.0
 # installed remotely; the repo cloned at
-# ~/Documents/MyProducts/zwasm_from_scratch (see
+# ~/Documents/MyProducts/zwasm (see
 # `.dev/windows_ssh_setup.md`).
 
 # Orphan guard — reap prior orphans + self-bound under timeout before
@@ -45,8 +45,8 @@ SSH_OPTS="-o ServerAliveInterval=30 -o ServerAliveCountMax=4"
 # env-configurable (defaults are the project maintainer's hosts). Point
 # ZWASM_WINDOWS_HOST at your own SSH alias to run the gate elsewhere.
 HOST="${ZWASM_WINDOWS_HOST:-windowsmini}"
-REMOTE_DIR="${ZWASM_REMOTE_DIR:-Documents/MyProducts/zwasm_from_scratch}"
-REMOTE_BRANCH="zwasm-from-scratch"
+REMOTE_DIR="${ZWASM_REMOTE_DIR:-Documents/MyProducts/zwasm}"
+REMOTE_BRANCH="main"
 if [ "${1:-}" = "--branch" ]; then
     if [ -z "${2:-}" ]; then
         echo "[run_remote_windows] FAIL: --branch requires a branch name" >&2

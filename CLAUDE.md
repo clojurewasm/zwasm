@@ -3,26 +3,29 @@
 A from-scratch WebAssembly runtime in Zig 0.16.0.
 
 > Pointers only — detailed plans live in [`.dev/ROADMAP.md`](.dev/ROADMAP.md),
-> runnable procedures in [`.claude/skills/`](.claude/skills/), the
-> autonomous loop in [`.claude/skills/continue/SKILL.md`](.claude/skills/continue/SKILL.md).
+> runnable procedures in [`.claude/skills/`](.claude/skills/). (The autonomous
+> `/continue` build-campaign loop is RETIRED post-merge — maintenance mode.)
 
 ## Identity
 
 **Project name (in all docs and the published artifact): `zwasm`.**
 Binary / package: `zwasm`.
 
-This branch is a ground-up redesign of zwasm on top of v1 git history
-(commit 517cc5a, charter):
+zwasm v2 is a ground-up redesign of zwasm (v1 git history at commit 517cc5a).
+**As of 2026-07-01 the from-scratch campaign is COMPLETE**: v2 shipped to
+`main` (replace-merge `dbd43f89e`); v1 is frozen at tag `v1.11.1`.
 
-- Working dir: `~/Documents/MyProducts/zwasm_from_scratch/` (distinct
-  from `~/Documents/MyProducts/zwasm/`, the read-only v1 reference clone).
-- Branch: `zwasm-from-scratch`. **Never push to `main`**; push to
-  `zwasm-from-scratch` only with explicit user approval (or autonomously
-  inside `/continue`). `--force` always forbidden.
-- v1 ABI compatibility is out of scope; breaking the surfaces (C/Zig/CLI)
-  for the right design is allowed (ADR-0156). `docs/migration_v1_to_v2.md`
-  exists; **the loop never cuts a release** — tag/publish/cutover are
-  manual, user-only (ADR-0156).
+- Working dir: `~/Documents/MyProducts/zwasm/` (unified — the separate
+  `zwasm_from_scratch/` working dir is retired).
+- **`main` is the trunk.** Dev model: cut a `develop/<slug>` branch from
+  `main`, PR to `main`. The 3-host merge gate (`scripts/gate_merge.sh`,
+  A13) still guards any `main` merge. `--force` always forbidden.
+- **Release stays user-only (ADR-0156)**: tag / publish / cutover are
+  manual. Current line = `v2.0.0-rc.1` (tag-only; Latest = v1.11.1).
+  `v2.0.0` final = bump `build.zig.zon` + push `v2.0.0` tag → `release.yml`
+  auto-builds + Release + Latest→v2. See `docs/migration_v1_to_v2.md`.
+- v1 ABI compatibility is out of scope; the C/Zig/CLI surfaces broke v1 on
+  purpose (ADR-0156).
 
 Read-only reference clones: `~/Documents/OSS/` + `zwasm/` (v1) +
 `ClojureWasmFromScratch/`. Full list at
@@ -43,21 +46,12 @@ and culturally-loaded one-word labels (例: 気付いたら即追加, 裏取り)
 where they anchor a concept more cleanly. Never in normative rule
 text or code identifiers.
 
-## Frozen loop invariants (read once per session)
+## Frozen invariants (read once per session)
 
-- **No autonomous release (ADR-0156)**: the loop NEVER tags, publishes,
-  or cuts over to `main`, and **no release gate exists** as a loop
-  construct. Phase 16 = completion finalization (完成形): surface audits
-  (C/Zig/CLI — あるべき論 + industry-standard, breaking-allowed, NOT v1
-  parity) + dogfooding + memory-safety + debt repayment, pursued
-  indefinitely. Tag/publish/cutover/version come only from an explicit
-  user message. Don't march toward "ready to release."
-- **`/continue` re-arm = `ScheduleWakeup(delaySeconds=60,
-  prompt="/continue")`** — literal `60` is harness runtime floor
-  (clamp `[60, 3600]`). The tool description's "default 1200-1800s"
-  does NOT apply here. Full reasoning:
-  [`.claude/skills/continue/LOOP.md`](.claude/skills/continue/LOOP.md)
-  §"Self-perpetuation".
+- **Release is user-only (ADR-0156)**: never autonomously tag, publish, or
+  cut over to a release. Tag / publish / version come only from an explicit
+  user message. (The v2 build campaign — Phase 16 完成形 — is complete; the
+  project is in maintenance. v2 is on `main`; v1 frozen at v1.11.1.)
 - **ROADMAP §18 amendment**: routine `[x]` flips + SHA backfills + next
   phase table expansion = no ADR. Deviation in §1 / §2 (P/A) / §4
   (architecture / Zone / ZirOp) / §5 (layout) / §9 phase scope/exit /
@@ -135,10 +129,12 @@ text or code identifiers.
 
 ## Skills
 
-- [`continue`](.claude/skills/continue/SKILL.md) — autonomous resume +
-  per-task TDD loop. Triggers on "続けて" / "/continue" / "resume".
-  Stop conditions in
-  [`STOP_BUCKETS.md`](.claude/skills/continue/STOP_BUCKETS.md).
+- [`continue`](.claude/skills/continue/SKILL.md) — resume context + the
+  per-task TDD loop (red→green→refactor). Triggers on "続けて" / "/continue"
+  / "resume". **Maintenance mode** (post-campaign): no auto-loop, no
+  self-re-arm, no direct-to-`main` push — work on a `develop/<slug>` branch
+  → PR. The `LOOP/GATE/RESUME/REWORK/STOP_BUCKETS` sub-docs are the retired
+  campaign machinery, kept as historical reference.
 - [`audit_scaffolding`](.claude/skills/audit_scaffolding/SKILL.md) —
   adaptive audit (staleness / bloat / lies / debt+lessons coherence /
   extended-challenge consistency) across CLAUDE.md, `.dev/`, `.claude/`,

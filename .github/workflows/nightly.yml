@@ -7,7 +7,7 @@
 #   # schedule:
 #   #   - cron: "0 6 * * *"   # 06:00 UTC daily
 #
-# Run on demand: `gh workflow run nightly.yml --ref zwasm-from-scratch`.
+# Run on demand: `gh workflow run nightly.yml --ref main`.
 #
 # Coverage (the three §14.3 legs): (1) fuzz-campaign — a fresh large
 # `wasm-tools smith` corpus run through the loader (parse + validate +

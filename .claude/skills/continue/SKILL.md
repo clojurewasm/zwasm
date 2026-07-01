@@ -1,19 +1,21 @@
 ---
 name: continue
-description: Resume fully autonomous work on zwasm-from-scratch and drive the per-task TDD loop until the user intervenes or a problem is identified that genuinely cannot be solved. Trigger when the user says 続けて, "resume", "pick up where we left off", "/continue", "次", "go", or starts a fresh session expecting prior context. Reads handover, finds next task, runs tests, then immediately enters the TDD loop with no "go" gate, no Phase-boundary stop, and no per-task confirmation. Auto-runs adaptive audit_scaffolding inline, continues into the next Phase without prompting, pushes its own commits to origin/zwasm-from-scratch, and re-arms itself via ScheduleWakeup so overnight / no-reply sessions keep iterating.
+description: Resume context on zwasm and continue the per-task TDD loop (red→green→refactor). Trigger when the user says 続けて, "resume", "pick up where we left off", "/continue", "次", "go", or starts a fresh session expecting prior context. Reads .dev/handover.md, orients on the current task, runs tests. MAINTENANCE MODE (post-merge): work on a develop/<slug> feature branch off main and open a PR — NO autonomous multi-task loop, NO self-re-arm, NO direct push to main. Release/tag stays user-only.
 ---
 
 # continue
 
-Pick up where the previous session left off and **drive the iteration
-loop fully autonomously, indefinitely, without user babysitting**. The
-user invoked `/continue` precisely to walk away and expect a long chain
-of green commits, not a "shall I proceed?" prompt.
+> **RETIRED CAMPAIGN LOOP → MAINTENANCE MODE (2026-07-01).** v2 shipped to
+> `main`; the fully-autonomous single-branch build loop below is HISTORICAL.
+> In maintenance, `/continue` = resume context + drive ONE task's TDD cycle
+> on a `develop/<slug>` branch → PR to `main`. No overnight self-re-arm, no
+> auto-advance across tasks, no direct `main` push. The
+> `LOOP/GATE/RESUME/REWORK/STOP_BUCKETS` docs describe the retired campaign
+> machinery — read them as reference, not live procedure.
 
-This skill is **opinionated about context discipline and
-self-perpetuation**: delegate heavy reads to subagents, compact
-proactively, reset at phase boundaries, push, and re-arm so the loop
-survives even when the user is not present.
+Pick up where the previous session left off, orient from `.dev/handover.md`,
+and continue the current work item with a clean red→green→refactor cycle.
+Delegate heavy reads/surveys to subagents and keep the working set lean.
 
 ## Stop conditions — strict 3-bucket whitelist
 

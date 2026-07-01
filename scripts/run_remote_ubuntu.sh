@@ -6,11 +6,11 @@
 # (Rosetta-translated x86_64; tripped D-134 SIGSEGV race —
 # closed per ADR-0067). Mirrors `run_remote_windows.sh`:
 # `git fetch + reset --hard` the ubuntunote clone to the
-# latest pushed `origin/zwasm-from-scratch`, then run the
+# latest pushed `origin/main`, then run the
 # requested `zig build` step.
 #
 # Usage:
-#   bash scripts/run_remote_ubuntu.sh                          # default: zig build test-all on zwasm-from-scratch
+#   bash scripts/run_remote_ubuntu.sh                          # default: zig build test-all on main
 #   bash scripts/run_remote_ubuntu.sh build                    # zig build
 #   bash scripts/run_remote_ubuntu.sh test                     # zig build test
 #   bash scripts/run_remote_ubuntu.sh test-spec                # zig build test-spec
@@ -22,15 +22,15 @@
 # background x86_64-RUN gate never under-scopes (the D-260 foot-gun).
 #
 # The `--branch` form is used by §9.13-V Phase A.6 to verify
-# feature branches (e.g. `zwasm-from-scratch-value16`) before
-# merging to the main dev branch. Default branch is
-# `zwasm-from-scratch`; the per-chunk `/continue` loop never
+# feature branches (e.g. `develop/value16`) before
+# merging to the trunk. Default branch is
+# `main`; the per-chunk `/continue` loop never
 # passes `--branch` (it expects to verify the just-pushed
 # origin HEAD of the main dev branch per ADR-0076 D3).
 #
 # Prerequisites: SSH alias `ubuntunote` configured; Zig 0.16.0
 # available remotely via the project's flake.nix dev shell;
-# the repo cloned at ~/Documents/MyProducts/zwasm_from_scratch
+# the repo cloned at ~/Documents/MyProducts/zwasm
 # with `origin` pointing at clojurewasm/zwasm. Setup procedure
 # in `.dev/ubuntunote_setup.md`.
 #
@@ -58,8 +58,8 @@ SSH_OPTS="-o ServerAliveInterval=30 -o ServerAliveCountMax=4"
 # env-configurable (defaults are the project maintainer's hosts). Point
 # ZWASM_UBUNTU_HOST at your own SSH alias to run the gate elsewhere.
 HOST="${ZWASM_UBUNTU_HOST:-ubuntunote}"
-REMOTE_DIR="${ZWASM_REMOTE_DIR:-Documents/MyProducts/zwasm_from_scratch}"
-REMOTE_BRANCH="zwasm-from-scratch"
+REMOTE_DIR="${ZWASM_REMOTE_DIR:-Documents/MyProducts/zwasm}"
+REMOTE_BRANCH="main"
 if [ "${1:-}" = "--branch" ]; then
     if [ -z "${2:-}" ]; then
         echo "[run_remote_ubuntu] FAIL: --branch requires a branch name" >&2

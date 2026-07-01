@@ -55,7 +55,7 @@
 #
 # CI (.github/workflows/bench.yml) invokes this script with
 # `--quick --phase-record --reason="CI: ..."` on each push to
-# zwasm-from-scratch; the per-arch entry is then extracted via
+# main; the per-arch entry is then extracted via
 # scripts/append_bench_to_history.sh and aggregated into one bot
 # commit. Local users do not call append_bench_to_history.sh.
 

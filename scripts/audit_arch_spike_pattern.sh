@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Detect on-branch architectural spike patterns (close-plan §6 (d) / D-153 anti-pattern).
 #
-# Scans recent commits on zwasm-from-scratch for forbidden phrases that historically
+# Scans recent commits on main for forbidden phrases that historically
 # correlated with "helper先 land → wire-up 別 cycle" — the failure mode that consumed
 # 12 cycles in D-153 (B146-B158).
 #

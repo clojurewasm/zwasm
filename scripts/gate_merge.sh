@@ -23,7 +23,7 @@
 # The "ClojureWasm guest" half of A13 lands when §9.6 / 6.3 wires
 # its `build.zig.zon` `path = ...` end-to-end. Until then this
 # gate is A13 minus ClojureWasm — every other A13 layer is
-# enforced on every push to `zwasm-from-scratch`.
+# enforced on every push to `main`.
 #
 # Exits non-zero on any host that built but had a failed test, on
 # any commit-gate failure, or on missing tools (orb / ssh) where

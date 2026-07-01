@@ -7,7 +7,7 @@
 # to zwasm-from-scratch was DISABLED 2026-05-25 per user direction —
 # local development is the primary path and CI was not actually
 # consumed; auto-runs were producing noise + failures. To re-run
-# the bench, use `gh workflow run bench.yml --ref zwasm-from-scratch`
+# the bench, use `gh workflow run bench.yml --ref main`
 # or trigger via the GitHub Actions UI. To restore auto-trigger,
 # re-add the `push:` block (preserved in git history at commit
 # 4d626f3e^).
@@ -174,10 +174,10 @@ jobs:
     needs: [bench-mac, bench-linux]
     timeout-minutes: 10
     steps:
-      - name: Checkout zwasm-from-scratch
+      - name: Checkout main
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: zwasm-from-scratch
+          ref: main
           fetch-depth: 1
           persist-credentials: true
 
@@ -221,11 +221,11 @@ jobs:
           # Retry-once on push race: if another CI run pushed first,
           # rebase onto remote and try again.
           for attempt in 1 2 3; do
-            if git push origin zwasm-from-scratch; then
+            if git push origin main; then
               exit 0
             fi
             echo "[bench-aggregate] push attempt ${attempt} lost race; rebasing"
-            git pull --rebase origin zwasm-from-scratch
+            git pull --rebase origin main
           done
           echo "[bench-aggregate] giving up after 3 push attempts" >&2
           exit 1

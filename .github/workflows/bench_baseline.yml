@@ -3,7 +3,7 @@
 # comparison floor) on each gate arch, on demand.
 #
 # Trigger: **manual only** (`workflow_dispatch`) — `gh workflow run
-# bench_baseline.yml --ref zwasm-from-scratch` or the Actions UI.
+# bench_baseline.yml --ref main` or the Actions UI.
 # Scope: 2-host (Mac + Linux) per ADR-0137; the windows-2022 leg is
 # deferred (D-249 — hyperfine absent on the windows path).
 #

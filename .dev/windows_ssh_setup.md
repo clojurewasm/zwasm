@@ -96,24 +96,24 @@ Only the directory name differs.
 ssh windowsmini bash -lc "'
   mkdir -p ~/Documents/MyProducts &&
   cd ~/Documents/MyProducts &&
-  git clone -b zwasm-from-scratch git@github.com:clojurewasm/zwasm.git zwasm_from_scratch
+  git clone -b main git@github.com:clojurewasm/zwasm.git zwasm
 '"
 ```
 
 `origin` ends up pointing at the same `clojurewasm/zwasm` GitHub
-remote that v1 uses; the `zwasm-from-scratch` branch is the
-long-lived v2 branch.
+remote that v1 uses; `main` is the trunk (the long-lived v2
+branch was merged into it).
 
 ## Phase 0 smoke
 
 The minimum for §9.0 task 0.3 is:
 
 ```bash
-# from Mac, in zwasm_from_scratch/
+# from Mac, in zwasm/
 ssh windowsmini bash -lc "'
-  cd Documents/MyProducts/zwasm_from_scratch &&
-  git fetch origin zwasm-from-scratch &&
-  git reset --hard origin/zwasm-from-scratch &&
+  cd Documents/MyProducts/zwasm &&
+  git fetch origin main &&
+  git reset --hard origin/main &&
   zig build &&
   zig build test
 '"
@@ -131,7 +131,7 @@ bash scripts/run_remote_windows.sh test       # zig build test
 bash scripts/run_remote_windows.sh test-all   # zig build test-all (default)
 ```
 
-Each invocation `git fetch + git reset --hard origin/zwasm-from-scratch`
+Each invocation `git fetch + git reset --hard origin/main`
 on the remote and then runs the requested step. **It tests the
 latest pushed state on origin**, so commit-and-push first if you
 need the local change to land in the gate.
@@ -170,8 +170,8 @@ elevation surprisingly *not* required on this windowsmini, so
 the standard `shota` SSH user can install these):
 
 ```bash
-ssh windowsmini 'powershell -NoProfile -Command "Add-MpPreference -ExclusionPath '"'"'C:\Users\shota\Documents\MyProducts\zwasm_from_scratch\.zig-cache'"'"'"'
-ssh windowsmini 'powershell -NoProfile -Command "Add-MpPreference -ExclusionPath '"'"'C:\Users\shota\Documents\MyProducts\zwasm_from_scratch\zig-out'"'"'"'
+ssh windowsmini 'powershell -NoProfile -Command "Add-MpPreference -ExclusionPath '"'"'C:\Users\shota\Documents\MyProducts\zwasm\.zig-cache'"'"'"'
+ssh windowsmini 'powershell -NoProfile -Command "Add-MpPreference -ExclusionPath '"'"'C:\Users\shota\Documents\MyProducts\zwasm\zig-out'"'"'"'
 ssh windowsmini 'powershell -NoProfile -Command "Add-MpPreference -ExclusionPath '"'"'C:\Users\shota\AppData\Local\zig'"'"'"'
 ssh windowsmini 'powershell -NoProfile -Command "Add-MpPreference -ExclusionPath '"'"'C:\Users\shota\AppData\Local\zwasm-tools'"'"'"'
 ssh windowsmini 'powershell -NoProfile -Command "Add-MpPreference -ExclusionProcess '"'"'zig.exe'"'"'"'
@@ -202,14 +202,14 @@ windowsmini.
 Periodic verification on windowsmini:
 
 ```bash
-ssh windowsmini 'cd Documents/MyProducts/zwasm_from_scratch && \
+ssh windowsmini 'cd Documents/MyProducts/zwasm && \
     bash scripts/run_bench.sh --windows-subset --quick'
 ```
 
 Or directly on windowsmini in a Git Bash shell:
 
 ```bash
-cd Documents/MyProducts/zwasm_from_scratch
+cd Documents/MyProducts/zwasm
 bash scripts/run_bench.sh --windows-subset
 ```
 
@@ -257,9 +257,9 @@ configuration):
 - `C:\Users\shota\AppData\Local\zwasm-tools` (wabt / wasmtime / hyperfine / yq / wasm-tools)
 - `C:\Users\shota\AppData\Local\zwasm-tools\sysinternals-<date>` (explicit subpath for clarity)
 - `C:\Users\shota\AppData\Local\CrashDumps` (reserved for WER `.dmp` output)
-- `C:\Users\shota\Documents\MyProducts\zwasm_from_scratch` (repo root)
-- `C:\Users\shota\Documents\MyProducts\zwasm_from_scratch\.zig-cache`
-- `C:\Users\shota\Documents\MyProducts\zwasm_from_scratch\zig-out`
+- `C:\Users\shota\Documents\MyProducts\zwasm` (repo root)
+- `C:\Users\shota\Documents\MyProducts\zwasm\.zig-cache`
+- `C:\Users\shota\Documents\MyProducts\zwasm\zig-out`
 
 **ExclusionProcess (17)** — all `build.zig::addExecutable` outputs:
 `build.exe`, `test.exe`, `zig.exe`, `zwasm.exe`,

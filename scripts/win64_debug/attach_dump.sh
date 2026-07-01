@@ -13,7 +13,7 @@ set -euo pipefail
 
 LOCAL_DIR="${1:-test/private/d-165}"
 WAIT_SEC="${2:-3}"
-REMOTE_DIR="Documents/MyProducts/zwasm_from_scratch/test/private/d-165"
+REMOTE_DIR="Documents/MyProducts/zwasm/test/private/d-165"
 LOG="/tmp/d165-attach.log"
 
 if [ ! -d "$LOCAL_DIR/fac" ]; then
@@ -33,7 +33,7 @@ scp -q -r "$LOCAL_DIR/fac/" "windowsmini:$REMOTE_DIR/" >&2
 # 6. taskkill
 ssh windowsmini bash -lc "'
   set +e
-  cd ~/Documents/MyProducts/zwasm_from_scratch
+  cd ~/Documents/MyProducts/zwasm
   EXE=\$(ls -t .zig-cache/o/*/zwasm-spec-wasm-2-0-assert.exe | head -1)
   echo === Runner: \$EXE ===
   rm -f /tmp/d165-run.log
