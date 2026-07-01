@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
-# Pre-merge gate. Runs the commit gate plus three-host test:
+# Local pre-PR / pre-merge gate. Runs the commit gate plus a three-host test:
 #   - zig build test-all on Mac native
 #   - zig build test-all on `ubuntunote` Linux x86_64 SSH host
 #     (per ADR-0067; native, not OrbStack-Rosetta)
 #   - zig build test-all on `windowsmini` SSH host (if reachable)
 #
-# Phase 0 / early phases: missing ubuntunote SSH or unreachable
-# windowsmini → WARN and continue (the local Mac gate is the firm
-# floor; the other hosts are belt-and-braces while the project
-# bootstraps).
+# `main` is ruleset-protected (no direct pushes) — changes land via a
+# develop/<slug> branch → PR → CI. This script mirrors the CI 3-OS gate on
+# real hardware so a maintainer can verify the full matrix locally before
+# opening/merging a PR. The server-side `ci-required` check on the PR is the
+# authoritative enforcement; this local gate is the first line of defense and
+# runs the same `scripts/ci_gate.sh` steps CI runs.
 #
-# Phase 14+ folds the same logic into CI; the local gate stays as
-# the first line of defense.
+# Missing ubuntunote SSH or unreachable windowsmini → WARN and continue (the
+# local Mac gate is the firm floor).
 #
 # §A13 enforcement (Phase 6+ / §9.6 / 6.5): `test-all` aggregates
 # every layer in ROADMAP §A13's "v1 regression suite" definition
@@ -23,7 +25,7 @@
 # The "ClojureWasm guest" half of A13 lands when §9.6 / 6.3 wires
 # its `build.zig.zon` `path = ...` end-to-end. Until then this
 # gate is A13 minus ClojureWasm — every other A13 layer is
-# enforced on every push to `main`.
+# enforced on every merge to `main` (i.e. on the PR that produces it).
 #
 # Exits non-zero on any host that built but had a failed test, on
 # any commit-gate failure, or on missing tools (orb / ssh) where

@@ -1,5 +1,10 @@
 # Stop conditions — full whitelist
 
+> **RETIRED CAMPAIGN MACHINERY (2026-07-01).** The autonomous loop's stop-bucket
+> whitelist. In maintenance mode there is no auto-continue: a task ends at its
+> natural boundary (PR opened) — see `SKILL.md`. Any `zwasm-from-scratch` /
+> direct-push references below are historical.
+
 Sibling of [`SKILL.md`](SKILL.md). The `/continue` loop stops ONLY for
 one of the 3 buckets below. Anything else continues.
 

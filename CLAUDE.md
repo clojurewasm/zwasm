@@ -18,8 +18,14 @@ zwasm v2 is a ground-up redesign of zwasm (v1 git history at commit 517cc5a).
 - Working dir: `~/Documents/MyProducts/zwasm/` (unified — the separate
   `zwasm_from_scratch/` working dir is retired).
 - **`main` is the trunk.** Dev model: cut a `develop/<slug>` branch from
-  `main`, PR to `main`. The 3-host merge gate (`scripts/gate_merge.sh`,
-  A13) still guards any `main` merge. `--force` always forbidden.
+  `main`, PR to `main`. `main` is **server-side ruleset-protected**: no direct
+  push, PR required, and the `ci-required` status check (CI's 3-OS gate) must be
+  green to merge; only the repo admin can bypass. Doc-only PRs auto-skip the
+  heavy gate (still green via `ci-required`). The local 3-host gate
+  (`scripts/gate_merge.sh`, A13) mirrors CI for pre-PR verification. `--force`
+  always forbidden. Community-health files (CONTRIBUTING / CODE_OF_CONDUCT /
+  SECURITY) live in `.github/`; README / LICENSE / CHANGELOG / THIRD_PARTY stay
+  at root.
 - **Release stays user-only (ADR-0156)**: tag / publish / cutover are
   manual. Current line = `v2.0.0-rc.1` (tag-only; Latest = v1.11.1).
   `v2.0.0` final = bump `build.zig.zon` + push `v2.0.0` tag → `release.yml`

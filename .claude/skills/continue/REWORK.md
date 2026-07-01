@@ -1,5 +1,10 @@
 # Structural rework campaign — correctness-assured redesign
 
+> **RETIRED CAMPAIGN MACHINERY (2026-07-01).** Loop-era procedure. The design
+> priority it serves still holds, but in maintenance mode a rework lands as a
+> normal `develop/<slug>` branch → PR → CI → merge, not an autonomous campaign.
+> Any `zwasm-from-scratch` / direct-push references below are historical.
+
 > Loaded on demand when a rework campaign is active (handover `## Active
 > rework campaign`). Authored per ADR-0153. Sits ABOVE bundle mode +
 > the `architectural` chunk type — a multi-bundle campaign with five

@@ -1,5 +1,10 @@
 # Resume procedure — detailed steps
 
+> **Loop-era doc (2026-07-01).** The resume/orientation steps still apply, but
+> the branch specifics are HISTORICAL: `main` is now PR-only. Any
+> `zwasm-from-scratch` references below describe the retired single-branch loop;
+> today's flow is a `develop/<slug>` branch → PR → CI → merge (see `SKILL.md`).
+
 Sibling of [`SKILL.md`](SKILL.md). SKILL.md gives the outline; this
 file has the detailed per-step procedure. Read on-demand when
 executing a specific step.

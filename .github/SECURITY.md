@@ -52,5 +52,5 @@ against.
 
 zwasm ships deny-by-default WASI capabilities, fuel metering, a wall-clock
 timeout, a memory ceiling, W^X JIT pages, and signal-handled traps. See
-[`docs/tutorial.md`](docs/tutorial.md) for how to configure these limits when
+[`docs/tutorial.md`](../docs/tutorial.md) for how to configure these limits when
 embedding.

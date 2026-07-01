@@ -5,9 +5,16 @@
 # when the install step succeeds.
 #
 # Triggers: pull_request (any target) + push to `main` + manual dispatch.
-# `main` is the trunk; feature work happens on `develop/*` branches that
-# gate via pull_request, so a push trigger there is unnecessary (the PR
-# run already covers it) and would only double-spend the runners.
+# `main` is the trunk and is ruleset-protected: no direct pushes — every change
+# lands via a `develop/*` branch → PR → this gate must pass → merge. A push to
+# `main` is therefore a merged PR (its `push` run does the extended checks).
+#
+# Doc-only changes skip the heavy 3-host build/test: the `changes` job detects
+# whether any non-doc path changed and short-circuits `gate` when not. So the
+# expensive matrix never runs for a pure docs/comment PR — but `ci-required`
+# (the single required status check) still reports success, so the PR stays
+# mergeable without burning three runners. Keep the branch ruleset's required
+# check pointed at `ci-required`, NOT the individual `gate (...)` legs.
 #
 # The Windows leg is advisory (continue-on-error): the authoritative Windows
 # verification is a native Windows x86_64 host, and the hosted
@@ -30,8 +37,56 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Detect whether any non-doc path changed. Doc-only PRs then skip the heavy
+  # 3-host `gate` matrix while `ci-required` still reports success, so the
+  # branch ruleset's required check stays satisfiable. Only SHAs (never a
+  # branch name / title / body) reach the shell, so there is no injection seam.
+  changes:
+    name: detect changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.detect.outputs.code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+      - name: Detect non-doc changes
+        id: detect
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_HEAD: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "pull_request" ]; then
+            range="${PR_BASE}...${PR_HEAD}"
+          elif [ "$EVENT" = "push" ]; then
+            if ! git cat-file -e "${PUSH_BEFORE}^{commit}" 2>/dev/null; then
+              echo "code=true" >> "$GITHUB_OUTPUT"; echo "new-branch push -> run gate"; exit 0
+            fi
+            range="${PUSH_BEFORE}..${PUSH_HEAD}"
+          else
+            echo "code=true" >> "$GITHUB_OUTPUT"; echo "manual dispatch -> run gate"; exit 0
+          fi
+          files="$(git diff --name-only "$range")"
+          echo "changed files:"; printf '%s\n' "$files"
+          # Paths that do NOT need the 3-host build/test gate (docs / meta only).
+          nondoc="$(printf '%s\n' "$files" | grep -vE '(^|/)[^/]*\.md$|^docs/|^\.dev/|^\.claude/|^LICENSE$' || true)"
+          if [ -n "${nondoc//[[:space:]]/}" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"; echo "non-doc changes -> run 3-host gate"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"; echo "doc-only -> skip 3-host gate"
+          fi
+
   gate:
     name: gate (${{ matrix.name }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.runs-on }}
     continue-on-error: ${{ matrix.advisory || false }}
     timeout-minutes: 75
@@ -158,3 +213,34 @@ jobs:
         env:
           ZWASM_CI_EXTENDED: ${{ (github.event_name == 'push' && matrix.extended) && '1' || '0' }}
         run: bash scripts/ci_gate.sh
+
+  # The SINGLE required status check (point the branch ruleset here, not at the
+  # individual `gate (...)` legs). Passes when the change was doc-only (gate
+  # skipped by design) OR when the 3-host gate succeeded. `always()` so it also
+  # runs when `gate` was skipped. The advisory Windows leg is continue-on-error,
+  # so `needs.gate.result` is 'success' whenever Mac + Linux pass.
+  ci-required:
+    name: ci-required
+    needs: [changes, gate]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verdict
+        env:
+          CODE: ${{ needs.changes.outputs.code }}
+          GATE_RESULT: ${{ needs.gate.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$CODE" != "true" ]; then
+            echo "doc-only change — 3-host gate intentionally skipped; PASS"
+            exit 0
+          fi
+          echo "gate result: $GATE_RESULT"
+          if [ "$GATE_RESULT" = "success" ]; then
+            echo "3-host gate passed; PASS"
+            exit 0
+          fi
+          echo "::error::3-host gate did not pass (result=$GATE_RESULT)"
+          exit 1

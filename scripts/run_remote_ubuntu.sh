@@ -7,7 +7,9 @@
 # closed per ADR-0067). Mirrors `run_remote_windows.sh`:
 # `git fetch + reset --hard` the ubuntunote clone to the
 # latest pushed `origin/main`, then run the
-# requested `zig build` step.
+# requested `zig build` step. (`main` is the merged trunk — reached only via
+# PR now; CI runs this same gate on each PR head. Pass `--branch develop/<slug>`
+# to verify a feature branch on this host before opening the PR.)
 #
 # Usage:
 #   bash scripts/run_remote_ubuntu.sh                          # default: zig build test-all on main

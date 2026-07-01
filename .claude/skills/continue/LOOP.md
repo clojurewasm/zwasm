@@ -1,5 +1,12 @@
 # continue — loop mechanics
 
+> **RETIRED CAMPAIGN MACHINERY (2026-07-01).** This documents the autonomous
+> single-branch build loop that shipped v2. In maintenance mode the loop is
+> retired (see `SKILL.md`'s banner): one task on a `develop/<slug>` branch → PR
+> → CI `ci-required` green → merge; NO direct `main` push, NO self-re-arm. The
+> `zwasm-from-scratch` / `push origin` / `reset --hard` mechanics below are
+> HISTORICAL reference only, not live procedure.
+
 > Sibling of `SKILL.md`. Holds the policy sections that are read
 > once per session (push policy, self-perpetuation, parallel
 > test gate) so `SKILL.md` itself stays focused on the per-task
