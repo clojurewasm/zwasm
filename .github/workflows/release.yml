@@ -42,6 +42,24 @@ jobs:
           tar -xJf /tmp/zig.tar.xz -C ~/.local
           echo "$HOME/.local/${dir}" >> "$GITHUB_PATH"
 
+      # The default `zig build` install set includes the spec-assert test exes,
+      # which run `wasm-tools parse` at build time to generate spectest.wasm
+      # (build.zig ~L263). ci.yml installs wasm-tools for the same reason; the
+      # release build (Linux host, cross-compiling every target) needs the
+      # host's Linux wasm-tools regardless of the -Dtarget.
+      - name: Install wasm-tools (build-time; spectest.wasm generation)
+        shell: bash
+        run: |
+          set -euo pipefail
+          source .github/versions.lock
+          asset="wasm-tools-${WASM_TOOLS_VERSION}-x86_64-linux"
+          url="https://github.com/bytecodealliance/wasm-tools/releases/download/v${WASM_TOOLS_VERSION}/${asset}.tar.gz"
+          mkdir -p "$HOME/.local/bin"
+          cd "$HOME/.local/bin"
+          curl -fsSL "$url" -o wt.tar.gz
+          tar -xzf wt.tar.gz --strip-components=1 "${asset}/wasm-tools"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Build + package all targets (ReleaseSafe)
         shell: bash
         run: |
