@@ -6,7 +6,7 @@ A from-scratch WebAssembly runtime in Zig 0.16.0.
 > (Mac aarch64 + Linux x86_64 + Windows x86_64). Full WebAssembly 3.0 + WASI
 > preview1 & preview2 (Component Model), interpreter + JIT (arm64 / x86_64) +
 > AOT (`.cwasm`), and the C / Zig / CLI surfaces are settled. Completion is the
-> line, not a release date (ADR-0153 / ADR-0156); tagging and publishing are a
+> line, not a release date; tagging and publishing are a
 > deliberate, manual step. The v2 line is pre-release (tagged `v2.0.0-alpha.*`).
 
 v2 is a ground-up redesign of [zwasm v1](https://github.com/clojurewasm/zwasm)
@@ -19,16 +19,17 @@ v1 ABI compatibility is out of scope — see the
 
 zwasm is built and tested on these host targets:
 
-| Platform | Arch    | Notes                          |
-|----------|---------|--------------------------------|
-| macOS    | aarch64 | primary development target     |
-| Linux    | x86_64  | native, spec + full test gate  |
-| Linux    | aarch64 | supported target               |
-| Windows  | x86_64  | native, MSVC ABI               |
+| Platform | Arch    | Notes                                           |
+|----------|---------|-------------------------------------------------|
+| macOS    | aarch64 | primary development target                      |
+| Linux    | x86_64  | native, spec + full test gate                   |
+| Linux    | aarch64 | cross-built (not in the per-release test gate)  |
+| Windows  | x86_64  | native, MSVC ABI                                |
 
 Each release is verified on native macOS-aarch64, Linux-x86_64, and
-Windows-x86_64 hosts. Windows ARM64 and other targets are out of scope for
-now (demand-driven; ADR-0181).
+Windows-x86_64 hosts. Linux-aarch64 is cross-built but not covered by that
+per-release test gate. Windows ARM64 and other targets are out of scope for
+now (demand-driven).
 
 ## Coverage
 
@@ -45,10 +46,10 @@ now (demand-driven; ADR-0181).
 | Spec                                 | Status                    | Notes                                                                                                                                                                                                                                                                                                                                                         |
 |--------------------------------------|---------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | WASI 0.1 (preview1)                  | ✅ functional             | interpreter: args / env / preopened dirs / clock / random / fd I/O                                                                                                                                                                                                                                                                                            |
-| WASI 0.2 (preview2, Component Model) | ✅ functional, default-ON | wasmtime-equivalent campaign complete (2026-06-13): real `wasm32-wasip2` Rust/TinyGo components run e2e (fs, sockets incl. TCP listeners, guest-defined resources); typed embedder API (introspection + `invokeTyped`); validation rules 1-12, official corpus 158/0/0; gated by `-Dwasi>=p2` (default), `-Dwasi=p1` = lean opt-out (ADR-0193) |
+| WASI 0.2 (preview2, Component Model) | ✅ functional, default-ON | wasmtime-equivalent campaign complete (2026-06-13): real `wasm32-wasip2` Rust/TinyGo components run e2e (fs, sockets incl. TCP listeners, guest-defined resources); typed embedder API (introspection + `invokeTyped`); validation rules 1-12, official corpus 158/0/0; gated by `-Dwasi>=p2` (default), `-Dwasi=p1` = lean opt-out |
 
 All three execution paths do full WASI I/O — the interpreter, the JIT
-(`--engine jit`, D-244), and AOT (`.cwasm`, D-251). The JIT additionally
+(`--engine jit`), and AOT (`.cwasm`). The JIT additionally
 executes SIMD-128 (the interpreter does not).
 
 ### Execution backends
@@ -63,7 +64,7 @@ executes SIMD-128 (the interpreter does not).
 
 The GC-on-JIT path is memory-safe: a conservative native-stack-scan
 collector roots live references across collections, verified by an
-adversarial use-after-free test on aarch64 + x86_64 (ADR-0160).
+adversarial use-after-free test on aarch64 + x86_64.
 
 ## CLI
 
@@ -83,7 +84,7 @@ zwasm --version | -V                   # version + build identity (wasm/wasi/eng
 zwasm --help | -h | help
 ```
 
-The CLI is deliberately `run` + `compile` (ADR-0159) — the
+The CLI is deliberately `run` + `compile` — the
 wasmtime/wazero-aligned shape for a runtime. Validation is programmatic
 (C-API `wasm_module_validate` / Zig `Engine.compile`); wat↔wasm
 conversion and module introspection are `wasm-tools` / `wabt`'s job.
@@ -96,7 +97,7 @@ Runtime env vars: `ZWASM_DEBUG=<categories>` (dbg category filter),
 
 zwasm is a library first, with two host surfaces.
 
-**Zig** (native facade, ADR-0109) — add zwasm as a `build.zig.zon`
+**Zig** (native facade) — add zwasm as a `build.zig.zon`
 dependency, pull its module (`b.dependency("zwasm", .{}).module("zwasm")`),
 then:
 
@@ -126,7 +127,7 @@ linear-memory cap), so a forgotten budget still yields a metered instance; pass
 `.unmetered` for trusted code. `Instance.interrupt()` stops a runaway guest from
 another thread (timeout or cancellation → `error.Interrupted`);
 `setFuel`/`setMemoryPagesLimit`/`setTableElementsLimit` adjust the budgets on a
-live instance. The **JIT engine carries the same triad** (ADR-0179): polls at
+live instance. The **JIT engine carries the same triad**: polls at
 function entry + every loop back-edge deliver interruption and fuel (units there
 = entries + loop iterations), and `memory.grow` honours the host cap. From C,
 use the `zwasm_instance_*` setters in [`include/zwasm.h`](include/zwasm.h);
@@ -148,7 +149,7 @@ FFI-capable language, not just C.
 ```
 -Dwasm=3.0|2.0|1.0          # default 3.0; lower levels omit later proposals
 -Dwasi=none|p1|p2|p3        # default p2; ordered tier. p2 = Component Model / WASI-P2 host,
-                            #   p3 = + Preview-3 async. -Dwasi=p1 = lean build (~-10%; ADR-0193)
+                            #   p3 = + Preview-3 async. -Dwasi=p1 = lean build (~-10%)
 -Dengine=both|jit|interp    # default both
 -Dstrip=true|false          # default false
 ```

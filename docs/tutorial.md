@@ -27,7 +27,7 @@ zwasm run --dir .:/ guest.wasm       # preopen the cwd as the guest's /
 ```
 
 The default engine is the interpreter. `--engine jit` runs the JIT, which
-does full WASI too (D-244) and additionally executes SIMD. Full flags:
+does full WASI too and additionally executes SIMD. Full flags:
 [`reference/cli.md`](reference/cli.md).
 
 ## 3. Compile ahead-of-time
