@@ -30,7 +30,7 @@ A spike is a learning experiment, not a delivery. Boundaries:
   (gitignored).
 - Outcome → ADR (Accepted with a follow-up ROADMAP entry, OR Rejected
   with the lessons captured).
-- **Never** lands as a flag-gated workaround on `zwasm-from-scratch`.
+- **Never** lands as a flag-gated workaround on `main` (via a develop/<slug> PR).
 
 ## When a workaround is genuinely needed
 

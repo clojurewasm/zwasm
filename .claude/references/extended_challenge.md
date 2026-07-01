@@ -134,7 +134,7 @@ user, but record the consultation:
 - Reference repo reads → name the file path + line range in the
   commit body or survey note.
 - Spikes → outcome lands as ADR (`Rejected` or merged) or lesson;
-  never as flag-gated workaround on `zwasm-from-scratch`.
+  never as flag-gated workaround on `main` (via a develop/<slug> PR).
 
 This Step exists because the prior 3-step shape was **defensive
 (only when stuck on infrastructure)** — it didn't capture the

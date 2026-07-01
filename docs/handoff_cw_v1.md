@@ -1,8 +1,8 @@
-# zwasm → ClojureWasm v1 handoff (development paused 2026-06-08)
+# zwasm → ClojureWasm v1 handoff (v2 shipped to main 2026-07-01)
 
 > **Doc-state**: ACTIVE
 >
-> zwasm v2 development is **intentionally paused** (branch `zwasm-from-scratch`),
+> zwasm v2 shipped to `main` (2026-07-01) and its dev is **demand-driven**,
 > verified green on Mac aarch64 + ubuntu x86_64. The runtime is feature-complete
 > for ClojureWasm v1's needs; further zwasm work is **demand-driven** — resume
 > only when cw v1 development surfaces a concrete requirement (see "Resuming

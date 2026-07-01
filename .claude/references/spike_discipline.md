@@ -6,7 +6,7 @@ Unified rule covering three concerns previously split across
 `architectural_spike.md`, `spike_lifecycle.md`, and
 `extended_challenge.md` Step 4:
 
-1. **When to spike** (vs commit directly on `zwasm-from-scratch`).
+1. **When to spike** (vs commit directly on `main` via a develop/<slug> PR).
 2. **Observable-behaviour rule** for `src/` commits — what makes
    a diff NOT a spike.
 3. **Status lifecycle** for `private/spikes/<slug>/`.
@@ -29,7 +29,7 @@ without an ADR**.
 
 ## §2 — Observable-behaviour rule for `src/` commits
 
-A code commit on `zwasm-from-scratch` MUST have an **observable
+A code commit on `main` MUST have an **observable
 behaviour point** that exercises the diff. Forbidden:
 
 - Add helper / type / shape / signature change to `src/` and defer

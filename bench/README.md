@@ -30,7 +30,7 @@ preserved long-term.
   is the phase-boundary wrapper.
 - **Per-push CI**: [`.github/workflows/bench.yml`](../.github/workflows/bench.yml)
   runs `--quick --phase-record` on every push to
-  `zwasm-from-scratch` across `macos-latest` (aarch64-darwin) +
+  `main` across `macos-latest` (aarch64-darwin) +
   `ubuntu-latest` (x86_64-linux). Each arch uploads a YAML
   fragment as an artifact; an `aggregate` job merges them in
   arch-name-sorted order into `history.yaml` and pushes one bot

@@ -65,7 +65,7 @@ not happening, or `PROT_EXEC` not applied):
 
 ```bash
 # ubuntunote only (Mac uses dtruss):
-ssh ubuntunote 'cd ~/Documents/MyProducts/zwasm_from_scratch &&
+ssh ubuntunote 'cd ~/Documents/MyProducts/zwasm &&
     strace -f -e trace=mmap,mprotect,munmap \
         ./<binary> 2>&1' | grep -E "^mmap|^mprotect" | tail -20
 ```
@@ -291,7 +291,7 @@ Mirror of Recipe 1, adapted for Win64 PE/COFF:
 
 ```bash
 ssh windowsmini "bash -lc '
-  cd ~/Documents/MyProducts/zwasm_from_scratch
+  cd ~/Documents/MyProducts/zwasm
   lldb -b \
     -o \"settings set target.x86-disassembly-flavor intel\" \
     -o \"process launch -- <argv>\" \
@@ -478,7 +478,7 @@ Windows-native switches (`/F`, `/FI`, `/T`, `/NOBREAK`, etc.)
 without path conversion. Chain commands with cmd `&&`:
 
 ```bash
-ssh windowsmini 'cmd /c "cd /d C:\Users\shota\Documents\MyProducts\zwasm_from_scratch && git fetch origin zwasm-from-scratch && git reset --hard origin/zwasm-from-scratch && zig build install"'
+ssh windowsmini 'cmd /c "cd /d C:\Users\shota\Documents\MyProducts\zwasm && git fetch origin main && git reset --hard origin/main && zig build install"'
 ```
 
 Note: `cd /d <path>` forces drive change too — required when

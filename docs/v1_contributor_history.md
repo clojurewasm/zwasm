@@ -2,7 +2,8 @@
 
 > **Scope**: this records the *community* contribution history of **zwasm v1**
 > (the published `clojurewasm/zwasm` repository, releases `v1.0.0` → `v1.11.0`),
-> as groundwork for the v2 release. v1 = `$MY/zwasm`; v2 = `$MY/zwasm_from_scratch`.
+> as groundwork for the v2 release. Both now live in `$MY/zwasm` (unified working
+> tree; v2 on `main`, v1 reachable via the `v1.*` release tags).
 >
 > **Method (anti-hallucination)**: every entry below was pulled from the GitHub
 > API via `gh` against `clojurewasm/zwasm` (PR/issue numbers, authors, merge

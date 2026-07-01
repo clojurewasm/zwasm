@@ -554,7 +554,7 @@ state per `.claude/rules/extended_challenge.md` Step 4 + the
 bash scripts/audit_arch_spike_pattern.sh
 ```
 
-Greps the last 14 days of `zwasm-from-scratch` commits for the
+Greps the last 14 days of `main` commits for the
 forbidden phrases enumerated in
 [`.claude/rules/spike_discipline.md`](../../rules/spike_discipline.md)
 ("preparatory infra", "wire-up next cycle", "lay the groundwork",
