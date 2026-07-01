@@ -22,16 +22,14 @@ for the rationale (no single canonical upstream `wasi.h` exists
 for host-side WASI embedding). Edit `wasi.h` directly; the
 `zwasm_wasi_*` symbols are project extensions.
 
-`zwasm.h` (forthcoming, §9.3 follow-on) will also live here. Per
-ROADMAP §1.1, `wasm.h` is the primary C ABI and any `zwasm.h` /
-`wasi.h` extensions are subordinate.
+`zwasm.h` also lives here. `wasm.h` is the primary C ABI; the
+`zwasm.h` / `wasi.h` extensions are subordinate to it and are
+pre-1.0 (may change until 1.0).
 
 ## build.zig wiring
 
 `build.zig` adds this directory to the Zig module include path so
-any module under `src/c_api/` can do `@cImport(@cInclude
-("wasm.h"))` once the binding work in §9.3 / 3.2 lands. A
-header-parses smoke test belongs at the C-API binding level, not
-the unit-test layer (Zig's `translate-c` doesn't run reliably on
-the OrbStack x86_64-on-Rosetta gate, so unit tests stay
-host-portable).
+C-API code can `@cImport(@cInclude("wasm.h"))`. Header-parse smoke
+testing belongs at the C-API binding level rather than the
+unit-test layer, so the unit tests stay host-portable (Zig's
+`translate-c` is not run there).
