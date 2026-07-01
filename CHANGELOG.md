@@ -12,6 +12,30 @@ SemVer compatibility guarantees start at the first stable `v2.0.0` tag.
 
 _No changes yet._
 
+## [2.0.0] - 2026-07-01
+
+First **stable** release. Carries the complete feature set of `v2.0.0-rc.1`
+(below), promoted to stable after the final hardening pass.
+
+### Added
+
+- **JIT `table.grow` for no-max tables** — a table declared without an upper
+  bound now grows under the JIT up to a synthesized cap (`max(min*2, 1024)`,
+  matching WAMR), where it previously returned the spec `-1` (D-501).
+
+### Fixed
+
+- **Docs / reference / examples** corrected to the code truth: the default
+  engine is `.auto` (JIT-preferring, interp fallback); `include/zwasm.h` carries
+  the sandboxing + engine-selection + `zwasm_instance_get_func` surface;
+  `Linker.instantiate` takes `(module, opts)`; the build flag is `-Dwasm=v3_0`.
+  The `docs/examples/zig_dep` external consumer builds and runs again.
+- **Repo layout** decluttered: `CLAUDE.md` → `.claude/`, `THIRD_PARTY.md` →
+  `legal/`, `examples/` → `docs/examples/`, community-health files → `.github/`.
+- **Test harness**: guest std streams no longer leak to the real process fd 1/2
+  in test builds (removed a phantom `failed command: … --listen=-` that appeared
+  even when every test passed).
+
 ## [2.0.0-rc.1] - 2026-07-01
 
 The first tagged **release candidate** for `v2.0.0`. The v2 redesign is

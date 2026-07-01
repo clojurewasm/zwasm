@@ -6,13 +6,13 @@ integrity are therefore first-class concerns, and we take reports seriously.
 
 ## Supported versions
 
-zwasm v2 is currently **pre-release** (`v2.0.0-alpha.*`). Security fixes land
-on the `main` branch and the newest pre-release tag. Older `v1.x` tags are
-frozen and no longer receive updates.
+zwasm v2's first stable release is **`v2.0.0`**. Security fixes land on the
+`main` branch and the latest `v2.x` release. Older `v1.x` tags are frozen and no
+longer receive updates.
 
-| Version        | Supported |
-|----------------|-----------|
-| `v2.0.0-alpha.*` / `main` | ✅ |
+| Version         | Supported |
+|-----------------|-----------|
+| `v2.x` / `main` | ✅ |
 | `v1.x` (frozen) | ❌ |
 
 ## Reporting a vulnerability

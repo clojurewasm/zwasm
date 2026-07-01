@@ -1,7 +1,7 @@
 # zwasm v1 → v2 migration guide
 
 zwasm **v2** is a ground-up rewrite (releases `v1.0.0`–`v1.11.1` are v1, now
-frozen; v2 is published as `v2.x.x` pre-release tags, currently `v2.0.0-rc.1`).
+frozen; v2 ships as `v2.x.x` tags, first stable `v2.0.0`).
 It keeps full Wasm spec coverage (Wasm 1.0/2.0/3.0, WASI 0.1/0.2) but **breaks
 the surfaces on purpose** — the C API, the Zig API, and the CLI all changed. This
 guide tells you what to do to port, then documents what changed and why.

@@ -24,7 +24,7 @@ body:
     attributes:
       label: zwasm version
       description: Output of `zwasm --version`
-      placeholder: "2.0.0-rc.1"
+      placeholder: "2.0.0"
     validations:
       required: true
   - type: dropdown

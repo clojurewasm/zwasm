@@ -11,10 +11,8 @@ A from-scratch WebAssembly runtime in Zig 0.16.0.
 > **Status: feature-complete and green on the 3-host gate**
 > (Mac aarch64 + Linux x86_64 + Windows x86_64). Full WebAssembly 3.0 + WASI
 > preview1 & preview2 (Component Model), interpreter + JIT (arm64 / x86_64) +
-> AOT (`.cwasm`), and the C / Zig / CLI surfaces are settled. Completion is the
-> line, not a release date; tagging and publishing are a
-> deliberate, manual step. The v2 line is pre-release (currently tagged
-> `v2.0.0-rc.1`).
+> AOT (`.cwasm`), and the C / Zig / CLI surfaces are settled. **`v2.0.0` is the
+> first stable release** (SemVer starts here; v1 is frozen at `v1.11.1`).
 
 v2 is a ground-up redesign of [zwasm v1](https://github.com/clojurewasm/zwasm)
 with day-one design for WebAssembly 3.0, wasm-c-api conformance, and
