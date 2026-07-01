@@ -44,7 +44,7 @@ pub fn build(b: *std.Build) void {
     // ThreadSanitizer. Both Mac aarch64 + Linux x86_64 only —
     // Windows ucrt skipped because clang ASan/Win32 needs an MSVC
     // redist that doesn't ship through the Nix dev shell.
-    // Adopted as a weekly OrbStack lane, not per-commit (~2× slower).
+    // Adopted as a weekly Linux x86_64 lane, not per-commit (~2× slower).
     const sanitize = b.option(SanitizeMode, "sanitize", "Sanitizer (off / address / thread). Mac+Linux only.") orelse .off;
     const is_windows = target.result.os.tag == .windows;
     const sanitize_c: ?std.zig.SanitizeC = if (is_windows) null else switch (sanitize) {
@@ -552,15 +552,16 @@ pub fn build(b: *std.Build) void {
     // non-simd runner to compile single-threaded. The d-65
     // investigation surfaced a cross-thread `siglongjmp` hypothesis
     // (our `sigsegvHandler` installs OK + fires on intentional null
-    // deref, but does NOT fire on the real OrbStack SEGV — strong
+    // deref, but does NOT fire on the real Rosetta-translated x86_64 Linux
+    // SEGV — strong
     // evidence the SEGV is delivered to a worker thread context our
     // handler cannot service). Building with `-fsingle-threaded`
     // makes `std.Io.Threaded.init` return `.init_single_threaded`
-    // (per `~/Documents/OSS/zig/lib/std/Io/Threaded.zig:127`), so no
+    // (per Zig std's `Io/Threaded.zig`), so no
     // `Io.Threaded` worker threads can spawn at all. The spec_assert
     // runner walks corpora + invokes JIT bodies purely sequentially
     // — no `async` / `concurrent` use — so single-threaded is the
-    // correct execution shape regardless. If the OrbStack SEGV
+    // correct execution shape regardless. If the Rosetta-translated x86_64 Linux SEGV
     // persists post-d-67, cross-thread is ruled out and the
     // hypothesis space narrows to (i) libc-context SEGV (RIP
     // captured in libc.so.6 region per d-65 valgrind) or (ii) Zig's
@@ -646,10 +647,10 @@ pub fn build(b: *std.Build) void {
     // state. The simd / non-simd / wasm-3.0 runners historically printed
     // "0 manifests" and exited 0 on a missing root: a silent skip that can
     // mask a host-specific path-resolution failure behind a green
-    // `test-all` (the windowsmini OK-verdict-hides-pass=0 anomaly this
+    // `test-all` (the Windows host OK-verdict-hides-pass=0 anomaly this
     // campaign hunts). Each now `exit(1)`s on a missing root, matching the
     // wasm-1.0 `spec_assert_runner`. These negative runs pin that on EVERY
-    // host (incl. windowsmini) — a runner that silently skips its corpus
+    // host (incl. the Windows host) — a runner that silently skips its corpus
     // turns this build RED.
     const absent_corpus = b.pathFromRoot("test/spec/__absent_corpus_negative_test__");
     const run_simd_absent = b.addRunArtifact(simd_assert_runner_exe);
@@ -1207,7 +1208,7 @@ pub fn build(b: *std.Build) void {
     // ABI consumer: `examples/rust_host/hello.rs` declares the wasm-c-api
     // surface via `extern "C"` and links the same `libzwasm.a` the C host
     // uses. **3-host (ADR-0162)**: native rust now lives on the test hosts
-    // (ubuntunote `nix develop .#rust-host`; windowsmini winget rust). Still
+    // (the Linux host's `nix develop .#rust-host`; the Windows host's winget rust). Still
     // NOT in `test-all` (it needs the rust shell / native rust, not the lean
     // `default` shell) — invoked as its own step per host.
     //
@@ -1309,18 +1310,18 @@ pub fn build(b: *std.Build) void {
     // wire test-spec-assert into test-all on ALL hosts. Three-host
     // exit-criterion measurement at row close:
     //   Mac aarch64       : 212 passed, 0 failed, 20 skipped
-    //   OrbStack Linux    : 212 passed, 0 failed, 20 skipped
-    //   windowsmini Win   : 212 passed, 0 failed, 20 skipped
+    //   Linux x86_64      : 212 passed, 0 failed, 20 skipped
+    //   Windows x86_64    : 212 passed, 0 failed, 20 skipped
     // skip-adr-text-format = 20, skip-impl = 0 per ADR-0029.
     test_all_step.dependOn(&run_spec_assert.step);
     // §9.9 / 9.9-h-13 (post-D-078 (c) close): wire `test-spec-simd`
-    // into `test-all` on ALL hosts. Both Mac aarch64 + OrbStack
-    // Linux x86_64 are now at 0 FAIL on the SIMD spec corpus
+    // into `test-all` on ALL hosts. Both Mac aarch64 + the
+    // Linux x86_64 lane are now at 0 FAIL on the SIMD spec corpus
     // (11270/0 each post-§9.9-h-12), so this aggregation no
     // longer breaks the gate. Preventive — surfaces silent
     // x86_64 SIMD regressions in the autonomous `/continue` loop
     // (per `LOOP.md` "Parallel test gate" 2-host subset).
-    // windowsmini reconciliation runs at phase boundary
+    // the Windows reconciliation runs at phase boundary
     // separately per ADR-0049.
     test_all_step.dependOn(&run_simd_assert.step);
     // §9.9 / 9.9-l-1b (per ADR-0057): wire the new
@@ -1333,7 +1334,7 @@ pub fn build(b: *std.Build) void {
     test_all_step.dependOn(&run_comp_spec_assert.step); // E1 Component Model spec corpus (ADR-0170)
     test_all_step.dependOn(&run_p3_tests.step); // ADR-0193 P3 — async unit tests under forced -Dwasi=p3
     // ADR-0174 win-harden-I: assert the resource runners FAIL on a missing
-    // corpus root (no silent "0 manifests" skip) on EVERY host incl. windowsmini.
+    // corpus root (no silent "0 manifests" skip) on EVERY host incl. the Windows host.
     test_all_step.dependOn(&run_simd_absent.step);
     test_all_step.dependOn(&run_non_simd_absent.step);
     test_all_step.dependOn(&run_wasm_3_0_absent.step);
@@ -1365,7 +1366,7 @@ pub fn build(b: *std.Build) void {
     // sees value-return instead of trap) AND adjacent memory
     // corruption manifests as the dl-fini assertion at process
     // exit. Single-cause cohort: 8 fixtures pass + assertion gone.
-    // Mac 35/0 + OrbStack 35/0 post-fix.
+    // Mac 35/0 + Linux x86_64 35/0 post-fix.
     test_all_step.dependOn(&run_edge_p7.step);
     test_all_step.dependOn(&run_edge_p9.step);
     test_all_step.dependOn(&run_edge_p10.step);

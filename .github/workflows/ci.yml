@@ -10,7 +10,7 @@
 # primary path; gating there would storm the runners.
 #
 # The Windows leg is advisory (continue-on-error): the authoritative Windows
-# verification is the maintainer's native windowsmini host, and the hosted
+# verification is a native Windows x86_64 host, and the hosted
 # `windows-2022` runner has shown seed-dependent Debug flakiness (D-245).
 # Mac/Linux are blocking.
 
