@@ -1,6 +1,6 @@
 //! ARM64 emit pass — control-flow handlers.
 //!
-//! Per ADR-0021 sub-deliverable b (§9.7 / 7.5d sub-b emit.zig
+//! Per ADR-0021 sub-deliverable b (emit.zig
 //! 9-module split): Wasm structured-control ops that push /
 //! pop the per-function label stack and patch forward fixups.
 //!
@@ -82,7 +82,7 @@ pub fn emitLoop(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const ar = merge_mov.unpackBlockArity(ins.extra);
     if (ar.results > merge_top_vregs_cap) return Error.UnsupportedOp;
     if (ar.params > merge_top_vregs_cap) return Error.UnsupportedOp;
-    // D-099 / d-24: capture the loop's entry param vregs. At a
+    // D-099: capture the loop's entry param vregs. At a
     // backward `br $l` (or `br_if $l`), top `param_arity` vregs
     // are the NEW values for the next iteration; emit needs to
     // MOV those into the captured param vreg slots BEFORE the
@@ -107,7 +107,7 @@ pub fn emitLoop(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     });
 }
 
-/// D-093 (d-11) — marshal function results into AAPCS64 result
+/// D-093 — marshal function results into AAPCS64 result
 /// registers (X0..X7 / V0..V7) before a function-level
 /// br / br_if / end. Walks `func.sig.results` in order; per-
 /// class index maps the i-th result to Xi/Vi (independent
@@ -121,7 +121,7 @@ pub fn emitLoop(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 pub fn marshalFunctionReturn(ctx: *EmitCtx) Error!void {
     if (ctx.func.sig.results.len == 0) return;
     if (ctx.pushed_vregs.items.len < ctx.func.sig.results.len) return;
-    // ADR-0017 2026-05-18 amend / ADR-0069 §Phase 2 chunk (b)-e-1:
+    // ADR-0017 2026-05-18 amend / ADR-0069:
     // MEMORY-class returns (struct > 16 B per AAPCS64 §6.8.2;
     // v2 trigger = `sig.results.len > 2`) write each result to
     // `*(X8 + i*8)` instead of marshalling into X0..X7 / V0..V7.
@@ -133,7 +133,7 @@ pub fn marshalFunctionReturn(ctx: *EmitCtx) Error!void {
     // `gprLoadSpilled` clobbers X14/X15 when staging spilled
     // source vregs. v128 results deferred (no spec fixture in
     // the 3-int-result / large-sig cohort).
-    // ADR-0106 path (a) cycle 2d — the buffer-write ABI reuses the
+    // ADR-0106 path (a) — the buffer-write ABI reuses the
     // MEMORY-class shape (load captured ptr to X16; write per-result
     // to `[X16, #(i*8)]`). Slot sourced from the prologue's STR X1
     // (buffer_write) instead of STR X8 (MEMORY-class); read here is
@@ -179,7 +179,7 @@ pub fn marshalFunctionReturn(ctx: *EmitCtx) Error!void {
     for (ctx.func.sig.results, 0..) |result_kind, i| {
         const src_vreg = ctx.pushed_vregs.items[result_base + i];
         if (src_vreg >= ctx.alloc.slots.len) {
-            // D-093 (d-5): dead-fall-through placeholder; skip.
+            // D-093: dead-fall-through placeholder; skip.
             switch (result_kind) {
                 .i32, .i64, .ref => n_gpr += 1,
                 .f32, .f64, .v128 => n_fp += 1,
@@ -272,13 +272,13 @@ pub fn emitBr(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     if (ins.payload > ctx.labels.items.len) return Error.UnsupportedOp;
     const tgt_idx = ctx.labels.items.len - 1 - ins.payload;
     if (ctx.labels.items[tgt_idx].kind == .loop) {
-        // D-099 / d-24: Wasm 2.0 multi-value loop with params. The
+        // D-099: Wasm 2.0 multi-value loop with params. The
         // loop's label-type is its param type (not result); a
         // backward br supplies the NEXT iteration's param values
         // on top of stack. Emit MOVs from top `param_arity` vregs
         // into the captured `param_top_vregs` (the loop body's
         // initial param vreg slots) so the next iter's body reads
-        // the new values. Pre-d-24 this was a no-op (loops
+        // the new values. Earlier this was a no-op (loops
         // without params worked; multi-param loops like fac-ssa
         // returned wrong values).
         const param_arity = ctx.labels.items[tgt_idx].param_arity;
@@ -304,7 +304,7 @@ pub fn emitBr(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         return;
     }
     // Forward branch (block / if_then with br inside / else_open).
-    // D-093 (d-2): for `.block` with result_arity > 0, the FIRST
+    // D-093: for `.block` with result_arity > 0, the FIRST
     // br captures top arity vregs as merge target (no MOV); a
     // SUBSEQUENT br emits MOVs from current top → merge regs so
     // both paths converge on the same physical regs.
@@ -351,7 +351,7 @@ pub fn branchOnReg(ctx: *EmitCtx, ins: *const ZirInstr, wn: inst.Xn) Error!void 
     if (ins.payload > ctx.labels.items.len) return Error.UnsupportedOp;
     const tgt_idx = ctx.labels.items.len - 1 - ins.payload;
     if (ctx.labels.items[tgt_idx].kind == .loop) {
-        // D-099 / d-24: loop with params — MOVs must run only when
+        // D-099: loop with params — MOVs must run only when
         // cond ≠ 0 (= when the back-branch is taken). Without
         // params, fall through to the simpler CBNZ-direct shape
         // since no MOVs are needed.
@@ -392,7 +392,7 @@ pub fn branchOnReg(ctx: *EmitCtx, ins: *const ZirInstr, wn: inst.Xn) Error!void 
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbnzW(wn, @divExact(disp_words, 4)));
         return;
     }
-    // Forward branch. D-093 (d-2): for `.block` with merge already
+    // Forward branch. D-093: for `.block` with merge already
     // captured, MOVs must run only when cond ≠ 0. Wrap the MOVs +
     // B inside a CBZ-skip sequence so the fall-through path
     // (cond == 0) bypasses both. First br_if to a block (capture
@@ -445,7 +445,7 @@ fn emitBranchToDepth(ctx: *EmitCtx, depth: u32) Error!void {
     if (depth > ctx.labels.items.len) return Error.UnsupportedOp;
     const tgt_idx = ctx.labels.items.len - 1 - depth;
     if (ctx.labels.items[tgt_idx].kind == .loop) {
-        // D-099 / d-24: mirror emitBr's loop-param MOV path.
+        // D-099: mirror emitBr's loop-param MOV path.
         const param_arity = ctx.labels.items[tgt_idx].param_arity;
         if (param_arity > 0 and ctx.pushed_vregs.items.len >= param_arity) {
             const base = ctx.pushed_vregs.items.len - param_arity;
@@ -472,7 +472,7 @@ fn emitBranchToDepth(ctx: *EmitCtx, depth: u32) Error!void {
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encB(@divExact(disp_words, 4)));
         return;
     }
-    // D-093 (d-7): forward branch — same block-merge mechanism
+    // D-093: forward branch — same block-merge mechanism
     // as emitBr / emitBrIf. First br to a `.block` target with
     // `result_arity > 0` captures merge_top_vregs; subsequent
     // brs emit MOVs from current top → merge regs before the B
@@ -504,7 +504,7 @@ pub fn emitBrTable(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 
     var i: u32 = 0;
     while (i < count) : (i += 1) {
-        // §9.9 / 9.9-l-1b-d093-d45 (D-118): per-case CMP. Cases
+        // D-118: per-case CMP. Cases
         // i < 4096 fit `CMP Wn, #imm12` directly; for the wider
         // range (Wasm spec §3.4.5 br_table has no upper bound on
         // case count — br_table.wast `large` declares 16149
@@ -522,10 +522,10 @@ pub fn emitBrTable(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
             }
             try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegW(wn, 16));
         }
-        // D-093 (d-7): emitBranchToDepth may now emit MOVs +
+        // D-093: emitBranchToDepth may now emit MOVs +
         // B (when forward target is `.block` with merge
         // already captured). Patch B.NE-skip's disp after the
-        // case body lands so it covers the actual span. Pre-d-7
+        // case body lands so it covers the actual span. Earlier code
         // used a fixed disp of 2 words (= skip a single 4-byte
         // B). Variable disp keeps the skip correct when MOVs
         // are emitted between B.NE and the per-case B.
@@ -544,7 +544,7 @@ pub fn emitBrTable(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 /// recorded. The skip resolves at matching `else` (to else-body
 /// start) or `end` (to end-of-if).
 ///
-/// **Multi-result support** (D-035 chunk-d035-c): `ins.extra`
+/// **Multi-result support** (D-035): `ins.extra`
 /// carries the blocktype result arity per `lower.zig:openBlock`
 /// (Wasm 2.0 multi-value). The merge MOV path in emitElse /
 /// emitEndIntra captures N then-arm result vregs at `else` and
@@ -560,7 +560,7 @@ pub fn emitIf(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const wn = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, cond, 0);
     const skip_byte: u32 = @intCast(ctx.buf.items.len);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbzW(wn, 0));
-    // D-093 (d-10) — capture top `param_arity` vregs so emitElse
+    // D-093 — capture top `param_arity` vregs so emitElse
     // can re-push them onto the operand stack at else-arm entry
     // (Wasm spec §3.4.4 specifies the else-arm starts with the
     // same shape as the then-arm did at if-entry).
@@ -580,7 +580,7 @@ pub fn emitIf(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         .if_skip_byte = skip_byte,
         .result_arity = ar.results,
         .param_arity = ar.params,
-        // D-093 (d-1): entry_stack_depth measured AFTER popping
+        // D-093: entry_stack_depth measured AFTER popping
         // the if's condition vreg (matches the depth a
         // subsequent br would target).
         .entry_stack_depth = @intCast(ctx.pushed_vregs.items.len),
@@ -592,7 +592,7 @@ pub fn emitIf(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 /// to end-of-if), patch the if's CBZ to current byte (= start
 /// of else-body), transition label to .else_open. Captures the
 /// then arm's top N result vregs as merge targets (D-027 fix
-/// extended to Wasm 2.0 multi-value per D-035 chunk-d035-c).
+/// extended to Wasm 2.0 multi-value per D-035).
 pub fn emitElse(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     if (ctx.labels.items.len == 0 or
         ctx.labels.items[ctx.labels.items.len - 1].kind != .if_then)
@@ -614,7 +614,7 @@ pub fn emitElse(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encB(0));
     const else_start: u32 = @intCast(ctx.buf.items.len);
     const lbl = &ctx.labels.items[lbl_idx];
-    // D-093 (d-10) — restore else-arm operand-stack shape. Wasm
+    // D-093 — restore else-arm operand-stack shape. Wasm
     // spec §3.4.4: the else-arm starts with the if-frame's param
     // types pushed back onto the stack (same view the then-arm
     // had at entry). Truncate to `entry_stack_depth - param_arity`
@@ -640,7 +640,7 @@ pub fn emitElse(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     }
     // Patch the matching `if`'s CBZ skip — but only if the
     // if_then frame had one. Dead-code-pushed placeholder
-    // frames (§9.7 / 7.5-deadcode-labels-bookkeeping) carry
+    // frames carry
     // `if_skip_byte = null` to mark "no CBZ to patch"; in
     // that case the if itself never emitted bytes, so the
     // skip-patch step is a no-op.
@@ -666,8 +666,8 @@ pub fn emitEndIntra(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     var lbl = ctx.labels.pop().?;
     defer lbl.pending.deinit(ctx.allocator);
 
-    // D-027 fix (sub-7.5c-vi) extended to Wasm 2.0 multi-value
-    // (D-035 chunk-d035-c): when an else_open frame carries a
+    // D-027 fix extended to Wasm 2.0 multi-value
+    // (D-035): when an else_open frame carries a
     // captured merge buffer (`result_arity > 0`), emit one MOV
     // per result slot before the join label so both arms
     // converge on the same physical regs. Stack at entry is
@@ -675,7 +675,7 @@ pub fn emitEndIntra(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     //   live  : [..., merge_0, ..., merge_{N-1}, else_0, ..., else_{N-1}]
     //   dead  : [..., merge_0, ..., merge_{N-1}]
     //           (else arm broke out via br / return / unreachable)
-    // D-093 (d-2): `.block` merge fall-through. When at least one
+    // D-093: `.block` merge fall-through. When at least one
     // forward br/br_if captured a merge target during the block
     // body, the fall-through `end` must MOV the current top arity
     // vregs into the captured merge regs (live fall-through case);
@@ -687,7 +687,7 @@ pub fn emitEndIntra(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     // ran at runtime.
     if (lbl.kind == .block and lbl.merge_captured and lbl.result_arity > 0) {
         const arity: u32 = lbl.result_arity;
-        // D-093 (d-6): block-with-params consumed `param_arity`
+        // D-093: block-with-params consumed `param_arity`
         // entry-time values; canonical post-block stack base
         // is `entry - param_arity`.
         const entry: usize = @as(usize, lbl.entry_stack_depth) -| @as(usize, lbl.param_arity);
@@ -772,7 +772,7 @@ pub fn emitEndIntra(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
             // Merge targets already on top of stack from the
             // then arm. Skip MOVs; B fixups patched below.
         } else if (lbl.param_arity > 0) {
-            // D-093 (d-10) — `if (param T1..TK)` case: emitElse
+            // D-093 — `if (param T1..TK)` case: emitElse
             // truncated the phantom V_then_result below the
             // re-pushed params, so at .end the stack is just
             // [..., V_else_result_0 .. V_else_result_{N-1}].
@@ -824,10 +824,10 @@ pub fn emitEndIntra(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
             // doesn't matter for correctness, but reverse-pop
             // matches the natural top-of-stack consumption.
             //
-            // §9.9 / 9.9-f-3: per-slot type dispatch — when the
+            // Per-slot type dispatch — when the
             // merge target is v128 (per `alloc.shapeTag`), use the
             // q* helpers + `encMovV16B` so the full 128 bits move.
-            // Pre-9.9-f-3 behaviour was 32-bit ORR W which silently
+            // Earlier behaviour was 32-bit ORR W which silently
             // truncated v128 merges; surfaced via simd_const.386's
             // `as-block-retval` / `as-if-then-retval` exports.
             var i: u32 = arity;
@@ -839,7 +839,7 @@ pub fn emitEndIntra(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
             }
         }
     }
-    // D-093 (d-13) — implicit-else marshal. `(if (param T1..TK)
+    // D-093 — implicit-else marshal. `(if (param T1..TK)
     // (result T1..TK)) (then ...)` without an `.else` validates
     // per Wasm spec §3.4.4 (params == results required). The
     // cond=0 path takes an implicit identity else; the
@@ -898,7 +898,7 @@ pub fn emitEndIntra(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
         }
     }
 
-    // D-093 (d-1): truncate pushed_vregs to entry_stack_depth +
+    // D-093: truncate pushed_vregs to entry_stack_depth +
     // result_arity, keeping the top result_arity values. When a
     // br inside the block left extra vregs on the operand stack
     // (e.g. `block (result i32) (i32.const 4) (i32.const 8)
@@ -912,11 +912,11 @@ pub fn emitEndIntra(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     // canonical merge target vregs, so this final truncation
     // collapses the redundant else-arm slots into a single
     // result slot.
-    // D-093 (d-6): account for Wasm 2.0 block params. The
+    // D-093: account for Wasm 2.0 block params. The
     // block's body consumed `param_arity` values from the
     // entry-time operand stack (they were on top at block-open),
     // so the post-block height is
-    // `entry_stack_depth - param_arity + result_arity`. Pre-d-6
+    // `entry_stack_depth - param_arity + result_arity`. Earlier
     // the truncate used `entry + result`, which over-counted
     // when the block had params (block:param tests).
     const entry_base: usize = @as(usize, lbl.entry_stack_depth) -| @as(usize, lbl.param_arity);
@@ -931,16 +931,16 @@ pub fn emitEndIntra(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     if (ctx.pushed_vregs.items.len > new_len) {
         ctx.pushed_vregs.shrinkRetainingCapacity(new_len);
     }
-    // D-093 (d-5): `.loop` fall-through dead — pad with
+    // D-093: `.loop` fall-through dead — pad with
     // placeholder vreg 0 so the downstream post-loop pop
-    // doesn't underflow. Extended at d-52 (D-130) to all
+    // doesn't underflow. Extended (D-130) to all
     // block kinds: a block can become dead via `unreachable`
     // / `br_table` inside its body without any `br` having
     // captured a merge target (e.g. `unreached-valid.wast`
     // `meet-bottom`: br_table-in-dead-code emits nothing, the
     // merge-MOV mechanism never fires, and the block's `.end`
     // sees pushed_vregs.len < entry + result_arity). Pad with
-    // vreg 0 (recognised as the d-5 dead-fall-through
+    // vreg 0 (recognised as the dead-fall-through
     // placeholder by marshalFunctionReturn / `.drop` etc.).
     while (ctx.pushed_vregs.items.len < new_len) {
         try ctx.pushed_vregs.append(ctx.allocator, 0);

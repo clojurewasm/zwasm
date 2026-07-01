@@ -1,6 +1,6 @@
 //! Per-function ZIR usage prescans for x86_64 emit.
 //!
-//! Extracted from `emit.zig` per §9.9 / 9.9-m-5 (line-count
+//! Extracted from `emit.zig` (line-count
 //! discipline after D-087/088/089 whitelist extension). Sibling
 //! to `rbp_disp.zig` (form-selectors) under the x86_64 namespace.
 //!
@@ -46,7 +46,7 @@ const ZirFunc = zir.ZirFunc;
 ///   trap_flag check sees 0 (no trap) AND adjacent memory
 ///   corruption manifests as glibc dl-fini assertions at
 ///   process exit on Linux x86_64. D-087/088/089 cohort
-///   (§9.9 / 9.9-m-5 per ADR-0056) discharged by adding the
+///   (per ADR-0056) discharged by adding the
 ///   div / rem / trunc_trap ops to this whitelist.
 ///
 /// **Same-class grep target**: when adding a new ZirOp that
@@ -138,12 +138,12 @@ pub fn usesRuntimePtr(func: *const ZirFunc) bool {
             .@"memory.grow",
             .@"memory.copy",
             .@"memory.fill",
-            // §9.9 / 9.9-m-3b: memory.init reads data_segments_ptr +
+            // memory.init reads data_segments_ptr +
             // data_dropped_ptr + mem_limit + vm_base from [r15+off].
             .@"memory.init",
             .call,
             .call_indirect,
-            // 10.R call_ref: emit does MOV <arg0>, R15 (runtime_ptr →
+            // call_ref: emit does MOV <arg0>, R15 (runtime_ptr →
             // callee) + a null-check trap-stub fixup ([R15+trap_flag_off]).
             // Both read R15 → D-208: missing entry meant a null funcref
             // returned 0 on x86_64 instead of trapping (the trap stub
@@ -151,7 +151,7 @@ pub fn usesRuntimePtr(func: *const ZirFunc) bool {
             // (prologue always sets X19). The positive call_ref test
             // survived because its callee never dereferenced the bad rt.
             .call_ref,
-            // ADR-0112 D4 / 10.TC: return_call emits MOV RDI, R15
+            // ADR-0112 D4: return_call emits MOV RDI, R15
             // (emitLoadCalleeRtSameModule) — reads R15. Must be
             // whitelisted so the prologue PUSH-saves R15 (otherwise
             // the MOV reads uninitialised R15 → silent miscompile,
@@ -162,7 +162,7 @@ pub fn usesRuntimePtr(func: *const ZirFunc) bool {
             // funcptr via [R15+funcptr_base_off]. Same D-180 risk
             // class.
             .return_call_indirect,
-            // 10.R return_call_ref: emitLoadCalleeRtSameModule (MOV
+            // return_call_ref: emitLoadCalleeRtSameModule (MOV
             // RDI, R15) + null-check trap-stub fixup. Same D-208/D-180
             // risk class as call_ref (cyc208 ungated → 0 on x86_64).
             .return_call_ref,
@@ -170,12 +170,12 @@ pub fn usesRuntimePtr(func: *const ZirFunc) bool {
             // × s/u) + trunc_trap (i32/i64 × f32/f64 × s/u) +
             // ref.as_non_null. All write `[r15+trap_flag_off]` on
             // the trap path; require R15 initialised. ref.as_non_null
-            // added at 10.R cycle 51 — exact D-180 hazard
+            // is an exact D-180 hazard
             // (test trapped on Mac arm64 + returned 0 on ubuntu
             // x86_64 before this whitelist entry, because the trap
             // stub wrote trap_flag via an uninitialised R15).
             .@"ref.as_non_null",
-            // 10.G GC-on-JIT: i31.get_s / i31.get_u emit a null /
+            // GC-on-JIT: i31.get_s / i31.get_u emit a null /
             // non-i31 trap-stub fixup (TEST src,1 + JE → trap stub
             // writes trap_flag via [R15+off]). Exact D-180 hazard —
             // without R15 pinned, a null i31.get_* returns garbage
@@ -183,12 +183,12 @@ pub fn usesRuntimePtr(func: *const ZirFunc) bool {
             // always set). ref.i31 is NOT here (no trap, no R15).
             .@"i31.get_s",
             .@"i31.get_u",
-            // 10.G GC-on-JIT: struct.new_default CALLs the jitGcAlloc
+            // GC-on-JIT: struct.new_default CALLs the jitGcAlloc
             // trampoline with rt in RDI (= R15) → needs R15 pinned
             // (D-180 class). arm64 emit landed first; the x86_64 emit
             // (D-211) inherits this whitelist entry.
             .@"struct.new_default",
-            // 10.G GC-on-JIT: struct.get loads the gc_heap slab base
+            // GC-on-JIT: struct.get loads the gc_heap slab base
             // from [R15 + gc_heap_off] (= X19 on arm64) → needs R15
             // pinned. arm64 emit landed first; x86_64 emit = D-211.
             .@"struct.get",
@@ -196,64 +196,64 @@ pub fn usesRuntimePtr(func: *const ZirFunc) bool {
             // extend) load the slab base the same way → also need R15 pinned.
             .@"struct.get_s",
             .@"struct.get_u",
-            // 10.G GC-on-JIT: struct.new CALLs jitGcAlloc (rt=RDI=R15)
+            // GC-on-JIT: struct.new CALLs jitGcAlloc (rt=RDI=R15)
             // AND reloads the slab base from [R15 + gc_heap_off] for the
-            // field stores → needs R15 pinned (A-3 mirror of arm64).
+            // field stores → needs R15 pinned (mirror of arm64).
             .@"struct.new",
-            // 10.G GC-on-JIT: struct.set reloads the slab base from
+            // GC-on-JIT: struct.set reloads the slab base from
             // [R15 + gc_heap_off] for the field store → needs R15 pinned.
             .@"struct.set",
-            // 10.G GC-on-JIT array A-2: array.new_default CALLs
+            // GC-on-JIT array: array.new_default CALLs
             // jitGcAllocArray (rt=RDI=R15); array.len loads the slab base
             // from [R15 + gc_heap_off] → both need R15 pinned.
             .@"array.new_default",
             .@"array.len",
-            // array A-3: array.get / array.set reload the slab base from
+            // array.get / array.set reload the slab base from
             // [R15 + gc_heap_off] for the element access → need R15 pinned.
             .@"array.get",
             .@"array.set",
-            // array A-6a/b: array.get_s / array.get_u reload the slab base for
+            // array.get_s / array.get_u reload the slab base for
             // the packed element load (then MOVSX / MOVZX) → need R15 pinned.
             .@"array.get_s",
             .@"array.get_u",
-            // array A-7: array.fill CALLs jitGcArrayFill with rt=RDI=R15.
+            // array.fill CALLs jitGcArrayFill with rt=RDI=R15.
             .@"array.fill",
-            // array A-9: array.copy CALLs jitGcArrayCopy with rt=RDI=R15.
+            // array.copy CALLs jitGcArrayCopy with rt=RDI=R15.
             .@"array.copy",
-            // array A-10: array.new_data CALLs jitGcArrayNewData (rt=RDI=R15).
+            // array.new_data CALLs jitGcArrayNewData (rt=RDI=R15).
             .@"array.new_data",
-            // array A-10b: array.new_elem CALLs jitGcArrayNewElem (rt=RDI=R15).
+            // array.new_elem CALLs jitGcArrayNewElem (rt=RDI=R15).
             .@"array.new_elem",
-            // array A-11: array.init_data / array.init_elem CALL
+            // array.init_data / array.init_elem CALL
             // jitGcArrayInit{Data,Elem} (rt=RDI=R15) + emit a trap-stub fixup
             // on the 0 return → need R15 pinned (D-180 class).
             .@"array.init_data",
             .@"array.init_elem",
-            // R-1: ref.test / ref.test_null CALL jitGcRefTest (rt=RDI=R15).
+            // ref.test / ref.test_null CALL jitGcRefTest (rt=RDI=R15).
             .@"ref.test",
             .@"ref.test_null",
-            // R-2: ref.cast CALLs jitGcRefCast (rt=RDI=R15).
+            // ref.cast CALLs jitGcRefCast (rt=RDI=R15).
             .@"ref.cast",
-            // R-3: ref.cast_null CALLs jitGcRefTest (rt=RDI=R15).
+            // ref.cast_null CALLs jitGcRefTest (rt=RDI=R15).
             .@"ref.cast_null",
-            // Cycle B: br_on_cast / br_on_cast_fail CALL jitGcRefTest (rt=RDI=R15).
+            // br_on_cast / br_on_cast_fail CALL jitGcRefTest (rt=RDI=R15).
             .br_on_cast,
             .br_on_cast_fail,
-            // array A-4: array.new CALLs jitGcAllocArrayFill (rt=RDI=R15).
+            // array.new CALLs jitGcAllocArrayFill (rt=RDI=R15).
             .@"array.new",
-            // array A-5: array.new_fixed CALLs jitGcAllocArray (rt=RDI=R15)
+            // array.new_fixed CALLs jitGcAllocArray (rt=RDI=R15)
             // + reloads the slab base from [R15+gc_heap_off] for the element
             // stores → needs R15 pinned.
             .@"array.new_fixed",
             .@"unreachable",
-            // §9.9 / 9.9-m-1b: ref.func loads func_entities_ptr
+            // ref.func loads func_entities_ptr
             // from [r15+off]. Requires R15.
             .@"ref.func",
-            // §9.9 / 9.9-m-3a: data.drop / elem.drop load
+            // data.drop / elem.drop load
             // dropped_ptr from [r15+off] then byte-store 1.
             .@"data.drop",
             .@"elem.drop",
-            // §9.9 / 9.9-m-2a (per ADR-0058): table.get / table.set
+            // Per ADR-0058: table.get / table.set
             // / table.size load tables_ptr from [r15+off] then index
             // the TableSlice array (refs / len reads). table.get
             // and table.set also emit trap-stub fixups for the
@@ -261,16 +261,16 @@ pub fn usesRuntimePtr(func: *const ZirFunc) bool {
             .@"table.get",
             .@"table.set",
             .@"table.size",
-            // §9.9 / 9.9-m-2b: table.fill — emits trap-stub fixups
+            // table.fill — emits trap-stub fixups
             // for the dst+n bounds check; requires R15 initialised.
             .@"table.fill",
-            // §9.9 / 9.9-m-2c: table.copy — emits trap-stub fixups
+            // table.copy — emits trap-stub fixups
             // for dst+n + src+n bounds checks; requires R15.
             .@"table.copy",
-            // §9.9 / 9.9-m-2c-init: table.init — same trap-fixup
+            // table.init — same trap-fixup
             // surface (src+n vs seg.len, dst+n vs tables[x].len).
             .@"table.init",
-            // §9.9 / 9.9-l-1b-d093-d48 (D-122/D-125): table.grow
+            // D-122/D-125: table.grow
             // loads `table_grow_fn` ptr from `[r15+off]` and CALLs
             // through it (mirror of memory.grow's ADR-0059 callout).
             // Without R15 initialised, the LDR reads garbage and

@@ -138,7 +138,7 @@ const x86_64_win64_call_clobbers: if (builtin.target.cpu.arch == .x86_64 and bui
         // non-Win64 hosts: const value collapses to void.
     };
 
-/// D-245 (§15.5 chunk 1) — the callee-saved GPRs the JIT prologue clobbers.
+/// D-245 — the callee-saved GPRs the JIT prologue clobbers.
 /// The prologue MOV-installs the pinned cohort (arm64 X19/X24-X28; x86_64
 /// RBX/R12-R15) from `rt` WITHOUT stack-saving the caller's values, so a plain
 /// host→JIT `@call` lets ReleaseSafe's optimized host lose any live value it
@@ -171,7 +171,7 @@ pub const jit_cohort_clobbers: if (builtin.target.cpu.arch == .aarch64 or builti
         // other arches: no JIT cohort clobber; the const collapses to void.
     };
 
-/// D-245 RESULT-path trampoline (§15.5 chunk 1). Non-inline by construction
+/// D-245 RESULT-path trampoline. Non-inline by construction
 /// (called via `@call(.never_inline, …)`), so it has a real prologue/epilogue.
 /// The `asm volatile ("" ::: jit_cohort_clobbers)` after the JIT call forces
 /// THIS frame to save & restore the cohort the JIT clobbers, transparently
@@ -225,7 +225,7 @@ inline fn invokeAndCheck(
     rt.stack_limit = stack_limit_mod.computeStackLimit(stack_limit_mod.STACK_GUARD_HEADROOM);
     rt.trap_flag = 0;
     stack_limit_mod.diagOnceWithRt(rt, jit_abi.stack_limit_off, rt.stack_limit);
-    // D-245 (§15.5 chunk 1): route through the non-inline clobber-trampoline
+    // D-245: route through the non-inline clobber-trampoline
     // so the host's callee-saved cohort is preserved across the JIT call.
     // `.never_inline` guarantees a real prologue/epilogue on `jitTrampoline`.
     const result = @call(.never_inline, jitTrampoline, .{ R, f, rt, args });
@@ -300,7 +300,7 @@ inline fn invokeAndCheckVoid(
               [rt_arg] "{rdi}" (rt),
             : x86_64_sysv_call_clobbers);
     } else {
-        // D-245 (§15.5 chunk 1): arg'd void path — preserve the host cohort
+        // D-245: arg'd void path — preserve the host cohort
         // via the non-inline clobber-trampoline. The no-arg arm64/x86_64
         // branches above keep their dedicated manual-asm save/restore.
         @call(.never_inline, jitTrampolineVoid, .{ f, rt, args });
@@ -357,7 +357,7 @@ pub fn callVoidNoArgsPtr(f: *const fn (*const JitRuntime) callconv(.c) void, rt:
 /// Call a single-i32-argument JIT function returning i32.
 /// Per AAPCS64 / SysV the ABI puts `rt` in X0 / RDI and `a0` in
 /// X1 / RSI; the JIT body's prologue snapshots X1 (W1) into the
-/// param-0 local slot. Used by §9.7 / 7.5 spec-assertion-driver
+/// param-0 local slot. Used by the spec-assertion-driver
 /// to invoke `assert_return` actions whose action.args is one i32.
 pub fn callI32_i32(
     module: linker.JitModule,
@@ -387,7 +387,7 @@ pub fn callI32_i32i32(
 /// The JIT body's function-level `end` handler skips result
 /// marshalling when `func.sig.results.len == 0`; the epilogue
 /// runs as POP RBP / RET (x86_64) or LDP / RET (ARM64). Used by
-/// §9.7 / 7.5-close-c1 spec_assert dispatch for `local.set` /
+/// the spec_assert dispatch for `local.set` /
 /// `global.set` / store-style assertions whose `(invoke ...)`
 /// has empty `expected`. Trap detection mirrors `callI32NoArgs`.
 pub fn callVoidNoArgs(
@@ -579,8 +579,7 @@ pub fn callVoid_f64(
 }
 
 /// Call a no-argument JIT function returning i64. ARM64 epilogue
-/// MOV X0, X<vreg> (64-bit form) for results[0] == .i64 — landed
-/// under §9.7 / 7.7-fp-end-fix.
+/// MOV X0, X<vreg> (64-bit form) for results[0] == .i64.
 pub fn callI64NoArgs(
     module: linker.JitModule,
     func_idx: u32,
@@ -654,7 +653,7 @@ pub fn callF64_f64(
     return invokeAndCheck(rt, f64, module.entry(func_idx, Fn), .{a0});
 }
 
-// §9.9 / 9.9-l-1b-widen — cross-type scalar entry helpers
+// Cross-type scalar entry helpers
 // covering `conversions.wast` shapes (trunc / trunc_sat for FP→int,
 // convert for int→FP, promote / demote / reinterpret across FP
 // widths). One entry pattern per (arg, result) pair so the FFI
@@ -793,7 +792,7 @@ pub fn callF64_f32(
     return invokeAndCheck(rt, f64, module.entry(func_idx, Fn), .{a0});
 }
 
-// §9.9 / 9.9-l-1b-binop — 2-arg scalar entry helpers covering the
+// 2-arg scalar entry helpers covering the
 // i64 / f32 / f64 binop + cmp families exercised by `i64.wast`,
 // `f32.wast`, `f64.wast`, `f32_cmp.wast`, `f64_cmp.wast`. Each
 // follows the same single-helper template as the 1-arg variants.
@@ -877,7 +876,7 @@ pub fn callI32_f64f64(
     return invokeAndCheck(rt, u32, module.entry(func_idx, Fn), .{ a0, a1 });
 }
 
-// §9.9 / 9.9-l-1b-d093-d55: 3+/4+-arg + mixed scalar entry shapes
+// 3+/4+-arg + mixed scalar entry shapes
 // added to satisfy the `runner-shape-gap` skip-impl families surfaced
 // by `nop` (3 i32 args), `f32` / `f64` arith (3+ FP args), and
 // other multi-arg fixtures. Each helper mirrors the established
@@ -918,7 +917,7 @@ pub fn callI64_i64i64i32(
     return invokeAndCheck(rt, u64, module.entry(func_idx, Fn), .{ a0, a1, a2 });
 }
 
-// §17.4 D-301 — 3-arg atomic shapes for the threads spec corpus.
+// D-301 — 3-arg atomic shapes for the threads spec corpus.
 // i64.atomic.rmw.cmpxchg (addr, exp, repl) → i64.
 pub fn callI64_i32i64i64(
     module: linker.JitModule,
@@ -963,7 +962,7 @@ pub fn callI32_i32i64i64(
 /// the JIT body's epilogue marshals into the result registers.
 /// Field order matches Wasm result order (r0 = first result).
 ///
-/// Phase 9 Cat II entry-helper cohort per ADR-0065; this is the first
+/// Entry-helper cohort per ADR-0065; this is the first
 /// multi-result `FuncRet_*` struct. Subsequent shapes follow the same
 /// naming convention `FuncRet_<concat-result-types>` (no separator).
 pub const FuncRet_i64i32 = extern struct {
@@ -1156,8 +1155,7 @@ pub fn callI32i32NoArgs(module: linker.JitModule, func_idx: u32, rt: *JitRuntime
 
 /// `() -> (i32, i32, i32)` — Class C MEMORY-class per ADR-0069.
 /// SysV / AAPCS64: native `callconv(.c)` MEMORY-class via X8
-/// (arm64) / RDI hidden-arg (SysV). Win64: wrapper-thunk path
-/// (Phase 2'h step 2).
+/// (arm64) / RDI hidden-arg (SysV). Win64: wrapper-thunk path.
 pub fn callI32i32i32NoArgs(
     module: linker.JitModule,
     func_idx: u32,
@@ -1640,8 +1638,8 @@ pub fn callF64_f64f64i32(
     return invokeAndCheck(rt, f64, module.entry(func_idx, Fn), .{ a0, a1, a2 });
 }
 
-// §9.9 / 9.9-l-1b-d093-d61: residual `runner-shape-gap` shapes
-// surfaced after the d-55 batch. Same AAPCS64/SysV calling-
+// Residual `runner-shape-gap` shapes.
+// Same AAPCS64/SysV calling-
 // convention pattern; result + arg classes are scalar (no
 // reftype / v128).
 
@@ -1765,10 +1763,10 @@ pub fn callF64_f32i32i64i32f64i32(
     return invokeAndCheck(rt, f64, module.entry(func_idx, Fn), .{ a0, a1, a2, a3, a4, a5 });
 }
 
-// §9.9 / 9.9-l-1b-d093-d63: reftype-aliased dispatch shapes
+// Reftype-aliased dispatch shapes
 // for the table_grow / table_fill family. Reftype args/results
-// alias onto the i64 GPR-class scalar path per ADR-0061 (d-33
-// codegen plumbing), so the helpers below carry plain `u64`
+// alias onto the i64 GPR-class scalar path per ADR-0061
+// codegen plumbing, so the helpers below carry plain `u64`
 // signatures rather than a separate reftype variant.
 
 pub fn callI32_i32i64(
@@ -1813,9 +1811,9 @@ pub fn callVoid_i32i64i32(
 /// (notably `simd_assert_runner`) can compare against manifest hex
 /// tokens directly.
 ///
-/// Used by §9.9 / 9.9-c spec-assertion-driver to invoke `()→v128`
+/// Used by the spec-assertion-driver to invoke `()→v128`
 /// fixtures (simd_address / simd_align / simd_const). v128 PARAM
-/// marshal is a separate follow-up (§9.9-e).
+/// marshal is a separate follow-up.
 pub fn callV128NoArgs(
     module: linker.JitModule,
     func_idx: u32,
@@ -1947,8 +1945,8 @@ pub fn callV128_f64f64f64f64(module: linker.JitModule, func_idx: u32, rt: *JitRu
 // operand fixtures) reuse the existing scalar↔scalar helpers
 // `callI64_i64` / `callI32_i64` / `callF32_f32` / `callF64_f64`.
 
-/// Wasm spec §4.4 — `(v128) → v128` invocation. §9.9 / 9.9-f-4
-/// scope expansion: enables FP / int unop fixtures
+/// Wasm spec §4.4 — `(v128) → v128` invocation. Enables
+/// FP / int unop fixtures
 /// (simd_f32x4_arith neg / sqrt, simd_i32x4_arith neg / abs,
 /// etc.). a0 lowers to V0/XMM0; result also V0/XMM0.
 pub fn callV128_v128(
@@ -1963,7 +1961,7 @@ pub fn callV128_v128(
     return @bitCast(result);
 }
 
-/// Wasm spec §4.4 — `(v128) → ()` invocation. §9.9 / 9.9-h-3
+/// Wasm spec §4.4 — `(v128) → ()` invocation.
 /// (D-079 (i) discharge): enables single-v128-param setter
 /// fixtures (simd_const `as-global.set_value_$g0` etc.). a0
 /// lowers to V0/XMM0; no result. Per ADR-0046's PARAM marshal
@@ -1979,7 +1977,7 @@ pub fn callVoid_v128(
     return invokeAndCheckVoid(rt, module.entry(func_idx, Fn), .{@as(Vec, @bitCast(a0))});
 }
 
-/// Wasm spec §4.4 — `(v128, v128) → ()` invocation. §9.9 / 9.9-h-3
+/// Wasm spec §4.4 — `(v128, v128) → ()` invocation.
 /// (D-079 (i) discharge): two-v128-param setter fixtures
 /// (simd_const `as-global.set_value_$g1_$g2` etc.).
 pub fn callVoid_v128v128(
@@ -1995,7 +1993,7 @@ pub fn callVoid_v128v128(
 }
 
 /// Wasm spec §4.4 — `(v128, v128, v128, v128) → ()` invocation.
-/// §9.9 / 9.9-h-3 (D-079 (i) discharge): four-v128-param setter
+/// (D-079 (i) discharge): four-v128-param setter
 /// fixtures (simd_const `as-global.set_value_$g0_$g1_$g2_$g3`).
 /// Per AAPCS64 / SysV ABI: a0..a3 lower to V0..V3 (ARM64) /
 /// XMM0..XMM3 (x86_64); RDI/X0 stays the runtime ptr.
@@ -2013,10 +2011,10 @@ pub fn callVoid_v128v128v128v128(
     return invokeAndCheckVoid(rt, module.entry(func_idx, Fn), .{ @as(Vec, @bitCast(a0)), @as(Vec, @bitCast(a1)), @as(Vec, @bitCast(a2)), @as(Vec, @bitCast(a3)) });
 }
 
-/// Wasm spec §4.4 — `(v128, v128) → v128` invocation. §9.9 / 9.9-f
-/// scope expansion: enables FP arith / int arith / bitwise binop
+/// Wasm spec §4.4 — `(v128, v128) → v128` invocation. Enables
+/// FP arith / int arith / bitwise binop
 /// fixtures (simd_bitwise, simd_f32x4_arith, simd_i32x4_arith,
-/// etc.). Per ADR-0046 + 9.9-e-1/-2 v128 PARAM marshal: a0 lowers
+/// etc.). Per ADR-0046 v128 PARAM marshal: a0 lowers
 /// to V0/XMM0, a1 to V1/XMM1; result is V0/XMM0.
 pub fn callV128_v128v128(
     module: linker.JitModule,
@@ -2032,7 +2030,7 @@ pub fn callV128_v128v128(
 }
 
 /// Wasm spec §4.4 — `(v128, v128, v128) → v128` invocation.
-/// §9.9 / 9.9-h-14 (D-070 unblock): enables bitselect / select
+/// (D-070 unblock): enables bitselect / select
 /// corpus assertions that take 3 v128 inputs and produce a v128
 /// result. a0 → V0/XMM0, a1 → V1/XMM1, a2 → V2/XMM2; result is
 /// V0/XMM0. AAPCS64 / SysV register pool covers ≤ 8 v128 args
@@ -2051,7 +2049,7 @@ pub fn callV128_v128v128v128(
     return @bitCast(result);
 }
 
-/// Wasm spec §4.4 — `(v128) → i32` invocation. §9.9 / 9.9-h-26
+/// Wasm spec §4.4 — `(v128) → i32` invocation.
 /// (v128-param-pending discharge): enables i*x*.all_true /
 /// any_true / bitmask / i*x*.extract_lane.{s,u} fixtures whose
 /// `(args, results)` is `((v128,), (i32,))`. a0 lowers to
@@ -2067,7 +2065,7 @@ pub fn callI32_v128(
     return invokeAndCheck(rt, u32, module.entry(func_idx, Fn), .{@as(Vec, @bitCast(a0))});
 }
 
-/// Wasm spec §4.4 — `(v128) → f32` invocation. §9.9 / 9.9-h-26
+/// Wasm spec §4.4 — `(v128) → f32` invocation.
 /// (v128-param-pending discharge): enables f32x4.extract_lane
 /// fixtures whose `(args, results)` is `((v128,), (f32,))`. a0
 /// lowers to V0/XMM0; the f32 result returns in S0/XMM0 per
@@ -2083,7 +2081,7 @@ pub fn callF32_v128(
     return invokeAndCheck(rt, f32, module.entry(func_idx, Fn), .{@as(Vec, @bitCast(a0))});
 }
 
-/// Wasm spec §4.4 — `(v128) → f64` invocation. §9.9 / 9.9-h-26
+/// Wasm spec §4.4 — `(v128) → f64` invocation.
 /// (v128-param-pending discharge): enables f64x2.extract_lane
 /// fixtures whose `(args, results)` is `((v128,), (f64,))`. a0
 /// lowers to V0/XMM0; the f64 result returns in D0/XMM0 per
@@ -2099,8 +2097,8 @@ pub fn callF64_v128(
     return invokeAndCheck(rt, f64, module.entry(func_idx, Fn), .{@as(Vec, @bitCast(a0))});
 }
 
-/// Wasm spec §4.4 — `(v128, i32) → v128` invocation. §9.9 /
-/// 9.9-h-26 (v128-param-pending discharge): enables i*x*.shl /
+/// Wasm spec §4.4 — `(v128, i32) → v128` invocation.
+/// (v128-param-pending discharge): enables i*x*.shl /
 /// shr_s / shr_u (shift count = i32) AND i*x*.replace_lane
 /// (replacement value = i32, lane index baked into the opcode).
 /// Per AAPCS64 / SysV: a0 → V0/XMM0 (vector arg goes to the
@@ -2119,8 +2117,8 @@ pub fn callV128_v128i32(
     return @bitCast(result);
 }
 
-/// Wasm spec §4.4 — `(v128, f32) → v128` invocation. §9.9 /
-/// 9.9-h-26 (v128-param-pending discharge): enables
+/// Wasm spec §4.4 — `(v128, f32) → v128` invocation.
+/// (v128-param-pending discharge): enables
 /// f32x4.replace_lane fixtures (replacement value = f32, lane
 /// index baked into the opcode). Per AAPCS64 / SysV: a0 →
 /// V0/XMM0, a1 → V1/XMM1 (both FP/vector args use the FP
@@ -2139,8 +2137,8 @@ pub fn callV128_v128f32(
     return @bitCast(result);
 }
 
-/// Wasm spec §4.4 — `(v128, f64) → v128` invocation. §9.9 /
-/// 9.9-h-26 (v128-param-pending discharge): enables
+/// Wasm spec §4.4 — `(v128, f64) → v128` invocation.
+/// (v128-param-pending discharge): enables
 /// f64x2.replace_lane fixtures (replacement value = f64, lane
 /// index baked into the opcode). Per AAPCS64 / SysV: a0 →
 /// V0/XMM0, a1 → V1/XMM1; result returns in V0/XMM0.
@@ -2157,7 +2155,7 @@ pub fn callV128_v128f64(
     return @bitCast(result);
 }
 
-/// Wasm spec §4.4 — `(v128) → i64` invocation. §9.9 / 9.9-h-27
+/// Wasm spec §4.4 — `(v128) → i64` invocation.
 /// (v128-param-pending residual discharge): enables
 /// `i64x2.extract_lane` fixtures (lane index baked into the
 /// opcode immediate; one v128 input, one i64 result). Per
@@ -2174,8 +2172,8 @@ pub fn callI64_v128(
     return invokeAndCheck(rt, u64, module.entry(func_idx, Fn), .{@as(Vec, @bitCast(a0))});
 }
 
-/// Wasm spec §4.4 — `(v128, i64) → v128` invocation. §9.9 /
-/// 9.9-h-27 (v128-param-pending residual discharge): enables
+/// Wasm spec §4.4 — `(v128, i64) → v128` invocation.
+/// (v128-param-pending residual discharge): enables
 /// `i64x2.replace_lane` (replacement value = i64, lane index
 /// baked into the opcode). Per AAPCS64 / SysV: a0 → V0/XMM0
 /// (the FP/vector arg register); a1 → X1/RSI (the first GPR
@@ -2193,8 +2191,8 @@ pub fn callV128_v128i64(
     return @bitCast(result);
 }
 
-/// Wasm spec §4.4 — `(v128, v128) → i32` invocation. §9.9 /
-/// 9.9-h-27 (v128-param-pending residual discharge): enables
+/// Wasm spec §4.4 — `(v128, v128) → i32` invocation.
+/// (v128-param-pending residual discharge): enables
 /// composite-body fixtures whose Wasm function takes two v128
 /// inputs, performs a bitwise op (`and` / `or` / `xor`) between
 /// them, and reduces via `i*x*.{all,any}_true` → i32
@@ -2213,8 +2211,8 @@ pub fn callI32_v128v128(
     return invokeAndCheck(rt, u32, module.entry(func_idx, Fn), .{ @as(Vec, @bitCast(a0)), @as(Vec, @bitCast(a1)) });
 }
 
-/// Wasm spec §4.4 — `(v128, v128, i32) → v128` invocation. §9.9
-/// / 9.9-h-27 (v128-param-pending residual discharge): enables
+/// Wasm spec §4.4 — `(v128, v128, i32) → v128` invocation.
+/// (v128-param-pending residual discharge): enables
 /// `select_v128_i32` (Wasm `select` with explicit v128 operands
 /// and an i32 selector — `simd_select.wast` `select_v128`).
 /// Signature: `v128 v1, v128 v2, i32 cond → v128`. Per
@@ -2234,8 +2232,8 @@ pub fn callV128_v128v128i32(
     return @bitCast(result);
 }
 
-/// Wasm spec §4.4 — `(v128, v128, v128) → i32` invocation. §9.9 /
-/// 9.9-h-28 (v128-param-pending residual discharge): enables the
+/// Wasm spec §4.4 — `(v128, v128, v128) → i32` invocation.
+/// (v128-param-pending residual discharge): enables the
 /// composite `*_with_v128.bitselect` exports from `simd_boolean`
 /// whose body is `(any_true|all_true)(bitselect(v0, v1, v2))` and
 /// reduces to i32. Per AAPCS64 / SysV: a0 → V0/XMM0, a1 → V1/XMM1,
@@ -2253,7 +2251,7 @@ pub fn callI32_v128v128v128(
     return invokeAndCheck(rt, u32, module.entry(func_idx, Fn), .{ @as(Vec, @bitCast(a0)), @as(Vec, @bitCast(a1)), @as(Vec, @bitCast(a2)) });
 }
 
-/// Wasm spec §4.4 — `(v128, i32) → i32` invocation. §9.9 / 9.9-h-28
+/// Wasm spec §4.4 — `(v128, i32) → i32` invocation.
 /// (v128-param-pending residual discharge): enables `simd_lane`
 /// composite exports `i*x*_replace_lane-{s,u}` (replace lane then
 /// extract back as i32) and `as-i*x*_any_true-operand` (any_true
@@ -2272,7 +2270,7 @@ pub fn callI32_v128i32(
     return invokeAndCheck(rt, u32, module.entry(func_idx, Fn), .{ @as(Vec, @bitCast(a0)), a1 });
 }
 
-/// Wasm spec §4.4 — `(v128, i64) → i32` invocation. §9.9 / 9.9-h-28
+/// Wasm spec §4.4 — `(v128, i64) → i32` invocation.
 /// (v128-param-pending residual discharge): enables `simd_lane`
 /// `as-i32x4_any_true-operand2` whose body takes `(v128, i64)` and
 /// returns i32 via `i32x4.any_true ((v128 op v128(splat i64)))`.
@@ -2290,7 +2288,7 @@ pub fn callI32_v128i64(
     return invokeAndCheck(rt, u32, module.entry(func_idx, Fn), .{ @as(Vec, @bitCast(a0)), a1 });
 }
 
-/// Wasm spec §4.4 — `(v128, i64) → i64` invocation. §9.9 / 9.9-h-28
+/// Wasm spec §4.4 — `(v128, i64) → i64` invocation.
 /// (v128-param-pending residual discharge): enables `simd_lane`
 /// composite `i64x2_replace_lane` (replace lane with i64 arg, then
 /// `i64x2.extract_lane` it back). Per AAPCS64 / SysV: a0 → V0/XMM0,
@@ -2307,7 +2305,7 @@ pub fn callI64_v128i64(
     return invokeAndCheck(rt, u64, module.entry(func_idx, Fn), .{ @as(Vec, @bitCast(a0)), a1 });
 }
 
-/// Wasm spec §4.4 — `(v128, f32) → f32` invocation. §9.9 / 9.9-h-28
+/// Wasm spec §4.4 — `(v128, f32) → f32` invocation.
 /// (v128-param-pending residual discharge): enables `simd_lane`
 /// composite `f32x4_replace_lane` (replace lane with f32 arg then
 /// extract back). Per AAPCS64 / SysV: a0 → V0/XMM0, a1 → V1/XMM1
@@ -2325,7 +2323,7 @@ pub fn callF32_v128f32(
     return invokeAndCheck(rt, f32, module.entry(func_idx, Fn), .{ @as(Vec, @bitCast(a0)), a1 });
 }
 
-/// Wasm spec §4.4 — `(v128, f64) → f64` invocation. §9.9 / 9.9-h-28
+/// Wasm spec §4.4 — `(v128, f64) → f64` invocation.
 /// (v128-param-pending residual discharge): enables `simd_lane`
 /// composite `f64x2_replace_lane`. Per AAPCS64 / SysV: a0 → V0/XMM0,
 /// a1 → V1/XMM1; result returns in D0/XMM0.
@@ -2342,7 +2340,7 @@ pub fn callF64_v128f64(
 }
 
 /// Wasm spec §4.4 — `(v128, v128, v128, v128) → v128` invocation.
-/// §9.9 / 9.9-h-28 (v128-param-pending residual discharge): enables
+/// (v128-param-pending residual discharge): enables
 /// `simd_lane` `swizzle-as-i8x16_add-operands` /
 /// `shuffle-as-i8x16_sub-operands` which take 4 v128 inputs and
 /// produce a v128 result. Per AAPCS64 / SysV the V0..V7 / XMM0..XMM7
@@ -2363,8 +2361,8 @@ pub fn callV128_v128v128v128v128(
     return @bitCast(result);
 }
 
-/// Wasm spec §4.4 — `(v128, i32, v128) → v128` invocation. §9.9 /
-/// 9.9-h-28 (v128-param-pending residual discharge): enables
+/// Wasm spec §4.4 — `(v128, i32, v128) → v128` invocation.
+/// (v128-param-pending residual discharge): enables
 /// `simd_lane` `as-v8x16_swizzle-operand` (swizzle takes (v128, v128)
 /// but the export wraps it with an i32 arg in the middle threading
 /// the lane index). Per AAPCS64 / SysV: a0 → V0/XMM0, a1 → W1/ESI
@@ -2385,7 +2383,7 @@ pub fn callV128_v128i32v128(
 }
 
 /// Wasm spec §4.4 — `(v128, i32, v128, i32) → v128` invocation.
-/// §9.9 / 9.9-h-28 (v128-param-pending residual discharge): enables
+/// (v128-param-pending residual discharge): enables
 /// `simd_lane` `as-v8x16_shuffle-operands` /
 /// `as-i*x*_add-operands` (4-arg composite that interleaves two
 /// (v128, i32) `replace_lane` pairs into a single `add`). Per
@@ -2407,7 +2405,7 @@ pub fn callV128_v128i32v128i32(
 }
 
 /// Wasm spec §4.4 — `(v128, i64, v128, i64) → v128` invocation.
-/// §9.9 / 9.9-h-28 (v128-param-pending residual discharge): enables
+/// (v128-param-pending residual discharge): enables
 /// `simd_lane` `as-i64x2_add-operands` (i64-typed sibling of
 /// `as-i32x4_add-operands`; two `(v128, i64)` `replace_lane` pairs
 /// composed into `i64x2.add`). Per AAPCS64 / SysV: a0 → V0/XMM0,
@@ -2428,7 +2426,7 @@ pub fn callV128_v128i64v128i64(
     return @bitCast(result);
 }
 
-/// Wasm spec §4.4 — `(i32, v128) → ()` invocation. §9.9 / 9.9-h-28
+/// Wasm spec §4.4 — `(i32, v128) → ()` invocation.
 /// (v128-param-pending residual discharge): enables `simd_align`
 /// `v128.store align=N` fixtures (store address + v128 value, void
 /// return). Per AAPCS64 / SysV: a0 → W1/ESI (i32 address), a1 →
@@ -2896,8 +2894,8 @@ test "entry: callI64NoArgs — i64.const 0xDEADBEEFCAFE returns full 64-bit" {
 }
 
 test "entry: ref.as_non_null traps on null funcref source — JIT 10.R cycle 51" {
-    // 10.R / ADR-0123 D2: closes the spike_discipline §2 gap from
-    // cycle-50's scaffolding commit (`86e5bfaf`). Exercises the new
+    // ADR-0123 D2: closes the spike_discipline §2 gap from
+    // the scaffolding commit (`86e5bfaf`). Exercises the new
     // arm64 + x86_64 ref.as_non_null emit handler end-to-end through
     // JIT.
     //
@@ -2964,8 +2962,8 @@ test "entry: ref.as_non_null traps on null funcref source — JIT 10.R cycle 51"
 }
 
 test "entry: br_on_null branches to block end on null funcref — JIT 10.R cycle 55" {
-    // 10.R / ADR-0123 D2: closes the spike_discipline §2 gap from
-    // cycle-54b's scaffolding commit (`1b0fc917`). End-to-end exercises
+    // ADR-0123 D2: closes the spike_discipline §2 gap from
+    // the scaffolding commit (`1b0fc917`). End-to-end exercises
     // the arm64 br_on_null emit handler.
     //
     // Body: (func (result i32)
@@ -2977,7 +2975,7 @@ test "entry: br_on_null branches to block end on null funcref — JIT 10.R cycle
     // Expected: callI32NoArgs returns 7 — branch around the drop, block
     // end (arity 0, empty stack), then i32.const 7 + func end → 7.
     if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
-    // D-194 discharged cycle 58 — x86_64 br_on_null per-op file landed
+    // D-194 discharged — x86_64 br_on_null per-op file landed
     // via Path B (`captureOrEmitBlockMergeMovCtx` ctx-shape wrapper in
     // `x86_64/op_control.zig`); test now runs on both Mac aarch64 +
     // Linux x86_64.
@@ -3027,8 +3025,8 @@ test "entry: br_on_null branches to block end on null funcref — JIT 10.R cycle
 }
 
 test "entry: br_on_non_null falls through on null funcref param — JIT 10.R cycle 57" {
-    // 10.R / ADR-0123 D2: closes the spike_discipline §2 gap from
-    // cycle-56's scaffolding commit (`f30d08a7`). End-to-end exercises
+    // ADR-0123 D2: closes the spike_discipline §2 gap from
+    // the scaffolding commit (`f30d08a7`). End-to-end exercises
     // the arm64 br_on_non_null emit handler.
     //
     // Body: (func (param funcref) (result i32)
@@ -3042,7 +3040,7 @@ test "entry: br_on_non_null falls through on null funcref param — JIT 10.R cyc
     // fall through pushes ref.null; block result = null; ref.is_null
     // returns 1. callI32_i64(0) → 1.
     if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
-    // D-194 discharged cycle 58 — see br_on_null sibling above.
+    // D-194 discharged — see br_on_null sibling above.
 
     const sig: zir.FuncType = .{ .params = &.{.funcref}, .results = &.{.i32} };
     var fn0 = ZirFunc.init(0, sig, &.{});
@@ -3095,7 +3093,7 @@ test "entry: br_on_non_null falls through on null funcref param — JIT 10.R cyc
 }
 
 test "entry: br_on_cast matches i31 → branch carries the ref → i31.get_s = 7 (10.G Cycle B)" {
-    // 10.G GC-on-JIT Cycle B — end-to-end exercises the br_on_cast emit
+    // GC-on-JIT: end-to-end exercises the br_on_cast emit
     // handler (cast via jitGcRefTest + conditional branch via the shared
     // branchOnReg). The ref is an i31, the target is i31 → match → branch
     // to the block end carrying the (narrowed) i31ref → i31.get_s → 7.

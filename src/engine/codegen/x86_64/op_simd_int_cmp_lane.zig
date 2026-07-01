@@ -1,9 +1,7 @@
-// FILE-SIZE-EXEMPT: uniform `(ctx, ins)` adapter catalog (per ADR-0075 §9.12-B)
+// FILE-SIZE-EXEMPT: uniform `(ctx, ins)` adapter catalog (per ADR-0075)
 //! x86_64 emit pass - SIMD-128 integer compare / lane / extend /
 //! narrow / extmul / bitmask / all_true / swizzle / shuffle
-//! op handlers (split from `op_simd.zig` per
-//! `.dev/phase10_prep/track_b_source_split.md` Sec 9.9 / 9.9-h-15;
-//! tracking ADR-0054 once filed in chunk 9.9-h-20).
+//! op handlers (split from `op_simd.zig` per ADR-0054).
 //!
 //! Houses all integer comparison ops, lane access, narrow,
 //! extend_low/high, extmul, extadd_pairwise, bitmask,
@@ -28,7 +26,7 @@ const op_simd = @import("op_simd.zig");
 const Allocator = std.mem.Allocator;
 const Error = types.Error;
 
-// §9.12-B / B93 (ADR-0075) — `(ctx, ins)` adapters for the
+// `(ctx, ins)` adapters for the
 // i8x16 compare cohort (10 ops). eq is 6-arg (has spill_base_off);
 // remaining 9 are 5-arg.
 
@@ -82,7 +80,7 @@ pub fn emitI8x16GeUCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!vo
     return emitI8x16GeU(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
-// §9.12-B / B94 (ADR-0075) — `(ctx, ins)` adapters for the
+// `(ctx, ins)` adapters for the
 // i16x8 compare cohort (10 ops). eq is 6-arg; others 5-arg.
 
 pub fn emitI16x8EqCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
@@ -135,7 +133,7 @@ pub fn emitI16x8GeUCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!vo
     return emitI16x8GeU(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
-// §9.12-B / B95 (ADR-0075) — `(ctx, ins)` adapters for the
+// `(ctx, ins)` adapters for the
 // i32x4 compare cohort (10 ops). eq is 6-arg; others 5-arg.
 
 pub fn emitI32x4EqCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
@@ -188,7 +186,7 @@ pub fn emitI32x4GeUCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!vo
     return emitI32x4GeU(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
-// §9.12-B / B96 (ADR-0075) — `(ctx, ins)` adapters for the
+// `(ctx, ins)` adapters for the
 // i64x2 compare cohort (6 ops; no _u variants per Wasm SIMD
 // spec). eq is 6-arg; others 5-arg.
 
@@ -222,7 +220,7 @@ pub fn emitI64x2GeSCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!vo
     return emitI64x2GeS(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
-// §9.12-B / B104 (ADR-0075) — `(ctx, ins)` adapters for SIMD
+// `(ctx, ins)` adapters for SIMD
 // bool reductions (8 ops: all_true × 4 widths + bitmask × 4 widths).
 // All 6-arg.
 
@@ -266,7 +264,7 @@ pub fn emitI64x2BitmaskCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Erro
     return emitI64x2Bitmask(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
-// §9.12-B / B105 (ADR-0075) — `(ctx, ins)` adapters for the
+// `(ctx, ins)` adapters for the
 // SIMD narrow + extend cohort (16 ops). 12 extend (5-arg) + 4
 // narrow (6-arg).
 
@@ -494,7 +492,7 @@ pub fn emitI32x4Splat(
 /// scalar i32 = the lane at the immediate index. x86_64 lowering:
 /// single `PEXTRD r32, xmm, imm8` (SSE4.1, mandated by ADR-0041
 /// §"5. SSE4.1 minimum baseline"). The lane immediate is in
-/// `ins.payload` (§9.4 lower's 1-byte encoding).
+/// `ins.payload` (the lower pass's 1-byte encoding).
 pub fn emitI32x4ExtractLane(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
@@ -524,7 +522,7 @@ pub fn emitI32x4ExtractLane(
 /// Wasm spec §4.4.3 (i64x2.extract_lane <imm>) — pop v128, push
 /// scalar i64 = the 64-bit lane at the immediate index. Single
 /// `PEXTRQ r64, xmm, imm8` (SSE4.1 REX.W=1; lane is u1 since
-/// i64x2 has 2 lanes). Mirror of i32x4.extract_lane (9.7-e) with
+/// i64x2 has 2 lanes). Mirror of i32x4.extract_lane with
 /// the .q-form encoder.
 pub fn emitI64x2ExtractLane(
     allocator: Allocator,
@@ -562,7 +560,7 @@ pub fn emitI64x2ExtractLane(
 ///   ge_s: NOT PCMPGT(dst=rhs, lhs)          ; ¬(lhs < rhs) ⇔ lhs ≥ rhs
 ///
 /// NOT applies via PXOR with an all-ones mask (PCMPEQB scratch,
-/// scratch on XMM14) — same idiom as 9.7-k's emitV128IntNe.
+/// scratch on XMM14) — same idiom as emitV128IntNe.
 const SignedCmpKind = enum { gt, lt, le, ge };
 
 fn emitV128IntCmpSigned(
@@ -771,10 +769,10 @@ pub fn emitI32x4GeS(
 
 /// Wasm spec §4.4.4 (i64x2.gt_s) — pop two v128, push v128 where
 /// each 64-bit lane is all-ones if lhs > rhs (signed) else
-/// all-zero. Threads the SSE4.2 PCMPGTQ encoder through 9.7-l's
+/// all-zero. Threads the SSE4.2 PCMPGTQ encoder through the
 /// shared `emitV128IntCmpSigned` helper (operand swap for lt;
-/// PXOR-with-all-ones for le/ge). Per ADR-0041 §5 (post-9.7-m
-/// SSE4.2 amendment) — synthesis from SSE4.1 primitives rejected.
+/// PXOR-with-all-ones for le/ge). Per ADR-0041 §5 (SSE4.2
+/// amendment) — synthesis from SSE4.1 primitives rejected.
 pub fn emitI64x2GtS(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
@@ -1369,7 +1367,7 @@ fn emitV128ExtendLow(
 
     // D-461: spill-aware src (stage 0 / XMM14) + dst (stage 1 / XMM15) so a spilled
     // v128 operand/result no longer rejects at `resolveXmm`. No internal scratch
-    // (PMOVSX/ZX low half) → no stage collision. Mirrors the extract_lane migration.
+    // (PMOVSX/ZX low half) → no stage collision.
     const src_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, src_v, 0);
     const dst_x = try gpr.xmmDefSpilledV128(alloc, result_v, 1);
     try buf.appendSlice(allocator, encoder(dst_x, src_x).slice());
@@ -1457,7 +1455,7 @@ pub fn emitI64x2ExtendHighI32x4U(allocator: Allocator, buf: *std.ArrayList(u8), 
 /// Wasm spec §4.4.4 (i*x*.eq variants) — pop two v128, push v128
 /// where each lane is all-ones if the inputs match else all-zero.
 /// Per-shape encoders (PCMPEQB / PCMPEQW / PCMPEQD / PCMPEQQ)
-/// reuse the shared 9.7-b `op_simd.emitV128IntBinop` helper unchanged —
+/// reuse the shared `op_simd.emitV128IntBinop` helper unchanged —
 /// equality comparison's structural shape (pop 2, push 1, MOVAPS-
 /// elide when aliased) is identical to int add/sub.
 pub fn emitI8x16Eq(
@@ -1639,7 +1637,7 @@ pub fn emitI64x2Ne(
 /// every output byte = source byte 0 = `src8`.
 ///
 /// **Scratch reuse**: borrows `abi.fp_spill_stage_xmms[0]` as
-/// the zero ctrl mask (mirrors §9.7-d's i64x2.mul scratch
+/// the zero ctrl mask (mirrors the i64x2.mul scratch
 /// strategy). Safe — the handler is atomic; no nested
 /// `xmmLoadSpilled` intervenes.
 pub fn emitI8x16Splat(

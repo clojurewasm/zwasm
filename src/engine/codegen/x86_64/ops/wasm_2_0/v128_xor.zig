@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `v128.xor` — B90 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `v128.xor`.
 //! Delegates to op_simd.emitV128XorCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/v128_xor.zig");

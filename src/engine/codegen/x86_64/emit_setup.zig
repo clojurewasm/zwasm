@@ -27,7 +27,7 @@ const Allocator = std.mem.Allocator;
 const ZirFunc = zir.ZirFunc;
 const Error = types.Error;
 
-/// §9.7 / 7.10-f mirror of `arm64/emit.zig:computeOutgoingMaxBytes`.
+/// Mirror of `arm64/emit.zig:computeOutgoingMaxBytes`.
 /// Pre-scan the function body for the worst-case outgoing-args
 /// region size at the bottom of the caller's frame (`[RSP, #0]`
 /// upward). For each `call N` / `call_indirect type_idx`, count
@@ -52,7 +52,7 @@ pub fn computeOutgoingMaxBytes(
 ) u32 {
     var max_bytes: u32 = 0;
     for (func.instrs.items) |ins| {
-        // §9.9 / D-248: GC ops issue an INTRA-OP CALL to a
+        // D-248: GC ops issue an INTRA-OP CALL to a
         // `callconv(.c)` runtime helper (jitGcAlloc & friends) — NOT
         // a `.call` / `.call_indirect` ZIR op — so they are invisible
         // to the sig-scan below. On Win64 the callee is entitled to a
@@ -103,15 +103,15 @@ pub fn computeOutgoingMaxBytes(
             switch (p) {
                 .i32, .i64, .ref => n_int += 1,
                 .f32, .f64 => n_fp += 1,
-                // §9.9 / 9.9-i-1: Win64 v128 is a hidden-pointer
+                // Win64 v128 is a hidden-pointer
                 // arg — consumes one int-arg-reg slot for the
                 // pointer; on SysV it's an XMM-reg / stack-eightbyte
                 // arg (already excluded from n_int / n_fp here).
                 .v128 => n_v128 += 1,
             }
         }
-        // §9.9 / 9.9-h-7 SysV: v128 fp-class consumes 2 eightbytes
-        // on stack per overflowed arg (SSE class). §9.9 / 9.9-i-1
+        // SysV: v128 fp-class consumes 2 eightbytes
+        // on stack per overflowed arg (SSE class).
         // Win64: v128 = hidden ptr in int-arg slot + 16-byte scratch
         // in caller's outgoing region (Microsoft x64 §Param passing).
         const bytes: u32 = switch (abi.current_cc) {
@@ -133,7 +133,7 @@ pub fn computeOutgoingMaxBytes(
                 // CALL (Convention Swap above); the callee captures
                 // RDI into its own frame slot. Mirrors arm64's
                 // `indirect_result_slot_bytes` accounting. Win64
-                // MEMORY-class deferred to §9.13-0.
+                // MEMORY-class deferred.
                 const return_buf_bytes: u32 = if (callee_is_memory_class)
                     @as(u32, @intCast(callee_sig.results.len)) * 8
                 else
@@ -171,7 +171,7 @@ pub fn computeOutgoingMaxBytes(
     return max_bytes;
 }
 
-/// §9.7 / 7.10-g RBP-relative disp formula for scalar locals.
+/// RBP-relative disp formula for scalar locals.
 /// Caller uses the `(idx+1)*8` shape directly when no v128 mix is
 /// possible (e.g. test fixtures + scalar emit_test_local sites that
 /// hard-code the `(idx+1)*8` shape). v128-aware emit paths must
@@ -186,7 +186,7 @@ pub fn localDisp(idx: u32, total_locals: u32, uses_runtime_ptr: bool) Error!i32 
     return base_off - @as(i32, @intCast((idx + 1) * 8));
 }
 
-/// §9.9 / 9.9-e-2: per-function local-frame layout. Mirror of
+/// Per-function local-frame layout. Mirror of
 /// `arm64/emit.zig:LocalLayout` (group-by-type strategy C):
 /// scalars at 8-byte stride in the low part of the locals zone,
 /// v128 at 16-byte stride in the high part. RBP-relative

@@ -1,4 +1,4 @@
-//! Per-class register-class invariants (Zone 2; §9.7 / 7.0).
+//! Per-class register-class invariants (Zone 2).
 //!
 //! `zir.RegClass` (Zone 1) names the classes; this module owns
 //! the per-class invariants the regalloc consults independently

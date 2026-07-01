@@ -1,7 +1,5 @@
 //! ARM64 emit pass — SIMD-128 integer arithmetic op handlers
-//! (split from `op_simd.zig` per
-//! `.dev/phase10_prep/track_b_source_split.md` §4.3 / 9.9-h-18;
-//! tracking ADR-0054 once filed in chunk 9.9-h-20).
+//! (split from `op_simd.zig`).
 //!
 //! Houses int ALU (add/sub/mul/neg/abs/popcnt), shift (shl /
 //! shr_s / shr_u), min/max (signed + unsigned), avgr_u, and the
@@ -51,7 +49,7 @@ pub fn emitI64x2Sub(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try op_simd.emitV128Binop(ctx, inst_neon_arith.encSub2D);
 }
 
-// §9.9 / 9.9-f-7 — int unops (abs / neg / popcnt). Wasm SIMD
+// Int unops (abs / neg / popcnt). Wasm SIMD
 // spec §4.4 (vector arith). NEON ABS/NEG share the
 // two-register-misc encoding with size selecting lane shape;
 // CNT is byte-only (16B) and exists only for `i8x16.popcnt`.
@@ -93,7 +91,7 @@ pub fn emitI32x4Mul(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §15.4 / D-246 — saturating add/sub + Q15 mulr + extadd_pairwise (13 ops)
+// saturating add/sub + Q15 mulr + extadd_pairwise (13 ops)
 // ============================================================
 //
 // Wasm SIMD spec — `i8x16/i16x8.{add,sub}_sat_{s,u}`: lane-wise add/sub
@@ -144,7 +142,7 @@ pub fn emitI32x4ExtaddPairwiseI16x8U(ctx: *EmitCtx, _: *const ZirInstr) Error!vo
 }
 
 // ============================================================
-// §15.4 / D-246 — extended (widening) multiply (12 ops)
+// extended (widening) multiply (12 ops)
 // ============================================================
 //
 // Wasm SIMD spec — `i{16x8,32x4,64x2}.extmul_{low,high}_*_{s,u}`:
@@ -192,7 +190,7 @@ pub fn emitI64x2ExtmulHighI32x4U(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §15.4 / D-246 — i32x4.dot_i16x8_s (pairwise multiply-add)
+// i32x4.dot_i16x8_s (pairwise multiply-add)
 // ============================================================
 //
 // Wasm SIMD spec — `i32x4.dot_i16x8_s`: result[i] = a[2i]*b[2i] +
@@ -226,7 +224,7 @@ pub fn emitI32x4DotI16x8S(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
 }
 
-// §17.4 relaxed-SIMD `i16x8.relaxed_dot_i8x16_i7x16_s` — signed i8×i8 → i16
+// Relaxed-SIMD `i16x8.relaxed_dot_i8x16_i7x16_s` — signed i8×i8 → i16
 // pairwise dot: result[i] = a[2i]*b[2i] + a[2i+1]*b[2i+1]. Mirrors the strict
 // i32x4.dot_i16x8_s recipe one element-size down (SMULL/SMULL2/ADDP at .8H).
 // arm64 does signed×signed; x86 PMADDUBSW does a-unsigned (ADR-0169 latitude).
@@ -248,7 +246,7 @@ pub fn emitI16x8RelaxedDot(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
 }
 
-// §17.4 `i32x4.relaxed_dot_i8x16_i7x16_add_s` — 4-way i8 dot + accumulate:
+// `i32x4.relaxed_dot_i8x16_i7x16_add_s` — 4-way i8 dot + accumulate:
 // result[j] = Σ_{k=0..3} a[4j+k]*b[4j+k] + c[j]. = (i16x8 dot) → signed
 // pairwise widen-add to i32x4 (SADDLP) → + c. 3-pop ternop. Spill-everything
 // regalloc routes a/b/c/result through stage regs V29/V30 + V31 scratch, so
@@ -279,7 +277,7 @@ pub fn emitI32x4RelaxedDotAdd(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.9 / 9.9-g-10 — int min/max + avgr_u (14 ops)
+// int min/max + avgr_u (14 ops)
 // ============================================================
 //
 // Wasm SIMD spec — i*x*.{min_s, min_u, max_s, max_u} for B/H/S
@@ -332,7 +330,7 @@ pub fn emitI32x4MaxU(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.9 / 9.5-c-vii-mul — i64x2.mul multi-instr synthesis
+// i64x2.mul multi-instr synthesis
 // ============================================================
 //
 // Wasm spec (SIMD) — `i64x2.mul`: lane-wise 64-bit multiply.
@@ -386,7 +384,7 @@ pub fn emitI64x2Mul(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.9 / 9.9-g-7 — int shift left (i*x*.shl)
+// int shift left (i*x*.shl)
 // ============================================================
 //
 // Wasm SIMD spec §3.3.6 (vector shift): `i*x*.shl` pops i32
@@ -474,7 +472,7 @@ pub fn emitI64x2Shl(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.9 / 9.9-g-8 — int shift right (i*x*.shr_s, i*x*.shr_u)
+// int shift right (i*x*.shr_s, i*x*.shr_u)
 // ============================================================
 //
 // NEON's USHL/SSHL with **negative** shift amount in V<m>'s

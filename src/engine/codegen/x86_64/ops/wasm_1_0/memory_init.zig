@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `memory.init` — Zone 2 per-arch op
-//! file per ADR-0074 + ADR-0075 (B61 cohort migration to `(ctx, ins)`).
+//! file per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/memory_init.zig`.
 //! Delegates to `op_memory.emitMemoryInitCtx`, which wraps the

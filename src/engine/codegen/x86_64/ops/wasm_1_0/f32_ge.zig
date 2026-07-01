@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `f32.ge` — B87 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `f32.ge`.
 //! Delegates to op_alu_float.emitFpCompareCtx.
 
 const meta = @import("../../../../../instruction/wasm_1_0/f32_ge.zig");

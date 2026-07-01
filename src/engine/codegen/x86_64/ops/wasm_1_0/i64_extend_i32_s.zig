@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `i64.extend.i32.s` — B85 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `i64.extend.i32.s`.
 //! Delegates to op_alu_int.emitConvertWidthCtx.
 
 const meta = @import("../../../../../instruction/wasm_1_0/i64_extend_i32_s.zig");

@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `ref.func` — Zone 2 per-arch op file
-//! per ADR-0074 + ADR-0075 (B68 ref cohort migration to `(ctx, ins)`).
+//! per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/ref_func.zig`.
 //! Delegates to `op_alu_int.emitRefFunc`. Materialises the

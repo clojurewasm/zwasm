@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `f32x4.max` — B100 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `f32x4.max`.
 //! Delegates to op_simd_float.emitF32x4MaxCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/f32x4_max.zig");

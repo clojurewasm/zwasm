@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `local.tee` — Zone 2 per-arch op file
-//! per ADR-0074 + ADR-0075 (B78 migration to `(ctx, ins)`).
+//! per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/local_tee.zig`.
 //! Delegates to `op_locals.emitLocalTeeCtx`.

@@ -46,8 +46,8 @@ const ref_test_ops = @import("../../../instruction/wasm_3_0/ref_test_ops.zig");
 /// picked up automatically.
 pub const func_entity_size: u32 = @sizeOf(FuncEntity);
 
-/// §9.9 / 9.9-m-3b (per ADR-0056): per-data-segment slice
-/// descriptor exposed to JIT `memory.init`. Layout is a fixed
+/// Per-data-segment slice descriptor (per ADR-0056) exposed to
+/// JIT `memory.init`. Layout is a fixed
 /// 16-byte (ptr, len) pair so the JIT body indexes the
 /// `data_segments_ptr` array with a stride of `segment_slice_size`.
 /// `len = 0` when the host has dropped the segment OR when the
@@ -61,10 +61,10 @@ pub const SegmentSlice = extern struct {
 
 pub const segment_slice_size: u32 = @sizeOf(SegmentSlice);
 
-/// §9.9 / 9.9-m-2a (per ADR-0058): per-table slice descriptor
-/// exposed to JIT `table.get` / `table.set` / `table.size` (m-2a),
-/// `table.grow` / `table.fill` (m-2b), `table.copy` / `table.init`
-/// (m-2c). Layout is a fixed 16-byte stride so the JIT body indexes
+/// Per-table slice descriptor (per ADR-0058)
+/// exposed to JIT `table.get` / `table.set` / `table.size`,
+/// `table.grow` / `table.fill`, `table.copy` / `table.init`.
+/// Layout is a fixed 16-byte stride so the JIT body indexes
 /// the `tables_ptr` array with `tableidx * table_slice_size`.
 ///
 /// `refs` points to the table's storage as `[*]u64` raw Value bits
@@ -83,7 +83,7 @@ pub const TableSlice = extern struct {
     refs: [*]u64,
     len: u32,
     max: u32,
-    /// TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
+    /// TODO(audit): table storage shape — see D-126 / ADR-0068.
     /// Parallel funcptr-view for the same table slot. `refs[i]` carries
     /// the FuncEntity-ptr encoding (per reftype semantics); `funcptrs[i]`
     /// carries the raw native code entry point that `call_indirect`'s
@@ -109,13 +109,13 @@ pub const table_slice_size: u32 = @sizeOf(TableSlice);
 /// growth up to u32 range). Mirrors interp's `?u32` `null` arm.
 pub const table_no_max: u32 = std.math.maxInt(u32);
 
-/// §9.9 / 9.9-m-2c-init (per ADR-0058 amendment): per-element-segment
-/// slice descriptor exposed to JIT `table.init`. Each entry stores
+/// Per-element-segment slice descriptor (per ADR-0058 amendment)
+/// exposed to JIT `table.init`. Each entry stores
 /// a pre-computed `[*]const u64` of `Value.ref`-encoded values (for
 /// funcref segments: `@intFromPtr(&func_entities[fidx])`; for
 /// externref: opaque host u64; for null entries: `Value.null_ref`).
-/// 16-byte stride matches `SegmentSlice` (m-3b) and `TableSlice`
-/// (m-2a) for ABI consistency. `len = 0` when the segment has been
+/// 16-byte stride matches `SegmentSlice` and `TableSlice`
+/// for ABI consistency. `len = 0` when the segment has been
 /// dropped via `elem.drop` (override applied via `elem_dropped_ptr`).
 pub const ElemSlice = extern struct {
     refs: [*]const u64,
@@ -125,8 +125,8 @@ pub const ElemSlice = extern struct {
 
 pub const elem_slice_size: u32 = @sizeOf(ElemSlice);
 
-/// §9.9 / 9.9-l-1b-d093-d42 (D-112): per-table call_indirect
-/// dispatch descriptor. Each entry carries the funcptr and
+/// Per-table call_indirect dispatch descriptor (D-112).
+/// Each entry carries the funcptr and
 /// typeidx base pointers for one declared table, indexed by
 /// `call_indirect`'s table_idx (Wasm 2.0 multi-table; spec
 /// §3.4.6 + §4.4.10.1). The scalar `JitRuntime.funcptr_base`
@@ -182,7 +182,7 @@ pub const JitRuntime = extern struct {
     /// mismatch, idx OOB, NaN, integer overflow, etc.) +
     /// optional trap-site PC for source-location surfacing.
     trap_flag: u32,
-    /// §9.9-III D-144 γ.4 cycle 4 — trap kind marker. Repurposed
+    /// Trap kind marker (D-144). Repurposed
     /// from `_pad1`. Per-fixup-class trap stubs (arm64 emit.zig)
     /// pre-set W18 with a distinct ID; the trap stub STR's W18
     /// here so `printCallTrap` can disambiguate bounds vs sig vs
@@ -194,7 +194,7 @@ pub const JitRuntime = extern struct {
     /// Layout-stable: replaces the existing 4-byte pad after
     /// `trap_flag`. All offsets in this struct unchanged.
     trap_kind: u32 = 0,
-    /// Globals array base pointer (ADR-0027 + ADR-0110 §9.13-V
+    /// Globals array base pointer (ADR-0027 + ADR-0110
     /// widen). Each entry is one `runtime.value.Value` = 16 bytes
     /// post-widen. JIT body's `global.get` emits `LDR Rd, [X23,
     /// #byte_off]` (ARM64) or `MOV R_dst, [R_scratch + byte_off]`
@@ -231,7 +231,7 @@ pub const JitRuntime = extern struct {
     /// rejects out-of-range function indices.
     host_dispatch_count: u32,
     _pad3: u32 = 0,
-    /// §9.8a / 8a.2 (ADR-0034) — JIT-execution sentinel. Every
+    /// JIT-execution sentinel (ADR-0034). Every
     /// JIT-emitted prologue stores `1` here unconditionally
     /// after the runtime-ptr handoff completes. Caller pre-clears
     /// to `0` before each guest invocation; post-call read of `0`
@@ -241,7 +241,7 @@ pub const JitRuntime = extern struct {
     /// bytes x86_64 per function prologue.
     jit_executed_flag: u32 = 0,
     _pad4: u32 = 0,
-    /// §9.9 / 9.9-m-1b (per ADR-0056, amending ADR-0017): base
+    /// (per ADR-0056, amending ADR-0017): base
     /// pointer to `Runtime.func_entities: []FuncEntity`. Each
     /// entry is a `FuncEntity` struct (size = `@sizeOf(FuncEntity)`,
     /// kept in sync at construction time). JIT `ref.func idx`
@@ -257,22 +257,22 @@ pub const JitRuntime = extern struct {
     /// host-side diagnostic + future debugger hooks.
     func_entities_count: u32 = 0,
     _pad5: u32 = 0,
-    /// §9.9 / 9.9-m-3a (per ADR-0056): parallel "data segment
+    /// (per ADR-0056): parallel "data segment
     /// dropped" flag table. JIT `data.drop dataidx` emits
     /// `MOV [r15+data_dropped_ptr_off] + idx, 1` (1 byte per
     /// flag; bool = u8 in Zig extern layout). JIT `memory.init`
-    /// (m-3b) reads the same flags before computing seg_len.
+    /// reads the same flags before computing seg_len.
     data_dropped_ptr: [*]u8 = undefined,
     data_dropped_count: u32 = 0,
     _pad6: u32 = 0,
-    /// §9.9 / 9.9-m-3a (per ADR-0056): parallel "element segment
+    /// (per ADR-0056): parallel "element segment
     /// dropped" flag table. JIT `elem.drop elemidx` emits a byte
     /// store to `[r15+elem_dropped_ptr_off] + idx`. table.init
-    /// (m-2) reads.
+    /// reads.
     elem_dropped_ptr: [*]u8 = undefined,
     elem_dropped_count: u32 = 0,
     _pad7: u32 = 0,
-    /// §9.9 / 9.9-m-3b (per ADR-0056): per-data-segment slice
+    /// (per ADR-0056): per-data-segment slice
     /// descriptor array. Each entry is a `SegmentSlice` (16 bytes:
     /// `ptr` + `len`). JIT `memory.init dataidx` indexes this with
     /// stride `segment_slice_size` to read the segment's source
@@ -280,26 +280,26 @@ pub const JitRuntime = extern struct {
     data_segments_ptr: [*]const SegmentSlice = undefined,
     data_segments_count: u32 = 0,
     _pad8: u32 = 0,
-    /// §9.9 / 9.9-m-2a (per ADR-0058): per-table slice descriptor
+    /// (per ADR-0058): per-table slice descriptor
     /// array. Each entry is a `TableSlice` (16 bytes: `refs`,
     /// `len`, `max`). JIT `table.get` / `table.set` / `table.size`
-    /// (m-2a) index this with stride `table_slice_size`. m-2b's
-    /// `table.grow` reads `max` for the cap check; m-2c's
+    /// index this with stride `table_slice_size`.
+    /// `table.grow` reads `max` for the cap check;
     /// `table.copy` / `table.init` consume both source and
     /// destination slices.
     tables_ptr: [*]const TableSlice = undefined,
     tables_count: u32 = 0,
     _pad9: u32 = 0,
-    /// §9.9 / 9.9-m-2c-init (per ADR-0058 amendment): per-element-
+    /// (per ADR-0058 amendment): per-element-
     /// segment slice descriptor array. JIT `table.init elemidx
     /// tableidx` indexes this with stride `elem_slice_size` to read
     /// the segment's pre-computed funcref array, then memcpy n
     /// reftype values into the target table. `elem_dropped_ptr[idx]`
-    /// (m-3a) overrides seg.len to 0 for dropped segments.
+    /// overrides seg.len to 0 for dropped segments.
     elem_segments_ptr: [*]const ElemSlice = undefined,
     elem_segments_count: u32 = 0,
     _pad10: u32 = 0,
-    /// §9.9 / 9.9-l-1b-d093-d8a (per ADR-0059): opaque pointer to
+    /// (per ADR-0059): opaque pointer to
     /// host-managed state needed by runtime callout fn ptrs (e.g.
     /// allocator + back-reference to the canonical backing buffer
     /// the JitRuntime aliases). Each callout's fn ptr knows how
@@ -307,7 +307,7 @@ pub const JitRuntime = extern struct {
     /// `host_state` and the matching callout fn slot are paired
     /// at construction time.
     host_state: ?*anyopaque = null,
-    /// §9.9 / 9.9-l-1b-d093-d8a (per ADR-0059): `memory.grow mem=0`
+    /// (per ADR-0059): `memory.grow mem=0`
     /// callout. Args: `(rt: *JitRuntime, delta_pages: u32)` →
     /// previous page count on success (widened from u32 to i32),
     /// `-1` on failure. The fn MUST update `rt.vm_base` +
@@ -323,7 +323,7 @@ pub const JitRuntime = extern struct {
     /// this slot is SEGV-safe out of the box. Runners that need
     /// actual growth override with their own impl.
     memory_grow_fn: *const fn (rt: *JitRuntime, delta_pages: u32) callconv(.c) i32 = defaultMemoryGrowReject,
-    /// §9.9 / 9.9-l-1b-d093-d42 (D-112): per-table call_indirect
+    /// (D-112): per-table call_indirect
     /// dispatch info array. Indexed by `call_indirect`'s table_idx
     /// (carried in `ZirInstr.extra` per lower.zig:927). Entry 0
     /// duplicates the legacy table-0 fast path (`funcptr_base` /
@@ -335,7 +335,7 @@ pub const JitRuntime = extern struct {
     tables_jit_ci_ptr: [*]const TableJitCallInfo = undefined,
     tables_jit_ci_count: u32 = 0,
     _pad11: u32 = 0,
-    /// §9.9 / 9.9-l-1b-d093-d48 (D-122 / D-125): `table.grow tableidx`
+    /// (D-122 / D-125): `table.grow tableidx`
     /// callout. Args: `(rt: *JitRuntime, tableidx: u32, init: u64,
     /// delta: u32)` → previous entry count on success (widened to
     /// i32), `-1` on failure. The fn MUST update the per-table
@@ -350,7 +350,7 @@ pub const JitRuntime = extern struct {
     /// ADR-0105 D1 — JIT-prologue stack-probe threshold. Set at
     /// entry-helper construction time via
     /// `platform.stack_limit.computeStackLimit(STACK_GUARD_HEADROOM)`;
-    /// the JIT prologue (cycle 2) emits `cmp sp, [vmctx +
+    /// the JIT prologue emits `cmp sp, [vmctx +
     /// stack_limit_off] + b.ls trap-stub` so SP descending below
     /// this threshold traps cleanly via the existing trap-stub
     /// path BEFORE the OS guard page faults. Sentinel `0` =
@@ -358,10 +358,10 @@ pub const JitRuntime = extern struct {
     /// > 0). Cross-platform per ADR-0105 D1 (macOS pthread_*np,
     /// Linux pthread_getattr_np, Win64 GetCurrentThreadStackLimits).
     stack_limit: usize = 0,
-    /// D-165 cycle 4 (2026-05-23) — JIT trap-stub entry counter.
+    /// JIT trap-stub entry counter (D-165, 2026-05-23).
     /// Incremented unconditionally as the first instruction in the
     /// x86_64 stack-overflow trap stub (op_control.zig:1334+).
-    /// arm64 path unchanged for this cycle (Mac runaway PASSes;
+    /// arm64 path unchanged (Mac runaway PASSes;
     /// arm64 diagnostic added when needed). Allows host-side
     /// observation of "did the probe fire and the trap stub run"
     /// for the Win64 fac-rec hang investigation — distinguishing
@@ -369,12 +369,11 @@ pub const JitRuntime = extern struct {
     /// stalled" (count>0 with trap_flag possibly 1).
     trap_stub_entry_count: u32 = 0,
     _pad12: u32 = 0,
-    /// Phase 10.E IT-6 cycle 3c (ADR-0114 D5 + ADR-0119) —
-    /// per-Instance JIT exception table view consumed by
-    /// `shared/zwasm_throw.dispatchThrow` after the per-arch
+    /// Per-Instance JIT exception table view (ADR-0114 D5 + ADR-0119)
+    /// consumed by `shared/zwasm_throw.dispatchThrow` after the per-arch
     /// trampoline CALL. Written at instance init from
-    /// `CompiledWasm.exception_table.entries` (per IT-5
-    /// collection). Module-relative pc_start / pc_end (the
+    /// `CompiledWasm.exception_table.entries`.
+    /// Module-relative pc_start / pc_end (the
     /// unwinder subtracts `JitModule.block.bytes.ptr` from the
     /// throw-site absolute address before lookup).
     ///
@@ -386,16 +385,16 @@ pub const JitRuntime = extern struct {
     /// the ptr; both written together at instance init.
     eh_table_count: u32 = 0,
     _pad13: u32 = 0,
-    /// Phase 10.E IT-6 cycle 3c — per-Instance JIT CodeMap view.
-    /// Written at instance init from `JitModule.code_map_entries`
-    /// (per IT-4 build). The trampoline reads via
+    /// Per-Instance JIT CodeMap view.
+    /// Written at instance init from `JitModule.code_map_entries`.
+    /// The trampoline reads via
     /// `code_map.CodeMap{ .entries = eh_code_map_entries[0..N] }`
     /// then passes to `dispatchThrow` for absolute-pc →
     /// `(func_idx, relative_pc)` translation.
     eh_code_map_entries: ?[*]const code_map.Entry = null,
     /// Entry count for `eh_code_map_entries`.
     eh_code_map_count: u32 = 0,
-    /// Phase 10.E IT-6 cycle 3c-iii — handler-dispatch result fields.
+    /// Handler-dispatch result fields.
     /// Written by `trampolineCore` on `.handler` return; consumed by
     /// the naked stub's branch + JMP path.
     ///
@@ -421,21 +420,20 @@ pub const JitRuntime = extern struct {
     /// locals + spills; we restore it from the unwinder's matched
     /// frame. = `HandlerLanding.handler_fp` verbatim.
     eh_handler_fp: usize = 0,
-    /// Phase 10.E-payload-prop Cycle 2 (ADR-0120) — JIT payload
-    /// staging region. Written by throw.emit's pop+store sequence
-    /// (Cycle 2 follow-on); read by try_table.emit's landing-pad
-    /// load+push synthesis (Cycle 3). Width 16×u64 matches
+    /// JIT payload staging region (ADR-0120). Written by throw.emit's
+    /// pop+store sequence; read by try_table.emit's landing-pad
+    /// load+push synthesis. Width 16×u64 matches
     /// ADR-0114 D1's `Exception.payload[16]Value` inline cap;
     /// v128 / exnref tag params remain v0.2 scope per ADR-0120
     /// Consequence §3. Layout-stable tail: added after the
-    /// IT-6 handler-dispatch trio so existing prologue offsets
+    /// handler-dispatch trio so existing prologue offsets
     /// are unaffected.
     eh_payload_buf: [16]u64 = [_]u64{0} ** 16,
     /// EH payload length (N from `tag_param_counts[tag_idx]` at
     /// the most recent throw site). See `eh_payload_buf`.
     eh_payload_len: u32 = 0,
     _pad14: u32 = 0,
-    /// 10.G GC-on-JIT (ADR-0128 §2) — opaque pointers to the
+    /// GC-on-JIT (ADR-0128 §2) — opaque pointers to the
     /// per-Instance GC heap (`*feature/gc/heap.Heap`) and GC
     /// type-info table (`*const feature/gc/type_info.GcTypeInfos`).
     /// Set at instance setup iff the module declares a GC type
@@ -447,7 +445,7 @@ pub const JitRuntime = extern struct {
     /// prologue offsets are unaffected).
     gc_heap: ?*anyopaque = null,
     gc_type_infos_ptr: ?*anyopaque = null,
-    /// 10.E (ADR-0134 D3) — per-Instance tag-identity map (see
+    /// Per-Instance tag-identity map (ADR-0134 D3; see
     /// `exception_table.ExceptionTable.tag_ids`). Indexed by local tag
     /// index; `tag_ids_ptr[i]` is a globally-comparable identity id so
     /// aliased imports share an id (Cause A) and a cross-module import
@@ -599,7 +597,7 @@ pub fn defaultReifyExnref(rt: *JitRuntime) callconv(.c) usize {
 /// the next throw while a caught exnref may still be live. Each `u64`
 /// payload slot round-trips through `Value{.bits64=…}` (lossless for the
 /// v0.1 gpr param types). Returns `0` (null exnref) on allocation
-/// failure; the landing-pad emit treats `0` as a trap (D-327 Cycle-4c).
+/// failure; the landing-pad emit treats `0` as a trap (D-327).
 pub fn reifyExnref(rt: *JitRuntime) callconv(.c) usize {
     const ctx: *EhReifyCtx = @ptrCast(@alignCast(rt.eh_reify_ctx orelse return 0));
     const exc = ctx.allocator.create(exception_mod.Exception) catch return 0;
@@ -900,7 +898,7 @@ pub fn waitIdxOf(op: zir.ZirOp) u32 {
     return if (op == .@"memory.atomic.wait64") 1 else 0;
 }
 
-/// 10.G GC-on-JIT struct allocation trampoline (ADR-0128 §2). The
+/// GC-on-JIT struct allocation trampoline (ADR-0128 §2). The
 /// per-arch `struct.new` / `struct.new_default` emit materialises
 /// this fn's address + `CALL`s it (rt in X0/RDI, typeidx in W1/ESI).
 /// Resolves the `StructInfo` from `rt.gc_type_infos_ptr` (so the
@@ -923,7 +921,7 @@ pub fn jitGcAlloc(rt: *JitRuntime, typeidx: u32) callconv(.c) u32 {
     return object_alloc.allocStructObject(heap, typeidx, si.payload_size, true) catch 0;
 }
 
-/// 10.G GC-on-JIT array A-1 — the `array.new_default` (and later
+/// GC-on-JIT: the `array.new_default` (and later
 /// `array.new` / `array.new_fixed`) emit materialises this fn's address
 /// + `CALL`s it (rt in X0/RDI, typeidx in W1/ESI, length in W2/EDX).
 /// Resolves the `ArrayInfo` from `rt.gc_type_infos_ptr`, allocates +
@@ -947,7 +945,7 @@ pub fn jitGcAllocArray(rt: *JitRuntime, typeidx: u32, length: u32) callconv(.c) 
     return object_alloc.allocArrayObject(heap, typeidx, length, ai.element.size, true) catch 0;
 }
 
-/// 10.G GC-on-JIT array A-4 — `array.new` emit materialises this fn's
+/// GC-on-JIT: the `array.new` emit materialises this fn's
 /// address + `CALL`s it (rt=arg0, typeidx=arg1, length=arg2, init=arg3).
 /// Allocates the array, then fills every element with the `init` value
 /// (the 8-byte operand, passed as a u64) — the SAME fill the interp
@@ -981,7 +979,7 @@ pub fn jitGcAllocArrayFill(rt: *JitRuntime, typeidx: u32, length: u32, init: u64
     return ref;
 }
 
-/// 10.G GC-on-JIT array A-7 — `array.fill` emit materialises this fn's
+/// GC-on-JIT: the `array.fill` emit materialises this fn's
 /// address + `CALL`s it (rt=arg0, typeidx=arg1, ref=arg2, idx=arg3,
 /// value=arg4, count=arg5). Operates on an EXISTING array (no alloc):
 /// null-checks `ref`, bounds-checks `idx + count ≤ length` (overflow-
@@ -1028,7 +1026,7 @@ pub fn jitGcArrayFill(rt: *JitRuntime, typeidx: u32, ref: u32, idx: u32, value: 
     return 1;
 }
 
-/// 10.G GC-on-JIT array A-9 — `array.copy` emit materialises this fn's
+/// GC-on-JIT: the `array.copy` emit materialises this fn's
 /// address + `CALL`s it (rt=arg0, dst_ref=arg1, dst_off=arg2, src_ref=arg3,
 /// src_off=arg4, len=arg5). Null-checks both refs, bounds-checks
 /// `dst_off + len ≤ dst.length` AND `src_off + len ≤ src.length`
@@ -1078,7 +1076,7 @@ pub fn jitGcArrayCopy(rt: *JitRuntime, dst_ref: u32, dst_off: u32, src_ref: u32,
     return 1;
 }
 
-/// 10.G GC-on-JIT array A-10 — `array.new_data` emit materialises this
+/// GC-on-JIT: the `array.new_data` emit materialises this
 /// fn's address + `CALL`s it (rt=arg0, typeidx=arg1, segidx=arg2,
 /// offset=arg3, size=arg4). Allocates a `size`-element array of $typeidx
 /// and copies its payload from data segment $segidx at byte `offset`,
@@ -1130,7 +1128,7 @@ pub fn jitGcArrayNewData(rt: *JitRuntime, typeidx: u32, segidx: u32, offset: u32
     return ref;
 }
 
-/// 10.G GC-on-JIT array A-10b — `array.new_elem` emit materialises this
+/// GC-on-JIT: the `array.new_elem` emit materialises this
 /// fn's address + `CALL`s it (rt=arg0, typeidx=arg1, segidx=arg2,
 /// offset=arg3, size=arg4). Trivial variant of `jitGcArrayNewData`:
 /// allocates a `size`-element array of $typeidx and copies `size` ref
@@ -1166,7 +1164,7 @@ pub fn jitGcArrayNewElem(rt: *JitRuntime, typeidx: u32, segidx: u32, offset: u32
     return ref;
 }
 
-/// 10.G GC-on-JIT array A-11a — `array.init_data` emit materialises this
+/// GC-on-JIT: the `array.init_data` emit materialises this
 /// fn's address + `CALL`s it (rt=arg0, segidx=arg1, ref=arg2, dst_off=arg3,
 /// src_off=arg4, len=arg5). In-place init of an EXISTING array (no alloc):
 /// null-checks `ref`, bounds-checks `dst_off + len ≤ length` (overflow-safe;
@@ -1226,7 +1224,7 @@ pub fn jitGcArrayInitData(rt: *JitRuntime, segidx: u32, ref: u32, dst_off: u32, 
     return 1;
 }
 
-/// 10.G GC-on-JIT array A-11b — `array.init_elem` emit materialises this
+/// GC-on-JIT: the `array.init_elem` emit materialises this
 /// fn's address + `CALL`s it (rt=arg0, segidx=arg1, ref=arg2, dst_off=arg3,
 /// src_off=arg4, len=arg5). Trivial variant of `jitGcArrayInitData`: in-place
 /// init of an EXISTING array, copying `len` ref Values DIRECT (no LE-unpack —
@@ -1262,7 +1260,7 @@ pub fn jitGcArrayInitElem(rt: *JitRuntime, segidx: u32, ref: u32, dst_off: u32, 
     return 1;
 }
 
-/// 10.G GC-on-JIT R-1 — `ref.test` / `ref.test_null` emit materialises this
+/// GC-on-JIT: the `ref.test` / `ref.test_null` emit materialises this
 /// fn's address + `CALL`s it (rt=arg0, ref=arg1 [the full 64-bit reftype
 /// value], ht_nullbit=arg2). Returns 1 if the ref is a non-null instance of
 /// heap-type `ht_nullbit` (with the null flag masked off; Wasm 3.0 GC
@@ -1284,7 +1282,7 @@ pub fn jitGcRefTest(rt: *JitRuntime, ref: u64, ht_nullbit: u32) callconv(.c) u32
     return @intFromBool(ref_test_ops.gcRefMatchesNonNullCore(gti, heap, .{ .ref = ref }, ht));
 }
 
-/// 10.G GC-on-JIT R-2 — `ref.cast` (non-null target) emit materialises this
+/// GC-on-JIT: the `ref.cast` (non-null target) emit materialises this
 /// fn's address + `CALL`s it (rt=arg0, ref=arg1 [full 64-bit reftype value],
 /// ht=arg2). Returns the ref UNCHANGED on a successful cast (Wasm 3.0 GC
 /// §4.4.5), or `0` to signal a trap — a null operand (non-null target
@@ -1412,25 +1410,25 @@ pub const mem0_page_size_log2_off: u12 = @offsetOf(JitRuntime, "mem0_page_size_l
 /// ADR-0105 D1 / D2 — stack-probe threshold field offset. X-form
 /// (8-byte usize); prologue emits `LDR Xn, [vmctx, #stack_limit_off]`.
 pub const stack_limit_off: u12 = @offsetOf(JitRuntime, "stack_limit");
-/// D-165 cycle 4 — trap-stub entry counter; W-form (4-byte u32).
+/// D-165 — trap-stub entry counter; W-form (4-byte u32).
 /// x86_64 trap stub emits `INC DWORD PTR [R15 + this]` as its
 /// first instruction; arm64 unchanged.
 pub const trap_stub_entry_count_off: u12 = @offsetOf(JitRuntime, "trap_stub_entry_count");
-/// Phase 10.E IT-6 cycle 3c — EH dispatcher integration. Trampoline
+/// EH dispatcher integration. Trampoline
 /// reads ptr+count via `[X19/R15 + off]` to materialize
 /// `ExceptionTable` + `CodeMap` slices for `dispatchThrow`.
 pub const eh_table_entries_off: u12 = @offsetOf(JitRuntime, "eh_table_entries");
 pub const eh_table_count_off: u12 = @offsetOf(JitRuntime, "eh_table_count");
 pub const eh_code_map_entries_off: u12 = @offsetOf(JitRuntime, "eh_code_map_entries");
 pub const eh_code_map_count_off: u12 = @offsetOf(JitRuntime, "eh_code_map_count");
-/// Phase 10.E IT-6 cycle 3c-iii — handler-dispatch fields read by
+/// Handler-dispatch fields read by
 /// the naked-stub trampoline's branch after `trampolineCore` returns.
 pub const eh_handler_active_off: u12 = @offsetOf(JitRuntime, "eh_handler_active");
 pub const eh_handler_sp_off: u12 = @offsetOf(JitRuntime, "eh_handler_sp");
 pub const eh_handler_pc_off: u12 = @offsetOf(JitRuntime, "eh_handler_pc");
 pub const eh_handler_fp_off: u12 = @offsetOf(JitRuntime, "eh_handler_fp");
-/// Phase 10.E-payload-prop Cycle 2 (ADR-0120) — JIT payload
-/// staging region. throw.emit writes pop-N+store-at-`[runtime_ptr
+/// JIT payload staging region (ADR-0120). throw.emit writes
+/// pop-N+store-at-`[runtime_ptr
 /// + eh_payload_buf_off + i*8]`; try_table.emit's landing-pad
 /// synthesis loads from the same. Base is 8-aligned (u64 slot
 /// array); per-slot stride is 8 bytes.
@@ -1441,7 +1439,7 @@ pub const eh_payload_len_off: u16 = @offsetOf(JitRuntime, "eh_payload_len");
 /// pointer); the catch_ref / catch_all_ref landing pad BLRs through it.
 pub const reify_exnref_fn_off: u16 = @offsetOf(JitRuntime, "reify_exnref_fn");
 
-/// 10.G GC-on-JIT (ADR-0128 §2) — both X-form (8-byte pointer)
+/// GC-on-JIT (ADR-0128 §2) — both X-form (8-byte pointer)
 /// loads: `gc_heap` read by the alloc trampoline + struct.get/set
 /// slab-base load; `gc_type_infos_ptr` read by the trampoline for
 /// payload_size lookup.
@@ -1498,12 +1496,12 @@ comptime {
     // ADR-0034: jit_executed_flag is W-form (4 bytes); imm12 scales by 4.
     if ((jit_executed_flag_off & 3) != 0) @compileError("jit_executed_flag_off not 4-aligned");
     if (jit_executed_flag_off > 16380) @compileError("jit_executed_flag_off exceeds W-form imm12 budget");
-    // §9.9 / 9.9-m-1b: func_entities_ptr is X-form (8-byte pointer); count is W-form.
+    // func_entities_ptr is X-form (8-byte pointer); count is W-form.
     if ((func_entities_ptr_off & 7) != 0) @compileError("func_entities_ptr_off not 8-aligned");
     if ((func_entities_count_off & 3) != 0) @compileError("func_entities_count_off not 4-aligned");
     if (func_entities_ptr_off > 32760) @compileError("func_entities_ptr_off exceeds X-form imm12 budget");
     if (func_entities_count_off > 16380) @compileError("func_entities_count_off exceeds W-form imm12 budget");
-    // §9.9 / 9.9-m-3a: data_dropped / elem_dropped pointer + count.
+    // data_dropped / elem_dropped pointer + count.
     if ((data_dropped_ptr_off & 7) != 0) @compileError("data_dropped_ptr_off not 8-aligned");
     if ((data_dropped_count_off & 3) != 0) @compileError("data_dropped_count_off not 4-aligned");
     if (data_dropped_ptr_off > 32760) @compileError("data_dropped_ptr_off exceeds X-form imm12 budget");
@@ -1512,7 +1510,7 @@ comptime {
     if ((elem_dropped_count_off & 3) != 0) @compileError("elem_dropped_count_off not 4-aligned");
     if (elem_dropped_ptr_off > 32760) @compileError("elem_dropped_ptr_off exceeds X-form imm12 budget");
     if (elem_dropped_count_off > 16380) @compileError("elem_dropped_count_off exceeds W-form imm12 budget");
-    // §9.9 / 9.9-m-3b: data_segments_ptr is X-form (8-byte pointer); count is W-form.
+    // data_segments_ptr is X-form (8-byte pointer); count is W-form.
     if ((data_segments_ptr_off & 7) != 0) @compileError("data_segments_ptr_off not 8-aligned");
     if ((data_segments_count_off & 3) != 0) @compileError("data_segments_count_off not 4-aligned");
     if (data_segments_ptr_off > 32760) @compileError("data_segments_ptr_off exceeds X-form imm12 budget");
@@ -1521,12 +1519,12 @@ comptime {
     // this for `LDR Xn, [seg_base, #(idx*16)+0]` (ptr) and
     // `LDR Xn, [seg_base, #(idx*16)+8]` (len).
     if (@sizeOf(SegmentSlice) != 16) @compileError("SegmentSlice size != 16; JIT memory.init stride assumption broken");
-    // §9.9 / 9.9-m-2a: tables_ptr is X-form (8-byte pointer); count is W-form.
+    // tables_ptr is X-form (8-byte pointer); count is W-form.
     if ((tables_ptr_off & 7) != 0) @compileError("tables_ptr_off not 8-aligned");
     if ((tables_count_off & 3) != 0) @compileError("tables_count_off not 4-aligned");
     if (tables_ptr_off > 32760) @compileError("tables_ptr_off exceeds X-form imm12 budget");
     if (tables_count_off > 16380) @compileError("tables_count_off exceeds W-form imm12 budget");
-    // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
+    // TODO(audit): table storage shape — see D-126 / ADR-0068.
     // TableSlice layout: 24 bytes after ADR-0068 stride extension
     // (refs ptr + u32 len + u32 max + funcptrs ptr). JIT relies on
     // `LDR Xn, [tbl_base, #(idx*24)+0]` (refs),
@@ -1538,20 +1536,20 @@ comptime {
     if (@offsetOf(TableSlice, "len") != 8) @compileError("TableSlice.len offset != 8");
     if (@offsetOf(TableSlice, "max") != 12) @compileError("TableSlice.max offset != 12");
     if (@offsetOf(TableSlice, "funcptrs") != 16) @compileError("TableSlice.funcptrs offset != 16");
-    // §9.9 / 9.9-m-2c-init: elem_segments_ptr is X-form; count is W-form.
+    // elem_segments_ptr is X-form; count is W-form.
     if ((elem_segments_ptr_off & 7) != 0) @compileError("elem_segments_ptr_off not 8-aligned");
     if ((elem_segments_count_off & 3) != 0) @compileError("elem_segments_count_off not 4-aligned");
     if (elem_segments_ptr_off > 32760) @compileError("elem_segments_ptr_off exceeds X-form imm12 budget");
     if (elem_segments_count_off > 16380) @compileError("elem_segments_count_off exceeds W-form imm12 budget");
     if (@sizeOf(ElemSlice) != 16) @compileError("ElemSlice size != 16; JIT table.init stride assumption broken");
-    // §9.9 / 9.9-l-1b-d093-d8a (ADR-0059): host_state + memory_grow_fn
+    // (ADR-0059): host_state + memory_grow_fn
     // are both X-form (8-byte pointer) — natural 8-alignment from
     // extern struct layout; assert explicitly for future tail growth.
     if ((host_state_off & 7) != 0) @compileError("host_state_off not 8-aligned");
     if ((memory_grow_fn_off & 7) != 0) @compileError("memory_grow_fn_off not 8-aligned");
     if (host_state_off > 32760) @compileError("host_state_off exceeds X-form imm12 budget");
     if (memory_grow_fn_off > 32760) @compileError("memory_grow_fn_off exceeds X-form imm12 budget");
-    // §9.9 / 9.9-l-1b-d093-d42 (D-112): tables_jit_ci_ptr is X-form (8-byte pointer); count is W-form.
+    // (D-112): tables_jit_ci_ptr is X-form (8-byte pointer); count is W-form.
     if ((tables_jit_ci_ptr_off & 7) != 0) @compileError("tables_jit_ci_ptr_off not 8-aligned");
     if ((tables_jit_ci_count_off & 3) != 0) @compileError("tables_jit_ci_count_off not 4-aligned");
     if (tables_jit_ci_ptr_off > 32760) @compileError("tables_jit_ci_ptr_off exceeds X-form imm12 budget");
@@ -1561,7 +1559,7 @@ comptime {
     if (@sizeOf(TableJitCallInfo) != 16) @compileError("TableJitCallInfo size != 16; JIT call_indirect stride assumption broken");
     if (@offsetOf(TableJitCallInfo, "funcptr_base") != 0) @compileError("TableJitCallInfo.funcptr_base offset != 0");
     if (@offsetOf(TableJitCallInfo, "typeidx_base") != 8) @compileError("TableJitCallInfo.typeidx_base offset != 8");
-    // §9.9 / 9.9-l-1b-d093-d48 (D-122 / D-125): table_grow_fn is X-form pointer.
+    // (D-122 / D-125): table_grow_fn is X-form pointer.
     if ((table_grow_fn_off & 7) != 0) @compileError("table_grow_fn_off not 8-aligned");
     if (table_grow_fn_off > 32760) @compileError("table_grow_fn_off exceeds X-form imm12 budget");
     // ADR-0168: atomic_rmw_fn is X-form pointer.
@@ -1580,7 +1578,7 @@ comptime {
     // ADR-0105 D1: stack_limit is X-form (usize); imm12 scales by 8.
     if ((stack_limit_off & 7) != 0) @compileError("stack_limit_off not 8-aligned");
     if (stack_limit_off > 32760) @compileError("stack_limit_off exceeds X-form imm12 budget");
-    // Phase 10.E IT-6 cycle 3c: EH ptr+count fields. Ptrs are X-form
+    // EH ptr+count fields. Ptrs are X-form
     // (8-byte); counts are W-form (4-byte). The trampoline's read
     // sequence requires both alignment + within-imm12 budget.
     if ((eh_table_entries_off & 7) != 0) @compileError("eh_table_entries_off not 8-aligned");
@@ -1591,7 +1589,7 @@ comptime {
     if ((eh_code_map_count_off & 3) != 0) @compileError("eh_code_map_count_off not 4-aligned");
     if (eh_code_map_entries_off > 32760) @compileError("eh_code_map_entries_off exceeds X-form imm12 budget");
     if (eh_code_map_count_off > 16380) @compileError("eh_code_map_count_off exceeds W-form imm12 budget");
-    // 10.G GC-on-JIT: both X-form (8-byte pointer) loads.
+    // GC-on-JIT: both X-form (8-byte pointer) loads.
     if ((gc_heap_off & 7) != 0) @compileError("gc_heap_off not 8-aligned");
     if ((gc_type_infos_ptr_off & 7) != 0) @compileError("gc_type_infos_ptr_off not 8-aligned");
     if (gc_heap_off > 32760) @compileError("gc_heap_off exceeds X-form imm12 budget");
@@ -1617,16 +1615,16 @@ test "JitRuntime: layout offsets match documented prologue load sequence" {
 }
 
 test "JitRuntime: total size = 464 bytes (post-10.E tag_ids tail)" {
-    // Phase 10.E IT-6 cycle 3c — EH dispatcher fields appended
+    // EH dispatcher fields appended
     // (+32 bytes = 2 ptrs × 8 B + 2 u32 × 4 B + 2 u32 pads × 4 B).
-    // Phase 10.E IT-6 cycle 3c-iii adds the handler-dispatch
-    // result fields (+24 bytes = u32 active replacing the prior pad
+    // The handler-dispatch result fields
+    // (+24 bytes = u32 active replacing the prior pad
     // + 3 usize for SP, PC, FP).
-    // Phase 10.E-payload-prop Cycle 2 (ADR-0120) adds payload
-    // staging (+136 bytes = 16 × 8 B buf + u32 len + u32 pad).
-    // 10.G GC-on-JIT (ADR-0128 §2) appends gc_heap + gc_type_infos_ptr
+    // Payload staging (ADR-0120)
+    // (+136 bytes = 16 × 8 B buf + u32 len + u32 pad).
+    // GC-on-JIT (ADR-0128 §2) appends gc_heap + gc_type_infos_ptr
     // (+16 bytes = 2 × 8 B opaque pointers) → 432 + 16 = 448.
-    // 10.E (ADR-0134 D3) appends tag_ids_ptr + count + pad
+    // Tag-identity fields (ADR-0134 D3) append tag_ids_ptr + count + pad
     // (+16 bytes = 8 B ptr + 2 × 4 B) → 448 + 16 = 464.
     // D-244 (JIT-WASI) appends `wasi_host` (+8 B opaque ptr) → 464 + 8 = 472.
     // ADR-0168 appends `atomic_rmw_fn` (+8 B fn ptr, trailing) → 472 + 8 = 480.
@@ -1884,7 +1882,7 @@ test "JitRuntime: round-trip construction + field reads" {
 }
 
 test "JitRuntime: §10.E IT-6 cycle 3c — EH ptr+count fields populate and are readable" {
-    // Phase 10.E IT-6 cycle 3c — verify the new EH dispatcher
+    // Verify the new EH dispatcher
     // fields (`eh_table_entries` + `eh_table_count` +
     // `eh_code_map_entries` + `eh_code_map_count`) can be
     // populated by instance setup and read back via the same

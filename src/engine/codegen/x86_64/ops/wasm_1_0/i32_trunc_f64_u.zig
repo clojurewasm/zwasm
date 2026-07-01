@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `i32.trunc_f64_u` — Zone 2 per-arch op
-//! file per ADR-0074 + ADR-0075 (B56 cohort migration to `(ctx, ins)`).
+//! file per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/i32_trunc_f64_u.zig`.
 //! The emit body delegates to `op_convert.emitI32TruncF64U`, which

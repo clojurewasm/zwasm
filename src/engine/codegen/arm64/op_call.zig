@@ -1,6 +1,6 @@
 //! ARM64 emit pass — function call handlers.
 //!
-//! Per ADR-0021 sub-deliverable b (§9.7 / 7.5d sub-b emit.zig
+//! Per ADR-0021 sub-deliverable b (emit.zig
 //! 9-module split): direct `call N` and indirect `call_indirect
 //! type_idx` ZirOps, with the AAPCS64 arg-marshalling and
 //! return-capture helpers they share.
@@ -25,14 +25,14 @@
 //! marshalCallArgs / captureCallResult: ≤ 7 GPR + ≤ 8 FP args in
 //! registers (X1..X7 + V0..V7); overflow args spill to the
 //! caller's pre-allocated outgoing-args region per AAPCS64 §6.4.2.
-//! §9.7 / 7.9-d-11 introduced this region at the BOTTOM of the
+//! This region sits at the BOTTOM of the
 //! caller's frame: locals + spills shift up by `local_base_off`
 //! so `[SP, #(K*8)]` for K = 0..n_stack_args-1 is reserved for
 //! outgoing args and the callee reads them at `[X29, #(16+8*K)]`.
 //! No SP movement around BL/BLR is needed — the region stays
 //! allocated for the function's lifetime. Reftype params (funcref
 //! / externref) ride the i64 X-form gpr-class path per ADR-0061
-//! (D-093 d-33); v128 has its own SIMD-class path.
+//! (D-093); v128 has its own SIMD-class path.
 //!
 //! Zone 2 (`src/engine/codegen/arm64/`).
 
@@ -126,7 +126,7 @@ fn homedCallerSavedSpillReload(ctx: *EmitCtx, dir: SpillDir) Error!void {
     }
 }
 
-/// ADR-0069 §Phase 2 chunk (b)-e-2: per-call overflow-args byte
+/// ADR-0069: per-call overflow-args byte
 /// count, mirroring `marshalCallArgs`'s allocation logic. Returns
 /// the size of the `[SP, #0..N-1]` overflow region this call's
 /// stack args occupy. The MEMORY-class return buffer (when the
@@ -153,11 +153,11 @@ fn computeCallOverflowBytes(callee_sig: FuncType) u32 {
 /// `func_sigs[N]` for the callee signature, marshals args, emits
 /// BL placeholder + CallFixup, captures the result.
 ///
-/// Chunk 7.9-b foundation: if `N < num_imports` (the leading
+/// If `N < num_imports` (the leading
 /// wasm-space slots that name imports), the call routes to the
 /// function-local trap stub instead of a body-relative BL —
-/// **every import call traps unconditionally** until chunk 7.9-c
-/// wires up the host-call dispatcher. Args are still marshalled
+/// **every import call traps unconditionally** until the
+/// host-call dispatcher is wired up. Args are still marshalled
 /// (harmless waste; the trap branch jumps over the rest of the
 /// call sequence) and the result vreg is still allocated /
 /// pushed so post-call ops that pop it find a slot, even though
@@ -169,7 +169,7 @@ pub fn emitCall(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 
     try marshalCallArgs(ctx, callee_sig);
 
-    // ADR-0017 2026-05-18 amend / ADR-0069 §Phase 2 chunk (b)-e-2:
+    // ADR-0017 2026-05-18 amend / ADR-0069:
     // when callee returns MEMORY-class (struct > 16 B per AAPCS64
     // §6.8.2; v2 trigger = `results.len > 2`), allocate a buffer
     // at the top of THIS call's outgoing-args footprint and LEA
@@ -185,7 +185,7 @@ pub fn emitCall(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     }
 
     if (ins.payload < ctx.num_imports) {
-        // Chunk 7.9-d: host-import dispatch. Indirect call via
+        // Host-import dispatch. Indirect call via
         // `JitRuntime.host_dispatch_base[idx]`. Args are already in
         // X1..X7 (marshalCallArgs above); restore X0 = runtime_ptr
         // so the host stub sees the JitRuntime ptr as its hidden
@@ -244,8 +244,8 @@ fn emitPostCallTrapCheck(ctx: *EmitCtx) Error!void {
     try ctx.return_fixups.append(ctx.allocator, fixup_at);
 }
 
-/// Emit the host-import indirect dispatch (ADR-0066 §9.9-III chunk
-/// 7.9-d): load the resolved slot from
+/// Emit the host-import indirect dispatch (ADR-0066): load
+/// the resolved slot from
 /// `JitRuntime.host_dispatch_base[import_idx]`, restore X0 =
 /// runtime_ptr (the host stub / bridge thunk's hidden first arg),
 /// then `BLR X16`:
@@ -357,7 +357,7 @@ fn emitCallIndirectSubtype(
 /// to the shared trap stub via ctx.bounds_fixups), loads the
 /// funcptr, restores X0, BLR.
 ///
-/// **Multi-table dispatch** (§9.9 / 9.9-l-1b-d093-d42 / D-112):
+/// **Multi-table dispatch** (D-112):
 /// `ins.extra` carries the table_idx LEB128 byte from
 /// lower.zig:927 (Wasm 2.0 §3.4.6 `call_indirect tableidx
 /// typeidx`). For table_idx == 0 the fast path uses the
@@ -388,7 +388,7 @@ pub fn emitCallIndirect(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 
     try marshalCallArgs(ctx, callee_sig);
 
-    // ADR-0017 2026-05-18 amend / ADR-0069 §Phase 2 chunk (b)-e-2:
+    // ADR-0017 2026-05-18 amend / ADR-0069:
     // Mirror of `emitCall`'s MEMORY-class LEA — when callee returns
     // > 16 B composite, the caller hands a buffer pointer in X8.
     // Emitted post-marshalCallArgs so the buffer LEA doesn't fight
@@ -460,7 +460,7 @@ pub fn emitCallIndirect(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         // The runtime_ptr lives in X19 (= abi.runtime_ptr_save_gpr).
         const rt_reg: inst.Xn = abi.runtime_ptr_save_gpr;
 
-        // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
+        // TODO: table storage shape — see D-126 / ADR-0068.
         // Bounds: load size from tables_ptr[table_idx].len (TableSlice
         // offset 8 within the `table_slice_size` stride — 16 pre-ADR-
         // 0068, 24 after). Reject if table_idx exceeds the per-call
@@ -596,7 +596,7 @@ pub fn emitCallRef(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 /// (per ADR-0017 X0 reserved for runtime_ptr) or V0..V7. Args that
 /// overflow the int (X1..X7, 7 slots) or fp (V0..V7, 8 slots) pools
 /// land in the caller's pre-allocated outgoing-args region at
-/// `[SP, #(K*8)]` for K = NSAA index — see §9.7 / 7.9-d-11. The
+/// `[SP, #(K*8)]` for K = NSAA index. The
 /// callee reads them at `[X29, #(16 + 8*K)]`.
 ///
 /// **No source-clobber risk by construction**: vregs are allocated
@@ -617,7 +617,7 @@ pub fn marshalCallArgs(ctx: *EmitCtx, callee_sig: FuncType) Error!void {
     if (ctx.pushed_vregs.items.len < n_args) return Error.AllocationMissing;
 
     // Pop in reverse stack order: top = arg N-1, deepest = arg 0.
-    // Cap bumped 64 → 128 at d-25 to fit `call.wast`'s 100-arg
+    // Cap bumped 64 → 128 to fit `call.wast`'s 100-arg
     // fixture. Wasm spec has no upper bound on param count, but
     // realistic guests rarely exceed ~64; the extra 512 bytes
     // of stack-buffer per call site is harmless.
@@ -714,9 +714,9 @@ pub fn marshalCallArgs(ctx: *EmitCtx, callee_sig: FuncType) Error!void {
                     fp_arg_slot += 1;
                 }
             },
-            // §9.9 / 9.9-f-3: caller-side v128 arg marshal per
+            // Caller-side v128 arg marshal per
             // AAPCS64 §6.4 SIMD calling convention. Mirror of
-            // 9.9-e-1's callee-side param-marshal (V0..V7 are
+            // the callee-side param-marshal (V0..V7 are
             // SIMD arg regs; overflow goes to caller's outgoing
             // args region with 16-byte alignment per §6.4.2
             // stage C.4).
@@ -734,7 +734,7 @@ pub fn marshalCallArgs(ctx: *EmitCtx, callee_sig: FuncType) Error!void {
                     fp_arg_slot += 1;
                 }
             },
-            // D-093 (d-33): reftype params share the i64 X-form
+            // D-093: reftype params share the i64 X-form
             // marshal path (8-byte gpr-class slot per ADR-0061).
             .ref => {
                 const xs = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
@@ -758,7 +758,7 @@ pub fn marshalCallArgs(ctx: *EmitCtx, callee_sig: FuncType) Error!void {
 /// on each callee result type. Per AAPCS64 §6.5: results map to
 /// X0..X7 (integer class) and V0..V7 (FP / SIMD class) in order;
 /// class counters are independent. Void callees push nothing.
-/// Multi-result support (D-093 d-11) enables Wasm 2.0 multi-value
+/// Multi-result support (D-093) enables Wasm 2.0 multi-value
 /// function returns (e.g. `add64_u_with_carry → (i64, i32)`).
 /// Stack-overflow (> 8 results per class) surfaces as UnsupportedOp.
 ///
@@ -770,7 +770,7 @@ pub fn marshalCallArgs(ctx: *EmitCtx, callee_sig: FuncType) Error!void {
 fn captureCallResult(ctx: *EmitCtx, callee_sig: FuncType, memory_class: bool, buffer_off: u32) Error!void {
     if (callee_sig.results.len == 0) return;
 
-    // ADR-0017 2026-05-18 amend / ADR-0069 §Phase 2 chunk (b)-e-2:
+    // ADR-0017 2026-05-18 amend / ADR-0069:
     // MEMORY-class returns — callee wrote each result to
     // `[X8, #(i*8)]` where X8 was our LEA into the outgoing-args
     // return buffer at `[SP, #buffer_off + i*8]`. Read each slot

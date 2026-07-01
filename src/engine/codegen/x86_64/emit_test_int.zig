@@ -99,7 +99,7 @@ test "compile: (i32.const 0xDEADBEEF) end — little-endian imm32" {
     // Differs from the 42 case only at the imm32 bytes. The imm32 follows the
     // 4-byte prologue + 1-byte MOV-EBX opcode (0xBB) → starts at offset 5.
     try testing.expectEqual(@as(usize, 13), out.bytes.len);
-    // D-055 migration: imm32 = body_start (4) + 1-byte MOV-EBX opcode (0xBB).
+    // Imm32 = body_start (4) + 1-byte MOV-EBX opcode (0xBB).
     const imm32_off = prologue.body_start_offset(false, 0) + 1;
     try testing.expectEqualSlices(u8, &.{ 0xEF, 0xBE, 0xAD, 0xDE }, out.bytes[imm32_off .. imm32_off + 4]);
 }
@@ -450,7 +450,7 @@ test "compile: br_table — single case + default both → block end" {
 }
 
 test "compile: br_table count > 127 — wide case path (rel32 / imm32) compiles" {
-    // §9.9 / 9.9-l-1b-d093-d45 (D-118): pre-d-45 the x86_64
+    // (D-118): pre-d-45 the x86_64
     // emitBrTable rejected `count > 127` outright (CMP imm8 / JNE
     // rel8 limits). br_table.wast `large` declares 16149 targets;
     // d-45 dispatches per-case on `i ≤ 127`: small cases keep the
@@ -577,11 +577,11 @@ test "compile: (i32.const 0) i32.load offset=0 end — ADR-0026 prologue + bound
     const ja_off = body_start + 25;
     try testing.expectEqualSlices(u8, &.{ 0x0F, 0x87, 0x0F, 0x00, 0x00, 0x00 }, out.bytes[ja_off .. ja_off + 6]);
     // Bounds-check trap stub starts at body_start + 46 (body 38 bytes
-    // + epilogue 8 bytes). UNCHANGED by D-165 cycle 4 — the INC was
+    // + epilogue 8 bytes). UNCHANGED by D-165 — the INC was
     // added to the separate kind=4 stack-probe stub.
     const trap_off = body_start + 46;
     try testing.expectEqualSlices(u8, &.{ 0x41, 0xC7, 0x87, 0x28, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00 }, out.bytes[trap_off .. trap_off + 11]);
-    // D-165 cycle 4 — verify the kind=4 stack-probe stub at the tail
+    // D-165 — verify the kind=4 stack-probe stub at the tail
     // begins with INC DWORD PTR [R15 + trap_stub_entry_count_off=232].
     // The tail stub is the last 35 bytes: 7 (INC) + 11 (MOV trap_flag)
     // + 11 (MOV trap_kind) + 2 (XOR) + 2 (POP R15) + 1 (POP RBP) +
@@ -647,7 +647,7 @@ test "compile: (i32.const 0)(i32.const 99) i32.store offset=0 — store path" {
     //   (no return marshalling — sig.results.len == 0)
     // Epilogue: ADD RSP,8 / POP R15 / POP RBP / RET                  8
     // Trap stub: 21 bytes
-    // D-055 migration: prologue size sourced from body_start_offset().
+    // Prologue size sourced from body_start_offset().
     const body_start = prologue.body_start_offset(true, 8);
     try testing.expectEqualSlices(u8, &.{ 0x44, 0x89, 0x24, 0x10 }, out.bytes[body_start + 5 + 6 + 7 + 2 + 4 + 7 + 6 ..][0..4]);
     // Verify the JA was patched (disp != 0); JA = 0x0F 0x87
@@ -845,7 +845,7 @@ test "compile: global.set with stack underflow → AllocationMissing" {
 }
 
 test "compile: br with depth strictly above labels.len → UnsupportedOp" {
-    // §9.7 / 7.10-h: depth == labels.len is the function-return
+    // Depth == labels.len is the function-return
     // path (compiles to inline epilogue). depth > labels.len is
     // still malformed and surfaces UnsupportedOp.
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
@@ -873,7 +873,7 @@ test "compile: function with 16 locals compiles (§9.7 / 7.10-g lifts the i8 cap
 }
 
 test "compile: function with v128 param → SysV compile-success (§9.9 / 9.9-e-2)" {
-    // §9.9-e-2 lifts the SysV v128 param rejection: v128 args
+    // v128 args
     // arrive in XMM0..XMM7 and stash via MOVUPS [RBP+disp_v128].
     // Win64 v128 stays UnsupportedOp (passed by hidden pointer
     // per Microsoft x64 ABI §"Argument Passing"); enforced
@@ -889,7 +889,7 @@ test "compile: function with v128 param → SysV compile-success (§9.9 / 9.9-e-
 }
 
 test "compile: i32 param + local.get + end — params marshal MOV [rbp-8], esi" {
-    // §9.7 / 7.8-x86-params smoke test. (param i32) → i32 returns
+    // Smoke test. (param i32) → i32 returns
     // the param value via local.get 0. SysV: arg_gprs[1] = RSI.
     const sig: zir.FuncType = .{ .params = &[_]zir.ValType{.i32}, .results = &.{.i32} };
     var f = ZirFunc.init(0, sig, &.{});
@@ -981,7 +981,7 @@ test "compile: (i32.const 7) (i32.const 5) i32.add end — verifies ADD is emitt
     try testing.expectEqualSlices(u8, &expected, out.bytes);
 }
 
-// §9.7 / 7.10-b: parallel-move for ALU when dst==rhs (D-029).
+// Parallel-move for ALU when dst==rhs (D-029).
 // With realworld regalloc, result and rhs can share a slot when
 // rhs dies at this op and result is born here. The naive
 // `MOV dst, lhs ; OP dst, rhs` clobbers rhs before the OP reads
@@ -1042,7 +1042,7 @@ test "compile: (i32.const 8) (i32.const 3) i32.sub end — SUB opcode 29" {
     defer deinit(testing.allocator, out);
     // Spot-check (slot 2 = R13, slot 1 = R12 after chunk 13b pool shrink):
     // SUB R13D, R12D = 45 29 E5 lives at offset 18..21.
-    // D-055 migration: prologue size sourced from body_start_offset().
+    // Prologue size sourced from body_start_offset().
     const sub_off = prologue.body_start_offset(false, 0) + 14;
     try testing.expectEqualSlices(u8, &.{ 0x45, 0x29, 0xE5 }, out.bytes[sub_off .. sub_off + 3]);
 }
@@ -1068,7 +1068,7 @@ test "compile: (i32.const 6) (i32.const 7) i32.mul end — IMUL 0F AF" {
     // chunk 13b pool shrink). dst=R13D (R=1), src=R12D (B=1) → REX = 0x45.
     // ModR/M: mod=11, reg=101 (r13), rm=100 (r12) → 11 101 100 = EC.
     // So 45 0F AF EC at offset 18..22.
-    // D-055 migration: prologue size sourced from body_start_offset().
+    // Prologue size sourced from body_start_offset().
     const imul_off = prologue.body_start_offset(false, 0) + 14;
     try testing.expectEqualSlices(u8, &.{ 0x45, 0x0F, 0xAF, 0xEC }, out.bytes[imul_off .. imul_off + 4]);
 }
@@ -1414,7 +1414,7 @@ test "compile: i32.wrap_i64 emits MOV r32_dst, r32_src (self-MOV zero-extends)" 
     const out = try compile(testing.allocator, &f, alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
     defer deinit(testing.allocator, out);
     // Layout: 4 prologue + 5 mov-EBX-imm32 = 9. Then MOV EBX, EBX = 2 bytes.
-    // D-055 migration: prologue size sourced from body_start_offset().
+    // Prologue size sourced from body_start_offset().
     const off = prologue.body_start_offset(false, 0) + 5;
     const expected = inst.encMovRR(.d, .rbx, .rbx);
     try testing.expectEqualSlices(u8, expected.slice(), out.bytes[off .. off + expected.len]);
@@ -1437,7 +1437,7 @@ test "compile: i64.extend_i32_u emits MOV r32_dst, r32_src" {
     defer deinit(testing.allocator, out);
     // Layout (slot 0 = RBX after chunk 13b pool shrink):
     // 4 prologue + 5 mov-EBX-imm32 = 9. Then MOV EBX, EBX = 2 bytes.
-    // D-055 migration: prologue size sourced from body_start_offset().
+    // Prologue size sourced from body_start_offset().
     const off = prologue.body_start_offset(false, 0) + 5;
     const expected = inst.encMovRR(.d, .rbx, .rbx);
     try testing.expectEqualSlices(u8, expected.slice(), out.bytes[off .. off + expected.len]);
@@ -1461,7 +1461,7 @@ test "compile: i64.extend_i32_s emits MOVSXD r64_dst, r32_src" {
     defer deinit(testing.allocator, out);
     // Layout (slot 0 = RBX after chunk 13b pool shrink):
     // 4 prologue + 5 mov-EBX-imm32 = 9. Then MOVSXD RBX, EBX = 3 bytes.
-    // D-055 migration: prologue size sourced from body_start_offset().
+    // Prologue size sourced from body_start_offset().
     const off = prologue.body_start_offset(false, 0) + 5;
     const expected = inst.encMovsxdR64R32(.rbx, .rbx);
     try testing.expectEqualSlices(u8, expected.slice(), out.bytes[off .. off + expected.len]);
@@ -1489,7 +1489,7 @@ test "compile: call N — 0 args, void return — emits MOV RDI,R15 + CALL + fix
     //   MOV RBP, RSP    48 89 e5        (3 bytes) → 6
     //   MOV R15, RDI    49 89 fd        (3 bytes) → 9
     //   SUB RSP, K      48 83 ec K      (4 bytes) → 13
-    // §9.7 / 7.10-f folds shadow space into the prologue's
+    // Folds shadow space into the prologue's
     // outgoing region, so SUB RSP encoding length stays 4 bytes
     // on both Cc (frame_bytes = 8 on SysV; 40 on Win64 — both
     // fit in imm8). Body starts at byte 13.
@@ -1497,7 +1497,7 @@ test "compile: call N — 0 args, void return — emits MOV RDI,R15 + CALL + fix
     //   CALL rel32       5 bytes        → 21
     // No per-call SUB RSP, 32 / ADD RSP, 32 on Win64 anymore —
     // outgoing_max_bytes>0 makes emitShadowAlloc/Free no-op.
-    // D-055 migration: prologue size sourced from body_start_offset().
+    // Prologue size sourced from body_start_offset().
     // Both SysV (frame=8) and Win64 (frame=40) fit in imm8 → body_start = 13 today.
     const body_start = prologue.body_start_offset(true, 8);
     const expected_mov = inst.encMovRR(.q, abi.current.entry_arg0_gpr, abi.current.runtime_ptr_save_gpr);
@@ -1530,14 +1530,14 @@ test "compile: call N — 0 args, i32 return — captures EAX into result vreg" 
     const out = try compile(testing.allocator, &f, alloc, &func_sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
     defer deinit(testing.allocator, out);
 
-    // Body layout (post-prologue at 13). §9.7 / 7.10-f folded
+    // Body layout (post-prologue at 13). Folded
     // Win64 shadow space into the prologue, so capture-result
     // offset is the same on both Cc:
     //   13                   post-prologue
     //   + 3                  MOV <arg0>, R15 (runtime_ptr restore)
     //   + 5                  CALL rel32
     //   = 21
-    // D-055 migration: prologue size sourced from body_start_offset().
+    // Prologue size sourced from body_start_offset().
     const capture_off: u32 = prologue.body_start_offset(true, 8) + 3 + 5;
     const expected_capture = inst.encMovRR(.d, .rbx, .rax);
     try testing.expectEqualSlices(u8, expected_capture.slice(), out.bytes[capture_off .. capture_off + expected_capture.len]);
@@ -1568,7 +1568,7 @@ test "compile: call N — 1 i32 arg — marshals top-of-stack into arg_gprs[1] (
     //   MOV <arg1>, EBX                  (2-3 bytes; varies by arch) → marshal
     //   MOV <arg0>, R15                  (3 bytes) → runtime_ptr restore
     //   CALL rel32                       (5 bytes)
-    // D-055 migration: prologue size sourced from body_start_offset() + i32.const 5 bytes.
+    // Prologue size sourced from body_start_offset() + i32.const 5 bytes.
     const marshal_off: u32 = prologue.body_start_offset(true, 8) + 5;
     const expected_marshal = inst.encMovRR(.d, abi.current.arg_gprs[1], .rbx);
     try testing.expectEqualSlices(u8, expected_marshal.slice(), out.bytes[marshal_off .. marshal_off + expected_marshal.len]);
@@ -1610,7 +1610,7 @@ test "compile: call_indirect — bounds + sig (JAE+JNE → trap stub) + CALL RAX
     //   [74..78]  MOV RAX, [RAX + RBX*8]  (load funcptr, 4 bytes)
     //   [78..81]  MOV RDI, R15            (restore runtime_ptr, 3 bytes)
     //   [81..83]  CALL RAX                (indirect)
-    // D-055 migration: all assertions use body_start_offset() so they survive
+    // All assertions use body_start_offset() so they survive
     // future +7 prologue shift from JIT-execution sentinel injection.
     const body_start = prologue.body_start_offset(true, 8);
     const expected_table_size_load = inst.encMovR32FromMemDisp32(.rax, .r15, 24);
@@ -1634,7 +1634,7 @@ test "compile: call_indirect — bounds + sig (JAE+JNE → trap stub) + CALL RAX
     const expected_funcptr_load = inst.encMovR64FromBaseIdxLsl3(.rax, .rax, .rbx);
     const funcptr_off = body_start + 61;
     try testing.expectEqualSlices(u8, expected_funcptr_load.slice(), out.bytes[funcptr_off .. funcptr_off + expected_funcptr_load.len]);
-    // §9.7 / 7.10-f: per-call SUB RSP, 32 on Win64 is gone — the
+    // Per-call SUB RSP, 32 on Win64 is gone — the
     // shadow lives in the prologue's outgoing region. CALL RAX
     // offset is the same on both Cc.
     const call_off: u32 = body_start + 68;
@@ -1647,7 +1647,7 @@ test "compile: self-recursive (call 0) emits JBE with patched disp32 pointing at
     // for a self-recursive `(call 0)` body the prologue's JBE
     // rel32 placeholder gets PATCHED at function-close to a
     // non-zero disp that lands on the stack-overflow trap stub's
-    // first byte. R3 cycle 5 introduced after windowsmini evidence
+    // first byte. R3 introduced after windowsmini evidence
     // showed the probe never fires despite sane stack_limit — the
     // only remaining hypothesis is patch / encoding drift. If this
     // test passes on Mac (SysV) + Win64 (via run_remote_windows),
@@ -1692,7 +1692,7 @@ test "compile: self-recursive (call 0) emits JBE with patched disp32 pointing at
 }
 
 test "compile: self-recursive (i64)->i64 — probe + i64-result marshal (D-165 cycle 2)" {
-    // D-165 spike cycle 2 — sibling of the R3 ()->() test above for
+    // D-165 spike — sibling of the R3 ()->() test above for
     // the fac-rec shape `(func (param i64) (result i64))` that hangs
     // on Win64 with `assert_exhaustion fac-rec i64:1073741824`.
     //
@@ -1797,7 +1797,7 @@ test "compile: self-recursive (i64)->i64 — probe + i64-result marshal (D-165 c
     try testing.expect(rex == 0x48 or rex == 0x49); // REX.W = 1
     try testing.expectEqual(@as(u8, 0x89), out.bytes[post_call + 1]);
 
-    // Assertion 4 (D-165 cycle 3): i64 arg marshal to the per-Cc
+    // Assertion 4 (D-165): i64 arg marshal to the per-Cc
     // first user-int-arg reg right BEFORE the CALL. SysV puts the
     // recursive callee's a0 in RSI (arg_gprs[1]; RDI = runtime_ptr);
     // Win64 puts it in RDX (arg_gprs[1]; RCX = runtime_ptr). The
@@ -1830,7 +1830,7 @@ test "compile: self-recursive (i64)->i64 — probe + i64-result marshal (D-165 c
 }
 
 test "compile: try_table emit populates EmitOutput.exception_handlers (IT-2)" {
-    // Mirror of arm64 sibling IT-2 test.
+    // Mirror of arm64 sibling test.
     const exception_table = @import("../shared/exception_table.zig");
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
     var f = ZirFunc.init(0, sig, &.{});
@@ -1877,7 +1877,7 @@ test "compile: try_table emit populates EmitOutput.exception_handlers (IT-2)" {
 }
 
 test "compile: throw emits JMP rel32 placeholder + appends unreach_fixup (IT-3 trap-path)" {
-    // Mirror of arm64 IT-3 sibling — see that test for rationale.
+    // Mirror of arm64 sibling — see that test for rationale.
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
@@ -1897,7 +1897,7 @@ test "compile: throw emits JMP rel32 placeholder + appends unreach_fixup (IT-3 t
 }
 
 test "compile: try_table reaches per-op emit with ExceptionTable.Builder wired (IT-1)" {
-    // Phase 10 EH integration IT-1 — compile() detects `.try_table`
+    // EH integration — compile() detects `.try_table`
     // ops in func.instrs and allocates a per-function
     // `ExceptionTable.Builder`. Per-op stub's
     // `std.debug.assert(builder != null)` would panic if the

@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `f64x2.splat` — B107 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `f64x2.splat`.
 //! Delegates to op_simd_float.emitF64x2SplatCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/f64x2_splat.zig");

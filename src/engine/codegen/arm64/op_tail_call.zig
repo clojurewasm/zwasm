@@ -6,7 +6,7 @@
 //! preserving caller's LR for the callee's eventual RET (which
 //! returns to caller's caller). Mixing the two shapes in one
 //! file would invite single_slot_dual_meaning drift across
-//! Phase 11+ work.
+//! future work.
 //!
 //! Per ADR-0112 D3 the full tail-call emit sequence is:
 //!
@@ -16,14 +16,12 @@
 //!   (4) frame_teardown.emit(…)           (caller's frame disappears)
 //!   (5) BR X16                           (no LR; callee RETs to caller's caller)
 //!
-//! Landed: `emitDirectReturnCall` (same-module direct) +
+//! `emitDirectReturnCall` (same-module direct) +
 //! `emitIndirectReturnCall` (table-0, ≤2 results) — both wired into
 //! `arm64/emit.zig` dispatch via the `ops/wasm_3_0/return_call*.zig`
 //! per-op files, and exercised end-to-end through `runI32Export`
 //! (the liveness pass treats return_call* as a terminator per
-//! ADR-0113 §A; D-205). Remaining follow-ons:
-//!   return_call_ref: still a stub (funcref null-check + tail-jump).
-//!   10.TC-3f: cross_module_tail_call.zig (ADR-0112 D4).
+//! ADR-0113 §A; D-205).
 //!
 //! INVARIANT (ADR-0112 D7): the segment from frame_teardown
 //! start through the BR X16 contains NO allocator calls, NO
@@ -70,7 +68,7 @@ pub const tail_target_gpr: inst.Xn = 16;
 /// already correct, so we simply `MOV X0, X19` (encoded as
 /// `ORR X0, XZR, X19` per the canonical AAPCS64 idiom).
 ///
-/// Cross-module tail-call (ADR-0112 D4 / 10.TC-3f follow-on)
+/// Cross-module tail-call (ADR-0112 D4)
 /// loads callee_rt from the caller's literal pool instead;
 /// that path lives in `cross_module_tail_call.zig`.
 pub fn emitLoadCalleeRtSameModule(
@@ -344,7 +342,7 @@ pub fn emitIndirectReturnCall(
 ///   (5) MOV X0, X19 (runtime_ptr) ; frame_teardown ; BR X16.
 /// No runtime sig check (validator guarantees funcref type ⊑ `$sig`).
 /// Terminator + safepoint-free (ADR-0112 D7 / ADR-0113 §A); liveness
-/// already classifies `return_call_ref` as a terminator (cyc198).
+/// already classifies `return_call_ref` as a terminator.
 pub fn emitReturnCallRef(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void {
     if (ins.payload >= ctx.module_types.len) return ctx_mod.Error.AllocationMissing;
     const callee_sig: zir.FuncType = ctx.module_types[ins.payload];

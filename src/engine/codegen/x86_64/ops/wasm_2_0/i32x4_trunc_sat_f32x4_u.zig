@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `i32x4.trunc.sat.f32x4.u` — B107 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `i32x4.trunc.sat.f32x4.u`.
 //! Delegates to op_simd_float.emitI32x4TruncSatF32x4UCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/i32x4_trunc_sat_f32x4_u.zig");

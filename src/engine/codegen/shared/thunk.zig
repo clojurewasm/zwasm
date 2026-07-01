@@ -1,5 +1,5 @@
-//! Cross-module import bridge thunk facade (ADR-0066, §9.9-III
-//! chunk (c)-2.1). Arch-agnostic API; routes to `arm64/thunk.zig`
+//! Cross-module import bridge thunk facade (ADR-0066).
+//! Arch-agnostic API; routes to `arm64/thunk.zig`
 //! or `x86_64/thunk.zig` per `builtin.target.cpu.arch` (same
 //! pattern as `shared/compile.zig`'s emit-module switch).
 //!

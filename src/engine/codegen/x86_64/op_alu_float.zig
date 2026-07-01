@@ -33,11 +33,10 @@ const types = @import("types.zig");
 const Allocator = std.mem.Allocator;
 const Error = types.Error;
 
-/// §9.12-B / B67 (ADR-0075) — `(ctx, ins)` adapters for the FP
+/// `(ctx, ins)` adapters for the FP
 /// const cohort (`f32.const`, `f64.const`). Both wrap
 /// `emitFpConst` (which dispatches on `ins.op` internally). Per-op
-/// aliases preserve the per-op-file shape; decomposes per-op at
-/// the B6x+1 cutover.
+/// aliases preserve the per-op-file shape.
 pub fn emitF32Const(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     return emitFpConst(
         ctx.allocator,
@@ -105,7 +104,7 @@ pub fn emitFpConst(
 ///
 /// All branches use rel32 placeholders patched at end-of-emit
 /// to keep the layout independent of REX-byte length variance.
-/// §9.12-B / B89 (ADR-0075) — `(ctx, ins)` adapter for FP
+/// `(ctx, ins)` adapter for FP
 /// min/max cohort (f32/f64.min/max, 4 ops).
 pub fn emitFpMinMaxCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     return emitFpMinMax(
@@ -237,7 +236,7 @@ pub fn emitFpMinMax(
 /// **Scratches**: RAX/RCX/RDX — none in regalloc pool (RAX is
 /// return_gpr, RCX/RDX are arg_gprs[3]/[2]; pool excludes both).
 /// All caller-saved (no calls within this op so OK).
-/// §9.12-B / B89 (ADR-0075) — `(ctx, ins)` adapter for FP
+/// `(ctx, ins)` adapter for FP
 /// copysign cohort (f32/f64.copysign, 2 ops).
 pub fn emitFpCopysignCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     return emitFpCopysign(
@@ -309,7 +308,7 @@ pub fn emitFpCopysign(
 /// + XMM7 (per abi.zig comment "XMM7 is reserved as a SIMD
 /// scratch"; pool starts at XMM8). Neither collides with any
 /// live vreg.
-/// §9.12-B / B88 (ADR-0075) — `(ctx, ins)` adapter for the FP
+/// `(ctx, ins)` adapter for the FP
 /// unary cohort (f32/f64.abs/neg/sqrt/ceil/floor/trunc/nearest,
 /// 14 ops).
 pub fn emitFpUnaryCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
@@ -415,7 +414,7 @@ fn emitFpAbsNeg(allocator: Allocator, buf: *std.ArrayList(u8), dst: inst.Xmm, sr
 ///
 /// **Scratch**: AL is used as the SETNP/SETP byte. RAX is not
 /// in the regalloc pool so AL doesn't collide with any vreg.
-/// §9.12-B / B87 (ADR-0075) — `(ctx, ins)` adapter for the FP
+/// `(ctx, ins)` adapter for the FP
 /// compare cohort (f32/f64.eq/ne/lt/gt/le/ge, 12 ops).
 pub fn emitFpCompareCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     return emitFpCompare(
@@ -512,7 +511,7 @@ pub fn emitFpCompare(
 /// clobber rhs before OP reads it). With fresh-vreg-per-op
 /// allocation this never fires; surfaces as `UnsupportedOp` —
 /// same shape as `emitI32Binary`.
-/// §9.12-B / B86 (ADR-0075) — `(ctx, ins)` adapter for the FP
+/// `(ctx, ins)` adapter for the FP
 /// arithmetic cohort (f32/f64.add/sub/mul/div, 8 ops).
 pub fn emitFpBinaryCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     return emitFpBinary(
@@ -545,7 +544,7 @@ pub fn emitFpBinary(
     const rhs = try gpr.xmmLoadSpilled(allocator, buf, alloc, spill_base_off, rhs_v, 1);
     const dst = try gpr.xmmDefSpilled(alloc, result_v, 0);
 
-    // §9.7 / 7.10-d: parallel-move for the dst==rhs case on FP
+    // Parallel-move for the dst==rhs case on FP
     // (XMM-class mirror of D-029). Commute commutative add/mul;
     // scratch through XMM14 for non-commutative sub/div.
     const commutative = switch (op) {
@@ -595,7 +594,6 @@ pub fn emitFpBinary(
 /// (8 with MOV/Q-back). is_f64=true uses MOVQ (full 64-bit
 /// shuttle); is_f64=false uses MOVD (low 32 bits — upper 96
 /// bits of XMM register are don't-care for Wasm f32 semantics).
-/// §9.9 / 9.9-m-4b per ADR-0056.
 pub fn emitFpSelect(
     allocator: Allocator,
     buf: *std.ArrayList(u8),

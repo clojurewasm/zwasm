@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `i64.sub` — Zone 2 per-arch op file per
-//! ADR-0074 + ADR-0075 (B80 migration to `(ctx, ins)`).
+//! ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/i64_sub.zig`.
 //! Delegates to `op_alu_int.emitI64BinaryCtx` (which dispatches

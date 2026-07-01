@@ -6,7 +6,7 @@
 //! the trampoline observes the caller's FP (X29 / RBP) and saved
 //! LR/RIP intact at entry.
 //!
-//! ## Current shape (IT-6 cycle 3c-ii)
+//! ## Current shape
 //!
 //! Two-layer architecture per ADR-0119 §Consequences:
 //!
@@ -25,10 +25,10 @@
 //!        falls through to the trap stub).
 //!      - `.handler`: currently ALSO sets `rt.trap_flag = 1` —
 //!        full handler dispatch (sp_restore + JMP landing_pad_pc)
-//!        lands at cycle 3c-iii.
+//!        lands later.
 //!
-//! Net observable behavior at cycle 3c-ii matches IT-3 (every
-//! throw traps); the load-bearing delta is that the dispatcher
+//! Net observable behavior: every throw traps; the load-bearing
+//! delta is that the dispatcher
 //! is ACTUALLY invoked, the EH table + code map are walked, and
 //! handler resolution is exercised end-to-end. Installing a
 //! catch handler in a fixture's exception_table now flows through
@@ -99,13 +99,13 @@ pub fn trampolineCore(
     rt: *jit_abi.JitRuntime,
 ) callconv(.c) void {
     // Materialize the per-Instance EH views from `rt` (populated
-    // at instance init per IT-6 cycle 3c-i).
+    // at instance init).
     const table: zwasm_throw.ExceptionTable = .{
         .entries = if (rt.eh_table_entries) |p|
             p[0..rt.eh_table_count]
         else
             &.{},
-        // 10.E (ADR-0134 D3) — tag identity map so aliased + cross-
+        // Tag identity map (ADR-0134 D3) so aliased + cross-
         // module-imported tags match by source identity, not raw idx.
         .tag_ids = if (rt.tag_ids_ptr) |p|
             p[0..rt.tag_ids_count]
@@ -565,7 +565,7 @@ test "zwasmThrowTrampoline: handler-found path populates eh_handler_sp + eh_hand
     // the absolute landing-pad PC (start_addr + landing_pad_pc)
     // and the restored SP (handler_fp - frame_bytes), stashes
     // both in JitRuntime, and sets `eh_handler_active = 1`. The
-    // naked-stub branch + JMP path (cycle 3c-iii-next) consumes
+    // naked-stub branch + JMP path consumes
     // these fields; this test verifies the data plumbing.
     var rt: jit_abi.JitRuntime = std.mem.zeroes(jit_abi.JitRuntime);
 

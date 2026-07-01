@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `f32.copysign` — B89 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `f32.copysign`.
 //! Delegates to op_alu_float.emitFpCopysignCtx.
 
 const meta = @import("../../../../../instruction/wasm_1_0/f32_copysign.zig");

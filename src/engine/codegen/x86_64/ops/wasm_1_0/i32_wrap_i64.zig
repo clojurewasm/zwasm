@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `i32.wrap.i64` — B85 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `i32.wrap.i64`.
 //! Delegates to op_alu_int.emitConvertWidthCtx.
 
 const meta = @import("../../../../../instruction/wasm_1_0/i32_wrap_i64.zig");

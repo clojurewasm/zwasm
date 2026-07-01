@@ -1,6 +1,5 @@
 //! x86_64 local-ops emit handlers: `local.get` / `local.set` /
-//! `local.tee`. Per ADR-0074 + ADR-0075 (B78 migration to
-//! `(ctx, ins)`).
+//! `local.tee`.
 //!
 //! Wasm spec §3.5.3 / §4.4.5.{1,2,3}. Per-local RBP-relative
 //! storage; valtype-dispatched 4 / 8 / 16-byte slot transfer.
@@ -203,7 +202,7 @@ fn emitHomedLocalSetTee(ctx: *ctx_mod.EmitCtx, home_vreg: u32, local_idx: u32, p
     try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, home_vreg, 1);
 }
 
-/// §9.12-B / B78 (ADR-0075) — `(ctx, ins)` adapter for `local.get`.
+/// `(ctx, ins)` adapter for `local.get`.
 ///
 /// Wasm spec §3.5.3 / §4.4.5.1.
 pub fn emitLocalGetCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
@@ -227,7 +226,7 @@ pub fn emitLocalGetCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!vo
     );
 }
 
-/// §9.12-B / B78 (ADR-0075) — `(ctx, ins)` adapter for `local.set`.
+/// `(ctx, ins)` adapter for `local.set`.
 ///
 /// Wasm spec §3.5.3 / §4.4.5.2.
 pub fn emitLocalSetCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
@@ -250,7 +249,7 @@ pub fn emitLocalSetCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!vo
     );
 }
 
-/// §9.12-B / B78 (ADR-0075) — `(ctx, ins)` adapter for `local.tee`.
+/// `(ctx, ins)` adapter for `local.tee`.
 ///
 /// Wasm spec §3.5.3 / §4.4.5.3.
 pub fn emitLocalTeeCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {

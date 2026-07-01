@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `drop` — Zone 2 per-arch op file
-//! per ADR-0074 + ADR-0075 (B69 migration to `(ctx, ins)`).
+//! per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/drop.zig`.
 //! Delegates to `op_control.emitDropCtx`. Pops the top operand
@@ -9,7 +9,6 @@
 //! Wasm spec §4.4.4 (drop).
 //!
 //! Registered in `dispatch_collector.collected_x86_64_ctx_ops`.
-//! Unblocked by B66 meta backfill.
 //!
 //! Zone 2 (`src/engine/codegen/x86_64/ops/`).
 

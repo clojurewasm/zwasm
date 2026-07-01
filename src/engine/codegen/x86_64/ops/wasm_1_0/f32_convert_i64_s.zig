@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `f32.convert_i64_s` — Zone 2 per-arch
-//! op file per ADR-0074 + ADR-0075 (B58 cohort migration to `(ctx, ins)`).
+//! op file per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/f32_convert_i64_s.zig`.
 //! Delegates to `op_convert.emitF32ConvertI64S` (alias of the

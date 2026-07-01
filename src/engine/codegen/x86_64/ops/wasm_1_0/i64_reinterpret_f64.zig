@@ -1,6 +1,5 @@
 //! x86_64 emit handler for `i64.reinterpret_f64` — Zone 2
-//! per-arch op file per ADR-0074 + ADR-0075 (B59 cohort migration
-//! to `(ctx, ins)`).
+//! per-arch op file per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/i64_reinterpret_f64.zig`.
 //! Delegates to `op_convert.emitI64ReinterpretF64` (alias of the

@@ -14,7 +14,7 @@
 //!
 //! This module is the integration point — each individual stage
 //! has its own tests; this driver verifies they compose into a
-//! callable function. The §9.7 / 7.5 spec gate consumes this for
+//! callable function. The spec gate consumes this for
 //! every spec testsuite assertion.
 //!
 //! Zone 2 (`src/engine/codegen/shared/`).
@@ -125,22 +125,22 @@ pub fn compileOne(
     /// 64-bit offset materialise + wrap-check). Per-module
     /// constant; codegen branches on it inside emitMemOp.
     memory0_idx_type: @import("../../../parse/sections.zig").MemoryEntry.IdxType,
-    /// Wasm 3.0 EH (10.E-payload-prop Cycle 3; ADR-0120) — per-tag
+    /// Wasm 3.0 EH (ADR-0120) — per-tag
     /// param counts threaded into per-arch EmitCtx for
     /// throw / try_table payload marshalling. `&.{}` for modules
     /// without tags.
     tag_param_counts: []const u32,
-    /// 10.G GC-on-JIT (A-3) — typeidx-indexed struct field counts (from
+    /// GC-on-JIT: typeidx-indexed struct field counts (from
     /// the module's struct defs). Threaded into the lowerer so `struct.new`
     /// stamps its variadic field count into `ZirInstr.extra`. `&.{}` for
     /// modules without struct types.
     struct_field_counts: []const u32,
-    /// 10.G GC-on-JIT (A-6a) — typeidx-indexed array element valtype bytes
+    /// GC-on-JIT: typeidx-indexed array element valtype bytes
     /// (0x78 i8 / 0x77 i16 / …). Threaded into the lowerer so `array.get_s`
     /// stamps the packed element width into `ZirInstr.extra` (the emit picks
     /// SXTB vs SXTH). `&.{}` for modules without array types.
     array_elem_valtypes: []const u8,
-    /// 10.G GC-on-JIT (D-212) — typeidx-indexed struct field valtype byte
+    /// GC-on-JIT (D-212) — typeidx-indexed struct field valtype byte
     /// rows. Referenced (not owned) by the produced `ZirFunc` so the
     /// regalloc vreg-class classifier + struct.get/array.get emit can
     /// FP-class f32/f64 field/element results. `&.{}` when no struct types.
@@ -163,7 +163,7 @@ pub fn compileOne(
     // per-arch subtype emit path.
     func.uses_type_subtyping = uses_type_subtyping;
 
-    // §9.8a / 8a.1-d — per-pass diagnostic records (per ADR-0033).
+    // Per-pass diagnostic records (per ADR-0033).
     // Builds in-flight; transferred to `func.pass_diagnostics` at
     // function close. Comptime-elided when `trace.enabled == false`
     // (the ArrayList itself stays as an empty stack-resident value;
@@ -181,7 +181,7 @@ pub fn compileOne(
         }
     }
 
-    // §9.8 / 8.4-d — ZIR hoist pass with local-set/local-get
+    // ZIR hoist pass with local-set/local-get
     // rewrite (D-053 redesign per amended ADR-0031). Lifts
     // loop-invariant `*.const` opcodes via fresh local indices,
     // decoupling the value's lifetime from operand-stack scope.
@@ -257,7 +257,7 @@ pub fn compileOne(
     };
     // ADR-0077 fence supplier — arm64 supplies the 5-D-133-handler
     // reservation; x86_64 stays null (no current hardcoded
-    // op-internal scratch). Wired at B125; comptime-resolved per
+    // op-internal scratch). Comptime-resolved per
     // `scratch_reservations` const above.
     // ADR-0194 — the spill-frame origin = the per-arch GPR pool size
     // (the lowest slot id any class can spill at). Threaded into
@@ -308,10 +308,9 @@ pub fn compileOne(
         }
     }
 
-    // §9.8b / 8b.1 (closed per ADR-0036) — post-regalloc
-    // slot-aliasing coalescer. Side-table metadata pass; no IR
-    // or Allocation mutation. ADR-0035 designs the post-
-    // regalloc slot-aliasing approach; ADR-0036 scopes 8b.1 to
+    // Post-regalloc slot-aliasing coalescer. Side-table metadata
+    // pass; no IR or Allocation mutation. ADR-0035 designs the post-
+    // regalloc slot-aliasing approach; ADR-0036 scopes this pass to
     // scaffolding-only with detection deferred to Phase 15.
     // The pass takes `alloc.slots` directly (not the full
     // `Allocation`) to keep coalesce in Zone 1 per
@@ -319,7 +318,7 @@ pub fn compileOne(
     try coalesce.run(allocator, &func, alloc.slots);
     errdefer coalesce.deinitArtifacts(allocator, &func);
 
-    // ADR-0106 path (a) cycle 3d — set the result-marshal ABI on
+    // ADR-0106 path (a) — set the result-marshal ABI on
     // the Allocation before the emit pass reads it. `alloc` is
     // a local `var`; the mutation is scoped to this function.
     alloc.result_abi = result_abi;

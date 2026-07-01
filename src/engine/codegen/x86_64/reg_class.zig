@@ -1,4 +1,4 @@
-//! x86_64 per-arch register-naming module (§9.7 / 7.6 chunk a).
+//! x86_64 per-arch register-naming module.
 //!
 //! Mirrors the role of `arm64/abi.zig`'s `Xn` typedef but x86_64
 //! is more bit-pattern complex — register access ≥ R8 requires a
@@ -16,8 +16,8 @@
 //!     encoder to choose REX.W and / or the 0x66 prefix.
 //!
 //! Calling-convention layouts (System V x86_64 + Win64) live in
-//! sibling `abi.zig` (§9.7 / 7.6 chunk c). The instruction
-//! encoder lives in `inst.zig` (§9.7 / 7.6 chunk b) and consumes
+//! sibling `abi.zig`. The instruction
+//! encoder lives in `inst.zig` and consumes
 //! `Gpr` / `Xmm` / `Width` from this module.
 //!
 //! Zone 2 (`src/engine/codegen/x86_64/`) — must NOT import

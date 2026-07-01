@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `nop` — Zone 2 per-arch op file
-//! per ADR-0074 + ADR-0075 (B72 migration to `(ctx, ins)`).
+//! per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/nop.zig`.
 //! Delegates to `op_control.emitNopCtx` — emits zero machine

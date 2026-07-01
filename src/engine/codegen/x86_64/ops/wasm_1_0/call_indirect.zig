@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `call_indirect` — Zone 2 per-arch
-//! op file per ADR-0074 + ADR-0075 (B64 cohort migration to `(ctx, ins)`).
+//! op file per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/call_indirect.zig`.
 //! Delegates to `op_call.emitCallIndirectCtx`. Bounds-checked

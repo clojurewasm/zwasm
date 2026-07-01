@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `i16x8.sub.sat.u` — B99 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `i16x8.sub.sat.u`.
 //! Delegates to op_simd_int_arith.emitI16x8SubSatUCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/i16x8_sub_sat_u.zig");

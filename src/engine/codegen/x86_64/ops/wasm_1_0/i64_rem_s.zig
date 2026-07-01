@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `i64.rem_s` — Zone 2 per-arch op file
-//! per ADR-0074 + ADR-0075 (B55 cohort migration to `(ctx, ins)`).
+//! per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/i64_rem_s.zig`
 //! (Zone 1). Delegates to `op_alu_int.emitI64RemS`, which threads

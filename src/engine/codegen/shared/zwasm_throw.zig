@@ -22,8 +22,8 @@
 //! allocator calls, no host-call invocations, no signal-check
 //! branches between entry and `.handler` / `.uncaught` return.
 //!
-//! The arch-specific entry/exit glue (10.E-codegen-3f
-//! follow-on) handles the assembly-level details: extracting
+//! The arch-specific entry/exit glue handles the
+//! assembly-level details: extracting
 //! X29 / RBP, fetching the saved LR / RIP, building the
 //! `ThrowSite` record, calling this function, and consuming
 //! the result to either restore SP + JMP or to set trap_flag.

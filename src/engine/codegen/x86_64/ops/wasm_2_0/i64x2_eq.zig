@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `i64x2.eq` — B96 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `i64x2.eq`.
 //! Delegates to op_simd_int_cmp_lane.emitI64x2EqCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/i64x2_eq.zig");

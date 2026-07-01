@@ -1,12 +1,12 @@
-//! JIT greedy-local register allocator (§9.7 / 7.1).
+//! JIT greedy-local register allocator.
 //!
 //! Reads `ZirFunc.liveness.?.ranges` (populated upstream by
-//! `src/ir/liveness.zig` per §9.5 / 5.4) and assigns each vreg
+//! `src/ir/liveness.zig`) and assigns each vreg
 //! the smallest physical slot id not held by any earlier vreg
 //! whose live range overlaps. Output is a dense
-//! `Allocation { slots, n_slots }` consumed by §9.7 / 7.3's
+//! `Allocation { slots, n_slots }` consumed by the
 //! emit pass (which maps slot id → physical register via the
-//! per-arch ABI table from §9.7 / 7.2).
+//! per-arch ABI table).
 //!
 //! W54-class lesson made structural (per `textbook_survey.md`
 //! Guard 4 + ROADMAP §4.2 / P13): liveness drives regalloc, not
@@ -18,10 +18,10 @@
 //! split-input + post-condition shape here makes that
 //! impossible by construction.
 //!
-//! Phase 7.1 scope: slot-only assignment + verifier. All vregs
+//! Current scope: slot-only assignment + verifier. All vregs
 //! treated as a single pool; per-class slot pools land alongside
-//! §9.7 / 7.2 ABI work (`reg_class.zig`'s `RegClassInfo` table
-//! becomes load-bearing then). Spilling is a §9.7 / 7.3
+//! the ABI work (`reg_class.zig`'s `RegClassInfo` table
+//! becomes load-bearing then). Spilling is a
 //! follow-up — the allocator may grow `n_slots` up to
 //! `max_slots`; `SlotOverflow` surfaces when the validator's
 //! max_operand_stack would otherwise exceed it.
@@ -68,13 +68,13 @@ pub const VerifyError = error{
 /// stays arch-agnostic — per-arch tables live in `arm64/abi.zig`
 /// / `x86_64/abi.zig` and the emit pipeline supplies the lookup
 /// fn at `computeWith` call time. `null` disables the fence
-/// (preserves pre-ADR-0077 semantics for callers not yet wired).
+/// (preserves pre-ADR-0077 semantics for callers not wired).
 ///
 /// Returned slot ids MUST be `< force_spill_threshold` (= the
 /// per-arch `allocatable_gprs.len`); ids ≥ threshold name spill
 /// region, which is unreachable via op-internal clobber. The
 /// per-arch comptime `validate_op_scratch_reservation_table`
-/// (B124) enforces this at build time; runtime
+/// enforces this at build time; runtime
 /// `slotForbidden` defensively ignores out-of-range ids.
 pub const ScratchReservationFn = *const fn (op: zir.ZirOp) []const u16;
 
@@ -92,7 +92,7 @@ pub const Slot = union(enum) {
     spill: u32,
 };
 
-/// Per-vreg shape tag (§9.9 SIMD-128 per ADR-0041
+/// Per-vreg shape tag (SIMD-128 per ADR-0041
 /// §"Decision" / 2). The slot id alone cannot encode whether
 /// a vreg occupies an 8-byte (scalar) or 16-byte (v128)
 /// spill stride — per `single_slot_dual_meaning.md` (§14
@@ -110,14 +110,14 @@ pub const ShapeTag = enum(u2) { scalar, v128, _ };
 const result_abi_mod = @import("result_abi.zig");
 
 pub const Allocation = struct {
-    /// ADR-0106 path (a) cycle 2b — result-marshal ABI for the
+    /// ADR-0106 path (a) — result-marshal ABI for the
     /// JIT-compiled function. `.register_write` (default) = legacy
     /// per-class RAX/RDX (x86_64) / X0..X7,V0..V7 (arm64) epilogue.
     /// `.buffer_write` = ADR-0106 uniform shape (epilogue writes
     /// `results[i]` via the entry-helper's results-ptr arg).
     /// Threaded via Allocation because compile()'s positional
     /// signature has ~358 callsites; wide refactor deferred to a
-    /// dedicated `CompileOpts` struct landing alongside cycle 4.
+    /// dedicated `CompileOpts` struct.
     /// Default preserves all existing callsites' behaviour.
     result_abi: result_abi_mod.ResultAbi = .register_write,
     /// `slots[v]` is the dense physical slot id assigned to
@@ -161,15 +161,15 @@ pub const Allocation = struct {
     /// detection, so a default-default mismatch surfaces as a test
     /// failure rather than silent miscompile.
     max_reg_slots_fp: u8 = 13,
-    /// Per-vreg shape tags (§9.9 / 9.4 per ADR-0041 §"Decision" / 2).
+    /// Per-vreg shape tags (per ADR-0041 §"Decision" / 2).
     /// `null` means all vregs are `.scalar` (no SIMD ops in the
     /// function); a populated slice indexes by vreg id. Length when
-    /// non-null equals `slots.len`. 9.4 MVP leaves this `null`;
-    /// 9.5 ARM64 NEON emit populates it during `compute()` when
+    /// non-null equals `slots.len`. The MVP leaves this `null`;
+    /// ARM64 NEON emit populates it during `compute()` when
     /// the function's ZirInstr stream contains v128 ops.
     shape_tags: ?[]const ShapeTag = null,
-    /// Per-slot byte offset table for spill slots (§9.9 / 9.9-h-9
-    /// per ADR-0053 Part 1). When non-null, indexed by `slot_id -
+    /// Per-slot byte offset table for spill slots
+    /// (per ADR-0053 Part 1). When non-null, indexed by `slot_id -
     /// max_reg_slots_gpr` (so `spill_offsets[0]` is the byte offset
     /// of the first spill slot). Populated post-`compute()` when
     /// `shape_tags` is non-null AND at least one slot is occupied
@@ -211,7 +211,7 @@ pub const Allocation = struct {
         // `id < threshold` ⇒ id < pool size (≤ 16 today), so the
         // u8 narrowing is provably safe.
         if (id < threshold) return .{ .reg = @intCast(id) };
-        // ADR-0053 Part 1 + ADR-0110 §9.13-V Phase A.4c: when
+        // ADR-0053 Part 1 + ADR-0110: when
         // `spill_offsets` is populated, consult the per-slot byte
         // offset table (v128-aware: pre-widen this carried 8/16
         // stride mix; post-Value=16 widen every slot is uniformly
@@ -254,7 +254,7 @@ pub const Allocation = struct {
         return (@as(u32, self.n_slots) - self.max_reg_slots_gpr) * 16;
     }
 
-    /// Per-vreg shape tag query (§9.9 / 9.4 per ADR-0041
+    /// Per-vreg shape tag query (per ADR-0041
     /// §"Decision" / 2). Returns `.scalar` when `shape_tags`
     /// is `null` (no SIMD vregs in the function) or when the
     /// per-vreg slot is unmarked; `.v128` when the vreg's
@@ -279,9 +279,9 @@ pub const computeWith = compute_mod.computeWith;
 pub const validateRegallocOpScratchReservation = compute_mod.validateRegallocOpScratchReservation;
 
 /// Post-condition predicate: assert no two overlapping live
-/// ranges share a slot. (Naive O(n²) walker — Phase 7.1 scope
+/// ranges share a slot. (Naive O(n²) walker — the current scope
 /// caps max_operand_stack at 1024, so at most ~1024 vregs in
-/// straight-line code). Interval-tree refinement is a §9.7 / 7.3
+/// straight-line code). Interval-tree refinement is a
 /// follow-up if a profile demands it.
 pub fn verify(func: *const ZirFunc, alloc: Allocation) VerifyError!void {
     return verifyWith(func, alloc, null);
@@ -347,7 +347,7 @@ const shape_tags_mod = @import("regalloc_shape_tags.zig");
 pub const populateShapeTags = shape_tags_mod.populateShapeTags;
 
 // reg_class is the upstream-class-aware refinement hook used by
-// §9.7 / 7.2's per-arch wiring; reference it so `no_unused`
+// the per-arch wiring; reference it so `no_unused`
 // linting is happy until the wiring lands.
 comptime {
     _ = reg_class;
@@ -377,7 +377,7 @@ fn freshFunc() ZirFunc {
 /// Local copy of the regalloc-side fence-table stub used by the
 /// compute-side fence tests. Reserves slots {0..4} for
 /// `.@"table.fill"` (mirrors the production reservation set per
-/// the B119 live-scratch census). Kept duplicated rather than
+/// the live-scratch census). Kept duplicated rather than
 /// pub-ifying the regalloc.zig test helper.
 fn testFenceTableFill(op: zir.ZirOp) []const u16 {
     const reservation = [_]u16{ 0, 1, 2, 3, 4 };
@@ -615,7 +615,7 @@ test "D-461/ADR-0194: x86_64-origin (max_reg_slots_gpr=4) consistent allocation 
 }
 
 // ============================================================
-// §9.9 / 9.4 — ShapeTag API tests (per ADR-0041 §"Decision" / 2)
+// ShapeTag API tests (per ADR-0041 §"Decision" / 2)
 // ============================================================
 
 test "Allocation.shapeTag: returns .scalar when shape_tags is null" {
@@ -653,7 +653,7 @@ test "Allocation.shapeTag: out-of-range vreg returns .scalar" {
 }
 
 // ============================================================
-// §9.9 / 9.5-b — populateShapeTags tests (per ADR-0041
+// populateShapeTags tests (per ADR-0041
 // §"Decision" / 2)
 // ============================================================
 

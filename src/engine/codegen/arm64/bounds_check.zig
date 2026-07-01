@@ -1,8 +1,8 @@
 //! ARM64 emit pass — Wasm 1.0 trapping float→int trunc handlers
 //! and the NaN+range bounds-check sequence they share.
 //!
-//! Per ADR-0021 sub-deliverable b (§9.7 / 7.5d sub-b emit.zig
-//! 9-module split): final chunk. Houses the trapping-trunc op
+//! Per ADR-0021 sub-deliverable b (emit.zig
+//! 9-module split). Houses the trapping-trunc op
 //! handlers (8 arms: i32/i64.trunc_f32/f64.s/u) plus the
 //! emitTrunc{32,64}BoundsCheck helpers they share.
 //!

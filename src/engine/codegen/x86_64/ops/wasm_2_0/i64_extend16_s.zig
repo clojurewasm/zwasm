@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `i64.extend16.s` — B85 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `i64.extend16.s`.
 //! Delegates to op_alu_int.emitSignExtendCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/i64_extend16_s.zig");

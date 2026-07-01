@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `table.grow` — Zone 2 per-arch op file
-//! per ADR-0074 + ADR-0075 (B63 cohort migration to `(ctx, ins)`).
+//! per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/table_grow.zig`.
 //! Delegates to `op_table.emitTableGrowCtx`. Bounds-checked load/store
@@ -8,7 +8,6 @@
 //! Wasm spec §4.4.10–12 (table.grow).
 //!
 //! Registered in `dispatch_collector.collected_x86_64_ctx_ops`.
-//! New per-op file (no prior B-series stub).
 //!
 //! Zone 2 (`src/engine/codegen/x86_64/ops/`).
 

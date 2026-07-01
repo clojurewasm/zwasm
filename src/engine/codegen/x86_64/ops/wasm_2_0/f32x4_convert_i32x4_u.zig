@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `f32x4.convert.i32x4.u` — B107 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `f32x4.convert.i32x4.u`.
 //! Delegates to op_simd_float.emitF32x4ConvertI32x4UCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/f32x4_convert_i32x4_u.zig");

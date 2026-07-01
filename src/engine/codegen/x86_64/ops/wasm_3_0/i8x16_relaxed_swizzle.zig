@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `i8x16.relaxed_swizzle` (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `i8x16.relaxed_swizzle`.
 //! OOB index → 0: the strict-swizzle PSHUFB control-mask correction already
 //! zeroes idx ≥16 (PCMPGTB+POR sets bit7; ≥128 zeroes natively), matching the
 //! v2 deterministic choice — reuse emitI8x16SwizzleCtx.

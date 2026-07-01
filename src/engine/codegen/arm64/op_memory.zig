@@ -1,10 +1,10 @@
 //! ARM64 emit pass — memory load / store handlers.
 //!
-//! Per ADR-0021 sub-deliverable b (§9.7 / 7.5d sub-b emit.zig
+//! Per ADR-0021 sub-deliverable b (emit.zig
 //! 9-module split): all i32 / i64 / f32 / f64 load / store
 //! ZirOp arms (25 op codes total) flow through a single
 //! `emitMemOp` handler — they share the effective-address
-//! computation + bounds-check prologue (sub-f1 pattern) and
+//! computation + bounds-check prologue and
 //! differ only in the final LDR/STR encoding.
 //!
 //! Caller-supplied invariants for memory ops in this skeleton:
@@ -70,9 +70,9 @@ const sx12: inst.Xn = abi.allocatable_caller_saved_scratch_gprs[3];
 ///
 /// Wasm spec §4.4.7 (memory.load/store) — i32-idx memories
 /// only at this layer; i64-idx memory64 wrap-check + 64-bit
-/// offset materialise lands at 10.M-4b (ADR-0111 D4).
+/// offset materialise lands in the i64 path (ADR-0111 D4).
 /// `MemArgExtra.memidx == 0` invariant: multi-memory routing
-/// requires the instantiate-side reject lift (10.M-5+ region);
+/// requires the instantiate-side reject lift;
 /// until then codegen sees only memory 0. The runtime assert
 /// codifies the prose-only invariant per `.claude/rules/comment_as_invariant.md`.
 pub fn emitMemOp(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
@@ -82,7 +82,7 @@ pub fn emitMemOp(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     // build is v2.0 the i64 arm is comptime-pruned (DCE-confirmed
     // by the v0.2 `-Dwasm=v2_0` symbol-absence gate). When v3.0,
     // the runtime check selects the i32 fast-path (byte-identical
-    // to pre-10.M-4b emit, per emit_test_memory.zig assertions) or
+    // to the legacy i32 emit, per emit_test_memory.zig assertions) or
     // the i64 wrap-check path.
     if (comptime @intFromEnum(build_options.wasm_level) >= @intFromEnum(@TypeOf(build_options.wasm_level).v3_0)) {
         if (ctx.memory0_idx_type == .i64) {
@@ -138,13 +138,13 @@ pub fn emitMemOp(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const ip0: inst.Xn = 16;
     const ip1: inst.Xn = 17;
     const offset_imm = ins.payload;
-    // §9.7 / 7.9-d-14: full 32-bit offset support. Wasm offsets are
+    // Full 32-bit offset support. Wasm offsets are
     // u32 (max 0xFFFFFFFF). We dispatch by magnitude:
     //   - offset == 0:                no immediate add.
     //   - 0 < offset ≤ 0xFFFFFF:      ADD imm12 (lsl 12)? + ADD imm12
-    //                                  (the d-6 24-bit fast path).
+    //                                  (the 24-bit fast path).
     //   - offset > 0xFFFFFF:           MOVZ X17 lane0 + MOVK X17 lane1
-    //                                  + ADD X16, X16, X17 (this chunk).
+    //                                  + ADD X16, X16, X17.
     // The MOVZ/MOVK pair stages the offset into ip1=X17 since ip1 is
     // not yet live (the bounds-check `ADD X17, X16, #access_size`
     // emits AFTER the offset add, reusing X17 cleanly).
@@ -558,7 +558,7 @@ fn emitMemOpI64(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 // No result pushed. Trap on out-of-bounds (dst+n > mem_size, or for
 // copy also src+n > mem_size).
 //
-// Inline byte loop. Performance is Phase 8 work; correctness first.
+// Inline byte loop; correctness first, not performance-tuned.
 //
 // Register convention:
 //   X28 = vm_base, X27 = mem_limit (size in bytes), unchanged.
@@ -583,10 +583,10 @@ fn emitMemOpI64(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 ///   ; emission window, with no concurrent vreg reads of W12/W13
 ///   ; in flight). NOTE: W12/W13 ARE in the regalloc pool
 ///   ; (slots 3, 4), so whether a vreg currently holds them is
-///   ; visible via alloc.slot. As of Phase 7 this is safe because
+///   ; visible via alloc.slot. This is safe because
 ///   ; bulk-mem never co-occurs with pre-existing conflict patterns
 ///   ; such as call_indirect, but a dedicated reservation should be
-///   ; introduced long-term. Revisit in the Phase 8 optimization.
+///   ; introduced long-term.
 ///
 /// Implementation note: the operation needs three operands, whereas
 /// `spill_stage_gprs` has only two slots (X14/X15). To hold the third

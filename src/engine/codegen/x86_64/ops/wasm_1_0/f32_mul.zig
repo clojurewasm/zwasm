@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `f32.mul` — B86 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `f32.mul`.
 //! Delegates to op_alu_float.emitFpBinaryCtx.
 
 const meta = @import("../../../../../instruction/wasm_1_0/f32_mul.zig");

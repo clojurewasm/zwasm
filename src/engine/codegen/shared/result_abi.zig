@@ -1,5 +1,5 @@
 //! Result-marshal ABI selector for JIT-compiled functions
-//! (ADR-0106 path (a) cycle 2 foundation).
+//! (ADR-0106 path (a) foundation).
 //!
 //! Threaded into `arm64/emit.zig::compile()` + `x86_64/emit.zig::compile()`
 //! to select between the legacy register-write epilogue
@@ -7,22 +7,10 @@
 //! on arm64) and the new buffer-write epilogue per
 //! `entry_buffer_write.zig::BufferWriteFn`.
 //!
-//! Per the ADR-0106 cycle 2 design spike at
+//! Per the ADR-0106 design spike at
 //! `private/spikes/adr-0106-cycle2/SPIKE.md` (Alt 2 chosen), the
-//! migration phases:
-//!
-//! - Cycle 2a (this commit): introduce the enum; ALL callers
-//!   pass `.register_write`; no emit behaviour change.
-//! - Cycle 2b/2c: x86_64 + arm64 emit branch on the flag at
-//!   prologue (capture `results` ptr arg) + epilogue (write
-//!   results[i] instead of RAX/RDX / X0/X1).
-//! - Cycle 3: migrate spec runner / c_api / entry-helper
-//!   callsites to `.buffer_write` for the buffer-write entry
-//!   helper variant.
-//! - Cycle 4: flip default to `.buffer_write`, remove legacy
-//!   `register_write` path, remove `FuncRet_*` extern struct
-//!   family from `entry.zig`, remove `SKIP-WIN64-MULTI-RESULT`
-//!   from spec runner. D-094 + D-164 close.
+//! buffer-write epilogue writes `results[i]` instead of the
+//! per-class C-ABI registers (RAX/RDX / X0/X1).
 //!
 //! Zone 2 (`src/engine/codegen/shared/`).
 

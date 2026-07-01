@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `i64x2.extmul.low.i32x4.u` — B106 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `i64x2.extmul.low.i32x4.u`.
 //! Delegates to op_simd_int_cmp_lane.emitI64x2ExtmulLowI32x4UCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/i64x2_extmul_low_i32x4_u.zig");

@@ -1,9 +1,8 @@
 //! x86_64 emit handler for `br_if` — Zone 2 per-arch op file
-//! per ADR-0074 + ADR-0075 (B75 br family migration to `(ctx, ins)`).
+//! per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/br_if.zig`.
-//! Delegates to `op_control.emitBrIfCtx`. All ctx fields (frame_bytes,
-//! uses_runtime_ptr, labels, etc.) already exist post-B74.
+//! Delegates to `op_control.emitBrIfCtx`.
 //!
 //! Wasm spec §3.4.6 / §4.4.7 (br_if).
 //!

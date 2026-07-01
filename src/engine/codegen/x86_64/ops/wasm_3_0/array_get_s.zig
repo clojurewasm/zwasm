@@ -2,7 +2,7 @@
 //! Mirror of the arm64 handler: pop i32 index + array GcRef (trap null OR
 //! index OOB), load the 8-byte element slot at `base + 12 + index*8`, then
 //! SIGN-extend its packed low bits to i32 (MOVSX) and push. Identical front
-//! half to `array.get` (A-3); the addition is the final MOVSX. The validator
+//! half to `array.get`; the addition is the final MOVSX. The validator
 //! restricts `array.get_s` to packed (i8 / i16) arrays; the compile pipeline
 //! stamps the element valtype byte (0x78 i8 / 0x77 i16) into `ZirInstr.extra`
 //! so this emit picks the width. Intel SDM Vol.2 (MOV 0x8B, MOVSX 0x0FBE /

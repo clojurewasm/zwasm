@@ -6,10 +6,10 @@
 //! `zwasm_throw` dispatcher; on .uncaught it sets trap_flag=1
 //! and returns, on .handler it JMPs to the landing pad.
 //!
-//! ## Current shape (IT-6 cycle 3c + tag_idx marshal)
+//! ## Current shape (tag_idx marshal)
 //!
-//! Marshals `tag_idx` (= `ins.payload`, u32 — Phase 10.Z widened
-//! to u64 but tag indices fit in u32) into W0 before the BLR. The
+//! Marshals `tag_idx` (= `ins.payload`; the payload field is u64
+//! but tag indices fit in u32) into W0 before the BLR. The
 //! trampoline's naked stub (`shared/throw_trampoline.zig`) reads
 //! W0/X0 as the throw-site tag indicator and re-routes it to X2
 //! (= trampolineCore's `tag_idx` arg) before calling
@@ -67,7 +67,7 @@ const scratch: inst.Xn = 16;
 pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void {
     const tag_idx: u32 = @intCast(ins.payload);
 
-    // 10.E-payload-prop Cycle 4 (ADR-0120) — pop N payload values
+    // ADR-0120 — pop N payload values
     // from the regalloc operand stack and store each at
     // `[X19 + eh_payload_buf_off + i*8]`, then write N to
     // `[X19 + eh_payload_len_off]`. Per ADR-0120 D1 cap N ≤ 16
@@ -129,7 +129,7 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
 
 /// Shared emit for `throw` + `throw_ref` (`throw_ref` re-uses the
 /// same address-load + BLR + trap-stub-fallback shape this cycle;
-/// cycle 3c will diverge once exnref handling lands).
+/// the two will diverge once exnref handling lands).
 pub fn emitTrampolineCallAndTrap(ctx: *ctx_mod.EmitCtx, trampoline_addr: u64) ctx_mod.Error!void {
     // MOVZ X16, #(addr[0..16])
     const w0: u16 = @intCast(trampoline_addr & 0xFFFF);

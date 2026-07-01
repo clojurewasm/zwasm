@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `i64x2.shr.u` — B97 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `i64x2.shr.u`.
 //! Delegates to op_simd_int_arith.emitI64x2ShrUCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/i64x2_shr_u.zig");

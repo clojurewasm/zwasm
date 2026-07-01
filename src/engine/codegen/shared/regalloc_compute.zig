@@ -165,7 +165,7 @@ pub fn computeWith(
             // struct.new. Non-subtyping call_indirect consumes operands before
             // its only (BLR) call → strict crossing (byte-identical).
             .call_indirect => func.uses_type_subtyping,
-            // 10.G GC-on-JIT: struct.new_default emits a BLR/CALL into
+            // GC-on-JIT: struct.new_default emits a BLR/CALL into
             // the jitGcAlloc trampoline (clobbers caller-saved like
             // memory.grow), so vregs live across it must force-spill.
             .@"struct.new_default" => false,
@@ -203,7 +203,7 @@ pub fn computeWith(
             .@"ref.cast" => false,
             // ref.cast_null: CALL into jitGcRefTest; ref consumed pre-CALL (strict).
             .@"ref.cast_null" => false,
-            // Cycle B: br_on_cast / br_on_cast_fail CALL jitGcRefTest. The ref is
+            // br_on_cast / br_on_cast_fail CALL jitGcRefTest. The ref is
             // PEEKed (not popped): read into the arg reg BEFORE the CALL and
             // RELOADED AFTER it by branchOnReg's merge. So a vreg whose last_use
             // IS this op pc (the ref, if not consumed further) must still spill
@@ -454,7 +454,7 @@ fn freshFunc() ZirFunc {
 
 /// Local stub fence-table fn for tests. Reserves slots {0..4} for
 /// `.@"table.fill"`. Mirrors the production reservation set per
-/// the B119 live-scratch census.
+/// the live-scratch census.
 fn testFenceTableFill(op: zir.ZirOp) []const u16 {
     const reservation = [_]u16{ 0, 1, 2, 3, 4 };
     return if (op == .@"table.fill") &reservation else &.{};

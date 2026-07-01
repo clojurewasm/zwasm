@@ -1,10 +1,10 @@
 //! Per-Instance exception-handler table (ADR-0114 D3).
 //!
-//! Consumed at unwind time by `shared/unwind.zig` (10.E-codegen-2
-//! follow-on) which walks the frame chain calling `lookup(pc,
+//! Consumed at unwind time by `shared/unwind.zig`, which walks
+//! the frame chain calling `lookup(pc,
 //! throw_tag_idx)` at each frame's throw site. Built at JIT-emit
-//! time by the per-arch `op_exception_handling.zig` (ADR-0114 D2 /
-//! 10.E-codegen-4 follow-on) as it encounters `try_table` bodies.
+//! time by the per-arch `op_exception_handling.zig` (ADR-0114 D2)
+//! as it encounters `try_table` bodies.
 //!
 //! Storage shape (per ADR-0114 D3): a sequence of `HandlerEntry`
 //! records, each capturing one catch clause within a try_table
@@ -20,7 +20,7 @@
 //! migrating both sides together when `*TagInstance` resolution
 //! ships.
 //!
-//! For Wasm 3.0 / 10.E milestones this storage is per-Instance
+//! For Wasm 3.0 this storage is per-Instance
 //! and immutable after JIT compile (no run-time mutation); the
 //! linear-scan lookup is acceptable until the per-function
 //! sorted-by-PC binary-search optimisation lands at Phase 11+.
@@ -72,12 +72,12 @@ pub const ExceptionTable = struct {
     /// The JIT analog of the interp's `*TagInstance` pointer key
     /// (`mvp.catchTagMatches`, ADR-0114 D7): two local indices (same
     /// instance OR across instances) that bind the same runtime tag
-    /// carry the same id. Aliased imports collapse to one id (10.E
-    /// Cause A: `(import "test" "e0")` ×2 → idx 0,1 → equal id); a
+    /// carry the same id. Aliased imports collapse to one id (Cause
+    /// A: `(import "test" "e0")` ×2 → idx 0,1 → equal id); a
     /// cross-module import inherits the SOURCE instance's id (Cause B
     /// / ADR-0134 D3), so a module-1 throw and a module-2 catch on the
     /// imported tag compare equal once the unwinder uses the catching
-    /// frame's own table (cycle 2).
+    /// frame's own table.
     ///
     /// Built at setup over the FULL tag index space (imported ++
     /// defined) whenever the module has ≥1 imported tag; `null` (the
@@ -139,7 +139,7 @@ pub const ExceptionTable = struct {
     }
 };
 
-/// Phase 10.E IT-6 prep — forward fixup recording one catch's
+/// Forward fixup recording one catch's
 /// landing-pad target. Written by `try_table.emit` once the inner
 /// block's `ExceptionTable.Builder` row is appended, patched by
 /// the matching catch-label's `end` op (which writes
@@ -211,13 +211,13 @@ pub const Builder = struct {
     }
 };
 
-/// Phase 10.E IT-5 — collect per-function HandlerEntry slices into
+/// Collect per-function HandlerEntry slices into
 /// a single per-Instance ExceptionTable.entries. pc_start / pc_end
 /// are shifted by each function's byte offset within the JitBlock
 /// (`func_offsets[num_imports + i]`), making them module-relative —
 /// consistent with the FP-walk unwinder calling
 /// `ExceptionTable.lookup(absolute_pc - block_addr, throw_tag_idx)`.
-/// landing_pad_pc stays as written by the per-arch emit; IT-4 / IT-6
+/// landing_pad_pc stays as written by the per-arch emit;
 /// resolution to a module-relative JIT byte offset happens at the
 /// dispatch boundary.
 ///
@@ -434,7 +434,7 @@ test "exception_table: Builder.finalize aliases the appended entries (no copy)" 
 }
 
 test "collectModuleTable: per-function entries flatten with module-relative pc shift" {
-    // Phase 10.E IT-5 — two defined funcs (wasm-idx 1 + 2) preceded
+    // Two defined funcs (wasm-idx 1 + 2) preceded
     // by one import (wasm-idx 0). fn1 has 1 catch at function-local
     // [0, 10); fn2 has 2 catches at function-local [0, 5) and
     // [5, 20). func_offsets places fn1 at byte 0, fn2 at byte 64.

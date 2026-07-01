@@ -183,8 +183,8 @@ test "frame_teardown x86_64: uses_runtime_ptr=false preserves the pre-fix shape 
     var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(testing.allocator);
 
-    // Default false → behaviour preservation for callers that haven't
-    // migrated to thread `uses_runtime_ptr` yet (smoke tests etc.).
+    // Default false → behaviour preservation for callers that don't
+    // thread `uses_runtime_ptr` (smoke tests etc.).
     try emit(testing.allocator, &buf, .{ .frame_bytes = 0 });
     try testing.expectEqual(@as(usize, 1), buf.items.len);
     try testing.expectEqual(@as(u8, 0x5D), buf.items[0]);

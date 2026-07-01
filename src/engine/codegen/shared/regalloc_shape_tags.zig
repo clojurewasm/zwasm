@@ -22,7 +22,7 @@ const Error = regalloc.Error;
 
 /// Populate `Allocation.shape_tags` for a function whose
 /// `func.instrs` contains SIMD-128 ZirOps OR whose signature /
-/// locals declare v128 (§9.9 / 9.5-b per ADR-0041 §"Decision" /
+/// locals declare v128 (per ADR-0041 §"Decision" /
 /// 2). Walks the instr stream once mirroring liveness's
 /// def-order vreg numbering (each push increments `next_vreg`);
 /// the produced vreg's tag is determined by the op:
@@ -120,7 +120,7 @@ pub fn populateShapeTags(allocator: Allocator, func: *const ZirFunc, n_vregs: us
             .@"v128.load64_splat",
             .@"v128.load32_zero",
             .@"v128.load64_zero",
-            // §9.7 / 9.7-ba — load_lane: pop idx + v128, push merged v128.
+            // load_lane: pop idx + v128, push merged v128.
             .@"v128.load8_lane",
             .@"v128.load16_lane",
             .@"v128.load32_lane",
@@ -219,7 +219,7 @@ pub fn populateShapeTags(allocator: Allocator, func: *const ZirFunc, n_vregs: us
             .@"f32x4.pmax",
             .@"f64x2.pmin",
             .@"f64x2.pmax",
-            // §9.7 / 9.7-au — int min/max + sat arith + avgr_u (22 ops, all 2-in 1-out v128).
+            // Int min/max + sat arith + avgr_u (22 ops, all 2-in 1-out v128).
             .@"i8x16.min_s",
             .@"i8x16.min_u",
             .@"i8x16.max_s",
@@ -340,7 +340,7 @@ pub fn populateShapeTags(allocator: Allocator, func: *const ZirFunc, n_vregs: us
         // call / call_indirect's variadic-results push count
         // would require func_sigs / module_types threading and
         // is deferred (call-with-v128-result fixtures aren't in
-        // §9.9 scope).
+        // scope).
         if (liveness.stackEffect(ins.op)) |eff| {
             next_vreg += eff.pushes;
         }

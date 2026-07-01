@@ -5,7 +5,7 @@
 //! global.get / global.set.
 //!
 //! Zone 2 (`src/engine/codegen/arm64/`). Pure relocation per
-//! ADR-0021 sub-deliverable b chunk 10; bytes / assertions
+//! ADR-0021 sub-deliverable b; bytes / assertions
 //! identical to the pre-split `emit_test.zig`.
 
 const std = @import("std");
@@ -60,7 +60,7 @@ test "compile: i32.load — emits zero-extend + bounds-check + LDR W reg-offset 
     try testing.expectEqual(@as(u32, 0x54000000), bhi_patched & 0xFF000010);
 }
 
-// §9.7 / 7.9-d-14: 32-bit offset lowering. emcc/clang -O2 array
+// 32-bit offset lowering. emcc/clang -O2 array
 // indexing with large constant offsets exceeds the d-6 24-bit cap.
 // For offsets > 0xFFFFFF, lower via MOVZ X17, low / MOVK X17, mid /
 // ADD X16, X16, X17 (offset stays under 2^32 per the Wasm spec, so

@@ -1,6 +1,6 @@
 //! ARM64 emit pass — integer ALU / bit-op handlers (i32 + i64).
 //!
-//! Per ADR-0021 sub-deliverable b (§9.7 / 7.5d sub-b emit.zig
+//! Per ADR-0021 sub-deliverable b (emit.zig
 //! 9-module split): all ZirOp handlers whose inputs and outputs
 //! are GPR-class (i32 / i64). FP arithmetic + cross-class
 //! conversions live in sibling op_alu_float.zig + op_convert.zig
@@ -309,7 +309,7 @@ pub fn emitI32Popcnt(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.7 / 7.9 chunk c — Wasm 2.0 sign-extension ops
+// Wasm 2.0 sign-extension ops
 // ============================================================
 
 /// Wasm spec §4.4.1.4 (i32.extend8_s) — pop one i32, push the
@@ -370,7 +370,7 @@ pub fn emitI64Extend32S(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.7 / 7.9 chunk c — Integer divide / remainder
+// Integer divide / remainder
 // ============================================================
 
 /// Emit a divide-by-zero trap check for `divisor`. Uses
@@ -469,7 +469,7 @@ pub fn emitI32DivRem(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         else => unreachable,
     };
     const is_rem = (ins.op == .@"i32.rem_s" or ins.op == .@"i32.rem_u");
-    // §9.9 / 9.9-j-2b D-085 fix: SDIV writes wd, which the regalloc
+    // D-085 fix: SDIV writes wd, which the regalloc
     // may have aliased to wn (lhs) OR wm (rhs). For pure div this
     // is fine (no further reads of wn/wm). For rem, MSUB(wd, wd, wm,
     // wn) reads Wn=wd / Wm=wm / Wa=wn — if wd aliases wm, Wm reads
@@ -525,7 +525,7 @@ pub fn emitI64DivRem(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         else => unreachable,
     };
     const is_rem_64 = (ins.op == .@"i64.rem_s" or ins.op == .@"i64.rem_u");
-    // §9.9 / 9.9-j-2b D-085 mirror: same alias preservation as the
+    // D-085 mirror: same alias preservation as the
     // i32 path. SDIV writes xd which may alias xn or xm; MSUB then
     // reads Wm and Wa expecting originals. Stash via IP0/IP1.
     const ip0_64: inst.Xn = 16;

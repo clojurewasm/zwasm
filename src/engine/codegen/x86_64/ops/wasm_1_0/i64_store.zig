@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `i64.store` — Zone 2 per-arch op file
-//! per ADR-0074 + ADR-0075 (B60 cohort migration to `(ctx, ins)`).
+//! per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/i64_store.zig`.
 //! Delegates to `op_memory.emitI64Store` (one of 23 aliases of the
@@ -10,7 +10,6 @@
 //! `eff_addr + access_size > mem_limit`.
 //!
 //! Registered in `dispatch_collector.collected_x86_64_ctx_ops`.
-//! New per-op file (no prior B-series stub).
 //!
 //! Zone 2 (`src/engine/codegen/x86_64/ops/`).
 

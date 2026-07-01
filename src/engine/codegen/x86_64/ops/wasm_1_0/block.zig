@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `block` — Zone 2 per-arch op file
-//! per ADR-0074 + ADR-0075 (B65 cohort migration to `(ctx, ins)`).
+//! per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/block.zig`.
 //! Delegates to `op_control.emitBlockCtx`. Pushes a forward-jump
@@ -9,7 +9,6 @@
 //! Wasm spec §3.4.6 (block bt).
 //!
 //! Registered in `dispatch_collector.collected_x86_64_ctx_ops`.
-//! New per-op file.
 //!
 //! Zone 2 (`src/engine/codegen/x86_64/ops/`).
 

@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `f64.add` — B86 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `f64.add`.
 //! Delegates to op_alu_float.emitFpBinaryCtx.
 
 const meta = @import("../../../../../instruction/wasm_1_0/f64_add.zig");

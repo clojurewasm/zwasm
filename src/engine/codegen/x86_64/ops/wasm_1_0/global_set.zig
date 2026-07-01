@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `global.set` — Zone 2 per-arch op
-//! file per ADR-0074 + ADR-0075 (B62 cohort migration to `(ctx, ins)`).
+//! file per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/global_set.zig`.
 //! Delegates to `op_globals.emitGlobalSetCtx`, which dispatches

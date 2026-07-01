@@ -2,7 +2,7 @@
 //! per-function emit context.
 //!
 //! Per ADR-0023 §3 reference table + ADR-0021 sub-deliverable b
-//! (§9.7 / 7.5d sub-b emit.zig 9-module split): EmitCtx is the
+//! (emit.zig 9-module split): EmitCtx is the
 //! parameter bundle that op-handler modules (`op_const.zig`,
 //! `op_alu.zig`, …) take as their sole context argument. Fields
 //! are *pointers* into compile()'s local state so that any
@@ -100,13 +100,13 @@ pub const EmitCtx = struct {
     /// Memory-bounds-trap fixups awaiting trap-stub emission at
     /// function-final `end`.
     bounds_fixups: *std.ArrayList(u32),
-    /// §9.9-III D-144 γ.4 cycle 4 — call_indirect bounds-check
+    /// call_indirect bounds-check
     /// (B.HS) fixups. Patched to a dedicated trap stub that writes
     /// `trap_kind = 2`. Permanent diagnostic infra: every future
     /// call_indirect bounds trap localises its source via
     /// `printCallTrap`'s `kind=` emit.
     cind_bounds_fixups: *std.ArrayList(u32),
-    /// §9.9-III D-144 γ.4 cycle 4 — call_indirect sig-mismatch
+    /// call_indirect sig-mismatch
     /// (B.NE) fixups. Patched to a dedicated trap stub that
     /// writes `trap_kind = 3`. See `cind_bounds_fixups`.
     cind_sig_fixups: *std.ArrayList(u32),
@@ -185,19 +185,19 @@ pub const EmitCtx = struct {
     /// position-in-extra_consts`.
     simd_consts_base: u32,
     /// Absolute SP-relative byte offset of local slot 0.
-    /// §9.7 / 7.9-d-11: equals `outgoing_max_bytes`, the bottom-of-
+    /// Equals `outgoing_max_bytes`, the bottom-of-
     /// frame region pre-allocated for caller-side stack args. Zero
     /// for functions that make no calls or whose every callee fits
     /// args in X1..X7 + V0..V7. Locals at `[SP, #(local_base_off +
     /// p_idx*8)]`.
     local_base_off: u32,
     /// Absolute SP-relative byte offset of spill slot 0.
-    /// §9.7 / 7.9-d-11: equals `local_base_off + locals_bytes`;
+    /// Equals `local_base_off + locals_bytes`;
     /// the spill region sits above locals which sits above the
     /// outgoing-args region. Read by `gprLoadSpilled` /
     /// `gprStoreSpilled` to address spill slots.
     spill_base_off: u32,
-    /// §9.9 / 9.9-II chunk (b)-e-1/2 (ADR-0017 2026-05-18 amend;
+    /// Per ADR-0017 (2026-05-18 amend;
     /// ADR-0069 §Phase 2): true iff this function's return tuple
     /// is MEMORY-class per AAPCS64 §6.8.2 — caller passes a hidden
     /// indirect-result-pointer in X8 which the prologue captures
@@ -211,13 +211,13 @@ pub const EmitCtx = struct {
     /// `return_is_memory_class` is true; meaningless otherwise.
     /// Slot sits above the spill region inside the function frame.
     indirect_result_slot_off: u32,
-    /// Leading wasm-space function indices that name imports
-    /// (chunk 7.9-b foundation). `op_call.emitCall` checks
+    /// Leading wasm-space function indices that name imports.
+    /// `op_call.emitCall` checks
     /// `ins.payload < num_imports` to decide between a normal
     /// BL + CallFixup (defined function call) and an
     /// import-as-trap branch (B → trap stub via bounds_fixups).
     num_imports: u32,
-    /// 10.E-codegen-4b: per-function EH handler-entry accumulator.
+    /// Per-function EH handler-entry accumulator.
     /// `op_exception_handling.try_table` appends one `HandlerEntry`
     /// per catch clause (per ADR-0114 D2); the post-emit linker
     /// finalises into the per-Instance ExceptionTable consumed by
@@ -225,7 +225,7 @@ pub const EmitCtx = struct {
     /// contain no try_table (back-compat for every existing
     /// EmitCtx construction site).
     exception_table_builder: ?*exception_table.Builder = null,
-    /// 10.E-codegen IT-2: stack of open `try_table` blocks; one
+    /// Stack of open `try_table` blocks; one
     /// `OpenTryTable` entry per try_table currently between its
     /// emit and its matching `end`. The end-op patches pc_end of
     /// the `entry_start..entry_start+entry_count` Builder rows
@@ -233,14 +233,14 @@ pub const EmitCtx = struct {
     /// `labels_depth`. Optional: null for functions without any
     /// try_table; non-null iff `exception_table_builder` is non-null.
     open_try_tables: ?*std.ArrayList(exception_table.OpenTryTable) = null,
-    /// 10.E-codegen IT-6 prep: per-catch landing_pad_pc forward
+    /// Per-catch landing_pad_pc forward
     /// fixup list. `try_table.emit` appends one per catch clause
     /// (key = labels-stack depth of the target br-label); the
     /// matching label's `end` patches `Builder.entries[entry_idx]
     /// .landing_pad_pc` to the post-end buf offset. Non-null iff
     /// `exception_table_builder` is non-null.
     landing_pad_fixups: ?*std.ArrayList(exception_table.LandingPadFixup) = null,
-    /// Per-defined-global metadata (ADR-0052; §9.9 / 9.9-h-2).
+    /// Per-defined-global metadata (ADR-0052).
     /// Indexed by **defined** global idx (= wasm-space global
     /// idx minus the leading imported-global count). Parallel
     /// arrays: `globals_offsets[i]` is the byte offset of
@@ -262,11 +262,11 @@ pub const EmitCtx = struct {
     /// materialise + wrap-check emit shape in `op_memory.zig::
     /// emitMemOp`. Multi-memory (`memories[memidx]` for memidx > 0)
     /// is rejected at runtime instantiate today; codegen only sees
-    /// memory 0 per the `MemArgExtra.memidx == 0` assert in 10.M-4a.
+    /// memory 0 per the `MemArgExtra.memidx == 0` assert.
     /// Default `.i32` keeps the 36 existing compile() call sites
     /// behaviour-preserving when they pass struct-literal default.
     memory0_idx_type: sections.MemoryEntry.IdxType = .i32,
-    /// Wasm 3.0 EH (10.E-payload-prop Cycle 3; ADR-0120) — per-tag
+    /// Wasm 3.0 EH (ADR-0120) — per-tag
     /// param count threaded from `CompiledWasm.tag_param_counts`
     /// (compile.zig). Indexed by `tag_idx`. `throw.emit` /
     /// `try_table.emit` consume this to know how many operand
@@ -276,7 +276,7 @@ pub const EmitCtx = struct {
     /// wrapper_thunk test helpers and any pre-EH compile path).
     tag_param_counts: []const u32 = &.{},
 
-    /// ADR-0112 D3 / 10.TC emit-body cycle 3 — total frame size
+    /// ADR-0112 D3 — total frame size
     /// (16-byte aligned) the function's prologue allocated via
     /// `SUB SP, SP, #frame_bytes`. Consumed by `op_tail_call.zig`
     /// to drive `frame_teardown.emit(...)` ahead of the tail-jump,

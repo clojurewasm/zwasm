@@ -1,8 +1,6 @@
 // FILE-SIZE-EXEMPT: per-op handler catalog (Wasm SIMD int arith sub-language); P1 spec-defined (per ADR-0099)
 //! x86_64 emit pass - SIMD-128 integer arithmetic op handlers
-//! (split from `op_simd.zig` per
-//! `.dev/phase10_prep/track_b_source_split.md` Sec 9.9 / 9.9-h-15;
-//! tracking ADR-0054 once filed in chunk 9.9-h-20).
+//! (split from `op_simd.zig` per ADR-0054).
 //!
 //! Houses int ALU (add/sub/mul/neg/abs), saturating arith
 //! (add_sat / sub_sat), shift (shl / shr_s / shr_u), min/max
@@ -71,7 +69,7 @@ fn storeXmm7IfSpilledLocal(allocator: Allocator, buf: *std.ArrayList(u8), alloc:
     }
 }
 
-// §9.12-B / B91 (ADR-0075) — `(ctx, ins)` adapters for the SIMD
+// `(ctx, ins)` adapters for the SIMD
 // int binary arith cohort (8 add/sub + 2 native mul + 1 synthesised
 // i64x2.mul = 11 ops). Each wraps its existing helper. ins is
 // always ignored (one helper per op).
@@ -131,7 +129,7 @@ pub fn emitI64x2MulCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!vo
     return emitI64x2Mul(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
-// §9.12-B / B92 (ADR-0075) — `(ctx, ins)` adapters for the SIMD
+// `(ctx, ins)` adapters for the SIMD
 // int neg/abs cohort (8 ops). All helpers are 5-arg (no
 // spill_base_off).
 
@@ -175,7 +173,7 @@ pub fn emitI64x2AbsCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!vo
     return emitI64x2Abs(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
-// §9.12-B / B97 (ADR-0075) — `(ctx, ins)` adapters for the
+// `(ctx, ins)` adapters for the
 // SIMD int shifts cohort (12 ops: i{8x16,16x8,32x4,64x2}.shl/
 // shr_s/shr_u). All 6-arg helpers.
 
@@ -239,7 +237,7 @@ pub fn emitI64x2ShrUCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!v
     return emitI64x2ShrU(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
-// §9.12-B / B98 (ADR-0075) — `(ctx, ins)` adapters for the
+// `(ctx, ins)` adapters for the
 // SIMD int min/max cohort (12 ops: i{8x16,16x8,32x4}.min_s/min_u/
 // max_s/max_u). All 6-arg helpers.
 
@@ -303,7 +301,7 @@ pub fn emitI32x4MaxUCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!v
     return emitI32x4MaxU(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
-// §9.12-B / B99 (ADR-0075) — `(ctx, ins)` adapters for the
+// `(ctx, ins)` adapters for the
 // SIMD int sat arith cohort (10 ops: i8x16/i16x8.add_sat_s/
 // add_sat_u/sub_sat_s/sub_sat_u + i8x16/i16x8.avgr_u). All 6-arg.
 
@@ -445,10 +443,10 @@ pub fn emitI64x2Sub(
     return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPsubQ);
 }
 
-// §9.7-c: native multiply ops. i16x8.mul reaches PMULLW (SSE2);
+// Native multiply ops. i16x8.mul reaches PMULLW (SSE2);
 // i32x4.mul reaches PMULLD (SSE4.1). i64x2.mul has no native
-// SSE4.1 instruction and synthesises via PMULUDQ + shifts/adds —
-// queued for §9.7-d. The Wasm spec's modular-wraparound semantics
+// SSE4.1 instruction and synthesises via PMULUDQ + shifts/adds.
+// The Wasm spec's modular-wraparound semantics
 // match the CPU's truncating low-half multiply for both ops.
 
 pub fn emitI16x8Mul(
@@ -475,7 +473,7 @@ pub fn emitI32x4Mul(
 
 /// Wasm spec §4.4.4 (i*x*.{shl, shr_s, shr_u}) for shapes that
 /// have direct SSE2 packed-shift instructions — i16x8 / i32x4 /
-/// i64x2 (with PSRAQ / i8x16 deferred to §9.7-u for synthesis).
+/// i64x2 (with PSRAQ / i8x16 deferred for synthesis).
 /// Stack: pop count (i32), pop vec (v128), push v128.
 ///
 /// SSE shift count semantics differ from Wasm: Intel SDM "If the
@@ -750,7 +748,7 @@ pub fn emitI32x4Abs(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regall
 }
 
 /// i64x2.abs synthesis (no PABSQ in SSE; SSE4.2 PCMPGTQ
-/// available per ADR-0041 baseline post-9.7-m). 5-instr recipe:
+/// available per ADR-0041 baseline). 5-instr recipe:
 ///   PXOR XMM14, XMM14                ; XMM14 = zero
 ///   PCMPGTQ XMM14, src                ; XMM14 = sign-mask of src
 ///                                     ;   (0xFF...F where src < 0, else 0)
@@ -892,8 +890,7 @@ pub fn emitI64x2ShrS(
 /// intervene between the MOVAPS s1/s2 setup and the final
 /// PADDQ. Avoids a new ABI reservation; mirrors the principle
 /// from ARM64 op_simd.zig that scratch reuse is preferable to
-/// pool churn (per ROADMAP P3 cold-start; per p9-9.7-d-survey.md
-/// "scratch strategy B").
+/// pool churn (per ROADMAP P3 cold-start).
 ///
 /// Aliasing safety (D-071 part a; D-066 mirror): regalloc's LIFO
 /// slot-reuse can place `result_v` in the same physical XMM as
@@ -1188,7 +1185,7 @@ pub fn emitI32x4DotI16x8S(allocator: Allocator, buf: *std.ArrayList(u8), alloc: 
     return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encPmaddwd);
 }
 
-/// §17.4 `i16x8.relaxed_dot_i8x16_i7x16_s` — single PMADDUBSW with SWAPPED
+/// `i16x8.relaxed_dot_i8x16_i7x16_s` — single PMADDUBSW with SWAPPED
 /// operands: PMADDUBSW(dst, src) = unsigned_dst × signed_src, but relaxed_dot
 /// needs **signed a** × b. So dst = b (the i7 operand, treated unsigned — that
 /// is the spec's b-latitude, `(either)`-covered) and src = a (signed). Passing
@@ -1219,7 +1216,7 @@ pub fn emitI16x8RelaxedDot(allocator: Allocator, buf: *std.ArrayList(u8), alloc:
     try pushed_vregs.append(allocator, result_v);
 }
 
-/// §17.4 `i32x4.relaxed_dot_i8x16_i7x16_add_s` (3-pop a,b,c) — 4-way i8 dot +
+/// `i32x4.relaxed_dot_i8x16_i7x16_add_s` (3-pop a,b,c) — 4-way i8 dot +
 /// accumulate: PMADDUBSW→i16x8; PMADDWD(·, ones_i16)→i32x4 pairwise sum;
 /// PADDD(·, c). ones_i16 const-free via PCMPEQW+PSRLW#15. PMADDUBSW(dst,src) =
 /// unsigned_dst × signed_src → dst MUST hold **b** (i7 operand, unsigned per

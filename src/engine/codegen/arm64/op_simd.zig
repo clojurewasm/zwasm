@@ -1,10 +1,7 @@
-//! ARM64 emit pass — SIMD-128 op handlers (§9.9 / 9.5-b-iii
-//! per ADR-0041), orchestrator + V128 mem / bitwise / select /
-//! const family.
+//! ARM64 emit pass — SIMD-128 op handlers, orchestrator + V128
+//! mem / bitwise / select / const family.
 //!
-//! As of §9.9 / 9.9-h-18 (Track B / ADR-0054 4-way split per
-//! `.dev/phase10_prep/track_b_source_split.md` §4.3), this file
-//! retains only:
+//! This file retains only:
 //!
 //!   - Shared scratch reservation (`simd_scratch_v` = V31).
 //!   - Cross-class helpers (`emitV128Binop`, `emitV128Unop`,
@@ -23,7 +20,7 @@
 //! `q*Spilled` trio (16-byte stride). Per ADR-0041 §"Decision"
 //! / 2 (FP-class register pool reuse with shape-tag axis):
 //! handlers query `ctx.alloc.shapeTag(vreg)` only when the
-//! spill path lands in 9.5-c — non-spilled cases are identical
+//! spill path is taken — non-spilled cases are identical
 //! to scalar f32/f64.
 //!
 //! Zone 2 (`src/engine/codegen/arm64/`) — must NOT import
@@ -48,7 +45,7 @@ const Error = ctx_mod.Error;
 /// reserved for popcnt's V-register pipeline; reused as a SIMD
 /// scratch since no live SIMD vreg can land there).
 ///
-/// Promoted to `pub` in 9.9-h-18 because `op_simd_float.zig` and
+/// `pub` because `op_simd_float.zig` and
 /// `op_simd_int_cmp_lane.zig` consume it (pmin/pmax + ne
 /// synthesis + replace_lane aliasing-stash). Per ADR-0054 §
 /// "Helper visibility — tiered pub": cross-class primitives are
@@ -109,7 +106,7 @@ fn v128MemPrologue(ctx: *EmitCtx, addr_vreg: u32, offset_imm: u64, access_size: 
 /// Wasm address; `LDR Q<vd>, [X28, X16]` reads the 16 bytes from
 /// `vm_base + ea`.
 ///
-/// §9.9 / 9.9-d-2 (D-060) replaces the §9.5-b MVP that emitted
+/// Replaces the earlier MVP that emitted
 /// `LDR Q,[X<wn>,#imm]` directly — that path SEGV'd on `simd_align`
 /// modules 90/91 because the wasm-relative addr was treated as a
 /// host pointer. The MVP form was correct only when vm_base
@@ -143,7 +140,7 @@ pub fn emitV128Store(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.9 / 9.9-d-3 — v128 mem op family (12 ops sharing
+// v128 mem op family (12 ops sharing
 // `v128MemPrologue`).
 //
 // Wasm spec §4.4.6.1 (vector load).
@@ -309,7 +306,7 @@ pub fn emitV128Load32x2U(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.9 / 9.9-d-5 — v128.{load,store}{8,16,32,64}_lane (8 ops).
+// v128.{load,store}{8,16,32,64}_lane (8 ops).
 //
 // Wasm spec §4.4.7.4 (v128.loadN_lane) / §4.4.7.5 (v128.storeN_lane):
 // loadN_lane reads N bytes from memory, replaces one lane of an
@@ -453,7 +450,7 @@ pub fn emitV128Store64Lane(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.9 / 9.9-d-5 — v128 select / select_typed.
+// v128 select / select_typed.
 //
 // Wasm spec §4.4.4.1 (select / select_typed): pop c (i32),
 // val2 (T), val1 (T); push val1 if c != 0, else val2. T = v128
@@ -493,7 +490,7 @@ pub fn emitV128Select(ctx: *EmitCtx, cond_v: u32, val1_v: u32, val2_v: u32, resu
     // extension. For non-spilled SIMD vregs (which fit in
     // V16-V28) gpr.resolveFp returns the physical V reg directly.
     //
-    // D-083 (§9.9 / 9.9-h-30 close): resolve mask_v / val1 / val2
+    // D-083: resolve mask_v / val1 / val2
     // physical regs BEFORE writing DUP. The regalloc's LIFO slot-
     // reuse can place `result_vreg` (= mask_v) at the same physical
     // V reg as `val1_v` or `val2_v` (when both are non-spilled
@@ -527,12 +524,12 @@ pub fn emitV128Select(ctx: *EmitCtx, cond_v: u32, val1_v: u32, val2_v: u32, resu
     try gpr.qStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 0);
 }
 
-/// Shared v128 binop emit helper (§9.5-c-iv): pop 2 v128, emit
+/// Shared v128 binop emit helper: pop 2 v128, emit
 /// `encoder(rd, rn, rm)`, push 1 v128. Spill-aware via the q*
 /// trio at stage_idx 0/1 (same convention as gpr/fp binops —
 /// lhs at 0, rhs at 1; result reuses 0 since lhs is consumed).
 ///
-/// Promoted to `pub` in 9.9-h-18 because the sibling files
+/// `pub` because the sibling files
 /// (`op_simd_int_arith.zig` / `op_simd_int_cmp_lane.zig` /
 /// `op_simd_float.zig`) drive their per-op handlers through it.
 /// Per ADR-0054 §"Helper visibility — tiered pub".
@@ -560,7 +557,7 @@ pub fn emitV128Binop(
 /// Pop 1 v128 vreg, push 1 v128 result. Mirrors `emitV128Binop` but
 /// with one source operand.
 ///
-/// Promoted to `pub` in 9.9-h-18 (used by abs/neg/popcnt in
+/// `pub` (used by abs/neg/popcnt in
 /// op_simd_int_arith.zig + extend in op_simd_int_cmp_lane.zig +
 /// FP unaries in op_simd_float.zig). Per ADR-0054 §"Helper
 /// visibility — tiered pub".
@@ -582,7 +579,7 @@ pub fn emitV128Unop(ctx: *EmitCtx, encoder: *const fn (rd: u5, rn: u5) u32) Erro
 /// instead of the default encoder(rd, lhs, rhs)). Used for lt/le → gt/ge
 /// rewrites in `op_simd_int_cmp_lane.zig` + `op_simd_float.zig`.
 ///
-/// Promoted to `pub` in 9.9-h-18 per ADR-0054 §"Helper
+/// `pub` per ADR-0054 §"Helper
 /// visibility — tiered pub".
 pub fn emitV128BinopSwapped(ctx: *EmitCtx, encoder: *const fn (rd: u5, rn: u5, rm: u5) u32) Error!void {
     const rhs_vreg = ctx.pushed_vregs.pop().?;
@@ -605,7 +602,7 @@ pub fn emitV128BinopSwapped(ctx: *EmitCtx, encoder: *const fn (rd: u5, rn: u5, r
 /// Helper: emit `ne` synthesis. CMEQ → NOT V16B → MOV result, V31.
 /// Used by int and FP `ne` handlers in the sibling files.
 ///
-/// Promoted to `pub` in 9.9-h-18 per ADR-0054 §"Helper
+/// `pub` per ADR-0054 §"Helper
 /// visibility — tiered pub".
 pub fn emitV128Ne(ctx: *EmitCtx, eq_encoder: *const fn (rd: u5, rn: u5, rm: u5) u32) Error!void {
     const rhs_vreg = ctx.pushed_vregs.pop().?;
@@ -630,7 +627,7 @@ pub fn emitV128Ne(ctx: *EmitCtx, eq_encoder: *const fn (rd: u5, rn: u5, rm: u5) 
     try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
 }
 
-// §9.9 / 9.9-f-1 — v128 bitwise ops. AND / OR / XOR / ANDNOT /
+// v128 bitwise ops. AND / OR / XOR / ANDNOT /
 // BITSELECT all share the existing `emitV128Binop` /
 // `emitV128Binop3` shape; v128.not consumes a single v128 input
 // (unop). Per Wasm spec §4.4 (bitwise SIMD).
@@ -660,7 +657,7 @@ pub fn emitV128Not(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 /// Per Wasm spec §4.4.7 — pop 3× v128 (top-of-stack is c), push v128.
 /// `BSL Vd.16B, Vn.16B, Vm.16B` computes `Vd ← (Vd AND Vn) | (Vm AND NOT Vd)`,
 /// so we MOV Vd ← c first then `BSL Vd, v1, v2`. Mask reuses result V slot
-/// (BSL writes Vd in place — same shape as 9.9-d-5's emitV128Select).
+/// (BSL writes Vd in place — same shape as emitV128Select).
 pub fn emitV128Bitselect(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     const c_vreg = ctx.pushed_vregs.pop().?;
     const v2_vreg = ctx.pushed_vregs.pop().?;
@@ -678,7 +675,7 @@ pub fn emitV128Bitselect(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     const v1_x = try gpr.resolveFp(ctx.alloc, v1_vreg);
     const v2_x = try gpr.resolveFp(ctx.alloc, v2_vreg);
 
-    // §9.9 / 9.9-h-14 (D-070 discharge): regalloc's LIFO slot-
+    // D-070: regalloc's LIFO slot-
     // reuse can assign `result_vreg` (=mask_v) the same physical
     // V reg as v1 or v2. The naive `MOV mask_v, c_v` then
     // clobbers v1 or v2 before `BSL` reads it; symptom is
@@ -707,7 +704,7 @@ pub fn emitV128Bitselect(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
 }
 
-/// §17.4 relaxed-SIMD fused multiply-add/-subtract (madd / nmadd).
+/// Relaxed-SIMD fused multiply-add/-subtract (madd / nmadd).
 /// 3-operand: pop c (accumulator, top), b, a; result = a*b±c via FMLA/FMLS
 /// with the dest AS the accumulator (Vd = c; `enc` Vd, a, b). Mirrors
 /// emitV128Bitselect's 3-V-reg spill + D-070 slot-reuse-alias handling
@@ -747,7 +744,7 @@ pub fn emitV128FpFma(ctx: *EmitCtx, enc: *const fn (rd: u5, rn: u5, rm: u5) u32)
 }
 
 // ============================================================
-// §9.9 / 9.9-g-3 — v128.any_true reduction
+// v128.any_true reduction
 // ============================================================
 //
 // Wasm SIMD spec — `v128.any_true` returns 1 iff any byte of the
@@ -786,7 +783,7 @@ pub fn emitV128AnyTrue(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.9 / 9.6-f-ii — v128.const (per ADR-0042)
+// v128.const (per ADR-0042)
 // ============================================================
 //
 // Materialises a 16-byte literal from the per-function const-pool

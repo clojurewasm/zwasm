@@ -1,5 +1,5 @@
 // FILE-SIZE-EXEMPT: uniform pure-encoder catalog (SysV/Win64 x86_64 ISA encoders); P2 pure-data dominance (per ADR-0099)
-//! x86_64 instruction encoder (§9.7 / 7.6 chunk b).
+//! x86_64 instruction encoder.
 //!
 //! Mirrors the role of `arm64/inst.zig` but x86_64 instructions
 //! are variable-width (1–15 bytes) so encoder fns return an
@@ -302,7 +302,7 @@ pub const encPopcntR64 = inst_branch.encPopcntR64;
 
 // ============================================================
 // SSE re-exports (inst_sse.zig + inst_sse_packed.zig +
-// inst_sse_scalar.zig per ADR-0041 / §9.9 / 9.9-h-17 / chunk B)
+// inst_sse_scalar.zig per ADR-0041)
 // ============================================================
 
 // -- Foundation (inst_sse.zig) — mem load/store XMM + MOV reg
@@ -791,7 +791,7 @@ test "encLeaR64BaseDisp8: lea rcx, [r15+8] → 49 8d 4f 08 (REX.B)" {
 }
 
 test "encLeaR64BaseDisp32: lea rdx, [rbp-256] → 48 8d 95 00 ff ff ff" {
-    // §9.9 / 9.9-i-1 Win64 v128 marshal: caller writes v128 into
+    // Win64 v128 marshal: caller writes v128 into
     // scratch at [RBP+disp32], LEAs the disp into the int-arg-reg.
     // disp32 = -256 (i32 little-endian 0xFFFFFF00).
     const enc = encLeaR64BaseDisp32(.rdx, .rbp, -256);
@@ -806,7 +806,7 @@ test "encLeaR64BaseDisp32: lea r9, [rbp-1024] → 4c 8d 8d 00 fc ff ff (REX.R)" 
 }
 
 test "encLeaR64BaseRspDisp32: lea rdx, [rsp+48] → 48 8d 94 24 30 00 00 00 (SIB 0x24 for RSP base)" {
-    // §9.9 / 9.9-i-1 Win64 v128 marshal caller-side: scratch
+    // Win64 v128 marshal caller-side: scratch
     // is in the outgoing-args region at [RSP + scratch_disp];
     // LEA the address into the int-arg slot (RDX for arg 1).
     // RSP base mandates SIB byte 0x24 (rm=100 ⇒ SIB-escape per
@@ -822,7 +822,7 @@ test "encLeaR64BaseRspDisp32: lea r8, [rsp+64] → 4c 8d 84 24 40 00 00 00 (REX.
 }
 
 test "encStoreXmmV128MemRSPDisp32: movups [rsp+48], xmm1 → 0f 11 8c 24 30 00 00 00" {
-    // §9.9 / 9.9-i-1 Win64 v128 marshal caller-side scratch write.
+    // Win64 v128 marshal caller-side scratch write.
     // ModR/M mod=10, reg=001 (xmm1), rm=100 (SIB-escape for RSP).
     // SIB = 0x24 (scale=00, index=100=none, base=100=RSP).
     const enc = encStoreXmmV128MemRSPDisp32(.xmm1, 48);
@@ -1297,7 +1297,7 @@ test "encMovssMovsdMemBaseIdx: movsd [r10+r11], xmm0 → f2 43 0f 11 04 1a (stor
     try testing.expectEqualSlices(u8, &.{ 0xF2, 0x43, 0x0F, 0x11, 0x04, 0x1A }, enc.slice());
 }
 
-// §9.7 / 7.9 chunk c: sign-extension + integer divide encoders.
+// Sign-extension + integer divide encoders.
 // Hex bytes verified via `clang -target x86_64-linux-gnu` Intel-
 // syntax assembler (encMovsxR32R8 etc.).
 test "encMovsxR32R8: movsbl %bl, %eax → 40 0f be c3" {

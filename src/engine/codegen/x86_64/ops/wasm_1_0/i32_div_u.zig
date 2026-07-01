@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `i32.div_u` — Zone 2 per-arch op file
-//! per ADR-0074 + ADR-0075 (B55 cohort migration to `(ctx, ins)`).
+//! per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor (`op_tag`, `wasm_level`, `wasi_level`) lives at
 //! `src/instruction/wasm_1_0/i32_div_u.zig` (Zone 1). The emit

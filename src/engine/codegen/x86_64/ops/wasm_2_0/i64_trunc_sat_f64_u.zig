@@ -1,6 +1,5 @@
 //! x86_64 emit handler for `i64.trunc_sat_f64_u` — Zone 2
-//! per-arch op file per ADR-0074 + ADR-0075 (B57 cohort migration
-//! to `(ctx, ins)`).
+//! per-arch op file per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_2_0/i64_trunc_sat_f64_u.zig`.
 //! Delegates to `op_convert.emitI64TruncSatF64U` (alias of the

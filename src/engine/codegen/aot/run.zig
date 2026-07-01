@@ -1,4 +1,4 @@
-//! Standalone runner for a loaded `.cwasm` image (Phase 12 §12.1).
+//! Standalone runner for a loaded `.cwasm` image.
 //!
 //! Bridges `load.LoadedModule` → execution WITHOUT the original
 //! `CompiledWasm` / `.wasm` bytes (the point of AOT: skip parse +
@@ -10,7 +10,7 @@
 //!
 //! **Scope (MVP)**: stateless void / i32-result entries. Stateful
 //! `.cwasm` (memory / globals / imports) needs format sections the v0.2
-//! container does not carry yet — tracked as **§12.3b** (ADR-0139).
+//! container does not carry yet — tracked under ADR-0139.
 //! Non-void/i32 results (i64 / f32 / f64 / v128 / multi-result) are
 //! also deferred; `runEntry` rejects them with `UnsupportedEntrySignature`.
 //!
@@ -137,7 +137,7 @@ pub fn runEntryWasi(loaded: *const load.LoadedModule, idx: usize, host: *anyopaq
 
 fn runEntryInner(loaded: *const load.LoadedModule, idx: usize, wasi: ?WasiWiring, trap_code_out: ?*u32) Error!u64 {
     var rt = minimalRuntime();
-    // §12.3b: wire the reconstructed globals. `LoadedModule.globals` is
+    // Wire the reconstructed globals. `LoadedModule.globals` is
     // `[]u128` = the runtime's `[]Value` (extern union, 16 B, 16-align) bit
     // pattern, so a pointer cast suffices (no copy). A `global.set` during
     // the run mutates this owned buffer in place — fine for a single call.
@@ -146,7 +146,7 @@ fn runEntryInner(loaded: *const load.LoadedModule, idx: usize, wasi: ?WasiWiring
         rt.globals_count = @intCast(loaded.globals.len);
     }
 
-    // §12.3b cycle-1b: reconstruct linear memory (alloc min_pages×64KB,
+    // Reconstruct linear memory (alloc min_pages×64KB,
     // memcpy active data segments). Freed after the call — unlike globals
     // it is not aliased from `loaded`.
     var memory: []u8 = &.{};
@@ -162,7 +162,7 @@ fn runEntryInner(loaded: *const load.LoadedModule, idx: usize, wasi: ?WasiWiring
         rt.mem_limit = memory.len;
     }
 
-    // §12.3b cycle-2a: wire table 0 (call_indirect fast path reads these
+    // Wire table 0 (call_indirect fast path reads these
     // scalars). Aliased from `loaded` (built at load, no per-call copy).
     if (loaded.table_size > 0) {
         rt.funcptr_base = loaded.funcptr_base.ptr;

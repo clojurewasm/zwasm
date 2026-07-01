@@ -1,5 +1,5 @@
 //! x86_64 cross-module import bridge thunk encoder
-//! (ADR-0066 + Amendment §A1, §9.9-III chunks (c)-2.1 + D-142
+//! (ADR-0066 + Amendment §A1, D-142
 //! fix (A.3) + D-238/ADR-0185 (a) RBP frame-link).
 //!
 //! Each thunk is a 40-byte native code snippet that wraps a

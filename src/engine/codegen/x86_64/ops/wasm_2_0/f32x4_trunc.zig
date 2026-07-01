@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `f32x4.trunc` — B102 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `f32x4.trunc`.
 //! Delegates to op_simd_float.emitF32x4TruncCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/f32x4_trunc.zig");

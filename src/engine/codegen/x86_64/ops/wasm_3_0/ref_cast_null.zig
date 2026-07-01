@@ -4,7 +4,7 @@
 //!
 //! The null-passes semantics needs an INLINE null-skip branch: `TEST
 //! ref,ref ; JZ .done` jumps over the cast check so a null operand is NOT
-//! trapped. On the non-null path it reuses the R-2 `jitGcRefCast(rt, ref,
+//! trapped. On the non-null path it reuses the `jitGcRefCast(rt, ref,
 //! ht)` trampoline (ref / 0=trap-on-mismatch) and captures the matched ref
 //! from RAX AFTER the CALL (a register-allocated result would be clobbered
 //! by the CALL). The `JZ` rel32 is patched in-place once `.done`'s offset is

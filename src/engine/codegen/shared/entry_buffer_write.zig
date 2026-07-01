@@ -1,4 +1,4 @@
-//! Buffer-write entry ABI (ADR-0106 path (a), cycle 1).
+//! Buffer-write entry ABI (ADR-0106 path (a)).
 //!
 //! Sibling to `entry.zig`'s ~84 per-shape `callXX_yy` helpers.
 //! ADR-0106 path (a) collapses that catalog to ONE entry-helper
@@ -30,13 +30,9 @@
 //!   convention absorbs SysV's `> 2 same-class results` case
 //!   without needing the hidden-RDI MEMORY-class path.
 //!
-//! Cycle 1 (this commit) introduces the type alias + helper +
-//! a hand-rolled JIT-byte test that exercises the API shape end-
-//! to-end without touching the JIT emit path. Cycles 2-3 update
-//! the JIT epilogue (x86_64 + arm64) to write `results[i]`
-//! instead of RAX/RDX / X0/X1. Cycle 4 removes the per-shape
-//! `FuncRet_*` extern struct family from `entry.zig` + removes
-//! the `SKIP-WIN64-MULTI-RESULT` arm from `spec_assert_runner_base.zig`.
+//! The JIT epilogue (x86_64 + arm64) writes `results[i]` instead
+//! of RAX/RDX / X0/X1, replacing the per-shape `FuncRet_*` extern
+//! struct family.
 //!
 //! Zone 2 (`src/engine/codegen/shared/`) — same as `entry.zig`.
 
@@ -109,7 +105,7 @@ fn jitTrampolineBuf(f: BufferWriteFn, rt: *JitRuntime, results: [*]u64, args: [*
     return code;
 }
 
-/// ADR-0106 cycle 3e Phase 2'h step 2 — Win64 routing helper for
+/// ADR-0106 — Win64 routing helper for
 /// 0-arg multi-result entry helpers; caller extracts u64 slots
 /// into FuncRet struct. Forward-declared `linker.JitModule` use is
 /// fine because both modules are in the same Zone 2 cohort.
@@ -126,7 +122,7 @@ pub fn invokeBufWin64NoArgs(
     return results_buf;
 }
 
-/// ADR-0106 cycle 3e Phase 2'h step 2 — Win64 routing helper for
+/// ADR-0106 — Win64 routing helper for
 /// 1+-arg multi-result entry helpers (D-167 wire-up). Mirrors
 /// `invokeBufWin64NoArgs` but threads caller-supplied args through
 /// the buffer-write ABI's `args: [*]const u64` channel.
@@ -231,7 +227,7 @@ test "buffer-write entry: hand-rolled JIT writes results[0] = 42 (ADR-0106 path 
 }
 
 /// Typed-result wrapper around `invokeBufferWrite` for the
-/// spec runner's multi-result dispatch (cycle 3c will swap the
+/// spec runner's multi-result dispatch (a later pass will swap the
 /// per-shape `callI32i32i32NoArgs` callsites in
 /// `spec_assert_runner_non_simd.zig` to this helper when on
 /// Win64). The helper packs 0 args (no-args overload — the only
@@ -433,12 +429,11 @@ test "buffer-write entry: ErrCode_OK sentinel" {
 }
 
 // ============================================================
-// ADR-0106 cycle 2c — x86_64 emit drives the buffer-write epilogue
+// ADR-0106 — x86_64 emit drives the buffer-write epilogue
 // when `alloc.result_abi == .buffer_write`. Test compiles a trivial
 // `(i32.const 42) end` fn with the flag set + invokes via
-// invokeBufferWrite. Mac aarch64 skips because arm64 cycle 2d is
-// pending; Linux x86_64 + Win64 ubuntu (cycle 2c target) exercise
-// the new emit path.
+// invokeBufferWrite. Linux x86_64 + Win64 ubuntu exercise the
+// new emit path.
 // ============================================================
 
 const zir = @import("../../../ir/zir.zig");

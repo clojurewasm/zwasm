@@ -1,8 +1,7 @@
 //! Byte-level tests for x86_64 SIMD int-arith op handlers.
 //! Mirror of `op_simd_int_arith.zig` per ADR-0054 §"Naming
 //! convention" (4-way mirror split with `<source>_test.zig`
-//! suffix). Extracted from `op_simd_test.zig` in §9.9 /
-//! 9.9-h-16.
+//! suffix). Extracted from `op_simd_test.zig`.
 //!
 //! Zone 2 (`src/engine/codegen/x86_64/`) — must NOT import
 //! `src/engine/codegen/arm64/` per ROADMAP §A3.
@@ -276,7 +275,7 @@ test "emitI64x2Mul: dst aliases lhs — final MOVAPS elided" {
 // instead of `a_lo * b_lo`. Symptom on OrbStack simd_i64x2_arith:
 // i64x2.mul(1, 0xFFFFFFFFFFFFFFFF) → 0xFFFFFFFF_00000001
 // (= 1*1 + cross<<32) instead of 0xFFFFFFFFFFFFFFFF (= 1*0xFFFFFFFF
-// + 0xFFFFFFFF<<32). Fix mirrors 9.9-g-11..g-15 (D-066 family):
+// + 0xFFFFFFFF<<32). Fix mirrors the D-066 family:
 // stash rhs through XMM7 when `dst != lhs && dst == rhs`.
 test "emitI64x2Mul: dst aliases rhs — stash rhs to XMM7 (D-071 part a)" {
     var slot_ids = [_]u16{ 0, 1, 1 }; // dst (vreg 2) reuses rhs slot → XMM9.
@@ -397,7 +396,7 @@ test "emitI64x2Add: dispatches to encPaddQ — opcode 0xD4 reaches the buffer" {
 }
 
 test "emitI32x4Add: spilled rhs loads via MOVUPS stage XMM14 (ADR-0053 Part 3)" {
-    // §9.9 / 9.9-h-11: v128 spilled vregs are now supported. The
+    // v128 spilled vregs are now supported. The
     // rhs vreg (slot id 6 past max_reg_slots_fp=6) loads into the
     // stage-0 XMM (XMM14) via MOVUPS before PADDD. lhs + dst are
     // in registers (slots 0 / 1 → first two allocatable XMMs).

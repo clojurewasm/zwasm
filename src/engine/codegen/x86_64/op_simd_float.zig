@@ -1,8 +1,6 @@
 // FILE-SIZE-EXEMPT: per-op handler catalog (Wasm SIMD-128 FP sub-language); P1 spec-defined (per ADR-0099)
 //! x86_64 emit pass - SIMD-128 FP op handlers (split from
-//! `op_simd.zig` per `.dev/phase10_prep/track_b_source_split.md`
-//! Sec 9.9 / 9.9-h-15; tracking ADR-0054 once filed in chunk
-//! 9.9-h-20).
+//! `op_simd.zig` per ADR-0054).
 //!
 //! Houses all `emitF32x4*` / `emitF64x2*` handlers + FP-class
 //! recipes (`emitV128FpCmp`, `emitV128FpUnop`, `emitV128FpMin`,
@@ -31,7 +29,7 @@ const op_simd = @import("op_simd.zig");
 const Allocator = std.mem.Allocator;
 const Error = types.Error;
 
-// §9.12-B / B100 (ADR-0075) — `(ctx, ins)` adapters for the
+// `(ctx, ins)` adapters for the
 // SIMD f32x4 arith cohort (8 ops). add/sub/mul/div are 6-arg;
 // min/max/pmin/pmax are 5-arg.
 
@@ -75,8 +73,8 @@ pub fn emitF32x4PmaxCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!v
     return emitF32x4Pmax(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
-// §9.12-B / B101 (ADR-0075) — `(ctx, ins)` adapters for the
-// SIMD f64x2 arith cohort (8 ops; mirror of B100).
+// `(ctx, ins)` adapters for the
+// SIMD f64x2 arith cohort (8 ops; mirror of the f32x4 cohort).
 
 pub fn emitF64x2AddCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
@@ -118,7 +116,7 @@ pub fn emitF64x2PmaxCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!v
     return emitF64x2Pmax(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
-// §9.12-B / B102 (ADR-0075) — `(ctx, ins)` adapters for the
+// `(ctx, ins)` adapters for the
 // SIMD float unary cohort (14 ops; all 5-arg).
 
 pub fn emitF32x4AbsCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
@@ -191,7 +189,7 @@ pub fn emitF64x2NearestCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Erro
     return emitF64x2Nearest(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
-// §9.12-B / B103 (ADR-0075) — `(ctx, ins)` adapters for the
+// `(ctx, ins)` adapters for the
 // SIMD float compare cohort (12 ops; all 5-arg).
 
 pub fn emitF32x4EqCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
@@ -385,7 +383,7 @@ pub fn emitF64x2Ge(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regallo
 
 /// Wasm spec §4.4.4 (f*x*.{add, sub, mul, div}) — pop two v128,
 /// push v128 with per-lane IEEE-754 binary FP result. Reuses
-/// 9.7-b's `op_simd.emitV128IntBinop` shape unchanged because the encoder
+/// the `op_simd.emitV128IntBinop` shape unchanged because the encoder
 /// signature `(dst, src) → EncodedInsn` is identical (the int /
 /// fp distinction is purely in the encoder's opcode byte). NaN
 /// propagation matches Wasm spec since SSE FP-arith instructions
@@ -397,7 +395,7 @@ pub fn emitF64x2Ge(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regallo
 /// differ from Wasm's IEEE-754-2019 minimum/maximum (NaN-
 /// propagating, signed-zero-aware). Cranelift wraps MINPS/MAXPS
 /// with a 7-instruction NaN/zero correction sequence per
-/// `lower.isle` "F32X4 (fmin _ x y)" — deferred to §9.7-q with
+/// `lower.isle` "F32X4 (fmin _ x y)" — deferred with
 /// proper synthesis.
 pub fn emitF32x4Add(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
     return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encAddps);
@@ -453,7 +451,7 @@ pub fn emitV128FpUnop(
 
     // D-034 (g): spill-aware v128 src+dst. Single-instruction unary (SQRTPS/PD,
     // CVTDQ2PS/PD, CVTPS2PD, CVTPD2PS) with NO internal scratch → clean 2-stage
-    // migration (src→stage0/XMM14, dst→stage1/XMM15), like emitV128FpRound.
+    // split (src→stage0/XMM14, dst→stage1/XMM15), like emitV128FpRound.
     const val_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, val_v, 0);
     const dst_x = try gpr.xmmDefSpilledV128(alloc, result_v, 1);
 
@@ -717,7 +715,7 @@ pub fn emitF64x2Max(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regall
     return emitV128FpMax(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, encs);
 }
 
-// §17.4 relaxed-SIMD min/max — RAW hardware MINPS/MAXPS/MINPD/MAXPD (single
+// Relaxed-SIMD min/max — RAW hardware MINPS/MAXPS/MINPD/MAXPD (single
 // instr), NOT the strict NaN/±0-propagating fixup recipe above (ADR-0169:
 // relaxed ops take per-arch hardware semantics; NaN/±0 are impl-defined and
 // MINPS returns the 2nd operand there). arm64 reuses its strict FMIN/FMAX
@@ -735,7 +733,7 @@ pub fn emitF64x2RelaxedMax(allocator: Allocator, buf: *std.ArrayList(u8), alloc:
     return op_simd.emitV128IntBinop(allocator, buf, alloc, pushed_vregs, next_vreg, spill_base_off, inst.encMaxpd);
 }
 
-// §17.4 relaxed-SIMD madd/nmadd — x86 has no FMA in the SSE2/SSE4 baseline,
+// Relaxed-SIMD madd/nmadd — x86 has no FMA in the SSE2/SSE4 baseline,
 // so emit UNFUSED MULPS+ADDPS (madd) / MULPS+SUBPS (nmadd). Per ADR-0169 the
 // 2-rounding result is a valid relaxed_madd (impl-defined vs arm64's fused
 // FMLA); edge fixtures use exact-representable inputs so both agree.
@@ -1122,7 +1120,7 @@ pub fn emitF64x2ReplaceLane(
     const vec_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, vec_v, 0);
     const dst_x = try gpr.xmmDefSpilledV128(alloc, result_v, 1);
 
-    // D-066 mirror class (§9.9 / 9.9-h-5; D-078 (a) discharge):
+    // D-066 mirror class (D-078 (a) discharge):
     // when regalloc's LIFO slot-reuse aliases `dst == value &&
     // dst != vec`, the unconditional `MOVAPS dst, vec` clobbers
     // value before the subsequent MOVSD/MOVLHPS reads it. Stash
@@ -1248,7 +1246,7 @@ pub fn emitF32x4ReplaceLane(
     const vec_x = try gpr.xmmLoadSpilledV128(allocator, buf, alloc, spill_base_off, vec_v, 0);
     const dst_x = try gpr.xmmDefSpilledV128(alloc, result_v, 1);
 
-    // D-066 mirror class (§9.9 / 9.9-h-5; bug-fix-time grep
+    // D-066 mirror class (bug-fix-time grep
     // sibling of `emitF64x2ReplaceLane`): when `dst == value &&
     // dst != vec`, the MOVAPS-from-vec clobbers value before
     // INSERTPS reads it. Stash value through XMM7 first.
@@ -1402,7 +1400,7 @@ pub fn emitI32x4TruncSatF32x4S(allocator: Allocator, buf: *std.ArrayList(u8), al
 /// limit reported by cranelift's regalloc2 maps to dst (regalloc'd
 /// from XMM8..XMM13) + XMM14 + XMM15 in zwasm — already covered
 /// by the existing fp_spill_stage_xmms reservation; no ABI change
-/// needed. Closes the last of the 4 deferred §9.7-ae u-variants.
+/// needed.
 pub fn emitI32x4TruncSatF32x4U(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regalloc.Allocation, pushed_vregs: *std.ArrayList(u32), next_vreg: *u32, spill_base_off: u32) Error!void {
     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const src_v = pushed_vregs.pop().?;
@@ -1495,13 +1493,13 @@ pub fn emitI32x4TruncSatF32x4U(allocator: Allocator, buf: *std.ArrayList(u8), al
 }
 
 // =============================================================
-// §9.7 / 9.7-av — FP pseudo-min/max (4 ops: f32x4/f64x2.pmin/pmax)
+// FP pseudo-min/max (4 ops: f32x4/f64x2.pmin/pmax)
 // Wasm pmin(c1, c2) = if c2 < c1: c2 else c1. The MINPS/MINPD
 // "return src on equal/NaN/both-zero" behaviour (Intel SDM Vol 2A)
 // matches this exactly — provided we swap operands so dst holds
 // c2 and src holds c1. cranelift `lower.isle:1542-1545` makes the
 // same call via CLIF bitselect-of-fcmp-LT pattern matching MINPS.
-// No new encoders; reuses 9.7-q's encMinps/Maxps/Minpd/Maxpd.
+// No new encoders; reuses encMinps/Maxps/Minpd/Maxpd.
 // =============================================================
 
 fn emitV128FpPseudoBinop(
@@ -1569,7 +1567,7 @@ pub fn emitF64x2Pmax(allocator: Allocator, buf: *std.ArrayList(u8), alloc: regal
 }
 
 // =============================================================
-// §9.7 / 9.7-au — int min/max + saturating arith + avgr_u (22 ops)
+// int min/max + saturating arith + avgr_u (22 ops)
 // All single-instruction native SSE2/SSE4.1 ops. Each wrapper
 // dispatches through op_simd.emitV128IntBinop (2-in 1-out) with the
 // matching encoder. No new helpers; cranelift maps the same way
@@ -1714,7 +1712,7 @@ const UINT_MASK_HIGH: [16]u8 = [_]u8{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 
 ///   7. SHUFPS dst, t1, 0x88          ; gather lane[0..1].low32
 ///      into result lanes 0/1, lanes 2/3 zero (from t1=zeros)
 ///
-/// Reuses 9.7-ao's UINT_MASK_HIGH (= 2^52 magic) via extra_consts
+/// Reuses UINT_MASK_HIGH (= 2^52 magic) via extra_consts
 /// dedup. New const: UINT32_MAX_F64_BROADCAST.
 pub fn emitI32x4TruncSatF64x2UZero(
     allocator: Allocator,

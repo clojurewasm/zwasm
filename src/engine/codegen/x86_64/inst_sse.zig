@@ -8,7 +8,7 @@
 //! Packed `encP*` shapes live in `inst_sse_packed.zig`; scalar /
 //! FP-packed shapes (UCOMI, ROUNDSS/SD, ADDPS/CMPPS family, packed
 //! cvts, INSERTPS, SHUFPS, UNPCKLPS, FP-bitwise) live in
-//! `inst_sse_scalar.zig`. Split per ADR-0041 + §9.9 / 9.9-h-17 +
+//! `inst_sse_scalar.zig`. Split per ADR-0041 +
 //! `.dev/phase10_prep/track_b_source_split.md` §4.2 (chunk A/6).
 //!
 //! Zone 2 (`src/engine/codegen/x86_64/`) — must NOT import
@@ -141,7 +141,7 @@ pub fn encLoadXmmF64MemRBPDisp32(dst: Xmm, disp: i32) EncodedInsn {
 }
 
 /// `MOVUPS [RBP + disp8], xmm` (0F 11 /r) — 128-bit unaligned
-/// packed-single store to a stack slot. §9.9 / 9.9-e-2 v128
+/// packed-single store to a stack slot. v128
 /// local-store path; mirror of `encStoreXmmF32MemRBP` minus the
 /// F3 prefix (no prefix → MOVUPS form per Intel SDM Vol 2A).
 pub fn encStoreXmmV128MemRBP(disp: i8, src: Xmm) EncodedInsn {
@@ -198,7 +198,7 @@ pub fn encLoadXmmV128MemRBPDisp32(dst: Xmm, disp: i32) EncodedInsn {
 }
 
 /// `MOVUPS [RSP + disp32], xmm` (0F 11 /r) — 128-bit unaligned
-/// store via RSP base. §9.9 / 9.9-i-1 Win64 v128 marshal:
+/// store via RSP base. Win64 v128 marshal:
 /// caller-side write into the 16-byte aligned scratch slot in
 /// the outgoing-args region. RSP base requires a SIB byte
 /// (scale=00, index=100 (none), base=100 (RSP) = 0x24) — that's

@@ -1,21 +1,20 @@
 // FILE-SIZE-EXEMPT: uniform pure-encoder catalog (AAPCS64 ISA encoders); P2 pure-data dominance (per ADR-0099)
-//! ARM64 instruction encoder (§9.7 / 7.2 chunk a).
+//! ARM64 instruction encoder.
 //!
 //! Produces fixed-width `u32` encodings for the AArch64 ops the
-//! §9.7 / 7.3 emit pass uses: register-register and register-
+//! emit pass uses: register-register and register-
 //! immediate ALU, MOV-immediate (movz / movk), branches (B / BL
 //! / BR / RET), and load / store immediate-offset (LDR / STR).
 //!
 //! Bit patterns from the Arm Architecture Reference Manual
 //! (DDI 0487, A64 base instructions). Each `pub fn enc<X>`
 //! returns the little-endian `u32` ready to write to the code
-//! buffer; the §9.7 / 7.3 emit pass packs them into a `[]u8` via
+//! buffer; the emit pass packs them into a `[]u8` via
 //! `std.mem.writeInt(u32, ..., .little)`.
 //!
-//! Phase 7.2 chunk-a scope: enough opcodes to lower §9.7 / 7.4's
-//! MVP arithmetic + control flow + memory ops via the §9.7 / 7.1
-//! greedy-local regalloc. Float / SIMD / exception / atomic
-//! encodings land alongside their phases (9 / 10).
+//! Covers enough opcodes to lower the MVP arithmetic + control
+//! flow + memory ops via the greedy-local regalloc. Float /
+//! SIMD / exception / atomic encodings live elsewhere.
 //!
 //! Zone 2 (`src/jit_arm64/`) — must NOT import `src/jit_x86/`
 //! per ROADMAP §A3 (Zone-2 inter-arch isolation).
@@ -170,7 +169,7 @@ pub fn encLdrXReg(rt: Xn, rn: Xn, rm: Xn) u32 {
 
 /// `LDR Xt, [Xn, Xm, LSL #3]` — 64-bit load with X-register
 /// offset scaled by element size (8 bytes). The S=1 bit is what
-/// distinguishes this from the no-shift form. Used by sub-g2's
+/// distinguishes this from the no-shift form. Used by
 /// `call_indirect` table-lookup: `LDR X17, [X26, X_idx, LSL #3]`
 /// loads `table_base[idx]` (each entry being a u64 funcptr).
 pub fn encLdrXRegLsl3(rt: Xn, rn: Xn, rm: Xn) u32 {
@@ -179,7 +178,7 @@ pub fn encLdrXRegLsl3(rt: Xn, rn: Xn, rm: Xn) u32 {
 
 /// `LDR Wt, [Xn, Xm, LSL #2]` — 32-bit load with X-register
 /// offset scaled by element size (4 bytes). 32-bit counterpart
-/// of `encLdrXRegLsl3`. Used by sub-g3c's call_indirect sig
+/// of `encLdrXRegLsl3`. Used by call_indirect sig
 /// check: `LDR W16, [X24, X17, LSL #2]` loads
 /// `typeidx_array[idx]` (each entry a u32 typeidx).
 pub fn encLdrWRegLsl2(rt: Xn, rn: Xn, rm: Xn) u32 {
@@ -188,8 +187,8 @@ pub fn encLdrWRegLsl2(rt: Xn, rn: Xn, rm: Xn) u32 {
 
 /// `STR Xt, [Xn, Xm, LSL #3]` — 64-bit store with X-register
 /// offset scaled by element size (8 bytes). Mirror of
-/// `encLdrXRegLsl3` for table-style array stores. Used by §9.9 /
-/// 9.9-m-2a's `table.set`: `STR Xval, [Xrefs, Xidx, LSL #3]`
+/// `encLdrXRegLsl3` for table-style array stores. Used by
+/// `table.set`: `STR Xval, [Xrefs, Xidx, LSL #3]`
 /// writes `table.refs[idx]`.
 pub fn encStrXRegLsl3(rt: Xn, rn: Xn, rm: Xn) u32 {
     return 0xF8207800 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rt);
@@ -239,8 +238,8 @@ pub fn encSxthX(xd: Xn, xn: Xn) u32 {
     return 0x93403C00 | (@as(u32, xn) << 5) | @as(u32, xd);
 }
 
-/// `UXTB Wd, Wn` — zero-extend low 8 bits of Wn into Wd (10.G
-/// `array.get_u` packed i8). Alias for `UBFM Wd, Wn, #0, #7`
+/// `UXTB Wd, Wn` — zero-extend low 8 bits of Wn into Wd
+/// (`array.get_u` packed i8). Alias for `UBFM Wd, Wn, #0, #7`
 /// (Arm IHI 0055 §C6.2.330, UBFM 32-bit immr=0 imms=7). Same
 /// shape as `encSxtbW` but UBFM (opc=10) not SBFM (opc=00):
 /// SBFM base 0x13001C00 | (opc bit30) → 0x53001C00.
@@ -248,7 +247,7 @@ pub fn encUxtbW(wd: Xn, wn: Xn) u32 {
     return 0x53001C00 | (@as(u32, wn) << 5) | @as(u32, wd);
 }
 
-/// `UXTH Wd, Wn` — zero-extend low 16 bits (10.G `array.get_u`
+/// `UXTH Wd, Wn` — zero-extend low 16 bits (`array.get_u`
 /// packed i16). Alias for `UBFM Wd, Wn, #0, #15`. Encoding base
 /// 0x53003C00; immr=0, imms=15.
 pub fn encUxthW(wd: Xn, wn: Xn) u32 {
@@ -298,7 +297,7 @@ pub fn encMsubRegX(rd: Xn, rn: Xn, rm: Xn, ra: Xn) u32 {
 }
 
 // ============================================================
-// Sub-h2: int↔float conversions (SCVTF / UCVTF / FCVT).
+// Int↔float conversions (SCVTF / UCVTF / FCVT).
 // All verified via clang assembler.
 //
 // SCVTF/UCVTF: signed/unsigned int → float. The src reg's width
@@ -311,11 +310,11 @@ pub fn encMsubRegX(rd: Xn, rn: Xn, rm: Xn, ra: Xn) u32 {
 // ============================================================
 
 // ============================================================
-// Sub-h5: float→int trunc-toward-zero (FCVTZS / FCVTZU).
+// Float→int trunc-toward-zero (FCVTZS / FCVTZU).
 // ARM64 FCVTZ{S,U} natively implements Wasm 2.0 sat_trunc
 // semantics: NaN → 0, ±Inf → INT_MAX/MIN, overflow saturates.
 // (Wasm 1.0 trapping trunc reuses these encodings + adds
-//  NaN/range branches; sub-h3 territory.)
+//  NaN/range branches.)
 // All verified via clang assembler.
 // ============================================================
 
@@ -334,7 +333,7 @@ pub fn encStrXReg(rt: Xn, rn: Xn, rm: Xn) u32 {
 }
 
 // ============================================================
-// Sub-byte + sign/zero-extending memory ops (sub-f2).
+// Sub-byte + sign/zero-extending memory ops.
 // All verified via clang assembler.
 // ============================================================
 
@@ -398,8 +397,8 @@ pub fn encStrDReg(vt: Vn, rn: Xn, rm: Xn) u32 {
 /// `STR Sn, [Xn|SP, #pimm]` — 32-bit FP store (low 32 of V).
 /// Encoding: `1011 1101 00 [imm12] [Rn:5] [Rt:5]`. The imm12
 /// field is a *scaled* offset = `byte_offset / 4`; byte_offset
-/// must be aligned to 4. Used by §9.7 / 7.5-fp-params for f32
-/// param marshal at `[SP + p_idx*8]` (always 8-aligned, fits).
+/// must be aligned to 4. Used by the f32 param marshal at
+/// `[SP + p_idx*8]` (always 8-aligned, fits).
 pub fn encStrSImm(vt: Vn, rn: Xn, byte_offset: u14) u32 {
     std.debug.assert(byte_offset % 4 == 0);
     const imm12: u32 = @as(u32, byte_offset) >> 2;
@@ -433,8 +432,7 @@ pub fn encLdrDImm(vt: Vn, rn: Xn, byte_offset: u15) u32 {
 /// `CSEL Wd, Wn, Wm, cond` — 32-bit conditional select.
 /// `Wd = if (cond holds) Wn else Wm`. Encoding: `0 0 0 1 1 0 1 0
 /// 1 0 0 [Rm:5] [cond:4] 0 0 [Rn:5] [Rd:5]` = `0x1A800000 |
-/// (Rm<<16) | (cond<<12) | (Rn<<5) | Rd`. Used by §9.7 / 7.5-
-/// select-op.
+/// (Rm<<16) | (cond<<12) | (Rn<<5) | Rd`.
 pub fn encCselW(rd: Xn, rn: Xn, rm: Xn, cond: Cond) u32 {
     return 0x1A800000 |
         (@as(u32, rm) << 16) |
@@ -458,7 +456,7 @@ pub fn encCselX(rd: Xn, rn: Xn, rm: Xn, cond: Cond) u32 {
 /// ARMv8-A C6.2.84. Encoding:
 ///   `0 0 0 1 1 1 1 0 0 0 1 [Rm:5] [cond:4] 1 1 [Rn:5] [Rd:5]`
 /// = `0x1E200C00 | (Rm<<16) | (cond<<12) | (Rn<<5) | Rd`. Used by
-/// §9.9 / 9.9-m-4b select_typed f32 dispatch.
+/// select_typed f32 dispatch.
 pub fn encFcselS(vd: Vn, vn: Vn, vm: Vn, cond: Cond) u32 {
     return 0x1E200C00 |
         (@as(u32, vm) << 16) |
@@ -917,7 +915,7 @@ pub fn encCsetW(rd: Xn, set_if: Cond) u32 {
 /// (sf=1, op=1):
 ///   `1 1 0 11010100 [Rm:5] [cond:4] 00 [Rn:5] [Rd:5]`
 /// with Rm = Rn = ZR (31). Base = `0xDA9F03E0` | (enc_cond<<12)
-/// | Rd. §9.9 / 9.9-d-5 v128 select uses CSETM + DUP V.2D + BSL
+/// | Rd. v128 select uses CSETM + DUP V.2D + BSL
 /// to materialise an all-ones / all-zeros 16-byte mask. Arm IHI
 /// 0055 §C6.2.59 (CSETM alias of CSINV).
 pub fn encCsetmX(rd: Xn, set_if: Cond) u32 {
@@ -925,8 +923,8 @@ pub fn encCsetmX(rd: Xn, set_if: Cond) u32 {
     return 0xDA9F03E0 | (@as(u32, @intFromEnum(enc)) << 12) | @as(u32, rd);
 }
 
-/// `CLZ Wd, Wn` — count leading zeros (32-bit). The §9.7 / 7.3
-/// sub-b4 i32.clz handler emits this directly.
+/// `CLZ Wd, Wn` — count leading zeros (32-bit). The i32.clz
+/// handler emits this directly.
 /// Encoding (Data Processing 1-source, sf=0):
 ///   `0 1 0 11010110 00000 000100 [Rn:5] [Rd:5]` = `0x5AC01000`.
 pub fn encClzW(rd: Xn, rn: Xn) u32 {
@@ -942,7 +940,7 @@ pub fn encRbitW(rd: Xn, rn: Xn) u32 {
 }
 
 // ============================================================
-// 64-bit X-variants of the i32 sub-b ops (sf=1 form).
+// 64-bit X-variants of the i32 ops (sf=1 form).
 // ============================================================
 
 /// `LSL Xd, Xn, Xm` — 64-bit variable left shift (LSLV X form).
@@ -1006,7 +1004,7 @@ pub fn encRbitX(rd: Xn, rn: Xn) u32 {
 // ============================================================
 
 // ============================================================
-// BIC + FMOV float→general (used by copysign sub-d5)
+// BIC + FMOV float→general (used by copysign)
 // ============================================================
 
 /// `BIC Wd, Wn, Wm` — bitwise bit clear (Wd = Wn AND NOT Wm).
@@ -1023,8 +1021,8 @@ pub fn encBicRegX(rd: Xn, rn: Xn, rm: Xn) u32 {
 
 /// V-register index 0..31 — ARM SIMD/FP register file. Same u5
 /// width as `Xn` but a separate type for documentation; the
-/// integer regalloc never allocates these (the §9.7 / 7.3
-/// sub-b5 popcnt handler uses V31 as fixed scratch — it's
+/// integer regalloc never allocates these (the popcnt
+/// handler uses V31 as fixed scratch — it's
 /// caller-saved per AAPCS64 so emit can clobber it freely).
 pub const Vn = u5;
 
@@ -1407,14 +1405,14 @@ test "encFcselS s0, s1, s2, ne — `fcsel s0, s1, s2, ne` → 0x1E221C20" {
     // FCSEL Sd, Sn, Sm, cond — single-precision FP conditional
     // select. base 0x1E200C00; Rm=2 (<<16=0x20000); cond=NE
     // (0x1 << 12 = 0x1000); Rn=1 (<<5=0x20); Rd=0. Used by
-    // §9.9 / 9.9-m-4b select_typed f32 dispatch.
+    // select_typed f32 dispatch.
     try testing.expectEqual(@as(u32, 0x1E221C20), encFcselS(0, 1, 2, .ne));
 }
 
 test "encFcselD d3, d5, d7, eq — `fcsel d3, d5, d7, eq` → 0x1E6700A3" {
     // FCSEL Dd, Dn, Dm, cond — double-precision FP conditional
     // select. base 0x1E600C00; Rm=7 (<<16=0x70000); cond=EQ
-    // (0x0 << 12); Rn=5 (<<5=0xA0); Rd=3. Used by §9.9 / 9.9-m-4b
+    // (0x0 << 12); Rn=5 (<<5=0xA0); Rd=3. Used by
     // select_typed f64 dispatch.
     try testing.expectEqual(@as(u32, 0x1E6700A3 | 0x0C00), encFcselD(3, 5, 7, .eq));
 }
@@ -1476,7 +1474,7 @@ test "encBicRegX x0, x1, x2 → 0x8A220020" {
 
 // V-register encodings cross-checked via `clang -target
 // arm64-apple-darwin` assembler. See verifier session in
-// commit history (popcnt sub-b5 prep).
+// commit history (popcnt prep).
 
 test "encCntV8B v0.8b ← v0.8b — `cnt v0.8b, v0.8b` → 0x0E205800" {
     try testing.expectEqual(@as(u32, 0x0E205800), encCntV8B(0, 0));
@@ -1502,7 +1500,7 @@ test "encUmovWFromVB0 w10 ← v31.B[0] — `umov w10, v31.b[0]` → 0x0E013FEA" 
     try testing.expectEqual(@as(u32, 0x0E013FEA), encUmovWFromVB0(10, 31));
 }
 
-// §9.7 / 7.9 chunk c: sign-extension + integer divide encoders.
+// Sign-extension + integer divide encoders.
 // Hex bytes verified via `clang -target arm64-apple-darwin` assembler;
 // see inst.zig docstrings for Arm IHI 0055 references.
 test "encSxtbW w0, w0 → 0x13001C00" {

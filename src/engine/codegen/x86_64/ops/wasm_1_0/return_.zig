@@ -1,11 +1,10 @@
 //! x86_64 emit handler for `return` — Zone 2 per-arch op file
-//! per ADR-0074 + ADR-0075 (B74 migration to `(ctx, ins)`).
+//! per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/return_.zig`.
 //! Delegates to `op_control.emitReturnCtx`. Marshal results +
 //! epilogue (rsp restore + R15 pop + RBP pop + RET) + dead_code
-//! flag. Requires ctx fields `frame_bytes` + `uses_runtime_ptr`
-//! (added at B74).
+//! flag. Requires ctx fields `frame_bytes` + `uses_runtime_ptr`.
 //!
 //! Wasm spec §4.4.7 (return).
 //!

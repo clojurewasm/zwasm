@@ -23,7 +23,7 @@ pub const n_successor_edges: u8 = 1;
 pub const is_safepoint: bool = false;
 
 /// Wasm spec 3.0 §3.3.10.6 (try_table) — mirror of arm64 sibling.
-/// See arm64/ops/wasm_3_0/try_table.zig for the IT-2 + IT-6 prep
+/// See arm64/ops/wasm_3_0/try_table.zig for the
 /// rationale (HandlerEntry registration + landing_pad_pc forward
 /// fixup).
 pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void {
@@ -66,7 +66,7 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     // Mirror op_control.emitBlock: the try_table label carries the
     // blocktype arity (lowerer packs it into ins.extra; block_idx is in
     // ins.payload). Hardcoding arity 0 dropped the try_table result vreg
-    // at the matching `end` truncation → stale-register return (10.E
+    // at the matching `end` truncation → stale-register return (a
     // miscompile). results/params > 8 overflow the shared end-merge
     // buffer (merge_top_vregs_cap); reject as emitBlock does. (Mirrors arm64.)
     const tt_results: u8 = @intCast(ins.extra & 0xFF);
@@ -86,9 +86,9 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
         const is_catch_all = (ce.kind == .catch_all or ce.kind == .catch_all_ref);
         try builder.add(ctx.allocator, .{
             .pc_start = pc_start,
-            .pc_end = pc_start + 1, // placeholder; end-op patches (IT-2)
+            .pc_end = pc_start + 1, // placeholder; end-op patches
             .tag_idx = if (is_catch_all) null else ce.tag_idx,
-            .landing_pad_pc = ce.label_idx, // placeholder; IT-6 prep patches
+            .landing_pad_pc = ce.label_idx, // placeholder; landing-pad fixup patches
             .kind = switch (ce.kind) {
                 .catch_ => .catch_,
                 .catch_ref => .catch_ref,

@@ -10,7 +10,7 @@
 //!                return address into the caller's function)
 //!
 //! This file owns the raw frame-prefix read. The trampoline
-//! (10.E-codegen-3c follow-on) composes it into a
+//! composes it into a
 //! `unwind.FrameChainLoader` via a PC-normalization callback
 //! (saved-LR is an absolute return address; the
 //! `ExceptionTable.lookup` consumes module-relative PC, so the

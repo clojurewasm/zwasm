@@ -97,7 +97,7 @@ pub const ParallelMove = struct {
     done: bool,
 };
 
-/// D-097 / d-17 (ADR-0060 follow-up): unified merge-MOV dispatcher.
+/// D-097 (ADR-0060 follow-up): unified merge-MOV dispatcher.
 ///
 /// Copies `src_vreg`'s value into `merge_vreg`'s storage. Picks the
 /// right register-class path:
@@ -105,7 +105,7 @@ pub const ParallelMove = struct {
 ///   - `.fpr`  (per `regalloc.vregClassByDef`) → FMOV D (8-byte)
 ///   - `.gpr`  (default)                → 32-bit ORR (legacy)
 ///
-/// Pre-d-17 only dispatched on `.v128` — FP scalar fell through
+/// Earlier code only dispatched on `.v128` — FP scalar fell through
 /// to GPR MOV which silently corrupted f32/f64 if-frame merges
 /// because the GPR view of an FP slot is a different physical
 /// register on both arm64 (X_n vs V_n) and x86_64 (RBX vs XMM8
@@ -148,9 +148,9 @@ pub fn emitMergeMov(
         // X-form (64-bit) ORR — preserves all 64 bits. W-form would
         // truncate upper 32 bits on i64 vregs; for i32 the upper
         // bits are don't-care per AAPCS64, so X-form is safe for
-        // both. (Pre-d-17 the else_open merge path used W-form
+        // both. (Earlier the else_open merge path used W-form
         // throughout — load-bearing for i32 corpus but quietly
-        // wrong for i64. The implicit-else path d-13 had to
+        // wrong for i64. The implicit-else path had to
         // re-derive the same fix locally; the unified merge
         // helper now applies it everywhere.)
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(merge_r, 31, src_r));
@@ -160,8 +160,8 @@ pub fn emitMergeMov(
 
 /// Block-merge mechanism for forward `br` / `br_if` to a
 /// `block (result T..)` target. Mirrors the if/else
-/// `merge_top_vregs` mechanism (D-027 + D-035 chunk-d035-c)
-/// extended to `.block` per D-093 (d-2).
+/// `merge_top_vregs` mechanism (D-027 + D-035)
+/// extended to `.block` per D-093.
 ///
 /// On the FIRST forward branch to a block label with
 /// `result_arity > 0`, captures the top `arity` vregs as the
@@ -182,11 +182,11 @@ pub fn emitMergeMov(
 ///
 /// No-op when the target is not `.block` or `result_arity ==
 /// 0` (legacy single-arm shapes).
-// SIBLING-PUB: op_control.zig, br_on_null.zig, br_on_non_null.zig (per ADR-0093 extraction; ops/wasm_3_0/br_on_null.zig sibling added 10.R cycle 54b — same merge semantics for the null-branch path; br_on_non_null.zig added cycle 56 — label expects k+1 values including the ref)
+// SIBLING-PUB: op_control.zig, br_on_null.zig, br_on_non_null.zig (per ADR-0093 extraction; ops/wasm_3_0/br_on_null.zig sibling — same merge semantics for the null-branch path; br_on_non_null.zig — label expects k+1 values including the ref)
 pub fn captureOrEmitBlockMergeMov(ctx: *EmitCtx, tgt_idx: usize) Error!bool {
     const arity: u32 = ctx.labels.items[tgt_idx].result_arity;
     if (arity == 0) return false;
-    // D-096 / d-17: br inside if-arm targets the if-frame. The br
+    // D-096: br inside if-arm targets the if-frame. The br
     // skips past .end so the .end merge MOV never runs; the br
     // must carry the value into the if-frame's result slot itself.
     // Same shape as block-target br: capture top vregs on first br,

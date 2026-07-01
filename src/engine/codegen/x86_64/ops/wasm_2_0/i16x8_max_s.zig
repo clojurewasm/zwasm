@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `i16x8.max.s` — B98 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `i16x8.max.s`.
 //! Delegates to op_simd_int_arith.emitI16x8MaxSCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/i16x8_max_s.zig");

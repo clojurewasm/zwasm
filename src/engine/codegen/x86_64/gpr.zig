@@ -51,14 +51,13 @@ pub fn writeBytes(allocator: Allocator, buf: *std.ArrayList(u8), enc: inst.Encod
     try buf.appendSlice(allocator, enc.bytes[0..enc.len]);
 }
 
-/// §9.7 / 7.10-k (D-048 discharge) — convert a u32 RBP-relative
+/// Convert a u32 RBP-relative
 /// spill distance into the i32 disp the encoders consume. The
 /// `[RBP - (spill_base_off + spill_off)]` address must be 8-byte
 /// aligned (we use 8-byte spill stride uniformly across both
-/// classes). Pre-7.10-k this returned i8, capping the spill
-/// region at 16 slots × 8 = 128 bytes; the wider i32 form lifts
-/// the cap to ~268 M slots and matches the locals-side
-/// `localDisp` widening that landed in 7.10-g.
+/// classes). The i32 disp form lifts the spill-region cap to
+/// ~268 M slots (an i8 form would cap it at 16 slots), matching
+/// the locals-side `localDisp` widening.
 fn rbpDispNegI32(spill_base_off: u32, spill_off: u32) Error!i32 {
     const abs = spill_base_off + spill_off;
     if (abs == 0 or (abs & 7) != 0) return Error.SlotOverflow;
@@ -87,7 +86,7 @@ fn rbpStoreXmmF64Auto(disp: i32, src: inst.Xmm) inst.EncodedInsn {
     if (disp >= -128 and disp <= 127) return inst.encStoreXmmF64MemRBP(@intCast(disp), src);
     return inst.encStoreXmmF64MemRBPDisp32(disp, src);
 }
-/// ADR-0053 Part 2 (§9.9 / 9.9-h-10) — 128-bit unaligned packed-
+/// ADR-0053 Part 2 — 128-bit unaligned packed-
 /// single load `MOVUPS xmm, [RBP + disp]`. Picks the disp8 form
 /// when the offset fits in -128..127, else the disp32 form, mirror
 /// of the F64 variant. Used by `xmmLoadSpilledV128`. The MOVUPS
@@ -245,7 +244,7 @@ pub fn xmmDefSpilled(
     };
 }
 
-/// ADR-0053 Part 2 (§9.9 / 9.9-h-10) — v128 counterpart of
+/// ADR-0053 Part 2 — v128 counterpart of
 /// `xmmLoadSpilled`. If the FP vreg is in an XMM register,
 /// returns that reg directly. If spilled, emits
 /// `MOVUPS xmm, [RBP - (spill_base_off + spill_off)]` staging
@@ -339,7 +338,7 @@ pub fn xmmStoreSpilled(
 }
 
 // ============================================================
-// Tests — D-045 chunk 13a foundation
+// Tests
 // ============================================================
 
 const testing = std.testing;
@@ -357,8 +356,8 @@ test "rbpDispNegI32: spill_base_off=120 + off=8 = 128 → disp=-128 (boundary)" 
 }
 
 test "rbpDispNegI32: spill_base_off=200 + off=8 = 208 → disp=-208 (past i8 range)" {
-    // §9.7 / 7.10-k regression — pre-7.10-k surfaced SlotOverflow
-    // for any spill region whose deepest slot exceeded -128.
+    // Regression — before the i32 disp form, any spill region
+    // whose deepest slot exceeded -128 surfaced SlotOverflow.
     try testing.expectEqual(@as(i32, -208), try rbpDispNegI32(200, 8));
 }
 
@@ -455,7 +454,7 @@ test "xmmLoadSpilled: spilled vreg emits MOVSD xmm14, [rbp+disp]" {
     const alloc: regalloc.Allocation = .{
         .slots = &slots,
         .n_slots = pool_len + 1,
-        // D-045 chunk 13b: x86_64 FP pool (6) is smaller than the
+        // x86_64 FP pool (6) is smaller than the
         // arm64-tuned default GPR boundary (8). Set both explicitly
         // so the shared `Allocation.slot()` spill formula
         // `(id - max_reg_slots_gpr)` doesn't underflow.

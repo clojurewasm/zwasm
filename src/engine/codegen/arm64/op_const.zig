@@ -1,15 +1,14 @@
 //! ARM64 emit pass — constant-materialisation handlers.
 //!
-//! Per ADR-0023 §3 + ADR-0021 sub-deliverable b (§9.7 / 7.5d
-//! sub-b emit.zig 9-module split): houses the `i32.const` /
+//! Per ADR-0023 §3 + ADR-0021 sub-deliverable b (emit.zig
+//! 9-module split): houses the `i32.const` /
 //! `i64.const` ZirOp handlers plus the `emitConstU32` /
 //! `emitConstU64` micro-helpers used by trapping-trunc bounds
 //! materialisation in emit.zig and (eventually) by the float
 //! `*.const` handlers.
 //!
 //! - `i32.const` — MOVZ Wd #lo16 (+ optional MOVK at hw=1).
-//!   Spill-aware via `gpr.gprDefSpilled` + `gpr.gprStoreSpilled`
-//!   (sub-1c migration; first handler converted).
+//!   Spill-aware via `gpr.gprDefSpilled` + `gpr.gprStoreSpilled`.
 //! - `i64.const` — MOVZ Xd #hw0 plus up to 3 MOVK lanes for
 //!   non-zero halfwords. Inline-only (no helper indirection)
 //!   because the upper-32-bit packing across `(payload, extra)`
@@ -59,8 +58,8 @@ pub fn emitConstU64(allocator: Allocator, buf: *std.ArrayList(u8), xd: Xn, value
     if (hw3 != 0) try gpr.writeU32(allocator, buf, inst.encMovkImm16(xd, hw3, 3));
 }
 
-/// `i32.const` handler. Allocates the next vreg (sub-1c
-/// spill-aware), materialises the immediate via `emitConstU32`,
+/// `i32.const` handler. Allocates the next vreg (spill-aware),
+/// materialises the immediate via `emitConstU32`,
 /// flushes the result to its spill slot if applicable, and
 /// pushes the vreg id onto the operand stack.
 pub fn emitI32Const(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {

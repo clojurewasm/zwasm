@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `i8x16.narrow.i16x8.u` — B105 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `i8x16.narrow.i16x8.u`.
 //! Delegates to op_simd_int_cmp_lane.emitI8x16NarrowI16x8UCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/i8x16_narrow_i16x8_u.zig");

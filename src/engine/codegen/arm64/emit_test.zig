@@ -2,9 +2,9 @@
 //! sibling files by ZIR op family. This file pulls them
 //! all into a single `zig build test` discoverable surface.
 //!
-//! Per ADR-0021 sub-deliverable b (§9.7 / 7.5d sub-b emit.zig
-//! 9-module split, chunk 10): the original 2356-LOC monolith
-//! exceeded the §A2 hard cap. Phase 7 → 8 transition splits by
+//! Per ADR-0021 sub-deliverable b (emit.zig
+//! 9-module split): the original 2356-LOC monolith
+//! exceeded the §A2 hard cap. The split is by
 //! ZIR op family so each sibling stays well under the soft cap
 //! and `zig build test` discovery still reaches every test
 //! through the root reference chain (`src/zwasm.zig`).

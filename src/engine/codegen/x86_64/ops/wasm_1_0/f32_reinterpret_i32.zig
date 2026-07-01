@@ -1,6 +1,5 @@
 //! x86_64 emit handler for `f32.reinterpret_i32` — Zone 2
-//! per-arch op file per ADR-0074 + ADR-0075 (B59 cohort migration
-//! to `(ctx, ins)`).
+//! per-arch op file per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/f32_reinterpret_i32.zig`.
 //! Delegates to `op_convert.emitF32ReinterpretI32` (alias of the

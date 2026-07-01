@@ -2,8 +2,7 @@
 //! Byte-level tests for x86_64 SIMD int-cmp/lane op handlers.
 //! Mirror of `op_simd_int_cmp_lane.zig` per ADR-0054 §"Naming
 //! convention" (4-way mirror split with `<source>_test.zig`
-//! suffix). Extracted from `op_simd_test.zig` in §9.9 /
-//! 9.9-h-16.
+//! suffix). Extracted from `op_simd_test.zig`.
 //!
 //! Zone 2 (`src/engine/codegen/x86_64/`) — must NOT import
 //! `src/engine/codegen/arm64/` per ROADMAP §A3.
@@ -1146,7 +1145,7 @@ test "emitI16x8ExtmulHighI8x16U: PSHUFD x2 + PMOVZXBW x2 + PMULLW (5 instr)" {
 // `MOVAPS t2, rhs` reads it; t2 gets dst-after-PSHUFB (= zeros if
 // the shuffle takes nothing from lhs, e.g. v8x16_shuffle-2 that
 // selects all from rhs). The final POR(dst, t2) merges 0 with 0
-// and the result is all-zero. Fix mirrors 9.9-g-11..g-16 (D-066
+// and the result is all-zero. Fix mirrors the D-066
 // family): stash rhs through XMM7 when `dst == rhs`. Test asserts
 // the MOVAPS xmm7, rhs stash is the FIRST emitted instruction in
 // the alias case.

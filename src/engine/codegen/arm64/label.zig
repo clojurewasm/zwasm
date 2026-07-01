@@ -1,7 +1,7 @@
 //! ARM64 emit pass — control-flow label + branch-fixup types.
 //!
 //! Per ADR-0023 §3 reference table + ADR-0021 sub-deliverable b
-//! (§9.7 / 7.5d sub-b emit.zig 9-module split): extracted from
+//! (emit.zig 9-module split): extracted from
 //! the previous monolithic `emit.zig` so the control-flow
 //! patching machinery has a discoverable home and so emit.zig
 //! itself can shrink toward the < 1000 LOC orchestrator goal.
@@ -48,8 +48,8 @@ pub const Fixup = struct {
 ///       CBZ that skips the then-body. Patched at `else` (to
 ///       else-body start) or at `end` (to end of if). Cleared
 ///       when transitioning to `.else_open`.
-///   merge_top_vregs — D-027 fix (sub-7.5c-vi) extended to
-///       Wasm 2.0 multi-value (D-035 chunk-d035-c): for `(if
+///   merge_top_vregs — D-027 fix extended to
+///       Wasm 2.0 multi-value (D-035): for `(if
 ///       (result T1 .. TN))` blocks, the then arm's top N
 ///       result vregs are captured at `else`; the else arm's
 ///       N results are MOVed into the corresponding merge

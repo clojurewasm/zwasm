@@ -1,13 +1,13 @@
 // FILE-SIZE-EXEMPT: ARM64 emit driver (prologue + epilogue + dispatch); P1 AAPCS64 spec-defined emit boundary; per-op handlers already extracted to op_*.zig sibling files (per ADR-0099)
-//! ZIR → ARM64 emit pass (§9.7 / 7.3 — skeleton).
+//! ZIR → ARM64 emit pass (skeleton).
 //!
 //! Walks a `ZirFunc.instrs` stream (consumed in def_pc order)
 //! and emits a fixed-width AArch64 instruction stream into a
-//! caller-supplied byte buffer. Slot ids from the §9.7 / 7.1
-//! regalloc map to physical X-registers via §9.7 / 7.2's
+//! caller-supplied byte buffer. Slot ids from the
+//! regalloc map to physical X-registers via
 //! `abi.slotToReg`.
 //!
-//! Phase 7.3 skeleton scope (this commit):
+//! Skeleton scope:
 //! - Function prologue: save FP/LR, set up frame pointer.
 //! - Function epilogue: restore FP/LR, RET.
 //! - `i32.const` → `MOVZ Xd, #imm16` (lower 16 bits) +
@@ -15,10 +15,6 @@
 //!   single result register dictated by the function's return
 //!   slot.
 //! - `end` of function → epilogue.
-//!
-//! Other op handlers land in subsequent §9.7 / 7.3 commits
-//! per the row's "produce function bodies" exit; the §9.7 / 7.4
-//! spec-pass gate is what closes the full op-coverage loop.
 //!
 //! AAPCS64 prologue / epilogue shape (per Arm IHI 0055 §6.4):
 //!
@@ -32,9 +28,9 @@
 //!     LDP FP, LR, [SP], #16        // pop FP/LR pair
 //!     RET
 //!
-//! For 7.3 skeleton we omit the optional stack-frame
+//! The skeleton omits the optional stack-frame
 //! adjustment (no spilled vregs in straight-line MVP code with
-//! ≤17 GPRs available; spills are §9.7 / 7.3 follow-up).
+//! ≤17 GPRs available; spills are a follow-up).
 //!
 //! Zone 2 (`src/jit_arm64/`) — must NOT import `src/jit_x86/`
 //! per ROADMAP §A3.
@@ -121,20 +117,19 @@ pub const EmitOutput = struct {
     /// Caller owns; pair with `deinit` to free.
     bytes: []u8,
     /// Distinct GPR slots used (mirrors `Allocation.n_slots`).
-    /// The §9.7 / 7.4 gate consults this for stack-frame sizing
-    /// when the spill follow-up lands.
+    /// Consulted for stack-frame sizing when the spill follow-up
+    /// lands.
     n_slots: u16,
     /// `BL` fixup sites. Each is a placeholder that the caller
     /// patches once function-body addresses are known.
     /// Caller-owned; pair with `deinit` to free.
     call_fixups: []CallFixup,
-    /// Phase 10.E IT-2 (ADR-0114 + phase10_eh_integration_plan.md
-    /// §IT-2): per-function EH HandlerEntry slice harvested from
-    /// the `ExceptionTable.Builder` at compile end. IT-5 folds the
+    /// Per-function EH HandlerEntry slice harvested from the
+    /// `ExceptionTable.Builder` at compile end. A later pass folds the
     /// per-function slices into the per-Instance ExceptionTable on
     /// CompiledWasm. Empty for functions without try_table.
     exception_handlers: []const exception_table.HandlerEntry = &.{},
-    /// Phase 10.E IT-6 prep — per-function aligned frame size in
+    /// Per-function aligned frame size in
     /// bytes (= prologue's `SUB SP, SP, #N` value). Consumed by
     /// the linker to populate `CodeMap.Entry.frame_bytes`; the EH
     /// SP-restore path uses it to recover the handler frame's
@@ -169,7 +164,7 @@ pub fn compile(
     globals_offsets: []const u32,
     globals_valtypes: []const zir.ValType,
     memory0_idx_type: sections.MemoryEntry.IdxType,
-    /// Wasm 3.0 EH (10.E-payload-prop Cycle 3; ADR-0120) — per-tag
+    /// Wasm 3.0 EH (ADR-0120) — per-tag
     /// param counts threaded into EmitCtx for throw / try_table
     /// payload marshalling. Pass `&.{}` for modules without tags.
     tag_param_counts: []const u32,
@@ -194,8 +189,7 @@ pub fn compile(
     // simple imm12 LDR/STR W addressing. Frame size rounds up to
     // 16 bytes per AAPCS64 §6.4 (SP must stay 16-byte aligned).
     // ============================================================
-    // Multi-arg entry (§9.7 / 7.5-multi-arg-entry / -i64-params /
-    // -fp-params):
+    // Multi-arg entry:
     // - AAPCS64 §6.4: int args in X0..X7; FP args in V0..V7.
     //   X0 is `*const JitRuntime` (ADR-0017), so user int args
     //   start at X1 (max 7). FP args have their own sequence
@@ -204,7 +198,7 @@ pub fn compile(
     //   arg-reg counter.
     // - Per-class stores: i32 → STR W, i64 → STR X, f32 → STR S,
     //   f64 → STR D. v128 / refs still surface as UnsupportedOp.
-    // - §9.7 / 7.9-d-7 — AAPCS64 §6.4.2 stack-arg lowering: when
+    // - AAPCS64 §6.4.2 stack-arg lowering: when
     //   a class would overflow (int > X7 or fp > V7), the arg
     //   (and every subsequent arg of the SAME class) lands on
     //   the caller's stack at `[X29, #16 + 8*stack_arg_idx]`
@@ -216,8 +210,8 @@ pub fn compile(
     //   local-slot at `[SP, p_idx*8]`.
     for (func.sig.params) |p| {
         switch (p) {
-            // D-093 (d-33): reftype params share the i64 gpr-class
-            // 8-byte slot per ADR-0061. 10.G op_gc cycle 2: i31ref
+            // D-093: reftype params share the i64 gpr-class
+            // 8-byte slot per ADR-0061. i31ref
             // also lands in this class (Value.anyref u32 GcRef,
             // low-bit-tagged per ADR-0116; gpr-class slot suffices).
             .i32, .i64, .f32, .f64, .v128, .ref => {},
@@ -227,7 +221,7 @@ pub fn compile(
     const num_locals: u32 = func.totalLocalCount();
     // Wasm local-index space: 0..num_params-1 = params,
     // num_params..num_params+num_locals-1 = declared locals.
-    // §9.9 / 9.9-e-1: per-local frame layout split by type
+    // Per-local frame layout split by type
     // (scalars 8-byte stride, v128 16-byte stride). See
     // `computeLocalLayout` doc for the strategy.
     const total_locals: u32 = num_params + num_locals;
@@ -261,13 +255,13 @@ pub fn compile(
     // result to `[X16, #(i*8)]` (X16 chosen over X14 to dodge the
     // `gprLoadSpilled` spill-stage clobber).
     const return_is_memory_class: bool = func.sig.results.len > 2;
-    // ADR-0106 path (a) cycle 2d — buffer-write ABI also needs a
+    // ADR-0106 path (a) — buffer-write ABI also needs a
     // captured-pointer slot (for the results ptr passed in X1 per
     // AAPCS64). Shares the same slot the MEMORY-class path uses
     // for the hidden X8 indirect-result ptr.
     const buffer_write: bool = alloc.result_abi == .buffer_write;
     const indirect_result_slot_bytes: u32 = if (return_is_memory_class or buffer_write) 8 else 0;
-    // §9.7 / 7.9-d-11: outgoing args (caller-side stack args)
+    // Outgoing args (caller-side stack args)
     // occupy the BOTTOM of the frame so the callee reads them at
     // `[X29, #16 + 8*K]` (per AAPCS64 §6.4.2 stage C.13/C.14).
     // Locals + spills shift upward by `local_base_off`.
@@ -275,7 +269,7 @@ pub fn compile(
     //   [SP + outgoing_max .. +locals_bytes-1]         locals
     //   [SP + outgoing_max + locals_bytes .. +spill]   spills
     //
-    // §9.9-e-1: when v128 locals are present, round the locals-
+    // When v128 locals are present, round the locals-
     // zone base up to 16 so `local_base_off + layout.offsets[v128
     // _idx]` is 16-aligned (`encStrQImm` / `encLdrQImm` reject
     // misaligned imm12). The 0-7 byte rounding waste is bounded
@@ -294,7 +288,7 @@ pub fn compile(
     // ADR-0017 prologue: 5 LDRs from X0 = `*const JitRuntime`
     // into the reserved invariant regs. Per ROADMAP §2 P3 (cold-
     // start over peak throughput), 5 cycles uncached overhead is
-    // acceptable for Phase 7 baseline; Phase 15 optimisation may
+    // acceptable for the baseline; a later optimisation may
     // elide loads when the function provably doesn't use the
     // corresponding invariant.
     try gpr.writeU32(allocator, &buf, inst.encLdrImm(28, 0, jit_abi.vm_base_off));
@@ -365,7 +359,7 @@ pub fn compile(
     try gpr.writeU32(allocator, &buf, inst.encCmpRegX(17, 31));
     const fuel_probe_fixup: u32 = @intCast(buf.items.len);
     try gpr.writeU32(allocator, &buf, inst.encBCond(.mi, 0));
-    // §9.8a / 8a.2 (ADR-0034) — JIT-execution sentinel: write 1 to
+    // JIT-execution sentinel (ADR-0034): write 1 to
     // `JitRuntime.jit_executed_flag` so post-call readers can
     // distinguish "JIT body actually ran" from "compile-passed but
     // never invoked". MOVZ X17, #1 (W17 = 1) + STR W17, [X19,
@@ -397,7 +391,7 @@ pub fn compile(
     // and BEFORE param shuffle (which uses X1..X7 + V0..V7 only —
     // X8 is safe until captured). The epilogue reads it back at
     // `marshalFunctionReturn`'s MEMORY-class branch.
-    // ADR-0106 path (a) cycle 3a — buffer_write takes precedence
+    // ADR-0106 path (a) — buffer_write takes precedence
     // over the MEMORY-class case. When `sig.results.len > 2`
     // AND buffer_write, both flags fire; we want X1 (results
     // ptr) in the slot, not X8 (MEMORY-class hidden ptr).
@@ -417,10 +411,10 @@ pub fn compile(
     // (full 64-bit). AAPCS64 X0 = `*const JitRuntime` (already
     // snapshotted to X19 above), X1 = param 0, etc.
     var p_idx: u32 = 0;
-    // ADR-0106 path (a) cycle 2e — buffer_write ABI: args come
+    // ADR-0106 path (a) — buffer_write ABI: args come
     // from `[X2 + i*8]` (args_ptr is the 3rd AAPCS64 arg after
     // rt=X0, results=X1, args=X2). Skip the per-class arg-reg
-    // shuffle entirely. v128 deferred (cycle 2f scope; a u64
+    // shuffle entirely. v128 deferred (a u64
     // slot can't hold a 128-bit value).
     if (buffer_write) {
         while (p_idx < num_params) : (p_idx += 1) {
@@ -435,7 +429,7 @@ pub fn compile(
             // Store per type: i32/f32 use STR W (low 32 bits); i64/f64/refs use STR X.
             switch (param_ty) {
                 .i32, .f32 => try gpr.writeU32(allocator, &buf, inst.encStrImmW(16, 31, @intCast(param_off_u))),
-                // 10.G op_gc cycle 2: i31ref shares the 8-byte
+                // i31ref shares the 8-byte
                 // gpr-class slot with other reftypes (per ADR-0116
                 // low-bit-tagged u32 GcRef).
                 .i64, .f64, .ref => try gpr.writeU32(allocator, &buf, inst.encStrImm(16, 31, @intCast(param_off_u))),
@@ -468,7 +462,7 @@ pub fn compile(
         builtin.target.os.tag == .tvos;
     var stack_byte_off: u32 = 0;
     while (p_idx < num_params) : (p_idx += 1) {
-        // §9.7 / 7.9-d-11 / §9.9-e-1: param slot lives at
+        // Param slot lives at
         // `[SP, #(local_base_off + layout.offsets[p_idx])]`. The
         // local region sits above the outgoing-args region.
         // Per-type encoding caps:
@@ -480,7 +474,7 @@ pub fn compile(
         const param_ty = func.sig.params[p_idx];
         const cap: u32 = switch (param_ty) {
             .i32, .f32 => 16380,
-            // 10.G op_gc cycle 2: i31ref shares the 8-byte STR X slot.
+            // i31ref shares the 8-byte STR X slot.
             .i64, .f64, .ref => 32760,
             .v128 => 65520,
         };
@@ -505,7 +499,7 @@ pub fn compile(
                     int_arg_idx += 1;
                 }
             },
-            // D-093 (d-33): reftype params share the i64 X-form
+            // D-093: reftype params share the i64 X-form
             // marshal path (8-byte gpr-class slot per ADR-0061).
             .i64, .ref => {
                 if (int_arg_idx > 7) {
@@ -551,7 +545,7 @@ pub fn compile(
                     fp_arg_idx += 1;
                 }
             },
-            // §9.9 / 9.9-e-1: v128 param marshal per AAPCS64
+            // v128 param marshal per AAPCS64
             // §6.4 SIMD calling convention. v128 args arrive in
             // V0..V7; stash via `STR Q V<n>, [SP, #param_off_v128]`.
             // Overflow path per §6.4.2 stage C.4: align next stack
@@ -625,7 +619,7 @@ pub fn compile(
     // ============================================================
     // Body: walk instrs, dispatch per op.
     //
-    // For Phase 7.3 skeleton: track a "result vreg" cursor that
+    // Track a "result vreg" cursor that
     // records which vreg holds the latest pushed value. The
     // function's `end` reads that vreg, ensures it ends up in X0
     // (the AAPCS64 return register), and then runs the epilogue.
@@ -658,13 +652,13 @@ pub fn compile(
     }
 
     // ============================================================
-    // Memory-bounds trap fixup list (sub-f1).
+    // Memory-bounds trap fixup list.
     //
     // Caller-supplied invariants for memory ops in this skeleton:
     //   X28 = vm_base    (memory_base pointer)
     //   X27 = mem_limit  (size in bytes)
     // The caller arranges these before invoking the JIT body.
-    // Phase-7 follow-up wires Runtime → these regs structurally
+    // A follow-up wires Runtime → these regs structurally
     // (D-014 `Runtime.io` injection point dissolves there).
     //
     // Each i32.load / i32.store / etc. emits:
@@ -680,7 +674,7 @@ pub fn compile(
     var bounds_fixups: std.ArrayList(u32) = .empty;
     defer bounds_fixups.deinit(allocator);
 
-    // §9.9-III D-144 γ.4 cycle 4 — dedicated fixup lists for
+    // D-144 — dedicated fixup lists for
     // call_indirect bounds (B.HS) + sig (B.NE) checks. Routed to
     // their own trap stubs that write distinct `trap_kind` codes
     // (2 / 3) so a post-mortem `printCallTrap` can disambiguate
@@ -733,7 +727,7 @@ pub fn compile(
     var back_edge_fuel_fixups: std.ArrayList(u32) = .empty;
     defer back_edge_fuel_fixups.deinit(allocator);
 
-    // Return fixup list (§9.7 / 7.5-return-op): each `return` op
+    // Return fixup list: each `return` op
     // emits its result marshal inline and an unconditional B
     // placeholder; the byte_offset of the placeholder lives here.
     // At function-final `end`, after the marshal but before the
@@ -745,9 +739,8 @@ pub fn compile(
 
     // Call fixup list — exposed via EmitOutput for the post-emit
     // linker / runtime to patch with concrete func-body offsets.
-    // Sub-g1 skeleton: only `call` is supported; call_indirect
-    // lands in sub-g2 with a different mechanism (table lookup +
-    // BLR).
+    // Only `call` uses this list; call_indirect uses a different
+    // mechanism (table lookup + BLR).
     var call_fixups: std.ArrayList(CallFixup) = .empty;
     errdefer call_fixups.deinit(allocator);
 
@@ -776,13 +769,12 @@ pub fn compile(
     else
         0;
 
-    // EH integration IT-1 (ADR-0114 D2 + phase10_eh_integration_plan
-    // §IT-1): scan once for try_table presence and allocate a
-    // per-function `ExceptionTable.Builder` on the function-emit
-    // arena. The per-op `try_table.emit` populates entries; cycles
-    // IT-2..IT-5 fold the builder into the per-Instance
-    // `CompiledWasm.exception_table`. Functions without EH pay one
-    // linear scan + no allocation (`.empty` ArrayList).
+    // EH integration (ADR-0114 D2): scan once for try_table
+    // presence and allocate a per-function `ExceptionTable.Builder`
+    // on the function-emit arena. The per-op `try_table.emit`
+    // populates entries; a later pass folds the builder into the
+    // per-Instance `CompiledWasm.exception_table`. Functions without
+    // EH pay one linear scan + no allocation (`.empty` ArrayList).
     var has_try_table: bool = false;
     for (func.instrs.items) |scan_ins| {
         if (scan_ins.op == .try_table) {
@@ -792,12 +784,12 @@ pub fn compile(
     }
     var eh_builder: exception_table.Builder = .empty;
     defer eh_builder.deinit(allocator);
-    // IT-2 — stack of open try_table blocks awaiting matching `end`.
+    // Stack of open try_table blocks awaiting matching `end`.
     // Each `try_table.emit` pushes; the `end` op pops + patches the
     // matched Builder rows' pc_end with the current buf offset.
     var open_try_tables: std.ArrayList(exception_table.OpenTryTable) = .empty;
     defer open_try_tables.deinit(allocator);
-    // IT-6 prep — per-catch landing_pad_pc forward fixups. Each
+    // Per-catch landing_pad_pc forward fixups. Each
     // `try_table.emit` appends one per catch clause; the matching
     // catch-label's `end` patches `Builder.entries[i].landing_pad_pc`
     // to the post-end buf offset.
@@ -807,8 +799,7 @@ pub fn compile(
     // Bundle compile()'s mutable state behind a pointer-based
     // EmitCtx so extracted op-handler modules (op_const, op_alu,
     // …) observe the same backing storage as the still-inlined
-    // handlers. Op groups migrate one at a time; both views
-    // coexist.
+    // handlers.
     var ctx: EmitCtx = .{
         .allocator = allocator,
         .buf = &buf,
@@ -858,7 +849,7 @@ pub fn compile(
         .local_offsets = layout.offsets,
     };
 
-    // §9.7 / 7.5-emit-deadcode: track polymorphic-stack dead
+    // Track polymorphic-stack dead
     // regions per Wasm spec §3.3. After br / return /
     // unreachable, subsequent ops up to the next structural
     // marker (end / else) are dead — never executed at runtime
@@ -867,7 +858,7 @@ pub fn compile(
     // that the validator already deemed polymorphic-OK.
     var dead_code: bool = false;
     for (func.instrs.items, 0..) |ins, pc| {
-        // §9.8a / 8a.5 — diagnostic surface: on any error return
+        // Diagnostic surface: on any error return
         // from the per-op switch below, surface the failing op
         // tag + pc so the realworld_run_jit cap-removal regression
         // (D-053 + D-054) can localise to a specific opcode handler
@@ -887,8 +878,7 @@ pub fn compile(
         }
         if (dead_code) {
             // Maintain labels-stack consistency for structural
-            // ops in dead regions (§9.7 / 7.5-deadcode-labels-
-            // bookkeeping). Without these placeholder pushes,
+            // ops in dead regions. Without these placeholder pushes,
             // subsequent `end` / `else` cannot find their
             // matching frame and surface as
             // `emitEndIntra`/`emitElse without if_then`.
@@ -927,7 +917,7 @@ pub fn compile(
             }
             continue;
         }
-        // §9.12-B / B4..B11: route through dispatch_collector before
+        // Route through dispatch_collector before
         // the legacy switch. Returns true → per-arch handler ran,
         // skip legacy. Returns false → no per-arch op file for this
         // tag, legacy switch authoritative. Handler errors propagate
@@ -950,8 +940,8 @@ pub fn compile(
             .@"atomic.fence" => {},
             .@"i32.const" => try op_const.emitI32Const(&ctx, &ins),
             .@"i64.const" => try op_const.emitI64Const(&ctx, &ins),
-            // §9.9 / 9.9-m-1a (per ADR-0056): Wasm 2.0 reference-types
-            // partial — null + is_null. ref.func deferred to m-1b
+            // Wasm 2.0 reference-types (per ADR-0056):
+            // partial — null + is_null. ref.func deferred
             // (needs JitRuntime extension for `func_entities_ptr`).
             // ref.null: push 0 (null_ref sentinel per ADR-0014 §2.1
             // / 6.K.1; Value.null_ref == 0). MOVZ Xd, #0 = 0x00000000
@@ -970,7 +960,7 @@ pub fn compile(
                 try gpr.gprStoreSpilled(allocator, &buf, alloc, ctx.spill_base_off, vreg, 0);
                 try pushed_vregs.append(allocator, vreg);
             },
-            // §9.9 / 9.9-m-1b: ref.func idx — produce
+            // ref.func idx — produce
             // `@intFromPtr(&rt.func_entities[idx])` matching
             // `Value.fromFuncRef`'s encoding (interp parity per
             // ADR-0014 §2.1). Recipe:
@@ -1056,13 +1046,11 @@ pub fn compile(
                 try gpr.fpStoreSpilled(allocator, &buf, alloc, spill_base_off, vreg, 0);
                 try pushed_vregs.append(allocator, vreg);
             },
-            // §9.7 / 7.9 chunk c: Wasm 2.0 sign-extension ops.
-            // §9.7 / 7.9 chunk c: integer divide / remainder.
             .@"local.get" => {
                 // Push a fresh vreg holding the value loaded from
                 // `[SP, #(local_base_off + layout.offsets[local_idx])]`.
                 // Width follows declared local type (i32 → LDR W,
-                // i64 → LDR X, v128 → LDR Q per §9.9-e-1).
+                // i64 → LDR X, v128 → LDR Q).
                 const local_idx: u32 = @intCast(ins.payload);
                 if (local_idx >= total_locals) return Error.UnsupportedOp;
                 const ty = localValType(func, num_params, local_idx);
@@ -1100,7 +1088,7 @@ pub fn compile(
                         try gpr.gprStoreSpilled(allocator, &buf, alloc, ctx.spill_base_off, vreg, 0);
                     },
                     .i64, .ref => {
-                        // D-093 (d-33): reftype shares the i64 X-form
+                        // D-093: reftype shares the i64 X-form
                         // 8-byte slot per ADR-0061.
                         const rd = try gpr.gprDefSpilled(alloc, vreg, 0);
                         try gpr.frameLdrGpr(allocator, &buf, rd, offset_u, false);
@@ -1132,7 +1120,7 @@ pub fn compile(
             .@"local.set" => {
                 // Pop top vreg, write to
                 // `[SP, #(local_base_off + layout.offsets[local_idx])]`.
-                // Width follows declared local type per §9.9-e-1.
+                // Width follows declared local type.
                 if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
                 const local_idx: u32 = @intCast(ins.payload);
                 if (local_idx >= total_locals) return Error.UnsupportedOp;
@@ -1236,7 +1224,7 @@ pub fn compile(
                 //   FCSEL d_*, val1_*, val2_*, NE       (FP types — m-4b)
                 //   v128 → op_simd.emitV128Select        (mask synth)
                 //
-                // Dispatch shape (§9.9 / 9.9-m-4a per ADR-0056):
+                // Dispatch shape (per ADR-0056):
                 //   - v128 (shape_tag): pre-existing SIMD mask emit
                 //   - i32 (extra=0x7F or .select untyped default):
                 //     CSEL Wd
@@ -1258,15 +1246,14 @@ pub fn compile(
                     dbg.print("codegen", "arm64/emit: select SlotOverflow func[{d}] vreg={d} >= slots.len={d}\n", .{ func.func_idx, result_v, alloc.slots.len });
                     return Error.SlotOverflow;
                 }
-                // §9.9 / 9.9-d-5: dispatch on val1's shape_tag. v128
+                // Dispatch on val1's shape_tag. v128
                 // operands need a SIMD-aware mask synthesis (CSETM +
                 // DUP V.2D + BSL); GPR / FP fall through to CSEL.
                 if (alloc.shapeTag(val1_v) == .v128) {
                     try op_simd.emitV128Select(&ctx, cond_v, val1_v, val2_v, result_v);
                     try pushed_vregs.append(allocator, result_v);
                 } else {
-                    // §9.9 / 9.9-m-4a (GPR) + 9.9-m-4b (FP):
-                    // dispatch on `ins.extra` — for select_typed
+                    // Dispatch on `ins.extra` — for select_typed
                     // (0x1C) lower emits the valtype byte directly;
                     // for untyped .select (0x1B) lower threads the
                     // validator-resolved valtype from
@@ -1279,8 +1266,8 @@ pub fn compile(
                         // GC/EH abstract refs — 64-bit pointers; D-492). Routing
                         // a reftype to .gpr32 would TRUNCATE the pointer.
                         0x7E, 0x70, 0x6F, 0x6E, 0x6D, 0x6C, 0x6B, 0x6A, 0x69, 0x71, 0x72, 0x73, 0x74 => .gpr64,
-                        0x7D => .fp32, // f32 (9.9-m-4b)
-                        0x7C => .fp64, // f64 (9.9-m-4b)
+                        0x7D => .fp32, // f32
+                        0x7C => .fp64, // f64
                         else => .gpr32, // 0x7F i32 or untyped .select
                     };
                     // CMP cond, #0 emits first (stage 0 for cond). After
@@ -1343,7 +1330,7 @@ pub fn compile(
             },
             .@"return" => {
                 // Wasm spec §4.4.7: pop the function's results and
-                // exit. D-093 (d-14) — use shared
+                // exit. D-093 — use shared
                 // `marshalFunctionReturn` helper so multi-result
                 // signatures (Wasm 2.0 multi-value) marshal all N
                 // results to AAPCS64 X0..X7 / V0..V7. Pre-d-14
@@ -1365,13 +1352,13 @@ pub fn compile(
                 try op_control.emitBr(&ctx, &ins);
                 dead_code = true;
             },
-            // IT-3 minimum — throw / throw_ref dispatched here
+            // throw / throw_ref dispatched here
             // (rather than via dispatch_collector) so the local
             // `dead_code` can be set; arm64 EmitCtx lacks the
             // x86_64-style `dead_code: *bool` ctx field. Per-op
             // bodies emit a B-placeholder targeting the trap stub
-            // (mirror of unreachable). Full dispatcher CALL +
-            // handler dispatch lands at IT-6.
+            // (mirror of unreachable). The full dispatcher CALL +
+            // handler dispatch is a follow-up.
             .throw => {
                 if (comptime wasm_v3_plus) {
                     try op_throw.emit(&ctx, &ins);
@@ -1513,7 +1500,7 @@ pub fn compile(
             .@"memory.copy" => try op_memory.emitMemoryCopy(&ctx),
             // i32.atomic.load (threads, ADR-0168): routed through the
             // shared memory-op emitter like i32.load. Single-threaded
-            // substrate → plain aligned load (runtime align-trap = B2).
+            // substrate → plain aligned load (runtime align-trap deferred).
             // Legacy-switch path (not dispatch_collector) per the bundle
             // decision — same as atomic.fence.
             .@"i32.atomic.load",
@@ -1600,7 +1587,7 @@ pub fn compile(
             .@"i64.mul_wide_s",
             .@"i64.mul_wide_u",
             => try op_alu_int.emitWideMul(&ctx, &ins),
-            // §9.9 / 9.9-m-3a: data.drop / elem.drop — write 1 to
+            // data.drop / elem.drop — write 1 to
             // the dropped-flag byte at `[r15+ptr_off]+idx`. No
             // operands consumed; no result pushed. validator already
             // bounds-checks the index, so no trap path needed.
@@ -1616,16 +1603,16 @@ pub fn compile(
                 try gpr.writeU32(allocator, &buf, inst.encMovzImm16(17, 1));
                 try gpr.writeU32(allocator, &buf, inst.encStrbImm(17, 16, @intCast(ins.payload)));
             },
-            // §9.9 / 9.9-m-2a (per ADR-0058): table.get / table.set /
-            // table.size — bounds-checked load/store against the
-            // per-table TableSlice descriptor in JitRuntime.
-            // §9.9 / 9.9-m-2b (per ADR-0058): table.fill — inline
-            // loop writing N copies of val into refs[dst..dst+n].
-            // §9.9 / 9.9-m-2c (per ADR-0058): table.copy — element-
-            // typed memmove with same-table backward arm.
-            // §9.9 / 9.9-m-2c-init (per ADR-0058 amendment):
-            // table.init — copy from elem segment to table; honours
-            // elem_dropped flag.
+            // Table ops (per ADR-0058):
+            // table.get / table.set / table.size — bounds-checked
+            // load/store against the per-table TableSlice descriptor
+            // in JitRuntime.
+            // table.fill — inline loop writing N copies of val into
+            // refs[dst..dst+n].
+            // table.copy — element-typed memmove with same-table
+            // backward arm.
+            // table.init (ADR-0058 amendment) — copy from elem segment
+            // to table; honours elem_dropped flag.
             .br_table => try op_control.emitBrTable(&ctx, &ins),
             .br_if => try op_control.emitBrIf(&ctx, &ins),
             .end => {
@@ -1638,7 +1625,7 @@ pub fn compile(
                 // Disambiguation: if `labels` is non-empty, we're in
                 // form (A). Otherwise form (B).
                 if (labels.items.len > 0) {
-                    // IT-2 — if this `end` closes a try_table block,
+                    // If this `end` closes a try_table block,
                     // patch the pc_end of the catch entries this
                     // try_table registered. Match by labels-stack
                     // depth at try_table emit time.
@@ -1654,7 +1641,7 @@ pub fn compile(
                             _ = open_try_tables.pop();
                         }
                     }
-                    // IT-6 prep + 10.E-payload-prop D-182 — snapshot
+                    // D-182 — snapshot
                     // the depth of the label about to be popped; for
                     // each landing_pad fixup whose `target_labels_depth`
                     // matches, emit a per-clause prelude:
@@ -1824,7 +1811,7 @@ pub fn compile(
                     continue;
                 }
                 // Function-level end (labels stack is empty).
-                // D-093 (d-5): when the function body terminates
+                // D-093: when the function body terminates
                 // via a dead-fall-through loop (the function
                 // never returns at runtime; an infinite loop or
                 // br target above the function), pushed_vregs
@@ -1832,11 +1819,11 @@ pub fn compile(
                 // allocation entry. The marshal code would
                 // be unreachable at runtime regardless, so skip
                 // when top_vreg has no slot entry.
-                // D-093 (d-11): multi-result function return marshal
+                // D-093: multi-result function return marshal
                 // via shared op_control helper (mirrors the per-arch
                 // X0..X7 / V0..V7 AAPCS64 ABI).
                 try op_control.marshalFunctionReturn(&ctx);
-                // ADR-0106 path (a) cycle 2d — buffer-write ABI
+                // ADR-0106 path (a) — buffer-write ABI
                 // returns the trap-status ErrCode in W0 (= 0 on OK).
                 // marshalFunctionReturn writes results to
                 // `[X16 + i*8]` via the buffer-ptr capture and
@@ -1873,7 +1860,7 @@ pub fn compile(
                 // NaN-trap / range-trap fixups. Each fixup's B.cond
                 // is patched to land here.
                 //
-                // Per sub-7.5b-ii (ADR-0017 trap_flag amendment):
+                // Per the ADR-0017 trap_flag amendment:
                 // STR W17, [X19, #trap_flag_off] sets the runtime's
                 // trap_flag = 1 (W17 holds the trap indicator).
                 // Then a clean MOV X0, #0 + epilogue + RET unwinds
@@ -1885,7 +1872,7 @@ pub fn compile(
                     const trap_byte: u32 = @intCast(buf.items.len);
                     try gpr.writeU32(allocator, &buf, inst.encMovzImm16(17, 1));
                     try gpr.writeU32(allocator, &buf, inst.encStrImmW(17, abi.runtime_ptr_save_gpr, jit_abi.trap_flag_off));
-                    // §9.9-III D-144 γ.4 cycle 4 — generic kind=1
+                    // D-144 — generic kind=1
                     // mirror (every trap variant writes trap_kind so
                     // stale values from earlier invocations cannot
                     // poison the next FAIL's diagnostic).
@@ -1920,7 +1907,7 @@ pub fn compile(
                     }
                 }
 
-                // §9.9-III D-144 γ.4 cycle 4 — dedicated trap stubs
+                // D-144 — dedicated trap stubs
                 // for call_indirect bounds (kind=2) + sig (kind=3).
                 // Each stub mirrors the generic trap stub's shape
                 // (set trap_flag=1, return 0) plus a STR of the kind
@@ -2009,7 +1996,7 @@ pub fn compile(
                 try EmitCindStub.emit(allocator, &buf, &.{interrupt_probe_fixup}, 16, 0);
                 // ADR-0179 #3b / D-314 — prologue out-of-fuel stub (code 17, fb=0).
                 try EmitCindStub.emit(allocator, &buf, &.{fuel_probe_fixup}, 17, 0);
-                // §9.6/9.6-f-ii + §9.9-g-19 — SIMD const-pool flush +
+                // SIMD const-pool flush +
                 // LDR-Q-literal imm19 fixups (per ADR-0042 + ADR-0051).
                 // After the trap stub, if any v128.const / i8x16.shuffle
                 // / emit-time-derived ops emitted LDR-Q-literal
@@ -2046,13 +2033,10 @@ pub fn compile(
                 }
                 break;
             },
-            // §9.9 / 9.5-b-iii — SIMD-128 MVP catalogue per ADR-0041.
-            // Sub-row 9.5-c covers extract/replace_lane + remaining
-            // op shapes; 9.6 covers float arith + compare + shuffle
-            // + conversion.
+            // SIMD-128 MVP catalogue per ADR-0041.
             .@"v128.load" => try op_simd.emitV128Load(&ctx, &ins),
             .@"v128.store" => try op_simd.emitV128Store(&ctx, &ins),
-            // §9.9 / 9.9-d-3 — v128 mem op family (load_zero / load_splat / load_extend).
+            // v128 mem op family (load_zero / load_splat / load_extend).
             .@"v128.load32_zero" => try op_simd.emitV128Load32Zero(&ctx, &ins),
             .@"v128.load64_zero" => try op_simd.emitV128Load64Zero(&ctx, &ins),
             .@"v128.load8_splat" => try op_simd.emitV128Load8Splat(&ctx, &ins),
@@ -2065,7 +2049,7 @@ pub fn compile(
             .@"v128.load16x4_u" => try op_simd.emitV128Load16x4U(&ctx, &ins),
             .@"v128.load32x2_s" => try op_simd.emitV128Load32x2S(&ctx, &ins),
             .@"v128.load32x2_u" => try op_simd.emitV128Load32x2U(&ctx, &ins),
-            // §9.9 / 9.9-d-5 — v128 lane mem family (load_lane × 4,
+            // v128 lane mem family (load_lane × 4,
             // store_lane × 4) sharing v128MemPrologue + scalar
             // load/store + INS/UMOV per Wasm spec §4.4.7.4 / §4.4.7.5.
             .@"v128.load8_lane" => try op_simd.emitV128Load8Lane(&ctx, &ins),
@@ -2076,28 +2060,27 @@ pub fn compile(
             .@"v128.store16_lane" => try op_simd.emitV128Store16Lane(&ctx, &ins),
             .@"v128.store32_lane" => try op_simd.emitV128Store32Lane(&ctx, &ins),
             .@"v128.store64_lane" => try op_simd.emitV128Store64Lane(&ctx, &ins),
-            // §9.9 / 9.9-g-4 — splat handlers for all 6 shapes.
+            // Splat handlers for all 6 shapes.
             .@"i32x4.extract_lane" => try op_simd_int_cmp_lane.emitI32x4ExtractLane(&ctx, &ins),
             .@"i32x4.replace_lane" => try op_simd_int_cmp_lane.emitI32x4ReplaceLane(&ctx, &ins),
-            // §9.9 / 9.9-f-1 — v128 bitwise (AND / OR / XOR / ANDNOT
+            // v128 bitwise (AND / OR / XOR / ANDNOT
             // / NOT / BITSELECT). Per Wasm spec §4.4 (bitwise SIMD)
             // + Arm IHI 0055 §C7.2.{6, 34, 39, 93, 244} (NEON
-            // AND/BIC/BSL/EOR/MVN). x86_64 mirror at op_simd.zig
-            // landed in §9.5/9.6.
-            // §9.9/9.5-c-iv — int-arith ADD/SUB across all 4 shapes.
-            // (i64x2.mul dispatch lives below alongside the §9.5-c-vii-mul block.)
-            // §9.9 / 9.9-g-10 — int min/max + avgr_u (14 ops). NEON
+            // AND/BIC/BSL/EOR/MVN). x86_64 mirror at op_simd.zig.
+            // Int-arith ADD/SUB across all 4 shapes.
+            // (i64x2.mul dispatch lives below.)
+            // Int min/max + avgr_u (14 ops). NEON
             // has no .2D form for these (and Wasm spec correspondingly
             // has no i64x2 min/max/avgr); i32x4.avgr_u also doesn't
             // exist in the Wasm proposal.
-            // §9.9 / 9.9-g-7 + 9.9-g-8 — int shifts (12 ops).
-            // §9.9 / 9.9-g-3 — v128 reductions (any_true / all_true).
-            // §9.9 / 9.9-g-19 — i*x*.bitmask (per ADR-0051; uses
+            // Int shifts (12 ops).
+            // v128 reductions (any_true / all_true).
+            // i*x*.bitmask (per ADR-0051; uses
             // emit-time-derived per-shape masks via extra_consts).
-            // §9.9/9.9-f-7 — int unops (abs / neg / popcnt).
-            // §9.9/9.5-c-vi — int lane access for B/H/D element forms.
-            // i32x4 already wired in 9.5-c-iii above. f32x4/f64x2 +
-            // i64x2.mul defer to 9.5-c-vii.
+            // Int unops (abs / neg / popcnt).
+            // Int lane access for B/H/D element forms.
+            // i32x4 wired above; f32x4/f64x2 +
+            // i64x2.mul below.
             .@"i8x16.extract_lane_s" => try op_simd_int_cmp_lane.emitI8x16ExtractLaneS(&ctx, &ins),
             .@"i8x16.extract_lane_u" => try op_simd_int_cmp_lane.emitI8x16ExtractLaneU(&ctx, &ins),
             .@"i8x16.replace_lane" => try op_simd_int_cmp_lane.emitI8x16ReplaceLane(&ctx, &ins),
@@ -2106,27 +2089,27 @@ pub fn compile(
             .@"i16x8.replace_lane" => try op_simd_int_cmp_lane.emitI16x8ReplaceLane(&ctx, &ins),
             .@"i64x2.extract_lane" => try op_simd_int_cmp_lane.emitI64x2ExtractLane(&ctx, &ins),
             .@"i64x2.replace_lane" => try op_simd_int_cmp_lane.emitI64x2ReplaceLane(&ctx, &ins),
-            // §9.9/9.5-c-vii — f32x4 / f64x2 lane access. i64x2.mul
-            // synthesis defers to 9.5-c-vii-mul (scratch-reg conv).
+            // f32x4 / f64x2 lane access. i64x2.mul
+            // synthesis below (scratch-reg conv).
             .@"f32x4.extract_lane" => try op_simd_float.emitF32x4ExtractLane(&ctx, &ins),
             .@"f32x4.replace_lane" => try op_simd_float.emitF32x4ReplaceLane(&ctx, &ins),
             .@"f64x2.extract_lane" => try op_simd_float.emitF64x2ExtractLane(&ctx, &ins),
             .@"f64x2.replace_lane" => try op_simd_float.emitF64x2ReplaceLane(&ctx, &ins),
-            // §9.9/9.5-c-vii-mul — i64x2.mul multi-instr synthesis.
+            // i64x2.mul multi-instr synthesis.
             .@"i64x2.mul" => try op_simd_int_arith.emitI64x2Mul(&ctx, &ins),
-            // §9.6/9.6-a — f32x4 / f64x2 binary FP arithmetic.
-            // §9.6/9.6-b — f32x4/f64x2 unary FP arithmetic.
-            // §9.6/9.6-c-i — f32x4/f64x2 min/max (NaN-propagating).
-            // §9.6/9.6-c-ii — f32x4/f64x2 pmin/pmax synthesis (FCMGT + BSL).
-            // §9.6/9.6-d — int per-lane compares (CMEQ/CMGT/CMGE/CMHI/CMHS family).
-            // §9.6/9.6-e — FP per-lane compares (FCMEQ/FCMGT/FCMGE).
-            // §9.6/9.6-f-i — i8x16.swizzle via NEON TBL (1-register form).
-            // §9.6/9.6-g-i — extend low/high (SXTL/SXTL2/UXTL/UXTL2).
-            // §9.6/9.6-g-ii — saturating narrow (SQXTN/SQXTUN family).
-            // §9.6/9.6-g-iii — i→f FP convert (SCVTF/UCVTF family).
+            // f32x4 / f64x2 binary FP arithmetic.
+            // f32x4/f64x2 unary FP arithmetic.
+            // f32x4/f64x2 min/max (NaN-propagating).
+            // f32x4/f64x2 pmin/pmax synthesis (FCMGT + BSL).
+            // Int per-lane compares (CMEQ/CMGT/CMGE/CMHI/CMHS family).
+            // FP per-lane compares (FCMEQ/FCMGT/FCMGE).
+            // i8x16.swizzle via NEON TBL (1-register form).
+            // Extend low/high (SXTL/SXTL2/UXTL/UXTL2).
+            // Saturating narrow (SQXTN/SQXTUN family).
+            // i→f FP convert (SCVTF/UCVTF family).
             .@"f64x2.convert_low_i32x4_u" => try op_simd_float.emitF64x2ConvertLowI32x4U(&ctx, &ins),
-            // §9.6/9.6-g-iv — FP promote/demote (FCVTL/FCVTN).
-            // §9.6/9.6-g-v — trunc_sat (FCVTZS/U + SQXTN/UQXTN family).
+            // FP promote/demote (FCVTL/FCVTN).
+            // trunc_sat (FCVTZS/U + SQXTN/UQXTN family).
             .@"i32x4.trunc_sat_f64x2_s_zero" => try op_simd_float.emitI32x4TruncSatF64x2SZero(&ctx, &ins),
             .@"i32x4.trunc_sat_f64x2_u_zero" => try op_simd_float.emitI32x4TruncSatF64x2UZero(&ctx, &ins),
             // STRICT (non-relaxed) f32↔i32 + f64.convert_low_s conversions (D-457).
@@ -2145,7 +2128,7 @@ pub fn compile(
             // *_rounding / simd_i64x2_extmul_i32x4, so the gap stayed hidden.
             .@"f32x4.demote_f64x2_zero" => try op_simd_float.emitF32x4DemoteF64x2Zero(&ctx, &ins),
             .@"f64x2.promote_low_f32x4" => try op_simd_float.emitF64x2PromoteLowF32x4(&ctx, &ins),
-            // §9.6/9.6-g-vi — FP rounding (FRINTP/M/Z/N).
+            // FP rounding (FRINTP/M/Z/N).
             .@"f32x4.ceil" => try op_simd_float.emitF32x4Ceil(&ctx, &ins),
             .@"f32x4.floor" => try op_simd_float.emitF32x4Floor(&ctx, &ins),
             .@"f32x4.trunc" => try op_simd_float.emitF32x4Trunc(&ctx, &ins),
@@ -2154,7 +2137,7 @@ pub fn compile(
             .@"f64x2.floor" => try op_simd_float.emitF64x2Floor(&ctx, &ins),
             .@"f64x2.trunc" => try op_simd_float.emitF64x2Trunc(&ctx, &ins),
             .@"f64x2.nearest" => try op_simd_float.emitF64x2Nearest(&ctx, &ins),
-            // §9.6/9.6-g-ii — saturating narrow (SQXTN/SQXTUN family).
+            // Saturating narrow (SQXTN/SQXTUN family).
             .@"i8x16.narrow_i16x8_s" => try op_simd_int_cmp_lane.emitI8x16NarrowI16x8S(&ctx, &ins),
             .@"i8x16.narrow_i16x8_u" => try op_simd_int_cmp_lane.emitI8x16NarrowI16x8U(&ctx, &ins),
             .@"i16x8.narrow_i32x4_s" => try op_simd_int_cmp_lane.emitI16x8NarrowI32x4S(&ctx, &ins),
@@ -2164,44 +2147,44 @@ pub fn compile(
             .@"i64x2.extmul_high_i32x4_s" => try op_simd_int_arith.emitI64x2ExtmulHighI32x4S(&ctx, &ins),
             .@"i64x2.extmul_low_i32x4_u" => try op_simd_int_arith.emitI64x2ExtmulLowI32x4U(&ctx, &ins),
             .@"i64x2.extmul_high_i32x4_u" => try op_simd_int_arith.emitI64x2ExtmulHighI32x4U(&ctx, &ins),
-            // §17.4 relaxed-SIMD trunc — NaN/OOB → saturating clamp (v2 choice),
+            // relaxed-SIMD trunc — NaN/OOB → saturating clamp (v2 choice),
             // behaviourally identical to trunc_sat; reuse those emits.
             .@"i32x4.relaxed_trunc_f32x4_s" => try op_simd_float.emitI32x4TruncSatF32x4S(&ctx, &ins),
             .@"i32x4.relaxed_trunc_f32x4_u" => try op_simd_float.emitI32x4TruncSatF32x4U(&ctx, &ins),
             .@"i32x4.relaxed_trunc_f64x2_s_zero" => try op_simd_float.emitI32x4TruncSatF64x2SZero(&ctx, &ins),
             .@"i32x4.relaxed_trunc_f64x2_u_zero" => try op_simd_float.emitI32x4TruncSatF64x2UZero(&ctx, &ins),
-            // §17.4 relaxed-SIMD min/max — raw hardware FMIN/FMAX (NEON is
+            // relaxed-SIMD min/max — raw hardware FMIN/FMAX (NEON is
             // already NaN-propagating); identical to strict on arm64 (ADR-0169).
             .@"f32x4.relaxed_min" => try op_simd_float.emitF32x4Min(&ctx, &ins),
             .@"f32x4.relaxed_max" => try op_simd_float.emitF32x4Max(&ctx, &ins),
             .@"f64x2.relaxed_min" => try op_simd_float.emitF64x2Min(&ctx, &ins),
             .@"f64x2.relaxed_max" => try op_simd_float.emitF64x2Max(&ctx, &ins),
-            // §17.4 relaxed-SIMD madd/nmadd — fused FMLA/FMLS (3-operand).
+            // relaxed-SIMD madd/nmadd — fused FMLA/FMLS (3-operand).
             .@"f32x4.relaxed_madd" => try op_simd_float.emitF32x4RelaxedMadd(&ctx, &ins),
             .@"f32x4.relaxed_nmadd" => try op_simd_float.emitF32x4RelaxedNmadd(&ctx, &ins),
             .@"f64x2.relaxed_madd" => try op_simd_float.emitF64x2RelaxedMadd(&ctx, &ins),
             .@"f64x2.relaxed_nmadd" => try op_simd_float.emitF64x2RelaxedNmadd(&ctx, &ins),
-            // §17.4 relaxed-SIMD laneselect — full bitwise (a&m)|(b&~m) = exactly
+            // relaxed-SIMD laneselect — full bitwise (a&m)|(b&~m) = exactly
             // v128.bitselect (ADR-0169 full-bitselect choice); lane width irrelevant.
             .@"i8x16.relaxed_laneselect",
             .@"i16x8.relaxed_laneselect",
             .@"i32x4.relaxed_laneselect",
             .@"i64x2.relaxed_laneselect",
             => try op_simd.emitV128Bitselect(&ctx, &ins),
-            // §17.4 relaxed-SIMD q15mulr — overflow (INT16_MIN²) → INT16_MAX =
+            // relaxed-SIMD q15mulr — overflow (INT16_MIN²) → INT16_MAX =
             // strict SQRDMULH saturation (ADR-0169); reuse strict q15mulr_sat_s.
             .@"i16x8.relaxed_q15mulr_s" => try op_simd_int_arith.emitI16x8Q15mulrSatS(&ctx, &ins),
-            // §17.4 relaxed-SIMD dot (i8×i8 → i16x8 pairwise): SMULL/SMULL2/ADDP.8H.
+            // relaxed-SIMD dot (i8×i8 → i16x8 pairwise): SMULL/SMULL2/ADDP.8H.
             .@"i16x8.relaxed_dot_i8x16_i7x16_s" => try op_simd_int_arith.emitI16x8RelaxedDot(&ctx, &ins),
-            // §17.4 relaxed-SIMD dot+accumulate (4-way i8 dot + c): + SADDLP.4S + ADD.4S.
+            // relaxed-SIMD dot+accumulate (4-way i8 dot + c): + SADDLP.4S + ADD.4S.
             .@"i32x4.relaxed_dot_i8x16_i7x16_add_s" => try op_simd_int_arith.emitI32x4RelaxedDotAdd(&ctx, &ins),
-            // §9.6/9.6-f-ii — v128.const + i8x16.shuffle (per ADR-0042
+            // v128.const + i8x16.shuffle (per ADR-0042
             // const-pool with PC-relative LDR-Q-literal + fixup pass).
             .@"v128.const" => try op_simd.emitV128Const(&ctx, &ins),
             .@"i8x16.shuffle" => try op_simd_int_cmp_lane.emitI8x16Shuffle(&ctx, &ins),
 
             else => {
-                // §9.7 / 7.5-diag-op: surface the unhandled op
+                // Surface the unhandled op
                 // tag to stderr so the spec-jit-compile-runner's
                 // /tmp/<host>.log captures which Wasm op the
                 // emit pass doesn't know yet. Without this, every
@@ -2226,7 +2209,7 @@ pub fn compile(
     // violation = the liveness↔emit numbering divergence the spike hit.
     std.debug.assert(next_vreg <= n_temp);
 
-    // IT-2 — harvest the per-function EH handler entries into an
+    // Harvest the per-function EH handler entries into an
     // owned slice; the Builder.entries ArrayList transfers ownership
     // here so the surrounding `defer eh_builder.deinit(allocator)`
     // becomes a no-op for the entries slot (it still frees nothing

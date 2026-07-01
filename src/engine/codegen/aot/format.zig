@@ -1,5 +1,5 @@
 //! `.cwasm` v0.1 binary format types + write/parse helpers
-//! (§9.8b / 8b.3-c per ADR-0039).
+//! (per ADR-0039).
 //!
 //! Inline-bytes container: header + per-func metadata +
 //! types + relocs + code sections in one file. Producer-only
@@ -27,7 +27,7 @@ const std = @import("std");
 pub const magic = [4]u8{ 'C', 'W', 'A', 'S' };
 pub const version_v0_1: u32 = 0x0001_0000; // (major << 16) | minor — superseded
 pub const version_v0_2: u32 = 0x0002_0000; // superseded: exports section (ADR-0138)
-pub const version_v0_3: u32 = 0x0003_0000; // superseded: + globals section (ADR-0139 §12.3b)
+pub const version_v0_3: u32 = 0x0003_0000; // superseded: + globals section (ADR-0139)
 pub const version_v0_4: u32 = 0x0004_0000; // current: + imports-metadata section (D-251 AOT-WASI)
 
 pub const arch_arm64: u32 = 1;
@@ -76,7 +76,7 @@ pub const CwasmHeader = struct {
     // entry points by name without re-parsing the original `.wasm`.
     exports_offset: u32 = 0,
     exports_size: u32 = 0,
-    // v0.3 (ADR-0139 §12.3b): globals section — pre-evaluated defined-global
+    // v0.3 (ADR-0139): globals section — pre-evaluated defined-global
     // init values (16 B each, `Value.bits128`) so a standalone runtime
     // reconstructs `globals_base` without re-evaluating init-exprs.
     globals_offset: u32 = 0,

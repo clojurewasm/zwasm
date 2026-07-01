@@ -276,7 +276,7 @@ test "compile: br_if 0 — forward CBNZ fixup" {
 }
 
 test "compile: try_table emit populates EmitOutput.exception_handlers (IT-2)" {
-    // Phase 10 EH integration IT-2 — compile() of a function with
+    // EH integration — compile() of a function with
     // a populated try_table block produces an
     // `EmitOutput.exception_handlers` slice with one HandlerEntry
     // per catch clause, with kind/tag_idx round-tripped from the
@@ -343,10 +343,10 @@ test "compile: try_table emit populates EmitOutput.exception_handlers (IT-2)" {
 }
 
 test "compile: throw emits B placeholder + appends bounds_fixup (IT-3 trap-path)" {
-    // Phase 10 EH integration IT-3 minimum — throw emits a single
+    // EH integration minimum — throw emits a single
     // unconditional B placeholder targeting the function trap
     // stub (mirror of `unreachable`). Full dispatcher CALL +
-    // handler branch lands at IT-6. The byte count after compile
+    // handler branch lands later. The byte count after compile
     // must include the prologue + the 4-byte B placeholder + the
     // trap-stub epilogue (patched by the function-end pass).
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
@@ -374,11 +374,11 @@ test "compile: throw emits B placeholder + appends bounds_fixup (IT-3 trap-path)
 }
 
 test "compile: try_table reaches per-op emit with ExceptionTable.Builder wired (IT-1)" {
-    // Phase 10 EH integration IT-1 — compile() detects `.try_table`
+    // EH integration — compile() detects `.try_table`
     // ops in func.instrs and allocates a per-function
     // `ExceptionTable.Builder`, threading it through
     // `ctx.exception_table_builder`. The per-op stub still returns
-    // `UnsupportedOp` (IT-2 lands the emit body); this test only
+    // `UnsupportedOp` (the emit body lands later); this test only
     // verifies the dispatcher reaches the stub with the builder
     // wired (the stub's `std.debug.assert(builder != null)` would
     // panic otherwise).

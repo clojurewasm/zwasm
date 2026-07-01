@@ -23,7 +23,7 @@ const Allocator = std.mem.Allocator;
 
 const jit_mem = @import("../../../platform/jit_mem.zig");
 const code_map = @import("code_map.zig");
-/// 7.5-close-d042 / §9.7 / 7.8 prep: comptime arch dispatch
+/// Comptime arch dispatch
 /// matching `compile.zig` (commit `0925134`). Both backends
 /// expose `CallFixup` with the same
 /// `{byte_offset: u32, target_func_idx: u32}` shape.
@@ -53,7 +53,7 @@ pub const Error = error{
 pub const FuncBody = struct {
     bytes: []const u8,
     call_fixups: []const emit.CallFixup,
-    /// Phase 10.E IT-6 prep — per-function aligned frame size in
+    /// Per-function aligned frame size in
     /// bytes (from `EmitOutput.frame_bytes`). Propagates to
     /// `CodeMap.Entry.frame_bytes`; the EH SP-restore path
     /// consumes it. Defaults to 0 for callers that don't set it
@@ -61,8 +61,8 @@ pub const FuncBody = struct {
     frame_bytes: u32 = 0,
 };
 
-/// ADR-0106 cycle 3e Phase 2'g — per-function buffer-write
-/// wrapper thunk specification. Lists which `func_idx` in
+/// Per-function buffer-write wrapper thunk specification
+/// (ADR-0106). Lists which `func_idx` in
 /// `func_bodies` needs a wrapper emitted alongside its body.
 /// The wrapper's Zig-side signature is `fn(rt, results, args)
 /// callconv(.c) ErrCode` per `entry_buffer_write.BufferWriteFn`.
@@ -80,8 +80,8 @@ pub const JitModule = struct {
     /// `func_offsets[i]` = byte offset of function `i`'s entry
     /// within `block.bytes`. Allocator-owned.
     func_offsets: []const u32,
-    /// ADR-0106 cycle 3e Phase 2'f — per-function wrapper thunk
-    /// offset. `thunk_offsets[i]` = byte offset of function `i`'s
+    /// Per-function wrapper thunk offset (ADR-0106).
+    /// `thunk_offsets[i]` = byte offset of function `i`'s
     /// **buffer-write wrapper thunk** entry within `block.bytes`,
     /// or `NO_THUNK` (= sentinel `0xFFFFFFFF`) when no thunk was
     /// emitted (e.g. function has no multi-result signature, or
@@ -96,7 +96,7 @@ pub const JitModule = struct {
     /// address via `func_offsets[i]` per ADR-0017 / ADR-0066.
     thunk_offsets: ?[]const u32 = null,
 
-    /// Phase 10.E IT-4 (ADR-0114 D5) — per-Instance JIT code map
+    /// Per-Instance JIT code map (ADR-0114 D5) —
     /// entries sorted by `start_addr`. Built at link time from
     /// `func_offsets`; consumed by the FP-walk unwinder via
     /// `codeMap().lookup(ret_addr)` to translate a saved LR / RIP
@@ -126,7 +126,7 @@ pub const JitModule = struct {
     /// given signature. Caller is responsible for matching the
     /// emitted body's signature.
     ///
-    /// §9.7 / 7.10-l defensive guard: the realworld_run_jit run-
+    /// Defensive guard: the realworld_run_jit run-
     /// stage SEGV investigation surfaced this site as a possible
     /// out-of-bounds read path (idx ≥ func_offsets.len would walk
     /// into garbage and produce a wildly invalid function pointer,
@@ -167,8 +167,8 @@ pub const JitModule = struct {
     /// bug; the resolver must populate `host_dispatch_base[i]`
     /// without ever reaching for the importer's own JIT module's
     /// entry().
-    /// ADR-0106 cycle 3e Phase 2'f — fetch the buffer-write wrapper
-    /// thunk for function `idx` as a typed function pointer. The
+    /// Fetch the buffer-write wrapper thunk (ADR-0106)
+    /// for function `idx` as a typed function pointer. The
     /// thunk's Zig-side signature is `fn(rt, results, args)
     /// callconv(.c) ErrCode` per `entry_buffer_write.BufferWriteFn`.
     ///
@@ -338,11 +338,11 @@ pub fn link(allocator: Allocator, func_bodies: []const FuncBody, num_imports: u3
 
     try jit_mem.setExecutable(block);
 
-    // IT-4 — build per-Instance code map entries. Each defined
+    // Build per-Instance code map entries. Each defined
     // function gets one Entry with absolute start_addr + len +
     // wasm-space func_idx. Sorted by start_addr by construction
     // (func_offsets is monotonically increasing). frame_bytes is
-    // a placeholder (0) until IT-6's SP-restore path consumes it
+    // a placeholder (0) until the SP-restore path consumes it
     // for handler dispatch. `total_size` (the sum of body lengths,
     // pre-page-alignment) is the upper bound for the last
     // function — `block.bytes.len` is page-aligned and would
@@ -363,13 +363,12 @@ pub fn link(allocator: Allocator, func_bodies: []const FuncBody, num_imports: u3
     };
 }
 
-/// IT-4 helper — derive `CodeMap.Entry`s from a linked JitBlock's
+/// Derives `CodeMap.Entry`s from a linked JitBlock's
 /// `func_offsets`. Caller owns the returned slice. `code_total` is
 /// the sum of body lengths (= one-past-end offset of the last
 /// defined function); `block.bytes.len` is page-aligned by
 /// `jit_mem.alloc` and overshoots the actual function range.
-/// `func_bodies` carries the per-function `frame_bytes` populated
-/// by IT-6 prep.
+/// `func_bodies` carries the per-function `frame_bytes`.
 fn buildCodeMapEntries(
     allocator: Allocator,
     block: jit_mem.JitBlock,
@@ -404,10 +403,10 @@ fn buildCodeMapEntries(
     return entries;
 }
 
-/// ADR-0106 cycle 3e Phase 2'g — link + emit per-function
-/// wrapper thunks alongside the bodies.
+/// Link + emit per-function wrapper thunks alongside the
+/// bodies (ADR-0106).
 ///
-/// Composes existing `link()` with a Phase 2'-style wrapper
+/// Composes existing `link()` with a wrapper
 /// emit pass: bodies first (at offset 0..body_size), wrappers
 /// appended after (at offset body_size..total_size).
 /// `thunk_offsets[func_idx]` records the wrapper's offset, or
@@ -492,7 +491,7 @@ pub fn linkWithThunks(
     errdefer allocator.free(offsets_copy);
     body_module.deinit(allocator);
 
-    // IT-4 — rebuild code_map_entries against the new block. The
+    // Rebuild code_map_entries against the new block. The
     // body_module's entries point at the freed block; rebuilding
     // here ensures the returned JitModule's entries match the
     // wrapper-extended block addresses. The body offsets stay
@@ -576,7 +575,7 @@ test "link: 2-function module — fn0 calls fn1, returns 7" {
     var module = try link(testing.allocator, &bodies, 0);
     defer module.deinit(testing.allocator);
 
-    // §9.8a / 8a.2: ADR-0034 sentinel store mandates a valid
+    // ADR-0034 sentinel store mandates a valid
     // JitRuntime ptr in X0 (was tolerable garbage pre-sentinel
     // because the existing prologue LDRs read but never wrote
     // through X0; the new STR W17, [X19, #flag_off] requires
@@ -612,7 +611,7 @@ test "link: 2-function module — fn0 calls fn1, returns 7" {
     try testing.expect(module.entryAddr(0) != module.entryAddr(1));
 }
 
-// ADR-0112 D4 / 10.TC emit-body wiring (cycle 1): tail-call
+// ADR-0112 D4: tail-call
 // CallFixup with `is_tail = true` MUST patch to B (0x14...),
 // NOT BL (0x94...), so the caller's frame is not preserved by
 // LR-save and the callee RETs to the caller's caller. Same
@@ -725,7 +724,7 @@ test "link: is_tail=false fixup -> call (arm64 BL / x86_64 CALL); regression for
     }
 }
 
-// ADR-0112 D3 / 10.TC emit-body cycle 3 — end-to-end `return_call`
+// ADR-0112 D3 — end-to-end `return_call`
 // drives the full pipeline (emit → link → execute) on Mac aarch64.
 // fn0 = `return_call 1 ; end` (no args, no locals → frame_bytes=0
 // keeps the teardown to a single LDP). fn1 = `i32.const 7 ; end`.
@@ -734,7 +733,7 @@ test "link: is_tail=false fixup -> call (arm64 BL / x86_64 CALL); regression for
 // Zig stub — the same observable as a regular call but via the
 // B-fixup path (no LR clobber, no return through fn0).
 test "link+execute: fn0 return_call fn1 returns 7 via B/JMP fixup (ADR-0112 D3/D4)" {
-    // Both arches wired in 10.TC-emit-body cycles 3 (arm64) + 5 (x86_64).
+    // Both arches wired (arm64 + x86_64).
     // D-193 triage: ungated. Gate already included x86_64 (ran on
     // ubuntu); removing the defensive over-skip on non-CI hosts
     // (Linux aarch64 / Mac x86_64). Win deferred per ADR-0122 phaseEnd.
@@ -893,7 +892,7 @@ test "linkWithThunks: single multi-result function — wrapper invocation writes
 }
 
 test "link: populates code_map entries for each defined function (IT-4)" {
-    // Phase 10.E IT-4 — link() builds per-Instance CodeMap entries
+    // link() builds per-Instance CodeMap entries
     // from func_offsets so the FP-walk unwinder can translate a
     // saved LR / RIP into (func_idx, relative_pc). Synthetic bytes
     // (no real emit) are enough: link() copies them verbatim into
@@ -956,7 +955,7 @@ test "link: import-only module — code_map empty" {
 }
 
 test "link: frame_bytes round-trips from FuncBody to CodeMap.Entry (IT-6 prep)" {
-    // Phase 10.E IT-6 preparatory threading — `EmitOutput.frame_bytes`
+    // `EmitOutput.frame_bytes`
     // flows through `FuncBody.frame_bytes` into
     // `CodeMap.Entry.frame_bytes`. The EH SP-restore path
     // (sp_restore.emitSpRestoreFull) reads this to recover the

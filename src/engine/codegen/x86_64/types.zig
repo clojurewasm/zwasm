@@ -17,7 +17,7 @@ const dbg = @import("../../../support/dbg.zig");
 const Allocator = std.mem.Allocator;
 
 /// Errors raised by the x86_64 emit pass. Mirrors arm64's set
-/// so the §9.7 / 7.11 differential can match shapes; new
+/// so the arm64↔x86_64 differential can match shapes; new
 /// per-arch errors get added here as their consumers land.
 pub const Error = error{
     AllocationMissing,
@@ -74,13 +74,13 @@ pub const EmitOutput = struct {
     bytes: []u8,
     n_slots: u16,
     call_fixups: []CallFixup,
-    /// Phase 10.E IT-2 (ADR-0114 + phase10_eh_integration_plan.md
-    /// §IT-2): per-function EH HandlerEntry slice harvested from
-    /// the `ExceptionTable.Builder` at compile end. IT-5 folds the
+    /// Per-function EH HandlerEntry slice (ADR-0114 +
+    /// phase10_eh_integration_plan.md): harvested from
+    /// the `ExceptionTable.Builder` at compile end. The linker folds the
     /// per-function slices into the per-Instance ExceptionTable on
     /// CompiledWasm. Empty for functions without try_table.
     exception_handlers: []const exception_table.HandlerEntry = &.{},
-    /// Phase 10.E IT-6 prep — per-function aligned frame size in
+    /// Per-function aligned frame size in
     /// bytes (= prologue's `SUB RSP, frame_bytes`). Consumed by
     /// the linker to populate `CodeMap.Entry.frame_bytes`; the EH
     /// SP-restore path uses it to recover the handler frame's

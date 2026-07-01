@@ -1,6 +1,5 @@
 // FILE-SIZE-EXEMPT: per-op handler catalog (Wasm SIMD-128 sub-language); P1 spec-defined (per ADR-0099)
-//! x86_64 emit pass — SIMD-128 op handlers (§9.7 / 9.7-a + 9.7-b
-//! per ADR-0041).
+//! x86_64 emit pass — SIMD-128 op handlers.
 //!
 //! Mirrors the role of `arm64/op_simd.zig` for the SSE2 / SSE4.1
 //! lowering of v128 ops. The shape-tag pipeline itself
@@ -8,7 +7,7 @@
 //! across arches per ADR-0041 §"Decision" / 2 and needs no
 //! x86_64-side wiring.
 //!
-//! 9.7-a + 9.7-b scope (packed integer add/sub family — 8 ops):
+//! Packed integer add/sub family (8 ops):
 //!
 //! - `emitV128IntBinop(encoder)` — shared helper. Pop 2 v128;
 //!   `MOVAPS dst, lhs` (elided when dst aliases lhs) then
@@ -22,14 +21,13 @@
 //!   one-line dispatch into `emitV128IntBinop` with the
 //!   appropriate `inst.encPadd*` / `inst.encPsub*` encoder.
 //!
-//! Out of scope (defers to later 9.7 chunks):
+//! Out of scope:
 //!
 //! - v128 spill helpers (16-byte stride MOVDQU). The existing
 //!   `gpr.xmmLoadSpilled` / `xmmDefSpilled` use 8-byte MOVSD
 //!   which truncates the upper 64 bits of an XMM. Spilled v128
 //!   vregs therefore return `Error.UnsupportedOp` via
-//!   `gpr.resolveXmm` until the 16-byte spill helpers land
-//!   (queued for 9.7-c).
+//!   `gpr.resolveXmm` until the 16-byte spill helpers land.
 //! - v128.const / v128.load / v128.store / splat / extract_lane
 //!   / replace_lane / mul / compare / shuffle / FP arith / FP
 //!   compare / convert. Each of these introduces new encoder
@@ -68,7 +66,7 @@ const Error = types.Error;
 /// AVX VPADD* (out of scope per ADR-0041 §"5. SSE4.1 minimum
 /// baseline").
 ///
-/// ADR-0053 Part 3 (§9.9 / 9.9-h-11) — spill-aware via the v128
+/// ADR-0053 Part 3 — spill-aware via the v128
 /// helpers from gpr.zig. rhs loads to stage 0 (XMM14) when
 /// spilled, lhs to stage 1 (XMM15), result also uses stage 1 so
 /// the MOVAPS-from-lhs writes to the same physical XMM the
@@ -414,14 +412,14 @@ pub fn emitV128Load64Zero(
 }
 
 // =============================================================
-// §9.7 / 9.7-bb — v128.load{8x8,16x4,32x2}_{s,u} (6 ops)
+// v128.load{8x8,16x4,32x2}_{s,u} (6 ops)
 //
 // Wasm spec §4.4.7. Load 8 bytes from mem into low qword of dst
 // (upper 64 zeroed), then extend each lane to the next-larger
 // size: 8→16, 16→32, 32→64. Cranelift recipe `lower.isle:
 // 4977-5010` is identical: MOVQ + PMOVSX/ZX{BW,WD,DQ}. Reuses
-// 9.7-ax's v128MemPrologue with access_size=8 and the existing
-// PMOVSX/ZX encoders from 9.7-x. No new encoders.
+// v128MemPrologue with access_size=8 and the existing
+// PMOVSX/ZX encoders. No new encoders.
 // =============================================================
 
 pub fn v128LoadExtend(
@@ -485,7 +483,7 @@ pub fn emitV128Load32x2U(allocator: Allocator, buf: *std.ArrayList(u8), alloc: r
 }
 
 // =============================================================
-// §9.7 / 9.7-ba — load_lane / store_lane × {8, 16, 32, 64} (8 ops)
+// load_lane / store_lane × {8, 16, 32, 64} (8 ops)
 //
 // Wasm spec §4.4.7. load_lane: load N bytes from mem into a GPR
 // then PINSR{B/W/D/Q} reg-form to merge into the input v128 at
@@ -496,8 +494,8 @@ pub fn emitV128Load32x2U(allocator: Allocator, buf: *std.ArrayList(u8), alloc: r
 //
 // Cranelift recipes (`lower.isle`) use mem-form PINSR/PEXTR for
 // one fewer instruction; zwasm's GPR-roundtrip path matches the
-// existing 9.7-e..g lane-access shape and avoids new mem-form
-// encoders for this chunk. Performance refinement is §9.10 work.
+// existing lane-access shape and avoids new mem-form
+// encoders for this chunk. Performance refinement is future work.
 // =============================================================
 
 pub fn v128LoadLane(
@@ -649,7 +647,7 @@ pub fn emitV128Store64Lane(allocator: Allocator, buf: *std.ArrayList(u8), alloc:
 /// synthesise via `PCMPEQB scratch, scratch` (= all-ones) +
 /// `PXOR dst, scratch` (= ~src). 3-instruction emit including the
 /// MOVAPS preamble to copy src into dst.
-/// §9.12-B / B90 (ADR-0075) — `(ctx, ins)` adapters for the v128
+/// `(ctx, ins)` adapters for the v128
 /// logical cohort (v128.not/and/andnot/or/xor/bitselect). Each
 /// wraps its existing 6-arg helper.
 pub fn emitV128NotCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
@@ -682,7 +680,7 @@ pub fn emitV128BitselectCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Err
     return emitV128Bitselect(ctx.allocator, ctx.buf, ctx.alloc, ctx.pushed_vregs, ctx.next_vreg, ctx.spill_base_off);
 }
 
-// §9.12-B / B104 (ADR-0075) — `(ctx, ins)` adapter for v128.any_true.
+// `(ctx, ins)` adapter for v128.any_true.
 
 pub fn emitV128AnyTrueCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
@@ -722,7 +720,7 @@ pub fn emitV128Not(
 
 /// Wasm spec §4.4.4 (v128.and / v128.or / v128.xor) — pop two
 /// v128, push v128 with the corresponding bitwise op applied per
-/// 128-bit value. Reuses 9.7-b's `emitV128IntBinop` shape with the
+/// 128-bit value. Reuses the `emitV128IntBinop` shape with the
 /// SSE2 packed-int encoders (PAND / POR / PXOR — int-domain XOR
 /// preferred over XORPS for bit-identical-but-domain-faster
 /// semantics on older microarchitectures).
@@ -801,7 +799,7 @@ pub fn emitV128Bitselect(
     next_vreg.* += 1;
     if (result_v >= alloc.slots.len) return Error.SlotOverflow;
 
-    // ADR-0053 Part 3b (§9.9 / 9.9-h-12): Bitselect has 3 v128
+    // ADR-0053 Part 3b: Bitselect has 3 v128
     // operand inputs + 1 v128 result = 4 operands but only 2
     // standard stage XMMs (XMM14 / XMM15) exist. Reclaim XMM7
     // (the D-066 alias-stash scratch — free in this handler since
@@ -839,7 +837,7 @@ pub fn emitV128Bitselect(
         .spill => .xmm7,
     };
 
-    // §9.9 / 9.9-h-14 (D-070 mirror for x86_64): regalloc LIFO
+    // D-070 mirror for x86_64: regalloc LIFO
     // slot-reuse can assign `result_v` (= dst_x) the same in-reg
     // physical XMM as `c_v` or `b_v`. The MOVAPS dst,a then
     // clobbers c or b before subsequent reads. Stash whichever
@@ -895,14 +893,14 @@ pub fn emitV128Bitselect(
 ///   SETNE dst.lo8         ; dst[0..8] = (ZF==0) ? 1 : 0
 ///   MOVZX dst, dst.lo8    ; zero-extend to i32
 ///
-/// PTEST is SSE4.1 (66 0F 38 17 /r). Per ADR-0041 §5 (post-9.7-m
-/// SSE4.2 baseline), SSE4.1 + SSE4.2 are both available.
+/// PTEST is SSE4.1 (66 0F 38 17 /r). Per ADR-0041 §5 (SSE4.2
+/// baseline), SSE4.1 + SSE4.2 are both available.
 /// `select` / `select_typed` with v128 operand type (Wasm spec
 /// §4.4.5). Mirror of `arm64/op_simd.emitV128Select`. Caller has
 /// already popped cond_v / val2_v / val1_v from the operand stack
 /// and verified `val1_v.shapeTag == .v128` (dispatch lives at
-/// `x86_64/emit.zig`'s scalar `.select` arm). §9.9 / 9.9-h-31 —
-/// D-083 part 2 (mirror of arm64's 9.9-h-30 part 1 fix).
+/// `x86_64/emit.zig`'s scalar `.select` arm).
+/// D-083 part 2 (mirror of arm64's part 1 fix).
 ///
 /// **Mask-based recipe** (x86_64 has no direct `CSETM` / `DUP`
 /// equivalent, so synthesise the same all-bits mask via

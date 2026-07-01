@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `i64.eqz` — B84 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `i64.eqz`.
 //! Delegates to op_alu_int.emitI64EqzCtx.
 
 const meta = @import("../../../../../instruction/wasm_1_0/i64_eqz.zig");

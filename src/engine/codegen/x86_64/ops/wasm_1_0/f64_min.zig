@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `f64.min` — B89 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `f64.min`.
 //! Delegates to op_alu_float.emitFpMinMaxCtx.
 
 const meta = @import("../../../../../instruction/wasm_1_0/f64_min.zig");

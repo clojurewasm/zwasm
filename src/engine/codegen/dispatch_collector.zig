@@ -4,7 +4,7 @@
 //! ## Why this file exists
 //!
 //! ADR-0073 + ADR-0023 §4.5 amend established the per-op file pattern;
-//! ADR-0074 (B9) refined it: the 5 dispatch axes split across two
+//! ADR-0074 refined it: the 5 dispatch axes split across two
 //! zones to keep handler bodies at the same zone as their ctx types
 //! (preserves comptime DCE on every axis).
 //!
@@ -22,7 +22,7 @@
 //! (re-exported from Zone 1) so the build-option filter applies
 //! uniformly across all 5 axes.
 //!
-//! ## Dispatch contract (B11 refactor)
+//! ## Dispatch contract
 //!
 //! `dispatch(axis, op, args)` returns `!bool`:
 //!   - `true`: the per-arch handler for `op` ran (errors propagated
@@ -80,7 +80,7 @@ pub fn validateArchOpModule(comptime mod: type) void {
 /// is_safepoint}`; absent declarations fall back to safe
 /// defaults that match the regular-call shape (returns to
 /// caller, single successor, no GC safepoint). The defaults are
-/// chosen so a per-op file that hasn't migrated to the 3-axis
+/// chosen so a per-op file that hasn't opted into the 3-axis
 /// regime still classifies sanely for the regalloc layer.
 ///
 /// As regalloc consumers come online (tail-call terminator-class,
@@ -103,10 +103,6 @@ pub fn axisOf(comptime mod: type) Axis3 {
 
 // ---------------------------------------------------------------------
 // Per-arch collected op modules.
-//
-// B11: arm64 i32.add real body.
-// B12: x86_64 i32.add real body.
-// B13: i32 binary ALU cohort (sub/mul/and/or/xor × 2 arches).
 // ---------------------------------------------------------------------
 
 // Op registry extracted to `dispatch_collector_ops.zig` per ADR-0086
@@ -130,7 +126,7 @@ comptime {
     }
 }
 
-/// Count of currently-migrated arch ops, filtered by the active build
+/// Count of registered arch ops, filtered by the active build
 /// options. All comptime-resolved.
 pub fn migratedArchOpCount(comptime axis: ArchAxis) usize {
     return comptime blk: {
@@ -170,10 +166,10 @@ pub fn dispatch(comptime axis: ArchAxis, op: ZirOp, args: anytype) !bool {
     return false;
 }
 
-/// §9.12-B / B108 (ADR-0073 + ADR-0075) — inline-switch dispatcher
-/// cutover for the x86_64 `(ctx, ins)` migrated cohort. Walks
-/// `collected_x86_64_ctx_ops` and dispatches to the matching per-op
-/// file's `emit(ctx, ins)`. Returns `true` if handled; `false` lets
+/// Inline-switch dispatcher for the x86_64 `(ctx, ins)` cohort
+/// (ADR-0073 + ADR-0075). Walks `collected_x86_64_ctx_ops` and
+/// dispatches to the matching per-op file's `emit(ctx, ins)`. Returns
+/// `true` if handled; `false` lets
 /// the giant switch in `x86_64/emit.zig` take over for ops outside
 /// the ctx tuple (extract_lane / replace_lane / shuffle / i64x2.mul
 /// / v128.const / load_lane / store_lane / popcnt / trunc_sat_f64x2
@@ -199,157 +195,13 @@ test "ArchAxis enum has exactly 2 variants per ADR-0074 (Zone 2 arch-axes)" {
 }
 
 test "migratedArchOpCount tracks collected per-arch tuples (B59: arm64=348, x86_64=292)" {
-    // arm64 = 162 + 10 i16x8 cmp; x86_64 = 154 + 10 - 8 trunc_sat
-    // (B57) - 8 int→float convert (B58) - 6 reinterpret/promote/demote
-    // (B59 moved B28 stubs to ctx tuple). B60 added 23 NEW scalar
-    // load/store per-op files directly to ctx tuple (not in legacy
-    // tuple before, so x86_64 count unchanged).
-    // Phase 10 EH (ADR-0114) — IT-1 added arm64_try_table (+1 = 349).
-    // 10.R cycle 50 added arm64_ref_as_non_null (+1 = 350); cycle 54b
-    // added arm64_br_on_null (+1 = 351); cycle 56 added
-    // arm64_br_on_non_null (+1 = 352; x86_64 = D-194).
-    // 10.G GC-on-JIT added arm64 i31 family — ref.i31 / i31.get_s /
-    // i31.get_u (+3 = 355; x86_64 = D-211).
-    // 10.G GC-on-JIT added arm64 struct.new_default (+1 = 356; x86_64 = D-211).
-    // 10.G GC-on-JIT added arm64 struct.get (+1 = 357; x86_64 = D-211).
-    // 10.G GC-on-JIT added arm64 struct.new (variadic) (+1 = 358; x86_64 follow-on).
-    // 10.G GC-on-JIT added arm64 struct.set (+1 = 359; A-3 cont).
-    // 10.G GC-on-JIT added arm64 array.new_default + array.len (+2 = 361; array A-2).
-    // 10.G GC-on-JIT added arm64 array.get + array.set (+2 = 363; array A-3).
-    // 10.G GC-on-JIT added arm64 array.new (+1 = 364; array A-4).
-    // 10.G GC-on-JIT added arm64 array.new_fixed (+1 = 365; array A-5).
-    // 10.G GC-on-JIT added arm64 array.get_s (+1 = 366; array A-6a).
-    // 10.G GC-on-JIT added arm64 array.get_u (+1 = 367; array A-6b).
-    // 10.G GC-on-JIT added arm64 array.fill (+1 = 368; array A-7).
-    // 10.G GC-on-JIT added arm64 ref.eq (+1 = 369; A-8).
-    // 10.G GC-on-JIT added arm64 array.copy (+1 = 370; A-9).
-    // 10.G GC-on-JIT added arm64 array.new_data (+1 = 371; A-10).
-    // 10.G GC-on-JIT added arm64 array.new_elem (+1 = 372; A-10b).
-    // 10.G GC-on-JIT added arm64 ref.test + ref.test_null (+2 = 374; R-1).
-    // 10.G GC-on-JIT added arm64 ref.cast (+1 = 375; R-2).
-    // 10.G GC-on-JIT added arm64 ref.cast_null (+1 = 376; R-3).
-    // 10.G GC-on-JIT added arm64 br_on_cast + br_on_cast_fail (+2 = 378; Cycle B).
-    // 10.G added arm64 struct.get_s + struct.get_u (+2 = 380; packed-field sign/zero-extend).
-    // 10.G added arm64 array.init_data + array.init_elem (+2 = 382; A-11 in-place segment init).
-    // §15.4/D-246 chunk B added arm64 i{16x8,32x4,64x2}.extmul_{low,high}_*_{s,u} (+12 = 394).
-    // §15.4/D-246 chunk C added arm64 i32x4.dot_i16x8_s (+1 = 395; last SIMD emit-hole op).
-    // §15.4/D-246 residual chunk B added arm64 sat-arith/q15mulr/extadd_pairwise (+13 = 408).
-    // §17.4 relaxed-SIMD chunk2 added arm64 i8x16.relaxed_swizzle (+1 = 409).
     try std.testing.expectEqual(@as(usize, 409), migratedArchOpCount(.arm64));
-    // B79..B106 walked cohorts; B107 SIMD residual (21 ops) — legacy tuple empty.
+    // x86_64's legacy (args-tuple) collection is empty — every x86_64 op
+    // uses the `(ctx, ins)` shape, tracked in `collected_x86_64_ctx_ops`.
     try std.testing.expectEqual(@as(usize, 0), migratedArchOpCount(.x86_64));
 }
 
 test "collected_x86_64_ctx_ops tracks B54+ migrations to `(ctx, ins)` shape" {
-    // B54: i32.div_s PoC (1). B55: full i32+i64 div/rem cohort (+7 = 8).
-    // B56: Wasm 1.0 trapping trunc cohort (+8 = 16). B57: Wasm 2.0
-    // trunc_sat cohort moved from legacy tuple (+8 = 24). B58: Wasm
-    // 1.0 int→float convert cohort moved from legacy tuple (+8 = 32).
-    // B59: reinterpret + promote/demote moved from legacy tuple
-    // (+6 = 38). B60: scalar load/store cohort (23 new per-op files,
-    // +23 = 61). B61: bulk-memory cohort (3 new per-op files for
-    // memory.fill/copy/init, +3 = 64; data.drop / elem.drop deferred
-    // — Zone 1 meta files don't exist yet). B62: globals cohort
-    // (global.get/set, 2 new per-op files, +2 = 66). B63: table
-    // ops cohort (7 new per-op files: table.get/set/size/grow/
-    // fill/copy/init, +7 = 73). B64: call cohort (call +
-    // call_indirect, 2 new per-op files, +2 = 75). B65: control
-    // structure cohort (block + loop, 2 new per-op files, +2 = 77).
-    // B66: Zone 1 meta backfill (no Zone 2 change). B67: const
-    // cohort (i32/i64/f32/f64.const, 4 new per-op files, +4 = 81).
-    // B68: ref cohort (ref.null + ref.func, 2 new per-op files,
-    // +2 = 83). B69: drop (1 new per-op file, +1 = 84). B70:
-    // select (1 new per-op file, +1 = 85; select_typed shares
-    // runtime via emit.zig grouped arm but lacks Zone 1 meta —
-    // its per-op file is deferred). The B6x+1 cutover folds this
-    // tuple back into `collected_x86_64_ops`. B71: memory.size +
-    // memory.grow (2 new per-op files + 2 Zone 1 meta backfills,
-    // +2 = 87). B72: nop (1 new per-op file + 1 meta backfill,
-    // +1 = 88). B73: unreachable (1 new per-op file; ctx extended
-    // with `dead_code: *bool`, +1 = 89). B74: return (1 new
-    // per-op file; ctx extended with `frame_bytes: u32` +
-    // `uses_runtime_ptr: bool`, +1 = 90). B75: br family
-    // (br + br_if + br_table, all ctx fields exist; 3 new per-op
-    // files, +3 = 93). B76: if + else (2 new per-op files,
-    // +2 = 95). B77: end (1 new per-op file, +1 = 96 —
-    // function-level form + label-end form both route through
-    // op_control.emitEndCtx; emit.zig dispatch snapshots
-    // labels.len pre-call to decide body-loop break). B78:
-    // local.{get,set,tee} (3 new per-op files, +3 = 99;
-    // new op_locals.zig host module, ctx ext for total_locals
-    // + local_disps). B79: i32 binary ALU cohort (i32.add/sub/
-    // mul/and/or/xor, 6 ops) moved from legacy tuple (+6 = 105;
-    // emitI32BinaryCtx adapter wraps existing emitI32Binary).
-    // B80: i64 binary ALU cohort (6 ops; emitI64BinaryCtx) moved
-    // from legacy (+6 = 111). B81: i32 compare cohort (10 ops;
-    // emitI32CompareCtx) moved from legacy (+10 = 121).
-    // B82: i64 compare cohort (10 ops; emitI64CompareCtx) moved
-    // from legacy (+10 = 131). B83: i32+i64 shift cohorts (10 ops;
-    // emitI{32,64}ShiftCtx) moved from legacy (+10 = 141).
-    // B84: bitcount(6) + eqz(2) = 8 ops moved from legacy (+8 = 149).
-    // B85: sign-extension(5) + width-conversion(3) = 8 ops moved
-    // (+8 = 157). B86: FP arith (8 ops; emitFpBinaryCtx) moved
-    // (+8 = 165). B87: FP compare (12 ops; emitFpCompareCtx)
-    // moved (+12 = 177). B88: FP unary (14 ops; emitFpUnaryCtx)
-    // moved (+14 = 191). B89: FP min/max+copysign (6 ops;
-    // emitFp{MinMax,Copysign}Ctx) moved (+6 = 197). B90: v128
-    // logical (6 ops; emitV128*Ctx adapters; first SIMD migration)
-    // moved (+6 = 203). B91: SIMD int binary arith (10 ops; add/sub
-    // × 4 widths + i16x8/i32x4.mul; i64x2.mul deferred — no Zone 1
-    // meta) moved (+10 = 213). B92: SIMD int neg/abs (8 ops;
-    // 5-arg helpers, ins ignored) moved (+8 = 221). B93: SIMD
-    // i8x16 compare cohort (10 ops; eq is 6-arg, others 5-arg)
-    // moved (+10 = 231). B94: SIMD i16x8 compare cohort (10 ops)
-    // moved (+10 = 241). B95: SIMD i32x4 compare cohort (10 ops)
-    // moved (+10 = 251). B96: SIMD i64x2 compare cohort (6 ops;
-    // no _u variants) moved (+6 = 257). B97: SIMD int shifts
-    // cohort (12 ops; all 6-arg) moved (+12 = 269). B98: SIMD
-    // int min/max cohort (12 ops; all 6-arg) moved (+12 = 281).
-    // B99: SIMD int sat arith (10 ops; all 6-arg) moved (+10 = 291).
-    // B100: SIMD f32x4 arith (8 ops; add/sub/mul/div 6-arg, min/max/
-    // pmin/pmax 5-arg) moved (+8 = 299). B101: SIMD f64x2 arith
-    // (8 ops; mirror) moved (+8 = 307). B102: SIMD float unary
-    // (14 ops; all 5-arg) moved (+14 = 321). B103: SIMD float
-    // compare (12 ops; all 5-arg) moved (+12 = 333). B104: SIMD
-    // bool reductions (9 ops; all 6-arg) moved (+9 = 342). B105:
-    // SIMD narrow+extend (16 ops; 4 narrow 6-arg + 12 extend
-    // 5-arg) moved (+16 = 358). B106: SIMD extmul (12 ops; all
-    // 5-arg) moved (+12 = 370). B107: SIMD residual (ref.is_null
-    // + 6 splats + swizzle + 4 extadd_pairwise + dot + q15mulr +
-    // 7 fp-conv = 21 ops) moved (+21 = 391); legacy tuple empty.
-    // Phase 10 EH (ADR-0114) — IT-1 added x86_64_try_table (+1 = 392);
-    // IT-3 added x86_64_throw + x86_64_throw_ref (+2 = 394).
-    // 10.TC emit-body cycle 5 (ADR-0112) — x86_64_return_call (+1 = 395).
-    // 10.TC emit-body cycle 8 — x86_64_return_call_indirect (+1 = 396).
-    // 10.R cycle 50 added x86_64_ref_as_non_null (+1 = 397).
-    // 10.R cycle 58 added x86_64_br_on_null + x86_64_br_on_non_null
-    // (D-194 discharge Path B; +2 = 399).
-    // 10.R-call_ref-JIT IT-2 added x86_64_call_ref (+1 = 400).
-    // 10.R/10.TC added x86_64_return_call_ref (+1 = 401).
-    // 10.G GC-on-JIT added x86_64 i31 family — ref.i31 / i31.get_s /
-    // i31.get_u (+3 = 404; D-211 mirror of arm64).
-    // 10.G GC-on-JIT added x86_64 struct family — struct.new_default /
-    // struct.get (+2 = 406; D-211 mirror of arm64).
-    // 10.G GC-on-JIT added x86_64 struct.new (variadic) (+1 = 407; A-3 mirror).
-    // 10.G GC-on-JIT added x86_64 struct.set (+1 = 408; A-3 cont).
-    // 10.G GC-on-JIT added x86_64 array.new_default + array.len (+2 = 410; array A-2).
-    // 10.G GC-on-JIT added x86_64 array.get + array.set (+2 = 412; array A-3).
-    // 10.G GC-on-JIT added x86_64 array.new (+1 = 413; array A-4).
-    // 10.G GC-on-JIT added x86_64 array.new_fixed (+1 = 414; array A-5).
-    // 10.G GC-on-JIT added x86_64 array.get_s (+1 = 415; array A-6a).
-    // 10.G GC-on-JIT added x86_64 array.get_u (+1 = 416; array A-6b).
-    // 10.G GC-on-JIT added x86_64 array.fill (+1 = 417; array A-7).
-    // 10.G GC-on-JIT added x86_64 ref.eq (+1 = 418; A-8).
-    // 10.G GC-on-JIT added x86_64 array.copy (+1 = 419; A-9).
-    // 10.G GC-on-JIT added x86_64 array.new_data (+1 = 420; A-10).
-    // 10.G GC-on-JIT added x86_64 array.new_elem (+1 = 421; A-10b).
-    // 10.G GC-on-JIT added x86_64 ref.test + ref.test_null (+2 = 423; R-1).
-    // 10.G GC-on-JIT added x86_64 ref.cast (+1 = 424; R-2).
-    // 10.G GC-on-JIT added x86_64 ref.cast_null (+1 = 425; R-3).
-    // 10.G GC-on-JIT added x86_64 br_on_cast + br_on_cast_fail (+2 = 427; Cycle B).
-    // 10.G: x86_64 struct.get_s + struct.get_u (+2 = 429; packed-field sign/zero-extend).
-    // 10.G: x86_64 array.init_data + array.init_elem (+2 = 431; A-11 in-place segment init).
-    // §17.4 relaxed-SIMD chunk2 added x86_64 i8x16.relaxed_swizzle (+1 = 432).
     try std.testing.expectEqual(@as(usize, 432), collected_x86_64_ctx_ops.len);
 }
 
@@ -358,8 +210,8 @@ test "collected_x86_64_ctx_ops tracks B54+ migrations to `(ctx, ins)` shape" {
 // op_mod.emit, args)` at comptime against every registered per-arch
 // handler — handlers require their real ctx tuples, not a smoke
 // `.{}`. The dispatcher's wire contract is covered by integration
-// tests at `arm64/emit.zig` (and `x86_64/emit.zig` once B12 lands)
-// going through real spec-driven fixtures.
+// tests at `arm64/emit.zig` (and `x86_64/emit.zig`) going through
+// real spec-driven fixtures.
 
 // ADR-0113 §A: 3-axis classification — comptime tests.
 

@@ -1,8 +1,6 @@
 //! ARM64 emit pass — SIMD-128 integer compare / lane access /
 //! extend / narrow / bitmask / all_true / shuffle / swizzle op
-//! handlers (split from `op_simd.zig` per
-//! `.dev/phase10_prep/track_b_source_split.md` §4.3 / 9.9-h-18;
-//! tracking ADR-0054 once filed in chunk 9.9-h-20).
+//! handlers (split from `op_simd.zig`).
 //!
 //! Houses i*x*.{eq,ne,lt_*,gt_*,le_*,ge_*}, lane access
 //! (extract_lane / replace_lane / splat for int shapes), extend
@@ -79,7 +77,7 @@ pub fn emitI64x2Splat(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 /// `i32x4.extract_lane`: pop v128 (Vn.4S), push i32 result (Wd).
 /// `UMOV W<wd>, V<vn>.S[lane]` extracts the 32-bit lane (zero-
 /// extended into Wd). Lane immediate is in `ins.payload`
-/// (per `lower.emitLaneByte`'s 1-byte encoding from §9.4).
+/// (per `lower.emitLaneByte`'s 1-byte encoding).
 pub fn emitI32x4ExtractLane(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const src_vreg = ctx.pushed_vregs.pop().?;
     const src_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_vreg, 0);
@@ -131,19 +129,19 @@ pub fn emitI32x4ReplaceLane(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.9 / 9.5-c-vi — i8x16 / i16x8 / i64x2 lane access
+// i8x16 / i16x8 / i64x2 lane access
 // ============================================================
 //
 // Wasm SIMD spec — extract_lane (signed/unsigned) + replace_lane
 // for the remaining int element widths. i32x4 is already wired
-// in 9.5-c-iii above. f32x4 / f64x2 + i64x2.mul defer to
-// 9.5-c-vii.
+// above; f32x4 / f64x2 live in `op_simd_float.zig` and i64x2.mul
+// in `op_simd_int_arith.zig`.
 //
 // All extract handlers return an i32 GPR result (i64 for i64x2).
 // replace handlers consume an i32 GPR new-lane (i64 for i64x2).
 // Per ADR-0041, the GPR side stays on the SPILL-EXEMPT escape
-// hatch alongside the rest of 9.5-c (D-034 BASELINE=0; spill-
-// aware GPR machinery lands in a later sub-row alongside the
+// hatch alongside the rest of the lane ops (D-034 BASELINE=0;
+// spill-aware GPR machinery lands in a later sub-row alongside the
 // remaining bare-resolveGpr sites).
 
 /// Helper: emit an `extract_lane` shape that reads a v128 lane via
@@ -286,7 +284,7 @@ pub fn emitI64x2ReplaceLane(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.9 / 9.9-g-3 — v128 reductions (all_true)
+// v128 reductions (all_true)
 // ============================================================
 //
 // Wasm SIMD spec — `i*x*.all_true` returns 1 iff every lane of
@@ -386,7 +384,7 @@ pub fn emitI64x2AllTrue(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.9 / 9.9-g-19 — i*x*.bitmask (per ADR-0051 + ADR-0042)
+// i*x*.bitmask (per ADR-0051 + ADR-0042)
 //
 // Wasm spec §4.4.4: pop v128, push i32 where bit i = sign bit
 // (high bit) of lane i. The recipe (per cranelift `aarch64/
@@ -558,7 +556,7 @@ pub fn emitI64x2Bitmask(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.6 / 9.6-d — Int per-lane compares
+// Int per-lane compares
 // ============================================================
 //
 // Wasm spec (SIMD) — `i*x*.{eq,ne,lt_s,lt_u,gt_s,gt_u,le_s,le_u,ge_s,ge_u}`.
@@ -691,7 +689,7 @@ pub fn emitI64x2LeS(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.6 / 9.6-g-i — i*x*.extend_{low,high}_i*x*_{s,u} (12 ops)
+// i*x*.extend_{low,high}_i*x*_{s,u} (12 ops)
 // ============================================================
 //
 // Wasm spec — bitwise sign/zero extension to double-width lanes.
@@ -739,7 +737,7 @@ pub fn emitI64x2ExtendHighI32x4U(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.6 / 9.6-g-ii — saturating narrow (4 ops)
+// saturating narrow (4 ops)
 // ============================================================
 //
 // Wasm spec — `*.narrow_*_{s,u}`. Two-instruction synthesis:
@@ -787,7 +785,7 @@ pub fn emitI16x8NarrowI32x4U(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.6 / 9.6-f-i — i8x16.swizzle / i8x16.shuffle
+// i8x16.swizzle / i8x16.shuffle
 // ============================================================
 //
 // Wasm spec (SIMD) — `i8x16.swizzle(operand, indices)`:

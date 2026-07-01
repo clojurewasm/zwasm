@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `f32x4.floor` — B102 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `f32x4.floor`.
 //! Delegates to op_simd_float.emitF32x4FloorCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/f32x4_floor.zig");

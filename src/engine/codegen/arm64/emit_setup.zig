@@ -24,7 +24,7 @@ const Allocator = std.mem.Allocator;
 const ZirFunc = zir.ZirFunc;
 const Error = ctx_mod.Error;
 
-/// §9.7 / 7.9-d-11: pre-scan the function body for the worst-case
+/// Pre-scan the function body for the worst-case
 /// outgoing-args region size (caller-side stack-arg lowering per
 /// AAPCS64 §6.4.2). For each `call N` / `call_indirect type_idx`
 /// instruction, count the args that overflow the X1..X7 (int) and
@@ -66,7 +66,7 @@ pub fn computeOutgoingMaxBytes(
                         stack_byte_off += sz;
                     } else int_slot += 1;
                 },
-                // 10.G op_gc cycle 2: i31ref u32 GcRef shares the
+                // i31ref u32 GcRef shares the
                 // 8-byte gpr-class slot with other reftypes.
                 .i64, .ref => {
                     if (int_slot >= 8) {
@@ -99,7 +99,7 @@ pub fn computeOutgoingMaxBytes(
         // preserve SP alignment (AAPCS64 §6.2.3 / Apple ABI both
         // require 16-byte aligned SP at BL).
         const overflow_bytes: u32 = (stack_byte_off + 15) & ~@as(u32, 15);
-        // ADR-0069 §Phase 2 chunk (b)-e-2: when callee returns
+        // ADR-0069 §Phase 2: when callee returns
         // MEMORY-class (struct > 16 B per AAPCS64 §6.8.2; v2
         // trigger = `results.len > 2`), reserve a per-result
         // 8-byte buffer slot at the top of THIS call's outgoing-
@@ -116,13 +116,13 @@ pub fn computeOutgoingMaxBytes(
     return max_bytes;
 }
 
-/// §9.9 / 9.9-e-1: per-function local-frame layout. Wasm locals
+/// Per-function local-frame layout. Wasm locals
 /// (params + declared) are split by type into two regions:
 /// scalars (i32 / i64 / f32 / f64 / refs) at 8-byte stride, then
 /// v128 at 16-byte stride. The split keeps the per-local offset
 /// formula pure (a single offset table consulted by index) AND
 /// avoids the per-slot 16-byte waste of a uniform v128-stride
-/// frame. Per `private/notes/p9-9.9-e-survey.md` strategy C.
+/// frame.
 ///
 /// `offsets[i]` is the byte offset within the locals zone
 /// (relative to `local_base_off`) for Wasm-local-index `i`.

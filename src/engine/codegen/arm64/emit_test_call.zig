@@ -5,7 +5,7 @@
 //! call_indirect with bounds + sig + funcptr lowering.
 //!
 //! Zone 2 (`src/engine/codegen/arm64/`). Pure relocation per
-//! ADR-0021 sub-deliverable b chunk 10; bytes / assertions
+//! ADR-0021 sub-deliverable b; bytes / assertions
 //! identical to the pre-split `emit_test.zig`.
 
 const std = @import("std");
@@ -201,7 +201,7 @@ test "compile: call N — void callee pushes no result vreg" {
     try testing.expectEqual(@as(u32, inst.encBL(0)), std.mem.readInt(u32, out.bytes[body0 + 4 ..][0..4], .little));
 }
 
-// §9.7 / 7.9-d-11: caller-side AAPCS64 stack-arg lowering.
+// Caller-side AAPCS64 stack-arg lowering.
 // When a callee's signature has > 7 int params (X1..X7 exhausted)
 // or > 8 fp params (V0..V7 exhausted), the overflow args land in
 // the caller's pre-allocated outgoing-args region at the BOTTOM of
@@ -255,7 +255,7 @@ test "compile: call N — 8 i32 args, 8th arg spills to caller stack [SP, #0] (S
     try testing.expect(found_stack_arg);
 }
 
-// §9.7 / 7.9-d-13: spill-aware captureCallResult — when the result
+// Spill-aware captureCallResult — when the result
 // vreg's slot is ≥ max_reg_slots_gpr (= 8) it lives in the spill
 // region, not a register. The handler must STR W0/X0/S0/D0 to
 // `[SP, #(spill_base_off + spill_off)]` instead of MOV-ing into a
@@ -454,7 +454,7 @@ test "compile: bundled Class C MEMORY-class — caller LEA X8 + callee STR X8 + 
     }
 }
 
-// ADR-0112 D3 + 10.TC emit-body cycle 6 — return_call_indirect
+// ADR-0112 D3 — return_call_indirect
 // emit body byte-snapshot. Mirror of the call_indirect probe
 // minus the captureCallResult tail, with frame_teardown +
 // BR X16 in place of BLR X17 + capture.

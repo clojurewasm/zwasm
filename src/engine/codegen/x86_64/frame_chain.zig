@@ -11,7 +11,7 @@
 //!               by the CALL instruction)
 //!
 //! Mirror of `arm64/frame_chain.zig` (AAPCS64 `[X29, #0]` / `[X29, #8]`);
-//! the trampoline (10.E-codegen-3c follow-on) composes both into a
+//! the trampoline composes both into a
 //! `unwind.FrameChainLoader` per host via a PC-normalization callback.
 //!
 //! Top-of-Wasm-stack sentinel: `fp == 0` returns null. The entry

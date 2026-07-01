@@ -1,7 +1,6 @@
 //! RBP-relative disp8 / disp32 auto-form helpers.
 //!
-//! §9.7 / 7.10-g extract per D-052 / D-081 progression. The
-//! helpers pick disp8 vs disp32 encoder form based on the
+//! The helpers pick disp8 vs disp32 encoder form based on the
 //! signed displacement so call sites don't replicate the
 //! form-selection logic. Frame layout grows DOWN from RBP, so
 //! negative `disp` values are typical; the helpers are
@@ -69,7 +68,7 @@ pub fn rbpLoadXmmF64(dst: inst.Xmm, disp: i32) inst.EncodedInsn {
 }
 
 /// `MOVUPS [RBP + disp], xmm` — store form auto-helper (v128).
-/// §9.9 / 9.9-e-2 v128 local-store path. MOVUPS chosen over
+/// V128 local-store path. MOVUPS chosen over
 /// MOVAPS because v128 local-slot disps depend on the per-
 /// function layout and aren't guaranteed 16-byte aligned.
 pub fn rbpStoreXmmV128(disp: i32, src: inst.Xmm) inst.EncodedInsn {
@@ -84,7 +83,7 @@ pub fn rbpLoadXmmV128(dst: inst.Xmm, disp: i32) inst.EncodedInsn {
 }
 
 /// `LEA r64, [RBP + disp]` — picks disp8 / disp32 form per range.
-/// §9.9 / 9.9-i-1 Win64 v128 marshal caller-side path: compute
+/// Win64 v128 marshal caller-side path: compute
 /// `[RBP + scratch_disp]` (typically deep in the local frame,
 /// past i8 range) into the int-arg-reg slot per Microsoft x64
 /// ABI §"Parameter passing" hidden-pointer recipe.

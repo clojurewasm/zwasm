@@ -1,12 +1,11 @@
 //! ARM64 emit pass — cross-class conversion handlers.
 //!
-//! Per ADR-0021 sub-deliverable b (§9.7 / 7.5d sub-b emit.zig
+//! Per ADR-0021 sub-deliverable b (emit.zig
 //! 9-module split): all ZirOp handlers that cross the GPR ↔ FP
 //! type boundary OR change width / sign-extension semantics
 //! within the same class, *with the exception of trapping trunc*
 //! (i32.trunc_f32_s, …) which depends on the trap-stub bounds-
-//! check machinery and ships alongside `bounds_check.zig` in a
-//! later chunk.
+//! check machinery and ships alongside `bounds_check.zig`.
 //!
 //! Handlers in this module:
 //!   - i32.wrap_i64 / i64.extend_i32_u — both lower to MOV Wd, Wn

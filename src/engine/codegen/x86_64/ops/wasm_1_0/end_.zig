@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `end` — Zone 2 per-arch op file
-//! per ADR-0074 + ADR-0075 (B77 migration to `(ctx, ins)`).
+//! per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/end_.zig`.
 //! Delegates to `op_control.emitEndCtx`, which dispatches between

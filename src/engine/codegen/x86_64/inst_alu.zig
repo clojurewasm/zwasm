@@ -248,7 +248,7 @@ pub fn encAddR64Imm32(dst: Gpr, imm: i32) EncodedInsn {
 /// `SUB RSP, imm8` (sign-extended) — opcode 0x83 /5 with REX.W.
 /// 4-byte encoding. Caller responsibility to pass `imm` in
 /// i8 range; larger frame extensions need the 6-byte imm32 form
-/// (out of scope for the §9.7 / 7.7 skeleton — capped at 15
+/// (out of scope for the skeleton — capped at 15
 /// locals = 120-byte frame).
 pub fn encSubRSpImm8(imm: i8) EncodedInsn {
     var enc: EncodedInsn = .{};
@@ -293,7 +293,7 @@ pub fn encAddRSpImm8(imm: i8) EncodedInsn {
 }
 
 /// `SUB RSP, imm32` (REX.W + 0x81 /5) — disp32 form for frame
-/// extensions > 127 bytes. §9.7 / 7.10-g uses this when
+/// extensions > 127 bytes. Used when
 /// total_locals × 8 + outgoing_max + spills exceeds the imm8
 /// range. 7-byte encoding (vs 4 for imm8).
 pub fn encSubRSpImm32(imm: i32) EncodedInsn {

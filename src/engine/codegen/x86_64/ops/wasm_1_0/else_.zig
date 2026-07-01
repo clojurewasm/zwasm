@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `else` — Zone 2 per-arch op file
-//! per ADR-0074 + ADR-0075 (B76 migration to `(ctx, ins)`).
+//! per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/else_.zig`.
 //! Delegates to `op_control.emitElseCtx`. Patches the if-skip

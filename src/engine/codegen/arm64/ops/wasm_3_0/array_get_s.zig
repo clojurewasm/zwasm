@@ -1,8 +1,8 @@
 //! arm64 emit handler for `array.get_s` — Wasm 3.0 GC §3.3.5.6.11.
 //! Pop the i32 index + array GcRef (trap if null OR index out of bounds),
 //! load the 8-byte element slot at `base + 12 + index*8`, then SIGN-extend
-//! its packed low bits to i32 and push. Identical front half to `array.get`
-//! (A-3); the only addition is the final SXTB / SXTH. The validator
+//! its packed low bits to i32 and push. Identical front half to `array.get`;
+//! the only addition is the final SXTB / SXTH. The validator
 //! restricts `array.get_s` to packed (i8 / i16) element arrays, and the
 //! compile pipeline stamps the element valtype byte (0x78 i8 / 0x77 i16)
 //! into `ZirInstr.extra` so this emit picks the width without re-deriving

@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `f32.ceil` — B88 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `f32.ceil`.
 //! Delegates to op_alu_float.emitFpUnaryCtx.
 
 const meta = @import("../../../../../instruction/wasm_1_0/f32_ceil.zig");

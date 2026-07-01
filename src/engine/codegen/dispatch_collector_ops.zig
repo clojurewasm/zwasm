@@ -700,10 +700,8 @@ const x86_64_i32_wrap_i64 = @import("x86_64/ops/wasm_1_0/i32_wrap_i64.zig");
 const x86_64_i64_extend_i32_s = @import("x86_64/ops/wasm_1_0/i64_extend_i32_s.zig");
 const x86_64_i64_extend_i32_u = @import("x86_64/ops/wasm_1_0/i64_extend_i32_u.zig");
 
-// §9.12-B / B54+B55 (ADR-0075) — x86_64 per-op files migrated to
-// the `(ctx, ins)` shape. Tracked in `collected_x86_64_ctx_ops`
-// (see below). Not in `collected_x86_64_ops` until the B6x+1
-// dispatcher cutover renames the ctx tuple to the unified one.
+// x86_64 per-op files using the `(ctx, ins)` shape (ADR-0075),
+// tracked in `collected_x86_64_ctx_ops` (see below).
 const x86_64_i32_div_s = @import("x86_64/ops/wasm_1_0/i32_div_s.zig");
 const x86_64_i32_div_u = @import("x86_64/ops/wasm_1_0/i32_div_u.zig");
 const x86_64_i32_rem_s = @import("x86_64/ops/wasm_1_0/i32_rem_s.zig");
@@ -838,8 +836,7 @@ const x86_64_i64_extend8_s = @import("x86_64/ops/wasm_2_0/i64_extend8_s.zig");
 const x86_64_i64_extend16_s = @import("x86_64/ops/wasm_2_0/i64_extend16_s.zig");
 const x86_64_i64_extend32_s = @import("x86_64/ops/wasm_2_0/i64_extend32_s.zig");
 
-// Wasm 3.0 EH (ADR-0114) — IT-1 routed try_table; IT-3 adds
-// throw / throw_ref. arm64 throw / throw_ref dispatch INLINE
+// Wasm 3.0 EH (ADR-0114) — arm64 throw / throw_ref dispatch INLINE
 // in arm64/emit.zig (NOT in collected_arm64_ops) because the
 // per-op file cannot set the legacy `dead_code` local; x86_64
 // per-op file has ctx.dead_code and routes here.
@@ -852,74 +849,74 @@ const x86_64_return_call_indirect = @import("x86_64/ops/wasm_3_0/return_call_ind
 const x86_64_call_ref = @import("x86_64/ops/wasm_3_0/call_ref.zig");
 const x86_64_return_call_ref = @import("x86_64/ops/wasm_3_0/return_call_ref.zig");
 
-// 10.R function-references — cycle 50 ref.as_non_null JIT emit
-// (ADR-0123 D2: representation-independent null-check, generic-trap).
+// function-references — ref.as_non_null JIT emit (ADR-0123 D2:
+// representation-independent null-check, generic-trap).
 const arm64_ref_as_non_null = @import("arm64/ops/wasm_3_0/ref_as_non_null.zig");
 const x86_64_ref_as_non_null = @import("x86_64/ops/wasm_3_0/ref_as_non_null.zig");
 
-// 10.R cycle 54b — br_on_null JIT emit. x86_64 (cycle 58) re-uses
-// the existing captureOrEmitBlockMergeMov via the ctx-shape wrapper
+// br_on_null JIT emit. x86_64 re-uses the existing
+// captureOrEmitBlockMergeMov via the ctx-shape wrapper
 // `captureOrEmitBlockMergeMovCtx` added to x86_64/op_control.zig
 // (D-194 Path B; no full br_if migration required).
 const arm64_br_on_null = @import("arm64/ops/wasm_3_0/br_on_null.zig");
 const x86_64_br_on_null = @import("x86_64/ops/wasm_3_0/br_on_null.zig");
 
-// 10.R cycle 56 — br_on_non_null JIT emit (arm64); x86_64 cycle 58
-// (D-194 Path B; same captureOrEmitBlockMergeMovCtx wrapper).
+// br_on_non_null JIT emit (arm64); x86_64 shares the same
+// captureOrEmitBlockMergeMovCtx wrapper (D-194 Path B).
 const arm64_br_on_non_null = @import("arm64/ops/wasm_3_0/br_on_non_null.zig");
 const x86_64_br_on_non_null = @import("x86_64/ops/wasm_3_0/br_on_non_null.zig");
 
-// 10.G GC-on-JIT — i31 op family (ref.i31 / i31.get_s / i31.get_u),
-// both arches. Non-allocating shift+tag. x86_64 in ctx_ops (the
-// `emit(ctx,ins)` tuple, alongside the other v3_0 ops).
+// GC i31 op family (ref.i31 / i31.get_s / i31.get_u), both arches.
+// Non-allocating shift+tag. x86_64 in ctx_ops (the `emit(ctx,ins)`
+// tuple, alongside the other v3_0 ops).
 const arm64_ref_i31 = @import("arm64/ops/wasm_3_0/ref_i31.zig");
 const arm64_i31_get_s = @import("arm64/ops/wasm_3_0/i31_get_s.zig");
 const arm64_i31_get_u = @import("arm64/ops/wasm_3_0/i31_get_u.zig");
-// 10.G GC-on-JIT struct ops (arm64 first; x86_64 = D-211). struct.new_default
-// allocates via the jitGcAlloc trampoline (cycle A-2b); struct.get loads a
-// uniform 8-byte field slot off the gc_heap slab (cycle A-2b-2).
+// GC struct ops (arm64 first; x86_64 = D-211). struct.new_default
+// allocates via the jitGcAlloc trampoline; struct.get loads a
+// uniform 8-byte field slot off the gc_heap slab.
 const arm64_struct_new_default = @import("arm64/ops/wasm_3_0/struct_new_default.zig");
 const arm64_struct_get = @import("arm64/ops/wasm_3_0/struct_get.zig");
 const arm64_struct_get_s = @import("arm64/ops/wasm_3_0/struct_get_s.zig");
 const arm64_struct_get_u = @import("arm64/ops/wasm_3_0/struct_get_u.zig");
 // struct.new (variadic) — allocs then stores field operands (force-spilled
-// across the alloc BLR per ADR-0060 amend); cycle A-3. x86_64 = follow-on.
+// across the alloc BLR per ADR-0060 amend). x86_64 = follow-on.
 const arm64_struct_new = @import("arm64/ops/wasm_3_0/struct_new.zig");
 const arm64_struct_set = @import("arm64/ops/wasm_3_0/struct_set.zig");
-// 10.G GC-on-JIT array A-2 (alloc + len; get/set/new = follow-on).
+// GC array.new_default (alloc) + array.len.
 const arm64_array_new_default = @import("arm64/ops/wasm_3_0/array_new_default.zig");
 const arm64_array_len = @import("arm64/ops/wasm_3_0/array_len.zig");
-// array A-3: get/set (register-offset element access + bounds-check).
+// array.get / array.set (register-offset element access + bounds-check).
 const arm64_array_get = @import("arm64/ops/wasm_3_0/array_get.zig");
 const arm64_array_set = @import("arm64/ops/wasm_3_0/array_set.zig");
-// array A-4: array.new (alloc + trampoline fill).
+// array.new (alloc + trampoline fill).
 const arm64_array_new = @import("arm64/ops/wasm_3_0/array_new.zig");
-// array A-5: array.new_fixed (variadic alloc + inline element stores).
+// array.new_fixed (variadic alloc + inline element stores).
 const arm64_array_new_fixed = @import("arm64/ops/wasm_3_0/array_new_fixed.zig");
-// array A-6a: array.get_s (packed i8/i16 load + sign-extend).
+// array.get_s (packed i8/i16 load + sign-extend).
 const arm64_array_get_s = @import("arm64/ops/wasm_3_0/array_get_s.zig");
-// array A-6b: array.get_u (packed i8/i16 load + zero-extend).
+// array.get_u (packed i8/i16 load + zero-extend).
 const arm64_array_get_u = @import("arm64/ops/wasm_3_0/array_get_u.zig");
-// array A-7: array.fill (trampoline; bounds-check + fill in Zig).
+// array.fill (trampoline; bounds-check + fill in Zig).
 const arm64_array_fill = @import("arm64/ops/wasm_3_0/array_fill.zig");
-// A-8: ref.eq (identity compare → i32; no trampoline).
+// ref.eq (identity compare → i32; no trampoline).
 const arm64_ref_eq = @import("arm64/ops/wasm_3_0/ref_eq.zig");
-// A-9: array.copy (trampoline; null+bounds-check + overlap copy in Zig).
+// array.copy (trampoline; null+bounds-check + overlap copy in Zig).
 const arm64_array_copy = @import("arm64/ops/wasm_3_0/array_copy.zig");
-// A-10: array.new_data (trampoline; alloc + copy from data segment).
+// array.new_data (trampoline; alloc + copy from data segment).
 const arm64_array_new_data = @import("arm64/ops/wasm_3_0/array_new_data.zig");
-// A-10b: array.new_elem (trampoline; alloc + direct ref copy from elem segment).
+// array.new_elem (trampoline; alloc + direct ref copy from elem segment).
 const arm64_array_new_elem = @import("arm64/ops/wasm_3_0/array_new_elem.zig");
-// A-11a: array.init_data (trampoline; in-place copy from data segment).
+// array.init_data (trampoline; in-place copy from data segment).
 const arm64_array_init_data = @import("arm64/ops/wasm_3_0/array_init_data.zig");
-// A-11b: array.init_elem (trampoline; in-place direct ref copy from elem segment).
+// array.init_elem (trampoline; in-place direct ref copy from elem segment).
 const arm64_array_init_elem = @import("arm64/ops/wasm_3_0/array_init_elem.zig");
-// R-1: ref.test / ref.test_null (trampoline; subtype check → i32, no trap).
+// ref.test / ref.test_null (trampoline; subtype check → i32, no trap).
 const arm64_ref_test = @import("arm64/ops/wasm_3_0/ref_test.zig");
 const arm64_ref_test_null = @import("arm64/ops/wasm_3_0/ref_test_null.zig");
-// R-2: ref.cast (trampoline; subtype check → ref or trap-on-0).
+// ref.cast (trampoline; subtype check → ref or trap-on-0).
 const arm64_ref_cast = @import("arm64/ops/wasm_3_0/ref_cast.zig");
-// R-3: ref.cast_null (reuses jitGcRefTest+nullbit; null passes, mismatch traps).
+// ref.cast_null (reuses jitGcRefTest+nullbit; null passes, mismatch traps).
 const arm64_ref_cast_null = @import("arm64/ops/wasm_3_0/ref_cast_null.zig");
 const x86_64_ref_i31 = @import("x86_64/ops/wasm_3_0/ref_i31.zig");
 const x86_64_i31_get_s = @import("x86_64/ops/wasm_3_0/i31_get_s.zig");
@@ -950,16 +947,16 @@ const x86_64_ref_test_null = @import("x86_64/ops/wasm_3_0/ref_test_null.zig");
 const x86_64_ref_cast = @import("x86_64/ops/wasm_3_0/ref_cast.zig");
 const x86_64_ref_cast_null = @import("x86_64/ops/wasm_3_0/ref_cast_null.zig");
 
-// 10.G GC-on-JIT br_on_cast / br_on_cast_fail (Cycle B) — cast (jitGcRefTest)
-// + conditional BRANCH via the shared `branchOnReg` (Cycle A `7a44f910`). The
-// ref is PEEKed (stays as block-result top); `_fail` inverts the bool. Both
-// arches; `*_fail.zig` re-exports `*.zig`'s emit (sense from `ins.op`).
+// GC br_on_cast / br_on_cast_fail — cast (jitGcRefTest) + conditional
+// BRANCH via the shared `branchOnReg`. The ref is PEEKed (stays as
+// block-result top); `_fail` inverts the bool. Both arches;
+// `*_fail.zig` re-exports `*.zig`'s emit (sense from `ins.op`).
 const arm64_br_on_cast = @import("arm64/ops/wasm_3_0/br_on_cast.zig");
 const arm64_br_on_cast_fail = @import("arm64/ops/wasm_3_0/br_on_cast_fail.zig");
 const x86_64_br_on_cast = @import("x86_64/ops/wasm_3_0/br_on_cast.zig");
 const x86_64_br_on_cast_fail = @import("x86_64/ops/wasm_3_0/br_on_cast_fail.zig");
 
-/// Tuple of all migrated arm64 per-op modules.
+/// Tuple of all arm64 per-op modules.
 pub const collected_arm64_ops = .{
     arm64_i32_add,
     arm64_i32_sub,
@@ -1337,18 +1334,12 @@ pub const collected_arm64_ops = .{
     arm64_f32x4_splat,
     arm64_f64x2_splat,
     arm64_try_table,
-    // 10.R function-references cycle 50.
     arm64_ref_as_non_null,
-    // 10.R function-references cycle 54b (arm64 only; x86_64 = debt row).
     arm64_br_on_null,
-    // 10.R function-references cycle 56 (arm64 only; x86_64 = D-194).
     arm64_br_on_non_null,
-    // 10.G GC-on-JIT i31 family (arm64 only; x86_64 = D-211).
     arm64_ref_i31,
     arm64_i31_get_s,
     arm64_i31_get_u,
-    // 10.G GC-on-JIT struct.new_default + struct.get + struct.new (arm64;
-    // x86_64 struct.new = follow-on mirror).
     arm64_struct_new_default,
     arm64_struct_get,
     arm64_struct_get_s,
@@ -1378,65 +1369,16 @@ pub const collected_arm64_ops = .{
     arm64_br_on_cast_fail,
 };
 
-/// Tuple of all migrated x86_64 per-op modules.
+/// Tuple of x86_64 per-op modules on the legacy args-tuple emit shape.
+/// Empty: every x86_64 op uses the `(ctx, ins)` shape and is
+/// registered in `collected_x86_64_ctx_ops` below.
 pub const collected_x86_64_ops = .{
-    // i32 binary ALU cohort moved to collected_x86_64_ctx_ops at B79
-    // (i32.add/sub/mul/and/or/xor; same emitI32BinaryCtx adapter).
-    // i64 binary ALU cohort moved at B80 (i64.add/sub/mul/and/or/xor;
-    // same emitI64BinaryCtx adapter).
-    // i32 compare cohort moved at B81 (10 ops; emitI32CompareCtx).
-    // i64 compare cohort moved at B82 (10 ops; emitI64CompareCtx).
-    // i32+i64 shift cohorts moved at B83 (10 ops; emitI{32,64}ShiftCtx).
-    // bitcount + eqz cohorts moved at B84 (8 ops; emitI{32,64}{Bitcount,Eqz}Ctx).
-    // sign-extension (5) + width-conversion (3) = 8 ops moved at B85.
-    // FP arith cohort (8 ops; emitFpBinaryCtx) moved at B86.
-    // FP compare cohort (12 ops; emitFpCompareCtx) moved at B87.
-    // FP unary cohort (14 ops; emitFpUnaryCtx) moved at B88.
-    // FP min/max + copysign (6 ops; emitFp{MinMax,Copysign}Ctx) moved at B89.
-    // B57: i{32,64}.trunc_sat_f{32,64}_{s,u} migrated from
-    // `collected_x86_64_ops` (314 → 306) to
-    // `collected_x86_64_ctx_ops` (16 → 24) as part of the
-    // ADR-0075 `(ctx, ins)` migration. The per-op files at
-    // `x86_64/ops/wasm_2_0/i{32,64}_trunc_sat_*.zig` now ship
-    // the 2-arg `emit(*EmitCtx, *const ZirInstr)` shape.
-    // B58: f{32,64}.convert_i{32,64}_{s,u} migrated from
-    // `collected_x86_64_ops` (306 → 298) to `_ctx_ops`
-    // (24 → 32). The B26 7-arg stubs at
-    // `x86_64/ops/wasm_1_0/f{32,64}_convert_*.zig` rewritten
-    // in place to the 2-arg shape.
-    // B59: i{32,64}.reinterpret_f{32,64} + f{32,64}.reinterpret_
-    // i{32,64} + f64.promote_f32 + f32.demote_f64 migrated from
-    // `collected_x86_64_ops` (298 → 292) to `_ctx_ops` (32 → 38).
-    // The B28 7-arg stubs rewritten in place.
-    // v128 logical cohort moved to ctx tuple at B90 (6 ops).
-    // SIMD int binary arith cohort moved at B91 (10 ops: add/sub
-    // × 4 widths + i16x8/i32x4.mul; i64x2.mul skipped — no Zone 1
-    // meta file).
-    // SIMD int neg/abs cohort moved at B92 (8 ops).
-    // SIMD i8x16 compare cohort moved at B93 (10 ops).
-    // SIMD i16x8 compare cohort moved at B94 (10 ops).
-    // SIMD i32x4 compare cohort moved at B95 (10 ops).
-    // SIMD i64x2 compare cohort moved at B96 (6 ops; no _u variants).
-    // SIMD int shifts cohort moved at B97 (12 ops; all 6-arg).
-    // SIMD int min/max cohort moved at B98 (12 ops; all 6-arg).
-    // SIMD int sat arith cohort moved at B99 (10 ops; all 6-arg).
-    // SIMD f32x4 arith cohort moved at B100 (8 ops).
-    // SIMD f64x2 arith cohort moved at B101 (8 ops).
-    // SIMD float unary cohort moved at B102 (14 ops; all 5-arg).
-    // SIMD float compare cohort moved at B103 (12 ops; all 5-arg).
-    // SIMD bool reductions cohort moved at B104 (9 ops; all 6-arg).
-    // SIMD narrow+extend cohort moved at B105 (16 ops; 4 narrow 6-arg + 12 extend 5-arg).
-    // SIMD extmul cohort moved at B106 (12 ops; all 5-arg).
-    // B107 SIMD residual: ref.is_null + splats (6) + swizzle + extadd_pairwise (4) + dot + q15mulr + fp-conv (7) = 21 ops moved to ctx.
+    // (empty — see docstring above)
 };
 
-/// §9.12-B / B54 (ADR-0075) — x86_64 per-op modules migrated to
-/// the `(ctx, ins)` emit signature. Separate from
-/// `collected_x86_64_ops` because the legacy dispatcher's `args`
-/// tuple shape is incompatible at comptime. At B6x+1 cutover
-/// (per ADR-0075 §Implementation plan) the legacy tuple is
-/// removed and this constant is renamed to the unified
-/// `collected_x86_64_ops`.
+/// x86_64 per-op modules using the `(ctx, ins)` emit signature
+/// (ADR-0075). Separate from `collected_x86_64_ops` because the legacy
+/// dispatcher's `args` tuple shape is incompatible at comptime.
 pub const collected_x86_64_ctx_ops = .{
     x86_64_i32_div_s,
     x86_64_i32_div_u,
@@ -1537,21 +1479,18 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_local_get,
     x86_64_local_set,
     x86_64_local_tee,
-    // B79: i32 binary ALU cohort moved from legacy tuple.
     x86_64_i32_add,
     x86_64_i32_sub,
     x86_64_i32_mul,
     x86_64_i32_and,
     x86_64_i32_or,
     x86_64_i32_xor,
-    // B80: i64 binary ALU cohort moved from legacy tuple.
     x86_64_i64_add,
     x86_64_i64_sub,
     x86_64_i64_mul,
     x86_64_i64_and,
     x86_64_i64_or,
     x86_64_i64_xor,
-    // B81: i32 compare cohort moved from legacy tuple.
     x86_64_i32_eq,
     x86_64_i32_ne,
     x86_64_i32_lt_s,
@@ -1562,7 +1501,6 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_i32_le_u,
     x86_64_i32_ge_s,
     x86_64_i32_ge_u,
-    // B82: i64 compare cohort moved from legacy tuple.
     x86_64_i64_eq,
     x86_64_i64_ne,
     x86_64_i64_lt_s,
@@ -1573,7 +1511,6 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_i64_le_u,
     x86_64_i64_ge_s,
     x86_64_i64_ge_u,
-    // B83: i32 + i64 shift cohorts moved from legacy.
     x86_64_i32_shl,
     x86_64_i32_shr_s,
     x86_64_i32_shr_u,
@@ -1584,7 +1521,6 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_i64_shr_u,
     x86_64_i64_rotl,
     x86_64_i64_rotr,
-    // B84: bitcount + eqz cohorts moved from legacy.
     x86_64_i32_clz,
     x86_64_i32_ctz,
     x86_64_i32_popcnt,
@@ -1593,7 +1529,6 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_i64_popcnt,
     x86_64_i32_eqz,
     x86_64_i64_eqz,
-    // B85: sign-extension + width-conversion cohorts moved.
     x86_64_i32_extend8_s,
     x86_64_i32_extend16_s,
     x86_64_i64_extend8_s,
@@ -1602,7 +1537,6 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_i32_wrap_i64,
     x86_64_i64_extend_i32_s,
     x86_64_i64_extend_i32_u,
-    // B86: FP arith cohort moved from legacy.
     x86_64_f32_add,
     x86_64_f32_sub,
     x86_64_f32_mul,
@@ -1611,7 +1545,6 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_f64_sub,
     x86_64_f64_mul,
     x86_64_f64_div,
-    // B87: FP compare cohort moved from legacy.
     x86_64_f32_eq,
     x86_64_f32_ne,
     x86_64_f32_lt,
@@ -1624,7 +1557,6 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_f64_gt,
     x86_64_f64_le,
     x86_64_f64_ge,
-    // B88: FP unary cohort moved from legacy.
     x86_64_f32_abs,
     x86_64_f32_neg,
     x86_64_f32_sqrt,
@@ -1639,21 +1571,18 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_f64_floor,
     x86_64_f64_trunc,
     x86_64_f64_nearest,
-    // B89: FP min/max + copysign cohorts moved from legacy.
     x86_64_f32_min,
     x86_64_f32_max,
     x86_64_f64_min,
     x86_64_f64_max,
     x86_64_f32_copysign,
     x86_64_f64_copysign,
-    // B90: v128 logical cohort moved from legacy (first SIMD).
     x86_64_v128_not,
     x86_64_v128_and,
     x86_64_v128_andnot,
     x86_64_v128_or,
     x86_64_v128_xor,
     x86_64_v128_bitselect,
-    // B91: SIMD int binary arith cohort moved from legacy.
     x86_64_i8x16_add,
     x86_64_i8x16_sub,
     x86_64_i16x8_add,
@@ -1664,7 +1593,6 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_i32x4_mul,
     x86_64_i64x2_add,
     x86_64_i64x2_sub,
-    // B92: SIMD int neg/abs cohort moved from legacy.
     x86_64_i8x16_neg,
     x86_64_i16x8_neg,
     x86_64_i32x4_neg,
@@ -1673,7 +1601,6 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_i16x8_abs,
     x86_64_i32x4_abs,
     x86_64_i64x2_abs,
-    // B93: SIMD i8x16 compare cohort moved from legacy.
     x86_64_i8x16_eq,
     x86_64_i8x16_ne,
     x86_64_i8x16_lt_s,
@@ -1684,7 +1611,6 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_i8x16_le_u,
     x86_64_i8x16_ge_s,
     x86_64_i8x16_ge_u,
-    // B94: SIMD i16x8 compare cohort moved from legacy.
     x86_64_i16x8_eq,
     x86_64_i16x8_ne,
     x86_64_i16x8_lt_s,
@@ -1695,7 +1621,6 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_i16x8_le_u,
     x86_64_i16x8_ge_s,
     x86_64_i16x8_ge_u,
-    // B95: SIMD i32x4 compare cohort moved from legacy.
     x86_64_i32x4_eq,
     x86_64_i32x4_ne,
     x86_64_i32x4_lt_s,
@@ -1706,14 +1631,12 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_i32x4_le_u,
     x86_64_i32x4_ge_s,
     x86_64_i32x4_ge_u,
-    // B96: SIMD i64x2 compare cohort moved from legacy.
     x86_64_i64x2_eq,
     x86_64_i64x2_ne,
     x86_64_i64x2_lt_s,
     x86_64_i64x2_gt_s,
     x86_64_i64x2_le_s,
     x86_64_i64x2_ge_s,
-    // B97: SIMD int shifts cohort moved from legacy.
     x86_64_i8x16_shl,
     x86_64_i8x16_shr_s,
     x86_64_i8x16_shr_u,
@@ -1726,7 +1649,6 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_i64x2_shl,
     x86_64_i64x2_shr_s,
     x86_64_i64x2_shr_u,
-    // B98: SIMD int min/max cohort moved from legacy.
     x86_64_i8x16_min_s,
     x86_64_i8x16_min_u,
     x86_64_i8x16_max_s,
@@ -1739,7 +1661,6 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_i32x4_min_u,
     x86_64_i32x4_max_s,
     x86_64_i32x4_max_u,
-    // B99: SIMD int sat arith cohort moved from legacy.
     x86_64_i8x16_add_sat_s,
     x86_64_i8x16_add_sat_u,
     x86_64_i8x16_sub_sat_s,
@@ -1750,7 +1671,6 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_i16x8_sub_sat_u,
     x86_64_i8x16_avgr_u,
     x86_64_i16x8_avgr_u,
-    // B100: SIMD f32x4 arith cohort moved from legacy.
     x86_64_f32x4_add,
     x86_64_f32x4_sub,
     x86_64_f32x4_mul,
@@ -1759,7 +1679,6 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_f32x4_max,
     x86_64_f32x4_pmin,
     x86_64_f32x4_pmax,
-    // B101: SIMD f64x2 arith cohort moved from legacy.
     x86_64_f64x2_add,
     x86_64_f64x2_sub,
     x86_64_f64x2_mul,
@@ -1768,7 +1687,6 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_f64x2_max,
     x86_64_f64x2_pmin,
     x86_64_f64x2_pmax,
-    // B102: SIMD float unary cohort moved from legacy.
     x86_64_f32x4_abs,
     x86_64_f32x4_neg,
     x86_64_f32x4_sqrt,
@@ -1783,7 +1701,6 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_f64x2_floor,
     x86_64_f64x2_trunc,
     x86_64_f64x2_nearest,
-    // B103: SIMD float compare cohort moved from legacy.
     x86_64_f32x4_eq,
     x86_64_f32x4_ne,
     x86_64_f32x4_lt,
@@ -1796,7 +1713,6 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_f64x2_gt,
     x86_64_f64x2_le,
     x86_64_f64x2_ge,
-    // B104: SIMD bool reductions cohort moved from legacy.
     x86_64_v128_any_true,
     x86_64_i8x16_all_true,
     x86_64_i16x8_all_true,
@@ -1806,7 +1722,6 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_i16x8_bitmask,
     x86_64_i32x4_bitmask,
     x86_64_i64x2_bitmask,
-    // B105: SIMD narrow + extend cohort moved from legacy.
     x86_64_i16x8_extend_low_i8x16_s,
     x86_64_i16x8_extend_low_i8x16_u,
     x86_64_i16x8_extend_high_i8x16_s,
@@ -1857,34 +1772,31 @@ pub const collected_x86_64_ctx_ops = .{
     x86_64_f32x4_demote_f64x2_zero,
     x86_64_i32x4_trunc_sat_f32x4_s,
     x86_64_i32x4_trunc_sat_f32x4_u,
-    // Wasm 3.0 EH (ADR-0114 D2) — IT-1 try_table stub routes here
-    // for its `exception_table_builder` invariant assert. IT-3
-    // adds throw / throw_ref (trap-only path until IT-6 wires
-    // the dispatcher CALL).
+    // Wasm 3.0 EH (ADR-0114 D2) — try_table routes here for its
+    // `exception_table_builder` invariant assert.
     x86_64_try_table,
     x86_64_throw,
     x86_64_throw_ref,
-    // ADR-0112 D4 / 10.TC emit-body cycle 5 — return_call emit
-    // delegates to op_tail_call.emitDirectReturnCall (sibling
-    // arm64 wired via the manual switch in arm64/emit.zig).
+    // ADR-0112 D4 — return_call emit delegates to
+    // op_tail_call.emitDirectReturnCall (sibling arm64 wired via the
+    // manual switch in arm64/emit.zig).
     x86_64_return_call,
-    // ADR-0112 D4 / 10.TC emit-body cycle 8 — return_call_indirect
-    // emit delegates to op_tail_call.emitIndirectReturnCall (JMP R11
-    // path; sibling arm64 wired via manual switch in arm64/emit.zig).
+    // ADR-0112 D4 — return_call_indirect emit delegates to
+    // op_tail_call.emitIndirectReturnCall (JMP R11 path; sibling arm64
+    // wired via manual switch in arm64/emit.zig).
     x86_64_return_call_indirect,
-    // 10.R function-references — call_ref JIT (10.R-call_ref-JIT IT-2;
-    // op_call.emitCallRefCtx; sibling arm64 via manual switch in emit.zig).
-    x86_64_call_ref,
-    // 10.R/10.TC — return_call_ref JIT (op_tail_call.emitReturnCallRef;
+    // function-references — call_ref JIT (op_call.emitCallRefCtx;
     // sibling arm64 via manual switch in emit.zig).
+    x86_64_call_ref,
+    // return_call_ref JIT (op_tail_call.emitReturnCallRef; sibling
+    // arm64 via manual switch in emit.zig).
     x86_64_return_call_ref,
-    // 10.R function-references cycle 50.
     x86_64_ref_as_non_null,
-    // 10.R cycle 58 — br_on_null / br_on_non_null JIT emit (D-194
-    // discharge Path B via captureOrEmitBlockMergeMovCtx wrapper).
+    // br_on_null / br_on_non_null JIT emit (D-194 discharge Path B
+    // via captureOrEmitBlockMergeMovCtx wrapper).
     x86_64_br_on_null,
     x86_64_br_on_non_null,
-    // 10.G GC-on-JIT i31 family (mirror of arm64; D-211).
+    // GC-on-JIT i31 family (mirror of arm64; D-211).
     x86_64_ref_i31,
     x86_64_i31_get_s,
     x86_64_i31_get_u,

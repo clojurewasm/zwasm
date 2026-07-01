@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `i32x4.min.u` — B98 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `i32x4.min.u`.
 //! Delegates to op_simd_int_arith.emitI32x4MinUCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/i32x4_min_u.zig");

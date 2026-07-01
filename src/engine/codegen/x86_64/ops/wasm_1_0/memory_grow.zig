@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `memory.grow` — Zone 2 per-arch op
-//! file per ADR-0074 + ADR-0075 (B71 migration to `(ctx, ins)`).
+//! file per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/memory_grow.zig`.
 //! Delegates to `op_call.emitMemoryGrowCtx`, which wraps the

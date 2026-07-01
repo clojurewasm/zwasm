@@ -1,7 +1,7 @@
 //! Byte-level tests for x86_64 V128 SIMD op handlers — V128
 //! memory + bitwise + bitselect family. Extracted from a
-//! 4-way split of `op_simd_test.zig` per ADR-0054 / §9.9 /
-//! 9.9-h-16. Sibling test files (`op_simd_int_arith_test.zig`,
+//! 4-way split of `op_simd_test.zig` per ADR-0054. Sibling test
+//! files (`op_simd_int_arith_test.zig`,
 //! `op_simd_int_cmp_lane_test.zig`, `op_simd_float_test.zig`)
 //! cover the per-class handlers.
 //!

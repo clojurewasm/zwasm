@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `global.get` — Zone 2 per-arch op
-//! file per ADR-0074 + ADR-0075 (B62 cohort migration to `(ctx, ins)`).
+//! file per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/global_get.zig`.
 //! Delegates to `op_globals.emitGlobalGetCtx`, which dispatches
@@ -11,7 +11,6 @@
 //! `globals_valtypes` tables drive the load shape.
 //!
 //! Registered in `dispatch_collector.collected_x86_64_ctx_ops`.
-//! New per-op file (no prior B-series stub).
 //!
 //! Zone 2 (`src/engine/codegen/x86_64/ops/`).
 

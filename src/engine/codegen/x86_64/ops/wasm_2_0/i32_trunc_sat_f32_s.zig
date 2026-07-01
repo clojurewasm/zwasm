@@ -1,6 +1,5 @@
 //! x86_64 emit handler for `i32.trunc_sat_f32_s` — Zone 2
-//! per-arch op file per ADR-0074 + ADR-0075 (B57 cohort migration
-//! to `(ctx, ins)`).
+//! per-arch op file per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_2_0/i32_trunc_sat_f32_s.zig`.
 //! The emit body delegates to `op_convert.emitI32TruncSatF32S`,
@@ -10,9 +9,7 @@
 //! Wasm spec §4.3 (i32.trunc_sat_f32_s) — non-trapping saturating
 //! signed f32→i32. NaN→0, ≥2^31→INT_MAX, <-2^31→INT_MIN.
 //!
-//! Registered in `dispatch_collector.collected_x86_64_ctx_ops`;
-//! moved out of `collected_x86_64_ops` at B57 (was registered as
-//! a 7-arg-shape stub by B27).
+//! Registered in `dispatch_collector.collected_x86_64_ctx_ops`.
 //!
 //! Zone 2 (`src/engine/codegen/x86_64/ops/`).
 

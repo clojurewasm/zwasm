@@ -51,10 +51,10 @@ fn emitGlobalTraceI32(allocator: Allocator, buf: *std.ArrayList(u8), idx: u32, s
     try buf.appendSlice(allocator, &.{ 0x48, 0xFF, 0x00 }); // INC qword ptr [RAX]
 }
 
-/// §9.12-B / B62 (ADR-0075) — `(ctx, ins)` adapters for the
+/// `(ctx, ins)` adapters for the
 /// globals cohort (`global.get`, `global.set`). Two distinct
 /// adapters (different legacy signatures — set has no
-/// `next_vreg`). Decomposes per-op at the B6x+1 cutover.
+/// `next_vreg`).
 pub fn emitGlobalGetCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     return emitGlobalGet(
         ctx.allocator,

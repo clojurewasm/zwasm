@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `memory.size` — Zone 2 per-arch op
-//! file per ADR-0074 + ADR-0075 (B71 migration to `(ctx, ins)`).
+//! file per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/memory_size.zig`.
 //! Delegates to `op_call.emitMemorySizeCtx`. Loads mem_limit from

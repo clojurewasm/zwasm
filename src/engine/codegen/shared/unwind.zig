@@ -6,7 +6,7 @@
 //! but the walk shape is platform-agnostic. The arch-specific
 //! glue (which FP register to read, how to materialise the
 //! frame chain from registers + memory) lives in the
-//! `zwasm_throw` trampoline (10.E-codegen-3 follow-on); this
+//! `zwasm_throw` trampoline; this
 //! file owns the platform-agnostic algorithm.
 //!
 //! Algorithm (per ADR-0114 D5):

@@ -11,7 +11,7 @@
 //!
 //! This module isolates prologue-shape knowledge to one place.
 //! Per ADR-0021 (sub-deliverable a), the helper lands first; the
-//! ~128 site bulk relativisation is sequenced under §9.7 / 7.5d
+//! ~128 site bulk relativisation is sequenced under
 //! sub-deliverable b alongside the emit.zig split.
 //!
 //! Prologue layout (per ADR-0017 + ADR-0034 + ADR-0105 D2):
@@ -66,7 +66,7 @@ pub const FpLrSave = struct {
 /// spilled vregs (i.e. `frame_bytes > 0` in emit.zig). Tests
 /// that exercise pure-register code pass `false`.
 ///
-/// §9.8a / 8a.2 (ADR-0034) JIT-execution sentinel adds 8 bytes
+/// ADR-0034 JIT-execution sentinel adds 8 bytes
 /// to every prologue (MOVZ X17, #1 + STR W17, [X19, #flag_off]),
 /// shifting body_start from 32 → 40 (no frame) and 36 → 44
 /// (with frame). ADR-0105 D2 adds the JIT-prologue stack-probe

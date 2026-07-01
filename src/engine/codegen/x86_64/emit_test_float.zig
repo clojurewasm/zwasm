@@ -1324,7 +1324,7 @@ test "compile: unreachable emits JMP rel32 + trap stub patches disp to trap_byte
     //   PUSH RBP (1) + PUSH R15 (2) + MOV RBP RSP (3)
     //   + MOV R15 RDI (3) + SUB RSP, 8 (4) = 13 bytes
     // JMP rel32 (5 bytes) starts at offset 13.
-    // D-055 migration: prologue size sourced from body_start_offset().
+    // Prologue size sourced from body_start_offset().
     // `unreachable` prescan flips uses_runtime_ptr=true (R15 saved
     // even though not loaded for memory access in this fixture);
     // frame=8.
@@ -1460,7 +1460,7 @@ test "compile: br N — function-depth (depth == labels.len) emits inline epilog
 }
 
 test "compile: total_locals=20 (>15 cap) — disp32 form lifts the i8 limit" {
-    // §9.7 / 7.10-g: localDisp i8 → i32 widening. Pre-7.10-g
+    // localDisp i8 → i32 widening. Previously
     // surfaced `UnsupportedOp[total_locals>15]` for any function
     // with > 15 declared locals (deepest local at [RBP - 8 - 16*8]
     // = [RBP - 136], outside i8). With disp32 encoders the cap
@@ -1498,7 +1498,7 @@ test "compile: total_locals=20 (>15 cap) — disp32 form lifts the i8 limit" {
 }
 
 test "compile: call N — 6 i32 args, SysV: 6th arg overflows to caller stack [RSP, #0] (STR W)" {
-    // §9.7 / 7.10-f mirror of arm64's d-11 caller-side stack-arg
+    // Mirror of arm64's d-11 caller-side stack-arg
     // lowering. SysV reserves arg_gprs[0] = RDI for runtime_ptr,
     // so user int args fit in arg_gprs[1..5] = RSI/RDX/RCX/R8/R9
     // (5 slots). 6 i32 args ⇒ args 0..4 register-pass, arg 5

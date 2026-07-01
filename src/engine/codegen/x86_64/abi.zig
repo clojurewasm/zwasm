@@ -1,4 +1,4 @@
-//! x86_64 calling-convention tables (§9.7 / 7.6 chunk c).
+//! x86_64 calling-convention tables.
 //!
 //! Mirrors the role of `arm64/abi.zig`'s ABI tables but for the
 //! AMD64 / Intel® 64 architecture under the System V x86_64 ABI
@@ -25,7 +25,7 @@
 //!   R10                  static chain (rarely used)
 //!   R11                  intra-procedure scratch (PLT, etc.)
 //!
-//! Phase 7.6 chunk-c scope: declarative ABI tables + the
+//! Declarative ABI tables + the
 //! `slotToReg` / `fpSlotToReg` mappers + the **single-
 //! reservation invariant model per ADR-0026** (R15 holds the
 //! saved runtime ptr; other JitRuntime invariants reload from
@@ -39,9 +39,8 @@
 //! Win64 ABI tables live alongside SysV in this file — see the
 //! `sysv` and `win64` namespaces and the `Cc` enum below. The
 //! emit-side Cc-pivot wiring (selecting `arg_gprs` etc. per
-//! target at compile time per ADR-0026 line 229-232) lands when
-//! 7.8 spec gate prep needs windowsmini to run the x86_64 JIT;
-//! today the top-level aliases (`arg_gprs`, `return_gpr`, …)
+//! target at compile time per ADR-0026 line 229-232). Today
+//! the top-level aliases (`arg_gprs`, `return_gpr`, …)
 //! continue to expose the SysV values so existing emit byte-
 //! tests are unchanged.
 //!
@@ -223,31 +222,18 @@ pub const allocatable_xmms = [_]Xmm{
 /// **Two stage regs** (matching arm64's count) so binary ops can
 /// stage two spilled operands without collision (`stage_idx`
 /// 0 → R10, 1 → R11).
-///
-/// **State (D-045 chunk 13a)**: constants land here as foundation;
-/// `gpr.zig` helpers reference them but no op-handler caller has
-/// migrated yet. R10/R11 remain in `allocatable_caller_saved_
-/// scratch_gprs` for now — the dual-listing is **intentionally
-/// inert** (no caller fires the spill helpers) until chunk 13b
-/// completes the handler migration and removes R10/R11 from the
-/// regalloc pool. The comptime overlap check below is intentionally
-/// gated by `enforce_spill_stage_disjoint` (default `false` in
-/// 13a, flipped to `true` in 13b).
 pub const spill_stage_gprs = [_]Gpr{ .r10, .r11 };
 
 /// XMM-class counterpart of `spill_stage_gprs`. XMM14/XMM15 are
 /// caller-saved in both SysV (§3.2.3) and Win64 (XMM6..XMM15 are
 /// callee-saved on Win64, so XMM14/XMM15 require save/restore
-/// across calls — Win64 gpr.zig migration is chunk 13b).
-///
-/// See `spill_stage_gprs` doc for the dual-listing inertness
-/// rationale.
+/// across calls).
 pub const fp_spill_stage_xmms = [_]Xmm{ .xmm14, .xmm15 };
 
 /// Translate a regalloc slot id (from `engine/codegen/shared/
 /// regalloc.compute`) into a concrete GPR via the allocatable
 /// pool. Returns null when the slot id exceeds the pool size —
-/// the §9.7 / 7.7 emit pass treats that as a cue to spill.
+/// the emit pass treats that as a cue to spill.
 pub fn slotToReg(slot_id: u16) ?Gpr {
     if (slot_id >= allocatable_gprs.len) return null;
     return allocatable_gprs[slot_id];
@@ -502,10 +488,8 @@ test "frame_pointer + stack_pointer tracked" {
 }
 
 // Win64 ABI tables (Microsoft x64 calling convention). Tracked
-// alongside the SysV tables but not yet consumed by emit.zig —
-// the Cc-pivot wiring lands when 7.8 spec gate prep needs
-// windowsmini to run the x86_64 JIT. ADR-0026 line 225-232
-// documents the relationship.
+// alongside the SysV tables but not yet consumed by emit.zig.
+// ADR-0026 line 225-232 documents the relationship.
 
 test "Cc enum lists the two x86_64 calling conventions" {
     try testing.expectEqual(Cc.sysv, @as(Cc, .sysv));

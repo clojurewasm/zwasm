@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `i64.clz` — B84 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `i64.clz`.
 //! Delegates to op_alu_int.emitI64BitcountCtx.
 
 const meta = @import("../../../../../instruction/wasm_1_0/i64_clz.zig");

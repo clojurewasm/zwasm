@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `f32x4.neg` — B102 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `f32x4.neg`.
 //! Delegates to op_simd_float.emitF32x4NegCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/f32x4_neg.zig");

@@ -4,10 +4,8 @@
 //\! (CMEQ/CMGT/CMGE/CMHI/CMHS), and FP per-lane compares
 //\! (FCMEQ/FCMGT/FCMGE).
 //\!
-//\! Split from `inst_neon.zig` per ADR-0041 + §9.9 / 9.9-h-19
-//\! + `.dev/phase10_prep/track_b_source_split.md` §4.3 (arm64
-//\! encoder source partition; chunk B/5 of 6). Closes the
-//\! last hard-cap-exceeder per `scripts/file_size_check.sh`.
+//\! Split from `inst_neon.zig` per ADR-0041 (arm64 encoder
+//\! source partition).
 //\!
 //\! Bit patterns from the Arm Architecture Reference Manual
 //\! (DDI 0487, A64 SIMD&FP instructions). Each `pub fn enc<X>`
@@ -39,7 +37,7 @@ const Xn = inst_neon.Xn;
 ///
 /// Per Arm IHI 0055 §C7.2.371. The S form is the 32-bit lane
 /// view; UMOV (B/H) and SMOV (B/H/S signed-extending) variants
-/// land in 9.6 alongside i8x16 / i16x8 lane handlers.
+/// land alongside i8x16 / i16x8 lane handlers.
 pub fn encUmovWFromS(rd: Xn, rn: Vn, lane: u2) u32 {
     const imm5: u32 = (@as(u32, lane) << 3) | 0b00100;
     return 0x0E003C00 | (imm5 << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
@@ -59,7 +57,7 @@ pub fn encInsSFromW(rd: Vn, rn: Xn, lane: u2) u32 {
 }
 
 // ---------------------------------------------------------------------
-// §9.9 / 9.5-c-vi — B / H / D element forms
+// B / H / D element forms
 // ---------------------------------------------------------------------
 // Wasm spec (SIMD) §extract_lane / replace_lane — i8x16, i16x8, i64x2.
 // The B and H forms come in U(zero-extend) and S(sign-extend) flavours
@@ -134,7 +132,7 @@ pub fn encInsDFromX(rd: Vn, rn: Xn, lane: u1) u32 {
 }
 
 // ---------------------------------------------------------------------
-// §9.9 / 9.5-c-vii — FP element forms (S = f32x4, D = f64x2 lane access)
+// FP element forms (S = f32x4, D = f64x2 lane access)
 // ---------------------------------------------------------------------
 // Wasm spec (SIMD) — `f32x4.extract_lane` produces an f32 scalar held
 // in an FP register (S-form, low 32 bits of V<rd>); `replace_lane`
@@ -188,7 +186,7 @@ pub fn encMovVDlaneFromVD0(rd: Vn, dst_lane: u1, rn: Vn) u32 {
     return 0x6E000400 | (imm5 << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
 }
 // ---------------------------------------------------------------------
-// §9.6 / 9.6-c-ii — FCMGT (vector, register form) + BSL
+// FCMGT (vector, register form) + BSL
 // ---------------------------------------------------------------------
 // Used to synthesise Wasm `f*x*.pmin` / `pmax` (zero-on-equal-magnitude
 // pseudo-min/max) since A64 NEON has no direct instruction.
@@ -233,8 +231,8 @@ pub fn encFCmGe2D(rd: Vn, rn: Vn, rm: Vn) u32 {
     return 0x6E60E400 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
 }
 // ---------------------------------------------------------------------
-// §9.6 / 9.6-d — Integer per-lane compares (CMEQ / CMGT / CMGE /
-//                CMHI / CMHS) + NOT for `ne` synthesis
+// Integer per-lane compares (CMEQ / CMGT / CMGE /
+// CMHI / CMHS) + NOT for `ne` synthesis
 // ---------------------------------------------------------------------
 // Wasm spec (SIMD) — `i*x*.{eq,ne,lt_s,lt_u,gt_s,gt_u,le_s,le_u,ge_s,ge_u}`.
 // Encoding family: "Advanced SIMD three same":
@@ -320,7 +318,7 @@ pub fn encCmHs4S(rd: Vn, rn: Vn, rm: Vn) u32 {
 const testing = std.testing;
 
 // ============================================================
-// §9.9 / 9.5-c-iii — Lane access encoder tests (UMOV / INS)
+// Lane access encoder tests (UMOV / INS)
 // ============================================================
 
 test "encUmovWFromS: lane 0 (W0 ← V0.S[0])" {
@@ -356,7 +354,7 @@ test "encInsSFromW: max regs + max lane (V31.S[3] ← W31)" {
     try testing.expectEqual(@as(u32, 0x4E1C1FFF), encInsSFromW(31, 31, 3));
 }
 // ============================================================
-// §9.9 / 9.5-c-vi — Lane access for B/H/D element forms
+// Lane access for B/H/D element forms
 // ============================================================
 
 test "encUmovWFromB: lane 0 (W0 ← V0.B[0])" {
@@ -441,7 +439,7 @@ test "lane access encoders: B/H/S/D element discriminators distinct" {
     try testing.expect(encUmovWFromS(0, 0, 0) != encUmovXFromD(0, 0, 0));
 }
 // ============================================================
-// §9.9 / 9.5-c-vii — FP lane access (DUP scalar + INS element)
+// FP lane access (DUP scalar + INS element)
 // ============================================================
 
 test "encMovScalarSFromVlane: lane 0 (MOV S0, V0.S[0])" {
@@ -492,7 +490,7 @@ test "DUP-scalar vs INS-element: distinct opcode prefixes" {
     try testing.expectEqual(@as(u32, 0x30000000), dup_word ^ ins_word);
 }
 // ============================================================
-// §9.6 / 9.6-c-ii — FCMGT + BSL (pmin/pmax synthesis)
+// FCMGT + BSL (pmin/pmax synthesis)
 // ============================================================
 
 test "encFCmGt4S: V0, V1, V2 (f32x4 greater-than)" {
@@ -513,7 +511,7 @@ test "encFCmGt vs encFMax: U + bit 23 + bit 12 all differ" {
 }
 
 // ============================================================
-// §9.6 / 9.6-d — Int per-lane compare encoders
+// Int per-lane compare encoders
 // ============================================================
 
 test "encCmEq16B: V0, V1, V2 (i8x16.eq)" {

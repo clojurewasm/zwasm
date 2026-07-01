@@ -1,10 +1,9 @@
 //! x86_64 emit handler for `unreachable` — Zone 2 per-arch op
-//! file per ADR-0074 + ADR-0075 (B73 migration to `(ctx, ins)`).
+//! file per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/unreachable_.zig`.
 //! Delegates to `op_control.emitUnreachableCtx`. Emits JMP rel32
-//! to function-end trap stub; sets `ctx.dead_code` (new ctx field
-//! added at B73).
+//! to function-end trap stub; sets `ctx.dead_code`.
 //!
 //! Wasm spec §4.4.6.1 (unreachable).
 //!

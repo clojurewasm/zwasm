@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `i64.le.s` — Zone 2 per-arch op file per
-//! ADR-0074 + ADR-0075 (B82 migration to `(ctx, ins)`).
+//! ADR-0074 + ADR-0075.
 //!
 //! Delegates to `op_alu_int.emitI64CompareCtx`.
 //!

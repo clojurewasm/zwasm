@@ -12,8 +12,7 @@
 //!
 //! Current atom: emit the zero-locals restore (RSP = RBP).
 //! Functions with locals use the frame-bytes-aware restore
-//! that lands when CodeMap.Entry gains the frame_bytes field
-//! (10.E-codegen-3h follow-on).
+//! that lands when CodeMap.Entry gains the frame_bytes field.
 //!
 //! Spec: System V AMD64 ABI §3.2.2.
 //!
@@ -31,7 +30,7 @@ const inst = @import("inst.zig");
 ///
 /// Zero-locals restore: caller's frame_bytes == 0, so RSP == RBP
 /// at the catch landing pad. Functions with locals require the
-/// `SUB RSP, #frame_bytes` follow-up emit (10.E-codegen-3h).
+/// `SUB RSP, #frame_bytes` follow-up emit.
 pub fn emitSpFromGpr(
     allocator: std.mem.Allocator,
     buf: *std.ArrayList(u8),

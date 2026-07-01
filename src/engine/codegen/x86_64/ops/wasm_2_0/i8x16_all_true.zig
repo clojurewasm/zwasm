@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `i8x16.all.true` — B104 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `i8x16.all.true`.
 //! Delegates to op_simd_int_cmp_lane.emitI8x16AllTrueCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/i8x16_all_true.zig");

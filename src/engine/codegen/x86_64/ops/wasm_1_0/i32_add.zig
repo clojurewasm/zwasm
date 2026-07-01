@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `i32.add` — Zone 2 per-arch op file per
-//! ADR-0074 + ADR-0075 (B79 migration to `(ctx, ins)`).
+//! ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/i32_add.zig`.
 //! Delegates to `op_alu_int.emitI32BinaryCtx` (which dispatches

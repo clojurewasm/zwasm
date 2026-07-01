@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `i16x8.extadd.pairwise.i8x16.u` — B107 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `i16x8.extadd.pairwise.i8x16.u`.
 //! Delegates to op_simd_int_cmp_lane.emitI16x8ExtaddPairwiseI8x16UCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/i16x8_extadd_pairwise_i8x16_u.zig");

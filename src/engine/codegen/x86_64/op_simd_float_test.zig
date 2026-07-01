@@ -2,7 +2,7 @@
 //! handlers. Mirror of `op_simd_float.zig` per ADR-0054
 //! §"Naming convention" (4-way mirror split with
 //! `<source>_test.zig` suffix). Extracted from
-//! `op_simd_test.zig` in §9.9 / 9.9-h-16.
+//! `op_simd_test.zig`.
 //!
 //! Zone 2 (`src/engine/codegen/x86_64/`) — must NOT import
 //! `src/engine/codegen/arm64/` per ROADMAP §A3.

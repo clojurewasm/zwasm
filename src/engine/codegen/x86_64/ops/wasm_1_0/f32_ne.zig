@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `f32.ne` — B87 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `f32.ne`.
 //! Delegates to op_alu_float.emitFpCompareCtx.
 
 const meta = @import("../../../../../instruction/wasm_1_0/f32_ne.zig");

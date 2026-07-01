@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `f64.eq` — B87 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `f64.eq`.
 //! Delegates to op_alu_float.emitFpCompareCtx.
 
 const meta = @import("../../../../../instruction/wasm_1_0/f64_eq.zig");

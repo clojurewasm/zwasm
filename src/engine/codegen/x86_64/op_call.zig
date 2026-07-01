@@ -41,7 +41,7 @@ const op_control = @import("op_control.zig");
 const canonical_type = @import("../shared/canonical_type.zig");
 const func_mod = @import("../../../runtime/instance/func.zig");
 
-/// §9.9 / 9.9-i-1 helper: per-call v128-scratch base for Win64.
+/// Helper: per-call v128-scratch base for Win64.
 /// Returns the [RSP + N] offset where the first 16-byte v128
 /// scratch slot lives in the caller's outgoing-args region.
 /// Must agree with `emit.zig:computeOutgoingMaxBytes` Win64
@@ -123,11 +123,10 @@ fn reloadHomedCallerSaved(ctx: *ctx_mod.EmitCtx) Error!void {
     try homedSpillReload(ctx, .reload);
 }
 
-/// §9.12-B / B64 (ADR-0075) — `(ctx, ins)` adapters for the call
+/// `(ctx, ins)` adapters for the call
 /// cohort (`call`, `call_indirect`). Two distinct adapters
 /// (heterogeneous — call uses func_sigs+num_imports;
 /// call_indirect uses module_types+bounds_fixups+ins.extra).
-/// Decomposes per-op at the B6x+1 cutover.
 pub fn emitCallCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     // ADR-0155 stage 4 — spill register-resident homes before the CALL (the
     // callee clobbers RBX/R12-R14), reload after (the result is already
@@ -308,7 +307,7 @@ pub fn emitCall(
 
     // Win64 ABI: caller reserves 32 bytes of shadow space below
     // the call site for the callee to optionally spill its 4
-    // register args. §9.7 / 7.10-f folds shadow allocation into
+    // register args. Folds shadow allocation into
     // the prologue's outgoing-args region (`outgoing_max_bytes`
     // already includes shadow when any call exists), so this
     // helper becomes a no-op when prologue pre-allocation took
@@ -367,7 +366,7 @@ pub fn emitImportDispatch(
 
 /// Reserve Win64 shadow space below the upcoming CALL. No-op when
 /// `outgoing_max_bytes > 0` (shadow already allocated by the
-/// prologue per §9.7 / 7.10-f) or when SysV (`shadow_space_bytes
+/// prologue) or when SysV (`shadow_space_bytes
 /// == 0`). Per ADR-0026 / Microsoft x64.
 pub fn emitShadowAlloc(allocator: Allocator, buf: *std.ArrayList(u8), outgoing_max_bytes: u32) Error!void {
     if (abi.current.shadow_space_bytes == 0) return;
@@ -383,7 +382,7 @@ pub fn emitShadowFree(allocator: Allocator, buf: *std.ArrayList(u8), outgoing_ma
     try buf.appendSlice(allocator, inst.encAddRSpImm8(@intCast(abi.current.shadow_space_bytes)).slice());
 }
 
-/// §9.9 / 9.9-l-1b-d093-d8c (per ADR-0059) — `memory.grow`
+/// (per ADR-0059) — `memory.grow`
 /// callout via `JitRuntime.memory_grow_fn`. C-ABI args:
 /// `entry_arg0 = rt`, `arg1 = delta_pages`; result in EAX.
 /// x86_64 reads `vm_base` / `mem_limit` from `[R15+off]` on
@@ -578,7 +577,7 @@ pub fn emitCallIndirect(
         try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.funcptr_base_off).slice());
         try buf.appendSlice(allocator, inst.encMovR64FromBaseIdxLsl3(.rax, .rax, idx_r).slice());
     } else {
-        // Multi-table slow path (§9.9 / 9.9-l-1b-d093-d42 / D-112):
+        // Multi-table slow path (D-112):
         // load per-table size + bases from
         // `JitRuntime.tables_ptr[table_idx].len` +
         // `JitRuntime.tables_jit_ci_ptr[table_idx]` at the call
@@ -664,7 +663,7 @@ pub fn emitCallIndirect(
     try buf.appendSlice(allocator, inst.encMovRR(.q, rt_dst_gpr, abi.runtime_ptr_save_gpr).slice());
 
     // Win64 shadow space (32 bytes; SysV no-op; both no-op when
-    // §9.7 / 7.10-f prologue pre-allocation took ownership).
+    // prologue pre-allocation took ownership).
     try emitShadowAlloc(allocator, buf, outgoing_max_bytes);
 
     // CALL RAX (indirect).
@@ -771,8 +770,8 @@ pub fn emitCallRef(
 /// rightmost arg), then emit MOV from each arg's home register
 /// into the per-Cc arg slot. Args overflowing the register pool
 /// land at `[RSP + outgoing_offset + 8 * K]` in the caller's
-/// pre-allocated outgoing-args region (§9.7 / 7.10-f mirror of
-/// arm64 d-11). The callee's prologue reads them at `[RBP + 16
+/// pre-allocated outgoing-args region (mirror of
+/// arm64). The callee's prologue reads them at `[RBP + 16
 /// + r15_save_off + 8 * K]`.
 ///
 /// **Per-Cc overflow position**:
@@ -847,7 +846,7 @@ pub fn marshalCallArgs(
     // overflow). Win64 reuses gpr_arg_slot/fp_arg_slot's shared
     // value to derive its overflow slot.
     var nsaa_idx: u32 = 0;
-    // §9.9 / 9.9-i-1 Win64 v128 hidden-pointer scratch index.
+    // Win64 v128 hidden-pointer scratch index.
     // Counts v128 args processed so far; the per-arg scratch
     // lives at `[RSP + win64V128ScratchBase(sig) + v128_idx*16]`.
     var v128_idx: u32 = 0;
@@ -929,7 +928,7 @@ pub fn marshalCallArgs(
                 fp_arg_slot += 1;
                 if (abi.current_cc == .win64) gpr_arg_slot += 1;
             },
-            // §9.9 / 9.9-h-7 SysV + §9.9 / 9.9-i-1 Win64 caller-side
+            // SysV + Win64 caller-side
             // v128 marshal. SysV (§3.2.3 SIMD): XMM0..XMM7 direct,
             // overflow on stack as 2-eightbyte SSE class (16-byte
             // aligned). Win64 (Microsoft x64 §"Param passing"):
@@ -964,7 +963,7 @@ pub fn marshalCallArgs(
                 } else {
                     // SysV path.
                     if (fp_arg_slot >= abi.current.arg_xmms.len) {
-                        // §9.9 / 9.9-i-1 SysV v128 stack-overflow co-discharge:
+                        // SysV v128 stack-overflow co-discharge:
                         // write the 16-byte v128 to `[RSP + nsaa_disp]`,
                         // 16-byte aligned (NSAA SSE class takes 2 eightbytes).
                         if ((nsaa_idx & 1) != 0) nsaa_idx += 1;
@@ -990,7 +989,7 @@ pub fn marshalCallArgs(
 /// Compute the [RSP + disp] offset for an overflowed arg per
 /// the active Cc. SysV uses the NSAA counter; Win64 uses the
 /// shared int/fp slot index post-shadow-space (slot 4 = first
-/// overflow at [RSP + 32]). See §9.7 / 7.10-f rationale on
+/// overflow at [RSP + 32]). See rationale on
 /// `marshalCallArgs`.
 fn computeOverflowDisp(nsaa_idx: u32, shared_slot: usize) i32 {
     return switch (abi.current_cc) {
@@ -1155,7 +1154,7 @@ pub fn captureCallResult(
     }
 }
 
-/// §9.12-B / B71 (ADR-0075) — `(ctx, ins)` adapter for
+/// `(ctx, ins)` adapter for
 /// `memory.grow`. Threads `ctx.outgoing_max_bytes` into the
 /// existing `emitMemoryGrow` helper (host-import call with
 /// shadow-space alloc).
@@ -1175,7 +1174,7 @@ pub fn emitMemoryGrowCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!
     );
 }
 
-/// §9.12-B / B71 (ADR-0075) — `(ctx, ins)` adapter for
+/// `(ctx, ins)` adapter for
 /// `memory.size`. Loads mem_limit from R15+off and shifts right
 /// 16 to produce 64-KiB page count. Extracted from emit.zig's
 /// prior inline body.

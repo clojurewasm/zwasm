@@ -9,7 +9,7 @@
 //! `emit_test_int.zig` / `emit_test_float.zig` rename) is the
 //! follow-up that rides this helper landing.
 //!
-//! Prologue layout (per ADR-0026 Cc-pivot, current as of 2026-05-17):
+//! Prologue layout (per ADR-0026 Cc-pivot):
 //!
 //!   PUSH RBP                        (1 byte — 0x55)
 //!   PUSH R15                        (2 bytes — REX.B + 0x57)  [if uses_runtime_ptr]

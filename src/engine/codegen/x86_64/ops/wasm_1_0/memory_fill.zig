@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `memory.fill` — Zone 2 per-arch op
-//! file per ADR-0074 + ADR-0075 (B61 cohort migration to `(ctx, ins)`).
+//! file per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/memory_fill.zig`.
 //! Delegates to `op_memory.emitMemoryFillCtx`, which wraps the
@@ -10,7 +10,6 @@
 //! Traps on `dst + n > mem_limit`.
 //!
 //! Registered in `dispatch_collector.collected_x86_64_ctx_ops`.
-//! New per-op file (no prior B-series stub).
 //!
 //! Zone 2 (`src/engine/codegen/x86_64/ops/`).
 

@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `i32x4.ge.u` — B95 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `i32x4.ge.u`.
 //! Delegates to op_simd_int_cmp_lane.emitI32x4GeUCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/i32x4_ge_u.zig");

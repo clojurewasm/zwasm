@@ -3,7 +3,7 @@
 //!
 //! After `zwasm_throw.dispatchThrow` returns `.handler{
 //! handler_fp, landing_pad_pc, kind }`, the assembly
-//! trampoline (10.E-codegen-3h follow-on) must restore SP to
+//! trampoline must restore SP to
 //! the handler frame's prologue-completion boundary before
 //! jumping to `landing_pad_pc`. On AAPCS64 the prologue's
 //! `MOV X29, SP` leaves SP == FP at prologue completion;
@@ -13,7 +13,7 @@
 //! Current atom: emit the zero-locals restore (SP = FP).
 //! Functions with locals + spills use the frame-bytes-aware
 //! emit path that lands when CodeMap.Entry gains the
-//! frame_bytes field (10.E-codegen-3h follow-on).
+//! frame_bytes field.
 //!
 //! Spec: AAPCS64 §6.4.
 //!
@@ -33,8 +33,7 @@ const sp_reg: inst.Xn = 31;
 ///
 /// Zero-locals restore: caller's frame_bytes == 0, so SP == FP
 /// at the catch landing pad. Functions with locals require the
-/// `SUB SP, SP, #frame_bytes` follow-up emit (10.E-codegen-3h
-/// follow-on).
+/// `SUB SP, SP, #frame_bytes` follow-up emit.
 pub fn emitSpFromGpr(
     allocator: std.mem.Allocator,
     buf: *std.ArrayList(u8),

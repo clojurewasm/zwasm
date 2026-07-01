@@ -1,4 +1,4 @@
-//! `.cwasm` v0.1 producer orchestrator (§9.8b / 8b.3-d per
+//! `.cwasm` v0.1 producer orchestrator (per
 //! ADR-0039).
 //!
 //! Takes a `CompiledWasm` (the JIT pipeline's output, per
@@ -38,17 +38,17 @@ pub const Error = serialise.Error || error{
     ParamCountTooLarge,
     ResultCountTooLarge,
     UnsupportedHostArch,
-    /// A defined global's init-expr is outside the §12.3b cycle-1 subset
+    /// A defined global's init-expr is outside the cycle-1 subset
     /// (simple i32/i64/f/v128.const + ref.null). ref.func / global.get-import
     /// / struct.new globals are cycle-2 — surfaced loudly, not zero-filled.
     UnsupportedGlobalInit,
     /// Re-parsing `wasm_bytes` for the global/memory sections failed (should
     /// not happen — `compileWasm` already parsed+validated the same bytes).
     GlobalSectionParseFailed,
-    /// A memory/data segment is outside the §12.3b cycle-1b subset (a
+    /// A memory/data segment is outside the cycle-1b subset (a
     /// non-const active-data offset, or a memory larger than the loader cap).
     UnsupportedMemoryState,
-    /// A table/element segment is outside the §12.3b cycle-2a subset (a
+    /// A table/element segment is outside the cycle-2a subset (a
     /// non-const active-elem offset, or an offset past u32).
     UnsupportedTableState,
 };
@@ -158,7 +158,7 @@ pub fn produceFromCompiledWasm(
         exports[i] = .{ .name = e.name, .func_idx = e.func_idx };
     }
 
-    // Pre-evaluate defined-global init values (v0.3 §12.3b) so the loader
+    // Pre-evaluate defined-global init values (v0.3) so the loader
     // reconstructs `globals_base` by memcpy, no init-expr eval at load.
     const globals = try collectGlobalInits(allocator, wasm_bytes);
     defer allocator.free(globals);
@@ -233,7 +233,7 @@ fn collectImports(allocator: Allocator, wasm_bytes: []const u8) Error![]format.C
 }
 
 /// Evaluate each DEFINED global's init-expr into its 16-byte `Value` bits
-/// (v0.3 §12.3b). Re-parses `wasm_bytes` for the global section (a one-time
+/// (v0.3). Re-parses `wasm_bytes` for the global section (a one-time
 /// generator cost; mirrors `setup.setupRuntime`'s eval). Returns an empty
 /// slice for modules with no global section. Cycle-1 handles simple const
 /// inits only — `ref.func` / `global.get` / `struct.new` globals (which need

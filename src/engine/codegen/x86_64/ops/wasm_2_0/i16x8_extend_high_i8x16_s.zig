@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `i16x8.extend.high.i8x16.s` — B105 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `i16x8.extend.high.i8x16.s`.
 //! Delegates to op_simd_int_cmp_lane.emitI16x8ExtendHighI8x16SCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/i16x8_extend_high_i8x16_s.zig");

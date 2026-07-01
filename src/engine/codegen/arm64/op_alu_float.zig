@@ -1,11 +1,11 @@
 //! ARM64 emit pass — floating-point ALU / cmp / round handlers
 //! (f32 + f64).
 //!
-//! Per ADR-0021 sub-deliverable b (§9.7 / 7.5d sub-b emit.zig
+//! Per ADR-0021 sub-deliverable b (emit.zig
 //! 9-module split): all ZirOp handlers whose inputs and outputs
 //! are FP-class (f32 / f64). Cross-class conversions
 //! (f*.convert_i*, i*.trunc_f*, *.reinterpret_*, demote/promote)
-//! live in op_convert.zig (chunk 5).
+//! live in op_convert.zig.
 //!
 //! Handlers in this module:
 //!   - f32 / f64 binary: add, sub, mul, div — direct FADD/FSUB/

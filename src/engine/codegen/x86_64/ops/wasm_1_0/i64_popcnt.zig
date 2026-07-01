@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `i64.popcnt` — B84 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `i64.popcnt`.
 //! Delegates to op_alu_int.emitI64BitcountCtx.
 
 const meta = @import("../../../../../instruction/wasm_1_0/i64_popcnt.zig");

@@ -18,8 +18,7 @@
 //! passes to `unwind.walk`.
 //!
 //! Zone 2 (`src/engine/codegen/shared/`). The trampoline
-//! (10.E-codegen-3d follow-on) consumes this adapter as one of
-//! its inputs.
+//! consumes this adapter as one of its inputs.
 
 const std = @import("std");
 const builtin = @import("builtin");

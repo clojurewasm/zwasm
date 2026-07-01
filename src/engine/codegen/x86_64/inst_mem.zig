@@ -71,7 +71,7 @@ pub fn encMovR64FromBaseIdxLsl3(dst: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
 
 /// `MOV [base + idx*8], r64` (REX.W + opcode 0x89 with SIB
 /// scale=3 → ×8). Mirror of `encMovR64FromBaseIdxLsl3` for the
-/// store direction. Used by §9.9 / 9.9-m-2a's `table.set`:
+/// store direction. Used by `table.set`:
 /// `MOV [Rrefs + Ridx*8], Rval` writes `table.refs[idx]`.
 pub fn encStoreR64MemBaseIdxLsl3(src: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
     var enc: EncodedInsn = .{};
@@ -139,7 +139,7 @@ pub fn encMovsxR32R16(dst: Gpr, src: Gpr) EncodedInsn {
 }
 
 /// `MOVZX r32, r/m16` (2-byte opcode 0x0F 0xB7 /r) — zero-extend
-/// the low 16 bits. Used by 10.G `array.get_u` on packed i16
+/// the low 16 bits. Used by `array.get_u` on packed i16
 /// element arrays. Mirror of `encMovsxR32R16` (0x0F 0xBF); no
 /// REX.W (32-bit dest) and conditional REX (16-bit source has no
 /// byte-register ambiguity, unlike `encMovzxR32R8`).
@@ -263,7 +263,7 @@ pub fn encStoreR32MemDisp32(src: Gpr, base: Gpr, disp: i32) EncodedInsn {
 
 /// `MOV DWORD PTR [base + disp32], imm32` (opcode 0xC7 /0,
 /// mod=10). Stores a 32-bit immediate into memory; no register
-/// dependency. Used by §9.8a / 8a.2 (ADR-0034) JIT-execution
+/// dependency. Used by the ADR-0034 JIT-execution
 /// sentinel: prologue stores `1` into
 /// `[entry_arg0 + jit_executed_flag_off]` unconditionally.
 /// 7 bytes (no REX) for RAX/RCX/RDX/RBX/RSP/RBP/RSI/RDI bases;
@@ -443,8 +443,8 @@ pub fn encMovsxR32_16MemBaseIdx(dst: Gpr, base: Gpr, idx: Gpr) EncodedInsn {
 }
 
 // ============================================================
-// 64-bit mem load/store (i64.load / i64.store family — D-045
-// chunk 5/9 / §9.7 / 7.8). Same SIB shape as the R32 variants
+// 64-bit mem load/store (i64.load / i64.store family). Same
+// SIB shape as the R32 variants
 // above; differ only in REX.W (always set) and the sign/zero-
 // extending opcodes for sub-word loads.
 // ============================================================
@@ -554,7 +554,7 @@ pub fn encLeaR64BaseDisp8(dst: Gpr, base: Gpr, disp: i8) EncodedInsn {
 
 /// `LEA r64, [base + disp32]` (opcode 0x8D /r with REX.W,
 /// ModR/M mod=10, disp32). disp32 form for offsets that exceed
-/// i8 range. §9.9 / 9.9-i-1 Win64 v128 marshal caller-side path:
+/// i8 range. Win64 v128 marshal caller-side path:
 /// compute `[RBP + scratch_disp]` (scratch_disp typically deep
 /// in the local frame, well past i8 range) into the int-arg-reg
 /// slot per Microsoft x64 ABI §"Parameter passing" hidden-
@@ -581,7 +581,7 @@ pub fn encLeaR64BaseDisp32(dst: Gpr, base: Gpr, disp: i32) EncodedInsn {
 
 /// `LEA r64, [RSP + disp32]` (opcode 0x8D /r with REX.W,
 /// ModR/M mod=10, rm=100, SIB 0x24). RSP base mandates a SIB
-/// byte (rm=100 ⇒ SIB-escape per AMD64). §9.9 / 9.9-i-1 Win64
+/// byte (rm=100 ⇒ SIB-escape per AMD64). Win64
 /// v128 marshal caller-side: compute scratch slot address into
 /// an int-arg register (RDX/R8/R9). Distinct encoder from
 /// `encLeaR64BaseDisp32` because the latter excludes RSP base.
@@ -600,7 +600,7 @@ pub fn encLeaR64BaseRspDisp32(dst: Gpr, disp: i32) EncodedInsn {
 }
 
 /// `MOV BYTE PTR [base + disp32], imm8` (opcode 0xC6 /0).
-/// Used by `data.drop` / `elem.drop` (§9.9 / 9.9-m-3a) to write
+/// Used by `data.drop` / `elem.drop` to write
 /// `1` into the dropped-flag table.
 pub fn encStoreImm8MemBaseDisp32(base: Gpr, disp: i32, imm: u8) EncodedInsn {
     var enc: EncodedInsn = .{};
@@ -684,7 +684,7 @@ pub fn encLoadR64MemRBP(dst: Gpr, disp: i8) EncodedInsn {
 }
 
 // ============================================================
-// RBP-relative disp32 forms (§9.7 / 7.10-g — total_locals > 15
+// RBP-relative disp32 forms (total_locals > 15
 // cap expansion). The disp8 forms above are 4 bytes per
 // instruction; disp32 is 7 bytes (3 extra bytes for the wider
 // displacement). They share the same opcode + ModR/M shape
@@ -750,7 +750,7 @@ pub fn encLoadR64MemRBPDisp32(dst: Gpr, disp: i32) EncodedInsn {
 }
 
 // ============================================================
-// RSP-relative stores (§9.7 / 7.10-f caller-side stack-arg
+// RSP-relative stores (caller-side stack-arg
 // lowering). RSP encodes as r/m=100 which forces a SIB byte
 // regardless of mod, so RSP base requires its own encoders
 // distinct from the RBP-base helpers above. SIB byte for

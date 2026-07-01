@@ -1,4 +1,4 @@
-//! `.cwasm` producer (§9.8b / 8b.3-c per ADR-0039; v0.2 exports per ADR-0138).
+//! `.cwasm` producer (per ADR-0039; v0.2 exports per ADR-0138).
 //!
 //! Wraps already-emitted per-function machine code +
 //! relocation list + type metadata in the inline-bytes
@@ -73,7 +73,7 @@ pub const Input = struct {
     /// Lets a loaded `.cwasm` resolve `_start`/`main`/`--invoke <name>`
     /// without re-parsing the original `.wasm`. Empty for none.
     exports: []const format.CwasmExport = &.{},
-    /// Pre-evaluated defined-global init values (v0.3, ADR-0139 §12.3b),
+    /// Pre-evaluated defined-global init values (v0.3, ADR-0139),
     /// one `Value.bits128` per global in defined-global order. A standalone
     /// runtime memcpys these into `globals_base` — no init-expr eval at
     /// load. Empty for modules with no defined globals.

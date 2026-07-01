@@ -17,7 +17,7 @@ const std = @import("std");
 
 /// Why a Label was pushed on the control stack. block / loop /
 /// if_then / else_open mirror arm64's LabelKind for parity at
-/// the §9.7 / 7.11 three-way differential.
+/// the three-way differential.
 pub const LabelKind = enum { block, loop, if_then, else_open };
 
 /// Forward-jump fixup awaiting target resolution. `byte_offset`

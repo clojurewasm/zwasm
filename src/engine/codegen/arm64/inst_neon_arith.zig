@@ -1,4 +1,4 @@
-// FILE-SIZE-EXEMPT: uniform pure-encoder catalog (per ADR-0075 §9.12-B amendment 2026-05-21)
+// FILE-SIZE-EXEMPT: uniform pure-encoder catalog (per ADR-0075 amendment 2026-05-21)
 //\! ARM64 NEON arithmetic & conversion encoder family —
 //\! ADD/SUB/MUL/MIN/MAX/ABS/NEG/CNT/AVGR/sat-arith encoders
 //\! (per-shape variants), shifts (USHL/SSHL/SSHR imm),
@@ -9,10 +9,8 @@
 //\! FP three-same arithmetic (FADD/FSUB/FMUL/FDIV), FP unary
 //\! (FABS/FNEG/FSQRT/FRINT*), FP min/max (FMAX/FMIN).
 //\!
-//\! Split from `inst_neon.zig` per ADR-0041 + §9.9 / 9.9-h-19
-//\! + `.dev/phase10_prep/track_b_source_split.md` §4.3 (arm64
-//\! encoder source partition; chunk B/5 of 6). Closes the
-//\! last hard-cap-exceeder per `scripts/file_size_check.sh`.
+//\! Split from `inst_neon.zig` per ADR-0041 (arm64 encoder
+//\! source partition).
 //\!
 //\! Bit patterns from the Arm Architecture Reference Manual
 //\! (DDI 0487, A64 SIMD&FP instructions). Each `pub fn enc<X>`
@@ -98,7 +96,7 @@ pub fn encSub2D(rd: Vn, rn: Vn, rm: Vn) u32 {
 ///
 /// **Note**: NEON has no `MUL Vd.2D` form — i64x2.mul requires
 /// a multi-instr synthesis (extract / scalar mul / insert) and
-/// defers to §9.9 / 9.5-c-vi alongside the other 64-bit-lane ops
+/// defers to the other 64-bit-lane ops
 /// that need synthesis.
 /// `MUL V<d>.16B, V<n>.16B, V<m>.16B` — i8x16 lanewise mul.
 pub fn encMul16B(rd: Vn, rn: Vn, rm: Vn) u32 {
@@ -179,7 +177,7 @@ pub fn encUmull2_2D(rd: Vn, rn: Vn, rm: Vn) u32 {
 pub fn encAddp4S(rd: Vn, rn: Vn, rm: Vn) u32 {
     return 0x4EA0BC00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
 }
-/// `ADDP V<d>.8H, V<n>.8H, V<m>.8H` — add adjacent i16 pairs (§17.4 relaxed_dot).
+/// `ADDP V<d>.8H, V<n>.8H, V<m>.8H` — add adjacent i16 pairs (relaxed_dot).
 /// Same as encAddp4S but size=01 (bits 23:22): 0x4EA0… → 0x4E60….
 pub fn encAddp8H(rd: Vn, rn: Vn, rm: Vn) u32 {
     return 0x4E60BC00 | (@as(u32, rm) << 16) | (@as(u32, rn) << 5) | @as(u32, rd);
@@ -427,8 +425,7 @@ pub fn encAddvS4S(rd: Vn, rn: Vn) u32 {
 // discriminate lane width: 0001 → .16B, 001x → .8H, 01xx → .4S,
 // 1xxx → .2D. Per Arm IHI 0055 §C7.2.325.
 //
-// Verified via the survey at private/notes/p9-9.9-g-19-bitmask-
-// neon-survey.md (clang-as on Mac aarch64):
+// Verified via clang-as on Mac aarch64:
 //   sshr v0.16b, v1.16b, #7  → 0x4F090420
 //   sshr v0.8h,  v1.8h,  #15 → 0x4F110420
 //   sshr v0.4s,  v1.4s,  #31 → 0x4F210420
@@ -513,8 +510,8 @@ pub fn encFDiv2D(rd: Vn, rn: Vn, rm: Vn) u32 {
 }
 
 // ---------------------------------------------------------------------
-// §9.6 / 9.6-b — FP two-register-misc unary (FABS / FNEG / FSQRT /
-//                FRINTN / FRINTM / FRINTP / FRINTZ)
+// FP two-register-misc unary (FABS / FNEG / FSQRT /
+// FRINTN / FRINTM / FRINTP / FRINTZ)
 // ---------------------------------------------------------------------
 // Wasm spec (SIMD) — `f32x4.{abs,neg,sqrt,ceil,floor,trunc,nearest}`
 // and the f64x2 counterparts. Mapping:
@@ -597,7 +594,7 @@ pub fn encFRintZ2D(rd: Vn, rn: Vn) u32 {
 }
 
 // ---------------------------------------------------------------------
-// §9.6 / 9.6-c-i — FMIN / FMAX (vector form, IEEE-754 NaN-propagating)
+// FMIN / FMAX (vector form, IEEE-754 NaN-propagating)
 // ---------------------------------------------------------------------
 // Wasm spec (SIMD) — `f32x4.{min,max}` and `f64x2.{min,max}`.
 // IEEE-754-2008 min/max: NaN-propagating (any NaN input → NaN result).
@@ -606,7 +603,7 @@ pub fn encFRintZ2D(rd: Vn, rn: Vn) u32 {
 //   FMIN: `0 Q 0 01110 1 sz 1 Rm 11110 1 Rn Rd` (bit 23 = 1)
 // Per Arm IHI 0055 §C7.2.121 (FMAX) / §C7.2.125 (FMIN).
 //
-// `pmin` / `pmax` (pseudo-min/max) defer to 9.6-c-ii — synthesised
+// `pmin` / `pmax` (pseudo-min/max) are synthesised
 // via FCMGT + BSL since NEON has no direct pseudo-min instruction.
 
 pub fn encFMax4S(rd: Vn, rn: Vn, rm: Vn) u32 {
@@ -623,7 +620,7 @@ pub fn encFMin2D(rd: Vn, rn: Vn, rm: Vn) u32 {
 }
 
 // ---------------------------------------------------------------------
-// §17.4 — FMLA / FMLS (vector, fused multiply-add/-subtract)
+// FMLA / FMLS (vector, fused multiply-add/-subtract)
 // ---------------------------------------------------------------------
 // relaxed-SIMD `f{32,64}x4.relaxed_{madd,nmadd}` (ADR-0169: uniform
 // fused on arm64). NEON FMLA Vd, Vn, Vm: `Vd = Vd + (Vn * Vm)` (single
@@ -653,7 +650,7 @@ test "encFmla4S: V0,V1,V2 + FMLS bit23 + 2D sz bit22" {
     try testing.expectEqual(@as(u32, 0x4EFFCFFF), encFmls2D(31, 31, 31));
 }
 // ---------------------------------------------------------------------
-// §9.6 / 9.6-f-i — TBL (1-register table form)
+// TBL (1-register table form)
 // ---------------------------------------------------------------------
 // Wasm spec (SIMD) — `i8x16.swizzle`:
 //   for each lane k: output[k] = (indices[k] < 16) ? operand[indices[k]] : 0
@@ -663,7 +660,7 @@ test "encFmla4S: V0,V1,V2 + FMLS bit23 + 2D sz bit22" {
 // NEON TBL semantics: output[k] = (Vm[k] < 16) ? Vn[Vm[k]] : 0 — exact
 // Wasm match. Per Arm IHI 0055 §C7.2.299.
 //
-// `i8x16.shuffle` (with 16-byte index immediate) defers to 9.6-f-ii
+// `i8x16.shuffle` (with 16-byte index immediate) is deferred
 // because TBL's 2-register form requires consecutive Rn, Rn+1 — the
 // regalloc doesn't guarantee adjacency, so a copy-to-fixed-pair
 // preamble is needed.
@@ -685,7 +682,7 @@ pub fn encTbl2Reg(rd: Vn, rn: Vn, rm: Vn) u32 {
 }
 
 // ---------------------------------------------------------------------
-// §9.6 / 9.6-g-i — SXTL / SXTL2 / UXTL / UXTL2 (extend low/high)
+// SXTL / SXTL2 / UXTL / UXTL2 (extend low/high)
 // ---------------------------------------------------------------------
 // Wasm spec (SIMD) — `i*x*.extend_{low,high}_i*x*_{s,u}` (12 ops):
 //   i16x8.extend_{low,high}_i8x16_{s,u}    via SXTL/SXTL2/UXTL/UXTL2 .8H
@@ -704,7 +701,7 @@ pub fn encTbl2Reg(rd: Vn, rn: Vn, rm: Vn) u32 {
 // Per Arm IHI 0055 §C7.2.350 (SSHLL) / §C7.2.379 (USHLL) /
 // §C7.2.393 (SXTL alias) / §C7.2.394 (UXTL alias).
 // Handler shape is the standard `emitV128Unop` (pop 1 v128, push 1
-// v128 — same as §9.6-b's FP unaries).
+// v128 — same as the FP unaries).
 
 pub fn encSxtl8H(rd: Vn, rn: Vn) u32 {
     return 0x0F08A400 | (@as(u32, rn) << 5) | @as(u32, rd);
@@ -745,7 +742,7 @@ pub fn encUxtl2_2D(rd: Vn, rn: Vn) u32 {
 }
 
 // ---------------------------------------------------------------------
-// §9.6 / 9.6-g-ii — SQXTN/SQXTN2 + SQXTUN/SQXTUN2 (saturating narrow)
+// SQXTN/SQXTN2 + SQXTUN/SQXTUN2 (saturating narrow)
 // ---------------------------------------------------------------------
 // Wasm spec (SIMD) — `*.narrow_*_{s,u}` (4 ops):
 //   i8x16.narrow_i16x8_s  → SQXTN  + SQXTN2 (.8H → .8B/.16B)
@@ -796,7 +793,7 @@ pub fn encSqxtun2_8H(rd: Vn, rn: Vn) u32 {
 }
 
 // ---------------------------------------------------------------------
-// §9.6 / 9.6-g-iii — SCVTF / UCVTF (vector form, integer → FP)
+// SCVTF / UCVTF (vector form, integer → FP)
 // ---------------------------------------------------------------------
 // Wasm spec — `f32x4.convert_i32x4_{s,u}` (single instruction) +
 // `f64x2.convert_low_i32x4_{s,u}` (2-instruction synthesis: extend
@@ -826,7 +823,7 @@ pub fn encUcvtf2D(rd: Vn, rn: Vn) u32 {
 }
 
 // ---------------------------------------------------------------------
-// §9.6 / 9.6-g-iv — FCVTL / FCVTN (FP narrow / widen)
+// FCVTL / FCVTN (FP narrow / widen)
 // ---------------------------------------------------------------------
 // Wasm spec — `f64x2.promote_low_f32x4` (FCVTL .2D, .2S — widens
 // lower 2 f32 lanes to 2 f64) + `f32x4.demote_f64x2_zero` (FCVTN
@@ -850,7 +847,7 @@ pub fn encFCvtn_2S_2D(rd: Vn, rn: Vn) u32 {
 }
 
 // ---------------------------------------------------------------------
-// §9.6 / 9.6-g-v — FCVTZS/FCVTZU + SQXTN/UQXTN .2S form
+// FCVTZS/FCVTZU + SQXTN/UQXTN .2S form
 // ---------------------------------------------------------------------
 // Wasm spec — `i32x4.trunc_sat_f32x4_{s,u}` (single FCVTZS/U .4S
 // instruction; NaN→0 + saturation match NEON default per Arm IHI
@@ -867,7 +864,7 @@ pub fn encFCvtn_2S_2D(rd: Vn, rn: Vn) u32 {
 // 4985-5025.
 //
 // SQXTN/UQXTN .2S form (i64→i32 saturating narrow): same family
-// as 9.6-g-ii's .8B/.4H forms with size=10 (.2D source → .2S dest).
+// as the .8B/.4H forms with size=10 (.2D source → .2S dest).
 
 pub fn encFcvtzs4S(rd: Vn, rn: Vn) u32 {
     return 0x4EA1B800 | (@as(u32, rn) << 5) | @as(u32, rd);
@@ -959,7 +956,7 @@ test "encSqadd/Sqsub/Sqrdmulh/Saddlp etc: V0,V1,(V2) verified vs clang" {
     try testing.expectEqual(@as(u32, 0x6E602820), encUaddlp4S(0, 1));
 }
 
-// §9.9 / 9.9-f-7 — int-unop encoders. Expected bytes verified via
+// Int-unop encoders. Expected bytes verified via
 // `clang -arch arm64` of `(abs|neg).(16b|8h|4s|2d) v0, v1` and
 // `cnt.16b v0, v1`.
 test "encAbs/encNeg/encCnt: V0, V1 across shapes" {
@@ -990,10 +987,9 @@ test "encAbs vs encNeg: U bit (29) is the only difference" {
     try testing.expectEqual(@as(u32, 0x6EE0BBFF), encNeg2D(31, 31));
 }
 // ============================================================
-// §9.9 / 9.9-g-19 — ADDV / SSHR / ZIP1 / EXT encoder tests
+// ADDV / SSHR / ZIP1 / EXT encoder tests
 // (i*x*.bitmask recipe). Bit patterns cross-checked against
-// clang-as on Mac aarch64; see private/notes/p9-9.9-g-19-bitmask-
-// neon-survey.md for the raw assembly verification.
+// clang-as on Mac aarch64.
 // ============================================================
 
 test "encAddvB16B: B0 ← addv V0.16B → 0x4E31B800" {
@@ -1024,7 +1020,7 @@ test "encExtV16B: ext v0.16b, v1.16b, v2.16b, #8 → 0x6E024020" {
     try testing.expectEqual(@as(u32, 0x6E024020), encExtV16B(0, 1, 2, 8));
 }
 // ============================================================
-// §9.9 / 9.5-c-iv — ADD/SUB across i8x16/i16x8/i64x2 (i32x4
+// ADD/SUB across i8x16/i16x8/i64x2 (i32x4
 // already in foundation tests). Tests verify size-field bit
 // patterns + cross-shape distinctness sanity.
 // ============================================================
@@ -1079,7 +1075,7 @@ test "encAdd shapes pairwise distinct (size field separates)" {
 }
 
 // ============================================================
-// §9.9 / 9.5-c-v — MUL family (16B/8H/4S; 2D needs synthesis)
+// MUL family (16B/8H/4S; 2D needs synthesis)
 // ============================================================
 
 test "encMul16B: V0, V1, V2 (i8x16.mul shape)" {
@@ -1104,7 +1100,7 @@ test "encMul vs encAdd: bits[15:11] differ by 0b00011 << 11 = 0x1800" {
     try testing.expectEqual(@as(u32, 0x1800), mul_word ^ add_word);
 }
 // ============================================================
-// §9.6 / 9.6-a — FP three-same arithmetic (FADD/FSUB/FMUL/FDIV)
+// FP three-same arithmetic (FADD/FSUB/FMUL/FDIV)
 // ============================================================
 
 test "encFAdd4S: V0, V1, V2 (f32x4.add base)" {
@@ -1154,7 +1150,7 @@ test "FP arith: sz field selects 4S vs 2D (bit 22)" {
 }
 
 // ============================================================
-// §9.6 / 9.6-b — FP unary (FABS/FNEG/FSQRT/FRINT*)
+// FP unary (FABS/FNEG/FSQRT/FRINT*)
 // ============================================================
 
 test "encFAbs4S: V0, V1 (f32x4.abs base)" {
@@ -1219,7 +1215,7 @@ test "FP unary 7 ops × 2 shapes: all distinct at identical operands" {
 }
 
 // ============================================================
-// §9.6 / 9.6-c-i — FMAX / FMIN (vector, NaN-propagating)
+// FMAX / FMIN (vector, NaN-propagating)
 // ============================================================
 
 test "encFMax4S: V0, V1, V2 (f32x4.max base)" {
@@ -1241,7 +1237,7 @@ test "encFMin2D vs encFMin4S: sz field differs (bit 22)" {
     try testing.expectEqual(@as(u32, 0x400000), encFMin2D(0, 1, 2) ^ encFMin4S(0, 1, 2));
 }
 // ============================================================
-// §9.6 / 9.6-f-i — TBL 1-register (i8x16.swizzle)
+// TBL 1-register (i8x16.swizzle)
 // ============================================================
 
 test "encTbl1Reg: V0, V1, V2 (tbl v0.16b, {v1.16b}, v2.16b)" {
@@ -1265,7 +1261,7 @@ test "encTbl1Reg vs encTbl2Reg: len field (bits 14:13) differs" {
 }
 
 // ============================================================
-// §9.6 / 9.6-g-i — SXTL/UXTL extend-low/high
+// SXTL/UXTL extend-low/high
 // ============================================================
 // Cranelift cross-references (wasmtime/cranelift/codegen/src/isa/
 // aarch64/inst/emit_tests.rs:2826-2890):
@@ -1320,7 +1316,7 @@ test "Sxtl shapes pairwise distinct (immh field)" {
     try testing.expect(encSxtl8H(0, 0) != encSxtl2D(0, 0));
 }
 // ============================================================
-// §9.6 / 9.6-g-ii — SQXTN/SQXTUN saturating narrow
+// SQXTN/SQXTUN saturating narrow
 // ============================================================
 // Cranelift cross-references (wasmtime/cranelift/codegen/src/isa/
 // aarch64/inst/emit_tests.rs:3016-3128):
@@ -1367,7 +1363,7 @@ test "encSqxtun2_8H: v31.8h, v31.4s (max indices)" {
     try testing.expectEqual(@as(u32, 0x6E612BFF), encSqxtun2_8H(31, 31));
 }
 // ============================================================
-// §9.6 / 9.6-g-iii — SCVTF/UCVTF (vector, i→f)
+// SCVTF/UCVTF (vector, i→f)
 // ============================================================
 // Cranelift cross-references (wasmtime/cranelift/codegen/src/isa/
 // aarch64/inst/emit_tests.rs:5034-5046):
@@ -1401,7 +1397,7 @@ test "FP convert sz field: .2D vs .4S differs at bit 22" {
     try testing.expectEqual(@as(u32, 0x00400000), encScvtf2D(0, 0) ^ encScvtf4S(0, 0));
 }
 // ============================================================
-// §9.6 / 9.6-g-iv — FCVTL / FCVTN (FP narrow / widen)
+// FCVTL / FCVTN (FP narrow / widen)
 // ============================================================
 
 test "encFCvtn_2S_2D: v2.2s, v7.2d (cranelift cross-check)" {
@@ -1428,7 +1424,7 @@ test "FCVTL vs FCVTN: opcode bit 12 differs (10111 vs 10110)" {
     try testing.expectEqual(@as(u32, 0x1000), encFCvtl_2D_2S(0, 0) ^ encFCvtn_2S_2D(0, 0));
 }
 // ============================================================
-// §9.6 / 9.6-g-v — FCVTZS/FCVTZU + SQXTN/UQXTN .2S
+// FCVTZS/FCVTZU + SQXTN/UQXTN .2S
 // ============================================================
 // Cranelift cross-references (wasmtime/cranelift/codegen/src/isa/
 // aarch64/inst/emit_tests.rs:4985-5025):
@@ -1436,7 +1432,7 @@ test "FCVTL vs FCVTN: opcode bit 12 differs (10111 vs 10110)" {
 //   fcvtzs v0.2d, v31.2d  → 0x4EE1BBE0
 //   fcvtzu v29.2d, v15.2d → 0x6EE1B9FD
 //   sqxtn  v14.2s, v20.2d → 0x0EA14A8E (already cross-checked
-//                          in 9.6-g-ii via different operand)
+//                          via a different operand)
 
 test "encFcvtzs4S: v4.4s, v22.4s (cranelift cross-check)" {
     // 0x4EA1B800 | (22 << 5) | 4 = 0x4EA1BAC4

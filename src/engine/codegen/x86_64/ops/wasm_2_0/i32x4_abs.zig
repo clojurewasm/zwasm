@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `i32x4.abs` — B92 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `i32x4.abs`.
 //! Delegates to op_simd_int_arith.emitI32x4AbsCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/i32x4_abs.zig");

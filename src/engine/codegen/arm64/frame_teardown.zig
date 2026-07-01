@@ -1,7 +1,7 @@
 //! ARM64 frame-teardown emit — the SP-restore + LDP X29,X30
 //! sequence shared with the regular epilogue but WITHOUT the
-//! trailing `RET`. Consumed by `op_tail_call.zig` (10.TC-3d
-//! follow-on): after the args are marshalled and the callee
+//! trailing `RET`. Consumed by `op_tail_call.zig`: after
+//! the args are marshalled and the callee
 //! target loaded into X16, the caller's frame is torn down
 //! here and the caller's BR X16 takes over (no LR clobber —
 //! LR carries the original caller's return address so the

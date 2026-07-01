@@ -1,11 +1,11 @@
-// FILE-SIZE-EXEMPT: uniform pure-encoder catalog (per ADR-0075 §9.12-B amendment 2026-05-21)
+// FILE-SIZE-EXEMPT: uniform pure-encoder catalog (per ADR-0075)
 //! x86_64 SSE2/SSSE3/SSE4.1/SSE4.2 packed-integer encoder family —
 //! all `encP*` shape encoders (PADD/PSUB/PMUL/PCMP/PMIN/PMAX/PAND/
 //! POR/PXOR/PANDN/PSHUF*/PSHUFB/PSLL*/PSRL*/PSRA*/PEXTR*/PINSR*/
 //! PMOVSX*/PMOVZX*/PACK*/PUNPCK*/PABS*/PADDS*/PSUBS*/PADDUS*/
 //! PSUBUS*/PAVG*/PTEST/PMADDUBSW/PMULHRSW/PMADDWD/PMOVMSKB/MOVMSK*).
 //!
-//! Split from `inst_sse.zig` per ADR-0041 + §9.9 / 9.9-h-17 +
+//! Split from `inst_sse.zig` per ADR-0041 +
 //! `.dev/phase10_prep/track_b_source_split.md` §4.2 (x86_64 encoder
 //! source partition; chunk B/6).
 //!
@@ -242,7 +242,7 @@ pub fn encPsradReg(dst: Xmm, src: Xmm) EncodedInsn {
 
 /// `PSUBQ xmm, xmm` — alias used by `i64x2.shr_s` sign-fixup path.
 /// Same encoding as encPsubQ; kept for naming-clarity at the call
-/// site that consumes the §9.7-u recipe.
+/// site that consumes the recipe.
 pub fn encPsubq(dst: Xmm, src: Xmm) EncodedInsn {
     return encSsePackedIntBinop(0xFB, dst, src);
 }

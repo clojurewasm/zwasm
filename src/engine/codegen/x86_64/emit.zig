@@ -1,12 +1,12 @@
 // FILE-SIZE-EXEMPT: x86_64 emit driver (prologue + epilogue + dispatch); P1 SysV/Win64 spec-defined emit boundary; per-op handlers already extracted to op_*.zig sibling files (per ADR-0099)
-//! x86_64 emit pass — skeleton (§9.7 / 7.7).
+//! x86_64 emit pass — skeleton.
 //!
 //! Mirrors the role of `arm64/emit.zig`'s `compile()` entry but
 //! covers the minimal `(i32.const N) end` cycle to prove the
 //! ZIR → x86_64 byte-stream pipeline end-to-end. Subsequent
 //! chunks layer on op coverage (i32 ALU, memory, control flow,
 //! calls, FP) and the reserved_invariant_gprs reservation
-//! decision (deferred from §9.7 / 7.6 chunk c).
+//! decision.
 //!
 //! Skeleton scope (this commit):
 //! - Function prologue: PUSH RBP ; MOV RBP, RSP (no SUB RSP yet
@@ -33,7 +33,7 @@
 //!
 //! The shape mirrors arm64/emit.zig (compile() returns
 //! EmitOutput; `func.liveness` must agree with `alloc.slots`)
-//! so the §9.7 / 7.11 three-way differential can compare ARM64
+//! so the three-way differential can compare ARM64
 //! and x86_64 outputs at the same byte-stream layer.
 //!
 //! Zone 2 (`src/engine/codegen/x86_64/`) — must NOT import
@@ -52,7 +52,7 @@ const inst = @import("inst.zig");
 const usage = @import("usage.zig");
 const abi = @import("abi.zig");
 const build_options = @import("build_options");
-// §17.4 D-231 — comptime build-level guard (arm64 parity, emit.zig:73). The
+// D-231 — comptime build-level guard (arm64 parity, emit.zig:73). The
 // D-239 br_on_null cohort below is in the legacy switch (not the
 // dispatch_collector's comptime `enabledByBuild`), so it needs an explicit
 // `if (comptime wasm_v3_plus)` to DCE in `-Dwasm=v1_0` — else the x86_64 v1_0
@@ -127,7 +127,7 @@ const computeLocalLayout = setup.computeLocalLayout;
 const LocalLayout = setup.LocalLayout;
 
 // `win64V128ScratchBase` helper lives in `op_call.zig` (used by
-// the caller-side marshal). See §9.9 / 9.9-i-1.
+// the caller-side marshal).
 
 /// Emit x86_64 machine code for `func`. Requires `alloc.slots`
 /// to be populated (call `regalloc.compute` first; pass the
@@ -144,7 +144,7 @@ pub fn compile(
     globals_offsets: []const u32,
     globals_valtypes: []const zir.ValType,
     memory0_idx_type: sections.MemoryEntry.IdxType,
-    /// Wasm 3.0 EH (10.E-payload-prop Cycle 3; ADR-0120) — per-tag
+    /// Wasm 3.0 EH (ADR-0120) — per-tag
     /// param counts threaded into EmitCtx via InitArgs for throw /
     /// try_table payload marshalling. Pass `&.{}` for tag-less modules.
     tag_param_counts: []const u32,
@@ -156,7 +156,7 @@ pub fn compile(
     if (alloc.slots.len != (func.liveness orelse return Error.AllocationMissing).ranges.len) {
         return Error.AllocationMissing;
     }
-    // §9.7 / 7.8-x86-params: lift the params=0 reject. Mirrors
+    // Lift the params=0 reject. Mirrors
     // arm64/emit.zig:134 ("Multi-arg entry"). For now i32-only
     // params are supported; i64/f32/f64 surface UnsupportedOp
     // until the type-aware local + FP-marshal chunks land.
@@ -168,26 +168,26 @@ pub fn compile(
     const num_params: u32 = @intCast(func.sig.params.len);
     for (func.sig.params) |p| {
         switch (p) {
-            // §9.9 / 9.9-i-1: v128 is supported under both ABIs.
+            // v128 is supported under both ABIs.
             // SysV uses direct XMM0..XMM7 + stack-overflow (16-byte
             // aligned eightbyte pair). Win64 uses hidden-pointer
             // marshal per Microsoft x64 ABI §"Parameter passing"
             // (`__m128` passed via pointer in int-arg reg slot;
             // ADR-0055).
-            // D-093 (d-33): reftype params share the i64 gpr-class
+            // D-093: reftype params share the i64 gpr-class
             // 8-byte slot per ADR-0061.
             .i32, .i64, .f32, .f64, .v128, .ref => {},
         }
     }
     const num_locals: u32 = func.totalLocalCount();
     const total_locals: u32 = num_params + num_locals;
-    // §9.7 / 7.10-g: localDisp now returns i32 + auto-helpers
+    // localDisp now returns i32 + auto-helpers
     // pick disp8 / disp32 form per offset, so total_locals is no
     // longer capped at 15. Practical cap = i32 disp range / 8 =
     // ~268M slots — far past any realistic Wasm function.
 
     // Prescan: does this function need the runtime-ptr save?
-    // Helper in `usage.zig`. Per ADR-0026 + §9.9 / 9.9-m-5
+    // Helper in `usage.zig`. Per ADR-0026
     // (D-087/088/089 cohort) — see helper doc for the full
     // op set.
     const uses_runtime_ptr = usage.usesRuntimePtr(func);
@@ -208,7 +208,7 @@ pub fn compile(
     // (the +8 puts spill slot 0 in the next 8-byte cell below
     // the deepest local). `gpr.zig`'s `rbpDispNegI8` consumes it
     // as `disp = -(spill_base_off + spill_off)`.
-    // §9.9 / 9.9-e-2: per-function frame layout (group-by-type).
+    // Per-function frame layout (group-by-type).
     // Mirror of arm64/emit.zig's LocalLayout: scalars at 8-byte
     // stride, v128 at 16-byte stride. `base_off_for_locals` is
     // -8 if uses_runtime_ptr (R15 save occupies [RBP-8]) else 0;
@@ -225,7 +225,7 @@ pub fn compile(
     // trigger = `sig.results.len > 2`) follow the standard SysV
     // §3.2.3 hidden-arg shape — RDI = &result_buffer, RSI = rt
     // (= the function's natural arg0 shifted one int-slot deeper).
-    // ADR-0106 cycle 3e Phase 2'k: extended to Win64 — hidden ptr
+    // ADR-0106: extended to Win64 — hidden ptr
     // in RCX (instead of RDI), rt in RDX (instead of RSI). The
     // epilogue's `[RAX + i*8]` write shape stays identical since
     // RAX is loaded from the captured-pointer frame slot.
@@ -237,7 +237,7 @@ pub fn compile(
     // each result to `[RAX + i*8]`.
     const return_is_memory_class: bool = func.sig.results.len > 2 and
         (abi.current_cc == .sysv or abi.current_cc == .win64);
-    // ADR-0106 path (a) cycle 2c — buffer-write ABI also needs a
+    // ADR-0106 path (a) — buffer-write ABI also needs a
     // captured-pointer slot (for the results ptr passed in RSI on
     // SysV / RDX on Win64). Shares storage with the MEMORY-class
     // slot when only one applies; the buffer-write flag overrides
@@ -277,14 +277,14 @@ pub fn compile(
     // CALL's return-address push clobbered it.
     const home_save_base_neg_off: u32 = locals_bytes + spill_bytes + indirect_result_slot_bytes + r15_save_bytes + 8;
     const home_save_base_disp: i32 = -@as(i32, @intCast(home_save_base_neg_off));
-    // §9.7 / 7.10-f: outgoing-args region pre-allocated at the
+    // Outgoing-args region pre-allocated at the
     // BOTTOM of the frame (`[RSP, #0]` upward). For SysV this is
     // pure overflow bytes; for Win64 it includes the 32-byte
     // shadow space when any call exists. When `outgoing_max_bytes`
     // > 0 the per-call `emitShadowAlloc` / `Free` become no-ops
     // (the shadow is already part of the prologue's SUB RSP).
     const outgoing_max_bytes: u32 = computeOutgoingMaxBytes(func, func_sigs, module_types);
-    // §9.7/9.7-as / D-054: include r15_save_bytes so local 0 at
+    // D-054: include r15_save_bytes so local 0 at
     // [RBP-16] (when uses_runtime_ptr=true) lives INSIDE the frame.
     // The prologue does PUSH R15 before MOV RBP,RSP so R15 actually
     // saves at [RBP+0], NOT [RBP-8] — but localDisp's comment +
@@ -339,7 +339,7 @@ pub fn compile(
         // shifts rt to RSI. Win64 passes in RCX (MEMORY-class Win64
         // deferred). Both encodings are 3 bytes (REX.W+B + opcode +
         // modrm) so the prologue's frame-bytes formula stays Cc-agnostic.
-        // ADR-0106 cycle 3e Phase 2'k: Cc-aware MEMORY-class rt
+        // ADR-0106: Cc-aware MEMORY-class rt
         // source. SysV §3.2.3 shifts rt to RSI (slot 1) when slot 0
         // holds the hidden &buffer ptr (RDI). Win64 shifts rt to
         // RDX (slot 1) when slot 0 holds the hidden ptr (RCX).
@@ -391,7 +391,7 @@ pub fn compile(
         try buf.appendSlice(allocator, inst.encJccRel32(.s, 0).slice());
         const after_fuel_poll: u32 = @intCast(buf.items.len);
         inst.patchRel32(buf.items, fuel_skip_at, 6, @as(i32, @intCast(after_fuel_poll)) - (@as(i32, @intCast(fuel_skip_at)) + 6));
-        // §9.8a / 8a.2 (ADR-0034) — JIT-execution sentinel: write 1
+        // (ADR-0034) — JIT-execution sentinel: write 1
         // to `JitRuntime.jit_executed_flag` so post-call readers can
         // distinguish "JIT body actually ran" from "compile-passed
         // but never invoked". `MOV DWORD PTR [R15 + flag_off], 1`
@@ -401,7 +401,7 @@ pub fn compile(
         try buf.appendSlice(allocator, inst.encMovMemDisp32Imm32(.r15, jit_abi.jit_executed_flag_off, 1).slice());
     }
     if (frame_bytes > 0) {
-        // §9.7 / 7.10-g: pick imm8 / imm32 form per range.
+        // Pick imm8 / imm32 form per range.
         // imm8 form is 4 bytes; imm32 is 7 bytes.
         try buf.appendSlice(allocator, rspSub(frame_bytes).slice());
     }
@@ -417,7 +417,7 @@ pub fn compile(
     // XMM0..XMM7 when self is MEMORY-class (slots 2-5 instead
     // of 1-5). The body's `gprLoadSpilled` staging through
     // R10/R11 is unaffected.
-    // ADR-0106 path (a) cycle 3a — buffer_write takes precedence
+    // ADR-0106 path (a) — buffer_write takes precedence
     // over MEMORY-class. For `sig.results.len > 2` SysV buffer_write
     // both flags fire; we want RSI (results ptr) in the slot, not
     // RDI (the MEMORY-class hidden ptr).
@@ -427,14 +427,14 @@ pub fn compile(
         try buf.appendSlice(allocator, inst.encStoreR64MemRBPDisp32(disp, results_ptr_gpr).slice());
     } else if (return_is_memory_class) {
         const disp: i32 = -@as(i32, @intCast(indirect_result_slot_neg_off));
-        // ADR-0106 cycle 3e Phase 2'k: Cc-aware MEMORY-class hidden-ptr
+        // ADR-0106: Cc-aware MEMORY-class hidden-ptr
         // capture. SysV puts the hidden &buffer ptr in RDI (slot 0);
         // Win64 puts it in RCX (slot 0).
         const hidden_ptr_gpr: abi.Gpr = if (abi.current_cc == .win64) .rcx else .rdi;
         try buf.appendSlice(allocator, inst.encStoreR64MemRBPDisp32(disp, hidden_ptr_gpr).slice());
     }
 
-    // §9.7 / 7.8-x86-params: marshal i32 params from arg regs to
+    // Marshal i32 params from arg regs to
     // local slots. Per ADR-0026 Cc-pivot:
     //   SysV: arg_gprs = {RDI, RSI, RDX, RCX, R8, R9}; RDI = runtime
     //         ptr, user int args from RSI (max 5)
@@ -460,13 +460,13 @@ pub fn compile(
         // and shifts rt to RSI (slot 1); user int args begin at
         // RDX (slot 2). For non-MEMORY-class, slot 0 = RDI = rt;
         // user int args begin at RSI (slot 1).
-        // ADR-0106 path (a) cycle 2e — buffer_write ABI: args
+        // ADR-0106 path (a) — buffer_write ABI: args
         // come from `[args_ptr + i*8]` (args_ptr in RDX on SysV
         // / R8 on Win64; the 3rd `callconv(.c)` arg after rt
         // (RDI/RCX) + results (RSI/RDX)). Skip the per-class
         // arg-reg shuffle for buffer_write. v128 deferred (a
-        // u64 slot can't hold a 128-bit value; cycle 2f scope).
-        // Win64 deferred until cycle 2f (R8 + shadow-space).
+        // u64 slot can't hold a 128-bit value).
+        // Win64 deferred (R8 + shadow-space).
         if (buffer_write and abi.current_cc == .sysv) {
             while (p_idx < num_params) : (p_idx += 1) {
                 const off: i32 = layout.disps[p_idx];
@@ -488,13 +488,13 @@ pub fn compile(
         }
         var int_arg_idx: usize = if (return_is_memory_class) 2 else 1;
         var fp_arg_idx: usize = if (abi.current_cc == .win64) 1 else 0;
-        // §9.7 / 7.10-j: per-overflow NSAA index for SysV. Mirror of
-        // the caller-side counter in op_call.marshalCallArgs (chunk
-        // 7.10-f). Both classes share the NSAA stream in declaration
+        // Per-overflow NSAA index for SysV. Mirror of
+        // the caller-side counter in op_call.marshalCallArgs.
+        // Both classes share the NSAA stream in declaration
         // order — increment per overflowed arg regardless of class.
         var nsaa_idx: u32 = 0;
         while (p_idx < num_params) : (p_idx += 1) {
-            // §9.7 / 7.10-g + §9.9-e-2: per-local disp from layout.
+            // Per-local disp from layout.
             // Auto-helpers pick disp8 / disp32 form per offset range.
             const off: i32 = layout.disps[p_idx];
             const ptype = func.sig.params[p_idx];
@@ -526,7 +526,7 @@ pub fn compile(
                         try buf.appendSlice(allocator, rbpStoreR64(off, .rax).slice());
                     },
                     .v128 => {
-                        // §9.9 / 9.9-i-1 Win64 v128 hidden-pointer
+                        // Win64 v128 hidden-pointer
                         // marshal — stack-overflow slot. Per Microsoft
                         // x64 ABI §"Parameter passing" the caller wrote
                         // an 8-byte pointer at the int-arg stack slot;
@@ -543,8 +543,8 @@ pub fn compile(
                 fp_arg_idx += 1;
                 continue;
             }
-            // SysV per-overflow stack-arg read (§9.7 / 7.10-j;
-            // mirror of op_call.marshalCallArgs's NSAA write path).
+            // SysV per-overflow stack-arg read (mirror of
+            // op_call.marshalCallArgs's NSAA write path).
             // `[RBP + 16 + r15_save_off + 8 * nsaa_idx]` matches the
             // caller's `[RSP + 8 * nsaa_idx]` write after RET addr +
             // saved RBP (+ saved R15) push. Win64 already handled
@@ -594,7 +594,7 @@ pub fn compile(
                 },
                 .v128 => {
                     if (abi.current_cc == .win64) {
-                        // §9.9 / 9.9-i-1 Win64 v128 hidden-pointer
+                        // Win64 v128 hidden-pointer
                         // marshal — register slot. Per Microsoft x64
                         // ABI §"Parameter passing" the caller wrote
                         // the v128 into a 16-byte aligned scratch buf
@@ -608,7 +608,7 @@ pub fn compile(
                         int_arg_idx += 1;
                         fp_arg_idx += 1;
                     } else {
-                        // §9.9 / 9.9-e-2 + §9.9 / 9.9-i-1 SysV co-discharge:
+                        // SysV co-discharge:
                         // SysV v128 in XMM0..XMM7 direct (AMD64 ABI §3.2.3
                         // SSE class); stack-overflow at `fp_arg_idx >= 8`
                         // reads 16 consecutive aligned bytes from the
@@ -647,7 +647,7 @@ pub fn compile(
             const loc_disp = layout.disps[loc_idx];
             const ty = func.localValType(loc_idx);
             if (ty == .v128) {
-                // §9.9-e-2: zero-init v128 declared local — write
+                // Zero-init v128 declared local — write
                 // 16 bytes via two STR XZR (RAX, already zeroed
                 // above). MOVUPS-with-zero would need a const
                 // pool constant; the two MOVs are bench-cost
@@ -742,7 +742,7 @@ pub fn compile(
     // patches them all to the trap stub address.
     var bounds_fixups: std.ArrayList(u32) = .empty;
     defer bounds_fixups.deinit(allocator);
-    // §9.7 / 7.8-x86-unreachable: distinct list because JMP rel32
+    // Distinct list because JMP rel32
     // placeholders are 5 bytes (0xE9 + 4-byte disp32) while the
     // bounds-check Jcc rel32 placeholders are 6 bytes (0x0F 0x8x +
     // 4-byte disp32). Both target the same trap stub but the
@@ -795,7 +795,7 @@ pub fn compile(
     var call_fixups: std.ArrayList(CallFixup) = .empty;
     errdefer call_fixups.deinit(allocator);
 
-    // §9.7/9.7-al — SIMD const-pool fixups (per ADR-0042). Each
+    // SIMD const-pool fixups (per ADR-0042). Each
     // entry records a MOVUPS-RIP-rel placeholder's disp32 byte
     // offset and post-instruction byte plus the `func.simd_consts`
     // index. The post-emit pass appends the per-function const
@@ -804,7 +804,7 @@ pub fn compile(
     var simd_const_fixups: std.ArrayList(types.SimdConstFixup) = .empty;
     defer simd_const_fixups.deinit(allocator);
 
-    // §9.7/9.7-am — emit-time-derived const-pool entries (per-op
+    // Emit-time-derived const-pool entries (per-op
     // shared 16-byte constants like INT32_MAX_f64-broadcast for
     // trunc_sat). These extend `func.simd_consts` (which carries
     // only per-instance `v128.const` / shuffle-mask literals from
@@ -814,7 +814,7 @@ pub fn compile(
     var extra_consts: std.ArrayList([16]u8) = .empty;
     defer extra_consts.deinit(allocator);
 
-    // §9.7 / 7.8-x86-mem-grow-size: dead_code tracking. After
+    // dead_code tracking. After
     // `unreachable` / `return` mid-function, subsequent ops are
     // unreachable per Wasm spec §3.3 polymorphic-stack rules; the
     // validator already accepts them but this emitter would
@@ -823,8 +823,8 @@ pub fn compile(
     // `as-memory.grow-size`). Mirror of arm64 7.5-emit-deadcode.
     var dead_code: bool = false;
 
-    // EH integration IT-1 (ADR-0114 D2 + phase10_eh_integration_plan
-    // §IT-1): scan once for try_table presence and allocate a
+    // EH integration (ADR-0114 D2 + phase10_eh_integration_plan):
+    // scan once for try_table presence and allocate a
     // per-function `ExceptionTable.Builder`. Mirror of the arm64
     // setup; the per-op `try_table.emit` populates entries.
     var has_try_table: bool = false;
@@ -836,16 +836,14 @@ pub fn compile(
     }
     var eh_builder: exception_table.Builder = .empty;
     defer eh_builder.deinit(allocator);
-    // IT-2 — see arm64/emit.zig open_try_tables comment.
+    // See arm64/emit.zig open_try_tables comment.
     var open_try_tables: std.ArrayList(exception_table.OpenTryTable) = .empty;
     defer open_try_tables.deinit(allocator);
-    // IT-6 prep — see arm64/emit.zig landing_pad_fixups comment.
+    // See arm64/emit.zig landing_pad_fixups comment.
     var landing_pad_fixups: std.ArrayList(exception_table.LandingPadFixup) = .empty;
     defer landing_pad_fixups.deinit(allocator);
 
-    // §9.12-B / B53+ (ADR-0075) — per-function emit context.
-    // B53 substrate; B54 wires the first consumer (`i32.div_s`).
-    // B73 added `dead_code` pointer for unreachable adapter.
+    // Per-function emit context.
     var ctx = ctx_mod.EmitCtx.init(.{
         .allocator = allocator,
         .buf = &buf,
@@ -948,25 +946,23 @@ pub fn compile(
             }
             continue;
         }
-        // §9.12-B / B5..B11: route through dispatch_collector before
-        // the legacy switch — mirror of arm64/emit.zig wire (B11
-        // refactor to bool-return + inferred-error pattern). No per-arch
-        // op files for x86_64 yet (B12 lands i32.add); dispatch always
-        // returns false → legacy switch authoritative.
+        // Route through dispatch_collector before the legacy switch —
+        // mirror of arm64/emit.zig wire (bool-return + inferred-error
+        // pattern).
         // Per ADR-0074 + `.dev/dispatcher_wire_design.md` §2.3.
         if (try dispatch_collector.dispatch(.x86_64, ins.op, .{
             allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, ins.op,
         })) {
             continue;
         }
-        // §9.12-B / B108 (ADR-0073 + ADR-0075) — inline-switch
+        // (ADR-0073 + ADR-0075) — inline-switch
         // dispatcher cutover for x86_64 ctx cohort. Walks
-        // collected_x86_64_ctx_ops (391 ops post-B107); the giant
+        // collected_x86_64_ctx_ops (391 ops); the giant
         // switch below now only handles ops outside the ctx tuple
         // (extract_lane / replace_lane / shuffle / i64x2.mul /
         // v128.const / load_lane / store_lane / popcnt /
         // trunc_sat_f64x2 / convert_low_i32x4_u).
-        // IT-2 — if this `end` closes a try_table block, patch the
+        // If this `end` closes a try_table block, patch the
         // pc_end of its catch entries BEFORE dispatch (which would
         // pop the matching label and break the depth match). Mirror
         // of the arm64 emit.zig logic, hoisted above the ctx
@@ -1012,7 +1008,7 @@ pub fn compile(
                     try pushed_vregs.append(allocator, rv);
                 }
             }
-            // IT-6 prep + 10.E-payload-prop D-182 — post-dispatch
+            // D-182 — post-dispatch
             // landing_pad_pc patch (mirror of arm64 emit.zig). See
             // arm64 sibling for the per-clause-prelude rationale;
             // x86_64 differs only in the encoders (MOV r64 ← [R15
@@ -1141,43 +1137,29 @@ pub fn compile(
             // memory ops in program order, so the fence needs no machine
             // code (0→0 transparent, like the convert pair).
             .@"atomic.fence" => {},
-            // §9.12-B / B67: i32.const + i64.const inline bodies
+            // i32.const + i64.const inline bodies
             // extracted into `op_alu_int.emitI{32,64}Const` adapters.
             .@"i32.const" => try op_alu_int.emitI32Const(&ctx, &ins),
             .@"i64.const" => try op_alu_int.emitI64Const(&ctx, &ins),
-            // §9.12-B / B79: i32 binary ALU cohort migrated to
-            // collected_x86_64_ctx_ops; per-op file's emit fn
-            // dispatches via the inline-for path (TBD B79+1 cutover).
-            // For now, manual ctx adapter call here keeps dual-path
-            // dispatch consistent with sibling cohorts.
-            // §9.12-B / B81: i32 compare cohort migrated to ctx tuple.
-            // §9.12-B / B83: i32 shift cohort migrated to ctx tuple.
-            // §9.12-B / B80: i64 binary ALU cohort migrated to ctx tuple.
-            // §9.12-B / B82: i64 compare cohort migrated to ctx tuple.
-            // §9.9 / 9.9-m-1a (per ADR-0056): Wasm 2.0 reference-types
-            // partial — null + is_null. ref.func deferred to m-1b
+            // Per ADR-0056: Wasm 2.0 reference-types
+            // partial — null + is_null. ref.func deferred
             // (needs JitRuntime extension). ref.null = push 0
             // (XOR r,r zeroes the 64-bit reg via implicit upper-32
             // clear on 32-bit ops). ref.is_null = reuse i64.eqz.
-            // §9.12-B / B68: ref.null inline body extracted into
+            // ref.null inline body extracted into
             // `op_alu_int.emitRefNull` `(ctx, ins)` adapter.
             .@"ref.null" => try op_alu_int.emitRefNull(&ctx, &ins),
-            // §9.9 / 9.9-m-1b: ref.func idx — load
+            // ref.func idx — load
             // func_entities_ptr from JitRuntime, add idx * size.
             // Recipe:
             //   MOV r_dst, [r15 + func_entities_ptr_off]
             //   ADD r_dst, imm32 (= idx * sizeOf(FuncEntity))
-            // §9.12-B / B68: ref.func inline body extracted into
+            // ref.func inline body extracted into
             // `op_alu_int.emitRefFunc` `(ctx, ins)` adapter.
             .@"ref.func" => try op_alu_int.emitRefFunc(&ctx, &ins),
-            // §9.12-B / B83: i64 shift cohort migrated to ctx tuple.
-            // §9.12-B / B85: width-conversion cohort migrated.
-            // §9.12-B / B85: sign-extension cohort migrated.
-            // §9.7 / 7.9 chunk c: integer divide / remainder.
-            // §9.12-B / B54+B55 (ADR-0075): full i32+i64 div/rem
-            // cohort migrated to the `(ctx, ins)` shape; each
-            // op file delegates to the corresponding ctx
-            // adapter in op_alu_int.
+            // Integer divide / remainder.
+            // The i32+i64 div/rem cohort delegates to the
+            // corresponding ctx adapter in op_alu_int.
             .@"i32.div_s" => try op_alu_int.emitI32DivS(&ctx, &ins),
             .@"i32.div_u" => try op_alu_int.emitI32DivU(&ctx, &ins),
             .@"i32.rem_s" => try op_alu_int.emitI32RemS(&ctx, &ins),
@@ -1188,10 +1170,6 @@ pub fn compile(
             .@"i64.rem_u" => try op_alu_int.emitI64RemU(&ctx, &ins),
             .@"f32.const" => try op_alu_float.emitF32Const(&ctx, &ins),
             .@"f64.const" => try op_alu_float.emitF64Const(&ctx, &ins),
-            // §9.12-B / B86: FP arith cohort migrated to ctx tuple.
-            // §9.12-B / B87: FP compare cohort migrated to ctx tuple.
-            // §9.12-B / B88: FP unary cohort migrated to ctx tuple.
-            // §9.12-B / B89: FP copysign + min/max migrated to ctx tuple.
             .@"f64.promote_f32" => try op_convert.emitF64PromoteF32(&ctx, &ins),
             .@"f32.demote_f64" => try op_convert.emitF32DemoteF64(&ctx, &ins),
             .@"i32.reinterpret_f32" => try op_convert.emitI32ReinterpretF32(&ctx, &ins),
@@ -1329,7 +1307,7 @@ pub fn compile(
             .@"f64.load" => try op_memory.emitF64Load(&ctx, &ins),
             .@"f32.store" => try op_memory.emitF32Store(&ctx, &ins),
             .@"f64.store" => try op_memory.emitF64Store(&ctx, &ins),
-            // §9.9 / 9.9-m-3a: data.drop / elem.drop — write 1 to
+            // data.drop / elem.drop — write 1 to
             // the dropped-flag byte. No operands; no result. The
             // validator already bounds-checks idx.
             //   MOV r10, [r15 + ptr_off]      ; load base
@@ -1342,34 +1320,33 @@ pub fn compile(
                 try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.r10, abi.runtime_ptr_save_gpr, jit_abi.elem_dropped_ptr_off).slice());
                 try buf.appendSlice(allocator, inst.encStoreImm8MemBaseDisp32(.r10, @intCast(ins.payload), 1).slice());
             },
-            // §9.9 (per ADR-0058) + §9.12-B / B63: table ops cohort
+            // Per ADR-0058: table ops cohort
             // — `(ctx, ins)` per-op adapters bundle the unified
             // bounds-checked load/store + grow/fill/copy/init paths
             // against the per-table TableSlice descriptor.
-            // §9.7 / 9.7-a + 9.7-b: SIMD-128 packed integer add/sub
+            // SIMD-128 packed integer add/sub
             // family (8 ops). Wires the FP-class regalloc +
             // shape-tag pipeline on x86_64 per ADR-0041; spilled
-            // v128 vregs surface UnsupportedOp until 9.7-c MOVDQU
+            // v128 vregs surface UnsupportedOp until MOVDQU
             // helpers land.
-            // §9.12-B / B91: SIMD int binary arith cohort migrated to ctx tuple.
-            // §9.7 / 9.7-d: i64x2.mul synthesis (no native SSE4.1 form;
+            // i64x2.mul synthesis (no native SSE4.1 form;
             // PMULUDQ + shift/add idiom uses XMM14/15 as scratch).
             .@"i64x2.mul" => try op_simd_int_arith.emitI64x2Mul(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            // §9.7 / 9.7-e: lane access foundation (i32x4 only — other
-            // shapes follow in 9.7-f). Splat broadcasts a scalar i32
+            // Lane access foundation (i32x4 only — other
+            // shapes follow). Splat broadcasts a scalar i32
             // across 4 lanes; extract_lane pulls one lane back to
             // scalar via PEXTRD (SSE4.1).
             .@"i32x4.extract_lane" => try op_simd_int_cmp_lane.emitI32x4ExtractLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, @as(u32, @intCast(ins.payload))),
-            // §9.7 / 9.7-aw: i64x2.extract_lane via PEXTRQ (SSE4.1
+            // i64x2.extract_lane via PEXTRQ (SSE4.1
             // REX.W=1 variant of PEXTRD). Mirror of i32x4.extract_
             // lane handler with u1 lane (i64x2 has 2 lanes).
             .@"i64x2.extract_lane" => try op_simd_int_cmp_lane.emitI64x2ExtractLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, @as(u32, @intCast(ins.payload))),
-            // §9.7 / 9.7-f: replace_lane for the wide-int v128 shapes.
+            // replace_lane for the wide-int v128 shapes.
             // PINSRD (32-bit) / PINSRQ (64-bit, REX.W mandatory) plus a
             // MOVAPS preamble when dst doesn't alias the input vec.
             .@"i32x4.replace_lane" => try op_simd_int_cmp_lane.emitI32x4ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, @as(u32, @intCast(ins.payload))),
             .@"i64x2.replace_lane" => try op_simd_int_cmp_lane.emitI64x2ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, @as(u32, @intCast(ins.payload))),
-            // §9.7 / 9.7-g: narrow-int lane access (i8x16 / i16x8).
+            // Narrow-int lane access (i8x16 / i16x8).
             // PEXTRB / PEXTRW + optional MOVSX for signed extract.
             // PINSRB / PINSRW + MOVAPS preamble for replace.
             .@"i8x16.extract_lane_s" => try op_simd_int_cmp_lane.emitI8x16ExtractLaneS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, @as(u32, @intCast(ins.payload))),
@@ -1378,56 +1355,52 @@ pub fn compile(
             .@"i16x8.extract_lane_u" => try op_simd_int_cmp_lane.emitI16x8ExtractLaneU(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, @as(u32, @intCast(ins.payload))),
             .@"i8x16.replace_lane" => try op_simd_int_cmp_lane.emitI8x16ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, @as(u32, @intCast(ins.payload))),
             .@"i16x8.replace_lane" => try op_simd_int_cmp_lane.emitI16x8ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, @as(u32, @intCast(ins.payload))),
-            // §9.7 / 9.7-h: integer splat siblings (i32x4 already
-            // landed in 9.7-e). i8x16 via PSHUFB-broadcast; i16x8
+            // Integer splat siblings (i32x4 already
+            // landed). i8x16 via PSHUFB-broadcast; i16x8
             // via PSHUFLW + PSHUFD; i64x2 via PUNPCKLQDQ.
-            // §9.7 / 9.7-i: f32x4 lane access trio. XMM-source
+            // f32x4 lane access trio. XMM-source
             // semantics — splat / extract reuse encPshufd; replace
             // uses the new INSERTPS encoder (SSE4.1 3A 21 /r ib).
             .@"f32x4.extract_lane" => try op_simd_float.emitF32x4ExtractLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, @as(u32, @intCast(ins.payload))),
             .@"f32x4.replace_lane" => try op_simd_float.emitF32x4ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, @as(u32, @intCast(ins.payload))),
-            // §9.7 / 9.7-j: f64x2 lane access trio. splat + extract_lane
+            // f64x2 lane access trio. splat + extract_lane
             // reuse encPshufd (imm 0x44 / 0xEE for low/high qword).
             // replace_lane uses MOVAPS preamble + MOVSD (lane=0) /
             // MOVLHPS (lane=1).
             .@"f64x2.extract_lane" => try op_simd_float.emitF64x2ExtractLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, @as(u32, @intCast(ins.payload))),
             .@"f64x2.replace_lane" => try op_simd_float.emitF64x2ReplaceLane(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, @as(u32, @intCast(ins.payload))),
-            // §9.7 / 9.7-k: int compare eq/ne family. PCMPEQ B/W/D
+            // Int compare eq/ne family. PCMPEQ B/W/D
             // (SSE2) + PCMPEQQ (SSE4.1); ne paths apply NOT via
             // PXOR with an all-ones mask (PCMPEQB scratch, scratch).
-            // §9.12-B / B93: SIMD i8x16 compare cohort migrated to ctx tuple.
-            // §9.7 / 9.7-l: signed lt/gt/le/ge for 8/16/32-bit shapes
+            // Signed lt/gt/le/ge for 8/16/32-bit shapes
             // (12 ops). PCMPGT_<shape> direct for gt; operand swap for
             // lt; PXOR-with-all-ones NOT for le/ge. i64x2 signed
-            // compares defer to 9.7-m (PCMPGTQ is SSE4.2 — needs ADR).
-            // §9.7 / 9.7-m: i64x2 signed compare lt_s/gt_s/le_s/ge_s
+            // compares defer (PCMPGTQ is SSE4.2 — needs ADR).
+            // i64x2 signed compare lt_s/gt_s/le_s/ge_s
             // (4 ops). PCMPGTQ (SSE4.2 0F 38 37) threaded through
-            // 9.7-l's emitV128IntCmpSigned helper. Per ADR-0041 §5
-            // amend at 9.7-m — x86_64 baseline raised SSE4.1 →
+            // the emitV128IntCmpSigned helper. Per ADR-0041 §5
+            // amend — x86_64 baseline raised SSE4.1 →
             // SSE4.2 (Steam Apr 2026 98.18% adoption).
-            // §9.7 / 9.7-n: unsigned compares lt_u/gt_u/le_u/ge_u for
+            // Unsigned compares lt_u/gt_u/le_u/ge_u for
             // 8/16/32-bit shapes (12 ops). PMINU/PMAXU + PCMPEQ
             // (cranelift `lower.isle:2016-2080`): gt/lt = NOT eq(min/max,
             // rhs); ge/le = eq(lhs, max/min). PMAXUB/PMINUB SSE2;
             // PMAXU{W,D} / PMINU{W,D} SSE4.1. i64x2 unsigned not in
             // Wasm SIMD spec.
-            // §9.7 / 9.7-o: FP compare eq/ne/lt/gt/le/ge for f32x4 +
+            // FP compare eq/ne/lt/gt/le/ge for f32x4 +
             // f64x2 (12 ops). CMPPS (SSE 0F C2 /r ib) + CMPPD (SSE2
             // 66 0F C2 /r ib) with imm8 predicate per Intel SDM Vol
             // 2A "CMPPS" Table 3-7. eq/ne/lt/le direct with imm
             // 0/4/1/2; gt/ge swap operands + imm 1/2 per cranelift
             // `lower.isle:2169-2172`.
-            // §9.12-B / B103: SIMD float compare cohort migrated to ctx tuple.
-            // §9.7 / 9.7-p: FP arithmetic add/sub/mul/div + sqrt
+            // FP arithmetic add/sub/mul/div + sqrt
             // for f32x4 + f64x2 (10 ops). ADDPS/SUBPS/MULPS/DIVPS/
             // SQRTPS (SSE 0F 58/5C/59/5E/51) + PD variants (SSE2 66
-            // prefix). Binary ops reuse 9.7-b's emitV128IntBinop;
-            // sqrt uses new emitV128FpUnop. min/max defer to 9.7-q
+            // prefix). Binary ops reuse emitV128IntBinop;
+            // sqrt uses new emitV128FpUnop. min/max defer
             // (NaN-correction synthesis ~7 instr per cranelift
             // `lower.isle` F32X4/F64X2 fmin/fmax).
-            // §9.12-B / B100: SIMD f32x4 arith migrated to ctx tuple.
-            // §9.12-B / B101: SIMD f64x2 arith migrated to ctx tuple.
-            // §9.7 / 9.7-q: f32x4 + f64x2 min/max NaN-correction
+            // f32x4 + f64x2 min/max NaN-correction
             // synthesis (4 ops). MINPS/MAXPS / MINPD/MAXPD wrapped
             // with cranelift's 10-instr (fmin) / 13-instr (fmax)
             // recipe per `lower.isle:2783-2939` — produces canonical
@@ -1435,96 +1408,88 @@ pub fn compile(
             // zero-aware) where naive MIN/MAX would return src2 on
             // unordered inputs (off-spec). XMM14 + XMM15 used as
             // scratch.
-            // §9.7 / 9.7-r: v128 bitwise ops + v128.any_true (7 ops).
+            // v128 bitwise ops + v128.any_true (7 ops).
             // PAND/POR/PXOR/PANDN (SSE2) for and/or/xor/andnot;
             // 3-instr synthesis for not (PCMPEQB ones,ones + PXOR);
             // 5-instr PAND/PANDN/POR chain for bitselect; PTEST +
             // SETNE + MOVZX for any_true (SSE4.1 PTEST).
-            // §9.12-B / B90: v128 logical cohort migrated to ctx tuple.
-            // §9.12-B / B104: SIMD bool reductions cohort migrated to ctx tuple.
-            // §9.7 / 9.7-s: per-shape all_true + bitmask reductions
+            // Per-shape all_true + bitmask reductions
             // (8 ops). all_true via SSE4.1 PXOR + PCMPEQ_<lane> +
             // PTEST + SETZ + MOVZX (5 instr per cranelift
             // `lower.isle:4936`). bitmask via PMOVMSKB / MOVMSKPS /
             // MOVMSKPD direct for i8/i32/i64; i16x8 needs PACKSSWB
             // + PMOVMSKB + SHR 8 (cranelift `lower.isle:4977`).
-            // §9.7 / 9.7-t: i*x* packed shifts shl/shr_s/shr_u for
+            // i*x* packed shifts shl/shr_s/shr_u for
             // i16x8 + i32x4 + i64x2 (8 ops; i8x16 + i64x2.shr_s
-            // synthesis defer to 9.7-u). 5-instr emit per shift:
+            // synthesis defer). 5-instr emit per shift:
             // AND mask (lane_width - 1), MOVD count→xmm, MOVAPS
             // dst,vec (skip-elide), <shift> dst,scratch.
-            // §9.12-B / B97: SIMD int shifts cohort migrated to ctx tuple.
-            // §9.7 / 9.7-u: i64x2.shr_s synthesis (no native PSRAQ
+            // i64x2.shr_s synthesis (no native PSRAQ
             // in SSE; runtime-mask sign-bit fixup recipe per
             // cranelift `lower.isle:943-951` — 9 instr, no
             // const-pool needed since the sign-bit mask is
             // PCMPEQB+PSLLQ-imm-synthesised inline). i8x16 shifts
-            // defer to 9.7-v (count-dependent broadcast mask
+            // defer (count-dependent broadcast mask
             // synthesis or const-pool dependency per ADR-0042).
-            // §9.7 / 9.7-v: i8x16.shl + i8x16.shr_u via inline-mask
+            // i8x16.shl + i8x16.shr_u via inline-mask
             // synthesis (no const-pool dep). 9-/10-instr recipes
             // using PSLLW/PSRLW + PCMPEQB-derived all-ones + PSHUFB
             // broadcast of byte-0 of the shifted-mask word.
-            // i8x16.shr_s defers to 9.7-w (byte→word extension via
+            // i8x16.shr_s defers (byte→word extension via
             // PUNPCKLBW + PSRAW + PACKSSWB — structurally different).
-            // §9.7 / 9.7-w: i8x16.shr_s via cranelift sign-extension
+            // i8x16.shr_s via cranelift sign-extension
             // synthesis (`lower.isle:846+`). 11-instr: PCMPGTB sign-
             // mask + PUNPCKL/HBW byte→word extension + PSRAW per
             // half + PACKSSWB pack.
-            // §9.7 / 9.7-x: i*x*.extend_{low,high}_*_{s,u} (12 ops).
+            // i*x*.extend_{low,high}_*_{s,u} (12 ops).
             // Low half: 1-instr SSE4.1 PMOVSX*/PMOVZX* direct.
             // High half: PSHUFD imm=0xEE swaps upper qword to lower
             // position + PMOVSX/ZX. 2 instr per high-extend.
-            // §9.12-B / B105: SIMD narrow + extend cohort migrated to ctx tuple.
-            // §9.7 / 9.7-y: i*x*.narrow_*_{s,u} (4 ops). PACKSSWB
+            // i*x*.narrow_*_{s,u} (4 ops). PACKSSWB
             // (SSE2) + PACKUSWB (SSE2) for i8x16; PACKSSDW (SSE2)
             // + PACKUSDW (SSE4.1) for i16x8. All single-instr via
             // emitV128IntBinop.
-            // §9.7 / 9.7-z: i*x*.abs (4 ops). PABSB/W/D (SSSE3
+            // i*x*.abs (4 ops). PABSB/W/D (SSSE3
             // 0F 38 1C/1D/1E) for 8/16/32-bit lanes — single-instr
             // unary via emitV128FpUnop. i64x2.abs synthesises via
             // 5-instr sign-mask + PXOR + PSUBQ recipe (no PABSQ
             // in SSE; SSE4.2 PCMPGTQ available per ADR-0041).
-            // §9.12-B / B92: SIMD int abs cohort migrated to ctx tuple.
-            // §9.7 / 9.7-aa: i*x*.neg (4 ops). 3-instr recipe via
+            // i*x*.neg (4 ops). 3-instr recipe via
             // emitV128IntNeg helper: PXOR XMM14,XMM14 + PSUB_<shape>
             // XMM14, src + MOVAPS dst, XMM14. Aliasing-safe.
-            // §9.12-B / B92: SIMD int neg cohort migrated to ctx tuple.
-            // §9.7 / 9.7-ab: FP convert signed + promote/demote
+            // FP convert signed + promote/demote
             // (4 ops). Single-instr unary CVT* via emitV128FpUnop.
             // u-variants and trunc-sat defer (cranelift uses
             // const-pool float magic numbers; ADR-0042 pending).
-            // §9.7 / 9.7-ae: 2 inline-synth FP convert / trunc-sat
+            // 2 inline-synth FP convert / trunc-sat
             // ops. The 4 const-pool-dependent variants
             // (f64x2.convert_low_i32x4_u, i32x4.trunc_sat_f32x4_u,
-            // i32x4.trunc_sat_f64x2_{s,u}_zero) defer to 9.7-ag
+            // i32x4.trunc_sat_f64x2_{s,u}_zero) defer
             // pending ADR-0042 const-pool plumbing.
-            // §9.7 / 9.7-at: i32x4.trunc_sat_f32x4_u closes the
-            // last of the 4 deferred 9.7-ae u-variants. The
+            // i32x4.trunc_sat_f32x4_u closes the
+            // last of the 4 deferred u-variants. The
             // "3-scratch" framing turned out to be a non-issue:
             // dst (regalloc'd from XMM8..XMM13) + XMM14 + XMM15
             // gives 3 distinct physical xmms within the existing
             // fp_spill_stage_xmms reservation. No ABI change.
-            // §9.7 / 9.7-au: int min/max + saturating arith +
+            // Int min/max + saturating arith +
             // avgr_u (22 ops). All single-instruction native
             // SSE2/SSE4.1 ops; each wrapper dispatches via
             // emitV128IntBinop with the matching encoder. No new
             // helpers; cranelift maps 1-to-1 (`inst.isle:2470-2486`).
-            // §9.12-B / B98: SIMD int min/max cohort migrated to ctx tuple.
-            // §9.12-B / B99: SIMD int sat arith cohort migrated to ctx tuple.
-            // §9.7 / 9.7-av: f32x4/f64x2 .pmin/pmax (4 ops). Direct
+            // f32x4/f64x2 .pmin/pmax (4 ops). Direct
             // dispatch to MINPS/MAXPS/MINPD/MAXPD with operands
             // swapped (dst=c2, src=c1) to align Wasm pseudo-min/max
             // semantics with x86's "return src on equal/NaN/zero".
             // Cranelift maps the same way (`lower.isle:1542-1545`).
-            // §9.7 / 9.7-ax: v128.load + v128.store foundation
+            // v128.load + v128.store foundation
             // memory ops. Mirror scalar emitMemOp shape with
             // access_size=16 + MOVUPS final encoding. RAX/RCX/RDX
             // scratches reused (pool-excluded). bounds_fixups +
             // spill_base_off + ins.payload threading mirrors i32.load.
             .@"v128.load" => try op_simd.emitV128Load(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &oob_fixups, spill_base_off, @as(u32, @intCast(ins.payload)), func.func_idx),
             .@"v128.store" => try op_simd.emitV128Store(allocator, &buf, alloc, &pushed_vregs, &oob_fixups, spill_base_off, @as(u32, @intCast(ins.payload)), func.func_idx),
-            // §9.7 / 9.7-ay: v128.load{8,16,32,64}_splat (4 ops).
+            // v128.load{8,16,32,64}_splat (4 ops).
             // All reuse v128MemPrologue with appropriate access_size
             // + a per-lane-width broadcast tail. 8/16-bit go through
             // GPR (MOVZX + MOVD); 32/64-bit use MOVSS/MOVSD direct
@@ -1533,12 +1498,12 @@ pub fn compile(
             .@"v128.load16_splat" => try op_simd.emitV128Load16Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &oob_fixups, spill_base_off, @as(u32, @intCast(ins.payload)), func.func_idx),
             .@"v128.load32_splat" => try op_simd.emitV128Load32Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &oob_fixups, spill_base_off, @as(u32, @intCast(ins.payload)), func.func_idx),
             .@"v128.load64_splat" => try op_simd.emitV128Load64Splat(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &oob_fixups, spill_base_off, @as(u32, @intCast(ins.payload)), func.func_idx),
-            // §9.7 / 9.7-az: v128.load{32,64}_zero (2 ops). Single-
+            // v128.load{32,64}_zero (2 ops). Single-
             // instruction MOVSS/MOVSD memory load — the scalar form
             // already zero-extends the upper bits per Intel SDM.
             .@"v128.load32_zero" => try op_simd.emitV128Load32Zero(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &oob_fixups, spill_base_off, @as(u32, @intCast(ins.payload)), func.func_idx),
             .@"v128.load64_zero" => try op_simd.emitV128Load64Zero(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &oob_fixups, spill_base_off, @as(u32, @intCast(ins.payload)), func.func_idx),
-            // §9.7 / 9.7-ba: v128.load_lane / store_lane × 4 sizes
+            // v128.load_lane / store_lane × 4 sizes
             // (8 ops). payload = memarg.offset; extra = lane byte.
             // Uses GPR roundtrip (MOVZX/MOV + PINSR/PEXTR reg-form);
             // store_lane PUSH/POPs RCX around the prologue's RCX-
@@ -1551,46 +1516,46 @@ pub fn compile(
             .@"v128.store16_lane" => try op_simd.emitV128Store16Lane(allocator, &buf, alloc, &pushed_vregs, &oob_fixups, spill_base_off, @as(u32, @intCast(ins.payload)), ins.extra, func.func_idx),
             .@"v128.store32_lane" => try op_simd.emitV128Store32Lane(allocator, &buf, alloc, &pushed_vregs, &oob_fixups, spill_base_off, @as(u32, @intCast(ins.payload)), ins.extra, func.func_idx),
             .@"v128.store64_lane" => try op_simd.emitV128Store64Lane(allocator, &buf, alloc, &pushed_vregs, &oob_fixups, spill_base_off, @as(u32, @intCast(ins.payload)), ins.extra, func.func_idx),
-            // §9.7 / 9.7-bb: v128.load{8x8,16x4,32x2}_{s,u} (6 ops).
+            // v128.load{8x8,16x4,32x2}_{s,u} (6 ops).
             // MOVSD load + PMOVSX/ZX{BW,WD,DQ} extend. No new
-            // encoders. Closes the §9.7 v128 op surface.
+            // encoders. Closes the v128 op surface.
             .@"v128.load8x8_s" => try op_simd.emitV128Load8x8S(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &oob_fixups, spill_base_off, @as(u32, @intCast(ins.payload)), func.func_idx),
             .@"v128.load8x8_u" => try op_simd.emitV128Load8x8U(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &oob_fixups, spill_base_off, @as(u32, @intCast(ins.payload)), func.func_idx),
             .@"v128.load16x4_s" => try op_simd.emitV128Load16x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &oob_fixups, spill_base_off, @as(u32, @intCast(ins.payload)), func.func_idx),
             .@"v128.load16x4_u" => try op_simd.emitV128Load16x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &oob_fixups, spill_base_off, @as(u32, @intCast(ins.payload)), func.func_idx),
             .@"v128.load32x2_s" => try op_simd.emitV128Load32x2S(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &oob_fixups, spill_base_off, @as(u32, @intCast(ins.payload)), func.func_idx),
             .@"v128.load32x2_u" => try op_simd.emitV128Load32x2U(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &oob_fixups, spill_base_off, @as(u32, @intCast(ins.payload)), func.func_idx),
-            // §9.7 / 9.7-af: native single-instr multiply-and-add
+            // Native single-instr multiply-and-add
             // pair. PMULHRSW (SSSE3) implements Q15 multiply-round-
             // saturate exactly per Wasm spec; PMADDWD (SSE2)
             // implements pairwise dot product with wrapping i32
             // accumulation matching the Wasm spec.
-            // §9.7 / 9.7-ag: i16x8.extmul × 4. Cranelift recipe
+            // i16x8.extmul × 4. Cranelift recipe
             // `lower.isle:1197-1285` — PMOVSX/ZX BW each operand
             // (extend i8→i16) + PMULLW. High variants prefix
             // PSHUFD imm=0xEE to swap upper 64 bits down before
             // extending. No new encoders.
-            // §9.7 / 9.7-ah: i32x4.extmul × 4 (i16x8 → i32x4).
-            // Same recipe as 9.7-ag with PMOVSXWD/PMOVZXWD +
+            // i32x4.extmul × 4 (i16x8 → i32x4).
+            // Same recipe as i16x8.extmul with PMOVSXWD/PMOVZXWD +
             // PMULLD substituted; helpers reused unchanged.
-            // §9.7 / 9.7-ai: i64x2.extmul × 4 (i32x4 → i64x2).
+            // i64x2.extmul × 4 (i32x4 → i64x2).
             // Different shape: PMULDQ/PMULUDQ already widen
             // i32→i64, so PSHUFD imm=0x{50,FA} is the only
             // positioning needed (no PMOVSX/ZX prefix).
-            // §9.7 / 9.7-aj: i16x8.extadd_pairwise_i8x16 × 2.
+            // i16x8.extadd_pairwise_i8x16 × 2.
             // PCMPEQB + PABSB synthesises a 0x01-per-byte vector;
             // PMADDUBSW (SSSE3) reduces to pairwise add. No
             // const-pool dep.
-            // §9.7 / 9.7-ak: i32x4.extadd_pairwise_i16x8_s.
+            // i32x4.extadd_pairwise_i16x8_s.
             // Inline-synth 0x00010001-per-dword mask + PMADDWD.
             // The _u variant is deferred (PMADDWD reads i16 as
             // signed; u16 inputs need pre-correction via ADR-0042
             // const-pool sign-flip + post-add fixup).
-            // §9.7/9.7-aq — i32x4.extadd_pairwise_i16x8_u via
+            // i32x4.extadd_pairwise_i16x8_u via
             // sign-flip XOR + PMADDWD-with-+1 + bias-correction-add.
             // 11-instr inline-synth (no const-pool dep) — closes
             // the extadd_pairwise family.
-            // §9.7/9.7-ar — i8x16.shuffle via PSHUFB-pair + POR.
+            // i8x16.shuffle via PSHUFB-pair + POR.
             // The handler reads the original Wasm mask from
             // func.simd_consts[ins.payload], derives a-mask /
             // b-mask, and appends both to extra_consts.
@@ -1598,31 +1563,31 @@ pub fn compile(
                 const simd_consts_base: u32 = if (func.simd_consts) |sc| @intCast(sc.len) else 0;
                 try op_simd_int_cmp_lane.emitI8x16Shuffle(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, &simd_const_fixups, &extra_consts, simd_consts_base, func.simd_consts, @as(u32, @intCast(ins.payload)));
             },
-            // §9.7/9.7-al — v128.const via ADR-0042 const-pool
-            // (mirror of ARM64 §9.6/9.6-f-ii). Lower pass stored
+            // v128.const via ADR-0042 const-pool
+            // (mirror of ARM64). Lower pass stored
             // const_idx in ins.payload pointing into
             // func.simd_consts.
             .@"v128.const" => try op_simd.emitV128Const(allocator, &buf, alloc, &pushed_vregs, &next_vreg, &simd_const_fixups, @as(u32, @intCast(ins.payload)), spill_base_off),
-            // §9.7/9.7-am — i32x4.trunc_sat_f64x2_s_zero. Recipe
+            // i32x4.trunc_sat_f64x2_s_zero. Recipe
             // needs a shared INT32_MAX_f64-broadcast const; placed
             // into per-emit-pass extra_consts.
             .@"i32x4.trunc_sat_f64x2_s_zero" => {
                 const simd_consts_base: u32 = if (func.simd_consts) |sc| @intCast(sc.len) else 0;
                 try op_simd_float.emitI32x4TruncSatF64x2SZero(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, &simd_const_fixups, &extra_consts, simd_consts_base);
             },
-            // §9.7/9.7-an — i8x16.popcnt via SSSE3 PSHUFB-LUT
+            // i8x16.popcnt via SSSE3 PSHUFB-LUT
             // (1 op, 2 const-pool entries shared via extra_consts).
             .@"i8x16.popcnt" => {
                 const simd_consts_base: u32 = if (func.simd_consts) |sc| @intCast(sc.len) else 0;
                 try op_simd_int_arith.emitI8x16Popcnt(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, &simd_const_fixups, &extra_consts, simd_consts_base);
             },
-            // §9.7/9.7-ao — f64x2.convert_low_i32x4_u via IEEE-754
+            // f64x2.convert_low_i32x4_u via IEEE-754
             // mantissa-overlay trick (5 instr + 2 const-pool entries).
             .@"f64x2.convert_low_i32x4_u" => {
                 const simd_consts_base: u32 = if (func.simd_consts) |sc| @intCast(sc.len) else 0;
                 try op_simd_float.emitF64x2ConvertLowI32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, &simd_const_fixups, &extra_consts, simd_consts_base);
             },
-            // §9.7/9.7-ap — i32x4.trunc_sat_f64x2_u_zero via the
+            // i32x4.trunc_sat_f64x2_u_zero via the
             // ROUNDPD + ADDPD-magic + SHUFPS-extract recipe per
             // cranelift `lower.isle:5061-5093`.
             .@"i32x4.trunc_sat_f64x2_u_zero" => {
@@ -1663,7 +1628,7 @@ pub fn compile(
             .@"i64x2.extmul_high_i32x4_s" => try op_simd_int_cmp_lane.emitI64x2ExtmulHighI32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             .@"i64x2.extmul_low_i32x4_u" => try op_simd_int_cmp_lane.emitI64x2ExtmulLowI32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             .@"i64x2.extmul_high_i32x4_u" => try op_simd_int_cmp_lane.emitI64x2ExtmulHighI32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            // §17.4 relaxed-SIMD trunc — NaN/OOB → saturating clamp (v2 choice),
+            // Relaxed-SIMD trunc — NaN/OOB → saturating clamp (v2 choice),
             // behaviourally identical to trunc_sat; reuse those emits.
             .@"i32x4.relaxed_trunc_f32x4_s" => try op_simd_float.emitI32x4TruncSatF32x4S(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             .@"i32x4.relaxed_trunc_f32x4_u" => try op_simd_float.emitI32x4TruncSatF32x4U(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
@@ -1675,69 +1640,67 @@ pub fn compile(
                 const simd_consts_base: u32 = if (func.simd_consts) |sc| @intCast(sc.len) else 0;
                 try op_simd_float.emitI32x4TruncSatF64x2UZero(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off, &simd_const_fixups, &extra_consts, simd_consts_base);
             },
-            // §17.4 relaxed-SIMD min/max — RAW MINPS/MAXPS/MINPD/MAXPD (single
+            // Relaxed-SIMD min/max — RAW MINPS/MAXPS/MINPD/MAXPD (single
             // instr), not the strict NaN/±0-propagating recipe (ADR-0169).
             .@"f32x4.relaxed_min" => try op_simd_float.emitF32x4RelaxedMin(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             .@"f32x4.relaxed_max" => try op_simd_float.emitF32x4RelaxedMax(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             .@"f64x2.relaxed_min" => try op_simd_float.emitF64x2RelaxedMin(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             .@"f64x2.relaxed_max" => try op_simd_float.emitF64x2RelaxedMax(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            // §17.4 relaxed-SIMD madd/nmadd — unfused MULPS+ADDPS/SUBPS (no SSE FMA; ADR-0169).
+            // Relaxed-SIMD madd/nmadd — unfused MULPS+ADDPS/SUBPS (no SSE FMA; ADR-0169).
             .@"f32x4.relaxed_madd" => try op_simd_float.emitF32x4RelaxedMadd(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             .@"f32x4.relaxed_nmadd" => try op_simd_float.emitF32x4RelaxedNmadd(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             .@"f64x2.relaxed_madd" => try op_simd_float.emitF64x2RelaxedMadd(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
             .@"f64x2.relaxed_nmadd" => try op_simd_float.emitF64x2RelaxedNmadd(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            // §17.4 relaxed-SIMD laneselect — full bitwise (a&m)|(b&~m) = exactly
+            // Relaxed-SIMD laneselect — full bitwise (a&m)|(b&~m) = exactly
             // v128.bitselect (ADR-0169); lane width irrelevant.
             .@"i8x16.relaxed_laneselect",
             .@"i16x8.relaxed_laneselect",
             .@"i32x4.relaxed_laneselect",
             .@"i64x2.relaxed_laneselect",
             => try op_simd.emitV128Bitselect(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            // §17.4 relaxed-SIMD q15mulr — overflow → INT16_MAX = strict PMULHRSW
+            // Relaxed-SIMD q15mulr — overflow → INT16_MAX = strict PMULHRSW
             // saturation (ADR-0169); reuse strict q15mulr_sat_s.
             .@"i16x8.relaxed_q15mulr_s" => try op_simd_int_arith.emitI16x8Q15mulrSatS(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            // §17.4 relaxed-SIMD dot (i8×i8 → i16x8 pairwise): single PMADDUBSW.
+            // Relaxed-SIMD dot (i8×i8 → i16x8 pairwise): single PMADDUBSW.
             .@"i16x8.relaxed_dot_i8x16_i7x16_s" => try op_simd_int_arith.emitI16x8RelaxedDot(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            // §17.4 relaxed-SIMD dot+accumulate: PMADDUBSW + PMADDWD(ones) + PADDD(c).
+            // Relaxed-SIMD dot+accumulate: PMADDUBSW + PMADDWD(ones) + PADDD(c).
             .@"i32x4.relaxed_dot_i8x16_i7x16_add_s" => try op_simd_int_arith.emitI32x4RelaxedDotAdd(allocator, &buf, alloc, &pushed_vregs, &next_vreg, spill_base_off),
-            // §9.7 / 9.7-ac: i8x16.swizzle (1 op). 10-instr inline
+            // i8x16.swizzle (1 op). 10-instr inline
             // recipe synthesises 0x0F broadcast + PCMPGTB-detect of
             // idx>15 + POR-correct + PSHUFB. No const-pool dep.
-            // §9.7 / 9.7-ad: FP unop family (12 ops). abs / neg
+            // FP unop family (12 ops). abs / neg
             // via inline sign-mask synthesis (PCMPEQB ones +
             // PSLL{D,Q}-imm 31/63); ceil/floor/trunc/nearest via
             // SSE4.1 ROUNDPS/ROUNDPD imm with precision-exception
             // suppression (bit 3 set).
-            // §9.12-B / B102: SIMD float unary cohort migrated to ctx tuple.
-            // §9.12-B / B71: memory.size + memory.grow migrated.
-            // §9.12-B / B70: select + select_typed share emitSelectCtx.
+            // select + select_typed share emitSelectCtx.
             // `.select` is in `collected_x86_64_ctx_ops`; `.select_typed`
             // has no Zone 1 meta yet so it stays as an inline switch arm
-            // (B109 dead-arm prune oversight: select_typed needs its own
-            // arm since it wasn't covered by the dispatcher path).
+            // (select_typed needs its own arm since it wasn't covered
+            // by the dispatcher path).
             // adapter (handles v128 / fp / GPR 3-path dispatch).
             .select_typed => try op_alu_int.emitSelectCtx(&ctx, &ins),
-            // §9.12-B / B73: unreachable inline body extracted into
+            // unreachable inline body extracted into
             // `op_control.emitUnreachableCtx` `(ctx, ins)` adapter
             // (ctx extended with `dead_code: *bool` field).
-            // §9.12-B / B72: nop inline body extracted into
+            // nop inline body extracted into
             // `op_control.emitNopCtx` `(ctx, ins)` adapter.
-            // §9.12-B / B69: drop inline body extracted into
+            // drop inline body extracted into
             // `op_control.emitDropCtx` `(ctx, ins)` adapter.
-            // §9.12-B / B74: return inline body extracted into
+            // return inline body extracted into
             // `op_control.emitReturnCtx` `(ctx, ins)` adapter
             // (ctx extended with `frame_bytes` + `uses_runtime_ptr`).
-            // §9.12-B / B75: br family extracted into `(ctx, ins)`
+            // br family extracted into `(ctx, ins)`
             // adapters in op_control. emitBrCtx sets dead_code
             // (br is unconditional); br_if / br_table fall through.
-            // §9.12-B / B76: if + else extracted into `(ctx, ins)`
+            // if + else extracted into `(ctx, ins)`
             // adapters in op_control.
             .end => {
-                // §9.12-B / B77 (ADR-0075): both forms route
+                // Per ADR-0075: both forms route
                 // through op_control.emitEndCtx. Function-level
                 // form (label stack empty pre-call) breaks the
                 // body loop; intra-function form continues.
-                // IT-2 patch lives ABOVE the ctx dispatcher
+                // The try_table patch lives ABOVE the ctx dispatcher
                 // (line ~746), since `.end` is now in the ctx
                 // tuple — this switch arm is dead-path safety.
                 const at_function_end = labels.items.len == 0;
@@ -1745,7 +1708,7 @@ pub fn compile(
                 if (at_function_end) break;
             },
             // D-239 — function-references null-ref branch ops (arm64 parity).
-            // §17.4 D-231 — comptime-guard so v1_0/v2_0 builds DCE the v3 codegen.
+            // D-231 — comptime-guard so v1_0/v2_0 builds DCE the v3 codegen.
             .br_on_null => {
                 if (comptime wasm_v3_plus) {
                     try op_br_on_null.emit(&ctx, &ins);
@@ -1768,7 +1731,7 @@ pub fn compile(
         }
     }
 
-    // IT-2 — see arm64/emit.zig harvest comment.
+    // See arm64/emit.zig harvest comment.
     const exception_handlers: []const exception_table.HandlerEntry = if (has_try_table)
         try eh_builder.entries.toOwnedSlice(allocator)
     else
@@ -1790,14 +1753,14 @@ pub fn compile(
 ///       when  uses_runtime_ptr (R15 occupies [RBP-8]).
 /// Surfaces `UnsupportedOp` for indices the i8 disp cannot
 /// reach (15 locals max either way; coincidentally same cap).
-/// §9.7 / 7.10-g: localDisp returns i32 (was i8). The i8 form
+/// localDisp returns i32 (was i8). The i8 form
 /// previously capped total_locals at 15 (deepest local at
 /// `[RBP - 136]` overflows i8). i32 widening uses the disp32
 /// form encoders for slots beyond i8 range; smaller slots stay
 /// on the disp8 form via `rbpStoreR{32,64}` / `rbpLoadR{32,64}`
 /// auto-helpers that pick form per offset.
 ///
-/// §9.9 / 9.9-e-2: layout-aware overload via `localDispLayout`.
+/// Layout-aware overload via `localDispLayout`.
 /// The pure-formula form below remains for non-v128 callers
 /// (e.g. test fixtures + scalar emit_test_local sites that
 /// hard-code the `(idx+1)*8` shape). v128-aware emit paths must

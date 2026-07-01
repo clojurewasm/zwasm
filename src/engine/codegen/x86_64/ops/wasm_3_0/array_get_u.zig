@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `array.get_u` — Wasm 3.0 GC §3.3.5.6.11.
-//! Unsigned twin of `array.get_s` (A-6a): pop i32 index + array GcRef
+//! Unsigned twin of `array.get_s`: pop i32 index + array GcRef
 //! (trap null OR OOB), load the 8-byte element slot at `base + 12 +
 //! index*8`, then ZERO-extend its packed low bits to i32 (MOVZX) and
 //! push. Identical to `array.get_s` apart from the final MOVZX (vs

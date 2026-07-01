@@ -1,13 +1,13 @@
 //! ARM64 cross-module import bridge thunk encoder
-//! (ADR-0066 + Amendment §A1 + §A2 (D-144 γ.4 cycle 4),
-//! §9.9-III chunks (c)-2.1 + D-142 fix (A.2)).
+//! (ADR-0066 + Amendment §A1 + §A2 (D-144),
+//! D-142 fix (A.2)).
 //!
 //! Each thunk is a 96-byte native code snippet that wraps a
 //! call-and-return around the callee's JIT entry, **saving the
 //! caller's six reserved-invariant callee-saved registers**
 //! (X19/X24/X25/X26/X27/X28 per ADR-0017 + ADR-0018) across the
 //! call so the importer's reserved-invariant view survives the
-//! callee's prologue overwrite. γ.4 cycle 4 (D-144) found that
+//! callee's prologue overwrite. D-144 found that
 //! the prior §A1 56-byte shape saved only X19, leaving X24
 //! (typeidx_base), X25 (table_size), X26 (funcptr_base), X27
 //! (mem_limit), X28 (vm_base) corrupt across cross-module
@@ -75,7 +75,7 @@ const inst = @import("inst.zig");
 /// Total thunk size in bytes (20 instructions × 4 bytes +
 /// 2 quad literals × 8 bytes = 96; the ADR-0134 D1 MOV X29,SP
 /// consumed the prior alignment pad, so size is unchanged).
-/// Stable across all callee signatures. γ.4 cycle 4 (D-144)
+/// Stable across all callee signatures. D-144
 /// grew the thunk from 56 → 96 bytes to cover the full
 /// six-register reserved-invariant cohort.
 pub const thunk_bytes: usize = 96;
@@ -90,7 +90,7 @@ pub const thunk_bytes: usize = 96;
 pub fn emitThunk(buf: []u8, callee_rt: usize, callee_entry: usize) void {
     std.debug.assert(buf.len == thunk_bytes);
     // STP X29, X30, [SP, #-80]! — allocate 80-byte frame +
-    // save caller's FP+LR (D-144 cycle 4 — was -32 / 32-byte
+    // save caller's FP+LR (D-144 — was -32 / 32-byte
     // frame, now -80 / 80-byte frame to accommodate the full
     // X19+X24..X28 reserved-invariant save area).
     std.mem.writeInt(u32, buf[0..4], inst.encStpPreIdx(29, 30, inst.sp_reg, -80), .little);

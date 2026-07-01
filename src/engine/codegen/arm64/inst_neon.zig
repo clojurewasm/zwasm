@@ -1,8 +1,7 @@
-//\! ARM64 NEON foundational encoders (§9.9 / 9.5 per ADR-0041).
+//\! ARM64 NEON foundational encoders (per ADR-0041).
 //\!
-//\! Foundation-tier SIMD-128 encoders kept after the 9.9-h-19
-//\! split (per `.dev/phase10_prep/track_b_source_split.md` §4.3
-//\! arm64 row, chunk B/5 of 6):
+//\! Foundation-tier SIMD-128 encoders kept after the source
+//\! split:
 //\!
 //\! - Memory load/store Q-form (`LDR/STR Q<rt>, ...`, `LD1R`).
 //\! - Reg-to-reg moves (`ORR/MOV V<d>.16B`).
@@ -18,20 +17,19 @@
 //\! extend-narrow / SSHR-immediate / reductions live in
 //\! `inst_neon_arith.zig`. Lane access (UMOV/SMOV/INS) and
 //\! integer + FP per-lane compares live in `inst_neon_lane_cmp
-//\! .zig`. Closes the last hard-cap-exceeder per
-//\! `scripts/file_size_check.sh`.
+//\! .zig`.
 //\!
 //\! Bit patterns from the Arm Architecture Reference Manual
 //\! (DDI 0487, A64 SIMD&FP instructions). Each `pub fn enc<X>`
 //\! returns the little-endian `u32` ready to write to the code
-//\! buffer; the §9.9/9.5+ emit pass packs them into `[]u8` via
+//\! buffer; the emit pass packs them into `[]u8` via
 //\! `std.mem.writeInt(u32, ..., .little)`.
 //\!
 //\! Per ADR-0041 §"Decision" / 2: Q registers map to the
 //\! existing FP-class register pool (V0-V31; allocatable
 //\! V16-V28 per ADR-0027 + D-037). The 128-bit Q view shares
 //\! the underlying register file with scalar D/S forms — the
-//\! `ShapeTag` axis on `Allocation` (§9.4) disambiguates which
+//\! `ShapeTag` axis on `Allocation` disambiguates which
 //\! view emit should use.
 //\!
 //\! Zone 2 (`src/engine/codegen/arm64/`) — must NOT import
@@ -182,7 +180,7 @@ pub fn encDup4S(rd: Vn, rn: Xn) u32 {
 }
 
 /// `DUP V<d>.2D, X<n>` — broadcast a 64-bit GPR value to both
-/// 64-bit lanes. §9.9 / 9.9-d-5 v128 select uses this to widen
+/// 64-bit lanes. v128 select uses this to widen
 /// CSETM's all-ones / all-zeros result into a 16-byte mask
 /// consumed by BSL.
 ///
@@ -228,7 +226,7 @@ pub fn encDup2DFromD0(rd: Vn, rn: Vn) u32 {
 }
 
 /// `AND V<d>.16B, V<n>.16B, V<m>.16B` — bitwise AND across the
-/// full 128 bits. §9.9 / 9.9-f-1 v128.and. Encoding (SIMD AND
+/// full 128 bits. v128.and. Encoding (SIMD AND
 /// vector, U=0, size=00):
 ///   `0 1 0 01110 00 1 [Rm:5] 0 0011 1 [Rn:5] [Rd:5]`
 ///   = `0x4E201C00 | (Rm << 16) | (Rn << 5) | Rd`.
@@ -248,7 +246,7 @@ pub fn encBic16B(rd: Vn, rn: Vn, rm: Vn) u32 {
 }
 
 /// `EOR V<d>.16B, V<n>.16B, V<m>.16B` — bitwise XOR across the
-/// full 128 bits. §9.9 / 9.9-f-1 v128.xor. Encoding (U=1, size=00):
+/// full 128 bits. v128.xor. Encoding (U=1, size=00):
 ///   `0 1 1 01110 00 1 [Rm:5] 0 0011 1 [Rn:5] [Rd:5]`
 ///   = `0x6E201C00 | (Rm << 16) | (Rn << 5) | Rd`.
 /// Per Arm IHI 0055 §C7.2.93.
@@ -257,7 +255,7 @@ pub fn encEor16B(rd: Vn, rn: Vn, rm: Vn) u32 {
 }
 
 /// `MVN V<d>.16B, V<n>.16B` (alias of `NOT V<d>.16B, V<n>.16B`)
-/// — bitwise NOT. §9.9 / 9.9-f-1 v128.not. Encoding (NOT vector,
+/// — bitwise NOT. v128.not. Encoding (NOT vector,
 /// U=1, size=00, opcode=00101):
 ///   `0 1 1 01110 00 1 00000 0 0101 10 [Rn:5] [Rd:5]`
 ///   = `0x6E205800 | (Rn << 5) | Rd`.
@@ -269,7 +267,7 @@ pub fn encMvn16B(rd: Vn, rn: Vn) u32 {
 // =====================================================================
 // Const-pool placeholder LDR + bitselect/not
 // =====================================================================
-// §9.6 / 9.6-f-ii — LDR (literal, SIMD&FP) Q-form.
+// LDR (literal, SIMD&FP) Q-form.
 // Wasm v128.const + i8x16.shuffle materialise their 16-byte immediates
 // from a per-function const-pool (per ADR-0042). The placeholder LDR
 // instruction is patched with the final imm19 (signed offset / 4
@@ -467,7 +465,7 @@ test "encNotV16B: V0, V1" {
     try testing.expectEqual(@as(u32, 0x6E205820), encNotV16B(0, 1));
 }
 // ============================================================
-// §9.6 / 9.6-f-ii — LDR (literal, SIMD&FP) Q-form
+// LDR (literal, SIMD&FP) Q-form
 // ============================================================
 
 test "encLdrLiteralQ: Q0, imm19=0 (base)" {

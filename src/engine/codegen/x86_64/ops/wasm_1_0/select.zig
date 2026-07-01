@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `select` — Zone 2 per-arch op file
-//! per ADR-0074 + ADR-0075 (B70 migration to `(ctx, ins)`).
+//! per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/select.zig`.
 //! Delegates to `op_alu_int.emitSelectCtx` (3-path dispatch:
@@ -11,7 +11,6 @@
 //! Wasm spec §4.4.4 / §3.3.2.2.
 //!
 //! Registered in `dispatch_collector.collected_x86_64_ctx_ops`.
-//! Unblocked by B66 meta backfill.
 //!
 //! Zone 2 (`src/engine/codegen/x86_64/ops/`).
 

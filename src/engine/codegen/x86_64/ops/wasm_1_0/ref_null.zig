@@ -1,5 +1,5 @@
 //! x86_64 emit handler for `ref.null` — Zone 2 per-arch op file
-//! per ADR-0074 + ADR-0075 (B68 ref cohort migration to `(ctx, ins)`).
+//! per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/ref_null.zig`.
 //! Delegates to `op_alu_int.emitRefNull`. Pushes a null
@@ -8,7 +8,6 @@
 //! Wasm spec §4.4.5 (ref.null t).
 //!
 //! Registered in `dispatch_collector.collected_x86_64_ctx_ops`.
-//! Unblocked by B66 meta backfill.
 //!
 //! Zone 2 (`src/engine/codegen/x86_64/ops/`).
 

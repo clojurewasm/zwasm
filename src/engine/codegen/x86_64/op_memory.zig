@@ -186,7 +186,7 @@ pub fn emitMemOp(
     try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.vm_base_off).slice());
     try buf.appendSlice(allocator, inst.encMovRR(.d, .rdx, idx_r).slice());
     if (offset != 0) {
-        // §9.7 / 7.10-i: arm64 d-14 mirror. memarg.offset is u32
+        // arm64 mirror. memarg.offset is u32
         // per Wasm spec §5.4.6; emcc/clang -O2 can emit values past
         // the imm32 sign-extended range (0x7FFFFFFF) when data
         // segment + array index crosses 2 GiB. Lower as MOVABS RCX
@@ -276,18 +276,17 @@ pub fn emitMemOp(
     }
 }
 
-/// §9.12-B / B60 (ADR-0075) — `(ctx, ins)` adapter for the
+/// `(ctx, ins)` adapter for the
 /// scalar load/store cohort (23 ops via the shared `emitMemOp`
 /// helper). Single primary + 22 aliases (all variants share the
 /// same body — the legacy impl dispatches on `ins.op` internally
-/// to pick MOV / MOVZX / MOVSX shapes). Decomposes per-op at the
-/// B6x+1 cutover.
+/// to pick MOV / MOVZX / MOVSX shapes).
 pub fn emitI32Load(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     // ADR-0111 D3: `MemArgExtra.memidx == 0` invariant — codegen
     // only sees memory 0 until multi-memory routing lands
     // (instantiate-side reject lift + per-memidx vm_base/mem_limit
-    // plumbing; 10.M-5+ region). The runtime assert codifies the
-    // prose invariant per `.claude/rules/comment_as_invariant.md`.
+    // plumbing). The runtime assert codifies the prose invariant
+    // per `.claude/rules/comment_as_invariant.md`.
     const memarg = zir.MemArgExtra.unpack(ins.extra);
     std.debug.assert(memarg.memidx == 0);
     // ADR-0111 D4 — 2-stage gate (comptime + runtime). Mirrors
@@ -521,7 +520,7 @@ fn emitMemOpI64(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     }
 }
 
-/// §9.12-B / B61 (ADR-0075) — `(ctx, ins)` adapters for the
+/// `(ctx, ins)` adapters for the
 /// bulk-memory cohort (`memory.fill`, `memory.copy`,
 /// `memory.init`). Three distinct adapters — fill/copy share
 /// the same 7-arg legacy signature but init takes an extra

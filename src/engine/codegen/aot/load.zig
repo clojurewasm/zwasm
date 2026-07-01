@@ -1,12 +1,12 @@
-//! `.cwasm` loader / consumer (Phase 12 §12.1 per ADR-0039; v0.2 per ADR-0138).
+//! `.cwasm` loader / consumer (per ADR-0039; v0.2 per ADR-0138).
 //!
 //! Reads a `.cwasm` image produced by `serialise.produceCwasm`, copies
 //! its code section into a fresh executable `JitBlock`, applies
 //! load-time relocations, and exposes per-function entry pointers. The
-//! symmetric reader to the §9.8b producer: `format.parseHeader` /
+//! symmetric reader to the producer: `format.parseHeader` /
 //! `parseFuncMeta` / `parseReloc` index the fixed-shape sections.
 //!
-//! **Divergence (vs v1, per §12.1 survey)**: the `.cwasm` file stays
+//! **Divergence (vs v1)**: the `.cwasm` file stays
 //! IMMUTABLE — relocations are applied to the runtime-allocated
 //! `JitBlock`, never patched back into the file. This eager
 //! copy-and-patch keeps the artefact relocatable (future lazy / COW /
@@ -85,7 +85,7 @@ pub const LoadedModule = struct {
     /// idx), parsed from the types section for standalone entry
     /// dispatch. Allocator-owned.
     func_result_kinds: []ResultKind,
-    /// Pre-evaluated defined-global init values (v0.3 §12.3b), one
+    /// Pre-evaluated defined-global init values (v0.3), one
     /// `Value.bits128` per defined global. A stateful standalone runtime
     /// memcpys these into `globals_base`. Allocator-owned; empty when the
     /// `.cwasm` has no globals.

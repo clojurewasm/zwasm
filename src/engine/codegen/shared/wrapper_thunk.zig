@@ -1,10 +1,10 @@
 // FILE-SIZE-EXEMPT: ADR-0106 path (a) wrapper-thunk substrate — per-arch emit (x86_64 SysV/Win64, arm64 AAPCS64) + paired byte tests change in lockstep per TDD discipline; extraction would create N3-shallow test-only or per-arch siblings per ADR-0099 D2.
-//! Buffer-write entry wrapper thunk (ADR-0106 cycle 3e
+//! Buffer-write entry wrapper thunk (ADR-0106
 //! foundation).
 //!
-//! Per the cycle 3e design spike at
+//! Per the design spike at
 //! `private/spikes/adr-0106-cycle3e-call-lowering/SPIKE.md`
-//! §"REVISED APPROACH", the cycle 3e implementation pivots
+//! §"REVISED APPROACH", the implementation pivots
 //! from "in-body buffer_write epilogue" to "per-function
 //! wrapper thunk":
 //!
@@ -21,58 +21,17 @@
 //!   assembly (no `callconv(.c)` at the internal call →
 //!   no Win64 ABI rules → no struct-return ABI mismatch).
 //!
-//! Per-arch emit (Phase 2' a-e) is COMPLETE: x86_64 SysV +
-//! arm64 AAPCS64 each cover the 2-int register-class shape
-//! and 3-int MEMORY-class shape — the 3 sig shapes that hit
-//! the `SKIP-WIN64-MULTI-RESULT` arm in
-//! `spec_assert_runner_base.zig`. Each wrapper byte sequence
-//! is unit-tested against expected bytes.
+//! Per-arch emit is COMPLETE: x86_64 SysV + arm64 AAPCS64
+//! each cover the 2-int register-class shape and 3-int
+//! MEMORY-class shape. Each wrapper byte sequence is
+//! unit-tested against expected bytes.
 //!
-//! ## Phase 2'g integration plan (linker hookup)
-//!
-//! Subsequent cycles wire this module into the production
-//! compile path:
-//!
-//! 1. Extend `shared/linker.zig::link()` with an optional
-//!    `wrapper_specs: ?[]const WrapperSpec` parameter (where
-//!    `WrapperSpec = struct { func_idx: u32, sig: FuncType }`).
-//!    When non-null + non-empty:
-//!    - After laying out function bodies (current pass), call
-//!      `wrapper_thunk.emit(allocator, .{ .sig, .body_offset =
-//!      func_offsets[idx], .thunk_offset = block_size_so_far })`
-//!      per spec.
-//!    - Append wrapper bytes to `block.bytes`.
-//!    - Populate `thunk_offsets[idx] = thunk_offset` for each
-//!      spec'd function; `NO_THUNK` for the rest.
-//!    - Skip the pass entirely when wrapper_specs == null (or
-//!      `wrapper_thunk.emit` returns `Error.UnsupportedOp` for
-//!      every spec — e.g. arch/shape unsupported).
-//!
-//! 2. Extend `shared/compile.zig::compileOne` to detect when
-//!    the function's sig hits a supported wrapper shape
-//!    (`results.len in {2, 3}` + all GPR-class) and append to
-//!    the wrapper_specs slice.
-//!
-//! 3. Spec runner's 3 multi-result callsites in
-//!    `test/spec/spec_assert_runner_non_simd.zig` (lines
-//!    767/817/892) gated on `builtin.os.tag == .windows`:
-//!    - Use `module.entry_buf(func_idx, BufferWriteFn)` to
-//!      get the wrapper pointer.
-//!    - Invoke via `entry_buffer_write.invokeMultiResultNoArgs`.
-//!    - Unpack results from `TypedResult` array.
-//!
-//! 4. Remove the `SKIP-WIN64-MULTI-RESULT` arm in
-//!    `spec_assert_runner_base.zig` (lines 3055-3082). After
-//!    Phase 2'g lands, Win64 multi-result fixtures route
-//!    through the wrapper thunk (currently the same as the
-//!    existing per-shape `callI32i32i32NoArgs` etc but with
-//!    the buffer-write boundary intercept).
-//!
-//! 5. Phase boundary windowsmini reconciliation runs
-//!    `bash scripts/run_remote_windows.sh test-all` to
-//!    verify the Win64 path. If wrapper byte sequence has a
-//!    bug specific to Win64 (e.g. shadow space alignment),
-//!    surface via test FAIL at that point.
+//! The linker hookup is in `shared/linker.zig`: `link()`
+//! takes an optional `wrapper_specs: ?[]const WrapperSpec`,
+//! lays out function bodies first, then emits each wrapper
+//! after the bodies and records `thunk_offsets[idx]` (or
+//! `NO_THUNK` when no wrapper was emitted). `module.entry_buf`
+//! returns the wrapper pointer for the buffer-write ABI.
 //!
 //! Zone 2 (`src/engine/codegen/shared/`) — same as
 //! `entry_buffer_write.zig` + `result_abi.zig`.
@@ -83,8 +42,8 @@ const builtin = @import("builtin");
 const jit_abi = @import("jit_abi.zig");
 const FuncType = @import("../../../ir/zir.zig").FuncType;
 
-/// Wrapper thunk emit parameters. The caller (cycle 3e
-/// `compileWasm` + linker) builds this per multi-result
+/// Wrapper thunk emit parameters. The caller
+/// (`compileWasm` + linker) builds this per multi-result
 /// function it wants to wrap.
 pub const EmitParams = struct {
     /// Wasm function signature — params + results define
@@ -109,18 +68,12 @@ pub const EmitOutput = struct {
     bytes: []const u8,
 };
 
-/// Emit a wrapper thunk for the given function. Per-arch
-/// dispatch happens here; the implementation is platform-
+/// Error set for wrapper thunk emit. Per-arch dispatch
+/// happens in `emit`; the implementation is platform-
 /// specific bytes-emit per the calling convention.
-///
-/// CYCLE 3e STATUS: stub returning Error.UnsupportedOp. The
-/// actual emit logic for x86_64 + arm64 lands in Phase 2'
-/// per the spike doc. This file provides the type + public
-/// API foundation so callers + tests have a stable shape.
 pub const Error = error{
     /// The function shape isn't supported by this arch's
-    /// wrapper emit. Cycle 3e Phase 2' replaces this with
-    /// the actual per-shape emit.
+    /// wrapper emit.
     UnsupportedOp,
     /// Allocator out of memory during byte buffer growth.
     OutOfMemory,
@@ -129,11 +82,8 @@ pub const Error = error{
 /// Emit a wrapper thunk for the given function. Per-arch
 /// dispatch based on `builtin.cpu.arch` + `builtin.os.tag`.
 ///
-/// CYCLE 3e Phase 2' (incremental): the only shape covered
-/// in this commit is **x86_64 SysV, 3-int-result MEMORY-
-/// class** (the `() → (i32, i32, i32)` SKIP arm shape).
-/// Other shapes still return UnsupportedOp; subsequent
-/// cycles add them per [`SPIKE.md`](../../../../private/spikes/adr-0106-cycle3e-call-lowering/SPIKE.md).
+/// See [`SPIKE.md`](../../../../private/spikes/adr-0106-cycle3e-call-lowering/SPIKE.md)
+/// for the per-shape wrapper derivation.
 ///
 /// 3-int-result MEMORY-class wrapper (SysV) shape:
 ///
@@ -148,8 +98,8 @@ pub const Error = error{
 /// ```
 ///
 /// Total: 11 bytes. Body writes 3 i32 results to
-/// `[RDI+0/4/8]` directly via the MEMORY-class epilogue
-/// (cycle-2c implementation); since RDI=results-buf for
+/// `[RDI+0/4/8]` directly via the MEMORY-class epilogue;
+/// since RDI=results-buf for
 /// us, the body fills the caller's buffer naturally.
 ///
 /// Stack alignment: wrapper entry has RSP ≡ 8 (mod 16) per
@@ -381,8 +331,7 @@ fn loadParamWin64(out: *[8]u8, param_i: u32, pt: @import("../../../ir/zir.zig").
 ///
 /// Currently supports: 2-int register-class shape only. The
 /// 3-int MEMORY-class Win64 shape requires the body-side
-/// cycle 2c MEMORY-class extension (RCX hidden ptr, RDX rt)
-/// which is out of scope for this cycle — see
+/// MEMORY-class extension (RCX hidden ptr, RDX rt) — see
 /// `private/spikes/adr-0106-cycle3e-win64-wrapper/README.md`.
 ///
 /// 2-int register-class shape (33 bytes):
@@ -417,11 +366,11 @@ fn loadParamWin64(out: *[8]u8, param_i: u32, pt: @import("../../../ir/zir.zig").
 /// ADR-0106 path (a) wrapper design).
 ///
 /// Body MUST be compiled with `result_abi = .register_write` AND
-/// the body's cycle 2c emit must NOT route 2-int through Win64's
+/// the body's emit must NOT route 2-int through Win64's
 /// hidden-RCX path (= keep RAX/RDX register convention even on
 /// Win64). 2-int Win64 goes through register_write naturally
-/// (cycle 2c body emit handles both .sysv and .win64
-/// MEMORY-class as of D-165 close 2026-05-23 — see
+/// (body emit handles both .sysv and .win64
+/// MEMORY-class per D-165 — see
 /// `x86_64/emit_setup.zig:104` Win64 arm + `emit.zig:209`
 /// `return_is_memory_class` predicate).
 pub fn emitX8664Win64(
@@ -525,7 +474,7 @@ pub fn emitX8664Win64(
 ///
 /// AAPCS64 register usage: X0=rt, X1=results, X2=args (per ADR-0106
 /// path (a)'s `fn(rt, results, args) callconv(.c) ErrCode`).
-/// Body's MEMORY-class path (cycle 2c arm64 implementation) expects
+/// Body's MEMORY-class path (arm64 implementation) expects
 /// X8=indirect-result-pointer + X0=rt; register-class path expects
 /// X0=rt + result regs are X0/X1.
 ///
@@ -580,7 +529,7 @@ fn emitAarch64(allocator: std.mem.Allocator, params: EmitParams) Error!EmitOutpu
         // return address (the caller's site). Without the
         // save/restore the wrapper's RET jumps back to the
         // wrapper's BL+4 instead of the caller, infinite loop
-        // (observed 2026-05-23 cycle 3e Phase 2'd integration
+        // (observed 2026-05-23 integration
         // attempt at 99% CPU for 31 min).
         try writeInsn(allocator, &bytes, 0xA9BF7FFE);
         try writeInsn(allocator, &bytes, 0xAA0103E8);
@@ -683,7 +632,7 @@ fn writeInsn(allocator: std.mem.Allocator, bytes: *std.ArrayList(u8), word: u32)
 
 fn all_gpr_class(results: []const @import("../../../ir/zir.zig").ValType) bool {
     for (results) |r| switch (r) {
-        // 10.G op_gc cycle 2: i31ref is a u32 GcRef (low-bit-tagged
+        // i31ref is a u32 GcRef (low-bit-tagged
         // i32 per ADR-0116) — fits the gpr class like other reftypes.
         .i32, .i64, .ref => {},
         .f32, .f64, .v128 => return false,
@@ -791,7 +740,7 @@ test "wrapper_thunk: emitX8664Win64 1-arg 2-int register-class (i32) -> (i32, i3
     // D-167 spike step (1) — first per-shape Mac byte test
     // for 1-arg + 2-int-result Win64 wrapper. Byte sequence
     // from private/spikes/d167-win64-multi-arg-wrapper/README.md
-    // "Win64 byte sequences (proven from cycle 21-24)".
+    // "Win64 byte sequences (proven)".
     //
     // Body convention (ADR-0106 path (a)): RCX=rt, RDX=a0, body
     // writes RAX = result 0, RDX = result 1. Wrapper bridges
@@ -983,7 +932,7 @@ test "wrapper_thunk: emitX8664Win64 3-arg 2-int register-class (i64, i64, i32) -
     // D-167 spike step (1) shape 2/3 — 3-arg + 2-int Win64
     // wrapper. Byte sequence from
     // private/spikes/d167-win64-multi-arg-wrapper/README.md
-    // "Win64 byte sequences (proven from cycle 21-24)".
+    // "Win64 byte sequences (proven)".
     //
     // Critical: a2 MUST be loaded FIRST into R9, then a0 into
     // RDX, then a1 into R8 LAST. Reason: wrapper-entry R8
@@ -1044,7 +993,7 @@ test "wrapper_thunk: emitX8664Win64 1-arg 3-int MEMORY-class (i32) -> (i32, i32,
     // R8 still holds the args ptr — after the MOV, R8 holds
     // a0 and the args ptr is consumed.
     //
-    // Body-side cycle 2c Win64 MEMORY-class emit landed at
+    // Body-side Win64 MEMORY-class emit landed at
     // D-165 close (see comment on 0-arg 3-int arm above).
     //
     // Concrete helper: `callI32i32i64_i32` — 1 i32 arg, 3
@@ -1079,8 +1028,8 @@ test "wrapper_thunk: emitX8664Win64 1-arg 3-int MEMORY-class (i32) -> (i32, i32,
 
 test "wrapper_thunk: EmitParams + EmitOutput types present" {
     // Compile-time sanity: the types exist and have the
-    // expected fields. Once Phase 2' lands, additional
-    // tests verify byte-sequence correctness per arch.
+    // expected fields. Byte-sequence correctness per arch is
+    // verified by the dedicated per-shape tests below.
     const params: EmitParams = .{
         .sig = .{ .params = &.{}, .results = &.{} },
         .body_offset = 0,
@@ -1090,7 +1039,7 @@ test "wrapper_thunk: EmitParams + EmitOutput types present" {
 }
 
 test "wrapper_thunk: end-to-end execution — () → (i32, i32, i32) via wrapper" {
-    // D-193 triage (cycle 41): ungated. Body uses comptime arch
+    // D-193 triage: ungated. Body uses comptime arch
     // dispatch (arm64 vs x86_64 emit.zig) so Linux aarch64 / Mac
     // x86_64 / Linux x86_64 SysV all execute the right path. CI
     // matrix only runs Mac aarch64 + Linux x86_64 + Win — the
@@ -1122,7 +1071,7 @@ test "wrapper_thunk: end-to-end execution — () → (i32, i32, i32) via wrapper
     } };
     const slots = [_]u16{ 0, 1, 2 };
     // result_abi=.register_write (default): body uses MEMORY-class
-    // for > 2 results per cycle 2c emit; wrapper bridges the
+    // for > 2 results; wrapper bridges the
     // entry-helper-vs-MEMORY-class boundary.
     const alloc: regalloc.Allocation = .{
         .slots = &slots,
@@ -1176,7 +1125,7 @@ test "wrapper_thunk: end-to-end execution — () → (i32, i32, i32) via wrapper
 }
 
 test "wrapper_thunk: end-to-end execution — () → (i32, i64) via wrapper" {
-    // D-193 triage (cycle 41): ungated. Body uses comptime arch
+    // D-193 triage: ungated. Body uses comptime arch
     // dispatch (arm64 vs x86_64 emit.zig) so Linux aarch64 / Mac
     // x86_64 / Linux x86_64 SysV all execute the right path. CI
     // matrix only runs Mac aarch64 + Linux x86_64 + Win — the
@@ -1551,8 +1500,7 @@ test "wrapper_thunk: emit x86_64 SysV 3-int-result MEMORY-class (11 bytes)" {
     try testing.expectEqualSlices(u8, &.{ 0x31, 0xC0, 0xC3 }, out.bytes[8..11]);
 }
 
-// Reference jit_abi so the import survives `zig build test`
-// even though Phase 2' is the consumer.
+// Reference jit_abi so the import survives `zig build test`.
 comptime {
     _ = jit_abi;
     _ = builtin;

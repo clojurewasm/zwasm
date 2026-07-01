@@ -5,7 +5,7 @@
 //! (tag_idx, payload) into argregs and CALLs the `zwasm_throw`
 //! dispatcher.
 //!
-//! ## Current shape (IT-6 cycle 3c + tag_idx marshal)
+//! ## Current shape (tag_idx marshal)
 //!
 //! Marshals `tag_idx` (= `ins.payload`, u32) into the platform's
 //! first-arg register before MOVABS R10, addr + CALL R10:
@@ -53,7 +53,7 @@ pub const is_safepoint: bool = false;
 pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void {
     const tag_idx: u32 = @intCast(ins.payload);
 
-    // 10.E-payload-prop Cycle 4 (ADR-0120) — mirror of arm64
+    // ADR-0120 — mirror of arm64
     // sibling. Pop N payload values, store each as a 64-bit
     // write at `[R15 + eh_payload_buf_off + i*8]`, then store N
     // (or 0) to `[R15 + eh_payload_len_off]`. See arm64
@@ -97,8 +97,8 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     ctx.dead_code.* = true;
 }
 
-/// Shared emit for `throw` + `throw_ref` (same shape this cycle;
-/// cycle 3c will diverge once exnref handling lands).
+/// Shared emit for `throw` + `throw_ref` (same shape for now;
+/// will diverge once exnref handling lands).
 pub fn emitTrampolineCallAndTrap(ctx: *ctx_mod.EmitCtx, trampoline_addr: u64) ctx_mod.Error!void {
     // MOVABS R10, <trampoline_addr> — 10 bytes.
     try ctx.buf.appendSlice(ctx.allocator, inst.encMovImm64Q(.r10, trampoline_addr).slice());

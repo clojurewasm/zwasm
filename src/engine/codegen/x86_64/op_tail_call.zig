@@ -55,8 +55,8 @@ pub const tail_target_gpr: inst.Gpr = .r11;
 /// same-module tail-call, caller_rt == callee_rt and R15 is
 /// already correct, so we simply `MOV RDI, R15`.
 ///
-/// Cross-module tail-call (ADR-0112 D4 / 10.TC-3f follow-on)
-/// loads callee_rt from the caller's literal pool instead;
+/// Cross-module tail-call (ADR-0112 D4) loads callee_rt from
+/// the caller's literal pool instead;
 /// that path lives in `cross_module_tail_call.zig`.
 pub fn emitLoadCalleeRtSameModule(
     allocator: std.mem.Allocator,

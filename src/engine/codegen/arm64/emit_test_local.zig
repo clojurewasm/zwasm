@@ -7,7 +7,7 @@
 //! smoke probes.
 //!
 //! Zone 2 (`src/engine/codegen/arm64/`). Pure relocation per
-//! ADR-0021 sub-deliverable b chunk 10; bytes / assertions
+//! ADR-0021 sub-deliverable b; bytes / assertions
 //! identical to the pre-split `emit_test.zig`.
 
 const std = @import("std");
@@ -44,7 +44,7 @@ test "compile: empty function (no instrs, empty liveness) emits prologue+epilogu
     const empty_alloc: regalloc.Allocation = .{ .slots = &.{}, .n_slots = 0 };
     // No `end` op in the stream → emit walks zero instrs and
     // returns just the prologue (no epilogue). That's the expected
-    // shape for a malformed body; the §9.7 / 7.4 gate filters such
+    // shape for a malformed body; the gate filters such
     // funcs at validate-time, so emit doesn't enforce well-formedness.
     const out = try compile(testing.allocator, &f, empty_alloc, &.{}, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
     defer deinit(testing.allocator, out);
@@ -111,10 +111,9 @@ test "compile: i32.const 0x12345678 emits MOVZ + MOVK (full 32-bit)" {
 
 test "compile: unsupported op surfaces UnsupportedOp" {
     // The probe needs a ZirOp the enum reserves but no codegen path
-    // implements (hits the emit switch `else => UnsupportedOp`). Relaxed-SIMD
-    // is now being wired (17.4), so the probe uses `memory.discard` — the
-    // Memory Control proposal op, reserved in the ZIR enum with NO
-    // validate/lower/liveness/emit path, deferred well past 17.4 (stable).
+    // implements (hits the emit switch `else => UnsupportedOp`). The probe
+    // uses `memory.discard` — the Memory Control proposal op, reserved in
+    // the ZIR enum with NO validate/lower/liveness/emit path.
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{} };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);
@@ -302,7 +301,7 @@ test "compile: f32.const emits emitConstU32 + FMOV S, W" {
     try testing.expectEqual(@as(u32, 0x1E204200), std.mem.readInt(u32, out.bytes[body0 + 12 ..][0..4], .little));
 }
 
-// §9.7 / 7.9-d-7: AAPCS64 stack-arg lowering on the callee side.
+// AAPCS64 stack-arg lowering on the callee side.
 // Prologue accepts > 7 params by loading the overflow args from
 // `[X29, #(16 + 8*K)]` (K = 0-based NSAA index) into the local
 // slot at `[SP, #(p_idx*8)]`. Caller-side stack-arg marshal

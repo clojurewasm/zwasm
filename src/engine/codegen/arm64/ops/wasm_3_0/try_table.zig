@@ -39,16 +39,16 @@ pub const is_safepoint: bool = false;
 /// Wasm spec 3.0 §3.3.10.6 (try_table) — register one
 /// HandlerEntry per catch clause; emit zero JIT bytes (the inner
 /// block emits via regular dispatch; matching `end` patches
-/// pc_end per IT-2 and matching catch-label `end` patches
-/// landing_pad_pc per IT-6 prep — in the parent emit driver).
+/// pc_end and matching catch-label `end` patches
+/// landing_pad_pc — in the parent emit driver).
 pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void {
     std.debug.assert(ctx.exception_table_builder != null);
     std.debug.assert(ctx.open_try_tables != null);
     std.debug.assert(ctx.landing_pad_fixups != null);
     const builder = ctx.exception_table_builder.?;
 
-    // Phase 10.Z widened ZirInstr.payload to u64; block_idx is the
-    // ZirFunc.blocks index, always in u32 range by construction.
+    // ZirInstr.payload is u64; block_idx is the ZirFunc.blocks
+    // index, always in u32 range by construction.
     const block_idx: u32 = @intCast(ins.payload);
     const landing_pads = ctx.func.eh_landing_pads orelse return error.UnsupportedOp;
     // A catchless try_table (zero catch clauses — e.g. `(try_table (param i32)
@@ -90,7 +90,7 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     // in ins.payload). Hardcoding arity 0 here dropped the try_table's
     // result vreg at the matching `end` truncation (new_len = entry_depth
     // − param_arity + result_arity) → a later consumer (return / br /
-    // outer-block result) marshalled a stale register (10.E miscompile).
+    // outer-block result) marshalled a stale register (miscompile).
     // results/params > 8 would overflow the shared end-merge buffer
     // (= op_control merge_top_vregs_cap); reject as emitBlock does.
     const tt_results: u8 = @intCast(ins.extra & 0xFF);
@@ -111,11 +111,11 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
         try builder.add(ctx.allocator, .{
             .pc_start = pc_start,
             // pc_end placeholder; patched by the matching `end`
-            // op in compile()'s emit loop (IT-2).
+            // op in compile()'s emit loop.
             .pc_end = pc_start + 1,
             .tag_idx = if (is_catch_all) null else ce.tag_idx,
             // landing_pad_pc placeholder; patched by the matching
-            // catch-label's `end` op (IT-6 prep). The raw relative
+            // catch-label's `end` op. The raw relative
             // br-depth `ce.label_idx` lives here pending the patch.
             .landing_pad_pc = ce.label_idx,
             .kind = switch (ce.kind) {
@@ -125,7 +125,7 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
                 .catch_all_ref => .catch_all_ref,
             },
         });
-        // IT-6 prep — register the per-catch forward fixup keyed
+        // register the per-catch forward fixup keyed
         // by the target label's depth. With label_idx resolved
         // against the OUTER context (labels_depth_outer), the
         // target lives at `labels_depth_outer - ce.label_idx`. The

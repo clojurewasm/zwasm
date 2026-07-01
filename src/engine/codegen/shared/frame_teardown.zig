@@ -14,9 +14,9 @@
 //! allocator / host-call / signal-check between teardown
 //! start and the caller's trailing branch) reads in one place.
 //!
-//! Consumed by `engine/codegen/<arch>/op_tail_call.zig`
-//! (10.TC-3d follow-on) which emits the args marshalling, the
-//! callee target load, this teardown, and finally the BR X16 /
+//! Consumed by `engine/codegen/<arch>/op_tail_call.zig`, which
+//! emits the args marshalling, the callee target load, this
+//! teardown, and finally the BR X16 /
 //! JMP R11 branch — in that order.
 //!
 //! Zone 2 (`src/engine/codegen/shared/`) — may import both

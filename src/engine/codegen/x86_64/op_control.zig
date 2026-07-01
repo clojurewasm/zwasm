@@ -85,10 +85,10 @@ fn restoreCalleeSavedHomes(
     }
 }
 
-/// §9.12-B / B65 (ADR-0075) — `(ctx, ins)` adapters for the
+/// `(ctx, ins)` adapters for the
 /// control-structure cohort (`block`, `loop`). Two distinct
 /// adapters (different signatures — loop takes `buf` for the
-/// back-edge target). Decomposes per-op at the B6x+1 cutover.
+/// back-edge target).
 pub fn emitBlockCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     return emitBlock(
         ctx.allocator,
@@ -326,11 +326,11 @@ fn captureOrEmitBlockMergeMov(
     return true;
 }
 
-/// 10.R D-194 Path B (cycle 58) — ctx-shape wrapper around the
+/// D-194 Path B — ctx-shape wrapper around the
 /// private `captureOrEmitBlockMergeMov` helper above, so the new
 /// `ops/wasm_3_0/` per-op handlers (`br_on_null`, `br_on_non_null`)
 /// can re-use the existing block-merge mechanism without requiring
-/// the full `emitBrIf` migration to `(ctx, ins)` shape. Mirror of
+/// the full `emitBrIf` conversion to `(ctx, ins)` shape. Mirror of
 /// `arm64/op_control_merge_mov.zig::captureOrEmitBlockMergeMov`'s
 /// public surface.
 pub fn captureOrEmitBlockMergeMovCtx(ctx: *ctx_mod.EmitCtx, tgt_idx: usize) Error!bool {
@@ -464,7 +464,7 @@ fn emitBackEdgeInterruptPoll(
 /// and append a `Fixup` for the matching `end` to patch. When
 /// `depth == labels.items.len` the branch targets the implicit
 /// function-level block (= `return`); marshal the function's
-/// result and emit the inline epilogue (§9.7 / 7.10-h mirror of
+/// result and emit the inline epilogue (mirror of
 /// `arm64/op_control.zig:emitBr`'s function-depth path).
 ///
 /// Per the existing `return` handler in `emit.zig`, x86_64 inlines
@@ -565,7 +565,7 @@ pub fn marshalReturnRegs(
     // int/f32/f64 (the large-sig fixture) but v128 multi-result
     // remains UnsupportedOp.
     //
-    // ADR-0106 path (a) cycle 2c — the buffer-write ABI uses the
+    // ADR-0106 path (a) — the buffer-write ABI uses the
     // SAME shape (load captured ptr to RAX, write `[RAX + i*8]`),
     // just sourced from the buffer-write `results` arg (RSI/RDX)
     // instead of the MEMORY-class hidden `&result_buf` (RDI).
@@ -616,8 +616,8 @@ pub fn marshalReturnRegs(
     // R1/R2 fix (2026-05-23): JIT-internal convention writes
     // result 0 → RAX, result 1 → RDX on BOTH SysV and Win64 for
     // 2-int register-class returns. The Win64 wrapper thunk
-    // (ADR-0106 Phase 2'i, `shared/wrapper_thunk.zig::
-    // emitX8664Win64` 2-int case) reads RDX after the CALL —
+    // (ADR-0106, `shared/wrapper_thunk.zig::emitX8664Win64`
+    // 2-int case) reads RDX after the CALL —
     // body must write it. Pre-R1/R2 cap=1 left RDX as garbage,
     // surfacing as `br: as-return-values` second-i64 wrong.
     // Same for XMM cohort: body writes XMM0+XMM1, wrapper
@@ -849,7 +849,7 @@ pub fn emitBrTable(
 
     var i: u32 = 0;
     while (i < count) : (i += 1) {
-        // §9.9 / 9.9-l-1b-d093-d45 (D-118): per-case CMP. Cases
+        // D-118: per-case CMP. Cases
         // i ≤ 127 fit `CMP r32, imm8`; for the wider range
         // (Wasm spec §3.4.5 br_table has no upper bound — br_table.
         // wast `large` declares 16149 targets), use `CMP r32, imm32`
@@ -895,7 +895,7 @@ pub fn emitBrTable(
 /// the implicit function-level block (= conditional return); use
 /// a JE-skip + inline marshal + epilogue + RET sequence so the
 /// fall-through path lands on the next instruction (= cond was 0,
-/// don't return). §9.7 / 7.10-h mirror of arm64's CBZ-skip path.
+/// don't return). Mirror of arm64's CBZ-skip path.
 pub fn emitBrIf(
     allocator: Allocator,
     buf: *std.ArrayList(u8),
@@ -1143,7 +1143,7 @@ pub fn emitElse(
     }
     // Patch the matching `if`'s skip-Jcc — but only if the
     // if_then frame had one. Dead-code-pushed placeholder frames
-    // (mirror of arm64 §9.7/7.5-deadcode-labels-bookkeeping)
+    // (mirror of arm64)
     // carry `if_skip_byte = null` to mark "no Jcc to patch";
     // the if itself emitted no bytes in dead code.
     if (lbl.if_skip_byte) |skip_at| {
@@ -1276,7 +1276,7 @@ pub fn emitEndIntra(
             // is independent because vregs are unique under
             // fresh-vreg-per-op regalloc.
             //
-            // §9.9 / 9.9-h-7 (D-080 discharge): dispatch on
+            // (D-080 discharge): dispatch on
             // `alloc.shapeTag(merge_vreg)` so v128 merge results
             // take the XMM/MOVAPS path instead of the 32-bit GPR
             // MOV that previously truncated v128 to 32 bits.
@@ -1362,14 +1362,14 @@ pub fn emitEndIntra(
     }
 }
 
-/// §9.12-B / B72 (ADR-0075) — `(ctx, ins)` adapter for `nop`.
+/// `(ctx, ins)` adapter for `nop`.
 /// Wasm spec §4.4.6.2 — emits no machine bytes; no stack change.
 pub fn emitNopCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ctx;
     _ = ins;
 }
 
-/// §9.12-B / B73 (ADR-0075) — `(ctx, ins)` adapter for
+/// `(ctx, ins)` adapter for
 /// `unreachable`. Emits a 5-byte JMP rel32 placeholder targeting
 /// the function-end trap stub (which sets trap_flag, clears EAX,
 /// runs epilogue, RETs). Fixup byte offset recorded in
@@ -1386,7 +1386,7 @@ pub fn emitUnreachableCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error
     ctx.dead_code.* = true;
 }
 
-/// §9.12-B / B76 (ADR-0075) — `(ctx, ins)` adapters for `if` +
+/// `(ctx, ins)` adapters for `if` +
 /// `else` ops. All ctx fields already present (labels +
 /// pushed_vregs + spill_base_off); no ctx extension needed.
 pub fn emitIfCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
@@ -1411,7 +1411,7 @@ pub fn emitElseCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     );
 }
 
-/// §9.12-B / B77 (ADR-0075) — `(ctx, ins)` adapter for `end`.
+/// `(ctx, ins)` adapter for `end`.
 /// Two forms (mirrors emit.zig's prior inline body):
 ///   (A) Intra-function (`labels.len > 0`): label pop + fixup patch.
 ///   (B) Function-level (`labels.len == 0`): marshalReturnRegs +
@@ -1443,7 +1443,7 @@ pub fn emitEndCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     return emitEndInter(ctx);
 }
 
-/// §9.12-B / B77 — function-level `end` form. Extracted from
+/// Function-level `end` form. Extracted from
 /// emit.zig's prior inline body. Emits the multi-result marshal
 /// + epilogue + RET, then the trap stub block (when any
 /// `bounds_fixups` / `unreach_fixups` are pending), then the
@@ -1509,7 +1509,7 @@ fn emitEndInter(ctx: *ctx_mod.EmitCtx) Error!void {
         ctx.return_is_memory_class,
         ctx.indirect_result_slot_neg_off,
     );
-    // ADR-0106 path (a) cycle 2c — buffer-write ABI returns the
+    // ADR-0106 path (a) — buffer-write ABI returns the
     // trap-status ErrCode (= 0 on OK) in EAX. marshalReturnRegs
     // for buffer_write writes results to `[results_ptr + i*8]`
     // and leaves RAX with the buffer-ptr value (from the MEMORY-
@@ -1688,7 +1688,7 @@ fn emitEndInter(ctx: *ctx_mod.EmitCtx) Error!void {
     // was emitted, = uses_runtime_ptr was true).
     if (ctx.stack_probe_fixup != 0) {
         const stub_byte: u32 = @intCast(ctx.buf.items.len);
-        // D-165 cycle 4 — INC DWORD PTR [R15 + trap_stub_entry_count_off].
+        // D-165 — INC DWORD PTR [R15 + trap_stub_entry_count_off].
         // Encoding: REX.B (0x41) + FF /0 (ModR/M reg=0) + mod=10 r/m=111
         // (R15 base) + disp32. Total 7 bytes. Permanent runtime
         // diagnostic for the Win64 fac-rec hang: count > 0 + flag=0
@@ -1768,9 +1768,9 @@ fn emitEndInter(ctx: *ctx_mod.EmitCtx) Error!void {
     }
 }
 
-/// §9.12-B / B75 (ADR-0075) — `(ctx, ins)` adapters for the
+/// `(ctx, ins)` adapters for the
 /// br family (`br`, `br_if`, `br_table`). All ctx fields already
-/// exist post-B74. `br` sets `ctx.dead_code = true` (mirrors
+/// exist. `br` sets `ctx.dead_code = true` (mirrors
 /// emit.zig); br_if / br_table fall through and DO NOT set
 /// dead_code.
 pub fn emitBrCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
@@ -1861,7 +1861,7 @@ pub fn emitBrTableCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!voi
     );
 }
 
-/// §9.12-B / B74 (ADR-0075) — `(ctx, ins)` adapter for `return`.
+/// `(ctx, ins)` adapter for `return`.
 /// Inlines the same marshal + epilogue + RET sequence as the
 /// function-level `end` form (multiple physical RETs are
 /// harmless on x86_64; subsequent dead bytes are unreachable at
@@ -1894,7 +1894,7 @@ pub fn emitReturnCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void
     ctx.dead_code.* = true;
 }
 
-/// §9.12-B / B69 (ADR-0075) — `(ctx, ins)` adapter for `drop`.
+/// `(ctx, ins)` adapter for `drop`.
 /// Pops the top operand without emitting any machine bytes;
 /// only the operand-stack tracker advances. Extracted from
 /// emit.zig's prior inline body.

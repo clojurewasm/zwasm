@@ -6,15 +6,11 @@
 //! need so the per-arch dispatcher signature in
 //! `src/engine/codegen/dispatch_collector.zig::ArchAxis = .x86_64`
 //! can collapse from the current positional 7-arg form to the
-//! 2-arg `(ctx: *EmitCtx, ins: *const ZirInstr)` form once B54+
-//! migrate handlers one cohort at a time.
+//! 2-arg `(ctx: *EmitCtx, ins: *const ZirInstr)` form.
 //!
-//! B53 (§9.12-B): introduce the struct + initialise at the top of
-//! `emit.zig::compile()`. NO per-op handler signature change yet —
-//! existing positional calls keep working; the struct is the
-//! substrate for the upcoming migration. `Error`, `CallFixup`,
-//! `SimdConstFixup` continue to live in `types.zig` to avoid
-//! breaking external re-exports from `emit.zig`.
+//! The struct is initialised at the top of `emit.zig::compile()`.
+//! `Error`, `CallFixup`, `SimdConstFixup` continue to live in
+//! `types.zig` to avoid breaking external re-exports from `emit.zig`.
 //!
 //! Zone 2 (`src/engine/codegen/x86_64/`).
 
@@ -93,17 +89,17 @@ pub const InitArgs = struct {
     fuel_fixup: u32,
     /// ADR-0111 D4 — see EmitCtx field of the same name.
     memory0_idx_type: sections.MemoryEntry.IdxType = .i32,
-    /// EH integration IT-1 — see EmitCtx field of the same name.
+    /// EH integration — see EmitCtx field of the same name.
     /// Defaults to `null`; populated by `compile()` only when the
     /// function contains a `try_table` op.
     exception_table_builder: ?*exception_table.Builder = null,
-    /// EH integration IT-2 — see EmitCtx field of the same name.
+    /// EH integration — see EmitCtx field of the same name.
     /// Non-null iff `exception_table_builder` is non-null.
     open_try_tables: ?*std.ArrayList(exception_table.OpenTryTable) = null,
-    /// EH integration IT-6 prep — see EmitCtx field of the same
+    /// EH integration — see EmitCtx field of the same
     /// name. Non-null iff `exception_table_builder` is non-null.
     landing_pad_fixups: ?*std.ArrayList(exception_table.LandingPadFixup) = null,
-    /// Phase 10.E-payload-prop Cycle 3 (ADR-0120) — see EmitCtx
+    /// ADR-0120 — see EmitCtx
     /// field of the same name. Default-empty preserves existing
     /// InitArgs construction sites.
     tag_param_counts: []const u32 = &.{},
@@ -120,11 +116,10 @@ pub const InitArgs = struct {
 };
 
 /// Per-function emit context for x86_64. Threaded as `*EmitCtx`
-/// to per-op handler modules once B54+ migrate them to the
-/// `(ctx, ins)` signature. All mutable fields are pointers into
-/// `compile()`'s local state so the legacy positional-arg
-/// handlers and the new ctx-shape handlers can coexist during
-/// migration.
+/// to per-op handler modules with the `(ctx, ins)` signature. All
+/// mutable fields are pointers into `compile()`'s local state so
+/// the legacy positional-arg handlers and the new ctx-shape
+/// handlers can coexist.
 pub const EmitCtx = struct {
     allocator: Allocator,
     /// Output instruction stream. Handlers append bytes via the
@@ -239,7 +234,7 @@ pub const EmitCtx = struct {
     /// `gpr.zig`'s `rbpDispNegI8` consumes it as `disp =
     /// -(spill_base_off + spill_off)`.
     spill_base_off: u32,
-    /// §9.7 / 7.10-f outgoing-args region pre-allocated at the
+    /// Outgoing-args region pre-allocated at the
     /// BOTTOM of the frame. For SysV: pure overflow bytes; for
     /// Win64: includes the 32-byte shadow space when any call
     /// exists. Consumed by `op_call.emitCall` to decide whether
@@ -247,7 +242,7 @@ pub const EmitCtx = struct {
     outgoing_max_bytes: u32,
     /// True iff this function's return tuple is MEMORY-class per
     /// SysV §3.2.3 (v2 trigger: `sig.results.len > 2` under SysV;
-    /// Win64 MEMORY-class deferred to §9.13-0).
+    /// Win64 MEMORY-class deferred).
     return_is_memory_class: bool,
     /// RBP-negative byte offset (= absolute value) of the
     /// captured-RDI slot when `return_is_memory_class` is true;
@@ -260,7 +255,7 @@ pub const EmitCtx = struct {
     /// switch between host-import dispatch and a normal
     /// `CALL rel32 + CallFixup`.
     num_imports: u32,
-    /// 10.E-codegen-4b: per-function EH handler-entry accumulator.
+    /// Per-function EH handler-entry accumulator.
     /// `op_exception_handling.try_table` appends one `HandlerEntry`
     /// per catch clause (per ADR-0114 D2); the post-emit linker
     /// finalises into the per-Instance ExceptionTable consumed by
@@ -268,11 +263,11 @@ pub const EmitCtx = struct {
     /// contain no try_table (back-compat for every existing
     /// EmitCtx construction site).
     exception_table_builder: ?*exception_table.Builder = null,
-    /// 10.E-codegen IT-2: see arm64/ctx.zig field of the same name.
+    /// See arm64/ctx.zig field of the same name.
     open_try_tables: ?*std.ArrayList(exception_table.OpenTryTable) = null,
-    /// 10.E-codegen IT-6 prep: see arm64/ctx.zig field.
+    /// See arm64/ctx.zig field.
     landing_pad_fixups: ?*std.ArrayList(exception_table.LandingPadFixup) = null,
-    /// Per-defined-global metadata (ADR-0052; §9.9 / 9.9-h-2).
+    /// Per-defined-global metadata (ADR-0052).
     /// Indexed by **defined** global idx (= wasm-space global
     /// idx minus the leading imported-global count). Parallel
     /// arrays: `globals_offsets[i]` is the byte offset of
@@ -284,23 +279,23 @@ pub const EmitCtx = struct {
     /// Cached `func.func_idx`. Consumed by trace.writeBounds /
     /// trace.writeCallTrap and the per-arch trap-stub epilogue.
     func_idx: u32,
-    /// §9.12-B / B73: pointer to compile()'s dead_code local.
+    /// Pointer to compile()'s dead_code local.
     /// Set true by `unreachable` (and select arm) to skip
     /// emitting until the next control-flow boundary resets it.
     dead_code: *bool,
-    /// §9.12-B / B74: per-function frame size in bytes (set once
+    /// Per-function frame size in bytes (set once
     /// at function entry; consumed by return + br family for
     /// `ADD RSP, frame_bytes` in the epilogue).
     frame_bytes: u32,
-    /// §9.12-B / B74: whether the function reserves R15 for the
+    /// Whether the function reserves R15 for the
     /// runtime_ptr_save (set once at function entry; consumed by
     /// the epilogue to decide POP R15).
     uses_runtime_ptr: bool,
-    /// §9.12-B / B78: total local count (= num_params +
+    /// Total local count (= num_params +
     /// num_declared_locals). Set once at function entry;
     /// consumed by emitLocalGet/Set/Tee for the bound check.
     total_locals: u32,
-    /// §9.12-B / B78: per-local RBP-relative disps. Set once at
+    /// Per-local RBP-relative disps. Set once at
     /// function entry from `layout.disps`; consumed by
     /// emitLocalGet/Set/Tee.
     local_disps: []const i32,
@@ -326,7 +321,7 @@ pub const EmitCtx = struct {
     /// branches on it at emitMemOp's entry. Default `.i32` keeps
     /// existing init args ergonomic.
     memory0_idx_type: sections.MemoryEntry.IdxType = .i32,
-    /// Phase 10.E-payload-prop Cycle 3 (ADR-0120) — per-tag param
+    /// ADR-0120 — per-tag param
     /// count threaded from `CompiledWasm.tag_param_counts` for
     /// `throw.emit` / `try_table.emit` payload-marshalling.
     /// Default-empty preserves existing EmitCtx construction sites.
@@ -422,7 +417,7 @@ pub const EmitCtx = struct {
     }
 
     /// Pop two operands + allocate a result vreg. Shared header
-    /// for every binary op-handler post-migration.
+    /// for every binary op-handler.
     pub fn popBinary(self: *EmitCtx) Error!struct { lhs: u32, rhs: u32, result: u32 } {
         if (self.pushed_vregs.items.len < 2) return Error.AllocationMissing;
         const rhs = self.pushed_vregs.pop().?;

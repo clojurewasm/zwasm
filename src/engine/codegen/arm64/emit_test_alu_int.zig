@@ -5,7 +5,7 @@
 //! and the AllocationMissing stack-underflow probe on i32.add.
 //!
 //! Zone 2 (`src/engine/codegen/arm64/`). Pure relocation per
-//! ADR-0021 sub-deliverable b chunk 10; bytes / assertions
+//! ADR-0021 sub-deliverable b; bytes / assertions
 //! identical to the pre-split `emit_test.zig`.
 
 const std = @import("std");
@@ -481,10 +481,9 @@ test "compile: i32.eqz emits CMP-imm-0 + CSET EQ" {
 test "compile: select_typed i64 (extra=0x7E) emits CSEL Xd, not Wd (§9.9 / 9.9-m-4a)" {
     // Wasm spec §3.3.2.2 / §4.4.4 — select_typed with type=i64
     // requires 64-bit conditional move so the high 32 bits aren't
-    // truncated. Pre-9.9-m-4a, both .select and .select_typed
-    // fell through to CSEL Wd unconditionally, silently
-    // miscompiling i64 select to a 32-bit operation. This test
-    // gates the X-form CSEL on the i64 path.
+    // truncated (a W-form CSEL would silently miscompile i64 select
+    // to a 32-bit operation). This test gates the X-form CSEL on the
+    // i64 path.
     const sig: zir.FuncType = .{ .params = &.{}, .results = &.{.i64} };
     var f = ZirFunc.init(0, sig, &.{});
     defer f.deinit(testing.allocator);

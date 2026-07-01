@@ -5,7 +5,7 @@
 //!
 //! Unlike `ref.cast` (straight-line), the null-passes semantics needs an
 //! INLINE null-skip branch: `CBZ ref, .done` jumps over the cast check so a
-//! null operand is NOT trapped. On the non-null path it reuses the R-2
+//! null operand is NOT trapped. On the non-null path it reuses the
 //! `jitGcRefCast(rt, ref, ht)` trampoline (returns ref / 0=trap-on-mismatch)
 //! and captures the matched ref from X0 AFTER the CALL (a register-allocated
 //! result reg would be clobbered by the CALL otherwise — that is why the

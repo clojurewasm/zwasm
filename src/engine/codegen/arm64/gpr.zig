@@ -1,8 +1,8 @@
 //! ARM64 emit pass — GPR / FPR resolution + spill staging
 //! helpers shared across every op-handler module.
 //!
-//! Per ADR-0023 §3 + ADR-0021 sub-deliverable b (§9.7 / 7.5d
-//! sub-b emit.zig 9-module split): extracted from emit.zig so
+//! Per ADR-0023 §3 + ADR-0021 sub-deliverable b (emit.zig
+//! 9-module split): extracted from emit.zig so
 //! op_const / op_alu / op_memory / etc. can reach for these
 //! helpers without circular imports back to emit.zig. The
 //! helpers themselves are unchanged from their pre-split shape.
@@ -145,11 +145,11 @@ pub fn frameStrFp(allocator: Allocator, buf: *std.ArrayList(u8), vs: inst.Vn, of
 
 /// Resolve a vreg's home register (GPR class). Returns the
 /// allocated reg or `Error.UnsupportedOp` for spilled vregs
-/// (handlers that haven't been migrated to spill-aware emission).
+/// (handlers that use non-spill-aware emission).
 pub fn resolveGpr(alloc: regalloc.Allocation, vreg: usize) Error!inst.Xn {
     return switch (alloc.slot(vreg, .gpr)) {
         .reg => |id| abi.slotToReg(id) orelse blk: {
-            // §9.7 / 7.9-d-12 diag: slot id beyond pool. Surfaces
+            // Diag: slot id beyond pool. Surfaces
             // when `max_reg_slots_gpr` exceeds `slotToReg.len`
             // (config drift) or when class disagreement assigns a
             // GPR-bound id that's too high for the GPR pool.
@@ -157,8 +157,8 @@ pub fn resolveGpr(alloc: regalloc.Allocation, vreg: usize) Error!inst.Xn {
             break :blk Error.SlotOverflow;
         },
         .spill => blk: {
-            // §9.7 / 7.5-diag-spill: surface which vreg / spill
-            // slot triggered the reject so the next chunk can
+            // Diag: surface which vreg / spill
+            // slot triggered the reject so a follow-up can
             // narrow scope (spill-aware handler vs pool extension).
             dbg.print(
                 "codegen",
@@ -272,10 +272,9 @@ pub fn gprStoreSpilled(
 /// `abi.allocatable_v_regs.len`) decides reg-vs-spill, distinct
 /// from the GPR boundary. Slot ids 0..12 resolve to V16..V28 via
 /// `fpSlotToReg`; ids ≥ 13 surface as `.spill` and reject here
-/// (handlers that have not yet been migrated to FP-spill-aware
+/// (handlers that use non-FP-spill-aware
 /// emission via `fpLoadSpilled` / `fpDefSpilled` /
-/// `fpStoreSpilled`). The chunk-q `alloc.slots[]` band-aid
-/// remains eliminated.
+/// `fpStoreSpilled`).
 pub fn resolveFp(alloc: regalloc.Allocation, vreg: usize) Error!inst.Vn {
     return switch (alloc.slot(vreg, .fpr)) {
         .reg => |id| abi.fpSlotToReg(id) orelse blk: {
@@ -533,7 +532,7 @@ test "fpDefSpilled: in-V-reg vreg returns the V-reg; spilled returns stage" {
 }
 
 // ============================================================
-// §9.9 / 9.5-c — Q-form (v128, 16-byte) spill helpers tests
+// Q-form (v128, 16-byte) spill helpers tests
 // ============================================================
 
 test "qLoadSpilled: vreg in V-reg returns it directly without emitting bytes" {

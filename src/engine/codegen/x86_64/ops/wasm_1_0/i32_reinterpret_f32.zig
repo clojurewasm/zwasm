@@ -1,6 +1,5 @@
 //! x86_64 emit handler for `i32.reinterpret_f32` — Zone 2
-//! per-arch op file per ADR-0074 + ADR-0075 (B59 cohort migration
-//! to `(ctx, ins)`).
+//! per-arch op file per ADR-0074 + ADR-0075.
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/i32_reinterpret_f32.zig`.
 //! Delegates to `op_convert.emitI32ReinterpretF32` (primary of the
@@ -10,8 +9,7 @@
 //! Wasm spec §4.3 (i32.reinterpret_f32) — bit-cast f32→i32.
 //! Intel SDM Vol 2A `MOVD r32, xmm`.
 //!
-//! Registered in `dispatch_collector.collected_x86_64_ctx_ops`;
-//! moved out of `collected_x86_64_ops` at B59 (was B28 7-arg stub).
+//! Registered in `dispatch_collector.collected_x86_64_ctx_ops`.
 //!
 //! Zone 2 (`src/engine/codegen/x86_64/ops/`).
 

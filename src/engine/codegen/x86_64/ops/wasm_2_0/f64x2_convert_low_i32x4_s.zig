@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `f64x2.convert.low.i32x4.s` — B107 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `f64x2.convert.low.i32x4.s`.
 //! Delegates to op_simd_float.emitF64x2ConvertLowI32x4SCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/f64x2_convert_low_i32x4_s.zig");

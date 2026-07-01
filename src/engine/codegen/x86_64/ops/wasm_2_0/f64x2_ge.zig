@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `f64x2.ge` — B103 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `f64x2.ge`.
 //! Delegates to op_simd_float.emitF64x2GeCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/f64x2_ge.zig");

@@ -1,5 +1,5 @@
 //! x86_64 emit pass — `table.get` / `table.set` / `table.size`
-//! handlers (§9.9 / 9.9-m-2a per ADR-0058).
+//! handlers (per ADR-0058).
 //!
 //! Mirror of `arm64/op_table.zig`. The JIT body reads the
 //! per-table `TableSlice` descriptor from `[R15 + tables_ptr_off]`,
@@ -50,11 +50,11 @@ const op_call = @import("op_call.zig");
 const emitShadowAlloc = op_call.emitShadowAlloc;
 const emitShadowFree = op_call.emitShadowFree;
 
-/// §9.12-B / B63 (ADR-0075) — `(ctx, ins)` adapters for the
+/// `(ctx, ins)` adapters for the
 /// table ops cohort (7 ops). Seven distinct adapters
 /// (heterogeneous signatures — most take func_idx+tableidx;
 /// table.copy/init use both `ins.payload` (dst) + `ins.extra`
-/// (src)). Decomposes per-op at the B6x+1 cutover.
+/// (src)).
 pub fn emitTableGetCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     return emitTableGet(
         ctx.allocator,
@@ -371,7 +371,7 @@ pub fn emitTableSize(
 
 /// Wasm spec §4.4.13 (table.grow x) — pop n:i32, init:reftype;
 /// push i32 (previous size on success, -1 on failure). Per
-/// §9.9 / 9.9-l-1b-d093-d48 (D-122/D-125 mirror of ADR-0059):
+/// D-122/D-125 (mirror of ADR-0059):
 /// indirect call through `JitRuntime.table_grow_fn`.
 ///
 /// SysV C-ABI args: RDI = rt, ESI = tableidx, RDX = init (8-byte

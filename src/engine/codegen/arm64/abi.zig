@@ -1,10 +1,10 @@
-//! AAPCS64 calling-convention tables (§9.7 / 7.2 chunk b).
+//! AAPCS64 calling-convention tables.
 //!
-//! Declares the AArch64 register inventory the §9.7 / 7.3 emit
+//! Declares the AArch64 register inventory the emit
 //! pass consults: which X-registers carry function arguments,
 //! which are caller-saved vs callee-saved, the link / frame /
 //! stack pointer slots, and a `slotToReg` mapper translating a
-//! regalloc slot id (from §9.7 / 7.1) into a concrete `Xn`.
+//! regalloc slot id into a concrete `Xn`.
 //!
 //! Per AAPCS64 (Arm IHI 0055 — Procedure Call Standard for the
 //! Arm 64-bit Architecture):
@@ -19,10 +19,9 @@
 //!   X30 (LR)    link register
 //!   X31         SP / XZR (depends on opcode)
 //!
-//! Phase 7.2 chunk-b scope: declarative tables only + the
-//! `slotToReg` mapper. Real spill-slot allocation lives in
-//! §9.7 / 7.1's regalloc; this module only translates "slot N
-//! of the GPR class" into "Xn".
+//! Declarative tables only + the `slotToReg` mapper. Real
+//! spill-slot allocation lives in the regalloc; this module
+//! only translates "slot N of the GPR class" into "Xn".
 //!
 //! Zone 2 (`src/jit_arm64/`).
 
@@ -43,7 +42,7 @@ pub const indirect_result_gpr: Xn = 8;
 
 /// Caller-saved (volatile) GPRs other than args. AAPCS64
 /// classifies X9..X15 as caller-clobberable temporaries; the
-/// §9.7 / 7.3 emit pass uses these as scratch between calls.
+/// emit pass uses these as scratch between calls.
 /// (X0..X7 are caller-saved too but conceptually serve as args/
 /// returns rather than scratch.)
 pub const caller_saved_scratch_gprs = [_]Xn{ 9, 10, 11, 12, 13, 14, 15 };
@@ -55,7 +54,7 @@ pub const caller_saved_scratch_gprs = [_]Xn{ 9, 10, 11, 12, 13, 14, 15 };
 /// support binary ops where both operands are spilled.
 ///
 /// Excluded from `allocatable_gprs` by construction. X16/X17
-/// (IP0/IP1) cannot serve this role because §9.7 / 7.3 sub-g3c
+/// (IP0/IP1) cannot serve this role because the emit pass
 /// already uses them mid-op for call_indirect's idx/typeidx
 /// pipeline; using them for spill staging would clobber
 /// in-flight values.
@@ -67,7 +66,7 @@ pub const spill_stage_gprs = [_]Xn{ 14, 15 };
 pub const allocatable_caller_saved_scratch_gprs = [_]Xn{ 9, 10, 11, 12, 13 };
 
 /// Named scratch pool for table.* / memory.* emit handlers
-/// (D-132 / D-133 sweep per ADR-0072 + master plan §9.12-C).
+/// (D-132 / D-133 sweep per ADR-0072).
 /// These registers MUST be disjoint from `allocatable_*_gprs`
 /// because table/memory emit runs inline within an op handler
 /// (no separate save/restore boundary) and the regalloc must
@@ -200,8 +199,8 @@ comptime {
 /// Translate a regalloc slot id (from `jit/regalloc.compute`)
 /// into a concrete X-register via the allocatable pool.
 /// Returns null when the slot id exceeds the pool size — the
-/// §9.7 / 7.3 emit pass treats that as a cue to spill (Phase-7
-/// follow-up; today we error rather than silently drop).
+/// emit pass treats that as a cue to spill (today we error
+/// rather than silently drop).
 pub fn slotToReg(slot_id: u16) ?Xn {
     if (slot_id >= allocatable_gprs.len) return null;
     return allocatable_gprs[slot_id];
@@ -212,7 +211,7 @@ pub fn slotToReg(slot_id: u16) ?Xn {
 /// spill staging). V31 is reserved for popcnt's V-register
 /// pipeline. V0..V7 are arg/return; V8..V15 callee-saved (skipped
 /// to avoid prologue cost). `fpSlotToReg` is the float-class
-/// counterpart of `slotToReg` — the §9.7 / 7.3 sub-d3 f32/f64
+/// counterpart of `slotToReg` — the f32/f64
 /// handlers use it.
 ///
 /// **Mixing caveat**: a vreg's slot id is per-class via
@@ -220,8 +219,8 @@ pub fn slotToReg(slot_id: u16) ?Xn {
 /// Within a single function's live ranges, a slot id used by a
 /// GPR vreg and a slot id used by a V-vreg map to *different*
 /// physical registers (X9 vs V16 for slot 0). The regalloc itself
-/// stays class-blind; class-aware allocation is a Phase 8
-/// follow-up (D-036 §"option (b)").
+/// stays class-blind; class-aware allocation is a follow-up
+/// (D-036 §"option (b)").
 pub const allocatable_v_regs = [_]Xn{
     16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28,
 };
@@ -247,12 +246,12 @@ pub fn fpSlotToReg(slot_id: u16) ?Xn {
 // ============================================================
 
 /// Slot ids that the 5 D-133 bulk handlers clobber as op-internal
-/// scratch. The B119 live-scratch census
+/// scratch. The live-scratch census
 /// (.dev/lessons/2026-05-20-d133-sweep-pool-size-insufficient.md)
 /// shows table.fill / table.copy / table.init / memory.init hold
 /// ≥ 4 simultaneously-live scratches across X9..X13 in their loop
 /// bodies. Reserving the full {0..4} set is the conservative
-/// formulation validated by the B121 spike — per-handler tightening
+/// formulation validated by the spike — per-handler tightening
 /// is a future optimisation if profile shows spill pressure
 /// regression. memory.copy / memory.fill are not in the bulk
 /// cohort (they touch only X11/X12 transiently and the d-64
@@ -267,13 +266,13 @@ const zir_op_count = @typeInfo(zir.ZirOp).@"enum".fields.len;
 /// regalloc slot ids that the op's emit handler will clobber
 /// internally during code generation. Empty slice = no
 /// reservation (default for every op). When the regalloc walker
-/// is wired (B125), it queries this table via
+/// is wired, it queries this table via
 /// `opScratchReservation` and forbids live-vreg overlap on the
 /// listed slot ids across the op's PC range.
 ///
 /// Comptime block below asserts every reservation references
 /// only allocatable slot ids (else the reservation is a no-op
-/// declaration; B124 lifts this to the canonical
+/// declaration; enforced by the canonical
 /// `validateRegallocOpScratchReservation` check).
 pub const op_scratch_reservation_table: [zir_op_count][]const u16 = blk: {
     var t: [zir_op_count][]const u16 = .{&.{}} ** zir_op_count;
@@ -284,7 +283,7 @@ pub const op_scratch_reservation_table: [zir_op_count][]const u16 = blk: {
     break :blk t;
 };
 
-// Comptime validation (ADR-0077 / B124). Delegates to the shared
+// Comptime validation (ADR-0077). Delegates to the shared
 // regalloc validator so the arm64 + future x86_64 tables stay in
 // lockstep on what counts as a well-formed reservation.
 comptime {
@@ -296,8 +295,7 @@ comptime {
 
 /// `shared/regalloc.zig::ScratchReservationFn` compatible accessor.
 /// Pass `&opScratchReservation` as the 4th argument of
-/// `computeWith` to enable the arm64 fence (B125 wires
-/// `compile.zig`).
+/// `computeWith` to enable the arm64 fence.
 pub fn opScratchReservation(op: zir.ZirOp) []const u16 {
     const idx = @intFromEnum(op);
     if (idx >= zir_op_count) return &.{};

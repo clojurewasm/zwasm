@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `ref.is_null` — B107 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `ref.is_null`.
 //! Delegates to op_alu_int.emitI64EqzCtx (same body as i64.eqz).
 
 const meta = @import("../../../../../instruction/wasm_1_0/ref_is_null.zig");

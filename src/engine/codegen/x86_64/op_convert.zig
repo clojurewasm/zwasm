@@ -846,14 +846,13 @@ pub fn emitFpTruncTrapUnsigned(
     try pushed_vregs.append(allocator, result_v);
 }
 
-/// §9.12-B / B56 (ADR-0075) — `(ctx, ins)` adapters for the Wasm
+/// `(ctx, ins)` adapters for the Wasm
 /// 1.0 trapping trunc cohort. Unpack `ctx.*` fields into the
 /// existing 8-arg `emitFpTruncTrapSigned` / `emitFpTruncTrapUnsigned`
 /// positional impls, which dispatch on `ins.op` internally. All
 /// four variants per family share the same body — per-op aliases
 /// preserve the per-op-file shape required by the dispatch-collector
 /// contract (each per-op file's `emit` fn names a distinct symbol).
-/// The legacy positional impls decompose per-op at the B6x+1 cutover.
 pub fn emitI32TruncF32S(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     return emitFpTruncTrapSigned(
         ctx.allocator,
@@ -888,13 +887,13 @@ pub const emitI32TruncF64U = emitI32TruncF32U;
 pub const emitI64TruncF32U = emitI32TruncF32U;
 pub const emitI64TruncF64U = emitI32TruncF32U;
 
-/// §9.12-B / B57 (ADR-0075) — `(ctx, ins)` adapters for the Wasm
+/// `(ctx, ins)` adapters for the Wasm
 /// 2.0 saturating trunc cohort. No `bounds_fixups` (saturating,
 /// not trapping). Three legacy consumers — signed family
 /// (`emitFpTruncSatSigned`), unsigned-to-i32 (`emitFpTruncSatU32`),
 /// unsigned-to-i64 (`emitFpTruncSatU64`) — each gets a primary
 /// `(ctx, ins)` adapter and per-op aliases (legacy impls dispatch
-/// on `ins.op` internally). Decomposes per-op at the B6x+1 cutover.
+/// on `ins.op` internally).
 pub fn emitI32TruncSatF32S(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     return emitFpTruncSatSigned(
         ctx.allocator,
@@ -936,14 +935,14 @@ pub fn emitI64TruncSatF32U(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Erro
 }
 pub const emitI64TruncSatF64U = emitI64TruncSatF32U;
 
-/// §9.12-B / B58 (ADR-0075) — `(ctx, ins)` adapters for the
+/// `(ctx, ins)` adapters for the
 /// int→float convert cohort. Two legacy consumers — simple-path
 /// (`emitFpConvertSimple`, also serves f64.promote_f32 /
 /// f32.demote_f64 / reinterpret family, but only the 6 signed
-/// convert + i32_u convert variants migrate here) and the
+/// convert + i32_u convert variants route here) and the
 /// branched i64_u path (`emitFpConvertI64Unsigned`). Each gets
 /// one primary `(ctx, ins)` adapter; per-op aliases preserve
-/// the per-op-file shape. Decomposes per-op at the B6x+1 cutover.
+/// the per-op-file shape.
 pub fn emitF32ConvertI32S(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     return emitFpConvertSimple(
         ctx.allocator,
@@ -974,12 +973,9 @@ pub fn emitF32ConvertI64U(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error
 }
 pub const emitF64ConvertI64U = emitF32ConvertI64U;
 
-/// §9.12-B / B59 (ADR-0075) — `(ctx, ins)` adapters for the
+/// `(ctx, ins)` adapters for the
 /// reinterpret + promote/demote cohort. Single legacy consumer
-/// (`emitFpConvertSimple` — same helper as B58 simple path; the
-/// 6 reinterpret/promote/demote variants stayed on the legacy
-/// arm in emit.zig at B58 close and now migrate here). Primary
-/// adapter + 5 aliases. Decomposes per-op at the B6x+1 cutover.
+/// (`emitFpConvertSimple`). Primary adapter + 5 aliases.
 pub fn emitI32ReinterpretF32(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     return emitFpConvertSimple(
         ctx.allocator,

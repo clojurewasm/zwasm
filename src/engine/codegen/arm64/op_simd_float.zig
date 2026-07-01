@@ -1,7 +1,5 @@
 //! ARM64 emit pass — SIMD-128 floating-point op handlers (split
-//! from `op_simd.zig` per
-//! `.dev/phase10_prep/track_b_source_split.md` §4.3 / 9.9-h-18;
-//! tracking ADR-0054 once filed in chunk 9.9-h-20).
+//! from `op_simd.zig`).
 //!
 //! Houses all `emitF*` handlers: f32x4 / f64x2 splat,
 //! extract_lane / replace_lane, arithmetic (add/sub/mul/div),
@@ -62,7 +60,7 @@ pub fn emitF64x2Splat(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.9 / 9.5-c-vii — f32x4 / f64x2 lane access
+// f32x4 / f64x2 lane access
 // ============================================================
 //
 // Wasm spec (SIMD) — `f32x4.extract_lane` / `f64x2.extract_lane`
@@ -195,7 +193,7 @@ pub fn emitF64x2ReplaceLane(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.6 / 9.6-a — f32x4 / f64x2 binary FP arithmetic
+// f32x4 / f64x2 binary FP arithmetic
 // ============================================================
 //
 // Wasm spec (SIMD) — `f32x4.add/sub/mul/div`, `f64x2.add/sub/mul/div`.
@@ -234,7 +232,7 @@ pub fn emitF64x2Div(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.6 / 9.6-b — f32x4 / f64x2 unary FP arithmetic
+// f32x4 / f64x2 unary FP arithmetic
 // ============================================================
 //
 // Wasm spec (SIMD) — `f32x4.{abs,neg,sqrt,ceil,floor,trunc,nearest}`
@@ -285,12 +283,12 @@ pub fn emitF64x2Nearest(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.6 / 9.6-c-i — f32x4 / f64x2 min / max (NaN-propagating)
+// f32x4 / f64x2 min / max (NaN-propagating)
 // ============================================================
 //
 // Wasm spec (SIMD) — IEEE-754-2008 min/max with NaN propagation.
 // NEON FMAX/FMIN match exactly. `pmin`/`pmax` (pseudo-min/max
-// with zero-on-equal-magnitude semantics) defer to 9.6-c-ii.
+// with zero-on-equal-magnitude semantics) are synthesised below.
 
 pub fn emitF32x4Min(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try op_simd.emitV128Binop(ctx, inst_neon_arith.encFMin4S);
@@ -305,7 +303,7 @@ pub fn emitF64x2Max(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try op_simd.emitV128Binop(ctx, inst_neon_arith.encFMax2D);
 }
 
-// §17.4 relaxed-SIMD madd/nmadd — fused FMLA/FMLS (ADR-0169: uniform fused
+// Relaxed-SIMD madd/nmadd — fused FMLA/FMLS (ADR-0169: uniform fused
 // on arm64). madd = a*b+c (FMLA); nmadd = -(a*b)+c (FMLS). 3-operand ternop.
 pub fn emitF32x4RelaxedMadd(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try op_simd.emitV128FpFma(ctx, inst_neon_arith.encFmla4S);
@@ -321,7 +319,7 @@ pub fn emitF64x2RelaxedNmadd(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.6 / 9.6-c-ii — f32x4/f64x2 pmin/pmax synthesis
+// f32x4/f64x2 pmin/pmax synthesis
 // ============================================================
 //
 // Wasm spec (SIMD) — pseudo-min/max with zero-on-equal-magnitude:
@@ -390,14 +388,14 @@ pub fn emitF64x2Pmax(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.6 / 9.6-e — FP per-lane compares
+// FP per-lane compares
 // ============================================================
 //
 // Wasm spec (SIMD) — `f*x*.{eq,ne,lt,gt,le,ge}` (12 ops total).
-// Reuse 9.6-d's helpers: `op_simd.emitV128Binop` for direct,
+// Reuse the shared helpers: `op_simd.emitV128Binop` for direct,
 // `op_simd.emitV128Ne` for ne synthesis,
-// `op_simd.emitV128BinopSwapped` for lt/le rewrites. FCMGT was
-// added in 9.6-c-ii; FCMEQ + FCMGE land here.
+// `op_simd.emitV128BinopSwapped` for lt/le rewrites (FCMEQ /
+// FCMGT / FCMGE encoders).
 
 pub fn emitF32x4Eq(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try op_simd.emitV128Binop(ctx, inst_neon_lane_cmp.encFCmEq4S);
@@ -438,7 +436,7 @@ pub fn emitF64x2Le(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.6 / 9.6-g-iii — i→f FP convert (4 ops)
+// i→f FP convert (4 ops)
 // ============================================================
 //
 // Wasm spec — `f32x4.convert_i32x4_{s,u}` (single SCVTF/UCVTF .4S
@@ -485,7 +483,7 @@ pub fn emitF64x2ConvertLowI32x4U(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.6 / 9.6-g-iv — FCVTL / FCVTN (FP narrow / widen)
+// FCVTL / FCVTN (FP narrow / widen)
 // ============================================================
 //
 // Wasm spec — `f64x2.promote_low_f32x4` (widens lower 2 f32 →
@@ -500,7 +498,7 @@ pub fn emitF32x4DemoteF64x2Zero(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
 }
 
 // ============================================================
-// §9.6 / 9.6-g-v — trunc_sat (4 ops)
+// trunc_sat (4 ops)
 // ============================================================
 //
 // Wasm spec — `i32x4.trunc_sat_f32x4_{s,u}` (single-instruction

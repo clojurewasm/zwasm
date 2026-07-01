@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `i8x16.swizzle` — B107 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `i8x16.swizzle`.
 //! Delegates to op_simd_int_cmp_lane.emitI8x16SwizzleCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/i8x16_swizzle.zig");

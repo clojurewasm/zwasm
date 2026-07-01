@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `i64x2.extend.high.i32x4.s` — B105 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `i64x2.extend.high.i32x4.s`.
 //! Delegates to op_simd_int_cmp_lane.emitI64x2ExtendHighI32x4SCtx.
 
 const meta = @import("../../../../../instruction/wasm_2_0/i64x2_extend_high_i32x4_s.zig");

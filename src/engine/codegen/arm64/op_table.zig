@@ -1,5 +1,5 @@
 //! ARM64 emit pass — `table.get` / `table.set` / `table.size`
-//! handlers (§9.9 / 9.9-m-2a per ADR-0058).
+//! handlers (per ADR-0058).
 //!
 //! Each declared table has a `TableSlice` descriptor in the JIT
 //! runtime's `tables_ptr` array (stride `jit_abi.table_slice_size`
@@ -29,15 +29,15 @@
 //!     LDR  X14, [X19, #tables_ptr_off]
 //!     LDR  W_result, [X14, #(tableidx*16)+8]  ; push len as i32
 //!
-//! Intra-op scratch convention (§9.9 / 9.9-l-1b-d093-d64/d66,
-//! D-132/D-133): table.get / table.set / table.size use X14
+//! Intra-op scratch convention (D-132/D-133): table.get /
+//! table.set / table.size use X14
 //! (= `abi.spill_stage_gprs[0]`, non-allocatable) for the
 //! `tables_ptr` pre-load so a live-across-op vreg cannot be
 //! silently clobbered. The remaining op_table sites
 //! (emitTableFill / emitTableGrow / emitTableCopy / emitTableInit)
 //! still hardcode X10/X11/X12 — those need >2 scratch slots and
-//! are queued for the Phase 9 completeness substrate audit's unified
-//! comptime-disjointness mechanism (Q5). X17 remains the
+//! are queued for a unified comptime-disjointness mechanism.
+//! X17 remains the
 //! bounds-check scratch (already disjoint from regalloc pool
 //! per the ip_gprs reservation).
 //!
@@ -74,7 +74,7 @@ const sx11: inst.Xn = abi.allocatable_caller_saved_scratch_gprs[2];
 const sx12: inst.Xn = abi.allocatable_caller_saved_scratch_gprs[3];
 const sx13: inst.Xn = abi.allocatable_caller_saved_scratch_gprs[4];
 
-/// TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
+/// TODO: table storage shape — see D-126 / ADR-0068.
 /// Emit the "derive funcptr from funcref value with null check"
 /// sequence. Result lands in `dst_reg`; `val_reg` is the
 /// FuncEntity pointer (Value.null_ref == 0 for null funcref).
@@ -106,7 +106,7 @@ fn emitDeriveFuncptrFromFuncref(
     std.mem.writeInt(u32, ctx.buf.items[b_at..][0..4], inst.encB(b_disp), .little);
 }
 
-/// TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
+/// TODO: table storage shape — see D-126 / ADR-0068.
 /// Derive typeidx (u32) from FuncEntity ptr; null-funcref → sentinel
 /// `maxInt(u32)` (the JIT sig-check's never-matches value).
 ///
@@ -146,7 +146,7 @@ fn emitDeriveTypeidxFromFuncref(
 /// stub R15 prescan bug).
 pub fn emitTableGet(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const tableidx: u32 = @intCast(ins.payload);
-    // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
+    // TODO: table storage shape — see D-126 / ADR-0068.
     // imm12 budget reshaped by stride 16 → 24: W-form len/max
     // (byte_off ≤ 16380, scaled by 4) caps tableidx at (16380-12)/24
     // = 682. Cap 512 leaves comfortable margin while remaining far
@@ -164,8 +164,8 @@ pub fn emitTableGet(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 
     // Step B: read TableSlice[tableidx]. Use X14 / X15 (spill-
     // stage regs, non-allocatable) as scratch — they are free
-    // after Step A's load completed. §9.9 / 9.9-l-1b-d093-d64
-    // (D-132): pre-d-64 used X10 / X11 / X12 which are in
+    // after Step A's load completed. D-132: an earlier
+    // revision used X10 / X11 / X12 which are in
     // `allocatable_caller_saved_scratch_gprs`, so vregs landed
     // on those slots got silently clobbered when their live
     // range crossed a table.get / table.set. The fix re-targets
@@ -215,9 +215,9 @@ pub fn emitTableSet(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const x_val_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, val_v, 1);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(16, 31, x_val_src));
 
-    // Step B: read TableSlice[tableidx]. §9.9 / 9.9-l-1b-d093-d64
-    // (D-132): use X14 / X15 (spill-stage regs, non-allocatable)
-    // as scratch — pre-d-64 used X10 / X11 / X12 which collide
+    // Step B: read TableSlice[tableidx]. D-132: use X14 / X15
+    // (spill-stage regs, non-allocatable)
+    // as scratch — an earlier revision used X10 / X11 / X12 which collide
     // with the regalloc pool, silently clobbering vregs whose
     // live range crossed the op. See emitTableGet for the
     // detailed rationale.
@@ -237,7 +237,7 @@ pub fn emitTableSet(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     // Step D: STR X16 (val), [X14 + X17 * 8] — write refs[idx].
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrXRegLsl3(16, 14, 17));
 
-    // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
+    // TODO: table storage shape — see D-126 / ADR-0068.
     // Mirror funcptrs + typeidx views. Load funcptrs base into X14
     // first; externref tables carry a null funcptrs base (setup
     // discipline), so CBZ skips both mirrors. For funcref tables,
@@ -262,14 +262,14 @@ pub fn emitTableSet(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 /// as i32. No trap conditions; the validator already rejected
 /// out-of-range tableidx.
 ///
-/// Scratch register choice (§9.9 / 9.9-l-1b-d093-d66, D-133
-/// partial): use X14 (= `abi.spill_stage_gprs[0]`, non-
+/// Scratch register choice (D-133 partial): use X14
+/// (= `abi.spill_stage_gprs[0]`, non-
 /// allocatable) for the `tables_ptr` load rather than X10. X10
 /// is in `abi.allocatable_caller_saved_scratch_gprs`, so a
 /// live-across-`table.size` vreg landing on X10 would be
 /// silently clobbered by the pre-load. The bug is latent on
 /// the current corpus (no trigger pattern observed) but shares
-/// the failure mode d-64 surfaced for `emitTableGet` /
+/// the failure mode surfaced for `emitTableGet` /
 /// `emitTableSet` via the `funcref_roundtrip` reproducer.
 pub fn emitTableSize(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const tableidx: u32 = @intCast(ins.payload);
@@ -289,8 +289,8 @@ pub fn emitTableSize(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 }
 
 /// Wasm spec §4.4.13 (table.grow x) — pop n:i32, init:reftype;
-/// push i32 (previous size on success, -1 on failure). Per
-/// §9.9 / 9.9-l-1b-d093-d48 (D-122/D-125 mirror of ADR-0059):
+/// push i32 (previous size on success, -1 on failure).
+/// D-122/D-125 (mirror of ADR-0059):
 /// indirect call through `JitRuntime.table_grow_fn` with AAPCS64
 /// args:
 ///   X0 = runtime_ptr (= X19),
@@ -384,7 +384,7 @@ pub fn emitTableFill(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 
     // Step B: read TableSlice[tableidx]. Safe to clobber X10..X12.
     //   X10 = tables_ptr; X11 = refs; W12 = len; X9 = funcptrs base.
-    // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
+    // TODO: table storage shape — see D-126 / ADR-0068.
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(sx10, abi.runtime_ptr_save_gpr, jit_abi.tables_ptr_off));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(sx11, 10, tbl_off));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImmW(sx12, 10, @intCast(@as(u32, tbl_off) + 8)));
@@ -525,7 +525,7 @@ pub fn emitTableCopy(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         trace.writeBounds(ctx.func.func_idx, fixup_at);
     }
 
-    // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
+    // TODO: table storage shape — see D-126 / ADR-0068.
     // Load dst/src funcptrs base addresses for the mirror per-iter
     // writes. X9 = dst_funcptrs, X13 = src_funcptrs. Both alive
     // through the loop (W13 was bounds-scratch — last use was the
@@ -746,7 +746,7 @@ pub fn emitTableInit(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         trace.writeBounds(ctx.func.func_idx, fixup_at);
     }
 
-    // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
+    // TODO: table storage shape — see D-126 / ADR-0068.
     // Load dst funcptrs base into X9 + typeidx base into X13 —
     // long-lived through the loop. Reload tables_ptr first (X10
     // currently holds elem_dropped_ptr from Step B3). X9/X13 are

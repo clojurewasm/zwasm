@@ -10,11 +10,10 @@
 //! `EmitCtx` consolidation to a later chunk that materialises a
 //! consumer for it.
 //!
-//! D-045 chunk 13b: handlers migrated from `abi.slotToReg(alloc.
-//! slots[v])` to spill-aware `gpr.gprLoadSpilled` /
+//! Handlers use spill-aware `gpr.gprLoadSpilled` /
 //! `gprDefSpilled` / `gprStoreSpilled` so vregs spilled past the
-//! 4-reg pool boundary stage through R10/R11 transparently. New
-//! `spill_base_off: u32` parameter threaded through each handler.
+//! 4-reg pool boundary stage through R10/R11 transparently. Each
+//! handler threads a `spill_base_off: u32` parameter.
 //!
 //! Handlers in this module:
 //!   - `emitI32Binary`  — i32 add / sub / mul / and / or / xor.
@@ -58,7 +57,7 @@ const Error = types.Error;
 /// when the regalloc port needs to handle slot reuse. Note:
 /// post-D-045 13b spill-aware emit, dst-stage and rhs-stage can
 /// in principle collide (both R10) — D-029 follow-up.
-/// §9.12-B / B79 (ADR-0075) — `(ctx, ins)` adapter for the i32
+/// `(ctx, ins)` adapter for the i32
 /// binary ALU cohort (i32.add/sub/mul/and/or/xor). Threads
 /// `ins.op` into the existing emitI32Binary's internal op
 /// dispatch. No semantics change.
@@ -93,7 +92,7 @@ pub fn emitI32Binary(
     const rhs_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, rhs_v, 1);
     const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
 
-    // §9.7 / 7.10-b: parallel-move for the dst==rhs case (D-029).
+    // Parallel-move for the dst==rhs case (D-029).
     // The naive `MOV dst, lhs ; OP dst, rhs` would clobber rhs
     // before the OP reads it. Strategies per op:
     // - Commutative (add/mul/and/or/xor): emit `OP dst, lhs`
@@ -164,7 +163,7 @@ pub fn emitI32Binary(
 /// Total ~10 bytes per compare (3 instr × 3-4 bytes each with
 /// REX). Signed vs unsigned distinction is the cc code only —
 /// operand encoding is identical.
-/// §9.12-B / B81 (ADR-0075) — `(ctx, ins)` adapter for the i32
+/// `(ctx, ins)` adapter for the i32
 /// compare cohort (eq/ne/lt_s/lt_u/gt_s/gt_u/le_s/le_u/ge_s/ge_u).
 pub fn emitI32CompareCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     return emitI32Compare(
@@ -223,7 +222,7 @@ pub fn emitI32Compare(
 /// Emits TEST src, src ; SETE dst_low8 ; MOVZX dst, dst_low8.
 /// Same 3-instr shape as compare; operand reuse means no
 /// separate rhs vreg.
-/// §9.12-B / B84 (ADR-0075) — `(ctx, ins)` adapter for `i32.eqz`.
+/// `(ctx, ins)` adapter for `i32.eqz`.
 pub fn emitI32EqzCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
     return emitI32Eqz(
@@ -280,7 +279,7 @@ pub fn emitI32Eqz(
 ///   excludes RCX.
 /// - dst != rhs (when dst != lhs): the MOV dst, lhs would clobber
 ///   rhs before the shift reads CL. Guard mirrors emitI32Binary.
-/// §9.12-B / B83 (ADR-0075) — `(ctx, ins)` adapter for the i32
+/// `(ctx, ins)` adapter for the i32
 /// shift cohort (shl/shr_s/shr_u/rotl/rotr).
 pub fn emitI32ShiftCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     return emitI32Shift(
@@ -313,7 +312,7 @@ pub fn emitI32Shift(
     const rhs_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, rhs_v, 1);
     const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
     if (dst_r == .rcx) return types.rejectUnsupported("src/engine/codegen/x86_64/op_alu_int.zig:210", 0);
-    // §9.7 / 7.10-b: dst==rhs case is naturally safe here because
+    // dst==rhs case is naturally safe here because
     // step 1 below copies rhs to RCX BEFORE step 2 overwrites dst
     // with lhs. So dst's old value (= rhs's value) is preserved
     // in RCX/CL by the time the shift fires. Earlier rejects
@@ -353,7 +352,7 @@ pub fn emitI32Shift(
 ///   spec — the older BSR/BSF would leave dst undefined at 0
 ///   and would need a fixup; LZCNT/TZCNT exist exactly to
 ///   provide defined-at-zero semantics.
-/// §9.12-B / B84 (ADR-0075) — `(ctx, ins)` adapter for the i32
+/// `(ctx, ins)` adapter for the i32
 /// bitcount cohort (clz/ctz/popcnt).
 pub fn emitI32BitcountCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     return emitI32Bitcount(
@@ -400,7 +399,7 @@ pub fn emitI32Bitcount(
 /// 64-bit counterpart of `emitI32Binary`. Identical handler shape;
 /// only the encoder Width changes from `.d` to `.q` (REX.W set
 /// → 64-bit operands).
-/// §9.12-B / B80 (ADR-0075) — `(ctx, ins)` adapter for the i64
+/// `(ctx, ins)` adapter for the i64
 /// binary ALU cohort (i64.add/sub/mul/and/or/xor). Threads
 /// `ins.op` into emitI64Binary's internal op dispatch. No
 /// semantics change.
@@ -435,7 +434,7 @@ pub fn emitI64Binary(
     const rhs_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, rhs_v, 1);
     const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
 
-    // §9.7 / 7.10-b: mirrors emitI32Binary — commute commutative
+    // Mirrors emitI32Binary — commute commutative
     // ops, scratch through R10 for sub. See emitI32Binary for the
     // detailed rationale.
     const commutative = switch (op) {
@@ -485,7 +484,7 @@ pub fn emitI64Binary(
 /// le_{s,u} / ge_{s,u}) — 64-bit comparison; result is i32 0/1.
 /// CMP becomes 64-bit (.q) but SETcc + MOVZX stay 8/32-bit since
 /// the result is i32.
-/// §9.12-B / B82 (ADR-0075) — `(ctx, ins)` adapter for the i64
+/// `(ctx, ins)` adapter for the i64
 /// compare cohort (10 ops; same shape as i32 compare).
 pub fn emitI64CompareCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     return emitI64Compare(
@@ -542,7 +541,7 @@ pub fn emitI64Compare(
 
 /// Wasm spec §4.4.1.2 (i64.eqz) — TEST is 64-bit (.q); SETcc +
 /// MOVZX stay 8/32-bit (i32 result).
-/// §9.12-B / B84 (ADR-0075) — `(ctx, ins)` adapter for `i64.eqz`.
+/// `(ctx, ins)` adapter for `i64.eqz`.
 pub fn emitI64EqzCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     _ = ins;
     return emitI64Eqz(
@@ -583,7 +582,7 @@ pub fn emitI64Eqz(
 /// 64-bit shift family. CL is the count register (shared with
 /// i32 shifts; abi.zig already excludes RCX from the regalloc
 /// pool). The MOV ECX, rhs is 32-bit since only CL is read.
-/// §9.12-B / B83 (ADR-0075) — `(ctx, ins)` adapter for the i64
+/// `(ctx, ins)` adapter for the i64
 /// shift cohort.
 pub fn emitI64ShiftCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     return emitI64Shift(
@@ -616,7 +615,7 @@ pub fn emitI64Shift(
     const rhs_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, rhs_v, 1);
     const dst_r = try gpr.gprDefSpilled(alloc, result_v, 0);
     if (dst_r == .rcx) return types.rejectUnsupported("src/engine/codegen/x86_64/op_alu_int.zig:408", 0);
-    // §9.7 / 7.10-b: dst==rhs case naturally safe — see emitI32Shift
+    // dst==rhs case naturally safe — see emitI32Shift
     // for the rationale. RCX move precedes dst overwrite.
 
     if (rhs_r != .rcx) {
@@ -642,7 +641,7 @@ pub fn emitI64Shift(
 /// Wasm spec §4.4.1.4 (i64 clz / ctz / popcnt) — direct mapping
 /// to LZCNT64 / TZCNT64 / POPCNT64 (REX.W variants). Defined-at-
 /// zero semantics match Wasm (returns 64 for input 0).
-/// §9.12-B / B84 (ADR-0075) — `(ctx, ins)` adapter for the i64
+/// `(ctx, ins)` adapter for the i64
 /// bitcount cohort.
 pub fn emitI64BitcountCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     return emitI64Bitcount(
@@ -692,7 +691,7 @@ pub fn emitI64Bitcount(
 /// MOVSX r32/r64, r/m8/16 (Intel SDM Vol 2 §3.2 MOVSX); the
 /// `i64.extend32_s` arm uses MOVSXD (REX.W + 0x63 /r). Mirrors
 /// arm64's SXTB/SXTH/SXTW (Arm IHI 0055 §C6.2.220).
-/// §9.12-B / B85 (ADR-0075) — `(ctx, ins)` adapter for the
+/// `(ctx, ins)` adapter for the
 /// sign-extension cohort (5 ops).
 pub fn emitSignExtendCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     return emitSignExtend(
@@ -940,7 +939,7 @@ pub fn emitI64DivRem(
 /// destination's 64-bit slot, matching Wasm's value-class
 /// representation). `i64.extend_i32_s` lowers to MOVSXD.
 /// Mirrors arm64/op_convert.zig's emitWrap32 / emitExtendI32S.
-/// §9.12-B / B85 (ADR-0075) — `(ctx, ins)` adapter for the
+/// `(ctx, ins)` adapter for the
 /// width-conversion cohort (i32.wrap_i64, i64.extend_i32_{s,u}).
 pub fn emitConvertWidthCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     return emitConvertWidth(
@@ -982,14 +981,13 @@ pub fn emitConvertWidth(
     try pushed_vregs.append(allocator, result_v);
 }
 
-/// §9.12-B / B54+B55 (ADR-0075) — `(ctx, ins)` adapters for the
+/// `(ctx, ins)` adapters for the
 /// i32 div/rem cohort. Unpack `ctx.*` fields into the existing
 /// 8-arg `emitI32DivRem` positional impl, which dispatches on
 /// `ins.op` internally. All four variants share the same body —
 /// per-op aliases preserve the per-op-file shape expected by
 /// the dispatch-collector contract (each per-op file's `emit`
-/// fn names a distinct symbol). The legacy `emitI32DivRem`
-/// decomposes per-op at the B6x+1 cutover.
+/// fn names a distinct symbol).
 pub fn emitI32DivS(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     return emitI32DivRem(
         ctx.allocator,
@@ -1027,9 +1025,8 @@ pub const emitI64DivU = emitI64DivS;
 pub const emitI64RemS = emitI64DivS;
 pub const emitI64RemU = emitI64DivS;
 
-/// §9.12-B / B67 (ADR-0075) — `(ctx, ins)` adapter for `i32.const`.
+/// `(ctx, ins)` adapter for `i32.const`.
 /// Allocates a fresh vreg, emits `MOV r32, imm32`, stores to spill.
-/// Extracted from emit.zig's prior inline body.
 ///
 /// Wasm spec §4.4.1.1 (i32.const).
 pub fn emitI32Const(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
@@ -1042,9 +1039,9 @@ pub fn emitI32Const(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void 
     try ctx.pushed_vregs.append(ctx.allocator, vreg);
 }
 
-/// §9.12-B / B67 (ADR-0075) — `(ctx, ins)` adapter for `i64.const`.
+/// `(ctx, ins)` adapter for `i64.const`.
 /// Allocates a fresh vreg, emits `MOVABS r64, imm64` (10 bytes),
-/// stores to spill. Extracted from emit.zig's prior inline body.
+/// stores to spill.
 ///
 /// Wasm spec §4.4.1.1 (i64.const). The 64-bit immediate is packed
 /// into `(ins.extra << 32) | ins.payload` per the ZIR encoding.
@@ -1059,10 +1056,10 @@ pub fn emitI64Const(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void 
     try ctx.pushed_vregs.append(ctx.allocator, vreg);
 }
 
-/// §9.12-B / B70 (ADR-0075) — `(ctx, ins)` adapter for `select` +
+/// `(ctx, ins)` adapter for `select` +
 /// `select_typed` (shared dispatch). Pops c / val2 / val1; pushes
 /// val1 if c != 0 else val2. Three-path dispatch per
-/// ADR-0056 §9.9-m-4a/b:
+/// ADR-0056:
 ///   - v128 → `op_simd.emitV128Select` (mask-based)
 ///   - f32/f64 → `op_alu_float.emitFpSelect` (MOVD/Q shuttle +
 ///     CMOVNE; x86 has no FP CMOV). Detected via `ins.extra`
@@ -1107,10 +1104,9 @@ pub fn emitSelectCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void
     try ctx.pushed_vregs.append(ctx.allocator, result_v);
 }
 
-/// §9.12-B / B68 (ADR-0075) — `(ctx, ins)` adapter for `ref.null`.
+/// `(ctx, ins)` adapter for `ref.null`.
 /// Pushes the null funcref/externref value (= 0). XOR-zero the
 /// 32-bit form implicitly clears the upper 32 bits.
-/// Extracted from emit.zig's prior inline body.
 ///
 /// Wasm spec §4.4.5 (ref.null t).
 pub fn emitRefNull(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
@@ -1124,10 +1120,9 @@ pub fn emitRefNull(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
     try ctx.pushed_vregs.append(ctx.allocator, vreg);
 }
 
-/// §9.12-B / B68 (ADR-0075) — `(ctx, ins)` adapter for `ref.func`.
+/// `(ctx, ins)` adapter for `ref.func`.
 /// Loads func_entities_ptr from R15, then ADDs `funcidx *
 /// sizeOf(FuncEntity)` to materialise the FuncEntity pointer.
-/// Extracted from emit.zig's prior inline body.
 ///
 /// Wasm spec §4.4.5 (ref.func x).
 pub fn emitRefFunc(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {

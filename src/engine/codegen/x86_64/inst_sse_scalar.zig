@@ -5,7 +5,7 @@
 //! ANDNPS/ANDNPD, ROUNDPS/ROUNDPD, CMPPS/CMPPD, CVTDQ2PS/CVTPS2PD/
 //! CVTPD2PS/CVTDQ2PD/CVTTPS2DQ/CVTTPD2DQ, SHUFPS, UNPCKLPS, INSERTPS).
 //!
-//! Split from `inst_sse.zig` per ADR-0041 + §9.9 / 9.9-h-17 +
+//! Split from `inst_sse.zig` per ADR-0041 +
 //! `.dev/phase10_prep/track_b_source_split.md` §4.2 (x86_64 encoder
 //! source partition; chunk C/6).
 //!

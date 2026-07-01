@@ -1,4 +1,4 @@
-//! x86_64 emit handler for `f64.floor` — B88 (ADR-0075 ctx, ins).
+//! x86_64 emit handler for `f64.floor`.
 //! Delegates to op_alu_float.emitFpUnaryCtx.
 
 const meta = @import("../../../../../instruction/wasm_1_0/f64_floor.zig");
