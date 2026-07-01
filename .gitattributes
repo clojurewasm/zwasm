@@ -1,0 +1,9 @@
+# Normalize text files to LF in the repository and on checkout. The Windows CI
+# leg runs `zig fmt --check`, which rejects CRLF, so consistent LF is required
+# (without this, Windows runners check out .zig with CRLF and the gate fails).
+* text=auto eol=lf
+
+# Vendored / upstream content — keep out of GitHub's language statistics.
+test/spec/** linguist-vendored
+include/wasm.h linguist-vendored
+examples/zig_dep/zig-pkg/** linguist-vendored
