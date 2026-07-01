@@ -145,7 +145,16 @@ pub fn writeSlice(host: *Host, fd: p1.Fd, bytes: []const u8) p1.Errno {
     // `run` path) route to the real process stream — otherwise `zwasm run`
     // silently drops guest output. Without a buffer AND without io (headless),
     // the write is a no-op success.
-    const std_stream: ?std.Io.File = if (buffer == null and file_opt == null and io_opt != null)
+    //
+    // `!builtin.is_test`: a unit-test build must NEVER touch the real process
+    // fd 1/2 — Zig's `--listen=-` test runner speaks its result protocol over
+    // the test process's stdout, so a guest stdout write there corrupts that
+    // stream and the runner panics on EndOfStream when the build closes the pipe
+    // ("failed command: …/test … --listen=-" AFTER every test has already
+    // passed). Same reason `platform/signal.zig` guards its fd-2 write with
+    // `!builtin.is_test`. Tests that assert on guest output use a capture buffer
+    // (the `buffer` path below); the no-capture case is safe to drop in tests.
+    const std_stream: ?std.Io.File = if (!@import("builtin").is_test and buffer == null and file_opt == null and io_opt != null)
         switch (slot.kind) {
             .stdout => std.Io.File.stdout(),
             .stderr => std.Io.File.stderr(),
