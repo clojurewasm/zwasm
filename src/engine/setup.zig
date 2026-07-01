@@ -718,15 +718,23 @@ pub fn setupRuntimeLinked(
     }
 
     // D-497 / ADR-0201 — grow-headroom pre-allocation. Per-table capacity =
-    // declared max capped at `grow_cap`, never below min; a no-max table stays at
-    // min (no JIT grow headroom, same as before — the shared arena can't realloc).
-    // Funcref tables now follow the SAME rule (was min-only), so their funcptr/
-    // typeidx mirrors get headroom for grown slots' native-entry resolution.
+    // declared max capped at `grow_cap`, never below min. The baked-base JIT
+    // can't realloc a slice, so growable tables are pre-allocated to this
+    // capacity. Funcref tables follow the SAME rule, so their funcptr/typeidx
+    // mirrors get headroom for grown slots' native-entry resolution.
+    //
+    // D-501 — a table declared WITHOUT a max used to get min-only headroom (=
+    // never grows under the JIT), stricter than every senior runtime surveyed
+    // (wasmtime/wasmer/wazero realloc + reload base per access; WAMR bakes the
+    // base like us but still SYNTHESIZES a default cap). So a no-max table now
+    // gets a synthesized cap `max(min*2, 1024)` (1024 mirrors WAMR's
+    // WASM_TABLE_MAX_SIZE), bounded by `grow_cap`. Unbounded no-max grow would
+    // need per-access base reload (D-501 tier 2, build-on-demand).
     const grow_cap: u32 = 65536;
     const growCapacity = struct {
         fn f(tm: anytype, cap: u32) u32 {
-            const m = tm.max orelse return tm.min;
-            return @max(tm.min, @min(m, cap));
+            const eff_max = tm.max orelse @max(tm.min *| 2, @as(u32, 1024));
+            return @max(tm.min, @min(eff_max, cap));
         }
     }.f;
     const table0_cap: u32 = if (table_metas.len > 0) growCapacity(table_metas[0], grow_cap) else table_size;

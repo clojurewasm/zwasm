@@ -7,7 +7,14 @@ entries:
     layer: "code"
     status: "note"
     description: |-
-      JIT `table.grow` on a NO-MAX table fails (`error.GrowFailed` / spec `-1`). JIT setup
+      **RESOLVED tier-1 (2026-07-01)**: no-max tables now get a synthesized
+      WAMR-style cap `max(min*2, 1024)` in `growCapacity` (setup.zig), so a no-max
+      `table.grow` succeeds under the JIT up to that bounded cap (was min-only =
+      never). TDD: red→green facade test `table.zig` "NO-MAX table grows within a
+      synthesized cap (D-501)". Tier-2 (UNBOUNDED no-max grow via per-access base
+      reload) remains build-on-demand — see below. Original analysis retained:
+
+      JIT `table.grow` on a NO-MAX table failed (`error.GrowFailed` / spec `-1`). JIT setup
       pre-allocates each table's `refs` to its declared `max` (capped at grow_cap 65536) in
       a single contiguous arena; a table declared WITHOUT an upper bound gets `growCapacity`
       = `min` ONLY (setup.zig `tm.max orelse return tm.min`, ~728), so `jitTableGrowCore`'s
@@ -36,13 +43,13 @@ entries:
       (`adjust_table_max_size` → max(init*2, WASM_TABLE_MAX_SIZE=1024)) so a no-max table
       still grows up to a bounded cap. THAT min-only choice is the AI shortcut to fix.
       あるべき論 fix tiers: (1) CHEAP, within the current design — synthesize a modest
-      default cap for no-max tables (growCapacity: no-max → `@max(min, DEFAULT_CAP)` à la
-      WAMR, not `min`), giving bounded grow; ~1-line + 3-host validation + memory-cost call
-      on DEFAULT_CAP (65536 = 512KB/table is heavy; a WAMR-style small cap is saner).
-      (2) FULL unbounded — adopt Camp-1 per-access base+len reload for growable (non-fixed)
-      tables + per-table buffers (sacrifices the hoisted-base fast path; larger). Build on
-      demand — CW dogfooding UNAFFECTED today (no table.grow / no no-max tables, pin already
-      on the `.auto` flip); forward-caveat only, workaround `{:engine :interp}`.
+      default cap for no-max tables. **DONE 2026-07-01**: `growCapacity` no-max →
+      `@max(min*2, 1024)` (1024 = WAMR's WASM_TABLE_MAX_SIZE), bounded by grow_cap; picked
+      the small WAMR-style cap over 65536 (=512KB/table) on memory grounds. (2) FULL
+      unbounded — adopt Camp-1 per-access base+len reload for growable (non-fixed) tables +
+      per-table buffers (sacrifices the hoisted-base fast path; larger). Build on demand —
+      CW dogfooding UNAFFECTED today (no table.grow / no no-max tables, pin already on the
+      `.auto` flip); forward-caveat only, workaround `{:engine :interp}`.
     first_raised: "2026-07-01"
     last_reviewed: "2026-07-01"
     refs: |-

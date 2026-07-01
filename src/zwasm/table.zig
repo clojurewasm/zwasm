@@ -154,3 +154,32 @@ test "Table engine=.jit: externref get/set/size/grow through the live tables_ptr
     // grow past the declared max (4) → refused.
     try testing.expectError(error.GrowFailed, t.grow(5, .{ .externref = null }));
 }
+
+test "Table engine=.jit: a NO-MAX table grows within a synthesized cap (D-501)" {
+    // (module (table (export "t") 1 externref))  — declared WITHOUT a max.
+    // The baked-base JIT pre-allocates each table to its cap; a no-max table used
+    // to get min-only headroom → any grow failed under the JIT (stricter than
+    // wasmtime/wasmer/wazero which realloc, and than WAMR which synthesizes a
+    // default cap). D-501: synthesize a WAMR-style cap so no-max grow works.
+    const bytes = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // magic + version
+        0x04, 0x04, 0x01, 0x6f, 0x00, 0x01, // table: externref, min 1, NO max
+        0x07, 0x05, 0x01, 0x01, 't', 0x01, 0x00, // export "t" (table 0)
+    };
+    var eng = try _zwasm.Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var mod = try eng.compile(&bytes);
+    defer mod.deinit();
+    var inst = try mod.instantiate(.{ .engine = .jit });
+    defer inst.deinit();
+    try testing.expect(inst.handle.runtime == null); // JIT-backed
+
+    var t = inst.table("t").?;
+    try testing.expectEqual(@as(u32, 1), t.size());
+    try t.set(0, .{ .externref = 0xBEEF });
+    // Grow well within the synthesized cap — succeeds (was error.GrowFailed).
+    try t.grow(3, .{ .externref = null }); // 1 → 4
+    try testing.expectEqual(@as(u32, 4), t.size());
+    try testing.expectEqual(@as(?u64, 0xBEEF), (try t.get(0)).externref); // preserved
+    try testing.expectEqual(@as(?u64, null), (try t.get(3)).externref);
+}
