@@ -149,8 +149,12 @@ jobs:
           wasm-tools --version
           wasmtime --version || echo "wasmtime absent — differential will SKIP"
 
+      # Extended checks (lint + 6-combo build DCE + ReleaseSafe JIT smoke + AOT
+      # cross-compile) are ~10 cold-cache builds and dominate wall-clock, so they
+      # run ONLY on the merge to `main` (push) — not on every PR / dispatch, which
+      # get the fast core gate (fmt + test-all, ~10 min). windows is always core.
       - name: ci_gate.sh
         shell: bash
         env:
-          ZWASM_CI_EXTENDED: ${{ matrix.extended && '1' || '0' }}
+          ZWASM_CI_EXTENDED: ${{ (github.event_name == 'push' && matrix.extended) && '1' || '0' }}
         run: bash scripts/ci_gate.sh
