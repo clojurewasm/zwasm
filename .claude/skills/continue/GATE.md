@@ -1,5 +1,11 @@
 # Step 5 — Test gate (scope-adaptive; ADR-0076 D1)
 
+> **Loop-era doc (2026-07-01).** The scope-adaptive test-gate mechanics still
+> inform local verification, but the branch specifics are HISTORICAL: `main` is
+> now PR-only, and CI's `ci-required` check is the authoritative gate. Any
+> `zwasm-from-scratch` / `reset --hard` references below describe the retired
+> single-branch loop — today's flow is `develop/<slug>` → PR → CI → merge.
+
 Sibling of [`SKILL.md`](SKILL.md). SKILL.md gives the Step 5 outline;
 this file has the full pipeline + Step 5b bench-delta sub-step.
 
