@@ -26,8 +26,9 @@ zwasm run --invoke 'add=2,3' math.wasm   # pass typed args; prints the result (�
 zwasm run --dir .:/ guest.wasm       # preopen the cwd as the guest's /
 ```
 
-The default engine is the interpreter. `--engine jit` runs the JIT, which
-does full WASI too and additionally executes SIMD. Full flags:
+The default engine is `auto` — it prefers the JIT and falls back to the
+interpreter. `--engine interp` forces the interpreter; `--engine jit` forces the
+JIT, which does full WASI too and additionally executes SIMD. Full flags:
 [`reference/cli.md`](reference/cli.md).
 
 ## 3. Compile ahead-of-time
@@ -50,8 +51,11 @@ exe.root_module.addImport("zwasm", zw.module("zwasm"));
 Then drive it (Engine → compile → instantiate → call):
 
 ```zig
+const std = @import("std");
 const zwasm = @import("zwasm");
 
+// `alloc`: your std.mem.Allocator (e.g. std.heap.page_allocator).
+// `wasm_bytes`: the module's bytes (e.g. @embedFile("add.wasm") or read at runtime).
 var eng = try zwasm.Engine.init(alloc, .{});
 defer eng.deinit();
 var mod = try eng.compile(&wasm_bytes);
@@ -73,7 +77,7 @@ fn hostAdd(_: *zwasm.Caller, a: i32, b: i32) i32 { return a + b; }
 var lk = zwasm.Linker.init(&eng);
 defer lk.deinit();
 try lk.defineFunc("env", "add", fn (*zwasm.Caller, i32, i32) i32, hostAdd);
-var inst = try lk.instantiate(&mod);
+var inst = try lk.instantiate(&mod, .{});
 ```
 
 Runnable: [`examples/zig_dep/`](../examples/zig_dep/) (external path-dep

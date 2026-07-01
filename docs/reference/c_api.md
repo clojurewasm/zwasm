@@ -8,7 +8,7 @@ headers in [`include/`](../../include/):
 |------------------------------------|------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------|
 | [`wasm.h`](../../include/wasm.h)   | Upstream `WebAssembly/wasm-c-api`, vendored read-only (ADR-0004) | **Complete** — every declared `extern` function is implemented (293/293; `scripts/capi_surface_gap.sh` enforces gap=0) |
 | [`wasi.h`](../../include/wasi.h)   | Hand-authored project extension (ADR-0005)                       | WASI 0.1 host-setup (`zwasm_wasi_config_*`, `zwasm_store_set_wasi`) — no canonical upstream `wasi.h` exists            |
-| [`zwasm.h`](../../include/zwasm.h) | Hand-authored project extension (ADR-0179 #3a-4)                 | Instance-level sandboxing setters (fuel / memory cap / interrupt) + `zwasm_trap_kind` — see below                      |
+| [`zwasm.h`](../../include/zwasm.h) | Hand-authored project extension (ADR-0179 #3a-4)                 | Instance sandboxing setters (fuel / memory cap / interrupt) + `zwasm_trap_kind` + per-instance engine selection (`zwasm_instance_new_ex`) + `zwasm_instance_get_func` — see below |
 
 The header IS the reference — `wasm.h` is the upstream standard
 documented at <https://github.com/WebAssembly/wasm-c-api>. This page
@@ -46,13 +46,18 @@ ownership). See the worked example in
 [`include/wasi.h`](../../include/wasi.h) and
 [`examples/c_host/`](../../examples/c_host/).
 
-## Sandboxing extensions (`zwasm.h`)
+## `zwasm.h` extensions
 
 Instance-level budget setters (ADR-0179 #3a-4) mirroring the Zig facade —
 post-instantiate and re-armable mid-workload (v1's config-level
 `zwasm_config_set_*` shape was deliberately rejected). All null-tolerant.
-The C API creates interpreter-backed instances (the hardened default
-engine); `--engine jit` budgets are the CLI surface.
+
+**Engine selection.** Stock `wasm_instance_new` builds an `.auto`-engine
+instance (JIT where supported, interpreter otherwise). To force the engine from
+C, use `zwasm_instance_new_ex(store, module, imports, trap_out, engine_kind)`
+with `ZWASM_ENGINE_AUTO` / `ZWASM_ENGINE_JIT` / `ZWASM_ENGINE_INTERP`.
+`zwasm_instance_get_func(instance, idx)` fetches an export function by index
+(caller owns the result → release with `wasm_func_delete`).
 
 | Function                                                            | Effect                                                                                                                                   |
 |---------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------|
@@ -66,6 +71,4 @@ engine); `--engine jit` budgets are the CLI surface.
 
 Allocator injection and the kind-less `zwasm_func_call_fast` hot path
 remain unimplemented (evaluated-on-demand, in keeping with the
-lightweight design). The pre-extension `zwasm_instance_get_func` /
-`zwasm_store_set_wasi` / `zwasm_wasi_config_*` exports are not yet
-declared in `zwasm.h` (the Phase-16 C-surface audit owns completing it).
+lightweight design).

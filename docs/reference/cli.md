@@ -28,14 +28,14 @@ parse/compile).
 
 | Flag                       | Effect                                                                                                                                                                                                                                       |
 |----------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `--invoke <name>[=a,b,…]` | run the named export instead of `_start`/`main`. Zero-arg form → result surfaces as the exit code. `=args` (comma-separated, parsed by param type i32/i64/f32/f64) → typed results print bare, one per line, on stdout. Interp engine only |
-| `--engine <interp\|jit>`   | `interp` (default) or `jit` — BOTH do full WASI; `jit` additionally executes SIMD-128                                                                                                                                                       |
+| `--invoke <name>[=a,b,…]` | run the named export instead of `_start`/`main`. Zero-arg form → result surfaces as the exit code. `=args` (comma-separated, parsed by param type i32/i64/f32/f64) → typed results print bare, one per line, on stdout. Works on both the interpreter and the JIT (D-477) |
+| `--engine <interp\|jit>`   | **default (omitted) = `auto`** — prefers the JIT, falls back to the interpreter. `--engine interp` / `jit` force one. BOTH do full WASI; `jit` additionally executes SIMD-128                                                              |
 | `--dir <host>[:<guest>]`   | preopen a host directory for WASI (colon separator; guest path mirrors host when omitted)                                                                                                                                                    |
 | `--env KEY=VAL`            | set a WASI environment variable for the guest (repeatable; bare `KEY` sets empty)                                                                                                                                                            |
 | `--fuel <N>`               | trap (`all fuel consumed`) after a deterministic budget. Units are engine-specific by design: interp counts instructions, jit counts function entries + loop iterations                                                                     |
 | `--timeout <ms>`           | interrupt the guest (`interrupted` trap) after a wall-clock deadline — both engines                                                                                                                                                         |
 | `--max-memory <bytes>`     | refuse `memory.grow` past this many bytes (64 KiB page granularity); the spec `-1` failure, not a trap                                                                                                                                       |
-| `--max-table-elements <N>` | refuse table growth/alloc past this many elements; the spec `-1` failure, not a trap                                                                                                                                                         |
+| `--max-table-elements <N>` | cap a module's **declared initial** table element count at load time (D-332); a module whose initial table exceeds `N` is refused. (Runtime `table.grow` past a table's own declared max already returns the spec `-1`.)                     |
 
 The sandboxing flags (`--fuel`/`--timeout`/`--max-memory`/`--max-table-elements`) apply to `.wasm`
 runs on both engines; a `.cwasm` or component run combined with them is
@@ -50,8 +50,10 @@ artifact to the `-o` / `--output` path. `zwasm run
 ## Engine selection
 
 - `.cwasm` input → AOT-loaded directly (full WASI).
-- `.wasm` input → interpreter by default; `--engine jit` opts into the JIT
-  (full WASI, plus SIMD execution).
+- `.wasm` input → **`auto` by default** (prefers the JIT, transparently falls
+  back to the interpreter). `--engine interp` forces the interpreter;
+  `--engine jit` forces the JIT (full WASI, plus SIMD execution). `auto` is the
+  default only — it is not a spellable `--engine` value.
 
 ## Exit codes
 
@@ -59,8 +61,8 @@ artifact to the `-o` / `--output` path. `zwasm run
 |------|--------------------------------------------------------------------------------------------------|
 | `0`  | Success — guest returned normally, or called `proc_exit(0)`                                     |
 | `N`  | Guest called `proc_exit(N)` (the guest's own status surfaces verbatim)                           |
-| `1`  | Guest trapped (OOB access, `unreachable`, integer divide-by-zero, fuel/timeout, …)              |
-| `2`  | Usage error — unknown subcommand, bad flag value, or a requested limit refused (loud)           |
+| `1`  | Guest trapped (OOB access, `unreachable`, integer divide-by-zero, fuel/timeout, …), OR a file read / load failure, OR any `compile` error (incl. a `compile` usage error) |
+| `2`  | Usage error at dispatch — unknown subcommand, or a `run` flag parse error / a requested limit refused (loud). (`compile` usage errors exit `1`, not `2`.)                 |
 | `70` | Internal zwasm fault — a fatal signal/panic caught by the diagnostic fault handler              |
 
 Source of truth: the `run` exit-code mapping (`src/cli/run.zig`) +

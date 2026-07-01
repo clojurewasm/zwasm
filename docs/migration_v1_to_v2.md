@@ -1,10 +1,10 @@
 # zwasm v1 → v2 migration guide
 
-zwasm **v2** is a ground-up rewrite (releases `v1.0.0`–`v1.11.0` are v1; v2 is
-published as `v2.x.x` pre-release tags such as `v2.0.0-alpha.1`). It keeps full
-Wasm spec coverage (Wasm 1.0/2.0/3.0, WASI 0.1) but **breaks the surfaces on
-purpose** — the C API, the Zig API, and the CLI all changed. This guide tells you
-what to do to port, then documents what changed and why.
+zwasm **v2** is a ground-up rewrite (releases `v1.0.0`–`v1.11.1` are v1, now
+frozen; v2 is published as `v2.x.x` pre-release tags, currently `v2.0.0-rc.1`).
+It keeps full Wasm spec coverage (Wasm 1.0/2.0/3.0, WASI 0.1/0.2) but **breaks
+the surfaces on purpose** — the C API, the Zig API, and the CLI all changed. This
+guide tells you what to do to port, then documents what changed and why.
 
 ## License change: v1 (MIT) → v2 (Apache-2.0)
 
@@ -52,7 +52,7 @@ tooling are delegated to `wasm-tools` / `wabt`.
 | Run a module            | `zwasm run f.wasm` / bare `zwasm f.wasm`      | `zwasm run f.wasm` (no bare-file shorthand)                                                      |
 | Run `.wat`              | `zwasm f.wat`                                 | pre-assemble to `.wasm` first (no `.wat` support)                                                |
 | Invoke a named export   | `--invoke fn` / `--batch`                     | `--invoke <name>[=a,b,…]` (no `--batch`)                                                        |
-| Pick the engine         | `--interp` (JIT otherwise)                    | `--engine <interp\|jit>` (**interp is the default**; jit adds SIMD)                              |
+| Pick the engine         | `--interp` (JIT otherwise)                    | `--engine <interp\|jit>` (**default = `auto`**: prefers JIT, interp fallback; jit adds SIMD)     |
 | Preopen a directory     | `--dir`, plus `--allow-*`, `--sandbox`        | `--dir <host>[:<guest>]` (no `--allow-*`, no `--sandbox`)                                        |
 | Pass env vars           | `--env`                                       | `--env KEY=VAL`                                                                                  |
 | Link extra modules      | `--link name=file`                            | not in the CLI — use the Zig/C `Linker`                                                         |
@@ -71,7 +71,10 @@ v1 shipped a single custom header (`include/zwasm.h`, ~38 `zwasm_*` functions wi
 a `uint64_t[]` value convention and a thread-local last-error). **v2's C ABI is the
 standard upstream [wasm-c-api](https://github.com/WebAssembly/wasm-c-api)**
 (`include/wasm.h`, ~300 `wasm_*` exports) plus a small hand-authored `include/wasi.h`
-for WASI host setup. `include/zwasm.h` is now an empty placeholder.
+for WASI host setup. `include/zwasm.h` carries the zwasm-specific extensions:
+instance-level sandboxing setters (fuel / memory cap / interrupt), per-instance
+engine selection (`zwasm_instance_new_ex` + `ZWASM_ENGINE_AUTO/JIT/INTERP`),
+`zwasm_instance_get_func`, and `zwasm_trap_kind`.
 
 **Lifecycle** — rewrite to the wasm-c-api sequence:
 
@@ -172,7 +175,7 @@ const sum = try add.call(.{ 10, 20 });         // 30
 | `WasmModule` (load == instantiate)        | `Engine` / `Module` / `Instance` (one Module → many Instances)                                                                               |
 | `load`, `loadWithOptions`                 | `Engine.init` + `engine.compile` + `module.instantiate`                                                                                       |
 | `loadFromWat`                             | **none** (assemble `.wat` → `.wasm` externally)                                                                                              |
-| `loadWasi[WithOptions]`                   | `Linker.defineWasi(.{})` then `linker.instantiate(&module)`                                                                                   |
+| `loadWasi[WithOptions]`                   | `Linker.defineWasi(.{})` then `linker.instantiate(&module, .{})`                                                                              |
 | `loadWithImports` / `loadWasiWithImports` | `Linker.defineFunc("mod", "name", fn(*Caller, …) R, fn)` / `defineMemory` / …                                                               |
 | `invoke(name, []u64, []u64)`              | `instance.invoke(name, []Value, []Value)`                                                                                                     |
 | (no typed call)                           | `instance.typedFunc(fn(P…) R, name).call(.{…})`                                                                                             |
@@ -206,10 +209,11 @@ _ = inst.interruptRequested();
 ```
 
 For a wall-clock timeout, run a host timer thread that calls `inst.interrupt()`
-after the deadline. The facade `Instance` produces interpreter-backed instances,
-so these setters drive the interpreter; the **CLI** `--engine jit` enforces
-`--fuel` / `--timeout` / `--max-memory` directly via the JIT's prologue +
-back-edge polls.
+after the deadline. The facade `Instance` defaults to the `.auto` engine (prefers
+JIT, interp fallback; set `InstantiateOpts.engine` to `.interp` / `.jit` to force
+one). These setters apply to **both** engines — the JIT enforces the budgets via
+its prologue + loop-back-edge polls, the same mechanism the CLI `--engine jit`
+uses for `--fuel` / `--timeout` / `--max-memory`.
 
 ---
 
@@ -239,7 +243,7 @@ all three surfaces — Zig API, C `zwasm.h` setters, and the CLI flags.
 | Area                          | v1                                                   | v2                                                                                                                                                             |
 |-------------------------------|------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Engine model**              | one `WasmModule` (load == instantiate)               | `Engine` → `Module` → `Instance` (compile once, instantiate many)                                                                                            |
-| **Default engine**            | JIT by default                                       | **interpreter by default**; `--engine jit` opt-in                                                                                                              |
+| **Default engine**            | JIT by default                                       | **`.auto` by default** (prefers JIT, transparent interp fallback); `--engine interp` / `jit` force one                                                          |
 | **SIMD**                      | interpreter-only (codegen was stubbed)               | **JIT-only**; the interpreter does **not** execute SIMD (by design — in an interpreter the dispatch cost dominates the vector work, so it carries no benefit) |
 | **GC**                        | mark-and-sweep, on by default                        | mark-sweep with conservative native-stack root scan; **opt-in** (`-Dgc`, default off)                                                                          |
 | **Atomics (threads opcodes)** | on by default                                        | implemented (validated + lowered + interpreted); broader shared-memory/spawn is a reserved stub                                                                |

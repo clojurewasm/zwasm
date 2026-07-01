@@ -13,7 +13,8 @@ A from-scratch WebAssembly runtime in Zig 0.16.0.
 > preview1 & preview2 (Component Model), interpreter + JIT (arm64 / x86_64) +
 > AOT (`.cwasm`), and the C / Zig / CLI surfaces are settled. Completion is the
 > line, not a release date; tagging and publishing are a
-> deliberate, manual step. The v2 line is pre-release (tagged `v2.0.0-alpha.*`).
+> deliberate, manual step. The v2 line is pre-release (currently tagged
+> `v2.0.0-rc.1`).
 
 v2 is a ground-up redesign of [zwasm v1](https://github.com/clojurewasm/zwasm)
 with day-one design for WebAssembly 3.0, wasm-c-api conformance, and
@@ -78,7 +79,7 @@ adversarial use-after-free test on aarch64 + x86_64.
 zwasm                                  # print version + build options
 zwasm run <file.wasm|.cwasm> [args...] # run a module (WASI _start / main)
     [--invoke <name>[=a,b,…]]          #   run a named export; =args prints typed results
-    [--engine <interp|jit>]            #   interp (default) or jit (both full WASI; jit adds SIMD)
+    [--engine <interp|jit>]            #   default: auto (prefers JIT, interp fallback); interp|jit force one (both full WASI; jit adds SIMD)
     [--dir <host>[:<guest>]]           #   preopen a host directory for WASI
     [--env <KEY=VAL>]                  #   set a WASI env var (repeatable)
     [--fuel <N>]                       #   trap after a deterministic budget (error.OutOfFuel)
@@ -126,11 +127,11 @@ Surface: `Engine` / `Module` / `Instance` / `Linker` (host imports via
 `Trap` / `Value`. Runnable: [`examples/zig_dep/`](examples/zig_dep/)
 (external path-dep consumer) and [`examples/zig_host/`](examples/zig_host/).
 
-**Sandboxing untrusted guests** (interpreter engine): `mod.instantiate(.{})`
+**Sandboxing untrusted guests** (both engines): `mod.instantiate(.{})`
 is **bounded by default** — `InstantiateOpts.fuel` and `.max_memory_pages` carry
 finite defaults (a deterministic instruction budget → `error.OutOfFuel`, and a
-linear-memory cap), so a forgotten budget still yields a metered instance; pass
-`.unmetered` for trusted code. `Instance.interrupt()` stops a runaway guest from
+linear-memory cap), so a forgotten budget still yields a metered instance; set an
+axis to `.unmetered` (e.g. `.{ .fuel = .unmetered }`) for trusted code. `Instance.interrupt()` stops a runaway guest from
 another thread (timeout or cancellation → `error.Interrupted`);
 `setFuel`/`setMemoryPagesLimit`/`setTableElementsLimit` adjust the budgets on a
 live instance. The **JIT engine carries the same triad**: polls at
@@ -153,9 +154,9 @@ FFI-capable language, not just C.
 ## Build flags
 
 ```
--Dwasm=3.0|2.0|1.0          # default 3.0; lower levels omit later proposals
+-Dwasm=v3_0|v2_0|v1_0       # default v3_0; lower levels omit later proposals
 -Dwasi=none|p1|p2|p3        # default p2; ordered tier. p2 = Component Model / WASI-P2 host,
-                            #   p3 = + Preview-3 async. -Dwasi=p1 = lean build (~-10%)
+                            #   p3 = + Preview-3 async. -Dwasi=p1 = lean build (~-8%)
 -Dengine=both|jit|interp    # default both
 -Dstrip=true|false          # default false
 ```

@@ -3,6 +3,58 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-501"
+    layer: "code"
+    status: "note"
+    description: |-
+      JIT `table.grow` on a NO-MAX table fails (`error.GrowFailed` / spec `-1`). JIT setup
+      pre-allocates each table's `refs` to its declared `max` (capped at grow_cap 65536) in
+      a single contiguous arena; a table declared WITHOUT an upper bound gets `growCapacity`
+      = `min` ONLY (setup.zig `tm.max orelse return tm.min`, ~728), so `jitTableGrowCore`'s
+      `new_len > d.max` rejects every grow. The interpreter grows it via realloc. NOT a spec
+      violation (table.grow may fail), but a QoI divergence made user-visible by the
+      `.auto`→JIT default flip: facade `Table.grow` / guest `table.grow` / C `wasm_table_grow`
+      on a no-max table now fail under the default engine where they succeeded on interp.
+      Surfaced by examples/zig_dep (fixed there to a bounded `(table 2 8 externref)`).
+
+      REFERENCE-RUNTIME SURVEY (2026-07-01, ~/Documents/OSS updated to latest; re-examines
+      this as a possible AI shortcut per feedback_ai_invented_by_design_not_sacred). Two
+      industry camps:
+        • Camp 1 — dynamic (realloc + per-access base/len reload): wasmtime DEFAULT
+          on-demand (`vm/table.rs` grow reallocs the Vec, `instance.rs:829` rewrites
+          `VMTableDefinition{base,current_elements}`; cranelift re-reads base+bound each
+          access, readonly-hoist ONLY when min==max), wasmer (`Vec::resize` + fixup, same
+          readonly-only-if-fixed rule), wazero (Go slice append + indirection through a
+          stable per-table struct, base+len re-read every access). No-max grows freely.
+        • Camp 2 — static (table base BAKED as a compile-time constant → cannot move →
+          pre-allocation mandatory): WAMR AOT/JIT + wasmtime POOLING mode. This is zwasm's
+          camp (base held in X25 / arena offset).
+      VERDICT: the pre-allocate-to-max model itself is a DEFENSIBLE industry choice (WAMR +
+      wasmtime-pooling are direct precedent for a lightweight/fast baked-base design — NOT
+      a workaround). The actual shortfall is narrower: zwasm gives a no-max table `min`-only
+      headroom, which is STRICTER THAN EVEN WAMR — WAMR synthesizes a default cap
+      (`adjust_table_max_size` → max(init*2, WASM_TABLE_MAX_SIZE=1024)) so a no-max table
+      still grows up to a bounded cap. THAT min-only choice is the AI shortcut to fix.
+      あるべき論 fix tiers: (1) CHEAP, within the current design — synthesize a modest
+      default cap for no-max tables (growCapacity: no-max → `@max(min, DEFAULT_CAP)` à la
+      WAMR, not `min`), giving bounded grow; ~1-line + 3-host validation + memory-cost call
+      on DEFAULT_CAP (65536 = 512KB/table is heavy; a WAMR-style small cap is saner).
+      (2) FULL unbounded — adopt Camp-1 per-access base+len reload for growable (non-fixed)
+      tables + per-table buffers (sacrifices the hoisted-base fast path; larger). Build on
+      demand — CW dogfooding UNAFFECTED today (no table.grow / no no-max tables, pin already
+      on the `.auto` flip); forward-caveat only, workaround `{:engine :interp}`.
+    first_raised: "2026-07-01"
+    last_reviewed: "2026-07-01"
+    refs: |-
+      zwasm: src/engine/setup.zig `growCapacity` no-max→min (~728) + `.max=cap` (~779) ·
+      `jitTableGrowCore` `new_len > d.max` (setup.zig:241) · src/zwasm/table.zig:108-113
+      (facade grow → jit arm) · examples/zig_dep bounded-table fix · exposed by `.auto` flip
+      (D-478/D-496). Survey: wasmtime crates/wasmtime/src/runtime/vm/table.rs (grow :623,
+      vmtable :789) + instance.rs:829 + cranelift func_environ.rs:1643 (readonly iff min==max)
+      · wasmer lib/vm/src/table.rs:209-235 + compiler-cranelift/src/func_environ.rs:307-324
+      · wazero internal/wasm/table.go:297-320 + engine/wazevo/frontend/lower.go:5110-5141
+      · WAMR core/iwasm/aot/aot_runtime.c:793-834,3991-4034 + wasm_loader.c:2548-2578
+      (no-max default cap) + config.h WASM_TABLE_MAX_SIZE=1024.
   - id: "D-500"
     layer: "code"
     status: "note"

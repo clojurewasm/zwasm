@@ -49,11 +49,15 @@ const global_wasm = [_]u8{
     0x74, 0x65, 0x72, 0x03, 0x00,
 };
 
-// (module (table (export "t") 2 externref))
+// (module (table (export "t") 2 8 externref))
+// Bounded max (8) so `table.grow` works under BOTH engines: the JIT
+// pre-allocates a table to its declared max, so a no-max table has no JIT
+// grow headroom (interp-only grow — tracked as D-501). A max makes the demo
+// engine-agnostic under the default `.auto` (JIT-preferring) engine.
 const table_wasm = [_]u8{
     0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-    0x04, 0x04, 0x01, 0x6f, 0x00, 0x02, 0x07, 0x05,
-    0x01, 0x01, 0x74, 0x01, 0x00,
+    0x04, 0x05, 0x01, 0x6f, 0x01, 0x02, 0x08, 0x07,
+    0x05, 0x01, 0x01, 0x74, 0x01, 0x00,
 };
 
 fn hostAdd(_: *Caller, a: i32, b: i32) i32 {
@@ -89,7 +93,7 @@ pub fn main() !void {
         defer lk.deinit();
         try lk.defineFunc("env", "add", fn (*Caller, i32, i32) i32, hostAdd);
 
-        var inst = try lk.instantiate(&mod);
+        var inst = try lk.instantiate(&mod, .{});
         defer inst.deinit();
 
         const go = inst.typedFunc(fn (i32, i32) i32, "go");
