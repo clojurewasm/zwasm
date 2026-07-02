@@ -223,4 +223,4 @@ grep:
 | Date       | SHA          | Note                                    |
 |------------|--------------|-----------------------------------------|
 | 2026-05-21 | `ac89b0a6` | Initial proposed version (this commit). |
-| 2026-05-21 | `5653180c` | Accepted at `f777edaa` — `scripts/check_sibling_pub.sh` + 9 markers + bonus `resolveAndEmitMergeMovsRegBatch` pub→private downgrade + gate_commit integration + lesson step 4. D-158 closed. |
+| 2026-05-21 | `5653180c` | Accepted at `ba2a08cf5` — `scripts/check_sibling_pub.sh` + 9 markers + bonus `resolveAndEmitMergeMovsRegBatch` pub→private downgrade + gate_commit integration + lesson step 4. D-158 closed. |

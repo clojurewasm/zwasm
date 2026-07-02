@@ -240,4 +240,4 @@ compile(); no test changes needed beyond verifying alias.
 | Date       | SHA          | Note                                    |
 |------------|--------------|-----------------------------------------|
 | 2026-05-21 | `7945084f` | Initial Proposed version (Phase 1 — mechanical top-level helper extraction). |
-| 2026-05-21 | `b8d91990` | **Status: Accepted** — Phase 1 impl landed. emit.zig 1300 → 1144 LOC (-156); emit_setup.zig 204 LOC (incl. docstring + module header). Test gate cohort (test-all) + lint green. D-141 x86_64 emit.zig slot closes. |
+| 2026-05-21 | `669b15ac5` | **Status: Accepted** — Phase 1 impl landed. emit.zig 1300 → 1144 LOC (-156); emit_setup.zig 204 LOC (incl. docstring + module header). Test gate cohort (test-all) + lint green. D-141 x86_64 emit.zig slot closes. |

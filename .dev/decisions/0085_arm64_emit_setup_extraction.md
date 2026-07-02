@@ -118,4 +118,4 @@ extraction):
 
 | Date       | SHA          | Note                                    |
 |------------|--------------|-----------------------------------------|
-| 2026-05-21 | `f16d4593` / `6d71eb60` | Initial draft + impl landed same cycle. arm64/emit.zig 1632 → 1479 LOC; emit_setup.zig 186 LOC new. Test gate cohort + lint green. |
+| 2026-05-21 | `41095fc8e` / `6d71eb60` | Initial draft + impl landed same cycle. arm64/emit.zig 1632 → 1479 LOC; emit_setup.zig 186 LOC new. Test gate cohort + lint green. |

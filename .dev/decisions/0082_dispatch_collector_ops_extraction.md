@@ -208,5 +208,5 @@ That's out of scope for this ADR.
 
 | Date       | SHA          | Note                                    |
 |------------|--------------|-----------------------------------------|
-| 2026-05-21 | `99dcc932` | Initial Proposed version.               |
+| 2026-05-21 | `dc2b74c5d` | Initial Proposed version.               |
 | 2026-05-21 | `7bec6946` | **Status: Accepted** — carve impl landed. dispatch_collector.zig 1397 → 500 LOC (-897); dispatch_collector_ops.zig 923 LOC new. Test gate cohort (test-all) + lint green. D-141 dispatch_collector.zig slot closes. |

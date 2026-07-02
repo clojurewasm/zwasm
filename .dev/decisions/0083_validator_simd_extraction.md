@@ -194,5 +194,5 @@ ADR-0084+ handles bulk memory/table when concrete pressure surfaces.
 
 | Date       | SHA          | Note                                    |
 |------------|--------------|-----------------------------------------|
-| 2026-05-21 | `e9258a24` | Initial Proposed version.               |
+| 2026-05-21 | `79da7f75a` | Initial Proposed version.               |
 | 2026-05-21 | `860281bb` | **Status: Accepted** — carve impl landed. validator.zig 1790 → 1363 LOC (-427); validator_simd.zig 457 LOC new. Structural change: SIMD methods → free fns (Zig 0.16 no usingnamespace). pub-ified Validator struct + popExpect/pushType for cross-file method syntax. Test gate cohort + lint green. |

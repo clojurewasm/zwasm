@@ -622,7 +622,7 @@ sibling set.
 - D-144 (the surfacing fail; row removed at closure 2026-05-18).
 - Lesson [`2026-05-18-thunk-pinned-cohort-not-just-x19.md`](../lessons/2026-05-18-thunk-pinned-cohort-not-just-x19.md).
 - Updated rule [`abi_callee_saved_pinning.md`](../../.claude/rules/abi_callee_saved_pinning.md).
-- Closure commit `b137a44b` (thunk 56 → 96 bytes + JitRuntime
+- Closure commit `6dd40adef` (thunk 56 → 96 bytes + JitRuntime
   trap_kind field + per-fixup-class arm64 trap stubs).
 - [`src/engine/codegen/arm64/abi.zig`](../../src/engine/codegen/arm64/abi.zig)
   `reserved_invariant_gprs` — single source of truth for the
@@ -671,4 +671,4 @@ sibling set.
 |------------|--------------|----------------------------------------------------------------------------------------------------------------------------|
 | 2026-05-17 | `b0f3ec4f` | Initial accepted version (Phase 9 §9.9-III (c)-2 design).                                                                  |
 | 2026-05-17 | `4e7a4646` | Amendment §A1 — bridge thunk shape extended to save caller's pinned callee-saved reg (X19 on arm64, R15 on x86_64) per D-142 fix (A). Tail-call shape rescinded for cross-module dispatch; same-module call paths unchanged. |
-| 2026-05-18 | `b137a44b`   | Amendment §A2 — arm64 bridge thunk extended from §A1's X19-only save to the full reserved-invariant cohort (X19 + X24..X28; thunk 56 → 96 bytes) per D-144 fix. x86_64 unchanged (R15 is the only pinned invariant per ADR-0026; other invariants reload from `[R15+off]` at use). Paired infra: `JitRuntime.trap_kind` field + per-fixup-class arm64 trap stubs (`kind=1` generic / `kind=2` cind bounds / `kind=3` cind sig) — permanent diagnostic infra enabling the §A1 → §A2 root-cause localisation. |
+| 2026-05-18 | `6dd40adef`   | Amendment §A2 — arm64 bridge thunk extended from §A1's X19-only save to the full reserved-invariant cohort (X19 + X24..X28; thunk 56 → 96 bytes) per D-144 fix. x86_64 unchanged (R15 is the only pinned invariant per ADR-0026; other invariants reload from `[R15+off]` at use). Paired infra: `JitRuntime.trap_kind` field + per-fixup-class arm64 trap stubs (`kind=1` generic / `kind=2` cind bounds / `kind=3` cind sig) — permanent diagnostic infra enabling the §A1 → §A2 root-cause localisation. |
