@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # scripts/check_build_dce.sh — Build-option DCE enforcement gate.
 #
-# Builds zwasm across the 6 build-option combinations
-# (`-Dwasm={v1_0,v2_0,v3_0}` × `-Dwasi={p1,p2}`) and verifies via
+# Builds zwasm across the 9 build-option combinations
+# (`-Dwasm={v1_0,v2_0,v3_0}` × `-Dwasi={p1,p2,p3}`) and verifies via
 # `nm` symbol grep + per-build size measurement that:
 #
 #   1. Each build succeeds.
@@ -64,7 +64,12 @@ build_one() {
 # fixed @96fcdf9f) is INVISIBLE to it. Cross-compile to x86_64-linux so the
 # x86 codegen is compiled + its dead symbols are observable to nm. nix `nm`
 # (llvm-nm via the clang wrapper) reads cross ELF fine.
+#
+# On an x86_64 host the native build already compiles the x86_64 codegen, so
+# the same-triple cross build adds zero coverage — skip it (halves the matrix
+# wall-clock on the x86_64-linux CI leg; each ReleaseSafe build is minutes).
 XBUILD_TARGET="x86_64-linux-gnu"
+HOST_ARCH="$(uname -m)"
 build_one_x86() {
   local wasm="$1" wasi="$2"
   local prefix="$OUT_BASE/x86_${wasm}_${wasi}"
@@ -161,7 +166,11 @@ for entry in "${MATRIX[@]}"; do
   fi
 
   # D-231: cross-x86 DCE check (forbidden-symbol nm-grep only; no size/
-  # monotonic — host `size` may not read cross ELF, but nm does).
+  # monotonic — host `size` may not read cross ELF, but nm does). Skipped on
+  # x86_64 hosts where it would duplicate the native build above.
+  if [ "$HOST_ARCH" = "x86_64" ]; then
+    continue
+  fi
   if ! build_one_x86 "$wasm" "$wasi"; then
     printf '%-6s %-4s %-10s %-12s %-12s\n' "$wasm" "$wasi" "x86:FAIL" "build" "-"
     tail -10 "$OUT_BASE/x86_${wasm}_${wasi}/build.log" 2>/dev/null | sed 's/^/    /'
