@@ -89,7 +89,9 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.runs-on }}
     continue-on-error: ${{ matrix.advisory || false }}
-    timeout-minutes: 75
+    # 120: the extended (main-push) gate runs the full DCE matrix (~50-70min
+    # alone); a cold zig cache pushed the total past the previous 75min cap.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:

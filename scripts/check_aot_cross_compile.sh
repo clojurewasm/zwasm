@@ -31,11 +31,29 @@ TARGETS=(
   "x86_64-windows-gnu"
 )
 
+# macOS has no native `timeout(1)` and GitHub macos runners ship without
+# coreutils (locally it comes from the nix devshell / homebrew), so resolve
+# a bound-runner portably and fall back to running unbounded.
+TIMEOUT_CMD=""
+if command -v timeout > /dev/null 2>&1; then
+  TIMEOUT_CMD="timeout"
+elif command -v gtimeout > /dev/null 2>&1; then
+  TIMEOUT_CMD="gtimeout"
+fi
+
+run_bounded() {
+  if [ -n "$TIMEOUT_CMD" ]; then
+    "$TIMEOUT_CMD" 360 "$@"
+  else
+    "$@"
+  fi
+}
+
 rc=0
 for t in "${TARGETS[@]}"; do
   log="/tmp/aot_xc_${t}.log"
   printf '[check_aot_cross_compile] zig build -Dtarget=%s ... ' "$t"
-  if timeout 360 zig build "-Dtarget=${t}" > "$log" 2>&1; then
+  if run_bounded zig build "-Dtarget=${t}" > "$log" 2>&1; then
     echo "OK"
   else
     echo "FAIL (see $log)"
