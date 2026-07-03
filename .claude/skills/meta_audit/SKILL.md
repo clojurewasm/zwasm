@@ -1,6 +1,6 @@
 ---
 name: meta_audit
-description: Periodic deliberate-skepticism audit against ROADMAP §1/§2/§9/§14/§15 and recent ADRs. Triggers on Phase boundary OR opportunistic drift signals from audit_scaffolding §J. Produces a report under .dev/meta_audits/, may seed ADRs / lessons / rule amendments. User-gated; this skill is NOT autonomous-fired by /continue.
+description: Periodic deliberate-skepticism audit against ROADMAP §1/§2/§9/§14/§15 and recent ADRs. Triggers on opportunistic drift signals from audit_scaffolding §J, or on explicit user request before a significant change. Produces a report under .dev/meta_audits/, may seed ADRs / lessons / rule amendments. User-gated; NOT autonomous-fired (the campaign phase-boundary trigger is retired — there are no more phases).
 ---
 
 # meta_audit
