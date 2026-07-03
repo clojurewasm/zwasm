@@ -286,7 +286,7 @@ fn p2Exit(caller: *Caller, status: u32) WasiP2Error!void {
 fn p2MonotonicNow(caller: *Caller) WasiP2Error!i64 {
     const ctx = caller.data(WasiP2Ctx);
     const ns = wasi_clocks.clockTimeNs(ctx.host, 1) catch
-        @panic("WASI-P2 monotonic-clock.now: host clock unavailable (host.io unset)");
+        return WasiP2Error.NoHostIo; // precondition: the component-run path plants host.io
     return @bitCast(ns);
 }
 
@@ -298,7 +298,7 @@ fn p2WallNow(caller: *Caller, retptr: u32) WasiP2Error!void {
     const ctx = caller.data(WasiP2Ctx);
     const mem = try ctxMemory(caller);
     const ns = wasi_clocks.clockTimeNs(ctx.host, 0) catch
-        @panic("WASI-P2 wall-clock.now: host clock unavailable (host.io unset)");
+        return WasiP2Error.NoHostIo; // precondition: the component-run path plants host.io
     try mem.write(retptr, @as(u64, ns / std.time.ns_per_s));
     try mem.write(retptr + 8, @as(u32, @intCast(ns % std.time.ns_per_s)));
 }
@@ -391,7 +391,7 @@ fn p2RandomGetBytes(caller: *Caller, len: u64, retptr: u32) WasiP2Error!void {
     if (n != 0) {
         const dest = mem.sliceAt(data_ptr, n) catch return WasiP2Error.OutOfBounds;
         if (wasi_clocks.randomFill(ctx.host, dest) != .success)
-            @panic("WASI-P2 get-random-bytes: secure random unavailable (host.io unset)");
+            return WasiP2Error.NoHostIo; // precondition: the component-run path plants host.io
     }
     try mem.write(retptr, data_ptr); // list data ptr
     try mem.write(retptr + 4, n); // list length
@@ -887,7 +887,7 @@ fn p2RandomGetU64(caller: *Caller) WasiP2Error!i64 {
     const ctx = caller.data(WasiP2Ctx);
     var buf: [8]u8 = undefined;
     if (wasi_clocks.randomFill(ctx.host, &buf) != .success)
-        @panic("WASI-P2 get-random-u64: secure random unavailable (host.io unset)");
+        return WasiP2Error.NoHostIo; // precondition: the component-run path plants host.io
     return @bitCast(std.mem.readInt(u64, &buf, .little));
 }
 
@@ -900,7 +900,7 @@ fn p2RandomInsecureSeed(caller: *Caller, retptr: u32) WasiP2Error!void {
     const mem = try ctxMemory(caller);
     var buf: [16]u8 = undefined;
     if (wasi_clocks.randomFill(ctx.host, &buf) != .success)
-        @panic("WASI-P2 insecure-seed: secure random unavailable (host.io unset)");
+        return WasiP2Error.NoHostIo; // precondition: the component-run path plants host.io
     try mem.write(retptr, std.mem.readInt(u64, buf[0..8], .little));
     try mem.write(retptr + 8, std.mem.readInt(u64, buf[8..16], .little));
 }

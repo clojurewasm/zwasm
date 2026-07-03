@@ -803,12 +803,12 @@ pub fn fdReaddir(host: *Host, mem: []u8, fd: p1.Fd, buf_ptr: u32, buf_len: u32, 
 /// - Open is delegated to `std.Io.Dir{.fd = slot.host_handle}
 ///   .openFile(io, ...)`. Errors map through `mapOpenError`.
 ///
-/// On success, a new `.file` slot is appended to
+/// On success, a new `.file` (or `.dir`) slot is appended to
 /// `host.fd_table`; the new guest fd is written to
-/// `opened_fd_ptr`. The `oflags` / `dirflags` parameters are
-/// accepted but only the bare-open path is honoured for now —
-/// CREAT / EXCL / TRUNC come alongside their consuming
-/// realworld samples.
+/// `opened_fd_ptr`. `oflags` CREAT / TRUNC / EXCL / DIRECTORY are
+/// honoured (see the body). `dirflags` (the symlink-follow bit) is
+/// currently IGNORED — follow-time symlink confinement is the
+/// blocked half of D-315.
 pub fn pathOpen(
     host: *Host,
     mem: []u8,
