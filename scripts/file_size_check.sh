@@ -1,23 +1,31 @@
 #!/usr/bin/env bash
-# File-size cap enforcement (ROADMAP §A2).
+# File-size cap check (ROADMAP §A2) — ADVISORY only.
 #
-# Soft cap (1000 lines): warning, requires ADR for split plan,
+# ADR-0099 (amended 2026-07-03: hard cap is advisory, not a commit
+# block — the smell-detector premise ended post-v2.0.0). This check
+# NEVER fails; it is informational only, printing WARN / EXEMPT
+# signal lines. The authoritative merge gate is CI's ci-required.
+#
+# Soft cap (1000 lines): WARN, suggests ADR for split plan,
 #   UNLESS the file declares the FILE-SIZE-EXEMPT marker — in which
 #   case the marker suppresses the WARN per ADR-0099 D1 (reframe:
 #   soft cap is a smell detector, not a metric to drive to zero;
 #   the marker captures "smell investigated, no valid extraction").
-# Hard cap (2000 lines): gate fails.
-# Exempt hard cap (2500 lines): allowed only when the file
-#   declares `// FILE-SIZE-EXEMPT: <reason> (per ADR-NNNN)`
-#   on lines 1-5. The marker MUST cite an ADR — silent exemption
-#   is forbidden (per ADR-0064 §"Forbidden anti-patterns").
+# Hard cap (2000 lines): WARN (advisory since the 2026-07-03
+#   amendment; was a gate block pre-v2.0.0).
+# Exempt hard cap (2500 lines) / per-file `(cap=N)` / `(cap=UNCAPPED)`:
+#   the FILE-SIZE-EXEMPT marker still SUPPRESSES the WARN for
+#   investigated files (useful signal management). The marker MUST
+#   cite an ADR — silent exemption is forbidden (per ADR-0064
+#   §"Forbidden anti-patterns").
 #
 # Auto-generated files are exempt regardless of cap: they must
 # contain `// AUTO-GENERATED FROM <source>` on lines 1-3.
 #
 # Modes:
 #   bash scripts/file_size_check.sh           informational; warn-only
-#   bash scripts/file_size_check.sh --gate    exit 1 on hard-cap violation
+#   bash scripts/file_size_check.sh --gate    same output; still exits 0
+#                                             (advisory — never blocks)
 
 set -euo pipefail
 
@@ -28,7 +36,6 @@ MODE="${1:-info}"
 
 cd "$(dirname "$0")/.."
 
-violations=0
 warnings=0
 
 while IFS= read -r f; do
@@ -83,14 +90,17 @@ while IFS= read -r f; do
     if [ "$uncapped" -eq 1 ]; then
         echo "EXEMPT-UNCAPPED: $f ($lines lines) — designated irreducible catalog, no line cap (user-ratified 2026-06-22; FILE-SIZE-EXEMPT marker)" >&2
     elif [ "$lines" -gt "$effective_hard_cap" ]; then
+        # Over the hard cap (advisory since ADR-0099 amended 2026-07-03):
+        # emit a WARN, never a violation. A cap-citing marker still shifts
+        # the wording but no longer blocks.
         if [ "$per_file_cap" -gt 0 ]; then
-            echo "PER-FILE-CAP EXCEEDED: $f ($lines lines, per-file-cap=$per_file_cap) — even the per-file override cap is exceeded" >&2
+            echo "WARN: $f ($lines lines, per-file-cap=$per_file_cap) — exceeds even the per-file override cap (advisory per ADR-0099 amended 2026-07-03)" >&2
         elif [ "$exempt" -eq 1 ]; then
-            echo "EXEMPT-CAP EXCEEDED: $f ($lines lines, exempt-cap=$EXEMPT_CAP) — even the exempt cap is exceeded" >&2
+            echo "WARN: $f ($lines lines, exempt-cap=$EXEMPT_CAP) — exceeds even the exempt cap (advisory per ADR-0099 amended 2026-07-03)" >&2
         else
-            echo "HARD CAP EXCEEDED: $f ($lines lines, cap=$HARD_CAP)" >&2
+            echo "WARN: $f ($lines lines, hard-cap=$HARD_CAP) — over hard cap (advisory per ADR-0099 amended 2026-07-03)" >&2
         fi
-        violations=$((violations + 1))
+        warnings=$((warnings + 1))
     elif [ "$lines" -gt "$EXEMPT_CAP" ] && [ "$per_file_cap" -gt 0 ]; then
         echo "EXEMPT: $f ($lines lines, in [$EXEMPT_CAP, $per_file_cap] via per-file (cap=$per_file_cap) override per ADR-0099 Revision 2026-05-24)" >&2
     elif [ "$lines" -gt "$HARD_CAP" ] && [ "$exempt" -eq 1 ]; then
@@ -103,16 +113,11 @@ while IFS= read -r f; do
     fi
 done < <(find src -name '*.zig' 2>/dev/null || true)
 
-if [ "$violations" -gt 0 ]; then
-    echo
-    echo "$violations file(s) exceed hard cap ($HARD_CAP lines)."
-fi
 if [ "$warnings" -gt 0 ]; then
-    echo "$warnings file(s) exceed soft cap ($SOFT_CAP lines)."
+    echo
+    echo "$warnings file(s) over a cap (advisory — informational only, never blocks)."
 fi
 
-if [ "$MODE" = "--gate" ] && [ "$violations" -gt 0 ]; then
-    exit 1
-fi
-
+# ADR-0099 (amended 2026-07-03): file size is advisory. `--gate` prints the
+# same WARN/EXEMPT lines but ALWAYS exits 0 — CI's ci-required is the merge gate.
 exit 0

@@ -21,8 +21,9 @@ zwasm v2 is a ground-up redesign of zwasm (v1 git history at commit 517cc5a).
   `main`, PR to `main`. `main` is **server-side ruleset-protected**: no direct
   push, PR required, and the `ci-required` status check (CI's 3-OS gate) must be
   green to merge; only the repo admin can bypass. Doc-only PRs auto-skip the
-  heavy gate (still green via `ci-required`). The local 3-host gate
-  (`scripts/gate_merge.sh`, A13) mirrors CI for pre-PR verification. `--force`
+  heavy gate (still green via `ci-required`). The local `scripts/gate_merge.sh`
+  (3-host SSH fan-out) is an **optional** pre-PR pre-flight mirroring CI
+  (ADR-0076 D9) — CI's `ci-required` is authoritative. `--force`
   always forbidden. Root is kept lean (ADR-mirroring the CW layout): this file
   is `.claude/CLAUDE.md`; community-health files (CONTRIBUTING / CODE_OF_CONDUCT /
   SECURITY) are in `.github/`; `THIRD_PARTY.md` is in `legal/`; `examples/` is
@@ -70,22 +71,20 @@ text or code identifiers.
   four-step + forward-ref each deferred item to its true phase, and
   proceed without stopping (no user-flip). Default posture =
   autonomous-with-ADR; surface only for bucket-2/3 genuine blocks.
-- **3-host gate**: Mac aarch64 (foreground) + `ubuntunote` Linux x86_64
-  (background, **always** `test-all` per ADR-0076 D6) + `windowsmini`
-  (background, **BATCHED** per ADR-0076 **D8** — run via
-  `should_gate_windows.sh` once per batch: **≥6 commits if the batch
-  touched ABI/calling-convention/frame-layout paths, else ≥12**; ABI-risk
-  no longer an immediate trigger. heisenbug-aware, NOT per-turn). **Chain
-  MANY chunks per turn (larger granularity) on Mac+ubuntu; NEVER poll-wait
-  on windows** — kick it in the background when the batch fires, keep
-  chaining, verify its verdict at the next Step 0.7. windowsmini
-  phase-boundary reconcile remains the strict A13-merge gate. OrbStack
-  retired per ADR-0067 (D-134); scratch only. **SUSPENDABLE (ADR-0174,
-  user-directed 2026-06-07)**: after a windowsmini-hardening campaign
-  reaches full green, `should_gate_windows.sh --suspend` (sentinel
-  `.dev/windows_gate_suspended`) drops the inner loop to a **2-host gate
-  (Mac+ubuntu)**; `--resume` before any `main` merge / Win64-risk diff.
-  A13 strict-3-host merge gate UNCHANGED.
+- **CI gate is authoritative (post-v2.0.0 maintenance; ADR-0076 D9)**: `main`
+  is PR-only, and CI's `ci-required` runs `scripts/ci_gate.sh` (zig fmt +
+  `test-all` + extended: lint / build-option DCE / ReleaseSafe JIT smoke / AOT
+  cross-compile / **`zone_check`**) on **all 3 OSes** (aarch64-macos +
+  x86_64-linux + x86_64-windows) for **every** PR. That IS the merge gate.
+  Doc-only PRs auto-skip the heavy legs (still green via `ci-required`). The
+  local `scripts/gate_merge.sh` (3-host SSH fan-out) + `scripts/gate_commit.sh`
+  (pre-commit) are now **optional pre-PR pre-flight** mirroring CI — no longer
+  load-bearing for merge safety. The campaign-era Windows-BATCHED / `--suspend`
+  cadence is RETIRED (`should_gate_windows.sh` = deprecation stub; ADR-0174
+  superseded-in-part; the `.dev/windows_gate_suspended` sentinel is dead).
+  `file_size_check` is **advisory** (ADR-0099 2026-07-03, not a commit block);
+  `spill_aware_check` CI-promotion is HELD pending D-505 baseline triage.
+  OrbStack retired per ADR-0067 (D-134); scratch only.
 - **Context budget**: the **1M** window is in effect (the prior 200K pin
   `CLAUDE_CODE_DISABLE_1M_CONTEXT=1` was removed 2026-05-31 — it made the
   window hit 100% fast and the squeeze, not the working set, was the felt
@@ -185,14 +184,16 @@ Zig-built edge-runner (no toolchain there). See
 
 ## Pre-commit gate
 
-[`scripts/gate_commit.sh`](../scripts/gate_commit.sh) — full local gate
-(`zig build test`, `zone_check`, `file_size_check`, `spill_aware_check`,
-`zig build lint`). `/continue` runs per-task; manual commits call before
-`git commit`.
+[`scripts/gate_commit.sh`](../scripts/gate_commit.sh) — local **pre-commit**
+gate (zig fmt + `file_size_check` (advisory, ADR-0099) + the `check_*`
+integrity scripts; docs-only short-circuit; `--fast` defers `zig build
+test`/`lint`/`zone_check` to CI). Manual commits call it before `git commit`.
+(`spill_aware_check` is NOT wired here — D-505.)
 
-Per-chunk parallel host gate = 2-host (Mac + ubuntunote). windowsmini
-reconciliation = phase boundary. Strict 3-host `test-all` = A13 merge
-gate (any `main` push); automated by `scripts/gate_merge.sh`.
+The **authoritative** merge gate is CI's `ci-required` 3-OS `scripts/ci_gate.sh`
+run on every PR. [`scripts/gate_merge.sh`](../scripts/gate_merge.sh) (local
+3-host SSH fan-out) is now an **optional** pre-PR pre-flight that mirrors CI
+(ADR-0076 D9) — not required for merge safety.
 
 ## References
 

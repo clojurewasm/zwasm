@@ -1,5 +1,5 @@
 ---
-description: "Handover.md discipline — drive next chunk, don't deliberate; no numeric predictions; forbidden surrender phrases grep-enforced. Absorbs former handover_framing.md + no_handover_predictions.md per ADR-0118 D3."
+description: "Handover.md discipline — a maintenance-mode STATE doc: name current state + concrete next work (or a specific external dependency), don't deliberate; no future-tense numeric predictions; length-capped. Absorbs former handover_framing.md + no_handover_predictions.md per ADR-0118 D3."
 paths:
   - ".dev/handover.md"
   - ".dev/debt.yaml"
@@ -10,27 +10,34 @@ paths:
 
 > Lean stub (ADR-0118 D2). Full detail / tables / examples: [`../references/handover_doc_discipline.md`](../references/handover_doc_discipline.md).
 
-`.dev/handover.md` is a DRIVING doc, not a deliberation doc. Every entry names a concrete autonomous next chunk OR a specific code/test/spec dependency provably waiting on external input.
+`.dev/handover.md` is the canonical fresh-session entry point: a STATE doc that
+names the current state + the concrete next work OR a specific dependency provably
+waiting on external input (a user decision, a CI run, an upstream fix). Not a
+deliberation doc.
 
 ## Invariant
 
-- §1 — No forbidden surrender phrase. `/continue` Step 1 grep (VERBATIM):
-  ```sh
-  grep -nE "user-judgment territory|wait for natural trigger|wait for .* fixtures|needs commitment to|substantial multi-cycle|deep .* work or wait|pivot to .* OR" .dev/handover.md
-  ```
-  If non-empty → the first chunk of the resume IS the handover rewrite. (Single allowed `user-judgment` use: §18 ADR amendment requiring user-flip; draft still autonomous.)
-- §2 — No future-tense numeric predictions in mutable docs. Past-tense observations (chunk records, commit bodies, bench) are facts, not predictions. Numbers in debt narrative MUST be prefixed `Hypothesis (verified at <SHA-or-date>): ...`.
-- §6 — Length soft 100 / hard 120 lines. Relocate stable content at 120; do NOT micro-trim 103→100.
+- §1 — Name concrete state + next work, not vague deferrals. Don't list multiple
+  "options" for a reader to pick from; state where things are and the specific
+  next step (or the specific thing being waited on, and why). (Campaign-era note:
+  the `/continue` Step-1 "forbidden surrender phrase" grep is RETIRED with the
+  autonomous loop — there is no loop to keep from surrendering; §1 is now reviewer
+  discipline, not a mechanical gate.)
+- §2 — No future-tense numeric predictions in mutable docs. Past-tense observations
+  (chunk records, commit bodies, bench) are facts, not predictions. Numbers in debt
+  narrative MUST be prefixed `Hypothesis (verified at <SHA-or-date>): ...`.
+- §6 — Length soft 100 / hard 120 lines. Relocate stable content at 120; do NOT
+  micro-trim 103→100.
 
 ## Enforcement
 
-The §1 grep (run at `/continue` Step 1) + `wc -l .dev/handover.md` at handover-commit step. No mechanical gate for §6 (system-defenses-over-scripts); reviewer discipline + the wc check.
+`wc -l .dev/handover.md` at the handover-commit step (soft/hard length). §1/§2 =
+reviewer discipline (system-defenses-over-scripts); no mechanical gate.
 
 ## Key cases
 
-- Don't list multiple "options" — the loop already picks by reading handover.
-- 3-option pickup anti-pattern (incl. "(c) wait") → pick autonomous tracks, drop wait.
-- Legitimate bucket-3 stop (all levers pulled, work needs user) ≠ surrender framing — see reference §4.
-- Live `p<N>_*_status.sh` wins over handover narrative on disagreement.
+- Don't list multiple "options" — name the state + the next step.
+- "Waiting on <specific user decision / CI run / upstream fix>" is a concrete
+  dependency (name it specifically), not vague deferral.
 
-Full §1 table, fact-kind source-of-truth table, bucket-3 template, reviewer checklist: [`../references/handover_doc_discipline.md`](../references/handover_doc_discipline.md).
+Full fact-kind source-of-truth table + reviewer checklist: [`../references/handover_doc_discipline.md`](../references/handover_doc_discipline.md).

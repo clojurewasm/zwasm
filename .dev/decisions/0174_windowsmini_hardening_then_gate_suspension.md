@@ -59,3 +59,7 @@ push, so suspension only affects the fast inner iteration loop.
   Win64 drift accumulated while suspended is caught at `--resume` (the next
   windows batch re-verifies the whole span since `.dev/windows_gate_suspended`).
 - ADR-0076 D8's cadence still applies whenever gating is NOT suspended.
+
+## Revision / status update
+
+- 2026-07-03 — **SUPERSEDED-IN-PART by ADR-0076 D9** (user-ratified, scaffolding-necessity audit §B.2). The suspend/resume machinery and the "windowsmini as inner-loop gate" framing are obsolete: post-v2.0.0 maintenance retired the local Windows cadence entirely (CI's `ci-required` runs the Windows leg on every PR). `should_gate_windows.sh` is now a deprecation stub and the `.dev/windows_gate_suspended` sentinel is dead. Retained as historical record of the campaign-era gate economics.
