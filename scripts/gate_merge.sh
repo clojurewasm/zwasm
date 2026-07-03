@@ -1,35 +1,33 @@
 #!/usr/bin/env bash
-# Local pre-PR / pre-merge gate. Runs the commit gate plus a three-host test:
+# OPTIONAL local pre-PR pre-flight that MIRRORS CI. Runs the commit gate plus a
+# three-host test:
 #   - zig build test-all on Mac native
 #   - zig build test-all on `ubuntunote` Linux x86_64 SSH host
 #     (per ADR-0067; native, not OrbStack-Rosetta)
 #   - zig build test-all on `windowsmini` SSH host (if reachable)
 #
 # `main` is ruleset-protected (no direct pushes) — changes land via a
-# develop/<slug> branch → PR → CI. This script mirrors the CI 3-OS gate on
-# real hardware so a maintainer can verify the full matrix locally before
-# opening/merging a PR. The server-side `ci-required` check on the PR is the
-# authoritative enforcement; this local gate is the first line of defense and
-# runs the same `scripts/ci_gate.sh` steps CI runs.
+# develop/<slug> branch → PR → CI. The AUTHORITATIVE 3-OS merge gate is the
+# server-side `ci-required` status check on the PR. This script is a
+# convenience: it mirrors that same `scripts/ci_gate.sh` matrix on real
+# hardware so a maintainer CAN verify locally before opening a PR — but it is
+# not required, and green here is not a substitute for green ci-required.
 #
 # Missing ubuntunote SSH or unreachable windowsmini → WARN and continue (the
 # local Mac gate is the firm floor).
 #
-# §A13 enforcement (Phase 6+ / §9.6 / 6.5): `test-all` aggregates
-# every layer in ROADMAP §A13's "v1 regression suite" definition
-# that v2 has stood up so far:
+# `test-all` aggregates every layer in ROADMAP §A13's "v1 regression suite"
+# definition that v2 has stood up:
 #   - test-wasmtime-misc-basic   (§9.6 / 6.B per ADR-0012; was test-v1-carry-over)
 #   - test-realworld       (§9.6 / 6.1 chunk a; 50 fixtures, parse)
 #   - test-realworld-run   (§9.6 / 6.1 chunk b; 50 fixtures, run)
 #   - test-spec / test-spec-wasm-2.0 / test-c-api / test-wasi-p1
-# The "ClojureWasm guest" half of A13 lands when §9.6 / 6.3 wires
-# its `build.zig.zon` `path = ...` end-to-end. Until then this
-# gate is A13 minus ClojureWasm — every other A13 layer is
-# enforced on every merge to `main` (i.e. on the PR that produces it).
+# The same layers run in CI's ci-required matrix, which is what actually gates
+# a merge to `main`; this local run just previews that outcome.
 #
-# Exits non-zero on any host that built but had a failed test, on
-# any commit-gate failure, or on missing tools (orb / ssh) where
-# the corresponding host would be required by the current phase.
+# Exits non-zero on any host that built but had a failed test, on any
+# commit-gate failure, or on missing tools (ssh) — as a local preview signal,
+# not a merge gate.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -93,18 +91,16 @@ if [ -f scripts/sync_versions.sh ]; then
     bash scripts/sync_versions.sh
 fi
 
-# Final skipped-hosts summary. Bootstrap-friendly WARN-and-continue
-# is acceptable in Phase 0 / early phases; from Phase 8 onward (per
-# ADR-0067 + project release-gate discipline) a complete 3-host
-# gate is required for any push to `main`. The user / CI evaluates
-# the policy threshold; this script just records what happened.
+# Final skipped-hosts summary. This is an OPTIONAL local pre-flight — a skipped
+# host just means this preview is incomplete, NOT that a merge is blocked. The
+# authoritative 3-OS gate is CI's `ci-required` check on the PR; run the missing
+# host(s) locally only if you want a fuller local preview before opening one.
 if [ "${#SKIPPED_HOSTS[@]}" -gt 0 ]; then
     echo
-    echo "[gate_merge] SUMMARY — hosts skipped (non-zero count = incomplete merge gate):" >&2
+    echo "[gate_merge] SUMMARY — hosts skipped (incomplete local preview; CI ci-required still gates the merge):" >&2
     for h in "${SKIPPED_HOSTS[@]}"; do
         echo "  - $h" >&2
     done
-    echo "[gate_merge] Phase 0 / early: WARN-only is acceptable; Phase 8+: required hosts must be green." >&2
 fi
 
-echo "[gate_merge] All gates passed (with WARNs noted above where applicable)."
+echo "[gate_merge] Local pre-flight complete (with WARNs noted above where applicable) — CI ci-required is the authoritative merge gate."

@@ -17,10 +17,12 @@ publish / cut over. No active campaign/bundle; no cron self-re-arm.
 Post-v2.0.0 sweep (see `.dev/meta_audits/2026-07-03-maintenance-scaffolding-audit.md`):
 - **Batch A — ledger/proposal reconcile** (doc-only) — MERGED #118. Debt reconciled
   vs code truth (closed D-294/296/297/322/500; reclassified D-254→now / D-249→note).
-- **Batch E — scaffolding necessity audit** (doc-only) — MERGED #119. handover reshaped
-  to a state doc; retired-loop skill triggers de-looped. **Pending USER decisions**
-  (report §B/§C): file-size cap posture (ADR-0099), Windows-BATCHED / `gate_merge`
-  cadence (ADR-0076/0174), and the relax-vs-promote-to-`ci_gate` fork.
+- **Batch E — scaffolding necessity audit** — E-段1 report + de-loop MERGED #119.
+  E-段2 (§B/§C decisions RATIFIED by user 2026-07-03, all recommendations): PR OPEN —
+  file-size cap → ADVISORY (ADR-0099); Windows-BATCHED/`gate_merge` cadence RETIRED,
+  `gate_merge` demoted to optional pre-flight (ADR-0076 D9 / ADR-0174 superseded);
+  `zone_check` PROMOTED into `ci_gate.sh`. `spill_aware_check` promotion HELD → **D-505**
+  (7 pre-existing unenforced arm64-SIMD violations to triage first).
 - **Batch B — Component域** (code) — MERGED #120. D-502 utf16/latin1+utf16 canon
   string codec (lower+lift) COMPLETE (residual = `invokeStringExport` utf8-gate, see
   the D-502 note); D-504 discharged (wasi_p2 @panic→NoHostIo + fd.zig doc-rot).
@@ -65,7 +67,8 @@ Post-v2.0.0 sweep (see `.dev/meta_audits/2026-07-03-maintenance-scaffolding-audi
   dogfooded into cljw (pins zwasm by git tag-hash). Runners ReleaseSafe.
 - **EH**: cross-instance JIT EH both arches. Interp+JIT EH corpus green. Realworld 56
   fixtures interp 56/0; JIT diff-gated.
-- **Debt**: 61 entries — ZERO `now`-class (after Batch A/B). 完成形 plateau (all dims
+- **Debt**: 62 entries — 2 `now`-class: **D-254** (wire `run-rust-host` into the gate)
+  + **D-505** (triage 7 arm64-SIMD spill_aware violations, then promote to CI). 完成形 plateau (all dims
   confirmed, surface audits clean, interp+JIT fuzz 0-crash, v1-JIT parity D-265 closed).
 - **Proposals**: reviewed 2026-07-03; no phase advances; 3.0 corpora unaffected.
 
