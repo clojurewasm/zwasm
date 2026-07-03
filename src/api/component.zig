@@ -213,8 +213,9 @@ pub const ComponentInstance = struct {
         const cx2 = try self.canonContext();
         const out_ptr = try readU32LE(cx2.mem(), ret_ptr);
         const out_len = try readU32LE(cx2.mem(), ret_ptr + 4);
-        const borrowed = try canon.liftString(cx2, out_ptr, out_len);
-        const owned = try out_alloc.dupe(u8, borrowed);
+        // liftString allocates the (possibly transcoded) result directly into
+        // out_alloc — an owned host copy, independent of guest memory.
+        const owned = try canon.liftString(cx2, out_alloc, out_ptr, out_len);
         errdefer out_alloc.free(owned);
 
         if (post_return) |pr| {

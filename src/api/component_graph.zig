@@ -1700,7 +1700,8 @@ fn boundaryMarshal(caller: *Caller, bctx: *BoundaryCtx, args: []const RtValue) B
 fn stringErrToTrap(e: canon.StringError) BoundaryError {
     return switch (e) {
         error.OutOfBounds, error.AllocFailed => error.OutOfBoundsStore,
-        error.InvalidUtf8, error.StringTooLong, error.UnsupportedEncoding => error.OutOfBoundsLoad,
+        error.OutOfMemory => error.OutOfMemory,
+        error.InvalidUtf8, error.InvalidUtf16, error.StringTooLong, error.UnsupportedEncoding => error.OutOfBoundsLoad,
     };
 }
 
@@ -1734,16 +1735,15 @@ fn retPtrMarshal(caller: *Caller, bctx: *BoundaryCtx, retptr: u32) BoundaryError
     if (@as(usize, callee_ret) + 8 > callee_cx.mem().len) return error.OutOfBoundsLoad;
     const b_ptr = std.mem.readInt(u32, callee_cx.mem()[callee_ret..][0..4], .little);
     const b_len = std.mem.readInt(u32, callee_cx.mem()[callee_ret + 4 ..][0..4], .little);
-    const lifted = canon.liftString(callee_cx, b_ptr, b_len) catch |e| return stringErrToTrap(e);
+    const lifted = canon.liftString(callee_cx, caller.allocator(), b_ptr, b_len) catch |e| return stringErrToTrap(e);
+    defer caller.allocator().free(lifted);
 
-    // 3. Lower the string into the IMPORTER's memory (snapshot first: the lift
-    //    borrows callee memory, the lower realloc may move it). Then write the
-    //    A-side (ptr,len) at the importer's retptr in the importer's memory.
+    // 3. Lower the string into the IMPORTER's memory. `lifted` is an OWNED host
+    //    copy (independent of callee memory), so the importer's realloc moving
+    //    its own memory can't disturb it. Write the A-side (ptr,len) at retptr.
     const importer = bctx.importer orelse return error.OutOfBoundsStore;
-    const tmp = try caller.allocator().dupe(u8, lifted);
-    defer caller.allocator().free(tmp);
     const importer_cx = importer.canonContext();
-    const lowered = canon.lowerString(importer_cx, tmp) catch |e| return stringErrToTrap(e);
+    const lowered = canon.lowerString(importer_cx, lifted) catch |e| return stringErrToTrap(e);
     if (@as(usize, retptr) + 8 > importer_cx.mem().len) return error.OutOfBoundsStore;
     std.mem.writeInt(u32, importer_cx.mem()[retptr..][0..4], lowered.ptr, .little);
     std.mem.writeInt(u32, importer_cx.mem()[retptr + 4 ..][0..4], lowered.packed_length, .little);
@@ -1844,16 +1844,15 @@ fn strRetStrTrampoline(caller: *Caller, param_ptr: u32, param_len: u32, retptr: 
     if (@as(usize, callee_ret) + 8 > callee_cx.mem().len) return error.OutOfBoundsLoad;
     const b_ptr = std.mem.readInt(u32, callee_cx.mem()[callee_ret..][0..4], .little);
     const b_len = std.mem.readInt(u32, callee_cx.mem()[callee_ret + 4 ..][0..4], .little);
-    const lifted = canon.liftString(callee_cx, b_ptr, b_len) catch |e| return stringErrToTrap(e);
+    const lifted = canon.liftString(callee_cx, caller.allocator(), b_ptr, b_len) catch |e| return stringErrToTrap(e);
+    defer caller.allocator().free(lifted);
 
-    // 4. Lower the string into the IMPORTER's memory (snapshot first: the lift
-    //    borrows callee memory, the lower realloc may move it). Then write the
-    //    A-side (ptr,len) at the importer's retptr in the importer's memory.
+    // 4. Lower the string into the IMPORTER's memory. `lifted` is an OWNED host
+    //    copy (independent of callee memory), so the importer's realloc moving
+    //    its own memory can't disturb it. Write the A-side (ptr,len) at retptr.
     const importer = bctx.importer orelse return error.OutOfBoundsStore;
-    const tmp = try caller.allocator().dupe(u8, lifted);
-    defer caller.allocator().free(tmp);
     const importer_cx = importer.canonContext();
-    const lowered = canon.lowerString(importer_cx, tmp) catch |e| return stringErrToTrap(e);
+    const lowered = canon.lowerString(importer_cx, lifted) catch |e| return stringErrToTrap(e);
     if (@as(usize, retptr) + 8 > importer_cx.mem().len) return error.OutOfBoundsStore;
     std.mem.writeInt(u32, importer_cx.mem()[retptr..][0..4], lowered.ptr, .little);
     std.mem.writeInt(u32, importer_cx.mem()[retptr + 4 ..][0..4], lowered.packed_length, .little);

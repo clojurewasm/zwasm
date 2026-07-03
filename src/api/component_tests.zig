@@ -314,7 +314,8 @@ test "IT-3a: cabi_realloc-via-guest — string lower/lift over real guest memory
     const lowered = try canon.lowerString(cx, "héllo, 世界");
     try testing.expect(lowered.ptr >= 16); // past the bump start
     // ...and lift it back out of the guest linear memory.
-    const back = try canon.liftString(cx, lowered.ptr, lowered.packed_length);
+    const back = try canon.liftString(cx, testing.allocator, lowered.ptr, lowered.packed_length);
+    defer testing.allocator.free(back);
     try testing.expectEqualStrings("héllo, 世界", back);
 }
 
@@ -343,8 +344,12 @@ test "IT-3a: two allocations via the guest allocator don't overlap" {
     const a = try canon.lowerString(cx, "first");
     const b = try canon.lowerString(cx, "second");
     try testing.expect(b.ptr >= a.ptr + a.packed_length); // bump advanced
-    try testing.expectEqualStrings("first", try canon.liftString(cx, a.ptr, a.packed_length));
-    try testing.expectEqualStrings("second", try canon.liftString(cx, b.ptr, b.packed_length));
+    const back_a = try canon.liftString(cx, testing.allocator, a.ptr, a.packed_length);
+    defer testing.allocator.free(back_a);
+    try testing.expectEqualStrings("first", back_a);
+    const back_b = try canon.liftString(cx, testing.allocator, b.ptr, b.packed_length);
+    defer testing.allocator.free(back_b);
+    try testing.expectEqualStrings("second", back_b);
 }
 
 /// Provenance of the REAL string→string component fixture (`greet(name: string)
