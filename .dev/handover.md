@@ -18,7 +18,7 @@ Post-v2.0.0 sweep (see `.dev/meta_audits/2026-07-03-maintenance-scaffolding-audi
 - **Batch A — ledger/proposal reconcile** (doc-only) — MERGED #118. Debt reconciled
   vs code truth (closed D-294/296/297/322/500; reclassified D-254→now / D-249→note).
 - **Batch E — scaffolding necessity audit** — E-段1 report + de-loop MERGED #119.
-  E-段2 (§B/§C decisions RATIFIED by user 2026-07-03, all recommendations): PR OPEN —
+  E-段2 (§B/§C decisions RATIFIED by user, all recommendations) MERGED #121 —
   file-size cap → ADVISORY (ADR-0099); Windows-BATCHED/`gate_merge` cadence RETIRED,
   `gate_merge` demoted to optional pre-flight (ADR-0076 D9 / ADR-0174 superseded);
   `zone_check` PROMOTED into `ci_gate.sh`. `spill_aware_check` promotion HELD → **D-505**
@@ -43,9 +43,11 @@ Post-v2.0.0 sweep (see `.dev/meta_audits/2026-07-03-maintenance-scaffolding-audi
   x86_64-linux JIT bugs. JIT-codegen fix → verify arm64 AND x86_64-macos.
 - **Step-0.7 NOTE**: `failed command: …--listen=-` / host-example exe lines are
   COSMETIC (exit 0); trust `[run_remote_*] OK/FAIL` + `N passed, 0 failed`.
-- CI `ci_gate.sh` runs `zig fmt` + `test-all` (+ JIT/DCE/AOT). It does NOT run
-  `file_size_check`/`zone_check`/`spill_aware_check` — those are local `gate_commit.sh`
-  only (see the scaffolding-audit report's load-bearing finding).
+- CI `ci_gate.sh` runs `zig fmt` + `test-all` + (core) `run-rust-host` on the Linux
+  leg (D-254) + (extended, push-to-main) lint/DCE/AOT/`zone_check` (promoted E-段2).
+  `file_size_check` is advisory-only (ADR-0099); `spill_aware_check` is NOT yet wired
+  anywhere (D-505). NOTE: extended runs only on push-to-main, so `zone_check` enforces
+  post-merge, not as a PR blocker (a future refinement could run it once per PR).
 
 ## Parked / gated — do NOT speculatively grind (see debt.yaml)
 
