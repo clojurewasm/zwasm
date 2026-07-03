@@ -3,6 +3,71 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-504"
+    layer: "code"
+    status: "note"
+    description: |-
+      note (low, defensible-by-design but undocumented abort surface): the
+      WASI-P2 clock/random builtins `@panic` if `host.io` is unset
+      (component_wasi_p2.zig — 5 sites). The component-run path always plants
+      `host.io`, so this is a host-SETUP precondition failure, NOT a
+      guest-triggerable trap (contrast D-495's guarded guest-reachable path).
+      Still, an `@panic` is a hard host abort where a `return error.HostIoUnset`
+      (surfaced as an instantiate/link error) would be the あるべき論. DISCHARGE:
+      replace the 5 `@panic` sites with a defensive error return + a one-line
+      doc comment stating the precondition. Rides Batch B (component域); pairs
+      with the fd.zig:808 comment-rot fix (CREAT/EXCL/TRUNC are actually
+      honoured at 854-863 — the "for now" docstring is stale).
+    first_raised: "2026-07-03"
+    last_reviewed: "2026-07-03"
+    refs: |-
+      src/api/component_wasi_p2.zig:289,301,394,890,903 (@panic if host.io unset) ·
+      src/wasi/fd.zig:808 (stale "for now" docstring; body 854-863 honours oflags) ·
+      sibling D-495 (guarded guest-reachable surface, the contrast case)
+  - id: "D-503"
+    layer: "code"
+    status: "note"
+    description: |-
+      note (headroom watch, NOT an extraction mandate): `entry.zig` is at
+      3161/3200 (98.8%) of its FILE-SIZE-EXEMPT cap. It is a uniform-pattern
+      per-shape call-helper CATALOG (127 callXX_yy helpers, monotonic growth
+      with Wasm signature shapes) — exactly the irreducible-catalog class where
+      raising the cap marker is the SANCTIONED resolution (memory
+      feedback_filesize_cap_relax_ok; ADR-0099 Rev 2026-05-24). So the next
+      codegen shape-add (a new N-arg or v128-lane helper) that trips the cap
+      should BUMP `(cap=3200)` — not force a synthetic split. Recorded so the
+      trip is expected, not a surprise BLOCK. Ties into the E-段 scaffolding
+      audit's soft/hard-cap re-evaluation (the cap-as-smell-detector premise has
+      shifted post-campaign). Also re-approaching: validator.zig 3392/3510.
+    first_raised: "2026-07-03"
+    last_reviewed: "2026-07-03"
+    refs: |-
+      src/engine/codegen/shared/entry.zig:1 (FILE-SIZE-EXEMPT cap=3200 marker; file 3161L) ·
+      src/validate/validator.zig (3392/3510) · ADR-0099 · memory feedback_filesize_cap_relax_ok
+  - id: "D-502"
+    layer: "code"
+    status: "partial"
+    description: |-
+      Component Model canonical-ABI `utf16` / `latin1+utf16` string encodings
+      are unimplemented — `lift/lowerString` reject any non-utf8 `string_encoding`
+      with `StringError.UnsupportedEncoding` (canon.zig:285,298, guard-only). Only
+      utf8 lift/lower is wired; the `StringEncoding` enum + the latin1/utf16 tag
+      bit (canon.zig:269) are defined but the lowering/lifting bodies were left
+      "implemented in the next chunk" (canon.zig:276) and never landed. This is a
+      real CM canonical-ABI surface gap (a component declaring `string-encoding`
+      utf16/latin1+utf16 in its canon opts fails to lift/lower strings), distinct
+      from debt D-445's task.return encoding-MISMATCH check. Clean-errors rather
+      than miscompiles (no silent wrong answer). DISCHARGE: implement utf16 +
+      latin1+utf16 lift/lower (UTF-16LE codec + the latin1/utf16 discriminated
+      path per Canonical ABI §String) + flip the two negative fixtures
+      (canon.zig:730-731) to positive round-trips. Reference: wasmtime
+      `crates/wasmtime/src/runtime/component/func/options.rs` StringEncoding +
+      `~/Documents/OSS/WebAssembly/component-model` CanonicalABI.md. Rides Batch B.
+    first_raised: "2026-07-03"
+    last_reviewed: "2026-07-03"
+    refs: |-
+      src/feature/component/canon.zig:223,269,276,285,298 (StringEncoding + UnsupportedEncoding guards) ·
+      canon.zig:730-731 (negative fixtures to flip) · ~/Documents/OSS/WebAssembly/component-model/design/mvp/CanonicalABI.md
   - id: "D-501"
     layer: "code"
     status: "note"
@@ -53,7 +118,7 @@ entries:
     first_raised: "2026-07-01"
     last_reviewed: "2026-07-01"
     refs: |-
-      zwasm: src/engine/setup.zig `growCapacity` no-max→min (~728) + `.max=cap` (~779) ·
+      zwasm: src/engine/setup.zig `growCapacity` no-max→cap (~734/736) + `.max=cap` (~783) ·
       `jitTableGrowCore` `new_len > d.max` (setup.zig:241) · src/zwasm/table.zig:108-113
       (facade grow → jit arm) · examples/zig_dep bounded-table fix · exposed by `.auto` flip
       (D-478/D-496). Survey: wasmtime crates/wasmtime/src/runtime/vm/table.rs (grow :623,
@@ -62,30 +127,6 @@ entries:
       · wazero internal/wasm/table.go:297-320 + engine/wazevo/frontend/lower.go:5110-5141
       · WAMR core/iwasm/aot/aot_runtime.c:793-834,3991-4034 + wasm_loader.c:2548-2578
       (no-max default cap) + config.h WASM_TABLE_MAX_SIZE=1024.
-  - id: "D-500"
-    layer: "code"
-    status: "note"
-    description: |-
-      RESOLVED for components (2026-06-23, investigation agent a9ef96a8): the component
-      CM-API `.interp` pin is RATIFIED ARCHITECTURE, not a Win64 workaround. ADR-0172
-      (accepted 2026-06-07): component host orchestration lives in Zone 3 and runs on the
-      interp/Linker path because component instantiation does cross-instance memory
-      aliasing + elem-segment wiring — Zone-2 invariants INCOMPATIBLE with the JIT's
-      per-instance isolation. So component-on-JIT is architecturally PRECLUDED (not merely
-      "not a goal"); the pin (component.zig:397 + linker.zig:484) can never be dropped for
-      components, and they never route through the Win64 JIT thunk. The D-496-flip Win64
-      failure was the flip transiently routing components to JIT before the ADR-0172 pin;
-      re-pinning was the correct fix. RESIDUAL (folded into D-477): the underlying Win64
-      `wrapper_thunk.emitX8664Win64` rejects ≥2-arg + 3-result MEMORY-class host-invoke
-      shapes (positional-slot + shadow-space gap) — a general host-invoke completeness
-      sliver reachable only by a host C-API call of such a shape on a JIT instance,
-      Win64-only, niche. Tracked under D-477; build on demand.
-    first_raised: "2026-06-22"
-    last_reviewed: "2026-06-23"
-    refs: |-
-      ADR-0172 (component orchestration = Zone-3/interp, ratified) · src/api/component.zig:397
-      + src/zwasm/linker.zig:484 (.interp pin, architectural) · wrapper_thunk.emitX8664Win64
-      ≥2-arg/3-result gap → D-477 · investigation agent a9ef96a8 2026-06-23
   - id: "D-499"
     layer: "code"
     status: "note"
@@ -512,43 +553,6 @@ entries:
     refs: |-
       build.zig (static-lib step); docs/migration_v1_to_v2.md (C-API external link line); scripts/test_extlink.sh
     front: B-hardening
-  - id: "D-294"
-    layer: "code"
-    status: "note"
-    description: |-
-      partial: JIT call_indirect on a NULL (uninitialized, in-bounds) table element mislabelled its trap as
-      indirect_call_mismatch (code 3); interp + all 3 reference engines (wasmtime/wasmer/v1, D-292-D audit) say
-      "uninitialized element". A pure LABEL bug (always trapped, exit 1 — only the kind was wrong, D-293 class).
-      ✅ INLINE PATHS FIXED (4fa16b29, 2026-06-06): a null slot's stored typeidx is maxInt(u32) (the no-func
-      sentinel; compile_init.zig pre-seeds the typeidxs buffer), distinct from any canonical id. Clean insertion
-      at each inline cind-sig site — `CMP/CMN typeidx, 0xFFFFFFFF ; J(E/B.EQ) → uninitialized_elem (code 13)`
-      PRECEDES the sig CMP (typeidx already loaded). New uninit_elem_fixups channel mirrors cind_sig → code-13
-      stub both arches (x86_64 CMP+JE→emitTrapExitStub; arm64 CMN W16,#1 + B.EQ→EmitCindStub). Covers
-      call_indirect + return_call_indirect, table-0 + multi-table, both arches. jitTrapCode 13 =>
-      uninitialized_elem. Tests: runner_trap_test exec (null → 13) + byte-exact emit tests updated. Verified
-      JIT+interp both emit "uninitialized element". 3-host pending (ubuntu test-all kicked @4fa16b29).
-      ~~RESIDUAL 1 (narrow): the SUBTYPING resolve-trampoline path~~ FIXED 2026-06-15 (`2a53213f`):
-      `jitCallIndirectResolve` returns a distinct `NULL_ELEM_SENTINEL` (1) when the slot's typeidx is the
-      maxInt no-func sentinel; both arch callers `CMP X0/RAX,1 → uninit_elem_fixups` (code 13) before the
-      generic 0-trap. Test: rec-group subtyping module + null table[0] (wasm-tools-generated) → code 13.
-      RESIDUAL 2 (cosmetic): call_indirect OOB-INDEX prints `out of bounds table access` (oob_table) but spec
-      canonical is "undefined element"; table.get OOB stays "out of bounds table access".
-      REASSESSED 2026-06-06 (NOT cheap — folds into D-293): JIT trap-code 2 (oob_table) is SHARED by
-      call_indirect bounds AND table.get/set/copy/fill OOB (op_table.zig routes all to cind_bounds_fixups →
-      code 2). Giving call_indirect OOB a distinct "undefined element" needs SPLITTING the shared code-2
-      channel into call_indirect-bounds vs table-access-bounds — precisely the D-293 kinded-fixup refactor, not
-      a standalone constant. AND it is conformance-neutral: the spec runner matches by trap-KIND
-      (wast_runtime_runner.zig:959) and the corpus baker maps `undefined element → OutOfBoundsTableAccess`
-      (regen_wasmtime_misc tag_map), so the suite passes today; RESIDUAL 2 = bare-CLI-message polish only.
-      → Both residuals (R1 subtyping-trampoline sentinel, R2 code-2 channel split) are D-293-class; the
-      load-bearing D-294 bug (inline null-elem mislabel) is FIXED (4fa16b29). Residuals fold into D-293.
-    first_raised: "2026-06-06"
-    last_reviewed: "2026-06-19"
-    refs: |-
-      Fixed: 4fa16b29. src/engine/codegen/{arm64,x86_64}/{op_call,op_tail_call,ctx,emit}.zig +
-      x86_64/op_control.zig (demux) + api/trap_surface.zig (jitTrapCode 13). Tests: runner_trap_test.zig,
-      x86_64/emit_test_int.zig, arm64/emit_test_call.zig. Residual 1: jitCallIndirectResolve trampoline.
-    front: B-hardening
   - id: "D-292"
     layer: "code"
     status: "note"
@@ -744,7 +748,7 @@ entries:
     front: B-hardening
   - id: "D-254"
     layer: "process"
-    status: "blocked-by"
+    status: "now"
     description: |-
       **PROGRESS 2026-06-05 (ADR-0162): resolution (a) CHOSEN by user — provision native rust on the test hosts.**
       Rust INSTALLED: windowsmini rustc 1.96.0 (winget); ubuntunote via `flake.nix devShells.rust-host` (`a5cf80fb`).
@@ -772,7 +776,7 @@ entries:
       two standard SDK locations). Root fix is host-side: `sudo xcodebuild
       -runFirstLaunch` / `sudo xcode-select --reset` (out of autonomous scope).
     first_raised: "2026-06-04"
-    last_reviewed: "2026-06-05"
+    last_reviewed: "2026-07-03"
     refs: |-
       `examples/rust_host/hello.rs`; `build.zig` (`run-rust-host` step + SDKROOT probe); `.dev/toolchain_provisioning.md`; ROADMAP §13.5 / §13.P; mirrors c_host §13.4 conformance
     front: B-hardening
@@ -939,29 +943,6 @@ entries:
     refs: |-
       ADR-0181 Consequences; D-314 (e); bench/ history
     front: B-hardening
-  - id: "D-322"
-    layer: "feature/component"
-    status: "note"
-    description: |-
-      note (CM feature gap, NARROWED): resource defs (0x3f) now DECODE (raw-byte peek —
-      0x3f is sleb-positive unlike every other deftype op) + dtor core-func bounds +
-      rule 12 (nested-component scan; outer-aliasing the parent's generative resource —
-      or a def transitively carrying own/borrow/resource — rejects). 0x3e (async dtor)
-      stays a truthful UnsupportedTypeForm. CLOSED (discharge met: resource_counter
-      e2e green on the runtime AND typed paths): the graph engine synthesizes the
-      '[export]<iface>' resource builtins over a guest table + build-time dtor
-      resolution; ComponentValue/CanonType own+borrow flow through
-      flatten/lower/lift/store/load with the CanonContext borrow_rep hook
-      (lower_borrow owner-rep rule); exportedFuncIndex resolves "<iface>#<func>"
-      paths through wit-component interface-wrapper instantiations (nested scan
-      import/export maps + instance_origins local-ordinal mapping). Residual ideas
-      (own params transfer semantics, non-import-backed wrapper exports) are
-      demand-driven follow-ups, not gaps in the shipped surface.
-    first_raised: "2026-06-13"
-    last_reviewed: "2026-06-13"
-    refs: |-
-      types.zig decodeDefType 0x3f; validate.zig rule 12; nested_component_resource_refs
-    front: B-hardening
   - id: "D-323"
     layer: "wasi"
     status: "blocked-by"
@@ -1011,7 +992,7 @@ entries:
     front: B-hardening
   - id: "D-249"
     layer: "infra"
-    status: "blocked-by"
+    status: "note"
     description: |-
       blocked-by: `run_remote_windows.sh` has no bench step. **CORRECTION 2026-06-14: the
       "hyperfine absent" half of this barrier is DISSOLVED** — hyperfine 1.20.0 (the latest
@@ -1024,7 +1005,7 @@ entries:
       `run_remote_windows.sh bench` that appends a `history.yaml` Windows row, then record one
       baseline (OR keep ADR-0137's 2-host bench scope). Not a correctness gate; perf-completeness only.
     first_raised: "2026-06-03"
-    last_reviewed: "2026-06-14"
+    last_reviewed: "2026-07-03"
     refs: |-
       ADR-0137; scripts/run_remote_windows.sh (no bench step); scripts/run_bench.sh (hyperfine);
       bench/results/history.yaml; ROADMAP §11.2 / §11.P
@@ -1082,7 +1063,7 @@ entries:
     first_raised: "2026-06-04"
     last_reviewed: "2026-06-07"
     refs: |-
-      src/engine/codegen/shared/regalloc.zig (spillBytes, class-blind slot space @127-137);
+      src/engine/codegen/shared/regalloc.zig (spillBytes, class-blind slot space @231);
       regalloc_vreg_class.zig (vregClassOfOp); ADR-0150; ADR-0038/0040
     front: B-hardening
   - id: "D-266"
@@ -1126,7 +1107,7 @@ entries:
     first_raised: "2026-06-04"
     last_reviewed: "2026-06-04"
     refs: |-
-      src/ir/analysis/local_homing.zig:60,87 (max_homed @min(6, arch)); ADR-0155 (register-homed locals);
+      src/ir/analysis/local_homing.zig:60,88 (max_homed @min(6, arch)); ADR-0155 (register-homed locals);
       ADR-0153 (D-265 campaign); bench/results/s15p_parity_vs_v1.md; ROADMAP §16 (完成形 surface/perf bar)
     front: B-hardening
   - id: "D-271"
@@ -1288,77 +1269,6 @@ entries:
       src/cli/main.zig (arg parse ~120-176, --dir@159, --env wiring target); src/cli/run.zig (runWasmJit@44 /
       runCwasmWasi@122 / runWasmCapturedWithPreopens — setArgs+addPreopen sites @56/62/149/152/253/260);
       src/wasi/host.zig (setEnvs@160, setArgs@143, EnvEntry@61); ADR-0159 (CLI scope lock); ADR-0016 (diag).
-    front: B-hardening
-  - id: "D-296"
-    layer: "api"
-    status: "note"
-    description: |-
-      note (Phase 16 完成形 surface audits — C-API + Zig-API, 2026-06-06; the other two of three audit targets
-      after CLI→D-295). Both audits ran as Explore subagents vs the industry bar (wasm-c-api standard; wasmtime's
-      Rust embedding API).
-      C-API: ZERO gaps. 293/293 wasm-c-api functions exported + tested 3-host; verified by
-      scripts/capi_surface_gap.sh (gap=0). `include/wasm.h` byte-identical to upstream. Phase 13's "wasm-c-api
-      conformance" claim VERIFIED + EXCEEDED (serialize/deserialize, host-info 27 fns, ref as_ref all 9 types,
-      tagtype EH, frames). Intentional design notes (NOT bugs, already tracked): D-271 serialize=byte-model not
-      AOT-cache (QoI); D-269 funcref payload raw-ptr (spec-correct); D-253-D standalone `_copy`→null. NO new debt.
-      Zig-API (native `@import("zwasm")` facade): surface is 完成形-ready + idiomatic (Engine/Module/Instance/
-      TypedFunc/Memory/Global/Table/Linker/Caller/full-12-variant-Trap). Closed the ONE HIGH-value あるべき論 gap
-      this session — `Module.imports()`/`.exports()` pre-instantiation introspection (`a9c850be`), which ADR-0109
-      line 378 carved out as a "Phase 11 D6 follow-up" while its siblings (Instance.global/.table, Linker.
-      defineGlobal/Table) all landed → it had slipped through. Residual Zig-API gaps are v0.2/deferred + mostly
-      cross-ref existing debt, none 完成形-blocking. CLOSED 2026-06-06: `Memory.grow(delta)→?prev_pages`
-      (`f163e882` — extracted shared `Runtime.growMemory`, interp handler delegates; test-spec 9/0) +
-      `Memory.sliceAt(offset,len)` bounds-checked window (`e5f34ff8`); `Engine.linker()` factory (`994a5aef`,
-      doc/impl mismatch fixed); `Linker.defineInstance()` (`dba99bb8`) — register every export of an
-      instantiated module under one namespace (wasmtime's define_instance), composing the point-wise cross-module
-      alias paths. CORRECTION: the prior-turn (`3aaf9df2`) deferral of defineInstance as "sugar needing
-      cross-module alias paths first" was over-cautious — re-investigation showed ALL four alias paths already
-      exist (defineCrossModuleFunc / defineGlobal / defineMemoryInstance / defineTable), so it was a clean
-      compose (the audit's "only func has a clean cross path" was imprecise). ALL implementable Zig-API residuals
-      now CLOSED. Remaining residuals are separate tracked rows with their own discharge predicates: callable
-      funcref handle (D-269), full WASI config envs/preopens/stdio (D-177), standalone host-constructed
-      Global/Memory (D-178). DISCHARGE: all 3 完成形 surface audits done (CLI→D-295, C-API→0 gaps, Zig-API→gap#1 +
-      Memory.grow/sliceAt + engine.linker + defineInstance closed); remainder = the named existing rows only.
-    first_raised: "2026-06-06"
-    last_reviewed: "2026-06-06"
-    refs: |-
-      src/zwasm/module.zig (imports/exports@~95+); src/zwasm.zig (ExternKind/ImportItem/ExportItem re-exports);
-      ADR-0109 (line 378 carve-out); scripts/capi_surface_gap.sh; include/wasm.h; D-269 / D-177 / D-178 / D-271.
-    front: B-hardening
-  - id: "D-297"
-    layer: "api"
-    status: "note"
-    description: |-
-      note (cross-module aliasing memory-safety audit, 2026-06-06 — Phase-16 完成形 memory-safety dimension).
-      Audited the Zig facade's cross-module aliasing lifetime model (Linker aliases a source Instance's live
-      funcs/memories/globals/tables into an importer). RESULT: model is SOUND. The c_api zombie-parking
-      architecture (`wasm_instance_delete` parks runtime+arena on the store's zombie list, reaped only at
-      `wasm_store_delete` — instance.zig:263) keeps aliased storage alive past individual instance deletes, so
-      memory/global/table/func aliases cannot dangle early (DISPROVED an audit's claimed table-refs-UAF). ONE
-      real gap found + FIXED (`477a9004`, docs): the **Linker must outlive every Instance it instantiates that
-      imports a host/cross-module func** — the importer runtime holds a raw ptr into the Linker-owned CallCtx
-      (ctx_storage, linker.zig:548), so a cross-module call after `Linker.deinit` is UAF. Was real + necessary
-      but lived only in an internal union comment; now on the file header + deinit docstring.
-      OPTIONAL FUTURE HARDENING (low priority, deferred): a debug-mode fail-loud guard — Linker tracks a
-      live-importer count (Instance back-ref decremented on its deinit) + `std.debug.assert(count==0)` in
-      `Linker.deinit`. Turns the silent-UAF footgun into a loud panic in Debug/ReleaseSafe. Contract-based (no
-      guard) is acceptable for a v0.1 systems embedding API (mirrors wasmtime's Store-ownership model; Zig has
-      no borrow checker), so this is a nice-to-have, not a correctness gap. DISCHARGE DECIDED 2026-06-14
-      (contract suffices for v1.0 — guard REJECTED): the live-importer counter would need balanced inc/dec
-      across EVERY path that aliases `ctx_storage` — the facade `_zwasm.Instance` (instance.zig:33, holds only
-      handle+c_store, NO Linker back-ref), the C-API store path, AND component.zig / component_wasi_p2.zig —
-      each a distinct Instance type + deinit path. Any unbalanced path makes `assert(count==0)` FALSE-FIRE in
-      the ReleaseSafe test net (ADR-0177); a partial guard (one path) is worse than none (false protection +
-      spurious panic). The footgun is already mitigated by (a) the documented LIFETIME CONTRACT on the
-      `src/zwasm/linker.zig` file header + `deinit` docstring and (b) the alias being a raw pointer (explicit,
-      not a silent default) — acceptable misuse-resistance for a systems embedding API, mirroring wasmtime's
-      contract-based Store ownership. (Stale ref corrected: ctx_storage lives at `src/zwasm/linker.zig:68`, not
-      the cited linker.zig:548.) Residual CLOSED.
-    first_raised: "2026-06-06"
-    last_reviewed: "2026-06-06"
-    refs: |-
-      src/zwasm/linker.zig (header lifetime contract; deinit@~176; ctx_storage@58; cmf.ctx_ptr wiring@548);
-      src/api/instance.zig (zombie parking@206-269); ADR-0014 §2.1/6.K.2 (zombie list); D-199 / D-201b (aliasing).
     front: B-hardening
   - id: D-300
     layer: code

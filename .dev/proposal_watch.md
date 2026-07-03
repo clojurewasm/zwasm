@@ -5,7 +5,7 @@
 > re-evaluated when they advance. Phase 4 non-web proposals are the
 > v0.2.0 line.
 
-Last reviewed: **2026-06-15**.
+Last reviewed: **2026-07-03**.
 
 > **WASI 0.3.0 RATIFIED 2026-06-11** (Bytecode Alliance; Wasmtime 43+). It
 > rebases WASI onto the **Component Model async primitives** (`async` func,
@@ -86,6 +86,16 @@ Text Encoding Builtins` (skip).
 | 0.1 (preview1) | Phases 4 / 11 | de-facto baseline; complete in Phase 11 |
 | 0.2 (preview2) | **Phase 17 (ACTIVE)** | Component Model required; full campaign per ADR-0170 (`component_model_plan.md`) |
 | 0.3            | post-v0.1.0 (post-v0.2.0) | **released 2026-06-11**; rebases WASI on CM async — streams/futures replace 0.2 poll/`pollable`; breaking vs 0.2; impl gated on CM-async + stack-switching (D-300, DEFER) |
+
+- **2026-07-03** — **post-v2.0.0 maintenance sweep** (reference clones refreshed
+  ff-only: wasmtime / WAMR / wasm-tools / component-model to upstream HEAD; spec +
+  testsuite left at their `wg-3.0` / `spec_pin.yaml` pins). **No proposal phase
+  advances since 2026-06-15**: Threads = Phase 4; stack-switching / custom-page-sizes /
+  wide-arithmetic = Phase 3; WASI 0.3.0 stays ratified-only (Wasmtime 46 flips CM-async
+  on by default — runtime maturation, not a spec move; already post-v0.2.0 for zwasm).
+  Testsuite `main` is one benign commit past the pin (`193e551` — custom-page-sizes
+  proposal wast reformatted to `(module definition …)`; **zero `test/core/` change**),
+  so the frozen 3.0 conformance corpora are unaffected → no re-distil, no spec-pin bump.
 
 ## Toolchain proposals (non-Wasm; trigger zwasm scaffolding changes)
 
