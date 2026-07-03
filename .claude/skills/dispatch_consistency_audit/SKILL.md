@@ -1,15 +1,15 @@
 ---
 name: dispatch_consistency_audit
-description: Audit Q3 C adoption's dispatch substrate consistency — three-way match of ZirOp tag count = per-op file count = 5-axis handler implementation count; `wasm_level` / `wasi_level` metadata consistency; sampling check that build-option DCE works as expected. Fires after §9.12-B completion and at periodic audit_scaffolding boundaries.
+description: Audit Q3 C adoption's dispatch substrate consistency — three-way match of ZirOp tag count = per-op file count = 5-axis handler implementation count; `wasm_level` / `wasi_level` metadata consistency; sampling check that build-option DCE works as expected. Fires at periodic audit_scaffolding boundaries and on explicit request (the §9.12-B build trigger is now DONE — the substrate exists, so the check is always live).
 ---
 
 # dispatch_consistency_audit
 
 > **Status**: landed at §9.12-A (2026-05-19). Justified by ADR-0071 §Q3 +
-> ADR-0073 (both Accepted). Currently runs in **pre-§9.12-B mode** which
-> reports "substrate not yet built" gracefully. **Post-§9.12-B mode**
-> activates once `src/ir/dispatch_collector.zig` exists with the
-> `collected_ops` declaration; the skill auto-detects and switches.
+> ADR-0073 (both Accepted). **Post-§9.12-B mode is now ACTIVE** —
+> `src/ir/dispatch_collector.zig` exists with the `collected_ops`
+> declaration, so the full three-way match runs. (Maintenance mode: invoke
+> at periodic `audit_scaffolding` boundaries, not on a campaign phase edge.)
 
 ## Purpose
 
