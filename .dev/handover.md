@@ -26,8 +26,12 @@ Post-v2.0.0 sweep (see `.dev/meta_audits/2026-07-03-maintenance-scaffolding-audi
 - **Batch B — Component域** (code) — MERGED #120. D-502 utf16/latin1+utf16 canon
   string codec (lower+lift) COMPLETE (residual = `invokeStringExport` utf8-gate, see
   the D-502 note); D-504 discharged (wasi_p2 @panic→NoHostIo + fd.zig doc-rot).
-- **Batch C — table64-JIT** (D-475) = queued code PR (Win64-risk, do with FRESH
-  context). **D held.** **D-444** (component_wasi_p2 split) gated on the cap-posture decision.
+- **D-254 — rust-host CI gate** — MERGED #122. `run-rust-host` now runs on the ubuntu
+  gate leg (Linux-guarded core). Scaffolding-maintenance campaign (A→E→B + D-254) COMPLETE.
+- **NEXT (all fresh-context — do NOT grind in a deep loop)**: **D-505** (arm64 spill
+  triage → spill_aware CI promotion; the sole now-class item) · **Batch C / D-475**
+  table64-JIT (Win64-risk). **D held.** **D-444** = optional design split (cap now advisory).
+  Minor/demand-driven: D-502 residual (invokeStringExport encoding), mac/win rust-host CI.
 
 ## Operational invariants (keep using)
 
@@ -67,8 +71,9 @@ Post-v2.0.0 sweep (see `.dev/meta_audits/2026-07-03-maintenance-scaffolding-audi
   dogfooded into cljw (pins zwasm by git tag-hash). Runners ReleaseSafe.
 - **EH**: cross-instance JIT EH both arches. Interp+JIT EH corpus green. Realworld 56
   fixtures interp 56/0; JIT diff-gated.
-- **Debt**: 62 entries — 2 `now`-class: **D-254** (wire `run-rust-host` into the gate)
-  + **D-505** (triage 7 arm64-SIMD spill_aware violations, then promote to CI). 完成形 plateau (all dims
+- **Debt**: 62 entries — 1 `now`-class: **D-505** (triage 7 arm64-SIMD spill_aware
+  violations, then promote spill_aware to CI). D-254 CLOSED (run-rust-host CI-gated
+  on the ubuntu leg, #122). 完成形 plateau (all dims
   confirmed, surface audits clean, interp+JIT fuzz 0-crash, v1-JIT parity D-265 closed).
 - **Proposals**: reviewed 2026-07-03; no phase advances; 3.0 corpora unaffected.
 
