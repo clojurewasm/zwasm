@@ -3,27 +3,6 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
-  - id: "D-504"
-    layer: "code"
-    status: "note"
-    description: |-
-      note (low, defensible-by-design but undocumented abort surface): the
-      WASI-P2 clock/random builtins `@panic` if `host.io` is unset
-      (component_wasi_p2.zig — 5 sites). The component-run path always plants
-      `host.io`, so this is a host-SETUP precondition failure, NOT a
-      guest-triggerable trap (contrast D-495's guarded guest-reachable path).
-      Still, an `@panic` is a hard host abort where a `return error.HostIoUnset`
-      (surfaced as an instantiate/link error) would be the あるべき論. DISCHARGE:
-      replace the 5 `@panic` sites with a defensive error return + a one-line
-      doc comment stating the precondition. Rides Batch B (component域); pairs
-      with the fd.zig:808 comment-rot fix (CREAT/EXCL/TRUNC are actually
-      honoured at 854-863 — the "for now" docstring is stale).
-    first_raised: "2026-07-03"
-    last_reviewed: "2026-07-03"
-    refs: |-
-      src/api/component_wasi_p2.zig:289,301,394,890,903 (@panic if host.io unset) ·
-      src/wasi/fd.zig:808 (stale "for now" docstring; body 854-863 honours oflags) ·
-      sibling D-495 (guarded guest-reachable surface, the contrast case)
   - id: "D-503"
     layer: "code"
     status: "note"
@@ -46,28 +25,30 @@ entries:
       src/validate/validator.zig (3392/3510) · ADR-0099 · memory feedback_filesize_cap_relax_ok
   - id: "D-502"
     layer: "code"
-    status: "partial"
+    status: "note"
     description: |-
-      Component Model canonical-ABI `utf16` / `latin1+utf16` string encodings
-      are unimplemented — `lift/lowerString` reject any non-utf8 `string_encoding`
-      with `StringError.UnsupportedEncoding` (canon.zig:285,298, guard-only). Only
-      utf8 lift/lower is wired; the `StringEncoding` enum + the latin1/utf16 tag
-      bit (canon.zig:269) are defined but the lowering/lifting bodies were left
-      "implemented in the next chunk" (canon.zig:276) and never landed. This is a
-      real CM canonical-ABI surface gap (a component declaring `string-encoding`
-      utf16/latin1+utf16 in its canon opts fails to lift/lower strings), distinct
-      from debt D-445's task.return encoding-MISMATCH check. Clean-errors rather
-      than miscompiles (no silent wrong answer). DISCHARGE: implement utf16 +
-      latin1+utf16 lift/lower (UTF-16LE codec + the latin1/utf16 discriminated
-      path per Canonical ABI §String) + flip the two negative fixtures
-      (canon.zig:730-731) to positive round-trips. Reference: wasmtime
-      `crates/wasmtime/src/runtime/component/func/options.rs` StringEncoding +
-      `~/Documents/OSS/WebAssembly/component-model` CanonicalABI.md. Rides Batch B.
+      RESOLVED at the canon layer (Batch B): Component Model canonical-ABI
+      `utf16` / `latin1+utf16` string encodings are now IMPLEMENTED on both the
+      lower path (@69d7c8b75) and the lift path (@298444253). `lowerString`
+      dispatches utf8/utf16/latin1_utf16; `liftString` gained an `arena` param and
+      returns a uniformly OWNED host-UTF-8 buffer (utf8 copied; utf16 /
+      latin1+utf16 transcoded — UTF-16LE codec + surrogate pairs + the
+      UTF16_TAG-bit latin1/utf16 discriminant). `StringError += InvalidUtf16,
+      OutOfMemory`; fixtures cover round-trips (incl. a supplementary code point)
+      + dangling-surrogate / unaligned-ptr traps.
+      RESIDUAL (smaller, distinct): the component-INVOKE convenience path
+      `invokeStringExport` (component.zig) still hard-gates to utf8
+      (`r.string_encoding != .utf8 → UnsupportedEncoding`) — it does not yet
+      thread the resolved lift-func `string-encoding` into `invokeString`'s
+      CanonContext. The codec is done; only the invoke-path plumbing remains.
+      DISCHARGE (residual): thread the resolved encoding into invokeString's
+      CanonContext + drop the utf8 gate + add a non-utf8 export round-trip fixture.
     first_raised: "2026-07-03"
     last_reviewed: "2026-07-03"
     refs: |-
-      src/feature/component/canon.zig:223,269,276,285,298 (StringEncoding + UnsupportedEncoding guards) ·
-      canon.zig:730-731 (negative fixtures to flip) · ~/Documents/OSS/WebAssembly/component-model/design/mvp/CanonicalABI.md
+      src/feature/component/canon.zig (lowerString / liftString / liftUtf16 / liftLatin1 — DONE) ·
+      src/api/component.zig invokeStringExport (residual utf8 gate) ·
+      ~/Documents/OSS/WebAssembly/component-model/design/mvp/CanonicalABI.md §String
   - id: "D-501"
     layer: "code"
     status: "note"

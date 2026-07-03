@@ -15,13 +15,17 @@ publish / cut over. No active campaign/bundle; no cron self-re-arm.
 ## Active maintenance work (batched to keep CI frugal)
 
 Post-v2.0.0 sweep (see `.dev/meta_audits/2026-07-03-maintenance-scaffolding-audit.md`):
-- **Batch A — ledger/proposal reconcile** (doc-only) — PR #118 OPEN, `ci-required` green.
-  Debt reconciled vs code truth: closed D-294/296/297/322/500, reclassified
-  D-254→now / D-249→note, recorded D-502/503/504. Ledger → 62 entries, ZERO now-class.
-- **E — scaffolding necessity audit** — report landed; E-段2 prunes in flight on
-  `develop/scaffolding-maintenance` (deloop retired-campaign docs, cap-posture +
-  gate-cadence changes are NEEDS-ADR → user-gated, see the report §B/§C).
-- **Batch B (Component域)** + **Batch C (table64-JIT)** = queued code PRs (below). **D held.**
+- **Batch A — ledger/proposal reconcile** (doc-only) — MERGED #118. Debt reconciled
+  vs code truth (closed D-294/296/297/322/500; reclassified D-254→now / D-249→note).
+- **Batch E — scaffolding necessity audit** (doc-only) — MERGED #119. handover reshaped
+  to a state doc; retired-loop skill triggers de-looped. **Pending USER decisions**
+  (report §B/§C): file-size cap posture (ADR-0099), Windows-BATCHED / `gate_merge`
+  cadence (ADR-0076/0174), and the relax-vs-promote-to-`ci_gate` fork.
+- **Batch B — Component域** (code) — MERGED #120. D-502 utf16/latin1+utf16 canon
+  string codec (lower+lift) COMPLETE (residual = `invokeStringExport` utf8-gate, see
+  the D-502 note); D-504 discharged (wasi_p2 @panic→NoHostIo + fd.zig doc-rot).
+- **Batch C — table64-JIT** (D-475) = queued code PR (Win64-risk, do with FRESH
+  context). **D held.** **D-444** (component_wasi_p2 split) gated on the cap-posture decision.
 
 ## Operational invariants (keep using)
 
@@ -61,7 +65,7 @@ Post-v2.0.0 sweep (see `.dev/meta_audits/2026-07-03-maintenance-scaffolding-audi
   dogfooded into cljw (pins zwasm by git tag-hash). Runners ReleaseSafe.
 - **EH**: cross-instance JIT EH both arches. Interp+JIT EH corpus green. Realworld 56
   fixtures interp 56/0; JIT diff-gated.
-- **Debt**: 62 entries — ZERO `now`-class (after Batch A). 完成形 plateau (all dims
+- **Debt**: 61 entries — ZERO `now`-class (after Batch A/B). 完成形 plateau (all dims
   confirmed, surface audits clean, interp+JIT fuzz 0-crash, v1-JIT parity D-265 closed).
 - **Proposals**: reviewed 2026-07-03; no phase advances; 3.0 corpora unaffected.
 
