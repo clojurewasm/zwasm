@@ -27,7 +27,14 @@ preserved long-term.
   `bench/results/recent.yaml`. Adding `--phase-record
   --reason="<tag>: <gist>"` also appends one row to
   `bench/results/history.yaml`. `scripts/record_merge_bench.sh`
-  is the phase-boundary wrapper.
+  is the wrapper.
+- **Per-merge under PR-only `main`**: record the bench **on the
+  feature branch before opening the PR** and commit
+  `history.yaml` **into the same PR** as the code — NOT as a
+  post-merge follow-up (ruleset-protected `main` would require a
+  separate PR per merge). Put the PR intent in `--reason`; the
+  entry's SHA is the branch tip (cosmetic). Skip for trivial /
+  doc-only changes.
 - **Per-push CI**: [`.github/workflows/bench.yml`](../.github/workflows/bench.yml)
   runs `--quick --phase-record` on every push to
   `main` across `macos-latest` (aarch64-darwin) +

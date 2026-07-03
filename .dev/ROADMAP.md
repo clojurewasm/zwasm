@@ -2056,11 +2056,13 @@ Instead:
 
 ### 12.4 Cadence
 
-- **Per-merge** (Phase 14+, automated CI): full hyperfine on Mac;
-  Linux and Windows rows recorded by the matrix.
-- **Per-merge** (Phase 0–13, manual): Mac via `bash
-  scripts/record_merge_bench.sh`; Linux + Windows via the analogous
-  remote scripts when results are needed.
+- **Per-merge** (manual, under PR-only `main`): record on the
+  **feature branch** via `bash scripts/record_merge_bench.sh
+  --phase-record --reason=...` and commit `history.yaml` into the
+  **same PR** as the code — never a post-merge follow-up (a
+  ruleset-protected `main` would need its own PR each merge).
+  Linux + Windows rows via the analogous remote scripts when
+  needed. Skip for trivial / doc-only changes.
 - **Manual baselines**: `bash scripts/record_merge_bench.sh
   --arch=...` records on demand.
 

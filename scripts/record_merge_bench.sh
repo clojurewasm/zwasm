@@ -9,12 +9,14 @@
 # (committed, append-only) tagged with commit + arch + reason. Arch is
 # auto-detected from `uname` ({aarch64-darwin, x86_64-linux, x86_64-windows}).
 #
-# Cadence (ROADMAP §12.4): during Phase 0-13 the per-merge bench is MANUAL —
-# run this on Mac directly, and on ubuntunote / windowsmini for the Linux /
-# Windows rows. Auto-CI (the push-triggered bench.yml) is Phase 14+; its
-# push trigger was disabled 2026-05-25 per user direction (CI was not
-# consumed; auto-runs produced noise). This script is the supported path
-# until then.
+# Cadence (ROADMAP §12.4): the per-merge bench is MANUAL. Under PR-only `main`
+# (ruleset-protected), record ON THE FEATURE BRANCH before opening the PR and
+# commit `bench/results/history.yaml` INTO THE SAME PR — NOT as a post-merge
+# follow-up (that would need its own PR each merge). Put the PR intent in
+# `--reason`; the entry's commit SHA is the branch tip (cosmetic — reason/PR#/
+# date identify it). Run on Mac; ubuntunote / windowsmini for Linux / Windows
+# rows when needed. Auto-CI (push-triggered bench.yml) stays disabled
+# (2026-05-25; CI was not consumed, auto-runs produced noise).
 #
 # Usage:
 #   bash scripts/record_merge_bench.sh                  # recent.yaml only
