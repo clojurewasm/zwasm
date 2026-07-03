@@ -21,17 +21,19 @@ Post-v2.0.0 sweep (see `.dev/meta_audits/2026-07-03-maintenance-scaffolding-audi
   E-段2 (§B/§C decisions RATIFIED by user, all recommendations) MERGED #121 —
   file-size cap → ADVISORY (ADR-0099); Windows-BATCHED/`gate_merge` cadence RETIRED,
   `gate_merge` demoted to optional pre-flight (ADR-0076 D9 / ADR-0174 superseded);
-  `zone_check` PROMOTED into `ci_gate.sh`. `spill_aware_check` promotion HELD → **D-505**
-  (7 pre-existing unenforced arm64-SIMD violations to triage first).
+  `zone_check` PROMOTED into `ci_gate.sh`. `spill_aware_check` PROMOTED too (D-505
+  DONE — 3 bitmask sites made spill-aware, bitselect/fma SPILL-EXEMPT; now wired
+  into gate_commit + CI extended, BASELINE=0).
 - **Batch B — Component域** (code) — MERGED #120. D-502 utf16/latin1+utf16 canon
   string codec (lower+lift) COMPLETE (residual = `invokeStringExport` utf8-gate, see
   the D-502 note); D-504 discharged (wasi_p2 @panic→NoHostIo + fd.zig doc-rot).
 - **D-254 — rust-host CI gate** — MERGED #122. `run-rust-host` now runs on the ubuntu
   gate leg (Linux-guarded core). Scaffolding-maintenance campaign (A→E→B + D-254) COMPLETE.
-- **NEXT (all fresh-context — do NOT grind in a deep loop)**: **D-505** (arm64 spill
-  triage → spill_aware CI promotion; the sole now-class item) · **Batch C / D-475**
-  table64-JIT (Win64-risk). **D held.** **D-444** = optional design split (cap now advisory).
-  Minor/demand-driven: D-502 residual (invokeStringExport encoding), mac/win rust-host CI.
+- **NEXT (all fresh-context — do NOT grind in a deep loop)**: **D-505 DONE** (PR
+  open on `develop/d505-spill-aware-simd-triage`). No `now`-class items remain.
+  **Batch C / D-475** table64-JIT (Win64-risk) · **D held** · **D-444** = optional
+  design split (cap now advisory). Minor/demand-driven: D-506 (FP spill stage-2
+  scaffold), D-502 residual (invokeStringExport encoding), mac/win rust-host CI.
 
 ## Operational invariants (keep using)
 
@@ -44,9 +46,10 @@ Post-v2.0.0 sweep (see `.dev/meta_audits/2026-07-03-maintenance-scaffolding-audi
 - **Step-0.7 NOTE**: `failed command: …--listen=-` / host-example exe lines are
   COSMETIC (exit 0); trust `[run_remote_*] OK/FAIL` + `N passed, 0 failed`.
 - CI `ci_gate.sh` runs `zig fmt` + `test-all` + (core) `run-rust-host` on the Linux
-  leg (D-254) + (extended, push-to-main) lint/DCE/AOT/`zone_check` (promoted E-段2).
-  `file_size_check` is advisory-only (ADR-0099); `spill_aware_check` is NOT yet wired
-  anywhere (D-505). NOTE: extended runs only on push-to-main, so `zone_check` enforces
+  leg (D-254) + (extended, push-to-main) lint/DCE/AOT/`zone_check`/`spill_aware_check`
+  (promoted E-段2 + D-505). `file_size_check` is advisory-only (ADR-0099);
+  `spill_aware_check` is also wired into `gate_commit.sh` (BASELINE=0, D-505). NOTE:
+  extended runs only on push-to-main, so `zone_check`/`spill_aware` enforce
   post-merge, not as a PR blocker (a future refinement could run it once per PR).
 
 ## Parked / gated — do NOT speculatively grind (see debt.yaml)
@@ -73,9 +76,9 @@ Post-v2.0.0 sweep (see `.dev/meta_audits/2026-07-03-maintenance-scaffolding-audi
   dogfooded into cljw (pins zwasm by git tag-hash). Runners ReleaseSafe.
 - **EH**: cross-instance JIT EH both arches. Interp+JIT EH corpus green. Realworld 56
   fixtures interp 56/0; JIT diff-gated.
-- **Debt**: 62 entries — 1 `now`-class: **D-505** (triage 7 arm64-SIMD spill_aware
-  violations, then promote spill_aware to CI). D-254 CLOSED (run-rust-host CI-gated
-  on the ubuntu leg, #122). 完成形 plateau (all dims
+- **Debt**: 62 entries — **0 `now`-class** (D-505 DONE: 3 arm64-SIMD bitmask sites
+  spill-aware, bitselect/fma SPILL-EXEMPT, spill_aware promoted to CI+gate_commit;
+  follow-on D-506 = FP spill stage-2, note-class). 完成形 plateau (all dims
   confirmed, surface audits clean, interp+JIT fuzz 0-crash, v1-JIT parity D-265 closed).
 - **Proposals**: reviewed 2026-07-03; no phase advances; 3.0 corpora unaffected.
 
