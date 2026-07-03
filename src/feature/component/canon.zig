@@ -269,6 +269,13 @@ pub const BorrowRepError = error{ NoResourceContext, InvalidHandle };
 /// 28 bits (leaves the high bit free as the latin1/utf16 tag).
 pub const MAX_STRING_BYTE_LENGTH: u32 = (1 << 28) - 1;
 
+/// `CanonicalABI.md` UTF16_TAG — bit 31 of the packed length. Set on a
+/// latin1+utf16 string that had to be stored as utf16 (a code point ≥ 0x100);
+/// clear means the payload is latin1 (1 byte per code point).
+pub const UTF16_TAG: u32 = 1 << 31;
+
+pub const LoweredString = struct { ptr: u32, packed_length: u32 };
+
 pub const StringError = error{
     OutOfBounds,
     InvalidUtf8,
@@ -277,18 +284,97 @@ pub const StringError = error{
     UnsupportedEncoding,
 } || ReallocError;
 
-/// Lower a host UTF-8 string into guest memory (`store_string_into_range`):
-/// allocate `len` bytes via the guest realloc, copy the bytes, and return the
-/// `(ptr, packed_length)` pair the canonical ABI flattens to two i32s. For
-/// utf8 `packed_length == byte_length` (no tag bit).
-pub fn lowerString(cx: CanonContext, s: []const u8) StringError!struct { ptr: u32, packed_length: u32 } {
-    if (cx.string_encoding != .utf8) return StringError.UnsupportedEncoding;
+/// Lower a host UTF-8 string into guest memory per the component's declared
+/// `string-encoding` (`CanonicalABI.md` `store_string`). The host source is
+/// ALWAYS validated UTF-8, so this is the 3-destination subset of the spec
+/// (utf8 → {utf8, utf16, latin1+utf16}); there is no utf16-source machinery.
+/// Returns the `(ptr, packed_length)` pair the canonical ABI flattens to two i32s.
+pub fn lowerString(cx: CanonContext, s: []const u8) StringError!LoweredString {
+    return switch (cx.string_encoding) {
+        .utf8 => lowerUtf8(cx, s),
+        .utf16 => lowerUtf16(cx, s),
+        .latin1_utf16 => lowerLatin1OrUtf16(cx, s),
+    };
+}
+
+/// utf8 dest: copy bytes verbatim, align 1, `packed_length == byte_length`.
+fn lowerUtf8(cx: CanonContext, s: []const u8) StringError!LoweredString {
     if (s.len > MAX_STRING_BYTE_LENGTH) return StringError.StringTooLong;
     const byte_len: u32 = @intCast(s.len);
     const ptr = try cx.realloc(0, 0, 1, byte_len);
     if (@as(usize, ptr) + s.len > cx.mem().len) return StringError.OutOfBounds;
     @memcpy(cx.mem()[ptr..][0..s.len], s);
     return .{ .ptr = ptr, .packed_length = byte_len };
+}
+
+/// utf16 dest (`store_utf8_to_utf16`): host UTF-8 is validated, so the exact
+/// code-unit count is known up front (no worst-case-alloc + shrink). align 2,
+/// `packed_length == code_units` (no tag).
+fn lowerUtf16(cx: CanonContext, s: []const u8) StringError!LoweredString {
+    const units = std.unicode.calcUtf16LeLen(s) catch return StringError.InvalidUtf8;
+    if (units > MAX_STRING_BYTE_LENGTH) return StringError.StringTooLong;
+    const code_units: u32 = @intCast(units);
+    const byte_len = code_units * 2;
+    const ptr = try cx.realloc(0, 0, 2, byte_len);
+    if (@as(usize, ptr) + byte_len > cx.mem().len) return StringError.OutOfBounds;
+    writeUtf16LeInto(cx.mem()[ptr..][0..byte_len], s);
+    return .{ .ptr = ptr, .packed_length = code_units };
+}
+
+/// latin1+utf16 dest (`store_string_to_latin1_or_utf16`): latin1 (1 byte/char)
+/// iff every code point < 0x100, else utf16 with `UTF16_TAG` set. We SCAN the
+/// source first — the observable result (bytes + packed length) is identical to
+/// the spec's in-place inflate, with fewer footguns.
+fn lowerLatin1OrUtf16(cx: CanonContext, s: []const u8) StringError!LoweredString {
+    if (!std.unicode.utf8ValidateSlice(s)) return StringError.InvalidUtf8;
+    var latin1_able = true;
+    var n_cps: usize = 0;
+    var scan = std.unicode.Utf8View.initUnchecked(s).iterator();
+    while (scan.nextCodepoint()) |cp| {
+        n_cps += 1;
+        if (cp >= 0x100) {
+            latin1_able = false;
+            break;
+        }
+    }
+    if (latin1_able) {
+        if (n_cps > MAX_STRING_BYTE_LENGTH) return StringError.StringTooLong;
+        const byte_len: u32 = @intCast(n_cps);
+        const ptr = try cx.realloc(0, 0, 2, byte_len);
+        if (@as(usize, ptr) + byte_len > cx.mem().len) return StringError.OutOfBounds;
+        var w: usize = ptr;
+        var it = std.unicode.Utf8View.initUnchecked(s).iterator();
+        while (it.nextCodepoint()) |cp| : (w += 1) cx.mem()[w] = @intCast(cp); // cp < 0x100
+        return .{ .ptr = ptr, .packed_length = byte_len };
+    }
+    const units = std.unicode.calcUtf16LeLen(s) catch return StringError.InvalidUtf8;
+    if (units > MAX_STRING_BYTE_LENGTH) return StringError.StringTooLong;
+    const code_units: u32 = @intCast(units);
+    const byte_len = code_units * 2;
+    const ptr = try cx.realloc(0, 0, 2, byte_len);
+    if (@as(usize, ptr) + byte_len > cx.mem().len) return StringError.OutOfBounds;
+    writeUtf16LeInto(cx.mem()[ptr..][0..byte_len], s);
+    return .{ .ptr = ptr, .packed_length = code_units | UTF16_TAG };
+}
+
+/// Transcode validated UTF-8 `s` into UTF-16LE bytes in `dst` (len == 2×units).
+/// Alignment-safe: `writeInt` is byte-wise, so a merely 2-aligned guest ptr is fine.
+fn writeUtf16LeInto(dst: []u8, s: []const u8) void {
+    var w: usize = 0;
+    var it = std.unicode.Utf8View.initUnchecked(s).iterator();
+    while (it.nextCodepoint()) |cp| {
+        if (cp <= 0xFFFF) {
+            std.mem.writeInt(u16, dst[w..][0..2], @intCast(cp), .little);
+            w += 2;
+        } else {
+            const c = cp - 0x10000;
+            const hi: u16 = @intCast(0xD800 + (c >> 10));
+            const lo: u16 = @intCast(0xDC00 + (c & 0x3FF));
+            std.mem.writeInt(u16, dst[w..][0..2], hi, .little);
+            std.mem.writeInt(u16, dst[w + 2 ..][0..2], lo, .little);
+            w += 4;
+        }
+    }
 }
 
 /// Lift a guest UTF-8 string (`load_string_from_range`): bounds-check + UTF-8
@@ -723,12 +809,31 @@ test "lift: invalid utf8 rejected" {
     try testing.expectError(StringError.InvalidUtf8, liftString(cx, 0, 2));
 }
 
-test "string: non-utf8 encoding deferred" {
-    var mem = [_]u8{0} ** 8;
+test "lowerString utf16: BMP + supplementary (surrogate pair)" {
+    var mem = [_]u8{0} ** 32;
     var bump = Bump{ .next = 0 };
     var mem_slice: []u8 = &mem;
     const cx = CanonContext{ .memory_ctx = @ptrCast(&mem_slice), .memory_fn = CanonContext.sliceMemoryFn, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc, .string_encoding = .utf16 };
-    try testing.expectError(StringError.UnsupportedEncoding, lowerString(cx, "x"));
+    // "A𐐷" = U+0041 + U+10437 (one BMP unit + a surrogate pair = 3 code units).
+    const lowered = try lowerString(cx, "A\u{10437}");
+    try testing.expectEqual(@as(u32, 3), lowered.packed_length); // 3 code units, no tag
+    const b = mem[lowered.ptr..][0..6];
+    try testing.expectEqualSlices(u8, &[_]u8{ 0x41, 0x00, 0x01, 0xD8, 0x37, 0xDC }, b);
+}
+
+test "lowerString latin1+utf16: all-latin1 stays latin1, mixed flips to tagged utf16" {
+    var mem = [_]u8{0} ** 64;
+    var bump = Bump{ .next = 0 };
+    var mem_slice: []u8 = &mem;
+    const cx = CanonContext{ .memory_ctx = @ptrCast(&mem_slice), .memory_fn = CanonContext.sliceMemoryFn, .realloc_ctx = @ptrCast(&bump), .realloc_fn = Bump.realloc, .string_encoding = .latin1_utf16 };
+    // "Aÿ" — U+0041 + U+00FF, both < 0x100 → latin1, 1 byte each, no tag.
+    const l1 = try lowerString(cx, "A\u{00FF}");
+    try testing.expectEqual(@as(u32, 2), l1.packed_length);
+    try testing.expectEqualSlices(u8, &[_]u8{ 0x41, 0xFF }, mem[l1.ptr..][0..2]);
+    // "Aλ" — U+03BB ≥ 0x100 → utf16 with UTF16_TAG, 2 code units.
+    const l2 = try lowerString(cx, "A\u{03BB}");
+    try testing.expectEqual(@as(u32, 2 | UTF16_TAG), l2.packed_length);
+    try testing.expectEqualSlices(u8, &[_]u8{ 0x41, 0x00, 0xBB, 0x03 }, mem[l2.ptr..][0..4]);
 }
 
 test "store/load round-trip: list<u32>" {
