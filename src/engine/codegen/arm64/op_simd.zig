@@ -666,13 +666,15 @@ pub fn emitV128Bitselect(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     ctx.next_vreg.* += 1;
     if (result_vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
 
-    // SPILL-EXEMPT: bitselect needs 3 V regs simultaneously
-    // (mask=dst, v1, v2). Mirrors emitV128Select's 3-source
-    // shape; D-037 stage_idx=2 follow-on lifts this once the
-    // FP-spill scaffold extends.
+    // bitselect needs 3 V regs simultaneously (mask=dst, v1, v2) but only 2 FP
+    // spill stages exist (V29/V30). On a spilled v1/v2, resolveFp rejects →
+    // UnsupportedOp → the JIT falls back to interp (correct; ADR-0200). Full spill
+    // coverage needs the FP stage-2 scaffold — D-506. Mirrors emitV128Select.
     const mask_v = try gpr.qDefSpilled(ctx.alloc, result_vreg, 0);
     const c_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, c_vreg, 1);
+    // SPILL-EXEMPT: 3rd live V operand, no FP spill stage-2 (D-506).
     const v1_x = try gpr.resolveFp(ctx.alloc, v1_vreg);
+    // SPILL-EXEMPT: 4th live V operand, no FP spill stage-2 (D-506).
     const v2_x = try gpr.resolveFp(ctx.alloc, v2_vreg);
 
     // D-070: regalloc's LIFO slot-
@@ -719,7 +721,12 @@ pub fn emitV128FpFma(ctx: *EmitCtx, enc: *const fn (rd: u5, rn: u5, rm: u5) u32)
 
     const dst_v = try gpr.qDefSpilled(ctx.alloc, result_vreg, 0);
     const c_v = try gpr.qLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, c_vreg, 1);
+    // FMLA needs dst+a+b in real V regs but only V29/V30 stage. Spilled a/b →
+    // resolveFp rejects → UnsupportedOp → interp fallback (correct; ADR-0200).
+    // Full coverage needs FP spill stage-2 — D-506. Mirrors emitV128Bitselect.
+    // SPILL-EXEMPT: 3rd live V operand, no FP spill stage-2 (D-506).
     const a_x = try gpr.resolveFp(ctx.alloc, a_vreg);
+    // SPILL-EXEMPT: 4th live V operand, no FP spill stage-2 (D-506).
     const b_x = try gpr.resolveFp(ctx.alloc, b_vreg);
 
     // dst (result) may LIFO-reuse a's or b's slot; MOV dst, c would clobber

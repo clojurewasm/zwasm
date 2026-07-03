@@ -153,6 +153,13 @@ else
     echo "[gate_commit] file_size_check --gate ..."
     bash scripts/file_size_check.sh --gate
 
+    # D-505: spill-aware op-handler convention (bare resolveGpr/Fp on a spilled
+    # vreg → UnsupportedOp JIT-reject). Cheap pure-awk walk of the codegen
+    # op-handler files; BASELINE=0. Previously listed as wired but was not —
+    # this closes that gap. Also runs in CI's extended leg (ci_gate.sh).
+    echo "[gate_commit] spill_aware_check --gate ..."
+    bash scripts/spill_aware_check.sh --gate
+
     # Per ADR-0099 §D4: informational split-smell checker. Surfaces
     # N1 (helper-circular import) / N3 (shallow module) / N4 (test
     # dup) / hub-emptiness findings to stderr but never gates the

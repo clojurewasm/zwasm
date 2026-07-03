@@ -471,7 +471,8 @@ pub fn emitI8x16Bitmask(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     const result_vreg = ctx.next_vreg.*;
     ctx.next_vreg.* += 1;
     if (result_vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
-    const result_w = try gpr.resolveGpr(ctx.alloc, result_vreg);
+    // D-505: spill-aware i32 result (mirrors the D-461 emitI16x8Bitmask fix).
+    const result_w = try gpr.gprDefSpilled(ctx.alloc, result_vreg, 0);
 
     const mask_idx = try lookupOrAppendExtraConst(ctx, I8X16_BITMASK_MASK);
     // V<t> = SSHR src.16B, #7  — broadcast sign bit (0x00 or 0xFF per lane).
@@ -489,6 +490,7 @@ pub fn emitI8x16Bitmask(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon_arith.encAddvH8H(bitmask_scratch_v_t, bitmask_scratch_v_t));
     // UMOV W<result>, V<t>.H[0]  — extract 16-bit result.
     try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon_lane_cmp.encUmovWFromH(result_w, bitmask_scratch_v_t, 0));
+    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 0);
     try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
 }
 
@@ -519,7 +521,8 @@ pub fn emitI32x4Bitmask(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     const result_vreg = ctx.next_vreg.*;
     ctx.next_vreg.* += 1;
     if (result_vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
-    const result_w = try gpr.resolveGpr(ctx.alloc, result_vreg);
+    // D-505: spill-aware i32 result (mirrors the D-461 emitI16x8Bitmask fix).
+    const result_w = try gpr.gprDefSpilled(ctx.alloc, result_vreg, 0);
 
     const mask_idx = try lookupOrAppendExtraConst(ctx, I32X4_BITMASK_MASK);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon_arith.encSshrV4S(bitmask_scratch_v_t, src_v, 31));
@@ -527,6 +530,7 @@ pub fn emitI32x4Bitmask(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon.encAnd16B(bitmask_scratch_v_t, bitmask_scratch_v_t, bitmask_scratch_v_mask));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon_arith.encAddvS4S(bitmask_scratch_v_t, bitmask_scratch_v_t));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon_lane_cmp.encUmovWFromS(result_w, bitmask_scratch_v_t, 0));
+    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 0);
     try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
 }
 
@@ -540,7 +544,9 @@ pub fn emitI64x2Bitmask(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     const result_vreg = ctx.next_vreg.*;
     ctx.next_vreg.* += 1;
     if (result_vreg >= ctx.alloc.slots.len) return Error.SlotOverflow;
-    const result_w = try gpr.resolveGpr(ctx.alloc, result_vreg);
+    // D-505: spill-aware i32 result (mirrors the D-461 emitI16x8Bitmask fix).
+    // Def-stage X14 is distinct from the X16/X17 reduce scratch used below.
+    const result_w = try gpr.gprDefSpilled(ctx.alloc, result_vreg, 0);
 
     // X16 = src.D[0]; X17 = src.D[1].
     try gpr.writeU32(ctx.allocator, ctx.buf, inst_neon_lane_cmp.encUmovXFromD(reduce_scratch_x_a, src_v, 0));
@@ -552,6 +558,7 @@ pub fn emitI64x2Bitmask(ctx: *EmitCtx, _: *const ZirInstr) Error!void {
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(reduce_scratch_x_b, reduce_scratch_x_b, reduce_scratch_x_b));
     // W<result> = W16 | W17  — combine into result's low 2 bits.
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(result_w, reduce_scratch_x_a, reduce_scratch_x_b));
+    try gpr.gprStoreSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, result_vreg, 0);
     try ctx.pushed_vregs.append(ctx.allocator, result_vreg);
 }
 

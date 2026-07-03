@@ -61,11 +61,12 @@ if [ "${ZWASM_CI_EXTENDED:-0}" = "1" ]; then
     echo "[ci_gate] extended: zone dependency check (zone_check --gate)"
     bash scripts/zone_check.sh --gate
 
-    # spill_aware_check promotion is HELD (D-505): it was never wired into
-    # gate_commit, so 7 pre-existing violations accumulated in arm64 SIMD
-    # handlers. Promote here only AFTER those are triaged (fix-or-EXEMPT).
-    # echo "[ci_gate] extended: spill-aware op-handler check (spill_aware_check --gate)"
-    # bash scripts/spill_aware_check.sh --gate
+    # Promoted 2026-07-03 (D-505): the 7 pre-existing arm64-SIMD violations were
+    # triaged — the 3 emitI*Bitmask GPR-result sites made spill-aware, the
+    # bitselect/fma resolveFp 3rd/4th-V-operand sites marked SPILL-EXEMPT (need
+    # FP spill stage-2, D-506). Baseline is 0; --gate rejects any regression.
+    echo "[ci_gate] extended: spill-aware op-handler check (spill_aware_check --gate)"
+    bash scripts/spill_aware_check.sh --gate
 fi
 
 echo "[ci_gate] OK ($(uname -s))"
