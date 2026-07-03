@@ -758,8 +758,20 @@ entries:
     front: B-hardening
   - id: "D-254"
     layer: "process"
-    status: "now"
+    status: "note"
     description: |-
+      **RESOLVED (core, 2026-07-03): run-rust-host is now CI-gated on the ubuntu
+      leg.** `scripts/ci_gate.sh` core runs `zig build run-rust-host` when on Linux
+      with rustc present — the GitHub ubuntu runner ships a gnu-target rustc that is
+      ABI-compatible with zig's native libzwasm.a (clean link, verified locally on
+      Mac: exit 0). It runs on EVERY PR's Linux leg, so rust-host rot shows before
+      merge. This supersedes the old "wire into the local test-host gate" plan
+      (which fought the toolchain-free-test-host invariant): CI is the gate now.
+      RESIDUAL (lower-pri note): macOS + Windows rust-host are NOT CI-gated — macOS
+      needs the SDKROOT dance (fine locally, untested on the macos runner) and
+      Windows has the MSVC-vs-GNU `libzwasm.a` link question. The Linux gate already
+      prevents silent rot; mac/win CI coverage is a demand-driven follow-up.
+
       **PROGRESS 2026-06-05 (ADR-0162): resolution (a) CHOSEN by user — provision native rust on the test hosts.**
       Rust INSTALLED: windowsmini rustc 1.96.0 (winget); ubuntunote via `flake.nix devShells.rust-host` (`a5cf80fb`).
       The "rustc absence" barrier is dissolving. REMAINING (A1-wire, the actionable bit): `build.zig run-rust-host`

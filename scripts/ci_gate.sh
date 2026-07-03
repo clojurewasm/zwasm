@@ -25,6 +25,23 @@ zig fmt --check src/
 echo "[ci_gate] (2/2) zig build test-all"
 zig build test-all
 
+# rust-host embedding consumer (D-254): the third independent embedding-ABI
+# consumer (docs/examples/rust_host/hello.rs links the same libzwasm.a the C
+# host uses) — exercise it so it can't rot silently. LINUX-only: the ubuntu
+# runner ships a gnu-target rustc that is ABI-compatible with zig's native
+# libzwasm.a, so the link is clean (the macOS SDK dance + the Windows rust ABI
+# question are out of scope here). Runs on EVERY PR (core), so a break shows on
+# the PR's Linux leg before merge, not post-merge. Skips gracefully where rustc
+# is absent (e.g. a local gate host without the .#rust-host shell).
+if [ "$(uname -s)" = "Linux" ]; then
+    if command -v rustc >/dev/null 2>&1; then
+        echo "[ci_gate] rust-host embedding consumer (zig build run-rust-host, D-254)"
+        zig build run-rust-host
+    else
+        echo "[ci_gate] (skip run-rust-host — rustc not on PATH; needs the .#rust-host shell)"
+    fi
+fi
+
 if [ "${ZWASM_CI_EXTENDED:-0}" = "1" ]; then
     echo "[ci_gate] extended: zig build lint"
     zig build lint
