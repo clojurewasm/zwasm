@@ -3,35 +3,28 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
-  - id: "D-505"
+  - id: "D-506"
     layer: "code"
-    status: "now"
+    status: "note"
     description: |-
-      `spill_aware_check.sh` was NEVER wired into `gate_commit.sh` (the CLAUDE.md
-      pre-commit-gate pointer listing it was stale), so 7 pre-existing violations
-      accumulated UNENFORCED in arm64 SIMD handlers: `op_simd.zig`
-      emitV128Bitselect (×2) + emitV128FpFma (×2); `op_simd_int_cmp_lane.zig`
-      emitI8x16Bitmask / emitI32x4Bitmask / emitI64x2Bitmask — each a bare
-      `gpr.resolveGpr/Fp` without spill-staging. Surfaced 2026-07-03 while
-      PROMOTING spill_aware_check into `ci_gate.sh` (scaffolding-necessity audit
-      §C): zone_check promoted fine, but the spill line is HELD (commented) in
-      ci_gate.sh — un-commenting it would turn the extended CI leg RED. v2.0.0
-      shipped with these AND SIMD conformance is green (simd_assert 25075/0), so
-      they are NOT known to miscompile — but they are UNVERIFIED against the
-      spill-staging invariant (a bare `resolveGpr` on a SPILLED vreg → runtime
-      `UnsupportedOp` miscompile). DISCHARGE: triage each of the 7 sites — can the
-      vreg be spilled there? real hazard → add spill-staging; structurally-never-
-      spilled → `// SPILL-EXEMPT: <reason>` marker. Then un-comment the spill line
-      in ci_gate.sh AND wire spill_aware_check into gate_commit.sh (fixing the
-      stale CLAUDE.md pointer). Deliberate arm64-codegen work — FRESH context;
-      verify on arm64 AND `-Dtarget=x86_64-macos` (JIT-codegen lesson).
+      FP spill stage-2 scaffold (D-505 follow-on). arm64 has only 2 FP spill
+      stages (V29/V30; `abi.fp_spill_stage_vregs`), so the 3-source SIMD handlers
+      `emitV128Bitselect` / `emitV128FpFma` (and the mirror `emitV128Select`)
+      cannot spill-stage their 3rd/4th live V operand — a spilled v1/v2 (a/b) hits
+      a bare `resolveFp` → `UnsupportedOp` → the `.auto` JIT falls back to interp
+      (correct, ADR-0200; just loses JIT for that module). These sites are
+      `// SPILL-EXEMPT` (op_simd.zig). NOT a correctness bug — a JIT-coverage /
+      perf cliff under high v128 pressure. FULL fix = extend the FP spill scaffold
+      to a 3rd stage (V31) with careful sequencing (c is consumed into dst before
+      v1/v2 are needed, freeing its stage) AND reconcile with the D-070 V31
+      alias-stash. Non-trivial handler redesign + `abi.zig` reservation change →
+      own ADR when a real high-pressure-SIMD consumer or bench motivates it.
     first_raised: "2026-07-03"
     last_reviewed: "2026-07-03"
     refs: |-
-      src/engine/codegen/arm64/op_simd.zig:675,676,722,723 ·
-      src/engine/codegen/arm64/op_simd_int_cmp_lane.zig:474,522,543 ·
-      scripts/spill_aware_check.sh · scripts/ci_gate.sh (spill line HELD) ·
-      scripts/gate_commit.sh (spill_aware NOT wired) · ADR-0076 D9
+      src/engine/codegen/arm64/op_simd.zig (emitV128Bitselect / emitV128FpFma
+      SPILL-EXEMPT) · src/engine/codegen/arm64/abi.zig:229 fp_spill_stage_vregs ·
+      D-070 (V31 alias-stash) · D-505 (discharge, git log)
   - id: "D-503"
     layer: "code"
     status: "note"

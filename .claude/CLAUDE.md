@@ -83,8 +83,8 @@ text or code identifiers.
   cadence is RETIRED (`should_gate_windows.sh` = deprecation stub; ADR-0174
   superseded-in-part; the `.dev/windows_gate_suspended` sentinel is dead).
   `file_size_check` is **advisory** (ADR-0099 2026-07-03, not a commit block);
-  `spill_aware_check` CI-promotion is HELD pending D-505 baseline triage.
-  OrbStack retired per ADR-0067 (D-134); scratch only.
+  `spill_aware_check` is wired into `gate_commit.sh` + CI `ci_gate.sh` extended
+  (D-505 triage done; BASELINE=0). OrbStack retired per ADR-0067 (D-134); scratch only.
 - **Context budget**: the **1M** window is in effect (the prior 200K pin
   `CLAUDE_CODE_DISABLE_1M_CONTEXT=1` was removed 2026-05-31 — it made the
   window hit 100% fast and the squeeze, not the working set, was the felt
@@ -185,10 +185,10 @@ Zig-built edge-runner (no toolchain there). See
 ## Pre-commit gate
 
 [`scripts/gate_commit.sh`](../scripts/gate_commit.sh) — local **pre-commit**
-gate (zig fmt + `file_size_check` (advisory, ADR-0099) + the `check_*`
-integrity scripts; docs-only short-circuit; `--fast` defers `zig build
-test`/`lint`/`zone_check` to CI). Manual commits call it before `git commit`.
-(`spill_aware_check` is NOT wired here — D-505.)
+gate (zig fmt + `file_size_check` (advisory, ADR-0099) + `spill_aware_check
+--gate` (D-505) + the `check_*` integrity scripts; docs-only short-circuit;
+`--fast` defers `zig build test`/`lint`/`zone_check` to CI). Manual commits
+call it before `git commit`.
 
 The **authoritative** merge gate is CI's `ci-required` 3-OS `scripts/ci_gate.sh`
 run on every PR. [`scripts/gate_merge.sh`](../scripts/gate_merge.sh) (local
