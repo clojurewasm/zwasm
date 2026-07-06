@@ -51,8 +51,9 @@ allocation (mmap / NtAllocateVirtualMemory).
 
 **D1 — Reservation-backed linear memory (qualifying memories).** A memory
 qualifies when: `idx_type == .i32` AND `page_size_log2 == 16` (standard 64KiB
-pages) AND the host is a supported 64-bit JIT target (aarch64-macos,
-x86_64-{macos,linux,windows}). Qualifying memories reserve
+pages) AND `platform.guarded_mem.supported` (single source of truth: 64-bit
+macOS/Linux any-arch + x86_64-windows — deliberately a superset of today's JIT
+targets so aarch64-linux is not special-cased later). Qualifying memories reserve
 `4 GiB (idx span) + 4 GiB (offset span) + 1 host page` of PROT_NONE address
 space (POSIX `std.posix.mmap` + `MAP_NORESERVE`-equivalent; Windows
 `NtAllocateVirtualMemory` MEM_RESERVE, mirroring `jit_mem.zig`). The accessible
@@ -77,16 +78,33 @@ production handler per OS, classification-first, diagnostic-last:
   saved, still live at fault), unwind its own frame, cascade via post-call
   checks. Works at any wasm→host→wasm depth; never skips a host frame (the
   reason setjmp/longjmp — the ADR-0103 test model — is NOT promoted).
-- Not classified → existing ADR-0166 disposition (POSIX: internal-error line +
-  `_exit(70)`; Windows: diagnostic + CONTINUE_SEARCH). POSIX: the ADR-0166
-  handler body becomes the else-branch of the new handler (one sigaction
-  install, `cli/main.zig` + embedding init). Windows: production VEH installed
-  alongside (First=0); the ADR-0103 test-recovery VEH is untouched.
+- POSIX signals: the handler owns **both SIGSEGV and SIGBUS** — macOS reports
+  guard-region hits as SIGBUS (wasmtime handles the same pair). The
+  classification branch is merged INTO the ADR-0166 handler body (one
+  sigaction install, `cli/main.zig` + embedding init); not-classified falls
+  through to the existing internal-error line + `_exit(70)`.
+- Windows: classification is merged INTO the ADR-0166 production VEH body
+  (classify → `Rip = stub` + CONTINUE_EXECUTION; else diagnostic + 
+  ExitProcess(70)). A separate First=0 VEH would be DEAD code — the ADR-0166
+  VEH is First=1 (front of chain) and ExitProcess(70)s on ACCESS_VIOLATION
+  before any later handler runs (`signal.zig:74-99`). The ADR-0103
+  test-recovery VEH is untouched.
+- Third handler (test builds): the spec runners' process-wide D-103
+  `installSigsegvHandler` (sigsetjmp/siglongjmp) and this handler contend for
+  the same sigaction slot. Sub-decision: in test-runner processes the MERGED
+  handler owns SIGSEGV/SIGBUS; the classify branch runs first, and the D-103
+  siglongjmp recovery becomes its unclassified-in-test else-branch (instead of
+  `_exit(70)`), preserving the miscompile-recovery behaviour the spec harness
+  relies on. One handler, three dispositions: classified→redirect,
+  test-armed→siglongjmp, else→diagnostic exit.
 
 **D3 — Zone-0 trap registry (`src/platform/`).** Async-signal-safe global
 registry: (a) JIT code regions `{start, end, func_table}` where `func_table` =
-sorted per-function `{code_start_off, oob_stub_off}` built at publish (the
-linker already knows both); (b) guarded reservations `{base, reserve_end}`.
+sorted per-function `{code_start_off, oob_stub_off}`. The linker has
+`func_offsets` today but the oob-stub offset is currently emit-local and
+DISCARDED (`EmitCindStub.emit`'s `stub_byte`) — D4 adds `oob_stub_off` to
+`EmitOutput` (both arches) so the linker can build the table at publish; (b)
+guarded reservations `{base, reserve_end}`.
 Zone 2 (engine/runtime) registers/unregisters via downward calls (zone_deps
 compliant — mirrors how `windows_traphandler` exposes an arm/disarm surface).
 Reads from the handler are lock-free (atomically swapped immutable snapshots);
@@ -108,9 +126,16 @@ single-threaded today — D-509 (threads) inherits this constraint explicitly.
 **D5 — Engine knob + AOT.** Engine-level `bounds_checks: .auto | .explicit`
 (default `.auto` = elide when memory qualifies). `.explicit` is the debugging /
 differential-fuzz axis (D-510 can diff elided-vs-checked JIT in addition to
-JIT-vs-interp). The `.cwasm` header records the elision bit; the loader
-requires a D1-capable host for elided artifacts (reject with a clear error
-otherwise).
+JIT-vs-interp). The `.cwasm` format records the elision bit AND serializes the
+D3 `func_table` (`aot/serialise.zig` carries `per_func_offsets` only today);
+`aot/load.zig` registers the table + requires a D1-capable host for elided
+artifacts (reject with a clear error otherwise).
+
+**Soundness invariant (binding-time).** Elided code is memory-safe ONLY while
+memory0's runtime binding is reservation-backed. Enforced at instantiation /
+memory-import wiring / host-`Memory`-creation: binding a non-guarded buffer to
+an instance whose code was compiled elided is an instantiation ERROR, never a
+silent acceptance (every `setMemory0Bytes`-feeding path checks the backing).
 
 **D6 — Unchanged.** Interp (oracle) semantics + its memory accessors; trap
 wire codes + `TrapKind` surfaces; X28/X27 pinning (memory.size/grow still read
@@ -119,9 +144,10 @@ them); sandbox caps (`store_memory_pages_max`, fuel, interrupt); EH unwinder
 
 ## Consequences
 
-- **+** Removes 3–5 instructions (arm64) / 2 loads + CMP + branch (x86_64) per
-  memory access — the biggest tier-free lever toward the 1.75–3.9x measured
-  band. Bench recorded on this branch per per-merge policy.
+- **+** Removes exactly `ADD ip1 / CMP / B.HI` (3 instructions, arm64) / the
+  mem_limit reload + CMP + JA (x86_64; the vm_base reload stays — it feeds the
+  access itself) per memory access — the biggest tier-free lever toward the
+  1.75–3.9x measured band. Bench recorded on this branch per per-merge policy.
 - **+** Base-stable memory is a prerequisite D-509 (shared memories) needs
   anyway; realloc-relocation dies here.
 - **−** 8 GiB VA reservation per qualifying memory (reserve-only; no commit
@@ -152,3 +178,8 @@ them); sandbox caps (`store_memory_pages_max`, fuel, interrupt); EH unwinder
    path exercised in isolation).
 3. D4 elision flip behind D5 knob + force-emitted stubs + boundary fixtures;
    oob corpus green on both engines; bench delta; 3-host + Rosetta verify.
+
+Steps 2–3 each add a **per-OS CLI-level oob test asserting the literal
+`trap kind=6` output with NO runner recovery armed** — the spec runner's
+sigsetjmp recovery could otherwise absorb a guard fault as generic
+"trapped" and let the corpus go green through the wrong mechanism.
