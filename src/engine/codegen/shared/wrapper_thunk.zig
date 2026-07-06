@@ -1079,7 +1079,7 @@ test "wrapper_thunk: end-to-end execution — () → (i32, i32, i32) via wrapper
         .result_abi = .register_write,
     };
     const sigs = [_]zir.FuncType{sig};
-    const body_out = try native_emit.compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const body_out = try native_emit.compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer native_emit.deinit(testing.allocator, body_out);
 
     // Wrapper goes IMMEDIATELY AFTER the body in JIT memory.
@@ -1159,7 +1159,7 @@ test "wrapper_thunk: end-to-end execution — () → (i32, i64) via wrapper" {
         .result_abi = .register_write,
     };
     const sigs = [_]zir.FuncType{sig};
-    const body_out = try native_emit.compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const body_out = try native_emit.compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer native_emit.deinit(testing.allocator, body_out);
 
     const body_offset: u32 = 0;

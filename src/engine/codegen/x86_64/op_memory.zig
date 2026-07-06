@@ -79,6 +79,7 @@ pub fn emitMemOp(
     op: zir.ZirOp,
     offset: u32,
     func_idx: u32,
+    bounds_elided: bool,
 ) Error!void {
     const is_store = switch (op) {
         .@"i32.store",
@@ -208,14 +209,22 @@ pub fn emitMemOp(
         try buf.appendSlice(allocator, inst.encJccRel32(.ne, 0).slice()); // nonzero low bits = unaligned
         try unaligned_atomic_fixups.append(allocator, al_fixup);
     }
-    try buf.appendSlice(allocator, inst.encLeaR64BaseDisp8(.rcx, .rdx, access_size).slice());
-    try buf.appendSlice(allocator, inst.encCmpR64MemDisp32(.rcx, abi.runtime_ptr_save_gpr, jit_abi.mem_limit_off).slice());
-    const fixup_at: u32 = @intCast(buf.items.len);
-    try buf.appendSlice(allocator, inst.encJccRel32(.a, 0).slice()); // unsigned >
-    try oob_fixups.append(allocator, fixup_at);
-    // ADR-0028 M3-a-1: record bounds-check emit site (no-op when
-    // -Dtrace-ringbuffer=false; comptime-folded out of release).
-    trace.writeBounds(func_idx, fixup_at);
+    // ADR-0202 D4 — elided: the guard-page reservation covers every
+    // reachable ea; an oob access hardware-faults and the fault→trap
+    // handler redirects to the force-emitted kind=6 stub. The vm_base
+    // load + ea materialise stay (they feed the access); only the
+    // mem_limit reload + CMP + JA go. The atomic ALIGNMENT check above
+    // is NOT elided.
+    if (!bounds_elided) {
+        try buf.appendSlice(allocator, inst.encLeaR64BaseDisp8(.rcx, .rdx, access_size).slice());
+        try buf.appendSlice(allocator, inst.encCmpR64MemDisp32(.rcx, abi.runtime_ptr_save_gpr, jit_abi.mem_limit_off).slice());
+        const fixup_at: u32 = @intCast(buf.items.len);
+        try buf.appendSlice(allocator, inst.encJccRel32(.a, 0).slice()); // unsigned >
+        try oob_fixups.append(allocator, fixup_at);
+        // ADR-0028 M3-a-1: record bounds-check emit site (no-op when
+        // -Dtrace-ringbuffer=false; comptime-folded out of release).
+        trace.writeBounds(func_idx, fixup_at);
+    }
 
     // Per-op final encoding.
     if (is_store) {
@@ -312,6 +321,7 @@ pub fn emitI32Load(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Error!void {
         ins.op,
         @as(u32, @intCast(ins.payload)),
         ctx.func_idx,
+        ctx.bounds_elided,
     );
 }
 pub const emitI32Load8S = emitI32Load;

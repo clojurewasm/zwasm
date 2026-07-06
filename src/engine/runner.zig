@@ -61,6 +61,14 @@ pub const eh_registry = @import("codegen/shared/eh_registry.zig");
 // (`runner.compileWasm` etc still resolves).
 const compile_mod = @import("compile.zig");
 pub const compileWasm = compile_mod.compileWasm;
+// ADR-0202 D5 — bounds-check mode knob (re-export). `.auto` (default)
+// elides the memory0 scalar check for guard-page-qualifying memories;
+// `.explicit` forces the inline check (harnesses with non-guarded memory
+// + the D-510 differential axis).
+pub const BoundsChecks = compile_mod.BoundsChecks;
+pub const setBoundsChecks = compile_mod.setBoundsChecks;
+pub const boundsChecksMode = compile_mod.boundsChecksMode;
+pub const compileWasmForAot = compile_mod.compileWasmForAot;
 pub const applyDefinedGlobalsInit = compile_mod.applyDefinedGlobalsInit;
 pub const resolveFuncrefGlobals = compile_mod.resolveFuncrefGlobals;
 pub const applyTableInit = compile_mod.applyTableInit;
@@ -245,6 +253,13 @@ pub const CompiledWasm = struct {
     /// `arena.deinit()`), so `deinit` needs no extra free. Empty slice
     /// when the module exports no functions.
     exports: []const FuncExport,
+    /// ADR-0202 D4/D5 — true when memory0 scalar bounds checks were elided
+    /// (guard-page-dependent codegen). The AOT producer REFUSES to serialize
+    /// an elided module (the `.cwasm` format + `aot/run.zig` do not yet carry
+    /// the elision bit / trap-registry table / guarded run-memory — D5), so
+    /// this is the enforcement point that makes the "elided ⇒ guarded binding"
+    /// invariant impossible to violate via AOT.
+    bounds_elided: bool = false,
     arena: std.heap.ArenaAllocator,
 
     pub fn deinit(self: *CompiledWasm, allocator: Allocator) void {

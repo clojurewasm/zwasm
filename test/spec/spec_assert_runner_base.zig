@@ -2833,6 +2833,18 @@ const SIGNAL_STACK_SIZE: usize = 1 << 18;
 var signal_stack: [SIGNAL_STACK_SIZE]u8 align(std.heap.page_size_max) = undefined;
 
 pub fn installSigsegvHandler() void {
+    // ADR-0202 D5 — this harness backs JIT linear memory with its own
+    // bespoke buffers (`scratch_memory` heap allocs + the static
+    // `growable_memory` array), NOT guard-page reservations. Guard-page
+    // bounds elision would then read past a plain buffer instead of
+    // faulting (an oob assert would "not trap"), violating the D4/D5
+    // binding-time soundness invariant (elided code MUST bind guarded
+    // memory). Force `.explicit` so the corpus validates spec trap
+    // semantics against the checked codegen; the elision path is covered
+    // by the guarded runner_trap_test + the CLI oob test (debt D-515
+    // tracks running the full corpus under elision via guarded harness
+    // memory or the D-510 differential).
+    zwasm.engine.runner.setBoundsChecks(.explicit);
     // Windows: POSIX signals don't apply; `std.posix.Sigaction` is
     // `void` on Win64. Surfaced by windowsmini test-all
     // (`type 'void' does not support struct initialization syntax`
@@ -2895,6 +2907,11 @@ pub fn installSigsegvHandler() void {
     // arm64, mmap region truncation) so the runner survives the
     // same class of in-body fault on Mac.
     std.posix.sigaction(.BUS, &act, null);
+    // ADR-0202 D4 — this recovery handler (classify-first, then
+    // siglongjmp) now OWNS SIGSEGV/SIGBUS for the runner process;
+    // tell the engine's auto-install to stand down so it never
+    // clobbers this handler with the production exit-70 one.
+    zwasm.platform.signal.markInstalled();
 
     // Readback verification: confirm our handler is the active
     // SEGV disposition immediately post-install. Prints on stderr

@@ -28,6 +28,35 @@ const Error = runner_mod.Error;
 const CompiledWasm = runner_mod.CompiledWasm;
 const runtime_mod = @import("../runtime/runtime.zig");
 const needs_heap_detector = @import("../feature/gc/needs_heap_detector.zig");
+const memory_backing = @import("../runtime/instance/memory_backing.zig");
+
+/// ADR-0202 D5 — bounds-check mode knob. `.auto` (default) elides the
+/// memory0 scalar bounds check when memory0 qualifies for a guard-page
+/// reservation; `.explicit` forces the inline check everywhere (the
+/// D-510 differential-fuzz axis + a debugging escape hatch). Process-
+/// global so a fuzz harness can flip it between compiles without
+/// threading it through `compileWasm`'s 56 call sites.
+pub const BoundsChecks = enum { auto, explicit };
+var bounds_checks_mode: BoundsChecks = .auto;
+pub fn setBoundsChecks(m: BoundsChecks) void {
+    bounds_checks_mode = m;
+}
+pub fn boundsChecksMode() BoundsChecks {
+    return bounds_checks_mode;
+}
+
+/// Compile for AOT serialization — always with EXPLICIT bounds checks
+/// (ADR-0202 D5). The `.cwasm` format + `aot/run.zig`'s plain-heap
+/// run-memory cannot yet uphold guard-page soundness, and
+/// `produceFromCompiledWasm` hard-refuses an elided module, so every
+/// AOT-destined compile MUST route here. Save/restore the global knob
+/// so a caller's ambient `.auto` (JIT) preference is untouched.
+pub fn compileWasmForAot(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledWasm {
+    const prev = bounds_checks_mode;
+    bounds_checks_mode = .explicit;
+    defer bounds_checks_mode = prev;
+    return compileWasm(allocator, wasm_bytes);
+}
 
 pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledWasm {
     var module = try parser.parse(allocator, wasm_bytes);
@@ -882,6 +911,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
     // Imports take precedence (memidx 0 is the first imported
     // memory if any); otherwise the first defined memory.
     var memory0_idx_type: sections.MemoryEntry.IdxType = .i32;
+    var memory0_page_size_log2: u8 = 16; // ADR-0202 D4 — memory0 qualification
     var memory0_idx_type_known = false;
     // D-324 — collect the full per-memory idx_type slice (imports
     // first, then defined) so mixed i32/i64 multi-memory bodies
@@ -891,6 +921,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
         for (ib.items) |imp| if (imp.kind == .memory) {
             if (!memory0_idx_type_known) {
                 memory0_idx_type = imp.payload.memory.idx_type;
+                memory0_page_size_log2 = imp.payload.memory.page_size_log2;
                 memory0_idx_type_known = true;
             }
             try memory_idx_types.append(a, imp.payload.memory.idx_type);
@@ -902,6 +933,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
         defer ms_buf.deinit();
         if (!memory0_idx_type_known and ms_buf.items.len > 0) {
             memory0_idx_type = ms_buf.items[0].idx_type;
+            memory0_page_size_log2 = ms_buf.items[0].page_size_log2;
             memory0_idx_type_known = true;
         }
         for (ms_buf.items) |me| try memory_idx_types.append(a, me.idx_type);
@@ -1090,6 +1122,17 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
     // `store_raw_typeidx` (both derive from the same `usesTypeSubtyping`).
     const uses_type_subtyping = needs_heap_detector.usesTypeSubtyping(types);
 
+    // ADR-0202 D4 — elide memory0 scalar bounds checks when the knob is
+    // `.auto` AND memory0 qualifies for a guard-page reservation. The SAME
+    // `memory_backing.qualifies` predicate drives the runtime backing choice
+    // (setup.zig / instantiate.zig / wasm_memory_new), so elided code is only
+    // ever bound to a guarded memory0 — the binding-time soundness invariant
+    // holds by construction (no non-guarded path exists for a qualifying
+    // memory). `.explicit` forces checks (D-510 differential-fuzz axis).
+    const bounds_elided = boundsChecksMode() == .auto and
+        memory0_idx_type_known and // a module with no memory0 has nothing to elide
+        memory_backing.qualifies(memory0_idx_type, memory0_page_size_log2);
+
     const results = try allocator.alloc(compile_func.FuncResult, defined_func_typeidx.len);
     errdefer allocator.free(results);
     var compiled: usize = 0;
@@ -1169,6 +1212,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             array_elem_valtypes,
             struct_field_valtypes,
             uses_type_subtyping,
+            bounds_elided,
             table_idx_types,
         ) catch |err| {
             std.debug.print("compileWasm: func[{d}] params={d} results={d} → {s}\n", .{
@@ -1289,6 +1333,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
         .tag_param_slot_counts = tag_param_slot_counts,
         .exception_table = .{ .entries = exception_entries },
         .exports = func_exports,
+        .bounds_elided = bounds_elided,
         .arena = arena,
     };
 }

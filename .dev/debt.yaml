@@ -183,6 +183,58 @@ entries:
     refs: |-
       .dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md §0/§2.1/§4
     front: G-senior-gap
+  - id: "D-514"
+    layer: "code"
+    status: "note"
+    description: |-
+      Front G-senior-gap follow-on to D-507 (guard-page elision). **Symmetric
+      SIMD bounds-check elision.** D-507 phase 3 elides the memory0 SCALAR
+      bounds check on both arches (the measured shootout band — fib2/matrix/
+      heapsort/base64 — is scalar-loop-bound). v128 load/store still emit the
+      explicit CMP: arm64 `op_simd.zig` is ctx-threaded (a one-line gate away),
+      but x86_64's ~12 v128 handlers + `v128MemPrologue` take raw params (no
+      ctx), so eliding there needs either threading `bounds_elided` through all
+      of them or converting them to ctx-based. Kept symmetric-explicit this
+      phase to avoid the churn + an arch asymmetry. Same guard machinery
+      (v128's 16-byte access is inside the reservation); pure perf refinement,
+      not a correctness gap. Recipe: gate the `!ctx.bounds_elided` block in
+      arm64 op_simd + thread the flag through x86_64 op_simd handlers.
+    first_raised: "2026-07-07"
+    last_reviewed: "2026-07-07"
+    refs: |-
+      src/engine/codegen/arm64/op_simd.zig (ctx-threaded, one-line gate)
+      src/engine/codegen/x86_64/op_simd.zig (v128MemPrologue + ~12 handlers, param-threaded)
+      .dev/decisions/0202_guard_page_bounds_elision.md D4
+    front: G-senior-gap
+  - id: "D-515"
+    layer: "code"
+    status: "note"
+    description: |-
+      Front G-senior-gap follow-on to D-507. TWO deferred elision-coverage /
+      soundness items, both currently held by forcing `.explicit`:
+      (1) **AOT `.cwasm` elision** — ADR-0202 D5's five AOT clauses are unbuilt
+      (elision bit in the format, trap-registry func_table serialise +
+      load-register, non-D1-host reject, guarded run-memory in `aot/run.zig`
+      which today binds PLAIN HEAP). Held safe by `produceFromCompiledWasm`
+      HARD-REFUSING an elided module (`Error.ElidedBoundsNotAotSerializable`) +
+      `compileWasmForAot` forcing `.explicit`; implement the D5 clauses to let
+      AOT artifacts elide.
+      (2) **Full spec corpus under elision** — the spec-assert harnesses
+      (spec_assert_runner / simd / wasm_3_0 / non_simd) back JIT memory with
+      bespoke non-guarded buffers (`scratch_memory` / static `growable_memory`),
+      so each forces `.explicit`. The elided path is validated by the guarded
+      `runner_trap_test` OOB tests + the `test-oob-elision` CLI step, NOT the
+      comprehensive corpus. Close by EITHER guard-backing the harness memory
+      provisioning OR folding into the D-510 differential-fuzz harness (diff
+      elided-JIT vs interp oracle — the natural home; `.explicit` is its axis).
+    first_raised: "2026-07-07"
+    last_reviewed: "2026-07-07"
+    refs: |-
+      src/engine/codegen/aot/produce.zig (ElidedBoundsNotAotSerializable guard)
+      src/cli/compile.zig + src/engine/compile.zig::compileWasmForAot
+      test/spec/{spec_assert_runner,simd_assert_runner,spec_assert_runner_wasm_3_0}.zig (setBoundsChecks .explicit)
+      .dev/decisions/0202_guard_page_bounds_elision.md D5
+    front: G-senior-gap
   - id: "D-506"
     layer: "code"
     status: "note"

@@ -152,6 +152,9 @@ pub fn compile(
     /// Routes `call_indirect` through the subtype trampoline. `false` for
     /// non-subtyping modules + test helpers.
     uses_type_subtyping: bool,
+    /// ADR-0202 D4 — elide the memory0 scalar bounds check + force-emit
+    /// the kind=6 redirect stub. `false` for non-qualifying / `.explicit`.
+    bounds_elided: bool,
 ) Error!EmitOutput {
     if (alloc.slots.len != (func.liveness orelse return Error.AllocationMissing).ranges.len) {
         return Error.AllocationMissing;
@@ -888,6 +891,7 @@ pub fn compile(
         .interrupt_fixup = interrupt_fixup,
         .fuel_fixup = fuel_fixup,
         .memory0_idx_type = memory0_idx_type,
+        .bounds_elided = bounds_elided,
         .exception_table_builder = if (has_try_table) &eh_builder else null,
         .open_try_tables = if (has_try_table) &open_try_tables else null,
         .landing_pad_fixups = if (has_try_table) &landing_pad_fixups else null,

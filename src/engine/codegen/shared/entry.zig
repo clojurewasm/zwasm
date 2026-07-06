@@ -24,6 +24,7 @@ const build_options = @import("build_options");
 const linker = @import("linker.zig");
 const jit_abi = @import("jit_abi.zig");
 const stack_limit_mod = @import("../../../platform/stack_limit.zig");
+const signal = @import("../../../platform/signal.zig"); // ADR-0202 D4 fault-handler auto-install
 const entry_buffer_write = @import("entry_buffer_write.zig");
 
 /// Shared clobber set for the AAPCS64 inline-asm BLR thunks used by
@@ -221,6 +222,12 @@ inline fn invokeAndCheck(
     f: anytype,
     args: anytype,
 ) Error!R {
+    // ADR-0202 D4 — guard-page bounds elision converts an oob access into a
+    // hardware fault the production handler redirects to the oob stub. Any
+    // JIT execution must therefore have a fault handler armed; this is the
+    // single chokepoint (idempotent, skips when the CLI/embedding/spec-runner
+    // already installed one). Cheap atomic-bool fast path after the once.
+    signal.ensureInstalled();
     // ADR-0105 D1 — populate stack_limit per call for the prologue probe.
     rt.stack_limit = stack_limit_mod.computeStackLimit(stack_limit_mod.STACK_GUARD_HEADROOM);
     rt.trap_flag = 0;
@@ -244,6 +251,7 @@ inline fn invokeAndCheckVoid(
     f: anytype,
     args: anytype,
 ) Error!void {
+    signal.ensureInstalled(); // ADR-0202 D4 — see invokeAndCheck
     rt.stack_limit = stack_limit_mod.computeStackLimit(stack_limit_mod.STACK_GUARD_HEADROOM);
     rt.trap_flag = 0;
     stack_limit_mod.diagOnceWithRt(rt, jit_abi.stack_limit_off, rt.stack_limit);
@@ -2522,7 +2530,7 @@ test "entry: i32.load offset=0 reads memory[0..4] through X28 vm_base" {
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     const sigs = [_]zir.FuncType{sig};
 
-    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer emit.deinit(testing.allocator, out0);
 
     const bodies = [_]linker.FuncBody{
@@ -2574,7 +2582,7 @@ test "entry: ADR-0018 sub-1c — spilled i32.const returns 42 via STR/LDR round-
         .max_reg_slots_gpr = 10,
     };
     const sigs = [_]zir.FuncType{sig};
-    const out = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const out = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer emit.deinit(testing.allocator, out);
 
     const bodies = [_]linker.FuncBody{
@@ -2625,7 +2633,7 @@ test "entry: ADR-0027 — global.set 0 then global.get 0 (i32) round-trips throu
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     const sigs = [_]zir.FuncType{sig};
-    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer emit.deinit(testing.allocator, out0);
     const bodies = [_]linker.FuncBody{
         .{ .bytes = out0.bytes, .call_fixups = out0.call_fixups },
@@ -2677,7 +2685,7 @@ test "entry: pure constant function returns 42 (sanity — no memory access)" {
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     const sigs = [_]zir.FuncType{sig};
 
-    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer emit.deinit(testing.allocator, out0);
 
     const bodies = [_]linker.FuncBody{
@@ -2726,7 +2734,7 @@ test "entry: callI32_i32i32 — 2 i32 params summed via i32.add" {
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
     const sigs = [_]zir.FuncType{sig};
 
-    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer emit.deinit(testing.allocator, out0);
 
     const bodies = [_]linker.FuncBody{
@@ -2770,7 +2778,7 @@ test "entry: callI32_i32 — 1 i32 param echoed through W1 → SP slot 0 → res
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     const sigs = [_]zir.FuncType{sig};
 
-    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer emit.deinit(testing.allocator, out0);
 
     const bodies = [_]linker.FuncBody{
@@ -2818,7 +2826,7 @@ test "entry: f32 local round-trip — local.get 0 of f32 param via V0" {
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     const sigs = [_]zir.FuncType{sig};
 
-    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer emit.deinit(testing.allocator, out0);
 
     const bodies = [_]linker.FuncBody{
@@ -2868,7 +2876,7 @@ test "entry: callI64NoArgs — i64.const 0xDEADBEEFCAFE returns full 64-bit" {
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     const sigs = [_]zir.FuncType{sig};
 
-    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer emit.deinit(testing.allocator, out0);
 
     const bodies = [_]linker.FuncBody{
@@ -2933,7 +2941,7 @@ test "entry: ref.as_non_null traps on null funcref source" {
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 2 };
     const sigs = [_]zir.FuncType{sig};
 
-    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer emit.deinit(testing.allocator, out0);
 
     const bodies = [_]linker.FuncBody{
@@ -2999,7 +3007,7 @@ test "entry: br_on_null branches to block end on null funcref" {
     const slots = [_]u16{ 0, 0 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 1 };
     const sigs = [_]zir.FuncType{sig};
-    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer emit.deinit(testing.allocator, out0);
 
     const bodies = [_]linker.FuncBody{
@@ -3065,7 +3073,7 @@ test "entry: br_on_non_null falls through on null funcref param" {
     const slots = [_]u16{ 0, 1, 2 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 3 };
     const sigs = [_]zir.FuncType{sig};
-    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer emit.deinit(testing.allocator, out0);
 
     const bodies = [_]linker.FuncBody{
@@ -3135,7 +3143,7 @@ test "entry: br_on_cast matches i31 → branch carries the ref → i31.get_s = 7
     const slots = [_]u16{ 0, 10, 1 };
     const alloc: regalloc.Allocation = .{ .slots = &slots, .n_slots = 11, .max_reg_slots_gpr = 10 };
     const sigs = [_]zir.FuncType{sig};
-    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const out0 = try emit.compile(testing.allocator, &fn0, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer emit.deinit(testing.allocator, out0);
 
     const bodies = [_]linker.FuncBody{

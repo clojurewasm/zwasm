@@ -248,14 +248,21 @@ pub fn emitMemOp(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.ne, 0)); // nonzero low bits = unaligned
         try ctx.unaligned_atomic_fixups.append(ctx.allocator, al_fixup);
     }
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(ip1, ip0, access_size));
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(ip1, 27));
-    const fixup_at: u32 = @intCast(ctx.buf.items.len);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hi, 0)); // unsigned >
-    try ctx.oob_fixups.append(ctx.allocator, fixup_at);
-    // ADR-0028 M3-a-1: record bounds-check emit site (no-op when
-    // -Dtrace-ringbuffer=false; comptime-folded out of release).
-    trace.writeBounds(ctx.func.func_idx, fixup_at);
+    // ADR-0202 D4 — elided: the guard-page reservation covers every
+    // reachable ea (idx ≤ 2³²−1 + offset ≤ 2³²−1 + access ≤ 16 < the
+    // 8 GiB reservation), so an oob access hardware-faults and the
+    // fault→trap handler redirects to this function's force-emitted
+    // kind=6 stub. The atomic ALIGNMENT check above is NOT elided.
+    if (!ctx.bounds_elided) {
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(ip1, ip0, access_size));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(ip1, 27));
+        const fixup_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hi, 0)); // unsigned >
+        try ctx.oob_fixups.append(ctx.allocator, fixup_at);
+        // ADR-0028 M3-a-1: record bounds-check emit site (no-op when
+        // -Dtrace-ringbuffer=false; comptime-folded out of release).
+        trace.writeBounds(ctx.func.func_idx, fixup_at);
+    }
 
     // Final LDR/STR. Allocate result vreg first for loads.
     if (is_store) {

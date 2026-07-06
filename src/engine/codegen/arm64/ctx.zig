@@ -266,6 +266,14 @@ pub const EmitCtx = struct {
     /// Default `.i32` keeps the 36 existing compile() call sites
     /// behaviour-preserving when they pass struct-literal default.
     memory0_idx_type: sections.MemoryEntry.IdxType = .i32,
+    /// ADR-0202 D4 — when true, memory0 scalar/atomic/SIMD accesses
+    /// SKIP the inline `ADD/CMP/B.HI` bounds check (the guard-page
+    /// reservation + fault→trap redirect own oob detection) and the
+    /// kind=6 stub is force-emitted as the redirect target. Set only
+    /// when memory0 qualifies (i32 × 64 KiB pages × guarded host) AND
+    /// the engine knob is `.auto`. memory64 / bulk / GC-array checks
+    /// are NEVER elided. Default false = explicit checks (status quo).
+    bounds_elided: bool = false,
     /// Wasm 3.0 EH (ADR-0120) — per-tag
     /// param count threaded from `CompiledWasm.tag_param_counts`
     /// (compile.zig). Indexed by `tag_idx`. `throw.emit` /

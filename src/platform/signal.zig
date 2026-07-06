@@ -150,7 +150,32 @@ const win_impl = if (builtin.os.tag == .windows) struct {
 /// (production entry). No-op on wasi. NOT installed by the test harness — the spec
 /// runners own their own (recovery) handler; this is the production last-resort
 /// disposition.
+/// Set once SOME fault handler owns SIGSEGV/SIGBUS for this process —
+/// either this production handler OR the spec runner's recovery
+/// handler (which classifies guard faults first, then siglongjmp-
+/// recovers). `ensureInstalled` skips when set so the engine's
+/// auto-install (needed for elided JIT execution under plain
+/// `zig build test`) never clobbers a recovery handler.
+var handler_installed = std.atomic.Value(bool).init(false);
+
+/// Idempotent auto-install for the JIT invoke path (ADR-0202 D4):
+/// guard-page elision REQUIRES a fault handler, so any JIT execution
+/// must have one armed. No-op if a handler is already installed
+/// (production CLI init, embedding init, or the spec runner).
+pub fn ensureInstalled() void {
+    if (handler_installed.swap(true, .monotonic)) return;
+    installInternalFaultHandler();
+}
+
+/// Mark SIGSEGV/SIGBUS as owned by an externally-installed handler
+/// (the spec runner's recovery handler) so `ensureInstalled` stands
+/// down. Called from `spec_assert_runner_base.installSigsegvHandler`.
+pub fn markInstalled() void {
+    handler_installed.store(true, .monotonic);
+}
+
 pub fn installInternalFaultHandler() void {
+    handler_installed.store(true, .monotonic);
     if (comptime builtin.os.tag == .windows) {
         win_impl.install();
         return;
