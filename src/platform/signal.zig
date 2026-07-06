@@ -1,17 +1,26 @@
-//! Production internal-fault handler (ADR-0166, D-292 B-core).
+//! Production fault handler (ADR-0166 diagnostic core + ADR-0202 D2
+//! guard-fault→trap redirect).
 //!
-//! v2 uses NO signal-based wasm trap semantics — every wasm trap is an explicit
-//! check surfacing as `Error.Trap` (CLI exit 1 + a `trap kind=…` line). So ANY
-//! fatal signal that reaches the OS is a zwasm-INTERNAL bug, never normal
-//! operation. `installInternalFaultHandler` (called once from `cli/main.zig`)
-//! installs a diagnostic-only, last-resort handler: on an unintended
-//! SIGSEGV/SIGBUS/SIGILL/SIGFPE it writes a fixed "internal error" line
-//! (async-signal-safe) and `_exit`s with a DISTINCT code, instead of a silent
-//! signal-death — so the fault is diagnosable and clearly NOT a wasm trap.
+//! Two dispositions, classified in `faultHandler` / the Windows VEH:
 //!
-//! Diagnostic-only: it always EXITS, never resumes (no recovery, unlike the
-//! test runner's `spec_assert_runner_base.installSigsegvHandler` which
-//! siglongjmps for JIT-trap recovery). Windows lands in ADR-0166 cycle II.
+//! 1. **Guard-fault → wasm trap (ADR-0202 D2)**: a SIGSEGV/SIGBUS (or
+//!    Win64 ACCESS_VIOLATION) whose fault address lies in a registered
+//!    guard-page reservation AND whose PC is registered JIT code is a
+//!    linear-memory out-of-bounds — the trap registry resolves the
+//!    containing function's kind=6 (oob_memory) stub, the handler
+//!    rewrites the context PC to it, and execution RESUMES there (the
+//!    stub runs the normal ADR-0199 sticky-flag path → `Error.Trap`).
+//! 2. **Unclassified → internal-error exit (ADR-0166)**: any other
+//!    fatal signal is a zwasm-INTERNAL bug (v2 emits explicit checks
+//!    everywhere elision is off). `installInternalFaultHandler` (called
+//!    once from `cli/main.zig` + embedding init) writes a fixed
+//!    "internal error" line (async-signal-safe) and `_exit`s with a
+//!    DISTINCT code — a diagnosable death, clearly NOT a wasm trap.
+//!
+//! Distinct from the test runner's `spec_assert_runner_base.
+//! installSigsegvHandler`, which classifies first (same D2 path) then
+//! siglongjmps for miscompile recovery. Windows landed in ADR-0166
+//! cycle II; the VEH gained the D2 branch alongside the POSIX handler.
 //!
 //! Zone 0 (`src/platform/`).
 

@@ -107,8 +107,14 @@ DISCARDED (`EmitCindStub.emit`'s `stub_byte`) — D4 adds `oob_stub_off` to
 guarded reservations `{base, reserve_end}`.
 Zone 2 (engine/runtime) registers/unregisters via downward calls (zone_deps
 compliant — mirrors how `windows_traphandler` exposes an arm/disarm surface).
-Reads from the handler are lock-free (atomically swapped immutable snapshots);
-single-threaded today — D-509 (threads) inherits this constraint explicitly.
+**Concurrency (as-built)**: fixed-capacity global arrays mutated only at
+publish / instantiate / teardown — never while JIT code is executing on the
+same thread — and read locklessly from the handler. The runtime is
+single-threaded today, so this quiescent-mutation discipline is sufficient
+without atomics. **D-509 (threads) MUST revisit**: cross-thread registration
+while another thread faults needs either a seqlock/RCU-style atomic snapshot
+swap or a registration barrier; this is called out here so the threads
+campaign does not inherit the single-threaded assumption silently.
 
 **D4 — Emit-side elision.** New `EmitCtx` field `bounds_elided: bool = false`
 (beside `memory0_idx_type`, both arches). When set (memory0 qualifies per D1):
@@ -179,7 +185,14 @@ them); sandbox caps (`store_memory_pages_max`, fuel, interrupt); EH unwinder
 3. D4 elision flip behind D5 knob + force-emitted stubs + boundary fixtures;
    oob corpus green on both engines; bench delta; 3-host + Rosetta verify.
 
-Steps 2–3 each add a **per-OS CLI-level oob test asserting the literal
-`trap kind=6` output with NO runner recovery armed** — the spec runner's
-sigsetjmp recovery could otherwise absorb a guard fault as generic
-"trapped" and let the corpus go green through the wrong mechanism.
+Verification per step. Step 2 (pre-elision): the redirect mechanism is proven
+in-process (`fault_redirect_test` — a guard fault in hand-emitted JIT code
+resumes at the registered stub, fork-isolated) plus a plumbing test that the
+oob-stub offset reaches the registry through BOTH the plain and the
+wrapper-thunk link paths. A CLI-subprocess `trap kind=6` test is NOT meaningful
+here — with checks still emitted no CLI run can reach the guard path. Step 3
+(elision on): add the **per-OS CLI-level oob test asserting the literal
+`trap kind=6` output with NO runner recovery armed** — with the explicit check
+gone the guard path is the ONLY mechanism, so this is the load-bearing
+end-to-end proof (and the spec runner's classify-first ordering keeps its
+sigsetjmp recovery from absorbing a guard fault as generic "trapped").

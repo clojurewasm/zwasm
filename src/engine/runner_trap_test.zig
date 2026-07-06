@@ -807,3 +807,37 @@ test "JitModule publishes an oob-stub trap entry for a memory-access function (A
         compiled2.module.trap_func_entries[0].oob_stub_off,
     );
 }
+
+// ADR-0202 D3 — a wrapper-thunk module (any exported ≥1-param / ≥2-result
+// function) publishes a NEW combined block via `linkWithThunks`, which frees
+// the body block. That path must RE-register the combined block, or a guard
+// fault in the dominant real-module shape would go unclassified. Regression
+// pin for the linkWithThunks registration fix.
+test "JitModule re-registers the combined block for a wrapper-thunk module (ADR-0202 D3)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    // (func (export "f") (param i32) (result i32) local.get 0; i32.load) —
+    // the i32 param forces a buffer-write wrapper thunk; the i32.load emits a
+    // kind=6 oob stub. Bytes verified against `wasm-tools parse`.
+    const param_mem = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x06, 0x01, 0x60, 0x01, 0x7f, 0x01, 0x7f,
+        0x03, 0x02, 0x01, 0x00, 0x05, 0x03, 0x01, 0x00,
+        0x01, 0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00,
+        0x0a, 0x09, 0x01, 0x07, 0x00, 0x20, 0x00, 0x28,
+        0x02, 0x00, 0x0b,
+    };
+    var compiled = try runner.compileWasm(testing.allocator, &param_mem);
+    defer compiled.deinit(testing.allocator);
+    // FAIL-1 pin: the bug returned trap_region_start=0 + empty entries for this
+    // (thunk) path. The combined block must be registered (non-zero region
+    // start) and carry the function's real oob stub.
+    try testing.expect(compiled.module.trap_region_start != 0);
+    try testing.expectEqual(
+        @intFromPtr(compiled.module.block.bytes.ptr),
+        compiled.module.trap_region_start, // registered under the COMBINED block, not the freed body block
+    );
+    try testing.expectEqual(@as(usize, 1), compiled.module.trap_func_entries.len);
+    try testing.expect(
+        compiled.module.trap_func_entries[0].oob_stub_off != trap_registry.FuncEntry.no_stub,
+    );
+}

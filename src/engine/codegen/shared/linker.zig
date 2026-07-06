@@ -384,44 +384,65 @@ pub fn link(allocator: Allocator, func_bodies: []const FuncBody, num_imports: u3
     );
 
     // ADR-0202 D3 — build + register the guard-fault PC-redirect table.
-    // Each defined function's {code_off, oob_stub_off} (absolute-base
-    // relative). Registered here (block executable, base known);
-    // unregistered in deinit. Import-only modules skip it.
-    var trap_func_entries: []const trap_registry.FuncEntry = &.{};
-    var trap_region_start: usize = 0;
-    const defined_count = offsets.len - num_imports;
-    if (defined_count > 0) {
-        const base = @intFromPtr(block.bytes.ptr);
-        const entries = try allocator.alloc(trap_registry.FuncEntry, defined_count);
-        errdefer allocator.free(entries);
-        for (0..defined_count) |i| {
-            const code_off = offsets[num_imports + i];
-            const stub = func_bodies[i].oob_stub_off;
-            entries[i] = .{
-                .code_off = code_off,
-                .oob_stub_off = if (stub == trap_registry.FuncEntry.no_stub)
-                    trap_registry.FuncEntry.no_stub
-                else
-                    code_off + stub, // relative to region start (= base)
-            };
-        }
-        // offsets is monotonically increasing → already sorted by code_off.
-        // A full registry (1024 live modules) surfaces as OutOfMemory —
-        // the linker's error set; errdefer frees `entries`.
-        trap_registry.registerCodeRegion(base, base + total_size, entries) catch |e| switch (e) {
-            error.RegistryFull => return Error.OutOfMemory,
-        };
-        trap_func_entries = entries;
-        trap_region_start = base;
-    }
+    const trap = try buildAndRegisterTrapEntries(allocator, block, offsets, num_imports, total_size, func_bodies);
+    errdefer trap.unregisterAndFree(allocator);
 
     return .{
         .block = block,
         .func_offsets = offsets,
         .code_map_entries = code_map_entries,
-        .trap_func_entries = trap_func_entries,
-        .trap_region_start = trap_region_start,
+        .trap_func_entries = trap.entries,
+        .trap_region_start = trap.region_start,
     };
+}
+
+/// ADR-0202 D3 — build the per-function `{code_off, oob_stub_off}`
+/// table (absolute-base-relative stub offsets) for `block` and
+/// register it in the trap registry. `region_size` bounds the code
+/// range (the body region only — wrapper thunks past it are non-Wasm
+/// and excluded, mirroring `buildCodeMapEntries`). Import-only modules
+/// register nothing. Caller stores the result on the JitModule and
+/// pairs it with the `deinit` unregister.
+const TrapEntries = struct {
+    entries: []const trap_registry.FuncEntry = &.{},
+    region_start: usize = 0,
+
+    fn unregisterAndFree(self: TrapEntries, allocator: Allocator) void {
+        if (self.region_start != 0) trap_registry.unregisterCodeRegion(self.region_start);
+        if (self.entries.len > 0) allocator.free(self.entries);
+    }
+};
+
+fn buildAndRegisterTrapEntries(
+    allocator: Allocator,
+    block: jit_mem.JitBlock,
+    offsets: []const u32,
+    num_imports: u32,
+    region_size: usize,
+    func_bodies: []const FuncBody,
+) Error!TrapEntries {
+    const defined_count = offsets.len - num_imports;
+    if (defined_count == 0) return .{};
+    const base = @intFromPtr(block.bytes.ptr);
+    const entries = try allocator.alloc(trap_registry.FuncEntry, defined_count);
+    errdefer allocator.free(entries);
+    for (0..defined_count) |i| {
+        const code_off = offsets[num_imports + i];
+        const stub = func_bodies[i].oob_stub_off;
+        entries[i] = .{
+            .code_off = code_off,
+            .oob_stub_off = if (stub == trap_registry.FuncEntry.no_stub)
+                trap_registry.FuncEntry.no_stub
+            else
+                code_off + stub, // region-relative (region start = base)
+        };
+    }
+    // offsets is monotonically increasing → already sorted by code_off.
+    // A full registry (1024 live modules) surfaces as OutOfMemory.
+    trap_registry.registerCodeRegion(base, base + region_size, entries) catch |e| switch (e) {
+        error.RegistryFull => return Error.OutOfMemory,
+    };
+    return .{ .entries = entries, .region_start = base };
 }
 
 /// Derives `CodeMap.Entry`s from a linked JitBlock's
@@ -571,11 +592,21 @@ pub fn linkWithThunks(
     );
     errdefer allocator.free(code_map_entries);
 
+    // ADR-0202 D3 — `body_module.deinit` above unregistered the (now-freed)
+    // body block; the combined block must be registered afresh, or a guard
+    // fault in a wrapper-thunk module (the dominant path — any exported
+    // ≥1-param / ≥2-result function) would go unclassified. Region bounded
+    // by `body_size` (wrapper thunks past it are non-Wasm, like the code map).
+    const trap = try buildAndRegisterTrapEntries(allocator, block, offsets_copy, num_imports, body_size, func_bodies);
+    errdefer trap.unregisterAndFree(allocator);
+
     return .{
         .block = block,
         .func_offsets = offsets_copy,
         .thunk_offsets = thunk_offsets,
         .code_map_entries = code_map_entries,
+        .trap_func_entries = trap.entries,
+        .trap_region_start = trap.region_start,
     };
 }
 
