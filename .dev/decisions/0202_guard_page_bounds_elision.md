@@ -1,12 +1,15 @@
 # ADR-0202 — Guard-page linear memory + signal-based OOB traps (bounds-check elision)
 
 > Doc-state: ACTIVE
-> Status: Accepted (2026-07-06) — D-507 (front G-senior-gap, G1). Implements
-> ROADMAP §4.9 as written; supersedes-in-part ADR-0166's premise ("v2 uses NO
-> signal-based wasm trap semantics") for the guard-fault class only.
-> Verification: existing oob corpus (test/edge_cases/p7/memory_bounds,
-> p9/memory_ops, p10/memory64, spec memory_trap) must stay green with
-> trap kind oob_memory (wire code 6); bench delta recorded at close.
+> Status: Implemented (2026-07-07, @5c5c45f6d) — D-507 CLOSED. Phase 1 #131
+> (reservation-backed memory), phase 2 #132 (fault→trap handler + registry),
+> phase 3 #133 (elision flip + AOT soundness guard). Implements ROADMAP §4.9 as
+> written; supersedes-in-part ADR-0166's premise ("v2 uses NO signal-based wasm
+> trap semantics") for the guard-fault class only. **Retrospective: the perf
+> hypothesis is REFUTED** (measured scalar-elision delta ~noise; the 1.75–3.9x
+> gap is optimising-tier quality = D-513). Elision shipped for correctness +
+> code-size + as the D-509 guard-fault foundation; AOT elision DISABLED (D5
+> clauses = D-515). Follow-ups: D-514 (SIMD elision), D-515 (AOT + corpus).
 
 ## Context
 

@@ -37,24 +37,21 @@ Post-v2.0.0 sweep (see `.dev/meta_audits/2026-07-03-maintenance-scaffolding-audi
 
 Senior-runtime gap analysis (measured; report =
 `.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`) opened front
-**G-senior-gap** (debt D-507..D-513, `front: G-senior-gap`). Queue order:
-- **G1 = D-507 (IN PROGRESS)** — guard-page/signal bounds-check elision.
-  **ADR-0202 filed** (adversarially critiqued + revised — read it first: D2
-  merges classification INTO the ADR-0166 handlers, SIGSEGV+SIGBUS, oob_stub_off
-  must be plumbed through EmitOutput→linker, binding-time soundness invariant).
-  **Phase 1 (D1) MERGED #131** (`main`): guarded_mem + memory_backing; all
-  creation/grow/free surfaces switched; std.c.mprotect = ADR-0070 B133.
-  **Phase 2 (D2+D3) DONE** on branch `develop/d507-fault-trap-handler`:
-  `platform/trap_registry.zig` (classify demands guarded-addr AND jit-pc),
-  auto-(un)register in guarded_mem.reserve/release, `platform/sigcontext.zig`
-  (per-OS mcontext PC read/write mirrors), fault→trap PC-redirect merged into
-  the ADR-0166 SIGSEGV/SIGBUS handler + Windows VEH, spec-runner handler
-  classifies FIRST; oob_stub_off plumbed emit→linker→registerCodeRegion at
-  publish / unregister in JitModule.deinit. Fork-proven redirect
-  (fault_redirect_test) + plumbing test; test-all + lint green on Mac.
-  **NEXT: phase 3** = D4 emit flip (drop CMP for qualifying memory0, force-emit
-  the oob stub) behind the D5 `bounds_checks: .auto|.explicit` knob + .cwasm
-  bit + per-OS CLI `trap kind=6` verification; 3-host + Rosetta. D-510 safety net.
+**G-senior-gap** (debt D-508..D-515, `front: G-senior-gap`). Queue order:
+- **G1 = D-507 COMPLETE + MERGED** (guard-page/signal bounds-check elision;
+  ADR-0202). Phase 1 #131 (reservation-backed memory), phase 2 #132 (fault→trap
+  handler + trap registry), phase 3 #133 (elision flip + AOT soundness guard).
+  On `main` (@5c5c45f6d). **KEY RETROSPECTIVE**: the measured scalar-elision
+  perf is ~NOISE (matrix ~1% / base64 ~1.5% / fib2 within stddev) — the ADR's
+  "biggest tier-free lever" hypothesis is REFUTED; the 1.75–3.9x gap vs wasmtime
+  is optimising-tier codegen quality (**D-513**), not bounds checks. Elision
+  still shipped: correct, code-size win, and its guard-fault infra is the base
+  D-509 (threads) needs. **AOT elision is DISABLED** — `compileWasmForAot`
+  forces `.explicit` + `produceFromCompiledWasm` hard-refuses elided (the
+  `.cwasm`/`aot/run.zig` plain-heap path can't uphold guard soundness yet).
+  Follow-ups: **D-514** (symmetric SIMD elision — x86_64 v128 handlers are
+  param-threaded), **D-515** (build the D5 AOT-elision clauses + run the spec
+  corpus under elision; the harnesses force `.explicit` today).
 - **G2 = D-508** — on-disk compilation cache (reuse .cwasm serialization).
 - **G3 = D-510** — committed differential-fuzz harness (interp oracle vs JIT);
   MAY be pulled ahead of D-507 as its safety net — either order is sanctioned.

@@ -3,42 +3,6 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
-  - id: "D-507"
-    layer: "code"
-    status: "now"
-    description: |-
-      QUEUE HEAD of front G-senior-gap (2026-07-06 senior-runtime gap analysis,
-      `.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`; queue order
-      G1=this, G2=D-508, G3=D-510, then note-class G4+). **Guard-page /
-      signal-based linear-memory bounds-check elision** — the single biggest
-      measured perf lever available WITHIN the single-pass JIT (no optimising
-      tier needed): zwasm emits an explicit CMP+branch per memory access;
-      wasmtime (`Config::memory_reservation`/`memory_guard_size`/
-      `signals_based_traps`, config.rs:1862/1945/3151) and WAMR (Segue) elide
-      it by reserving guard regions and converting the fault to an oob trap.
-      Measured evidence (report §0): shootout fib2 1.75x / matrix 3.9x /
-      heapsort 3.0x vs wasmtime — a substantial slice of the sub-4x band is
-      bounds-check overhead (the >4x outliers are optimising-tier codegen
-      quality, out of scope here → D-513). SHAPE (ADR REQUIRED first — codegen
-      strategy + signal-handler introduction are ADR-grade; also audit
-      `check_libc_boundary` for sigaction/mmap/VirtualAlloc additions):
-      (1) reserve base+4GiB+guard via mmap PROT_NONE (Win: VirtualAlloc
-      MEM_RESERVE + VEH) for i32 memories; commit-on-grow; (2) SIGSEGV/SIGBUS
-      (Win: vectored exception) handler classifies faults inside the guard →
-      route to the existing trap path (trap_kind oob) — must coexist with the
-      interrupt flag + EH unwinder; (3) emit flag drops the explicit CMP when
-      the memory qualifies (i32, guard-covered); memory64 KEEPS explicit
-      checks (wasmtime does the same); (4) interp unchanged (oracle). Fuzz
-      differential (D-510) SHOULD land first or together — it is the safety
-      net for exactly this class of change. 3-host verify mandatory
-      (JIT/ABI-class; Rosetta reproduces linux; windowsmini for VEH).
-    first_raised: "2026-07-06"
-    last_reviewed: "2026-07-06"
-    refs: |-
-      .dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md §0/§2.2
-      src/engine/codegen/{arm64,x86_64}/op_memory.zig (explicit bounds CMPs)
-      ~/Documents/OSS/wasmtime crates/wasmtime/src/config.rs:1862,1945,3151
-    front: G-senior-gap
   - id: "D-508"
     layer: "code"
     status: "note"
