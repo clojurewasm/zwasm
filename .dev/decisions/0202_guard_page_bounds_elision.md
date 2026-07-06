@@ -137,10 +137,11 @@ them); sandbox caps (`store_memory_pages_max`, fuel, interrupt); EH unwinder
   partially visible (spec memory_trap corpus asserts this). Precise faults on
   the supported targets + the wasmtime/V8 precedent cover it; the boundary
   fixture set (test_discipline §1) pins it per-arch.
-- ADR-0070: NO new libc sites — `std.posix.mmap/mprotect/sigaction` + ntdll
-  `Nt*`/VEH are outside the `check_libc_boundary` pattern (same as
-  `signal.zig`/`jit_mem.zig`). Any future `std.c.*` addition amends ADR-0070
-  first.
+- ADR-0070: ONE new libc site — `std.c.mprotect` (Zig 0.16 `std.posix` has no
+  wrapper; macOS has no non-libc syscall path) → B133 amendment + allowlist
+  entry, filed with this ADR. Everything else (`std.posix.mmap/sigaction`,
+  ntdll `Nt*`/VEH) is outside the `check_libc_boundary` pattern (same as
+  `signal.zig`/`jit_mem.zig`).
 
 ## Implementation order (TDD, correctness-first)
 

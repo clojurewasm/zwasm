@@ -47,6 +47,10 @@ NECESSARY=(
   "sigsetjmp"
   "siglongjmp"
   "std.c.mmap"
+  # B133 (2026-07-06, ADR-0202 D1): commit-on-grow for guard-page
+  # linear memory. Zig 0.16 std.posix has no mprotect wrapper and
+  # macOS has no non-libc syscall path.
+  "std.c.mprotect"
   "std.c.MAP"
   "std.c.MAP_FAILED"
   "std.c.vm_prot_t"

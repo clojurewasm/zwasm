@@ -123,6 +123,7 @@ pub const support = struct {
 };
 pub const platform = struct {
     pub const jit_mem = @import("platform/jit_mem.zig");
+    pub const guarded_mem = @import("platform/guarded_mem.zig"); // ADR-0202 D1 reserve/commit backing
     pub const windows_traphandler = @import("platform/windows_traphandler.zig");
     pub const stack_limit = @import("platform/stack_limit.zig");
     pub const signal = @import("platform/signal.zig"); // ADR-0166 internal-fault handler
@@ -344,6 +345,7 @@ test {
     _ = @import("engine/codegen/x86_64/emit.zig");
     _ = @import("engine/codegen/x86_64/emit_test.zig");
     _ = @import("platform/jit_mem.zig");
+    _ = @import("platform/guarded_mem.zig");
     _ = @import("platform/windows_traphandler.zig");
     _ = @import("platform/stack_limit.zig");
     _ = @import("platform/signal.zig");
