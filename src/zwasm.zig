@@ -346,6 +346,7 @@ test {
     _ = @import("engine/codegen/x86_64/emit_test.zig");
     _ = @import("platform/jit_mem.zig");
     _ = @import("platform/guarded_mem.zig");
+    _ = @import("runtime/instance/memory_backing.zig");
     _ = @import("platform/windows_traphandler.zig");
     _ = @import("platform/stack_limit.zig");
     _ = @import("platform/signal.zig");

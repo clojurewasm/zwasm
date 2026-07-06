@@ -17,6 +17,8 @@ const rv = @import("runner_validate.zig");
 
 const runner_mod = @import("runner.zig");
 const instantiate = @import("../runtime/instance/instantiate.zig");
+const memory_backing = @import("../runtime/instance/memory_backing.zig");
+const guarded_mem = @import("../platform/guarded_mem.zig");
 const heap_mod = @import("../feature/gc/heap.zig");
 const gc_type_info = @import("../feature/gc/type_info.zig");
 const needs_heap_detector = @import("../feature/gc/needs_heap_detector.zig");
@@ -151,7 +153,11 @@ pub const RuntimeOwned = struct {
         if (self.mem_ctx) |c| {
             // The ctx OWNS the (possibly grown) linear-memory buffer —
             // free the CURRENT pointer (memory.grow realloc-moves it).
-            if (c.memory.len > 0) allocator.free(c.memory);
+            // Guarded backing (ADR-0202 D1): release the reservation
+            // instead — the allocator never saw those bytes.
+            if (c.reservation) |res|
+                guarded_mem.release(res)
+            else if (c.memory.len > 0) allocator.free(c.memory);
             allocator.destroy(c);
         }
         allocator.free(self.dispatch);
@@ -182,6 +188,10 @@ pub const RuntimeOwned = struct {
 pub const MemGrowCtx = struct {
     allocator: Allocator,
     memory: []u8,
+    /// ADR-0202 D1 — non-null when `memory` is guard-page
+    /// reservation-backed: grow commits in place (base never moves)
+    /// and deinit releases the reservation instead of freeing.
+    reservation: ?guarded_mem.Reservation = null,
     max_pages: u64,
     /// ADR-0179 #3c-2 / D-314 — host-imposed page cap BELOW the declared/spec
     /// `max_pages` (JIT mirror of the facade `setMemoryPagesLimit`). null =
@@ -211,8 +221,15 @@ pub fn jitMemoryGrow(rt: *entry.JitRuntime, delta_pages: u32) callconv(.c) i32 {
     // ADR-0179 #3c-2 / D-314 — host cap below the declared/spec max.
     if (ctx.host_max_pages) |cap| if (new_pages > cap) return -1;
     const new_bytes: usize = std.math.cast(usize, new_pages * page) orelse return -1;
-    const grown = ctx.allocator.realloc(ctx.memory, new_bytes) catch return -1;
-    @memset(grown[old_len..new_bytes], 0);
+    const grown: []u8 = if (ctx.reservation) |*res|
+        // ADR-0202 D1 — commit-in-place: base never moves, fresh pages
+        // OS-zeroed (the post-grow vm_base reload is now a no-op reload).
+        memory_backing.growGuarded(res, new_bytes) orelse return -1
+    else blk: {
+        const g = ctx.allocator.realloc(ctx.memory, new_bytes) catch return -1;
+        @memset(g[old_len..new_bytes], 0);
+        break :blk g;
+    };
     ctx.memory = grown;
     rt.vm_base = grown.ptr;
     rt.mem_limit = new_bytes;
@@ -323,7 +340,12 @@ pub fn setupRuntimeLinked(
     errdefer if (thunk_arena) |a| shared_thunk.freeArena(a);
 
     var memory: []u8 = &.{};
-    errdefer if (memory.len > 0) allocator.free(memory);
+    // ADR-0202 D1 — non-null when `memory` is guard-page reservation-backed
+    // (qualifying i32/64KiB memory0): grow commits in place, free = release.
+    var mem_reservation: ?guarded_mem.Reservation = null;
+    errdefer if (mem_reservation) |res|
+        guarded_mem.release(res)
+    else if (memory.len > 0) allocator.free(memory);
     // D-215 — memory.grow upper bound (pages). Declared max if present,
     // else the spec address-space limit per idx_type. 0 = no memory section.
     var mem_max_pages: u64 = 0;
@@ -500,8 +522,14 @@ pub fn setupRuntimeLinked(
             if (total_bytes > 256 * 1024 * 1024) {
                 return Error.UnsupportedEntrySignature;
             }
-            memory = try allocator.alloc(u8, @intCast(total_bytes));
-            @memset(memory, 0);
+            const backing = try memory_backing.allocBacking(
+                allocator,
+                @intCast(total_bytes),
+                mem0.idx_type,
+                mem0.page_size_log2,
+            );
+            memory = backing.bytes;
+            mem_reservation = backing.reservation;
             // D-215 — grow ceiling: declared max, else the spec page limit.
             // Custom-page-sizes (ADR-0168 v0.2): the page cap = byte_cap /
             // page_size (i32 byte_cap 2^32 → 2^16 pages at 64 KiB, 2^32 at
@@ -1128,7 +1156,7 @@ pub fn setupRuntimeLinked(
     // can realloc-move it. Owns `memory` from here on (freed via deinit).
     const mem_ctx = try allocator.create(MemGrowCtx);
     errdefer allocator.destroy(mem_ctx);
-    mem_ctx.* = .{ .allocator = allocator, .memory = memory, .max_pages = mem_max_pages };
+    mem_ctx.* = .{ .allocator = allocator, .memory = memory, .reservation = mem_reservation, .max_pages = mem_max_pages };
 
     // D-327 (ADR-0120 D6) — install the exnref reify callout unconditionally
     // (cheap; the ctx only allocates when an `_ref` catch clause actually

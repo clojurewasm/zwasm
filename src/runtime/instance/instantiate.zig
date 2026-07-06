@@ -41,6 +41,7 @@ const leb128 = @import("../../support/leb128.zig");
 const testing = std.testing;
 const import_mod = @import("import.zig");
 const instance_mod = @import("instance.zig");
+const memory_backing = @import("memory_backing.zig");
 const heap_mod = @import("../../feature/gc/heap.zig");
 const needs_heap_detector = @import("../../feature/gc/needs_heap_detector.zig");
 const diagnostic = @import("../../diagnostic/diagnostic.zig");
@@ -1175,15 +1176,22 @@ pub fn instantiateRuntime(
                 // (1 << page_size_log2). Default 64 KiB.
                 const page_size: usize = @as(usize, 1) << @intCast(entry.page_size_log2);
                 const bytes_total: usize = @as(usize, pages) * page_size;
-                const mem = try a.alloc(u8, bytes_total);
-                @memset(mem, 0);
+                // ADR-0202 D1 — qualifying i32/64KiB memories get a guard-page
+                // reservation (base never moves); others stay heap-backed.
+                const backing = try memory_backing.allocBacking(
+                    a,
+                    bytes_total,
+                    entry.idx_type,
+                    entry.page_size_log2,
+                );
                 def_storage[di] = .{
-                    .bytes = mem,
+                    .bytes = backing.bytes,
                     .idx_type = entry.idx_type,
                     .pages_min = entry.min,
                     .pages_max = entry.max,
                     .shared = entry.shared,
                     .page_size_log2 = entry.page_size_log2,
+                    .reservation = backing.reservation,
                 };
                 mi[slot] = &def_storage[di];
                 slot += 1;

@@ -25,6 +25,7 @@ const instance = @import("instance.zig");
 const vec = @import("vec.zig");
 const types = @import("types.zig");
 const runtime = @import("../runtime/runtime.zig");
+const memory_backing = @import("../runtime/instance/memory_backing.zig");
 const zir = @import("../ir/zir.zig");
 const trap_surface = @import("trap_surface.zig");
 
@@ -167,19 +168,27 @@ pub export fn wasm_memory_new(store: ?*instance.Store, mt: ?*const types.MemoryT
     const mtype = mt orelse return null;
     const lim = types.wasm_memorytype_limits(mtype) orelse return null;
     const alloc = instance.storeAllocator(s) orelse return null;
-    const bytes = alloc.alloc(u8, @as(usize, lim.min) * 65536) catch return null;
-    @memset(bytes, 0);
+    // ADR-0202 D1 — host-created memories route through the same backing
+    // selection as instantiate-defined ones (wasm-c-api memories are
+    // i32 / 64 KiB pages, so they qualify on supported hosts).
+    const backing = memory_backing.allocBacking(
+        alloc,
+        @as(usize, lim.min) * 65536,
+        .i32,
+        16,
+    ) catch return null;
     const mi = alloc.create(runtime.MemoryInstance) catch {
-        alloc.free(bytes);
+        memory_backing.freeBacking(alloc, backing);
         return null;
     };
     mi.* = .{
-        .bytes = bytes,
+        .bytes = backing.bytes,
         .pages_min = lim.min,
         .pages_max = if (lim.max == 0xffff_ffff) null else lim.max,
+        .reservation = backing.reservation,
     };
     const m = alloc.create(Memory) catch {
-        alloc.free(bytes);
+        memory_backing.freeBacking(alloc, backing);
         alloc.destroy(mi);
         return null;
     };

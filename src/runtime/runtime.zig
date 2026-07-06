@@ -32,6 +32,8 @@ const value_mod = @import("value.zig");
 const trap_mod = @import("trap.zig");
 const frame_mod = @import("frame.zig");
 const memory_instance_mod = @import("instance/memory_instance.zig");
+const memory_backing = @import("instance/memory_backing.zig");
+const guarded_mem = @import("../platform/guarded_mem.zig");
 const heap_mod = @import("../feature/gc/heap.zig");
 const stack_limit_mod = @import("../platform/stack_limit.zig");
 pub const MemoryInstance = memory_instance_mod.MemoryInstance;
@@ -473,8 +475,18 @@ pub const Runtime = struct {
         const new_pages = new_pages_ov[0];
         const new_bytes_ov = @mulWithOverflow(new_pages, page_size);
         if (new_bytes_ov[1] != 0 or new_bytes_ov[0] > std.math.maxInt(usize)) return null;
-        const new_mem = self.alloc.realloc(target_bytes, @intCast(new_bytes_ov[0])) catch return null;
-        @memset(new_mem[target_bytes.len..], 0);
+        const new_mem: []u8 = blk: {
+            // ADR-0202 D1 — guarded backing grows by committing more of the
+            // reservation IN PLACE (base never moves; fresh pages OS-zeroed).
+            if (memidx < self.memories.len) {
+                if (self.memories[memidx].reservation) |*res| {
+                    break :blk memory_backing.growGuarded(res, @intCast(new_bytes_ov[0])) orelse return null;
+                }
+            }
+            const grown = self.alloc.realloc(target_bytes, @intCast(new_bytes_ov[0])) catch return null;
+            @memset(grown[target_bytes.len..], 0);
+            break :blk grown;
+        };
         if (memidx == 0) {
             self.setMemory0Bytes(new_mem);
         } else {
@@ -499,7 +511,16 @@ pub const Runtime = struct {
         // tears down. `rawFree` skips the wrapper's poisoning, so
         // arena-owned slices stay intact while testing.allocator-
         // owned slices still release without leaking.
-        rawFreeOwned(self.alloc, u8, self.memory);
+        // ADR-0202 D1 — guarded backings are reservation-owned: release
+        // the OWN storage's reservations (imported entries are released
+        // by their exporter) and skip the allocator free for a guarded
+        // memory0 alias (the allocator never saw those bytes).
+        const memory0_guarded = self.memories.len >= 1 and
+            self.memories[0].reservation != null;
+        for (self.memory_storage) |*m| {
+            if (m.reservation) |res| guarded_mem.release(res);
+        }
+        if (!memory0_guarded) rawFreeOwned(self.alloc, u8, self.memory);
         // D-199 — free the pointer array + the OWNED instance storage.
         // Imported entries point into the exporter's `memory_storage`
         // (freed by the exporter), so freeing our own storage is correct.

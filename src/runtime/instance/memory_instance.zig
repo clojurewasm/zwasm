@@ -6,10 +6,12 @@
 //! the ~80 code-side readers stay byte-identical (per ADR-0111
 //! Decision 2 + the "i32 fast-path byte-identical" rule).
 //!
-//! Zone 1 (`src/runtime/instance/`) — imports Zone 1 only
-//! (`parse/sections.zig` for the IdxType re-export).
+//! Zone 1 (`src/runtime/instance/`) — imports Zone 1
+//! (`parse/sections.zig` for the IdxType re-export) + Zone 0
+//! (`platform/guarded_mem.zig` for the ADR-0202 backing descriptor).
 
 const sections = @import("../../parse/sections.zig");
+const guarded_mem = @import("../../platform/guarded_mem.zig");
 
 /// Per-memory descriptor. `bytes` is the linear-memory backing
 /// store; `idx_type` distinguishes i32 (legacy ≤ 4 GiB) from
@@ -33,4 +35,9 @@ pub const MemoryInstance = struct {
     /// page size (0 = 1 byte, 16 = 64 KiB default). `memory.size`/`grow`
     /// report/operate in units of `1 << page_size_log2` bytes.
     page_size_log2: u8 = 16,
+    /// ADR-0202 D1 — non-null when `bytes` lives in a guard-page
+    /// reservation (base never moves; grow = commit-in-place; the
+    /// owner releases it instead of freeing `bytes` through the
+    /// allocator). Null = plain allocator heap (realloc on grow).
+    reservation: ?guarded_mem.Reservation = null,
 };

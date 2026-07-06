@@ -29,6 +29,7 @@ const runtime = @import("../runtime/runtime.zig");
 const runtime_instance = @import("../runtime/instance/instance.zig");
 const runtime_instance_import = @import("../runtime/instance/import.zig");
 const instantiate = @import("../runtime/instance/instantiate.zig");
+const memory_backing = @import("../runtime/instance/memory_backing.zig");
 const wasi_host = @import("../wasi/host.zig");
 const wasi = @import("wasi.zig");
 const trap_surface = @import("trap_surface.zig");
@@ -1563,7 +1564,8 @@ pub export fn wasm_memory_delete(m: ?*Memory) callconv(.c) void {
     if (handle.extern_view) |v| alloc.destroy(v);
     if (handle.ref_view) |rv| alloc.destroy(rv); // object-identity as_ref view (ADR-0158)
     if (handle.minst) |mi| { // standalone host memory: free its own backing
-        if (mi.bytes.len > 0) alloc.free(mi.bytes);
+        // ADR-0202 D1 — guarded backing is reservation-owned.
+        memory_backing.freeBacking(alloc, .{ .bytes = mi.bytes, .reservation = mi.reservation });
         alloc.destroy(mi);
     }
     alloc.destroy(handle);
@@ -1637,8 +1639,18 @@ pub export fn wasm_memory_grow(m: ?*Memory, delta: u32) callconv(.c) bool {
             const ps_log2: u6 = if (rt.memories.len > 0) @intCast(rt.memories[0].page_size_log2) else 16;
             const old_pages = rt.memory.len >> ps_log2;
             const new_bytes = (old_pages + delta) << ps_log2;
-            const grown = rt.alloc.realloc(rt.memory, new_bytes) catch return false;
-            @memset(grown[rt.memory.len..new_bytes], 0);
+            const old_len = rt.memory.len;
+            const grown: []u8 = blk: {
+                // ADR-0202 D1 — guarded backing commits in place.
+                if (rt.memories.len > 0) {
+                    if (rt.memories[0].reservation) |*res| {
+                        break :blk memory_backing.growGuarded(res, new_bytes) orelse return false;
+                    }
+                }
+                const g = rt.alloc.realloc(rt.memory, new_bytes) catch return false;
+                @memset(g[old_len..new_bytes], 0);
+                break :blk g;
+            };
             rt.setMemory0Bytes(grown);
             return true;
         }
@@ -1655,6 +1667,11 @@ pub export fn wasm_memory_grow(m: ?*Memory, delta: u32) callconv(.c) bool {
     const ps_log2: u6 = @intCast(mi.page_size_log2);
     const old_len = mi.bytes.len;
     const new_bytes = ((old_len >> ps_log2) + delta) << ps_log2;
+    // ADR-0202 D1 — guarded backing commits in place.
+    if (mi.reservation) |*res| {
+        mi.bytes = memory_backing.growGuarded(res, new_bytes) orelse return false;
+        return true;
+    }
     const grown = alloc.realloc(mi.bytes, new_bytes) catch return false;
     @memset(grown[old_len..new_bytes], 0);
     mi.bytes = grown;
