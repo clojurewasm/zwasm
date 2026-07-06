@@ -42,12 +42,19 @@ Senior-runtime gap analysis (measured; report =
   **ADR-0202 filed** (adversarially critiqued + revised — read it first: D2
   merges classification INTO the ADR-0166 handlers, SIGSEGV+SIGBUS, oob_stub_off
   must be plumbed through EmitOutput→linker, binding-time soundness invariant).
-  Branch `develop/d507-guard-page-bounds-elision`: **phase 1 (D1) DONE** —
-  `platform/guarded_mem.zig` + `runtime/instance/memory_backing.zig`; all 4
-  creation surfaces + 5 grow paths + 3 free paths switched; test-all green on
-  Mac; std.c.mprotect = ADR-0070 B133. NEXT: phase 2 = D3 Zone-0 trap registry
-  + D2 fault→trap PC-redirect handler (test proves redirect BEFORE elision);
-  then phase 3 = D4 emit flip + D5 knob/.cwasm. D-510 is the safety net.
+  **Phase 1 (D1) MERGED #131** (`main`): guarded_mem + memory_backing; all
+  creation/grow/free surfaces switched; std.c.mprotect = ADR-0070 B133.
+  **Phase 2 (D2+D3) DONE** on branch `develop/d507-fault-trap-handler`:
+  `platform/trap_registry.zig` (classify demands guarded-addr AND jit-pc),
+  auto-(un)register in guarded_mem.reserve/release, `platform/sigcontext.zig`
+  (per-OS mcontext PC read/write mirrors), fault→trap PC-redirect merged into
+  the ADR-0166 SIGSEGV/SIGBUS handler + Windows VEH, spec-runner handler
+  classifies FIRST; oob_stub_off plumbed emit→linker→registerCodeRegion at
+  publish / unregister in JitModule.deinit. Fork-proven redirect
+  (fault_redirect_test) + plumbing test; test-all + lint green on Mac.
+  **NEXT: phase 3** = D4 emit flip (drop CMP for qualifying memory0, force-emit
+  the oob stub) behind the D5 `bounds_checks: .auto|.explicit` knob + .cwasm
+  bit + per-OS CLI `trap kind=6` verification; 3-host + Rosetta. D-510 safety net.
 - **G2 = D-508** — on-disk compilation cache (reuse .cwasm serialization).
 - **G3 = D-510** — committed differential-fuzz harness (interp oracle vs JIT);
   MAY be pulled ahead of D-507 as its safety net — either order is sanctioned.
