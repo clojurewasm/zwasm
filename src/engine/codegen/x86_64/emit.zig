@@ -1743,6 +1743,7 @@ pub fn compile(
         .call_fixups = try call_fixups.toOwnedSlice(allocator),
         .exception_handlers = exception_handlers,
         .frame_bytes = frame_bytes,
+        .oob_stub_off = ctx.oob_stub_off, // ADR-0202 D3
     };
 }
 

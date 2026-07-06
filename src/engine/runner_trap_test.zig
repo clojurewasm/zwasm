@@ -15,6 +15,7 @@ const skip = @import("../test_support/skip.zig");
 const runner = @import("runner.zig");
 const entry = @import("codegen/shared/entry.zig");
 const trap_surface = @import("../api/trap_surface.zig");
+const trap_registry = @import("../platform/trap_registry.zig");
 
 // `(module (func (export "_start") unreachable))` — the JIT lowers `unreachable`
 // to an unconditional branch into a dedicated trap stub recording trap-kind 5.
@@ -762,4 +763,47 @@ test "JIT back-edge poll interrupts a RUNNING infinite br_table loop (D-314 #3a)
     th.join();
     try testing.expectEqual(@as(u32, 16), inst.owned.rt.trap_kind);
     try testing.expectEqual(trap_surface.TrapKind.interrupted, trap_surface.jitTrapCode(inst.owned.rt.trap_kind).?);
+}
+
+// ADR-0202 D3 — the emit→linker plumbing carries the oob-stub offset into the
+// trap registry: a compiled function WITH a bounds-checked memory access
+// registers a real (non-`no_stub`) redirect entry, and one WITHOUT stays
+// `no_stub`. This is the phase-2 (pre-elision) proof that the PC-redirect
+// target the fault handler needs is actually published.
+test "JitModule publishes an oob-stub trap entry for a memory-access function (ADR-0202 D3)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    // (func (export "f") (result i32) i32.store(0,42); i32.load(0)) — memory
+    // access → an emitted kind=6 oob stub.
+    const with_mem = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03,
+        0x02, 0x01, 0x00, 0x05, 0x03, 0x01, 0x00, 0x01,
+        0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00, 0x0a,
+        0x10, 0x01, 0x0e, 0x00, 0x41, 0x00, 0x41, 0x2a,
+        0x36, 0x02, 0x00, 0x41, 0x00, 0x28, 0x02, 0x00,
+        0x0b,
+    };
+    var compiled = try runner.compileWasm(testing.allocator, &with_mem);
+    defer compiled.deinit(testing.allocator);
+    try testing.expectEqual(@as(usize, 1), compiled.module.trap_func_entries.len);
+    const e = compiled.module.trap_func_entries[0];
+    try testing.expect(e.oob_stub_off != trap_registry.FuncEntry.no_stub);
+    // The stub is at or after the function's code start (region-relative).
+    try testing.expect(e.oob_stub_off >= e.code_off);
+
+    // (func (export "f") (result i32) i32.const 42) — no memory access → no stub.
+    const no_mem = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03,
+        0x02, 0x01, 0x00, 0x07, 0x05, 0x01, 0x01, 0x66,
+        0x00, 0x00, 0x0a, 0x06, 0x01, 0x04, 0x00, 0x41,
+        0x2a, 0x0b,
+    };
+    var compiled2 = try runner.compileWasm(testing.allocator, &no_mem);
+    defer compiled2.deinit(testing.allocator);
+    try testing.expectEqual(@as(usize, 1), compiled2.module.trap_func_entries.len);
+    try testing.expectEqual(
+        trap_registry.FuncEntry.no_stub,
+        compiled2.module.trap_func_entries[0].oob_stub_off,
+    );
 }

@@ -22,6 +22,7 @@ const builtin_arch = @import("builtin");
 const Allocator = std.mem.Allocator;
 
 const jit_mem = @import("../../../platform/jit_mem.zig");
+const trap_registry = @import("../../../platform/trap_registry.zig"); // ADR-0202 D3
 const code_map = @import("code_map.zig");
 /// Comptime arch dispatch
 /// matching `compile.zig` (commit `0925134`). Both backends
@@ -59,6 +60,12 @@ pub const FuncBody = struct {
     /// consumes it. Defaults to 0 for callers that don't set it
     /// (legacy test fixtures + non-EH paths).
     frame_bytes: u32 = 0,
+    /// ADR-0202 D3 — byte offset (from body start) of this function's
+    /// kind=6 oob trap stub (from `EmitOutput.oob_stub_off`). The
+    /// linker adds the function's absolute base to build the trap
+    /// registry's PC-redirect table. `FuncEntry.no_stub` = no
+    /// bounds-checked access (default for legacy/test callers).
+    oob_stub_off: u32 = trap_registry.FuncEntry.no_stub,
 };
 
 /// Per-function buffer-write wrapper thunk specification
@@ -104,12 +111,32 @@ pub const JitModule = struct {
     /// with zero defined functions (import-only). Owned slice.
     code_map_entries: []const code_map.Entry = &.{},
 
+    /// ADR-0202 D3 — per-function `{code_off, oob_stub_off}` (offsets
+    /// relative to `block.bytes.ptr`), sorted ascending by `code_off`.
+    /// The production fault handler binary-searches this via the trap
+    /// registry to redirect a guard fault to the containing function's
+    /// oob stub. Registered (`registerCodeRegion`) at link time when
+    /// the block is executable + its base known; unregistered in
+    /// `deinit`. Owned slice; empty for import-only modules.
+    trap_func_entries: []const trap_registry.FuncEntry = &.{},
+    /// Absolute base the trap entries were registered under (=
+    /// `block.bytes.ptr`); the unregister key. 0 = not registered.
+    trap_region_start: usize = 0,
+
     /// Sentinel for `thunk_offsets[i]` when function `i` has no
     /// emitted wrapper thunk (single-result, unsupported shape, or
     /// non-target arch).
     pub const NO_THUNK: u32 = 0xFFFFFFFF;
 
     pub fn deinit(self: *JitModule, allocator: Allocator) void {
+        // ADR-0202 D3 — unregister BEFORE freeing the block so no
+        // fault can classify against a freed (possibly reused) code
+        // range. Keyed by the registered base (0 = never registered).
+        if (self.trap_region_start != 0) {
+            trap_registry.unregisterCodeRegion(self.trap_region_start);
+            self.trap_region_start = 0;
+        }
+        if (self.trap_func_entries.len > 0) allocator.free(self.trap_func_entries);
         allocator.free(self.func_offsets);
         if (self.thunk_offsets) |to| allocator.free(to);
         if (self.code_map_entries.len > 0) allocator.free(self.code_map_entries);
@@ -356,10 +383,44 @@ pub fn link(allocator: Allocator, func_bodies: []const FuncBody, num_imports: u3
         func_bodies,
     );
 
+    // ADR-0202 D3 — build + register the guard-fault PC-redirect table.
+    // Each defined function's {code_off, oob_stub_off} (absolute-base
+    // relative). Registered here (block executable, base known);
+    // unregistered in deinit. Import-only modules skip it.
+    var trap_func_entries: []const trap_registry.FuncEntry = &.{};
+    var trap_region_start: usize = 0;
+    const defined_count = offsets.len - num_imports;
+    if (defined_count > 0) {
+        const base = @intFromPtr(block.bytes.ptr);
+        const entries = try allocator.alloc(trap_registry.FuncEntry, defined_count);
+        errdefer allocator.free(entries);
+        for (0..defined_count) |i| {
+            const code_off = offsets[num_imports + i];
+            const stub = func_bodies[i].oob_stub_off;
+            entries[i] = .{
+                .code_off = code_off,
+                .oob_stub_off = if (stub == trap_registry.FuncEntry.no_stub)
+                    trap_registry.FuncEntry.no_stub
+                else
+                    code_off + stub, // relative to region start (= base)
+            };
+        }
+        // offsets is monotonically increasing → already sorted by code_off.
+        // A full registry (1024 live modules) surfaces as OutOfMemory —
+        // the linker's error set; errdefer frees `entries`.
+        trap_registry.registerCodeRegion(base, base + total_size, entries) catch |e| switch (e) {
+            error.RegistryFull => return Error.OutOfMemory,
+        };
+        trap_func_entries = entries;
+        trap_region_start = base;
+    }
+
     return .{
         .block = block,
         .func_offsets = offsets,
         .code_map_entries = code_map_entries,
+        .trap_func_entries = trap_func_entries,
+        .trap_region_start = trap_region_start,
     };
 }
 

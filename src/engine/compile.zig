@@ -1202,6 +1202,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             .bytes = r.out.bytes,
             .call_fixups = r.out.call_fixups,
             .frame_bytes = r.out.frame_bytes,
+            .oob_stub_off = r.out.oob_stub_off, // ADR-0202 D3
         };
         // Permanent JIT-bytes dump primitive (debug_jit_auto Recipe 16):
         // `ZWASM_DEBUG=jit.dump` prints each function's body-relative

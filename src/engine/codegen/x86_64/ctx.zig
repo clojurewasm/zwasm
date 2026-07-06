@@ -21,6 +21,7 @@ const zir = @import("../../../ir/zir.zig");
 const sections = @import("../../../parse/sections.zig");
 const regalloc = @import("../shared/regalloc.zig");
 const exception_table = @import("../shared/exception_table.zig");
+const trap_registry = @import("../../../platform/trap_registry.zig"); // ADR-0202 D3
 const label_mod = @import("label.zig");
 const types = @import("types.zig");
 const local_homing = @import("../../../ir/analysis/local_homing.zig");
@@ -315,6 +316,12 @@ pub const EmitCtx = struct {
     /// dedicated out-of-fuel trap stub (kind 17, fb=0 pre-frame) and
     /// patches this JS fixup (the prologue fuel poll).
     fuel_fixup: u32,
+    /// ADR-0202 D3 — OUTPUT: byte offset (from body start) of the
+    /// kind=6 oob trap stub, the guard-fault PC-redirect target. Set
+    /// by `emitEndInter` when the stub is emitted; read back by
+    /// `emit.zig` into `EmitOutput.oob_stub_off`. `no_stub` when the
+    /// function has no bounds-checked memory access.
+    oob_stub_off: u32 = trap_registry.FuncEntry.no_stub,
     /// ADR-0111 D4 — memory 0's idx_type. `.i32` (legacy ≤ 4 GiB;
     /// byte-identical fast path) or `.i64` (memory64 64-bit MOV
     /// + u64 offset materialise). Per-module constant; codegen

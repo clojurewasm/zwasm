@@ -1611,6 +1611,7 @@ fn emitEndInter(ctx: *ctx_mod.EmitCtx) Error!void {
     // ADR-0164 A3 / D-292 — memory out-of-bounds (code 6) stub; `JA rel32` (6-byte).
     if (ctx.oob_fixups.items.len > 0) {
         const trap_byte = try emitTrapExitStub(ctx, 6);
+        ctx.oob_stub_off = trap_byte; // ADR-0202 D3 — PC-redirect target for guard faults
         for (ctx.oob_fixups.items) |fx_byte| {
             const disp: i32 = @as(i32, @intCast(trap_byte)) -
                 @as(i32, @intCast(fx_byte)) - 6;

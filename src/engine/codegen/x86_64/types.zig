@@ -69,6 +69,7 @@ pub const SimdConstFixup = struct {
 };
 
 const exception_table = @import("../shared/exception_table.zig");
+const trap_registry = @import("../../../platform/trap_registry.zig"); // ADR-0202 D3
 
 pub const EmitOutput = struct {
     bytes: []u8,
@@ -86,6 +87,12 @@ pub const EmitOutput = struct {
     /// SP-restore path uses it to recover the handler frame's
     /// post-prologue SP boundary after `MOV RSP, RBP`.
     frame_bytes: u32 = 0,
+    /// ADR-0202 D3 — byte offset (from body start) of this function's
+    /// kind=6 oob trap stub, the guard-fault PC-redirect target. The
+    /// linker adds the function's absolute base to build the trap
+    /// registry's FuncEntry. `FuncEntry.no_stub` when the function has
+    /// no bounds-checked memory access.
+    oob_stub_off: u32 = trap_registry.FuncEntry.no_stub,
 };
 
 pub fn deinit(allocator: Allocator, out: EmitOutput) void {

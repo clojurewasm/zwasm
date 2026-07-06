@@ -59,6 +59,7 @@ const computeLocalLayout = setup.computeLocalLayout;
 const LocalLayout = setup.LocalLayout;
 const jit_abi = @import("../shared/jit_abi.zig");
 const exception_table = @import("../shared/exception_table.zig");
+const trap_registry = @import("../../../platform/trap_registry.zig"); // ADR-0202 D3
 const build_options = @import("build_options");
 
 /// EH / tail-call / func-references ops (Wasm 3.0) are dispatched manually here
@@ -135,6 +136,12 @@ pub const EmitOutput = struct {
     /// SP-restore path uses it to recover the handler frame's
     /// post-prologue SP boundary after `MOV SP, X29`.
     frame_bytes: u32 = 0,
+    /// ADR-0202 D3 — byte offset (from body start) of this function's
+    /// kind=6 oob trap stub, the guard-fault PC-redirect target. The
+    /// linker adds the function's absolute base to build the trap
+    /// registry's FuncEntry. `FuncEntry.no_stub` when the function has
+    /// no bounds-checked memory access (a fault there is unclassified).
+    oob_stub_off: u32 = trap_registry.FuncEntry.no_stub,
 };
 
 pub fn deinit(allocator: Allocator, out: EmitOutput) void {
@@ -280,6 +287,10 @@ pub fn compile(
     const spill_base_off: u32 = local_base_off + locals_bytes;
     const frame_bytes_unaligned: u32 = outgoing_max_bytes + locals_bytes + spill_bytes + indirect_result_slot_bytes;
     const frame_bytes: u32 = (frame_bytes_unaligned + 15) & ~@as(u32, 15);
+    // ADR-0202 D3 — byte offset of this function's oob (kind=6) trap stub,
+    // the PC-redirect target for guard faults. Set below when the stub is
+    // emitted; stays no_stub for functions with no bounds-checked access.
+    var oob_stub_off: u32 = trap_registry.FuncEntry.no_stub;
     // SP-relative offset of the captured X8 slot (top of locals +
     // spill region, just below the 16-byte alignment pad).
     const indirect_result_slot_off: u32 = spill_base_off + spill_bytes;
@@ -1976,6 +1987,12 @@ pub fn compile(
                 try EmitCindStub.emit(allocator, &buf, cast_fail_fixups.items, 11, frame_bytes);
                 // D-292 C — throw / throw_ref uncaught exception (unconditional B → code 12).
                 try EmitCindStub.emit(allocator, &buf, uncaught_exc_fixups.items, 12, frame_bytes);
+                // ADR-0202 D3 — capture the oob (kind=6) stub's byte offset for
+                // the trap registry's PC-redirect target. `EmitCindStub.emit`
+                // sets stub_byte = b.items.len on entry then early-returns when
+                // there are no fixups, so buf.items.len HERE is that same offset
+                // (or no_stub when the function has no bounds-checked access).
+                oob_stub_off = if (oob_fixups.items.len > 0) @intCast(buf.items.len) else oob_stub_off;
                 try EmitCindStub.emit(allocator, &buf, oob_fixups.items, 6, frame_bytes);
                 // ADR-0179 #3a / D-314 — loop back-edge interrupt poll stub
                 // (code 16, POST-frame → fb=frame_bytes; distinct from the
@@ -2225,6 +2242,7 @@ pub fn compile(
         .call_fixups = try call_fixups.toOwnedSlice(allocator),
         .exception_handlers = exception_handlers,
         .frame_bytes = frame_bytes,
+        .oob_stub_off = oob_stub_off,
     };
 }
 
