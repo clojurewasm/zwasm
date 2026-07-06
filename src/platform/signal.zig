@@ -18,6 +18,8 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const skip = @import("../test_support/skip.zig");
+const trap_registry = @import("trap_registry.zig");
+const sigcontext = @import("sigcontext.zig");
 
 /// EX_SOFTWARE (sysexits.h) — "an internal software error". Distinct from CLI
 /// exit 1 (a clean wasm trap) and from a signal-default death (128+signo), so
@@ -41,8 +43,25 @@ const INTERNAL_ERROR_MSG =
     "zwasm: internal error — caught a fatal signal. This is a bug in zwasm " ++
     "(not a wasm trap); please report it.\n";
 
-fn faultHandler(_: std.posix.SIG, _: *const std.posix.siginfo_t, _: ?*anyopaque) callconv(.c) void {
-    // Async-signal-safe only: raw write(2) + `_exit` (skips atexit/stdio). No
+fn faultHandler(sig: std.posix.SIG, info: *const std.posix.siginfo_t, uctx: ?*anyopaque) callconv(.c) void {
+    // ADR-0202 D2 disposition 1 — classified guard fault: the fault address
+    // lies in a registered guarded reservation AND the PC is inside
+    // registered JIT code → rewrite the context PC to the containing
+    // function's kind=6 (oob_memory) trap stub and RESUME (sigreturn
+    // restores the modified context; the stub then runs the normal
+    // ADR-0199 sticky-flag path). Async-signal-safe: pure registry reads +
+    // one context write. macOS reports guard hits as SIGBUS, Linux as
+    // SIGSEGV — classify both; ILL/FPE have no meaningful fault address.
+    if (sig == .SEGV or sig == .BUS) {
+        if (sigcontext.pcPtr(uctx)) |pc_slot| {
+            if (trap_registry.classify(sigcontext.faultAddr(info), pc_slot.*)) |stub| {
+                pc_slot.* = stub;
+                return;
+            }
+        }
+    }
+    // Disposition 2 (unclassified = a zwasm-internal bug, ADR-0166):
+    // async-signal-safe only: raw write(2) + `_exit` (skips atexit/stdio). No
     // allocation, no formatting, no recovery — always exits.
     // The fork-recovery test below installs this handler in a child that
     // deliberately faults; under `zig build test` the message would pollute the
@@ -71,8 +90,26 @@ const win_impl = if (builtin.os.tag == .windows) struct {
     extern "kernel32" fn ExitProcess(uExitCode: win.UINT) callconv(.winapi) noreturn;
     const STD_ERROR_HANDLE: win.DWORD = @bitCast(@as(i32, -12)); // MSDN
 
+    // MSDN: continue execution at the (possibly modified) context.
+    const EXCEPTION_CONTINUE_EXECUTION: c_long = -1;
+
     fn handler(exception_info: *win.EXCEPTION_POINTERS) callconv(.winapi) c_long {
         const code = exception_info.ExceptionRecord.ExceptionCode;
+        // ADR-0202 D2 disposition 1 — classified guard fault → redirect Rip
+        // to the containing function's kind=6 trap stub and resume (mirrors
+        // the POSIX branch; Rip-rewrite precedent = windows_traphandler.zig
+        // ADR-0103). For ACCESS_VIOLATION, ExceptionInformation[1] is the
+        // faulting data address (MSDN EXCEPTION_RECORD; [0] = read/write).
+        if (code == win.EXCEPTION_ACCESS_VIOLATION and
+            exception_info.ExceptionRecord.NumberParameters >= 2)
+        {
+            const fault_addr: usize = exception_info.ExceptionRecord.ExceptionInformation[1];
+            const rip: usize = @intCast(exception_info.ContextRecord.Rip);
+            if (trap_registry.classify(fault_addr, rip)) |stub| {
+                exception_info.ContextRecord.Rip = stub;
+                return EXCEPTION_CONTINUE_EXECUTION;
+            }
+        }
         switch (code) {
             win.EXCEPTION_ACCESS_VIOLATION,
             win.EXCEPTION_ILLEGAL_INSTRUCTION,

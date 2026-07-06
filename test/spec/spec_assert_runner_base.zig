@@ -2696,7 +2696,27 @@ fn formatU64Hex(value: u64, buf: []u8) []u8 {
     return buf[0..16];
 }
 
-fn sigsegvHandler(_: std.posix.SIG, info: ?*const std.posix.siginfo_t, _: ?*anyopaque) callconv(.c) void {
+fn sigsegvHandler(_: std.posix.SIG, info: ?*const std.posix.siginfo_t, uctx: ?*anyopaque) callconv(.c) void {
+    // ADR-0202 D2 "one handler, three dispositions" — disposition 1
+    // FIRST: a classified guard fault (fault addr in a guarded
+    // reservation AND pc in registered JIT code) is a wasm oob TRAP,
+    // not a miscompile — redirect the PC to the function's kind=6
+    // trap stub and resume; the sticky-flag path surfaces Error.Trap
+    // normally. Runs BEFORE the armed-siglongjmp recovery so a guard
+    // fault under the spec runner exercises the SAME production
+    // mechanism the CLI uses (the corpus must not go green through
+    // the recovery path — ADR-0202 verification note).
+    if (info) |si| {
+        if (zwasm.platform.sigcontext.pcPtr(uctx)) |pc_slot| {
+            if (zwasm.platform.trap_registry.classify(
+                zwasm.platform.sigcontext.faultAddr(si),
+                pc_slot.*,
+            )) |stub| {
+                pc_slot.* = stub;
+                return;
+            }
+        }
+    }
     // D-142 probe: count every handler entry so the unarmed
     // branch can disambiguate "first SEGV with flag already
     // false" from "second entry after siglongjmp re-faulted".

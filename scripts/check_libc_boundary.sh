@@ -47,10 +47,14 @@ NECESSARY=(
   "sigsetjmp"
   "siglongjmp"
   "std.c.mmap"
-  # B133 (2026-07-06, ADR-0202 D1): commit-on-grow for guard-page
-  # linear memory. Zig 0.16 std.posix has no mprotect wrapper and
-  # macOS has no non-libc syscall path.
+  # B133 (2026-07-06, ADR-0202 D1+D2): commit-on-grow for guard-page
+  # linear memory (std.posix has no mprotect wrapper; macOS has no
+  # non-libc syscall path) + TYPE-ONLY layout mirrors (sigset_t /
+  # stack_t) for the Darwin ucontext_t in sigcontext.zig — same
+  # type-reference class as vm_prot_t (no new linkage).
   "std.c.mprotect"
+  "std.c.sigset_t"
+  "std.c.stack_t"
   "std.c.MAP"
   "std.c.MAP_FAILED"
   "std.c.vm_prot_t"

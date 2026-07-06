@@ -125,6 +125,7 @@ pub const platform = struct {
     pub const jit_mem = @import("platform/jit_mem.zig");
     pub const guarded_mem = @import("platform/guarded_mem.zig"); // ADR-0202 D1 reserve/commit backing
     pub const trap_registry = @import("platform/trap_registry.zig"); // ADR-0202 D3 fault classification
+    pub const sigcontext = @import("platform/sigcontext.zig"); // ADR-0202 D2 PC read/write
     pub const windows_traphandler = @import("platform/windows_traphandler.zig");
     pub const stack_limit = @import("platform/stack_limit.zig");
     pub const signal = @import("platform/signal.zig"); // ADR-0166 internal-fault handler
@@ -348,6 +349,8 @@ test {
     _ = @import("platform/jit_mem.zig");
     _ = @import("platform/guarded_mem.zig");
     _ = @import("platform/trap_registry.zig");
+    _ = @import("platform/sigcontext.zig");
+    _ = @import("platform/fault_redirect_test.zig");
     _ = @import("runtime/instance/memory_backing.zig");
     _ = @import("platform/windows_traphandler.zig");
     _ = @import("platform/stack_limit.zig");
