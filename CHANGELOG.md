@@ -12,6 +12,29 @@ SemVer compatibility guarantees start at the first stable `v2.0.0` tag.
 
 _No changes yet._
 
+## [2.1.0] - 2026-07-06
+
+### Added
+
+- **table64 compiles natively in the JIT** (D-475) — i64-indexed tables (the
+  memory64 proposal's table extension) no longer fall back to the interpreter:
+  the JIT table descriptors widened to u64 (`TableSlice.len`/`max`,
+  `table_size`), and every table op (`table.get/set/size/grow/fill/copy/init`),
+  `call_indirect`, and `return_call_indirect` now emits the index width
+  declared by the table's type on both arm64 and x86_64, with wrap-safe
+  64-bit bounds sums. i32 tables keep the byte-identical fast path.
+
+### Fixed
+
+- **table64 element segments under the JIT engine**: an active elem segment
+  with an `i64.const` offset failed instantiation on the JIT path (masked by
+  the interp fallback) — offsets now evaluate at u64 width, matching the
+  interpreter.
+- **Instantiate-time bounds hardening**: a guest-chosen 64-bit element offset
+  can no longer wrap the table bounds check.
+- **AOT**: a table64 whose minimum size exceeds the `.cwasm` u32 field is now
+  rejected loudly instead of silently saturated.
+
 ## [2.0.0] - 2026-07-01
 
 First **stable** release. Carries the complete feature set of `v2.0.0-rc.1`
