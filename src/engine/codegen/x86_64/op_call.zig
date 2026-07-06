@@ -167,6 +167,8 @@ pub fn emitCallIndirectCtx(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) Erro
         @as(u32, @intCast(ins.payload)),
         ins.extra,
         ctx.uses_type_subtyping,
+        // D-475: table_idx = ins.extra; i64 tables pop a 64-bit index.
+        ctx.func.tableIdxType(ins.extra) == .i64,
     );
     try reloadHomedCallerSaved(ctx);
     try op_control.emitPostCallTrapCheck(ctx);
@@ -464,6 +466,9 @@ pub fn emitCallIndirect(
     /// `jitCallIndirectResolve` trampoline (vs the finality/subtype-blind
     /// inline D-111 CMP). `false` keeps the byte-identical inline path.
     uses_type_subtyping: bool,
+    /// D-475 (table64) — the target table is i64-indexed: stage/compare
+    /// the popped index at .q width instead of the i32 .d fast path.
+    ci_idx64: bool,
 ) Error!void {
     if (type_idx >= module_types.len) return Error.AllocationMissing;
     const callee_sig = module_types[type_idx];
@@ -488,7 +493,7 @@ pub fn emitCallIndirect(
         // args: ag[0]=rt, ag[1]=table_idx, ag[2]=idx, ag[3]=expected_raw.
         // idx_r0 ∉ arg_gprs (it is callee-saved pool or a stage reg), so the
         // arg-reg writes can't clobber it.
-        if (idx_r0 != ag[2]) try buf.appendSlice(allocator, inst.encMovRR(.d, ag[2], idx_r0).slice());
+        if (idx_r0 != ag[2]) try buf.appendSlice(allocator, inst.encMovRR(if (ci_idx64) .q else .d, ag[2], idx_r0).slice());
         try buf.appendSlice(allocator, inst.encMovRR(.q, ag[0], abi.runtime_ptr_save_gpr).slice());
         try buf.appendSlice(allocator, inst.encMovImm32W(ag[1], table_idx).slice());
         try buf.appendSlice(allocator, inst.encMovImm32W(ag[3], expected_raw).slice());
@@ -537,12 +542,11 @@ pub fn emitCallIndirect(
         // resolve trampoline above → skip the inline bounds + sig (the inline
         // D-111 CMP is finality/subtype-blind). funcptr re-derived below.
         if (!uses_type_subtyping) {
-            // Bounds: MOV RAX, [R15 + table_size_off] ; CMP idx_r, EAX ; JAE trap.
-            // 64-bit load (D-475: table_size is u64); the CMP stays .d for the
-            // i32-table fast path (low half == len while the table is i32-indexed;
-            // the i64-table path widens the compare per idx_type — C3).
+            // Bounds: MOV RAX, [R15 + table_size_off] ; CMP idx_r, RAX/EAX ; JAE trap.
+            // 64-bit load (D-475: table_size is u64); the CMP is .q for an
+            // i64 table (full 64-bit index) and stays .d on the i32 fast path.
             try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.table_size_off).slice());
-            try buf.appendSlice(allocator, inst.encCmpRR(.d, idx_r, .rax).slice());
+            try buf.appendSlice(allocator, inst.encCmpRR(if (ci_idx64) .q else .d, idx_r, .rax).slice());
             {
                 const fixup_at: u32 = @intCast(buf.items.len);
                 try buf.appendSlice(allocator, inst.encJccRel32(.ae, 0).slice());
@@ -601,10 +605,10 @@ pub fn emitCallIndirect(
         if (!uses_type_subtyping) {
             // Bounds: MOV RAX, [R15 + tables_ptr_off]
             //         MOV RAX, [RAX + (table_idx*table_slice_size + len_off)]  ; TableSlice.len (u64, D-475)
-            //         CMP idx_r, EAX ; JAE trap (.d for the i32-table path; C3 widens per idx_type).
+            //         CMP idx_r, RAX/EAX ; JAE trap (.q for an i64 table).
             try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_ptr_off).slice());
             try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, .rax, tbl_slice_disp).slice());
-            try buf.appendSlice(allocator, inst.encCmpRR(.d, idx_r, .rax).slice());
+            try buf.appendSlice(allocator, inst.encCmpRR(if (ci_idx64) .q else .d, idx_r, .rax).slice());
             {
                 const fixup_at: u32 = @intCast(buf.items.len);
                 try buf.appendSlice(allocator, inst.encJccRel32(.ae, 0).slice());

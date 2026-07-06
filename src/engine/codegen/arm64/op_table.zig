@@ -157,10 +157,12 @@ pub fn emitTableGet(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     if (ctx.pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const idx_v = ctx.pushed_vregs.pop().?;
 
-    // Step A: snapshot idx into W17 (intra-procedure scratch, never
-    // in the regalloc pool).
+    // Step A: snapshot idx into W17/X17 (intra-procedure scratch, never
+    // in the regalloc pool). D-475: an i64 table pops a full 64-bit
+    // index (X-form ORR); an i32 table keeps the zero-extending W-form.
+    const idx64 = ctx.func.tableIdxType(tableidx) == .i64;
     const w_idx_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, idx_v, 0);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(17, 31, w_idx_src));
+    try gpr.writeU32(ctx.allocator, ctx.buf, if (idx64) inst.encOrrReg(17, 31, w_idx_src) else inst.encOrrRegW(17, 31, w_idx_src));
 
     // Step B: read TableSlice[tableidx]. Use X14 / X15 (spill-
     // stage regs, non-allocatable) as scratch — they are free
@@ -208,10 +210,11 @@ pub fn emitTableSet(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const idx_v = ctx.pushed_vregs.pop().?;
 
     // Step A: snapshot operands into intra-procedure scratch
-    // (X16/X17, never in the regalloc pool). idx → W17; val →
-    // X16 (full 64-bit ref).
+    // (X16/X17, never in the regalloc pool). idx → W17 (X17 for an
+    // i64 table, D-475); val → X16 (full 64-bit ref).
+    const idx64 = ctx.func.tableIdxType(tableidx) == .i64;
     const w_idx_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, idx_v, 0);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(17, 31, w_idx_src));
+    try gpr.writeU32(ctx.allocator, ctx.buf, if (idx64) inst.encOrrReg(17, 31, w_idx_src) else inst.encOrrRegW(17, 31, w_idx_src));
     const x_val_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, val_v, 1);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(16, 31, x_val_src));
 
@@ -314,9 +317,12 @@ pub fn emitTableGrow(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 
     // Stage operands into AAPCS64 arg slots BEFORE clobbering X0/X1
     // with marshaling MOVs. Use ORR-ZR (alias for MOV) so partial
-    // and full-width transfers share the same encoder.
+    // and full-width transfers share the same encoder. D-475: an i64
+    // table's delta is a full u64 (X3); i32 keeps the zero-extending
+    // W-form (the callback takes u64, so W-staging is transparent).
+    const idx64 = ctx.func.tableIdxType(tableidx) == .i64;
     const w_delta_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, delta_v, 0);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(3, 31, w_delta_src));
+    try gpr.writeU32(ctx.allocator, ctx.buf, if (idx64) inst.encOrrReg(3, 31, w_delta_src) else inst.encOrrRegW(3, 31, w_delta_src));
     const x_init_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, init_v, 1);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(2, 31, x_init_src));
 
@@ -328,14 +334,17 @@ pub fn emitTableGrow(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, abi.runtime_ptr_save_gpr, jit_abi.table_grow_fn_off));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBLR(16));
 
-    // Capture W0 → result vreg as i32 (mirror op_call captureCallResult).
+    // Capture W0/X0 → result vreg (mirror op_call captureCallResult).
+    // D-475: an i64 table's grow result is a full i64 (X-form ORR);
+    // the callback returns i64, so the i32 W-capture truncates -1 /
+    // the sub-2^32 old size to the correct i32 bit pattern.
     const result = ctx.next_vreg.*;
     ctx.next_vreg.* += 1;
     if (result >= ctx.alloc.slots.len) return Error.SlotOverflow;
     switch (ctx.alloc.slot(result, .gpr)) {
         .reg => |id| {
             const wd = abi.slotToReg(id) orelse return Error.SlotOverflow;
-            if (wd != 0) try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(wd, 31, 0));
+            if (wd != 0) try gpr.writeU32(ctx.allocator, ctx.buf, if (idx64) inst.encOrrReg(wd, 31, 0) else inst.encOrrRegW(wd, 31, 0));
         },
         .spill => |off| {
             const abs_off: u32 = ctx.spill_base_off + off;
@@ -375,15 +384,16 @@ pub fn emitTableFill(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const dst_v = ctx.pushed_vregs.pop().?;
 
     // Step A: snapshot operands into private holders.
-    //   W17 ← dst (zero-ext from i32 home)
-    //   X16 ← val (full 64-bit ref)
-    //   W14 ← n   (zero-ext from i32 home, used as loop counter)
+    //   W17/X17 ← dst (zero-ext from i32 home; full X for an i64 table, D-475)
+    //   X16     ← val (full 64-bit ref)
+    //   W14/X14 ← n   (same width rule as dst; used as loop counter)
+    const idx64 = ctx.func.tableIdxType(tableidx) == .i64;
     const w_dst_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, dst_v, 0);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(17, 31, w_dst_src));
+    try gpr.writeU32(ctx.allocator, ctx.buf, if (idx64) inst.encOrrReg(17, 31, w_dst_src) else inst.encOrrRegW(17, 31, w_dst_src));
     const x_val_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, val_v, 1);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(16, 31, x_val_src));
     const w_n_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, n_v, 0);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(14, 31, w_n_src));
+    try gpr.writeU32(ctx.allocator, ctx.buf, if (idx64) inst.encOrrReg(14, 31, w_n_src) else inst.encOrrRegW(14, 31, w_n_src));
 
     // Step B: read TableSlice[tableidx]. Safe to clobber X10..X12.
     //   X10 = tables_ptr; X11 = refs; X12 = len (u64, D-475); X9 = funcptrs base.
@@ -394,10 +404,20 @@ pub fn emitTableFill(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(sx9, 10, @intCast(@as(u32, tbl_off) + jit_abi.tableslice_funcptrs_off)));
 
     // Step C: bounds check — trap if dst + n > len.
-    //   X13 = X17 + X14  (both upper-bits zero → result fits in u33)
+    //   X13 = X17 + X14  (i32 table: both upper-bits zero → fits u33,
+    //   plain ADD; i64 table: raw u64 operands can wrap past 2^64, so
+    //   ADDS + B.HS traps the wrap — the memory64 ea+size pattern.)
     //   CMP X13, X12
     //   B.HI trap
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(sx13, 17, 14));
+    if (idx64) {
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddsReg(sx13, 17, 14));
+        const wrap_fixup_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hs, 0));
+        try ctx.cind_bounds_fixups.append(ctx.allocator, wrap_fixup_at); // D-293 oob_table (code 2)
+        trace.writeBounds(ctx.func.func_idx, wrap_fixup_at);
+    } else {
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(sx13, 17, 14));
+    }
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(sx13, 12));
     {
         const fixup_at: u32 = @intCast(ctx.buf.items.len);
@@ -423,18 +443,19 @@ pub fn emitTableFill(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         std.mem.writeInt(u32, ctx.buf.items[skip_setup_at..][0..4], inst.encCbz(sx9, disp), .little);
     }
 
-    // Step D: if n == 0, skip the loop entirely.
+    // Step D: if n == 0, skip the loop entirely. X-width test for an
+    // i64 table (W-CBZ would read only the low 32 bits of n).
     const skip_at: u32 = @intCast(ctx.buf.items.len);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbzW(14, 0));
+    try gpr.writeU32(ctx.allocator, ctx.buf, if (idx64) inst.encCbz(14, 0) else inst.encCbzW(14, 0));
 
     // Step E: forward loop. Each iteration:
     //   STR X16, [X11, X17, LSL #3]   ; refs[dst] = val
     //   CBZ X9, .skip_fp              ; externref → skip funcptrs mirror
     //   STR X15, [X9, X17, LSL #3]    ; funcptrs[dst] = derived  (ADR-0068)
     //   .skip_fp:
-    //   ADD W17, W17, #1
-    //   SUB W14, W14, #1
-    //   CBNZ W14, .loop
+    //   ADD X17, X17, #1              ; (X-form; upper bits stay zero for i32)
+    //   SUB X14, X14, #1
+    //   CBNZ W14, .loop               ; (X-form for an i64 table)
     const loop_start: u32 = @intCast(ctx.buf.items.len);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encStrXRegLsl3(16, 11, 17));
     const fill_skip_at: u32 = @intCast(ctx.buf.items.len);
@@ -452,7 +473,7 @@ pub fn emitTableFill(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         @as(i32, @intCast(loop_start)) - @as(i32, @intCast(ctx.buf.items.len)),
         4,
     );
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbnzW(14, back_disp_words));
+    try gpr.writeU32(ctx.allocator, ctx.buf, if (idx64) inst.encCbnz(14, back_disp_words) else inst.encCbnzW(14, back_disp_words));
 
     // Step F: patch the n==0 skip target.
     const end_byte: u32 = @intCast(ctx.buf.items.len);
@@ -460,7 +481,7 @@ pub fn emitTableFill(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         @as(i32, @intCast(end_byte)) - @as(i32, @intCast(skip_at)),
         4,
     ));
-    std.mem.writeInt(u32, ctx.buf.items[skip_at..][0..4], inst.encCbzW(14, skip_disp_words), .little);
+    std.mem.writeInt(u32, ctx.buf.items[skip_at..][0..4], if (idx64) inst.encCbz(14, skip_disp_words) else inst.encCbzW(14, skip_disp_words), .little);
 }
 
 /// Wasm spec §4.4.15 (table.copy x y) — pop n / src / dst; copy n
@@ -493,21 +514,36 @@ pub fn emitTableCopy(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const src_v = ctx.pushed_vregs.pop().?;
     const dst_v = ctx.pushed_vregs.pop().?;
 
-    // Step A: snapshot operands into private holders.
+    // Step A: snapshot operands into private holders. D-475 widths per
+    // table (validator §3.3.6 table64): dst uses the DST table's
+    // idx_type, src the SRC table's, n the narrower of the two.
+    const dst64 = ctx.func.tableIdxType(dst_tbl) == .i64;
+    const src64 = ctx.func.tableIdxType(src_tbl) == .i64;
+    const n64 = dst64 and src64;
     const w_dst_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, dst_v, 0);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(17, 31, w_dst_src));
+    try gpr.writeU32(ctx.allocator, ctx.buf, if (dst64) inst.encOrrReg(17, 31, w_dst_src) else inst.encOrrRegW(17, 31, w_dst_src));
     const w_src_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_v, 0);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(16, 31, w_src_src));
+    try gpr.writeU32(ctx.allocator, ctx.buf, if (src64) inst.encOrrReg(16, 31, w_src_src) else inst.encOrrRegW(16, 31, w_src_src));
     const w_n_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, n_v, 0);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(14, 31, w_n_src));
+    try gpr.writeU32(ctx.allocator, ctx.buf, if (n64) inst.encOrrReg(14, 31, w_n_src) else inst.encOrrRegW(14, 31, w_n_src));
 
     // Step B: load tables_ptr → X10.
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(sx10, abi.runtime_ptr_save_gpr, jit_abi.tables_ptr_off));
 
-    // Step C1: bounds check dst_idx + n vs tables[x].len.
+    // Step C1: bounds check dst_idx + n vs tables[x].len. A 64-bit dst
+    // can wrap the sum → ADDS + B.HS (memory64 pattern); i32 keeps the
+    // plain ADD (operands zero-extended, sum fits u33).
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(sx11, 10, dst_tbl_off));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(sx13, 10, @intCast(@as(u32, dst_tbl_off) + jit_abi.tableslice_len_off)));
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(15, 17, 14));
+    if (dst64) {
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddsReg(15, 17, 14));
+        const wrap_fixup_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hs, 0));
+        try ctx.cind_bounds_fixups.append(ctx.allocator, wrap_fixup_at); // D-293 oob_table (code 2)
+        trace.writeBounds(ctx.func.func_idx, wrap_fixup_at);
+    } else {
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(15, 17, 14));
+    }
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(15, 13));
     {
         const fixup_at: u32 = @intCast(ctx.buf.items.len);
@@ -516,10 +552,18 @@ pub fn emitTableCopy(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         trace.writeBounds(ctx.func.func_idx, fixup_at);
     }
 
-    // Step C2: bounds check src_idx + n vs tables[y].len.
+    // Step C2: bounds check src_idx + n vs tables[y].len (same wrap rule).
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(sx12, 10, src_tbl_off));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(sx13, 10, @intCast(@as(u32, src_tbl_off) + jit_abi.tableslice_len_off)));
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(15, 16, 14));
+    if (src64) {
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddsReg(15, 16, 14));
+        const wrap_fixup_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hs, 0));
+        try ctx.cind_bounds_fixups.append(ctx.allocator, wrap_fixup_at); // D-293 oob_table (code 2)
+        trace.writeBounds(ctx.func.func_idx, wrap_fixup_at);
+    } else {
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(15, 16, 14));
+    }
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(15, 13));
     {
         const fixup_at: u32 = @intCast(ctx.buf.items.len);
@@ -547,14 +591,15 @@ pub fn emitTableCopy(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(8, 10, @intCast(@as(u32, dst_tbl) * jit_abi.table_jit_ci_size + 8)));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(7, 10, @intCast(@as(u32, src_tbl) * jit_abi.table_jit_ci_size + 8)));
 
-    // Step D: if n == 0, skip the loop entirely.
+    // Step D: if n == 0, skip the loop entirely (X-width for i64-n).
     const skip_at: u32 = @intCast(ctx.buf.items.len);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbzW(14, 0));
+    try gpr.writeU32(ctx.allocator, ctx.buf, if (n64) inst.encCbz(14, 0) else inst.encCbzW(14, 0));
 
     if (same_table) {
-        // Step E (same-table): direction switch.
+        // Step E (same-table): direction switch. Same table → same
+        // idx_type, so the compare width follows dst64.
         //   CMP W17, W16 ; B.LS .fwd  (dst <= src → forward safe)
-        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegW(17, 16));
+        try gpr.writeU32(ctx.allocator, ctx.buf, if (dst64) inst.encCmpRegX(17, 16) else inst.encCmpRegW(17, 16));
         const fwd_at: u32 = @intCast(ctx.buf.items.len);
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.ls, 0));
 
@@ -586,7 +631,7 @@ pub fn emitTableCopy(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
                 @as(i32, @intCast(bwd_loop_start)) - @as(i32, @intCast(ctx.buf.items.len)),
                 4,
             );
-            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbnzW(14, back));
+            try gpr.writeU32(ctx.allocator, ctx.buf, if (n64) inst.encCbnz(14, back) else inst.encCbnzW(14, back));
         }
         const bwd_end_jmp_at: u32 = @intCast(ctx.buf.items.len);
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encB(0));
@@ -623,7 +668,7 @@ pub fn emitTableCopy(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
                 @as(i32, @intCast(fwd_loop_start)) - @as(i32, @intCast(ctx.buf.items.len)),
                 4,
             );
-            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbnzW(14, back));
+            try gpr.writeU32(ctx.allocator, ctx.buf, if (n64) inst.encCbnz(14, back) else inst.encCbnzW(14, back));
         }
 
         // Patch the bwd→end jump.
@@ -660,7 +705,7 @@ pub fn emitTableCopy(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
                 @as(i32, @intCast(fwd_loop_start)) - @as(i32, @intCast(ctx.buf.items.len)),
                 4,
             );
-            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCbnzW(14, back));
+            try gpr.writeU32(ctx.allocator, ctx.buf, if (n64) inst.encCbnz(14, back) else inst.encCbnzW(14, back));
         }
     }
 
@@ -670,7 +715,7 @@ pub fn emitTableCopy(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         @as(i32, @intCast(end_byte)) - @as(i32, @intCast(skip_at)),
         4,
     ));
-    std.mem.writeInt(u32, ctx.buf.items[skip_at..][0..4], inst.encCbzW(14, skip_disp), .little);
+    std.mem.writeInt(u32, ctx.buf.items[skip_at..][0..4], if (n64) inst.encCbz(14, skip_disp) else inst.encCbzW(14, skip_disp), .little);
 }
 
 /// Wasm spec §4.4.16 (table.init x y) — pop n / src / dst; copy n
@@ -700,9 +745,12 @@ pub fn emitTableInit(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     const src_v = ctx.pushed_vregs.pop().?;
     const dst_v = ctx.pushed_vregs.pop().?;
 
-    // Step A: snapshot operands.
+    // Step A: snapshot operands. D-475: dst uses the table's idx_type
+    // (X-form for i64); src + n are ALWAYS i32 (elem segments are
+    // 32-bit-indexed, validator §3.3.6).
+    const dst64 = ctx.func.tableIdxType(tableidx) == .i64;
     const w_dst_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, dst_v, 0);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(17, 31, w_dst_src));
+    try gpr.writeU32(ctx.allocator, ctx.buf, if (dst64) inst.encOrrReg(17, 31, w_dst_src) else inst.encOrrRegW(17, 31, w_dst_src));
     const w_src_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, src_v, 0);
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(16, 31, w_src_src));
     const w_n_src = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, n_v, 0);
@@ -739,8 +787,17 @@ pub fn emitTableInit(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         trace.writeBounds(ctx.func.func_idx, fixup_at);
     }
 
-    // Step C2: bounds dst+n > tables[x].len → trap.
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(sx9, 17, 14));
+    // Step C2: bounds dst+n > tables[x].len → trap. A 64-bit dst can
+    // wrap the sum (n is zero-extended u32) → ADDS + B.HS (D-475).
+    if (dst64) {
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddsReg(sx9, 17, 14));
+        const wrap_fixup_at: u32 = @intCast(ctx.buf.items.len);
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hs, 0));
+        try ctx.cind_bounds_fixups.append(ctx.allocator, wrap_fixup_at); // D-293 oob_table (code 2)
+        trace.writeBounds(ctx.func.func_idx, wrap_fixup_at);
+    } else {
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(sx9, 17, 14));
+    }
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(sx9, 13));
     {
         const fixup_at: u32 = @intCast(ctx.buf.items.len);

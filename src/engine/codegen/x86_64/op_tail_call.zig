@@ -257,6 +257,9 @@ pub fn emitIndirectReturnCall(
     // Load idx AFTER marshalCallArgs (D-097 d-18 mirror — marshalling
     // stages spilled args through R10/scratch; loading idx before
     // would risk clobber).
+    // D-475: an i64 table pops a 64-bit index — the bounds CMPs below
+    // widen to .q per the table's idx_type.
+    const ci_idx64 = ctx.func.tableIdxType(table_idx) == .i64;
     const idx_r = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, idx_vreg, 0);
 
     const expected_typeidx: u32 = canonical_type.canonicalTypeidx(ctx.module_types, @intCast(ins.payload));
@@ -264,11 +267,11 @@ pub fn emitIndirectReturnCall(
     if (table_idx == 0) {
         // Table-0 fast path: scalar JitRuntime fields (table_size_off /
         // typeidx_base_off / funcptr_base_off) back table 0.
-        // Bounds: MOV RAX, [R15+table_size_off] ; CMP idx_r, EAX ; JAE trap.
-        // 64-bit load (D-475: table_size is u64); CMP stays .d for the
-        // i32-table path (low half == len; i64 tables widen per idx_type — C3).
+        // Bounds: MOV RAX, [R15+table_size_off] ; CMP idx_r, RAX/EAX ; JAE trap.
+        // 64-bit load (D-475: table_size is u64); the CMP is .q for an
+        // i64 table and stays .d on the i32 fast path.
         try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.table_size_off).slice());
-        try ctx.buf.appendSlice(ctx.allocator, inst.encCmpRR(.d, idx_r, .rax).slice());
+        try ctx.buf.appendSlice(ctx.allocator, inst.encCmpRR(if (ci_idx64) .q else .d, idx_r, .rax).slice());
         {
             const fixup_at: u32 = @intCast(ctx.buf.items.len);
             try ctx.buf.appendSlice(ctx.allocator, inst.encJccRel32(.ae, 0).slice());
@@ -310,10 +313,10 @@ pub fn emitIndirectReturnCall(
         const ci_typeidx_disp: i32 = @intCast((table_idx * 16) + 8);
 
         // Bounds: MOV RAX, [R15+tables_ptr_off] ; MOV RAX, [RAX+tbl_slice_disp] (len, u64 D-475)
-        //         CMP idx_r, EAX ; JAE trap (.d for the i32-table path; C3 widens per idx_type).
+        //         CMP idx_r, RAX/EAX ; JAE trap (.q for an i64 table).
         try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_ptr_off).slice());
         try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromMemDisp32(.rax, .rax, tbl_slice_disp).slice());
-        try ctx.buf.appendSlice(ctx.allocator, inst.encCmpRR(.d, idx_r, .rax).slice());
+        try ctx.buf.appendSlice(ctx.allocator, inst.encCmpRR(if (ci_idx64) .q else .d, idx_r, .rax).slice());
         {
             const fixup_at: u32 = @intCast(ctx.buf.items.len);
             try ctx.buf.appendSlice(ctx.allocator, inst.encJccRel32(.ae, 0).slice());

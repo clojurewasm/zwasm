@@ -242,8 +242,10 @@ pub fn emitIndirectReturnCall(
 
     try op_call.marshalCallArgs(ctx, callee_sig);
 
+    // D-475: an i64 table pops a full 64-bit index (X-form ORR into X17).
+    const ci_idx64 = ctx.func.tableIdxType(table_idx) == .i64;
     const w_idx = try gpr.gprLoadSpilled(ctx.allocator, ctx.buf, ctx.alloc, ctx.spill_base_off, idx_vreg, 0);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrRegW(17, 31, w_idx));
+    try gpr.writeU32(ctx.allocator, ctx.buf, if (ci_idx64) inst.encOrrReg(17, 31, w_idx) else inst.encOrrRegW(17, 31, w_idx));
 
     const expected_typeidx: u32 = canonical_type.canonicalTypeidx(ctx.module_types, @intCast(ins.payload));
     if (expected_typeidx >= 4096) return ctx_mod.Error.UnsupportedOp;
