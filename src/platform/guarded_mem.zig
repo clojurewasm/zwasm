@@ -22,6 +22,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const trap_registry = @import("trap_registry.zig");
 
 pub const Error = error{
     /// Address-space reservation failed (mmap / NtAllocateVirtualMemory).
@@ -75,7 +76,21 @@ fn roundUp(len: usize) usize {
 
 /// Reserve `total_len` bytes (page-rounded) of inaccessible address
 /// space. Nothing is committed yet — call `commit` before touching it.
+///
+/// Auto-registers `[base, base+rounded)` in the trap registry
+/// (ADR-0202 D3) and `release` auto-unregisters — reserve/release IS
+/// the single chokepoint, so no release path can leave a stale entry
+/// that would misclassify a later fault at a reused address range.
 pub fn reserve(total_len: usize) Error!Reservation {
+    const r = try reserveRaw(total_len);
+    trap_registry.registerGuarded(@intFromPtr(r.base), @intFromPtr(r.base) + r.reserve_len) catch {
+        releaseRaw(r);
+        return Error.ReserveFailed;
+    };
+    return r;
+}
+
+fn reserveRaw(total_len: usize) Error!Reservation {
     if (total_len == 0) return Error.ReserveFailed;
     const rounded = roundUp(total_len);
 
@@ -158,6 +173,12 @@ pub fn commit(r: *Reservation, min_committed: usize) Error!void {
 
 /// Release the whole reservation (committed prefix + guard region).
 pub fn release(r: Reservation) void {
+    if (r.reserve_len == 0) return;
+    trap_registry.unregisterGuarded(@intFromPtr(r.base));
+    releaseRaw(r);
+}
+
+fn releaseRaw(r: Reservation) void {
     if (r.reserve_len == 0) return;
     if (comptime posix_impl) {
         std.posix.munmap(r.base[0..r.reserve_len]);
