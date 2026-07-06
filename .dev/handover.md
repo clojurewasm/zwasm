@@ -5,8 +5,8 @@
 
 ## Current state — MAINTENANCE MODE (post-v2.0.0)
 
-**v2.0.0 shipped to `main`** (tag `v2.0.0` @3da4c8681; release.yml auto-built
-Release + Latest→v2). v1 frozen at `v1.11.1`. The from-scratch build campaign is
+**v2.1.0 is Latest** (tag `v2.1.0` @d5d685ad4, 2026-07-06 — D-475 table64-JIT;
+release.yml auto-built Release + assets). v1 frozen at `v1.11.1`. The from-scratch build campaign is
 COMPLETE; the autonomous `/continue` loop is RETIRED. Dev model: cut a
 `develop/<slug>` branch from `main` → PR → CI `ci-required` 3-OS gate must be
 green to merge. **Release stays user-only (ADR-0156)** — never autonomously tag /
@@ -42,9 +42,6 @@ Post-v2.0.0 sweep (see `.dev/meta_audits/2026-07-03-maintenance-scaffolding-audi
   driven: D-506 (FP spill stage-2 scaffold), D-502 residual (invokeStringExport
   encoding), mac/win rust-host CI, D-475 residual = spec-harness cross-module
   register-table wiring (table.12/34, table_grow.6/7 — not table64-specific).
-  NOTE: ubuntunote's clone still sits at the retired path
-  `~/Documents/MyProducts/zwasm_from_scratch` — `run_remote_ubuntu.sh` preflight
-  fails until it is renamed to `.../zwasm` (one-line `mv` on the host).
 
 ## Operational invariants (keep using)
 
