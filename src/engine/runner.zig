@@ -61,6 +61,13 @@ pub const eh_registry = @import("codegen/shared/eh_registry.zig");
 // (`runner.compileWasm` etc still resolves).
 const compile_mod = @import("compile.zig");
 pub const compileWasm = compile_mod.compileWasm;
+// ADR-0202 D5 — bounds-check mode knob (re-export). `.auto` (default)
+// elides the memory0 scalar check for guard-page-qualifying memories;
+// `.explicit` forces the inline check (harnesses with non-guarded memory
+// + the D-510 differential axis).
+pub const BoundsChecks = compile_mod.BoundsChecks;
+pub const setBoundsChecks = compile_mod.setBoundsChecks;
+pub const boundsChecksMode = compile_mod.boundsChecksMode;
 pub const applyDefinedGlobalsInit = compile_mod.applyDefinedGlobalsInit;
 pub const resolveFuncrefGlobals = compile_mod.resolveFuncrefGlobals;
 pub const applyTableInit = compile_mod.applyTableInit;

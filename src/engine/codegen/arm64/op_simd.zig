@@ -89,6 +89,10 @@ fn v128MemPrologue(ctx: *EmitCtx, addr_vreg: u32, offset_imm: u64, access_size: 
             try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddReg(ip0, ip0, ip1));
         }
     }
+    // ADR-0202 D4 scope note: SIMD keeps the explicit check this phase
+    // (symmetric with x86_64, whose v128 handlers are param-threaded, not
+    // ctx-threaded). Scalar elision is the measured lever; SIMD elision is
+    // a same-machinery perf follow-up (debt D-514).
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encAddImm12(ip1, ip0, access_size));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(ip1, 27));
     const fixup_at: u32 = @intCast(ctx.buf.items.len);

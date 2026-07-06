@@ -90,6 +90,8 @@ pub const InitArgs = struct {
     fuel_fixup: u32,
     /// ADR-0111 D4 — see EmitCtx field of the same name.
     memory0_idx_type: sections.MemoryEntry.IdxType = .i32,
+    /// ADR-0202 D4 — see EmitCtx field of the same name.
+    bounds_elided: bool = false,
     /// EH integration — see EmitCtx field of the same name.
     /// Defaults to `null`; populated by `compile()` only when the
     /// function contains a `try_table` op.
@@ -328,6 +330,11 @@ pub const EmitCtx = struct {
     /// branches on it at emitMemOp's entry. Default `.i32` keeps
     /// existing init args ergonomic.
     memory0_idx_type: sections.MemoryEntry.IdxType = .i32,
+    /// ADR-0202 D4 — drop the inline memory0 scalar bounds check
+    /// (guard-page + fault→trap redirect own oob detection); the
+    /// kind=6 stub is force-emitted as the redirect target. Set only
+    /// for qualifying modules under the `.auto` knob. Default false.
+    bounds_elided: bool = false,
     /// ADR-0120 — per-tag param
     /// count threaded from `CompiledWasm.tag_param_counts` for
     /// `throw.emit` / `try_table.emit` payload-marshalling.
@@ -384,6 +391,7 @@ pub const EmitCtx = struct {
             .cast_fail_fixups = args.cast_fail_fixups,
             .uncaught_exc_fixups = args.uncaught_exc_fixups,
             .oob_fixups = args.oob_fixups,
+            .bounds_elided = args.bounds_elided,
             .unaligned_atomic_fixups = args.unaligned_atomic_fixups,
             .back_edge_interrupt_fixups = args.back_edge_interrupt_fixups,
             .back_edge_fuel_fixups = args.back_edge_fuel_fixups,

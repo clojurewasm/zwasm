@@ -1265,12 +1265,31 @@ pub fn build(b: *std.Build) void {
     const test_internal_fault_step = b.step("test-internal-fault", "Verify the internal-fault handler exits 70 (ADR-0166 / D-292 B-core)");
     test_internal_fault_step.dependOn(&run_internal_fault.step);
 
+    // ADR-0202 D4/D5 (D-507) — verify the guard-page bounds-elision path
+    // end-to-end on EACH host: `zwasm run --engine jit` on a boundary oob
+    // load (eff_addr 65533 + 4 > 65536) must, with the CMP elided, hardware-
+    // fault in the guard region, be redirected by the production handler to
+    // the oob stub, and surface as a wasm trap (exit 1). This is the only
+    // behavioural test of the FULL production elision path (installInternal-
+    // FaultHandler + guarded memory + elided codegen + Win64 VEH redirect);
+    // the spec corpus runs `.explicit` (non-guarded harness memory).
+    const run_oob_trap = b.addRunArtifact(exe);
+    run_oob_trap.addArgs(&.{
+        "run",      "--engine",
+        "jit",      "test/edge_cases/p7/memory_bounds/past_limit_load_i32.wasm",
+        "--invoke", "test",
+    });
+    run_oob_trap.expectExitCode(1); // a genuine trap → exit 1 (interp-parity)
+    const test_oob_trap_step = b.step("test-oob-elision", "Verify guard-page bounds elision traps oob (ADR-0202 D4/D5 / D-507)");
+    test_oob_trap_step.dependOn(&run_oob_trap.step);
+
     // `zig build test-all` — aggregate all enabled test layers.
     // Phase 0: only `test`. Phase 1+ adds spec / e2e / realworld /
     // c_api / fuzz steps as they land. Each layer registers itself
     // here so the user's invocation surface stays stable.
     const test_all_step = b.step("test-all", "Run all enabled test layers");
     test_all_step.dependOn(&run_internal_fault.step); // ADR-0166 B-core
+    test_all_step.dependOn(&run_oob_trap.step); // ADR-0202 D4/D5 (D-507) guard-page elision
     test_all_step.dependOn(&run_core_tests.step);
     test_all_step.dependOn(&run_cli_tests.step);
     test_all_step.dependOn(&run_spec_smoke.step);

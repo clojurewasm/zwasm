@@ -1609,7 +1609,10 @@ fn emitEndInter(ctx: *ctx_mod.EmitCtx) Error!void {
         }
     }
     // ADR-0164 A3 / D-292 — memory out-of-bounds (code 6) stub; `JA rel32` (6-byte).
-    if (ctx.oob_fixups.items.len > 0) {
+    // ADR-0202 D4 — force-emit even with zero fixups when bounds are elided:
+    // the elided memory0 accesses have no JA site, but the guard-fault
+    // PC-redirect (D2) needs the stub body as its target.
+    if (ctx.oob_fixups.items.len > 0 or ctx.bounds_elided) {
         const trap_byte = try emitTrapExitStub(ctx, 6);
         ctx.oob_stub_off = trap_byte; // ADR-0202 D3 — PC-redirect target for guard faults
         for (ctx.oob_fixups.items) |fx_byte| {

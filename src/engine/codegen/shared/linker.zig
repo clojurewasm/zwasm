@@ -655,9 +655,9 @@ test "link: 2-function module — fn0 calls fn1, returns 7" {
     const fn1_slots = [_]u16{0};
     const fn1_alloc: regalloc.Allocation = .{ .slots = &fn1_slots, .n_slots = 1 };
 
-    const out0 = try emit.compile(testing.allocator, &fn0, fn0_alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const out0 = try emit.compile(testing.allocator, &fn0, fn0_alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer emit.deinit(testing.allocator, out0);
-    const out1 = try emit.compile(testing.allocator, &fn1, fn1_alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const out1 = try emit.compile(testing.allocator, &fn1, fn1_alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer emit.deinit(testing.allocator, out1);
 
     const bodies = [_]FuncBody{
@@ -855,9 +855,9 @@ test "link+execute: fn0 return_call fn1 returns 7 via B/JMP fixup (ADR-0112 D3/D
     const fn1_slots = [_]u16{0};
     const fn1_alloc: regalloc.Allocation = .{ .slots = &fn1_slots, .n_slots = 1 };
 
-    const out0 = try emit.compile(testing.allocator, &fn0, fn0_alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const out0 = try emit.compile(testing.allocator, &fn0, fn0_alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer emit.deinit(testing.allocator, out0);
-    const out1 = try emit.compile(testing.allocator, &fn1, fn1_alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const out1 = try emit.compile(testing.allocator, &fn1, fn1_alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer emit.deinit(testing.allocator, out1);
 
     const bodies = [_]FuncBody{
@@ -950,7 +950,7 @@ test "linkWithThunks: single multi-result function — wrapper invocation writes
         .result_abi = .register_write,
     };
     const sigs = [_]zir.FuncType{sig};
-    const out = try emit.compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const out = try emit.compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer emit.deinit(testing.allocator, out);
 
     const bodies = [_]FuncBody{.{ .bytes = out.bytes, .call_fixups = out.call_fixups }};

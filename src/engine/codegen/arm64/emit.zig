@@ -179,6 +179,11 @@ pub fn compile(
     /// Routes `call_indirect` through the subtype trampoline. `false` for
     /// non-subtyping modules + test helpers.
     uses_type_subtyping: bool,
+    /// ADR-0202 D4 — drop the inline bounds check for memory0
+    /// scalar/atomic/SIMD accesses (guard-page + fault→trap redirect
+    /// own oob detection) and force-emit the kind=6 stub. `false` for
+    /// non-qualifying modules, the `.explicit` knob, and test helpers.
+    bounds_elided: bool,
 ) Error!EmitOutput {
     if (alloc.slots.len != (func.liveness orelse return Error.AllocationMissing).ranges.len) {
         return Error.AllocationMissing;
@@ -848,6 +853,7 @@ pub fn compile(
         .globals_offsets = globals_offsets,
         .globals_valtypes = globals_valtypes,
         .memory0_idx_type = memory0_idx_type,
+        .bounds_elided = bounds_elided,
         .exception_table_builder = if (has_try_table) &eh_builder else null,
         .open_try_tables = if (has_try_table) &open_try_tables else null,
         .landing_pad_fixups = if (has_try_table) &landing_pad_fixups else null,
@@ -1934,7 +1940,21 @@ pub fn compile(
                         kind: u16,
                         fb: u32,
                     ) !void {
-                        if (fixups.len == 0) return;
+                        return emitForce(a, b, fixups, kind, fb, false);
+                    }
+
+                    /// `force` (ADR-0202 D4): emit the stub even with zero
+                    /// fixups — an elided-bounds function has no B.HI sites
+                    /// but the guard-fault PC-redirect needs the stub body.
+                    fn emitForce(
+                        a: std.mem.Allocator,
+                        b: *std.ArrayList(u8),
+                        fixups: []const u32,
+                        kind: u16,
+                        fb: u32,
+                        force: bool,
+                    ) !void {
+                        if (fixups.len == 0 and !force) return;
                         const stub_byte: u32 = @intCast(b.items.len);
                         try gpr.writeU32(a, b, inst.encMovzImm16(17, 1));
                         try gpr.writeU32(a, b, inst.encStrImmW(17, abi.runtime_ptr_save_gpr, jit_abi.trap_flag_off));
@@ -1989,11 +2009,14 @@ pub fn compile(
                 try EmitCindStub.emit(allocator, &buf, uncaught_exc_fixups.items, 12, frame_bytes);
                 // ADR-0202 D3 — capture the oob (kind=6) stub's byte offset for
                 // the trap registry's PC-redirect target. `EmitCindStub.emit`
-                // sets stub_byte = b.items.len on entry then early-returns when
-                // there are no fixups, so buf.items.len HERE is that same offset
-                // (or no_stub when the function has no bounds-checked access).
-                oob_stub_off = if (oob_fixups.items.len > 0) @intCast(buf.items.len) else oob_stub_off;
-                try EmitCindStub.emit(allocator, &buf, oob_fixups.items, 6, frame_bytes);
+                // sets stub_byte = b.items.len on entry then skips emission when
+                // there are no fixups AND no force, so buf.items.len HERE is that
+                // same offset (or no_stub when no stub is emitted). D4: elision
+                // FORCE-emits the stub — with the CMP gone there are no fixups,
+                // but the fault handler still needs the redirect target.
+                const force_oob_stub = bounds_elided;
+                if (oob_fixups.items.len > 0 or force_oob_stub) oob_stub_off = @intCast(buf.items.len);
+                try EmitCindStub.emitForce(allocator, &buf, oob_fixups.items, 6, frame_bytes, force_oob_stub);
                 // ADR-0179 #3a / D-314 — loop back-edge interrupt poll stub
                 // (code 16, POST-frame → fb=frame_bytes; distinct from the
                 // prologue interrupt stub which is fb=0).

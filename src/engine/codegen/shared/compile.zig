@@ -150,6 +150,11 @@ pub fn compileOne(
     /// the `jitCallIndirectSubtypeOk` trampoline (the inline D-111 structural
     /// compare is finality/subtype-blind). `false` for non-subtyping modules.
     uses_type_subtyping: bool,
+    /// ADR-0202 D4 — module-level guard-page bounds-elision flag. `true` only
+    /// when memory0 qualifies (i32 × 64 KiB pages × guarded host) AND the
+    /// engine knob is `.auto`. Threaded into the per-arch EmitCtx so memory0
+    /// scalar accesses drop the inline check + force-emit the redirect stub.
+    bounds_elided: bool,
     /// D-475 (table64) — per-table index types (imports-first wasm table
     /// index space). Attached to the produced `ZirFunc` so the table-op /
     /// call_indirect emitters pick 32- vs 64-bit index widths per table.
@@ -330,7 +335,7 @@ pub fn compileOne(
     // a local `var`; the mutation is scoped to this function.
     alloc.result_abi = result_abi;
     trace.passEnter(func_idx, .emit);
-    const out = try emit.compile(allocator, &func, alloc, func_sigs, module_types, num_imports, globals_offsets, globals_valtypes, memory0_idx_type, tag_param_counts, uses_type_subtyping);
+    const out = try emit.compile(allocator, &func, alloc, func_sigs, module_types, num_imports, globals_offsets, globals_valtypes, memory0_idx_type, tag_param_counts, uses_type_subtyping, bounds_elided);
     errdefer emit.deinit(allocator, out);
     {
         const applied: u32 = @intCast(func.instrs.items.len);
@@ -370,7 +375,7 @@ test "compileOne: pass_diagnostics records all 6 passes when trace enabled" {
     // Pure instruction bytes: `i32.const 7` (0x41 0x07) + `end` (0x0B).
     const body = [_]u8{ 0x41, 0x07, 0x0B };
     const sig: FuncType = .{ .params = &.{}, .results = &.{.i32} };
-    var r = try compileOne(testing.allocator, 42, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{}, .register_write, .i32, &.{}, &.{}, &.{}, &.{}, false, &.{});
+    var r = try compileOne(testing.allocator, 42, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{}, .register_write, .i32, &.{}, &.{}, &.{}, &.{}, false, false, &.{});
     defer deinitFuncResult(testing.allocator, &r);
 
     // Per-function slot populated with 6 records, in pipeline order.
@@ -408,7 +413,7 @@ test "compileOne: tiny straight-line module — (func (result i32) i32.const 7 e
     const body = [_]u8{ 0x41, 0x07, 0x0B };
     const sig: FuncType = .{ .params = &.{}, .results = &.{.i32} };
 
-    var r = try compileOne(testing.allocator, 0, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{}, .register_write, .i32, &.{}, &.{}, &.{}, &.{}, false, &.{});
+    var r = try compileOne(testing.allocator, 0, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{}, .register_write, .i32, &.{}, &.{}, &.{}, &.{}, false, false, &.{});
     defer deinitFuncResult(testing.allocator, &r);
 
     const bodies = [_]linker.FuncBody{

@@ -301,7 +301,7 @@ test "buffer-write entry: invokeMultiResultNoArgs unpacks 3-i32 result (ADR-0106
         .result_abi = .buffer_write,
     };
     const sigs = [_]zir.FuncType{sig};
-    const out = try native_emit.compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const out = try native_emit.compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer native_emit.deinit(testing.allocator, out);
     const bodies = [_]linker.FuncBody{
         .{ .bytes = out.bytes, .call_fixups = out.call_fixups },
@@ -350,7 +350,7 @@ test "buffer-write entry: native-emit () → (i32, i64) shape (SKIP arm callI32i
         .result_abi = .buffer_write,
     };
     const sigs = [_]zir.FuncType{sig};
-    const out = try native_emit.compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const out = try native_emit.compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer native_emit.deinit(testing.allocator, out);
     const bodies = [_]linker.FuncBody{
         .{ .bytes = out.bytes, .call_fixups = out.call_fixups },
@@ -398,7 +398,7 @@ test "buffer-write entry: native-emit () → (i64, i32) shape (SKIP arm callI64i
         .result_abi = .buffer_write,
     };
     const sigs = [_]zir.FuncType{sig};
-    const out = try native_emit.compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const out = try native_emit.compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer native_emit.deinit(testing.allocator, out);
     const bodies = [_]linker.FuncBody{
         .{ .bytes = out.bytes, .call_fixups = out.call_fixups },
@@ -474,7 +474,7 @@ test "buffer-write entry: native-emit () → (i32, i32, i32) multi-result via bu
         .result_abi = .buffer_write,
     };
     const sigs = [_]zir.FuncType{sig};
-    const out = try native_emit.compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const out = try native_emit.compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer native_emit.deinit(testing.allocator, out);
 
     const bodies = [_]linker.FuncBody{
@@ -522,7 +522,7 @@ test "buffer-write entry: native-emit (i32) → i32 identity via [args_ptr+0] (A
         .result_abi = .buffer_write,
     };
     const sigs = [_]zir.FuncType{sig};
-    const out = try native_emit.compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const out = try native_emit.compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer native_emit.deinit(testing.allocator, out);
 
     const bodies = [_]linker.FuncBody{
@@ -569,7 +569,7 @@ test "buffer-write entry: native-emit (i32.const 42) end → results[0] = 42 (AD
         .result_abi = .buffer_write,
     };
     const sigs = [_]zir.FuncType{sig};
-    const out = try native_emit.compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false);
+    const out = try native_emit.compile(testing.allocator, &f, alloc, &sigs, &.{}, 0, &.{}, &.{}, .i32, &.{}, false, false);
     defer native_emit.deinit(testing.allocator, out);
 
     const bodies = [_]linker.FuncBody{
