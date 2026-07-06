@@ -455,9 +455,15 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
         if (module.find(.element)) |es| {
             var es_buf = try sections.decodeElement(a, es.body);
             defer es_buf.deinit();
+            // D-475: a table64 elem offset is i64-typed (§3.3.6) — decode
+            // the table section for the per-table expected offset type.
+            var empty_tables_buf: ?sections.Tables = null;
+            defer if (empty_tables_buf) |*t| t.deinit();
+            if (module.find(.table)) |ts| empty_tables_buf = try sections.decodeTables(a, ts.body);
             for (es_buf.items) |seg| {
                 if (seg.kind == .active) {
-                    try rv.validateGlobalInitExpr(seg.offset_expr, .i32, num_global_imports_empty, imports_buf, total_funcs_empty_for_init);
+                    const off_vt = elemOffsetValType(imports_buf, empty_tables_buf, seg.tableidx);
+                    try rv.validateGlobalInitExpr(seg.offset_expr, off_vt, num_global_imports_empty, imports_buf, total_funcs_empty_for_init);
                 }
             }
         }
@@ -713,7 +719,9 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
     if (elems_buf) |e| {
         for (e.items) |seg| {
             if (seg.kind == .active) {
-                try rv.validateGlobalInitExpr(seg.offset_expr, .i32, num_global_imports_main, imports_buf, total_funcs);
+                // D-475: a table64 elem offset is i64-typed (§3.3.6).
+                const off_vt = elemOffsetValType(imports_buf, tables_buf, seg.tableidx);
+                try rv.validateGlobalInitExpr(seg.offset_expr, off_vt, num_global_imports_main, imports_buf, total_funcs);
             }
         }
     }
@@ -785,13 +793,11 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
         }
         break :blk out;
     };
-    // D-475 — the JIT cannot yet index tables at i64 width (slice 4); reject an
-    // i64-indexed table here so a table64 module fails cleanly under the JIT
-    // instead of silently miscompiling a large index. The interp path supports
-    // table64 fully and does not route through compileWasm.
-    for (validator_tables) |t| if (t.idx_type == .i64) return Error.JitTable64Unsupported;
     // D-475 — per-table idx_type slice for the emitters (imports-first
-    // wasm table index space, same source as `validator_tables`).
+    // wasm table index space, same source as `validator_tables`). The
+    // former JitTable64Unsupported guard is gone: the emitters index
+    // tables at their declared width (C2/C3) and the descriptors are
+    // u64 (C1), so i64-indexed tables compile natively.
     const table_idx_types: []const zir.IdxType = blk: {
         if (validator_tables.len == 0) break :blk &.{};
         const out = try a.alloc(zir.IdxType, validator_tables.len);
@@ -1291,6 +1297,26 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
 /// CompiledWasm arena), so they share the module's lifetime. Returns an
 /// empty slice when there is no export section. Out-of-range targets are
 /// skipped defensively (the validator already rejects them upstream).
+/// D-475 (table64) — expected offset type of an ACTIVE elem segment =
+/// the target table's idx_type (imports-first wasm table index space;
+/// mirrors the D-219 `data_off_vt` treatment for memory64 data
+/// segments). Missing/uknown table → `.i32` (the validator rejects the
+/// out-of-range tableidx separately).
+fn elemOffsetValType(imports_buf: anytype, tables_buf: anytype, tableidx: u32) zir.ValType {
+    var k: u32 = tableidx;
+    if (imports_buf) |ib| {
+        for (ib.items) |imp| {
+            if (imp.kind != .table) continue;
+            if (k == 0) return if (imp.payload.table.idx_type == .i64) .i64 else .i32;
+            k -= 1;
+        }
+    }
+    if (tables_buf) |t| {
+        if (k < t.items.len) return if (t.items[k].idx_type == .i64) .i64 else .i32;
+    }
+    return .i32;
+}
+
 fn collectFuncExports(a: Allocator, module: anytype, total_funcs: u32) Error![]const runner_mod.FuncExport {
     const es = module.find(.@"export") orelse return &.{};
     var exports = try sections.decodeExports(a, es.body);

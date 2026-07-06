@@ -905,9 +905,12 @@ pub fn setupRuntimeLinked(
         for (elems.items) |seg| {
             if (seg.kind != .active) continue;
             if (seg.tableidx >= tables_descs.len) continue;
-            const off = rv.evalConstI32Expr(seg.offset_expr) catch return Error.UnsupportedEntrySignature;
-            if (off < 0) return Error.UnsupportedEntrySignature;
-            const base: usize = @intCast(off);
+            // D-475: a table64 active elem offset is an `i64.const` expr —
+            // evaluate at u64 width (mirrors the interp fix @a7609a65b; the
+            // i32-only eval rejected it → the .auto path silently fell back
+            // to the interp). i32 offsets arrive zero-extended.
+            const off = rv.evalConstOffsetU64(seg.offset_expr) catch return Error.UnsupportedEntrySignature;
+            const base: usize = std.math.cast(usize, off) orelse return Error.UnsupportedEntrySignature;
             const tbl = tables_descs[seg.tableidx];
             if (base + seg.funcidxs.len > tbl.len) return Error.UnsupportedEntrySignature;
             // Wasm 3.0 GC (D-221 + D-218): an i31ref/eqref/anyref active elem
