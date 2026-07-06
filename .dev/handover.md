@@ -38,9 +38,16 @@ Post-v2.0.0 sweep (see `.dev/meta_audits/2026-07-03-maintenance-scaffolding-audi
 Senior-runtime gap analysis (measured; report =
 `.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`) opened front
 **G-senior-gap** (debt D-507..D-513, `front: G-senior-gap`). Queue order:
-- **G1 = D-507 (now)** — guard-page/signal bounds-check elision (biggest
-  tier-free perf lever; measured 1.75-3.9x band vs wasmtime). **ADR FIRST**
-  (signal handler + codegen strategy), then TDD cycles; D-510 is its safety net.
+- **G1 = D-507 (IN PROGRESS)** — guard-page/signal bounds-check elision.
+  **ADR-0202 filed** (adversarially critiqued + revised — read it first: D2
+  merges classification INTO the ADR-0166 handlers, SIGSEGV+SIGBUS, oob_stub_off
+  must be plumbed through EmitOutput→linker, binding-time soundness invariant).
+  Branch `develop/d507-guard-page-bounds-elision`: **phase 1 (D1) DONE** —
+  `platform/guarded_mem.zig` + `runtime/instance/memory_backing.zig`; all 4
+  creation surfaces + 5 grow paths + 3 free paths switched; test-all green on
+  Mac; std.c.mprotect = ADR-0070 B133. NEXT: phase 2 = D3 Zone-0 trap registry
+  + D2 fault→trap PC-redirect handler (test proves redirect BEFORE elision);
+  then phase 3 = D4 emit flip + D5 knob/.cwasm. D-510 is the safety net.
 - **G2 = D-508** — on-disk compilation cache (reuse .cwasm serialization).
 - **G3 = D-510** — committed differential-fuzz harness (interp oracle vs JIT);
   MAY be pulled ahead of D-507 as its safety net — either order is sanctioned.
