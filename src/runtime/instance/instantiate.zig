@@ -42,6 +42,7 @@ const testing = std.testing;
 const import_mod = @import("import.zig");
 const instance_mod = @import("instance.zig");
 const memory_backing = @import("memory_backing.zig");
+const guarded_mem_mod = @import("../../platform/guarded_mem.zig");
 const heap_mod = @import("../../feature/gc/heap.zig");
 const needs_heap_detector = @import("../../feature/gc/needs_heap_detector.zig");
 const diagnostic = @import("../../diagnostic/diagnostic.zig");
@@ -1162,6 +1163,13 @@ pub fn instantiateRuntime(
             }
         }
         // Then defined (own storage; `mi` points into `def_storage`).
+        // ADR-0202 D1 — on a mid-loop failure the arena reclaims heap
+        // bytes but CANNOT reclaim an mmap reservation: release the
+        // already-built entries' reservations explicitly.
+        var memories_built: usize = 0;
+        errdefer for (def_storage[0..memories_built]) |*m| {
+            if (m.reservation) |res| guarded_mem_mod.release(res);
+        };
         if (defined_memories) |memories| {
             for (memories.items, 0..) |entry, di| {
                 const pages = entry.min;
@@ -1195,10 +1203,14 @@ pub fn instantiateRuntime(
                 };
                 mi[slot] = &def_storage[di];
                 slot += 1;
+                memories_built = di + 1;
             }
         }
         rt.memories = mi;
         rt.memory_storage = def_storage;
+        // Ownership transferred: from here `rt.deinit` releases the
+        // reservations — neutralise the errdefer (no double-munmap).
+        memories_built = 0;
         rt.memory = mi[0].bytes;
     }
 

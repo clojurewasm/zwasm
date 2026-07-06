@@ -3,10 +3,14 @@
 //! Chooses between the reservation-backed guard-page store (qualifying
 //! i32 / 64 KiB-page memories on supported hosts — base pointer never
 //! moves, grow = commit-in-place) and the plain allocator heap
-//! (everything else — realloc on grow, base may move). Every
-//! memory-creation surface (instantiate / engine setup / c-api
-//! `wasm_memory_new`) routes here so the ADR-0202 binding-time
-//! soundness invariant has a single enforcement point.
+//! (everything else — realloc on grow, base may move). The live
+//! memory-creation surfaces (instantiate / engine setup / c-api
+//! `wasm_memory_new`) route here so the ADR-0202 binding-time
+//! soundness invariant has a single enforcement point. Known
+//! exception: the AOT runner's per-call scratch memory
+//! (`engine/codegen/aot/run.zig`) stays plain-heap — self-contained,
+//! never grows, and its code keeps explicit checks; it MUST route
+//! here when ADR-0202 D4 elides checks in `.cwasm` artifacts.
 //!
 //! Zone 1 (`src/runtime/instance/`) — imports Zone 0
 //! (`platform/guarded_mem`) + Zone 1 (`parse/sections`).
@@ -44,6 +48,10 @@ pub fn allocBacking(
     page_size_log2: u8,
 ) error{OutOfMemory}!Backing {
     if (qualifies(idx_type, page_size_log2)) {
+        // Same hard refusal as `growGuarded`: an initial size past the
+        // 4 GiB i32 idx span (reachable via `wasm_memory_new` with
+        // min > 65536 pages) must not commit into the guard region.
+        if (bytes_total > (1 << 32)) return error.OutOfMemory;
         var res = guarded_mem.reserve(guarded_mem.i32_full_reservation) catch
             return error.OutOfMemory;
         guarded_mem.commit(&res, bytes_total) catch {
@@ -58,13 +66,17 @@ pub fn allocBacking(
 }
 
 /// Grow a guarded backing in place to `new_bytes` total. Returns the
-/// new slice (SAME base pointer) or null when the commit fails. Newly
-/// committed pages read as zero (guarded_mem contract) — no memset.
-/// The caller's page-cap logic keeps `new_bytes` ≤ the 4 GiB i32 idx
-/// span; committing into the guard region would void the elision
-/// soundness, hence the assert.
+/// new slice (SAME base pointer) or null when the request exceeds the
+/// 4 GiB i32 idx span or the commit fails. Newly committed pages read
+/// as zero (guarded_mem contract) — no memset. The span check is a
+/// hard refusal, not an assert: `wasm_memory_grow`/`wasm_memory_new`
+/// feed embedder-controlled u32s here with no earlier page cap, and
+/// committing into the guard region would void the elision soundness.
+/// Always call through a pointer INTO the owning struct — a local
+/// `Reservation` copy loses the `.committed` advance (harmless-but-
+/// wasteful re-commit on the next grow).
 pub fn growGuarded(res: *guarded_mem.Reservation, new_bytes: usize) ?[]u8 {
-    std.debug.assert(new_bytes <= (1 << 32));
+    if (new_bytes > (1 << 32)) return null;
     guarded_mem.commit(res, new_bytes) catch return null;
     return res.base[0..new_bytes];
 }
@@ -109,6 +121,22 @@ test "memory_backing: memory64 + custom-page-size memories stay heap-backed" {
     const b1 = try allocBacking(testing.allocator, 256, .i32, 0); // 1-byte pages
     defer freeBacking(testing.allocator, b1);
     try testing.expect(b1.reservation == null);
+}
+
+test "memory_backing: requests past the 4 GiB i32 idx span are refused, not asserted" {
+    if (comptime !guarded_mem.supported) return; // comptime platform prune (ADR-0122 D3) — ADR-0202 D1 host list
+    // C-ABI-reachable inputs (wasm_memory_new min / wasm_memory_grow
+    // delta) can exceed the idx span with no earlier page cap — the
+    // chokepoint must refuse, or elided code could touch committed
+    // guard pages.
+    try testing.expectError(
+        error.OutOfMemory,
+        allocBacking(testing.allocator, (1 << 32) + 65536, .i32, 16),
+    );
+    const b = try allocBacking(testing.allocator, 65536, .i32, 16);
+    defer freeBacking(testing.allocator, b);
+    var res = b.reservation.?;
+    try testing.expectEqual(@as(?[]u8, null), growGuarded(&res, (1 << 32) + 65536));
 }
 
 test "memory_backing: zero-length qualifying memory is valid and growable" {
