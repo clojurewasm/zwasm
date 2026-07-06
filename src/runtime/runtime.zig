@@ -515,10 +515,21 @@ pub const Runtime = struct {
         // the OWN storage's reservations (imported entries are released
         // by their exporter) and skip the allocator free for a guarded
         // memory0 alias (the allocator never saw those bytes).
-        const memory0_guarded = self.memories.len >= 1 and
-            self.memories[0].reservation != null;
+        //
+        // INVARIANT: NEVER dereference `self.memories[i]` here — the
+        // pointer array may hold cross-module ZOMBIE pointers into an
+        // already-deinited exporter's storage at teardown (ADR-0014
+        // §6.K.2; Windows CI SEGV in the component-model corpus).
+        // Guardedness of the memory0 alias is decided by pointer
+        // identity against OWN storage (alive until the rawFree below);
+        // an imported memory0 alias keeps the legacy rawFree (arena
+        // no-op — identical to the pre-guarded semantics).
+        var memory0_guarded = false;
         for (self.memory_storage) |*m| {
-            if (m.reservation) |res| guarded_mem.release(res);
+            if (m.reservation) |res| {
+                if (m.bytes.ptr == self.memory.ptr) memory0_guarded = true;
+                guarded_mem.release(res);
+            }
         }
         if (!memory0_guarded) rawFreeOwned(self.alloc, u8, self.memory);
         // D-199 — free the pointer array + the OWNED instance storage.
