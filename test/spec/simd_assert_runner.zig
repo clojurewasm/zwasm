@@ -48,6 +48,10 @@ const base = @import("spec_assert_runner_base.zig");
 
 pub fn main(init: std.process.Init) !void {
     base.initHostDispatchStubs();
+    // ADR-0202 D5 — JIT-executes against the bespoke non-guarded
+    // `base.growable_memory` array → explicit bounds checks mandatory
+    // (elision would read past it instead of faulting). D-515.
+    zwasm.engine.runner.setBoundsChecks(.explicit);
     const io = init.io;
     const gpa = init.gpa;
 

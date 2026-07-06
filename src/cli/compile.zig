@@ -59,7 +59,11 @@ pub fn run(
     };
     defer gpa.free(wasm_bytes);
 
-    var compiled = try runner.compileWasm(gpa, wasm_bytes);
+    // ADR-0202 D5 — AOT MUST compile with explicit bounds checks (the
+    // `.cwasm` format + `aot/run.zig`'s plain-heap run-memory cannot yet
+    // uphold guard-page soundness; `produceFromCompiledWasm` hard-refuses an
+    // elided module). `compileWasmForAot` forces `.explicit` for this compile.
+    var compiled = try runner.compileWasmForAot(gpa, wasm_bytes);
     defer compiled.deinit(gpa);
 
     const cwasm_bytes = try aot_produce.produceFromCompiledWasm(gpa, &compiled, wasm_bytes);

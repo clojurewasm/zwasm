@@ -210,24 +210,29 @@ entries:
     layer: "code"
     status: "note"
     description: |-
-      Front G-senior-gap follow-on to D-507. **Run the full spec corpus under
-      bounds elision.** The spec-assert harness backs JIT linear memory with
-      bespoke non-guarded buffers (`scratch_memory` heap + static
-      `growable_memory` array), so it forces `.explicit` (no elision) to keep
-      the D4/D5 binding-time soundness invariant (elided code MUST bind guarded
-      memory). The elided codegen path is currently validated by the guarded
-      `runner_trap_test` OOB tests + the `test-oob-elision` CLI build step, NOT
-      by the comprehensive spec corpus. Close by EITHER (a) guard-backing the
-      harness's memory provisioning (route `scratch_memory`/`growable_memory`
-      through `memory_backing`/`guarded_mem` when qualifying — invasive to
-      critical infra) OR (b) folding it into the D-510 differential-fuzz harness
-      (diff elided-JIT vs interp oracle over the corpus — the natural home; the
-      `.explicit` knob exists precisely for the elided-vs-checked axis).
+      Front G-senior-gap follow-on to D-507. TWO deferred elision-coverage /
+      soundness items, both currently held by forcing `.explicit`:
+      (1) **AOT `.cwasm` elision** — ADR-0202 D5's five AOT clauses are unbuilt
+      (elision bit in the format, trap-registry func_table serialise +
+      load-register, non-D1-host reject, guarded run-memory in `aot/run.zig`
+      which today binds PLAIN HEAP). Held safe by `produceFromCompiledWasm`
+      HARD-REFUSING an elided module (`Error.ElidedBoundsNotAotSerializable`) +
+      `compileWasmForAot` forcing `.explicit`; implement the D5 clauses to let
+      AOT artifacts elide.
+      (2) **Full spec corpus under elision** — the spec-assert harnesses
+      (spec_assert_runner / simd / wasm_3_0 / non_simd) back JIT memory with
+      bespoke non-guarded buffers (`scratch_memory` / static `growable_memory`),
+      so each forces `.explicit`. The elided path is validated by the guarded
+      `runner_trap_test` OOB tests + the `test-oob-elision` CLI step, NOT the
+      comprehensive corpus. Close by EITHER guard-backing the harness memory
+      provisioning OR folding into the D-510 differential-fuzz harness (diff
+      elided-JIT vs interp oracle — the natural home; `.explicit` is its axis).
     first_raised: "2026-07-07"
     last_reviewed: "2026-07-07"
     refs: |-
-      test/spec/spec_assert_runner_base.zig::installSigsegvHandler (setBoundsChecks .explicit)
-      src/engine/runner.zig (setBoundsChecks re-export)
+      src/engine/codegen/aot/produce.zig (ElidedBoundsNotAotSerializable guard)
+      src/cli/compile.zig + src/engine/compile.zig::compileWasmForAot
+      test/spec/{spec_assert_runner,simd_assert_runner,spec_assert_runner_wasm_3_0}.zig (setBoundsChecks .explicit)
       .dev/decisions/0202_guard_page_bounds_elision.md D5
     front: G-senior-gap
   - id: "D-506"

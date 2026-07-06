@@ -1091,7 +1091,7 @@ test "runCwasm: compile → produce → load+run a .cwasm, i32 result surfaces a
         0x2a, 0x0b,
     };
 
-    var compiled = try runner.compileWasm(testing.allocator, &wasm);
+    var compiled = try runner.compileWasmForAot(testing.allocator, &wasm);
     defer compiled.deinit(testing.allocator);
     const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &wasm);
     defer testing.allocator.free(cwasm);
@@ -1114,7 +1114,7 @@ test "runCwasmWasi: a WASI proc_exit(42) .cwasm surfaces exit code 42 end-to-end
     const runner = @import("../engine/runner.zig");
     const aot_produce = @import("../engine/codegen/aot/produce.zig");
 
-    var compiled = try runner.compileWasm(testing.allocator, &proc_exit_42_wasm);
+    var compiled = try runner.compileWasmForAot(testing.allocator, &proc_exit_42_wasm);
     defer compiled.deinit(testing.allocator);
     const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &proc_exit_42_wasm);
     defer testing.allocator.free(cwasm);
@@ -1149,7 +1149,7 @@ test "runCwasmWasi: a WASI fd_write .cwasm writes 'hi\\n' to the captured stdout
     const runner = @import("../engine/runner.zig");
     const aot_produce = @import("../engine/codegen/aot/produce.zig");
 
-    var compiled = try runner.compileWasm(testing.allocator, &fd_write_hi_wasm);
+    var compiled = try runner.compileWasmForAot(testing.allocator, &fd_write_hi_wasm);
     defer compiled.deinit(testing.allocator);
     const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &fd_write_hi_wasm);
     defer testing.allocator.free(cwasm);
@@ -1207,7 +1207,7 @@ test "runCwasmWasi: AOT clock_time_get reads a real (nonzero) host clock (D-251)
     const runner = @import("../engine/runner.zig");
     const aot_produce = @import("../engine/codegen/aot/produce.zig");
 
-    var compiled = try runner.compileWasm(testing.allocator, &clock_start_wasm);
+    var compiled = try runner.compileWasmForAot(testing.allocator, &clock_start_wasm);
     defer compiled.deinit(testing.allocator);
     const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &clock_start_wasm);
     defer testing.allocator.free(cwasm);
@@ -1278,7 +1278,7 @@ test "runCwasmWasi: threads argv → AOT guest args_sizes_get sees argc (D-251)"
     const runner = @import("../engine/runner.zig");
     const aot_produce = @import("../engine/codegen/aot/produce.zig");
 
-    var compiled = try runner.compileWasm(testing.allocator, &argc_exit_jit);
+    var compiled = try runner.compileWasmForAot(testing.allocator, &argc_exit_jit);
     defer compiled.deinit(testing.allocator);
     const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &argc_exit_jit);
     defer testing.allocator.free(cwasm);
@@ -1321,7 +1321,7 @@ test "runCwasmWasi: --dir preopen makes the AOT fd_prestat_get(3) succeed (D-251
     const runner = @import("../engine/runner.zig");
     const aot_produce = @import("../engine/codegen/aot/produce.zig");
 
-    var compiled = try runner.compileWasm(testing.allocator, &prestat_jit);
+    var compiled = try runner.compileWasmForAot(testing.allocator, &prestat_jit);
     defer compiled.deinit(testing.allocator);
     const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &prestat_jit);
     defer testing.allocator.free(cwasm);

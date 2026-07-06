@@ -51,6 +51,13 @@ pub const Error = serialise.Error || error{
     /// A table/element segment is outside the cycle-2a subset (a
     /// non-const active-elem offset, or an offset past u32).
     UnsupportedTableState,
+    /// ADR-0202 D5 — the module was compiled with memory0 bounds-check
+    /// elision, which the `.cwasm` format cannot yet represent safely (no
+    /// elision bit / trap-registry table, and `aot/run.zig` binds plain
+    /// heap). Serializing it would produce a `.cwasm` whose oob accesses
+    /// read/write past the guest memory silently. Callers destined for AOT
+    /// MUST `runner.setBoundsChecks(.explicit)` before compiling.
+    ElidedBoundsNotAotSerializable,
 };
 
 /// Table-0 + element state collected for the producer (v0.3 cycle-2a).
@@ -85,6 +92,12 @@ pub fn produceFromCompiledWasm(
     compiled: *const runner.CompiledWasm,
     wasm_bytes: []const u8,
 ) Error![]u8 {
+    // ADR-0202 D5 — refuse to serialize elided codegen: the `.cwasm` format +
+    // `aot/run.zig`'s plain-heap run-memory cannot yet uphold the guard-page
+    // soundness invariant. This is the hard enforcement point that makes the
+    // "elided ⇒ guarded binding" invariant impossible to breach via AOT (a
+    // per-caller `.explicit` would be easy to forget). D-515 lifts it.
+    if (compiled.bounds_elided) return Error.ElidedBoundsNotAotSerializable;
     const arch = try hostArch();
 
     const n_funcs = compiled.func_results.len;
@@ -388,6 +401,31 @@ test "hostArch maps to a valid .cwasm arch tag on supported hosts" {
     }
 }
 
+test "produceFromCompiledWasm: REFUSES an elided module (ADR-0202 D5 soundness guard)" {
+    // A qualifying i32/64KiB memory + a load compiled with the DEFAULT .auto
+    // knob elides the bounds check. Serializing that to .cwasm would bind
+    // plain heap at run time with no guard region → silent OOB. The producer
+    // must hard-refuse. (guarded_mem.supported gate: on a non-qualifying host
+    // nothing elides, so the refusal can't fire — skip there.)
+    if (comptime !@import("../../../platform/guarded_mem.zig").supported) return;
+    const mem_load_wasm = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03,
+        0x02, 0x01, 0x00,
+        0x05, 0x03, 0x01, 0x00, 0x01, // memory min 1 (i32, 64 KiB)
+        0x0a, 0x09, 0x01, 0x07, 0x00, 0x41, 0x00, 0x28, 0x02, 0x00, 0x0b, // i32.const 0; i32.load
+    };
+    runner.setBoundsChecks(.auto);
+    defer runner.setBoundsChecks(.auto); // leave the default as other tests expect
+    var compiled = try runner.compileWasm(testing.allocator, &mem_load_wasm);
+    defer compiled.deinit(testing.allocator);
+    try testing.expect(compiled.bounds_elided); // .auto + qualifying → elided
+    try testing.expectError(
+        Error.ElidedBoundsNotAotSerializable,
+        produceFromCompiledWasm(testing.allocator, &compiled, &mem_load_wasm),
+    );
+}
+
 test "produceFromCompiledWasm: tiny synthetic wasm round-trips through compileWasm + AOT producer" {
     // Synthetic wasm: () -> i32 returning 7.
     // Module sections: type, function, code.
@@ -406,7 +444,7 @@ test "produceFromCompiledWasm: tiny synthetic wasm round-trips through compileWa
         0x41, 0x07, 0x0b,
     };
 
-    var compiled = try runner.compileWasm(testing.allocator, &wasm_bytes);
+    var compiled = try runner.compileWasmForAot(testing.allocator, &wasm_bytes);
     defer compiled.deinit(testing.allocator);
 
     const out = try produceFromCompiledWasm(testing.allocator, &compiled, &wasm_bytes);
@@ -457,7 +495,7 @@ test "produceFromCompiledWasm: a WASI import round-trips into the .cwasm v0.4 im
         0x01, 0x06, 0x00, 0x41, 0x2A, 0x10, 0x00, 0x0B,
     };
 
-    var compiled = try runner.compileWasm(testing.allocator, &wasm_bytes);
+    var compiled = try runner.compileWasmForAot(testing.allocator, &wasm_bytes);
     defer compiled.deinit(testing.allocator);
     const out = try produceFromCompiledWasm(testing.allocator, &compiled, &wasm_bytes);
     defer testing.allocator.free(out);

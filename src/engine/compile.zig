@@ -45,6 +45,19 @@ pub fn boundsChecksMode() BoundsChecks {
     return bounds_checks_mode;
 }
 
+/// Compile for AOT serialization — always with EXPLICIT bounds checks
+/// (ADR-0202 D5). The `.cwasm` format + `aot/run.zig`'s plain-heap
+/// run-memory cannot yet uphold guard-page soundness, and
+/// `produceFromCompiledWasm` hard-refuses an elided module, so every
+/// AOT-destined compile MUST route here. Save/restore the global knob
+/// so a caller's ambient `.auto` (JIT) preference is untouched.
+pub fn compileWasmForAot(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledWasm {
+    const prev = bounds_checks_mode;
+    bounds_checks_mode = .explicit;
+    defer bounds_checks_mode = prev;
+    return compileWasm(allocator, wasm_bytes);
+}
+
 pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledWasm {
     var module = try parser.parse(allocator, wasm_bytes);
     defer module.deinit(allocator);
@@ -1320,6 +1333,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
         .tag_param_slot_counts = tag_param_slot_counts,
         .exception_table = .{ .entries = exception_entries },
         .exports = func_exports,
+        .bounds_elided = bounds_elided,
         .arena = arena,
     };
 }

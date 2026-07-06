@@ -22,6 +22,7 @@ const skip = @import("../test_support/skip.zig");
 
 const runner = @import("runner.zig");
 const compileWasm = runner.compileWasm;
+const compileWasmForAot = runner.compileWasmForAot; // ADR-0202 D5 — AOT-destined compiles
 const CompiledWasm = runner.CompiledWasm;
 const findExportFunc = runner.findExportFunc;
 const runI32Export = runner.runI32Export;
@@ -1781,7 +1782,7 @@ test "AOT<->JIT differential: .cwasm produce->load->execute equals the JIT resul
     // the SAME machine code the JIT emitted; func[0]'s prologue expects
     // `*const JitRuntime` in X0/RDI, so we build a real runtime exactly
     // as `runI32Export` does and pass it in.
-    var compiled = try compileWasm(testing.allocator, &wasm_bytes);
+    var compiled = try compileWasmForAot(testing.allocator, &wasm_bytes);
     defer compiled.deinit(testing.allocator);
 
     const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &wasm_bytes);
@@ -1821,7 +1822,7 @@ test "AOT<->JIT differential: () -> i64 const round-trips through produce->load 
     const jit_result = try runI64Export(testing.allocator, &wasm_bytes, "f");
     try testing.expectEqual(@as(u64, 0x1_0000_0007), jit_result);
 
-    var compiled = try compileWasm(testing.allocator, &wasm_bytes);
+    var compiled = try compileWasmForAot(testing.allocator, &wasm_bytes);
     defer compiled.deinit(testing.allocator);
     const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &wasm_bytes);
     defer testing.allocator.free(cwasm);
@@ -1856,7 +1857,7 @@ test "AOT<->JIT differential: internal call's direct-call reloc executes through
     const jit_result = try runI32Export(testing.allocator, &wasm_bytes, "f");
     try testing.expectEqual(@as(u32, 7), jit_result);
 
-    var compiled = try compileWasm(testing.allocator, &wasm_bytes);
+    var compiled = try compileWasmForAot(testing.allocator, &wasm_bytes);
     defer compiled.deinit(testing.allocator);
     const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &wasm_bytes);
     defer testing.allocator.free(cwasm);
@@ -1884,7 +1885,7 @@ test "AOT producer serialises the func export table → loaded .cwasm resolves e
         0x07, 0x0b,
     };
 
-    var compiled = try compileWasm(testing.allocator, &wasm_bytes);
+    var compiled = try compileWasmForAot(testing.allocator, &wasm_bytes);
     defer compiled.deinit(testing.allocator);
     const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &wasm_bytes);
     defer testing.allocator.free(cwasm);
@@ -1919,7 +1920,7 @@ test "stateful .cwasm cycle-1: global.get returns the serialised init value via 
         0x00, 0x0b,
     };
 
-    var compiled = try compileWasm(testing.allocator, &wasm_bytes);
+    var compiled = try compileWasmForAot(testing.allocator, &wasm_bytes);
     defer compiled.deinit(testing.allocator);
     const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &wasm_bytes);
     defer testing.allocator.free(cwasm);
@@ -1951,7 +1952,7 @@ test "stateful .cwasm cycle-1b: linear memory store+load round-trips via reconst
         0x0b,
     };
 
-    var compiled = try compileWasm(testing.allocator, &wasm_bytes);
+    var compiled = try compileWasmForAot(testing.allocator, &wasm_bytes);
     defer compiled.deinit(testing.allocator);
     const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &wasm_bytes);
     defer testing.allocator.free(cwasm);
@@ -1980,7 +1981,7 @@ test "stateful .cwasm cycle-1b: active data segment initialises memory, load rea
         0x0b, 0x04, 0x07, 0x00, 0x00, 0x00,
     };
 
-    var compiled = try compileWasm(testing.allocator, &wasm_bytes);
+    var compiled = try compileWasmForAot(testing.allocator, &wasm_bytes);
     defer compiled.deinit(testing.allocator);
     const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &wasm_bytes);
     defer testing.allocator.free(cwasm);
@@ -2015,7 +2016,7 @@ test "stateful .cwasm cycle-2a: call_indirect through a reconstructed table retu
     // Validate the fixture via the JIT path (full setupRuntime).
     try testing.expectEqual(@as(u32, 7), try runI32Export(testing.allocator, &wasm_bytes, "g"));
 
-    var compiled = try compileWasm(testing.allocator, &wasm_bytes);
+    var compiled = try compileWasmForAot(testing.allocator, &wasm_bytes);
     defer compiled.deinit(testing.allocator);
     const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &wasm_bytes);
     defer testing.allocator.free(cwasm);
