@@ -3,6 +3,186 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-507"
+    layer: "code"
+    status: "now"
+    description: |-
+      QUEUE HEAD of front G-senior-gap (2026-07-06 senior-runtime gap analysis,
+      `.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`; queue order
+      G1=this, G2=D-508, G3=D-510, then note-class G4+). **Guard-page /
+      signal-based linear-memory bounds-check elision** — the single biggest
+      measured perf lever available WITHIN the single-pass JIT (no optimising
+      tier needed): zwasm emits an explicit CMP+branch per memory access;
+      wasmtime (`Config::memory_reservation`/`memory_guard_size`/
+      `signals_based_traps`, config.rs:1862/1945/3151) and WAMR (Segue) elide
+      it by reserving guard regions and converting the fault to an oob trap.
+      Measured evidence (report §0): shootout fib2 1.75x / matrix 3.9x /
+      heapsort 3.0x vs wasmtime — a substantial slice of the sub-4x band is
+      bounds-check overhead (the >4x outliers are optimising-tier codegen
+      quality, out of scope here → D-513). SHAPE (ADR REQUIRED first — codegen
+      strategy + signal-handler introduction are ADR-grade; also audit
+      `check_libc_boundary` for sigaction/mmap/VirtualAlloc additions):
+      (1) reserve base+4GiB+guard via mmap PROT_NONE (Win: VirtualAlloc
+      MEM_RESERVE + VEH) for i32 memories; commit-on-grow; (2) SIGSEGV/SIGBUS
+      (Win: vectored exception) handler classifies faults inside the guard →
+      route to the existing trap path (trap_kind oob) — must coexist with the
+      interrupt flag + EH unwinder; (3) emit flag drops the explicit CMP when
+      the memory qualifies (i32, guard-covered); memory64 KEEPS explicit
+      checks (wasmtime does the same); (4) interp unchanged (oracle). Fuzz
+      differential (D-510) SHOULD land first or together — it is the safety
+      net for exactly this class of change. 3-host verify mandatory
+      (JIT/ABI-class; Rosetta reproduces linux; windowsmini for VEH).
+    first_raised: "2026-07-06"
+    last_reviewed: "2026-07-06"
+    refs: |-
+      .dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md §0/§2.2
+      src/engine/codegen/{arm64,x86_64}/op_memory.zig (explicit bounds CMPs)
+      ~/Documents/OSS/wasmtime crates/wasmtime/src/config.rs:1862,1945,3151
+    front: G-senior-gap
+  - id: "D-508"
+    layer: "code"
+    status: "note"
+    description: |-
+      Front G-senior-gap, G2 (after D-507; independently startable). **On-disk
+      compilation cache** — zwasm recompiles every `run` (hello-world: JIT
+      5.2ms vs interp 3.4ms — compile tax visible even on trivial modules; on
+      large modules it dominates cold start). Peers: wasmtime on-disk cache
+      (`Config::cache`, crates/cache/) + wazero
+      `NewCompilationCacheWithDir` (cache.go:34-114, versioned dir key
+      `wazero-<ver>-<arch>-<os>`). SHAPE: key = (module bytes hash, zwasm
+      version, arch, build options affecting codegen); value = the existing
+      `.cwasm` serialization (AOT format reuse — loader already exists);
+      eviction = LRU or size cap; opt-in CLI flag first (`--cache[=dir]`),
+      default-on only after soak; embedding API knob after CLI. Invalidation
+      correctness > hit rate. Small-to-medium bundle; not ADR-grade unless the
+      .cwasm format needs changes.
+    first_raised: "2026-07-06"
+    last_reviewed: "2026-07-06"
+    refs: |-
+      .dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md §2.4
+      src/engine/codegen/aot/ (serialization to reuse)
+      ~/Documents/OSS/wazero/cache.go:34-114
+    front: G-senior-gap
+  - id: "D-509"
+    layer: "code"
+    status: "note"
+    description: |-
+      Front G-senior-gap (v0.2.0-line, big — schedule as its own campaign, not
+      a /continue drive-by). **Threads proposal multi-agent completion.**
+      Probe-verified 2026-07-06: zwasm ALREADY executes the threads opcodes
+      single-agent (shared-memory parse + i32.atomic.load + memory.atomic.wait32
+      correct via ADR-0168 atomic_* callbacks) — the gap is ACTUAL concurrency:
+      (1) shared Memory objects across instances/threads (today each instance
+      owns its memory; needs refcounted shared backing + coordinated grow —
+      cf. D-199 pointer-sharing precedent); (2) host thread spawn surface
+      (wasi-threads or WASIX-style thread_spawn; peers: WAMR lib-pthread +
+      thread-mgr + lib-wasi-threads, wasmer WASIX futex/thread_spawn);
+      (3) REAL wait/notify blocking semantics cross-thread (current wait
+      returns immediately per single-agent semantics — verify + fix);
+      (4) interp `Diagnostic` is `threadlocal` (existing blocked-by row notes
+      the Phase-14 mapping decision); (5) JIT codegen: atomics must become
+      genuinely atomic under contention (LSE/lock-prefix widths audit).
+      proposal_watch: Threads = Phase 4, zwasm intent v0.2.0. ADR + ROADMAP
+      §9-scope amendment required at kickoff (per §18.2).
+    first_raised: "2026-07-06"
+    last_reviewed: "2026-07-06"
+    refs: |-
+      .dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md §0/§1
+      .dev/proposal_watch.md (Phase 4 table)
+      src/engine/codegen/shared/jit_abi.zig (atomic_rmw_fn/atomic_wait_fns, ADR-0168)
+    front: G-senior-gap
+  - id: "D-510"
+    layer: "test"
+    status: "note"
+    description: |-
+      Front G-senior-gap, G3 (small; SHOULD land before or with D-507 as its
+      safety net). **Committed differential-fuzz harness (interp oracle vs
+      JIT)** — zwasm ran fuzz CAMPAIGNS (smith_v4, fuzz-loader 1665 modules
+      0-crash) but has no always-runnable in-repo differential target; the
+      campaign tooling lives in gitignored scratch. Peers: wazero
+      `internal/integration_test/fuzz/fuzz_targets/no_diff.rs` (compiler-vs-
+      interp differential + regression corpus `fuzzcases/`), wasmtime
+      fuzz_targets/differential.rs. SHAPE: `zig build fuzz-diff` (or a
+      script) = wasm-tools smith (already provisioned in the gen shell) →
+      run module on interp AND JIT → compare results/traps/memory; committed
+      seed corpus + regression corpus dir; CI-optional (nightly or manual),
+      NOT in ci-required. zwasm's interp-as-oracle design makes this nearly
+      free; it converts the one-off campaigns into a permanent ratchet.
+    first_raised: "2026-07-06"
+    last_reviewed: "2026-07-06"
+    refs: |-
+      .dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md §3(infra)
+      ~/Documents/OSS/wazero/internal/integration_test/fuzz/
+      test/realworld/diff_runner.zig (existing diff harness to build on)
+    front: G-senior-gap
+  - id: "D-511"
+    layer: "code"
+    status: "note"
+    description: |-
+      Front G-senior-gap (demand-driven; trigger = a real cross-arch deploy
+      consumer). **Cross-arch AOT** (`zwasm compile --target <arch>`): .cwasm
+      is host-arch-only today. The emitters are already arch-parameterized
+      (comptime dispatch arm64/x86_64) — the work is (1) making the emit path
+      target-selectable at RUNTIME instead of comptime (structural: the
+      `builtin.target.cpu.arch` switch in shared/compile.zig becomes a
+      parameter — sizable refactor), (2) target-tagged .cwasm headers +
+      loader rejection (partially exists: arch tag per ADR-0039), (3) NO
+      cross-OS relocation work needed (cwasm is position-based). Peers:
+      wasmtime `compile --target`, wasmer `compile --target <triple>`, WAMR
+      wamrc (down to xtensa/riscv). Do NOT conflate with new-arch backends
+      (riscv etc.) — that is a separate, much larger front nobody asked for.
+    first_raised: "2026-07-06"
+    last_reviewed: "2026-07-06"
+    refs: |-
+      .dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md §2.7
+      src/engine/codegen/shared/compile.zig:43 (comptime arch dispatch)
+      src/engine/codegen/aot/produce.zig (hostArch tag)
+    front: G-senior-gap
+  - id: "D-512"
+    layer: "code"
+    status: "note"
+    description: |-
+      Front G-senior-gap (demand-driven, embedder-facing). **Observability
+      hooks for embedders**: (a) call listeners (wazero
+      experimental/listener.go Before/After/Abort + StackIterator pattern) —
+      per-call tracing from the Zig/C API; (b) perf jitdump / perf-map emit on
+      Linux so `perf` attributes JIT samples (wasmtime ProfilingStrategy;
+      WAMR WAMR_BUILD_LINUX_PERF); (c) coredump-on-trap artifact (wasmtime
+      coredump_on_trap). zwasm has a strong INTERNAL debug toolkit
+      (debug_jit_auto, trace.*) but exposes nothing to embedders. Start with
+      (b) — cheapest, pure-additive (emit a perf map file keyed by
+      code_map entries which already exist for EH). cljw is the natural
+      first consumer to validate (a).
+    first_raised: "2026-07-06"
+    last_reviewed: "2026-07-06"
+    refs: |-
+      .dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md §3(debug)
+      src/engine/codegen/shared/code_map.zig (pc→func mapping to reuse)
+      ~/Documents/OSS/wazero/experimental/listener.go:35-96
+    front: G-senior-gap
+  - id: "D-513"
+    layer: ""
+    status: "note"
+    description: |-
+      Front G-senior-gap — DECISION ROW, user-gated (do NOT start work).
+      blocked-by: explicit user ratification of a ROADMAP §-level amendment
+      (the standing pin is single-pass JIT, "no optimising tier", ADR-0153
+      framing). **Optimising-tier question**: measured 2026-07-06 (report §0)
+      — zwasm-jit vs wasmtime on compute-heavy shootout = 1.75x (fib2) to
+      12.5x (base64) slower; wasmer/wazero similarly ahead; AOT shows the
+      same ratio (codegen quality, not compile mode). Startup/lean axis zwasm
+      WINS (hello 5.2ms JIT / 3.4ms interp vs 7.3/9.6/16.4). The decision:
+      (a) re-affirm single-pass (lean/latency identity; close this row);
+      (b) targeted single-pass upgrades only (D-507 guard pages + regalloc
+      quality + branch-hint consumption — no new tier); (c) a second
+      optimising tier (Cranelift-class scope — months). Present the report's
+      numbers when the user wants to decide. Until then D-507/D-508 harvest
+      the tier-free wins.
+    first_raised: "2026-07-06"
+    last_reviewed: "2026-07-06"
+    refs: |-
+      .dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md §0/§2.1/§4
+    front: G-senior-gap
   - id: "D-506"
     layer: "code"
     status: "note"
@@ -437,6 +617,12 @@ entries:
       REMAINING (design upgrades, demand-driven):
       (a) epoch-COUNTER (per-store deadline ticks) over the v0 binary flag +
           a runtime-level pre-instantiate StoreLimits struct (ADR-0179 draft).
+          PRIORITY NOTE 2026-07-06: the senior-runtime gap analysis
+          (.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md §2.6)
+          confirms epoch interruption is the peer-standard low-overhead
+          deadline mechanism (wasmtime Config::epoch_interruption) — front
+          G-senior-gap ranks it right after D-508; the recipe stays HERE
+          (dedup: no G-row duplicates this item).
       (b) ~~JIT-side table-elements limit~~ DONE 2026-06-15 (`bd355258` initial eager-alloc
           early-reject in runWasiLenient + `fa4678f4` jitTableGrow honors rt.store_table_elements_max,
           set from RunLimits.max_table_elements; CLI `--max-table-elements`). Sandbox triad's table

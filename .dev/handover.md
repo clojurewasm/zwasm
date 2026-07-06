@@ -29,19 +29,26 @@ Post-v2.0.0 sweep (see `.dev/meta_audits/2026-07-03-maintenance-scaffolding-audi
   the D-502 note); D-504 discharged (wasi_p2 @panic→NoHostIo + fd.zig doc-rot).
 - **D-254 — rust-host CI gate** — MERGED #122. `run-rust-host` now runs on the ubuntu
   gate leg (Linux-guarded core). Scaffolding-maintenance campaign (A→E→B + D-254) COMPLETE.
-- **Batch C / D-475 — table64-JIT** — DONE (this PR): TableSlice.len/max +
-  JitRuntime.table_size u64 (stride 24→32); per-table idx_type-conditional index
-  widths both arches (table ops + call_indirect/tail-call/subtype); wrap-safe i64
-  bounds (ADDS+B.HS / ADD+JC); JitTable64Unsupported guard removed; elem-offset
-  u64 eval fixed in setup/compile/compile_init; AOT rejects >u32 table64 min.
-  Adversarial review (devil's-advocate) fixed a spilled-i64-grow W-store
-  miscompile + a hostile-offset bounds wrap pre-merge. All 11 distilled table64
-  dirs JIT-native (forced `--engine jit` sweep). windowsmini + Rosetta green.
-- **NEXT (all fresh-context — do NOT grind in a deep loop)**: no `now`-class
-  items. **D-444** = optional design split (cap now advisory). Minor/demand-
-  driven: D-506 (FP spill stage-2 scaffold), D-502 residual (invokeStringExport
-  encoding), mac/win rust-host CI, D-475 residual = spec-harness cross-module
-  register-table wiring (table.12/34, table_grow.6/7 — not table64-specific).
+- **Batch C / D-475 — table64-JIT** — MERGED #127; **v2.1.0 released** (tag
+  @d5d685ad4, Latest). Adversarial-review fixes (spilled-i64-grow W-store,
+  bounds wrap) landed pre-merge; 11 table64 dirs JIT-native; 3-host green.
+
+## Active front — G-senior-gap (2026-07-06, /continue entry point)
+
+Senior-runtime gap analysis (measured; report =
+`.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`) opened front
+**G-senior-gap** (debt D-507..D-513, `front: G-senior-gap`). Queue order:
+- **G1 = D-507 (now)** — guard-page/signal bounds-check elision (biggest
+  tier-free perf lever; measured 1.75-3.9x band vs wasmtime). **ADR FIRST**
+  (signal handler + codegen strategy), then TDD cycles; D-510 is its safety net.
+- **G2 = D-508** — on-disk compilation cache (reuse .cwasm serialization).
+- **G3 = D-510** — committed differential-fuzz harness (interp oracle vs JIT);
+  MAY be pulled ahead of D-507 as its safety net — either order is sanctioned.
+- Then: D-314(a) epoch-counter (recipe lives in D-314) · note-class D-509
+  (threads campaign, own kickoff + ADR) · D-511/D-512 (demand-driven) ·
+  **D-513 = optimising-tier DECISION row (user-gated — never self-start)**.
+- Older demand-driven tail unchanged: D-444, D-506, D-502 residual, D-475
+  residual (spec-harness cross-module register-table), mac/win rust-host CI.
 
 ## Operational invariants (keep using)
 
