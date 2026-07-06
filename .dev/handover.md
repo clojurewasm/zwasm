@@ -29,11 +29,22 @@ Post-v2.0.0 sweep (see `.dev/meta_audits/2026-07-03-maintenance-scaffolding-audi
   the D-502 note); D-504 discharged (wasi_p2 @panic→NoHostIo + fd.zig doc-rot).
 - **D-254 — rust-host CI gate** — MERGED #122. `run-rust-host` now runs on the ubuntu
   gate leg (Linux-guarded core). Scaffolding-maintenance campaign (A→E→B + D-254) COMPLETE.
-- **NEXT (all fresh-context — do NOT grind in a deep loop)**: **D-505 DONE** (PR
-  open on `develop/d505-spill-aware-simd-triage`). No `now`-class items remain.
-  **Batch C / D-475** table64-JIT (Win64-risk) · **D held** · **D-444** = optional
-  design split (cap now advisory). Minor/demand-driven: D-506 (FP spill stage-2
-  scaffold), D-502 residual (invokeStringExport encoding), mac/win rust-host CI.
+- **Batch C / D-475 — table64-JIT** — DONE (this PR): TableSlice.len/max +
+  JitRuntime.table_size u64 (stride 24→32); per-table idx_type-conditional index
+  widths both arches (table ops + call_indirect/tail-call/subtype); wrap-safe i64
+  bounds (ADDS+B.HS / ADD+JC); JitTable64Unsupported guard removed; elem-offset
+  u64 eval fixed in setup/compile/compile_init; AOT rejects >u32 table64 min.
+  Adversarial review (devil's-advocate) fixed a spilled-i64-grow W-store
+  miscompile + a hostile-offset bounds wrap pre-merge. All 11 distilled table64
+  dirs JIT-native (forced `--engine jit` sweep). windowsmini + Rosetta green.
+- **NEXT (all fresh-context — do NOT grind in a deep loop)**: no `now`-class
+  items. **D-444** = optional design split (cap now advisory). Minor/demand-
+  driven: D-506 (FP spill stage-2 scaffold), D-502 residual (invokeStringExport
+  encoding), mac/win rust-host CI, D-475 residual = spec-harness cross-module
+  register-table wiring (table.12/34, table_grow.6/7 — not table64-specific).
+  NOTE: ubuntunote's clone still sits at the retired path
+  `~/Documents/MyProducts/zwasm_from_scratch` — `run_remote_ubuntu.sh` preflight
+  fails until it is renamed to `.../zwasm` (one-line `mv` on the host).
 
 ## Operational invariants (keep using)
 
@@ -60,8 +71,9 @@ Post-v2.0.0 sweep (see `.dev/meta_audits/2026-07-03-maintenance-scaffolding-audi
   D-477. Trigger = a real consumer. SIMD correctness already covered (simd_assert
   25075/0 + fuzz-loader 1665 JIT-compiled clean). **D-478** = JIT FP host-callback
   bridge + funcref `Table.set` panic + proc_exit exit-code.
-- **D-475 table64-JIT** (Batch C): interp is fully conformant; JIT is guarded
-  (`JitTable64Unsupported`). u32→u64 4-cycle bundle, Win64-risk — do with FRESH context.
+- **D-475 residual**: spec-harness cross-module register-table wiring only
+  (applyImportedTablesFromRegistered + TableAlias pointer-sharing); the table64
+  feature itself is COMPLETE on both engines.
 - **D-502** CM utf16/latin1 canonical-ABI string encodings; **D-444** split
   `component_wasi_p2.zig` (2228 > 2000) — both Batch B (Component域).
 - **validator.zig at 3392/3510** — next validator edit extracts per the marker plan first.
