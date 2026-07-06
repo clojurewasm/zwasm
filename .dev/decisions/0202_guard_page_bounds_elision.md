@@ -1,0 +1,153 @@
+# ADR-0202 — Guard-page linear memory + signal-based OOB traps (bounds-check elision)
+
+> Doc-state: ACTIVE
+> Status: Accepted (2026-07-06) — D-507 (front G-senior-gap, G1). Implements
+> ROADMAP §4.9 as written; supersedes-in-part ADR-0166's premise ("v2 uses NO
+> signal-based wasm trap semantics") for the guard-fault class only.
+> Verification: existing oob corpus (test/edge_cases/p7/memory_bounds,
+> p9/memory_ops, p10/memory64, spec memory_trap) must stay green with
+> trap kind oob_memory (wire code 6); bench delta recorded at close.
+
+## Context
+
+**Root cause.** Every JIT linear-memory access emits an inline bounds check —
+arm64 (`src/engine/codegen/arm64/op_memory.zig:251-258`):
+
+```
+ORR  W16, WZR, W_addr        ; zero-extend idx
+ADD  X16, X16, #offset       ; if offset != 0
+ADD  X17, X16, #access_size
+CMP  X17, X27                ; X27 = pinned mem_limit
+B.HI <oob stub>              ; per-function trap stub, kind=6
+LDR/STR ..., [X28, X16]      ; X28 = pinned vm_base
+```
+
+x86_64 is worse: base/limit are NOT pinned — every access reloads
+`[R15+vm_base_off]` / `[R15+mem_limit_off]` before the CMP
+(`x86_64/op_memory.zig:186-215`). Measured cost (senior-runtime gap analysis
+2026-07-06 §0): shootout fib2 1.75x / heapsort 3.0x / matrix 3.9x vs wasmtime —
+a large slice of the sub-4x band is this per-access overhead. wasmtime
+(`memory_reservation`/`memory_guard_size`/`signals_based_traps`) and WAMR
+(Segue) elide the check via guard regions + fault classification.
+
+**ROADMAP §4.9 already specifies the target design** ("Linear memory is
+mmap-backed … Bounds check via guard pages … SIGSEGV … converted to a Wasm
+trap"). The shipped model (plain-allocator buffer, `realloc` on grow — base
+pointer MOVES, `runtime.zig:476`, `setup.zig:214`; explicit CMP everywhere) was
+the interim simplification. This ADR schedules the rework per the design
+priority (ADR-0153: measured structural deficiency → rework, not defer).
+
+**Existing assets.** (a) Sticky-flag trap model (ADR-0199): per-function trap
+stubs set `trap_flag`/`trap_kind`, unwind ONE frame (`ADD SP, frame_bytes` +
+`LDP FP,LR` + `RET`), and post-call checks cascade — signal recovery can reuse
+this wholesale. (b) Test-only fault recovery already exists: POSIX
+`sigsetjmp`/`siglongjmp` (`spec_assert_runner_base.zig:2519+`, D-103) and the
+Win64 VEH Rip/Rsp/Rax redirect (`src/platform/windows_traphandler.zig`,
+ADR-0103). (c) Production diagnostic handler (ADR-0166, `signal.zig`) owns
+SIGSEGV last-resort disposition. (d) `jit_mem.zig` already does per-OS page
+allocation (mmap / NtAllocateVirtualMemory).
+
+## Decision
+
+**D1 — Reservation-backed linear memory (qualifying memories).** A memory
+qualifies when: `idx_type == .i32` AND `page_size_log2 == 16` (standard 64KiB
+pages) AND the host is a supported 64-bit JIT target (aarch64-macos,
+x86_64-{macos,linux,windows}). Qualifying memories reserve
+`4 GiB (idx span) + 4 GiB (offset span) + 1 host page` of PROT_NONE address
+space (POSIX `std.posix.mmap` + `MAP_NORESERVE`-equivalent; Windows
+`NtAllocateVirtualMemory` MEM_RESERVE, mirroring `jit_mem.zig`). The accessible
+prefix (`mem_limit` bytes) is committed RW (`std.posix.mprotect` / MEM_COMMIT);
+`memory.grow` extends the committed prefix in place — **the base pointer never
+moves** (the post-grow X28/X27 reload stays, harmless). Free = unmap the whole
+reservation. Non-qualifying memories (memory64, custom page sizes, unsupported
+hosts) keep the existing allocator path AND explicit checks. Reservation
+failure at instantiation = instantiation error (no silent fallback to a
+checked recompile — the compiled code already elided its checks; 8 GiB of VA
+failing on a 64-bit host is pathological).
+
+**D2 — Production fault→trap conversion by PC redirect (no setjmp).** One
+production handler per OS, classification-first, diagnostic-last:
+
+- Classify: fault address ∈ a registered guarded reservation (D1) AND fault PC
+  ∈ a registered JIT code region → look up the containing function's kind=6
+  (oob_memory) trap stub and **rewrite the faulting context's PC to the stub**
+  (POSIX: mcontext pc/rip; Windows: `ContextRecord.Rip` +
+  EXCEPTION_CONTINUE_EXECUTION). The stub then runs the normal ADR-0199 path:
+  set `trap_flag`/`trap_kind=6` via the pinned runtime reg (X19/R15 — callee-
+  saved, still live at fault), unwind its own frame, cascade via post-call
+  checks. Works at any wasm→host→wasm depth; never skips a host frame (the
+  reason setjmp/longjmp — the ADR-0103 test model — is NOT promoted).
+- Not classified → existing ADR-0166 disposition (POSIX: internal-error line +
+  `_exit(70)`; Windows: diagnostic + CONTINUE_SEARCH). POSIX: the ADR-0166
+  handler body becomes the else-branch of the new handler (one sigaction
+  install, `cli/main.zig` + embedding init). Windows: production VEH installed
+  alongside (First=0); the ADR-0103 test-recovery VEH is untouched.
+
+**D3 — Zone-0 trap registry (`src/platform/`).** Async-signal-safe global
+registry: (a) JIT code regions `{start, end, func_table}` where `func_table` =
+sorted per-function `{code_start_off, oob_stub_off}` built at publish (the
+linker already knows both); (b) guarded reservations `{base, reserve_end}`.
+Zone 2 (engine/runtime) registers/unregisters via downward calls (zone_deps
+compliant — mirrors how `windows_traphandler` exposes an arm/disarm surface).
+Reads from the handler are lock-free (atomically swapped immutable snapshots);
+single-threaded today — D-509 (threads) inherits this constraint explicitly.
+
+**D4 — Emit-side elision.** New `EmitCtx` field `bounds_elided: bool = false`
+(beside `memory0_idx_type`, both arches). When set (memory0 qualifies per D1):
+
+- memory0 i32 loads/stores/atomics/SIMD drop `ADD ip1 / CMP / B.HI` (and on
+  x86_64 the mem_limit reload) — worst case `idx(≤2^32-1) + offset(≤2^32-1) +
+  access(≤16)` lands inside the D1 reservation. Atomics KEEP the alignment
+  check (unaligned_atomic must stay precise); ea computation + `[base, ea]`
+  addressing unchanged.
+- Functions containing elided accesses FORCE-EMIT the kind=6 stub (today it is
+  emitted only when `oob_fixups` is non-empty; D2 needs a redirect target).
+- memory64 and bulk ops (`memory.fill/copy/init` — length-ranged, not
+  guard-coverable) keep explicit checks unchanged.
+
+**D5 — Engine knob + AOT.** Engine-level `bounds_checks: .auto | .explicit`
+(default `.auto` = elide when memory qualifies). `.explicit` is the debugging /
+differential-fuzz axis (D-510 can diff elided-vs-checked JIT in addition to
+JIT-vs-interp). The `.cwasm` header records the elision bit; the loader
+requires a D1-capable host for elided artifacts (reject with a clear error
+otherwise).
+
+**D6 — Unchanged.** Interp (oracle) semantics + its memory accessors; trap
+wire codes + `TrapKind` surfaces; X28/X27 pinning (memory.size/grow still read
+them); sandbox caps (`store_memory_pages_max`, fuel, interrupt); EH unwinder
+(guard faults are traps, not wasm exceptions); ADR-0103 test recovery.
+
+## Consequences
+
+- **+** Removes 3–5 instructions (arm64) / 2 loads + CMP + branch (x86_64) per
+  memory access — the biggest tier-free lever toward the 1.75–3.9x measured
+  band. Bench recorded on this branch per per-merge policy.
+- **+** Base-stable memory is a prerequisite D-509 (shared memories) needs
+  anyway; realloc-relocation dies here.
+- **−** 8 GiB VA reservation per qualifying memory (reserve-only; no commit
+  charge). Multi-memory modules multiply it; acceptable on 64-bit targets, and
+  non-qualifying paths remain for everything else.
+- **−** ADR-0166's "any fatal signal is a zwasm bug" narrows to "any
+  *unclassified* fatal signal"; `signal.zig` doc + this classification order
+  encode it.
+- **Risk (accepted):** PC-redirect touches per-OS mcontext layouts (macOS
+  arm64/x86_64, Linux x86_64/aarch64, Win64) — each verified on the 3-host
+  gate + Rosetta x86_64-macos (reproduces linux-class JIT bugs, per memory).
+- **Risk (watched):** a store straddling the commit/guard boundary must not be
+  partially visible (spec memory_trap corpus asserts this). Precise faults on
+  the supported targets + the wasmtime/V8 precedent cover it; the boundary
+  fixture set (test_discipline §1) pins it per-arch.
+- ADR-0070: NO new libc sites — `std.posix.mmap/mprotect/sigaction` + ntdll
+  `Nt*`/VEH are outside the `check_libc_boundary` pattern (same as
+  `signal.zig`/`jit_mem.zig`). Any future `std.c.*` addition amends ADR-0070
+  first.
+
+## Implementation order (TDD, correctness-first)
+
+1. D1 platform reservation primitive (`src/platform/guarded_mem.zig`) + runtime
+   backing switch — behavior-preserving (checks still emitted), full net green.
+2. D3 registry + D2 handler — fault→trap conversion proven by a test that
+   faults a guarded region from JIT code BEFORE any check is elided (redirect
+   path exercised in isolation).
+3. D4 elision flip behind D5 knob + force-emitted stubs + boundary fixtures;
+   oob corpus green on both engines; bench delta; 3-host + Rosetta verify.
