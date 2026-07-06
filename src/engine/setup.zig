@@ -230,14 +230,16 @@ pub fn jitMemoryGrow(rt: *entry.JitRuntime, delta_pages: u32) callconv(.c) i32 {
 /// a real `*FuncEntity`) read `fe.funcptr`/`fe.typeidx` (matching `emitTableSet`'s LDR
 /// mirror), else (HOST path: `init` may be a forged ref) clear to the sentinel
 /// (fail-safe, mirrors `tableSetRef`; a callable grown slot then needs `wasm_table_set`).
-fn jitTableGrowCore(rt: *entry.JitRuntime, tableidx: u32, init: u64, delta: u32, resolve: bool) i32 {
+fn jitTableGrowCore(rt: *entry.JitRuntime, tableidx: u32, init: u64, delta: u64, resolve: bool) i64 {
     const FuncEntity = @import("../runtime/instance/func.zig").FuncEntity;
     const Value = @import("../runtime/value.zig").Value;
     if (tableidx >= rt.tables_count) return -1;
     const descs: [*]entry.TableSlice = @constCast(rt.tables_ptr);
     const d = &descs[tableidx];
     const old_len = d.len;
-    const new_len: u64 = @as(u64, old_len) + @as(u64, delta);
+    // Overflow-safe (D-475): a table64 delta is a raw u64 from the
+    // wasm stack, so `old_len + delta` can wrap.
+    const new_len: u64 = std.math.add(u64, old_len, delta) catch return -1;
     if (new_len > d.max) return -1; // exceeds pre-allocated capacity (= .max)
     // D-314(b): host sandbox cap on total table elements — a guest cannot
     // grow past `store_table_elements_max` even within the static descriptor
@@ -250,8 +252,8 @@ fn jitTableGrowCore(rt: *entry.JitRuntime, tableidx: u32, init: u64, delta: u32,
         @constCast(rt.tables_jit_ci_ptr[tableidx].typeidx_base)
     else
         null;
-    var i: u32 = old_len;
-    while (i < old_len + delta) : (i += 1) {
+    var i: u64 = old_len;
+    while (i < new_len) : (i += 1) {
         d.refs[i] = init;
         if (!is_funcref) continue;
         var fp: u64 = 0;
@@ -264,23 +266,23 @@ fn jitTableGrowCore(rt: *entry.JitRuntime, tableidx: u32, init: u64, delta: u32,
         d.funcptrs[i] = fp;
         if (typeidx_base) |tb| tb[i] = ti;
     }
-    d.len = @intCast(new_len);
+    d.len = new_len;
     // D-497: table 0's `call_indirect` fast path bounds-checks against the scalar
     // `rt.table_size` snapshot (not `d.len`); bump it so a grown table-0 slot is
     // reachable. Tables k>0 read `tables_ptr[k].len` directly (jit_abi helper).
-    if (tableidx == 0) rt.table_size = @intCast(new_len);
+    if (tableidx == 0) rt.table_size = new_len;
     return @bitCast(old_len);
 }
 
 /// GUEST `table_grow_fn` (replaces `defaultTableGrowReject`) — `init` from the wasm
 /// stack is a real funcref/externref, so funcref native-entry resolution is safe.
-pub fn jitTableGrow(rt: *entry.JitRuntime, tableidx: u32, init: u64, delta: u32) callconv(.c) i32 {
+pub fn jitTableGrow(rt: *entry.JitRuntime, tableidx: u32, init: u64, delta: u64) callconv(.c) i64 {
     return jitTableGrowCore(rt, tableidx, init, delta, true);
 }
 
 /// HOST C-API `table.grow` (`growTable` facade) — `init` is a host `*Ref` whose
 /// payload may be forged, so never dereference it as a `*FuncEntity` (fail-safe).
-pub fn jitTableGrowHost(rt: *entry.JitRuntime, tableidx: u32, init: u64, delta: u32) i32 {
+pub fn jitTableGrowHost(rt: *entry.JitRuntime, tableidx: u32, init: u64, delta: u64) i64 {
     return jitTableGrowCore(rt, tableidx, init, delta, false);
 }
 
@@ -561,23 +563,22 @@ pub fn setupRuntimeLinked(
     // table-0-only specialisations); the new `tables_descs` array
     // generalises this to all declared tables for `table.get` /
     // `table.set` / `table.size` (m-2a) and later m-2b/c ops.
-    var table_size: u32 = 0;
+    var table_size: u64 = 0;
     // `init_expr` (D-225): Wasm 3.0 table-with-explicit-init-expr
     // (`0x40 0x00 reftype limits constexpr`) — raw const-expr bytes for the
     // initial element value (empty = default null fill). Slices into the
     // table section body (ta-owned, outlives `tables_buf.deinit`).
-    const TableMeta = struct { min: u32, max: ?u32, is_funcref: bool, init_expr: []const u8 };
+    // min/max are u64 per D-475: a table64 declares u64 limits (spec §5.3.5).
+    const TableMeta = struct { min: u64, max: ?u64, is_funcref: bool, init_expr: []const u8 };
     var table_metas: []TableMeta = &.{};
     if (module.find(.table)) |s| {
         var tables_buf = try sections.decodeTables(ta, s.body);
         defer tables_buf.deinit();
         if (tables_buf.items.len > 0) {
-            // table64 is rejected at compileWasm (Error.JitTable64Unsupported),
-            // so every table reaching the JIT setup is i32 (min/max ≤ u32).
-            table_size = @intCast(tables_buf.items[0].min);
+            table_size = tables_buf.items[0].min;
             table_metas = try ta.alloc(TableMeta, tables_buf.items.len);
             for (tables_buf.items, 0..) |t, i| {
-                table_metas[i] = .{ .min = @intCast(t.min), .max = if (t.max) |m| @as(u32, @intCast(m)) else null, .is_funcref = (t.elem_type.isFuncref()), .init_expr = t.init_expr };
+                table_metas[i] = .{ .min = t.min, .max = t.max, .is_funcref = (t.elem_type.isFuncref()), .init_expr = t.init_expr };
             }
         }
     }
@@ -730,14 +731,14 @@ pub fn setupRuntimeLinked(
     // gets a synthesized cap `max(min*2, 1024)` (1024 mirrors WAMR's
     // WASM_TABLE_MAX_SIZE), bounded by `grow_cap`. Unbounded no-max grow would
     // need per-access base reload (D-501 tier 2, build-on-demand).
-    const grow_cap: u32 = 65536;
+    const grow_cap: u64 = 65536;
     const growCapacity = struct {
-        fn f(tm: anytype, cap: u32) u32 {
-            const eff_max = tm.max orelse @max(tm.min *| 2, @as(u32, 1024));
+        fn f(tm: anytype, cap: u64) u64 {
+            const eff_max = tm.max orelse @max(tm.min *| 2, @as(u64, 1024));
             return @max(tm.min, @min(eff_max, cap));
         }
     }.f;
-    const table0_cap: u32 = if (table_metas.len > 0) growCapacity(table_metas[0], grow_cap) else table_size;
+    const table0_cap: u64 = if (table_metas.len > 0) growCapacity(table_metas[0], grow_cap) else table_size;
 
     const funcptrs_buf = try allocator.alloc(u64, if (table0_cap == 0) 1 else table0_cap);
     errdefer allocator.free(funcptrs_buf);
@@ -817,7 +818,7 @@ pub fn setupRuntimeLinked(
             // offset in the extern union) holds the ref-encoded u64.
             const raw: u64 = v.ref;
             const d = tables_descs[i];
-            var k: u32 = 0;
+            var k: u64 = 0;
             while (k < tm.min) : (k += 1) d.refs[k] = raw;
         }
     }

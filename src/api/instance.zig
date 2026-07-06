@@ -1710,7 +1710,8 @@ pub export fn wasm_table_size(t: ?*const Table) callconv(.c) u32 {
             if (handle.table_idx >= rt.tables.len) return 0;
             return @intCast(rt.tables[handle.table_idx].refs.len);
         }
-        if (jitOf(inst)) |jit| return jit.tableLen(handle.table_idx) orelse 0; // D-496
+        // D-496; saturate to the u32 wasm-c-api shape (D-475: JIT len is u64).
+        if (jitOf(inst)) |jit| return std.math.cast(u32, jit.tableLen(handle.table_idx) orelse 0) orelse std.math.maxInt(u32);
         return 0;
     }
     return @intCast((handle.tinst orelse return 0).refs.len); // standalone host table

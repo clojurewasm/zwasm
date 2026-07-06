@@ -150,6 +150,11 @@ pub fn compileOne(
     /// the `jitCallIndirectSubtypeOk` trampoline (the inline D-111 structural
     /// compare is finality/subtype-blind). `false` for non-subtyping modules.
     uses_type_subtyping: bool,
+    /// D-475 (table64) — per-table index types (imports-first wasm table
+    /// index space). Attached to the produced `ZirFunc` so the table-op /
+    /// call_indirect emitters pick 32- vs 64-bit index widths per table.
+    /// `&.{}` for modules without tables (emitters default to `.i32`).
+    table_idx_types: []const zir.IdxType,
 ) Error!FuncResult {
     var func = ZirFunc.init(func_idx, sig, locals);
     errdefer func.deinit(allocator);
@@ -162,6 +167,8 @@ pub fn compileOne(
     // operands (so they survive the in-op subtype trampoline) + the
     // per-arch subtype emit path.
     func.uses_type_subtyping = uses_type_subtyping;
+    // D-475 — per-table idx_type widths for the table-op emitters.
+    func.table_idx_types = table_idx_types;
 
     // Per-pass diagnostic records (per ADR-0033).
     // Builds in-flight; transferred to `func.pass_diagnostics` at
@@ -363,7 +370,7 @@ test "compileOne: pass_diagnostics records all 6 passes when trace enabled" {
     // Pure instruction bytes: `i32.const 7` (0x41 0x07) + `end` (0x0B).
     const body = [_]u8{ 0x41, 0x07, 0x0B };
     const sig: FuncType = .{ .params = &.{}, .results = &.{.i32} };
-    var r = try compileOne(testing.allocator, 42, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{}, .register_write, .i32, &.{}, &.{}, &.{}, &.{}, false);
+    var r = try compileOne(testing.allocator, 42, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{}, .register_write, .i32, &.{}, &.{}, &.{}, &.{}, false, &.{});
     defer deinitFuncResult(testing.allocator, &r);
 
     // Per-function slot populated with 6 records, in pipeline order.
@@ -401,7 +408,7 @@ test "compileOne: tiny straight-line module — (func (result i32) i32.const 7 e
     const body = [_]u8{ 0x41, 0x07, 0x0B };
     const sig: FuncType = .{ .params = &.{}, .results = &.{.i32} };
 
-    var r = try compileOne(testing.allocator, 0, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{}, .register_write, .i32, &.{}, &.{}, &.{}, &.{}, false);
+    var r = try compileOne(testing.allocator, 0, sig, &body, &.{}, &.{}, &.{sig}, 0, &.{}, &.{}, &.{}, .register_write, .i32, &.{}, &.{}, &.{}, &.{}, false, &.{});
     defer deinitFuncResult(testing.allocator, &r);
 
     const bodies = [_]linker.FuncBody{

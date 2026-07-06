@@ -751,6 +751,17 @@ pub const ZirFunc = struct {
     /// `compileOne`; arena lifetime n/a (scalar).
     uses_type_subtyping: bool = false,
 
+    /// D-475 (table64) — per-table index types in the full wasm table
+    /// index space (imports first, defined after; mirrors
+    /// `validator_tables` in `compileWasm`). The table-op /
+    /// call_indirect emitters consult this to pick 32- vs 64-bit index
+    /// widths per table. Arena-allocated by `compileWasm` (referenced,
+    /// not owned — same lifetime posture as `gc_array_elem_valtypes`).
+    /// Empty for modules without tables; `tableIdxType` defaults
+    /// out-of-range indices to `.i32` so emit-level unit tests that
+    /// don't populate it keep the legacy width.
+    table_idx_types: []const IdxType = &.{},
+
     // Phase 8+ — optimisation passes.
     hoisted_constants: ?[]HoistedConst = null,
     /// Synthetic locals appended by post-lowering passes (notably
@@ -812,6 +823,14 @@ pub const ZirFunc = struct {
         const orig_len: u32 = @intCast(self.locals.len);
         if (decl_idx < orig_len) return self.locals[@intCast(decl_idx)];
         return self.synthetic_locals.?[@intCast(decl_idx - orig_len)];
+    }
+
+    /// D-475 (table64) — index type of table `tableidx`, defaulting to
+    /// `.i32` when the slice is unpopulated (emit-level unit tests) or
+    /// the index is out of range (validator pre-rejects those).
+    pub fn tableIdxType(self: *const ZirFunc, tableidx: u32) IdxType {
+        if (tableidx >= self.table_idx_types.len) return .i32;
+        return self.table_idx_types[tableidx];
     }
 
     /// 10.G GC-on-JIT (D-212) — the array element's spec valtype byte

@@ -2332,11 +2332,12 @@ pub fn extractStartFunc(allocator: std.mem.Allocator, wasm_bytes: []const u8) ?u
 /// growth past `SCRATCH_EXTRA_TABLE_CAPACITY` returns -1 per Wasm
 /// 2.0 spec §4.4.10.1 host-refuses-growth semantics. Also returns
 /// -1 when growth would exceed the descriptor's declared `max`.
-pub fn growableTableGrowFn(rt: *entry.JitRuntime, tableidx: u32, init: u64, delta: u32) callconv(.c) i32 {
+pub fn growableTableGrowFn(rt: *entry.JitRuntime, tableidx: u32, init: u64, delta: u64) callconv(.c) i64 {
     if (tableidx >= active_table_count) return -1;
     const desc = &scratch_tables_descriptor[tableidx];
     const old_len = desc.len;
-    const new_len: u64 = @as(u64, old_len) + @as(u64, delta);
+    // Overflow-safe (D-475): a table64 delta is a raw u64.
+    const new_len: u64 = std.math.add(u64, old_len, delta) catch return -1;
     if (new_len > SCRATCH_EXTRA_TABLE_CAPACITY) return -1;
     if (desc.max != entry.table_no_max and new_len > desc.max) return -1;
     const arena = &scratch_table_refs[tableidx];
@@ -2363,7 +2364,7 @@ pub fn growableTableGrowFn(rt: *entry.JitRuntime, tableidx: u32, init: u64, delt
         const ti_const = scratch_table_jit_ci[tableidx].typeidx_base;
         break :blk @constCast(ti_const);
     } else undefined;
-    var i: u32 = 0;
+    var i: u64 = 0;
     while (i < delta) : (i += 1) {
         arena[old_len + i] = init;
         if (fp_base_ptr != 0) {
@@ -2372,7 +2373,7 @@ pub fn growableTableGrowFn(rt: *entry.JitRuntime, tableidx: u32, init: u64, delt
         }
     }
     desc.refs = arena;
-    desc.len = @intCast(new_len);
+    desc.len = new_len;
     _ = rt;
     return @intCast(old_len);
 }

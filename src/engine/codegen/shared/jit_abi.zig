@@ -9,7 +9,7 @@
 //!   X28 ← vm_base       (linear-memory base ptr)
 //!   X27 ← mem_limit     (linear-memory size in bytes)
 //!   X26 ← funcptr_base  (table 0 funcptr array)
-//!   X25 ← table_size    (table 0 entry count, W-width)
+//!   X25 ← table_size    (table 0 entry count, X-width u64 — D-475 table64)
 //!   X24 ← typeidx_base  (parallel u32 typeidx side-array)
 //!
 //! `extern struct` keeps the layout deterministic across Zig
@@ -64,7 +64,7 @@ pub const segment_slice_size: u32 = @sizeOf(SegmentSlice);
 /// Per-table slice descriptor (per ADR-0058)
 /// exposed to JIT `table.get` / `table.set` / `table.size`,
 /// `table.grow` / `table.fill`, `table.copy` / `table.init`.
-/// Layout is a fixed 16-byte stride so the JIT body indexes
+/// Layout is a fixed 32-byte stride so the JIT body indexes
 /// the `tables_ptr` array with `tableidx * table_slice_size`.
 ///
 /// `refs` points to the table's storage as `[*]u64` raw Value bits
@@ -81,8 +81,14 @@ pub const segment_slice_size: u32 = @sizeOf(SegmentSlice);
 /// max-cap check.
 pub const TableSlice = extern struct {
     refs: [*]u64,
-    len: u32,
-    max: u32,
+    /// Entry count. u64 per D-475 (table64): an i64-indexed table's
+    /// length is spec-u64; JIT bounds checks compare the (possibly
+    /// 64-bit) index against this at X/.q width on both arches.
+    len: u64,
+    /// Declared upper bound for `table.grow` (u64 per D-475; a
+    /// table64 declares u64 limits, spec §5.3.5). `table_no_max`
+    /// sentinel when the type has no explicit max.
+    max: u64,
     /// TODO(audit): table storage shape — see D-126 / ADR-0068.
     /// Parallel funcptr-view for the same table slot. `refs[i]` carries
     /// the FuncEntity-ptr encoding (per reftype semantics); `funcptrs[i]`
@@ -92,9 +98,11 @@ pub const TableSlice = extern struct {
     /// same logical entry in two shapes; ADR-0068's `mirrorWrite`
     /// helper keeps them in sync after every table-mutating op
     /// (`table.set` / `table.copy` / `table.init` / `table.grow` /
-    /// `table.fill`). Stride changed from 16 → 24 bytes; all JIT
-    /// `tables_ptr` indexers (op_table.zig / op_call.zig per-arch)
-    /// dereference via `table_slice_size` rather than a literal.
+    /// `table.fill`). Stride changed 16 → 24 (ADR-0068) → 32
+    /// (D-475 u64 len/max); all JIT `tables_ptr` indexers
+    /// (op_table.zig / op_call.zig per-arch) dereference via
+    /// `table_slice_size` + the `tableslice_*_off` field constants
+    /// rather than literals.
     ///
     /// `allowzero` carve-out: externref tables have no funcptr view,
     /// so setup writes the zero sentinel here. JIT mirror code's
@@ -104,10 +112,17 @@ pub const TableSlice = extern struct {
 
 pub const table_slice_size: u32 = @sizeOf(TableSlice);
 
+/// Field byte-offsets within `TableSlice` for the per-arch emitters
+/// (D-475: `len` widened to u64 moved `funcptrs` 16 → 24; emitted
+/// descriptor loads reference these instead of literals).
+pub const tableslice_len_off: u32 = @offsetOf(TableSlice, "len");
+pub const tableslice_funcptrs_off: u32 = @offsetOf(TableSlice, "funcptrs");
+
 /// Sentinel for `TableSlice.max` indicating "no explicit max" (per
 /// Wasm spec §3.2.1: tables without an explicit max field accept
-/// growth up to u32 range). Mirrors interp's `?u32` `null` arm.
-pub const table_no_max: u32 = std.math.maxInt(u32);
+/// growth up to the index-type range). Mirrors interp's `?u64`
+/// `null` arm (u64 per D-475 table64).
+pub const table_no_max: u64 = std.math.maxInt(u64);
 
 /// Per-element-segment slice descriptor (per ADR-0058 amendment)
 /// exposed to JIT `table.init`. Each entry stores
@@ -159,10 +174,10 @@ pub const JitRuntime = extern struct {
     /// Indexed by `call_indirect`'s computed table index.
     funcptr_base: [*]const u64,
     /// Table 0 entry count. JIT body's call_indirect bounds
-    /// check rejects `idx >= table_size` with a trap.
-    table_size: u32,
-    /// Padding to keep `typeidx_base` 8-byte-aligned.
-    _pad0: u32 = 0,
+    /// check rejects `idx >= table_size` with a trap. u64 per
+    /// D-475 (table64) — absorbs the former `_pad0`, so every
+    /// subsequent field offset is unchanged.
+    table_size: u64,
     /// Parallel array of u32 typeidx values for table 0;
     /// indexed identically to `funcptr_base`. JIT body's
     /// call_indirect sig check compares `typeidx_base[idx]`
@@ -337,8 +352,12 @@ pub const JitRuntime = extern struct {
     _pad11: u32 = 0,
     /// (D-122 / D-125): `table.grow tableidx`
     /// callout. Args: `(rt: *JitRuntime, tableidx: u32, init: u64,
-    /// delta: u32)` → previous entry count on success (widened to
-    /// i32), `-1` on failure. The fn MUST update the per-table
+    /// delta: u64)` → previous entry count on success (as i64),
+    /// `-1` on failure (D-475: u64 delta / i64 result so an i64
+    /// table's grow marshals at X/.q width; i32 tables stage the
+    /// delta W-form — zero-extended — and capture the low 32 result
+    /// bits, so the wider signature is transparent to them). The
+    /// fn MUST update the per-table
     /// `tables_ptr[tableidx].len` (and `refs` if reallocated) in
     /// place when growth succeeds. Calling convention is C-ABI
     /// (SysV/AAPCS64); callee-saved registers MUST be preserved.
@@ -346,7 +365,7 @@ pub const JitRuntime = extern struct {
     /// Defaults to `defaultTableGrowReject` (always returns -1)
     /// so JIT-emitted BLR/CALL through this slot is SEGV-safe out
     /// of the box. Spec runners override with `growableTableGrowFn`.
-    table_grow_fn: *const fn (rt: *JitRuntime, tableidx: u32, init: u64, delta: u32) callconv(.c) i32 = defaultTableGrowReject,
+    table_grow_fn: *const fn (rt: *JitRuntime, tableidx: u32, init: u64, delta: u64) callconv(.c) i64 = defaultTableGrowReject,
     /// ADR-0105 D1 — JIT-prologue stack-probe threshold. Set at
     /// entry-helper construction time via
     /// `platform.stack_limit.computeStackLimit(STACK_GUARD_HEADROOM)`;
@@ -654,7 +673,7 @@ pub fn defaultMemoryGrowReject(rt: *JitRuntime, delta_pages: u32) callconv(.c) i
 /// returning the spec sentinel `-1`. Spec-conformant for any host
 /// that opts to disallow runtime table growth (per Wasm 2.0
 /// §4.4.10.1).
-pub fn defaultTableGrowReject(rt: *JitRuntime, tableidx: u32, init: u64, delta: u32) callconv(.c) i32 {
+pub fn defaultTableGrowReject(rt: *JitRuntime, tableidx: u32, init: u64, delta: u64) callconv(.c) i64 {
     _ = rt;
     _ = tableidx;
     _ = init;
@@ -1319,11 +1338,11 @@ pub fn jitGcRefCast(rt: *JitRuntime, ref: u64, ht: u32) callconv(.c) u64 {
 /// arg marshal in a reserved scratch reg), x86_64 re-derives the funcptr inline
 /// (its idx survives in the all-callee-saved regalloc pool). gti null is
 /// impossible here (the module uses subtyping) but is handled as 0 for safety.
-pub fn jitCallIndirectResolve(rt: *JitRuntime, table_idx: u32, idx: u32, expected_typeidx: u32) callconv(.c) u64 {
+pub fn jitCallIndirectResolve(rt: *JitRuntime, table_idx: u32, idx: u64, expected_typeidx: u32) callconv(.c) u64 {
     const gti: *const gc_type_info.GcTypeInfos = if (rt.gc_type_infos_ptr) |p| @ptrCast(@alignCast(p)) else return 0;
     var funcptr_base: [*]const u64 = undefined;
     var typeidx_base: [*]const u32 = undefined;
-    var size: u32 = undefined;
+    var size: u64 = undefined;
     if (table_idx == 0) {
         funcptr_base = rt.funcptr_base;
         typeidx_base = rt.typeidx_base;
@@ -1471,9 +1490,9 @@ comptime {
     if ((interrupt_ptr_off & 7) != 0) @compileError("interrupt_ptr_off not 8-aligned");
     if ((fuel_metered_off & 3) != 0) @compileError("fuel_metered_off not 4-aligned");
     if ((fuel_cell_off & 7) != 0) @compileError("fuel_cell_off not 8-aligned");
-    // table_size is W-form (4 bytes); imm12 scales by 4. Must
-    // be 4-aligned.
-    if ((table_size_off & 3) != 0) @compileError("table_size_off not 4-aligned");
+    // table_size is X-form (u64 per D-475 table64); imm12 scales
+    // by 8. Must be 8-aligned.
+    if ((table_size_off & 7) != 0) @compileError("table_size_off not 8-aligned");
     if ((trap_flag_off & 3) != 0) @compileError("trap_flag_off not 4-aligned");
     // imm12 budget. With current 6 fields all near offset 0, this
     // is comfortable; future tail-extensions could exceed it.
@@ -1481,7 +1500,7 @@ comptime {
     if (mem_limit_off > 32760) @compileError("mem_limit_off exceeds X-form imm12 budget");
     if (funcptr_base_off > 32760) @compileError("funcptr_base_off exceeds X-form imm12 budget");
     if (typeidx_base_off > 32760) @compileError("typeidx_base_off exceeds X-form imm12 budget");
-    if (table_size_off > 16380) @compileError("table_size_off exceeds W-form imm12 budget");
+    if (table_size_off > 32760) @compileError("table_size_off exceeds X-form imm12 budget");
     if (trap_flag_off > 16380) @compileError("trap_flag_off exceeds W-form imm12 budget");
     // ADR-0027: globals_base + globals_count alignment + budget.
     if ((globals_base_off & 7) != 0) @compileError("globals_base_off not 8-aligned");
@@ -1525,17 +1544,17 @@ comptime {
     if (tables_ptr_off > 32760) @compileError("tables_ptr_off exceeds X-form imm12 budget");
     if (tables_count_off > 16380) @compileError("tables_count_off exceeds W-form imm12 budget");
     // TODO(audit): table storage shape — see D-126 / ADR-0068.
-    // TableSlice layout: 24 bytes after ADR-0068 stride extension
-    // (refs ptr + u32 len + u32 max + funcptrs ptr). JIT relies on
-    // `LDR Xn, [tbl_base, #(idx*24)+0]` (refs),
-    // `LDR Wn, [tbl_base, #(idx*24)+8]` (len),
-    // `LDR Wn, [tbl_base, #(idx*24)+12]` (max),
-    // `LDR Xn, [tbl_base, #(idx*24)+16]` (funcptrs).
-    if (@sizeOf(TableSlice) != 24) @compileError("TableSlice size != 24; JIT table.get stride assumption broken");
+    // TableSlice layout: 32 bytes after the D-475 u64 len/max widen
+    // (refs ptr + u64 len + u64 max + funcptrs ptr). JIT relies on
+    // `LDR Xn, [tbl_base, #(idx*32)+0]` (refs),
+    // `LDR Xn, [tbl_base, #(idx*32)+8]` (len),
+    // `LDR Xn, [tbl_base, #(idx*32)+16]` (max),
+    // `LDR Xn, [tbl_base, #(idx*32)+24]` (funcptrs).
+    if (@sizeOf(TableSlice) != 32) @compileError("TableSlice size != 32; JIT table.get stride assumption broken");
     if (@offsetOf(TableSlice, "refs") != 0) @compileError("TableSlice.refs offset != 0");
     if (@offsetOf(TableSlice, "len") != 8) @compileError("TableSlice.len offset != 8");
-    if (@offsetOf(TableSlice, "max") != 12) @compileError("TableSlice.max offset != 12");
-    if (@offsetOf(TableSlice, "funcptrs") != 16) @compileError("TableSlice.funcptrs offset != 16");
+    if (@offsetOf(TableSlice, "max") != 16) @compileError("TableSlice.max offset != 16");
+    if (@offsetOf(TableSlice, "funcptrs") != 24) @compileError("TableSlice.funcptrs offset != 24");
     // elem_segments_ptr is X-form; count is W-form.
     if ((elem_segments_ptr_off & 7) != 0) @compileError("elem_segments_ptr_off not 8-aligned");
     if ((elem_segments_count_off & 3) != 0) @compileError("elem_segments_count_off not 4-aligned");
@@ -1836,12 +1855,14 @@ test "JitRuntime: new field offsets" {
     try testing.expectEqual(@as(u12, 176), elem_segments_count_off);
 }
 
-test "TableSlice: layout is 24 bytes with refs/len/max/funcptrs at expected offsets (ADR-0068)" {
-    try testing.expectEqual(@as(u32, 24), table_slice_size);
+test "TableSlice: layout is 32 bytes with refs/len/max/funcptrs at expected offsets (ADR-0068 + D-475 u64 widen)" {
+    try testing.expectEqual(@as(u32, 32), table_slice_size);
     try testing.expectEqual(@as(usize, 0), @offsetOf(TableSlice, "refs"));
     try testing.expectEqual(@as(usize, 8), @offsetOf(TableSlice, "len"));
-    try testing.expectEqual(@as(usize, 12), @offsetOf(TableSlice, "max"));
-    try testing.expectEqual(@as(usize, 16), @offsetOf(TableSlice, "funcptrs"));
+    try testing.expectEqual(@as(usize, 16), @offsetOf(TableSlice, "max"));
+    try testing.expectEqual(@as(usize, 24), @offsetOf(TableSlice, "funcptrs"));
+    try testing.expectEqual(@as(usize, 8), tableslice_len_off);
+    try testing.expectEqual(@as(usize, 24), tableslice_funcptrs_off);
 }
 
 test "ElemSlice: layout is 16 bytes with refs/len at expected offsets" {
@@ -1869,7 +1890,7 @@ test "JitRuntime: round-trip construction + field reads" {
         .host_dispatch_count = dispatch.len,
     };
     try testing.expectEqual(@as(u64, 16), rt.mem_limit);
-    try testing.expectEqual(@as(u32, 1), rt.table_size);
+    try testing.expectEqual(@as(u64, 1), rt.table_size);
     try testing.expectEqual(@as(u8, 0xDE), rt.vm_base[0]);
     try testing.expectEqual(@as(u64, 0xCAFE0000), rt.funcptr_base[0]);
     try testing.expectEqual(@as(u32, 7), rt.typeidx_base[0]);

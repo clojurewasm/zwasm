@@ -537,8 +537,11 @@ pub fn emitCallIndirect(
         // resolve trampoline above → skip the inline bounds + sig (the inline
         // D-111 CMP is finality/subtype-blind). funcptr re-derived below.
         if (!uses_type_subtyping) {
-            // Bounds: MOV EAX, [R15 + table_size_off] ; CMP idx_r, EAX ; JAE trap.
-            try buf.appendSlice(allocator, inst.encMovR32FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.table_size_off).slice());
+            // Bounds: MOV RAX, [R15 + table_size_off] ; CMP idx_r, EAX ; JAE trap.
+            // 64-bit load (D-475: table_size is u64); the CMP stays .d for the
+            // i32-table fast path (low half == len while the table is i32-indexed;
+            // the i64-table path widens the compare per idx_type — C3).
+            try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.table_size_off).slice());
             try buf.appendSlice(allocator, inst.encCmpRR(.d, idx_r, .rax).slice());
             {
                 const fixup_at: u32 = @intCast(buf.items.len);
@@ -587,10 +590,9 @@ pub fn emitCallIndirect(
         if (jit_abi.table_jit_ci_size != 16) @compileError("multi-table x86_64 emit assumes TableJitCallInfo stride 16");
 
         // TODO(9.12-audit): table storage shape — see D-126 / ADR-0068.
-        // TableSlice stride is `table_slice_size` (= 16 pre-ADR-0068,
-        // 24 after the dual-view extension). TableJitCallInfo stride
-        // stays 16 (no extension yet).
-        const tbl_slice_disp: i32 = @intCast((table_idx * jit_abi.table_slice_size) + 8);
+        // TableSlice stride is `table_slice_size` (32 after the D-475
+        // u64 len/max widen). TableJitCallInfo stride stays 16.
+        const tbl_slice_disp: i32 = @intCast((table_idx * jit_abi.table_slice_size) + jit_abi.tableslice_len_off);
         const ci_funcptr_disp: i32 = @intCast(table_idx * 16);
         const ci_typeidx_disp: i32 = @intCast((table_idx * 16) + 8);
 
@@ -598,10 +600,10 @@ pub fn emitCallIndirect(
         // resolve trampoline above → skip the inline bounds + sig.
         if (!uses_type_subtyping) {
             // Bounds: MOV RAX, [R15 + tables_ptr_off]
-            //         MOV EAX, [RAX + (table_idx*table_slice_size + 8)]  ; TableSlice.len
-            //         CMP idx_r, EAX ; JAE trap.
+            //         MOV RAX, [RAX + (table_idx*table_slice_size + len_off)]  ; TableSlice.len (u64, D-475)
+            //         CMP idx_r, EAX ; JAE trap (.d for the i32-table path; C3 widens per idx_type).
             try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_ptr_off).slice());
-            try buf.appendSlice(allocator, inst.encMovR32FromMemDisp32(.rax, .rax, tbl_slice_disp).slice());
+            try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, .rax, tbl_slice_disp).slice());
             try buf.appendSlice(allocator, inst.encCmpRR(.d, idx_r, .rax).slice());
             {
                 const fixup_at: u32 = @intCast(buf.items.len);

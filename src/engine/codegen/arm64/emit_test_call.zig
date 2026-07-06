@@ -320,7 +320,7 @@ test "compile: call_indirect — bounds (CMP/B.HS) + sig (LDR/CMP/B.NE) + funcpt
     // between the sig load and the sig CMP):
     //   [32..36] MOVZ W9, #5                   ; idx const
     //   [36..40] ORR W17, WZR, W9              ; zero-extend idx
-    //   [40..44] CMP W17, W25                  ; bounds
+    //   [40..44] CMP X17, X25                  ; bounds (X-width, D-475)
     //   [44..48] B.HS trap_stub                ; placeholder
     //   [48..52] LDR W16, [X24, X17, LSL #2]   ; sig load
     //   [52..56] CMN W16, #1                   ; D-294 null check (W16 == maxInt?)
@@ -333,7 +333,7 @@ test "compile: call_indirect — bounds (CMP/B.HS) + sig (LDR/CMP/B.NE) + funcpt
     //   [80..84] ORR W9, WZR, W0               ; capture
     const body0 = prologue.body_start_offset(false);
     try testing.expectEqual(@as(u32, inst.encOrrRegW(17, 31, 9)), std.mem.readInt(u32, out.bytes[body0 + 4 ..][0..4], .little));
-    try testing.expectEqual(@as(u32, inst.encCmpRegW(17, 25)), std.mem.readInt(u32, out.bytes[body0 + 8 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encCmpRegX(17, 25)), std.mem.readInt(u32, out.bytes[body0 + 8 ..][0..4], .little));
     const bhs = std.mem.readInt(u32, out.bytes[body0 + 12 ..][0..4], .little);
     try testing.expectEqual(@as(u32, 0x2), bhs & 0xF); // cond=.hs
     try testing.expectEqual(@as(u32, inst.encLdrWRegLsl2(16, 24, 17)), std.mem.readInt(u32, out.bytes[body0 + 16 ..][0..4], .little));
@@ -479,7 +479,7 @@ test "compile: return_call_indirect — bounds + sig + funcptr-to-X16 + frame_te
     const body0 = prologue.body_start_offset(false);
     // After MOVZ W9 #5 (body+0):
     //   [+4]  ORR W17, WZR, W9               ; zero-extend idx
-    //   [+8]  CMP W17, W25                   ; bounds
+    //   [+8]  CMP X17, X25                   ; bounds (X-width, D-475)
     //   [+12] B.HS trap_stub                 ; placeholder
     //   [+16] LDR W16, [X24, X17, LSL #2]    ; sig load
     //   [+20] CMN W16, #1                    ; D-294 null check (W16 == maxInt?)
@@ -491,7 +491,7 @@ test "compile: return_call_indirect — bounds + sig + funcptr-to-X16 + frame_te
     //   [+44] LDP X29, X30, [SP], #16        ; frame_teardown (frame_bytes=0)
     //   [+48] BR X16                         ; tail-jump
     try testing.expectEqual(@as(u32, inst.encOrrRegW(17, 31, 9)), std.mem.readInt(u32, out.bytes[body0 + 4 ..][0..4], .little));
-    try testing.expectEqual(@as(u32, inst.encCmpRegW(17, 25)), std.mem.readInt(u32, out.bytes[body0 + 8 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encCmpRegX(17, 25)), std.mem.readInt(u32, out.bytes[body0 + 8 ..][0..4], .little));
     const bhs = std.mem.readInt(u32, out.bytes[body0 + 12 ..][0..4], .little);
     try testing.expectEqual(@as(u32, 0x2), bhs & 0xF); // cond=.hs
     try testing.expectEqual(@as(u32, inst.encLdrWRegLsl2(16, 24, 17)), std.mem.readInt(u32, out.bytes[body0 + 16 ..][0..4], .little));
@@ -535,10 +535,11 @@ test "compile: return_call_indirect — multi-table (table_idx > 0) loads size+b
     const body0 = prologue.body_start_offset(false);
     const rt = abi.runtime_ptr_save_gpr;
     // After MOVZ idx (body+0) + ORR W17,WZR,W9 (body+4), the multi-table
-    // tell: load tables_ptr, then table-1 size, then CMP W17,W16 (NOT W25).
+    // tell: load tables_ptr, then table-1 size (u64 X-form, D-475), then
+    // CMP X17,X16 (NOT X25).
     try testing.expectEqual(@as(u32, inst.encLdrImm(16, rt, jit_abi.tables_ptr_off)), std.mem.readInt(u32, out.bytes[body0 + 8 ..][0..4], .little));
-    try testing.expectEqual(@as(u32, inst.encLdrImmW(16, 16, 1 * jit_abi.table_slice_size + 8)), std.mem.readInt(u32, out.bytes[body0 + 12 ..][0..4], .little));
-    try testing.expectEqual(@as(u32, inst.encCmpRegW(17, 16)), std.mem.readInt(u32, out.bytes[body0 + 16 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encLdrImm(16, 16, 1 * jit_abi.table_slice_size + jit_abi.tableslice_len_off)), std.mem.readInt(u32, out.bytes[body0 + 12 ..][0..4], .little));
+    try testing.expectEqual(@as(u32, inst.encCmpRegX(17, 16)), std.mem.readInt(u32, out.bytes[body0 + 16 ..][0..4], .little));
     // BR X16 (tail-jump) is present in the body (trap stubs follow it, so it
     // is not the final word). End-to-end execution is covered by the
     // runner_test "return_call_indirect on a non-zero table index" case.

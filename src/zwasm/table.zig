@@ -37,7 +37,9 @@ pub const Table = struct {
     pub fn size(self: Table) u32 {
         return switch (self.backing) {
             .interp => |rt| @intCast(rt.tables[self.table_idx].refs.len),
-            .jit => |jit| jit.owned.rt.tables_ptr[self.table_idx].len,
+            // D-475: JIT len is u64; the u32-shaped facade narrows (matches
+            // the interp arm's @intCast posture).
+            .jit => |jit| @intCast(jit.owned.rt.tables_ptr[self.table_idx].len),
         };
     }
 

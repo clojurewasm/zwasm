@@ -790,6 +790,14 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
     // instead of silently miscompiling a large index. The interp path supports
     // table64 fully and does not route through compileWasm.
     for (validator_tables) |t| if (t.idx_type == .i64) return Error.JitTable64Unsupported;
+    // D-475 — per-table idx_type slice for the emitters (imports-first
+    // wasm table index space, same source as `validator_tables`).
+    const table_idx_types: []const zir.IdxType = blk: {
+        if (validator_tables.len == 0) break :blk &.{};
+        const out = try a.alloc(zir.IdxType, validator_tables.len);
+        for (validator_tables, 0..) |t, i| out[i] = t.idx_type;
+        break :blk out;
+    };
     const validator_data_count: u32 = if (datas_buf) |d| @intCast(d.items.len) else 0;
     const validator_elem_count: u32 = if (elems_buf) |e| @intCast(e.items.len) else 0;
 
@@ -1155,6 +1163,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
             array_elem_valtypes,
             struct_field_valtypes,
             uses_type_subtyping,
+            table_idx_types,
         ) catch |err| {
             std.debug.print("compileWasm: func[{d}] params={d} results={d} → {s}\n", .{
                 wasm_idx,

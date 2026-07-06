@@ -1597,7 +1597,7 @@ test "compile: call_indirect — bounds + sig (JAE+JNE → trap stub) + CALL RAX
     // Slot 0 = RBX → no REX.R/B for the idx; encodings shrink vs the
     // pre-13b R10 layout.
     //   [13..18]  MOV EBX, 5              (i32.const, 5 bytes)
-    //   [18..25]  MOV EAX, [R15 + 24]     (load table_size, 7 bytes)
+    //   [18..25]  MOV RAX, [R15 + 24]     (load table_size, u64 D-475, 7 bytes)
     //   [25..27]  CMP EBX, EAX            (bounds compare, 2 bytes)
     //   [27..33]  JAE rel32 placeholder   (bounds fixup, 6 bytes)
     //   [33..40]  MOV RAX, [R15 + 32]     (load typeidx_base, 7 bytes)
@@ -1613,7 +1613,7 @@ test "compile: call_indirect — bounds + sig (JAE+JNE → trap stub) + CALL RAX
     // All assertions use body_start_offset() so they survive
     // future +7 prologue shift from JIT-execution sentinel injection.
     const body_start = prologue.body_start_offset(true, 8);
-    const expected_table_size_load = inst.encMovR32FromMemDisp32(.rax, .r15, 24);
+    const expected_table_size_load = inst.encMovR64FromMemDisp32(.rax, .r15, 24);
     const table_size_off = body_start + 5;
     try testing.expectEqualSlices(u8, expected_table_size_load.slice(), out.bytes[table_size_off .. table_size_off + expected_table_size_load.len]);
     // JAE/JE/JNE rel32 disp32 is patched at function-tail to point at the

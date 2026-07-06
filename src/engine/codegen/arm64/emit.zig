@@ -294,7 +294,7 @@ pub fn compile(
     try gpr.writeU32(allocator, &buf, inst.encLdrImm(28, 0, jit_abi.vm_base_off));
     try gpr.writeU32(allocator, &buf, inst.encLdrImm(27, 0, jit_abi.mem_limit_off));
     try gpr.writeU32(allocator, &buf, inst.encLdrImm(26, 0, jit_abi.funcptr_base_off));
-    try gpr.writeU32(allocator, &buf, inst.encLdrImmW(25, 0, jit_abi.table_size_off));
+    try gpr.writeU32(allocator, &buf, inst.encLdrImm(25, 0, jit_abi.table_size_off));
     try gpr.writeU32(allocator, &buf, inst.encLdrImm(24, 0, jit_abi.typeidx_base_off));
     // ADR-0027 prescan: load X23 ← globals_base only when this
     // function actually consults a global. Functions without

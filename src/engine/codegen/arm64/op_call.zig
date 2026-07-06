@@ -414,10 +414,13 @@ pub fn emitCallIndirect(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
     if (expected_typeidx >= 4096) return Error.UnsupportedOp;
 
     if (table_idx == 0) {
-        // Table-0 fast path: bounds via W25, sig via X24, funcptr via X26.
+        // Table-0 fast path: bounds via X25, sig via X24, funcptr via X26.
 
-        // Bounds: CMP W17, W25 ; B.HS trap.
-        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegW(17, 25));
+        // Bounds: CMP X17, X25 ; B.HS trap. X-width (D-475): the
+        // pinned table_size is u64; the i32-table idx in X17 is
+        // zero-extended by its W-form stage, so the wider compare
+        // is byte-identical in outcome.
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(17, 25));
         {
             const fixup_at: u32 = @intCast(ctx.buf.items.len);
             try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hs, 0));
@@ -462,18 +465,18 @@ pub fn emitCallIndirect(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
 
         // TODO: table storage shape — see D-126 / ADR-0068.
         // Bounds: load size from tables_ptr[table_idx].len (TableSlice
-        // offset 8 within the `table_slice_size` stride — 16 pre-ADR-
-        // 0068, 24 after). Reject if table_idx exceeds the per-call
-        // imm12 budget; the @intCast on the encoded W-form imm12
+        // len offset within the `table_slice_size` stride; u64 X-form
+        // load per D-475). Reject if table_idx exceeds the per-call
+        // imm12 budget; the @intCast on the encoded X-form imm12
         // catches out-of-range at codegen time.
-        const tbl_slice_byte_off: u32 = (table_idx * jit_abi.table_slice_size) + 8;
-        if (tbl_slice_byte_off > 16380) return Error.UnsupportedOp;
+        const tbl_slice_byte_off: u32 = (table_idx * jit_abi.table_slice_size) + jit_abi.tableslice_len_off;
+        if (tbl_slice_byte_off > 32760) return Error.UnsupportedOp;
         // LDR X16, [rt, #tables_ptr_off]
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, rt_reg, jit_abi.tables_ptr_off));
-        // LDR W16, [X16, #(table_idx*table_slice_size + 8)]
-        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImmW(16, 16, @intCast(tbl_slice_byte_off)));
-        // CMP W17, W16
-        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegW(17, 16));
+        // LDR X16, [X16, #(table_idx*table_slice_size + len_off)]
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, 16, @intCast(tbl_slice_byte_off)));
+        // CMP X17, X16 (X-width, D-475: len is u64)
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(17, 16));
         {
             const fixup_at: u32 = @intCast(ctx.buf.items.len);
             try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hs, 0));

@@ -249,10 +249,10 @@ pub fn emitIndirectReturnCall(
     if (expected_typeidx >= 4096) return ctx_mod.Error.UnsupportedOp;
 
     if (table_idx == 0) {
-        // Table-0 fast path: bounds via W25, sig via X24, funcptr via X26
+        // Table-0 fast path: bounds via X25, sig via X24, funcptr via X26
         // (the pinned per-call cohort) — mirrors emitCallIndirect.
-        // Bounds: CMP W17, W25 ; B.HS trap.
-        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegW(17, 25));
+        // Bounds: CMP X17, X25 ; B.HS trap (X-width, D-475: table_size u64).
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(17, 25));
         {
             const fixup_at: u32 = @intCast(ctx.buf.items.len);
             try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hs, 0));
@@ -284,12 +284,12 @@ pub fn emitIndirectReturnCall(
         // funcptr lands in tail_target_gpr (X16) for the BR.
         if (jit_abi.table_jit_ci_size != 16) @compileError("multi-table tail-call assumes TableJitCallInfo stride 16");
         const rt_reg: inst.Xn = abi.runtime_ptr_save_gpr;
-        // Bounds: len = tables_ptr[table_idx].len (TableSlice +8).
-        const tbl_slice_byte_off: u32 = (table_idx * jit_abi.table_slice_size) + 8;
-        if (tbl_slice_byte_off > 16380) return ctx_mod.Error.UnsupportedOp;
+        // Bounds: len = tables_ptr[table_idx].len (u64 X-form, D-475).
+        const tbl_slice_byte_off: u32 = (table_idx * jit_abi.table_slice_size) + jit_abi.tableslice_len_off;
+        if (tbl_slice_byte_off > 32760) return ctx_mod.Error.UnsupportedOp;
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, rt_reg, jit_abi.tables_ptr_off));
-        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImmW(16, 16, @intCast(tbl_slice_byte_off)));
-        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegW(17, 16));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, 16, @intCast(tbl_slice_byte_off)));
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpRegX(17, 16));
         {
             const fixup_at: u32 = @intCast(ctx.buf.items.len);
             try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.hs, 0));

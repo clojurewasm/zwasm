@@ -195,7 +195,7 @@ pub const EhReifyCtx = jit_abi.EhReifyCtx;
 pub const reifyExnref = jit_abi.reifyExnref;
 pub const SegmentSlice = jit_abi.SegmentSlice;
 pub const TableSlice = jit_abi.TableSlice;
-pub const table_no_max: u32 = jit_abi.table_no_max;
+pub const table_no_max: u64 = jit_abi.table_no_max;
 pub const ElemSlice = jit_abi.ElemSlice;
 pub const TableJitCallInfo = jit_abi.TableJitCallInfo;
 

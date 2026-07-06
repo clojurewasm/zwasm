@@ -264,8 +264,10 @@ pub fn emitIndirectReturnCall(
     if (table_idx == 0) {
         // Table-0 fast path: scalar JitRuntime fields (table_size_off /
         // typeidx_base_off / funcptr_base_off) back table 0.
-        // Bounds: MOV EAX, [R15+table_size_off] ; CMP idx_r, EAX ; JAE trap.
-        try ctx.buf.appendSlice(ctx.allocator, inst.encMovR32FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.table_size_off).slice());
+        // Bounds: MOV RAX, [R15+table_size_off] ; CMP idx_r, EAX ; JAE trap.
+        // 64-bit load (D-475: table_size is u64); CMP stays .d for the
+        // i32-table path (low half == len; i64 tables widen per idx_type — C3).
+        try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.table_size_off).slice());
         try ctx.buf.appendSlice(ctx.allocator, inst.encCmpRR(.d, idx_r, .rax).slice());
         {
             const fixup_at: u32 = @intCast(ctx.buf.items.len);
@@ -303,14 +305,14 @@ pub fn emitIndirectReturnCall(
         // scratch, so each base load reloads the array pointer; the funcptr
         // lands in tail_target_gpr (R11) for the JMP.
         if (jit_abi.table_jit_ci_size != 16) @compileError("multi-table tail-call assumes TableJitCallInfo stride 16");
-        const tbl_slice_disp: i32 = @intCast((table_idx * jit_abi.table_slice_size) + 8);
+        const tbl_slice_disp: i32 = @intCast((table_idx * jit_abi.table_slice_size) + jit_abi.tableslice_len_off);
         const ci_funcptr_disp: i32 = @intCast(table_idx * 16);
         const ci_typeidx_disp: i32 = @intCast((table_idx * 16) + 8);
 
-        // Bounds: MOV RAX, [R15+tables_ptr_off] ; MOV EAX, [RAX+tbl_slice_disp] (len)
-        //         CMP idx_r, EAX ; JAE trap.
+        // Bounds: MOV RAX, [R15+tables_ptr_off] ; MOV RAX, [RAX+tbl_slice_disp] (len, u64 D-475)
+        //         CMP idx_r, EAX ; JAE trap (.d for the i32-table path; C3 widens per idx_type).
         try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_ptr_off).slice());
-        try ctx.buf.appendSlice(ctx.allocator, inst.encMovR32FromMemDisp32(.rax, .rax, tbl_slice_disp).slice());
+        try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromMemDisp32(.rax, .rax, tbl_slice_disp).slice());
         try ctx.buf.appendSlice(ctx.allocator, inst.encCmpRR(.d, idx_r, .rax).slice());
         {
             const fixup_at: u32 = @intCast(ctx.buf.items.len);
