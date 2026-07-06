@@ -2209,6 +2209,31 @@ test "jitTableGrow: no host cap → table.grow within descriptor max succeeds (D
     try testing.expectEqual(@as(u32, 1), try entry.callI32NoArgs(compiled.module, 0, &owned.rt));
 }
 
+test "jitTableGrow: D-475 table64 — i64 grow on an i64-indexed table returns the i64 prior size" {
+    // (module (table i64 1 10 externref)
+    //         (func (export "g") (result i64) ref.null extern i64.const 5 table.grow 0))
+    // End-to-end JIT path for table64: parse (0x04 limits bit) → u64
+    // TableMeta/TableSlice → X-form delta staging → jitTableGrow(u64) →
+    // i64 result capture. Expected: prior size 1 as i64.
+    const wasm = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7e, 0x03,
+        0x02, 0x01, 0x00,
+        0x04, 0x05, 0x01, 0x6f, 0x05, 0x01, 0x0a, // table externref i64 {1, 10}
+        0x07, 0x05, 0x01, 0x01, 0x67, 0x00, 0x00,
+        0x0a, 0x0b, 0x01, 0x09, 0x00, 0xd0, 0x6f,
+        0x42, 0x05, 0xfc, 0x0f, 0x00, 0x0b, // ref.null extern; i64.const 5; table.grow 0; end
+    };
+    var compiled = try compileWasm(testing.allocator, &wasm);
+    defer compiled.deinit(testing.allocator);
+    var owned = try setupRuntime(testing.allocator, &compiled, &wasm);
+    defer owned.deinit(testing.allocator);
+    try testing.expectEqual(@as(u64, 1), try entry.callI64NoArgs(compiled.module, 0, &owned.rt));
+    // The grow bumped the u64 descriptor + the pinned table-0 scalar.
+    try testing.expectEqual(@as(u64, 6), owned.rt.tables_ptr[0].len);
+    try testing.expectEqual(@as(u64, 6), owned.rt.table_size);
+}
+
 test "jitTableGrow: D-497 guest funcref table.grow + call_indirect grown slot (ADR-0201)" {
     // (module (type (func (result i32)))
     //   (func (result i32) i32.const 42)                 ;; func 0 — target

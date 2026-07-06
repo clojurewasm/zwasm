@@ -397,31 +397,28 @@ entries:
       read-only imports only; table_grow.6 GROWS an imported table + TableAlias
       value-snapshots refs (stales on cross-module grow), needing *TableInstance
       pointer-sharing (D-199 memory precedent) first. (4) JIT i64 table-bounds
-      codegen — perf/completeness only (interp is the conformant reference; not a
-      correctness-sweep item). SURVEYED 2026-06-20: NOT just a W→X emit flip — it
-      is a STRUCTURAL u32→u64 descriptor change. `jit_abi.TableSlice.len` +
-      `JitRuntime.table_size` (jit_abi.zig:84/163) are u32, and setup.zig:502
-      @intCasts table min to u32 → a table64's size storage is already 32-bit, so
-      flipping the bounds CMP to X-form compares a 64-bit idx against a truncated
-      value. Bounded 4-cycle BUNDLE (Win64-risk — touches the pinned-cohort
-      prologue X25 + all len-load offsets + imm12-budget asserts jit_abi.zig:1456):
-      C1 = widen TableSlice.len→u64 + thread per-table idx_types onto EmitCtx
-      (TableMeta gains idx_type; no behaviour change, guard stays); C2 = table.get/
-      set scalar bounds W→X both arches (sites: arm64 op_table.zig:178/229,
-      x86_64 op_table.zig:253/312; mirror op_memory.zig:88 encCmpRegW→X); C3 =
-      call_indirect (table-0 W25 op_call.zig:420 + multi-table :476) both arches;
-      C4 = remove the guard + distil table64 assert-2.0 fixtures. Bulk ops already
-      use X/.q width. Verify EVERY cycle on arm64 AND -Dtarget=x86_64-macos
-      (JIT-codegen lesson). Do this with FRESH context — a cross-cutting ABI change
-      deserves the deliberate I→II→IV phases, not a maxed-context cram.
+      codegen — **DONE 2026-07-06** (develop/d475-table64-jit, C1-C4): C1 widened
+      TableSlice.len/max→u64 (stride 24→32; tableslice_{len,funcptrs}_off consts)
+      + JitRuntime.table_size→u64 (absorbed _pad0, offsets unchanged) +
+      table_grow_fn (u64 delta / i64 result) + jitCallIndirectResolve (u64 idx) +
+      per-table idx_types threaded onto ZirFunc (tableIdxType accessor); C2/C3
+      idx_type-conditional index widths on BOTH arches (get/set/grow/fill/copy/
+      init + call_indirect/return_call_indirect inline + subtype-trampoline) with
+      ADDS+B.HS / ADD+JC wrap guards on i64 sums (memory64 pattern; i32 tables
+      byte-identical); C4 removed JitTable64Unsupported + fixed two interp-
+      fallback-masked JIT-setup gaps (elem offset evalConstI32Expr→
+      evalConstOffsetU64 in setup.zig; elem offset_expr validated .i32-fixed→
+      per-target-table elemOffsetValType in compile.zig — the @a7609a65b JIT
+      mirrors). Forced `--engine jit` sweep over all 11 distilled table64 dirs
+      clean. REMAINING (unchanged scope, NOT table64-specific): the harness
+      cross-module register-table wiring above (table.12/34, table_grow.6/7).
     first_raised: "2026-06-20"
-    last_reviewed: "2026-06-20"
+    last_reviewed: "2026-07-06"
     refs: |-
-      src/parse/sections.zig (.table import / defined-table readLimits — no idx_type)
-      src/runtime TableType (i32-indexed only)
-      test/spec/wasm-3.0-assert/memory64/raw/table.wast (i64-table spec corpus, not distilled)
-      test/spec/wasm-3.0-assert/memory64/raw/table_copy_mixed.wast
-      test/spec/wasm-3.0-assert/memory64/raw/call_indirect.wast
+      src/engine/codegen/shared/jit_abi.zig (TableSlice u64 len/max; table_size u64)
+      src/engine/codegen/{arm64,x86_64}/{op_table,op_call,op_tail_call}.zig (idx_type widths)
+      src/engine/compile.zig (elemOffsetValType), src/engine/setup.zig (u64 elem offsets)
+      test/spec/wasm-3.0-assert/memory64/ (11 table64 dirs, JIT-native)
   - id: "D-314"
     layer: "code"
     status: "note"

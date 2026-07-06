@@ -316,9 +316,13 @@ fn collectTables(allocator: Allocator, wasm_bytes: []const u8, compiled: *const 
         defer tables.deinit();
         if (tables.items.len > 0) {
             st.has_table = true;
-            // table64 min is u64; AOT table0_size is u32 (i64 tables are
-            // JIT/AOT-guarded) — saturate defensively.
-            st.table0_size = std.math.cast(u32, tables.items[0].min) orelse std.math.maxInt(u32);
+            // table64 min is u64 but the .cwasm format's table0_size is
+            // u32. D-475 removed the JIT table64 guard, so a table64
+            // module reaches AOT now; a min that genuinely exceeds u32
+            // can't serialize losslessly → reject loudly (matches the
+            // over-u32 elem-offset posture below). Sub-2^32 table64
+            // mins serialize exactly.
+            st.table0_size = std.math.cast(u32, tables.items[0].min) orelse return Error.UnsupportedTableState;
         }
     }
     if (!st.has_table) return st;

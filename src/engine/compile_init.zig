@@ -200,10 +200,11 @@ pub fn applyTableInitForTableCtx(
     for (elems.items) |seg| {
         if (seg.kind != .active) continue;
         if (seg.tableidx != tableidx) continue;
-        const off = rv.evalConstI32ExprCtx(seg.offset_expr, ctx) catch return Error.UnsupportedEntrySignature;
-        if (off < 0) return Error.UnsupportedEntrySignature;
-        const base: usize = @intCast(off);
-        if (base + seg.funcidxs.len > funcptrs_buf.len) return Error.UnsupportedEntrySignature;
+        // D-475: a table64 elem offset is an `i64.const` (or i64 global.get)
+        // — evaluate at u64 width; guard `base` first so the sum can't wrap.
+        const off_u = rv.evalConstOffsetU64Ctx(seg.offset_expr, ctx) catch return Error.UnsupportedEntrySignature;
+        const base: usize = std.math.cast(usize, off_u) orelse return Error.UnsupportedEntrySignature;
+        if (base > funcptrs_buf.len or base + seg.funcidxs.len > funcptrs_buf.len) return Error.UnsupportedEntrySignature;
         for (seg.funcidxs, 0..) |fidx, i| {
             if (fidx == std.math.maxInt(u32)) continue; // ref.null funcref
             // Close-plan §6 (j) Step B cohort 6 — global.get N marker:
@@ -258,9 +259,11 @@ pub fn patchTableImportFuncptrsCtx(allocator: Allocator, wasm_bytes: []const u8,
     defer elems.deinit();
     for (elems.items) |seg| {
         if (seg.kind != .active or seg.tableidx != tableidx) continue;
-        const off = rv.evalConstI32ExprCtx(seg.offset_expr, ctx) catch return Error.UnsupportedEntrySignature;
-        if (off < 0) return Error.UnsupportedEntrySignature;
-        const base: usize = @intCast(off);
+        // D-475: u64-width offset eval + wrap-safe base guard (a huge
+        // base would wrap `base + i` back into bounds otherwise).
+        const off_u = rv.evalConstOffsetU64Ctx(seg.offset_expr, ctx) catch return Error.UnsupportedEntrySignature;
+        const base: usize = std.math.cast(usize, off_u) orelse return Error.UnsupportedEntrySignature;
+        if (base >= funcptrs_buf.len) continue;
         for (seg.funcidxs, 0..) |fidx, i| {
             if (fidx >= num_imports or fidx >= dispatch.len or base + i >= funcptrs_buf.len) continue;
             funcptrs_buf[base + i] = dispatch[fidx];

@@ -1300,7 +1300,7 @@ pub fn compileWasm(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledW
 /// D-475 (table64) — expected offset type of an ACTIVE elem segment =
 /// the target table's idx_type (imports-first wasm table index space;
 /// mirrors the D-219 `data_off_vt` treatment for memory64 data
-/// segments). Missing/uknown table → `.i32` (the validator rejects the
+/// segments). Missing/unknown table → `.i32` (the validator rejects the
 /// out-of-range tableidx separately).
 fn elemOffsetValType(imports_buf: anytype, tables_buf: anytype, tableidx: u32) zir.ValType {
     var k: u32 = tableidx;

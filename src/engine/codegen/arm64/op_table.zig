@@ -348,7 +348,11 @@ pub fn emitTableGrow(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         },
         .spill => |off| {
             const abs_off: u32 = ctx.spill_base_off + off;
-            try gpr.frameStrGpr(ctx.allocator, ctx.buf, 0, abs_off, true, abi.spill_stage_gprs[0]);
+            // X-form store for an i64 table (D-475): a W-store would
+            // leave stale upper bits in the slot, which the X-form
+            // spill reload of an i64 result then picks up (the -1
+            // failure sentinel becomes garbage). i32 keeps the W-store.
+            try gpr.frameStrGpr(ctx.allocator, ctx.buf, 0, abs_off, !idx64, abi.spill_stage_gprs[0]);
         },
     }
     try ctx.pushed_vregs.append(ctx.allocator, result);

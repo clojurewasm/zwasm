@@ -353,6 +353,47 @@ pub fn evalConstI32ExprCtx(expr: []const u8, ctx: ?GlobalsCtx) Error!i32 {
     return v;
 }
 
+/// Context-aware u64 offset evaluator (D-475 table64). Mirrors
+/// `evalConstI32ExprCtx`'s single-op shape but returns u64: accepts
+/// `i32.const` (zero-extended), `i64.const` (table64 / memory64), and
+/// `global.get N` of an imported immutable i32 (zero-extended) or i64
+/// global when `ctx` is non-null.
+pub fn evalConstOffsetU64Ctx(expr: []const u8, ctx: ?GlobalsCtx) Error!u64 {
+    if (expr.len < 2) return Error.UnsupportedConstExpr;
+    var pos: usize = 1;
+    const v: u64 = switch (expr[0]) {
+        0x41 => blk: { // i32.const — zero-extend
+            const n = leb128.readSleb128(i32, expr, &pos) catch return Error.UnsupportedConstExpr;
+            break :blk @as(u32, @bitCast(n));
+        },
+        0x42 => blk: { // i64.const (table64 / memory64)
+            const n = leb128.readSleb128(i64, expr, &pos) catch return Error.UnsupportedConstExpr;
+            break :blk @bitCast(n);
+        },
+        0x23 => blk: { // global.get N (imported i32 / i64)
+            const idx = leb128.readUleb128(u32, expr, &pos) catch return Error.UnsupportedConstExpr;
+            const c = ctx orelse return Error.UnsupportedConstExpr;
+            if (idx >= c.num_imports) return Error.UnsupportedConstExpr;
+            if (idx >= c.offsets.len or idx >= c.valtypes.len) return Error.UnsupportedConstExpr;
+            const off = c.offsets[idx];
+            switch (c.valtypes[idx]) {
+                .i32 => {
+                    if (off + 4 > c.buf.len) return Error.UnsupportedConstExpr;
+                    break :blk std.mem.readInt(u32, c.buf[off..][0..4], .little);
+                },
+                .i64 => {
+                    if (off + 8 > c.buf.len) return Error.UnsupportedConstExpr;
+                    break :blk std.mem.readInt(u64, c.buf[off..][0..8], .little);
+                },
+                else => return Error.UnsupportedConstExpr,
+            }
+        },
+        else => return Error.UnsupportedConstExpr,
+    };
+    if (pos >= expr.len or expr[pos] != 0x0B) return Error.UnsupportedConstExpr;
+    return v;
+}
+
 /// Evaluate an active-segment offset const-expr to a u64. Accepts
 /// `i32.const` (mem32 / table — zero-extended) and `i64.const`
 /// (memory64), each followed by `end`. An offset is unsigned; the

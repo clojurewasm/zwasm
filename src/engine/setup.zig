@@ -912,7 +912,10 @@ pub fn setupRuntimeLinked(
             const off = rv.evalConstOffsetU64(seg.offset_expr) catch return Error.UnsupportedEntrySignature;
             const base: usize = std.math.cast(usize, off) orelse return Error.UnsupportedEntrySignature;
             const tbl = tables_descs[seg.tableidx];
-            if (base + seg.funcidxs.len > tbl.len) return Error.UnsupportedEntrySignature;
+            // Overflow-safe (D-475): `base` is a guest-chosen u64 —
+            // check it against len FIRST so `base + funcidxs.len`
+            // cannot wrap (mirrors the D-219 data-segment check above).
+            if (base > tbl.len or base + seg.funcidxs.len > tbl.len) return Error.UnsupportedEntrySignature;
             // Wasm 3.0 GC (D-221 + D-218): an i31ref/eqref/anyref active elem
             // segment carries i31-ENCODED values in `funcidxs` (decoder:
             // i32ToI31Truncate == runtime Value.fromI31Truncate), NOT funcidxs.
