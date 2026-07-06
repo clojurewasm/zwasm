@@ -152,8 +152,23 @@ them); sandbox caps (`store_memory_pages_max`, fuel, interrupt); EH unwinder
 
 - **+** Removes exactly `ADD ip1 / CMP / B.HI` (3 instructions, arm64) / the
   mem_limit reload + CMP + JA (x86_64; the vm_base reload stays — it feeds the
-  access itself) per memory access — the biggest tier-free lever toward the
-  1.75–3.9x measured band. Bench recorded on this branch per per-merge policy.
+  access itself) per memory access. Code-size + icache win; foundational for
+  the guard-fault infra D-509 (threads) needs.
+- **⚠ MEASURED PERF (retrospective, correcting the pre-impl hypothesis):** the
+  arm64 shootout delta is ~noise-level, NOT the "large slice of the 1.75x
+  floor" this ADR's Context hypothesised (aarch64 macOS, hyperfine, D-507 phase
+  1 baseline vs phase 3): matrix 348.9→344.7 (~1%), base64 710.5→700.5 (~1.5%),
+  sieve 835.7→802.7 (~4%), fib2 1230.8→1194.1 (~3% but fib2 has NO hot-path
+  memory access → within the ±2–4% run stddev). The bounds check was a
+  pinned-reg CMP + a well-predicted (never-taken) branch — cheap on an OoO
+  core, so eliding it saves few cycles. **The 1.75–3.9x gap vs wasmtime is
+  dominated by optimising-tier codegen quality (D-513), not bounds checks** —
+  exactly what the gap report's own ">4x outliers = tier quality" caveat
+  implied; this measurement extends it down to the sub-4x band too. The
+  elision still ships: it is correct, reduces code size, is the standard
+  production design, and its guard-fault machinery is the reusable foundation
+  D-509 requires — but it is NOT the perf lever the Context framed it as. Per
+  the perf-measure-first principle, the hypothesis is recorded as refuted.
 - **+** Base-stable memory is a prerequisite D-509 (shared memories) needs
   anyway; realloc-relocation dies here.
 - **−** 8 GiB VA reservation per qualifying memory (reserve-only; no commit
