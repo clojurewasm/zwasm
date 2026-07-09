@@ -129,6 +129,17 @@ pub fn main(init: std.process.Init) !void {
     try cwd.createDirPath(io, tmp_dir);
     defer cwd.deleteTree(io, tmp_dir) catch {};
     const preopen_scratch = ".zig-cache/aot-diff-preopen";
+    // Cache-lane scratch (ADR-0203 D6 stage-5 ratchet): one root shared
+    // across fixtures so hits exercise a real multi-entry directory;
+    // absolutized because the lanes run with per-fixture cwds.
+    const cache_root_rel = ".zig-cache/aot-diff-cache";
+    cwd.deleteTree(io, cache_root_rel) catch {};
+    try cwd.createDirPath(io, cache_root_rel);
+    defer cwd.deleteTree(io, cache_root_rel) catch {};
+    const cache_root = try cwd.realPathFileAlloc(io, cache_root_rel, gpa);
+    defer gpa.free(cache_root);
+    const cache_flag = try std.fmt.allocPrint(gpa, "--cache={s}", .{cache_root});
+    defer gpa.free(cache_flag);
 
     var total: u32 = 0;
     var matched: u32 = 0;
@@ -222,19 +233,83 @@ pub fn main(init: std.process.Init) !void {
             };
             defer lane_b.deinit(gpa);
 
+            // Lane C — transparent cache (ADR-0203 D5/D6): the first
+            // `--cache` run is a MISS (compile + store), the second a HIT
+            // (loads the stored artifact); both must byte-match lane A.
+            const lane_c_argv: []const []const u8 = if (preopen_abs) |p|
+                &.{ cli, "run", cache_flag, "--dir", p, entry.name }
+            else
+                &.{ cli, "run", cache_flag, entry.name };
+            var lane_miss = runLane(gpa, io, lane_c_argv, corpus_dir) catch |err| {
+                try stdout.print("SKIP-SPAWN  {s}: lane C miss: {s}\n", .{ entry.name, @errorName(err) });
+                skipped_refused += 1;
+                continue;
+            };
+            defer lane_miss.deinit(gpa);
+            var lane_hit = runLane(gpa, io, lane_c_argv, corpus_dir) catch |err| {
+                try stdout.print("SKIP-SPAWN  {s}: lane C hit: {s}\n", .{ entry.name, @errorName(err) });
+                skipped_refused += 1;
+                continue;
+            };
+            defer lane_hit.deinit(gpa);
+
             const equal = lane_a.exit == lane_b.exit and std.mem.eql(u8, lane_a.stdout, lane_b.stdout);
+            const cache_equal = lane_a.exit == lane_miss.exit and
+                std.mem.eql(u8, lane_a.stdout, lane_miss.stdout) and
+                lane_a.exit == lane_hit.exit and
+                std.mem.eql(u8, lane_a.stdout, lane_hit.stdout);
+
+            // `--engine interp --cache` must BYPASS the cache (D-496: the
+            // explicit interp choice wins; the artifact is JIT code). Probe
+            // once: interp+cache == plain interp, and NOTHING is stored.
+            if (std.mem.eql(u8, entry.name, "compute_add.wasm")) {
+                const iroot_rel = ".zig-cache/aot-diff-cache-interp";
+                cwd.deleteTree(io, iroot_rel) catch {};
+                try cwd.createDirPath(io, iroot_rel);
+                defer cwd.deleteTree(io, iroot_rel) catch {};
+                const iroot_abs = try cwd.realPathFileAlloc(io, iroot_rel, gpa);
+                defer gpa.free(iroot_abs);
+                const iflag = try std.fmt.allocPrint(gpa, "--cache={s}", .{iroot_abs});
+                defer gpa.free(iflag);
+                var interp_ref = try runLane(gpa, io, &.{ cli, "run", "--engine", "interp", entry.name }, corpus_dir);
+                defer interp_ref.deinit(gpa);
+                var interp_cached = try runLane(gpa, io, &.{ cli, "run", "--engine", "interp", iflag, entry.name }, corpus_dir);
+                defer interp_cached.deinit(gpa);
+                var stored: u32 = 0;
+                var idir = try cwd.openDir(io, iroot_rel, .{ .iterate = true });
+                defer idir.close(io);
+                var idir_it = idir.iterate();
+                while (try idir_it.next(io)) |_| stored += 1;
+                if (interp_ref.exit != interp_cached.exit or
+                    !std.mem.eql(u8, interp_ref.stdout, interp_cached.stdout) or stored != 0)
+                {
+                    unexpected += 1;
+                    try stdout.print(
+                        "INTERP-CACHE-BYPASS-FAIL  {s}: interp exit={d} vs interp+cache exit={d}, stored-entries={d} (want 0)\n",
+                        .{ entry.name, interp_ref.exit, interp_cached.exit, stored },
+                    );
+                }
+            }
 
             switch (expectationFor(entry.name)) {
                 .match => {
-                    if (equal) {
+                    if (equal and cache_equal) {
                         matched += 1;
                     } else {
                         unexpected += 1;
-                        try stdout.print(
+                        if (!equal) try stdout.print(
                             "AOT-DIVERGE  {s}: wasm(exit={d}, {d}B stdout) vs cwasm(exit={d}, {d}B stdout{s})\n",
                             .{
                                 entry.name,  lane_a.exit,       lane_a.stdout.len,
                                 lane_b.exit, lane_b.stdout.len, if (lane_b.crashed) ", CRASHED" else "",
+                            },
+                        );
+                        if (!cache_equal) try stdout.print(
+                            "CACHE-DIVERGE  {s}: wasm(exit={d}, {d}B) vs cache-miss(exit={d}, {d}B) / cache-hit(exit={d}, {d}B)\n",
+                            .{
+                                entry.name,          lane_a.exit,          lane_a.stdout.len,
+                                lane_miss.exit,      lane_miss.stdout.len, lane_hit.exit,
+                                lane_hit.stdout.len,
                             },
                         );
                     }
@@ -268,6 +343,28 @@ pub fn main(init: std.process.Init) !void {
         try stdout.print("usage: zwasm-aot-process-diff <zwasm-cli> <corpus-dir> [corpus-dir...]\n", .{});
         try stdout.flush();
         std.process.exit(2);
+    }
+
+    // The cache lanes must have actually STORED entries — a silently-broken
+    // store would still "match" above by recompiling on every run.
+    var stored_artifacts: u32 = 0;
+    {
+        var root_dir = try cwd.openDir(io, cache_root_rel, .{ .iterate = true });
+        defer root_dir.close(io);
+        var root_it = root_dir.iterate();
+        while (try root_it.next(io)) |sub| {
+            if (sub.kind != .directory) continue;
+            var sub_dir = try root_dir.openDir(io, sub.name, .{ .iterate = true });
+            defer sub_dir.close(io);
+            var sub_it = sub_dir.iterate();
+            while (try sub_it.next(io)) |e| {
+                if (std.mem.endsWith(u8, e.name, ".cwasm")) stored_artifacts += 1;
+            }
+        }
+    }
+    if (matched > 0 and stored_artifacts == 0) {
+        unexpected += 1;
+        try stdout.print("CACHE-STORE-FAIL: cache lanes matched but zero .cwasm entries were stored\n", .{});
     }
 
     try stdout.print(
