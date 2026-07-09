@@ -12,6 +12,52 @@ SemVer compatibility guarantees start at the first stable `v2.0.0` tag.
 
 _No changes yet._
 
+## [2.2.0] - 2026-07-09
+
+AOT-full-fidelity campaign (ADR-0203, PRs #136-#142): `.cwasm` is now a
+real deployment-grade artifact, and compilation is transparently cacheable.
+
+### Added
+
+- **Transparent compilation cache** (`zwasm run --cache[=DIR]`, D-508):
+  modules are keyed by content hash and the `.cwasm` artifact of a previous
+  run is reused — parse/validate/codegen skipped (measured 2.2x cold start
+  on a 3 MB Go module). Deploy artifact stays `.wasm`; the cache lives in
+  the platform user-cache dir under a versioned subdirectory. Any cache
+  defect (corrupt entry, unserializable module, I/O failure) degrades to a
+  miss or bypass — the cache can never make `run` fail. `--cache-clear`
+  deletes this build's cache subdirectory.
+- **`.cwasm` format v0.5**: embeds the original module bytes plus per-func
+  frame/EH/oob metadata, so an artifact loads back into the FULL runtime.
+
+### Changed
+
+- **`zwasm run x.cwasm` now runs through the full runtime** — identical
+  WASI, sandbox limits (`--fuel`/`--timeout`/`--max-memory`/
+  `--max-table-elements`), `--invoke NAME=ARGS`, and start-function
+  behaviour to running the source `.wasm` (cache-hit == cache-miss by
+  construction). The former compute-only AOT mini-runtime is retired, and
+  the `.cwasm` sandbox-flag refusal is gone.
+- **Bounds-check-elided artifacts serialize** (guard-page hosts): `zwasm
+  compile` output now carries the elision bit and re-registers trap
+  entries at load; non-guarded hosts refuse the artifact loudly.
+- `--engine interp` with a `.cwasm` input is now a loud exit-2 refusal
+  (the artifact is precompiled JIT code); with `--cache` it bypasses the
+  cache and runs the interpreter as asked.
+
+### Fixed
+
+- **JIT helper addresses are no longer baked into emitted code** (D-516):
+  a `.cwasm` produced by one process crashed (or worse) in another under
+  ASLR — all 36 helper call sites now route through position-independent
+  runtime slots. A cross-process differential gate
+  (`zig build test-aot-diff`, 63 fixtures) pins the fix.
+- **`(start)` function now runs on the lenient JIT path** (Wasm §4.5.4) —
+  a pre-existing `--engine jit` spec bug the campaign's differential
+  harness caught.
+- CI: the `ci-required` aggregator no longer reports green when its
+  change-detection job fails.
+
 ## [2.1.0] - 2026-07-06
 
 ### Added
