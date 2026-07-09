@@ -12,26 +12,13 @@ COMPLETE; the autonomous `/continue` loop is RETIRED. Dev model: cut a
 green to merge. **Release stays user-only (ADR-0156)** — never autonomously tag /
 publish / cut over. No active campaign/bundle; no cron self-re-arm.
 
-## Active maintenance work (batched to keep CI frugal)
+## Completed maintenance sweeps (history — details in the PRs / meta_audits)
 
-Post-v2.0.0 sweep (see `.dev/meta_audits/2026-07-03-maintenance-scaffolding-audit.md`):
-- **Batch A — ledger/proposal reconcile** (doc-only) — MERGED #118. Debt reconciled
-  vs code truth (closed D-294/296/297/322/500; reclassified D-254→now / D-249→note).
-- **Batch E — scaffolding necessity audit** — E-段1 report + de-loop MERGED #119.
-  E-段2 (§B/§C decisions RATIFIED by user, all recommendations) MERGED #121 —
-  file-size cap → ADVISORY (ADR-0099); Windows-BATCHED/`gate_merge` cadence RETIRED,
-  `gate_merge` demoted to optional pre-flight (ADR-0076 D9 / ADR-0174 superseded);
-  `zone_check` PROMOTED into `ci_gate.sh`. `spill_aware_check` PROMOTED too (D-505
-  DONE — 3 bitmask sites made spill-aware, bitselect/fma SPILL-EXEMPT; now wired
-  into gate_commit + CI extended, BASELINE=0).
-- **Batch B — Component域** (code) — MERGED #120. D-502 utf16/latin1+utf16 canon
-  string codec (lower+lift) COMPLETE (residual = `invokeStringExport` utf8-gate, see
-  the D-502 note); D-504 discharged (wasi_p2 @panic→NoHostIo + fd.zig doc-rot).
-- **D-254 — rust-host CI gate** — MERGED #122. `run-rust-host` now runs on the ubuntu
-  gate leg (Linux-guarded core). Scaffolding-maintenance campaign (A→E→B + D-254) COMPLETE.
-- **Batch C / D-475 — table64-JIT** — MERGED #127; **v2.1.0 released** (tag
-  @d5d685ad4, Latest). Adversarial-review fixes (spilled-i64-grow W-store,
-  bounds wrap) landed pre-merge; 11 table64 dirs JIT-native; 3-host green.
+- Post-v2.0.0 scaffolding campaign COMPLETE (#118 ledger reconcile · #119/#121
+  E-段1+2 de-loop/ratifications: file-size ADVISORY ADR-0099, gate_merge →
+  optional pre-flight, zone_check+spill_aware promoted to CI · #120 Component域
+  D-502 codec/D-504 · #122 rust-host ubuntu gate D-254).
+- **Batch C / D-475 table64-JIT** MERGED #127 → **v2.1.0 released** (@d5d685ad4).
 
 ## Active front — G-senior-gap (2026-07-06, /continue entry point)
 
@@ -52,9 +39,19 @@ Senior-runtime gap analysis (measured; report =
   Follow-ups: **D-514** (symmetric SIMD elision — x86_64 v128 handlers are
   param-threaded), **D-515** (build the D5 AOT-elision clauses + run the spec
   corpus under elision; the harnesses force `.explicit` today).
-- **G2 = D-508** — on-disk compilation cache (reuse .cwasm serialization).
-- **G3 = D-510** — committed differential-fuzz harness (interp oracle vs JIT);
-  MAY be pulled ahead of D-507 as its safety net — either order is sanctioned.
+- **G3 = D-510 COMPLETE** (develop/d510-diff-fuzz PR) — the existing
+  `fuzz_exec` (D-469) extended into the committed `zig build fuzz-diff` gate:
+  memory-snapshot compare (silent-wrong-store class), dual JIT lanes
+  (`.auto` elided vs `.explicit` inline — the ADR-0202 D-510 axis), committed
+  `test/fuzz/corpus/regression/` (wazero-fuzzcases style; guard-boundary +
+  memory-writing exercisers), state-divergence break after lenient outcomes.
+  Validated: committed corpora 14 funcs/0 mismatch + 2008-module smith
+  campaign 158 funcs/0 mismatch + fault-injection fires both MISMATCH paths.
+  D-515(2) is now PARTIALLY covered (differential under elision; spec-assert
+  corpora still force `.explicit`).
+- **NEXT: G2 = D-508** — on-disk compilation cache (reuse .cwasm
+  serialization; key = module-hash+version+arch+codegen-options; opt-in
+  `--cache` CLI first; invalidation correctness > hit rate).
 - Then: D-314(a) epoch-counter (recipe lives in D-314) · note-class D-509
   (threads campaign, own kickoff + ADR) · D-511/D-512 (demand-driven) ·
   **D-513 = optimising-tier DECISION row (user-gated — never self-start)**.
@@ -103,7 +100,7 @@ Senior-runtime gap analysis (measured; report =
   dogfooded into cljw (pins zwasm by git tag-hash). Runners ReleaseSafe.
 - **EH**: cross-instance JIT EH both arches. Interp+JIT EH corpus green. Realworld 56
   fixtures interp 56/0; JIT diff-gated.
-- **Debt**: 62 entries — **0 `now`-class** (D-505 DONE: 3 arm64-SIMD bitmask sites
+- **Debt**: 69 entries — **0 `now`-class** (D-505 DONE: 3 arm64-SIMD bitmask sites
   spill-aware, bitselect/fma SPILL-EXEMPT, spill_aware promoted to CI+gate_commit;
   follow-on D-506 = FP spill stage-2, note-class). 完成形 plateau (all dims
   confirmed, surface audits clean, interp+JIT fuzz 0-crash, v1-JIT parity D-265 closed).

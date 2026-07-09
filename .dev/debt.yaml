@@ -55,30 +55,6 @@ entries:
       .dev/proposal_watch.md (Phase 4 table)
       src/engine/codegen/shared/jit_abi.zig (atomic_rmw_fn/atomic_wait_fns, ADR-0168)
     front: G-senior-gap
-  - id: "D-510"
-    layer: "test"
-    status: "note"
-    description: |-
-      Front G-senior-gap, G3 (small; SHOULD land before or with D-507 as its
-      safety net). **Committed differential-fuzz harness (interp oracle vs
-      JIT)** — zwasm ran fuzz CAMPAIGNS (smith_v4, fuzz-loader 1665 modules
-      0-crash) but has no always-runnable in-repo differential target; the
-      campaign tooling lives in gitignored scratch. Peers: wazero
-      `internal/integration_test/fuzz/fuzz_targets/no_diff.rs` (compiler-vs-
-      interp differential + regression corpus `fuzzcases/`), wasmtime
-      fuzz_targets/differential.rs. SHAPE: `zig build fuzz-diff` (or a
-      script) = wasm-tools smith (already provisioned in the gen shell) →
-      run module on interp AND JIT → compare results/traps/memory; committed
-      seed corpus + regression corpus dir; CI-optional (nightly or manual),
-      NOT in ci-required. zwasm's interp-as-oracle design makes this nearly
-      free; it converts the one-off campaigns into a permanent ratchet.
-    first_raised: "2026-07-06"
-    last_reviewed: "2026-07-06"
-    refs: |-
-      .dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md §3(infra)
-      ~/Documents/OSS/wazero/internal/integration_test/fuzz/
-      test/realworld/diff_runner.zig (existing diff harness to build on)
-    front: G-senior-gap
   - id: "D-511"
     layer: "code"
     status: "note"
@@ -187,12 +163,14 @@ entries:
       (spec_assert_runner / simd / wasm_3_0 / non_simd) back JIT memory with
       bespoke non-guarded buffers (`scratch_memory` / static `growable_memory`),
       so each forces `.explicit`. The elided path is validated by the guarded
-      `runner_trap_test` OOB tests + the `test-oob-elision` CLI step, NOT the
-      comprehensive corpus. Close by EITHER guard-backing the harness memory
-      provisioning OR folding into the D-510 differential-fuzz harness (diff
-      elided-JIT vs interp oracle — the natural home; `.explicit` is its axis).
+      `runner_trap_test` OOB tests + the `test-oob-elision` CLI step + (since
+      D-510 closed) the `fuzz-diff` differential's dual JIT lanes (`.auto`
+      elided vs `.explicit` vs interp oracle, value+trap+memory-snapshot,
+      guard-boundary regression fixtures included) — NOT yet the comprehensive
+      spec corpus. Remaining close: guard-back the spec harness memory
+      provisioning so the assert corpora can run `.auto`.
     first_raised: "2026-07-07"
-    last_reviewed: "2026-07-07"
+    last_reviewed: "2026-07-09"
     refs: |-
       src/engine/codegen/aot/produce.zig (ElidedBoundsNotAotSerializable guard)
       src/cli/compile.zig + src/engine/compile.zig::compileWasmForAot
