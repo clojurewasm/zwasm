@@ -45,17 +45,13 @@ pub fn boundsChecksMode() BoundsChecks {
     return bounds_checks_mode;
 }
 
-/// Compile for AOT serialization — always with EXPLICIT bounds checks
-/// (ADR-0202 D5). Post-ADR-0203-stage-3 the `.cwasm` load path binds the
-/// SAME guarded setup memory as fresh JIT, but the format still lacks an
-/// elision bit and the loader the trap-registry re-registration (ADR-0203
-/// stage 4 / D-515(1)); `produceFromCompiledWasm` hard-refuses an elided
-/// module, so every AOT-destined compile MUST route here. Save/restore
-/// the global knob so a caller's ambient `.auto` preference is untouched.
+/// Compile for AOT serialization. Since ADR-0203 stage 4 this honours the
+/// ambient bounds mode — elided codegen serializes (the header carries
+/// `flag_bounds_elided`; the loader re-registers trap entries and setup
+/// binds the guarded reservation, ADR-0202 D5 clauses D-515(1)), so the
+/// historical forced-`.explicit` is gone. Kept as a named entry point so
+/// AOT-destined call sites stay greppable.
 pub fn compileWasmForAot(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledWasm {
-    const prev = bounds_checks_mode;
-    bounds_checks_mode = .explicit;
-    defer bounds_checks_mode = prev;
     return compileWasm(allocator, wasm_bytes);
 }
 

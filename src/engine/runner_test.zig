@@ -22,7 +22,7 @@ const skip = @import("../test_support/skip.zig");
 
 const runner = @import("runner.zig");
 const compileWasm = runner.compileWasm;
-const compileWasmForAot = runner.compileWasmForAot; // ADR-0202 D5 — AOT-destined compiles
+const compileWasmForAot = runner.compileWasmForAot; // AOT-destined compiles (honours ambient bounds mode since ADR-0203 stage 4)
 const CompiledWasm = runner.CompiledWasm;
 const findExportFunc = runner.findExportFunc;
 const runI32Export = runner.runI32Export;

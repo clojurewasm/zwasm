@@ -49,6 +49,13 @@ pub const Error = format.Error || linker.Error || sections.Error ||
     parser.Error || runner.Error || Allocator.Error || error{
     ArchMismatch,
     TruncatedImage,
+    /// ADR-0202 D5 "non-D1-host reject": an ELIDED artifact's code has no
+    /// inline bounds checks — running it on a host without guarded-memory
+    /// support would be a silent-OOB hole. Today every jit_mem-capable
+    /// platform is also guarded_mem-capable (the guard is vacuous), but the
+    /// coupling is memory-safety-load-bearing, so the loader enforces it
+    /// explicitly rather than by set-inclusion coincidence.
+    ElidedArtifactNeedsGuardedHost,
 };
 
 pub const Deserialized = struct {
@@ -84,6 +91,13 @@ pub fn deserializeToCompiledWasm(allocator: Allocator, cwasm_bytes: []const u8) 
         else => return Error.ArchMismatch,
     };
     if (h.arch != native_arch) return Error.ArchMismatch;
+    // ADR-0202 D5 — reject an elided artifact on a non-guarded host (see
+    // the Error variant doc; vacuous today, load-bearing by design).
+    if ((h.flags & format.flag_bounds_elided) != 0 and
+        !@import("../../../platform/guarded_mem.zig").supported)
+    {
+        return Error.ElidedArtifactNeedsGuardedHost;
+    }
 
     const wasm_bytes = try sectionSlice(cwasm_bytes, h.wasm_bytes_offset, h.wasm_bytes_size);
     const code = try sectionSlice(cwasm_bytes, h.code_offset, h.code_size);
@@ -347,7 +361,11 @@ pub fn deserializeToCompiledWasm(allocator: Allocator, cwasm_bytes: []const u8) 
             .tag_param_slot_counts = tag_param_slot_counts,
             .exception_table = .{ .entries = eh_entries },
             .exports = func_exports,
-            .bounds_elided = false, // producer refuses elided until stage 4
+            // ADR-0203 stage 4 — restored from the header flag; the re-link
+            // above already re-registered the oob-stub trap entries and
+            // setup will bind the guarded reservation (loud-fail, no
+            // plain-heap fallback for a qualifying memory).
+            .bounds_elided = (h.flags & format.flag_bounds_elided) != 0,
             .arena = arena,
         },
         .wasm_bytes = wasm_bytes,

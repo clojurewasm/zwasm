@@ -46,10 +46,20 @@ publish / cut over. No active campaign/bundle; no cron self-re-arm.
   expectation table EMPTIED — **aot-diff 62/62 ALL MATCH**. Bonus fix:
   the lenient JIT path never ran `(start)` (Wasm §4.5.4) — pre-existing
   `--engine jit` spec bug the differential caught; start now runs in
-  runWasiLenientArgsCore. D-517 + D-518 CLOSED. Pending: Rosetta +
-  fuzz-diff verify → DA critique → PR. Then stage 4 (elision, D-515(1)) ·
-  stage 5 (--cache, D-508) · stage V retrospective → **v2.2.0 release
-  (user-directed)**.
+  runWasiLenientArgsCore. D-517 + D-518 CLOSED; critique #7 18/20 fixed;
+  PR #139 in CI (GitHub queue congested; D-520 aggregator hole found live
+  + fixed: ci-required now FAILS when detect-changes fails).
+- **Stage 4 CODE-COMPLETE (develop/aot-stage4-elision, stacked)** —
+  D-515(1): `flag_bounds_elided` header bit; produce refusal +
+  compileWasmForAot forced-`.explicit` REMOVED (trap re-registration was
+  already unconditional in the re-link; allocBacking = no plain-heap
+  fallback). Unit: elided round-trip guard-faults to a clean trap via
+  RE-REGISTERED entries. **aot-diff 62/62 with ELIDED artifacts as the
+  default output** · fuzz-diff green · Rosetta green. D-515 row (1)
+  struck ((2) spec-corpus remains); ADR-0202 note: AOT elision ENABLED.
+- **NEXT**: merge #139 → rebase stage 4 → critique → PR · stage 5
+  (--cache, D-508 per ADR-0203 D5) · stage V retrospective →
+  **v2.2.0 release (user-directed)**.
 
 ## Active front — G-senior-gap (2026-07-06, /continue entry point)
 

@@ -8,8 +8,18 @@
 > trap semantics") for the guard-fault class only. **Retrospective: the perf
 > hypothesis is REFUTED** (measured scalar-elision delta ~noise; the 1.75–3.9x
 > gap is optimising-tier quality = D-513). Elision shipped for correctness +
-> code-size + as the D-509 guard-fault foundation; AOT elision DISABLED (D5
-> clauses = D-515). Follow-ups: D-514 (SIMD elision), D-515 (AOT + corpus).
+> code-size + as the D-509 guard-fault foundation; ~~AOT elision DISABLED~~
+> **AOT elision ENABLED 2026-07-09 (ADR-0203 stage 4 / D-515(1))**: the
+> `.cwasm` v0.5 header carries `flag_bounds_elided`, the full-fidelity
+> loader's re-link re-registers trap entries against the loaded block,
+> setup binds the guarded reservation (no plain-heap fallback), and the
+> loader explicitly REJECTS an elided artifact on a non-guarded host
+> (`ElidedArtifactNeedsGuardedHost` — the D5 "non-D1-host reject" clause;
+> vacuous today since every jit_mem platform is guarded-capable, but
+> enforced rather than left to set-inclusion coincidence) — all five D5
+> clauses realized by the ADR-0203 architecture rather than by extending
+> the (retired) mini-runtime. Follow-ups: D-514 (SIMD elision),
+> D-515(2) (spec-assert corpus under elision).
 
 ## Context
 

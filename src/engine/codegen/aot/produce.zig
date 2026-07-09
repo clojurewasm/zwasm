@@ -52,14 +52,6 @@ pub const Error = serialise.Error || error{
     /// A table/element segment is outside the cycle-2a subset (a
     /// non-const active-elem offset, or an offset past u32).
     UnsupportedTableState,
-    /// ADR-0202 D5 — the module was compiled with memory0 bounds-check
-    /// elision, which the `.cwasm` format cannot yet represent safely (no
-    /// elision bit; the loader does not yet re-register trap-registry
-    /// entries — ADR-0203 stage 4 / D-515(1)). Serializing it would produce
-    /// a `.cwasm` whose oob accesses read/write past the guest memory
-    /// silently. Callers destined for AOT MUST
-    /// `runner.setBoundsChecks(.explicit)` before compiling.
-    ElidedBoundsNotAotSerializable,
     /// ADR-0203 stage 2 (D-519) — an active `ZWASM_DEBUG` channel can
     /// instrument emitted code with this process's diagnostic-counter
     /// ABSOLUTE addresses (`jit.callcount` / `global.trace`); such bytes
@@ -100,12 +92,12 @@ pub fn produceFromCompiledWasm(
     compiled: *const runner.CompiledWasm,
     wasm_bytes: []const u8,
 ) Error![]u8 {
-    // ADR-0202 D5 — refuse to serialize elided codegen: the format has no
-    // elision bit and the loader no trap-registry re-registration yet
-    // (ADR-0203 stage 4 / D-515(1)). This is the hard enforcement point that
-    // makes the "elided ⇒ guarded binding" invariant impossible to breach
-    // via AOT (a per-caller `.explicit` would be easy to forget).
-    if (compiled.bounds_elided) return Error.ElidedBoundsNotAotSerializable;
+    // ADR-0203 stage 4 (D-515(1)) — elided codegen is now serializable:
+    // the header carries `flag_bounds_elided`, the loader's re-link
+    // re-registers the oob-stub trap entries against the loaded block, and
+    // setup's `allocBacking` binds the guarded reservation with NO
+    // plain-heap fallback for a qualifying memory (fails loudly instead),
+    // so the ADR-0202 "elided ⇒ guarded binding" invariant holds end-to-end.
     // ADR-0203 stage 2 (D-519) — refuse to serialize dbg-instrumented
     // codegen: an active ZWASM_DEBUG channel (jit.callcount / global.trace)
     // bakes this process's diagnostic-counter ABSOLUTE addresses into the
@@ -257,6 +249,7 @@ pub fn produceFromCompiledWasm(
         .wasm_bytes = wasm_bytes,
         .func_extras = func_extras,
         .eh_entries = eh_entries,
+        .bounds_elided = compiled.bounds_elided,
     };
 
     return serialise.produceCwasm(allocator, input);
@@ -441,29 +434,54 @@ test "hostArch maps to a valid .cwasm arch tag on supported hosts" {
     }
 }
 
-test "produceFromCompiledWasm: REFUSES an elided module (ADR-0202 D5 soundness guard)" {
-    // A qualifying i32/64KiB memory + a load compiled with the DEFAULT .auto
-    // knob elides the bounds check. Serializing that to .cwasm would bind
-    // plain heap at run time with no guard region → silent OOB. The producer
-    // must hard-refuse. (guarded_mem.supported gate: on a non-qualifying host
-    // nothing elides, so the refusal can't fire — skip there.)
+test "produceFromCompiledWasm: elided module serializes, deserializes, and guard-faults to a trap (ADR-0203 stage 4 / D-515(1))" {
+    // A qualifying i32/64KiB memory + loads compiled with the DEFAULT .auto
+    // knob elide the bounds check. Since stage 4 that SERIALIZES: the header
+    // carries flag_bounds_elided, the deserializer's re-link re-registers
+    // the oob-stub trap entries against the LOADED block, and setup binds
+    // the guarded reservation — so an oob access in the deserialized
+    // artifact faults into the guard page and surfaces as a clean trap
+    // (Error.Trap), never a silent OOB. (guarded_mem.supported gate: on a
+    // non-qualifying host nothing elides — skip there.)
     if (comptime !@import("../../../platform/guarded_mem.zig").supported) return;
+    const load_compiled = @import("load_compiled.zig");
+    // (module (memory 1)
+    //   (func (export "ok")  (result i32) (i32.load (i32.const 0)))
+    //   (func (export "oob") (result i32) (i32.load (i32.const 65533))))
     const mem_load_wasm = [_]u8{
         0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
         0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03,
-        0x02, 0x01, 0x00,
+        0x03, 0x02, 0x00, 0x00,
         0x05, 0x03, 0x01, 0x00, 0x01, // memory min 1 (i32, 64 KiB)
-        0x0a, 0x09, 0x01, 0x07, 0x00, 0x41, 0x00, 0x28, 0x02, 0x00, 0x0b, // i32.const 0; i32.load
+        0x07, 0x0c, 0x02, 0x02, 0x6f,
+        0x6b, 0x00, 0x00, 0x03, 0x6f,
+        0x6f, 0x62, 0x00, 0x01, 0x0a,
+        0x13, 0x02,
+        0x07, 0x00, 0x41, 0x00, 0x28, 0x02, 0x00, 0x0b, // ok: load @0
+        0x09, 0x00, 0x41, 0xfd, 0xff, 0x03, 0x28, 0x02, 0x00, 0x0b, // oob: load @65533
     };
     runner.setBoundsChecks(.auto);
     defer runner.setBoundsChecks(.auto); // leave the default as other tests expect
     var compiled = try runner.compileWasm(testing.allocator, &mem_load_wasm);
-    defer compiled.deinit(testing.allocator);
     try testing.expect(compiled.bounds_elided); // .auto + qualifying → elided
-    try testing.expectError(
-        Error.ElidedBoundsNotAotSerializable,
-        produceFromCompiledWasm(testing.allocator, &compiled, &mem_load_wasm),
-    );
+    const cwasm = blk: {
+        defer compiled.deinit(testing.allocator);
+        break :blk try produceFromCompiledWasm(testing.allocator, &compiled, &mem_load_wasm);
+    };
+    defer testing.allocator.free(cwasm);
+
+    const h = try format.parseHeader(cwasm[0..format.header_size]);
+    try testing.expect((h.flags & format.flag_bounds_elided) != 0);
+
+    const des = try load_compiled.deserializeToCompiledWasm(testing.allocator, cwasm);
+    try testing.expect(des.compiled.bounds_elided);
+    var inst = try runner.JitInstance.fromCompiled(testing.allocator, des.compiled, des.wasm_bytes);
+    defer inst.deinit(testing.allocator);
+    // In-bounds load works through the guarded binding.
+    try testing.expectEqual(@as(?u64, 0), try inst.invoke(testing.allocator, "ok", &.{}));
+    // The page-straddling load has NO inline check in elided code — it must
+    // guard-fault and redirect through the RE-REGISTERED trap entries.
+    try testing.expectError(runner.Error.Trap, inst.invoke(testing.allocator, "oob", &.{}));
 }
 
 test "produceFromCompiledWasm: tiny synthetic wasm round-trips through compileWasm + AOT producer" {

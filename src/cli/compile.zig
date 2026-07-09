@@ -59,11 +59,10 @@ pub fn run(
     };
     defer gpa.free(wasm_bytes);
 
-    // ADR-0202 D5 — AOT MUST compile with explicit bounds checks (the
-    // format has no elision bit and the loader no trap-registry
-    // re-registration yet — ADR-0203 stage 4 / D-515(1);
-    // `produceFromCompiledWasm` hard-refuses an elided module).
-    // `compileWasmForAot` forces `.explicit` for this compile.
+    // ADR-0203 stage 4 — the compile honours the ambient bounds mode
+    // (default `.auto` → elided on qualifying memories); the artifact
+    // records `flag_bounds_elided` and the loader upholds the ADR-0202
+    // guarded-binding invariant.
     var compiled = try runner.compileWasmForAot(gpa, wasm_bytes);
     defer compiled.deinit(gpa);
 

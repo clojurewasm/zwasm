@@ -107,6 +107,9 @@ pub const Input = struct {
     func_extras: []const format.CwasmFuncExtra = &.{},
     /// v0.5: the module-level exception table (module-relative pcs).
     eh_entries: []const format.CwasmEhEntry = &.{},
+    /// ADR-0203 stage 4 — the code was compiled with memory0 bounds checks
+    /// elided; recorded as `flag_bounds_elided` for the loader to restore.
+    bounds_elided: bool = false,
 };
 
 /// Produce a `.cwasm` v0.2 byte stream. Caller owns the
@@ -212,7 +215,8 @@ pub fn produceCwasm(allocator: Allocator, input: Input) Error![]u8 {
         .globals_offset = globals_offset,
         .globals_size = globals_size,
         .flags = (if (input.has_memory) format.flag_has_memory else 0) |
-            (if (input.has_table) format.flag_has_table else 0),
+            (if (input.has_table) format.flag_has_table else 0) |
+            (if (input.bounds_elided) format.flag_bounds_elided else 0),
         .memory_min_pages = if (input.has_memory) input.mem_min_pages else 0,
         .memory_max_pages = if (input.has_memory) input.mem_max_pages else 0,
         .memory_init_offset = memory_init_offset,

@@ -48,6 +48,13 @@ pub const flag_has_memory: u32 = 0x1;
 /// `flags` bit 1 — the module declares table 0 (the `table0_size` +
 /// elem_data section are meaningful; cycle-2a single-table MVP).
 pub const flag_has_table: u32 = 0x2;
+/// `flags` bit 2 (ADR-0203 stage 4 / ADR-0202 D5 / D-515(1)) — the code
+/// was compiled with memory0 scalar bounds checks ELIDED (guard-page
+/// codegen). The loader restores `CompiledWasm.bounds_elided`; the re-link
+/// re-registers the oob-stub trap entries against the loaded block, and
+/// setup binds the guarded reservation (no plain-heap fallback for a
+/// qualifying memory — allocBacking fails loudly instead).
+pub const flag_bounds_elided: u32 = 0x4;
 pub const func_meta_size: u32 = 16; // v0.3 cycle-2a: + canon_typeidx (was 12)
 pub const reloc_size: u32 = 9; // 4 + 4 + 1 (no padding)
 pub const reloc_kind_direct_call: u8 = 0;
@@ -485,7 +492,7 @@ const testing = std.testing;
 test "writeHeader/parseHeader: round-trip preserves all fields" {
     const want: CwasmHeader = .{
         .arch = arch_arm64,
-        .flags = flag_has_memory | flag_has_table,
+        .flags = flag_has_memory | flag_has_table | flag_bounds_elided,
         .n_funcs = 3,
         .n_types = 2,
         .n_imports = 1,

@@ -152,32 +152,32 @@ entries:
     layer: "code"
     status: "note"
     description: |-
-      Front G-senior-gap follow-on to D-507. TWO deferred elision-coverage /
-      soundness items, both currently held by forcing `.explicit`:
-      (1) **AOT `.cwasm` elision** — ADR-0202 D5's five AOT clauses are unbuilt
-      (elision bit in the format, trap-registry func_table serialise +
-      load-register, non-D1-host reject, guarded run-memory in `aot/run.zig`
-      which today binds PLAIN HEAP). Held safe by `produceFromCompiledWasm`
-      HARD-REFUSING an elided module (`Error.ElidedBoundsNotAotSerializable`) +
-      `compileWasmForAot` forcing `.explicit`; implement the D5 clauses to let
-      AOT artifacts elide.
-      (2) **Full spec corpus under elision** — the spec-assert harnesses
-      (spec_assert_runner / simd / wasm_3_0 / non_simd) back JIT memory with
-      bespoke non-guarded buffers (`scratch_memory` / static `growable_memory`),
-      so each forces `.explicit`. The elided path is validated by the guarded
-      `runner_trap_test` OOB tests + the `test-oob-elision` CLI step + (since
-      D-510 closed) the `fuzz-diff` differential's dual JIT lanes (`.auto`
-      elided vs `.explicit` vs interp oracle, value+trap+memory-snapshot,
-      guard-boundary regression fixtures included) — NOT yet the comprehensive
-      spec corpus. Remaining close: guard-back the spec harness memory
+      Front AOT-full-fidelity (item (1) CLOSED at ADR-0203 stage 4).
+      ~~(1) AOT `.cwasm` elision~~ DONE 2026-07-09: `flag_bounds_elided` in
+      the v0.5 header; per-func oob_stub_off rides func_extras and the
+      deserializer's re-link re-registers trap entries against the loaded
+      block (linkWithThunks does this unconditionally); setup binds the
+      guarded reservation with NO plain-heap fallback (allocBacking fails
+      loudly on a qualifying memory) — so `compileWasmForAot` no longer
+      forces `.explicit` and `ElidedBoundsNotAotSerializable` is gone.
+      Unit: produce.zig "elided module serializes, deserializes, and
+      guard-faults to a trap".
+      REMAINING = (2) **Full spec corpus under elision** — the spec-assert
+      harnesses (spec_assert_runner / simd / wasm_3_0 / non_simd) back JIT
+      memory with bespoke non-guarded buffers (scratch_memory / static
+      growable_memory), so each forces `.explicit`. The elided path is
+      validated by the guarded runner_trap_test OOB tests, the
+      test-oob-elision CLI step, the fuzz-diff dual lanes, AND (since
+      stage 4) every cross-process aot-diff fixture (elided artifacts are
+      now the default `zwasm compile` output) — NOT yet the comprehensive
+      spec-assert corpus. Close by guard-backing the harness memory
       provisioning so the assert corpora can run `.auto`.
     first_raised: "2026-07-07"
     last_reviewed: "2026-07-09"
     refs: |-
-      src/engine/codegen/aot/produce.zig (ElidedBoundsNotAotSerializable guard)
-      src/cli/compile.zig + src/engine/compile.zig::compileWasmForAot
+      src/engine/codegen/aot/produce.zig (elided round-trip test)
       test/spec/{spec_assert_runner,simd_assert_runner,spec_assert_runner_wasm_3_0}.zig (setBoundsChecks .explicit)
-      .dev/decisions/0202_guard_page_bounds_elision.md D5
+      .dev/decisions/0203_aot_full_fidelity.md D4
     front: AOT-full-fidelity
   - id: "D-506"
     layer: "code"
