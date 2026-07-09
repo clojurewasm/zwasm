@@ -968,6 +968,20 @@ pub const JitInstance = struct {
         return .{ .compiled = compiled, .owned = owned, .wasm_bytes = wasm_bytes };
     }
 
+    /// ADR-0203 stage 2 — build a JitInstance from an ALREADY-BUILT
+    /// `CompiledWasm` (the `.cwasm` full-fidelity load path: the
+    /// deserializer rebuilds `compiled` and this runs the SAME setup a
+    /// fresh compile uses, so cache-hit == cache-miss by construction).
+    /// Takes ownership of `compiled` (deinit'd on error and by
+    /// `JitInstance.deinit`); `wasm_bytes` = the artifact's embedded
+    /// original module bytes and must outlive the instance.
+    pub fn fromCompiled(allocator: Allocator, compiled: CompiledWasm, wasm_bytes: []const u8) Error!JitInstance {
+        var c = compiled;
+        errdefer c.deinit(allocator);
+        const owned = try setup_mod.setupRuntimeLinked(allocator, &c, wasm_bytes, &.{}, &.{}, &.{}, &.{});
+        return .{ .compiled = c, .owned = owned, .wasm_bytes = wasm_bytes };
+    }
+
     pub fn deinit(self: *JitInstance, allocator: Allocator) void {
         self.owned.deinit(allocator);
         self.compiled.deinit(allocator);

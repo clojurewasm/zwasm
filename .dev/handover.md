@@ -12,12 +12,6 @@ COMPLETE; the autonomous `/continue` loop is RETIRED. Dev model: cut a
 green to merge. **Release stays user-only (ADR-0156)** — never autonomously tag /
 publish / cut over. No active campaign/bundle; no cron self-re-arm.
 
-## Completed maintenance sweeps (history — details in the PRs / meta_audits)
-
-- Post-v2.0.0 scaffolding campaign COMPLETE (#118–#122: ledger reconcile,
-  E-段1+2 ratifications, Component域, rust-host gate D-254). **D-475
-  table64-JIT** MERGED #127 → **v2.1.0 released** (@d5d685ad4).
-
 ## Active rework campaign — AOT-full-fidelity (opened 2026-07-09, USER-RATIFIED)
 
 - **Goal (user directive)**: 本当の cwasm/AOT — deploy artifact stays `.wasm`;
@@ -41,8 +35,23 @@ publish / cut over. No active campaign/bundle; no cron self-re-arm.
   (beware bg-job wall-clock contamination) · aot-diff unsound class now
   EMPTY (gc_struct/eh_throw deterministic → .wrong_result under widened
   D-517: mini-runtime grow/GC-arena/EH-tables gaps, discharged stage 3).
-- **NEXT: Phase IV stage 2** — format v0.5 + deserializer→CompiledWasm
-  (ADR-0203 D3+D2 first half). Kickoff PR #136 = Phase I+II+ADR-0203.
+- **Stage 1 MERGED #137**; kickoff #136. **Stage 2 COMPLETE — PR #138
+  (develop/aot-stage2-format-v05, CI pending)**: D-519 gate (dbg.anyActive
+  produce refusal, D-519 closed) · format v0.5 (header 136: embedded
+  wasm_bytes + func_extras{frame_bytes,oob_stub_off} + module EH table;
+  v0.4 = clean UnsupportedVersion) · deserializer `aot/load_compiled.zig`
+  (metadata RE-DERIVED from embedded bytes w/ compileWasm's decoders;
+  code RE-LINKED via the same linkWithThunks — wazero model) ·
+  `JitInstance.fromCompiled` (same setupRuntimeLinked ⇒ hit==miss) ·
+  **EXIT TEST GREEN**: produce → deserialize → fromCompiled → runStart →
+  invoke == fresh (leak-checked; D-518 start-func shape included).
+- **NEXT: stage 3** — swap `zwasm run x.cwasm` (cli/run.zig runCwasm/
+  runCwasmWasi + main.zig CWAS branch) to deserializeToCompiledWasm +
+  fromCompiled; retire aot/run.zig mini-runtime; expectation-table rows
+  (D-517 grow/GC/EH + D-518 start) flip to .match — RATCHET-FLIP will
+  force the table update; then run a DA critique on stages 2+3 together
+  before merge. Then stage 4 (elision, D-515(1)) · stage 5 (--cache,
+  D-508) · stage 6 retrospective.
 
 ## Active front — G-senior-gap (2026-07-06, /continue entry point)
 

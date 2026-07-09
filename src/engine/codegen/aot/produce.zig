@@ -23,6 +23,7 @@ const builtin = @import("builtin");
 const format = @import("format.zig");
 const serialise = @import("serialise.zig");
 
+const dbg = @import("../../../support/dbg.zig");
 const zir = @import("../../../ir/zir.zig");
 const runner = @import("../../runner.zig");
 const parser = @import("../../../parse/parser.zig");
@@ -58,6 +59,12 @@ pub const Error = serialise.Error || error{
     /// read/write past the guest memory silently. Callers destined for AOT
     /// MUST `runner.setBoundsChecks(.explicit)` before compiling.
     ElidedBoundsNotAotSerializable,
+    /// ADR-0203 stage 2 (D-519) — an active `ZWASM_DEBUG` channel can
+    /// instrument emitted code with this process's diagnostic-counter
+    /// ABSOLUTE addresses (`jit.callcount` / `global.trace`); such bytes
+    /// must never be serialized. Re-run `zwasm compile` without
+    /// `ZWASM_DEBUG`.
+    DbgInstrumentedNotAotSerializable,
 };
 
 /// Table-0 + element state collected for the producer (v0.3 cycle-2a).
@@ -98,6 +105,12 @@ pub fn produceFromCompiledWasm(
     // "elided ⇒ guarded binding" invariant impossible to breach via AOT (a
     // per-caller `.explicit` would be easy to forget). D-515 lifts it.
     if (compiled.bounds_elided) return Error.ElidedBoundsNotAotSerializable;
+    // ADR-0203 stage 2 (D-519) — refuse to serialize dbg-instrumented
+    // codegen: an active ZWASM_DEBUG channel (jit.callcount / global.trace)
+    // bakes this process's diagnostic-counter ABSOLUTE addresses into the
+    // emitted bytes, which would silently corrupt memory when the artifact
+    // runs in another process (the D-516 class, via a developer flag).
+    if (dbg.anyActive()) return Error.DbgInstrumentedNotAotSerializable;
     const arch = try hostArch();
 
     const n_funcs = compiled.func_results.len;
@@ -196,6 +209,29 @@ pub fn produceFromCompiledWasm(
     const imports = try collectImports(allocator, wasm_bytes);
     defer allocator.free(imports);
 
+    // v0.5 (ADR-0203 stage 2): per-func re-link extras + the module
+    // exception table (?tag_idx null → `eh_tag_none` sentinel).
+    const func_extras = try allocator.alloc(format.CwasmFuncExtra, n_funcs);
+    defer allocator.free(func_extras);
+    for (compiled.func_results, 0..) |r, i| {
+        func_extras[i] = .{
+            .frame_bytes = r.out.frame_bytes,
+            .oob_stub_off = r.out.oob_stub_off,
+        };
+    }
+    const eh_src = compiled.exception_table.entries;
+    const eh_entries = try allocator.alloc(format.CwasmEhEntry, eh_src.len);
+    defer allocator.free(eh_entries);
+    for (eh_src, 0..) |e, i| {
+        eh_entries[i] = .{
+            .pc_start = e.pc_start,
+            .pc_end = e.pc_end,
+            .tag_idx = e.tag_idx orelse format.eh_tag_none,
+            .landing_pad_pc = e.landing_pad_pc,
+            .kind = @intFromEnum(e.kind),
+        };
+    }
+
     const input: serialise.Input = .{
         .arch = arch,
         .bytes_per_func = bytes_per_func,
@@ -217,6 +253,9 @@ pub fn produceFromCompiledWasm(
         .elem = tbl.elem,
         .canon_typeidx_per_func = tbl.canon_typeidx,
         .imports = imports,
+        .wasm_bytes = wasm_bytes,
+        .func_extras = func_extras,
+        .eh_entries = eh_entries,
     };
 
     return serialise.produceCwasm(allocator, input);

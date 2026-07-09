@@ -1363,7 +1363,7 @@ fn elemOffsetValType(imports_buf: anytype, tables_buf: anytype, tableidx: u32) z
     return .i32;
 }
 
-fn collectFuncExports(a: Allocator, module: anytype, total_funcs: u32) Error![]const runner_mod.FuncExport {
+pub fn collectFuncExports(a: Allocator, module: anytype, total_funcs: u32) Error![]const runner_mod.FuncExport {
     const es = module.find(.@"export") orelse return &.{};
     var exports = try sections.decodeExports(a, es.body);
     defer exports.deinit();

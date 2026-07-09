@@ -28,12 +28,19 @@ pub const magic = [4]u8{ 'C', 'W', 'A', 'S' };
 pub const version_v0_1: u32 = 0x0001_0000; // (major << 16) | minor — superseded
 pub const version_v0_2: u32 = 0x0002_0000; // superseded: exports section (ADR-0138)
 pub const version_v0_3: u32 = 0x0003_0000; // superseded: + globals section (ADR-0139)
-pub const version_v0_4: u32 = 0x0004_0000; // current: + imports-metadata section (D-251 AOT-WASI)
+pub const version_v0_4: u32 = 0x0004_0000; // superseded: + imports-metadata section (D-251 AOT-WASI)
+// v0.5 (ADR-0203 stage 2): + embedded original wasm_bytes (the loader hands
+// the REAL module bytes to the normal setup path — zero re-encode
+// divergence), + per-func extras {frame_bytes, oob_stub_off} and the
+// module-level exception table (compiler output the full-fidelity
+// deserializer cannot re-derive; everything else IS re-derived from the
+// embedded bytes with the same section decoders compileWasm uses).
+pub const version_v0_5: u32 = 0x0005_0000; // current
 
 pub const arch_arm64: u32 = 1;
 pub const arch_x86_64: u32 = 2;
 
-pub const header_size: u32 = 112; // v0.4: 104 + imports_{offset,size} (D-251 AOT-WASI)
+pub const header_size: u32 = 136; // v0.5: 112 + {wasm_bytes,func_extras,eh}_{offset,size}
 
 /// `flags` bit 0 — the module declares a linear memory (the
 /// `memory_*` header fields + memory_init data section are meaningful).
@@ -54,6 +61,7 @@ pub const Error = error{
     TruncatedReloc,
     TruncatedExport,
     TruncatedImportEntry,
+    TruncatedEhEntry,
 };
 
 /// Top-level container header (per ADR-0039 + Revision 2; v0.2 per
@@ -101,7 +109,33 @@ pub const CwasmHeader = struct {
     // populate reads no payload), so the section is intentionally minimal.
     imports_offset: u32 = 0,
     imports_size: u32 = 0,
+    // v0.5 (ADR-0203 stage 2): the original module bytes, verbatim. The
+    // full-fidelity load path re-derives all module metadata from these with
+    // the SAME section decoders compileWasm uses, and hands them to the
+    // normal setup path (setupRuntimeLinked re-decodes ~15 sections).
+    wasm_bytes_offset: u32 = 0,
+    wasm_bytes_size: u32 = 0,
+    // v0.5: per-DEFINED-func extras the re-link needs beyond v0.4's
+    // metadata: `{frame_bytes: u32, oob_stub_off: u32}` × n_funcs
+    // (`func_extra_size` each, func-idx order; oob sentinel = no_stub).
+    func_extras_offset: u32 = 0,
+    func_extras_size: u32 = 0,
+    // v0.5: the module-level exception table (`[n: u32]` + n ×
+    // `eh_entry_size`). pcs are module-relative and stay valid because
+    // `linkWithThunks` layout is a pure function of the (identical)
+    // serialized bodies — the deserializer asserts the re-linked
+    // `func_offsets` match the artifact's as the nondeterminism tripwire.
+    eh_offset: u32 = 0,
+    eh_size: u32 = 0,
 };
+
+/// v0.5 per-defined-func extras entry size: frame_bytes + oob_stub_off.
+pub const func_extra_size: u32 = 8;
+/// v0.5 exception-table entry size: pc_start + pc_end + tag_idx(sentinel
+/// `eh_tag_none` = catch_all/null) + landing_pad_pc (4 × u32) + kind (u8).
+pub const eh_entry_size: u32 = 17;
+/// Sentinel for a serialised null `HandlerEntry.tag_idx` (catch_all/_ref).
+pub const eh_tag_none: u32 = 0xFFFF_FFFF;
 
 /// Sentinel `memory_max_pages` value for "no explicit max declared".
 pub const memory_max_none: u32 = 0xFFFF_FFFF;
@@ -179,7 +213,7 @@ pub const CwasmReloc = struct {
 pub fn writeHeader(buf: []u8, h: CwasmHeader) Error!void {
     if (buf.len < header_size) return Error.TruncatedHeader;
     @memcpy(buf[0..4], &magic);
-    std.mem.writeInt(u32, buf[4..8], version_v0_4, .little);
+    std.mem.writeInt(u32, buf[4..8], version_v0_5, .little);
     std.mem.writeInt(u32, buf[8..12], h.arch, .little);
     std.mem.writeInt(u32, buf[12..16], h.flags, .little);
     std.mem.writeInt(u32, buf[16..20], h.n_funcs, .little);
@@ -206,13 +240,19 @@ pub fn writeHeader(buf: []u8, h: CwasmHeader) Error!void {
     std.mem.writeInt(u32, buf[100..104], h.elem_size, .little);
     std.mem.writeInt(u32, buf[104..108], h.imports_offset, .little);
     std.mem.writeInt(u32, buf[108..112], h.imports_size, .little);
+    std.mem.writeInt(u32, buf[112..116], h.wasm_bytes_offset, .little);
+    std.mem.writeInt(u32, buf[116..120], h.wasm_bytes_size, .little);
+    std.mem.writeInt(u32, buf[120..124], h.func_extras_offset, .little);
+    std.mem.writeInt(u32, buf[124..128], h.func_extras_size, .little);
+    std.mem.writeInt(u32, buf[128..132], h.eh_offset, .little);
+    std.mem.writeInt(u32, buf[132..136], h.eh_size, .little);
 }
 
 pub fn parseHeader(buf: []const u8) Error!CwasmHeader {
     if (buf.len < header_size) return Error.TruncatedHeader;
     if (!std.mem.eql(u8, buf[0..4], &magic)) return Error.BadMagic;
     const version = std.mem.readInt(u32, buf[4..8], .little);
-    if (version != version_v0_4) return Error.UnsupportedVersion;
+    if (version != version_v0_5) return Error.UnsupportedVersion;
     const arch = std.mem.readInt(u32, buf[8..12], .little);
     if (arch != arch_arm64 and arch != arch_x86_64) return Error.UnknownArch;
     return .{
@@ -242,6 +282,68 @@ pub fn parseHeader(buf: []const u8) Error!CwasmHeader {
         .elem_size = std.mem.readInt(u32, buf[100..104], .little),
         .imports_offset = std.mem.readInt(u32, buf[104..108], .little),
         .imports_size = std.mem.readInt(u32, buf[108..112], .little),
+        .wasm_bytes_offset = std.mem.readInt(u32, buf[112..116], .little),
+        .wasm_bytes_size = std.mem.readInt(u32, buf[116..120], .little),
+        .func_extras_offset = std.mem.readInt(u32, buf[120..124], .little),
+        .func_extras_size = std.mem.readInt(u32, buf[124..128], .little),
+        .eh_offset = std.mem.readInt(u32, buf[128..132], .little),
+        .eh_size = std.mem.readInt(u32, buf[132..136], .little),
+    };
+}
+
+// =====================================================================
+// v0.5 per-func extras + exception-table entry serialisation (ADR-0203)
+// =====================================================================
+
+/// Per-DEFINED-func re-link inputs beyond v0.4's metadata (frame size and
+/// the guard-fault oob stub offset, both body-relative compiler output).
+pub const CwasmFuncExtra = struct {
+    frame_bytes: u32,
+    oob_stub_off: u32,
+};
+
+pub fn writeFuncExtra(buf: []u8, e: CwasmFuncExtra) Error!void {
+    if (buf.len < func_extra_size) return Error.TruncatedFuncMeta;
+    std.mem.writeInt(u32, buf[0..4], e.frame_bytes, .little);
+    std.mem.writeInt(u32, buf[4..8], e.oob_stub_off, .little);
+}
+
+pub fn parseFuncExtra(buf: []const u8) Error!CwasmFuncExtra {
+    if (buf.len < func_extra_size) return Error.TruncatedFuncMeta;
+    return .{
+        .frame_bytes = std.mem.readInt(u32, buf[0..4], .little),
+        .oob_stub_off = std.mem.readInt(u32, buf[4..8], .little),
+    };
+}
+
+/// One serialised module-level exception-table entry (mirrors
+/// `exception_table.HandlerEntry`; pcs module-relative; `tag_idx` null is
+/// encoded as `eh_tag_none`; `kind` is `@intFromEnum(CatchKind)`).
+pub const CwasmEhEntry = struct {
+    pc_start: u32,
+    pc_end: u32,
+    tag_idx: u32, // eh_tag_none = null (catch_all/_ref)
+    landing_pad_pc: u32,
+    kind: u8,
+};
+
+pub fn writeEhEntry(buf: []u8, e: CwasmEhEntry) Error!void {
+    if (buf.len < eh_entry_size) return Error.TruncatedEhEntry;
+    std.mem.writeInt(u32, buf[0..4], e.pc_start, .little);
+    std.mem.writeInt(u32, buf[4..8], e.pc_end, .little);
+    std.mem.writeInt(u32, buf[8..12], e.tag_idx, .little);
+    std.mem.writeInt(u32, buf[12..16], e.landing_pad_pc, .little);
+    buf[16] = e.kind;
+}
+
+pub fn parseEhEntry(buf: []const u8) Error!CwasmEhEntry {
+    if (buf.len < eh_entry_size) return Error.TruncatedEhEntry;
+    return .{
+        .pc_start = std.mem.readInt(u32, buf[0..4], .little),
+        .pc_end = std.mem.readInt(u32, buf[4..8], .little),
+        .tag_idx = std.mem.readInt(u32, buf[8..12], .little),
+        .landing_pad_pc = std.mem.readInt(u32, buf[12..16], .little),
+        .kind = buf[16],
     };
 }
 
@@ -408,6 +510,12 @@ test "writeHeader/parseHeader: round-trip preserves all fields" {
         .elem_size = 24,
         .imports_offset = 288,
         .imports_size = 35,
+        .wasm_bytes_offset = 323,
+        .wasm_bytes_size = 512,
+        .func_extras_offset = 835,
+        .func_extras_size = 24,
+        .eh_offset = 859,
+        .eh_size = 4 + 2 * eh_entry_size,
     };
     var buf: [header_size]u8 = undefined;
     try writeHeader(&buf, want);
@@ -445,12 +553,12 @@ test "parseHeader: rejects bad magic" {
 test "parseHeader: rejects unsupported version" {
     var buf: [header_size]u8 = undefined;
     @memcpy(buf[0..4], &magic);
-    std.mem.writeInt(u32, buf[4..8], 0x0005_0000, .little); // v0.5 (future, unsupported)
+    std.mem.writeInt(u32, buf[4..8], 0x0006_0000, .little); // v0.6 (future, unsupported)
     @memset(buf[8..], 0);
     try testing.expectError(Error.UnsupportedVersion, parseHeader(&buf));
 }
 
-test "parseHeader: rejects the superseded v0.1 / v0.2 / v0.3 versions" {
+test "parseHeader: rejects the superseded v0.1 / v0.2 / v0.3 / v0.4 versions" {
     var buf: [header_size]u8 = undefined;
     @memcpy(buf[0..4], &magic);
     @memset(buf[8..], 0);
@@ -460,12 +568,35 @@ test "parseHeader: rejects the superseded v0.1 / v0.2 / v0.3 versions" {
     try testing.expectError(Error.UnsupportedVersion, parseHeader(&buf));
     std.mem.writeInt(u32, buf[4..8], version_v0_3, .little);
     try testing.expectError(Error.UnsupportedVersion, parseHeader(&buf));
+    // v0.4 lacks the embedded-wasm_bytes / func-extras / eh sections the
+    // full-fidelity loader requires — a stale artifact is a clean
+    // regenerate, never a partial read (ADR-0203 D3).
+    std.mem.writeInt(u32, buf[4..8], version_v0_4, .little);
+    try testing.expectError(Error.UnsupportedVersion, parseHeader(&buf));
+}
+
+test "writeFuncExtra/parseFuncExtra + writeEhEntry/parseEhEntry: round-trip" {
+    var xbuf: [func_extra_size]u8 = undefined;
+    const xe = CwasmFuncExtra{ .frame_bytes = 0x120, .oob_stub_off = 0xFFFF_FFFF };
+    try writeFuncExtra(&xbuf, xe);
+    try testing.expectEqual(xe, try parseFuncExtra(&xbuf));
+
+    var ebuf: [eh_entry_size]u8 = undefined;
+    const ee = CwasmEhEntry{
+        .pc_start = 0x40,
+        .pc_end = 0x80,
+        .tag_idx = eh_tag_none,
+        .landing_pad_pc = 0x7C,
+        .kind = 2,
+    };
+    try writeEhEntry(&ebuf, ee);
+    try testing.expectEqual(ee, try parseEhEntry(&ebuf));
 }
 
 test "parseHeader: rejects unknown arch" {
     var buf: [header_size]u8 = undefined;
     @memcpy(buf[0..4], &magic);
-    std.mem.writeInt(u32, buf[4..8], version_v0_4, .little);
+    std.mem.writeInt(u32, buf[4..8], version_v0_5, .little);
     std.mem.writeInt(u32, buf[8..12], 99, .little); // unknown arch
     @memset(buf[12..], 0);
     try testing.expectError(Error.UnknownArch, parseHeader(&buf));
@@ -513,9 +644,11 @@ test "parseReloc: rejects truncated buffer" {
 }
 
 test "header_size + func_meta_size + reloc_size constants are stable" {
-    try testing.expectEqual(@as(u32, 112), header_size); // v0.4 (D-251 AOT-WASI)
+    try testing.expectEqual(@as(u32, 136), header_size); // v0.5 (ADR-0203 stage 2)
     try testing.expectEqual(@as(u32, 16), func_meta_size);
     try testing.expectEqual(@as(u32, 9), reloc_size);
+    try testing.expectEqual(@as(u32, 8), func_extra_size);
+    try testing.expectEqual(@as(u32, 17), eh_entry_size);
 }
 
 test "writeExportEntry/parseExportEntry: round-trip preserves name + func_idx" {
