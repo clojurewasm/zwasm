@@ -874,6 +874,31 @@ pub fn build(b: *std.Build) void {
     const fuzz_diff_step = b.step("fuzz-diff", "Interp-vs-JIT differential over the committed corpora (= test-fuzz-exec; D-510)");
     fuzz_diff_step.dependOn(&run_fuzz_exec.step);
 
+    // `zig build test-aot-diff` — AOT-full-fidelity campaign Phase II: the
+    // CROSS-PROCESS `.wasm`-vs-`.cwasm` differential. Spawns the real zwasm
+    // CLI (run / compile / run-artifact) per fixture, so ASLR-staleness bugs
+    // (D-516 baked helper addresses) that in-process harnesses can't see are
+    // exercised the way a real deployment would. Known gaps are pinned in the
+    // runner's expectation table (D-516/D-517/D-518) — the gate trips on any
+    // UNEXPECTED divergence and on RATCHET-FLIPs (a pinned gap now matching,
+    // forcing the table update in the fixing PR).
+    const aot_diff_mod = createSanitizedModule(b, sanitize_opts, .{
+        .root_source_file = b.path("test/aot/aot_process_diff.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const aot_diff_exe = b.addExecutable(.{
+        .name = "zwasm-aot-process-diff",
+        .root_module = aot_diff_mod,
+    });
+    const run_aot_diff = b.addRunArtifact(aot_diff_exe);
+    run_aot_diff.addArtifactArg(exe); // the zwasm CLI under test
+    run_aot_diff.addArg(b.pathFromRoot("test/realworld/wasm"));
+    run_aot_diff.addArg(b.pathFromRoot("test/aot/corpus"));
+    run_aot_diff.has_side_effects = true;
+    const test_aot_diff_step = b.step("test-aot-diff", "Cross-process .wasm-vs-.cwasm differential (AOT campaign Phase II)");
+    test_aot_diff_step.dependOn(&run_aot_diff.step);
+
     // `zig build test-realworld-run` — Phase 6 / §9.6 / 6.1
     // chunk b. Drives each fixture through `cli_run.runWasm`
     // end-to-end (engine → store → WASI → instantiate → entry
@@ -1332,6 +1357,7 @@ pub fn build(b: *std.Build) void {
     test_all_step.dependOn(&run_zig_host_jit.step); // ADR-0200 JIT zig_host mini-consumer
     test_all_step.dependOn(&run_fuzz.step); // §14.3 / D-256 fuzz smoke (seed corpus)
     test_all_step.dependOn(&run_fuzz_exec.step); // D-469 interp-vs-JIT exec differential (exec_seed; toolchain-free, 3-host)
+    test_all_step.dependOn(&run_aot_diff.step); // AOT campaign Phase II cross-process .wasm-vs-.cwasm differential (toolchain-free, 3-host)
     test_all_step.dependOn(&run_wasi_p1.step);
     // §9.7 / 7.8 row close (D-045 chunks 1-14 fully discharged):
     // wire test-spec-assert into test-all on ALL hosts. Three-host

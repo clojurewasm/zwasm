@@ -14,47 +14,60 @@ publish / cut over. No active campaign/bundle; no cron self-re-arm.
 
 ## Completed maintenance sweeps (history — details in the PRs / meta_audits)
 
-- Post-v2.0.0 scaffolding campaign COMPLETE (#118 ledger reconcile · #119/#121
-  E-段1+2 de-loop/ratifications: file-size ADVISORY ADR-0099, gate_merge →
-  optional pre-flight, zone_check+spill_aware promoted to CI · #120 Component域
-  D-502 codec/D-504 · #122 rust-host ubuntu gate D-254).
-- **Batch C / D-475 table64-JIT** MERGED #127 → **v2.1.0 released** (@d5d685ad4).
+- Post-v2.0.0 scaffolding campaign COMPLETE (#118–#122: ledger reconcile,
+  E-段1+2 ratifications, Component域, rust-host gate D-254). **D-475
+  table64-JIT** MERGED #127 → **v2.1.0 released** (@d5d685ad4).
+
+## Active rework campaign — AOT-full-fidelity (opened 2026-07-09, USER-RATIFIED)
+
+- **Goal (user directive)**: 本当の cwasm/AOT — deploy artifact stays `.wasm`;
+  `.cwasm` = explicit `zwasm compile` output AND the transparent-cache value.
+  A `.cwasm` must load back into the **FULL runtime** (cache-hit == cache-miss)
+  covering ALL module classes; then **D-508** transparent `run --cache` on top.
+- **Phase I Investigation DONE** (findings doc:
+  `.dev/meta_audits/2026-07-09-aot-full-fidelity-investigation.md`; details in
+  `private/notes/aot-campaign-*.md`): **D-516 now-class bug** (13 baked helper
+  absolute addresses — GC/EH/call_indirect-lazy — PIE ASLR → `.cwasm` fatal
+  signal in a fresh process; `compile` emits it silently) · **D-517**
+  (memory.grow unsupported on cwasm path: ALL 7 Go + rust_compression die) ·
+  **D-518** (start func not serialized → silently skipped, wrong results) ·
+  ROI ~110ms compile tax on 3MB Go · architecture = deserialize-into-
+  CompiledWasm + reuse setupRuntimeLinked (bakes no absolutes); helper
+  de-baking via JitRuntime-field indirection (wazero pattern); trap table as
+  offset-relative side section (wasmtime, = D-515); two-tier gate; versioned
+  cache dir.
+- **Phase II correctness net = test/aot/aot_process_diff.zig** (`zig build
+  test-aot-diff`, in test-all) — CROSS-PROCESS `.wasm`-vs-`.cwasm` subprocess
+  diff (in-process lanes can't see ASLR staleness) over realworld + crafted
+  corpus (test/aot/corpus: GC/EH/call_indirect/grow/start). Baseline 46/62
+  match; known gaps pinned in the expectation table (.wrong_result =
+  deterministic D-517/D-518, RATCHET-FLIP forces table update in the fixing
+  PR; .unsound = D-516 ASLR class, report-only).
+- **Phase III design ADR = ADR-0203** (D1 helper de-baking via JitRuntime
+  fields · D2 deserialize-into-CompiledWasm + normal setup, mini-runtime
+  retired · D3 format v0.5 completing the round-trip + two-tier gate ·
+  D4 elision serialization = D-515(1) · D5 `--cache` transparent cache ·
+  D6 six-stage migration with test-aot-diff ratchet table).
+- **NEXT: Phase IV stage 1** — helper de-baking, both arches (D-516 fix;
+  bench guard >2% blocks). Branch/PR per stage; `ci-required` gates each.
+  Kickoff PR #136 = Phase I docs + Phase II net + ADR-0203.
 
 ## Active front — G-senior-gap (2026-07-06, /continue entry point)
 
-Senior-runtime gap analysis (measured; report =
-`.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`) opened front
-**G-senior-gap** (debt D-508..D-515, `front: G-senior-gap`). Queue order:
-- **G1 = D-507 COMPLETE + MERGED** (guard-page/signal bounds-check elision;
-  ADR-0202). Phase 1 #131 (reservation-backed memory), phase 2 #132 (fault→trap
-  handler + trap registry), phase 3 #133 (elision flip + AOT soundness guard).
-  On `main` (@5c5c45f6d). **KEY RETROSPECTIVE**: the measured scalar-elision
-  perf is ~NOISE (matrix ~1% / base64 ~1.5% / fib2 within stddev) — the ADR's
-  "biggest tier-free lever" hypothesis is REFUTED; the 1.75–3.9x gap vs wasmtime
-  is optimising-tier codegen quality (**D-513**), not bounds checks. Elision
-  still shipped: correct, code-size win, and its guard-fault infra is the base
-  D-509 (threads) needs. **AOT elision is DISABLED** — `compileWasmForAot`
-  forces `.explicit` + `produceFromCompiledWasm` hard-refuses elided (the
-  `.cwasm`/`aot/run.zig` plain-heap path can't uphold guard soundness yet).
-  Follow-ups: **D-514** (symmetric SIMD elision — x86_64 v128 handlers are
-  param-threaded), **D-515** (build the D5 AOT-elision clauses + run the spec
-  corpus under elision; the harnesses force `.explicit` today).
-- **G3 = D-510 COMPLETE** (develop/d510-diff-fuzz PR) — the existing
-  `fuzz_exec` (D-469) extended into the committed `zig build fuzz-diff` gate:
-  memory-snapshot compare (silent-wrong-store class), dual JIT lanes
-  (`.auto` elided vs `.explicit` inline — the ADR-0202 D-510 axis), committed
-  `test/fuzz/corpus/regression/` (wazero-fuzzcases style; guard-boundary +
-  memory-writing exercisers), state-divergence break after lenient outcomes.
-  Validated: committed corpora 14 funcs/0 mismatch + 2008-module smith
-  campaign 158 funcs/0 mismatch + fault-injection fires both MISMATCH paths.
-  D-515(2) is now PARTIALLY covered (differential under elision; spec-assert
-  corpora still force `.explicit`).
-- **NEXT: G2 = D-508** — on-disk compilation cache (reuse .cwasm
-  serialization; key = module-hash+version+arch+codegen-options; opt-in
-  `--cache` CLI first; invalidation correctness > hit rate).
-- Then: D-314(a) epoch-counter (recipe lives in D-314) · note-class D-509
-  (threads campaign, own kickoff + ADR) · D-511/D-512 (demand-driven) ·
-  **D-513 = optimising-tier DECISION row (user-gated — never self-start)**.
+Report = `.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`.
+- **G1 = D-507 COMPLETE** (#131/#132/#133, ADR-0202 guard-page elision).
+  Retrospective: measured scalar-elision perf ≈ NOISE — "biggest tier-free
+  lever" REFUTED; the 1.75–3.9x gap vs wasmtime = optimising-tier codegen
+  (**D-513**, user-gated). Elision kept (correct, code-size, base for D-509
+  threads). AOT elision DISABLED pending D-515. Follow-up **D-514** (SIMD
+  elision symmetry).
+- **G3 = D-510 COMPLETE** (#135) — committed `zig build fuzz-diff` gate:
+  memory-snapshot compare + dual JIT lanes (`.auto`/`.explicit`) + regression
+  corpus. 2008-module campaign 0 mismatch. D-515(2) partially covered.
+- **G2 = D-508 folded into the AOT-full-fidelity campaign** (above; scope
+  corrected — see the D-508 row).
+- Then: D-314(a) epoch-counter · note-class D-509 (threads campaign, own
+  kickoff + ADR) · D-511/D-512 (demand-driven) · **D-513 (user-gated)**.
 - Older demand-driven tail unchanged: D-444, D-506, D-502 residual, D-475
   residual (spec-harness cross-module register-table), mac/win rust-host CI.
 
@@ -77,12 +90,10 @@ Senior-runtime gap analysis (measured; report =
 
 ## Parked / gated — do NOT speculatively grind (see debt.yaml)
 
-- **D-477 slivers** (partial, build-on-demand, no DIRECT consumer): v128 args/results
-  invoke (Win64-by-ref gotcha); Win64 ≥4-param stack-spill; Win64 ≥2-arg/3-result
-  MEMORY-class thunk. Recipe: `private/notes/d477-remaining-slices-design.md` + debt
-  D-477. Trigger = a real consumer. SIMD correctness already covered (simd_assert
-  25075/0 + fuzz-loader 1665 JIT-compiled clean). **D-478** = JIT FP host-callback
-  bridge + funcref `Table.set` panic + proc_exit exit-code.
+- **D-477 slivers** (partial, build-on-demand; trigger = a real consumer):
+  v128 invoke / Win64 stack-spill / MEMORY-class thunk — recipe in the row +
+  `private/notes/d477-remaining-slices-design.md`. **D-478** = JIT FP
+  host-callback bridge + funcref `Table.set` panic + proc_exit exit-code.
 - **D-475 residual**: spec-harness cross-module register-table wiring only
   (applyImportedTablesFromRegistered + TableAlias pointer-sharing); the table64
   feature itself is COMPLETE on both engines.
