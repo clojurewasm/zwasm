@@ -43,9 +43,14 @@ publish / cut over. No active campaign/bundle; no cron self-re-arm.
   match; known gaps pinned in the expectation table (.wrong_result =
   deterministic D-517/D-518, RATCHET-FLIP forces table update in the fixing
   PR; .unsound = D-516 ASLR class, report-only).
-- **NEXT: Phase III design ADR** (format evolution + full-runtime load +
-  D-508 cache) → IV staged impl (stage-1 = helper de-baking = D-516 fix) →
-  V retrospective. Branch/PR per stage; `ci-required` gates each.
+- **Phase III design ADR = ADR-0203** (D1 helper de-baking via JitRuntime
+  fields · D2 deserialize-into-CompiledWasm + normal setup, mini-runtime
+  retired · D3 format v0.5 completing the round-trip + two-tier gate ·
+  D4 elision serialization = D-515(1) · D5 `--cache` transparent cache ·
+  D6 six-stage migration with test-aot-diff ratchet table).
+- **NEXT: Phase IV stage 1** — helper de-baking, both arches (D-516 fix;
+  bench guard >2% blocks). Branch/PR per stage; `ci-required` gates each.
+  Kickoff PR #136 = Phase I docs + Phase II net + ADR-0203.
 
 ## Active front — G-senior-gap (2026-07-06, /continue entry point)
 
