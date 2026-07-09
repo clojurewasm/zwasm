@@ -232,10 +232,20 @@ jobs:
       - name: Verdict
         env:
           CODE: ${{ needs.changes.outputs.code }}
+          CHANGES_RESULT: ${{ needs.changes.result }}
           GATE_RESULT: ${{ needs.gate.result }}
         shell: bash
         run: |
           set -euo pipefail
+          # D-520 (2026-07-09, seen live on PR #139): when `changes` itself
+          # FAILS (runner-acquisition flake), its `code` output is EMPTY —
+          # which used to fall into the doc-only PASS branch below with the
+          # gate matrix silently skipped. A failed detection must never be
+          # read as "doc-only".
+          if [ "$CHANGES_RESULT" != "success" ]; then
+            echo "::error::detect-changes did not succeed (result=$CHANGES_RESULT) — cannot trust the doc-only skip"
+            exit 1
+          fi
           if [ "$CODE" != "true" ]; then
             echo "doc-only change — 3-host gate intentionally skipped; PASS"
             exit 0
