@@ -5,45 +5,28 @@
 
 ## Current state — MAINTENANCE MODE (post-v2.0.0)
 
-**v2.1.0 is Latest** (tag `v2.1.0` @d5d685ad4, 2026-07-06 — D-475 table64-JIT;
-release.yml auto-built Release + assets). v1 frozen at `v1.11.1`. The from-scratch build campaign is
-COMPLETE; the autonomous `/continue` loop is RETIRED. Dev model: cut a
-`develop/<slug>` branch from `main` → PR → CI `ci-required` 3-OS gate must be
+**v2.2.0 is Latest** (tag `v2.2.0` @cf5d20d72, 2026-07-09 — AOT-full-fidelity
+campaign: transparent `--cache` 2.2x cold start · full-runtime `.cwasm` v0.5 ·
+PIC codegen D-516 fix; release.yml auto-built Release + 5 assets; release was
+USER-DIRECTED 2026-07-09 per ADR-0156). v1 frozen at `v1.11.1`. Dev model: cut
+a `develop/<slug>` branch from `main` → PR → CI `ci-required` 3-OS gate must be
 green to merge. **Release stays user-only (ADR-0156)** — never autonomously tag /
 publish / cut over. No active campaign/bundle; no cron self-re-arm.
 
-## AOT-full-fidelity campaign — stages 1–5 DONE, closing (ADR-0203)
+## AOT-full-fidelity campaign — CLOSED 2026-07-09 (ADR-0203 Implemented)
 
-> **RELEASE DIRECTIVE (user, 2026-07-09)**: campaign V 完了後に v2.2.0
-> タグ + リリース (ADR-0156 の明示指示として記録; `build.zig.zon` version
-> bump + tag push → release.yml 自動)。headline = 透過キャッシュ (--cache,
-> 2.2x cold start) + full-fidelity AOT (.cwasm v0.5, aot-diff 63/63) +
-> PIC codegen (D-516 fix)。
-
-- **Goal (user directive) ACHIEVED**: 本当の cwasm/AOT — deploy artifact
-  stays `.wasm`; `.cwasm` loads into the FULL runtime (cache-hit ==
-  cache-miss by construction); transparent `run --cache[=DIR]` on top.
-- **Merged**: kickoff #136 (phases I–III: findings meta_audit · cross-process
-  `test-aot-diff` net w/ RATCHET-FLIP table · ADR-0203 D1–D6) · stage 1 #137
-  (36 helper bakes → `[rt+off]` slots, D-516) · stage 2 #138 (format v0.5:
-  embedded wasm_bytes/func_extras/EH; `load_compiled.zig` deserializer;
-  D-519) · stage 3 #139 (run-path swap; mini-runtime DELETED; CWAS refusals
-  removed; §4.5.4 start-func JIT bug fixed; D-517+D-518; D-520 CI hole fixed)
-  · stage 4 #140 (elision serialization D-515(1); ElidedArtifactNeedsGuardedHost).
-- **Stage 5 PR #141 (in CI)** — D-508 `--cache`: src/cli/cache.zig, SHA-256
-  content key, versioned dir `zwasm-<ver>-<arch>-<os>-<bounds>`, measured
-  2.2x (tinygo_json 9.2→4.1ms). DA critique (14/20) fixes in-PR: HIT
-  header-gate + self-heal, compile-refusal = BYPASS (never exit 1), interp
-  bypass, unique temp, trust-model doc; aot-diff 63/63 W/ CACHE LANES.
-- **Stage V retro (develop/aot-campaign-v-retro, stacked on #141)**: bench
-  history recorded (parity, worst +1%) · ADR-0203 → Implemented · docs
-  (cli.md --cache + stale .cwasm claims fixed; README) · explicit
-  `.cwasm --engine interp` loud refusal + E2E · lesson
-  failure-path-tests-certified-the-defect · debt reconciled (68 rows;
-  D-515(2) spec-corpus-under-elision is the only campaign residual).
-- **NEXT**: merge #141 → rebase + PR retro branch → merge → **v2.2.0
-  release (user-directed: version bump + tag → release.yml)** → close
-  campaign section here.
+Kickoff #136 (phases I–III) · stage 1 #137 (36 helper bakes → `[rt+off]`
+slots, D-516) · stage 2 #138 (format v0.5 + `load_compiled.zig`
+deserializer, D-519) · stage 3 #139 (run-path swap, mini-runtime DELETED,
+§4.5.4 start-func JIT bug fixed, D-517+D-518, D-520 CI hole) · stage 4
+#140 (elision serialization D-515(1)) · stage 5 #141 (`--cache` D-508;
+DA-critique failure-path fixes: HIT header-gate + self-heal, refusal =
+BYPASS, interp bypass) · stage V #142 (retro: bench parity record, docs,
+`.cwasm --engine interp` loud refusal, lesson
+failure-path-tests-certified-the-defect). Net: `zig build test-aot-diff`
+cross-process differential 63/63 incl. cache lanes. **Residual =
+D-515(2)** (spec-assert corpus under elision; harness memory
+provisioning) + D-514 (SIMD elision symmetry) — both in debt.yaml.
 
 ## Active front — G-senior-gap (2026-07-06, /continue entry point)
 
