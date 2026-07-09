@@ -98,6 +98,15 @@ pub const Input = struct {
     /// declared import in wasm-space order. Lets a standalone `.cwasm`
     /// rebuild `host_dispatch_base` (WASI syscall fn-ptrs). Empty for none.
     imports: []const format.CwasmImport = &.{},
+    /// v0.5 (ADR-0203 stage 2): the original module bytes, copied verbatim —
+    /// the full-fidelity loader re-derives all module metadata from these
+    /// and hands them to the normal setup path.
+    wasm_bytes: []const u8 = &.{},
+    /// v0.5: per-defined-func re-link extras (parallel to `bytes_per_func`).
+    /// Empty → zero-filled entries are written.
+    func_extras: []const format.CwasmFuncExtra = &.{},
+    /// v0.5: the module-level exception table (module-relative pcs).
+    eh_entries: []const format.CwasmEhEntry = &.{},
 };
 
 /// Produce a `.cwasm` v0.2 byte stream. Caller owns the
@@ -160,6 +169,11 @@ pub fn produceCwasm(allocator: Allocator, input: Input) Error![]u8 {
         code_size = std.mem.alignForward(u32, code_size, 4);
     }
 
+    // v0.5 sections (ADR-0203 stage 2).
+    const wasm_bytes_size: u32 = @intCast(input.wasm_bytes.len);
+    const func_extras_size: u32 = n_funcs * format.func_extra_size;
+    const eh_size: u32 = 4 + @as(u32, @intCast(input.eh_entries.len)) * format.eh_entry_size;
+
     // Compute section offsets.
     const metadata_offset: u32 = format.header_size;
     const types_offset: u32 = metadata_offset + metadata_size;
@@ -169,7 +183,10 @@ pub fn produceCwasm(allocator: Allocator, input: Input) Error![]u8 {
     const memory_init_offset: u32 = globals_offset + globals_size;
     const elem_offset: u32 = memory_init_offset + memory_init_size;
     const imports_offset: u32 = elem_offset + elem_size;
-    const code_offset: u32 = imports_offset + imports_size;
+    const wasm_bytes_offset: u32 = imports_offset + imports_size;
+    const func_extras_offset: u32 = wasm_bytes_offset + wasm_bytes_size;
+    const eh_offset: u32 = func_extras_offset + func_extras_size;
+    const code_offset: u32 = eh_offset + eh_size;
     const total_size: u32 = code_offset + code_size;
 
     var out = try allocator.alloc(u8, total_size);
@@ -205,8 +222,32 @@ pub fn produceCwasm(allocator: Allocator, input: Input) Error![]u8 {
         .elem_size = elem_size,
         .imports_offset = imports_offset,
         .imports_size = imports_size,
+        .wasm_bytes_offset = wasm_bytes_offset,
+        .wasm_bytes_size = wasm_bytes_size,
+        .func_extras_offset = func_extras_offset,
+        .func_extras_size = func_extras_size,
+        .eh_offset = eh_offset,
+        .eh_size = eh_size,
     };
     try format.writeHeader(out[0..format.header_size], header);
+
+    // v0.5 sections (ADR-0203 stage 2): embedded module bytes, per-func
+    // extras (zero-filled when the caller supplies none — mini-runtime-only
+    // test producers), and the module exception table.
+    @memcpy(out[wasm_bytes_offset..][0..wasm_bytes_size], input.wasm_bytes);
+    for (0..n_funcs) |i| {
+        const extra: format.CwasmFuncExtra = if (i < input.func_extras.len)
+            input.func_extras[i]
+        else
+            .{ .frame_bytes = 0, .oob_stub_off = 0 };
+        const slot = func_extras_offset + @as(u32, @intCast(i)) * format.func_extra_size;
+        try format.writeFuncExtra(out[slot..][0..format.func_extra_size], extra);
+    }
+    std.mem.writeInt(u32, out[eh_offset..][0..4], @intCast(input.eh_entries.len), .little);
+    for (input.eh_entries, 0..) |e, i| {
+        const slot = eh_offset + 4 + @as(u32, @intCast(i)) * format.eh_entry_size;
+        try format.writeEhEntry(out[slot..][0..format.eh_entry_size], e);
+    }
 
     // 2. Per-func metadata.
     for (input.bytes_per_func, 0..) |b, i| {
