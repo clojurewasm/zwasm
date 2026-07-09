@@ -3,31 +3,6 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
-  - id: "D-519"
-    layer: "code"
-    status: "note"
-    description: |-
-      Front AOT-full-fidelity (DA-critique finding on stage 1, 2026-07-09).
-      **dbg-gated absolute-address emission survives the ADR-0203 D1
-      de-baking**: `ZWASM_DEBUG=jit.callcount` (x86_64 emit.zig:328-331) and
-      `global.trace` (both op_globals.zig) bake this process's
-      `call_profile` addresses into emitted code — `dbg.on` is a RUNTIME env
-      check in Debug/ReleaseSafe, so a diagnostic-enabled `zwasm compile`
-      can still produce a `.cwasm` that writes foreign addresses when run
-      elsewhere (the D-516 silent-corruption class, resurrected via a
-      developer flag). NOT gated in stage 1 (adding an Error variant to the
-      shared runner Error set widens every exhaustive-switch caller —
-      platform_panic_vs_error class concern). CLOSE at ADR-0203 stage 2:
-      the produce/serialization gate refuses dbg-instrumented compiles
-      (produce-side check or a `compiled_with_dbg` bit refused at load).
-    first_raised: "2026-07-09"
-    last_reviewed: "2026-07-09"
-    refs: |-
-      .devils-advocate/logs/check-6-critique-2026-07-09-1743.md (edge-cases)
-      src/engine/codegen/x86_64/emit.zig:328-331
-      src/engine/codegen/arm64/op_globals.zig:119-134
-      .dev/decisions/0203_aot_full_fidelity.md (stage 2)
-    front: AOT-full-fidelity
   - id: "D-517"
     layer: "code"
     status: "note"

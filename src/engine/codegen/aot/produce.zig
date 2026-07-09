@@ -23,6 +23,7 @@ const builtin = @import("builtin");
 const format = @import("format.zig");
 const serialise = @import("serialise.zig");
 
+const dbg = @import("../../../support/dbg.zig");
 const zir = @import("../../../ir/zir.zig");
 const runner = @import("../../runner.zig");
 const parser = @import("../../../parse/parser.zig");
@@ -58,6 +59,12 @@ pub const Error = serialise.Error || error{
     /// read/write past the guest memory silently. Callers destined for AOT
     /// MUST `runner.setBoundsChecks(.explicit)` before compiling.
     ElidedBoundsNotAotSerializable,
+    /// ADR-0203 stage 2 (D-519) — an active `ZWASM_DEBUG` channel can
+    /// instrument emitted code with this process's diagnostic-counter
+    /// ABSOLUTE addresses (`jit.callcount` / `global.trace`); such bytes
+    /// must never be serialized. Re-run `zwasm compile` without
+    /// `ZWASM_DEBUG`.
+    DbgInstrumentedNotAotSerializable,
 };
 
 /// Table-0 + element state collected for the producer (v0.3 cycle-2a).
@@ -98,6 +105,12 @@ pub fn produceFromCompiledWasm(
     // "elided ⇒ guarded binding" invariant impossible to breach via AOT (a
     // per-caller `.explicit` would be easy to forget). D-515 lifts it.
     if (compiled.bounds_elided) return Error.ElidedBoundsNotAotSerializable;
+    // ADR-0203 stage 2 (D-519) — refuse to serialize dbg-instrumented
+    // codegen: an active ZWASM_DEBUG channel (jit.callcount / global.trace)
+    // bakes this process's diagnostic-counter ABSOLUTE addresses into the
+    // emitted bytes, which would silently corrupt memory when the artifact
+    // runs in another process (the D-516 class, via a developer flag).
+    if (dbg.anyActive()) return Error.DbgInstrumentedNotAotSerializable;
     const arch = try hostArch();
 
     const n_funcs = compiled.func_results.len;

@@ -126,6 +126,33 @@ refusal stays (soundness over coverage).
 - No new libc sites (ADR-0070); zone layering unchanged (loader stays in
   `engine/codegen/aot/`, setup reuse via existing Zone-2 seams).
 
+## Revision 2026-07-09 (stage-2 survey) — D3 amended: embed the original `wasm_bytes`
+
+The stage-2 survey established that `setupRuntimeLinked` re-decodes ~15
+sections directly from `wasm_bytes` (imports, memory incl. idx_type/
+page-size/shared, data/elem segments incl. passive tracking, globals +
+init-exprs, tables, tags, types) and `runStart` reads it too — the entire
+runtime-state build is wasm_bytes-driven, not CompiledWasm-driven. D3 is
+therefore amended: **format v0.5 embeds the original `wasm_bytes` as a
+section** (raw; compression later), and the loader hands the REAL bytes to
+the normal setup path. Consequences: zero re-encode/re-parse divergence
+(cache-hit == cache-miss by construction, the D2 goal); v0.4's
+globals/memory_init/elem/imports re-encode sections become removable;
+artifact size grows by ~the wasm size (acceptable for a cache/compile
+artifact whose key IS the source hash); load-time section parse remains
+(small vs codegen — measured compile tax is codegen-dominated; individual
+reads can migrate to serialized sections later without a format break).
+Also fixed by survey: the D-519 dbg-instrumentation refusal lands in
+`produceFromCompiledWasm` beside the elided-bounds refusal
+(`DbgInstrumentedNotAotSerializable`), backed by a new `dbg.anyActive()`.
+What still MUST be serialized (compiler output, not re-derivable):
+code + relocs + per-func meta (n_slots, canon+raw typeidx, oob_stub_off),
+full wasm-space func_sigs, exception_table.entries (module-relative pcs),
+tag_param_counts/slot_counts, globals_offsets/valtypes, start_func_idx,
+num_global_imports, bounds_elided bit. NOT serialized (setup/load-derived):
+exception_table.tag_ids, trap_func_entries/trap_region_start (rebuilt at
+load via `buildAndRegisterTrapEntries`, stage 4).
+
 ## Consequences
 
 - D-516's fix (stage 1) benefits fresh JIT too: fully PIC code is a

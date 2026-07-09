@@ -154,6 +154,19 @@ pub fn on(comptime mod: []const u8) bool {
     return enabled(mod);
 }
 
+/// Whether ANY `ZWASM_DEBUG` channel is active — the AOT-produce refusal
+/// predicate (ADR-0203 stage 2 / D-519): dbg-instrumented codegen (e.g.
+/// `jit.callcount`, `global.trace`) bakes this process's diagnostic-counter
+/// addresses into emitted code, which must never be serialized into a
+/// `.cwasm`. Comptime-false in release builds like `on`.
+pub fn anyActive() bool {
+    if (builtin.mode == .ReleaseFast or builtin.mode == .ReleaseSmall) {
+        return false;
+    }
+    if (!whitelist_initialised) return false;
+    return whitelist.everything or whitelist.entry_count > 0;
+}
+
 /// FNV-1a 64-bit hash — a tiny, dependency-free content checksum used by the
 /// `mem.cksum` diagnostic (D-331A) to fingerprint linear memory at host-call
 /// boundaries and diff an interp run against a JIT run (first divergent boundary

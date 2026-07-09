@@ -12,12 +12,6 @@ COMPLETE; the autonomous `/continue` loop is RETIRED. Dev model: cut a
 green to merge. **Release stays user-only (ADR-0156)** — never autonomously tag /
 publish / cut over. No active campaign/bundle; no cron self-re-arm.
 
-## Completed maintenance sweeps (history — details in the PRs / meta_audits)
-
-- Post-v2.0.0 scaffolding campaign COMPLETE (#118–#122: ledger reconcile,
-  E-段1+2 ratifications, Component域, rust-host gate D-254). **D-475
-  table64-JIT** MERGED #127 → **v2.1.0 released** (@d5d685ad4).
-
 ## Active rework campaign — AOT-full-fidelity (opened 2026-07-09, USER-RATIFIED)
 
 - **Goal (user directive)**: 本当の cwasm/AOT — deploy artifact stays `.wasm`;
@@ -41,8 +35,18 @@ publish / cut over. No active campaign/bundle; no cron self-re-arm.
   (beware bg-job wall-clock contamination) · aot-diff unsound class now
   EMPTY (gc_struct/eh_throw deterministic → .wrong_result under widened
   D-517: mini-runtime grow/GC-arena/EH-tables gaps, discharged stage 3).
-- **NEXT: Phase IV stage 2** — format v0.5 + deserializer→CompiledWasm
-  (ADR-0203 D3+D2 first half). Kickoff PR #136 = Phase I+II+ADR-0203.
+- **Stage 1 MERGED #137** (@0ea6db833); kickoff #136. **Stage 2 IN PROGRESS
+  (develop/aot-stage2-format-v05)**: D-519 gate DONE (dbg.anyActive +
+  produce refusal; D-519 closed) · **ADR-0203 D3 AMENDED (Revision)**:
+  format v0.5 EMBEDS the original wasm_bytes (setup re-decodes ~15 sections
+  from it — hand it the real thing; zero re-encode divergence). Remaining
+  stage-2 work — full field/section list + ownership rules + the
+  setupRuntimeLinked round-trip EXIT TEST are specified in the ADR-0203
+  Revision + `private/notes/aot-stage2-survey.md`: (1) format v0.5
+  (version bump, header fields, trailing sections incl. wasm_bytes,
+  func_meta += oob_stub_off/raw_typeidx); (2) deserializer
+  `aot/load_compiled.zig` → real CompiledWasm; (3) exit test: produce →
+  deserialize → setup(deserialized, embedded bytes) → invoke == fresh.
 
 ## Active front — G-senior-gap (2026-07-06, /continue entry point)
 
