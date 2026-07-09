@@ -44,7 +44,6 @@ const abi = @import("../../abi.zig");
 const gpr = @import("../../gpr.zig");
 const inst = @import("../../inst.zig");
 const jit_abi = @import("../../../shared/jit_abi.zig");
-const trampoline_mod = @import("../../../shared/throw_trampoline.zig");
 const zir = @import("../../../../../ir/zir.zig");
 
 pub const op_tag = meta.op_tag;
@@ -123,26 +122,17 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(0, tag_lo));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(0, tag_hi, 1));
 
-    const addr: u64 = @intFromPtr(&trampoline_mod.zwasmThrowTrampoline);
-    try emitTrampolineCallAndTrap(ctx, addr);
+    try emitTrampolineCallAndTrap(ctx, jit_abi.throw_trampoline_fn_off);
 }
 
 /// Shared emit for `throw` + `throw_ref` (`throw_ref` re-uses the
-/// same address-load + BLR + trap-stub-fallback shape this cycle;
-/// the two will diverge once exnref handling lands).
-pub fn emitTrampolineCallAndTrap(ctx: *ctx_mod.EmitCtx, trampoline_addr: u64) ctx_mod.Error!void {
-    // MOVZ X16, #(addr[0..16])
-    const w0: u16 = @intCast(trampoline_addr & 0xFFFF);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(scratch, w0));
-    // MOVK X16, #(addr[16..32]), LSL #16
-    const w1: u16 = @intCast((trampoline_addr >> 16) & 0xFFFF);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(scratch, w1, 1));
-    // MOVK X16, #(addr[32..48]), LSL #32
-    const w2: u16 = @intCast((trampoline_addr >> 32) & 0xFFFF);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(scratch, w2, 2));
-    // MOVK X16, #(addr[48..64]), LSL #48
-    const w3: u16 = @intCast((trampoline_addr >> 48) & 0xFFFF);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(scratch, w3, 3));
+/// same slot-load + BLR + trap-stub-fallback shape this cycle; the
+/// two will diverge once exnref handling lands). The trampoline is
+/// reached through its `JitRuntime` slot (ADR-0203 D1 — never a
+/// baked imm64, the D-516 PIC invariant).
+pub fn emitTrampolineCallAndTrap(ctx: *ctx_mod.EmitCtx, trampoline_slot_off: u12) ctx_mod.Error!void {
+    // LDR X16, [X19, #slot]
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(scratch, abi.runtime_ptr_save_gpr, trampoline_slot_off));
     // BLR X16 — call the trampoline. Returns here with trap_flag=1.
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBLR(scratch));
     // B <trap_stub> — patched at function-end. D-292 C: route to the dedicated

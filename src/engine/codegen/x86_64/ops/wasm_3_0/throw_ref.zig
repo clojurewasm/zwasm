@@ -18,7 +18,6 @@ const gpr = @import("../../gpr.zig");
 const inst = @import("../../inst.zig");
 const jit_abi = @import("../../../shared/jit_abi.zig");
 const op_call = @import("../../op_call.zig");
-const trampoline_mod = @import("../../../shared/throw_trampoline.zig");
 const throw_op = @import("throw.zig");
 const zir = @import("../../../../../ir/zir.zig");
 
@@ -42,7 +41,8 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     if (exn_reg != arg1) try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.q, arg1, exn_reg).slice());
     // arg0 = rt; CALL rethrowFromExnref → RAX = tag_idx, payload restored.
     try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.q, arg0, abi.runtime_ptr_save_gpr).slice());
-    try ctx.buf.appendSlice(ctx.allocator, inst.encMovImm64Q(.r10, @intFromPtr(&jit_abi.rethrowFromExnref)).slice());
+    // ADR-0203 D1 — helper via the rt slot ([R15+off]), not a baked imm64 (D-516 PIC).
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromMemDisp32(.r10, abi.runtime_ptr_save_gpr, jit_abi.rethrow_exnref_fn_off).slice());
     // Win64: rethrowFromExnref is a regular C-ABI fn that homes its reg args
     // to the 32-byte shadow space; reserve it (no-op on SysV / when the frame
     // already reserves outgoing space). D-327 Win64 fix.
@@ -53,6 +53,6 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     // first-arg reg as the throw-site tag indicator (mirror of throw.emit's
     // marshal). The trampoline call below only clobbers R10, so arg0 survives.
     try ctx.buf.appendSlice(ctx.allocator, inst.encMovRR(.d, arg0, abi.return_gpr).slice());
-    try throw_op.emitTrampolineCallAndTrap(ctx, @intFromPtr(&trampoline_mod.zwasmThrowTrampoline));
+    try throw_op.emitTrampolineCallAndTrap(ctx, jit_abi.throw_trampoline_fn_off);
     ctx.dead_code.* = true;
 }

@@ -55,11 +55,8 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(2, @intCast(arg2 & 0xFFFF)));
     if (arg2 >> 16 != 0) try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(2, @intCast((arg2 >> 16) & 0xFFFF), 1));
     // MOVZ/MOVK X16 = &jitGcRefTest; BLR X16 → W0 = 0/1.
-    const addr: u64 = @intFromPtr(&jit_abi.jitGcRefTest);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(scratch, @intCast(addr & 0xFFFF)));
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(scratch, @intCast((addr >> 16) & 0xFFFF), 1));
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(scratch, @intCast((addr >> 32) & 0xFFFF), 2));
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(scratch, @intCast((addr >> 48) & 0xFFFF), 3));
+    // ADR-0203 D1 — helper via the rt slot ([X19+off]), not a baked imm64 (D-516 PIC).
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(scratch, abi.runtime_ptr_save_gpr, jit_abi.gc_ref_test_fn_off));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBLR(scratch));
 
     // br_on_cast_fail: invert W0 = (W0 == 0) ? 1 : 0 so branchOnReg (which
