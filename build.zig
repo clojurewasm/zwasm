@@ -841,10 +841,11 @@ pub fn build(b: *std.Build) void {
     const fuzz_campaign_step = b.step("fuzz-campaign", "Run the fuzz loader over the gitignored campaign corpus (§14.3 nightly)");
     fuzz_campaign_step.dependOn(&run_fuzz_campaign.step);
 
-    // `zig build test-fuzz-exec` — D-469 interp-vs-JIT EXECUTION differential.
-    // Invokes each smith module's 0-param/single-scalar-result exports under BOTH
-    // engines (fuel-bounded) and reports value/trap divergences (a JIT-execute
-    // miscompile = a finding). REPORT-ONLY. Mac-host seed corpus; the campaign
+    // `zig build test-fuzz-exec` (alias `fuzz-diff`) — D-469/D-510 interp-vs-JIT
+    // EXECUTION differential. Invokes each module's 0-param/single-scalar-result
+    // exports under the interp AND two JIT lanes (`.auto` guard-page elision +
+    // `.explicit` inline check, ADR-0202) and gates on value/trap/memory-snapshot
+    // divergences (a JIT-execute miscompile = a finding). GATING. The campaign
     // corpus rides `zwasm-fuzz-exec <dir>` directly (gitignored, like the loader).
     const fuzz_exec_mod = createSanitizedModule(b, sanitize_opts, .{
         .root_source_file = b.path("test/fuzz/fuzz_exec.zig"),
@@ -862,9 +863,16 @@ pub fn build(b: *std.Build) void {
     // makes the committed gate actually compare functions. The wide campaign run
     // (122 funcs) rides `zwasm-fuzz-exec test/fuzz/corpus/campaign` directly.
     run_fuzz_exec.addArg(b.pathFromRoot("test/fuzz/corpus/exec_seed"));
+    // D-510 — committed regression corpus (wazero-fuzzcases-style): minimised
+    // past differential findings + hand-written memory-state / guard-boundary
+    // exercisers, replayed on every run.
+    run_fuzz_exec.addArg(b.pathFromRoot("test/fuzz/corpus/regression"));
     run_fuzz_exec.has_side_effects = true;
     const test_fuzz_exec_step = b.step("test-fuzz-exec", "Interp-vs-JIT execution differential fuzz (D-469)");
     test_fuzz_exec_step.dependOn(&run_fuzz_exec.step);
+    // D-510 — first-class name matching the debt-row/peer vocabulary; same gate.
+    const fuzz_diff_step = b.step("fuzz-diff", "Interp-vs-JIT differential over the committed corpora (= test-fuzz-exec; D-510)");
+    fuzz_diff_step.dependOn(&run_fuzz_exec.step);
 
     // `zig build test-realworld-run` — Phase 6 / §9.6 / 6.1
     // chunk b. Drives each fixture through `cli_run.runWasm`

@@ -33,6 +33,7 @@ test/e2e/json/
 test/fuzz/corpus/*
 !test/fuzz/corpus/seed/
 !test/fuzz/corpus/exec_seed/
+!test/fuzz/corpus/regression/
 
 # Generated headers (fetched by scripts/fetch_wasm_c_api.sh)
 include/wasm.h.upstream
