@@ -57,9 +57,20 @@ publish / cut over. No active campaign/bundle; no cron self-re-arm.
   RE-REGISTERED entries. **aot-diff 62/62 with ELIDED artifacts as the
   default output** · fuzz-diff green · Rosetta green. D-515 row (1)
   struck ((2) spec-corpus remains); ADR-0202 note: AOT elision ENABLED.
-- **NEXT**: merge #139 → rebase stage 4 → critique → PR · stage 5
-  (--cache, D-508 per ADR-0203 D5) · stage V retrospective →
-  **v2.2.0 release (user-directed)**.
+- Stage 4 critique #8 (17/20) fixed in-commit (non-D1-host reject added:
+  ElidedArtifactNeedsGuardedHost; oob_guard_boundary added to aot corpus →
+  **63/63 MATCH**); PR #140 in CI. **Stage 5 CODE-COMPLETE
+  (develop/aot-stage5-cache, stacked)** — D-508: `zwasm run --cache[=DIR]`
+  + `--cache-clear`; src/cli/cache.zig (SHA-256 key, versioned dir
+  zwasm-<ver>-<arch>-<os>-<bounds>, temp+atomic-rename, silent-miss
+  discipline w/ EXEMPT-FALLBACK per ADR-0203 D5); hit routes the artifact
+  through the CWAS full-fidelity path. **Measured: tinygo_json 9.2ms →
+  4.1ms (2.2x; user CPU 7.2→2.2ms = codegen skipped)**. Unit tests
+  (subdir/key/miss-hit-corrupt-clear) green; D-508 row closed.
+- **NEXT**: merge #140 → rebase stage 5 → critique → PR → merge · stage V
+  retrospective (debt reconcile · ADR-0203 status · bench record ·
+  docs/README --cache mention · lessons) → **v2.2.0 release
+  (user-directed: version bump + tag → release.yml)**.
 
 ## Active front — G-senior-gap (2026-07-06, /continue entry point)
 

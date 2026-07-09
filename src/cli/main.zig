@@ -39,6 +39,7 @@ const build_options = @import("build_options");
 const zwasm = @import("zwasm");
 
 const cli_run = zwasm.cli.run;
+const cli_cache = zwasm.cli.cache;
 const cli_compile = zwasm.cli.compile;
 const cli_dispatch = zwasm.cli.dispatch;
 const diag_print = zwasm.cli.diag_print;
@@ -131,6 +132,9 @@ pub fn main(init: std.process.Init) !void {
             defer env_vals.deinit(gpa);
             // ADR-0179 #3a-4 / D-314 — `--fuel` / `--timeout` / `--max-memory`.
             var limits: cli_run.Limits = .{};
+            var cache_enabled = false;
+            var cache_clear = false;
+            var cache_dir_arg: ?[]const u8 = null;
             var next_arg = arg_it.next();
             while (next_arg) |a| {
                 if (std.mem.eql(u8, a, "--invoke")) {
@@ -235,10 +239,21 @@ pub fn main(init: std.process.Init) !void {
                         std.process.exit(2);
                     };
                     next_arg = arg_it.next();
+                } else if (std.mem.eql(u8, a, "--cache") or std.mem.startsWith(u8, a, "--cache=")) {
+                    // ADR-0203 D5 / D-508 — transparent compilation cache.
+                    // `--cache` uses the platform default root; `--cache=DIR`
+                    // overrides it.
+                    cache_enabled = true;
+                    if (std.mem.startsWith(u8, a, "--cache=")) cache_dir_arg = a["--cache=".len..];
+                    next_arg = arg_it.next();
+                } else if (std.mem.eql(u8, a, "--cache-clear")) {
+                    cache_enabled = true;
+                    cache_clear = true;
+                    next_arg = arg_it.next();
                 } else break;
             }
             const path_arg = next_arg orelse {
-                try printlnErr(io, "usage: zwasm run [--invoke <name>] [--engine <interp|jit>] [--dir <host>[:<guest>]] [--env KEY=VAL] [--fuel <N>] [--timeout <ms>] [--max-memory <bytes>] [--max-table-elements <N>] <path.wasm> [args...]");
+                try printlnErr(io, "usage: zwasm run [--invoke <name>] [--engine <interp|jit>] [--dir <host>[:<guest>]] [--env KEY=VAL] [--fuel <N>] [--timeout <ms>] [--max-memory <bytes>] [--max-table-elements <N>] [--cache[=DIR]] [--cache-clear] <path.wasm> [args...]");
                 std.process.exit(2);
             };
             const path = try gpa.dupe(u8, path_arg);
@@ -252,6 +267,40 @@ pub fn main(init: std.process.Init) !void {
                 std.process.exit(1);
             };
             defer gpa.free(bytes);
+
+            // ADR-0203 D5 / D-508 — transparent compilation cache. Only a
+            // plain core module routes through the cache (an explicit
+            // `.cwasm` input IS the artifact; components have no artifact
+            // format). On a hit the cached artifact replaces `bytes` and the
+            // CWAS branch below runs it through the full-fidelity load path
+            // — the same flow a miss's freshly-produced artifact takes.
+            var cache_bytes: ?[]u8 = null;
+            defer if (cache_bytes) |cb| gpa.free(cb);
+            if (cache_enabled and bytes.len >= 4 and
+                std.mem.eql(u8, bytes[0..4], "\x00asm") and bytes.len >= 8 and bytes[6] != 0x01)
+            {
+                const root = cache_dir_arg orelse defaultCacheRoot(gpa, init) orelse {
+                    try printlnErr(io, "zwasm run: --cache could not resolve a cache directory (set HOME/XDG_CACHE_HOME/LOCALAPPDATA or pass --cache=DIR)");
+                    std.process.exit(2);
+                };
+                defer if (cache_dir_arg == null) gpa.free(@constCast(root));
+                if (cache_clear) try cli_cache.clear(gpa, io, root);
+                cache_bytes = cli_cache.lookupOrProduce(gpa, io, root, bytes) catch |e| {
+                    const err = e;
+                    var buf: [256]u8 = undefined;
+                    const msg = std.fmt.bufPrint(&buf, "zwasm run: cannot compile '{s}': {s}", .{ path, @errorName(err) }) catch "zwasm run: compile failed";
+                    try printlnErr(io, msg);
+                    std.process.exit(1);
+                };
+            } else if (cache_clear) {
+                const root = cache_dir_arg orelse defaultCacheRoot(gpa, init) orelse {
+                    try printlnErr(io, "zwasm run: --cache-clear could not resolve a cache directory");
+                    std.process.exit(2);
+                };
+                defer if (cache_dir_arg == null) gpa.free(@constCast(root));
+                try cli_cache.clear(gpa, io, root);
+            }
+            const run_bytes: []const u8 = cache_bytes orelse bytes;
 
             // Build argv for the WASI guest. Wasmtime's default is
             // argv[0] = wasm filename + any trailing args; mirror
@@ -269,8 +318,8 @@ pub fn main(init: std.process.Init) !void {
             // start-function behaviour (cache-hit == cache-miss). The
             // pre-stage-3 refusals (limits, typed invoke args) are gone —
             // both are wired through the shared path now.
-            if (bytes.len >= 4 and std.mem.eql(u8, bytes[0..4], "CWAS")) {
-                const code = cli_run.runWasmJitCaptured(gpa, io, bytes, invoke_name, argv_list.items, preopen_list.items, env_keys.items, env_vals.items, limits, null, invoke_args) catch |err| {
+            if (run_bytes.len >= 4 and std.mem.eql(u8, run_bytes[0..4], "CWAS")) {
+                const code = cli_run.runWasmJitCaptured(gpa, io, run_bytes, invoke_name, argv_list.items, preopen_list.items, env_keys.items, env_vals.items, limits, null, invoke_args) catch |err| {
                     var buf: [256]u8 = undefined;
                     const msg = std.fmt.bufPrint(&buf, "zwasm run: cannot run '{s}': {s}", .{ path, @errorName(err) }) catch "zwasm run: .cwasm run failed";
                     try printlnErr(io, msg);
@@ -282,7 +331,7 @@ pub fn main(init: std.process.Init) !void {
             // CM campaign D1-2 / D-306 — a component-layer module (preamble
             // version 0x0d, layer byte = 0x01) routes to the component host
             // (`runWasiP2Main`), not the core-module runner. stdio subset.
-            if (bytes.len >= 8 and std.mem.eql(u8, bytes[0..4], "\x00asm") and bytes[6] == 0x01) {
+            if (run_bytes.len >= 8 and std.mem.eql(u8, run_bytes[0..4], "\x00asm") and run_bytes[6] == 0x01) {
                 if (comptime !@import("build_options").enable_component) {
                     try printlnErr(io, "zwasm run: component support not compiled in (rebuild with -Dwasi=p2 or higher)");
                     std.process.exit(2);
@@ -292,7 +341,7 @@ pub fn main(init: std.process.Init) !void {
                     try printlnErr(io, "zwasm run: --fuel/--timeout/--max-memory are not wired for components yet (core modules only)");
                     std.process.exit(2);
                 }
-                const code = cli_run.runComponentWasi(gpa, io, bytes, argv_list.items, preopen_list.items) catch |err| {
+                const code = cli_run.runComponentWasi(gpa, io, run_bytes, argv_list.items, preopen_list.items) catch |err| {
                     var buf: [256]u8 = undefined;
                     const msg = std.fmt.bufPrint(&buf, "zwasm run: cannot run component '{s}': {s}", .{ path, @errorName(err) }) catch "zwasm run: component run failed";
                     try printlnErr(io, msg);
@@ -305,9 +354,9 @@ pub fn main(init: std.process.Init) !void {
             // D-477 — typed `--invoke NAME=ARGS` now also runs on the JIT engine
             // (marshalled through the generalized buffer-write thunk).
             const code = (if (engine_jit)
-                cli_run.runWasmJitCaptured(gpa, io, bytes, invoke_name, argv_list.items, preopen_list.items, env_keys.items, env_vals.items, limits, null, invoke_args)
+                cli_run.runWasmJitCaptured(gpa, io, run_bytes, invoke_name, argv_list.items, preopen_list.items, env_keys.items, env_vals.items, limits, null, invoke_args)
             else
-                cli_run.runWasmCapturedOpts(gpa, io, bytes, argv_list.items, null, invoke_name, preopen_list.items, env_keys.items, env_vals.items, invoke_args, limits)) catch |err| {
+                cli_run.runWasmCapturedOpts(gpa, io, run_bytes, argv_list.items, null, invoke_name, preopen_list.items, env_keys.items, env_vals.items, invoke_args, limits)) catch |err| {
                 // Per ADR-0016 phase 1: prefer the structured
                 // diagnostic when one was set; fall back to the
                 // legacy `@errorName` form for unwired sites.
@@ -354,6 +403,31 @@ pub fn main(init: std.process.Init) !void {
         },
     );
     try stdout.flush();
+}
+
+/// Platform default cache root for `--cache` (ADR-0203 D5): the user
+/// cache directory + "/zwasm". Resolved from the environment the same way
+/// wasmtime/wazero do; null when no suitable variable is set (the caller
+/// surfaces a usage error suggesting `--cache=DIR`). Caller frees.
+fn defaultCacheRoot(gpa: std.mem.Allocator, init: std.process.Init) ?[]const u8 {
+    const builtin = @import("builtin");
+    switch (builtin.target.os.tag) {
+        .windows => {
+            const base = init.environ_map.get("LOCALAPPDATA") orelse return null;
+            return std.fmt.allocPrint(gpa, "{s}\\zwasm", .{base}) catch null;
+        },
+        .macos => {
+            const home = init.environ_map.get("HOME") orelse return null;
+            return std.fmt.allocPrint(gpa, "{s}/Library/Caches/zwasm", .{home}) catch null;
+        },
+        else => {
+            if (init.environ_map.get("XDG_CACHE_HOME")) |x| {
+                return std.fmt.allocPrint(gpa, "{s}/zwasm", .{x}) catch null;
+            }
+            const home = init.environ_map.get("HOME") orelse return null;
+            return std.fmt.allocPrint(gpa, "{s}/.cache/zwasm", .{home}) catch null;
+        },
+    }
 }
 
 fn printlnErr(io: std.Io, msg: []const u8) !void {
