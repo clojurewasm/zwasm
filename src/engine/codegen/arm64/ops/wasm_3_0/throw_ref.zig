@@ -16,7 +16,6 @@ const abi = @import("../../abi.zig");
 const gpr = @import("../../gpr.zig");
 const inst = @import("../../inst.zig");
 const jit_abi = @import("../../../shared/jit_abi.zig");
-const trampoline_mod = @import("../../../shared/throw_trampoline.zig");
 const throw_op = @import("throw.zig");
 const zir = @import("../../../../../ir/zir.zig");
 
@@ -32,13 +31,11 @@ pub const is_safepoint: bool = false;
 /// X16 = IP0 (intra-procedure scratch, AAPCS64 §6.4 caller-saved).
 const scratch: inst.Xn = 16;
 
-/// MOVZ/MOVK X16 = abs addr; BLR X16 (a plain absolute call, no trap-stub
-/// fallback — `rethrowFromExnref` returns normally).
-fn emitAbsCall(ctx: *ctx_mod.EmitCtx, addr: u64) ctx_mod.Error!void {
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(scratch, @intCast(addr & 0xFFFF)));
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(scratch, @intCast((addr >> 16) & 0xFFFF), 1));
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(scratch, @intCast((addr >> 32) & 0xFFFF), 2));
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(scratch, @intCast((addr >> 48) & 0xFFFF), 3));
+/// LDR X16, [X19, #slot_off]; BLR X16 — call a helper through its
+/// `JitRuntime` slot (ADR-0203 D1: never a baked imm64, D-516 PIC). Plain
+/// call, no trap-stub fallback — `rethrowFromExnref` returns normally.
+fn emitSlotCall(ctx: *ctx_mod.EmitCtx, slot_off: u12) ctx_mod.Error!void {
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(scratch, abi.runtime_ptr_save_gpr, slot_off));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBLR(scratch));
 }
 
@@ -54,6 +51,6 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
     // (it only clobbers X16), so the dispatcher reads it as the throw-site
     // tag exactly like `throw`.
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr));
-    try emitAbsCall(ctx, @intFromPtr(&jit_abi.rethrowFromExnref));
-    try throw_op.emitTrampolineCallAndTrap(ctx, @intFromPtr(&trampoline_mod.zwasmThrowTrampoline));
+    try emitSlotCall(ctx, jit_abi.rethrow_exnref_fn_off);
+    try throw_op.emitTrampolineCallAndTrap(ctx, jit_abi.throw_trampoline_fn_off);
 }

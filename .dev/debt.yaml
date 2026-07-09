@@ -3,51 +3,49 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
-  - id: "D-516"
+  - id: "D-519"
     layer: "code"
-    status: "now"
+    status: "note"
     description: |-
-      Front AOT-full-fidelity (campaign stage-1 target; found 2026-07-09 by
-      direct experiment). **`zwasm compile` silently produces a `.cwasm` that
-      fatally crashes when run in a fresh process** for any module whose
-      codegen bakes a Zig-helper absolute address: 13 helpers
-      (`jitCallIndirectResolve`, `jitGcAlloc` + GC array family,
-      `jitGcRefCast`/`RefTest`, `rethrowFromExnref`) are emitted as
-      MOVZ/MOVK / movabs imm64 across ~32 op files; the only `.cwasm` reloc
-      kind is `direct_call`; zwasm is PIE so per-exec ASLR invalidates the
-      baked addresses. REPRO: struct.new module → `run` ok(42) / `compile`
-      exit 0 (NO refusal) / `run x.cwasm` = "internal error — caught a fatal
-      signal" exit 70. call_indirect happens to survive (elem-initialized
-      slots pre-resolved; helper only on the lazy path — still a landmine).
-      FIX (campaign): route all 13 helpers through JitRuntime struct fields
-      called via [rt+off] (the `memory_grow_fn` precedent; wazero's
-      context-register pattern) — makes code bytes fully PIC and fixes fresh
-      JIT + AOT alike. INTERIM correctness stopgap if the campaign pauses:
-      producer refuses modules whose FuncResults contain baked-helper sites.
+      Front AOT-full-fidelity (DA-critique finding on stage 1, 2026-07-09).
+      **dbg-gated absolute-address emission survives the ADR-0203 D1
+      de-baking**: `ZWASM_DEBUG=jit.callcount` (x86_64 emit.zig:328-331) and
+      `global.trace` (both op_globals.zig) bake this process's
+      `call_profile` addresses into emitted code — `dbg.on` is a RUNTIME env
+      check in Debug/ReleaseSafe, so a diagnostic-enabled `zwasm compile`
+      can still produce a `.cwasm` that writes foreign addresses when run
+      elsewhere (the D-516 silent-corruption class, resurrected via a
+      developer flag). NOT gated in stage 1 (adding an Error variant to the
+      shared runner Error set widens every exhaustive-switch caller —
+      platform_panic_vs_error class concern). CLOSE at ADR-0203 stage 2:
+      the produce/serialization gate refuses dbg-instrumented compiles
+      (produce-side check or a `compiled_with_dbg` bit refused at load).
     first_raised: "2026-07-09"
     last_reviewed: "2026-07-09"
     refs: |-
-      .dev/meta_audits/2026-07-09-aot-full-fidelity-investigation.md
-      src/engine/codegen/arm64/op_call.zig:314-319 (bake shape)
-      src/engine/codegen/x86_64/op_call.zig:500 (movabs mirror)
-      src/engine/codegen/aot/produce.zig (no GC/EH/call_indirect refusal)
+      .devils-advocate/logs/check-6-critique-2026-07-09-1743.md (edge-cases)
+      src/engine/codegen/x86_64/emit.zig:328-331
+      src/engine/codegen/arm64/op_globals.zig:119-134
+      .dev/decisions/0203_aot_full_fidelity.md (stage 2)
     front: AOT-full-fidelity
   - id: "D-517"
     layer: "code"
     status: "note"
     description: |-
-      Front AOT-full-fidelity (Phase II characterization, 2026-07-09).
-      **`memory.grow` is unsupported on the `.cwasm` run path** — the AOT
-      mini-runtime allocs min_pages plain-heap per call (aot/run.zig:154-163;
-      zero `grow` hits in aot/{run,load}.zig), so guest grow returns -1:
-      EVERY realworld Go fixture dies "runtime: out of memory" (7 fixtures,
-      exit 2) and rust_compression aborts ("memory allocation ... failed" →
-      unreachable trap), while the same `.wasm` runs fine. Pinned as
-      `.wrong_result` rows in test/aot/aot_process_diff.zig's expectation
-      table. Discharged BY ARCHITECTURE when the campaign's full-runtime
-      load path lands (deserialize-into-CompiledWasm → setupRuntimeLinked
-      binds the same growable reservation-backed memory as fresh JIT); the
-      harness's RATCHET-FLIP gate forces the table update in that PR.
+      Front AOT-full-fidelity (Phase II characterization, 2026-07-09;
+      WIDENED post-stage-1: covers ALL mini-runtime state gaps, not just
+      grow). **The `.cwasm` mini-runtime lacks runtime state the full JIT
+      has**: (a) `memory.grow` — plain-heap min_pages per call, grow returns
+      -1: every realworld Go fixture dies OOM (8 fixtures) + rust/cpp/c
+      alloc-aborts, while the same `.wasm` runs fine; (b) NO GC arena —
+      post-D-516-de-baking a GC .cwasm deterministically fatal-signals on
+      null `gc_heap`; (c) NO EH tables (not serialized) — a throw/catch
+      .cwasm traps `uncaught_exception` instead of catching. All pinned as
+      `.wrong_result` rows in test/aot/aot_process_diff.zig. Discharged BY
+      ARCHITECTURE at ADR-0203 stage 3 (deserialize-into-CompiledWasm →
+      setupRuntimeLinked binds growable guarded memory + GC arena + EH
+      registry exactly like fresh JIT); the RATCHET-FLIP gate forces the
+      table update in that PR.
     first_raised: "2026-07-09"
     last_reviewed: "2026-07-09"
     refs: |-

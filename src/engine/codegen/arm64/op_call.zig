@@ -311,11 +311,8 @@ fn emitCallIndirectSubtype(
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(1, @intCast(table_idx)));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(3, @intCast(expected_raw)));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encOrrReg(0, 31, abi.runtime_ptr_save_gpr));
-    const addr: u64 = @intFromPtr(&jit_abi.jitCallIndirectResolve);
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovzImm16(16, @intCast(addr & 0xFFFF)));
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(16, @intCast((addr >> 16) & 0xFFFF), 1));
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(16, @intCast((addr >> 32) & 0xFFFF), 2));
-    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encMovkImm16(16, @intCast((addr >> 48) & 0xFFFF), 3));
+    // ADR-0203 D1 — helper via the rt slot ([X19+off]), not a baked imm64 (D-516 PIC).
+    try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, abi.runtime_ptr_save_gpr, jit_abi.call_indirect_resolve_fn_off));
     try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBLR(16));
 
     // X0 = funcptr | 0 (OOB / sig-subtype fail) | 1 (NULL_ELEM_SENTINEL).

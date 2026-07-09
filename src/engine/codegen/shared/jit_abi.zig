@@ -577,6 +577,34 @@ pub const JitRuntime = extern struct {
     /// codegen `@offsetOf` unchanged. Null when the module has no host-func
     /// imports the bridge covers (WASI-only / no-import modules).
     host_payloads_base: ?[*]const usize = null,
+
+    // ADR-0203 D1 (D-516) — position-independence: Zig-helper entry points
+    // the JIT body calls, held as fn-pointer fields and reached via
+    // `[rt + offset]` (the `memory_grow_fn` pattern) instead of imm64
+    // addresses baked into emitted code. Baked addresses are the producing
+    // process's and die under per-exec ASLR when a `.cwasm` is reloaded —
+    // the field defaults below resolve in the RUNNING process (ordinary
+    // binary relocation), so every JitRuntime is correct without setup
+    // wiring and the emitted code bytes carry no absolute addresses.
+    // TRAILING — appended so existing codegen `@offsetOf` values are
+    // unchanged. All target functions take `rt` first and are
+    // self-contained, so the real helpers ARE the defaults.
+    call_indirect_resolve_fn: *const fn (rt: *JitRuntime, table_idx: u32, idx: u64, expected_typeidx: u32) callconv(.c) u64 = jitCallIndirectResolve,
+    gc_alloc_fn: *const fn (rt: *JitRuntime, typeidx: u32) callconv(.c) u32 = jitGcAlloc,
+    gc_alloc_array_fn: *const fn (rt: *JitRuntime, typeidx: u32, length: u32) callconv(.c) u32 = jitGcAllocArray,
+    gc_alloc_array_fill_fn: *const fn (rt: *JitRuntime, typeidx: u32, length: u32, init: u64) callconv(.c) u32 = jitGcAllocArrayFill,
+    gc_array_fill_fn: *const fn (rt: *JitRuntime, typeidx: u32, ref: u32, idx: u32, value: u64, count: u32) callconv(.c) u32 = jitGcArrayFill,
+    gc_array_copy_fn: *const fn (rt: *JitRuntime, dst_ref: u32, dst_off: u32, src_ref: u32, src_off: u32, len: u32) callconv(.c) u32 = jitGcArrayCopy,
+    gc_array_new_data_fn: *const fn (rt: *JitRuntime, typeidx: u32, segidx: u32, offset: u32, size: u32) callconv(.c) u32 = jitGcArrayNewData,
+    gc_array_new_elem_fn: *const fn (rt: *JitRuntime, typeidx: u32, segidx: u32, offset: u32, size: u32) callconv(.c) u32 = jitGcArrayNewElem,
+    gc_array_init_data_fn: *const fn (rt: *JitRuntime, segidx: u32, ref: u32, dst_off: u32, src_off: u32, len: u32) callconv(.c) u32 = jitGcArrayInitData,
+    gc_array_init_elem_fn: *const fn (rt: *JitRuntime, segidx: u32, ref: u32, dst_off: u32, src_off: u32, len: u32) callconv(.c) u32 = jitGcArrayInitElem,
+    gc_ref_test_fn: *const fn (rt: *JitRuntime, ref: u64, ht_nullbit: u32) callconv(.c) u32 = jitGcRefTest,
+    gc_ref_cast_fn: *const fn (rt: *JitRuntime, ref: u64, ht: u32) callconv(.c) u64 = jitGcRefCast,
+    rethrow_exnref_fn: *const fn (rt: *JitRuntime, exc_ptr: usize) callconv(.c) u32 = rethrowFromExnref,
+    /// The `throw`/`throw_ref` unwind entry (`callconv(.naked)`; reads its
+    /// arguments from the registers the op emit stages) — same D1 motive.
+    throw_trampoline_fn: *const fn () callconv(.naked) noreturn = @import("throw_trampoline.zig").zwasmThrowTrampoline,
 };
 
 /// Host-side context for `reifyExnref` (ADR-0120 D6 / D-327). Owns the
@@ -1437,6 +1465,22 @@ pub const trap_stub_entry_count_off: u12 = @offsetOf(JitRuntime, "trap_stub_entr
 /// reads ptr+count via `[X19/R15 + off]` to materialize
 /// `ExceptionTable` + `CodeMap` slices for `dispatchThrow`.
 pub const eh_table_entries_off: u12 = @offsetOf(JitRuntime, "eh_table_entries");
+// ADR-0203 D1 (D-516) — de-baked helper slots; X-form (8-byte fn pointers)
+// read via `LDR Xn, [X19, #off]` / `MOV rax, [R15 + off]` then BLR/CALL.
+pub const call_indirect_resolve_fn_off: u12 = @offsetOf(JitRuntime, "call_indirect_resolve_fn");
+pub const gc_alloc_fn_off: u12 = @offsetOf(JitRuntime, "gc_alloc_fn");
+pub const gc_alloc_array_fn_off: u12 = @offsetOf(JitRuntime, "gc_alloc_array_fn");
+pub const gc_alloc_array_fill_fn_off: u12 = @offsetOf(JitRuntime, "gc_alloc_array_fill_fn");
+pub const gc_array_fill_fn_off: u12 = @offsetOf(JitRuntime, "gc_array_fill_fn");
+pub const gc_array_copy_fn_off: u12 = @offsetOf(JitRuntime, "gc_array_copy_fn");
+pub const gc_array_new_data_fn_off: u12 = @offsetOf(JitRuntime, "gc_array_new_data_fn");
+pub const gc_array_new_elem_fn_off: u12 = @offsetOf(JitRuntime, "gc_array_new_elem_fn");
+pub const gc_array_init_data_fn_off: u12 = @offsetOf(JitRuntime, "gc_array_init_data_fn");
+pub const gc_array_init_elem_fn_off: u12 = @offsetOf(JitRuntime, "gc_array_init_elem_fn");
+pub const gc_ref_test_fn_off: u12 = @offsetOf(JitRuntime, "gc_ref_test_fn");
+pub const gc_ref_cast_fn_off: u12 = @offsetOf(JitRuntime, "gc_ref_cast_fn");
+pub const rethrow_exnref_fn_off: u12 = @offsetOf(JitRuntime, "rethrow_exnref_fn");
+pub const throw_trampoline_fn_off: u12 = @offsetOf(JitRuntime, "throw_trampoline_fn");
 pub const eh_table_count_off: u12 = @offsetOf(JitRuntime, "eh_table_count");
 pub const eh_code_map_entries_off: u12 = @offsetOf(JitRuntime, "eh_code_map_entries");
 pub const eh_code_map_count_off: u12 = @offsetOf(JitRuntime, "eh_code_map_count");
@@ -1613,6 +1657,17 @@ comptime {
     if ((gc_type_infos_ptr_off & 7) != 0) @compileError("gc_type_infos_ptr_off not 8-aligned");
     if (gc_heap_off > 32760) @compileError("gc_heap_off exceeds X-form imm12 budget");
     if (gc_type_infos_ptr_off > 32760) @compileError("gc_type_infos_ptr_off exceeds X-form imm12 budget");
+    // ADR-0203 D1 (D-516): de-baked helper slots — all X-form fn pointers.
+    for ([_]u12{
+        call_indirect_resolve_fn_off, gc_alloc_fn_off,          gc_alloc_array_fn_off,
+        gc_alloc_array_fill_fn_off,   gc_array_fill_fn_off,     gc_array_copy_fn_off,
+        gc_array_new_data_fn_off,     gc_array_new_elem_fn_off, gc_array_init_data_fn_off,
+        gc_array_init_elem_fn_off,    gc_ref_test_fn_off,       gc_ref_cast_fn_off,
+        rethrow_exnref_fn_off,        throw_trampoline_fn_off,
+    }) |off| {
+        if ((off & 7) != 0) @compileError("ADR-0203 helper fn slot not 8-aligned");
+        if (off > 32760) @compileError("ADR-0203 helper fn slot exceeds X-form imm12 budget");
+    }
 }
 
 // ============================================================
@@ -1633,7 +1688,7 @@ test "JitRuntime: layout offsets match documented prologue load sequence" {
     try testing.expectEqual(@as(u12, 80), jit_executed_flag_off);
 }
 
-test "JitRuntime: total size = 608 bytes" {
+test "JitRuntime: total size = 720 bytes" {
     // EH dispatcher fields appended
     // (+32 bytes = 2 ptrs × 8 B + 2 u32 × 4 B + 2 u32 pads × 4 B).
     // The handler-dispatch result fields
@@ -1656,7 +1711,8 @@ test "JitRuntime: total size = 608 bytes" {
     // `eh_thrown_tag_idx` (u32 +4) + `_pad_reify` (+4) → 568 + 24 = 592.
     // D-314(b) appends `store_table_elements_max` (u64 +8, trailing) → 592 + 8 = 600.
     // D-478 appends `host_payloads_base` (?[*]const usize +8 B, trailing) → 600 + 8 = 608.
-    try testing.expectEqual(@as(u32, 608), head_size);
+    // ADR-0203 D1 appends 14 de-baked helper fn slots (trailing) → 608 + 112 = 720.
+    try testing.expectEqual(@as(u32, 720), head_size);
 }
 
 test "jitGcAlloc: allocates struct{i32} via the *JitRuntime bridge" {

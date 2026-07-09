@@ -497,8 +497,8 @@ pub fn emitCallIndirect(
         try buf.appendSlice(allocator, inst.encMovRR(.q, ag[0], abi.runtime_ptr_save_gpr).slice());
         try buf.appendSlice(allocator, inst.encMovImm32W(ag[1], table_idx).slice());
         try buf.appendSlice(allocator, inst.encMovImm32W(ag[3], expected_raw).slice());
-        const addr: u64 = @intFromPtr(&jit_abi.jitCallIndirectResolve);
-        try buf.appendSlice(allocator, inst.encMovImm64Q(.rax, addr).slice());
+        // ADR-0203 D1 — helper via the rt slot ([R15+off]), not a baked imm64 (D-516 PIC).
+        try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.call_indirect_resolve_fn_off).slice());
         try buf.appendSlice(allocator, inst.encCallReg(.rax).slice());
         // RAX = funcptr | 0 (OOB/sig) | 1 (NULL_ELEM_SENTINEL). D-294 residual:
         // CMP RAX,1 ; JE → uninitialized_elem (code 13) FIRST, so a null elem under

@@ -369,6 +369,7 @@ test {
     _ = @import("engine/runner.zig");
     _ = @import("engine/runner_test.zig");
     _ = @import("engine/runner_gc_test.zig");
+    _ = @import("engine/pic_helper_test.zig");
     _ = @import("engine/runner_v128_jit_test.zig");
     _ = @import("engine/runner_multiarg_invoke_test.zig");
     _ = @import("engine/runner_trap_test.zig");

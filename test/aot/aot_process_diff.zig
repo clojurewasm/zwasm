@@ -52,8 +52,11 @@ const KnownEntry = struct { name: []const u8, exp: Expectation };
 // Keys are fixture basenames (unique across all driven corpora).
 const known_table = [_]KnownEntry{
     // Crafted corpus (test/aot/corpus/) — pinned by Phase I experiments.
-    .{ .name = "gc_struct.wasm", .exp = .{ .unsound = "D-516 baked jitGcAlloc address" } },
-    .{ .name = "eh_throw.wasm", .exp = .{ .unsound = "D-516 baked EH helper + unserialized EH tables" } },
+    // Post-ADR-0203-D1 de-baking these are DETERMINISTIC (the helper is
+    // reached via the rt slot; what remains is the mini-runtime's missing
+    // state, discharged by the stage-3 full-runtime load path):
+    .{ .name = "gc_struct.wasm", .exp = .{ .wrong_result = "D-517 mini-runtime has no GC arena (null gc_heap -> fatal signal)" } },
+    .{ .name = "eh_throw.wasm", .exp = .{ .wrong_result = "D-517 EH tables not serialized -> uncaught_exception instead of catch" } },
     .{ .name = "mem_grow.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported on the cwasm run path" } },
     .{ .name = "start_func.wasm", .exp = .{ .wrong_result = "D-518 start function not serialized (silently skipped)" } },
     // Realworld corpus — every Go runtime heap-grows at startup and every

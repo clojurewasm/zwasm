@@ -38,7 +38,6 @@ const abi = @import("../../abi.zig");
 const gpr = @import("../../gpr.zig");
 const inst = @import("../../inst.zig");
 const jit_abi = @import("../../../shared/jit_abi.zig");
-const trampoline_mod = @import("../../../shared/throw_trampoline.zig");
 const zir = @import("../../../../../ir/zir.zig");
 
 pub const op_tag = meta.op_tag;
@@ -92,16 +91,17 @@ pub fn emit(ctx: *ctx_mod.EmitCtx, ins: *const zir.ZirInstr) ctx_mod.Error!void 
         inst.Gpr.rdi;
     try ctx.buf.appendSlice(ctx.allocator, inst.encMovImm32W(first_arg_reg, tag_idx).slice());
 
-    const addr: u64 = @intFromPtr(&trampoline_mod.zwasmThrowTrampoline);
-    try emitTrampolineCallAndTrap(ctx, addr);
+    try emitTrampolineCallAndTrap(ctx, jit_abi.throw_trampoline_fn_off);
     ctx.dead_code.* = true;
 }
 
-/// Shared emit for `throw` + `throw_ref` (same shape for now;
-/// will diverge once exnref handling lands).
-pub fn emitTrampolineCallAndTrap(ctx: *ctx_mod.EmitCtx, trampoline_addr: u64) ctx_mod.Error!void {
-    // MOVABS R10, <trampoline_addr> — 10 bytes.
-    try ctx.buf.appendSlice(ctx.allocator, inst.encMovImm64Q(.r10, trampoline_addr).slice());
+/// Shared emit for `throw` + `throw_ref` (same shape for now; will
+/// diverge once exnref handling lands). The trampoline is reached
+/// through its `JitRuntime` slot (ADR-0203 D1 — never a baked
+/// imm64, the D-516 PIC invariant).
+pub fn emitTrampolineCallAndTrap(ctx: *ctx_mod.EmitCtx, trampoline_slot_off: u12) ctx_mod.Error!void {
+    // MOV R10, [R15 + slot] — 7-8 bytes.
+    try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromMemDisp32(.r10, abi.runtime_ptr_save_gpr, trampoline_slot_off).slice());
     // CALL R10 — 3 bytes (REX.B + FF /2).
     try ctx.buf.appendSlice(ctx.allocator, inst.encCallReg(.r10).slice());
     // JMP rel32 placeholder — 5 bytes; patched at function-end. D-292 C: route to

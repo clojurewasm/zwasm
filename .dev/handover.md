@@ -24,33 +24,25 @@ publish / cut over. No active campaign/bundle; no cron self-re-arm.
   `.cwasm` = explicit `zwasm compile` output AND the transparent-cache value.
   A `.cwasm` must load back into the **FULL runtime** (cache-hit == cache-miss)
   covering ALL module classes; then **D-508** transparent `run --cache` on top.
-- **Phase I Investigation DONE** (findings doc:
-  `.dev/meta_audits/2026-07-09-aot-full-fidelity-investigation.md`; details in
-  `private/notes/aot-campaign-*.md`): **D-516 now-class bug** (13 baked helper
-  absolute addresses — GC/EH/call_indirect-lazy — PIE ASLR → `.cwasm` fatal
-  signal in a fresh process; `compile` emits it silently) · **D-517**
-  (memory.grow unsupported on cwasm path: ALL 7 Go + rust_compression die) ·
-  **D-518** (start func not serialized → silently skipped, wrong results) ·
-  ROI ~110ms compile tax on 3MB Go · architecture = deserialize-into-
-  CompiledWasm + reuse setupRuntimeLinked (bakes no absolutes); helper
-  de-baking via JitRuntime-field indirection (wazero pattern); trap table as
-  offset-relative side section (wasmtime, = D-515); two-tier gate; versioned
-  cache dir.
-- **Phase II correctness net = test/aot/aot_process_diff.zig** (`zig build
-  test-aot-diff`, in test-all) — CROSS-PROCESS `.wasm`-vs-`.cwasm` subprocess
-  diff (in-process lanes can't see ASLR staleness) over realworld + crafted
-  corpus (test/aot/corpus: GC/EH/call_indirect/grow/start). Baseline 46/62
-  match; known gaps pinned in the expectation table (.wrong_result =
-  deterministic D-517/D-518, RATCHET-FLIP forces table update in the fixing
-  PR; .unsound = D-516 ASLR class, report-only).
-- **Phase III design ADR = ADR-0203** (D1 helper de-baking via JitRuntime
-  fields · D2 deserialize-into-CompiledWasm + normal setup, mini-runtime
-  retired · D3 format v0.5 completing the round-trip + two-tier gate ·
-  D4 elision serialization = D-515(1) · D5 `--cache` transparent cache ·
-  D6 six-stage migration with test-aot-diff ratchet table).
-- **NEXT: Phase IV stage 1** — helper de-baking, both arches (D-516 fix;
-  bench guard >2% blocks). Branch/PR per stage; `ci-required` gates each.
-  Kickoff PR #136 = Phase I docs + Phase II net + ADR-0203.
+- **Phases I–III DONE** (PR #136): findings doc =
+  `.dev/meta_audits/2026-07-09-aot-full-fidelity-investigation.md` (D-516
+  baked-address crash bug found by experiment · D-517 mini-runtime gaps ·
+  D-518 start-func skipped · ROI ~110ms/3MB); Phase II net =
+  `zig build test-aot-diff` (CROSS-PROCESS `.wasm`-vs-`.cwasm` subprocess
+  diff — in-process lanes can't see ASLR staleness; expectation table with
+  RATCHET-FLIP gate); design = **ADR-0203** (D1 de-baking · D2 deserialize-
+  into-CompiledWasm + normal setup · D3 format v0.5 + two-tier gate ·
+  D4 elision serialization · D5 `--cache` · D6 six-stage plan).
+- **Phase IV stage 1 DONE (develop/aot-stage1-debaking)** — all
+  36 baked helper sites → `[rt+off]` slot calls (14 JitRuntime tail fields,
+  defaults = real helpers, zero setup wiring). **D-516 CLOSED.** Verified:
+  pic_helper_test interposition red→green · test green · Rosetta
+  x86_64-macos green · fuzz-diff 0 mismatch · bench = user-CPU parity
+  (beware bg-job wall-clock contamination) · aot-diff unsound class now
+  EMPTY (gc_struct/eh_throw deterministic → .wrong_result under widened
+  D-517: mini-runtime grow/GC-arena/EH-tables gaps, discharged stage 3).
+- **NEXT: Phase IV stage 2** — format v0.5 + deserializer→CompiledWasm
+  (ADR-0203 D3+D2 first half). Kickoff PR #136 = Phase I+II+ADR-0203.
 
 ## Active front — G-senior-gap (2026-07-06, /continue entry point)
 
