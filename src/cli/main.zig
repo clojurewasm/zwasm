@@ -161,6 +161,9 @@ pub fn main(init: std.process.Init) !void {
                         };
                     if (std.mem.eql(u8, mode, "jit")) {
                         engine_jit = true;
+                        // Last flag wins: undo a preceding `--engine interp`'s
+                        // sticky force (read by the cache + .cwasm gates).
+                        limits.engine = .auto;
                     } else if (std.mem.eql(u8, mode, "interp")) {
                         engine_jit = false;
                         // D-496 `.auto`→JIT flip: the default captured path now prefers
@@ -316,6 +319,14 @@ pub fn main(init: std.process.Init) !void {
             // pre-stage-3 refusals (limits, typed invoke args) are gone —
             // both are wired through the shared path now.
             if (run_bytes.len >= 4 and std.mem.eql(u8, run_bytes[0..4], "CWAS")) {
+                // D-496 spirit: an explicit `--engine interp` cannot be
+                // honoured for a precompiled JIT artifact — refuse loudly
+                // rather than silently running the JIT. (The cache path
+                // never reaches here under interp; it bypasses above.)
+                if (limits.engine == .interp) {
+                    try printlnErr(io, "zwasm run: --engine interp cannot run a .cwasm artifact (precompiled JIT code); run the original .wasm instead");
+                    std.process.exit(2);
+                }
                 const code = cli_run.runWasmJitCaptured(gpa, io, run_bytes, invoke_name, argv_list.items, preopen_list.items, env_keys.items, env_vals.items, limits, null, invoke_args) catch |err| {
                     var buf: [256]u8 = undefined;
                     const msg = std.fmt.bufPrint(&buf, "zwasm run: cannot run '{s}': {s}", .{ path, @errorName(err) }) catch "zwasm run: .cwasm run failed";

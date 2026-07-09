@@ -1,6 +1,7 @@
 # ADR-0203: AOT full fidelity — PIC helper indirection, format v0.5, full-runtime load, transparent cache
 
-- **Status**: Accepted (campaign design; user-ratified goal 2026-07-09)
+- **Status**: Implemented (stages 1–5 merged: PRs #137 #138 #139 #140 #141;
+  aot-diff 63/63 incl. cache lanes; D-508/515(1)/516/517/518/519 closed)
 - **Date**: 2026-07-09
 - **Front**: AOT-full-fidelity (D-508 / D-515 / D-516 / D-517 / D-518)
 - **Findings base**: `.dev/meta_audits/2026-07-09-aot-full-fidelity-investigation.md`

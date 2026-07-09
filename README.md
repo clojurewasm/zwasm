@@ -84,6 +84,8 @@ zwasm run <file.wasm|.cwasm> [args...] # run a module (WASI _start / main)
     [--timeout <ms>]                   #   interrupt after a wall-clock deadline
     [--max-memory <bytes>]             #   refuse memory.grow past this many bytes
     [--max-table-elements <N>]         #   refuse table growth past this many elements
+    [--cache[=DIR]]                    #   transparent compilation cache (content-keyed .cwasm reuse; a cache defect degrades, never fails the run)
+    [--cache-clear]                    #   delete this build's cache subdirectory (clear-only; combine with --cache to repopulate)
 zwasm compile <file.wasm> -o <out.cwasm>  # compile to a .cwasm AOT artifact
 zwasm --version | -V                   # version + build identity (wasm/wasi/engine)
 zwasm --help | -h | help

@@ -12,65 +12,38 @@ COMPLETE; the autonomous `/continue` loop is RETIRED. Dev model: cut a
 green to merge. **Release stays user-only (ADR-0156)** — never autonomously tag /
 publish / cut over. No active campaign/bundle; no cron self-re-arm.
 
-## Active rework campaign — AOT-full-fidelity (opened 2026-07-09, USER-RATIFIED)
+## AOT-full-fidelity campaign — stages 1–5 DONE, closing (ADR-0203)
 
-> **RELEASE DIRECTIVE (user, 2026-07-09)**: campaign stage V 完了後に
-> v2.2.0 タグ + リリース (ADR-0156 の明示指示として記録; version bump +
-> tag push → release.yml 自動)。headline = 透過キャッシュ + full-fidelity
-> AOT + PIC codegen.
+> **RELEASE DIRECTIVE (user, 2026-07-09)**: campaign V 完了後に v2.2.0
+> タグ + リリース (ADR-0156 の明示指示として記録; `build.zig.zon` version
+> bump + tag push → release.yml 自動)。headline = 透過キャッシュ (--cache,
+> 2.2x cold start) + full-fidelity AOT (.cwasm v0.5, aot-diff 63/63) +
+> PIC codegen (D-516 fix)。
 
-- **Goal (user directive)**: 本当の cwasm/AOT — deploy artifact stays `.wasm`;
-  `.cwasm` = explicit `zwasm compile` output AND the transparent-cache value.
-  A `.cwasm` must load back into the **FULL runtime** (cache-hit == cache-miss)
-  covering ALL module classes; then **D-508** transparent `run --cache` on top.
-- **Phases I–III DONE** (PR #136): findings doc =
-  `.dev/meta_audits/2026-07-09-aot-full-fidelity-investigation.md` (D-516
-  baked-address crash bug found by experiment · D-517 mini-runtime gaps ·
-  D-518 start-func skipped · ROI ~110ms/3MB); Phase II net =
-  `zig build test-aot-diff` (CROSS-PROCESS `.wasm`-vs-`.cwasm` subprocess
-  diff — in-process lanes can't see ASLR staleness; expectation table with
-  RATCHET-FLIP gate); design = **ADR-0203** (D1 de-baking · D2 deserialize-
-  into-CompiledWasm + normal setup · D3 format v0.5 + two-tier gate ·
-  D4 elision serialization · D5 `--cache` · D6 six-stage plan).
-- **Stage 1 MERGED #137** (36 helper bakes → `[rt+off]` slots, D-516
-  closed, interposition tests, bench parity). **Stage 2 MERGED #138**
-  (format v0.5: embedded wasm_bytes + func_extras + EH table; deserializer
-  `load_compiled.zig` — metadata re-derived, code re-linked via the same
-  linkWithThunks; `JitInstance.fromCompiled`; exit test green; D-519
-  closed). Kickoff #136.
-- **Stage 3 CODE-COMPLETE (develop/aot-stage3-runpath-swap)** — the CWAS
-  branch in runWasiLenientArgs routes `.cwasm` through deserialize + the
-  normal setup; CLI unified (main.zig CWAS refusals for limits/invoke-args
-  REMOVED — both now wired); mini-runtime RETIRED (aot/run.zig +
-  load.zig deleted; 8 runner_test round-trips rewritten to the new path);
-  expectation table EMPTIED — **aot-diff 62/62 ALL MATCH**. Bonus fix:
-  the lenient JIT path never ran `(start)` (Wasm §4.5.4) — pre-existing
-  `--engine jit` spec bug the differential caught; start now runs in
-  runWasiLenientArgsCore. D-517 + D-518 CLOSED; critique #7 18/20 fixed;
-  PR #139 in CI (GitHub queue congested; D-520 aggregator hole found live
-  + fixed: ci-required now FAILS when detect-changes fails).
-- **Stage 4 CODE-COMPLETE (develop/aot-stage4-elision, stacked)** —
-  D-515(1): `flag_bounds_elided` header bit; produce refusal +
-  compileWasmForAot forced-`.explicit` REMOVED (trap re-registration was
-  already unconditional in the re-link; allocBacking = no plain-heap
-  fallback). Unit: elided round-trip guard-faults to a clean trap via
-  RE-REGISTERED entries. **aot-diff 62/62 with ELIDED artifacts as the
-  default output** · fuzz-diff green · Rosetta green. D-515 row (1)
-  struck ((2) spec-corpus remains); ADR-0202 note: AOT elision ENABLED.
-- Stage 4 critique #8 (17/20) fixed in-commit (non-D1-host reject added:
-  ElidedArtifactNeedsGuardedHost; oob_guard_boundary added to aot corpus →
-  **63/63 MATCH**); PR #140 in CI. **Stage 5 CODE-COMPLETE
-  (develop/aot-stage5-cache, stacked)** — D-508: `zwasm run --cache[=DIR]`
-  + `--cache-clear`; src/cli/cache.zig (SHA-256 key, versioned dir
-  zwasm-<ver>-<arch>-<os>-<bounds>, temp+atomic-rename, silent-miss
-  discipline w/ EXEMPT-FALLBACK per ADR-0203 D5); hit routes the artifact
-  through the CWAS full-fidelity path. **Measured: tinygo_json 9.2ms →
-  4.1ms (2.2x; user CPU 7.2→2.2ms = codegen skipped)**. Unit tests
-  (subdir/key/miss-hit-corrupt-clear) green; D-508 row closed.
-- **NEXT**: merge #140 → rebase stage 5 → critique → PR → merge · stage V
-  retrospective (debt reconcile · ADR-0203 status · bench record ·
-  docs/README --cache mention · lessons) → **v2.2.0 release
-  (user-directed: version bump + tag → release.yml)**.
+- **Goal (user directive) ACHIEVED**: 本当の cwasm/AOT — deploy artifact
+  stays `.wasm`; `.cwasm` loads into the FULL runtime (cache-hit ==
+  cache-miss by construction); transparent `run --cache[=DIR]` on top.
+- **Merged**: kickoff #136 (phases I–III: findings meta_audit · cross-process
+  `test-aot-diff` net w/ RATCHET-FLIP table · ADR-0203 D1–D6) · stage 1 #137
+  (36 helper bakes → `[rt+off]` slots, D-516) · stage 2 #138 (format v0.5:
+  embedded wasm_bytes/func_extras/EH; `load_compiled.zig` deserializer;
+  D-519) · stage 3 #139 (run-path swap; mini-runtime DELETED; CWAS refusals
+  removed; §4.5.4 start-func JIT bug fixed; D-517+D-518; D-520 CI hole fixed)
+  · stage 4 #140 (elision serialization D-515(1); ElidedArtifactNeedsGuardedHost).
+- **Stage 5 PR #141 (in CI)** — D-508 `--cache`: src/cli/cache.zig, SHA-256
+  content key, versioned dir `zwasm-<ver>-<arch>-<os>-<bounds>`, measured
+  2.2x (tinygo_json 9.2→4.1ms). DA critique (14/20) fixes in-PR: HIT
+  header-gate + self-heal, compile-refusal = BYPASS (never exit 1), interp
+  bypass, unique temp, trust-model doc; aot-diff 63/63 W/ CACHE LANES.
+- **Stage V retro (develop/aot-campaign-v-retro, stacked on #141)**: bench
+  history recorded (parity, worst +1%) · ADR-0203 → Implemented · docs
+  (cli.md --cache + stale .cwasm claims fixed; README) · explicit
+  `.cwasm --engine interp` loud refusal + E2E · lesson
+  failure-path-tests-certified-the-defect · debt reconciled (68 rows;
+  D-515(2) spec-corpus-under-elision is the only campaign residual).
+- **NEXT**: merge #141 → rebase + PR retro branch → merge → **v2.2.0
+  release (user-directed: version bump + tag → release.yml)** → close
+  campaign section here.
 
 ## Active front — G-senior-gap (2026-07-06, /continue entry point)
 
@@ -79,13 +52,12 @@ Report = `.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`.
   Retrospective: measured scalar-elision perf ≈ NOISE — "biggest tier-free
   lever" REFUTED; the 1.75–3.9x gap vs wasmtime = optimising-tier codegen
   (**D-513**, user-gated). Elision kept (correct, code-size, base for D-509
-  threads). AOT elision DISABLED pending D-515. Follow-up **D-514** (SIMD
-  elision symmetry).
+  threads). AOT elision ENABLED at ADR-0203 stage 4 (D-515(1)). Follow-up
+  **D-514** (SIMD elision symmetry).
 - **G3 = D-510 COMPLETE** (#135) — committed `zig build fuzz-diff` gate:
   memory-snapshot compare + dual JIT lanes (`.auto`/`.explicit`) + regression
   corpus. 2008-module campaign 0 mismatch. D-515(2) partially covered.
-- **G2 = D-508 folded into the AOT-full-fidelity campaign** (above; scope
-  corrected — see the D-508 row).
+- **G2 = D-508 COMPLETE** via the AOT-full-fidelity campaign (above).
 - Then: D-314(a) epoch-counter · note-class D-509 (threads campaign, own
   kickoff + ADR) · D-511/D-512 (demand-driven) · **D-513 (user-gated)**.
 - Older demand-driven tail unchanged: D-444, D-506, D-502 residual, D-475
@@ -131,7 +103,7 @@ Report = `.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`.
   dogfooded into cljw (pins zwasm by git tag-hash). Runners ReleaseSafe.
 - **EH**: cross-instance JIT EH both arches. Interp+JIT EH corpus green. Realworld 56
   fixtures interp 56/0; JIT diff-gated.
-- **Debt**: 69 entries — **0 `now`-class** (D-505 DONE: 3 arm64-SIMD bitmask sites
+- **Debt**: 68 entries — **0 `now`-class** (D-505 DONE: 3 arm64-SIMD bitmask sites
   spill-aware, bitselect/fma SPILL-EXEMPT, spill_aware promoted to CI+gate_commit;
   follow-on D-506 = FP spill stage-2, note-class). 完成形 plateau (all dims
   confirmed, surface audits clean, interp+JIT fuzz 0-crash, v1-JIT parity D-265 closed).

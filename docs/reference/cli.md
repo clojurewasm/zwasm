@@ -36,24 +36,36 @@ parse/compile).
 | `--timeout <ms>`           | interrupt the guest (`interrupted` trap) after a wall-clock deadline — both engines                                                                                                                                                         |
 | `--max-memory <bytes>`     | refuse `memory.grow` past this many bytes (64 KiB page granularity); the spec `-1` failure, not a trap                                                                                                                                       |
 | `--max-table-elements <N>` | cap a module's **declared initial** table element count at load time (D-332); a module whose initial table exceeds `N` is refused. (Runtime `table.grow` past a table's own declared max already returns the spec `-1`.)                     |
+| `--cache[=DIR]`            | transparent compilation cache (ADR-0203): the module is keyed by content hash and the `.cwasm` artifact of a previous run is reused (parse/validate/codegen skipped). Default root = the platform user-cache dir (`~/Library/Caches/zwasm` / `$XDG_CACHE_HOME\|~/.cache/zwasm` / `%LOCALAPPDATA%\zwasm`). ANY cache defect degrades (miss / bypass) — the cache never makes `run` fail. Bypassed under `--engine interp`. Cache-dir write access = native code execution as the user: point `--cache=DIR` only at trusted locations |
+| `--cache-clear`            | delete this build's versioned cache subdirectory, then run normally (clear-only: does not itself enable caching — combine with `--cache` to clear-then-repopulate)                                                                            |
 
 The sandboxing flags (`--fuel`/`--timeout`/`--max-memory`/`--max-table-elements`) apply to `.wasm`
-runs on both engines; a `.cwasm` or component run combined with them is
-refused loudly (exit 2) rather than running unsandboxed.
+**and `.cwasm`** runs (the artifact loads into the full runtime — ADR-0203);
+a component run combined with them is refused loudly (exit 2) rather than
+running unsandboxed.
 
 ### `compile`
 
-Reads a `.wasm`, runs the JIT pipeline, and writes a `.cwasm` v0.1 AOT
-artifact to the `-o` / `--output` path. `zwasm run
-<file.cwasm>` executes it.
+Reads a `.wasm`, runs the JIT pipeline, and writes a `.cwasm` AOT artifact
+to the `-o` / `--output` path (format-versioned; an artifact with an
+incompatible artifact-format version or CPU arch is refused with a
+specific error).
+`zwasm run <file.cwasm>` executes it through the full runtime — identical
+WASI / sandbox / `--invoke` behaviour to running the source `.wasm`
+(ADR-0203: cache-hit == cache-miss by construction).
 
 ## Engine selection
 
-- `.cwasm` input → AOT-loaded directly (full WASI).
+- `.cwasm` input → AOT-loaded into the full runtime (full WASI).
+  `--engine interp` with a `.cwasm` is a contradictory request (the
+  artifact is precompiled JIT code) and is refused loudly (exit 2).
 - `.wasm` input → **`auto` by default** (prefers the JIT, transparently falls
   back to the interpreter). `--engine interp` forces the interpreter;
   `--engine jit` forces the JIT (full WASI, plus SIMD execution). `auto` is the
   default only — it is not a spellable `--engine` value.
+- `--cache` affects `.wasm` runs only (a `.cwasm` input IS the artifact;
+  components have no artifact format) and is bypassed under
+  `--engine interp`.
 
 ## Exit codes
 

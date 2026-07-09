@@ -289,6 +289,17 @@ pub fn main(init: std.process.Init) !void {
                         .{ entry.name, interp_ref.exit, interp_cached.exit, stored },
                     );
                 }
+                // Explicit `.cwasm` + `--engine interp` is a contradictory
+                // request (the artifact IS JIT code) — loud refusal, exit 2.
+                var interp_cwasm = try runLane(gpa, io, &.{ cli, "run", "--engine", "interp", entry.name }, tmp_dir);
+                defer interp_cwasm.deinit(gpa);
+                if (interp_cwasm.exit != 2) {
+                    unexpected += 1;
+                    try stdout.print(
+                        "INTERP-CWASM-REFUSAL-FAIL  {s}: exit={d} (want 2)\n",
+                        .{ entry.name, interp_cwasm.exit },
+                    );
+                }
             }
 
             switch (expectationFor(entry.name)) {
