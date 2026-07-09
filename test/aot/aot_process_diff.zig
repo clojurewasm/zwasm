@@ -1,0 +1,302 @@
+//! CROSS-PROCESS `.wasm`-vs-`.cwasm` differential (AOT-full-fidelity
+//! campaign Phase II; see
+//! `.dev/meta_audits/2026-07-09-aot-full-fidelity-investigation.md`).
+//!
+//! For every `.wasm` fixture in the given corpora, spawns the REAL zwasm CLI
+//! three times:
+//!   lane A: `zwasm run <fixture>`            (fresh JIT compile + run)
+//!   compile: `zwasm compile <fixture> -o t`  (produce the `.cwasm`)
+//!   lane B: `zwasm run <t>`                  (load the artifact, run)
+//! and byte-compares stdout + exit code across the lanes.
+//!
+//! WHY subprocesses (not the in-process fuzz-diff lane): the D-516 bug class
+//! — Zig-helper ABSOLUTE ADDRESSES baked into emitted code — is invisible
+//! in-process (same address space ⇒ the stale addresses still work). Only a
+//! fresh process (new PIE/ASLR slide) exposes it. Lane B always runs in its
+//! own process, so this harness sees exactly what a real
+//! compile-on-one-day / run-on-another deployment sees.
+//!
+//! argv[0] parity: guests like `c_hello_wasi` echo argv[0], and the CLI
+//! passes the module path through as guest argv[0]. Both lanes therefore run
+//! with cwd = the file's directory and a bare-basename argv — and lane B's
+//! artifact is written under the SAME basename as the `.wasm` (the CLI
+//! detects `.cwasm` by CWAS magic, not extension), so the guest-visible
+//! argv[0] bytes are identical.
+//!
+//! Expectations table: fixtures with a KNOWN divergence carry a `D-NNN`
+//! reason and one of two classes:
+//!   - `.wrong_result` — deterministic divergence (mini-runtime logic gap:
+//!     D-517 memory.grow unsupported, D-518 start-function skipped). A lane
+//!     match here is a RATCHET FLIP: the gap was fixed, the table entry must
+//!     be removed in the same PR (the gate trips to force it).
+//!   - `.unsound` — ASLR-dependent outcome (D-516 baked helper addresses):
+//!     crash on most runs, may accidentally "work" under a lucky/absent
+//!     slide. Reported, never gated, until the de-baking stage flips it to
+//!     an implicit `.match`.
+//! Everything else defaults to `.match` — any divergence is a finding and
+//! the gate exits non-zero.
+//!
+//! Usage: `zig build test-aot-diff` /
+//!        `zwasm-aot-process-diff <zwasm-cli> <corpus-dir> [corpus-dir...]`
+
+const std = @import("std");
+
+const Expectation = union(enum) {
+    match,
+    wrong_result: []const u8, // deterministic known divergence (D-NNN reason)
+    unsound: []const u8, // ASLR-dependent (D-516 class) — report only
+};
+
+const KnownEntry = struct { name: []const u8, exp: Expectation };
+
+// Keys are fixture basenames (unique across all driven corpora).
+const known_table = [_]KnownEntry{
+    // Crafted corpus (test/aot/corpus/) — pinned by Phase I experiments.
+    .{ .name = "gc_struct.wasm", .exp = .{ .unsound = "D-516 baked jitGcAlloc address" } },
+    .{ .name = "eh_throw.wasm", .exp = .{ .unsound = "D-516 baked EH helper + unserialized EH tables" } },
+    .{ .name = "mem_grow.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported on the cwasm run path" } },
+    .{ .name = "start_func.wasm", .exp = .{ .wrong_result = "D-518 start function not serialized (silently skipped)" } },
+    // Realworld corpus — every Go runtime heap-grows at startup and every
+    // one dies on the cwasm lane's grow-less memory (D-517); Rust's
+    // allocator aborts the same way on its first grow (triaged 2026-07-09:
+    // "memory allocation of 65652 bytes failed" → unreachable trap).
+    .{ .name = "go_json_marshal.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported (Go heap grow OOM)" } },
+    .{ .name = "go_regex.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported (Go heap grow OOM)" } },
+    .{ .name = "go_sort_benchmark.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported (Go heap grow OOM)" } },
+    .{ .name = "go_map_ops.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported (Go heap grow OOM)" } },
+    .{ .name = "go_string_builder.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported (Go heap grow OOM)" } },
+    .{ .name = "go_crypto_sha256.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported (Go heap grow OOM)" } },
+    .{ .name = "go_hello_wasi.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported (Go heap grow OOM)" } },
+    .{ .name = "rust_compression.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported (Rust alloc abort)" } },
+    .{ .name = "go_error_handling.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported (Go heap grow OOM)" } },
+    .{ .name = "go_math_big.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported (Go heap grow OOM)" } },
+    .{ .name = "c_large_memory.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported (C malloc-16MB fails)" } },
+    .{ .name = "cpp_string_ops.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported (C++ alloc abort -> unreachable)" } },
+};
+
+fn expectationFor(name: []const u8) Expectation {
+    for (known_table) |e| {
+        if (std.mem.eql(u8, e.name, name)) return e.exp;
+    }
+    return .match;
+}
+
+/// Guests needing a preopened dir (mirrors diff_runner.zig) — both lanes get
+/// the same fresh scratch preopen so behaviour stays comparable.
+fn fixtureNeedsPreopen(name: []const u8) bool {
+    return std.mem.eql(u8, name, "rust_file_io.wasm");
+}
+
+const LaneResult = struct {
+    stdout: []u8,
+    exit: u8,
+    crashed: bool, // term was not a clean .exited
+
+    fn deinit(self: *LaneResult, gpa: std.mem.Allocator) void {
+        gpa.free(self.stdout);
+    }
+};
+
+fn runLane(
+    gpa: std.mem.Allocator,
+    io: std.Io,
+    argv: []const []const u8,
+    cwd_path: ?[]const u8,
+) !LaneResult {
+    const cwd_opt: std.process.Child.Cwd = if (cwd_path) |p| .{ .path = p } else .inherit;
+    const result = try std.process.run(gpa, io, .{ .argv = argv, .cwd = cwd_opt });
+    defer gpa.free(result.stderr);
+    return .{
+        .stdout = result.stdout,
+        .exit = switch (result.term) {
+            .exited => |c| c,
+            else => 255,
+        },
+        .crashed = result.term != .exited,
+    };
+}
+
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
+    const gpa = init.gpa;
+
+    var stdout_buf: [2048]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buf);
+    const stdout = &stdout_writer.interface;
+
+    var arg_it = try std.process.Args.Iterator.initAllocator(init.minimal.args, gpa);
+    defer arg_it.deinit();
+    _ = arg_it.next().?;
+    const cli_arg = arg_it.next() orelse {
+        try stdout.print("usage: zwasm-aot-process-diff <zwasm-cli> <corpus-dir> [corpus-dir...]\n", .{});
+        try stdout.flush();
+        std.process.exit(2);
+    };
+    const cwd = std.Io.Dir.cwd();
+    // Lanes run with per-fixture cwds — the CLI path must survive them.
+    const cli = try cwd.realPathFileAlloc(io, cli_arg, gpa);
+    defer gpa.free(cli);
+    // Scratch under .zig-cache (gitignored); artifact written per fixture
+    // under the SAME basename as the source (argv[0] parity, magic-detected).
+    const tmp_dir = ".zig-cache/aot-diff-tmp";
+    cwd.deleteTree(io, tmp_dir) catch {};
+    try cwd.createDirPath(io, tmp_dir);
+    defer cwd.deleteTree(io, tmp_dir) catch {};
+    const preopen_scratch = ".zig-cache/aot-diff-preopen";
+
+    var total: u32 = 0;
+    var matched: u32 = 0;
+    var skipped_refused: u32 = 0;
+    var expected_diverged: u32 = 0;
+    var unsound_reported: u32 = 0;
+    var unexpected: u32 = 0; // gate
+    var ratchet_flips: u32 = 0; // gate (a known_table entry now matches)
+
+    var n_dirs: u32 = 0;
+    while (arg_it.next()) |corpus_dir_arg| {
+        n_dirs += 1;
+        const corpus_dir = try gpa.dupe(u8, corpus_dir_arg);
+        defer gpa.free(corpus_dir);
+
+        var dir = cwd.openDir(io, corpus_dir, .{ .iterate = true }) catch |err| {
+            try stdout.print("error: cannot open '{s}': {s}\n", .{ corpus_dir, @errorName(err) });
+            try stdout.flush();
+            std.process.exit(1);
+        };
+        defer dir.close(io);
+
+        var it = dir.iterate();
+        while (try it.next(io)) |entry| {
+            if (entry.kind != .file) continue;
+            if (!std.mem.endsWith(u8, entry.name, ".wasm")) continue;
+            total += 1;
+
+            const fixture_path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ corpus_dir, entry.name });
+            defer gpa.free(fixture_path);
+            const artifact_path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ tmp_dir, entry.name });
+            defer gpa.free(artifact_path);
+
+            const needs_preopen = fixtureNeedsPreopen(entry.name);
+            if (needs_preopen) {
+                cwd.deleteTree(io, preopen_scratch) catch {};
+                try cwd.createDirPath(io, preopen_scratch);
+            }
+            defer if (needs_preopen) cwd.deleteTree(io, preopen_scratch) catch {};
+            // Preopen paths must resolve from BOTH lane cwds — absolutize.
+            // Keep the sentinel type: realPathFileAlloc dupeZ's (len+1
+            // allocation) and a plain-[]u8 coercion makes gpa.free
+            // under-free by one (DebugAllocator size mismatch).
+            const preopen_abs: ?[:0]u8 = if (needs_preopen)
+                try cwd.realPathFileAlloc(io, preopen_scratch, gpa)
+            else
+                null;
+            defer if (preopen_abs) |p| gpa.free(p);
+
+            // Lane A — fresh JIT run of the source module (cwd = corpus dir,
+            // bare-basename argv for argv[0] parity with lane B).
+            const lane_a_argv: []const []const u8 = if (preopen_abs) |p|
+                &.{ cli, "run", "--dir", p, entry.name }
+            else
+                &.{ cli, "run", entry.name };
+            var lane_a = runLane(gpa, io, lane_a_argv, corpus_dir) catch |err| {
+                try stdout.print("SKIP-SPAWN  {s}: lane A: {s}\n", .{ entry.name, @errorName(err) });
+                skipped_refused += 1;
+                continue;
+            };
+            defer lane_a.deinit(gpa);
+
+            // Compile — a refusal is a RECORDED skip (the produce envelope is
+            // its own characterization; the campaign widens it stage by stage).
+            const compile_result = std.process.run(gpa, io, .{
+                .argv = &.{ cli, "compile", fixture_path, "-o", artifact_path },
+            }) catch |err| {
+                try stdout.print("SKIP-SPAWN  {s}: compile: {s}\n", .{ entry.name, @errorName(err) });
+                skipped_refused += 1;
+                continue;
+            };
+            defer gpa.free(compile_result.stdout);
+            defer gpa.free(compile_result.stderr);
+            const compile_ok = compile_result.term == .exited and compile_result.term.exited == 0;
+            if (!compile_ok) {
+                const first_line = std.mem.sliceTo(compile_result.stderr, '\n');
+                try stdout.print("SKIP-REFUSED  {s}: {s}\n", .{ entry.name, first_line });
+                skipped_refused += 1;
+                continue;
+            }
+
+            // Lane B — run the artifact in a FRESH process (cwd = tmp dir).
+            const lane_b_argv: []const []const u8 = if (preopen_abs) |p|
+                &.{ cli, "run", "--dir", p, entry.name }
+            else
+                &.{ cli, "run", entry.name };
+            var lane_b = runLane(gpa, io, lane_b_argv, tmp_dir) catch |err| {
+                try stdout.print("SKIP-SPAWN  {s}: lane B: {s}\n", .{ entry.name, @errorName(err) });
+                skipped_refused += 1;
+                continue;
+            };
+            defer lane_b.deinit(gpa);
+
+            const equal = lane_a.exit == lane_b.exit and std.mem.eql(u8, lane_a.stdout, lane_b.stdout);
+
+            switch (expectationFor(entry.name)) {
+                .match => {
+                    if (equal) {
+                        matched += 1;
+                    } else {
+                        unexpected += 1;
+                        try stdout.print(
+                            "AOT-DIVERGE  {s}: wasm(exit={d}, {d}B stdout) vs cwasm(exit={d}, {d}B stdout{s})\n",
+                            .{
+                                entry.name,  lane_a.exit,       lane_a.stdout.len,
+                                lane_b.exit, lane_b.stdout.len, if (lane_b.crashed) ", CRASHED" else "",
+                            },
+                        );
+                    }
+                },
+                .wrong_result => |reason| {
+                    if (equal) {
+                        ratchet_flips += 1;
+                        try stdout.print(
+                            "RATCHET-FLIP  {s}: known divergence ({s}) now MATCHES — remove its known_table entry in this PR\n",
+                            .{ entry.name, reason },
+                        );
+                    } else {
+                        expected_diverged += 1;
+                        try stdout.print("EXPECTED-DIVERGE  {s}: {s} (wasm exit={d} / cwasm exit={d})\n", .{
+                            entry.name, reason, lane_a.exit, lane_b.exit,
+                        });
+                    }
+                },
+                .unsound => |reason| {
+                    unsound_reported += 1;
+                    try stdout.print("UNSOUND-{s}  {s}: {s}\n", .{
+                        if (equal) "MATCH" else "DIVERGE", entry.name, reason,
+                    });
+                },
+            }
+            try stdout.flush();
+        }
+    }
+
+    if (n_dirs == 0) {
+        try stdout.print("usage: zwasm-aot-process-diff <zwasm-cli> <corpus-dir> [corpus-dir...]\n", .{});
+        try stdout.flush();
+        std.process.exit(2);
+    }
+
+    try stdout.print(
+        "\naot_process_diff: {d} fixtures — {d} matched, {d} refused(skip), {d} expected-diverge, {d} unsound-reported, {d} UNEXPECTED, {d} ratchet-flips — GATING\n",
+        .{ total, matched, skipped_refused, expected_diverged, unsound_reported, unexpected, ratchet_flips },
+    );
+    try stdout.flush();
+
+    if (total == 0) {
+        try stdout.print("error: empty corpus\n", .{});
+        try stdout.flush();
+        std.process.exit(1);
+    }
+    // Gate: an unexpected divergence is a fidelity regression (or a new
+    // finding to triage into the table with a D-NNN); a ratchet flip means a
+    // known gap was fixed and the table must be updated in the same PR.
+    if (unexpected != 0 or ratchet_flips != 0) std.process.exit(1);
+}

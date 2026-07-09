@@ -14,11 +14,9 @@ publish / cut over. No active campaign/bundle; no cron self-re-arm.
 
 ## Completed maintenance sweeps (history — details in the PRs / meta_audits)
 
-- Post-v2.0.0 scaffolding campaign COMPLETE (#118 ledger reconcile · #119/#121
-  E-段1+2 de-loop/ratifications: file-size ADVISORY ADR-0099, gate_merge →
-  optional pre-flight, zone_check+spill_aware promoted to CI · #120 Component域
-  D-502 codec/D-504 · #122 rust-host ubuntu gate D-254).
-- **Batch C / D-475 table64-JIT** MERGED #127 → **v2.1.0 released** (@d5d685ad4).
+- Post-v2.0.0 scaffolding campaign COMPLETE (#118–#122: ledger reconcile,
+  E-段1+2 ratifications, Component域, rust-host gate D-254). **D-475
+  table64-JIT** MERGED #127 → **v2.1.0 released** (@d5d685ad4).
 
 ## Active rework campaign — AOT-full-fidelity (opened 2026-07-09, USER-RATIFIED)
 
@@ -26,26 +24,28 @@ publish / cut over. No active campaign/bundle; no cron self-re-arm.
   `.cwasm` = explicit `zwasm compile` output AND the transparent-cache value.
   A `.cwasm` must load back into the **FULL runtime** (cache-hit == cache-miss)
   covering ALL module classes; then **D-508** transparent `run --cache` on top.
-- **Phase I Investigation = DONE** (findings:
-  `.dev/meta_audits/2026-07-09-aot-full-fidelity-investigation.md`; detail
-  notes under `private/notes/aot-campaign-*.md`). Key results: (1) **D-516
-  now-class BUG found by experiment** — `compile` silently emits `.cwasm` with
-  13 baked helper absolute addresses (GC/call_indirect-lazy/EH); PIE ASLR →
-  fatal signal on fresh-process run (struct.new repro, exit 70); (2)
-  `memory.grow` unsupported on the cwasm run path (3MB Go modules OOM;
-  mini-runtime is compute-only); (3) ROI measured: ~110ms compile tax on 3MB
-  Go, 57-60% cold-start saving on 250-600KB; (4) `setupRuntimeLinked` bakes NO
-  absolutes → **deserialize-into-CompiledWasm + reuse normal setup** is viable
-  (wasmtime "hit == deserialize path" property); (5) peer patterns adopted:
-  helper indirection via JitRuntime fields (wazero context-register), trap
-  table as offset-relative side section (wasmtime, = D-515), two-tier gate
-  (loadability metadata ≠ cache key), versioned cache dir + atomic rename.
-- **NEXT: Phase II correctness net** — CROSS-PROCESS AOT differential lane
-  (in-process D-510 lane can't see ASLR staleness): compile→run-.cwasm
-  subprocess diff vs fresh-JIT over realworld corpus + crafted
-  GC/call_indirect/EH/grow fixtures; pins D-516 + grow-gap as RED baselines.
-  Then III design ADR → IV staged impl (stage-1 = helper de-baking = D-516
-  fix) → V retrospective. Branch/PR per stage; `ci-required` gates each.
+- **Phase I Investigation DONE** (findings doc:
+  `.dev/meta_audits/2026-07-09-aot-full-fidelity-investigation.md`; details in
+  `private/notes/aot-campaign-*.md`): **D-516 now-class bug** (13 baked helper
+  absolute addresses — GC/EH/call_indirect-lazy — PIE ASLR → `.cwasm` fatal
+  signal in a fresh process; `compile` emits it silently) · **D-517**
+  (memory.grow unsupported on cwasm path: ALL 7 Go + rust_compression die) ·
+  **D-518** (start func not serialized → silently skipped, wrong results) ·
+  ROI ~110ms compile tax on 3MB Go · architecture = deserialize-into-
+  CompiledWasm + reuse setupRuntimeLinked (bakes no absolutes); helper
+  de-baking via JitRuntime-field indirection (wazero pattern); trap table as
+  offset-relative side section (wasmtime, = D-515); two-tier gate; versioned
+  cache dir.
+- **Phase II correctness net = test/aot/aot_process_diff.zig** (`zig build
+  test-aot-diff`, in test-all) — CROSS-PROCESS `.wasm`-vs-`.cwasm` subprocess
+  diff (in-process lanes can't see ASLR staleness) over realworld + crafted
+  corpus (test/aot/corpus: GC/EH/call_indirect/grow/start). Baseline 46/62
+  match; known gaps pinned in the expectation table (.wrong_result =
+  deterministic D-517/D-518, RATCHET-FLIP forces table update in the fixing
+  PR; .unsound = D-516 ASLR class, report-only).
+- **NEXT: Phase III design ADR** (format evolution + full-runtime load +
+  D-508 cache) → IV staged impl (stage-1 = helper de-baking = D-516 fix) →
+  V retrospective. Branch/PR per stage; `ci-required` gates each.
 
 ## Active front — G-senior-gap (2026-07-06, /continue entry point)
 
@@ -85,12 +85,10 @@ Report = `.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`.
 
 ## Parked / gated — do NOT speculatively grind (see debt.yaml)
 
-- **D-477 slivers** (partial, build-on-demand, no DIRECT consumer): v128 args/results
-  invoke (Win64-by-ref gotcha); Win64 ≥4-param stack-spill; Win64 ≥2-arg/3-result
-  MEMORY-class thunk. Recipe: `private/notes/d477-remaining-slices-design.md` + debt
-  D-477. Trigger = a real consumer. SIMD correctness already covered (simd_assert
-  25075/0 + fuzz-loader 1665 JIT-compiled clean). **D-478** = JIT FP host-callback
-  bridge + funcref `Table.set` panic + proc_exit exit-code.
+- **D-477 slivers** (partial, build-on-demand; trigger = a real consumer):
+  v128 invoke / Win64 stack-spill / MEMORY-class thunk — recipe in the row +
+  `private/notes/d477-remaining-slices-design.md`. **D-478** = JIT FP
+  host-callback bridge + funcref `Table.set` panic + proc_exit exit-code.
 - **D-475 residual**: spec-harness cross-module register-table wiring only
   (applyImportedTablesFromRegistered + TableAlias pointer-sharing); the table64
   feature itself is COMPLETE on both engines.
