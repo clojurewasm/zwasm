@@ -7,9 +7,9 @@
 //! `engine.codegen.aot.produce.produceFromCompiledWasm`,
 //! and writes the artifact to disk.
 //!
-//! Generator side of the `.cwasm` pipeline; the loader/runner
-//! (`engine.codegen.aot.run` via `cli/run.zig runCwasmWasi`) executes
-//! the artifact today (`zwasm run <file.cwasm>`).
+//! Generator side of the `.cwasm` pipeline; `zwasm run <file.cwasm>`
+//! executes the artifact through the full-fidelity deserializer + the
+//! normal JIT setup path (ADR-0203 stage 3 — same flow as a `.wasm`).
 //!
 //! Zone 3 (`src/cli/`).
 
@@ -60,9 +60,10 @@ pub fn run(
     defer gpa.free(wasm_bytes);
 
     // ADR-0202 D5 — AOT MUST compile with explicit bounds checks (the
-    // `.cwasm` format + `aot/run.zig`'s plain-heap run-memory cannot yet
-    // uphold guard-page soundness; `produceFromCompiledWasm` hard-refuses an
-    // elided module). `compileWasmForAot` forces `.explicit` for this compile.
+    // format has no elision bit and the loader no trap-registry
+    // re-registration yet — ADR-0203 stage 4 / D-515(1);
+    // `produceFromCompiledWasm` hard-refuses an elided module).
+    // `compileWasmForAot` forces `.explicit` for this compile.
     var compiled = try runner.compileWasmForAot(gpa, wasm_bytes);
     defer compiled.deinit(gpa);
 

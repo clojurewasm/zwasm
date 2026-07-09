@@ -64,6 +64,15 @@ fn sectionSlice(cwasm: []const u8, offset: u32, size: u32) Error![]const u8 {
     return cwasm[offset..][0..size];
 }
 
+/// The artifact's embedded ORIGINAL module bytes (a view into `cwasm_bytes`).
+/// CLI-side helpers (export-type lookups for `--invoke` arg packing /
+/// multi-result sizing) read module metadata through this so a `.cwasm`
+/// behaves byte-identically to its source `.wasm`.
+pub fn embeddedWasmBytes(cwasm_bytes: []const u8) Error![]const u8 {
+    const h = try format.parseHeader(cwasm_bytes);
+    return sectionSlice(cwasm_bytes, h.wasm_bytes_offset, h.wasm_bytes_size);
+}
+
 /// Deserialize a `.cwasm` v0.5 into a full `CompiledWasm`. Caller owns
 /// the result (`compiled.deinit(allocator)`); `cwasm_bytes` must outlive
 /// the returned value (the embedded wasm view aliases it).

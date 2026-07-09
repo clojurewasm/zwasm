@@ -255,9 +255,9 @@ pub const CompiledWasm = struct {
     exports: []const FuncExport,
     /// ADR-0202 D4/D5 — true when memory0 scalar bounds checks were elided
     /// (guard-page-dependent codegen). The AOT producer REFUSES to serialize
-    /// an elided module (the `.cwasm` format + `aot/run.zig` do not yet carry
-    /// the elision bit / trap-registry table / guarded run-memory — D5), so
-    /// this is the enforcement point that makes the "elided ⇒ guarded binding"
+    /// an elided module (no format elision bit / loader trap-registry
+    /// re-registration yet — ADR-0203 stage 4 / D-515(1)), so this is the
+    /// enforcement point that makes the "elided ⇒ guarded binding"
     /// invariant impossible to violate via AOT.
     bounds_elided: bool = false,
     arena: std.heap.ArenaAllocator,
@@ -510,7 +510,7 @@ fn resolveLenientEntryIdx(allocator: Allocator, wasm_bytes: []const u8) Error!?u
 }
 
 /// D-284 — run a WASI module via the LENIENT entry chain so the JIT CLI matches
-/// the interp (`runWasmCaptured`) + AOT (`runCwasm`): `--invoke NAME` → `_start`
+/// the interp (`runWasmCaptured`) + the AOT CWAS lane: `--invoke NAME` → `_start`
 /// → `main` → first func export, else INSTANTIATE-ONLY (exit 0, wasmtime-aligned)
 /// — instead of strict `_start`-only → ExportNotFound on no-`_start` modules
 /// (D-284 nbody). A void entry runs via `callVoidNoArgs` (proc_exit code flows
@@ -615,7 +615,7 @@ pub fn runWasiLenient(
     trap_code_out: ?*u32,
     limits: RunLimits,
     result_out: ?*?ScalarResult,
-) Error!u32 {
+) RunLenientError!u32 {
     return runWasiLenientArgs(allocator, wasm_bytes, invoke_name, wasi_host, trap_code_out, limits, result_out, &.{}, null);
 }
 
@@ -635,14 +635,51 @@ pub fn runWasiLenientArgs(
     result_out: ?*?ScalarResult,
     args: []const u64,
     multi_out: ?[]buffer_write.TypedResult,
+) RunLenientError!u32 {
+    // ADR-0203 stage 3 — a `CWAS` artifact routes through the full-fidelity
+    // deserializer instead of compileWasm; its EMBEDDED original module
+    // bytes drive everything downstream (entry resolution, import assert,
+    // setup), so the run flow is IDENTICAL for both sources — the
+    // cache-hit == cache-miss property at the run-path level. This retires
+    // the aot/run.zig compute-only mini-runtime (D-517/D-518 discharge).
+    if (wasm_bytes.len >= 4 and std.mem.eql(u8, wasm_bytes[0..4], "CWAS")) {
+        const load_compiled = @import("codegen/aot/load_compiled.zig");
+        var des = try load_compiled.deserializeToCompiledWasm(allocator, wasm_bytes);
+        defer des.compiled.deinit(allocator);
+        return runWasiLenientArgsCore(allocator, &des.compiled, des.wasm_bytes, invoke_name, wasi_host, trap_code_out, limits, result_out, args, multi_out);
+    }
+
+    var compiled = try compileWasm(allocator, wasm_bytes);
+    defer compiled.deinit(allocator);
+    return runWasiLenientArgsCore(allocator, &compiled, wasm_bytes, invoke_name, wasi_host, trap_code_out, limits, result_out, args, multi_out);
+}
+
+/// The `Error` superset `runWasiLenientArgs` returns once the CWAS branch is
+/// in play (deserializer artifact-shape failures: BadMagic / version / arch /
+/// truncation). Function-local per `platform_panic_vs_error.md` — the shared
+/// `Error` set is NOT widened.
+pub const RunLenientError = Error || @import("codegen/aot/load_compiled.zig").Error;
+
+/// Everything after "a CompiledWasm exists": entry resolution + import
+/// assert + sandbox caps + setup + signature-shaped dispatch. `wasm_bytes`
+/// is the ORIGINAL module bytes (fresh caller's input, or the artifact's
+/// embedded copy) — setup re-decodes its sections directly.
+fn runWasiLenientArgsCore(
+    allocator: Allocator,
+    compiled: *CompiledWasm,
+    wasm_bytes: []const u8,
+    invoke_name: ?[]const u8,
+    wasi_host: ?*anyopaque,
+    trap_code_out: ?*u32,
+    limits: RunLimits,
+    result_out: ?*?ScalarResult,
+    args: []const u64,
+    multi_out: ?[]buffer_write.TypedResult,
 ) Error!u32 {
     const entry_idx: ?u32 = if (invoke_name) |name|
         try findExportFunc(allocator, wasm_bytes, name)
     else
         try resolveLenientEntryIdx(allocator, wasm_bytes);
-
-    var compiled = try compileWasm(allocator, wasm_bytes);
-    defer compiled.deinit(allocator);
 
     // D-451 — Wasm spec §4.5.4: an unsatisfied import MUST fail instantiation,
     // regardless of whether it is ever called. Reject here (interp-parity)
@@ -657,7 +694,7 @@ pub fn runWasiLenientArgs(
         if (try declaredTableElements(allocator, wasm_bytes) > cap) return Error.TableLimitExceeded;
     }
 
-    var owned = try setupRuntime(allocator, &compiled, wasm_bytes);
+    var owned = try setupRuntime(allocator, compiled, wasm_bytes);
     defer owned.deinit(allocator);
     owned.rt.wasi_host = wasi_host;
     if (limits.fuel) |n| {
@@ -672,6 +709,22 @@ pub fn runWasiLenientArgs(
     // eager alloc rejected above. Sets the same cap the early-reject used.
     if (limits.max_table_elements) |cap| owned.rt.store_table_elements_max = cap; // maxInt sentinel default = unlimited
     if (limits.interrupt_flag) |flag| owned.rt.interrupt_ptr = flag;
+
+    // Wasm spec §4.5.4 — run the module's `(start)` function at
+    // instantiation, AFTER setup initialised globals/memory/tables and
+    // BEFORE any entry. Mirrors `JitInstance.runStart` (D-478); the
+    // lenient CLI path previously skipped it, which the ADR-0203 stage-3
+    // cross-process differential caught (start_func fixture: `.wasm` via
+    // the facade ran start, `--engine jit`/`.cwasm` via this path didn't).
+    if (startFuncIdx(wasm_bytes)) |sfx| {
+        if (sfx < compiled.num_imports) return Error.UnsupportedEntrySignature;
+        entry.callVoidNoArgs(compiled.module, sfx, &owned.rt) catch |err| {
+            if (err == Error.Trap) {
+                if (trap_code_out) |p| p.* = owned.rt.trap_kind;
+            }
+            return err;
+        };
+    }
 
     const idx = entry_idx orelse return owned.rt.jit_executed_flag; // no entry → instantiate-only
     if (idx >= compiled.func_sigs.len) return Error.ExportNotFound;

@@ -248,9 +248,7 @@ pub const engine = struct {
             pub const format = @import("engine/codegen/aot/format.zig");
             pub const serialise = @import("engine/codegen/aot/serialise.zig");
             pub const produce = @import("engine/codegen/aot/produce.zig");
-            pub const load = @import("engine/codegen/aot/load.zig");
             pub const load_compiled = @import("engine/codegen/aot/load_compiled.zig");
-            pub const run = @import("engine/codegen/aot/run.zig");
         };
     };
 };
@@ -310,9 +308,7 @@ test {
     _ = @import("engine/codegen/aot/format.zig");
     _ = @import("engine/codegen/aot/serialise.zig");
     _ = @import("engine/codegen/aot/produce.zig");
-    _ = @import("engine/codegen/aot/load.zig");
     _ = @import("engine/codegen/aot/load_compiled.zig");
-    _ = @import("engine/codegen/aot/run.zig");
     _ = @import("cli/compile.zig");
     _ = @import("engine/codegen/shared/reg_class.zig");
     _ = @import("engine/codegen/shared/regalloc.zig");

@@ -206,7 +206,7 @@ fn validateModule(gpa: std.mem.Allocator, module: *runtime.Module) !void {
 /// `test/spec/runner.zig`'s helper of the same name (kept in sync
 /// because both runners exercise the same frontend pipeline).
 fn runOne(gpa: std.mem.Allocator, module: *runtime.Module) !void {
-    const type_section = module.find(.@"type");
+    const type_section = module.find(.type);
     const import_section = module.find(.import);
     const func_section = module.find(.function);
     const table_section = module.find(.table);

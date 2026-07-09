@@ -14,6 +14,11 @@ publish / cut over. No active campaign/bundle; no cron self-re-arm.
 
 ## Active rework campaign — AOT-full-fidelity (opened 2026-07-09, USER-RATIFIED)
 
+> **RELEASE DIRECTIVE (user, 2026-07-09)**: campaign stage V 完了後に
+> v2.2.0 タグ + リリース (ADR-0156 の明示指示として記録; version bump +
+> tag push → release.yml 自動)。headline = 透過キャッシュ + full-fidelity
+> AOT + PIC codegen.
+
 - **Goal (user directive)**: 本当の cwasm/AOT — deploy artifact stays `.wasm`;
   `.cwasm` = explicit `zwasm compile` output AND the transparent-cache value.
   A `.cwasm` must load back into the **FULL runtime** (cache-hit == cache-miss)
@@ -27,31 +32,24 @@ publish / cut over. No active campaign/bundle; no cron self-re-arm.
   RATCHET-FLIP gate); design = **ADR-0203** (D1 de-baking · D2 deserialize-
   into-CompiledWasm + normal setup · D3 format v0.5 + two-tier gate ·
   D4 elision serialization · D5 `--cache` · D6 six-stage plan).
-- **Phase IV stage 1 DONE (develop/aot-stage1-debaking)** — all
-  36 baked helper sites → `[rt+off]` slot calls (14 JitRuntime tail fields,
-  defaults = real helpers, zero setup wiring). **D-516 CLOSED.** Verified:
-  pic_helper_test interposition red→green · test green · Rosetta
-  x86_64-macos green · fuzz-diff 0 mismatch · bench = user-CPU parity
-  (beware bg-job wall-clock contamination) · aot-diff unsound class now
-  EMPTY (gc_struct/eh_throw deterministic → .wrong_result under widened
-  D-517: mini-runtime grow/GC-arena/EH-tables gaps, discharged stage 3).
-- **Stage 1 MERGED #137**; kickoff #136. **Stage 2 COMPLETE — PR #138
-  (develop/aot-stage2-format-v05, CI pending)**: D-519 gate (dbg.anyActive
-  produce refusal, D-519 closed) · format v0.5 (header 136: embedded
-  wasm_bytes + func_extras{frame_bytes,oob_stub_off} + module EH table;
-  v0.4 = clean UnsupportedVersion) · deserializer `aot/load_compiled.zig`
-  (metadata RE-DERIVED from embedded bytes w/ compileWasm's decoders;
-  code RE-LINKED via the same linkWithThunks — wazero model) ·
-  `JitInstance.fromCompiled` (same setupRuntimeLinked ⇒ hit==miss) ·
-  **EXIT TEST GREEN**: produce → deserialize → fromCompiled → runStart →
-  invoke == fresh (leak-checked; D-518 start-func shape included).
-- **NEXT: stage 3** — swap `zwasm run x.cwasm` (cli/run.zig runCwasm/
-  runCwasmWasi + main.zig CWAS branch) to deserializeToCompiledWasm +
-  fromCompiled; retire aot/run.zig mini-runtime; expectation-table rows
-  (D-517 grow/GC/EH + D-518 start) flip to .match — RATCHET-FLIP will
-  force the table update; then run a DA critique on stages 2+3 together
-  before merge. Then stage 4 (elision, D-515(1)) · stage 5 (--cache,
-  D-508) · stage 6 retrospective.
+- **Stage 1 MERGED #137** (36 helper bakes → `[rt+off]` slots, D-516
+  closed, interposition tests, bench parity). **Stage 2 MERGED #138**
+  (format v0.5: embedded wasm_bytes + func_extras + EH table; deserializer
+  `load_compiled.zig` — metadata re-derived, code re-linked via the same
+  linkWithThunks; `JitInstance.fromCompiled`; exit test green; D-519
+  closed). Kickoff #136.
+- **Stage 3 CODE-COMPLETE (develop/aot-stage3-runpath-swap)** — the CWAS
+  branch in runWasiLenientArgs routes `.cwasm` through deserialize + the
+  normal setup; CLI unified (main.zig CWAS refusals for limits/invoke-args
+  REMOVED — both now wired); mini-runtime RETIRED (aot/run.zig +
+  load.zig deleted; 8 runner_test round-trips rewritten to the new path);
+  expectation table EMPTIED — **aot-diff 62/62 ALL MATCH**. Bonus fix:
+  the lenient JIT path never ran `(start)` (Wasm §4.5.4) — pre-existing
+  `--engine jit` spec bug the differential caught; start now runs in
+  runWasiLenientArgsCore. D-517 + D-518 CLOSED. Pending: Rosetta +
+  fuzz-diff verify → DA critique → PR. Then stage 4 (elision, D-515(1)) ·
+  stage 5 (--cache, D-508) · stage V retrospective → **v2.2.0 release
+  (user-directed)**.
 
 ## Active front — G-senior-gap (2026-07-06, /continue entry point)
 

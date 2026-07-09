@@ -253,14 +253,6 @@ pub fn main(init: std.process.Init) !void {
             };
             defer gpa.free(bytes);
 
-            // D-273(1) / D-477 — typed arg-passing now runs on BOTH the interp
-            // AND the JIT engine (D-477 buffer-write thunk). The AOT (.cwasm)
-            // entry runner is still zero-arg, so reject `=ARGS` only there.
-            if (invoke_args != null and bytes.len >= 4 and std.mem.eql(u8, bytes[0..4], "CWAS")) {
-                try printlnErr(io, "zwasm run: --invoke NAME=ARGS arg-passing is not wired for .cwasm AOT artifacts (run the .wasm form)");
-                std.process.exit(2);
-            }
-
             // Build argv for the WASI guest. Wasmtime's default is
             // argv[0] = wasm filename + any trailing args; mirror
             // that here so guests that print argv produce parity
@@ -270,19 +262,15 @@ pub fn main(init: std.process.Init) !void {
             try argv_list.append(gpa, path);
             while (arg_it.next()) |a| try argv_list.append(gpa, a);
 
-            // §12.1 / D-251 — a pre-compiled AOT artefact (CWAS magic) loads +
-            // runs directly (no parse/compile) and now does REAL WASI: argv +
-            // `--dir` preopens are threaded into a host, so a WASI-importing
-            // `.cwasm` prints / exits / sees args like the `.wasm` path.
+            // ADR-0203 stage 3 — a pre-compiled AOT artefact (CWAS magic)
+            // runs through the SAME full-runtime JIT path as a `.wasm`:
+            // the engine deserializes the artifact and executes it with
+            // identical WASI / sandbox-limit / `--invoke NAME=ARGS` /
+            // start-function behaviour (cache-hit == cache-miss). The
+            // pre-stage-3 refusals (limits, typed invoke args) are gone —
+            // both are wired through the shared path now.
             if (bytes.len >= 4 and std.mem.eql(u8, bytes[0..4], "CWAS")) {
-                // ADR-0179 #3a-4 — refuse loudly rather than silently running
-                // an UNSANDBOXED .cwasm when the user asked for limits (the
-                // AOT runner's limit threading is a follow-up; no_workaround).
-                if (limits.any()) {
-                    try printlnErr(io, "zwasm run: --fuel/--timeout/--max-memory are not wired for .cwasm artifacts yet (run the .wasm form, or drop the flag)");
-                    std.process.exit(2);
-                }
-                const code = cli_run.runCwasmWasi(gpa, io, bytes, invoke_name, argv_list.items, preopen_list.items, env_keys.items, env_vals.items, null) catch |err| {
+                const code = cli_run.runWasmJitCaptured(gpa, io, bytes, invoke_name, argv_list.items, preopen_list.items, env_keys.items, env_vals.items, limits, null, invoke_args) catch |err| {
                     var buf: [256]u8 = undefined;
                     const msg = std.fmt.bufPrint(&buf, "zwasm run: cannot run '{s}': {s}", .{ path, @errorName(err) }) catch "zwasm run: .cwasm run failed";
                     try printlnErr(io, msg);

@@ -6,11 +6,10 @@
 //! (everything else — realloc on grow, base may move). The live
 //! memory-creation surfaces (instantiate / engine setup / c-api
 //! `wasm_memory_new`) route here so the ADR-0202 binding-time
-//! soundness invariant has a single enforcement point. Known
-//! exception: the AOT runner's per-call scratch memory
-//! (`engine/codegen/aot/run.zig`) stays plain-heap — self-contained,
-//! never grows, and its code keeps explicit checks; it MUST route
-//! here when ADR-0202 D4 elides checks in `.cwasm` artifacts.
+//! soundness invariant has a single enforcement point. (The former
+//! exception — the compute-only AOT mini-runtime's plain-heap scratch —
+//! was retired at ADR-0203 stage 3: a loaded `.cwasm` binds memory
+//! through the same setup path as fresh JIT, i.e. through here.)
 //!
 //! Zone 1 (`src/runtime/instance/`) — imports Zone 0
 //! (`platform/guarded_mem`) + Zone 1 (`parse/sections`).

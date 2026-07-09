@@ -86,7 +86,7 @@ pub fn main(init: std.process.Init) !void {
 /// run the validator over each defined function. Returns on the first
 /// error (caller treats it as a per-fixture failure).
 fn runOne(gpa: std.mem.Allocator, module: *runtime.Module) !void {
-    const type_section = module.find(.@"type");
+    const type_section = module.find(.type);
     const import_section = module.find(.import);
     const func_section = module.find(.function);
     const table_section = module.find(.table);

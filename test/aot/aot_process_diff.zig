@@ -50,32 +50,15 @@ const Expectation = union(enum) {
 const KnownEntry = struct { name: []const u8, exp: Expectation };
 
 // Keys are fixture basenames (unique across all driven corpora).
-const known_table = [_]KnownEntry{
-    // Crafted corpus (test/aot/corpus/) — pinned by Phase I experiments.
-    // Post-ADR-0203-D1 de-baking these are DETERMINISTIC (the helper is
-    // reached via the rt slot; what remains is the mini-runtime's missing
-    // state, discharged by the stage-3 full-runtime load path):
-    .{ .name = "gc_struct.wasm", .exp = .{ .wrong_result = "D-517 mini-runtime has no GC arena (null gc_heap -> fatal signal)" } },
-    .{ .name = "eh_throw.wasm", .exp = .{ .wrong_result = "D-517 EH tables not serialized -> uncaught_exception instead of catch" } },
-    .{ .name = "mem_grow.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported on the cwasm run path" } },
-    .{ .name = "start_func.wasm", .exp = .{ .wrong_result = "D-518 start function not serialized (silently skipped)" } },
-    // Realworld corpus — every Go runtime heap-grows at startup and every
-    // one dies on the cwasm lane's grow-less memory (D-517); Rust's
-    // allocator aborts the same way on its first grow (triaged 2026-07-09:
-    // "memory allocation of 65652 bytes failed" → unreachable trap).
-    .{ .name = "go_json_marshal.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported (Go heap grow OOM)" } },
-    .{ .name = "go_regex.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported (Go heap grow OOM)" } },
-    .{ .name = "go_sort_benchmark.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported (Go heap grow OOM)" } },
-    .{ .name = "go_map_ops.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported (Go heap grow OOM)" } },
-    .{ .name = "go_string_builder.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported (Go heap grow OOM)" } },
-    .{ .name = "go_crypto_sha256.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported (Go heap grow OOM)" } },
-    .{ .name = "go_hello_wasi.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported (Go heap grow OOM)" } },
-    .{ .name = "rust_compression.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported (Rust alloc abort)" } },
-    .{ .name = "go_error_handling.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported (Go heap grow OOM)" } },
-    .{ .name = "go_math_big.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported (Go heap grow OOM)" } },
-    .{ .name = "c_large_memory.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported (C malloc-16MB fails)" } },
-    .{ .name = "cpp_string_ops.wasm", .exp = .{ .wrong_result = "D-517 memory.grow unsupported (C++ alloc abort -> unreachable)" } },
-};
+//
+// EMPTY since ADR-0203 stage 3: the full-fidelity load path (deserialize →
+// the normal setup) discharged every pinned divergence — D-517 (memory.grow /
+// GC arena / EH tables: all 8 Go fixtures, rust/cpp/c alloc paths, the
+// crafted gc_struct/eh_throw/mem_grow shapes) and D-518 (start function).
+// Every fixture the producer accepts now MATCHES its source `.wasm`. A
+// future finding gets a new row citing a fresh D-NNN; fixing it trips
+// RATCHET-FLIP to force the row's removal in the same PR.
+const known_table = [_]KnownEntry{};
 
 fn expectationFor(name: []const u8) Expectation {
     for (known_table) |e| {

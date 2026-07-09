@@ -39,8 +39,6 @@ const setupRuntime = setup_mod.setupRuntime;
 const TypedResult = @import("codegen/shared/entry_buffer_write.zig").TypedResult;
 
 const aot_produce = @import("codegen/aot/produce.zig");
-const aot_load = @import("codegen/aot/load.zig");
-const aot_run = @import("codegen/aot/run.zig");
 
 test "runI32Export: memory64 store+load round-trip via i64 idx_type (ADR-0111 D4 e2e)" {
     // D-181 discharge: x86_64 SysV `emitMemOpI64` X-form + wrap-check
@@ -1748,7 +1746,7 @@ test "tail-call: return_call_indirect on a non-zero table index (D-210)" {
 
 test "AOT<->JIT differential: .cwasm produce->load->execute equals the JIT result (§12.2)" {
     // Executes native machine code via both paths → mirror the
-    // exec-test Win64 deferral (load.zig / jit_mem.zig).
+    // exec-test Win64 deferral (jit_mem.zig).
     if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
 
     // Synthetic `() -> i32` returning 7, WITH an export "f" so the JIT
@@ -1777,30 +1775,22 @@ test "AOT<->JIT differential: .cwasm produce->load->execute equals the JIT resul
     const jit_result = try runI32Export(testing.allocator, &wasm_bytes, "f");
     try testing.expectEqual(@as(u32, 7), jit_result);
 
-    // AOT path: compile -> produce .cwasm -> load into a fresh
-    // executable block -> invoke the loaded func[0]. The loaded code is
-    // the SAME machine code the JIT emitted; func[0]'s prologue expects
-    // `*const JitRuntime` in X0/RDI, so we build a real runtime exactly
-    // as `runI32Export` does and pass it in.
+    // AOT path: compile -> produce .cwasm -> full-fidelity deserialize +
+    // normal setup via `runWasiLenient`'s CWAS detection (ADR-0203 stage
+    // 3). The run flow is IDENTICAL to a plain `.wasm` run — the embedded
+    // original module bytes drive entry resolution and setup.
     var compiled = try compileWasmForAot(testing.allocator, &wasm_bytes);
     defer compiled.deinit(testing.allocator);
 
     const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &wasm_bytes);
     defer testing.allocator.free(cwasm);
 
-    var mod = try aot_load.load(testing.allocator, cwasm);
-    defer mod.deinit();
+    var result: ?runner.ScalarResult = null;
+    _ = try runner.runWasiLenient(testing.allocator, cwasm, "f", null, null, .{}, &result);
 
-    var owned = try setupRuntime(testing.allocator, &compiled, &wasm_bytes);
-    defer owned.deinit(testing.allocator);
-
-    const Fn = *const fn (*const entry.JitRuntime) callconv(.c) u32;
-    const f = mod.entry(0, Fn);
-    const aot_result = try entry.callEntrySafe(&owned.rt, u32, f, .{}); // D-311 trampoline
-
-    // Differential equivalence: the AOT-loaded code yields the SAME
+    // Differential equivalence: the deserialized .cwasm yields the SAME
     // result as the JIT path for the same module.
-    try testing.expectEqual(jit_result, aot_result);
+    try testing.expectEqual(@as(i32, @bitCast(jit_result)), result.?.i32);
 }
 
 test "AOT<->JIT differential: () -> i64 const round-trips through produce->load (§12.2)" {
@@ -1822,28 +1812,26 @@ test "AOT<->JIT differential: () -> i64 const round-trips through produce->load 
     const jit_result = try runI64Export(testing.allocator, &wasm_bytes, "f");
     try testing.expectEqual(@as(u64, 0x1_0000_0007), jit_result);
 
+    // AOT path: produce .cwasm -> full-fidelity deserialize + normal setup
+    // (ADR-0203 stage 3).
     var compiled = try compileWasmForAot(testing.allocator, &wasm_bytes);
     defer compiled.deinit(testing.allocator);
     const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &wasm_bytes);
     defer testing.allocator.free(cwasm);
-    var mod = try aot_load.load(testing.allocator, cwasm);
-    defer mod.deinit();
-    var owned = try setupRuntime(testing.allocator, &compiled, &wasm_bytes);
-    defer owned.deinit(testing.allocator);
 
-    const Fn = *const fn (*const entry.JitRuntime) callconv(.c) u64;
-    const aot_result = try entry.callEntrySafe(&owned.rt, u64, mod.entry(0, Fn), .{}); // D-311 trampoline
-    try testing.expectEqual(jit_result, aot_result);
+    var result: ?runner.ScalarResult = null;
+    _ = try runner.runWasiLenient(testing.allocator, cwasm, "f", null, null, .{}, &result);
+    try testing.expectEqual(@as(i64, @bitCast(jit_result)), result.?.i64);
 }
 
 test "AOT<->JIT differential: internal call's direct-call reloc executes through produce->load (§12.2)" {
     if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
 
     // func0 (exported "f") returns func1()'s result; func1 returns 7. The
-    // internal `call 1` emits a direct-call reloc that the AOT loader must
-    // patch to func1's loaded address — so this is the differential's reloc
-    // coverage (cycle-2a validated `applyRelocs` on synthetic bytes; here it
-    // runs through the real compileWasm -> produce -> load pipeline).
+    // internal `call 1` emits a direct-call reloc that the full-fidelity
+    // deserializer + normal setup must resolve to func1's address — so this
+    // is the differential's reloc coverage, run through the real
+    // compileWasmForAot -> produce -> deserialize pipeline (ADR-0203 stage 3).
     // Sections: type(1) () -> i32, func(3) ×2, export(7) "f", code(10):
     // func0 = `call 1; end`, func1 = `i32.const 7; end`.
     const wasm_bytes = [_]u8{
@@ -1861,22 +1849,19 @@ test "AOT<->JIT differential: internal call's direct-call reloc executes through
     defer compiled.deinit(testing.allocator);
     const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &wasm_bytes);
     defer testing.allocator.free(cwasm);
-    var mod = try aot_load.load(testing.allocator, cwasm);
-    defer mod.deinit();
-    var owned = try setupRuntime(testing.allocator, &compiled, &wasm_bytes);
-    defer owned.deinit(testing.allocator);
 
-    const Fn = *const fn (*const entry.JitRuntime) callconv(.c) u32;
-    const aot_result = try entry.callEntrySafe(&owned.rt, u32, mod.entry(0, Fn), .{}); // D-311 trampoline
-    try testing.expectEqual(jit_result, aot_result);
+    var result: ?runner.ScalarResult = null;
+    _ = try runner.runWasiLenient(testing.allocator, cwasm, "f", null, null, .{}, &result);
+    try testing.expectEqual(@as(i32, @bitCast(jit_result)), result.?.i32);
 }
 
 test "AOT producer serialises the func export table → loaded .cwasm resolves entry by name (§12.1 / ADR-0138)" {
     if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
 
     // `() -> i32` returning 7, exported "f" (same module as the §12.2
-    // i32 differential). The producer must now carry the export so the
-    // loaded image resolves "f" without re-parsing the `.wasm`.
+    // i32 differential). The full-fidelity path (ADR-0203 stage 3)
+    // resolves the export by name from the .cwasm's embedded module
+    // bytes: a named invoke works; a bogus name errors.
     const wasm_bytes = [_]u8{
         0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
         0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03,
@@ -1889,28 +1874,23 @@ test "AOT producer serialises the func export table → loaded .cwasm resolves e
     defer compiled.deinit(testing.allocator);
     const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &wasm_bytes);
     defer testing.allocator.free(cwasm);
-    var mod = try aot_load.load(testing.allocator, cwasm);
-    defer mod.deinit();
 
-    // Named lookup hits; default falls back to first func export.
-    try testing.expectEqual(@as(?usize, 0), mod.resolveEntry("f"));
-    try testing.expectEqual(@as(?usize, 0), mod.resolveEntry(null));
-    try testing.expectEqual(@as(?usize, null), mod.resolveEntry("absent"));
+    // Named lookup hits and executes.
+    var result: ?runner.ScalarResult = null;
+    _ = try runner.runWasiLenient(testing.allocator, cwasm, "f", null, null, .{}, &result);
+    try testing.expectEqual(@as(i32, 7), result.?.i32);
 
-    // The resolved entry executes.
-    var owned = try setupRuntime(testing.allocator, &compiled, &wasm_bytes);
-    defer owned.deinit(testing.allocator);
-    const Fn = *const fn (*const entry.JitRuntime) callconv(.c) u32;
-    const idx = mod.resolveEntry("f").?;
-    try testing.expectEqual(@as(u32, 7), try entry.callEntrySafe(&owned.rt, u32, mod.entry(idx, Fn), .{})); // D-311 trampoline
+    // A bogus name fails entry resolution.
+    try testing.expectError(runner.Error.ExportNotFound, runner.runWasiLenient(testing.allocator, cwasm, "nope", null, null, .{}, null));
 }
 
-test "stateful .cwasm cycle-1: global.get returns the serialised init value via standalone runEntry (§12.3b)" {
+test "stateful .cwasm cycle-1: global.get returns the serialised init value via the full-fidelity run path (§12.3b / ADR-0203 stage 3)" {
     if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
 
     // (module (global i32 (i32.const 42)) (func (export "g") (result i32)
-    //   global.get 0)). Reads a declared global → exercises the
-    // reconstructed globals_base (a stateless runtime would read 0).
+    //   global.get 0)). Reads a declared global → exercises globals setup
+    // from the .cwasm's embedded module bytes (full-fidelity deserialize +
+    // normal setup; a stateless runtime would read 0).
     const wasm_bytes = [_]u8{
         0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
         0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03,
@@ -1924,24 +1904,23 @@ test "stateful .cwasm cycle-1: global.get returns the serialised init value via 
     defer compiled.deinit(testing.allocator);
     const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &wasm_bytes);
     defer testing.allocator.free(cwasm);
-    var mod = try aot_load.load(testing.allocator, cwasm);
-    defer mod.deinit();
 
-    // The producer serialised the global's evaluated value; the standalone
-    // runner reconstructs globals_base, so global.get 0 yields 42 (not 0).
-    try testing.expectEqual(@as(usize, 1), mod.globals.len);
-    const idx = mod.resolveEntry("g").?;
-    try testing.expectEqual(@as(u64, 42), try aot_run.runEntry(&mod, idx));
+    // Normal setup initialises the global from the embedded module bytes,
+    // so global.get 0 yields 42 (not 0).
+    var result: ?runner.ScalarResult = null;
+    _ = try runner.runWasiLenient(testing.allocator, cwasm, "g", null, null, .{}, &result);
+    try testing.expectEqual(@as(i32, 42), result.?.i32);
 }
 
-test "stateful .cwasm cycle-1b: linear memory store+load round-trips via reconstructed vm_base (§12.3b)" {
+test "stateful .cwasm cycle-1b: linear memory store+load round-trips via the full-fidelity run path (§12.3b / ADR-0203 stage 3)" {
     if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
 
     // (module (memory 1) (func (export "m") (result i32)
     //   i32.const 0; i32.const 42; i32.store; i32.const 0; i32.load)).
-    // Stores 42 at addr 0 then loads it — exercises reconstructed memory
-    // (a stateless runtime has mem_limit 0 → the store traps). 42 < 64 so
-    // its signed-LEB i32.const is a single byte (`0x2a`).
+    // Stores 42 at addr 0 then loads it — exercises linear-memory setup
+    // from the .cwasm's embedded module bytes (a memory-less runtime would
+    // trap on the store). 42 < 64 so its signed-LEB i32.const is a single
+    // byte (`0x2a`).
     const wasm_bytes = [_]u8{
         0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
         0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03,
@@ -1956,21 +1935,20 @@ test "stateful .cwasm cycle-1b: linear memory store+load round-trips via reconst
     defer compiled.deinit(testing.allocator);
     const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &wasm_bytes);
     defer testing.allocator.free(cwasm);
-    var mod = try aot_load.load(testing.allocator, cwasm);
-    defer mod.deinit();
 
-    try testing.expect(mod.has_memory);
-    try testing.expectEqual(@as(u32, 1), mod.mem_min_pages);
-    const idx = mod.resolveEntry("m").?;
-    try testing.expectEqual(@as(u64, 42), try aot_run.runEntry(&mod, idx));
+    var result: ?runner.ScalarResult = null;
+    _ = try runner.runWasiLenient(testing.allocator, cwasm, "m", null, null, .{}, &result);
+    try testing.expectEqual(@as(i32, 42), result.?.i32);
 }
 
-test "stateful .cwasm cycle-1b: active data segment initialises memory, load reads it back (§12.3b)" {
+test "stateful .cwasm cycle-1b: active data segment initialises memory, load reads it back (§12.3b / ADR-0203 stage 3)" {
     if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
 
     // (module (memory 1) (data (i32.const 4) "\07\00\00\00")
     //   (func (export "d") (result i32) i32.const 4; i32.load)).
     // The data segment writes 7 (LE i32) at addr 4; the func loads it → 7.
+    // Full-fidelity deserialize + normal setup applies the segment from the
+    // .cwasm's embedded module bytes.
     const wasm_bytes = [_]u8{
         0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
         0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03,
@@ -1985,12 +1963,10 @@ test "stateful .cwasm cycle-1b: active data segment initialises memory, load rea
     defer compiled.deinit(testing.allocator);
     const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &wasm_bytes);
     defer testing.allocator.free(cwasm);
-    var mod = try aot_load.load(testing.allocator, cwasm);
-    defer mod.deinit();
 
-    try testing.expectEqual(@as(usize, 1), mod.mem_data.len);
-    const idx = mod.resolveEntry("d").?;
-    try testing.expectEqual(@as(u64, 7), try aot_run.runEntry(&mod, idx));
+    var result: ?runner.ScalarResult = null;
+    _ = try runner.runWasiLenient(testing.allocator, cwasm, "d", null, null, .{}, &result);
+    try testing.expectEqual(@as(i32, 7), result.?.i32);
 }
 
 test "stateful .cwasm cycle-2a: call_indirect through a reconstructed table returns 7 (§12.3b)" {
@@ -2000,8 +1976,9 @@ test "stateful .cwasm cycle-2a: call_indirect through a reconstructed table retu
     //   (elem (i32.const 0) 0)
     //   (func (result i32) i32.const 7)               ;; func 0
     //   (func (export "g") (result i32) i32.const 0; call_indirect (type $i))) ;; func 1
-    // call_indirect dispatches table[0] → func 0 → 7. A stateless runtime
-    // has table_size 0 / null funcptr_base → traps.
+    // call_indirect dispatches table[0] → func 0 → 7. Full-fidelity
+    // deserialize + normal setup builds the table + elem segment from the
+    // .cwasm's embedded module bytes (a table-less runtime would trap).
     const wasm_bytes = [_]u8{
         0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
         0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03,
@@ -2020,12 +1997,10 @@ test "stateful .cwasm cycle-2a: call_indirect through a reconstructed table retu
     defer compiled.deinit(testing.allocator);
     const cwasm = try aot_produce.produceFromCompiledWasm(testing.allocator, &compiled, &wasm_bytes);
     defer testing.allocator.free(cwasm);
-    var mod = try aot_load.load(testing.allocator, cwasm);
-    defer mod.deinit();
 
-    try testing.expectEqual(@as(u32, 1), mod.table_size);
-    const idx = mod.resolveEntry("g").?;
-    try testing.expectEqual(@as(u64, 7), try aot_run.runEntry(&mod, idx));
+    var result: ?runner.ScalarResult = null;
+    _ = try runner.runWasiLenient(testing.allocator, cwasm, "g", null, null, .{}, &result);
+    try testing.expectEqual(@as(i32, 7), result.?.i32);
 }
 
 // D-244 (JIT-WASI): a module importing `clock_time_get`, calling it into

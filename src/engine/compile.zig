@@ -46,11 +46,12 @@ pub fn boundsChecksMode() BoundsChecks {
 }
 
 /// Compile for AOT serialization — always with EXPLICIT bounds checks
-/// (ADR-0202 D5). The `.cwasm` format + `aot/run.zig`'s plain-heap
-/// run-memory cannot yet uphold guard-page soundness, and
-/// `produceFromCompiledWasm` hard-refuses an elided module, so every
-/// AOT-destined compile MUST route here. Save/restore the global knob
-/// so a caller's ambient `.auto` (JIT) preference is untouched.
+/// (ADR-0202 D5). Post-ADR-0203-stage-3 the `.cwasm` load path binds the
+/// SAME guarded setup memory as fresh JIT, but the format still lacks an
+/// elision bit and the loader the trap-registry re-registration (ADR-0203
+/// stage 4 / D-515(1)); `produceFromCompiledWasm` hard-refuses an elided
+/// module, so every AOT-destined compile MUST route here. Save/restore
+/// the global knob so a caller's ambient `.auto` preference is untouched.
 pub fn compileWasmForAot(allocator: Allocator, wasm_bytes: []const u8) Error!CompiledWasm {
     const prev = bounds_checks_mode;
     bounds_checks_mode = .explicit;

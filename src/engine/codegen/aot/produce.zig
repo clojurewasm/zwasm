@@ -54,10 +54,11 @@ pub const Error = serialise.Error || error{
     UnsupportedTableState,
     /// ADR-0202 D5 — the module was compiled with memory0 bounds-check
     /// elision, which the `.cwasm` format cannot yet represent safely (no
-    /// elision bit / trap-registry table, and `aot/run.zig` binds plain
-    /// heap). Serializing it would produce a `.cwasm` whose oob accesses
-    /// read/write past the guest memory silently. Callers destined for AOT
-    /// MUST `runner.setBoundsChecks(.explicit)` before compiling.
+    /// elision bit; the loader does not yet re-register trap-registry
+    /// entries — ADR-0203 stage 4 / D-515(1)). Serializing it would produce
+    /// a `.cwasm` whose oob accesses read/write past the guest memory
+    /// silently. Callers destined for AOT MUST
+    /// `runner.setBoundsChecks(.explicit)` before compiling.
     ElidedBoundsNotAotSerializable,
     /// ADR-0203 stage 2 (D-519) — an active `ZWASM_DEBUG` channel can
     /// instrument emitted code with this process's diagnostic-counter
@@ -99,11 +100,11 @@ pub fn produceFromCompiledWasm(
     compiled: *const runner.CompiledWasm,
     wasm_bytes: []const u8,
 ) Error![]u8 {
-    // ADR-0202 D5 — refuse to serialize elided codegen: the `.cwasm` format +
-    // `aot/run.zig`'s plain-heap run-memory cannot yet uphold the guard-page
-    // soundness invariant. This is the hard enforcement point that makes the
-    // "elided ⇒ guarded binding" invariant impossible to breach via AOT (a
-    // per-caller `.explicit` would be easy to forget). D-515 lifts it.
+    // ADR-0202 D5 — refuse to serialize elided codegen: the format has no
+    // elision bit and the loader no trap-registry re-registration yet
+    // (ADR-0203 stage 4 / D-515(1)). This is the hard enforcement point that
+    // makes the "elided ⇒ guarded binding" invariant impossible to breach
+    // via AOT (a per-caller `.explicit` would be easy to forget).
     if (compiled.bounds_elided) return Error.ElidedBoundsNotAotSerializable;
     // ADR-0203 stage 2 (D-519) — refuse to serialize dbg-instrumented
     // codegen: an active ZWASM_DEBUG channel (jit.callcount / global.trace)
@@ -517,8 +518,8 @@ test "produceFromCompiledWasm: tiny synthetic wasm round-trips through compileWa
     try testing.expect(code_slice.len > 0);
 }
 
-test "produceFromCompiledWasm: a WASI import round-trips into the .cwasm v0.4 imports section (D-251)" {
-    const load = @import("load.zig");
+test "produceFromCompiledWasm: a WASI import round-trips through the full-fidelity deserializer (D-251 / ADR-0203 stage 3)" {
+    const load_compiled = @import("load_compiled.zig");
     // (module (import "wasi_snapshot_preview1" "proc_exit" (func (param i32)))
     //         (func (export "main") i32.const 42 call 0))
     const wasm_bytes = [_]u8{
@@ -542,10 +543,12 @@ test "produceFromCompiledWasm: a WASI import round-trips into the .cwasm v0.4 im
     const h = try format.parseHeader(out[0..format.header_size]);
     try testing.expectEqual(@as(u32, 1), h.n_imports); // one imported func
 
-    var mod = try load.load(testing.allocator, out);
-    defer mod.deinit();
-    try testing.expectEqual(@as(usize, 1), mod.imports.len);
-    try testing.expectEqualStrings("wasi_snapshot_preview1", mod.imports[0].module);
-    try testing.expectEqualStrings("proc_exit", mod.imports[0].name);
-    try testing.expectEqual(@as(u8, @intFromEnum(sections.ImportKind.func)), mod.imports[0].kind);
+    // The deserializer re-derives the import space from the embedded
+    // original bytes; num_imports must agree with both the fresh compile
+    // and the artifact header.
+    var des = try load_compiled.deserializeToCompiledWasm(testing.allocator, out);
+    defer des.compiled.deinit(testing.allocator);
+    try testing.expectEqual(@as(u32, 1), des.compiled.num_imports);
+    try testing.expectEqual(compiled.num_imports, des.compiled.num_imports);
+    try testing.expectEqualSlices(u8, &wasm_bytes, des.wasm_bytes);
 }

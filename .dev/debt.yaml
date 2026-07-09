@@ -3,51 +3,6 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
-  - id: "D-517"
-    layer: "code"
-    status: "note"
-    description: |-
-      Front AOT-full-fidelity (Phase II characterization, 2026-07-09;
-      WIDENED post-stage-1: covers ALL mini-runtime state gaps, not just
-      grow). **The `.cwasm` mini-runtime lacks runtime state the full JIT
-      has**: (a) `memory.grow` — plain-heap min_pages per call, grow returns
-      -1: every realworld Go fixture dies OOM (8 fixtures) + rust/cpp/c
-      alloc-aborts, while the same `.wasm` runs fine; (b) NO GC arena —
-      post-D-516-de-baking a GC .cwasm deterministically fatal-signals on
-      null `gc_heap`; (c) NO EH tables (not serialized) — a throw/catch
-      .cwasm traps `uncaught_exception` instead of catching. All pinned as
-      `.wrong_result` rows in test/aot/aot_process_diff.zig. Discharged BY
-      ARCHITECTURE at ADR-0203 stage 3 (deserialize-into-CompiledWasm →
-      setupRuntimeLinked binds growable guarded memory + GC arena + EH
-      registry exactly like fresh JIT); the RATCHET-FLIP gate forces the
-      table update in that PR.
-    first_raised: "2026-07-09"
-    last_reviewed: "2026-07-09"
-    refs: |-
-      .dev/meta_audits/2026-07-09-aot-full-fidelity-investigation.md
-      test/aot/aot_process_diff.zig (known_table)
-      src/runtime/instance/memory_backing.zig:10-13 (the noted obligation)
-    front: AOT-full-fidelity
-  - id: "D-518"
-    layer: "code"
-    status: "note"
-    description: |-
-      Front AOT-full-fidelity (Phase II characterization, 2026-07-09).
-      **The start function is not serialized into `.cwasm`** — a `(start)`
-      module runs it on the `.wasm` path but the `.cwasm` lane silently
-      skips it → WRONG RESULTS with no error (probe: start writes mem[0]=42,
-      _start reads it back → wasm exit 42 / cwasm exit 0). The worst
-      divergence class (silent). Pinned as `.wrong_result` in
-      test/aot/aot_process_diff.zig. Fix = format carries the start-func idx
-      + the full-runtime load path runs it (JitInstance.runStart precedent);
-      RATCHET-FLIP forces the table update when it lands.
-    first_raised: "2026-07-09"
-    last_reviewed: "2026-07-09"
-    refs: |-
-      .dev/meta_audits/2026-07-09-aot-full-fidelity-investigation.md
-      test/aot/aot_process_diff.zig (known_table)
-      src/engine/codegen/aot/produce.zig (no start-func in the format)
-    front: AOT-full-fidelity
   - id: "D-508"
     layer: "code"
     status: "note"
