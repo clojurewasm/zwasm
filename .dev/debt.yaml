@@ -3,30 +3,61 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-516"
+    layer: "code"
+    status: "now"
+    description: |-
+      Front AOT-full-fidelity (campaign stage-1 target; found 2026-07-09 by
+      direct experiment). **`zwasm compile` silently produces a `.cwasm` that
+      fatally crashes when run in a fresh process** for any module whose
+      codegen bakes a Zig-helper absolute address: 13 helpers
+      (`jitCallIndirectResolve`, `jitGcAlloc` + GC array family,
+      `jitGcRefCast`/`RefTest`, `rethrowFromExnref`) are emitted as
+      MOVZ/MOVK / movabs imm64 across ~32 op files; the only `.cwasm` reloc
+      kind is `direct_call`; zwasm is PIE so per-exec ASLR invalidates the
+      baked addresses. REPRO: struct.new module → `run` ok(42) / `compile`
+      exit 0 (NO refusal) / `run x.cwasm` = "internal error — caught a fatal
+      signal" exit 70. call_indirect happens to survive (elem-initialized
+      slots pre-resolved; helper only on the lazy path — still a landmine).
+      FIX (campaign): route all 13 helpers through JitRuntime struct fields
+      called via [rt+off] (the `memory_grow_fn` precedent; wazero's
+      context-register pattern) — makes code bytes fully PIC and fixes fresh
+      JIT + AOT alike. INTERIM correctness stopgap if the campaign pauses:
+      producer refuses modules whose FuncResults contain baked-helper sites.
+    first_raised: "2026-07-09"
+    last_reviewed: "2026-07-09"
+    refs: |-
+      .dev/meta_audits/2026-07-09-aot-full-fidelity-investigation.md
+      src/engine/codegen/arm64/op_call.zig:314-319 (bake shape)
+      src/engine/codegen/x86_64/op_call.zig:500 (movabs mirror)
+      src/engine/codegen/aot/produce.zig (no GC/EH/call_indirect refusal)
+    front: AOT-full-fidelity
   - id: "D-508"
     layer: "code"
     status: "note"
     description: |-
-      Front G-senior-gap, G2 (after D-507; independently startable). **On-disk
-      compilation cache** — zwasm recompiles every `run` (hello-world: JIT
-      5.2ms vs interp 3.4ms — compile tax visible even on trivial modules; on
-      large modules it dominates cold start). Peers: wasmtime on-disk cache
-      (`Config::cache`, crates/cache/) + wazero
-      `NewCompilationCacheWithDir` (cache.go:34-114, versioned dir key
-      `wazero-<ver>-<arch>-<os>`). SHAPE: key = (module bytes hash, zwasm
-      version, arch, build options affecting codegen); value = the existing
-      `.cwasm` serialization (AOT format reuse — loader already exists);
-      eviction = LRU or size cap; opt-in CLI flag first (`--cache[=dir]`),
-      default-on only after soak; embedding API knob after CLI. Invalidation
-      correctness > hit rate. Small-to-medium bundle; not ADR-grade unless the
-      .cwasm format needs changes.
+      Front AOT-full-fidelity (was G-senior-gap G2; SCOPE CORRECTED 2026-07-09
+      — the "loader already exists / not ADR-grade" premise is FALSE: the
+      .cwasm load path is a compute-only mini-runtime (no memory.grow — 3MB Go
+      modules die OOM on it; measured), so the cache rides the campaign's
+      full-runtime load path). **On-disk transparent compilation cache** —
+      zwasm recompiles every `run` (measured 2026-07-09: 3MB Go modules pay
+      ~110ms compile tax per cold start; tinygo_json 8.5→3.4ms with a
+      precompiled artifact). Peers: wasmtime `Config::cache` + wazero
+      `NewCompilationCacheWithDir` (versioned dir key). SHAPE (campaign phase
+      III ADR): key = SHA-256(module bytes) under dir
+      `zwasm-<ver>-<arch>-<bounds>/`; value = `.cwasm`; hit loads into the
+      FULL runtime (cache-hit == cache-miss, D-510-diff-gated); temp+atomic
+      rename; silent miss on mismatch; eviction v1 = none + `--cache-clear`
+      (wazero parity), LRU later; opt-in `--cache[=dir]` CLI first,
+      embedding knob after.
     first_raised: "2026-07-06"
-    last_reviewed: "2026-07-06"
+    last_reviewed: "2026-07-09"
     refs: |-
+      .dev/meta_audits/2026-07-09-aot-full-fidelity-investigation.md
       .dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md §2.4
-      src/engine/codegen/aot/ (serialization to reuse)
       ~/Documents/OSS/wazero/cache.go:34-114
-    front: G-senior-gap
+    front: AOT-full-fidelity
   - id: "D-509"
     layer: "code"
     status: "note"
@@ -176,7 +207,7 @@ entries:
       src/cli/compile.zig + src/engine/compile.zig::compileWasmForAot
       test/spec/{spec_assert_runner,simd_assert_runner,spec_assert_runner_wasm_3_0}.zig (setBoundsChecks .explicit)
       .dev/decisions/0202_guard_page_bounds_elision.md D5
-    front: G-senior-gap
+    front: AOT-full-fidelity
   - id: "D-506"
     layer: "code"
     status: "note"
