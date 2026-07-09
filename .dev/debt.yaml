@@ -3,32 +3,6 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
-  - id: "D-508"
-    layer: "code"
-    status: "note"
-    description: |-
-      Front AOT-full-fidelity (was G-senior-gap G2; SCOPE CORRECTED 2026-07-09
-      — the "loader already exists / not ADR-grade" premise is FALSE: the
-      .cwasm load path is a compute-only mini-runtime (no memory.grow — 3MB Go
-      modules die OOM on it; measured), so the cache rides the campaign's
-      full-runtime load path). **On-disk transparent compilation cache** —
-      zwasm recompiles every `run` (measured 2026-07-09: 3MB Go modules pay
-      ~110ms compile tax per cold start; tinygo_json 8.5→3.4ms with a
-      precompiled artifact). Peers: wasmtime `Config::cache` + wazero
-      `NewCompilationCacheWithDir` (versioned dir key). SHAPE (campaign phase
-      III ADR): key = SHA-256(module bytes) under dir
-      `zwasm-<ver>-<arch>-<bounds>/`; value = `.cwasm`; hit loads into the
-      FULL runtime (cache-hit == cache-miss, D-510-diff-gated); temp+atomic
-      rename; silent miss on mismatch; eviction v1 = none + `--cache-clear`
-      (wazero parity), LRU later; opt-in `--cache[=dir]` CLI first,
-      embedding knob after.
-    first_raised: "2026-07-06"
-    last_reviewed: "2026-07-09"
-    refs: |-
-      .dev/meta_audits/2026-07-09-aot-full-fidelity-investigation.md
-      .dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md §2.4
-      ~/Documents/OSS/wazero/cache.go:34-114
-    front: AOT-full-fidelity
   - id: "D-509"
     layer: "code"
     status: "note"

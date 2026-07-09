@@ -278,6 +278,7 @@ pub const api = struct {
 };
 pub const cli = struct {
     pub const run = @import("cli/run.zig");
+    pub const cache = @import("cli/cache.zig");
     pub const invoke_args = @import("cli/invoke_args.zig");
     pub const compile = @import("cli/compile.zig");
     pub const dispatch = @import("cli/dispatch.zig");
@@ -407,6 +408,7 @@ test {
     _ = @import("wasi/adapter.zig");
     _ = @import("wasi/p2_sockets.zig");
     _ = @import("cli/run.zig");
+    _ = @import("cli/cache.zig");
     _ = @import("cli/invoke_args.zig");
     _ = @import("feature/component/decode.zig");
     _ = @import("feature/component/types.zig");
