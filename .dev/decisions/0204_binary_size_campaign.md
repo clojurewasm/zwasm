@@ -50,11 +50,25 @@ Reduce the comptime instantiation space of the host-call trampolines
 (`t0..t4`, `t1fp`, `t2fp` families) toward a small set of runtime-generic
 trampolines (argument marshalling driven by a per-signature descriptor
 table instead of one monomorphized function per type combination).
-Constraints: JIT↔host call ABI unchanged, no api break, no per-call
-runtime regression beyond noise (bench-gated per ADR-0181 series).
-Stage-gated: characterize the instantiation generator first (why 2,880 —
-which axes multiply), then collapse axes that don't affect the emitted
-call sequence.
+Constraints: no api break, no per-call runtime regression beyond noise
+(bench-gated per ADR-0181 series).
+
+Characterization (2026-07-16, `src/api/jit_host_bridge.zig` — 344 lines
+generating 5,453 symbols): the instantiation axes are
+`arg-kinds × RetKind(5) × MAX_HOST_SLOTS(64)` — t2fp = 3×3×5×64 = 2,880,
+t1fp = 3×5×64 = 960, t0..t4 = 5×5×64 = 1,600. Two independent findings:
+- **The ×64 slot axis is 94% of the product** and exists only so each
+  thunk comptime-hardcodes its slot index K (the JIT call passes only
+  `rt` + wasm args). Collapsing it means conveying K at runtime — e.g.
+  the call site materializes the slot index (or payload pointer) into a
+  scratch register before `BLR`. That changes zwasm's own emitted
+  call sequence (internal, version-keyed via the AOT cache — allowed),
+  NOT the embedder-facing api.
+- **t1fp/t2fp inline the whole payload-lookup + invokeCb body per thunk**
+  (~300 B each) where the GP thunks delegate to a shared `bridge()`
+  (~88 B each). A shared FP-bridge delegation alone — no ABI/JIT change
+  at all — cuts ~0.8 MB and is the natural stage-1 increment; the slot-
+  axis collapse (further ~0.4 MB) is stage 2.
 
 ### D2 — Complete the table-driven arm64 dispatch; delete the legacy switch (D-521, lever #2: ~500 KB potential)
 

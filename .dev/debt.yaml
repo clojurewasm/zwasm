@@ -30,13 +30,17 @@ entries:
       `api.jit_host_bridge` comptime thunk cross-product — 1,311 KB / 5,453
       syms, i.e. 92% of the whole api.* bucket (t2fp × 2,880 = 900 KB,
       t1fp × 960 = 282 KB, t0..t4 × 320 each ≈ 124 KB; measured 2026-07-16,
-      ReleaseSafe arm64 CLI 5,282,584 B at 71cccba76). Stage 1 =
-      characterize the instantiation generator (which axes multiply to
-      2,880); stage 2 = replace monomorphized per-type-combination
-      trampolines with runtime-generic marshalling over per-signature
-      descriptors for axes that don't change the emitted call sequence.
-      Constraints: JIT<->host ABI unchanged, no api break, no per-call
-      regression beyond noise (ADR-0181 bench series).
+      ReleaseSafe arm64 CLI 5,282,584 B at 71cccba76). Axes characterized
+      2026-07-16: arg-kinds x RetKind(5) x MAX_HOST_SLOTS(64); the x64
+      slot axis (94% of the product) exists only to comptime-hardcode the
+      slot index K. Stage 1 = shared FP-bridge delegation (t1fp/t2fp
+      currently inline ~300 B of payload-lookup+invokeCb per thunk vs the
+      GP thunks' 88 B bridge() delegation) — no ABI/JIT change, ~0.8 MB.
+      Stage 2 = collapse the slot axis by conveying K at runtime (call
+      site materializes slot index / payload ptr into a scratch reg
+      before BLR) — changes zwasm's own emitted call sequence (internal,
+      AOT-cache version-keyed), ~0.4 MB more. Constraints: no api break,
+      no per-call regression beyond noise (ADR-0181 bench series).
     first_raised: "2026-07-16"
     last_reviewed: "2026-07-16"
     refs: |-
