@@ -7,9 +7,8 @@
 
 **v2.2.1 is Latest** (tag `v2.2.1` @62b13a6c9, 2026-07-16 — binary-size
 campaign ADR-0204: CLI −21% ReleaseSafe via D-522 stage 1; release.yml
-auto-built Release + 5 assets; tag was USER-GRANTED in-session per
-ADR-0156. v2.2.0 = the 2026-07-09 AOT-full-fidelity line, `--cache` +
-full-runtime `.cwasm`). v1 frozen at `v1.11.1`. Dev model: cut
+auto-built Release + 5 assets; tag USER-GRANTED in-session per ADR-0156.
+v2.2.0 = the 2026-07-09 AOT-full-fidelity line). v1 frozen at `v1.11.1`. Dev model: cut
 a `develop/<slug>` branch from `main` → PR → CI `ci-required` 3-OS gate must be
 green to merge. **Release stays user-only (ADR-0156)** — never autonomously tag /
 publish / cut over (v2.2.1 tag was user-granted 2026-07-16 in-session). No
