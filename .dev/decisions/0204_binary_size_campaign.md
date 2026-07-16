@@ -1,6 +1,10 @@
 # ADR-0204: Binary-size campaign — host-bridge thunk collapse + table-driven emitter completion
 
-- **Status**: Accepted (kickoff; stages land as separate PRs)
+- **Status**: Implemented (D1 stage 1 shipped in #145: jit_host_bridge
+  −82%, CLI −21% ReleaseSafe / −8% ReleaseFast; D1 stage 2 re-scored
+  ~200 KB → demand-driven in D-522; D2 size premise refuted by stage-A
+  measurement → D-521 discharged, see 2026-07-16 amendment below; D3 not
+  pursued. Released as v2.2.1.)
 - **Date**: 2026-07-16
 - **Front**: binary-size (D-521 / D-522; dogfooding request `from_cljw_05`)
 - **Findings base**: symbol-attribution measurement 2026-07-16 (below);
@@ -71,6 +75,16 @@ t1fp = 3×5×64 = 960, t0..t4 = 5×5×64 = 1,600. Two independent findings:
   axis collapse (further ~0.4 MB) is stage 2.
 
 ### D2 — Complete the table-driven arm64 dispatch; delete the legacy switch (D-521, lever #2: ~500 KB potential)
+
+> **Amended 2026-07-16 — size premise REFUTED by stage-A measurement.**
+> Converting `dispatch()` to a comptime fn-pointer table left
+> `emit.compile` at 707 KB and grew the binary +28.8 KB (reverted). The
+> 707 KB symbol is *aggregation* of once-called inlined handlers, not
+> duplication — out-lining is size-neutral. See lesson
+> `2026-07-16-outlining-once-called-handlers-size-neutral.md`. D-521 is
+> discharged; the per-op-file migration of the remaining ~161 switch arms
+> stays on the ADR-0074 maintainability trajectory, NOT as a size lever.
+> The original text below is retained for the record.
 
 `engine.codegen.arm64.emit.compile` (src/engine/codegen/arm64/emit.zig,
 ~2,100-line fn) is a ~161-arm switch over `ZirOp` whose arms mostly

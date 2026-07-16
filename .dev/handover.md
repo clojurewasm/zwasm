@@ -11,26 +11,27 @@ PIC codegen D-516 fix; release.yml auto-built Release + 5 assets; release was
 USER-DIRECTED 2026-07-09 per ADR-0156). v1 frozen at `v1.11.1`. Dev model: cut
 a `develop/<slug>` branch from `main` → PR → CI `ci-required` 3-OS gate must be
 green to merge. **Release stays user-only (ADR-0156)** — never autonomously tag /
-publish / cut over. Active campaign: binary-size (ADR-0204, below); no cron
-self-re-arm.
+publish / cut over (v2.2.1 tag was user-granted 2026-07-16 in-session). No
+active campaign; no cron self-re-arm.
 
-## Active front — binary-size campaign (ADR-0204, kickoff 2026-07-16)
+## Binary-size campaign — CLOSED 2026-07-16 (ADR-0204 Implemented, v2.2.1)
 
-Trigger = dogfooding mailbox `from_cljw_05` (cljw measures zwasm at 44% of its
-shipped code; user authorized an independent zwasm-side campaign). Measured
-baseline (ReleaseSafe arm64 CLI 5,282,584 B @71cccba76; ReleaseFast base
-DOUBLED since 2026-06-12: 1,972,696 → 3,884,856 B):
-- **Lever #1 = D-522**: `api.jit_host_bridge` comptime thunk cross-product =
-  1,311 KB / 5,453 syms (t2fp×2,880 + t1fp×960 + t0..4). Characterize the
-  instantiation axes first, then collapse to descriptor-driven trampolines.
-  ABI/api unchanged; bench-gated.
-- **Lever #2 = D-521**: `engine.codegen.arm64.emit.compile` = one 707 KB
-  symbol (~161-arm ZirOp switch). Finish dispatch_collector (ADR-0074)
-  registration, delete the fall-through switch; x86_64 twin same treatment.
-  Acceptance: emitted JIT bytes IDENTICAL (test-aot-diff + fuzz-diff).
-- Re-run `record_binary_size.sh` per stage-merge (rows into the same PR).
-- cljw reply posted (`to_cljw_05.md`): thunk cross-product ≫ api-surface
-  gating (ADR-0073 already covers the latter); x86_64 emitter already exists.
+Trigger = dogfooding mailbox `from_cljw_05` (cljw measures zwasm at 44% of
+its shipped code). Kickoff #144 (measured attribution re-prioritized the
+cljw asks) · stage 1 #145 (D-522: shared noinline fpBridge1/2 bodies —
+jit_host_bridge 1,311→232 KB, **CLI −21%** ReleaseSafe, −8% ReleaseFast;
+DA-critique 20/20) · close #146 (refutation record + v2.2.1). Key outcomes:
+- **D-522 stage 1 SHIPPED**; stage 2 (slot-axis, ~200 KB) re-scored →
+  demand-driven note in debt.yaml.
+- **D-521 DISCHARGED — size premise refuted by measurement**: fn-ptr-table
+  stage A left `emit.compile` at 707 KB, +28.8 KB binary → reverted. The
+  giant symbol is once-called-handler AGGREGATION, not duplication. Lesson
+  `2026-07-16-outlining-once-called-handlers-size-neutral.md` (predictive
+  question = "how many call sites share this code?", not symbol size).
+- ReleaseFast `base` had DOUBLED unnoticed since 2026-06-12 (1.97→3.88 MB;
+  series cadence = phase-boundary only); now 3.56 MB. cljw replies
+  `to_cljw_05/06.md` in the mailbox (x86_64 emitter already exists +
+  4.0 MB budget-line revisit suggestion).
 
 ## AOT-full-fidelity campaign — CLOSED 2026-07-09 (ADR-0203 Implemented)
 
@@ -105,7 +106,7 @@ Report = `.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`.
   dogfooded into cljw (pins zwasm by git tag-hash). Runners ReleaseSafe.
 - **EH**: cross-instance JIT EH both arches. Interp+JIT EH corpus green. Realworld 56
   fixtures interp 56/0; JIT diff-gated.
-- **Debt**: 68 entries — **0 `now`-class** (D-505 DONE: 3 arm64-SIMD bitmask sites
+- **Debt**: 69 entries — **0 `now`-class** (D-505 DONE: 3 arm64-SIMD bitmask sites
   spill-aware, bitselect/fma SPILL-EXEMPT, spill_aware promoted to CI+gate_commit;
   follow-on D-506 = FP spill stage-2, note-class). 完成形 plateau (all dims
   confirmed, surface audits clean, interp+JIT fuzz 0-crash, v1-JIT parity D-265 closed).

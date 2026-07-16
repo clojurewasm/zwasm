@@ -12,6 +12,30 @@ SemVer compatibility guarantees start at the first stable `v2.0.0` tag.
 
 _No changes yet._
 
+## [2.2.1] - 2026-07-16
+
+Binary-size campaign (ADR-0204, PRs #144-#146), triggered by downstream
+embedder measurement (cljw): the zwasm binary shrank ~21% (ReleaseSafe
+arm64 CLI 5,282,584 → 4,173,736 B) with no API, behaviour, or JIT-output
+change.
+
+### Changed
+
+- **JIT host-callback FP thunks share their bridge bodies** (D-522
+  stage 1): the `f32`/`f64`-arg host-call thunks previously monomorphized
+  the full marshalling body per (arg-kinds × result × slot) —
+  ~300 B × 3,840 instantiations. The bodies now live in 60 shared
+  `noinline` bridges; each per-slot thunk is a ~23 B tail-forwarder.
+  `api.jit_host_bridge` code: 1,311 KB → 232 KB (−82%). Thunk C-ABI
+  signatures, trap semantics, and the embedder-facing API are unchanged.
+
+### Internal
+
+- Binary-size baseline + per-stage rows recorded in
+  `bench/results/size_history.yaml`; campaign record in ADR-0204
+  (including the measured refutation of the "table-driven dispatch
+  shrinks the emitter" hypothesis — D-521 discharged).
+
 ## [2.2.0] - 2026-07-09
 
 AOT-full-fidelity campaign (ADR-0203, PRs #136-#142): `.cwasm` is now a

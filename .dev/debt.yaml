@@ -3,30 +3,6 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
-  - id: "D-521"
-    layer: "code"
-    status: "note"
-    description: |-
-      Binary-size campaign lever #2 (ADR-0204 D2): complete the table-driven
-      arm64 dispatch and DELETE the legacy switch. `engine.codegen.arm64.emit
-      .compile` is a single 707 KB __text symbol. Root cause sharpened
-      2026-07-16: `dispatch_collector.dispatch()` is an `inline for` +
-      `@call(.auto)` over the 409 registered arm64 op modules — every
-      registered handler body is INLINED into the compile() instantiation
-      (and dispatch is a linear O(n) compare chain in the JIT-compile hot
-      path), on top of the ~161 legacy switch arms inlining their op_*.zig
-      helpers. Stage A = convert dispatch()/dispatchX86_64Ctx() to a
-      comptime-built fn-pointer table indexed by @intFromEnum(op) (O(1)
-      dispatch, kills the inline duplication; handlers need a uniform
-      canonical signature per axis — wrap where inferred error sets
-      differ). Stage B = migrate the remaining ~161 switch ops to per-op
-      files and delete the switch. Acceptance: emitted JIT bytes
-      IDENTICAL — test-aot-diff 63/63 + fuzz-diff lanes + 3-OS test-all.
-    first_raised: "2026-07-16"
-    last_reviewed: "2026-07-16"
-    refs: |-
-      ADR-0204 D2; from_cljw_05 request 1; dispatch_collector ADR-0074
-    front: binary-size
   - id: "D-522"
     layer: "api"
     status: "note"
@@ -41,12 +17,15 @@ entries:
       **Stage 1 DONE 2026-07-16** (shared noinline fpBridge1/fpBridge2
       bodies; thunks forward-only): jit_host_bridge 1,311 KB -> 232 KB
       (-82%), whole CLI 5,282,584 -> 4,173,736 B (-21%), no ABI change.
-      Stage 2 (collapse the slot axis by conveying K at runtime — call
-      site materializes the slot index before BLR) is RE-SCORED by the
-      stage-1 measurement: remaining recoverable ~200 KB (209 KB of
-      per-slot thunks -> ~15 KB shared), against a JIT call-sequence
-      change on both arches + AOT format touch. Demand-driven — re-score
-      after D-521 lands; do not grind speculatively (measure-first).
+      Campaign CLOSED with stage 1 (v2.2.1; ADR-0204 Implemented).
+      RESIDUAL = stage 2 only: collapse the x64 slot axis by conveying K
+      at runtime (call site materializes the slot index before BLR) —
+      remaining recoverable ~200 KB (209 KB of per-slot thunks -> ~15 KB
+      shared), against a JIT call-sequence change on both arches + AOT
+      format touch. Demand-driven; trigger = a real embedder squeezed on
+      size after v2.2.1, or the next size campaign. Do not grind
+      speculatively (measure-first; cf. the D-521 refutation lesson
+      2026-07-16-outlining-once-called-handlers-size-neutral.md).
       Constraints unchanged: no api break, no per-call regression beyond
       noise (ADR-0181 bench series).
     first_raised: "2026-07-16"
