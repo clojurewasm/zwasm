@@ -3,6 +3,46 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-521"
+    layer: "code"
+    status: "note"
+    description: |-
+      Binary-size campaign lever #2 (ADR-0204 D2): complete the table-driven
+      arm64 dispatch and DELETE the legacy switch. `engine.codegen.arm64.emit
+      .compile` is a single 707 KB __text symbol (~161-arm switch over ZirOp,
+      arms mostly delegate to already-extracted op_*.zig handlers); the
+      dispatch_collector substrate (ADR-0074) already table-dispatches
+      registered ops and falls through to the switch. Finish registration for
+      all remaining ops, delete the fall-through. Same treatment for the
+      x86_64 twin (costs Linux/Windows binaries; already target-gated out of
+      the arm64 binary). Acceptance: emitted JIT bytes IDENTICAL —
+      test-aot-diff 63/63 + fuzz-diff lanes + 3-OS test-all.
+    first_raised: "2026-07-16"
+    last_reviewed: "2026-07-16"
+    refs: |-
+      ADR-0204 D2; from_cljw_05 request 1; dispatch_collector ADR-0074
+    front: binary-size
+  - id: "D-522"
+    layer: "api"
+    status: "note"
+    description: |-
+      Binary-size campaign lever #1 (ADR-0204 D1): collapse the
+      `api.jit_host_bridge` comptime thunk cross-product — 1,311 KB / 5,453
+      syms, i.e. 92% of the whole api.* bucket (t2fp × 2,880 = 900 KB,
+      t1fp × 960 = 282 KB, t0..t4 × 320 each ≈ 124 KB; measured 2026-07-16,
+      ReleaseSafe arm64 CLI 5,282,584 B at 71cccba76). Stage 1 =
+      characterize the instantiation generator (which axes multiply to
+      2,880); stage 2 = replace monomorphized per-type-combination
+      trampolines with runtime-generic marshalling over per-signature
+      descriptors for axes that don't change the emitted call sequence.
+      Constraints: JIT<->host ABI unchanged, no api break, no per-call
+      regression beyond noise (ADR-0181 bench series).
+    first_raised: "2026-07-16"
+    last_reviewed: "2026-07-16"
+    refs: |-
+      ADR-0204 D1; from_cljw_05 request 2 (re-prioritized: thunk
+      cross-product >> api-surface gating, which ADR-0073 already covers)
+    front: binary-size
   - id: "D-509"
     layer: "code"
     status: "note"

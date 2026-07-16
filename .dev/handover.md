@@ -11,7 +11,26 @@ PIC codegen D-516 fix; release.yml auto-built Release + 5 assets; release was
 USER-DIRECTED 2026-07-09 per ADR-0156). v1 frozen at `v1.11.1`. Dev model: cut
 a `develop/<slug>` branch from `main` → PR → CI `ci-required` 3-OS gate must be
 green to merge. **Release stays user-only (ADR-0156)** — never autonomously tag /
-publish / cut over. No active campaign/bundle; no cron self-re-arm.
+publish / cut over. Active campaign: binary-size (ADR-0204, below); no cron
+self-re-arm.
+
+## Active front — binary-size campaign (ADR-0204, kickoff 2026-07-16)
+
+Trigger = dogfooding mailbox `from_cljw_05` (cljw measures zwasm at 44% of its
+shipped code; user authorized an independent zwasm-side campaign). Measured
+baseline (ReleaseSafe arm64 CLI 5,282,584 B @71cccba76; ReleaseFast base
+DOUBLED since 2026-06-12: 1,972,696 → 3,884,856 B):
+- **Lever #1 = D-522**: `api.jit_host_bridge` comptime thunk cross-product =
+  1,311 KB / 5,453 syms (t2fp×2,880 + t1fp×960 + t0..4). Characterize the
+  instantiation axes first, then collapse to descriptor-driven trampolines.
+  ABI/api unchanged; bench-gated.
+- **Lever #2 = D-521**: `engine.codegen.arm64.emit.compile` = one 707 KB
+  symbol (~161-arm ZirOp switch). Finish dispatch_collector (ADR-0074)
+  registration, delete the fall-through switch; x86_64 twin same treatment.
+  Acceptance: emitted JIT bytes IDENTICAL (test-aot-diff + fuzz-diff).
+- Re-run `record_binary_size.sh` per stage-merge (rows into the same PR).
+- cljw reply posted (`to_cljw_05.md`): thunk cross-product ≫ api-surface
+  gating (ADR-0073 already covers the latter); x86_64 emitter already exists.
 
 ## AOT-full-fidelity campaign — CLOSED 2026-07-09 (ADR-0203 Implemented)
 
