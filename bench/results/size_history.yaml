@@ -49,3 +49,15 @@
   variant: "lean"
   optimize: "ReleaseFast"
   zwasm_bytes: 3646232
+
+- commit: "698eeff5d"
+  timestamp: "2026-07-16T03:46:03Z"
+  variant: "base"
+  optimize: "ReleaseFast"
+  zwasm_bytes: 3563960
+
+- commit: "698eeff5d"
+  timestamp: "2026-07-16T03:46:03Z"
+  variant: "lean"
+  optimize: "ReleaseFast"
+  zwasm_bytes: 3325304

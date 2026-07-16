@@ -216,25 +216,36 @@ fn t4(comptime K: usize, comptime r: RetKind) *const fn (*JitRuntime, u64, u64, 
 // register-class `Kind` so the C ABI lands GP args in integer registers and
 // f32/f64 in FP registers (correct on Win64 too, where the slot index couples
 // by position). The bridge marshals each arg via `argVal`.
+//
+// The bodies live in `fpBridge1`/`fpBridge2`, monomorphized per (kinds, ret)
+// but NOT per slot K — `noinline` keeps them from being re-inlined into each
+// of the MAX_HOST_SLOTS thunks (the D-522 measurement: inlined bodies cost
+// ~300 B x 3,840 thunks; shared bodies leave only arg-forwarding per thunk).
+noinline fn fpBridge1(comptime k0: Kind, comptime r: RetKind, rt: *JitRuntime, idx: usize, a0: PT(k0)) RT(r) {
+    const base = rt.host_payloads_base orelse return trapResult(rt, r);
+    const payload: *HostFuncPayload = @ptrFromInt(base[idx]);
+    if (payload.params.len != 1) return trapResult(rt, r);
+    const argbuf = [_]Val{argVal(k0, payload.params[0], a0)};
+    return invokeCb(rt, payload, &argbuf, r);
+}
+noinline fn fpBridge2(comptime k0: Kind, comptime k1: Kind, comptime r: RetKind, rt: *JitRuntime, idx: usize, a0: PT(k0), a1: PT(k1)) RT(r) {
+    const base = rt.host_payloads_base orelse return trapResult(rt, r);
+    const payload: *HostFuncPayload = @ptrFromInt(base[idx]);
+    if (payload.params.len != 2) return trapResult(rt, r);
+    const argbuf = [_]Val{ argVal(k0, payload.params[0], a0), argVal(k1, payload.params[1], a1) };
+    return invokeCb(rt, payload, &argbuf, r);
+}
 fn t1fp(comptime k0: Kind, comptime K: usize, comptime r: RetKind) *const fn (*JitRuntime, PT(k0)) callconv(.c) RT(r) {
     return &struct {
         fn f(rt: *JitRuntime, a0: PT(k0)) callconv(.c) RT(r) {
-            const base = rt.host_payloads_base orelse return trapResult(rt, r);
-            const payload: *HostFuncPayload = @ptrFromInt(base[K]);
-            if (payload.params.len != 1) return trapResult(rt, r);
-            const argbuf = [_]Val{argVal(k0, payload.params[0], a0)};
-            return invokeCb(rt, payload, &argbuf, r);
+            return fpBridge1(k0, r, rt, K, a0);
         }
     }.f;
 }
 fn t2fp(comptime k0: Kind, comptime k1: Kind, comptime K: usize, comptime r: RetKind) *const fn (*JitRuntime, PT(k0), PT(k1)) callconv(.c) RT(r) {
     return &struct {
         fn f(rt: *JitRuntime, a0: PT(k0), a1: PT(k1)) callconv(.c) RT(r) {
-            const base = rt.host_payloads_base orelse return trapResult(rt, r);
-            const payload: *HostFuncPayload = @ptrFromInt(base[K]);
-            if (payload.params.len != 2) return trapResult(rt, r);
-            const argbuf = [_]Val{ argVal(k0, payload.params[0], a0), argVal(k1, payload.params[1], a1) };
-            return invokeCb(rt, payload, &argbuf, r);
+            return fpBridge2(k0, k1, r, rt, K, a0, a1);
         }
     }.f;
 }

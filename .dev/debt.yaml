@@ -9,14 +9,19 @@ entries:
     description: |-
       Binary-size campaign lever #2 (ADR-0204 D2): complete the table-driven
       arm64 dispatch and DELETE the legacy switch. `engine.codegen.arm64.emit
-      .compile` is a single 707 KB __text symbol (~161-arm switch over ZirOp,
-      arms mostly delegate to already-extracted op_*.zig handlers); the
-      dispatch_collector substrate (ADR-0074) already table-dispatches
-      registered ops and falls through to the switch. Finish registration for
-      all remaining ops, delete the fall-through. Same treatment for the
-      x86_64 twin (costs Linux/Windows binaries; already target-gated out of
-      the arm64 binary). Acceptance: emitted JIT bytes IDENTICAL —
-      test-aot-diff 63/63 + fuzz-diff lanes + 3-OS test-all.
+      .compile` is a single 707 KB __text symbol. Root cause sharpened
+      2026-07-16: `dispatch_collector.dispatch()` is an `inline for` +
+      `@call(.auto)` over the 409 registered arm64 op modules — every
+      registered handler body is INLINED into the compile() instantiation
+      (and dispatch is a linear O(n) compare chain in the JIT-compile hot
+      path), on top of the ~161 legacy switch arms inlining their op_*.zig
+      helpers. Stage A = convert dispatch()/dispatchX86_64Ctx() to a
+      comptime-built fn-pointer table indexed by @intFromEnum(op) (O(1)
+      dispatch, kills the inline duplication; handlers need a uniform
+      canonical signature per axis — wrap where inferred error sets
+      differ). Stage B = migrate the remaining ~161 switch ops to per-op
+      files and delete the switch. Acceptance: emitted JIT bytes
+      IDENTICAL — test-aot-diff 63/63 + fuzz-diff lanes + 3-OS test-all.
     first_raised: "2026-07-16"
     last_reviewed: "2026-07-16"
     refs: |-
@@ -32,15 +37,18 @@ entries:
       t1fp × 960 = 282 KB, t0..t4 × 320 each ≈ 124 KB; measured 2026-07-16,
       ReleaseSafe arm64 CLI 5,282,584 B at 71cccba76). Axes characterized
       2026-07-16: arg-kinds x RetKind(5) x MAX_HOST_SLOTS(64); the x64
-      slot axis (94% of the product) exists only to comptime-hardcode the
-      slot index K. Stage 1 = shared FP-bridge delegation (t1fp/t2fp
-      currently inline ~300 B of payload-lookup+invokeCb per thunk vs the
-      GP thunks' 88 B bridge() delegation) — no ABI/JIT change, ~0.8 MB.
-      Stage 2 = collapse the slot axis by conveying K at runtime (call
-      site materializes slot index / payload ptr into a scratch reg
-      before BLR) — changes zwasm's own emitted call sequence (internal,
-      AOT-cache version-keyed), ~0.4 MB more. Constraints: no api break,
-      no per-call regression beyond noise (ADR-0181 bench series).
+      slot axis exists only to comptime-hardcode the slot index K.
+      **Stage 1 DONE 2026-07-16** (shared noinline fpBridge1/fpBridge2
+      bodies; thunks forward-only): jit_host_bridge 1,311 KB -> 232 KB
+      (-82%), whole CLI 5,282,584 -> 4,173,736 B (-21%), no ABI change.
+      Stage 2 (collapse the slot axis by conveying K at runtime — call
+      site materializes the slot index before BLR) is RE-SCORED by the
+      stage-1 measurement: remaining recoverable ~200 KB (209 KB of
+      per-slot thunks -> ~15 KB shared), against a JIT call-sequence
+      change on both arches + AOT format touch. Demand-driven — re-score
+      after D-521 lands; do not grind speculatively (measure-first).
+      Constraints unchanged: no api break, no per-call regression beyond
+      noise (ADR-0181 bench series).
     first_raised: "2026-07-16"
     last_reviewed: "2026-07-16"
     refs: |-
