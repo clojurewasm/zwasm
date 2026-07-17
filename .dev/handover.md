@@ -42,14 +42,11 @@ test-aot-diff` 63/63 incl. cache lanes. Residual = D-515(2) + D-514
 
 ## WASI-0.3.0-official sweep — 2026-07-17 (branch develop/wasm30-wasi03-inventory-sweep)
 
-**WASI 0.3.0 released 2026-06-11** (official spec at `~/Documents/OSS/WASI/`,
-clones pulled). Inventory vs zwasm's draft-era P3: docs truth-sweep
-(README WASI-0.3 row, --help engine-default lie, canon.zig "pending" lie,
-3.0-runner "SKELETON" lie, migration GC claim — `-Dgc` is INERT, D-525) +
-`system-clock`/`get-resolution` host support shipped (instant{s64,u32},
-DA check #12). Fixtures import 0.2.6 (toolchain predates release) → D-523;
-async wait-until/wait-for + version-gating → D-524. Full diff record =
-proposal_watch 2026-07-17 entry.
+**WASI 0.3.0 released 2026-06-11** (spec at `~/Documents/OSS/WASI/`, clones
+pulled). Docs truth-sweep (README 0.3 row, --help/canon.zig/3.0-runner lies,
+`-Dgc` is INERT → D-525) + `system-clock`/`get-resolution` host support
+(instant{s64,u32}, DA check #12). Fixtures import 0.2.6 → D-523; async
+wait-until/wait-for → D-524. Full diff = proposal_watch 2026-07-17 entry.
 
 ## Active front — G-senior-gap (2026-07-06, /continue entry point)
 
