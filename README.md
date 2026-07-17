@@ -44,7 +44,7 @@ now (demand-driven).
 |-----------------------------------------------------------------------------------------------------------------|---------|----------------------------------------------------------|
 | Wasm 1.0                                                                                                        | ✅ 100% | spec testsuite green on the 3-host gate                  |
 | Wasm 2.0 (multi-value, SIMD-128, bulk-memory, reference-types, non-trapping FP→int, sign-ext, mutable globals) | ✅ 100% | `skip-impl == 0`; bit-identical across hosts             |
-| Wasm 3.0 (GC, EH, tail-call, memory64, multi-memory, typed func refs, extended-const, relaxed-simd)             | ✅ 100% | all 9 proposals; spec testsuite green on the 3-host gate |
+| Wasm 3.0 (GC, EH, tail-call, memory64, multi-memory, typed func refs, extended-const, relaxed-simd, custom annotations) | ✅ 100% | all 9 proposals; spec testsuite green on the 3-host gate |
 
 ### WASI
 
@@ -52,6 +52,7 @@ now (demand-driven).
 |--------------------------------------|---------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | WASI 0.1 (preview1)                  | ✅ functional             | interpreter: args / env / preopened dirs / clock / random / fd I/O                                                                                                                                                                                                                                                                                            |
 | WASI 0.2 (preview2, Component Model) | ✅ functional, default-ON | wasmtime-equivalent campaign complete (2026-06-13): real `wasm32-wasip2` Rust/TinyGo components run e2e (fs, sockets incl. TCP listeners, guest-defined resources); typed embedder API (introspection + `invokeTyped`); validation rules 1-12, official corpus 158/0/0; gated by `-Dwasi>=p2` (default), `-Dwasi=p1` = lean opt-out |
+| WASI 0.3 (preview3, native async)    | 🚧 core, opt-in (`-Dwasi=p3`) | Component-Model async substrate (async-lifted exports via the stackless callback loop, `stream<T>`/`future<T>`, waitable-sets) + `wasi:cli` / `wasi:clocks` / `wasi:random` host; real `wasm32-wasip3` Rust components run e2e. The official WASI 0.3.0 interface set (released 2026-06-11) is not yet complete: `wasi:filesystem` / `wasi:sockets` data-plane and `wasi:http` are pending |
 
 All three execution paths do full WASI I/O — the interpreter, the JIT
 (`--engine jit`), and AOT (`.cwasm`). The JIT additionally

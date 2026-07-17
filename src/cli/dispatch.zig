@@ -47,7 +47,7 @@ pub const usage =
     \\Usage:
     \\  zwasm run <file.wasm|file.cwasm> [args...]   Run a module (WASI _start / main)
     \\    [--invoke <name>[=a,b,...]]                Invoke a named export (optional call args)
-    \\    [--engine <interp|jit>]                    Engine: interp (default) or jit (both full WASI; jit adds SIMD)
+    \\    [--engine <interp|jit>]                    Engine: default auto (prefers JIT, interp fallback); interp|jit force one (both full WASI; jit adds SIMD)
     \\    [--dir <host>[:<guest>]]                   Preopen a host directory for WASI
     \\    [--env <KEY=VAL>]                          Set an environment variable for the guest
     \\    [--fuel <N>]                               Trap after a fuel budget (units are engine-specific:
@@ -55,6 +55,8 @@ pub const usage =
     \\    [--timeout <ms>]                           Interrupt the guest after a wall-clock deadline
     \\    [--max-memory <bytes>]                     Refuse memory.grow past this many bytes (64 KiB page granularity)
     \\    [--max-table-elements <N>]                 Refuse table growth/alloc past this many elements
+    \\    [--cache[=DIR]]                            Transparent compilation cache (content-keyed .cwasm reuse)
+    \\    [--cache-clear]                            Delete this build's cache subdirectory (combine with --cache to repopulate)
     \\  zwasm compile <file.wasm> -o <out.cwasm>     Compile to a .cwasm AOT artifact
     \\  zwasm --version | -V                         Print the version
     \\  zwasm --help | -h | help                     Print this help

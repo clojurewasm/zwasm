@@ -16,15 +16,16 @@
 //!                             export; exit with the guest's
 //!                             `proc_exit` code.
 //!   run --invoke <name>       Invoke the named func export (zero-args)
-//!   run --engine <interp|jit> Engine: interp (default) or jit — BOTH do full
+//!   run --engine <interp|jit> Engine: default (omitted) = auto, prefers JIT
+//!                             with interp fallback; interp|jit force one — BOTH do full
 //!                             WASI (D-244); jit additionally executes SIMD
 //!                             (the interp does not). `--engine=jit` accepted.
 //!     <path.wasm>             instead of the default `_start` / `main`
 //!                             selection. Typed `--invoke NAME=a,b,...`
 //!                             arg marshalling + result printing are
 //!                             handled in `cli/invoke_args.zig` (D-273).
-//!   compile <path.wasm>       Produce a `.cwasm` v0.1 artifact (per
-//!     -o <out.cwasm>          ADR-0039). Generator side; `run
+//!   compile <path.wasm>       Produce a `.cwasm` v0.5 full-fidelity artifact
+//!     -o <out.cwasm>          (per ADR-0203). Generator side; `run
 //!                             <file.cwasm>` loads + executes it.
 //!
 //! The surface is `run` + `compile` only (ADR-0159, §16.4): the

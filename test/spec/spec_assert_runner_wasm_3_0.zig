@@ -1,18 +1,16 @@
-//! Wasm 3.0 spec assertion runner skeleton (10.T-2b).
+//! Wasm 3.0 spec assertion runner (10.T-2b, JIT-executing since Phase 10).
 //!
-//! Sub-corpus selector for the 5 Wasm 3.0 proposals (memory64 /
-//! tail-call / exception-handling / gc / function-references).
-//! Currently a SKELETON — enumerates the baked manifests under
-//! `<corpus-root>/<proposal>/<name>/manifest.txt` and reports
-//! per-proposal directive counts. JIT-execute + actual assertion
-//! matching comes online cycle-by-cycle as impl rows 10.M / 10.R /
-//! 10.TC / 10.E / 10.G land (each impl row will adopt the
-//! `spec_assert_runner_base` callbacks pattern once its proposal's
-//! ZIR / runtime / codegen surface exists).
+//! Sub-corpus selector for the Wasm 3.0 proposals (memory64 / multi-memory /
+//! tail-call / exception-handling / gc / function-references): enumerates the
+//! baked manifests under `<corpus-root>/<proposal>/<name>/manifest.txt` and
+//! executes the assertions — assert_return / assert_trap / assert_invalid /
+//! assert_unlinkable / assert_malformed / assert_exception — with real
+//! pass/fail accounting, plus an opt-in JIT-return lane
+//! (`ZWASM_SPEC_ENGINE=jit`) whose enumerated skips are the D-217
+//! harness-shape gaps, not silent omissions.
 //!
-//! Until then this runner serves as the **observable wiring** —
-//! `zig build test-spec-wasm-3.0-assert` builds + runs it,
-//! exiting clean against the smoke-baked corpus (10.T-2a). A
+//! `zig build test-spec-wasm-3.0-assert` builds + runs it against the
+//! committed corpus. A
 //! missing corpus ROOT `exit(1)`s — the corpus is committed, so a
 //! missing root is a real error, not a fresh-checkout state
 //! (ADR-0174 no-silent-skip), matching the other assert runners.

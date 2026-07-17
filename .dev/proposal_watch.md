@@ -5,7 +5,7 @@
 > re-evaluated when they advance. Phase 4 non-web proposals are the
 > v0.2.0 line.
 
-Last reviewed: **2026-07-03**.
+Last reviewed: **2026-07-17**.
 
 > **WASI 0.3.0 RATIFIED 2026-06-11** (Bytecode Alliance; Wasmtime 43+). It
 > rebases WASI onto the **Component Model async primitives** (`async` func,
@@ -83,10 +83,26 @@ Text Encoding Builtins` (skip).
 
 | WASI version   | zwasm phase   | Notes                                   |
 |----------------|---------------|-----------------------------------------|
-| 0.1 (preview1) | Phases 4 / 11 | de-facto baseline; complete in Phase 11 |
-| 0.2 (preview2) | **Phase 17 (ACTIVE)** | Component Model required; full campaign per ADR-0170 (`component_model_plan.md`) |
-| 0.3            | post-v0.1.0 (post-v0.2.0) | **released 2026-06-11**; rebases WASI on CM async — streams/futures replace 0.2 poll/`pollable`; breaking vs 0.2; impl gated on CM-async + stack-switching (D-300, DEFER) |
+| 0.1 (preview1) | ✅ COMPLETE   | de-facto baseline; complete since Phase 11 |
+| 0.2 (preview2) | ✅ COMPLETE (default-ON) | Component Model campaign done 2026-06-13 (ADR-0170); official corpus 158/0/0 |
+| 0.3            | 🚧 core SHIPPED (opt-in `-Dwasi=p3`) | **released 2026-06-11**; rebases WASI on CM async (async func / `stream<T>` / `future<T>` — NOT core stack-switching, see callout). zwasm ships the CM-async substrate + cli/clocks/random host; official-0.3.0 interface deltas tracked in the 2026-07-17 entry below |
 
+- **2026-07-17** — **WASI-0.3.0-official diff inventory** (reference clones
+  pulled: WASI monorepo → 2026-07-15 HEAD incl. the `v0.3.0` release of
+  2026-06-11; wasmtime v48; wasm-tools v1.252; the per-interface
+  `WebAssembly/wasi-*` repos were ARCHIVED upstream 2025-11-25 — living WIT =
+  `WASI/proposals/*/wit/`). Deltas between the official 0.3.0 WIT and zwasm's
+  draft-era P3 surface: (1) `wasi:clocks/wall-clock` was RENAMED
+  `system-clock`, `datetime{u64,u32}` → `instant{seconds: s64, ns: u32}`, +
+  `get-resolution`; (2) `wasi:clocks/monotonic-clock` gains `get-resolution` +
+  `wait-until`/`wait-for` **async funcs**; (3) `wasi:cli` stdio via-stream
+  shapes match zwasm's ADR-0190 impl (stdout/stderr `write-via-stream(stream<u8>)
+  -> future<result<_,error-code>>`); (4) `wasi:io` is deleted upstream (CM
+  builtins replace it) — zwasm's P2 wasi:io host stays for 0.2 guests. ALSO
+  measured: the committed `test/component/wasip3/*.wasm` fixtures import
+  **wasi 0.2.6 interfaces** (the pinned nightly rust wasip3 target predates the
+  release) — regenerating against official 0.3.0 needs a toolchain bump
+  (debt D-523). Host-side `system-clock` support added this sweep.
 - **2026-07-03** — **post-v2.0.0 maintenance sweep** (reference clones refreshed
   ff-only: wasmtime / WAMR / wasm-tools / component-model to upstream HEAD; spec +
   testsuite left at their `wg-3.0` / `spec_pin.yaml` pins). **No proposal phase

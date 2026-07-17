@@ -11,7 +11,7 @@
 //! over memory · recursive `store`/`load` for list/record/variant · the
 //! multi-value flat lowering for fn-call params (`flattenType`/`lowerFlat`/
 //! `liftFlat`) · the decoded-`TypeInfo`→`CanonType` bridge · resource handle
-//! own/borrow (D-322). utf16/latin1 string encodings pending.
+//! own/borrow (D-322) · utf16 / latin1+utf16 string encodings (D-502).
 //!
 //! The realloc callback is INJECTED (vtable pattern, `zone_deps`): canon.zig
 //! never imports the core runtime's instance/invoke; the orchestration layer
@@ -219,8 +219,8 @@ pub const ReallocError = error{ AllocFailed, OutOfBounds };
 /// (ADR-0171). An error result signals OOM / trap.
 pub const ReallocFn = *const fn (ctx: *anyopaque, old_ptr: u32, old_size: u32, alignment: u32, new_size: u32) ReallocError!u32;
 
-/// Guest string encoding (`canonopt` `string-encoding`). utf8 is implemented;
-/// utf16 / latin1+utf16 are still pending (rejected by lift/lower for now).
+/// Guest string encoding (`canonopt` `string-encoding`). All three are
+/// implemented at the canon lift/lower layer (D-502).
 pub const StringEncoding = enum { utf8, utf16, latin1_utf16 };
 
 /// Per-call canonical-ABI context: the guest linear memory (lift/lower target),

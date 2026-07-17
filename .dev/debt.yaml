@@ -3,6 +3,76 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-523"
+    layer: "test"
+    status: "note"
+    front: D-wasi03
+    description: |-
+      The committed wasip3 conformance fixtures (`test/component/wasip3/*.wasm`,
+      7 rust CLI components) import **wasi 0.2.6 interfaces** (`wasi:cli@0.2.6`,
+      `wasi:io@0.2.6`, `wasi:clocks/wall-clock@0.2.6`; verified via
+      `wasm-tools component wit` 2026-07-17) — the pinned nightly rust
+      wasm32-wasip3 target predates the official WASI 0.3.0 release
+      (2026-06-11). The corpus therefore certifies the CM-async export ABI +
+      the 0.2 host surface, NOT the official 0.3.0 WIT (system-clock,
+      via-stream stdio, async sockets). DISCHARGE: bump the `flake.nix`
+      `gen-wasip3` toolchain pin to a nightly whose wasip3 target emits
+      official 0.3.0 imports (lesson 2026-06-16-wasip3-hermetic-build-recipe
+      documents the fragile Darwin recipe), regen via
+      `scripts/gen_wasip3_fixtures.sh`, extend the host adapter as the new
+      imports demand. TRIGGER: rust wasip3 target maturing past Tier-3 /
+      first real 0.3.0-built consumer.
+    first_raised: "2026-07-17"
+    last_reviewed: "2026-07-17"
+    refs: |-
+      proposal_watch 2026-07-17 entry; D-335 (P3 front); D-448 (wasip3
+      toolchain recipe). Test-side half of the official-0.3.0 alignment
+      (host-side half = D-524).
+  - id: "D-524"
+    layer: "code"
+    status: "note"
+    front: D-wasi03
+    description: |-
+      Official WASI 0.3.0 host-surface residual (host-side half of the
+      official-0.3.0 alignment; spec = `~/Documents/OSS/WASI/proposals/*/wit/`):
+      (1) `wasi:clocks/monotonic-clock@0.3.0` `wait-until: async func(when)` /
+      `wait-for: async func(how-long)` — ASYNC host funcs; need a host-side
+      timer waitable wired into the P3 scheduler (driveScheduler), not a
+      sync trampoline; (2) `wasi:filesystem` via-stream data-plane +
+      `wasi:sockets` async rework + `wasi:http` — already scoped FUTURE-BUCKET
+      under D-335 REMAINING(2), listed here only for the 0.3.0 mapping;
+      (3) interface-version gating: the adapter matches names with `@version`
+      stripped, so 0.2-vs-0.3 signature drift on a SAME-NAMED interface
+      (none today — system-clock/instant took a new name) would need a
+      version-aware dispatch row before any such interface is served.
+      Sync 0.3.0 clocks surface (`system-clock.now/get-resolution` +
+      `monotonic-clock.get-resolution`) SHIPPED in this sweep — see refs.
+    first_raised: "2026-07-17"
+    last_reviewed: "2026-07-17"
+    refs: |-
+      proposal_watch 2026-07-17 entry; D-335 REMAINING(2); D-523 (test-side)
+  - id: "D-525"
+    layer: "build"
+    status: "note"
+    description: |-
+      The `-Dgc` build option is INERT: `build.zig` threads it to
+      `build_options.enable_gc`, whose only reader is the
+      `src/feature/gc/register.zig` re-export that nothing consumes —
+      GC compiles in (and executes) whenever `-Dwasm=v3_0` (the default);
+      the actual strip lever is the wasm-level DCE (`check_build_dce.sh`
+      asserts `gc_struct`/`i31_new` absent from v1_0/v2_0 builds only).
+      ADR-0115 §3 planned `enable_gc` as the op-handler compile-time gate
+      ("WAMR-equivalent nuclear strip") but the op handlers never adopted
+      it. DISCHARGE (pick one): (a) wire the gate — branch the wasm_3_0
+      GC per-op registrations/handlers on `enable_gc` + extend
+      check_build_dce with a `-Dgc=false` leg (binary-size relevant,
+      cf. ADR-0204); or (b) retire the flag + the register.zig re-export
+      and amend ADR-0115 §3. Docs corrected 2026-07-17 (migration guide
+      no longer claims "GC opt-in via -Dgc").
+    first_raised: "2026-07-17"
+    last_reviewed: "2026-07-17"
+    refs: |-
+      ADR-0115 §3; scripts/check_build_dce.sh; migration_v1_to_v2.md §3.2
   - id: "D-522"
     layer: "api"
     status: "note"

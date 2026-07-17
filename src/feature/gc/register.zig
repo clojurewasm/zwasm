@@ -7,9 +7,10 @@
 //! function installs the parser / validator / interp / arm64 /
 //! x86_64 emit slots for the feature's opcodes.
 //!
-//! Currently a placeholder per ADR-0023 §3 P-H. Implementation
-//! lands per ROADMAP §11 (proposal phasing) when the feature's
-//! Phase row opens.
+//! The GC feature itself SHIPPED (Phase 10): its ops register via the
+//! per-op `src/instruction/wasm_3_0/` dispatch files, so `register()`
+//! stays a no-op, and the `enable_gc` re-export below is currently
+//! unwired — GC compiles in with `-Dwasm=v3_0`; see debt D-525.
 //!
 //! Zone 1 (`src/feature/gc/`).
 

@@ -2,7 +2,8 @@
 
 zwasm **v2** is a ground-up rewrite (releases `v1.0.0`–`v1.11.1` are v1, now
 frozen; v2 ships as `v2.x.x` tags, first stable `v2.0.0`).
-It keeps full Wasm spec coverage (Wasm 1.0/2.0/3.0, WASI 0.1/0.2) but **breaks
+It keeps full Wasm spec coverage (Wasm 1.0/2.0/3.0, WASI 0.1/0.2, plus an
+opt-in WASI 0.3 async core) but **breaks
 the surfaces on purpose** — the C API, the Zig API, and the CLI all changed. This
 guide tells you what to do to port, then documents what changed and why.
 
@@ -245,11 +246,11 @@ all three surfaces — Zig API, C `zwasm.h` setters, and the CLI flags.
 | **Engine model**              | one `WasmModule` (load == instantiate)               | `Engine` → `Module` → `Instance` (compile once, instantiate many)                                                                                            |
 | **Default engine**            | JIT by default                                       | **`.auto` by default** (prefers JIT, transparent interp fallback); `--engine interp` / `jit` force one                                                          |
 | **SIMD**                      | interpreter-only (codegen was stubbed)               | **JIT-only**; the interpreter does **not** execute SIMD (by design — in an interpreter the dispatch cost dominates the vector work, so it carries no benefit) |
-| **GC**                        | mark-and-sweep, on by default                        | mark-sweep with conservative native-stack root scan; **opt-in** (`-Dgc`, default off)                                                                          |
+| **GC**                        | mark-and-sweep, on by default                        | mark-sweep with conservative native-stack root scan; **on by default** (part of `-Dwasm=v3_0`; stripped from `v1_0`/`v2_0` builds)                             |
 | **Atomics (threads opcodes)** | on by default                                        | implemented (validated + lowered + interpreted); broader shared-memory/spawn is a reserved stub                                                                |
 | **Compile to disk**           | `--cache` → predecoded-IR `.zwcache`                | `compile` → AOT `.cwasm`; `run` auto-detects it                                                                                                               |
 | **Component Model**           | decoder, on by default                               | decoder + canonical ABI + structural validation + WIT; gated by `-Dwasi>=p2` (default `p2`, so **on**); a real `wasm32-wasip2` component runs e2e             |
-| **Build defaults**            | `wat`/`jit`/`simd`/`gc`/`threads`/`component` all on | `-Dwasm=v3_0`, `-Dwasi=p2`, `-Dengine=both`; component **on** (via `-Dwasi>=p2`), `gc` default **off**                                                         |
+| **Build defaults**            | `wat`/`jit`/`simd`/`gc`/`threads`/`component` all on | `-Dwasm=v3_0`, `-Dwasi=p2`, `-Dengine=both`; component **on** (via `-Dwasi>=p2`); GC on (via `-Dwasm=v3_0`)                                                    |
 
 ### 3.3 WASI
 
@@ -260,8 +261,10 @@ Both ship **WASI 0.1 (preview1)**. In v2:
 - **WASI 0.2 / preview2** (Component Model) is **default-ON** via the WASI tier
   `-Dwasi>=p2` (default `p2`; `-Dwasi=p1` for a lean opt-out — the former
   `-Dcomponent` flag is folded into the version axis) — real `wasm32-wasip2` Rust/Go
-  components run e2e (corpus 158/0/0). **WASI 0.3 / preview3** (async) compiles at
-  `-Dwasi=p3` (opt-in; the default `p2` keeps it out until it settles).
+  components run e2e (corpus 158/0/0). **WASI 0.3 / preview3** (native async;
+  officially released as WASI 0.3.0 on 2026-06-11) compiles at `-Dwasi=p3`
+  (opt-in; the default stays `p2` while the 0.3 host interface set —
+  filesystem/sockets data-plane, http — is completed).
 - **C-API preopen** is **shipped** (`zwasm_wasi_config_preopen_dir`
   + `inherit_env`); the CLI `--dir` and Zig facade also cover it.
 - **Preopen confinement:** guest paths are escape-guarded (absolute and `..` are
