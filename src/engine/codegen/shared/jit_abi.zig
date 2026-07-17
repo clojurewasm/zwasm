@@ -38,6 +38,20 @@ const mark_sweep = @import("../../../feature/gc/collector_mark_sweep.zig");
 // ref.test / ref.cast share the interp's subtype-check core (one algorithm,
 // two runtimes) — see `gcRefMatchesNonNullCore`.
 const ref_test_ops = @import("../../../instruction/wasm_3_0/ref_test_ops.zig");
+const build_options = @import("build_options");
+
+// Build-level guard (matches emit.zig): the GC / subtyping JIT helpers below
+// are held as `JitRuntime` fn-pointer field defaults (ADR-0203 D1 / D-516
+// position-independence). A field default takes the helper's ADDRESS
+// unconditionally, so without this guard the helpers — and everything they
+// reach (`feature/gc/*`, `instruction/wasm_3_0/*`) — stay live even in a
+// `-Dwasm=v1_0` build, tripping `check_build_dce` (a `wasm_3_0` symbol in a
+// v1_0 binary). Wrapping each body in `if (comptime wasm_v3_plus)` lets the
+// comptime-false block go un-analysed in sub-v3 builds, so the address points
+// at a bare `@panic` stub and the GC code DCEs. Sub-v3 builds can never emit a
+// GC / subtyping op (the validator rejects them), so the stub is unreachable.
+const wasm_v3_plus = @intFromEnum(build_options.wasm_level) >=
+    @intFromEnum(@TypeOf(build_options.wasm_level).v3_0);
 
 /// `@sizeOf(FuncEntity)` — exposed for JIT emit's `ref.func`
 /// recipe (`ADD ptr, ptr, #(idx * func_entity_size)`). Comptime
@@ -956,6 +970,7 @@ pub fn waitIdxOf(op: zir.ZirOp) u32 {
 /// typeidx / unmaterialised GC substrate / OOM — the JIT caller maps
 /// `0` to a trap. C-ABI; callee-saved regs preserved by the callee.
 pub fn jitGcAlloc(rt: *JitRuntime, typeidx: u32) callconv(.c) u32 {
+    if (comptime !wasm_v3_plus) @panic("jitGcAlloc in a sub-v3 build (unreachable — validator rejects GC ops)");
     const heap_opaque = rt.gc_heap orelse return 0;
     const gti_opaque = rt.gc_type_infos_ptr orelse return 0;
     const heap: *heap_mod.Heap = @ptrCast(@alignCast(heap_opaque));
@@ -980,6 +995,7 @@ pub fn jitGcAlloc(rt: *JitRuntime, typeidx: u32) callconv(.c) u32 {
 /// trampoline. Returns `0` (null sentinel) on bad typeidx / unmaterialised
 /// GC substrate / OOM — the JIT caller maps `0` to a trap.
 pub fn jitGcAllocArray(rt: *JitRuntime, typeidx: u32, length: u32) callconv(.c) u32 {
+    if (comptime !wasm_v3_plus) @panic("jitGcAllocArray in a sub-v3 build (unreachable — validator rejects GC ops)");
     const heap_opaque = rt.gc_heap orelse return 0;
     const gti_opaque = rt.gc_type_infos_ptr orelse return 0;
     const heap: *heap_mod.Heap = @ptrCast(@alignCast(heap_opaque));
@@ -1004,6 +1020,7 @@ pub fn jitGcAllocArray(rt: *JitRuntime, typeidx: u32, length: u32) callconv(.c) 
 /// to marshal from an FP reg — currently GPR-only (see debt; matches the
 /// struct.new field-store simplification).
 pub fn jitGcAllocArrayFill(rt: *JitRuntime, typeidx: u32, length: u32, init: u64) callconv(.c) u32 {
+    if (comptime !wasm_v3_plus) @panic("jitGcAllocArrayFill in a sub-v3 build (unreachable — validator rejects GC ops)");
     const heap_opaque = rt.gc_heap orelse return 0;
     const gti_opaque = rt.gc_type_infos_ptr orelse return 0;
     const heap: *heap_mod.Heap = @ptrCast(@alignCast(heap_opaque));
@@ -1046,6 +1063,7 @@ pub fn jitGcAllocArrayFill(rt: *JitRuntime, typeidx: u32, length: u32, init: u64
 pub const ARRAY_NULL_SENTINEL: u32 = 2;
 
 pub fn jitGcArrayFill(rt: *JitRuntime, typeidx: u32, ref: u32, idx: u32, value: u64, count: u32) callconv(.c) u32 {
+    if (comptime !wasm_v3_plus) @panic("jitGcArrayFill in a sub-v3 build (unreachable — validator rejects GC ops)");
     const heap_opaque = rt.gc_heap orelse return 0;
     const gti_opaque = rt.gc_type_infos_ptr orelse return 0;
     const heap: *heap_mod.Heap = @ptrCast(@alignCast(heap_opaque));
@@ -1087,6 +1105,7 @@ pub fn jitGcArrayFill(rt: *JitRuntime, typeidx: u32, ref: u32, idx: u32, value: 
 /// into `rt.gc_type_infos_ptr` (the trampoline therefore needs `gc_heap` AND
 /// `gc_type_infos_ptr`, no per-call typeidx immediate).
 pub fn jitGcArrayCopy(rt: *JitRuntime, dst_ref: u32, dst_off: u32, src_ref: u32, src_off: u32, len: u32) callconv(.c) u32 {
+    if (comptime !wasm_v3_plus) @panic("jitGcArrayCopy in a sub-v3 build (unreachable — validator rejects GC ops)");
     const heap_opaque = rt.gc_heap orelse return 0;
     const heap: *heap_mod.Heap = @ptrCast(@alignCast(heap_opaque));
     if (dst_ref == 0 or src_ref == 0) return ARRAY_NULL_SENTINEL; // null-ref → distinct sentinel (D-293 array_oob)
@@ -1136,6 +1155,7 @@ pub fn jitGcArrayCopy(rt: *JitRuntime, dst_ref: u32, dst_off: u32, src_ref: u32,
 /// segidx OOB, segment OOB, dropped segment, unmaterialised GC
 /// substrate / non-numeric element). The JIT caller maps `0` to a trap.
 pub fn jitGcArrayNewData(rt: *JitRuntime, typeidx: u32, segidx: u32, offset: u32, size: u32) callconv(.c) u32 {
+    if (comptime !wasm_v3_plus) @panic("jitGcArrayNewData in a sub-v3 build (unreachable — validator rejects GC ops)");
     const heap_opaque = rt.gc_heap orelse return 0;
     const gti_opaque = rt.gc_type_infos_ptr orelse return 0;
     const heap: *heap_mod.Heap = @ptrCast(@alignCast(heap_opaque));
@@ -1187,6 +1207,7 @@ pub fn jitGcArrayNewData(rt: *JitRuntime, typeidx: u32, segidx: u32, offset: u32
 /// or `0` on trap (negative/OOB operand, segidx OOB, segment OOB, dropped
 /// segment, unmaterialised GC substrate). The JIT caller maps `0` to a trap.
 pub fn jitGcArrayNewElem(rt: *JitRuntime, typeidx: u32, segidx: u32, offset: u32, size: u32) callconv(.c) u32 {
+    if (comptime !wasm_v3_plus) @panic("jitGcArrayNewElem in a sub-v3 build (unreachable — validator rejects GC ops)");
     const heap_opaque = rt.gc_heap orelse return 0;
     const gti_opaque = rt.gc_type_infos_ptr orelse return 0;
     const heap: *heap_mod.Heap = @ptrCast(@alignCast(heap_opaque));
@@ -1227,6 +1248,7 @@ pub fn jitGcArrayNewElem(rt: *JitRuntime, typeidx: u32, segidx: u32, offset: u32
 /// (null ref / OOB / segidx OOB / dropped segment / non-numeric element). The
 /// JIT caller maps `0` to a trap.
 pub fn jitGcArrayInitData(rt: *JitRuntime, segidx: u32, ref: u32, dst_off: u32, src_off: u32, len: u32) callconv(.c) u32 {
+    if (comptime !wasm_v3_plus) @panic("jitGcArrayInitData in a sub-v3 build (unreachable — validator rejects GC ops)");
     const heap_opaque = rt.gc_heap orelse return 0;
     const gti_opaque = rt.gc_type_infos_ptr orelse return 0;
     const heap: *heap_mod.Heap = @ptrCast(@alignCast(heap_opaque));
@@ -1283,6 +1305,7 @@ pub fn jitGcArrayInitData(rt: *JitRuntime, segidx: u32, ref: u32, dst_off: u32, 
 /// `array.new_elem` uses. Returns `1` on success, `0` on trap (null ref / OOB
 /// / segidx OOB / dropped segment). The JIT caller maps `0` to a trap.
 pub fn jitGcArrayInitElem(rt: *JitRuntime, segidx: u32, ref: u32, dst_off: u32, src_off: u32, len: u32) callconv(.c) u32 {
+    if (comptime !wasm_v3_plus) @panic("jitGcArrayInitElem in a sub-v3 build (unreachable — validator rejects GC ops)");
     const heap_opaque = rt.gc_heap orelse return 0;
     const heap: *heap_mod.Heap = @ptrCast(@alignCast(heap_opaque));
     if (ref == 0) return 0; // null-ref trap
@@ -1317,6 +1340,7 @@ pub fn jitGcArrayInitElem(rt: *JitRuntime, segidx: u32, ref: u32, dst_off: u32, 
 /// (no inline null branch). The non-null match reuses the SAME
 /// `gcRefMatchesNonNullCore` the interp uses (gti + heap read off JitRuntime).
 pub fn jitGcRefTest(rt: *JitRuntime, ref: u64, ht_nullbit: u32) callconv(.c) u32 {
+    if (comptime !wasm_v3_plus) @panic("jitGcRefTest in a sub-v3 build (unreachable — validator rejects GC ops)");
     if (ref == Value.null_ref) return (ht_nullbit >> 30) & 1;
     // D-453 trampoline ABI bit layout: concrete-tag = bit 31, null-flag =
     // bit 30, concrete idx = bits 0..29 (a bare wire byte otherwise). The
@@ -1339,6 +1363,7 @@ pub fn jitGcRefTest(rt: *JitRuntime, ref: u64, ht_nullbit: u32) callconv(.c) u32
 /// interp + jitGcRefTest use. (ref.cast_null — which lets null pass — needs
 /// an inline null-skip branch in emit and is a separate chunk.)
 pub fn jitGcRefCast(rt: *JitRuntime, ref: u64, ht: u32) callconv(.c) u64 {
+    if (comptime !wasm_v3_plus) @panic("jitGcRefCast in a sub-v3 build (unreachable — validator rejects GC ops)");
     if (ref == Value.null_ref) return 0; // null → trap (non-null target)
     const gti: ?*const gc_type_info.GcTypeInfos = if (rt.gc_type_infos_ptr) |p| @ptrCast(@alignCast(p)) else null;
     const heap: ?*const heap_mod.Heap = if (rt.gc_heap) |p| @ptrCast(@alignCast(p)) else null;
@@ -1367,6 +1392,7 @@ pub fn jitGcRefCast(rt: *JitRuntime, ref: u64, ht: u32) callconv(.c) u64 {
 /// (its idx survives in the all-callee-saved regalloc pool). gti null is
 /// impossible here (the module uses subtyping) but is handled as 0 for safety.
 pub fn jitCallIndirectResolve(rt: *JitRuntime, table_idx: u32, idx: u64, expected_typeidx: u32) callconv(.c) u64 {
+    if (comptime !wasm_v3_plus) @panic("jitCallIndirectResolve in a sub-v3 build (unreachable — no subtyping modules below Wasm 3.0)");
     const gti: *const gc_type_info.GcTypeInfos = if (rt.gc_type_infos_ptr) |p| @ptrCast(@alignCast(p)) else return 0;
     var funcptr_base: [*]const u64 = undefined;
     var typeidx_base: [*]const u32 = undefined;
