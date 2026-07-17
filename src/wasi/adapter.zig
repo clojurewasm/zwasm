@@ -118,6 +118,13 @@ pub const P2Op = enum {
     // wasi:clocks.
     clocks_wall_now,
     clocks_monotonic_now,
+    // wasi:clocks@0.3.0 (official WASI 0.3.0): `wall-clock` was RENAMED
+    // `system-clock` with `instant{seconds: s64, nanoseconds: u32}`, and both
+    // clocks gained `get-resolution`. The 0.3.0 async `wait-until`/`wait-for`
+    // need a scheduler-wired timer waitable, not a sync trampoline (D-524).
+    clocks_system_now,
+    clocks_system_get_resolution,
+    clocks_monotonic_get_resolution,
     // wasi:random.
     random_get_bytes,
     // wasi:filesystem/types — `descriptor` resource methods. A descriptor is a
@@ -243,6 +250,8 @@ pub const P1Target = union(enum) {
     proc_exit,
     /// P1 `clock_time_get` for the given clock id (0=realtime, 1=monotonic).
     clock_time_get: u32,
+    /// P1 `clock_res_get` for the given clock id (0=realtime, 1=monotonic).
+    clock_res_get: u32,
     /// P1 `random_get`.
     random_get,
     /// `descriptor` (P1 fd) ops — the fd is resolved from the handle rep at
@@ -289,6 +298,9 @@ pub fn p1Target(op: P2Op) P1Target {
         .cli_exit => .proc_exit,
         .clocks_wall_now => .{ .clock_time_get = 0 },
         .clocks_monotonic_now => .{ .clock_time_get = 1 },
+        .clocks_system_now => .{ .clock_time_get = 0 },
+        .clocks_system_get_resolution => .{ .clock_res_get = 0 },
+        .clocks_monotonic_get_resolution => .{ .clock_res_get = 1 },
         .random_get_bytes => .random_get,
         .fs_descriptor_read => .fd_pread,
         .fs_descriptor_write => .fd_pwrite,
@@ -394,6 +406,10 @@ const table = [_]Entry{
     .{ .iface = "wasi:io/streams", .func = "[resource-drop]input-stream", .op = .in_stream_drop },
     .{ .iface = "wasi:clocks/wall-clock", .func = "now", .op = .clocks_wall_now },
     .{ .iface = "wasi:clocks/monotonic-clock", .func = "now", .op = .clocks_monotonic_now },
+    // Official WASI 0.3.0 clock surface (renamed/extended vs the 0.2 WIT).
+    .{ .iface = "wasi:clocks/system-clock", .func = "now", .op = .clocks_system_now },
+    .{ .iface = "wasi:clocks/system-clock", .func = "get-resolution", .op = .clocks_system_get_resolution },
+    .{ .iface = "wasi:clocks/monotonic-clock", .func = "get-resolution", .op = .clocks_monotonic_get_resolution },
     .{ .iface = "wasi:random/random", .func = "get-random-bytes", .op = .random_get_bytes },
     .{ .iface = "wasi:filesystem/types", .func = "[method]descriptor.read", .op = .fs_descriptor_read },
     .{ .iface = "wasi:filesystem/types", .func = "[method]descriptor.write", .op = .fs_descriptor_write },
@@ -535,6 +551,16 @@ test "p1Target: clocks + random" {
     try testing.expectEqual(@as(u32, 0), p1Target(.clocks_wall_now).clock_time_get);
     try testing.expectEqual(@as(u32, 1), p1Target(.clocks_monotonic_now).clock_time_get);
     try testing.expectEqual(P1Target.random_get, p1Target(.random_get_bytes));
+    // Official WASI 0.3.0 clock surface (system-clock = realtime id 0).
+    try testing.expectEqual(@as(u32, 0), p1Target(.clocks_system_now).clock_time_get);
+    try testing.expectEqual(@as(u32, 0), p1Target(.clocks_system_get_resolution).clock_res_get);
+    try testing.expectEqual(@as(u32, 1), p1Target(.clocks_monotonic_get_resolution).clock_res_get);
+}
+
+test "classify: official 0.3.0 system-clock + get-resolution (version-stripped iface names)" {
+    try testing.expectEqual(P2Op.clocks_system_now, classifyImport("wasi:clocks/system-clock", "now").?);
+    try testing.expectEqual(P2Op.clocks_system_get_resolution, classifyImport("wasi:clocks/system-clock", "get-resolution").?);
+    try testing.expectEqual(P2Op.clocks_monotonic_get_resolution, classifyImport("wasi:clocks/monotonic-clock", "get-resolution").?);
 }
 
 test "classify: wasi:io/poll + subscribe methods" {

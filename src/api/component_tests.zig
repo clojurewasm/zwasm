@@ -817,6 +817,26 @@ test "D3: a WASI-P2 component reads wall-clock.now() — realtime past 2017 → 
     try testing.expectEqual(@as(u32, 0), host.exit_code.?);
 }
 
+test "official 0.3.0: a component reads system-clock.now() + both get-resolution — sane → exit 0" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/wasi_p3_systemclock.wasm", testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+    host.io = io;
+
+    // run() reads system-clock.now() (official WASI 0.3.0: the renamed
+    // wall-clock, instant{seconds: s64, nanoseconds: u32} at retptr) and both
+    // clocks' get-resolution(); exit(0) iff seconds>1.5e9 and 0 < res <= 1s.
+    try runWasiP2Main(&eng, testing.allocator, bytes, &host, .{});
+    try testing.expectEqual(@as(u32, 0), host.exit_code.?);
+}
+
 test "D3: a WASI-P2 component calls random.get-random-bytes(16) — list realloc → exit 0" {
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();

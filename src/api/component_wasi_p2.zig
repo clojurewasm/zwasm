@@ -303,6 +303,66 @@ fn p2WallNow(caller: *Caller, retptr: u32) WasiP2Error!void {
     try mem.write(retptr + 8, @as(u32, @intCast(ns % std.time.ns_per_s)));
 }
 
+/// `wasi:clocks/system-clock` `now()` → instant{seconds: s64, nanoseconds: u32}
+/// (official WASI 0.3.0 — the renamed 0.2 `wall-clock`, reading the same host
+/// realtime clock; the record's seconds field became SIGNED). Writes the
+/// 12-byte record to the return area at `retptr` (seconds @ 0, ns @ 8).
+fn p2SystemNow(caller: *Caller, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const ns = wasi_clocks.clockTimeNsSigned(ctx.host, 0) catch
+        return WasiP2Error.NoHostIo; // precondition: the component-run path plants host.io
+    const inst = instantFromNs(ns);
+    try mem.write(retptr, inst.seconds);
+    try mem.write(retptr + 8, inst.nanoseconds);
+}
+
+/// Split signed epoch-nanoseconds into the WIT `instant` encoding: FLOORED
+/// seconds + a non-negative sub-second remainder (the spec's example — 1 ns
+/// before the epoch — is `{-1 seconds, 999_999_999 nanoseconds}`). Seconds
+/// beyond the i64 domain clamp (mirrors `clockTimeNs`'s u64 clamp).
+fn instantFromNs(ns: i96) struct { seconds: i64, nanoseconds: u32 } {
+    const secs = @divFloor(ns, std.time.ns_per_s);
+    const min_s: i96 = std.math.minInt(i64);
+    const max_s: i96 = std.math.maxInt(i64);
+    return .{
+        .seconds = @intCast(std.math.clamp(secs, min_s, max_s)),
+        .nanoseconds = @intCast(@mod(ns, std.time.ns_per_s)),
+    };
+}
+
+test "instantFromNs: floored split incl. the WIT pre-epoch example" {
+    // The system-clock.wit example: 1 ns before the epoch.
+    try std.testing.expectEqual(@as(i64, -1), instantFromNs(-1).seconds);
+    try std.testing.expectEqual(@as(u32, 999_999_999), instantFromNs(-1).nanoseconds);
+    // Positive path + exact-second boundaries.
+    try std.testing.expectEqual(@as(i64, 1), instantFromNs(1_500_000_000).seconds);
+    try std.testing.expectEqual(@as(u32, 500_000_000), instantFromNs(1_500_000_000).nanoseconds);
+    try std.testing.expectEqual(@as(i64, -2), instantFromNs(-2_000_000_000).seconds);
+    try std.testing.expectEqual(@as(u32, 0), instantFromNs(-2_000_000_000).nanoseconds);
+}
+
+/// `wasi:clocks/{system,monotonic}-clock` `get-resolution()` → duration(u64)
+/// (official WASI 0.3.0): the host clock granularity in ns, returned directly
+/// as the lowered `i64`. WIT declares it infallible, so a host that cannot
+/// report a resolution surfaces a loud error (never a fabricated value).
+fn clockGetResolution(caller: *Caller, clock_id: u32) WasiP2Error!i64 {
+    const ctx = caller.data(WasiP2Ctx);
+    const ns = wasi_clocks.clockResNs(ctx.host, clock_id) catch |err| switch (err) {
+        error.Inval => unreachable, // clock id is hardcoded 0/1 at the call sites
+        error.NoSys, error.NotSup, error.Io => return WasiP2Error.NoHostIo,
+    };
+    return @bitCast(ns);
+}
+
+fn p2SystemGetResolution(caller: *Caller) WasiP2Error!i64 {
+    return clockGetResolution(caller, 0);
+}
+
+fn p2MonotonicGetResolution(caller: *Caller) WasiP2Error!i64 {
+    return clockGetResolution(caller, 1);
+}
+
 /// `wasi:cli/stdin` `get-stdin` → mint an input-stream handle bound to fd 0.
 fn p2GetStdin(caller: *Caller) WasiP2Error!u32 {
     const ctx = caller.data(WasiP2Ctx);
@@ -1448,6 +1508,9 @@ fn defineClassifiedFunc(lk: *Linker, module: []const u8, name: []const u8, op: a
         .cli_exit => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!void, p2Exit),
         .clocks_monotonic_now => try lk.defineFuncCtx(module, name, ctx, fn (*Caller) WasiP2Error!i64, p2MonotonicNow),
         .clocks_wall_now => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!void, p2WallNow),
+        .clocks_system_now => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!void, p2SystemNow),
+        .clocks_system_get_resolution => try lk.defineFuncCtx(module, name, ctx, fn (*Caller) WasiP2Error!i64, p2SystemGetResolution),
+        .clocks_monotonic_get_resolution => try lk.defineFuncCtx(module, name, ctx, fn (*Caller) WasiP2Error!i64, p2MonotonicGetResolution),
         // insecure shares the secure handler: identical signature, and the host's
         // secure fill over-satisfies the insecure contract (no separate RNG state).
         .random_get_bytes, .random_insecure_get_bytes => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u64, u32) WasiP2Error!void, p2RandomGetBytes),
