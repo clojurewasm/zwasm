@@ -162,6 +162,27 @@ FFI-capable language, not just C.
 -Dstrip=true|false          # default false
 ```
 
+## Install
+
+**Homebrew** (macOS arm64 / Linux):
+
+```sh
+brew install clojurewasm/tap/zwasm
+```
+
+The `zwasm` binary is not code-signed. Homebrew installs it without a
+Gatekeeper prompt on most setups; if macOS still blocks it as coming from an
+unidentified developer, clear the quarantine flag once:
+
+```sh
+xattr -d com.apple.quarantine "$(which zwasm)"
+```
+
+Or grab a prebuilt binary straight from the
+[Releases](https://github.com/clojurewasm/zwasm/releases) page (macOS arm64,
+Linux x86_64/aarch64, Windows x86_64). Building from source is in
+[Quick start](#quick-start) below.
+
 ## Quick start
 
 ```sh

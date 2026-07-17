@@ -5,14 +5,13 @@
 
 ## Current state — MAINTENANCE MODE (post-v2.0.0)
 
-**v2.2.1 is Latest** (tag `v2.2.1` @62b13a6c9, 2026-07-16 — binary-size
-campaign ADR-0204: CLI −21% ReleaseSafe via D-522 stage 1; release.yml
-auto-built Release + 5 assets; tag USER-GRANTED in-session per ADR-0156.
-v2.2.0 = the 2026-07-09 AOT-full-fidelity line). v1 frozen at `v1.11.1`. Dev model: cut
+**v2.3.0 is the release line** (tag cut 2026-07-17, USER-GRANTED in-session
+per ADR-0156 — WASI-0.3.0-official sweep + system-clock + Homebrew tap
+`brew install clojurewasm/tap/zwasm`; v2.2.1 = 2026-07-16 binary-size line,
+v2.2.0 = 2026-07-09 AOT line). v1 frozen at `v1.11.1`. Dev model: cut
 a `develop/<slug>` branch from `main` → PR → CI `ci-required` 3-OS gate must be
 green to merge. **Release stays user-only (ADR-0156)** — never autonomously tag /
-publish / cut over (v2.2.1 tag was user-granted 2026-07-16 in-session). No
-active campaign; no cron self-re-arm.
+publish / cut over. No active campaign; no cron self-re-arm.
 
 ## Binary-size campaign — CLOSED 2026-07-16 (ADR-0204 Implemented, v2.2.1)
 
