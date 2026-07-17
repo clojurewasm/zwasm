@@ -51,7 +51,10 @@
         # rust there). Front-① WASI 0.3 conformance path ② (2026-06-16).
         # Pinned nightly (not `.latest`) for reproducibility — this exact nightly
         # is verified to build wasip3 via the recipe in `devShells.gen-wasip3`.
-        rustNightlyWasip3 = genPkgs.rust-bin.nightly."2026-06-14".minimal.override {
+        # KNOWN-BROKEN above this pin: nightlies 2026-07-08 / 2026-07-16 fail
+        # `-Z build-std` for wasip3 (upstream `std/sys/env/wasi.rs` OsStringExt
+        # regression, verified 2026-07-17; see D-523 before bumping).
+        rustNightlyWasip3 = genPkgs.rust-bin.nightly."2026-06-24".minimal.override {
           extensions = [ "rust-src" ];
         };
       in {

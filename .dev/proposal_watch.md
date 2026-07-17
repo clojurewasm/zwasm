@@ -100,9 +100,11 @@ Text Encoding Builtins` (skip).
   -> future<result<_,error-code>>`); (4) `wasi:io` is deleted upstream (CM
   builtins replace it) — zwasm's P2 wasi:io host stays for 0.2 guests. ALSO
   measured: the committed `test/component/wasip3/*.wasm` fixtures import
-  **wasi 0.2.6 interfaces** (the pinned nightly rust wasip3 target predates the
-  release) — regenerating against official 0.3.0 needs a toolchain bump
-  (debt D-523). Host-side `system-clock` support added this sweep.
+  **wasi 0.2.6 interfaces** — root cause is the borrowed wasip2 wasi-libc in
+  the link recipe, NOT the nightly pin (nightly-bump hypothesis refuted by a
+  regen on nightly-2026-06-24, which compiles std's `wasip3 0.6.0
+  +wasi-0.3.0-rc` crate yet still emits all-0.2.6; details in D-523).
+  Host-side `system-clock` support added this sweep.
 - **2026-07-03** — **post-v2.0.0 maintenance sweep** (reference clones refreshed
   ff-only: wasmtime / WAMR / wasm-tools / component-model to upstream HEAD; spec +
   testsuite left at their `wg-3.0` / `spec_pin.yaml` pins). **No proposal phase

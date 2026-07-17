@@ -11,17 +11,24 @@ entries:
       The committed wasip3 conformance fixtures (`test/component/wasip3/*.wasm`,
       7 rust CLI components) import **wasi 0.2.6 interfaces** (`wasi:cli@0.2.6`,
       `wasi:io@0.2.6`, `wasi:clocks/wall-clock@0.2.6`; verified via
-      `wasm-tools component wit` 2026-07-17) — the pinned nightly rust
-      wasm32-wasip3 target predates the official WASI 0.3.0 release
-      (2026-06-11). The corpus therefore certifies the CM-async export ABI +
-      the 0.2 host surface, NOT the official 0.3.0 WIT (system-clock,
-      via-stream stdio, async sockets). DISCHARGE: bump the `flake.nix`
-      `gen-wasip3` toolchain pin to a nightly whose wasip3 target emits
-      official 0.3.0 imports (lesson 2026-06-16-wasip3-hermetic-build-recipe
-      documents the fragile Darwin recipe), regen via
-      `scripts/gen_wasip3_fixtures.sh`, extend the host adapter as the new
-      imports demand. TRIGGER: rust wasip3 target maturing past Tier-3 /
-      first real 0.3.0-built consumer.
+      `wasm-tools component wit` 2026-07-17). The corpus therefore certifies
+      the CM-async export ABI + the 0.2 host surface, NOT the official 0.3.0
+      WIT (system-clock, via-stream stdio, async sockets).
+      **Nightly-bump hypothesis REFUTED by measurement (2026-07-17)**: rust
+      std pins `wasip3 = 0.6.0+wasi-0.3.0-rc-2026-03-15` since ~2026-04-22,
+      and a regen on nightly-2026-06-24 (which compiles that crate) STILL
+      emits all-0.2.6 imports + sync `wasi:cli/run@0.2.0` — the imports come
+      from the BORROWED WASIP2 WASI-LIBC (`-lc` in the link recipe) through
+      which sync-main stdio/env/clock route, not from the nightly's std
+      bindings. (Also measured: nightlies 2026-07-08/-16 cannot build-std for
+      wasip3 at all — upstream `std/sys/env/wasi.rs` `OsStringExt` regression
+      — so 2026-06-24 is pinned as newest-known-good; recipe re-verified.)
+      DISCHARGE now requires one of: (a) upstream ships a wasip3-native
+      wasi-libc/self-contained objects (drop the wasip2 borrow, regen); or
+      (b) switch the fixture path to wit-bindgen-generated 0.3.0 bindings
+      (official wasi-testsuite path ①), heavier toolchain. TRIGGER: rust
+      wasip3 target maturing past Tier-3 / wasi-libc wasip3 release / first
+      real 0.3.0-built consumer.
     first_raised: "2026-07-17"
     last_reviewed: "2026-07-17"
     refs: |-
