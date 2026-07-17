@@ -35,18 +35,21 @@ DA-critique 20/20) · close #146 (refutation record + v2.2.1). Key outcomes:
 
 ## AOT-full-fidelity campaign — CLOSED 2026-07-09 (ADR-0203 Implemented)
 
-Kickoff #136 (phases I–III) · stage 1 #137 (36 helper bakes → `[rt+off]`
-slots, D-516) · stage 2 #138 (format v0.5 + `load_compiled.zig`
-deserializer, D-519) · stage 3 #139 (run-path swap, mini-runtime DELETED,
-§4.5.4 start-func JIT bug fixed, D-517+D-518, D-520 CI hole) · stage 4
-#140 (elision serialization D-515(1)) · stage 5 #141 (`--cache` D-508;
-DA-critique failure-path fixes: HIT header-gate + self-heal, refusal =
-BYPASS, interp bypass) · stage V #142 (retro: bench parity record, docs,
-`.cwasm --engine interp` loud refusal, lesson
-failure-path-tests-certified-the-defect). Net: `zig build test-aot-diff`
-cross-process differential 63/63 incl. cache lanes. **Residual =
-D-515(2)** (spec-assert corpus under elision; harness memory
-provisioning) + D-514 (SIMD elision symmetry) — both in debt.yaml.
+PRs #136-#142: format v0.5 full-fidelity, run-path swap (mini-runtime
+DELETED), elision serialization, `--cache` (D-508). `zig build
+test-aot-diff` 63/63 incl. cache lanes. Residual = D-515(2) + D-514
+(debt.yaml). Details: ADR-0203 + CHANGELOG 2.2.0.
+
+## WASI-0.3.0-official sweep — 2026-07-17 (branch develop/wasm30-wasi03-inventory-sweep)
+
+**WASI 0.3.0 released 2026-06-11** (official spec at `~/Documents/OSS/WASI/`,
+clones pulled). Inventory vs zwasm's draft-era P3: docs truth-sweep
+(README WASI-0.3 row, --help engine-default lie, canon.zig "pending" lie,
+3.0-runner "SKELETON" lie, migration GC claim — `-Dgc` is INERT, D-525) +
+`system-clock`/`get-resolution` host support shipped (instant{s64,u32},
+DA check #12). Fixtures import 0.2.6 (toolchain predates release) → D-523;
+async wait-until/wait-for + version-gating → D-524. Full diff record =
+proposal_watch 2026-07-17 entry.
 
 ## Active front — G-senior-gap (2026-07-06, /continue entry point)
 
